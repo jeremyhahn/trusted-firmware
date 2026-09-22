@@ -50,3 +50,8 @@ AG_CMD_ENTRY(AG_CMD_ADC_REF,     ADC_REF,     ag_analog_cmd_set_ref, 1u, 1u)
 AG_CMD_ENTRY(AG_CMD_EEPROM_READ,  EEPROM_READ,  ag_storage_cmd_read,  3u, 3u)
 AG_CMD_ENTRY(AG_CMD_EEPROM_WRITE, EEPROM_WRITE, ag_storage_cmd_write, 3u, AG_MAX_PAYLOAD)
 #endif
+
+/* ---- attestation ---- */
+#if AG_FEATURE_ATTEST
+AG_CMD_ENTRY(AG_CMD_ATTEST, ATTEST, ag_attest_cmd, 1u, AG_ATTEST_NONCE_LEN)
+#endif

@@ -25,13 +25,19 @@ UNITY_DIR   := test/third_party/unity
 # a macro redefinition rather than as a missing path.
 HOST_BOARD ?= atmega328p
 
+# The host build enables attestation so the evidence path is exercised. A real
+# device secret is NOT baked in: the provider refuses to sign while the UDS is
+# still its default, so an unprovisioned build cannot pretend to have an
+# identity, and the tests assert exactly that refusal.
+HOST_EXTRA_DEFS ?= -DAG_FEATURE_ATTEST=1
+
 # -std=c11 is required, not stylistic: the buffer-sizing invariants are
 # enforced with _Static_assert, which C99 does not have.
 HOST_CFLAGS := -std=c11 -g -O1 \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
-               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
-               -DAG_BOARD_HEADER='"board_profile.h"'
+               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Isrc/crypto/soft -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
+               -DAG_BOARD_HEADER='"board_profile.h"' $(HOST_EXTRA_DEFS)
 
 
 # Unity's own sources are third-party; its warnings are not ours to fix, and
@@ -58,7 +64,11 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/sched.c \
                  src/caps/analog.c \
                  src/caps/storage.c \
+                 src/crypto/soft/sha256.c \
+                 src/crypto/soft/provider.c \
+                 src/caps/attest.c \
                  test/mock/hal_mock.c \
+                 test/mock/uds_mock.c \
                  boards/$(HOST_BOARD)/board.c
 
 $(HOST_DIR):

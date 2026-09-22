@@ -5,6 +5,7 @@
 #include "ag/protocol.h"
 #include "ag/config.h"
 #include "ag/hal.h"
+#include "ag/crypto.h"
 #include "../core/dispatch.h"
 
 /* Bumped by hand when the firmware is released; distinct from the protocol
@@ -59,7 +60,9 @@ ag_status_t ag_sys_cmd_caps(ag_reader_t *r, ag_writer_t *w)
     ag_write_u8(w,  AG_PIN_COUNT);
     ag_write_u8(w,  (uint8_t)AG_SCHED_SLOTS);
     ag_write_u8(w,  (uint8_t)AG_MAX_PAYLOAD);
-    ag_write_u8(w,  (uint8_t)AG_CRYPTO_NONE);   /* until a provider lands */
+    /* Asked, not assumed. A host learns what root of trust it is talking to
+     * before it decides what any evidence from this device is worth. */
+    ag_write_u8(w,  (uint8_t)ag_crypto_tier());
     ag_write_u32(w, AG_FEATURE_BITMAP);
     return AG_OK;
 }

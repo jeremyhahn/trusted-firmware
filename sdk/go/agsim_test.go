@@ -108,13 +108,16 @@ func TestAgainstFirmwareCaps(t *testing.T) {
 	if !c.Has(FeatureGPIO) {
 		t.Error("GPIO not reported; the default build should have it")
 	}
-	// Attestation is not compiled in yet, and CAPS must say so rather than
-	// advertising a capability whose command would return unknown-command.
-	if c.Has(FeatureAttest) {
-		t.Error("attestation reported present before a crypto provider exists")
+	// CAPS must report the crypto tier it actually has, so a verifier learns
+	// what it is talking to before it decides what the evidence is worth. The
+	// simulator links the software provider, which is the weakest tier and says
+	// so -- no TRNG, no key isolation, and a symmetric identity whose verifier
+	// could forge any response it could check.
+	if c.CryptoTier != CryptoSoftware {
+		t.Errorf("crypto tier = %v, want software", c.CryptoTier)
 	}
-	if c.CryptoTier != CryptoNone {
-		t.Errorf("crypto tier = %v, want none until a provider lands", c.CryptoTier)
+	if !c.Has(FeatureAttest) {
+		t.Error("attestation compiled in but not reported in CAPS")
 	}
 }
 
@@ -260,6 +263,20 @@ func TestAgainstFirmwareReservedEEPROMIsRefused(t *testing.T) {
 	}
 	if got[0] != 0xDE || got[1] != 0xAD {
 		t.Fatalf("read back %x, want dead", got)
+	}
+}
+
+// An unprovisioned device must REFUSE to attest rather than sign with a secret
+// every build of this source would share. Evidence that verifies against a
+// shared key proves nothing while looking exactly like evidence that proves
+// something -- which is the one failure a verifier cannot detect.
+func TestAgainstFirmwareUnprovisionedDeviceRefusesToAttest(t *testing.T) {
+	d := startSim(t)
+	nonce := make([]byte, 16)
+	if _, err := d.Do(context.Background(), CmdAttest, nonce); err == nil {
+		t.Fatal("an unprovisioned device produced attestation evidence")
+	} else if err.Error() != StatusErrNotProvisioned.String() {
+		t.Fatalf("err = %v, want %v", err, StatusErrNotProvisioned)
 	}
 }
 

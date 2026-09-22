@@ -9,6 +9,7 @@
 #include "../caps/sched.h"
 #include "../caps/analog.h"
 #include "../caps/storage.h"
+#include "../caps/attest.h"
 
 typedef struct {
     uint8_t          id;

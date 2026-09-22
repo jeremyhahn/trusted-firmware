@@ -33,6 +33,15 @@
 #define AG_MAX_PAYLOAD 64u
 #define AG_SCHED_SLOTS 8u
 
+/* Attestation is on. This part has the flash for it, and a device that cannot
+ * say what it is running is not the device this project is for.
+ *
+ * The tier it can honestly claim depends on what is on the board: with no
+ * secure element the provider reports AG_CRYPTO_SOFTWARE and refuses to sign at
+ * all until a UDS has been provisioned, which is the correct behaviour for a
+ * device that genuinely has no identity yet. */
+#define AG_FEATURE_ATTEST 1
+
 /* Half the part, each. The budget is a gate, not an estimate: `make size-check`
  * fails the build when an image exceeds it, so flash creep is caught on the
  * commit that causes it rather than the day someone tries to add a feature and

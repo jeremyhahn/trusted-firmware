@@ -14,6 +14,7 @@
 #include <avr/interrupt.h>
 
 #include "ag/hal.h"
+#include "ag/crypto.h"
 #include "ag/config.h"
 #include "ag/protocol.h"
 #include "proto/transport.h"
@@ -29,6 +30,7 @@ int main(void)
     ag_hal_init();
     ag_hal_tick_init();
     ag_hal_uart_init(AG_UART_BAUD);
+    ag_crypto_init();
     ag_sched_init();
     ag_transport_init(&transport);
 

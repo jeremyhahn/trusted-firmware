@@ -60,4 +60,34 @@
 #define AGV_CRC_ORDER_B       "\x02\x01"
 #define AGV_CRC_ORDER_B_RESULT 0x6B4Cu
 
+/* ---------------------------------------------------------------- SHA-256 */
+/* FIPS 180-4. The two vectors every implementation is checked against, plus
+ * the empty input -- which catches a padding routine that special-cases a
+ * length of zero, and a great many do. */
+
+#define AGV_SHA256_ABC_INPUT  "abc"
+#define AGV_SHA256_ABC \
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+#define AGV_SHA256_EMPTY \
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+/* 448 bits: the length that forces the padding to spill into a SECOND block.
+ * An implementation that only ever hashes short inputs passes everything above
+ * and fails here. */
+#define AGV_SHA256_448_INPUT \
+    "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+#define AGV_SHA256_448 \
+    "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+
+/* ----------------------------------------------------------- HMAC-SHA256 */
+/* RFC 4231 test case 1. The DICE one-way function is HMAC, so this is the
+ * primitive the whole identity chain rests on. */
+
+#define AGV_HMAC_TC1_KEY_BYTE 0x0bu   /* twenty repetitions */
+#define AGV_HMAC_TC1_KEY_LEN  20u
+#define AGV_HMAC_TC1_DATA     "Hi There"
+#define AGV_HMAC_TC1 \
+    "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+
 #endif /* AG_TESTDATA_VECTORS_H */

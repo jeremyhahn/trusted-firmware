@@ -120,6 +120,36 @@
 #define AG_ALG_NONE              0x00u
 #define AG_ALG_ECDSA_P256_SHA256 0x01u
 #define AG_ALG_ED25519           0x02u
+/* Symmetric identity, per the TCG DICE Symmetric spec -- the path that spec
+ * defines for parts too small for asymmetric crypto. Honest about what it is:
+ * a verifier holding the key can forge the response, so this tier is for local
+ * attestation behind an attested gateway, never for public admission. */
+#define AG_ALG_HMAC_SHA256       0x10u
+
+/* --------------------------------------------------- attestation evidence */
+/* The frame go-trusted-platform's docs/firmware/avr.md specifies, with one
+ * amendment: an algorithm byte, so the evidence says which primitive signed it
+ * rather than the verifier having to know out of band. Both ECDSA P-256 (r||s)
+ * and Ed25519 (R||S) are exactly 64 raw bytes, so the layout does not change
+ * with the algorithm -- only its interpretation does.
+ *
+ *   [Version:1][Nonce:16][DeviceID:16][FWHash:32][BootCount:4]
+ *   [UptimeMs:4][AlgID:1][Signature:64][Reserved:26]
+ *
+ * Timestamp is UptimeMs, not wall-clock: no part in this family has an RTC.
+ * Freshness is ALWAYS the verifier's nonce. Any design that needs the device
+ * to know the date is wrong. */
+#define AG_ATTEST_VERSION   1u
+#define AG_ATTEST_NONCE_LEN 16u
+#define AG_ATTEST_ID_LEN    16u
+#define AG_ATTEST_LEN       164u
+
+/* The evidence is larger than a frame payload on a part this size, so it is
+ * paged: ATTEST(nonce) computes and returns page 0, ATTEST(page) returns the
+ * rest. Paging rather than enlarging every frame buffer, because the cost of a
+ * bigger buffer is paid by every command on every board, and the cost of paging
+ * is paid only by the one command that needs it. */
+#define AG_ATTEST_PAGE      48u
 
 /* ------------------------------------------------------------------ events */
 #define AG_EVENT_BOOT            0x01u  /* sent once at startup; an unexpected

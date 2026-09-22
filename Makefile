@@ -12,6 +12,7 @@ SHELL := /bin/bash
 VERSION := $(shell cat VERSION)
 
 include mk/host.mk
+include mk/go.mk
 
 ## help: list every target with its description
 help:
@@ -47,4 +48,8 @@ verify-vendor:
 	  echo "UNRECORDED: $$present vendored files present, $$listed recorded in MANIFEST.md"; fail=1; fi; \
 	exit $$fail
 
-.PHONY: help version clean verify-vendor
+## ci: everything the CI gate requires
+ci: verify-vendor verify-vectors sdk-verify sdk-lint test test-asan sdk-test
+	@echo "CI gate: green"
+
+.PHONY: help version clean verify-vendor ci

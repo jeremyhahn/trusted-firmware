@@ -103,6 +103,14 @@
 #define AG_UART_BAUD    115200UL
 #endif
 
+/* How long a partially-received frame may sit before the framer abandons it.
+ * Without this a truncated frame holds the machine until the next byte
+ * arrives -- and that byte is usually the start of a good frame, which then
+ * gets consumed as the dead frame's tail. One lost frame becomes two. */
+#ifndef AG_FRAME_IDLE_MS
+#define AG_FRAME_IDLE_MS 250u
+#endif
+
 /* A scheduled interval may not exceed 2^31 ms. Above that the signed-difference
  * comparison the scheduler uses to survive the 49.7-day millisecond wrap stops
  * being able to tell "due" from "not yet", so the bound is enforced when a

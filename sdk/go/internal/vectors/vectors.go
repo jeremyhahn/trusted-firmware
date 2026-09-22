@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: commercial
+
+// Package vectors mirrors testdata/vectors.h.
+//
+// THESE BYTES ARE THE CONTRACT between the C firmware and this SDK. Both assert
+// against them and the two co-merge only when both are green.
+//
+// They are LITERALS ON PURPOSE. A vector computed from the code it is meant to
+// pin moves whenever the code moves, and would agree with a regression as
+// readily as with the contract.
+//
+// A FAILURE HERE IS A WIRE BREAK, NOT A TEST TO UPDATE. Changing any of these
+// makes every already-deployed device fail to talk to an updated host.
+// Changing the contract means a new protocol major version, not new literals.
+//
+// `make verify-vectors` asserts this file and testdata/vectors.h carry
+// identical values, so the two cannot drift silently.
+package vectors
+
+// CRC-16/CCITT-FALSE.
+const (
+	CRCCheckInput  = "123456789"
+	CRCCheckResult = 0x29B1 // the published check value for this polynomial
+	CRCEmptyResult = 0xFFFF // folding nothing returns the seed untouched
+	CRCZeroResult  = 0xE1F0 // one zero byte still shifts the register
+	CRCZeroZero    = 0x1D0F
+	CRCFFResult    = 0xFF00
+)
+
+// Order sensitivity. These inputs are byte-permutations of each other, so an
+// implementation that sums or XORs its bytes returns the same value for both
+// and passes every other case. The real-path tests cannot catch that -- both
+// ends call the same function and agree -- so the discriminator is published.
+const (
+	CRCOrderAResult = 0x0E7C // {0x01, 0x02}
+	CRCOrderBResult = 0x6B4C // {0x02, 0x01}
+)

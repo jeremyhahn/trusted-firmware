@@ -17,7 +17,7 @@ UNITY_DIR   := test/third_party/unity
 HOST_CFLAGS := -std=c11 -g -O1 \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
-               -Iinclude -Isrc/proto -Isrc/core -Itestdata -I$(UNITY_DIR)
+               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Itest/mock -Itestdata -I$(UNITY_DIR)
 
 # Unity's own sources are third-party; its warnings are not ours to fix, and
 # -Werror over a vendored tree turns an upstream bump into a build break.
@@ -35,7 +35,11 @@ TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 HOST_LIB_SRCS := src/proto/crc16.c \
                  src/core/reader.c \
                  src/core/writer.c \
-                 src/proto/frame.c
+                 src/proto/frame.c \
+                 src/proto/transport.c \
+                 src/core/dispatch.c \
+                 src/caps/sys.c \
+                 test/mock/hal_mock.c
 
 $(HOST_DIR):
 	@mkdir -p $(HOST_DIR)
@@ -68,7 +72,13 @@ coverage:
 
 COVERAGE_FLOOR ?= 90
 
+## agsim: build the firmware as a host binary speaking the protocol on stdio
+agsim: $(HOST_DIR)/agsim
+$(HOST_DIR)/agsim: tools/agsim/main.c $(HOST_LIB_SRCS) | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_LIB_SRCS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
 clean-host:
 	@rm -rf $(HOST_DIR)
 
-.PHONY: test test-asan coverage clean-host
+.PHONY: test test-asan coverage clean-host agsim

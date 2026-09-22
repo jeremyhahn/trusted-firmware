@@ -1,0 +1,89 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+
+#include <string.h>
+#include "hal_mock.h"
+#include "ag/hal.h"
+
+#define RX_CAP 4096u
+#define TX_CAP 4096u
+
+static ag_ms_t          now;
+static uint8_t          rx[RX_CAP];
+static size_t           rx_head, rx_tail;
+static uint8_t          tx[TX_CAP];
+static size_t           tx_len;
+static size_t           tx_capacity;      /* 0 = unlimited */
+static ag_reset_cause_t cause;
+static uint16_t         free_ram;
+static unsigned         resets;
+
+void ag_mock_reset(void)
+{
+    now = 0u; rx_head = rx_tail = 0u; tx_len = 0u; tx_capacity = 0u;
+    cause = AG_RESET_POWER_ON; free_ram = 1024u; resets = 0u;
+}
+
+void ag_mock_set_millis(ag_ms_t t) { now = t; }
+void ag_mock_advance(ag_ms_t dt)   { now += dt; }
+
+void ag_mock_feed_rx(const uint8_t *b, size_t n)
+{
+    for (size_t i = 0; i < n && rx_tail < RX_CAP; i++) {
+        rx[rx_tail++] = b[i];
+    }
+}
+
+size_t ag_mock_drain_tx(uint8_t *out, size_t cap)
+{
+    size_t n = tx_len < cap ? tx_len : cap;
+    memcpy(out, tx, n);
+    memmove(tx, tx + n, tx_len - n);
+    tx_len -= n;
+    return n;
+}
+
+size_t ag_mock_tx_pending(void)              { return tx_len; }
+void   ag_mock_set_tx_capacity(size_t n)     { tx_capacity = n; }
+void   ag_mock_set_reset_cause(ag_reset_cause_t c) { cause = c; }
+void   ag_mock_set_free_ram(uint16_t n)      { free_ram = n; }
+unsigned ag_mock_reset_count(void)           { return resets; }
+
+/* ------------------------------------------------------- the HAL itself */
+
+ag_status_t      ag_hal_init(void)         { return AG_OK; }
+ag_reset_cause_t ag_hal_reset_cause(void)  { return cause; }
+ag_ms_t          ag_hal_millis(void)       { return now; }
+void             ag_hal_delay_us(uint16_t us) { (void)us; }
+uint16_t         ag_hal_free_ram(void)     { return free_ram; }
+
+/* On the device this never returns. Here it counts and returns, because a test
+ * that could not continue past a reset could not assert anything about it. */
+void ag_hal_reset(void) { resets++; }
+
+ag_status_t ag_hal_uart_init(uint32_t baud) { (void)baud; return AG_OK; }
+
+uint8_t ag_hal_uart_rx(uint8_t *out)
+{
+    if (rx_head >= rx_tail) {
+        return 0u;
+    }
+    *out = rx[rx_head++];
+    return 1u;
+}
+
+uint8_t ag_hal_uart_tx_try(uint8_t byte)
+{
+    /* tx_capacity models a full hardware ring, so the transport's backpressure
+     * path is reachable from a test rather than only from a busy real link. */
+    if (tx_capacity && tx_len >= tx_capacity) {
+        return 0u;
+    }
+    if (tx_len >= TX_CAP) {
+        return 0u;
+    }
+    tx[tx_len++] = byte;
+    return 1u;
+}
+
+uint8_t ag_hal_uart_tx_idle(void) { return (uint8_t)(tx_len == 0u); }

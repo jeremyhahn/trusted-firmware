@@ -1,0 +1,26 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+/*
+ * THE COMMAND TABLE. Included several times with different definitions of
+ * AG_CMD_ENTRY -- once to declare the handlers, once to build the PROGMEM
+ * dispatch table, once for the debug name table.
+ *
+ *   AG_CMD_ENTRY(id, NAME, handler, min_payload, max_payload)
+ *
+ * min and max are the payload bounds the DISPATCHER checks before calling the
+ * handler, so no handler writes its own arity check and AG_ERR_BAD_ARGC comes
+ * from exactly one place.
+ *
+ * This is one of the four files where a preprocessor conditional is allowed.
+ * A command gated off costs nothing: its handler is never referenced, so
+ * --gc-sections drops the whole translation unit, and the Makefile does not
+ * compile it in the first place.
+ *
+ * Ids extend and never renumber. See include/ag/status.h for why.
+ */
+
+/* ---- system: always present, on every board, in every configuration ---- */
+AG_CMD_ENTRY(AG_CMD_CAPS,     CAPS,     ag_sys_cmd_caps,     0u, 1u)
+AG_CMD_ENTRY(AG_CMD_PING,     PING,     ag_sys_cmd_ping,     0u, AG_MAX_PAYLOAD)
+AG_CMD_ENTRY(AG_CMD_RESET,    RESET,    ag_sys_cmd_reset,    1u, 1u)
+AG_CMD_ENTRY(AG_CMD_SYS_INFO, SYS_INFO, ag_sys_cmd_sys_info, 0u, 0u)

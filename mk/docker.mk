@@ -8,6 +8,15 @@
 CI_IMAGE ?= arduino-generic-ci:local
 DOCKER   ?= docker
 
+# Run as the invoking user, not root. Without this the container writes
+# build artefacts owned by root into a bind-mounted tree, and the next `make
+# clean` on the host fails with a permission error on files the developer
+# appears to own the directory of. Costs nothing and removes a papercut that
+# otherwise gets "fixed" with sudo.
+DOCKER_USER := --user $(shell id -u):$(shell id -g)
+# HOME so the Go build cache lands somewhere writable rather than in /
+DOCKER_ENV  := -e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOMODCACHE=/tmp/.gomodcache
+
 ## docker-build: build the CI toolchain image
 docker-build:
 	@$(DOCKER) build -f docker/Dockerfile.ci -t $(CI_IMAGE) .
@@ -15,14 +24,14 @@ docker-build:
 
 ## docker-run: open a shell in the toolchain image with the tree mounted
 docker-run:
-	@$(DOCKER) run --rm -it -v "$(CURDIR)":/src $(CI_IMAGE) bash
+	@$(DOCKER) run --rm -it $(DOCKER_USER) $(DOCKER_ENV) -v "$(CURDIR)":/src $(CI_IMAGE) bash
 
 ## docker-ci: run the whole CI gate inside the toolchain image
 docker-ci:
-	@$(DOCKER) run --rm -v "$(CURDIR)":/src $(CI_IMAGE) make ci
+	@$(DOCKER) run --rm $(DOCKER_USER) $(DOCKER_ENV) -v "$(CURDIR)":/src $(CI_IMAGE) make ci
 
 ## docker-firmware: build the firmware for BOARD inside the toolchain image
 docker-firmware:
-	@$(DOCKER) run --rm -v "$(CURDIR)":/src $(CI_IMAGE) make firmware BOARD=$(BOARD)
+	@$(DOCKER) run --rm $(DOCKER_USER) $(DOCKER_ENV) -v "$(CURDIR)":/src $(CI_IMAGE) make firmware BOARD=$(BOARD)
 
 .PHONY: docker-build docker-run docker-ci docker-firmware

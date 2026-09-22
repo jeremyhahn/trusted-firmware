@@ -22,6 +22,11 @@ on:
 
 env:
   CI_IMAGE: arduino-generic-ci:ci
+  # Caches and HOME inside the container. The user mapping stays inline at each
+  # call site because $(id -u) is a shell expansion and workflow env values are
+  # not shell-expanded -- a literal uid here would be wrong on any runner whose
+  # user differs, which is exactly the kind of thing that works until it does not.
+  DOCKER_ENV: -e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOMODCACHE=/tmp/.gomodcache
 
 jobs:
   image:
@@ -45,7 +50,7 @@ jobs:
       - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
       - name: cppcheck
         run: |
-          docker run --rm -v "$PWD":/src "$CI_IMAGE" \
+          docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" \
             cppcheck --enable=warning,style,performance,portability \
                      --error-exitcode=1 --inline-suppr --quiet \
                      --suppress=missingIncludeSystem \
@@ -71,9 +76,9 @@ jobs:
           fi
           echo "no build timestamps"
       - name: vendored dependencies match their recorded hashes
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make verify-vendor
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make verify-vendor
       - name: the C and Go wire vectors agree
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make verify-vectors
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make verify-vectors
 
   unit:
     name: Host unit tests
@@ -82,9 +87,9 @@ jobs:
       - uses: actions/checkout@v6
       - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
       - name: make test
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make test
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make test
       - name: coverage
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make coverage
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make coverage
 
   sanitizers:
     name: ASan and UBSan
@@ -96,7 +101,7 @@ jobs:
         # The codec is pointer-heavy parser code reached from untrusted bytes,
         # so this is where a memory bug will be. It has already caught one
         # defect the ordinary build had constant-folded away.
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make test-asan
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make test-asan
 
   firmware:
     name: Firmware (${{ matrix.board }})
@@ -109,9 +114,9 @@ jobs:
       - uses: actions/checkout@v6
       - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
       - name: build and enforce the size budget
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make firmware BOARD=${{ matrix.board }}
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make firmware BOARD=${{ matrix.board }}
       - name: reproducible build
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make reproducible-check BOARD=${{ matrix.board }}
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make reproducible-check BOARD=${{ matrix.board }}
       - name: upload the image
         # `ubuntu-latest` names OUR runner image on Gitea and GitHub's hosted
         # image on github.com. upload-artifact@v4 refuses a non-github.com
@@ -129,16 +134,16 @@ jobs:
       - uses: actions/checkout@v6
       - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
       - name: gofmt and vet
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make sdk-lint
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make sdk-lint
       - name: the Layer 0 invariant
         # sdk/go is imported by go-xkms at Layer 3 and go-trusted-platform at
         # Layer 5. An in-house dependency here would invert the graph and make
         # it unimportable by the projects it exists for.
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make sdk-verify
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make sdk-verify
       - name: cross-implementation tests against the firmware
         # These talk to agsim: the real firmware compiled for the host. Not a
         # fake, which would drift from the firmware the moment either changed.
-        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make sdk-test
+        run: docker run --rm --user "$(id -u):$(id -g)" $DOCKER_ENV -v "$PWD":/src "$CI_IMAGE" make sdk-test
 
   gate:
     name: CI Gate

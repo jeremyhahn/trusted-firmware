@@ -1,0 +1,28 @@
+# The toolchain, single-sourced.
+#
+# Both docker/Dockerfile.ci and the CI workflow install exactly this list, so a
+# developer running `make docker-ci` and the gate running on a runner are using
+# the same tools. Two lists would drift, and the drift would show up as a gate
+# that passes locally and fails in CI for reasons nobody can reproduce.
+#
+# One package per line; # starts a comment.
+
+gcc-avr          # the AVR compiler
+avr-libc         # its C library and device headers
+binutils-avr     # assembler, linker, avr-size
+avrdude          # flashing
+
+simavr           # the emulator: models ADC, EEPROM, USART, SPI, TWI, timers,
+libsimavr-dev    # GPIO with pin-change interrupts, and the watchdog
+
+build-essential  # the host compiler, for the unit tests and agsim
+make
+
+clang-format     # stands in for gofmt
+clang-tidy       # stands in for golangci-lint
+cppcheck         # stands in for go vet
+
+gcovr            # coverage, with the 90% floor
+lcov
+
+python3

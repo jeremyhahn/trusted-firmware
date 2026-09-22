@@ -18,15 +18,13 @@ FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# The package list lives in one file that CI reads too, so the image and the
+# gate cannot drift apart.
+COPY docker/packages.txt /tmp/packages.txt
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      gcc-avr avr-libc binutils-avr avrdude \
-      simavr libsimavr-dev \
-      build-essential make \
-      clang-format clang-tidy cppcheck \
-      gcovr lcov \
-      python3 python3-yaml \
-      git ca-certificates curl xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+      $(sed 's/#.*//' /tmp/packages.txt | tr '\n' ' ') \
+      python3-yaml git ca-certificates curl xz-utils \
+    && rm -rf /var/lib/apt/lists/* /tmp/packages.txt
 
 # Go, for sdk/go. Pinned by version and verified by checksum: an unpinned
 # toolchain makes the reproducible-build check meaningless, since the compiler

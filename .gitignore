@@ -1,0 +1,26 @@
+# build output
+build/
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.su
+
+# coverage
+*.gcno
+*.gcda
+*.gcov
+coverage/
+coverage.out
+lcov.info
+
+# go
+sdk/go/bin/
+
+# editors / os
+*.swp
+*~
+.DS_Store

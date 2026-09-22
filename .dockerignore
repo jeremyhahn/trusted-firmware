@@ -1,0 +1,7 @@
+.git
+build
+coverage
+legacy
+docs
+*.hex
+*.elf

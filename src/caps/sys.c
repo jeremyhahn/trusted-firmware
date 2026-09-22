@@ -13,16 +13,6 @@
 #define AG_FW_MINOR 1u
 #define AG_FW_PATCH 0u
 
-#ifndef AG_BOARD_NAME
-#define AG_BOARD_NAME "host"
-#endif
-#ifndef AG_BOARD_ID
-#define AG_BOARD_ID   0x00u
-#endif
-#ifndef AG_PIN_COUNT
-#define AG_PIN_COUNT  0u
-#endif
-
 static uint8_t reset_pending;
 static uint8_t reset_mode;
 

@@ -4,7 +4,7 @@
 #include "ag/board.h"
 #include "ag/config.h"
 #include "ag/progmem.h"
-#include "board.h"
+#include "board_profile.h"
 
 static const ag_port_desc_t PORTS[AG_PORT_COUNT] AG_PROGMEM = {
     { AG_ADDR_PINB },   /* 0 */

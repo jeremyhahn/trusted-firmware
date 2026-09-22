@@ -9,7 +9,7 @@
 #include "ag/board.h"
 #include "ag/protocol.h"
 #include "ag/config.h"
-#include "board.h"
+#include "board_profile.h"
 
 static uint8_t     inbuf[AG_MAX_PAYLOAD];
 static uint8_t     outbuf[AG_MAX_PAYLOAD];

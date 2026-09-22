@@ -17,7 +17,7 @@
 #include "ag/board.h"
 #include "ag/protocol.h"
 #include "ag/config.h"
-#include "board.h"
+#include "board_profile.h"
 
 /* A pin with no other job: D2, PORTD bit 2. */
 #define PIN     2u

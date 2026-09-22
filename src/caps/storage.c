@@ -25,10 +25,6 @@
  */
 #define AG_EEPROM_RESERVED_END 0x80u   /* [0x000, 0x080) is platform-owned */
 
-#ifndef AG_EEPROM_SIZE
-#define AG_EEPROM_SIZE 1024u
-#endif
-
 /* Chunked deliberately. A byte takes about 3.4 ms, so 64 bytes would hold the
  * main loop for 220 ms -- long enough to miss a scheduled deadline and, once a
  * deadman exists, long enough to trip it. The host writes in chunks; the device

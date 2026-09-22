@@ -20,6 +20,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  # Unique per run AND per job: see the build step for why.
+  IMG_BASE: ag-ci-${{ github.run_id }}-${{ github.job }}
+  IMG: ag-work-${{ github.run_id }}-${{ github.job }}
+
 jobs:
 
   lint:
@@ -40,16 +45,20 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          docker build -f docker/Dockerfile.ci -t ag-ci .
-          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
-          docker run --rm ag-work cat /etc/ci-toolchain.txt
+          # Tagged per job. Several jobs share a runner and build concurrently,
+          # and buildkit refuses to export two images to one tag at once --
+          # "already exists", which reads like a caching quirk and is actually a
+          # race between siblings.
+          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
+          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
+          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
       - name: cppcheck
         # `make lint`, not a second copy of the flags here. A gate whose
         # local and CI invocations differ is one a developer cannot
         # reproduce, and therefore one that gets argued with rather than
         # fixed. CI caught two findings my local run could not, for exactly
         # that reason.
-        run: docker run --rm ag-work make lint
+        run: docker run --rm "$IMG" make lint
       - name: no preprocessor conditionals outside the whitelist
         # The four permitted places are config.h, a board profile, commands.def
         # and src/hal/avr, plus the one toolchain shim in progmem.h. Everywhere
@@ -71,9 +80,9 @@ jobs:
           fi
           echo "no build timestamps"
       - name: vendored dependencies match their recorded hashes
-        run: docker run --rm ag-work make verify-vendor
+        run: docker run --rm "$IMG" make verify-vendor
       - name: the C and Go wire vectors agree
-        run: docker run --rm ag-work make verify-vectors
+        run: docker run --rm "$IMG" make verify-vectors
 
   unit:
     name: Host unit tests
@@ -93,13 +102,17 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          docker build -f docker/Dockerfile.ci -t ag-ci .
-          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
-          docker run --rm ag-work cat /etc/ci-toolchain.txt
+          # Tagged per job. Several jobs share a runner and build concurrently,
+          # and buildkit refuses to export two images to one tag at once --
+          # "already exists", which reads like a caching quirk and is actually a
+          # race between siblings.
+          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
+          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
+          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
       - name: make test
-        run: docker run --rm ag-work make test
+        run: docker run --rm "$IMG" make test
       - name: coverage
-        run: docker run --rm ag-work make coverage
+        run: docker run --rm "$IMG" make coverage
 
   sanitizers:
     name: ASan and UBSan
@@ -119,14 +132,18 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          docker build -f docker/Dockerfile.ci -t ag-ci .
-          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
-          docker run --rm ag-work cat /etc/ci-toolchain.txt
+          # Tagged per job. Several jobs share a runner and build concurrently,
+          # and buildkit refuses to export two images to one tag at once --
+          # "already exists", which reads like a caching quirk and is actually a
+          # race between siblings.
+          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
+          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
+          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
       - name: make test-asan
         # The codec is pointer-heavy parser code reached from untrusted bytes,
         # so this is where a memory bug will be. It has already caught one
         # defect the ordinary build had constant-folded away.
-        run: docker run --rm ag-work make test-asan
+        run: docker run --rm "$IMG" make test-asan
 
   firmware:
     name: Firmware (${{ matrix.board }})
@@ -150,16 +167,20 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          docker build -f docker/Dockerfile.ci -t ag-ci .
-          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
-          docker run --rm ag-work cat /etc/ci-toolchain.txt
+          # Tagged per job. Several jobs share a runner and build concurrently,
+          # and buildkit refuses to export two images to one tag at once --
+          # "already exists", which reads like a caching quirk and is actually a
+          # race between siblings.
+          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
+          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
+          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
       - name: build and enforce the size budget
-        run: docker run --rm ag-work make firmware BOARD=${{ matrix.board }}
+        run: docker run --rm "$IMG" make firmware BOARD=${{ matrix.board }}
       - name: reproducible build
-        run: docker run --rm ag-work make reproducible-check BOARD=${{ matrix.board }}
+        run: docker run --rm "$IMG" make reproducible-check BOARD=${{ matrix.board }}
       - name: extract the built image
         run: |
-          id=$(docker create ag-work)
+          id=$(docker create "$IMG")
           docker cp "$id:/src/build" ./build || true
           docker rm "$id" >/dev/null
       - name: upload the image
@@ -190,20 +211,24 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          docker build -f docker/Dockerfile.ci -t ag-ci .
-          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
-          docker run --rm ag-work cat /etc/ci-toolchain.txt
+          # Tagged per job. Several jobs share a runner and build concurrently,
+          # and buildkit refuses to export two images to one tag at once --
+          # "already exists", which reads like a caching quirk and is actually a
+          # race between siblings.
+          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
+          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
+          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
       - name: gofmt and vet
-        run: docker run --rm ag-work make sdk-lint
+        run: docker run --rm "$IMG" make sdk-lint
       - name: the Layer 0 invariant
         # sdk/go is imported by go-xkms at Layer 3 and go-trusted-platform at
         # Layer 5. An in-house dependency here would invert the graph and make
         # it unimportable by the projects it exists for.
-        run: docker run --rm ag-work make sdk-verify
+        run: docker run --rm "$IMG" make sdk-verify
       - name: cross-implementation tests against the firmware
         # These talk to agsim: the real firmware compiled for the host. Not a
         # fake, which would drift from the firmware the moment either changed.
-        run: docker run --rm ag-work make sdk-test
+        run: docker run --rm "$IMG" make sdk-test
 
   gate:
     name: CI Gate

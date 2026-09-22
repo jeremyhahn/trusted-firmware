@@ -30,7 +30,7 @@ AVR_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
               -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
               -ffile-prefix-map=$(CURDIR)=. \
               -Iinclude -Isrc -I$(BOARD_DIR) \
-              -DAG_BOARD_HEADER='"board.h"'
+              -DAG_BOARD_HEADER='"board_profile.h"'
 
 AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 

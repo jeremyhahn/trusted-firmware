@@ -13,7 +13,7 @@
 
 #include "unity.h"
 #include "ag/board.h"
-#include "board.h"
+#include "board_profile.h"
 
 void setUp(void) {}
 void tearDown(void) {}

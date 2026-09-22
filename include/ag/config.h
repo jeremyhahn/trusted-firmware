@@ -24,8 +24,15 @@
 
 #include <stdint.h>
 
-/* A board profile is injected by the Makefile as -include. The host build has
- * no board, and takes every default below. */
+/* The board profile, named by the Makefile.
+ *
+ * It is board_profile.h and NOT board.h, deliberately. A quote-include resolves
+ * against the INCLUDING file's directory first, so `#include "board.h"` from
+ * this file finds include/ag/board.h -- the generic descriptor contract -- and
+ * never reaches the board's own header at all. The profile's constants then
+ * silently do not apply, every default below is taken instead, and the symptom
+ * appears three steps later as a macro redefinition in a file that looks
+ * unrelated. */
 #ifdef AG_BOARD_HEADER
 #include AG_BOARD_HEADER
 #endif
@@ -85,6 +92,25 @@
     | ((uint32_t)AG_FEATURE_ONEWIRE <<  9) \
     | ((uint32_t)AG_FEATURE_ATTEST  << 10) \
     | ((uint32_t)AG_FEATURE_DEADMAN << 11) )
+
+/* ------------------------------------------------------- board identity */
+/* A board profile supplies these. The host build has no board and takes the
+ * defaults, which is why they live here rather than as #ifndef guards inside
+ * the capability modules that read them -- those are logic, and logic carries
+ * no conditionals. */
+
+#ifndef AG_BOARD_NAME
+#define AG_BOARD_NAME "host"
+#endif
+#ifndef AG_BOARD_ID
+#define AG_BOARD_ID   0x00u
+#endif
+#ifndef AG_PIN_COUNT
+#define AG_PIN_COUNT  0u
+#endif
+#ifndef AG_EEPROM_SIZE
+#define AG_EEPROM_SIZE 1024u
+#endif
 
 /* ----------------------------------------------------------------- sizing */
 

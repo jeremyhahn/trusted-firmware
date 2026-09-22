@@ -12,12 +12,27 @@ BUILD_DIR   := build
 HOST_DIR    := $(BUILD_DIR)/host
 UNITY_DIR   := test/third_party/unity
 
+# The host tests assert against a REAL board descriptor, so the host build is
+# configured for that board rather than left boardless. Without this, config.h
+# supplies its no-board defaults and a test that includes the board header
+# directly redefines them -- and every sizing constant the tests exercise would
+# be the default rather than the one the device ships with, which is the more
+# insidious half.
+#
+# Defined BEFORE HOST_CFLAGS: that uses := and expands this immediately, so a
+# definition below it would expand to nothing and drop the board's include
+# directory -- which is exactly what happened, and surfaced three steps later as
+# a macro redefinition rather than as a missing path.
+HOST_BOARD ?= atmega328p
+
 # -std=c11 is required, not stylistic: the buffer-sizing invariants are
 # enforced with _Static_assert, which C99 does not have.
 HOST_CFLAGS := -std=c11 -g -O1 \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
-               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Itest/mock -Iboards/atmega328p -Itestdata -I$(UNITY_DIR)
+               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
+               -DAG_BOARD_HEADER='"board_profile.h"'
+
 
 # Unity's own sources are third-party; its warnings are not ours to fix, and
 # -Werror over a vendored tree turns an upstream bump into a build break.
@@ -44,7 +59,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/analog.c \
                  src/caps/storage.c \
                  test/mock/hal_mock.c \
-                 boards/atmega328p/board.c
+                 boards/$(HOST_BOARD)/board.c
 
 $(HOST_DIR):
 	@mkdir -p $(HOST_DIR)
@@ -88,7 +103,7 @@ lint:
 	          --error-exitcode=1 --inline-suppr --quiet \
 	          --suppress=missingIncludeSystem \
 	          --suppress=unusedFunction \
-	          -DAG_BOARD_HEADER='"board.h"' -DAG_PROGMEM= \
+	          -DAG_BOARD_HEADER='"board_profile.h"' -DAG_PROGMEM= \
 	          -Iinclude -Isrc -Iboards/atmega328p \
 	          src/ boards/
 	@echo "cppcheck clean"

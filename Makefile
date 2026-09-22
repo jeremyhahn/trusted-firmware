@@ -51,7 +51,7 @@ verify-vendor:
 	exit $$fail
 
 ## ci: everything the CI gate requires
-ci: verify-vendor verify-vectors sdk-verify sdk-lint test test-asan sdk-test firmware reproducible-check
+ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test test-asan sdk-test firmware reproducible-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci

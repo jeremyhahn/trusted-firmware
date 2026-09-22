@@ -77,6 +77,22 @@ coverage:
 
 COVERAGE_FLOOR ?= 90
 
+## lint: static analysis over the firmware sources
+# cppcheck stands in for `go vet`. It is given the board header and the PROGMEM
+# definition explicitly rather than having its complaints suppressed: told the
+# configuration it can analyse the code, whereas a suppression would also hide
+# the next genuinely unknown macro.
+lint:
+	@cppcheck --enable=warning,style,performance,portability \
+	          --check-level=exhaustive \
+	          --error-exitcode=1 --inline-suppr --quiet \
+	          --suppress=missingIncludeSystem \
+	          --suppress=unusedFunction \
+	          -DAG_BOARD_HEADER='"board.h"' -DAG_PROGMEM= \
+	          -Iinclude -Isrc -Iboards/atmega328p \
+	          src/ boards/
+	@echo "cppcheck clean"
+
 ## agsim: build the firmware as a host binary speaking the protocol on stdio
 agsim: $(HOST_DIR)/agsim
 $(HOST_DIR)/agsim: tools/agsim/main.c $(HOST_LIB_SRCS) | $(HOST_DIR)
@@ -86,4 +102,4 @@ $(HOST_DIR)/agsim: tools/agsim/main.c $(HOST_LIB_SRCS) | $(HOST_DIR)
 clean-host:
 	@rm -rf $(HOST_DIR)
 
-.PHONY: test test-asan coverage clean-host agsim
+.PHONY: test test-asan coverage clean-host agsim lint

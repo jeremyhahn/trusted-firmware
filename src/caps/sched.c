@@ -153,9 +153,9 @@ ag_status_t ag_sched_cmd_cancel(ag_reader_t *r, ag_writer_t *w)
 
 ag_status_t ag_sched_cmd_query(ag_reader_t *r, ag_writer_t *w)
 {
-    ag_pin_t         pin = ag_read_u8(r);
-    ag_sched_slot_t *s   = slot_for(pin);
-    ag_ms_t          now = ag_hal_millis();
+    ag_pin_t               pin = ag_read_u8(r);
+    const ag_sched_slot_t *s   = slot_for(pin);
+    ag_ms_t                now = ag_hal_millis();
 
     if (!s) {
         ag_write_u8(w, 0u);     /* not active */

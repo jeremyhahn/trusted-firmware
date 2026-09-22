@@ -77,10 +77,9 @@ void ag_write_u32(ag_writer_t *w, uint32_t v)
 void ag_write_blob(ag_writer_t *w, const uint8_t *src, uint8_t n)
 {
     uint8_t *p = give(w, n);
-    uint8_t  i;
 
     if (p) {
-        for (i = 0u; i < n; i++) {
+        for (uint8_t i = 0u; i < n; i++) {
             p[i] = src[i];
         }
     }

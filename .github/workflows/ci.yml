@@ -20,9 +20,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  GO_VERSION: '1.26.5'
-
 jobs:
 
   lint:
@@ -30,25 +27,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: toolchain
+      - name: toolchain image with the source baked in
+        # NOT a bind mount. The runner executes this job inside a container but
+        # `docker run` reaches the HOST daemon, so -v "$PWD" resolves a path
+        # that means something different to each -- Docker then mounts an empty
+        # directory and every target fails with "no rule to make target".
+        # `docker build` streams its context from the CLIENT filesystem, so
+        # baking the source into an image sidesteps the translation entirely.
+        #
+        # And the image is not optional. The runner's own avr-gcc is 7.3.0,
+        # which predates -ffile-prefix-map and generates different code; using
+        # it would silently break the reproducible-build check and move every
+        # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            $(sed 's/#.*//' docker/packages.txt | tr '\n' ' ')
-          # The toolchain is an input to every measurement below -- the size
-          # budget, the reproducibility hash -- so it is recorded rather than
-          # assumed, and a number that moves can be attributed to the code or
-          # to the compiler instead of argued about.
-          avr-gcc --version | head -1
-          gcc --version | head -1
-          cppcheck --version
+          docker build -f docker/Dockerfile.ci -t ag-ci .
+          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
+          docker run --rm ag-work cat /etc/ci-toolchain.txt
       - name: cppcheck
-        run: |
-          \
-            cppcheck --enable=warning,style,performance,portability \
-                     --error-exitcode=1 --inline-suppr --quiet \
-                     --suppress=missingIncludeSystem \
-                     -Iinclude -Isrc src/ boards/
+        # `make lint`, not a second copy of the flags here. A gate whose
+        # local and CI invocations differ is one a developer cannot
+        # reproduce, and therefore one that gets argued with rather than
+        # fixed. CI caught two findings my local run could not, for exactly
+        # that reason.
+        run: docker run --rm ag-work make lint
       - name: no preprocessor conditionals outside the whitelist
         # The four permitted places are config.h, a board profile, commands.def
         # and src/hal/avr, plus the one toolchain shim in progmem.h. Everywhere
@@ -70,54 +71,62 @@ jobs:
           fi
           echo "no build timestamps"
       - name: vendored dependencies match their recorded hashes
-        run: make verify-vendor
+        run: docker run --rm ag-work make verify-vendor
       - name: the C and Go wire vectors agree
-        run: make verify-vectors
+        run: docker run --rm ag-work make verify-vectors
 
   unit:
     name: Host unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: toolchain
+      - name: toolchain image with the source baked in
+        # NOT a bind mount. The runner executes this job inside a container but
+        # `docker run` reaches the HOST daemon, so -v "$PWD" resolves a path
+        # that means something different to each -- Docker then mounts an empty
+        # directory and every target fails with "no rule to make target".
+        # `docker build` streams its context from the CLIENT filesystem, so
+        # baking the source into an image sidesteps the translation entirely.
+        #
+        # And the image is not optional. The runner's own avr-gcc is 7.3.0,
+        # which predates -ffile-prefix-map and generates different code; using
+        # it would silently break the reproducible-build check and move every
+        # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            $(sed 's/#.*//' docker/packages.txt | tr '\n' ' ')
-          # The toolchain is an input to every measurement below -- the size
-          # budget, the reproducibility hash -- so it is recorded rather than
-          # assumed, and a number that moves can be attributed to the code or
-          # to the compiler instead of argued about.
-          avr-gcc --version | head -1
-          gcc --version | head -1
-          cppcheck --version
+          docker build -f docker/Dockerfile.ci -t ag-ci .
+          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
+          docker run --rm ag-work cat /etc/ci-toolchain.txt
       - name: make test
-        run: make test
+        run: docker run --rm ag-work make test
       - name: coverage
-        run: make coverage
+        run: docker run --rm ag-work make coverage
 
   sanitizers:
     name: ASan and UBSan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: toolchain
+      - name: toolchain image with the source baked in
+        # NOT a bind mount. The runner executes this job inside a container but
+        # `docker run` reaches the HOST daemon, so -v "$PWD" resolves a path
+        # that means something different to each -- Docker then mounts an empty
+        # directory and every target fails with "no rule to make target".
+        # `docker build` streams its context from the CLIENT filesystem, so
+        # baking the source into an image sidesteps the translation entirely.
+        #
+        # And the image is not optional. The runner's own avr-gcc is 7.3.0,
+        # which predates -ffile-prefix-map and generates different code; using
+        # it would silently break the reproducible-build check and move every
+        # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            $(sed 's/#.*//' docker/packages.txt | tr '\n' ' ')
-          # The toolchain is an input to every measurement below -- the size
-          # budget, the reproducibility hash -- so it is recorded rather than
-          # assumed, and a number that moves can be attributed to the code or
-          # to the compiler instead of argued about.
-          avr-gcc --version | head -1
-          gcc --version | head -1
-          cppcheck --version
+          docker build -f docker/Dockerfile.ci -t ag-ci .
+          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
+          docker run --rm ag-work cat /etc/ci-toolchain.txt
       - name: make test-asan
         # The codec is pointer-heavy parser code reached from untrusted bytes,
         # so this is where a memory bug will be. It has already caught one
         # defect the ordinary build had constant-folded away.
-        run: make test-asan
+        run: docker run --rm ag-work make test-asan
 
   firmware:
     name: Firmware (${{ matrix.board }})
@@ -128,22 +137,31 @@ jobs:
         board: [atmega328p]
     steps:
       - uses: actions/checkout@v6
-      - name: toolchain
+      - name: toolchain image with the source baked in
+        # NOT a bind mount. The runner executes this job inside a container but
+        # `docker run` reaches the HOST daemon, so -v "$PWD" resolves a path
+        # that means something different to each -- Docker then mounts an empty
+        # directory and every target fails with "no rule to make target".
+        # `docker build` streams its context from the CLIENT filesystem, so
+        # baking the source into an image sidesteps the translation entirely.
+        #
+        # And the image is not optional. The runner's own avr-gcc is 7.3.0,
+        # which predates -ffile-prefix-map and generates different code; using
+        # it would silently break the reproducible-build check and move every
+        # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            $(sed 's/#.*//' docker/packages.txt | tr '\n' ' ')
-          # The toolchain is an input to every measurement below -- the size
-          # budget, the reproducibility hash -- so it is recorded rather than
-          # assumed, and a number that moves can be attributed to the code or
-          # to the compiler instead of argued about.
-          avr-gcc --version | head -1
-          gcc --version | head -1
-          cppcheck --version
+          docker build -f docker/Dockerfile.ci -t ag-ci .
+          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
+          docker run --rm ag-work cat /etc/ci-toolchain.txt
       - name: build and enforce the size budget
-        run: make firmware BOARD=${{ matrix.board }}
+        run: docker run --rm ag-work make firmware BOARD=${{ matrix.board }}
       - name: reproducible build
-        run: make reproducible-check BOARD=${{ matrix.board }}
+        run: docker run --rm ag-work make reproducible-check BOARD=${{ matrix.board }}
+      - name: extract the built image
+        run: |
+          id=$(docker create ag-work)
+          docker cp "$id:/src/build" ./build || true
+          docker rm "$id" >/dev/null
       - name: upload the image
         # `ubuntu-latest` names OUR runner image on Gitea and GitHub's hosted
         # image on github.com. upload-artifact@v4 refuses a non-github.com
@@ -159,32 +177,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-      - name: toolchain
+      - name: toolchain image with the source baked in
+        # NOT a bind mount. The runner executes this job inside a container but
+        # `docker run` reaches the HOST daemon, so -v "$PWD" resolves a path
+        # that means something different to each -- Docker then mounts an empty
+        # directory and every target fails with "no rule to make target".
+        # `docker build` streams its context from the CLIENT filesystem, so
+        # baking the source into an image sidesteps the translation entirely.
+        #
+        # And the image is not optional. The runner's own avr-gcc is 7.3.0,
+        # which predates -ffile-prefix-map and generates different code; using
+        # it would silently break the reproducible-build check and move every
+        # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            $(sed 's/#.*//' docker/packages.txt | tr '\n' ' ')
-          # The toolchain is an input to every measurement below -- the size
-          # budget, the reproducibility hash -- so it is recorded rather than
-          # assumed, and a number that moves can be attributed to the code or
-          # to the compiler instead of argued about.
-          avr-gcc --version | head -1
-          gcc --version | head -1
-          cppcheck --version
+          docker build -f docker/Dockerfile.ci -t ag-ci .
+          printf 'FROM ag-ci\nCOPY . /src\n' | docker build -t ag-work -f - .
+          docker run --rm ag-work cat /etc/ci-toolchain.txt
       - name: gofmt and vet
-        run: make sdk-lint
+        run: docker run --rm ag-work make sdk-lint
       - name: the Layer 0 invariant
         # sdk/go is imported by go-xkms at Layer 3 and go-trusted-platform at
         # Layer 5. An in-house dependency here would invert the graph and make
         # it unimportable by the projects it exists for.
-        run: make sdk-verify
+        run: docker run --rm ag-work make sdk-verify
       - name: cross-implementation tests against the firmware
         # These talk to agsim: the real firmware compiled for the host. Not a
         # fake, which would drift from the firmware the moment either changed.
-        run: make sdk-test
+        run: docker run --rm ag-work make sdk-test
 
   gate:
     name: CI Gate

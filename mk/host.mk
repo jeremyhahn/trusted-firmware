@@ -17,7 +17,7 @@ UNITY_DIR   := test/third_party/unity
 HOST_CFLAGS := -std=c11 -g -O1 \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
-               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Itest/mock -Itestdata -I$(UNITY_DIR)
+               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Itest/mock -Iboards/atmega328p -Itestdata -I$(UNITY_DIR)
 
 # Unity's own sources are third-party; its warnings are not ours to fix, and
 # -Werror over a vendored tree turns an upstream bump into a build break.
@@ -39,7 +39,8 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/proto/transport.c \
                  src/core/dispatch.c \
                  src/caps/sys.c \
-                 test/mock/hal_mock.c
+                 test/mock/hal_mock.c \
+                 boards/atmega328p/board.c
 
 $(HOST_DIR):
 	@mkdir -p $(HOST_DIR)

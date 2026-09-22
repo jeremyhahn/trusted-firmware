@@ -13,6 +13,8 @@ VERSION := $(shell cat VERSION)
 
 include mk/host.mk
 include mk/go.mk
+include mk/avr.mk
+include mk/docker.mk
 
 ## help: list every target with its description
 help:
@@ -49,7 +51,7 @@ verify-vendor:
 	exit $$fail
 
 ## ci: everything the CI gate requires
-ci: verify-vendor verify-vectors sdk-verify sdk-lint test test-asan sdk-test
+ci: verify-vendor verify-vectors sdk-verify sdk-lint test test-asan sdk-test firmware reproducible-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci

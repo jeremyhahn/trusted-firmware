@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# The CI image: AVR toolchain, emulator, host toolchain and the analysis gates.
+#
+# Built from apt rather than from a community AVR image. The ecosystem's images
+# are numerous and none is authoritative or well-vetted; every package below is
+# a Debian package with a known provenance, which is a shorter trust chain than
+# a third-party image nobody maintains.
+#
+# simavr is the emulator, and it is the one that can actually run these tests:
+# it models ADC, EEPROM, USART, SPI, TWI, the timers, GPIO with pin-change
+# interrupts and the watchdog. qemu-system-avr's ATmega model is documented as
+# "limited to USART & 16-bit timer devices" -- ADC, EEPROM, SPI, TWI and the
+# watchdog are unimplemented register stubs, and there is no ATtiny machine at
+# all -- so it could only smoke-test that the firmware boots and prints.
+FROM debian:trixie-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc-avr avr-libc binutils-avr avrdude \
+      simavr libsimavr-dev \
+      build-essential make \
+      clang-format clang-tidy cppcheck \
+      gcovr lcov \
+      python3 python3-yaml \
+      git ca-certificates curl xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Go, for sdk/go. Pinned by version and verified by checksum: an unpinned
+# toolchain makes the reproducible-build check meaningless, since the compiler
+# is an input to the artefact it is supposed to pin.
+ARG GO_VERSION=1.26.5
+ARG GO_SHA256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+RUN curl -fsSLo /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOTOOLCHAIN=local
+
+# The toolchain versions are an input to every measurement this image makes --
+# the size budget, the cycle counts, the reproducible-build hash. Recording
+# them means a number that moved can be attributed to the code or to the
+# compiler, rather than argued about.
+RUN { echo "# arduino-generic CI image"; \
+      avr-gcc --version | head -1; \
+      avrdude -v 2>&1 | grep -i 'version' | head -1 || true; \
+      simavr --help 2>&1 | head -1 || true; \
+      gcc --version | head -1; \
+      go version; \
+      cppcheck --version; \
+    } > /etc/ci-toolchain.txt
+
+WORKDIR /src

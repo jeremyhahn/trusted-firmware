@@ -1,0 +1,18 @@
+arduino-generic is dual-licensed.
+
+    SPDX-License-Identifier: AGPL-3.0-or-later
+    SPDX-License-Identifier: commercial
+
+You may use this software under the GNU Affero General Public License, version
+3 or (at your option) any later version, the full text of which is available at
+https://www.gnu.org/licenses/agpl-3.0.txt
+
+Alternatively, a commercial licence is available for use in proprietary
+products, including where the AGPL's network-use provisions are unsuitable.
+Contact the copyright holder.
+
+Copyright (c) 2026 Jeremy Hahn
+Copyright (c) 2026 Automate The Things, LLC
+
+This project vendors third-party code under test/third_party/, each component
+recorded with its licence and content hash in test/third_party/MANIFEST.md.

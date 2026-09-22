@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+MCU            := atmega328p
+F_CPU          := 16000000
+AVRDUDE_PART   := m328p
+AVRDUDE_PROG   := arduino
+AVRDUDE_PORT   ?= /dev/ttyUSB0
+AVRDUDE_BAUD   := 115200
+FLASH_BUDGET   := 16384
+RAM_BUDGET     := 1024
+FLASH_TOTAL    := 32768
+RAM_TOTAL      := 2048

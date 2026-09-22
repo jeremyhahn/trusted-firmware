@@ -1,0 +1,168 @@
+# ci-template: v1 (adapted -- this repository is C firmware plus a Go SDK)
+#
+# The Go gates in the shared template have no meaning for AVR C, so each one is
+# substituted by its C equivalent rather than dropped: gofmt becomes
+# clang-format, go vet becomes cppcheck, golangci-lint becomes clang-tidy plus
+# -Werror -Wconversion, and govulncheck -- which has no analogue without a
+# package manager -- becomes a vendored-dependency manifest verified by hash.
+# sdk/go is a real Go module and carries the full, unmodified Go gate set.
+#
+# Two gates here exist in no other repository in the fleet, because nothing
+# else in it ships to a part with 2 KB of RAM or signs its own image:
+#   size-check          fails the build when an image exceeds its board budget
+#   reproducible-check  fails when the same source produces different bytes
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CI_IMAGE: arduino-generic-ci:ci
+
+jobs:
+  image:
+    name: Build CI image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build the toolchain image
+        run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
+      - name: Record the toolchain versions
+        # Every measurement below -- the size budget, the reproducibility hash --
+        # has the toolchain as an input. Recording it means a number that moved
+        # can be attributed to the code or to the compiler rather than argued about.
+        run: docker run --rm "$CI_IMAGE" cat /etc/ci-toolchain.txt
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
+      - name: cppcheck
+        run: |
+          docker run --rm -v "$PWD":/src "$CI_IMAGE" \
+            cppcheck --enable=warning,style,performance,portability \
+                     --error-exitcode=1 --inline-suppr --quiet \
+                     --suppress=missingIncludeSystem \
+                     -Iinclude -Isrc src/ boards/
+      - name: no preprocessor conditionals outside the whitelist
+        # The four permitted places are config.h, a board profile, commands.def
+        # and src/hal/avr, plus the one toolchain shim in progmem.h. Everywhere
+        # else, a feature is gated by including or excluding a whole file from
+        # the object list. The cost of #if scattered through logic is that no
+        # single build is ever the one that was tested.
+        run: |
+          if grep -rn '^[[:space:]]*#[[:space:]]*if' src/core src/proto src/caps \
+               --include='*.c' | grep -v 'commands.def'; then
+            echo "preprocessor conditional outside the whitelist (see above)"; exit 1
+          fi
+          echo "no out-of-whitelist conditionals"
+      - name: no build timestamps in the image
+        # __DATE__ or __TIME__ anywhere would make the firmware unreproducible
+        # and its signed measurement uncomputable from source.
+        run: |
+          if grep -rn '__DATE__\|__TIME__' src/ boards/ include/; then
+            echo "a build timestamp would make the image unreproducible"; exit 1
+          fi
+          echo "no build timestamps"
+      - name: vendored dependencies match their recorded hashes
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make verify-vendor
+      - name: the C and Go wire vectors agree
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make verify-vectors
+
+  unit:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
+      - name: make test
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make test
+      - name: coverage
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make coverage
+
+  sanitizers:
+    name: ASan and UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
+      - name: make test-asan
+        # The codec is pointer-heavy parser code reached from untrusted bytes,
+        # so this is where a memory bug will be. It has already caught one
+        # defect the ordinary build had constant-folded away.
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make test-asan
+
+  firmware:
+    name: Firmware (${{ matrix.board }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [atmega328p]
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
+      - name: build and enforce the size budget
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make firmware BOARD=${{ matrix.board }}
+      - name: reproducible build
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make reproducible-check BOARD=${{ matrix.board }}
+      - name: upload the image
+        # `ubuntu-latest` names OUR runner image on Gitea and GitHub's hosted
+        # image on github.com. upload-artifact@v4 refuses a non-github.com
+        # server, so it is guarded rather than left to fail the job.
+        if: github.server_url == 'https://github.com'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.board }}
+          path: build/${{ matrix.board }}/*.hex
+
+  sdk:
+    name: Go SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build -f docker/Dockerfile.ci -t "$CI_IMAGE" .
+      - name: gofmt and vet
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make sdk-lint
+      - name: the Layer 0 invariant
+        # sdk/go is imported by go-xkms at Layer 3 and go-trusted-platform at
+        # Layer 5. An in-house dependency here would invert the graph and make
+        # it unimportable by the projects it exists for.
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make sdk-verify
+      - name: cross-implementation tests against the firmware
+        # These talk to agsim: the real firmware compiled for the host. Not a
+        # fake, which would drift from the firmware the moment either changed.
+        run: docker run --rm -v "$PWD":/src "$CI_IMAGE" make sdk-test
+
+  gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [image, lint, unit, sanitizers, firmware, sdk]
+    if: always()
+    steps:
+      - name: results
+        # Every job is named explicitly rather than collapsed with
+        # join(needs.*.result), which is a GitHub extension and evaluates to
+        # empty on Gitea -- a gate that passes vacuously is worse than no gate.
+        run: |
+          echo "image      ${{ needs.image.result }}"
+          echo "lint       ${{ needs.lint.result }}"
+          echo "unit       ${{ needs.unit.result }}"
+          echo "sanitizers ${{ needs.sanitizers.result }}"
+          echo "firmware   ${{ needs.firmware.result }}"
+          echo "sdk        ${{ needs.sdk.result }}"
+      - name: fail unless every job succeeded
+        if: >-
+          needs.image.result != 'success' ||
+          needs.lint.result != 'success' ||
+          needs.unit.result != 'success' ||
+          needs.sanitizers.result != 'success' ||
+          needs.firmware.result != 'success' ||
+          needs.sdk.result != 'success'
+        run: exit 1

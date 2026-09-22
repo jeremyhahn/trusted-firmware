@@ -18,10 +18,47 @@ static ag_reset_cause_t cause;
 static uint16_t         free_ram;
 static unsigned         resets;
 
+/* A flat pseudo-register file covering the whole low SRAM range, indexed the
+ * same way the real HAL indexes real registers. Modelling the addresses rather
+ * than the pins means the mock exercises the board descriptor's arithmetic too:
+ * a table with a wrong port address fails here, not only on hardware. */
+#define REGS 256u
+static uint8_t regs[REGS];
+#define PINR(port)  regs[(port) % REGS]
+#define DDRR(port)  regs[((port) + 1u) % REGS]
+#define PORTR(port) regs[((port) + 2u) % REGS]
+
 void ag_mock_reset(void)
 {
     now = 0u; rx_head = rx_tail = 0u; tx_len = 0u; tx_capacity = 0u;
     cause = AG_RESET_POWER_ON; free_ram = 1024u; resets = 0u;
+    memset(regs, 0, sizeof regs);
+}
+
+uint8_t ag_mock_pin_level(uint16_t port, uint8_t bit)
+{
+    /* An output pin's level is its PORT latch; an input's is the line. */
+    if (DDRR(port) & (uint8_t)(1u << bit)) {
+        return (uint8_t)((PORTR(port) & (uint8_t)(1u << bit)) != 0u);
+    }
+    return (uint8_t)((PINR(port) & (uint8_t)(1u << bit)) != 0u);
+}
+
+uint8_t ag_mock_pin_is_output(uint16_t port, uint8_t bit)
+{
+    return (uint8_t)((DDRR(port) & (uint8_t)(1u << bit)) != 0u);
+}
+
+uint8_t ag_mock_pin_pullup(uint16_t port, uint8_t bit)
+{
+    return (uint8_t)(!(DDRR(port) & (uint8_t)(1u << bit)) &&
+                     (PORTR(port) & (uint8_t)(1u << bit)));
+}
+
+void ag_mock_set_input_level(uint16_t port, uint8_t bit, uint8_t level)
+{
+    if (level) { PINR(port) |= (uint8_t)(1u << bit); }
+    else       { PINR(port) = (uint8_t)(PINR(port) & (uint8_t)~(1u << bit)); }
 }
 
 void ag_mock_set_millis(ag_ms_t t) { now = t; }
@@ -87,3 +124,48 @@ uint8_t ag_hal_uart_tx_try(uint8_t byte)
 }
 
 uint8_t ag_hal_uart_tx_idle(void) { return (uint8_t)(tx_len == 0u); }
+
+ag_status_t ag_hal_gpio_mode(const ag_pinref_t *p, ag_pin_mode_t mode)
+{
+    uint8_t mask = (uint8_t)(1u << p->bit);
+
+    switch (mode) {
+    case AG_PIN_OUTPUT:
+        DDRR(p->port) |= mask;
+        return AG_OK;
+    case AG_PIN_INPUT:
+        DDRR(p->port)  = (uint8_t)(DDRR(p->port)  & (uint8_t)~mask);
+        PORTR(p->port) = (uint8_t)(PORTR(p->port) & (uint8_t)~mask);
+        return AG_OK;
+    case AG_PIN_INPUT_PULLUP:
+        DDRR(p->port)   = (uint8_t)(DDRR(p->port) & (uint8_t)~mask);
+        PORTR(p->port) |= mask;
+        return AG_OK;
+    default:
+        return AG_ERR_RANGE;
+    }
+}
+
+ag_status_t ag_hal_gpio_write(const ag_pinref_t *p, uint8_t level)
+{
+    uint8_t mask = (uint8_t)(1u << p->bit);
+    if (level) { PORTR(p->port) |= mask; }
+    else       { PORTR(p->port) = (uint8_t)(PORTR(p->port) & (uint8_t)~mask); }
+    return AG_OK;
+}
+
+ag_status_t ag_hal_gpio_read(const ag_pinref_t *p, uint8_t *out)
+{
+    /* On real silicon PINx is the pin's SYNCHRONISER, not an input-only
+     * latch: reading it on an output pin returns the level the port is
+     * driving. A mock that returned only the externally-applied level would
+     * make read-after-write on an output fail here and work on hardware,
+     * which is the worst direction for a mock to be wrong in -- it sends you
+     * hunting for a firmware bug that does not exist. */
+    if (DDRR(p->port) & (uint8_t)(1u << p->bit)) {
+        *out = (uint8_t)((PORTR(p->port) & (uint8_t)(1u << p->bit)) != 0u);
+    } else {
+        *out = (uint8_t)((PINR(p->port) & (uint8_t)(1u << p->bit)) != 0u);
+    }
+    return AG_OK;
+}

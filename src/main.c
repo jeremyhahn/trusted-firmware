@@ -18,6 +18,7 @@
 #include "ag/protocol.h"
 #include "proto/transport.h"
 #include "caps/sys.h"
+#include "caps/sched.h"
 
 ag_status_t ag_hal_tick_init(void);
 
@@ -28,6 +29,7 @@ int main(void)
     ag_hal_init();
     ag_hal_tick_init();
     ag_hal_uart_init(AG_UART_BAUD);
+    ag_sched_init();
     ag_transport_init(&transport);
 
     sei();
@@ -39,6 +41,7 @@ int main(void)
 
     for (;;) {
         ag_transport_poll(&transport);
+        ag_sched_poll();
         ag_sys_poll();
     }
 }

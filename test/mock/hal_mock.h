@@ -32,6 +32,13 @@ size_t ag_mock_drain_tx(uint8_t *out, size_t cap);
 size_t ag_mock_tx_pending(void);
 void   ag_mock_set_tx_capacity(size_t n);   /* 0 = unlimited; models a full ring */
 
+/* gpio: a flat pseudo-register file, so a test can read back what the code
+ * under test wrote and assert on the pin rather than on the call. */
+uint8_t ag_mock_pin_level(uint16_t port, uint8_t bit);
+uint8_t ag_mock_pin_is_output(uint16_t port, uint8_t bit);
+uint8_t ag_mock_pin_pullup(uint16_t port, uint8_t bit);
+void    ag_mock_set_input_level(uint16_t port, uint8_t bit, uint8_t level);
+
 /* system */
 void   ag_mock_set_reset_cause(ag_reset_cause_t c);
 void   ag_mock_set_free_ram(uint16_t n);

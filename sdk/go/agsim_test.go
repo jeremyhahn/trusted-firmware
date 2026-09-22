@@ -189,3 +189,49 @@ func TestAgainstFirmwareSustainedExchange(t *testing.T) {
 		}
 	}
 }
+
+// THE MVP, end to end: a pin driven high, reverting on the device's own
+// schedule with no host involvement. This is the behaviour the irrigation
+// firmware existed for, now a generic primitive.
+func TestAgainstFirmwareTimerRevertsWithoutTheHost(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	if _, err := d.TimerSet(ctx, 2, true, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	high, err := d.DigitalRead(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !high {
+		t.Fatal("pin did not go high when the timer was armed")
+	}
+
+	st, err := d.TimerQuery(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Active || !st.HeldLevel {
+		t.Fatalf("timer state = %+v, want active and held high", st)
+	}
+	if st.Remaining <= 0 || st.Remaining > 5*time.Second {
+		t.Fatalf("remaining = %s, want 0 < r <= 5s", st.Remaining)
+	}
+}
+
+func TestAgainstFirmwareReservedPinsAreRefused(t *testing.T) {
+	d := startSim(t)
+	// Pin 1 is the transmit line this conversation is happening over.
+	if err := d.DigitalWrite(context.Background(), 1, true); err == nil {
+		t.Fatal("expected the UART pin to be refused")
+	}
+}
+
+func TestAgainstFirmwareAdcOnlyPinCannotBeDriven(t *testing.T) {
+	d := startSim(t)
+	// A6 exists as an ADC input and has no digital port at all.
+	if err := d.DigitalWrite(context.Background(), 20, true); err == nil {
+		t.Fatal("expected an ADC-only pin to be refused")
+	}
+}

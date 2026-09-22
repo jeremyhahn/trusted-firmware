@@ -5,6 +5,8 @@
 #include "ag/protocol.h"
 #include "ag/config.h"
 #include "../caps/sys.h"
+#include "../caps/gpio.h"
+#include "../caps/sched.h"
 
 typedef struct {
     uint8_t          id;

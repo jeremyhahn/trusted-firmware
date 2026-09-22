@@ -24,3 +24,17 @@ AG_CMD_ENTRY(AG_CMD_CAPS,     CAPS,     ag_sys_cmd_caps,     0u, 1u)
 AG_CMD_ENTRY(AG_CMD_PING,     PING,     ag_sys_cmd_ping,     0u, AG_MAX_PAYLOAD)
 AG_CMD_ENTRY(AG_CMD_RESET,    RESET,    ag_sys_cmd_reset,    1u, 1u)
 AG_CMD_ENTRY(AG_CMD_SYS_INFO, SYS_INFO, ag_sys_cmd_sys_info, 0u, 0u)
+
+/* ---- gpio ---- */
+#if AG_FEATURE_GPIO
+AG_CMD_ENTRY(AG_CMD_PIN_MODE,      PIN_MODE,      ag_gpio_cmd_mode,  2u, 2u)
+AG_CMD_ENTRY(AG_CMD_DIGITAL_READ,  DIGITAL_READ,  ag_gpio_cmd_read,  1u, 1u)
+AG_CMD_ENTRY(AG_CMD_DIGITAL_WRITE, DIGITAL_WRITE, ag_gpio_cmd_write, 2u, 2u)
+#endif
+
+/* ---- the pin scheduler ---- */
+#if AG_FEATURE_SCHED
+AG_CMD_ENTRY(AG_CMD_TIMER_SET,    TIMER_SET,    ag_sched_cmd_set,    6u, 6u)
+AG_CMD_ENTRY(AG_CMD_TIMER_CANCEL, TIMER_CANCEL, ag_sched_cmd_cancel, 2u, 2u)
+AG_CMD_ENTRY(AG_CMD_TIMER_QUERY,  TIMER_QUERY,  ag_sched_cmd_query,  1u, 1u)
+#endif

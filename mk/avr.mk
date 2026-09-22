@@ -42,7 +42,7 @@ AVR_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
   src/core/reader.c src/core/writer.c src/core/dispatch.c \
-  src/caps/sys.c \
+  src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   $(BOARD_DIR)/board.c \
   $(wildcard src/hal/avr/*.c))
 

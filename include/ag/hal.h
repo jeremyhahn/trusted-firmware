@@ -72,6 +72,15 @@ uint8_t          ag_hal_uart_tx_try(uint8_t byte);
  * firmware used before rebooting and hoped was long enough. */
 uint8_t          ag_hal_uart_tx_idle(void);
 
+/* ------------------------------------------------------------------ gpio */
+/* These take a RESOLVED pin, never a logical one. That is why the HAL is
+ * identical code on every part in the family: it does no lookup, consults no
+ * table, and knows nothing about which board it is on. */
+
+ag_status_t      ag_hal_gpio_mode(const ag_pinref_t *p, ag_pin_mode_t mode);
+ag_status_t      ag_hal_gpio_write(const ag_pinref_t *p, uint8_t level);
+ag_status_t      ag_hal_gpio_read(const ag_pinref_t *p, uint8_t *out);
+
 /* ---------------------------------------------------------------- system */
 
 /* Bytes between the top of the heap and the current stack pointer. Reported by

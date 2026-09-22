@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,12 @@ commands
   caps               what the device is and what it can do
   sys                uptime, free RAM, why it last reset
   reset [soft|boot]  restart; boot enters the bootloader
+  mode <pin> <in|out|pullup>
+  read <pin>
+  write <pin> <0|1>
+  timer <pin> <0|1> <duration>   drive a pin, the DEVICE reverts it
+  timer-cancel <pin> [apply]
+  timer-query <pin>
   ports              list the serial ports this host can see
 
 flags
@@ -141,6 +148,115 @@ func run(ctx context.Context, dev *ag.Device, cmd string, args []string, asJSON 
 		return emit(out, asJSON, map[string]any{"reset": true, "mode": args},
 			func() string { return "reset accepted; the device acknowledged before restarting\n" })
 
+	case "mode":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: mode <pin> <in|out|pullup>")
+		}
+		pin, err := parsePin(args[0])
+		if err != nil {
+			return err
+		}
+		var m ag.PinMode
+		switch args[1] {
+		case "in":
+			m = ag.PinInput
+		case "out":
+			m = ag.PinOutput
+		case "pullup":
+			m = ag.PinInputPullup
+		default:
+			return fmt.Errorf("unknown mode %q", args[1])
+		}
+		if err := dev.SetPinMode(ctx, pin, m); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"pin": pin, "mode": args[1]},
+			func() string { return fmt.Sprintf("pin %d -> %s\n", pin, args[1]) })
+
+	case "read":
+		if len(args) < 1 {
+			return fmt.Errorf("usage: read <pin>")
+		}
+		pin, err := parsePin(args[0])
+		if err != nil {
+			return err
+		}
+		high, err := dev.DigitalRead(ctx, pin)
+		if err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"pin": pin, "high": high},
+			func() string { return fmt.Sprintf("%d\n", b2i(high)) })
+
+	case "write":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: write <pin> <0|1>")
+		}
+		pin, err := parsePin(args[0])
+		if err != nil {
+			return err
+		}
+		if err := dev.DigitalWrite(ctx, pin, args[1] != "0"); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"pin": pin, "high": args[1] != "0"},
+			func() string { return fmt.Sprintf("pin %d <- %s\n", pin, args[1]) })
+
+	case "timer":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: timer <pin> <0|1> <duration, e.g. 5s>")
+		}
+		pin, err := parsePin(args[0])
+		if err != nil {
+			return err
+		}
+		dur, err := time.ParseDuration(args[2])
+		if err != nil {
+			return fmt.Errorf("duration %q: %w", args[2], err)
+		}
+		slot, err := dev.TimerSet(ctx, pin, args[1] != "0", dur)
+		if err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"pin": pin, "slot": slot, "duration": dur.String()},
+			func() string {
+				return fmt.Sprintf("pin %d held for %s in slot %d; the DEVICE reverts it\n", pin, dur, slot)
+			})
+
+	case "timer-cancel":
+		if len(args) < 1 {
+			return fmt.Errorf("usage: timer-cancel <pin> [apply]")
+		}
+		pin, err := parsePin(args[0])
+		if err != nil {
+			return err
+		}
+		applyFinal := len(args) > 1 && args[1] == "apply"
+		if err := dev.TimerCancel(ctx, pin, applyFinal); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"pin": pin, "applied_final": applyFinal},
+			func() string { return fmt.Sprintf("timer on pin %d cancelled\n", pin) })
+
+	case "timer-query":
+		if len(args) < 1 {
+			return fmt.Errorf("usage: timer-query <pin>")
+		}
+		pin, err := parsePin(args[0])
+		if err != nil {
+			return err
+		}
+		st, err := dev.TimerQuery(ctx, pin)
+		if err != nil {
+			return err
+		}
+		return emit(out, asJSON, st, func() string {
+			if !st.Active {
+				return "no timer on that pin\n"
+			}
+			return fmt.Sprintf("held %d, %s remaining\n", b2i(st.HeldLevel), st.Remaining)
+		})
+
 	default:
 		return fmt.Errorf("unknown command %q", cmd)
 	}
@@ -175,6 +291,21 @@ func emit(out io.Writer, asJSON bool, v any, text func() string) error {
 	}
 	_, err := io.WriteString(out, text())
 	return err
+}
+
+func parsePin(s string) (uint8, error) {
+	n, err := strconv.ParseUint(s, 10, 8)
+	if err != nil {
+		return 0, fmt.Errorf("pin %q: %w", s, err)
+	}
+	return uint8(n), nil
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func fail(err error) {

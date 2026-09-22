@@ -34,7 +34,8 @@ TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 # Production sources reachable from the host build. Grows as layers land.
 HOST_LIB_SRCS := src/proto/crc16.c \
                  src/core/reader.c \
-                 src/core/writer.c
+                 src/core/writer.c \
+                 src/proto/frame.c
 
 $(HOST_DIR):
 	@mkdir -p $(HOST_DIR)

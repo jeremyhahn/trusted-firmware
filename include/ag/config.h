@@ -1,0 +1,126 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+/*
+ * Compile-time configuration: feature gates and buffer sizing.
+ *
+ * Every knob has its default here, exactly once, so a board profile states
+ * only its deviations. The resolution order is
+ *
+ *   command line (-D)  >  boards/<board>/board.h  >  this file
+ *
+ * which works because every default below is wrapped in #ifndef. A board that
+ * says nothing gets the defaults; a board that says AG_FEATURE_I2C 0 drops the
+ * I2C module entirely, and the Makefile then does not even compile its
+ * translation unit -- the gate is file selection, not #if inside the file.
+ *
+ * This header and the board profiles are two of the four places in the tree
+ * where a preprocessor conditional is permitted at all. The other two are
+ * src/core/commands.def and src/hal/avr. A CI grep enforces it, because the
+ * cost of #if scattered through logic is that no single build is ever the one
+ * that was tested.
+ */
+#ifndef AG_CONFIG_H
+#define AG_CONFIG_H
+
+#include <stdint.h>
+
+/* A board profile is injected by the Makefile as -include. The host build has
+ * no board, and takes every default below. */
+#ifdef AG_BOARD_HEADER
+#include AG_BOARD_HEADER
+#endif
+
+/* ------------------------------------------------------------ capabilities */
+
+#ifndef AG_FEATURE_GPIO
+#define AG_FEATURE_GPIO        1
+#endif
+#ifndef AG_FEATURE_SCHED
+#define AG_FEATURE_SCHED       1
+#endif
+#ifndef AG_FEATURE_ANALOG
+#define AG_FEATURE_ANALOG      1
+#endif
+#ifndef AG_FEATURE_PWM
+#define AG_FEATURE_PWM         1
+#endif
+#ifndef AG_FEATURE_TONE
+#define AG_FEATURE_TONE        1
+#endif
+#ifndef AG_FEATURE_PULSE
+#define AG_FEATURE_PULSE       1
+#endif
+#ifndef AG_FEATURE_EEPROM
+#define AG_FEATURE_EEPROM      1
+#endif
+#ifndef AG_FEATURE_I2C
+#define AG_FEATURE_I2C         1
+#endif
+#ifndef AG_FEATURE_SPI
+#define AG_FEATURE_SPI         1
+#endif
+#ifndef AG_FEATURE_ONEWIRE
+#define AG_FEATURE_ONEWIRE     1
+#endif
+#ifndef AG_FEATURE_ATTEST
+#define AG_FEATURE_ATTEST      0   /* lands with the crypto provider */
+#endif
+#ifndef AG_FEATURE_DEADMAN
+#define AG_FEATURE_DEADMAN     0   /* opt-in: safe for a pump, wrong for a lamp */
+#endif
+
+/* The bitmap CAPS reports. Derived, never hand-maintained -- a hand-written
+ * copy of this drifts from the gates above and then the host is told the
+ * firmware has a capability it does not. */
+#define AG_FEATURE_BITMAP ( \
+      ((uint32_t)AG_FEATURE_GPIO    <<  0) \
+    | ((uint32_t)AG_FEATURE_SCHED   <<  1) \
+    | ((uint32_t)AG_FEATURE_ANALOG  <<  2) \
+    | ((uint32_t)AG_FEATURE_PWM     <<  3) \
+    | ((uint32_t)AG_FEATURE_TONE    <<  4) \
+    | ((uint32_t)AG_FEATURE_PULSE   <<  5) \
+    | ((uint32_t)AG_FEATURE_EEPROM  <<  6) \
+    | ((uint32_t)AG_FEATURE_I2C     <<  7) \
+    | ((uint32_t)AG_FEATURE_SPI     <<  8) \
+    | ((uint32_t)AG_FEATURE_ONEWIRE <<  9) \
+    | ((uint32_t)AG_FEATURE_ATTEST  << 10) \
+    | ((uint32_t)AG_FEATURE_DEADMAN << 11) )
+
+/* ----------------------------------------------------------------- sizing */
+
+/* The largest payload this build accepts or emits. Drives both frame buffers
+ * and therefore most of the static RAM footprint. */
+#ifndef AG_MAX_PAYLOAD
+#define AG_MAX_PAYLOAD  64u
+#endif
+
+/* Scheduler slots: one per pin that can hold a timed level. */
+#ifndef AG_SCHED_SLOTS
+#define AG_SCHED_SLOTS  8u
+#endif
+
+#ifndef AG_UART_BAUD
+#define AG_UART_BAUD    115200UL
+#endif
+
+/* A scheduled interval may not exceed 2^31 ms. Above that the signed-difference
+ * comparison the scheduler uses to survive the 49.7-day millisecond wrap stops
+ * being able to tell "due" from "not yet", so the bound is enforced when a
+ * timer is armed and the failure is a clean AG_ERR_RANGE rather than a valve
+ * that stays open for seven weeks. */
+#define AG_SCHED_MAX_MS 0x7FFFFFFFuL
+
+/* Derived frame geometry. LEN counts SEQ, OP, the optional STATUS and the
+ * payload; the frame adds SOF, LEN and two CRC bytes on top. */
+#define AG_MAX_LEN      ((uint8_t)(AG_MAX_PAYLOAD + 3u))
+#define AG_MAX_FRAME    ((uint16_t)(AG_MAX_LEN + AG_FRAME_OVERHEAD))
+
+/* LEN is one byte and must be able to express AG_MAX_LEN. A profile that sets
+ * AG_MAX_PAYLOAD too high is a compile error here rather than a truncation
+ * discovered on the wire. */
+_Static_assert(AG_MAX_PAYLOAD + 3u <= 255u,
+               "AG_MAX_PAYLOAD too large: LEN must fit in one byte");
+_Static_assert(AG_SCHED_SLOTS >= 1u && AG_SCHED_SLOTS <= 32u,
+               "AG_SCHED_SLOTS out of range");
+
+#endif /* AG_CONFIG_H */

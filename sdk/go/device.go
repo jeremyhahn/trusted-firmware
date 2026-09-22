@@ -24,6 +24,9 @@ const (
 	CmdTimerCancel  Cmd = 0x15
 	CmdTimerQuery   Cmd = 0x16
 	CmdAnalogRead   Cmd = 0x20
+	CmdADCRef       Cmd = 0x21
+	CmdEEPROMRead   Cmd = 0x40
+	CmdEEPROMWrite  Cmd = 0x41
 	CmdAttest       Cmd = 0x60
 )
 

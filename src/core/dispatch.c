@@ -7,6 +7,8 @@
 #include "../caps/sys.h"
 #include "../caps/gpio.h"
 #include "../caps/sched.h"
+#include "../caps/analog.h"
+#include "../caps/storage.h"
 
 typedef struct {
     uint8_t          id;

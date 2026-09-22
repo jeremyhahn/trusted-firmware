@@ -39,6 +39,12 @@ uint8_t ag_mock_pin_is_output(uint16_t port, uint8_t bit);
 uint8_t ag_mock_pin_pullup(uint16_t port, uint8_t bit);
 void    ag_mock_set_input_level(uint16_t port, uint8_t bit, uint8_t level);
 
+/* adc: a test sets what the converter will report for a channel */
+void ag_mock_set_adc(uint8_t channel, uint16_t raw);
+
+/* eeprom: a flat array the test can inspect directly */
+uint8_t *ag_mock_eeprom(void);
+
 /* system */
 void   ag_mock_set_reset_cause(ag_reset_cause_t c);
 void   ag_mock_set_free_ram(uint16_t n);

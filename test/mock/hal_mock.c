@@ -22,6 +22,11 @@ static unsigned         resets;
  * same way the real HAL indexes real registers. Modelling the addresses rather
  * than the pins means the mock exercises the board descriptor's arithmetic too:
  * a table with a wrong port address fails here, not only on hardware. */
+#define EEPROM_SIZE 1024u
+static uint8_t  eeprom[EEPROM_SIZE];
+static uint16_t adc_value[8];
+static uint8_t  adc_ref;
+
 #define REGS 256u
 static uint8_t regs[REGS];
 #define PINR(port)  regs[(port) % REGS]
@@ -33,7 +38,17 @@ void ag_mock_reset(void)
     now = 0u; rx_head = rx_tail = 0u; tx_len = 0u; tx_capacity = 0u;
     cause = AG_RESET_POWER_ON; free_ram = 1024u; resets = 0u;
     memset(regs, 0, sizeof regs);
+    memset(eeprom, 0xFF, sizeof eeprom);   /* erased EEPROM reads as 0xFF */
+    memset(adc_value, 0, sizeof adc_value);
+    adc_ref = 0u;
 }
+
+void ag_mock_set_adc(uint8_t channel, uint16_t raw)
+{
+    if (channel < 8u) { adc_value[channel] = raw; }
+}
+
+uint8_t *ag_mock_eeprom(void) { return eeprom; }
 
 uint8_t ag_mock_pin_level(uint16_t port, uint8_t bit)
 {
@@ -167,5 +182,35 @@ ag_status_t ag_hal_gpio_read(const ag_pinref_t *p, uint8_t *out)
     } else {
         *out = (uint8_t)((PINR(p->port) & (uint8_t)(1u << p->bit)) != 0u);
     }
+    return AG_OK;
+}
+
+ag_status_t ag_hal_adc_init(void) { return AG_OK; }
+
+ag_status_t ag_hal_adc_set_ref(ag_adc_ref_t ref)
+{
+    if ((uint8_t)ref > (uint8_t)AG_ADC_REF_INTERNAL) { return AG_ERR_RANGE; }
+    adc_ref = (uint8_t)ref;
+    return AG_OK;
+}
+
+ag_status_t ag_hal_adc_read(uint8_t channel, uint16_t *out_raw)
+{
+    if (channel > 7u) { return AG_ERR_BAD_PIN; }
+    *out_raw = adc_value[channel];
+    return AG_OK;
+}
+
+ag_status_t ag_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    if ((uint32_t)addr + len > EEPROM_SIZE) { return AG_ERR_RANGE; }
+    memcpy(buf, &eeprom[addr], len);
+    return AG_OK;
+}
+
+ag_status_t ag_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+{
+    if ((uint32_t)addr + len > EEPROM_SIZE) { return AG_ERR_RANGE; }
+    memcpy(&eeprom[addr], buf, len);
     return AG_OK;
 }

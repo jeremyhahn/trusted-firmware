@@ -206,3 +206,77 @@ func (d *Device) TimerQuery(ctx context.Context, pin uint8) (*TimerState, error)
 		Remaining: time.Duration(binary.LittleEndian.Uint32(f.Payload[2:6])) * time.Millisecond,
 	}, nil
 }
+
+// AnalogRead returns the RAW converter count, 0..1023 on a 10-bit ADC.
+//
+// Not a voltage and not a percentage. Calibration is a property of the sensor
+// and its wiring, both of which the host knows and the device cannot. The
+// firmware this project replaces reported a moisture reading as a percentage
+// it was not, and called the same function on a flow meter that outputs pulses.
+func (d *Device) AnalogRead(ctx context.Context, pin uint8) (uint16, error) {
+	f, err := d.Do(ctx, CmdAnalogRead, []byte{pin})
+	if err != nil {
+		return 0, err
+	}
+	if len(f.Payload) < 2 {
+		return 0, fmt.Errorf("aggeneric: ANALOG_READ reply is %d bytes, expected 2", len(f.Payload))
+	}
+	return binary.LittleEndian.Uint16(f.Payload[:2]), nil
+}
+
+// ADCReference selects what the converter measures against.
+type ADCReference uint8
+
+const (
+	// ADCRefVCC measures against the supply rail.
+	ADCRefVCC ADCReference = 0
+	// ADCRefExternal measures against the AREF pin.
+	ADCRefExternal ADCReference = 1
+	// ADCRefInternal measures against the internal bandgap.
+	ADCRefInternal ADCReference = 2
+)
+
+// SetADCReference selects the ADC reference.
+func (d *Device) SetADCReference(ctx context.Context, ref ADCReference) error {
+	_, err := d.Do(ctx, CmdADCRef, []byte{byte(ref)})
+	return err
+}
+
+// EEPROMChunk is the largest read or write the device accepts in one command.
+//
+// Chunked because a byte takes about 3.4 ms to commit: a 64-byte write would
+// hold the device's main loop for 220 ms, long enough to miss a scheduled
+// deadline. The host does the chunking; the device stays responsive.
+const EEPROMChunk = 8
+
+// EEPROMReservedEnd is the first address a host may write.
+//
+// Below it live the bootloader's public-key hash, the device serial, the boot
+// counter and the OTA state. The device refuses writes there, and it must:
+// without that refusal the generic EEPROM primitive would let anyone on the
+// serial line overwrite the hash the bootloader verifies against.
+const EEPROMReservedEnd = 0x80
+
+// EEPROMRead reads up to EEPROMChunk bytes. Reads of the reserved region are
+// permitted -- its contents are a hash and a serial number, public by nature.
+func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, error) {
+	if n == 0 || n > EEPROMChunk {
+		return nil, fmt.Errorf("aggeneric: read of %d bytes, limit is %d", n, EEPROMChunk)
+	}
+	p := []byte{byte(addr), byte(addr >> 8), n}
+	f, err := d.Do(ctx, CmdEEPROMRead, p)
+	if err != nil {
+		return nil, err
+	}
+	return f.Payload, nil
+}
+
+// EEPROMWrite writes up to EEPROMChunk bytes at or above EEPROMReservedEnd.
+func (d *Device) EEPROMWrite(ctx context.Context, addr uint16, data []byte) error {
+	if len(data) == 0 || len(data) > EEPROMChunk {
+		return fmt.Errorf("aggeneric: write of %d bytes, limit is %d", len(data), EEPROMChunk)
+	}
+	p := append([]byte{byte(addr), byte(addr >> 8)}, data...)
+	_, err := d.Do(ctx, CmdEEPROMWrite, p)
+	return err
+}

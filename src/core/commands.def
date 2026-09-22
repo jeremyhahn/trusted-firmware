@@ -38,3 +38,15 @@ AG_CMD_ENTRY(AG_CMD_TIMER_SET,    TIMER_SET,    ag_sched_cmd_set,    6u, 6u)
 AG_CMD_ENTRY(AG_CMD_TIMER_CANCEL, TIMER_CANCEL, ag_sched_cmd_cancel, 2u, 2u)
 AG_CMD_ENTRY(AG_CMD_TIMER_QUERY,  TIMER_QUERY,  ag_sched_cmd_query,  1u, 1u)
 #endif
+
+/* ---- analog ---- */
+#if AG_FEATURE_ANALOG
+AG_CMD_ENTRY(AG_CMD_ANALOG_READ, ANALOG_READ, ag_analog_cmd_read,    1u, 1u)
+AG_CMD_ENTRY(AG_CMD_ADC_REF,     ADC_REF,     ag_analog_cmd_set_ref, 1u, 1u)
+#endif
+
+/* ---- eeprom ---- */
+#if AG_FEATURE_EEPROM
+AG_CMD_ENTRY(AG_CMD_EEPROM_READ,  EEPROM_READ,  ag_storage_cmd_read,  3u, 3u)
+AG_CMD_ENTRY(AG_CMD_EEPROM_WRITE, EEPROM_WRITE, ag_storage_cmd_write, 3u, AG_MAX_PAYLOAD)
+#endif

@@ -81,6 +81,23 @@ ag_status_t      ag_hal_gpio_mode(const ag_pinref_t *p, ag_pin_mode_t mode);
 ag_status_t      ag_hal_gpio_write(const ag_pinref_t *p, uint8_t level);
 ag_status_t      ag_hal_gpio_read(const ag_pinref_t *p, uint8_t *out);
 
+/* ------------------------------------------------------------------- adc */
+
+typedef enum {
+    AG_ADC_REF_VCC      = 0,
+    AG_ADC_REF_EXTERNAL = 1,
+    AG_ADC_REF_INTERNAL = 2
+} ag_adc_ref_t;
+
+ag_status_t      ag_hal_adc_init(void);
+ag_status_t      ag_hal_adc_set_ref(ag_adc_ref_t ref);
+ag_status_t      ag_hal_adc_read(uint8_t channel, uint16_t *out_raw);
+
+/* ---------------------------------------------------------------- eeprom */
+
+ag_status_t      ag_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
+ag_status_t      ag_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
+
 /* ---------------------------------------------------------------- system */
 
 /* Bytes between the top of the heap and the current stack pointer. Reported by

@@ -41,6 +41,8 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/sys.c \
                  src/caps/gpio.c \
                  src/caps/sched.c \
+                 src/caps/analog.c \
+                 src/caps/storage.c \
                  test/mock/hal_mock.c \
                  boards/atmega328p/board.c
 

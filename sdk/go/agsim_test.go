@@ -235,3 +235,42 @@ func TestAgainstFirmwareAdcOnlyPinCannotBeDriven(t *testing.T) {
 		t.Fatal("expected an ADC-only pin to be refused")
 	}
 }
+
+// The protected region, end to end. This is the one that matters: without the
+// device-side refusal, a generic EEPROM primitive defeats the root of trust.
+func TestAgainstFirmwareReservedEEPROMIsRefused(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	if err := d.EEPROMWrite(ctx, 0x000, []byte{0, 0, 0, 0}); err == nil {
+		t.Fatal("a write over the bootloader pubkey hash was accepted")
+	}
+	// A write starting below the boundary and running through it must be
+	// refused whole, not partially applied.
+	if err := d.EEPROMWrite(ctx, 0x07F, []byte{1, 2, 3, 4, 5, 6, 7, 8}); err == nil {
+		t.Fatal("a write straddling the boundary was accepted")
+	}
+	// And the user area still works.
+	if err := d.EEPROMWrite(ctx, 0x100, []byte{0xDE, 0xAD}); err != nil {
+		t.Fatalf("user-area write refused: %v", err)
+	}
+	got, err := d.EEPROMRead(ctx, 0x100, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != 0xDE || got[1] != 0xAD {
+		t.Fatalf("read back %x, want dead", got)
+	}
+}
+
+func TestAgainstFirmwareAnalogReadReturnsRawCounts(t *testing.T) {
+	d := startSim(t)
+	// The mock reports zero until told otherwise; the point here is that the
+	// command round-trips and the pin maps to a channel at all.
+	if _, err := d.AnalogRead(context.Background(), 14); err != nil {
+		t.Fatalf("A0: %v", err)
+	}
+	if _, err := d.AnalogRead(context.Background(), 13); err == nil {
+		t.Fatal("expected a digital-only pin to have no analog reading")
+	}
+}

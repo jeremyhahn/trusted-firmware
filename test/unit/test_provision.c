@@ -41,6 +41,38 @@ static void test_info_reports_the_element(void)
     TEST_ASSERT_EQUAL_HEX8(0x60u, outbuf[2]);        /* the 608 family byte */
 }
 
+/*
+ * THE LOCK BYTES ARE IN THE REPLY, AND THEY ARE IN BLOCK 2.
+ *
+ * An earlier version of this command described reading block 2 in its comment
+ * and then read only block 0, so the reply was 36 bytes and the host parser
+ * indexed byte 90 of it. Every legal answer panicked the Go SDK. Nothing caught
+ * it because neither side had a test for this command -- which is why the reply
+ * length is asserted here rather than only the contents.
+ */
+static void test_info_carries_both_lock_bytes(void)
+{
+    prep(0, 0u);
+    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_info(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(38u, ag_writer_len(&w));
+    /* 0x55 is UNLOCKED, and the polarity is worth pinning: the value that looks
+     * like a flag being set is the zone being open. */
+    TEST_ASSERT_EQUAL_HEX8(0x55u, outbuf[36]);       /* LockValue:  data zone */
+    TEST_ASSERT_EQUAL_HEX8(0x55u, outbuf[37]);       /* LockConfig: config zone */
+}
+
+static void test_info_reports_a_locked_part_as_locked(void)
+{
+    const uint8_t cfg[3] = { AG_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+
+    prep(cfg, 3u);
+    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
+
+    prep(0, 0u);
+    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_info(&r, &w));
+    TEST_ASSERT_NOT_EQUAL(0x55u, outbuf[37]);        /* the config zone closed */
+}
+
 /* A bus fault and an absent part look the same from here, so the status points
  * at the bus -- which is where the fault usually is. Saying "no element" would
  * send someone to the parts bin instead of to the wiring. */
@@ -264,6 +296,8 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_info_reports_the_element);
+    RUN_TEST(test_info_carries_both_lock_bytes);
+    RUN_TEST(test_info_reports_a_locked_part_as_locked);
     RUN_TEST(test_a_silent_bus_is_reported_as_a_bus_fault);
     RUN_TEST(test_a_config_block_is_written);
     RUN_TEST(test_the_blocks_that_are_not_ours_are_refused);

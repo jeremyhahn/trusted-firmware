@@ -68,10 +68,7 @@ ag_status_t ag_prov_cmd_info(ag_reader_t *r, ag_writer_t *w)
     st = ag_atecc_exec(AG_ATECC_OP_INFO, AG_ATECC_INFO_REVISION, 0u,
                        0, 0u, rev, 4u, T_INFO);
     if (st == AG_OK) {
-        /* Config block 0 carries the serial number in bytes 0-3 and 8-12, and
-         * the two lock bytes at 86 and 87 -- which are in block 2. Read block 0
-         * for the serial and block 2 for the lock state; the host reassembles,
-         * because the split is the element's and not ours to hide. */
+        /* Config block 0 carries the serial number, in bytes 0-3 and 8-12. */
         st = ag_atecc_exec(AG_ATECC_OP_READ,
                            (uint8_t)(AG_ATECC_ZONE_CONFIG | AG_ATECC_ZONE_32),
                            0u, 0, 0u, cfg, 32u, T_READ);
@@ -79,7 +76,35 @@ ag_status_t ag_prov_cmd_info(ag_reader_t *r, ag_writer_t *w)
     if (st == AG_OK) {
         ag_write_blob(w, rev, 4u);
         ag_write_blob(w, cfg, 32u);
+
+        /*
+         * THE LOCK BYTES ARE IN BLOCK 2, NOT BLOCK 0, and this read is the
+         * reason the reply is 38 bytes rather than 36.
+         *
+         * The element puts LockValue at config byte 86 and LockConfig at 87,
+         * which is block 2 offsets 22 and 23. An earlier version of this
+         * function described reading block 2 in its comment and then did not do
+         * it, and the host parser indexed byte 90 of a 36-byte reply -- so
+         * every legal answer panicked the Go SDK, and nothing caught it because
+         * neither side had a test.
+         *
+         * Only the two bytes are forwarded, not the whole block. Block 2 also
+         * holds slot access policies, and a host that received them would have
+         * a second copy of the provisioning template to disagree with the real
+         * one; `agprov --verify` compares against the template, not against
+         * what the device thinks the template was.
+         */
+        uint8_t blk2[32];
+
+        st = ag_atecc_exec(AG_ATECC_OP_READ,
+                           (uint8_t)(AG_ATECC_ZONE_CONFIG | AG_ATECC_ZONE_32),
+                           (uint16_t)(2u * 8u), 0, 0u, blk2, 32u, T_READ);
+        if (st == AG_OK) {
+            ag_write_u8(w, blk2[86u - 64u]);   /* LockValue:  the data zone */
+            ag_write_u8(w, blk2[87u - 64u]);   /* LockConfig: the config zone */
+        }
     }
+
     (void)ag_atecc_sleep();
     return st;
 }

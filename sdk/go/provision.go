@@ -80,14 +80,24 @@ func (d *Device) ProvInfo(ctx context.Context) (*ElementInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	const need = 4 + 32
+	// 4 revision bytes, config block 0, then the two lock bytes.
+	//
+	// The lock bytes are NOT inside block 0. The element puts LockValue at
+	// config byte 86 and LockConfig at 87, which is block 2 -- so this used to
+	// bounds-check at 36 and then index p[90] and p[91], which no reply the
+	// protocol can carry ever reaches: MaxPayload is 64 and the device sent 36.
+	// Every legal reply panicked, and nothing caught it because this file had
+	// no test. The device sends them explicitly now.
+	const need = 4 + 32 + 2
 	if len(f.Payload) < need {
 		return nil, &ShortReplyError{Cmd: CmdProvInfo, Got: len(f.Payload), Need: need}
 	}
 	p := f.Payload
+	// 0x55 is the element's "unlocked" value. Note the polarity: the byte that
+	// looks like a flag being SET is the zone being OPEN.
 	info := &ElementInfo{
-		ConfigLocked: p[4+86] != 0x55,
-		DataLocked:   p[4+87] != 0x55,
+		DataLocked:   p[36] != 0x55,
+		ConfigLocked: p[37] != 0x55,
 	}
 	copy(info.Revision[:], p[0:4])
 	copy(info.ConfigBlock0[:], p[4:4+32])

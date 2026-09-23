@@ -105,8 +105,11 @@ void ag_model_reset(void)
     /* A blank part's identifying bytes, so Read returns something a host can
      * recognise rather than zeros it might mistake for a failed read. */
     config[0] = 0x01u; config[1] = 0x23u; config[2] = 0x45u; config[3] = 0x67u;
-    config[86] = 0x55u;   /* config zone unlocked */
-    config[87] = 0x55u;   /* data zone unlocked */
+    /* 0x55 is UNLOCKED on this part. LockValue is byte 86 (the data zone) and
+     * LockConfig is byte 87 (the config zone) -- both in config BLOCK 2, which
+     * is what the reply has to reach. */
+    config[86] = 0x55u;
+    config[87] = 0x55u;
 }
 
 void ag_model_provision(void)  { provisioned = 1u; has_key = 1u; }
@@ -304,10 +307,10 @@ static void handle_command(const uint8_t *p, uint8_t n)
         if (param2 == 0u) { respond_status(0x03u); return; }
         if (param1 == AG_ATECC_LOCK_CONFIG) {
             if (config_locked) { respond_status(0x0Fu); return; }
-            config_locked = 1u; config[86] = 0x00u;
+            config_locked = 1u; config[87] = 0x00u;   /* LockConfig */
         } else if (param1 == AG_ATECC_LOCK_DATA) {
             if (!config_locked || data_locked) { respond_status(0x0Fu); return; }
-            data_locked = 1u; config[87] = 0x00u;
+            data_locked = 1u; config[86] = 0x00u;     /* LockValue */
         } else {
             respond_status(0x03u);
             return;

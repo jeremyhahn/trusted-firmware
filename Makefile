@@ -19,6 +19,7 @@ include mk/avr.mk
 include mk/boot.mk
 include mk/docker.mk
 include mk/integration.mk
+include mk/release.mk
 
 ## help: list every target with its description
 help:

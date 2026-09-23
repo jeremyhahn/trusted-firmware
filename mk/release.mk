@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# Release artifacts, and the one that matters is the provenance manifest.
+#
+# FWHash is SIGNED EVIDENCE. A device attests to a SHA-256 of its own
+# application flash, and a verifier decides whether to trust it partly on
+# whether that hash matches a known-good image. For that to mean anything the
+# verifier must be able to obtain the expected value -- and better, recompute it
+# from source, which is what `make reproducible-check` exists to make possible.
+#
+# So this target does not package a build. It records what the build IS, in a
+# form a verifier can act on without having the build machine.
+
+REL_DIR := $(BUILD_DIR)/release
+
+## provenance: record what each image is, so a verifier has a golden measurement
+#
+# One manifest per board and crypto tier, because those are different firmware
+# with different measurements -- the same reason the tier is part of the build
+# path. Emitted as JSON because the consumer is go-trusted-platform, not a
+# person.
+provenance:
+	@mkdir -p $(REL_DIR)
+	@for b in $(FIRMWARE_BOARDS); do \
+	  for t in $(FIRMWARE_TIERS); do \
+	    $(MAKE) --no-print-directory provenance-one BOARD=$$b CRYPTO=$$t \
+	        SOURCE_COMMIT=$(SOURCE_COMMIT) || exit 1; \
+	  done; \
+	done
+	@echo "provenance: $(REL_DIR)"
+
+# SOURCE_COMMIT is REQUIRED and is not allowed to default to "unknown".
+#
+# The whole point of this manifest is that a verifier can rebuild the image and
+# get the same bytes. A manifest that does not say which source produced it
+# cannot be used for that, and one that says "unknown" looks like a record while
+# being useless -- the same failure as a gate that passes vacuously. Inside the
+# CI container there is no .git, so the value is passed in.
+SOURCE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+
+provenance-one: $(TARGET).elf $(TARGET).hex
+	@mkdir -p $(REL_DIR)
+	@if [ -z "$(SOURCE_COMMIT)" ]; then 	  echo "provenance: SOURCE_COMMIT is empty and no .git is reachable."; 	  echo "  A manifest that cannot name its source cannot be rebuilt from, which is"; 	  echo "  the only thing it is for. Pass it: make provenance SOURCE_COMMIT=\$$(git rev-parse HEAD)"; 	  exit 1; 	fi
+	@sha_elf=$$(sha256sum $(TARGET).elf | cut -d' ' -f1); \
+	 sha_hex=$$(sha256sum $(TARGET).hex | cut -d' ' -f1); \
+	 flash=$$($(SIZE) --format=berkeley $(TARGET).elf | awk 'NR==2{print $$1+$$2}'); \
+	 ram=$$($(SIZE)  --format=berkeley $(TARGET).elf | awk 'NR==2{print $$2+$$3}'); \
+	 printf '{\n' > $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "board": "%s",\n'            "$(BOARD)"   >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "crypto_tier": "%s",\n'      "$(CRYPTO)"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "mcu": "%s",\n'              "$(MCU)"     >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "f_cpu_hz": %s,\n'           "$(F_CPU)"   >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "version": "%s",\n'          "$$(cat VERSION)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "source_commit": "%s",\n'    "$(SOURCE_COMMIT)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "toolchain": "%s",\n'        "$$($(CC_AVR) -dumpversion)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "flash_bytes": %s,\n'        "$$flash"    >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "ram_bytes": %s,\n'          "$$ram"      >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "elf_sha256": "%s",\n'       "$$sha_elf"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "hex_sha256": "%s",\n'       "$$sha_hex"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "reproducible": true,\n'                  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "note": "elf_sha256 and hex_sha256 identify the ARTEFACT. FWHash is the SHA-256 over [0, image_len) of the signed application region and is written into the image trailer by the signing tool; see include/ag/boot.h. They are different numbers and a verifier wants the second."\n' >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '}\n'                                        >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json
+	@echo "  $(REL_DIR)/$(BOARD)-$(CRYPTO).json"
+
+## sbom: what this image is built from, by content hash
+#
+# A C project has no package manager, so an SBOM here is the vendored manifest
+# plus the toolchain -- which is exactly what `make verify-vendor` already
+# checks. Emitting it separately means a consumer does not have to parse a
+# Markdown table to learn what is inside an image.
+sbom:
+	@mkdir -p $(REL_DIR)
+	@printf '{\n  "format": "arduino-generic/sbom/v1",\n' > $(REL_DIR)/sbom.json
+	@printf '  "version": "%s",\n' "$$(cat VERSION)" >> $(REL_DIR)/sbom.json
+	@printf '  "toolchain": { "avr_gcc": "%s", "libc": "avr-libc" },\n' \
+	   "$$($(CC_AVR) -dumpversion)" >> $(REL_DIR)/sbom.json
+	@printf '  "vendored": [\n' >> $(REL_DIR)/sbom.json
+	@grep -oE '^    [0-9a-f]{64}  [A-Za-z0-9_.-]+$$' test/third_party/MANIFEST.md \
+	   | sed 's/^    //' \
+	   | awk '{printf "    { \"file\": \"%s\", \"sha256\": \"%s\" }%s\n", $$2, $$1, (NR==n?"":",")}' n=$$(grep -cE '^    [0-9a-f]{64}  ' test/third_party/MANIFEST.md) \
+	   >> $(REL_DIR)/sbom.json
+	@printf '  ]\n}\n' >> $(REL_DIR)/sbom.json
+	@echo "sbom: $(REL_DIR)/sbom.json"
+
+.PHONY: provenance provenance-one sbom

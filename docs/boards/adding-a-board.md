@@ -1,7 +1,7 @@
 # Adding a board
 
 > **Status: NORMATIVE** · Scope: `boards/`, `include/ag/board.h`,
-> `src/core/board.c` · Last verified: 2026-09-22
+> `src/core/board_lookup.c` · Last verified: 2026-09-22
 >
 > The claim this document makes is falsifiable: adding a board touches nothing
 > under `src/`. Where that stopped being true, the fix belonged in `src/`, and
@@ -16,7 +16,7 @@ boards/<board>/profile.mk        the toolchain's view: MCU, clock, budgets
 test/unit/test_board_<short>.c   what you assert is true about the above
 ```
 
-The lookups that read those tables live once, in `src/core/board.c`. They are
+The lookups that read those tables live once, in `src/core/board_lookup.c`. They are
 identical on every classic AVR — the packing is a port index and a bit in one
 byte, an ADC channel, an index into the PWM table, and flags — so a board that
 needed its own copy would be a second copy of logic that can drift for no reason

@@ -60,7 +60,7 @@ typedef struct {
  * The three tables every board supplies, and the ONLY thing a board supplies.
  *
  * The lookups below are identical on every classic AVR -- same packing, same
- * PROGMEM reads, same bounds -- so they live once in src/core/board.c and the
+ * PROGMEM reads, same bounds -- so they live once in src/core/board_lookup.c and the
  * board directories hold nothing but data. Before this split each board carried
  * its own copy of ninety lines of lookup, which is ninety lines that can differ
  * between two boards for no reason anyone intended.

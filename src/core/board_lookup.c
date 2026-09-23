@@ -15,6 +15,12 @@
  * and runs on the host, so the real pin table of a real part is unit-tested on
  * x86, and a wrong port bit for pin 13 is a failing test rather than a wrong
  * LED on a bench.
+ *
+ * NAMED board_lookup.c AND NOT board.c. Every board directory already has a
+ * board.c, and gcov names its data file after the source's BASENAME -- so two
+ * board.c files in one link produced one .gcda for both and `make coverage`
+ * failed with an error about a working directory it could not infer, which
+ * names neither file and points at neither cause.
  */
 
 #include "ag/board.h"

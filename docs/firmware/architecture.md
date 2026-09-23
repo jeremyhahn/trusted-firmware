@@ -12,7 +12,7 @@ L5  TRANSPORT      src/proto/transport.c    HAL uart + frame, nothing else
 L4  FRAMING        src/proto/frame.c        a pure function of bytes; no I/O
 L3  DISPATCH       src/core/dispatch.c      reader/writer + capability entry points
 L2  CAPABILITIES   src/caps/*.c             board resolve + HAL + crypto provider
-L1b BOARD          src/core/board.c         lookups; boards/*/board.c is pure data
+L1b BOARD          src/core/board_lookup.c         lookups; boards/*/board.c is pure data
 L1a HAL / CRYPTO   src/hal/avr/*.c, src/crypto/*/
 L0  REGISTERS      <avr/io.h>
 ```

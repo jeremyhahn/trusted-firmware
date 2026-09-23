@@ -14,6 +14,9 @@ VERSION := $(shell cat VERSION)
 include mk/host.mk
 include mk/go.mk
 include mk/avr.mk
+# After mk/avr.mk: ag-boot is a second image built by the same toolchain, and it
+# reuses CC_AVR, OBJCOPY, SIZE and the board profile that file establishes.
+include mk/boot.mk
 include mk/docker.mk
 include mk/integration.mk
 
@@ -52,7 +55,13 @@ verify-vendor:
 	exit $$fail
 
 ## ci: everything the CI gate requires
-ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test board-sweep test-asan sdk-test firmware firmware-attested integration-test reproducible-check
+# EVERYTHING. `coverage` was missing from this list while the workflow ran it,
+# so a coverage failure could only be discovered on the server -- which is the
+# same defect as a gate written out in the workflow file instead of in a target,
+# and it cost a red main. If CI runs it, it belongs here.
+ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test board-sweep \
+    coverage test-asan sdk-test firmware firmware-attested integration-test \
+    reproducible-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci firmware-attested

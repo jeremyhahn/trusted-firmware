@@ -84,7 +84,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/attest.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
-                 src/core/board.c \
+                 src/core/board_lookup.c \
                  boards/$(HOST_BOARD)/board.c
 
 $(HOST_DIR):
@@ -139,6 +139,13 @@ coverage:
 COVERAGE_FLOOR ?= 90
 
 ## lint: static analysis over the firmware sources
+# Vendored trees are skipped, for the same reason Unity is built without
+# -Werror: an upstream's warnings are not ours to fix, and a lint gate that a
+# dependency bump can turn red is one that gets suppressed wholesale the first
+# time it happens. Their integrity is guaranteed by hash in
+# test/third_party/MANIFEST.md instead, which is the check that matters for code
+# we did not write.
+#
 # cppcheck stands in for `go vet`. It is given the board header and the PROGMEM
 # definition explicitly rather than having its complaints suppressed: told the
 # configuration it can analyse the code, whereas a suppression would also hide
@@ -151,6 +158,7 @@ lint:
 	          --suppress=unusedFunction \
 	          -DAG_BOARD_HEADER='"board_profile.h"' -DAG_PROGMEM= \
 	          -Iinclude -Isrc -Iboards/atmega328p \
+	          -i src/third_party \
 	          src/ boards/
 	@echo "cppcheck clean"
 	@# The two grep gates. They used to live only in the CI workflow, which made
@@ -210,7 +218,7 @@ board-sweep:
 	  $(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	     -Iinclude -Isrc -Isrc/core -Itest/mock -Iboards/$$b -I$(UNITY_DIR) \
 	     -DAG_BOARD_HEADER='"board_profile.h"' \
-	     -o $(SWEEP_DIR)/$$b "$$src" src/core/board.c boards/$$b/board.c \
+	     -o $(SWEEP_DIR)/$$b "$$src" src/core/board_lookup.c boards/$$b/board.c \
 	     $(UNITY_DIR)/unity.c || { echo "BUILD FAILED: $$b"; fail=1; continue; }; \
 	  echo "--- $$b"; ./$(SWEEP_DIR)/$$b || fail=1; ran=$$((ran+1)); \
 	done; \

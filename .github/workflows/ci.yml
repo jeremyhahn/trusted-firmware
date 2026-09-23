@@ -61,7 +61,11 @@ jobs:
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
-          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          # The commit is recorded IN the image: /src has no .git, and
+          # `make provenance` refuses to write a manifest that cannot name the
+          # source it came from. Same reason /etc/ci-toolchain.txt exists.
+          printf 'FROM %s\nCOPY . /src\nRUN echo %s > /etc/ci-source-commit\n' \
+            "$tag-base" "${{ github.sha }}" | docker build -t "$tag" -f - .
           docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: cppcheck, the whitelist grep and the timestamp grep
         # `make lint`, not a second copy of the flags here. The two greps used
@@ -110,7 +114,11 @@ jobs:
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
-          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          # The commit is recorded IN the image: /src has no .git, and
+          # `make provenance` refuses to write a manifest that cannot name the
+          # source it came from. Same reason /etc/ci-toolchain.txt exists.
+          printf 'FROM %s\nCOPY . /src\nRUN echo %s > /etc/ci-source-commit\n' \
+            "$tag-base" "${{ github.sha }}" | docker build -t "$tag" -f - .
           docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: make test
         run: docker run --rm "$IMG" make test
@@ -151,7 +159,11 @@ jobs:
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
-          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          # The commit is recorded IN the image: /src has no .git, and
+          # `make provenance` refuses to write a manifest that cannot name the
+          # source it came from. Same reason /etc/ci-toolchain.txt exists.
+          printf 'FROM %s\nCOPY . /src\nRUN echo %s > /etc/ci-source-commit\n' \
+            "$tag-base" "${{ github.sha }}" | docker build -t "$tag" -f - .
           docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: make test-asan
         # The codec is pointer-heavy parser code reached from untrusted bytes,
@@ -207,7 +219,11 @@ jobs:
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
-          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          # The commit is recorded IN the image: /src has no .git, and
+          # `make provenance` refuses to write a manifest that cannot name the
+          # source it came from. Same reason /etc/ci-toolchain.txt exists.
+          printf 'FROM %s\nCOPY . /src\nRUN echo %s > /etc/ci-source-commit\n' \
+            "$tag-base" "${{ github.sha }}" | docker build -t "$tag" -f - .
           docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: build and enforce the size budget
         # The matrix here is for PARALLELISM, not for coverage: `make ci` runs
@@ -260,7 +276,11 @@ jobs:
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
-          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          # The commit is recorded IN the image: /src has no .git, and
+          # `make provenance` refuses to write a manifest that cannot name the
+          # source it came from. Same reason /etc/ci-toolchain.txt exists.
+          printf 'FROM %s\nCOPY . /src\nRUN echo %s > /etc/ci-source-commit\n' \
+            "$tag-base" "${{ github.sha }}" | docker build -t "$tag" -f - .
           docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: run the real image under simavr
         # Tier 2. The unit tests prove the LOGIC is right on x86 against a mock
@@ -305,7 +325,11 @@ jobs:
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
-          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          # The commit is recorded IN the image: /src has no .git, and
+          # `make provenance` refuses to write a manifest that cannot name the
+          # source it came from. Same reason /etc/ci-toolchain.txt exists.
+          printf 'FROM %s\nCOPY . /src\nRUN echo %s > /etc/ci-source-commit\n' \
+            "$tag-base" "${{ github.sha }}" | docker build -t "$tag" -f - .
           docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: gofmt and vet
         run: docker run --rm "$IMG" make sdk-lint

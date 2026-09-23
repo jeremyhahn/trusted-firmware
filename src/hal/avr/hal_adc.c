@@ -56,7 +56,27 @@ ag_status_t ag_hal_adc_set_ref(ag_adc_ref_t ref)
 {
     switch (ref) {
     case AG_ADC_REF_VCC:      ref_bits = AG_ADC_REFBITS_VCC;      return AG_OK;
-    case AG_ADC_REF_EXTERNAL: ref_bits = AG_ADC_REFBITS_EXTERNAL; return AG_OK;
+    case AG_ADC_REF_EXTERNAL:
+#ifdef AG_ADC_NO_EXTERNAL_REF
+        /*
+         * The AREF pin is spoken for on this board, so there is no external
+         * reference to select.
+         *
+         * On the ATtiny85 AREF is PB0, which this build uses as the software
+         * UART's receive line. Selecting the external reference there would
+         * either contend with the host's transmitter, or -- with nothing
+         * connected -- make the serial line itself the voltage every reading is
+         * measured against. Both produce readings that look plausible and are
+         * meaningless.
+         *
+         * Refused rather than accepted-and-ignored: a host that asked for a
+         * reference and got AG_OK would trust the numbers that followed.
+         */
+        return AG_ERR_UNSUPPORTED;
+#else
+        ref_bits = AG_ADC_REFBITS_EXTERNAL;
+        return AG_OK;
+#endif
     case AG_ADC_REF_INTERNAL: ref_bits = AG_ADC_REFBITS_INTERNAL; return AG_OK;
     default:                  return AG_ERR_RANGE;
     }

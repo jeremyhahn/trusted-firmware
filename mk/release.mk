@@ -20,15 +20,32 @@ REL_DIR := $(BUILD_DIR)/release
 # with different measurements -- the same reason the tier is part of the build
 # path. Emitted as JSON because the consumer is go-trusted-platform, not a
 # person.
+# Tiers are asked for PER BOARD, not taken from a global list.
+#
+# This used to expand $(FIRMWARE_TIERS), which stopped existing when tiers
+# became per-board -- the ATtiny85 has no I2C, so it cannot build the element
+# tier at all. `for t in ; do` is a legal empty loop, so `make provenance`
+# printed its success line, wrote ZERO manifests and exited 0: a target whose
+# entire purpose is to stop a record being vacuous, being vacuous.
+#
+# It also could not be caught by `make ci`, because provenance is not in it.
+# It is now, with a count check, so an empty run fails.
 provenance:
 	@mkdir -p $(REL_DIR)
-	@for b in $(FIRMWARE_BOARDS); do \
-	  for t in $(FIRMWARE_TIERS); do \
+	@n=0; \
+	for b in $(FIRMWARE_BOARDS); do \
+	  for t in $$($(MAKE) -s board-tiers BOARD=$$b); do \
 	    $(MAKE) --no-print-directory provenance-one BOARD=$$b CRYPTO=$$t \
 	        SOURCE_COMMIT=$(SOURCE_COMMIT) || exit 1; \
+	    n=$$((n+1)); \
 	  done; \
-	done
-	@echo "provenance: $(REL_DIR)"
+	done; \
+	if [ "$$n" -eq 0 ]; then \
+	  echo "provenance: wrote NO manifests. An empty release record is worse"; \
+	  echo "  than none -- it looks like provenance and proves nothing."; \
+	  exit 1; \
+	fi; \
+	echo "provenance: $$n manifest(s) in $(REL_DIR)"
 
 # SOURCE_COMMIT is REQUIRED and is not allowed to default to "unknown".
 #
@@ -37,12 +54,28 @@ provenance:
 # cannot be used for that, and one that says "unknown" looks like a record while
 # being useless -- the same failure as a gate that passes vacuously. Inside the
 # CI container there is no .git, so the value is passed in.
-SOURCE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+# Resolved from the checkout, or from the record the CI image carries.
+#
+# The image has no .git -- the source is COPYed in, not cloned -- so a build
+# inside it cannot ask git. /etc/ci-source-commit is written at image build for
+# the same reason /etc/ci-toolchain.txt is: a container that cannot say what it
+# is built from cannot produce provenance, and provenance is the one thing this
+# target exists for. Still refuses rather than defaulting if neither is there.
+SOURCE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || cat /etc/ci-source-commit 2>/dev/null)
 
 provenance-one: $(TARGET).elf $(TARGET).hex
 	@mkdir -p $(REL_DIR)
 	@if [ -z "$(SOURCE_COMMIT)" ]; then 	  echo "provenance: SOURCE_COMMIT is empty and no .git is reachable."; 	  echo "  A manifest that cannot name its source cannot be rebuilt from, which is"; 	  echo "  the only thing it is for. Pass it: make provenance SOURCE_COMMIT=\$$(git rev-parse HEAD)"; 	  exit 1; 	fi
+	@# THE MEASUREMENT, which is the field a verifier actually needs.
+	@# Taken over the contiguous application binary, which is exactly the span
+	@# [0, image_len) that ag_boot_measure walks and that a signing tool writes
+	@# into the trailer. Emitting only file hashes -- and a note saying a
+	@# verifier wants a different number -- documented the omission instead of
+	@# closing it.
+	@$(OBJCOPY) -O binary -R .eeprom $(TARGET).elf $(REL_DIR)/$(BOARD)-$(CRYPTO).bin
 	@sha_elf=$$(sha256sum $(TARGET).elf | cut -d' ' -f1); \
+	 fwhash=$$(sha256sum $(REL_DIR)/$(BOARD)-$(CRYPTO).bin | cut -d' ' -f1); \
+	 img_len=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \
 	 sha_hex=$$(sha256sum $(TARGET).hex | cut -d' ' -f1); \
 	 flash=$$($(SIZE) --format=berkeley $(TARGET).elf | awk 'NR==2{print $$1+$$2}'); \
 	 ram=$$($(SIZE)  --format=berkeley $(TARGET).elf | awk 'NR==2{print $$2+$$3}'); \
@@ -59,7 +92,9 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	 printf '  "elf_sha256": "%s",\n'       "$$sha_elf"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "hex_sha256": "%s",\n'       "$$sha_hex"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "reproducible": true,\n'                  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
-	 printf '  "note": "elf_sha256 and hex_sha256 identify the ARTEFACT. FWHash is the SHA-256 over [0, image_len) of the signed application region and is written into the image trailer by the signing tool; see include/ag/boot.h. They are different numbers and a verifier wants the second."\n' >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "image_len": %s,\n'         "$$img_len"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "fwhash_sha256": "%s",\n'   "$$fwhash"   >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "note": "fwhash_sha256 is SHA-256 over [0, image_len) of the application binary -- the value a device attests and a verifier compares, and the value a signing tool writes into the image trailer. elf_sha256 and hex_sha256 identify the ARTEFACT and are different numbers; comparing one of those against device evidence would report a good device as tampered with."\n' >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '}\n'                                        >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json
 	@echo "  $(REL_DIR)/$(BOARD)-$(CRYPTO).json"
 

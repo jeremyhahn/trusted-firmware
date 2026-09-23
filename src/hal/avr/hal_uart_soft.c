@@ -375,6 +375,26 @@ uint8_t ag_hal_uart_tx_try(uint8_t byte)
      * changed, and the symptom is a transmitter or a receiver that stops for
      * good under load. */
     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        /*
+         * CLEAR THE STALE COMPARE FLAG BEFORE UNMASKING, or the first bit of
+         * the next reply is short.
+         *
+         * Timer1 free-runs -- it is also the receiver's bit clock -- so OCF1A
+         * keeps being set while OCIE1A is masked and an idle transmitter
+         * accumulates one. Unmasking then takes the interrupt IMMEDIATELY, at
+         * whatever phase the timer happens to be at, and the next compare
+         * arrives less than a bit later: the start bit is truncated and the
+         * byte is framed wrong.
+         *
+         * OCF1A is write-one-to-clear. It must be cleared inside this atomic
+         * block and before the unmask, because a compare landing between the
+         * two would set it again and the same window reopens.
+         *
+         * The failure only appears on the SECOND reply after an idle period,
+         * which is why no test here catches it and why the bit timing has
+         * never been executed on emulated silicon.
+         */
+        TIFR   = (uint8_t)_BV(OCF1A);
         TIMSK |= (uint8_t)_BV(OCIE1A);
     }
     return 1u;

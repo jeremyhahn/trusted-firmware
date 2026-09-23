@@ -187,17 +187,31 @@
  *                  208, so the bit time is 52.000 us against 52.0833 nominal:
  *                  -0.160%. Over the 9.5 bits to the middle of the stop bit
  *                  that is 1.5% of a bit.
- *   oscillator     The internal RC is +/-2% over voltage and temperature after
- *                  factory calibration. 19% of a bit, and it DOMINATES -- the
- *                  divisor error is noise beside it, which is why picking a
- *                  baud with a smaller divisor error would buy nothing.
+ *   oscillator     THE FACTORY-CALIBRATED INTERNAL RC IS +/-10%, not +/-2%.
+ *                  The tighter figure is the accuracy at the calibration point
+ *                  -- one voltage, one temperature -- and an earlier version of
+ *                  this comment quoted it as if it held across the range. It
+ *                  does not, and this term dominates everything else by an
+ *                  order of magnitude.
  *   ISR jitter     The tick ISR and the TX ISR each delay an RX sample by at
- *                  most ~40 cycles: 10% of a bit at 19200, 19% at 38400.
+ *                  most ~40 cycles: 10% of a bit at 19200.
  *
- * Worst case about 30% of a bit against a 50% sampling window. At 38400 the
- * same sum is about 40%, which works on a bench and not over temperature, and
- * the part that would give the margin back is a crystal -- so a board with one
- * can raise this, and a board on the internal RC should not.
+ * AT +/-10% THIS LINK DOES NOT WORK, and that is the honest conclusion rather
+ * than a caveat. An 8N1 frame has about a 5% end-to-end clock budget by the
+ * stop-bit sample, because the receiver has resynchronised only at the start
+ * bit and the error accumulates over 9.5 bit times. A part anywhere near the
+ * tolerance limit will not communicate at ANY baud -- the error is relative, so
+ * lowering the rate does not shrink it.
+ *
+ * Two things fix it and neither is free:
+ *
+ *   an external crystal or resonator, which removes the term entirely; or
+ *   OSCCAL calibration against a known reference at start-up, or autobaud,
+ *   which brings the factory part to roughly +/-1-2% and costs flash this
+ *   board has 806 bytes of.
+ *
+ * Until one of those exists, AG_UART_SOFT_UNCALIBRATED below marks this
+ * profile as bench-only. It is NOT a supported link on a factory part.
  *
  * The HAL asserts the divisor error and the counter range at compile time from
  * these three numbers, so a board that changes F_CPU or the baud finds out here
@@ -217,6 +231,23 @@
  * RX must be on a pin with a pin-change channel, because that is how a start
  * bit is detected. On this part PBn is PCINTn for every n, which the assert
  * below states rather than assumes. */
+/*
+ * BENCH ONLY, on a factory part. See the oscillator note above: the internal RC
+ * is +/-10% across voltage and temperature, against an 8N1 budget of about 5%.
+ * A board with a crystal, or a build that calibrates OSCCAL, may clear this.
+ *
+ * It is a define rather than a comment so that anything which must not ship on
+ * an uncalibrated link -- attestation, provisioning, a release gate -- can test
+ * for it rather than rely on someone having read this file.
+ */
+#define AG_UART_SOFT_UNCALIBRATED 1
+
+/* AREF is PB0 on this part, and PB0 is the UART receive line above. There is no
+ * external reference to select, so ag_hal_adc_set_ref refuses it rather than
+ * reporting success for a setting that would measure against the serial line.
+ * See src/hal/avr/hal_adc.c. */
+#define AG_ADC_NO_EXTERNAL_REF 1
+
 #define AG_UART_SOFT_RX_BIT 0u   /* PB0, PCINT0 */
 #define AG_UART_SOFT_TX_BIT 1u   /* PB1 */
 

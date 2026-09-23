@@ -152,12 +152,17 @@ jobs:
         run: docker run --rm "$IMG" make test-asan
 
   firmware:
-    name: Firmware (${{ matrix.board }})
+    name: Firmware (${{ matrix.board }}, ${{ matrix.crypto }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        board: [atmega328p]
+        board: [atmega328p, atmega2560, atmega32u4]
+        # Both crypto tiers, every board. The element tier is a different image
+        # -- different provider, different size -- and building only the default
+        # would leave the attested build unverified on the part it is tightest
+        # on, which is the 328P.
+        crypto: [soft, atecc608a]
     steps:
       - uses: actions/checkout@v6
       - name: toolchain image with the source baked in
@@ -181,9 +186,9 @@ jobs:
           printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
           docker run --rm "$IMG" cat /etc/ci-toolchain.txt
       - name: build and enforce the size budget
-        run: docker run --rm "$IMG" make firmware BOARD=${{ matrix.board }}
+        run: docker run --rm "$IMG" make firmware BOARD=${{ matrix.board }} CRYPTO=${{ matrix.crypto }}
       - name: reproducible build
-        run: docker run --rm "$IMG" make reproducible-check BOARD=${{ matrix.board }}
+        run: docker run --rm "$IMG" make reproducible-check BOARD=${{ matrix.board }} CRYPTO=${{ matrix.crypto }}
       - name: extract the built image
         run: |
           id=$(docker create "$IMG")
@@ -196,8 +201,8 @@ jobs:
         if: github.server_url == 'https://github.com'
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-${{ matrix.board }}
-          path: build/${{ matrix.board }}/*.hex
+          name: firmware-${{ matrix.board }}-${{ matrix.crypto }}
+          path: build/${{ matrix.board }}/${{ matrix.crypto }}/*.hex
 
   integration:
     name: Emulated firmware (simavr)

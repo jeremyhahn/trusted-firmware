@@ -131,4 +131,12 @@ _Static_assert(COM2A1_BIT == COM2A1, "COM2A1 bit position");
  * OC2A is PB3, which the Arduino world calls pin 11. */
 #define AG_TONE_PIN   11u
 
+/* The SPI pins' bit positions within port B. The HAL must set their direction
+ * before the peripheral works, and it cannot ask the pin table for them:
+ * the SPI lines are the hardware's, not logical pins a host names.
+ * PB3 MOSI, PB5 SCK, PB2 SS -- pins 11, 13 and 10. */
+#define AG_SPI_BIT_MOSI 3u
+#define AG_SPI_BIT_SCK  5u
+#define AG_SPI_BIT_SS   2u
+
 #endif /* AG_BOARD_ATMEGA328P_H */

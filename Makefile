@@ -52,7 +52,13 @@ verify-vendor:
 	exit $$fail
 
 ## ci: everything the CI gate requires
-ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test board-sweep test-asan sdk-test firmware integration-test reproducible-check
+ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test board-sweep test-asan sdk-test firmware firmware-attested integration-test reproducible-check
 	@echo "CI gate: green"
 
-.PHONY: help version clean verify-vendor ci
+.PHONY: help version clean verify-vendor ci firmware-attested
+
+## firmware-attested: build the DICE-HW image, which is a different image
+# Different provider, different size. The default build would never exercise
+# the element path, and the 328P is where it is tightest.
+firmware-attested:
+	@$(MAKE) --no-print-directory firmware CRYPTO=atecc608a

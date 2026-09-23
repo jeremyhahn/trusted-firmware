@@ -54,7 +54,12 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 # configured for exactly one board -- compiling a Mega's test against the 328P's
 # header fails on a register the 328P does not have, which is correct behaviour
 # reported as a build break.
-TEST_SRCS   := $(filter-out test/unit/test_board_%.c,$(wildcard test/unit/test_*.c))
+# test_atecc is excluded too, and for a different reason: it links the SOFTWARE
+# ELEMENT rather than the mock HAL, because both define ag_hal_i2c_xfer and the
+# whole point is that the driver talks to something that behaves like the part.
+# It gets its own rule below.
+TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c, \
+                            $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
 # Production sources reachable from the host build. Grows as layers land.
@@ -90,9 +95,21 @@ $(HOST_DIR)/unity.o: $(UNITY_DIR)/unity.c | $(HOST_DIR)
 $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
+# The ATECC608A driver against the software element. A separate link because
+# the model IS the I2C HAL here -- linking it beside the mock would be two
+# definitions of ag_hal_i2c_xfer, and choosing between them with a flag would
+# mean the tested build is not the shipped one.
+$(HOST_DIR)/test_atecc: test/unit/test_atecc.c test/model/atecc608a.c \
+                        src/crypto/atecc608a/atecc.c \
+                        src/crypto/atecc608a/provider.c \
+                        src/crypto/sha256.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 ## test: build and run the host unit tests
-test: $(TEST_BINS)
-	@fail=0; for t in $(TEST_BINS); do echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
+test: $(TEST_BINS) $(HOST_DIR)/test_atecc
+	@fail=0; for t in $(TEST_BINS) $(HOST_DIR)/test_atecc; do \
+	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
 
 ## test-asan: run the host unit tests under AddressSanitizer and UBSan
 # The codec is pointer-heavy parser code reached from untrusted bytes. This is

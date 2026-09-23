@@ -7,7 +7,28 @@ BOARD      ?= atmega328p
 BOARD_DIR  := boards/$(BOARD)
 -include $(BOARD_DIR)/profile.mk
 
-AVR_DIR    := $(BUILD_DIR)/$(BOARD)
+# The crypto tier is part of the OUTPUT PATH, not just the object list. The
+# soft and element images are different firmware -- different provider,
+# different size, different measurement -- and writing both to
+# build/<board>/arduino-generic.elf meant whichever was built last silently
+# became "the" image. The simavr suite ran against the element build on a part
+# with no element and reported a failure that was entirely the build system's.
+# Tone is optional and gated by FILE SELECTION, not by #if inside a file: the
+# ATmega32U4 has no Timer2 and sets AG_FEATURE_TONE 0, so its image must not
+# contain the tone path at all rather than contain a disabled copy of it.
+TONE_SRCS := $(shell grep -q 'define AG_FEATURE_TONE 0' $(BOARD_DIR)/board_profile.h \
+                     && echo "" || echo "src/caps/tone.c src/hal/avr/hal_tone.c")
+
+CRYPTO ?= soft
+ifeq ($(CRYPTO),soft)
+CRYPTO_SRCS := src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
+else ifeq ($(CRYPTO),atecc608a)
+CRYPTO_SRCS := src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
+else
+$(error unknown CRYPTO tier "$(CRYPTO)" -- expected soft or atecc608a)
+endif
+
+AVR_DIR    := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)
 TARGET     := $(AVR_DIR)/arduino-generic
 
 CC_AVR     := avr-gcc
@@ -45,21 +66,6 @@ AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 #
 #   CRYPTO=soft      SHA-256 and HMAC in software, UDS in boot-section flash
 #   CRYPTO=atecc608a the element holds the UDS and signs; DICE-HW
-# Tone is optional and gated by FILE SELECTION, not by #if inside a file: the
-# ATmega32U4 has no Timer2 and sets AG_FEATURE_TONE 0, so its image must not
-# contain the tone path at all rather than contain a disabled copy of it.
-TONE_SRCS := $(shell grep -q 'define AG_FEATURE_TONE 0' $(BOARD_DIR)/board_profile.h \
-                     && echo "" || echo "src/caps/tone.c src/hal/avr/hal_tone.c")
-
-CRYPTO ?= soft
-ifeq ($(CRYPTO),soft)
-CRYPTO_SRCS := src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
-else ifeq ($(CRYPTO),atecc608a)
-CRYPTO_SRCS := src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
-else
-$(error unknown CRYPTO tier "$(CRYPTO)" -- expected soft or atecc608a)
-endif
-
 AVR_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
@@ -109,8 +115,8 @@ size-check: $(TARGET).elf
 reproducible-check:
 	@rm -rf /tmp/agrepro-a /tmp/agrepro-b
 	@cp -a . /tmp/agrepro-a && cp -a . /tmp/agrepro-b
-	@$(MAKE) -C /tmp/agrepro-a --no-print-directory BOARD=$(BOARD) $(TARGET).hex >/dev/null
-	@$(MAKE) -C /tmp/agrepro-b --no-print-directory BOARD=$(BOARD) $(TARGET).hex >/dev/null
+	@$(MAKE) -C /tmp/agrepro-a --no-print-directory BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex >/dev/null
+	@$(MAKE) -C /tmp/agrepro-b --no-print-directory BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex >/dev/null
 	@if cmp -s /tmp/agrepro-a/$(TARGET).hex /tmp/agrepro-b/$(TARGET).hex; then \
 	   echo "reproducible: two builds in different directories are byte-identical"; \
 	 else \

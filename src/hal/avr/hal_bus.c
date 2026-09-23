@@ -97,7 +97,22 @@ ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 
 ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
 {
-    DDRB |= (uint8_t)(_BV(3) | _BV(5) | _BV(2));   /* MOSI, SCK, SS as outputs */
+    /*
+     * MOSI, SCK and SS as outputs -- and the bits come from the board, not from
+     * three literals. They were 3, 5 and 2 here, which is a 328P fact: on an
+     * ATmega32U4 the SPI pins are PB2, PB1 and PB0, so the literal set the
+     * direction of three unrelated pins and left the real SPI lines as inputs.
+     * That compiles, links and runs; the symptom is SPI that does not work,
+     * with nothing pointing at this line. The same defect had already been
+     * found once in the tone path and fixed there, and this call site was
+     * missed -- which is the argument for the board owning every pin fact
+     * rather than most of them.
+     *
+     * SS must be an output even when unused: leaving it an input and letting it
+     * go low takes the SPI hardware out of master mode mid-transfer.
+     */
+    DDRB |= (uint8_t)(_BV(AG_SPI_BIT_MOSI) | _BV(AG_SPI_BIT_SCK)
+                      | _BV(AG_SPI_BIT_SS));
     SPCR = (uint8_t)(_BV(SPE) | _BV(MSTR)
                      | (uint8_t)((mode & 0x03u) << CPHA)
                      | (uint8_t)(clkdiv & 0x03u)

@@ -209,4 +209,12 @@ _Static_assert(MUX5 == 5, "MUX5 bit position: ADC channels above 7 are unreachab
  */
 #define AG_FEATURE_TONE 0
 
+/* The SPI pins' bit positions within port B. The HAL must set their direction
+ * before the peripheral works, and it cannot ask the pin table for them:
+ * the SPI lines are the hardware's, not logical pins a host names.
+ * PB2 MOSI, PB1 SCK, PB0 SS -- pins 16, 15 and 17 on the Micro's map. */
+#define AG_SPI_BIT_MOSI 2u
+#define AG_SPI_BIT_SCK  1u
+#define AG_SPI_BIT_SS   0u
+
 #endif /* AG_BOARD_ATMEGA32U4_H */

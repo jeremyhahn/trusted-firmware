@@ -115,7 +115,7 @@ ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
                           const uint8_t *data, uint8_t dlen,
                           uint8_t *resp, uint8_t rlen, uint16_t exec_ms)
 {
-    uint8_t     count, n;
+    uint8_t     count, n, got;
     uint16_t    tries;
     uint16_t    crc;
     ag_status_t st;
@@ -157,13 +157,19 @@ ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
      */
     tries = (uint16_t)(exec_ms * 2u) + 4u;    /* one try per 500 us, plus slack */
     n     = rlen ? (uint8_t)(rlen + 3u) : 4u;
-    while (tries--) {
+    got   = 0u;
+    while (tries-- && !got) {
         ag_hal_delay_us(500u);
-        if (ag_hal_i2c_xfer(AG_ATECC_ADDR, 0, 0u, buf, n) == AG_OK && buf[0] != 0u) {
-            break;
+        if (ag_hal_i2c_xfer(AG_ATECC_ADDR, 0, 0u, buf, n) == AG_OK) {
+            got = 1u;
         }
     }
-    if (buf[0] == 0u) {
+    /* An explicit flag, not "buf[0] is non-zero". The buffer is shared with the
+     * command that was just sent, so after a run of NACKs buf[0] still holds
+     * the word address 0x03 -- which reads as a three-byte response and sends
+     * the code below off to check a CRC over the command it transmitted. A part
+     * that never answered would have been reported as a CRC failure. */
+    if (!got) {
         return AG_ERR_TIMEOUT;
     }
 

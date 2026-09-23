@@ -215,4 +215,13 @@ _Static_assert(AG_EEPROM_SIZE == (E2END + 1u), "EEPROM size");
  * at pin 50, so a table copied from the 328P drives the SPI bus with a tone. */
 #define AG_TONE_PIN   10u
 
+/* The SPI pins' bit positions within port B. The HAL must set their direction
+ * before the peripheral works, and it cannot ask the pin table for them:
+ * the SPI lines are the hardware's, not logical pins a host names.
+ * PB2 MOSI, PB1 SCK, PB0 SS -- header pins 51, 52 and 53. NOT the 328P's
+ * bits: PB3 here is MISO at pin 50. */
+#define AG_SPI_BIT_MOSI 2u
+#define AG_SPI_BIT_SCK  1u
+#define AG_SPI_BIT_SS   0u
+
 #endif /* AG_BOARD_ATMEGA2560_H */

@@ -47,6 +47,9 @@
 #define AG_ATECC_OP_WRITE     0x12u
 
 /* Modes, for the commands this firmware issues. */
+#define AG_ATECC_SHA_SHA256_START  0x00u
+#define AG_ATECC_SHA_SHA256_UPDATE 0x01u
+#define AG_ATECC_SHA_SHA256_END    0x02u
 #define AG_ATECC_SHA_HMAC_START  0x04u
 #define AG_ATECC_SHA_HMAC_UPDATE 0x01u
 #define AG_ATECC_SHA_HMAC_END    0x05u

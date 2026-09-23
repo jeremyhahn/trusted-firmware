@@ -19,8 +19,6 @@
 #   src/hal/avr/hal_early.c  one "clear MCUSR and disarm the watchdog", because
 #                         the copy that is wrong bootloops the part
 
-BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot
-BOOT_TARGET  := $(BOOT_DIR_OUT)/ag-boot
 
 # The tier, chosen at LINK time exactly as CRYPTO is for the application.
 BOOT_TIER ?= soft
@@ -31,7 +29,7 @@ else ifeq ($(BOOT_TIER),atecc608a)
 # and hal_sys.c come along for ag_hal_i2c_xfer and ag_hal_delay_us; everything
 # else in them is unreferenced and --gc-sections drops it.
 BOOT_TIER_SRCS := boot/tier/cdi_atecc.c src/crypto/atecc608a/atecc.c \
-                  src/hal/avr/hal_bus.c src/hal/avr/hal_sys.c src/core/board.c \
+                  src/hal/avr/hal_bus.c src/hal/avr/hal_sys.c src/core/board_lookup.c \
                   boards/$(BOARD)/board.c
 else
 $(error unknown BOOT_TIER "$(BOOT_TIER)" -- expected soft or atecc608a)
@@ -46,20 +44,70 @@ BOOT_SIG ?= ed25519-donna
 ifeq ($(BOOT_SIG),ed25519-donna)
 BOOT_SIG_SRCS := boot/verify/verify_ed25519_donna.c boot/verify/donna_shim.c \
                  src/third_party/ed25519-donna/ed25519.c
+else ifeq ($(BOOT_SIG),atecc608a)
+# The element verifies. P-256 ECDSA happens in silicon, so the boot section
+# frames two commands and holds no curve arithmetic at all -- which is the only
+# way an asymmetric signature fits a 4 KB section on this family.
+BOOT_SIG_SRCS := boot/verify/verify_atecc608a.c
 else
-$(error unknown BOOT_SIG "$(BOOT_SIG)" -- expected ed25519-donna)
+$(error unknown BOOT_SIG "$(BOOT_SIG)" -- expected ed25519-donna or atecc608a)
+endif
+
+# Where the measurement is computed.
+#
+# The hash is the single largest thing in the boot section -- 4 052 bytes of
+# software SHA-256 against a 4 096-byte section on most of this family. The
+# element has a SHA engine, so on a 4 KB part the hash can move into it and the
+# boot section holds no crypto at all.
+#
+# The digest is identical either way: SHA-256 is defined over the byte sequence,
+# not over how the bytes were delivered. What differs is time -- the element
+# hashes 64 bytes per command, so a 28 KB image is about 450 round trips.
+BOOT_MEASURE ?= soft
+ifeq ($(BOOT_MEASURE),soft)
+BOOT_MEASURE_SRCS := boot/measure/measure_soft.c src/crypto/sha256.c
+else ifeq ($(BOOT_MEASURE),atecc608a)
+BOOT_MEASURE_SRCS := boot/measure/measure_atecc608a.c
+else
+$(error unknown BOOT_MEASURE "$(BOOT_MEASURE)" -- expected soft or atecc608a)
+endif
+
+# OTA in the boot section, or not.
+#
+# The update path is the single largest thing in the core after the hash, and it
+# is the only part of a bootloader that is not strictly necessary there: an
+# application can stage an image and reboot into a bootloader that only
+# measures, verifies and commits. On a part whose boot section is 8 KB the
+# question does not arise; on a 4 KB part it is the difference between having
+# secure boot and not.
+BOOT_OTA ?= 1
+ifeq ($(BOOT_OTA),1)
+BOOT_OTA_SRCS := boot/recovery/recovery_ota.c boot/boot_ota.c boot/boot_session.c src/proto/frame.c
+BOOT_OTA_DEFS :=
+else
+BOOT_OTA_SRCS := boot/recovery/recovery_halt.c
+BOOT_OTA_DEFS :=
 endif
 
 # Sorted, for the same reason mk/avr.mk sorts: a wildcard's order depends on the
 # filesystem, and link order affects the image, so an unsorted list makes the
 # reproducibility check pass on one machine and fail on another.
+# The CONFIGURATION is part of the output path, exactly as the crypto tier is
+# for the application. ag-boot with the element's hash and ag-boot with the
+# software hash are different images with different measurements; sharing one
+# directory meant the second build silently reused the first one's objects and
+# reported its size, which is a measurement that cannot be wrong and is.
+BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)
+BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
+BOOT_TARGET  := $(BOOT_DIR_OUT)/ag-boot
+
 BOOT_SRCS := $(sort \
-  boot/boot_main.c boot/boot_image.c boot/boot_measure.c boot/boot_ota.c \
-  boot/boot_platform.c boot/boot_policy.c boot/boot_session.c \
+  boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
+  boot/boot_platform.c boot/boot_policy.c \
   boot/hal/avr/boot_hal_avr.c \
-  src/crypto/sha256.c src/proto/crc16.c src/proto/frame.c \
+  src/proto/crc16.c \
   src/hal/avr/hal_early.c \
-  $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
+  $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
 
 BOOT_OBJS := $(patsubst %.c,$(BOOT_DIR_OUT)/%.o,$(BOOT_SRCS))
 
@@ -75,7 +123,7 @@ BOOT_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
                -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a \
                -Isrc/hal/avr -Isrc/third_party/ed25519-donna \
                -Iboot -Iboot/verify -I$(BOARD_DIR) \
-               -DAG_BOARD_HEADER='"board_profile.h"'
+               -DAG_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS)
 
 # The vendored tree, built WITHOUT -Werror and without our warning set.
 #
@@ -152,6 +200,39 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 # links the real Ed25519 and its own key slot, test_boot_ota links no hardware
 # at all -- and a single link line covering all of them would drag donna's 150 KB
 # into suites that have no business with it.
+## bootloader-check: build every SUPPORTED bootloader configuration
+#
+# The supported set, and it is short because the boot section is small. Each row
+# is a configuration that fits on that board; anything not listed does not fit,
+# and `make bootloader` reports the overage rather than failing obscurely.
+#
+#   328P / 32U4  4 KB section  element hash + element verify, no OTA in boot
+#   2560         8 KB section  the same, plus OTA in boot
+#
+# A row that stops fitting is a build failure here, which is the point: the
+# margin on a 4 KB part is 1 728 bytes and it is the kind of thing that
+# disappears one commit at a time.
+BOOT_SUPPORTED := \
+  atmega328p:atecc608a:atecc608a:atecc608a:0 \
+  atmega32u4:atecc608a:atecc608a:atecc608a:0 \
+  atmega2560:atecc608a:atecc608a:atecc608a:0 \
+  atmega2560:atecc608a:atecc608a:atecc608a:1
+
+bootloader-check:
+	@fail=0; \
+	for row in $(BOOT_SUPPORTED); do \
+	  b=$${row%%:*}; r=$${row#*:}; \
+	  t=$${r%%:*}; r=$${r#*:}; m=$${r%%:*}; r=$${r#*:}; \
+	  g=$${r%%:*}; o=$${r#*:}; \
+	  if ! $(MAKE) --no-print-directory bootloader BOARD=$$b \
+	        BOOT_TIER=$$t BOOT_MEASURE=$$m BOOT_SIG=$$g BOOT_OTA=$$o; then \
+	    echo "SUPPORTED CONFIGURATION NO LONGER FITS: $$row"; fail=1; \
+	  fi; \
+	done; \
+	exit $$fail
+
+.PHONY: bootloader-check
+
 BOOT_TEST_DIR   := $(HOST_DIR)/boot
 BOOT_TEST_SRCS  := $(wildcard test/unit/boot/test_*.c)
 BOOT_TEST_BINS  := $(patsubst test/unit/boot/%.c,$(BOOT_TEST_DIR)/%,$(BOOT_TEST_SRCS))
@@ -167,7 +248,7 @@ BOOT_DONNA_HOST  := -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE
 # boot_policy.c is NOT here: it is the one unit that calls the verify seam, so
 # every suite that linked it would have to provide a signature backend. It is
 # added explicitly by the one suite that tests it.
-BOOT_LOGIC_SRCS := boot/boot_image.c boot/boot_measure.c boot/boot_ota.c \
+BOOT_LOGIC_SRCS := boot/boot_image.c boot/measure/measure_soft.c boot/boot_handoff.c boot/boot_ota.c \
                    boot/boot_platform.c boot/boot_session.c \
                    src/crypto/sha256.c src/proto/crc16.c test/mock/boot_hal_mock.c
 
@@ -182,6 +263,18 @@ $(BOOT_TEST_DIR)/donna_shim.o: boot/verify/donna_shim.c | $(BOOT_TEST_DIR)
 $(BOOT_TEST_DIR)/donna.o: src/third_party/ed25519-donna/ed25519.c | $(BOOT_TEST_DIR)
 	@$(CC) -std=gnu11 -g -O1 $(BOOT_DONNA_HOST) \
 	   -Isrc/third_party/ed25519-donna $(EXTRA_CFLAGS) -c -o $@ $<
+
+# The element-backed backends, against the software element. A separate link
+# because the model IS the I2C HAL here -- the same arrangement test_atecc uses,
+# and for the same reason: the whole point is that the driver talks to something
+# that behaves like the part.
+$(BOOT_TEST_DIR)/test_boot_element: test/unit/boot/test_boot_element.c \
+        boot/measure/measure_atecc608a.c boot/verify/verify_atecc608a.c \
+        boot/boot_handoff.c src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
+        src/proto/crc16.c test/model/atecc608a.c test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_ed25519: test/unit/boot/test_boot_ed25519.c \
         boot/verify/verify_ed25519_donna.c $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \

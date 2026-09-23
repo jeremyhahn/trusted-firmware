@@ -40,6 +40,7 @@
 #include "ag/hal.h"
 #include "atecc.h"
 #include "atecc608a_model.h"
+#include "sha256.h"
 
 /* Element state the tests can set up and inspect. */
 static uint8_t awake;
@@ -66,6 +67,30 @@ static uint8_t  slots[16][32];
 static uint8_t  config_locked;
 static uint8_t  data_locked;
 
+/* The SHA engine, modelled for real.
+ *
+ * It computes an actual SHA-256 rather than returning a token, because the
+ * property worth testing is that a measurement taken through the element and
+ * one taken in software are THE SAME 32 BYTES -- that is what makes the choice
+ * of backend a build-time decision rather than a fork of the wire contract. A
+ * model that returned a placeholder could not show that.
+ */
+static ag_sha256_t sha_ctx;
+static uint8_t     sha_active;
+
+/* The image-signing public key slot, for Verify in stored mode. The model does
+ * no elliptic-curve arithmetic; it records what it was asked to verify and
+ * answers from a flag a test sets, because modelling ECDSA here would test the
+ * model rather than the driver. */
+static uint8_t  verify_should_pass;
+static uint8_t  verify_last_sig[64];
+static uint8_t  verify_seen;
+
+/* No element on the board at all: every transfer NACKs, which is what a bus
+ * with nothing on it does. Distinct from a busy part -- a driver must tell
+ * "not there" from "not yet". */
+static uint8_t  absent;
+
 void ag_model_reset(void)
 {
     awake = 0u; provisioned = 0u; has_key = 0u; busy_reads = 0u;
@@ -75,6 +100,8 @@ void ag_model_reset(void)
     memset(config, 0, sizeof config);
     memset(slots, 0, sizeof slots);
     config_locked = 0u; data_locked = 0u;
+    sha_active = 0u; verify_should_pass = 0u; verify_seen = 0u; absent = 0u;
+    memset(verify_last_sig, 0, sizeof verify_last_sig);
     /* A blank part's identifying bytes, so Read returns something a host can
      * recognise rather than zeros it might mistake for a failed read. */
     config[0] = 0x01u; config[1] = 0x23u; config[2] = 0x45u; config[3] = 0x67u;
@@ -86,6 +113,10 @@ void ag_model_provision(void)  { provisioned = 1u; has_key = 1u; }
 uint8_t ag_model_config_locked(void) { return config_locked; }
 uint8_t ag_model_data_locked(void)   { return data_locked; }
 const uint8_t *ag_model_slot(uint8_t n) { return n < 16u ? slots[n] : 0; }
+void ag_model_set_verify_result(uint8_t pass) { verify_should_pass = pass; }
+void ag_model_set_absent(uint8_t yes) { absent = yes; }
+uint8_t ag_model_verify_seen(void) { return verify_seen; }
+const uint8_t *ag_model_verify_last_sig(void) { return verify_last_sig; }
 void ag_model_set_busy(uint8_t reads)   { busy_reads = reads; }
 void ag_model_force_status(uint8_t st)  { forced_status = st; }
 void ag_model_set_counter(uint32_t v)   { counter0 = v; }
@@ -152,6 +183,31 @@ static void handle_command(const uint8_t *p, uint8_t n)
         return;
 
     case AG_ATECC_OP_SHA:
+        if (param1 == AG_ATECC_SHA_SHA256_START) {
+            ag_sha256_init(&sha_ctx);
+            sha_active = 1u;
+            respond_status(0x00u);
+            return;
+        }
+        if (param1 == AG_ATECC_SHA_SHA256_UPDATE && sha_active) {
+            /* param2 is the byte count and the data follows the header. The
+             * element accepts only whole 64-byte blocks here, and modelling
+             * that refusal is worth more than accepting a short one: a driver
+             * that sent a partial block would pass against a lenient model and
+             * fail on silicon. */
+            if (param2 != 64u || n < 6u + 64u) { respond_status(0x03u); return; }
+            ag_sha256_update(&sha_ctx, &p[6], 64u);
+            respond_status(0x00u);
+            return;
+        }
+        if (param1 == AG_ATECC_SHA_SHA256_END && sha_active) {
+            uint8_t tail = (uint8_t)param2;
+            if (tail) { ag_sha256_update(&sha_ctx, &p[6], tail); }
+            ag_sha256_final(&sha_ctx, body);
+            sha_active = 0u;
+            respond(body, 32u);
+            return;
+        }
         if (param1 == AG_ATECC_SHA_HMAC_START) {
             if (!provisioned) { respond_status(0x0Fu); return; }  /* execution error */
             respond_status(0x00u);
@@ -259,6 +315,18 @@ static void handle_command(const uint8_t *p, uint8_t n)
         respond_status(0x00u);
         return;
 
+    case 0x45u:   /* Verify */
+        /* Stored mode names a slot; the signature is the payload. The model
+         * records the signature so a test can prove the driver sent the one it
+         * was given, and answers from a flag rather than doing curve
+         * arithmetic. */
+        if (param1 != 0x00u) { respond_status(0x03u); return; }
+        if (n < 6u + 64u)    { respond_status(0x03u); return; }
+        memcpy(verify_last_sig, &p[6], 64u);
+        verify_seen = 1u;
+        respond_status(verify_should_pass ? (uint8_t)0x00u : (uint8_t)0x01u);  /* 0x01 = miscompare */
+        return;
+
     case AG_ATECC_OP_COUNTER:
         if (param1 == AG_ATECC_COUNTER_INCR) { counter0++; }
         body[0] = (uint8_t)(counter0 & 0xFFu);
@@ -292,6 +360,9 @@ ag_status_t ag_hal_i2c_init(uint32_t hz)
 ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen)
 {
+    if (absent) {
+        return AG_ERR_NACK;
+    }
     if (addr7 == 0x00u) {
         /* The wake pulse. Nothing is listening at address zero; the part wakes
          * on the low line and then answers its own address with 04 11 33 43. */

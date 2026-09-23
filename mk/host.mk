@@ -111,7 +111,8 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c test/model/atecc608a.c \
 # the software element is its I2C HAL.
 $(HOST_DIR)/test_provision: test/unit/test_provision.c test/model/atecc608a.c \
                             src/caps/provision.c src/core/reader.c src/core/writer.c \
-                            src/crypto/atecc608a/atecc.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+                            src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
+                            $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -DAG_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
 

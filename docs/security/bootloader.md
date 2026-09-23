@@ -114,6 +114,78 @@ verified. Verification happens after, through the same `ag_boot_evaluate` the
 cold boot path runs, against the same floor — one decision function, so an image
 that would be refused at boot cannot be accepted at update.
 
+## How secure boot fits: the element does the cryptography
+
+**The boot section holds no cryptography at all.** Both the hash and the
+signature check happen inside the ATECC608A, and what is left in the 4 KB
+section is the boot decision, the EEPROM layout and the CDI handoff.
+
+| board | boot section | image | spare |
+|---|---:|---:|---:|
+| ATmega328P | 4 096 | **2 368** | 1 728 |
+| ATmega32U4 | 4 096 | **2 436** | 1 660 |
+| ATmega2560 | 8 192 | **2 542** | 5 650 |
+| ATmega2560, with OTA in the bootloader | 8 192 | **5 328** | 2 864 |
+
+Reproduce with `make bootloader-check`, which builds every supported
+configuration and fails if one stops fitting. The margin on a 4 KB part is the
+kind of thing that disappears one commit at a time.
+
+### The two things that had to move
+
+**The hash.** Software SHA-256 is 4 052 bytes, and the smallest useful core
+around it is 5 688 with no verifier at all — already 1 592 over. The element has
+a SHA engine, so `BOOT_MEASURE=atecc608a` streams the image through it and the
+software implementation leaves the boot section entirely.
+
+The digest is **identical**: SHA-256 is defined over the byte sequence, not over
+how the bytes were delivered. `test_boot_element` asserts the element's output
+against both the software hash and FIPS 180-4's published vector, so neither
+implementation is the other's only oracle.
+
+What it costs is time. The element hashes 64 bytes per command, so a 28 KB
+application is about 450 round trips — each a bus transfer plus the part's own
+SHA execution. Expect seconds, on every boot, and it cannot be cached: a
+measurement is only evidence if it was taken this time. On the 2560, whose
+section is 8 KB, use `BOOT_MEASURE=soft` instead — same digest, several hundred
+times faster.
+
+**The OTA path.** `BOOT_OTA=0` costs 2 220 bytes and is the only piece of a
+bootloader that has somewhere else to live: an application can receive an image,
+stage it and reboot, and this bootloader measures, verifies and commits it. What
+is lost is the case where there is no working application to do the receiving —
+so on a 4 KB part, recovery from a failed image needs a programmer.
+`recovery/recovery_halt.c` says that by stopping, with interrupts off, rather
+than timing out into an unverified image.
+
+### Verify in STORED mode, and why that is the whole point
+
+The element's `Verify` has an external mode that takes the public key in the
+command packet. That would put the image-signing key in boot-section flash,
+where an attacker who can rewrite flash substitutes their own and signs whatever
+they like — and surviving an attacker who reached the flash is the only reason
+to verify at boot.
+
+Stored mode names a **slot**. The key is written at provisioning and locked, and
+after that no command on the part can change it. Rewriting every byte of the
+MCU's flash does not help: the element still verifies against the key the
+manufacturer put there.
+
+It is also smaller — 64 bytes of signature on the wire instead of 128 of
+signature and key.
+
+### What this costs in honesty
+
+**Secure boot on AVR requires an ATECC608A.** A board without one gets measured
+boot: the bootloader computes `FWHash` and the platform refuses to trust a
+device whose measurement does not match the golden build. That is the fleet
+property, and it is the one that matters for attestation — but a tampered image
+still *runs* locally until the next attestation, and that difference must not be
+glossed.
+
+There is no arrangement in which a 4 KB AVR boot section verifies a signature in
+software. The numbers below are why.
+
 ## What does not fit
 
 > The numbers below are reproduced by `make bootloader-budget` and

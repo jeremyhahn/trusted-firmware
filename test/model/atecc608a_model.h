@@ -25,4 +25,15 @@ uint8_t  ag_model_data_locked(void);
  * the part does not have. */
 const uint8_t *ag_model_slot(uint8_t n);
 
+/* Whether the element's Verify answers "valid". The model does no curve
+ * arithmetic: a test asserting that ECDSA works would be testing the model. */
+void           ag_model_set_verify_result(uint8_t pass);
+/* No element on the board: every transfer NACKs. Distinct from a busy part --
+ * a driver must tell "not there" from "not yet". */
+void           ag_model_set_absent(uint8_t yes);
+uint8_t        ag_model_verify_seen(void);
+/* The signature the driver actually sent, so a test can prove it forwarded the
+ * one it was given rather than something it constructed. */
+const uint8_t *ag_model_verify_last_sig(void);
+
 #endif /* AG_ATECC_MODEL_H */

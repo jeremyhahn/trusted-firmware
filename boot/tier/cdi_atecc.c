@@ -25,6 +25,7 @@
  */
 
 #include "../boot_cdi.h"
+#include "../boot_image.h"
 #include "ag/boot.h"
 #include "atecc.h"
 

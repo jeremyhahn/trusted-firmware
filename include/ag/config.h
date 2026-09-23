@@ -144,6 +144,29 @@
 #define AG_FRAME_IDLE_MS 250u
 #endif
 
+/* The ATECC608A's 7-bit I2C address, refused by the generic I2C_XFER command.
+ *
+ * Refused whether or not an element is fitted: a build that allowed it when
+ * absent would allow it the moment one was added, and the host that learned the
+ * address works is the one that keeps using it. A board with an element
+ * somewhere else overrides this.
+ *
+ * It is a DEFAULT and therefore lives here. src/caps/bus.c used to carry its
+ * own #ifndef, which the whitelist forbids for a reason that is not pedantry:
+ * a default defined next to its use is a default the board profile cannot
+ * actually override, because config.h has already been included by then. */
+#ifndef AG_I2C_RESERVED_ADDR
+#define AG_I2C_RESERVED_ADDR 0x60u
+#endif
+
+/* A ceiling on how long any single command may hold the main loop. Past this a
+ * scheduled pin could miss its deadline, and once a deadman exists a long
+ * capture would trip it. A board with no scheduler in its build could raise it;
+ * that is why it is a knob and not a constant. */
+#ifndef AG_PULSE_MAX_US
+#define AG_PULSE_MAX_US 50000UL
+#endif
+
 /* A scheduled interval may not exceed 2^31 ms. Above that the signed-difference
  * comparison the scheduler uses to survive the 49.7-day millisecond wrap stops
  * being able to tell "due" from "not yet", so the bound is enforced when a

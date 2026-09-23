@@ -26,12 +26,6 @@
 #include "ag/config.h"
 #include "ag/hal.h"
 
-/* The ATECC608A's 7-bit address. Refused whether or not one is fitted: a build
- * that allowed it when absent would allow it the moment one was added. */
-#ifndef AG_I2C_RESERVED_ADDR
-#define AG_I2C_RESERVED_ADDR 0x60u
-#endif
-
 /* The largest transfer a reply can carry. */
 #define AG_BUS_MAX ((uint8_t)(AG_MAX_PAYLOAD - 1u))
 

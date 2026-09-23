@@ -144,6 +144,23 @@ lint:
 	          -Iinclude -Isrc -Iboards/atmega328p \
 	          src/ boards/
 	@echo "cppcheck clean"
+	@# The two grep gates. They used to live only in the CI workflow, which made
+	@# them gates a developer could not run -- and one of them had been failing
+	@# on main for two commits before anyone saw it, because the only place it
+	@# ran was a job nobody reads when the other five are green.
+	@if grep -rn '^[[:space:]]*#[[:space:]]*if' src/core src/proto src/caps \
+	     --include='*.c' | grep -v 'commands.def'; then \
+	  echo "preprocessor conditional outside the whitelist (see above)"; \
+	  echo "a default belongs in include/ag/config.h, where a board can override it"; \
+	  exit 1; \
+	fi
+	@echo "no out-of-whitelist conditionals"
+	@if grep -rn '__DATE__\|__TIME__' src/ boards/ include/; then \
+	  echo "a build timestamp would make the image unreproducible, and its"; \
+	  echo "measurement uncomputable from source -- which is signed evidence"; \
+	  exit 1; \
+	fi
+	@echo "no build timestamps"
 
 ## agsim: build the firmware as a host binary speaking the protocol on stdio
 agsim: $(HOST_DIR)/agsim

@@ -11,13 +11,6 @@
  * away. */
 #define AG_CAPTURE_MAX ((uint8_t)((AG_MAX_PAYLOAD - 1u) / 2u))
 
-/* A ceiling on how long any single command may hold the loop. Past this, a
- * scheduled pin could miss its deadline -- and once a deadman exists, a long
- * capture would trip it. */
-#ifndef AG_PULSE_MAX_US
-#define AG_PULSE_MAX_US 50000UL
-#endif
-
 ag_status_t ag_pulse_cmd_in(ag_reader_t *r, ag_writer_t *w)
 {
     ag_pin_t    pin     = ag_read_u8(r);

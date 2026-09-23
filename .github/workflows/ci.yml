@@ -20,10 +20,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  # Unique per run AND per job: see the build step for why.
-  IMG_BASE: ag-ci-${{ github.run_id }}-${{ github.job }}
-  IMG: ag-work-${{ github.run_id }}-${{ github.job }}
+# The image tags are computed at RUNTIME, in the build step, and exported
+# through $GITHUB_ENV. They are deliberately not expressions here.
+#
+# They were `ag-ci-${{ github.run_id }}-${{ github.job }}`, which is correct on
+# github.com and wrong on Gitea: `github.job` does not evaluate per job there,
+# so every job in the run computed the SAME tag. Two jobs then exported two
+# different images to one name at the same time and buildkit failed one of them
+# -- which is the collision the comment in that step was written to prevent,
+# reintroduced by the expression meant to prevent it. The log gives it away by
+# naming `ag-ci-<run>-lint` inside the unit-test job.
 
 jobs:
 
@@ -45,40 +51,32 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          # Tagged per job. Several jobs share a runner and build concurrently,
-          # and buildkit refuses to export two images to one tag at once --
-          # "already exists", which reads like a caching quirk and is actually a
-          # race between siblings.
-          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
-          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
-          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
-      - name: cppcheck
-        # `make lint`, not a second copy of the flags here. A gate whose
+          # A tag nothing else can be using. Several jobs share a runner and
+          # build concurrently, and buildkit refuses to export two images to one
+          # tag at once -- "already exists", which reads like a caching quirk
+          # and is a race between siblings. Deriving the tag from the PID and
+          # the nanosecond clock cannot collide, where an expression evaluated
+          # by the CI server can and did.
+          tag="ag-$$-$(date +%s%N)"
+          echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
+          echo "IMG=$tag" >> "$GITHUB_ENV"
+          docker build -f docker/Dockerfile.ci -t "$tag-base" .
+          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          docker run --rm "$tag" cat /etc/ci-toolchain.txt
+      - name: cppcheck, the whitelist grep and the timestamp grep
+        # `make lint`, not a second copy of the flags here. The two greps used
+        # to be steps of their own, written out in this file -- so they were
+        # gates a developer could not run, and one of them sat failing on main
+        # for two commits. They are inside `make lint` now.
+        #
+        # The four places a preprocessor conditional is permitted are config.h,
+        # a board profile, commands.def and src/hal/avr. Everywhere else a
+        # feature is gated by including or excluding a whole file. A gate whose
         # local and CI invocations differ is one a developer cannot
         # reproduce, and therefore one that gets argued with rather than
         # fixed. CI caught two findings my local run could not, for exactly
         # that reason.
         run: docker run --rm "$IMG" make lint
-      - name: no preprocessor conditionals outside the whitelist
-        # The four permitted places are config.h, a board profile, commands.def
-        # and src/hal/avr, plus the one toolchain shim in progmem.h. Everywhere
-        # else, a feature is gated by including or excluding a whole file from
-        # the object list. The cost of #if scattered through logic is that no
-        # single build is ever the one that was tested.
-        run: |
-          if grep -rn '^[[:space:]]*#[[:space:]]*if' src/core src/proto src/caps \
-               --include='*.c' | grep -v 'commands.def'; then
-            echo "preprocessor conditional outside the whitelist (see above)"; exit 1
-          fi
-          echo "no out-of-whitelist conditionals"
-      - name: no build timestamps in the image
-        # __DATE__ or __TIME__ anywhere would make the firmware unreproducible
-        # and its signed measurement uncomputable from source.
-        run: |
-          if grep -rn '__DATE__\|__TIME__' src/ boards/ include/; then
-            echo "a build timestamp would make the image unreproducible"; exit 1
-          fi
-          echo "no build timestamps"
       - name: vendored dependencies match their recorded hashes
         run: docker run --rm "$IMG" make verify-vendor
       - name: the C and Go wire vectors agree
@@ -102,13 +100,18 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          # Tagged per job. Several jobs share a runner and build concurrently,
-          # and buildkit refuses to export two images to one tag at once --
-          # "already exists", which reads like a caching quirk and is actually a
-          # race between siblings.
-          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
-          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
-          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
+          # A tag nothing else can be using. Several jobs share a runner and
+          # build concurrently, and buildkit refuses to export two images to one
+          # tag at once -- "already exists", which reads like a caching quirk
+          # and is a race between siblings. Deriving the tag from the PID and
+          # the nanosecond clock cannot collide, where an expression evaluated
+          # by the CI server can and did.
+          tag="ag-$$-$(date +%s%N)"
+          echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
+          echo "IMG=$tag" >> "$GITHUB_ENV"
+          docker build -f docker/Dockerfile.ci -t "$tag-base" .
+          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: make test
         run: docker run --rm "$IMG" make test
       - name: every board's descriptor, against its own profile
@@ -138,13 +141,18 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          # Tagged per job. Several jobs share a runner and build concurrently,
-          # and buildkit refuses to export two images to one tag at once --
-          # "already exists", which reads like a caching quirk and is actually a
-          # race between siblings.
-          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
-          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
-          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
+          # A tag nothing else can be using. Several jobs share a runner and
+          # build concurrently, and buildkit refuses to export two images to one
+          # tag at once -- "already exists", which reads like a caching quirk
+          # and is a race between siblings. Deriving the tag from the PID and
+          # the nanosecond clock cannot collide, where an expression evaluated
+          # by the CI server can and did.
+          tag="ag-$$-$(date +%s%N)"
+          echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
+          echo "IMG=$tag" >> "$GITHUB_ENV"
+          docker build -f docker/Dockerfile.ci -t "$tag-base" .
+          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: make test-asan
         # The codec is pointer-heavy parser code reached from untrusted bytes,
         # so this is where a memory bug will be. It has already caught one
@@ -178,13 +186,18 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          # Tagged per job. Several jobs share a runner and build concurrently,
-          # and buildkit refuses to export two images to one tag at once --
-          # "already exists", which reads like a caching quirk and is actually a
-          # race between siblings.
-          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
-          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
-          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
+          # A tag nothing else can be using. Several jobs share a runner and
+          # build concurrently, and buildkit refuses to export two images to one
+          # tag at once -- "already exists", which reads like a caching quirk
+          # and is a race between siblings. Deriving the tag from the PID and
+          # the nanosecond clock cannot collide, where an expression evaluated
+          # by the CI server can and did.
+          tag="ag-$$-$(date +%s%N)"
+          echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
+          echo "IMG=$tag" >> "$GITHUB_ENV"
+          docker build -f docker/Dockerfile.ci -t "$tag-base" .
+          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: build and enforce the size budget
         run: docker run --rm "$IMG" make firmware BOARD=${{ matrix.board }} CRYPTO=${{ matrix.crypto }}
       - name: reproducible build
@@ -222,13 +235,18 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          # Tagged per job. Several jobs share a runner and build concurrently,
-          # and buildkit refuses to export two images to one tag at once --
-          # "already exists", which reads like a caching quirk and is actually a
-          # race between siblings.
-          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
-          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
-          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
+          # A tag nothing else can be using. Several jobs share a runner and
+          # build concurrently, and buildkit refuses to export two images to one
+          # tag at once -- "already exists", which reads like a caching quirk
+          # and is a race between siblings. Deriving the tag from the PID and
+          # the nanosecond clock cannot collide, where an expression evaluated
+          # by the CI server can and did.
+          tag="ag-$$-$(date +%s%N)"
+          echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
+          echo "IMG=$tag" >> "$GITHUB_ENV"
+          docker build -f docker/Dockerfile.ci -t "$tag-base" .
+          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: run the real image under simavr
         # Tier 2. The unit tests prove the LOGIC is right on x86 against a mock
         # HAL; this runs the .elf that actually gets flashed, so it covers what
@@ -254,13 +272,18 @@ jobs:
         # it would silently break the reproducible-build check and move every
         # size-budget number. The toolchain has to be pinned, not borrowed.
         run: |
-          # Tagged per job. Several jobs share a runner and build concurrently,
-          # and buildkit refuses to export two images to one tag at once --
-          # "already exists", which reads like a caching quirk and is actually a
-          # race between siblings.
-          docker build -f docker/Dockerfile.ci -t "$IMG_BASE" .
-          printf 'FROM %s\nCOPY . /src\n' "$IMG_BASE" | docker build -t "$IMG" -f - .
-          docker run --rm "$IMG" cat /etc/ci-toolchain.txt
+          # A tag nothing else can be using. Several jobs share a runner and
+          # build concurrently, and buildkit refuses to export two images to one
+          # tag at once -- "already exists", which reads like a caching quirk
+          # and is a race between siblings. Deriving the tag from the PID and
+          # the nanosecond clock cannot collide, where an expression evaluated
+          # by the CI server can and did.
+          tag="ag-$$-$(date +%s%N)"
+          echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
+          echo "IMG=$tag" >> "$GITHUB_ENV"
+          docker build -f docker/Dockerfile.ci -t "$tag-base" .
+          printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
+          docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: gofmt and vet
         run: docker run --rm "$IMG" make sdk-lint
       - name: the Layer 0 invariant

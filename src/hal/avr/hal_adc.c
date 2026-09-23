@@ -3,6 +3,7 @@
 
 #include <avr/io.h>
 #include "ag/hal.h"
+#include "ag/config.h"
 
 static uint8_t ref_bits;   /* REFS1:REFS0, already positioned */
 
@@ -31,10 +32,21 @@ ag_status_t ag_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     uint8_t low;
 
-    if (channel > 7u) {
+    if (channel >= AG_ADC_COUNT) {
         return AG_ERR_BAD_PIN;
     }
-    ADMUX = (uint8_t)(ref_bits | (channel & 0x0Fu));
+    /* Channels above 7 live behind MUX5, which is in ADCSRB rather than ADMUX
+     * -- a part with eight channels has no such bit, so this is one of the few
+     * places the HAL is allowed a conditional. Writing the low three bits of
+     * the channel and forgetting MUX5 does not fail: it silently converts a
+     * DIFFERENT pin, which is the worst way for a sensor reading to be wrong. */
+#ifdef MUX5
+    if (channel > 7u) { ADCSRB |= (uint8_t)_BV(MUX5); }
+    else              { ADCSRB &= (uint8_t)~_BV(MUX5); }
+#endif
+    /* MUX2:0 select within the bank; MUX5 selects the bank. Channel 8 is
+     * bank 1 channel 0, not MUX3 -- MUX3 selects a DIFFERENTIAL pair. */
+    ADMUX = (uint8_t)(ref_bits | (channel & 0x07u));
     ADCSRA |= (uint8_t)_BV(ADSC);
     while (ADCSRA & _BV(ADSC)) {
         /* ~112 us at 125 kHz. Polled rather than interrupt-driven: the whole

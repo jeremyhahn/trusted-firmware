@@ -72,6 +72,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/attest.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
+                 src/core/board.c \
                  boards/$(HOST_BOARD)/board.c
 
 $(HOST_DIR):
@@ -131,3 +132,41 @@ clean-host:
 	@rm -rf $(HOST_DIR)
 
 .PHONY: test test-asan coverage clean-host agsim lint
+
+# ---------------------------------------------------------------- board sweep
+#
+# Every board's descriptor, each compiled against ITS OWN profile.
+#
+# The ordinary `make test` configures the host build for one board, so it proves
+# nothing about the others -- and a board whose table is never compiled is a
+# rung that checks nothing, which is the failure that looks most like success.
+# This builds one descriptor test per board, each with HOST_BOARD set to that
+# board, and runs them all.
+#
+# Only the board suite is swept. The capability suites assert against the 328P's
+# pin numbers on purpose; running them against a Mega would test the test.
+BOARDS := $(notdir $(wildcard boards/*))
+
+SWEEP_DIR := $(BUILD_DIR)/sweep
+
+## board-sweep: compile and run every board's descriptor test against its own profile
+board-sweep:
+	@fail=0; ran=0; \
+	for b in $(BOARDS); do \
+	  src=test/unit/test_board_$${b#atmega}.c; \
+	  [ -f "$$src" ] || src=test/unit/test_board_$$b.c; \
+	  if [ ! -f "$$src" ]; then \
+	    echo "MISSING: $$b has no descriptor test"; fail=1; continue; fi; \
+	  mkdir -p $(SWEEP_DIR); \
+	  $(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
+	     -Iinclude -Isrc -Isrc/core -Itest/mock -Iboards/$$b -I$(UNITY_DIR) \
+	     -DAG_BOARD_HEADER='"board_profile.h"' \
+	     -o $(SWEEP_DIR)/$$b "$$src" src/core/board.c boards/$$b/board.c \
+	     $(UNITY_DIR)/unity.c || { echo "BUILD FAILED: $$b"; fail=1; continue; }; \
+	  echo "--- $$b"; ./$(SWEEP_DIR)/$$b || fail=1; ran=$$((ran+1)); \
+	done; \
+	echo "board-sweep: $$ran board(s)"; \
+	[ "$$ran" -gt 0 ] || { echo "board-sweep swept nothing"; exit 1; }; \
+	exit $$fail
+
+.PHONY: board-sweep

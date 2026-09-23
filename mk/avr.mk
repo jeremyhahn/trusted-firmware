@@ -41,7 +41,7 @@ AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 AVR_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
-  src/core/reader.c src/core/writer.c src/core/dispatch.c \
+  src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board.c \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pwm.c src/caps/pulse.c src/caps/bus.c \

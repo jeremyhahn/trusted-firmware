@@ -112,6 +112,13 @@
 #define AG_EEPROM_SIZE 1024u
 #endif
 
+/* How many single-ended ADC channels the part has. The HAL bounds against this
+ * rather than a literal 8, because a Mega has sixteen and reading channel 12 on
+ * a part with eight must be refused rather than folded into channel 4. */
+#ifndef AG_ADC_COUNT
+#define AG_ADC_COUNT  8u
+#endif
+
 /* ----------------------------------------------------------------- sizing */
 
 /* The largest payload this build accepts or emits. Drives both frame buffers

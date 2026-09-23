@@ -1,10 +1,11 @@
 // arduino-generic/sdk/go -- the host side of the AVR wire protocol.
 //
 // A LAYER 0 ORDINARY LIBRARY, and the dependency list is the whole point.
-// go-xkms (Layer 3) and go-trusted-platform (Layer 5) both consume this, so it
-// must depend on nothing in the stack: a Layer 0 module that reached upward
-// would invert the graph and make itself unimportable by the very projects it
-// exists for.
+// Nothing imports it yet; go-xkms (Layer 3) and go-trusted-platform (Layer 5)
+// are the intended consumers, and both sit ABOVE it. So it must depend on
+// nothing in the stack: a Layer 0 module that reached upward would invert the
+// graph and make itself unimportable by the very projects it exists for --
+// which has to be true before they reach for it, not fixed afterwards.
 //
 // The comparison that makes this concrete: go-xkms/sdk/go resolves to 237
 // modules and go-quicbaas/sdk/go to 222, because each replaces in its parent

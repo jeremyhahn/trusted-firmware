@@ -20,6 +20,7 @@
 #include "ag/status.h"
 #include "ag/types.h"
 #include "ag/hal.h"
+#include "ag/config.h"
 
 #define AG_PORT_NONE 0x0Fu  /* the pin has no digital port (ADC-only) */
 #define AG_ADC_NONE  0xFFu
@@ -54,6 +55,26 @@ typedef struct {
     uint8_t pwm_idx;    /* index into the PWM table, or AG_PWM_NONE / AG_PWM_RSVD */
     uint8_t flags;
 } ag_pin_desc_t;
+
+/*
+ * The three tables every board supplies, and the ONLY thing a board supplies.
+ *
+ * The lookups below are identical on every classic AVR -- same packing, same
+ * PROGMEM reads, same bounds -- so they live once in src/core/board.c and the
+ * board directories hold nothing but data. Before this split each board carried
+ * its own copy of ninety lines of lookup, which is ninety lines that can differ
+ * between two boards for no reason anyone intended.
+ *
+ * Declared with an unspecified length on purpose: the counts come from the
+ * board profile, and a boardless translation unit including this header must
+ * not need them. The lengths are checked where they can be -- a _Static_assert
+ * beside each definition, which catches the table that has one fewer row than
+ * its AG_PIN_COUNT says and would otherwise zero-fill in silence and hand a
+ * host a pin mapped to port 0 bit 0.
+ */
+extern const ag_port_desc_t ag_board_ports[];
+extern const ag_pin_desc_t  ag_board_pins[];
+extern const ag_pwm_desc_t  ag_board_pwms[];
 
 /* Resolves a logical pin to hardware. Returns AG_ERR_BAD_PIN if the pin does
  * not exist on this board, and AG_ERR_UNSUPPORTED if it exists but has no

@@ -6,7 +6,7 @@
 #include "ag/progmem.h"
 #include "board_profile.h"
 
-static const ag_port_desc_t PORTS[AG_PORT_COUNT] AG_PROGMEM = {
+const ag_port_desc_t ag_board_ports[AG_PORT_COUNT] AG_PROGMEM = {
     { AG_ADDR_PINB },   /* 0 */
     { AG_ADDR_PINC },   /* 1 */
     { AG_ADDR_PIND },   /* 2 */
@@ -26,7 +26,7 @@ static const ag_port_desc_t PORTS[AG_PORT_COUNT] AG_PROGMEM = {
  *    absent from the DIP entirely; digital_write to either must fail rather
  *    than write into a port that is not there.
  */
-static const ag_pin_desc_t PINS[AG_PIN_COUNT] AG_PROGMEM = {
+const ag_pin_desc_t ag_board_pins[AG_PIN_COUNT] AG_PROGMEM = {
 /*  0  D0  PD0 RX   */ { AG_PB(2u, 0u), AG_ADC_NONE, AG_PWM_NONE, AG_PIN_DIGITAL | AG_PIN_IN_USE },
 /*  1  D1  PD1 TX   */ { AG_PB(2u, 1u), AG_ADC_NONE, AG_PWM_NONE, AG_PIN_DIGITAL | AG_PIN_IN_USE },
 /*  2  D2  PD2      */ { AG_PB(2u, 2u), AG_ADC_NONE, AG_PWM_NONE, AG_PIN_DIGITAL },
@@ -55,71 +55,19 @@ static const ag_pin_desc_t PINS[AG_PIN_COUNT] AG_PROGMEM = {
  * drives the millisecond tick, and the pin table marks pins 5 and 6 AG_PWM_RSVD
  * so CAPS can tell a host the difference between "no PWM here" and "this build
  * spent it on the clock". */
-static const ag_pwm_desc_t PWMS[AG_PWM_COUNT] AG_PROGMEM = {
+const ag_pwm_desc_t ag_board_pwms[AG_PWM_COUNT] AG_PROGMEM = {
 /* 0  OC2B, pin 3  */ { AG_ADDR_TCCR2A, AG_ADDR_OCR2B,  COM2B1_BIT, 0u },
 /* 1  OC1A, pin 9  */ { AG_ADDR_TCCR1A, AG_ADDR_OCR1AL, COM1A1_BIT, 1u },
 /* 2  OC1B, pin 10 */ { AG_ADDR_TCCR1A, AG_ADDR_OCR1BL, COM1B1_BIT, 1u },
 /* 3  OC2A, pin 11 */ { AG_ADDR_TCCR2A, AG_ADDR_OCR2A,  COM2A1_BIT, 0u },
 };
 
-ag_status_t ag_board_pwm(ag_pin_t pin, ag_pwmref_t *out)
-{
-    uint8_t idx;
-
-    if (pin >= AG_PIN_COUNT) {
-        return AG_ERR_BAD_PIN;
-    }
-    idx = ag_pgm_u8(&PINS[pin].pwm_idx);
-    if (idx == AG_PWM_NONE || idx == AG_PWM_RSVD) {
-        return AG_ERR_UNSUPPORTED;
-    }
-    out->tccra   = ag_pgm_u16(&PWMS[idx].tccra);
-    out->ocr     = ag_pgm_u16(&PWMS[idx].ocr);
-    out->com_bit = ag_pgm_u8(&PWMS[idx].com_bit);
-    out->is16    = ag_pgm_u8(&PWMS[idx].is16);
-    return AG_OK;
-}
-
-uint8_t ag_board_pin_count(void) { return AG_PIN_COUNT; }
-
-const char *ag_board_name(void) { return AG_BOARD_NAME; }
-
-ag_status_t ag_board_pin(ag_pin_t pin, ag_pinref_t *out)
-{
-    uint8_t pb, port;
-
-    if (pin >= AG_PIN_COUNT) {
-        return AG_ERR_BAD_PIN;
-    }
-    pb   = ag_pgm_u8(&PINS[pin].port_bit);
-    port = (uint8_t)(pb >> 4);
-    if (port == AG_PORT_NONE) {
-        return AG_ERR_UNSUPPORTED;   /* exists, but has no digital port */
-    }
-    out->port = ag_pgm_u16(&PORTS[port].pin_addr);
-    out->bit  = (uint8_t)(pb & 0x0Fu);
-    return AG_OK;
-}
-
-ag_status_t ag_board_adc_channel(ag_pin_t pin, uint8_t *out)
-{
-    uint8_t ch;
-
-    if (pin >= AG_PIN_COUNT) {
-        return AG_ERR_BAD_PIN;
-    }
-    ch = ag_pgm_u8(&PINS[pin].adc_ch);
-    if (ch == AG_ADC_NONE) {
-        return AG_ERR_UNSUPPORTED;
-    }
-    *out = ch;
-    return AG_OK;
-}
-
-uint8_t ag_board_pin_flags(ag_pin_t pin)
-{
-    if (pin >= AG_PIN_COUNT) {
-        return 0u;
-    }
-    return ag_pgm_u8(&PINS[pin].flags);
-}
+/* A table one row short of its declared count zero-fills in silence, and the
+ * missing pin then resolves to port 0 bit 0 -- a real pin, on a real port,
+ * that the host was never told about. These turn that into a compile error. */
+_Static_assert(sizeof ag_board_ports / sizeof ag_board_ports[0] == AG_PORT_COUNT,
+               "port table does not match AG_PORT_COUNT");
+_Static_assert(sizeof ag_board_pins / sizeof ag_board_pins[0] == AG_PIN_COUNT,
+               "pin table does not match AG_PIN_COUNT");
+_Static_assert(sizeof ag_board_pwms / sizeof ag_board_pwms[0] == AG_PWM_COUNT,
+               "PWM table does not match AG_PWM_COUNT");

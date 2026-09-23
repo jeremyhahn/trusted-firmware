@@ -111,6 +111,12 @@ jobs:
           docker run --rm "$IMG" cat /etc/ci-toolchain.txt
       - name: make test
         run: docker run --rm "$IMG" make test
+      - name: every board's descriptor, against its own profile
+        # `make test` configures the host build for ONE board, so on its own it
+        # says nothing about the others. A board whose table is never compiled
+        # is a rung that checks nothing, which is the failure that looks most
+        # like success.
+        run: docker run --rm "$IMG" make board-sweep
       - name: coverage
         run: docker run --rm "$IMG" make coverage
 

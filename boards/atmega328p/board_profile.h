@@ -60,25 +60,25 @@
  * Every classic AVR lays out PINx, DDRx, PORTx consecutively, so one address
  * locates all three.
  */
-/* Output-compare registers. Same reasoning as the ports: real addresses on the
- * device, the same numbers written out from the datasheet on the host, so the
- * table under test is the table that ships. */
-#ifdef __AVR__
-#include <avr/io.h>
-#define AG_ADDR_TCCR1A ((uint16_t)(uintptr_t)&TCCR1A)
-#define AG_ADDR_OCR1AL ((uint16_t)(uintptr_t)&OCR1AL)
-#define AG_ADDR_OCR1BL ((uint16_t)(uintptr_t)&OCR1BL)
-#define AG_ADDR_TCCR2A ((uint16_t)(uintptr_t)&TCCR2A)
-#define AG_ADDR_OCR2A  ((uint16_t)(uintptr_t)&OCR2A)
-#define AG_ADDR_OCR2B  ((uint16_t)(uintptr_t)&OCR2B)
-#else
+/* Register addresses.
+ *
+ * ONE definition, used by the device and by the host alike. The earlier
+ * arrangement had an #ifdef __AVR__ arm taking &PINB from <avr/io.h> and an
+ * #else arm with the number written out from the datasheet, which meant the
+ * table the tests verified was not provably the table that shipped -- the two
+ * arms could disagree and nothing would say so.
+ *
+ * Now the number is the only source, and avr-libc CHECKS it: the asserts at the
+ * bottom of this file compare every address against <avr/io.h> whenever this is
+ * compiled for AVR. A transposed digit is a compile error on the firmware
+ * build, naming the register.
+ */
 #define AG_ADDR_TCCR1A 0x80u
 #define AG_ADDR_OCR1AL 0x88u
 #define AG_ADDR_OCR1BL 0x8Au
 #define AG_ADDR_TCCR2A 0xB0u
 #define AG_ADDR_OCR2A  0xB3u
 #define AG_ADDR_OCR2B  0xB4u
-#endif
 
 /* COM bit positions within TCCRnA. Constants rather than <avr/io.h> symbols so
  * the table compiles on the host, where that header does not exist -- and the
@@ -89,14 +89,29 @@
 #define COM1B1_BIT 5u
 #define COM2A1_BIT 7u
 
-#ifdef __AVR__
-#define AG_ADDR_PINB ((uint16_t)(uintptr_t)&PINB)
-#define AG_ADDR_PINC ((uint16_t)(uintptr_t)&PINC)
-#define AG_ADDR_PIND ((uint16_t)(uintptr_t)&PIND)
-#else
 #define AG_ADDR_PINB 0x23u  /* DDRB 0x24, PORTB 0x25 */
 #define AG_ADDR_PINC 0x26u  /* DDRC 0x27, PORTC 0x28 */
 #define AG_ADDR_PIND 0x29u  /* DDRD 0x2A, PORTD 0x2B */
+
+/* The check. avr-libc is the authority on where these live; this asserts the
+ * numbers above against it, so the host tests and the shipped image cannot
+ * disagree about a single register. Costs nothing at run time and is the only
+ * preprocessor conditional a board profile needs. */
+#ifdef __AVR__
+#include <avr/io.h>
+_Static_assert(AG_ADDR_PINB   == _SFR_ADDR(PINB),   "PINB address");
+_Static_assert(AG_ADDR_PINC   == _SFR_ADDR(PINC),   "PINC address");
+_Static_assert(AG_ADDR_PIND   == _SFR_ADDR(PIND),   "PIND address");
+_Static_assert(AG_ADDR_TCCR1A == _SFR_ADDR(TCCR1A), "TCCR1A address");
+_Static_assert(AG_ADDR_OCR1AL == _SFR_ADDR(OCR1AL), "OCR1AL address");
+_Static_assert(AG_ADDR_OCR1BL == _SFR_ADDR(OCR1BL), "OCR1BL address");
+_Static_assert(AG_ADDR_TCCR2A == _SFR_ADDR(TCCR2A), "TCCR2A address");
+_Static_assert(AG_ADDR_OCR2A  == _SFR_ADDR(OCR2A),  "OCR2A address");
+_Static_assert(AG_ADDR_OCR2B  == _SFR_ADDR(OCR2B),  "OCR2B address");
+_Static_assert(COM2B1_BIT == COM2B1, "COM2B1 bit position");
+_Static_assert(COM1A1_BIT == COM1A1, "COM1A1 bit position");
+_Static_assert(COM1B1_BIT == COM1B1, "COM1B1 bit position");
+_Static_assert(COM2A1_BIT == COM2A1, "COM2A1 bit position");
 #endif
 
 #endif /* AG_BOARD_ATMEGA328P_H */

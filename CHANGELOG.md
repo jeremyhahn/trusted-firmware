@@ -85,6 +85,34 @@ Pre-1.0, MINOR carries breaking changes.
   by a factor of thirty-six and is corrected. No substitute primitive has been
   chosen; `docs/security/bootloader.md` records the measurement and the options.
 
+## [0.3.0-alpha] - 2026-09-23
+
+### Added
+
+- **UCCS evidence and a device-minted alias certificate.** The verifier's nonce
+  travels in `tcg-dice-UCCS-evidence` — the mechanism TCG DICE r23 §6.1.4
+  defines — rather than a repurposed field, so any conforming DICE verifier can
+  find it. The device builds the whole TBSCertificate from a PROGMEM template
+  and signs it; it does not sign bytes a host supplied, because a device that
+  did could not know what it had attested to.
+- **`Device.Attest` and `Device.AttestCert` in `sdk/go`**, which page internally.
+  Without them a consumer could not reach either command without copying this
+  project's wire format into itself.
+
+### Fixed
+
+- **`Device.ProvInfo` panicked on every legal reply** — it bounds-checked at 36
+  bytes and then indexed 90 and 91 for lock bytes that live in config block 2,
+  which the firmware never read. `provision.go` had no test; it does now.
+- **`make ci` built one board while CI built six.** A change that overflowed the
+  ATmega32U4 passed locally and went red on the server. `firmware-matrix` builds
+  every board and tier.
+
+### Changed
+
+- **The `PROV_INFO` reply is 38 bytes, not 36** — the two lock bytes are
+  explicit. An older 36-byte reply is refused rather than read past.
+
 ## [0.2.0-alpha] - 2026-09-23
 
 ### Added

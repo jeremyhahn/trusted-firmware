@@ -113,6 +113,27 @@
 #define AG_CMD_AUTH_CHALLENGE    0x61u
 #define AG_CMD_AUTH_RESPONSE     0x62u
 
+/* provisioning -- PRESENT ONLY IN A PROVISIONING BUILD
+ *
+ * AG_FEATURE_PROVISION defaults to 0 and a production image therefore contains
+ * no handler for any of these: the dispatch table has no entry, the translation
+ * unit is not compiled, and a fielded device answers AG_ERR_UNKNOWN_CMD. That
+ * is the point. Provisioning writes a device's identity, and a device that
+ * could be re-provisioned over its own command channel has no identity worth
+ * attesting to -- the attacker who reaches the serial port becomes the
+ * manufacturer.
+ *
+ * So these ids are reserved on the wire, permanently, and unimplemented almost
+ * everywhere. Reserving them rather than reusing the range keeps a provisioning
+ * host and a production device from ever misunderstanding each other.
+ */
+#define AG_CMD_PROV_INFO         0x70u  /* element revision, serial, lock state */
+#define AG_CMD_PROV_WRITE_CONFIG 0x71u  /* a 32-byte block of the config zone */
+#define AG_CMD_PROV_LOCK         0x72u  /* irreversible; zone in the payload */
+#define AG_CMD_PROV_GENKEY       0x73u  /* DeviceID keypair in its slot */
+#define AG_CMD_PROV_PUBKEY       0x74u  /* read back the public point */
+#define AG_CMD_PROV_SEED_UDS     0x75u  /* UDS from the element's own TRNG */
+
 /* ------------------------------------------------------ signature algorithms */
 /* Carried in the AlgID byte of an attestation frame. Both ECDSA P-256 (r||s)
  * and Ed25519 (R||S) are exactly 64 raw bytes, so the frame layout does not

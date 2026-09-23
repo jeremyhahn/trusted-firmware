@@ -58,7 +58,8 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 # ELEMENT rather than the mock HAL, because both define ag_hal_i2c_xfer and the
 # whole point is that the driver talks to something that behaves like the part.
 # It gets its own rule below.
-TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c, \
+TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
+                            test/unit/test_provision.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -106,9 +107,17 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c test/model/atecc608a.c \
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Provisioning, same arrangement and the same reason: it drives the element, so
+# the software element is its I2C HAL.
+$(HOST_DIR)/test_provision: test/unit/test_provision.c test/model/atecc608a.c \
+                            src/caps/provision.c src/core/reader.c src/core/writer.c \
+                            src/crypto/atecc608a/atecc.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	   -DAG_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
 ## test: build and run the host unit tests
-test: $(TEST_BINS) $(HOST_DIR)/test_atecc
-	@fail=0; for t in $(TEST_BINS) $(HOST_DIR)/test_atecc; do \
+test: $(TEST_BINS) $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision
+	@fail=0; for t in $(TEST_BINS) $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision; do \
 	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
 
 ## test-asan: run the host unit tests under AddressSanitizer and UBSan

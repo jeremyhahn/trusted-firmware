@@ -55,15 +55,37 @@ static uint32_t counter0;
 static uint8_t  rsp[70];
 static uint8_t  rsp_len;
 
+/* The zones, enough of them to answer Read and Write honestly.
+ *
+ * 128 bytes of config is the real size; sixteen 32-byte data slots is what the
+ * part has. Modelling them at all is what lets the provisioning tests assert
+ * that a write LANDED and that a locked zone refuses -- which is the behaviour
+ * that decides whether a real part survives the procedure. */
+static uint8_t  config[128];
+static uint8_t  slots[16][32];
+static uint8_t  config_locked;
+static uint8_t  data_locked;
+
 void ag_model_reset(void)
 {
     awake = 0u; provisioned = 0u; has_key = 0u; busy_reads = 0u;
     forced_status = 0u; last_opcode = 0u; counter0 = 0u;
     rsp_len = 0u;
     memset(rsp, 0, sizeof rsp);
+    memset(config, 0, sizeof config);
+    memset(slots, 0, sizeof slots);
+    config_locked = 0u; data_locked = 0u;
+    /* A blank part's identifying bytes, so Read returns something a host can
+     * recognise rather than zeros it might mistake for a failed read. */
+    config[0] = 0x01u; config[1] = 0x23u; config[2] = 0x45u; config[3] = 0x67u;
+    config[86] = 0x55u;   /* config zone unlocked */
+    config[87] = 0x55u;   /* data zone unlocked */
 }
 
 void ag_model_provision(void)  { provisioned = 1u; has_key = 1u; }
+uint8_t ag_model_config_locked(void) { return config_locked; }
+uint8_t ag_model_data_locked(void)   { return data_locked; }
+const uint8_t *ag_model_slot(uint8_t n) { return n < 16u ? slots[n] : 0; }
 void ag_model_set_busy(uint8_t reads)   { busy_reads = reads; }
 void ag_model_force_status(uint8_t st)  { forced_status = st; }
 void ag_model_set_counter(uint32_t v)   { counter0 = v; }
@@ -175,6 +197,66 @@ static void handle_command(const uint8_t *p, uint8_t n)
         }
         for (i = 0u; i < 64u; i++) { body[i] = (uint8_t)(0x11u + i); }
         respond(body, 64u);
+        return;
+
+    case AG_ATECC_OP_READ: {
+        /* param1 carries the zone and the 32-vs-4-byte bit; param2 is a word
+         * address, and a 32-byte read is eight words. */
+        uint16_t off = (uint16_t)(param2 * 4u);
+        if ((param1 & AG_ATECC_ZONE_32) == 0u) { respond_status(0x03u); return; }
+        if ((param1 & 0x03u) == AG_ATECC_ZONE_CONFIG) {
+            if (off + 32u > sizeof config) { respond_status(0x03u); return; }
+            memcpy(body, &config[off], 32u);
+            respond(body, 32u);
+            return;
+        }
+        /* A never-readable slot refuses, which is the behaviour the whole
+         * design rests on. The model refuses because it is told to; on silicon
+         * the slot configuration enforces it. */
+        respond_status(0x0Fu);
+        return;
+    }
+
+    case AG_ATECC_OP_WRITE: {
+        uint16_t off = (uint16_t)(param2 * 4u);
+        if ((param1 & AG_ATECC_ZONE_32) == 0u) { respond_status(0x03u); return; }
+        if ((param1 & 0x03u) == AG_ATECC_ZONE_CONFIG) {
+            if (config_locked)               { respond_status(0x0Fu); return; }
+            if (off + 32u > sizeof config)   { respond_status(0x03u); return; }
+            memcpy(&config[off], &p[6], 32u);
+            respond_status(0x00u);
+            return;
+        }
+        /* A data-zone write addresses a slot; the UDS write uses TempKey as its
+         * source, so what lands is what Nonce loaded rather than what the
+         * packet carried. Modelling that is the point -- it is how the test can
+         * assert the secret never crossed the wire. */
+        if (data_locked) { respond_status(0x0Fu); return; }
+        if (param2 >> 3 < 16u) {
+            memcpy(slots[param2 >> 3], ag_model_tempkey(), 32u);
+            respond_status(0x00u);
+            return;
+        }
+        respond_status(0x03u);
+        return;
+    }
+
+    case AG_ATECC_OP_LOCK:
+        /* The summary CRC is in param2. A zero would be the no-CRC form, which
+         * the firmware refuses before it ever reaches here -- so the model
+         * treats it as the parse error the part would give. */
+        if (param2 == 0u) { respond_status(0x03u); return; }
+        if (param1 == AG_ATECC_LOCK_CONFIG) {
+            if (config_locked) { respond_status(0x0Fu); return; }
+            config_locked = 1u; config[86] = 0x00u;
+        } else if (param1 == AG_ATECC_LOCK_DATA) {
+            if (!config_locked || data_locked) { respond_status(0x0Fu); return; }
+            data_locked = 1u; config[87] = 0x00u;
+        } else {
+            respond_status(0x03u);
+            return;
+        }
+        respond_status(0x00u);
         return;
 
     case AG_ATECC_OP_COUNTER:

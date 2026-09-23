@@ -8,40 +8,15 @@
 
 #include "ag/hal.h"
 #include "ag/config.h"
+#include "hal_early.h"
 
 extern int  __bss_end;
 extern int *__brkval;
 
-static uint8_t reset_flags;
-
-/*
- * THE EARLIEST CODE THAT RUNS.
- *
- * .init3 executes before the C runtime has zeroed .bss and long before main().
- * Two things must happen here and cannot happen later.
- *
- * MCUSR must be READ AND CLEARED. It is the only record of why the part
- * restarted, and it is not cleared by reset -- the flags accumulate. A build
- * that reads it in main() sees a value polluted by every previous restart.
- *
- * The WATCHDOG MUST BE DISARMED. On every classic AVR a watchdog reset leaves
- * WDE set and the prescaler at its shortest interval, so the part resets again
- * before it can reach main() and disable it. The result is a board that
- * bootloops forever and looks dead -- and the only way out is a power cycle
- * plus an ISP, which on a soldered-down device means a trip with a
- * screwdriver. This is the single most common way to brick an AVR in the
- * field, and three instructions here prevent it.
- *
- * `used` and `naked` because nothing calls this: the linker places it, and a
- * prologue would be wasted.
- */
-void ag_hal_early_init(void) __attribute__((naked, used, section(".init3")));
-void ag_hal_early_init(void)
-{
-    reset_flags = MCUSR;
-    MCUSR       = 0u;
-    wdt_disable();
-}
+/* The .init3 early init lives in hal_early.c, which the BOOTLOADER links too.
+ * Sharing it rather than keeping a copy here is what makes "clear MCUSR and
+ * disarm the watchdog" one sequence in the tree instead of two that can drift.
+ * See that file for why those three instructions cannot happen later. */
 
 ag_status_t ag_hal_init(void)
 {
@@ -57,10 +32,10 @@ ag_reset_cause_t ag_hal_reset_cause(void)
     /* Checked most-specific first. A brownout during a watchdog reset sets
      * both, and the brownout is the more useful thing to report -- it names a
      * power problem rather than a software one. */
-    if (reset_flags & _BV(WDRF))  { return AG_RESET_WATCHDOG; }
-    if (reset_flags & _BV(BORF))  { return AG_RESET_BROWNOUT; }
-    if (reset_flags & _BV(EXTRF)) { return AG_RESET_EXTERNAL; }
-    if (reset_flags & _BV(PORF))  { return AG_RESET_POWER_ON; }
+    if (ag_hal_early_flags & _BV(WDRF))  { return AG_RESET_WATCHDOG; }
+    if (ag_hal_early_flags & _BV(BORF))  { return AG_RESET_BROWNOUT; }
+    if (ag_hal_early_flags & _BV(EXTRF)) { return AG_RESET_EXTERNAL; }
+    if (ag_hal_early_flags & _BV(PORF))  { return AG_RESET_POWER_ON; }
     return AG_RESET_UNKNOWN;
 }
 

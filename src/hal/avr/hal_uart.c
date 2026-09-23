@@ -7,45 +7,10 @@
 #include "ag/hal.h"
 #include "ag/config.h"
 
-/*
- * WHICH USART, and why this is not a literal.
- *
- * Three parts, three answers. The 328P and the Mega talk over USART0; the
- * 32U4's TTL pins are USART1, because its USART0 is the USB peripheral and this
- * firmware does not implement CDC. So the register names differ by an index the
- * board profile supplies, and everything below is pasted from it.
- *
- * The interrupt VECTOR names are given explicitly by the profile rather than
- * pasted, because avr-libc is not consistent about them: the 328P spells it
- * USART_RX_vect with no index at all, the Mega spells the same interrupt
- * USART0_RX_vect. Pasting would silently produce a name that does not exist,
- * and a misspelled ISR is not a link error -- it compiles to an ordinary
- * function nothing calls, the vector stays at its default, and the symptom is a
- * device that never answers. avr-gcc warns about it, and -Werror turns that
- * warning into the build break it deserves to be.
- */
-#define AG_CAT_(a, b)      a##b
-#define AG_CAT(a, b)       AG_CAT_(a, b)
-/* Three-way paste in one step. Nesting AG_CAT inside itself does NOT work:
- * ## suppresses expansion of its own operands, so the outer paste sees the
- * literal text "AG_CAT(UCSR, AG_UART_N)" and tries to glue ")" to "A". */
-#define AG_CAT3_(a, b, c)  a##b##c
-#define AG_CAT3(a, b, c)   AG_CAT3_(a, b, c)
-
-#define AG_UDR    AG_CAT(UDR,  AG_UART_N)
-#define AG_UCSRA  AG_CAT3(UCSR, AG_UART_N, A)
-#define AG_UCSRB  AG_CAT3(UCSR, AG_UART_N, B)
-#define AG_UCSRC  AG_CAT3(UCSR, AG_UART_N, C)
-#define AG_UBRRH  AG_CAT3(UBRR, AG_UART_N, H)
-#define AG_UBRRL  AG_CAT3(UBRR, AG_UART_N, L)
-#define AG_U2X    AG_CAT(U2X,   AG_UART_N)
-#define AG_UCSZ0  AG_CAT3(UCSZ, AG_UART_N, 0)
-#define AG_UCSZ1  AG_CAT3(UCSZ, AG_UART_N, 1)
-#define AG_RXEN   AG_CAT(RXEN,  AG_UART_N)
-#define AG_TXEN   AG_CAT(TXEN,  AG_UART_N)
-#define AG_RXCIE  AG_CAT(RXCIE, AG_UART_N)
-#define AG_UDRIE  AG_CAT(UDRIE, AG_UART_N)
-#define AG_TXC    AG_CAT(TXC,   AG_UART_N)
+/* The USART register names come from avr_usart_regs.h, which the bootloader
+ * includes too -- see that file for why they are pasted from AG_UART_N and why
+ * the interrupt vector names are not. */
+#include "avr_usart_regs.h"
 
 /*
  * Interrupt-driven USART with two single-producer/single-consumer rings.

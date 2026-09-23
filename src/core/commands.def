@@ -83,3 +83,18 @@ AG_CMD_ENTRY(AG_CMD_ONEWIRE_READ,  ONEWIRE_READ,  ag_ow_cmd_read,  2u, 2u)
 #if AG_FEATURE_ATTEST
 AG_CMD_ENTRY(AG_CMD_ATTEST, ATTEST, ag_attest_cmd, 1u, AG_ATTEST_NONCE_LEN)
 #endif
+
+/* ---- provisioning: a jig image only, never a production one ----
+ *
+ * AG_FEATURE_PROVISION defaults to 0 in config.h, so a fielded device has no
+ * entry here and answers AG_ERR_UNKNOWN_CMD. See src/caps/provision.c: a device
+ * that can be re-provisioned over its own command channel has no identity worth
+ * attesting to. */
+#if AG_FEATURE_PROVISION
+AG_CMD_ENTRY(AG_CMD_PROV_INFO,         PROV_INFO,         ag_prov_cmd_info,          0u,  0u)
+AG_CMD_ENTRY(AG_CMD_PROV_WRITE_CONFIG, PROV_WRITE_CONFIG, ag_prov_cmd_write_config, 33u, 33u)
+AG_CMD_ENTRY(AG_CMD_PROV_LOCK,         PROV_LOCK,         ag_prov_cmd_lock,          3u,  3u)
+AG_CMD_ENTRY(AG_CMD_PROV_GENKEY,       PROV_GENKEY,       ag_prov_cmd_genkey,        1u,  1u)
+AG_CMD_ENTRY(AG_CMD_PROV_PUBKEY,       PROV_PUBKEY,       ag_prov_cmd_pubkey,        1u,  1u)
+AG_CMD_ENTRY(AG_CMD_PROV_SEED_UDS,     PROV_SEED_UDS,     ag_prov_cmd_seed_uds,      1u,  1u)
+#endif

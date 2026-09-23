@@ -11,6 +11,7 @@
 #include "../caps/pwm.h"
 #include "../caps/pulse.h"
 #include "../caps/bus.h"
+#include "../caps/provision.h"
 #include "../caps/storage.h"
 #include "../caps/attest.h"
 

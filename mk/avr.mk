@@ -19,6 +19,19 @@ BOARD_DIR  := boards/$(BOARD)
 TONE_SRCS := $(shell grep -q 'define AG_FEATURE_TONE 0' $(BOARD_DIR)/board_profile.h \
                      && echo "" || echo "src/caps/tone.c src/hal/avr/hal_tone.c")
 
+# Provisioning commands are a JIG image, never a production one. The gate is
+# file selection: PROVISION=1 compiles the translation unit and defines the
+# feature, and anything else leaves a production image with no handler at all --
+# not a disabled one, not one behind a check an attacker can argue with.
+PROVISION ?= 0
+ifeq ($(PROVISION),1)
+PROV_SRCS  := src/caps/provision.c
+PROV_DEFS  := -DAG_FEATURE_PROVISION=1
+else
+PROV_SRCS  :=
+PROV_DEFS  :=
+endif
+
 CRYPTO ?= soft
 ifeq ($(CRYPTO),soft)
 CRYPTO_SRCS := src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
@@ -28,7 +41,7 @@ else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected soft or atecc608a)
 endif
 
-AVR_DIR    := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)
+AVR_DIR    := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)
 TARGET     := $(AVR_DIR)/arduino-generic
 
 CC_AVR     := avr-gcc
@@ -51,7 +64,7 @@ AVR_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
               -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
               -ffile-prefix-map=$(CURDIR)=. \
               -Iinclude -Isrc -Isrc/crypto -I$(BOARD_DIR) \
-              -DAG_BOARD_HEADER='"board_profile.h"'
+              -DAG_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS)
 
 AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 
@@ -72,7 +85,7 @@ AVR_SRCS := $(sort \
   src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board.c \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
-  src/caps/pwm.c src/caps/pulse.c src/caps/bus.c $(TONE_SRCS) \
+  src/caps/pwm.c src/caps/pulse.c src/caps/bus.c $(TONE_SRCS) $(PROV_SRCS) \
   src/crypto/sha256.c $(CRYPTO_SRCS) \
   $(BOARD_DIR)/board.c \
   $(filter-out src/hal/avr/hal_tone.c,$(wildcard src/hal/avr/*.c)))

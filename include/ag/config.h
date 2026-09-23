@@ -75,6 +75,18 @@
 #ifndef AG_FEATURE_DEADMAN
 #define AG_FEATURE_DEADMAN     0   /* opt-in: safe for a pump, wrong for a lamp */
 #endif
+/* Provisioning commands. DEFAULT 0, AND THE DEFAULT IS THE SECURITY PROPERTY.
+ *
+ * A production image contains no provisioning handler at all -- not a disabled
+ * one, not one behind an authentication check. A device that can be
+ * re-provisioned over its own command channel has no identity worth attesting
+ * to, because whoever reaches the serial port becomes the manufacturer.
+ *
+ * Turned on only for the image flashed on a provisioning jig, which is
+ * replaced by the production image before the part leaves the bench. */
+#ifndef AG_FEATURE_PROVISION
+#define AG_FEATURE_PROVISION   0
+#endif
 
 /* The bitmap CAPS reports. Derived, never hand-maintained -- a hand-written
  * copy of this drifts from the gates above and then the host is told the
@@ -91,7 +103,8 @@
     | ((uint32_t)AG_FEATURE_SPI     <<  8) \
     | ((uint32_t)AG_FEATURE_ONEWIRE <<  9) \
     | ((uint32_t)AG_FEATURE_ATTEST  << 10) \
-    | ((uint32_t)AG_FEATURE_DEADMAN << 11) )
+    | ((uint32_t)AG_FEATURE_DEADMAN << 11) \
+    | ((uint32_t)AG_FEATURE_PROVISION << 12) )
 
 /* ------------------------------------------------------- board identity */
 /* A board profile supplies these. The host build has no board and takes the

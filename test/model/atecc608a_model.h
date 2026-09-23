@@ -18,5 +18,11 @@ void     ag_model_set_counter(uint32_t v);
 uint8_t  ag_model_last_opcode(void);
 uint8_t  ag_model_is_awake(void);
 uint8_t *ag_model_tempkey(void);
+uint8_t  ag_model_config_locked(void);
+uint8_t  ag_model_data_locked(void);
+/* The slot's contents, so a test can assert that what landed is what the
+ * ELEMENT produced rather than anything the host sent. Returns NULL for a slot
+ * the part does not have. */
+const uint8_t *ag_model_slot(uint8_t n);
 
 #endif /* AG_ATECC_MODEL_H */

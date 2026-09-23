@@ -6,6 +6,7 @@
 #include "ag/config.h"
 #include "ag/hal.h"
 #include "ag/crypto.h"
+#include "ag/board.h"
 #include "../core/dispatch.h"
 
 /* Bumped by hand when the firmware is released; distinct from the protocol
@@ -43,12 +44,38 @@ uint8_t ag_sys_reset_pending(void)
 ag_status_t ag_sys_cmd_caps(ag_reader_t *r, ag_writer_t *w)
 {
     if (ag_reader_remaining(r) == 1u) {
-        uint8_t pin = ag_read_u8(r);
-        /* Per-pin descriptors arrive with the board layer. Until then the
-         * honest answer is that this build has no pins, not a fabricated
-         * descriptor. */
-        (void)pin;
-        return AG_ERR_UNSUPPORTED;
+        /*
+         * A pin page. Five bytes per pin, asked for one pin at a time, because
+         * an ATmega2560's full table is 350 bytes and fits in no frame this
+         * protocol defines.
+         *
+         * The PWM byte distinguishes three states, not two: the pin has an
+         * output-compare unit, it has none, or it has one that this build spent
+         * on the millisecond tick. A host that cannot tell the last two apart
+         * will move a load to a different pin when the right fix is a different
+         * build.
+         */
+        uint8_t     pin = ag_read_u8(r);
+        uint8_t     adc = AG_ADC_NONE;
+        ag_pinref_t ref;
+        ag_pwmref_t pwm;
+        uint8_t     flags = ag_board_pin_flags(pin);
+
+        if (pin >= ag_board_pin_count()) {
+            return AG_ERR_BAD_PIN;
+        }
+        (void)ag_board_adc_channel(pin, &adc);
+        ag_write_u8(w, pin);
+        ag_write_u8(w, flags);
+        /* The port index and bit, as the board packs them, or 0xFF for a pin
+         * with no digital port at all -- an ADC-only input, which can be read
+         * and never written. */
+        ag_write_u8(w, ag_board_pin(pin, &ref) == AG_OK
+                           ? (uint8_t)((ref.bit & 0x0Fu) | 0xA0u) : 0xFFu);
+        ag_write_u8(w, adc);
+        ag_write_u8(w, ag_board_pwm(pin, &pwm) == AG_OK ? 1u
+                       : ((flags & AG_PIN_PWM) ? 2u : 0u));
+        return AG_OK;
     }
 
     ag_write_u8(w,  AG_PROTO_VERSION_MAJOR);
@@ -64,6 +91,10 @@ ag_status_t ag_sys_cmd_caps(ag_reader_t *r, ag_writer_t *w)
      * before it decides what any evidence from this device is worth. */
     ag_write_u8(w,  (uint8_t)ag_crypto_tier());
     ag_write_u32(w, AG_FEATURE_BITMAP);
+    /* Which signature algorithms the provider can actually perform. Appended
+     * after the feature bitmap so a host built against the earlier header stops
+     * reading where it always did, rather than misparsing the tail. */
+    ag_write_u16(w, ag_crypto_algorithms());
     return AG_OK;
 }
 

@@ -36,7 +36,7 @@ HOST_EXTRA_DEFS ?= -DAG_FEATURE_ATTEST=1
 HOST_CFLAGS := -std=c11 -g -O1 \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
-               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Isrc/crypto/soft -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
+               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Isrc/crypto -Isrc/crypto/soft -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
                -DAG_BOARD_HEADER='"board_profile.h"' $(HOST_EXTRA_DEFS)
 
 
@@ -49,7 +49,12 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 
 # One binary per test file: Unity's convention, and it means a segfault in one
 # suite cannot take the others' results with it.
-TEST_SRCS   := $(wildcard test/unit/test_*.c)
+# The board descriptor suites are excluded here and run by `make board-sweep`
+# instead. Each asserts against ITS OWN board's profile, and this build is
+# configured for exactly one board -- compiling a Mega's test against the 328P's
+# header fails on a register the 328P does not have, which is correct behaviour
+# reported as a build break.
+TEST_SRCS   := $(filter-out test/unit/test_board_%.c,$(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
 # Production sources reachable from the host build. Grows as layers land.
@@ -64,10 +69,11 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/sched.c \
                  src/caps/analog.c \
                  src/caps/pwm.c \
+                 src/caps/tone.c \
                  src/caps/pulse.c \
                  src/caps/bus.c \
                  src/caps/storage.c \
-                 src/crypto/soft/sha256.c \
+                 src/crypto/sha256.c \
                  src/crypto/soft/provider.c \
                  src/caps/attest.c \
                  test/mock/hal_mock.c \

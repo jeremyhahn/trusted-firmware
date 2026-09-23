@@ -29,7 +29,7 @@ AVR_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
               -Wall -Wextra -Werror -Wconversion -Wshadow \
               -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
               -ffile-prefix-map=$(CURDIR)=. \
-              -Iinclude -Isrc -I$(BOARD_DIR) \
+              -Iinclude -Isrc -Isrc/crypto -I$(BOARD_DIR) \
               -DAG_BOARD_HEADER='"board_profile.h"'
 
 AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
@@ -38,16 +38,38 @@ AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 # wildcard's order depends on the filesystem -- which would make the
 # reproducibility check pass on one machine and fail on another for no reason
 # anyone could see.
+# The crypto tier is a LINK-TIME choice, exactly as the HAL is. One provider is
+# linked per image; there is no runtime selection and no vtable, so an image
+# built for the software tier cannot be talked into using an element it does not
+# have, and --gc-sections keeps working.
+#
+#   CRYPTO=soft      SHA-256 and HMAC in software, UDS in boot-section flash
+#   CRYPTO=atecc608a the element holds the UDS and signs; DICE-HW
+# Tone is optional and gated by FILE SELECTION, not by #if inside a file: the
+# ATmega32U4 has no Timer2 and sets AG_FEATURE_TONE 0, so its image must not
+# contain the tone path at all rather than contain a disabled copy of it.
+TONE_SRCS := $(shell grep -q 'define AG_FEATURE_TONE 0' $(BOARD_DIR)/board_profile.h \
+                     && echo "" || echo "src/caps/tone.c src/hal/avr/hal_tone.c")
+
+CRYPTO ?= soft
+ifeq ($(CRYPTO),soft)
+CRYPTO_SRCS := src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
+else ifeq ($(CRYPTO),atecc608a)
+CRYPTO_SRCS := src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
+else
+$(error unknown CRYPTO tier "$(CRYPTO)" -- expected soft or atecc608a)
+endif
+
 AVR_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
   src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board.c \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
-  src/caps/pwm.c src/caps/pulse.c src/caps/bus.c \
-  $(wildcard src/crypto/soft/*.c) \
+  src/caps/pwm.c src/caps/pulse.c src/caps/bus.c $(TONE_SRCS) \
+  src/crypto/sha256.c $(CRYPTO_SRCS) \
   $(BOARD_DIR)/board.c \
-  $(wildcard src/hal/avr/*.c))
+  $(filter-out src/hal/avr/hal_tone.c,$(wildcard src/hal/avr/*.c)))
 
 AVR_OBJS := $(patsubst %.c,$(AVR_DIR)/%.o,$(AVR_SRCS))
 

@@ -8,6 +8,46 @@
 #include "ag/config.h"
 
 /*
+ * WHICH USART, and why this is not a literal.
+ *
+ * Three parts, three answers. The 328P and the Mega talk over USART0; the
+ * 32U4's TTL pins are USART1, because its USART0 is the USB peripheral and this
+ * firmware does not implement CDC. So the register names differ by an index the
+ * board profile supplies, and everything below is pasted from it.
+ *
+ * The interrupt VECTOR names are given explicitly by the profile rather than
+ * pasted, because avr-libc is not consistent about them: the 328P spells it
+ * USART_RX_vect with no index at all, the Mega spells the same interrupt
+ * USART0_RX_vect. Pasting would silently produce a name that does not exist,
+ * and a misspelled ISR is not a link error -- it compiles to an ordinary
+ * function nothing calls, the vector stays at its default, and the symptom is a
+ * device that never answers. avr-gcc warns about it, and -Werror turns that
+ * warning into the build break it deserves to be.
+ */
+#define AG_CAT_(a, b)      a##b
+#define AG_CAT(a, b)       AG_CAT_(a, b)
+/* Three-way paste in one step. Nesting AG_CAT inside itself does NOT work:
+ * ## suppresses expansion of its own operands, so the outer paste sees the
+ * literal text "AG_CAT(UCSR, AG_UART_N)" and tries to glue ")" to "A". */
+#define AG_CAT3_(a, b, c)  a##b##c
+#define AG_CAT3(a, b, c)   AG_CAT3_(a, b, c)
+
+#define AG_UDR    AG_CAT(UDR,  AG_UART_N)
+#define AG_UCSRA  AG_CAT3(UCSR, AG_UART_N, A)
+#define AG_UCSRB  AG_CAT3(UCSR, AG_UART_N, B)
+#define AG_UCSRC  AG_CAT3(UCSR, AG_UART_N, C)
+#define AG_UBRRH  AG_CAT3(UBRR, AG_UART_N, H)
+#define AG_UBRRL  AG_CAT3(UBRR, AG_UART_N, L)
+#define AG_U2X    AG_CAT(U2X,   AG_UART_N)
+#define AG_UCSZ0  AG_CAT3(UCSZ, AG_UART_N, 0)
+#define AG_UCSZ1  AG_CAT3(UCSZ, AG_UART_N, 1)
+#define AG_RXEN   AG_CAT(RXEN,  AG_UART_N)
+#define AG_TXEN   AG_CAT(TXEN,  AG_UART_N)
+#define AG_RXCIE  AG_CAT(RXCIE, AG_UART_N)
+#define AG_UDRIE  AG_CAT(UDRIE, AG_UART_N)
+#define AG_TXC    AG_CAT(TXC,   AG_UART_N)
+
+/*
  * Interrupt-driven USART with two single-producer/single-consumer rings.
  *
  * NO LOCKS, and none are needed. Each ring has exactly one writer and one
@@ -50,18 +90,18 @@ ag_status_t ag_hal_uart_init(uint32_t baud)
      * halves it to 2.1% and the link works. */
     uint16_t ubrr = (uint16_t)((F_CPU / (8UL * baud)) - 1UL);
 
-    UBRR0H = (uint8_t)(ubrr >> 8);
-    UBRR0L = (uint8_t)(ubrr & 0xFFu);
-    UCSR0A = (uint8_t)_BV(U2X0);
-    UCSR0C = (uint8_t)(_BV(UCSZ01) | _BV(UCSZ00));          /* 8N1 */
-    UCSR0B = (uint8_t)(_BV(RXEN0) | _BV(TXEN0) | _BV(RXCIE0));
+    AG_UBRRH = (uint8_t)(ubrr >> 8);
+    AG_UBRRL = (uint8_t)(ubrr & 0xFFu);
+    AG_UCSRA = (uint8_t)_BV(AG_U2X);
+    AG_UCSRC = (uint8_t)(_BV(AG_UCSZ1) | _BV(AG_UCSZ0));          /* 8N1 */
+    AG_UCSRB = (uint8_t)(_BV(AG_RXEN) | _BV(AG_TXEN) | _BV(AG_RXCIE));
     rx_head = rx_tail = tx_head = tx_tail = 0u;
     return AG_OK;
 }
 
-ISR(USART_RX_vect)
+ISR(AG_UART_RX_VECT)
 {
-    uint8_t d    = UDR0;
+    uint8_t d    = AG_UDR;
     uint8_t next = (uint8_t)((rx_head + 1u) & (AG_UART_RX_RING - 1u));
 
     /* A full ring drops the byte rather than overwriting the oldest. The framer
@@ -74,13 +114,13 @@ ISR(USART_RX_vect)
     }
 }
 
-ISR(USART_UDRE_vect)
+ISR(AG_UART_UDRE_VECT)
 {
     if (tx_tail == tx_head) {
-        UCSR0B = (uint8_t)(UCSR0B & (uint8_t)~_BV(UDRIE0));  /* nothing left */
+        AG_UCSRB = (uint8_t)(AG_UCSRB & (uint8_t)~_BV(AG_UDRIE));  /* nothing left */
         return;
     }
-    UDR0    = tx_buf[tx_tail];
+    AG_UDR    = tx_buf[tx_tail];
     tx_tail = (uint8_t)((tx_tail + 1u) & (AG_UART_TX_RING - 1u));
 }
 
@@ -103,7 +143,7 @@ uint8_t ag_hal_uart_tx_try(uint8_t byte)
     }
     tx_buf[tx_head] = byte;
     tx_head         = next;
-    UCSR0B          = (uint8_t)(UCSR0B | _BV(UDRIE0));
+    AG_UCSRB          = (uint8_t)(AG_UCSRB | _BV(AG_UDRIE));
     return 1u;
 }
 
@@ -113,5 +153,5 @@ uint8_t ag_hal_uart_tx_try(uint8_t byte)
  * the host is waiting for. */
 uint8_t ag_hal_uart_tx_idle(void)
 {
-    return (uint8_t)(tx_head == tx_tail && (UCSR0A & _BV(TXC0)) != 0u);
+    return (uint8_t)(tx_head == tx_tail && (AG_UCSRA & _BV(AG_TXC)) != 0u);
 }

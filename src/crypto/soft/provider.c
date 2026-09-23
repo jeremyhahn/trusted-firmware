@@ -33,7 +33,7 @@
 #include "ag/config.h"
 #include "ag/protocol.h"
 #include "ag/hal.h"
-#include "sha256.h"
+#include "../sha256.h"
 
 /*
  * The device secret comes from the PLATFORM, not from this file.
@@ -83,7 +83,14 @@ ag_status_t ag_crypto_init(void)
 
 ag_crypto_tier_t ag_crypto_tier(void) { return AG_CRYPTO_SOFTWARE; }
 
-uint16_t ag_crypto_algorithms(void) { return (uint16_t)(1u << 0); /* HMAC-SHA256 */ }
+uint16_t ag_crypto_algorithms(void)
+{
+    /* HMAC-SHA256 and nothing else. This tier has no asymmetric key at all, so
+     * claiming ECDSA here would be the same defect as a KMS backend advertising
+     * Ed25519 it cannot perform: the host negotiates down to something the
+     * device then fails to do, at the point where it matters most. */
+    return AG_ALGBIT_HMAC_SHA256;
+}
 
 ag_status_t ag_crypto_random(uint8_t *out, uint8_t len)
 {

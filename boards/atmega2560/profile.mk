@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+MCU            := atmega2560
+F_CPU          := 16000000
+AVRDUDE_PART   := m2560
+# The Mega's bootloader is STK500v2, not the 328P's plain arduino protocol, and
+# it enumerates as an ACM device through the on-board 16U2 rather than an FTDI.
+AVRDUDE_PROG   := wiring
+AVRDUDE_PORT   ?= /dev/ttyACM0
+AVRDUDE_BAUD   := 115200
+# A quarter of the flash and an eighth of the SRAM; see board_profile.h for why
+# the fractions are smaller than the 328P's and the headroom is still larger.
+FLASH_BUDGET   := 65536
+RAM_BUDGET     := 1024
+FLASH_TOTAL    := 262144
+RAM_TOTAL      := 8192

@@ -43,27 +43,3 @@ ag_status_t ag_pwm_cmd_write(ag_reader_t *r, ag_writer_t *w)
     }
     return ag_hal_pwm_write(&ref, duty);
 }
-
-ag_status_t ag_tone_cmd_start(ag_reader_t *r, ag_writer_t *w)
-{
-    ag_pin_t    pin = ag_read_u8(r);
-    uint16_t    hz  = ag_read_u16(r);
-    ag_pinref_t ref;
-    ag_status_t st;
-
-    (void)w;
-    if (ag_board_pin_flags(pin) & (AG_PIN_RESERVED | AG_PIN_IN_USE)) {
-        return AG_ERR_RESERVED_PIN;
-    }
-    st = ag_board_pin(pin, &ref);
-    if (st != AG_OK) {
-        return st;
-    }
-    return ag_hal_tone_start(&ref, hz);
-}
-
-ag_status_t ag_tone_cmd_stop(ag_reader_t *r, ag_writer_t *w)
-{
-    (void)r; (void)w;
-    return ag_hal_tone_stop();
-}

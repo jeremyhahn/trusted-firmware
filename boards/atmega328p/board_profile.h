@@ -114,4 +114,21 @@ _Static_assert(COM1B1_BIT == COM1B1, "COM1B1 bit position");
 _Static_assert(COM2A1_BIT == COM2A1, "COM2A1 bit position");
 #endif
 
+/* Which USART the firmware talks over.
+ *
+ * The 328P has one USART and avr-libc spells its vectors without an index.
+ *
+ * The register names are pasted from AG_UART_N in src/hal/avr/hal_uart.c; the
+ * vector names are spelled out because avr-libc is not consistent about them
+ * and a pasted name that does not exist compiles to an ordinary function
+ * nothing calls -- a device that simply never answers.
+ */
+#define AG_UART_N          0
+#define AG_UART_RX_VECT    USART_RX_vect
+#define AG_UART_UDRE_VECT  USART_UDRE_vect
+
+/* The one pin tone can use: the output-compare pin of AG_TONE_TIMER.
+ * OC2A is PB3, which the Arduino world calls pin 11. */
+#define AG_TONE_PIN   11u
+
 #endif /* AG_BOARD_ATMEGA328P_H */

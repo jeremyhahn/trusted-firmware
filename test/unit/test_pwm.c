@@ -92,11 +92,13 @@ static void test_a_pin_beyond_the_board_refuses_pwm(void)
 
 static void test_tone_starts_and_stops(void)
 {
-    const uint8_t on[3] = { 3u, 0x10u, 0x27u };    /* 10000 Hz, little-endian */
+    /* Pin 11. Tone is one timer driving ONE output-compare pin -- OC2A, which
+     * is PB3 on this part -- so the pin is not the caller's choice. */
+    const uint8_t on[3] = { AG_TONE_PIN, 0x10u, 0x27u };   /* 10000 Hz, little-endian */
     TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_TONE, on, 3u));
     TEST_ASSERT_EQUAL_UINT16(10000u, ag_mock_tone_hz());
 
-    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_NO_TONE, (const uint8_t[]){ 3u }, 1u));
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_NO_TONE, (const uint8_t[]){ AG_TONE_PIN }, 1u));
     TEST_ASSERT_EQUAL_UINT16(0u, ag_mock_tone_hz());
 }
 
@@ -104,14 +106,31 @@ static void test_tone_starts_and_stops(void)
  * producing a tone at some other pitch entirely. */
 static void test_a_frequency_below_the_reachable_range_is_refused(void)
 {
-    const uint8_t low[3] = { 3u, 100u, 0u };       /* 100 Hz */
+    const uint8_t low[3] = { AG_TONE_PIN, 100u, 0u };      /* 100 Hz */
     TEST_ASSERT_EQUAL(AG_ERR_RANGE, run(AG_CMD_TONE, low, 3u));
 }
 
-static void test_tone_on_a_reserved_pin_is_refused(void)
+/*
+ * Any pin but the tone pin is refused, and this is the test that matters.
+ *
+ * Pin 3 has a compare unit -- OC2B, on the same Timer2 -- so it is exactly the
+ * pin someone reaches for, and exactly the one that would have been accepted
+ * and then made no sound: the timer would have driven OC2A while the direction
+ * bit was set on pin 3. Answering AG_OK for that is worse than refusing,
+ * because the host has no way to discover its speaker is on the wrong leg.
+ */
+static void test_tone_on_any_other_pin_is_refused(void)
+{
+    const uint8_t other[3] = { 3u, 0x10u, 0x27u };
+    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, run(AG_CMD_TONE, other, 3u));
+    TEST_ASSERT_EQUAL_UINT16(0u, ag_mock_tone_hz());
+}
+
+/* And the UART pin, which is refused for the same reason plus a second one. */
+static void test_tone_on_the_uart_pin_is_refused(void)
 {
     const uint8_t on[3] = { 1u, 0x10u, 0x27u };
-    TEST_ASSERT_EQUAL(AG_ERR_RESERVED_PIN, run(AG_CMD_TONE, on, 3u));
+    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, run(AG_CMD_TONE, on, 3u));
 }
 
 int main(void)
@@ -127,6 +146,7 @@ int main(void)
     RUN_TEST(test_a_pin_beyond_the_board_refuses_pwm);
     RUN_TEST(test_tone_starts_and_stops);
     RUN_TEST(test_a_frequency_below_the_reachable_range_is_refused);
-    RUN_TEST(test_tone_on_a_reserved_pin_is_refused);
+    RUN_TEST(test_tone_on_any_other_pin_is_refused);
+    RUN_TEST(test_tone_on_the_uart_pin_is_refused);
     return UNITY_END();
 }

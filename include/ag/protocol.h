@@ -126,6 +126,24 @@
  * attestation behind an attested gateway, never for public admission. */
 #define AG_ALG_HMAC_SHA256       0x10u
 
+/*
+ * The algorithm BITMAP, which CAPS reports and which is not the same thing as
+ * the identifiers above.
+ *
+ * An ID names one algorithm in one byte of one frame; the bitmap says which
+ * ones a provider can perform. They need separate numbers because the IDs are
+ * sparse on purpose -- 0x10 leaves room for more asymmetric algorithms below it
+ * -- and a bitmap indexed by ID would need seventeen bits to express three
+ * algorithms.
+ *
+ * Bits extend and never renumber, exactly as the status codes do. A host built
+ * before an algorithm existed sees an unknown bit and negotiates down, rather
+ * than misreading it as one it knows.
+ */
+#define AG_ALGBIT_ECDSA_P256_SHA256 0x0001u
+#define AG_ALGBIT_ED25519           0x0002u
+#define AG_ALGBIT_HMAC_SHA256       0x0004u
+
 /* --------------------------------------------------- attestation evidence */
 /* The frame go-trusted-platform's docs/firmware/avr.md specifies, with one
  * amendment: an algorithm byte, so the evidence says which primitive signed it

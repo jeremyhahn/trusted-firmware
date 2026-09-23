@@ -22,10 +22,13 @@ module github.com/jeremyhahn/arduino-generic/sdk/go
 
 go 1.26.5
 
-require go.bug.st/serial v1.6.4
+require (
+	github.com/stretchr/testify v1.12.1
+	go.bug.st/serial v1.6.4
+)
 
 require (
 	github.com/creack/goselect v0.1.2 // indirect
-	github.com/stretchr/testify v1.12.1 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sys v0.19.0 // indirect
 )

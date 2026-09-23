@@ -6,9 +6,37 @@ package aggeneric
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"time"
 )
+
+// The fixed parts of the CAPS reply.
+//
+// capsHeaderLen is where an older firmware stops: everything through the
+// feature bitmap. capsAlgorithmsEnd covers the algorithm bitmap appended after
+// it. The two are separate constants rather than one because the difference
+// between them is precisely what a host must tolerate missing.
+const (
+	capsHeaderLen     = 14
+	capsAlgorithmsEnd = 16
+	capsPinPageLen    = 5
+)
+
+// The other fixed reply layouts, named where the numbers would otherwise be
+// repeated between the bounds check and the slicing that follows it.
+const (
+	sysInfoLen    = 7 // uptime:4, free RAM:2, reset cause:1
+	timerQueryLen = 6 // active:1, held level:1, remaining:4
+)
+
+// timerMaxMillis is the longest timer the device will arm, mirroring
+// AG_SCHED_MAX_MS.
+//
+// Half the range of the uint32 the wire carries, and the half is the point:
+// the sweep decides whether a deadline has passed with a SIGNED difference, so
+// that the millisecond counter wrapping every 49.7 days is a non-event. Past
+// 2^31 ms that comparison can no longer tell "due" from "not yet", and the
+// failure mode is a valve that stays open for seven weeks.
+const timerMaxMillis = 0x7FFFFFFF
 
 // Ping echoes a payload through the device. The one command that proves the
 // whole path -- framing, dispatch and back -- without touching any hardware.
@@ -31,8 +59,8 @@ func (d *Device) Caps(ctx context.Context) (*Caps, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(f.Payload) < 14 {
-		return nil, fmt.Errorf("aggeneric: CAPS reply is %d bytes, expected at least 14", len(f.Payload))
+	if len(f.Payload) < capsHeaderLen {
+		return nil, &ShortReplyError{Cmd: CmdCaps, Got: len(f.Payload), Need: capsHeaderLen}
 	}
 	p := f.Payload
 	c := &Caps{
@@ -46,15 +74,72 @@ func (d *Device) Caps(ctx context.Context) (*Caps, error) {
 		SchedSlots:    p[7],
 		MaxPayload:    p[8],
 		CryptoTier:    CryptoTier(p[9]),
-		Features:      binary.LittleEndian.Uint32(p[10:14]),
+		Features:      binary.LittleEndian.Uint32(p[10:capsHeaderLen]),
+	}
+	// The algorithm bitmap was appended after the feature bitmap, so firmware
+	// older than it simply stops here. That is not an error and must not be
+	// read as one: the reply is complete by the contract the device was built
+	// against. The empty set is the honest answer -- it says the device claims
+	// no algorithm, which is exactly what this host knew about it before the
+	// field existed, and is the direction a negotiation may safely fail in.
+	if len(p) >= capsAlgorithmsEnd {
+		c.Algorithms = AlgorithmSet(binary.LittleEndian.Uint16(p[capsHeaderLen:capsAlgorithmsEnd]))
 	}
 	// A major mismatch means the frames themselves may not parse the same way.
 	// Minor is tolerated in both directions: that is what lets a fleet run
-	// mixed firmware without a flag day.
-	if c.ProtoMajor != 1 {
-		return c, fmt.Errorf("aggeneric: device speaks protocol major %d, this host speaks 1", c.ProtoMajor)
+	// mixed firmware without a flag day. The Caps is returned ALONGSIDE the
+	// error, because what the device said about itself is the one thing worth
+	// logging when a host refuses to talk to it.
+	if c.ProtoMajor != ProtoVersionMajor {
+		return c, &ProtocolVersionError{
+			DeviceMajor: c.ProtoMajor, DeviceMinor: c.ProtoMinor,
+			HostMajor: ProtoVersionMajor, HostMinor: ProtoVersionMinor,
+		}
 	}
 	return c, nil
+}
+
+// "There is nothing here", twice, and they are not the same shape.
+//
+// The port byte is the board descriptor's own packing: a port index in the high
+// nibble and a bit in the low. A pin with no digital port carries AG_PORT_NONE
+// in the high nibble, so the test is on the NIBBLE, not on the whole byte --
+// A6 on an ATmega328P arrives as 0xF0, which a whole-byte comparison against
+// 0xFF reads as port 15, bit 0: a port no board has, reported as one it does.
+// A pin beyond the board is 0xFF, which the same nibble test also catches.
+const (
+	pinPortNone    = 0x0F // AG_PORT_NONE, in the high nibble
+	pinADCChanNone = 0xFF // AG_ADC_NONE, a whole byte
+)
+
+// PinInfo asks the device about one pin.
+//
+// The same CAPS command, with a pin index as its argument: no argument returns
+// the board header, one byte returns that pin's descriptor. This is what lets
+// a host discover a board rather than hardcode one -- which pins have an ADC
+// channel, which can carry a duty cycle, which the firmware has already
+// claimed for itself.
+func (d *Device) PinInfo(ctx context.Context, pin uint8) (*PinInfo, error) {
+	f, err := d.Do(ctx, CmdCaps, []byte{pin})
+	if err != nil {
+		return nil, err
+	}
+	if len(f.Payload) < capsPinPageLen {
+		return nil, &ShortReplyError{Cmd: CmdCaps, Got: len(f.Payload), Need: capsPinPageLen}
+	}
+	p := f.Payload
+	// The pin is echoed rather than assumed, so a descriptor stays identifiable
+	// once it has been copied away from the call that asked for it.
+	info := &PinInfo{Pin: p[0], Flags: PinFlags(p[1]), PWM: PWMSupport(p[4])}
+	if p[2]>>4 != pinPortNone {
+		info.HasPort = true
+		info.Port, info.Bit = p[2]>>4, p[2]&0x0F
+	}
+	if p[3] != pinADCChanNone {
+		info.HasADC = true
+		info.ADCChannel = p[3]
+	}
+	return info, nil
 }
 
 // SysInfo reads the device's runtime state.
@@ -63,8 +148,8 @@ func (d *Device) SysInfo(ctx context.Context) (*SysInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(f.Payload) < 7 {
-		return nil, fmt.Errorf("aggeneric: SYS_INFO reply is %d bytes, expected at least 7", len(f.Payload))
+	if len(f.Payload) < sysInfoLen {
+		return nil, &ShortReplyError{Cmd: CmdSysInfo, Got: len(f.Payload), Need: sysInfoLen}
 	}
 	p := f.Payload
 	return &SysInfo{
@@ -138,7 +223,7 @@ func (d *Device) DigitalRead(ctx context.Context, pin uint8) (bool, error) {
 		return false, err
 	}
 	if len(f.Payload) < 1 {
-		return false, fmt.Errorf("aggeneric: DIGITAL_READ returned no value")
+		return false, &ShortReplyError{Cmd: CmdDigitalRead, Got: len(f.Payload), Need: 1}
 	}
 	return f.Payload[0] != 0, nil
 }
@@ -153,8 +238,11 @@ func (d *Device) DigitalRead(ctx context.Context, pin uint8) (bool, error) {
 // Returns the slot index the device assigned.
 func (d *Device) TimerSet(ctx context.Context, pin uint8, high bool, dur time.Duration) (uint8, error) {
 	ms := dur.Milliseconds()
-	if ms <= 0 || ms > 0x7FFFFFFF {
-		return 0, fmt.Errorf("aggeneric: duration %s is outside 1ms..24.8 days", dur)
+	if ms <= 0 || ms > timerMaxMillis {
+		return 0, &ArgRangeError{
+			Cmd: CmdTimerSet, Arg: "duration", Value: ms,
+			Min: 1, Max: timerMaxMillis, Unit: "ms",
+		}
 	}
 	level := byte(0)
 	if high {
@@ -168,7 +256,7 @@ func (d *Device) TimerSet(ctx context.Context, pin uint8, high bool, dur time.Du
 		return 0, err
 	}
 	if len(f.Payload) < 1 {
-		return 0, fmt.Errorf("aggeneric: TIMER_SET returned no slot")
+		return 0, &ShortReplyError{Cmd: CmdTimerSet, Got: len(f.Payload), Need: 1}
 	}
 	return f.Payload[0], nil
 }
@@ -197,8 +285,8 @@ func (d *Device) TimerQuery(ctx context.Context, pin uint8) (*TimerState, error)
 	if err != nil {
 		return nil, err
 	}
-	if len(f.Payload) < 6 {
-		return nil, fmt.Errorf("aggeneric: TIMER_QUERY reply is %d bytes, expected 6", len(f.Payload))
+	if len(f.Payload) < timerQueryLen {
+		return nil, &ShortReplyError{Cmd: CmdTimerQuery, Got: len(f.Payload), Need: timerQueryLen}
 	}
 	return &TimerState{
 		Active:    f.Payload[0] != 0,
@@ -219,7 +307,7 @@ func (d *Device) AnalogRead(ctx context.Context, pin uint8) (uint16, error) {
 		return 0, err
 	}
 	if len(f.Payload) < 2 {
-		return 0, fmt.Errorf("aggeneric: ANALOG_READ reply is %d bytes, expected 2", len(f.Payload))
+		return 0, &ShortReplyError{Cmd: CmdAnalogRead, Got: len(f.Payload), Need: 2}
 	}
 	return binary.LittleEndian.Uint16(f.Payload[:2]), nil
 }
@@ -261,7 +349,10 @@ const EEPROMReservedEnd = 0x80
 // permitted -- its contents are a hash and a serial number, public by nature.
 func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, error) {
 	if n == 0 || n > EEPROMChunk {
-		return nil, fmt.Errorf("aggeneric: read of %d bytes, limit is %d", n, EEPROMChunk)
+		return nil, &ArgRangeError{
+			Cmd: CmdEEPROMRead, Arg: "length", Value: int64(n),
+			Min: 1, Max: EEPROMChunk, Unit: "bytes",
+		}
 	}
 	p := []byte{byte(addr), byte(addr >> 8), n}
 	f, err := d.Do(ctx, CmdEEPROMRead, p)
@@ -274,7 +365,10 @@ func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, 
 // EEPROMWrite writes up to EEPROMChunk bytes at or above EEPROMReservedEnd.
 func (d *Device) EEPROMWrite(ctx context.Context, addr uint16, data []byte) error {
 	if len(data) == 0 || len(data) > EEPROMChunk {
-		return fmt.Errorf("aggeneric: write of %d bytes, limit is %d", len(data), EEPROMChunk)
+		return &ArgRangeError{
+			Cmd: CmdEEPROMWrite, Arg: "length", Value: int64(len(data)),
+			Min: 1, Max: EEPROMChunk, Unit: "bytes",
+		}
 	}
 	p := append([]byte{byte(addr), byte(addr >> 8)}, data...)
 	_, err := d.Do(ctx, CmdEEPROMWrite, p)
@@ -322,7 +416,7 @@ func (d *Device) PulseIn(ctx context.Context, pin uint8, high bool, timeout time
 		return 0, err
 	}
 	if len(f.Payload) < 4 {
-		return 0, fmt.Errorf("aggeneric: PULSE_IN returned no measurement")
+		return 0, &ShortReplyError{Cmd: CmdPulseIn, Got: len(f.Payload), Need: 4}
 	}
 	return time.Duration(binary.LittleEndian.Uint32(f.Payload[:4])) * time.Microsecond, nil
 }
@@ -347,11 +441,11 @@ func (d *Device) PulseCapture(ctx context.Context, pin uint8, startHigh bool, ma
 		return nil, err
 	}
 	if len(f.Payload) < 1 {
-		return nil, fmt.Errorf("aggeneric: PULSE_CAPTURE returned no count")
+		return nil, &ShortReplyError{Cmd: CmdPulseCapture, Got: len(f.Payload), Need: 1}
 	}
 	n := int(f.Payload[0])
 	if len(f.Payload) < 1+n*2 {
-		return nil, fmt.Errorf("aggeneric: PULSE_CAPTURE claimed %d intervals but sent %d bytes", n, len(f.Payload)-1)
+		return nil, &ShortReplyError{Cmd: CmdPulseCapture, Got: len(f.Payload), Need: 1 + n*2}
 	}
 	out := make([]uint16, n)
 	for i := range out {
@@ -394,7 +488,7 @@ func (d *Device) OneWireReset(ctx context.Context, pin uint8) (bool, error) {
 		return false, err
 	}
 	if len(f.Payload) < 1 {
-		return false, fmt.Errorf("aggeneric: ONEWIRE_RESET returned nothing")
+		return false, &ShortReplyError{Cmd: CmdOneWireReset, Got: len(f.Payload), Need: 1}
 	}
 	return f.Payload[0] != 0, nil
 }

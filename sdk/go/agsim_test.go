@@ -333,3 +333,100 @@ func TestAgainstFirmwareOneWireAndPulseAreReachable(t *testing.T) {
 		t.Error("expected a timeout on a silent line")
 	}
 }
+
+// CAPS reports which algorithms the provider can PERFORM, which is not implied
+// by the tier: the simulator links the software provider, and that provider
+// has no asymmetric key at all. Claiming ECDSA here would be the defect it
+// exists to avoid -- a host negotiating down to something the device then
+// fails to do, at the point where it matters most.
+func TestAgainstFirmwareCapsReportsTheAlgorithmsItCanPerform(t *testing.T) {
+	d := startSim(t)
+	c, err := d.Caps(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Algorithms != AlgHMACSHA256 {
+		t.Fatalf("algorithms = %s (%#04x), want hmac-sha256 alone", c.Algorithms, uint16(c.Algorithms))
+	}
+	if c.Algorithms.Can(AlgECDSAP256SHA256) || c.Algorithms.Can(AlgEd25519) {
+		t.Error("the software provider claimed an asymmetric algorithm it cannot perform")
+	}
+}
+
+// CAPS answers per-pin pages, and this is the check that the five bytes the
+// firmware writes are the five bytes this SDK reads. The board is the real
+// ATmega328P table, compiled and linked into the simulator.
+func TestAgainstFirmwarePinInfo(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	led, err := d.PinInfo(ctx, 13)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if led.Pin != 13 {
+		t.Errorf("descriptor echoed pin %d, want 13", led.Pin)
+	}
+	if !led.Flags.Has(PinDigital | PinLED) {
+		t.Errorf("pin 13 flags = %s, want digital and led", led.Flags)
+	}
+	if !led.HasPort || led.Bit != 5 {
+		t.Errorf("pin 13 = port bit %d (present %v), want PB5", led.Bit, led.HasPort)
+	}
+	if led.HasADC {
+		t.Error("pin 13 has no analog channel")
+	}
+	if led.PWM != PWMNone {
+		t.Errorf("pin 13 pwm = %s, want none: it has no compare unit", led.PWM)
+	}
+
+	// Pin 9 is OC1A, and Timer1 is nobody's tick on this board.
+	pwm, err := d.PinInfo(ctx, 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pwm.PWM != PWMAvailable {
+		t.Errorf("pin 9 pwm = %s, want available", pwm.PWM)
+	}
+	if !pwm.Flags.Has(PinPWM) {
+		t.Errorf("pin 9 flags = %s, want pwm", pwm.Flags)
+	}
+
+	// A6 exists as an analog input and has no digital port at all, which the
+	// descriptor must say rather than report port 0 bit 0 -- a pin that can be
+	// read and never written.
+	adc, err := d.PinInfo(ctx, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adc.HasPort {
+		t.Error("pin 20 reported a digital port; A6 has none")
+	}
+	if !adc.HasADC || adc.ADCChannel != 6 {
+		t.Errorf("pin 20 adc = %d (present %v), want channel 6", adc.ADCChannel, adc.HasADC)
+	}
+	if !adc.Flags.Has(PinADC) || adc.Flags.Has(PinDigital) {
+		t.Errorf("pin 20 flags = %s, want adc and not digital", adc.Flags)
+	}
+
+	// The UART pins are in use by this build; a host must be able to see that
+	// before it drives one and cuts the line it is talking over.
+	tx, err := d.PinInfo(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tx.Flags.Has(PinInUse) {
+		t.Errorf("pin 1 flags = %s, want in-use", tx.Flags)
+	}
+}
+
+func TestAgainstFirmwarePinInfoRefusesAPinTheBoardLacks(t *testing.T) {
+	d := startSim(t)
+	_, err := d.PinInfo(context.Background(), 200)
+	if err == nil {
+		t.Fatal("expected a refusal for a pin off the end of the board")
+	}
+	if err.Error() != StatusErrBadPin.String() {
+		t.Fatalf("err = %v, want %v", err, StatusErrBadPin)
+	}
+}

@@ -55,26 +55,25 @@ ag_status_t ag_sys_cmd_caps(ag_reader_t *r, ag_writer_t *w)
          * will move a load to a different pin when the right fix is a different
          * build.
          */
-        uint8_t     pin = ag_read_u8(r);
-        uint8_t     adc = AG_ADC_NONE;
-        ag_pinref_t ref;
-        ag_pwmref_t pwm;
-        uint8_t     flags = ag_board_pin_flags(pin);
+        uint8_t pin = ag_read_u8(r);
+        uint8_t adc = AG_ADC_NONE;
 
+        /* Bounds first. Reading the descriptor before checking happens to be
+         * safe -- the accessors bound-check and return zero -- but a bounds
+         * check that comes after the read is one somebody will later move a
+         * read in front of. */
         if (pin >= ag_board_pin_count()) {
             return AG_ERR_BAD_PIN;
         }
         (void)ag_board_adc_channel(pin, &adc);
         ag_write_u8(w, pin);
-        ag_write_u8(w, flags);
-        /* The port index and bit, as the board packs them, or 0xFF for a pin
-         * with no digital port at all -- an ADC-only input, which can be read
-         * and never written. */
-        ag_write_u8(w, ag_board_pin(pin, &ref) == AG_OK
-                           ? (uint8_t)((ref.bit & 0x0Fu) | 0xA0u) : 0xFFu);
+        ag_write_u8(w, ag_board_pin_flags(pin));
+        /* The port index and bit exactly as the board packs them -- high nibble
+         * AG_PORT_NONE for a pin with no digital port, which is an ADC-only
+         * input that can be read and never written. */
+        ag_write_u8(w, ag_board_pin_port_bit(pin));
         ag_write_u8(w, adc);
-        ag_write_u8(w, ag_board_pwm(pin, &pwm) == AG_OK ? 1u
-                       : ((flags & AG_PIN_PWM) ? 2u : 0u));
+        ag_write_u8(w, ag_board_pin_pwm_state(pin));
         return AG_OK;
     }
 

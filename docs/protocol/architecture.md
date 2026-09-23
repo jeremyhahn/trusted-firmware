@@ -107,6 +107,68 @@ root of trust it has.
 Two boards with the same part can ship different capability sets, so a host that
 inferred capability from the MCU id would be wrong on the second one.
 
+## The CAPS pin page
+
+`CAPS` with no payload returns the board header. `CAPS` with a **one-byte pin
+index** returns that pin's descriptor, five bytes:
+
+```
+ off  size  field
+  0    1    PIN        echoed
+  1    1    FLAGS      AG_PIN_* : DIGITAL 0x01, PWM 0x02, ADC 0x04,
+                       RESERVED 0x20, IN_USE 0x40, LED 0x80
+  2    1    PORT_BIT   port index in the high nibble, bit in the low.
+                       High nibble 0x0F means the pin has NO digital port --
+                       an ADC-only input, readable and never writable.
+  3    1    ADC_CH     ADC channel, or 0xFF
+  4    1    PWM        0 no compare unit
+                       1 has one and this build can drive it
+                       2 has one, spent by this build on the millisecond tick
+```
+
+One pin per request, because an ATmega2560's full table is 350 bytes and fits in
+no frame this protocol defines.
+
+**The PWM byte has three states and the third is the one that matters.** A pin
+whose timer went to the tick carries only `AG_PIN_DIGITAL` in its flags —
+deliberately, so a host does not try to drive it — so the distinction cannot be
+recovered from the flags and has its own byte. A host that reads 0 where 2 is
+true will move a load to a different pin when the correct fix is a different
+build.
+
+**`PORT_BIT` is the descriptor's own packing**, not a value derived from the
+runtime pin reference: that reference carries the `PINx` memory address, from
+which a port index cannot be recovered.
+
+## The algorithm bitmap
+
+Appended to the board header after the 32-bit feature bitmap, as a little-endian
+`uint16`:
+
+```
+0x0001  ECDSA P-256 with SHA-256
+0x0002  Ed25519
+0x0004  HMAC-SHA256
+```
+
+**These are not the `AG_ALG_*` identifiers** carried in an attestation frame's
+`AlgID` byte, which are `0x01`, `0x02` and `0x10`. The identifiers are sparse on
+purpose, to leave room below `0x10` for further asymmetric algorithms, and a
+bitmap indexed by them would need seventeen bits to express three algorithms.
+Conflating the two is the mistake this paragraph exists to prevent.
+
+The device reports what its provider can actually perform. A device that
+advertised an algorithm it cannot do would have the host negotiate down to
+something that then fails, at the point where it matters most.
+
+Bits extend and never renumber, exactly as the status codes do. A host built
+before an algorithm existed sees an unknown bit and ignores it.
+
+The header therefore grew from 14 bytes to 16. It grew by **appending**, so a
+host built against the earlier layout stops reading where it always did rather
+than misparsing the tail — and the Go SDK has a test asserting a 14-byte reply
+from older firmware still parses.
+
 ## Events
 
 `OP = 0xFF` is an unsolicited event. The device emits one **only when no

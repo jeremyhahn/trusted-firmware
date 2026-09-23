@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 )
 
@@ -88,7 +89,74 @@ const (
 	FeatureDeadman
 )
 
+// AlgorithmSet is the set of signature algorithms a device's crypto provider
+// can actually perform, as CAPS reports it.
+//
+// A TYPE OF ITS OWN, and not the algorithm identifiers that travel in an
+// attestation frame. The two number the same algorithms differently on
+// purpose: the identifiers are sparse so that AG_ALG_HMAC_SHA256 sits at 0x10
+// with room beneath it for further asymmetric algorithms, which would make a
+// bitmap indexed by identifier seventeen bits wide to express three
+// algorithms. Since the numbers do not agree, a set is a type rather than a
+// uint16: the named bits below are the only way to build one, so an identifier
+// read out of an attestation frame cannot drift into a capability test without
+// a conversion that says what it is doing.
+type AlgorithmSet uint16
+
+// Mirrors AG_ALGBIT_* in include/ag/protocol.h. Bits extend and never
+// renumber, exactly as the status codes do, so a host built before an
+// algorithm existed sees an unknown bit and negotiates down rather than
+// misreading it as one it knows.
+const (
+	AlgECDSAP256SHA256 AlgorithmSet = 1 << iota
+	AlgEd25519
+	AlgHMACSHA256
+)
+
+var algorithmNames = []struct {
+	bit  AlgorithmSet
+	name string
+}{
+	{AlgECDSAP256SHA256, "ecdsa-p256-sha256"},
+	{AlgEd25519, "ed25519"},
+	{AlgHMACSHA256, "hmac-sha256"},
+}
+
+// Can reports whether the device can perform every algorithm in want. A caller
+// choosing what to ask for tests one bit; a caller checking a policy that
+// demands several tests them together, and either reads the same.
+func (s AlgorithmSet) Can(want AlgorithmSet) bool { return s&want == want }
+
+func (s AlgorithmSet) String() string {
+	if s == 0 {
+		return "(none)"
+	}
+	var (
+		named []string
+		known AlgorithmSet
+	)
+	for _, a := range algorithmNames {
+		known |= a.bit
+		if s&a.bit != 0 {
+			named = append(named, a.name)
+		}
+	}
+	// Bits this build has no name for are printed as a number rather than
+	// dropped. A device offering something newer than the host is the ordinary
+	// state of a fleet mid-upgrade, and silently showing fewer algorithms than
+	// were reported would hide it.
+	if rest := s &^ known; rest != 0 {
+		named = append(named, fmt.Sprintf("0x%04x", uint16(rest)))
+	}
+	return strings.Join(named, " ")
+}
+
 // Caps is what a device reports about itself.
+//
+// Fields are APPENDED to the reply and never reordered, so a host built
+// against an older header stops reading where it always did instead of
+// misparsing the tail. Algorithms arrived that way, which is why parsing it is
+// conditional on the reply being long enough to hold it.
 type Caps struct {
 	ProtoMajor, ProtoMinor                      uint8
 	FirmwareMajor, FirmwareMinor, FirmwarePatch uint8
@@ -98,6 +166,7 @@ type Caps struct {
 	MaxPayload                                  uint8
 	CryptoTier                                  CryptoTier
 	Features                                    uint32
+	Algorithms                                  AlgorithmSet
 }
 
 // Has reports whether a feature was compiled into this build. The bitmap
@@ -105,6 +174,114 @@ type Caps struct {
 // with the same MCU can ship different capability sets, so inferring from the
 // chip is wrong on the second one.
 func (c Caps) Has(feature uint32) bool { return c.Features&feature != 0 }
+
+// PinFlags are one pin's capability bits. Mirrors AG_PIN_* in
+// include/ag/board.h, where the numbering has gaps reserved for bits not yet
+// defined -- hence literals here rather than iota, which would silently close
+// them.
+type PinFlags uint8
+
+const (
+	// PinDigital says the pin has a port and can be read and driven.
+	PinDigital PinFlags = 0x01
+	// PinPWM says the board table gives the pin an output-compare unit.
+	// Whether that unit is USABLE is the PWM field of PinInfo, not this bit.
+	PinPWM PinFlags = 0x02
+	// PinADC says the pin has an analog channel behind it.
+	PinADC PinFlags = 0x04
+	// PinReserved marks /RESET, or a pin claimed by a software peripheral.
+	PinReserved PinFlags = 0x20
+	// PinInUse marks a pin this build has taken -- the UART pins, say. Driving
+	// one cuts the line the command arrived on, so the device refuses.
+	PinInUse PinFlags = 0x40
+	// PinLED marks the board's onboard LED.
+	PinLED PinFlags = 0x80
+)
+
+// Has reports whether every flag in want is set.
+func (f PinFlags) Has(want PinFlags) bool { return f&want == want }
+
+var pinFlagNames = []struct {
+	bit  PinFlags
+	name string
+}{
+	{PinDigital, "digital"},
+	{PinPWM, "pwm"},
+	{PinADC, "adc"},
+	{PinReserved, "reserved"},
+	{PinInUse, "in-use"},
+	{PinLED, "led"},
+}
+
+func (f PinFlags) String() string {
+	if f == 0 {
+		return "(none)"
+	}
+	var (
+		named []string
+		known PinFlags
+	)
+	for _, n := range pinFlagNames {
+		known |= n.bit
+		if f&n.bit != 0 {
+			named = append(named, n.name)
+		}
+	}
+	if rest := f &^ known; rest != 0 {
+		named = append(named, fmt.Sprintf("0x%02x", uint8(rest)))
+	}
+	return strings.Join(named, " ")
+}
+
+// PWMSupport says what became of a pin's output-compare unit, and it has THREE
+// states rather than two.
+//
+// "No compare unit here" and "this build spent its compare unit on the
+// millisecond tick" both refuse a duty cycle, but only the second one can be
+// changed, and it is changed by building the firmware differently rather than
+// by moving the load to another pin. A host that collapsed them to a boolean
+// would rewire a board to work around a build flag.
+type PWMSupport uint8
+
+const (
+	// PWMNone: the pin has no output-compare unit at all.
+	PWMNone PWMSupport = 0
+	// PWMAvailable: the pin has one and this build will drive it.
+	PWMAvailable PWMSupport = 1
+	// PWMSystemTick: the pin has one, but its timer is the millisecond tick.
+	PWMSystemTick PWMSupport = 2
+)
+
+func (p PWMSupport) String() string {
+	switch p {
+	case PWMNone:
+		return "none"
+	case PWMAvailable:
+		return "available"
+	case PWMSystemTick:
+		return "spent on the millisecond tick"
+	}
+	return fmt.Sprintf("unrecognised pwm state %d", uint8(p))
+}
+
+// PinInfo is one pin's descriptor, as CAPS reports it a page at a time.
+//
+// Paged per pin because an ATmega2560's full table is 350 bytes and fits in no
+// frame this protocol defines, let alone an ATtiny's.
+type PinInfo struct {
+	Pin   uint8
+	Flags PinFlags
+	// Port and Bit locate the pin in the board's port table. HasPort is false
+	// for an ADC-only input, which has no digital port at all and can be read
+	// but never written -- so Port and Bit are meaningless rather than zero,
+	// and a caller must consult HasPort rather than compare them against zero.
+	HasPort   bool
+	Port, Bit uint8
+	// HasADC and ADCChannel are the same arrangement for the analog side.
+	HasADC     bool
+	ADCChannel uint8
+	PWM        PWMSupport
+}
 
 // SysInfo is the device's runtime state.
 type SysInfo struct {
@@ -138,9 +315,6 @@ func (r ResetCause) String() string {
 	}
 	return "unknown"
 }
-
-// ErrTimeout is returned when a device does not answer within the deadline.
-var ErrTimeout = errors.New("aggeneric: device did not respond")
 
 // Device is one attached board.
 //
@@ -204,10 +378,11 @@ func (d *Device) Do(ctx context.Context, cmd Cmd, payload []byte) (Frame, error)
 		return Frame{}, err
 	}
 	if _, err := d.conn.Write(req); err != nil {
-		return Frame{}, fmt.Errorf("aggeneric: write: %w", err)
+		return Frame{}, &LinkError{Op: "write", Err: err}
 	}
 
-	deadline := time.Now().Add(d.timeout)
+	start := time.Now()
+	deadline := start.Add(d.timeout)
 	for {
 		if err := ctx.Err(); err != nil {
 			return Frame{}, err
@@ -242,7 +417,10 @@ func (d *Device) Do(ctx context.Context, cmd Cmd, payload []byte) (Frame, error)
 			}
 		}
 		if time.Now().After(deadline) {
-			return Frame{}, fmt.Errorf("%w after %s (command 0x%02x)", ErrTimeout, d.timeout, byte(cmd))
+			// The waiting actually done, not the deadline that was set: a read
+			// that blocked past it is the interesting case, and the two
+			// numbers differ exactly when something is wrong underneath.
+			return Frame{}, &TimeoutError{Cmd: cmd, Elapsed: time.Since(start)}
 		}
 		if err := d.fill(deadline); err != nil {
 			return Frame{}, err
@@ -261,7 +439,10 @@ func (d *Device) fill(deadline time.Time) error {
 	}
 	if err != nil && n == 0 {
 		if errors.Is(err, io.EOF) {
-			return fmt.Errorf("aggeneric: link closed: %w", err)
+			// The port went away. Wrapped rather than replaced, so a caller
+			// still reaches io.EOF through errors.Is and can tell a closed
+			// link -- reconnect -- from a stalled one.
+			return &LinkError{Op: "read", Err: err}
 		}
 		// A read timeout is not fatal; the caller's own deadline governs.
 		return nil

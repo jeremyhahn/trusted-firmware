@@ -3,10 +3,7 @@
 
 package aggeneric
 
-import (
-	"errors"
-	"fmt"
-)
+import "fmt"
 
 // The wire contract. Mirrors include/ag/protocol.h; the two are pinned to the
 // same vectors.
@@ -19,6 +16,13 @@ const (
 	MaxPayload        = 64
 	maxLen            = MaxPayload + 3
 	SeqNone       Seq = 0
+
+	// The version of the wire this host speaks, mirroring
+	// AG_PROTO_VERSION_MAJOR and _MINOR. Major changes when a frame cannot be
+	// parsed by an older host; minor when fields are appended that an older
+	// host can ignore, which is why only the major is ever rejected.
+	ProtoVersionMajor uint8 = 1
+	ProtoVersionMinor uint8 = 0
 )
 
 // Seq correlates a request with its response. Zero means the caller wants no
@@ -47,18 +51,6 @@ func (f Frame) IsEvent() bool { return f.Op == opEvent }
 // Cmd returns the command this frame relates to, with the response bit cleared.
 func (f Frame) Cmd() Cmd { return Cmd(f.Op &^ opResponseBit) }
 
-var (
-	// ErrShortFrame is returned when a buffer cannot hold the frame its
-	// length field claims.
-	ErrShortFrame = errors.New("aggeneric: truncated frame")
-	// ErrBadCRC is returned when a frame's checksum does not match.
-	ErrBadCRC = errors.New("aggeneric: frame CRC mismatch")
-	// ErrBadFormat is returned for a structurally impossible frame.
-	ErrBadFormat = errors.New("aggeneric: malformed frame")
-	// ErrPayloadTooLarge is returned when a payload exceeds MaxPayload.
-	ErrPayloadTooLarge = errors.New("aggeneric: payload exceeds the protocol maximum")
-)
-
 // EncodeRequest builds a request frame. Requests carry no status byte.
 func EncodeRequest(seq Seq, cmd Cmd, payload []byte) ([]byte, error) {
 	return encode(seq, byte(cmd), nil, payload)
@@ -74,7 +66,7 @@ func EncodeResponse(seq Seq, cmd Cmd, st Status, payload []byte) ([]byte, error)
 
 func encode(seq Seq, op byte, status *byte, payload []byte) ([]byte, error) {
 	if len(payload) > MaxPayload {
-		return nil, fmt.Errorf("%w: %d bytes", ErrPayloadTooLarge, len(payload))
+		return nil, &PayloadSizeError{Size: len(payload), Limit: MaxPayload}
 	}
 	n := 2 + len(payload)
 	if status != nil {
@@ -100,18 +92,22 @@ func Decode(b []byte) (Frame, int, error) {
 		return Frame{}, 0, ErrShortFrame
 	}
 	if b[0] != SOF {
-		return Frame{}, 0, ErrBadFormat
+		// A fixed reason, not the byte that was there. This is the resync path
+		// -- a host recovering from line noise walks it for every candidate
+		// start -- and the byte is by definition the garbage being skipped,
+		// which is not worth formatting a string to say.
+		return Frame{}, 0, &FrameError{Reason: "does not begin with the start byte"}
 	}
 	bodyLen := int(b[1])
 	if bodyLen < lenMin || bodyLen > maxLen {
-		return Frame{}, 0, ErrBadFormat
+		return Frame{}, 0, &FrameError{Reason: fmt.Sprintf("length field is %d, outside %d..%d", bodyLen, lenMin, maxLen)}
 	}
 	total := bodyLen + frameOverhead
 	if len(b) < total {
 		return Frame{}, 0, ErrShortFrame
 	}
 	if got, want := CRC16(b[1:1+bodyLen+1]), uint16(b[total-2])|uint16(b[total-1])<<8; got != want {
-		return Frame{}, 0, fmt.Errorf("%w: computed %04x, frame claims %04x", ErrBadCRC, got, want)
+		return Frame{}, 0, &CRCError{Computed: got, Claimed: want}
 	}
 
 	f := Frame{Seq: Seq(b[2]), Op: b[3]}
@@ -121,7 +117,7 @@ func Decode(b []byte) (Frame, int, error) {
 		// is malformed. The CRC does not catch this: a sender can be
 		// internally consistent and still wrong.
 		if bodyLen < 3 {
-			return Frame{}, 0, fmt.Errorf("%w: response with no room for a status byte", ErrBadFormat)
+			return Frame{}, 0, &FrameError{Reason: "response with no room for a status byte"}
 		}
 		f.Status = Status(body[0])
 		f.Payload = body[1:]

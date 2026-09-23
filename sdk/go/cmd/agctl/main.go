@@ -35,6 +35,7 @@ func usage() {
 commands
   ping [text]        echo text through the device
   caps               what the device is and what it can do
+  pin <pin>          one pin's descriptor: port, adc channel, pwm
   sys                uptime, free RAM, why it last reset
   reset [soft|boot]  restart; boot enters the bootloader
   mode <pin> <in|out|pullup>
@@ -124,6 +125,38 @@ func run(ctx context.Context, dev *ag.Device, cmd string, args []string, asJSON 
 			fmt.Fprintf(&b, "max payload %d\n", c.MaxPayload)
 			fmt.Fprintf(&b, "root of trust %s\n", c.CryptoTier)
 			fmt.Fprintf(&b, "features    %s\n", featureList(c))
+			// What the provider can SIGN with, which is not implied by the
+			// tier: a secure element reports ECDSA where a software provider
+			// on the same board reports only HMAC.
+			fmt.Fprintf(&b, "algorithms  %s\n", c.Algorithms)
+			return b.String()
+		})
+
+	case "pin":
+		if len(args) < 1 {
+			return fmt.Errorf("usage: pin <pin>")
+		}
+		pin, err := parsePin(args[0])
+		if err != nil {
+			return err
+		}
+		p, err := dev.PinInfo(ctx, pin)
+		if err != nil {
+			return err
+		}
+		return emit(out, asJSON, p, func() string {
+			var b strings.Builder
+			fmt.Fprintf(&b, "pin         %d\n", p.Pin)
+			fmt.Fprintf(&b, "flags       %s\n", p.Flags)
+			if p.HasPort {
+				fmt.Fprintf(&b, "port.bit    %d.%d\n", p.Port, p.Bit)
+			} else {
+				fmt.Fprint(&b, "port.bit    none -- analog input, readable but never driven\n")
+			}
+			if p.HasADC {
+				fmt.Fprintf(&b, "adc channel %d\n", p.ADCChannel)
+			}
+			fmt.Fprintf(&b, "pwm         %s\n", p.PWM)
 			return b.String()
 		})
 

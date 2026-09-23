@@ -73,6 +73,27 @@ ag_status_t ag_board_pwm(ag_pin_t pin, ag_pwmref_t *out)
     return AG_OK;
 }
 
+uint8_t ag_board_pin_port_bit(ag_pin_t pin)
+{
+    if (pin >= AG_PIN_COUNT) {
+        return 0xFFu;
+    }
+    return ag_pgm_u8(&ag_board_pins[pin].port_bit);
+}
+
+uint8_t ag_board_pin_pwm_state(ag_pin_t pin)
+{
+    uint8_t idx;
+
+    if (pin >= AG_PIN_COUNT) {
+        return 0u;
+    }
+    idx = ag_pgm_u8(&ag_board_pins[pin].pwm_idx);
+    if (idx == AG_PWM_NONE) { return 0u; }
+    if (idx == AG_PWM_RSVD) { return 2u; }
+    return 1u;
+}
+
 uint8_t ag_board_pin_flags(ag_pin_t pin)
 {
     if (pin >= AG_PIN_COUNT) {

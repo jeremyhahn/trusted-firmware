@@ -91,6 +91,29 @@ ag_status_t ag_board_adc_channel(ag_pin_t pin, uint8_t *out);
  * them might change. */
 ag_status_t ag_board_pwm(ag_pin_t pin, ag_pwmref_t *out);
 
+/* The pin's port index and bit, packed as the descriptor stores them: port in
+ * the high nibble, bit in the low. AG_PORT_NONE in the high nibble means the
+ * pin has no digital port at all. Returns 0xFF for a pin beyond the board.
+ *
+ * CAPS reports this byte verbatim. It cannot be derived from ag_board_pin(),
+ * whose ag_pinref_t carries the PINx MEMORY ADDRESS rather than a port index --
+ * the index is not recoverable from it, which is how the first version of the
+ * pin page came to report a hardcoded high nibble for every pin on every board.
+ */
+uint8_t     ag_board_pin_port_bit(ag_pin_t pin);
+
+/* Three states, because two would lose the one a host acts on:
+ *
+ *   0  the pin has no output-compare unit
+ *   1  it has one and this build can drive it
+ *   2  it has one, and this build spent that timer on the millisecond tick
+ *
+ * A host that cannot tell 0 from 2 will move a load to a different pin when the
+ * right fix is a different build. ag_board_pwm() deliberately folds both
+ * refusals into AG_ERR_UNSUPPORTED, so the distinction has to come from here.
+ */
+uint8_t     ag_board_pin_pwm_state(ag_pin_t pin);
+
 /* Capability flags, for CAPS. Returns 0 for a pin that does not exist. */
 uint8_t     ag_board_pin_flags(ag_pin_t pin);
 

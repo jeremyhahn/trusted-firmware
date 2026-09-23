@@ -61,6 +61,19 @@ Pre-1.0, MINOR carries breaking changes.
   §7.1 as literal hex, and a suite that proves a correctly signed image is
   accepted, a tampered one is refused and a downgrade is refused — against the
   real primitive, with a real key, over a real flash array.
+- **`make integration-test-boot`: `ag-boot` on emulated silicon, in `make ci`.**
+  The real bootloader `.elf` at its link address with the program counter set
+  there, the real application `.elf` in the flash below it with a trailer, a
+  provisioned reserved EEPROM, and an **ATECC608A modelled as a TWI slave on
+  simavr's bus** — so the element protocol arrives through
+  `src/hal/avr/hal_bus.c`'s real TWI state machine rather than through the
+  `ag_hal_i2c_xfer` seam `test/model/atecc608a.c` sits above. Being below the
+  driver lets it assert what no status byte carries: that the bus was slow
+  enough for the wake pulse, that a tampered image cost a full measurement and
+  no `Verify`, and that a downgrade was refused before the element was asked to
+  hash anything. Every wait is bounded in cycles, so a bootloader that stops
+  answering fails the job rather than hanging it. It found all three of the
+  device defects below.
 
 ### Changed
 
@@ -79,6 +92,40 @@ Pre-1.0, MINOR carries breaking changes.
 
 ### Fixed
 
+- **The bootloader refused every image, on every supported configuration.**
+  `ag_boot_evaluate` asked the signature backend for a public key so it could
+  check the SHA-256 pinned in reserved EEPROM. The element backend correctly
+  declines to produce one — the key lives in a locked slot and is named by
+  number, which is the entire point of verifying in stored mode — so every boot
+  ended in `AG_ERR_UNSUPPORTED` before the signature was ever checked. LTO then
+  proved `ag_boot_verify` unreachable and **deleted the verify path from the
+  image**, which is why `ag-boot` measured 2 368 bytes on the 328P and now
+  measures 3 426. `ag_boot_evaluate` reads `AG_ERR_UNSUPPORTED` as the tier
+  capability answer it is and passes no key, exactly as `ag_boot_floor_read`
+  does on a tier that keeps no floor of its own. Both halves already had tests;
+  nothing built the composition until something ran it.
+- **`ag-boot` never reached the application on the ATmega2560.** Above 128 KB an
+  indirect call is `eicall` and its target is `EIND:Z`; the C runtime leaves
+  `EIND` pointing at the page `__vectors` is in, so `((void(*)(void))0)()` from
+  a bootloader at `0x3E000` jumped to `0x20000`. That is erased flash, which
+  decodes as a long run of `SBRS`, so the part walked the upper half of its
+  flash and fell back into the bootloader — measuring, verifying and jumping
+  again, forever, with nothing on the wire to say why.
+  `ag_boot_jump_application` clears `EIND` first.
+- **The element-tier bootloader never configured the TWI bus.** `TWBR` stayed at
+  reset, which is 1 MHz at 16 MHz, so the wake pulse `ag_atecc_wake` produces
+  was 9 us against the 60 us the part needs. The element would have read as
+  absent on a board that had one, and every boot would have failed
+  `AG_ERR_CRYPTO` with nothing to point at. `ag_boot_cdi_init` now calls
+  `ag_hal_i2c_init(100000)`, as `src/crypto/atecc608a/provider.c` already did
+  for the application.
+- **`BOOT_SIG=atecc608a` hashed the signed span in software**, which linked
+  `src/crypto/sha256.c` — 4 052 bytes — into a 4 096-byte boot section and was
+  the reason the 328P row stopped linking once verification became reachable.
+  It now uses `ag_boot_hash`, the build's one hash, so the element computes the
+  48-byte digest as well. The cost argument in the old comment was about the
+  image, which is tens of kilobytes; this is one `SHA Start` and one `SHA End`,
+  once per boot.
 - **`docs/attestation/dice-profiles.md` claimed ed25519-donna's verify path was
   "about 2 KB".** It is **72 930 bytes** on AVR, with a 2 950-byte stack frame,
   against a 4 096-byte boot section and 2 048 bytes of SRAM. The claim was wrong

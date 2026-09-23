@@ -171,6 +171,17 @@ jobs:
         # would leave the attested build unverified on the part it is tightest
         # on, which is the 328P.
         crypto: [soft, atecc608a]
+        # The ATtiny85 is NOT part of that cross product, and `include` rather
+        # than another entry in `board` is what says so. Neither of those tiers
+        # exists on that part: the element is an I2C device on a part with no
+        # I2C, and the software tier's key store is a boot section it does not
+        # have. Its only tier is `none` -- AG_CRYPTO_NONE, the unattested one --
+        # and adding it to the list above would queue four jobs of which two
+        # could only ever fail. `make firmware-matrix` reads the same fact from
+        # BOARD_TIERS in the board's profile, so the two agree by construction.
+        include:
+          - board: attiny85
+            crypto: none
     steps:
       - uses: actions/checkout@v6
       - name: toolchain image with the source baked in
@@ -257,6 +268,14 @@ jobs:
         # no host build can reach -- the baud divisor, the interrupt vectors,
         # the order peripherals are brought up in, and the tick ISR's real rate.
         run: docker run --rm "$IMG" make integration-test
+      - name: run ag-boot under simavr
+        # The same tier for the bootloader, with an ATECC608A modelled as a TWI
+        # slave on the emulated bus -- so the element protocol goes through the
+        # real TWI driver rather than through the ag_hal_i2c_xfer seam the host
+        # model sits above. It is in `make ci` too; a gate that runs in only one
+        # of the two is a gate a developer cannot reproduce, and this repository
+        # has gone red over that three times.
+        run: docker run --rm "$IMG" make integration-test-boot
 
   sdk:
     name: Go SDK

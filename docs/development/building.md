@@ -33,9 +33,16 @@ has already found a defect the ordinary build constant-folded away.
 
 ```sh
 make firmware BOARD=atmega328p   # builds and enforces the size budget
+make firmware-matrix             # every board, at every tier its profile claims
 make reproducible-check          # two builds in different dirs must be identical
 make flash AVRDUDE_PORT=/dev/ttyUSB0
 ```
+
+Boards: `atmega328p`, `atmega2560`, `atmega32u4`, `attiny85`. The first three
+build at `CRYPTO=soft` and `CRYPTO=atecc608a`; the ATtiny85 builds only at
+`CRYPTO=none`, because neither of the others is possible on a part with no I2C
+and no boot section. `BOARD_TIERS` in each `profile.mk` is where that is
+recorded, and `firmware-matrix` reads it rather than assuming a cross product.
 
 ## The simulator
 
@@ -52,10 +59,15 @@ hardware.
 
 A board is data, not code. Add `boards/<name>/` with:
 
-- `board.h` — pin count, sizing, feature deviations, port register addresses
+- `board_profile.h` — pin count, sizing, feature deviations, port register addresses
 - `board.c` — the pin table
-- `profile.mk` — MCU, clock, budgets, programmer
+- `profile.mk` — MCU, clock, budgets, programmer, crypto tiers
 
 Then add a test asserting the pin table against the datasheet, as
 `test/unit/test_board_328p.c` does. **If adding a board requires touching
-`src/`, that is a defect in the design rather than a property of the board.**
+`src/`, that is a defect in the design rather than a property of the board** —
+unless the part is missing a peripheral the HAL assumes, in which case the cost
+is one new file under `src/hal/avr` shared with the next part that needs it.
+[`docs/boards/adding-a-board.md`](../boards/adding-a-board.md) is the normative
+version of all of this, and [`attiny85.md`](../boards/attiny85.md) is what
+adding a part four times smaller than the next smallest actually cost.

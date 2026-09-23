@@ -188,6 +188,28 @@ void ag_boot_jump_application(void)
     /* The RWW section must be readable before anything executes from it. */
     boot_rww_enable();
 
+#ifdef EIND
+    /*
+     * EIND FIRST, ON EVERY PART WITH MORE THAN 128 KB OF FLASH, AND THE
+     * SYMPTOM OF FORGETTING IT IS NOT A CRASH.
+     *
+     * Above 128 KB the program counter is three bytes, so an indirect call is
+     * `eicall` and its target is EIND:Z -- EIND picking the 128 KB page. The
+     * crt this image links sets EIND to the page `__vectors` is in, which for a
+     * bootloader at 0x3E000 is page 1. `((void(*)(void))0)()` therefore jumps
+     * to 0x20000 and not to 0, which on a Mega is erased flash: 0xFF decodes as
+     * a long run of SBRS, the part walks the whole upper half of its flash, and
+     * falls straight back into the bootloader -- which measures, verifies and
+     * jumps again, forever, with nothing on the wire to say why.
+     *
+     * The conditional is on EIND rather than on FLASHEND because EIND is
+     * exactly the thing being written; a part without the register is a part
+     * with a two-byte PC, where `icall` needs nothing. This file is under
+     * boot/hal/avr, one of the four places a target conditional is permitted.
+     */
+    EIND = 0u;
+#endif
+
     /* A plain call through a null function pointer: the application's reset
      * vector is at address zero. Not a watchdog reset, because a reset would
      * come straight back into the bootloader -- BOOTRST is programmed -- and

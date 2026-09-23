@@ -29,9 +29,9 @@
 
 #include <string.h>
 
+#include "../boot_measure.h"
 #include "../boot_verify.h"
 #include "atecc.h"
-#include "sha256.h"
 
 /* Element command constants for Verify. Facts about the silicon. */
 #define OP_VERIFY          0x45u
@@ -87,11 +87,22 @@ ag_status_t ag_boot_verify(const uint8_t *msg, uint16_t msglen,
         return AG_ERR_CRYPTO;
     }
 
-    /* ECDSA signs a digest, and the element verifies what is in TempKey. The
-     * hash stays in software here: streaming the image through the element's
-     * SHA engine costs a bus round trip per 64-byte block, which is seconds of
-     * boot time on a 28 KB application. */
-    ag_sha256(msg, msglen, digest);
+    /*
+     * ECDSA signs a digest, and the element verifies what is in TempKey.
+     *
+     * THROUGH ag_boot_hash, WHICH IS THE BUILD'S ONE HASH, and not ag_sha256.
+     * The reason is the whole reason BOOT_MEASURE=atecc608a exists: calling the
+     * software hash from here links src/crypto/sha256.c into the boot section,
+     * which is 4 052 bytes against a 4 096-byte section -- so the 328P
+     * configuration does not link at all, and nothing noticed only because
+     * ag_boot_verify was unreachable and LTO deleted the call.
+     *
+     * The cost argument that used to sit here -- a bus round trip per 64-byte
+     * block is seconds of boot time -- is about the IMAGE, which is tens of
+     * kilobytes. This message is AG_BOOT_TR_SIGNED_LEN bytes: one Start and one
+     * End, once per boot. It was the right argument attached to the wrong call.
+     */
+    ag_boot_hash(msg, msglen, digest);
 
     if (ag_atecc_wake() != AG_OK) {
         /* An element that does not answer is not a pass. A bootloader that

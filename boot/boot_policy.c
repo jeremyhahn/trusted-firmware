@@ -42,11 +42,12 @@ ag_status_t ag_boot_check_pubkey_pin(const uint8_t pinned[AG_BOOT_MEASURE_LEN],
 
 ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out)
 {
-    uint8_t     raw[AG_BOOT_TRAILER_LEN];
-    uint8_t     pubkey[AG_BOOT_PUBKEY_LEN];
-    uint8_t     pinned[AG_BOOT_MEASURE_LEN];
-    uint8_t     ee[AG_BOOT_EE_LEN];
-    ag_status_t st;
+    uint8_t        raw[AG_BOOT_TRAILER_LEN];
+    uint8_t        pubkey[AG_BOOT_PUBKEY_LEN];
+    uint8_t        pinned[AG_BOOT_MEASURE_LEN];
+    uint8_t        ee[AG_BOOT_EE_LEN];
+    const uint8_t *key = pubkey;
+    ag_status_t    st;
 
     /* The trailer is read in two halves because ag_boot_flash_read takes a
      * uint8_t length and the trailer is 128 bytes -- a length of 128 is fine,
@@ -88,7 +89,31 @@ ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out)
     memcpy(pinned, &ee[AG_BOOT_EE_O_PUBKEY_HASH], AG_BOOT_MEASURE_LEN);
 
     st = ag_boot_check_pubkey_pin(pinned, pubkey);
-    if (st != AG_OK) {
+    if (st == AG_ERR_UNSUPPORTED) {
+        /*
+         * THE BACKEND KEEPS THE KEY AND WILL NOT HAND IT OVER. That is the
+         * element tier working as designed, not a failure: the signing key sits
+         * in a locked element slot and is named by number, so there is no
+         * 32-byte value for this function to hash and nothing for the EEPROM
+         * pin to compare against.
+         *
+         * Nor is the pin needed there. The pin exists because replacing the
+         * bootloader replaces the key it verifies against -- and an element
+         * whose slot is locked cannot have its key replaced at all, by a
+         * rewritten boot section or by anything else on this part. Skipping a
+         * check the hardware has already made stronger is not a weaker device.
+         *
+         * `key` goes NULL rather than pointing at an untouched buffer, because
+         * the element backend REFUSES a caller-supplied key -- honouring one
+         * would mean verifying against whatever an attacker who reached the
+         * flash had put there, which is the whole thing stored mode prevents.
+         *
+         * This is the same shape as ag_boot_floor_read returning
+         * AG_ERR_UNSUPPORTED on a tier that keeps no floor of its own: a tier
+         * capability question, answered once, at the seam that knows.
+         */
+        key = 0;
+    } else if (st != AG_OK) {
         return st;
     }
 
@@ -98,5 +123,5 @@ ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out)
      * version unauthenticated and hand an attacker anti-rollback for a
      * four-byte edit; see include/ag/boot.h. */
     return ag_boot_verify(raw, AG_BOOT_TR_SIGNED_LEN,
-                          out->trailer.signature, pubkey);
+                          out->trailer.signature, key);
 }

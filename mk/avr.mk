@@ -13,11 +13,57 @@ BOARD_DIR  := boards/$(BOARD)
 # build/<board>/arduino-generic.elf meant whichever was built last silently
 # became "the" image. The simavr suite ran against the element build on a part
 # with no element and reported a failure that was entirely the build system's.
-# Tone is optional and gated by FILE SELECTION, not by #if inside a file: the
-# ATmega32U4 has no Timer2 and sets AG_FEATURE_TONE 0, so its image must not
-# contain the tone path at all rather than contain a disabled copy of it.
-TONE_SRCS := $(shell grep -q 'define AG_FEATURE_TONE 0' $(BOARD_DIR)/board_profile.h \
-                     && echo "" || echo "src/caps/tone.c src/hal/avr/hal_tone.c")
+# A capability the part does not have is turned off IN THE BOARD PROFILE and
+# gated HERE by FILE SELECTION, never by #if inside a file. The ATmega32U4 has
+# no Timer2 and sets AG_FEATURE_TONE 0, so its image must not contain the tone
+# path at all rather than contain a disabled copy of it.
+#
+# Asked of the profile once, by a function, because there are now four of these
+# and four copies of the same grep is four chances for one of them to test the
+# wrong symbol -- which does not fail the build, it silently ships a module the
+# profile said to leave out.
+#
+# The whitespace class is not tidiness. The first version matched a single
+# space, a profile that column-aligned its defines did not match, and the build
+# compiled a module the board had switched off -- failing on a register the part
+# does not have, several files away from the line that caused it. `profile_says`
+# anchors the value so AG_FEATURE_I2C 0 cannot be read out of something longer.
+profile_says = $(shell grep -Eq '^[[:space:]]*#[[:space:]]*define[[:space:]]+$(1)[[:space:]]+$(2)[[:space:]]*(/\*.*)?$$' \
+                       $(BOARD_DIR)/board_profile.h && echo 1)
+feature_off  = $(call profile_says,AG_FEATURE_$(1),0)
+
+TONE_SRCS := $(if $(call feature_off,TONE),,src/caps/tone.c src/hal/avr/hal_tone.c)
+
+# PWM. The ATtiny85 spends Timer0 on the millisecond tick and Timer1 on the
+# software UART's bit clock, and Timer1's control register is not a mega's in
+# any case -- so there is no compare unit for ag_hal_pwm_write to drive and the
+# board sets AG_FEATURE_PWM 0.
+PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c src/hal/avr/hal_pwm.c)
+
+# The three buses, gated as ONE unit because they are one translation unit.
+#
+# src/hal/avr/hal_bus.c holds the TWI driver, the SPI driver and the bit-banged
+# 1-Wire driver, and file selection cannot take two of three. On a part with a
+# USI and neither peripheral -- the ATtiny85 -- that file does not compile at
+# all, so all three go, and 1-Wire goes with them even though it would have
+# worked. Splitting the file is the change that would give it back; until then
+# the board profile says AG_FEATURE_ONEWIRE 0 and CAPS reports the truth about
+# THIS BUILD, which is the property that matters to a host.
+BUS_OFF  := $(and $(call feature_off,I2C),$(call feature_off,SPI),$(call feature_off,ONEWIRE))
+BUS_SRCS := $(if $(BUS_OFF),,src/caps/bus.c src/hal/avr/hal_bus.c)
+
+# The byte link. A part with no USART needs a software one, and the two
+# implementations define the same four functions -- so exactly one is linked and
+# the choice is the board's, not a flag's.
+UART_SRCS := $(if $(call profile_says,AG_UART_SOFT,1), \
+                  src/hal/avr/hal_uart_soft.c,src/hal/avr/hal_uart.c)
+
+# The HAL modules that are chosen rather than always present. Filtered out of
+# the wildcard below and added back by the lists above, so a file that is gated
+# off is not compiled at all -- which is the point, since several of them do not
+# compile on the parts that gate them.
+HAL_OPTIONAL := src/hal/avr/hal_tone.c src/hal/avr/hal_pwm.c src/hal/avr/hal_bus.c \
+                src/hal/avr/hal_uart.c src/hal/avr/hal_uart_soft.c
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -32,13 +78,26 @@ PROV_SRCS  :=
 PROV_DEFS  :=
 endif
 
+# The tier default is the BOARD'S, when the board has an opinion. A profile that
+# says nothing gets `soft`, as every board did before there was a part that
+# could not carry it. A command-line CRYPTO= still wins over both, so an
+# unbuildable combination can still be asked for and still fails honestly.
 CRYPTO ?= soft
 ifeq ($(CRYPTO),soft)
-CRYPTO_SRCS := src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
+CRYPTO_SRCS := src/crypto/sha256.c src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
+ALIAS_SRCS  :=
+ALIAS_DEFS  :=
+else ifeq ($(CRYPTO),none)
+# THE UNATTESTED TIER. Not "soft with the crypto taken out" -- see the header of
+# src/crypto/none/provider.c. SHA-256 is part of a TIER's source list rather
+# than a fixed member of the image precisely so that a tier which cannot use it
+# does not carry it: on an ATtiny85 that one file is 4 018 bytes of an 8 192
+# byte part, spent on a digest there is no key to sign.
+CRYPTO_SRCS := src/crypto/none/provider.c
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
 else ifeq ($(CRYPTO),atecc608a)
-CRYPTO_SRCS := src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
+CRYPTO_SRCS := src/crypto/sha256.c src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
 # The alias certificate rides with the tier that can sign one, and only on a
 # board with room for it. It is gated by FILE SELECTION, exactly as tone is: a
 # certificate names a subject public key, the software tier's identity is an
@@ -47,7 +106,7 @@ CRYPTO_SRCS := src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
 # loses 4 KB of its flash to a DFU bootloader and cannot carry the builder at
 # all. Both boards say so in their profile, and the grep here is what makes the
 # profile's word the build's.
-ALIAS_OFF   := $(shell grep -q 'define AG_FEATURE_ALIAS_CERT 0' $(BOARD_DIR)/board_profile.h && echo 1)
+ALIAS_OFF   := $(call feature_off,ALIAS_CERT)
 ifeq ($(ALIAS_OFF),1)
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
@@ -56,7 +115,7 @@ ALIAS_SRCS  := src/caps/alias.c src/caps/uccs.c
 ALIAS_DEFS  := -DAG_FEATURE_ALIAS_CERT=1
 endif
 else
-$(error unknown CRYPTO tier "$(CRYPTO)" -- expected soft or atecc608a)
+$(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a)
 endif
 
 AVR_DIR    := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)
@@ -103,10 +162,10 @@ AVR_SRCS := $(sort \
   src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board_lookup.c \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
-  src/caps/pwm.c src/caps/pulse.c src/caps/bus.c $(TONE_SRCS) $(PROV_SRCS) \
-  src/crypto/sha256.c $(CRYPTO_SRCS) $(ALIAS_SRCS) \
-  $(BOARD_DIR)/board.c \
-  $(filter-out src/hal/avr/hal_tone.c,$(wildcard src/hal/avr/*.c)))
+  src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
+  $(CRYPTO_SRCS) $(ALIAS_SRCS) \
+  $(BOARD_DIR)/board.c $(UART_SRCS) \
+  $(filter-out $(HAL_OPTIONAL),$(wildcard src/hal/avr/*.c)))
 
 AVR_OBJS := $(patsubst %.c,$(AVR_DIR)/%.o,$(AVR_SRCS))
 
@@ -131,13 +190,30 @@ $(TARGET).hex: $(TARGET).elf
 # This is the third time a gate CI runs and `make ci` does not has cost a red
 # main. A gate whose local and CI invocations differ is one a developer cannot
 # reproduce, and therefore one that gets argued with rather than fixed.
+# The TIERS ARE PER BOARD, and that is not a refinement -- it is the difference
+# between a matrix and a guess. The list was `soft atecc608a` for every board,
+# which was right while every board had a TWI peripheral and a boot section to
+# hide a key in. The ATtiny85 has neither: the element tier is an I2C device on
+# a part with no I2C, and the software tier's whole definition is a key in
+# boot-section flash behind lock bits, which this part does not have. Building
+# it at those tiers would not be a size failure, it would be an image whose CAPS
+# claims a root of trust the silicon cannot provide.
+#
+# A board states its tiers in profile.mk. One that says nothing gets the two it
+# always had, so no existing board changes.
+BOARD_TIERS     ?= soft atecc608a
 FIRMWARE_BOARDS := $(notdir $(wildcard boards/*))
-FIRMWARE_TIERS  := soft atecc608a
+
+## board-tiers: print the crypto tiers BOARD supports (used by firmware-matrix)
+board-tiers:
+	@echo $(BOARD_TIERS)
+
+.PHONY: board-tiers
 
 firmware-matrix:
 	@fail=0; \
 	for b in $(FIRMWARE_BOARDS); do \
-	  for t in $(FIRMWARE_TIERS); do \
+	  for t in $$($(MAKE) --no-print-directory board-tiers BOARD=$$b); do \
 	    $(MAKE) --no-print-directory firmware BOARD=$$b CRYPTO=$$t || fail=1; \
 	  done; \
 	done; \

@@ -62,7 +62,7 @@ verify-vendor:
 # and it cost a red main. If CI runs it, it belongs here.
 ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test boot-test board-sweep \
     coverage test-asan sdk-test firmware-matrix bootloader-check integration-test \
-    reproducible-check
+    integration-test-boot reproducible-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci firmware-attested

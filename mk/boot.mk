@@ -147,9 +147,19 @@ DONNA_CFLAGS := -std=gnu11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
 # bootloader's stack must start below them or the first deep call writes over
 # the thing it is about to hand across. AVR data addresses carry the 0x800000
 # offset the linker uses to tell flash from SRAM.
+#
+# Guarded on BOOT_SECTION because not every board has one. These three lines
+# are expanded on EVERY make invocation, whatever the target, so a board whose
+# profile states no boot geometry -- the ATtiny85 has no boot-loader section at
+# all -- turned `make firmware` into a shell arithmetic error printed before the
+# first compile, pointing at nothing. The bootloader targets still fail for that
+# board, which is correct; they now fail on the linker script rather than on
+# every unrelated build.
+ifneq ($(BOOT_SECTION),)
 BOOT_TEXT_START := $(shell printf '0x%x' $$(( $(FLASH_TOTAL) - $(BOOT_SECTION) )))
 BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
 BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
+endif
 
 BOOT_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax \
                 -Wl,--section-start=.text=$(BOOT_TEXT_START) \
@@ -415,25 +425,58 @@ ISP_PORT ?= usb
 
 # ------------------------------------------------------- simavr integration
 #
-# NOT IN `make ci`, and see the header of boot_harness.c for why that is not a
-# skip guard: there is no ag-boot.elf to run, because ed25519-donna does not
-# link on this part. The harness builds, it fails loudly with the reason, and
-# adding it to `ci` is a one-line change the day a backend that fits is chosen.
+# The real ag-boot image, the real application image and a modelled ATECC608A on
+# the emulated TWI bus. Part of `make ci`.
+#
 # Its own variable rather than mk/integration.mk's INT_DIR: that file is
 # included AFTER this one, so INT_DIR is still empty here and the rule target
 # would expand to "/boot_harness" -- a path at the filesystem root, and a "no
 # rule to make target" that names something nobody wrote.
-BOOT_INT_DIR := $(BUILD_DIR)/integration
+#
+# The BOARD is in the path. The harness compiles the board profile in, so a
+# 2560 harness and a 328P harness are different programs, and a shared path
+# means the second build reuses the first one's binary and reports its result --
+# the same defect mk/avr.mk's output path exists to prevent.
+BOOT_INT_DIR := $(BUILD_DIR)/integration/$(BOARD)
 
-$(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c src/proto/crc16.c
+# WHICH ROW OF BOOT_SUPPORTED THIS RUNS, and it is not the default board.
+#
+# The 328P's boot section has no room for the framed OTA path, so its recovery
+# is recovery_halt.c: a refusing device stops, mute, and "tampered" and
+# "downgrade" become the same observation. Two of the harness's three assertions
+# would then be one. The Mega's 8 KB section carries OTA, so a refusal arrives
+# as an EVENT frame with the reason in it -- and the Mega is also the part with
+# the three-byte PC and the far-flash read, which is where the jump and the
+# measurement have the most room to be wrong. See the header of boot_harness.c.
+BOOT_INT_BOARD := atmega2560
+BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1
+
+# The same warning set as the firmware. The harness is a model of a part other
+# people will read as documentation for it, so it is held to the standard the
+# thing it models is held to.
+$(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
+        src/proto/crc16.c src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
+        boot/boot_image.c boot/boot_platform.c
 	@mkdir -p $(BOOT_INT_DIR)
-	@$(CC) -std=c11 -g -O1 -Wall -Wextra \
-	   -Iinclude -Isrc/proto -I$(BOARD_DIR) -DAG_BOARD_HEADER='"board_profile.h"' \
+	@$(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
+	   -Iinclude -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
+	   -I$(BOARD_DIR) -DAG_BOARD_HEADER='"board_profile.h"' \
+	   -DAG_SIMAVR_MCU='"$(MCU)"' \
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"
 
 ## integration-test-boot: run ag-boot under simavr
-integration-test-boot: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf
-	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf
+# Recursive, because this suite runs one specific row of BOOT_SUPPORTED on one
+# specific board and a variable set on the command line would otherwise follow
+# whatever BOARD the caller happened to have.
+integration-test-boot:
+	@$(MAKE) --no-print-directory boot-harness-run \
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_ROW)
 
-.PHONY: integration-test-boot
+# The application .elf is a prerequisite and not an assumption: "a correctly
+# signed image boots" is observed by the application answering CAPS after the
+# jump, so the image in the emulated flash has to be code that runs.
+boot-harness-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
+	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
+
+.PHONY: integration-test-boot boot-harness-run

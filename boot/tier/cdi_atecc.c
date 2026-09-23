@@ -27,7 +27,21 @@
 #include "../boot_cdi.h"
 #include "../boot_image.h"
 #include "ag/boot.h"
+#include "ag/hal.h"
 #include "atecc.h"
+
+/*
+ * 100 kHz, and it is a precondition rather than a preference.
+ *
+ * The element wakes on a low SDA of at least 60 us, which ag_atecc_wake
+ * produces as the low period of a byte written to address zero -- nine bit
+ * times, so 90 us at this rate. Leave TWBR at its reset value and the ATmega's
+ * TWI runs at F_CPU/16, which is 1 MHz at 16 MHz: the same write is 9 us, the
+ * part never wakes, and the symptom is an element that reads as absent on a
+ * board that has one. Every boot then fails AG_ERR_CRYPTO with nothing to point
+ * at. src/crypto/atecc608a/atecc.c says the same thing over ag_atecc_wake.
+ */
+#define AG_ATECC_BUS_HZ 100000uL
 
 /* Datasheet maximum execution times, in milliseconds. Not guesses: the element
  * NACKs while busy, so these bound the polling rather than time it, and a
@@ -39,6 +53,12 @@ static uint8_t present;
 
 ag_status_t ag_boot_cdi_init(void)
 {
+    /* The bus, before anything tries to use it. The application does this in
+     * src/crypto/atecc608a/provider.c; the bootloader shares the driver but not
+     * that provider, so this is where the same call belongs. It is first
+     * because ag_atecc_wake below is the first transfer on the bus. */
+    (void)ag_hal_i2c_init(AG_ATECC_BUS_HZ);
+
     present = (ag_atecc_wake() == AG_OK) ? 1u : 0u;
     if (present) {
         (void)ag_atecc_sleep();

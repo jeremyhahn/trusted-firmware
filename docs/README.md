@@ -7,7 +7,7 @@ means a conflict with the code is a defect to fix in the document first.
 |---|---|
 | [`protocol/`](protocol/architecture.md) | the frame, resync, versioning, the CAPS pin page and the algorithm bitmap |
 | [`firmware/`](firmware/architecture.md) | the layers, link-time substitution, the tick and scheduler, the AVR traps |
-| [`boards/`](boards/adding-a-board.md) | what a board is, and the three times "data only" stopped being true |
+| [`boards/`](boards/adding-a-board.md) | what a board is, and the three times "data only" stopped being true — plus [`attiny85.md`](boards/attiny85.md), the part that broke five more assumptions |
 | [`attestation/`](attestation/dice-profiles.md) | the three DICE profiles, conformance met and unmet, the UCCS evidence extension and the CryptoAuthLib decision |
 | [`security/`](security/threat-model.md) | the threat model, provisioning, fuses and lock bits |
 | [`clients/`](clients/README.md) | one host implementation, and why the codec exists exactly twice |

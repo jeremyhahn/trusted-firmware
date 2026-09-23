@@ -40,6 +40,12 @@ typedef struct {
  *   AG_ERR_NOT_PROVISIONED   this bootloader has no public key, or the key it
  *                            has is not the one reserved EEPROM pins
  *
+ * A backend that keeps its key -- the element, verifying in stored mode -- has
+ * no key to pin and is not refused for it. See the AG_ERR_UNSUPPORTED arm in
+ * boot_policy.c, and note that this is the ONLY configuration that fits a 4 KB
+ * boot section, so the arm is on every supported build rather than an exotic
+ * one.
+ *
  * ORDER. The rollback check comes before the signature check, because it is
  * cheap and refusing early costs nothing -- and because it is safe: the version
  * it reads is inside the span the signature covers, so a forged version cannot
@@ -63,6 +69,12 @@ ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out);
  * device whose boot section was rewritten would verify happily against the
  * attacker's key. The EEPROM hash is what makes a bootloader swap detectable
  * from inside the bootloader.
+ *
+ * AG_ERR_UNSUPPORTED means the backend keeps its key and will not produce one,
+ * so there is nothing here to hash and nothing to pin -- see ag_boot_evaluate,
+ * which is the only caller that has to know what to do about it. It is a tier
+ * capability answer, not a refusal, and it is deliberately the same shape as
+ * ag_boot_floor_read's on a tier that keeps no floor of its own.
  */
 ag_status_t ag_boot_check_pubkey_pin(const uint8_t pinned[AG_BOOT_MEASURE_LEN],
                                      uint8_t pubkey_out[AG_BOOT_PUBKEY_LEN]);

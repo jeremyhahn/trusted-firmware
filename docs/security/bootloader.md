@@ -1,7 +1,7 @@
 # ag-boot, the trusted bootloader
 
 > **Status: NORMATIVE** · Scope: `boot/`, `include/ag/boot.h`, `mk/boot.mk`,
-> `src/third_party/ed25519-donna/` · Last verified: 2026-09-22
+> `src/third_party/ed25519-donna/` · Last verified: 2026-09-23
 >
 > One section of this page — "What does not fit" — records a measurement that
 > contradicts a claim made elsewhere in these docs. The measurement is right and
@@ -122,14 +122,24 @@ section is the boot decision, the EEPROM layout and the CDI handoff.
 
 | board | boot section | image | spare |
 |---|---:|---:|---:|
-| ATmega328P | 4 096 | **2 368** | 1 728 |
-| ATmega32U4 | 4 096 | **2 436** | 1 660 |
-| ATmega2560 | 8 192 | **2 542** | 5 650 |
-| ATmega2560, with OTA in the bootloader | 8 192 | **5 328** | 2 864 |
+| ATmega328P | 4 096 | **3 426** | 670 |
+| ATmega32U4 | 4 096 | **3 496** | 600 |
+| ATmega2560 | 8 192 | **3 580** | 4 612 |
+| ATmega2560, with OTA in the bootloader | 8 192 | **5 826** | 2 366 |
 
 Reproduce with `make bootloader-check`, which builds every supported
 configuration and fails if one stops fitting. The margin on a 4 KB part is the
 kind of thing that disappears one commit at a time.
+
+> These figures were 2 368 / 2 436 / 2 542 / 5 328 until the simavr suite ran
+> against the image for the first time. `ag_boot_evaluate` was refusing every
+> image with `AG_ERR_UNSUPPORTED` before it reached the signature — it asked the
+> backend for a public key and the element backend correctly declines to produce
+> one — so LTO proved `ag_boot_verify` unreachable and **deleted the verify path
+> from the image**. The old numbers are the size of a bootloader with no
+> verification in it. Both halves had tests: `test_boot_policy` supplies its own
+> `ag_boot_pubkey`, `test_boot_element` asserts that the real one refuses.
+> Nothing built the composition until something ran it.
 
 ### The two things that had to move
 
@@ -173,6 +183,18 @@ manufacturer put there.
 
 It is also smaller — 64 bytes of signature on the wire instead of 128 of
 signature and key.
+
+**The reserved-EEPROM key pin does not apply on this tier, and that is not a
+weakening.** The pin exists because replacing the bootloader replaces the key it
+verifies against, so the SHA-256 in EEPROM is what makes a boot-section swap
+detectable from inside the bootloader. A locked element slot cannot have its key
+replaced at all — not by a rewritten boot section, not by anything on the part —
+so there is nothing for the hash to catch. `ag_boot_pubkey` answers
+`AG_ERR_UNSUPPORTED`, `ag_boot_evaluate` reads that as a tier capability answer
+and passes no key to `ag_boot_verify`, and the element backend refuses a
+caller-supplied key so that a future caller cannot quietly reintroduce one. It
+is the same shape as `ag_boot_floor_read` on a tier that keeps no floor of its
+own.
 
 ### What this costs in honesty
 
@@ -259,7 +281,9 @@ currently has one value, so adding a second is a file and a case in `mk/boot.mk`
 ## The build
 
 ```sh
-make bootloader BOARD=atmega328p            # gated at BOOT_BUDGET; currently fails
+make bootloader BOARD=atmega328p BOOT_TIER=atecc608a \
+     BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=0
+make bootloader-check                       # every supported configuration
 make bootloader-budget BOARD=atmega328p     # the per-component breakdown
 make boot-core-size BOARD=atmega328p        # the core, without a backend
 make boot-test                              # the host suite
@@ -280,14 +304,25 @@ root of trust nobody can audit.
 
 `boot/` is covered by the same preprocessor-conditional grep as `src/core`,
 `src/proto` and `src/caps`, with `boot/hal/avr` exempt on the same terms as
-`src/hal/avr`. There is exactly one conditional under that exemption: the
-far-flash read, which is required above 64 KB and is a fact about the silicon.
+`src/hal/avr`. There are two conditionals under that exemption, both facts about
+the silicon: the far-flash read, required above 64 KB, and clearing `EIND`
+before the jump.
+
+**`EIND`, and why forgetting it is not a crash.** Above 128 KB the program
+counter is three bytes and an indirect call is `eicall`, whose target is
+`EIND:Z`. The C runtime sets `EIND` to the 128 KB page `__vectors` is in, which
+for a bootloader at `0x3E000` is page 1 — so `((void(*)(void))0)()` jumps to
+`0x20000`, not to `0`. On a Mega that is erased flash: `0xFF` decodes as a long
+run of `SBRS`, the part walks the upper half of its flash and falls back into
+the bootloader, which measures, verifies and jumps again, forever, with nothing
+on the wire to say why. `ag_boot_jump_application` clears `EIND` first. The
+simavr suite is what found this; nothing on the host can.
 
 ## What is shared with the application, and why
 
 | shared | because |
 |---|---|
-| `src/crypto/sha256.c` | the measurement must be the hash the application reports and a verifier recomputes |
+| `src/crypto/sha256.c` (`BOOT_MEASURE=soft` only) | the measurement must be the hash the application reports and a verifier recomputes |
 | `src/proto/frame.c`, `crc16.c` | one codec, so OTA frames and application frames cannot drift apart |
 | `src/hal/avr/hal_early.c` | one "clear MCUSR and disarm the watchdog"; the copy that is wrong bootloops the part |
 | `src/hal/avr/avr_usart_regs.h` | one place a board that moved to USART1 has to be remembered |
@@ -317,12 +352,31 @@ signed image is accepted, a tampered one is refused, a downgrade is refused —
 against the real primitive, with a real RFC 8032 key and a real signature, over
 a real flash array. Nothing is stubbed there but the hardware.
 
-`test/integration/simavr/boot_harness.c` asks the same three questions of the
-real `.elf` on emulated silicon. **It is not in `make ci`, and that is not a
-skip guard**: there is no `ag-boot.elf`, because the link fails. The harness
-builds, runs, and reports a failure that says exactly why. The day a backend
-that fits is chosen, adding it to `ci` is one line and the assertions are
-already written.
+`make integration-test-boot` — `test/integration/simavr/boot_harness.c` asks the
+same three questions of the real `.elf` on emulated silicon, and it is in
+`make ci`.
+
+It loads `ag-boot.elf` at its link address, sets the program counter there
+because `BOOTRST` is programmed, puts the application `.elf` this same CI run
+built into the flash below it with a trailer, provisions the reserved EEPROM,
+and hangs an **ATECC608A on the emulated TWI bus** — a slave attached to
+simavr's `avr_twi` IRQs, so the element protocol arrives through
+`src/hal/avr/hal_bus.c`'s real TWI state machine rather than through the
+`ag_hal_i2c_xfer` seam. That is the difference from `test/model/atecc608a.c`,
+which models the same part above the driver; neither subsumes the other.
+
+Because the element is below the driver, the harness can assert things no
+status byte carries: that the bus was clocked slowly enough for the wake pulse
+to work, that the driver sent one whole 64-byte `SHA Update` per block and
+exactly one tail, that a tampered image cost a full measurement and **no**
+`Verify`, and that a downgrade was refused before the element was asked to hash
+anything. Every wait is bounded in cycles, so a bootloader that stops answering
+fails the job rather than hanging it.
+
+It runs on `atmega2560` with `BOOT_OTA=1` — a row of `BOOT_SUPPORTED`, and the
+only one whose bootloader can say *why* it refused. On a 4 KB part recovery is
+`recovery_halt.c` and a refusing device is deliberately mute, which would make
+"tampered" and "downgrade" the same observation.
 
 ## Still outstanding
 

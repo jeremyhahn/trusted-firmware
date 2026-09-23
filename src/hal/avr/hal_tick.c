@@ -24,12 +24,35 @@ static volatile ag_ms_t ticks;
  */
 #define TICK_OCR ((uint8_t)((F_CPU / 64UL / 1000UL) - 1UL))
 
+/*
+ * The name of the register holding OCIE0A, and the only difference in the whole
+ * tick path across this family.
+ *
+ * Every mega part has one interrupt-mask register per timer and calls this one
+ * TIMSK0. The ATtiny85 has ONE mask register for both its timers and calls it
+ * TIMSK. The timer, the waveform mode, the prescaler and the vector name are
+ * identical, so this is a spelling and it is isolated here -- src/hal/avr being
+ * one of the four places a preprocessor conditional is permitted, and a
+ * register with two names on the same architecture being exactly what that
+ * exemption is for.
+ */
+#ifdef TIMSK0
+#define AG_TICK_TIMSK TIMSK0
+#else
+#define AG_TICK_TIMSK TIMSK
+#endif
+
 ag_status_t ag_hal_tick_init(void)
 {
     TCCR0A = (uint8_t)_BV(WGM01);                 /* CTC */
     TCCR0B = (uint8_t)(_BV(CS01) | _BV(CS00));    /* clk/64 */
     OCR0A  = TICK_OCR;
-    TIMSK0 = (uint8_t)_BV(OCIE0A);
+    /* OR, not assign. On a part whose mask register is shared -- the ATtiny85's
+     * TIMSK also carries OCIE1A and OCIE1B, which on that part are the software
+     * UART's bit clock -- an assignment here silently disables whichever of
+     * them was already armed. The register reads zero at reset, so this is
+     * identical on every board that does not share it. */
+    AG_TICK_TIMSK |= (uint8_t)_BV(OCIE0A);
     return AG_OK;
 }
 

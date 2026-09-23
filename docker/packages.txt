@@ -14,6 +14,7 @@ avrdude          # flashing
 
 simavr           # the emulator: models ADC, EEPROM, USART, SPI, TWI, timers,
 libsimavr-dev    # GPIO with pin-change interrupts, and the watchdog
+libelf-dev       # simavr reads the firmware .elf through libelf
 
 build-essential  # the host compiler, for the unit tests and agsim
 make

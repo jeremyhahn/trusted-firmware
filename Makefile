@@ -15,6 +15,7 @@ include mk/host.mk
 include mk/go.mk
 include mk/avr.mk
 include mk/docker.mk
+include mk/integration.mk
 
 ## help: list every target with its description
 help:
@@ -51,7 +52,7 @@ verify-vendor:
 	exit $$fail
 
 ## ci: everything the CI gate requires
-ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test test-asan sdk-test firmware reproducible-check
+ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test test-asan sdk-test firmware integration-test reproducible-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci

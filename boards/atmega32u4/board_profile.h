@@ -97,6 +97,30 @@
  * the feature. */
 #define AG_FEATURE_ATTEST 1
 
+/*
+ * The alias certificate is OFF on this part, and only on this part.
+ *
+ * It does not fit. The certificate builder, its DER template and the claims-set
+ * encoder are 2 540 bytes; an element-backed image here measures 14 706 against
+ * a 14 336 budget, which is 370 over. The budget is half the usable application
+ * space, and the usable space is 28 672 rather than 32 768 because 4 096 bytes
+ * of this part are a DFU bootloader that cannot be reclaimed -- so there is no
+ * number to raise, only flash that is not there.
+ *
+ * WHAT IS LOST, stated rather than glossed: a host asking for ATTEST_CERT on a
+ * 32U4 gets AG_ERR_UNKNOWN_CMD and CAPS reports the feature bit clear, so it
+ * learns the truth before it depends on the answer. ATTEST still works, and the
+ * evidence frame still carries the firmware measurement and the nonce -- what
+ * this part cannot do is wrap them in an X.509 certificate for a verifier that
+ * wants DICE evidence in the spec's own extension.
+ *
+ * The honest alternative was to drop the measurement claim from the claims set,
+ * which saves 388 bytes and would fit with eighteen to spare. Eighteen bytes is
+ * not headroom, and evidence that does not say what it measured is not worth
+ * the certificate around it.
+ */
+#define AG_FEATURE_ALIAS_CERT 0
+
 /* Half the usable space, each. Usable flash is 28672 bytes, not 32768, because
  * Caterina owns the top 4 KB -- so the half is 14336 rather than 16384. RAM is
  * half of 2560.

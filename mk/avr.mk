@@ -35,8 +35,26 @@ endif
 CRYPTO ?= soft
 ifeq ($(CRYPTO),soft)
 CRYPTO_SRCS := src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
+ALIAS_SRCS  :=
+ALIAS_DEFS  :=
 else ifeq ($(CRYPTO),atecc608a)
 CRYPTO_SRCS := src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
+# The alias certificate rides with the tier that can sign one, and only on a
+# board with room for it. It is gated by FILE SELECTION, exactly as tone is: a
+# certificate names a subject public key, the software tier's identity is an
+# HMAC and has no public half, so a soft image must not contain the code at all
+# rather than contain a copy of it that can only refuse -- and the ATmega32U4
+# loses 4 KB of its flash to a DFU bootloader and cannot carry the builder at
+# all. Both boards say so in their profile, and the grep here is what makes the
+# profile's word the build's.
+ALIAS_OFF   := $(shell grep -q 'define AG_FEATURE_ALIAS_CERT 0' $(BOARD_DIR)/board_profile.h && echo 1)
+ifeq ($(ALIAS_OFF),1)
+ALIAS_SRCS  :=
+ALIAS_DEFS  :=
+else
+ALIAS_SRCS  := src/caps/alias.c src/caps/uccs.c
+ALIAS_DEFS  := -DAG_FEATURE_ALIAS_CERT=1
+endif
 else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected soft or atecc608a)
 endif
@@ -64,7 +82,7 @@ AVR_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
               -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
               -ffile-prefix-map=$(CURDIR)=. \
               -Iinclude -Isrc -Isrc/crypto -I$(BOARD_DIR) \
-              -DAG_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS)
+              -DAG_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS)
 
 AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 
@@ -86,7 +104,7 @@ AVR_SRCS := $(sort \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pwm.c src/caps/pulse.c src/caps/bus.c $(TONE_SRCS) $(PROV_SRCS) \
-  src/crypto/sha256.c $(CRYPTO_SRCS) \
+  src/crypto/sha256.c $(CRYPTO_SRCS) $(ALIAS_SRCS) \
   $(BOARD_DIR)/board.c \
   $(filter-out src/hal/avr/hal_tone.c,$(wildcard src/hal/avr/*.c)))
 
@@ -101,6 +119,31 @@ $(TARGET).elf: $(AVR_OBJS)
 
 $(TARGET).hex: $(TARGET).elf
 	@$(OBJCOPY) -O ihex -R .eeprom $< $@
+
+## firmware-matrix: build EVERY board and crypto tier, as CI does
+#
+# `make ci` used to build `firmware` and `firmware-attested` and nothing else --
+# both at the default BOARD -- while the workflow built a six-way board x tier
+# matrix. So a change that overflowed one board's budget passed the local gate
+# and went red on the server, which is exactly what happened with the UCCS work
+# on the 32U4: 370 bytes over, invisible to `make ci`.
+#
+# This is the third time a gate CI runs and `make ci` does not has cost a red
+# main. A gate whose local and CI invocations differ is one a developer cannot
+# reproduce, and therefore one that gets argued with rather than fixed.
+FIRMWARE_BOARDS := $(notdir $(wildcard boards/*))
+FIRMWARE_TIERS  := soft atecc608a
+
+firmware-matrix:
+	@fail=0; \
+	for b in $(FIRMWARE_BOARDS); do \
+	  for t in $(FIRMWARE_TIERS); do \
+	    $(MAKE) --no-print-directory firmware BOARD=$$b CRYPTO=$$t || fail=1; \
+	  done; \
+	done; \
+	exit $$fail
+
+.PHONY: firmware-matrix
 
 ## firmware: build the firmware for BOARD (default atmega328p)
 firmware: $(TARGET).hex size-check

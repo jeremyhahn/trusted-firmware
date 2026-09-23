@@ -43,17 +43,31 @@ static void provision(void)
 }
 void tearDown(void) {}
 
-static ag_status_t run(const uint8_t *p, uint8_t n)
+static ag_status_t run_cmd(uint8_t cmd, const uint8_t *p, uint8_t n)
 {
     if (n) { memcpy(inbuf, p, n); }
     ag_reader_init(&r, inbuf, n);
     ag_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
-    return ag_dispatch(AG_CMD_ATTEST, &r, &w);
+    return ag_dispatch(cmd, &r, &w);
+}
+
+static ag_status_t run(const uint8_t *p, uint8_t n)
+{
+    return run_cmd(AG_CMD_ATTEST, p, n);
 }
 
 static const uint8_t NONCE[AG_ATTEST_NONCE_LEN] = {
     0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
     0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f
+};
+
+/* The ENROLMENT challenge, which is 32 bytes and is not the 16 above. The two
+ * widths are the contract; see AG_ALIAS_NONCE_LEN in include/ag/protocol.h. */
+static const uint8_t CHALLENGE[AG_ALIAS_NONCE_LEN] = {
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+    0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+    0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
 };
 
 /*
@@ -235,6 +249,72 @@ static void test_a_different_device_secret_produces_a_different_signature(void)
     TEST_ASSERT_FALSE(memcmp(sig_a, sig_b, sizeof sig_a) == 0);
 }
 
+/* ---------------------------------------------------------------------- */
+/*  The alias certificate, on a tier that cannot issue one.                  */
+/* ---------------------------------------------------------------------- */
+
+/*
+ * A certificate names a subject PUBLIC key, and this tier's identity is an
+ * HMAC. There is no public half, so there is nothing to certify -- and the
+ * answer has to be AG_ERR_UNSUPPORTED rather than a certificate over a point
+ * the firmware made up, or over the HMAC key itself, which would hand out the
+ * ability to forge every response this device can produce.
+ *
+ * Distinct from AG_ERR_UNKNOWN_CMD on purpose. A build with the command
+ * compiled out says the firmware has never heard of certificates; this says the
+ * firmware knows exactly what one is and this root of trust cannot make it.
+ */
+static void test_the_software_tier_refuses_to_issue_an_alias_certificate(void)
+{
+    provision();
+    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED,
+                      run_cmd(AG_CMD_ATTEST_CERT, CHALLENGE, AG_ALIAS_NONCE_LEN));
+}
+
+/* Refused before provisioning too, and for the earlier reason: there is no
+ * identity at all. Either way nothing is issued. */
+static void test_an_unprovisioned_device_refuses_an_alias_certificate(void)
+{
+    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED,
+                      run_cmd(AG_CMD_ATTEST_CERT, CHALLENGE, AG_ALIAS_NONCE_LEN));
+}
+
+/* And a page request with nothing behind it is refused rather than answered
+ * with bytes of a document that was never minted. */
+static void test_an_alias_page_with_no_certificate_is_refused(void)
+{
+    const uint8_t page0[1] = { 0u };
+    provision();
+    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC, run_cmd(AG_CMD_ATTEST_CERT, page0, 1u));
+}
+
+/* The two commands are separate ids answering separate questions, and the
+ * dispatcher knows both. A host that finds one and not the other is talking to
+ * a build that gated them apart, which is a supported configuration. */
+static void test_both_attestation_commands_are_dispatchable(void)
+{
+    TEST_ASSERT_TRUE(ag_dispatch_knows(AG_CMD_ATTEST));
+    TEST_ASSERT_TRUE(ag_dispatch_knows(AG_CMD_ATTEST_CERT));
+    TEST_ASSERT_NOT_EQUAL(AG_CMD_ATTEST, AG_CMD_ATTEST_CERT);
+}
+
+/*
+ * THE TWO NONCES ARE NOT INTERCHANGEABLE, and the dispatcher is where that is
+ * enforced. ATTEST takes 16 bytes of runtime freshness; ATTEST_CERT takes a
+ * 32-byte enrolment challenge. Feeding either command the other's width is
+ * AG_ERR_BAD_ARGC, so a host that confused them finds out at the first
+ * exchange rather than by producing evidence bound to a padded challenge.
+ */
+static void test_each_attestation_command_refuses_the_other_s_nonce(void)
+{
+    provision();
+    TEST_ASSERT_NOT_EQUAL(AG_ATTEST_NONCE_LEN, AG_ALIAS_NONCE_LEN);
+    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC,
+                      run_cmd(AG_CMD_ATTEST, CHALLENGE, AG_ALIAS_NONCE_LEN));
+    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC,
+                      run_cmd(AG_CMD_ATTEST_CERT, NONCE, AG_ATTEST_NONCE_LEN));
+}
+
 static void test_a_page_past_the_end_is_refused(void)
 {
     uint8_t page = 99u;
@@ -259,5 +339,10 @@ int main(void)
     RUN_TEST(test_a_different_nonce_produces_a_different_signature);
     RUN_TEST(test_a_different_device_secret_produces_a_different_signature);
     RUN_TEST(test_a_page_past_the_end_is_refused);
+    RUN_TEST(test_the_software_tier_refuses_to_issue_an_alias_certificate);
+    RUN_TEST(test_an_unprovisioned_device_refuses_an_alias_certificate);
+    RUN_TEST(test_an_alias_page_with_no_certificate_is_refused);
+    RUN_TEST(test_both_attestation_commands_are_dispatchable);
+    RUN_TEST(test_each_attestation_command_refuses_the_other_s_nonce);
     return UNITY_END();
 }

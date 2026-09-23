@@ -72,6 +72,17 @@
 #ifndef AG_FEATURE_ATTEST
 #define AG_FEATURE_ATTEST      0   /* lands with the crypto provider */
 #endif
+/* The alias certificate carrying tcg-dice-UCCS-evidence.
+ *
+ * DEFAULT 0, and the Makefile turns it on only for a tier that has an
+ * asymmetric key -- the gate is file selection, as everywhere else here. A
+ * certificate is a statement that a named subject key exists, and the software
+ * tier's identity is an HMAC: it has no public half, so there is nothing to
+ * certify and a build that carried the code would carry a command that can only
+ * ever refuse. */
+#ifndef AG_FEATURE_ALIAS_CERT
+#define AG_FEATURE_ALIAS_CERT  0
+#endif
 #ifndef AG_FEATURE_DEADMAN
 #define AG_FEATURE_DEADMAN     0   /* opt-in: safe for a pump, wrong for a lamp */
 #endif
@@ -104,7 +115,8 @@
     | ((uint32_t)AG_FEATURE_ONEWIRE <<  9) \
     | ((uint32_t)AG_FEATURE_ATTEST  << 10) \
     | ((uint32_t)AG_FEATURE_DEADMAN << 11) \
-    | ((uint32_t)AG_FEATURE_PROVISION << 12) )
+    | ((uint32_t)AG_FEATURE_PROVISION << 12) \
+    | ((uint32_t)AG_FEATURE_ALIAS_CERT << 13) )
 
 /* ------------------------------------------------------- board identity */
 /* A board profile supplies these. The host build has no board and takes the

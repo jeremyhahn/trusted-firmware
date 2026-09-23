@@ -29,7 +29,14 @@ HOST_BOARD ?= atmega328p
 # device secret is NOT baked in: the provider refuses to sign while the UDS is
 # still its default, so an unprovisioned build cannot pretend to have an
 # identity, and the tests assert exactly that refusal.
-HOST_EXTRA_DEFS ?= -DAG_FEATURE_ATTEST=1
+#
+# The alias certificate is enabled here too, though the host build links the
+# SOFTWARE provider and that provider has no asymmetric key. That is on purpose:
+# the refusal is the behaviour worth pinning, and a build with the command
+# compiled out would answer AG_ERR_UNKNOWN_CMD -- which says the firmware has
+# never heard of certificates, not that this tier cannot issue one. The
+# element-backed path gets its own binary below, against the software element.
+HOST_EXTRA_DEFS ?= -DAG_FEATURE_ATTEST=1 -DAG_FEATURE_ALIAS_CERT=1
 
 # -std=c11 is required, not stylistic: the buffer-sizing invariants are
 # enforced with _Static_assert, which C99 does not have.
@@ -58,8 +65,12 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 # ELEMENT rather than the mock HAL, because both define ag_hal_i2c_xfer and the
 # whole point is that the driver talks to something that behaves like the part.
 # It gets its own rule below.
+# test_alias joins that list for the same reason test_atecc is on it: the alias
+# certificate is signed by an element, so its suite links the software element
+# as the I2C HAL and the ATECC provider as the crypto tier. Linking it beside
+# the mock would be two definitions of ag_hal_i2c_xfer.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
-                            test/unit/test_provision.c, \
+                            test/unit/test_provision.c test/unit/test_alias.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -82,6 +93,8 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/crypto/sha256.c \
                  src/crypto/soft/provider.c \
                  src/caps/attest.c \
+                 src/caps/alias.c \
+                 src/caps/uccs.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
                  src/core/board_lookup.c \
@@ -116,9 +129,24 @@ $(HOST_DIR)/test_provision: test/unit/test_provision.c test/model/atecc608a.c \
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -DAG_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The alias certificate, driven by the element that signs it. Its DER and CBOR
+# vectors need no provider at all, but the command path does, and pinning the
+# bytes in the same binary that exercises the command is what stops the two
+# drifting apart.
+$(HOST_DIR)/test_alias: test/unit/test_alias.c test/model/atecc608a.c \
+                        src/caps/alias.c src/caps/uccs.c \
+                        src/core/reader.c src/core/writer.c \
+                        src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
+                        src/crypto/sha256.c src/caps/attest.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias
+
 ## test: build and run the host unit tests
-test: $(TEST_BINS) $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision
-	@fail=0; for t in $(TEST_BINS) $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision; do \
+test: $(TEST_BINS) $(HOST_EXTRA_BINS)
+	@fail=0; for t in $(TEST_BINS) $(HOST_EXTRA_BINS); do \
 	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
 
 ## test-asan: run the host unit tests under AddressSanitizer and UBSan

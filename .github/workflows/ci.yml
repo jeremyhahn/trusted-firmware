@@ -199,6 +199,10 @@ jobs:
           printf 'FROM %s\nCOPY . /src\n' "$tag-base" | docker build -t "$tag" -f - .
           docker run --rm "$tag" cat /etc/ci-toolchain.txt
       - name: build and enforce the size budget
+        # The matrix here is for PARALLELISM, not for coverage: `make ci` runs
+        # firmware-matrix, which builds every board and tier in one go. They
+        # used to differ -- ci built one board while this built six -- and a
+        # change that overflowed the 32U4 passed locally and went red here.
         run: docker run --rm "$IMG" make firmware BOARD=${{ matrix.board }} CRYPTO=${{ matrix.crypto }}
       - name: reproducible build
         run: docker run --rm "$IMG" make reproducible-check BOARD=${{ matrix.board }} CRYPTO=${{ matrix.crypto }}

@@ -83,6 +83,14 @@ AG_CMD_ENTRY(AG_CMD_ONEWIRE_READ,  ONEWIRE_READ,  ag_ow_cmd_read,  2u, 2u)
 #if AG_FEATURE_ATTEST
 AG_CMD_ENTRY(AG_CMD_ATTEST, ATTEST, ag_attest_cmd, 1u, AG_ATTEST_NONCE_LEN)
 #endif
+/* The alias certificate. Gated separately from ATTEST because it needs an
+ * asymmetric key and ATTEST does not -- see AG_FEATURE_ALIAS_CERT in config.h.
+ * A 32-BYTE nonce mints and a 1-byte page fetches. The width differs from
+ * ATTEST's on purpose: this one is an enrolment challenge and that one is
+ * runtime freshness. See AG_ALIAS_NONCE_LEN in include/ag/protocol.h. */
+#if AG_FEATURE_ALIAS_CERT
+AG_CMD_ENTRY(AG_CMD_ATTEST_CERT, ATTEST_CERT, ag_alias_cmd, 1u, AG_ALIAS_NONCE_LEN)
+#endif
 
 /* ---- provisioning: a jig image only, never a production one ----
  *

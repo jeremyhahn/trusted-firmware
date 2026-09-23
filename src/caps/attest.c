@@ -45,6 +45,16 @@ void ag_attest_reset_state(void)
     have_evidence = 0u;
 }
 
+const uint8_t *ag_attest_device_id(void)
+{
+    return &evidence[OFF_DEVICE_ID];
+}
+
+const uint8_t *ag_attest_fw_hash(void)
+{
+    return &evidence[OFF_FW_HASH];
+}
+
 static void put_u32(uint8_t *p, uint32_t v)
 {
     p[0] = (uint8_t)(v);       p[1] = (uint8_t)(v >> 8);

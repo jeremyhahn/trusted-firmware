@@ -14,6 +14,7 @@
 #include "../caps/provision.h"
 #include "../caps/storage.h"
 #include "../caps/attest.h"
+#include "../caps/alias.h"
 
 typedef struct {
     uint8_t          id;

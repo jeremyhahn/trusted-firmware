@@ -60,7 +60,7 @@ verify-vendor:
 # same defect as a gate written out in the workflow file instead of in a target,
 # and it cost a red main. If CI runs it, it belongs here.
 ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test boot-test board-sweep \
-    coverage test-asan sdk-test firmware firmware-attested bootloader-check integration-test \
+    coverage test-asan sdk-test firmware-matrix bootloader-check integration-test \
     reproducible-check
 	@echo "CI gate: green"
 

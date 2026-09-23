@@ -112,6 +112,11 @@
 #define AG_CMD_ATTEST            0x60u
 #define AG_CMD_AUTH_CHALLENGE    0x61u
 #define AG_CMD_AUTH_RESPONSE     0x62u
+/* The alias certificate carrying tcg-dice-UCCS-evidence. A SECOND command
+ * rather than a mode of ATTEST: the two answer different questions and return
+ * differently shaped pages, and an id costs nothing where a mode byte would
+ * cost every existing host a reparse. Ids extend and never renumber. */
+#define AG_CMD_ATTEST_CERT       0x63u
 
 /* over-the-air update -- ANSWERED BY ag-boot, NEVER BY THE APPLICATION
  *
@@ -208,6 +213,64 @@
  * bigger buffer is paid by every command on every board, and the cost of paging
  * is paid only by the one command that needs it. */
 #define AG_ATTEST_PAGE      48u
+
+/* ------------------------------------------- the alias certificate, ATTEST_CERT
+ *
+ * TCG DICE Attestation Architecture r23 section 6.1.4 carries the verifier's
+ * challenge in tcg-dice-UCCS-evidence (2.23.133.5.4.6), an extension that has
+ * no signature of its own because "the certificate signature authenticates, and
+ * integrity protects UCCS contents". So the answer to a challenge is a whole
+ * X.509 certificate, minted on demand and signed by the DeviceID key.
+ *
+ * It is 470 to 472 bytes -- the spread is the DER encoding of the ECDSA
+ * signature, whose two INTEGERs vary between 32 and 33 bytes each -- which is
+ * seven times a frame payload and longer than a byte can count. So it is paged
+ * like the evidence, with a TWO-byte total:
+ *
+ *   request   ATTEST_CERT(nonce[32])  mint, and return page 0
+ *             ATTEST_CERT(page[1])    return a later page of the same document
+ *   response  [page:1][total:2 little-endian][bytes:1..AG_ALIAS_PAGE]
+ *
+ * A host reads total from page 0 and asks for ceil(total / AG_ALIAS_PAGE)
+ * pages; a page at or past the end is AG_ERR_RANGE rather than an empty
+ * success. The pages are REGENERATED, not cached, so they are consistent only
+ * until the next nonce arrives -- the same contract ATTEST has, for the same
+ * reason: no part in this family has room to hold the document.
+ *
+ * AG_ALIAS_PAGE leaves room for the three header bytes inside one payload.
+ */
+#define AG_ALIAS_PAGE       60u
+
+/*
+ * THE ENROLMENT CHALLENGE IS 32 BYTES, AND IT IS NOT AG_ATTEST_NONCE_LEN.
+ *
+ * Two nonces of different widths in one firmware looks like an oversight and is
+ * not, so this says why before someone unifies them.
+ *
+ *   AG_ATTEST_NONCE_LEN (16)  RUNTIME FRESHNESS. It rides in the 164-byte
+ *                             evidence frame and answers "is this device
+ *                             reporting now". Sixteen bytes is a wire contract
+ *                             with every deployed verifier and cannot move.
+ *
+ *   AG_ALIAS_NONCE_LEN  (32)  ENROLMENT. It rides in the eat_nonce claim of the
+ *                             alias certificate and answers "is this key on
+ *                             this device". ACME device-attest-01 compares the
+ *                             attestation nonce against the key authorization,
+ *                             "<token>.<RFC 7638 thumbprint>" -- 87 bytes,
+ *                             because the thumbprint alone is 43 base64url
+ *                             characters. RFC 9711 bounds eat_nonce at 8..64,
+ *                             so the raw form cannot be carried by a conforming
+ *                             claims set at all. The profile therefore carries
+ *                             SHA-256 of the key authorization, which is 32
+ *                             bytes, and the HOST does that hashing: the device
+ *                             never sees a key authorization and never hashes
+ *                             one. It receives 32 bytes and places them
+ *                             verbatim.
+ *
+ * Merging them would either truncate an enrolment challenge to 16 bytes or
+ * widen an evidence frame that every deployed host parses at a fixed offset.
+ */
+#define AG_ALIAS_NONCE_LEN  32u
 
 /* ------------------------------------------------------------------ events */
 #define AG_EVENT_BOOT            0x01u  /* sent once at startup; an unexpected

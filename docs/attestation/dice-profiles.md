@@ -146,6 +146,23 @@ carries it whole.
   bytes, so the layout does not change with the algorithm — only its
   interpretation does.
 
+## Evidence in a certificate
+
+A verifier that wants DICE evidence in the form the spec defines gets it from
+`ATTEST_CERT`: an alias certificate carrying **`tcg-dice-UCCS-evidence`**
+(2.23.133.5.4.6, r23 §6.1.4), minted per challenge and signed by the DeviceID
+key. The nonce, the UEID and the firmware measurement travel there as registered
+EAT claims, so the evidence is readable without knowing this product.
+
+The 164-byte frame above is not replaced by it. The frame is what a constrained
+host parses in one pass; the certificate is what a PKI-shaped verifier ingests.
+Both carry the same measurement from the same source, and they cannot disagree
+about the device's identity because they read it from one place.
+
+`attestation/uccs-evidence.md` has the claim keys with their registry
+references, the certificate profile, the paging, and the one requirement of
+§6.1.4 this class of part cannot meet.
+
 ## `FWHash` is why the build must be reproducible
 
 The hash is signed evidence, so a verifier needs a golden measurement it can

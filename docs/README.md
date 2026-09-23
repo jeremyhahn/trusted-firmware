@@ -8,7 +8,7 @@ means a conflict with the code is a defect to fix in the document first.
 | [`protocol/`](protocol/architecture.md) | the frame, resync, versioning, the CAPS pin page and the algorithm bitmap |
 | [`firmware/`](firmware/architecture.md) | the layers, link-time substitution, the tick and scheduler, the AVR traps |
 | [`boards/`](boards/adding-a-board.md) | what a board is, and the three times "data only" stopped being true |
-| [`attestation/`](attestation/dice-profiles.md) | the three DICE profiles, conformance met and unmet, and the CryptoAuthLib decision |
+| [`attestation/`](attestation/dice-profiles.md) | the three DICE profiles, conformance met and unmet, the UCCS evidence extension and the CryptoAuthLib decision |
 | [`security/`](security/threat-model.md) | the threat model, provisioning, fuses and lock bits |
 | [`clients/`](clients/README.md) | one host implementation, and why the codec exists exactly twice |
 | [`development/`](development/building.md) | building, testing, coverage, flashing, reproducible builds |
@@ -29,6 +29,9 @@ it will read them.
 - **Why provisioning commands are absent from production images** —
   `security/provisioning.md`. A device that can be re-provisioned over its own
   command channel has no identity worth attesting to.
+- **Why the nonce travels in `tcg-dice-UCCS-evidence`** — `attestation/uccs-evidence.md`.
+  The spec's own mechanism rather than a repurposed `vendorInfo`, and the one
+  sentence of §6.1.4 this device cannot satisfy, said plainly.
 - **Why the auto-off timer stayed in firmware** — `migration/from-cropdroid-irrigation.md`.
   A valve told to run ten minutes must close in ten minutes whether or not the
   host is still there.

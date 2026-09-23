@@ -10,6 +10,36 @@ Pre-1.0, MINOR carries breaking changes.
 
 ### Added
 
+- **`ATTEST_CERT` (0x63): DICE evidence in the extension the spec defines for
+  it.** The verifier's nonce travels in `tcg-dice-UCCS-evidence`
+  (2.23.133.5.4.6, TCG DICE Attestation Architecture r23 §6.1.4) rather than in
+  a repurposed `DiceTcbInfo.vendorInfo`, so a verifier that has never heard of
+  this product can still read it. The device mints an alias certificate per
+  challenge, builds the whole `TBSCertificate` itself from a PROGMEM DER
+  template and signs it with the DeviceID key in the element — it never signs a
+  digest a host supplied, because a signature over 32 opaque bytes is a
+  signature over whatever the holder of those bytes says it is.
+- **A CBOR encoder for one claims set and nothing else** (`src/caps/uccs.c`):
+  four emit routines over one head primitive, carrying `nonce` (10), `ueid`
+  (256) and `measurements` (273) with the firmware digest in a minimal RFC 9393
+  evidence CoSWID. The output is core-deterministic CBOR (RFC 8949 §4.2.1) —
+  definite lengths, smallest head, ascending keys — because §6.1.4 makes the
+  issuer answerable for the extension's CDI contribution, and that only means
+  something if one claims set has exactly one encoding.
+- **`AG_ALIAS_NONCE_LEN` is 32 and is not `AG_ATTEST_NONCE_LEN`.** The enrolment
+  challenge in `eat_nonce` is `SHA-256(keyAuthorization)`, because ACME
+  `device-attest-01`'s raw key authorization is 87 bytes and RFC 9711 bounds
+  `eat_nonce` at 8–64 — the raw form cannot be carried by a conforming claims
+  set at all. The host hashes it; the device receives 32 bytes and places them
+  verbatim. The evidence frame's 16-byte nonce is unchanged and is runtime
+  freshness, not enrolment; the dispatcher refuses each command the other's
+  width so the two cannot be confused on the wire.
+- **`testdata/uccs_vectors.h`** — the claims set and the certificate as frozen
+  literals, plus two deliberately malformed certificates. One of them is
+  accepted by OpenSSL and by Python `cryptography`, because neither descends
+  into an extension it does not recognise; only walking the extension's own DER
+  finds it, and the suite does.
+
 - **`ag-boot`, the trusted bootloader** — a second, separate image that measures
   the application with SHA-256, verifies a signature over the image trailer,
   refuses a version below the anti-rollback floor, derives the DICE layer-0 CDI
@@ -34,6 +64,12 @@ Pre-1.0, MINOR carries breaking changes.
 
 ### Changed
 
+- **The ATmega32U4 does not carry the alias certificate.** The builder is 2 540
+  bytes and an element-backed image there measures 14 706 against a 14 336
+  budget — half of 28 672 usable bytes rather than half of 32 768, because
+  4 096 of that part's flash are a DFU bootloader. `ATTEST` still works and its
+  evidence still carries the measurement and the nonce; `CAPS` reports the
+  feature bit clear so a host learns this before it depends on the answer.
 - **The `.init3` early init is shared** between the application and the
   bootloader (`src/hal/avr/hal_early.c`). With `BOOTRST` programmed it is the
   first code after every watchdog bite, and two copies of "clear MCUSR and

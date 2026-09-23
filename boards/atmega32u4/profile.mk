@@ -22,3 +22,10 @@ RAM_BUDGET     := 1280
 # belongs in the budget above and not here.
 FLASH_TOTAL    := 32768
 RAM_TOTAL      := 2560
+
+# ag-boot's geometry. Flashing it here REPLACES Caterina, and with it the
+# 1200-baud-touch reset the avr109 programmer above depends on -- recovery then
+# needs an ISP. See board_profile.h.
+BOOT_SECTION   := 4096
+BOOT_BUDGET    := 4096
+RAM_END        := 0x0AFF

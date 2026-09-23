@@ -105,6 +105,15 @@
  * an image exceeds it, so flash creep is caught on the commit that causes it
  * rather than the day someone tries to add a feature and finds there is no
  * room. */
+/* 32 KB of flash, with the top 4 KB spoken for. On this part that 4 KB is
+ * CATERINA, the USB CDC bootloader a Leonardo ships with -- so flashing ag-boot
+ * here REPLACES it, and with it the 1200-baud-touch reset that avrdude's avr109
+ * programmer depends on. That is a real consequence and it is why this board is
+ * not the one the bootloader work targets: recovering a part whose Caterina has
+ * been replaced needs an ISP, not a USB cable. */
+#define AG_FLASH_TOTAL       32768uL
+#define AG_BOOT_SECTION_SIZE 4096uL
+
 #define AG_FLASH_BUDGET 14336u
 #define AG_RAM_BUDGET   1280u
 

@@ -46,6 +46,13 @@
  * fails the build when an image exceeds it, so flash creep is caught on the
  * commit that causes it rather than the day someone tries to add a feature and
  * finds there is no room. */
+/* The part, and the slice of it BOOTSZ takes. 2048 WORDS is 4096 bytes, and the
+ * fuse is programmed in words -- which is the one place this number is easy to
+ * state at half its value. include/ag/boot.h derives the application end, the
+ * image trailer's address and the 4 KB gate in mk/boot.mk from these two. */
+#define AG_FLASH_TOTAL       32768uL
+#define AG_BOOT_SECTION_SIZE 4096uL
+
 #define AG_FLASH_BUDGET 16384u
 #define AG_RAM_BUDGET   1024u
 

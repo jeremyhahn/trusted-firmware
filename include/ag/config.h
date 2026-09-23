@@ -125,6 +125,28 @@
 #define AG_EEPROM_SIZE 1024u
 #endif
 
+/* ---------------------------------------------------- flash geometry, for ag-boot
+ *
+ * The part's total flash and the size of its boot section. A board profile
+ * states both; the defaults below describe an ATmega328P with BOOTSZ at its
+ * largest setting, which is what docs/security/fuses-and-lockbits.md specifies.
+ *
+ * include/ag/boot.h derives the application end, the trailer address and the
+ * largest measurable image from these, so a board that changes BOOTSZ cannot
+ * leave a stale application-end address behind it -- which would put the
+ * trailer at an address the bootloader does not look at, and the device would
+ * refuse every image with "no trailer".
+ *
+ * AG_BOOT_SECTION_SIZE is BOOTSZ IN BYTES, not in words. The fuse is programmed
+ * in words (2048 words on the 328P) and the datasheet tables are in words,
+ * which is the one place this number is easy to state at half its value. */
+#ifndef AG_FLASH_TOTAL
+#define AG_FLASH_TOTAL 32768uL
+#endif
+#ifndef AG_BOOT_SECTION_SIZE
+#define AG_BOOT_SECTION_SIZE 4096uL
+#endif
+
 /* How many single-ended ADC channels the part has. The HAL bounds against this
  * rather than a literal 8, because a Mega has sixteen and reading channel 12 on
  * a part with eight must be refused rather than folded into channel 4. */

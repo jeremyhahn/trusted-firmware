@@ -26,7 +26,23 @@
 
 #include "../boot_verify.h"
 #include "ag/progmem.h"
+#include "donna_shim.h"
 #include "ed25519.h"
+
+/*
+ * Required by the vendored translation unit, reachable only from
+ * ed25519_sign_open_batch, which nothing here calls and --gc-sections drops.
+ *
+ * It fills with zeros and that is deliberate: this part has no entropy source
+ * -- src/crypto/soft/provider.c refuses ag_crypto_random rather than returning
+ * something that merely looks random -- so there is nothing honest to put here.
+ * A plausible-looking PRNG would be worse than zeros, because zeros cannot be
+ * mistaken for randomness by whoever reads this next.
+ */
+void ed25519_randombytes_unsafe(void *p, size_t len)
+{
+    memset(p, 0, len);
+}
 
 /*
  * The public key slot.

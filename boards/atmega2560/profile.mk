@@ -14,3 +14,9 @@ FLASH_BUDGET   := 65536
 RAM_BUDGET     := 1024
 FLASH_TOTAL    := 262144
 RAM_TOTAL      := 8192
+
+# ag-boot's geometry. The Mega's largest BOOTSZ is 4096 words, so 8192 bytes --
+# twice the 328P's. The gate follows the part rather than a constant.
+BOOT_SECTION   := 8192
+BOOT_BUDGET    := 8192
+RAM_END        := 0x21FF

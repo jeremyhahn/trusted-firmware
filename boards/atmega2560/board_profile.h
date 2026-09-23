@@ -66,6 +66,14 @@
  * an image exceeds it, so flash creep is caught on the commit that causes it.
  * A budget set to the whole part would catch nothing until the day there is no
  * room left to fix it in. */
+/* 256 KB of flash, and the Mega's largest BOOTSZ -- 4096 WORDS, so 8192 bytes,
+ * twice the 328P's. The bootloader gate in mk/boot.mk follows this rather than
+ * a constant, which is the whole point of keeping it here: ag-boot has twice
+ * the room on this part and the gate must say so rather than refusing an image
+ * that fits. */
+#define AG_FLASH_TOTAL       262144uL
+#define AG_BOOT_SECTION_SIZE 8192uL
+
 #define AG_FLASH_BUDGET 65536u
 #define AG_RAM_BUDGET   1024u
 

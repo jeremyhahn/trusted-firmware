@@ -113,6 +113,25 @@
 #define AG_CMD_AUTH_CHALLENGE    0x61u
 #define AG_CMD_AUTH_RESPONSE     0x62u
 
+/* over-the-air update -- ANSWERED BY ag-boot, NEVER BY THE APPLICATION
+ *
+ * These ids appear in no entry of src/core/commands.def and they must not. The
+ * application cannot write flash: SPM executes only from the boot section, and
+ * the one way to give the application access would be a trampoline into the
+ * boot section -- which voids the BLB mode 3 read barrier the software tier's
+ * UDS sits behind. So an application asked for OTA_BEGIN answers
+ * AG_ERR_UNKNOWN_CMD, which is exactly right: it tells the host to reset into
+ * the bootloader and ask there.
+ *
+ * Reserved in the application's range rather than in a range of their own,
+ * because a host discovers which it is talking to by the answer it gets and
+ * that only works if the id means the same thing to both.
+ */
+#define AG_CMD_OTA_BEGIN         0x68u  /* [total_len:4] */
+#define AG_CMD_OTA_DATA          0x69u  /* [offset:4][bytes:1..] */
+#define AG_CMD_OTA_END           0x6Au  /* no payload; verification follows */
+#define AG_CMD_OTA_STATUS        0x6Bu  /* -> [state:1][received:4] */
+
 /* provisioning -- PRESENT ONLY IN A PROVISIONING BUILD
  *
  * AG_FEATURE_PROVISION defaults to 0 and a production image therefore contains

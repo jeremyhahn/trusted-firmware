@@ -44,7 +44,7 @@ endif
 # numbers rather than asking anyone to believe them.
 BOOT_SIG ?= ed25519-donna
 ifeq ($(BOOT_SIG),ed25519-donna)
-BOOT_SIG_SRCS := boot/verify/verify_ed25519_donna.c \
+BOOT_SIG_SRCS := boot/verify/verify_ed25519_donna.c boot/verify/donna_shim.c \
                  src/third_party/ed25519-donna/ed25519.c
 else
 $(error unknown BOOT_SIG "$(BOOT_SIG)" -- expected ed25519-donna)
@@ -116,11 +116,91 @@ $(BOOT_DIR_OUT)/%.o: %.c
 	@mkdir -p $(dir $@)
 	@$(CC_AVR) $(BOOT_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
 
+# A failed link is REPORTED, not dumped.
+#
+# When the image does not fit, ld says "region `text' overflowed by N bytes"
+# against a base address that is the boot section's start -- so N is not the
+# image's size and is not the overage either, and the first thing anyone does
+# with that message is get the number wrong. The recovery below runs
+# boot-core-size and bootloader-budget, which answer the two questions the
+# failure actually raises: how big is the core, and how big is the backend.
 $(BOOT_TARGET).elf: $(BOOT_OBJS)
-	@$(CC_AVR) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS)
+	@$(CC_AVR) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS) 2>$(BOOT_DIR_OUT)/link.err || { \
+	  echo "ag-boot does not link for $(BOARD): it does not fit in the boot section."; \
+	  echo; \
+	  sed 's/^/  ld: /' $(BOOT_DIR_OUT)/link.err | grep -E 'overflow|will not fit|overlaps' || true; \
+	  echo; \
+	  $(MAKE) --no-print-directory boot-core-size || true; \
+	  echo; \
+	  echo "See docs/security/bootloader.md, 'What does not fit'. The budget is"; \
+	  echo "$(BOOT_BUDGET) bytes because BOOTSZ $(BOOT_SECTION) is this part's largest"; \
+	  echo "setting -- there is nothing to raise it to."; \
+	  exit 1; }
 
 $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 	@$(OBJCOPY) -O ihex -R .eeprom $< $@
+
+
+# ---------------------------------------------------------------- host tests
+#
+# The bootloader's logic on x86 against test/mock/boot_hal_mock.c, exactly as
+# the application's layers run against test/mock/hal_mock.c.
+#
+# Their own rules rather than mk/host.mk's pattern, and they live in
+# test/unit/boot/ so that pattern's wildcard does not claim them: each links a
+# DIFFERENT set of sources. There is no one library here -- test_boot_policy
+# links the real Ed25519 and its own key slot, test_boot_ota links no hardware
+# at all -- and a single link line covering all of them would drag donna's 150 KB
+# into suites that have no business with it.
+BOOT_TEST_DIR   := $(HOST_DIR)/boot
+BOOT_TEST_SRCS  := $(wildcard test/unit/boot/test_*.c)
+BOOT_TEST_BINS  := $(patsubst test/unit/boot/%.c,$(BOOT_TEST_DIR)/%,$(BOOT_TEST_SRCS))
+
+# -DED25519_FORCE_32BIT so the host exercises the SAME 32-bit field arithmetic
+# the AVR build compiles. Without it an x86-64 host takes donna's uint128 path
+# and the tests would be testing a program the device never runs.
+BOOT_TEST_CFLAGS := $(HOST_CFLAGS) -Iboot -Iboot/verify -Itest/mock \
+                    -Isrc/third_party/ed25519-donna
+BOOT_DONNA_HOST  := -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE_ASM \
+                    -DED25519_FORCE_32BIT -include boot/verify/donna_shim.h
+
+# boot_policy.c is NOT here: it is the one unit that calls the verify seam, so
+# every suite that linked it would have to provide a signature backend. It is
+# added explicitly by the one suite that tests it.
+BOOT_LOGIC_SRCS := boot/boot_image.c boot/boot_measure.c boot/boot_ota.c \
+                   boot/boot_platform.c boot/boot_session.c \
+                   src/crypto/sha256.c src/proto/crc16.c test/mock/boot_hal_mock.c
+
+$(BOOT_TEST_DIR):
+	@mkdir -p $(BOOT_TEST_DIR)
+
+# The vendored unit, compiled once without our warning set -- the same
+# arrangement mk/host.mk uses for Unity and for the same reason.
+$(BOOT_TEST_DIR)/donna_shim.o: boot/verify/donna_shim.c | $(BOOT_TEST_DIR)
+	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+
+$(BOOT_TEST_DIR)/donna.o: src/third_party/ed25519-donna/ed25519.c | $(BOOT_TEST_DIR)
+	@$(CC) -std=gnu11 -g -O1 $(BOOT_DONNA_HOST) \
+	   -Isrc/third_party/ed25519-donna $(EXTRA_CFLAGS) -c -o $@ $<
+
+$(BOOT_TEST_DIR)/test_boot_ed25519: test/unit/boot/test_boot_ed25519.c \
+        boot/verify/verify_ed25519_donna.c $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
+        boot/boot_policy.c $(BOOT_LOGIC_SRCS) $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+## boot-test: run the bootloader's host unit tests
+boot-test: $(BOOT_TEST_BINS)
+	@fail=0; for t in $(BOOT_TEST_BINS); do \
+	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
 
 ## bootloader: build ag-boot for BOARD and enforce the boot-section budget
 bootloader: $(BOOT_TARGET).hex boot-size-check
@@ -238,4 +318,29 @@ boot-flash: $(BOOT_TARGET).hex
 ISP_PROG ?= usbasp
 ISP_PORT ?= usb
 
-.PHONY: bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible boot-flash
+.PHONY: boot-test bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible boot-flash
+
+# ------------------------------------------------------- simavr integration
+#
+# NOT IN `make ci`, and see the header of boot_harness.c for why that is not a
+# skip guard: there is no ag-boot.elf to run, because ed25519-donna does not
+# link on this part. The harness builds, it fails loudly with the reason, and
+# adding it to `ci` is a one-line change the day a backend that fits is chosen.
+# Its own variable rather than mk/integration.mk's INT_DIR: that file is
+# included AFTER this one, so INT_DIR is still empty here and the rule target
+# would expand to "/boot_harness" -- a path at the filesystem root, and a "no
+# rule to make target" that names something nobody wrote.
+BOOT_INT_DIR := $(BUILD_DIR)/integration
+
+$(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c src/proto/crc16.c
+	@mkdir -p $(BOOT_INT_DIR)
+	@$(CC) -std=c11 -g -O1 -Wall -Wextra \
+	   -Iinclude -Isrc/proto -I$(BOARD_DIR) -DAG_BOARD_HEADER='"board_profile.h"' \
+	   -o $@ $^ -lsimavr -lelf
+	@echo "built $@"
+
+## integration-test-boot: run ag-boot under simavr
+integration-test-boot: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf
+	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf
+
+.PHONY: integration-test-boot

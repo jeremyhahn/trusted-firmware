@@ -131,8 +131,18 @@ test-asan:
 coverage:
 	@$(MAKE) --no-print-directory clean-host
 	@$(MAKE) --no-print-directory test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
+	@# The boot suites too, or boot/'s lines are counted and never executed --
+	@# which reads as a coverage collapse caused by adding tests.
+	@$(MAKE) --no-print-directory boot-test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
 	@mkdir -p coverage
+	@# boot/ is measured on the same terms as src/: the LOGIC is in, the
+	@# register-poking is out. boot/hal/avr is excluded for the reason
+	@# src/hal/avr is -- a number counting code x86 cannot execute would not mean
+	@# anything -- and so are boot_main.c, which is a superloop with no return,
+	@# and boot/tier and boot/verify, which reach flash and an element through
+	@# PROGMEM and I2C rather than through anything a host build can drive.
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
+	       --filter 'boot/boot_(image|measure|ota|platform|policy|session)\.c' \
 	       --exclude 'src/hal/avr/' --print-summary \
 	       --html-details coverage/index.html --fail-under-line $(COVERAGE_FLOOR)
 
@@ -157,22 +167,30 @@ lint:
 	          --suppress=missingIncludeSystem \
 	          --suppress=unusedFunction \
 	          -DAG_BOARD_HEADER='"board_profile.h"' -DAG_PROGMEM= \
-	          -Iinclude -Isrc -Iboards/atmega328p \
+	          -Iinclude -Isrc -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
-	          src/ boards/
+	          src/ boards/ boot/
 	@echo "cppcheck clean"
 	@# The two grep gates. They used to live only in the CI workflow, which made
 	@# them gates a developer could not run -- and one of them had been failing
 	@# on main for two commits before anyone saw it, because the only place it
 	@# ran was a job nobody reads when the other five are green.
-	@if grep -rn '^[[:space:]]*#[[:space:]]*if' src/core src/proto src/caps \
-	     --include='*.c' | grep -v 'commands.def'; then \
+	@# boot/ is swept on the same terms as src/core, src/proto and src/caps, with
+	@# boot/hal/avr excluded exactly as src/hal/avr is. The bootloader's logic is
+	@# the accept/refuse decision for every image the device will ever run, so it
+	@# is the last place in the tree that should have a build that was never the
+	@# build anyone tested. boot/hal/avr earns the exemption for the same reason
+	@# src/hal/avr does and for exactly one conditional: the far-flash read, which
+	@# is required above 64 KB and is a fact about the silicon rather than a
+	@# feature anyone chose.
+	@if grep -rn '^[[:space:]]*#[[:space:]]*if' src/core src/proto src/caps boot \
+	     --include='*.c' | grep -v 'commands.def' | grep -v '^boot/hal/avr/'; then \
 	  echo "preprocessor conditional outside the whitelist (see above)"; \
 	  echo "a default belongs in include/ag/config.h, where a board can override it"; \
 	  exit 1; \
 	fi
 	@echo "no out-of-whitelist conditionals"
-	@if grep -rn '__DATE__\|__TIME__' src/ boards/ include/; then \
+	@if grep -rn '__DATE__\|__TIME__' src/ boards/ include/ boot/; then \
 	  echo "a build timestamp would make the image unreproducible, and its"; \
 	  echo "measurement uncomputable from source -- which is signed evidence"; \
 	  exit 1; \

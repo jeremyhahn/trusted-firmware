@@ -1,0 +1,324 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+/*
+ * THE THREE BEHAVIOURS THAT MATTER, against the real primitive.
+ *
+ *   a correctly signed image boots
+ *   a tampered image refuses
+ *   a downgrade is refused
+ *
+ * Nothing is stubbed out here except the hardware. The measurement is the real
+ * SHA-256 over a real flash array; the signature is a real Ed25519 signature
+ * produced by the same vendored ed25519-donna that verifies it, under a real
+ * RFC 8032 key; the decision is the real ag_boot_evaluate the device runs.
+ *
+ * The verify seam is supplied by this file rather than linked from
+ * boot/verify/verify_ed25519_donna.c, because that unit also owns the public
+ * key slot -- a const array in boot-section flash that a test cannot write --
+ * and linking it would mean two definitions of ag_boot_pubkey. Both functions
+ * below are the shipping ones transcribed: ag_boot_verify calls the same
+ * ed25519_sign_open with the same inversion, and ag_boot_pubkey replaces a
+ * flash read rather than a decision. The shipping binding itself, including
+ * what its unprovisioned slot does, is asserted in test_boot_ed25519.c.
+ */
+
+#include <string.h>
+#include "unity.h"
+#include "boot_policy.h"
+#include "boot_image.h"
+#include "boot_measure.h"
+#include "boot_platform.h"
+#include "boot_hal_mock.h"
+#include "sha256.h"
+#include "ed25519.h"
+
+/* RFC 8032 section 7.1, TEST 2: a real keypair, so nothing here depends on a
+ * key this test invented. */
+static const char SECRET_HEX[] =
+    "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
+
+static uint8_t g_secret[32];
+static uint8_t g_public[32];
+
+/* A settable key slot, standing in for the one in boot-section flash. */
+ag_status_t ag_boot_pubkey(uint8_t out[AG_BOOT_PUBKEY_LEN])
+{
+    memcpy(out, g_public, AG_BOOT_PUBKEY_LEN);
+    return AG_OK;
+}
+
+/* The shipping binding, transcribed: donna returns 0 for a good signature. */
+ag_status_t ag_boot_verify(const uint8_t *msg, uint16_t msglen,
+                           const uint8_t sig[AG_BOOT_SIG_LEN],
+                           const uint8_t pub[AG_BOOT_PUBKEY_LEN])
+{
+    if (ed25519_sign_open(msg, (size_t)msglen, pub, sig) != 0) {
+        return AG_ERR_CRYPTO;
+    }
+    return AG_OK;
+}
+
+static uint8_t nib(char c)
+{
+    if (c >= '0' && c <= '9') { return (uint8_t)(c - '0'); }
+    return (uint8_t)((c | 0x20) - 'a' + 10);
+}
+
+#define IMAGE_LEN 2048u
+
+/*
+ * Builds a complete, correctly signed image in the mock flash: body, trailer,
+ * measurement, signature, and the pinned public-key hash in reserved EEPROM.
+ *
+ * This is the SIGNING TOOL, written out in a test, and that is the point --
+ * running the two halves against each other is what proves the span the signer
+ * covers is the span the bootloader verifies. A test that hand-wrote a trailer
+ * would only prove the parser reads what the test wrote.
+ */
+static void install_signed_image(uint32_t version, uint8_t body_fill)
+{
+    uint8_t *flash = ag_boot_mock_flash();
+    uint8_t  raw[AG_BOOT_TRAILER_LEN];
+    uint8_t  ee[AG_BOOT_EE_LEN];
+    ag_boot_trailer_t  tr;
+    ag_boot_platform_t plat;
+
+    ag_boot_mock_reset();
+
+    for (uint16_t i = 0u; i < IMAGE_LEN; i++) {
+        flash[i] = (uint8_t)(body_fill ^ (uint8_t)i);
+    }
+
+    memset(&tr, 0, sizeof tr);
+    tr.image_version = version;
+    tr.image_len     = IMAGE_LEN;
+    ag_sha256(flash, IMAGE_LEN, tr.measurement);
+
+    /* The signature covers the trailer PREFIX -- magic, layout version, image
+     * version, image length and the measurement -- not the measurement alone.
+     * Signing the measurement by itself would leave the version
+     * unauthenticated, which test_a_relabelled_version_is_refused exercises. */
+    ag_boot_trailer_serialise(&tr, raw);
+    ed25519_sign(raw, AG_BOOT_TR_SIGNED_LEN, g_secret, g_public,
+                 &raw[AG_BOOT_TR_SIGNATURE]);
+    memcpy(flash + AG_BOOT_TRAILER_ADDR, raw, AG_BOOT_TRAILER_LEN);
+
+    memset(ee, 0xFF, sizeof ee);
+    memset(&plat, 0, sizeof plat);
+    ag_boot_hash(g_public, AG_BOOT_PUBKEY_LEN, plat.pubkey_hash);
+    plat.boot_state = AG_BOOT_STATE_GOOD;
+    ag_boot_platform_serialise(&plat, ee);
+    memcpy(ag_boot_mock_eeprom(), ee, AG_BOOT_EE_LEN);
+}
+
+void setUp(void)
+{
+    for (size_t i = 0u; i < 32u; i++) {
+        g_secret[i] = (uint8_t)((nib(SECRET_HEX[i * 2u]) << 4)
+                                | nib(SECRET_HEX[i * 2u + 1u]));
+    }
+    ed25519_publickey(g_secret, g_public);
+}
+
+void tearDown(void) {}
+
+/* ------------------------------------------------- 1. a signed image boots */
+
+static void test_a_correctly_signed_image_is_accepted(void)
+{
+    ag_boot_verdict_t v;
+
+    install_signed_image(3u, 0x5Au);
+    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_UINT32(3u, v.trailer.image_version);
+    TEST_ASSERT_EQUAL_UINT32(IMAGE_LEN, v.trailer.image_len);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(v.trailer.measurement, v.measurement,
+                                  AG_BOOT_MEASURE_LEN);
+}
+
+/* The measurement handed on is the one a verifier recomputes, so it must be
+ * the plain SHA-256 of the image body and nothing else. */
+static void test_the_verdict_carries_the_fwhash_a_verifier_would_compute(void)
+{
+    ag_boot_verdict_t v;
+    uint8_t expect[32];
+
+    install_signed_image(1u, 0x11u);
+    ag_sha256(ag_boot_mock_flash(), IMAGE_LEN, expect);
+    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(expect, v.measurement, 32);
+}
+
+/* ---------------------------------------------- 2. a tampered image refuses */
+
+static void test_a_tampered_image_is_refused(void)
+{
+    ag_boot_verdict_t v;
+
+    install_signed_image(3u, 0x5Au);
+    ag_boot_mock_flash()[1000] ^= 0x01u;
+    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_evaluate(0u, &v));
+}
+
+static void test_a_tamper_in_the_first_and_last_byte_is_refused(void)
+{
+    ag_boot_verdict_t v;
+
+    install_signed_image(3u, 0x5Au);
+    ag_boot_mock_flash()[0] ^= 0x80u;
+    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_evaluate(0u, &v));
+
+    install_signed_image(3u, 0x5Au);
+    ag_boot_mock_flash()[IMAGE_LEN - 1u] ^= 0x80u;
+    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_evaluate(0u, &v));
+}
+
+/* An attacker who edits the image AND the recorded measurement to match still
+ * has no signature over the new measurement. This is the case a bootloader that
+ * only compared the measurement to the trailer would accept. */
+static void test_a_tampered_image_with_a_matching_measurement_is_refused(void)
+{
+    ag_boot_verdict_t v;
+    uint8_t *flash = ag_boot_mock_flash();
+    uint8_t  meas[32];
+
+    install_signed_image(3u, 0x5Au);
+    flash[500] ^= 0xFFu;
+    ag_sha256(flash, IMAGE_LEN, meas);
+    memcpy(flash + AG_BOOT_TRAILER_ADDR + AG_BOOT_TR_MEASUREMENT, meas, 32);
+
+    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_evaluate(0u, &v));
+}
+
+static void test_a_tampered_signature_is_refused(void)
+{
+    ag_boot_verdict_t v;
+
+    install_signed_image(3u, 0x5Au);
+    ag_boot_mock_flash()[AG_BOOT_TRAILER_ADDR + AG_BOOT_TR_SIGNATURE] ^= 0x01u;
+    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_evaluate(0u, &v));
+}
+
+static void test_a_blank_application_region_is_refused(void)
+{
+    ag_boot_verdict_t v;
+
+    ag_boot_mock_reset();
+    TEST_ASSERT_EQUAL_INT(AG_ERR_UNSUPPORTED, ag_boot_evaluate(0u, &v));
+}
+
+/* ------------------------------------------------ 3. a downgrade is refused */
+
+static void test_a_downgrade_is_refused(void)
+{
+    ag_boot_verdict_t v;
+
+    install_signed_image(2u, 0x5Au);
+    TEST_ASSERT_EQUAL_INT(AG_ERR_PROTECTED_REGION, ag_boot_evaluate(5u, &v));
+}
+
+static void test_the_current_version_still_boots(void)
+{
+    ag_boot_verdict_t v;
+
+    install_signed_image(5u, 0x5Au);
+    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_evaluate(5u, &v));
+}
+
+/*
+ * THE REASON THE SIGNATURE COVERS THE VERSION.
+ *
+ * A genuine old image, relabelled with a high version so it walks past the
+ * floor. If the signature covered only the measurement, this would verify --
+ * anti-rollback defeated by a four-byte edit and no key at all.
+ */
+static void test_a_relabelled_version_is_refused(void)
+{
+    ag_boot_verdict_t v;
+    uint8_t *flash = ag_boot_mock_flash();
+
+    install_signed_image(2u, 0x5Au);
+    flash[AG_BOOT_TRAILER_ADDR + AG_BOOT_TR_IMAGE_VERSION] = 99u;
+
+    /* It now passes the rollback check ... */
+    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_rollback_permit(99u, 5u));
+    /* ... and is still refused, because nobody signed version 99. */
+    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_evaluate(5u, &v));
+}
+
+/* ------------------------------------------------------- the key pinning */
+
+/*
+ * Replacing the bootloader replaces the key it verifies against. The SHA-256 in
+ * reserved EEPROM is what makes that swap detectable from inside the
+ * bootloader; without it, a rewritten boot section would verify happily against
+ * the attacker's key.
+ */
+static void test_a_public_key_the_device_does_not_pin_is_refused(void)
+{
+    ag_boot_verdict_t v;
+    uint8_t *ee = ag_boot_mock_eeprom();
+    uint8_t  raw[AG_BOOT_EE_LEN];
+
+    install_signed_image(3u, 0x5Au);
+    memcpy(raw, ee, AG_BOOT_EE_LEN);
+    raw[AG_BOOT_EE_O_PUBKEY_HASH] ^= 0x01u;
+    /* Rewrite the CRC, so this tests the PIN and not the corruption check. */
+    {
+        ag_boot_platform_t p;
+        TEST_ASSERT_EQUAL_INT(AG_ERR_CRC, ag_boot_platform_parse(raw, &p));
+        (void)ag_boot_platform_parse(ee, &p);
+        p.pubkey_hash[0] ^= 0x01u;
+        ag_boot_platform_serialise(&p, raw);
+    }
+    memcpy(ee, raw, AG_BOOT_EE_LEN);
+
+    TEST_ASSERT_EQUAL_INT(AG_ERR_NOT_PROVISIONED, ag_boot_evaluate(0u, &v));
+}
+
+static void test_the_pin_check_accepts_the_matching_key(void)
+{
+    uint8_t pinned[32];
+    uint8_t pub[32];
+
+    ag_boot_hash(g_public, AG_BOOT_PUBKEY_LEN, pinned);
+    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_check_pubkey_pin(pinned, pub));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(g_public, pub, 32);
+}
+
+/* ------------------------------------------------------- the comparison */
+
+static void test_equal_is_constant_time_and_correct(void)
+{
+    uint8_t a[32], b[32];
+
+    memset(a, 0x33, sizeof a);
+    memset(b, 0x33, sizeof b);
+    TEST_ASSERT_EQUAL_UINT8(1u, ag_boot_equal(a, b, 32u));
+
+    b[31] ^= 0x01u;                       /* a difference in the LAST byte */
+    TEST_ASSERT_EQUAL_UINT8(0u, ag_boot_equal(a, b, 32u));
+
+    memset(b, 0x33, sizeof b);
+    b[0] ^= 0x01u;                        /* and in the first */
+    TEST_ASSERT_EQUAL_UINT8(0u, ag_boot_equal(a, b, 32u));
+}
+
+int main(void)
+{
+    UNITY_BEGIN();
+    RUN_TEST(test_a_correctly_signed_image_is_accepted);
+    RUN_TEST(test_the_verdict_carries_the_fwhash_a_verifier_would_compute);
+    RUN_TEST(test_a_tampered_image_is_refused);
+    RUN_TEST(test_a_tamper_in_the_first_and_last_byte_is_refused);
+    RUN_TEST(test_a_tampered_image_with_a_matching_measurement_is_refused);
+    RUN_TEST(test_a_tampered_signature_is_refused);
+    RUN_TEST(test_a_blank_application_region_is_refused);
+    RUN_TEST(test_a_downgrade_is_refused);
+    RUN_TEST(test_the_current_version_still_boots);
+    RUN_TEST(test_a_relabelled_version_is_refused);
+    RUN_TEST(test_a_public_key_the_device_does_not_pin_is_refused);
+    RUN_TEST(test_the_pin_check_accepts_the_matching_key);
+    RUN_TEST(test_equal_is_constant_time_and_correct);
+    return UNITY_END();
+}

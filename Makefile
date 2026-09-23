@@ -59,7 +59,7 @@ verify-vendor:
 # so a coverage failure could only be discovered on the server -- which is the
 # same defect as a gate written out in the workflow file instead of in a target,
 # and it cost a red main. If CI runs it, it belongs here.
-ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test board-sweep \
+ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test boot-test board-sweep \
     coverage test-asan sdk-test firmware firmware-attested integration-test \
     reproducible-check
 	@echo "CI gate: green"

@@ -119,7 +119,6 @@ ag_status_t ag_boot_floor_read(uint32_t *out)
 ag_status_t ag_boot_floor_write(uint32_t value)
 {
     uint8_t     v[4];
-    ag_status_t st  = AG_OK;
     uint8_t     bump;
 
     if (!present) {
@@ -128,7 +127,7 @@ ag_status_t ag_boot_floor_write(uint32_t value)
     for (bump = 0u; bump <= (uint8_t)AG_BOOT_FLOOR_MAX_STEP; bump++) {
         uint32_t now;
 
-        st = ag_boot_floor_read(&now);
+        ag_status_t st = ag_boot_floor_read(&now);
         if (st != AG_OK) {
             return st;
         }

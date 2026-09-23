@@ -111,9 +111,19 @@ TPM2 and three cloud KMSes — and the consequence of that class of bug is that 
 host negotiates down to an algorithm the device then fails to perform, at the
 point where it matters most.
 
-Ed25519 is retained for one job where it is right: **bootloader image
-verification**, where ed25519-donna's verify path is about 2 KB and verify is
-all a 4 KB boot section has to do.
+Ed25519 was retained for one job: **bootloader image verification**. That
+choice rested on a claim this document used to make -- "ed25519-donna's verify
+path is about 2 KB" -- and the claim was wrong by a factor of thirty-six.
+
+Measured with `make bootloader-budget`: avr-gcc 14.2.0 at `-Os` with
+`--gc-sections` and nothing reachable but `ed25519_sign_open` produces **72 930
+bytes** of flash and a **2 950-byte** stack frame. The ATmega328P's boot section
+is 4 096 bytes -- which is its largest `BOOTSZ`, so there is nothing to raise --
+and the part has 2 048 bytes of SRAM in total.
+
+No signature primitive currently ships in the boot section, and no substitute
+has been quietly chosen. `docs/security/bootloader.md` records the measurement,
+what else does not fit alongside it, and the options with their costs.
 
 ## Evidence
 

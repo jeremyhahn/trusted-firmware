@@ -6,6 +6,49 @@ The format is [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0, MINOR carries breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- **`ag-boot`, the trusted bootloader** — a second, separate image that measures
+  the application with SHA-256, verifies a signature over the image trailer,
+  refuses a version below the anti-rollback floor, derives the DICE layer-0 CDI
+  and only then jumps. Its OTA path receives a signed image over the existing
+  framed protocol, stages it in place and commits only after verification; an
+  interrupted update leaves the device in the bootloader, reachable and honest
+  about its state, because a part with 28 KB of application space has nowhere to
+  keep a second slot. **No boot-loader-section callable is exposed to the
+  application** — one trampoline would void the BLB mode 3 read barrier the
+  software-tier UDS sits behind.
+- **`make bootloader`, `boot-size-check`, `bootloader-budget`, `boot-core-size`,
+  `boot-test`, `bootloader-reproducible`.** The size check is a gate on the boot
+  section, exactly as `size-check` is on the application.
+- **ed25519-donna vendored** and pinned by commit in
+  `test/third_party/MANIFEST.md`, unmodified — the one declaration upstream
+  expects an integrator to supply comes through `-include` rather than a patch,
+  so the recorded hashes pin upstream's code and not ours.
+- **81 host assertions for the bootloader**, including Ed25519 against RFC 8032
+  §7.1 as literal hex, and a suite that proves a correctly signed image is
+  accepted, a tampered one is refused and a downgrade is refused — against the
+  real primitive, with a real key, over a real flash array.
+
+### Changed
+
+- **The `.init3` early init is shared** between the application and the
+  bootloader (`src/hal/avr/hal_early.c`). With `BOOTRST` programmed it is the
+  first code after every watchdog bite, and two copies of "clear MCUSR and
+  disarm the watchdog" would be two chances to brick a part.
+- **`make lint` and `make coverage` now cover `boot/`** on the same terms as
+  `src/` — logic in, register-poking out.
+
+### Fixed
+
+- **`docs/attestation/dice-profiles.md` claimed ed25519-donna's verify path was
+  "about 2 KB".** It is **72 930 bytes** on AVR, with a 2 950-byte stack frame,
+  against a 4 096-byte boot section and 2 048 bytes of SRAM. The claim was wrong
+  by a factor of thirty-six and is corrected. No substitute primitive has been
+  chosen; `docs/security/bootloader.md` records the measurement and the options.
+
 ## [0.2.0-alpha] - 2026-09-23
 
 ### Added

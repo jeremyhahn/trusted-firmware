@@ -27,6 +27,16 @@ const (
 	CmdADCRef       Cmd = 0x21
 	CmdEEPROMRead   Cmd = 0x40
 	CmdEEPROMWrite  Cmd = 0x41
+	CmdPWMWrite     Cmd = 0x22
+	CmdTone         Cmd = 0x23
+	CmdNoTone       Cmd = 0x24
+	CmdPulseIn      Cmd = 0x30
+	CmdPulseCapture Cmd = 0x34
+	CmdI2CXfer      Cmd = 0x50
+	CmdSPIXfer      Cmd = 0x51
+	CmdOneWireReset Cmd = 0x52
+	CmdOneWireWrite Cmd = 0x53
+	CmdOneWireRead  Cmd = 0x54
 	CmdAttest       Cmd = 0x60
 )
 

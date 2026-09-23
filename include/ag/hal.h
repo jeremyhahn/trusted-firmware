@@ -93,10 +93,65 @@ ag_status_t      ag_hal_adc_init(void);
 ag_status_t      ag_hal_adc_set_ref(ag_adc_ref_t ref);
 ag_status_t      ag_hal_adc_read(uint8_t channel, uint16_t *out_raw);
 
+/* ------------------------------------------------------------ pwm / tone */
+
+/* A pin resolved to an output-compare unit, the PWM analogue of ag_pinref_t.
+ * The HAL takes this rather than a pin number for the same reason: it does no
+ * lookup and is identical code on every part in the family. */
+typedef struct {
+    uint16_t tccra;    /* address of TCCRnA */
+    uint16_t ocr;      /* address of OCRnx (low byte, for a 16-bit timer) */
+    uint8_t  com_bit;  /* bit position of COMnx1 within TCCRnA */
+    uint8_t  is16;     /* the timer is 16-bit, so OCR is a word */
+} ag_pwmref_t;
+
+ag_status_t      ag_hal_pwm_write(const ag_pwmref_t *p, uint8_t duty);
+ag_status_t      ag_hal_pwm_stop(const ag_pwmref_t *p);
+
+/* Square wave on a pin, for a piezo. hz of 0 stops it. */
+ag_status_t      ag_hal_tone_start(const ag_pinref_t *p, uint16_t hz);
+ag_status_t      ag_hal_tone_stop(void);
+
+/* ----------------------------------------------------------------- pulse */
+
+/* Measures one pulse of the given level, in microseconds. Returns
+ * AG_ERR_TIMEOUT if none arrives within timeout_us. */
+ag_status_t      ag_hal_pulse_in(const ag_pinref_t *p, uint8_t level,
+                                 uint32_t timeout_us, uint32_t *out_us);
+
+/* Captures up to max_edges edge-to-edge intervals, in microseconds.
+ *
+ * THE POINT OF THIS PRIMITIVE. A DHT22 distinguishes a bit by whether a pulse
+ * is 26 or 70 microseconds long -- far faster than a serial round trip per bit,
+ * so "the host decodes the sensor" could not otherwise mean anything. Capturing
+ * the intervals and letting the host turn them into bits keeps sensor knowledge
+ * off the device while still making timing-critical sensors work. The same
+ * primitive reads DHT11/22, HC-SR04, IR remotes and RC PPM, with no
+ * sensor-specific code in firmware at all. */
+ag_status_t      ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
+                                      uint16_t *out_us, uint8_t max_edges,
+                                      uint32_t timeout_us, uint8_t *out_n);
+
 /* ---------------------------------------------------------------- eeprom */
 
 ag_status_t      ag_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
 ag_status_t      ag_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
+
+/* ------------------------------------------------------------------ buses */
+
+ag_status_t      ag_hal_i2c_init(uint32_t hz);
+/* One transaction: write wlen bytes, then read rlen. Either may be zero. */
+ag_status_t      ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
+                                 uint8_t *rd, uint8_t rlen);
+
+ag_status_t      ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first);
+/* Full duplex: len bytes out, len bytes in, with cs asserted throughout. */
+ag_status_t      ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
+                                 uint8_t *rd, uint8_t len);
+
+ag_status_t      ag_hal_ow_reset(const ag_pinref_t *p, uint8_t *out_presence);
+ag_status_t      ag_hal_ow_write(const ag_pinref_t *p, const uint8_t *buf, uint8_t len);
+ag_status_t      ag_hal_ow_read(const ag_pinref_t *p, uint8_t *buf, uint8_t len);
 
 /* ---------------------------------------------------------------- system */
 

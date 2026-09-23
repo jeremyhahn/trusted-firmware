@@ -280,3 +280,136 @@ func (d *Device) EEPROMWrite(ctx context.Context, addr uint16, data []byte) erro
 	_, err := d.Do(ctx, CmdEEPROMWrite, p)
 	return err
 }
+
+// PWMWrite sets a duty cycle, 0..255. Zero disconnects the pin from its
+// compare unit rather than holding it low through the timer, which would
+// quietly prevent DigitalWrite from working on it afterwards.
+//
+// Pins whose compare unit belongs to the millisecond tick return
+// StatusErrUnsupported. Caps reports that up front, so a host never has to
+// discover it here.
+func (d *Device) PWMWrite(ctx context.Context, pin uint8, duty uint8) error {
+	_, err := d.Do(ctx, CmdPWMWrite, []byte{pin, duty})
+	return err
+}
+
+// Tone drives a square wave on a pin. Zero hertz stops it.
+func (d *Device) Tone(ctx context.Context, pin uint8, hz uint16) error {
+	p := []byte{pin, 0, 0}
+	binary.LittleEndian.PutUint16(p[1:], hz)
+	_, err := d.Do(ctx, CmdTone, p)
+	return err
+}
+
+// NoTone stops the tone generator.
+func (d *Device) NoTone(ctx context.Context, pin uint8) error {
+	_, err := d.Do(ctx, CmdNoTone, []byte{pin})
+	return err
+}
+
+// PulseIn measures one pulse of the given level.
+func (d *Device) PulseIn(ctx context.Context, pin uint8, high bool, timeout time.Duration) (time.Duration, error) {
+	level := byte(0)
+	if high {
+		level = 1
+	}
+	us := timeout.Microseconds()
+	p := make([]byte, 6)
+	p[0], p[1] = pin, level
+	binary.LittleEndian.PutUint32(p[2:], uint32(us))
+	f, err := d.Do(ctx, CmdPulseIn, p)
+	if err != nil {
+		return 0, err
+	}
+	if len(f.Payload) < 4 {
+		return 0, fmt.Errorf("aggeneric: PULSE_IN returned no measurement")
+	}
+	return time.Duration(binary.LittleEndian.Uint32(f.Payload[:4])) * time.Microsecond, nil
+}
+
+// PulseCapture records edge-to-edge intervals and returns them in microseconds.
+//
+// This is what makes timing-critical sensors work without any sensor living in
+// the firmware. A DHT22 distinguishes a bit by a 26- versus 70-microsecond
+// pulse, which no protocol with a round trip per bit can read; capturing the
+// intervals and decoding them here keeps the device generic. The same call
+// reads DHT11/22, HC-SR04, IR remotes and RC PPM.
+func (d *Device) PulseCapture(ctx context.Context, pin uint8, startHigh bool, maxEdges uint8, timeout time.Duration) ([]uint16, error) {
+	start := byte(0)
+	if startHigh {
+		start = 1
+	}
+	p := make([]byte, 7)
+	p[0], p[1], p[2] = pin, start, maxEdges
+	binary.LittleEndian.PutUint32(p[3:], uint32(timeout.Microseconds()))
+	f, err := d.Do(ctx, CmdPulseCapture, p)
+	if err != nil {
+		return nil, err
+	}
+	if len(f.Payload) < 1 {
+		return nil, fmt.Errorf("aggeneric: PULSE_CAPTURE returned no count")
+	}
+	n := int(f.Payload[0])
+	if len(f.Payload) < 1+n*2 {
+		return nil, fmt.Errorf("aggeneric: PULSE_CAPTURE claimed %d intervals but sent %d bytes", n, len(f.Payload)-1)
+	}
+	out := make([]uint16, n)
+	for i := range out {
+		out[i] = binary.LittleEndian.Uint16(f.Payload[1+i*2:])
+	}
+	return out, nil
+}
+
+// I2CReservedAddr is the address the device refuses.
+//
+// The secure element sits on the same bus. A generic transfer that could
+// address it would let a host reach the element around the firmware's crypto
+// layer, making the device's own root of trust an ordinary peripheral.
+const I2CReservedAddr = 0x60
+
+// I2CTransfer writes then reads in one transaction.
+func (d *Device) I2CTransfer(ctx context.Context, addr7 uint8, write []byte, readLen uint8) ([]byte, error) {
+	p := append([]byte{addr7, readLen}, write...)
+	f, err := d.Do(ctx, CmdI2CXfer, p)
+	if err != nil {
+		return nil, err
+	}
+	return f.Payload, nil
+}
+
+// SPITransfer clocks len(write) bytes out and the same number in, with the
+// chip-select asserted throughout.
+func (d *Device) SPITransfer(ctx context.Context, cs uint8, write []byte) ([]byte, error) {
+	f, err := d.Do(ctx, CmdSPIXfer, append([]byte{cs}, write...))
+	if err != nil {
+		return nil, err
+	}
+	return f.Payload, nil
+}
+
+// OneWireReset pulses the bus and reports whether any device answered.
+func (d *Device) OneWireReset(ctx context.Context, pin uint8) (bool, error) {
+	f, err := d.Do(ctx, CmdOneWireReset, []byte{pin})
+	if err != nil {
+		return false, err
+	}
+	if len(f.Payload) < 1 {
+		return false, fmt.Errorf("aggeneric: ONEWIRE_RESET returned nothing")
+	}
+	return f.Payload[0] != 0, nil
+}
+
+// OneWireWrite sends bytes on the bus.
+func (d *Device) OneWireWrite(ctx context.Context, pin uint8, data []byte) error {
+	_, err := d.Do(ctx, CmdOneWireWrite, append([]byte{pin}, data...))
+	return err
+}
+
+// OneWireRead reads n bytes from the bus.
+func (d *Device) OneWireRead(ctx context.Context, pin uint8, n uint8) ([]byte, error) {
+	f, err := d.Do(ctx, CmdOneWireRead, []byte{pin, n})
+	if err != nil {
+		return nil, err
+	}
+	return f.Payload, nil
+}

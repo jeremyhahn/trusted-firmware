@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include "ag/status.h"
 #include "ag/types.h"
+#include "ag/hal.h"
 
 #define AG_PORT_NONE 0x0Fu  /* the pin has no digital port (ADC-only) */
 #define AG_ADC_NONE  0xFFu
@@ -41,6 +42,13 @@ typedef struct {
 } ag_port_desc_t;
 
 typedef struct {
+    uint16_t tccra;
+    uint16_t ocr;
+    uint8_t  com_bit;
+    uint8_t  is16;
+} ag_pwm_desc_t;
+
+typedef struct {
     uint8_t port_bit;   /* AG_PB(port index, bit) */
     uint8_t adc_ch;     /* ADC channel, or AG_ADC_NONE */
     uint8_t pwm_idx;    /* index into the PWM table, or AG_PWM_NONE / AG_PWM_RSVD */
@@ -54,6 +62,13 @@ ag_status_t ag_board_pin(ag_pin_t pin, ag_pinref_t *out);
 
 /* The ADC channel behind a pin, or AG_ERR_UNSUPPORTED if it has none. */
 ag_status_t ag_board_adc_channel(ag_pin_t pin, uint8_t *out);
+
+/* Resolves a pin to its output-compare unit. Returns AG_ERR_UNSUPPORTED when
+ * the pin has none, and when its unit belongs to the timer driving the system
+ * tick -- the board descriptor distinguishes those two, because "no PWM here"
+ * and "this build spent it on the clock" are different facts and only one of
+ * them might change. */
+ag_status_t ag_board_pwm(ag_pin_t pin, ag_pwmref_t *out);
 
 /* Capability flags, for CAPS. Returns 0 for a pin that does not exist. */
 uint8_t     ag_board_pin_flags(ag_pin_t pin);

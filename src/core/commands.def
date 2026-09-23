@@ -45,10 +45,38 @@ AG_CMD_ENTRY(AG_CMD_ANALOG_READ, ANALOG_READ, ag_analog_cmd_read,    1u, 1u)
 AG_CMD_ENTRY(AG_CMD_ADC_REF,     ADC_REF,     ag_analog_cmd_set_ref, 1u, 1u)
 #endif
 
+/* ---- pwm and tone ---- */
+#if AG_FEATURE_PWM
+AG_CMD_ENTRY(AG_CMD_PWM_WRITE, PWM_WRITE, ag_pwm_cmd_write, 2u, 2u)
+#endif
+#if AG_FEATURE_TONE
+AG_CMD_ENTRY(AG_CMD_TONE,    TONE,    ag_tone_cmd_start, 3u, 3u)
+AG_CMD_ENTRY(AG_CMD_NO_TONE, NO_TONE, ag_tone_cmd_stop,  0u, 1u)
+#endif
+
+/* ---- pulse ---- */
+#if AG_FEATURE_PULSE
+AG_CMD_ENTRY(AG_CMD_PULSE_IN,      PULSE_IN,      ag_pulse_cmd_in,      6u, 6u)
+AG_CMD_ENTRY(AG_CMD_PULSE_CAPTURE, PULSE_CAPTURE, ag_pulse_cmd_capture, 7u, 7u)
+#endif
+
 /* ---- eeprom ---- */
 #if AG_FEATURE_EEPROM
 AG_CMD_ENTRY(AG_CMD_EEPROM_READ,  EEPROM_READ,  ag_storage_cmd_read,  3u, 3u)
 AG_CMD_ENTRY(AG_CMD_EEPROM_WRITE, EEPROM_WRITE, ag_storage_cmd_write, 3u, AG_MAX_PAYLOAD)
+#endif
+
+/* ---- buses ---- */
+#if AG_FEATURE_I2C
+AG_CMD_ENTRY(AG_CMD_I2C_XFER, I2C_XFER, ag_i2c_cmd_xfer, 2u, AG_MAX_PAYLOAD)
+#endif
+#if AG_FEATURE_SPI
+AG_CMD_ENTRY(AG_CMD_SPI_XFER, SPI_XFER, ag_spi_cmd_xfer, 2u, AG_MAX_PAYLOAD)
+#endif
+#if AG_FEATURE_ONEWIRE
+AG_CMD_ENTRY(AG_CMD_ONEWIRE_RESET, ONEWIRE_RESET, ag_ow_cmd_reset, 1u, 1u)
+AG_CMD_ENTRY(AG_CMD_ONEWIRE_WRITE, ONEWIRE_WRITE, ag_ow_cmd_write, 2u, AG_MAX_PAYLOAD)
+AG_CMD_ENTRY(AG_CMD_ONEWIRE_READ,  ONEWIRE_READ,  ag_ow_cmd_read,  2u, 2u)
 #endif
 
 /* ---- attestation ---- */

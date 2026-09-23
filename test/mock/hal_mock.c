@@ -26,6 +26,14 @@ static unsigned         resets;
 static uint8_t  eeprom[EEPROM_SIZE];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
+static uint16_t tone_hz;
+static uint32_t pulse_in_us;
+static uint16_t capture_us[32];
+static uint8_t  capture_n;
+static uint8_t  bus_resp[64];
+static uint8_t  bus_resp_n;
+static uint8_t  last_i2c_addr;
+static uint8_t  ow_present;
 
 #define REGS 256u
 static uint8_t regs[REGS];
@@ -41,6 +49,36 @@ void ag_mock_reset(void)
     memset(eeprom, 0xFF, sizeof eeprom);   /* erased EEPROM reads as 0xFF */
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
+    tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
+    bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u;
+}
+
+void ag_mock_set_bus_response(const uint8_t *b, uint8_t n)
+{
+    if (n > sizeof bus_resp) { n = (uint8_t)sizeof bus_resp; }
+    for (uint8_t i = 0u; i < n; i++) { bus_resp[i] = b[i]; }
+    bus_resp_n = n;
+}
+
+uint8_t ag_mock_last_i2c_addr(void) { return last_i2c_addr; }
+uint8_t ag_mock_ow_presence_set(uint8_t present) { ow_present = present; return present; }
+
+uint8_t ag_mock_pwm_duty(uint16_t ocr) { return regs[ocr % REGS]; }
+
+uint8_t ag_mock_pwm_connected(uint16_t tccra, uint8_t com_bit)
+{
+    return (uint8_t)((regs[tccra % REGS] & (uint8_t)(1u << com_bit)) != 0u);
+}
+
+uint16_t ag_mock_tone_hz(void) { return tone_hz; }
+
+void ag_mock_set_pulse_in(uint32_t us) { pulse_in_us = us; }
+
+void ag_mock_set_capture(const uint16_t *us, uint8_t n)
+{
+    if (n > 32u) { n = 32u; }
+    for (uint8_t i = 0u; i < n; i++) { capture_us[i] = us[i]; }
+    capture_n = n;
 }
 
 void ag_mock_set_adc(uint8_t channel, uint16_t raw)
@@ -212,5 +250,90 @@ ag_status_t ag_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > EEPROM_SIZE) { return AG_ERR_RANGE; }
     memcpy(&eeprom[addr], buf, len);
+    return AG_OK;
+}
+
+ag_status_t ag_hal_pwm_write(const ag_pwmref_t *p, uint8_t duty)
+{
+    regs[p->tccra % REGS] |= (uint8_t)(1u << p->com_bit);
+    regs[p->ocr % REGS]    = duty;
+    return AG_OK;
+}
+
+ag_status_t ag_hal_pwm_stop(const ag_pwmref_t *p)
+{
+    regs[p->tccra % REGS] = (uint8_t)(regs[p->tccra % REGS] & (uint8_t)~(1u << p->com_bit));
+    return AG_OK;
+}
+
+ag_status_t ag_hal_tone_start(const ag_pinref_t *p, uint16_t hz)
+{
+    (void)p;
+    if (hz == 0u) { tone_hz = 0u; return AG_OK; }
+    /* The AVR implementation refuses below about 490 Hz at its prescaler; the
+     * mock models that rather than accepting everything, so the range check is
+     * exercised where it can be asserted. */
+    if (hz < 490u) { return AG_ERR_RANGE; }
+    tone_hz = hz;
+    return AG_OK;
+}
+
+ag_status_t ag_hal_tone_stop(void) { tone_hz = 0u; return AG_OK; }
+
+ag_status_t ag_hal_pulse_in(const ag_pinref_t *p, uint8_t level,
+                            uint32_t timeout_us, uint32_t *out_us)
+{
+    (void)p; (void)level;
+    if (pulse_in_us == 0u)        { return AG_ERR_TIMEOUT; }
+    if (pulse_in_us > timeout_us) { return AG_ERR_TIMEOUT; }
+    *out_us = pulse_in_us;
+    return AG_OK;
+}
+
+ag_status_t ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
+                                 uint16_t *out_us, uint8_t max_edges,
+                                 uint32_t timeout_us, uint8_t *out_n)
+{
+    (void)p; (void)start_level; (void)timeout_us;
+    uint8_t n = capture_n < max_edges ? capture_n : max_edges;
+    if (n == 0u) { return AG_ERR_TIMEOUT; }
+    for (uint8_t i = 0u; i < n; i++) { out_us[i] = capture_us[i]; }
+    *out_n = n;
+    return AG_OK;
+}
+
+ag_status_t ag_hal_i2c_init(uint32_t hz) { (void)hz; return AG_OK; }
+
+ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
+                            uint8_t *rd, uint8_t rlen)
+{
+    (void)wr; (void)wlen;
+    last_i2c_addr = addr7;
+    if (rlen > bus_resp_n) { return AG_ERR_NACK; }
+    for (uint8_t i = 0u; i < rlen; i++) { rd[i] = bus_resp[i]; }
+    return AG_OK;
+}
+
+ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb)
+{ (void)mode; (void)clkdiv; (void)lsb; return AG_OK; }
+
+ag_status_t ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
+                            uint8_t *rd, uint8_t len)
+{
+    (void)cs; (void)wr;
+    for (uint8_t i = 0u; i < len; i++) { rd[i] = i < bus_resp_n ? bus_resp[i] : 0u; }
+    return AG_OK;
+}
+
+ag_status_t ag_hal_ow_reset(const ag_pinref_t *p, uint8_t *out_presence)
+{ (void)p; *out_presence = ow_present; return AG_OK; }
+
+ag_status_t ag_hal_ow_write(const ag_pinref_t *p, const uint8_t *buf, uint8_t len)
+{ (void)p; (void)buf; (void)len; return AG_OK; }
+
+ag_status_t ag_hal_ow_read(const ag_pinref_t *p, uint8_t *buf, uint8_t len)
+{
+    (void)p;
+    for (uint8_t i = 0u; i < len; i++) { buf[i] = i < bus_resp_n ? bus_resp[i] : 0u; }
     return AG_OK;
 }

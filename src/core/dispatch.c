@@ -8,6 +8,9 @@
 #include "../caps/gpio.h"
 #include "../caps/sched.h"
 #include "../caps/analog.h"
+#include "../caps/pwm.h"
+#include "../caps/pulse.h"
+#include "../caps/bus.h"
 #include "../caps/storage.h"
 #include "../caps/attest.h"
 

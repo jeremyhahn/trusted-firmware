@@ -60,8 +60,36 @@
  * Every classic AVR lays out PINx, DDRx, PORTx consecutively, so one address
  * locates all three.
  */
+/* Output-compare registers. Same reasoning as the ports: real addresses on the
+ * device, the same numbers written out from the datasheet on the host, so the
+ * table under test is the table that ships. */
 #ifdef __AVR__
 #include <avr/io.h>
+#define AG_ADDR_TCCR1A ((uint16_t)(uintptr_t)&TCCR1A)
+#define AG_ADDR_OCR1AL ((uint16_t)(uintptr_t)&OCR1AL)
+#define AG_ADDR_OCR1BL ((uint16_t)(uintptr_t)&OCR1BL)
+#define AG_ADDR_TCCR2A ((uint16_t)(uintptr_t)&TCCR2A)
+#define AG_ADDR_OCR2A  ((uint16_t)(uintptr_t)&OCR2A)
+#define AG_ADDR_OCR2B  ((uint16_t)(uintptr_t)&OCR2B)
+#else
+#define AG_ADDR_TCCR1A 0x80u
+#define AG_ADDR_OCR1AL 0x88u
+#define AG_ADDR_OCR1BL 0x8Au
+#define AG_ADDR_TCCR2A 0xB0u
+#define AG_ADDR_OCR2A  0xB3u
+#define AG_ADDR_OCR2B  0xB4u
+#endif
+
+/* COM bit positions within TCCRnA. Constants rather than <avr/io.h> symbols so
+ * the table compiles on the host, where that header does not exist -- and the
+ * values are the same ones the datasheet gives, so what the tests check is what
+ * the device writes. */
+#define COM2B1_BIT 5u
+#define COM1A1_BIT 7u
+#define COM1B1_BIT 5u
+#define COM2A1_BIT 7u
+
+#ifdef __AVR__
 #define AG_ADDR_PINB ((uint16_t)(uintptr_t)&PINB)
 #define AG_ADDR_PINC ((uint16_t)(uintptr_t)&PINC)
 #define AG_ADDR_PIND ((uint16_t)(uintptr_t)&PIND)

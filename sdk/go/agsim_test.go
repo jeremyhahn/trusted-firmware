@@ -291,3 +291,45 @@ func TestAgainstFirmwareAnalogReadReturnsRawCounts(t *testing.T) {
 		t.Fatal("expected a digital-only pin to have no analog reading")
 	}
 }
+
+func TestAgainstFirmwarePWM(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	if err := d.PWMWrite(ctx, 9, 128); err != nil {
+		t.Fatalf("pin 9 is OC1A and should accept a duty: %v", err)
+	}
+	// Pins 5 and 6 have compare units, but Timer0 is the millisecond tick.
+	// The refusal is what stops a host writing a duty into a timer counting
+	// something else and wondering why nothing moves.
+	if err := d.PWMWrite(ctx, 5, 128); err == nil {
+		t.Error("pin 5 should refuse PWM: its timer drives the tick")
+	}
+	if err := d.PWMWrite(ctx, 13, 128); err == nil {
+		t.Error("pin 13 has no compare unit and should refuse PWM")
+	}
+}
+
+// The secure element's address must be unreachable through the generic bus
+// primitive, or the device's own root of trust is an ordinary peripheral.
+func TestAgainstFirmwareSecureElementAddressIsRefused(t *testing.T) {
+	d := startSim(t)
+	if _, err := d.I2CTransfer(context.Background(), I2CReservedAddr, []byte{0}, 1); err == nil {
+		t.Fatal("the secure element's I2C address was reachable")
+	} else if err.Error() != StatusErrProtectedRegion.String() {
+		t.Fatalf("err = %v, want %v", err, StatusErrProtectedRegion)
+	}
+}
+
+func TestAgainstFirmwareOneWireAndPulseAreReachable(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+	if _, err := d.OneWireReset(ctx, 9); err != nil {
+		t.Fatalf("1-Wire reset: %v", err)
+	}
+	// No signal on a simulated pin, so a timeout is the correct answer -- the
+	// point is that the command round-trips and is bounded.
+	if _, err := d.PulseIn(ctx, 9, true, 10*time.Millisecond); err == nil {
+		t.Error("expected a timeout on a silent line")
+	}
+}

@@ -51,6 +51,35 @@ static const ag_pin_desc_t PINS[AG_PIN_COUNT] AG_PROGMEM = {
 /* 21  A7  ADC only */ { AG_PB(AG_PORT_NONE, 0u), 7u, AG_PWM_NONE, AG_PIN_ADC },
 };
 
+/* The four usable output-compare units. Timer0's two are absent by design: it
+ * drives the millisecond tick, and the pin table marks pins 5 and 6 AG_PWM_RSVD
+ * so CAPS can tell a host the difference between "no PWM here" and "this build
+ * spent it on the clock". */
+static const ag_pwm_desc_t PWMS[AG_PWM_COUNT] AG_PROGMEM = {
+/* 0  OC2B, pin 3  */ { AG_ADDR_TCCR2A, AG_ADDR_OCR2B,  COM2B1_BIT, 0u },
+/* 1  OC1A, pin 9  */ { AG_ADDR_TCCR1A, AG_ADDR_OCR1AL, COM1A1_BIT, 1u },
+/* 2  OC1B, pin 10 */ { AG_ADDR_TCCR1A, AG_ADDR_OCR1BL, COM1B1_BIT, 1u },
+/* 3  OC2A, pin 11 */ { AG_ADDR_TCCR2A, AG_ADDR_OCR2A,  COM2A1_BIT, 0u },
+};
+
+ag_status_t ag_board_pwm(ag_pin_t pin, ag_pwmref_t *out)
+{
+    uint8_t idx;
+
+    if (pin >= AG_PIN_COUNT) {
+        return AG_ERR_BAD_PIN;
+    }
+    idx = ag_pgm_u8(&PINS[pin].pwm_idx);
+    if (idx == AG_PWM_NONE || idx == AG_PWM_RSVD) {
+        return AG_ERR_UNSUPPORTED;
+    }
+    out->tccra   = ag_pgm_u16(&PWMS[idx].tccra);
+    out->ocr     = ag_pgm_u16(&PWMS[idx].ocr);
+    out->com_bit = ag_pgm_u8(&PWMS[idx].com_bit);
+    out->is16    = ag_pgm_u8(&PWMS[idx].is16);
+    return AG_OK;
+}
+
 uint8_t ag_board_pin_count(void) { return AG_PIN_COUNT; }
 
 const char *ag_board_name(void) { return AG_BOARD_NAME; }

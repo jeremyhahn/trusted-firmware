@@ -45,6 +45,20 @@ void ag_mock_set_adc(uint8_t channel, uint16_t raw);
 /* eeprom: a flat array the test can inspect directly */
 uint8_t *ag_mock_eeprom(void);
 
+/* pwm: the duty a pin was last given, and whether it is connected at all */
+uint8_t ag_mock_pwm_duty(uint16_t ocr);
+uint8_t ag_mock_pwm_connected(uint16_t tccra, uint8_t com_bit);
+uint16_t ag_mock_tone_hz(void);
+
+/* pulse: the intervals the next capture will report */
+void ag_mock_set_pulse_in(uint32_t us);
+void ag_mock_set_capture(const uint16_t *us, uint8_t n);
+
+/* buses: the bytes a transfer will return, and what it was asked to send */
+void    ag_mock_set_bus_response(const uint8_t *b, uint8_t n);
+uint8_t ag_mock_last_i2c_addr(void);
+uint8_t ag_mock_ow_presence_set(uint8_t present);
+
 /* system */
 void   ag_mock_set_reset_cause(ag_reset_cause_t c);
 void   ag_mock_set_free_ram(uint16_t n);

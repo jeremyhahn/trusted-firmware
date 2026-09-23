@@ -63,6 +63,9 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/gpio.c \
                  src/caps/sched.c \
                  src/caps/analog.c \
+                 src/caps/pwm.c \
+                 src/caps/pulse.c \
+                 src/caps/bus.c \
                  src/caps/storage.c \
                  src/crypto/soft/sha256.c \
                  src/crypto/soft/provider.c \

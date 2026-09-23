@@ -6,6 +6,69 @@ The format is [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Pre-1.0, MINOR carries breaking changes.
 
+## [0.2.0-alpha] - 2026-09-23
+
+### Added
+
+- **PWM, tone, pulse measurement, edge capture, I²C, SPI and 1-Wire** — the
+  firmware now exposes the part's capabilities in full.
+- **`PULSE_CAPTURE`** returns edge intervals, which is what makes timing-critical
+  sensors work with no sensor code in the firmware. A DHT22 distinguishes a bit
+  by a 26- versus 70-microsecond pulse; no protocol with a round trip per bit
+  can read that. The same primitive reads DHT11/22, HC-SR04, IR and RC PPM.
+- **The secure element's I²C address is refused** by the generic bus primitive,
+  as is a reserved chip-select on SPI. Otherwise a host could reach the element
+  around the firmware's crypto layer and the device's own root of trust would be
+  an ordinary peripheral.
+
+### Added
+
+- **Two more boards: ATmega2560 and ATmega32U4.** Adding one is data — a header
+  of constants, a table of pins, a profile and a test — and `make board-sweep`
+  compiles each descriptor against its own board's header. Every register
+  address is now a plain number that **avr-libc checks**: a `_Static_assert`
+  compares each against `<avr/io.h>` on the firmware build, so a transposed digit
+  is a compile error naming the register rather than a wrong pin on a bench.
+- **The ATECC608A driver and the DICE-HW tier.** The element holds the UDS in a
+  never-readable slot, computes `HMAC(UDS, H(firmware))` without it crossing the
+  bus, and signs with a P-256 key that never leaves slot 0. Tested against a
+  software model of the element, so it needs no part in hand; the one
+  non-circular assertion is the CRC, anchored on the published wake token.
+- **Provisioning commands, absent from every production image.**
+  `AG_FEATURE_PROVISION` defaults to 0 and the gate is file selection, so a
+  fielded device has no handler at all — not a disabled one. A device that can be
+  re-provisioned over its own command channel has no identity worth attesting to.
+  `agprov` drives them behind `--dry-run` / `--verify` / `--commit`.
+- **`CAPS` answers per-pin pages** and reports an algorithm bitmap, so a host
+  discovers a board rather than hardcoding one.
+- **A simavr integration tier.** `make integration-test` runs the real `.elf` on
+  an emulated ATmega328P, which covers what no host build can reach — the baud
+  divisor, the interrupt vectors, and the tick ISR's actual rate.
+
+### Fixed
+
+- **Three 328P facts were written into code that claimed to be generic**, and
+  each fails silently on another part: the UART's interrupt vector (a misspelled
+  ISR is not a link error — it compiles to a function nothing calls and the
+  device never answers), the tone pin's direction bit, and the SPI pins' direction
+  bits. All three now come from the board.
+- **The `CAPS` pin page could not report a port**, because it was built from a
+  pin reference carrying a memory address rather than a port index, so a constant
+  went out for every pin on every board. And its three-state PWM byte could never
+  emit the third state — "this build spent that timer on the tick" — which is the
+  one a host acts on.
+- **CI raced itself.** `github.job` does not evaluate per job on Gitea, so every
+  job computed the same Docker image tag; the expression written to prevent the
+  collision caused it.
+
+### Changed
+
+- **`sdk/go` uses typed errors throughout**, replacing twenty `fmt.Errorf` sites,
+  grouped by what a caller does next rather than by where they are raised.
+- **The crypto tier is part of the build path.** The software and element images
+  are different firmware with different measurements, and writing both to one
+  path meant whichever built last silently became "the" image.
+
 ## [0.1.0-alpha] - 2026-09-22
 
 ### Added

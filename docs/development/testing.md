@@ -13,8 +13,11 @@ bring-up, never for a gate.
 | 1 — unit | `make test` | x86-64, mock HAL | logic: framing, dispatch, bounds, the scheduler's rollover |
 | 2 — emulated | `make integration-test` | the real `.elf` under simavr | register-level behaviour: baud divisor, interrupt vectors, peripheral bring-up order, tick rate |
 | 3 — integrity | `make lint size-check reproducible-check` | the build itself | drift: flash/SRAM budgets, byte-for-byte reproducibility, out-of-whitelist `#if` |
+| 4 — cost (not a gate) | `make bench-check` | the real `.elf` under simavr | drift in TIME: cycles per decoded byte, per scheduler sweep, per tick interrupt, and the round-trip latency |
 
-`make ci` runs all three plus the sanitizers and the Go SDK suite.
+`make ci` runs tiers 1 to 3 plus the sanitizers and the Go SDK suite. **Tier 4
+is run deliberately and gates nothing** — see `performance.md` for why, and for
+the numbers.
 
 ## Tier 1 — host unit tests
 
@@ -80,6 +83,21 @@ answering fails the job instead of hanging it.
 - Grep gates reject `__DATE__`/`__TIME__` anywhere in the image and any `#if`
   outside the four whitelisted places.
 
+## Tier 4 — the cycle budget
+
+`make bench-check` counts what the shipped image spends, on simavr's exact cycle
+counter, and fails the build when any of it gets more expensive. It is
+`size-check` for time.
+
+Six budgets, one table in `test/bench/targets.h`, each row carrying the project
+plan's reasoning. One of the six is met today; the other five are enforced at
+what they cost now, print `MISS` on every run, and cannot get worse.
+
+**[docs/development/performance.md](performance.md)** has the numbers, what
+dominates each miss, how the tick ISR's span is defined, and a simavr modelling
+defect that makes the emulated UART run at half rate unless the harness corrects
+for it — which matters to tier 2 as well.
+
 ## Golden vectors
 
 The protocol codec necessarily exists twice — in C for the device and in Go for
@@ -96,6 +114,8 @@ update.
 make test                      # all unit suites
 ./build/host/test_frame         # one suite
 make integration-test           # simavr, needs the firmware built
+make bench-check                # the cycle budget, both benchmarked boards
+make bench-run BOARD=atmega2560 # one board
 make coverage                   # with the 90 % floor enforced
 make ci                         # everything the gate requires
 ```

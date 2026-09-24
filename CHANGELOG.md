@@ -10,6 +10,33 @@ Pre-1.0, MINOR carries breaking changes.
 
 ### Added
 
+- **`make bench-check`: a cycle-accurate performance gate, and five of the
+  project plan's six targets are missed.** Every number is counted on simavr's
+  cycle counter running a real `.elf`, never a host build, and the gate fails
+  the build when any of them gets more expensive — `size-check` for time. What
+  it found: the tick ISR is 58 cycles against a target of 12 (`ticks` is a
+  32-bit volatile, so `ticks++` compiles to twenty-seven instructions, and the
+  comment above that ISR claiming "ten cycles" was never true); `ag_crc16_update`
+  costs 102 cycles a byte against a target of 20, where avr-libc computes the
+  same polynomial branch-free in fourteen instructions; frame decode is 120
+  cycles a byte, of which all but 18 is that CRC; a sixteen-slot scheduler sweep
+  is 2158 cycles against 200, and an *empty* one is already 242. The sustained
+  command rate is met with margin, 673 cmd/s against 400, and the gate asserts
+  what the plan's reasoning actually claimed — that the device is not the
+  bottleneck. The 300 us round-trip target is below the link's own floor: fifteen
+  frame bytes at 115200 is 1302 us before any firmware runs. Targets stay written
+  down as the plan stated them; the ceilings the gate enforces are pinned at
+  today's cost, so the debt is visible on every run and cannot grow. See
+  `docs/development/performance.md`.
+- **simavr clocks this firmware's USART at half rate unless corrected, and the
+  benchmark harness corrects it.** The emulator recomputes cycles-per-byte when
+  `UBRRnL` is written and not when `U2Xn` changes; `hal_uart.c` writes the
+  divisor first and `UCSRnA` second, which is correct on silicon and captures
+  `U2X0 = 0` in the model. Measured: 2992 cycles a byte where the programmed
+  divisor gives 1496. `test/integration/simavr/harness.c` is affected too — its
+  "~87 us at 115200" is ~187 us in that simulation — though nothing it asserts
+  depends on the rate.
+
 - **`ATTEST_CERT` (0x63): DICE evidence in the extension the spec defines for
   it.** The verifier's nonce travels in `tcg-dice-UCCS-evidence`
   (2.23.133.5.4.6, TCG DICE Attestation Architecture r23 §6.1.4) rather than in

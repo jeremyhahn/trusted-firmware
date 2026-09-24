@@ -11,6 +11,12 @@
 # else in it ships to a part with 2 KB of RAM or signs its own image:
 #   size-check          fails the build when an image exceeds its board budget
 #   reproducible-check  fails when the same source produces different bytes
+#
+# `make bench-check` measures the cycle budget and is NOT run here. Five of the
+# six targets are missed by 3x to 11x and two are unreachable as stated, so a
+# gate over them would either be red permanently or pinned at today's cost and
+# green while the firmware is that far over. Run deliberately; numbers in
+# docs/development/performance.md; debt in #11, #12 and #13.
 name: CI
 
 on:

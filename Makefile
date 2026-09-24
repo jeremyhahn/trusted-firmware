@@ -19,6 +19,9 @@ include mk/avr.mk
 include mk/boot.mk
 include mk/docker.mk
 include mk/integration.mk
+# After mk/avr.mk: the benchmark image is the firmware's own object list with
+# main.c exchanged, so it needs AVR_SRCS, AVR_CFLAGS and the board profile.
+include mk/bench.mk
 include mk/release.mk
 
 ## help: list every target with its description
@@ -60,6 +63,15 @@ verify-vendor:
 # so a coverage failure could only be discovered on the server -- which is the
 # same defect as a gate written out in the workflow file instead of in a target,
 # and it cost a red main. If CI runs it, it belongs here.
+#
+# `bench-check` is DELIBERATELY NOT HERE (owner ruling, 2026-09-23). Five of the
+# six performance targets are missed by between 3x and 11x, and two of them are
+# unreachable as the plan states them. A gate pinned at today's cost would keep
+# `make ci` green while the firmware is that far over budget, and a green `ci`
+# has to keep meaning what it has always meant. `make bench-check` is run
+# deliberately and its numbers are in docs/development/performance.md; the debt
+# is tracked in #11, #12 and #13. It goes back in when the rows it measures are
+# met, not before.
 ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test boot-test board-sweep \
     coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
     integration-test-boot reproducible-check

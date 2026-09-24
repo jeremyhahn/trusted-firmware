@@ -3,15 +3,22 @@
 > **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
-## `agctl` has no `attest` or `attest-cert` verb
+## `agctl attest` and `agctl attest-cert`
 
-`sdk/go/cmd/agctl/main.go`'s command switch is `ping`, `caps`, `pin`, `sys`,
-`reset`, `mode`, `read`, `write`, `timer`, `timer-cancel`, `timer-query`,
-`ports`. `ATTEST` and `ATTEST_CERT` are reachable only through the Go SDK
-(`Device.Attest`, `Device.AttestCert` in `sdk/go/attest.go`) — there is no
-CLI verb for either command today. This is a gap, not a documented design
-choice; file it against `agctl`, do not work around it by inventing flags
-here.
+```
+agctl [-baud N] [-timeout D] [-json] <port> attest      <16 hex bytes>
+agctl [-baud N] [-timeout D] [-json] <port> attest-cert <32 hex bytes>
+```
+
+`attest` returns the 164-byte evidence frame as hex; `attest-cert` returns the
+alias certificate as DER hex. Both are `sdk/go/cmd/agctl/peripherals.go` over
+`Device.Attest` and `Device.AttestCert`.
+
+**The nonce is the caller's and the tool never generates one.** A client that
+invents its own challenge is a client attesting to itself: freshness has to
+come from whoever is deciding whether to trust the answer. A nonce of the
+wrong length is refused before a frame goes out — the two lengths differ
+because they answer different questions, and are documented in `api.md`.
 
 ## `agctl caps` — see the root of trust before trusting anything it says
 

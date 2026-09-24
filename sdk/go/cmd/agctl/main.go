@@ -46,6 +46,19 @@ commands
   timer-query <pin>
   ports              list the serial ports this host can see
 
+  analog <pin>                     one conversion, raw counts
+  adc-ref <vcc|external|internal>
+  pwm <pin> <duty 0-255>
+  tone <pin> <hz>                  notone <pin>
+  pulse-in <pin> <0|1> <timeout>   one pulse width
+  pulse-capture <pin> <0|1> <max-edges> <timeout>
+  eeprom-read <addr> <count>       eeprom-write <addr> <hex>
+  i2c <addr7> <hex|-> <read-count>
+  spi <cs pin> <hex>
+  1wire-reset <pin>                1wire-write <pin> <hex>   1wire-read <pin> <count>
+  attest <16 hex bytes>            runtime evidence, nonce is YOURS
+  attest-cert <32 hex bytes>       the alias certificate, DER
+
 flags
 `)
 	flag.PrintDefaults()
@@ -291,7 +304,7 @@ func run(ctx context.Context, dev *ag.Device, cmd string, args []string, asJSON 
 		})
 
 	default:
-		return fmt.Errorf("unknown command %q", cmd)
+		return runPeripheral(ctx, dev, cmd, args, asJSON, out)
 	}
 }
 

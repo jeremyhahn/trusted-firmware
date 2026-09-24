@@ -45,7 +45,7 @@ agprov --verify   --config board.yaml /dev/ttyACM0   # confirm afterward
 ```
 
 Full procedure and failure modes: `docs/device-provisioning/user.md`. There is
-no CLI verb for this in `agctl` — see `cli.md`.
+the verb is `agctl attest` — see `cli.md`.
 
 ## Get freshness-bound evidence for a local verifier
 

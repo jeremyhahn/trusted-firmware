@@ -20,10 +20,9 @@ agctl --baud 115200 --timeout 10s --json <port> <command> [args]
 
 ## Verbs this feature exposes today
 
-Only the commands below are wired into `agctl`; everything else in this
-capability set (analog, PWM, tone, pulse, EEPROM, the buses) is reachable
-from the Go SDK (`api.md`, `sdk/go/commands.go`) but has no CLI verb yet —
-see "Gap" below.
+Every command in this capability set has a verb. The GPIO and scheduler verbs
+are in `sdk/go/cmd/agctl/main.go`; the rest are in
+`sdk/go/cmd/agctl/peripherals.go`.
 
 | verb | args | does |
 |---|---|---|
@@ -62,13 +61,32 @@ Duration parsing for `timer` accepts Go's `time.ParseDuration` syntax
 board, decimal only. `--json` applies to every verb; text output is the
 default.
 
-## Gap
+## The rule this CLI is measured against
 
-`../host-sdk/architecture.md` states the rule this CLI is measured against: "if a
-command exists on the wire and is not reachable from `agctl`, that is a gap
-in `agctl`." As of this writing `agctl` has no verb for `ANALOG_READ`,
-`ADC_REF`, `PWM_WRITE`, `TONE`/`NO_TONE`, `PULSE_IN`/`PULSE_CAPTURE`,
-`EEPROM_READ`/`WRITE`, or `I2C_XFER`/`SPI_XFER`/`ONEWIRE_*`, even though the
-Go SDK implements all of them (`sdk/go/commands.go`). Until those verbs land,
-reach those commands from a short Go program against `sdk/go`, or from
-`tools/agsim` for protocol-level testing without hardware.
+`../host-sdk/architecture.md`: "if a command exists on the wire and is not
+reachable from `agctl`, that is a gap in `agctl`."
+
+| verb | args | does |
+|---|---|---|
+| `analog` | `<pin>` | one conversion, raw counts |
+| `adc-ref` | `<vcc\|external\|internal>` | select the converter's reference |
+| `pwm` | `<pin> <duty 0-255>` | set a duty cycle |
+| `tone` | `<pin> <hz>` | square wave on the board's one tone pin |
+| `notone` | `<pin>` | stop it |
+| `pulse-in` | `<pin> <0\|1> <timeout>` | measure one pulse |
+| `pulse-capture` | `<pin> <0\|1> <max-edges> <timeout>` | intervals the host decodes into bits |
+| `eeprom-read` | `<addr> <count>` | hex out |
+| `eeprom-write` | `<addr> <hex>` | refused below the reserved boundary |
+| `i2c` | `<addr7> <hex\|-> <read-count>` | `-` writes nothing |
+| `spi` | `<cs pin> <hex>` | full duplex; the reply is the same length |
+| `1wire-reset` | `<pin>` | presence pulse |
+| `1wire-write` | `<pin> <hex>` | |
+| `1wire-read` | `<pin> <count>` | |
+
+Addresses and counts accept `0x` prefixes. Payloads are hex without
+separators. `--json` applies to every verb.
+
+`sdk/go/cmd/agctl/peripherals_test.go` holds the regression: it drives every
+verb against `agsim` and fails on "unknown command", which is what a verb
+silently losing its dispatch would otherwise look like — the SDK method keeps
+working and only the CLI loses it.

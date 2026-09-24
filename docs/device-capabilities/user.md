@@ -5,7 +5,7 @@
 > Conflicts with this document are defects. Fix them here first.
 
 Examples use `agctl`, the reference client (`../host-sdk/architecture.md`,
-`cli.md`). Where `agctl` has no verb yet, the equivalent Go SDK call is
+`cli.md`). Where a Go SDK call is shown instead, it is
 given instead — see `cli.md#gap`.
 
 ## Find out what a device can do

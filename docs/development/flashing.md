@@ -38,15 +38,15 @@ once provisioned.
 ## Bring-up
 
 ```sh
-sdk/go/bin/agctl ping /dev/ttyUSB0
-sdk/go/bin/agctl caps /dev/ttyUSB0      # board id, pin count, crypto tier, algorithms
-sdk/go/bin/agctl pin  /dev/ttyUSB0 13   # one pin's descriptor
+agctl ping /dev/ttyUSB0
+agctl caps /dev/ttyUSB0      # board id, pin count, crypto tier, algorithms
+agctl pin  /dev/ttyUSB0 13   # one pin's descriptor
 ```
 
 Then the one check that proves the scheduler is real:
 
 ```sh
-sdk/go/bin/agctl timer-set /dev/ttyUSB0 13 1 5000
+agctl timer-set /dev/ttyUSB0 13 1 5000
 # now unplug the host. The LED must still go out at 5 s.
 ```
 

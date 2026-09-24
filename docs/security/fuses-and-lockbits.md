@@ -1,13 +1,13 @@
 # Fuses and lock bits
 
-> **Status: NORMATIVE** · Scope: provisioning, `docs/security/provisioning.md`
+> **Status: NORMATIVE** · Scope: provisioning, `docs/device-provisioning/user.md`
 > · Last verified: 2026-09-22
 >
 > Several settings on this page are **irreversible**. Read the whole page before
 > running anything on a part you care about.
 
 Lock bits are what makes the software tier's UDS worth anything, and what makes
-the "the DICE is immutable" claim in `docs/attestation/dice-profiles.md`
+the "the DICE is immutable" claim in `docs/dice-attestation/architecture.md`
 *partial* rather than absent. They are also the easiest thing in this project to
 get permanently wrong.
 
@@ -75,9 +75,9 @@ part.
 This is the entire reason `agprov` has three separate modes rather than one:
 
 ```sh
-agprov --dry-run --config templates/atecc608a-dice.yaml /dev/ttyUSB0
-agprov --verify  --config templates/atecc608a-dice.yaml /dev/ttyUSB0
-agprov --commit  --config templates/atecc608a-dice.yaml /dev/ttyUSB0 --yes-i-mean-it
+agprov --dry-run --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
+agprov --verify  --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
+agprov --commit  --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 --yes-i-mean-it
 ```
 
 `--dry-run` prints the plan and touches nothing. `--verify` reads the part back

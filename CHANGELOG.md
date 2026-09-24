@@ -8,12 +8,70 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+## [0.4.0-alpha] - 2026-09-23
+
+### Added
+
+- **`agctl` reaches every command on the wire.** It had twelve verbs against
+  thirty-three `Device` methods: analog, the converter reference, PWM, tone,
+  both pulse commands, both EEPROM commands, all three buses and both
+  attestation commands were reachable only by writing a Go program. The rule
+  they now satisfy is the project's own — a command that exists on the wire and
+  is not reachable from `agctl` is a gap in `agctl`. The attestation nonce is
+  the caller's and the tool does not generate one: a client that invents its
+  own challenge is a client attesting to itself. The tests drive every verb
+  against `agsim` rather than a fake and fail on "unknown command", which is
+  what a verb losing its dispatch looks like while the SDK method underneath it
+  keeps working.
+
+### Changed
+
+- **`docs/` is six five-file feature folders**, per the handbook's
+  `feature-docs.md` §8, which names topic folders with no five-file set as
+  unconverted rather than conformant. Content was moved and verified against
+  code, not rewritten: every identifier was grepped before it was written,
+  which is what surfaced the defects below.
+
+### Fixed
+
+- Twelve comments in source and build files cited documents the conversion
+  retired. Each now names the section that holds the content.
+- **`src/crypto/atecc608a/provider.c` claimed the CDI "is zeroized immediately
+  after use"** — inside the section headed *"WHAT THIS TIER STILL DOES NOT MEET,
+  stated because a conformance claim that hides its gaps is worse than no
+  claim."* There is no `memset` of `cdi[]` anywhere; it is a file-scope static,
+  resident for the lifetime of the image, because every derivation re-reads it.
+  The bootloader does zeroize its own copy in `boot/boot_main.c` — a different
+  buffer, which is how the claim survived.
+- `boot/boot_verify.h` credited a retired document with the ed25519-donna size
+  and said that document was corrected alongside the file.
+- `agprov`'s `-config` help advertised YAML. The parser is deliberately not
+  YAML for the reason its own doc comment gives: a YAML library is a dependency,
+  and `sdk/go`'s dependency list is imported by go-xkms at Layer 3 and
+  go-trusted-platform at Layer 5. The help text advertised the one change the
+  constraint exists to prevent.
+- Documentation named `templates/atecc608a-dice.yaml`, a file that does not
+  exist, and invoked `sdk/go/bin/agctl`, a path nothing produces.
+
+### Known gaps, filed
+
+`ATTEST`'s `DeviceID` and `FWHash` are **zero in every build** — nothing writes
+the device serial and the application never reads the bootloader's block (#6).
+Seven command ids are allocated with no handler, two of them the authenticated
+session (#4). `SYS_INFO` omits the framer error counters its own header says it
+reports (#5). Two DICE conformance rows stated as met are false (#7). Five of
+six performance targets are missed by 3x to 11x (#11, #12, #13).
+
+
 ### Added
 
 - **`make bench-check`: a cycle-accurate performance gate, and five of the
   project plan's six targets are missed.** Every number is counted on simavr's
-  cycle counter running a real `.elf`, never a host build, and the gate fails
-  the build when any of them gets more expensive — `size-check` for time. What
+  cycle counter running a real `.elf`, never a host build. It is **run
+  deliberately and gates nothing** (owner ruling, 2026-09-23): with five rows
+  over budget a gate would be either permanently red or pinned at today's cost
+  and green while the firmware is that far over, and a green `make ci` has to
+  keep meaning what it has always meant. What
   it found: the tick ISR is 58 cycles against a target of 12 (`ticks` is a
   32-bit volatile, so `ticks++` compiles to twenty-seven instructions, and the
   comment above that ISR claiming "ten cycles" was never true); `ag_crc16_update`

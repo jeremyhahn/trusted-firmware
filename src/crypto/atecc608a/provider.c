@@ -33,7 +33,10 @@
  *
  *  - The CDI transits SRAM on its way from the element to the Alias derivation.
  *    No classic AVR has an MPU, so "first mutable code has exclusive access"
- *    (6.4) is partial. It is zeroized immediately after use.
+ *    (6.4) is partial. It is also NOT zeroized: cdi[] below is resident for the
+ *    lifetime of the image, because every derivation re-reads it. The bootloader
+ *    zeroizes its own copy (boot/boot_main.c); this one is a different buffer
+ *    and it stays. Issue #7 tracks whether that can be narrowed here.
  *  - Immutability of the DICE itself (6.2.1) rests on BLB mode 3 and lock bits,
  *    which are procedural rather than architectural.
  *

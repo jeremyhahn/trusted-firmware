@@ -210,9 +210,9 @@ typedef struct {
  * to call.
  *
  * The cost is that the CDI transits SRAM with no MPU to protect it. That is the
- * "partial" against DICE HW Requirements §6.4 in docs/attestation/
- * dice-profiles.md, it is not new here, and the mitigation is the same one that
- * document names: the application zeroizes the block the moment it has consumed
+ * "partial" against DICE HW Requirements §6.4 in
+ * docs/dice-attestation/architecture.md, it is not new here, and the mitigation
+ * is the same one that document names: the application zeroizes the block the moment it has consumed
  * it, and the bootloader zeroizes its own copy before jumping.
  */
 #define AG_BOOT_HANDOFF_MAGIC  0x49444341uL  /* 'A','C','D','I' little-endian */

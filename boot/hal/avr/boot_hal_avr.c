@@ -162,8 +162,8 @@ void ag_boot_uart_tx(uint8_t byte)
  * an address both images can name without a shared linker script: the
  * bootloader's own stack is moved below it by the -Wl,--defsym in mk/boot.mk,
  * and the application must place its reader at the same address -- see
- * include/ag/boot.h and docs/security/bootloader.md, where that wiring is
- * recorded as the one step still outstanding on the application side.
+ * include/ag/boot.h and docs/dice-attestation/architecture.md, where that wiring
+ * is recorded as the one step still outstanding on the application side.
  */
 static uint8_t handoff[AG_BOOT_HANDOFF_LEN] __attribute__((section(".noinit")));
 

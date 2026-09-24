@@ -4,7 +4,7 @@
  * Recovery by stopping: linked when BOOT_OTA=0.
  *
  * On a part whose boot section is 4 KB, the framed OTA path plus the hash plus
- * the boot decision do not fit together -- measured, in docs/security/bootloader.md.
+ * the boot decision do not fit together -- measured, in docs/secure-boot/engineering.md.
  * Something has to go, and the update path is the only piece that has somewhere
  * else it can live: an application can receive an image, stage it and reboot,
  * and this bootloader then measures, verifies and commits it. What is lost is

@@ -52,7 +52,7 @@ flags
 	flag.PrintDefaults()
 	fmt.Fprint(os.Stderr, `
 The element cannot be unlocked. Run --commit on a spare part first.
-See docs/security/provisioning.md.
+See docs/device-provisioning/user.md.
 `)
 }
 
@@ -62,7 +62,7 @@ func main() {
 		verify   = flag.Bool("verify", false, "read the part back and compare")
 		commit   = flag.Bool("commit", false, "write; irreversible")
 		confirm  = flag.Bool("yes-i-mean-it", false, "required by --commit")
-		cfgPath  = flag.String("config", "", "provisioning template (YAML)")
+		cfgPath  = flag.String("config", "", "provisioning template (key = value; see sdk/go/templates)")
 		baud     = flag.Int("baud", serialport.DefaultBaud, "serial baud rate")
 		timeout  = flag.Duration("timeout", 30*time.Second, "how long to wait for a reply")
 		confirm2 = flag.Bool("force", false, "deprecated alias; refused, use --yes-i-mean-it")

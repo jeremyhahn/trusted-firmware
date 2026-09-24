@@ -190,7 +190,7 @@ $(BOOT_TARGET).elf: $(BOOT_OBJS)
 	  echo; \
 	  $(MAKE) --no-print-directory boot-core-size || true; \
 	  echo; \
-	  echo "See docs/security/bootloader.md, 'What does not fit'. The budget is"; \
+	  echo "See docs/secure-boot/engineering.md. The budget is"; \
 	  echo "$(BOOT_BUDGET) bytes because BOOTSZ $(BOOT_SECTION) is this part's largest"; \
 	  echo "setting -- there is nothing to raise it to."; \
 	  exit 1; }

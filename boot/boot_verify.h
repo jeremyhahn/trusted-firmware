@@ -35,14 +35,14 @@
  * in curve25519-donna-32bit.h is evaluated in `int`, which is 16 bits on AVR,
  * so the field arithmetic is wrong on this target before it is too big for it.
  *
- * docs/attestation/dice-profiles.md states "ed25519-donna's verify path is
- * about 2 KB". That number is wrong by a factor of thirty-six and the doc is
- * corrected alongside this file.
+ * An earlier design note put ed25519-donna's verify path at "about 2 KB".
+ * That number is wrong by a factor of thirty-six; the measured one is in
+ * docs/secure-boot/engineering.md.
  *
  * NO SUBSTITUTE HAS BEEN MADE. Picking a different primitive is an
  * architectural decision with a security cost attached to every option, and it
  * is not one to take quietly inside a seam. The alternatives, with their costs,
- * are in docs/security/bootloader.md under "What does not fit".
+ * are in docs/secure-boot/engineering.md.
  * ------------------------------------------------------------------------
  */
 #ifndef AG_BOOT_VERIFY_H

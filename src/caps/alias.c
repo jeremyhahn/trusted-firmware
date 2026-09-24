@@ -49,7 +49,7 @@
  * a key derived outside it is a key that left it. What binds the nonce here is
  * the certificate signature over a TBS that contains it, which is the
  * protection section 6.1.4 itself names for UCCS contents. The deviation is
- * stated in docs/attestation/uccs-evidence.md rather than buried.
+ * stated in docs/dice-attestation/architecture.md rather than buried.
  */
 
 #include <string.h>

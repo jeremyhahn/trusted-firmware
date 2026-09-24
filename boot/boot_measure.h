@@ -3,7 +3,7 @@
 /*
  * The measurement, and the block that carries it forward.
  *
- * This is where FWHash comes from. docs/attestation/dice-profiles.md calls it
+ * This is where FWHash comes from. docs/dice-attestation/architecture.md calls it
  * signed evidence and says a verifier must be able to compute it from source --
  * so the span, the order and the chunk size below are part of the wire contract
  * even though no wire carries them. Change how this walks the flash and every

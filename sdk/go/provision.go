@@ -31,7 +31,7 @@ const (
 )
 
 // Element zones, for Lock. Locking is irreversible on the part; see
-// docs/security/provisioning.md.
+// docs/device-provisioning/user.md.
 const (
 	ZoneConfig uint8 = 0x00
 	ZoneData   uint8 = 0x01

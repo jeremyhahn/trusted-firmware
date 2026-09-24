@@ -7,7 +7,7 @@
  * SHA-256 and a boot decision together: the hash alone is 4 052 bytes and the
  * smallest useful core around it is 5 688. Moving the hash into the element
  * takes the software implementation out of the boot section entirely, and what
- * is left fits. That is the whole argument -- see docs/security/bootloader.md
+ * is left fits. That is the whole argument -- see docs/secure-boot/architecture.md
  * for the measurements.
  *
  * WHAT IT COSTS, stated rather than discovered. The element hashes 64 bytes per

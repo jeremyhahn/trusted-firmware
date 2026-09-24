@@ -39,8 +39,8 @@
  * The CDI is built, written and zeroized within a few instructions of each
  * other. There is no MPU on a classic AVR, so this window is the whole
  * mitigation for DICE HW Requirements §6.4 -- which
- * docs/attestation/dice-profiles.md already records as "partial" and which this
- * does not improve on, only honour.
+ * docs/dice-attestation/architecture.md already records as "partial" and which
+ * this does not improve on, only honour.
  */
 void ag_boot_hand_over(const ag_boot_verdict_t *v)
 {

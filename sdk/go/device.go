@@ -284,10 +284,18 @@ type PinInfo struct {
 }
 
 // SysInfo is the device's runtime state.
+//
+// ErrCRC and ErrFormat mirror ag_framer_t's sticky counters (#5): a device
+// older than this SDK does not report them, and both read zero rather than
+// "no errors seen" -- there is no way to tell the two apart from the wire
+// alone, and reporting zero rather than failing the whole reply is what lets
+// a fleet running mixed firmware read this at all.
 type SysInfo struct {
 	Uptime     time.Duration
 	FreeRAM    uint16
 	ResetCause ResetCause
+	ErrCRC     uint16
+	ErrFormat  uint16
 }
 
 // ResetCause says why the part last restarted -- the difference between a

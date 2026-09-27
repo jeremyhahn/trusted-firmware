@@ -28,6 +28,13 @@ const (
 	timerQueryLen = 6 // active:1, held level:1, remaining:4
 )
 
+// sysInfoErrCountersEnd is where the framer's error counters end. #5 appended
+// them after reset_cause rather than inserting them, so sysInfoLen is where a
+// host built before they existed stops reading and this is where one built
+// after they existed does -- the same appended-tail pattern capsAlgorithmsEnd
+// uses for CAPS.
+const sysInfoErrCountersEnd = sysInfoLen + 4 // err_crc:2, err_format:2
+
 // timerMaxMillis is the longest timer the device will arm, mirroring
 // AG_SCHED_MAX_MS.
 //
@@ -152,13 +159,22 @@ func (d *Device) SysInfo(ctx context.Context) (*SysInfo, error) {
 		return nil, &ShortReplyError{Cmd: CmdSysInfo, Got: len(f.Payload), Need: sysInfoLen}
 	}
 	p := f.Payload
-	return &SysInfo{
+	si := &SysInfo{
 		// A full 32 bits. The firmware this replaces pushed millis() through
 		// itoa() into an int and wrapped every 65 seconds.
 		Uptime:     time.Duration(binary.LittleEndian.Uint32(p[0:4])) * time.Millisecond,
 		FreeRAM:    binary.LittleEndian.Uint16(p[4:6]),
 		ResetCause: ResetCause(p[6]),
-	}, nil
+	}
+	// Appended, #5: a device older than this host sends exactly sysInfoLen
+	// bytes and is correct, not truncated -- the reply is complete by the
+	// contract it was built against, so the zero value stands for "not
+	// reported" rather than for "no errors seen".
+	if len(p) >= sysInfoErrCountersEnd {
+		si.ErrCRC = binary.LittleEndian.Uint16(p[sysInfoLen : sysInfoLen+2])
+		si.ErrFormat = binary.LittleEndian.Uint16(p[sysInfoLen+2 : sysInfoErrCountersEnd])
+	}
+	return si, nil
 }
 
 // ResetMode selects what a reset lands in.

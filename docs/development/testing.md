@@ -45,9 +45,13 @@ build constant-folded away.
 through the `libsimavr` C API, and drives it over the emulated USART by
 attaching to `AVR_IOCTL_UART_GETIRQ('0')`.
 
-It is the firmware, not a model of it. The harness shares exactly one file with
-the device (`src/proto/crc16.c`) so it can build the frames it sends; everything
-it asserts about comes back from emulated silicon.
+It is the firmware, not a model of it. The harness shares `src/proto/crc16.c`
+with the device so it can build the frames it sends. The per-byte fold itself
+is the one thing it does **not** share: the harness links the portable
+`src/proto/crc16_update.c` to compute the CRCs it sends and checks, while the
+device links the fast `src/hal/avr/hal_crc16.c` (#12) — the golden check value
+holding on both is what makes that safe. Everything else it asserts about comes
+back from emulated silicon.
 
 What it checks today:
 

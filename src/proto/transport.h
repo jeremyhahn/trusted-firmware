@@ -34,7 +34,10 @@ typedef struct {
 void ag_transport_init(ag_transport_t *t);
 
 /* One pass. Emits what it can of any pending response, then consumes input up
- * to and including one complete frame. */
+ * to and including one complete frame -- READY, BAD_CRC or BAD_FORMAT all stop
+ * it, so a diagnostic event (a malformed frame) gets exactly the same one-per-
+ * poll treatment a real frame does, and never shares a poll with the frame
+ * after it. */
 void ag_transport_poll(ag_transport_t *t);
 
 /* Queues an unsolicited event. Refused, returning 0, while a response is still

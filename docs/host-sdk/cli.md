@@ -29,7 +29,7 @@ agctl ports
 | `ping` | `[text]` | echoes `text` through the device |
 | `caps` | — | protocol/firmware version, board id, pins, sched slots, max payload, root of trust, features, algorithms |
 | `pin` | `<pin>` | one pin's descriptor: flags, port.bit, ADC channel, PWM support |
-| `sys` | — | uptime, free RAM, last reset cause |
+| `sys` | — | uptime, free RAM, last reset cause, framer error counters |
 | `reset` | `[soft\|boot]` | restart; `boot` enters the bootloader (default `soft`) |
 | `mode` | `<pin> <in\|out\|pullup>` | configures a pin's direction |
 | `read` | `<pin>` | digital read; prints `0` or `1` |

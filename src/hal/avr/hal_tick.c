@@ -56,10 +56,17 @@ ag_status_t ag_hal_tick_init(void)
     return AG_OK;
 }
 
-/* The whole interrupt. Ten cycles, and deliberately nothing else: the scheduler
- * sweep runs in the main loop instead, so g_slots has exactly one writer and
- * needs no locking, and a long ISR here would perturb the bit timing of a
- * software UART on the parts that need one. */
+/* The whole interrupt. Measured on the shipped image in a cycle-accurate
+ * emulator: 58 cycles on the 328P, 59 on the 2560, both including the part's
+ * four-cycle interrupt response -- not ten. `ticks` is an ag_ms_t, four bytes
+ * and volatile: the increment itself is four `lds`, an `adiw`, two `adc` and
+ * four `sts`, twenty cycles, and to do that the compiler must save r24-r27
+ * plus r1 and SREG around it, nineteen more in push and pop. Twenty-seven
+ * instructions from the one line of source below. Deliberately nothing else:
+ * the scheduler sweep runs in the main loop instead, so g_slots has exactly
+ * one writer and needs no locking, and this cost -- not a shorter one -- is
+ * what must not perturb the bit timing of a software UART on the parts that
+ * need one. */
 ISR(TIMER0_COMPA_vect)
 {
     ticks++;

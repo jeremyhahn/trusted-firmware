@@ -105,7 +105,7 @@ BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_platform.c boot/boot_policy.c \
   boot/hal/avr/boot_hal_avr.c \
-  src/proto/crc16.c \
+  src/proto/crc16.c src/proto/crc16_update.c \
   src/hal/avr/hal_early.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
 
@@ -260,7 +260,8 @@ BOOT_DONNA_HOST  := -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE
 # added explicitly by the one suite that tests it.
 BOOT_LOGIC_SRCS := boot/boot_image.c boot/measure/measure_soft.c boot/boot_handoff.c boot/boot_ota.c \
                    boot/boot_platform.c boot/boot_session.c \
-                   src/crypto/sha256.c src/proto/crc16.c test/mock/boot_hal_mock.c
+                   src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
+                   test/mock/boot_hal_mock.c
 
 $(BOOT_TEST_DIR):
 	@mkdir -p $(BOOT_TEST_DIR)
@@ -281,7 +282,8 @@ $(BOOT_TEST_DIR)/donna.o: src/third_party/ed25519-donna/ed25519.c | $(BOOT_TEST_
 $(BOOT_TEST_DIR)/test_boot_element: test/unit/boot/test_boot_element.c \
         boot/measure/measure_atecc608a.c boot/verify/verify_atecc608a.c \
         boot/boot_handoff.c src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
-        src/proto/crc16.c test/model/atecc608a.c test/mock/boot_hal_mock.c \
+        src/proto/crc16.c src/proto/crc16_update.c \
+        test/model/atecc608a.c test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -455,7 +457,8 @@ BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a 
 # people will read as documentation for it, so it is held to the standard the
 # thing it models is held to.
 $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
-        src/proto/crc16.c src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
+        src/proto/crc16.c src/proto/crc16_update.c \
+        src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
         boot/boot_image.c boot/boot_platform.c
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \

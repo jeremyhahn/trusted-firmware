@@ -1,16 +1,43 @@
 # Performance
 
 Scope: what the firmware costs in cycles, how it is measured, and which of the
-project plan's targets it meets. Last verified 2026-09-23 against
-`make bench-check`.
+project plan's targets it meets. Last verified 2026-09-26 against
+`make bench-check`, after #12 (the CRC fix) and #11 (the ceiling policy and the
+two restated targets).
 
 Run it with `make bench-check`. It is **not** part of `make ci` and not run by
-any CI job (owner ruling, 2026-09-23): five of the six targets are missed by
-between 3x and 11x and two are unreachable as the plan states them, so a gate
-over them would be either permanently red or pinned at today's cost and green
-while the firmware is that far over budget. A green `make ci` keeps meaning
-what it has always meant. The debt is tracked in #11, #12 and #13, and this
+any CI job (owner ruling, 2026-09-23, ratified 2026-09-26): six of eight rows
+are still over the plan's target even after #12, so a gate over them would be
+either permanently red or pinned at today's cost and green while the firmware
+is that far over budget. A green `make ci` keeps meaning what it has always
+meant. The remaining debt is tracked in #11 and #13's follow-ons, and this
 document is where the numbers live in the meantime.
+
+## The ceiling policy is ratified (#11)
+
+`test/bench/targets.h` carries two columns per row: `target`, the plan's own
+number, kept verbatim; and `ceiling`, what the gate actually enforces. Where
+the firmware meets its target the two are the same number and the row is
+enforced there directly -- `sustained command rate` and, as of #11's
+restatement below, `DIGITAL_WRITE, device share only`. Where it does not, the
+ceiling is pinned at what the code costs today, to the cycle or, for a
+wall-clock span, to the measured worst plus two percent rounded up to the next
+25 us. **A ceiling only ever moves down, by making the code faster** -- never
+up, and never to make a row quietly stop printing `MISS`.
+
+This is a policy choice, not a relaxation, and it is worth restating why:
+lowering a target to match the code would erase the fact that the firmware is
+over budget, and enforcing a target the code has never met leaves the gate red
+from the day it lands, which is the fastest way to get a gate switched off
+within a week. Pinning today's cost as a ceiling makes it the new worst case --
+the code cannot get slower without failing `make bench-check` -- while the
+`MISS` line keeps naming the debt and its size on every single run. The
+alternative the plan's own document warns about elsewhere applies here too: *a
+gate that can pass vacuously is worse than no gate.* This one cannot pass
+vacuously -- it enforces no-regression on eight real numbers and states the gap
+on six of them, every run -- but the distinction is now an explicit,
+owner-ratified policy rather than an assumption embedded in one file's
+comments.
 
 ## What the gate is
 
@@ -35,30 +62,36 @@ ATmega328P and ATmega2560, 16 MHz, `CRYPTO=soft`, avr-gcc as pinned in
 
 | | plan's target | 328P | 2560 | verdict |
 |---|---|---|---|---|
-| frame decode, per byte | < 40 cycles | 120.2 | 122.2 | **3x over** |
-| CRC-16, per byte | < 20 cycles | 102.5 | 104.5 | **5x over** |
-| `ag_sched_poll()`, worst sweep | < 200 cycles | 1066 (8 slots) | 2158 (16 slots) | **11x over** |
+| frame decode, per byte | < 40 cycles | 62.0 | 64.0 | **over, was 3x, now ~1.6x** |
+| CRC-16, per byte | < 20 cycles | 31.0 | 33.0 | **over, was 5x, now ~1.6x** |
+| `ag_sched_poll()`, worst sweep | < 200 cycles | 1066 (8 slots) | 2158 (16 slots) | **over -- see the per-slot row below** |
+| `ag_sched_poll()`, per armed slot (#11) | < 12.5 cycles/slot | 133.25 | 134.875 | **over, ~10.7x** |
 | tick ISR, vector to `reti` | <= 12 cycles | 58 | 59 | **5x over** |
-| `DIGITAL_WRITE`, SOF to response | < 300 us | 1584 | 1596 | **5x over** |
-| sustained command rate | > 400 cmd/s | 673 | 667 | **met, 1.7x margin** |
+| `DIGITAL_WRITE`, SOF to response | < 300 us | 1572.8 | 1577.1 | **over -- see the device-only row below** |
+| `DIGITAL_WRITE`, device share only (#11) | < 300 us | 169.1 | 172.9 | **met** |
+| sustained command rate | > 400 cmd/s | 679.0 | 675.9 | **met, ~1.7x margin** |
 
-One of six is met. The five that are not are enforced at what they cost today —
-see *Target vs ceiling* below.
+Two of eight rows are met. Two of the eight are #11's restatement of targets the
+plan could never have met as literally stated (the full sweep total, and the
+whole round trip including the wire); one of those restatements now passes.
+The remaining rows that miss are enforced at what they cost today — see
+*Target vs ceiling* above.
 
 ### What dominates each miss
 
-**CRC-16 is the root of two rows.** `src/proto/crc16.c` folds the polynomial one
-bit at a time: eight iterations, each a shift, a conditional exclusive-or and a
-loop test. avr-libc's `_crc_xmodem_update` computes the same polynomial with the
-same output in **fourteen single-cycle instructions, branch-free**, folding a
-nibble at a time with `swap`, `andi` and `eor`. The plan's premise — "~16 cycles,
-ours should add nothing" — is correct; ours costs seven times that.
-
-**Frame decode is the CRC plus eighteen cycles.** Every byte the framer stores it
-also folds into the running CRC, so the frame-decode figure *contains* the CRC
-figure. The state machine's own share is 18 cycles a byte, comfortably inside the
-plan's 40. Fixing the CRC brings this row under budget without anyone touching
-`frame.c`.
+**#12 fixed the CRC, and that fixed most of frame decode with it.**
+`src/proto/crc16_update.c` — the portable form, still what host tests, `agsim`
+and the bootloader link — folds the polynomial one bit at a time: eight
+iterations, each a shift, a conditional exclusive-or and a loop test. The AVR
+firmware and bench images now link `src/hal/avr/hal_crc16.c` instead, which
+calls avr-libc's `_crc_xmodem_update` — the same polynomial, same output,
+fourteen single-cycle instructions, branch-free. Measured through the bench
+harness's forced call boundary (see `test/bench/targets.h`'s CRC-16 row for why
+that boundary, rather than the fourteen instructions alone, is what the number
+contains), the cost dropped from 102.5/104.5 cycles/byte to 31.0/33.0 — about a
+3.3x improvement, closing most but not all of the gap to the plan's 20. Frame
+decode contains the CRC figure and dropped by almost exactly the same amount,
+120.2/122.2 to 62.0/64.0.
 
 **The tick ISR is a 32-bit volatile increment.** `ticks` is an `ag_ms_t`, four
 bytes, volatile: four `lds`, an `adiw` and two `adc`, four `sts` — twenty cycles
@@ -66,53 +99,59 @@ bytes, volatile: four `lds`, an `adiw` and two `adc`, four `sts` — twenty cycl
 nineteen more in push and pop. The `ticks++` in the source is one line; the
 compiled ISR is twenty-seven instructions. Twelve cycles is roughly what a
 one-byte counter would cost; nothing in this family increments a 32-bit volatile
-in twelve.
+in twelve. #13 corrected the comment in `src/hal/avr/hal_tick.c` that used to
+claim ten cycles to this measured figure.
 
-**The scheduler sweep is over budget in every state.** The plan's 200 cycles is
-"at 16 slots", which is the ATmega2560's `AG_SCHED_SLOTS`. On that part an
+**The scheduler sweep is over budget in every state, and #11 restates why the
+raw total was the wrong number to hold to one target.** The plan's 200 cycles
+is "at 16 slots", which is the ATmega2560's `AG_SCHED_SLOTS`. On that part an
 *empty* sweep is already 242 cycles — `ag_hal_millis` costs an atomic section and
 a four-byte load, then sixteen slots each cost a load and a bit test. Sixteen
 armed and not due is 546. Sixteen coming due at once is 2158, because each one
 then resolves its pin through the board descriptor and writes a port register.
 The gate takes the worst of the three: a host that arms sixteen timers together
-is a host that will have them expire together.
+is a host that will have them expire together. Restated per armed slot — the
+worst sweep divided by the board's `AG_SCHED_SLOTS` — the 328P and the 2560
+agree to within about a cycle and a quarter (133.25 vs 134.875), which the raw
+totals do not, because the totals are dominated by each board's own fixed empty-
+sweep cost and only partly by the slot count. The plan's 200-cycle figure "at 16
+slots" restates the same way to 12.5 cycles/slot, which is the target this new
+row is held to — still missed by about 10.7x, and now comparable across boards
+rather than being a number that only ever meant something on the 2560.
 
-**300 us is below the link's own floor.** A `DIGITAL_WRITE` exchange is eight
-request bytes and seven response bytes. At 115200 8N1 a byte occupies ten bit
-times, 87 us, so fifteen bytes is 1302 us of wire before any firmware runs —
-1392 us as simavr clocks it, which charges eleven bit times a byte. The device
-adds 186 us on top, and 186 us is the only part this repository can change. No
-device can meet 300 us for this exchange at this baud rate.
+**300 us for the whole exchange is below the link's own floor, and #11 restates
+the plan's actual claim as the row that is now reachable.** A `DIGITAL_WRITE`
+exchange is eight request bytes and seven response bytes. At 115200 8N1 a byte
+occupies ten bit times, 87 us, so fifteen bytes is 1302 us of wire before any
+firmware runs — 1402 us as simavr clocks it once calibrated to the divisor the
+firmware itself programmed. The device adds 169-173 us on top, and that is the
+only part this repository can change; no device can meet 300 us for the
+*whole* exchange at this baud rate. What the plan's reasoning actually
+claimed — "dominated by the UART, not by logic" — is a claim about the DEVICE's
+own share, and restated that way against the same 300 us, the firmware meets it:
+169.1 us (328P) and 172.9 us (2560), both comfortably under. This is the one
+restated row that is not merely comparable now but genuinely met, and it is not
+pinned in `test/bench/targets.h` for that reason — its ceiling is the plan's own
+300, unmodified, the same as the sustained-rate row.
 
-What the plan's *reasoning* asks for — "dominated by the UART, not by logic" — is
-checkable and is checked: the gate asserts the firmware's share stays below the
-wire's. It is 186 us against 1392.
+(These numbers move a little with any change to compiled size or layout --
+they were re-measured once more after a fix, unrelated to CRC or scheduling,
+to a stale-counter bug in `src/proto/transport.c`. The gate re-measures on
+every run, so a stale figure in prose is a documentation gap, not a
+regression.)
 
-## Target vs ceiling
+## Target vs ceiling, in one place
 
-`test/bench/targets.h` has two columns. `target` is what the plan asked for;
-`ceiling` is what the gate enforces.
-
-They are the same wherever the firmware meets its target. Where it does not, the
-plan's target stays written down exactly as stated, the ceiling is pinned at what
-the code costs today, and the row prints `MISS` on every run with the size of the
-gap.
-
-That is deliberate and it is not a relaxation. Lowering the target would erase
-the fact that the firmware is over budget. Enforcing a target the code has never
-met would leave the gate red from the day it landed, and a gate that is red for
-reasons nobody is acting on gets switched off within a week. Pinning the
-measurement makes today's cost the new worst case — the code cannot get slower
-without failing the build — while the `MISS` line keeps saying, every run, that
-there is a debt and how big it is.
-
-**A ceiling is only ever moved down, by making the code faster.**
-
-A cycle count is pinned at the measured value rounded up to the next whole cycle;
-it is exactly reproducible, so anything costing a cycle more fails. A wall-clock
-span is pinned at the measured worst plus two percent, rounded up to 25 us,
-because a round trip moves by more than that when anything in the superloop
-changes size.
+See *The ceiling policy is ratified (#11)* above for the policy itself. The
+rounding rule, precisely: a cycle count is pinned at the measured value rounded
+up to the next whole cycle — it is exactly reproducible, so anything costing a
+cycle more fails. A ratio derived from two exact integers (the per-armed-slot
+row) is pinned at the exact quotient, unrounded, for the same reason: it is not
+a sampled cycle count, it is arithmetic on one, and rounding it would hide a
+one-cycle regression in the sweep it is computed from. A wall-clock span is
+pinned at the measured worst plus two percent, rounded up to 25 us, because a
+round trip moves by more than that when anything in the superloop changes
+size.
 
 ## How it is measured
 
@@ -187,7 +226,7 @@ slipping into the sample would report a number for a different handler.
 ### The sustained rate is a link bound, and the gate says so
 
 Twenty-four `DIGITAL_WRITE` exchanges, stop-and-wait: the next request starts
-only once the previous response has cleared the wire. 673 cmd/s on the 328P
+only once the previous response has cleared the wire. 679.0 cmd/s on the 328P
 against a target of 400, with the device busy for 12% of the elapsed time and the
 link for the other 88%. The plan calls this "a stop-and-wait bound, not a CPU
 bound" and the measurement agrees — the answer *is* the baud-rate limit, and the
@@ -213,10 +252,20 @@ the divisor the emulator uses becomes the divisor the firmware programmed.
 Without it every latency and throughput figure would be twice its true value —
 the sort of wrong that reads as plausible.
 
-**This affects `test/integration/simavr/harness.c` too.** Its `send()` comment
-says "a real UART delivers one byte per ~87 us at 115200"; in that simulation,
-uncalibrated, it is ~187 us. Nothing that harness asserts depends on the rate, so
-nothing it reports is wrong — but any timing claim taken from it would be.
+**This affects `test/integration/simavr/harness.c` too, and #14 corrected its
+comment to say so.** That harness is uncalibrated on purpose — it asserts
+correctness, not timing, so `uart_calibrate()`'s machinery would be
+overhead spent on a number nothing there reads — so its `send()` pacing runs at
+the emulator's uncorrected ~187 us/byte rather than the ~87 us 8N1 at 115200
+actually is, explained in place rather than left as a bare number. #14 also
+fixed a real defect in the same file: `run_cycles()` counted calls to
+`avr_run()`, one AVR *instruction* apiece, not one cycle — 1.436 cycles/call on
+average for this firmware, so its one “simulated second” (16 000 000 calls) was
+actually ~1.44. It is now two functions, `run_instructions()` for settling
+(which only ever needed "enough") and `run_until_cycle()` for the one place that
+needed an actual span of simulated time, and the tick-rate assertion's bound is
+derived from that exact span rather than from the instruction count that used
+to stand in for it.
 
 A second, smaller discrepancy is left alone and reported: simavr charges eleven
 bit times per byte where 8N1 occupies ten, so everything timed over the wire is

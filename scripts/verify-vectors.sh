@@ -35,4 +35,25 @@ fi
 if [ "$fail" = 0 ]; then
   echo "wire vectors agree: $(echo "$c_vals" | wc -l) values, both languages"
 fi
+
+# String-literal vectors -- SYS_INFO's reply payloads, #5. These are not hex
+# numbers, so they get their own block, but \x escapes are spelled identically
+# in a C string literal and a Go one, which means the quoted text can be
+# compared directly rather than decoded.
+c_str=$(sed -n 's/^#define AGV_SYSINFO_\([A-Z_]*\)_REPLY *"\(.*\)"$/\1 \2/p' "$C" | sort)
+g_str=$(sed -n 's/^\tSysInfo\([A-Za-z]*\) *= *"\(.*\)"$/\1 \2/p' "$G" | sort)
+
+c_str_only=$(comm -23 <(echo "$c_str" | awk '{print $2}' | sort -u) <(echo "$g_str" | awk '{print $2}' | sort -u))
+g_str_only=$(comm -13 <(echo "$c_str" | awk '{print $2}' | sort -u) <(echo "$g_str" | awk '{print $2}' | sort -u))
+
+if [ -n "$c_str_only" ]; then
+  echo "string vector(s) in $C with no counterpart in $G:"; echo "$c_str_only"; fail=1
+fi
+if [ -n "$g_str_only" ]; then
+  echo "string vector(s) in $G with no counterpart in $C:"; echo "$g_str_only"; fail=1
+fi
+if [ -z "$c_str_only" ] && [ -z "$g_str_only" ]; then
+  echo "SYS_INFO reply vectors agree: $(echo "$c_str" | wc -l) values, both languages"
+fi
+
 exit $fail

@@ -18,10 +18,24 @@
 static uint8_t reset_pending;
 static uint8_t reset_mode;
 
+/* SYS_INFO's view of the framer's counters, refreshed once a pass by
+ * ag_sys_set_framer_errors(). See sys.h for why this indirection exists
+ * rather than sys.c reaching into the transport itself. */
+static uint16_t sys_err_crc;
+static uint16_t sys_err_format;
+
 void ag_sys_reset_state(void)
 {
-    reset_pending = 0u;
-    reset_mode    = 0u;
+    reset_pending  = 0u;
+    reset_mode     = 0u;
+    sys_err_crc    = 0u;
+    sys_err_format = 0u;
+}
+
+void ag_sys_set_framer_errors(uint16_t err_crc, uint16_t err_format)
+{
+    sys_err_crc    = err_crc;
+    sys_err_format = err_format;
 }
 
 uint8_t ag_sys_reset_pending(void)
@@ -137,12 +151,24 @@ ag_status_t ag_sys_cmd_reset(ag_reader_t *r, ag_writer_t *w)
     return AG_OK;
 }
 
+/*
+ * The framer's counters are APPENDED, not inserted: everything through
+ * reset_cause is exactly what the first SYS_INFO ever shipped, so an older
+ * host that reads only that prefix gets the same three fields at the same
+ * offsets it always has, and a newer host reads two more. Extending a reply
+ * this way needs nothing on the wire to say the reply grew -- LEN already
+ * says so, and the framer never truncates a real frame -- which is the same
+ * reasoning include/ag/status.h gives for why status codes extend rather
+ * than renumber, applied to a reply shape instead of an enum.
+ */
 ag_status_t ag_sys_cmd_sys_info(ag_reader_t *r, ag_writer_t *w)
 {
     (void)r;
     ag_write_u32(w, ag_hal_millis());
     ag_write_u16(w, ag_hal_free_ram());
     ag_write_u8(w,  (uint8_t)ag_hal_reset_cause());
+    ag_write_u16(w, sys_err_crc);
+    ag_write_u16(w, sys_err_format);
     return AG_OK;
 }
 

@@ -5,10 +5,13 @@ package aggeneric
 
 // CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection, no final XOR.
 //
-// The exact algorithm src/proto/crc16.c implements, deliberately written the
-// same way rather than table-driven. The two are pinned to the same published
-// vectors, and a table here would be a second thing to get right for a gain
-// nobody on this side of the link can measure.
+// The exact algorithm src/proto/crc16_update.c implements, deliberately
+// written the same way rather than table-driven. The AVR firmware links a
+// faster, branch-free form instead (src/hal/avr/hal_crc16.c, avr-libc's
+// _crc_xmodem_update) -- same polynomial, same initial value, same output,
+// fewer instructions -- so this mirror is pinned against both by the same
+// published vectors. A table here would be a second thing to get right for a
+// gain nobody on this side of the link can measure.
 const crcInit uint16 = 0xFFFF
 
 // CRC16Update folds one byte into a running CRC.

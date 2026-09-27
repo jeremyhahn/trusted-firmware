@@ -54,20 +54,69 @@ static void on_device_tx(struct avr_irq_t *irq, uint32_t value, void *param)
 
 static avr_irq_t *uart_in;
 
+/* avr_run() executes exactly one instruction and charges avr->cycle whatever
+ * that instruction costs -- 1.436 cycles per call on average for this
+ * firmware, measured, not a fixed one. An instruction count is therefore not
+ * a cycle count and the two must not be confused: settling only needs
+ * "enough", so it stays instruction-counted and generous. The tick-rate check
+ * further down needs an actual span of simulated time, so it runs until
+ * avr->cycle, the emulator's real cycle counter, says the span has elapsed --
+ * exactly the way bench_harness.c times everything. */
+static void run_instructions(long n)
+{
+    for (long i = 0; i < n; i++) { avr_run(avr); }
+}
+
+/* Bounded the way bench_harness.c's run_until_cycle() is, and for the same
+ * reason: if the emulated firmware halts or sleeps with no wake source ever
+ * coming, avr_run() stops advancing avr->cycle and an unguarded loop here
+ * would hang make integration-test until an external timeout killed it,
+ * rather than failing with a reason.
+ *
+ * The guard is the requested span itself, not an arbitrary constant: no AVR
+ * instruction costs less than one cycle, so reaching a target cycle count
+ * never needs more avr_run() calls than the number of cycles between here
+ * and there. Any call beyond that bound is proof nothing is advancing, not a
+ * firmware that is merely slow. */
+static void run_until_cycle(avr_cycle_count_t target)
+{
+    avr_cycle_count_t start = avr->cycle;
+    avr_cycle_count_t guard = 0;
+
+    while (avr->cycle < target) {
+        avr_run(avr);
+        if (++guard > target - start) {
+            fprintf(stderr, "run_until_cycle: no progress after %"
+                            PRI_avr_cycle_count " steps (wanted cycle %"
+                            PRI_avr_cycle_count ", stuck at %"
+                            PRI_avr_cycle_count ") -- the emulated firmware is "
+                            "not advancing\n",
+                    guard, target, avr->cycle);
+            exit(2);
+        }
+    }
+}
+
 static void send(const uint8_t *b, unsigned n)
 {
     for (unsigned i = 0; i < n; i++) {
         avr_raise_irq(uart_in, b[i]);
         /* Let the firmware consume the byte before the next arrives. Feeding a
-         * whole frame in one instant would test a device that never exists:
-         * a real UART delivers one byte per ~87 us at 115200. */
-        for (int c = 0; c < 20000; c++) { avr_run(avr); }
+         * whole frame in one instant would test a device that never exists.
+         *
+         * The 20000-call pacing is generous rather than exact, and it has to
+         * be: a real UART delivers one byte per ~87 us at 115200, but simavr
+         * does not. It recomputes a USART's cycles-per-byte when UBRRnL/H is
+         * written and NOT when U2Xn changes, and src/hal/avr/hal_uart.c writes
+         * the divisor before U2X0 -- correct on silicon, which re-evaluates
+         * continuously, but the emulator captures U2X0 = 0 and clocks the
+         * link at half rate from then on. Uncalibrated, that makes this one
+         * byte per ~187 us, not ~87. bench_harness.c's uart_calibrate()
+         * corrects it by re-driving the UBRR0L write handler once the
+         * firmware has set U2X0; this harness does not assert on wire timing,
+         * so it is left uncalibrated and paced generously instead. */
+        run_instructions(20000);
     }
-}
-
-static void run_cycles(long n)
-{
-    for (long i = 0; i < n; i++) { avr_run(avr); }
 }
 
 /* ------------------------------------------------------------- framing */
@@ -129,7 +178,7 @@ static int exchange(uint8_t seq, uint8_t cmd, const uint8_t *pay, uint8_t plen,
 
     from_device_n = 0;
     send(wire, n);
-    run_cycles(400000);
+    run_instructions(400000);
     return find_response(seq, status, out, outlen);
 }
 
@@ -165,7 +214,7 @@ int main(int argc, char **argv)
 
     /* Boot. The firmware announces itself, which is also how we know the UART
      * is configured correctly before any test depends on it. */
-    run_cycles(2000000);
+    run_instructions(2000000);
     check(from_device_n > 0, "the firmware transmits on boot");
 
     /* PING proves the whole path on real silicon: the USART ISR, the ring, the
@@ -190,22 +239,43 @@ int main(int argc, char **argv)
     /* SYS_INFO proves the TIMER0 tick interrupt is actually firing -- something
      * no host test can show, because on the host millis() is a variable. */
     {
-        uint32_t t1, t2;
+        uint32_t           t1, t2;
+        avr_cycle_count_t  before;
         int ok = exchange(0x23, AG_CMD_SYS_INFO, NULL, 0, &status, out, &outlen);
         check(ok && status == AG_OK, "SYS_INFO answers");
+        /* #5: err_crc and err_format are appended after reset_cause, so the
+         * reply grew from 7 bytes to 11 on real silicon, not only on the host
+         * mock, and a boot with no traffic yet has raised neither. */
+        check(ok && outlen == 11u, "SYS_INFO's reply carries the appended framer counters");
+        check(ok && out[7] == 0u && out[8] == 0u && out[9] == 0u && out[10] == 0u,
+              "a freshly booted device has seen no framing errors");
         t1 = (uint32_t)out[0] | ((uint32_t)out[1] << 8)
            | ((uint32_t)out[2] << 16) | ((uint32_t)out[3] << 24);
 
-        run_cycles(16000000);          /* one simulated second */
+        /* Exactly one simulated second of AVR clock, not an instruction
+         * count. f.frequency above is 16 MHz, so 16 000 000 is one second of
+         * avr->cycle -- the counter simavr increments per instruction from
+         * the part's own timing table. The former run_cycles(16000000) counted
+         * calls to avr_run() instead, which execute one instruction each at
+         * 1.436 cycles apiece for this firmware (measured): "one simulated
+         * second" was actually ~1.44. */
+        before = avr->cycle;
+        run_until_cycle(before + 16000000u);
 
         ok = exchange(0x24, AG_CMD_SYS_INFO, NULL, 0, &status, out, &outlen);
         t2 = (uint32_t)out[0] | ((uint32_t)out[1] << 8)
            | ((uint32_t)out[2] << 16) | ((uint32_t)out[3] << 24);
         check(ok && t2 > t1, "the millisecond tick ISR is running");
-        /* A real second is 1000 ms. Generous bounds: the point is that the
-         * timer is configured for roughly the right rate, not that the
-         * emulator's cycle accounting is exact. */
-        check(t2 - t1 > 500 && t2 - t1 < 1500, "the tick rate is about 1 kHz");
+        /* The bound is derived from the wait above rather than guessed. The
+         * wait guarantees at least 1 000 ms of tick-ISR time elapsed (16 MHz /
+         * 16 000 cycles-per-tick), less at most one tick's phase slip against
+         * where t1 happened to land -- hence the 990 floor. The ceiling adds
+         * the second exchange() itself, which is not free: send() paces six
+         * wire bytes at 20 000 instructions apiece plus a 400 000-instruction
+         * settle, 520 000 instructions that cost at most a handful of cycles
+         * each, i.e. well under 200 ms even at a pessimistic 5 cycles/instr. */
+        check(t2 - t1 >= 990 && t2 - t1 <= 1200,
+              "the tick rate is 1 kHz to a bound derived from the simulated clock");
     }
 
     /* GPIO on real registers: the board descriptor, the HAL's port arithmetic
@@ -251,7 +321,7 @@ int main(int argc, char **argv)
         wire[n - 1] ^= 0xFF;
         from_device_n = 0;
         send(wire, n);
-        run_cycles(400000);
+        run_instructions(400000);
         int ok = find_response(0x2A, &status, out, &outlen);
         check(ok && status == AG_ERR_CRC, "a corrupted frame is answered with AG_ERR_CRC");
     }

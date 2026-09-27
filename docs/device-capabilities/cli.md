@@ -34,7 +34,7 @@ are in `sdk/go/cmd/agctl/main.go`; the rest are in
 | `timer-query` | `<pin>` | report a pin's timer state |
 | `caps` | — | what the device is and what it can do |
 | `pin` | `<pin>` | one pin's descriptor: port, ADC channel, PWM state |
-| `sys` | — | uptime, free RAM, last reset cause |
+| `sys` | — | uptime, free RAM, last reset cause, framer error counters |
 | `ping` | `[text]` | echo `text` through the device |
 | `reset` | `[soft\|boot]` | restart; `boot` enters the bootloader |
 | `ports` | — | list serial ports visible to this host |

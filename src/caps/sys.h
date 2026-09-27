@@ -23,4 +23,15 @@ void        ag_sys_poll(void);
 /* Test seam: clears the pending-reset latch between cases. */
 void        ag_sys_reset_state(void);
 
+/* Mirrors the transport's framer counters into SYS_INFO's view of them.
+ *
+ * dispatch.h forbids a command handler from reaching the framer or the
+ * transport directly -- ag_sys_cmd_sys_info runs on the host against a mock
+ * HAL and nothing else, and must stay able to. The one place that owns both
+ * the transport and every capability is the composition root (main.c,
+ * tools/agsim/main.c), so it is the one place that bridges the two: called
+ * once per superloop pass, after ag_transport_poll(), with the live counters
+ * from t->framer. */
+void        ag_sys_set_framer_errors(uint16_t err_crc, uint16_t err_format);
+
 #endif /* AG_CAPS_SYS_H */

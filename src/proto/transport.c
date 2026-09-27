@@ -117,9 +117,19 @@ void ag_transport_poll(ag_transport_t *t)
         case AG_FRAME_BAD_FORMAT:
             /* No trustworthy sequence number exists here -- the framer never
              * got far enough to have one -- so nothing is sent. The counters
-             * in SYS_INFO are how a host sees this happening. */
+             * in SYS_INFO are how a host sees this happening.
+             *
+             * Returns, matching READY and BAD_CRC below, rather than looping
+             * straight on to whatever the ring holds next. Without that, a
+             * BAD_FORMAT byte immediately followed in the same buffered burst
+             * by a valid SYS_INFO request would dispatch and encode that
+             * reply inside THIS poll() call -- before main.c's one-per-pass
+             * ag_sys_set_framer_errors() has had a chance to run again and
+             * mirror the bump this event just made, so the reply would read
+             * one event stale. Any bytes still in the ring are simply seen on
+             * the next poll(), microseconds later. */
             t->in_frame = 0u;
-            break;
+            return;
 
         case AG_FRAME_NONE:
         default:

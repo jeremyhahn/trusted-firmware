@@ -53,7 +53,8 @@ $(BENCH_TARGET).elf: $(BENCH_OBJS)
 # and without the dependency a change to a ceiling leaves the previous harness
 # binary in place -- so the gate reports the OLD bound against the new code and
 # passes. That is the one failure mode a budget must not have.
-BENCH_HARNESS_SRCS := test/integration/simavr/bench_harness.c src/proto/crc16.c
+BENCH_HARNESS_SRCS := test/integration/simavr/bench_harness.c \
+                      src/proto/crc16.c src/proto/crc16_update.c
 
 $(BENCH_DIR)/bench_harness: $(BENCH_HARNESS_SRCS) test/bench/targets.h
 	@mkdir -p $(BENCH_DIR)

@@ -98,7 +98,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x00 | `CAPS` | always | `[]` or `[pin:1]` | board header or pin descriptor, above |
 | 0x01 | `PING` | always | `bytes[0..MaxPayload]` | the same bytes, echoed |
 | 0x02 | `RESET` | always | `[mode:1]` (0 soft, 1 bootloader) | none; device acks, drains, then restarts |
-| 0x03 | `SYS_INFO` | always | `[]` | `[uptime_ms:4][free_ram:2][reset_cause:1]` |
+| 0x03 | `SYS_INFO` | always | `[]` | `[uptime_ms:4][free_ram:2][reset_cause:1][err_crc:2][err_format:2]` -- the last four bytes are appended (#5); a host that knows only the first seven still parses correctly |
 | 0x04 | `WDT_SET` | **reserved, no handler in any build** | — | `AG_ERR_UNKNOWN_CMD` |
 | 0x05 | `SLEEP` | **reserved, no handler in any build** | — | `AG_ERR_UNKNOWN_CMD` |
 | 0x10 | `PIN_MODE` | `AG_FEATURE_GPIO` | `[pin:1][mode:1]` (0 in, 1 out, 2 input-pullup) | none |

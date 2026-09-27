@@ -8,6 +8,48 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **`SYS_INFO` reports the framer's `err_crc`/`err_format` counters**, appended
+  after `reset_cause` so a host built before they existed keeps parsing the
+  same seven bytes it always has (#5). `sdk/go`'s `SysInfo` gained `ErrCRC`
+  and `ErrFormat`, `agctl sys` prints them, and a new literal wire vector
+  (`AGV_SYSINFO_OLD_REPLY`/`AGV_SYSINFO_NEW_REPLY`, mirrored in
+  `sdk/go/internal/vectors`) pins both reply shapes.
+- **`test/bench/targets.h` gained two restated performance rows** (#11): the
+  scheduler sweep per armed slot, and `DIGITAL_WRITE`'s device-only share
+  excluding wire time. The device-only row is met; the per-slot row is not,
+  but is now comparable across boards where the raw sweep total was not.
+
+### Changed
+
+- **The AVR firmware and bench images link a fast CRC-16 behind the HAL**
+  (`src/hal/avr/hal_crc16.c`, avr-libc's `_crc_xmodem_update`), while the host,
+  `agsim`, the bootloader and the cross-implementation suite keep the portable
+  bit-serial form, now in its own file, `src/proto/crc16_update.c` (#12).
+  Per-byte cost on the shipped build's measurement drops from ~103 to ~31
+  cycles on the 328P (~105 to ~33 on the 2560); the golden check value
+  (`0x29B1` for `"123456789"`) is unchanged and holds on both definitions.
+- **The performance ceiling policy is ratified** (#11): a ceiling in
+  `test/bench/targets.h` only ever moves down. CRC-16 and frame-decode's
+  ceilings were lowered to match #12's measurement.
+
+### Fixed
+
+- **`src/hal/avr/hal_tick.c`'s tick ISR comment claimed ten cycles; it is 58 on
+  the 328P and 59 on the 2560**, including the part's four-cycle interrupt
+  response, and now says so along with what the cycles are spent on (#13).
+- **`test/integration/simavr/harness.c`'s `run_cycles()` counted AVR
+  instructions, not cycles** — 1.436 cycles per call on average for this
+  firmware, so its "one simulated second" was actually about 1.44 (#14). It is
+  now `run_instructions()` for generous settling and `run_until_cycle()` for
+  the one assertion that needed an actual span of simulated time, and that
+  assertion's bound is derived from the span rather than guessed. The same
+  file's `send()` comment now explains, rather than merely stating, why the
+  emulated link runs at half the real baud rate (simavr recomputes the USART
+  divisor on `UBRRnL`/`H` and not on `U2Xn`, and the firmware writes the
+  divisor first).
+
 ## [0.4.0-alpha] - 2026-09-23
 
 ### Added

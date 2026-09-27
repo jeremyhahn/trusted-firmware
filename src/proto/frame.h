@@ -52,8 +52,11 @@ typedef struct {
     uint16_t crc_rx;           /* the CRC the sender claimed */
     uint8_t  state;
 
-    /* Diagnostics, reported by SYS_INFO. A host that sees these climbing knows
-     * the line is noisy before it starts blaming the firmware's logic. */
+    /* Diagnostics, reported by SYS_INFO (appended after reset_cause, #5 --
+     * see src/caps/sys.c and sys.h for how a command handler that may not
+     * touch the framer directly gets these numbers). A host that sees these
+     * climbing knows the line is noisy before it starts blaming the
+     * firmware's logic. */
     uint16_t err_crc;
     uint16_t err_format;
 } ag_framer_t;

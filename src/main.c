@@ -43,6 +43,9 @@ int main(void)
 
     for (;;) {
         ag_transport_poll(&transport);
+        /* SYS_INFO cannot reach the framer itself -- dispatch.h forbids it --
+         * so the one module that already sees both hands the counters across. */
+        ag_sys_set_framer_errors(transport.framer.err_crc, transport.framer.err_format);
         ag_sched_poll();
         ag_sys_poll();
     }

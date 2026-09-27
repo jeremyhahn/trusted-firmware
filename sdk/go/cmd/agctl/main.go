@@ -179,8 +179,8 @@ func run(ctx context.Context, dev *ag.Device, cmd string, args []string, asJSON 
 			return err
 		}
 		return emit(out, asJSON, si, func() string {
-			return fmt.Sprintf("uptime %s\nfree RAM %d bytes\nlast reset %s\n",
-				si.Uptime, si.FreeRAM, si.ResetCause)
+			return fmt.Sprintf("uptime %s\nfree RAM %d bytes\nlast reset %s\nframer errors  crc %d format %d\n",
+				si.Uptime, si.FreeRAM, si.ResetCause, si.ErrCRC, si.ErrFormat)
 		})
 
 	case "reset":

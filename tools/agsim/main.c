@@ -34,20 +34,33 @@
 static ag_transport_t t;
 
 /* One pass: hand the bytes to the device, let it run, take back what it said.
- * Polled several times because a single poll handles one frame and emits what
- * the ring will take -- the same reason the firmware's main loop polls rather
- * than processing to completion. */
+ * Polled several times because a single poll handles at most one EVENT --
+ * a complete frame, a bad CRC, or (since ag_transport_poll() was fixed to
+ * yield there too) one malformed byte sequence -- and emits what the ring
+ * will take, the same reason the firmware's main loop polls rather than
+ * processing to completion.
+ *
+ * The iteration count is sized to the input rather than a flat constant: a
+ * poll() call consumes at least one byte whenever it produces an event, so
+ * draining every event a chunk of n bytes could possibly contain never takes
+ * more than n polls, plus a fixed margin for encoding and draining the reply
+ * after the last one. A flat 16 was enough only because ag_transport_poll()
+ * used to loop past a malformed byte sequence internally rather than
+ * returning after each one -- n bytes of nothing but noise could produce far
+ * more than sixteen separate BAD_FORMAT events now that it does. */
 static void pump(const uint8_t *in, size_t n, int out_fd)
 {
     uint8_t out[1024];
     size_t  got;
-    int     i;
+    size_t  i, iterations = n + 16u;
 
     if (n) {
         ag_mock_feed_rx(in, n);
     }
-    for (i = 0; i < 16; i++) {
+    for (i = 0; i < iterations; i++) {
         ag_transport_poll(&t);
+        /* Same bridge main.c uses: SYS_INFO cannot reach the framer itself. */
+        ag_sys_set_framer_errors(t.framer.err_crc, t.framer.err_format);
         ag_sys_poll();
         got = ag_mock_drain_tx(out, sizeof out);
         if (got) {

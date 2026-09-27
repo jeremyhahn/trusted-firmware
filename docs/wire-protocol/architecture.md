@@ -85,6 +85,13 @@ else. Renumbering would silently turn one failure into a different one on
 every host that has not been rebuilt. `AG_STATUS_MAX` (0xFE) bounds what the
 one-byte STATUS field can ever carry.
 
+A reply's SHAPE extends the same way: new fields are appended, never
+inserted, and LEN already says how long the reply is, so nothing on the wire
+needs to say it grew. `CAPS` appends the algorithm bitmap after the feature
+bitmap; `SYS_INFO` appends the framer's `err_crc`/`err_format` counters after
+`reset_cause` (#5). Either way, a host built before the field existed reads
+the prefix it always has and is correct, not truncated.
+
 ## Resync
 
 The payload is not escaped, so `0xA5` will eventually occur inside one. The

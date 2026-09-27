@@ -5,6 +5,7 @@ package aggeneric
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -34,7 +35,9 @@ func (s *simConn) Close() error {
 	return nil
 }
 
-func startSim(t *testing.T) *Device {
+// startSimRaw is startSim without the Device wrapper, for the one test that
+// needs to write bytes Device.Do would never construct on its own.
+func startSimRaw(t *testing.T) *simConn {
 	t.Helper()
 
 	bin, err := filepath.Abs("../../build/host/agsim")
@@ -62,7 +65,12 @@ func startSim(t *testing.T) *Device {
 	}
 	c := &simConn{cmd: cmd, in: in, out: out}
 	t.Cleanup(func() { _ = c.Close() })
-	return New(c, WithTimeout(5*time.Second))
+	return c
+}
+
+func startSim(t *testing.T) *Device {
+	t.Helper()
+	return New(startSimRaw(t), WithTimeout(5*time.Second))
 }
 
 func TestAgainstFirmwarePing(t *testing.T) {
@@ -133,6 +141,14 @@ func TestAgainstFirmwareSysInfo(t *testing.T) {
 	if si.ResetCause != ResetPowerOn {
 		t.Errorf("reset cause = %v, want power-on", si.ResetCause)
 	}
+	// #5: the real firmware, freshly started and talked to over a clean pipe,
+	// has seen no framing errors -- this is the check that the appended
+	// fields actually decode against the live binary, not only against the
+	// canned replies in sysinfo_test.go.
+	if si.ErrCRC != 0 || si.ErrFormat != 0 {
+		t.Errorf("framer error counters = crc %d format %d, want 0 0 on a clean link",
+			si.ErrCRC, si.ErrFormat)
+	}
 }
 
 func TestAgainstFirmwareUnknownCommandIsAnswered(t *testing.T) {
@@ -156,6 +172,83 @@ func TestAgainstFirmwareWrongArgumentCountIsRefused(t *testing.T) {
 	}
 	if _, err := d.Do(context.Background(), CmdReset, []byte{0, 0}); err == nil {
 		t.Fatal("expected AG_ERR_BAD_ARGC for a surplus argument")
+	}
+}
+
+// #5's fix to src/proto/transport.c made ag_transport_poll() yield after
+// ONE malformed-frame event instead of looping through an entire buffered
+// burst of them, which is what stops SYS_INFO's counters reading one event
+// stale. tools/agsim/main.c's pump() was sized to that: this drives a burst
+// of malformed bytes -- well beyond what the old flat sixteen-iteration
+// bound could drain in one pass -- immediately followed, in the very same
+// write, by a valid PING, and checks the PING still gets answered rather
+// than being left sitting in the mock's RX queue while agsim goes back to
+// blocking on its next read().
+func TestAgainstFirmwareSurvivesAMalformedBurstBeforeAValidRequest(t *testing.T) {
+	conn := startSimRaw(t)
+
+	// Forty pairs of (SOF, SOF). The framer treats the first byte of each
+	// pair as a candidate SOF and the second as its LEN -- itself SOF's own
+	// value, an implausible length -- so RESYNC (frame.h) reprocesses that
+	// same byte as the NEXT pair's candidate SOF. Forty BAD_FORMAT events
+	// from eighty bytes of pure noise, well past the four-times-smaller bound
+	// pump() used to have.
+	noise := make([]byte, 0, 80)
+	for i := 0; i < 40; i++ {
+		noise = append(noise, SOF, SOF)
+	}
+
+	req, err := EncodeRequest(0x5A, CmdPing, []byte("hi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write(append(noise, req...)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read raw and decode by hand -- Device.Do would write its own request,
+	// which is not this test. A goroutine plus a channel bounds the wait:
+	// conn.Read has no deadline (simConn does not implement one, matching
+	// every other test in this file), so a regression here would otherwise
+	// hang rather than fail.
+	done := make(chan error, 1)
+	go func() {
+		var buf []byte
+		one := make([]byte, 256)
+		for {
+			n, rerr := conn.Read(one)
+			if n > 0 {
+				buf = append(buf, one[:n]...)
+				for len(buf) > 0 {
+					f, used, derr := Decode(buf)
+					if derr != nil {
+						break
+					}
+					buf = buf[used:]
+					if f.IsResponse() && f.Cmd() == CmdPing && f.Seq == 0x5A {
+						if string(f.Payload) != "hi" {
+							done <- fmt.Errorf("PING echoed %q, want %q", f.Payload, "hi")
+							return
+						}
+						done <- nil
+						return
+					}
+				}
+			}
+			if rerr != nil {
+				done <- fmt.Errorf("reading from agsim: %w", rerr)
+				return
+			}
+		}
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the PING after the malformed burst was never answered")
 	}
 }
 

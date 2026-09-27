@@ -36,3 +36,13 @@ const (
 	CRCOrderAResult = 0x0E7C // {0x01, 0x02}
 	CRCOrderBResult = 0x6B4C // {0x02, 0x01}
 )
+
+// SYS_INFO reply payloads, #5. err_crc and err_format are appended after
+// reset_cause, never inserted, so SysInfoOldReply is what a host built before
+// they existed still receives correctly and SysInfoNewReply is what this host
+// receives. Literal, not built from the encoder under test, for the same
+// reason the CRC vectors above are.
+const (
+	SysInfoOldReply = "\x78\x56\x34\x12\x21\x03\x04"
+	SysInfoNewReply = "\x78\x56\x34\x12\x21\x03\x04\x05\x00\x07\x00"
+)

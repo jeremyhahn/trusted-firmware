@@ -180,6 +180,45 @@ static void test_a_stalled_partial_frame_is_abandoned_after_the_idle_window(void
     TEST_ASSERT_TRUE(saw);
 }
 
+/* A malformed frame and the good frame that follows it are TWO events, not
+ * one poll's work. Without this, a host bug or a noisy line that drops one
+ * SOF byte would deliver a BAD_FORMAT event and dispatch the next request in
+ * the very same ag_transport_poll() call -- and anything that mirrors the
+ * framer's counters once per poll (SYS_INFO's bridge in main.c) would encode
+ * that reply one event stale, reporting the count as it stood before this
+ * BAD_FORMAT rather than after. The resync trick from
+ * test_a_false_sof_does_not_swallow_the_frame_that_follows_it builds a
+ * BAD_FORMAT byte immediately followed, in the SAME feed, by a complete good
+ * frame: one poll() must see only the BAD_FORMAT event and produce no
+ * reply yet; a second must then produce the good frame's reply. */
+static void test_a_bad_format_event_and_the_good_frame_after_it_are_two_polls(void)
+{
+    uint8_t  good[AG_MAX_FRAME];
+    uint8_t  wire[AG_MAX_FRAME];
+    uint16_t n = ag_frame_encode_request(good, sizeof good, 0x44u, AG_CMD_PING, 0, 0u);
+    uint16_t i;
+
+    wire[0] = AG_SOF;                 /* a false SOF, swallowed as AG_FRAME_NONE */
+    wire[1] = AG_SOF;                 /* implausible LEN, itself reprocessed as SOF */
+    for (i = 1; i < n; i++) { wire[i + 1u] = good[i]; }
+
+    ag_mock_feed_rx(wire, (size_t)(n + 1u));
+
+    ag_transport_poll(&t);
+    TEST_ASSERT_EQUAL_UINT(0u, ag_mock_tx_pending());
+
+    for (i = 0; i < 8u; i++) { ag_transport_poll(&t); }
+
+    uint8_t back[AG_MAX_FRAME * 2u];
+    size_t  got = ag_mock_drain_tx(back, sizeof back);
+    uint8_t saw = 0u;
+    for (i = 0; i < got; i++) {
+        if (ag_framer_push(&rxf, back[i]) == AG_FRAME_READY) { saw = 1u; }
+    }
+    TEST_ASSERT_TRUE(saw);
+    TEST_ASSERT_EQUAL_HEX8(0x44u, ag_frame_seq(&rxf));
+}
+
 /* A response arriving at a device is not a request. Answering it would make
  * two devices sharing a line argue with each other forever. */
 static void test_a_response_frame_sent_to_the_device_is_ignored(void)
@@ -234,6 +273,7 @@ int main(void)
     RUN_TEST(test_a_frame_arriving_one_byte_at_a_time_decodes_the_same);
     RUN_TEST(test_a_full_transmit_ring_defers_rather_than_dropping_bytes);
     RUN_TEST(test_a_stalled_partial_frame_is_abandoned_after_the_idle_window);
+    RUN_TEST(test_a_bad_format_event_and_the_good_frame_after_it_are_two_polls);
     RUN_TEST(test_a_response_frame_sent_to_the_device_is_ignored);
     RUN_TEST(test_an_event_is_emitted_when_nothing_is_in_flight);
     RUN_TEST(test_an_event_is_refused_while_a_response_is_pending);

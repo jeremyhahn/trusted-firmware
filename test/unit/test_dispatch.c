@@ -9,6 +9,7 @@
 #include "ag/hal.h"
 #include "ag/protocol.h"
 #include "ag/config.h"
+#include "vectors.h"
 
 static uint8_t     inbuf[AG_MAX_PAYLOAD];
 static uint8_t     outbuf[AG_MAX_PAYLOAD];
@@ -143,6 +144,47 @@ static void test_sys_info_reports_uptime_free_ram_and_reset_cause(void)
     TEST_ASSERT_EQUAL_HEX8(AG_RESET_WATCHDOG, outbuf[6]);
 }
 
+/* #5: err_crc and err_format are APPENDED after reset_cause. The bytes are
+ * checked against the published literal rather than reconstructed field by
+ * field, so a change to the append that broke the prefix an older host reads
+ * would fail here even if every individual field still decoded correctly in
+ * isolation. */
+static void test_sys_info_appends_the_framer_error_counters(void)
+{
+    ag_mock_set_millis(0x12345678u);
+    ag_mock_set_free_ram(0x0321u);
+    ag_mock_set_reset_cause(AG_RESET_WATCHDOG);
+    ag_sys_set_framer_errors(5u, 7u);
+
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_SYS_INFO, 0, 0u));
+    TEST_ASSERT_EQUAL_UINT8(AGV_SYSINFO_NEW_REPLY_LEN, ag_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)AGV_SYSINFO_NEW_REPLY, outbuf,
+                                  AGV_SYSINFO_NEW_REPLY_LEN);
+}
+
+/* A device that has seen no framing errors reports zero rather than something
+ * left over from a previous command -- ag_sys_reset_state() clears the
+ * mirror, and setUp() calls it before every test in this file. */
+static void test_sys_info_reports_zero_counters_when_nothing_has_gone_wrong(void)
+{
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_SYS_INFO, 0, 0u));
+    TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(outbuf[7] | (outbuf[8] << 8)));
+    TEST_ASSERT_EQUAL_HEX16(0u, (uint16_t)(outbuf[9] | (outbuf[10] << 8)));
+}
+
+/* ag_framer_t's counters are SATURATING (frame.c never wraps them past
+ * 0xFFFF), so the one boundary ag_sys_set_framer_errors() must not mangle is
+ * the saturated value itself -- a setter that narrowed through a smaller type
+ * along the way would wrap it back to zero silently. */
+static void test_sys_info_does_not_truncate_saturated_counters(void)
+{
+    ag_sys_set_framer_errors(0xFFFFu, 0xFFFFu);
+
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_SYS_INFO, 0, 0u));
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, (uint16_t)(outbuf[7] | (outbuf[8] << 8)));
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, (uint16_t)(outbuf[9] | (outbuf[10] << 8)));
+}
+
 /* Uptime is a full 32 bits on the wire. The firmware being replaced pushed
  * millis() through itoa() into an int and wrapped every 65 seconds, so a device
  * up for an hour reported under a minute. */
@@ -170,6 +212,9 @@ int main(void)
     RUN_TEST(test_reset_does_not_fire_while_the_response_is_still_draining);
     RUN_TEST(test_reset_rejects_an_unknown_mode);
     RUN_TEST(test_sys_info_reports_uptime_free_ram_and_reset_cause);
+    RUN_TEST(test_sys_info_appends_the_framer_error_counters);
+    RUN_TEST(test_sys_info_reports_zero_counters_when_nothing_has_gone_wrong);
+    RUN_TEST(test_sys_info_does_not_truncate_saturated_counters);
     RUN_TEST(test_uptime_survives_past_sixteen_bits);
     return UNITY_END();
 }

@@ -10,13 +10,26 @@
  * still holds HD=4, so every one-, two- and three-bit error is detected, as is
  * every error of odd weight and every burst up to sixteen bits.
  *
- * Deliberately table-free and written in portable C rather than delegating to
- * avr-libc's _crc_xmodem_update on the target. Two reasons: the logic layers of
- * this codebase carry no target conditionals at all, and one implementation
- * compiled for both host and device is one implementation that can disagree
- * with itself in exactly zero ways. If the cycle budget in docs/development
- * ever shows this mattering, the measurement comes first and the specialisation
- * goes behind the HAL, not here.
+ * ag_crc16_update() has two definitions and exactly one is ever linked:
+ *
+ *   src/proto/crc16_update.c  -- portable C, table-free, one bit at a time.
+ *     This is what host tests, agsim and the bootloader build against, and it
+ *     is the definition the cross-implementation suite and the Go mirror
+ *     check themselves against. One implementation compiled for host and
+ *     device alike is one implementation that can disagree with itself in
+ *     exactly zero ways, which is why this form is the one every non-firmware
+ *     build keeps.
+ *
+ *   src/hal/avr/hal_crc16.c  -- avr-libc's _crc_xmodem_update, fourteen
+ *     single-cycle instructions, branch-free. Linked ONLY into the firmware
+ *     and the bench image (mk/avr.mk, mk/bench.mk's BENCH_SRCS), the same
+ *     link-time substitution the rest of the HAL uses: the object list picks
+ *     the definition, not a conditional inside this file.
+ *
+ * This used to be one function with a comment promising exactly this split
+ * "if the cycle budget ever shows this mattering" -- #12 measured 102.5
+ * cycles/byte against the fourteen-instruction alternative, which is the
+ * measurement that comment was waiting for.
  *
  * Note the name of the avr-libc routine is misleading: that function is the
  * generic MSB-first 0x1021 update, and it is the INITIAL VALUE that picks the
@@ -32,14 +45,19 @@
 
 /* The published check value: the CRC of the nine ASCII bytes "123456789".
  * Pinned in the test suite so a change to this file that alters the wire is a
- * test failure rather than a field incident. */
+ * test failure rather than a field incident. Both definitions of
+ * ag_crc16_update above must produce it. */
 #define AG_CRC16_CHECK 0x29B1u
 
-/* Folds one byte into a running CRC. */
+/* Folds one byte into a running CRC. Exactly one of src/proto/crc16_update.c
+ * and src/hal/avr/hal_crc16.c is linked in any given build; see the header
+ * comment above for which. */
 uint16_t ag_crc16_update(uint16_t crc, uint8_t byte);
 
 /* Convenience for a contiguous buffer; identical to seeding with
- * AG_CRC16_INIT and folding each byte in turn. */
+ * AG_CRC16_INIT and folding each byte in turn. Portable in every build --
+ * src/proto/crc16.c -- since it is a thin loop over whichever
+ * ag_crc16_update() is linked and is not itself the hot path. */
 uint16_t ag_crc16(const uint8_t *buf, uint16_t len);
 
 #endif /* AG_CRC16_H */

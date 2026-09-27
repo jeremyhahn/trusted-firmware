@@ -174,11 +174,15 @@ All in `include/ag/config.h`, resolved `-D` > board profile > default:
 ## Observability
 
 `ag_framer_t` carries `err_crc` and `err_format`, saturating counters bumped
-on every `AG_FRAME_BAD_CRC` / `AG_FRAME_BAD_FORMAT`. **They are not currently
-surfaced by any command**: `AG_CMD_SYS_INFO`'s handler
-(`ag_sys_cmd_sys_info` in `src/caps/sys.c`) reports only uptime, free RAM and
-reset cause — the counters exist on the struct but nothing reads them back
-across the wire. See the contradiction note below.
+on every `AG_FRAME_BAD_CRC` / `AG_FRAME_BAD_FORMAT`. `AG_CMD_SYS_INFO`'s
+handler (`ag_sys_cmd_sys_info` in `src/caps/sys.c`) reports both, appended
+after `reset_cause` (#5) rather than inserted, so a host built before they
+existed reads the same seven bytes it always has and a newer host reads four
+more. `main.c` and `tools/agsim/main.c` are what makes this possible without
+`ag_sys_cmd_sys_info` reaching the framer directly: `src/core/dispatch.h`
+forbids a command handler from touching the framer or the transport, so the
+superloop -- the one place that owns both -- mirrors the counters into
+`src/caps/sys.c` once a pass, through `ag_sys_set_framer_errors()`.
 
 Beyond that, a host observes the protocol only through what a request
 returns: a `Status` on every response, `Frame.IsEvent()` for unsolicited

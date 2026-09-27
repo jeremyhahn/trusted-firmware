@@ -134,6 +134,8 @@ exercised with zero hardware. See `../host-sdk/architecture.md`.
 pin index, that pin's flags/port/ADC channel/PWM state — the discovery path
 every host uses before calling anything in this folder; full wire layout:
 `../wire-protocol/architecture.md`. `SYS_INFO` reports uptime, free RAM
-(`ag_hal_free_ram`) and reset cause. `ag_sched_active()` exposes the current
+(`ag_hal_free_ram`), reset cause, and the framer's sticky `err_crc`/
+`err_format` counters, appended after reset cause so a host built before they
+existed keeps working unmodified (#5). `ag_sched_active()` exposes the current
 slot count for tests and diagnostics; there is no wire command for it beyond
 `TIMER_QUERY` on a specific pin.

@@ -90,4 +90,23 @@
 #define AGV_HMAC_TC1 \
     "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
 
+/* -------------------------------------------------------------- SYS_INFO -- */
+/* #5: err_crc and err_format are APPENDED after reset_cause, never inserted,
+ * so a reply built for an older host and a reply built for this one differ
+ * only in whether the last four bytes exist. Both are literal wire bytes, not
+ * built from ag_write_u32/u16/u8 the way the handler is: a vector derived from
+ * the code that pins it would move whenever that code did.
+ *
+ * Fields, little-endian: uptime_ms=0x12345678, free_ram=0x0321,
+ * reset_cause=AG_RESET_WATCHDOG(4), and in the new reply err_crc=5,
+ * err_format=7 -- the same uptime/RAM/cause triple test_dispatch.c's
+ * pre-existing SYS_INFO test already used, so the two are checked against one
+ * scenario rather than two.
+ */
+#define AGV_SYSINFO_OLD_REPLY     "\x78\x56\x34\x12\x21\x03\x04"
+#define AGV_SYSINFO_OLD_REPLY_LEN 7u
+
+#define AGV_SYSINFO_NEW_REPLY     "\x78\x56\x34\x12\x21\x03\x04\x05\x00\x07\x00"
+#define AGV_SYSINFO_NEW_REPLY_LEN 11u
+
 #endif /* AG_TESTDATA_VECTORS_H */

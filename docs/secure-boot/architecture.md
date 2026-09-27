@@ -31,7 +31,7 @@ consumption is [../dice-attestation/architecture.md](../dice-attestation/archite
 | Recovery | `boot/boot_recovery.h`, `boot/recovery/{recovery_halt,recovery_ota}.c` | what runs when nothing may boot, one backend linked |
 | OTA session | `boot/boot_ota.{c,h}`, `boot/boot_session.{c,h}` | the four-command wire protocol, linked only when `BOOT_OTA=1` |
 | HAL | `boot/boot_hal.h`, `boot/hal/avr/boot_hal_avr.c` | flash, EEPROM, UART, handoff placement, jump/reset |
-| Shared with the application | `src/crypto/sha256.c`, `src/proto/frame.c`, `src/proto/crc16.c`, `src/hal/avr/hal_early.c` | one hash, one frame codec, one watchdog-disarm sequence |
+| Shared with the application | `src/crypto/sha256.c`, `src/proto/frame.c`, `src/proto/crc16.c`, `src/proto/crc16_update.c`, `src/hal/avr/hal_early.c` | one hash, one frame codec, one watchdog-disarm sequence. The application's *firmware* image links `src/hal/avr/hal_crc16.c` instead of `crc16_update.c` for the per-byte fold (#12); the bootloader does not carry that substitution, so it keeps the portable form. |
 | Wire layouts | `include/ag/boot.h` | the trailer, the reserved-EEPROM region, the handoff block — each has a second party that must agree byte for byte |
 
 `boot/boot_main.c` composes these into `main()` and owns nothing else: every

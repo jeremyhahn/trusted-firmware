@@ -12,7 +12,8 @@ Package `aggeneric`, module `github.com/jeremyhahn/arduino-generic/sdk/go`.
 
 **Connection**
 `Device`, `New(conn io.ReadWriter, opts ...Option) *Device`, `Option`,
-`WithTimeout(d time.Duration) Option`, `(*Device) Do(ctx, cmd, payload) (Frame, error)`,
+`WithTimeout(d time.Duration) Option`, `WithBootWait(d time.Duration) Option`,
+`DefaultBootWait` (2s), `(*Device) Do(ctx, cmd, payload) (Frame, error)`,
 `(*Device) Events() []Frame`.
 
 **Discovery and system** — `Caps`, `PinInfo`, `SysInfo`, `Reset`.
@@ -56,7 +57,10 @@ Package `serialport` — `Open(path string, baud int) (io.ReadWriteCloser, error
   whose `Seq` doesn't match the one just sent is dropped, not returned.
 - **Events are queued, not dropped, and not delivered inline.** A boot event
   arriving while `Do` awaits a different reply is appended to `Device.events`;
-  the caller drains it with `Events()` after the call returns.
+  the caller drains it with `Events()` after the call returns. The one
+  exception is the BOOT event `New` itself waits for (see `WithBootWait`
+  below): that one is consumed at connect and never appears in `Events()`, so
+  it is never misreported as a reset happening mid-session.
 - **The device owns timer deadlines, not the host.** `TimerSet` arms a
   deadline in firmware; a crashed host does not leave a pin held. Re-arming a
   pin that already has a timer extends it rather than consuming a second slot.
@@ -112,6 +116,13 @@ constructor option or a CLI flag (see `cli.md`):
 - `ag.New(conn, ag.WithTimeout(d))` — reply timeout, default 10s. Deliberately
   generous: a device deriving an Alias key in software spends seconds inside
   `Attest` on a 16 MHz part.
+- `ag.New(conn, ag.WithBootWait(d))` — how long `New` waits for the firmware's
+  BOOT event before proceeding anyway, default `DefaultBootWait` (2s); `d <= 0`
+  disables the wait entirely. Every classic Arduino resets on DTR, which this
+  exists to ride out; raise it for an `ag-boot` `BOOT_MEASURE=atecc608a` image,
+  which can take several seconds to measure a large application before it
+  starts. The bound depends on the conn returning from `Read` within it (see
+  `serialport.Open` below) exactly as `WithTimeout` already does.
 - `serialport.Open(path, baud)` — `baud <= 0` uses `DefaultBaud` (115200);
   opens 8N1 with a 200ms internal read timeout as the floor beneath the SDK's
   own deadline, so a missing device can't hang a read forever.

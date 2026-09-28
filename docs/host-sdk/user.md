@@ -25,6 +25,30 @@ No board handy? List what the host can see:
 agctl ports
 ```
 
+### Boards that auto-reset on open
+
+Every classic Arduino resets when a serial port raises DTR, which is the
+default `stty` behaviour every OS uses when a program opens the port. Opening
+`/dev/ttyUSB0` therefore restarts the board and drops it into its bootloader
+for roughly a second before the firmware you flashed even starts running.
+
+Nothing to do about this: the SDK's `Device` waits up to ~2 seconds after
+connecting for the firmware's own BOOT event before sending the first
+command, so `agctl /dev/ttyUSB0 ping hello` succeeds on the very first
+invocation rather than only the second. If the adapter you use does *not* reset the
+board — DTR wired off, or a board that was already running — no BOOT event
+ever comes and the wait simply falls through once the bound elapses; nothing
+fails, the exchange just pays that bound once, at connect.
+
+The ~2 second default is sized for the stock Arduino bootloader, which runs
+briefly and jumps. **`ag-boot` built with `BOOT_MEASURE=atecc608a` is
+different**: it measures the whole application through the element at up to
+36 ms per 64-byte block, so anything but a small image can legitimately take
+several seconds before the application starts and sends BOOT — longer than the
+default bound. Pass a larger bound sized to the image you flashed when talking
+to such a build: `agctl -boot-wait 10s ...`, or `ag.WithBootWait` when using
+the SDK directly.
+
 ## Try it with no hardware at all
 
 `agsim` is the real firmware, compiled to run on this machine. Build it once,
@@ -94,7 +118,10 @@ stayed on the device and why: `docs/migration/from-cropdroid-irrigation.md`.
 
 Import `aggeneric` and `serialport` directly rather than shelling out to
 `agctl`; see `api.md` for the connect/call/error-match pattern and
-`engineering.md` for every method's invariants.
+`engineering.md` for every method's invariants. `ag.New` waits for the BOOT
+event as described above by default; pass `ag.WithBootWait(0)` if you know
+your adapter never resets the board and would rather not pay any bound at
+connect at all.
 
 ## Flashing a board
 

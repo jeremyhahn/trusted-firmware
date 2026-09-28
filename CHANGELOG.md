@@ -49,6 +49,18 @@ Pre-1.0, MINOR carries breaking changes.
   emulated link runs at half the real baud rate (simavr recomputes the USART
   divisor on `UBRRnL`/`H` and not on `U2Xn`, and the firmware writes the
   divisor first).
+- **`sdk/go`'s `Device` sent its first frame into the bootloader's window on
+  every connect to a stock, auto-resetting Arduino.** Closing a serial port
+  drops DTR; the next open raises it and the board's own bootloader pulses
+  RESET, which meant `agctl ping` against a freshly opened `/dev/ttyACM0`
+  failed every single invocation, not just the first. `Device.New` now waits
+  up to `DefaultBootWait` (~2 s, configurable with the new `WithBootWait`
+  option and disabled entirely with `WithBootWait(0)`) for the firmware's own
+  `AG_EVENT_BOOT`, a real readiness signal rather than a guessed settle time,
+  and falls through unharmed if none arrives -- an adapter that does not reset
+  the board pays the bound once and works exactly as before. The BOOT event
+  New consumes at connect is not recorded in `Device.Events()`, so it is never
+  misreported as a reset happening mid-session.
 
 ## [0.4.0-alpha] - 2026-09-23
 

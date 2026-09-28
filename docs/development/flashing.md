@@ -38,10 +38,28 @@ once provisioned.
 ## Bring-up
 
 ```sh
-agctl ping /dev/ttyUSB0
-agctl caps /dev/ttyUSB0      # board id, pin count, crypto tier, algorithms
-agctl pin  /dev/ttyUSB0 13   # one pin's descriptor
+agctl /dev/ttyUSB0 ping
+agctl /dev/ttyUSB0 caps      # board id, pin count, crypto tier, algorithms
+agctl /dev/ttyUSB0 pin 13    # one pin's descriptor
 ```
+
+Flashing itself, and the `avrdude` invocation right before it, both open the
+port and both reset the board via DTR the same way `agctl` opening it does.
+That reset costs about a second before the just-flashed application starts
+answering: the SDK's connect step waits for the firmware's own BOOT event
+(bounded, ~2 s) before sending `PING`, so the first `agctl` invocation right
+after a flash succeeds without a manual pause. This is a property of the SDK's
+`Device`, not of `avrdude` or the bootloader — a raw terminal program (e.g.
+`screen`, `minicom`) opened on the port still needs to wait out the reset
+itself.
+
+The ~2 s default assumes a bootloader that runs briefly and jumps, which the
+stock Arduino bootloader does. **An `ag-boot` image built with
+`BOOT_MEASURE=atecc608a` does not**: it measures the application through the
+element at up to 36 ms per 64-byte block, so bringing up anything but a small
+image on that configuration needs `agctl -boot-wait <longer>`, sized to the
+image just flashed, or the first `PING` will still be sent before the
+application has started.
 
 Then the one check that proves the scheduler is real:
 

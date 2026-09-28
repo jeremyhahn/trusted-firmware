@@ -66,9 +66,14 @@ flags
 
 func main() {
 	var (
-		baud    = flag.Int("baud", serialport.DefaultBaud, "serial baud rate")
-		asJSON  = flag.Bool("json", false, "emit JSON instead of text")
-		timeout = flag.Duration("timeout", 10*time.Second, "how long to wait for a reply")
+		baud     = flag.Int("baud", serialport.DefaultBaud, "serial baud rate")
+		asJSON   = flag.Bool("json", false, "emit JSON instead of text")
+		timeout  = flag.Duration("timeout", 10*time.Second, "how long to wait for a reply")
+		bootWait = flag.Duration("boot-wait", ag.DefaultBootWait,
+			"how long to wait for the firmware's BOOT event after opening the port "+
+				"before sending the first command; 0 disables the wait. Raise this for "+
+				"an ag-boot BOOT_MEASURE=atecc608a image, which can take several seconds "+
+				"to measure a large application before it starts")
 	)
 	flag.Usage = usage
 	flag.Parse()
@@ -96,7 +101,7 @@ func main() {
 	}
 	defer func() { _ = conn.Close() }()
 
-	dev := ag.New(conn, ag.WithTimeout(*timeout))
+	dev := ag.New(conn, ag.WithTimeout(*timeout), ag.WithBootWait(*bootWait))
 	ctx := context.Background()
 
 	if err := run(ctx, dev, cmd, args, *asJSON, os.Stdout); err != nil {

@@ -209,7 +209,10 @@ func (silentLink) Read(p []byte) (int, error) {
 }
 
 func TestDoReportsAnUnansweredCommandAsATimeout(t *testing.T) {
-	d := New(silentLink{}, WithTimeout(20*time.Millisecond))
+	// silentLink never produces an error, so the connect-time boot wait would
+	// otherwise pay its own bound before Do even runs; disabled because this
+	// test is about Do's timeout, not New's.
+	d := New(silentLink{}, WithTimeout(20*time.Millisecond), WithBootWait(0))
 	_, err := d.Do(context.Background(), CmdPing, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrTimeout))

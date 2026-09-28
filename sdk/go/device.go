@@ -331,13 +331,16 @@ func (r ResetCause) String() string {
 // sequence number exists to catch a stale reply rather than to overlap
 // requests.
 type Device struct {
-	conn    io.ReadWriter
-	seq     Seq
-	timeout time.Duration
-	rx      []byte
+	conn     io.ReadWriter
+	seq      Seq
+	timeout  time.Duration
+	bootWait time.Duration
+	rx       []byte
 	// Events arriving while a response is awaited are collected rather than
 	// discarded: a boot event means the device reset underneath us, which the
-	// caller needs to know even though it did not ask.
+	// caller needs to know even though it did not ask. The one BOOT event New
+	// itself waits for and consumes is deliberately NOT collected here -- it is
+	// the greeting we asked for, not a reset we need to report.
 	events []Frame
 }
 
@@ -352,15 +355,110 @@ type Option func(*Device)
 // during provisioning.
 func WithTimeout(d time.Duration) Option { return func(x *Device) { x.timeout = d } }
 
+// DefaultBootWait is how long New waits for the firmware's BOOT event before
+// giving up and proceeding anyway.
+//
+// Every classic Arduino auto-resets when a serial port raises DTR on open, and
+// the ATmega16U2 pulses RESET into the bootloader's window right as this
+// package's first frame would otherwise land in it. The firmware announces
+// itself with an EVENT_BOOT the moment the application starts, so this is a
+// real readiness signal rather than a guessed settle time -- but bounded,
+// because an adapter that does not reset the board (a USB-serial cable with
+// DTR wired off, agsim's pipes) will never send one, and that case must still
+// work, paying only the bound.
+//
+// Sized for a bootloader that runs briefly and jumps -- the stock Arduino
+// bootloader on the boards this project targets does. It is NOT sized for
+// ag-boot built with BOOT_MEASURE=atecc608a: that measures the application
+// through the element at up to 36 ms per 64-byte block, the datasheet's own
+// maximum for one SHA command (boot/measure/measure_atecc608a.c), which for
+// anything but a small image outruns this default several times over. A host
+// talking to such a build should pass a larger WithBootWait sized to the
+// image it flashed, rather than rely on the default.
+const DefaultBootWait = 2 * time.Second
+
+// WithBootWait overrides how long New waits for the BOOT event. Zero or
+// negative disables the wait entirely -- New returns as soon as the port is
+// usable, exactly as it did before this existed, for a caller that knows its
+// adapter never resets the board and would rather not pay any bound at all.
+//
+// The bound is enforced the same way Do's own WithTimeout already is: by the
+// conn returning from Read within it, whether because it implements
+// SetReadDeadline or because it carries its own floor the way
+// serialport.Open's 200ms read timeout does. A conn with neither -- a bare
+// io.Pipe, say -- can block New past the bound exactly as it could already
+// block Do past its timeout. See awaitBoot for why that is not solved by
+// racing the read on a second goroutine instead.
+func WithBootWait(d time.Duration) Option { return func(x *Device) { x.bootWait = d } }
+
 // New wraps a byte stream. Any io.ReadWriter will do: a serial port, a pty, or
 // an agsim subprocess over a pipe -- which is how this package is tested
 // without hardware.
+//
+// Unless disabled with WithBootWait, New waits up to the bound for the
+// firmware's BOOT event before returning, so the first frame Do sends lands on
+// a running application rather than into a bootloader that will not answer it.
 func New(conn io.ReadWriter, opts ...Option) *Device {
-	d := &Device{conn: conn, timeout: 10 * time.Second}
+	d := &Device{conn: conn, timeout: 10 * time.Second, bootWait: DefaultBootWait}
 	for _, o := range opts {
 		o(d)
 	}
+	d.awaitBoot(d.bootWait)
 	return d
+}
+
+// awaitBoot blocks until the firmware's BOOT event arrives, bound elapses, or
+// the link reports trouble of its own -- whichever comes first. It is best
+// effort by design: a link error here is not this call's to report, since the
+// very next Do against the same conn will hit the same failure and report it
+// properly. The BOOT event this loop is looking for is consumed rather than
+// recorded in d.events; any OTHER event seen while waiting (a device that was
+// already up and immediately raises DEADMAN, say) is recorded exactly as Do
+// would record it.
+//
+// This reads through fill, the same call Do's own read loop uses, and NOT
+// through a second goroutine racing a timer against the conn. That was tried:
+// a read abandoned when the timer wins still runs against d.conn after this
+// function returns, and Do is then free to start its OWN read against the
+// same conn the moment New hands the Device back -- two goroutines reading
+// one stream at once, which can split the incoming bytes between them
+// unpredictably. That is a worse failure than the one being fixed, and this
+// package's contract is precisely that nothing here overlaps a read with
+// another. So the bound here is enforced exactly as Do's own timeout is: the
+// conn must return from Read within it, whether via SetReadDeadline (which
+// fill applies when the conn implements it) or a floor the conn keeps for
+// itself, the way serialport.Open's 200ms read timeout does. A conn with
+// neither can block this call past bound exactly as it could already block Do
+// past its timeout -- an existing, accepted property of this package's
+// single-reader read loop, not a new one.
+func (d *Device) awaitBoot(bound time.Duration) {
+	if bound <= 0 {
+		return
+	}
+	deadline := time.Now().Add(bound)
+	for {
+		for {
+			f, ok := d.decodeNext()
+			if !ok {
+				break
+			}
+			if f.IsEvent() && len(f.Payload) > 0 && f.Payload[0] == EventBoot {
+				return
+			}
+			if f.IsEvent() {
+				d.events = append(d.events, f)
+			}
+			// A non-event frame here cannot be a reply to anything this Device
+			// has asked for -- nothing has been sent yet -- so it is dropped,
+			// the same call Do makes about a reply that outlived its request.
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		if err := d.fill(deadline); err != nil {
+			return
+		}
+	}
 }
 
 // Events returns and clears any unsolicited events seen so far.
@@ -397,21 +495,10 @@ func (d *Device) Do(ctx context.Context, cmd Cmd, payload []byte) (Frame, error)
 		}
 		// Anything already buffered may hold the reply.
 		for {
-			f, n, err := Decode(d.rx)
-			if errors.Is(err, ErrShortFrame) {
+			f, ok := d.decodeNext()
+			if !ok {
 				break
 			}
-			if err != nil {
-				// Resynchronise on the next SOF rather than discarding the
-				// whole buffer: a genuine frame may begin inside it.
-				if i := indexAfter(d.rx, SOF, 1); i > 0 {
-					d.rx = d.rx[i:]
-					continue
-				}
-				d.rx = nil
-				break
-			}
-			d.rx = d.rx[n:]
 			switch {
 			case f.IsEvent():
 				d.events = append(d.events, f)
@@ -456,6 +543,31 @@ func (d *Device) fill(deadline time.Time) error {
 		return nil
 	}
 	return nil
+}
+
+// decodeNext pops one complete frame off the front of d.rx. ok is false when
+// the buffer holds no complete frame yet, which asks the caller to read more --
+// this is the one piece of Do's read loop that awaitBoot also needs, so it
+// lives once rather than twice.
+func (d *Device) decodeNext() (Frame, bool) {
+	for {
+		f, n, err := Decode(d.rx)
+		if errors.Is(err, ErrShortFrame) {
+			return Frame{}, false
+		}
+		if err != nil {
+			// Resynchronise on the next SOF rather than discarding the whole
+			// buffer: a genuine frame may begin inside it.
+			if i := indexAfter(d.rx, SOF, 1); i > 0 {
+				d.rx = d.rx[i:]
+				continue
+			}
+			d.rx = nil
+			return Frame{}, false
+		}
+		d.rx = d.rx[n:]
+		return f, true
+	}
 }
 
 func indexAfter(b []byte, c byte, from int) int {

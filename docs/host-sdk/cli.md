@@ -21,6 +21,7 @@ agctl ports
 | `-baud` | `115200` (`serialport.DefaultBaud`) | serial baud rate |
 | `-json` | `false` | emit JSON instead of text |
 | `-timeout` | `10s` | how long to wait for a reply |
+| `-boot-wait` | `2s` (`ag.DefaultBootWait`) | how long to wait for the firmware's BOOT event after opening the port before sending the first command; `0` disables the wait. Raise this for an `ag-boot` `BOOT_MEASURE=atecc608a` image |
 
 ### Commands
 
@@ -40,7 +41,9 @@ agctl ports
 | `ports` | — | lists serial ports this host can see; no device connection made |
 
 An unsolicited boot event seen during any exchange prints a note to stderr:
-the device reset underneath the command and any assumed state is stale.
+the device reset underneath the command and any assumed state is stale. The
+BOOT event connecting itself waits for (`-boot-wait`) is not this — it is
+expected, consumed before the first command is sent, and never printed.
 
 ### Examples
 

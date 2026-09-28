@@ -68,9 +68,10 @@ func startSimRaw(t *testing.T) *simConn {
 	return c
 }
 
-func startSim(t *testing.T) *Device {
+func startSim(t *testing.T, opts ...Option) *Device {
 	t.Helper()
-	return New(startSimRaw(t), WithTimeout(5*time.Second))
+	// WithTimeout first so a caller's own option, if any, wins.
+	return New(startSimRaw(t), append([]Option{WithTimeout(5 * time.Second)}, opts...)...)
 }
 
 func TestAgainstFirmwarePing(t *testing.T) {
@@ -252,11 +253,12 @@ func TestAgainstFirmwareSurvivesAMalformedBurstBeforeAValidRequest(t *testing.T)
 	}
 }
 
-// The device announces itself on boot, and the SDK must surface that rather
-// than discard it: an unexpected boot event means the device reset underneath
-// the host, which invalidates everything the host believed about its state.
+// The device announces itself on boot, and with the connect-time wait
+// disabled the SDK must surface that rather than discard it: an unexpected
+// boot event means the device reset underneath the host, which invalidates
+// everything the host believed about its state.
 func TestAgainstFirmwareBootEventIsDelivered(t *testing.T) {
-	d := startSim(t)
+	d := startSim(t, WithBootWait(0))
 	if _, err := d.Ping(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -266,6 +268,20 @@ func TestAgainstFirmwareBootEventIsDelivered(t *testing.T) {
 	}
 	if !events[0].IsEvent() || events[0].Payload[0] != EventBoot {
 		t.Fatalf("first event = %+v, want a boot event", events[0])
+	}
+}
+
+// With the connect-time wait at its default, New itself consumes agsim's real
+// BOOT event -- the same bytes the previous test just proved the codec can
+// decode -- and it must not resurface as an "unexpected reset" once Do starts
+// running ordinary commands.
+func TestAgainstFirmwareDefaultBootWaitConsumesTheStartupEvent(t *testing.T) {
+	d := startSim(t) // default BootWait, agsim really does emit AG_EVENT_BOOT
+	if _, err := d.Ping(context.Background(), []byte("after boot")); err != nil {
+		t.Fatal(err)
+	}
+	if events := d.Events(); len(events) != 0 {
+		t.Fatalf("events = %+v, want none: the startup BOOT event must be consumed, not reported", events)
 	}
 }
 

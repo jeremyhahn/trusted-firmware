@@ -54,7 +54,9 @@ commands
   pulse-capture <pin> <0|1> <max-edges> <timeout>
   eeprom-read <addr> <count>       eeprom-write <addr> <hex>
   i2c <addr7> <hex|-> <read-count>
+  i2c-config <clock hz>             the generic bus's clock; boots at 100 kHz
   spi <cs pin> <hex>
+  spi-config <mode 0-3> <clkdiv 0-3> <msb|lsb>   boots at mode 0, slowest, msb
   1wire-reset <pin>                1wire-write <pin> <hex>   1wire-read <pin> <count>
   attest <16 hex bytes>            runtime evidence, nonce is YOURS
   attest-cert <32 hex bytes>       the alias certificate, DER

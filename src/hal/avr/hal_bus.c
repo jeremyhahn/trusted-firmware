@@ -38,8 +38,49 @@ static uint8_t twi_wait(void)
 
 ag_status_t ag_hal_i2c_init(uint32_t hz)
 {
+    uint32_t divisor;
+
+    /*
+     * TWBR is an 8-bit register and SCL = F_CPU / (16 + 2 * TWBR) at this
+     * prescaler of 1, so not every hz the cap layer's AG_I2C_HZ_MIN..MAX lets
+     * through is one THIS BOARD can actually produce -- that interval is a
+     * generic sanity check, and F_CPU is a per-board fact this file is one of
+     * the few allowed to know.
+     *
+     * Both ends are checked rather than only clamped, because a value this
+     * board cannot hit is not the same request as the nearest one it can:
+     * silently substituting one would configure a DIFFERENT rate than the one
+     * asked for, and on the low end that difference is not small. At 16 MHz,
+     * asking for 1 kHz -- inside the generic interval -- computes a divisor
+     * of 7992, which does not fit a byte; truncating it (as this function did
+     * before this check existed) silently produced roughly 125 kHz, 125 times
+     * the requested rate, with no error and nothing to show for it until a
+     * sensor timed on that clock behaved as though its datasheet were wrong.
+     *
+     * divisor is the CEILING of (F_CPU/hz - 16) / 2, computed by
+     * cross-multiplying rather than dividing F_CPU by hz first. A caller's hz
+     * rarely divides F_CPU evenly, and rounding that first division before
+     * subtracting 16 and halving can round the FINAL clock UP past what was
+     * asked for -- 350 kHz at 16 MHz used to compute TWBR=14, which is
+     * actually 363 636 Hz, faster than requested and past what a peripheral
+     * rated for exactly 350 kHz is specified to tolerate. The ceiling always
+     * chooses the larger TWBR of the two candidates, which is the SLOWER
+     * actual clock, so the real rate never exceeds the one asked for. */
+    if (hz == 0uL) {
+        return AG_ERR_RANGE;
+    }
+    if (F_CPU <= 16uL * hz) {
+        divisor = 0uL;                 /* at or past F_CPU/16, the fastest TWBR=0 gives */
+    } else {
+        uint32_t numer = F_CPU - 16uL * hz;
+        uint32_t denom = 2uL * hz;
+        divisor = (numer + denom - 1uL) / denom;
+    }
+    if (divisor > 255UL) {
+        return AG_ERR_RANGE;          /* below what an 8-bit TWBR can reach */
+    }
     TWSR = 0u;                                   /* prescaler 1 */
-    TWBR = (uint8_t)(((F_CPU / hz) - 16UL) / 2UL);
+    TWBR = (uint8_t)divisor;
     TWCR = (uint8_t)_BV(TWEN);
     return AG_OK;
 }
@@ -95,6 +136,24 @@ ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 
 /* ------------------------------------------------------------------- SPI */
 
+/* Mirrors TWI_SPIN_LIMIT above, for the same reason: generous by orders of
+ * magnitude against a real transfer, so it is a BOUND rather than a timing
+ * parameter, and it is what turns a clock that never toggles -- a shorted
+ * line, a slave holding MISO, SPE cleared because nothing ever called
+ * ag_hal_spi_init() -- into AG_ERR_TIMEOUT instead of a device that never
+ * answers another command again. */
+#define SPI_SPIN_LIMIT 60000u
+
+static uint8_t spi_wait(void)
+{
+    for (uint16_t spin = 0u; spin < SPI_SPIN_LIMIT; spin++) {
+        if (SPSR & _BV(SPIF)) {
+            return 1u;
+        }
+    }
+    return 0u;
+}
+
 ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
 {
     /*
@@ -110,8 +169,19 @@ ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
      *
      * SS must be an output even when unused: leaving it an input and letting it
      * go low takes the SPI hardware out of master mode mid-transfer.
-     */
-    DDRB |= (uint8_t)(_BV(AG_SPI_BIT_MOSI) | _BV(AG_SPI_BIT_SCK)
+     *
+     * DESELECTED FIRST, and that ordering is load-bearing. This now runs at
+     * boot (main.c's ag_bus_init()), before a host has issued a single
+     * SPI_XFER -- so if the hardware SS pin also happens to be a real
+     * device's chip-select, as it usually is, PORTB's latch must already say
+     * "high" before DDRB turns the pin into a driven output. Reversed, the
+     * pin drives LOW for the instant between the two writes -- SS's reset
+     * value is 0 -- which selects that device the moment DDRB takes effect,
+     * with no transfer under way and no way for a host to have prevented it.
+     * ag_hal_spi_xfer's own per-transfer assert/deassert is unaffected: it
+     * always ends by driving its caller's cs pin high again. */
+    PORTB |= (uint8_t)_BV(AG_SPI_BIT_SS);
+    DDRB  |= (uint8_t)(_BV(AG_SPI_BIT_MOSI) | _BV(AG_SPI_BIT_SCK)
                       | _BV(AG_SPI_BIT_SS));
     SPCR = (uint8_t)(_BV(SPE) | _BV(MSTR)
                      | (uint8_t)((mode & 0x03u) << CPHA)
@@ -119,6 +189,21 @@ ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
                      | (uint8_t)(lsb_first ? _BV(DORD) : 0u));
     return AG_OK;
 }
+
+/*
+ * A KNOWN GAP, NOT ADDRESSED HERE: nothing marks MOSI/SCK/hardware-SS
+ * reserved in the board descriptor, so PIN_MODE/DIGITAL_WRITE can still
+ * reach them as ordinary GPIO after this runs -- clearing SCK's DDR bit
+ * stops the clock from toggling, and driving the hardware SS pin low while
+ * it is an input clears MSTR per the datasheet, dropping out of master mode
+ * entirely. Re-running ag_hal_spi_init() would restore both, but nothing
+ * calls it again once boot has. The same gap exists for I2C's SDA/SCL,
+ * predates this file's boot-time init, and is a board-descriptor /
+ * pin-ownership question -- whether these pins should be marked reserved
+ * once their bus is enabled, unconditionally or only once first used --
+ * bigger than bounding a wait or choosing a default, and is not decided
+ * here.
+ */
 
 ag_status_t ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
                             uint8_t *rd, uint8_t len)
@@ -130,7 +215,14 @@ ag_status_t ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
 
     for (i = 0u; i < len; i++) {
         SPDR = wr[i];
-        while (!(SPSR & _BV(SPIF))) { }
+        if (!spi_wait()) {
+            /* Released even on the failure path: leaving CS asserted after
+             * giving up would hold the device that was on the other end of it
+             * selected forever, which is a second failure riding on the
+             * first. */
+            PORT_REG(cs) |= (uint8_t)(1u << cs->bit);
+            return AG_ERR_TIMEOUT;
+        }
         rd[i] = SPDR;
     }
 

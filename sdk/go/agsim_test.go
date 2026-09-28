@@ -5,6 +5,7 @@ package aggeneric
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -537,5 +538,44 @@ func TestAgainstFirmwarePinInfoRefusesAPinTheBoardLacks(t *testing.T) {
 	}
 	if err.Error() != StatusErrBadPin.String() {
 		t.Fatalf("err = %v, want %v", err, StatusErrBadPin)
+	}
+}
+
+// I2C_CONFIG and SPI_CONFIG (issue #21): the host can now choose what
+// ag_bus_init() previously fixed at boot. A value within range reaches the
+// device; one outside it is refused before a frame is even sent.
+func TestAgainstFirmwareI2CConfigAppliesAClockWithinRange(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	if err := d.SetI2CClock(ctx, 400_000); err != nil {
+		t.Fatalf("a clock within range should be accepted: %v", err)
+	}
+
+	if err := d.SetI2CClock(ctx, 0); err == nil {
+		t.Fatal("a zero clock was accepted")
+	} else {
+		var ae *ArgRangeError
+		if !errors.As(err, &ae) {
+			t.Fatalf("want *ArgRangeError, got %T: %v", err, err)
+		}
+	}
+}
+
+func TestAgainstFirmwareSPIConfigAppliesModeClkdivAndBitOrder(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	if err := d.ConfigureSPI(ctx, SPIMode3, SPIClockDiv16, true); err != nil {
+		t.Fatalf("a valid configuration should be accepted: %v", err)
+	}
+
+	if err := d.ConfigureSPI(ctx, SPIMode(4), SPIClockDiv4, false); err == nil {
+		t.Fatal("a mode past 3 was accepted")
+	} else {
+		var ae *ArgRangeError
+		if !errors.As(err, &ae) {
+			t.Fatalf("want *ArgRangeError, got %T: %v", err, err)
+		}
 	}
 }

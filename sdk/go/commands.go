@@ -497,6 +497,93 @@ func (d *Device) SPITransfer(ctx context.Context, cs uint8, write []byte) ([]byt
 	return f.Payload, nil
 }
 
+// I2CClockMin and I2CClockMax bound what SetI2CClock will send. Mirrors
+// AG_I2C_HZ_MIN/AG_I2C_HZ_MAX in include/ag/config.h: below the floor the
+// device's clock divisor cannot express the request meaningfully, and above
+// the ceiling -- Fast-mode, 400 kHz -- is past what this family's TWI
+// peripherals are rated for, not merely what their divisor can compute.
+const (
+	I2CClockMin = 1_000
+	I2CClockMax = 400_000
+)
+
+// SetI2CClock reconfigures the generic I2C bus's clock. Applied immediately;
+// a transfer already needing the previous rate should complete before this is
+// sent.
+//
+// ag_bus_init() (main.c) already set 100 kHz at boot, so this is only needed
+// to run the bus at something else -- a sensor datasheet asking for 400 kHz,
+// say.
+//
+// On a device whose CryptoTier (from Caps) is CryptoSecureElement, every call
+// is refused with StatusErrProtectedRegion, checked before the range above:
+// the secure element's wake pulse needs this exact peripheral at or below
+// 100 kHz, and a rate accepted here would be silently undone the next time
+// any crypto operation ran.
+func (d *Device) SetI2CClock(ctx context.Context, hz uint32) error {
+	if hz < I2CClockMin || hz > I2CClockMax {
+		return &ArgRangeError{
+			Cmd: CmdI2CConfig, Arg: "clock", Value: int64(hz),
+			Min: I2CClockMin, Max: I2CClockMax, Unit: "hz",
+		}
+	}
+	p := make([]byte, 4)
+	binary.LittleEndian.PutUint32(p, hz)
+	_, err := d.Do(ctx, CmdI2CConfig, p)
+	return err
+}
+
+// SPIMode is SPI's clock polarity and phase, numbered the way every SPI
+// datasheet does: 0 through 3.
+type SPIMode uint8
+
+const (
+	SPIMode0 SPIMode = 0
+	SPIMode1 SPIMode = 1
+	SPIMode2 SPIMode = 2
+	SPIMode3 SPIMode = 3
+)
+
+// SPIClockDiv is the raw two-bit divider field ag_hal_spi_init writes into
+// SPCR's SPR1:SPR0 -- a code, not a divisor, because the actual divisor is a
+// property of the board's F_CPU that this SDK has no way to know.
+type SPIClockDiv uint8
+
+const (
+	// SPIClockDiv4 is the fastest this HAL can ask the peripheral for.
+	SPIClockDiv4  SPIClockDiv = 0
+	SPIClockDiv16 SPIClockDiv = 1
+	SPIClockDiv64 SPIClockDiv = 2
+	// SPIClockDiv128 is the slowest, and what ag_bus_init() sets at boot.
+	SPIClockDiv128 SPIClockDiv = 3
+)
+
+// ConfigureSPI reconfigures the generic SPI bus's mode, clock divider and bit
+// order. Applied immediately; a transfer already in flight should complete
+// before this is sent.
+//
+// ag_bus_init() (main.c) already set mode 0, the slowest divider and
+// MSB-first at boot, so this is only needed to match a specific device --
+// mode 3 and MSB-first for an SD card, say.
+func (d *Device) ConfigureSPI(ctx context.Context, mode SPIMode, clkdiv SPIClockDiv, lsbFirst bool) error {
+	if mode > SPIMode3 {
+		return &ArgRangeError{
+			Cmd: CmdSPIConfig, Arg: "mode", Value: int64(mode), Min: 0, Max: 3, Unit: "mode",
+		}
+	}
+	if clkdiv > SPIClockDiv128 {
+		return &ArgRangeError{
+			Cmd: CmdSPIConfig, Arg: "clkdiv", Value: int64(clkdiv), Min: 0, Max: 3, Unit: "divider code",
+		}
+	}
+	lsb := byte(0)
+	if lsbFirst {
+		lsb = 1
+	}
+	_, err := d.Do(ctx, CmdSPIConfig, []byte{byte(mode), byte(clkdiv), lsb})
+	return err
+}
+
 // OneWireReset pulses the bus and reports whether any device answered.
 func (d *Device) OneWireReset(ctx context.Context, pin uint8) (bool, error) {
 	f, err := d.Do(ctx, CmdOneWireReset, []byte{pin})

@@ -59,6 +59,16 @@ void    ag_mock_set_bus_response(const uint8_t *b, uint8_t n);
 uint8_t ag_mock_last_i2c_addr(void);
 uint8_t ag_mock_ow_presence_set(uint8_t present);
 
+/* buses: what the last I2C_CONFIG / SPI_CONFIG actually reached the HAL with,
+ * so a test can tell "dispatched and validated" from "dispatched and ignored".
+ * The reset value of each -- 0xFFFFFFFF for the clock, 0xFF for the SPI
+ * fields -- is out of the range a real call could ever pass, so "never
+ * called" cannot be mistaken for a real value, including zero. */
+uint32_t ag_mock_last_i2c_hz(void);
+uint8_t  ag_mock_last_spi_mode(void);
+uint8_t  ag_mock_last_spi_clkdiv(void);
+uint8_t  ag_mock_last_spi_lsb(void);
+
 /* system */
 void   ag_mock_set_reset_cause(ag_reset_cause_t c);
 void   ag_mock_set_free_ram(uint16_t n);

@@ -68,10 +68,12 @@ AG_CMD_ENTRY(AG_CMD_EEPROM_WRITE, EEPROM_WRITE, ag_storage_cmd_write, 3u, AG_MAX
 
 /* ---- buses ---- */
 #if AG_FEATURE_I2C
-AG_CMD_ENTRY(AG_CMD_I2C_XFER, I2C_XFER, ag_i2c_cmd_xfer, 2u, AG_MAX_PAYLOAD)
+AG_CMD_ENTRY(AG_CMD_I2C_XFER,   I2C_XFER,   ag_i2c_cmd_xfer,   2u, AG_MAX_PAYLOAD)
+AG_CMD_ENTRY(AG_CMD_I2C_CONFIG, I2C_CONFIG, ag_i2c_cmd_config, 4u, 4u)
 #endif
 #if AG_FEATURE_SPI
-AG_CMD_ENTRY(AG_CMD_SPI_XFER, SPI_XFER, ag_spi_cmd_xfer, 2u, AG_MAX_PAYLOAD)
+AG_CMD_ENTRY(AG_CMD_SPI_XFER,   SPI_XFER,   ag_spi_cmd_xfer,   2u, AG_MAX_PAYLOAD)
+AG_CMD_ENTRY(AG_CMD_SPI_CONFIG, SPI_CONFIG, ag_spi_cmd_config, 3u, 3u)
 #endif
 #if AG_FEATURE_ONEWIRE
 AG_CMD_ENTRY(AG_CMD_ONEWIRE_RESET, ONEWIRE_RESET, ag_ow_cmd_reset, 1u, 1u)

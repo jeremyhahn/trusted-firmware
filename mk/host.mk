@@ -69,8 +69,12 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 # certificate is signed by an element, so its suite links the software element
 # as the I2C HAL and the ATECC provider as the crypto tier. Linking it beside
 # the mock would be two definitions of ag_hal_i2c_xfer.
+# test_bus_element joins that list for the same reason: it links the software
+# element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
+# functions, either of which the mock also defines.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
-                            test/unit/test_provision.c test/unit/test_alias.c, \
+                            test/unit/test_provision.c test/unit/test_alias.c \
+                            test/unit/test_bus_element.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -143,7 +147,25 @@ $(HOST_DIR)/test_alias: test/unit/test_alias.c test/model/atecc608a.c \
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias
+# I2C_CONFIG's refusal on an element build (src/caps/bus.c) -- the one
+# behaviour in that file that depends on which crypto tier is linked, so it
+# gets the same arrangement test_atecc/test_provision/test_alias do: the
+# software element as the I2C HAL, the real ATECC608A driver and provider as
+# the crypto tier. The suite's own guard stubs resolve SPI's and 1-Wire's HAL
+# functions, which bus.c's other handlers reference as one translation unit.
+$(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
+                               test/model/atecc608a.c \
+                               src/caps/bus.c \
+                               src/core/reader.c src/core/writer.c \
+                               src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
+                               src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
+                               src/crypto/sha256.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
+                    $(HOST_DIR)/test_bus_element
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)

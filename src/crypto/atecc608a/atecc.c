@@ -57,7 +57,17 @@ ag_status_t ag_atecc_wake(void)
      * This is why the element's bus must be at or below 100 kHz. At 400 kHz the
      * same write is 22 us and the part never wakes, which presents as an
      * element that is simply not there.
-     */
+     *
+     * REASSERTED HERE, every wake, rather than trusted from boot. src/caps/
+     * bus.c's I2C_CONFIG refuses to touch this peripheral on an element build
+     * for exactly this reason, so this call is belt-and-suspenders against
+     * that path specifically -- but it is the cheap, correct default
+     * regardless of what else in the tree might one day call
+     * ag_hal_i2c_init(): the alternative is trusting every future caller to
+     * know this precondition, and the failure mode if one does not is the
+     * element silently going quiet, which reads as "no element" rather than
+     * "wrong clock". */
+    (void)ag_hal_i2c_init(AG_ATECC_I2C_HZ);
     const uint8_t zero = 0x00u;
     (void)ag_hal_i2c_xfer(0x00u, &zero, 1u, 0, 0u);
 

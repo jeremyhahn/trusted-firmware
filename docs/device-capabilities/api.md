@@ -130,6 +130,8 @@ is refused on write (`AG_ERR_PROTECTED_REGION`) and permitted on read.
 | `ONEWIRE_RESET` | `0x52` | 1 / 1 |
 | `ONEWIRE_WRITE` | `0x53` | 2 / `AG_MAX_PAYLOAD` |
 | `ONEWIRE_READ` | `0x54` | 2 / 2 |
+| `I2C_CONFIG` | `0x55` | 4 / 4 |
+| `SPI_CONFIG` | `0x56` | 3 / 3 |
 
 ```
 I2C_XFER        req  addr7:u8  rlen:u8  wr:blob                resp  rd:blob(rlen)
@@ -137,6 +139,8 @@ SPI_XFER        req  cs_pin:u8  wr:blob                        resp  rd:blob(len
 ONEWIRE_RESET   req  pin:u8                                    resp  presence:u8
 ONEWIRE_WRITE   req  pin:u8  wr:blob                            resp  (none)
 ONEWIRE_READ    req  pin:u8  n:u8                               resp  data:blob(n)
+I2C_CONFIG      req  hz:u32                                    resp  (none)
+SPI_CONFIG      req  mode:u8(0-3)  clkdiv:u8(0-3)  lsb_first:u8(0|1)  resp  (none)
 ```
 
 `addr7 == AG_I2C_RESERVED_ADDR` (`0x60` by default) is refused unconditionally.
@@ -144,3 +148,18 @@ ONEWIRE_READ    req  pin:u8  n:u8                               resp  data:blob(
 UART pins) is refused the same way. SPI is full duplex: the reply is always
 the same length as the write. Transfer length on all three buses is bounded
 by `AG_MAX_PAYLOAD - 1`.
+
+`I2C_CONFIG` and `SPI_CONFIG` reconfigure the generic bus's clock (I2C) or
+mode/clock-divider/bit-order (SPI). Neither is required before `I2C_XFER` or
+`SPI_XFER` work: `main.c` calls `ag_bus_init()` at boot, which applies
+`AG_I2C_DEFAULT_HZ` (100 kHz) and `AG_SPI_DEFAULT_MODE`/`_CLKDIV`/`_LSB_FIRST`
+(mode 0, slowest divider, MSB-first) before the host ever sends either
+command. `hz` outside `AG_I2C_HZ_MIN..AG_I2C_HZ_MAX` (1 kHz..400 kHz), or `mode`
+/`clkdiv` above 3, or `lsb_first` above 1, is `AG_ERR_RANGE`.
+
+On a build whose crypto tier is the secure element (`CryptoTier ==
+CryptoSecureElement` in `CAPS`), `I2C_CONFIG` refuses EVERY request with
+`AG_ERR_PROTECTED_REGION`, checked before the range above -- the element's
+wake pulse needs this same TWI peripheral at or below 100 kHz, and a rate
+accepted here would be silently undone the next time any crypto operation
+ran. `SPI_CONFIG` carries no such restriction on any tier.

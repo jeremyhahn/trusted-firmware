@@ -23,6 +23,8 @@ that exercise them, so a reader does not have to cross-reference by hand.
 | `timer <pin> <0\|1> <duration>` | `TIMER_SET` (0x14) |
 | `timer-cancel <pin> [apply]` | `TIMER_CANCEL` (0x15) |
 | `timer-query <pin>` | `TIMER_QUERY` (0x16) |
+| `i2c-config <hz>` | `I2C_CONFIG` (0x55) |
+| `spi-config <mode> <clkdiv> <msb\|lsb>` | `SPI_CONFIG` (0x56) |
 | `ports` | none — lists serial ports the host can see; no device round trip |
 
 Flags: `--baud` (default `serialport.DefaultBaud`, 115200, matching

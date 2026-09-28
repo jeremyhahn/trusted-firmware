@@ -34,6 +34,8 @@ static uint8_t  bus_resp[64];
 static uint8_t  bus_resp_n;
 static uint8_t  last_i2c_addr;
 static uint8_t  ow_present;
+static uint32_t last_i2c_hz;
+static uint8_t  last_spi_mode, last_spi_clkdiv, last_spi_lsb;
 
 #define REGS 256u
 static uint8_t regs[REGS];
@@ -51,6 +53,7 @@ void ag_mock_reset(void)
     adc_ref = 0u;
     tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
     bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u;
+    last_i2c_hz = 0xFFFFFFFFuL; last_spi_mode = last_spi_clkdiv = last_spi_lsb = 0xFFu;
 }
 
 void ag_mock_set_bus_response(const uint8_t *b, uint8_t n)
@@ -62,6 +65,11 @@ void ag_mock_set_bus_response(const uint8_t *b, uint8_t n)
 
 uint8_t ag_mock_last_i2c_addr(void) { return last_i2c_addr; }
 uint8_t ag_mock_ow_presence_set(uint8_t present) { ow_present = present; return present; }
+
+uint32_t ag_mock_last_i2c_hz(void)      { return last_i2c_hz; }
+uint8_t  ag_mock_last_spi_mode(void)    { return last_spi_mode; }
+uint8_t  ag_mock_last_spi_clkdiv(void)  { return last_spi_clkdiv; }
+uint8_t  ag_mock_last_spi_lsb(void)     { return last_spi_lsb; }
 
 uint8_t ag_mock_pwm_duty(uint16_t ocr) { return regs[ocr % REGS]; }
 
@@ -302,7 +310,7 @@ ag_status_t ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
     return AG_OK;
 }
 
-ag_status_t ag_hal_i2c_init(uint32_t hz) { (void)hz; return AG_OK; }
+ag_status_t ag_hal_i2c_init(uint32_t hz) { last_i2c_hz = hz; return AG_OK; }
 
 ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen)
@@ -315,7 +323,7 @@ ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 }
 
 ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb)
-{ (void)mode; (void)clkdiv; (void)lsb; return AG_OK; }
+{ last_spi_mode = mode; last_spi_clkdiv = clkdiv; last_spi_lsb = lsb; return AG_OK; }
 
 ag_status_t ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
                             uint8_t *rd, uint8_t len)

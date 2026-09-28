@@ -30,6 +30,7 @@
 #include <simavr/avr_uart.h>
 #include <simavr/avr_ioport.h>
 #include <simavr/avr_adc.h>
+#include <simavr/avr_spi.h>
 
 #include "ag/status.h"
 #include "ag/protocol.h"
@@ -117,6 +118,55 @@ static void send(const uint8_t *b, unsigned n)
          * so it is left uncalibrated and paced generously instead. */
         run_instructions(20000);
     }
+}
+
+/* ------------------------------------------------------ ADC (issue #19/#21)
+ *
+ * simavr's ADC model asks for a voltage each time a conversion starts, by
+ * raising ADC_IRQ_OUT_TRIGGER with the mux the firmware just selected. A
+ * conversion only ever COMPLETES -- ADCSRA's ADSC bit clearing, which is what
+ * ag_hal_adc_read() polls -- if ADEN was set first; see avr_adc_write_adcsra
+ * in simavr's own source. So this is not just "feed a plausible reading": on
+ * the pre-fix firmware, which never called ag_hal_adc_init(), this callback
+ * would never fire and ANALOG_READ would run out its cycle bound with no
+ * reply, exactly the way #19's silent zero would have been caught had this
+ * existed then.
+ */
+static void on_adc_trigger(struct avr_irq_t *irq, uint32_t value, void *param)
+{
+    union { avr_adc_mux_t mux; uint32_t v; } e;
+
+    (void)irq; (void)param;
+    e.v = value;
+    if (e.mux.kind == ADC_MUX_SINGLE) {
+        avr_irq_t *chan = avr_io_getirq(avr, AVR_IOCTL_ADC_GETIRQ, ADC_IRQ_ADC0 + (int)e.mux.src);
+        /* Millivolts, mid-scale against any reference this board's ADMUX could
+         * plausibly select -- nonzero on any of them, which is the property
+         * this test needs. */
+        avr_raise_irq(chan, 1650u);
+    }
+}
+
+/* --------------------------------------------------- SPI (issue #16/#19/#21)
+ *
+ * simavr sets SPIF automatically once SPCR's SPE bit is on and eight clocks
+ * have elapsed (avr_spi_raise) -- it does not need a slave on the other end
+ * to do that part. What it DOES need a slave for is a receive value other
+ * than a loopback of what was just transmitted, so this stands in for one:
+ * every byte the firmware clocks out, it clocks a fixed byte back in.
+ *
+ * Before the fix, SPE was never set (#19), so avr_spi_raise's own SPE check
+ * means SPIF never rises, and hal_bus.c's wait was unbounded (#16): this
+ * transfer would hang the firmware forever, which the bounded
+ * run_instructions() in exchange() turns into a FAILING test rather than one
+ * that blocks CI.
+ */
+#define SPI_SLAVE_BYTE 0xE7u
+
+static void on_spi_output(struct avr_irq_t *irq, uint32_t value, void *param)
+{
+    (void)irq; (void)value; (void)param;
+    avr_raise_irq(avr_io_getirq(avr, AVR_IOCTL_SPI_GETIRQ(0), SPI_IRQ_INPUT), SPI_SLAVE_BYTE);
 }
 
 /* ------------------------------------------------------------- framing */
@@ -209,6 +259,12 @@ int main(int argc, char **argv)
     avr_irq_register_notify(
         avr_io_getirq(avr, AVR_IOCTL_UART_GETIRQ('0'), UART_IRQ_OUTPUT),
         on_device_tx, NULL);
+    avr_irq_register_notify(
+        avr_io_getirq(avr, AVR_IOCTL_ADC_GETIRQ, ADC_IRQ_OUT_TRIGGER),
+        on_adc_trigger, NULL);
+    avr_irq_register_notify(
+        avr_io_getirq(avr, AVR_IOCTL_SPI_GETIRQ(0), SPI_IRQ_OUTPUT),
+        on_spi_output, NULL);
 
     printf("simavr integration: %s\n", elf);
 
@@ -324,6 +380,75 @@ int main(int argc, char **argv)
         run_instructions(400000);
         int ok = find_response(0x2A, &status, out, &outlen);
         check(ok && status == AG_ERR_CRC, "a corrupted frame is answered with AG_ERR_CRC");
+    }
+
+    /* ANALOG_READ against the emulated ADC -- #19's silent-zero instance.
+     * Before the fix ADEN was never set, ADSC never cleared, and this
+     * exchange would exhaust its cycle bound with no reply rather than
+     * return a plausible-looking zero: the same bound that turns #16's SPI
+     * hang into a failure catches this one too. */
+    {
+        const uint8_t a0[1] = { 14u };  /* A0, ADC channel 0 */
+        int ok = exchange(0x2B, AG_CMD_ANALOG_READ, a0, 1, &status, out, &outlen);
+        check(ok, "ANALOG_READ round-trips through the emulated ADC");
+        check(ok && status == AG_OK, "ANALOG_READ returns AG_OK");
+        uint16_t raw = ok ? (uint16_t)(out[0] | (out[1] << 8)) : 0u;
+        check(ok && raw > 0u,
+              "the ADC actually converted rather than reporting an unmeasured zero");
+    }
+
+    /* SPI_XFER against the emulated SPI peripheral -- #16's hang and #19's
+     * missing init, together. Before either fix, SPE was never set, SPIF
+     * never rose, and hal_bus.c's wait was unbounded: this exchange would
+     * wedge the firmware permanently, exactly as it did on real hardware. */
+    {
+        const uint8_t cs_and_data[3] = { 10u, 0x12u, 0x34u };  /* cs, then two bytes out */
+        int ok = exchange(0x2C, AG_CMD_SPI_XFER, cs_and_data, 3, &status, out, &outlen);
+        check(ok, "SPI_XFER round-trips through the emulated SPI peripheral");
+        check(ok && status == AG_OK, "SPI_XFER returns AG_OK");
+        check(ok && outlen == 2 && out[0] == SPI_SLAVE_BYTE && out[1] == SPI_SLAVE_BYTE,
+              "SPI_XFER reads back what the emulated peripheral clocked in");
+
+        /* The device must still be alive afterwards -- #16's actual failure
+         * was not the one bad transfer, it was every command after it. */
+        const uint8_t msg[5] = { 'a', 'l', 'i', 'v', 'e' };
+        ok = exchange(0x2D, AG_CMD_PING, msg, 5, &status, out, &outlen);
+        check(ok && status == AG_OK, "the device still answers after an SPI transfer");
+    }
+
+    /* I2C_CONFIG against the REAL TWBR register, on real F_CPU. 1 kHz is
+     * inside the cap layer's generic AG_I2C_HZ_MIN..MAX interval, and on this
+     * board's 16 MHz clock it is NOT reachable by an 8-bit TWBR at prescaler
+     * 1 -- exactly the gap a host build cannot see, since the mock has no
+     * F_CPU and always answers AG_OK. Before hal_bus.c's own reachability
+     * check, this silently produced roughly 125 kHz -- 125 times the
+     * requested rate -- with no error. */
+    {
+        const uint8_t too_slow[4] = { 0xE8u, 0x03u, 0x00u, 0x00u };  /* 1000 Hz, LE */
+        int ok = exchange(0x2E, AG_CMD_I2C_CONFIG, too_slow, 4, &status, out, &outlen);
+        check(ok && status == AG_ERR_RANGE,
+              "I2C_CONFIG refuses a clock this board's TWBR cannot represent");
+
+        const uint8_t reachable[4] = { 0xA0u, 0x86u, 0x01u, 0x00u };  /* 100000 Hz, LE */
+        ok = exchange(0x2F, AG_CMD_I2C_CONFIG, reachable, 4, &status, out, &outlen);
+        check(ok && status == AG_OK, "I2C_CONFIG accepts the boot default rate");
+    }
+
+    /* I2C_CONFIG must never program a FASTER bus than the one requested, only
+     * the same rate or slower. 350000 Hz does not divide 16 MHz evenly, and
+     * rounding the divisor DOWN -- as a naive (F_CPU/hz - 16)/2 does -- picks
+     * TWBR=14, which is actually 363 636 Hz: faster than asked, and past what
+     * a peripheral rated for exactly 350 kHz is specified to tolerate. TWBR=15
+     * (346 774 Hz, at or below the request) is the only answer that keeps the
+     * contract "the bus runs at no more than the requested rate". */
+    {
+#define R_TWBR 0xB8u
+        const uint8_t threefifty[4] = { 0x30u, 0x57u, 0x05u, 0x00u };  /* 350000 Hz, LE */
+        int ok = exchange(0x30, AG_CMD_I2C_CONFIG, threefifty, 4, &status, out, &outlen);
+        check(ok && status == AG_OK, "I2C_CONFIG accepts 350 kHz");
+        check(ok && avr->data[R_TWBR] == 15u,
+              "I2C_CONFIG rounds the divisor so the real clock never exceeds the request");
+#undef R_TWBR
     }
 
     printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);

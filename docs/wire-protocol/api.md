@@ -124,6 +124,8 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x52 | `ONEWIRE_RESET` | `AG_FEATURE_ONEWIRE` | `[pin:1]` | `[presence:1]` |
 | 0x53 | `ONEWIRE_WRITE` | `AG_FEATURE_ONEWIRE` | `[pin:1]bytes[data...]` | none |
 | 0x54 | `ONEWIRE_READ` | `AG_FEATURE_ONEWIRE` | `[pin:1][n:1]` | `bytes[n]` |
+| 0x55 | `I2C_CONFIG` | `AG_FEATURE_I2C` | `[hz:4]` | none; `hz` outside `AG_I2C_HZ_MIN..AG_I2C_HZ_MAX` (1 kHz..400 kHz) is `AG_ERR_RANGE`; on a secure-element build, EVERY request is `AG_ERR_PROTECTED_REGION`, checked first |
+| 0x56 | `SPI_CONFIG` | `AG_FEATURE_SPI` | `[mode:1][clkdiv:1][lsb_first:1]` | none; `mode` or `clkdiv` above 3, or `lsb_first` above 1, is `AG_ERR_RANGE` |
 | 0x60 | `ATTEST` | `AG_FEATURE_ATTEST` | `[nonce:16]` (mint) or `[page:1]` | `[page:1][total:1][bytes:0..48]` — evidence is 164 bytes total, paged |
 | 0x61 | `AUTH_CHALLENGE` | trust (defined, no table entry) | — | `AG_ERR_UNKNOWN_CMD` |
 | 0x62 | `AUTH_RESPONSE` | trust (defined, no table entry) | — | `AG_ERR_UNKNOWN_CMD` |
@@ -138,6 +140,13 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x73 | `PROV_GENKEY` | `AG_FEATURE_PROVISION` (jig only) | `[slot:1]` (must be the DeviceID slot) | `bytes[64]`, the public point; private key never leaves the element |
 | 0x74 | `PROV_PUBKEY` | `AG_FEATURE_PROVISION` (jig only) | `[slot:1]` | `bytes[64]`, the public point recomputed, not regenerated |
 | 0x75 | `PROV_SEED_UDS` | `AG_FEATURE_PROVISION` (jig only) | `[slot:1]` (must be the UDS slot) | none; UDS crosses the element's internal bus only, never the serial link |
+
+Every peripheral the HAL exports an init for is initialised at boot with a
+sane default — `AG_I2C_DEFAULT_HZ` (100 kHz), `AG_SPI_DEFAULT_MODE`/`CLKDIV`/
+`LSB_FIRST` (mode 0, slowest, MSB-first) — so `I2C_XFER` and `SPI_XFER` work
+before a host ever sends `I2C_CONFIG` or `SPI_CONFIG`. Those two exist to let
+a host ask for something else once it knows what is on the bus, not to make
+the bus usable in the first place; see `src/main.c` and `src/caps/bus.c`.
 
 `OTA_*` and `PROV_*` ids appear in no build's `commands.def` entry for the
 application image — never a mode of `ag_dispatch`, on purpose. `OTA_*` is
@@ -177,7 +186,7 @@ One byte, carried in every response and event.
 | 6 | `AG_ERR_BAD_PIN` | pin index out of range for this board |
 | 7 | `AG_ERR_UNSUPPORTED` | compiled out, or this pin lacks the capability |
 | 8 | `AG_ERR_BUSY` | peripheral already in use |
-| 9 | `AG_ERR_TIMEOUT` | `PULSE_IN`, I2C or 1-Wire timed out |
+| 9 | `AG_ERR_TIMEOUT` | `PULSE_IN`, I2C, SPI or 1-Wire timed out |
 | 10 | `AG_ERR_NACK` | I2C address or data NACK |
 | 11 | `AG_ERR_RANGE` | value outside the permitted interval |
 | 12 | `AG_ERR_NO_SLOT` | scheduler or counter table full |

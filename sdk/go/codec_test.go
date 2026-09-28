@@ -5,10 +5,39 @@ package aggeneric
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"math/rand"
 	"testing"
+
+	"github.com/jeremyhahn/arduino-generic/sdk/go/internal/vectors"
 )
+
+// The wire frames testdata/vectors.h froze for I2C_CONFIG and SPI_CONFIG
+// (issue #21). This is the cross-implementation check the vectors exist for:
+// EncodeRequest is a from-scratch Go implementation of the same framing
+// ag_frame_encode_request performs in C, so the two agreeing on these exact
+// bytes -- rather than merely on each other's round trip -- is what pins the
+// wire rather than a regression.
+func TestEncodeRequestMatchesTheFrozenWireFrames(t *testing.T) {
+	i2cPayload := make([]byte, 4)
+	binary.LittleEndian.PutUint32(i2cPayload, 100_000)
+	got, err := EncodeRequest(1, CmdI2CConfig, i2cPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte(vectors.FrameI2CConfigReq)) {
+		t.Errorf("I2C_CONFIG frame = % x, want % x", got, vectors.FrameI2CConfigReq)
+	}
+
+	got, err = EncodeRequest(2, CmdSPIConfig, []byte{3, 2, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte(vectors.FrameSPIConfigReq)) {
+		t.Errorf("SPI_CONFIG frame = % x, want % x", got, vectors.FrameSPIConfigReq)
+	}
+}
 
 func TestRequestRoundTrips(t *testing.T) {
 	payload := []byte{0x0D, 0x01}

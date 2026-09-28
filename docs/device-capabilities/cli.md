@@ -78,7 +78,9 @@ reachable from `agctl`, that is a gap in `agctl`."
 | `eeprom-read` | `<addr> <count>` | hex out |
 | `eeprom-write` | `<addr> <hex>` | refused below the reserved boundary |
 | `i2c` | `<addr7> <hex\|-> <read-count>` | `-` writes nothing |
+| `i2c-config` | `<clock hz>` | reconfigure the bus clock; boots at 100 kHz |
 | `spi` | `<cs pin> <hex>` | full duplex; the reply is the same length |
+| `spi-config` | `<mode 0-3> <clkdiv 0-3> <msb\|lsb>` | boots at mode 0, slowest divider, MSB-first |
 | `1wire-reset` | `<pin>` | presence pulse |
 | `1wire-write` | `<pin> <hex>` | |
 | `1wire-read` | `<pin> <count>` | |

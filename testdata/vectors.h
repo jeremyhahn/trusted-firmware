@@ -109,4 +109,17 @@
 #define AGV_SYSINFO_NEW_REPLY     "\x78\x56\x34\x12\x21\x03\x04\x05\x00\x07\x00"
 #define AGV_SYSINFO_NEW_REPLY_LEN 11u
 
+/* ------------------------------------------------------------ wire frames */
+/* One full encoded request -- SOF through CRC16 -- for I2C_CONFIG and
+ * SPI_CONFIG (issue #21), each at a fixed SEQ and payload. Produced once by
+ * ag_frame_encode_request and cross-checked against an independent CRC16
+ * implementation, then frozen: a change to either command's id, payload
+ * layout or byte order breaks this instead of shipping silently. */
+
+/* AG_CMD_I2C_CONFIG (0x55), seq 0x01, payload hz=100000 (0x000186A0 LE). */
+#define AGV_FRAME_I2C_CONFIG_REQ "\xa5\x06\x01\x55\xa0\x86\x01\x00\x93\x73"
+
+/* AG_CMD_SPI_CONFIG (0x56), seq 0x02, payload mode=3 clkdiv=2 lsb_first=1. */
+#define AGV_FRAME_SPI_CONFIG_REQ "\xa5\x05\x02\x56\x03\x02\x01\x23\x74"
+
 #endif /* AG_TESTDATA_VECTORS_H */

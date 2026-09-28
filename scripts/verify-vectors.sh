@@ -32,8 +32,25 @@ fi
 if [ -n "$g_only" ]; then
   echo "value(s) in $G with no counterpart in $C:"; echo "$g_only" | sed 's/^/  0x/'; fail=1
 fi
+
+# Wire frames: encoded byte strings rather than hex results, compared the same
+# way -- by VALUE, not by name, since the two languages spell a byte string
+# differently. A frame one side pins and the other does not is the failure.
+c_frames=$(sed -n 's/^#define AGV_FRAME_[A-Z0-9_]* "\(.*\)"$/\1/p' "$C" | sort)
+g_frames=$(sed -n 's/^\tFrame[A-Za-z0-9]* *= *"\(.*\)"/\1/p' "$G" | sort)
+
+cf_only=$(comm -23 <(echo "$c_frames") <(echo "$g_frames"))
+gf_only=$(comm -13 <(echo "$c_frames") <(echo "$g_frames"))
+if [ -n "$cf_only" ]; then
+  echo "wire frame(s) in $C with no counterpart in $G:"; echo "$cf_only"; fail=1
+fi
+if [ -n "$gf_only" ]; then
+  echo "wire frame(s) in $G with no counterpart in $C:"; echo "$gf_only"; fail=1
+fi
+
 if [ "$fail" = 0 ]; then
-  echo "wire vectors agree: $(echo "$c_vals" | wc -l) values, both languages"
+  echo "wire vectors agree: $(echo "$c_vals" | wc -l) CRC values and" \
+       "$(echo "$c_frames" | wc -l) wire frames, both languages"
 fi
 
 # String-literal vectors -- SYS_INFO's reply payloads, #5. These are not hex

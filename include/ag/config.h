@@ -206,6 +206,51 @@
 #define AG_I2C_RESERVED_ADDR 0x60u
 #endif
 
+/* Defaults ag_bus_init() (src/caps/bus.c) applies at boot, before the host has
+ * sent I2C_CONFIG or SPI_CONFIG -- so a sensor wired up and read without
+ * either command still works. 100 kHz is I2C Standard-mode, chosen for the
+ * same reason src/crypto/atecc608a/provider.c picks it for the element: it is
+ * the speed every I2C part in the wild is guaranteed to accept. SPI mode 0,
+ * the slowest divider and MSB-first are the correspondingly conservative
+ * choice -- easy to change once a host knows what is on the bus, and quiet by
+ * default before it does.
+ * MSB and clkdiv are the raw bits ag_hal_spi_init already takes: clkdiv 3 is
+ * SPCR's SPR1:SPR0 = 11 (Fosc/128 with SPI2X clear), the slowest this HAL can
+ * ask the peripheral for. */
+#ifndef AG_I2C_DEFAULT_HZ
+#define AG_I2C_DEFAULT_HZ 100000uL
+#endif
+#ifndef AG_SPI_DEFAULT_MODE
+#define AG_SPI_DEFAULT_MODE 0u
+#endif
+#ifndef AG_SPI_DEFAULT_CLKDIV
+#define AG_SPI_DEFAULT_CLKDIV 3u
+#endif
+#ifndef AG_SPI_DEFAULT_LSB_FIRST
+#define AG_SPI_DEFAULT_LSB_FIRST 0u
+#endif
+
+/* The interval I2C_CONFIG accepts at the CAPABILITY layer, before F_CPU is
+ * even in scope: zero, and anything past Fast-mode, 400 kHz -- the ceiling
+ * every TWI peripheral in this family is actually RATED to, not merely the
+ * fastest divisor the maths can produce. A 16 MHz board's TWBR can express
+ * 1 MHz (Fast-mode-plus, TWBR=0), but the silicon's own electrical
+ * characteristics are specified only through Fast-mode; accepting a value
+ * past that would be honouring a request the hardware was never qualified to
+ * meet, not merely a fast one. Not a claim that every board can hit every
+ * value inside this interval, either -- ag_hal_i2c_init's divisor is an
+ * 8-bit register and F_CPU varies across this family, so THAT reachability
+ * check is a HAL fact this layer cannot see and does not attempt; see the
+ * comment in src/hal/avr/hal_bus.c. A value this generic bound lets through
+ * and the HAL cannot reach still comes back AG_ERR_RANGE, not a silently
+ * wrong clock. */
+#ifndef AG_I2C_HZ_MIN
+#define AG_I2C_HZ_MIN 1000uL
+#endif
+#ifndef AG_I2C_HZ_MAX
+#define AG_I2C_HZ_MAX 400000uL
+#endif
+
 /* A ceiling on how long any single command may hold the main loop. Past this a
  * scheduled pin could miss its deadline, and once a deadman exists a long
  * capture would trip it. A board with no scheduler in its build could raise it;

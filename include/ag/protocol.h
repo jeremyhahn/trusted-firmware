@@ -107,6 +107,14 @@
 #define AG_CMD_ONEWIRE_RESET     0x52u
 #define AG_CMD_ONEWIRE_WRITE     0x53u
 #define AG_CMD_ONEWIRE_READ      0x54u
+/* Neither bus had a way for the host to choose its clock, mode or bit order --
+ * every board booted the generic I2C/SPI primitives, if it booted them at all,
+ * at whatever the crypto provider or nothing had left the registers in. These
+ * two let a host ask for a specific configuration; ag_bus_init() (main.c)
+ * still applies a sane default at boot so the bus works before either is
+ * ever sent. [hz:4] and [mode:1][clkdiv:1][lsb_first:1] respectively. */
+#define AG_CMD_I2C_CONFIG        0x55u
+#define AG_CMD_SPI_CONFIG        0x56u
 
 /* trust */
 #define AG_CMD_ATTEST            0x60u

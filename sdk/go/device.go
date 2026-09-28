@@ -38,6 +38,8 @@ const (
 	CmdOneWireReset Cmd = 0x52
 	CmdOneWireWrite Cmd = 0x53
 	CmdOneWireRead  Cmd = 0x54
+	CmdI2CConfig    Cmd = 0x55
+	CmdSPIConfig    Cmd = 0x56
 	CmdAttest       Cmd = 0x60
 )
 

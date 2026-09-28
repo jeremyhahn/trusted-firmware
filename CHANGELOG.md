@@ -20,6 +20,24 @@ Pre-1.0, MINOR carries breaking changes.
   scheduler sweep per armed slot, and `DIGITAL_WRITE`'s device-only share
   excluding wire time. The device-only row is met; the per-slot row is not,
   but is now comparable across boards where the raw sweep total was not.
+- **`I2C_CONFIG` (`0x55`) and `SPI_CONFIG` (`0x56`)** let a host choose the
+  generic bus's clock (I2C) or mode/clock-divider/bit-order (SPI), which
+  nothing on the wire previously exposed at all. `Device.SetI2CClock` and
+  `Device.ConfigureSPI` in the Go SDK, `i2c-config`/`spi-config` verbs in
+  `agctl`, and new frozen wire vectors in `testdata/vectors.h` /
+  `sdk/go/internal/vectors/vectors.go` pinning both commands' payload layout.
+- `main.c` now calls `ag_hal_adc_init()` and the new `ag_bus_init()`
+  (`src/caps/bus.c`) at boot, applying `AG_I2C_DEFAULT_HZ` (100 kHz) and
+  `AG_SPI_DEFAULT_MODE`/`_CLKDIV`/`_LSB_FIRST` (mode 0, slowest, MSB-first).
+  Every board that has none of I2C/SPI/1-Wire links `src/caps/bus_none.c`'s
+  no-op stub instead, so `main.c` calls the same symbol unconditionally with
+  no `#if` — the same file-selection shape `CRYPTO_SRCS` already used for
+  `ag_crypto_init()`.
+- `test/integration/simavr/harness.c` now exercises `ANALOG_READ` and
+  `SPI_XFER` against the emulated ADC and SPI peripherals, which model
+  `ADEN`/`SPE` where the host mock cannot. Every exchange is bounded by a
+  fixed cycle count, so a regression that reintroduces the hang below fails
+  the suite instead of blocking it.
 
 ### Changed
 
@@ -61,6 +79,55 @@ Pre-1.0, MINOR carries breaking changes.
   the board pays the bound once and works exactly as before. The BOOT event
   New consumes at connect is not recorded in `Device.Events()`, so it is never
   misreported as a reset happening mid-session.
+- **No peripheral the HAL exports an init for was ever initialised.**
+  `ADCSRA`'s `ADEN` was never set, so `ANALOG_READ` returned a
+  plausible-looking zero on every board — a stuck-at-zero sensor reading as a
+  valid measurement is worse than a visible failure. `SPCR`'s `SPE` was never
+  set either, and `src/hal/avr/hal_bus.c`'s SPI wait was unbounded: the first
+  `SPI_XFER` a host sent hung the device permanently, taking every later
+  command down with it, including the scheduler's own sweep. Found on real
+  hardware (an ATmega2560 with an Ethernet shield). Fixed by initialising
+  every compiled-in peripheral at boot (above) and bounding the SPI wait the
+  same way the I2C path already was, with `AG_ERR_TIMEOUT` on the failure
+  path instead of a hang. Closes #21, closes #19, closes #16.
+- **The new boot-time SPI init drove the hardware SS pin low for an instant
+  before the caller's first transfer.** `ag_hal_spi_init()` set `SS`'s `DDRB`
+  bit to output before its `PORTB` bit was ever driven high, so a real device
+  wired to that pin as its chip-select was selected the moment boot-time init
+  ran — with no transfer under way and nothing a host could have done about
+  it. Fixed by asserting the `PORTB` bit high first, so the pin is never
+  observed low before a caller actually wants it to be.
+- **`I2C_CONFIG` could silently break the secure element.** `ag_atecc_wake()`
+  assumed the TWI bus was still at the 100 kHz its own comment says the wake
+  pulse depends on, but nothing re-asserted that after boot — a host calling
+  `SetI2CClock` to, say, 400 kHz for a sensor left every later element
+  operation (attestation included) failing until reboot, with the symptom
+  reading as "no element" rather than "wrong clock". Fixed two ways: an
+  element build now refuses `I2C_CONFIG` outright (`AG_ERR_PROTECTED_REGION`)
+  — the same shape the element's address is already refused from `I2C_XFER`
+  in, and for the same reason: a rate accepted here would be silently undone
+  by the next crypto operation regardless — and `ag_atecc_wake()` reasserts
+  `AG_ATECC_I2C_HZ` itself before every wake as a second, independent
+  safeguard rather than trusting either the generic command or its own
+  refusal alone.
+- **`I2C_CONFIG` accepted clocks the HAL could not actually produce, and
+  clocks the silicon is not rated for.** Below roughly 30 kHz on this
+  family's 16 MHz boards, `TWBR`'s divisor overflows a byte; the truncated
+  value silently ran the bus at approximately 125 kHz instead of the
+  requested rate, with no error. Separately, the accepted range's ceiling was
+  1 MHz (Fast-mode-plus) — reachable by the divisor math, but past what this
+  family's TWI peripherals are actually specified for (Fast-mode, 400 kHz).
+  Fixed by having `ag_hal_i2c_init()` check its own divisor against `F_CPU`
+  and return `AG_ERR_RANGE` for anything it cannot represent, and by lowering
+  `AG_I2C_HZ_MAX` (and the SDK's `I2CClockMax`) to 400 kHz.
+- **`I2C_CONFIG` could program a bus FASTER than the rate requested.** A rate
+  that does not divide `F_CPU` evenly — 350 kHz at 16 MHz, say — used to
+  compute `TWBR` by dividing twice and truncating both times, which rounds
+  the *divisor* down and therefore the *clock* up: 350 kHz became roughly
+  363.6 kHz, past what a peripheral rated for exactly 350 kHz is specified to
+  tolerate, with the command still answering `AG_OK`. Fixed by computing the
+  ceiling of the exact divisor by cross-multiplying instead of dividing
+  first, so the real clock never exceeds the one asked for.
 
 ## [0.4.0-alpha] - 2026-09-23
 

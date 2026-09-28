@@ -66,7 +66,7 @@ reaches for by task.
 | PWM / tone | `PWMWrite`, `Tone`, `NoTone` |
 | timing-critical sensors | `PulseIn`, `PulseCapture` |
 | EEPROM | `EEPROMRead`, `EEPROMWrite` |
-| buses | `I2CTransfer`, `SPITransfer`, `OneWireReset/Write/Read` |
+| buses | `I2CTransfer`, `SetI2CClock`, `SPITransfer`, `ConfigureSPI`, `OneWireReset/Write/Read` |
 | attestation | `Attest(ctx, nonce []byte) ([]byte, error)`, `AttestCert(ctx, nonce []byte) ([]byte, error)` |
 | provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS` |
 | raw codec | `ag.EncodeRequest`, `ag.EncodeResponse`, `ag.Decode`, `ag.CRC16` |

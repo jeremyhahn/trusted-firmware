@@ -81,8 +81,14 @@ ag_status_t ag_crypto_init(void)
     /* 100 kHz, not 400. The wake pulse is produced by the low period of a byte
      * written to address zero, and at 400 kHz that period is 22 us -- below the
      * 60 us the part requires. The symptom of getting this wrong is an element
-     * that appears absent, which sends you looking at the wiring. */
-    if (ag_hal_i2c_init(100000uL) != AG_OK) {
+     * that appears absent, which sends you looking at the wiring.
+     *
+     * ag_atecc_wake() reasserts AG_ATECC_I2C_HZ itself before every wake, so
+     * this call is not the only thing standing between the element and a
+     * host's later I2C_CONFIG -- it exists here so the bus is already at a
+     * known rate for the presence probe below, before anything has decided
+     * whether an element is even on it. */
+    if (ag_hal_i2c_init(AG_ATECC_I2C_HZ) != AG_OK) {
         return AG_OK;          /* no bus: not an error, just no element */
     }
     if (ag_atecc_wake() != AG_OK) {

@@ -71,20 +71,31 @@ uint16_t ag_atecc_crc16(const uint8_t *data, uint8_t len);
 
 /*
  * The element driver is linked for that one function, and a C object cannot be
- * linked a function at a time. These two resolve the references its other
- * functions make. Reaching either is a wiring mistake and not a case to handle:
- * this harness sits BELOW the HAL -- it is the wire -- so anything in this
- * process calling into the HAL has bypassed the emulated part entirely and
- * whatever it then proved would be about nothing.
+ * linked a function at a time. These three resolve the references its other
+ * functions make -- ag_hal_i2c_init joined the set when ag_atecc_wake()
+ * started reasserting the element's required bus rate itself, rather than
+ * trusting whatever the generic I2C_CONFIG command last left it at. Reaching
+ * any of them is a wiring mistake and not a case to handle: this harness sits
+ * BELOW the HAL -- it is the wire -- so anything in this process calling into
+ * the HAL has bypassed the emulated part entirely and whatever it then proved
+ * would be about nothing.
  */
 ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen);
+ag_status_t ag_hal_i2c_init(uint32_t hz);
 void        ag_hal_delay_us(uint16_t us);
 
 ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen)
 {
     (void)addr7; (void)wr; (void)wlen; (void)rd; (void)rlen;
+    fprintf(stderr, "the harness called the AVR I2C HAL; it is the wire, not a host\n");
+    abort();
+}
+
+ag_status_t ag_hal_i2c_init(uint32_t hz)
+{
+    (void)hz;
     fprintf(stderr, "the harness called the AVR I2C HAL; it is the wire, not a host\n");
     abort();
 }

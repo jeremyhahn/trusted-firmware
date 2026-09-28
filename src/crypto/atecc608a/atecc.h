@@ -27,6 +27,15 @@
  * can ask it to sign things this firmware never agreed to. */
 #define AG_ATECC_ADDR   0x60u
 
+/* The bus rate the wake pulse depends on -- see ag_atecc_wake()'s comment.
+ * I2C_CONFIG (src/caps/bus.c) reconfigures this same TWI peripheral for the
+ * generic bus, and its whole point is to let a host leave it somewhere else
+ * than the boot default. ag_atecc_wake() re-asserts this rate itself, every
+ * time, rather than trusting whatever the generic command left behind --
+ * the alternative is an element that answers until the first I2C_CONFIG and
+ * silently stops. */
+#define AG_ATECC_I2C_HZ 100000uL
+
 /* Word addresses. The first byte of every I2C write selects what follows. */
 #define AG_ATECC_WA_RESET   0x00u
 #define AG_ATECC_WA_SLEEP   0x01u

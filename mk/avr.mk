@@ -50,7 +50,11 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c src/hal/avr/hal_pwm.c)
 # the board profile says AG_FEATURE_ONEWIRE 0 and CAPS reports the truth about
 # THIS BUILD, which is the property that matters to a host.
 BUS_OFF  := $(and $(call feature_off,I2C),$(call feature_off,SPI),$(call feature_off,ONEWIRE))
-BUS_SRCS := $(if $(BUS_OFF),,src/caps/bus.c src/hal/avr/hal_bus.c)
+# main.c calls ag_bus_init() unconditionally (no #if there, by the same rule
+# as everywhere else): bus.c provides it when any bus is on, and bus_none.c --
+# a no-op -- provides the same symbol when BUS_OFF, so exactly one is always
+# linked. Mirrors how CRYPTO_SRCS gives every tier its own ag_crypto_init().
+BUS_SRCS := $(if $(BUS_OFF),src/caps/bus_none.c,src/caps/bus.c src/hal/avr/hal_bus.c)
 
 # The byte link. A part with no USART needs a software one, and the two
 # implementations define the same four functions -- so exactly one is linked and

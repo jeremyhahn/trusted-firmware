@@ -245,6 +245,47 @@ func runPeripheral(ctx context.Context, dev *ag.Device, cmd string, args []strin
 		return emit(out, asJSON, map[string]any{"cs": cs, "hex": hex.EncodeToString(got)},
 			func() string { return hex.EncodeToString(got) + "\n" })
 
+	case "i2c-config":
+		if len(args) < 1 {
+			return fmt.Errorf("usage: i2c-config <clock hz>")
+		}
+		hz, err := strconv.ParseUint(args[0], 0, 32)
+		if err != nil {
+			return fmt.Errorf("clock %q: %w", args[0], err)
+		}
+		if err := dev.SetI2CClock(ctx, uint32(hz)); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"hz": hz},
+			func() string { return fmt.Sprintf("i2c clock -> %d Hz\n", hz) })
+
+	case "spi-config":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: spi-config <mode 0-3> <clkdiv 0-3> <msb|lsb>")
+		}
+		mode, err := parseU8(args[0], "mode")
+		if err != nil {
+			return err
+		}
+		clkdiv, err := parseU8(args[1], "clkdiv")
+		if err != nil {
+			return err
+		}
+		var lsbFirst bool
+		switch args[2] {
+		case "msb":
+			lsbFirst = false
+		case "lsb":
+			lsbFirst = true
+		default:
+			return fmt.Errorf("bit order %q, want msb or lsb", args[2])
+		}
+		if err := dev.ConfigureSPI(ctx, ag.SPIMode(mode), ag.SPIClockDiv(clkdiv), lsbFirst); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"mode": mode, "clkdiv": clkdiv, "lsb_first": lsbFirst},
+			func() string { return fmt.Sprintf("spi -> mode %d, clkdiv %d, %s first\n", mode, clkdiv, args[2]) })
+
 	case "1wire-reset":
 		if len(args) < 1 {
 			return fmt.Errorf("usage: 1wire-reset <pin>")

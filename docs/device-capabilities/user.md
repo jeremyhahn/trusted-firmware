@@ -113,6 +113,15 @@ reply, err  = dev.SPITransfer(ctx, csPin, []byte{0xAA, 0x00})
 present, err := dev.OneWireReset(ctx, pin)
 ```
 
+Both buses work out of the box: the device applies a sane default at boot
+(I2C 100 kHz; SPI mode 0, slowest divider, MSB-first) without being asked.
+Reconfigure either one if a device's datasheet wants something else:
+
+```go
+err = dev.SetI2CClock(ctx, 400_000)                              // Fast-mode
+err = dev.ConfigureSPI(ctx, ag.SPIMode3, ag.SPIClockDiv16, false) // an SD card
+```
+
 Address `0x60` on I2C and a chip-select the board has claimed for its own
 secure element or TPM are refused — that hardware is not reachable through
 these generic commands, by design, so a compromised host cannot go around the

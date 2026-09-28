@@ -20,6 +20,7 @@
 #include "proto/transport.h"
 #include "caps/sys.h"
 #include "caps/sched.h"
+#include "caps/bus.h"
 
 ag_status_t ag_hal_tick_init(void);
 
@@ -30,6 +31,24 @@ int main(void)
     ag_hal_init();
     ag_hal_tick_init();
     ag_hal_uart_init(AG_UART_BAUD);
+    /* Every peripheral the HAL exports an init for gets one, unconditionally,
+     * from HERE -- rather than the previous state, where none had a caller and
+     * ADC reads were a plausible-looking zero on a converter that had never
+     * run (#19) while the first SPI_XFER hung the device forever (#16).
+     *
+     * ag_hal_adc_init() is safe to call with no gate: src/caps/analog.c and
+     * hal_adc.c compile on every board this family builds (see mk/avr.mk).
+     * ag_bus_init() (src/caps/bus.c) covers I2C and SPI the same way its own
+     * header comment explains -- it or bus_none.c's stub is ALWAYS the one
+     * linked, so the call below is never a dangling reference regardless of
+     * which buses a board has.
+     *
+     * This runs BEFORE ag_crypto_init(): the ATECC608A provider calls
+     * ag_hal_i2c_init() again, at its own required rate, and that call must be
+     * the one left standing on an element build rather than being clobbered
+     * by the generic default that follows it. */
+    ag_hal_adc_init();
+    ag_bus_init();
     ag_crypto_init();
     ag_sched_init();
     ag_transport_init(&transport);

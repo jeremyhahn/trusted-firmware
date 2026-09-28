@@ -126,6 +126,20 @@ value one for one; the full inventory is `api.md`.
 - **The golden vectors are literals, asserted equal across languages by
   `make verify-vectors`.** A failure there is a wire break, not a test to
   update.
+- **No wait on a peripheral register is unbounded.** `hal_bus.c`'s I2C and SPI
+  paths both poll with a spin limit (`TWI_SPIN_LIMIT`, `SPI_SPIN_LIMIT`) and
+  return `AG_ERR_TIMEOUT` rather than loop forever; `PULSE_IN` bounds the same
+  way at the capability layer. A bus held by a stuck peripheral -- a shorted
+  clock, a slave holding the line -- costs one refused command, not the
+  device's ability to answer any other (issue #16).
+- **Every peripheral the HAL exports an init for is called exactly once at
+  boot**, from `main.c`: `ag_hal_adc_init()` unconditionally, `ag_bus_init()`
+  (`src/caps/bus.c`) for I2C and SPI. Neither is gated by an `#if` in
+  `main.c` -- `ag_bus_init()` or `bus_none.c`'s no-op stub is always the one
+  linked, chosen by `mk/avr.mk`'s `BUS_SRCS` the same way `CRYPTO_SRCS`
+  chooses a crypto tier's `ag_crypto_init()`. Before this, `ADEN` and `SPE`
+  were never set: an ADC read returned a plausible-looking zero and the
+  first `SPI_XFER` hung the device forever (issue #19).
 
 ## Error semantics
 
@@ -158,6 +172,9 @@ All in `include/ag/config.h`, resolved `-D` > board profile > default:
 | `AG_FRAME_IDLE_MS` | 250 | how long a partial frame may sit before the framer abandons it |
 | `AG_UART_BAUD` | 115200 | matched by `serialport.DefaultBaud` in the Go SDK |
 | `AG_PROTO_VERSION_MAJOR` / `_MINOR` | 1 / 0 | rejected on major mismatch, tolerated in both directions on minor |
+| `AG_I2C_DEFAULT_HZ` | 100000 | `ag_bus_init()`'s boot-time I2C clock |
+| `AG_I2C_HZ_MIN` / `_MAX` | 1000 / 400000 | `I2C_CONFIG`'s accepted interval, capped at Fast-mode |
+| `AG_SPI_DEFAULT_MODE` / `_CLKDIV` / `_LSB_FIRST` | 0 / 3 / 0 | `ag_bus_init()`'s boot-time SPI mode 0, slowest divider, MSB-first |
 
 ## Test strategy
 
@@ -167,7 +184,8 @@ All in `include/ag/config.h`, resolved `-D` > board profile > default:
 | framer robustness | ten million random bytes under AddressSanitizer, asserting no overrun/allocation/hang | `make test-asan` |
 | Go codec robustness | `FuzzDecode`, `FuzzReplyParsers` in `sdk/go/fuzz_test.go` | `go test -fuzz=FuzzDecode -fuzztime=5m` |
 | cross-implementation agreement | Go SDK talks to `agsim` (real firmware, compiled for the host) over a pipe | `sdk-test`, driven by `make agsim` |
-| wire pinning | `testdata/vectors.h` vs `sdk/go/internal/vectors/vectors.go` | `make verify-vectors` |
+| wire pinning | `testdata/vectors.h` vs `sdk/go/internal/vectors/vectors.go` -- CRC results and, since #21, full encoded request frames for `I2C_CONFIG`/`SPI_CONFIG` | `make verify-vectors` |
+| ADC and SPI against the emulated peripherals | `test/integration/simavr/harness.c` feeds `ADC_IRQ_OUT_TRIGGER`/`SPI_IRQ_OUTPUT` and bounds every exchange by cycle count, so a hang fails rather than blocks | `make integration-test` |
 | CRC correctness | published CRC-16/CCITT-FALSE check value plus order-sensitivity vectors | `sdk/go/crc_test.go`, `test/unit/test_frame.c` |
 | codec unit tests | request/response/event round trip, short-frame, bad-CRC, bad-format, resync | `sdk/go/codec_test.go` |
 

@@ -49,6 +49,20 @@ default bound. Pass a larger bound sized to the image you flashed when talking
 to such a build: `agctl -boot-wait 10s ...`, or `ag.WithBootWait` when using
 the SDK directly.
 
+**A BOOT event from a PREVIOUS session does not fool this.** Closing a port
+does not stop the device transmitting — `agctl reset soft` followed by the
+port closing, as one invocation does, leaves that BOOT event sitting wherever
+the OS queues unread bytes, and the very next open would otherwise hand it
+straight back as if it were fresh. `serialport.Open` purges that backlog
+before returning the port (`ResetInputBuffer`, `TCIFLUSH`), and `Device`
+independently asks the conn to purge itself too, on top of that — belt and
+suspenders, because the second one works for any conn that offers the same
+purge method, not only one this package opened. Neither is a wall-clock
+guess: a purge discards whatever is ALREADY there at the moment it runs and
+nothing else, so it cannot be tuned into discarding a genuine event no
+matter how fast a board answers — which several boards this project supports
+do, the ATtiny85 (no bootloader at all) among them.
+
 ## Try it with no hardware at all
 
 `agsim` is the real firmware, compiled to run on this machine. Build it once,

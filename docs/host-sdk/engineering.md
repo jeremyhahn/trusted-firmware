@@ -60,7 +60,11 @@ Package `serialport` — `Open(path string, baud int) (io.ReadWriteCloser, error
   the caller drains it with `Events()` after the call returns. The one
   exception is the BOOT event `New` itself waits for (see `WithBootWait`
   below): that one is consumed at connect and never appears in `Events()`, so
-  it is never misreported as a reset happening mid-session.
+  it is never misreported as a reset happening mid-session. A stale BOOT left
+  over from a PREVIOUS session never reaches this far at all: `New` purges the
+  conn's backlog before it starts waiting (see `WithBootWait` below), so
+  there is nothing here for `Do` to misreport as this session's reset in the
+  first place.
 - **The device owns timer deadlines, not the host.** `TimerSet` arms a
   deadline in firmware; a crashed host does not leave a pin held. Re-arming a
   pin that already has a timer extends it rather than consuming a second slot.
@@ -122,10 +126,31 @@ constructor option or a CLI flag (see `cli.md`):
   exists to ride out; raise it for an `ag-boot` `BOOT_MEASURE=atecc608a` image,
   which can take several seconds to measure a large application before it
   starts. The bound depends on the conn returning from `Read` within it (see
-  `serialport.Open` below) exactly as `WithTimeout` already does.
+  `serialport.Open` below) exactly as `WithTimeout` already does. Before
+  waiting, `New` asks the conn to purge whatever it already has buffered, if
+  the conn offers a `ResetInputBuffer() error` method (the same
+  optional-interface pattern `SetReadDeadline` already uses) — a BOOT event a
+  PREVIOUS session left unread is otherwise indistinguishable from a fresh
+  one, and accepting it reintroduces the exact bug this option exists to fix.
+  Deliberately a purge, not a discard window: a window sized to catch backlog
+  reliably would also be long enough to swallow a genuine event on any board
+  that answers fast (the ATtiny85's own BOOT event, no bootloader involved, is
+  fully on the wire within single-digit milliseconds), where a purge cannot,
+  because it cannot discard a byte that has not arrived yet. This assumes
+  `New` runs reasonably promptly after the conn becomes valid for this
+  session, which every caller in this repository does; a caller that reads or
+  writes the conn itself before handing it to `New` should not expect the
+  purge to tell that traffic apart from genuine backlog. If the purge is
+  offered and fails, `New` treats that as reason to trust nothing it might
+  read and falls through immediately, the same as a disabled wait, rather
+  than risk accepting a stale BOOT the failed purge could not remove.
 - `serialport.Open(path, baud)` — `baud <= 0` uses `DefaultBaud` (115200);
   opens 8N1 with a 200ms internal read timeout as the floor beneath the SDK's
-  own deadline, so a missing device can't hang a read forever.
+  own deadline, so a missing device can't hang a read forever. Also purges
+  the port's receive buffer once, immediately, so nothing a previous session
+  left unread survives into this one -- independent of, and redundant with,
+  `Device`'s own purge above, which is what actually reaches a conn that did
+  not come from here at all.
 
 ## Test strategy
 

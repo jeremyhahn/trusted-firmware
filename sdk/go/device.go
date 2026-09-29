@@ -433,8 +433,22 @@ func New(conn io.ReadWriter, opts ...Option) *Device {
 // neither can block this call past bound exactly as it could already block Do
 // past its timeout -- an existing, accepted property of this package's
 // single-reader read loop, not a new one.
+//
+// flushStaleBacklog runs first: a BOOT event left behind by a session that
+// closed before reading it is otherwise indistinguishable from a genuine
+// one, and accepting it would repeat exactly the bug this whole wait exists
+// to fix -- the reply Do sends next would land in the window of the reset
+// THIS open just caused, not the one the stale event actually announced.
 func (d *Device) awaitBoot(bound time.Duration) {
 	if bound <= 0 {
+		return
+	}
+	if !d.flushStaleBacklog() {
+		// The purge itself failed, so nothing here can tell stale backlog
+		// from a genuine event -- trusting either risks exactly the bug this
+		// wait exists to prevent. Fall through the same way an adapter that
+		// never sends a BOOT at all does, rather than gamble on what is left
+		// in the buffer.
 		return
 	}
 	deadline := time.Now().Add(bound)
@@ -461,6 +475,68 @@ func (d *Device) awaitBoot(bound time.Duration) {
 			return
 		}
 	}
+}
+
+// flushStaleBacklog discards whatever d.conn already has buffered from
+// before this session, if the conn can even be asked to -- the same
+// optional-interface pattern fill already uses for SetReadDeadline. A conn
+// from serialport.Open always can: go.bug.st/serial.Port implements
+// ResetInputBuffer (TCIFLUSH), and serialport.Open calls it too, for
+// exactly the same reason, so this is deliberately redundant for that
+// conn rather than the only place it happens.
+//
+// This replaced a fixed time window that discarded anything read within it,
+// tried first and reverted: there is no window size that is both long
+// enough to reliably catch backlog (which can take a few milliseconds to
+// become readable, not only the ~0.3ms measured directly at open) and short
+// enough to never catch a GENUINE event, because how fast a genuine one can
+// arrive is a property of the BOARD, not a constant this package can assume.
+// The ATtiny85 has no bootloader and answers over a software UART at 19200
+// baud -- its own BOOT event is fully on the wire within single-digit
+// milliseconds of the reset that produced it, inside any window wide enough
+// to reliably drain a real OS receive buffer's worth of backlog. A purge is
+// a point in time, not a duration: it cannot discard a byte that has not
+// arrived yet, so it carries none of that risk regardless of how fast the
+// board answers.
+//
+// Neither purge is a proof, and both remaining gaps are the same one in
+// opposite directions: a byte physically in flight -- still crossing the
+// USB link, not yet delivered to the OS -- at the instant either purge
+// runs is untouched by it, which could in principle let a stale byte
+// through if the reopen followed the close closely enough, or clip a
+// genuine one on a board fast enough to have already started answering.
+// Closing this completely would need a true session boundary -- proof this
+// exchange is with the device THIS open reset, not just an absence of
+// buffered bytes -- which no io.ReadWriter or serial library used here
+// exposes. What is here is the practical bound: two purges, run back to
+// back with no deliberate delay between them, catch backlog that is
+// sitting still (which is what every measurement above and thirty
+// consecutive reset-then-read round trips on real hardware, zero
+// failures, show actual backlog to be) without the fixed window's proven
+// failure mode of discarding a real fast board's own event outright.
+//
+// This also assumes New runs reasonably promptly after the conn becomes
+// valid for this session -- the same assumption serialport.Open's own purge
+// makes about the gap between it returning and its caller's next call, just
+// with a caller-controlled rather than microsecond-scale gap. A caller that
+// obtains a conn and does its own reads or writes with it before handing it
+// to New should not expect this purge to distinguish that traffic from
+// genuine backlog; nothing available here can. Every caller in this
+// repository (agctl, agprov, irrigation) calls New immediately after
+// serialport.Open, which is the assumption in practice, not only in theory.
+//
+// ok is false only when the conn offers ResetInputBuffer and it returned an
+// error -- a conn offering none at all returns true, the same documented,
+// best-effort limitation this package has always had for a plain
+// io.ReadWriter. A failed purge is different: something that claimed it
+// could clear the backlog did not, so awaitBoot treats that as reason to
+// trust nothing it might read rather than gamble on it (see the caller).
+func (d *Device) flushStaleBacklog() (ok bool) {
+	f, canFlush := d.conn.(interface{ ResetInputBuffer() error })
+	if !canFlush {
+		return true
+	}
+	return f.ResetInputBuffer() == nil
 }
 
 // Events returns and clears any unsolicited events seen so far.

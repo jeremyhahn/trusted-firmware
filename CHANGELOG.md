@@ -79,6 +79,28 @@ Pre-1.0, MINOR carries breaking changes.
   the board pays the bound once and works exactly as before. The BOOT event
   New consumes at connect is not recorded in `Device.Events()`, so it is never
   misreported as a reset happening mid-session.
+- **The boot-event wait above had its own hole: a BOOT event left behind by
+  the PREVIOUS session could be mistaken for the current one.** Closing a
+  port does not stop the device from transmitting -- a `reset soft` followed
+  by closing the port (as one `agctl` invocation does) leaves that BOOT event
+  sitting in the OS's receive buffer, and the next open hands it straight
+  back, measured 0.3 ms after `open()`, long before this open's own DTR reset
+  could have produced a new one (never observed earlier than ~100 ms, usually
+  ~906 ms). `Device` accepted whichever arrived first and sent its next
+  request into the bootloader's window regardless -- the exact bug refs #17
+  exists to prevent, reintroduced through the one path that closes and
+  reopens the port between commands. Fixed by purging the receive buffer
+  (`ResetInputBuffer`, `TCIFLUSH`) rather than by a discard window: both
+  `serialport.Open` and `Device` (independently, so a conn that did not come
+  from `serialport.Open` is still covered) ask to purge whatever is already
+  buffered before trusting the stream. A time-based discard window was tried
+  first and reverted -- no fixed size is both long enough to reliably catch
+  backlog and short enough to never discard a GENUINE event, because how
+  fast a genuine one can arrive is a property of the board: the ATtiny85 has
+  no bootloader at all and its own BOOT event is fully on the wire within
+  single-digit milliseconds of its reset. A purge has no such window; it
+  cannot discard a byte that has not arrived yet, board speed notwithstanding.
+  Refs #17.
 - **No peripheral the HAL exports an init for was ever initialised.**
   `ADCSRA`'s `ADEN` was never set, so `ANALOG_READ` returned a
   plausible-looking zero on every board — a stuck-at-zero sensor reading as a

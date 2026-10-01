@@ -8,6 +8,8 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+## [0.7.0-alpha] - 2026-10-01
+
 ### Added
 
 - **The software ATECC608A does real P-256** (#36), so the evidence

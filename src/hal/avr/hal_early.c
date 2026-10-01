@@ -39,7 +39,23 @@
 
 #include "hal_early.h"
 
-uint8_t ag_hal_early_flags;
+/*
+ * `.noinit`, NOT the ordinary (`.bss`) storage a plain global would get.
+ *
+ * `.init3` runs before `.init4` -- which is where the C runtime's own
+ * `__do_clear_bss` lives, right after it in address order, and falls through
+ * to unconditionally. A `.bss` variable written here would be READ BACK AS
+ * ZERO by the time `main()` runs on every single boot: `.init4` clears it a
+ * few instructions later, whatever this wrote. This is not theoretical --
+ * `ag_hal_reset_cause()` read exactly this value, unconditionally, for as
+ * long as this variable was ordinary storage, and every reset cause this
+ * firmware ever reported was the one that survives that clear: none. `.noinit`
+ * is exactly the storage class the CDI handoff block uses for the same reason
+ * one section over -- excluded from both the C runtime's zero-fill and its
+ * flash-to-RAM data copy, so what `.init3` writes here is still there at
+ * `main()`.
+ */
+uint8_t ag_hal_early_flags __attribute__((section(".noinit")));
 
 void ag_hal_early_init(void) __attribute__((naked, used, section(".init3")));
 void ag_hal_early_init(void)

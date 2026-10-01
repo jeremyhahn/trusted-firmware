@@ -90,7 +90,7 @@ refused for application writes by `src/caps/storage.c`:
 | 48 | 1 | `boot_state` | `AG_BOOT_STATE_EMPTY`(0) / `STAGED`(1) / `GOOD`(2) |
 | 49 | 1 | `ota_state` | `AG_BOOT_OTA_IDLE`(0) / `RECEIVING`(1) / `VERIFIED`(2) / `FAILED`(3) |
 | 50 | 2 | `boot_fail_count` | |
-| 52 | 16 | `device_serial` | written by `agprov` at provisioning step 7 |
+| 52 | 16 | `device_serial` | baked into the `.eep` image by `agprov --bake-eeprom` before the part is ever flashed — there is no wire command that writes it |
 | 68 | 58 | reserved | |
 | 126 | 2 | `crc16` | over bytes `[0, 126)` — corruption detection, **not** integrity against an attacker; anyone who can write the region can recompute it |
 
@@ -102,27 +102,44 @@ Parsed by `ag_boot_platform_parse`, serialised by `ag_boot_platform_serialise`
 
 ### The DICE CDI handoff record
 
-`AG_BOOT_HANDOFF_LEN` (80) bytes of SRAM in `.noinit`, at the top of RAM,
-written once by `ag_boot_handoff_write` and read once by the application:
+`AG_BOOT_HANDOFF_LEN` (80) bytes of SRAM in its own `.handoff` section --
+uninitialised-but-not-zeroed storage, the same idea `.noinit` names, but its
+own section rather than that one: `src/hal/avr/hal_early.c`'s
+`ag_hal_early_flags` lives in ordinary `.noinit` for the identical reason
+(surviving past `.init3`, before `.bss` is cleared), and pinning the handoff
+block's address onto the generic `.noinit` output section would carry that
+variable along with it — briefly true of this codebase and the reason this
+note is here. At the top of RAM, written once by `ag_boot_handoff_write` and
+read once by the application (`src/core/handoff.c`'s `ag_boot_handoff_init`,
+at startup, before `ag_crypto_init`):
 
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
 | 0 | 4 | `magic` | `AG_BOOT_HANDOFF_MAGIC` = `0x49444341` |
-| 4 | 1 | `version` | `AG_BOOT_HANDOFF_VERSION` = 1 |
+| 4 | 1 | `version` | `AG_BOOT_HANDOFF_VERSION` = 2 |
 | 5 | 1 | `tier` | the `ag_crypto_tier_t` `ag_boot_cdi_tier()` observed |
 | 6 | 2 | `flags` | |
 | 8 | 32 | `cdi` | `HMAC(UDS, measurement)` |
 | 40 | 32 | `measurement` | so the application reports the `FWHash` actually verified, not a recomputation |
 | 72 | 4 | `image_version` | |
-| 76 | 2 | `crc16` | over bytes `[0, 76)` |
-| 78 | 2 | reserved | |
+| 76 | 1 | `reset_cause` | raw `MCUSR`, latched by `hal_early.c` before ag-boot's own `.init3` clears it — issue #18 |
+| 77 | 1 | reserved | |
+| 78 | 2 | `crc16` | over bytes `[0, 78)` |
+
+Version 2 repurposed bytes rather than growing the block: version 1 held
+`crc16` at offset 76 and two reserved bytes at 78; version 2 moved `crc16` to
+the end of what it now covers, widening coverage to include `reset_cause`.
+`AG_BOOT_HANDOFF_LEN` is unchanged.
 
 Built by `ag_boot_handoff_build`, parsed by `ag_boot_handoff_parse`
 (`boot/boot_handoff.c`) — pure functions over the byte layout, testable
 without an MCU on either side. `ag_boot_handoff_parse` returns
 `AG_ERR_NOT_PROVISIONED` on a missing magic, `AG_ERR_UNSUPPORTED` on a version
 this build doesn't know, and `AG_ERR_CRC` on a block a stack overwrote — the
-one failure worth naming on a part with no MPU.
+one failure worth naming on a part with no MPU. An unknown or older version
+degrades exactly like a missing handoff: `DeviceID`/`FWHash` stay zero and
+`ag_hal_reset_cause()` falls back to the application's own `.init3`
+observation — never a block misread as something it is not.
 
 **This is data, never a call.** The application asking the bootloader for its
 CDI through a trampoline is exactly what the tier forbids — see
@@ -132,7 +149,13 @@ CDI through a trampoline is exactly what the tier forbids — see
 
 Every layout above is additive-only: offsets never move, fields never
 renumber, and a `*_version`/`layout_version` byte gates whether a build
-understands what it's reading. `AG_BOOT_TRAILER_VERSION`,
-`AG_BOOT_EE_VERSION` and `AG_BOOT_HANDOFF_VERSION` are each currently `1`;
-none has a second value defined. The OTA command IDs (`0x68`–`0x6B`) sit in
-the same extend-never-renumber space as the rest of `include/ag/protocol.h`.
+understands what it's reading. `AG_BOOT_TRAILER_VERSION` and
+`AG_BOOT_EE_VERSION` are each currently `1`, with no second value defined.
+`AG_BOOT_HANDOFF_VERSION` is `2` — version 1 held `crc16` at offset 76 and
+two reserved bytes at 78; version 2 (issue #18) repurposed the first
+reserved byte as `reset_cause` and moved `crc16` to cover it, without
+growing the block. An application and a bootloader built from sources on
+either side of that change treat each other's handoff exactly like a
+missing one: refused, not misread — see "The DICE CDI handoff record"
+above. The OTA command IDs (`0x68`–`0x6B`) sit in the same
+extend-never-renumber space as the rest of `include/ag/protocol.h`.

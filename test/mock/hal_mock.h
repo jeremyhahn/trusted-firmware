@@ -45,6 +45,12 @@ void ag_mock_set_adc(uint8_t channel, uint16_t raw);
 /* eeprom: a flat array the test can inspect directly */
 uint8_t *ag_mock_eeprom(void);
 
+/* handoff: the raw AG_BOOT_HANDOFF_LEN-byte block ag_hal_handoff_block()
+ * returns. Zeroed by ag_mock_reset(), which reads as "no handoff" -- the same
+ * thing a stock bootloader or cold SRAM produces. A test builds a real one
+ * with ag_boot_handoff_build (boot/boot_handoff.c) and copies it in here. */
+uint8_t *ag_mock_handoff(void);
+
 /* pwm: the duty a pin was last given, and whether it is connected at all */
 uint8_t ag_mock_pwm_duty(uint16_t ocr);
 uint8_t ag_mock_pwm_connected(uint16_t tccra, uint8_t com_bit);

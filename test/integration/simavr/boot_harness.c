@@ -741,6 +741,20 @@ static void build_image(const elf_firmware_t *app, uint32_t version, long tamper
     }
 }
 
+/*
+ * The serial `agprov --bake-eeprom` would have baked in before this part was
+ * ever flashed -- see sdk/go/cmd/agprov/eeprom.go. Non-zero so this image is
+ * genuinely a "provisioned platform block" and not an accidental all-zero
+ * one; this harness's mismatched crypto tiers (see test_signed_image_boots)
+ * mean ATTEST refuses before DeviceID would ever reach the wire here --
+ * test_attest.c's test_a_baked_serial_reaches_device_id is where that flow is
+ * proven, against a matching tier.
+ */
+static const uint8_t TEST_DEVICE_SERIAL[AG_BOOT_SERIAL_LEN] = {
+    0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,
+    0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5
+};
+
 static void build_eeprom(void)
 {
     ag_boot_platform_t plat;
@@ -758,6 +772,7 @@ static void build_eeprom(void)
      * a pass.
      */
     plat.boot_state = AG_BOOT_STATE_GOOD;
+    memcpy(plat.serial, TEST_DEVICE_SERIAL, AG_BOOT_SERIAL_LEN);
     ag_boot_platform_serialise(&plat, eeprom_image);
 }
 
@@ -816,6 +831,16 @@ static void install(elf_firmware_t *boot, uint32_t counter)
 static int device_spoke(void)   { return from_device_n > 0; }
 static int event_arrived(void)  { uint8_t s; return find_event(&s); }
 
+/* run_until's predicate has no arguments, so the sequence it waits for is a
+ * static -- set immediately before the wait, exactly as every other budget
+ * here bounds a single specific exchange rather than a general condition. */
+static uint8_t wait_for_seq;
+static int response_arrived(void)
+{
+    uint8_t s, plen, buf[64];
+    return find_response(wait_for_seq, &s, buf, &plen);
+}
+
 /* ---------------------------------------------------------------- tests */
 
 /*
@@ -836,6 +861,22 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
     build_image(app, 3u, -1);
     build_eeprom();
     install(boot, 0u);
+
+    /*
+     * MCUSR, poked directly into emulated memory -- EXTRF (bit 1), an
+     * external reset. This is the fact issue #18 is actually about: does the
+     * value survive ag-boot's OWN .init3 (which reads and clears the real
+     * register), through the handoff, through the application's OWN .init3
+     * (which reads a register already zero by then), out to SYS_INFO? A test
+     * that only checked the handoff's byte layout, as test_reset_cause.c
+     * does on the host, cannot catch a linker or storage-class mistake that
+     * lets .bss-clearing erase the latch before anything reads it -- which is
+     * exactly what shipped here, briefly, until this line existed.
+     *
+     * 0x54 is MCUSR's address in the AVR's unified data space (I/O address
+     * 0x34 plus the 0x20 offset every classic AVR in this family uses).
+     */
+    avr->data[0x54] = 0x02u;   /* EXTRF */
 
     check(run_until(device_spoke, BUDGET_BOOT),
           "the device transmits within the cycle budget");
@@ -866,6 +907,70 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
     run_cycles(BUDGET_EXCHANGE);
     check(find_response(0x31, &status, out, &outlen) && status == AG_OK,
           "CAPS answers, so the APPLICATION is running");
+
+    /*
+     * ATTEST, over the wire, through the WHOLE stack -- issues #6/#7. This
+     * board's bootloader is BOOT_TIER=atecc608a (the row simavr runs, and the
+     * one that fits the Mega's boot section per BOOT_SUPPORTED); $(TARGET).elf
+     * here is CRYPTO=soft, mk/avr.mk's own independent default -- a MISMATCH
+     * this harness carries rather than resolves, because it is exactly the
+     * case src/crypto/soft/provider.c must now refuse rather than sign with.
+     * ag-boot hands off a real, non-zero CDI derived from the ELEMENT's UDS,
+     * tagged AG_CRYPTO_SECURE_ELEMENT; the software tier has no way to
+     * reproduce a secret from a UDS it never provisions anywhere it reads
+     * from, so a verifier configured for this tier could never recompute a
+     * signature made under it. Accepting the handoff anyway would be evidence
+     * that verifies against nothing a real verifier could ever check.
+     *
+     * A test that only mocked the tier byte, as test_attest.c does on the
+     * host, could not catch a REAL ag-boot's REAL element-derived CDI
+     * reaching a REAL software-tier build over the actual fixed SRAM address.
+     * This is that path, and the correct answer is AG_ERR_NOT_PROVISIONED --
+     * the same status an entirely unprovisioned device returns, which is
+     * exactly right: this device has no identity THIS TIER CAN USE, whatever
+     * ag-boot found.
+     */
+    {
+        static const uint8_t nonce[AG_ATTEST_NONCE_LEN] = {
+            0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+        };
+        uint8_t out2[64], outlen2;
+
+        from_device_n = 0;
+        n = frame_request(wire, 0x34, AG_CMD_ATTEST, nonce, sizeof nonce);
+        send(wire, n);
+        wait_for_seq = 0x34;
+        run_until(response_arrived, BUDGET_EXCHANGE);
+        check(find_response(0x34, &status, out2, &outlen2)
+              && status == AG_ERR_NOT_PROVISIONED,
+              "ATTEST refuses a CDI handed off for a mismatched crypto tier");
+    }
+
+    /*
+     * The reset cause: the EXTRF poked into MCUSR above, having survived
+     * ag-boot's OWN .init3 (which reads and clears the real register),
+     * the handoff, the application's OWN .init3 (which reads a register
+     * already zero by then), and out through SYS_INFO -- issue #18.
+     */
+    {
+        uint8_t sysinfo[64], sysinfo_len;
+
+        from_device_n = 0;
+        n = frame_request(wire, 0x36, AG_CMD_SYS_INFO, NULL, 0u);
+        send(wire, n);
+        wait_for_seq = 0x36;
+        run_until(response_arrived, BUDGET_EXCHANGE);
+        /*
+         * >= 7, not == 7: #24 appended err_crc/err_format after reset_cause,
+         * which grew the reply to 11 bytes without moving reset_cause's own
+         * offset -- exactly the extend-never-renumber shape SYS_INFO's own
+         * versioning promises. reset_cause stays at byte 6 regardless of how
+         * many bytes follow it.
+         */
+        check(find_response(0x36, &status, sysinfo, &sysinfo_len) && status == AG_OK
+              && sysinfo_len >= 7u && sysinfo[6] == 2u /* AG_RESET_EXTERNAL */,
+              "SYS_INFO reports the reset cause ag-boot handed off, not unknown");
+    }
 }
 
 static void test_tampered_image_refuses(elf_firmware_t *boot, elf_firmware_t *app)

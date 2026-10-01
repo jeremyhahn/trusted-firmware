@@ -106,7 +106,7 @@ BOOT_SRCS := $(sort \
   boot/boot_platform.c boot/boot_policy.c \
   boot/hal/avr/boot_hal_avr.c \
   src/proto/crc16.c src/proto/crc16_update.c \
-  src/hal/avr/hal_early.c \
+  src/hal/avr/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
 
 BOOT_OBJS := $(patsubst %.c,$(BOOT_DIR_OUT)/%.o,$(BOOT_SRCS))
@@ -161,9 +161,16 @@ BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
 BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
 endif
 
+# `.handoff`, NOT the generic `.noinit` output section -- src/hal/avr/
+# hal_early.c's ag_hal_early_flags lives in ordinary (unpinned) `.noinit` too,
+# in THIS image as well, for the same "must survive past .init3, before .bss
+# is cleared" reason. Pinning the generic section's address would carry every
+# object assigned to it to this one fixed spot, overflowing the 80 bytes meant
+# for the handoff block alone.
 BOOT_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax \
+                -Wl,-T,mk/handoff.ld \
                 -Wl,--section-start=.text=$(BOOT_TEXT_START) \
-                -Wl,--section-start=.noinit=$(BOOT_HANDOFF_AT) \
+                -Wl,--section-start=.handoff=$(BOOT_HANDOFF_AT) \
                 -Wl,--defsym=__stack=$(BOOT_STACK_TOP)
 
 $(BOOT_DIR_OUT)/src/third_party/ed25519-donna/%.o: src/third_party/ed25519-donna/%.c
@@ -195,6 +202,9 @@ $(BOOT_TARGET).elf: $(BOOT_OBJS)
 	  echo "setting -- there is nothing to raise it to."; \
 	  exit 1; }
 
+# -R .eeprom only. mk/handoff.ld (in BOOT_LDFLAGS, above) makes `.handoff`
+# genuinely NOLOAD, the same section type `.bss` already is, so it carries no
+# bytes in the ELF and objcopy already leaves it out on its own.
 $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 	@$(OBJCOPY) -O ihex -R .eeprom $< $@
 

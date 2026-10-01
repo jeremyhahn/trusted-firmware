@@ -4,6 +4,9 @@
 #include <string.h>
 #include "hal_mock.h"
 #include "ag/hal.h"
+#include "ag/boot.h"
+#include "handoff.h"
+#include "reset_cause.h"
 
 #define RX_CAP 4096u
 #define TX_CAP 4096u
@@ -24,6 +27,7 @@ static unsigned         resets;
  * a table with a wrong port address fails here, not only on hardware. */
 #define EEPROM_SIZE 1024u
 static uint8_t  eeprom[EEPROM_SIZE];
+static uint8_t  handoff[AG_BOOT_HANDOFF_LEN];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
 static uint16_t tone_hz;
@@ -49,6 +53,7 @@ void ag_mock_reset(void)
     cause = AG_RESET_POWER_ON; free_ram = 1024u; resets = 0u;
     memset(regs, 0, sizeof regs);
     memset(eeprom, 0xFF, sizeof eeprom);   /* erased EEPROM reads as 0xFF */
+    memset(handoff, 0, sizeof handoff);    /* zeroed: reads as "no handoff" */
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
     tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
@@ -95,6 +100,9 @@ void ag_mock_set_adc(uint8_t channel, uint16_t raw)
 }
 
 uint8_t *ag_mock_eeprom(void) { return eeprom; }
+uint8_t *ag_mock_handoff(void) { return handoff; }
+
+uint8_t *ag_hal_handoff_block(void) { return handoff; }
 
 uint8_t ag_mock_pin_level(uint16_t port, uint8_t bit)
 {
@@ -150,7 +158,24 @@ unsigned ag_mock_reset_count(void)           { return resets; }
 /* ------------------------------------------------------- the HAL itself */
 
 ag_status_t      ag_hal_init(void)         { return AG_OK; }
-ag_reset_cause_t ag_hal_reset_cause(void)  { return cause; }
+
+/*
+ * Mirrors src/hal/avr/hal_sys.c's own preference: a valid handoff (issue #18)
+ * wins over whatever the test set directly with ag_mock_set_reset_cause,
+ * exactly as ag-boot's observation wins over the application's own .init3 on
+ * real hardware. Two HAL implementations of the same contract, not one
+ * decoder duplicated -- ag_reset_cause_decode is the one place the bit
+ * priority lives.
+ */
+ag_reset_cause_t ag_hal_reset_cause(void)
+{
+    uint8_t handed_off;
+
+    if (ag_boot_handoff_reset_cause(&handed_off)) {
+        return ag_reset_cause_decode(handed_off);
+    }
+    return cause;
+}
 ag_ms_t          ag_hal_millis(void)       { return now; }
 void             ag_hal_delay_us(uint16_t us) { (void)us; }
 uint16_t         ag_hal_free_ram(void)     { return free_ram; }

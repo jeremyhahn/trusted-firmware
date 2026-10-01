@@ -47,6 +47,39 @@ const (
 )
 ```
 
+A separate surface touches no element and opens no port — it bakes the
+platform-reserved EEPROM block into a `.eep` image before the device is ever
+flashed (`sdk/go/platform.go`, package `aggeneric`):
+
+```go
+func BuildPlatformBlock(serial [SerialLen]byte, pubkeyHash [PubkeyHashLen]byte) [PlatformBlockLen]byte
+```
+
+`SerialLen` (16), `PubkeyHashLen` (32) and `PlatformBlockLen` (128) mirror
+`include/ag/boot.h`'s `AG_BOOT_SERIAL_LEN`/`AG_BOOT_MEASURE_LEN`/
+`AG_BOOT_EE_LEN`. CLI: `sdk/go/cmd/agprov --bake-eeprom` — writes a partial
+Intel HEX file (`sdk/go/cmd/agprov/eeprom.go`) covering only the platform
+block's 128 addresses, which is what makes it safe: `avrdude -U eeprom:w:
+file:i` writes only the addresses a hex file names and leaves the rest of
+the part's EEPROM untouched.
+
+**The programmer matters, not just the file.** The `.eep` file this tool
+writes has been verified correct offline (byte-for-byte, against
+`ag_boot_platform_parse`'s own decode — see the test row below). On a real
+Mega 2560 with its factory STK500v2 bootloader, `avrdude -c wiring -U
+eeprom:w:platform.eep:i` was observed to corrupt the write in transit: bytes
+`0x00`–`0x1b` landed, the rest of the record stream was dropped, and avrdude
+reported a verification mismatch (chip-erase-based terminal-mode writes also
+failed outright). The resulting on-device block fails its CRC, and
+`ag_platform_id_init` correctly treats a bad-CRC block as unprovisioned
+rather than as a forged identity — that is the firmware working as designed,
+not evidence the bake was fine. It was not. Baking this image therefore
+requires an ISP programmer. `ag-boot` exposes only PING, OTA and RESET
+(`boot/boot_session.c`), and the application's `EEPROM_WRITE` refuses the
+region unconditionally, so neither offers another route. The stock
+serial bootloader's programmer type (`-c wiring`/`-c arduino`) is not a
+supported way to write this block. See [`user.md`](user.md), step 1.
+
 CLI: `sdk/go/cmd/agprov` (binary `agprov`) — see [`cli.md`](cli.md).
 
 ## Invariants
@@ -94,15 +127,17 @@ If the config zone is already locked, steps 1–2 are skipped. If the data zone
 is already locked, `runCommit` refuses outright: the part cannot be
 reconfigured.
 
-**Known gap, not a deliberate omission** (tracked as issue #6):
-`include/ag/boot.h`'s platform-EEPROM layout comment describes `device_serial`
-(offset 52) as "written by agprov, step 7." No such step exists in the code: `runCommit` has no EEPROM
-step, and `sdk/go/commands.go`'s `EEPROMWrite` refuses every address below
-`EEPROMReservedEnd` (`0x80`) unconditionally — not gated by
-`AG_FEATURE_PROVISION` — so no wire command can write that region on any image.
-The device serial must currently be baked into the EEPROM image before
-flashing; treat any document or comment describing `agprov` as writing it as
-out of date until a command exists.
+**Resolved** (issue #6): the device serial is baked into a `.eep` image
+BEFORE the device is ever flashed, by `agprov --bake-eeprom`
+(`sdk/go/cmd/agprov/eeprom.go`, `sdk/go/platform.go`) — never over the wire.
+`sdk/go/commands.go`'s `EEPROMWrite` still refuses every address below
+`EEPROMReservedEnd` (`0x80`) unconditionally, and that refusal was kept
+absolute rather than given a provisioning exemption: a narrower hole is
+still a hole. `--bake-eeprom` opens no serial port and needs no
+`AG_FEATURE_PROVISION` image; it is a pure file operation, run once, before
+any of the fuse/flash/`agprov --commit` steps below. See
+[`cli.md`](cli.md) and [`user.md`](user.md) for where it fits in the
+sequence.
 
 ## Error semantics
 
@@ -138,7 +173,10 @@ frame is sent where the check does not require the device.
 |---|---|---|
 | Firmware unit | `test/unit/test_provision.c`, linked against `test/model/atecc608a.c` | every handler against a software model of the element — block refusal, CRC-required lock, slot range checks, out-of-order lock, seeding never exposing key material |
 | Go unit | `sdk/go/provision_test.go` | `ProvInfo` payload decoding (both lock-byte polarities, truncated/missing-lock-byte replies, a production image's `ErrUnknownCommand`), `ProvLock`'s zero-CRC refusal, `ProvWriteConfig`'s size check |
+| Go unit | `sdk/go/platform_test.go` | `BuildPlatformBlock`'s layout, CRC coverage and tamper detection |
+| Firmware unit (cross-language) | `test/unit/boot/test_boot_platform.c`'s `test_a_baked_eeprom_image_is_decoded_correctly` | a LITERAL byte-for-byte capture of what `agprov --bake-eeprom` actually wrote, decoded by `ag_boot_platform_parse` — the two implementations of one layout checked against each other's output, not just against themselves |
 | Simulator / agsim | `sdk/go/agsim_test.go` | wire-level EEPROM reserved-region enforcement (`EEPROMWrite` at `0x000`, `0x07F`, `0x100`) exercised against the real firmware build, not a model |
+| Integration (simavr) | `test/integration/simavr/boot_harness.c`'s `test_signed_image_boots` | a serial baked into the emulated EEPROM reaches `ATTEST`'s `DeviceID` over the real wire, through `ag_platform_id_init`, on the real compiled application — end to end, not mocked |
 
 Run `test-provision`-equivalent unit targets per the top-level `Makefile`
 conventions in this repo's `CLAUDE.md`; there is no dedicated

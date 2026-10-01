@@ -16,7 +16,12 @@
 #include "ag/crypto.h"
 #include "ag/protocol.h"
 #include "ag/config.h"
+#include "ag/boot.h"
 #include "uds_mock.h"
+#include "handoff.h"
+#include "platform_id.h"
+#include "boot_platform.h"
+#include "boot_measure.h"
 
 static uint8_t     inbuf[AG_MAX_PAYLOAD];
 static uint8_t     outbuf[AG_MAX_PAYLOAD];
@@ -323,6 +328,266 @@ static void test_a_page_past_the_end_is_refused(void)
     TEST_ASSERT_EQUAL(AG_ERR_RANGE, run(&page, 1u));
 }
 
+/* ---------------------------------------------------------------------- */
+/*  DeviceID and FWHash: from the platform block and the boot handoff --    */
+/*  issue #6. Offsets are the evidence frame's documented layout            */
+/*  ([Version:1][Nonce:16][DeviceID:16][FWHash:32]...),                    */
+/*  docs/dice-attestation/architecture.md.                                 */
+/* ---------------------------------------------------------------------- */
+
+#define TEST_OFF_DEVICE_ID 17u
+#define TEST_OFF_FW_HASH   33u
+
+/* Reassembles the whole 164-byte evidence frame across pages -- the same
+ * technique test_the_evidence_is_retrievable_in_pages uses inline, factored
+ * out because the tests below need to read fields the earlier tests never
+ * had to look at. */
+static void full_evidence(uint8_t *whole)
+{
+    uint8_t got = 0u;
+    uint8_t page;
+
+    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ATTEST_NONCE_LEN));
+    memcpy(whole, &outbuf[2], (size_t)(ag_writer_len(&w) - 2u));
+    got = (uint8_t)(ag_writer_len(&w) - 2u);
+
+    for (page = 1u; got < AG_ATTEST_LEN; page++) {
+        TEST_ASSERT_EQUAL(AG_OK, run(&page, 1u));
+        memcpy(&whole[got], &outbuf[2], (size_t)(ag_writer_len(&w) - 2u));
+        got = (uint8_t)(got + (ag_writer_len(&w) - 2u));
+    }
+}
+
+static const uint8_t TEST_SERIAL[AG_ATTEST_ID_LEN] = {
+    0x53,0x4E,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x30,0x31,0x00,0x00,0x00,0x00
+};
+
+/*
+ * A device with no platform block at all -- the factory-fresh case, before
+ * agprov ever bakes a serial in. DeviceID must stay zero rather than
+ * fabricated, exactly as it always has.
+ */
+static void test_device_id_is_zero_with_no_platform_block(void)
+{
+    uint8_t whole[AG_ATTEST_LEN];
+
+    provision();
+    full_evidence(whole);
+    for (uint8_t i = 0u; i < AG_ATTEST_ID_LEN; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00u, whole[TEST_OFF_DEVICE_ID + i]);
+    }
+}
+
+/*
+ * THE REGRESSION THIS EXISTS TO CATCH. A platform block agprov baked in must
+ * reach the evidence frame as DeviceID -- not stay zero because nothing wired
+ * the accessor in. Fails on zero, which is the whole point of the test.
+ */
+static void test_a_baked_serial_reaches_device_id(void)
+{
+    ag_boot_platform_t plat;
+    uint8_t             raw[AG_BOOT_EE_LEN];
+    uint8_t             whole[AG_ATTEST_LEN];
+
+    memset(&plat, 0, sizeof plat);
+    memcpy(plat.serial, TEST_SERIAL, sizeof plat.serial);
+    memset(raw, 0, sizeof raw);
+    ag_boot_platform_serialise(&plat, raw);
+    memcpy(ag_mock_eeprom(), raw, AG_BOOT_EE_LEN);
+    ag_platform_id_init();
+
+    provision();
+    full_evidence(whole);
+
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(TEST_SERIAL, &whole[TEST_OFF_DEVICE_ID],
+                                  AG_ATTEST_ID_LEN);
+    /* And it did NOT come back all zero -- the failure mode a broken wire-up
+     * would produce silently. */
+    {
+        uint8_t all_zero = 1u;
+        for (uint8_t i = 0u; i < AG_ATTEST_ID_LEN; i++) {
+            if (whole[TEST_OFF_DEVICE_ID + i] != 0u) { all_zero = 0u; }
+        }
+        TEST_ASSERT_FALSE(all_zero);
+    }
+}
+
+/* A corrupted platform block must not leak whatever EEPROM held -- refused
+ * exactly as an unwritten one is, and DeviceID stays zero. */
+static void test_a_corrupted_platform_block_leaves_device_id_zero(void)
+{
+    ag_boot_platform_t plat;
+    uint8_t             raw[AG_BOOT_EE_LEN];
+    uint8_t             whole[AG_ATTEST_LEN];
+
+    memset(&plat, 0, sizeof plat);
+    memcpy(plat.serial, TEST_SERIAL, sizeof plat.serial);
+    memset(raw, 0, sizeof raw);
+    ag_boot_platform_serialise(&plat, raw);
+    raw[AG_BOOT_EE_O_SERIAL] ^= 0xFFu;      /* CRC now wrong */
+    memcpy(ag_mock_eeprom(), raw, AG_BOOT_EE_LEN);
+    ag_platform_id_init();
+
+    provision();
+    full_evidence(whole);
+    for (uint8_t i = 0u; i < AG_ATTEST_ID_LEN; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00u, whole[TEST_OFF_DEVICE_ID + i]);
+    }
+}
+
+/* No bootloader ran (or a stock one did): FWHash stays zero. */
+static void test_fw_hash_is_zero_with_no_handoff(void)
+{
+    uint8_t whole[AG_ATTEST_LEN];
+
+    provision();
+    full_evidence(whole);
+    for (uint8_t i = 0u; i < AG_SHA256_LEN; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00u, whole[TEST_OFF_FW_HASH + i]);
+    }
+}
+
+/*
+ * THE OTHER REGRESSION THIS EXISTS TO CATCH: the measurement ag-boot verified
+ * must reach the evidence frame as FWHash, spanning the page boundary at byte
+ * 48 the same way the real field does. Fails on zero.
+ *
+ * The CDI here is a real (non-zero) value, deliberately NOT the all-zero
+ * "unprovisioned" sentinel -- ag_crypto_init now correctly refuses to
+ * provision from a right-tier handoff carrying that sentinel (see
+ * test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_even_
+ * with_a_real_local_uds), which would make ATTEST itself refuse and this
+ * test's own full_evidence() call fail before ever reaching the FWHash
+ * assertion below. provision() is still called so this also proves the
+ * handed-off CDI takes priority over an available local UDS, not just that
+ * a device happens to be provisioned somehow.
+ */
+static void test_a_handed_off_measurement_reaches_fw_hash(void)
+{
+    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32];
+    uint8_t measurement[AG_SHA256_LEN];
+    uint8_t whole[AG_ATTEST_LEN];
+
+    for (uint8_t i = 0u; i < sizeof cdi; i++) { cdi[i] = (uint8_t)(0xC0u + i); }
+    for (uint8_t i = 0u; i < sizeof measurement; i++) {
+        measurement[i] = (uint8_t)(0xE0u + i);
+    }
+    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, measurement, 1u, 0u);
+    memcpy(ag_mock_handoff(), block, AG_BOOT_HANDOFF_LEN);
+    ag_boot_handoff_init();
+
+    provision();
+    full_evidence(whole);
+
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(measurement, &whole[TEST_OFF_FW_HASH],
+                                  AG_SHA256_LEN);
+    {
+        uint8_t all_zero = 1u;
+        for (uint8_t i = 0u; i < AG_SHA256_LEN; i++) {
+            if (whole[TEST_OFF_FW_HASH + i] != 0u) { all_zero = 0u; }
+        }
+        TEST_ASSERT_FALSE(all_zero);
+    }
+}
+
+/*
+ * The soft tier's own identity, straight from a handed-off CDI, with NO local
+ * UDS provisioned at all. If ag_crypto_init did not prefer the handoff this
+ * would be AG_ERR_NOT_PROVISIONED -- setUp leaves the UDS at its
+ * unprovisioned default and nothing here calls provision().
+ */
+static void test_a_nonzero_handed_off_cdi_provisions_the_soft_tier_alone(void)
+{
+    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], measurement[32];
+    uint8_t sig[AG_SIG_LEN];
+    uint8_t alg = AG_ALG_NONE;
+    uint8_t digest[AG_SHA256_LEN];
+
+    for (uint8_t i = 0u; i < sizeof cdi; i++)         { cdi[i] = (uint8_t)(0xD0u + i); }
+    for (uint8_t i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)i; }
+    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, measurement, 1u, 0u);
+    memcpy(ag_mock_handoff(), block, AG_BOOT_HANDOFF_LEN);
+    ag_boot_handoff_init();
+
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    memset(digest, 0x42, sizeof digest);
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_sign(digest, sig, &alg));
+    TEST_ASSERT_EQUAL_HEX8(AG_ALG_HMAC_SHA256, alg);
+}
+
+/*
+ * THE REGRESSION A CODEX REVIEW FOUND. A handoff naming
+ * AG_CRYPTO_SECURE_ELEMENT is correctly drained and discarded by the soft
+ * tier -- but this device ALSO has a real local UDS, independently
+ * provisioned (provision(), below, patches the mock's own placeholder).
+ * Before this was fixed, the mismatch branch fell through to the local
+ * fallback derivation, which signed successfully using this UDS and a
+ * PLACEHOLDER measurement -- while FWHash (src/caps/attest.c, independent of
+ * this provider) would have reported the REAL measurement ag-boot verified.
+ * A verifier would see a signature that does not correspond to the
+ * measurement claimed alongside it: evidence that verifies against nothing,
+ * reached by a different path than the one #7's tier check was written to
+ * close. The device must stay unprovisioned instead.
+ */
+static void test_a_mismatched_tier_handoff_refuses_even_with_a_real_local_uds(void)
+{
+    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], measurement[32];
+    uint8_t sig[AG_SIG_LEN];
+    uint8_t alg = AG_ALG_NONE;
+    uint8_t digest[AG_SHA256_LEN];
+
+    for (uint8_t i = 0u; i < sizeof cdi; i++)         { cdi[i] = (uint8_t)(0xE0u + i); }
+    for (uint8_t i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)i; }
+    ag_boot_handoff_build(block, AG_CRYPTO_SECURE_ELEMENT, cdi, measurement, 1u, 0u);
+    memcpy(ag_mock_handoff(), block, AG_BOOT_HANDOFF_LEN);
+    ag_boot_handoff_init();
+
+    provision();    /* a REAL local UDS -- ag_crypto_soft_uds() would succeed */
+
+    memset(digest, 0x42, sizeof digest);
+    TEST_ASSERT_EQUAL(AG_ERR_NOT_PROVISIONED, ag_crypto_sign(digest, sig, &alg));
+    TEST_ASSERT_EQUAL(AG_ERR_NOT_PROVISIONED, ag_crypto_hmac(0u, digest, sizeof digest, sig));
+}
+
+/*
+ * THE SAME MISBINDING, REACHED FROM THE OTHER DIRECTION. A handoff naming
+ * AG_CRYPTO_SOFTWARE -- the RIGHT tier -- but carrying ag-boot's own
+ * all-zero "unprovisioned" sentinel CDI (ag-boot ran, verified a real image,
+ * found no UDS to derive from). ag_boot_handoff_take_cdi correctly refuses
+ * to offer an all-zero CDI as usable (src/core/handoff.c), but before this
+ * was fixed, ag_crypto_init's right-tier branch only set `provisioned` on a
+ * SUCCESSFUL take and otherwise fell through to the local fallback below it
+ * -- which, on a device that ALSO has a real local UDS (provision(), below),
+ * signed successfully with that local UDS and a PLACEHOLDER measurement,
+ * while FWHash reported the REAL measurement this same valid handoff
+ * carried. A valid handoff for this tier must be authoritative either way:
+ * a usable CDI provisions, an unusable one refuses, and only the absence of
+ * any valid handoff may fall back to the local derivation.
+ */
+static void test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_even_with_a_real_local_uds(void)
+{
+    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], measurement[32];
+    uint8_t sig[AG_SIG_LEN];
+    uint8_t alg = AG_ALG_NONE;
+    uint8_t digest[AG_SHA256_LEN];
+
+    memset(cdi, 0, sizeof cdi);    /* ag-boot's own "unprovisioned" sentinel */
+    for (uint8_t i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)i; }
+    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, measurement, 1u, 0u);
+    memcpy(ag_mock_handoff(), block, AG_BOOT_HANDOFF_LEN);
+    ag_boot_handoff_init();
+
+    provision();    /* a REAL local UDS -- ag_crypto_soft_uds() would succeed */
+
+    memset(digest, 0x42, sizeof digest);
+    TEST_ASSERT_EQUAL(AG_ERR_NOT_PROVISIONED, ag_crypto_sign(digest, sig, &alg));
+    TEST_ASSERT_EQUAL(AG_ERR_NOT_PROVISIONED, ag_crypto_hmac(0u, digest, sizeof digest, sig));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -339,6 +604,14 @@ int main(void)
     RUN_TEST(test_a_different_nonce_produces_a_different_signature);
     RUN_TEST(test_a_different_device_secret_produces_a_different_signature);
     RUN_TEST(test_a_page_past_the_end_is_refused);
+    RUN_TEST(test_device_id_is_zero_with_no_platform_block);
+    RUN_TEST(test_a_baked_serial_reaches_device_id);
+    RUN_TEST(test_a_corrupted_platform_block_leaves_device_id_zero);
+    RUN_TEST(test_fw_hash_is_zero_with_no_handoff);
+    RUN_TEST(test_a_handed_off_measurement_reaches_fw_hash);
+    RUN_TEST(test_a_nonzero_handed_off_cdi_provisions_the_soft_tier_alone);
+    RUN_TEST(test_a_mismatched_tier_handoff_refuses_even_with_a_real_local_uds);
+    RUN_TEST(test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_even_with_a_real_local_uds);
     RUN_TEST(test_the_software_tier_refuses_to_issue_an_alias_certificate);
     RUN_TEST(test_an_unprovisioned_device_refuses_an_alias_certificate);
     RUN_TEST(test_an_alias_page_with_no_certificate_is_refused);

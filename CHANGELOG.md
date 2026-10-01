@@ -38,6 +38,41 @@ Pre-1.0, MINOR carries breaking changes.
   `ADEN`/`SPE` where the host mock cannot. Every exchange is bounded by a
   fixed cycle count, so a regression that reintroduces the hang below fails
   the suite instead of blocking it.
+- **`agprov --bake-eeprom`** writes the platform-reserved EEPROM block —
+  the device serial, among other fields — as a partial Intel HEX `.eep`
+  image, flashed before any production firmware. There is deliberately no
+  wire command that writes this region; `src/caps/storage.c`'s refusal of it
+  stays absolute. Refuses an all-zero `--serial` outright, the reserved
+  unprovisioned sentinel, rather than baking in a block a device with no
+  platform block at all would also report; propagates the output file's
+  `Close()` error instead of a deferred, error-discarding one, so a write
+  that fails to reach disk is never reported as success. Closes #6.
+- **Documented a real hardware failure mode for `--bake-eeprom`'s output.**
+  On a Mega 2560 with its factory STK500v2 bootloader, `avrdude -c wiring
+  -U eeprom:w:platform.eep:i` was observed to corrupt the write in transit
+  — a prefix of the bytes landed, the rest was silently dropped, and
+  avrdude itself reported the verification mismatch, against an `.eep` file
+  independently confirmed correct offline. The firmware's response to the
+  resulting bad-CRC block — "no provisioned identity" rather than a forged
+  one — is correct, but `docs/device-provisioning/{user,engineering}.md`
+  and `agprov --bake-eeprom`'s own output previously did not say this write
+  needs an ISP programmer, not the stock serial bootloader; they do now.
+  `ag-boot` has no EEPROM-write command, so it is not an alternative.
+- **The application reads the DICE CDI handoff and the platform-reserved
+  EEPROM block.** `ATTEST`'s `DeviceID` and `FWHash` fields, zero in every
+  build until now, report the serial `agprov --bake-eeprom` baked in and the
+  measurement `ag-boot` actually verified — through new read-only accessors
+  (`src/core/platform_id.c`, `src/core/handoff.c`) linked into the
+  application for boards with a boot section; a board without one (the
+  ATtiny85) links a zero-cost stub instead. Verified end to end under
+  simavr: EEPROM through the accessor through the wire. Closes #6.
+- **The reset cause survives a bootloader that consumed `MCUSR` first.**
+  `ag-boot` now saves the `MCUSR` it observed into the CDI handoff (version
+  2 of that layout — see `include/ag/boot.h`), and
+  `ag_hal_reset_cause()` reports it when a valid handoff exists, falling back
+  to the application's own `.init3` observation otherwise — `AG_RESET_UNKNOWN`
+  under a stock Arduino bootloader, which clears `MCUSR` before either
+  bootloader's own `.init3` can. Closes #18.
 
 ### Changed
 
@@ -150,6 +185,72 @@ Pre-1.0, MINOR carries breaking changes.
   tolerate, with the command still answering `AG_OK`. Fixed by computing the
   ceiling of the exact divisor by cross-multiplying instead of dividing
   first, so the real clock never exceeds the one asked for.
+- **The element-tier crypto provider now zeroizes its CDI probe.** Nothing
+  on that tier reads the value after learning whether the element holds a
+  UDS — the DeviceID key is element-resident, never CDI-derived — so it is
+  now a stack buffer cleared before `ag_crypto_init` returns, making the
+  file's own conformance comment (`src/crypto/atecc608a/provider.c`) true
+  rather than aspirational. Related to #7.
+- **The software-tier crypto provider prefers the handed-off CDI** —
+  `HMAC(UDS, the measurement ag-boot verified)` — over its own
+  placeholder-measurement derivation, falling back to the latter only when
+  no valid handoff exists at all, **and only when the handoff names the
+  software tier.** A CDI ag-boot derived from the element's UDS is accepted
+  by neither: this tier has no way to reproduce a secret from a UDS it
+  never provisions anywhere it reads from, so a verifier could never
+  recompute a signature made under it. A mismatched-tier CDI is drained and
+  discarded the same as one this tier simply has no use for, and **a
+  right-tier handoff carrying ag-boot's own all-zero "unprovisioned"
+  sentinel CDI refuses the same way** — neither case falls through to the
+  local fallback, which two rounds of review each caught reaching from a
+  different direction: a device with a mismatched-tier handoff, and
+  separately a device with a right-tier handoff whose CDI is the sentinel,
+  each combined with a real local UDS, used to sign successfully with an
+  identity unrelated to the real measurement FWHash reported from the same
+  handoff. Only the genuine absence of any valid handoff reaches the local
+  UDS-plus-placeholder derivation now. The soft tier still cannot zeroize a
+  CDI it does accept; it is the HMAC key for every operation and the code
+  says so. Related to #7.
+- **Every CDI-copy site clears its buffer through one non-elidable wipe**
+  (`ag_secure_zero()`, `src/core/secure_zero.c`) instead of a per-call-site
+  `memset`, after confirming on this codebase's own `-Os -flto` build that a
+  `memset` on a buffer nothing reads afterward is exactly the dead store an
+  optimizer is free to remove — verified by disassembling the compiled AVR
+  object, not by reading the source. Applies to `src/core/handoff.c`,
+  `boot/boot_main.c`, and every crypto provider's discard/consume path.
+- **The element-tier and unattested-tier crypto providers drain any
+  handed-off CDI too**, even though neither ever signs with one — left
+  resident otherwise, for the process lifetime, which is the "consumed
+  once" contract the handoff is built around not actually being honoured.
+  `CRYPTO=none` is a valid build for any board with a boot section, not
+  only the ATtiny85's own stubbed-out case, so it needed the same drain the
+  other two tiers now have. Related to #7.
+- **`ag_attest_device_id()`/`ag_attest_fw_hash()` read their sources
+  directly** rather than a copy inside `ATTEST`'s own evidence buffer, which
+  only its `build()` populates. A host sending `ATTEST_CERT` before `ATTEST`
+  had ever run previously got a certificate signed over an all-zero UEID and
+  measurement on a fully provisioned device, with nothing about the
+  exchange saying so. Related to #6.
+- **The CDI handoff's `.noinit`-style storage moved to its own `.handoff`
+  section**, in both images, after two independent bugs surfaced together:
+  (1) `ag_hal_early_flags` — the reset-cause latch `.init3` writes — was
+  ordinary (`.bss`) storage, so the C runtime's own `.bss`-clear zeroed it a
+  few instructions after `.init3` set it, on every boot, in both images;
+  every reset cause this firmware had ever reported was the one value that
+  survives that clear: none. Fixed by moving it to `.noinit`, which then
+  collided with the handoff block's own pinned-address `.noinit` reuse — an
+  ad hoc section name has no `NOLOAD` rule in the default linker script, so
+  its 80 bytes were also riding into the FLASH `.hex` image at their SRAM
+  address. (2) Stripping it per `avr-objcopy` invocation (`-R .handoff`,
+  alongside the existing `-R .eeprom`) covered the app and bootloader
+  `.hex` targets but missed `mk/release.mk`'s provenance `.bin` conversion
+  entirely, so a release image's `image_len`/`fwhash_sha256` would not have
+  matched a device's own attestation. Fixed at the source instead, in one
+  place: `mk/handoff.ld` makes `.handoff` genuinely `NOLOAD`, so every
+  derived image excludes it the way `.bss` is excluded, with no
+  per-invocation flag left to miss; `provenance-one` also now bounds-checks
+  the resulting `.bin` against the part's flash size so a recurrence fails
+  the build instead of shipping a bad manifest.
 
 ## [0.4.0-alpha] - 2026-09-23
 

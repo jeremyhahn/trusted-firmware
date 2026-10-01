@@ -40,10 +40,31 @@
 
 #include "ag/crypto.h"
 #include "ag/protocol.h"
+#include "../../core/handoff.h"
+#include "../../core/secure_zero.h"
 
 ag_status_t ag_crypto_init(void)
 {
-    /* Nothing to derive. A device with no identity still boots, and says so. */
+    /*
+     * Drains and discards any CDI ag-boot handed off, even on a tier that
+     * signs with nothing and derives nothing. A board that links this
+     * provider still links the real src/core/handoff.c whenever it has a
+     * boot section (mk/avr.mk's IDENTITY_SRCS is chosen by RAM_END, not by
+     * CRYPTO) -- CRYPTO=none is a valid, if unusual, build for any such
+     * board, not only the ATtiny85's own stubbed-out case. Without this, a
+     * CDI that DID get handed off would sit resident in that module's static
+     * storage for the process lifetime, honoured by neither of the other two
+     * providers' "drain it even with no use for it" rule and by this one not
+     * at all -- the exact gap that rule exists to close everywhere.
+     */
+    {
+        uint8_t discard[32];
+        if (ag_boot_handoff_take_cdi(discard)) {
+            ag_secure_zero(discard, sizeof discard);
+        }
+    }
+    /* Nothing else to derive. A device with no identity still boots, and
+     * says so. */
     return AG_OK;
 }
 

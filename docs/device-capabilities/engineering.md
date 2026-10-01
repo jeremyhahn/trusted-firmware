@@ -186,3 +186,19 @@ every host uses before calling anything in this folder; full wire layout:
 existed keeps working unmodified (#5). `ag_sched_active()` exposes the current
 slot count for tests and diagnostics; there is no wire command for it beyond
 `TIMER_QUERY` on a specific pin.
+
+**Reset cause and the stock bootloader (issue #18).** `MCUSR` is cleared by
+whatever runs first after reset, and it is not cleared by reset itself — the
+flags accumulate otherwise. `src/hal/avr/hal_early.c`'s `.init3` reads and
+clears it in BOTH images this project builds, so `ag-boot` now carries its
+own observation forward in the CDI handoff (`include/ag/boot.h`,
+`src/core/handoff.c`), and `ag_hal_reset_cause()` reports that value when a
+valid handoff exists. A device flashed with the **stock Arduino
+bootloader** has no such handoff: the stock bootloader reads and clears
+`MCUSR` before jumping to the application, so by the time this firmware's
+own `.init3` runs the register is already zero. `SYS_INFO` then reports
+`AG_RESET_UNKNOWN` after every reset, including a deliberate external one —
+not a broken decoder, but the honest answer for a device whose only record
+of the reset cause was consumed by code this project does not own. The
+value is unrecoverable in that configuration; there is no workaround short
+of flashing `ag-boot`.

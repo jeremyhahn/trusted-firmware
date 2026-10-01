@@ -137,6 +137,24 @@ ag_status_t      ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
 ag_status_t      ag_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
 ag_status_t      ag_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
 
+/* -------------------------------------------------------------- handoff */
+
+/*
+ * The AG_BOOT_HANDOFF_LEN bytes of SRAM ag-boot places its CDI handoff block
+ * in (include/ag/boot.h), or the same span on a board or a boot with nothing
+ * behind it -- there being no bootloader is not distinguished from "there is
+ * a bootloader and it wrote nothing" at this layer; src/core/handoff.c's
+ * magic/version/CRC check is what tells the two apart, the same way it tells
+ * a corrupted block from a real one.
+ *
+ * Mutable and never NULL, because the reader owns clearing it once consumed
+ * -- see boot.h for why the block must not outlive that one read. On the
+ * device this is a fixed SRAM address the bootloader also names, placed
+ * there at LINK time (mk/avr.mk); the mock returns a plain buffer a test can
+ * pre-load.
+ */
+uint8_t          *ag_hal_handoff_block(void);
+
 /* ------------------------------------------------------------------ buses */
 
 ag_status_t      ag_hal_i2c_init(uint32_t hz);

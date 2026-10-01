@@ -128,20 +128,52 @@ information. Any design that needs the device to know the date is wrong for
 this hardware; freshness comes from the nonce alone, checked by the verifier
 that issued it.
 
-## Data flow status: the bootloader handoff is not wired up yet
+## Data flow status: the bootloader handoff is wired up
 
 `include/ag/boot.h` specifies a CDI handoff block (`AG_BOOT_HANDOFF_*`): a
 trusted bootloader computes the real firmware measurement and CDI and hands
 them to the application once, over a fixed SRAM block, then both sides
-zeroize their copy. **No file under `src/` reads that block today.** Both
-crypto providers compute their own CDI directly from the UDS using a
-hard-coded placeholder measurement (`"ag-unmeasured-application-v1"`,
-`src/crypto/soft/provider.c`, `src/crypto/atecc608a/provider.c`), and
-`ag_attest_device_id()` / `ag_attest_fw_hash()` in `src/caps/attest.c` return
-zero-filled buffers pending that bootloader. Evidence and certificates mint
-and sign correctly today; the `DeviceID` and `FWHash` fields inside them are
-not yet real measurements. This is a build-out gap, not a design choice —
-do not describe the handoff as in use elsewhere in this folder.
+zeroize their copy. `src/core/handoff.c` is the application's read-only side
+of it (`ag_boot_handoff_init`, called once at startup, before
+`ag_crypto_init`): it parses the block with `boot/boot_handoff.c`'s own
+decoder, copies out what a valid one held, and zeroizes the raw block. Fixed
+SRAM placement is a linker fact, not a struct: `mk/avr.mk` derives the same
+address `mk/boot.mk` does from the board's `RAM_END`, and moves the
+application's own stack below it — a board with no boot section (the
+ATtiny85) links a zero-cost stub instead, since there is no bootloader there
+to hand anything off.
+
+`src/caps/attest.c`'s `ag_attest_device_id()` reads the platform-reserved
+EEPROM block through `src/core/platform_id.c` (a read-only accessor; see
+`docs/device-provisioning/` for how `agprov --bake-eeprom` puts a serial
+there before the device is ever flashed), and `ag_attest_fw_hash()` reads
+`ag_boot_handoff_measurement()` directly rather than recomputing anything.
+Both stay zero, as they always did, wherever their source is absent — an
+unprovisioned platform block, a stock bootloader, or no bootloader at all.
+
+The crypto providers' own CDI derivation is a SEPARATE concern from
+`FWHash`, and only the software tier changed: `src/crypto/soft/provider.c`
+now prefers `ag_boot_handoff_take_cdi()` — the real
+`HMAC(UDS, the measurement ag-boot verified)` — falling back to its own
+UDS-plus-placeholder derivation only when no valid handoff exists (issue
+#7). The element tier's own CDI probe is unaffected: it never signed with
+the CDI to begin with (see "The DeviceID/Alias split" above), so there was
+nothing to wire up there beyond zeroizing it — see `engineering.md`'s
+invariants.
+
+**Not wired up: an Alias keypair on the software tier.** Issue #7 asked for
+one, Ed25519, derived from the CDI, held in SRAM, certified by
+`ATTEST_CERT`. It is not implemented: the alias certificate's fixed 230-byte
+TBS template (`src/caps/alias.c`) hard-codes an ECDSA P-256
+`subjectPublicKeyInfo` (a 65-byte uncompressed point at a fixed offset) and
+an `ecdsa-with-SHA256` `signatureAlgorithm` — an Ed25519 key (32-byte raw
+point, OID `1.3.101.112`) and an Ed25519 signature (64 bytes raw, not an
+ASN.1 `SEQUENCE` of two integers) cannot be expressed inside that template
+without a different certificate profile, and this repo does not own DICE
+ASN.1 profiles (see the top-level `CLAUDE.md`). Raised against the owner
+rather than guessed at; `ATTEST_CERT` on the software tier still answers
+`AG_ERR_UNSUPPORTED`, exactly as it did before, for exactly the reason
+stated where `mint()` fetches the subject key.
 
 ## Alternatives rejected
 

@@ -79,19 +79,49 @@ static void test_the_handoff_block_round_trips(void)
 {
     uint8_t block[AG_BOOT_HANDOFF_LEN];
     uint8_t cdi[32], meas[32];
-    uint8_t got_cdi[32], got_meas[32], tier = 0u;
+    uint8_t got_cdi[32], got_meas[32], tier = 0u, cause = 0xFFu;
     uint32_t ver = 0u;
 
     memset(cdi, 0xC1, sizeof cdi);
     memset(meas, 0x7E, sizeof meas);
-    ag_boot_handoff_build(block, AG_CRYPTO_SECURE_ELEMENT, cdi, meas, 9u);
+    ag_boot_handoff_build(block, AG_CRYPTO_SECURE_ELEMENT, cdi, meas, 9u, 0x00u);
 
     TEST_ASSERT_EQUAL_INT(AG_OK,
-        ag_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver));
+        ag_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
     TEST_ASSERT_EQUAL_UINT8(AG_CRYPTO_SECURE_ELEMENT, tier);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(cdi, got_cdi, 32);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(meas, got_meas, 32);
     TEST_ASSERT_EQUAL_UINT32(9u, ver);
+    TEST_ASSERT_EQUAL_UINT8(0x00u, cause);
+}
+
+/*
+ * The reset cause round-trips too, and it is covered by the CRC -- issue #18.
+ * The bit pattern here is WDRF|PORF, the same combination hal_sys.c's own
+ * priority order resolves to AG_RESET_WATCHDOG, but decoding is not this
+ * file's job: it carries the raw byte and nothing more.
+ */
+static void test_the_reset_cause_round_trips_and_is_crc_covered(void)
+{
+    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], meas[32];
+    uint8_t got_cdi[32], got_meas[32], tier, cause;
+    uint32_t ver;
+
+    memset(cdi, 0xAA, sizeof cdi);
+    memset(meas, 0x55, sizeof meas);
+    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, meas, 3u, 0x09u);
+
+    TEST_ASSERT_EQUAL_INT(AG_OK,
+        ag_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
+    TEST_ASSERT_EQUAL_UINT8(0x09u, cause);
+
+    /* Corrupting the reset cause byte must be caught: version 2 widened CRC
+     * coverage to include it precisely so a stack that grew one byte further
+     * into the block does not hand the application a cause nobody observed. */
+    block[AG_BOOT_HO_RESET_CAUSE] ^= 0xFFu;
+    TEST_ASSERT_EQUAL_INT(AG_ERR_CRC,
+        ag_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
 }
 
 /* No bootloader ran, or one from a build that predates the handoff. The
@@ -99,12 +129,12 @@ static void test_the_handoff_block_round_trips(void)
 static void test_an_unwritten_block_is_not_a_handoff(void)
 {
     uint8_t block[AG_BOOT_HANDOFF_LEN];
-    uint8_t cdi[32], meas[32], tier;
+    uint8_t cdi[32], meas[32], tier, cause;
     uint32_t ver;
 
     memset(block, 0, sizeof block);
     TEST_ASSERT_EQUAL_INT(AG_ERR_NOT_PROVISIONED,
-        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver));
+        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
 }
 
 /*
@@ -115,31 +145,52 @@ static void test_an_unwritten_block_is_not_a_handoff(void)
 static void test_a_block_overwritten_by_the_stack_is_caught(void)
 {
     uint8_t block[AG_BOOT_HANDOFF_LEN];
-    uint8_t cdi[32], meas[32], tier;
+    uint8_t cdi[32], meas[32], tier, cause;
     uint32_t ver;
 
     memset(cdi, 0xC1, sizeof cdi);
     memset(meas, 0x7E, sizeof meas);
-    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, meas, 1u);
+    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, meas, 1u, 0u);
     block[AG_BOOT_HO_CDI + 5u] ^= 0x40u;
 
     TEST_ASSERT_EQUAL_INT(AG_ERR_CRC,
-        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver));
+        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
 }
 
 static void test_an_unknown_handoff_version_is_refused(void)
 {
     uint8_t block[AG_BOOT_HANDOFF_LEN];
-    uint8_t cdi[32], meas[32], tier;
+    uint8_t cdi[32], meas[32], tier, cause;
     uint32_t ver;
 
     memset(cdi, 1, sizeof cdi);
     memset(meas, 2, sizeof meas);
-    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, meas, 1u);
+    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, meas, 1u, 0u);
     block[AG_BOOT_HO_VERSION] = AG_BOOT_HANDOFF_VERSION + 1u;
 
     TEST_ASSERT_EQUAL_INT(AG_ERR_UNSUPPORTED,
-        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver));
+        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+}
+
+/*
+ * A block from a bootloader one version BEHIND this application -- version 1,
+ * with reset_cause not yet defined. Refused the same way an unknown-FUTURE
+ * version is: the application must not read offset 76 as reset_cause when the
+ * bootloader that wrote it meant that byte as part of the version-1 CRC.
+ */
+static void test_an_older_handoff_version_is_refused_not_misread(void)
+{
+    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], meas[32], tier, cause;
+    uint32_t ver;
+
+    memset(cdi, 1, sizeof cdi);
+    memset(meas, 2, sizeof meas);
+    ag_boot_handoff_build(block, AG_CRYPTO_SOFTWARE, cdi, meas, 1u, 0u);
+    block[AG_BOOT_HO_VERSION] = 1u;
+
+    TEST_ASSERT_EQUAL_INT(AG_ERR_UNSUPPORTED,
+        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
 }
 
 /* The application reports the tier the BOOTLOADER observed, and a host decides
@@ -148,14 +199,14 @@ static void test_an_unknown_handoff_version_is_refused(void)
 static void test_the_tier_is_carried_verbatim(void)
 {
     uint8_t block[AG_BOOT_HANDOFF_LEN];
-    uint8_t cdi[32], meas[32], tier = 0xFFu;
+    uint8_t cdi[32], meas[32], tier = 0xFFu, cause;
     uint32_t ver;
 
     memset(cdi, 0, sizeof cdi);
     memset(meas, 0, sizeof meas);
-    ag_boot_handoff_build(block, AG_CRYPTO_NONE, cdi, meas, 1u);
+    ag_boot_handoff_build(block, AG_CRYPTO_NONE, cdi, meas, 1u, 0u);
     TEST_ASSERT_EQUAL_INT(AG_OK,
-        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver));
+        ag_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
     TEST_ASSERT_EQUAL_UINT8(AG_CRYPTO_NONE, tier);
 }
 
@@ -168,9 +219,11 @@ int main(void)
     RUN_TEST(test_a_zero_length_measurement_is_refused);
     RUN_TEST(test_a_length_past_the_trailer_is_refused);
     RUN_TEST(test_the_handoff_block_round_trips);
+    RUN_TEST(test_the_reset_cause_round_trips_and_is_crc_covered);
     RUN_TEST(test_an_unwritten_block_is_not_a_handoff);
     RUN_TEST(test_a_block_overwritten_by_the_stack_is_caught);
     RUN_TEST(test_an_unknown_handoff_version_is_refused);
+    RUN_TEST(test_an_older_handoff_version_is_refused_not_misread);
     RUN_TEST(test_the_tier_is_carried_verbatim);
     return UNITY_END();
 }

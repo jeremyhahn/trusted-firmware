@@ -20,15 +20,43 @@ care about — several steps below cannot be undone.
 
 ## Task: provision a new part
 
-1. **Set fuses.** `BOOTRST` and `BOOTSZ` programmed, `BODLEVEL` enabled,
-   `DWEN` unprogrammed. Do this before flashing anything — see "Why these
-   fuses" below for `BODLEVEL` in particular.
+1. **Bake the platform-reserved EEPROM block, before anything is flashed.**
+   The device serial has no wire command that writes it — `src/caps/
+   storage.c`'s refusal of the reserved region is absolute — so it goes into
+   a `.eep` image here and is flashed alongside the fuses below.
+
+   **Use an ISP programmer, never the part's stock Arduino serial
+   bootloader.** `ag-boot` has no EEPROM-write command, and the application
+   refuses this region over the wire, so ISP is the only supported path. On a real Mega 2560 running the
+   factory STK500v2 bootloader, `avrdude -c wiring ... -U eeprom:w:
+   platform.eep:i` has been observed to corrupt the write at the protocol
+   level — a prefix of the bytes kept, the rest silently dropped partway
+   through, and avrdude itself reports the verification mismatch. This is not
+   a theoretical risk to hedge against; it reproduced on bench hardware. The
+   firmware's own response to the resulting bad-CRC block is correct — it
+   reports "no provisioned identity" rather than trusting a torn write — but
+   the device will not have the serial you intended, and you will not find
+   out from the firmware; you find out from avrdude's own verification
+   failure, so do not ignore it.
+
+   ```sh
+   agprov --bake-eeprom --serial <16-byte hex> --out platform.eep
+   avrdude -c <isp-prog> -p <part> -U eeprom:w:platform.eep:i
+   ```
+
+   `--pubkey-hash` is also this step's job on `BOOT_SIG=ed25519-donna`
+   (software-verify) builds; it is ignored on the element tier and may be
+   omitted there. See [`cli.md`](cli.md).
+
+2. **Set fuses.** `BOOTRST` and `BOOTSZ` programmed, `BODLEVEL` enabled,
+   `DWEN` unprogrammed. Do this before flashing anything else — see "Why
+   these fuses" below for `BODLEVEL` in particular.
 
    ```sh
    avrdude -c <prog> -p <part> -U lfuse:w:...:m -U hfuse:w:...:m -U efuse:w:...:m
    ```
 
-2. **Flash a provisioning image.** `PROVISION=1` compiles in the six
+3. **Flash a provisioning image.** `PROVISION=1` compiles in the six
    provisioning command handlers that a production image never carries.
 
    ```sh
@@ -36,7 +64,7 @@ care about — several steps below cannot be undone.
    make BOARD=atmega328p flash
    ```
 
-3. **Plan, and read nothing wrong yet.**
+4. **Plan, and read nothing wrong yet.**
 
    ```sh
    agprov --dry-run --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
@@ -45,7 +73,7 @@ care about — several steps below cannot be undone.
    Read the printed plan. If the element reports a zone already locked, stop —
    see "If the part is already provisioned" below.
 
-4. **Commit, on the spare part first.**
+5. **Commit, on the spare part first.**
 
    ```sh
    agprov --commit --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 --yes-i-mean-it
@@ -57,7 +85,7 @@ care about — several steps below cannot be undone.
    part cannot report it again through any command that also generates one,
    and the printed record is what makes the device's identity provable later.
 
-5. **Verify.** Not a formality — `--commit` reports what the element
+6. **Verify.** Not a formality — `--commit` reports what the element
    acknowledged; `--verify` reads back what the element actually holds, and on
    a part that cannot be unlocked those can disagree.
 
@@ -65,7 +93,7 @@ care about — several steps below cannot be undone.
    agprov --verify --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
    ```
 
-6. **Lock bits, only now.** Locking before step 5 passes means a bad
+7. **Lock bits, only now.** Locking before step 6 passes means a bad
    provisioning attempt is now also undiagnosable — lock bits block the ISP
    reads `--verify`'s equivalent debugging would need.
 
@@ -73,7 +101,7 @@ care about — several steps below cannot be undone.
    avrdude -c <prog> -p <part> -U lock:w:0x0C:m
    ```
 
-7. **Reflash the production image** before the part leaves the bench. The
+8. **Reflash the production image** before the part leaves the bench. The
    provisioning image must never ship — it is what makes re-provisioning
    possible, and a fielded device must not have that capability.
 

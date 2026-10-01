@@ -155,17 +155,32 @@ void ag_boot_uart_tx(uint8_t byte)
 /* -------------------------------------------------------------- handoff */
 
 /*
- * The handoff block sits at the very top of SRAM, in .noinit.
+ * The handoff block sits at the very top of SRAM, in its own `.handoff`
+ * section -- NOT the generic `.noinit` this same image's hal_early.c also
+ * uses for ag_hal_early_flags.
  *
- * .noinit because the application's C runtime zeroes .bss before main() and
- * would erase the CDI before anything could read it. At the top because that is
- * an address both images can name without a shared linker script: the
- * bootloader's own stack is moved below it by the -Wl,--defsym in mk/boot.mk,
- * and the application must place its reader at the same address -- see
- * include/ag/boot.h and docs/dice-attestation/architecture.md, where that wiring
- * is recorded as the one step still outstanding on the application side.
+ * Uninitialised-but-not-zeroed storage because the application's C runtime
+ * zeroes .bss before main() and would erase the CDI before anything could
+ * read it -- the same reasoning `.noinit` exists for. A section OF ITS OWN
+ * rather than that one, because mk/boot.mk pins this section's address with
+ * `--section-start`: pinning the generic `.noinit` output section would carry
+ * every other object assigned to it to the same fixed spot, and
+ * ag_hal_early_flags is exactly such an object in this same image.
+ *
+ * At the top of SRAM because that is an address both images can name without
+ * a shared linker script: the bootloader's own stack is moved below it by the
+ * -Wl,--defsym in mk/boot.mk, and the application places its own reader
+ * (src/hal/avr/hal_handoff.c) at the identical address via the same formula
+ * in mk/avr.mk -- see include/ag/boot.h and src/core/handoff.c for the
+ * application's side of this handoff.
+ *
+ * `.handoff` IS NOLOAD, genuinely -- mk/handoff.ld (linked into BOOT_LDFLAGS)
+ * splices `.handoff (NOLOAD) : { *(.handoff) }` into the default script, the
+ * same SHT_NOBITS treatment `.bss` already gets. That is what keeps this
+ * array's 80 bytes out of the FLASH hex this same Makefile produces, rather
+ * than an `-R .handoff` at every point an image gets derived from the ELF.
  */
-static uint8_t handoff[AG_BOOT_HANDOFF_LEN] __attribute__((section(".noinit")));
+static uint8_t handoff[AG_BOOT_HANDOFF_LEN] __attribute__((section(".handoff")));
 
 void ag_boot_handoff_write(const uint8_t *block, uint8_t len)
 {

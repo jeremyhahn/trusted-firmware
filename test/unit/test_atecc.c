@@ -21,8 +21,24 @@
 #include "atecc608a_model.h"
 #include "ag/crypto.h"
 #include "ag/protocol.h"
+#include "ag/boot.h"
+#include "boot_measure.h"
+#include "handoff.h"
 
-void setUp(void)    { ag_model_reset(); }
+/*
+ * src/crypto/atecc608a/provider.c's ag_crypto_init drains any handed-off CDI
+ * through src/core/handoff.c, which is linked here for exactly that call.
+ * The element model above is this binary's only OTHER HAL need, so a zeroed
+ * (no handoff) buffer is this stub's whole job.
+ */
+static uint8_t test_handoff[AG_BOOT_HANDOFF_LEN];
+uint8_t *ag_hal_handoff_block(void) { return test_handoff; }
+
+void setUp(void)
+{
+    ag_model_reset();
+    memset(test_handoff, 0, sizeof test_handoff);
+}
 void tearDown(void) {}
 
 /* ------------------------------------------------------------------- CRC */
@@ -292,6 +308,31 @@ static void test_a_counter_the_part_does_not_have_is_refused(void)
     TEST_ASSERT_EQUAL(AG_ERR_RANGE, ag_crypto_counter(9u, &v));
 }
 
+/*
+ * The element tier never signs with the CDI -- its DeviceID key is
+ * element-resident, never derived (see the file header) -- but a CDI ag-boot
+ * handed off must not sit resident in src/core/handoff.c for the process
+ * lifetime regardless: ag_crypto_init drains and discards it. Provable from
+ * outside that module: ag_boot_handoff_take_cdi returns 0 (nothing left to
+ * take) after ag_crypto_init has run, whether or not the element itself is
+ * even present.
+ */
+static void test_init_drains_a_handed_off_cdi_even_though_this_tier_has_no_use_for_it(void)
+{
+    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], measurement[32], taken[32];
+    uint8_t i;
+
+    for (i = 0u; i < sizeof cdi; i++)         { cdi[i] = (uint8_t)(0x11u + i); }
+    for (i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)i; }
+    ag_boot_handoff_build(block, AG_CRYPTO_SECURE_ELEMENT, cdi, measurement, 1u, 0u);
+    memcpy(ag_hal_handoff_block(), block, AG_BOOT_HANDOFF_LEN);
+    ag_boot_handoff_init();
+
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    TEST_ASSERT_EQUAL_UINT8(0u, ag_boot_handoff_take_cdi(taken));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -317,5 +358,6 @@ int main(void)
     RUN_TEST(test_random_refuses_a_length_it_cannot_fill);
     RUN_TEST(test_the_boot_counter_is_read_from_the_element);
     RUN_TEST(test_a_counter_the_part_does_not_have_is_refused);
+    RUN_TEST(test_init_drains_a_handed_off_cdi_even_though_this_tier_has_no_use_for_it);
     return UNITY_END();
 }

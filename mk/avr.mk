@@ -144,10 +144,52 @@ AVR_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
               -Wall -Wextra -Werror -Wconversion -Wshadow \
               -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
               -ffile-prefix-map=$(CURDIR)=. \
-              -Iinclude -Isrc -Isrc/crypto -I$(BOARD_DIR) \
+              -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(BOARD_DIR) \
               -DAG_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS)
 
 AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
+
+# The CDI handoff block's SRAM address, and the stack kept below it -- issue
+# #6/#18. THE SAME FORMULA mk/boot.mk uses for BOOT_HANDOFF_AT and
+# BOOT_STACK_TOP, because the application and ag-boot must land on the
+# identical address with no shared linker script to enforce it; one formula,
+# derived once from the board's own RAM_END, is the only way the two images
+# cannot drift apart on it. Without the stack move the C runtime's default
+# __stack -- the physical top of SRAM -- puts the application's own stack
+# exactly where the handoff block lives, and the first deep call overwrites
+# the CDI before ag_boot_handoff_init ever reads it.
+#
+# Guarded on RAM_END for the same reason mk/boot.mk guards on BOOT_SECTION: not
+# every board has a bootloader to hand anything off, and the ATtiny85's
+# profile.mk states so by defining neither.
+#
+# `.handoff`, NOT the generic `.noinit` output section -- src/hal/avr/
+# hal_early.c's ag_hal_early_flags lives in ordinary (unpinned) `.noinit` too,
+# for the same "must survive past .init3" reason, and pinning the generic
+# section's address would carry every object assigned to it to this one fixed
+# spot, overflowing the 80 bytes meant for the handoff block alone.
+ifneq ($(RAM_END),)
+AVR_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
+AVR_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
+AVR_LDFLAGS    += -Wl,-T,mk/handoff.ld \
+                  -Wl,--section-start=.handoff=$(AVR_HANDOFF_AT) \
+                  -Wl,--defsym=__stack=$(AVR_STACK_TOP)
+endif
+
+# The identity sources follow the same RAM_END gate, by FILE SELECTION rather
+# than a conditional in main.c -- main.c is not one of the four places a
+# target conditional is permitted. A board with no boot section links the
+# _none.c stubs instead: same two symbols main.c and hal_sys.c call on every
+# board, no storage behind them, and everything reachable only from ATTEST
+# (which such a board's profile already turns off) for --gc-sections to drop.
+# Costed on the ATtiny85: firmware-matrix caught this the first time around --
+# the real modules pushed it 77 bytes over a 256-byte RAM budget.
+ifneq ($(RAM_END),)
+IDENTITY_SRCS := src/core/handoff.c src/core/platform_id.c \
+                 boot/boot_handoff.c boot/boot_platform.c
+else
+IDENTITY_SRCS := src/core/handoff_none.c src/core/platform_id_none.c
+endif
 
 # Sorted, not wildcard-ordered. Link order affects the output image, and a
 # wildcard's order depends on the filesystem -- which would make the
@@ -164,6 +206,7 @@ AVR_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
   src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board_lookup.c \
+  src/core/reset_cause.c src/core/secure_zero.c $(IDENTITY_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
@@ -180,6 +223,13 @@ $(AVR_DIR)/%.o: %.c
 $(TARGET).elf: $(AVR_OBJS)
 	@$(CC_AVR) $(AVR_LDFLAGS) -o $@ $(AVR_OBJS)
 
+# -R .eeprom only. mk/handoff.ld (in AVR_LDFLAGS, above) makes `.handoff`
+# genuinely NOLOAD -- SHT_NOBITS, the same section type `.bss` already is --
+# so it carries no bytes in the ELF and objcopy already leaves it out of
+# every derived image on its own: the *.hex here, and mk/release.mk's
+# provenance .bin. A second `-R .handoff` at each of those points would be
+# the exclude-it-everywhere shape this file's own linker script exists to
+# avoid needing.
 $(TARGET).hex: $(TARGET).elf
 	@$(OBJCOPY) -O ihex -R .eeprom $< $@
 

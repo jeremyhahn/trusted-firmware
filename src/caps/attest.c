@@ -24,6 +24,8 @@
 #include "ag/config.h"
 #include "ag/hal.h"
 #include "ag/protocol.h"
+#include "../core/handoff.h"
+#include "../core/platform_id.h"
 
 /* Offsets into the evidence, per include/ag/protocol.h. */
 #define OFF_VERSION   0u
@@ -45,14 +47,29 @@ void ag_attest_reset_state(void)
     have_evidence = 0u;
 }
 
+/*
+ * THESE READ THEIR STARTUP SOURCES DIRECTLY, NOT THE EVIDENCE BUFFER.
+ *
+ * `evidence` only holds a real DeviceID/FWHash after build() has run at
+ * least once -- i.e. after ATTEST has been called with a nonce. A host that
+ * sends ATTEST_CERT first (src/caps/alias.c's mint(), which calls these two
+ * accessors) would otherwise get a certificate correctly signed over an
+ * all-zero UEID and measurement, on a fully provisioned device, with nothing
+ * about the exchange indicating anything had gone wrong. Reading the live
+ * sources here means the two callers -- this file's own build() and
+ * alias.c's gather() -- agree with each other regardless of which command
+ * ran first.
+ */
 const uint8_t *ag_attest_device_id(void)
 {
-    return &evidence[OFF_DEVICE_ID];
+    return ag_platform_id_serial();
 }
 
 const uint8_t *ag_attest_fw_hash(void)
 {
-    return &evidence[OFF_FW_HASH];
+    static const uint8_t zero[AG_SHA256_LEN] = { 0 };
+    const uint8_t *measurement = ag_boot_handoff_measurement();
+    return measurement ? measurement : zero;
 }
 
 static void put_u32(uint8_t *p, uint32_t v)
@@ -72,10 +89,26 @@ static ag_status_t build(const uint8_t *nonce)
     evidence[OFF_VERSION] = AG_ATTEST_VERSION;
     memcpy(&evidence[OFF_NONCE], nonce, AG_ATTEST_NONCE_LEN);
 
-    /* Device id and firmware hash come from the trusted bootloader's EEPROM
-     * block once it exists. Until then they are ZERO rather than fabricated:
-     * a verifier can see an unprovisioned device for what it is, where a
-     * plausible-looking made-up value would be believed. */
+    /*
+     * DeviceID: the serial agprov baked into the platform-reserved EEPROM
+     * block before this part was ever flashed (src/core/platform_id.c).
+     * FWHash: the measurement ag-boot verified and handed off
+     * (src/core/handoff.c) -- not a value this file recomputes, so the
+     * evidence reports what was actually checked rather than what this build
+     * believes about itself.
+     *
+     * Both stay ZERO rather than fabricated wherever their source is absent
+     * -- an unprovisioned platform block, a stock bootloader, or no
+     * bootloader at all -- so a verifier can see an unprovisioned device for
+     * what it is, where a plausible-looking made-up value would be believed.
+     */
+    memcpy(&evidence[OFF_DEVICE_ID], ag_platform_id_serial(), AG_ATTEST_ID_LEN);
+    {
+        const uint8_t *fw_hash = ag_boot_handoff_measurement();
+        if (fw_hash) {
+            memcpy(&evidence[OFF_FW_HASH], fw_hash, AG_SHA256_LEN);
+        }
+    }
 
     /* The boot counter needs a monotonic source. Absent one, it stays zero and
      * says so by the tier -- rather than using a RAM counter that resets with

@@ -9,14 +9,25 @@
 #include "ag/hal.h"
 #include "ag/config.h"
 #include "hal_early.h"
+#include "../../core/handoff.h"
+#include "../../core/reset_cause.h"
 
-extern int  __bss_end;
+extern int  __heap_start;
 extern int *__brkval;
 
 /* The .init3 early init lives in hal_early.c, which the BOOTLOADER links too.
  * Sharing it rather than keeping a copy here is what makes "clear MCUSR and
  * disarm the watchdog" one sequence in the tree instead of two that can drift.
  * See that file for why those three instructions cannot happen later. */
+
+/* The bit positions ag_reset_cause_decode assumes, pinned against avr-libc --
+ * the same arrangement each board's board_profile.h uses for register
+ * addresses, so a transposed bit is a compile error naming the constant
+ * rather than a silently wrong decode. */
+_Static_assert(AG_MCUSR_PORF  == _BV(PORF),  "PORF bit position");
+_Static_assert(AG_MCUSR_EXTRF == _BV(EXTRF), "EXTRF bit position");
+_Static_assert(AG_MCUSR_BORF  == _BV(BORF),  "BORF bit position");
+_Static_assert(AG_MCUSR_WDRF  == _BV(WDRF),  "WDRF bit position");
 
 ag_status_t ag_hal_init(void)
 {
@@ -29,14 +40,23 @@ ag_status_t ag_hal_init(void)
 
 ag_reset_cause_t ag_hal_reset_cause(void)
 {
-    /* Checked most-specific first. A brownout during a watchdog reset sets
-     * both, and the brownout is the more useful thing to report -- it names a
-     * power problem rather than a software one. */
-    if (ag_hal_early_flags & _BV(WDRF))  { return AG_RESET_WATCHDOG; }
-    if (ag_hal_early_flags & _BV(BORF))  { return AG_RESET_BROWNOUT; }
-    if (ag_hal_early_flags & _BV(EXTRF)) { return AG_RESET_EXTERNAL; }
-    if (ag_hal_early_flags & _BV(PORF))  { return AG_RESET_POWER_ON; }
-    return AG_RESET_UNKNOWN;
+    uint8_t handed_off;
+
+    /*
+     * ag-boot's handoff carries the MCUSR IT saw, latched before ITS OWN
+     * .init3 cleared the register -- issue #18. Preferred when a valid
+     * handoff exists, because by the time this runs OUR OWN .init3 has
+     * already read MCUSR a second time and found it clear: whatever ran
+     * before us -- ag-boot, or a stock bootloader with no handoff at all --
+     * got there first. Falling back to ag_hal_early_flags is exactly what a
+     * stock bootloader's case needs: no handoff exists, MCUSR was already
+     * zero by the time even OUR .init3 ran, and AG_RESET_UNKNOWN is the
+     * honest answer -- see docs/device-capabilities/.
+     */
+    if (ag_boot_handoff_reset_cause(&handed_off)) {
+        return ag_reset_cause_decode(handed_off);
+    }
+    return ag_reset_cause_decode(ag_hal_early_flags);
 }
 
 /*
@@ -67,10 +87,14 @@ void ag_hal_delay_us(uint16_t us)
  * There is no allocator in this firmware, so __brkval is normally zero and the
  * measurement is stack headroom. Reported by SYS_INFO because a host watching
  * it fall knows about a problem before the device dies of one.
+ *
+ * Measured from __heap_start, not __bss_end: the linker places .noinit after
+ * .bss, and .noinit holds live state (the reset-cause latch hal_early.c writes
+ * in .init3), so __bss_end would count occupied bytes as free.
  */
 uint16_t ag_hal_free_ram(void)
 {
     int marker;
-    int top = (__brkval == 0) ? (int)&__bss_end : (int)__brkval;
+    int top = (__brkval == 0) ? (int)&__heap_start : (int)__brkval;
     return (uint16_t)((int)&marker - top);
 }

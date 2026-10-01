@@ -72,7 +72,22 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	@# into the trailer. Emitting only file hashes -- and a note saying a
 	@# verifier wants a different number -- documented the omission instead of
 	@# closing it.
+	@#
+	@# -R .eeprom only, not -R .handoff too: mk/handoff.ld (linked into
+	@# $(TARGET).elf already) makes the CDI handoff's SRAM section genuinely
+	@# NOLOAD, so it carries no bytes here to exclude -- verified below rather
+	@# than assumed, because this .bin IS the FWHash a verifier recomputes, and
+	@# a device's own measurement covers application flash only.
 	@$(OBJCOPY) -O binary -R .eeprom $(TARGET).elf $(REL_DIR)/$(BOARD)-$(CRYPTO).bin
+	@img_len_check=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \
+	 if [ "$$img_len_check" -gt "$(FLASH_TOTAL)" ]; then \
+	   echo "provenance: $(BOARD)-$(CRYPTO).bin is $$img_len_check bytes,"; \
+	   echo "  past this part's $(FLASH_TOTAL)-byte flash -- a non-application"; \
+	   echo "  section (SRAM, EEPROM) rode into the measured image. This must"; \
+	   echo "  cover application flash only; it is what a verifier recomputes"; \
+	   echo "  FWHash from."; \
+	   exit 1; \
+	 fi
 	@sha_elf=$$(sha256sum $(TARGET).elf | cut -d' ' -f1); \
 	 fwhash=$$(sha256sum $(REL_DIR)/$(BOARD)-$(CRYPTO).bin | cut -d' ' -f1); \
 	 img_len=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \

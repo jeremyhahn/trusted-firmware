@@ -44,21 +44,30 @@ void ag_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[AG_BOOT_MEASURE
  * The bootloader's own copy of the CDI is the caller's to zeroize; this
  * function does not take ownership of it, because a function that cleared its
  * caller's buffer would be a surprise the one time someone needed it twice.
+ *
+ * `reset_cause` is the raw MCUSR byte hal_early.c latched before ag-boot's own
+ * .init3 cleared it -- issue #18. It is carried verbatim, not decoded: decoding
+ * belongs to src/hal/avr/hal_sys.c, which already has the priority order, and
+ * a second decoder here would be a second place for that order to drift.
  */
 void ag_boot_handoff_build(uint8_t *block,
                            uint8_t tier,
                            const uint8_t cdi[AG_BOOT_MEASURE_LEN],
                            const uint8_t measurement[AG_BOOT_MEASURE_LEN],
-                           uint32_t image_version);
+                           uint32_t image_version,
+                           uint8_t reset_cause);
 
 /* Parses one back. The application's side of the same layout -- and the reason
  * the round trip is a test rather than an assumption. Returns AG_ERR_CRC on a
  * block that was never written or was overwritten by a stack that grew into it,
- * which on a part with no MPU is the failure worth naming. */
+ * which on a part with no MPU is the failure worth naming. Returns
+ * AG_ERR_UNSUPPORTED on a version this build does not know -- see
+ * include/ag/boot.h for why that degrades exactly like no handoff at all. */
 ag_status_t ag_boot_handoff_parse(const uint8_t *block,
                                   uint8_t *tier,
                                   uint8_t cdi[AG_BOOT_MEASURE_LEN],
                                   uint8_t measurement[AG_BOOT_MEASURE_LEN],
-                                  uint32_t *image_version);
+                                  uint32_t *image_version,
+                                  uint8_t *reset_cause);
 
 #endif /* AG_BOOT_MEASURE_H */

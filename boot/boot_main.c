@@ -27,6 +27,8 @@
 #include "boot_policy.h"
 #include "boot_recovery.h"
 #include "boot_store.h"
+#include "hal_early.h"
+#include "core/secure_zero.h"
 
 
 /* ------------------------------------------------------------- platform */
@@ -47,21 +49,39 @@ void ag_boot_hand_over(const ag_boot_verdict_t *v)
     uint8_t cdi[AG_BOOT_MEASURE_LEN];
     uint8_t block[AG_BOOT_HANDOFF_LEN];
 
-    memset(cdi, 0, sizeof cdi);
+    /*
+     * ag_secure_zero, not a plain memset, for every touch of `cdi` in this
+     * function -- including this first one. `cdi` is a local: if
+     * ag_boot_cdi_derive fails without writing it (see its own contract),
+     * whatever the stack held is what a plain, elidable zero-write might
+     * leave behind, and the application would read that as a genuine CDI
+     * rather than the zero ag_boot_cdi_derive's failure is supposed to
+     * signal.
+     */
+    ag_secure_zero(cdi, sizeof cdi);
     if (ag_boot_cdi_derive(v->measurement, cdi) != AG_OK) {
         /* No UDS: an unprovisioned device. It still boots -- refusing would
          * turn a skipped factory step into a brick -- but the block carries a
          * zero CDI and the tier the bootloader actually found, so the
          * application refuses to attest rather than attesting to nothing. */
-        memset(cdi, 0, sizeof cdi);
+        ag_secure_zero(cdi, sizeof cdi);
     }
 
+    /*
+     * ag_hal_early_flags is hal_early.c's OWN latch of MCUSR, taken before
+     * ITS OWN .init3 cleared the register -- the same three instructions this
+     * image and the application both run, see that file's header. Reading it
+     * here rather than re-reading MCUSR is the point: by the time main() runs
+     * the register has already been cleared once, by us, and issue #18 is
+     * exactly the bug of something -- a bootloader, ours or the stock one --
+     * doing that before the value was carried anywhere.
+     */
     ag_boot_handoff_build(block, ag_boot_cdi_tier(), cdi, v->measurement,
-                          v->trailer.image_version);
+                          v->trailer.image_version, ag_hal_early_flags);
     ag_boot_handoff_write(block, AG_BOOT_HANDOFF_LEN);
 
-    memset(cdi, 0, sizeof cdi);
-    memset(block, 0, sizeof block);
+    ag_secure_zero(cdi, sizeof cdi);
+    ag_secure_zero(block, sizeof block);
 
     ag_boot_jump_application();
 }

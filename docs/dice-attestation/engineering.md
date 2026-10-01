@@ -86,12 +86,16 @@ See `architecture.md` for design and boundaries; not restated here.
   freshness) and `AG_ALIAS_NONCE_LEN` (32, enrolment) are checked by the
   dispatcher's declared arity in `src/core/commands.def`; a command sees only
   its own width.
-- **Known gap: the CDI is not zeroized after use.** Both `src/crypto/soft/
-  provider.c` and `src/crypto/atecc608a/provider.c` keep a static `cdi[32]`
-  resident for the process lifetime; neither ever clears it. The normative
-  rule is that it must be cleared once no longer needed (DICE HW
-  Requirements §6.4) — this is a defect against that rule, tracked as
-  code, not documented as met.
+- **CDI zeroization is tier-specific, and both tiers are honest about it
+  (issue #7).** The element tier (`src/crypto/atecc608a/provider.c`) never
+  signs with the CDI — the DeviceID key is element-resident, not
+  CDI-derived — so `ag_crypto_init` holds it in a stack buffer that exists
+  only long enough to learn whether the element has a UDS, and clears it
+  before returning: the normative rule (DICE HW Requirements §6.4, "cleared
+  once no longer needed") is genuinely met there. The software tier
+  (`src/crypto/soft/provider.c`) cannot meet it: its CDI is the HMAC key for
+  every operation, resident for the process lifetime by necessity, and the
+  code says so rather than claiming otherwise.
 
 ## Error semantics
 

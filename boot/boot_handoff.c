@@ -40,7 +40,8 @@ void ag_boot_handoff_build(uint8_t *block,
                            uint8_t tier,
                            const uint8_t cdi[AG_BOOT_MEASURE_LEN],
                            const uint8_t measurement[AG_BOOT_MEASURE_LEN],
-                           uint32_t image_version)
+                           uint32_t image_version,
+                           uint8_t reset_cause)
 {
     uint16_t crc;
 
@@ -51,7 +52,11 @@ void ag_boot_handoff_build(uint8_t *block,
     memcpy(&block[AG_BOOT_HO_CDI],         cdi,         AG_BOOT_MEASURE_LEN);
     memcpy(&block[AG_BOOT_HO_MEASUREMENT], measurement, AG_BOOT_MEASURE_LEN);
     wr_u32(&block[AG_BOOT_HO_IMAGE_VER], image_version);
+    block[AG_BOOT_HO_RESET_CAUSE] = reset_cause;
 
+    /* Version 2 widens CRC coverage to include reset_cause and the byte beside
+     * it -- see include/ag/boot.h for why the CRC moved rather than the block
+     * growing. */
     crc = ag_crc16(block, AG_BOOT_HO_CRC);
     block[AG_BOOT_HO_CRC]      = (uint8_t)(crc & 0xFFu);
     block[AG_BOOT_HO_CRC + 1u] = (uint8_t)((crc >> 8) & 0xFFu);
@@ -61,13 +66,18 @@ ag_status_t ag_boot_handoff_parse(const uint8_t *block,
                                   uint8_t *tier,
                                   uint8_t cdi[AG_BOOT_MEASURE_LEN],
                                   uint8_t measurement[AG_BOOT_MEASURE_LEN],
-                                  uint32_t *image_version)
+                                  uint32_t *image_version,
+                                  uint8_t *reset_cause)
 {
     uint16_t crc_rx;
 
     if (rd_u32(&block[AG_BOOT_HO_MAGIC]) != AG_BOOT_HANDOFF_MAGIC) {
         return AG_ERR_NOT_PROVISIONED;
     }
+    /* An exact match, not a minimum. A version this build does not recognise
+     * is refused rather than read with the current offsets guessed onto it --
+     * see include/ag/boot.h for why that degrades exactly like no handoff at
+     * all rather than like a block misread as something it is not. */
     if (block[AG_BOOT_HO_VERSION] != AG_BOOT_HANDOFF_VERSION) {
         return AG_ERR_UNSUPPORTED;
     }
@@ -81,5 +91,6 @@ ag_status_t ag_boot_handoff_parse(const uint8_t *block,
     memcpy(cdi,         &block[AG_BOOT_HO_CDI],         AG_BOOT_MEASURE_LEN);
     memcpy(measurement, &block[AG_BOOT_HO_MEASUREMENT], AG_BOOT_MEASURE_LEN);
     *image_version = rd_u32(&block[AG_BOOT_HO_IMAGE_VER]);
+    *reset_cause   = block[AG_BOOT_HO_RESET_CAUSE];
     return AG_OK;
 }

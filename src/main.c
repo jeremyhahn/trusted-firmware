@@ -21,12 +21,24 @@
 #include "caps/sys.h"
 #include "caps/sched.h"
 #include "caps/bus.h"
+#include "core/handoff.h"
+#include "core/platform_id.h"
 
 ag_status_t ag_hal_tick_init(void);
 
 static ag_transport_t transport;
 
-int main(void)
+/* Everything that runs once, before the superloop.
+ *
+ * Kept out of line on purpose. main() never returns, so under -flto any
+ * initializer inlined into it leaves its locals in main's frame for the life
+ * of the device: ag_platform_id_init's 128-byte EEPROM image and the element
+ * provider's CDI buffer cost 241 bytes of a 2 KB part's stack that no command
+ * could ever use. Called through a real frame, that scratch is released before
+ * the first byte arrives. */
+static void startup(void) __attribute__((noinline));
+
+static void startup(void)
 {
     ag_hal_init();
     ag_hal_tick_init();
@@ -49,10 +61,22 @@ int main(void)
      * by the generic default that follows it. */
     ag_hal_adc_init();
     ag_bus_init();
+
+    /* Both consuming reads, and both before ag_crypto_init(): the crypto
+     * provider's own init is what takes the handed-off CDI (src/core/
+     * handoff.c), and DeviceID has to be in place before anything can build
+     * evidence around it. See issues #6 and #18. */
+    ag_platform_id_init();
+    ag_boot_handoff_init();
+
     ag_crypto_init();
     ag_sched_init();
     ag_transport_init(&transport);
+}
 
+int main(void)
+{
+    startup();
     sei();
 
     /* Announce ourselves. An unexpected boot event is how a host learns the

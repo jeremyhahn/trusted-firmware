@@ -31,12 +31,18 @@
  * WHAT THIS TIER STILL DOES NOT MEET, stated because a conformance claim that
  * hides its gaps is worse than no claim:
  *
- *  - The CDI transits SRAM on its way from the element to the Alias derivation.
- *    No classic AVR has an MPU, so "first mutable code has exclusive access"
- *    (6.4) is partial. It is also NOT zeroized: cdi[] below is resident for the
- *    lifetime of the image, because every derivation re-reads it. The bootloader
- *    zeroizes its own copy (boot/boot_main.c); this one is a different buffer
- *    and it stays. Issue #7 tracks whether that can be narrowed here.
+ *  - The CDI transits SRAM on its way out of the element, so "first mutable
+ *    code has exclusive access" (6.4) is partial on a part with no MPU. IT IS
+ *    ZEROIZED IMMEDIATELY AFTER USE, though -- ag_crypto_init below holds it in
+ *    a stack buffer that exists only long enough to learn whether the element
+ *    answered, and clears it before returning THROUGH ag_secure_zero
+ *    (src/core/secure_zero.c), not a plain memset: a local buffer's last
+ *    write before it goes out of scope is a dead store an optimizer is free
+ *    to remove at -Os, and this codebase's own build did exactly that until
+ *    the primitive existed. Nothing on this tier signs with the CDI (the
+ *    DeviceID key below is element-resident and never derived from it), so
+ *    nothing needs the value again once that one bit is known. Checked, not
+ *    assumed -- issue #7.
  *  - Immutability of the DICE itself (6.2.1) rests on BLB mode 3 and lock bits,
  *    which are procedural rather than architectural.
  *
@@ -52,6 +58,8 @@
 #include "ag/protocol.h"
 #include "ag/hal.h"
 #include "../sha256.h"
+#include "../../core/handoff.h"
+#include "../../core/secure_zero.h"
 
 /* Datasheet maximum execution times, in milliseconds. They bound the poll in
  * ag_atecc_exec; a number that is too small gives up on a part that was about
@@ -67,16 +75,48 @@
 
 static uint8_t present;        /* the element answered a wake and an Info */
 static uint8_t have_cdi;
-static uint8_t cdi[32];
 
 ag_status_t ag_crypto_init(void)
 {
     uint8_t     rev[4];
     uint8_t     measurement[32];
+    uint8_t     cdi[32];
     ag_status_t st;
 
     present  = 0u;
     have_cdi = 0u;
+
+    /*
+     * Drains and discards any CDI ag-boot handed off, whether or not this
+     * tier is even the one it named. This tier's DeviceID key is
+     * element-resident and never CDI-derived (see the file header), so it
+     * has no use for the value -- but "no use for it" is not the same as
+     * "safe to leave resident," and src/core/handoff.c holds it until
+     * something takes it. Every crypto provider's ag_crypto_init is the one
+     * call site per image; leaving this out would mean the application's
+     * only other tier honours the handoff's "consumed once" contract and
+     * this one quietly does not.
+     *
+     * CHECKED, NOT ASSUMED, for the soft tier's "valid handoff but no usable
+     * CDI" misbinding (src/crypto/soft/provider.c): it does not reach here.
+     * `have_cdi` below gates on the element's OWN on-chip HMAC probe against
+     * its OWN slot-resident UDS -- entirely independent of whatever this
+     * unconditional drain above did or did not find in the handoff. Whether
+     * the handoff was absent, named a different tier, or named this one with
+     * ag-boot's all-zero "unprovisioned" sentinel, this tier's signing key
+     * and its own provisioned state are unaffected either way, because
+     * neither was ever derived from the handed-off CDI to begin with. The
+     * placeholder measurement below exists for the same reason: this tier's
+     * key is never measurement-bound (see the file header's DICE-layering
+     * discussion), so there is no claimed-measurement-vs-signing-key
+     * consistency for a mismatched or unusable handoff to break.
+     */
+    {
+        uint8_t discard[32];
+        if (ag_boot_handoff_take_cdi(discard)) {
+            ag_secure_zero(discard, sizeof discard);
+        }
+    }
 
     /* 100 kHz, not 400. The wake pulse is produced by the low period of a byte
      * written to address zero, and at 400 kHz that period is 22 us -- below the
@@ -104,15 +144,23 @@ ag_status_t ag_crypto_init(void)
     /*
      * CDI = HMAC(UDS, H(firmware)), computed inside the element.
      *
-     * The measurement is a placeholder until the trusted bootloader exists to
-     * supply a real one, and it is deliberately not a hash of nothing -- that
-     * would yield a CDI which looks derived and is not. The same string the
-     * software tier uses, so the two tiers' placeholder measurements are
-     * visibly the same placeholder rather than accidentally different.
+     * The measurement is a placeholder rather than the one ag-boot verified:
+     * the DeviceID key this tier signs with is element-resident and never
+     * derived from the CDI (see the file header), so nothing downstream reads
+     * this value for what it says about the firmware -- it exists only to
+     * learn whether the element has a UDS at all, and a placeholder answers
+     * that exactly as well as a real measurement would. The same string the
+     * software tier uses for the same reason, so the two tiers' placeholders
+     * are visibly the same placeholder rather than accidentally different.
+     * FWHash, the measurement a verifier actually checks, comes from the
+     * bootloader's handoff by way of src/caps/attest.c -- not from here.
      */
     ag_sha256((const uint8_t *)"ag-unmeasured-application-v1", 28u, measurement);
     st = ag_crypto_hmac(AG_ATECC_SLOT_UDS, measurement, sizeof measurement, cdi);
     (void)ag_atecc_sleep();
+    /* Zeroized here, the moment the one bit it was for -- did the element
+     * answer with a UDS in place -- is known. See the file header. */
+    ag_secure_zero(cdi, sizeof cdi);
     if (st == AG_OK) {
         have_cdi = 1u;
     }

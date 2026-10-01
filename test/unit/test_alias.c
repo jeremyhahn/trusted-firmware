@@ -31,11 +31,40 @@
 #include "ag/crypto.h"
 #include "ag/protocol.h"
 #include "ag/types.h"
+#include "ag/hal.h"
+#include "ag/boot.h"
+#include "boot_platform.h"
+#include "boot_measure.h"
+#include "handoff.h"
+#include "platform_id.h"
 
 /* attest.c reports uptime in the evidence frame. Nothing here reads it, but
  * the translation unit is linked for its identity accessors and the HAL under
  * this binary is the element model, which has no tick. */
 ag_ms_t ag_hal_millis(void) { return 0u; }
+
+/*
+ * Both identity sources src/core/platform_id.c and src/core/handoff.c read,
+ * for attest.c's device-id/FWHash accessors -- the element model above is
+ * this binary's only OTHER HAL need. A test-settable backing store, zeroed by
+ * default: an unprovisioned platform block and no handoff are both the
+ * zero-rather-than-fabricated case, so a test that never calls the setters
+ * below gets that answer, not a shortcut.
+ */
+static uint8_t test_eeprom[AG_BOOT_EE_LEN];
+static uint8_t test_handoff[AG_BOOT_HANDOFF_LEN];
+
+ag_status_t ag_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    if ((uint16_t)(addr + len) > sizeof test_eeprom) { return AG_ERR_RANGE; }
+    memcpy(buf, &test_eeprom[addr], len);
+    return AG_OK;
+}
+
+uint8_t *ag_hal_handoff_block(void)
+{
+    return test_handoff;
+}
 
 static const uint8_t NONCE[]    = AGV_UCCS_NONCE;
 static const uint8_t UEID[]     = AGV_UCCS_UEID;
@@ -56,6 +85,14 @@ void setUp(void)
     ag_model_reset();
     ag_attest_reset_state();
     ag_alias_reset_state();
+    /* Zeroed and re-loaded on every test: a test that populates test_eeprom/
+     * test_handoff must not leak a non-zero DeviceID/FWHash into whichever
+     * test Unity runs next, which otherwise expects the vector-pinned
+     * identity every other test in this file assumes. */
+    memset(test_eeprom, 0, sizeof test_eeprom);
+    memset(test_handoff, 0, sizeof test_handoff);
+    ag_platform_id_init();
+    ag_boot_handoff_init();
     ag_crypto_init();
 }
 
@@ -495,6 +532,71 @@ static void test_a_provisioned_element_mints_a_certificate_and_pages_it(void)
 }
 
 /*
+ * THE REGRESSION THIS EXISTS TO CATCH. ATTEST_CERT is minted here WITHOUT
+ * ATTEST ever having run first. Before this was fixed,
+ * ag_attest_device_id()/ag_attest_fw_hash() returned pointers into attest.c's
+ * OWN evidence buffer, which nothing populates except ATTEST's build() -- so
+ * a certificate minted this way embedded an all-zero UEID and measurement on
+ * a FULLY PROVISIONED device, and nothing about the exchange said so. The
+ * accessors now read src/core/platform_id.c and src/core/handoff.c directly,
+ * which are populated independently of whether ATTEST ever ran.
+ */
+static void test_a_certificate_minted_before_attest_still_carries_the_real_identity(void)
+{
+    static const uint8_t serial[AG_BOOT_SERIAL_LEN] = {
+        0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,
+        0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB
+    };
+    ag_boot_platform_t plat;
+    uint8_t  raw[AG_BOOT_EE_LEN];
+    uint8_t  block[AG_BOOT_HANDOFF_LEN];
+    uint8_t  cdi[32], measurement[32];
+    uint8_t  out[AG_MAX_PAYLOAD];
+    uint8_t  doc[CERT_MAX];
+    uint8_t  len = 0u, page;
+    uint16_t total, got = 0u;
+    unsigned i;
+    int      found_serial, found_measurement;
+
+    memset(&plat, 0, sizeof plat);
+    memcpy(plat.serial, serial, sizeof serial);
+    memset(raw, 0, sizeof raw);
+    ag_boot_platform_serialise(&plat, raw);
+    memcpy(test_eeprom, raw, sizeof test_eeprom);
+    ag_platform_id_init();
+
+    memset(cdi, 0, sizeof cdi);
+    for (i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)(0x70u + i); }
+    ag_boot_handoff_build(block, AG_CRYPTO_SECURE_ELEMENT, cdi, measurement, 1u, 0u);
+    memcpy(test_handoff, block, sizeof test_handoff);
+    ag_boot_handoff_init();
+
+    provision();
+    /* ATTEST is never called -- ag_attest_cmd's build() never runs. */
+    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ALIAS_NONCE_LEN, out, &len));
+    total = (uint16_t)((uint16_t)out[1] | ((uint16_t)out[2] << 8));
+    memcpy(doc, &out[3], (size_t)(len - 3u));
+    got = (uint16_t)(len - 3u);
+    for (page = 1u; got < total; page++) {
+        TEST_ASSERT_EQUAL(AG_OK, run(&page, 1u, out, &len));
+        memcpy(&doc[got], &out[3], (size_t)(len - 3u));
+        got = (uint16_t)(got + (len - 3u));
+    }
+    TEST_ASSERT_EQUAL_UINT16(total, got);
+
+    found_serial = 0;
+    for (i = 0u; i + AG_BOOT_SERIAL_LEN <= total; i++) {
+        if (memcmp(&doc[i], serial, AG_BOOT_SERIAL_LEN) == 0) { found_serial = 1; }
+    }
+    found_measurement = 0;
+    for (i = 0u; i + sizeof measurement <= total; i++) {
+        if (memcmp(&doc[i], measurement, sizeof measurement) == 0) { found_measurement = 1; }
+    }
+    TEST_ASSERT_TRUE(found_serial);
+    TEST_ASSERT_TRUE(found_measurement);
+}
+
+/*
  * THE PROPERTY THE WHOLE THING EXISTS FOR: the signature is over the TBS this
  * firmware built, not over anything else. The model's Sign is a fixed function
  * of whatever was loaded into TempKey, so recomputing it from the digest and
@@ -632,6 +734,7 @@ int main(void)
     RUN_TEST(test_an_unprovisioned_element_refuses_to_mint);
     RUN_TEST(test_a_page_request_with_no_certificate_is_refused);
     RUN_TEST(test_a_provisioned_element_mints_a_certificate_and_pages_it);
+    RUN_TEST(test_a_certificate_minted_before_attest_still_carries_the_real_identity);
     RUN_TEST(test_the_signature_is_over_the_tbs_the_device_built);
     RUN_TEST(test_a_new_nonce_replaces_the_certificate);
     RUN_TEST(test_a_wrong_sized_argument_is_refused);

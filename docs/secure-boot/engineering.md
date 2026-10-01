@@ -121,9 +121,12 @@ typedef enum { AG_BOOT_SESSION_CONTINUE, AG_BOOT_SESSION_COMMIT, AG_BOOT_SESSION
   commit path — both only after `ag_boot_evaluate` returned `AG_OK`.
 - **No boot-section callable is exposed to the application.** The CDI crosses
   in `.noinit` SRAM, written once by `ag_boot_handoff_write` and read once by
-  the application; there is no trampoline, because one BLS-callable entry
-  point would void the BLB mode 3 read barrier that keeps the UDS out of the
-  application's reach from the inside.
+  the application (`src/core/handoff.c`); there is no trampoline, because one
+  BLS-callable entry point would void the BLB mode 3 read barrier that keeps
+  the UDS out of the application's reach from the inside. The same block
+  also carries the `MCUSR` value ag-boot's `.init3` observed before clearing
+  it (handoff version 2, issue #18) — the one record of the reset cause that
+  survives a bootloader running at all.
 - **`.init3` runs before any C runtime work, in both images, from one shared
   file** (`src/hal/avr/hal_early.c`). It reads and clears `MCUSR` and disarms
   the watchdog before `.bss` is zeroed and long before `main()`. A watchdog

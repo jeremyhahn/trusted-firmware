@@ -43,7 +43,7 @@ HOST_EXTRA_DEFS ?= -DAG_FEATURE_ATTEST=1 -DAG_FEATURE_ALIAS_CERT=1
 HOST_CFLAGS := -std=c11 -g -O1 \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
-               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Isrc/crypto -Isrc/crypto/soft -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
+               -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Isrc/crypto -Isrc/crypto/soft -Iboot -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
                -DAG_BOARD_HEADER='"board_profile.h"' $(HOST_EXTRA_DEFS)
 
 
@@ -72,9 +72,14 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 # test_bus_element joins that list for the same reason: it links the software
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
 # functions, either of which the mock also defines.
+# test_crypto_none is excluded for a different reason: HOST_LIB_SRCS already
+# links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
+# provider.c instead -- linking both would be two definitions of
+# ag_crypto_init and everything else in include/ag/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_provision.c test/unit/test_alias.c \
-                            test/unit/test_bus_element.c, \
+                            test/unit/test_bus_element.c \
+                            test/unit/test_crypto_none.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -100,6 +105,9 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/attest.c \
                  src/caps/alias.c \
                  src/caps/uccs.c \
+                 src/core/handoff.c src/core/platform_id.c src/core/reset_cause.c \
+                 src/core/secure_zero.c \
+                 boot/boot_handoff.c boot/boot_platform.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
                  src/core/board_lookup.c \
@@ -121,7 +129,9 @@ $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 $(HOST_DIR)/test_atecc: test/unit/test_atecc.c test/model/atecc608a.c \
                         src/crypto/atecc608a/atecc.c \
                         src/crypto/atecc608a/provider.c \
-                        src/crypto/sha256.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+                        src/crypto/sha256.c \
+                        src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -143,6 +153,8 @@ $(HOST_DIR)/test_alias: test/unit/test_alias.c test/model/atecc608a.c \
                         src/core/reader.c src/core/writer.c \
                         src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                         src/crypto/sha256.c src/caps/attest.c \
+                        src/core/handoff.c src/core/platform_id.c src/core/secure_zero.c \
+                        boot/boot_handoff.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -160,12 +172,25 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
                                src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
                                src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                                src/crypto/sha256.c \
+                               src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c \
+                               src/proto/crc16.c src/proto/crc16_update.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The unattested tier. Its own link line for the reason above this rule
+# names: HOST_LIB_SRCS carries the software provider, and this suite is
+# nothing without the tier that refuses everything instead.
+$(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
+                        src/crypto/none/provider.c \
+                        src/core/handoff.c src/core/reset_cause.c src/core/secure_zero.c \
+                        boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        test/mock/hal_mock.c test/mock/uds_mock.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
-                    $(HOST_DIR)/test_bus_element
+                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)

@@ -20,6 +20,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "unity.h"
 #include "bus.h"
@@ -28,13 +29,24 @@
 #include "ag/hal.h"
 #include "ag/protocol.h"
 #include "ag/status.h"
+#include "ag/boot.h"
 
 /* ag_crypto_tier() reports what ag_crypto_init() found, not a link-time
  * constant -- so the element must actually wake, through the same path a real
  * boot takes, before this build's tier is AG_CRYPTO_SECURE_ELEMENT. */
+/*
+ * src/crypto/atecc608a/provider.c's ag_crypto_init drains any handed-off CDI
+ * through src/core/handoff.c, which is linked here for exactly that call.
+ * No handoff exists in this suite, so a zeroed buffer is this stub's whole
+ * job -- the same arrangement test_atecc.c uses.
+ */
+static uint8_t test_handoff[AG_BOOT_HANDOFF_LEN];
+uint8_t *ag_hal_handoff_block(void) { return test_handoff; }
+
 void setUp(void)
 {
     ag_model_reset();
+    memset(test_handoff, 0, sizeof test_handoff);
     ag_crypto_init();
 }
 

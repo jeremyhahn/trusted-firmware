@@ -114,7 +114,14 @@ typedef struct {
  *    48     1  boot_state      AG_BOOT_STATE_*
  *    49     1  ota_state       AG_BOOT_OTA_*
  *    50     2  boot_fail_count
- *    52    16  device_serial   written by agprov, step 7
+ *    52    16  device_serial   baked into the .eep image by `agprov
+ *                              --bake-eeprom` before the part is ever
+ *                              flashed -- see docs/device-provisioning/. There
+ *                              is deliberately no wire command that writes it:
+ *                              the reserved-region refusal in
+ *                              src/caps/storage.c is unconditional, and a
+ *                              provisioning exemption there would be a second,
+ *                              narrower way to defeat the same refusal.
  *    68    58  reserved
  *   126     2  crc16           over bytes [0, 126)
  *
@@ -190,16 +197,41 @@ typedef struct {
  * the bootloader and read exactly once by the application.
  *
  *   off  size  field
- *     0     4  magic        AG_BOOT_HANDOFF_MAGIC
+ *     0     4  magic         AG_BOOT_HANDOFF_MAGIC
  *     4     1  version
- *     5     1  tier         the ag_crypto_tier_t the bootloader observed
+ *     5     1  tier          the ag_crypto_tier_t the bootloader observed
  *     6     2  flags
- *     8    32  cdi          HMAC(UDS, measurement)
- *    40    32  measurement  so the application reports the FWHash that was
- *                           actually verified, rather than recomputing one
+ *     8    32  cdi           HMAC(UDS, measurement)
+ *    40    32  measurement   so the application reports the FWHash that was
+ *                            actually verified, rather than recomputing one
  *    72     4  image_version
- *    76     2  crc16        over bytes [0, 76)
- *    78     2  reserved
+ *    76     1  reset_cause   raw MCUSR, latched by hal_early.c before ag-boot's
+ *                            OWN .init3 clears it -- issue #18. Decoded by the
+ *                            same priority order src/hal/avr/hal_sys.c uses,
+ *                            so there is one decoder rather than two that can
+ *                            drift.
+ *    77     1  reserved
+ *    78     2  crc16         over bytes [0, 78)
+ *
+ * VERSION 2 REPURPOSES BYTES RATHER THAN GROWING THE BLOCK. Version 1 held
+ * `crc16` at offset 76 and two reserved bytes at 78; version 2 puts
+ * `reset_cause` in the first of those reserved bytes and moves `crc16` into
+ * the other two, now covering 78 bytes instead of 76. AG_BOOT_HANDOFF_LEN does
+ * not change -- there was already room, and moving the CRC to the end of what
+ * it covers is the ordinary shape for a growable checksum, not a special case.
+ *
+ * VERSION MISMATCH IS HANDLED, NOT ASSUMED AWAY. ag_boot_handoff_parse refuses
+ * a version it does not exactly recognise (AG_ERR_UNSUPPORTED), exactly as it
+ * always has -- a build that reads this block never guesses at a layout it was
+ * not compiled for. An application newer than its bootloader (a v1 block) or
+ * older than its bootloader (a v2 block it does not know) both take that path:
+ * DeviceID and FWHash stay zero-rather-than-fabricated and the reset cause
+ * falls back to whatever the application's own .init3 observed -- UNKNOWN
+ * under a stock bootloader, since MCUSR is already clear by the time either
+ * one's .init3 runs. That is the SAME fallback an entirely missing handoff
+ * produces, so a version an application does not understand degrades exactly
+ * like no bootloader having run at all, never like a block misread as
+ * something it is not.
  *
  * SRAM AND NOT FLASH, AND NOT A CALL. The obvious alternative -- the
  * application asks the bootloader for its CDI through a trampoline into the
@@ -216,7 +248,7 @@ typedef struct {
  * it, and the bootloader zeroizes its own copy before jumping.
  */
 #define AG_BOOT_HANDOFF_MAGIC  0x49444341uL  /* 'A','C','D','I' little-endian */
-#define AG_BOOT_HANDOFF_VERSION 1u
+#define AG_BOOT_HANDOFF_VERSION 2u
 #define AG_BOOT_HANDOFF_LEN     80u
 
 #define AG_BOOT_HO_MAGIC        0u
@@ -226,7 +258,9 @@ typedef struct {
 #define AG_BOOT_HO_CDI          8u
 #define AG_BOOT_HO_MEASUREMENT  40u
 #define AG_BOOT_HO_IMAGE_VER    72u
-#define AG_BOOT_HO_CRC          76u
+#define AG_BOOT_HO_RESET_CAUSE  76u
+#define AG_BOOT_HO_RESERVED0    77u
+#define AG_BOOT_HO_CRC          78u
 
 /* ------------------------------------------------------------- geometry */
 /*

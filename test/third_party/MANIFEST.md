@@ -79,3 +79,45 @@ Vendored files, sha256 of each as committed:
     db6ebec8ea68ec2d4aa1978cbea25b01379283a5a4f1f296cfd1e4a0eb3ea666  ed25519-randombytes-custom.h
     0716dd5e8a68e4241b432f14852cc69db2be07915163daffd01b564f2af553a7  ed25519-randombytes.h
     56716eb2f1eb1c5c5de494110b4ef912392ea7217a0e05608e3c70c236460ee1  modm-donna-32bit.h
+
+## micro-ecc v1.1
+
+kmackay/micro-ecc, BSD-2-Clause (`LICENSE.micro-ecc.txt`). TEST AND HOST ONLY:
+it lives under `test/third_party/` and is linked by nothing but the host
+software model of the ATECC608A (`test/model/atecc608a.c`) and the unit suites
+and simulator that use it. No firmware image, bootloader or AVR build contains
+it, and `make firmware-matrix` sizes are unaffected. The model needs real P-256
+so that the evidence the element-tier simulator produces verifies; hand-rolled
+curve arithmetic was refused.
+
+The pin is the `v1.1` release tag, a COMMIT, so the tag cannot be moved under
+us. Upstream's later master commits (ARM asm constraints, an HCCA side-channel
+mitigation) are not taken: neither touches the generic C path this build links.
+
+    tag             v1.1
+    commit          24c60e243580c7868f4334a1ba3123481fe1aa48
+    tarball         https://github.com/kmackay/micro-ecc/archive/24c60e243580c7868f4334a1ba3123481fe1aa48.tar.gz
+    tarball sha256  e3f5830c8a1c25d5db4d514b703616cc9384ebff7169b3503080ef97213b3d9c
+
+VENDORED UNMODIFIED, with one rename: upstream's `LICENSE.txt` is committed as
+`LICENSE.micro-ecc.txt`, because `make verify-vendor` finds files by name and
+Unity already owns `LICENSE.txt`. The bytes are upstream's. The curve selection
+(`-DuECC_SUPPORTS_secp160r1=0` and its siblings, leaving secp256r1) is made on
+the compiler command line in `mk/host.mk`, not by editing `uECC.h`.
+
+Eleven source files are vendored, the ones `uECC.c` includes. The `asm_*.inc`
+files are compile-time dependencies even though only the generic C path is
+selected on x86-64: `uECC.c` names them under `uECC_PLATFORM` guards.
+
+    fe8f2c228203e927f7a8bc18ca49676090b2ead042cd1842ab9a07b303b30ede  uECC.c
+    9d480aa6920155f68503064bebefb815a82aab318ab305efdcf04674d2a9cba7  uECC.h
+    a8ff7957855e6520674cad4bcaf8f3e752d40f6c3f7501915c3504c777be1e7a  uECC_vli.h
+    61bd255c0dca4c69dfc779cc5c1fe1cbff47039d4bb7f37578a88f63b7fca466  types.h
+    9e9d8d6771731dce2e084a4469d0dd2e9ac6245c8773766198a83f82d24b6313  curve-specific.inc
+    e0f036628b47fb7180bfaeb0903a41edbbcda8e1ef99098456eb3b1cdcb4531e  platform-specific.inc
+    bd37042c9366ad2308c0b42bd997aa36fa04e5dd20a5f6997e807d021dbcd2f8  asm_arm.inc
+    0e88a8691784dcde6ad283dd8c4e0ca99799d9826e3924f5d7a084c39c8b07f3  asm_arm_mult_square.inc
+    da318a86761206601a7210eca9987803bf7f3bc24ac0549c2bb28f91a6e3b7b2  asm_arm_mult_square_umaal.inc
+    bc29567dfe556f669c64fbb8ec1b352a0dfcb2ca00a1a5378ae2a8b7fb2b4749  asm_avr.inc
+    5f6a0775622d011b88fa717d4b7d8e6f09798e749728460850afdbf681702d94  asm_avr_mult_square.inc
+    ffd8b033d2df7568c25a98866bd92b1656f7da82d7f813c0b2eb85ec36611193  LICENSE.micro-ecc.txt

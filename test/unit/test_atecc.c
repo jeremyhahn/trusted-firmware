@@ -3,11 +3,13 @@
 /*
  * The ATECC608A driver, against a software model of the element.
  *
- * No part is needed and none is simulated cryptographically. What is tested is
- * everything that is silent when it is wrong: the packet layout, the span the
- * CRC covers, the difference between a status response and a data response,
- * the refusal to sign without an identity, and the sleep that clears the part's
- * volatile state after a secret has been in it.
+ * No part is needed. What is tested is everything that is silent when it is
+ * wrong: the packet layout, the span the CRC covers, the difference between a
+ * status response and a data response, the refusal to sign without an
+ * identity, and the sleep that clears the part's volatile state after a secret
+ * has been in it. The model's curve is real P-256, so the signatures, public
+ * keys and Verify answers below are checked by verifying them -- the model's own
+ * correctness is pinned separately, in test_model_p256.c.
  *
  * The CRC has an EXTERNAL anchor -- the wake token's own bytes, which the
  * datasheet publishes -- so this suite cannot pass with a CRC that is
@@ -24,6 +26,7 @@
 #include "ag/boot.h"
 #include "boot_measure.h"
 #include "handoff.h"
+#include "sha256.h"
 
 /*
  * src/crypto/atecc608a/provider.c's ag_crypto_init drains any handed-off CDI
@@ -333,6 +336,181 @@ static void test_init_drains_a_handed_off_cdi_even_though_this_tier_has_no_use_f
     TEST_ASSERT_EQUAL_UINT8(0u, ag_boot_handoff_take_cdi(taken));
 }
 
+
+/* ----------------------------------------------------------------- P-256 */
+
+/* The whole path a verifier relies on: the key the driver reads back from the
+ * element is the public half of the private key that signs, and a signature the
+ * driver obtains verifies under it. */
+static void test_a_signature_from_the_element_verifies_under_its_public_key(void)
+{
+    uint8_t digest[32], sig[64], pub[64], alg = 0u, i;
+
+    for (i = 0u; i < 32u; i++) { digest[i] = (uint8_t)(0x30u + i); }
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_pubkey(pub));
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_sign(digest, sig, &alg));
+
+    TEST_ASSERT_TRUE(ag_model_p256_verify(pub, digest, sig));
+    digest[0] ^= 0x01u;
+    TEST_ASSERT_FALSE(ag_model_p256_verify(pub, digest, sig));
+}
+
+static void test_the_public_key_read_from_the_element_matches_its_private_key(void)
+{
+    uint8_t pub[64], derived[64];
+
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_pubkey(pub));
+    TEST_ASSERT_TRUE(ag_model_p256_public(ag_model_deviceid_private(), derived));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(derived, pub, 64);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(ag_model_deviceid_public(), pub, 64);
+}
+
+static void test_signing_a_different_digest_gives_a_different_signature(void)
+{
+    uint8_t a[32] = { 1 }, b[32] = { 2 }, sa[64], sb[64], alg;
+
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_sign(a, sa, &alg));
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_sign(b, sb, &alg));
+    TEST_ASSERT_FALSE(memcmp(sa, sb, sizeof sa) == 0);
+}
+
+/* The operator's key is the host's: this plays the host, signing with a private
+ * key the element never sees, and has the element verify it in External mode. */
+static const uint8_t OP_PRIV[32] = {
+    0x21,0x5B,0x8E,0x03,0xC7,0x49,0xF2,0x16,0xA0,0x6D,0x34,0xB8,0x7E,0x1F,0xD9,0x52,
+    0x4A,0xC3,0x07,0x98,0xE1,0x2B,0x65,0xFC,0x80,0x3D,0x1A,0xB6,0x59,0xEE,0x72,0x0C
+};
+
+static void test_the_element_accepts_a_good_operator_signature(void)
+{
+    uint8_t digest[32], sig[64], pub[64], i;
+
+    for (i = 0u; i < 32u; i++) { digest[i] = (uint8_t)(0x90u ^ i); }
+    TEST_ASSERT_TRUE(ag_model_p256_public(OP_PRIV, pub));
+    TEST_ASSERT_TRUE(ag_model_p256_sign(OP_PRIV, digest, sig));
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL_HEX8(AG_ATECC_OP_VERIFY, ag_model_last_opcode());
+}
+
+static void test_the_element_rejects_a_bad_operator_signature(void)
+{
+    uint8_t digest[32] = { 7 }, sig[64], pub[64], other[64], bad[64];
+
+    TEST_ASSERT_TRUE(ag_model_p256_public(OP_PRIV, pub));
+    TEST_ASSERT_TRUE(ag_model_p256_sign(OP_PRIV, digest, sig));
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+
+    /* Wrong digest. */
+    digest[0] ^= 1u;
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, ag_crypto_verify_operator(digest, sig, pub));
+    digest[0] ^= 1u;
+    /* Corrupted signature. */
+    memcpy(bad, sig, sizeof bad);
+    bad[10] ^= 0x04u;
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, ag_crypto_verify_operator(digest, bad, pub));
+    /* A valid signature, checked against somebody else's key. */
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_pubkey(other));
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, ag_crypto_verify_operator(digest, sig, other));
+    /* A public key that is not a point on the curve. */
+    memcpy(other, pub, sizeof other);
+    other[40] ^= 0x01u;
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, ag_crypto_verify_operator(digest, sig, other));
+    /* And the good one still passes: none of the above poisoned the element. */
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_verify_operator(digest, sig, pub));
+}
+
+/* GenKey in private mode makes a new key and returns only its public half; the
+ * n-th key of a fresh part is always the same, so provisioning is reproducible. */
+static void test_genkey_private_installs_a_new_key_and_returns_its_public_half(void)
+{
+    uint8_t pub[64], again[64], test_priv[32], test_pub[64];
+
+    ag_model_provision();
+    ag_model_test_deviceid(test_priv, test_pub);
+    TEST_ASSERT_EQUAL(AG_OK, ag_atecc_wake());
+    TEST_ASSERT_EQUAL(AG_OK, ag_atecc_exec(AG_ATECC_OP_GENKEY, AG_ATECC_GENKEY_PRIVATE,
+                                           AG_ATECC_SLOT_DEVICEID, 0, 0u, pub, 64u, 115u));
+    (void)ag_atecc_sleep();
+
+    TEST_ASSERT_FALSE(memcmp(pub, test_pub, 64u) == 0);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(ag_model_deviceid_public(), pub, 64);
+    TEST_ASSERT_TRUE(ag_model_p256_public(ag_model_deviceid_private(), again));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(again, pub, 64);
+
+    ag_model_reset();
+    TEST_ASSERT_EQUAL(AG_OK, ag_atecc_wake());
+    TEST_ASSERT_EQUAL(AG_OK, ag_atecc_exec(AG_ATECC_OP_GENKEY, AG_ATECC_GENKEY_PRIVATE,
+                                           AG_ATECC_SLOT_DEVICEID, 0, 0u, again, 64u, 115u));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(pub, again, 64);
+}
+
+static void test_genkey_public_on_a_part_with_no_key_is_an_error(void)
+{
+    uint8_t pub[64];
+
+    TEST_ASSERT_EQUAL(AG_OK, ag_atecc_wake());
+    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_atecc_exec(AG_ATECC_OP_GENKEY, AG_ATECC_GENKEY_PUBLIC,
+                                               AG_ATECC_SLOT_DEVICEID, 0, 0u, pub, 64u, 115u));
+}
+
+/* HMAC is a real HMAC-SHA256 keyed by the slot named, so the CDI the element
+ * computes is the one a verifier holding the UDS would. */
+static void test_hmac_is_hmac_sha256_keyed_by_the_named_slot(void)
+{
+    static const uint16_t lens[] = { 0u, 1u, 63u, 64u, 65u, 130u };
+    uint8_t               msg[130], got[32], want[32];
+    unsigned              n, i;
+
+    for (i = 0u; i < sizeof msg; i++) { msg[i] = (uint8_t)(i * 7u + 3u); }
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+
+    for (n = 0u; n < sizeof lens / sizeof lens[0]; n++) {
+        TEST_ASSERT_EQUAL(AG_OK, ag_crypto_hmac(AG_ATECC_SLOT_UDS, msg, lens[n], got));
+        ag_hmac_sha256(ag_model_slot(AG_ATECC_SLOT_UDS), 32u, msg, lens[n], want);
+        TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
+    }
+}
+
+static void test_hmac_under_a_different_key_gives_a_different_answer(void)
+{
+    uint8_t msg[32] = { 9 }, uds_mac[32], other_mac[32];
+
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_hmac(AG_ATECC_SLOT_UDS, msg, 32u, uds_mac));
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_hmac(2u, msg, 32u, other_mac));   /* an empty slot */
+    TEST_ASSERT_FALSE(memcmp(uds_mac, other_mac, 32u) == 0);
+}
+
+static void test_hmac_on_an_unprovisioned_element_is_refused(void)
+{
+    uint8_t msg[8] = { 0 }, out[32];
+
+    TEST_ASSERT_EQUAL(AG_OK, ag_crypto_init());
+    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_crypto_hmac(AG_ATECC_SLOT_UDS, msg, 8u, out));
+}
+
+/* The part signs what Nonce loaded, and nothing was loaded after a sleep. */
+static void test_sign_with_nothing_in_tempkey_is_an_execution_error(void)
+{
+    uint8_t sig[64];
+
+    ag_model_provision();
+    TEST_ASSERT_EQUAL(AG_OK, ag_atecc_wake());
+    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_atecc_exec(AG_ATECC_OP_SIGN, AG_ATECC_SIGN_EXTERNAL,
+                                               AG_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, 64u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -354,6 +532,17 @@ int main(void)
     RUN_TEST(test_an_unprovisioned_element_refuses_to_sign);
     RUN_TEST(test_a_provisioned_element_signs_and_names_its_algorithm);
     RUN_TEST(test_the_element_is_slept_after_signing);
+    RUN_TEST(test_a_signature_from_the_element_verifies_under_its_public_key);
+    RUN_TEST(test_the_public_key_read_from_the_element_matches_its_private_key);
+    RUN_TEST(test_signing_a_different_digest_gives_a_different_signature);
+    RUN_TEST(test_the_element_accepts_a_good_operator_signature);
+    RUN_TEST(test_the_element_rejects_a_bad_operator_signature);
+    RUN_TEST(test_genkey_private_installs_a_new_key_and_returns_its_public_half);
+    RUN_TEST(test_genkey_public_on_a_part_with_no_key_is_an_error);
+    RUN_TEST(test_hmac_is_hmac_sha256_keyed_by_the_named_slot);
+    RUN_TEST(test_hmac_under_a_different_key_gives_a_different_answer);
+    RUN_TEST(test_hmac_on_an_unprovisioned_element_is_refused);
+    RUN_TEST(test_sign_with_nothing_in_tempkey_is_an_execution_error);
     RUN_TEST(test_random_comes_from_the_element);
     RUN_TEST(test_random_refuses_a_length_it_cannot_fill);
     RUN_TEST(test_the_boot_counter_is_read_from_the_element);

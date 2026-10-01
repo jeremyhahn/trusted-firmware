@@ -10,6 +10,31 @@ Pre-1.0, MINOR carries breaking changes.
 
 ### Added
 
+- **The software ATECC608A does real P-256** (#36), so the evidence
+  `agsim-atecc608a` produces now verifies. The DeviceID key in slot 0 is a real
+  private key with its real public point; `Sign` is ECDSA over the digest in
+  TempKey; `Verify` in External mode (the auth session) is a real ECDSA
+  verification; HMAC-SHA256 is a real HMAC keyed by the named slot; `Random`
+  differs call to call, and `Sign`/`Verify` refuse an empty TempKey as the part
+  does. The curve is the vendored micro-ecc v1.1 (BSD-2-Clause) under
+  `test/third_party/micro-ecc/`, pinned and hashed in `MANIFEST.md`, linked by
+  host and test builds only; no firmware image contains it and `make
+  firmware-matrix` sizes are unchanged. `--provision-element` installs a
+  deterministic TEST key, the SHA-256 of `agsim-atecc608a TEST DeviceID key v1`,
+  whose public point is published in `docs/dice-attestation/user.md`. **Still a
+  test identity: anyone can compute the private key, so the evidence verifies
+  and must never be trusted.** Verify in Stored mode (the bootloader's image
+  check) is still answered from a flag; the model has no ECDH or KDF.
+- **`agsim.TestDeviceIDPublicKey()` and `agsim.StartElementWithOperator`**.
+  The first returns the public key the test identity signs with; the second
+  bakes a caller's operator public key into the platform block so a Go test can
+  authenticate with `Device.AuthResponse`. The element-tier simulator now has the
+  operator-signature auth session compiled in (the 328P profile leaves it off for
+  flash; a host has no such limit), through an overlay profile in
+  `tools/agsim/element/` that no AVR build sees.
+- `make verify-vendor` also counts `*.inc` files, so a vendored include cannot go
+  unrecorded.
+
 - **An element-tier host simulator, `agsim-atecc608a`** (#34). `make
   agsim-atecc608a` (or `make agsim CRYPTO=atecc608a`) builds the firmware with
   the real ATECC608A driver and provider over the software element model, so
@@ -17,8 +42,7 @@ Pre-1.0, MINOR carries breaking changes.
   caller-supplied nonce. It starts blank; `--eeprom`/`--eeprom-bin` (an
   `agprov --bake-eeprom` image), `--provision-element` and `--image-hash` (an
   ag-boot handoff built by `ag_boot_handoff_build`) give it a deterministic
-  identity. **A test identity: the model does no curve arithmetic, so no
-  signature it produces verifies.** `make sdk-test`, and so `make ci`, builds
+  identity. **A test identity.** `make sdk-test`, and so `make ci`, builds
   and runs it. The software `agsim` rejects the new options.
 - **`sdk/go/agsim`**, a public launcher for downstream tests: `Start`,
   `StartElement`, `StartBlankElement`, `StartElementWith`, and the `TestSerial`

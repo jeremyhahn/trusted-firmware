@@ -6,9 +6,15 @@ package agsim_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 
 	ag "github.com/jeremyhahn/arduino-generic/sdk/go"
@@ -18,9 +24,14 @@ import (
 // These tests drive the element-tier simulator: the real firmware, the real
 // ATECC608A driver and provider, and the software model of the part as the I2C
 // bus. They check the DICE evidence the firmware produces -- its structure, its
-// identity claims and its nonce binding. They deliberately do NOT check any
-// signature: the model does no curve arithmetic, so none would verify, and a
-// test that pretended otherwise would be testing the model.
+// identity claims, its nonce binding and, because the model does real P-256, its
+// SIGNATURES, with crypto/ecdsa and crypto/x509 and nothing from this
+// repository's C. A verifier written independently of the firmware reaching the
+// same verdict is the whole point of the simulator.
+//
+// The key being verified against is the documented TEST key, pinned as a
+// literal in agsim.TestDeviceIDPublicKey. It proves the evidence is well formed
+// and signed; it says nothing about any device, and no peer may trust it.
 
 // Offsets into the 164-byte evidence frame, per include/ag/protocol.h.
 const (
@@ -54,71 +65,38 @@ func attestNonce(seed byte) []byte {
 
 // ------------------------------------------------------------ DER and CBOR
 
-// uccsOf returns the claims set carried in the certificate's
-// tcg-dice-UCCS-evidence extension, and the subject public key bit string.
-//
-// encoding/asn1 rather than crypto/x509: the model's "public key" is not a
-// point on P-256 and x509.ParseCertificate rightly refuses it, which would
-// make every one of these tests fail on the one thing they cannot check.
-func uccsOf(t *testing.T, der []byte) (claims []byte, spki []byte) {
+// parseCert parses the paged-out alias certificate with crypto/x509. That the
+// standard library accepts it -- a real P-256 SubjectPublicKeyInfo, a valid
+// ecdsa-with-SHA256 signature algorithm, extensions it does not know -- is itself
+// part of what is being tested.
+func parseCert(t *testing.T, der []byte) *x509.Certificate {
 	t.Helper()
 
-	var cert struct {
-		TBS asn1.RawValue
-		Alg asn1.RawValue
-		Sig asn1.BitString
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("x509.ParseCertificate: %v", err)
 	}
-	rest, err := asn1.Unmarshal(der, &cert)
-	if err != nil || len(rest) != 0 {
-		t.Fatalf("certificate is not exactly one DER Certificate (rest=%d): %v", len(rest), err)
-	}
+	return cert
+}
 
-	var extensions []byte
-	body := cert.TBS.Bytes
-	for len(body) > 0 {
-		var field asn1.RawValue
-		if body, err = asn1.Unmarshal(body, &field); err != nil {
-			t.Fatalf("TBSCertificate: %v", err)
-		}
-		switch {
-		case field.Class == asn1.ClassContextSpecific && field.Tag == 3:
-			extensions = field.Bytes
-		case field.Tag == asn1.TagSequence && field.IsCompound && bytes.Contains(field.Bytes, []byte{0x03, 0x42, 0x00, 0x04}):
-			spki = field.Bytes
-		}
-	}
-	if extensions == nil {
-		t.Fatal("certificate has no extensions")
-	}
+// uccsOf returns the claims set carried in the certificate's
+// tcg-dice-UCCS-evidence extension.
+func uccsOf(t *testing.T, cert *x509.Certificate) []byte {
+	t.Helper()
 
-	var seq asn1.RawValue
-	if _, err := asn1.Unmarshal(extensions, &seq); err != nil {
-		t.Fatalf("extensions: %v", err)
-	}
-	for list := seq.Bytes; len(list) > 0; {
-		var raw asn1.RawValue
-		if list, err = asn1.Unmarshal(list, &raw); err != nil {
-			t.Fatalf("extension: %v", err)
+	for _, ext := range cert.Extensions {
+		if !ext.Id.Equal(oidUCCS) {
+			continue
 		}
-		var ext struct {
-			ID       asn1.ObjectIdentifier
-			Critical bool `asn1:"optional"`
-			Value    []byte
+		// extnValue holds UccsEvidence ::= SEQUENCE { uccs OCTET STRING }.
+		var ev struct{ UCCS []byte }
+		if _, err := asn1.Unmarshal(ext.Value, &ev); err != nil {
+			t.Fatalf("UccsEvidence: %v", err)
 		}
-		if _, err := asn1.Unmarshal(raw.FullBytes, &ext); err != nil {
-			t.Fatalf("extension: %v", err)
-		}
-		if ext.ID.Equal(oidUCCS) {
-			// extnValue holds UccsEvidence ::= SEQUENCE { uccs OCTET STRING }.
-			var ev struct{ UCCS []byte }
-			if _, err := asn1.Unmarshal(ext.Value, &ev); err != nil {
-				t.Fatalf("UccsEvidence: %v", err)
-			}
-			return ev.UCCS, spki
-		}
+		return ev.UCCS
 	}
 	t.Fatal("certificate carries no tcg-dice-UCCS-evidence extension")
-	return nil, nil
+	return nil
 }
 
 // cbor decodes the small subset the claims set uses: unsigned integers, byte
@@ -220,8 +198,8 @@ func TestElementAttestCertIsDICEEvidenceBoundToTheCallersNonce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uccs, spki := uccsOf(t, der)
-	gotNonce, ueid, fwHash := claimsOf(t, uccs)
+	cert := parseCert(t, der)
+	gotNonce, ueid, fwHash := claimsOf(t, uccsOf(t, cert))
 
 	if !bytes.Equal(gotNonce, nonce) {
 		t.Errorf("eat_nonce = %x, want the caller's %x", gotNonce, nonce)
@@ -233,8 +211,61 @@ func TestElementAttestCertIsDICEEvidenceBoundToTheCallersNonce(t *testing.T) {
 	if !bytes.Equal(fwHash, agsim.TestFWHash[:]) {
 		t.Errorf("FWHash = %x, want %x", fwHash, agsim.TestFWHash)
 	}
-	if len(spki) == 0 {
-		t.Error("certificate has no uncompressed subject public key")
+}
+
+// THE POINT OF THE REAL CURVE: the alias certificate's signature verifies, under
+// the DeviceID public key, with the standard library.
+func TestElementAttestCertSignatureVerifiesUnderTheDeviceIDKey(t *testing.T) {
+	der, err := agsim.StartElement(t).AttestCert(context.Background(), aliasNonce(0x40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := parseCert(t, der)
+	deviceID := agsim.TestDeviceIDPublicKey()
+
+	// The subject key IS the DeviceID key (docs/dice-attestation: there is no
+	// separately derived Alias key), and it is the documented one.
+	subject, ok := cert.PublicKey.(*ecdsa.PublicKey)
+	if !ok || !subject.Equal(deviceID) {
+		t.Fatalf("subject public key = %v, want the DeviceID test key", cert.PublicKey)
+	}
+	if cert.SignatureAlgorithm != x509.ECDSAWithSHA256 {
+		t.Fatalf("signature algorithm = %v, want ecdsa-with-SHA256", cert.SignatureAlgorithm)
+	}
+
+	// Both ways: the library's own check, and the digest worked out by hand, so a
+	// quirk in either does not hide a wrong signature.
+	if err := cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature); err != nil {
+		t.Fatalf("x509 CheckSignature: %v", err)
+	}
+	tbs := sha256.Sum256(cert.RawTBSCertificate)
+	if !ecdsa.VerifyASN1(deviceID, tbs[:], cert.Signature) {
+		t.Error("ecdsa.VerifyASN1 rejects the certificate signature under the DeviceID key")
+	}
+}
+
+func TestElementAttestCertSignatureRejectsTamperingAndOtherKeys(t *testing.T) {
+	der, err := agsim.StartElement(t).AttestCert(context.Background(), aliasNonce(0x40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := parseCert(t, der)
+
+	// One flipped bit anywhere in the signed bytes.
+	tampered := append([]byte(nil), cert.RawTBSCertificate...)
+	tampered[len(tampered)/2] ^= 0x01
+	if err := cert.CheckSignature(cert.SignatureAlgorithm, tampered, cert.Signature); err == nil {
+		t.Error("a certificate with a modified TBS still verified")
+	}
+
+	// A key that is not the device's.
+	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbs := sha256.Sum256(cert.RawTBSCertificate)
+	if ecdsa.VerifyASN1(&other.PublicKey, tbs[:], cert.Signature) {
+		t.Error("the certificate verified under an unrelated key")
 	}
 }
 
@@ -251,16 +282,20 @@ func TestElementAttestCertDiffersWithTheNonce(t *testing.T) {
 	if bytes.Equal(a, b) {
 		t.Fatal("two different nonces produced the same certificate")
 	}
+	ca, cb := parseCert(t, a), parseCert(t, b)
+
 	// The signature is over a digest that covers the nonce, so it must move too.
-	tail := len(a) - 64
-	if bytes.Equal(a[tail:], b[tail:]) {
+	if bytes.Equal(ca.Signature, cb.Signature) {
 		t.Error("the certificate signature did not change with the nonce")
 	}
+	// ...and each is valid for ITS nonce only: a's signature does not verify
+	// over b's TBS.
+	if err := ca.CheckSignature(ca.SignatureAlgorithm, cb.RawTBSCertificate, ca.Signature); err == nil {
+		t.Error("a signature verified over a certificate bound to a different nonce")
+	}
 
-	ua, _ := uccsOf(t, a)
-	ub, _ := uccsOf(t, b)
-	na, _, _ := claimsOf(t, ua)
-	nb, _, _ := claimsOf(t, ub)
+	na, _, _ := claimsOf(t, uccsOf(t, ca))
+	nb, _, _ := claimsOf(t, uccsOf(t, cb))
 	if bytes.Equal(na, nb) {
 		t.Error("eat_nonce did not change with the nonce")
 	}
@@ -310,6 +345,9 @@ func TestElementAttestEvidenceFrame(t *testing.T) {
 	if bytes.Equal(ev[offSig:offSig+64], make([]byte, 64)) {
 		t.Error("signature field is empty")
 	}
+	if !verifyFrame(agsim.TestDeviceIDPublicKey(), ev) {
+		t.Error("the evidence signature does not verify under the DeviceID key")
+	}
 
 	other, err := d.Attest(context.Background(), attestNonce(0x5b))
 	if err != nil {
@@ -320,6 +358,79 @@ func TestElementAttestEvidenceFrame(t *testing.T) {
 	}
 	if bytes.Equal(ev[offSig:offSig+64], other[offSig:offSig+64]) {
 		t.Error("the evidence signature did not change with the nonce")
+	}
+}
+
+// verifyFrame checks an ATTEST frame the way a verifier does, from the layout in
+// include/ag/protocol.h and nothing else: the signature is raw R||S over the
+// SHA-256 of everything before the algorithm byte.
+func verifyFrame(pub *ecdsa.PublicKey, ev []byte) bool {
+	if len(ev) != ag.EvidenceLen {
+		return false
+	}
+	digest := sha256.Sum256(ev[:offAlg])
+	r := new(big.Int).SetBytes(ev[offSig : offSig+32])
+	s := new(big.Int).SetBytes(ev[offSig+32 : offSig+64])
+	return ecdsa.Verify(pub, digest[:], r, s)
+}
+
+func TestElementEvidenceFrameRejectsTamperingAndOtherKeys(t *testing.T) {
+	ev, err := agsim.StartElement(t).Attest(context.Background(), attestNonce(0x5a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := agsim.TestDeviceIDPublicKey()
+	if !verifyFrame(pub, ev) {
+		t.Fatal("the untouched frame does not verify")
+	}
+
+	// Every field the signature covers: nonce, DeviceID, FWHash. Flipping a bit
+	// in any of them must break it, or the signature is not binding that field.
+	for name, off := range map[string]int{
+		"version": offVersion, "nonce": offNonce, "device id": offDevice, "fw hash": offFWHash,
+	} {
+		bad := append([]byte(nil), ev...)
+		bad[off] ^= 0x01
+		if verifyFrame(pub, bad) {
+			t.Errorf("a frame with a modified %s still verified", name)
+		}
+	}
+
+	bad := append([]byte(nil), ev...)
+	bad[offSig+7] ^= 0x01
+	if verifyFrame(pub, bad) {
+		t.Error("a frame with a modified signature still verified")
+	}
+
+	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verifyFrame(&other.PublicKey, ev) {
+		t.Error("the frame verified under an unrelated key")
+	}
+}
+
+// docs/dice-attestation: the DeviceID key signs both artefacts, and the
+// certificate names it as its subject, so one public key checks the frame and
+// the certificate alike. A peer pinning one key per device needs exactly this.
+func TestElementEvidenceAndCertificateShareOneKey(t *testing.T) {
+	d := agsim.StartElement(t)
+
+	ev, err := d.Attest(context.Background(), attestNonce(0x33))
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := d.AttestCert(context.Background(), aliasNonce(0x33))
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, ok := parseCert(t, der).PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		t.Fatal("certificate subject is not an ECDSA key")
+	}
+	if !verifyFrame(subject, ev) {
+		t.Error("the evidence frame does not verify under the certificate's subject key")
 	}
 }
 

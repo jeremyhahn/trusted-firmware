@@ -5,11 +5,11 @@
  * with test/model/atecc608a.c standing in for the part on the I2C bus.
  *
  * THE IDENTITY THIS SEEDS IS A TEST IDENTITY AND MUST NEVER BE TRUSTED.
- * The model does no elliptic-curve arithmetic (see its header): its "public
- * key" and its "signatures" are deterministic filler, so evidence from this
- * binary has the right SHAPE and verifies under nothing. It exists so a host
- * can exercise the real firmware's DICE paths -- paging, nonce binding, UEID,
- * FWHash, the certificate template -- not so anyone can attest to anything.
+ * The model does real P-256 (see its header), so the evidence from this binary
+ * VERIFIES -- under a key whose private half is the SHA-256 of a published
+ * string. That is what lets a host exercise the real firmware's DICE paths end
+ * to end, signature checks included; it is not a reason for anyone to attest
+ * to anything with it, enrol it or allow-list it.
  *
  * A device needs three things, and each has its own explicit, off-by-default
  * option, so a start with no options is a blank part and says so:
@@ -17,8 +17,8 @@
  *   platform EEPROM block   --eeprom FILE      Intel HEX, what `agprov
  *                           --eeprom-bin FILE  --bake-eeprom` writes; or a raw
  *                                              image
- *   provisioned element     --provision-element  DeviceID key in slot 0 and a
- *                                              UDS, as agprov leaves a part
+ *   provisioned element     --provision-element  the TEST DeviceID key in slot 0 and
+ *                                              a TEST UDS, as agprov leaves a part
  *   ag-boot's CDI handoff   --image-hash HEX64 a block built by the SAME
  *                                              builder ag-boot uses
  *                                              (boot/boot_handoff.c)

@@ -54,6 +54,26 @@ UNITY_CFLAGS := -std=c11 -g -O1 -I$(UNITY_DIR)
 SAN_FLAGS   := -fsanitize=address,undefined -fno-omit-frame-pointer
 COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 
+# The software ATECC608A (test/model/atecc608a.c) does real P-256 through the
+# vendored micro-ecc. Host and test builds only: it is compiled here, once, and
+# linked by the suites and simulator that use the model, never by an AVR image.
+# Compiled without our warning set, as Unity is and for the same reason -- an
+# upstream's warnings are not ours to fix; its integrity is pinned by hash in
+# test/third_party/MANIFEST.md. Also, like unity.o, WITHOUT $(EXTRA_CFLAGS): the
+# object outlives one invocation, so an object built with the sanitizer or
+# coverage flags of `test-asan` / `coverage` would be linked into the next,
+# plain build and fail there. The link still carries the flags. Only secp256r1 is selected, on the command line
+# rather than by editing a vendored header.
+UECC_DIR    := test/third_party/micro-ecc
+UECC_CFLAGS := -std=c11 -g -O1 -I$(UECC_DIR) \
+               -DuECC_SUPPORTS_secp160r1=0 -DuECC_SUPPORTS_secp192r1=0 \
+               -DuECC_SUPPORTS_secp224r1=0 -DuECC_SUPPORTS_secp256k1=0
+MODEL_INC     := -Isrc/crypto/atecc608a -Itest/model -I$(UECC_DIR)
+ELEMENT_MODEL := test/model/atecc608a.c $(HOST_DIR)/uECC.o
+
+$(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
+	@$(CC) $(UECC_CFLAGS) -c -o $@ $<
+
 # One binary per test file: Unity's convention, and it means a segfault in one
 # suite cannot take the others' results with it.
 # The board descriptor suites are excluded here and run by `make board-sweep`
@@ -78,6 +98,7 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 # ag_crypto_init and everything else in include/ag/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_provision.c test/unit/test_alias.c \
+                            test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c \
                             test/unit/test_sys_noboot.c, \
@@ -129,29 +150,29 @@ $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 # the model IS the I2C HAL here -- linking it beside the mock would be two
 # definitions of ag_hal_i2c_xfer, and choosing between them with a flag would
 # mean the tested build is not the shipped one.
-$(HOST_DIR)/test_atecc: test/unit/test_atecc.c test/model/atecc608a.c \
+$(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
                         src/crypto/atecc608a/atecc.c \
                         src/crypto/atecc608a/provider.c \
                         src/crypto/sha256.c \
                         src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # Provisioning, same arrangement and the same reason: it drives the element, so
 # the software element is its I2C HAL.
-$(HOST_DIR)/test_provision: test/unit/test_provision.c test/model/atecc608a.c \
+$(HOST_DIR)/test_provision: test/unit/test_provision.c $(ELEMENT_MODEL) \
                             src/caps/provision.c src/core/reader.c src/core/writer.c \
                             src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -DAG_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The alias certificate, driven by the element that signs it. Its DER and CBOR
 # vectors need no provider at all, but the command path does, and pinning the
 # bytes in the same binary that exercises the command is what stops the two
 # drifting apart.
-$(HOST_DIR)/test_alias: test/unit/test_alias.c test/model/atecc608a.c \
+$(HOST_DIR)/test_alias: test/unit/test_alias.c $(ELEMENT_MODEL) \
                         src/caps/alias.c src/caps/uccs.c \
                         src/core/reader.c src/core/writer.c \
                         src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -159,7 +180,7 @@ $(HOST_DIR)/test_alias: test/unit/test_alias.c test/model/atecc608a.c \
                         src/core/handoff.c src/core/platform_id.c src/core/secure_zero.c \
                         boot/boot_handoff.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # I2C_CONFIG's refusal on an element build (src/caps/bus.c) -- the one
@@ -169,7 +190,7 @@ $(HOST_DIR)/test_alias: test/unit/test_alias.c test/model/atecc608a.c \
 # the crypto tier. The suite's own guard stubs resolve SPI's and 1-Wire's HAL
 # functions, which bus.c's other handlers reference as one translation unit.
 $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
-                               test/model/atecc608a.c \
+                               $(ELEMENT_MODEL) \
                                src/caps/bus.c \
                                src/core/reader.c src/core/writer.c \
                                src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
@@ -178,7 +199,7 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
                                src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c \
                                src/proto/crc16.c src/proto/crc16_update.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule
@@ -207,7 +228,7 @@ $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
 # handful of other HAL calls storage.c's and sys.c's non-auth handlers still
 # reference even though this suite never calls them (RESET's own poll, CAPS,
 # PING, SYS_INFO) -- the same reason test_alias.c defines ag_hal_millis.
-$(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c test/model/atecc608a.c \
+$(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c $(ELEMENT_MODEL) \
                                 src/core/auth_session.c src/caps/storage.c src/caps/sys.c \
                                 src/core/reader.c src/core/writer.c \
                                 src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -217,10 +238,19 @@ $(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c test/model/atecc608
                                 boot/boot_platform.c boot/boot_handoff.c \
                                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
+# The model's curve, pinned against RFC 6979 and an independent derivation. It
+# links the model and the hash and nothing else: no driver, no provider.
+$(HOST_DIR)/test_model_p256: test/unit/test_model_p256.c $(ELEMENT_MODEL) \
+                             src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
+                             src/proto/crc16.c src/proto/crc16_update.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session
 
@@ -319,7 +349,7 @@ lint:
 #                      explicit options it holds a deterministic TEST identity
 #                      and mints DICE evidence over the wire. See
 #                      tools/agsim/tier_atecc608a.c for the options and for why
-#                      the evidence verifies under nothing.
+#                      the evidence is real P-256 under a TEST key nobody may trust.
 #
 # `make agsim CRYPTO=atecc608a` is `make agsim-atecc608a`, so the tier is named
 # the way it is for `make firmware`.
@@ -330,13 +360,20 @@ AGSIM_COMMON := tools/agsim/main.c tools/agsim/tier.h
 # everything that is not the I2C bus: its I2C and delay symbols are weak for
 # exactly this.
 #
-# The operator-signature auth session stays OFF, as on the build this simulates:
-# the host board profile (atmega328p) says AG_FEATURE_AUTH_SESSION 0, and the
-# profile's word is the build's -- see CRYPTO_SRCS handling in mk/avr.mk.
-AGSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c, \
+# The operator-signature auth session is ON in this binary, unlike the
+# atmega328p profile it otherwise takes (which says 0 for want of flash, a
+# constraint that does not exist on a host). The element tier is the only tier
+# that can verify an operator signature, and the simulator exists to let a host
+# exercise exactly what that tier does. The override is a one-line overlay
+# profile, tools/agsim/element/board_profile.h, found first on the include path;
+# no firmware source or board profile is touched, and no AVR image sees it.
+AGSIM_ELEMENT_INC := -Itools/agsim/element
+AGSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c \
+                                   src/core/auth_session_none.c, \
                                    $(HOST_LIB_SRCS)) \
+                      src/core/auth_session.c \
                       src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
-                      test/model/atecc608a.c
+                      $(ELEMENT_MODEL)
 
 ## agsim: build the firmware as a host binary speaking the protocol on stdio
 agsim: $(HOST_DIR)/agsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)
@@ -348,8 +385,8 @@ $(HOST_DIR)/agsim: $(AGSIM_COMMON) tools/agsim/tier_soft.c $(HOST_LIB_SRCS) | $(
 ## agsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 agsim-atecc608a: $(HOST_DIR)/agsim-atecc608a
 $(HOST_DIR)/agsim-atecc608a: $(AGSIM_COMMON) tools/agsim/tier_atecc608a.c $(AGSIM_ELEMENT_SRCS) | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
-	   -Itools/agsim -Isrc/crypto/atecc608a -Itest/model -o $@ \
+	@$(CC) $(AGSIM_ELEMENT_INC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	   -Itools/agsim $(MODEL_INC) -o $@ \
 	   tools/agsim/main.c tools/agsim/tier_atecc608a.c $(AGSIM_ELEMENT_SRCS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 

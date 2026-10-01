@@ -295,9 +295,9 @@ $(BOOT_TEST_DIR)/test_boot_element: test/unit/boot/test_boot_element.c \
         boot/measure/measure_atecc608a.c boot/verify/verify_atecc608a.c \
         boot/boot_handoff.c src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
         src/proto/crc16.c src/proto/crc16_update.c \
-        test/model/atecc608a.c test/mock/boot_hal_mock.c \
+        $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_ed25519: test/unit/boot/test_boot_ed25519.c \

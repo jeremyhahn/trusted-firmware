@@ -598,20 +598,24 @@ static void test_a_certificate_minted_before_attest_still_carries_the_real_ident
 
 /*
  * THE PROPERTY THE WHOLE THING EXISTS FOR: the signature is over the TBS this
- * firmware built, not over anything else. The model's Sign is a fixed function
- * of whatever was loaded into TempKey, so recomputing it from the digest and
- * finding it in the certificate proves the digest that reached the element was
- * the digest of these bytes.
+ * firmware built, under the key the certificate names. The model signs for real
+ * (ECDSA P-256, RFC 6979), so the check is the one a verifier makes: take the
+ * certificate the device paged out, hash its TBS, and verify the signature in
+ * it against the subject public key in it -- which must be the element's key.
+ *
+ * Then the same document is rebuilt from the outside, from the digest alone.
+ * RFC 6979 makes the signature a function of key and digest, so the two must
+ * be byte-identical, and a different digest reaching the element would change
+ * the signature and fail the comparison.
  */
 static void test_the_signature_is_over_the_tbs_the_device_built(void)
 {
     uint8_t  out[AG_MAX_PAYLOAD];
     uint8_t  doc[CERT_MAX];
     uint8_t  want[CERT_MAX];
-    uint8_t  pub[AG_ALIAS_POINT_LEN];
     uint8_t  expect_sig[AG_SIG_LEN];
     uint8_t  digest[AG_SHA256_LEN];
-    uint8_t  len = 0u, page, i;
+    uint8_t  len = 0u, page;
     uint16_t total, got;
     ag_alias_parts_t p;
 
@@ -626,29 +630,26 @@ static void test_the_signature_is_over_the_tbs_the_device_built(void)
         got = (uint16_t)(got + (len - 3u));
     }
 
-    /* Rebuild the document from the outside. The public key is the element's,
-     * which its GenKey returns as 0x11..0x50; the identity and measurement come
-     * from the same accessors the command used. */
-    for (i = 0u; i < (uint8_t)sizeof pub; i++) {
-        pub[i] = (uint8_t)(0x11u + i);
-    }
+    /* The digest the device signed, rebuilt from the inputs it used. The public
+     * key is the element's real one; the identity and measurement come from the
+     * same accessors the command used. */
     p.nonce   = NONCE;
     p.ueid    = ag_attest_device_id();
     p.fw_hash = ag_attest_fw_hash();
-    p.pubkey  = pub;
+    p.pubkey  = ag_model_deviceid_public();
     p.sig     = expect_sig;
+    TEST_ASSERT_NOT_NULL(p.pubkey);
     TEST_ASSERT_EQUAL(AG_OK, ag_alias_tbs_digest(&p, digest));
 
-    /* The model signs as sig[i] = TempKey[i & 31] ^ (i + 1), and TempKey holds
-     * whatever the driver loaded with Nonce in pass-through mode. So a
-     * signature recomputed from OUR digest is the signature the certificate
-     * must carry -- and if the element had been handed any other bytes, the
-     * document below would not match. */
-    for (i = 0u; i < (uint8_t)sizeof expect_sig; i++) {
-        expect_sig[i] = (uint8_t)(digest[i & 31u] ^ (uint8_t)(i + 1u));
-    }
+    TEST_ASSERT_TRUE(ag_model_p256_sign(ag_model_deviceid_private(), digest, expect_sig));
+    TEST_ASSERT_TRUE(ag_model_p256_verify(p.pubkey, digest, expect_sig));
     TEST_ASSERT_EQUAL_UINT16(total, collect(&p, want));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, doc, total);
+
+    /* And a verifier that has only the DeviceID public key rejects the same
+     * signature over any other digest. */
+    digest[0] ^= 0x01u;
+    TEST_ASSERT_FALSE(ag_model_p256_verify(p.pubkey, digest, expect_sig));
 }
 
 /* A fresh challenge replaces the document. Serving the previous one would be

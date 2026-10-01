@@ -78,7 +78,7 @@ never skips. Where binaries are looked up, and the full API, is in
 | Source of identity | What the simulator is given | Where it comes from |
 |---|---|---|
 | Platform EEPROM block (DeviceID / UEID) | serial `agsim-test-id-01` (16 bytes) | `ag.BuildPlatformBlock`, the builder `agprov --bake-eeprom` uses |
-| Element | a DeviceID key in slot 0 and a UDS | `--provision-element` seeds the model directly |
+| Element | the TEST DeviceID key in slot 0 and a TEST UDS | `--provision-element` seeds the model directly |
 | ag-boot handoff (FWHash, CDI) | FWHash = SHA-256 of `agsim-test-firmware-image-v1` | `--image-hash`, built by `boot/boot_handoff.c`'s `ag_boot_handoff_build` |
 
 Everything is off by default: `agsim-atecc608a` with no options is a blank part
@@ -95,18 +95,58 @@ build/host/agsim-atecc608a --pty --eeprom dev.eep --provision-element \
 `--eeprom-bin FILE` a raw image. A bad option or an unreadable file stops the
 simulator with exit status 2 and a message naming it; nothing is skipped.
 
+### The DeviceID test key, and verifying under it
+
+The model does real P-256 (the vendored micro-ecc v1.1,
+`test/third_party/micro-ecc/`), so the evidence **verifies**. `--provision-element`
+installs a deterministic key so a test can pin it:
+
+| | |
+|---|---|
+| Private key | `SHA-256("agsim-atecc608a TEST DeviceID key v1")` (ASCII, no terminator), `0df3d0b553ec7486fc43dd08763416cf0feee11c46a163fdaff28ea75cf9f76d` |
+| Public point `X` | `41fbd5657867813d482f3b4519638191109bf4708e3b9cb518e866f3a78dbf09` |
+| Public point `Y` | `a3a696b6af162bda303d1bde9030379186a3a5c82ed8439bc433c9305d4daea4` |
+
+In Go, `agsim.TestDeviceIDPublicKey()` returns it. Per
+[`architecture.md`](architecture.md) the DeviceID key signs both artefacts and is
+the alias certificate's subject key, so one public key checks both:
+
+```go
+cert, _ := x509.ParseCertificate(der)
+err := cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature)
+
+digest := sha256.Sum256(ev[:73])           // everything before the algorithm byte
+r := new(big.Int).SetBytes(ev[74:106])
+s := new(big.Int).SetBytes(ev[106:138])
+ok := ecdsa.Verify(agsim.TestDeviceIDPublicKey(), digest[:], r, s)
+```
+
+Signing is deterministic (an HMAC-DRBG `k` in the style of RFC 6979, micro-ecc's
+variant), so the same nonce gives the same signature; the real part's `k` is
+random.
+
+The operator-signature auth session is compiled into this binary, so it can be
+exercised too: `agsim.StartElementWithOperator(t, &opKey.PublicKey)` bakes the
+operator's public key into the platform block, and `Device.AuthResponse` with
+the matching private key opens the session. The element verifies for real, so a
+signature from another key, for another serial, or over a stale nonce is refused.
+
 ### Limits
 
-**THIS IDENTITY IS A TEST IDENTITY AND MUST NEVER BE TRUSTED.** The element
-model does no elliptic-curve arithmetic (`test/model/atecc608a.c`): its public
-key and every signature are deterministic filler. The evidence has the right
-structure, the right claims and the right nonce binding, and **no signature in
-it verifies under any key**. A verifier that checks signatures will correctly
-reject it, so use it to test paging, parsing, nonce binding, the UEID and
-measurement claims and error handling, not to test a trust decision. Also not
-modelled: element timing, the operator-signature auth session (the simulated
-328P profile has `AG_FEATURE_AUTH_SESSION 0`), and the provisioning commands (a
-jig image concern; the element is seeded instead).
+**THIS IDENTITY IS A TEST IDENTITY AND MUST NEVER BE TRUSTED.** The evidence
+verifies, which is exactly why this matters: the private key above is the hash of
+a published string, so anyone can compute it and sign as this device. A passing
+signature check proves the bytes are well formed and were signed by that key; it
+proves nothing about any device. **Never enrol, allow-list or pin this key
+outside a test that supplied it.** The serial `agsim-test-id-01` and the FWHash
+of `agsim-test-firmware-image-v1` are likewise fixed and public.
+
+Use it to test paging, parsing, signature verification, nonce binding, the UEID
+and measurement claims, the auth session and error handling. Not modelled:
+element timing, Verify in Stored mode (the bootloader's image check, answered
+from a flag), ECDH or any KDF (the firmware uses neither), a real TRNG
+(`Random` is a fixed sequence that differs call to call), and the provisioning
+commands (a jig image concern; the element is seeded instead).
 
 ## Get freshness-bound evidence for a local verifier
 

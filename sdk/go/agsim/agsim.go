@@ -22,14 +22,26 @@
 // produces, bound to the caller's nonce. [StartBlankElement] is the same
 // binary started with nothing provisioned.
 //
-// # What this is not
+// # What the evidence is, and is not
 //
-// THE ELEMENT MODEL DOES NO ELLIPTIC-CURVE ARITHMETIC. Its public key and its
-// signatures are deterministic filler: the evidence has the right structure,
-// the right nonce binding, the right identity claims and verifies under
-// nothing. A verifier that checks the signature will correctly reject it, and
-// that is the point of the word TEST in [TestSerial]: this identity must never
-// be trusted, enrolled or allow-listed outside a test.
+// THE ELEMENT MODEL DOES REAL P-256. The DeviceID key behind the test identity
+// is a real private key with a real public point ([TestDeviceIDPublicKey]);
+// every ATTEST frame and ATTEST_CERT certificate is signed with it, and
+// verifies under it with crypto/ecdsa and crypto/x509. The alias certificate's
+// subject key is that same point, so a verifier that checks the signature
+// reaches a true conclusion about the bytes it was handed.
+//
+// WHAT IT PROVES NOTHING ABOUT IS THE DEVICE. The private key is the SHA-256 of
+// a published string (see docs/dice-attestation/), so anyone can compute it. The
+// evidence verifies, and it must still never be trusted, enrolled or
+// allow-listed outside a test: that is the point of the word TEST in
+// [TestSerial] and [TestDeviceIDPublicKey]. A verifier is expected to accept
+// this key only in a test that supplied it.
+//
+// The element tier also has the operator-signature auth session switched on
+// (AUTH_CHALLENGE and AUTH_RESPONSE), which the atmega328p profile leaves off
+// for want of flash. [StartElementWithOperator] bakes the operator's public key
+// into the platform block, so a test can authenticate with a key it generated.
 //
 // # Finding the binaries
 //
@@ -42,9 +54,12 @@
 package agsim
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,6 +88,30 @@ const TestImage = "agsim-test-firmware-image-v1"
 // alias certificate's measurements claim.
 var TestFWHash = sha256.Sum256([]byte(TestImage))
 
+// testDeviceIDPublic is the uncompressed X||Y point of the element-tier test
+// identity's DeviceID key: the public half of the private key whose SHA-256
+// preimage is "agsim-atecc608a TEST DeviceID key v1". It is pinned in
+// test/unit/test_model_p256.c against an independent derivation, so the model
+// cannot drift from it without a C test failing.
+const testDeviceIDPublic = "41fbd5657867813d482f3b4519638191109bf4708e3b9cb518e866f3a78dbf09" +
+	"a3a696b6af162bda303d1bde9030379186a3a5c82ed8439bc433c9305d4daea4"
+
+// TestDeviceIDPublicKey returns the public key the element-tier test identity
+// signs with. It is a PUBLIC key and the private half is deliberately not
+// here: this module holds no private keys. The identity is a TEST identity;
+// nothing outside a test may trust this key.
+func TestDeviceIDPublicKey() *ecdsa.PublicKey {
+	raw, err := hex.DecodeString(testDeviceIDPublic)
+	if err != nil || len(raw) != 64 {
+		panic("agsim: testDeviceIDPublic is not 64 hex-encoded bytes")
+	}
+	return &ecdsa.PublicKey{
+		Curve: elliptic.P256(),
+		X:     new(big.Int).SetBytes(raw[:32]),
+		Y:     new(big.Int).SetBytes(raw[32:]),
+	}
+}
+
 // bootTimeout bounds each command. The simulator answers in microseconds; this
 // is only the time a wedged one costs before the test fails.
 const bootTimeout = 5 * time.Second
@@ -89,8 +128,30 @@ func Start(tb testing.TB, opts ...ag.Option) *ag.Device {
 // (DeviceID key in slot 0 and a UDS), and a handoff carrying [TestFWHash].
 func StartElement(tb testing.TB, opts ...ag.Option) *ag.Device {
 	tb.Helper()
+	return startTestIdentity(tb, [ag.OperatorPubkeyLen]byte{}, opts)
+}
 
-	block := ag.BuildPlatformBlock(TestSerial, [ag.PubkeyHashLen]byte{}, [ag.OperatorPubkeyLen]byte{})
+// StartElementWithOperator is [StartElement] with operator baked into the
+// platform block as the trust anchor of the AUTH_CHALLENGE/AUTH_RESPONSE
+// session -- the key agprov provisions on a real device. The test holds the
+// matching private key and passes it, as a crypto.Signer, to
+// [ag.Device.AuthResponse]. operator must be a P-256 public key.
+func StartElementWithOperator(tb testing.TB, operator *ecdsa.PublicKey, opts ...ag.Option) *ag.Device {
+	tb.Helper()
+
+	if operator == nil || operator.Curve != elliptic.P256() {
+		tb.Fatal("agsim: the operator key must be a P-256 public key")
+	}
+	var point [ag.OperatorPubkeyLen]byte
+	operator.X.FillBytes(point[:32])
+	operator.Y.FillBytes(point[32:])
+	return startTestIdentity(tb, point, opts)
+}
+
+func startTestIdentity(tb testing.TB, operator [ag.OperatorPubkeyLen]byte, opts []ag.Option) *ag.Device {
+	tb.Helper()
+
+	block := ag.BuildPlatformBlock(TestSerial, [ag.PubkeyHashLen]byte{}, operator)
 	eep := filepath.Join(tb.TempDir(), "platform.bin")
 	if err := os.WriteFile(eep, block[:], 0o600); err != nil {
 		tb.Fatal(err)

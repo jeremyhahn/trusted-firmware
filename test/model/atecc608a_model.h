@@ -8,7 +8,11 @@
 #include <stdint.h>
 
 void     ag_model_reset(void);
-/* Gives the element a UDS and an ECC key in slot 0 -- what agprov does. */
+/* Gives the element a UDS and an ECC key in slot 0 -- what agprov does.
+ *
+ * BOTH ARE TEST SECRETS, derived from fixed public strings (see atecc608a.c):
+ * the DeviceID key is real P-256, so evidence signed with it verifies, and
+ * anyone can compute its private half. It must never be trusted. */
 void     ag_model_provision(void);
 /* NACK the next n reads, as the real part does while a command executes. */
 void     ag_model_set_busy(uint8_t reads);
@@ -25,8 +29,9 @@ uint8_t  ag_model_data_locked(void);
  * the part does not have. */
 const uint8_t *ag_model_slot(uint8_t n);
 
-/* Whether the element's Verify answers "valid". The model does no curve
- * arithmetic: a test asserting that ECDSA works would be testing the model. */
+/* Whether the element's Verify answers "valid" in STORED mode (the
+ * bootloader's image check, whose key sits in a locked slot the model does not
+ * populate). External mode is real ECDSA and ignores this. */
 void           ag_model_set_verify_result(uint8_t pass);
 /* No element on the board: every transfer NACKs. Distinct from a busy part --
  * a driver must tell "not there" from "not yet". */
@@ -38,5 +43,27 @@ const uint8_t *ag_model_verify_last_sig(void);
 /* issue #4: the public key the driver sent with an External-mode (0x02)
  * Verify. Zero if the last Verify was Stored mode (0x00) or none arrived. */
 const uint8_t *ag_model_verify_last_pubkey(void);
+
+/* ---------------------------------------------------------------- P-256
+ *
+ * The slot 0 key pair, for tests that check what the element produced. NULL
+ * until a key exists (ag_model_provision, or a GenKey in private mode). The
+ * private half is a TEST oracle: the real part never discloses it. */
+const uint8_t *ag_model_deviceid_public(void);
+const uint8_t *ag_model_deviceid_private(void);
+/* The key ag_model_provision() installs, without installing it -- so a test
+ * can pin the documented public point. */
+void           ag_model_test_deviceid(uint8_t priv[32], uint8_t pub[64]);
+
+/* The host peer's side of the curve, through the same vendored library as the
+ * element: a public point from a private scalar, an ECDSA signature over a
+ * 32-byte digest (deterministic k, so reproducible), and a verification. They return 1
+ * on success and 0 otherwise. A test uses them to play the OPERATOR, whose key
+ * is never in the element. */
+int            ag_model_p256_public(const uint8_t priv[32], uint8_t pub[64]);
+int            ag_model_p256_sign(const uint8_t priv[32], const uint8_t digest[32],
+                                  uint8_t sig[64]);
+int            ag_model_p256_verify(const uint8_t pub[64], const uint8_t digest[32],
+                                    const uint8_t sig[64]);
 
 #endif /* AG_ATECC_MODEL_H */

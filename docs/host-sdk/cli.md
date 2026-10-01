@@ -118,10 +118,12 @@ status 2 and a message; the software `agsim` accepts none of these options.
 |---|---|
 | `--eeprom FILE` | the platform EEPROM block, as Intel HEX (what `agprov --bake-eeprom` writes); unaddressed bytes stay erased (`0xFF`) |
 | `--eeprom-bin FILE` | the same, as a raw image from address 0 (at most the mock's 1024 bytes) |
-| `--provision-element` | a DeviceID key in slot 0 and a UDS, seeded directly into the model |
+| `--provision-element` | the TEST DeviceID key in slot 0 (real P-256; private key = SHA-256 of `agsim-atecc608a TEST DeviceID key v1`) and a TEST UDS, seeded directly into the model |
 | `--image-hash HEX64` | an ag-boot handoff block (FWHash and a non-zero CDI) for that SHA-256, built by `ag_boot_handoff_build` |
 
-**Test identity only, never to be trusted**: the model's public key and
-signatures are deterministic filler, not P-256. See
+**Test identity only, never to be trusted**: the model does real P-256, so the
+evidence verifies, but its private key is derived from a published string and
+anyone can sign as this device. The binary also has the operator-signature auth
+session compiled in. See
 `docs/dice-attestation/user.md#produce-real-dice-evidence-with-no-hardware`.
 Go tests should use `sdk/go/agsim` rather than launching it by hand.

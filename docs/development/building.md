@@ -63,7 +63,8 @@ make agsim-atecc608a            # or: make agsim CRYPTO=atecc608a
 The element-tier build links the real ATECC608A driver and provider against
 `test/model/atecc608a.c`, so ATTEST and ATTEST_CERT produce DICE evidence over
 the wire. It starts blank; its identity options and their limits (the model does
-no curve arithmetic, so nothing it signs verifies) are in `docs/host-sdk/cli.md`.
+real P-256 under a published TEST key, so its evidence verifies and must never be
+trusted) are in `docs/host-sdk/cli.md`.
 
 ## Adding a board
 

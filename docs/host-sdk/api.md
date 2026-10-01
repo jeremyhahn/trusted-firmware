@@ -36,11 +36,16 @@ test (never skips) if the binary is not built.
 | `agsim.StartElement(t, opts...)` | `agsim-atecc608a` provisioned with the test identity: real DICE `ATTEST` and `ATTEST_CERT` |
 | `agsim.StartBlankElement(t, opts...)` | the same binary with nothing provisioned: attestation is `not provisioned` |
 | `agsim.StartElementWith(t, args, opts...)` | the element tier with your own `--eeprom`, `--provision-element`, `--image-hash` arguments |
+| `agsim.StartElementWithOperator(t, pub, opts...)` | `StartElement` with the P-256 public key `pub` baked in as the operator, so `AuthChallenge`/`AuthResponse` can be exercised with a key the test generated |
 
 `opts` are ordinary `ag.Option`s. `agsim.TestSerial`, `agsim.TestImage` and
 `agsim.TestFWHash` are the identity `StartElement` provisions, for asserting
-against. **It is a test identity and must never be trusted:** the element model
-does no curve arithmetic, so no signature the simulator produces verifies. See
+against, and `agsim.TestDeviceIDPublicKey()` is the `*ecdsa.PublicKey` its
+evidence is signed with. The element model does real P-256, so the `ATTEST`
+frame and the `ATTEST_CERT` certificate **verify** under that key with
+`crypto/ecdsa` and `crypto/x509`. **It is still a test identity and must never be
+trusted:** the private key is the SHA-256 of a published string, so anyone can
+sign as this device. Accept the key only in a test that supplied it. See
 `docs/dice-attestation/user.md` for what that does and does not let you test.
 
 **Finding the binaries.** `$AGSIM_DIR` if set, otherwise `build/host` in the

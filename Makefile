@@ -53,7 +53,7 @@ verify-vendor:
 	  else echo "  ok  $$path"; fi; \
 	done < <(grep -oE '^    [0-9a-f]{64}  [A-Za-z0-9_.-]+$$' test/third_party/MANIFEST.md | sed 's/^    //'); \
 	listed=$$(grep -cE '^    [0-9a-f]{64}  ' test/third_party/MANIFEST.md); \
-	present=$$(find test/third_party src/third_party -type f \( -name '*.c' -o -name '*.h' -o -name 'LICENSE*' \) 2>/dev/null | wc -l); \
+	present=$$(find test/third_party src/third_party -type f \( -name '*.c' -o -name '*.h' -o -name '*.inc' -o -name 'LICENSE*' \) 2>/dev/null | wc -l); \
 	if [ "$$listed" -ne "$$present" ]; then \
 	  echo "UNRECORDED: $$present vendored files present, $$listed recorded in MANIFEST.md"; fail=1; fi; \
 	exit $$fail

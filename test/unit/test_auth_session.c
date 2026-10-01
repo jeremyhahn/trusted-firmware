@@ -2,12 +2,12 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The operator-signature auth session, driven against the software element --
- * issue #4. Every interesting case here is about the STATE MACHINE (is a
- * challenge outstanding, has it been consumed, is a session granted), not
- * about ECDSA: the element model answers Verify from a flag a test sets
- * (ag_model_set_verify_result), exactly as test_alias.c's certificate suite
- * already does for the same primitive, and for the same reason -- modelling
- * the curve here would test the model, not the driver or this state machine.
+ * issue #4. The cases are mostly about the STATE MACHINE (is a challenge
+ * outstanding, has it been consumed, is a session granted), and the element's
+ * Verify is now real ECDSA P-256: the test plays the operator, holding a real
+ * private key, and signs the same message the Go SDK's AuthResponse signs
+ * (domain || serial || nonce). So "a wrong signature is refused" means a
+ * signature that does not verify, not a flag a test flipped.
  */
 #include <string.h>
 #include "unity.h"
@@ -23,6 +23,7 @@
 #include "boot_platform.h"
 #include "platform_id.h"
 #include "handoff.h"
+#include "sha256.h"
 
 /* This suite's only OTHER HAL needs, beyond the element model (which is the
  * I2C HAL here) -- the same reason test_alias.c defines ag_hal_millis. None
@@ -65,16 +66,19 @@ static const uint8_t SERIAL[AG_BOOT_SERIAL_LEN] = {
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11
 };
-static const uint8_t OPERATOR_PUBKEY[AG_BOOT_OPERATOR_PUBKEY_LEN] = {
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,
-    0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22
+/* The operator's key pair. The private half exists only in this test, as it
+ * only ever exists in the operator's custody; the device holds the public
+ * half, baked into the platform block. */
+static const uint8_t OPERATOR_PRIV[32] = {
+    0x4F,0x0C,0x91,0x37,0xA2,0x5E,0x68,0xD3,0x1B,0x74,0xC0,0x29,0xE8,0x56,0x3D,0xAA,
+    0x02,0x9B,0x61,0xF4,0x8E,0x17,0xC5,0x73,0xDA,0x40,0x2C,0xB9,0x85,0x1E,0x6F,0x30
 };
+/* A key the device has never been told about. */
+static const uint8_t STRANGER_PRIV[32] = {
+    0x91,0x3A,0x5C,0xE7,0x08,0xB2,0x6D,0x44,0xF1,0x27,0x9E,0x80,0x35,0xCB,0x1A,0x62,
+    0x7D,0x0F,0xA9,0x53,0xE4,0x16,0xBC,0x29,0x70,0x8A,0x3E,0xD5,0x41,0xF8,0x0B,0x96
+};
+static uint8_t operator_pub[AG_BOOT_OPERATOR_PUBKEY_LEN];
 
 void setUp(void)
 {
@@ -83,9 +87,10 @@ void setUp(void)
     ag_model_reset();
     ag_model_provision();
 
+    TEST_ASSERT_TRUE(ag_model_p256_public(OPERATOR_PRIV, operator_pub));
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, SERIAL, sizeof SERIAL);
-    memcpy(plat.operator_pubkey, OPERATOR_PUBKEY, sizeof OPERATOR_PUBKEY);
+    memcpy(plat.operator_pubkey, operator_pub, sizeof operator_pub);
     memset(test_eeprom, 0, sizeof test_eeprom);
     ag_boot_platform_serialise(&plat, test_eeprom);
     ag_platform_id_init();
@@ -125,12 +130,39 @@ static ag_status_t response(const uint8_t sig[AG_AUTH_SIG_LEN])
     return ag_auth_cmd_response(&r, &w);
 }
 
-static const uint8_t ARBITRARY_SIG[AG_AUTH_SIG_LEN] = {
-    1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
-    17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,
-    33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,
-    49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64
-};
+/* What the operator signs: SHA-256 of domain || serial || nonce, the same bytes
+ * sdk/go's AuthResponse hashes. */
+static void auth_digest(const uint8_t serial[AG_BOOT_SERIAL_LEN],
+                        const uint8_t nonce[AG_AUTH_NONCE_LEN], uint8_t out[32])
+{
+    static const char domain[] = "ag-auth-v1";
+    uint8_t           msg[sizeof domain - 1u + AG_BOOT_SERIAL_LEN + AG_AUTH_NONCE_LEN];
+
+    memcpy(msg, domain, sizeof domain - 1u);
+    memcpy(msg + sizeof domain - 1u, serial, AG_BOOT_SERIAL_LEN);
+    memcpy(msg + sizeof domain - 1u + AG_BOOT_SERIAL_LEN, nonce, AG_AUTH_NONCE_LEN);
+    ag_sha256(msg, (uint16_t)sizeof msg, out);
+}
+
+/* The operator's signature over a challenge, made with the given private key. */
+static void sign_challenge(const uint8_t priv[32], const uint8_t serial[AG_BOOT_SERIAL_LEN],
+                           const uint8_t nonce[AG_AUTH_NONCE_LEN], uint8_t sig[AG_AUTH_SIG_LEN])
+{
+    uint8_t digest[32];
+
+    auth_digest(serial, nonce, digest);
+    TEST_ASSERT_TRUE(ag_model_p256_sign(priv, digest, sig));
+}
+
+/* Asks for a challenge and answers it with a signature from priv. */
+static ag_status_t authenticate_with(const uint8_t priv[32])
+{
+    uint8_t nonce[AG_AUTH_NONCE_LEN], sig[AG_AUTH_SIG_LEN];
+
+    TEST_ASSERT_EQUAL(AG_OK, challenge(nonce));
+    sign_challenge(priv, SERIAL, nonce, sig);
+    return response(sig);
+}
 
 /* -------------------------------------------------------------- the gate */
 
@@ -149,9 +181,7 @@ static void test_challenge_returns_a_nonce_of_the_wire_width(void)
 
 static void test_a_valid_signature_grants_the_session(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(AG_OK, response(ARBITRARY_SIG));
+    TEST_ASSERT_EQUAL(AG_OK, authenticate_with(OPERATOR_PRIV));
     TEST_ASSERT_EQUAL(AG_OK, ag_auth_gate());
 }
 
@@ -159,44 +189,87 @@ static void test_a_valid_signature_grants_the_session(void)
  * not something it constructed -- the element model records both. */
 static void test_the_response_forwards_the_signature_and_the_baked_operator_key(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(AG_OK, response(ARBITRARY_SIG));
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(ARBITRARY_SIG, ag_model_verify_last_sig(), AG_AUTH_SIG_LEN);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(OPERATOR_PUBKEY, ag_model_verify_last_pubkey(),
+    uint8_t nonce[AG_AUTH_NONCE_LEN], sig[AG_AUTH_SIG_LEN];
+
+    TEST_ASSERT_EQUAL(AG_OK, challenge(nonce));
+    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);
+    TEST_ASSERT_EQUAL(AG_OK, response(sig));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(sig, ag_model_verify_last_sig(), AG_AUTH_SIG_LEN);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(operator_pub, ag_model_verify_last_pubkey(),
                                    AG_BOOT_OPERATOR_PUBKEY_LEN);
 }
 
 /* ------------------------------------------------------------- the wrong signature */
 
-static void test_a_wrong_signature_is_refused_and_leaves_the_gate_closed(void)
+/* A real signature, from a key the device does not trust. Valid ECDSA, wrong
+ * signer: the element verifies against the baked key and says no. */
+static void test_a_signature_from_another_key_is_refused(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(0u);
-    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(ARBITRARY_SIG));
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, authenticate_with(STRANGER_PRIV));
     TEST_ASSERT_EQUAL(AG_ERR_AUTH_REQUIRED, ag_auth_gate());
+}
+
+/* One flipped bit in an otherwise correct signature. */
+static void test_a_corrupted_signature_is_refused_and_leaves_the_gate_closed(void)
+{
+    uint8_t nonce[AG_AUTH_NONCE_LEN], sig[AG_AUTH_SIG_LEN];
+
+    TEST_ASSERT_EQUAL(AG_OK, challenge(nonce));
+    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);
+    sig[40] ^= 0x01u;
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(sig));
+    TEST_ASSERT_EQUAL(AG_ERR_AUTH_REQUIRED, ag_auth_gate());
+}
+
+/* A signature the operator made for another device's serial. The message binds
+ * the serial, so a capture from one device cannot open another. */
+static void test_a_signature_made_for_another_device_is_refused(void)
+{
+    static const uint8_t other[AG_BOOT_SERIAL_LEN] = {
+        0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77,0x77
+    };
+    uint8_t nonce[AG_AUTH_NONCE_LEN], sig[AG_AUTH_SIG_LEN];
+
+    TEST_ASSERT_EQUAL(AG_OK, challenge(nonce));
+    sign_challenge(OPERATOR_PRIV, other, nonce, sig);
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(sig));
+    TEST_ASSERT_EQUAL(AG_ERR_AUTH_REQUIRED, ag_auth_gate());
+}
+
+/* A genuine signature over the PREVIOUS challenge, replayed against the new
+ * one: correct key, correct serial, stale nonce. */
+static void test_a_signature_over_an_earlier_challenge_is_refused(void)
+{
+    uint8_t first[AG_AUTH_NONCE_LEN], second[AG_AUTH_NONCE_LEN], sig[AG_AUTH_SIG_LEN];
+
+    TEST_ASSERT_EQUAL(AG_OK, challenge(first));
+    sign_challenge(OPERATOR_PRIV, SERIAL, first, sig);
+    TEST_ASSERT_EQUAL(AG_OK, challenge(second));   /* the host moves on */
+    /* The premise: the element's TRNG gave a different nonce. */
+    TEST_ASSERT_FALSE(memcmp(first, second, AG_AUTH_NONCE_LEN) == 0);
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(sig));
 }
 
 /* -------------------------------------------------------- single-use / replay */
 
 static void test_a_second_response_to_the_same_challenge_is_refused(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(AG_OK, response(ARBITRARY_SIG));
+    uint8_t nonce[AG_AUTH_NONCE_LEN], sig[AG_AUTH_SIG_LEN];
+
+    TEST_ASSERT_EQUAL(AG_OK, challenge(nonce));
+    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);
+    TEST_ASSERT_EQUAL(AG_OK, response(sig));
 
     /* The challenge is single-use: a second AUTH_RESPONSE against the SAME
-     * (already-consumed) challenge must be refused even though the element
-     * would still say the signature is good -- there is no outstanding
-     * challenge left for it to answer. */
-    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(ARBITRARY_SIG));
+     * (already-consumed) challenge must be refused even though the signature
+     * is still a good one -- there is no outstanding challenge left for it to
+     * answer. */
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(sig));
 }
 
 static void test_a_fresh_challenge_drops_an_existing_session(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(AG_OK, response(ARBITRARY_SIG));
+    TEST_ASSERT_EQUAL(AG_OK, authenticate_with(OPERATOR_PRIV));
     TEST_ASSERT_EQUAL(AG_OK, ag_auth_gate());
 
     TEST_ASSERT_EQUAL(AG_OK, challenge(0));   /* asking again re-arms and revokes */
@@ -207,7 +280,11 @@ static void test_a_fresh_challenge_drops_an_existing_session(void)
 
 static void test_a_response_with_no_challenge_outstanding_is_refused(void)
 {
-    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(ARBITRARY_SIG));
+    uint8_t nonce[AG_AUTH_NONCE_LEN] = { 0 }, sig[AG_AUTH_SIG_LEN];
+
+    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);   /* a good signature */
+    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, response(sig));
+    TEST_ASSERT_EQUAL(AG_ERR_AUTH_REQUIRED, ag_auth_gate());
 }
 
 /* ------------------------------------------------------------- bad lengths */
@@ -247,9 +324,7 @@ static void test_reserved_region_read_is_refused_before_authentication(void)
 
 static void test_reserved_region_read_succeeds_after_authentication(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(AG_OK, response(ARBITRARY_SIG));
+    TEST_ASSERT_EQUAL(AG_OK, authenticate_with(OPERATOR_PRIV));
 
     TEST_ASSERT_EQUAL(AG_OK, eeprom_read(0u, 4u));
 }
@@ -272,9 +347,7 @@ static void test_reset_mode_1_is_refused_without_a_session(void)
 
 static void test_reset_mode_1_is_accepted_with_a_session(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(AG_OK, response(ARBITRARY_SIG));
+    TEST_ASSERT_EQUAL(AG_OK, authenticate_with(OPERATOR_PRIV));
 
     TEST_ASSERT_EQUAL(AG_OK, reset_bootloader());
     TEST_ASSERT_TRUE(ag_sys_reset_pending());
@@ -283,9 +356,7 @@ static void test_reset_mode_1_is_accepted_with_a_session(void)
 /* A failed AUTH_RESPONSE leaves no session, so it opens nothing. */
 static void test_reset_mode_1_is_refused_after_a_failed_authentication(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
-    ag_model_set_verify_result(0u);
-    TEST_ASSERT_NOT_EQUAL(AG_OK, response(ARBITRARY_SIG));
+    TEST_ASSERT_NOT_EQUAL(AG_OK, authenticate_with(STRANGER_PRIV));
 
     TEST_ASSERT_EQUAL(AG_ERR_AUTH_REQUIRED, reset_bootloader());
     TEST_ASSERT_FALSE(ag_sys_reset_pending());
@@ -318,7 +389,10 @@ int main(void)
     RUN_TEST(test_challenge_returns_a_nonce_of_the_wire_width);
     RUN_TEST(test_a_valid_signature_grants_the_session);
     RUN_TEST(test_the_response_forwards_the_signature_and_the_baked_operator_key);
-    RUN_TEST(test_a_wrong_signature_is_refused_and_leaves_the_gate_closed);
+    RUN_TEST(test_a_signature_from_another_key_is_refused);
+    RUN_TEST(test_a_corrupted_signature_is_refused_and_leaves_the_gate_closed);
+    RUN_TEST(test_a_signature_made_for_another_device_is_refused);
+    RUN_TEST(test_a_signature_over_an_earlier_challenge_is_refused);
     RUN_TEST(test_a_second_response_to_the_same_challenge_is_refused);
     RUN_TEST(test_a_fresh_challenge_drops_an_existing_session);
     RUN_TEST(test_a_response_with_no_challenge_outstanding_is_refused);

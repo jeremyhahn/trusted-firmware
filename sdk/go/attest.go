@@ -39,6 +39,7 @@ const (
 	EvidenceLen = 164
 
 	attestPage = 48 // AG_ATTEST_PAGE
+	attestHdr  = 2  // [page:1][total:1] ahead of each ATTEST page
 	aliasPage  = 60 // AG_ALIAS_PAGE
 )
 
@@ -63,22 +64,38 @@ func (d *Device) Attest(ctx context.Context, nonce []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, f.Payload...)
+	body, err := attestPageBody(f.Payload)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, body...)
 
 	for page := byte(1); len(out) < EvidenceLen; page++ {
 		f, err = d.Do(ctx, CmdAttest, []byte{page})
 		if err != nil {
 			return nil, err
 		}
-		if len(f.Payload) == 0 {
-			// A page that returns nothing would loop forever. The device
-			// answers AG_ERR_RANGE past the end rather than an empty success,
-			// so reaching here means the two ends disagree about the length.
-			return nil, &ShortReplyError{Cmd: CmdAttest, Got: len(out), Need: EvidenceLen}
+		// A page with no evidence in it would loop forever. The device answers
+		// AG_ERR_RANGE past the end rather than an empty success, so reaching
+		// here means the two ends disagree about the length.
+		if body, err = attestPageBody(f.Payload); err != nil {
+			return nil, err
 		}
-		out = append(out, f.Payload...)
+		out = append(out, body...)
 	}
 	return out[:EvidenceLen], nil
+}
+
+// attestPageBody strips the [page:1][total:1] header every ATTEST reply
+// carries (src/caps/attest.c) and returns the evidence bytes behind it. Without
+// this the headers land in the middle of the evidence: page 0's total byte
+// shifts every field by two and each later page splices two more bytes in, so
+// the frame comes back the right length with the wrong contents.
+func attestPageBody(payload []byte) ([]byte, error) {
+	if len(payload) <= attestHdr {
+		return nil, &ShortReplyError{Cmd: CmdAttest, Got: len(payload), Need: attestHdr + 1}
+	}
+	return payload[attestHdr:], nil
 }
 
 // AttestCert asks the device to mint an alias certificate carrying the

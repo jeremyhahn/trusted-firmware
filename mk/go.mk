@@ -15,10 +15,11 @@ sdk-build:
 	@echo "sdk/go builds"
 
 ## sdk-test: run the Go tests, including the cross-implementation suite
-# Depends on agsim: the cross-implementation tests talk to the REAL firmware
-# compiled for the host, so a stale or missing binary would leave the only
-# check that the two codecs agree silently untested.
-sdk-test: agsim
+# Depends on both simulators: the cross-implementation tests talk to the REAL
+# firmware compiled for the host, so a stale or missing binary would leave the
+# only check that the two codecs agree silently untested. agsim-atecc608a is the
+# element tier, the only peer that produces DICE evidence.
+sdk-test: agsim agsim-atecc608a
 	@cd $(SDK_DIR) && $(GO) test -count=1 ./...
 
 ## sdk-lint: gofmt and vet the Go SDK

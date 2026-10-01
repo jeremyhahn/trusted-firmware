@@ -20,6 +20,37 @@ opening a physical port — it's the sole reason `go.bug.st/serial` enters your
 build. A consumer that only decodes frames (verifying evidence, say) needs
 just `ag`.
 
+## Testing against the firmware: `sdk/go/agsim`
+
+```go
+import "github.com/jeremyhahn/arduino-generic/sdk/go/agsim"
+```
+
+Starts the firmware, compiled for the host, as a peer for a test. Every function
+takes a `testing.TB`, stops the process when the test ends, and **fails** the
+test (never skips) if the binary is not built.
+
+| Function | Runs |
+|---|---|
+| `agsim.Start(t, opts...)` | `agsim`, the software tier: no asymmetric key, `ATTEST_CERT` is `unsupported` |
+| `agsim.StartElement(t, opts...)` | `agsim-atecc608a` provisioned with the test identity: real DICE `ATTEST` and `ATTEST_CERT` |
+| `agsim.StartBlankElement(t, opts...)` | the same binary with nothing provisioned: attestation is `not provisioned` |
+| `agsim.StartElementWith(t, args, opts...)` | the element tier with your own `--eeprom`, `--provision-element`, `--image-hash` arguments |
+
+`opts` are ordinary `ag.Option`s. `agsim.TestSerial`, `agsim.TestImage` and
+`agsim.TestFWHash` are the identity `StartElement` provisions, for asserting
+against. **It is a test identity and must never be trusted:** the element model
+does no curve arithmetic, so no signature the simulator produces verifies. See
+`docs/dice-attestation/user.md` for what that does and does not let you test.
+
+**Finding the binaries.** `$AGSIM_DIR` if set, otherwise `build/host` in the
+checkout the package was compiled from. A module that depends on this one
+through a `replace` to a sibling checkout gets the right answer with no
+configuration; one resolving it from the module cache, or built with
+`-trimpath`, must set `AGSIM_DIR`. Build both with
+`make agsim agsim-atecc608a`. The package imports only this module and the
+standard library, so `make sdk-verify` is unaffected.
+
 ## Connecting
 
 `ag.New` wraps any `io.ReadWriter` — a serial port via `serialport.Open`, a

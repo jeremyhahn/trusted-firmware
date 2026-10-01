@@ -1,0 +1,253 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+/*
+ * The element tier's side of agsim: the real ATECC608A driver and provider,
+ * with test/model/atecc608a.c standing in for the part on the I2C bus.
+ *
+ * THE IDENTITY THIS SEEDS IS A TEST IDENTITY AND MUST NEVER BE TRUSTED.
+ * The model does no elliptic-curve arithmetic (see its header): its "public
+ * key" and its "signatures" are deterministic filler, so evidence from this
+ * binary has the right SHAPE and verifies under nothing. It exists so a host
+ * can exercise the real firmware's DICE paths -- paging, nonce binding, UEID,
+ * FWHash, the certificate template -- not so anyone can attest to anything.
+ *
+ * A device needs three things, and each has its own explicit, off-by-default
+ * option, so a start with no options is a blank part and says so:
+ *
+ *   platform EEPROM block   --eeprom FILE      Intel HEX, what `agprov
+ *                           --eeprom-bin FILE  --bake-eeprom` writes; or a raw
+ *                                              image
+ *   provisioned element     --provision-element  DeviceID key in slot 0 and a
+ *                                              UDS, as agprov leaves a part
+ *   ag-boot's CDI handoff   --image-hash HEX64 a block built by the SAME
+ *                                              builder ag-boot uses
+ *                                              (boot/boot_handoff.c)
+ *
+ * Element provisioning is seeded directly rather than driven over the wire:
+ * the provisioning commands exist only in a jig image (AG_FEATURE_PROVISION),
+ * and the model's state lives in this process, so a provisioning session would
+ * not survive into the production-shaped binary a test then talks to.
+ */
+
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "tier.h"
+#include "atecc608a_model.h"
+#include "boot_measure.h"
+#include "hal_mock.h"
+#include "reset_cause.h"
+#include "sha256.h"
+#include "ag/types.h"
+
+static uint8_t *eeprom_image;          /* NULL until --eeprom/--eeprom-bin */
+static size_t   eeprom_len;
+static uint8_t  provision_element;
+static uint8_t  have_image_hash;
+static uint8_t  image_hash[AG_BOOT_MEASURE_LEN];
+
+/* ------------------------------------------------------------ parsing */
+
+static int fail(const char *what, const char *detail)
+{
+    fprintf(stderr, "agsim-atecc608a: %s: %s\n", what, detail);
+    return -1;
+}
+
+static int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') { return c - '0'; }
+    if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
+    if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
+    return -1;
+}
+
+/* Decodes exactly n bytes of hex from s[0..len); -1 on any other shape. */
+static int hex_bytes(const char *s, size_t len, uint8_t *out, size_t n)
+{
+    size_t i;
+
+    if (len != n * 2u) { return -1; }
+    for (i = 0; i < n; i++) {
+        int hi = hex_nibble(s[2u * i]);
+        int lo = hex_nibble(s[2u * i + 1u]);
+
+        if (hi < 0 || lo < 0) { return -1; }
+        out[i] = (uint8_t)((hi << 4) | lo);
+    }
+    return 0;
+}
+
+/* The whole file, or NULL with a message. */
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE    *f = fopen(path, "rb");
+    uint8_t *buf;
+    size_t   cap = 4096u, n = 0u, got;
+
+    if (!f) {
+        fprintf(stderr, "agsim-atecc608a: cannot open %s\n", path);
+        return NULL;
+    }
+    buf = malloc(cap);
+    while (buf && (got = fread(buf + n, 1u, cap - n, f)) > 0u) {
+        n += got;
+        if (n == cap) {
+            uint8_t *bigger;
+
+            cap *= 2u;
+            bigger = realloc(buf, cap);
+            if (!bigger) { free(buf); buf = NULL; }
+            else         { buf = bigger; }
+        }
+    }
+    if (buf && ferror(f)) { free(buf); buf = NULL; }
+    (void)fclose(f);
+    if (!buf) {
+        fprintf(stderr, "agsim-atecc608a: cannot read %s\n", path);
+        return NULL;
+    }
+    *len = n;
+    return buf;
+}
+
+/*
+ * Intel HEX into an erased (0xFF) EEPROM image. Data records only, plus the
+ * EOF record; every record's checksum is verified, and a byte beyond the
+ * mock's EEPROM or an address-extension record is an error rather than being
+ * wrapped or dropped. A partial file is correct and expected: `agprov
+ * --bake-eeprom` covers only the platform block, and the rest stays erased.
+ */
+static int ihex_load(const char *text, size_t n, uint8_t *img, size_t cap)
+{
+    size_t p = 0u;
+    int    eof = 0;
+
+    memset(img, 0xFF, cap);
+    while (p < n) {
+        uint8_t rec[5 + 255 + 1];
+        size_t  start, end, len, k;
+        uint8_t sum = 0u;
+
+        if (text[p] == '\r' || text[p] == '\n') { p++; continue; }
+        if (text[p] != ':') { return -1; }
+        start = ++p;
+        while (p < n && text[p] != '\r' && text[p] != '\n') { p++; }
+        end = p;
+        len = end - start;
+        if (len < 10u || (len & 1u)) { return -1; }
+        if (hex_bytes(&text[start], len, rec, len / 2u) < 0) { return -1; }
+        if ((size_t)rec[0] + 5u != len / 2u) { return -1; }
+        for (k = 0u; k < (size_t)rec[0] + 5u; k++) { sum = (uint8_t)(sum + rec[k]); }
+        if (sum != 0u || eof) { return -1; }
+
+        if (rec[3] == 0x00u) {
+            size_t addr = ((size_t)rec[1] << 8) | rec[2];
+
+            if (addr + rec[0] > cap) { return -1; }
+            memcpy(&img[addr], &rec[4], rec[0]);
+        } else if (rec[3] == 0x01u) {
+            eof = 1;
+        } else {
+            return -1;
+        }
+    }
+    return eof ? 0 : -1;
+}
+
+static int load_eeprom(const char *path, int is_hex)
+{
+    size_t   n = 0u;
+    uint8_t *file = slurp(path, &n);
+    size_t   cap = ag_mock_eeprom_size();
+
+    if (!file) { return -1; }
+    free(eeprom_image);
+    eeprom_image = malloc(cap);
+    if (!eeprom_image) { free(file); return fail("out of memory", path); }
+    eeprom_len = cap;
+
+    if (is_hex) {
+        if (ihex_load((const char *)file, n, eeprom_image, cap) < 0) {
+            free(file);
+            return fail("not a valid Intel HEX EEPROM image for this part", path);
+        }
+    } else {
+        if (n > cap) {
+            free(file);
+            return fail("image is larger than the EEPROM", path);
+        }
+        memset(eeprom_image, 0xFF, cap);
+        memcpy(eeprom_image, file, n);
+    }
+    free(file);
+    return 0;
+}
+
+/* ------------------------------------------------------------ the seam */
+
+int agsim_tier_option(int argc, char **argv)
+{
+    if (strcmp(argv[0], "--provision-element") == 0) {
+        provision_element = 1u;
+        return 1;
+    }
+    if (strcmp(argv[0], "--eeprom") == 0 || strcmp(argv[0], "--eeprom-bin") == 0 ||
+        strcmp(argv[0], "--image-hash") == 0) {
+        if (argc < 2) { return fail(argv[0], "needs a value"); }
+        if (strcmp(argv[0], "--image-hash") == 0) {
+            if (hex_bytes(argv[1], strlen(argv[1]), image_hash, sizeof image_hash) < 0) {
+                return fail("--image-hash", "want 64 hex characters (a SHA-256)");
+            }
+            have_image_hash = 1u;
+            return 2;
+        }
+        return load_eeprom(argv[1], strcmp(argv[0], "--eeprom") == 0) < 0 ? -1 : 2;
+    }
+    return 0;
+}
+
+const char *agsim_tier_usage(void)
+{
+    return " [--eeprom FILE.eep | --eeprom-bin FILE] [--provision-element]"
+           " [--image-hash HEX64]";
+}
+
+/*
+ * A CDI for the handoff, because the block ag-boot hands over has one and the
+ * builder takes one. This tier never uses it -- its DeviceID key is
+ * element-resident and not CDI-derived (src/crypto/atecc608a/provider.c) -- so
+ * it is only required to be non-zero, which is what makes the block read as
+ * provisioned rather than ag-boot's all-zero "unprovisioned" sentinel.
+ * Derived from the image hash so a different image gets a different CDI, as
+ * on a device.
+ */
+static void test_cdi(uint8_t cdi[AG_BOOT_MEASURE_LEN])
+{
+    static const char domain[] = "agsim-test-cdi-v1";
+    uint8_t           in[sizeof domain - 1u + AG_BOOT_MEASURE_LEN];
+
+    memcpy(in, domain, sizeof domain - 1u);
+    memcpy(in + sizeof domain - 1u, image_hash, AG_BOOT_MEASURE_LEN);
+    ag_sha256(in, (uint16_t)sizeof in, cdi);
+}
+
+void agsim_tier_seed(void)
+{
+    ag_model_reset();
+    if (provision_element) {
+        ag_model_provision();
+    }
+    if (eeprom_image) {
+        memcpy(ag_mock_eeprom(), eeprom_image, eeprom_len);
+    }
+    if (have_image_hash) {
+        uint8_t cdi[AG_BOOT_MEASURE_LEN];
+
+        test_cdi(cdi);
+        ag_boot_handoff_build(ag_mock_handoff(), (uint8_t)AG_CRYPTO_SECURE_ELEMENT,
+                              cdi, image_hash, 1u, (uint8_t)AG_MCUSR_PORF);
+    }
+}

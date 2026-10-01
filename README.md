@@ -41,6 +41,7 @@ needs a board.
 
 ```sh
 make agsim             # the firmware, compiled for the host
+make agsim-atecc608a   # the same with the ATECC608A driver: DICE evidence, no hardware
 cd sdk/go && go run ./cmd/agctl /dev/ttyUSB0 caps
 ```
 

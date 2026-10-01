@@ -169,11 +169,12 @@ constructor option or a CLI flag (see `cli.md`):
 | Make target | What it runs |
 |---|---|
 | `sdk-build` | `go build ./...` in `sdk/go` |
-| `sdk-test` | `go test -count=1 ./...`; depends on `agsim` |
+| `sdk-test` | `go test -count=1 ./...`; depends on `agsim` and `agsim-atecc608a` |
 | `sdk-lint` | `go fmt` (fails if it rewrites anything) + `go vet` |
 | `sdk-verify` | `go mod verify` + the Layer 0 dependency grep |
 | `verify-vectors` | asserts `internal/vectors` and `testdata/vectors.h` agree |
 | `agsim` | builds `build/host/agsim` from the real firmware + mock HAL |
+| `agsim-atecc608a` | builds `build/host/agsim-atecc608a`: the same, with the real ATECC608A driver over the software element model; `sdk-test` depends on it too |
 
 Unit coverage by file: `codec_test.go` (round trips, corruption, resync,
 `TestDecodeSurvivesArbitraryBytes` fuzz-style), `crc_test.go`, `errors_test.go`
@@ -186,6 +187,15 @@ against).
 as a subprocess over pipes and runs the SDK's public API against the actual C
 firmware. It **fails** (never skips) if the binary is missing, with a message
 to run `make agsim` — the one check that the C and Go codecs have not drifted.
+
+`sdk/go/internal/simproc` is the one launcher: it locates the binaries
+(`$AGSIM_DIR`, else this checkout's `build/host`), starts them and returns a
+`NotBuiltError` naming the make target when one is missing. `agsim_test.go` and
+the public `sdk/go/agsim` package both use it. `sdk/go/agsim/*_test.go` is the
+element-tier suite: DICE evidence over the wire, the identity options (including
+an `agprov --bake-eeprom` image), and refusal to start on a bad option. It
+asserts structure and claims, never a signature — the element model has no curve
+arithmetic.
 
 ## Observability
 

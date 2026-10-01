@@ -44,6 +44,7 @@ void ag_mock_set_adc(uint8_t channel, uint16_t raw);
 
 /* eeprom: a flat array the test can inspect directly */
 uint8_t *ag_mock_eeprom(void);
+size_t   ag_mock_eeprom_size(void);
 
 /* handoff: the raw AG_BOOT_HANDOFF_LEN-byte block ag_hal_handoff_block()
  * returns. Zeroed by ag_mock_reset(), which reads as "no handoff" -- the same

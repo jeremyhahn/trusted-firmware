@@ -8,6 +8,44 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **An element-tier host simulator, `agsim-atecc608a`** (#34). `make
+  agsim-atecc608a` (or `make agsim CRYPTO=atecc608a`) builds the firmware with
+  the real ATECC608A driver and provider over the software element model, so
+  `ATTEST` and `ATTEST_CERT` produce DICE evidence over the wire for a
+  caller-supplied nonce. It starts blank; `--eeprom`/`--eeprom-bin` (an
+  `agprov --bake-eeprom` image), `--provision-element` and `--image-hash` (an
+  ag-boot handoff built by `ag_boot_handoff_build`) give it a deterministic
+  identity. **A test identity: the model does no curve arithmetic, so no
+  signature it produces verifies.** `make sdk-test`, and so `make ci`, builds
+  and runs it. The software `agsim` rejects the new options.
+- **`sdk/go/agsim`**, a public launcher for downstream tests: `Start`,
+  `StartElement`, `StartBlankElement`, `StartElementWith`, and the `TestSerial`
+  / `TestFWHash` of the provisioned identity. Binaries are found in
+  `$AGSIM_DIR`, else this checkout's `build/host`; a missing one fails the test
+  with the make target to run. No new dependency.
+
+### Fixed
+
+- **`Device.Attest` returned a frame of the right length with the wrong
+  contents.** Every `ATTEST` page carries a `[page][total]` header
+  (`src/caps/attest.c`, `docs/dice-attestation/api.md`) that the SDK kept, so
+  every field was shifted by two bytes and two more were spliced in at each page
+  boundary. The unit test's fake peer omitted the header, so only a real peer
+  could show it. The header is now stripped and the fake emits it.
+
+- **`agsim` did not run the firmware's whole startup and superloop.** It never
+  called `ag_hal_adc_init`, `ag_bus_init` or `ag_sched_init`, and never polled
+  the scheduler, so a timed pin armed through it never reverted. It now follows
+  `src/main.c` in order, and a test pins the reversion.
+
+### Changed
+
+- The test HAL mock's I2C and delay symbols (`test/mock/hal_mock.c`) are weak so
+  the element simulator can link the software element as the bus. No behaviour
+  changes for any build that does not link the model.
+
 ## [0.6.0-alpha] - 2026-10-01
 
 ### BREAKING: RESET(1) needs an operator session on the element tier, and `sdk/go/cmd/irrigation` is removed

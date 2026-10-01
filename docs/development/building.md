@@ -55,6 +55,16 @@ make agsim
 tests run against it, which is what proves the C and Go codecs agree without
 hardware.
 
+```sh
+make agsim-atecc608a            # or: make agsim CRYPTO=atecc608a
+./build/host/agsim-atecc608a --pty --provision-element
+```
+
+The element-tier build links the real ATECC608A driver and provider against
+`test/model/atecc608a.c`, so ATTEST and ATTEST_CERT produce DICE evidence over
+the wire. It starts blank; its identity options and their limits (the model does
+no curve arithmetic, so nothing it signs verifies) are in `docs/host-sdk/cli.md`.
+
 ## Adding a board
 
 A board is data, not code. Add `boards/<name>/` with:

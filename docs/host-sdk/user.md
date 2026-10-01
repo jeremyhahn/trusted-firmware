@@ -77,6 +77,12 @@ agctl /dev/pts/4 caps
 This is also how the SDK's own cross-implementation tests run — see
 `engineering.md#test-strategy`.
 
+For DICE evidence — `ATTEST` and `ATTEST_CERT` — build the element-tier
+simulator instead, `make agsim-atecc608a`, and start it with an identity. From a
+Go test, `agsim.StartElement(t)` does both; see `api.md` and
+`docs/dice-attestation/user.md`. Its evidence is a TEST identity and no
+signature in it verifies.
+
 ## Drive an output for a fixed time, safely
 
 ```sh

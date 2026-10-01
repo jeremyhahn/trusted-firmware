@@ -20,6 +20,7 @@ type pagedLink struct {
 	doc      []byte // the whole document the device would return
 	pageSize int
 	header   bool // prepend [page][total lo][total hi], as ATTEST_CERT does
+	attest   bool // prepend [page][total], as ATTEST does (src/caps/attest.c)
 	rx       bytes.Buffer
 	requests [][]byte
 }
@@ -52,6 +53,9 @@ func (l *pagedLink) Write(p []byte) (int, error) {
 		h := []byte{byte(page), byte(len(l.doc)), byte(len(l.doc) >> 8)}
 		body = append(h, body...)
 	}
+	if l.attest {
+		body = append([]byte{byte(page), byte(len(l.doc))}, body...)
+	}
 	resp, err := EncodeResponse(f.Seq, f.Cmd(), StatusOK, body)
 	if err != nil {
 		return 0, err
@@ -72,7 +76,7 @@ func evidence() []byte {
 
 func TestAttestPagesTheWholeEvidenceFrame(t *testing.T) {
 	want := evidence()
-	link := &pagedLink{doc: want, pageSize: attestPage}
+	link := &pagedLink{doc: want, pageSize: attestPage, attest: true}
 
 	got, err := New(link).Attest(context.Background(), make([]byte, AttestNonceLen))
 	require.NoError(t, err)
@@ -85,11 +89,32 @@ func TestAttestPagesTheWholeEvidenceFrame(t *testing.T) {
 	assert.Equal(t, []byte{3}, link.requests[3])
 }
 
+// The firmware puts [page][total] ahead of every page of evidence. A host that
+// kept those bytes would return a frame of the right length with every field
+// shifted, so the fake above emits them and this pins the header being stripped.
+func TestAttestStripsThePageHeaderFromEveryPage(t *testing.T) {
+	want := evidence()
+	link := &pagedLink{doc: want, pageSize: attestPage, attest: true}
+
+	got, err := New(link).Attest(context.Background(), make([]byte, AttestNonceLen))
+	require.NoError(t, err)
+	assert.Equal(t, want[:attestPage], got[:attestPage], "page 0 must not start with its header")
+	assert.Equal(t, want[attestPage:2*attestPage], got[attestPage:2*attestPage], "no header spliced in at the page boundary")
+}
+
+func TestAttestRefusesAPageWithNoEvidenceBehindItsHeader(t *testing.T) {
+	link := &cannedLink{payload: []byte{0, 164}}
+	_, err := New(link).Attest(context.Background(), make([]byte, AttestNonceLen))
+	require.Error(t, err)
+	var short *ShortReplyError
+	assert.ErrorAs(t, err, &short)
+}
+
 // The two nonce widths are not interchangeable, and a caller that swaps them is
 // refused HERE rather than sent to the device. A 16-byte enrolment challenge is
 // a truncated one, and the device would have no way to tell.
 func TestAttestRefusesTheWrongNonceWidth(t *testing.T) {
-	link := &pagedLink{doc: evidence(), pageSize: attestPage}
+	link := &pagedLink{doc: evidence(), pageSize: attestPage, attest: true}
 	d := New(link)
 
 	for _, n := range []int{0, 15, 17, AliasNonceLen} {

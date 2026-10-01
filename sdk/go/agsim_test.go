@@ -7,12 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/jeremyhahn/arduino-generic/sdk/go/internal/simproc"
 )
 
 // agsim is the FIRMWARE, compiled for the host: the same src/proto, src/core
@@ -21,52 +19,15 @@ import (
 // changed -- they are the Go SDK and the C firmware agreeing on the wire, with
 // no AVR toolchain and no hardware involved.
 
-type simConn struct {
-	cmd *exec.Cmd
-	in  io.WriteCloser
-	out io.ReadCloser
-}
-
-func (s *simConn) Read(p []byte) (int, error)  { return s.out.Read(p) }
-func (s *simConn) Write(p []byte) (int, error) { return s.in.Write(p) }
-func (s *simConn) Close() error {
-	_ = s.in.Close()
-	_ = s.cmd.Process.Kill()
-	_, _ = s.cmd.Process.Wait()
-	return nil
-}
-
 // startSimRaw is startSim without the Device wrapper, for the one test that
 // needs to write bytes Device.Do would never construct on its own.
-func startSimRaw(t *testing.T) *simConn {
+//
+// A missing binary fails the test rather than skipping it: a skipped
+// cross-implementation test reports success while checking nothing, and this is
+// the only test that proves the two codecs agree.
+func startSimRaw(t *testing.T) *simproc.Conn {
 	t.Helper()
-
-	bin, err := filepath.Abs("../../build/host/agsim")
-	if err != nil {
-		t.Fatalf("resolving agsim path: %v", err)
-	}
-	// Deliberately a failure and not a skip. A skipped cross-implementation
-	// test reports success while checking nothing, and this is the only test
-	// that proves the two codecs agree.
-	if _, err := os.Stat(bin); err != nil {
-		t.Fatalf("agsim not built at %s -- run `make agsim` first: %v", bin, err)
-	}
-
-	cmd := exec.Command(bin)
-	in, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	c := &simConn{cmd: cmd, in: in, out: out}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
+	return simproc.Start(t, simproc.Software)
 }
 
 func startSim(t *testing.T, opts ...Option) *Device {
@@ -357,6 +318,34 @@ func TestAgainstFirmwareTimerRevertsWithoutTheHost(t *testing.T) {
 	}
 }
 
+// The simulator polls the scheduler as src/main.c's superloop does. Simulated
+// time advances one millisecond per write from the host, so a 20 ms timer has
+// run out after enough traffic, and the pin must have reverted on the device's
+// own account.
+func TestAgainstFirmwareTimerActuallyReverts(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	if _, err := d.TimerSet(ctx, 2, true, 20*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 50; i++ {
+		if _, err := d.Ping(ctx, []byte{byte(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := d.TimerQuery(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Active {
+		t.Fatalf("timer still active after its deadline: %+v", st)
+	}
+	if high, err := d.DigitalRead(ctx, 2); err != nil || high {
+		t.Fatalf("pin = %v, err = %v; want low after the timer expired", high, err)
+	}
+}
+
 func TestAgainstFirmwareReservedPinsAreRefused(t *testing.T) {
 	d := startSim(t)
 	// Pin 1 is the transmit line this conversation is happening over.
@@ -405,8 +394,9 @@ func TestAgainstFirmwareReservedEEPROMIsRefused(t *testing.T) {
 // unconditionally permitted -- AUTH_CHALLENGE/AUTH_RESPONSE do not exist here
 // to gate it, and that gap is accepted rather than hidden (see
 // docs/security/threat-model.md). The element-tier refusal-then-success path
-// is covered by test_auth_session.c against the software element, which
-// agsim (one crypto tier) cannot exercise.
+// is covered by test_auth_session.c against the software element; the
+// element-tier simulator (sdk/go/agsim) is built without the session, as the
+// 328P profile it simulates is.
 func TestAgainstFirmwareReservedEEPROMReadIsUngatedOnTheSoftTier(t *testing.T) {
 	d := startSim(t)
 	if _, err := d.EEPROMRead(context.Background(), 0x000, 4); err != nil {

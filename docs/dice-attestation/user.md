@@ -47,6 +47,67 @@ agprov --verify   --config board.yaml /dev/ttyACM0   # confirm afterward
 Full procedure and failure modes: `docs/device-provisioning/user.md`. There is
 the verb is `agctl attest` — see `cli.md`.
 
+## Produce real DICE evidence with no hardware
+
+`agsim-atecc608a` is the firmware with the real ATECC608A driver and provider,
+talking to the software model of the part. Started with an identity it answers
+`ATTEST` and `ATTEST_CERT` over the wire for a nonce **you** supply, exactly as
+a device does:
+
+```sh
+make agsim-atecc608a       # same as: make agsim CRYPTO=atecc608a
+```
+
+From Go, in a test (`go-xkms` `pkg/backend/avr`, `go-trusted-platform`
+`pkg/firmware/avr`, or this repo's own):
+
+```go
+import "github.com/jeremyhahn/arduino-generic/sdk/go/agsim"
+
+dev := agsim.StartElement(t) // provisioned with the test identity below
+der, err := dev.AttestCert(ctx, nonce32)   // UCCS alias certificate
+ev, err := dev.Attest(ctx, nonce16)        // 164-byte evidence frame
+```
+
+A binary that is not built fails the test with the command that builds it; it
+never skips. Where binaries are looked up, and the full API, is in
+`docs/host-sdk/api.md`.
+
+### The test identity
+
+| Source of identity | What the simulator is given | Where it comes from |
+|---|---|---|
+| Platform EEPROM block (DeviceID / UEID) | serial `agsim-test-id-01` (16 bytes) | `ag.BuildPlatformBlock`, the builder `agprov --bake-eeprom` uses |
+| Element | a DeviceID key in slot 0 and a UDS | `--provision-element` seeds the model directly |
+| ag-boot handoff (FWHash, CDI) | FWHash = SHA-256 of `agsim-test-firmware-image-v1` | `--image-hash`, built by `boot/boot_handoff.c`'s `ag_boot_handoff_build` |
+
+Everything is off by default: `agsim-atecc608a` with no options is a blank part
+and attestation answers `AG_ERR_NOT_PROVISIONED` (`agsim.StartBlankElement`).
+To use your own identity, hand it the same artefacts a real device has:
+
+```sh
+agprov --bake-eeprom --serial 00112233445566778899aabbccddeeff --out dev.eep
+build/host/agsim-atecc608a --pty --eeprom dev.eep --provision-element \
+    --image-hash "$(sha256sum app.bin | cut -d' ' -f1)"
+```
+
+`--eeprom FILE` reads Intel HEX (what `agprov --bake-eeprom` and avrdude write);
+`--eeprom-bin FILE` a raw image. A bad option or an unreadable file stops the
+simulator with exit status 2 and a message naming it; nothing is skipped.
+
+### Limits
+
+**THIS IDENTITY IS A TEST IDENTITY AND MUST NEVER BE TRUSTED.** The element
+model does no elliptic-curve arithmetic (`test/model/atecc608a.c`): its public
+key and every signature are deterministic filler. The evidence has the right
+structure, the right claims and the right nonce binding, and **no signature in
+it verifies under any key**. A verifier that checks signatures will correctly
+reject it, so use it to test paging, parsing, nonce binding, the UEID and
+measurement claims and error handling, not to test a trust decision. Also not
+modelled: element timing, the operator-signature auth session (the simulated
+328P profile has `AG_FEATURE_AUTH_SESSION 0`), and the provisioning commands (a
+jig image concern; the element is seeded instead).
+
 ## Get freshness-bound evidence for a local verifier
 
 `ATTEST`/`Device.Attest` is for a verifier that already trusts this

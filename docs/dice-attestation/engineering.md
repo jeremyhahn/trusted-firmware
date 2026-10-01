@@ -139,6 +139,7 @@ works on both; only `ATTEST_CERT` is absent.
 | Malformed-certificate vectors | `AGV_ALIAS_CERT_BAD_OUTER` (every X.509 parser rejects it), `AGV_ALIAS_CERT_BAD_INNER` (OpenSSL and `cryptography` both accept it — the extension-blind failure this project has to fear; `test_alias.c` walks the extension's own DER to catch it) |
 | Go SDK paging and nonce-width tests | `sdk/go/attest_test.go` — `make sdk-test` |
 | Cross-implementation / simulator | `sdk/go/agsim_test.go`, against `agsim` (`make agsim`, then `make ci`) |
+| Element-tier simulator: evidence over the wire | `sdk/go/agsim/dice_test.go` and `launch_test.go`, against `agsim-atecc608a` (`make agsim-atecc608a`; `make sdk-test` builds it). The alias certificate parses as DICE UCCS, carries ueid and FWHash, binds the nonce, and a different nonce gives different evidence. **No signature is verified: the model has no curve arithmetic.** |
 | Element-backed build | `make firmware-attested` (`CRYPTO=atecc608a`); the default `make firmware` never exercises the element path |
 | C/Go vector agreement | `make verify-vectors` |
 

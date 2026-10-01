@@ -100,6 +100,7 @@ void ag_mock_set_adc(uint8_t channel, uint16_t raw)
 }
 
 uint8_t *ag_mock_eeprom(void) { return eeprom; }
+size_t   ag_mock_eeprom_size(void) { return sizeof eeprom; }
 uint8_t *ag_mock_handoff(void) { return handoff; }
 
 uint8_t *ag_hal_handoff_block(void) { return handoff; }
@@ -177,6 +178,7 @@ ag_reset_cause_t ag_hal_reset_cause(void)
     return cause;
 }
 ag_ms_t          ag_hal_millis(void)       { return now; }
+__attribute__((weak))
 void             ag_hal_delay_us(uint16_t us) { (void)us; }
 uint16_t         ag_hal_free_ram(void)     { return free_ram; }
 
@@ -335,8 +337,20 @@ ag_status_t ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
     return AG_OK;
 }
 
+/*
+ * WEAK, and only these three, because the element-tier simulator
+ * (tools/agsim, built by `make agsim-atecc608a`) links this mock for every
+ * other peripheral and test/model/atecc608a.c as the I2C bus. Two strong
+ * definitions would be a link error, and leaving the bus to the mock would
+ * mean the real ATECC608A driver talks to nothing. A weak definition is the
+ * link-time substitution this tree already uses for the HAL: the model's
+ * strong symbols win, and every build that does not link the model gets
+ * exactly the definitions below, as before.
+ */
+__attribute__((weak))
 ag_status_t ag_hal_i2c_init(uint32_t hz) { last_i2c_hz = hz; return AG_OK; }
 
+__attribute__((weak))
 ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen)
 {

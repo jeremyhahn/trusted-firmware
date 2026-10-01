@@ -307,16 +307,56 @@ lint:
 	fi
 	@echo "no build timestamps"
 
+# ----------------------------------------------------------------- agsim
+#
+# The firmware as a host binary, one per crypto tier -- the same choice the
+# firmware's own build makes, and made the same way: by which files are linked.
+#
+#   agsim              software tier. No asymmetric key, so ATTEST_CERT answers
+#                      "unsupported" and ATTEST "not provisioned".
+#   agsim-atecc608a    element tier. The REAL ATECC608A driver and provider, with
+#                      test/model/atecc608a.c as the I2C bus. Started with
+#                      explicit options it holds a deterministic TEST identity
+#                      and mints DICE evidence over the wire. See
+#                      tools/agsim/tier_atecc608a.c for the options and for why
+#                      the evidence verifies under nothing.
+#
+# `make agsim CRYPTO=atecc608a` is `make agsim-atecc608a`, so the tier is named
+# the way it is for `make firmware`.
+AGSIM_COMMON := tools/agsim/main.c tools/agsim/tier.h
+
+# The element tier swaps the software provider (and its UDS mock) for the ATECC608A
+# driver, its provider and the software element. hal_mock.c is still linked for
+# everything that is not the I2C bus: its I2C and delay symbols are weak for
+# exactly this.
+#
+# The operator-signature auth session stays OFF, as on the build this simulates:
+# the host board profile (atmega328p) says AG_FEATURE_AUTH_SESSION 0, and the
+# profile's word is the build's -- see CRYPTO_SRCS handling in mk/avr.mk.
+AGSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c, \
+                                   $(HOST_LIB_SRCS)) \
+                      src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
+                      test/model/atecc608a.c
+
 ## agsim: build the firmware as a host binary speaking the protocol on stdio
-agsim: $(HOST_DIR)/agsim
-$(HOST_DIR)/agsim: tools/agsim/main.c $(HOST_LIB_SRCS) | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_LIB_SRCS) $(EXTRA_LDFLAGS)
+agsim: $(HOST_DIR)/agsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)
+$(HOST_DIR)/agsim: $(AGSIM_COMMON) tools/agsim/tier_soft.c $(HOST_LIB_SRCS) | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/agsim -o $@ \
+	   tools/agsim/main.c tools/agsim/tier_soft.c $(HOST_LIB_SRCS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
+## agsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
+agsim-atecc608a: $(HOST_DIR)/agsim-atecc608a
+$(HOST_DIR)/agsim-atecc608a: $(AGSIM_COMMON) tools/agsim/tier_atecc608a.c $(AGSIM_ELEMENT_SRCS) | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	   -Itools/agsim -Isrc/crypto/atecc608a -Itest/model -o $@ \
+	   tools/agsim/main.c tools/agsim/tier_atecc608a.c $(AGSIM_ELEMENT_SRCS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 clean-host:
 	@rm -rf $(HOST_DIR)
 
-.PHONY: test test-asan coverage clean-host agsim lint
+.PHONY: test test-asan coverage clean-host agsim agsim-atecc608a lint
 
 # ---------------------------------------------------------------- board sweep
 #

@@ -91,7 +91,7 @@ Full procedure, ordering, and what each zone lock means: `docs/device-provisioni
 ## `agsim` — the firmware, built for the host
 
 Not a Go command; a C binary built by `make agsim` into `build/host/agsim`.
-Argument parsing is a single literal comparison, not a flag library.
+Argument parsing is literal comparisons, not a flag library.
 
 | Invocation | Does |
 |---|---|
@@ -104,3 +104,24 @@ build/host/agsim --pty
 # in another shell, against the printed pty path:
 agctl /dev/pts/N ping hi
 ```
+
+### `agsim-atecc608a` — the element tier
+
+`make agsim-atecc608a` (or `make agsim CRYPTO=atecc608a`) builds
+`build/host/agsim-atecc608a`: the same firmware with the real ATECC608A driver
+and provider, and `test/model/atecc608a.c` as the I2C bus. It takes `--pty` and
+the identity options below. A start with no options is a blank, unprovisioned
+part. An unknown option, a malformed value or an unreadable file exits with
+status 2 and a message; the software `agsim` accepts none of these options.
+
+| Option | Provides |
+|---|---|
+| `--eeprom FILE` | the platform EEPROM block, as Intel HEX (what `agprov --bake-eeprom` writes); unaddressed bytes stay erased (`0xFF`) |
+| `--eeprom-bin FILE` | the same, as a raw image from address 0 (at most the mock's 1024 bytes) |
+| `--provision-element` | a DeviceID key in slot 0 and a UDS, seeded directly into the model |
+| `--image-hash HEX64` | an ag-boot handoff block (FWHash and a non-zero CDI) for that SHA-256, built by `ag_boot_handoff_build` |
+
+**Test identity only, never to be trusted**: the model's public key and
+signatures are deterministic filler, not P-256. See
+`docs/dice-attestation/user.md#produce-real-dice-evidence-with-no-hardware`.
+Go tests should use `sdk/go/agsim` rather than launching it by hand.

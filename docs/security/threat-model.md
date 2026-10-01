@@ -84,9 +84,11 @@ two resources to be protected on it.
 
 **No AVR in this family has a memory protection unit.** Once the application
 runs, it can read all of SRAM. A CDI that transits SRAM is readable by
-application code, which is why the design keeps key material inside a secure
-element and derives per-boot keys that are zeroized rather than storing
-long-lived ones in RAM.
+application code. The element tier therefore keeps its signing key inside the
+ATECC608A and zeroizes its CDI buffer as soon as derivation is done. The soft
+tier cannot: its CDI is the HMAC key for every signature, so it stays resident
+in SRAM for the life of the process. Neither tier derives a per-boot Alias key
+(see `docs/dice-attestation/architecture.md`).
 
 **Lock bits are a procedural claim, not a silicon one.** They protect against
 external ISP readout, and only if the factory flow actually burns them. They do

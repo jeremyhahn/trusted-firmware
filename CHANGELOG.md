@@ -129,6 +129,14 @@ Pre-1.0, MINOR carries breaking changes.
 
 ### Fixed
 
+- **Four statements implied a per-boot, CDI-derived Alias key that does not
+  exist** (#7). `docs/security/threat-model.md` said the design "derives
+  per-boot keys that are zeroized"; `sdk/go`'s `WithTimeout` and
+  `TimeoutError`, and `docs/host-sdk/engineering.md`, justified their deadlines with "a device deriving an Alias
+  key in software". The element tier signs with its element-resident DeviceID
+  key and zeroizes its CDI buffer after derivation (#25); the soft tier keeps
+  its CDI resident because it is the HMAC key for every signature. All four
+  now say that. No behaviour or timeout value changed.
 - **`src/hal/avr/hal_tick.c`'s tick ISR comment claimed ten cycles; it is 58 on
   the 328P and 59 on the 2560**, including the part's four-cycle interrupt
   response, and now says so along with what the cycles are spent on (#13).

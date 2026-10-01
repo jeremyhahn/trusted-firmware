@@ -160,9 +160,9 @@ func (e *ArgRangeError) Error() string {
 }
 
 // TimeoutError reports a command that went unanswered. It carries the command
-// because the deadline that is generous for one is not for another: a device
-// deriving an Alias key in software spends seconds inside ATTEST on a 16 MHz
-// part, while a PING that takes that long means the link is gone.
+// because the deadline that is generous for one is not for another: an
+// element-tier ATTEST waits on the secure element's signature, while a PING
+// that takes that long means the link is gone.
 type TimeoutError struct {
 	Cmd     Cmd
 	Elapsed time.Duration

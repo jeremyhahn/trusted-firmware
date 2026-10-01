@@ -356,10 +356,11 @@ type Option func(*Device)
 
 // WithTimeout sets how long to wait for a reply.
 //
-// The default is generous on purpose. A device deriving an Alias key in
-// software spends SECONDS inside one command on a 16 MHz part, and a host that
-// gave up after the usual serial timeout would declare a working device dead
-// during provisioning.
+// The default is generous on purpose. On the element tier, ATTEST and
+// ATTEST_CERT wait out the ATECC608A's datasheet maximum execution time for a
+// signature, and ATTEST_CERT also hashes the whole certificate body in
+// software on a 16 MHz part. A host that gave up after the usual serial
+// timeout would declare a working device dead during provisioning.
 func WithTimeout(d time.Duration) Option { return func(x *Device) { x.timeout = d } }
 
 // DefaultBootWait is how long New waits for the firmware's BOOT event before

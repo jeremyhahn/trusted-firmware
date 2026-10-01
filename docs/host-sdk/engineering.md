@@ -129,8 +129,9 @@ There is no config file and no environment variable. Everything is either a
 constructor option or a CLI flag (see `cli.md`):
 
 - `ag.New(conn, ag.WithTimeout(d))` — reply timeout, default 10s. Deliberately
-  generous: a device deriving an Alias key in software spends seconds inside
-  `Attest` on a 16 MHz part.
+  generous: on the element tier `Attest` and `AttestCert` wait out the
+  ATECC608A's datasheet maximum signing time, and `AttestCert` also hashes the
+  certificate body in software on a 16 MHz part.
 - `ag.New(conn, ag.WithBootWait(d))` — how long `New` waits for the firmware's
   BOOT event before proceeding anyway, default `DefaultBootWait` (2s); `d <= 0`
   disables the wait entirely. Every classic Arduino resets on DTR, which this

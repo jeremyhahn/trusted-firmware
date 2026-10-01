@@ -27,3 +27,6 @@ gcovr            # coverage, with the 90% floor
 lcov
 
 python3
+
+openssl          # agctl auth's external signer: parses/signs an operator
+                 # key in its own process so the key never enters agctl's

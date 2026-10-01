@@ -84,4 +84,23 @@ ag_status_t      ag_crypto_pubkey(uint8_t out[AG_SIG_LEN]);
 /* A monotonic counter, for the boot count and firmware anti-rollback. */
 ag_status_t      ag_crypto_counter(uint8_t idx, uint32_t *out);
 
+/*
+ * Verifies a signature over `digest` under an EXTERNAL public key -- the
+ * AUTH_CHALLENGE/AUTH_RESPONSE session's operator key (issue #4), never this
+ * device's own identity key. `pubkey` travels in the call; nothing about it
+ * is stored in, or protected by, this provider the way the DeviceID and UDS
+ * are, which is exactly why it is a separate entry point and not a mode of
+ * ag_crypto_sign.
+ *
+ * AG_ERR_UNSUPPORTED on a tier with no external-key verify path. That is
+ * every tier but the secure element today: the software tier's only available
+ * primitive for it, ed25519-donna (already vendored for BOOT_SIG), does not
+ * fit this device family -- see docs/security/threat-model.md and
+ * changelog.d/ for the measurement that ruled it out. AG_ERR_CRYPTO on a
+ * signature that does not verify or an element that will not answer.
+ */
+ag_status_t      ag_crypto_verify_operator(const uint8_t digest[AG_SHA256_LEN],
+                                           const uint8_t sig[AG_SIG_LEN],
+                                           const uint8_t pubkey[AG_SIG_LEN]);
+
 #endif /* AG_CRYPTO_H */

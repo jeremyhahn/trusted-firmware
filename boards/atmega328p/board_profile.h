@@ -42,6 +42,22 @@
  * device that genuinely has no identity yet. */
 #define AG_FEATURE_ATTEST 1
 
+/* The operator-signature auth session (issue #4) does not fit this board's
+ * half of the part alongside everything else here. Measured: the atecc608a
+ * tier with AG_FEATURE_AUTH_SESSION on is 16 676 / 16 384 bytes, 292 over.
+ * The element-side cost itself is small (a Verify command and a handful of
+ * state), but there is no headroom left on this board to spend it in --
+ * AG_FLASH_BUDGET below is already the tightest of the three boards that
+ * carry an element.
+ *
+ * WHAT IS LOST: a host asking for AUTH_CHALLENGE/AUTH_RESPONSE on this board
+ * gets AG_ERR_UNKNOWN_CMD and CAPS reports the feature bit clear, so it learns
+ * the truth before it depends on the answer -- the same shape
+ * AG_FEATURE_ALIAS_CERT's absence on the ATmega32U4 takes. EEPROM_READ below
+ * AG_EEPROM_RESERVED_END is consequently not gated on this
+ * board either; see docs/security/threat-model.md. */
+#define AG_FEATURE_AUTH_SESSION 0
+
 /* Half the part, each. The budget is a gate, not an estimate: `make size-check`
  * fails the build when an image exceeds it, so flash creep is caught on the
  * commit that causes it rather than the day someone tries to add a feature and

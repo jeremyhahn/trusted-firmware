@@ -53,10 +53,14 @@ than discarding a whole buffer — a genuine frame may start inside garbage.
 - **`I2CReservedAddr` (0x60)** is refused by the device, not by this SDK: the
   secure element shares the bus, and a generic I2C transfer that could reach
   it would let a host bypass the firmware's crypto layer entirely.
-- **`EEPROMReservedEnd` (0x80)** marks the boundary the device enforces on
-  writes: below it lives the bootloader's public-key hash, the serial and the
-  boot counter. `EEPROMRead` may read the reserved region — it's a hash and a
-  serial, public by nature — `EEPROMWrite` may not.
+- **`EEPROMReservedEnd` (0xC0)** marks the boundary the device enforces on
+  writes: below it lives the bootloader's public-key hash, the serial, the
+  boot counter and — element tier only, since issue #4 — the operator public
+  key `AuthResponse` verifies against. `EEPROMWrite` may never touch it, on
+  any tier. `EEPROMRead` may, on a tier with no way to gate it (soft,
+  `CRYPTO=none`) — an accepted gap, not an oversight, see
+  `docs/security/threat-model.md`; on an element-tier device it additionally
+  requires the session `AuthChallenge`/`AuthResponse` establish.
 - **Provisioning commands (`0x70`–`0x75`) exist on the wire permanently and are
   implemented almost nowhere.** A production build carries
   `AG_FEATURE_PROVISION 0`, so its dispatch table has no entry for them and it

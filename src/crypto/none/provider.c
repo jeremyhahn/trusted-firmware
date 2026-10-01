@@ -124,3 +124,15 @@ ag_status_t ag_crypto_counter(uint8_t idx, uint32_t *out)
     (void)idx; (void)out;
     return AG_ERR_UNSUPPORTED;
 }
+
+/* issue #4: no operator-signature session on the tier with no crypto at
+ * all. AUTH_CHALLENGE/AUTH_RESPONSE are not compiled into a CRYPTO=none image
+ * (mk/avr.mk links auth_session_none.c), so this is unreachable in practice --
+ * present only because every provider implements the whole contract. */
+ag_status_t ag_crypto_verify_operator(const uint8_t digest[AG_SHA256_LEN],
+                                      const uint8_t sig[AG_SIG_LEN],
+                                      const uint8_t pubkey[AG_SIG_LEN])
+{
+    (void)digest; (void)sig; (void)pubkey;
+    return AG_ERR_UNSUPPORTED;
+}

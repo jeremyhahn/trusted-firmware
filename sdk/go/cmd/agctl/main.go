@@ -60,6 +60,19 @@ commands
   1wire-reset <pin>                1wire-write <pin> <hex>   1wire-read <pin> <count>
   attest <16 hex bytes>            runtime evidence, nonce is YOURS
   attest-cert <32 hex bytes>       the alias certificate, DER
+  auth <16 hex bytes> <key.pem> [-- <verb> <args...>]
+                                   element tier only: authenticate with the
+                                   operator key (PEM EC private key path;
+                                   never read by agctl itself -- see
+                                   externalECKeySigner) against the given
+                                   device serial, gating eeprom-read below
+                                   the reserved boundary until the device
+                                   resets (reset boot is not gated; #28). A gated verb after --
+                                   runs in the SAME connection, which matters
+                                   on boards (the Mega 2560) that reset on
+                                   reopen and would otherwise discard the
+                                   session before a second invocation reaches
+                                   the device
 
 flags
 `)
@@ -325,6 +338,8 @@ func featureList(c *ag.Caps) string {
 		{ag.FeaturePWM, "pwm"}, {ag.FeatureTone, "tone"}, {ag.FeaturePulse, "pulse"},
 		{ag.FeatureEEPROM, "eeprom"}, {ag.FeatureI2C, "i2c"}, {ag.FeatureSPI, "spi"},
 		{ag.FeatureOneWire, "onewire"}, {ag.FeatureAttest, "attest"}, {ag.FeatureDeadman, "deadman"},
+		{ag.FeatureProvision, "provision"}, {ag.FeatureAliasCert, "attest-cert"},
+		{ag.FeatureAuthSession, "auth"},
 	} {
 		if c.Has(f.bit) {
 			on = append(on, f.name)

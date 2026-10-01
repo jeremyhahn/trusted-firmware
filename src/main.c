@@ -23,6 +23,7 @@
 #include "caps/bus.h"
 #include "core/handoff.h"
 #include "core/platform_id.h"
+#include "core/auth_session.h"
 
 ag_status_t ag_hal_tick_init(void);
 
@@ -71,6 +72,7 @@ static void startup(void)
 
     ag_crypto_init();
     ag_sched_init();
+    ag_auth_session_init();
     ag_transport_init(&transport);
 }
 

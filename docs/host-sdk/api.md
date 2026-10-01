@@ -68,6 +68,7 @@ reaches for by task.
 | EEPROM | `EEPROMRead`, `EEPROMWrite` |
 | buses | `I2CTransfer`, `SetI2CClock`, `SPITransfer`, `ConfigureSPI`, `OneWireReset/Write/Read` |
 | attestation | `Attest(ctx, nonce []byte) ([]byte, error)`, `AttestCert(ctx, nonce []byte) ([]byte, error)` |
+| auth session (element tier only) | `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer, nonce, serial []byte) error` |
 | provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS` |
 | raw codec | `ag.EncodeRequest`, `ag.EncodeResponse`, `ag.Decode`, `ag.CRC16` |
 
@@ -93,6 +94,28 @@ holds or returns a private key — `AttestCert` returns DER bytes the device
 signed itself; the nonce widths (`AttestNonceLen` 16, `AliasNonceLen` 32) are
 deliberately different and must not be conflated (see `attest.go` and
 `docs/dice-attestation/architecture.md`).
+
+## The auth session
+
+`AuthChallenge`/`AuthResponse` (issue #4) authenticate the HOST to an
+element-tier device — the opposite direction from attestation, which
+authenticates the device to a verifier. Custody of the operator private key
+belongs to whoever calls this SDK — typically `go-trusted-platform`, per L2
+ownership — never to `sdk/go` itself, which is why `AuthResponse` takes a
+`crypto.Signer` rather than a key. Typical use:
+
+```go
+nonce, err := dev.AuthChallenge(ctx)
+// ...
+err = dev.AuthResponse(ctx, operatorSigner, nonce, deviceSerial)
+// EEPROMRead below EEPROMReservedEnd now succeeds on this device, until it
+// next resets. Reset(ResetBootloader) is not gated (issue #28).
+```
+
+`deviceSerial` is the device's own platform identity (`SerialLen` bytes) —
+obtainable from wherever it was recorded at provisioning, or from a fresh
+`Attest` call's evidence (`DeviceID`). Not enforced on the soft or
+`CRYPTO=none` tier: see `docs/security/threat-model.md`.
 
 ## What is not exported
 

@@ -183,9 +183,10 @@ type ResetMode uint8
 const (
 	// ResetSoft restarts the application firmware.
 	ResetSoft ResetMode = 0
-	// ResetBootloader restarts into the bootloader, for flashing. Once
-	// attestation exists this requires an authenticated session: it is a
-	// firmware-replacement entry point reachable from the serial line.
+	// ResetBootloader restarts into the bootloader, for flashing. It is
+	// NOT yet a distinct bootloader entry: the firmware takes the same reset
+	// as ResetSoft, so no authenticated session is required. Issue #28 makes
+	// it a real path and adds the gate there.
 	ResetBootloader ResetMode = 1
 )
 
@@ -353,16 +354,32 @@ func (d *Device) SetADCReference(ctx context.Context, ref ADCReference) error {
 // deadline. The host does the chunking; the device stays responsive.
 const EEPROMChunk = 8
 
-// EEPROMReservedEnd is the first address a host may write.
+// EEPROMReservedEnd is the first address a host may always write.
 //
 // Below it live the bootloader's public-key hash, the device serial, the boot
-// counter and the OTA state. The device refuses writes there, and it must:
-// without that refusal the generic EEPROM primitive would let anyone on the
-// serial line overwrite the hash the bootloader verifies against.
-const EEPROMReservedEnd = 0x80
+// counter, the OTA state and -- element tier only, since issue #4 -- the
+// AUTH_CHALLENGE/AUTH_RESPONSE session's operator public key. The device
+// refuses writes there unconditionally, and it must: without that refusal the
+// generic EEPROM primitive would let anyone on the serial line overwrite the
+// hash the bootloader verifies against, or the operator key that gates
+// reserved-region reads.
+//
+// Grew from 0x80 to 0xC0 when the operator public key was added: an address a
+// pre-#4 host could once write now falls inside the refused region if it
+// happens to land in [0x80, 0xC0). That is a real, deliberate narrowing --
+// see docs/wire-protocol/api.md.
+const EEPROMReservedEnd = 0xC0
 
-// EEPROMRead reads up to EEPROMChunk bytes. Reads of the reserved region are
-// permitted -- its contents are a hash and a serial number, public by nature.
+// EEPROMRead reads up to EEPROMChunk bytes.
+//
+// On an element-tier device, an address below EEPROMReservedEnd additionally
+// requires an authenticated session (see AuthChallenge/AuthResponse) --
+// StatusErrAuthRequired otherwise. On a soft-tier or CRYPTO=none device this
+// is NOT enforced: AUTH_CHALLENGE/AUTH_RESPONSE are not compiled into either
+// tier (the element is what makes an operator signature checkable without a
+// shared secret on the device), so every read is permitted there exactly as
+// it always was. See docs/security/threat-model.md for why that gap is
+// accepted rather than hidden.
 func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, error) {
 	if n == 0 || n > EEPROMChunk {
 		return nil, &ArgRangeError{

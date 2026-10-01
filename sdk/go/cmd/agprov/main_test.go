@@ -9,23 +9,24 @@ import (
 )
 
 func TestRejectBakeFlagsAcceptsAWireModeWithNoBakeFlags(t *testing.T) {
-	if err := rejectBakeFlags("", "", ""); err != nil {
+	if err := rejectBakeFlags("", "", "", ""); err != nil {
 		t.Fatalf("no bake flags set: got %v, want nil", err)
 	}
 }
 
 func TestRejectBakeFlagsRefusesEachBakeFlag(t *testing.T) {
 	cases := []struct {
-		name                     string
-		serial, hash, out, wants string
+		name                            string
+		serial, hash, opKey, out, wants string
 	}{
-		{"serial", "a6e0000000000000000000000000c0de", "", "", "serial"},
-		{"pubkey-hash", "", "00", "", "pubkey-hash"},
-		{"out", "", "", "platform.eep", "out"},
+		{"serial", "a6e0000000000000000000000000c0de", "", "", "", "serial"},
+		{"pubkey-hash", "", "00", "", "", "pubkey-hash"},
+		{"operator-pubkey", "", "", "00", "", "operator-pubkey"},
+		{"out", "", "", "", "platform.eep", "out"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := rejectBakeFlags(c.serial, c.hash, c.out)
+			err := rejectBakeFlags(c.serial, c.hash, c.opKey, c.out)
 			var be *bakeFlagError
 			if !errors.As(err, &be) {
 				t.Fatalf("got %v, want *bakeFlagError", err)

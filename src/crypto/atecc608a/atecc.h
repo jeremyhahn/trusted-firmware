@@ -54,6 +54,7 @@
 #define AG_ATECC_OP_PRIVWRITE 0x46u
 #define AG_ATECC_OP_SHA       0x47u
 #define AG_ATECC_OP_WRITE     0x12u
+#define AG_ATECC_OP_VERIFY    0x45u
 
 /* Modes, for the commands this firmware issues. */
 #define AG_ATECC_SHA_SHA256_START  0x00u
@@ -64,6 +65,13 @@
 #define AG_ATECC_SHA_HMAC_END    0x05u
 #define AG_ATECC_NONCE_PASSTHRU  0x03u
 #define AG_ATECC_SIGN_EXTERNAL   0x80u
+/* Verify, External Public Key mode: the datasheet's 5.2.4.1. The public key
+ * travels in the command rather than naming a slot -- unlike
+ * boot/verify/verify_atecc608a.c's own Verify use, which is deliberately
+ * Stored mode for a different reason (see that file). Param2/KeyID 0x0004
+ * names the P-256 curve, not a slot; it is a curve selector in this mode. */
+#define AG_ATECC_VERIFY_EXTERNAL   0x02u
+#define AG_ATECC_VERIFY_KEYID_P256 0x0004u
 #define AG_ATECC_GENKEY_PRIVATE  0x04u
 #define AG_ATECC_GENKEY_PUBLIC   0x00u
 #define AG_ATECC_COUNTER_READ    0x00u
@@ -86,9 +94,19 @@
 #define AG_ATECC_SLOT_UDS      1u  /* the UDS, as an HMAC key that never leaves the part */
 #define AG_ATECC_COUNTER_BOOT  0u  /* monotonic boot count and the anti-rollback floor */
 
-/* The largest command payload this firmware sends. PrivWrite carries 36 bytes
- * of key plus a 32-byte MAC, which is the worst case and is provisioning-only;
- * SHA HMAC_Update's 64-byte block is the worst case in ordinary operation. */
+/* The largest command payload ag_atecc_exec's SHARED, FILE-STATIC buffer
+ * carries. PrivWrite carries 36 bytes of key plus a 32-byte MAC, which is the
+ * worst case and is provisioning-only; SHA HMAC_Update's 64-byte block is the
+ * worst case in ordinary operation.
+ *
+ * Verify in External mode (issue #4's AUTH_RESPONSE) needs 128 -- a 64-byte
+ * signature plus a 64-byte public key -- and is deliberately NOT counted
+ * here: growing this constant would grow ag_atecc_exec's static buffer by 60
+ * bytes for EVERY element-tier build, whether or not AUTH_CHALLENGE/
+ * AUTH_RESPONSE is even compiled in, and blew the ATmega2560's RAM budget by
+ * itself. ag_atecc_verify_external below stages its own, larger command on
+ * the stack instead -- a transient cost paid only while that one call runs,
+ * not a permanent one every other caller here also pays. */
 #define AG_ATECC_MAX_DATA 68u
 
 /* Wakes the element and confirms it answered. Safe to call repeatedly. */
@@ -115,6 +133,29 @@ ag_status_t ag_atecc_sleep(void);
 ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
                           const uint8_t *data, uint8_t dlen,
                           uint8_t *resp, uint8_t rlen, uint16_t exec_ms);
+
+/*
+ * Verify, External Public Key mode -- issue #4. A command of its own rather
+ * than a call to ag_atecc_exec: its 128-byte payload (a 64-byte signature
+ * plus a 64-byte public key) is nearly double ag_atecc_exec's shared
+ * AG_ATECC_MAX_DATA buffer, and growing that buffer to fit would cost every
+ * element-tier build the difference permanently, whether or not this command
+ * is ever used. This one stages its own, larger command on the CALLER'S
+ * stack instead -- see AG_ATECC_MAX_DATA's comment.
+ *
+ * The digest must already be loaded into TempKey (a pass-through Nonce via
+ * ag_atecc_exec, exactly as ag_crypto_sign does it) before this is called;
+ * that step's 32-byte payload fits the shared buffer comfortably and is not
+ * duplicated here.
+ *
+ * Returns AG_OK for a verified signature, AG_ERR_CRYPTO for a signature that
+ * does not verify or an element that failed for any other reason -- the
+ * caller's correct response to either is identical, so they are not
+ * distinguished, exactly as ag_atecc_exec's own callers already do not
+ * distinguish "wrong" from "the part refused."
+ */
+ag_status_t ag_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey[64],
+                                     uint16_t exec_ms);
 
 /* The element's CRC-16: polynomial 0x8005, register initialised to zero, each
  * data byte consumed least-significant bit first, result emitted little-endian.

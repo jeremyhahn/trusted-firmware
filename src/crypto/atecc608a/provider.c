@@ -72,6 +72,10 @@
 #define T_GENKEY 115u
 #define T_COUNTER  6u
 #define T_READ     1u
+/* Same figure boot/verify/verify_atecc608a.c already uses for this opcode on
+ * this part -- the datasheet maximum for Verify, the slowest command either
+ * of them issues. */
+#define T_VERIFY  72u
 
 static uint8_t present;        /* the element answered a wake and an Info */
 static uint8_t have_cdi;
@@ -332,4 +336,54 @@ ag_status_t ag_crypto_counter(uint8_t idx, uint32_t *out)
     *out = (uint32_t)v[0] | ((uint32_t)v[1] << 8)
          | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);
     return AG_OK;
+}
+
+/*
+ * issue #4: the AUTH_CHALLENGE/AUTH_RESPONSE session's verify, entirely
+ * additive to everything above -- a new entry point, not a mode of an
+ * existing one, so nothing here changes what ag_crypto_sign or
+ * ag_crypto_hmac do or the keys they touch.
+ *
+ * EXTERNAL key mode, not Stored: this key is the OPERATOR's, provisioned into
+ * the platform-reserved EEPROM block by agprov (include/ag/boot.h), never
+ * into an element slot. That is the opposite tradeoff from
+ * boot/verify/verify_atecc608a.c's Stored-mode use of the same opcode --
+ * there, keeping the image-signing key off the bus is the whole point,
+ * because that key is fixed for the product's life. Here the key can and
+ * should rotate with the fleet's own key management, which an element slot
+ * would make far harder: locking a slot is irreversible, and there is only
+ * one data slot's worth of room to spend.
+ *
+ * The response is a bare status byte, not data -- 0x00 verified, 0x01
+ * mismatch, matching the four-byte shape every other status-only command
+ * here already gets (rlen=0), so this needs no new response-parsing path in
+ * ag_atecc_exec: buf[1] is read through the same translate() that already
+ * carries the "checkmac or verify miscompare" case for exactly this byte.
+ */
+ag_status_t ag_crypto_verify_operator(const uint8_t digest[32],
+                                      const uint8_t sig[64],
+                                      const uint8_t pubkey[64])
+{
+    ag_status_t st;
+
+    if (!present) {
+        return AG_ERR_CRYPTO;
+    }
+    if (ag_atecc_wake() != AG_OK) {
+        return AG_ERR_CRYPTO;
+    }
+
+    /* Same pass-through load ag_crypto_sign uses: TempKey gets the digest
+     * verbatim, no seed update, no element randomness mixed in -- the
+     * element verifies OUR digest and not something derived from it. */
+    st = ag_atecc_exec(AG_ATECC_OP_NONCE, AG_ATECC_NONCE_PASSTHRU, 0u,
+                       digest, 32u, 0, 0u, T_NONCE);
+    if (st == AG_OK) {
+        /* Its own command, not ag_atecc_exec -- see atecc.h's comment on
+         * ag_atecc_verify_external for why: this payload is nearly double
+         * the shared buffer ag_atecc_exec reuses for every other command. */
+        st = ag_atecc_verify_external(sig, pubkey, T_VERIFY);
+    }
+    (void)ag_atecc_sleep();
+    return st;
 }

@@ -107,6 +107,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/uccs.c \
                  src/core/handoff.c src/core/platform_id.c src/core/reset_cause.c \
                  src/core/secure_zero.c \
+                 src/core/auth_session_none.c \
                  boot/boot_handoff.c boot/boot_platform.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
@@ -189,8 +190,27 @@ $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The operator-signature auth session, driven against the software element --
+# issue #4. Same arrangement as test_alias: the model IS the I2C HAL, so no
+# hal_mock.c, and the test file supplies its own tiny stand-ins for the
+# handful of other HAL calls storage.c's and sys.c's non-auth handlers still
+# reference even though this suite never calls them (RESET's own poll, CAPS,
+# PING, SYS_INFO) -- the same reason test_alias.c defines ag_hal_millis.
+$(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c test/model/atecc608a.c \
+                                src/core/auth_session.c src/caps/storage.c src/caps/sys.c \
+                                src/core/reader.c src/core/writer.c \
+                                src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
+                                src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
+                                src/core/platform_id.c src/core/handoff.c src/core/secure_zero.c \
+                                boot/boot_platform.c boot/boot_handoff.c \
+                                src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
-                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none
+                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
+                    $(HOST_DIR)/test_auth_session
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)

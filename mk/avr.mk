@@ -91,6 +91,11 @@ ifeq ($(CRYPTO),soft)
 CRYPTO_SRCS := src/crypto/sha256.c src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
+# issue #4: no operator-signature session on this tier -- see
+# AG_FEATURE_AUTH_SESSION in config.h for why, and auth_session_none.c for
+# what a soft-tier image links instead.
+AUTH_SRCS   := src/core/auth_session_none.c
+AUTH_DEFS   :=
 else ifeq ($(CRYPTO),none)
 # THE UNATTESTED TIER. Not "soft with the crypto taken out" -- see the header of
 # src/crypto/none/provider.c. SHA-256 is part of a TIER's source list rather
@@ -100,6 +105,8 @@ else ifeq ($(CRYPTO),none)
 CRYPTO_SRCS := src/crypto/none/provider.c
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
+AUTH_SRCS   := src/core/auth_session_none.c
+AUTH_DEFS   :=
 else ifeq ($(CRYPTO),atecc608a)
 CRYPTO_SRCS := src/crypto/sha256.c src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
 # The alias certificate rides with the tier that can sign one, and only on a
@@ -117,6 +124,19 @@ ALIAS_DEFS  :=
 else
 ALIAS_SRCS  := src/caps/alias.c src/caps/uccs.c
 ALIAS_DEFS  := -DAG_FEATURE_ALIAS_CERT=1
+endif
+# The operator-signature auth session -- issue #4. Unlike ALIAS_CERT this
+# costs the element's own Verify command and a few hundred bytes, not a
+# certificate builder, so no board profile has needed to say no yet -- but the
+# knob exists for the same reason ALIAS_OFF's does: a profile that changes its
+# mind should not need a code change to say so.
+AUTH_OFF    := $(call feature_off,AUTH_SESSION)
+ifeq ($(AUTH_OFF),1)
+AUTH_SRCS   := src/core/auth_session_none.c
+AUTH_DEFS   :=
+else
+AUTH_SRCS   := src/core/auth_session.c
+AUTH_DEFS   := -DAG_FEATURE_AUTH_SESSION=1
 endif
 else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a)
@@ -145,7 +165,7 @@ AVR_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
               -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
               -ffile-prefix-map=$(CURDIR)=. \
               -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(BOARD_DIR) \
-              -DAG_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS)
+              -DAG_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS)
 
 AVR_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 
@@ -210,7 +230,7 @@ AVR_SRCS := $(sort \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
-  $(CRYPTO_SRCS) $(ALIAS_SRCS) \
+  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) \
   $(filter-out $(HAL_OPTIONAL),$(wildcard src/hal/avr/*.c)))
 

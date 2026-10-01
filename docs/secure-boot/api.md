@@ -75,13 +75,13 @@ tool are the two other parties.
 
 ### Reserved EEPROM
 
-`AG_BOOT_EE_BASE` (`0x000`) through `0x07F`, `AG_BOOT_EE_LEN` (128) bytes,
+`AG_BOOT_EE_BASE` (`0x000`) through `0x0BF`, `AG_BOOT_EE_LEN` (192) bytes,
 refused for application writes by `src/caps/storage.c`:
 
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
 | 0 | 4 | `magic` | `AG_BOOT_EE_MAGIC` = `0x52504741` |
-| 4 | 1 | `layout_version` | `AG_BOOT_EE_VERSION` = 1 |
+| 4 | 1 | `layout_version` | `AG_BOOT_EE_VERSION` = 2 (grew from 1 when `operator_pubkey` below was added — issue #4; an older-layout region parses as unprovisioned rather than partially) |
 | 5 | 1 | `flags` | |
 | 6 | 2 | reserved | |
 | 8 | 32 | `pubkey_hash` | SHA-256 of the 32-byte Ed25519 public key; ignored on the element tier |
@@ -91,8 +91,9 @@ refused for application writes by `src/caps/storage.c`:
 | 49 | 1 | `ota_state` | `AG_BOOT_OTA_IDLE`(0) / `RECEIVING`(1) / `VERIFIED`(2) / `FAILED`(3) |
 | 50 | 2 | `boot_fail_count` | |
 | 52 | 16 | `device_serial` | baked into the `.eep` image by `agprov --bake-eeprom` before the part is ever flashed — there is no wire command that writes it |
-| 68 | 58 | reserved | |
-| 126 | 2 | `crc16` | over bytes `[0, 126)` — corruption detection, **not** integrity against an attacker; anyone who can write the region can recompute it |
+| 68 | 64 | `operator_pubkey` | the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), P-256 as X‖Y; element tier only, baked in the same way as `device_serial`; see [../security/threat-model.md](../security/threat-model.md) |
+| 132 | 58 | reserved | |
+| 190 | 2 | `crc16` | over bytes `[0, 190)` — corruption detection, **not** integrity against an attacker; anyone who can write the region can recompute it |
 
 Parsed by `ag_boot_platform_parse`, serialised by `ag_boot_platform_serialise`
 (`boot/boot_platform.c`); accessed through `ag_boot_platform_load` /
@@ -149,8 +150,15 @@ CDI through a trampoline is exactly what the tier forbids — see
 
 Every layout above is additive-only: offsets never move, fields never
 renumber, and a `*_version`/`layout_version` byte gates whether a build
-understands what it's reading. `AG_BOOT_TRAILER_VERSION` and
-`AG_BOOT_EE_VERSION` are each currently `1`, with no second value defined.
+understands what it's reading. `AG_BOOT_TRAILER_VERSION` is currently `1`,
+with no second value defined. `AG_BOOT_EE_VERSION` is `2` (issue #4) —
+version 1 ended at byte 128 with `device_serial` followed directly by 58
+reserved bytes and the CRC; version 2 inserts `operator_pubkey` after
+`device_serial` and moves the reserved span and the CRC down by 64 bytes,
+growing the block rather than repurposing bytes the way the handoff record
+below does. A region written under version 1 parses as unprovisioned
+(`AG_ERR_UNSUPPORTED`) under a version-2-aware build — every field,
+`device_serial` included — not partially: see "Reserved EEPROM" above.
 `AG_BOOT_HANDOFF_VERSION` is `2` — version 1 held `crc16` at offset 76 and
 two reserved bytes at 78; version 2 (issue #18) repurposed the first
 reserved byte as `reset_cause` and moved `crc16` to cover it, without

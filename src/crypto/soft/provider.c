@@ -226,3 +226,25 @@ ag_status_t ag_crypto_counter(uint8_t idx, uint32_t *out)
      * than backed by something that can be rewound. */
     return AG_ERR_UNSUPPORTED;
 }
+
+/* issue #4 -- ELEMENT TIER ONLY, and deliberately so on this one.
+ *
+ * The obvious primitive for a P-256/Ed25519 verify on a bare AVR is
+ * ed25519-donna, already vendored here for BOOT_SIG=ed25519-donna. It does
+ * not fit: the measured cost of its verify path alone, gc-sectioned, is
+ * ~73-85 KB of flash and a single ~2.95 KB call frame. That overflows an
+ * ATmega328P's entire 32 KB of flash before the rest of the firmware is
+ * counted, and it is 31-47% over this project's own 64 KB application flash
+ * budget on an ATmega2560 -- see changelog.d/ for the measurement. There is no
+ * smaller vendored alternative and this tier does not get one; the owner
+ * ruling for issue #4 is that AUTH_CHALLENGE/AUTH_RESPONSE are simply not
+ * compiled into a soft-tier image (mk/avr.mk links auth_session_none.c
+ * instead), and the reserved-EEPROM-read gate is
+ * not enforced on this tier either. See docs/security/threat-model.md. */
+ag_status_t ag_crypto_verify_operator(const uint8_t digest[32],
+                                      const uint8_t sig[64],
+                                      const uint8_t pubkey[64])
+{
+    (void)digest; (void)sig; (void)pubkey;
+    return AG_ERR_UNSUPPORTED;
+}

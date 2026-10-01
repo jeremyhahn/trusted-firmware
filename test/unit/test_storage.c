@@ -62,7 +62,9 @@ static void test_a_round_trip_through_the_user_area(void)
 /*
  * THE SECURITY BOUNDARY.
  *
- * The low 128 bytes hold the bootloader's public-key hash. Without this check,
+ * The low AG_BOOT_EE_LEN bytes (0xC0, since issue #4 added the operator
+ * public key at 0x80-0xBF) hold the bootloader's public-key hash, the device
+ * serial and -- element tier only -- that operator key. Without this check,
  * the generic EEPROM primitive would let anyone on the serial line overwrite
  * the hash the bootloader verifies against -- the whole root of trust, defeated
  * by a documented command doing exactly what it says it does.
@@ -74,31 +76,35 @@ static void test_the_reserved_region_cannot_be_written(void)
     TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x000u, evil, 4u)); /* pubkey hash */
     TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x020u, evil, 4u)); /* device serial */
     TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x030u, evil, 4u)); /* boot counter */
-    TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x07Fu, evil, 1u)); /* last byte of it */
+    TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x044u, evil, 4u)); /* operator pubkey, issue #4 */
+    TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x0BFu, evil, 1u)); /* last byte of it */
 }
 
 /* A write beginning below the boundary and running past it must be refused
- * whole. Checking only the starting address would let a write at 0x7F running
- * eight bytes reach 0x86 -- through the boundary, having passed the check. */
+ * whole. Checking only the starting address would let a write at 0xBF running
+ * eight bytes reach 0xC6 -- through the boundary, having passed the check. */
 static void test_a_write_straddling_the_boundary_is_refused_entirely(void)
 {
     const uint8_t data[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
-    TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x07Fu, data, 8u));
+    TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ee_write(0x0BFu, data, 8u));
     /* and nothing was written */
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, ag_mock_eeprom()[0x07F]);
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, ag_mock_eeprom()[0x080]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, ag_mock_eeprom()[0x0BF]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, ag_mock_eeprom()[0x0C0]);
 }
 
 static void test_the_first_byte_above_the_boundary_is_writable(void)
 {
     const uint8_t one[1] = { 0x5A };
-    TEST_ASSERT_EQUAL(AG_OK, ee_write(0x080u, one, 1u));
-    TEST_ASSERT_EQUAL_HEX8(0x5Au, ag_mock_eeprom()[0x080]);
+    TEST_ASSERT_EQUAL(AG_OK, ee_write(0x0C0u, one, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, ag_mock_eeprom()[0x0C0]);
 }
 
-/* Reading the reserved region IS allowed. Its contents are a hash and a serial
- * number -- public by nature -- and refusing them would break provisioning
- * tools for no security gain. */
+/* Reading the reserved region on THIS (soft-tier) build is still permitted
+ * unconditionally: AG_FEATURE_AUTH_SESSION is off here (HOST_EXTRA_DEFS does
+ * not turn it on, and this binary links auth_session_none.c), so
+ * ag_auth_gate() is the permissive stub -- exactly the accepted soft-tier gap
+ * docs/security/threat-model.md states. test_auth_session.c exercises the
+ * element-tier build, where the same read is refused before authentication. */
 static void test_the_reserved_region_can_be_read(void)
 {
     ag_mock_eeprom()[0x000] = 0xAB;

@@ -36,14 +36,49 @@ idle window rather than absorbing the next good frame's opening bytes.
 
 ## What it does not defend against, today
 
-**The serial link is unauthenticated.** Anyone who can reach the UART can drive
-every pin. For a lighting controller that is a nuisance; for a pump it is not.
-The session authentication that closes this lands with the crypto provider, and
-until then the device's security posture is exactly the physical security of its
-serial line — which is the honest description of most microcontrollers.
+**The serial link is unauthenticated for driving pins.** Anyone who can reach
+the UART can drive every pin. For a lighting controller that is a nuisance;
+for a pump it is not. That is unchanged and is not what the auth session
+below closes — it protects two specific resources, not the command channel in
+general.
 
-**`RESET` into the bootloader is reachable from the wire.** That is a firmware
-replacement entry point. It requires an authenticated session once one exists.
+**One resource now requires an authenticated session, element tier only.**
+`AUTH_CHALLENGE`/`AUTH_RESPONSE` (0x61/0x62, issue #4) let a host prove it
+holds an operator private key: the device issues a single-use nonce, the host
+signs `domain||device_serial||nonce` with the operator key, and the device
+verifies the P-256 signature in the ATECC608A against the operator public key
+`agprov` baked into the platform-reserved EEPROM block. A session granted this
+way gates `EEPROM_READ` below `EEPROMReservedEnd`:
+
+This was previously unconditional, since the region's contents (a hash, a
+serial, and now an operator public key) were considered fine to disclose. A
+public key does not need secrecy once trusted, but a host that has not yet
+proven it holds the matching private key has no business confirming what the
+anchor even is.
+
+`RESET` mode 1 ("bootloader") is deliberately not gated. It is not yet a
+distinct path: the firmware takes the same watchdog reset for both modes, and
+ag-boot opens its OTA session only through recovery conditions, so a gate
+would protect nothing. Issue #28 makes mode 1 a real bootloader entry and adds
+the gate there.
+
+A session lasts until the device resets; there is no separate inactivity
+timeout.
+
+**This is element tier only, and that is a real gap on the other two, not a
+temporary one.** The software tier's only available primitive for an
+external-key signature check, ed25519-donna (already vendored for
+`BOOT_SIG=ed25519-donna`), does not fit this device family: its verify path
+alone measures 72,930–85,452 bytes of flash and a single ~2.95 KB stack
+frame, which overflows an ATmega328P's entire 32 KB of flash before the rest
+of the firmware is counted, and is 31–47% over this project's own 64 KB
+application-flash budget on an ATmega2560. No smaller alternative is vendored.
+So on the soft and `CRYPTO=none` tiers, `AUTH_CHALLENGE`/`AUTH_RESPONSE` are
+not compiled in at all (the same `AG_ERR_UNKNOWN_CMD` any other absent
+feature gets), and `EEPROM_READ` is consequently ungated there,
+exactly as they always were. A verifier reading a soft-tier device's `CAPS`
+already knows this — the feature bit is clear — and should not expect these
+two resources to be protected on it.
 
 ## Structural limits that will not be fixed
 

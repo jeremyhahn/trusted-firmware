@@ -38,6 +38,30 @@ Pre-1.0, MINOR carries breaking changes.
   `ADEN`/`SPE` where the host mock cannot. Every exchange is bounded by a
   fixed cycle count, so a regression that reintroduces the hang below fails
   the suite instead of blocking it.
+- **The operator-signature auth session — `AUTH_CHALLENGE`/`AUTH_RESPONSE`
+  (0x61/0x62), element tier only.** A host proves it holds an operator
+  private key by signing `domain||device_serial||nonce` (P-256) against the
+  operator public key `agprov --bake-eeprom --operator-pubkey` now bakes into
+  the platform-reserved EEPROM block; the device verifies it inside the
+  ATECC608A (`ag_atecc_verify_external`, a new Verify-External-mode command
+  staged on the caller's stack rather than growing the shared element
+  command buffer for every other caller). A granted session gates one
+  resource: `EEPROM_READ` below `EEPROMReservedEnd`, `AG_ERR_AUTH_REQUIRED`
+  otherwise, and lasts until the device resets. `RESET(1)` is deliberately
+  NOT gated: mode 1 is not yet a distinct bootloader entry (it takes the same
+  watchdog reset as mode 0), so a gate would protect nothing. Issue #28 makes
+  it a real path and adds the gate there. The obvious software-tier primitive, ed25519-donna, does
+  not fit this device family — its verify path alone overflows an
+  ATmega328P's entire flash and is 31–47% over this project's own
+  application-flash budget on an ATmega2560 — so `AUTH_CHALLENGE`/
+  `AUTH_RESPONSE` are not compiled into the soft or `CRYPTO=none` tier at
+  all, and `EEPROM_READ` is consequently ungated there, exactly as
+  before. `WDT_SET`, `SLEEP` and `PULSE_COUNT_*` — the remaining allocated
+  ids with no handler in any build — are now marked "reserved, not
+  implemented" in `include/ag/protocol.h` rather than left silent. SDK:
+  `Device.AuthChallenge`/`AuthResponse` (the latter taking a
+  `crypto.Signer`, never a key — this repo holds no key material); `agctl
+  auth`. Closes #4.
 - **`agprov --bake-eeprom`** writes the platform-reserved EEPROM block —
   the device serial, among other fields — as a partial Intel HEX `.eep`
   image, flashed before any production firmware. There is deliberately no
@@ -86,6 +110,22 @@ Pre-1.0, MINOR carries breaking changes.
 - **The performance ceiling policy is ratified** (#11): a ceiling in
   `test/bench/targets.h` only ever moves down. CRC-16 and frame-decode's
   ceilings were lowered to match #12's measurement.
+- **`EEPROMReservedEnd` grows from `0x80` to `0xC0`** to hold the operator
+  public key above (issue #4), and the platform-reserved EEPROM block's
+  layout version bumps to 2 accordingly — a v1 region parses as
+  unprovisioned rather than partially, so an element-tier build reads a
+  zero serial against it. `BuildPlatformBlock`/`agprov --bake-eeprom` has no
+  read-modify-write path, so re-baking is safe only for a part that has
+  never been fielded: it always writes `rollback_floor`/`boot_count`/
+  `boot_fail_count` as zero, which resets the anti-rollback floor on a
+  device that has already advanced it. A device already in service needs a
+  migration path that preserves those fields, which does not exist yet —
+  known gap, not a deliberate omission.
+  `EEPROM_READ` of the reserved region, previously unconditional
+  on every tier ("its contents are public"), now additionally requires the
+  auth session above on a tier that can enforce one; unconditional
+  everywhere else. `EEPROM_WRITE`'s refusal of the region is unchanged and
+  unconditional on every tier.
 
 ### Fixed
 

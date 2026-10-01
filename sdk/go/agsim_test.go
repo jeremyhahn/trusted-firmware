@@ -166,6 +166,30 @@ func TestAgainstFirmwareUnknownCommandIsAnswered(t *testing.T) {
 	}
 }
 
+// issue #4: agsim links the SOFT tier (HOST_LIB_SRCS), where
+// AUTH_CHALLENGE/AUTH_RESPONSE are not compiled in at all -- the owner ruling
+// is that this is a real gap, not merely a refusal, so it must answer exactly
+// like any other id nobody implemented on this tier: AG_ERR_UNKNOWN_CMD, the
+// same status TestAgainstFirmwareUnknownCommandIsAnswered pins for 0x7E. The
+// element-tier behaviour (a real handshake) has no cross-implementation
+// binary of its own yet -- agsim has one crypto tier -- and is covered
+// host-side by test_auth_session.c against the software element instead.
+func TestAgainstFirmwareAuthCommandsAreAbsentOnTheSoftTier(t *testing.T) {
+	d := startSim(t)
+	ctx := context.Background()
+
+	if _, err := d.AuthChallenge(ctx); err == nil || err.Error() != StatusErrUnknownCmd.String() {
+		t.Fatalf("AuthChallenge err = %v, want %v", err, StatusErrUnknownCmd)
+	}
+	// Driven at the wire directly: AuthResponse's own signing step needs a
+	// crypto.Signer, which is beside the point here -- the firmware refuses
+	// before it would ever parse the payload as a signature.
+	if _, err := d.Do(ctx, CmdAuthResponse, make([]byte, ecdsaRawSigLen)); err == nil ||
+		err.Error() != StatusErrUnknownCmd.String() {
+		t.Fatalf("AuthResponse err = %v, want %v", err, StatusErrUnknownCmd)
+	}
+}
+
 func TestAgainstFirmwareWrongArgumentCountIsRefused(t *testing.T) {
 	d := startSim(t)
 	// RESET takes exactly one byte.
@@ -359,8 +383,9 @@ func TestAgainstFirmwareReservedEEPROMIsRefused(t *testing.T) {
 		t.Fatal("a write over the bootloader pubkey hash was accepted")
 	}
 	// A write starting below the boundary and running through it must be
-	// refused whole, not partially applied.
-	if err := d.EEPROMWrite(ctx, 0x07F, []byte{1, 2, 3, 4, 5, 6, 7, 8}); err == nil {
+	// refused whole, not partially applied. EEPROMReservedEnd grew from 0x80
+	// to 0xC0 when issue #4 added the operator public key to this region.
+	if err := d.EEPROMWrite(ctx, EEPROMReservedEnd-1, []byte{1, 2, 3, 4, 5, 6, 7, 8}); err == nil {
 		t.Fatal("a write straddling the boundary was accepted")
 	}
 	// And the user area still works.
@@ -373,6 +398,19 @@ func TestAgainstFirmwareReservedEEPROMIsRefused(t *testing.T) {
 	}
 	if got[0] != 0xDE || got[1] != 0xAD {
 		t.Fatalf("read back %x, want dead", got)
+	}
+}
+
+// issue #4: on the soft tier, a read of the reserved region is still
+// unconditionally permitted -- AUTH_CHALLENGE/AUTH_RESPONSE do not exist here
+// to gate it, and that gap is accepted rather than hidden (see
+// docs/security/threat-model.md). The element-tier refusal-then-success path
+// is covered by test_auth_session.c against the software element, which
+// agsim (one crypto tier) cannot exercise.
+func TestAgainstFirmwareReservedEEPROMReadIsUngatedOnTheSoftTier(t *testing.T) {
+	d := startSim(t)
+	if _, err := d.EEPROMRead(context.Background(), 0x000, 4); err != nil {
+		t.Fatalf("reserved-region read refused on the soft tier: %v", err)
 	}
 }
 

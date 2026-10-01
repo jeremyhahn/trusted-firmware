@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/ecdh"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -22,6 +23,24 @@ func allZero(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// requireOnCurveP256 rejects a 64-byte X||Y pair that is not an actual point
+// on the P-256 curve. crypto/ecdh validates this the same way it would
+// before ever using the point, which is the whole reason to reach for it
+// here rather than parsing the coordinates by hand: a hand-rolled check that
+// missed a case would bake exactly the silently-wrong image this exists to
+// catch.
+func requireOnCurveP256(xy []byte) error {
+	if len(xy) != ag.OperatorPubkeyLen {
+		return fmt.Errorf("%d bytes, want %d", len(xy), ag.OperatorPubkeyLen)
+	}
+	// crypto/ecdh takes the SEC1 uncompressed form, 0x04 || X || Y.
+	sec1 := append([]byte{0x04}, xy...)
+	if _, err := ecdh.P256().NewPublicKey(sec1); err != nil {
+		return fmt.Errorf("not a point on P-256: %w", err)
+	}
+	return nil
 }
 
 // hexLengthError reports a hex argument that decoded to the wrong number of
@@ -58,7 +77,7 @@ func parseFixedHex(flag, s string, want int) ([]byte, error) {
 // refusal is unconditional, by design -- see include/ag/boot.h), so it has to
 // be in the image before the device is ever flashed, and that is a file
 // operation, not a device one. See docs/device-provisioning/.
-func runBakeEEPROM(outPath, serialHex, pubkeyHashHex string) error {
+func runBakeEEPROM(outPath, serialHex, pubkeyHashHex, operatorPubkeyHex string) error {
 	serialBytes, err := parseFixedHex("serial", serialHex, ag.SerialLen)
 	if err != nil {
 		return err
@@ -108,7 +127,39 @@ func runBakeEEPROM(outPath, serialHex, pubkeyHashHex string) error {
 			"  hash is baked in -- see docs/secure-boot/.")
 	}
 
-	block := ag.BuildPlatformBlock(serial, pubkeyHash)
+	// The AUTH_CHALLENGE/AUTH_RESPONSE session's trust anchor (issue #4).
+	// Element-tier only: a soft-tier or CRYPTO=none image never compiles in
+	// the commands that would read this field, so baking zero here is not a
+	// gap on those tiers, only on an element-tier image that wants the
+	// session to work -- and there the device will simply refuse every
+	// AUTH_RESPONSE (AG_ERR_CRYPTO, no signature verifies against an all-zero
+	// point) until the real key is baked in, the same shape as the
+	// pubkey-hash gap above.
+	var operatorPubkey [ag.OperatorPubkeyLen]byte
+	if operatorPubkeyHex != "" {
+		opBytes, err := parseFixedHex("operator-pubkey", operatorPubkeyHex, ag.OperatorPubkeyLen)
+		if err != nil {
+			return err
+		}
+		// Length-correct is not point-correct: a single hex typo still
+		// decodes to 64 bytes, and without this check it would bake a
+		// CRC-valid image the device refuses every AUTH_RESPONSE against,
+		// discoverable only by re-flashing and trying. Checked here, before
+		// the CRC is even computed, the same way a bad --serial length is.
+		if err := requireOnCurveP256(opBytes); err != nil {
+			return fmt.Errorf("agprov: --operator-pubkey: %w", err)
+		}
+		copy(operatorPubkey[:], opBytes)
+	} else {
+		fmt.Fprintln(os.Stderr,
+			"agprov: --operator-pubkey not given; baking an all-zero key.")
+		fmt.Fprintln(os.Stderr,
+			"  AUTH_CHALLENGE/AUTH_RESPONSE will refuse every response until the real")
+		fmt.Fprintln(os.Stderr,
+			"  operator public key (P-256, X||Y, 64 bytes) is baked in.")
+	}
+
+	block := ag.BuildPlatformBlock(serial, pubkeyHash, operatorPubkey)
 
 	f, err := os.Create(outPath)
 	if err != nil {
@@ -130,8 +181,9 @@ func runBakeEEPROM(outPath, serialHex, pubkeyHashHex string) error {
 	}
 
 	fmt.Printf("baked platform block -> %s\n", outPath)
-	fmt.Printf("  serial       %s\n", hex.EncodeToString(serial[:]))
-	fmt.Printf("  pubkey_hash  %s\n", hex.EncodeToString(pubkeyHash[:]))
+	fmt.Printf("  serial          %s\n", hex.EncodeToString(serial[:]))
+	fmt.Printf("  pubkey_hash     %s\n", hex.EncodeToString(pubkeyHash[:]))
+	fmt.Printf("  operator_pubkey %s\n", hex.EncodeToString(operatorPubkey[:]))
 	fmt.Println()
 	fmt.Println("Flash it BEFORE the device is ever powered with production firmware,")
 	fmt.Println("with an ISP programmer -- NOT a stock Arduino serial bootloader")

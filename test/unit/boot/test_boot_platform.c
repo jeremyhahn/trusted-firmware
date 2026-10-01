@@ -22,6 +22,7 @@ static void build(uint8_t raw[AG_BOOT_EE_LEN], ag_boot_platform_t *p)
     memset(p, 0, sizeof *p);
     memset(p->pubkey_hash, 0x11, sizeof p->pubkey_hash);
     memset(p->serial, 0x22, sizeof p->serial);
+    memset(p->operator_pubkey, 0x33, sizeof p->operator_pubkey);
     p->rollback_floor = 4u;
     p->boot_count     = 17u;
     p->boot_state     = AG_BOOT_STATE_GOOD;
@@ -39,6 +40,8 @@ static void test_round_trips_every_field(void)
     TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_platform_parse(raw, &out));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(in.pubkey_hash, out.pubkey_hash, AG_BOOT_MEASURE_LEN);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(in.serial, out.serial, AG_BOOT_SERIAL_LEN);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(in.operator_pubkey, out.operator_pubkey,
+                                   AG_BOOT_OPERATOR_PUBKEY_LEN);
     TEST_ASSERT_EQUAL_UINT32(in.rollback_floor, out.rollback_floor);
     TEST_ASSERT_EQUAL_UINT32(in.boot_count, out.boot_count);
     TEST_ASSERT_EQUAL_UINT8(in.boot_state, out.boot_state);
@@ -110,12 +113,14 @@ static void test_serialising_preserves_bytes_the_struct_does_not_model(void)
     ag_boot_platform_t p;
 
     build(raw, &p);
-    raw[100] = 0xDEu;
-    raw[110] = 0xADu;
+    raw[150] = 0xDEu;   /* inside the reserved span since issue #4 moved it
+                         * (operator_pubkey now occupies what used to be
+                         * unmodelled bytes 68-131) */
+    raw[170] = 0xADu;
     ag_boot_platform_serialise(&p, raw);   /* rewritten, as a boot would */
 
-    TEST_ASSERT_EQUAL_UINT8(0xDEu, raw[100]);
-    TEST_ASSERT_EQUAL_UINT8(0xADu, raw[110]);
+    TEST_ASSERT_EQUAL_UINT8(0xDEu, raw[150]);
+    TEST_ASSERT_EQUAL_UINT8(0xADu, raw[170]);
     TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_platform_parse(raw, &p));
 }
 
@@ -132,7 +137,7 @@ static void test_the_crc_covers_everything_below_it(void)
 }
 
 /*
- * A LITERAL, exactly as testdata/vectors.h's are -- the 128 bytes
+ * A LITERAL, exactly as testdata/vectors.h's are -- the 192 bytes
  * `agprov --bake-eeprom --serial 000102030405060708090a0b0c0d0e0f --out
  * test.eep` actually wrote, decoded from its own Intel HEX output. This is
  * the cross-implementation check issue #6 asks for: sdk/go's
@@ -140,11 +145,17 @@ static void test_the_crc_covers_everything_below_it(void)
  * implementations of one layout, and the only way to know they agree is to
  * run one's OUTPUT through the other's PARSER. A change to either side that
  * broke agreement would pass every test that only exercises one of them.
+ *
+ * Regenerated for layout_version 2 when issue #4 added operator_pubkey and
+ * grew the block from 128 to 192 bytes -- the old 128-byte v1 vector is
+ * gone rather than kept alongside this one, because it pinned a layout this
+ * parser no longer accepts at all (AG_ERR_UNSUPPORTED), not a value it could
+ * still decode differently; there is nothing left for it to check.
  */
 static void test_a_baked_eeprom_image_is_decoded_correctly(void)
 {
     static const uint8_t raw[AG_BOOT_EE_LEN] = {
-        0x41u,0x47u,0x50u,0x52u,0x01u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
+        0x41u,0x47u,0x50u,0x52u,0x02u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
@@ -154,7 +165,12 @@ static void test_a_baked_eeprom_image_is_decoded_correctly(void)
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
-        0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x99u,0x28u
+        0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
+        0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
+        0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
+        0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
+        0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
+        0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x06u,0x82u
     };
     static const uint8_t want_serial[AG_BOOT_SERIAL_LEN] = {
         0x00u,0x01u,0x02u,0x03u,0x04u,0x05u,0x06u,0x07u,

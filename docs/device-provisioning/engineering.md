@@ -52,16 +52,22 @@ platform-reserved EEPROM block into a `.eep` image before the device is ever
 flashed (`sdk/go/platform.go`, package `aggeneric`):
 
 ```go
-func BuildPlatformBlock(serial [SerialLen]byte, pubkeyHash [PubkeyHashLen]byte) [PlatformBlockLen]byte
+func BuildPlatformBlock(serial [SerialLen]byte, pubkeyHash [PubkeyHashLen]byte,
+	operatorPubkey [OperatorPubkeyLen]byte) [PlatformBlockLen]byte
 ```
 
-`SerialLen` (16), `PubkeyHashLen` (32) and `PlatformBlockLen` (128) mirror
+`SerialLen` (16), `PubkeyHashLen` (32), `OperatorPubkeyLen` (64, issue #4) and
+`PlatformBlockLen` (192, grew from 128 when `operatorPubkey` was added) mirror
 `include/ag/boot.h`'s `AG_BOOT_SERIAL_LEN`/`AG_BOOT_MEASURE_LEN`/
-`AG_BOOT_EE_LEN`. CLI: `sdk/go/cmd/agprov --bake-eeprom` — writes a partial
-Intel HEX file (`sdk/go/cmd/agprov/eeprom.go`) covering only the platform
-block's 128 addresses, which is what makes it safe: `avrdude -U eeprom:w:
-file:i` writes only the addresses a hex file names and leaves the rest of
-the part's EEPROM untouched.
+`AG_BOOT_OPERATOR_PUBKEY_LEN`/`AG_BOOT_EE_LEN`. `operatorPubkey` is the
+`AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor — a P-256 point, X‖Y
+— and is meaningful only on the element tier; a soft-tier or `CRYPTO=none`
+image never reads it, so the zero value is correct there. CLI:
+`sdk/go/cmd/agprov --bake-eeprom` — writes a partial Intel HEX file
+(`sdk/go/cmd/agprov/eeprom.go`) covering only the platform block's 192
+addresses, which is what makes it safe: `avrdude -U eeprom:w:file:i` writes
+only the addresses a hex file names and leaves the rest of the part's EEPROM
+untouched.
 
 **The programmer matters, not just the file.** The `.eep` file this tool
 writes has been verified correct offline (byte-for-byte, against
@@ -131,13 +137,19 @@ reconfigured.
 BEFORE the device is ever flashed, by `agprov --bake-eeprom`
 (`sdk/go/cmd/agprov/eeprom.go`, `sdk/go/platform.go`) — never over the wire.
 `sdk/go/commands.go`'s `EEPROMWrite` still refuses every address below
-`EEPROMReservedEnd` (`0x80`) unconditionally, and that refusal was kept
+`EEPROMReservedEnd` (`0xC0`) unconditionally, and that refusal was kept
 absolute rather than given a provisioning exemption: a narrower hole is
 still a hole. `--bake-eeprom` opens no serial port and needs no
 `AG_FEATURE_PROVISION` image; it is a pure file operation, run once, before
 any of the fuse/flash/`agprov --commit` steps below. See
 [`cli.md`](cli.md) and [`user.md`](user.md) for where it fits in the
 sequence.
+
+The same `--bake-eeprom` step now also bakes the `AUTH_CHALLENGE`/
+`AUTH_RESPONSE` operator public key (issue #4, `--operator-pubkey`) into the
+same block, for the same reason: the reserved-region write refusal is
+absolute, so this is the only place either value can be set, and one bake
+step doing both keeps `agprov`'s pre-flash sequence a single operation.
 
 ## Error semantics
 

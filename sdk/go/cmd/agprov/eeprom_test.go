@@ -4,6 +4,8 @@
 package main
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +14,7 @@ import (
 
 func TestRunBakeEEPROMRejectsAnAllZeroSerial(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "platform.eep")
-	err := runBakeEEPROM(out, "00000000000000000000000000000000", "")
+	err := runBakeEEPROM(out, "00000000000000000000000000000000", "", "")
 	if err == nil {
 		t.Fatal("expected an error for an all-zero serial, got none")
 	}
@@ -27,7 +29,7 @@ func TestRunBakeEEPROMRejectsAnAllZeroSerial(t *testing.T) {
 
 func TestRunBakeEEPROMWritesARealSerial(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "platform.eep")
-	if err := runBakeEEPROM(out, "000102030405060708090a0b0c0d0e0f", ""); err != nil {
+	if err := runBakeEEPROM(out, "000102030405060708090a0b0c0d0e0f", "", ""); err != nil {
 		t.Fatalf("runBakeEEPROM: %v", err)
 	}
 	data, err := os.ReadFile(out)
@@ -57,7 +59,7 @@ func TestAllZero(t *testing.T) {
 // flag warns about, without the warning. It is refused, and nothing is written.
 func TestRunBakeEEPROMRejectsAnExplicitAllZeroPubkeyHash(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "platform.eep")
-	err := runBakeEEPROM(out, "000102030405060708090a0b0c0d0e0f", strings.Repeat("00", 32))
+	err := runBakeEEPROM(out, "000102030405060708090a0b0c0d0e0f", strings.Repeat("00", 32), "")
 	if err == nil {
 		t.Fatal("expected an error for an explicit all-zero --pubkey-hash, got none")
 	}
@@ -71,7 +73,56 @@ func TestRunBakeEEPROMRejectsAnExplicitAllZeroPubkeyHash(t *testing.T) {
 
 func TestRunBakeEEPROMAcceptsARealPubkeyHash(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "platform.eep")
-	if err := runBakeEEPROM(out, "000102030405060708090a0b0c0d0e0f", strings.Repeat("ab", 32)); err != nil {
+	if err := runBakeEEPROM(out, "000102030405060708090a0b0c0d0e0f", strings.Repeat("ab", 32), ""); err != nil {
 		t.Fatalf("runBakeEEPROM with a real hash: %v", err)
+	}
+}
+
+func testP256Point(t *testing.T) []byte {
+	t.Helper()
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generating a P-256 key: %v", err)
+	}
+	sec1 := key.PublicKey().Bytes() // 0x04 || X || Y, 65 bytes
+	return sec1[1:]                 // X || Y, 64 bytes -- the wire's own format
+}
+
+func TestRequireOnCurveP256AcceptsARealPoint(t *testing.T) {
+	if err := requireOnCurveP256(testP256Point(t)); err != nil {
+		t.Fatalf("a real P-256 point was refused: %v", err)
+	}
+}
+
+// The failure this exists to catch: 64 bytes that decode from hex cleanly
+// (parseFixedHex has already accepted them by the time this runs) but are
+// not coordinates of any point on the curve -- a single flipped hex digit
+// from a real one is exactly this shape.
+func TestRequireOnCurveP256RefusesGarbage(t *testing.T) {
+	garbage := make([]byte, 64)
+	for i := range garbage {
+		garbage[i] = byte(i + 1)
+	}
+	if err := requireOnCurveP256(garbage); err == nil {
+		t.Fatal("64 bytes with no relation to the curve were accepted")
+	}
+}
+
+// A one-bit change to a real point must also be refused -- the case that
+// looks the most like an operator's honest typo.
+func TestRequireOnCurveP256RefusesATamperedRealPoint(t *testing.T) {
+	pt := testP256Point(t)
+	pt[0] ^= 0x01
+	if err := requireOnCurveP256(pt); err == nil {
+		t.Fatal("a tampered point was accepted")
+	}
+}
+
+func TestRequireOnCurveP256RefusesTheWrongLength(t *testing.T) {
+	if err := requireOnCurveP256(make([]byte, 63)); err == nil {
+		t.Fatal("63 bytes was accepted")
+	}
+	if err := requireOnCurveP256(make([]byte, 65)); err == nil {
+		t.Fatal("65 bytes was accepted")
 	}
 }

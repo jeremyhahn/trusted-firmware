@@ -56,6 +56,7 @@ exactly one mode is required
 a separate mode, taking no port and no --config:
 
   --bake-eeprom --serial <hex16> --out <file.eep>   write a platform-block .eep image
+                [--pubkey-hash <hex32>] [--operator-pubkey <hex64>]
 
 flags
 `)
@@ -79,6 +80,7 @@ func main() {
 		confirm2   = flag.Bool("force", false, "deprecated alias; refused, use --yes-i-mean-it")
 		serialHex  = flag.String("serial", "", "--bake-eeprom: 16-byte device serial, hex")
 		hashHex    = flag.String("pubkey-hash", "", "--bake-eeprom: 32-byte SHA-256 of the bootloader's Ed25519 pubkey, hex (element tier: omit)")
+		opKeyHex   = flag.String("operator-pubkey", "", "--bake-eeprom: 64-byte P-256 operator public key (X||Y), hex -- the AUTH_CHALLENGE/AUTH_RESPONSE trust anchor, element tier only")
 		outPath    = flag.String("out", "", "--bake-eeprom: the .eep file to write")
 	)
 	flag.Usage = usage
@@ -108,7 +110,7 @@ func main() {
 		if *serialHex == "" {
 			fail(errors.New("--bake-eeprom requires --serial (16 bytes, hex)"))
 		}
-		if err := runBakeEEPROM(*outPath, *serialHex, *hashHex); err != nil {
+		if err := runBakeEEPROM(*outPath, *serialHex, *hashHex, *opKeyHex); err != nil {
 			fail(err)
 		}
 		return
@@ -124,7 +126,7 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
-	if err := rejectBakeFlags(*serialHex, *hashHex, *outPath); err != nil {
+	if err := rejectBakeFlags(*serialHex, *hashHex, *opKeyHex, *outPath); err != nil {
 		fail(err)
 	}
 	if *commit && !*confirm {
@@ -199,10 +201,11 @@ func (e *bakeFlagError) Error() string {
 }
 
 // rejectBakeFlags refuses any --bake-eeprom option set outside that mode.
-func rejectBakeFlags(serialHex, hashHex, outPath string) error {
+func rejectBakeFlags(serialHex, hashHex, opKeyHex, outPath string) error {
 	for _, f := range []struct{ name, value string }{
 		{"serial", serialHex},
 		{"pubkey-hash", hashHex},
+		{"operator-pubkey", opKeyHex},
 		{"out", outPath},
 	} {
 		if f.value != "" {

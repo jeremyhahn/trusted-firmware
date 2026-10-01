@@ -25,4 +25,19 @@ void ag_platform_id_init(void);
  * has always followed. */
 const uint8_t *ag_platform_id_serial(void);
 
+/* Fills out[AG_BOOT_OPERATOR_PUBKEY_LEN] -- issue #4's AUTH_CHALLENGE/
+ * AUTH_RESPONSE trust anchor. All-zero under the same conditions
+ * ag_platform_id_serial() reports zero for (unprovisioned, corrupted, or a
+ * layout version this build does not know); an all-zero point is not a valid
+ * P-256 public key, so ag_crypto_verify_operator refuses rather than a
+ * zeroed anchor ever appearing to accept a signature.
+ *
+ * UNLIKE serial, THIS IS NOT CACHED AT BOOT: it re-reads and re-parses the
+ * whole platform block from EEPROM on every call, trading a few hundred
+ * bytes of transient stack for 64 fewer bytes of permanent RAM. That is the
+ * right trade here specifically because it is read once per authentication
+ * attempt, never on a hot path the way serial is (every ATTEST, every alias
+ * certificate). */
+void ag_platform_id_operator_pubkey(uint8_t out[AG_BOOT_OPERATOR_PUBKEY_LEN]);
+
 #endif /* AG_CORE_PLATFORM_ID_H */

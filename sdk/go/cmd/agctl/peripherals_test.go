@@ -15,6 +15,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -25,6 +31,32 @@ import (
 
 	ag "github.com/jeremyhahn/arduino-generic/sdk/go"
 )
+
+// A throwaway operator key, PEM-encoded to a temp file -- exactly the shape
+// loadECPrivateKey reads, and the only kind of "key material" this test (or
+// agctl itself) ever holds: one generated for the duration of one test run,
+// never a real device's or fleet's.
+func writeTestECKey(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generating test key: %v", err)
+	}
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshalling test key: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "operator.pem")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("writing test key: %v", err)
+	}
+	defer f.Close()
+	if err := pem.Encode(f, &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}); err != nil {
+		t.Fatalf("encoding test key: %v", err)
+	}
+	return path
+}
 
 type simConn struct {
 	cmd *exec.Cmd
@@ -97,12 +129,31 @@ func TestEveryPeripheralVerbIsDispatched(t *testing.T) {
 		{"1wire-read", []string{"4", "9"}},
 		{"attest", []string{strings.Repeat("00", ag.AttestNonceLen)}},
 		{"attest-cert", []string{strings.Repeat("00", ag.AliasNonceLen)}},
+		// agsim links the soft tier, so this reaches AG_ERR_UNKNOWN_CMD --
+		// a real Status, not a dispatch failure, which is exactly what this
+		// table checks: the verb itself is wired up in agctl regardless of
+		// what the connected device's tier can do with it.
+		{"auth", []string{strings.Repeat("00", ag.SerialLen), "$KEY"}},
 	} {
 		t.Run(tc.verb+" "+strings.Join(tc.args, "_"), func(t *testing.T) {
 			dev := startSim(t)
+			args := tc.args
+			for i, a := range args {
+				if a == "$KEY" {
+					args = append([]string(nil), args...)
+					args[i] = writeTestECKey(t)
+				}
+			}
 			var buf bytes.Buffer
-			err := runPeripheral(context.Background(), dev, tc.verb, tc.args, false, &buf)
-			if err != nil && strings.Contains(err.Error(), "unknown command") {
+			err := runPeripheral(context.Background(), dev, tc.verb, args, false, &buf)
+			// Quoted and naming THIS verb: runPeripheral's own dispatch
+			// failure, `fmt.Errorf("unknown command %q", cmd)`. A bare,
+			// unquoted "unknown command" is StatusErrUnknownCmd's own
+			// String() -- the DEVICE answering, correctly, that this
+			// build does not implement the id (auth on the soft tier is
+			// exactly that case) -- and must not be confused with agctl
+			// failing to dispatch the verb at all.
+			if err != nil && strings.Contains(err.Error(), fmt.Sprintf("unknown command %q", tc.verb)) {
 				t.Fatalf("%s is not dispatched: %v", tc.verb, err)
 			}
 			if err != nil && strings.HasPrefix(err.Error(), "usage:") {
@@ -238,6 +289,8 @@ func TestMalformedArgumentsAreRefusedBeforeTheWire(t *testing.T) {
 		{"attest with a short nonce", "attest", []string{"0011"}},
 		{"attest with no nonce", "attest", nil},
 		{"attest-cert with a runtime-length nonce", "attest-cert", []string{strings.Repeat("00", ag.AttestNonceLen)}},
+		{"auth with too few arguments", "auth", []string{strings.Repeat("00", ag.SerialLen)}},
+		{"auth with a short serial", "auth", []string{"0011", "/dev/null"}},
 		{"a verb that does not exist", "morse", []string{"3"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

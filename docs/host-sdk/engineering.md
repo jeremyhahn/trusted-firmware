@@ -30,6 +30,15 @@ Package `aggeneric`, module `github.com/jeremyhahn/arduino-generic/sdk/go`.
 **Attestation** — `Attest(ctx, nonce []byte) ([]byte, error)`,
 `AttestCert(ctx, nonce []byte) ([]byte, error)`.
 
+**Auth session** (issue #4, element tier only) —
+`AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer,
+nonce, serial []byte) error`. `signer` is the standard library's own
+`crypto.Signer`: this package never holds or generates the operator private
+key — Layer 0 holds no key material, per the repo's `CLAUDE.md` — only accepts
+something that can sign. `AuthResponse` produces the wire's raw R‖S from
+whatever ASN.1 DER `crypto.Signer` returns, the universal convention for an
+`*ecdsa.PrivateKey`.
+
 **Provisioning** (only against a jig image; see `provision.go`) — `ProvInfo`,
 `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`.
 
@@ -43,9 +52,11 @@ Package `aggeneric`, module `github.com/jeremyhahn/arduino-generic/sdk/go`.
 **Constants** — `Cmd*` (protocol command ids), `Event*` (unsolicited event
 ids), `Feature*` (capability bitmap bits), `Alg*` (algorithm-set bits),
 `Status*` (wire status codes), `SOF`, `MaxPayload` (64), `EEPROMChunk` (8),
-`EEPROMReservedEnd` (0x80), `I2CReservedAddr` (0x60), `AttestNonceLen` (16),
-`AliasNonceLen` (32), `EvidenceLen` (164), `ProtoVersionMajor`,
-`ProtoVersionMinor`, `SlotDeviceID`, `SlotUDS`, `ZoneConfig`, `ZoneData`.
+`EEPROMReservedEnd` (0xC0), `I2CReservedAddr` (0x60), `AttestNonceLen` (16),
+`AliasNonceLen` (32), `AuthNonceLen` (16), `EvidenceLen` (164),
+`ProtoVersionMajor`, `ProtoVersionMinor`, `SlotDeviceID`, `SlotUDS`,
+`ZoneConfig`, `ZoneData`, `PlatformBlockLen`, `SerialLen`, `PubkeyHashLen`,
+`OperatorPubkeyLen`.
 
 Package `serialport` — `Open(path string, baud int) (io.ReadWriteCloser, error)`,
 `List() ([]string, error)`, `DefaultBaud` (115200).

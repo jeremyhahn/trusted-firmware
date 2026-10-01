@@ -97,7 +97,7 @@ typedef struct {
 
 /* --------------------------------------------- platform-reserved EEPROM */
 /*
- * EEPROM [0x000, 0x080). The region src/caps/storage.c refuses writes to, and
+ * EEPROM [0x000, 0x0C0). The region src/caps/storage.c refuses writes to, and
  * the reason that refusal is a security boundary rather than tidiness: the
  * pubkey hash below IS the root of trust, and the generic EEPROM write would
  * otherwise let anyone with the serial line replace it.
@@ -122,44 +122,64 @@ typedef struct {
  *                              src/caps/storage.c is unconditional, and a
  *                              provisioning exemption there would be a second,
  *                              narrower way to defeat the same refusal.
- *    68    58  reserved
- *   126     2  crc16           over bytes [0, 126)
+ *    68    64  operator_pubkey the AUTH_CHALLENGE/AUTH_RESPONSE session's
+ *                              trust anchor (issue #4) -- a P-256 point,
+ *                              X||Y, baked in by `agprov --bake-eeprom`
+ *                              exactly like device_serial above, and for the
+ *                              same reason: there is no wire command that
+ *                              writes it either. Element tier only; a
+ *                              soft-tier or CRYPTO=none image never reads
+ *                              this field (AUTH_CHALLENGE/AUTH_RESPONSE are
+ *                              not compiled into either -- see
+ *                              docs/security/threat-model.md).
+ *   132    58  reserved
+ *   190     2  crc16           over bytes [0, 190)
  *
- * THE HASH, NOT THE KEY. Thirty-two bytes of EEPROM instead of the key's
- * thirty-two is a wash on space, so the reason is rotation: the key itself
- * lives in boot-section flash beside the code that uses it, where BLB mode 3
- * puts it out of the application's reach, and EEPROM pins which key that may
- * be. Replacing the bootloader replaces the key; the EEPROM hash is what says
- * whether the replacement was authorised. A key held only in EEPROM would be
- * rotatable by anything that could write EEPROM, and a key held only in flash
- * would be rotatable by anything that could write flash -- each defeating the
- * other's protection.
+ * VERSION 2 GROWS THE BLOCK RATHER THAN REPURPOSING BYTES, unlike the CDI
+ * handoff below: there was no spare room here, so operator_pubkey is inserted
+ * after device_serial and everything after it -- the original 58 reserved
+ * bytes and the CRC -- simply moves down by 64, keeping the same amount of
+ * headroom it always had. AG_EEPROM_RESERVED_END grows with it, from 0x80 to
+ * 0xC0: an address a v1 host could once write is now inside the refused
+ * region if it happens to fall in [0x80, 0xC0). That is a real wire-visible
+ * narrowing and it is deliberate -- see docs/wire-protocol/api.md and
+ * docs/host-sdk/architecture.md for EEPROMReservedEnd's new value.
  *
- * THE CRC IS NOT INTEGRITY AGAINST AN ATTACKER and must not be read as one.
- * Anyone who can write this region can recompute it. It is there for the
- * failure fuses-and-lockbits.md calls out by name: an EEPROM write on a sagging
- * supply corrupts rather than fails, and a silently corrupted rollback floor is
- * a downgrade attack that arrives by accident. BODLEVEL is the real mitigation;
- * this is how the bootloader NOTICES when BODLEVEL was not set.
+ * ag_boot_platform_parse refuses a layout_version it does not exactly
+ * recognise (AG_ERR_UNSUPPORTED), exactly as the CDI handoff's own version
+ * check does. A v1 region under a v2-aware build reads as unprovisioned for
+ * every field this parses, device_serial included -- there is no attempt to
+ * read the v1 prefix and default the rest, on purpose: a compatibility shim
+ * over a security-relevant layout is exactly the wrong instinct here.
+ *
+ * RE-BAKING IS SAFE ONLY FOR A DEVICE THAT HAS NEVER BEEN FIELDED.
+ * sdk/go's BuildPlatformBlock has no read-modify-write path -- it always
+ * writes rollback_floor, boot_count and boot_fail_count as zero, which is
+ * correct for a factory-fresh part and a rollback-floor RESET for one that
+ * is not. A device already in service must not simply be re-baked to pick
+ * up a new layout version; it needs a migration path that preserves those
+ * fields, which does not exist yet. Known gap, not a deliberate omission.
  */
 #define AG_BOOT_EE_MAGIC     0x52504741uL   /* 'A','G','P','R' little-endian */
-#define AG_BOOT_EE_VERSION   1u
+#define AG_BOOT_EE_VERSION   2u
 #define AG_BOOT_EE_BASE      0x000u
-#define AG_BOOT_EE_LEN       128u
+#define AG_BOOT_EE_LEN       192u
 
-#define AG_BOOT_EE_O_MAGIC          0u
-#define AG_BOOT_EE_O_LAYOUT         4u
-#define AG_BOOT_EE_O_FLAGS          5u
-#define AG_BOOT_EE_O_PUBKEY_HASH    8u
-#define AG_BOOT_EE_O_ROLLBACK_FLOOR 40u
-#define AG_BOOT_EE_O_BOOT_COUNT     44u
-#define AG_BOOT_EE_O_BOOT_STATE     48u
-#define AG_BOOT_EE_O_OTA_STATE      49u
-#define AG_BOOT_EE_O_FAIL_COUNT     50u
-#define AG_BOOT_EE_O_SERIAL         52u
-#define AG_BOOT_EE_O_CRC            126u
+#define AG_BOOT_EE_O_MAGIC           0u
+#define AG_BOOT_EE_O_LAYOUT          4u
+#define AG_BOOT_EE_O_FLAGS           5u
+#define AG_BOOT_EE_O_PUBKEY_HASH     8u
+#define AG_BOOT_EE_O_ROLLBACK_FLOOR  40u
+#define AG_BOOT_EE_O_BOOT_COUNT      44u
+#define AG_BOOT_EE_O_BOOT_STATE      48u
+#define AG_BOOT_EE_O_OTA_STATE       49u
+#define AG_BOOT_EE_O_FAIL_COUNT      50u
+#define AG_BOOT_EE_O_SERIAL          52u
+#define AG_BOOT_EE_O_OPERATOR_PUBKEY 68u
+#define AG_BOOT_EE_O_CRC             190u
 
-#define AG_BOOT_SERIAL_LEN   16u
+#define AG_BOOT_SERIAL_LEN          16u
+#define AG_BOOT_OPERATOR_PUBKEY_LEN 64u
 
 /* boot_state: what the last attempt to run an application achieved.
  *
@@ -189,6 +209,7 @@ typedef struct {
     uint8_t  ota_state;
     uint16_t fail_count;
     uint8_t  serial[AG_BOOT_SERIAL_LEN];
+    uint8_t  operator_pubkey[AG_BOOT_OPERATOR_PUBKEY_LEN];
 } ag_boot_platform_t;
 
 /* -------------------------------------------------- the DICE CDI handoff */

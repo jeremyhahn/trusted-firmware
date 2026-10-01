@@ -89,6 +89,11 @@ const (
 	FeatureOneWire
 	FeatureAttest
 	FeatureDeadman
+	FeatureProvision
+	FeatureAliasCert
+	// FeatureAuthSession is issue #4's AUTH_CHALLENGE/AUTH_RESPONSE session,
+	// bit 14 -- element tier only. See AuthChallenge/AuthResponse.
+	FeatureAuthSession
 )
 
 // AlgorithmSet is the set of signature algorithms a device's crypto provider

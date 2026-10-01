@@ -211,3 +211,59 @@ ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
     memcpy(resp, &buf[1], rlen);
     return AG_OK;
 }
+
+ag_status_t ag_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey[64],
+                                     uint16_t exec_ms)
+{
+    /* On the CALLER's stack, not file-static -- see atecc.h's comment on why
+     * this command does not grow the shared buf[] above. 8 bytes of overhead
+     * (word address, count, opcode, both parameters, two CRC bytes) plus the
+     * 128-byte signature-and-key payload, exactly as ag_atecc_exec sizes its
+     * own buffer. */
+    uint8_t  cmd[128u + 8u];
+    uint8_t  rsp[4];
+    uint8_t  count = (uint8_t)(7u + 128u);
+    uint16_t crc;
+    uint16_t tries;
+    uint8_t  got;
+
+    cmd[0] = AG_ATECC_WA_COMMAND;
+    cmd[1] = count;
+    cmd[2] = AG_ATECC_OP_VERIFY;
+    cmd[3] = AG_ATECC_VERIFY_EXTERNAL;
+    cmd[4] = (uint8_t)(AG_ATECC_VERIFY_KEYID_P256 & 0xFFu);
+    cmd[5] = (uint8_t)(AG_ATECC_VERIFY_KEYID_P256 >> 8);
+    memcpy(&cmd[6], sig, 64u);
+    memcpy(&cmd[70], pubkey, 64u);
+    crc = ag_atecc_crc16(&cmd[1], (uint8_t)(count - 2u));
+    cmd[6u + 128u] = (uint8_t)(crc & 0xFFu);
+    cmd[7u + 128u] = (uint8_t)(crc >> 8);
+
+    if (ag_hal_i2c_xfer(AG_ATECC_ADDR, cmd, (uint8_t)(count + 1u), 0, 0u) != AG_OK) {
+        return AG_ERR_CRYPTO;
+    }
+
+    /* The same poll ag_atecc_exec runs for a status-only reply (Verify
+     * External without a MAC answers with exactly one status byte, wrapped in
+     * the same four-byte shape Write and Lock use) -- duplicated rather than
+     * shared because the two functions no longer agree on where the command
+     * buffer lives. */
+    tries = (uint16_t)(exec_ms * 2u) + 4u;
+    got   = 0u;
+    while (tries-- && !got) {
+        ag_hal_delay_us(500u);
+        if (ag_hal_i2c_xfer(AG_ATECC_ADDR, 0, 0u, rsp, 4u) == AG_OK) {
+            got = 1u;
+        }
+    }
+    if (!got) {
+        return AG_ERR_TIMEOUT;
+    }
+    if (rsp[0] != 4u) {
+        return AG_ERR_CRYPTO;
+    }
+    if (ag_atecc_crc16(rsp, 2u) != (uint16_t)(rsp[2] | ((uint16_t)rsp[3] << 8))) {
+        return AG_ERR_CRC;
+    }
+    return translate(rsp[1]);
+}

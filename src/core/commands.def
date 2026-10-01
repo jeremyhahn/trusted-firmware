@@ -94,6 +94,16 @@ AG_CMD_ENTRY(AG_CMD_ATTEST, ATTEST, ag_attest_cmd, 1u, AG_ATTEST_NONCE_LEN)
 AG_CMD_ENTRY(AG_CMD_ATTEST_CERT, ATTEST_CERT, ag_alias_cmd, 1u, AG_ALIAS_NONCE_LEN)
 #endif
 
+/* The operator-signature auth session -- issue #4. Gated by CRYPTO tier,
+ * exactly as AG_FEATURE_ALIAS_CERT is just above and for a related reason:
+ * see AG_FEATURE_AUTH_SESSION in config.h. A soft or CRYPTO=none image has no
+ * entry here at all and answers AG_ERR_UNKNOWN_CMD, same as any other absent
+ * feature. */
+#if AG_FEATURE_AUTH_SESSION
+AG_CMD_ENTRY(AG_CMD_AUTH_CHALLENGE, AUTH_CHALLENGE, ag_auth_cmd_challenge, 0u, 0u)
+AG_CMD_ENTRY(AG_CMD_AUTH_RESPONSE,  AUTH_RESPONSE,  ag_auth_cmd_response, AG_AUTH_SIG_LEN, AG_AUTH_SIG_LEN)
+#endif
+
 /* ---- provisioning: a jig image only, never a production one ----
  *
  * AG_FEATURE_PROVISION defaults to 0 in config.h, so a fielded device has no

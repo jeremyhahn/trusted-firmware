@@ -35,5 +35,8 @@ uint8_t        ag_model_verify_seen(void);
 /* The signature the driver actually sent, so a test can prove it forwarded the
  * one it was given rather than something it constructed. */
 const uint8_t *ag_model_verify_last_sig(void);
+/* issue #4: the public key the driver sent with an External-mode (0x02)
+ * Verify. Zero if the last Verify was Stored mode (0x00) or none arrived. */
+const uint8_t *ag_model_verify_last_pubkey(void);
 
 #endif /* AG_ATECC_MODEL_H */

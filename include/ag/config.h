@@ -86,6 +86,19 @@
 #ifndef AG_FEATURE_DEADMAN
 #define AG_FEATURE_DEADMAN     0   /* opt-in: safe for a pump, wrong for a lamp */
 #endif
+/* The operator-signature AUTH_CHALLENGE/AUTH_RESPONSE session -- issue #4.
+ *
+ * DEFAULT 0, turned on by the Makefile only for CRYPTO=atecc608a, the same
+ * gate-by-file-selection shape as AG_FEATURE_ALIAS_CERT just above and for a
+ * related reason: the only software-tier primitive that could check an
+ * external P-256/Ed25519 signature, ed25519-donna, does not fit this device
+ * family (see docs/security/threat-model.md). A soft-tier or CRYPTO=none
+ * image compiles in neither AUTH_CHALLENGE/AUTH_RESPONSE nor the gate they
+ * would otherwise require on reserved-region EEPROM_READ -- an accepted gap on
+ * those tiers, not a hidden one. */
+#ifndef AG_FEATURE_AUTH_SESSION
+#define AG_FEATURE_AUTH_SESSION 0
+#endif
 /* Provisioning commands. DEFAULT 0, AND THE DEFAULT IS THE SECURITY PROPERTY.
  *
  * A production image contains no provisioning handler at all -- not a disabled
@@ -116,7 +129,8 @@
     | ((uint32_t)AG_FEATURE_ATTEST  << 10) \
     | ((uint32_t)AG_FEATURE_DEADMAN << 11) \
     | ((uint32_t)AG_FEATURE_PROVISION << 12) \
-    | ((uint32_t)AG_FEATURE_ALIAS_CERT << 13) )
+    | ((uint32_t)AG_FEATURE_ALIAS_CERT << 13) \
+    | ((uint32_t)AG_FEATURE_AUTH_SESSION << 14) )
 
 /* ------------------------------------------------------- board identity */
 /* A board profile supplies these. The host build has no board and takes the

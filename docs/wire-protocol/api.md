@@ -65,7 +65,7 @@ off  size  field
 ```
 
 Feature bitmap bits (LSB first): GPIO, SCHED, ANALOG, PWM, TONE, PULSE,
-EEPROM, I2C, SPI, ONEWIRE, ATTEST, DEADMAN, PROVISION, ALIAS_CERT.
+EEPROM, I2C, SPI, ONEWIRE, ATTEST, DEADMAN, PROVISION, ALIAS_CERT, AUTH_SESSION.
 
 Algorithm bitmap: `0x0001` ECDSA P-256/SHA-256, `0x0002` Ed25519, `0x0004`
 HMAC-SHA256. **Not** the same numbering as the `AlgID` byte inside an
@@ -97,7 +97,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 |---|---|---|---|---|
 | 0x00 | `CAPS` | always | `[]` or `[pin:1]` | board header or pin descriptor, above |
 | 0x01 | `PING` | always | `bytes[0..MaxPayload]` | the same bytes, echoed |
-| 0x02 | `RESET` | always | `[mode:1]` (0 soft, 1 bootloader) | none; device acks, drains, then restarts |
+| 0x02 | `RESET` | always | `[mode:1]` (0 soft, 1 bootloader) | none; device acks, drains, then restarts. Mode 1 is not yet a distinct bootloader entry (it takes the same reset as mode 0) and is not gated by the auth session; issue #28 makes it a real path and adds the gate |
 | 0x03 | `SYS_INFO` | always | `[]` | `[uptime_ms:4][free_ram:2][reset_cause:1][err_crc:2][err_format:2]` -- the last four bytes are appended (#5); a host that knows only the first seven still parses correctly |
 | 0x04 | `WDT_SET` | **reserved, no handler in any build** | — | `AG_ERR_UNKNOWN_CMD` |
 | 0x05 | `SLEEP` | **reserved, no handler in any build** | — | `AG_ERR_UNKNOWN_CMD` |
@@ -117,8 +117,8 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x32 | `PULSE_COUNT_READ` | `AG_FEATURE_PULSE` (defined, no table entry) | — | `AG_ERR_UNKNOWN_CMD` |
 | 0x33 | `PULSE_COUNT_STOP` | `AG_FEATURE_PULSE` (defined, no table entry) | — | `AG_ERR_UNKNOWN_CMD` |
 | 0x34 | `PULSE_CAPTURE` | `AG_FEATURE_PULSE` | `[pin:1][start_high:1][max_edges:1][timeout_us:4]` | `[count:1][interval_us:2]*count` |
-| 0x40 | `EEPROM_READ` | `AG_FEATURE_EEPROM` | `[addr:2][len:1]` | `bytes[len]` |
-| 0x41 | `EEPROM_WRITE` | `AG_FEATURE_EEPROM` | `[addr:2]bytes[1..8]` (chunk-limited) | none; any byte below `EEPROMReservedEnd` (0x80) is `AG_ERR_PROTECTED_REGION` |
+| 0x40 | `EEPROM_READ` | `AG_FEATURE_EEPROM` | `[addr:2][len:1]` | `bytes[len]`; any byte below `EEPROMReservedEnd` (0xC0) additionally requires an authenticated session on a tier that enforces one (`AG_FEATURE_AUTH_SESSION`) — `AG_ERR_AUTH_REQUIRED` otherwise, unconditional on other tiers |
+| 0x41 | `EEPROM_WRITE` | `AG_FEATURE_EEPROM` | `[addr:2]bytes[1..8]` (chunk-limited) | none; any byte below `EEPROMReservedEnd` (0xC0) is `AG_ERR_PROTECTED_REGION`, unconditionally on every tier |
 | 0x50 | `I2C_XFER` | `AG_FEATURE_I2C` | `[addr7:1][read_len:1]bytes[write...]` | `bytes[read_len]`; `addr7 == 0x60` (`AG_I2C_RESERVED_ADDR`) is `AG_ERR_PROTECTED_REGION` |
 | 0x51 | `SPI_XFER` | `AG_FEATURE_SPI` | `[cs:1]bytes[write...]` | `bytes[len(write)]`, full duplex, CS held throughout |
 | 0x52 | `ONEWIRE_RESET` | `AG_FEATURE_ONEWIRE` | `[pin:1]` | `[presence:1]` |
@@ -127,8 +127,8 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x55 | `I2C_CONFIG` | `AG_FEATURE_I2C` | `[hz:4]` | none; `hz` outside `AG_I2C_HZ_MIN..AG_I2C_HZ_MAX` (1 kHz..400 kHz) is `AG_ERR_RANGE`; on a secure-element build, EVERY request is `AG_ERR_PROTECTED_REGION`, checked first |
 | 0x56 | `SPI_CONFIG` | `AG_FEATURE_SPI` | `[mode:1][clkdiv:1][lsb_first:1]` | none; `mode` or `clkdiv` above 3, or `lsb_first` above 1, is `AG_ERR_RANGE` |
 | 0x60 | `ATTEST` | `AG_FEATURE_ATTEST` | `[nonce:16]` (mint) or `[page:1]` | `[page:1][total:1][bytes:0..48]` — evidence is 164 bytes total, paged |
-| 0x61 | `AUTH_CHALLENGE` | trust (defined, no table entry) | — | `AG_ERR_UNKNOWN_CMD` |
-| 0x62 | `AUTH_RESPONSE` | trust (defined, no table entry) | — | `AG_ERR_UNKNOWN_CMD` |
+| 0x61 | `AUTH_CHALLENGE` | `AG_FEATURE_AUTH_SESSION` (element tier only) | `[]` | `[nonce:16]`, single-use |
+| 0x62 | `AUTH_RESPONSE` | `AG_FEATURE_AUTH_SESSION` (element tier only) | `[sig:64]` — P-256 over `domain\|\|device_serial\|\|nonce` under the operator public key | none; grants a session lasting until reset |
 | 0x63 | `ATTEST_CERT` | `AG_FEATURE_ALIAS_CERT` | `[nonce:32]` (mint) or `[page:1]` | `[page:1][total:2 LE][bytes:0..60]` — DER cert, 470-472 bytes total, paged |
 | 0x68 | `OTA_BEGIN` | **ag-boot only** | `[total_len:4]` | in the application: `AG_ERR_UNKNOWN_CMD` |
 | 0x69 | `OTA_DATA` | **ag-boot only** | `[offset:4]bytes[1..]` | in the application: `AG_ERR_UNKNOWN_CMD` |
@@ -154,9 +154,18 @@ answered only by `ag-boot`; an application build must answer
 `AG_ERR_UNKNOWN_CMD`, which tells a host to reset into the bootloader.
 `PROV_*` is present only in a provisioning-jig build
 (`AG_FEATURE_PROVISION`, default 0); a fielded device has no handler at all.
-`WDT_SET`, `SLEEP`, `PULSE_COUNT_*` and `AUTH_CHALLENGE`/`AUTH_RESPONSE` are
-defined ids with **no handler in any current build** — reserved, and refused
-as `AG_ERR_UNKNOWN_CMD` everywhere today.
+`WDT_SET`, `SLEEP` and `PULSE_COUNT_*` are defined ids with **no handler in
+any current build** — reserved, and refused as `AG_ERR_UNKNOWN_CMD`
+everywhere today; see `include/ag/protocol.h` for the one-line note against
+each.
+
+`AUTH_CHALLENGE`/`AUTH_RESPONSE` (issue #4) are implemented, but **element
+tier only** (`AG_FEATURE_AUTH_SESSION`, on for `CRYPTO=atecc608a` except where
+a board profile says no — see `boards/atmega328p/board_profile.h`). A
+soft-tier or `CRYPTO=none` image does not compile them in at all and answers
+`AG_ERR_UNKNOWN_CMD`, the same as any other absent feature: the only
+available software-tier verify primitive does not fit this device family
+(`docs/security/threat-model.md`).
 
 ## Events
 

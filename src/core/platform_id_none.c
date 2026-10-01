@@ -13,6 +13,7 @@
  * costing this part anything.
  */
 #include <stdint.h>
+#include <string.h>
 #include "platform_id.h"
 #include "ag/boot.h"
 
@@ -22,4 +23,9 @@ const uint8_t *ag_platform_id_serial(void)
 {
     static const uint8_t zero[AG_BOOT_SERIAL_LEN] = {0};
     return zero;
+}
+
+void ag_platform_id_operator_pubkey(uint8_t out[AG_BOOT_OPERATOR_PUBKEY_LEN])
+{
+    memset(out, 0, AG_BOOT_OPERATOR_PUBKEY_LEN);
 }

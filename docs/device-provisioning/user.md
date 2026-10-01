@@ -46,7 +46,10 @@ care about — several steps below cannot be undone.
 
    `--pubkey-hash` is also this step's job on `BOOT_SIG=ed25519-donna`
    (software-verify) builds; it is ignored on the element tier and may be
-   omitted there. See [`cli.md`](cli.md).
+   omitted there. `--operator-pubkey` is this step's job for the
+   `AUTH_CHALLENGE`/`AUTH_RESPONSE` session (issue #4, element tier only) —
+   omit it on a soft-tier or `CRYPTO=none` build, where nothing ever reads
+   the field. See [`cli.md`](cli.md).
 
 2. **Set fuses.** `BOOTRST` and `BOOTSZ` programmed, `BODLEVEL` enabled,
    `DWEN` unprogrammed. Do this before flashing anything else — see "Why

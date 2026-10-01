@@ -39,6 +39,36 @@ static void test_an_unknown_command_is_refused(void)
     TEST_ASSERT_FALSE(ag_dispatch_knows(0x7Eu));
 }
 
+/* issue #4: allocated ids with no handler in ANY build get a one-line comment
+ * in protocol.h rather than silence -- this is the regression that keeps
+ * them answering AG_ERR_UNKNOWN_CMD rather than someone quietly wiring one up
+ * without updating the other. */
+static void test_the_five_reserved_ids_have_no_handler(void)
+{
+    const uint8_t reserved[] = {
+        AG_CMD_WDT_SET, AG_CMD_SLEEP,
+        AG_CMD_PULSE_COUNT_START, AG_CMD_PULSE_COUNT_READ, AG_CMD_PULSE_COUNT_STOP,
+    };
+    unsigned i;
+    for (i = 0u; i < sizeof reserved; i++) {
+        TEST_ASSERT_FALSE(ag_dispatch_knows(reserved[i]));
+        TEST_ASSERT_EQUAL(AG_ERR_UNKNOWN_CMD, run(reserved[i], 0, 0u));
+    }
+}
+
+/* This binary is the soft-tier host build (HOST_EXTRA_DEFS does not set
+ * AG_FEATURE_AUTH_SESSION): AUTH_CHALLENGE/AUTH_RESPONSE must be absent here
+ * exactly like any other feature this tier does not carry, not merely
+ * refuse gracefully -- see docs/security/threat-model.md.
+ * test_auth_session.c is the element-tier build these actually work in. */
+static void test_auth_commands_are_absent_from_a_soft_tier_build(void)
+{
+    TEST_ASSERT_FALSE(ag_dispatch_knows(AG_CMD_AUTH_CHALLENGE));
+    TEST_ASSERT_FALSE(ag_dispatch_knows(AG_CMD_AUTH_RESPONSE));
+    TEST_ASSERT_EQUAL(AG_ERR_UNKNOWN_CMD, run(AG_CMD_AUTH_CHALLENGE, 0, 0u));
+    TEST_ASSERT_EQUAL(AG_ERR_UNKNOWN_CMD, run(AG_CMD_AUTH_RESPONSE, 0, 0u));
+}
+
 static void test_the_system_commands_are_all_present(void)
 {
     TEST_ASSERT_TRUE(ag_dispatch_knows(AG_CMD_CAPS));
@@ -201,6 +231,8 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_an_unknown_command_is_refused);
+    RUN_TEST(test_the_five_reserved_ids_have_no_handler);
+    RUN_TEST(test_auth_commands_are_absent_from_a_soft_tier_build);
     RUN_TEST(test_the_system_commands_are_all_present);
     RUN_TEST(test_a_payload_shorter_than_the_minimum_is_refused);
     RUN_TEST(test_a_payload_longer_than_the_maximum_is_refused);

@@ -33,3 +33,20 @@ const uint8_t *ag_platform_id_serial(void)
 {
     return serial;
 }
+
+/* Not cached -- see platform_id.h. Re-reads and re-parses the whole block on
+ * every call, exactly the same way ag_platform_id_init() does once at boot. */
+void ag_platform_id_operator_pubkey(uint8_t out[AG_BOOT_OPERATOR_PUBKEY_LEN])
+{
+    uint8_t            raw[AG_BOOT_EE_LEN];
+    ag_boot_platform_t plat;
+
+    memset(out, 0, AG_BOOT_OPERATOR_PUBKEY_LEN);
+    if (ag_hal_eeprom_read(AG_BOOT_EE_BASE, raw, AG_BOOT_EE_LEN) != AG_OK) {
+        return;
+    }
+    if (ag_boot_platform_parse(raw, &plat) != AG_OK) {
+        return;
+    }
+    memcpy(out, plat.operator_pubkey, AG_BOOT_OPERATOR_PUBKEY_LEN);
+}

@@ -72,8 +72,8 @@
 #define AG_CMD_PING              0x01u
 #define AG_CMD_RESET             0x02u
 #define AG_CMD_SYS_INFO          0x03u
-#define AG_CMD_WDT_SET           0x04u
-#define AG_CMD_SLEEP             0x05u
+#define AG_CMD_WDT_SET           0x04u   /* reserved, not implemented */
+#define AG_CMD_SLEEP             0x05u   /* reserved, not implemented */
 
 /* gpio and the pin scheduler */
 #define AG_CMD_PIN_MODE          0x10u
@@ -92,9 +92,9 @@
 
 /* pulse */
 #define AG_CMD_PULSE_IN          0x30u
-#define AG_CMD_PULSE_COUNT_START 0x31u
-#define AG_CMD_PULSE_COUNT_READ  0x32u
-#define AG_CMD_PULSE_COUNT_STOP  0x33u
+#define AG_CMD_PULSE_COUNT_START 0x31u   /* reserved, not implemented */
+#define AG_CMD_PULSE_COUNT_READ  0x32u   /* reserved, not implemented */
+#define AG_CMD_PULSE_COUNT_STOP  0x33u   /* reserved, not implemented */
 #define AG_CMD_PULSE_CAPTURE     0x34u
 
 /* storage */
@@ -118,6 +118,9 @@
 
 /* trust */
 #define AG_CMD_ATTEST            0x60u
+/* The operator-signature auth session -- issue #4, element tier only. See
+ * src/core/auth_session.h for the handshake and docs/security/threat-model.md
+ * for why it does not exist on the soft or CRYPTO=none tiers. */
 #define AG_CMD_AUTH_CHALLENGE    0x61u
 #define AG_CMD_AUTH_RESPONSE     0x62u
 /* The alias certificate carrying tcg-dice-UCCS-evidence. A SECOND command
@@ -125,6 +128,14 @@
  * differently shaped pages, and an id costs nothing where a mode byte would
  * cost every existing host a reparse. Ids extend and never renumber. */
 #define AG_CMD_ATTEST_CERT       0x63u
+
+/* AUTH_CHALLENGE's reply and AUTH_RESPONSE's request payload widths. Wire-level
+ * constants, deliberately separate from AG_SIG_LEN in ag/crypto.h: that one
+ * names a crypto PRIMITIVE's width (any P-256 signature, on any path), this
+ * one names what THIS COMMAND carries, and the two are only equal because the
+ * primitive in use happens to produce a 64-byte signature today. */
+#define AG_AUTH_NONCE_LEN 16u
+#define AG_AUTH_SIG_LEN   64u
 
 /* over-the-air update -- ANSWERED BY ag-boot, NEVER BY THE APPLICATION
  *

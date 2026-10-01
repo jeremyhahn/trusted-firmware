@@ -84,6 +84,9 @@ static uint8_t     sha_active;
  * model rather than the driver. */
 static uint8_t  verify_should_pass;
 static uint8_t  verify_last_sig[64];
+/* issue #4: External mode's public key, alongside the signature above --
+ * populated only when the driver used mode 0x02, zero otherwise. */
+static uint8_t  verify_last_pubkey[64];
 static uint8_t  verify_seen;
 
 /* No element on the board at all: every transfer NACKs, which is what a bus
@@ -102,6 +105,7 @@ void ag_model_reset(void)
     config_locked = 0u; data_locked = 0u;
     sha_active = 0u; verify_should_pass = 0u; verify_seen = 0u; absent = 0u;
     memset(verify_last_sig, 0, sizeof verify_last_sig);
+    memset(verify_last_pubkey, 0, sizeof verify_last_pubkey);
     /* A blank part's identifying bytes, so Read returns something a host can
      * recognise rather than zeros it might mistake for a failed read. */
     config[0] = 0x01u; config[1] = 0x23u; config[2] = 0x45u; config[3] = 0x67u;
@@ -120,6 +124,7 @@ void ag_model_set_verify_result(uint8_t pass) { verify_should_pass = pass; }
 void ag_model_set_absent(uint8_t yes) { absent = yes; }
 uint8_t ag_model_verify_seen(void) { return verify_seen; }
 const uint8_t *ag_model_verify_last_sig(void) { return verify_last_sig; }
+const uint8_t *ag_model_verify_last_pubkey(void) { return verify_last_pubkey; }
 void ag_model_set_busy(uint8_t reads)   { busy_reads = reads; }
 void ag_model_force_status(uint8_t st)  { forced_status = st; }
 void ag_model_set_counter(uint32_t v)   { counter0 = v; }
@@ -319,15 +324,28 @@ static void handle_command(const uint8_t *p, uint8_t n)
         return;
 
     case 0x45u:   /* Verify */
-        /* Stored mode names a slot; the signature is the payload. The model
-         * records the signature so a test can prove the driver sent the one it
-         * was given, and answers from a flag rather than doing curve
-         * arithmetic. */
-        if (param1 != 0x00u) { respond_status(0x03u); return; }
-        if (n < 6u + 64u)    { respond_status(0x03u); return; }
-        memcpy(verify_last_sig, &p[6], 64u);
-        verify_seen = 1u;
-        respond_status(verify_should_pass ? (uint8_t)0x00u : (uint8_t)0x01u);  /* 0x01 = miscompare */
+        /* Stored mode (0x00) names a slot; External mode (0x02, issue #4's
+         * AUTH_CHALLENGE/AUTH_RESPONSE) carries a 64-byte public key after the
+         * signature instead. Either way the model records what it was asked
+         * to verify and answers from a flag rather than doing curve
+         * arithmetic -- that would test the model, not the driver. */
+        if (param1 == 0x00u) {
+            if (n < 6u + 64u) { respond_status(0x03u); return; }
+            memcpy(verify_last_sig, &p[6], 64u);
+            verify_seen = 1u;
+            respond_status(verify_should_pass ? (uint8_t)0x00u : (uint8_t)0x01u);  /* 0x01 = miscompare */
+            return;
+        }
+        if (param1 == 0x02u) {
+            if (n < 6u + 128u)                    { respond_status(0x03u); return; }
+            if (param2 != 0x0004u)                { respond_status(0x03u); return; }
+            memcpy(verify_last_sig, &p[6], 64u);
+            memcpy(verify_last_pubkey, &p[6 + 64u], 64u);
+            verify_seen = 1u;
+            respond_status(verify_should_pass ? (uint8_t)0x00u : (uint8_t)0x01u);  /* 0x01 = miscompare */
+            return;
+        }
+        respond_status(0x03u);
         return;
 
     case AG_ATECC_OP_COUNTER:

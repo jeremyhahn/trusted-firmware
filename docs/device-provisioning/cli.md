@@ -36,6 +36,7 @@ port; `--bake-eeprom` takes none.
 | `--force` | `false` | **refused**, not an alias. `agprov` exits with an error naming `--yes-i-mean-it` instead of accepting it |
 | `--serial` | `""` | `--bake-eeprom`: the 16-byte device serial, hex |
 | `--pubkey-hash` | `""` | `--bake-eeprom`: SHA-256 of the bootloader's Ed25519 pubkey, hex. Ignored on the element tier; load-bearing on `BOOT_SIG=ed25519-donna` — omitting it there bakes an all-zero hash and prints a warning, and `ag-boot` will refuse every image until the real one is set. An explicit all-zero value is refused |
+| `--operator-pubkey` | `""` | `--bake-eeprom`: 64-byte P-256 operator public key (X‖Y), hex — the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), element tier only. Omitting it bakes an all-zero key and prints a warning: `AUTH_RESPONSE` will refuse every attempt until the real key is set |
 | `--out` | `""` | `--bake-eeprom`: the `.eep` file to write |
 
 Every invocation of `--dry-run`/`--verify`/`--commit` first calls `ProvInfo`
@@ -111,7 +112,9 @@ outside this tool, and always in this order relative to it:
 
 ```sh
 # 1. Bake the platform-reserved EEPROM block and flash it, before anything else.
-agprov --bake-eeprom --serial <16-byte hex> --out platform.eep
+agprov --bake-eeprom --serial <16-byte hex> \
+       --operator-pubkey <64-byte hex, element tier> \
+       --out platform.eep
 avrdude -c <prog> -p <part> -U eeprom:w:platform.eep:i
 
 # 2. Fuses.

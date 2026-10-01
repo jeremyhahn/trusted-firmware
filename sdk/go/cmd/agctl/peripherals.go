@@ -15,10 +15,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -374,6 +378,56 @@ func runPeripheral(ctx context.Context, dev *ag.Device, cmd string, args []strin
 		}
 		return emit(out, asJSON, map[string]any{"certificate": hex.EncodeToString(der), "len": len(der)},
 			func() string { return hex.EncodeToString(der) + "\n" })
+
+	case "auth":
+		// Element tier only. serial is the device's OWN platform identity,
+		// never generated here -- it comes from wherever the fleet already
+		// knows it (agprov's --bake-eeprom output, or a fresh Attest call),
+		// because the signed message is bound to it: ag.AuthResponse.
+		//
+		// A GATED COMMAND, IF ANY, RUNS HERE IN THE SAME CONNECTION -- given
+		// after `--`. The session lives in the device's RAM, not in this
+		// process, but several supported boards (the Mega 2560's 16U2/DTR
+		// link) reset the MCU when the serial port is reopened, which would
+		// silently discard a session established by a PRIOR agctl
+		// invocation before a second one ever reached the device. Chaining
+		// here is what makes `agctl auth ... -- eeprom-read ...` a
+		// trustworthy demonstration rather than one that only works if the
+		// operator has separately disabled DTR-on-close (see issue #17).
+		if len(args) < 2 {
+			return fmt.Errorf("usage: auth <device serial, %d hex bytes> <operator key, PEM EC private key file> [-- <verb> <args...>]", ag.SerialLen)
+		}
+		serial, err := parseNonce(args[0], ag.SerialLen)
+		if err != nil {
+			return err
+		}
+		signer, err := externalECKeySigner(args[1])
+		if err != nil {
+			return err
+		}
+		var then []string
+		if len(args) > 2 {
+			if args[2] != "--" {
+				return fmt.Errorf("usage: auth <serial> <key.pem> [-- <verb> <args...>]")
+			}
+			then = args[3:]
+		}
+		nonce, err := dev.AuthChallenge(ctx)
+		if err != nil {
+			return err
+		}
+		if err := dev.AuthResponse(ctx, signer, nonce, serial); err != nil {
+			return err
+		}
+		if len(then) == 0 {
+			return emit(out, asJSON, map[string]any{"authenticated": true},
+				func() string { return "authenticated\n" })
+		}
+		// run(), not runPeripheral(): the chained verb may be one of run()'s
+		// own top-level cases (reset, eeprom-read, ...) rather than one of
+		// this file's, and run() falls through to runPeripheral() for those
+		// on its own.
+		return run(ctx, dev, then[0], then[1:], asJSON, out)
 	}
 	return fmt.Errorf("unknown command %q", cmd)
 }
@@ -413,6 +467,55 @@ func parseHexOrEmpty(s string) ([]byte, error) {
 		return nil, nil
 	}
 	return parseHex(s)
+}
+
+// loadECPrivateKey reads a PEM-encoded EC private key -- the operator key
+// AuthResponse signs a challenge with. agctl never generates or stores one:
+// it is a bench convenience for reading whatever key file the operator
+// already has, never a place this project's key material would live.
+// externalKeySigner signs by shelling out to `openssl pkeyutl`, so the
+// operator private key file is read only by openssl's OWN process and never
+// enters agctl's (this repo's Layer 0 module carries no private key
+// material -- see CLAUDE.md's SDK boundary, and sdk/go must stay importable
+// by go-xkms and go-trusted-platform without inheriting a key-custody
+// requirement it never asked for). This is a bench convenience wired to
+// whatever key an operator already has on disk, not a place this project's
+// own keys would live.
+type externalKeySigner struct {
+	path string
+}
+
+func (s *externalKeySigner) Public() crypto.PublicKey { return nil } // unused: AuthResponse never calls it
+
+func (s *externalKeySigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
+	cmd := exec.Command("openssl", "pkeyutl", "-sign", "-inkey", s.path, "-pkeyopt", "digest:sha256")
+	cmd.Stdin = bytes.NewReader(digest)
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("openssl pkeyutl -sign -inkey %s: %w: %s", s.path, err, strings.TrimSpace(stderr.String()))
+	}
+	return out.Bytes(), nil
+}
+
+// externalECKeySigner confirms the file is a key openssl can load, WITHOUT
+// this process ever reading its bytes: `-noout` tells openssl to parse and
+// then print nothing, so a successful exit code is the only thing that
+// crosses back into agctl. The alternative -- opening the file here to check
+// for a PEM header -- would itself put key material in this process's memory
+// for no real gain, which is the exact thing this function exists to avoid.
+func externalECKeySigner(path string) (crypto.Signer, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	cmd := exec.Command("openssl", "pkey", "-in", path, "-noout")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("%s: not a key openssl can load: %w: %s", path, err, strings.TrimSpace(stderr.String()))
+	}
+	return &externalKeySigner{path: path}, nil
 }
 
 func parseNonce(s string, want int) ([]byte, error) {

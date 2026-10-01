@@ -55,6 +55,8 @@ ag_status_t ag_boot_platform_parse(const uint8_t *raw, ag_boot_platform_t *out)
 
     memcpy(out->pubkey_hash, &raw[AG_BOOT_EE_O_PUBKEY_HASH], AG_BOOT_MEASURE_LEN);
     memcpy(out->serial,      &raw[AG_BOOT_EE_O_SERIAL],      AG_BOOT_SERIAL_LEN);
+    memcpy(out->operator_pubkey, &raw[AG_BOOT_EE_O_OPERATOR_PUBKEY],
+           AG_BOOT_OPERATOR_PUBKEY_LEN);
     out->rollback_floor = rd_u32(&raw[AG_BOOT_EE_O_ROLLBACK_FLOOR]);
     out->boot_count     = rd_u32(&raw[AG_BOOT_EE_O_BOOT_COUNT]);
     out->boot_state     = raw[AG_BOOT_EE_O_BOOT_STATE];
@@ -74,6 +76,8 @@ void ag_boot_platform_serialise(const ag_boot_platform_t *in, uint8_t *raw)
     raw[AG_BOOT_EE_O_LAYOUT] = AG_BOOT_EE_VERSION;
     memcpy(&raw[AG_BOOT_EE_O_PUBKEY_HASH], in->pubkey_hash, AG_BOOT_MEASURE_LEN);
     memcpy(&raw[AG_BOOT_EE_O_SERIAL],      in->serial,      AG_BOOT_SERIAL_LEN);
+    memcpy(&raw[AG_BOOT_EE_O_OPERATOR_PUBKEY], in->operator_pubkey,
+           AG_BOOT_OPERATOR_PUBKEY_LEN);
     wr_u32(&raw[AG_BOOT_EE_O_ROLLBACK_FLOOR], in->rollback_floor);
     wr_u32(&raw[AG_BOOT_EE_O_BOOT_COUNT],     in->boot_count);
     raw[AG_BOOT_EE_O_BOOT_STATE] = in->boot_state;

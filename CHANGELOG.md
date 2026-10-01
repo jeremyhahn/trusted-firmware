@@ -8,6 +8,17 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+## [0.6.0-alpha] - 2026-10-01
+
+### BREAKING: RESET(1) needs an operator session on the element tier, and `sdk/go/cmd/irrigation` is removed
+
+- `RESET` mode 1 is now a real bootloader entry (below). On a build with
+  `AG_FEATURE_AUTH_SESSION` it returns `AG_ERR_AUTH_REQUIRED` without a granted
+  operator session. A host that sent `RESET(1)` unauthenticated must now run
+  `AUTH_CHALLENGE`/`AUTH_RESPONSE` first. `RESET(0)` is unchanged and never gated.
+- `github.com/jeremyhahn/arduino-generic/sdk/go/cmd/irrigation` no longer
+  exists. The `sdk/go` library API has no source-level change.
+
 ### Removed
 
 - **The project is application-neutral** (#32). The CropDroid irrigation
@@ -46,6 +57,18 @@ Pre-1.0, MINOR carries breaking changes.
   request. The simavr bootloader suite now drives RESET(1), PING, the timeout,
   RESET-in-session, one-shot clearing and a power-on request being ignored.
   No wire change: no new command, status or event id.
+
+### Known gaps, filed
+
+The update session that `RESET(1)` opens is unauthenticated once entered. It is
+bounded by an idle window, a byte budget, a 60 s total ceiling and one update
+attempt, and images are still signature- and floor-checked. On a single-slot
+layout, an attempt that writes a page and then fails leaves the device in
+recovery, which by design has no time limit. The operator session is not
+compiled into the soft or `CRYPTO=none` tiers, or into the ATmega328P element
+tier, which is over the part's flash with it. On those builds `RESET(1)` and
+reads of the reserved EEPROM region are ungated. Public-release readiness is
+tracked in #20.
 
 ## [0.5.0-alpha] - 2026-10-01
 

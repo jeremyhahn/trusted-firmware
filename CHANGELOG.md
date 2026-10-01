@@ -8,6 +8,21 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+## [0.5.0-alpha] - 2026-10-01
+
+### BREAKING: devices must be re-baked, and ag-boot and the application upgraded together
+
+- **The platform-reserved EEPROM block is layout v2** (`EEPROMReservedEnd`
+  `0x80` → `0xC0`, to hold the operator public key). A v1 block parses as
+  *unprovisioned*, not partially, so an element-tier device reports no serial
+  until `agprov --bake-eeprom` is re-run and flashed **with an ISP programmer**.
+- **The CDI handoff is layout v2** (it now carries `MCUSR`). ag-boot and the
+  application must come from the same release; a mismatched pair reads as "no
+  valid handoff" and falls back as the Fixed section below describes.
+- `sdk/go` has no source-level break. go-xkms (`pkg/backend/avr`, `sdk/go`) and
+  go-trusted-platform (`pkg/firmware/avr/attestation`) were built, vetted and
+  tested against this tree before tagging.
+
 ### Added
 
 - **`SYS_INFO` reports the framer's `err_crc`/`err_format` counters**, appended
@@ -299,6 +314,16 @@ Pre-1.0, MINOR carries breaking changes.
   per-invocation flag left to miss; `provenance-one` also now bounds-checks
   the resulting `.bin` against the part's flash size so a recurrence fails
   the build instead of shipping a bad manifest.
+
+### Known gaps, filed
+
+`RESET(1)` is not a distinct path, so **a device running a valid image cannot
+reach ag-boot's OTA session** from the serial line. Update works only after
+recovery has been entered for another reason (#28). The operator auth session
+gates `EEPROM_READ` of the reserved region only where it is compiled in: never
+on the soft or `CRYPTO=none` tiers, and not on the ATmega328P element tier,
+where it is 292 bytes over the part's flash (`boards/atmega328p/board_profile.h`).
+Release readiness for a public release is tracked in #20.
 
 ## [0.4.0-alpha] - 2026-09-23
 

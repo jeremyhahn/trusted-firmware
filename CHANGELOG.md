@@ -8,6 +8,16 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+### Removed
+
+- **The project is application-neutral** (#32). The CropDroid irrigation
+  firmware under `legacy/`, the `sdk/go/cmd/irrigation` host program with its
+  DHT22 decoder and VPD arithmetic, and `docs/migration/` are gone; they were a
+  reference for the firmware this replaces, not part of it. Comments and
+  examples that used irrigation to illustrate the pin scheduler now describe the
+  generic behaviour. No capability, command or test was removed: the pin timer,
+  pulse capture and 1-Wire primitives are unchanged.
+
 ### Added
 
 - **`RESET` mode 1 now opens an OTA session in `ag-boot` on a healthy device**

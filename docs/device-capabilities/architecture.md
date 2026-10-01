@@ -80,7 +80,7 @@ exactly one writer and needs no locking, no `volatile`, and compiles
 unchanged on the host. Rollover uses a signed difference,
 `(int32_t)(now - deadline) >= 0`, correct across the 49.7-day millisecond
 wrap; the interval is bounded to `AG_SCHED_MAX_MS` (`0x7FFFFFFF`) at arm time
-so the failure is a clean `AG_ERR_RANGE` rather than a valve that stays open
+so the failure is a clean `AG_ERR_RANGE` rather than an output that stays on
 for seven weeks.
 
 ## Trust boundaries this layer enforces

@@ -1,19 +1,22 @@
 # arduino-generic
 
-One firmware, built from one ANSI C codebase, that exposes an AVR's hardware as
-generic primitives over a compact binary protocol — small enough for the classic
-AVR-8 family, testable without hardware, and carrying a hardware-rooted device
-identity so a platform can attest it, enforce policy on it and enroll it into a
-fleet.
+Generic firmware for classic AVR, and the Layer 0 Go SDK that drives it. It is
+a drop-in replacement for basic Arduino firmware on any microcontroller and any
+application: every Arduino capability — digital and analog I/O, PWM, tone, pulse
+timing, EEPROM, I²C, SPI, 1-Wire — is reachable over a compact binary protocol
+and from the Go SDK, and the firmware knows nothing about what is wired to it.
 
-It replaces a single-purpose Arduino C++ irrigation controller, kept under
-`legacy/` for reference.
+What basic Arduino firmware lacks, this adds: a secure bootloader (`ag-boot`)
+that measures and verifies the application, DICE device identity rooted in
+hardware, and integration with go-trusted-platform so a platform can attest a
+device, enforce policy on it and enroll it into a fleet. One ANSI C codebase,
+small enough for the AVR-8 family and testable without hardware.
 
 ## What it is
 
 The firmware exposes primitives — GPIO, the pin scheduler, ADC, PWM, EEPROM,
-I²C, SPI, 1-Wire — and decodes no sensors. A DHT22 is decoded by the host, from
-timings the device captures. That is what makes one image useful on any board:
+I²C, SPI, 1-Wire — and decodes no sensors. A sensor protocol such as DHT22 is decoded by the
+host, from timings the device captures. That is what makes one image useful on any board:
 the device offers capability, the host supplies meaning.
 
 | | |
@@ -22,7 +25,7 @@ the device offers capability, the host supplies meaning.
 | Not used | The Arduino core, C++, and every Arduino library |
 | Transport | A framed binary protocol over UART, CRC-16 checked |
 | Host SDK | `sdk/go` — a Layer 0 Go module with **zero in-house dependencies** |
-| Tested | 80 C tests, 19 Go tests, no hardware required |
+| Tested | host unit tests, the firmware under simavr, and the Go SDK against `agsim` (the real firmware built for the host); no hardware required |
 
 ## Quick start
 
@@ -84,7 +87,6 @@ boards/          per-board descriptors: data, not code
 sdk/go/          the host SDK and agctl
 tools/agsim/     the firmware, built for the host
 testdata/        the wire vectors, shared with sdk/go
-legacy/          the irrigation firmware this replaces
 ```
 
 ## Licence

@@ -95,7 +95,7 @@ Package `serialport` — `Open(path string, baud int) (io.ReadWriteCloser, error
   device said about itself is worth logging when a host refuses to talk to it.
 - **`AnalogRead` returns the raw ADC count (0..1023), never a calibrated
   value.** Calibration is a property of the sensor and its wiring, which the
-  device cannot know; see `sdk/go/cmd/irrigation` for where that meaning lives.
+  device cannot know, so it belongs to the host program.
 - **Status codes and command ids extend; they never renumber.** `Status.String`
   on an unrecognised value returns `"unrecognised status N"` rather than
   erroring — forward compatibility from the old side of a version skew.

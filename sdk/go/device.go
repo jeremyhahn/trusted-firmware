@@ -528,7 +528,7 @@ func (d *Device) awaitBoot(bound time.Duration) {
 // obtains a conn and does its own reads or writes with it before handing it
 // to New should not expect this purge to distinguish that traffic from
 // genuine backlog; nothing available here can. Every caller in this
-// repository (agctl, agprov, irrigation) calls New immediately after
+// repository (agctl, agprov) calls New immediately after
 // serialport.Open, which is the assumption in practice, not only in theory.
 //
 // ok is false only when the conn offers ResetInputBuffer and it returned an

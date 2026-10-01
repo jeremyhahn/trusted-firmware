@@ -39,8 +39,13 @@ Go SDK (`sdk/go/commands.go`) mirrors this 1:1 as `(*Device)` methods —
   `volatile`, no lock, and `test_sched.c` drives the 49.7-day wrap
   deterministically by setting `ag_hal_millis()` rather than waiting for it.
 - **Re-arming a pin extends its timer rather than consuming a second slot.**
-  A host that reissues `TIMER_SET` — routine for an irrigation controller —
+  A host that reissues `TIMER_SET` — routine for a periodic controller —
   does not exhaust `AG_SCHED_SLOTS`.
+- **The pin timer stays in firmware.** A pin told to hold a level for ten
+  minutes must revert after ten minutes whether or not the host is still there.
+  If the host owned the timer, a crashed host, a pulled cable or a rebooted
+  gateway would leave the pin latched. The scheduler runs from the millisecond
+  tick with no host involvement.
 - **A scheduled duration above `AG_SCHED_MAX_MS` (`0x7FFFFFFF`) is refused at
   arm time**, not discovered later as a pin that never reverts.
 - **PWM duty zero disconnects the pin from its compare unit**, rather than

@@ -7,7 +7,7 @@
 
 **One host implementation.** Not one per tool: one codec, one framing
 implementation, one transport, in `sdk/go`, and every command
-(`agctl`, `agprov`, `irrigation`) is a `main` package in that same module.
+(`agctl`, `agprov`) is a `main` package in that same module.
 `tools/agsim` is the peer on the other end — the firmware, not a client.
 
 ## Component boundaries
@@ -20,7 +20,6 @@ implementation, one transport, in `sdk/go`, and every command
 | `sdk/go/templates` | reviewable provisioning templates (data, not code) | — |
 | `sdk/go/cmd/agctl` | reference client: every command, human output and `--json` | `aggeneric`, `serialport` |
 | `sdk/go/cmd/agprov` | provisioning with a commit guard | `aggeneric`, `serialport` |
-| `sdk/go/cmd/irrigation` | migration example (see `docs/migration/`) | `aggeneric`, `serialport` |
 | `tools/agsim` | firmware sources + mock HAL, linked for the host | `src/proto`, `src/core`, `src/caps`, `test/mock` |
 
 `serialport` is its own package for one reason: a consumer that only needs the
@@ -139,4 +138,3 @@ contract; a failure here is a wire break, not a test to update. See
 - `docs/wire-protocol/architecture.md` — the wire frame this SDK encodes and decodes
 - `docs/device-provisioning/user.md` — the provisioning sequence `agprov` drives
 - `docs/development/testing.md` — how `agsim` fits the three test tiers
-- `docs/migration/from-cropdroid-irrigation.md` — the irrigation example in full

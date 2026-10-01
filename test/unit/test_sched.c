@@ -73,7 +73,7 @@ static void test_a_timed_pin_reverts_without_the_host(void)
 }
 
 /* The complement case: hold low, revert high. A scheduler that only knew how to
- * turn things off would be an irrigation controller, not a primitive. */
+ * turn things off would be a one-way switch, not a primitive. */
 static void test_a_timed_low_reverts_high(void)
 {
     TEST_ASSERT_EQUAL(AG_OK, timer_set(PIN, 0u, 100u));
@@ -110,7 +110,7 @@ static void test_a_deadline_across_the_millisecond_wrap_is_honoured(void)
 }
 
 /* Re-arming extends rather than consuming a second slot. A host that re-issues
- * a command -- which an irrigation controller does constantly -- would
+ * a command -- which a periodic controller does constantly -- would
  * otherwise exhaust the table and begin failing, having done nothing wrong. */
 static void test_rearming_a_pin_extends_it_and_does_not_consume_a_slot(void)
 {

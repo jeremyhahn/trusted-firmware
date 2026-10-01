@@ -3,13 +3,12 @@
 /*
  * The pin scheduler: drive a pin to a level, and drive it back after a delay.
  *
- * This is the one behaviour carried forward from the firmware being replaced,
- * where it was a 7x3 table of irrigation channels. Generalised from "channel
- * index" to any pin, and from "on then off" to "level then its complement".
+ * Any pin can be driven to a level and driven back to the complement of that
+ * level after a delay, whatever is wired to it.
  *
  * It stays in FIRMWARE rather than moving to the host with the rest of the
  * domain logic, and that is deliberate: it is the safety-critical part. A host
- * that crashes with a pump running must not leave the pump running, and the
+ * that crashes with a load energised must not leave it energised, and the
  * only way to guarantee that is for the device to own the deadline.
  *
  * No interrupt touches this table. The tick ISR increments a counter and does
@@ -102,7 +101,7 @@ ag_status_t ag_sched_cmd_set(ag_reader_t *r, ag_writer_t *w)
     }
 
     /* Re-arming a pin that already has a timer EXTENDS it rather than consuming
-     * a second slot. A host re-issuing a command -- which an irrigation
+     * a second slot. A host re-issuing a command -- which a periodic
      * controller does constantly -- would otherwise exhaust the table and then
      * start failing, having done nothing wrong. */
     s = slot_for(pin);

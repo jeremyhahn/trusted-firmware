@@ -8,7 +8,7 @@ Task-oriented. Full flag reference: `cli.md`. Design rationale: `architecture.md
 ## Build the tools
 
 ```sh
-make sdk-build     # go build ./... in sdk/go: agctl, agprov, irrigation
+make sdk-build     # go build ./... in sdk/go: agctl, agprov
 ```
 
 ## Talk to a board over serial
@@ -110,23 +110,6 @@ The device must be running a provisioning-jig image; a production build
 answers "unknown command" for every provisioning verb by design. Full
 procedure, what's reversible and what isn't, and how to read the template:
 `docs/device-provisioning/user.md`.
-
-## Run the irrigation example
-
-Read the rig once:
-
-```sh
-irrigation /dev/ttyUSB0
-```
-
-Open a valve for a fixed duration — again, the device holds the deadline:
-
-```sh
-irrigation -water 3 -for 2m /dev/ttyUSB0
-```
-
-What moved from the old CropDroid firmware to this host program, and what
-stayed on the device and why: `docs/migration/from-cropdroid-irrigation.md`.
 
 ## Write your own host program
 

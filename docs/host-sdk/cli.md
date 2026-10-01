@@ -88,35 +88,6 @@ agprov -verify   -config templates/atecc608a-dice.conf /dev/ttyUSB0
 
 Full procedure, ordering, and what each zone lock means: `docs/device-provisioning/user.md`.
 
-## `irrigation` — the migration example
-
-```
-irrigation [flags] <port>
-```
-
-With no `-water`, reads the rig once and prints a sample.
-
-### Flags
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `-baud` | `115200` | serial baud rate |
-| `-water` | `0` | open valve `N` (1-based) and let the **device** close it; `0` means "don't water" |
-| `-for` | `30s` | how long the valve stays open when `-water` is set |
-| `-json` | `false` | emit JSON |
-| `-timeout` | `10s` | how long to wait for a reply |
-
-### Examples
-
-```sh
-irrigation /dev/ttyUSB0
-irrigation -json /dev/ttyUSB0
-irrigation -water 3 -for 2m /dev/ttyUSB0
-```
-
-Rig layout (`defaultRig`) and what moved from the old firmware:
-`docs/migration/from-cropdroid-irrigation.md`.
-
 ## `agsim` — the firmware, built for the host
 
 Not a Go command; a C binary built by `make agsim` into `build/host/agsim`.

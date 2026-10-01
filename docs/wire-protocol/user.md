@@ -52,7 +52,7 @@ agctl /dev/ttyUSB0 pin 13
 
 `TIMER_SET` drives a pin to a level and has the **device** revert it after a
 duration — the deadline is owned by the device so a host that crashes with a
-pump running does not leave it running.
+load energised does not leave it energised.
 
 ```sh
 agctl /dev/ttyUSB0 timer 13 1 5s     # drive pin 13 high for 5s, then release

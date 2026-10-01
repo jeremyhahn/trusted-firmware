@@ -1,5 +1,10 @@
 # Documentation
 
+arduino-generic is generic AVR firmware plus a Layer 0 Go SDK. It is a drop-in
+replacement for basic Arduino firmware: every Arduino capability is on the wire
+and in the SDK, with secure boot, a DICE device identity and go-trusted-platform
+integration added. It carries no application logic.
+
 Six capabilities, each a five-file feature folder — `architecture.md`,
 `engineering.md`, `cli.md`, `api.md`, `user.md`. **NORMATIVE** means a conflict
 with the code is a defect to fix in the document first.
@@ -22,7 +27,6 @@ Cross-cutting material that belongs to no single feature:
 | [`attestation/cryptoauthlib-evaluation.md`](attestation/cryptoauthlib-evaluation.md) | why not Microchip's own library, with the licence clause and the measured size |
 | [`boards/`](boards/adding-a-board.md) | what a board is, and [`attiny85.md`](boards/attiny85.md), the part that broke five assumptions |
 | [`development/`](development/building.md) | building, testing, coverage, flashing, reproducible builds |
-| [`migration/`](migration/from-cropdroid-irrigation.md) | from the CropDroid irrigation firmware |
 
 ## Where the hard decisions are written down
 
@@ -44,6 +48,6 @@ it will read them.
   The spec's own mechanism rather than a repurposed `vendorInfo`, and the one
   sentence of §6.1.4 this device cannot satisfy, said plainly.
 - **Why there is no `delay()`** — `device-capabilities/architecture.md`.
-- **Why the auto-off timer stayed in firmware** — `migration/from-cropdroid-irrigation.md`.
-  A valve told to run ten minutes must close in ten minutes whether or not the
-  host is still there.
+- **Why the pin timer stays in firmware** — `device-capabilities/engineering.md`.
+  A pin told to hold a level for ten minutes must revert in ten minutes whether
+  or not the host is still there.

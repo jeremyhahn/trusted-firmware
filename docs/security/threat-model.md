@@ -38,7 +38,7 @@ idle window rather than absorbing the next good frame's opening bytes.
 
 **The serial link is unauthenticated for driving pins.** Anyone who can reach
 the UART can drive every pin. For a lighting controller that is a nuisance;
-for a pump it is not. That is unchanged and is not what the auth session
+for an actuator it is not. That is unchanged and is not what the auth session
 below closes — it protects two specific resources, not the command channel in
 general.
 

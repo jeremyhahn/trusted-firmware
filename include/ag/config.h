@@ -84,7 +84,7 @@
 #define AG_FEATURE_ALIAS_CERT  0
 #endif
 #ifndef AG_FEATURE_DEADMAN
-#define AG_FEATURE_DEADMAN     0   /* opt-in: safe for a pump, wrong for a lamp */
+#define AG_FEATURE_DEADMAN     0   /* opt-in: safe for a motor, wrong for a lamp */
 #endif
 /* The operator-signature AUTH_CHALLENGE/AUTH_RESPONSE session -- issue #4.
  *

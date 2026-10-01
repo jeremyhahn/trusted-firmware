@@ -43,7 +43,7 @@ agctl /dev/ttyACM0 timer-cancel 7 apply
 ```
 
 The deadline is owned by the **device**. If the host crashes or the link
-drops while a valve or a relay is timed on, the device still reverts it —
+drops while a relay is timed on, the device still reverts it —
 that is the entire reason this primitive exists rather than a host-side
 sleep. Re-issuing `timer` on a pin that already has one extends it instead
 of consuming another slot, so a controller that polls and re-arms
@@ -56,7 +56,7 @@ raw, err := dev.AnalogRead(ctx, pin)   // 0..1023 on a 10-bit ADC
 ```
 
 `raw` is the converter's own count — not a voltage, not a percentage.
-Turning it into a moisture percentage or a temperature is host work, because
+Turning it into a percentage or a temperature is host work, because
 the calibration depends on the sensor and its wiring, neither of which the
 device knows.
 

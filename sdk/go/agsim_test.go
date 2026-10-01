@@ -328,8 +328,8 @@ func TestAgainstFirmwareSustainedExchange(t *testing.T) {
 }
 
 // THE MVP, end to end: a pin driven high, reverting on the device's own
-// schedule with no host involvement. This is the behaviour the irrigation
-// firmware existed for, now a generic primitive.
+// schedule with no host involvement. The device owns the deadline, so
+// a crashed or unplugged host cannot leave the pin latched.
 func TestAgainstFirmwareTimerRevertsWithoutTheHost(t *testing.T) {
 	d := startSim(t)
 	ctx := context.Background()

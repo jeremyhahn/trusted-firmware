@@ -206,9 +206,11 @@ endif
 # the real modules pushed it 77 bytes over a 256-byte RAM budget.
 ifneq ($(RAM_END),)
 IDENTITY_SRCS := src/core/handoff.c src/core/platform_id.c \
-                 boot/boot_handoff.c boot/boot_platform.c
+                 src/core/update_request.c \
+                 boot/boot_handoff.c boot/boot_platform.c boot/boot_request.c
 else
-IDENTITY_SRCS := src/core/handoff_none.c src/core/platform_id_none.c
+IDENTITY_SRCS := src/core/handoff_none.c src/core/platform_id_none.c \
+                 src/core/update_request_none.c
 endif
 
 # Sorted, not wildcard-ordered. Link order affects the output image, and a

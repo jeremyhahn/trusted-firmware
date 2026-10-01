@@ -61,6 +61,7 @@
 #include "ag/boot.h"
 #include "boot_image.h"
 #include "boot_platform.h"
+#include "boot_request.h"
 #include "sha256.h"
 #include "crc16.h"
 
@@ -643,6 +644,35 @@ static int find_event(uint8_t *status)
     return 0;
 }
 
+/*
+ * The two EVENT frames a healthy device can emit after a reset, told apart by
+ * their payload. The application's BOOT event is [status OK][AG_EVENT_BOOT];
+ * ag-boot's announcement that it opened an update session is [status OK] with
+ * no payload at all. Both are status OK, so the length is the discriminator.
+ */
+static int find_event_with_payload_len(uint8_t plen, uint8_t first)
+{
+    for (unsigned i = 0; i + 6 <= from_device_n; i++) {
+        if (from_device[i] != AG_SOF) { continue; }
+        unsigned len = from_device[i + 1];
+        if (len < 3 || len > 200) { continue; }
+        unsigned total = len + 4;
+        if (i + total > from_device_n) { continue; }
+        uint16_t want = ag_crc16(&from_device[i + 1], (uint16_t)(len + 1));
+        uint16_t got  = (uint16_t)(from_device[i + total - 2]
+                                   | (from_device[i + total - 1] << 8));
+        if (want != got) { continue; }
+        if (from_device[i + 3] != AG_OP_EVENT || from_device[i + 4] != AG_OK) { continue; }
+        if (len - 3u != plen) { continue; }
+        if (plen > 0u && from_device[i + 5] != first) { continue; }
+        return 1;
+    }
+    return 0;
+}
+
+static int session_announced(void) { return find_event_with_payload_len(0u, 0u); }
+static int app_booted(void)        { return find_event_with_payload_len(1u, AG_EVENT_BOOT); }
+
 static int find_response(uint8_t seq, uint8_t *status, uint8_t *payload, uint8_t *plen)
 {
     for (unsigned i = 0; i + 6 <= from_device_n; i++) {
@@ -794,6 +824,11 @@ static void install(elf_firmware_t *boot, uint32_t counter)
      * fuse.
      */
     avr->pc = boot->flashbase;
+    /* BOOTRST is a fuse that applies to EVERY reset, not only the first: the
+     * watchdog reset RESET(1) causes must land in the boot section as well.
+     * Without this simavr restarts the application at address zero on the
+     * second reset and a suite about entering the bootloader never enters it. */
+    avr->reset_pc = boot->flashbase;
     if (avr->pc == 0u) {
         fprintf(stderr, "ag-boot.elf has no boot-section entry point\n");
         exit(2);
@@ -1036,6 +1071,215 @@ static void test_downgrade_refuses(elf_firmware_t *boot, elf_firmware_t *app)
     check(el.counter == 5u, "the floor did not move for a refused image");
 }
 
+/*
+ * Issue #28: a healthy device, asked over the wire to take an update.
+ *
+ * RESET(1) is sent to the RUNNING APPLICATION. It leaves the request in SRAM
+ * and takes a real watchdog reset; ag-boot, entered through BOOTRST, finds the
+ * request, opens the session instead of jumping, and answers PING. Left alone it
+ * gives up after AG_BOOT_SESSION_IDLE_SECONDS and boots the application it
+ * always could have; told to RESET it does so at once; and in neither case does
+ * the NEXT reset enter the bootloader again.
+ */
+static void send_and_wait(uint8_t seq, uint8_t cmd, const uint8_t *payload,
+                          uint8_t plen)
+{
+    uint8_t  wire[64];
+    unsigned n = frame_request(wire, seq, cmd, payload, plen);
+
+    from_device_n = 0;
+    send(wire, n);
+    wait_for_seq = seq;
+    run_until(response_arrived, BUDGET_EXCHANGE);
+}
+
+static int response_status_is(uint8_t seq, uint8_t want)
+{
+    uint8_t status, plen, buf[64];
+    return find_response(seq, &status, buf, &plen) && status == want;
+}
+
+static uint64_t run_until_cycles(int (*done)(void), uint64_t budget)
+{
+    uint64_t start = avr->cycle;
+
+    while (!done() && avr->cycle - start < budget) {
+        avr_run(avr);
+    }
+    return avr->cycle - start;
+}
+
+static void test_requested_update_session(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    const uint8_t soft[1] = { 0u }, to_boot[1] = { 1u };
+    const uint8_t ping[4] = { 'u', 'p', 'd', 'a' };
+    uint8_t  out[64], outlen, status;
+    uint64_t elapsed;
+    const uint64_t nominal = (uint64_t)AG_BOOT_SESSION_IDLE_SECONDS * F_CPU_HZ;
+
+    printf("a requested update session (issue #28):\n");
+    build_image(app, 3u, -1);
+    build_eeprom();
+    install(boot, 0u);
+    check(run_until(device_spoke, BUDGET_BOOT), "a healthy image boots first");
+
+    send_and_wait(0x41, AG_CMD_CAPS, NULL, 0u);
+    check(response_status_is(0x41, AG_OK), "CAPS answers, so the application is running");
+
+    /* RESET(1) to the application. */
+    send_and_wait(0x42, AG_CMD_RESET, to_boot, 1u);
+    check(response_status_is(0x42, AG_OK), "RESET(1) is acknowledged by the application");
+
+    check(run_until(session_announced, BUDGET_BOOT),
+          "ag-boot announces an update session instead of jumping");
+    check(!app_booted(), "and the application did not start");
+
+    send_and_wait(0x43, AG_CMD_PING, ping, sizeof ping);
+    check(find_response(0x43, &status, out, &outlen) && status == AG_OK
+          && outlen == sizeof ping && memcmp(out, ping, sizeof ping) == 0,
+          "the bootloader answers PING");
+    send_and_wait(0x44, AG_CMD_CAPS, NULL, 0u);
+    check(response_status_is(0x44, AG_ERR_UNKNOWN_CMD),
+          "and CAPS is unknown, so this is the bootloader and not the application");
+
+    /* Left alone it times out into the normal boot. The wait is measured: it is
+     * what AG_BOOT_SESSION_POLL_CYCLES promises, and a loop that changed cost
+     * without the constant following would otherwise stretch or shrink it. */
+    from_device_n = 0;
+    elapsed = run_until_cycles(app_booted, nominal * 2u);
+    printf("  (idle timeout: %llu cycles, nominal %llu)\n",
+           (unsigned long long)elapsed, (unsigned long long)nominal);
+    check(app_booted(), "after the idle timeout the application boots");
+    check(elapsed >= nominal * 8u / 10u,
+          "and not before 80% of the configured idle time");
+    check(elapsed <= nominal * 12u / 10u + BUDGET_BOOT,
+          "nor later than 120% of it plus the verify");
+    send_and_wait(0x45, AG_CMD_CAPS, NULL, 0u);
+    check(response_status_is(0x45, AG_OK), "CAPS answers: the same image, verified, is running");
+
+    /* A RESET command inside the session ends it at once. */
+    send_and_wait(0x46, AG_CMD_RESET, to_boot, 1u);
+    check(run_until(session_announced, BUDGET_BOOT), "a second request opens a second session");
+    from_device_n = 0;
+    send_and_wait(0x47, AG_CMD_RESET, soft, 1u);
+    elapsed = run_until_cycles(app_booted, nominal);
+    check(app_booted() && elapsed < BUDGET_BOOT,
+          "RESET in the session boots the application without waiting for the timeout");
+
+    /* ONE SHOT. Nothing left over: an ordinary soft reset goes straight to the
+     * application with no session in between. */
+    send_and_wait(0x48, AG_CMD_RESET, soft, 1u);
+    from_device_n = 0;
+    elapsed = run_until_cycles(app_booted, nominal);
+    check(app_booted() && elapsed < BUDGET_BOOT && !session_announced(),
+          "the next soft reset boots straight through: the request was one-shot");
+}
+
+/*
+ * The same request bytes, but after a power-on reset. SRAM is not cleared by a
+ * reset, so a request that was armed and then lost power -- or garbage that
+ * happens to look like one -- is a real thing to meet; it must be ignored, and
+ * the application must boot straight through.
+ */
+static void test_request_after_power_on_is_ignored(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    uint8_t  req[AG_BOOT_REQUEST_LEN];
+    uint16_t at = (uint16_t)(avr->ramend - (AG_BOOT_HANDOFF_LEN - 1u));
+
+    printf("a request left in SRAM across a power cycle:\n");
+    build_image(app, 3u, -1);
+    build_eeprom();
+    install(boot, 0u);
+    ag_boot_request_encode(req);
+    memcpy(&avr->data[at], req, sizeof req);
+    avr->data[0x54] = 0x01u;   /* PORF */
+
+    check(run_until(app_booted, BUDGET_BOOT),
+          "the application boots straight through");
+    check(!session_announced(), "and no session was opened");
+}
+
+/*
+ * A peer that never pauses. Junk at the full line rate leaves no empty receive
+ * poll, so the idle-poll budget never advances; only the byte budget can end
+ * the session. The application must still boot at about the configured time.
+ */
+static void test_junk_stream_cannot_park_the_session(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    const uint8_t to_boot[1] = { 1u };
+    /* One byte every 10 bit times at 115 200 baud and 16 MHz: the fastest the
+     * wire can deliver, which is what the byte budget is derived from. */
+    const unsigned cycles_per_byte = (unsigned)(F_CPU_HZ / (AG_UART_BAUD / 10u));
+    const uint64_t nominal = (uint64_t)AG_BOOT_SESSION_IDLE_SECONDS * F_CPU_HZ;
+    uint64_t start;
+
+    printf("a continuous junk stream during a session:\n");
+    build_image(app, 3u, -1);
+    build_eeprom();
+    install(boot, 0u);
+    check(run_until(device_spoke, BUDGET_BOOT), "a healthy image boots first");
+    send_and_wait(0x51, AG_CMD_RESET, to_boot, 1u);
+    check(run_until(session_announced, BUDGET_BOOT), "the session opens");
+
+    from_device_n = 0;
+    start = avr->cycle;
+    while (!app_booted() && avr->cycle - start < nominal * 2u) {
+        avr_raise_irq(uart_in, 0xEEu);          /* never SOF: no frame forms */
+        run_cycles(cycles_per_byte);
+        if (from_device_n > RXCAP - 64u) { from_device_n = 0; }
+    }
+    printf("  (junk-stream timeout: %llu cycles, nominal %llu)\n",
+           (unsigned long long)(avr->cycle - start), (unsigned long long)nominal);
+    check(app_booted(), "the byte budget ends the session and the application boots");
+    check(avr->cycle - start <= nominal * 12u / 10u + BUDGET_BOOT,
+          "no later than the configured time plus the verify");
+}
+
+/*
+ * A peer that speaks the OTA grammar slowly. An OTA_BEGIN is accepted, restarts
+ * the idle budgets, and touches no flash -- so a drip of them every 8 s, inside
+ * the 10 s idle window, would hold the session open forever if only the idle
+ * bounds applied. The ceiling progress cannot reset must end it, and because no
+ * page was ever written the application it falls through to must still boot.
+ */
+static void test_valid_frame_drip_hits_the_ceiling(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    const uint8_t to_boot[1] = { 1u };
+    const uint8_t begin[4] = { 0x00, 0x10, 0x00, 0x00 };    /* 4096 bytes */
+    const uint64_t ceiling = (uint64_t)AG_BOOT_SESSION_MAX_SECONDS * F_CPU_HZ;
+    const uint64_t period  = (uint64_t)(AG_BOOT_SESSION_IDLE_SECONDS - 2u) * F_CPU_HZ;
+    uint8_t  wire[64];
+    unsigned n;
+    uint64_t start, last_sent;
+
+    printf("a drip of valid OTA frames during a session:\n");
+    build_image(app, 3u, -1);
+    build_eeprom();
+    install(boot, 0u);
+    check(run_until(device_spoke, BUDGET_BOOT), "a healthy image boots first");
+    send_and_wait(0x61, AG_CMD_RESET, to_boot, 1u);
+    check(run_until(session_announced, BUDGET_BOOT), "the session opens");
+
+    from_device_n = 0;
+    start = last_sent = avr->cycle;
+    while (!app_booted() && avr->cycle - start < ceiling * 2u) {
+        if (avr->cycle - last_sent >= period) {
+            last_sent = avr->cycle;
+            n = frame_request(wire, 0x62, AG_CMD_OTA_BEGIN, begin, sizeof begin);
+            send(wire, n);
+        }
+        run_cycles(100000);
+        if (from_device_n > RXCAP - 64u) { from_device_n = 0; }
+    }
+    printf("  (drip timeout: %llu cycles, ceiling %llu)\n",
+           (unsigned long long)(avr->cycle - start), (unsigned long long)ceiling);
+    check(app_booted(), "the ceiling ends the session and the application boots");
+    check(avr->cycle - start >= ceiling * 8u / 10u,
+          "not before 80% of the ceiling: the idle bound really was being restarted");
+    check(avr->cycle - start <= ceiling * 12u / 10u + BUDGET_BOOT,
+          "no later than the ceiling plus the verify");
+}
+
 int main(int argc, char **argv)
 {
     elf_firmware_t boot, app;
@@ -1074,6 +1318,10 @@ int main(int argc, char **argv)
     test_signed_image_boots(&boot, &app);
     test_tampered_image_refuses(&boot, &app);
     test_downgrade_refuses(&boot, &app);
+    test_requested_update_session(&boot, &app);
+    test_request_after_power_on_is_ignored(&boot, &app);
+    test_junk_stream_cannot_park_the_session(&boot, &app);
+    test_valid_frame_drip_hits_the_ceiling(&boot, &app);
 
     printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
     return failures ? 1 : 0;

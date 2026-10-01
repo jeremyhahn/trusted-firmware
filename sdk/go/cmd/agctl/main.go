@@ -67,7 +67,7 @@ commands
                                    externalECKeySigner) against the given
                                    device serial, gating eeprom-read below
                                    the reserved boundary until the device
-                                   resets (reset boot is not gated; #28). A gated verb after --
+                                   resets (reset boot is gated too). A gated verb after --
                                    runs in the SAME connection, which matters
                                    on boards (the Mega 2560) that reset on
                                    reopen and would otherwise discard the

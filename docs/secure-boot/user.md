@@ -65,6 +65,18 @@ There is currently no `agctl` verb or Go SDK call for the OTA sequence — see
 `AG_CMD_OTA_BEGIN`/`OTA_DATA`/`OTA_END` against `sdk/go`'s codec directly (see
 [api.md](api.md) for the exact payloads). What to expect once that exists:
 
+To reach the bootloader on a device that is working, send `RESET` with mode 1
+(`Device.Reset(ctx, ResetBootloader)`; on the element tier authenticate first,
+else `AG_ERR_AUTH_REQUIRED`). The device restarts into `ag-boot`, which sends an
+`EVENT` with status `AG_OK` and no payload and answers `PING`. Begin the
+sequence within 10 seconds: each accepted `OTA_BEGIN`/`OTA_DATA`/`OTA_END`
+restarts that wait, but the whole session is capped at 60 seconds and gets one
+attempt -- the first `OTA_END` that does not verify ends it. If a limit runs out
+before any page was written the device simply boots the application it already
+had; after that the old application is gone, the device lands in recovery, and
+you send a good image there. Use near-full 60-byte chunks and answer promptly. A `BOOT_OTA=0` board has no session and just restarts; an
+ATtiny85 refuses mode 1 with `AG_ERR_UNSUPPORTED`.
+
 1. `OTA_BEGIN` declares the whole image length, trailer included.
 2. `OTA_DATA` chunks are written as they arrive; nothing is bootable while
    this is in progress.

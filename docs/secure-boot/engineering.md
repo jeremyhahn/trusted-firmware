@@ -46,6 +46,20 @@ ag_status_t ag_boot_floor_write(uint32_t value);
 // boot/boot_recovery.h — never returns
 void ag_boot_recovery(ag_boot_platform_t *plat, ag_status_t reason);
 void ag_boot_hand_over(const ag_boot_verdict_t *v);
+
+// Same loop, entered by the application's request, bounded: returns when any of
+// idle_polls / idle_bytes (restarted by accepted OTA frames) or max_polls /
+// max_bytes (never restarted) is spent, or on the first OTA_END that does not
+// verify. 0 disables a bound. recovery_halt.c (BOOT_OTA=0) returns at once.
+typedef struct { uint32_t idle_polls, idle_bytes, max_polls, max_bytes; }
+    ag_boot_session_limits_t;
+void ag_boot_session_open(ag_boot_platform_t *plat,
+                          const ag_boot_session_limits_t *lim);
+
+// boot/boot_request.h — the update-session request (include/ag/boot.h)
+void    ag_boot_request_encode(uint8_t *region);
+uint8_t ag_boot_request_valid(const uint8_t *region, uint8_t mcusr);
+uint8_t ag_boot_request_take(uint8_t mcusr);   // clears, then reports
 ```
 
 OTA state machine and session (`boot/boot_ota.h`, `boot/boot_session.h`, linked

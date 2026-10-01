@@ -109,7 +109,7 @@ nonce, err := dev.AuthChallenge(ctx)
 // ...
 err = dev.AuthResponse(ctx, operatorSigner, nonce, deviceSerial)
 // EEPROMRead below EEPROMReservedEnd now succeeds on this device, until it
-// next resets. Reset(ResetBootloader) is not gated (issue #28).
+// next resets. Reset(ResetBootloader) needs this session too.
 ```
 
 `deviceSerial` is the device's own platform identity (`SerialLen` bytes) —

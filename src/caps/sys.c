@@ -8,6 +8,8 @@
 #include "ag/crypto.h"
 #include "ag/board.h"
 #include "../core/dispatch.h"
+#include "../core/auth_session.h"
+#include "../core/update_request.h"
 
 /* Bumped by hand when the firmware is released; distinct from the protocol
  * version, which describes the wire and moves far less often. */
@@ -130,6 +132,12 @@ ag_status_t ag_sys_cmd_ping(ag_reader_t *r, ag_writer_t *w)
 /*
  * RESET -- and it deliberately does not reset.
  *
+ * Mode 0 restarts the application. Mode 1 does the same watchdog reset after
+ * leaving ag-boot a one-shot request to open an update session instead of
+ * jumping; see include/ag/boot.h. A board with no boot section answers mode 1
+ * with AG_ERR_UNSUPPORTED. Mode 1 requires the operator auth session on the
+ * element tier (AG_ERR_AUTH_REQUIRED otherwise).
+ *
  * It latches the request and returns normally, so the response is framed and
  * queued like any other. ag_sys_poll() then waits for the UART to go idle and
  * only then pulls the trigger.
@@ -145,6 +153,26 @@ ag_status_t ag_sys_cmd_reset(ag_reader_t *r, ag_writer_t *w)
 
     if (mode > 1u) {
         return AG_ERR_RANGE;
+    }
+
+    /*
+     * Mode 1 is the one RESET that changes what the device will accept next --
+     * a signed image, delivered over an open session -- so it needs the
+     * operator auth session (issue #4) exactly as a reserved-EEPROM read does.
+     * Checked BEFORE anything else about mode 1, including whether this board
+     * has a bootloader at all: an unauthenticated peer learns nothing from the
+     * answer. Mode 0 never reaches here, and on the soft and CRYPTO=none tiers
+     * ag_auth_gate() is permissive (auth_session_none.c), so those builds are
+     * unaffected -- the same accepted gap storage.c documents.
+     */
+    if (mode == 1u) {
+        ag_status_t gate = ag_auth_gate();
+        if (gate != AG_OK) {
+            return gate;
+        }
+        if (!ag_update_request_supported()) {
+            return AG_ERR_UNSUPPORTED;
+        }
     }
     reset_mode    = mode;
     reset_pending = 1u;
@@ -175,6 +203,9 @@ ag_status_t ag_sys_cmd_sys_info(ag_reader_t *r, ag_writer_t *w)
 void ag_sys_poll(void)
 {
     if (reset_pending && ag_hal_uart_tx_idle()) {
+        if (reset_mode == 1u) {
+            ag_update_request_arm();
+        }
         ag_hal_reset();
     }
 }

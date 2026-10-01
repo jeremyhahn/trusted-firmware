@@ -97,7 +97,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 |---|---|---|---|---|
 | 0x00 | `CAPS` | always | `[]` or `[pin:1]` | board header or pin descriptor, above |
 | 0x01 | `PING` | always | `bytes[0..MaxPayload]` | the same bytes, echoed |
-| 0x02 | `RESET` | always | `[mode:1]` (0 soft, 1 bootloader) | none; device acks, drains, then restarts. Mode 1 is not yet a distinct bootloader entry (it takes the same reset as mode 0) and is not gated by the auth session; issue #28 makes it a real path and adds the gate |
+| 0x02 | `RESET` | always | `[mode:1]` (0 soft, 1 bootloader) | none; device acks, drains, then restarts. Mode 0 restarts the application. Mode 1 restarts into ag-boot's OTA session (see below). Mode 1 requires the operator auth session (`AG_ERR_AUTH_REQUIRED` without one) on the element tier; soft and `CRYPTO=none` builds link the permissive gate and need none. On a board with no boot section (ATtiny85) mode 1 is refused with `AG_ERR_UNSUPPORTED` and nothing resets, so the host is told rather than silently handed the application. Any other mode is `AG_ERR_RANGE` |
 | 0x03 | `SYS_INFO` | always | `[]` | `[uptime_ms:4][free_ram:2][reset_cause:1][err_crc:2][err_format:2]` -- the last four bytes are appended (#5); a host that knows only the first seven still parses correctly |
 | 0x04 | `WDT_SET` | **reserved, no handler in any build** | — | `AG_ERR_UNKNOWN_CMD` |
 | 0x05 | `SLEEP` | **reserved, no handler in any build** | — | `AG_ERR_UNKNOWN_CMD` |
@@ -166,6 +166,36 @@ soft-tier or `CRYPTO=none` image does not compile them in at all and answers
 `AG_ERR_UNKNOWN_CMD`, the same as any other absent feature: the only
 available software-tier verify primitive does not fit this device family
 (`docs/security/threat-model.md`).
+
+## RESET into the bootloader
+
+`RESET` mode 1 on a healthy device takes a watchdog reset after leaving ag-boot
+a one-shot request (`include/ag/boot.h`, "the update-session request"). ag-boot
+honours it only after a pure watchdog reset, clears it before doing anything
+else, and opens its OTA session instead of jumping. What the host sees:
+
+1. The `RESET` response (`AG_OK`), then the reset.
+2. An unsolicited `EVENT` from ag-boot with status `AG_OK` and **no payload**.
+   The application's `EVENT_BOOT` has one payload byte, so the payload length
+   tells the two apart; a refusal announcement from ag-boot carries a non-`AG_OK`
+   status.
+3. `PING` is answered; application commands return `AG_ERR_UNKNOWN_CMD`; the
+   `OTA_*` commands work ([../secure-boot/api.md](../secure-boot/api.md)).
+
+The session ends on a verified `OTA_END` (ag-boot hands over to the new image),
+on `RESET` (the application starts), after 10 s of silence (or as many junk bytes as the line
+can carry in 10 s) without an accepted `OTA_BEGIN`, `OTA_DATA` or `OTA_END`,
+after an absolute ceiling of 60 s or about 83 KB (ATmega2560; 46 KB on the 28 KB
+parts) that nothing restarts, or at the first `OTA_END` that does not verify --
+one attempt per request. Each of the last three falls through to ag-boot's
+ordinary measure, verify and jump. `PING`, `OTA_STATUS` and rejected frames do
+not extend anything. If the failed attempt had already overwritten application
+pages, that fall-through fails verification and the device is in recovery
+(unbounded, waiting for a good image): a single-slot layout has no other
+outcome. Nothing is granted by the session: every
+image is signature- and floor-checked exactly as at a cold boot. A `BOOT_OTA=0`
+bootloader has no session loop and ignores the request, so mode 1 there is an
+ordinary restart.
 
 ## Events
 

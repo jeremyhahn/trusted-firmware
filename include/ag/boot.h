@@ -283,6 +283,49 @@ typedef struct {
 #define AG_BOOT_HO_RESERVED0    77u
 #define AG_BOOT_HO_CRC          78u
 
+/* -------------------------------------------- the update-session request */
+/*
+ * How the application asks ag-boot to open an OTA session on the next reset --
+ * RESET with mode 1. The OPPOSITE direction to the handoff above, application
+ * to bootloader, and it lives in the same place for the same reasons.
+ *
+ *   off  size  field
+ *     0     4  magic       AG_BOOT_REQUEST_MAGIC
+ *     4     4  inverse     ~magic
+ *
+ * WHY THE HANDOFF REGION. It is the one piece of SRAM both images already
+ * agree on the address of, pinned by the same formula at link time, outside
+ * .bss and .noinit so no C runtime ever zeroes it and no linker placement can
+ * move it in one image and not the other. A `.noinit` byte of its own would
+ * need that agreement built a second time. And it is free when the request is
+ * written: the application zeroizes the handoff the moment it has consumed it
+ * (src/core/handoff.c), long before any RESET can arrive, so the request
+ * cannot overwrite a CDI that is still needed. A watchdog reset preserves SRAM,
+ * which is the whole mechanism; nothing is written to EEPROM or flash, so the
+ * request costs no wear and survives nothing it should not.
+ *
+ * ROBUSTNESS. SRAM is garbage after power-up, and a single magic byte would be
+ * honoured by roughly one cold boot in 256. Eight bytes -- a 32-bit magic and
+ * its complement -- are a 1 in 2^32 coincidence, and the complement is what
+ * rejects the all-zero and all-ones fills that are the common power-on
+ * patterns. The request is ALSO only honoured when ag-boot's own latch of
+ * MCUSR says the reset was a watchdog reset and nothing else, because only the
+ * application's RESET causes one: a brown-out, a power cycle or the reset
+ * button must never open a session even if the bytes happen to match.
+ *
+ * ONE SHOT. ag-boot clears the bytes before it does anything else, whether or
+ * not it honours them, so a session that is abandoned or times out leaves the
+ * next reset to boot normally.
+ *
+ * It is a request, not a grant. Whatever is sent in the session is still
+ * signature- and floor-checked by the same ag_boot_evaluate as a cold boot.
+ */
+#define AG_BOOT_REQUEST_MAGIC  0x21445055uL  /* 'U','P','D','!' little-endian */
+#define AG_BOOT_REQUEST_INVERSE 0xDEBBAFAAuL /* ~AG_BOOT_REQUEST_MAGIC, as a literal so it is 32 bits on every host */
+#define AG_BOOT_REQ_OFF_MAGIC      0u
+#define AG_BOOT_REQ_OFF_INVERSE    4u
+#define AG_BOOT_REQUEST_LEN    8u
+
 /* ------------------------------------------------------------- geometry */
 /*
  * Derived, never stated twice. A board profile gives AG_FLASH_TOTAL and
@@ -299,5 +342,31 @@ typedef struct {
  * trailer would let a crafted image cover its own signature with the
  * measurement, so the bound is the trailer's address and not the region's. */
 #define AG_BOOT_MAX_IMAGE_LEN AG_BOOT_TRAILER_ADDR
+
+/*
+ * The most bytes a requested update session may receive in total (see
+ * include/ag/config.h on why it is a ceiling nothing restarts). A full image
+ * is AG_BOOT_APP_END bytes. Each OTA_DATA frame carries
+ *
+ *   SOF + LEN + SEQ + OP + CRC16  =  6 bytes of framing
+ *   offset                        =  4 bytes
+ *
+ * so 10 bytes of overhead around its data. A host is assumed to send at least
+ * AG_BOOT_SESSION_CHUNK_MIN data bytes per frame (the maximum is
+ * AG_MAX_PAYLOAD - 4 = 60 by default; 32 is already half of it). The allowance
+ * is one overhead per CHUNK_MIN of image, plus 16 for OTA_BEGIN and OTA_END,
+ * plus AG_BOOT_SESSION_SLACK for PINGs, OTA_STATUS polls and retransmitted
+ * frames -- 8 KB covers over a hundred full-size retransmits. For the
+ * ATmega2560 that is 56 KB + 18 KB + 8 KB = about 82 KB against a 56 KB image
+ * (and 7 s of wire at 115 200 baud); the 28 KB parts get about 45 KB.
+ */
+#define AG_BOOT_SESSION_CHUNK_MIN      32uL
+#define AG_BOOT_SESSION_FRAME_OVERHEAD 10uL
+#define AG_BOOT_SESSION_SLACK          8192uL
+#define AG_BOOT_SESSION_MAX_BYTES \
+    ((uint32_t)AG_BOOT_APP_END \
+     + (((uint32_t)AG_BOOT_APP_END / AG_BOOT_SESSION_CHUNK_MIN) + 1uL) \
+       * AG_BOOT_SESSION_FRAME_OVERHEAD \
+     + 16uL + AG_BOOT_SESSION_SLACK)
 
 #endif /* AG_BOOT_H */

@@ -24,6 +24,9 @@ static uint32_t last_page;
 static unsigned fail_writes;
 static unsigned jumped;
 static unsigned reset_calls;
+static unsigned empty_polls;
+static unsigned consumed;
+static void   (*rx_idle_hook)(unsigned);
 
 void ag_boot_mock_reset(void)
 {
@@ -41,6 +44,9 @@ void ag_boot_mock_reset(void)
     fail_writes = 0u;
     jumped = 0u;
     reset_calls = 0u;
+    empty_polls = 0u;
+    consumed = 0u;
+    rx_idle_hook = 0;
 }
 
 uint8_t *ag_boot_mock_flash(void)     { return flash; }
@@ -50,11 +56,24 @@ unsigned ag_boot_mock_page_writes(void)   { return page_writes; }
 uint32_t ag_boot_mock_last_page_addr(void){ return last_page; }
 void     ag_boot_mock_fail_writes(unsigned n) { fail_writes = n; }
 const uint8_t *ag_boot_mock_handoff(void) { return handoff_block; }
+
+void ag_boot_mock_set_handoff(const uint8_t *b, size_t n)
+{
+    memcpy(handoff_block, b, n);
+}
+unsigned ag_boot_mock_rx_consumed(void) { return consumed; }
+unsigned ag_boot_mock_rx_empty_polls(void) { return empty_polls; }
+void ag_boot_mock_on_rx_idle(void (*hook)(unsigned empty_polls)) { rx_idle_hook = hook; }
 unsigned ag_boot_mock_jumped(void)    { return jumped; }
 unsigned ag_boot_mock_did_reset(void) { return reset_calls; }
 
 void ag_boot_mock_feed_rx(const uint8_t *b, size_t n)
 {
+    /* A drained queue starts over, so a test can stream far more than the
+     * buffer holds as long as it never queues more than that at once. */
+    if (rx_tail == rx_head) {
+        rx_tail = rx_head = 0u;
+    }
     for (size_t i = 0u; i < n && rx_head < sizeof rx; i++) {
         rx[rx_head++] = b[i];
     }
@@ -123,10 +142,15 @@ void ag_boot_uart_init(uint32_t baud) { (void)baud; }
 
 uint8_t ag_boot_uart_rx(uint8_t *out)
 {
+    if (rx_tail >= rx_head && rx_idle_hook) {
+        rx_idle_hook(empty_polls);
+    }
     if (rx_tail >= rx_head) {
+        empty_polls++;
         return 0u;
     }
     *out = rx[rx_tail++];
+    consumed++;
     return 1u;
 }
 
@@ -140,6 +164,11 @@ void ag_boot_uart_tx(uint8_t byte)
 void ag_boot_handoff_write(const uint8_t *block, uint8_t len)
 {
     memcpy(handoff_block, block, len);
+}
+
+void ag_boot_handoff_read(uint8_t *buf, uint8_t len)
+{
+    memcpy(buf, handoff_block, len);
 }
 
 void ag_boot_jump_application(void) { jumped++; }

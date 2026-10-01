@@ -173,6 +173,55 @@
 #define AG_BOOT_SECTION_SIZE 4096uL
 #endif
 
+/*
+ * How long ag-boot keeps an application-requested update session open without
+ * seeing the transfer make progress, before it gives up and boots the image.
+ *
+ * Measured in receive-loop iterations, because ag-boot has no timer and must
+ * not grow a delay: AG_BOOT_SESSION_POLL_CYCLES is the cost of one iteration of
+ * boot/recovery/recovery_ota.c with nothing received, in CPU cycles, and the
+ * simavr suite (test/integration/simavr/boot_harness.c) measures the real
+ * duration against this so a change to the loop that makes the number wrong
+ * fails CI rather than silently stretching or shrinking the window.
+ */
+#ifndef AG_BOOT_SESSION_IDLE_SECONDS
+#define AG_BOOT_SESSION_IDLE_SECONDS 10uL
+#endif
+#ifndef AG_BOOT_SESSION_POLL_CYCLES
+#define AG_BOOT_SESSION_POLL_CYCLES  77uL
+#endif
+#define AG_BOOT_SESSION_IDLE_POLLS(f_cpu) \
+    (((uint32_t)(f_cpu) / AG_BOOT_SESSION_POLL_CYCLES) * AG_BOOT_SESSION_IDLE_SECONDS)
+
+/* The same bound for a BUSY line: bytes, not empty polls. 8N1 is ten bits a
+ * byte, so baud/10 bytes a second is the most the line can deliver and the
+ * session duration times that is the most a peer can send without ever leaving
+ * a poll empty. */
+#define AG_BOOT_SESSION_IDLE_BYTES(baud) \
+    (((uint32_t)(baud) / 10uL) * AG_BOOT_SESSION_IDLE_SECONDS)
+
+/*
+ * The CEILING on a requested session, which accepted frames do not restart: the
+ * idle bounds above restart on every accepted OTA frame, and an accepted frame
+ * is well-formed, not authenticated. Counted in every loop iteration, received
+ * byte or not, so a slow drip of valid frames meets it. Default six idle
+ * windows (60 s).
+ *
+ * Margin for a legitimate update, ATmega2560 at 115 200 baud, a 56 KB image sent
+ * stop-and-wait in 60-byte chunks: about 940 frames. Wire time is about 6 s for
+ * the requests and 1 s for the responses; the 220 page erase-and-writes add
+ * about 2 s that this count does not even see. So roughly 9 s end to end with a
+ * host that answers instantly, and 60 s allows an average of 64 ms of host
+ * latency per frame -- more than any USB-serial adapter adds. The smaller
+ * parts have half the image and the same ceiling. If a board's host path is
+ * slower than that, raise AG_BOOT_SESSION_MAX_SECONDS rather than the idle time.
+ */
+#ifndef AG_BOOT_SESSION_MAX_SECONDS
+#define AG_BOOT_SESSION_MAX_SECONDS (6uL * AG_BOOT_SESSION_IDLE_SECONDS)
+#endif
+#define AG_BOOT_SESSION_MAX_POLLS(f_cpu) \
+    (((uint32_t)(f_cpu) / AG_BOOT_SESSION_POLL_CYCLES) * AG_BOOT_SESSION_MAX_SECONDS)
+
 /* How many single-ended ADC channels the part has. The HAL bounds against this
  * rather than a literal 8, because a Mega has sixteen and reading channel 12 on
  * a part with eight must be refused rather than folded into channel 4. */

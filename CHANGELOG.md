@@ -8,6 +8,35 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **`RESET` mode 1 now opens an OTA session in `ag-boot` on a healthy device**
+  (#28). The mode byte used to be stored and never read, so both modes took the
+  same watchdog reset and a working device could not be updated over serial:
+  `ag-boot` only entered its OTA loop when there was nothing bootable. Mode 1
+  leaves a one-shot request (a 32-bit magic and its complement) in the handoff
+  SRAM region, which both images already place identically; `ag-boot` reads and
+  clears it before anything else, honours it only after a pure watchdog reset,
+  and runs the existing recovery loop bounded by an idle timeout
+  (`AG_BOOT_SESSION_IDLE_SECONDS`, 10 s, counted in loop iterations since
+  `ag-boot` has no timer, and independently in received bytes, derived from the
+  baud rate, so a peer streaming junk with no idle gap is bounded too). Accepted
+  `OTA_BEGIN`/`OTA_DATA`/`OTA_END` restart those two counts, but an accepted frame
+  is not authenticated, so the session also has a **ceiling nothing restarts** --
+  60 s of loop iterations (`AG_BOOT_SESSION_MAX_SECONDS`) and a byte total of the
+  application size plus framing and slack (`AG_BOOT_SESSION_MAX_BYTES`) -- and
+  **one attempt**: the first `OTA_END` that does not verify ends it. A full
+  56 KB ATmega2560 update at 115200 baud needs about 9 s and 66 KB of the
+  60 s / 83 KB. Any of these falls through to the normal measure, verify and
+  jump; if the failed attempt had already overwritten pages, that lands in
+  recovery, which stays unbounded (single-slot residual risk). The entry `EVENT` is status `AG_OK` with no payload. Mode 1 needs the
+  operator auth session on the element tier (`AG_ERR_AUTH_REQUIRED`); mode 0 is
+  never gated. A board with no boot section (ATtiny85) answers mode 1 with
+  `AG_ERR_UNSUPPORTED` and does not reset; a `BOOT_OTA=0` bootloader ignores the
+  request. The simavr bootloader suite now drives RESET(1), PING, the timeout,
+  RESET-in-session, one-shot clearing and a power-on request being ignored.
+  No wire change: no new command, status or event id.
+
 ## [0.5.0-alpha] - 2026-10-01
 
 ### BREAKING: devices must be re-baked, and ag-boot and the application upgraded together

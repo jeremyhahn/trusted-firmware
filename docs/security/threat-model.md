@@ -56,11 +56,27 @@ public key does not need secrecy once trusted, but a host that has not yet
 proven it holds the matching private key has no business confirming what the
 anchor even is.
 
-`RESET` mode 1 ("bootloader") is deliberately not gated. It is not yet a
-distinct path: the firmware takes the same watchdog reset for both modes, and
-ag-boot opens its OTA session only through recovery conditions, so a gate
-would protect nothing. Issue #28 makes mode 1 a real bootloader entry and adds
-the gate there.
+`RESET` mode 1 ("bootloader") is gated by the same session on the element tier
+(`AG_ERR_AUTH_REQUIRED` without one, checked before anything else about the
+request, so an unauthenticated peer learns nothing from the answer). Mode 1
+leaves a one-shot request that makes ag-boot open its OTA session on a healthy
+device (see [../secure-boot/api.md](../secure-boot/api.md#update-session-request)).
+Mode 0 is never gated. What the gate protects is the entry; the session itself
+is unauthenticated, and is bounded instead: it ends after an idle timeout -- in
+empty polls and, independently, in bytes received, so a flood of junk is bounded
+too -- that only accepted `OTA_*` frames restart, **and** after a ceiling nothing
+restarts (60 s of loop iterations, or the application size plus framing and slack
+in bytes), **and** after the first `OTA_END` that fails to verify. The ceiling
+matters because an accepted frame is well-formed, not authenticated: a peer that
+speaks the grammar can drip valid frames inside every idle window. The session
+then falls through to a normal verified boot, and grants nothing, since every image is signature- and floor-checked. What a hostile peer can still do on the soft and `CRYPTO=none` tiers is destroy
+the running application: pages written before the session ends are not restored
+(single slot), so the device falls through into recovery and needs a signed
+image. It can never make the device run an unsigned one. The
+auth session is lost with the reset it triggers. On the soft and `CRYPTO=none`
+tiers the gate is the permissive no-op, so any peer on the serial link can
+request a session; that is the same accepted gap as the rest of this section
+and its worst case is a 10 second delay per request plus a refused update.
 
 A session lasts until the device resets; there is no separate inactivity
 timeout.

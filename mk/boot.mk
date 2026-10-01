@@ -103,6 +103,7 @@ BOOT_TARGET  := $(BOOT_DIR_OUT)/ag-boot
 
 BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
+  boot/boot_request.c boot/boot_entry.c \
   boot/boot_platform.c boot/boot_policy.c \
   boot/hal/avr/boot_hal_avr.c \
   src/proto/crc16.c src/proto/crc16_update.c \
@@ -270,6 +271,7 @@ BOOT_DONNA_HOST  := -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE
 # added explicitly by the one suite that tests it.
 BOOT_LOGIC_SRCS := boot/boot_image.c boot/measure/measure_soft.c boot/boot_handoff.c boot/boot_ota.c \
                    boot/boot_platform.c boot/boot_session.c \
+                   boot/boot_request.c boot/boot_entry.c \
                    src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
                    test/mock/boot_hal_mock.c
 
@@ -306,6 +308,13 @@ $(BOOT_TEST_DIR)/test_boot_ed25519: test/unit/boot/test_boot_ed25519.c \
 $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
         boot/boot_policy.c $(BOOT_LOGIC_SRCS) $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The session loop with ag_boot_evaluate and ag_boot_hand_over supplied by the
+# test, so boot_policy.c and the signature backend stay out of this link.
+$(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_session.c \
+        boot/recovery/recovery_ota.c boot/boot_store.c src/proto/frame.c \
+        $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
@@ -469,10 +478,10 @@ BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a 
 $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
         src/proto/crc16.c src/proto/crc16_update.c \
         src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
-        boot/boot_image.c boot/boot_platform.c
+        boot/boot_image.c boot/boot_platform.c boot/boot_request.c
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
-	   -Iinclude -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
+	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
 	   -I$(BOARD_DIR) -DAG_BOARD_HEADER='"board_profile.h"' \
 	   -DAG_SIMAVR_MCU='"$(MCU)"' \
 	   -o $@ $^ -lsimavr -lelf

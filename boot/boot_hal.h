@@ -78,6 +78,12 @@ void    ag_boot_uart_tx(uint8_t byte);
  * include/ag/boot.h for what the application does with it. */
 void ag_boot_handoff_write(const uint8_t *block, uint8_t len);
 
+/* Reads the first `len` bytes back from the same place. The application leaves
+ * its update-session request there (AG_BOOT_REQUEST_MAGIC in
+ * include/ag/boot.h) and ag-boot reads it before it writes a handoff of its own
+ * over it. */
+void ag_boot_handoff_read(uint8_t *buf, uint8_t len);
+
 /* ---------------------------------------------------------------- control */
 
 /* Hands control to the application at address zero. Does not return.

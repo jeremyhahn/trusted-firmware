@@ -26,6 +26,7 @@
 #include "boot_platform.h"
 #include "boot_policy.h"
 #include "boot_recovery.h"
+#include "boot_request.h"
 #include "boot_store.h"
 #include "hal_early.h"
 #include "core/secure_zero.h"
@@ -93,6 +94,17 @@ int main(void)
     ag_status_t        st;
     uint32_t           floor;
     uint32_t           next;
+    uint8_t            update;
+
+    /*
+     * The application's one-shot update request, taken before ANYTHING else
+     * can fail or reset: take clears it unconditionally, so whatever happens
+     * from here on -- a refused image, a session abandoned, a power cut -- the
+     * next reset starts from nothing. ag_hal_early_flags is this image's own
+     * latch of MCUSR (hal_early.c), which is how a request is told apart from
+     * garbage left by a power cycle: only a watchdog reset honours it.
+     */
+    update = ag_boot_request_take(ag_hal_early_flags);
 
     ag_boot_uart_init(AG_UART_BAUD);
     (void)ag_boot_cdi_init();
@@ -123,6 +135,29 @@ int main(void)
      */
     if (plat.boot_state == AG_BOOT_STATE_STAGED) {
         ag_boot_recovery(&plat, AG_ERR_CRYPTO);
+    }
+
+    /*
+     * A healthy device that was asked to take an update. Reached only after the
+     * platform block loaded and no update is half-done -- both of those are
+     * recovery already, which serves the same loop without a limit.
+     *
+     * This returns when the session times out, and everything below then runs
+     * as it would have: measure, verify, floor, jump. Asking for a session
+     * therefore grants nothing; an image delivered in it is evaluated by the
+     * same ag_boot_evaluate as one found at reset.
+     */
+    if (update) {
+        /* Field by field, not an initialiser: on AVR a constant aggregate is
+         * emitted as initialised data in RAM, and ag-boot has no .data copy --
+         * so the table would read as zeros, and zero disables every bound. */
+        ag_boot_session_limits_t lim;
+
+        lim.idle_polls = AG_BOOT_SESSION_IDLE_POLLS(F_CPU);
+        lim.idle_bytes = AG_BOOT_SESSION_IDLE_BYTES(AG_UART_BAUD);
+        lim.max_polls  = AG_BOOT_SESSION_MAX_POLLS(F_CPU);
+        lim.max_bytes  = AG_BOOT_SESSION_MAX_BYTES;
+        ag_boot_session_open(&plat, &lim);
     }
 
     st = ag_boot_evaluate(floor, &verdict);

@@ -183,10 +183,14 @@ type ResetMode uint8
 const (
 	// ResetSoft restarts the application firmware.
 	ResetSoft ResetMode = 0
-	// ResetBootloader restarts into the bootloader, for flashing. It is
-	// NOT yet a distinct bootloader entry: the firmware takes the same reset
-	// as ResetSoft, so no authenticated session is required. Issue #28 makes
-	// it a real path and adds the gate there.
+	// ResetBootloader restarts into ag-boot's OTA session, for updating a
+	// healthy device. ag-boot announces it with an EVENT of status OK and no
+	// payload, answers PING, and boots the existing application again if no
+	// update frame is accepted within about ten seconds. On the element tier
+	// it requires an authenticated session (AuthChallenge/AuthResponse) and
+	// fails with an AUTH_REQUIRED status without one. A board with no boot
+	// section (the ATtiny85) refuses it with an UNSUPPORTED status and does
+	// not reset.
 	ResetBootloader ResetMode = 1
 )
 

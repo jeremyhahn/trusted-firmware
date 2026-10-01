@@ -10,6 +10,10 @@
 #include "ag/protocol.h"
 #include "ag/config.h"
 #include "vectors.h"
+#include "ag/boot.h"
+#include "reset_cause.h"
+#include "auth_session.h"
+#include "boot_request.h"
 
 static uint8_t     inbuf[AG_MAX_PAYLOAD];
 static uint8_t     outbuf[AG_MAX_PAYLOAD];
@@ -160,6 +164,75 @@ static void test_reset_rejects_an_unknown_mode(void)
     TEST_ASSERT_FALSE(ag_sys_reset_pending());
 }
 
+/* ------------------------------------------------- RESET(1): the bootloader */
+
+static uint8_t request_armed(void)
+{
+    return ag_boot_request_valid(ag_mock_handoff(), AG_MCUSR_WDRF);
+}
+
+/* The request is what makes mode 1 mean something: ag-boot reads it after the
+ * watchdog reset. Armed when the reset fires, so the bytes that ag-boot finds
+ * are exactly the ones the shared codec defines. */
+static void test_reset_to_bootloader_leaves_a_request_then_resets(void)
+{
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_RESET, (const uint8_t *)"\x01", 1u));
+    TEST_ASSERT_FALSE(request_armed());               /* not before the link drains */
+
+    ag_sys_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, ag_mock_reset_count());
+    TEST_ASSERT_TRUE(request_armed());
+}
+
+/* The soft and CRYPTO=none tiers link the permissive auth gate
+ * (auth_session_none.c), so RESET(1) there needs no session. The element tier's
+ * refusal is pinned in test_auth_session.c; this is the other half of that
+ * contract, and the build that exercises it is the one every host test uses. */
+static void test_reset_to_bootloader_is_not_gated_on_the_soft_tier(void)
+{
+    TEST_ASSERT_EQUAL(AG_OK, ag_auth_gate());
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_RESET, (const uint8_t *)"\x01", 1u));
+    TEST_ASSERT_TRUE(ag_sys_reset_pending());
+}
+
+/* Mode 0 is unchanged: a soft reset must never land in the bootloader. */
+static void test_soft_reset_leaves_no_request(void)
+{
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_RESET, (const uint8_t *)"\x00", 1u));
+    ag_sys_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, ag_mock_reset_count());
+    TEST_ASSERT_FALSE(request_armed());
+}
+
+/* The latest RESET wins. Arming at poll time rather than at command time is
+ * what makes this true: a request armed by the first command would outlive the
+ * second. */
+static void test_a_later_soft_reset_cancels_a_pending_bootloader_request(void)
+{
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_RESET, (const uint8_t *)"\x01", 1u));
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_RESET, (const uint8_t *)"\x00", 1u));
+    ag_sys_poll();
+    TEST_ASSERT_FALSE(request_armed());
+}
+
+/* Nothing arms while the response is still draining, mode 1 included. */
+static void test_no_request_is_left_while_the_response_is_draining(void)
+{
+    TEST_ASSERT_EQUAL(AG_OK, run(AG_CMD_RESET, (const uint8_t *)"\x01", 1u));
+    (void)ag_hal_uart_tx_try(0xAAu);
+    ag_sys_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, ag_mock_reset_count());
+    TEST_ASSERT_FALSE(request_armed());
+}
+
+static void test_a_refused_reset_leaves_no_request(void)
+{
+    TEST_ASSERT_EQUAL(AG_ERR_RANGE, run(AG_CMD_RESET, (const uint8_t *)"\x02", 1u));
+    ag_sys_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, ag_mock_reset_count());
+    TEST_ASSERT_FALSE(request_armed());
+}
+
 static void test_sys_info_reports_uptime_free_ram_and_reset_cause(void)
 {
     ag_mock_set_millis(0x12345678u);
@@ -243,6 +316,12 @@ int main(void)
     RUN_TEST(test_reset_defers_until_the_link_is_idle);
     RUN_TEST(test_reset_does_not_fire_while_the_response_is_still_draining);
     RUN_TEST(test_reset_rejects_an_unknown_mode);
+    RUN_TEST(test_reset_to_bootloader_leaves_a_request_then_resets);
+    RUN_TEST(test_reset_to_bootloader_is_not_gated_on_the_soft_tier);
+    RUN_TEST(test_soft_reset_leaves_no_request);
+    RUN_TEST(test_a_later_soft_reset_cancels_a_pending_bootloader_request);
+    RUN_TEST(test_no_request_is_left_while_the_response_is_draining);
+    RUN_TEST(test_a_refused_reset_leaves_no_request);
     RUN_TEST(test_sys_info_reports_uptime_free_ram_and_reset_cause);
     RUN_TEST(test_sys_info_appends_the_framer_error_counters);
     RUN_TEST(test_sys_info_reports_zero_counters_when_nothing_has_gone_wrong);

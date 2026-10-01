@@ -44,9 +44,26 @@ uint8_t *ag_boot_mock_eeprom(void);
 void   ag_boot_mock_feed_rx(const uint8_t *b, size_t n);
 size_t ag_boot_mock_drain_tx(uint8_t *out, size_t cap);
 
+/* How many times ag_boot_uart_rx() found nothing waiting. The bootloader has no
+ * clock, so its idle timeout is counted in these; a test measures the timeout
+ * by reading this back. */
+unsigned ag_boot_mock_rx_empty_polls(void);
+
+/* How many bytes ag_boot_uart_rx() has handed out. */
+unsigned ag_boot_mock_rx_consumed(void);
+
+/* Called from ag_boot_uart_rx() when nothing is waiting, with the number of
+ * empty polls so far and BEFORE the poll is counted, so the hook can feed bytes
+ * that the same poll then returns -- a peer that speaks after a silence. */
+void ag_boot_mock_on_rx_idle(void (*hook)(unsigned empty_polls));
+
 /* The handoff block as the bootloader left it, for asserting on what the
  * application would find. */
 const uint8_t *ag_boot_mock_handoff(void);
+
+/* Pre-loads the first `n` bytes of the handoff region, as the application
+ * leaves them before a reset. */
+void ag_boot_mock_set_handoff(const uint8_t *b, size_t n);
 
 /* Whether the bootloader jumped or reset, since neither can actually happen on
  * the host and a test must be able to tell which it asked for. */

@@ -79,7 +79,8 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_provision.c test/unit/test_alias.c \
                             test/unit/test_bus_element.c \
-                            test/unit/test_crypto_none.c, \
+                            test/unit/test_crypto_none.c \
+                            test/unit/test_sys_noboot.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -108,6 +109,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/core/handoff.c src/core/platform_id.c src/core/reset_cause.c \
                  src/core/secure_zero.c \
                  src/core/auth_session_none.c \
+                 src/core/update_request.c boot/boot_request.c \
                  boot/boot_handoff.c boot/boot_platform.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
@@ -190,6 +192,15 @@ $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_sys_noboot is the same case from the other side: the whole host library
+# with the no-bootloader stub where update_request.c would be, which is exactly
+# what mk/avr.mk links on a board with no boot section.
+$(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
+                        $(filter-out src/core/update_request.c,$(HOST_LIB_SRCS)) \
+                        src/core/update_request_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The operator-signature auth session, driven against the software element --
 # issue #4. Same arrangement as test_alias: the model IS the I2C HAL, so no
 # hal_mock.c, and the test file supplies its own tiny stand-ins for the
@@ -202,13 +213,14 @@ $(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c test/model/atecc608
                                 src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                                 src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
                                 src/core/platform_id.c src/core/handoff.c src/core/secure_zero.c \
+                                src/core/update_request.c boot/boot_request.c \
                                 boot/boot_platform.c boot/boot_handoff.c \
                                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -Itest/model \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session
 
@@ -239,7 +251,8 @@ coverage:
 	@# and boot/tier and boot/verify, which reach flash and an element through
 	@# PROGMEM and I2C rather than through anything a host build can drive.
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
-	       --filter 'boot/boot_(image|measure|ota|platform|policy|session)\.c' \
+	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry)\.c' \
+	       --filter 'boot/recovery/recovery_ota\.c' \
 	       --exclude 'src/hal/avr/' --print-summary \
 	       --html-details coverage/index.html --fail-under-line $(COVERAGE_FLOOR)
 

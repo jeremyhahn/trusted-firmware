@@ -42,10 +42,12 @@ has one place to read, not a scatter of checks between peripheral setup.
 
 ```
 reset (BOOTRST) -> .init3 (hal_early.c: clear MCUSR, disarm watchdog)
-  -> main(): uart_init, cdi_init
+  -> main(): request_take (read + clear the app's update request), uart_init, cdi_init
   -> platform_load (reserved EEPROM)                -> fail: recovery(reason)
   -> boot_state == STAGED?                           -> yes: recovery(AG_ERR_CRYPTO)
   -> floor_load
+  -> request honoured?                               -> yes: session_open (bounded; returns on
+                                                        idle timeout, hands over on a verified OTA_END)
   -> ag_boot_evaluate(floor):
        trailer_parse -> rollback_permit -> measure -> compare -> verify
                                                                 -> fail: recovery(reason)
@@ -59,6 +61,14 @@ OTA session (`AG_CMD_OTA_*`) over the polled UART and re-enters
 sleeps forever, because the framed path plus the hash plus the boot decision
 do not fit an 8 KB-or-smaller image alongside signature verification (see
 [cli.md](cli.md) and `mk/boot.mk`'s `BOOT_SUPPORTED` rows).
+
+A healthy device is moved into that loop by the application: `RESET` mode 1
+leaves a one-shot request in the handoff region and takes a watchdog reset.
+The request is app-to-bootloader, the reverse of the CDI handoff, and shares its
+SRAM span because both images already agree on its address. It is bounded by an
+idle timeout, falls through to the ordinary verify-and-jump, and grants nothing
+(the images are checked as always). See [api.md](api.md#update-session-request).
+The `RESET` itself needs the operator auth session on the element tier.
 
 ## Trust boundaries
 

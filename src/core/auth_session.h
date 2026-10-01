@@ -8,9 +8,9 @@
  * domain||device_serial||nonce, checked against the operator public key
  * agprov baked into the platform-reserved EEPROM block -- never a key held on
  * the device, and never the device's own DeviceID/CDI. A session established
- * this way gates one thing: EEPROM_READ below AG_EEPROM_RESERVED_END. RESET(1)
- * is NOT gated: it is not yet a distinct bootloader entry (issue #28 makes it
- * one and adds the gate there). The session lasts until the device resets;
+ * this way gates two things: EEPROM_READ below AG_EEPROM_RESERVED_END, and
+ * RESET(1), which makes ag-boot open an update session (issue #28). RESET(0) is
+ * never gated. The session lasts until the device resets;
  * there is no separate inactivity timeout.
  *
  * ELEMENT TIER ONLY. The obvious software-tier primitive, ed25519-donna, does

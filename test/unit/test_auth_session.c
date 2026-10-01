@@ -261,16 +261,15 @@ static void test_a_read_above_the_reserved_region_is_never_gated(void)
     TEST_ASSERT_EQUAL(AG_OK, eeprom_read(AG_BOOT_EE_LEN, 4u));
 }
 
-/* RESET(1) is accepted without a session. Mode 1 is not yet a distinct
- * bootloader entry (it takes the same reset as mode 0), so a gate would
- * protect nothing; the gate moves with issue #28, which makes it a real path. */
-static void test_reset_mode_1_is_accepted_without_a_session(void)
+/* RESET(1) enters the bootloader's update session, so on the element tier it
+ * needs the operator session. Refused with nothing pending: a peer that cannot
+ * authenticate must not be able to schedule the reset either. */
+static void test_reset_mode_1_is_refused_without_a_session(void)
 {
-    TEST_ASSERT_EQUAL(AG_OK, reset_bootloader());
-    TEST_ASSERT_TRUE(ag_sys_reset_pending());
+    TEST_ASSERT_EQUAL(AG_ERR_AUTH_REQUIRED, reset_bootloader());
+    TEST_ASSERT_FALSE(ag_sys_reset_pending());
 }
 
-/* Having a session changes nothing about RESET(1) either, until #28. */
 static void test_reset_mode_1_is_accepted_with_a_session(void)
 {
     TEST_ASSERT_EQUAL(AG_OK, challenge(0));
@@ -279,6 +278,17 @@ static void test_reset_mode_1_is_accepted_with_a_session(void)
 
     TEST_ASSERT_EQUAL(AG_OK, reset_bootloader());
     TEST_ASSERT_TRUE(ag_sys_reset_pending());
+}
+
+/* A failed AUTH_RESPONSE leaves no session, so it opens nothing. */
+static void test_reset_mode_1_is_refused_after_a_failed_authentication(void)
+{
+    TEST_ASSERT_EQUAL(AG_OK, challenge(0));
+    ag_model_set_verify_result(0u);
+    TEST_ASSERT_NOT_EQUAL(AG_OK, response(ARBITRARY_SIG));
+
+    TEST_ASSERT_EQUAL(AG_ERR_AUTH_REQUIRED, reset_bootloader());
+    TEST_ASSERT_FALSE(ag_sys_reset_pending());
 }
 
 /* The range check survives: only modes 0 and 1 exist. */
@@ -316,8 +326,9 @@ int main(void)
     RUN_TEST(test_reserved_region_read_is_refused_before_authentication);
     RUN_TEST(test_reserved_region_read_succeeds_after_authentication);
     RUN_TEST(test_a_read_above_the_reserved_region_is_never_gated);
-    RUN_TEST(test_reset_mode_1_is_accepted_without_a_session);
+    RUN_TEST(test_reset_mode_1_is_refused_without_a_session);
     RUN_TEST(test_reset_mode_1_is_accepted_with_a_session);
+    RUN_TEST(test_reset_mode_1_is_refused_after_a_failed_authentication);
     RUN_TEST(test_reset_with_an_unknown_mode_is_refused);
     RUN_TEST(test_a_soft_reset_is_never_gated);
     return UNITY_END();

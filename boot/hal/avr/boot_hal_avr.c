@@ -189,6 +189,11 @@ void ag_boot_handoff_write(const uint8_t *block, uint8_t len)
 
 /* -------------------------------------------------------------- control */
 
+void ag_boot_handoff_read(uint8_t *buf, uint8_t len)
+{
+    memcpy(buf, handoff, len);
+}
+
 void ag_boot_jump_application(void)
 {
     /* Every peripheral the bootloader touched, back to its reset value. An

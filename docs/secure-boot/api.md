@@ -40,6 +40,69 @@ image — carrying `AG_ERR_PROTECTED_REGION` (downgrade), `AG_ERR_CRYPTO`
 (measurement or signature failed), `AG_ERR_NOT_PROVISIONED` (no usable key),
 or `AG_OK` before the device jumps.
 
+### Entering the session from a healthy device
+
+The loop above is also entered on purpose: the application's `RESET` with mode 1
+(see [../wire-protocol/api.md](../wire-protocol/api.md#reset-into-the-bootloader))
+leaves the request described in `include/ag/boot.h` and ag-boot opens the same
+loop through `ag_boot_session_open(plat, &limits)` instead of jumping.
+Differences from recovery:
+
+- The entry `EVENT` carries `AG_OK` and no payload ("you asked for me"), not a
+  refusal reason.
+- The loop is **bounded**, through `ag_boot_session_open(plat, &limits)`, and
+  whichever bound is reached first ends it. Ending it means ag-boot continues
+  into `ag_boot_evaluate` and the jump. There is no timer and no delay in
+  ag-boot, so the units are loop iterations and bytes; `include/ag/config.h` and
+  `include/ag/boot.h` convert durations from `F_CPU` and the baud rate.
+
+  | Bound | Counts | Restarts on an accepted `OTA_BEGIN`/`DATA`/`END` | Stops |
+  |---|---|---|---|
+  | `idle_polls` | consecutive empty receive polls | yes | a quiet line |
+  | `idle_bytes` | bytes received since the last accepted frame | yes | junk, partial frames, PINGs at line rate |
+  | `max_polls` | every loop iteration, empty or not | **no** | a slow drip of valid frames |
+  | `max_bytes` | every byte received | **no** | a fast flood of valid frames |
+
+  An accepted frame is well-formed, not authenticated, so the first two cannot
+  be trusted to bound anything on their own; the last two are the ceiling that
+  nothing resets. Defaults: `AG_BOOT_SESSION_IDLE_SECONDS` 10 s;
+  `AG_BOOT_SESSION_MAX_SECONDS` 60 s (six idle windows);
+  `AG_BOOT_SESSION_POLL_CYCLES` 77 cycles per iteration, measured by the simavr
+  suite, which fails if the real duration drifts; `AG_BOOT_SESSION_MAX_BYTES`
+  = application size + 10 bytes of framing per 32 data bytes + 16 + 8 KB slack
+  (about 83 KB on the ATmega2560, 46 KB on the 28 KB parts).
+  **Margin for a full legitimate update**, ATmega2560, 56 KB at 115200 baud,
+  stop-and-wait in 60-byte chunks: about 940 frames, roughly 6 s of request wire
+  time, 1 s of responses and 2 s of page writes, i.e. about 9 s with an instant
+  host; 60 s allows 64 ms of host latency per frame. In bytes the transfer uses
+  about 66 KB of the 83 KB ceiling (and fits it at 32-byte chunks with the whole
+  slack spare). The 28 KB parts have half the image and the same time ceiling.
+- **One attempt.** The first `OTA_END` that does not end in a verified image --
+  refused as short or out of order, or failed by `ag_boot_evaluate` -- ends the
+  requested session, so a bogus transfer cannot be followed by another.
+- **What falling through costs.** `OTA_BEGIN` writes nothing; `OTA_DATA` erases
+  and rewrites application pages as each page fills, in place (single slot). A
+  session that ends before the first page was written leaves the old
+  application intact and it boots. One that ends after has already destroyed the
+  application it was replacing, so the ordinary measure/verify fails and the
+  device lands in recovery, which is unbounded and waits for a good image. That
+  is correct and expected, and it is the residual risk of a single-slot layout.
+  `BOOT_OTA=0` has no session at all and ignores the request.
+- Recovery's loop never times out; a session's does.
+
+## Update-session request
+
+Eight bytes at the start of the CDI handoff region: `AG_BOOT_REQUEST_MAGIC`
+(`0x21445055`) then its complement, little-endian. The region is the one SRAM
+span both images already agree on (placed by the same formula at link time,
+never zeroed by the C runtime, and free once the application has consumed the
+handoff). Honoured only if `ag_boot_request_valid`: both words match **and**
+ag-boot's MCUSR latch is a watchdog reset with no power-on, external or
+brown-out flag. `ag_boot_request_take` clears it unconditionally before
+anything else in `main()`, so an abandoned or timed-out session never repeats.
+Shared encoder/validator: `boot/boot_request.{c,h}`; the application's side is
+`src/core/update_request.c` (`_none.c` on boards with no boot section).
+
 `ag-boot` also emits one unsolicited `EVENT` frame on entry to recovery,
 carrying the `ag_status_t` reason it refused to boot — the same set
 `ag_boot_evaluate` can return (see [engineering.md](engineering.md)'s error

@@ -1,4 +1,4 @@
-# ci-template: v1 (adapted -- this repository is C firmware plus a Go SDK)
+# ci-template: v1.15 (adapted -- this repository is C firmware plus a Go SDK)
 #
 # The Go gates in the shared template have no meaning for AVR C, so each one is
 # substituted by its C equivalent rather than dropped: gofmt becomes

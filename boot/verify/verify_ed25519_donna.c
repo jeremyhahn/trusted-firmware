@@ -5,7 +5,7 @@
  *
  * A binding and nothing more. Everything above it -- the trailer, the
  * measurement, the rollback rule, the OTA state machine -- is written against
- * ag_boot_verify and does not know which primitive answers it, which is what
+ * tfw_boot_verify and does not know which primitive answers it, which is what
  * makes the size question below a question about ONE file rather than about the
  * bootloader.
  *
@@ -25,7 +25,7 @@
 #include <string.h>
 
 #include "../boot_verify.h"
-#include "ag/progmem.h"
+#include "tfw/progmem.h"
 #include "donna_shim.h"
 #include "ed25519.h"
 
@@ -36,40 +36,40 @@
  * so rather than verifying against a constant every build of this source
  * shares. The provisioning jig patches the real key in before flashing, and
  * reserved EEPROM carries its SHA-256 so that a substituted bootloader is
- * detectable -- see include/ag/boot.h.
+ * detectable -- see include/tfw/boot.h.
  */
-static const uint8_t pubkey_slot[AG_BOOT_PUBKEY_LEN] AG_PROGMEM = {
+static const uint8_t pubkey_slot[TFW_BOOT_PUBKEY_LEN] TFW_PROGMEM = {
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu
 };
 
-ag_status_t ag_boot_pubkey(uint8_t out[AG_BOOT_PUBKEY_LEN])
+tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN])
 {
     uint8_t erased = 0xFFu;
     uint8_t i;
 
-    for (i = 0u; i < AG_BOOT_PUBKEY_LEN; i++) {
-        out[i]  = (uint8_t)ag_pgm_u8(&pubkey_slot[i]);
+    for (i = 0u; i < TFW_BOOT_PUBKEY_LEN; i++) {
+        out[i]  = (uint8_t)tfw_pgm_u8(&pubkey_slot[i]);
         erased &= out[i];
     }
     if (erased == 0xFFu) {
-        memset(out, 0, AG_BOOT_PUBKEY_LEN);
-        return AG_ERR_NOT_PROVISIONED;
+        memset(out, 0, TFW_BOOT_PUBKEY_LEN);
+        return TFW_ERR_NOT_PROVISIONED;
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_boot_verify(const uint8_t *msg, uint16_t msglen,
-                           const uint8_t sig[AG_BOOT_SIG_LEN],
-                           const uint8_t pub[AG_BOOT_PUBKEY_LEN])
+tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
+                           const uint8_t sig[TFW_BOOT_SIG_LEN],
+                           const uint8_t pub[TFW_BOOT_PUBKEY_LEN])
 {
     /* donna returns 0 for a good signature and -1 for everything else. The
      * inversion is here rather than at the call site so that a backend swap
      * never has to think about it again. */
     if (ed25519_sign_open(msg, (size_t)msglen, pub, sig) != 0) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
-    return AG_OK;
+    return TFW_OK;
 }

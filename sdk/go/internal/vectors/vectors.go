@@ -52,8 +52,8 @@ const (
 // once by the C encoder and frozen here. A change to either command's id,
 // payload layout or byte order breaks this instead of shipping silently.
 const (
-	// FrameI2CConfigReq is AG_CMD_I2C_CONFIG, seq 1, hz=100000 (LE).
+	// FrameI2CConfigReq is TFW_CMD_I2C_CONFIG, seq 1, hz=100000 (LE).
 	FrameI2CConfigReq = "\xa5\x06\x01\x55\xa0\x86\x01\x00\x93\x73"
-	// FrameSPIConfigReq is AG_CMD_SPI_CONFIG, seq 2, mode=3 clkdiv=2 lsb=1.
+	// FrameSPIConfigReq is TFW_CMD_SPI_CONFIG, seq 2, mode=3 clkdiv=2 lsb=1.
 	FrameSPIConfigReq = "\xa5\x05\x02\x56\x03\x02\x01\x23\x74"
 )

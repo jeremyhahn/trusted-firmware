@@ -6,7 +6,7 @@
  * -- the AVR bootloader, and each host suite that exercises the primitive.
  *
  * THERE IS NO ENTROPY SOURCE HERE AND THIS IS NOT ONE. No AVR in this family
- * has a TRNG, which is why src/crypto/soft/provider.c refuses ag_crypto_random
+ * has a TRNG, which is why src/crypto/soft/provider.c refuses tfw_crypto_random
  * rather than returning something that merely looks random.
  *
  * It is reachable only from ed25519_sign_open_batch, which nothing in this tree

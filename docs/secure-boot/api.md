@@ -1,60 +1,60 @@
-# ag-boot — API
+# tfw-boot — API
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 One transport: the framed UART protocol (`src/proto/frame.c`), polled, no
-interrupts. `ag-boot` has no REST, gRPC, QUIC, MCP or Unix-socket surface —
+interrupts. `tfw-boot` has no REST, gRPC, QUIC, MCP or Unix-socket surface —
 this repo owns the AVR wire protocol and nothing above it (see the top-level
 `CLAUDE.md`). Requests and responses use the same frame codec the application
 uses, which is the whole reason OTA frames and application frames cannot
-drift apart. Definitions are `include/ag/boot.h`, `include/ag/protocol.h` and
-`include/ag/status.h`.
+drift apart. Definitions are `include/tfw/boot.h`, `include/tfw/protocol.h` and
+`include/tfw/status.h`.
 
 ## Commands
 
-Handled by `ag_boot_session_handle` (`boot/boot_session.c`), reachable only
+Handled by `tfw_boot_session_handle` (`boot/boot_session.c`), reachable only
 when the bootloader is in its OTA recovery path
 (`boot/recovery/recovery_ota.c`, linked when `BOOT_OTA=1`). Every other
-command — the application's full set — returns `AG_ERR_UNKNOWN_CMD`, which is
+command — the application's full set — returns `TFW_ERR_UNKNOWN_CMD`, which is
 how a host distinguishes "talking to the bootloader" from "talking to a dead
 device."
 
 | Command | ID | Request payload | Response payload | Notes |
 |---|---|---|---|---|
-| `AG_CMD_PING` | `0x01` | 0–N bytes, echoed | same bytes | the only command answered identically by both images; used to tell "in the bootloader, waiting" from "dead" |
-| `AG_CMD_RESET` | `0x02` | `[mode:1]` | none | `AG_BOOT_SESSION_RESET`; the loop calls `ag_boot_reset()` after the response frame is sent |
-| `AG_CMD_OTA_BEGIN` | `0x68` | `[total_len:4]` | none | declares the whole image length, trailer included; refuses a length that is not a whole page count or does not reach `AG_BOOT_TRAILER_LEN`. No version argument — the version lives inside the trailer, under the signature |
-| `AG_CMD_OTA_DATA` | `0x69` | `[offset:4][bytes:1..]` | none | `offset` must match the session's `next_offset` exactly; a chunk stream with no offset would let one dropped frame silently shift everything after it |
-| `AG_CMD_OTA_END` | `0x6A` | none | none | refuses unless exactly `declared_len` bytes arrived; flushes a partial final page padded with `0xFF`. Success here means every byte arrived — **nothing has been verified**. The session action is `AG_BOOT_SESSION_COMMIT`, which makes the recovery loop run `ag_boot_evaluate` next |
-| `AG_CMD_OTA_STATUS` | `0x6B` | none | `[state:1][received:4]` | `state` is `ag_ota_state_t`: `AG_OTA_IDLE`(0) / `RECEIVING`(1) / `COMPLETE`(2) / `FAILED`(3) |
+| `TFW_CMD_PING` | `0x01` | 0–N bytes, echoed | same bytes | the only command answered identically by both images; used to tell "in the bootloader, waiting" from "dead" |
+| `TFW_CMD_RESET` | `0x02` | `[mode:1]` | none | `TFW_BOOT_SESSION_RESET`; the loop calls `tfw_boot_reset()` after the response frame is sent |
+| `TFW_CMD_OTA_BEGIN` | `0x68` | `[total_len:4]` | none | declares the whole image length, trailer included; refuses a length that is not a whole page count or does not reach `TFW_BOOT_TRAILER_LEN`. No version argument — the version lives inside the trailer, under the signature |
+| `TFW_CMD_OTA_DATA` | `0x69` | `[offset:4][bytes:1..]` | none | `offset` must match the session's `next_offset` exactly; a chunk stream with no offset would let one dropped frame silently shift everything after it |
+| `TFW_CMD_OTA_END` | `0x6A` | none | none | refuses unless exactly `declared_len` bytes arrived; flushes a partial final page padded with `0xFF`. Success here means every byte arrived — **nothing has been verified**. The session action is `TFW_BOOT_SESSION_COMMIT`, which makes the recovery loop run `tfw_boot_evaluate` next |
+| `TFW_CMD_OTA_STATUS` | `0x6B` | none | `[state:1][received:4]` | `state` is `tfw_ota_state_t`: `TFW_OTA_IDLE`(0) / `RECEIVING`(1) / `COMPLETE`(2) / `FAILED`(3) |
 
-Status byte in every response frame is `ag_status_t`. The ones this surface
-can return: `AG_OK`(0), `AG_ERR_BAD_ARGC`(5, wrong payload length for the
-command), `AG_ERR_RANGE`(11, a length or offset outside what's possible),
-`AG_ERR_PROTECTED_REGION`(16, an OTA write reaching the boot section),
-`AG_ERR_UNKNOWN_CMD`(4, any application command). `OTA_END`'s
-`AG_BOOT_SESSION_COMMIT` triggers a **second**, unsolicited `EVENT` frame
-after the response — the result of `ag_boot_evaluate` on the just-received
-image — carrying `AG_ERR_PROTECTED_REGION` (downgrade), `AG_ERR_CRYPTO`
-(measurement or signature failed), `AG_ERR_NOT_PROVISIONED` (no usable key),
-or `AG_OK` before the device jumps.
+Status byte in every response frame is `tfw_status_t`. The ones this surface
+can return: `TFW_OK`(0), `TFW_ERR_BAD_ARGC`(5, wrong payload length for the
+command), `TFW_ERR_RANGE`(11, a length or offset outside what's possible),
+`TFW_ERR_PROTECTED_REGION`(16, an OTA write reaching the boot section),
+`TFW_ERR_UNKNOWN_CMD`(4, any application command). `OTA_END`'s
+`TFW_BOOT_SESSION_COMMIT` triggers a **second**, unsolicited `EVENT` frame
+after the response — the result of `tfw_boot_evaluate` on the just-received
+image — carrying `TFW_ERR_PROTECTED_REGION` (downgrade), `TFW_ERR_CRYPTO`
+(measurement or signature failed), `TFW_ERR_NOT_PROVISIONED` (no usable key),
+or `TFW_OK` before the device jumps.
 
 ### Entering the session from a healthy device
 
 The loop above is also entered on purpose: the application's `RESET` with mode 1
 (see [../wire-protocol/api.md](../wire-protocol/api.md#reset-into-the-bootloader))
-leaves the request described in `include/ag/boot.h` and ag-boot opens the same
-loop through `ag_boot_session_open(plat, &limits)` instead of jumping.
+leaves the request described in `include/tfw/boot.h` and tfw-boot opens the same
+loop through `tfw_boot_session_open(plat, &limits)` instead of jumping.
 Differences from recovery:
 
-- The entry `EVENT` carries `AG_OK` and no payload ("you asked for me"), not a
+- The entry `EVENT` carries `TFW_OK` and no payload ("you asked for me"), not a
   refusal reason.
-- The loop is **bounded**, through `ag_boot_session_open(plat, &limits)`, and
-  whichever bound is reached first ends it. Ending it means ag-boot continues
-  into `ag_boot_evaluate` and the jump. There is no timer and no delay in
-  ag-boot, so the units are loop iterations and bytes; `include/ag/config.h` and
-  `include/ag/boot.h` convert durations from `F_CPU` and the baud rate.
+- The loop is **bounded**, through `tfw_boot_session_open(plat, &limits)`, and
+  whichever bound is reached first ends it. Ending it means tfw-boot continues
+  into `tfw_boot_evaluate` and the jump. There is no timer and no delay in
+  tfw-boot, so the units are loop iterations and bytes; `include/tfw/config.h` and
+  `include/tfw/boot.h` convert durations from `F_CPU` and the baud rate.
 
   | Bound | Counts | Restarts on an accepted `OTA_BEGIN`/`DATA`/`END` | Stops |
   |---|---|---|---|
@@ -65,10 +65,10 @@ Differences from recovery:
 
   An accepted frame is well-formed, not authenticated, so the first two cannot
   be trusted to bound anything on their own; the last two are the ceiling that
-  nothing resets. Defaults: `AG_BOOT_SESSION_IDLE_SECONDS` 10 s;
-  `AG_BOOT_SESSION_MAX_SECONDS` 60 s (six idle windows);
-  `AG_BOOT_SESSION_POLL_CYCLES` 77 cycles per iteration, measured by the simavr
-  suite, which fails if the real duration drifts; `AG_BOOT_SESSION_MAX_BYTES`
+  nothing resets. Defaults: `TFW_BOOT_SESSION_IDLE_SECONDS` 10 s;
+  `TFW_BOOT_SESSION_MAX_SECONDS` 60 s (six idle windows);
+  `TFW_BOOT_SESSION_POLL_CYCLES` 77 cycles per iteration, measured by the simavr
+  suite, which fails if the real duration drifts; `TFW_BOOT_SESSION_MAX_BYTES`
   = application size + 10 bytes of framing per 32 data bytes + 16 + 8 KB slack
   (about 83 KB on the ATmega2560, 46 KB on the 28 KB parts).
   **Margin for a full legitimate update**, ATmega2560, 56 KB at 115200 baud,
@@ -78,7 +78,7 @@ Differences from recovery:
   about 66 KB of the 83 KB ceiling (and fits it at 32-byte chunks with the whole
   slack spare). The 28 KB parts have half the image and the same time ceiling.
 - **One attempt.** The first `OTA_END` that does not end in a verified image --
-  refused as short or out of order, or failed by `ag_boot_evaluate` -- ends the
+  refused as short or out of order, or failed by `tfw_boot_evaluate` -- ends the
   requested session, so a bogus transfer cannot be followed by another.
 - **What falling through costs.** `OTA_BEGIN` writes nothing; `OTA_DATA` erases
   and rewrites application pages as each page fills, in place (single slot). A
@@ -92,117 +92,117 @@ Differences from recovery:
 
 ## Update-session request
 
-Eight bytes at the start of the CDI handoff region: `AG_BOOT_REQUEST_MAGIC`
+Eight bytes at the start of the CDI handoff region: `TFW_BOOT_REQUEST_MAGIC`
 (`0x21445055`) then its complement, little-endian. The region is the one SRAM
 span both images already agree on (placed by the same formula at link time,
 never zeroed by the C runtime, and free once the application has consumed the
-handoff). Honoured only if `ag_boot_request_valid`: both words match **and**
-ag-boot's MCUSR latch is a watchdog reset with no power-on, external or
-brown-out flag. `ag_boot_request_take` clears it unconditionally before
+handoff). Honoured only if `tfw_boot_request_valid`: both words match **and**
+tfw-boot's MCUSR latch is a watchdog reset with no power-on, external or
+brown-out flag. `tfw_boot_request_take` clears it unconditionally before
 anything else in `main()`, so an abandoned or timed-out session never repeats.
 Shared encoder/validator: `boot/boot_request.{c,h}`; the application's side is
 `src/core/update_request.c` (`_none.c` on boards with no boot section).
 
-`ag-boot` also emits one unsolicited `EVENT` frame on entry to recovery,
-carrying the `ag_status_t` reason it refused to boot — the same set
-`ag_boot_evaluate` can return (see [engineering.md](engineering.md)'s error
+`tfw-boot` also emits one unsolicited `EVENT` frame on entry to recovery,
+carrying the `tfw_status_t` reason it refused to boot — the same set
+`tfw_boot_evaluate` can return (see [engineering.md](engineering.md)'s error
 table).
 
 ## Structures
 
-All three are defined once in `include/ag/boot.h` because each has a second
+All three are defined once in `include/tfw/boot.h` because each has a second
 party that must agree byte for byte, and every field is read by shift and
 mask — never a struct cast — so no compiler's padding rules become part of
 the wire contract.
 
 ### The image trailer
 
-The last `AG_BOOT_TRAILER_LEN` (128) bytes of the application region, at
-`AG_BOOT_TRAILER_ADDR = AG_BOOT_APP_END - 128`:
+The last `TFW_BOOT_TRAILER_LEN` (128) bytes of the application region, at
+`TFW_BOOT_TRAILER_ADDR = TFW_BOOT_APP_END - 128`:
 
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
-| 0 | 4 | `magic` | `AG_BOOT_TRAILER_MAGIC` = `0x4D494741` |
-| 4 | 2 | `trailer_version` | `AG_BOOT_TRAILER_VERSION` = 1, exact match required |
+| 0 | 4 | `magic` | `TFW_BOOT_TRAILER_MAGIC` = `0x4D494654` |
+| 4 | 2 | `trailer_version` | `TFW_BOOT_TRAILER_VERSION` = 1, exact match required |
 | 6 | 2 | reserved | |
 | 8 | 4 | `image_version` | the anti-rollback security version number; 0 is refused |
-| 12 | 4 | `image_len` | bytes measured, from address 0; bounded by `AG_BOOT_MAX_IMAGE_LEN` |
+| 12 | 4 | `image_len` | bytes measured, from address 0; bounded by `TFW_BOOT_MAX_IMAGE_LEN` |
 | 16 | 32 | `measurement` | SHA-256 over `[0, image_len)` — this is `FWHash` |
-| — | — | *signed span ends here* | bytes `[0, 48)`, `AG_BOOT_TR_SIGNED_LEN` |
+| — | — | *signed span ends here* | bytes `[0, 48)`, `TFW_BOOT_TR_SIGNED_LEN` |
 | 48 | 64 | `signature` | Ed25519 (or the element's ECDSA-backed verify) over the signed span |
 | 112 | 16 | reserved | |
 
-Parsed by `ag_boot_trailer_parse`, serialised by `ag_boot_trailer_serialise`
+Parsed by `tfw_boot_trailer_parse`, serialised by `tfw_boot_trailer_serialise`
 (`boot/boot_image.c`). The build-time signing tool and the OTA-sending host
 tool are the two other parties.
 
 ### Reserved EEPROM
 
-`AG_BOOT_EE_BASE` (`0x000`) through `0x0BF`, `AG_BOOT_EE_LEN` (192) bytes,
+`TFW_BOOT_EE_BASE` (`0x000`) through `0x0BF`, `TFW_BOOT_EE_LEN` (192) bytes,
 refused for application writes by `src/caps/storage.c`:
 
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
-| 0 | 4 | `magic` | `AG_BOOT_EE_MAGIC` = `0x52504741` |
-| 4 | 1 | `layout_version` | `AG_BOOT_EE_VERSION` = 2 (grew from 1 when `operator_pubkey` below was added — issue #4; an older-layout region parses as unprovisioned rather than partially) |
+| 0 | 4 | `magic` | `TFW_BOOT_EE_MAGIC` = `0x52504654` |
+| 4 | 1 | `layout_version` | `TFW_BOOT_EE_VERSION` = 2 (grew from 1 when `operator_pubkey` below was added — issue #4; an older-layout region parses as unprovisioned rather than partially) |
 | 5 | 1 | `flags` | |
 | 6 | 2 | reserved | |
 | 8 | 32 | `pubkey_hash` | SHA-256 of the 32-byte Ed25519 public key; ignored on the element tier |
 | 40 | 4 | `rollback_floor` | software tier only; the element tier uses its own monotonic counter |
 | 44 | 4 | `boot_count` | |
-| 48 | 1 | `boot_state` | `AG_BOOT_STATE_EMPTY`(0) / `STAGED`(1) / `GOOD`(2) |
-| 49 | 1 | `ota_state` | `AG_BOOT_OTA_IDLE`(0) / `RECEIVING`(1) / `VERIFIED`(2) / `FAILED`(3) |
+| 48 | 1 | `boot_state` | `TFW_BOOT_STATE_EMPTY`(0) / `STAGED`(1) / `GOOD`(2) |
+| 49 | 1 | `ota_state` | `TFW_BOOT_OTA_IDLE`(0) / `RECEIVING`(1) / `VERIFIED`(2) / `FAILED`(3) |
 | 50 | 2 | `boot_fail_count` | |
-| 52 | 16 | `device_serial` | baked into the `.eep` image by `agprov --bake-eeprom` before the part is ever flashed — there is no wire command that writes it |
+| 52 | 16 | `device_serial` | baked into the `.eep` image by `tfwprov --bake-eeprom` before the part is ever flashed — there is no wire command that writes it |
 | 68 | 64 | `operator_pubkey` | the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), P-256 as X‖Y; element tier only, baked in the same way as `device_serial`; see [../security/threat-model.md](../security/threat-model.md) |
 | 132 | 58 | reserved | |
 | 190 | 2 | `crc16` | over bytes `[0, 190)` — corruption detection, **not** integrity against an attacker; anyone who can write the region can recompute it |
 
-Parsed by `ag_boot_platform_parse`, serialised by `ag_boot_platform_serialise`
-(`boot/boot_platform.c`); accessed through `ag_boot_platform_load` /
-`ag_boot_platform_store` (`boot/boot_store.c`). The second party is `agprov`
-(`sdk/go/cmd/agprov`) — see
+Parsed by `tfw_boot_platform_parse`, serialised by `tfw_boot_platform_serialise`
+(`boot/boot_platform.c`); accessed through `tfw_boot_platform_load` /
+`tfw_boot_platform_store` (`boot/boot_store.c`). The second party is `tfwprov`
+(`sdk/go/cmd/tfwprov`) — see
 [../device-provisioning/user.md](../device-provisioning/user.md).
 
 ### The DICE CDI handoff record
 
-`AG_BOOT_HANDOFF_LEN` (80) bytes of SRAM in its own `.handoff` section --
+`TFW_BOOT_HANDOFF_LEN` (80) bytes of SRAM in its own `.handoff` section --
 uninitialised-but-not-zeroed storage, the same idea `.noinit` names, but its
 own section rather than that one: `src/hal/avr/hal_early.c`'s
-`ag_hal_early_flags` lives in ordinary `.noinit` for the identical reason
+`tfw_hal_early_flags` lives in ordinary `.noinit` for the identical reason
 (surviving past `.init3`, before `.bss` is cleared), and pinning the handoff
 block's address onto the generic `.noinit` output section would carry that
 variable along with it — briefly true of this codebase and the reason this
-note is here. At the top of RAM, written once by `ag_boot_handoff_write` and
-read once by the application (`src/core/handoff.c`'s `ag_boot_handoff_init`,
-at startup, before `ag_crypto_init`):
+note is here. At the top of RAM, written once by `tfw_boot_handoff_write` and
+read once by the application (`src/core/handoff.c`'s `tfw_boot_handoff_init`,
+at startup, before `tfw_crypto_init`):
 
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
-| 0 | 4 | `magic` | `AG_BOOT_HANDOFF_MAGIC` = `0x49444341` |
-| 4 | 1 | `version` | `AG_BOOT_HANDOFF_VERSION` = 2 |
-| 5 | 1 | `tier` | the `ag_crypto_tier_t` `ag_boot_cdi_tier()` observed |
+| 0 | 4 | `magic` | `TFW_BOOT_HANDOFF_MAGIC` = `0x49444341` |
+| 4 | 1 | `version` | `TFW_BOOT_HANDOFF_VERSION` = 2 |
+| 5 | 1 | `tier` | the `tfw_crypto_tier_t` `tfw_boot_cdi_tier()` observed |
 | 6 | 2 | `flags` | |
 | 8 | 32 | `cdi` | `HMAC(UDS, measurement)` |
 | 40 | 32 | `measurement` | so the application reports the `FWHash` actually verified, not a recomputation |
 | 72 | 4 | `image_version` | |
-| 76 | 1 | `reset_cause` | raw `MCUSR`, latched by `hal_early.c` before ag-boot's own `.init3` clears it — issue #18 |
+| 76 | 1 | `reset_cause` | raw `MCUSR`, latched by `hal_early.c` before tfw-boot's own `.init3` clears it — issue #18 |
 | 77 | 1 | reserved | |
 | 78 | 2 | `crc16` | over bytes `[0, 78)` |
 
 Version 2 repurposed bytes rather than growing the block: version 1 held
 `crc16` at offset 76 and two reserved bytes at 78; version 2 moved `crc16` to
 the end of what it now covers, widening coverage to include `reset_cause`.
-`AG_BOOT_HANDOFF_LEN` is unchanged.
+`TFW_BOOT_HANDOFF_LEN` is unchanged.
 
-Built by `ag_boot_handoff_build`, parsed by `ag_boot_handoff_parse`
+Built by `tfw_boot_handoff_build`, parsed by `tfw_boot_handoff_parse`
 (`boot/boot_handoff.c`) — pure functions over the byte layout, testable
-without an MCU on either side. `ag_boot_handoff_parse` returns
-`AG_ERR_NOT_PROVISIONED` on a missing magic, `AG_ERR_UNSUPPORTED` on a version
-this build doesn't know, and `AG_ERR_CRC` on a block a stack overwrote — the
+without an MCU on either side. `tfw_boot_handoff_parse` returns
+`TFW_ERR_NOT_PROVISIONED` on a missing magic, `TFW_ERR_UNSUPPORTED` on a version
+this build doesn't know, and `TFW_ERR_CRC` on a block a stack overwrote — the
 one failure worth naming on a part with no MPU. An unknown or older version
 degrades exactly like a missing handoff: `DeviceID`/`FWHash` stay zero and
-`ag_hal_reset_cause()` falls back to the application's own `.init3`
+`tfw_hal_reset_cause()` falls back to the application's own `.init3`
 observation — never a block misread as something it is not.
 
 **This is data, never a call.** The application asking the bootloader for its
@@ -213,20 +213,20 @@ CDI through a trampoline is exactly what the tier forbids — see
 
 Every layout above is additive-only: offsets never move, fields never
 renumber, and a `*_version`/`layout_version` byte gates whether a build
-understands what it's reading. `AG_BOOT_TRAILER_VERSION` is currently `1`,
-with no second value defined. `AG_BOOT_EE_VERSION` is `2` (issue #4) —
+understands what it's reading. `TFW_BOOT_TRAILER_VERSION` is currently `1`,
+with no second value defined. `TFW_BOOT_EE_VERSION` is `2` (issue #4) —
 version 1 ended at byte 128 with `device_serial` followed directly by 58
 reserved bytes and the CRC; version 2 inserts `operator_pubkey` after
 `device_serial` and moves the reserved span and the CRC down by 64 bytes,
 growing the block rather than repurposing bytes the way the handoff record
 below does. A region written under version 1 parses as unprovisioned
-(`AG_ERR_UNSUPPORTED`) under a version-2-aware build — every field,
+(`TFW_ERR_UNSUPPORTED`) under a version-2-aware build — every field,
 `device_serial` included — not partially: see "Reserved EEPROM" above.
-`AG_BOOT_HANDOFF_VERSION` is `2` — version 1 held `crc16` at offset 76 and
+`TFW_BOOT_HANDOFF_VERSION` is `2` — version 1 held `crc16` at offset 76 and
 two reserved bytes at 78; version 2 (issue #18) repurposed the first
 reserved byte as `reset_cause` and moved `crc16` to cover it, without
 growing the block. An application and a bootloader built from sources on
 either side of that change treat each other's handoff exactly like a
 missing one: refused, not misread — see "The DICE CDI handoff record"
 above. The OTA command IDs (`0x68`–`0x6B`) sit in the same
-extend-never-renumber space as the rest of `include/ag/protocol.h`.
+extend-never-renumber space as the rest of `include/tfw/protocol.h`.

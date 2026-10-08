@@ -3,16 +3,16 @@
 
 #include <avr/eeprom.h>
 #include <avr/wdt.h>
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
-ag_status_t ag_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
     eeprom_read_block(buf, (const void *)(uintptr_t)addr, len);
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     uint8_t i;
 
@@ -29,5 +29,5 @@ ag_status_t ag_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
          * like a hang to the watchdog. */
         wdt_reset();
     }
-    return AG_OK;
+    return TFW_OK;
 }

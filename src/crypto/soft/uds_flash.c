@@ -13,9 +13,9 @@
 
 #include <stdint.h>
 
-const uint8_t *ag_crypto_soft_uds(void);
+const uint8_t *tfw_crypto_soft_uds(void);
 
-const uint8_t *ag_crypto_soft_uds(void)
+const uint8_t *tfw_crypto_soft_uds(void)
 {
-    return 0;   /* unprovisioned until ag-boot writes one */
+    return 0;   /* unprovisioned until tfw-boot writes one */
 }

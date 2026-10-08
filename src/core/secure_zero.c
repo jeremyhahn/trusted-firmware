@@ -3,7 +3,7 @@
 
 #include "secure_zero.h"
 
-void ag_secure_zero(void *p, size_t n)
+void tfw_secure_zero(void *p, size_t n)
 {
     volatile unsigned char *vp = (volatile unsigned char *)p;
 

@@ -4,11 +4,11 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
 /* The USART register names come from avr_usart_regs.h, which the bootloader
- * includes too -- see that file for why they are pasted from AG_UART_N and why
+ * includes too -- see that file for why they are pasted from TFW_UART_N and why
  * the interrupt vector names are not. */
 #include "avr_usart_regs.h"
 
@@ -27,47 +27,47 @@
  * observe a half-updated index -- a corruption that appears under load, looks
  * like line noise, and is very hard to attribute.
  */
-#ifndef AG_UART_RX_RING
-#define AG_UART_RX_RING 64u
+#ifndef TFW_UART_RX_RING
+#define TFW_UART_RX_RING 64u
 #endif
-#ifndef AG_UART_TX_RING
-#define AG_UART_TX_RING 64u
+#ifndef TFW_UART_TX_RING
+#define TFW_UART_TX_RING 64u
 #endif
 
-_Static_assert((AG_UART_RX_RING & (AG_UART_RX_RING - 1u)) == 0u,
-               "AG_UART_RX_RING must be a power of two: the index wraps by masking");
-_Static_assert((AG_UART_TX_RING & (AG_UART_TX_RING - 1u)) == 0u,
-               "AG_UART_TX_RING must be a power of two: the index wraps by masking");
-_Static_assert(AG_UART_RX_RING <= 256u && AG_UART_TX_RING <= 256u,
+_Static_assert((TFW_UART_RX_RING & (TFW_UART_RX_RING - 1u)) == 0u,
+               "TFW_UART_RX_RING must be a power of two: the index wraps by masking");
+_Static_assert((TFW_UART_TX_RING & (TFW_UART_TX_RING - 1u)) == 0u,
+               "TFW_UART_TX_RING must be a power of two: the index wraps by masking");
+_Static_assert(TFW_UART_RX_RING <= 256u && TFW_UART_TX_RING <= 256u,
                "ring indices must fit in a uint8_t, or the lock-free single-writer "
                "property depends on a multi-byte store being atomic, which it is not");
 
-static volatile uint8_t rx_buf[AG_UART_RX_RING];
+static volatile uint8_t rx_buf[TFW_UART_RX_RING];
 static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writes. */
 
-static volatile uint8_t tx_buf[AG_UART_TX_RING];
+static volatile uint8_t tx_buf[TFW_UART_TX_RING];
 static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: ISR writes. */
 
-ag_status_t ag_hal_uart_init(uint32_t baud)
+tfw_status_t tfw_hal_uart_init(uint32_t baud)
 {
     /* Double-speed mode: at 16 MHz and 115200 the normal divisor has 3.5%
      * error, which is outside what a UART tolerates over a full frame. U2X
      * halves it to 2.1% and the link works. */
     uint16_t ubrr = (uint16_t)((F_CPU / (8UL * baud)) - 1UL);
 
-    AG_UBRRH = (uint8_t)(ubrr >> 8);
-    AG_UBRRL = (uint8_t)(ubrr & 0xFFu);
-    AG_UCSRA = (uint8_t)_BV(AG_U2X);
-    AG_UCSRC = (uint8_t)(_BV(AG_UCSZ1) | _BV(AG_UCSZ0));          /* 8N1 */
-    AG_UCSRB = (uint8_t)(_BV(AG_RXEN) | _BV(AG_TXEN) | _BV(AG_RXCIE));
+    TFW_UBRRH = (uint8_t)(ubrr >> 8);
+    TFW_UBRRL = (uint8_t)(ubrr & 0xFFu);
+    TFW_UCSRA = (uint8_t)_BV(TFW_U2X);
+    TFW_UCSRC = (uint8_t)(_BV(TFW_UCSZ1) | _BV(TFW_UCSZ0));          /* 8N1 */
+    TFW_UCSRB = (uint8_t)(_BV(TFW_RXEN) | _BV(TFW_TXEN) | _BV(TFW_RXCIE));
     rx_head = rx_tail = tx_head = tx_tail = 0u;
-    return AG_OK;
+    return TFW_OK;
 }
 
-ISR(AG_UART_RX_VECT)
+ISR(TFW_UART_RX_VECT)
 {
-    uint8_t d    = AG_UDR;
-    uint8_t next = (uint8_t)((rx_head + 1u) & (AG_UART_RX_RING - 1u));
+    uint8_t d    = TFW_UDR;
+    uint8_t next = (uint8_t)((rx_head + 1u) & (TFW_UART_RX_RING - 1u));
 
     /* A full ring drops the byte rather than overwriting the oldest. The framer
      * above will see a CRC failure or a bad length and resynchronise, which is
@@ -79,36 +79,36 @@ ISR(AG_UART_RX_VECT)
     }
 }
 
-ISR(AG_UART_UDRE_VECT)
+ISR(TFW_UART_UDRE_VECT)
 {
     if (tx_tail == tx_head) {
-        AG_UCSRB = (uint8_t)(AG_UCSRB & (uint8_t)~_BV(AG_UDRIE));  /* nothing left */
+        TFW_UCSRB = (uint8_t)(TFW_UCSRB & (uint8_t)~_BV(TFW_UDRIE));  /* nothing left */
         return;
     }
-    AG_UDR    = tx_buf[tx_tail];
-    tx_tail = (uint8_t)((tx_tail + 1u) & (AG_UART_TX_RING - 1u));
+    TFW_UDR    = tx_buf[tx_tail];
+    tx_tail = (uint8_t)((tx_tail + 1u) & (TFW_UART_TX_RING - 1u));
 }
 
-uint8_t ag_hal_uart_rx(uint8_t *out)
+uint8_t tfw_hal_uart_rx(uint8_t *out)
 {
     if (rx_tail == rx_head) {
         return 0u;
     }
     *out    = rx_buf[rx_tail];
-    rx_tail = (uint8_t)((rx_tail + 1u) & (AG_UART_RX_RING - 1u));
+    rx_tail = (uint8_t)((rx_tail + 1u) & (TFW_UART_RX_RING - 1u));
     return 1u;
 }
 
-uint8_t ag_hal_uart_tx_try(uint8_t byte)
+uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
-    uint8_t next = (uint8_t)((tx_head + 1u) & (AG_UART_TX_RING - 1u));
+    uint8_t next = (uint8_t)((tx_head + 1u) & (TFW_UART_TX_RING - 1u));
 
     if (next == tx_tail) {
         return 0u;                      /* full: the caller retries next poll */
     }
     tx_buf[tx_head] = byte;
     tx_head         = next;
-    AG_UCSRB          = (uint8_t)(AG_UCSRB | _BV(AG_UDRIE));
+    TFW_UCSRB          = (uint8_t)(TFW_UCSRB | _BV(TFW_UDRIE));
     return 1u;
 }
 
@@ -116,7 +116,7 @@ uint8_t ag_hal_uart_tx_try(uint8_t byte)
  * the distinction matters: with the ring drained but the last byte still
  * shifting out, a reset truncates the final character of the acknowledgement
  * the host is waiting for. */
-uint8_t ag_hal_uart_tx_idle(void)
+uint8_t tfw_hal_uart_tx_idle(void)
 {
-    return (uint8_t)(tx_head == tx_tail && (AG_UCSRA & _BV(AG_TXC)) != 0u);
+    return (uint8_t)(tx_head == tx_tail && (TFW_UCSRA & _BV(TFW_TXC)) != 0u);
 }

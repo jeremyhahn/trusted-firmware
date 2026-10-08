@@ -36,61 +36,61 @@ static void wr_u32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)((v >> 24) & 0xFFu);
 }
 
-void ag_boot_handoff_build(uint8_t *block,
+void tfw_boot_handoff_build(uint8_t *block,
                            uint8_t tier,
-                           const uint8_t cdi[AG_BOOT_MEASURE_LEN],
-                           const uint8_t measurement[AG_BOOT_MEASURE_LEN],
+                           const uint8_t cdi[TFW_BOOT_MEASURE_LEN],
+                           const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                            uint32_t image_version,
                            uint8_t reset_cause)
 {
     uint16_t crc;
 
-    memset(block, 0, AG_BOOT_HANDOFF_LEN);
-    wr_u32(&block[AG_BOOT_HO_MAGIC], AG_BOOT_HANDOFF_MAGIC);
-    block[AG_BOOT_HO_VERSION] = AG_BOOT_HANDOFF_VERSION;
-    block[AG_BOOT_HO_TIER]    = tier;
-    memcpy(&block[AG_BOOT_HO_CDI],         cdi,         AG_BOOT_MEASURE_LEN);
-    memcpy(&block[AG_BOOT_HO_MEASUREMENT], measurement, AG_BOOT_MEASURE_LEN);
-    wr_u32(&block[AG_BOOT_HO_IMAGE_VER], image_version);
-    block[AG_BOOT_HO_RESET_CAUSE] = reset_cause;
+    memset(block, 0, TFW_BOOT_HANDOFF_LEN);
+    wr_u32(&block[TFW_BOOT_HO_MAGIC], TFW_BOOT_HANDOFF_MAGIC);
+    block[TFW_BOOT_HO_VERSION] = TFW_BOOT_HANDOFF_VERSION;
+    block[TFW_BOOT_HO_TIER]    = tier;
+    memcpy(&block[TFW_BOOT_HO_CDI],         cdi,         TFW_BOOT_MEASURE_LEN);
+    memcpy(&block[TFW_BOOT_HO_MEASUREMENT], measurement, TFW_BOOT_MEASURE_LEN);
+    wr_u32(&block[TFW_BOOT_HO_IMAGE_VER], image_version);
+    block[TFW_BOOT_HO_RESET_CAUSE] = reset_cause;
 
     /* Version 2 widens CRC coverage to include reset_cause and the byte beside
-     * it -- see include/ag/boot.h for why the CRC moved rather than the block
+     * it -- see include/tfw/boot.h for why the CRC moved rather than the block
      * growing. */
-    crc = ag_crc16(block, AG_BOOT_HO_CRC);
-    block[AG_BOOT_HO_CRC]      = (uint8_t)(crc & 0xFFu);
-    block[AG_BOOT_HO_CRC + 1u] = (uint8_t)((crc >> 8) & 0xFFu);
+    crc = tfw_crc16(block, TFW_BOOT_HO_CRC);
+    block[TFW_BOOT_HO_CRC]      = (uint8_t)(crc & 0xFFu);
+    block[TFW_BOOT_HO_CRC + 1u] = (uint8_t)((crc >> 8) & 0xFFu);
 }
 
-ag_status_t ag_boot_handoff_parse(const uint8_t *block,
+tfw_status_t tfw_boot_handoff_parse(const uint8_t *block,
                                   uint8_t *tier,
-                                  uint8_t cdi[AG_BOOT_MEASURE_LEN],
-                                  uint8_t measurement[AG_BOOT_MEASURE_LEN],
+                                  uint8_t cdi[TFW_BOOT_MEASURE_LEN],
+                                  uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                                   uint32_t *image_version,
                                   uint8_t *reset_cause)
 {
     uint16_t crc_rx;
 
-    if (rd_u32(&block[AG_BOOT_HO_MAGIC]) != AG_BOOT_HANDOFF_MAGIC) {
-        return AG_ERR_NOT_PROVISIONED;
+    if (rd_u32(&block[TFW_BOOT_HO_MAGIC]) != TFW_BOOT_HANDOFF_MAGIC) {
+        return TFW_ERR_NOT_PROVISIONED;
     }
     /* An exact match, not a minimum. A version this build does not recognise
      * is refused rather than read with the current offsets guessed onto it --
-     * see include/ag/boot.h for why that degrades exactly like no handoff at
+     * see include/tfw/boot.h for why that degrades exactly like no handoff at
      * all rather than like a block misread as something it is not. */
-    if (block[AG_BOOT_HO_VERSION] != AG_BOOT_HANDOFF_VERSION) {
-        return AG_ERR_UNSUPPORTED;
+    if (block[TFW_BOOT_HO_VERSION] != TFW_BOOT_HANDOFF_VERSION) {
+        return TFW_ERR_UNSUPPORTED;
     }
-    crc_rx = (uint16_t)((uint16_t)block[AG_BOOT_HO_CRC]
-                        | ((uint16_t)block[AG_BOOT_HO_CRC + 1u] << 8));
-    if (ag_crc16(block, AG_BOOT_HO_CRC) != crc_rx) {
-        return AG_ERR_CRC;
+    crc_rx = (uint16_t)((uint16_t)block[TFW_BOOT_HO_CRC]
+                        | ((uint16_t)block[TFW_BOOT_HO_CRC + 1u] << 8));
+    if (tfw_crc16(block, TFW_BOOT_HO_CRC) != crc_rx) {
+        return TFW_ERR_CRC;
     }
 
-    *tier = block[AG_BOOT_HO_TIER];
-    memcpy(cdi,         &block[AG_BOOT_HO_CDI],         AG_BOOT_MEASURE_LEN);
-    memcpy(measurement, &block[AG_BOOT_HO_MEASUREMENT], AG_BOOT_MEASURE_LEN);
-    *image_version = rd_u32(&block[AG_BOOT_HO_IMAGE_VER]);
-    *reset_cause   = block[AG_BOOT_HO_RESET_CAUSE];
-    return AG_OK;
+    *tier = block[TFW_BOOT_HO_TIER];
+    memcpy(cdi,         &block[TFW_BOOT_HO_CDI],         TFW_BOOT_MEASURE_LEN);
+    memcpy(measurement, &block[TFW_BOOT_HO_MEASUREMENT], TFW_BOOT_MEASURE_LEN);
+    *image_version = rd_u32(&block[TFW_BOOT_HO_IMAGE_VER]);
+    *reset_cause   = block[TFW_BOOT_HO_RESET_CAUSE];
+    return TFW_OK;
 }

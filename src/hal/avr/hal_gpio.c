@@ -4,7 +4,7 @@
 #include <avr/io.h>
 #include <util/atomic.h>
 
-#include "ag/hal.h"
+#include "tfw/hal.h"
 
 /*
  * On every classic AVR the three port registers are consecutive: PINx, then
@@ -32,37 +32,37 @@
  * runtime bit index, and this firmware resolves pins from a table -- so the
  * guard is doing real work here rather than being defensive decoration.
  */
-ag_status_t ag_hal_gpio_mode(const ag_pinref_t *p, ag_pin_mode_t mode)
+tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 {
     uint8_t mask = (uint8_t)(1u << p->bit);
 
     switch (mode) {
-    case AG_PIN_OUTPUT:
+    case TFW_PIN_OUTPUT:
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
             DDR_REG(p) |= mask;
         }
-        return AG_OK;
+        return TFW_OK;
 
-    case AG_PIN_INPUT:
+    case TFW_PIN_INPUT:
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
             DDR_REG(p)  = (uint8_t)(DDR_REG(p)  & (uint8_t)~mask);
             PORT_REG(p) = (uint8_t)(PORT_REG(p) & (uint8_t)~mask);  /* pull-up off */
         }
-        return AG_OK;
+        return TFW_OK;
 
-    case AG_PIN_INPUT_PULLUP:
+    case TFW_PIN_INPUT_PULLUP:
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
             DDR_REG(p)   = (uint8_t)(DDR_REG(p) & (uint8_t)~mask);
             PORT_REG(p) |= mask;
         }
-        return AG_OK;
+        return TFW_OK;
 
     default:
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
 }
 
-ag_status_t ag_hal_gpio_write(const ag_pinref_t *p, uint8_t level)
+tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 {
     uint8_t mask = (uint8_t)(1u << p->bit);
 
@@ -73,14 +73,14 @@ ag_status_t ag_hal_gpio_write(const ag_pinref_t *p, uint8_t level)
             PORT_REG(p) = (uint8_t)(PORT_REG(p) & (uint8_t)~mask);
         }
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
 /* Reads PINx, not PORTx. PORTx is the output latch -- reading it on an input
  * pin returns the pull-up setting rather than the voltage on the wire, which
  * is a classic way to get a reading that is stable, plausible and wrong. */
-ag_status_t ag_hal_gpio_read(const ag_pinref_t *p, uint8_t *out)
+tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
     *out = (uint8_t)((PIN_REG(p) & (uint8_t)(1u << p->bit)) != 0u);
-    return AG_OK;
+    return TFW_OK;
 }

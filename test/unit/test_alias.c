@@ -16,7 +16,7 @@
  * well as over the certificate. That is deliberate: a general X.509 parser
  * treats an extension it does not know as opaque bytes, so a certificate whose
  * evidence is internally inconsistent parses cleanly everywhere and means
- * nothing -- and AGV_ALIAS_CERT_BAD_INNER is exactly that certificate. It is
+ * nothing -- and TFWV_ALIAS_CERT_BAD_INNER is exactly that certificate. It is
  * the failure this project has to fear, so it has a vector and a test.
  */
 
@@ -27,12 +27,12 @@
 #include "uccs.h"
 #include "uccs_vectors.h"
 #include "atecc608a_model.h"
-#include "ag/config.h"
-#include "ag/crypto.h"
-#include "ag/protocol.h"
-#include "ag/types.h"
-#include "ag/hal.h"
-#include "ag/boot.h"
+#include "tfw/config.h"
+#include "tfw/crypto.h"
+#include "tfw/protocol.h"
+#include "tfw/types.h"
+#include "tfw/hal.h"
+#include "tfw/boot.h"
 #include "boot_platform.h"
 #include "boot_measure.h"
 #include "handoff.h"
@@ -41,7 +41,7 @@
 /* attest.c reports uptime in the evidence frame. Nothing here reads it, but
  * the translation unit is linked for its identity accessors and the HAL under
  * this binary is the element model, which has no tick. */
-ag_ms_t ag_hal_millis(void) { return 0u; }
+tfw_ms_t tfw_hal_millis(void) { return 0u; }
 
 /*
  * Both identity sources src/core/platform_id.c and src/core/handoff.c read,
@@ -51,62 +51,62 @@ ag_ms_t ag_hal_millis(void) { return 0u; }
  * zero-rather-than-fabricated case, so a test that never calls the setters
  * below gets that answer, not a shortcut.
  */
-static uint8_t test_eeprom[AG_BOOT_EE_LEN];
-static uint8_t test_handoff[AG_BOOT_HANDOFF_LEN];
+static uint8_t test_eeprom[TFW_BOOT_EE_LEN];
+static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 
-ag_status_t ag_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
-    if ((uint16_t)(addr + len) > sizeof test_eeprom) { return AG_ERR_RANGE; }
+    if ((uint16_t)(addr + len) > sizeof test_eeprom) { return TFW_ERR_RANGE; }
     memcpy(buf, &test_eeprom[addr], len);
-    return AG_OK;
+    return TFW_OK;
 }
 
-uint8_t *ag_hal_handoff_block(void)
+uint8_t *tfw_hal_handoff_block(void)
 {
     return test_handoff;
 }
 
-static const uint8_t NONCE[]    = AGV_UCCS_NONCE;
-static const uint8_t UEID[]     = AGV_UCCS_UEID;
-static const uint8_t FWHASH[]   = AGV_UCCS_FWHASH;
-static const uint8_t PUBKEY[]   = AGV_ALIAS_PUBKEY;
-static const uint8_t SIG[]      = AGV_ALIAS_SIG;
-static const uint8_t SIG_PAD[]  = AGV_ALIAS_SIG_PAD;
-static const uint8_t CERT[]     = AGV_ALIAS_CERT;
-static const uint8_t CERT_PAD[] = AGV_ALIAS_CERT_PAD;
-static const uint8_t BAD_OUT[]  = AGV_ALIAS_CERT_BAD_OUTER;
-static const uint8_t BAD_IN[]   = AGV_ALIAS_CERT_BAD_INNER;
-static const uint8_t TBSDIG[]   = AGV_ALIAS_TBS_DIGEST;
+static const uint8_t NONCE[]    = TFWV_UCCS_NONCE;
+static const uint8_t UEID[]     = TFWV_UCCS_UEID;
+static const uint8_t FWHASH[]   = TFWV_UCCS_FWHASH;
+static const uint8_t PUBKEY[]   = TFWV_ALIAS_PUBKEY;
+static const uint8_t SIG[]      = TFWV_ALIAS_SIG;
+static const uint8_t SIG_PAD[]  = TFWV_ALIAS_SIG_PAD;
+static const uint8_t CERT[]     = TFWV_ALIAS_CERT;
+static const uint8_t CERT_PAD[] = TFWV_ALIAS_CERT_PAD;
+static const uint8_t BAD_OUT[]  = TFWV_ALIAS_CERT_BAD_OUTER;
+static const uint8_t BAD_IN[]   = TFWV_ALIAS_CERT_BAD_INNER;
+static const uint8_t TBSDIG[]   = TFWV_ALIAS_TBS_DIGEST;
 
 #define CERT_MAX 512u
 
 void setUp(void)
 {
-    ag_model_reset();
-    ag_attest_reset_state();
-    ag_alias_reset_state();
+    tfw_model_reset();
+    tfw_attest_reset_state();
+    tfw_alias_reset_state();
     /* Zeroed and re-loaded on every test: a test that populates test_eeprom/
      * test_handoff must not leak a non-zero DeviceID/FWHash into whichever
      * test Unity runs next, which otherwise expects the vector-pinned
      * identity every other test in this file assumes. */
     memset(test_eeprom, 0, sizeof test_eeprom);
     memset(test_handoff, 0, sizeof test_handoff);
-    ag_platform_id_init();
-    ag_boot_handoff_init();
-    ag_crypto_init();
+    tfw_platform_id_init();
+    tfw_boot_handoff_init();
+    tfw_crypto_init();
 }
 
 void tearDown(void) {}
 
 static void provision(void)
 {
-    ag_model_provision();
-    ag_crypto_init();
+    tfw_model_provision();
+    tfw_crypto_init();
 }
 
-static ag_alias_parts_t pinned(void)
+static tfw_alias_parts_t pinned(void)
 {
-    ag_alias_parts_t p;
+    tfw_alias_parts_t p;
     p.nonce   = NONCE;
     p.ueid    = UEID;
     p.fw_hash = FWHASH;
@@ -115,16 +115,16 @@ static ag_alias_parts_t pinned(void)
     return p;
 }
 
-/* Assembles the whole certificate out of AG_ALIAS_PAGE-sized windows, the way
+/* Assembles the whole certificate out of TFW_ALIAS_PAGE-sized windows, the way
  * a host does. Returns its length. */
-static uint16_t collect(const ag_alias_parts_t *p, uint8_t *dst)
+static uint16_t collect(const tfw_alias_parts_t *p, uint8_t *dst)
 {
     uint16_t total = 0u, off = 0u;
     uint8_t  got   = 0u;
 
     do {
-        TEST_ASSERT_EQUAL(AG_OK, ag_alias_cert(p, off, &dst[off],
-                                               AG_ALIAS_PAGE, &total, &got));
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cert(p, off, &dst[off],
+                                               TFW_ALIAS_PAGE, &total, &got));
         TEST_ASSERT_TRUE(got > 0u);
         off = (uint16_t)(off + got);
     } while (off < total);
@@ -232,11 +232,11 @@ static uint8_t uccs_evidence(const uint8_t *cert, uint16_t n,
  * verified over the TBS that parser extracted. */
 static void test_the_certificate_is_the_bytes_the_vector_pins(void)
 {
-    ag_alias_parts_t p = pinned();
+    tfw_alias_parts_t p = pinned();
     uint8_t          got[CERT_MAX];
 
-    TEST_ASSERT_EQUAL_UINT16(AGV_ALIAS_CERT_LEN, collect(&p, got));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(CERT, got, AGV_ALIAS_CERT_LEN);
+    TEST_ASSERT_EQUAL_UINT16(TFWV_ALIAS_CERT_LEN, collect(&p, got));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(CERT, got, TFWV_ALIAS_CERT_LEN);
 }
 
 /* The digest the DeviceID key signs. It is never on the wire, so nothing else
@@ -244,11 +244,11 @@ static void test_the_certificate_is_the_bytes_the_vector_pins(void)
  * parse and the signature would still be over something. */
 static void test_the_tbs_digest_is_the_value_the_vector_pins(void)
 {
-    ag_alias_parts_t p = pinned();
-    uint8_t          d[AG_SHA256_LEN];
+    tfw_alias_parts_t p = pinned();
+    uint8_t          d[TFW_SHA256_LEN];
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_alias_tbs_digest(&p, d));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(TBSDIG, d, AG_SHA256_LEN);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, d));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(TBSDIG, d, TFW_SHA256_LEN);
 }
 
 /*
@@ -259,22 +259,22 @@ static void test_the_tbs_digest_is_the_value_the_vector_pins(void)
  */
 static void test_a_signature_needing_der_padding_changes_the_length(void)
 {
-    ag_alias_parts_t p = pinned();
+    tfw_alias_parts_t p = pinned();
     uint8_t          got[CERT_MAX];
 
     p.sig = SIG_PAD;
-    TEST_ASSERT_EQUAL_UINT16(AGV_ALIAS_CERT_PAD_LEN, collect(&p, got));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(CERT_PAD, got, AGV_ALIAS_CERT_PAD_LEN);
+    TEST_ASSERT_EQUAL_UINT16(TFWV_ALIAS_CERT_PAD_LEN, collect(&p, got));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(CERT_PAD, got, TFWV_ALIAS_CERT_PAD_LEN);
     /* and the two certificates really are different lengths, which is the
      * reason the total is reported rather than assumed */
-    TEST_ASSERT_NOT_EQUAL(AGV_ALIAS_CERT_LEN, AGV_ALIAS_CERT_PAD_LEN);
+    TEST_ASSERT_NOT_EQUAL(TFWV_ALIAS_CERT_LEN, TFWV_ALIAS_CERT_PAD_LEN);
 }
 
 /* ------------------------------------------------------ structural checks */
 
 static void test_the_emitted_certificate_is_well_formed_der(void)
 {
-    ag_alias_parts_t p = pinned();
+    tfw_alias_parts_t p = pinned();
     uint8_t          got[CERT_MAX];
     const uint8_t   *ev;
     uint16_t         evlen;
@@ -290,10 +290,10 @@ static void test_the_emitted_certificate_is_well_formed_der(void)
  * a checker that accepts everything proves nothing about the one below. */
 static void test_the_structural_check_rejects_a_moved_outer_length(void)
 {
-    TEST_ASSERT_FALSE(der_exact(BAD_OUT, AGV_ALIAS_CERT_BAD_OUTER_LEN));
+    TEST_ASSERT_FALSE(der_exact(BAD_OUT, TFWV_ALIAS_CERT_BAD_OUTER_LEN));
     /* and the good one from the same generator passes, so the difference is
      * the corruption and not the checker */
-    TEST_ASSERT_TRUE(der_exact(CERT, AGV_ALIAS_CERT_LEN));
+    TEST_ASSERT_TRUE(der_exact(CERT, TFWV_ALIAS_CERT_LEN));
 }
 
 /*
@@ -310,13 +310,13 @@ static void test_the_structural_check_rejects_evidence_broken_inside_the_extensi
     uint16_t       evlen;
 
     /* The certificate itself is still well formed -- that is the whole point */
-    TEST_ASSERT_TRUE(der_exact(BAD_IN, AGV_ALIAS_CERT_BAD_INNER_LEN));
-    TEST_ASSERT_TRUE(uccs_evidence(BAD_IN, AGV_ALIAS_CERT_BAD_INNER_LEN,
+    TEST_ASSERT_TRUE(der_exact(BAD_IN, TFWV_ALIAS_CERT_BAD_INNER_LEN));
+    TEST_ASSERT_TRUE(uccs_evidence(BAD_IN, TFWV_ALIAS_CERT_BAD_INNER_LEN,
                                    &ev, &evlen));
     TEST_ASSERT_FALSE(der_exact(ev, evlen));
 
     /* and the same walk over the good certificate passes */
-    TEST_ASSERT_TRUE(uccs_evidence(CERT, AGV_ALIAS_CERT_LEN, &ev, &evlen));
+    TEST_ASSERT_TRUE(uccs_evidence(CERT, TFWV_ALIAS_CERT_LEN, &ev, &evlen));
     TEST_ASSERT_TRUE(der_exact(ev, evlen));
 }
 
@@ -325,24 +325,24 @@ static void test_the_structural_check_rejects_evidence_broken_inside_the_extensi
  * lengths around them is the defect the template exists to prevent. */
 static void test_the_extension_carries_the_claims_set_verbatim(void)
 {
-    ag_alias_parts_t p = pinned();
+    tfw_alias_parts_t p = pinned();
     uint8_t          got[CERT_MAX];
     const uint8_t   *ev;
     uint16_t         evlen, n;
-    uint8_t          uccs[AG_UCCS_LEN];
-    ag_writer_t      w;
+    uint8_t          uccs[TFW_UCCS_LEN];
+    tfw_writer_t      w;
 
     n = collect(&p, got);
     TEST_ASSERT_TRUE(uccs_evidence(got, n, &ev, &evlen));
     /* ev is SEQUENCE { OCTET STRING }; the claims set is the inner content */
     TEST_ASSERT_EQUAL_HEX8(0x30u, ev[0]);
     TEST_ASSERT_EQUAL_HEX8(0x04u, ev[3]);
-    TEST_ASSERT_EQUAL_UINT8(AG_UCCS_LEN, ev[5]);
+    TEST_ASSERT_EQUAL_UINT8(TFW_UCCS_LEN, ev[5]);
 
-    ag_writer_init(&w, uccs, (uint8_t)sizeof uccs);
-    TEST_ASSERT_EQUAL(AG_OK, ag_uccs_encode(&w, NONCE, AG_ALIAS_NONCE_LEN,
+    tfw_writer_init(&w, uccs, (uint8_t)sizeof uccs);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_uccs_encode(&w, NONCE, TFW_ALIAS_NONCE_LEN,
                                             UEID, FWHASH));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(uccs, &ev[6], AG_UCCS_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(uccs, &ev[6], TFW_UCCS_LEN);
 }
 
 /* ---------------------------------------------------------- window bounds */
@@ -352,16 +352,16 @@ static void test_the_extension_carries_the_claims_set_verbatim(void)
  * success reads as "the document ended here". */
 static void test_a_window_past_the_end_is_refused(void)
 {
-    ag_alias_parts_t p = pinned();
-    uint8_t          buf[AG_ALIAS_PAGE];
+    tfw_alias_parts_t p = pinned();
+    uint8_t          buf[TFW_ALIAS_PAGE];
     uint16_t         total = 0u;
     uint8_t          got   = 0u;
 
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE,
-                      ag_alias_cert(&p, AGV_ALIAS_CERT_LEN, buf,
-                                    AG_ALIAS_PAGE, &total, &got));
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE,
-                      ag_alias_cert(&p, 60000u, buf, AG_ALIAS_PAGE,
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+                      tfw_alias_cert(&p, TFWV_ALIAS_CERT_LEN, buf,
+                                    TFW_ALIAS_PAGE, &total, &got));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+                      tfw_alias_cert(&p, 60000u, buf, TFW_ALIAS_PAGE,
                                     &total, &got));
 }
 
@@ -369,17 +369,17 @@ static void test_a_window_past_the_end_is_refused(void)
  * its full width would append bytes to the certificate. */
 static void test_the_last_window_is_short_and_says_so(void)
 {
-    ag_alias_parts_t p = pinned();
-    uint8_t          buf[AG_ALIAS_PAGE];
+    tfw_alias_parts_t p = pinned();
+    uint8_t          buf[TFW_ALIAS_PAGE];
     uint16_t         total = 0u;
-    uint16_t         last  = (uint16_t)(AGV_ALIAS_CERT_LEN
-                                        - (AGV_ALIAS_CERT_LEN % AG_ALIAS_PAGE));
+    uint16_t         last  = (uint16_t)(TFWV_ALIAS_CERT_LEN
+                                        - (TFWV_ALIAS_CERT_LEN % TFW_ALIAS_PAGE));
     uint8_t          got   = 0u;
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_alias_cert(&p, last, buf, AG_ALIAS_PAGE,
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cert(&p, last, buf, TFW_ALIAS_PAGE,
                                            &total, &got));
-    TEST_ASSERT_EQUAL_UINT16(AGV_ALIAS_CERT_LEN, total);
-    TEST_ASSERT_EQUAL_UINT8(AGV_ALIAS_CERT_LEN % AG_ALIAS_PAGE, got);
+    TEST_ASSERT_EQUAL_UINT16(TFWV_ALIAS_CERT_LEN, total);
+    TEST_ASSERT_EQUAL_UINT8(TFWV_ALIAS_CERT_LEN % TFW_ALIAS_PAGE, got);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(&CERT[last], buf, got);
 }
 
@@ -387,17 +387,17 @@ static void test_the_last_window_is_short_and_says_so(void)
  * lost page 0 can still learn how many pages there are. */
 static void test_every_window_reports_the_whole_length(void)
 {
-    ag_alias_parts_t p = pinned();
-    uint8_t          buf[AG_ALIAS_PAGE];
+    tfw_alias_parts_t p = pinned();
+    uint8_t          buf[TFW_ALIAS_PAGE];
     uint16_t         total = 0u;
     uint8_t          got   = 0u;
     uint16_t         off;
 
-    for (off = 0u; off < AGV_ALIAS_CERT_LEN; off = (uint16_t)(off + AG_ALIAS_PAGE)) {
+    for (off = 0u; off < TFWV_ALIAS_CERT_LEN; off = (uint16_t)(off + TFW_ALIAS_PAGE)) {
         total = 0u;
-        TEST_ASSERT_EQUAL(AG_OK, ag_alias_cert(&p, off, buf, AG_ALIAS_PAGE,
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cert(&p, off, buf, TFW_ALIAS_PAGE,
                                                &total, &got));
-        TEST_ASSERT_EQUAL_UINT16(AGV_ALIAS_CERT_LEN, total);
+        TEST_ASSERT_EQUAL_UINT16(TFWV_ALIAS_CERT_LEN, total);
     }
 }
 
@@ -409,8 +409,8 @@ static void test_every_window_reports_the_whole_length(void)
  * broken the one thing a serial is for. */
 static void test_a_different_nonce_produces_a_different_certificate(void)
 {
-    ag_alias_parts_t p = pinned();
-    uint8_t          a[CERT_MAX], b[CERT_MAX], other[AG_ALIAS_NONCE_LEN];
+    tfw_alias_parts_t p = pinned();
+    uint8_t          a[CERT_MAX], b[CERT_MAX], other[TFW_ALIAS_NONCE_LEN];
     uint16_t         n;
 
     n = collect(&p, a);
@@ -431,8 +431,8 @@ static void test_a_different_nonce_produces_a_different_certificate(void)
  */
 static void test_the_serial_number_is_always_a_minimal_positive_integer(void)
 {
-    ag_alias_parts_t p = pinned();
-    uint8_t          nz[AG_ALIAS_NONCE_LEN];
+    tfw_alias_parts_t p = pinned();
+    uint8_t          nz[TFW_ALIAS_NONCE_LEN];
     uint8_t          got[CERT_MAX];
     uint8_t          v;
 
@@ -455,41 +455,41 @@ static void test_the_serial_number_is_always_a_minimal_positive_integer(void)
  */
 static void test_an_unprovisioned_element_refuses_to_mint(void)
 {
-    uint8_t     out[AG_MAX_PAYLOAD];
-    ag_reader_t r;
-    ag_writer_t w;
+    uint8_t     out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
 
-    ag_reader_init(&r, NONCE, AG_ALIAS_NONCE_LEN);
-    ag_writer_init(&w, out, (uint8_t)sizeof out);
-    TEST_ASSERT_EQUAL(AG_ERR_NOT_PROVISIONED, ag_alias_cmd(&r, &w));
+    tfw_reader_init(&r, NONCE, TFW_ALIAS_NONCE_LEN);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_alias_cmd(&r, &w));
 }
 
 /* And a page request afterwards is still refused: a failed mint must not leave
  * a document reachable. */
 static void test_a_page_request_with_no_certificate_is_refused(void)
 {
-    uint8_t     out[AG_MAX_PAYLOAD];
+    uint8_t     out[TFW_MAX_PAYLOAD];
     uint8_t     page = 0u;
-    ag_reader_t r;
-    ag_writer_t w;
+    tfw_reader_t r;
+    tfw_writer_t w;
 
-    ag_reader_init(&r, &page, 1u);
-    ag_writer_init(&w, out, (uint8_t)sizeof out);
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC, ag_alias_cmd(&r, &w));
+    tfw_reader_init(&r, &page, 1u);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_alias_cmd(&r, &w));
 }
 
-static ag_status_t run(const uint8_t *p, uint8_t n, uint8_t *out, uint8_t *len)
+static tfw_status_t run(const uint8_t *p, uint8_t n, uint8_t *out, uint8_t *len)
 {
-    static uint8_t in[AG_MAX_PAYLOAD];
-    ag_reader_t    r;
-    ag_writer_t    w;
-    ag_status_t    st;
+    static uint8_t in[TFW_MAX_PAYLOAD];
+    tfw_reader_t    r;
+    tfw_writer_t    w;
+    tfw_status_t    st;
 
     memcpy(in, p, n);
-    ag_reader_init(&r, in, n);
-    ag_writer_init(&w, out, AG_MAX_PAYLOAD);
-    st = ag_alias_cmd(&r, &w);
-    *len = ag_writer_len(&w);
+    tfw_reader_init(&r, in, n);
+    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    st = tfw_alias_cmd(&r, &w);
+    *len = tfw_writer_len(&w);
     return st;
 }
 
@@ -500,7 +500,7 @@ static ag_status_t run(const uint8_t *p, uint8_t n, uint8_t *out, uint8_t *len)
  */
 static void test_a_provisioned_element_mints_a_certificate_and_pages_it(void)
 {
-    uint8_t  out[AG_MAX_PAYLOAD];
+    uint8_t  out[TFW_MAX_PAYLOAD];
     uint8_t  doc[CERT_MAX];
     uint8_t  len = 0u, page;
     uint16_t total, got = 0u;
@@ -508,7 +508,7 @@ static void test_a_provisioned_element_mints_a_certificate_and_pages_it(void)
     uint16_t       evlen;
 
     provision();
-    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     TEST_ASSERT_EQUAL_UINT8(0u, out[0]);
     total = (uint16_t)((uint16_t)out[1] | ((uint16_t)out[2] << 8));
     TEST_ASSERT_TRUE(total > 400u && total < CERT_MAX);
@@ -516,7 +516,7 @@ static void test_a_provisioned_element_mints_a_certificate_and_pages_it(void)
     got = (uint16_t)(len - 3u);
 
     for (page = 1u; got < total; page++) {
-        TEST_ASSERT_EQUAL(AG_OK, run(&page, 1u, out, &len));
+        TEST_ASSERT_EQUAL(TFW_OK, run(&page, 1u, out, &len));
         TEST_ASSERT_EQUAL_UINT8(page, out[0]);
         TEST_ASSERT_EQUAL_UINT16(total,
                                  (uint16_t)out[1] | ((uint16_t)out[2] << 8));
@@ -528,13 +528,13 @@ static void test_a_provisioned_element_mints_a_certificate_and_pages_it(void)
     TEST_ASSERT_TRUE(uccs_evidence(doc, total, &ev, &evlen));
     TEST_ASSERT_TRUE(der_exact(ev, evlen));
     /* the verifier's challenge really is in the evidence */
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(NONCE, &ev[6 + 4], AG_ALIAS_NONCE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(NONCE, &ev[6 + 4], TFW_ALIAS_NONCE_LEN);
 }
 
 /*
  * THE REGRESSION THIS EXISTS TO CATCH. ATTEST_CERT is minted here WITHOUT
  * ATTEST ever having run first. Before this was fixed,
- * ag_attest_device_id()/ag_attest_fw_hash() returned pointers into attest.c's
+ * tfw_attest_device_id()/tfw_attest_fw_hash() returned pointers into attest.c's
  * OWN evidence buffer, which nothing populates except ATTEST's build() -- so
  * a certificate minted this way embedded an all-zero UEID and measurement on
  * a FULLY PROVISIONED device, and nothing about the exchange said so. The
@@ -543,15 +543,15 @@ static void test_a_provisioned_element_mints_a_certificate_and_pages_it(void)
  */
 static void test_a_certificate_minted_before_attest_still_carries_the_real_identity(void)
 {
-    static const uint8_t serial[AG_BOOT_SERIAL_LEN] = {
+    static const uint8_t serial[TFW_BOOT_SERIAL_LEN] = {
         0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,
         0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB
     };
-    ag_boot_platform_t plat;
-    uint8_t  raw[AG_BOOT_EE_LEN];
-    uint8_t  block[AG_BOOT_HANDOFF_LEN];
+    tfw_boot_platform_t plat;
+    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  block[TFW_BOOT_HANDOFF_LEN];
     uint8_t  cdi[32], measurement[32];
-    uint8_t  out[AG_MAX_PAYLOAD];
+    uint8_t  out[TFW_MAX_PAYLOAD];
     uint8_t  doc[CERT_MAX];
     uint8_t  len = 0u, page;
     uint16_t total, got = 0u;
@@ -561,32 +561,32 @@ static void test_a_certificate_minted_before_attest_still_carries_the_real_ident
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, serial, sizeof serial);
     memset(raw, 0, sizeof raw);
-    ag_boot_platform_serialise(&plat, raw);
+    tfw_boot_platform_serialise(&plat, raw);
     memcpy(test_eeprom, raw, sizeof test_eeprom);
-    ag_platform_id_init();
+    tfw_platform_id_init();
 
     memset(cdi, 0, sizeof cdi);
     for (i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)(0x70u + i); }
-    ag_boot_handoff_build(block, AG_CRYPTO_SECURE_ELEMENT, cdi, measurement, 1u, 0u);
+    tfw_boot_handoff_build(block, TFW_CRYPTO_SECURE_ELEMENT, cdi, measurement, 1u, 0u);
     memcpy(test_handoff, block, sizeof test_handoff);
-    ag_boot_handoff_init();
+    tfw_boot_handoff_init();
 
     provision();
-    /* ATTEST is never called -- ag_attest_cmd's build() never runs. */
-    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ALIAS_NONCE_LEN, out, &len));
+    /* ATTEST is never called -- tfw_attest_cmd's build() never runs. */
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     total = (uint16_t)((uint16_t)out[1] | ((uint16_t)out[2] << 8));
     memcpy(doc, &out[3], (size_t)(len - 3u));
     got = (uint16_t)(len - 3u);
     for (page = 1u; got < total; page++) {
-        TEST_ASSERT_EQUAL(AG_OK, run(&page, 1u, out, &len));
+        TEST_ASSERT_EQUAL(TFW_OK, run(&page, 1u, out, &len));
         memcpy(&doc[got], &out[3], (size_t)(len - 3u));
         got = (uint16_t)(got + (len - 3u));
     }
     TEST_ASSERT_EQUAL_UINT16(total, got);
 
     found_serial = 0;
-    for (i = 0u; i + AG_BOOT_SERIAL_LEN <= total; i++) {
-        if (memcmp(&doc[i], serial, AG_BOOT_SERIAL_LEN) == 0) { found_serial = 1; }
+    for (i = 0u; i + TFW_BOOT_SERIAL_LEN <= total; i++) {
+        if (memcmp(&doc[i], serial, TFW_BOOT_SERIAL_LEN) == 0) { found_serial = 1; }
     }
     found_measurement = 0;
     for (i = 0u; i + sizeof measurement <= total; i++) {
@@ -610,22 +610,22 @@ static void test_a_certificate_minted_before_attest_still_carries_the_real_ident
  */
 static void test_the_signature_is_over_the_tbs_the_device_built(void)
 {
-    uint8_t  out[AG_MAX_PAYLOAD];
+    uint8_t  out[TFW_MAX_PAYLOAD];
     uint8_t  doc[CERT_MAX];
     uint8_t  want[CERT_MAX];
-    uint8_t  expect_sig[AG_SIG_LEN];
-    uint8_t  digest[AG_SHA256_LEN];
+    uint8_t  expect_sig[TFW_SIG_LEN];
+    uint8_t  digest[TFW_SHA256_LEN];
     uint8_t  len = 0u, page;
     uint16_t total, got;
-    ag_alias_parts_t p;
+    tfw_alias_parts_t p;
 
     provision();
-    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     total = (uint16_t)((uint16_t)out[1] | ((uint16_t)out[2] << 8));
     memcpy(doc, &out[3], (size_t)(len - 3u));
     got = (uint16_t)(len - 3u);
     for (page = 1u; got < total; page++) {
-        TEST_ASSERT_EQUAL(AG_OK, run(&page, 1u, out, &len));
+        TEST_ASSERT_EQUAL(TFW_OK, run(&page, 1u, out, &len));
         memcpy(&doc[got], &out[3], (size_t)(len - 3u));
         got = (uint16_t)(got + (len - 3u));
     }
@@ -634,38 +634,38 @@ static void test_the_signature_is_over_the_tbs_the_device_built(void)
      * key is the element's real one; the identity and measurement come from the
      * same accessors the command used. */
     p.nonce   = NONCE;
-    p.ueid    = ag_attest_device_id();
-    p.fw_hash = ag_attest_fw_hash();
-    p.pubkey  = ag_model_deviceid_public();
+    p.ueid    = tfw_attest_device_id();
+    p.fw_hash = tfw_attest_fw_hash();
+    p.pubkey  = tfw_model_deviceid_public();
     p.sig     = expect_sig;
     TEST_ASSERT_NOT_NULL(p.pubkey);
-    TEST_ASSERT_EQUAL(AG_OK, ag_alias_tbs_digest(&p, digest));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
 
-    TEST_ASSERT_TRUE(ag_model_p256_sign(ag_model_deviceid_private(), digest, expect_sig));
-    TEST_ASSERT_TRUE(ag_model_p256_verify(p.pubkey, digest, expect_sig));
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(tfw_model_deviceid_private(), digest, expect_sig));
+    TEST_ASSERT_TRUE(tfw_model_p256_verify(p.pubkey, digest, expect_sig));
     TEST_ASSERT_EQUAL_UINT16(total, collect(&p, want));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, doc, total);
 
     /* And a verifier that has only the DeviceID public key rejects the same
      * signature over any other digest. */
     digest[0] ^= 0x01u;
-    TEST_ASSERT_FALSE(ag_model_p256_verify(p.pubkey, digest, expect_sig));
+    TEST_ASSERT_FALSE(tfw_model_p256_verify(p.pubkey, digest, expect_sig));
 }
 
 /* A fresh challenge replaces the document. Serving the previous one would be
  * serving evidence bound to a nonce the host has moved on from. */
 static void test_a_new_nonce_replaces_the_certificate(void)
 {
-    uint8_t out[AG_MAX_PAYLOAD], first[AG_MAX_PAYLOAD];
-    uint8_t len = 0u, other[AG_ALIAS_NONCE_LEN];
+    uint8_t out[TFW_MAX_PAYLOAD], first[TFW_MAX_PAYLOAD];
+    uint8_t len = 0u, other[TFW_ALIAS_NONCE_LEN];
 
     provision();
-    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     memcpy(first, out, len);
 
     memcpy(other, NONCE, sizeof other);
     other[0] ^= 0xFFu;
-    TEST_ASSERT_EQUAL(AG_OK, run(other, AG_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL(TFW_OK, run(other, TFW_ALIAS_NONCE_LEN, out, &len));
     TEST_ASSERT_FALSE(memcmp(first, out, len) == 0);
 }
 
@@ -673,19 +673,19 @@ static void test_a_new_nonce_replaces_the_certificate(void)
  * either, and a nonce of the wrong length must not be padded into one. */
 static void test_a_wrong_sized_argument_is_refused(void)
 {
-    uint8_t out[AG_MAX_PAYLOAD];
+    uint8_t out[TFW_MAX_PAYLOAD];
     uint8_t len = 0u;
-    uint8_t junk[AG_ALIAS_NONCE_LEN] = { 0 };
+    uint8_t junk[TFW_ALIAS_NONCE_LEN] = { 0 };
 
     provision();
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC, run(junk, 8u, out, &len));
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC, run(junk, 31u, out, &len));
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC, run(junk, 0u, out, &len));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(junk, 8u, out, &len));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(junk, 31u, out, &len));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(junk, 0u, out, &len));
     /* Sixteen too. It is the evidence frame's nonce width, and a host that
      * sent the wrong one of this firmware's two nonces must be told so rather
      * than handed a certificate over a padded challenge. */
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC,
-                      run(junk, AG_ATTEST_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC,
+                      run(junk, TFW_ATTEST_NONCE_LEN, out, &len));
 }
 
 /* A page past the end of the document is refused rather than wrapped. The
@@ -693,28 +693,28 @@ static void test_a_wrong_sized_argument_is_refused(void)
  * inside the certificate. */
 static void test_a_page_past_the_end_is_refused(void)
 {
-    uint8_t out[AG_MAX_PAYLOAD];
+    uint8_t out[TFW_MAX_PAYLOAD];
     uint8_t len = 0u, page;
 
     provision();
-    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     page = 99u;
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE, run(&page, 1u, out, &len));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(&page, 1u, out, &len));
     page = 255u;
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE, run(&page, 1u, out, &len));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(&page, 1u, out, &len));
 }
 
 /* Every page fits one payload, header included. If it did not, the dispatcher
- * would answer AG_ERR_TOO_LONG for a request that was entirely valid. */
+ * would answer TFW_ERR_TOO_LONG for a request that was entirely valid. */
 static void test_a_page_and_its_header_fit_one_payload(void)
 {
-    uint8_t out[AG_MAX_PAYLOAD];
+    uint8_t out[TFW_MAX_PAYLOAD];
     uint8_t len = 0u;
 
-    TEST_ASSERT_LESS_OR_EQUAL_UINT8(AG_MAX_PAYLOAD, AG_ALIAS_PAGE + 3u);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT8(TFW_MAX_PAYLOAD, TFW_ALIAS_PAGE + 3u);
     provision();
-    TEST_ASSERT_EQUAL(AG_OK, run(NONCE, AG_ALIAS_NONCE_LEN, out, &len));
-    TEST_ASSERT_EQUAL_UINT8(AG_ALIAS_PAGE + 3u, len);
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ALIAS_PAGE + 3u, len);
 }
 
 int main(void)

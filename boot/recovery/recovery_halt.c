@@ -24,14 +24,14 @@
 
 /* No loop to open a session in: the request is spent by the caller and this
  * returns at once, so the device boots its image. */
-void ag_boot_session_open(ag_boot_platform_t *plat,
-                          const ag_boot_session_limits_t *lim)
+void tfw_boot_session_open(tfw_boot_platform_t *plat,
+                          const tfw_boot_session_limits_t *lim)
 {
     (void)plat;
     (void)lim;
 }
 
-void ag_boot_recovery(ag_boot_platform_t *plat, ag_status_t reason)
+void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t reason)
 {
     (void)plat;
     (void)reason;

@@ -6,26 +6,26 @@
  * bootloader means no reserved EEPROM layout for anything to have baked a
  * serial into.
  *
- * main.c calls ag_platform_id_init on every board; ag_platform_id_serial is
+ * main.c calls tfw_platform_id_init on every board; tfw_platform_id_serial is
  * reached only from src/caps/attest.c, which this board's feature set already
- * compiles out (AG_FEATURE_ATTEST is 0 on a board that links this file), so
+ * compiles out (TFW_FEATURE_ATTEST is 0 on a board that links this file), so
  * --gc-sections drops it and the zero buffer behind it rather than either
  * costing this part anything.
  */
 #include <stdint.h>
 #include <string.h>
 #include "platform_id.h"
-#include "ag/boot.h"
+#include "tfw/boot.h"
 
-void ag_platform_id_init(void) {}
+void tfw_platform_id_init(void) {}
 
-const uint8_t *ag_platform_id_serial(void)
+const uint8_t *tfw_platform_id_serial(void)
 {
-    static const uint8_t zero[AG_BOOT_SERIAL_LEN] = {0};
+    static const uint8_t zero[TFW_BOOT_SERIAL_LEN] = {0};
     return zero;
 }
 
-void ag_platform_id_operator_pubkey(uint8_t out[AG_BOOT_OPERATOR_PUBKEY_LEN])
+void tfw_platform_id_operator_pubkey(uint8_t out[TFW_BOOT_OPERATOR_PUBKEY_LEN])
 {
-    memset(out, 0, AG_BOOT_OPERATOR_PUBKEY_LEN);
+    memset(out, 0, TFW_BOOT_OPERATOR_PUBKEY_LEN);
 }

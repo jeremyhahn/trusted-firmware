@@ -1,16 +1,16 @@
 # Wire protocol — CLI
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
-No CLI surface of its own: the protocol is exercised through `agctl` (and,
-for provisioning, `agprov`), documented in `../host-sdk/architecture.md`. This file
-maps the wire-protocol commands this folder documents to the `agctl` verbs
+No CLI surface of its own: the protocol is exercised through `tfwctl` (and,
+for provisioning, `tfwprov`), documented in `../host-sdk/architecture.md`. This file
+maps the wire-protocol commands this folder documents to the `tfwctl` verbs
 that exercise them, so a reader does not have to cross-reference by hand.
 
-`agctl [flags] <port> <command> [args]`, from `sdk/go/cmd/agctl/main.go`.
+`tfwctl [flags] <port> <command> [args]`, from `sdk/go/cmd/tfwctl/main.go`.
 
-| `agctl` verb | wire command(s) |
+| `tfwctl` verb | wire command(s) |
 |---|---|
 | `ping [text]` | `PING` (0x01) |
 | `caps` | `CAPS` (0x00), no pin argument |
@@ -28,23 +28,23 @@ that exercise them, so a reader does not have to cross-reference by hand.
 | `ports` | none — lists serial ports the host can see; no device round trip |
 
 Flags: `--baud` (default `serialport.DefaultBaud`, 115200, matching
-`AG_UART_BAUD`), `--json` (structured output instead of text), `--timeout`
+`TFW_UART_BAUD`), `--json` (structured output instead of text), `--timeout`
 (default 10s, matching `Device`'s default in `device.go`).
 
 Analog, PWM, tone, pulse, EEPROM, bus and attestation commands (`api.md`
 lists all of them) are reachable from the Go SDK
-(`sdk/go/commands.go`, `sdk/go/attest.go`) but have no `agctl` verb yet — see
+(`sdk/go/commands.go`, `sdk/go/attest.go`) but have no `tfwctl` verb yet — see
 `../host-sdk/architecture.md`: "if a command exists on the wire and is not
-reachable from `agctl`, that is a gap in `agctl`," not a gap in the
+reachable from `tfwctl`, that is a gap in `tfwctl`," not a gap in the
 protocol.
 
 ## Examples
 
 ```sh
-agctl /dev/ttyUSB0 caps
-agctl /dev/ttyUSB0 pin 13
-agctl --json /dev/ttyUSB0 sys
-agctl /dev/ttyUSB0 write 13 1
-agctl /dev/ttyUSB0 timer 13 0 5s
-agctl --baud 57600 --timeout 30s /dev/ttyUSB0 ping hello
+tfwctl /dev/ttyUSB0 caps
+tfwctl /dev/ttyUSB0 pin 13
+tfwctl --json /dev/ttyUSB0 sys
+tfwctl /dev/ttyUSB0 write 13 1
+tfwctl /dev/ttyUSB0 timer 13 0 5s
+tfwctl --baud 57600 --timeout 30s /dev/ttyUSB0 ping hello
 ```

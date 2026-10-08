@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 
 #include <avr/io.h>
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
 static uint8_t ref_bits;   /* the REFS field, already positioned */
 
@@ -32,32 +32,32 @@ static uint8_t ref_bits;   /* the REFS field, already positioned */
  * part that took this arm without having the encoding would fail to build.
  */
 #ifdef REFS2
-#define AG_ADC_REFBITS_VCC      ((uint8_t)0u)
-#define AG_ADC_REFBITS_EXTERNAL ((uint8_t)_BV(REFS0))
-#define AG_ADC_REFBITS_INTERNAL ((uint8_t)_BV(REFS1))
+#define TFW_ADC_REFBITS_VCC      ((uint8_t)0u)
+#define TFW_ADC_REFBITS_EXTERNAL ((uint8_t)_BV(REFS0))
+#define TFW_ADC_REFBITS_INTERNAL ((uint8_t)_BV(REFS1))
 #else
-#define AG_ADC_REFBITS_VCC      ((uint8_t)_BV(REFS0))
-#define AG_ADC_REFBITS_EXTERNAL ((uint8_t)0u)
-#define AG_ADC_REFBITS_INTERNAL ((uint8_t)(_BV(REFS1) | _BV(REFS0)))
+#define TFW_ADC_REFBITS_VCC      ((uint8_t)_BV(REFS0))
+#define TFW_ADC_REFBITS_EXTERNAL ((uint8_t)0u)
+#define TFW_ADC_REFBITS_INTERNAL ((uint8_t)(_BV(REFS1) | _BV(REFS0)))
 #endif
 
-ag_status_t ag_hal_adc_init(void)
+tfw_status_t tfw_hal_adc_init(void)
 {
     /* The ADC wants 50-200 kHz for full 10-bit accuracy. A prescaler of 128
      * gives 125 kHz at 16 MHz and 62.5 kHz at 8 MHz, both inside the window.
      * Running it faster trades resolution for speed, and a converter that is
      * quietly 8-bit is worse than a slow one that is honestly 10-bit. */
     ADCSRA = (uint8_t)(_BV(ADEN) | _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0));
-    ref_bits = AG_ADC_REFBITS_VCC;
-    return AG_OK;
+    ref_bits = TFW_ADC_REFBITS_VCC;
+    return TFW_OK;
 }
 
-ag_status_t ag_hal_adc_set_ref(ag_adc_ref_t ref)
+tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
 {
     switch (ref) {
-    case AG_ADC_REF_VCC:      ref_bits = AG_ADC_REFBITS_VCC;      return AG_OK;
-    case AG_ADC_REF_EXTERNAL:
-#ifdef AG_ADC_NO_EXTERNAL_REF
+    case TFW_ADC_REF_VCC:      ref_bits = TFW_ADC_REFBITS_VCC;      return TFW_OK;
+    case TFW_ADC_REF_EXTERNAL:
+#ifdef TFW_ADC_NO_EXTERNAL_REF
         /*
          * The AREF pin is spoken for on this board, so there is no external
          * reference to select.
@@ -70,24 +70,24 @@ ag_status_t ag_hal_adc_set_ref(ag_adc_ref_t ref)
          * meaningless.
          *
          * Refused rather than accepted-and-ignored: a host that asked for a
-         * reference and got AG_OK would trust the numbers that followed.
+         * reference and got TFW_OK would trust the numbers that followed.
          */
-        return AG_ERR_UNSUPPORTED;
+        return TFW_ERR_UNSUPPORTED;
 #else
-        ref_bits = AG_ADC_REFBITS_EXTERNAL;
-        return AG_OK;
+        ref_bits = TFW_ADC_REFBITS_EXTERNAL;
+        return TFW_OK;
 #endif
-    case AG_ADC_REF_INTERNAL: ref_bits = AG_ADC_REFBITS_INTERNAL; return AG_OK;
-    default:                  return AG_ERR_RANGE;
+    case TFW_ADC_REF_INTERNAL: ref_bits = TFW_ADC_REFBITS_INTERNAL; return TFW_OK;
+    default:                  return TFW_ERR_RANGE;
     }
 }
 
-ag_status_t ag_hal_adc_read(uint8_t channel, uint16_t *out_raw)
+tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     uint8_t low;
 
-    if (channel >= AG_ADC_COUNT) {
-        return AG_ERR_BAD_PIN;
+    if (channel >= TFW_ADC_COUNT) {
+        return TFW_ERR_BAD_PIN;
     }
     /* Channels above 7 live behind MUX5, which is in ADCSRB rather than ADMUX
      * -- a part with eight channels has no such bit, so this is one of the few
@@ -113,5 +113,5 @@ ag_status_t ag_hal_adc_read(uint8_t channel, uint16_t *out_raw)
      * returns a value from a different conversion. */
     low      = ADCL;
     *out_raw = (uint16_t)(low | ((uint16_t)ADCH << 8));
-    return AG_OK;
+    return TFW_OK;
 }

@@ -3,7 +3,7 @@
 
 #include "reader.h"
 
-void ag_reader_init(ag_reader_t *r, const uint8_t *buf, uint8_t len)
+void tfw_reader_init(tfw_reader_t *r, const uint8_t *buf, uint8_t len)
 {
     r->buf       = buf;
     r->len       = len;
@@ -11,12 +11,12 @@ void ag_reader_init(ag_reader_t *r, const uint8_t *buf, uint8_t len)
     r->underflow = 0u;
 }
 
-uint8_t ag_reader_ok(const ag_reader_t *r)
+uint8_t tfw_reader_ok(const tfw_reader_t *r)
 {
     return (uint8_t)(r->underflow == 0u);
 }
 
-uint8_t ag_reader_remaining(const ag_reader_t *r)
+uint8_t tfw_reader_remaining(const tfw_reader_t *r)
 {
     return (uint8_t)(r->pos <= r->len ? (uint8_t)(r->len - r->pos) : 0u);
 }
@@ -24,7 +24,7 @@ uint8_t ag_reader_remaining(const ag_reader_t *r)
 /* Reserves n bytes and returns their address, or NULL if they are not there.
  * The single place the bound is tested, so there is one place for it to be
  * wrong. Note the comparison is written to avoid overflowing pos + n. */
-static const uint8_t *take(ag_reader_t *r, uint8_t n)
+static const uint8_t *take(tfw_reader_t *r, uint8_t n)
 {
     const uint8_t *p;
 
@@ -40,13 +40,13 @@ static const uint8_t *take(ag_reader_t *r, uint8_t n)
     return p;
 }
 
-uint8_t ag_read_u8(ag_reader_t *r)
+uint8_t tfw_read_u8(tfw_reader_t *r)
 {
     const uint8_t *p = take(r, 1u);
     return p ? p[0] : 0u;
 }
 
-uint16_t ag_read_u16(ag_reader_t *r)
+uint16_t tfw_read_u16(tfw_reader_t *r)
 {
     const uint8_t *p = take(r, 2u);
     if (!p) {
@@ -55,7 +55,7 @@ uint16_t ag_read_u16(ag_reader_t *r)
     return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
-uint32_t ag_read_u32(ag_reader_t *r)
+uint32_t tfw_read_u32(tfw_reader_t *r)
 {
     const uint8_t *p = take(r, 4u);
     if (!p) {
@@ -67,7 +67,7 @@ uint32_t ag_read_u32(ag_reader_t *r)
          | ((uint32_t)p[3] << 24);
 }
 
-const uint8_t *ag_read_blob(ag_reader_t *r, uint8_t n)
+const uint8_t *tfw_read_blob(tfw_reader_t *r, uint8_t n)
 {
     return take(r, n);
 }

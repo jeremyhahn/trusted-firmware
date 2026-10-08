@@ -6,8 +6,8 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 #include "hal_early.h"
 #include "../../core/handoff.h"
 #include "../../core/reset_cause.h"
@@ -20,43 +20,43 @@ extern int *__brkval;
  * disarm the watchdog" one sequence in the tree instead of two that can drift.
  * See that file for why those three instructions cannot happen later. */
 
-/* The bit positions ag_reset_cause_decode assumes, pinned against avr-libc --
+/* The bit positions tfw_reset_cause_decode assumes, pinned against avr-libc --
  * the same arrangement each board's board_profile.h uses for register
  * addresses, so a transposed bit is a compile error naming the constant
  * rather than a silently wrong decode. */
-_Static_assert(AG_MCUSR_PORF  == _BV(PORF),  "PORF bit position");
-_Static_assert(AG_MCUSR_EXTRF == _BV(EXTRF), "EXTRF bit position");
-_Static_assert(AG_MCUSR_BORF  == _BV(BORF),  "BORF bit position");
-_Static_assert(AG_MCUSR_WDRF  == _BV(WDRF),  "WDRF bit position");
+_Static_assert(TFW_MCUSR_PORF  == _BV(PORF),  "PORF bit position");
+_Static_assert(TFW_MCUSR_EXTRF == _BV(EXTRF), "EXTRF bit position");
+_Static_assert(TFW_MCUSR_BORF  == _BV(BORF),  "BORF bit position");
+_Static_assert(TFW_MCUSR_WDRF  == _BV(WDRF),  "WDRF bit position");
 
-ag_status_t ag_hal_init(void)
+tfw_status_t tfw_hal_init(void)
 {
     /* The clock prescaler is written as a timed sequence: the enable bit is
      * only honoured within four cycles of being set. */
     CLKPR = (uint8_t)_BV(CLKPCE);
     CLKPR = 0u;                 /* full speed; no division */
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_reset_cause_t ag_hal_reset_cause(void)
+tfw_reset_cause_t tfw_hal_reset_cause(void)
 {
     uint8_t handed_off;
 
     /*
-     * ag-boot's handoff carries the MCUSR IT saw, latched before ITS OWN
+     * tfw-boot's handoff carries the MCUSR IT saw, latched before ITS OWN
      * .init3 cleared the register -- issue #18. Preferred when a valid
      * handoff exists, because by the time this runs OUR OWN .init3 has
      * already read MCUSR a second time and found it clear: whatever ran
-     * before us -- ag-boot, or a stock bootloader with no handoff at all --
-     * got there first. Falling back to ag_hal_early_flags is exactly what a
+     * before us -- tfw-boot, or a stock bootloader with no handoff at all --
+     * got there first. Falling back to tfw_hal_early_flags is exactly what a
      * stock bootloader's case needs: no handoff exists, MCUSR was already
-     * zero by the time even OUR .init3 ran, and AG_RESET_UNKNOWN is the
+     * zero by the time even OUR .init3 ran, and TFW_RESET_UNKNOWN is the
      * honest answer -- see docs/device-capabilities/.
      */
-    if (ag_boot_handoff_reset_cause(&handed_off)) {
-        return ag_reset_cause_decode(handed_off);
+    if (tfw_boot_handoff_reset_cause(&handed_off)) {
+        return tfw_reset_cause_decode(handed_off);
     }
-    return ag_reset_cause_decode(ag_hal_early_flags);
+    return tfw_reset_cause_decode(tfw_hal_early_flags);
 }
 
 /*
@@ -67,14 +67,14 @@ ag_reset_cause_t ag_hal_reset_cause(void)
  * the chip believes it is still running. The watchdog performs a real hardware
  * reset, which is what the caller asked for.
  */
-void ag_hal_reset(void)
+void tfw_hal_reset(void)
 {
     cli();
     wdt_enable(WDTO_15MS);
     for (;;) { }
 }
 
-void ag_hal_delay_us(uint16_t us)
+void tfw_hal_delay_us(uint16_t us)
 {
     while (us--) {
         _delay_us(1);
@@ -92,7 +92,7 @@ void ag_hal_delay_us(uint16_t us)
  * .bss, and .noinit holds live state (the reset-cause latch hal_early.c writes
  * in .init3), so __bss_end would count occupied bytes as free.
  */
-uint16_t ag_hal_free_ram(void)
+uint16_t tfw_hal_free_ram(void)
 {
     int marker;
     int top = (__brkval == 0) ? (int)&__heap_start : (int)__brkval;

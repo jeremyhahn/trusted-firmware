@@ -18,7 +18,7 @@ integration-test: $(INT_DIR)/harness $(TARGET).elf
 $(INT_DIR)/harness: test/integration/simavr/harness.c src/proto/crc16.c src/proto/crc16_update.c
 	@mkdir -p $(INT_DIR)
 	@$(CC) -std=c11 -g -O1 -Wall -Wextra \
-	   -Iinclude -Isrc/proto -I$(BOARD_DIR) -DAG_BOARD_HEADER='"board_profile.h"' \
+	   -Iinclude -Isrc/proto -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"
 

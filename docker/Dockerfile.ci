@@ -42,7 +42,7 @@ ENV PATH="/usr/local/go/bin:${PATH}" \
 # the size budget, the cycle counts, the reproducible-build hash. Recording
 # them means a number that moved can be attributed to the code or to the
 # compiler, rather than argued about.
-RUN { echo "# arduino-generic CI image"; \
+RUN { echo "# trusted-firmware CI image"; \
       avr-gcc --version | head -1; \
       avrdude -v 2>&1 | grep -i 'version' | head -1 || true; \
       simavr --help 2>&1 | head -1 || true; \

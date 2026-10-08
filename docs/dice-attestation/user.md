@@ -1,6 +1,6 @@
 # DICE attestation — user guide
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 Task-oriented. For the design and the wire detail behind each task, see
@@ -11,17 +11,17 @@ Task-oriented. For the design and the wire detail behind each task, see
 Before trusting anything a device signs, ask it what it is:
 
 ```
-agctl /dev/ttyACM0 caps
+tfwctl /dev/ttyACM0 caps
 ```
 
-Read `root of trust` (`AG_CRYPTO_NONE`/`SOFTWARE`/`SECURE_ELEMENT`) and
+Read `root of trust` (`TFW_CRYPTO_NONE`/`SOFTWARE`/`SECURE_ELEMENT`) and
 `algorithms`. A `SOFTWARE`-tier device signs with HMAC-SHA256 only, and the
 verifier holds that key — it proves identity to a gateway it already trusts,
 never to a stranger. Only `SECURE_ELEMENT` produces a certificate at all.
 
 ## Build a firmware image with attestation enabled
 
-`AG_FEATURE_ATTEST` and `AG_FEATURE_ALIAS_CERT` default to **off**. For the
+`TFW_FEATURE_ATTEST` and `TFW_FEATURE_ALIAS_CERT` default to **off**. For the
 element-backed image:
 
 ```
@@ -29,42 +29,42 @@ make firmware-attested          # CRYPTO=atecc608a, both features on
 ```
 
 For the software tier, build with `CRYPTO=soft` (the AVR default) and set
-`AG_FEATURE_ATTEST=1` explicitly; `AG_FEATURE_ALIAS_CERT` has nothing to
+`TFW_FEATURE_ATTEST=1` explicitly; `TFW_FEATURE_ALIAS_CERT` has nothing to
 certify on that tier and stays off.
 
 ## Provision a device before its evidence means anything
 
-`ATTEST` and `ATTEST_CERT` both refuse (`AG_ERR_NOT_PROVISIONED`) until the
+`ATTEST` and `ATTEST_CERT` both refuse (`TFW_ERR_NOT_PROVISIONED`) until the
 element holds a DeviceID key and a UDS. That is a separate, one-time,
 irreversible procedure — run it on a spare part first:
 
 ```
-agprov --dry-run  --config board.yaml /dev/ttyACM0   # see the plan, write nothing
-agprov --commit --yes-i-mean-it --config board.yaml /dev/ttyACM0
-agprov --verify   --config board.yaml /dev/ttyACM0   # confirm afterward
+tfwprov --dry-run  --config board.yaml /dev/ttyACM0   # see the plan, write nothing
+tfwprov --commit --yes-i-mean-it --config board.yaml /dev/ttyACM0
+tfwprov --verify   --config board.yaml /dev/ttyACM0   # confirm afterward
 ```
 
 Full procedure and failure modes: `docs/device-provisioning/user.md`. There is
-the verb is `agctl attest` — see `cli.md`.
+the verb is `tfwctl attest` — see `cli.md`.
 
 ## Produce real DICE evidence with no hardware
 
-`agsim-atecc608a` is the firmware with the real ATECC608A driver and provider,
+`tfwsim-atecc608a` is the firmware with the real ATECC608A driver and provider,
 talking to the software model of the part. Started with an identity it answers
 `ATTEST` and `ATTEST_CERT` over the wire for a nonce **you** supply, exactly as
 a device does:
 
 ```sh
-make agsim-atecc608a       # same as: make agsim CRYPTO=atecc608a
+make tfwsim-atecc608a       # same as: make tfwsim CRYPTO=atecc608a
 ```
 
 From Go, in a test (`go-xkms` `pkg/backend/avr`, `go-trusted-platform`
 `pkg/firmware/avr`, or this repo's own):
 
 ```go
-import "github.com/jeremyhahn/arduino-generic/sdk/go/agsim"
+import "github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 
-dev := agsim.StartElement(t) // provisioned with the test identity below
+dev := tfwsim.StartElement(t) // provisioned with the test identity below
 der, err := dev.AttestCert(ctx, nonce32)   // UCCS alias certificate
 ev, err := dev.Attest(ctx, nonce16)        // 164-byte evidence frame
 ```
@@ -77,21 +77,21 @@ never skips. Where binaries are looked up, and the full API, is in
 
 | Source of identity | What the simulator is given | Where it comes from |
 |---|---|---|
-| Platform EEPROM block (DeviceID / UEID) | serial `agsim-test-id-01` (16 bytes) | `ag.BuildPlatformBlock`, the builder `agprov --bake-eeprom` uses |
+| Platform EEPROM block (DeviceID / UEID) | serial `tfwsim-testid-01` (16 bytes) | `tfw.BuildPlatformBlock`, the builder `tfwprov --bake-eeprom` uses |
 | Element | the TEST DeviceID key in slot 0 and a TEST UDS | `--provision-element` seeds the model directly |
-| ag-boot handoff (FWHash, CDI) | FWHash = SHA-256 of `agsim-test-firmware-image-v1` | `--image-hash`, built by `boot/boot_handoff.c`'s `ag_boot_handoff_build` |
+| tfw-boot handoff (FWHash, CDI) | FWHash = SHA-256 of `tfwsim-test-firmware-image-v1` | `--image-hash`, built by `boot/boot_handoff.c`'s `tfw_boot_handoff_build` |
 
-Everything is off by default: `agsim-atecc608a` with no options is a blank part
-and attestation answers `AG_ERR_NOT_PROVISIONED` (`agsim.StartBlankElement`).
+Everything is off by default: `tfwsim-atecc608a` with no options is a blank part
+and attestation answers `TFW_ERR_NOT_PROVISIONED` (`tfwsim.StartBlankElement`).
 To use your own identity, hand it the same artefacts a real device has:
 
 ```sh
-agprov --bake-eeprom --serial 00112233445566778899aabbccddeeff --out dev.eep
-build/host/agsim-atecc608a --pty --eeprom dev.eep --provision-element \
+tfwprov --bake-eeprom --serial 00112233445566778899aabbccddeeff --out dev.eep
+build/host/tfwsim-atecc608a --pty --eeprom dev.eep --provision-element \
     --image-hash "$(sha256sum app.bin | cut -d' ' -f1)"
 ```
 
-`--eeprom FILE` reads Intel HEX (what `agprov --bake-eeprom` and avrdude write);
+`--eeprom FILE` reads Intel HEX (what `tfwprov --bake-eeprom` and avrdude write);
 `--eeprom-bin FILE` a raw image. A bad option or an unreadable file stops the
 simulator with exit status 2 and a message naming it; nothing is skipped.
 
@@ -103,11 +103,11 @@ installs a deterministic key so a test can pin it:
 
 | | |
 |---|---|
-| Private key | `SHA-256("agsim-atecc608a TEST DeviceID key v1")` (ASCII, no terminator), `0df3d0b553ec7486fc43dd08763416cf0feee11c46a163fdaff28ea75cf9f76d` |
-| Public point `X` | `41fbd5657867813d482f3b4519638191109bf4708e3b9cb518e866f3a78dbf09` |
-| Public point `Y` | `a3a696b6af162bda303d1bde9030379186a3a5c82ed8439bc433c9305d4daea4` |
+| Private key | `SHA-256("tfwsim-atecc608a TEST DeviceID key v1")` (ASCII, no terminator), `283706f57629c2daa7b161e5e6423077e65260187fbbd8673473ef7aea81551d` |
+| Public point `X` | `41035035faf782ef1cab6a669f1c3809b89fbf1cd096771d12d87e1cb3c35aca` |
+| Public point `Y` | `eda3e5021ff3ee9e48329bcc44c1061e1d5949f1fbba0742a5b6ac6799efe78a` |
 
-In Go, `agsim.TestDeviceIDPublicKey()` returns it. Per
+In Go, `tfwsim.TestDeviceIDPublicKey()` returns it. Per
 [`architecture.md`](architecture.md) the DeviceID key signs both artefacts and is
 the alias certificate's subject key, so one public key checks both:
 
@@ -118,7 +118,7 @@ err := cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert
 digest := sha256.Sum256(ev[:73])           // everything before the algorithm byte
 r := new(big.Int).SetBytes(ev[74:106])
 s := new(big.Int).SetBytes(ev[106:138])
-ok := ecdsa.Verify(agsim.TestDeviceIDPublicKey(), digest[:], r, s)
+ok := ecdsa.Verify(tfwsim.TestDeviceIDPublicKey(), digest[:], r, s)
 ```
 
 Signing is deterministic (an HMAC-DRBG `k` in the style of RFC 6979, micro-ecc's
@@ -126,7 +126,7 @@ variant), so the same nonce gives the same signature; the real part's `k` is
 random.
 
 The operator-signature auth session is compiled into this binary, so it can be
-exercised too: `agsim.StartElementWithOperator(t, &opKey.PublicKey)` bakes the
+exercised too: `tfwsim.StartElementWithOperator(t, &opKey.PublicKey)` bakes the
 operator's public key into the platform block, and `Device.AuthResponse` with
 the matching private key opens the session. The element verifies for real, so a
 signature from another key, for another serial, or over a stale nonce is refused.
@@ -138,8 +138,8 @@ verifies, which is exactly why this matters: the private key above is the hash o
 a published string, so anyone can compute it and sign as this device. A passing
 signature check proves the bytes are well formed and were signed by that key; it
 proves nothing about any device. **Never enrol, allow-list or pin this key
-outside a test that supplied it.** The serial `agsim-test-id-01` and the FWHash
-of `agsim-test-firmware-image-v1` are likewise fixed and public.
+outside a test that supplied it.** The serial `tfwsim-test-id-01` and the FWHash
+of `tfwsim-test-firmware-image-v1` are likewise fixed and public.
 
 Use it to test paging, parsing, signature verification, nonce binding, the UEID
 and measurement claims, the auth session and error handling. Not modelled:
@@ -152,11 +152,11 @@ commands (a jig image concern; the element is seeded instead).
 
 `ATTEST`/`Device.Attest` is for a verifier that already trusts this
 product's identity model and wants a compact, signed statement now — e.g. a
-gateway checking a device before relaying its data. There is no `agctl`
+gateway checking a device before relaying its data. There is no `tfwctl`
 verb; call the SDK:
 
 ```go
-nonce := make([]byte, ag.AttestNonceLen) // 16 bytes, freshly random per challenge
+nonce := make([]byte, tfw.AttestNonceLen) // 16 bytes, freshly random per challenge
 evidence, err := dev.Attest(ctx, nonce)
 ```
 
@@ -174,7 +174,7 @@ wants the spec-shaped artifact rather than the compact frame — e.g. an ACME
 
 ```go
 nonce := sha256(keyAuthorization) // the host hashes; the device never sees keyAuthorization
-cert, err := dev.AttestCert(ctx, nonce) // ag.AliasNonceLen == 32 bytes
+cert, err := dev.AttestCert(ctx, nonce) // tfw.AliasNonceLen == 32 bytes
 ```
 
 `cert` is DER, ready to hand to whatever verifies it. This repo does not
@@ -185,10 +185,10 @@ go-trusted-platform's job; hand the bytes across that boundary unmodified.
 
 | You see | It means |
 |---|---|
-| `AG_ERR_UNKNOWN_CMD` | this build has `AG_FEATURE_ATTEST`/`AG_FEATURE_ALIAS_CERT` off, or you are talking to a provisioning image |
-| `AG_ERR_NOT_PROVISIONED` | the element is present but has no UDS/DeviceID yet — run `agprov --commit` |
-| `AG_ERR_UNSUPPORTED` from `ATTEST_CERT` | this device's tier has no public key to certify (software tier), or this board has no room for the certificate builder |
-| `AG_ERR_RANGE` while paging | you asked for a page past the document's end, or reused a page index after sending a new nonce |
+| `TFW_ERR_UNKNOWN_CMD` | this build has `TFW_FEATURE_ATTEST`/`TFW_FEATURE_ALIAS_CERT` off, or you are talking to a provisioning image |
+| `TFW_ERR_NOT_PROVISIONED` | the element is present but has no UDS/DeviceID yet — run `tfwprov --commit` |
+| `TFW_ERR_UNSUPPORTED` from `ATTEST_CERT` | this device's tier has no public key to certify (software tier), or this board has no room for the certificate builder |
+| `TFW_ERR_RANGE` while paging | you asked for a page past the document's end, or reused a page index after sending a new nonce |
 
 ## Known limitation: the measurement fields are not live yet
 

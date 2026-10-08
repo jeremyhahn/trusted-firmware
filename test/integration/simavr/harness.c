@@ -32,8 +32,8 @@
 #include <simavr/avr_adc.h>
 #include <simavr/avr_spi.h>
 
-#include "ag/status.h"
-#include "ag/protocol.h"
+#include "tfw/status.h"
+#include "tfw/protocol.h"
 #include "crc16.h"
 
 /* ------------------------------------------------------------- plumbing */
@@ -125,9 +125,9 @@ static void send(const uint8_t *b, unsigned n)
  * simavr's ADC model asks for a voltage each time a conversion starts, by
  * raising ADC_IRQ_OUT_TRIGGER with the mux the firmware just selected. A
  * conversion only ever COMPLETES -- ADCSRA's ADSC bit clearing, which is what
- * ag_hal_adc_read() polls -- if ADEN was set first; see avr_adc_write_adcsra
+ * tfw_hal_adc_read() polls -- if ADEN was set first; see avr_adc_write_adcsra
  * in simavr's own source. So this is not just "feed a plausible reading": on
- * the pre-fix firmware, which never called ag_hal_adc_init(), this callback
+ * the pre-fix firmware, which never called tfw_hal_adc_init(), this callback
  * would never fire and ANALOG_READ would run out its cycle bound with no
  * reply, exactly the way #19's silent zero would have been caught had this
  * existed then.
@@ -176,12 +176,12 @@ static unsigned frame_request(uint8_t *out, uint8_t seq, uint8_t cmd,
 {
     unsigned i = 0;
     uint16_t crc;
-    out[i++] = AG_SOF;
+    out[i++] = TFW_SOF;
     out[i++] = (uint8_t)(2u + plen);
     out[i++] = seq;
     out[i++] = cmd;
     for (uint8_t k = 0; k < plen; k++) { out[i++] = payload[k]; }
-    crc = ag_crc16(&out[1], (uint16_t)(i - 1u));
+    crc = tfw_crc16(&out[1], (uint16_t)(i - 1u));
     out[i++] = (uint8_t)(crc & 0xFFu);
     out[i++] = (uint8_t)(crc >> 8);
     return i;
@@ -191,17 +191,17 @@ static unsigned frame_request(uint8_t *out, uint8_t seq, uint8_t cmd,
 static int find_response(uint8_t seq, uint8_t *status, uint8_t *payload, uint8_t *plen)
 {
     for (unsigned i = 0; i + 6 <= from_device_n; i++) {
-        if (from_device[i] != AG_SOF) { continue; }
+        if (from_device[i] != TFW_SOF) { continue; }
         unsigned len = from_device[i + 1];
         if (len < 2 || len > 200) { continue; }
         unsigned total = len + 4;
         if (i + total > from_device_n) { continue; }
-        uint16_t want = ag_crc16(&from_device[i + 1], (uint16_t)(len + 1));
+        uint16_t want = tfw_crc16(&from_device[i + 1], (uint16_t)(len + 1));
         uint16_t got  = (uint16_t)(from_device[i + total - 2]
                                    | (from_device[i + total - 1] << 8));
         if (want != got) { continue; }
         if (from_device[i + 2] != seq) { continue; }
-        if (!(from_device[i + 3] & AG_OP_RESPONSE_BIT)) { continue; }
+        if (!(from_device[i + 3] & TFW_OP_RESPONSE_BIT)) { continue; }
         *status = from_device[i + 4];
         *plen   = (uint8_t)(len - 3u);
         memcpy(payload, &from_device[i + 5], *plen);
@@ -236,7 +236,7 @@ int main(int argc, char **argv)
 {
     elf_firmware_t f;
     memset(&f, 0, sizeof f);
-    const char    *elf = argc > 1 ? argv[1] : "build/atmega328p/arduino-generic.elf";
+    const char    *elf = argc > 1 ? argv[1] : "build/atmega328p/soft/trusted-firmware.elf";
     uint8_t        status, out[64], outlen;
 
     if (elf_read_firmware(elf, &f) != 0) {
@@ -277,18 +277,18 @@ int main(int argc, char **argv)
      * framer, dispatch, and back out through the transmit interrupt. */
     {
         const uint8_t msg[4] = { 'p', 'o', 'n', 'g' };
-        int ok = exchange(0x21, AG_CMD_PING, msg, 4, &status, out, &outlen);
+        int ok = exchange(0x21, TFW_CMD_PING, msg, 4, &status, out, &outlen);
         check(ok, "PING round-trips through the emulated UART");
-        check(ok && status == AG_OK, "PING returns AG_OK");
+        check(ok && status == TFW_OK, "PING returns TFW_OK");
         check(ok && outlen == 4 && memcmp(out, msg, 4) == 0, "PING echoes its payload");
     }
 
     /* CAPS: the device describes itself, and the numbers must be the ones the
      * image was actually built with. */
     {
-        int ok = exchange(0x22, AG_CMD_CAPS, NULL, 0, &status, out, &outlen);
-        check(ok && status == AG_OK, "CAPS answers");
-        check(ok && out[0] == AG_PROTO_VERSION_MAJOR, "CAPS reports protocol major 1");
+        int ok = exchange(0x22, TFW_CMD_CAPS, NULL, 0, &status, out, &outlen);
+        check(ok && status == TFW_OK, "CAPS answers");
+        check(ok && out[0] == TFW_PROTO_VERSION_MAJOR, "CAPS reports protocol major 1");
         check(ok && out[6] == 22, "CAPS reports the 328P's 22 pins");
     }
 
@@ -297,8 +297,8 @@ int main(int argc, char **argv)
     {
         uint32_t           t1, t2;
         avr_cycle_count_t  before;
-        int ok = exchange(0x23, AG_CMD_SYS_INFO, NULL, 0, &status, out, &outlen);
-        check(ok && status == AG_OK, "SYS_INFO answers");
+        int ok = exchange(0x23, TFW_CMD_SYS_INFO, NULL, 0, &status, out, &outlen);
+        check(ok && status == TFW_OK, "SYS_INFO answers");
         /* #5: err_crc and err_format are appended after reset_cause, so the
          * reply grew from 7 bytes to 11 on real silicon, not only on the host
          * mock, and a boot with no traffic yet has raised neither. */
@@ -318,7 +318,7 @@ int main(int argc, char **argv)
         before = avr->cycle;
         run_until_cycle(before + 16000000u);
 
-        ok = exchange(0x24, AG_CMD_SYS_INFO, NULL, 0, &status, out, &outlen);
+        ok = exchange(0x24, TFW_CMD_SYS_INFO, NULL, 0, &status, out, &outlen);
         t2 = (uint32_t)out[0] | ((uint32_t)out[1] << 8)
            | ((uint32_t)out[2] << 16) | ((uint32_t)out[3] << 24);
         check(ok && t2 > t1, "the millisecond tick ISR is running");
@@ -339,16 +339,16 @@ int main(int argc, char **argv)
     {
         const uint8_t mode_out[2] = { 13u, 1u };
         const uint8_t high[2]     = { 13u, 1u };
-        int ok = exchange(0x25, AG_CMD_PIN_MODE, mode_out, 2, &status, out, &outlen);
-        check(ok && status == AG_OK, "PIN_MODE accepted on pin 13");
-        ok = exchange(0x26, AG_CMD_DIGITAL_WRITE, high, 2, &status, out, &outlen);
-        check(ok && status == AG_OK, "DIGITAL_WRITE accepted on pin 13");
+        int ok = exchange(0x25, TFW_CMD_PIN_MODE, mode_out, 2, &status, out, &outlen);
+        check(ok && status == TFW_OK, "PIN_MODE accepted on pin 13");
+        ok = exchange(0x26, TFW_CMD_DIGITAL_WRITE, high, 2, &status, out, &outlen);
+        check(ok && status == TFW_OK, "DIGITAL_WRITE accepted on pin 13");
 
         /* Read it back through the device rather than poking the emulator:
          * that exercises the read path too. */
         const uint8_t pin13[1] = { 13u };
-        ok = exchange(0x27, AG_CMD_DIGITAL_READ, pin13, 1, &status, out, &outlen);
-        check(ok && status == AG_OK && out[0] == 1u,
+        ok = exchange(0x27, TFW_CMD_DIGITAL_READ, pin13, 1, &status, out, &outlen);
+        check(ok && status == TFW_OK && out[0] == 1u,
               "the pin reads back high from the real port register");
     }
 
@@ -356,16 +356,16 @@ int main(int argc, char **argv)
      * that stops a host cutting the line it is talking over. */
     {
         const uint8_t tx_pin[2] = { 1u, 1u };
-        int ok = exchange(0x28, AG_CMD_DIGITAL_WRITE, tx_pin, 2, &status, out, &outlen);
-        check(ok && status == AG_ERR_RESERVED_PIN, "the UART pin is refused on the device");
+        int ok = exchange(0x28, TFW_CMD_DIGITAL_WRITE, tx_pin, 2, &status, out, &outlen);
+        check(ok && status == TFW_ERR_RESERVED_PIN, "the UART pin is refused on the device");
     }
 
     /* An unprovisioned device must refuse to attest on real silicon, not only
      * in a host test where the mock could be lying. */
     {
         uint8_t nonce[16] = {0};
-        int ok = exchange(0x29, AG_CMD_ATTEST, nonce, 16, &status, out, &outlen);
-        check(ok && status == AG_ERR_NOT_PROVISIONED,
+        int ok = exchange(0x29, TFW_CMD_ATTEST, nonce, 16, &status, out, &outlen);
+        check(ok && status == TFW_ERR_NOT_PROVISIONED,
               "an unprovisioned device refuses to attest");
     }
 
@@ -373,13 +373,13 @@ int main(int argc, char **argv)
      * cannot tell a bad line from a dead device. */
     {
         uint8_t  wire[64];
-        unsigned n = frame_request(wire, 0x2A, AG_CMD_PING, NULL, 0);
+        unsigned n = frame_request(wire, 0x2A, TFW_CMD_PING, NULL, 0);
         wire[n - 1] ^= 0xFF;
         from_device_n = 0;
         send(wire, n);
         run_instructions(400000);
         int ok = find_response(0x2A, &status, out, &outlen);
-        check(ok && status == AG_ERR_CRC, "a corrupted frame is answered with AG_ERR_CRC");
+        check(ok && status == TFW_ERR_CRC, "a corrupted frame is answered with TFW_ERR_CRC");
     }
 
     /* ANALOG_READ against the emulated ADC -- #19's silent-zero instance.
@@ -389,9 +389,9 @@ int main(int argc, char **argv)
      * hang into a failure catches this one too. */
     {
         const uint8_t a0[1] = { 14u };  /* A0, ADC channel 0 */
-        int ok = exchange(0x2B, AG_CMD_ANALOG_READ, a0, 1, &status, out, &outlen);
+        int ok = exchange(0x2B, TFW_CMD_ANALOG_READ, a0, 1, &status, out, &outlen);
         check(ok, "ANALOG_READ round-trips through the emulated ADC");
-        check(ok && status == AG_OK, "ANALOG_READ returns AG_OK");
+        check(ok && status == TFW_OK, "ANALOG_READ returns TFW_OK");
         uint16_t raw = ok ? (uint16_t)(out[0] | (out[1] << 8)) : 0u;
         check(ok && raw > 0u,
               "the ADC actually converted rather than reporting an unmeasured zero");
@@ -403,35 +403,35 @@ int main(int argc, char **argv)
      * wedge the firmware permanently, exactly as it did on real hardware. */
     {
         const uint8_t cs_and_data[3] = { 10u, 0x12u, 0x34u };  /* cs, then two bytes out */
-        int ok = exchange(0x2C, AG_CMD_SPI_XFER, cs_and_data, 3, &status, out, &outlen);
+        int ok = exchange(0x2C, TFW_CMD_SPI_XFER, cs_and_data, 3, &status, out, &outlen);
         check(ok, "SPI_XFER round-trips through the emulated SPI peripheral");
-        check(ok && status == AG_OK, "SPI_XFER returns AG_OK");
+        check(ok && status == TFW_OK, "SPI_XFER returns TFW_OK");
         check(ok && outlen == 2 && out[0] == SPI_SLAVE_BYTE && out[1] == SPI_SLAVE_BYTE,
               "SPI_XFER reads back what the emulated peripheral clocked in");
 
         /* The device must still be alive afterwards -- #16's actual failure
          * was not the one bad transfer, it was every command after it. */
         const uint8_t msg[5] = { 'a', 'l', 'i', 'v', 'e' };
-        ok = exchange(0x2D, AG_CMD_PING, msg, 5, &status, out, &outlen);
-        check(ok && status == AG_OK, "the device still answers after an SPI transfer");
+        ok = exchange(0x2D, TFW_CMD_PING, msg, 5, &status, out, &outlen);
+        check(ok && status == TFW_OK, "the device still answers after an SPI transfer");
     }
 
     /* I2C_CONFIG against the REAL TWBR register, on real F_CPU. 1 kHz is
-     * inside the cap layer's generic AG_I2C_HZ_MIN..MAX interval, and on this
+     * inside the cap layer's generic TFW_I2C_HZ_MIN..MAX interval, and on this
      * board's 16 MHz clock it is NOT reachable by an 8-bit TWBR at prescaler
      * 1 -- exactly the gap a host build cannot see, since the mock has no
-     * F_CPU and always answers AG_OK. Before hal_bus.c's own reachability
+     * F_CPU and always answers TFW_OK. Before hal_bus.c's own reachability
      * check, this silently produced roughly 125 kHz -- 125 times the
      * requested rate -- with no error. */
     {
         const uint8_t too_slow[4] = { 0xE8u, 0x03u, 0x00u, 0x00u };  /* 1000 Hz, LE */
-        int ok = exchange(0x2E, AG_CMD_I2C_CONFIG, too_slow, 4, &status, out, &outlen);
-        check(ok && status == AG_ERR_RANGE,
+        int ok = exchange(0x2E, TFW_CMD_I2C_CONFIG, too_slow, 4, &status, out, &outlen);
+        check(ok && status == TFW_ERR_RANGE,
               "I2C_CONFIG refuses a clock this board's TWBR cannot represent");
 
         const uint8_t reachable[4] = { 0xA0u, 0x86u, 0x01u, 0x00u };  /* 100000 Hz, LE */
-        ok = exchange(0x2F, AG_CMD_I2C_CONFIG, reachable, 4, &status, out, &outlen);
-        check(ok && status == AG_OK, "I2C_CONFIG accepts the boot default rate");
+        ok = exchange(0x2F, TFW_CMD_I2C_CONFIG, reachable, 4, &status, out, &outlen);
+        check(ok && status == TFW_OK, "I2C_CONFIG accepts the boot default rate");
     }
 
     /* I2C_CONFIG must never program a FASTER bus than the one requested, only
@@ -444,8 +444,8 @@ int main(int argc, char **argv)
     {
 #define R_TWBR 0xB8u
         const uint8_t threefifty[4] = { 0x30u, 0x57u, 0x05u, 0x00u };  /* 350000 Hz, LE */
-        int ok = exchange(0x30, AG_CMD_I2C_CONFIG, threefifty, 4, &status, out, &outlen);
-        check(ok && status == AG_OK, "I2C_CONFIG accepts 350 kHz");
+        int ok = exchange(0x30, TFW_CMD_I2C_CONFIG, threefifty, 4, &status, out, &outlen);
+        check(ok && status == TFW_OK, "I2C_CONFIG accepts 350 kHz");
         check(ok && avr->data[R_TWBR] == 15u,
               "I2C_CONFIG rounds the divisor so the real clock never exceeds the request");
 #undef R_TWBR

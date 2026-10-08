@@ -16,13 +16,13 @@
 #include <avr/pgmspace.h>
 #include <string.h>
 
-#include "ag/boot.h"
+#include "tfw/boot.h"
 #include "../../boot_hal.h"
 #include "avr_usart_regs.h"
 
 /* ---------------------------------------------------------------- flash */
 
-void ag_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
+void tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
 {
     uint8_t i;
 
@@ -40,18 +40,18 @@ void ag_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
     }
 }
 
-uint16_t ag_boot_flash_page_size(void)
+uint16_t tfw_boot_flash_page_size(void)
 {
     return (uint16_t)SPM_PAGESIZE;
 }
 
-ag_status_t ag_boot_flash_write_page(uint32_t addr, const uint8_t *data)
+tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 {
     uint16_t i;
     uint8_t  sreg;
 
     if ((addr % (uint32_t)SPM_PAGESIZE) != 0u) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
     /*
      * THE BOOT SECTION IS NOT WRITABLE FROM HERE, and this check is the reason
@@ -63,8 +63,8 @@ ag_status_t ag_boot_flash_write_page(uint32_t addr, const uint8_t *data)
      * overwrite the bootloader with application code, and the device would
      * never run anything again. One comparison prevents it.
      */
-    if (addr + (uint32_t)SPM_PAGESIZE > AG_BOOT_APP_END) {
-        return AG_ERR_PROTECTED_REGION;
+    if (addr + (uint32_t)SPM_PAGESIZE > TFW_BOOT_APP_END) {
+        return TFW_ERR_PROTECTED_REGION;
     }
 
     /* Interrupts are never enabled in this image, so this saves and restores a
@@ -93,24 +93,24 @@ ag_status_t ag_boot_flash_write_page(uint32_t addr, const uint8_t *data)
     boot_rww_enable();
 
     SREG = sreg;
-    return AG_OK;
+    return TFW_OK;
 }
 
 /* --------------------------------------------------------------- eeprom */
 
-ag_status_t ag_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
-    if ((uint32_t)addr + len > (uint32_t)AG_EEPROM_SIZE) {
-        return AG_ERR_RANGE;
+    if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
+        return TFW_ERR_RANGE;
     }
     eeprom_read_block(buf, (const void *)(uintptr_t)addr, len);
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+tfw_status_t tfw_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
-    if ((uint32_t)addr + len > (uint32_t)AG_EEPROM_SIZE) {
-        return AG_ERR_RANGE;
+    if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
+        return TFW_ERR_RANGE;
     }
     /* `update` rather than `write`: a byte already holding the wanted value is
      * skipped. EEPROM has a finite endurance and the bootloader rewrites this
@@ -118,38 +118,38 @@ ag_status_t ag_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
      * each time would spend the part's endurance on bytes that did not change.
      */
     eeprom_update_block(buf, (void *)(uintptr_t)addr, len);
-    return AG_OK;
+    return TFW_OK;
 }
 
 /* ----------------------------------------------------------------- uart */
 
-void ag_boot_uart_init(uint32_t baud)
+void tfw_boot_uart_init(uint32_t baud)
 {
     /* Double-speed, for the same reason the application's UART uses it: at
      * 16 MHz and 115200 the normal divisor has 3.5% error, which is outside
      * what a UART tolerates over a full frame. */
     uint16_t ubrr = (uint16_t)((F_CPU / (8UL * baud)) - 1UL);
 
-    AG_UBRRH = (uint8_t)(ubrr >> 8);
-    AG_UBRRL = (uint8_t)(ubrr & 0xFFu);
-    AG_UCSRA = (uint8_t)_BV(AG_U2X);
-    AG_UCSRC = (uint8_t)(_BV(AG_UCSZ1) | _BV(AG_UCSZ0));   /* 8N1 */
-    AG_UCSRB = (uint8_t)(_BV(AG_RXEN) | _BV(AG_TXEN));     /* no RXCIE: polled */
+    TFW_UBRRH = (uint8_t)(ubrr >> 8);
+    TFW_UBRRL = (uint8_t)(ubrr & 0xFFu);
+    TFW_UCSRA = (uint8_t)_BV(TFW_U2X);
+    TFW_UCSRC = (uint8_t)(_BV(TFW_UCSZ1) | _BV(TFW_UCSZ0));   /* 8N1 */
+    TFW_UCSRB = (uint8_t)(_BV(TFW_RXEN) | _BV(TFW_TXEN));     /* no RXCIE: polled */
 }
 
-uint8_t ag_boot_uart_rx(uint8_t *out)
+uint8_t tfw_boot_uart_rx(uint8_t *out)
 {
-    if ((AG_UCSRA & (uint8_t)_BV(AG_RXC)) == 0u) {
+    if ((TFW_UCSRA & (uint8_t)_BV(TFW_RXC)) == 0u) {
         return 0u;
     }
-    *out = AG_UDR;
+    *out = TFW_UDR;
     return 1u;
 }
 
-void ag_boot_uart_tx(uint8_t byte)
+void tfw_boot_uart_tx(uint8_t byte)
 {
-    while ((AG_UCSRA & (uint8_t)_BV(AG_UDRE)) == 0u) { }
-    AG_UDR = byte;
+    while ((TFW_UCSRA & (uint8_t)_BV(TFW_UDRE)) == 0u) { }
+    TFW_UDR = byte;
 }
 
 /* -------------------------------------------------------------- handoff */
@@ -157,7 +157,7 @@ void ag_boot_uart_tx(uint8_t byte)
 /*
  * The handoff block sits at the very top of SRAM, in its own `.handoff`
  * section -- NOT the generic `.noinit` this same image's hal_early.c also
- * uses for ag_hal_early_flags.
+ * uses for tfw_hal_early_flags.
  *
  * Uninitialised-but-not-zeroed storage because the application's C runtime
  * zeroes .bss before main() and would erase the CDI before anything could
@@ -165,13 +165,13 @@ void ag_boot_uart_tx(uint8_t byte)
  * rather than that one, because mk/boot.mk pins this section's address with
  * `--section-start`: pinning the generic `.noinit` output section would carry
  * every other object assigned to it to the same fixed spot, and
- * ag_hal_early_flags is exactly such an object in this same image.
+ * tfw_hal_early_flags is exactly such an object in this same image.
  *
  * At the top of SRAM because that is an address both images can name without
  * a shared linker script: the bootloader's own stack is moved below it by the
  * -Wl,--defsym in mk/boot.mk, and the application places its own reader
  * (src/hal/avr/hal_handoff.c) at the identical address via the same formula
- * in mk/avr.mk -- see include/ag/boot.h and src/core/handoff.c for the
+ * in mk/avr.mk -- see include/tfw/boot.h and src/core/handoff.c for the
  * application's side of this handoff.
  *
  * `.handoff` IS NOLOAD, genuinely -- mk/handoff.ld (linked into BOOT_LDFLAGS)
@@ -180,30 +180,30 @@ void ag_boot_uart_tx(uint8_t byte)
  * array's 80 bytes out of the FLASH hex this same Makefile produces, rather
  * than an `-R .handoff` at every point an image gets derived from the ELF.
  */
-static uint8_t handoff[AG_BOOT_HANDOFF_LEN] __attribute__((section(".handoff")));
+static uint8_t handoff[TFW_BOOT_HANDOFF_LEN] __attribute__((section(".handoff")));
 
-void ag_boot_handoff_write(const uint8_t *block, uint8_t len)
+void tfw_boot_handoff_write(const uint8_t *block, uint8_t len)
 {
     memcpy(handoff, block, len);
 }
 
 /* -------------------------------------------------------------- control */
 
-void ag_boot_handoff_read(uint8_t *buf, uint8_t len)
+void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
 {
     memcpy(buf, handoff, len);
 }
 
-void ag_boot_jump_application(void)
+void tfw_boot_jump_application(void)
 {
     /* Every peripheral the bootloader touched, back to its reset value. An
      * application that inherited a configured USART would work until the first
      * reset that did not run a bootloader, which is the kind of bug that is
      * found in the field and not on a bench. */
-    AG_UCSRB = 0u;
-    AG_UCSRA = 0u;
-    AG_UBRRH = 0u;
-    AG_UBRRL = 0u;
+    TFW_UCSRB = 0u;
+    TFW_UCSRA = 0u;
+    TFW_UBRRH = 0u;
+    TFW_UBRRL = 0u;
 
     /* The RWW section must be readable before anything executes from it. */
     boot_rww_enable();
@@ -239,7 +239,7 @@ void ag_boot_jump_application(void)
     for (;;) { }   /* unreachable */
 }
 
-void ag_boot_reset(void)
+void tfw_boot_reset(void)
 {
     /* The watchdog, not a jump to zero, for the reason src/hal/avr/hal_sys.c
      * gives: a jump leaves every peripheral configured and half the chip

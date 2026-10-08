@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import "fmt"
 
-// Status mirrors ag_status_t in include/ag/status.h.
+// Status mirrors tfw_status_t in include/tfw/status.h.
 //
 // THESE ARE WIRE VALUES. They extend and never renumber: a host built before a
 // status existed reads the new number as unrecognised and falls through to its

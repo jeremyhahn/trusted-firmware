@@ -15,35 +15,35 @@
  * stays where it is and the next poll continues from there, so the scheduler
  * keeps running while a long response drains.
  */
-#ifndef AG_TRANSPORT_H
-#define AG_TRANSPORT_H
+#ifndef TFW_TRANSPORT_H
+#define TFW_TRANSPORT_H
 
 #include <stdint.h>
-#include "ag/types.h"
+#include "tfw/types.h"
 #include "frame.h"
 
 typedef struct {
-    ag_framer_t framer;
-    uint8_t     out[AG_MAX_FRAME];
+    tfw_framer_t framer;
+    uint8_t     out[TFW_MAX_FRAME];
     uint16_t    out_len;      /* bytes the pending response occupies */
     uint16_t    out_pos;      /* how many of them have reached the ring */
-    ag_ms_t     last_rx_ms;   /* for the partial-frame idle guard */
+    tfw_ms_t     last_rx_ms;   /* for the partial-frame idle guard */
     uint8_t     in_frame;     /* a frame is partially received */
-} ag_transport_t;
+} tfw_transport_t;
 
-void ag_transport_init(ag_transport_t *t);
+void tfw_transport_init(tfw_transport_t *t);
 
 /* One pass. Emits what it can of any pending response, then consumes input up
  * to and including one complete frame -- READY, BAD_CRC or BAD_FORMAT all stop
  * it, so a diagnostic event (a malformed frame) gets exactly the same one-per-
  * poll treatment a real frame does, and never shares a poll with the frame
  * after it. */
-void ag_transport_poll(ag_transport_t *t);
+void tfw_transport_poll(tfw_transport_t *t);
 
 /* Queues an unsolicited event. Refused, returning 0, while a response is still
  * draining: events are emitted only when nothing else is in flight, which is
  * what keeps the host a strict request/response state machine instead of a
  * reassembler. The caller retries on a later poll. */
-uint8_t ag_transport_send_event(ag_transport_t *t, uint8_t event_id);
+uint8_t tfw_transport_send_event(tfw_transport_t *t, uint8_t event_id);
 
-#endif /* AG_TRANSPORT_H */
+#endif /* TFW_TRANSPORT_H */

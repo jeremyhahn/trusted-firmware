@@ -1,6 +1,6 @@
 # Device provisioning — user guide
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 This is a bench procedure: physical access to the part, on a jig, never over
@@ -10,7 +10,7 @@ care about — several steps below cannot be undone.
 ## Before you start
 
 - **Practice on a spare part first.** This is the documented procedure, not a
-  precaution: `agprov --commit` locks the secure element, and a locked element
+  precaution: `tfwprov --commit` locks the secure element, and a locked element
   has no erase, no reset, and no factory unlock.
 - Have a reviewed provisioning template ready (`sdk/go/templates/*.conf` — see
   [`api.md`](api.md) for the format). The template is what the part is checked
@@ -26,7 +26,7 @@ care about — several steps below cannot be undone.
    a `.eep` image here and is flashed alongside the fuses below.
 
    **Use an ISP programmer, never the part's stock Arduino serial
-   bootloader.** `ag-boot` has no EEPROM-write command, and the application
+   bootloader.** `tfw-boot` has no EEPROM-write command, and the application
    refuses this region over the wire, so ISP is the only supported path. On a real Mega 2560 running the
    factory STK500v2 bootloader, `avrdude -c wiring ... -U eeprom:w:
    platform.eep:i` has been observed to corrupt the write at the protocol
@@ -40,7 +40,7 @@ care about — several steps below cannot be undone.
    failure, so do not ignore it.
 
    ```sh
-   agprov --bake-eeprom --serial <16-byte hex> --out platform.eep
+   tfwprov --bake-eeprom --serial <16-byte hex> --out platform.eep
    avrdude -c <isp-prog> -p <part> -U eeprom:w:platform.eep:i
    ```
 
@@ -70,7 +70,7 @@ care about — several steps below cannot be undone.
 4. **Plan, and read nothing wrong yet.**
 
    ```sh
-   agprov --dry-run --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
+   tfwprov --dry-run --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
    ```
 
    Read the printed plan. If the element reports a zone already locked, stop —
@@ -79,7 +79,7 @@ care about — several steps below cannot be undone.
 5. **Commit, on the spare part first.**
 
    ```sh
-   agprov --commit --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 --yes-i-mean-it
+   tfwprov --commit --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 --yes-i-mean-it
    ```
 
    This writes the config blocks, locks the config zone, generates the
@@ -93,7 +93,7 @@ care about — several steps below cannot be undone.
    a part that cannot be unlocked those can disagree.
 
    ```sh
-   agprov --verify --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
+   tfwprov --verify --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
    ```
 
 7. **Lock bits, only now.** Locking before step 6 passes means a bad
@@ -127,7 +127,7 @@ Full detail and the complete fuse table: `docs/security/fuses-and-lockbits.md`.
 
 ## If the part is already provisioned
 
-`agprov --dry-run` and `agprov --commit` both check the element's lock state
+`tfwprov --dry-run` and `tfwprov --commit` both check the element's lock state
 before doing anything. If the config or data zone is already locked, the part
 cannot be reconfigured — there is no erase, no reset. Treat it as either
 already correctly provisioned (run `--verify` to confirm) or as scrap.

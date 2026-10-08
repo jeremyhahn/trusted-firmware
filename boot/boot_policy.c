@@ -9,7 +9,7 @@
 #include "boot_verify.h"
 #include "boot_hal.h"
 
-uint8_t ag_boot_equal(const uint8_t *a, const uint8_t *b, uint8_t n)
+uint8_t tfw_boot_equal(const uint8_t *a, const uint8_t *b, uint8_t n)
 {
     uint8_t diff = 0u;
     uint8_t i;
@@ -20,76 +20,76 @@ uint8_t ag_boot_equal(const uint8_t *a, const uint8_t *b, uint8_t n)
     return (uint8_t)(diff == 0u);
 }
 
-ag_status_t ag_boot_check_pubkey_pin(const uint8_t pinned[AG_BOOT_MEASURE_LEN],
-                                     uint8_t pubkey_out[AG_BOOT_PUBKEY_LEN])
+tfw_status_t tfw_boot_check_pubkey_pin(const uint8_t pinned[TFW_BOOT_MEASURE_LEN],
+                                     uint8_t pubkey_out[TFW_BOOT_PUBKEY_LEN])
 {
-    uint8_t     hash[AG_BOOT_MEASURE_LEN];
-    ag_status_t st = ag_boot_pubkey(pubkey_out);
+    uint8_t     hash[TFW_BOOT_MEASURE_LEN];
+    tfw_status_t st = tfw_boot_pubkey(pubkey_out);
 
-    if (st != AG_OK) {
+    if (st != TFW_OK) {
         return st;
     }
-    ag_boot_hash(pubkey_out, AG_BOOT_PUBKEY_LEN, hash);
-    if (!ag_boot_equal(hash, pinned, AG_BOOT_MEASURE_LEN)) {
+    tfw_boot_hash(pubkey_out, TFW_BOOT_PUBKEY_LEN, hash);
+    if (!tfw_boot_equal(hash, pinned, TFW_BOOT_MEASURE_LEN)) {
         /* The bootloader holds a key this device was not provisioned to trust.
          * Reported as NOT_PROVISIONED rather than CRYPTO because the device is
          * not broken and the image is not bad: the pairing is wrong, and the
          * repair is a provisioning step rather than a new image. */
-        return AG_ERR_NOT_PROVISIONED;
+        return TFW_ERR_NOT_PROVISIONED;
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out)
+tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
 {
-    uint8_t        raw[AG_BOOT_TRAILER_LEN];
-    uint8_t        pubkey[AG_BOOT_PUBKEY_LEN];
-    uint8_t        pinned[AG_BOOT_MEASURE_LEN];
-    uint8_t        ee[AG_BOOT_EE_LEN];
+    uint8_t        raw[TFW_BOOT_TRAILER_LEN];
+    uint8_t        pubkey[TFW_BOOT_PUBKEY_LEN];
+    uint8_t        pinned[TFW_BOOT_MEASURE_LEN];
+    uint8_t        ee[TFW_BOOT_EE_LEN];
     const uint8_t *key = pubkey;
-    ag_status_t    st;
+    tfw_status_t    st;
 
-    /* The trailer is read in two halves because ag_boot_flash_read takes a
+    /* The trailer is read in two halves because tfw_boot_flash_read takes a
      * uint8_t length and the trailer is 128 bytes -- a length of 128 is fine,
      * but 256-byte trailers on a later layout would silently truncate, and a
      * loop that cannot express the bug is better than a comment asking nobody
      * to introduce it. */
-    ag_boot_flash_read(AG_BOOT_TRAILER_ADDR, raw, AG_BOOT_TRAILER_LEN / 2u);
-    ag_boot_flash_read(AG_BOOT_TRAILER_ADDR + (AG_BOOT_TRAILER_LEN / 2u),
-                       &raw[AG_BOOT_TRAILER_LEN / 2u], AG_BOOT_TRAILER_LEN / 2u);
+    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR, raw, TFW_BOOT_TRAILER_LEN / 2u);
+    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR + (TFW_BOOT_TRAILER_LEN / 2u),
+                       &raw[TFW_BOOT_TRAILER_LEN / 2u], TFW_BOOT_TRAILER_LEN / 2u);
 
-    st = ag_boot_trailer_parse(raw, &out->trailer);
-    if (st != AG_OK) {
+    st = tfw_boot_trailer_parse(raw, &out->trailer);
+    if (st != TFW_OK) {
         return st;
     }
 
-    st = ag_boot_rollback_permit(out->trailer.image_version, floor);
-    if (st != AG_OK) {
+    st = tfw_boot_rollback_permit(out->trailer.image_version, floor);
+    if (st != TFW_OK) {
         return st;
     }
 
-    st = ag_boot_measure(out->trailer.image_len, out->measurement);
-    if (st != AG_OK) {
+    st = tfw_boot_measure(out->trailer.image_len, out->measurement);
+    if (st != TFW_OK) {
         return st;
     }
-    if (!ag_boot_equal(out->measurement, out->trailer.measurement,
-                       AG_BOOT_MEASURE_LEN)) {
+    if (!tfw_boot_equal(out->measurement, out->trailer.measurement,
+                       TFW_BOOT_MEASURE_LEN)) {
         /* THE TAMPER CHECK. One byte changed anywhere in the application and
          * this fails, without the signature primitive running at all. */
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
 
     /* The pinned hash comes straight from EEPROM rather than from a parsed
-     * ag_boot_platform_t, so that this function has one input -- the floor --
+     * tfw_boot_platform_t, so that this function has one input -- the floor --
      * and no ordering dependency on who parsed what first. */
-    st = ag_boot_eeprom_read(AG_BOOT_EE_BASE, ee, AG_BOOT_EE_LEN);
-    if (st != AG_OK) {
+    st = tfw_boot_eeprom_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    if (st != TFW_OK) {
         return st;
     }
-    memcpy(pinned, &ee[AG_BOOT_EE_O_PUBKEY_HASH], AG_BOOT_MEASURE_LEN);
+    memcpy(pinned, &ee[TFW_BOOT_EE_O_PUBKEY_HASH], TFW_BOOT_MEASURE_LEN);
 
-    st = ag_boot_check_pubkey_pin(pinned, pubkey);
-    if (st == AG_ERR_UNSUPPORTED) {
+    st = tfw_boot_check_pubkey_pin(pinned, pubkey);
+    if (st == TFW_ERR_UNSUPPORTED) {
         /*
          * THE BACKEND KEEPS THE KEY AND WILL NOT HAND IT OVER. That is the
          * element tier working as designed, not a failure: the signing key sits
@@ -108,20 +108,20 @@ ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out)
          * would mean verifying against whatever an attacker who reached the
          * flash had put there, which is the whole thing stored mode prevents.
          *
-         * This is the same shape as ag_boot_floor_read returning
-         * AG_ERR_UNSUPPORTED on a tier that keeps no floor of its own: a tier
+         * This is the same shape as tfw_boot_floor_read returning
+         * TFW_ERR_UNSUPPORTED on a tier that keeps no floor of its own: a tier
          * capability question, answered once, at the seam that knows.
          */
         key = 0;
-    } else if (st != AG_OK) {
+    } else if (st != TFW_OK) {
         return st;
     }
 
-    /* The signed span is the trailer's first AG_BOOT_TR_SIGNED_LEN bytes as
+    /* The signed span is the trailer's first TFW_BOOT_TR_SIGNED_LEN bytes as
      * they sit in flash -- magic, layout version, image version, image length
      * and the measurement. Signing the measurement alone would leave the
      * version unauthenticated and hand an attacker anti-rollback for a
-     * four-byte edit; see include/ag/boot.h. */
-    return ag_boot_verify(raw, AG_BOOT_TR_SIGNED_LEN,
+     * four-byte edit; see include/tfw/boot.h. */
+    return tfw_boot_verify(raw, TFW_BOOT_TR_SIGNED_LEN,
                           out->trailer.signature, key);
 }

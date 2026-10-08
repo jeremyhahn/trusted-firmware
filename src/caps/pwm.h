@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
-#ifndef AG_CAPS_PWM_H
-#define AG_CAPS_PWM_H
-#include "ag/status.h"
+#ifndef TFW_CAPS_PWM_H
+#define TFW_CAPS_PWM_H
+#include "tfw/status.h"
 #include "../core/reader.h"
 #include "../core/writer.h"
-ag_status_t ag_pwm_cmd_write(ag_reader_t *r, ag_writer_t *w);
-ag_status_t ag_tone_cmd_start(ag_reader_t *r, ag_writer_t *w);
-ag_status_t ag_tone_cmd_stop(ag_reader_t *r, ag_writer_t *w);
+tfw_status_t tfw_pwm_cmd_write(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_tone_cmd_start(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_tone_cmd_stop(tfw_reader_t *r, tfw_writer_t *w);
 #endif

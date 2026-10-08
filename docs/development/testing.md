@@ -25,9 +25,9 @@ the numbers.
 against `test/mock/hal_mock.c` and link with Unity. One binary per test file, so
 a segfault in one suite cannot take the others' results with it.
 
-The mock is what makes timing testable: `ag_mock_set_millis()` and
-`ag_mock_advance()` turn the scheduler's 49.7-day rollover into a two-line
-test, and `ag_mock_fail_next()` reaches error branches a real peripheral would
+The mock is what makes timing testable: `tfw_mock_set_millis()` and
+`tfw_mock_advance()` turn the scheduler's 49.7-day rollover into a two-line
+test, and `tfw_mock_fail_next()` reaches error branches a real peripheral would
 only produce intermittently.
 
 Coverage floor is 90 % over those paths. `src/hal/avr/` is **excluded on
@@ -40,7 +40,7 @@ build constant-folded away.
 
 ## Tier 2 — the real image under simavr
 
-`test/integration/simavr/harness.c` loads `build/<board>/arduino-generic.elf`
+`test/integration/simavr/harness.c` loads `build/<board>/trusted-firmware.elf`
 — the same file `make flash` sends to the part — into an emulated ATmega328P
 through the `libsimavr` C API, and drives it over the emulated USART by
 attaching to `AVR_IOCTL_UART_GETIRQ('0')`.
@@ -56,7 +56,7 @@ back from emulated silicon.
 What it checks today:
 
 - the firmware transmits at all on boot, at the configured baud
-- `PING` round-trips, returns `AG_OK` and echoes its payload
+- `PING` round-trips, returns `TFW_OK` and echoes its payload
 - `CAPS` answers, reports protocol major 1 and the 328P's 22 pins
 - `SYS_INFO` answers and the millisecond tick ISR is **running at ~1 kHz** —
   the CTC divisor is wrong on x86 by construction, so only this tier sees it
@@ -64,7 +64,7 @@ What it checks today:
   register** rather than from the reply
 - the UART pin is refused
 - an unprovisioned device refuses to attest
-- a corrupted frame is answered with `AG_ERR_CRC`
+- a corrupted frame is answered with `TFW_ERR_CRC`
 
 Emulation, not simulation: simavr models the ADC, EEPROM, USART, SPI, TWI,
 timers, GPIO with pin-change interrupts and the watchdog. `qemu-system-avr` was
@@ -131,7 +131,7 @@ whole gate in the pinned CI image if you do not have them locally.
 
 - **No hardware in CI.** No USB, no serial port, no flashing. A gate that needs
   a device plugged in is a gate that fails for reasons unrelated to the change.
-- **No mocking of the firmware itself.** `agsim` is the real firmware sources
+- **No mocking of the firmware itself.** `tfwsim` is the real firmware sources
   compiled for x86; the simavr harness is the real image. Neither is a stub, so
   neither can drift from what ships.
 - **No timing assertions tighter than the emulator is honest about.** The tick

@@ -12,13 +12,13 @@
 static uint8_t uds[32];
 static uint8_t have;
 
-void ag_mock_set_uds(const uint8_t *u)
+void tfw_mock_set_uds(const uint8_t *u)
 {
     if (u) { memcpy(uds, u, sizeof uds); have = 1u; }
     else   { memset(uds, 0, sizeof uds); have = 0u; }
 }
 
-const uint8_t *ag_crypto_soft_uds(void)
+const uint8_t *tfw_crypto_soft_uds(void)
 {
     return have ? uds : 0;
 }

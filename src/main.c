@@ -13,10 +13,10 @@
 
 #include <avr/interrupt.h>
 
-#include "ag/hal.h"
-#include "ag/crypto.h"
-#include "ag/config.h"
-#include "ag/protocol.h"
+#include "tfw/hal.h"
+#include "tfw/crypto.h"
+#include "tfw/config.h"
+#include "tfw/protocol.h"
 #include "proto/transport.h"
 #include "caps/sys.h"
 #include "caps/sched.h"
@@ -25,15 +25,15 @@
 #include "core/platform_id.h"
 #include "core/auth_session.h"
 
-ag_status_t ag_hal_tick_init(void);
+tfw_status_t tfw_hal_tick_init(void);
 
-static ag_transport_t transport;
+static tfw_transport_t transport;
 
 /* Everything that runs once, before the superloop.
  *
  * Kept out of line on purpose. main() never returns, so under -flto any
  * initializer inlined into it leaves its locals in main's frame for the life
- * of the device: ag_platform_id_init's 128-byte EEPROM image and the element
+ * of the device: tfw_platform_id_init's 128-byte EEPROM image and the element
  * provider's CDI buffer cost 241 bytes of a 2 KB part's stack that no command
  * could ever use. Called through a real frame, that scratch is released before
  * the first byte arrives. */
@@ -41,39 +41,39 @@ static void startup(void) __attribute__((noinline));
 
 static void startup(void)
 {
-    ag_hal_init();
-    ag_hal_tick_init();
-    ag_hal_uart_init(AG_UART_BAUD);
+    tfw_hal_init();
+    tfw_hal_tick_init();
+    tfw_hal_uart_init(TFW_UART_BAUD);
     /* Every peripheral the HAL exports an init for gets one, unconditionally,
      * from HERE -- rather than the previous state, where none had a caller and
      * ADC reads were a plausible-looking zero on a converter that had never
      * run (#19) while the first SPI_XFER hung the device forever (#16).
      *
-     * ag_hal_adc_init() is safe to call with no gate: src/caps/analog.c and
+     * tfw_hal_adc_init() is safe to call with no gate: src/caps/analog.c and
      * hal_adc.c compile on every board this family builds (see mk/avr.mk).
-     * ag_bus_init() (src/caps/bus.c) covers I2C and SPI the same way its own
+     * tfw_bus_init() (src/caps/bus.c) covers I2C and SPI the same way its own
      * header comment explains -- it or bus_none.c's stub is ALWAYS the one
      * linked, so the call below is never a dangling reference regardless of
      * which buses a board has.
      *
-     * This runs BEFORE ag_crypto_init(): the ATECC608A provider calls
-     * ag_hal_i2c_init() again, at its own required rate, and that call must be
+     * This runs BEFORE tfw_crypto_init(): the ATECC608A provider calls
+     * tfw_hal_i2c_init() again, at its own required rate, and that call must be
      * the one left standing on an element build rather than being clobbered
      * by the generic default that follows it. */
-    ag_hal_adc_init();
-    ag_bus_init();
+    tfw_hal_adc_init();
+    tfw_bus_init();
 
-    /* Both consuming reads, and both before ag_crypto_init(): the crypto
+    /* Both consuming reads, and both before tfw_crypto_init(): the crypto
      * provider's own init is what takes the handed-off CDI (src/core/
      * handoff.c), and DeviceID has to be in place before anything can build
      * evidence around it. See issues #6 and #18. */
-    ag_platform_id_init();
-    ag_boot_handoff_init();
+    tfw_platform_id_init();
+    tfw_boot_handoff_init();
 
-    ag_crypto_init();
-    ag_sched_init();
-    ag_auth_session_init();
-    ag_transport_init(&transport);
+    tfw_crypto_init();
+    tfw_sched_init();
+    tfw_auth_session_init();
+    tfw_transport_init(&transport);
 }
 
 int main(void)
@@ -84,14 +84,14 @@ int main(void)
     /* Announce ourselves. An unexpected boot event is how a host learns the
      * device reset underneath it, which invalidates everything it believed
      * about the device's state. */
-    (void)ag_transport_send_event(&transport, AG_EVENT_BOOT);
+    (void)tfw_transport_send_event(&transport, TFW_EVENT_BOOT);
 
     for (;;) {
-        ag_transport_poll(&transport);
+        tfw_transport_poll(&transport);
         /* SYS_INFO cannot reach the framer itself -- dispatch.h forbids it --
          * so the one module that already sees both hands the counters across. */
-        ag_sys_set_framer_errors(transport.framer.err_crc, transport.framer.err_format);
-        ag_sched_poll();
-        ag_sys_poll();
+        tfw_sys_set_framer_errors(transport.framer.err_crc, transport.framer.err_format);
+        tfw_sched_poll();
+        tfw_sys_poll();
     }
 }

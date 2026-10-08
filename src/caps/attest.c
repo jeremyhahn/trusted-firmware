@@ -20,14 +20,14 @@
 
 #include <string.h>
 #include "attest.h"
-#include "ag/crypto.h"
-#include "ag/config.h"
-#include "ag/hal.h"
-#include "ag/protocol.h"
+#include "tfw/crypto.h"
+#include "tfw/config.h"
+#include "tfw/hal.h"
+#include "tfw/protocol.h"
 #include "../core/handoff.h"
 #include "../core/platform_id.h"
 
-/* Offsets into the evidence, per include/ag/protocol.h. */
+/* Offsets into the evidence, per include/tfw/protocol.h. */
 #define OFF_VERSION   0u
 #define OFF_NONCE     1u
 #define OFF_DEVICE_ID 17u
@@ -38,10 +38,10 @@
 #define OFF_SIG       74u
 #define OFF_RESERVED  138u
 
-static uint8_t evidence[AG_ATTEST_LEN];
+static uint8_t evidence[TFW_ATTEST_LEN];
 static uint8_t have_evidence;
 
-void ag_attest_reset_state(void)
+void tfw_attest_reset_state(void)
 {
     memset(evidence, 0, sizeof evidence);
     have_evidence = 0u;
@@ -60,15 +60,15 @@ void ag_attest_reset_state(void)
  * alias.c's gather() -- agree with each other regardless of which command
  * ran first.
  */
-const uint8_t *ag_attest_device_id(void)
+const uint8_t *tfw_attest_device_id(void)
 {
-    return ag_platform_id_serial();
+    return tfw_platform_id_serial();
 }
 
-const uint8_t *ag_attest_fw_hash(void)
+const uint8_t *tfw_attest_fw_hash(void)
 {
-    static const uint8_t zero[AG_SHA256_LEN] = { 0 };
-    const uint8_t *measurement = ag_boot_handoff_measurement();
+    static const uint8_t zero[TFW_SHA256_LEN] = { 0 };
+    const uint8_t *measurement = tfw_boot_handoff_measurement();
     return measurement ? measurement : zero;
 }
 
@@ -78,21 +78,21 @@ static void put_u32(uint8_t *p, uint32_t v)
     p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
-static ag_status_t build(const uint8_t *nonce)
+static tfw_status_t build(const uint8_t *nonce)
 {
-    uint8_t     digest[AG_SHA256_LEN];
-    uint8_t     alg = AG_ALG_NONE;
+    uint8_t     digest[TFW_SHA256_LEN];
+    uint8_t     alg = TFW_ALG_NONE;
     uint32_t    boot = 0u;
-    ag_status_t st;
+    tfw_status_t st;
 
     memset(evidence, 0, sizeof evidence);
-    evidence[OFF_VERSION] = AG_ATTEST_VERSION;
-    memcpy(&evidence[OFF_NONCE], nonce, AG_ATTEST_NONCE_LEN);
+    evidence[OFF_VERSION] = TFW_ATTEST_VERSION;
+    memcpy(&evidence[OFF_NONCE], nonce, TFW_ATTEST_NONCE_LEN);
 
     /*
-     * DeviceID: the serial agprov baked into the platform-reserved EEPROM
+     * DeviceID: the serial tfwprov baked into the platform-reserved EEPROM
      * block before this part was ever flashed (src/core/platform_id.c).
-     * FWHash: the measurement ag-boot verified and handed off
+     * FWHash: the measurement tfw-boot verified and handed off
      * (src/core/handoff.c) -- not a value this file recomputes, so the
      * evidence reports what was actually checked rather than what this build
      * believes about itself.
@@ -102,87 +102,87 @@ static ag_status_t build(const uint8_t *nonce)
      * bootloader at all -- so a verifier can see an unprovisioned device for
      * what it is, where a plausible-looking made-up value would be believed.
      */
-    memcpy(&evidence[OFF_DEVICE_ID], ag_platform_id_serial(), AG_ATTEST_ID_LEN);
+    memcpy(&evidence[OFF_DEVICE_ID], tfw_platform_id_serial(), TFW_ATTEST_ID_LEN);
     {
-        const uint8_t *fw_hash = ag_boot_handoff_measurement();
+        const uint8_t *fw_hash = tfw_boot_handoff_measurement();
         if (fw_hash) {
-            memcpy(&evidence[OFF_FW_HASH], fw_hash, AG_SHA256_LEN);
+            memcpy(&evidence[OFF_FW_HASH], fw_hash, TFW_SHA256_LEN);
         }
     }
 
     /* The boot counter needs a monotonic source. Absent one, it stays zero and
      * says so by the tier -- rather than using a RAM counter that resets with
      * the device and would make every boot look like the first. */
-    if (ag_crypto_counter(0u, &boot) == AG_OK) {
+    if (tfw_crypto_counter(0u, &boot) == TFW_OK) {
         put_u32(&evidence[OFF_BOOTCOUNT], boot);
     }
 
-    put_u32(&evidence[OFF_UPTIME], (uint32_t)ag_hal_millis());
+    put_u32(&evidence[OFF_UPTIME], (uint32_t)tfw_hal_millis());
 
     /* Sign everything before the signature field. The nonce is inside that
      * span, which is what binds this evidence to this challenge. */
-    st = ag_crypto_sha256(evidence, OFF_ALG, digest);
-    if (st != AG_OK) {
+    st = tfw_crypto_sha256(evidence, OFF_ALG, digest);
+    if (st != TFW_OK) {
         return st;
     }
-    st = ag_crypto_sign(digest, &evidence[OFF_SIG], &alg);
-    if (st != AG_OK) {
+    st = tfw_crypto_sign(digest, &evidence[OFF_SIG], &alg);
+    if (st != TFW_OK) {
         return st;
     }
     evidence[OFF_ALG] = alg;
 
     have_evidence = 1u;
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_attest_cmd(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_attest_cmd(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t n = ag_reader_remaining(r);
+    uint8_t n = tfw_reader_remaining(r);
     uint8_t page;
     uint8_t off, len;
 
-    if (n == AG_ATTEST_NONCE_LEN) {
-        const uint8_t *nonce = ag_read_blob(r, AG_ATTEST_NONCE_LEN);
-        ag_status_t    st;
+    if (n == TFW_ATTEST_NONCE_LEN) {
+        const uint8_t *nonce = tfw_read_blob(r, TFW_ATTEST_NONCE_LEN);
+        tfw_status_t    st;
 
         if (!nonce) {
-            return AG_ERR_BAD_ARGC;
+            return TFW_ERR_BAD_ARGC;
         }
         st = build(nonce);
-        if (st != AG_OK) {
+        if (st != TFW_OK) {
             return st;
         }
         page = 0u;
     } else if (n == 1u) {
-        page = ag_read_u8(r);
+        page = tfw_read_u8(r);
         /* A page request with no evidence behind it would return zeros that
          * look like a valid answer. Refused instead. */
         if (!have_evidence) {
-            return AG_ERR_BAD_ARGC;
+            return TFW_ERR_BAD_ARGC;
         }
     } else {
-        return AG_ERR_BAD_ARGC;
+        return TFW_ERR_BAD_ARGC;
     }
 
-    /* Computed wide, then bounded, then narrowed. page * AG_ATTEST_PAGE
+    /* Computed wide, then bounded, then narrowed. page * TFW_ATTEST_PAGE
      * overflows a uint8_t at page 6 and wraps: page 99 lands on offset 144,
      * which is inside the evidence and would be served as though it had been
      * asked for. The bound has to be checked at the wide width or it is not a
      * bound at all. */
     {
-        uint16_t off16 = (uint16_t)page * (uint16_t)AG_ATTEST_PAGE;
-        if (off16 >= (uint16_t)AG_ATTEST_LEN) {
-            return AG_ERR_RANGE;
+        uint16_t off16 = (uint16_t)page * (uint16_t)TFW_ATTEST_PAGE;
+        if (off16 >= (uint16_t)TFW_ATTEST_LEN) {
+            return TFW_ERR_RANGE;
         }
         off = (uint8_t)off16;
     }
-    len = (uint8_t)(AG_ATTEST_LEN - off);
-    if (len > AG_ATTEST_PAGE) {
-        len = AG_ATTEST_PAGE;
+    len = (uint8_t)(TFW_ATTEST_LEN - off);
+    if (len > TFW_ATTEST_PAGE) {
+        len = TFW_ATTEST_PAGE;
     }
 
-    ag_write_u8(w, page);
-    ag_write_u8(w, (uint8_t)AG_ATTEST_LEN);
-    ag_write_blob(w, &evidence[off], len);
-    return AG_OK;
+    tfw_write_u8(w, page);
+    tfw_write_u8(w, (uint8_t)TFW_ATTEST_LEN);
+    tfw_write_blob(w, &evidence[off], len);
+    return TFW_OK;
 }

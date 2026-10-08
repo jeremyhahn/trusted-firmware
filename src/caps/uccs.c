@@ -59,9 +59,9 @@
 
 #include <string.h>
 #include "uccs.h"
-#include "ag/crypto.h"
-#include "ag/progmem.h"
-#include "ag/protocol.h"
+#include "tfw/crypto.h"
+#include "tfw/progmem.h"
+#include "tfw/protocol.h"
 
 /* CBOR major types, RFC 8949 section 3.1. */
 #define MT_UINT  0u
@@ -102,7 +102,7 @@
  * either constant that does not hold it is a compile error rather than a
  * claims set whose inner length field disagrees with its contents. */
 #define UCCS_ENVELOPE_LEN 67u
-_Static_assert(AG_UCCS_LEN == UCCS_ENVELOPE_LEN + AG_UCCS_COSWID_LEN,
+_Static_assert(TFW_UCCS_LEN == UCCS_ENVELOPE_LEN + TFW_UCCS_COSWID_LEN,
                "the claims set length and its CoSWID length disagree");
 
 /*
@@ -111,61 +111,62 @@ _Static_assert(AG_UCCS_LEN == UCCS_ENVELOPE_LEN + AG_UCCS_COSWID_LEN,
  * and contribute to the CDI by being part of what is measured.
  *
  * TAG_ID is uuid5(NAMESPACE_URL,
- * "https://github.com/jeremyhahn/arduino-generic/coswid/firmware"), computed
- * once and frozen. It is written out rather than derived because a tag id that
- * a device computes is a tag id that changes when the derivation changes.
+ * "https://github.com/jeremyhahn/trusted-firmware/coswid/firmware") =
+ * bcc71007-1a66-53c1-967e-f0d3d5ede421, computed once and frozen. It is
+ * written out rather than derived because a tag id that a device computes is
+ * a tag id that changes when the derivation changes.
  */
-static const uint8_t TAG_ID[16] AG_PROGMEM = {
-    0x5E, 0xEC, 0x78, 0x74, 0xAA, 0xA5, 0x57, 0xFD,
-    0xAA, 0xAE, 0xF3, 0xF9, 0xFE, 0x0C, 0xCF, 0xB4
+static const uint8_t TAG_ID[16] TFW_PROGMEM = {
+    0xBC, 0xC7, 0x10, 0x07, 0x1A, 0x66, 0x53, 0xC1,
+    0x96, 0x7E, 0xF0, 0xD3, 0xD5, 0xED, 0xE4, 0x21
 };
-static const uint8_t SW_NAME[5]  AG_PROGMEM = { 'a', 'g', '-', 'f', 'w' };
-static const uint8_t ENT_NAME[2] AG_PROGMEM = { 'a', 'g' };
-static const uint8_t FS_NAME[3]  AG_PROGMEM = { 'a', 'p', 'p' };
+static const uint8_t SW_NAME[3]  TFW_PROGMEM = { 't', 'f', 'w' };
+static const uint8_t ENT_NAME[3] TFW_PROGMEM = { 't', 'f', 'w' };
+static const uint8_t FS_NAME[3]  TFW_PROGMEM = { 'a', 'p', 'p' };
 
 /*
  * One head, four shapes.
  *
  * CBOR heads are BIG-endian, which is why this shifts rather than calling
- * ag_write_u16 -- that one is little-endian because the wire is, and using it
+ * tfw_write_u16 -- that one is little-endian because the wire is, and using it
  * here would produce a claims set no decoder accepts.
  *
  * Only the three shortest argument forms exist. Nothing in this claims set is
  * longer than 65535, and an encoder that could emit a form it never emits is
  * flash spent on a branch no test can reach.
  */
-static void head(ag_writer_t *w, uint8_t major, uint16_t arg)
+static void head(tfw_writer_t *w, uint8_t major, uint16_t arg)
 {
     uint8_t mt = (uint8_t)(major << 5);
 
     if (arg < 24u) {
-        ag_write_u8(w, (uint8_t)(mt | (uint8_t)arg));
+        tfw_write_u8(w, (uint8_t)(mt | (uint8_t)arg));
     } else if (arg < 256u) {
-        ag_write_u8(w, (uint8_t)(mt | 24u));
-        ag_write_u8(w, (uint8_t)arg);
+        tfw_write_u8(w, (uint8_t)(mt | 24u));
+        tfw_write_u8(w, (uint8_t)arg);
     } else {
-        ag_write_u8(w, (uint8_t)(mt | 25u));
-        ag_write_u8(w, (uint8_t)(arg >> 8));
-        ag_write_u8(w, (uint8_t)arg);
+        tfw_write_u8(w, (uint8_t)(mt | 25u));
+        tfw_write_u8(w, (uint8_t)(arg >> 8));
+        tfw_write_u8(w, (uint8_t)arg);
     }
 }
 
 /* A byte or text string whose content is in flash. One routine for both,
  * because the only difference between them is the major type. */
-static void str_pgm(ag_writer_t *w, uint8_t major, const uint8_t *p, uint8_t n)
+static void str_pgm(tfw_writer_t *w, uint8_t major, const uint8_t *p, uint8_t n)
 {
     uint8_t i;
 
     head(w, major, n);
     for (i = 0u; i < n; i++) {
-        ag_write_u8(w, ag_pgm_u8(&p[i]));
+        tfw_write_u8(w, tfw_pgm_u8(&p[i]));
     }
 }
 
-static void bstr(ag_writer_t *w, const uint8_t *p, uint8_t n)
+static void bstr(tfw_writer_t *w, const uint8_t *p, uint8_t n)
 {
     head(w, MT_BSTR, n);
-    ag_write_blob(w, p, n);
+    tfw_write_blob(w, p, n);
 }
 
 /*
@@ -179,7 +180,7 @@ static void bstr(ag_writer_t *w, const uint8_t *p, uint8_t n)
  * this is what was INSTALLED, where what we can honestly say is what was
  * MEASURED.
  */
-static void coswid(ag_writer_t *w, const uint8_t *fw_hash)
+static void coswid(tfw_writer_t *w, const uint8_t *fw_hash)
 {
     head(w, MT_MAP, 5u);
 
@@ -203,7 +204,7 @@ static void coswid(ag_writer_t *w, const uint8_t *fw_hash)
     head(w, MT_UINT, CO_HASH);
     head(w, MT_ARRAY, 2u);          /* hash-entry = [hash-alg-id, hash-value] */
     head(w, MT_UINT, NI_SHA256);
-    bstr(w, fw_hash, AG_SHA256_LEN);
+    bstr(w, fw_hash, TFW_SHA256_LEN);
     head(w, MT_UINT, CO_FS_NAME);
     str_pgm(w, MT_TSTR, FS_NAME, (uint8_t)sizeof FS_NAME);
 
@@ -211,7 +212,7 @@ static void coswid(ag_writer_t *w, const uint8_t *fw_hash)
     head(w, MT_UINT, 0u);
 }
 
-ag_status_t ag_uccs_encode(ag_writer_t *w,
+tfw_status_t tfw_uccs_encode(tfw_writer_t *w,
                            const uint8_t *nonce, uint8_t nonce_len,
                            const uint8_t *ueid,
                            const uint8_t *fw_hash)
@@ -219,35 +220,35 @@ ag_status_t ag_uccs_encode(ag_writer_t *w,
     /* The width is the contract, so it is checked rather than trusted. A short
      * nonce padded to length would be a claims set that says the verifier
      * challenged with bytes it never sent. */
-    if (nonce_len != AG_ALIAS_NONCE_LEN) {
-        return AG_ERR_RANGE;
+    if (nonce_len != TFW_ALIAS_NONCE_LEN) {
+        return TFW_ERR_RANGE;
     }
 
     head(w, MT_MAP, 3u);
 
     head(w, MT_UINT, CLAIM_NONCE);
-    bstr(w, nonce, AG_ALIAS_NONCE_LEN);
+    bstr(w, nonce, TFW_ALIAS_NONCE_LEN);
 
     /* The type byte is part of the UEID, not a wrapper around it: RFC 9711
      * gives it as the first byte of the value, which is why this emits a
      * 17-byte string and not a 16-byte one inside something. */
     head(w, MT_UINT, CLAIM_UEID);
-    head(w, MT_BSTR, (uint16_t)(AG_ATTEST_ID_LEN + 1u));
-    ag_write_u8(w, UEID_TYPE_RAND);
-    ag_write_blob(w, ueid, AG_ATTEST_ID_LEN);
+    head(w, MT_BSTR, (uint16_t)(TFW_ATTEST_ID_LEN + 1u));
+    tfw_write_u8(w, UEID_TYPE_RAND);
+    tfw_write_blob(w, ueid, TFW_ATTEST_ID_LEN);
 
     head(w, MT_UINT, CLAIM_MEASUREMENTS);
     head(w, MT_ARRAY, 1u);          /* measurements-type = [+ format] */
     head(w, MT_ARRAY, 2u);          /* [content-type, content] */
     head(w, MT_UINT, CF_SWID_CBOR);
-    head(w, MT_BSTR, AG_UCCS_COSWID_LEN);
+    head(w, MT_BSTR, TFW_UCCS_COSWID_LEN);
     coswid(w, fw_hash);
 
     /* Asked once, at the end. The writer refuses an overflowing write outright
      * rather than truncating it, so what is in the buffer is either all of the
      * claims set or not a claims set at all. */
-    if (!ag_writer_ok(w)) {
-        return AG_ERR_TOO_LONG;
+    if (!tfw_writer_ok(w)) {
+        return TFW_ERR_TOO_LONG;
     }
-    return AG_OK;
+    return TFW_OK;
 }

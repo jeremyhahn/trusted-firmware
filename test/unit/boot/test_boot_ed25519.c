@@ -72,7 +72,7 @@ static void test_rfc8032_test2_verifies(void)
     unhex(RFC8032_T2_PUB, pub, 32u);
     unhex(RFC8032_T2_SIG, sig, 64u);
     unhex(RFC8032_T2_MSG, msg, 1u);
-    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_verify(msg, 1u, sig, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(msg, 1u, sig, pub));
 }
 
 static void test_rfc8032_test3_verifies(void)
@@ -82,7 +82,7 @@ static void test_rfc8032_test3_verifies(void)
     unhex(RFC8032_T3_PUB, pub, 32u);
     unhex(RFC8032_T3_SIG, sig, 64u);
     unhex(RFC8032_T3_MSG, msg, 2u);
-    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_verify(msg, 2u, sig, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(msg, 2u, sig, pub));
 }
 
 static void test_rfc8032_test1_the_empty_message_verifies(void)
@@ -91,7 +91,7 @@ static void test_rfc8032_test1_the_empty_message_verifies(void)
 
     unhex(RFC8032_T1_PUB, pub, 32u);
     unhex(RFC8032_T1_SIG, sig, 64u);
-    TEST_ASSERT_EQUAL_INT(AG_OK, ag_boot_verify(0, 0u, sig, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(0, 0u, sig, pub));
 }
 
 /* THE TAMPERED VECTOR. The same RFC 8032 TEST 2, with one bit of the message
@@ -106,7 +106,7 @@ static void test_a_tampered_message_is_refused(void)
     unhex(RFC8032_T2_SIG, sig, 64u);
     unhex(RFC8032_T2_MSG, msg, 1u);
     msg[0] ^= 0x01u;
-    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_verify(msg, 1u, sig, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(msg, 1u, sig, pub));
 }
 
 static void test_a_tampered_signature_is_refused(void)
@@ -119,7 +119,7 @@ static void test_a_tampered_signature_is_refused(void)
     for (uint8_t bit = 0u; bit < 8u; bit++) {
         unhex(RFC8032_T2_SIG, sig, 64u);
         sig[bit * 8u] ^= 0x01u;
-        TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_verify(msg, 1u, sig, pub));
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(msg, 1u, sig, pub));
     }
 }
 
@@ -131,7 +131,7 @@ static void test_the_wrong_public_key_is_refused(void)
     unhex(RFC8032_T3_PUB, pub, 32u);     /* TEST 3's key ... */
     unhex(RFC8032_T2_SIG, sig, 64u);     /* ... against TEST 2's signature */
     unhex(RFC8032_T2_MSG, msg, 1u);
-    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_verify(msg, 1u, sig, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(msg, 1u, sig, pub));
 }
 
 static void test_an_all_zero_signature_is_refused(void)
@@ -141,7 +141,7 @@ static void test_an_all_zero_signature_is_refused(void)
     unhex(RFC8032_T2_PUB, pub, 32u);
     unhex(RFC8032_T2_MSG, msg, 1u);
     memset(sig, 0, sizeof sig);
-    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, ag_boot_verify(msg, 1u, sig, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(msg, 1u, sig, pub));
 }
 
 /*
@@ -155,7 +155,7 @@ static void test_an_unprovisioned_pubkey_slot_refuses(void)
     uint8_t pub[32];
     memset(pub, 0xAA, sizeof pub);
 
-    TEST_ASSERT_EQUAL_INT(AG_ERR_NOT_PROVISIONED, ag_boot_pubkey(pub));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, tfw_boot_pubkey(pub));
     for (uint8_t i = 0u; i < 32u; i++) {
         TEST_ASSERT_EQUAL_UINT8(0u, pub[i]);   /* and it is not left as 0xFF */
     }

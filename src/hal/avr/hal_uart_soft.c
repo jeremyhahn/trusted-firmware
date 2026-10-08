@@ -5,7 +5,7 @@
  *
  * It implements exactly the same four functions hal_uart.c does, with the same
  * non-blocking contract, and the Makefile links one or the other -- never both.
- * The gate is file selection off AG_UART_SOFT in the board profile, so an image
+ * The gate is file selection off TFW_UART_SOFT in the board profile, so an image
  * for a part with a USART contains none of this and an image for a part without
  * one contains no reference to a register that does not exist.
  *
@@ -33,7 +33,7 @@
  * same time on unrelated phases. A design that re-started the timer on each
  * start bit would have to stop the transmitter to do it.
  *
- * THE ERROR BUDGET is in the board profile beside AG_UART_BAUD, because the
+ * THE ERROR BUDGET is in the board profile beside TFW_UART_BAUD, because the
  * baud is a board fact. What is asserted HERE is that the numbers the board
  * chose actually produce that baud: the counter range and the divisor error are
  * compile-time checks, so a board that changes F_CPU finds out at build time
@@ -47,8 +47,8 @@
 #include <avr/interrupt.h>
 #include <util/atomic.h>
 
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
 /* ------------------------------------------------------------------ rings */
 /*
@@ -59,25 +59,25 @@
  * 512 bytes an index would be two bytes wide, the single-instruction property
  * would evaporate, and the reader could observe a half-updated index.
  */
-#ifndef AG_UART_RX_RING
-#define AG_UART_RX_RING 64u
+#ifndef TFW_UART_RX_RING
+#define TFW_UART_RX_RING 64u
 #endif
-#ifndef AG_UART_TX_RING
-#define AG_UART_TX_RING 64u
+#ifndef TFW_UART_TX_RING
+#define TFW_UART_TX_RING 64u
 #endif
 
-_Static_assert((AG_UART_RX_RING & (AG_UART_RX_RING - 1u)) == 0u,
-               "AG_UART_RX_RING must be a power of two: the index wraps by masking");
-_Static_assert((AG_UART_TX_RING & (AG_UART_TX_RING - 1u)) == 0u,
-               "AG_UART_TX_RING must be a power of two: the index wraps by masking");
-_Static_assert(AG_UART_RX_RING <= 256u && AG_UART_TX_RING <= 256u,
+_Static_assert((TFW_UART_RX_RING & (TFW_UART_RX_RING - 1u)) == 0u,
+               "TFW_UART_RX_RING must be a power of two: the index wraps by masking");
+_Static_assert((TFW_UART_TX_RING & (TFW_UART_TX_RING - 1u)) == 0u,
+               "TFW_UART_TX_RING must be a power of two: the index wraps by masking");
+_Static_assert(TFW_UART_RX_RING <= 256u && TFW_UART_TX_RING <= 256u,
                "ring indices must fit in a uint8_t, or the lock-free single-writer "
                "property depends on a multi-byte store being atomic, which it is not");
 
-static volatile uint8_t rx_buf[AG_UART_RX_RING];
+static volatile uint8_t rx_buf[TFW_UART_RX_RING];
 static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writes. */
 
-static volatile uint8_t tx_buf[AG_UART_TX_RING];
+static volatile uint8_t tx_buf[TFW_UART_TX_RING];
 static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: ISR writes. */
 
 /* ------------------------------------------------------------- bit timing */
@@ -89,19 +89,19 @@ static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: ISR writ
  * CK/2, and so on to CK/16384. Written that way rather than as a table because
  * the relation is exact and a table is one more thing to get wrong.
  */
-#define UART_DIV       (1uL << (AG_UART_SOFT_CS - 1u))
+#define UART_DIV       (1uL << (TFW_UART_SOFT_CS - 1u))
 #define UART_TICK_HZ   (F_CPU / UART_DIV)
 
 /* Rounded to nearest, not truncated. Truncation would bias every board's baud
  * high by up to a whole tick, which at 100-odd ticks a bit is most of the error
  * budget spent on an avoidable choice. */
-#define UART_BIT_TICKS ((UART_TICK_HZ + (AG_UART_BAUD / 2uL)) / AG_UART_BAUD)
+#define UART_BIT_TICKS ((UART_TICK_HZ + (TFW_UART_BAUD / 2uL)) / TFW_UART_BAUD)
 
 _Static_assert(UART_BIT_TICKS >= 16uL,
                "too few timer ticks per bit to place a sample in the middle of one: "
-               "LOWER AG_UART_SOFT_CS, because a coarser prescaler cannot resolve this baud");
+               "LOWER TFW_UART_SOFT_CS, because a coarser prescaler cannot resolve this baud");
 _Static_assert(UART_BIT_TICKS <= 256uL,
-               "more timer ticks per bit than OCR1C can express: raise AG_UART_SOFT_CS");
+               "more timer ticks per bit than OCR1C can express: raise TFW_UART_SOFT_CS");
 
 /*
  * THE DIVISOR ERROR, asserted rather than commented.
@@ -116,7 +116,7 @@ _Static_assert(UART_BIT_TICKS <= 256uL,
  * Computed in parts-per-million on the TICK counts, which avoids both the
  * rounding of an integer baud and any need for floating point.
  */
-#define UART_IDEAL_TICKS_MILLI ((uint64_t)UART_TICK_HZ * 1000uLL / (uint64_t)AG_UART_BAUD)
+#define UART_IDEAL_TICKS_MILLI ((uint64_t)UART_TICK_HZ * 1000uLL / (uint64_t)TFW_UART_BAUD)
 #define UART_ACTUAL_TICKS_MILLI ((uint64_t)UART_BIT_TICKS * 1000uLL)
 #define UART_ERR_PPM \
     (((UART_ACTUAL_TICKS_MILLI > UART_IDEAL_TICKS_MILLI) \
@@ -131,10 +131,10 @@ _Static_assert(UART_ERR_PPM <= 20000uLL,
 /* ------------------------------------------------------------------- pins */
 /* Both lines are on the one port the board's descriptor already names, so the
  * bits come from the board and the port does not need to. */
-#define TX_MASK ((uint8_t)_BV(AG_UART_SOFT_TX_BIT))
-#define RX_MASK ((uint8_t)_BV(AG_UART_SOFT_RX_BIT))
+#define TX_MASK ((uint8_t)_BV(TFW_UART_SOFT_TX_BIT))
+#define RX_MASK ((uint8_t)_BV(TFW_UART_SOFT_RX_BIT))
 
-_Static_assert(AG_UART_SOFT_TX_BIT != AG_UART_SOFT_RX_BIT,
+_Static_assert(TFW_UART_SOFT_TX_BIT != TFW_UART_SOFT_RX_BIT,
                "the soft UART's two lines are the same pin");
 
 /* ------------------------------------------------------------ transmitter */
@@ -174,7 +174,7 @@ static void rx_arm(void)
     GIMSK  |= (uint8_t)_BV(PCIE);
 }
 
-ag_status_t ag_hal_uart_init(uint32_t baud)
+tfw_status_t tfw_hal_uart_init(uint32_t baud)
 {
     uint32_t ticks;
 
@@ -183,11 +183,11 @@ ag_status_t ag_hal_uart_init(uint32_t baud)
      * refuses a baud this prescaler cannot express rather than running at some
      * other rate and leaving a host to wonder. */
     if (baud == 0uL) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
     ticks = (UART_TICK_HZ + (baud / 2uL)) / baud;
     if (ticks < 16uL || ticks > 256uL) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
 
     /* TX idles HIGH. Setting the level before the direction matters: the other
@@ -210,7 +210,7 @@ ag_status_t ag_hal_uart_init(uint32_t baud)
     OCR1C = (uint8_t)(ticks - 1uL);
     OCR1A = 0u;
     OCR1B = 0u;
-    TCCR1 = (uint8_t)(_BV(CTC1) | (AG_UART_SOFT_CS & 0x0Fu));
+    TCCR1 = (uint8_t)(_BV(CTC1) | (TFW_UART_SOFT_CS & 0x0Fu));
 
     rx_head = rx_tail = tx_head = tx_tail = 0u;
     tx_frame = 0u;
@@ -223,7 +223,7 @@ ag_status_t ag_hal_uart_init(uint32_t baud)
      * cost 19200 interrupts a second for nothing. */
     PCMSK |= RX_MASK;
     rx_arm();
-    return AG_OK;
+    return TFW_OK;
 }
 
 /*
@@ -239,7 +239,7 @@ ISR(TIMER1_COMPA_vect)
         }
         /* start bit 0 in bit 0, data in bits 1..8, stop bit 1 in bit 9 */
         tx_frame = (uint16_t)(((uint16_t)tx_buf[tx_tail] << 1) | 0x0200u);
-        tx_tail  = (uint8_t)((tx_tail + 1u) & (AG_UART_TX_RING - 1u));
+        tx_tail  = (uint8_t)((tx_tail + 1u) & (TFW_UART_TX_RING - 1u));
         tx_left  = 10u;
     }
     if (tx_frame & 1u) {
@@ -281,7 +281,7 @@ ISR(PCINT0_vect)
      *
      * The half-bit is derived from OCR1C rather than from the compile-time
      * baud, so it is whatever the timer was actually programmed with -- a
-     * caller that passed a different baud to ag_hal_uart_init cannot end up
+     * caller that passed a different baud to tfw_hal_uart_init cannot end up
      * sampling on the phase of a baud it did not ask for.
      */
     {
@@ -328,7 +328,7 @@ ISR(TIMER1_COMPB_vect)
          * on a CRC failure, which is a recoverable frame loss; a byte that is
          * wrong but well-formed is not. */
         if (high) {
-            uint8_t next = (uint8_t)((rx_head + 1u) & (AG_UART_RX_RING - 1u));
+            uint8_t next = (uint8_t)((rx_head + 1u) & (TFW_UART_RX_RING - 1u));
             /* A full ring drops the byte rather than overwriting the oldest,
              * for the reason the hardware UART gives: a corrupt frame that
              * still passes a length check is worse than a lost one. */
@@ -350,19 +350,19 @@ ISR(TIMER1_COMPB_vect)
     rx_left--;
 }
 
-uint8_t ag_hal_uart_rx(uint8_t *out)
+uint8_t tfw_hal_uart_rx(uint8_t *out)
 {
     if (rx_tail == rx_head) {
         return 0u;
     }
     *out    = rx_buf[rx_tail];
-    rx_tail = (uint8_t)((rx_tail + 1u) & (AG_UART_RX_RING - 1u));
+    rx_tail = (uint8_t)((rx_tail + 1u) & (TFW_UART_RX_RING - 1u));
     return 1u;
 }
 
-uint8_t ag_hal_uart_tx_try(uint8_t byte)
+uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
-    uint8_t next = (uint8_t)((tx_head + 1u) & (AG_UART_TX_RING - 1u));
+    uint8_t next = (uint8_t)((tx_head + 1u) & (TFW_UART_TX_RING - 1u));
 
     if (next == tx_tail) {
         return 0u;                      /* full: the caller retries next poll */
@@ -407,7 +407,7 @@ uint8_t ag_hal_uart_tx_try(uint8_t byte)
  * ring would truncate the acknowledgement the host is waiting for by most of a
  * character.
  */
-uint8_t ag_hal_uart_tx_idle(void)
+uint8_t tfw_hal_uart_tx_idle(void)
 {
     return (uint8_t)(tx_head == tx_tail && tx_left == 0u);
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"context"
@@ -17,8 +17,8 @@ import (
 // ECDSA signature can be well-formed DER and still not be one: extra bytes
 // after the SEQUENCE, or an R/S this curve cannot have produced.
 var (
-	errASN1TrailingData = errors.New("aggeneric: auth: trailing data after ASN.1 signature")
-	errASN1BadSig       = errors.New("aggeneric: auth: signature is not a valid P-256 (r, s) pair")
+	errASN1TrailingData = errors.New("tfw: auth: trailing data after ASN.1 signature")
+	errASN1BadSig       = errors.New("tfw: auth: signature is not a valid P-256 (r, s) pair")
 )
 
 // The operator-signature auth session -- issue #4. ELEMENT TIER ONLY: a
@@ -45,7 +45,7 @@ const AuthNonceLen = 16
 // operator key might ever be asked to sign, and from the message ATTEST's
 // evidence or ATTEST_CERT's enrollment challenge would produce -- three
 // different questions, three different byte strings, on purpose.
-const authDomain = "ag-auth-v1"
+const authDomain = "tfw-auth-v1"
 
 // AuthChallenge asks the device for a fresh, single-use nonce.
 //
@@ -125,14 +125,14 @@ type AuthSignError struct {
 }
 
 func (e *AuthSignError) Error() string {
-	return "aggeneric: auth: " + e.Op + ": " + e.Err.Error()
+	return "tfw: auth: " + e.Op + ": " + e.Err.Error()
 }
 
 func (e *AuthSignError) Unwrap() error { return e.Err }
 
 var _ error = (*AuthSignError)(nil)
 
-// ecdsaRawSigLen is AG_SIG_LEN: a P-256 signature as raw R||S, 32 bytes each,
+// ecdsaRawSigLen is TFW_SIG_LEN: a P-256 signature as raw R||S, 32 bytes each,
 // the same width every signature this wire protocol carries uses (ATTEST's,
 // ATTEST_CERT's certificate signature, and this one).
 const ecdsaRawSigLen = 64

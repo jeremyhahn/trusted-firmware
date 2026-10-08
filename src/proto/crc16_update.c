@@ -5,7 +5,7 @@
 
 /*
  * THE PORTABLE DEFINITION. Table-free, one bit at a time, and deliberately not
- * the fast path: this is what host tests, agsim, the bootloader and the
+ * the fast path: this is what host tests, tfwsim, the bootloader and the
  * cross-implementation suite build against, so that the wire vectors and the
  * Go mirror are checked against the same logical function every build shares
  * -- one implementation across host and device is one implementation that
@@ -21,7 +21,7 @@
  * back to sixteen bits each round, and narrowing exactly once on return keeps
  * every step unsigned and the intent visible.
  */
-uint16_t ag_crc16_update(uint16_t crc, uint8_t byte)
+uint16_t tfw_crc16_update(uint16_t crc, uint8_t byte)
 {
     unsigned int reg = (unsigned int)crc ^ ((unsigned int)byte << 8);
     uint8_t      bit;

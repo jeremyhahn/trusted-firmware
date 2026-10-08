@@ -14,22 +14,22 @@
 #include "provision.h"
 #include "atecc.h"
 #include "atecc608a_model.h"
-#include "ag/protocol.h"
-#include "ag/config.h"
+#include "tfw/protocol.h"
+#include "tfw/config.h"
 
-static uint8_t     inbuf[AG_MAX_PAYLOAD];
-static uint8_t     outbuf[AG_MAX_PAYLOAD + 8u];
-static ag_reader_t r;
-static ag_writer_t w;
+static uint8_t     inbuf[TFW_MAX_PAYLOAD];
+static uint8_t     outbuf[TFW_MAX_PAYLOAD + 8u];
+static tfw_reader_t r;
+static tfw_writer_t w;
 
-void setUp(void)    { ag_model_reset(); }
+void setUp(void)    { tfw_model_reset(); }
 void tearDown(void) {}
 
 static void prep(const uint8_t *p, uint8_t n)
 {
     if (n) { memcpy(inbuf, p, n); }
-    ag_reader_init(&r, inbuf, n);
-    ag_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+    tfw_reader_init(&r, inbuf, n);
+    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
 }
 
 /* --------------------------------------------------------------- INFO */
@@ -37,7 +37,7 @@ static void prep(const uint8_t *p, uint8_t n)
 static void test_info_reports_the_element(void)
 {
     prep(0, 0u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_info(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_info(&r, &w));
     TEST_ASSERT_EQUAL_HEX8(0x60u, outbuf[2]);        /* the 608 family byte */
 }
 
@@ -53,8 +53,8 @@ static void test_info_reports_the_element(void)
 static void test_info_carries_both_lock_bytes(void)
 {
     prep(0, 0u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_info(&r, &w));
-    TEST_ASSERT_EQUAL_UINT8(38u, ag_writer_len(&w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_info(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(38u, tfw_writer_len(&w));
     /* 0x55 is UNLOCKED, and the polarity is worth pinning: the value that looks
      * like a flag being set is the zone being open. */
     TEST_ASSERT_EQUAL_HEX8(0x55u, outbuf[36]);       /* LockValue:  data zone */
@@ -63,13 +63,13 @@ static void test_info_carries_both_lock_bytes(void)
 
 static void test_info_reports_a_locked_part_as_locked(void)
 {
-    const uint8_t cfg[3] = { AG_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+    const uint8_t cfg[3] = { TFW_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
 
     prep(cfg, 3u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
 
     prep(0, 0u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_info(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_info(&r, &w));
     TEST_ASSERT_NOT_EQUAL(0x55u, outbuf[37]);        /* the config zone closed */
 }
 
@@ -78,9 +78,9 @@ static void test_info_reports_a_locked_part_as_locked(void)
  * send someone to the parts bin instead of to the wiring. */
 static void test_a_silent_bus_is_reported_as_a_bus_fault(void)
 {
-    ag_model_set_busy(255u);
+    tfw_model_set_busy(255u);
     prep(0, 0u);
-    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_prov_cmd_info(&r, &w));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_info(&r, &w));
 }
 
 /* ------------------------------------------------------- WRITE_CONFIG */
@@ -93,8 +93,8 @@ static void test_a_config_block_is_written(void)
     p[0] = 2u;
     for (i = 0u; i < 32u; i++) { p[1u + i] = (uint8_t)i; }
     prep(p, 33u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_write_config(&r, &w));
-    TEST_ASSERT_EQUAL_HEX8(AG_ATECC_OP_WRITE, ag_model_last_opcode());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_write_config(&r, &w));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_WRITE, tfw_model_last_opcode());
 }
 
 /*
@@ -108,10 +108,10 @@ static void test_the_blocks_that_are_not_ours_are_refused(void)
     uint8_t p[33] = { 0 };
 
     prep(p, 33u);
-    TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ag_prov_cmd_write_config(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, tfw_prov_cmd_write_config(&r, &w));
     p[0] = 1u;
     prep(p, 33u);
-    TEST_ASSERT_EQUAL(AG_ERR_PROTECTED_REGION, ag_prov_cmd_write_config(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, tfw_prov_cmd_write_config(&r, &w));
 }
 
 static void test_a_block_beyond_the_config_zone_is_refused(void)
@@ -120,7 +120,7 @@ static void test_a_block_beyond_the_config_zone_is_refused(void)
 
     p[0] = 9u;
     prep(p, 33u);
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE, ag_prov_cmd_write_config(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_write_config(&r, &w));
 }
 
 /* ---------------------------------------------------------------- LOCK */
@@ -136,22 +136,22 @@ static void test_a_block_beyond_the_config_zone_is_refused(void)
  */
 static void test_a_lock_without_a_summary_crc_is_refused(void)
 {
-    const uint8_t p[3] = { AG_ATECC_LOCK_CONFIG, 0x00u, 0x00u };
+    const uint8_t p[3] = { TFW_ATECC_LOCK_CONFIG, 0x00u, 0x00u };
 
     prep(p, 3u);
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_ARGC, ag_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_prov_cmd_lock(&r, &w));
     /* And nothing reached the element. A refusal that still issued the command
      * would be no refusal at all. */
-    TEST_ASSERT_EQUAL_HEX8(0u, ag_model_last_opcode());
+    TEST_ASSERT_EQUAL_HEX8(0u, tfw_model_last_opcode());
 }
 
 static void test_a_lock_with_a_crc_reaches_the_element(void)
 {
-    const uint8_t p[3] = { AG_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+    const uint8_t p[3] = { TFW_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
 
     prep(p, 3u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
-    TEST_ASSERT_EQUAL_HEX8(AG_ATECC_OP_LOCK, ag_model_last_opcode());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_LOCK, tfw_model_last_opcode());
 }
 
 static void test_a_zone_the_part_does_not_have_is_refused(void)
@@ -159,20 +159,20 @@ static void test_a_zone_the_part_does_not_have_is_refused(void)
     const uint8_t p[3] = { 0x7Fu, 0x34u, 0x12u };
 
     prep(p, 3u);
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE, ag_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_lock(&r, &w));
 }
 
 /* -------------------------------------------------------------- KEYS */
 
 static void test_genkey_returns_a_public_point_and_never_a_private_one(void)
 {
-    const uint8_t p[1] = { AG_ATECC_SLOT_DEVICEID };
+    const uint8_t p[1] = { TFW_ATECC_SLOT_DEVICEID };
 
-    ag_model_provision();
+    tfw_model_provision();
     prep(p, 1u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_genkey(&r, &w));
-    TEST_ASSERT_EQUAL_UINT8(64u, ag_writer_len(&w));   /* an uncompressed point */
-    TEST_ASSERT_EQUAL_HEX8(AG_ATECC_OP_GENKEY, ag_model_last_opcode());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_genkey(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));   /* an uncompressed point */
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_GENKEY, tfw_model_last_opcode());
 }
 
 /* Generating into another slot would produce a key nothing in this firmware
@@ -182,29 +182,29 @@ static void test_genkey_into_any_other_slot_is_refused(void)
     const uint8_t p[1] = { 5u };
 
     prep(p, 1u);
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE, ag_prov_cmd_genkey(&r, &w));
-    TEST_ASSERT_EQUAL_HEX8(0u, ag_model_last_opcode());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_genkey(&r, &w));
+    TEST_ASSERT_EQUAL_HEX8(0u, tfw_model_last_opcode());
 }
 
 /* PUBKEY must not be able to replace the identity it is reading. The two use
- * different GenKey modes for exactly this reason, and `agprov --verify` depends
+ * different GenKey modes for exactly this reason, and `tfwprov --verify` depends
  * on it: a verify that could regenerate the key would destroy what it checked. */
 static void test_pubkey_reads_and_does_not_generate(void)
 {
-    const uint8_t p[1] = { AG_ATECC_SLOT_DEVICEID };
+    const uint8_t p[1] = { TFW_ATECC_SLOT_DEVICEID };
 
-    ag_model_provision();
+    tfw_model_provision();
     prep(p, 1u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_pubkey(&r, &w));
-    TEST_ASSERT_EQUAL_UINT8(64u, ag_writer_len(&w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_pubkey(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));
 }
 
 static void test_pubkey_on_an_empty_slot_fails(void)
 {
-    const uint8_t p[1] = { AG_ATECC_SLOT_DEVICEID };
+    const uint8_t p[1] = { TFW_ATECC_SLOT_DEVICEID };
 
     prep(p, 1u);                       /* not provisioned: no key in slot 0 */
-    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_prov_cmd_pubkey(&r, &w));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_pubkey(&r, &w));
 }
 
 /* ----------------------------------------------------------- SEED_UDS */
@@ -217,15 +217,15 @@ static void test_pubkey_on_an_empty_slot_fails(void)
  */
 static void test_seeding_the_uds_takes_no_key_material_from_the_host(void)
 {
-    const uint8_t p[1] = { AG_ATECC_SLOT_UDS };
+    const uint8_t p[1] = { TFW_ATECC_SLOT_UDS };
 
     prep(p, 1u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_seed_uds(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_seed_uds(&r, &w));
     /* Random, then Nonce, then Write -- the last opcode proves it landed. */
-    TEST_ASSERT_EQUAL_HEX8(AG_ATECC_OP_WRITE, ag_model_last_opcode());
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_WRITE, tfw_model_last_opcode());
     /* Nothing was written to the reply: there is no path by which a secret
      * leaves the device. */
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 
     /* And what landed is what the ELEMENT produced. The model's Random is a
      * known sequence, so asserting the slot holds it proves the value came from
@@ -233,7 +233,7 @@ static void test_seeding_the_uds_takes_no_key_material_from_the_host(void)
      * the property the whole tier depends on and the one a passing call would
      * not otherwise demonstrate. */
     {
-        const uint8_t *slot = ag_model_slot(AG_ATECC_SLOT_UDS);
+        const uint8_t *slot = tfw_model_slot(TFW_ATECC_SLOT_UDS);
         uint8_t        i, nonzero = 0u;
         TEST_ASSERT_NOT_NULL(slot);
         for (i = 0u; i < 32u; i++) {
@@ -249,38 +249,38 @@ static void test_seeding_the_uds_takes_no_key_material_from_the_host(void)
  * rather than reporting success for a lock that did not happen. */
 static void test_locking_out_of_order_is_refused_by_the_element(void)
 {
-    const uint8_t data_first[3] = { AG_ATECC_LOCK_DATA, 0x34u, 0x12u };
-    const uint8_t cfg[3]        = { AG_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+    const uint8_t data_first[3] = { TFW_ATECC_LOCK_DATA, 0x34u, 0x12u };
+    const uint8_t cfg[3]        = { TFW_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
 
     prep(data_first, 3u);
-    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
-    TEST_ASSERT_FALSE(ag_model_data_locked());
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_FALSE(tfw_model_data_locked());
 
     prep(cfg, 3u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
-    TEST_ASSERT_TRUE(ag_model_config_locked());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_TRUE(tfw_model_config_locked());
 
     prep(data_first, 3u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
-    TEST_ASSERT_TRUE(ag_model_data_locked());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_TRUE(tfw_model_data_locked());
 
     /* And a second lock of the same zone is refused rather than silently
      * succeeding, which is what a host's retry would otherwise look like. */
     prep(cfg, 3u);
-    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
 }
 
 /* A locked config zone refuses further writes. If this ever passes, the
  * irreversibility this whole procedure is built around is not real. */
 static void test_a_locked_config_zone_refuses_writes(void)
 {
-    const uint8_t cfg[3] = { AG_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+    const uint8_t cfg[3] = { TFW_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
     uint8_t       blk[33] = { 2u };
 
     prep(cfg, 3u);
-    TEST_ASSERT_EQUAL(AG_OK, ag_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
     prep(blk, 33u);
-    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_prov_cmd_write_config(&r, &w));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_write_config(&r, &w));
 }
 
 static void test_seeding_any_other_slot_is_refused(void)
@@ -288,8 +288,8 @@ static void test_seeding_any_other_slot_is_refused(void)
     const uint8_t p[1] = { 3u };
 
     prep(p, 1u);
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE, ag_prov_cmd_seed_uds(&r, &w));
-    TEST_ASSERT_EQUAL_HEX8(0u, ag_model_last_opcode());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_seed_uds(&r, &w));
+    TEST_ASSERT_EQUAL_HEX8(0u, tfw_model_last_opcode());
 }
 
 int main(void)

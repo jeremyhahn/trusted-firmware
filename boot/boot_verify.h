@@ -45,34 +45,34 @@
  * are in docs/secure-boot/engineering.md.
  * ------------------------------------------------------------------------
  */
-#ifndef AG_BOOT_VERIFY_H
-#define AG_BOOT_VERIFY_H
+#ifndef TFW_BOOT_VERIFY_H
+#define TFW_BOOT_VERIFY_H
 
 #include <stdint.h>
-#include "ag/boot.h"
-#include "ag/status.h"
+#include "tfw/boot.h"
+#include "tfw/status.h"
 
 /*
  * Verifies `sig` over `msg` under `pub`.
  *
- * Returns AG_OK only on a valid signature. Every other outcome -- a malformed
+ * Returns TFW_OK only on a valid signature. Every other outcome -- a malformed
  * point, a non-canonical scalar, a backend that failed internally -- is
- * AG_ERR_CRYPTO, because the caller's only correct response to any of them is
+ * TFW_ERR_CRYPTO, because the caller's only correct response to any of them is
  * the same one and a caller given three failure statuses is a caller that will
  * eventually treat one of them as recoverable.
  */
-ag_status_t ag_boot_verify(const uint8_t *msg, uint16_t msglen,
-                           const uint8_t sig[AG_BOOT_SIG_LEN],
-                           const uint8_t pub[AG_BOOT_PUBKEY_LEN]);
+tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
+                           const uint8_t sig[TFW_BOOT_SIG_LEN],
+                           const uint8_t pub[TFW_BOOT_PUBKEY_LEN]);
 
 /*
  * The public key this bootloader verifies against.
  *
  * In boot-section flash beside the code that uses it, where BLB mode 3 puts it
  * out of the application's reach, and pinned by the SHA-256 in reserved EEPROM
- * -- see include/ag/boot.h for why the key is in one place and its hash in the
- * other. Returns AG_ERR_NOT_PROVISIONED when the slot is still erased.
+ * -- see include/tfw/boot.h for why the key is in one place and its hash in the
+ * other. Returns TFW_ERR_NOT_PROVISIONED when the slot is still erased.
  */
-ag_status_t ag_boot_pubkey(uint8_t out[AG_BOOT_PUBKEY_LEN]);
+tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN]);
 
-#endif /* AG_BOOT_VERIFY_H */
+#endif /* TFW_BOOT_VERIFY_H */

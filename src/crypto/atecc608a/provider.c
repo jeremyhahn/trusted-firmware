@@ -33,9 +33,9 @@
  *
  *  - The CDI transits SRAM on its way out of the element, so "first mutable
  *    code has exclusive access" (6.4) is partial on a part with no MPU. IT IS
- *    ZEROIZED IMMEDIATELY AFTER USE, though -- ag_crypto_init below holds it in
+ *    ZEROIZED IMMEDIATELY AFTER USE, though -- tfw_crypto_init below holds it in
  *    a stack buffer that exists only long enough to learn whether the element
- *    answered, and clears it before returning THROUGH ag_secure_zero
+ *    answered, and clears it before returning THROUGH tfw_secure_zero
  *    (src/core/secure_zero.c), not a plain memset: a local buffer's last
  *    write before it goes out of scope is a dead store an optimizer is free
  *    to remove at -Os, and this codebase's own build did exactly that until
@@ -53,16 +53,16 @@
 
 #include <string.h>
 #include "atecc.h"
-#include "ag/crypto.h"
-#include "ag/config.h"
-#include "ag/protocol.h"
-#include "ag/hal.h"
+#include "tfw/crypto.h"
+#include "tfw/config.h"
+#include "tfw/protocol.h"
+#include "tfw/hal.h"
 #include "../sha256.h"
 #include "../../core/handoff.h"
 #include "../../core/secure_zero.h"
 
 /* Datasheet maximum execution times, in milliseconds. They bound the poll in
- * ag_atecc_exec; a number that is too small gives up on a part that was about
+ * tfw_atecc_exec; a number that is too small gives up on a part that was about
  * to answer, which presents as intermittent hardware. */
 #define T_INFO     5u
 #define T_RANDOM  23u
@@ -80,23 +80,23 @@
 static uint8_t present;        /* the element answered a wake and an Info */
 static uint8_t have_cdi;
 
-ag_status_t ag_crypto_init(void)
+tfw_status_t tfw_crypto_init(void)
 {
     uint8_t     rev[4];
     uint8_t     measurement[32];
     uint8_t     cdi[32];
-    ag_status_t st;
+    tfw_status_t st;
 
     present  = 0u;
     have_cdi = 0u;
 
     /*
-     * Drains and discards any CDI ag-boot handed off, whether or not this
+     * Drains and discards any CDI tfw-boot handed off, whether or not this
      * tier is even the one it named. This tier's DeviceID key is
      * element-resident and never CDI-derived (see the file header), so it
      * has no use for the value -- but "no use for it" is not the same as
      * "safe to leave resident," and src/core/handoff.c holds it until
-     * something takes it. Every crypto provider's ag_crypto_init is the one
+     * something takes it. Every crypto provider's tfw_crypto_init is the one
      * call site per image; leaving this out would mean the application's
      * only other tier honours the handoff's "consumed once" contract and
      * this one quietly does not.
@@ -107,7 +107,7 @@ ag_status_t ag_crypto_init(void)
      * its OWN slot-resident UDS -- entirely independent of whatever this
      * unconditional drain above did or did not find in the handoff. Whether
      * the handoff was absent, named a different tier, or named this one with
-     * ag-boot's all-zero "unprovisioned" sentinel, this tier's signing key
+     * tfw-boot's all-zero "unprovisioned" sentinel, this tier's signing key
      * and its own provisioned state are unaffected either way, because
      * neither was ever derived from the handed-off CDI to begin with. The
      * placeholder measurement below exists for the same reason: this tier's
@@ -117,8 +117,8 @@ ag_status_t ag_crypto_init(void)
      */
     {
         uint8_t discard[32];
-        if (ag_boot_handoff_take_cdi(discard)) {
-            ag_secure_zero(discard, sizeof discard);
+        if (tfw_boot_handoff_take_cdi(discard)) {
+            tfw_secure_zero(discard, sizeof discard);
         }
     }
 
@@ -127,28 +127,28 @@ ag_status_t ag_crypto_init(void)
      * 60 us the part requires. The symptom of getting this wrong is an element
      * that appears absent, which sends you looking at the wiring.
      *
-     * ag_atecc_wake() reasserts AG_ATECC_I2C_HZ itself before every wake, so
+     * tfw_atecc_wake() reasserts TFW_ATECC_I2C_HZ itself before every wake, so
      * this call is not the only thing standing between the element and a
      * host's later I2C_CONFIG -- it exists here so the bus is already at a
      * known rate for the presence probe below, before anything has decided
      * whether an element is even on it. */
-    if (ag_hal_i2c_init(AG_ATECC_I2C_HZ) != AG_OK) {
-        return AG_OK;          /* no bus: not an error, just no element */
+    if (tfw_hal_i2c_init(TFW_ATECC_I2C_HZ) != TFW_OK) {
+        return TFW_OK;          /* no bus: not an error, just no element */
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_OK;          /* no element on this board */
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_OK;          /* no element on this board */
     }
-    if (ag_atecc_exec(AG_ATECC_OP_INFO, AG_ATECC_INFO_REVISION, 0u,
-                      0, 0u, rev, 4u, T_INFO) != AG_OK) {
-        (void)ag_atecc_sleep();
-        return AG_OK;
+    if (tfw_atecc_exec(TFW_ATECC_OP_INFO, TFW_ATECC_INFO_REVISION, 0u,
+                      0, 0u, rev, 4u, T_INFO) != TFW_OK) {
+        (void)tfw_atecc_sleep();
+        return TFW_OK;
     }
     present = 1u;
 
     /*
      * CDI = HMAC(UDS, H(firmware)), computed inside the element.
      *
-     * The measurement is a placeholder rather than the one ag-boot verified:
+     * The measurement is a placeholder rather than the one tfw-boot verified:
      * the DeviceID key this tier signs with is element-resident and never
      * derived from the CDI (see the file header), so nothing downstream reads
      * this value for what it says about the firmware -- it exists only to
@@ -159,28 +159,28 @@ ag_status_t ag_crypto_init(void)
      * FWHash, the measurement a verifier actually checks, comes from the
      * bootloader's handoff by way of src/caps/attest.c -- not from here.
      */
-    ag_sha256((const uint8_t *)"ag-unmeasured-application-v1", 28u, measurement);
-    st = ag_crypto_hmac(AG_ATECC_SLOT_UDS, measurement, sizeof measurement, cdi);
-    (void)ag_atecc_sleep();
+    tfw_sha256((const uint8_t *)"tfw-unmeasured-application-v1", 29u, measurement);
+    st = tfw_crypto_hmac(TFW_ATECC_SLOT_UDS, measurement, sizeof measurement, cdi);
+    (void)tfw_atecc_sleep();
     /* Zeroized here, the moment the one bit it was for -- did the element
      * answer with a UDS in place -- is known. See the file header. */
-    ag_secure_zero(cdi, sizeof cdi);
-    if (st == AG_OK) {
+    tfw_secure_zero(cdi, sizeof cdi);
+    if (st == TFW_OK) {
         have_cdi = 1u;
     }
     /* An element that is present but has no UDS yet is an unprovisioned device.
      * It reports its tier truthfully and refuses to sign; it does not pretend
      * to be the software tier, because the host's decision about what to trust
      * depends on knowing an element is there and empty. */
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_crypto_tier_t ag_crypto_tier(void)
+tfw_crypto_tier_t tfw_crypto_tier(void)
 {
-    return present ? AG_CRYPTO_SECURE_ELEMENT : AG_CRYPTO_NONE;
+    return present ? TFW_CRYPTO_SECURE_ELEMENT : TFW_CRYPTO_NONE;
 }
 
-uint16_t ag_crypto_algorithms(void)
+uint16_t tfw_crypto_algorithms(void)
 {
     if (!present) {
         return 0u;
@@ -189,163 +189,163 @@ uint16_t ag_crypto_algorithms(void)
      * Ed25519, and advertising an algorithm the backend cannot perform is the
      * exact defect go-xkms's BuildAlgorithmsResponse has -- four backends
      * claiming Ed25519 they do not have. We report what the silicon does. */
-    return (uint16_t)(AG_ALGBIT_ECDSA_P256_SHA256 | AG_ALGBIT_HMAC_SHA256);
+    return (uint16_t)(TFW_ALGBIT_ECDSA_P256_SHA256 | TFW_ALGBIT_HMAC_SHA256);
 }
 
-ag_status_t ag_crypto_random(uint8_t *out, uint8_t len)
+tfw_status_t tfw_crypto_random(uint8_t *out, uint8_t len)
 {
     uint8_t     rnd[32];
-    ag_status_t st;
+    tfw_status_t st;
 
     if (!present) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
     if (len == 0u || len > sizeof rnd) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_CRYPTO;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
-    st = ag_atecc_exec(AG_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, T_RANDOM);
-    (void)ag_atecc_sleep();
-    if (st != AG_OK) {
+    st = tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, T_RANDOM);
+    (void)tfw_atecc_sleep();
+    if (st != TFW_OK) {
         return st;
     }
     memcpy(out, rnd, len);
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_crypto_sha256(const uint8_t *data, uint16_t len, uint8_t out[32])
+tfw_status_t tfw_crypto_sha256(const uint8_t *data, uint16_t len, uint8_t out[32])
 {
     /* Deliberately software, even with the element present. The element's SHA
      * command costs a bus round trip per 64-byte block, and this hash is over
      * public data with no secret in it -- there is nothing for the hardware to
      * protect and a great deal of latency to pay. The element is used where it
-     * holds a key, which is ag_crypto_hmac and ag_crypto_sign. */
-    ag_sha256(data, len, out);
-    return AG_OK;
+     * holds a key, which is tfw_crypto_hmac and tfw_crypto_sign. */
+    tfw_sha256(data, len, out);
+    return TFW_OK;
 }
 
-ag_status_t ag_crypto_hmac(uint8_t slot, const uint8_t *data, uint16_t len,
+tfw_status_t tfw_crypto_hmac(uint8_t slot, const uint8_t *data, uint16_t len,
                            uint8_t out[32])
 {
-    ag_status_t st;
+    tfw_status_t st;
     uint16_t    off = 0u;
 
     if (!present) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_CRYPTO;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
 
     /* Start, then whole 64-byte blocks, then End with the remainder. The key
      * is named by slot and never appears on the bus in any of the three. */
-    st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_HMAC_START, slot,
+    st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_START, slot,
                        0, 0u, 0, 0u, T_SHA);
-    while (st == AG_OK && (uint16_t)(len - off) > 64u) {
-        st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_HMAC_UPDATE, 64u,
+    while (st == TFW_OK && (uint16_t)(len - off) > 64u) {
+        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_UPDATE, 64u,
                            &data[off], 64u, 0, 0u, T_SHA);
         off = (uint16_t)(off + 64u);
     }
-    if (st == AG_OK) {
+    if (st == TFW_OK) {
         uint8_t tail = (uint8_t)(len - off);
-        st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_HMAC_END, tail,
+        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_END, tail,
                            tail ? &data[off] : 0, tail, out, 32u, T_SHA);
     }
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }
 
-ag_status_t ag_crypto_sign(const uint8_t digest[32], uint8_t sig[64],
+tfw_status_t tfw_crypto_sign(const uint8_t digest[32], uint8_t sig[64],
                            uint8_t *alg_id)
 {
-    ag_status_t st;
+    tfw_status_t st;
 
     if (!present) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
     if (!have_cdi) {
         /* An element with no UDS has no identity to sign with, whatever keys
          * happen to be in it. Refusing here rather than signing with slot 0
          * anyway is what keeps "this device attested" from meaning "this device
          * had a key". */
-        return AG_ERR_NOT_PROVISIONED;
+        return TFW_ERR_NOT_PROVISIONED;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_CRYPTO;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
 
     /* Nonce in pass-through mode loads TempKey with the digest verbatim -- no
      * seed update, no element randomness mixed in. That is what makes the
      * signature one over OUR digest rather than over something derived from it,
      * which is the only form a verifier holding the same digest can check. */
-    st = ag_atecc_exec(AG_ATECC_OP_NONCE, AG_ATECC_NONCE_PASSTHRU, 0u,
+    st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
                        digest, 32u, 0, 0u, T_NONCE);
-    if (st == AG_OK) {
-        st = ag_atecc_exec(AG_ATECC_OP_SIGN, AG_ATECC_SIGN_EXTERNAL,
-                           AG_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, T_SIGN);
+    if (st == TFW_OK) {
+        st = tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
+                           TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, T_SIGN);
     }
-    (void)ag_atecc_sleep();
-    if (st == AG_OK) {
-        *alg_id = AG_ALG_ECDSA_P256_SHA256;
+    (void)tfw_atecc_sleep();
+    if (st == TFW_OK) {
+        *alg_id = TFW_ALG_ECDSA_P256_SHA256;
     }
     return st;
 }
 
-ag_status_t ag_crypto_pubkey(uint8_t out[64])
+tfw_status_t tfw_crypto_pubkey(uint8_t out[64])
 {
-    ag_status_t st;
+    tfw_status_t st;
 
     if (!present) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_CRYPTO;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
     /* GenKey in public mode recomputes the public point from the private key
      * already in the slot. It does NOT generate a new key -- that is
      * GENKEY_PRIVATE, and it is reachable only from provisioning, because
      * running it here would silently replace the device's identity. */
-    st = ag_atecc_exec(AG_ATECC_OP_GENKEY, AG_ATECC_GENKEY_PUBLIC,
-                       AG_ATECC_SLOT_DEVICEID, 0, 0u, out, 64u, T_GENKEY);
-    (void)ag_atecc_sleep();
-    return st == AG_OK ? AG_OK : AG_ERR_NOT_PROVISIONED;
+    st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PUBLIC,
+                       TFW_ATECC_SLOT_DEVICEID, 0, 0u, out, 64u, T_GENKEY);
+    (void)tfw_atecc_sleep();
+    return st == TFW_OK ? TFW_OK : TFW_ERR_NOT_PROVISIONED;
 }
 
-ag_status_t ag_crypto_counter(uint8_t idx, uint32_t *out)
+tfw_status_t tfw_crypto_counter(uint8_t idx, uint32_t *out)
 {
     uint8_t     v[4];
-    ag_status_t st;
+    tfw_status_t st;
 
     if (!present) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
     if (idx > 1u) {
-        return AG_ERR_RANGE;       /* the part has two */
+        return TFW_ERR_RANGE;       /* the part has two */
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_CRYPTO;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
-    st = ag_atecc_exec(AG_ATECC_OP_COUNTER, AG_ATECC_COUNTER_READ, idx,
+    st = tfw_atecc_exec(TFW_ATECC_OP_COUNTER, TFW_ATECC_COUNTER_READ, idx,
                        0, 0u, v, 4u, T_COUNTER);
-    (void)ag_atecc_sleep();
-    if (st != AG_OK) {
+    (void)tfw_atecc_sleep();
+    if (st != TFW_OK) {
         return st;
     }
     *out = (uint32_t)v[0] | ((uint32_t)v[1] << 8)
          | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);
-    return AG_OK;
+    return TFW_OK;
 }
 
 /*
  * issue #4: the AUTH_CHALLENGE/AUTH_RESPONSE session's verify, entirely
  * additive to everything above -- a new entry point, not a mode of an
- * existing one, so nothing here changes what ag_crypto_sign or
- * ag_crypto_hmac do or the keys they touch.
+ * existing one, so nothing here changes what tfw_crypto_sign or
+ * tfw_crypto_hmac do or the keys they touch.
  *
  * EXTERNAL key mode, not Stored: this key is the OPERATOR's, provisioned into
- * the platform-reserved EEPROM block by agprov (include/ag/boot.h), never
+ * the platform-reserved EEPROM block by tfwprov (include/tfw/boot.h), never
  * into an element slot. That is the opposite tradeoff from
  * boot/verify/verify_atecc608a.c's Stored-mode use of the same opcode --
  * there, keeping the image-signing key off the bus is the whole point,
@@ -357,33 +357,33 @@ ag_status_t ag_crypto_counter(uint8_t idx, uint32_t *out)
  * The response is a bare status byte, not data -- 0x00 verified, 0x01
  * mismatch, matching the four-byte shape every other status-only command
  * here already gets (rlen=0), so this needs no new response-parsing path in
- * ag_atecc_exec: buf[1] is read through the same translate() that already
+ * tfw_atecc_exec: buf[1] is read through the same translate() that already
  * carries the "checkmac or verify miscompare" case for exactly this byte.
  */
-ag_status_t ag_crypto_verify_operator(const uint8_t digest[32],
+tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
                                       const uint8_t sig[64],
                                       const uint8_t pubkey[64])
 {
-    ag_status_t st;
+    tfw_status_t st;
 
     if (!present) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_CRYPTO;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
 
-    /* Same pass-through load ag_crypto_sign uses: TempKey gets the digest
+    /* Same pass-through load tfw_crypto_sign uses: TempKey gets the digest
      * verbatim, no seed update, no element randomness mixed in -- the
      * element verifies OUR digest and not something derived from it. */
-    st = ag_atecc_exec(AG_ATECC_OP_NONCE, AG_ATECC_NONCE_PASSTHRU, 0u,
+    st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
                        digest, 32u, 0, 0u, T_NONCE);
-    if (st == AG_OK) {
-        /* Its own command, not ag_atecc_exec -- see atecc.h's comment on
-         * ag_atecc_verify_external for why: this payload is nearly double
-         * the shared buffer ag_atecc_exec reuses for every other command. */
-        st = ag_atecc_verify_external(sig, pubkey, T_VERIFY);
+    if (st == TFW_OK) {
+        /* Its own command, not tfw_atecc_exec -- see atecc.h's comment on
+         * tfw_atecc_verify_external for why: this payload is nearly double
+         * the shared buffer tfw_atecc_exec reuses for every other command. */
+        st = tfw_atecc_verify_external(sig, pubkey, T_VERIFY);
     }
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }

@@ -2,13 +2,13 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * THE COMMAND TABLE. Included several times with different definitions of
- * AG_CMD_ENTRY -- once to declare the handlers, once to build the PROGMEM
+ * TFW_CMD_ENTRY -- once to declare the handlers, once to build the PROGMEM
  * dispatch table, once for the debug name table.
  *
- *   AG_CMD_ENTRY(id, NAME, handler, min_payload, max_payload)
+ *   TFW_CMD_ENTRY(id, NAME, handler, min_payload, max_payload)
  *
  * min and max are the payload bounds the DISPATCHER checks before calling the
- * handler, so no handler writes its own arity check and AG_ERR_BAD_ARGC comes
+ * handler, so no handler writes its own arity check and TFW_ERR_BAD_ARGC comes
  * from exactly one place.
  *
  * This is one of the four files where a preprocessor conditional is allowed.
@@ -16,105 +16,105 @@
  * --gc-sections drops the whole translation unit, and the Makefile does not
  * compile it in the first place.
  *
- * Ids extend and never renumber. See include/ag/status.h for why.
+ * Ids extend and never renumber. See include/tfw/status.h for why.
  */
 
 /* ---- system: always present, on every board, in every configuration ---- */
-AG_CMD_ENTRY(AG_CMD_CAPS,     CAPS,     ag_sys_cmd_caps,     0u, 1u)
-AG_CMD_ENTRY(AG_CMD_PING,     PING,     ag_sys_cmd_ping,     0u, AG_MAX_PAYLOAD)
-AG_CMD_ENTRY(AG_CMD_RESET,    RESET,    ag_sys_cmd_reset,    1u, 1u)
-AG_CMD_ENTRY(AG_CMD_SYS_INFO, SYS_INFO, ag_sys_cmd_sys_info, 0u, 0u)
+TFW_CMD_ENTRY(TFW_CMD_CAPS,     CAPS,     tfw_sys_cmd_caps,     0u, 1u)
+TFW_CMD_ENTRY(TFW_CMD_PING,     PING,     tfw_sys_cmd_ping,     0u, TFW_MAX_PAYLOAD)
+TFW_CMD_ENTRY(TFW_CMD_RESET,    RESET,    tfw_sys_cmd_reset,    1u, 1u)
+TFW_CMD_ENTRY(TFW_CMD_SYS_INFO, SYS_INFO, tfw_sys_cmd_sys_info, 0u, 0u)
 
 /* ---- gpio ---- */
-#if AG_FEATURE_GPIO
-AG_CMD_ENTRY(AG_CMD_PIN_MODE,      PIN_MODE,      ag_gpio_cmd_mode,  2u, 2u)
-AG_CMD_ENTRY(AG_CMD_DIGITAL_READ,  DIGITAL_READ,  ag_gpio_cmd_read,  1u, 1u)
-AG_CMD_ENTRY(AG_CMD_DIGITAL_WRITE, DIGITAL_WRITE, ag_gpio_cmd_write, 2u, 2u)
+#if TFW_FEATURE_GPIO
+TFW_CMD_ENTRY(TFW_CMD_PIN_MODE,      PIN_MODE,      tfw_gpio_cmd_mode,  2u, 2u)
+TFW_CMD_ENTRY(TFW_CMD_DIGITAL_READ,  DIGITAL_READ,  tfw_gpio_cmd_read,  1u, 1u)
+TFW_CMD_ENTRY(TFW_CMD_DIGITAL_WRITE, DIGITAL_WRITE, tfw_gpio_cmd_write, 2u, 2u)
 #endif
 
 /* ---- the pin scheduler ---- */
-#if AG_FEATURE_SCHED
-AG_CMD_ENTRY(AG_CMD_TIMER_SET,    TIMER_SET,    ag_sched_cmd_set,    6u, 6u)
-AG_CMD_ENTRY(AG_CMD_TIMER_CANCEL, TIMER_CANCEL, ag_sched_cmd_cancel, 2u, 2u)
-AG_CMD_ENTRY(AG_CMD_TIMER_QUERY,  TIMER_QUERY,  ag_sched_cmd_query,  1u, 1u)
+#if TFW_FEATURE_SCHED
+TFW_CMD_ENTRY(TFW_CMD_TIMER_SET,    TIMER_SET,    tfw_sched_cmd_set,    6u, 6u)
+TFW_CMD_ENTRY(TFW_CMD_TIMER_CANCEL, TIMER_CANCEL, tfw_sched_cmd_cancel, 2u, 2u)
+TFW_CMD_ENTRY(TFW_CMD_TIMER_QUERY,  TIMER_QUERY,  tfw_sched_cmd_query,  1u, 1u)
 #endif
 
 /* ---- analog ---- */
-#if AG_FEATURE_ANALOG
-AG_CMD_ENTRY(AG_CMD_ANALOG_READ, ANALOG_READ, ag_analog_cmd_read,    1u, 1u)
-AG_CMD_ENTRY(AG_CMD_ADC_REF,     ADC_REF,     ag_analog_cmd_set_ref, 1u, 1u)
+#if TFW_FEATURE_ANALOG
+TFW_CMD_ENTRY(TFW_CMD_ANALOG_READ, ANALOG_READ, tfw_analog_cmd_read,    1u, 1u)
+TFW_CMD_ENTRY(TFW_CMD_ADC_REF,     ADC_REF,     tfw_analog_cmd_set_ref, 1u, 1u)
 #endif
 
 /* ---- pwm and tone ---- */
-#if AG_FEATURE_PWM
-AG_CMD_ENTRY(AG_CMD_PWM_WRITE, PWM_WRITE, ag_pwm_cmd_write, 2u, 2u)
+#if TFW_FEATURE_PWM
+TFW_CMD_ENTRY(TFW_CMD_PWM_WRITE, PWM_WRITE, tfw_pwm_cmd_write, 2u, 2u)
 #endif
-#if AG_FEATURE_TONE
-AG_CMD_ENTRY(AG_CMD_TONE,    TONE,    ag_tone_cmd_start, 3u, 3u)
-AG_CMD_ENTRY(AG_CMD_NO_TONE, NO_TONE, ag_tone_cmd_stop,  0u, 1u)
+#if TFW_FEATURE_TONE
+TFW_CMD_ENTRY(TFW_CMD_TONE,    TONE,    tfw_tone_cmd_start, 3u, 3u)
+TFW_CMD_ENTRY(TFW_CMD_NO_TONE, NO_TONE, tfw_tone_cmd_stop,  0u, 1u)
 #endif
 
 /* ---- pulse ---- */
-#if AG_FEATURE_PULSE
-AG_CMD_ENTRY(AG_CMD_PULSE_IN,      PULSE_IN,      ag_pulse_cmd_in,      6u, 6u)
-AG_CMD_ENTRY(AG_CMD_PULSE_CAPTURE, PULSE_CAPTURE, ag_pulse_cmd_capture, 7u, 7u)
+#if TFW_FEATURE_PULSE
+TFW_CMD_ENTRY(TFW_CMD_PULSE_IN,      PULSE_IN,      tfw_pulse_cmd_in,      6u, 6u)
+TFW_CMD_ENTRY(TFW_CMD_PULSE_CAPTURE, PULSE_CAPTURE, tfw_pulse_cmd_capture, 7u, 7u)
 #endif
 
 /* ---- eeprom ---- */
-#if AG_FEATURE_EEPROM
-AG_CMD_ENTRY(AG_CMD_EEPROM_READ,  EEPROM_READ,  ag_storage_cmd_read,  3u, 3u)
-AG_CMD_ENTRY(AG_CMD_EEPROM_WRITE, EEPROM_WRITE, ag_storage_cmd_write, 3u, AG_MAX_PAYLOAD)
+#if TFW_FEATURE_EEPROM
+TFW_CMD_ENTRY(TFW_CMD_EEPROM_READ,  EEPROM_READ,  tfw_storage_cmd_read,  3u, 3u)
+TFW_CMD_ENTRY(TFW_CMD_EEPROM_WRITE, EEPROM_WRITE, tfw_storage_cmd_write, 3u, TFW_MAX_PAYLOAD)
 #endif
 
 /* ---- buses ---- */
-#if AG_FEATURE_I2C
-AG_CMD_ENTRY(AG_CMD_I2C_XFER,   I2C_XFER,   ag_i2c_cmd_xfer,   2u, AG_MAX_PAYLOAD)
-AG_CMD_ENTRY(AG_CMD_I2C_CONFIG, I2C_CONFIG, ag_i2c_cmd_config, 4u, 4u)
+#if TFW_FEATURE_I2C
+TFW_CMD_ENTRY(TFW_CMD_I2C_XFER,   I2C_XFER,   tfw_i2c_cmd_xfer,   2u, TFW_MAX_PAYLOAD)
+TFW_CMD_ENTRY(TFW_CMD_I2C_CONFIG, I2C_CONFIG, tfw_i2c_cmd_config, 4u, 4u)
 #endif
-#if AG_FEATURE_SPI
-AG_CMD_ENTRY(AG_CMD_SPI_XFER,   SPI_XFER,   ag_spi_cmd_xfer,   2u, AG_MAX_PAYLOAD)
-AG_CMD_ENTRY(AG_CMD_SPI_CONFIG, SPI_CONFIG, ag_spi_cmd_config, 3u, 3u)
+#if TFW_FEATURE_SPI
+TFW_CMD_ENTRY(TFW_CMD_SPI_XFER,   SPI_XFER,   tfw_spi_cmd_xfer,   2u, TFW_MAX_PAYLOAD)
+TFW_CMD_ENTRY(TFW_CMD_SPI_CONFIG, SPI_CONFIG, tfw_spi_cmd_config, 3u, 3u)
 #endif
-#if AG_FEATURE_ONEWIRE
-AG_CMD_ENTRY(AG_CMD_ONEWIRE_RESET, ONEWIRE_RESET, ag_ow_cmd_reset, 1u, 1u)
-AG_CMD_ENTRY(AG_CMD_ONEWIRE_WRITE, ONEWIRE_WRITE, ag_ow_cmd_write, 2u, AG_MAX_PAYLOAD)
-AG_CMD_ENTRY(AG_CMD_ONEWIRE_READ,  ONEWIRE_READ,  ag_ow_cmd_read,  2u, 2u)
+#if TFW_FEATURE_ONEWIRE
+TFW_CMD_ENTRY(TFW_CMD_ONEWIRE_RESET, ONEWIRE_RESET, tfw_ow_cmd_reset, 1u, 1u)
+TFW_CMD_ENTRY(TFW_CMD_ONEWIRE_WRITE, ONEWIRE_WRITE, tfw_ow_cmd_write, 2u, TFW_MAX_PAYLOAD)
+TFW_CMD_ENTRY(TFW_CMD_ONEWIRE_READ,  ONEWIRE_READ,  tfw_ow_cmd_read,  2u, 2u)
 #endif
 
 /* ---- attestation ---- */
-#if AG_FEATURE_ATTEST
-AG_CMD_ENTRY(AG_CMD_ATTEST, ATTEST, ag_attest_cmd, 1u, AG_ATTEST_NONCE_LEN)
+#if TFW_FEATURE_ATTEST
+TFW_CMD_ENTRY(TFW_CMD_ATTEST, ATTEST, tfw_attest_cmd, 1u, TFW_ATTEST_NONCE_LEN)
 #endif
 /* The alias certificate. Gated separately from ATTEST because it needs an
- * asymmetric key and ATTEST does not -- see AG_FEATURE_ALIAS_CERT in config.h.
+ * asymmetric key and ATTEST does not -- see TFW_FEATURE_ALIAS_CERT in config.h.
  * A 32-BYTE nonce mints and a 1-byte page fetches. The width differs from
  * ATTEST's on purpose: this one is an enrolment challenge and that one is
- * runtime freshness. See AG_ALIAS_NONCE_LEN in include/ag/protocol.h. */
-#if AG_FEATURE_ALIAS_CERT
-AG_CMD_ENTRY(AG_CMD_ATTEST_CERT, ATTEST_CERT, ag_alias_cmd, 1u, AG_ALIAS_NONCE_LEN)
+ * runtime freshness. See TFW_ALIAS_NONCE_LEN in include/tfw/protocol.h. */
+#if TFW_FEATURE_ALIAS_CERT
+TFW_CMD_ENTRY(TFW_CMD_ATTEST_CERT, ATTEST_CERT, tfw_alias_cmd, 1u, TFW_ALIAS_NONCE_LEN)
 #endif
 
 /* The operator-signature auth session -- issue #4. Gated by CRYPTO tier,
- * exactly as AG_FEATURE_ALIAS_CERT is just above and for a related reason:
- * see AG_FEATURE_AUTH_SESSION in config.h. A soft or CRYPTO=none image has no
- * entry here at all and answers AG_ERR_UNKNOWN_CMD, same as any other absent
+ * exactly as TFW_FEATURE_ALIAS_CERT is just above and for a related reason:
+ * see TFW_FEATURE_AUTH_SESSION in config.h. A soft or CRYPTO=none image has no
+ * entry here at all and answers TFW_ERR_UNKNOWN_CMD, same as any other absent
  * feature. */
-#if AG_FEATURE_AUTH_SESSION
-AG_CMD_ENTRY(AG_CMD_AUTH_CHALLENGE, AUTH_CHALLENGE, ag_auth_cmd_challenge, 0u, 0u)
-AG_CMD_ENTRY(AG_CMD_AUTH_RESPONSE,  AUTH_RESPONSE,  ag_auth_cmd_response, AG_AUTH_SIG_LEN, AG_AUTH_SIG_LEN)
+#if TFW_FEATURE_AUTH_SESSION
+TFW_CMD_ENTRY(TFW_CMD_AUTH_CHALLENGE, AUTH_CHALLENGE, tfw_auth_cmd_challenge, 0u, 0u)
+TFW_CMD_ENTRY(TFW_CMD_AUTH_RESPONSE,  AUTH_RESPONSE,  tfw_auth_cmd_response, TFW_AUTH_SIG_LEN, TFW_AUTH_SIG_LEN)
 #endif
 
 /* ---- provisioning: a jig image only, never a production one ----
  *
- * AG_FEATURE_PROVISION defaults to 0 in config.h, so a fielded device has no
- * entry here and answers AG_ERR_UNKNOWN_CMD. See src/caps/provision.c: a device
+ * TFW_FEATURE_PROVISION defaults to 0 in config.h, so a fielded device has no
+ * entry here and answers TFW_ERR_UNKNOWN_CMD. See src/caps/provision.c: a device
  * that can be re-provisioned over its own command channel has no identity worth
  * attesting to. */
-#if AG_FEATURE_PROVISION
-AG_CMD_ENTRY(AG_CMD_PROV_INFO,         PROV_INFO,         ag_prov_cmd_info,          0u,  0u)
-AG_CMD_ENTRY(AG_CMD_PROV_WRITE_CONFIG, PROV_WRITE_CONFIG, ag_prov_cmd_write_config, 33u, 33u)
-AG_CMD_ENTRY(AG_CMD_PROV_LOCK,         PROV_LOCK,         ag_prov_cmd_lock,          3u,  3u)
-AG_CMD_ENTRY(AG_CMD_PROV_GENKEY,       PROV_GENKEY,       ag_prov_cmd_genkey,        1u,  1u)
-AG_CMD_ENTRY(AG_CMD_PROV_PUBKEY,       PROV_PUBKEY,       ag_prov_cmd_pubkey,        1u,  1u)
-AG_CMD_ENTRY(AG_CMD_PROV_SEED_UDS,     PROV_SEED_UDS,     ag_prov_cmd_seed_uds,      1u,  1u)
+#if TFW_FEATURE_PROVISION
+TFW_CMD_ENTRY(TFW_CMD_PROV_INFO,         PROV_INFO,         tfw_prov_cmd_info,          0u,  0u)
+TFW_CMD_ENTRY(TFW_CMD_PROV_WRITE_CONFIG, PROV_WRITE_CONFIG, tfw_prov_cmd_write_config, 33u, 33u)
+TFW_CMD_ENTRY(TFW_CMD_PROV_LOCK,         PROV_LOCK,         tfw_prov_cmd_lock,          3u,  3u)
+TFW_CMD_ENTRY(TFW_CMD_PROV_GENKEY,       PROV_GENKEY,       tfw_prov_cmd_genkey,        1u,  1u)
+TFW_CMD_ENTRY(TFW_CMD_PROV_PUBKEY,       PROV_PUBKEY,       tfw_prov_cmd_pubkey,        1u,  1u)
+TFW_CMD_ENTRY(TFW_CMD_PROV_SEED_UDS,     PROV_SEED_UDS,     tfw_prov_cmd_seed_uds,      1u,  1u)
 #endif

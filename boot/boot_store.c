@@ -14,20 +14,20 @@
 #include "boot_image.h"
 #include "boot_cdi.h"
 
-static uint8_t ee[AG_BOOT_EE_LEN];
+static uint8_t ee[TFW_BOOT_EE_LEN];
 
-void ag_boot_platform_load(ag_boot_platform_t *p, ag_status_t *st)
+void tfw_boot_platform_load(tfw_boot_platform_t *p, tfw_status_t *st)
 {
-    *st = ag_boot_eeprom_read(AG_BOOT_EE_BASE, ee, AG_BOOT_EE_LEN);
-    if (*st == AG_OK) {
-        *st = ag_boot_platform_parse(ee, p);
+    *st = tfw_boot_eeprom_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    if (*st == TFW_OK) {
+        *st = tfw_boot_platform_parse(ee, p);
     }
 }
 
-void ag_boot_platform_store(const ag_boot_platform_t *p)
+void tfw_boot_platform_store(const tfw_boot_platform_t *p)
 {
-    ag_boot_platform_serialise(p, ee);
-    (void)ag_boot_eeprom_write(AG_BOOT_EE_BASE, ee, AG_BOOT_EE_LEN);
+    tfw_boot_platform_serialise(p, ee);
+    (void)tfw_boot_eeprom_write(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
 }
 
 /*
@@ -40,22 +40,22 @@ void ag_boot_platform_store(const ag_boot_platform_t *p)
  * docs/security/fuses-and-lockbits.md calls brown-out detection a security
  * setting on this part.
  */
-uint32_t ag_boot_floor_load(const ag_boot_platform_t *p)
+uint32_t tfw_boot_floor_load(const tfw_boot_platform_t *p)
 {
     uint32_t v;
 
-    if (ag_boot_floor_read(&v) == AG_OK) {
+    if (tfw_boot_floor_read(&v) == TFW_OK) {
         return v;
     }
     return p->rollback_floor;
 }
 
-void ag_boot_floor_store(ag_boot_platform_t *p, uint32_t value)
+void tfw_boot_floor_store(tfw_boot_platform_t *p, uint32_t value)
 {
-    if (ag_boot_floor_write(value) == AG_OK) {
+    if (tfw_boot_floor_write(value) == TFW_OK) {
         return;                       /* the element holds it; EEPROM is moot */
     }
     p->rollback_floor = value;
-    ag_boot_platform_store(p);
+    tfw_boot_platform_store(p);
 }
 

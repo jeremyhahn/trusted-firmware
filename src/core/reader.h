@@ -15,8 +15,8 @@
  * read through a cast, so the code is correct on a host of either endianness
  * and the compiler cannot decide the buffer is suitably aligned when it is not.
  */
-#ifndef AG_READER_H
-#define AG_READER_H
+#ifndef TFW_READER_H
+#define TFW_READER_H
 
 #include <stdint.h>
 
@@ -25,24 +25,24 @@ typedef struct {
     uint8_t        len;
     uint8_t        pos;
     uint8_t        underflow; /* sticky: set once, never cleared */
-} ag_reader_t;
+} tfw_reader_t;
 
-void ag_reader_init(ag_reader_t *r, const uint8_t *buf, uint8_t len);
+void tfw_reader_init(tfw_reader_t *r, const uint8_t *buf, uint8_t len);
 
 /* On underflow each of these returns 0 and sets the sticky flag. Zero is a
  * legitimate value, so the return alone never proves success -- ask
- * ag_reader_ok() before acting on what was read. */
-uint8_t  ag_read_u8(ag_reader_t *r);
-uint16_t ag_read_u16(ag_reader_t *r);
-uint32_t ag_read_u32(ag_reader_t *r);
+ * tfw_reader_ok() before acting on what was read. */
+uint8_t  tfw_read_u8(tfw_reader_t *r);
+uint16_t tfw_read_u16(tfw_reader_t *r);
+uint32_t tfw_read_u32(tfw_reader_t *r);
 
 /* Returns a pointer into the payload and advances by n, or NULL on underflow.
  * The pointer is only valid while the frame buffer is; nothing is copied. */
-const uint8_t *ag_read_blob(ag_reader_t *r, uint8_t n);
+const uint8_t *tfw_read_blob(tfw_reader_t *r, uint8_t n);
 
-uint8_t ag_reader_remaining(const ag_reader_t *r);
+uint8_t tfw_reader_remaining(const tfw_reader_t *r);
 
 /* True when every read so far stayed in bounds. */
-uint8_t ag_reader_ok(const ag_reader_t *r);
+uint8_t tfw_reader_ok(const tfw_reader_t *r);
 
-#endif /* AG_READER_H */
+#endif /* TFW_READER_H */

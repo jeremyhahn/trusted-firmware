@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"bytes"
@@ -16,14 +16,14 @@ import (
 // CAPS is the one reply whose LENGTH is part of the contract rather than an
 // implementation detail: fields are appended to it, so this host must read a
 // reply from firmware older than itself and a reply from firmware newer than
-// itself without failing either. agsim proves the SDK agrees with the firmware
+// itself without failing either. tfwsim proves the SDK agrees with the firmware
 // as it is TODAY; these canned replies are how the versions the simulator
 // cannot be get tested at all.
 
 // cannedLink answers every request with one prepared response, echoing the
 // sequence number so Device accepts it. Enough to exercise a reply layout, and
 // deliberately not a device: anything that needed device behaviour belongs in
-// the cross-implementation suite against agsim.
+// the cross-implementation suite against tfwsim.
 type cannedLink struct {
 	status  Status
 	payload []byte
@@ -68,7 +68,7 @@ func TestCapsParsesTheAppendedAlgorithmBitmap(t *testing.T) {
 	assert.Equal(t, AlgECDSAP256SHA256|AlgHMACSHA256, c.Algorithms)
 	assert.True(t, c.Algorithms.Can(AlgECDSAP256SHA256))
 	assert.True(t, c.Algorithms.Can(AlgECDSAP256SHA256|AlgHMACSHA256), "Can is every bit, not any bit")
-	// The defect this guards: AG_ALG_HMAC_SHA256 is 0x10 and the BIT that says
+	// The defect this guards: TFW_ALG_HMAC_SHA256 is 0x10 and the BIT that says
 	// a device can perform it is 0x0004. A parser that mixed the two would
 	// read this device as offering nothing it actually offers.
 	assert.False(t, c.Algorithms.Can(AlgEd25519))
@@ -155,7 +155,7 @@ func TestPinInfoParsesADescriptor(t *testing.T) {
 		},
 		{
 			// 0xF0, not 0xFF. The firmware writes the descriptor's own packing,
-			// so "no digital port" is AG_PORT_NONE in the HIGH NIBBLE and the
+			// so "no digital port" is TFW_PORT_NONE in the HIGH NIBBLE and the
 			// low nibble is whatever the table holds. A whole-byte comparison
 			// against 0xFF reads this as port 15 bit 0 -- a port no board has,
 			// reported as one it does -- and every ADC-only pin on a 328P

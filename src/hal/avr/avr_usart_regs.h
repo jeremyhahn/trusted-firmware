@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The USART register names, pasted from the board's AG_UART_N.
+ * The USART register names, pasted from the board's TFW_UART_N.
  *
  * Extracted here because TWO images need them and there must not be two copies:
  * the application's interrupt-driven UART in hal_uart.c, and the bootloader's
@@ -24,32 +24,32 @@
  * This file lives under src/hal/avr, which is one of the places a target
  * conditional is permitted. It contains none: it is paste macros only.
  */
-#ifndef AG_AVR_USART_REGS_H
-#define AG_AVR_USART_REGS_H
+#ifndef TFW_AVR_USART_REGS_H
+#define TFW_AVR_USART_REGS_H
 
-#define AG_CAT_(a, b)      a##b
-#define AG_CAT(a, b)       AG_CAT_(a, b)
-/* Three-way paste in one step. Nesting AG_CAT inside itself does NOT work:
+#define TFW_CAT_(a, b)      a##b
+#define TFW_CAT(a, b)       TFW_CAT_(a, b)
+/* Three-way paste in one step. Nesting TFW_CAT inside itself does NOT work:
  * ## suppresses expansion of its own operands, so the outer paste sees the
- * literal text "AG_CAT(UCSR, AG_UART_N)" and tries to glue ")" to "A". */
-#define AG_CAT3_(a, b, c)  a##b##c
-#define AG_CAT3(a, b, c)   AG_CAT3_(a, b, c)
+ * literal text "TFW_CAT(UCSR, TFW_UART_N)" and tries to glue ")" to "A". */
+#define TFW_CAT3_(a, b, c)  a##b##c
+#define TFW_CAT3(a, b, c)   TFW_CAT3_(a, b, c)
 
-#define AG_UDR    AG_CAT(UDR,  AG_UART_N)
-#define AG_UCSRA  AG_CAT3(UCSR, AG_UART_N, A)
-#define AG_UCSRB  AG_CAT3(UCSR, AG_UART_N, B)
-#define AG_UCSRC  AG_CAT3(UCSR, AG_UART_N, C)
-#define AG_UBRRH  AG_CAT3(UBRR, AG_UART_N, H)
-#define AG_UBRRL  AG_CAT3(UBRR, AG_UART_N, L)
-#define AG_U2X    AG_CAT(U2X,   AG_UART_N)
-#define AG_UCSZ0  AG_CAT3(UCSZ, AG_UART_N, 0)
-#define AG_UCSZ1  AG_CAT3(UCSZ, AG_UART_N, 1)
-#define AG_RXEN   AG_CAT(RXEN,  AG_UART_N)
-#define AG_TXEN   AG_CAT(TXEN,  AG_UART_N)
-#define AG_RXCIE  AG_CAT(RXCIE, AG_UART_N)
-#define AG_UDRIE  AG_CAT(UDRIE, AG_UART_N)
-#define AG_RXC    AG_CAT(RXC,   AG_UART_N)
-#define AG_UDRE   AG_CAT(UDRE,  AG_UART_N)
-#define AG_TXC    AG_CAT(TXC,   AG_UART_N)
+#define TFW_UDR    TFW_CAT(UDR,  TFW_UART_N)
+#define TFW_UCSRA  TFW_CAT3(UCSR, TFW_UART_N, A)
+#define TFW_UCSRB  TFW_CAT3(UCSR, TFW_UART_N, B)
+#define TFW_UCSRC  TFW_CAT3(UCSR, TFW_UART_N, C)
+#define TFW_UBRRH  TFW_CAT3(UBRR, TFW_UART_N, H)
+#define TFW_UBRRL  TFW_CAT3(UBRR, TFW_UART_N, L)
+#define TFW_U2X    TFW_CAT(U2X,   TFW_UART_N)
+#define TFW_UCSZ0  TFW_CAT3(UCSZ, TFW_UART_N, 0)
+#define TFW_UCSZ1  TFW_CAT3(UCSZ, TFW_UART_N, 1)
+#define TFW_RXEN   TFW_CAT(RXEN,  TFW_UART_N)
+#define TFW_TXEN   TFW_CAT(TXEN,  TFW_UART_N)
+#define TFW_RXCIE  TFW_CAT(RXCIE, TFW_UART_N)
+#define TFW_UDRIE  TFW_CAT(UDRIE, TFW_UART_N)
+#define TFW_RXC    TFW_CAT(RXC,   TFW_UART_N)
+#define TFW_UDRE   TFW_CAT(UDRE,  TFW_UART_N)
+#define TFW_TXC    TFW_CAT(TXC,   TFW_UART_N)
 
-#endif /* AG_AVR_USART_REGS_H */
+#endif /* TFW_AVR_USART_REGS_H */

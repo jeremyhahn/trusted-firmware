@@ -7,6 +7,7 @@
 # 1200-baud touch, and avrdude's avr109 protocol is what speaks to it. Using
 # the 328P's `arduino` programmer here fails with a sync error that reads like
 # a wiring fault.
+ARCH           := avr
 MCU            := atmega32u4
 F_CPU          := 16000000
 AVRDUDE_PART   := m32u4
@@ -23,7 +24,7 @@ RAM_BUDGET     := 1280
 FLASH_TOTAL    := 32768
 RAM_TOTAL      := 2560
 
-# ag-boot's geometry. Flashing it here REPLACES Caterina, and with it the
+# tfw-boot's geometry. Flashing it here REPLACES Caterina, and with it the
 # 1200-baud-touch reset the avr109 programmer above depends on -- recovery then
 # needs an ISP. See board_profile.h.
 BOOT_SECTION   := 4096

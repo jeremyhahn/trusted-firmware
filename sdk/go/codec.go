@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import "fmt"
 
-// The wire contract. Mirrors include/ag/protocol.h; the two are pinned to the
+// The wire contract. Mirrors include/tfw/protocol.h; the two are pinned to the
 // same vectors.
 const (
 	SOF               = 0xA5
@@ -18,7 +18,7 @@ const (
 	SeqNone       Seq = 0
 
 	// The version of the wire this host speaks, mirroring
-	// AG_PROTO_VERSION_MAJOR and _MINOR. Major changes when a frame cannot be
+	// TFW_PROTO_VERSION_MAJOR and _MINOR. Major changes when a frame cannot be
 	// parsed by an older host; minor when fields are appended that an older
 	// host can ignore, which is why only the major is ever rejected.
 	ProtoVersionMajor uint8 = 1

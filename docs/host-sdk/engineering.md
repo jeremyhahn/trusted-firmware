@@ -1,6 +1,6 @@
 # Host SDK — engineering reference
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 Design rationale lives in `architecture.md`. This is the surface: names, as
@@ -8,7 +8,7 @@ grepped from `sdk/go`, and what a caller must know to use them correctly.
 
 ## Exported surface
 
-Package `aggeneric`, module `github.com/jeremyhahn/arduino-generic/sdk/go`.
+Package `tfw`, module `github.com/jeremyhahn/trusted-firmware/sdk/go`.
 
 **Connection**
 `Device`, `New(conn io.ReadWriter, opts ...Option) *Device`, `Option`,
@@ -128,14 +128,14 @@ caller to reconnect when it should upgrade its firmware assumptions.
 There is no config file and no environment variable. Everything is either a
 constructor option or a CLI flag (see `cli.md`):
 
-- `ag.New(conn, ag.WithTimeout(d))` — reply timeout, default 10s. Deliberately
+- `tfw.New(conn, tfw.WithTimeout(d))` — reply timeout, default 10s. Deliberately
   generous: on the element tier `Attest` and `AttestCert` wait out the
   ATECC608A's datasheet maximum signing time, and `AttestCert` also hashes the
   certificate body in software on a 16 MHz part.
-- `ag.New(conn, ag.WithBootWait(d))` — how long `New` waits for the firmware's
+- `tfw.New(conn, tfw.WithBootWait(d))` — how long `New` waits for the firmware's
   BOOT event before proceeding anyway, default `DefaultBootWait` (2s); `d <= 0`
   disables the wait entirely. Every classic Arduino resets on DTR, which this
-  exists to ride out; raise it for an `ag-boot` `BOOT_MEASURE=atecc608a` image,
+  exists to ride out; raise it for an `tfw-boot` `BOOT_MEASURE=atecc608a` image,
   which can take several seconds to measure a large application before it
   starts. The bound depends on the conn returning from `Read` within it (see
   `serialport.Open` below) exactly as `WithTimeout` already does. Before
@@ -169,12 +169,12 @@ constructor option or a CLI flag (see `cli.md`):
 | Make target | What it runs |
 |---|---|
 | `sdk-build` | `go build ./...` in `sdk/go` |
-| `sdk-test` | `go test -count=1 ./...`; depends on `agsim` and `agsim-atecc608a` |
+| `sdk-test` | `go test -count=1 ./...`; depends on `tfwsim` and `tfwsim-atecc608a` |
 | `sdk-lint` | `go fmt` (fails if it rewrites anything) + `go vet` |
 | `sdk-verify` | `go mod verify` + the Layer 0 dependency grep |
 | `verify-vectors` | asserts `internal/vectors` and `testdata/vectors.h` agree |
-| `agsim` | builds `build/host/agsim` from the real firmware + mock HAL |
-| `agsim-atecc608a` | builds `build/host/agsim-atecc608a`: the same, with the real ATECC608A driver over the software element model; `sdk-test` depends on it too |
+| `tfwsim` | builds `build/host/tfwsim` from the real firmware + mock HAL |
+| `tfwsim-atecc608a` | builds `build/host/tfwsim-atecc608a`: the same, with the real ATECC608A driver over the software element model; `sdk-test` depends on it too |
 
 Unit coverage by file: `codec_test.go` (round trips, corruption, resync,
 `TestDecodeSurvivesArbitraryBytes` fuzz-style), `crc_test.go`, `errors_test.go`
@@ -183,17 +183,17 @@ Unit coverage by file: `codec_test.go` (round trips, corruption, resync,
 `attest_test.go`, `fuzz_test.go` (`go test -fuzz`, codec only — no I/O to fuzz
 against).
 
-`agsim_test.go` is the cross-implementation suite: it starts `build/host/agsim`
+`tfwsim_test.go` is the cross-implementation suite: it starts `build/host/tfwsim`
 as a subprocess over pipes and runs the SDK's public API against the actual C
 firmware. It **fails** (never skips) if the binary is missing, with a message
-to run `make agsim` — the one check that the C and Go codecs have not drifted.
+to run `make tfwsim` — the one check that the C and Go codecs have not drifted.
 
 `sdk/go/internal/simproc` is the one launcher: it locates the binaries
-(`$AGSIM_DIR`, else this checkout's `build/host`), starts them and returns a
-`NotBuiltError` naming the make target when one is missing. `agsim_test.go` and
-the public `sdk/go/agsim` package both use it. `sdk/go/agsim/*_test.go` is the
+(`$TFWSIM_DIR`, else this checkout's `build/host`), starts them and returns a
+`NotBuiltError` naming the make target when one is missing. `tfwsim_test.go` and
+the public `sdk/go/tfwsim` package both use it. `sdk/go/tfwsim/*_test.go` is the
 element-tier suite: DICE evidence over the wire, the identity options (including
-an `agprov --bake-eeprom` image), and refusal to start on a bad option. It
+an `tfwprov --bake-eeprom` image), and refusal to start on a bad option. It
 asserts structure and claims, never a signature — the element model has no curve
 arithmetic.
 
@@ -204,4 +204,4 @@ that wants either wraps the `io.ReadWriter` it hands to `New`, or inspects the
 typed errors above. The one piece of built-in signal is `Events()` — an
 unsolicited boot event during a call means the device reset underneath the
 host, which every caller of `Do` should check for after an exchange completes
-(see `agctl`'s post-command check in `cli.md`).
+(see `tfwctl`'s post-command check in `cli.md`).

@@ -1,6 +1,6 @@
 # Host SDK — using it
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 Task-oriented. Full flag reference: `cli.md`. Design rationale: `architecture.md`.
@@ -8,21 +8,21 @@ Task-oriented. Full flag reference: `cli.md`. Design rationale: `architecture.md
 ## Build the tools
 
 ```sh
-make sdk-build     # go build ./... in sdk/go: agctl, agprov
+make sdk-build     # go build ./... in sdk/go: tfwctl, tfwprov
 ```
 
 ## Talk to a board over serial
 
 ```sh
-agctl /dev/ttyUSB0 ping hello
-agctl /dev/ttyUSB0 caps        # what the board is and what it can do
-agctl /dev/ttyUSB0 pin 13
+tfwctl /dev/ttyUSB0 ping hello
+tfwctl /dev/ttyUSB0 caps        # what the board is and what it can do
+tfwctl /dev/ttyUSB0 pin 13
 ```
 
 No board handy? List what the host can see:
 
 ```sh
-agctl ports
+tfwctl ports
 ```
 
 ### Boards that auto-reset on open
@@ -34,23 +34,23 @@ for roughly a second before the firmware you flashed even starts running.
 
 Nothing to do about this: the SDK's `Device` waits up to ~2 seconds after
 connecting for the firmware's own BOOT event before sending the first
-command, so `agctl /dev/ttyUSB0 ping hello` succeeds on the very first
+command, so `tfwctl /dev/ttyUSB0 ping hello` succeeds on the very first
 invocation rather than only the second. If the adapter you use does *not* reset the
 board — DTR wired off, or a board that was already running — no BOOT event
 ever comes and the wait simply falls through once the bound elapses; nothing
 fails, the exchange just pays that bound once, at connect.
 
 The ~2 second default is sized for the stock Arduino bootloader, which runs
-briefly and jumps. **`ag-boot` built with `BOOT_MEASURE=atecc608a` is
+briefly and jumps. **`tfw-boot` built with `BOOT_MEASURE=atecc608a` is
 different**: it measures the whole application through the element at up to
 36 ms per 64-byte block, so anything but a small image can legitimately take
 several seconds before the application starts and sends BOOT — longer than the
 default bound. Pass a larger bound sized to the image you flashed when talking
-to such a build: `agctl -boot-wait 10s ...`, or `ag.WithBootWait` when using
+to such a build: `tfwctl -boot-wait 10s ...`, or `tfw.WithBootWait` when using
 the SDK directly.
 
 **A BOOT event from a PREVIOUS session does not fool this.** Closing a port
-does not stop the device transmitting — `agctl reset soft` followed by the
+does not stop the device transmitting — `tfwctl reset soft` followed by the
 port closing, as one invocation does, leaves that BOOT event sitting wherever
 the OS queues unread bytes, and the very next open would otherwise hand it
 straight back as if it were fresh. `serialport.Open` purges that backlog
@@ -65,29 +65,29 @@ do, the ATtiny85 (no bootloader at all) among them.
 
 ## Try it with no hardware at all
 
-`agsim` is the real firmware, compiled to run on this machine. Build it once,
-then point `agctl` at its pty:
+`tfwsim` is the real firmware, compiled to run on this machine. Build it once,
+then point `tfwctl` at its pty:
 
 ```sh
-make agsim
-build/host/agsim --pty &   # prints the pty path to stderr, e.g. /dev/pts/4
-agctl /dev/pts/4 caps
+make tfwsim
+build/host/tfwsim --pty &   # prints the pty path to stderr, e.g. /dev/pts/4
+tfwctl /dev/pts/4 caps
 ```
 
 This is also how the SDK's own cross-implementation tests run — see
 `engineering.md#test-strategy`.
 
 For DICE evidence — `ATTEST` and `ATTEST_CERT` — build the element-tier
-simulator instead, `make agsim-atecc608a`, and start it with an identity. From a
-Go test, `agsim.StartElement(t)` does both; see `api.md` and
+simulator instead, `make tfwsim-atecc608a`, and start it with an identity. From a
+Go test, `tfwsim.StartElement(t)` does both; see `api.md` and
 `docs/dice-attestation/user.md`. Its evidence is a TEST identity and no
 signature in it verifies.
 
 ## Drive an output for a fixed time, safely
 
 ```sh
-agctl /dev/ttyUSB0 mode 13 out
-agctl /dev/ttyUSB0 timer 13 1 5s
+tfwctl /dev/ttyUSB0 mode 13 out
+tfwctl /dev/ttyUSB0 timer 13 1 5s
 ```
 
 The device — not this command, not your shell — reverts pin 13 after 5
@@ -96,20 +96,20 @@ pin still reverts on time; that's the property `TimerSet` exists to provide.
 Check on it, cancel it early, or apply the final level:
 
 ```sh
-agctl /dev/ttyUSB0 timer-query 13
-agctl /dev/ttyUSB0 timer-cancel 13 apply
+tfwctl /dev/ttyUSB0 timer-query 13
+tfwctl /dev/ttyUSB0 timer-cancel 13 apply
 ```
 
 ## Provision a secure element
 
-`agprov` writes the config zone, locks it, generates the DeviceID key and UDS
+`tfwprov` writes the config zone, locks it, generates the DeviceID key and UDS
 inside the element, and locks the data zone — irreversibly, once you pass
 `-commit -yes-i-mean-it`. Always in this order:
 
 ```sh
-agprov -dry-run -config templates/atecc608a-dice.conf /dev/ttyUSB0
-agprov -commit  -config templates/atecc608a-dice.conf /dev/ttyUSB0 -yes-i-mean-it   # spare part first
-agprov -verify  -config templates/atecc608a-dice.conf /dev/ttyUSB0
+tfwprov -dry-run -config templates/atecc608a-dice.conf /dev/ttyUSB0
+tfwprov -commit  -config templates/atecc608a-dice.conf /dev/ttyUSB0 -yes-i-mean-it   # spare part first
+tfwprov -verify  -config templates/atecc608a-dice.conf /dev/ttyUSB0
 ```
 
 The device must be running a provisioning-jig image; a production build
@@ -119,10 +119,10 @@ procedure, what's reversible and what isn't, and how to read the template:
 
 ## Write your own host program
 
-Import `aggeneric` and `serialport` directly rather than shelling out to
-`agctl`; see `api.md` for the connect/call/error-match pattern and
-`engineering.md` for every method's invariants. `ag.New` waits for the BOOT
-event as described above by default; pass `ag.WithBootWait(0)` if you know
+Import `tfw` and `serialport` directly rather than shelling out to
+`tfwctl`; see `api.md` for the connect/call/error-match pattern and
+`engineering.md` for every method's invariants. `tfw.New` waits for the BOOT
+event as described above by default; pass `tfw.WithBootWait(0)` if you know
 your adapter never resets the board and would rather not pay any bound at
 connect at all.
 

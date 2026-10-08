@@ -12,7 +12,7 @@
  * one: `INSERT AFTER` splices it into the default script immediately after
  * `.noinit`, which is the standard-recognised uninitialised-but-not-zeroed
  * section this handoff block is conceptually the same kind of thing as. Every
- * *_LDFLAGS that places `.handoff` (mk/avr.mk, mk/boot.mk) passes this file
+ * *_LDFLAGS that places `.handoff` (mk/arch/avr.mk) passes this file
  * with `-T` alongside its own `--section-start=.handoff=<addr>` -- NOLOAD and
  * the address are orthogonal linker concerns, and the command-line flag still
  * sets where this section lands.

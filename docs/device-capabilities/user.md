@@ -1,18 +1,18 @@
 # Device capabilities: user guide
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 >
 > Conflicts with this document are defects. Fix them here first.
 
-Examples use `agctl`, the reference client (`../host-sdk/architecture.md`,
+Examples use `tfwctl`, the reference client (`../host-sdk/architecture.md`,
 `cli.md`). Where a Go SDK call is shown instead, it is
 given instead — see `cli.md#gap`.
 
 ## Find out what a device can do
 
 ```sh
-agctl /dev/ttyACM0 caps       # board id, pin count, features, root of trust
-agctl /dev/ttyACM0 pin 9      # one pin: port/bit, ADC channel, PWM state
+tfwctl /dev/ttyACM0 caps       # board id, pin count, features, root of trust
+tfwctl /dev/ttyACM0 pin 9      # one pin: port/bit, ADC channel, PWM state
 ```
 
 Do this once per connection and act on the answer. Two boards can carry the
@@ -25,9 +25,9 @@ missing PWM, I2C, SPI and 1-Wire.
 ## Drive a pin
 
 ```sh
-agctl /dev/ttyACM0 mode 7 out
-agctl /dev/ttyACM0 write 7 1
-agctl /dev/ttyACM0 read 2
+tfwctl /dev/ttyACM0 mode 7 out
+tfwctl /dev/ttyACM0 write 7 1
+tfwctl /dev/ttyACM0 read 2
 ```
 
 A pin the firmware is using for itself — the UART, or a claimed
@@ -37,9 +37,9 @@ can observe a line without risking cutting the one the command arrived on.
 ## Hold a pin for a duration without babysitting it
 
 ```sh
-agctl /dev/ttyACM0 timer 7 1 10s     # drive pin 7 high, device reverts it after 10s
-agctl /dev/ttyACM0 timer-query 7
-agctl /dev/ttyACM0 timer-cancel 7 apply
+tfwctl /dev/ttyACM0 timer 7 1 10s     # drive pin 7 high, device reverts it after 10s
+tfwctl /dev/ttyACM0 timer-query 7
+tfwctl /dev/ttyACM0 timer-cancel 7 apply
 ```
 
 The deadline is owned by the **device**. If the host crashes or the link
@@ -119,7 +119,7 @@ Reconfigure either one if a device's datasheet wants something else:
 
 ```go
 err = dev.SetI2CClock(ctx, 400_000)                              // Fast-mode
-err = dev.ConfigureSPI(ctx, ag.SPIMode3, ag.SPIClockDiv16, false) // an SD card
+err = dev.ConfigureSPI(ctx, tfw.SPIMode3, tfw.SPIClockDiv16, false) // an SD card
 ```
 
 Address `0x60` on I2C and a chip-select the board has claimed for its own
@@ -132,13 +132,13 @@ device's own root of trust. See `../dice-attestation/architecture.md` for why.
 The device answers with a status byte, not silence. The common ones you will
 see from this feature set:
 
-- **"that pin doesn't exist / can't do that"** — `AG_ERR_BAD_PIN` or
-  `AG_ERR_UNSUPPORTED`; check `pin <n>` first.
-- **"that pin is spoken for"** — `AG_ERR_RESERVED_PIN`; it is the UART or
+- **"that pin doesn't exist / can't do that"** — `TFW_ERR_BAD_PIN` or
+  `TFW_ERR_UNSUPPORTED`; check `pin <n>` first.
+- **"that pin is spoken for"** — `TFW_ERR_RESERVED_PIN`; it is the UART or
   another peripheral this build claimed.
-- **"that's off-limits"** — `AG_ERR_PROTECTED_REGION`; the low EEPROM region,
+- **"that's off-limits"** — `TFW_ERR_PROTECTED_REGION`; the low EEPROM region,
   the element's I2C address, or a reserved chip-select.
-- **"try a smaller/larger value"** — `AG_ERR_RANGE`; durations, lengths and
+- **"try a smaller/larger value"** — `TFW_ERR_RANGE`; durations, lengths and
   timeouts all have a stated ceiling in `api.md`.
 
 Full status list and what each command can return: `engineering.md`.

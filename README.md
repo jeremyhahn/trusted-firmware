@@ -1,4 +1,4 @@
-# arduino-generic
+# trusted-firmware
 
 Generic firmware for classic AVR, and the Layer 0 Go SDK that drives it. It is
 a drop-in replacement for basic Arduino firmware on any microcontroller and any
@@ -6,7 +6,7 @@ application: every Arduino capability — digital and analog I/O, PWM, tone, pul
 timing, EEPROM, I²C, SPI, 1-Wire — is reachable over a compact binary protocol
 and from the Go SDK, and the firmware knows nothing about what is wired to it.
 
-What basic Arduino firmware lacks, this adds: a secure bootloader (`ag-boot`)
+What basic Arduino firmware lacks, this adds: a secure bootloader (`tfw-boot`)
 that measures and verifies the application, DICE device identity rooted in
 hardware, and integration with go-trusted-platform so a platform can attest a
 device, enforce policy on it and enroll it into a fleet. One ANSI C codebase,
@@ -25,7 +25,7 @@ the device offers capability, the host supplies meaning.
 | Not used | The Arduino core, C++, and every Arduino library |
 | Transport | A framed binary protocol over UART, CRC-16 checked |
 | Host SDK | `sdk/go` — a Layer 0 Go module with **zero in-house dependencies** |
-| Tested | host unit tests, the firmware under simavr, and the Go SDK against `agsim` (the real firmware built for the host); no hardware required |
+| Tested | host unit tests, the firmware under simavr, and the Go SDK against `tfwsim` (the real firmware built for the host); no hardware required |
 
 ## Quick start
 
@@ -40,14 +40,14 @@ Nothing above needs an AVR toolchain on your machine, and nothing but `flash`
 needs a board.
 
 ```sh
-make agsim             # the firmware, compiled for the host
-make agsim-atecc608a   # the same with the ATECC608A driver: DICE evidence, no hardware
-cd sdk/go && go run ./cmd/agctl /dev/ttyUSB0 caps
+make tfwsim             # the firmware, compiled for the host
+make tfwsim-atecc608a   # the same with the ATECC608A driver: DICE evidence, no hardware
+cd sdk/go && go run ./cmd/tfwctl /dev/ttyUSB0 caps
 ```
 
 ## How it is tested without hardware
 
-`agsim` is the firmware compiled for the host: the same `src/proto`, `src/core`
+`tfwsim` is the firmware compiled for the host: the same `src/proto`, `src/core`
 and `src/caps` the device runs, linked against a mock HAL, speaking the real
 protocol on stdio or a pty. The Go SDK's tests talk to it. So the two codecs are
 proven to agree before any board is involved — and the thing they are proven
@@ -79,14 +79,14 @@ the wrong LED.
 ## Layout
 
 ```
-include/ag/      the contracts: status, protocol, config, HAL, board
+include/tfw/      the contracts: status, protocol, config, HAL, board
 src/proto/       CRC, framing, transport
 src/core/        bounded cursors, command dispatch
 src/caps/        capability modules — one per command group
 src/hal/avr/     the only code that touches a register
 boards/          per-board descriptors: data, not code
-sdk/go/          the host SDK and agctl
-tools/agsim/     the firmware, built for the host
+sdk/go/          the host SDK and tfwctl
+tools/tfwsim/     the firmware, built for the host
 testdata/        the wire vectors, shared with sdk/go
 ```
 

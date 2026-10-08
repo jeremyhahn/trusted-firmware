@@ -14,7 +14,7 @@ G=sdk/go/internal/vectors/vectors.go
 fail=0
 
 # name -> value, from each side, normalised to bare lowercase hex.
-c_vals=$(sed -n 's/^#define AGV_CRC_\([A-Z_]*\)_RESULT *0x\([0-9A-Fa-f]*\)u$/\1 \2/p' "$C" \
+c_vals=$(sed -n 's/^#define TFWV_CRC_\([A-Z_]*\)_RESULT *0x\([0-9A-Fa-f]*\)u$/\1 \2/p' "$C" \
          | tr 'A-F' 'a-f' | sort)
 g_vals=$(sed -n 's/^\tCRC\([A-Za-z]*\) *= *0x\([0-9A-Fa-f]*\).*$/\1 \2/p' "$G" \
          | sed 's/^Check /CHECK /; s/^Empty /EMPTY /; s/^Zero /ZERO /; s/^ZeroZero /ZEROZERO /; s/^FF /FF /; s/^OrderA /ORDER_A /; s/^OrderB /ORDER_B /' \
@@ -36,7 +36,7 @@ fi
 # Wire frames: encoded byte strings rather than hex results, compared the same
 # way -- by VALUE, not by name, since the two languages spell a byte string
 # differently. A frame one side pins and the other does not is the failure.
-c_frames=$(sed -n 's/^#define AGV_FRAME_[A-Z0-9_]* "\(.*\)"$/\1/p' "$C" | sort)
+c_frames=$(sed -n 's/^#define TFWV_FRAME_[A-Z0-9_]* "\(.*\)"$/\1/p' "$C" | sort)
 g_frames=$(sed -n 's/^\tFrame[A-Za-z0-9]* *= *"\(.*\)"/\1/p' "$G" | sort)
 
 cf_only=$(comm -23 <(echo "$c_frames") <(echo "$g_frames"))
@@ -57,7 +57,7 @@ fi
 # numbers, so they get their own block, but \x escapes are spelled identically
 # in a C string literal and a Go one, which means the quoted text can be
 # compared directly rather than decoded.
-c_str=$(sed -n 's/^#define AGV_SYSINFO_\([A-Z_]*\)_REPLY *"\(.*\)"$/\1 \2/p' "$C" | sort)
+c_str=$(sed -n 's/^#define TFWV_SYSINFO_\([A-Z_]*\)_REPLY *"\(.*\)"$/\1 \2/p' "$C" | sort)
 g_str=$(sed -n 's/^\tSysInfo\([A-Za-z]*\) *= *"\(.*\)"$/\1 \2/p' "$G" | sort)
 
 c_str_only=$(comm -23 <(echo "$c_str" | awk '{print $2}' | sort -u) <(echo "$g_str" | awk '{print $2}' | sort -u))

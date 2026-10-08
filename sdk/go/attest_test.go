@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"bytes"
@@ -127,8 +127,8 @@ func TestAttestRefusesTheWrongNonceWidth(t *testing.T) {
 }
 
 func TestAttestCertPagesTheCertificate(t *testing.T) {
-	// 471 bytes is what the firmware reports for a real alias certificate.
-	want := make([]byte, 471)
+	// 472 bytes is what the firmware reports for a real alias certificate.
+	want := make([]byte, 472)
 	for i := range want {
 		want[i] = byte(i * 3)
 	}
@@ -137,7 +137,7 @@ func TestAttestCertPagesTheCertificate(t *testing.T) {
 	got, err := New(link).AttestCert(context.Background(), make([]byte, AliasNonceLen))
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
-	// ceil(471/60) = 8 pages.
+	// ceil(472/60) = 8 pages.
 	assert.Len(t, link.requests, 8)
 }
 
@@ -169,7 +169,7 @@ func TestAttestCertRefusesAReplyWithNoHeader(t *testing.T) {
 }
 
 // A software-tier device knows what a certificate is and has no public half to
-// put in one. It says AG_ERR_UNSUPPORTED, which is a different fact from "this
+// put in one. It says TFW_ERR_UNSUPPORTED, which is a different fact from "this
 // firmware has never heard of certificates".
 func TestAttestCertSurfacesAnUnsupportedDevice(t *testing.T) {
 	link := &cannedLink{status: StatusErrUnsupported}

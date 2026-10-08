@@ -24,7 +24,7 @@
 #include "atecc608a_model.h"
 #include "sha256.h"
 
-void setUp(void)    { ag_model_reset(); ag_boot_mock_reset(); }
+void setUp(void)    { tfw_model_reset(); tfw_boot_mock_reset(); }
 void tearDown(void) {}
 
 /* ------------------------------------------------- the digest must agree */
@@ -43,7 +43,7 @@ static void test_the_element_computes_the_published_digest(void)
 {
     uint8_t out[32];
 
-    ag_boot_hash((const uint8_t *)"abc", 3u, out);
+    tfw_boot_hash((const uint8_t *)"abc", 3u, out);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(SHA_ABC, out, 32);
 }
 
@@ -61,10 +61,10 @@ static void test_a_measurement_matches_the_software_hash(void)
     uint16_t i;
 
     for (i = 0u; i < sizeof image; i++) { image[i] = (uint8_t)(i * 7u + 3u); }
-    memcpy(ag_boot_mock_flash(), image, sizeof image);
-    ag_sha256(image, (uint16_t)sizeof image, want);
+    memcpy(tfw_boot_mock_flash(), image, sizeof image);
+    tfw_sha256(image, (uint16_t)sizeof image, want);
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_boot_measure((uint32_t)sizeof image, got));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_measure((uint32_t)sizeof image, got));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
 }
 
@@ -79,10 +79,10 @@ static void test_a_measurement_of_whole_blocks_has_no_tail(void)
     uint16_t i;
 
     for (i = 0u; i < sizeof image; i++) { image[i] = (uint8_t)i; }
-    memcpy(ag_boot_mock_flash(), image, sizeof image);
-    ag_sha256(image, (uint16_t)sizeof image, want);
+    memcpy(tfw_boot_mock_flash(), image, sizeof image);
+    tfw_sha256(image, (uint16_t)sizeof image, want);
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_boot_measure((uint32_t)sizeof image, got));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_measure((uint32_t)sizeof image, got));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
 }
 
@@ -91,7 +91,7 @@ static void test_a_measurement_of_whole_blocks_has_no_tail(void)
  *
  * A bootloader handed 32 zeros would compare them against a golden measurement,
  * fail, and refuse to boot, which happens to be safe. But a caller that
- * received AG_OK with a digest of nothing has been told a measurement was taken
+ * received TFW_OK with a digest of nothing has been told a measurement was taken
  * when none was, and somewhere downstream that becomes a device attesting to a
  * hash it never computed.
  */
@@ -99,14 +99,14 @@ static void test_an_absent_element_refuses_to_measure(void)
 {
     uint8_t got[32];
 
-    ag_model_set_absent(1u);
-    TEST_ASSERT_NOT_EQUAL(AG_OK, ag_boot_measure(64u, got));
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_boot_measure(64u, got));
 }
 
 static void test_a_measurement_of_nothing_is_refused(void)
 {
     uint8_t got[32];
-    TEST_ASSERT_EQUAL(AG_ERR_RANGE, ag_boot_measure(0u, got));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_measure(0u, got));
 }
 
 /* ------------------------------------------------------------- verify */
@@ -117,21 +117,21 @@ static void test_a_valid_signature_is_accepted(void)
     uint8_t i;
 
     for (i = 0u; i < 64u; i++) { sig[i] = (uint8_t)(0x40u + i); }
-    ag_model_set_verify_result(1u);
+    tfw_model_set_verify_result(1u);
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_boot_verify((const uint8_t *)"image", 5u, sig, 0));
-    TEST_ASSERT_TRUE(ag_model_verify_seen());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_verify((const uint8_t *)"image", 5u, sig, 0));
+    TEST_ASSERT_TRUE(tfw_model_verify_seen());
     /* The driver forwarded the signature it was given, byte for byte. A backend
      * that reconstructed or reordered it would verify something else. */
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(sig, ag_model_verify_last_sig(), 64);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(sig, tfw_model_verify_last_sig(), 64);
 }
 
 static void test_a_bad_signature_is_refused(void)
 {
     uint8_t sig[64] = { 0 };
 
-    ag_model_set_verify_result(0u);
-    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, ag_boot_verify((const uint8_t *)"image", 5u, sig, 0));
+    tfw_model_set_verify_result(0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_boot_verify((const uint8_t *)"image", 5u, sig, 0));
 }
 
 /*
@@ -146,9 +146,9 @@ static void test_an_absent_element_refuses_to_verify(void)
 {
     uint8_t sig[64] = { 0 };
 
-    ag_model_set_verify_result(1u);   /* it WOULD pass, if it were there */
-    ag_model_set_absent(1u);
-    TEST_ASSERT_EQUAL(AG_ERR_CRYPTO, ag_boot_verify((const uint8_t *)"image", 5u, sig, 0));
+    tfw_model_set_verify_result(1u);   /* it WOULD pass, if it were there */
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_boot_verify((const uint8_t *)"image", 5u, sig, 0));
 }
 
 /*
@@ -162,8 +162,8 @@ static void test_a_caller_supplied_key_is_refused(void)
     uint8_t sig[64] = { 0 };
     uint8_t pub[64] = { 0 };
 
-    ag_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, ag_boot_verify((const uint8_t *)"i", 1u, sig, pub));
+    tfw_model_set_verify_result(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_verify((const uint8_t *)"i", 1u, sig, pub));
 }
 
 /* And there is no way to read the key out, because the bootloader never has
@@ -172,7 +172,7 @@ static void test_a_caller_supplied_key_is_refused(void)
 static void test_the_public_key_cannot_be_read_out(void)
 {
     uint8_t pub[64];
-    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, ag_boot_pubkey(pub));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_pubkey(pub));
 }
 
 int main(void)

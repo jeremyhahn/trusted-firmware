@@ -1,6 +1,6 @@
 # DICE attestation — architecture
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 ## Ownership boundary
@@ -23,20 +23,20 @@ a verifier to assume otherwise.
 
 | File | Responsibility |
 |---|---|
-| `include/ag/crypto.h` | the provider contract: `ag_crypto_init/tier/algorithms/random/sha256/hmac/sign/pubkey/counter` |
+| `include/tfw/crypto.h` | the provider contract: `tfw_crypto_init/tier/algorithms/random/sha256/hmac/sign/pubkey/counter` |
 | `src/crypto/soft/provider.c` | DICE-SW: HMAC-SHA256 signing, UDS in boot-section flash (`uds_flash.c`) |
 | `src/crypto/atecc608a/provider.c` | DICE-HW: ECDSA P-256 signing, UDS in a never-readable element slot |
-| `src/crypto/none/provider.c` | a fourth, build-time tier for silicon too small to hold the software tier's contract honestly (ATtiny85 has no boot section, no BLB lock bits) — always `AG_CRYPTO_NONE`, every operation `AG_ERR_UNSUPPORTED` |
+| `src/crypto/none/provider.c` | a fourth, build-time tier for silicon too small to hold the software tier's contract honestly (ATtiny85 has no boot section, no BLB lock bits) — always `TFW_CRYPTO_NONE`, every operation `TFW_ERR_UNSUPPORTED` |
 | `src/caps/attest.c` | `ATTEST`: builds and pages the 164-byte evidence frame |
 | `src/caps/alias.c` | `ATTEST_CERT`: builds the TBSCertificate, mints and pages the alias certificate |
 | `src/caps/uccs.c` | encodes the UCCS claims set carried inside the certificate |
-| `include/ag/protocol.h` | wire constants for both commands, both nonce widths, frame header |
+| `include/tfw/protocol.h` | wire constants for both commands, both nonce widths, frame header |
 | `sdk/go/attest.go` | host-side paging and nonce-width validation for both commands |
 
 **Substituted at link time, like the HAL, never through a vtable.** One
 provider is linked per image; a vtable would cost RAM and defeat
 `--gc-sections`, and an image built for one tier cannot be talked into using
-a root of trust it does not have. See `include/ag/crypto.h`.
+a root of trust it does not have. See `include/tfw/crypto.h`.
 
 ## The three profiles
 
@@ -46,10 +46,10 @@ a root of trust it does not have. See `include/ag/crypto.h`.
 | UDS | never-readable element slot | boot-section flash, BLB mode 3 |
 | CDI | `HMAC(UDS, H(firmware))` inside the element | software `HMAC(UDS, H(firmware))` |
 | Signs with | ECDSA P-256 (element) | HMAC-SHA256 (verifier holds the key) |
-| `CAPS` tier | `AG_CRYPTO_SECURE_ELEMENT` (2) | `AG_CRYPTO_SOFTWARE` (1) |
+| `CAPS` tier | `TFW_CRYPTO_SECURE_ELEMENT` (2) | `TFW_CRYPTO_SOFTWARE` (1) |
 | Built with | `CRYPTO=atecc608a` | `CRYPTO=soft` (default) |
 
-`ag_crypto_tier_t` also reserves `AG_CRYPTO_TPM2` (3) for a discrete TPM; no
+`tfw_crypto_tier_t` also reserves `TFW_CRYPTO_TPM2` (3) for a discrete TPM; no
 `src/crypto/tpm2/` implementation exists in this tree today. That value is a
 reserved wire slot, not a shipped tier — do not document behavior for it.
 
@@ -63,11 +63,11 @@ provisioning, which is procedural. Full conformance detail moves to
 
 ## What an unprovisioned device does
 
-It refuses and says which kind of nothing it has: `AG_CRYPTO_NONE` reports an
-empty algorithm bitmap and every crypto operation returns `AG_ERR_CRYPTO`; an
-element that is present but unseeded still reports `AG_CRYPTO_SECURE_ELEMENT`
+It refuses and says which kind of nothing it has: `TFW_CRYPTO_NONE` reports an
+empty algorithm bitmap and every crypto operation returns `TFW_ERR_CRYPTO`; an
+element that is present but unseeded still reports `TFW_CRYPTO_SECURE_ELEMENT`
 (truthfully — a host's decision depends on knowing an element is there) and
-signing returns `AG_ERR_NOT_PROVISIONED`. A device that signed anyway would
+signing returns `TFW_ERR_NOT_PROVISIONED`. A device that signed anyway would
 produce evidence that verifies against a key every build of this source
 shares — evidence that proves nothing while looking like evidence that
 proves something.
@@ -83,10 +83,10 @@ it — the one thing this tier exists to prevent (`src/crypto/atecc608a/provider
 So this firmware follows DICE's own layering instead of inventing a
 derivation: the DeviceID key is element-resident (slot 0), never leaves the
 part, and acts as the DICE ECA key. **The alias certificate's subject public
-key is that same DeviceID point** (`ag_alias_parts_t.pubkey`, filled by
-`ag_crypto_pubkey()` in `src/caps/alias.c`) — there is no distinct, separately
+key is that same DeviceID point** (`tfw_alias_parts_t.pubkey`, filled by
+`tfw_crypto_pubkey()` in `src/caps/alias.c`) — there is no distinct, separately
 derived Alias private key in this implementation. "Alias" here names a
-certificate role (`CN=ag Alias`, minted fresh per challenge with its own
+certificate role (`CN=tfw Alias`, minted fresh per challenge with its own
 serial and UCCS claims), not a second key.
 
 The consequence is stated, not hidden: TCG DICE Attestation Architecture
@@ -116,7 +116,7 @@ the IANA CWT/EAT claims registry via RFC 9711 §10.2, not assumed —
 [Version:1][Nonce:16][DeviceID:16][FWHash:32][BootCount:4][UptimeMs:4][AlgID:1][Signature:64][Reserved:26]
 ```
 
-164 bytes total, `include/ag/protocol.h`. Exact offsets in `engineering.md`
+164 bytes total, `include/tfw/protocol.h`. Exact offsets in `engineering.md`
 and `api.md`; not restated here.
 
 ## Freshness is always the verifier's nonce
@@ -130,31 +130,31 @@ that issued it.
 
 ## Data flow status: the bootloader handoff is wired up
 
-`include/ag/boot.h` specifies a CDI handoff block (`AG_BOOT_HANDOFF_*`): a
+`include/tfw/boot.h` specifies a CDI handoff block (`TFW_BOOT_HANDOFF_*`): a
 trusted bootloader computes the real firmware measurement and CDI and hands
 them to the application once, over a fixed SRAM block, then both sides
 zeroize their copy. `src/core/handoff.c` is the application's read-only side
-of it (`ag_boot_handoff_init`, called once at startup, before
-`ag_crypto_init`): it parses the block with `boot/boot_handoff.c`'s own
+of it (`tfw_boot_handoff_init`, called once at startup, before
+`tfw_crypto_init`): it parses the block with `boot/boot_handoff.c`'s own
 decoder, copies out what a valid one held, and zeroizes the raw block. Fixed
-SRAM placement is a linker fact, not a struct: `mk/avr.mk` derives the same
+SRAM placement is a linker fact, not a struct: `mk/arch/avr.mk` derives the same
 address `mk/boot.mk` does from the board's `RAM_END`, and moves the
 application's own stack below it — a board with no boot section (the
 ATtiny85) links a zero-cost stub instead, since there is no bootloader there
 to hand anything off.
 
-`src/caps/attest.c`'s `ag_attest_device_id()` reads the platform-reserved
+`src/caps/attest.c`'s `tfw_attest_device_id()` reads the platform-reserved
 EEPROM block through `src/core/platform_id.c` (a read-only accessor; see
-`docs/device-provisioning/` for how `agprov --bake-eeprom` puts a serial
-there before the device is ever flashed), and `ag_attest_fw_hash()` reads
-`ag_boot_handoff_measurement()` directly rather than recomputing anything.
+`docs/device-provisioning/` for how `tfwprov --bake-eeprom` puts a serial
+there before the device is ever flashed), and `tfw_attest_fw_hash()` reads
+`tfw_boot_handoff_measurement()` directly rather than recomputing anything.
 Both stay zero, as they always did, wherever their source is absent — an
 unprovisioned platform block, a stock bootloader, or no bootloader at all.
 
 The crypto providers' own CDI derivation is a SEPARATE concern from
 `FWHash`, and only the software tier changed: `src/crypto/soft/provider.c`
-now prefers `ag_boot_handoff_take_cdi()` — the real
-`HMAC(UDS, the measurement ag-boot verified)` — falling back to its own
+now prefers `tfw_boot_handoff_take_cdi()` — the real
+`HMAC(UDS, the measurement tfw-boot verified)` — falling back to its own
 UDS-plus-placeholder derivation only when no valid handoff exists (issue
 #7). The element tier's own CDI probe is unaffected: it never signed with
 the CDI to begin with (see "The DeviceID/Alias split" above), so there was
@@ -163,7 +163,7 @@ invariants.
 
 **Not wired up: an Alias keypair on the software tier.** Issue #7 asked for
 one, Ed25519, derived from the CDI, held in SRAM, certified by
-`ATTEST_CERT`. It is not implemented: the alias certificate's fixed 230-byte
+`ATTEST_CERT`. It is not implemented: the alias certificate's fixed 232-byte
 TBS template (`src/caps/alias.c`) hard-codes an ECDSA P-256
 `subjectPublicKeyInfo` (a 65-byte uncompressed point at a fixed offset) and
 an `ecdsa-with-SHA256` `signatureAlgorithm` — an Ed25519 key (32-byte raw
@@ -172,7 +172,7 @@ ASN.1 `SEQUENCE` of two integers) cannot be expressed inside that template
 without a different certificate profile, and this repo does not own DICE
 ASN.1 profiles (see the top-level `CLAUDE.md`). Raised against the owner
 rather than guessed at; `ATTEST_CERT` on the software tier still answers
-`AG_ERR_UNSUPPORTED`, exactly as it did before, for exactly the reason
+`TFW_ERR_UNSUPPORTED`, exactly as it did before, for exactly the reason
 stated where `mint()` fetches the subject key.
 
 ## Alternatives rejected

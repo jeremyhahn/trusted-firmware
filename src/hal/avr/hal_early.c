@@ -26,7 +26,7 @@
  *
  * IT MATTERS MORE IN THE BOOTLOADER, not less. With BOOTRST programmed the part
  * enters the boot section on every reset, so this is now the first code after
- * EVERY watchdog bite -- including the one the application's own ag_hal_reset()
+ * EVERY watchdog bite -- including the one the application's own tfw_hal_reset()
  * deliberately causes. A bootloader that did not disarm the watchdog would take
  * the reset it was asked for and never get far enough to hand control back.
  *
@@ -47,7 +47,7 @@
  * to unconditionally. A `.bss` variable written here would be READ BACK AS
  * ZERO by the time `main()` runs on every single boot: `.init4` clears it a
  * few instructions later, whatever this wrote. This is not theoretical --
- * `ag_hal_reset_cause()` read exactly this value, unconditionally, for as
+ * `tfw_hal_reset_cause()` read exactly this value, unconditionally, for as
  * long as this variable was ordinary storage, and every reset cause this
  * firmware ever reported was the one that survives that clear: none. `.noinit`
  * is exactly the storage class the CDI handoff block uses for the same reason
@@ -55,12 +55,12 @@
  * flash-to-RAM data copy, so what `.init3` writes here is still there at
  * `main()`.
  */
-uint8_t ag_hal_early_flags __attribute__((section(".noinit")));
+uint8_t tfw_hal_early_flags __attribute__((section(".noinit")));
 
-void ag_hal_early_init(void) __attribute__((naked, used, section(".init3")));
-void ag_hal_early_init(void)
+void tfw_hal_early_init(void) __attribute__((naked, used, section(".init3")));
+void tfw_hal_early_init(void)
 {
-    ag_hal_early_flags = MCUSR;
+    tfw_hal_early_flags = MCUSR;
     MCUSR              = 0u;
     wdt_disable();
 }

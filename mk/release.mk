@@ -68,7 +68,7 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	@if [ -z "$(SOURCE_COMMIT)" ]; then 	  echo "provenance: SOURCE_COMMIT is empty and no .git is reachable."; 	  echo "  A manifest that cannot name its source cannot be rebuilt from, which is"; 	  echo "  the only thing it is for. Pass it: make provenance SOURCE_COMMIT=\$$(git rev-parse HEAD)"; 	  exit 1; 	fi
 	@# THE MEASUREMENT, which is the field a verifier actually needs.
 	@# Taken over the contiguous application binary, which is exactly the span
-	@# [0, image_len) that ag_boot_measure walks and that a signing tool writes
+	@# [0, image_len) that tfw_boot_measure walks and that a signing tool writes
 	@# into the trailer. Emitting only file hashes -- and a note saying a
 	@# verifier wants a different number -- documented the omission instead of
 	@# closing it.
@@ -78,7 +78,7 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	@# NOLOAD, so it carries no bytes here to exclude -- verified below rather
 	@# than assumed, because this .bin IS the FWHash a verifier recomputes, and
 	@# a device's own measurement covers application flash only.
-	@$(OBJCOPY) -O binary -R .eeprom $(TARGET).elf $(REL_DIR)/$(BOARD)-$(CRYPTO).bin
+	@$(ARCH_OBJCOPY) -O binary -R .eeprom $(TARGET).elf $(REL_DIR)/$(BOARD)-$(CRYPTO).bin
 	@img_len_check=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \
 	 if [ "$$img_len_check" -gt "$(FLASH_TOTAL)" ]; then \
 	   echo "provenance: $(BOARD)-$(CRYPTO).bin is $$img_len_check bytes,"; \
@@ -92,16 +92,18 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	 fwhash=$$(sha256sum $(REL_DIR)/$(BOARD)-$(CRYPTO).bin | cut -d' ' -f1); \
 	 img_len=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \
 	 sha_hex=$$(sha256sum $(TARGET).hex | cut -d' ' -f1); \
-	 flash=$$($(SIZE) --format=berkeley $(TARGET).elf | awk 'NR==2{print $$1+$$2}'); \
-	 ram=$$($(SIZE)  --format=berkeley $(TARGET).elf | awk 'NR==2{print $$2+$$3}'); \
+	 flash=$$($(ARCH_SIZE) --format=berkeley $(TARGET).elf | awk 'NR==2{print $$1+$$2}'); \
+	 ram=$$($(ARCH_SIZE)  --format=berkeley $(TARGET).elf | awk 'NR==2{print $$2+$$3}'); \
 	 printf '{\n' > $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "board": "%s",\n'            "$(BOARD)"   >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "arch": "%s",\n'             "$(ARCH)"    >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "crypto_tier": "%s",\n'      "$(CRYPTO)"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "mcu": "%s",\n'              "$(MCU)"     >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "f_cpu_hz": %s,\n'           "$(F_CPU)"   >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "version": "%s",\n'          "$$(cat VERSION)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "source_commit": "%s",\n'    "$(SOURCE_COMMIT)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
-	 printf '  "toolchain": "%s",\n'        "$$($(CC_AVR) -dumpversion)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "compiler": "%s",\n'         "$(ARCH_CC)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "toolchain": "%s",\n'        "$$($(ARCH_CC) -dumpversion)" >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "flash_bytes": %s,\n'        "$$flash"    >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "ram_bytes": %s,\n'          "$$ram"      >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "elf_sha256": "%s",\n'       "$$sha_elf"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
@@ -117,14 +119,14 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 #
 # A C project has no package manager, so an SBOM here is the vendored manifest
 # plus the toolchain -- which is exactly what `make verify-vendor` already
-# checks. Emitting it separately means a consumer does not have to parse a
+# checks. The toolchain is the board's architecture's, named by mk/arch/. Emitting it separately means a consumer does not have to parse a
 # Markdown table to learn what is inside an image.
 sbom:
 	@mkdir -p $(REL_DIR)
-	@printf '{\n  "format": "arduino-generic/sbom/v1",\n' > $(REL_DIR)/sbom.json
+	@printf '{\n  "format": "trusted-firmware/sbom/v1",\n' > $(REL_DIR)/sbom.json
 	@printf '  "version": "%s",\n' "$$(cat VERSION)" >> $(REL_DIR)/sbom.json
-	@printf '  "toolchain": { "avr_gcc": "%s", "libc": "avr-libc" },\n' \
-	   "$$($(CC_AVR) -dumpversion)" >> $(REL_DIR)/sbom.json
+	@printf '  "toolchain": { "arch": "%s", "compiler": "%s", "version": "%s", "libc": "%s" },\n' \
+	   "$(ARCH)" "$(ARCH_CC)" "$$($(ARCH_CC) -dumpversion)" "$(ARCH_LIBC)" >> $(REL_DIR)/sbom.json
 	@printf '  "vendored": [\n' >> $(REL_DIR)/sbom.json
 	@grep -oE '^    [0-9a-f]{64}  [A-Za-z0-9_.-]+$$' test/third_party/MANIFEST.md \
 	   | sed 's/^    //' \

@@ -48,7 +48,7 @@ commits did it.
 
 Every number comes from simavr's cycle counter running a real `.elf`. There is
 no host-side timing and there must not be: an x86 measurement of
-`ag_framer_push` says nothing about an eight-bit part with a two-cycle SRAM
+`tfw_framer_push` says nothing about an eight-bit part with a two-cycle SRAM
 access, and a budget measured against the wrong machine is worse than no budget
 because it looks like one.
 
@@ -64,8 +64,8 @@ ATmega328P and ATmega2560, 16 MHz, `CRYPTO=soft`, avr-gcc as pinned in
 |---|---|---|---|---|
 | frame decode, per byte | < 40 cycles | 62.0 | 64.0 | **over, was 3x, now ~1.6x** |
 | CRC-16, per byte | < 20 cycles | 31.0 | 33.0 | **over, was 5x, now ~1.6x** |
-| `ag_sched_poll()`, worst sweep | < 200 cycles | 1066 (8 slots) | 2158 (16 slots) | **over -- see the per-slot row below** |
-| `ag_sched_poll()`, per armed slot (#11) | < 12.5 cycles/slot | 133.25 | 134.875 | **over, ~10.7x** |
+| `tfw_sched_poll()`, worst sweep | < 200 cycles | 1066 (8 slots) | 2158 (16 slots) | **over -- see the per-slot row below** |
+| `tfw_sched_poll()`, per armed slot (#11) | < 12.5 cycles/slot | 133.25 | 134.875 | **over, ~10.7x** |
 | tick ISR, vector to `reti` | <= 12 cycles | 58 | 59 | **5x over** |
 | `DIGITAL_WRITE`, SOF to response | < 300 us | 1572.8 | 1577.1 | **over -- see the device-only row below** |
 | `DIGITAL_WRITE`, device share only (#11) | < 300 us | 169.1 | 172.9 | **met** |
@@ -80,7 +80,7 @@ The remaining rows that miss are enforced at what they cost today — see
 ### What dominates each miss
 
 **#12 fixed the CRC, and that fixed most of frame decode with it.**
-`src/proto/crc16_update.c` — the portable form, still what host tests, `agsim`
+`src/proto/crc16_update.c` — the portable form, still what host tests, `tfwsim`
 and the bootloader link — folds the polynomial one bit at a time: eight
 iterations, each a shift, a conditional exclusive-or and a loop test. The AVR
 firmware and bench images now link `src/hal/avr/hal_crc16.c` instead, which
@@ -93,7 +93,7 @@ contains), the cost dropped from 102.5/104.5 cycles/byte to 31.0/33.0 — about 
 decode contains the CRC figure and dropped by almost exactly the same amount,
 120.2/122.2 to 62.0/64.0.
 
-**The tick ISR is a 32-bit volatile increment.** `ticks` is an `ag_ms_t`, four
+**The tick ISR is a 32-bit volatile increment.** `ticks` is an `tfw_ms_t`, four
 bytes, volatile: four `lds`, an `adiw` and two `adc`, four `sts` — twenty cycles
 — and to do that the handler must save r24 through r27 alongside r1 and SREG,
 nineteen more in push and pop. The `ticks++` in the source is one line; the
@@ -104,14 +104,14 @@ claim ten cycles to this measured figure.
 
 **The scheduler sweep is over budget in every state, and #11 restates why the
 raw total was the wrong number to hold to one target.** The plan's 200 cycles
-is "at 16 slots", which is the ATmega2560's `AG_SCHED_SLOTS`. On that part an
-*empty* sweep is already 242 cycles — `ag_hal_millis` costs an atomic section and
+is "at 16 slots", which is the ATmega2560's `TFW_SCHED_SLOTS`. On that part an
+*empty* sweep is already 242 cycles — `tfw_hal_millis` costs an atomic section and
 a four-byte load, then sixteen slots each cost a load and a bit test. Sixteen
 armed and not due is 546. Sixteen coming due at once is 2158, because each one
 then resolves its pin through the board descriptor and writes a port register.
 The gate takes the worst of the three: a host that arms sixteen timers together
 is a host that will have them expire together. Restated per armed slot — the
-worst sweep divided by the board's `AG_SCHED_SLOTS` — the 328P and the 2560
+worst sweep divided by the board's `TFW_SCHED_SLOTS` — the 328P and the 2560
 agree to within about a cycle and a quarter (133.25 vs 134.875), which the raw
 totals do not, because the totals are dominated by each board's own fixed empty-
 sweep cost and only partly by the slot count. The plan's 200-cycle figure "at 16
@@ -157,18 +157,18 @@ size.
 
 ### Two images
 
-`build/<board>/soft/arduino-generic.elf` — the firmware that ships. The tick ISR,
+`build/<board>/soft/trusted-firmware.elf` — the firmware that ships. The tick ISR,
 the command latency and the sustained rate are measured on it, in situ, because
 all three are properties of the whole running system: an ISR is entered by
 hardware, and a round trip goes through the USART, the ring, the framer, the
 dispatcher and back out.
 
 `build/bench/<board>/soft/agbench.elf` — the same objects with `src/main.c`
-exchanged for `test/bench/bench_main.c`, same `AVR_CFLAGS`, same `-Os -flto`,
+exchanged for `test/bench/bench_main.c`, same `FW_CFLAGS`, same `-Os -flto`,
 same board profile. The per-byte and per-sweep costs are measured on it because
-`-flto` inlines `ag_framer_push` and `ag_sched_poll` bodily into `main()` in the
+`-flto` inlines `tfw_framer_push` and `tfw_sched_poll` bodily into `main()` in the
 shipped image — `avr-nm` finds no symbol for either, so there is no address to
-call and no boundary to bracket. Only `ag_crc16_update` survives as a real
+call and no boundary to bracket. Only `tfw_crc16_update` survives as a real
 function.
 
 In the benchmark image each subject is reached through a `volatile` function
@@ -178,7 +178,7 @@ compilation: no constant propagated in from a caller. The shipped image's inline
 copy can be faster, never slower, so **these numbers are upper bounds** on what
 the firmware pays.
 
-The claim is checked rather than asserted. `ag_crc16_update` exists in both
+The claim is checked rather than asserted. `tfw_crc16_update` exists in both
 images; the harness calls it in each and requires the same cycle count. If the
 benchmark image ever stops generating the same code as the firmware, that check
 fails.
@@ -190,7 +190,7 @@ Each per-byte figure is the difference between a run over 8 bytes and a run over
 smeared over whichever byte count the author picked, and the published number
 would then move when someone changed that count for unrelated reasons. The
 difference cancels every term that does not scale: the emulated call, the closing
-`ret`, `ag_framer_init`, the prologue.
+`ret`, `tfw_framer_init`, the prologue.
 
 The CRC is not a fixed cost per byte — the polynomial fold is conditional, so
 eight branches per byte make it depend on the data. Three fill patterns are
@@ -275,7 +275,7 @@ about 10% pessimistic. That is the direction a budget tolerates.
 
 Enforced on the ATmega328P and the ATmega2560. The 328P is the reference part and
 the one the wire protocol was sized for; the 2560 is there because the plan states
-the scheduler budget "at 16 slots" and sixteen is the 2560's `AG_SCHED_SLOTS` —
+the scheduler budget "at 16 slots" and sixteen is the 2560's `TFW_SCHED_SLOTS` —
 the 328P has eight, so a 328P-only gate would never once have measured the number
 the plan asks about.
 

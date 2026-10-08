@@ -29,13 +29,13 @@ on:
 # The image tags are computed at RUNTIME, in the build step, and exported
 # through $GITHUB_ENV. They are deliberately not expressions here.
 #
-# They were `ag-ci-${{ github.run_id }}-${{ github.job }}`, which is correct on
+# They were `tfw-ci-${{ github.run_id }}-${{ github.job }}`, which is correct on
 # github.com and wrong on Gitea: `github.job` does not evaluate per job there,
 # so every job in the run computed the SAME tag. Two jobs then exported two
 # different images to one name at the same time and buildkit failed one of them
 # -- which is the collision the comment in that step was written to prevent,
 # reintroduced by the expression meant to prevent it. The log gives it away by
-# naming `ag-ci-<run>-lint` inside the unit-test job.
+# naming `tfw-ci-<run>-lint` inside the unit-test job.
 
 jobs:
 
@@ -63,7 +63,7 @@ jobs:
           # and is a race between siblings. Deriving the tag from the PID and
           # the nanosecond clock cannot collide, where an expression evaluated
           # by the CI server can and did.
-          tag="ag-$$-$(date +%s%N)"
+          tag="tfw-$$-$(date +%s%N)"
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
@@ -80,7 +80,7 @@ jobs:
         # for two commits. They are inside `make lint` now.
         #
         # The four places a preprocessor conditional is permitted are config.h,
-        # a board profile, commands.def and src/hal/avr. Everywhere else a
+        # a board profile, commands.def and src/hal/<arch>/. Everywhere else a
         # feature is gated by including or excluding a whole file. A gate whose
         # local and CI invocations differ is one a developer cannot
         # reproduce, and therefore one that gets argued with rather than
@@ -91,6 +91,10 @@ jobs:
         run: docker run --rm "$IMG" make verify-vendor
       - name: the C and Go wire vectors agree
         run: docker run --rm "$IMG" make verify-vectors
+      - name: the firmware matrix below is the one the Makefile builds
+        # The matrix is a hand list; this is what keeps it honest. It is in
+        # `make ci` too -- see the comment on the matrix.
+        run: docker run --rm "$IMG" make ci-matrix-check
 
   unit:
     name: Host unit tests
@@ -116,7 +120,7 @@ jobs:
           # and is a race between siblings. Deriving the tag from the PID and
           # the nanosecond clock cannot collide, where an expression evaluated
           # by the CI server can and did.
-          tag="ag-$$-$(date +%s%N)"
+          tag="tfw-$$-$(date +%s%N)"
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
@@ -161,7 +165,7 @@ jobs:
           # and is a race between siblings. Deriving the tag from the PID and
           # the nanosecond clock cannot collide, where an expression evaluated
           # by the CI server can and did.
-          tag="ag-$$-$(date +%s%N)"
+          tag="tfw-$$-$(date +%s%N)"
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
@@ -183,23 +187,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [atmega328p, atmega2560, atmega32u4]
-        # Both crypto tiers, every board. The element tier is a different image
-        # -- different provider, different size -- and building only the default
-        # would leave the attested build unverified on the part it is tightest
-        # on, which is the 328P.
-        crypto: [soft, atecc608a]
-        # The ATtiny85 is NOT part of that cross product, and `include` rather
-        # than another entry in `board` is what says so. Neither of those tiers
-        # exists on that part: the element is an I2C device on a part with no
-        # I2C, and the software tier's key store is a boot section it does not
-        # have. Its only tier is `none` -- AG_CRYPTO_NONE, the unattested one --
-        # and adding it to the list above would queue four jobs of which two
-        # could only ever fail. `make firmware-matrix` reads the same fact from
-        # BOARD_TIERS in the board's profile, so the two agree by construction.
+        # One line per image, and the list is HAND-WRITTEN on purpose: the
+        # workflow engine wants a matrix it can read without running anything,
+        # and a matrix computed by a prior job needs the toolchain image built
+        # twice. What stops a hand list drifting is `make ci-matrix-check`
+        # (in `make ci`, and the lint job below), which compares these lines with
+        # `make firmware-matrix-list` -- the board x tier pairs `make
+        # firmware-matrix` builds, read from each board's BOARD_TIERS -- and
+        # fails in both directions. Add a board or a tier, and that gate names
+        # the line to add here.
+        #
+        # Every board gets every tier it HAS, not a cross product: the element
+        # tier is a different image -- different provider, different size -- and
+        # building only the default would leave the attested build unverified on
+        # the part it is tightest on, which is the 328P. The ATtiny85 has neither
+        # soft nor atecc608a (the element is an I2C device on a part with no I2C;
+        # the software tier's key store is a boot section it does not have), and
+        # its only tier is `none` -- TFW_CRYPTO_NONE, the unattested one.
         include:
-          - board: attiny85
-            crypto: none
+          - {board: atmega328p, crypto: soft}
+          - {board: atmega328p, crypto: atecc608a}
+          - {board: atmega2560, crypto: soft}
+          - {board: atmega2560, crypto: atecc608a}
+          - {board: atmega32u4, crypto: soft}
+          - {board: atmega32u4, crypto: atecc608a}
+          - {board: attiny85, crypto: none}
     steps:
       - uses: actions/checkout@v6
       - name: toolchain image with the source baked in
@@ -221,7 +233,7 @@ jobs:
           # and is a race between siblings. Deriving the tag from the PID and
           # the nanosecond clock cannot collide, where an expression evaluated
           # by the CI server can and did.
-          tag="ag-$$-$(date +%s%N)"
+          tag="tfw-$$-$(date +%s%N)"
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
@@ -278,7 +290,7 @@ jobs:
           # and is a race between siblings. Deriving the tag from the PID and
           # the nanosecond clock cannot collide, where an expression evaluated
           # by the CI server can and did.
-          tag="ag-$$-$(date +%s%N)"
+          tag="tfw-$$-$(date +%s%N)"
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
@@ -294,10 +306,10 @@ jobs:
         # no host build can reach -- the baud divisor, the interrupt vectors,
         # the order peripherals are brought up in, and the tick ISR's real rate.
         run: docker run --rm "$IMG" make integration-test
-      - name: run ag-boot under simavr
+      - name: run tfw-boot under simavr
         # The same tier for the bootloader, with an ATECC608A modelled as a TWI
         # slave on the emulated bus -- so the element protocol goes through the
-        # real TWI driver rather than through the ag_hal_i2c_xfer seam the host
+        # real TWI driver rather than through the tfw_hal_i2c_xfer seam the host
         # model sits above. It is in `make ci` too; a gate that runs in only one
         # of the two is a gate a developer cannot reproduce, and this repository
         # has gone red over that three times.
@@ -327,7 +339,7 @@ jobs:
           # and is a race between siblings. Deriving the tag from the PID and
           # the nanosecond clock cannot collide, where an expression evaluated
           # by the CI server can and did.
-          tag="ag-$$-$(date +%s%N)"
+          tag="tfw-$$-$(date +%s%N)"
           echo "IMG_BASE=$tag-base" >> "$GITHUB_ENV"
           echo "IMG=$tag" >> "$GITHUB_ENV"
           docker build -f docker/Dockerfile.ci -t "$tag-base" .
@@ -345,7 +357,7 @@ jobs:
         # it unimportable by the projects it exists for.
         run: docker run --rm "$IMG" make sdk-verify
       - name: cross-implementation tests against the firmware
-        # These talk to agsim: the real firmware compiled for the host. Not a
+        # These talk to tfwsim: the real firmware compiled for the host. Not a
         # fake, which would drift from the firmware the moment either changed.
         run: docker run --rm "$IMG" make sdk-test
 

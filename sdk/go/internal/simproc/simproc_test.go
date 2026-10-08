@@ -40,7 +40,7 @@ func TestLocateReportsAMissingBinaryWithHowToBuildIt(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("err does not unwrap to the stat failure: %v", err)
 	}
-	for _, want := range []string{"agsim-atecc608a", "make agsim-atecc608a", DirEnv} {
+	for _, want := range []string{"tfwsim-atecc608a", "make tfwsim-atecc608a", DirEnv} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}

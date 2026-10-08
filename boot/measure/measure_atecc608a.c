@@ -37,7 +37,7 @@
 
 #define T_SHA 36u   /* datasheet maximum for one SHA command */
 
-void ag_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[AG_BOOT_MEASURE_LEN])
+void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
 {
     /*
      * The public-key hash goes through the element too, for one reason: if it
@@ -46,63 +46,63 @@ void ag_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[AG_BOOT_MEASURE
      * image, and on this configuration it is the element's.
      */
     uint8_t     off = 0u;
-    ag_status_t st;
+    tfw_status_t st;
 
-    memset(out, 0, AG_BOOT_MEASURE_LEN);
-    if (ag_atecc_wake() != AG_OK) {
+    memset(out, 0, TFW_BOOT_MEASURE_LEN);
+    if (tfw_atecc_wake() != TFW_OK) {
         return;
     }
-    st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_SHA256_START, 0u,
+    st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_START, 0u,
                        0, 0u, 0, 0u, T_SHA);
-    while (st == AG_OK && (uint16_t)(len - off) > SHA_BLOCK) {
-        st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_SHA256_UPDATE,
+    while (st == TFW_OK && (uint16_t)(len - off) > SHA_BLOCK) {
+        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_UPDATE,
                            SHA_BLOCK, &data[off], SHA_BLOCK, 0, 0u, T_SHA);
         off = (uint8_t)(off + SHA_BLOCK);
     }
-    if (st == AG_OK) {
+    if (st == TFW_OK) {
         uint8_t tail = (uint8_t)(len - off);
-        (void)ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_SHA256_END, tail,
+        (void)tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_END, tail,
                             tail ? &data[off] : 0, tail, out,
-                            AG_BOOT_MEASURE_LEN, T_SHA);
+                            TFW_BOOT_MEASURE_LEN, T_SHA);
     }
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
 }
 
-ag_status_t ag_boot_measure(uint32_t len, uint8_t out[AG_BOOT_MEASURE_LEN])
+tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
 {
     uint8_t     block[SHA_BLOCK];
     uint32_t    addr = 0u;
-    ag_status_t st;
+    tfw_status_t st;
 
-    if (len == 0u || len > AG_BOOT_MAX_IMAGE_LEN) {
-        return AG_ERR_RANGE;
+    if (len == 0u || len > TFW_BOOT_MAX_IMAGE_LEN) {
+        return TFW_ERR_RANGE;
     }
-    if (ag_atecc_wake() != AG_OK) {
+    if (tfw_atecc_wake() != TFW_OK) {
         /* No element means no hash on this configuration, and therefore no
          * measurement. Returning a zero digest would be a measurement of
          * nothing that the caller would treat as a measurement of something. */
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
 
-    st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_SHA256_START, 0u,
+    st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_START, 0u,
                        0, 0u, 0, 0u, T_SHA);
 
     /* Whole blocks first, then whatever is left. The element pads; we do not,
      * because a second padding implementation is a second chance to disagree
      * with FIPS 180-4 about a digest a verifier will recompute. */
-    while (st == AG_OK && (len - addr) > (uint32_t)SHA_BLOCK) {
-        ag_boot_flash_read(addr, block, SHA_BLOCK);
-        st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_SHA256_UPDATE,
+    while (st == TFW_OK && (len - addr) > (uint32_t)SHA_BLOCK) {
+        tfw_boot_flash_read(addr, block, SHA_BLOCK);
+        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_UPDATE,
                            SHA_BLOCK, block, SHA_BLOCK, 0, 0u, T_SHA);
         addr += SHA_BLOCK;
     }
-    if (st == AG_OK) {
+    if (st == TFW_OK) {
         uint8_t tail = (uint8_t)(len - addr);
-        ag_boot_flash_read(addr, block, tail);
-        st = ag_atecc_exec(AG_ATECC_OP_SHA, AG_ATECC_SHA_SHA256_END, tail,
-                           block, tail, out, AG_BOOT_MEASURE_LEN, T_SHA);
+        tfw_boot_flash_read(addr, block, tail);
+        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_END, tail,
+                           block, tail, out, TFW_BOOT_MEASURE_LEN, T_SHA);
     }
     memset(block, 0, sizeof block);
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }

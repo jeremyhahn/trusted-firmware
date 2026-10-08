@@ -1,6 +1,6 @@
 # Flashing
 
-> **Status: INFORMATIVE** · Scope: `mk/avr.mk`, `boards/*/profile.mk`
+> **Status: INFORMATIVE** · Scope: `mk/arch/avr.mk`, `boards/*/profile.mk`
 > · Last verified: 2026-09-22
 >
 > Nothing here runs in CI. CI touches no hardware and no USB device at all.
@@ -25,12 +25,12 @@ The crypto tier is part of the build path, so the two tiers are separate
 artifacts:
 
 ```
-build/<board>/soft/arduino-generic.hex        no element; software tier
-build/<board>/atecc608a/arduino-generic.hex   DICE-HW
+build/<board>/soft/trusted-firmware.hex        no element; software tier
+build/<board>/atecc608a/trusted-firmware.hex   DICE-HW
 ```
 
 Flashing the element image onto a board with no element is not an error: the
-provider probes for the part, does not find it, reports `AG_CRYPTO_NONE` in
+provider probes for the part, does not find it, reports `TFW_CRYPTO_NONE` in
 `CAPS` and refuses every crypto operation. That is the correct behaviour — but
 it is not the same as the software tier, which has a UDS in flash and will sign
 once provisioned.
@@ -38,33 +38,33 @@ once provisioned.
 ## Bring-up
 
 ```sh
-agctl /dev/ttyUSB0 ping
-agctl /dev/ttyUSB0 caps      # board id, pin count, crypto tier, algorithms
-agctl /dev/ttyUSB0 pin 13    # one pin's descriptor
+tfwctl /dev/ttyUSB0 ping
+tfwctl /dev/ttyUSB0 caps      # board id, pin count, crypto tier, algorithms
+tfwctl /dev/ttyUSB0 pin 13    # one pin's descriptor
 ```
 
 Flashing itself, and the `avrdude` invocation right before it, both open the
-port and both reset the board via DTR the same way `agctl` opening it does.
+port and both reset the board via DTR the same way `tfwctl` opening it does.
 That reset costs about a second before the just-flashed application starts
 answering: the SDK's connect step waits for the firmware's own BOOT event
-(bounded, ~2 s) before sending `PING`, so the first `agctl` invocation right
+(bounded, ~2 s) before sending `PING`, so the first `tfwctl` invocation right
 after a flash succeeds without a manual pause. This is a property of the SDK's
 `Device`, not of `avrdude` or the bootloader — a raw terminal program (e.g.
 `screen`, `minicom`) opened on the port still needs to wait out the reset
 itself.
 
 The ~2 s default assumes a bootloader that runs briefly and jumps, which the
-stock Arduino bootloader does. **An `ag-boot` image built with
+stock Arduino bootloader does. **An `tfw-boot` image built with
 `BOOT_MEASURE=atecc608a` does not**: it measures the application through the
 element at up to 36 ms per 64-byte block, so bringing up anything but a small
-image on that configuration needs `agctl -boot-wait <longer>`, sized to the
+image on that configuration needs `tfwctl -boot-wait <longer>`, sized to the
 image just flashed, or the first `PING` will still be sent before the
 application has started.
 
 Then the one check that proves the scheduler is real:
 
 ```sh
-agctl timer-set /dev/ttyUSB0 13 1 5000
+tfwctl timer-set /dev/ttyUSB0 13 1 5000
 # now unplug the host. The LED must still go out at 5 s.
 ```
 
@@ -82,7 +82,7 @@ are irreversible and one of them (`DWEN`) cannot be cleared over ISP once set.
 |---|---|
 | `avrdude` cannot sync | wrong `AVRDUDE_BAUD` for that bootloader, or the port is held open by a serial monitor |
 | flashes, then nothing on the wire | a watchdog reset loop — `MCUSR` must be cleared and the WDT disarmed in the first instructions, before the C runtime; `src/hal/avr/hal_sys.c` does this from `.init3` |
-| garbage on the wire | the host's baud does not match `AG_UART_BAUD`, or the part is running at a different `F_CPU` than the profile says |
+| garbage on the wire | the host's baud does not match `TFW_UART_BAUD`, or the part is running at a different `F_CPU` than the profile says |
 | `PING` works, nothing else does | you are talking to a bootloader, not the application |
 
 ## What this deliberately does not do

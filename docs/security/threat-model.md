@@ -47,7 +47,7 @@ general.
 holds an operator private key: the device issues a single-use nonce, the host
 signs `domain||device_serial||nonce` with the operator key, and the device
 verifies the P-256 signature in the ATECC608A against the operator public key
-`agprov` baked into the platform-reserved EEPROM block. A session granted this
+`tfwprov` baked into the platform-reserved EEPROM block. A session granted this
 way gates `EEPROM_READ` below `EEPROMReservedEnd`:
 
 This was previously unconditional, since the region's contents (a hash, a
@@ -57,9 +57,9 @@ proven it holds the matching private key has no business confirming what the
 anchor even is.
 
 `RESET` mode 1 ("bootloader") is gated by the same session on the element tier
-(`AG_ERR_AUTH_REQUIRED` without one, checked before anything else about the
+(`TFW_ERR_AUTH_REQUIRED` without one, checked before anything else about the
 request, so an unauthenticated peer learns nothing from the answer). Mode 1
-leaves a one-shot request that makes ag-boot open its OTA session on a healthy
+leaves a one-shot request that makes tfw-boot open its OTA session on a healthy
 device (see [../secure-boot/api.md](../secure-boot/api.md#update-session-request)).
 Mode 0 is never gated. What the gate protects is the entry; the session itself
 is unauthenticated, and is bounded instead: it ends after an idle timeout -- in
@@ -90,7 +90,7 @@ frame, which overflows an ATmega328P's entire 32 KB of flash before the rest
 of the firmware is counted, and is 31–47% over this project's own 64 KB
 application-flash budget on an ATmega2560. No smaller alternative is vendored.
 So on the soft and `CRYPTO=none` tiers, `AUTH_CHALLENGE`/`AUTH_RESPONSE` are
-not compiled in at all (the same `AG_ERR_UNKNOWN_CMD` any other absent
+not compiled in at all (the same `TFW_ERR_UNKNOWN_CMD` any other absent
 feature gets), and `EEPROM_READ` is consequently ungated there,
 exactly as they always were. A verifier reading a soft-tier device's `CAPS`
 already knows this — the feature bit is clear — and should not expect these

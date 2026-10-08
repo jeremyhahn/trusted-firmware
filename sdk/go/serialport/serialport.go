@@ -17,7 +17,7 @@ import (
 	"go.bug.st/serial"
 )
 
-// DefaultBaud matches AG_UART_BAUD in the firmware's config.h.
+// DefaultBaud matches TFW_UART_BAUD in the firmware's config.h.
 const DefaultBaud = 115200
 
 // Open opens a serial port in 8N1 at the given baud.
@@ -38,7 +38,7 @@ const DefaultBaud = 115200
 // arrived yet, so the single purge here carries none of that risk. What it
 // does not close is a byte still in flight at the exact instant it runs, a
 // gap so narrow (microseconds between Open returning and its caller's next
-// call) that a second purge run independently by aggeneric.Device (see
+// call) that a second purge run independently by tfw.Device (see
 // awaitBoot, whose doc comment on flushStaleBacklog says what this gap is
 // and is not -- it is not fully closable with what this package and
 // go.bug.st/serial expose) closes essentially all of it -- and for a conn

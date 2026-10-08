@@ -3,8 +3,8 @@
 /*
  * RECOVERY: what the bootloader does when there is nothing it may boot.
  *
- * Two functions, substituted at link time. ag_boot_recovery never returns;
- * ag_boot_session_open, below, is the same loop entered on purpose by a healthy
+ * Two functions, substituted at link time. tfw_boot_recovery never returns;
+ * tfw_boot_session_open, below, is the same loop entered on purpose by a healthy
  * device and bounded.
  *
  * Two implementations exist because the boot section is 4 KB on most of this
@@ -17,20 +17,20 @@
  *                              reachable and a new image can be sent.
  *   recovery/recovery_halt.c   stops. Recovery needs a programmer.
  *
- * ag_boot_recovery does not return, because every caller reaches it having
+ * tfw_boot_recovery does not return, because every caller reaches it having
  * established that no image may run -- and a recovery that could return would
  * give a caller somewhere to go afterwards, which there is not.
  */
-#ifndef AG_BOOT_RECOVERY_H
-#define AG_BOOT_RECOVERY_H
+#ifndef TFW_BOOT_RECOVERY_H
+#define TFW_BOOT_RECOVERY_H
 
-#include "ag/status.h"
+#include "tfw/status.h"
 #include "boot_platform.h"
 #include "boot_policy.h"
 
 /* Called when nothing may be booted. Does not return. `reason` is the status
  * that got us here, reported to a host where one is listening. */
-void ag_boot_recovery(ag_boot_platform_t *plat, ag_status_t reason);
+void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t reason);
 
 /* Derives the CDI, hands it over and jumps into the application. Does not
  * return. Declared here because the OTA recovery calls it too, after an image
@@ -41,7 +41,7 @@ typedef struct {
     uint32_t idle_bytes;
     uint32_t max_polls;
     uint32_t max_bytes;
-} ag_boot_session_limits_t;
+} tfw_boot_session_limits_t;
 
 /*
  * Opens an OTA session at the application's request and RETURNS when it ends
@@ -65,12 +65,12 @@ typedef struct {
  *
  * What returning means: the caller runs the ordinary measure, verify and jump.
  * If the attempt had already overwritten application pages (single slot; see
- * boot_ota.h) that fails and the device lands in ag_boot_recovery, which is
+ * boot_ota.h) that fails and the device lands in tfw_boot_recovery, which is
  * unbounded. A BOOT_OTA=0 image has no loop and returns at once.
  */
-void ag_boot_session_open(ag_boot_platform_t *plat,
-                          const ag_boot_session_limits_t *lim);
+void tfw_boot_session_open(tfw_boot_platform_t *plat,
+                          const tfw_boot_session_limits_t *lim);
 
-void ag_boot_hand_over(const ag_boot_verdict_t *v);
+void tfw_boot_hand_over(const tfw_boot_verdict_t *v);
 
-#endif /* AG_BOOT_RECOVERY_H */
+#endif /* TFW_BOOT_RECOVERY_H */

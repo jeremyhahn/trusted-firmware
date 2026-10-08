@@ -1,6 +1,6 @@
 # Adding a board
 
-> **Status: NORMATIVE** · Scope: `boards/`, `include/ag/board.h`,
+> **Status: NORMATIVE** · Scope: `boards/`, `include/tfw/board.h`,
 > `src/core/board_lookup.c` · Last verified: 2026-09-23
 >
 > The claim this document makes is falsifiable: adding a board touches nothing
@@ -42,8 +42,8 @@ Instead the number is the only definition and **avr-libc checks it**:
 ```c
 #ifdef __AVR__
 #include <avr/io.h>
-_Static_assert(AG_ADDR_PINB   == _SFR_ADDR(PINB),   "PINB address");
-_Static_assert(AG_ADDR_TCCR1A == _SFR_ADDR(TCCR1A), "TCCR1A address");
+_Static_assert(TFW_ADDR_PINB   == _SFR_ADDR(PINB),   "PINB address");
+_Static_assert(TFW_ADDR_TCCR1A == _SFR_ADDR(TCCR1A), "TCCR1A address");
 _Static_assert(COM1A1_BIT     == COM1A1,            "COM1A1 bit position");
 #endif
 ```
@@ -52,51 +52,66 @@ A transposed digit is a compile error on the firmware build, naming the
 register. Assert every address and every bit position you introduce; the cost is
 one line each and the alternative is a wrong pin on a bench.
 
-Also state, with the reasoning in a comment: `AG_BOARD_NAME`, a unique
-`AG_BOARD_ID`, `AG_PIN_COUNT`, `AG_PORT_COUNT`, `AG_PWM_COUNT`, `AG_ADC_COUNT`,
-`AG_EEPROM_SIZE`, `AG_TICK_TIMER`, `AG_SCHED_SLOTS`, the flash and RAM budgets,
-and — for each peripheral the part has — `AG_UART_N` with its two vector names,
-`AG_TONE_PIN`, and the three `AG_SPI_BIT_*` positions. A board that states none
+Also state, with the reasoning in a comment: `TFW_BOARD_NAME`, a unique
+`TFW_BOARD_ID`, `TFW_PIN_COUNT`, `TFW_PORT_COUNT`, `TFW_PWM_COUNT`, `TFW_ADC_COUNT`,
+`TFW_EEPROM_SIZE`, `TFW_TICK_TIMER`, `TFW_SCHED_SLOTS`, the flash and RAM budgets,
+and — for each peripheral the part has — `TFW_UART_N` with its two vector names,
+`TFW_TONE_PIN`, and the three `TFW_SPI_BIT_*` positions. A board that states none
 of the last three is saying it has none of those peripherals, and must gate the
 matching feature off. Everything else takes its default from
-`include/ag/config.h`, which is where defaults live exactly once.
+`include/tfw/config.h`, which is where defaults live exactly once.
 
-`AG_ADC_COUNT` is the HAL's range-check bound, so it is **one past the highest
+`TFW_ADC_COUNT` is the HAL's range-check bound, so it is **one past the highest
 real channel**, not the count of channels that exist. A part whose channel space
 has holes (the ATmega32U4 has no ADC2 or ADC3) needs no expression of them: no
 pin claims those numbers, so no request can reach them.
 
 ## `board.c`
 
-Three tables — `ag_board_ports`, `ag_board_pins`, `ag_board_pwms` — and three
+Three tables — `tfw_board_ports`, `tfw_board_pins`, `tfw_board_pwms` — and three
 `_Static_assert`s pinning each against its declared count. Nothing else. No
 functions.
 
-The asserts are not decoration. A table one row short of its `AG_PIN_COUNT`
+The asserts are not decoration. A table one row short of its `TFW_PIN_COUNT`
 zero-fills in silence, and the missing pin then resolves to port 0 bit 0 — a
 real pin, on a real port, that the host was never told about.
 
 Two flags deserve care because the difference is reported to hosts:
 
-- **`AG_PWM_RSVD` is not `AG_PWM_NONE`.** The first says the pin has an
+- **`TFW_PWM_RSVD` is not `TFW_PWM_NONE`.** The first says the pin has an
   output-compare unit that this build spent on the millisecond tick; the second
   says it has none. A host that cannot tell them apart will move a load to a
   different pin when the right fix is a different build.
-- **`AG_PORT_NONE`** is for a pin with no digital port at all — an ADC-only
+- **`TFW_PORT_NONE`** is for a pin with no digital port at all — an ADC-only
   input, which can be read and never written. The 328P's A6 and A7 are the only
   instance in the tree.
 
-**`AG_PWM_COUNT` may be 0**, and then `ag_board_pwms` is an empty array and the
+**`TFW_PWM_COUNT` may be 0**, and then `tfw_board_pwms` is an empty array and the
 third `_Static_assert` pins the count rather than the row count. Every pin that
-has a compare unit is then `AG_PWM_RSVD`: on a board with no PWM at all, telling
+has a compare unit is then `TFW_PWM_RSVD`: on a board with no PWM at all, telling
 a host that a pin has none would send it looking for another pin, and the truth
 is that the fix is a different build. The ATtiny85 is the instance — its two
 timers are the millisecond tick and the software UART's bit clock.
 
 ## `profile.mk`
 
-`MCU`, `F_CPU`, the avrdude part and programmer, and four numbers:
+`ARCH`, `MCU`, `F_CPU`, the avrdude part and programmer, and four numbers:
 `FLASH_BUDGET`, `RAM_BUDGET`, `FLASH_TOTAL`, `RAM_TOTAL`.
+
+`ARCH := avr` is **required**, and it is how the build finds everything that is
+not the board's: the toolchain, flags, programmer and linker placement come from
+`mk/arch/$(ARCH).mk`, and the register-level HAL is `src/hal/$(ARCH)/` (with
+`boot/hal/$(ARCH)/boot_hal_$(ARCH).c` for tfw-boot). A profile that omits it, or
+names an architecture with no `mk/arch/<arch>.mk`, fails `make` with a message
+that says which. Boards stay flat — `boards/<board>/`, never
+`boards/<arch>/<board>/` — and `BOARD=` is unchanged.
+
+A board on an architecture the tree already has adds nothing else. **A new
+architecture** is `mk/arch/<arch>.mk` (the contract is listed at the top of
+`mk/arch/avr.mk`), `src/hal/<arch>/`, `boot/hal/<arch>/` if it has a bootloader,
+and one line in `.github/workflows/ci.yml` per board and tier —
+`make ci-matrix-check` names the lines it is missing. No edit to `mk/firmware.mk`,
+`mk/boot.mk` or `mk/release.mk`.
 
 The budgets are **gates, not estimates** — `make firmware` fails when an image
 exceeds one. Set them from what the part should reasonably spend, not from what
@@ -107,8 +122,10 @@ Optionally `BOARD_TIERS`, the crypto tiers this part can carry. A board that say
 nothing gets `soft atecc608a`, which every board had while every part had a TWI
 peripheral and a boot section. State it when one of them is impossible: the
 element tier needs I2C, and the software tier's whole definition is a key in
-boot-section flash behind lock bits. `make firmware-matrix` and the CI workflow
-both read this, so the matrix cannot queue a build that could only ever fail.
+boot-section flash behind lock bits. `make firmware-matrix` reads this, and the
+CI workflow's firmware matrix is a hand list that `make ci-matrix-check` compares
+against it in both directions, so the matrix cannot queue a build that could only
+ever fail, nor leave a board unbuilt.
 
 A board with no boot section also states no `BOOT_SECTION`, `BOOT_BUDGET` or
 `RAM_END`, and does not appear in `BOOT_SUPPORTED` in `mk/boot.mk`.
@@ -127,7 +144,7 @@ Assert the invariants, not just a few pins:
 - every pin is digital or ADC (a row that is neither is a row you forgot)
 - a pin beyond the board is refused
 - the tick timer's pins are reserved rather than absent
-- the pins this build uses for the UART are marked `AG_PIN_IN_USE`
+- the pins this build uses for the UART are marked `TFW_PIN_IN_USE`
 
 And spot-check pins whose mapping has **no arithmetic relation** to their
 number — which on most parts is all of them. A table that ran a block upward
@@ -159,7 +176,7 @@ execute them — the host has no ADC.
 
 ## A capability the part does not have
 
-Turn it off, and gate it by **file selection**. `AG_FEATURE_TONE 0` in the
+Turn it off, and gate it by **file selection**. `TFW_FEATURE_TONE 0` in the
 32U4's profile keeps `src/caps/tone.c` and `src/hal/avr/hal_tone.c` out of the
 image entirely, and `CAPS` then reports tone as absent so a host learns the
 truth before it tries.
@@ -167,7 +184,7 @@ truth before it tries.
 The rule — a feature is gated by including or excluding a whole file, never by
 `#if` inside one — is what makes the build that ships the build that was tested.
 A CI grep enforces it over `src/core`, `src/proto` and `src/caps`, and the four
-places a preprocessor conditional is permitted are `include/ag/config.h`, a
+places a preprocessor conditional is permitted are `include/tfw/config.h`, a
 board profile, `src/core/commands.def` and `src/hal/avr`.
 
 ## A part that is missing a peripheral
@@ -182,7 +199,7 @@ so exactly one is ever linked and neither build carries a conditional.
 
 | the part has no… | the profile says | and the Makefile links |
 |---|---|---|
-| USART | `AG_UART_SOFT 1`, plus the pins and the timer prescaler | `src/hal/avr/hal_uart_soft.c` instead of `hal_uart.c` |
+| USART | `TFW_UART_SOFT 1`, plus the pins and the timer prescaler | `src/hal/avr/hal_uart_soft.c` instead of `hal_uart.c` |
 | key store | `BOARD_TIERS := none` in `profile.mk` | `src/crypto/none/provider.c`, and no SHA-256 at all |
 
 **The software UART is not a lesser UART.** It implements the same four
@@ -191,15 +208,15 @@ the superloop never waits for a bit — and its translation unit is 700 bytes of
 flash and 41 of SRAM, compiled for an ATtiny85 at `-Os`. What it
 cannot do is 115200: a bit at that rate is 69 CPU cycles at 8 MHz, and an ISR
 does not fit in 69 cycles. **A board with a software UART states its own
-`AG_UART_BAUD`, and states the measured bit-time error beside it**, because the
+`TFW_UART_BAUD`, and states the measured bit-time error beside it**, because the
 baud is then a property of the board's clock rather than of the protocol. See
 [`attiny85.md`](attiny85.md) for the error budget and why the oscillator, not
 the divisor, is what sets the ceiling.
 
-**`AG_CRYPTO_NONE` is a tier, not an absence.** The protocol has named it since
+**`TFW_CRYPTO_NONE` is a tier, not an absence.** The protocol has named it since
 it was written: "no provider: unattested". A part with no boot section has
 nowhere to keep a key, so linking the software tier there would make `CAPS`
-report `AG_CRYPTO_SOFTWARE` to a host deciding what the device's evidence is
+report `TFW_CRYPTO_SOFTWARE` to a host deciding what the device's evidence is
 worth — and the sentence that byte stands for would be false. The tier that says
 so instead reports 0 and an empty algorithm bitmap, and `ATTEST` is not in the
 command table at all.
@@ -214,6 +231,7 @@ needs it.
 make firmware BOARD=<board>                  # size budget + the address asserts
 make firmware BOARD=<board> CRYPTO=atecc608a # if BOARD_TIERS has it: a different image
 make firmware-matrix                         # every board at every tier ITS PROFILE claims
+make ci-matrix-check                         # the CI workflow's matrix lists exactly those
 make board-sweep                             # every board, each against its own profile
 make reproducible-check BOARD=<board>        # two builds, byte-identical
 ```

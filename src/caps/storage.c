@@ -2,9 +2,9 @@
 /* SPDX-License-Identifier: commercial */
 
 #include "storage.h"
-#include "ag/hal.h"
-#include "ag/config.h"
-#include "ag/boot.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
+#include "tfw/boot.h"
 #include "../core/auth_session.h"
 
 /*
@@ -31,80 +31,80 @@
  * public information once trusted, but a host that has not yet proven it holds
  * the matching private key has no business confirming what the anchor even is
  * before it tries, and the wire's shape should not hand out reconnaissance for
- * free. So a read below AG_EEPROM_RESERVED_END now requires the very session
- * this region's own key anchors -- ag_auth_gate() below -- on the tier that
+ * free. So a read below TFW_EEPROM_RESERVED_END now requires the very session
+ * this region's own key anchors -- tfw_auth_gate() below -- on the tier that
  * can enforce it.
  *
- * ON THE SOFT AND CRYPTO=NONE TIERS THIS GATE IS A NO-OP: ag_auth_gate() is
- * auth_session_none.c's permissive stub there (see AG_FEATURE_AUTH_SESSION in
+ * ON THE SOFT AND CRYPTO=NONE TIERS THIS GATE IS A NO-OP: tfw_auth_gate() is
+ * auth_session_none.c's permissive stub there (see TFW_FEATURE_AUTH_SESSION in
  * config.h), so reads of this region remain exactly as unconditional as they
  * always were. That is an accepted gap, not an oversight -- the only
  * software-tier verify primitive available (ed25519-donna) does not fit this
  * device family, so there is nothing on those tiers left to gate with. See
  * docs/security/threat-model.md.
  */
-#define AG_EEPROM_RESERVED_END AG_BOOT_EE_LEN   /* [0x000, AG_BOOT_EE_LEN) is platform-owned */
+#define TFW_EEPROM_RESERVED_END TFW_BOOT_EE_LEN   /* [0x000, TFW_BOOT_EE_LEN) is platform-owned */
 
 /* Chunked deliberately. A byte takes about 3.4 ms, so 64 bytes would hold the
  * main loop for 220 ms -- long enough to miss a scheduled deadline and, once a
  * deadman exists, long enough to trip it. The host writes in chunks; the device
  * stays responsive. */
-#define AG_EEPROM_CHUNK 8u
+#define TFW_EEPROM_CHUNK 8u
 
-ag_status_t ag_storage_cmd_read(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_storage_cmd_read(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint16_t addr = ag_read_u16(r);
-    uint8_t  len  = ag_read_u8(r);
-    uint8_t  buf[AG_EEPROM_CHUNK];
-    ag_status_t st;
+    uint16_t addr = tfw_read_u16(r);
+    uint8_t  len  = tfw_read_u8(r);
+    uint8_t  buf[TFW_EEPROM_CHUNK];
+    tfw_status_t st;
 
-    if (len > AG_EEPROM_CHUNK) {
-        return AG_ERR_RANGE;
+    if (len > TFW_EEPROM_CHUNK) {
+        return TFW_ERR_RANGE;
     }
     /* Written to avoid overflowing addr + len, which on a uint16_t address and
      * a 1 KB part is reachable from a malformed request rather than theoretical. */
-    if (addr >= AG_EEPROM_SIZE || len > (uint16_t)(AG_EEPROM_SIZE - addr)) {
-        return AG_ERR_RANGE;
+    if (addr >= TFW_EEPROM_SIZE || len > (uint16_t)(TFW_EEPROM_SIZE - addr)) {
+        return TFW_ERR_RANGE;
     }
     /* Mirrors the write path's own reasoning below: the whole read must clear
      * the reserved region, not merely start above it. */
-    if (addr < AG_EEPROM_RESERVED_END) {
-        st = ag_auth_gate();
-        if (st != AG_OK) {
+    if (addr < TFW_EEPROM_RESERVED_END) {
+        st = tfw_auth_gate();
+        if (st != TFW_OK) {
             return st;
         }
     }
-    st = ag_hal_eeprom_read(addr, buf, len);
-    if (st != AG_OK) {
+    st = tfw_hal_eeprom_read(addr, buf, len);
+    if (st != TFW_OK) {
         return st;
     }
-    ag_write_blob(w, buf, len);
-    return AG_OK;
+    tfw_write_blob(w, buf, len);
+    return TFW_OK;
 }
 
-ag_status_t ag_storage_cmd_write(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_storage_cmd_write(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint16_t       addr = ag_read_u16(r);
-    uint8_t        len  = ag_reader_remaining(r);
+    uint16_t       addr = tfw_read_u16(r);
+    uint8_t        len  = tfw_reader_remaining(r);
     const uint8_t *data;
 
     (void)w;
-    if (len == 0u || len > AG_EEPROM_CHUNK) {
-        return AG_ERR_RANGE;
+    if (len == 0u || len > TFW_EEPROM_CHUNK) {
+        return TFW_ERR_RANGE;
     }
-    if (addr >= AG_EEPROM_SIZE || len > (uint16_t)(AG_EEPROM_SIZE - addr)) {
-        return AG_ERR_RANGE;
+    if (addr >= TFW_EEPROM_SIZE || len > (uint16_t)(TFW_EEPROM_SIZE - addr)) {
+        return TFW_ERR_RANGE;
     }
     /* The whole write must clear the reserved region, not merely start above
      * it. A write beginning at 0x7F and running eight bytes would otherwise
      * reach 0x86 -- past the boundary -- having passed a check on its first
      * address only. */
-    if (addr < AG_EEPROM_RESERVED_END) {
-        return AG_ERR_PROTECTED_REGION;
+    if (addr < TFW_EEPROM_RESERVED_END) {
+        return TFW_ERR_PROTECTED_REGION;
     }
-    data = ag_read_blob(r, len);
+    data = tfw_read_blob(r, len);
     if (!data) {
-        return AG_ERR_BAD_ARGC;
+        return TFW_ERR_BAD_ARGC;
     }
-    return ag_hal_eeprom_write(addr, data, len);
+    return tfw_hal_eeprom_write(addr, data, len);
 }

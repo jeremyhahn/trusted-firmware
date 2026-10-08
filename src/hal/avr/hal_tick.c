@@ -5,10 +5,10 @@
 #include <avr/interrupt.h>
 #include <util/atomic.h>
 
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
-static volatile ag_ms_t ticks;
+static volatile tfw_ms_t ticks;
 
 /*
  * A TRUE millisecond, not Arduino's 1.024 ms.
@@ -20,7 +20,7 @@ static volatile ag_ms_t ticks;
  * detail.
  *
  * The cost is Timer0's two output-compare pins, which the board descriptor
- * marks AG_PWM_RSVD so CAPS tells a host up front.
+ * marks TFW_PWM_RSVD so CAPS tells a host up front.
  */
 #define TICK_OCR ((uint8_t)((F_CPU / 64UL / 1000UL) - 1UL))
 
@@ -37,12 +37,12 @@ static volatile ag_ms_t ticks;
  * exemption is for.
  */
 #ifdef TIMSK0
-#define AG_TICK_TIMSK TIMSK0
+#define TFW_TICK_TIMSK TIMSK0
 #else
-#define AG_TICK_TIMSK TIMSK
+#define TFW_TICK_TIMSK TIMSK
 #endif
 
-ag_status_t ag_hal_tick_init(void)
+tfw_status_t tfw_hal_tick_init(void)
 {
     TCCR0A = (uint8_t)_BV(WGM01);                 /* CTC */
     TCCR0B = (uint8_t)(_BV(CS01) | _BV(CS00));    /* clk/64 */
@@ -52,13 +52,13 @@ ag_status_t ag_hal_tick_init(void)
      * UART's bit clock -- an assignment here silently disables whichever of
      * them was already armed. The register reads zero at reset, so this is
      * identical on every board that does not share it. */
-    AG_TICK_TIMSK |= (uint8_t)_BV(OCIE0A);
-    return AG_OK;
+    TFW_TICK_TIMSK |= (uint8_t)_BV(OCIE0A);
+    return TFW_OK;
 }
 
 /* The whole interrupt. Measured on the shipped image in a cycle-accurate
  * emulator: 58 cycles on the 328P, 59 on the 2560, both including the part's
- * four-cycle interrupt response -- not ten. `ticks` is an ag_ms_t, four bytes
+ * four-cycle interrupt response -- not ten. `ticks` is an tfw_ms_t, four bytes
  * and volatile: the increment itself is four `lds`, an `adiw`, two `adc` and
  * four `sts`, twenty cycles, and to do that the compiler must save r24-r27
  * plus r1 and SREG around it, nineteen more in push and pop. Twenty-seven
@@ -84,9 +84,9 @@ ISR(TIMER0_COMPA_vect)
  * portable C with no volatile, no <util/atomic.h>, and no knowledge that
  * interrupts exist -- and therefore compile and run on the host.
  */
-ag_ms_t ag_hal_millis(void)
+tfw_ms_t tfw_hal_millis(void)
 {
-    ag_ms_t t;
+    tfw_ms_t t;
     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
         t = ticks;
     }

@@ -1,11 +1,11 @@
 # Wire protocol — architecture
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 The framed binary protocol between a host and the device: framing, the codec,
 dispatch, the command table, status codes, and the golden vectors that hold the
-C and Go implementations to the same bytes. Covers `include/ag/protocol.h`,
+C and Go implementations to the same bytes. Covers `include/tfw/protocol.h`,
 `src/proto/`, `src/core/dispatch.c`, `src/core/commands.def`,
 `testdata/vectors.h`, `sdk/go/internal/vectors` and the Go codec in `sdk/go`.
 
@@ -52,8 +52,8 @@ through the end of the body — a corrupted length byte is otherwise
 undetectable until it has already mis-framed everything after it.
 
 **LEN is bound-checked on write and on read.** On write, `emit()` in
-`frame.c` refuses a payload over `AG_MAX_PAYLOAD` before it ever reaches the
-wire. On read, the framer rejects any LEN outside `AG_LEN_MIN..AG_MAX_LEN`
+`frame.c` refuses a payload over `TFW_MAX_PAYLOAD` before it ever reaches the
+wire. On read, the framer rejects any LEN outside `TFW_LEN_MIN..TFW_MAX_LEN`
 before it is used for anything. An unchecked length folds bytes into the next
 field: on read it would make the dispatcher read the payload cursor length as
 `want - 2 - has_status`, which wraps to a huge value on a too-short LEN and
@@ -62,12 +62,12 @@ hands a capability handler a length longer than the buffer it points into.
 ## Data flow
 
 ```
-bytes in -> ag_framer_push (L4) -> AG_FRAME_READY
-         -> ag_dispatch (L3): table lookup, arity check, handler call
-         -> ag_frame_encode_response (L4) -> bytes out (L5)
+bytes in -> tfw_framer_push (L4) -> TFW_FRAME_READY
+         -> tfw_dispatch (L3): table lookup, arity check, handler call
+         -> tfw_frame_encode_response (L4) -> bytes out (L5)
 ```
 
-`ag_dispatch` checks payload length against the command table's
+`tfw_dispatch` checks payload length against the command table's
 `min_payload`/`max_payload` **once, for every command**, before the handler
 runs — a handler validates values, never arity. After the handler returns,
 the dispatcher checks the writer's sticky overflow flag and the reader's
@@ -77,12 +77,12 @@ well-formed.
 
 ## Versioning: ids and statuses extend, never renumber
 
-Command ids (`include/ag/protocol.h`) and status codes (`include/ag/status.h`)
+Command ids (`include/tfw/protocol.h`) and status codes (`include/tfw/status.h`)
 only ever gain new values. An older host reading an id or status it does not
 recognise falls through to its generic failure path — degraded to exactly the
 behaviour it had before that value existed, never misclassified as something
 else. Renumbering would silently turn one failure into a different one on
-every host that has not been rebuilt. `AG_STATUS_MAX` (0xFE) bounds what the
+every host that has not been rebuilt. `TFW_STATUS_MAX` (0xFE) bounds what the
 one-byte STATUS field can ever carry.
 
 A reply's SHAPE extends the same way: new fields are appended, never
@@ -99,17 +99,17 @@ framer (a five-state machine: wait-SOF, wait-LEN, body, CRC-lo, CRC-hi)
 recovers by construction rather than by scanning:
 
 1. Outside a frame, every byte that is not `0xA5` is dropped silently.
-2. An implausible LEN (below `AG_LEN_MIN` or above `AG_MAX_LEN`) means the
+2. An implausible LEN (below `TFW_LEN_MIN` or above `TFW_MAX_LEN`) means the
    `0xA5` that preceded it was not a real frame start. The framer emits
-   `AG_FRAME_BAD_FORMAT` and returns to hunting — **and reprocesses the
+   `TFW_FRAME_BAD_FORMAT` and returns to hunting — **and reprocesses the
    failing byte as a candidate SOF**. Without that reprocess, a `0xA5`
    payload byte immediately followed by a genuine frame costs two frames
    instead of one, because the real SOF is consumed as the false frame's
    length.
-3. A partial frame abandoned after `AG_FRAME_IDLE_MS` (`ag_transport_poll`)
+3. A partial frame abandoned after `TFW_FRAME_IDLE_MS` (`tfw_transport_poll`)
    cannot absorb the opening bytes of the next good frame.
 
-The framer retains at most `AG_MAX_FRAME` bytes and every transition is
+The framer retains at most `TFW_MAX_FRAME` bytes and every transition is
 bounded, so an arbitrary byte stream can waste CPU but cannot overrun,
 allocate or wedge it — asserted over ten million random bytes under
 AddressSanitizer (`test/unit/test_frame.c`) and mirrored by `FuzzDecode` in
@@ -117,7 +117,7 @@ AddressSanitizer (`test/unit/test_frame.c`) and mirrored by `FuzzDecode` in
 
 ## Events
 
-`OP = 0xFF` is an unsolicited event. `ag_transport_send_event` refuses to
+`OP = 0xFF` is an unsolicited event. `tfw_transport_send_event` refuses to
 queue one — returning 0 — while a response is still draining; the caller
 retries on a later poll. That keeps the device a strict request/response
 state machine: the host never has to reassemble a reply with an event landing
@@ -181,7 +181,7 @@ failure there is a wire break, not a test to update.**
 - **No escaping or byte-stuffing.** The length prefix is the framing
   mechanism; resync is what pays for not stuffing.
 - **No CLI or API surface of its own.** The protocol is exercised through
-  `agctl` and the Go SDK, documented in `../host-sdk/architecture.md`, `cli.md` and
+  `tfwctl` and the Go SDK, documented in `../host-sdk/architecture.md`, `cli.md` and
   `api.md` in this folder.
 - **No dynamic allocation anywhere in the stack.** Every frame buffer is
-  sized from `AG_MAX_PAYLOAD` at compile time.
+  sized from `TFW_MAX_PAYLOAD` at compile time.

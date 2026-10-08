@@ -7,20 +7,20 @@
 #include "frame.h"
 #include "crc16.h"
 
-static ag_framer_t f;
+static tfw_framer_t f;
 
-void setUp(void)    { ag_framer_init(&f); }
+void setUp(void)    { tfw_framer_init(&f); }
 void tearDown(void) {}
 
 /* Feeds every byte but the last and asserts nothing completed early, then
  * returns what the final byte produced. Most tests care only about that. */
-static ag_frame_event_t feed(const uint8_t *b, uint16_t n)
+static tfw_frame_event_t feed(const uint8_t *b, uint16_t n)
 {
-    ag_frame_event_t e = AG_FRAME_NONE;
+    tfw_frame_event_t e = TFW_FRAME_NONE;
     for (uint16_t i = 0; i < n; i++) {
-        e = ag_framer_push(&f, b[i]);
+        e = tfw_framer_push(&f, b[i]);
         if (i + 1u < n) {
-            TEST_ASSERT_EQUAL(AG_FRAME_NONE, e);
+            TEST_ASSERT_EQUAL(TFW_FRAME_NONE, e);
         }
     }
     return e;
@@ -29,81 +29,81 @@ static ag_frame_event_t feed(const uint8_t *b, uint16_t n)
 static void test_request_round_trips(void)
 {
     const uint8_t pay[3] = { 0x0Du, 0x01u, 0x7Fu };
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_request(wire, sizeof wire, 0x42u, AG_CMD_DIGITAL_WRITE, pay, 3u);
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 0x42u, TFW_CMD_DIGITAL_WRITE, pay, 3u);
 
     TEST_ASSERT_NOT_EQUAL(0u, n);
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, feed(wire, n));
-    TEST_ASSERT_EQUAL_HEX8(0x42u, ag_frame_seq(&f));
-    TEST_ASSERT_EQUAL_HEX8(AG_CMD_DIGITAL_WRITE, ag_frame_op(&f));
-    TEST_ASSERT_EQUAL_UINT8(3u, ag_frame_payload_len(&f));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(pay, ag_frame_payload(&f), 3u);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_HEX8(0x42u, tfw_frame_seq(&f));
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_DIGITAL_WRITE, tfw_frame_op(&f));
+    TEST_ASSERT_EQUAL_UINT8(3u, tfw_frame_payload_len(&f));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(pay, tfw_frame_payload(&f), 3u);
 }
 
 static void test_response_sets_the_response_bit_and_carries_status(void)
 {
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_response(wire, sizeof wire, 0x07u,
-                                          AG_CMD_PING, AG_ERR_BAD_PIN, 0, 0u);
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_response(wire, sizeof wire, 0x07u,
+                                          TFW_CMD_PING, TFW_ERR_BAD_PIN, 0, 0u);
     TEST_ASSERT_NOT_EQUAL(0u, n);
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, feed(wire, n));
-    TEST_ASSERT_EQUAL_HEX8(AG_CMD_PING | AG_OP_RESPONSE_BIT, ag_frame_op(&f));
-    TEST_ASSERT_EQUAL_HEX8(AG_ERR_BAD_PIN, ag_frame_status(&f));
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_frame_payload_len(&f));
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING | TFW_OP_RESPONSE_BIT, tfw_frame_op(&f));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ERR_BAD_PIN, tfw_frame_status(&f));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&f));
 }
 
 static void test_event_uses_the_reserved_op_and_no_sequence(void)
 {
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_event(wire, sizeof wire, AG_OK, 0, 0u);
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, feed(wire, n));
-    TEST_ASSERT_EQUAL_HEX8(AG_OP_EVENT, ag_frame_op(&f));
-    TEST_ASSERT_EQUAL_HEX8(AG_SEQ_NONE, ag_frame_seq(&f));
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_event(wire, sizeof wire, TFW_OK, 0, 0u);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_HEX8(TFW_OP_EVENT, tfw_frame_op(&f));
+    TEST_ASSERT_EQUAL_HEX8(TFW_SEQ_NONE, tfw_frame_seq(&f));
 }
 
 static void test_empty_payload_is_a_valid_frame(void)
 {
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_request(wire, sizeof wire, 1u, AG_CMD_CAPS, 0, 0u);
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, feed(wire, n));
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_frame_payload_len(&f));
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_CAPS, 0, 0u);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&f));
 }
 
 static void test_maximum_payload_is_a_valid_frame(void)
 {
-    uint8_t pay[AG_MAX_PAYLOAD];
-    uint8_t wire[AG_MAX_FRAME];
+    uint8_t pay[TFW_MAX_PAYLOAD];
+    uint8_t wire[TFW_MAX_FRAME];
     memset(pay, 0x5Au, sizeof pay);
-    uint16_t n = ag_frame_encode_request(wire, sizeof wire, 1u, AG_CMD_PING, pay, AG_MAX_PAYLOAD);
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, pay, TFW_MAX_PAYLOAD);
     TEST_ASSERT_NOT_EQUAL(0u, n);
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, feed(wire, n));
-    TEST_ASSERT_EQUAL_UINT8(AG_MAX_PAYLOAD, ag_frame_payload_len(&f));
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_MAX_PAYLOAD, tfw_frame_payload_len(&f));
 }
 
 static void test_encoder_refuses_an_oversize_payload(void)
 {
-    uint8_t pay[AG_MAX_PAYLOAD + 1u];
-    uint8_t wire[AG_MAX_FRAME + 8u];
+    uint8_t pay[TFW_MAX_PAYLOAD + 1u];
+    uint8_t wire[TFW_MAX_FRAME + 8u];
     memset(pay, 0u, sizeof pay);
     TEST_ASSERT_EQUAL_UINT16(0u,
-        ag_frame_encode_request(wire, sizeof wire, 1u, AG_CMD_PING, pay, (uint8_t)sizeof pay));
+        tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, pay, (uint8_t)sizeof pay));
 }
 
 static void test_encoder_refuses_a_buffer_it_would_overrun(void)
 {
     uint8_t small[4];
     TEST_ASSERT_EQUAL_UINT16(0u,
-        ag_frame_encode_request(small, sizeof small, 1u, AG_CMD_CAPS, 0, 0u));
+        tfw_frame_encode_request(small, sizeof small, 1u, TFW_CMD_CAPS, 0, 0u));
 }
 
 static void test_a_corrupted_payload_byte_is_caught_by_the_crc(void)
 {
     const uint8_t pay[2] = { 0xAAu, 0xBBu };
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_request(wire, sizeof wire, 9u, AG_CMD_PING, pay, 2u);
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 9u, TFW_CMD_PING, pay, 2u);
 
     wire[5] ^= 0x01u;                       /* flip one bit in the body */
-    TEST_ASSERT_EQUAL(AG_FRAME_BAD_CRC, feed(wire, n));
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_CRC, feed(wire, n));
     TEST_ASSERT_EQUAL_UINT16(1u, f.err_crc);
 }
 
@@ -113,29 +113,29 @@ static void test_a_corrupted_payload_byte_is_caught_by_the_crc(void)
 static void test_a_corrupted_length_byte_is_caught(void)
 {
     const uint8_t pay[4] = { 1u, 2u, 3u, 4u };
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_request(wire, sizeof wire, 9u, AG_CMD_PING, pay, 4u);
-    ag_frame_event_t e = AG_FRAME_NONE;
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 9u, TFW_CMD_PING, pay, 4u);
+    tfw_frame_event_t e = TFW_FRAME_NONE;
 
     wire[1] = (uint8_t)(wire[1] - 1u);      /* still plausible, but wrong */
     for (uint16_t i = 0; i < n; i++) {
-        ag_frame_event_t r = ag_framer_push(&f, wire[i]);
-        if (r != AG_FRAME_NONE) { e = r; }
+        tfw_frame_event_t r = tfw_framer_push(&f, wire[i]);
+        if (r != TFW_FRAME_NONE) { e = r; }
     }
-    TEST_ASSERT_NOT_EQUAL(AG_FRAME_READY, e);
+    TEST_ASSERT_NOT_EQUAL(TFW_FRAME_READY, e);
 }
 
 static void test_a_length_below_the_minimum_is_refused(void)
 {
-    TEST_ASSERT_EQUAL(AG_FRAME_NONE,       ag_framer_push(&f, AG_SOF));
-    TEST_ASSERT_EQUAL(AG_FRAME_BAD_FORMAT, ag_framer_push(&f, 1u));
+    TEST_ASSERT_EQUAL(TFW_FRAME_NONE,       tfw_framer_push(&f, TFW_SOF));
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, 1u));
     TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
 }
 
 static void test_a_length_above_the_maximum_is_refused(void)
 {
-    TEST_ASSERT_EQUAL(AG_FRAME_NONE,       ag_framer_push(&f, AG_SOF));
-    TEST_ASSERT_EQUAL(AG_FRAME_BAD_FORMAT, ag_framer_push(&f, (uint8_t)(AG_MAX_LEN + 1u)));
+    TEST_ASSERT_EQUAL(TFW_FRAME_NONE,       tfw_framer_push(&f, TFW_SOF));
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, (uint8_t)(TFW_MAX_LEN + 1u)));
 }
 
 /* THE RESYNC CASE.
@@ -146,31 +146,31 @@ static void test_a_length_above_the_maximum_is_refused(void)
  * reprocess it would be consumed as the false frame's length and lost. */
 static void test_a_false_sof_does_not_swallow_the_frame_that_follows_it(void)
 {
-    uint8_t  good[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_request(good, sizeof good, 0x33u, AG_CMD_CAPS, 0, 0u);
+    uint8_t  good[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(good, sizeof good, 0x33u, TFW_CMD_CAPS, 0, 0u);
 
-    TEST_ASSERT_EQUAL(AG_FRAME_NONE,       ag_framer_push(&f, AG_SOF));  /* false SOF */
-    TEST_ASSERT_EQUAL(AG_FRAME_BAD_FORMAT, ag_framer_push(&f, AG_SOF));  /* implausible LEN,
+    TEST_ASSERT_EQUAL(TFW_FRAME_NONE,       tfw_framer_push(&f, TFW_SOF));  /* false SOF */
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, TFW_SOF));  /* implausible LEN,
                                                                           * and itself a SOF */
     /* the real frame's remaining bytes, its SOF having just been reprocessed */
-    ag_frame_event_t e = AG_FRAME_NONE;
+    tfw_frame_event_t e = TFW_FRAME_NONE;
     for (uint16_t i = 1; i < n; i++) {
-        e = ag_framer_push(&f, good[i]);
+        e = tfw_framer_push(&f, good[i]);
     }
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, e);
-    TEST_ASSERT_EQUAL_HEX8(0x33u, ag_frame_seq(&f));
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, e);
+    TEST_ASSERT_EQUAL_HEX8(0x33u, tfw_frame_seq(&f));
 }
 
 static void test_leading_garbage_before_a_frame_is_discarded(void)
 {
     const uint8_t junk[5] = { 0x00u, 0xFFu, 0x13u, 0x7Eu, 0x01u };
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_request(wire, sizeof wire, 5u, AG_CMD_PING, 0, 0u);
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_PING, 0, 0u);
 
     for (unsigned i = 0; i < sizeof junk; i++) {
-        TEST_ASSERT_EQUAL(AG_FRAME_NONE, ag_framer_push(&f, junk[i]));
+        TEST_ASSERT_EQUAL(TFW_FRAME_NONE, tfw_framer_push(&f, junk[i]));
     }
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
 }
 
 /* A truncated frame must not hold the machine hostage until the next byte
@@ -178,13 +178,13 @@ static void test_leading_garbage_before_a_frame_is_discarded(void)
  * eaten as the dead frame's tail. */
 static void test_abort_recovers_from_a_truncated_frame(void)
 {
-    uint8_t  wire[AG_MAX_FRAME];
-    uint16_t n = ag_frame_encode_request(wire, sizeof wire, 1u, AG_CMD_PING, (const uint8_t *)"ab", 2u);
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, (const uint8_t *)"ab", 2u);
 
-    for (uint16_t i = 0; i < n - 2u; i++) { (void)ag_framer_push(&f, wire[i]); }
-    ag_framer_abort(&f);
+    for (uint16_t i = 0; i < n - 2u; i++) { (void)tfw_framer_push(&f, wire[i]); }
+    tfw_framer_abort(&f);
 
-    TEST_ASSERT_EQUAL(AG_FRAME_READY, feed(wire, n));
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
 }
 
 /* A sender can be internally consistent and still wrong: this frame's CRC is
@@ -196,15 +196,15 @@ static void test_a_response_too_short_for_its_status_byte_is_malformed(void)
     uint8_t  wire[8];
     uint16_t crc;
 
-    wire[0] = AG_SOF;
+    wire[0] = TFW_SOF;
     wire[1] = 2u;                                   /* SEQ + OP only */
     wire[2] = 0x01u;                                /* SEQ */
-    wire[3] = AG_CMD_PING | AG_OP_RESPONSE_BIT;     /* claims a STATUS */
-    crc     = ag_crc16(&wire[1], 3u);
+    wire[3] = TFW_CMD_PING | TFW_OP_RESPONSE_BIT;     /* claims a STATUS */
+    crc     = tfw_crc16(&wire[1], 3u);
     wire[4] = (uint8_t)(crc & 0xFFu);
     wire[5] = (uint8_t)(crc >> 8);
 
-    TEST_ASSERT_EQUAL(AG_FRAME_BAD_FORMAT, feed(wire, 6u));
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, feed(wire, 6u));
 }
 
 /* THE SAFETY PROPERTY, stated directly. An arbitrary byte stream may waste
@@ -218,13 +218,13 @@ static void test_random_bytes_never_overrun_or_wedge_the_framer(void)
 
     srand(20260922u);
     for (unsigned long i = 0; i < 10000000uL; i++) {
-        ag_frame_event_t e = ag_framer_push(&f, (uint8_t)(rand() & 0xFF));
-        TEST_ASSERT_TRUE(f.state <= (uint8_t)AG_FRAME_CRC_HI);
+        tfw_frame_event_t e = tfw_framer_push(&f, (uint8_t)(rand() & 0xFF));
+        TEST_ASSERT_TRUE(f.state <= (uint8_t)TFW_FRAME_CRC_HI);
         TEST_ASSERT_TRUE(f.got <= f.want);
-        TEST_ASSERT_TRUE(f.want <= AG_MAX_LEN);
-        if (e == AG_FRAME_READY) {
+        TEST_ASSERT_TRUE(f.want <= TFW_MAX_LEN);
+        if (e == TFW_FRAME_READY) {
             ready++;
-            TEST_ASSERT_TRUE(ag_frame_payload_len(&f) <= AG_MAX_PAYLOAD);
+            TEST_ASSERT_TRUE(tfw_frame_payload_len(&f) <= TFW_MAX_PAYLOAD);
         }
     }
     /* Random bytes DO occasionally form a valid frame -- 1 in 65536 CRCs

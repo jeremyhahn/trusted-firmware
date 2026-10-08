@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * ag-boot: measure, verify, check the floor, derive the CDI, jump.
+ * tfw-boot: measure, verify, check the floor, derive the CDI, jump.
  *
  * No interrupts are ever enabled here. The vector table stays pointed at the
  * application section throughout, so there is no IVSEL to set and, more to the
@@ -17,8 +17,8 @@
 
 #include <string.h>
 
-#include "ag/boot.h"
-#include "ag/protocol.h"
+#include "tfw/boot.h"
+#include "tfw/protocol.h"
 #include "boot_cdi.h"
 #include "boot_hal.h"
 #include "boot_measure.h"
@@ -45,31 +45,31 @@
  * docs/dice-attestation/architecture.md already records as "partial" and which
  * this does not improve on, only honour.
  */
-void ag_boot_hand_over(const ag_boot_verdict_t *v)
+void tfw_boot_hand_over(const tfw_boot_verdict_t *v)
 {
-    uint8_t cdi[AG_BOOT_MEASURE_LEN];
-    uint8_t block[AG_BOOT_HANDOFF_LEN];
+    uint8_t cdi[TFW_BOOT_MEASURE_LEN];
+    uint8_t block[TFW_BOOT_HANDOFF_LEN];
 
     /*
-     * ag_secure_zero, not a plain memset, for every touch of `cdi` in this
+     * tfw_secure_zero, not a plain memset, for every touch of `cdi` in this
      * function -- including this first one. `cdi` is a local: if
-     * ag_boot_cdi_derive fails without writing it (see its own contract),
+     * tfw_boot_cdi_derive fails without writing it (see its own contract),
      * whatever the stack held is what a plain, elidable zero-write might
      * leave behind, and the application would read that as a genuine CDI
-     * rather than the zero ag_boot_cdi_derive's failure is supposed to
+     * rather than the zero tfw_boot_cdi_derive's failure is supposed to
      * signal.
      */
-    ag_secure_zero(cdi, sizeof cdi);
-    if (ag_boot_cdi_derive(v->measurement, cdi) != AG_OK) {
+    tfw_secure_zero(cdi, sizeof cdi);
+    if (tfw_boot_cdi_derive(v->measurement, cdi) != TFW_OK) {
         /* No UDS: an unprovisioned device. It still boots -- refusing would
          * turn a skipped factory step into a brick -- but the block carries a
          * zero CDI and the tier the bootloader actually found, so the
          * application refuses to attest rather than attesting to nothing. */
-        ag_secure_zero(cdi, sizeof cdi);
+        tfw_secure_zero(cdi, sizeof cdi);
     }
 
     /*
-     * ag_hal_early_flags is hal_early.c's OWN latch of MCUSR, taken before
+     * tfw_hal_early_flags is hal_early.c's OWN latch of MCUSR, taken before
      * ITS OWN .init3 cleared the register -- the same three instructions this
      * image and the application both run, see that file's header. Reading it
      * here rather than re-reading MCUSR is the point: by the time main() runs
@@ -77,21 +77,21 @@ void ag_boot_hand_over(const ag_boot_verdict_t *v)
      * exactly the bug of something -- a bootloader, ours or the stock one --
      * doing that before the value was carried anywhere.
      */
-    ag_boot_handoff_build(block, ag_boot_cdi_tier(), cdi, v->measurement,
-                          v->trailer.image_version, ag_hal_early_flags);
-    ag_boot_handoff_write(block, AG_BOOT_HANDOFF_LEN);
+    tfw_boot_handoff_build(block, tfw_boot_cdi_tier(), cdi, v->measurement,
+                          v->trailer.image_version, tfw_hal_early_flags);
+    tfw_boot_handoff_write(block, TFW_BOOT_HANDOFF_LEN);
 
-    ag_secure_zero(cdi, sizeof cdi);
-    ag_secure_zero(block, sizeof block);
+    tfw_secure_zero(cdi, sizeof cdi);
+    tfw_secure_zero(block, sizeof block);
 
-    ag_boot_jump_application();
+    tfw_boot_jump_application();
 }
 
 int main(void)
 {
-    ag_boot_platform_t plat;
-    ag_boot_verdict_t  verdict;
-    ag_status_t        st;
+    tfw_boot_platform_t plat;
+    tfw_boot_verdict_t  verdict;
+    tfw_status_t        st;
     uint32_t           floor;
     uint32_t           next;
     uint8_t            update;
@@ -100,17 +100,17 @@ int main(void)
      * The application's one-shot update request, taken before ANYTHING else
      * can fail or reset: take clears it unconditionally, so whatever happens
      * from here on -- a refused image, a session abandoned, a power cut -- the
-     * next reset starts from nothing. ag_hal_early_flags is this image's own
+     * next reset starts from nothing. tfw_hal_early_flags is this image's own
      * latch of MCUSR (hal_early.c), which is how a request is told apart from
      * garbage left by a power cycle: only a watchdog reset honours it.
      */
-    update = ag_boot_request_take(ag_hal_early_flags);
+    update = tfw_boot_request_take(tfw_hal_early_flags);
 
-    ag_boot_uart_init(AG_UART_BAUD);
-    (void)ag_boot_cdi_init();
+    tfw_boot_uart_init(TFW_UART_BAUD);
+    (void)tfw_boot_cdi_init();
 
-    ag_boot_platform_load(&plat, &st);
-    if (st != AG_OK) {
+    tfw_boot_platform_load(&plat, &st);
+    if (st != TFW_OK) {
         /*
          * No usable reserved region: never provisioned, corrupted, or a layout
          * from the future. Every one of those means there is no pinned public
@@ -120,10 +120,10 @@ int main(void)
          * programmer, by design. The device says which failure it is and waits.
          */
         memset(&plat, 0, sizeof plat);
-        ag_boot_recovery(&plat, st);
+        tfw_boot_recovery(&plat, st);
     }
 
-    floor = ag_boot_floor_load(&plat);
+    floor = tfw_boot_floor_load(&plat);
 
     /*
      * An update that started and never finished.
@@ -133,8 +133,8 @@ int main(void)
      * 0xFF, decoded as a long run of SBRS instructions, and the part wanders
      * into whatever happens to be after it. Refuse and stay here.
      */
-    if (plat.boot_state == AG_BOOT_STATE_STAGED) {
-        ag_boot_recovery(&plat, AG_ERR_CRYPTO);
+    if (plat.boot_state == TFW_BOOT_STATE_STAGED) {
+        tfw_boot_recovery(&plat, TFW_ERR_CRYPTO);
     }
 
     /*
@@ -145,34 +145,34 @@ int main(void)
      * This returns when the session times out, and everything below then runs
      * as it would have: measure, verify, floor, jump. Asking for a session
      * therefore grants nothing; an image delivered in it is evaluated by the
-     * same ag_boot_evaluate as one found at reset.
+     * same tfw_boot_evaluate as one found at reset.
      */
     if (update) {
         /* Field by field, not an initialiser: on AVR a constant aggregate is
-         * emitted as initialised data in RAM, and ag-boot has no .data copy --
+         * emitted as initialised data in RAM, and tfw-boot has no .data copy --
          * so the table would read as zeros, and zero disables every bound. */
-        ag_boot_session_limits_t lim;
+        tfw_boot_session_limits_t lim;
 
-        lim.idle_polls = AG_BOOT_SESSION_IDLE_POLLS(F_CPU);
-        lim.idle_bytes = AG_BOOT_SESSION_IDLE_BYTES(AG_UART_BAUD);
-        lim.max_polls  = AG_BOOT_SESSION_MAX_POLLS(F_CPU);
-        lim.max_bytes  = AG_BOOT_SESSION_MAX_BYTES;
-        ag_boot_session_open(&plat, &lim);
+        lim.idle_polls = TFW_BOOT_SESSION_IDLE_POLLS(F_CPU);
+        lim.idle_bytes = TFW_BOOT_SESSION_IDLE_BYTES(TFW_UART_BAUD);
+        lim.max_polls  = TFW_BOOT_SESSION_MAX_POLLS(F_CPU);
+        lim.max_bytes  = TFW_BOOT_SESSION_MAX_BYTES;
+        tfw_boot_session_open(&plat, &lim);
     }
 
-    st = ag_boot_evaluate(floor, &verdict);
-    if (st != AG_OK) {
-        ag_boot_recovery(&plat, st);
+    st = tfw_boot_evaluate(floor, &verdict);
+    if (st != TFW_OK) {
+        tfw_boot_recovery(&plat, st);
     }
 
     /* The floor advances on a verified boot, not on a verified update. An image
      * that verifies but cannot run leaves the floor where it was, so the
      * previous version is still installable. */
-    if (ag_boot_floor_advance(verdict.trailer.image_version, floor,
-                              &next) == AG_OK && next != floor) {
-        ag_boot_floor_store(&plat, next);
+    if (tfw_boot_floor_advance(verdict.trailer.image_version, floor,
+                              &next) == TFW_OK && next != floor) {
+        tfw_boot_floor_store(&plat, next);
     }
 
-    ag_boot_hand_over(&verdict);
+    tfw_boot_hand_over(&verdict);
     return 0;   /* unreachable; the compiler wants it */
 }

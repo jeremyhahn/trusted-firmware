@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * ag-boot on emulated silicon: the three behaviours that matter.
+ * tfw-boot on emulated silicon: the three behaviours that matter.
  *
  *   a correctly signed image boots
  *   a tampered image refuses
@@ -10,7 +10,7 @@
  * Modelled on harness.c, and asking a different question from
  * test/unit/boot/test_boot_policy.c. That suite runs the decision logic on x86
  * against a flash array and proves the DECISION is right. This loads the real
- * ag-boot.elf into a real ATmega model, puts the real application image and a
+ * tfw-boot.elf into a real ATmega model, puts the real application image and a
  * real trailer in the emulated flash, a real provisioned region in the emulated
  * EEPROM and a real ATECC608A on the emulated TWI bus, and proves the thing
  * that ships works -- LPM against the actual program memory, the actual EEPROM
@@ -56,9 +56,9 @@
 #include <simavr/avr_eeprom.h>
 #include <simavr/avr_twi.h>
 
-#include "ag/status.h"
-#include "ag/protocol.h"
-#include "ag/boot.h"
+#include "tfw/status.h"
+#include "tfw/protocol.h"
+#include "tfw/boot.h"
 #include "boot_image.h"
 #include "boot_platform.h"
 #include "boot_request.h"
@@ -68,12 +68,12 @@
 /* The element's CRC, from the driver rather than from a second copy of it.
  * Declared rather than included, because atecc.h also declares the transport
  * this file exists to replace. */
-uint16_t ag_atecc_crc16(const uint8_t *data, uint8_t len);
+uint16_t tfw_atecc_crc16(const uint8_t *data, uint8_t len);
 
 /*
  * The element driver is linked for that one function, and a C object cannot be
  * linked a function at a time. These three resolve the references its other
- * functions make -- ag_hal_i2c_init joined the set when ag_atecc_wake()
+ * functions make -- tfw_hal_i2c_init joined the set when tfw_atecc_wake()
  * started reasserting the element's required bus rate itself, rather than
  * trusting whatever the generic I2C_CONFIG command last left it at. Reaching
  * any of them is a wiring mistake and not a case to handle: this harness sits
@@ -81,12 +81,12 @@ uint16_t ag_atecc_crc16(const uint8_t *data, uint8_t len);
  * the HAL has bypassed the emulated part entirely and whatever it then proved
  * would be about nothing.
  */
-ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
+tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen);
-ag_status_t ag_hal_i2c_init(uint32_t hz);
-void        ag_hal_delay_us(uint16_t us);
+tfw_status_t tfw_hal_i2c_init(uint32_t hz);
+void        tfw_hal_delay_us(uint16_t us);
 
-ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
+tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen)
 {
     (void)addr7; (void)wr; (void)wlen; (void)rd; (void)rlen;
@@ -94,14 +94,14 @@ ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
     abort();
 }
 
-ag_status_t ag_hal_i2c_init(uint32_t hz)
+tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
     (void)hz;
     fprintf(stderr, "the harness called the AVR I2C HAL; it is the wire, not a host\n");
     abort();
 }
 
-void ag_hal_delay_us(uint16_t us)
+void tfw_hal_delay_us(uint16_t us)
 {
     (void)us;
     fprintf(stderr, "the harness called the AVR delay HAL\n");
@@ -245,7 +245,7 @@ static void on_twi_status(struct avr_irq_t *irq, uint32_t value, void *param)
 /*
  * A SECOND MODEL OF THE SAME PART, AND THAT IS DELIBERATE.
  *
- * test/model/atecc608a.c models the element at the ag_hal_i2c_xfer seam, which
+ * test/model/atecc608a.c models the element at the tfw_hal_i2c_xfer seam, which
  * is ABOVE the driver: it receives whole packets and answers with whole
  * packets. This one is a TWI slave on simavr's emulated bus, which is BELOW the
  * driver, so the bytes it sees have been through src/hal/avr/hal_bus.c's real
@@ -265,7 +265,7 @@ static void on_twi_status(struct avr_irq_t *irq, uint32_t value, void *param)
  * WHAT IT DOES NOT: it is not P-256. See element_sign. It is not a security
  * boundary -- a slot is unreadable here because the model refuses, not because
  * anything enforces it. It is not the config and data zones, because this
- * bootloader never reads or writes them; provisioning is agprov's, and
+ * bootloader never reads or writes them; provisioning is tfwprov's, and
  * test/model/atecc608a.c is where that is exercised. And it is not timing: the
  * part is modelled as busy for exactly one read after each command, which
  * exercises the driver's NACK-poll without spending emulator cycles on a wait
@@ -310,11 +310,11 @@ static void element_sign(const uint8_t digest[32], uint8_t sig[64])
 
     memcpy(buf, EL_SIGNING_KEY, 32);
     memcpy(&buf[32], digest, 32);
-    ag_sha256(buf, 64u, sig);
+    tfw_sha256(buf, 64u, sig);
 
     memcpy(buf, digest, 32);
     memcpy(&buf[32], EL_SIGNING_KEY, 32);
-    ag_sha256(buf, 64u, &sig[32]);
+    tfw_sha256(buf, 64u, &sig[32]);
 }
 
 static struct {
@@ -330,7 +330,7 @@ static struct {
     unsigned rd_i;
 
     uint8_t     tempkey[32];
-    ag_sha256_t sha;
+    tfw_sha256_t sha;
     int         sha_active;
     uint32_t    counter;
 
@@ -350,7 +350,7 @@ static void el_respond(const uint8_t *body, uint8_t n)
     uint16_t crc;
     el.rsp[0] = (uint8_t)(n + 3u);
     if (n) { memcpy(&el.rsp[1], body, n); }
-    crc = ag_atecc_crc16(el.rsp, (uint8_t)(n + 1u));
+    crc = tfw_atecc_crc16(el.rsp, (uint8_t)(n + 1u));
     el.rsp[n + 1u] = (uint8_t)(crc & 0xFFu);
     el.rsp[n + 2u] = (uint8_t)(crc >> 8);
     el.rsp_n = (unsigned)n + 3u;
@@ -361,7 +361,7 @@ static void el_status(uint8_t code)
     uint16_t crc;
     el.rsp[0] = 4u;
     el.rsp[1] = code;
-    crc = ag_atecc_crc16(el.rsp, 2u);
+    crc = tfw_atecc_crc16(el.rsp, 2u);
     el.rsp[2] = (uint8_t)(crc & 0xFFu);
     el.rsp[3] = (uint8_t)(crc >> 8);
     el.rsp_n = 4u;
@@ -384,7 +384,7 @@ static void el_execute(void)
      * it would on silicon, rather than a plausible failure somewhere later. */
     count = p[1];
     if (count != (uint8_t)(n - 1u)) { el_status(0xFFu); return; }
-    crc = ag_atecc_crc16(&p[1], (uint8_t)(count - 2u));
+    crc = tfw_atecc_crc16(&p[1], (uint8_t)(count - 2u));
     if (crc != (uint16_t)(p[count - 1u] | ((uint16_t)p[count] << 8))) {
         el_status(0xFFu);
         return;
@@ -406,7 +406,7 @@ static void el_execute(void)
 
     case 0x47u:   /* SHA */
         if (p1 == 0x00u) {                        /* SHA256 Start */
-            ag_sha256_init(&el.sha);
+            tfw_sha256_init(&el.sha);
             el.sha_active = 1;
             el_status(0x00u);
             return;
@@ -416,7 +416,7 @@ static void el_execute(void)
              * sent a short Update would pass against a lenient model and fail
              * on silicon, so the refusal is worth more than the tolerance. */
             if (p2 != 64u || dlen != 64u) { el_status(0x03u); return; }
-            ag_sha256_update(&el.sha, &p[6], 64u);
+            tfw_sha256_update(&el.sha, &p[6], 64u);
             el.sha_blocks++;
             el_status(0x00u);
             return;
@@ -424,8 +424,8 @@ static void el_execute(void)
         if (p1 == 0x02u && el.sha_active) {       /* SHA256 End */
             uint8_t tail = (uint8_t)p2;
             if (tail != dlen) { el_status(0x03u); return; }
-            if (tail) { ag_sha256_update(&el.sha, &p[6], tail); }
-            ag_sha256_final(&el.sha, body);
+            if (tail) { tfw_sha256_update(&el.sha, &p[6], tail); }
+            tfw_sha256_final(&el.sha, body);
             el.sha_active = 0;
             el.sha_blocks++;
             el_respond(body, 32u);
@@ -438,7 +438,7 @@ static void el_execute(void)
         }
         if (p1 == 0x05u) {                        /* HMAC End */
             el.hmac++;
-            ag_hmac_sha256(EL_UDS, 32u, &p[6], p2, body);
+            tfw_hmac_sha256(EL_UDS, 32u, &p[6], p2, body);
             el_respond(body, 32u);
             return;
         }
@@ -493,15 +493,15 @@ static void el_execute(void)
 /*
  * THE WAKE PULSE, AND THE PRECONDITION THE HOST MODEL CANNOT EXPRESS.
  *
- * The part wakes on SDA held low for at least 60 us, which ag_atecc_wake
+ * The part wakes on SDA held low for at least 60 us, which tfw_atecc_wake
  * produces as the low period of a byte written to address zero -- nine bit
  * times. At 100 kHz that is 90 us and the part wakes; above it the pulse is too
  * short and the part stays asleep, which is why src/crypto/atecc608a/atecc.c
  * says the element's bus must be at or below 100 kHz.
  *
  * Whether it is depends on TWBR, and TWBR is a register. A model at the
- * ag_hal_i2c_xfer seam never sees one -- test/model/atecc608a.c's
- * ag_hal_i2c_init takes the rate and returns AG_OK either way, because above
+ * tfw_hal_i2c_xfer seam never sees one -- test/model/atecc608a.c's
+ * tfw_hal_i2c_init takes the rate and returns TFW_OK either way, because above
  * the seam there is nothing else it could do. Down here the rate is a fact
  * about the emulated part, so the refusal is real: forget to initialise the
  * bus and the element does not answer, which is precisely what happens on a
@@ -522,7 +522,7 @@ static void el_wake_pulse(void)
         return;                                   /* the pulse was too short */
     }
     /* A woken part is not executing anything, so nothing is left to be busy
-     * with. It matters because ag_atecc_wake reads the token ONCE and does not
+     * with. It matters because tfw_atecc_wake reads the token ONCE and does not
      * retry -- a leftover busy read here would fail a wake that hardware would
      * have answered. */
     el.busy_reads = 0u;
@@ -610,12 +610,12 @@ static unsigned frame_request(uint8_t *out, uint8_t seq, uint8_t cmd,
 {
     unsigned i = 0;
     uint16_t crc;
-    out[i++] = AG_SOF;
+    out[i++] = TFW_SOF;
     out[i++] = (uint8_t)(2u + plen);
     out[i++] = seq;
     out[i++] = cmd;
     for (uint8_t k = 0; k < plen; k++) { out[i++] = payload[k]; }
-    crc = ag_crc16(&out[1], (uint16_t)(i - 1u));
+    crc = tfw_crc16(&out[1], (uint16_t)(i - 1u));
     out[i++] = (uint8_t)(crc & 0xFFu);
     out[i++] = (uint8_t)(crc >> 8);
     return i;
@@ -628,16 +628,16 @@ static unsigned frame_request(uint8_t *out, uint8_t seq, uint8_t cmd,
 static int find_event(uint8_t *status)
 {
     for (unsigned i = 0; i + 6 <= from_device_n; i++) {
-        if (from_device[i] != AG_SOF) { continue; }
+        if (from_device[i] != TFW_SOF) { continue; }
         unsigned len = from_device[i + 1];
         if (len < 3 || len > 200) { continue; }
         unsigned total = len + 4;
         if (i + total > from_device_n) { continue; }
-        uint16_t want = ag_crc16(&from_device[i + 1], (uint16_t)(len + 1));
+        uint16_t want = tfw_crc16(&from_device[i + 1], (uint16_t)(len + 1));
         uint16_t got  = (uint16_t)(from_device[i + total - 2]
                                    | (from_device[i + total - 1] << 8));
         if (want != got) { continue; }
-        if (from_device[i + 3] != AG_OP_EVENT) { continue; }
+        if (from_device[i + 3] != TFW_OP_EVENT) { continue; }
         *status = from_device[i + 4];
         return 1;
     }
@@ -646,23 +646,23 @@ static int find_event(uint8_t *status)
 
 /*
  * The two EVENT frames a healthy device can emit after a reset, told apart by
- * their payload. The application's BOOT event is [status OK][AG_EVENT_BOOT];
- * ag-boot's announcement that it opened an update session is [status OK] with
+ * their payload. The application's BOOT event is [status OK][TFW_EVENT_BOOT];
+ * tfw-boot's announcement that it opened an update session is [status OK] with
  * no payload at all. Both are status OK, so the length is the discriminator.
  */
 static int find_event_with_payload_len(uint8_t plen, uint8_t first)
 {
     for (unsigned i = 0; i + 6 <= from_device_n; i++) {
-        if (from_device[i] != AG_SOF) { continue; }
+        if (from_device[i] != TFW_SOF) { continue; }
         unsigned len = from_device[i + 1];
         if (len < 3 || len > 200) { continue; }
         unsigned total = len + 4;
         if (i + total > from_device_n) { continue; }
-        uint16_t want = ag_crc16(&from_device[i + 1], (uint16_t)(len + 1));
+        uint16_t want = tfw_crc16(&from_device[i + 1], (uint16_t)(len + 1));
         uint16_t got  = (uint16_t)(from_device[i + total - 2]
                                    | (from_device[i + total - 1] << 8));
         if (want != got) { continue; }
-        if (from_device[i + 3] != AG_OP_EVENT || from_device[i + 4] != AG_OK) { continue; }
+        if (from_device[i + 3] != TFW_OP_EVENT || from_device[i + 4] != TFW_OK) { continue; }
         if (len - 3u != plen) { continue; }
         if (plen > 0u && from_device[i + 5] != first) { continue; }
         return 1;
@@ -671,23 +671,23 @@ static int find_event_with_payload_len(uint8_t plen, uint8_t first)
 }
 
 static int session_announced(void) { return find_event_with_payload_len(0u, 0u); }
-static int app_booted(void)        { return find_event_with_payload_len(1u, AG_EVENT_BOOT); }
+static int app_booted(void)        { return find_event_with_payload_len(1u, TFW_EVENT_BOOT); }
 
 static int find_response(uint8_t seq, uint8_t *status, uint8_t *payload, uint8_t *plen)
 {
     for (unsigned i = 0; i + 6 <= from_device_n; i++) {
-        if (from_device[i] != AG_SOF) { continue; }
+        if (from_device[i] != TFW_SOF) { continue; }
         unsigned len = from_device[i + 1];
         if (len < 3 || len > 200) { continue; }
         unsigned total = len + 4;
         if (i + total > from_device_n) { continue; }
-        uint16_t want = ag_crc16(&from_device[i + 1], (uint16_t)(len + 1));
+        uint16_t want = tfw_crc16(&from_device[i + 1], (uint16_t)(len + 1));
         uint16_t got  = (uint16_t)(from_device[i + total - 2]
                                    | (from_device[i + total - 1] << 8));
         if (want != got) { continue; }
         if (from_device[i + 2] != seq) { continue; }
-        if (!(from_device[i + 3] & AG_OP_RESPONSE_BIT)) { continue; }
-        if (from_device[i + 3] == AG_OP_EVENT) { continue; }
+        if (!(from_device[i + 3] & TFW_OP_RESPONSE_BIT)) { continue; }
+        if (from_device[i + 3] == TFW_OP_EVENT) { continue; }
         *status = from_device[i + 4];
         *plen   = (uint8_t)(len - 3u);
         memcpy(payload, &from_device[i + 5], *plen);
@@ -703,44 +703,44 @@ static int find_response(uint8_t seq, uint8_t *status, uint8_t *payload, uint8_t
  * test/unit/boot/test_boot_policy.c writes it out on the host.
  *
  * The point is that the two halves are run against each other: this composes a
- * trailer with the host's ag_boot_trailer_serialise and an x86 compiler, and
- * the device parses it with avr-gcc's copy of ag_boot_trailer_parse out of real
+ * trailer with the host's tfw_boot_trailer_serialise and an x86 compiler, and
+ * the device parses it with avr-gcc's copy of tfw_boot_trailer_parse out of real
  * program memory. A test that hand-wrote the bytes would only prove the parser
  * reads what the test wrote.
  *
  * THE APPLICATION IS THE REAL ONE. `image` holds the firmware .elf this same CI
- * run built, with a trailer at AG_BOOT_TRAILER_ADDR and erased flash between --
+ * run built, with a trailer at TFW_BOOT_TRAILER_ADDR and erased flash between --
  * two images in one flash, which is the arrangement on a real part. It has to
  * be the real one: "a correctly signed image boots" is observed by the
  * application answering CAPS after the jump, and only code that runs can do
  * that.
  */
-static uint8_t image[AG_BOOT_APP_END];
-static uint8_t eeprom_image[AG_BOOT_EE_LEN];
+static uint8_t image[TFW_BOOT_APP_END];
+static uint8_t eeprom_image[TFW_BOOT_EE_LEN];
 static uint32_t image_len;
 
-/* ag_sha256 takes a uint16_t length and an application region does not fit in
+/* tfw_sha256 takes a uint16_t length and an application region does not fit in
  * one. Chunked here rather than widened there: the device hashes 64 bytes at a
  * time through the element and never needs the wider call. */
 static void sha256_span(const uint8_t *p, uint32_t n, uint8_t out[32])
 {
-    ag_sha256_t ctx;
+    tfw_sha256_t ctx;
     uint32_t    off = 0u;
 
-    ag_sha256_init(&ctx);
+    tfw_sha256_init(&ctx);
     while (off < n) {
         uint32_t left = n - off;
         uint16_t take = left > 32768uL ? (uint16_t)32768u : (uint16_t)left;
-        ag_sha256_update(&ctx, &p[off], take);
+        tfw_sha256_update(&ctx, &p[off], take);
         off += take;
     }
-    ag_sha256_final(&ctx, out);
+    tfw_sha256_final(&ctx, out);
 }
 
 static void build_image(const elf_firmware_t *app, uint32_t version, long tamper_at)
 {
-    ag_boot_trailer_t tr;
-    uint8_t           raw[AG_BOOT_TRAILER_LEN];
+    tfw_boot_trailer_t tr;
+    uint8_t           raw[TFW_BOOT_TRAILER_LEN];
     uint8_t           prefix_digest[32];
 
     memset(image, 0xFF, sizeof image);            /* erased flash, not zeros */
@@ -756,12 +756,12 @@ static void build_image(const elf_firmware_t *app, uint32_t version, long tamper
      * version, image length and the measurement -- not the measurement alone.
      * Signing the measurement by itself would leave the version
      * unauthenticated and hand an attacker anti-rollback for a four-byte edit;
-     * see include/ag/boot.h. */
-    ag_boot_trailer_serialise(&tr, raw);
-    ag_sha256(raw, AG_BOOT_TR_SIGNED_LEN, prefix_digest);
-    element_sign(prefix_digest, &raw[AG_BOOT_TR_SIGNATURE]);
+     * see include/tfw/boot.h. */
+    tfw_boot_trailer_serialise(&tr, raw);
+    tfw_sha256(raw, TFW_BOOT_TR_SIGNED_LEN, prefix_digest);
+    element_sign(prefix_digest, &raw[TFW_BOOT_TR_SIGNATURE]);
 
-    memcpy(&image[AG_BOOT_TRAILER_ADDR], raw, AG_BOOT_TRAILER_LEN);
+    memcpy(&image[TFW_BOOT_TRAILER_ADDR], raw, TFW_BOOT_TRAILER_LEN);
 
     /* The tamper goes in LAST, so the trailer still claims the measurement of
      * the image nobody edited -- which is the situation a real attacker leaves
@@ -772,22 +772,22 @@ static void build_image(const elf_firmware_t *app, uint32_t version, long tamper
 }
 
 /*
- * The serial `agprov --bake-eeprom` would have baked in before this part was
- * ever flashed -- see sdk/go/cmd/agprov/eeprom.go. Non-zero so this image is
+ * The serial `tfwprov --bake-eeprom` would have baked in before this part was
+ * ever flashed -- see sdk/go/cmd/tfwprov/eeprom.go. Non-zero so this image is
  * genuinely a "provisioned platform block" and not an accidental all-zero
  * one; this harness's mismatched crypto tiers (see test_signed_image_boots)
  * mean ATTEST refuses before DeviceID would ever reach the wire here --
  * test_attest.c's test_a_baked_serial_reaches_device_id is where that flow is
  * proven, against a matching tier.
  */
-static const uint8_t TEST_DEVICE_SERIAL[AG_BOOT_SERIAL_LEN] = {
+static const uint8_t TEST_DEVICE_SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,
     0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5
 };
 
 static void build_eeprom(void)
 {
-    ag_boot_platform_t plat;
+    tfw_boot_platform_t plat;
 
     memset(eeprom_image, 0xFF, sizeof eeprom_image);
     memset(&plat, 0, sizeof plat);
@@ -795,21 +795,21 @@ static void build_eeprom(void)
      * pubkey_hash is left ZERO on purpose and the device still boots.
      *
      * On the element tier there is no key for the bootloader to hash: it lives
-     * in a locked element slot and is named by number, so ag_boot_pubkey
+     * in a locked element slot and is named by number, so tfw_boot_pubkey
      * refuses and the EEPROM pin is not this bootloader's to check. Filling
      * this field with something plausible would hide the fact that nothing
      * reads it, and would make a regression that started reading it look like
      * a pass.
      */
-    plat.boot_state = AG_BOOT_STATE_GOOD;
-    memcpy(plat.serial, TEST_DEVICE_SERIAL, AG_BOOT_SERIAL_LEN);
-    ag_boot_platform_serialise(&plat, eeprom_image);
+    plat.boot_state = TFW_BOOT_STATE_GOOD;
+    memcpy(plat.serial, TEST_DEVICE_SERIAL, TFW_BOOT_SERIAL_LEN);
+    tfw_boot_platform_serialise(&plat, eeprom_image);
 }
 
 static void install(elf_firmware_t *boot, uint32_t counter)
 {
-    avr = avr_make_mcu_by_name(AG_SIMAVR_MCU);
-    if (!avr) { fprintf(stderr, "no simavr core for %s\n", AG_SIMAVR_MCU); exit(2); }
+    avr = avr_make_mcu_by_name(TFW_SIMAVR_MCU);
+    if (!avr) { fprintf(stderr, "no simavr core for %s\n", TFW_SIMAVR_MCU); exit(2); }
     avr_init(avr);
     avr_load_firmware(avr, boot);
 
@@ -830,17 +830,17 @@ static void install(elf_firmware_t *boot, uint32_t counter)
      * second reset and a suite about entering the bootloader never enters it. */
     avr->reset_pc = boot->flashbase;
     if (avr->pc == 0u) {
-        fprintf(stderr, "ag-boot.elf has no boot-section entry point\n");
+        fprintf(stderr, "tfw-boot.elf has no boot-section entry point\n");
         exit(2);
     }
 
     /* The application image goes straight into the emulated program memory,
-     * BELOW the bootloader the .elf just placed at AG_BOOT_APP_END. */
-    memcpy(avr->flash, image, AG_BOOT_APP_END);
+     * BELOW the bootloader the .elf just placed at TFW_BOOT_APP_END. */
+    memcpy(avr->flash, image, TFW_BOOT_APP_END);
 
     {
-        avr_eeprom_desc_t d = { .ee = eeprom_image, .offset = AG_BOOT_EE_BASE,
-                                .size = AG_BOOT_EE_LEN };
+        avr_eeprom_desc_t d = { .ee = eeprom_image, .offset = TFW_BOOT_EE_BASE,
+                                .size = TFW_BOOT_EE_LEN };
         avr_ioctl(avr, AVR_IOCTL_EEPROM_SET, &d);
     }
 
@@ -900,7 +900,7 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
     /*
      * MCUSR, poked directly into emulated memory -- EXTRF (bit 1), an
      * external reset. This is the fact issue #18 is actually about: does the
-     * value survive ag-boot's OWN .init3 (which reads and clears the real
+     * value survive tfw-boot's OWN .init3 (which reads and clears the real
      * register), through the handoff, through the application's OWN .init3
      * (which reads a register already zero by then), out to SYS_INFO? A test
      * that only checked the handoff's byte layout, as test_reset_cause.c
@@ -937,10 +937,10 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
           "the rollback floor advanced in the element's counter, not in EEPROM");
 
     from_device_n = 0;
-    n = frame_request(wire, 0x31, AG_CMD_CAPS, NULL, 0);
+    n = frame_request(wire, 0x31, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
     run_cycles(BUDGET_EXCHANGE);
-    check(find_response(0x31, &status, out, &outlen) && status == AG_OK,
+    check(find_response(0x31, &status, out, &outlen) && status == TFW_OK,
           "CAPS answers, so the APPLICATION is running");
 
     /*
@@ -950,40 +950,40 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
      * here is CRYPTO=soft, mk/avr.mk's own independent default -- a MISMATCH
      * this harness carries rather than resolves, because it is exactly the
      * case src/crypto/soft/provider.c must now refuse rather than sign with.
-     * ag-boot hands off a real, non-zero CDI derived from the ELEMENT's UDS,
-     * tagged AG_CRYPTO_SECURE_ELEMENT; the software tier has no way to
+     * tfw-boot hands off a real, non-zero CDI derived from the ELEMENT's UDS,
+     * tagged TFW_CRYPTO_SECURE_ELEMENT; the software tier has no way to
      * reproduce a secret from a UDS it never provisions anywhere it reads
      * from, so a verifier configured for this tier could never recompute a
      * signature made under it. Accepting the handoff anyway would be evidence
      * that verifies against nothing a real verifier could ever check.
      *
      * A test that only mocked the tier byte, as test_attest.c does on the
-     * host, could not catch a REAL ag-boot's REAL element-derived CDI
+     * host, could not catch a REAL tfw-boot's REAL element-derived CDI
      * reaching a REAL software-tier build over the actual fixed SRAM address.
-     * This is that path, and the correct answer is AG_ERR_NOT_PROVISIONED --
+     * This is that path, and the correct answer is TFW_ERR_NOT_PROVISIONED --
      * the same status an entirely unprovisioned device returns, which is
      * exactly right: this device has no identity THIS TIER CAN USE, whatever
-     * ag-boot found.
+     * tfw-boot found.
      */
     {
-        static const uint8_t nonce[AG_ATTEST_NONCE_LEN] = {
+        static const uint8_t nonce[TFW_ATTEST_NONCE_LEN] = {
             0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
         };
         uint8_t out2[64], outlen2;
 
         from_device_n = 0;
-        n = frame_request(wire, 0x34, AG_CMD_ATTEST, nonce, sizeof nonce);
+        n = frame_request(wire, 0x34, TFW_CMD_ATTEST, nonce, sizeof nonce);
         send(wire, n);
         wait_for_seq = 0x34;
         run_until(response_arrived, BUDGET_EXCHANGE);
         check(find_response(0x34, &status, out2, &outlen2)
-              && status == AG_ERR_NOT_PROVISIONED,
+              && status == TFW_ERR_NOT_PROVISIONED,
               "ATTEST refuses a CDI handed off for a mismatched crypto tier");
     }
 
     /*
      * The reset cause: the EXTRF poked into MCUSR above, having survived
-     * ag-boot's OWN .init3 (which reads and clears the real register),
+     * tfw-boot's OWN .init3 (which reads and clears the real register),
      * the handoff, the application's OWN .init3 (which reads a register
      * already zero by then), and out through SYS_INFO -- issue #18.
      */
@@ -991,7 +991,7 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
         uint8_t sysinfo[64], sysinfo_len;
 
         from_device_n = 0;
-        n = frame_request(wire, 0x36, AG_CMD_SYS_INFO, NULL, 0u);
+        n = frame_request(wire, 0x36, TFW_CMD_SYS_INFO, NULL, 0u);
         send(wire, n);
         wait_for_seq = 0x36;
         run_until(response_arrived, BUDGET_EXCHANGE);
@@ -1002,9 +1002,9 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
          * versioning promises. reset_cause stays at byte 6 regardless of how
          * many bytes follow it.
          */
-        check(find_response(0x36, &status, sysinfo, &sysinfo_len) && status == AG_OK
-              && sysinfo_len >= 7u && sysinfo[6] == 2u /* AG_RESET_EXTERNAL */,
-              "SYS_INFO reports the reset cause ag-boot handed off, not unknown");
+        check(find_response(0x36, &status, sysinfo, &sysinfo_len) && status == TFW_OK
+              && sysinfo_len >= 7u && sysinfo[6] == 2u /* TFW_RESET_EXTERNAL */,
+              "SYS_INFO reports the reset cause tfw-boot handed off, not unknown");
     }
 }
 
@@ -1019,13 +1019,13 @@ static void test_tampered_image_refuses(elf_firmware_t *boot, elf_firmware_t *ap
 
     check(run_until(event_arrived, BUDGET_BOOT),
           "the device says why within the cycle budget");
-    check(find_event(&status) && status == AG_ERR_CRYPTO,
-          "refused with AG_ERR_CRYPTO");
+    check(find_event(&status) && status == TFW_ERR_CRYPTO,
+          "refused with TFW_ERR_CRYPTO");
 
     /* WHERE it refused, and this is the part a status byte cannot tell you. The
      * measurement is compared before the signature is checked, so a tampered
      * image must cost the element a full hash and no Verify at all -- if Verify
-     * ran, the ordering in ag_boot_evaluate has changed and the expensive check
+     * ran, the ordering in tfw_boot_evaluate has changed and the expensive check
      * is now happening on images that never needed it. */
     check(el.sha_blocks > 0, "the element was asked to measure the image");
     check(el.verify == 0,
@@ -1035,11 +1035,11 @@ static void test_tampered_image_refuses(elf_firmware_t *boot, elf_firmware_t *ap
         uint8_t wire[64], out[64], outlen;
         unsigned n;
         from_device_n = 0;
-        n = frame_request(wire, 0x32, AG_CMD_CAPS, NULL, 0);
+        n = frame_request(wire, 0x32, TFW_CMD_CAPS, NULL, 0);
         send(wire, n);
         run_cycles(BUDGET_EXCHANGE);
         check(find_response(0x32, &status, out, &outlen)
-              && status == AG_ERR_UNKNOWN_CMD,
+              && status == TFW_ERR_UNKNOWN_CMD,
               "CAPS is unknown, so it did NOT jump");
     }
 }
@@ -1064,8 +1064,8 @@ static void test_downgrade_refuses(elf_firmware_t *boot, elf_firmware_t *app)
 
     check(run_until(event_arrived, BUDGET_BOOT),
           "the device says why within the cycle budget");
-    check(find_event(&status) && status == AG_ERR_PROTECTED_REGION,
-          "refused with AG_ERR_PROTECTED_REGION");
+    check(find_event(&status) && status == TFW_ERR_PROTECTED_REGION,
+          "refused with TFW_ERR_PROTECTED_REGION");
     check(el.sha_blocks == 0,
           "and refused before measuring: the cheap check came first");
     check(el.counter == 5u, "the floor did not move for a refused image");
@@ -1075,9 +1075,9 @@ static void test_downgrade_refuses(elf_firmware_t *boot, elf_firmware_t *app)
  * Issue #28: a healthy device, asked over the wire to take an update.
  *
  * RESET(1) is sent to the RUNNING APPLICATION. It leaves the request in SRAM
- * and takes a real watchdog reset; ag-boot, entered through BOOTRST, finds the
+ * and takes a real watchdog reset; tfw-boot, entered through BOOTRST, finds the
  * request, opens the session instead of jumping, and answers PING. Left alone it
- * gives up after AG_BOOT_SESSION_IDLE_SECONDS and boots the application it
+ * gives up after TFW_BOOT_SESSION_IDLE_SECONDS and boots the application it
  * always could have; told to RESET it does so at once; and in neither case does
  * the NEXT reset enter the bootloader again.
  */
@@ -1115,7 +1115,7 @@ static void test_requested_update_session(elf_firmware_t *boot, elf_firmware_t *
     const uint8_t ping[4] = { 'u', 'p', 'd', 'a' };
     uint8_t  out[64], outlen, status;
     uint64_t elapsed;
-    const uint64_t nominal = (uint64_t)AG_BOOT_SESSION_IDLE_SECONDS * F_CPU_HZ;
+    const uint64_t nominal = (uint64_t)TFW_BOOT_SESSION_IDLE_SECONDS * F_CPU_HZ;
 
     printf("a requested update session (issue #28):\n");
     build_image(app, 3u, -1);
@@ -1123,27 +1123,27 @@ static void test_requested_update_session(elf_firmware_t *boot, elf_firmware_t *
     install(boot, 0u);
     check(run_until(device_spoke, BUDGET_BOOT), "a healthy image boots first");
 
-    send_and_wait(0x41, AG_CMD_CAPS, NULL, 0u);
-    check(response_status_is(0x41, AG_OK), "CAPS answers, so the application is running");
+    send_and_wait(0x41, TFW_CMD_CAPS, NULL, 0u);
+    check(response_status_is(0x41, TFW_OK), "CAPS answers, so the application is running");
 
     /* RESET(1) to the application. */
-    send_and_wait(0x42, AG_CMD_RESET, to_boot, 1u);
-    check(response_status_is(0x42, AG_OK), "RESET(1) is acknowledged by the application");
+    send_and_wait(0x42, TFW_CMD_RESET, to_boot, 1u);
+    check(response_status_is(0x42, TFW_OK), "RESET(1) is acknowledged by the application");
 
     check(run_until(session_announced, BUDGET_BOOT),
-          "ag-boot announces an update session instead of jumping");
+          "tfw-boot announces an update session instead of jumping");
     check(!app_booted(), "and the application did not start");
 
-    send_and_wait(0x43, AG_CMD_PING, ping, sizeof ping);
-    check(find_response(0x43, &status, out, &outlen) && status == AG_OK
+    send_and_wait(0x43, TFW_CMD_PING, ping, sizeof ping);
+    check(find_response(0x43, &status, out, &outlen) && status == TFW_OK
           && outlen == sizeof ping && memcmp(out, ping, sizeof ping) == 0,
           "the bootloader answers PING");
-    send_and_wait(0x44, AG_CMD_CAPS, NULL, 0u);
-    check(response_status_is(0x44, AG_ERR_UNKNOWN_CMD),
+    send_and_wait(0x44, TFW_CMD_CAPS, NULL, 0u);
+    check(response_status_is(0x44, TFW_ERR_UNKNOWN_CMD),
           "and CAPS is unknown, so this is the bootloader and not the application");
 
     /* Left alone it times out into the normal boot. The wait is measured: it is
-     * what AG_BOOT_SESSION_POLL_CYCLES promises, and a loop that changed cost
+     * what TFW_BOOT_SESSION_POLL_CYCLES promises, and a loop that changed cost
      * without the constant following would otherwise stretch or shrink it. */
     from_device_n = 0;
     elapsed = run_until_cycles(app_booted, nominal * 2u);
@@ -1154,21 +1154,21 @@ static void test_requested_update_session(elf_firmware_t *boot, elf_firmware_t *
           "and not before 80% of the configured idle time");
     check(elapsed <= nominal * 12u / 10u + BUDGET_BOOT,
           "nor later than 120% of it plus the verify");
-    send_and_wait(0x45, AG_CMD_CAPS, NULL, 0u);
-    check(response_status_is(0x45, AG_OK), "CAPS answers: the same image, verified, is running");
+    send_and_wait(0x45, TFW_CMD_CAPS, NULL, 0u);
+    check(response_status_is(0x45, TFW_OK), "CAPS answers: the same image, verified, is running");
 
     /* A RESET command inside the session ends it at once. */
-    send_and_wait(0x46, AG_CMD_RESET, to_boot, 1u);
+    send_and_wait(0x46, TFW_CMD_RESET, to_boot, 1u);
     check(run_until(session_announced, BUDGET_BOOT), "a second request opens a second session");
     from_device_n = 0;
-    send_and_wait(0x47, AG_CMD_RESET, soft, 1u);
+    send_and_wait(0x47, TFW_CMD_RESET, soft, 1u);
     elapsed = run_until_cycles(app_booted, nominal);
     check(app_booted() && elapsed < BUDGET_BOOT,
           "RESET in the session boots the application without waiting for the timeout");
 
     /* ONE SHOT. Nothing left over: an ordinary soft reset goes straight to the
      * application with no session in between. */
-    send_and_wait(0x48, AG_CMD_RESET, soft, 1u);
+    send_and_wait(0x48, TFW_CMD_RESET, soft, 1u);
     from_device_n = 0;
     elapsed = run_until_cycles(app_booted, nominal);
     check(app_booted() && elapsed < BUDGET_BOOT && !session_announced(),
@@ -1183,14 +1183,14 @@ static void test_requested_update_session(elf_firmware_t *boot, elf_firmware_t *
  */
 static void test_request_after_power_on_is_ignored(elf_firmware_t *boot, elf_firmware_t *app)
 {
-    uint8_t  req[AG_BOOT_REQUEST_LEN];
-    uint16_t at = (uint16_t)(avr->ramend - (AG_BOOT_HANDOFF_LEN - 1u));
+    uint8_t  req[TFW_BOOT_REQUEST_LEN];
+    uint16_t at = (uint16_t)(avr->ramend - (TFW_BOOT_HANDOFF_LEN - 1u));
 
     printf("a request left in SRAM across a power cycle:\n");
     build_image(app, 3u, -1);
     build_eeprom();
     install(boot, 0u);
-    ag_boot_request_encode(req);
+    tfw_boot_request_encode(req);
     memcpy(&avr->data[at], req, sizeof req);
     avr->data[0x54] = 0x01u;   /* PORF */
 
@@ -1209,8 +1209,8 @@ static void test_junk_stream_cannot_park_the_session(elf_firmware_t *boot, elf_f
     const uint8_t to_boot[1] = { 1u };
     /* One byte every 10 bit times at 115 200 baud and 16 MHz: the fastest the
      * wire can deliver, which is what the byte budget is derived from. */
-    const unsigned cycles_per_byte = (unsigned)(F_CPU_HZ / (AG_UART_BAUD / 10u));
-    const uint64_t nominal = (uint64_t)AG_BOOT_SESSION_IDLE_SECONDS * F_CPU_HZ;
+    const unsigned cycles_per_byte = (unsigned)(F_CPU_HZ / (TFW_UART_BAUD / 10u));
+    const uint64_t nominal = (uint64_t)TFW_BOOT_SESSION_IDLE_SECONDS * F_CPU_HZ;
     uint64_t start;
 
     printf("a continuous junk stream during a session:\n");
@@ -1218,7 +1218,7 @@ static void test_junk_stream_cannot_park_the_session(elf_firmware_t *boot, elf_f
     build_eeprom();
     install(boot, 0u);
     check(run_until(device_spoke, BUDGET_BOOT), "a healthy image boots first");
-    send_and_wait(0x51, AG_CMD_RESET, to_boot, 1u);
+    send_and_wait(0x51, TFW_CMD_RESET, to_boot, 1u);
     check(run_until(session_announced, BUDGET_BOOT), "the session opens");
 
     from_device_n = 0;
@@ -1246,8 +1246,8 @@ static void test_valid_frame_drip_hits_the_ceiling(elf_firmware_t *boot, elf_fir
 {
     const uint8_t to_boot[1] = { 1u };
     const uint8_t begin[4] = { 0x00, 0x10, 0x00, 0x00 };    /* 4096 bytes */
-    const uint64_t ceiling = (uint64_t)AG_BOOT_SESSION_MAX_SECONDS * F_CPU_HZ;
-    const uint64_t period  = (uint64_t)(AG_BOOT_SESSION_IDLE_SECONDS - 2u) * F_CPU_HZ;
+    const uint64_t ceiling = (uint64_t)TFW_BOOT_SESSION_MAX_SECONDS * F_CPU_HZ;
+    const uint64_t period  = (uint64_t)(TFW_BOOT_SESSION_IDLE_SECONDS - 2u) * F_CPU_HZ;
     uint8_t  wire[64];
     unsigned n;
     uint64_t start, last_sent;
@@ -1257,7 +1257,7 @@ static void test_valid_frame_drip_hits_the_ceiling(elf_firmware_t *boot, elf_fir
     build_eeprom();
     install(boot, 0u);
     check(run_until(device_spoke, BUDGET_BOOT), "a healthy image boots first");
-    send_and_wait(0x61, AG_CMD_RESET, to_boot, 1u);
+    send_and_wait(0x61, TFW_CMD_RESET, to_boot, 1u);
     check(run_until(session_announced, BUDGET_BOOT), "the session opens");
 
     from_device_n = 0;
@@ -1265,7 +1265,7 @@ static void test_valid_frame_drip_hits_the_ceiling(elf_firmware_t *boot, elf_fir
     while (!app_booted() && avr->cycle - start < ceiling * 2u) {
         if (avr->cycle - last_sent >= period) {
             last_sent = avr->cycle;
-            n = frame_request(wire, 0x62, AG_CMD_OTA_BEGIN, begin, sizeof begin);
+            n = frame_request(wire, 0x62, TFW_CMD_OTA_BEGIN, begin, sizeof begin);
             send(wire, n);
         }
         run_cycles(100000);
@@ -1287,7 +1287,7 @@ int main(int argc, char **argv)
     const char    *app_elf  = argc > 2 ? argv[2] : 0;
 
     if (!boot_elf || !app_elf) {
-        fprintf(stderr, "usage: boot_harness <ag-boot.elf> <application.elf>\n");
+        fprintf(stderr, "usage: boot_harness <tfw-boot.elf> <application.elf>\n");
         return 2;
     }
 
@@ -1301,7 +1301,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "cannot read %s\n", app_elf);
         return 2;
     }
-    if (app.flashsize == 0u || app.flashsize > AG_BOOT_MAX_IMAGE_LEN) {
+    if (app.flashsize == 0u || app.flashsize > TFW_BOOT_MAX_IMAGE_LEN) {
         fprintf(stderr, "%s does not fit the application region\n", app_elf);
         return 2;
     }
@@ -1310,10 +1310,10 @@ int main(int argc, char **argv)
      * every TWI bit rate in the image is computed against a different clock
      * than the one it runs on. */
     boot.frequency = F_CPU_HZ;
-    strcpy(boot.mmcu, AG_SIMAVR_MCU);
+    strcpy(boot.mmcu, TFW_SIMAVR_MCU);
 
-    printf("simavr ag-boot integration: %s + %s on %s\n",
-           boot_elf, app_elf, AG_SIMAVR_MCU);
+    printf("simavr tfw-boot integration: %s + %s on %s\n",
+           boot_elf, app_elf, TFW_SIMAVR_MCU);
 
     test_signed_image_boots(&boot, &app);
     test_tampered_image_refuses(&boot, &app);

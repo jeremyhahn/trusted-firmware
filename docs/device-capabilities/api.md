@@ -1,16 +1,16 @@
 # Device capabilities: API
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 >
 > Conflicts with this document are defects. Fix them here first.
 
 One transport exists: the framed serial protocol described in full in
 `../wire-protocol/architecture.md` (frame layout, CRC, resync, versioning). This
 page covers only the command/payload bodies this feature set puts inside that
-frame. `STATUS` in a response is one byte from `include/ag/status.h`; see
+frame. `STATUS` in a response is one byte from `include/tfw/status.h`; see
 `engineering.md` for which codes each command can return.
 
-All multi-byte fields are little-endian. `ag_pin_t` is one byte, the number
+All multi-byte fields are little-endian. `tfw_pin_t` is one byte, the number
 printed on the board silkscreen — resolved to hardware by the board
 descriptor, never sent as a register address.
 
@@ -81,7 +81,7 @@ NO_TONE    req  (pin ignored if present)                      resp  (none)
 ```
 
 `duty=0` disconnects the pin from its compare unit rather than driving it
-low. `TONE` is refused on every pin except the board's single `AG_TONE_PIN`.
+low. `TONE` is refused on every pin except the board's single `TFW_TONE_PIN`.
 
 ## Pulse
 
@@ -96,39 +96,39 @@ PULSE_CAPTURE  req  pin:u8  start_level:u8(0|1)  max_edges:u8  timeout_us:u32
                resp  n:u8  interval_us:u16 * n
 ```
 
-`timeout_us` is bounded by `AG_PULSE_MAX_US` (50000 by default); `max_edges`
-by `AG_CAPTURE_MAX = (AG_MAX_PAYLOAD - 1) / 2`, the most intervals one reply
+`timeout_us` is bounded by `TFW_PULSE_MAX_US` (50000 by default); `max_edges`
+by `TFW_CAPTURE_MAX = (TFW_MAX_PAYLOAD - 1) / 2`, the most intervals one reply
 can carry. Intervals are raw edge-to-edge microsecond counts; the host
 decodes the sensor.
 
 **`0x31`–`0x33`** (`PULSE_COUNT_START`/`READ`/`STOP`) are reserved in
-`include/ag/protocol.h` but have no entry in `src/core/commands.def`, no
+`include/tfw/protocol.h` but have no entry in `src/core/commands.def`, no
 capability handler, and no SDK method. A request against them returns
-`AG_ERR_UNKNOWN_CMD`, indistinguishable from an id that was never allocated.
+`TFW_ERR_UNKNOWN_CMD`, indistinguishable from an id that was never allocated.
 
 ## EEPROM
 
 | command | id | min/max payload |
 |---|---|---|
 | `EEPROM_READ` | `0x40` | 3 / 3 |
-| `EEPROM_WRITE` | `0x41` | 3 / `AG_MAX_PAYLOAD` |
+| `EEPROM_WRITE` | `0x41` | 3 / `TFW_MAX_PAYLOAD` |
 
 ```
 EEPROM_READ   req  addr:u16  len:u8                            resp  data:blob(len)
 EEPROM_WRITE  req  addr:u16  data:blob                         resp  (none)
 ```
 
-`len`/`len(data)` is bounded by `AG_EEPROM_CHUNK` (8). `addr` below `0x080`
-is refused on write (`AG_ERR_PROTECTED_REGION`) and permitted on read.
+`len`/`len(data)` is bounded by `TFW_EEPROM_CHUNK` (8). `addr` below `0x080`
+is refused on write (`TFW_ERR_PROTECTED_REGION`) and permitted on read.
 
 ## Buses
 
 | command | id | min/max payload |
 |---|---|---|
-| `I2C_XFER` | `0x50` | 2 / `AG_MAX_PAYLOAD` |
-| `SPI_XFER` | `0x51` | 2 / `AG_MAX_PAYLOAD` |
+| `I2C_XFER` | `0x50` | 2 / `TFW_MAX_PAYLOAD` |
+| `SPI_XFER` | `0x51` | 2 / `TFW_MAX_PAYLOAD` |
 | `ONEWIRE_RESET` | `0x52` | 1 / 1 |
-| `ONEWIRE_WRITE` | `0x53` | 2 / `AG_MAX_PAYLOAD` |
+| `ONEWIRE_WRITE` | `0x53` | 2 / `TFW_MAX_PAYLOAD` |
 | `ONEWIRE_READ` | `0x54` | 2 / 2 |
 | `I2C_CONFIG` | `0x55` | 4 / 4 |
 | `SPI_CONFIG` | `0x56` | 3 / 3 |
@@ -143,23 +143,23 @@ I2C_CONFIG      req  hz:u32                                    resp  (none)
 SPI_CONFIG      req  mode:u8(0-3)  clkdiv:u8(0-3)  lsb_first:u8(0|1)  resp  (none)
 ```
 
-`addr7 == AG_I2C_RESERVED_ADDR` (`0x60` by default) is refused unconditionally.
-`cs_pin` flagged `AG_PIN_RESERVED`/`AG_PIN_IN_USE` (a TPM's chip-select, or the
+`addr7 == TFW_I2C_RESERVED_ADDR` (`0x60` by default) is refused unconditionally.
+`cs_pin` flagged `TFW_PIN_RESERVED`/`TFW_PIN_IN_USE` (a TPM's chip-select, or the
 UART pins) is refused the same way. SPI is full duplex: the reply is always
 the same length as the write. Transfer length on all three buses is bounded
-by `AG_MAX_PAYLOAD - 1`.
+by `TFW_MAX_PAYLOAD - 1`.
 
 `I2C_CONFIG` and `SPI_CONFIG` reconfigure the generic bus's clock (I2C) or
 mode/clock-divider/bit-order (SPI). Neither is required before `I2C_XFER` or
-`SPI_XFER` work: `main.c` calls `ag_bus_init()` at boot, which applies
-`AG_I2C_DEFAULT_HZ` (100 kHz) and `AG_SPI_DEFAULT_MODE`/`_CLKDIV`/`_LSB_FIRST`
+`SPI_XFER` work: `main.c` calls `tfw_bus_init()` at boot, which applies
+`TFW_I2C_DEFAULT_HZ` (100 kHz) and `TFW_SPI_DEFAULT_MODE`/`_CLKDIV`/`_LSB_FIRST`
 (mode 0, slowest divider, MSB-first) before the host ever sends either
-command. `hz` outside `AG_I2C_HZ_MIN..AG_I2C_HZ_MAX` (1 kHz..400 kHz), or `mode`
-/`clkdiv` above 3, or `lsb_first` above 1, is `AG_ERR_RANGE`.
+command. `hz` outside `TFW_I2C_HZ_MIN..TFW_I2C_HZ_MAX` (1 kHz..400 kHz), or `mode`
+/`clkdiv` above 3, or `lsb_first` above 1, is `TFW_ERR_RANGE`.
 
 On a build whose crypto tier is the secure element (`CryptoTier ==
 CryptoSecureElement` in `CAPS`), `I2C_CONFIG` refuses EVERY request with
-`AG_ERR_PROTECTED_REGION`, checked before the range above -- the element's
+`TFW_ERR_PROTECTED_REGION`, checked before the range above -- the element's
 wake pulse needs this same TWI peripheral at or below 100 kHz, and a rate
 accepted here would be silently undone the next time any crypto operation
 ran. `SPI_CONFIG` carries no such restriction on any tier.

@@ -17,9 +17,9 @@ sdk-build:
 ## sdk-test: run the Go tests, including the cross-implementation suite
 # Depends on both simulators: the cross-implementation tests talk to the REAL
 # firmware compiled for the host, so a stale or missing binary would leave the
-# only check that the two codecs agree silently untested. agsim-atecc608a is the
+# only check that the two codecs agree silently untested. tfwsim-atecc608a is the
 # element tier, the only peer that produces DICE evidence.
-sdk-test: agsim agsim-atecc608a
+sdk-test: tfwsim tfwsim-atecc608a
 	@cd $(SDK_DIR) && $(GO) test -count=1 ./...
 
 ## sdk-lint: gofmt and vet the Go SDK
@@ -37,7 +37,7 @@ sdk-lint:
 # one property.
 sdk-verify:
 	@cd $(SDK_DIR) && $(GO) mod verify >/dev/null
-	@if cd $(SDK_DIR) && $(GO) list -m all | grep -E 'jeremyhahn/(go-|xkey)' | grep -v 'arduino-generic'; then \
+	@if cd $(SDK_DIR) && $(GO) list -m all | grep -E 'jeremyhahn/(go-|xkey)' | grep -v 'trusted-firmware'; then \
 	  echo "LAYER 0 VIOLATION: sdk/go depends on an in-house module (see above)"; exit 1; \
 	fi
 	@echo "sdk/go: zero in-house dependencies -- Layer 0 invariant holds"

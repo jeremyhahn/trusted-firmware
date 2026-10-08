@@ -1,11 +1,11 @@
 # Device provisioning — API
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 Six command ids, `0x70`–`0x75`, reserved permanently on the wire (see
 `docs/wire-protocol/architecture.md` for the frame format). Every one of them is
-answered `AG_ERR_UNKNOWN_CMD` by a production image — see
+answered `TFW_ERR_UNKNOWN_CMD` by a production image — see
 [`architecture.md`](architecture.md) for why the gate is file selection, not a
 runtime check.
 
@@ -20,9 +20,9 @@ runtime check.
 | `0x74` | `PROV_PUBKEY` | 1 byte: `slot[1]` | 64 bytes: `public_point[64]` (X‖Y) |
 | `0x75` | `PROV_SEED_UDS` | 1 byte: `slot[1]` | none |
 
-`AG_CMD_ENTRY` in `src/core/commands.def` fixes both the min and max payload
+`TFW_CMD_ENTRY` in `src/core/commands.def` fixes both the min and max payload
 size per command (e.g. `PROV_WRITE_CONFIG` is exactly 33 bytes both ways); a
-request of the wrong length is rejected as `AG_ERR_BAD_ARGC` before the handler
+request of the wrong length is rejected as `TFW_ERR_BAD_ARGC` before the handler
 runs.
 
 ### `PROV_INFO`
@@ -43,13 +43,13 @@ provisioning command safe to send to a part you care about.
 Writes one 32-byte block of the config zone. `block` is a block index (4-byte
 words × 8 = 32 bytes per block); only blocks `2` and `3` may be written —
 blocks `0` and `1` hold the serial, revision, and OTP mode and are refused with
-`AG_ERR_PROTECTED_REGION`. Refused once the config zone is locked.
+`TFW_ERR_PROTECTED_REGION`. Refused once the config zone is locked.
 
 ### `PROV_LOCK`
 
 Locks `zone` (`0x00` = config, `0x01` = data) after checking `summary_crc`
 against the element's own summary of the zone's contents. **Irreversible.**
-`summary_crc == 0` is refused (`AG_ERR_BAD_ARGC`) rather than treated as "lock
+`summary_crc == 0` is refused (`TFW_ERR_BAD_ARGC`) rather than treated as "lock
 without checking" — the element supports that form, and this firmware never
 sends it.
 
@@ -76,16 +76,16 @@ element; the host never observes the value on the wire.
 ## Status codes specific to this surface
 
 See [`engineering.md`](engineering.md) for the full table mapping each status
-to the command(s) that raise it. In summary: `AG_ERR_NACK` (element did not
-wake), `AG_ERR_RANGE` (bad block/zone/slot), `AG_ERR_BAD_ARGC` (wrong length or
-zero CRC), `AG_ERR_PROTECTED_REGION` (write to block 0/1), `AG_ERR_UNKNOWN_CMD`
+to the command(s) that raise it. In summary: `TFW_ERR_NACK` (element did not
+wake), `TFW_ERR_RANGE` (bad block/zone/slot), `TFW_ERR_BAD_ARGC` (wrong length or
+zero CRC), `TFW_ERR_PROTECTED_REGION` (write to block 0/1), `TFW_ERR_UNKNOWN_CMD`
 (production image).
 
 ## The provisioning template
 
-`agprov --config` takes a `key = value` file, not YAML (see
+`tfwprov --config` takes a `key = value` file, not YAML (see
 [`architecture.md`](architecture.md) for why). Grammar, from
-`sdk/go/cmd/agprov/template.go`:
+`sdk/go/cmd/tfwprov/template.go`:
 
 ```
 name            = <string>                     # free-form, printed in --dry-run
@@ -120,10 +120,10 @@ usable only by the SHA/HMAC command (the UDS).
 ## What is out of scope for this surface
 
 The device serial, the operator public key (issue #4, element tier) and the
-rest of the platform-reserved EEPROM region (`include/ag/boot.h`, offsets
+rest of the platform-reserved EEPROM region (`include/tfw/boot.h`, offsets
 `0x00`–`0xBE`) are **not** written by any command on this page. `EEPROMWrite`
 (`0x41`, the general storage capability, `src/caps/storage.c`) unconditionally
 refuses every address below `0xC0` regardless of build — see
 [`engineering.md`](engineering.md)'s "known gap" note. There is currently no
 wire command that writes the device serial or the operator public key; both
-are baked into the `.eep` image before flashing, by `agprov --bake-eeprom`.
+are baked into the `.eep` image before flashing, by `tfwprov --bake-eeprom`.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Commands. Mirrors include/ag/protocol.h.
+// Commands. Mirrors include/tfw/protocol.h.
 const (
 	CmdCaps         Cmd = 0x00
 	CmdPing         Cmd = 0x01
@@ -75,7 +75,7 @@ func (c CryptoTier) String() string {
 	return fmt.Sprintf("unrecognised tier %d", uint8(c))
 }
 
-// Feature bits, mirroring AG_FEATURE_BITMAP.
+// Feature bits, mirroring TFW_FEATURE_BITMAP.
 const (
 	FeatureGPIO uint32 = 1 << iota
 	FeatureSched
@@ -101,7 +101,7 @@ const (
 //
 // A TYPE OF ITS OWN, and not the algorithm identifiers that travel in an
 // attestation frame. The two number the same algorithms differently on
-// purpose: the identifiers are sparse so that AG_ALG_HMAC_SHA256 sits at 0x10
+// purpose: the identifiers are sparse so that TFW_ALG_HMAC_SHA256 sits at 0x10
 // with room beneath it for further asymmetric algorithms, which would make a
 // bitmap indexed by identifier seventeen bits wide to express three
 // algorithms. Since the numbers do not agree, a set is a type rather than a
@@ -110,7 +110,7 @@ const (
 // a conversion that says what it is doing.
 type AlgorithmSet uint16
 
-// Mirrors AG_ALGBIT_* in include/ag/protocol.h. Bits extend and never
+// Mirrors TFW_ALGBIT_* in include/tfw/protocol.h. Bits extend and never
 // renumber, exactly as the status codes do, so a host built before an
 // algorithm existed sees an unknown bit and negotiates down rather than
 // misreading it as one it knows.
@@ -182,8 +182,8 @@ type Caps struct {
 // chip is wrong on the second one.
 func (c Caps) Has(feature uint32) bool { return c.Features&feature != 0 }
 
-// PinFlags are one pin's capability bits. Mirrors AG_PIN_* in
-// include/ag/board.h, where the numbering has gaps reserved for bits not yet
+// PinFlags are one pin's capability bits. Mirrors TFW_PIN_* in
+// include/tfw/board.h, where the numbering has gaps reserved for bits not yet
 // defined -- hence literals here rather than iota, which would silently close
 // them.
 type PinFlags uint8
@@ -292,7 +292,7 @@ type PinInfo struct {
 
 // SysInfo is the device's runtime state.
 //
-// ErrCRC and ErrFormat mirror ag_framer_t's sticky counters (#5): a device
+// ErrCRC and ErrFormat mirror tfw_framer_t's sticky counters (#5): a device
 // older than this SDK does not report them, and both read zero rather than
 // "no errors seen" -- there is no way to tell the two apart from the wire
 // alone, and reporting zero rather than failing the whole reply is what lets
@@ -372,12 +372,12 @@ func WithTimeout(d time.Duration) Option { return func(x *Device) { x.timeout = 
 // itself with an EVENT_BOOT the moment the application starts, so this is a
 // real readiness signal rather than a guessed settle time -- but bounded,
 // because an adapter that does not reset the board (a USB-serial cable with
-// DTR wired off, agsim's pipes) will never send one, and that case must still
+// DTR wired off, tfwsim's pipes) will never send one, and that case must still
 // work, paying only the bound.
 //
 // Sized for a bootloader that runs briefly and jumps -- the stock Arduino
 // bootloader on the boards this project targets does. It is NOT sized for
-// ag-boot built with BOOT_MEASURE=atecc608a: that measures the application
+// tfw-boot built with BOOT_MEASURE=atecc608a: that measures the application
 // through the element at up to 36 ms per 64-byte block, the datasheet's own
 // maximum for one SHA command (boot/measure/measure_atecc608a.c), which for
 // anything but a small image outruns this default several times over. A host
@@ -400,7 +400,7 @@ const DefaultBootWait = 2 * time.Second
 func WithBootWait(d time.Duration) Option { return func(x *Device) { x.bootWait = d } }
 
 // New wraps a byte stream. Any io.ReadWriter will do: a serial port, a pty, or
-// an agsim subprocess over a pipe -- which is how this package is tested
+// an tfwsim subprocess over a pipe -- which is how this package is tested
 // without hardware.
 //
 // Unless disabled with WithBootWait, New waits up to the bound for the
@@ -528,7 +528,7 @@ func (d *Device) awaitBoot(bound time.Duration) {
 // obtains a conn and does its own reads or writes with it before handing it
 // to New should not expect this purge to distinguish that traffic from
 // genuine backlog; nothing available here can. Every caller in this
-// repository (agctl, agprov) calls New immediately after
+// repository (tfwctl, tfwprov) calls New immediately after
 // serialport.Open, which is the assumption in practice, not only in theory.
 //
 // ok is false only when the conn offers ResetInputBuffer and it returned an

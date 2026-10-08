@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 
 // autoResetLink models a serial adapter that resets a classic Arduino on
 // open: the board's bootloader jumps to the application, which announces
-// itself with AG_EVENT_BOOT some time later, and only then answers ordinary
+// itself with TFW_EVENT_BOOT some time later, and only then answers ordinary
 // commands. bootAfter == 0 models the adapter that never resets the board at
 // all -- no event ever comes, which New must still tolerate.
 type autoResetLink struct {

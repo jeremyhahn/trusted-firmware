@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"errors"
@@ -31,15 +31,15 @@ var (
 	// tests for precisely it to decide whether to keep reading. A reply that
 	// arrived complete but too short for the command's layout is a different
 	// fact and is reported as a ShortReplyError.
-	ErrShortFrame = errors.New("aggeneric: truncated frame")
+	ErrShortFrame = errors.New("tfw: truncated frame")
 	// ErrBadCRC is the category of a frame whose checksum does not match.
-	ErrBadCRC = errors.New("aggeneric: frame CRC mismatch")
+	ErrBadCRC = errors.New("tfw: frame CRC mismatch")
 	// ErrBadFormat is the category of a structurally impossible frame.
-	ErrBadFormat = errors.New("aggeneric: malformed frame")
+	ErrBadFormat = errors.New("tfw: malformed frame")
 	// ErrPayloadTooLarge is the category of a payload over MaxPayload.
-	ErrPayloadTooLarge = errors.New("aggeneric: payload exceeds the protocol maximum")
+	ErrPayloadTooLarge = errors.New("tfw: payload exceeds the protocol maximum")
 	// ErrTimeout is the category of a device that did not answer in time.
-	ErrTimeout = errors.New("aggeneric: device did not respond")
+	ErrTimeout = errors.New("tfw: device did not respond")
 )
 
 // Pointer receivers throughout, and every site below returns the composite
@@ -69,7 +69,7 @@ type FrameError struct {
 	Reason string
 }
 
-func (e *FrameError) Error() string { return "aggeneric: malformed frame: " + e.Reason }
+func (e *FrameError) Error() string { return "tfw: malformed frame: " + e.Reason }
 
 func (e *FrameError) Is(target error) bool { return target == ErrBadFormat }
 
@@ -82,7 +82,7 @@ type CRCError struct {
 }
 
 func (e *CRCError) Error() string {
-	return fmt.Sprintf("aggeneric: frame CRC mismatch: computed %04x, frame claims %04x",
+	return fmt.Sprintf("tfw: frame CRC mismatch: computed %04x, frame claims %04x",
 		e.Computed, e.Claimed)
 }
 
@@ -97,7 +97,7 @@ type PayloadSizeError struct {
 }
 
 func (e *PayloadSizeError) Error() string {
-	return fmt.Sprintf("aggeneric: payload of %d bytes exceeds the protocol maximum of %d",
+	return fmt.Sprintf("tfw: payload of %d bytes exceeds the protocol maximum of %d",
 		e.Size, e.Limit)
 }
 
@@ -118,7 +118,7 @@ type ShortReplyError struct {
 }
 
 func (e *ShortReplyError) Error() string {
-	return fmt.Sprintf("aggeneric: command 0x%02x reply is %d bytes, needs at least %d",
+	return fmt.Sprintf("tfw: command 0x%02x reply is %d bytes, needs at least %d",
 		byte(e.Cmd), e.Got, e.Need)
 }
 
@@ -133,7 +133,7 @@ type ProtocolVersionError struct {
 }
 
 func (e *ProtocolVersionError) Error() string {
-	return fmt.Sprintf("aggeneric: device speaks protocol %d.%d, this host speaks %d.%d",
+	return fmt.Sprintf("tfw: device speaks protocol %d.%d, this host speaks %d.%d",
 		e.DeviceMajor, e.DeviceMinor, e.HostMajor, e.HostMinor)
 }
 
@@ -155,7 +155,7 @@ type ArgRangeError struct {
 }
 
 func (e *ArgRangeError) Error() string {
-	return fmt.Sprintf("aggeneric: command 0x%02x: %s is %d %s, outside %d..%d",
+	return fmt.Sprintf("tfw: command 0x%02x: %s is %d %s, outside %d..%d",
 		byte(e.Cmd), e.Arg, e.Value, e.Unit, e.Min, e.Max)
 }
 
@@ -169,7 +169,7 @@ type TimeoutError struct {
 }
 
 func (e *TimeoutError) Error() string {
-	return fmt.Sprintf("aggeneric: command 0x%02x did not respond after %s", byte(e.Cmd), e.Elapsed)
+	return fmt.Sprintf("tfw: command 0x%02x did not respond after %s", byte(e.Cmd), e.Elapsed)
 }
 
 func (e *TimeoutError) Is(target error) bool { return target == ErrTimeout }
@@ -187,6 +187,6 @@ type LinkError struct {
 	Err error
 }
 
-func (e *LinkError) Error() string { return fmt.Sprintf("aggeneric: %s: %v", e.Op, e.Err) }
+func (e *LinkError) Error() string { return fmt.Sprintf("tfw: %s: %v", e.Op, e.Err) }
 
 func (e *LinkError) Unwrap() error { return e.Err }

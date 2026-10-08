@@ -1,16 +1,16 @@
-# ag-boot — CLI
+# tfw-boot — CLI
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
-`ag-boot` is a bare-metal image with no shell of its own; its CLI is the
+`tfw-boot` is a bare-metal image with no shell of its own; its CLI is the
 `make` targets in `mk/boot.mk` that build, size-check, test and flash it, plus
-the one `agctl` verb that talks to a bootloader already on a device. See
-[api.md](api.md) for the wire commands `ag-boot` itself answers, and
+the one `tfwctl` verb that talks to a bootloader already on a device. See
+[api.md](api.md) for the wire commands `tfw-boot` itself answers, and
 [../development/building.md](../development/building.md) for the surrounding
 build gate.
 
-## `make bootloader` — build ag-boot and enforce the boot-section budget
+## `make bootloader` — build tfw-boot and enforce the boot-section budget
 
 ```sh
 make bootloader BOARD=atmega328p BOOT_TIER=atecc608a \
@@ -25,7 +25,7 @@ make bootloader BOARD=atmega328p BOOT_TIER=atecc608a \
 | `BOOT_SIG` | `ed25519-donna`, `atecc608a` | `ed25519-donna` | no |
 | `BOOT_OTA` | `0`, `1` | `1` | no |
 
-Produces `build/<board>/boot/<config>/ag-boot.hex`, where `<config>` encodes
+Produces `build/<board>/boot/<config>/tfw-boot.hex`, where `<config>` encodes
 all four variables so two configurations never share objects. Runs
 `boot-size-check` as a prerequisite and fails the build — not just the size
 report — when the linked image exceeds `BOOT_BUDGET`. A failed link prints the
@@ -66,7 +66,7 @@ make boot-core-size BOARD=atmega328p
 | `BOARD` | a board name | yes |
 
 Links the core (measure, OTA/recovery, EEPROM, CDI, boot decision) with
-`ag_boot_verify` and `ag_boot_pubkey` resolved to address zero by
+`tfw_boot_verify` and `tfw_boot_pubkey` resolved to address zero by
 `--defsym`. **Not a bootloader and not flashable** — it exists only to answer
 how much budget a signature backend has to fit in.
 
@@ -82,10 +82,10 @@ make bootloader-reproducible BOARD=atmega328p BOOT_TIER=atecc608a
 | `BOOT_TIER` | `soft`, `atecc608a` | no (default `soft`) |
 
 Builds twice in two separate copies of the tree and `cmp`s the resulting
-`.hex`. Exits non-zero and prints `ag-boot NOT REPRODUCIBLE` on any
+`.hex`. Exits non-zero and prints `tfw-boot NOT REPRODUCIBLE` on any
 difference.
 
-## `make boot-flash` — write ag-boot over ISP
+## `make boot-flash` — write tfw-boot over ISP
 
 ```sh
 make boot-flash BOARD=atmega328p ISP_PROG=usbasp ISP_PORT=usb
@@ -119,13 +119,13 @@ make integration-test-boot
 No flags exposed — it recursively invokes `make boot-harness-run` pinned to
 `BOARD=atmega2560` with `BOOT_TIER=BOOT_MEASURE=BOOT_SIG=atecc608a
 BOOT_OTA=1`, the only row with an OTA recovery path that can report *why* it
-refused. Part of `make ci`; requires the `agsim`/simavr toolchain the CI image
+refused. Part of `make ci`; requires the `tfwsim`/simavr toolchain the CI image
 provides.
 
-## `agctl reset boot` — enter the bootloader from a running application
+## `tfwctl reset boot` — enter the bootloader from a running application
 
 ```sh
-agctl [--baud 9600] [--timeout 10s] /dev/ttyUSB0 reset boot
+tfwctl [--baud 9600] [--timeout 10s] /dev/ttyUSB0 reset boot
 ```
 
 | Flag | Type | Default | Required |
@@ -134,17 +134,17 @@ agctl [--baud 9600] [--timeout 10s] /dev/ttyUSB0 reset boot
 | `--json` | bool | `false` | no |
 | `--timeout` | duration | `10s` | no |
 
-Sends `AG_CMD_RESET` with the bootloader-mode argument; the application
+Sends `TFW_CMD_RESET` with the bootloader-mode argument; the application
 acknowledges, then resets. With `BOOTRST` programmed the next reset always
-runs `ag-boot` first — this verb does not select the bootloader over the
-application, it only causes the reset that `ag-boot` then evaluates.
+runs `tfw-boot` first — this verb does not select the bootloader over the
+application, it only causes the reset that `tfw-boot` then evaluates.
 
 ## What has no CLI verb
 
-**No verb sends `AG_CMD_OTA_BEGIN`/`OTA_DATA`/`OTA_END`/`OTA_STATUS`.**
-`sdk/go/commands.go` and `sdk/go/cmd/agctl` implement the application's
-command set only; the OTA session `ag-boot` answers
-(see [api.md](api.md)) has no Go SDK binding and no `agctl` subcommand today.
+**No verb sends `TFW_CMD_OTA_BEGIN`/`OTA_DATA`/`OTA_END`/`OTA_STATUS`.**
+`sdk/go/commands.go` and `sdk/go/cmd/tfwctl` implement the application's
+command set only; the OTA session `tfw-boot` answers
+(see [api.md](api.md)) has no Go SDK binding and no `tfwctl` subcommand today.
 Driving an update currently means writing a host program directly against
 `sdk/go`'s frame codec (`sdk/go/codec.go`) — a real gap, not an omission from
 this page.

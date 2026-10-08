@@ -15,7 +15,7 @@
  *      selection and CAPS reports all three absent.
  *   3. TIMER1 IS NOT A MEGA TIMER. Its control register is TCCR1 with PWM1A
  *      and CS13:0 where a mega has TCCR1A with WGM and COM bits, so the
- *      generic ag_hal_pwm_write cannot drive it. It is spent on the software
+ *      generic tfw_hal_pwm_write cannot drive it. It is spent on the software
  *      UART's bit clock here in any case.
  *   4. THE ADC REFERENCE ENCODING IS INVERTED. REFS2:1:0 = 000 is Vcc and 001
  *      is AREF; on a mega REFS1:0 = 01 is AVcc and 00 is AREF. A board that
@@ -29,13 +29,13 @@
  * table is data, and `make board-sweep` verifies it whether or not an image
  * links.
  *
- * A board profile states only its deviations from include/ag/config.h.
+ * A board profile states only its deviations from include/tfw/config.h.
  */
-#ifndef AG_BOARD_ATTINY85_H
-#define AG_BOARD_ATTINY85_H
+#ifndef TFW_BOARD_ATTINY85_H
+#define TFW_BOARD_ATTINY85_H
 
-#define AG_BOARD_NAME "attiny85"
-#define AG_BOARD_ID   0x04u   /* 0x01 328P, 0x02 2560, 0x03 32U4 */
+#define TFW_BOARD_NAME "attiny85"
+#define TFW_BOARD_ID   0x04u   /* 0x01 328P, 0x02 2560, 0x03 32U4 */
 
 /*
  * Pin numbering: PB0..PB5 are logical pins 0..5, and there is nothing else.
@@ -47,12 +47,12 @@
  *
  * Pin 5 is /RESET. It is a real port bit and a real ADC channel, and it becomes
  * a general-purpose pin only when RSTDISBL is programmed -- which also makes
- * the part unprogrammable over ISP. It is therefore marked AG_PIN_RESERVED
+ * the part unprogrammable over ISP. It is therefore marked TFW_PIN_RESERVED
  * rather than omitted: a host is told the pin exists, where it is, and that
  * this build does not expect it to be driven.
  */
-#define AG_PIN_COUNT  6u
-#define AG_PORT_COUNT 1u    /* B=0, and that is the whole list */
+#define TFW_PIN_COUNT  6u
+#define TFW_PORT_COUNT 1u    /* B=0, and that is the whole list */
 
 /*
  * NO PWM IN THIS BUILD, and the reason is the silicon rather than the budget.
@@ -63,38 +63,38 @@
  * output-compare unit on the part is already doing something the firmware
  * cannot do without.
  *
- * Even with a free timer the generic path would not work: ag_hal_pwm_write sets
+ * Even with a free timer the generic path would not work: tfw_hal_pwm_write sets
  * WGM00 and a COM bit in TCCRnA, and Timer1's control register here is TCCR1,
  * whose bit 0 is CS10 and which needs PWM1A rather than a waveform-mode bit. A
  * descriptor pointing at it would compile, link, and start the timer at clk/1
  * while connecting nothing. So the table is empty and the pins that HAVE a
- * compare unit are marked AG_PWM_RSVD, which tells a host the difference
+ * compare unit are marked TFW_PWM_RSVD, which tells a host the difference
  * between "no PWM on this pin" and "this build spent it".
  *
  * A 8-bit Timer1 PWM path in the HAL, plus a hardware USART this part does not
  * have, is what would flip this back on. Neither is a budget question.
  */
-#define AG_PWM_COUNT  0u
+#define TFW_PWM_COUNT  0u
 
 /*
  * ADC channels. ADC0 is on PB5, ADC1 on PB2, ADC2 on PB4 and ADC3 on PB3 --
  * note that the channel numbers do NOT run with the port bits, which is the
  * kind of mapping the descriptor test exists to pin down.
  *
- * AG_ADC_COUNT is the HAL's range-check bound, so it is one past the highest
+ * TFW_ADC_COUNT is the HAL's range-check bound, so it is one past the highest
  * real channel. Channels 4..11 in ADMUX select differential pairs, the bandgap
  * and ground; none of them is a pin, so none is reachable.
  */
-#define AG_ADC_COUNT  4u
+#define TFW_ADC_COUNT  4u
 
-#define AG_EEPROM_SIZE 512u
+#define TFW_EEPROM_SIZE 512u
 
-#define AG_TICK_TIMER 0u
-/* Names the timer tone WOULD use. This part has no Timer2, so AG_FEATURE_TONE
- * is 0 below and src/hal/avr/hal_tone.c -- which asserts AG_TONE_TIMER == 2 --
+#define TFW_TICK_TIMER 0u
+/* Names the timer tone WOULD use. This part has no Timer2, so TFW_FEATURE_TONE
+ * is 0 below and src/hal/avr/hal_tone.c -- which asserts TFW_TONE_TIMER == 2 --
  * is not compiled at all. Stating 1 here would be a lie about the silicon; 2
  * would make the assert pass for a timer that does not exist. */
-#define AG_TONE_TIMER 0u
+#define TFW_TONE_TIMER 0u
 
 /*
  * SIZING, and this is where 512 bytes of SRAM stops being an abstraction.
@@ -104,24 +104,24 @@
  * no stack. Every number below is a deviation forced by that, and each one is a
  * capability reduction stated rather than a tuning preference:
  *
- *   AG_MAX_PAYLOAD 32   The largest EEPROM_WRITE or PING this part accepts.
+ *   TFW_MAX_PAYLOAD 32   The largest EEPROM_WRITE or PING this part accepts.
  *                       Drives both frame buffers and the transport's payload
  *                       copy, so it is worth three bytes of SRAM per byte of
  *                       payload. 64 -> 32 buys back 96 bytes.
- *   AG_SCHED_SLOTS 4    One timed level per slot, six bytes each. There are
+ *   TFW_SCHED_SLOTS 4    One timed level per slot, six bytes each. There are
  *                       only six pins and two of them are the UART, so four
  *                       slots is the whole usable pin count rather than an
  *                       arbitrary cut.
- *   AG_UART_*_RING 16   The soft UART's rings. At 19200 baud a byte takes
+ *   TFW_UART_*_RING 16   The soft UART's rings. At 19200 baud a byte takes
  *                       521 us and the superloop turns over far faster than
  *                       that, so 16 bytes is many poll intervals of slack.
  *                       They must stay powers of two and <= 256; see
  *                       src/hal/avr/hal_uart_soft.c.
  */
-#define AG_MAX_PAYLOAD  32u
-#define AG_SCHED_SLOTS  4u
-#define AG_UART_RX_RING 16u
-#define AG_UART_TX_RING 16u
+#define TFW_MAX_PAYLOAD  32u
+#define TFW_SCHED_SLOTS  4u
+#define TFW_UART_RX_RING 16u
+#define TFW_UART_TX_RING 16u
 
 /*
  * UNATTESTED, and this is the capability the part actually loses.
@@ -130,7 +130,7 @@
  * fit: SHA-256 plus HMAC plus the evidence encoder is over two kilobytes of an
  * eight-kilobyte part, and the element tier that would carry the key is an I2C
  * device on a part with no I2C. A host asking for ATTEST gets
- * AG_ERR_UNKNOWN_CMD and CAPS reports the feature bit clear, so it learns
+ * TFW_ERR_UNKNOWN_CMD and CAPS reports the feature bit clear, so it learns
  * before it depends on the answer.
  *
  * What that means in practice: this part can be a peripheral behind a device
@@ -138,19 +138,19 @@
  * that, because the honest version of the feature needs a key store this
  * silicon does not have.
  */
-#define AG_FEATURE_ATTEST     0
-#define AG_FEATURE_ALIAS_CERT 0
+#define TFW_FEATURE_ATTEST     0
+#define TFW_FEATURE_ALIAS_CERT 0
 
 /* No Timer2 on this part at all, so the tone path -- which is Timer2's CTC
  * mode and prescaler table -- has nothing to drive. Gated by file selection:
  * src/caps/tone.c and src/hal/avr/hal_tone.c are not compiled, and CAPS
  * reports tone absent. */
-#define AG_FEATURE_TONE 0
+#define TFW_FEATURE_TONE 0
 
 /*
  * NO PWM, NO I2C, NO SPI AND NO 1-WIRE, all gated by file selection.
  *
- * The first three are silicon: see AG_PWM_COUNT above for PWM, and for the
+ * The first three are silicon: see TFW_PWM_COUNT above for PWM, and for the
  * buses, this part has a USI rather than a TWI and an SPI. A USI can be driven
  * as either with enough software, but it is a different peripheral with a
  * different register set -- src/hal/avr/hal_bus.c references TWCR, TWDR, SPCR
@@ -164,17 +164,17 @@
  * someone needs it, CAPS reports it absent, which is the truth about this
  * build even though it is not the truth about the part.
  */
-#define AG_FEATURE_PWM     0
-#define AG_FEATURE_I2C     0
-#define AG_FEATURE_SPI     0
-#define AG_FEATURE_ONEWIRE 0
+#define TFW_FEATURE_PWM     0
+#define TFW_FEATURE_I2C     0
+#define TFW_FEATURE_SPI     0
+#define TFW_FEATURE_ONEWIRE 0
 
 /*
  * THE SOFTWARE UART.
  *
- * AG_UART_SOFT selects src/hal/avr/hal_uart_soft.c in place of hal_uart.c. It
+ * TFW_UART_SOFT selects src/hal/avr/hal_uart_soft.c in place of hal_uart.c. It
  * is a file-selection gate like every other, and it is why this profile has no
- * AG_UART_N and no vector names: there is no USART to number.
+ * TFW_UART_N and no vector names: there is no USART to number.
  *
  * BAUD: 19200, not the tree's 115200, and the arithmetic is the argument.
  *
@@ -210,16 +210,16 @@
  *   which brings the factory part to roughly +/-1-2% and costs flash this
  *   board has 806 bytes of.
  *
- * Until one of those exists, AG_UART_SOFT_UNCALIBRATED below marks this
+ * Until one of those exists, TFW_UART_SOFT_UNCALIBRATED below marks this
  * profile as bench-only. It is NOT a supported link on a factory part.
  *
  * The HAL asserts the divisor error and the counter range at compile time from
  * these three numbers, so a board that changes F_CPU or the baud finds out here
  * rather than on a scope.
  */
-#define AG_UART_SOFT     1
-#define AG_UART_BAUD     19200UL
-#define AG_UART_SOFT_CS  2u   /* TCCR1 CS13:0 -- CK/2, i.e. divisor 1 << (CS-1) */
+#define TFW_UART_SOFT     1
+#define TFW_UART_BAUD     19200UL
+#define TFW_UART_SOFT_CS  2u   /* TCCR1 CS13:0 -- CK/2, i.e. divisor 1 << (CS-1) */
 
 /* Which pins the link occupies, as bits within PORTB.
  *
@@ -240,16 +240,16 @@
  * an uncalibrated link -- attestation, provisioning, a release gate -- can test
  * for it rather than rely on someone having read this file.
  */
-#define AG_UART_SOFT_UNCALIBRATED 1
+#define TFW_UART_SOFT_UNCALIBRATED 1
 
 /* AREF is PB0 on this part, and PB0 is the UART receive line above. There is no
- * external reference to select, so ag_hal_adc_set_ref refuses it rather than
+ * external reference to select, so tfw_hal_adc_set_ref refuses it rather than
  * reporting success for a setting that would measure against the serial line.
  * See src/hal/avr/hal_adc.c. */
-#define AG_ADC_NO_EXTERNAL_REF 1
+#define TFW_ADC_NO_EXTERNAL_REF 1
 
-#define AG_UART_SOFT_RX_BIT 0u   /* PB0, PCINT0 */
-#define AG_UART_SOFT_TX_BIT 1u   /* PB1 */
+#define TFW_UART_SOFT_RX_BIT 0u   /* PB0, PCINT0 */
+#define TFW_UART_SOFT_TX_BIT 1u   /* PB1 */
 
 /*
  * Register addresses. ONE definition, checked against <avr/io.h> below.
@@ -264,50 +264,50 @@
  * src/hal/avr/hal_gpio.c's _SFR_MEM8 wants and what makes the same GPIO code
  * work from an ATtiny to an ATmega2560.
  */
-#define AG_ADDR_PINB 0x36u  /* DDRB 0x37, PORTB 0x38 */
+#define TFW_ADDR_PINB 0x36u  /* DDRB 0x37, PORTB 0x38 */
 
 /* Flash and RAM geometry.
  *
  * There is NO BOOT SECTION. The ATtiny85 has no boot-loader section and no
  * BOOTRST fuse -- SPM works only from... nowhere an application can use it
  * safely, because there is no NRWW section to execute from during a write. So
- * ag-boot cannot exist on this part, AG_BOOT_SECTION_SIZE is 0, and the whole
+ * tfw-boot cannot exist on this part, TFW_BOOT_SECTION_SIZE is 0, and the whole
  * 8 KB is application space.
  *
  * That also removes the software tier's key store: src/crypto/soft/uds_flash.c
  * reads the UDS out of the boot section behind lock bits, and there is no boot
  * section to put one in. It is a second, independent reason attestation is off
  * here, and it is the one that does not move with the budget. */
-#define AG_FLASH_TOTAL       8192uL
-#define AG_BOOT_SECTION_SIZE 0uL
+#define TFW_FLASH_TOTAL       8192uL
+#define TFW_BOOT_SECTION_SIZE 0uL
 
 /* Half the flash and half the SRAM, the same rule as every other board, and
  * the same kind of gate: `make firmware` fails when an image exceeds one. On a
  * part this size the RAM half is the binding constraint and it is meant to be
  * -- 256 bytes of statics leaves 256 bytes of stack, and the firmware's
  * deepest path is a dispatch through a capability handler into the HAL. */
-#define AG_FLASH_BUDGET 6144u
-#define AG_RAM_BUDGET   256u
+#define TFW_FLASH_BUDGET 6144u
+#define TFW_RAM_BUDGET   256u
 
 /* The check. avr-libc is the authority on where these live; this asserts the
  * numbers above against it, so the host tests and the shipped image cannot
  * disagree about a single register. */
 #ifdef __AVR__
 #include <avr/io.h>
-_Static_assert(AG_ADDR_PINB == _SFR_ADDR(PINB), "PINB address");
+_Static_assert(TFW_ADDR_PINB == _SFR_ADDR(PINB), "PINB address");
 /* The consecutive-register assumption every lookup in the tree relies on. On a
  * part with one port, getting this wrong would put every DDRB write into PORTB
  * and every pin would read back as whatever its pull-up was set to. */
-_Static_assert(_SFR_ADDR(DDRB)  == AG_ADDR_PINB + 1u, "PORTB trio is not consecutive");
-_Static_assert(_SFR_ADDR(PORTB) == AG_ADDR_PINB + 2u, "PORTB trio is not consecutive");
+_Static_assert(_SFR_ADDR(DDRB)  == TFW_ADDR_PINB + 1u, "PORTB trio is not consecutive");
+_Static_assert(_SFR_ADDR(PORTB) == TFW_ADDR_PINB + 2u, "PORTB trio is not consecutive");
 /* The software UART's RX pin must have a pin-change channel, or a start bit is
  * undetectable and the device simply never answers. */
-_Static_assert(AG_UART_SOFT_RX_BIT == PCINT0, "the soft UART's RX pin has no PCINT channel");
+_Static_assert(TFW_UART_SOFT_RX_BIT == PCINT0, "the soft UART's RX pin has no PCINT channel");
 /* REFS2 is what makes this part's reference encoding different from a mega's.
  * Its absence would mean hal_adc.c had taken the mega path and every reading
  * would be against the wrong reference. */
 _Static_assert(REFS2 == 4, "ADMUX REFS2: this part's reference encoding is not the mega's");
-/* This part has no Timer2, which is the whole reason AG_FEATURE_TONE is 0. If a
+/* This part has no Timer2, which is the whole reason TFW_FEATURE_TONE is 0. If a
  * future avr-libc ever defined one, the profile should be revisited rather than
  * left quietly conservative. */
 #ifdef TCCR2A
@@ -315,4 +315,4 @@ _Static_assert(REFS2 == 4, "ADMUX REFS2: this part's reference encoding is not t
 #endif
 #endif
 
-#endif /* AG_BOARD_ATTINY85_H */
+#endif /* TFW_BOARD_ATTINY85_H */

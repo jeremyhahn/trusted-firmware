@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * THE BOOTLOADER'S HAL CONTRACT -- and why it is not include/ag/hal.h.
+ * THE BOOTLOADER'S HAL CONTRACT -- and why it is not include/tfw/hal.h.
  *
  * The application's HAL is a good HAL for an application. Linking it into the
  * boot section would cost three things a 4 KB boot section cannot pay:
@@ -25,16 +25,16 @@
  *      part as it would after a bare reset and needs no knowledge that a
  *      bootloader ran.
  *
- * Substituted at LINK time, exactly as include/ag/hal.h is, and for the same
+ * Substituted at LINK time, exactly as include/tfw/hal.h is, and for the same
  * reasons: boot/hal/avr for the device, test/mock/boot_hal_mock.c for the host.
  * Add a function here, forget the mock, and the host tests fail to LINK rather
  * than failing somewhere nobody has written a test for yet.
  */
-#ifndef AG_BOOT_HAL_H
-#define AG_BOOT_HAL_H
+#ifndef TFW_BOOT_HAL_H
+#define TFW_BOOT_HAL_H
 
 #include <stdint.h>
-#include "ag/status.h"
+#include "tfw/status.h"
 
 /* ---------------------------------------------------------------- flash */
 
@@ -42,47 +42,47 @@
  * a 16-bit program address silently aliases above 64 KB -- which would make the
  * measurement of a large image the measurement of a different image, and it
  * would still verify against itself. */
-void ag_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len);
+void tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len);
 
 /* Erases and rewrites one page. `addr` must be page-aligned and `data` must
- * carry exactly ag_boot_flash_page_size() bytes.
+ * carry exactly tfw_boot_flash_page_size() bytes.
  *
  * Erase and write are one operation here rather than two, because every caller
  * wants both and a page erased by one call and written by another is a window
  * in which a reset leaves 0xFF where code should be. */
-ag_status_t ag_boot_flash_write_page(uint32_t addr, const uint8_t *data);
+tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data);
 
-uint16_t ag_boot_flash_page_size(void);
+uint16_t tfw_boot_flash_page_size(void);
 
 /* --------------------------------------------------------------- eeprom */
 
-ag_status_t ag_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
-ag_status_t ag_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
+tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
+tfw_status_t tfw_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
 
 /* ----------------------------------------------------------------- uart */
 
-void    ag_boot_uart_init(uint32_t baud);
+void    tfw_boot_uart_init(uint32_t baud);
 
 /* 1 if a byte was taken, 0 if none was waiting. Never blocks. */
-uint8_t ag_boot_uart_rx(uint8_t *out);
+uint8_t tfw_boot_uart_rx(uint8_t *out);
 
 /* Blocks until the byte is in the shift register. The bootloader has nothing
  * to overlap with, so backpressure would be state kept for no benefit. */
-void    ag_boot_uart_tx(uint8_t byte);
+void    tfw_boot_uart_tx(uint8_t byte);
 
 /* --------------------------------------------------------------- handoff */
 
 /* Places the CDI handoff block where the application will find it. Separate
  * from an ordinary memory write because the address is a linker fact and
- * belongs on the far side of this contract; see AG_BOOT_HANDOFF_MAGIC in
- * include/ag/boot.h for what the application does with it. */
-void ag_boot_handoff_write(const uint8_t *block, uint8_t len);
+ * belongs on the far side of this contract; see TFW_BOOT_HANDOFF_MAGIC in
+ * include/tfw/boot.h for what the application does with it. */
+void tfw_boot_handoff_write(const uint8_t *block, uint8_t len);
 
 /* Reads the first `len` bytes back from the same place. The application leaves
- * its update-session request there (AG_BOOT_REQUEST_MAGIC in
- * include/ag/boot.h) and ag-boot reads it before it writes a handoff of its own
+ * its update-session request there (TFW_BOOT_REQUEST_MAGIC in
+ * include/tfw/boot.h) and tfw-boot reads it before it writes a handoff of its own
  * over it. */
-void ag_boot_handoff_read(uint8_t *buf, uint8_t len);
+void tfw_boot_handoff_read(uint8_t *buf, uint8_t len);
 
 /* ---------------------------------------------------------------- control */
 
@@ -91,9 +91,9 @@ void ag_boot_handoff_read(uint8_t *buf, uint8_t len);
  * Every peripheral the bootloader touched is returned to its reset state first.
  * An application that inherited a configured USART would appear to work until
  * something reset the part without a bootloader run in between. */
-void ag_boot_jump_application(void);
+void tfw_boot_jump_application(void);
 
 /* Does not return. A real hardware reset, not a jump to zero. */
-void ag_boot_reset(void);
+void tfw_boot_reset(void);
 
-#endif /* AG_BOOT_HAL_H */
+#endif /* TFW_BOOT_HAL_H */

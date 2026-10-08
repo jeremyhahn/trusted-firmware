@@ -1,6 +1,6 @@
 # Host SDK — Go API surface
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 What a consumer imports. Full method list, invariants and error table:
@@ -10,20 +10,20 @@ What a consumer imports. Full method list, invariants and error table:
 
 ```go
 import (
-    ag "github.com/jeremyhahn/arduino-generic/sdk/go"
-    "github.com/jeremyhahn/arduino-generic/sdk/go/serialport"
+    "github.com/jeremyhahn/trusted-firmware/sdk/go" // package tfw
+    "github.com/jeremyhahn/trusted-firmware/sdk/go/serialport"
 )
 ```
 
-`ag` (package `aggeneric`) is stdlib-only. Import `serialport` only if you're
+`ag` (package `tfw`) is stdlib-only. Import `serialport` only if you're
 opening a physical port — it's the sole reason `go.bug.st/serial` enters your
 build. A consumer that only decodes frames (verifying evidence, say) needs
 just `ag`.
 
-## Testing against the firmware: `sdk/go/agsim`
+## Testing against the firmware: `sdk/go/tfwsim`
 
 ```go
-import "github.com/jeremyhahn/arduino-generic/sdk/go/agsim"
+import "github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 ```
 
 Starts the firmware, compiled for the host, as a peer for a test. Every function
@@ -32,15 +32,15 @@ test (never skips) if the binary is not built.
 
 | Function | Runs |
 |---|---|
-| `agsim.Start(t, opts...)` | `agsim`, the software tier: no asymmetric key, `ATTEST_CERT` is `unsupported` |
-| `agsim.StartElement(t, opts...)` | `agsim-atecc608a` provisioned with the test identity: real DICE `ATTEST` and `ATTEST_CERT` |
-| `agsim.StartBlankElement(t, opts...)` | the same binary with nothing provisioned: attestation is `not provisioned` |
-| `agsim.StartElementWith(t, args, opts...)` | the element tier with your own `--eeprom`, `--provision-element`, `--image-hash` arguments |
-| `agsim.StartElementWithOperator(t, pub, opts...)` | `StartElement` with the P-256 public key `pub` baked in as the operator, so `AuthChallenge`/`AuthResponse` can be exercised with a key the test generated |
+| `tfwsim.Start(t, opts...)` | `tfwsim`, the software tier: no asymmetric key, `ATTEST_CERT` is `unsupported` |
+| `tfwsim.StartElement(t, opts...)` | `tfwsim-atecc608a` provisioned with the test identity: real DICE `ATTEST` and `ATTEST_CERT` |
+| `tfwsim.StartBlankElement(t, opts...)` | the same binary with nothing provisioned: attestation is `not provisioned` |
+| `tfwsim.StartElementWith(t, args, opts...)` | the element tier with your own `--eeprom`, `--provision-element`, `--image-hash` arguments |
+| `tfwsim.StartElementWithOperator(t, pub, opts...)` | `StartElement` with the P-256 public key `pub` baked in as the operator, so `AuthChallenge`/`AuthResponse` can be exercised with a key the test generated |
 
-`opts` are ordinary `ag.Option`s. `agsim.TestSerial`, `agsim.TestImage` and
-`agsim.TestFWHash` are the identity `StartElement` provisions, for asserting
-against, and `agsim.TestDeviceIDPublicKey()` is the `*ecdsa.PublicKey` its
+`opts` are ordinary `tfw.Option`s. `tfwsim.TestSerial`, `tfwsim.TestImage` and
+`tfwsim.TestFWHash` are the identity `StartElement` provisions, for asserting
+against, and `tfwsim.TestDeviceIDPublicKey()` is the `*ecdsa.PublicKey` its
 evidence is signed with. The element model does real P-256, so the `ATTEST`
 frame and the `ATTEST_CERT` certificate **verify** under that key with
 `crypto/ecdsa` and `crypto/x509`. **It is still a test identity and must never be
@@ -48,18 +48,18 @@ trusted:** the private key is the SHA-256 of a published string, so anyone can
 sign as this device. Accept the key only in a test that supplied it. See
 `docs/dice-attestation/user.md` for what that does and does not let you test.
 
-**Finding the binaries.** `$AGSIM_DIR` if set, otherwise `build/host` in the
+**Finding the binaries.** `$TFWSIM_DIR` if set, otherwise `build/host` in the
 checkout the package was compiled from. A module that depends on this one
 through a `replace` to a sibling checkout gets the right answer with no
 configuration; one resolving it from the module cache, or built with
-`-trimpath`, must set `AGSIM_DIR`. Build both with
-`make agsim agsim-atecc608a`. The package imports only this module and the
+`-trimpath`, must set `TFWSIM_DIR`. Build both with
+`make tfwsim tfwsim-atecc608a`. The package imports only this module and the
 standard library, so `make sdk-verify` is unaffected.
 
 ## Connecting
 
-`ag.New` wraps any `io.ReadWriter` — a serial port via `serialport.Open`, a
-pty, or an `agsim` subprocess pipe, which is how the SDK's own tests run
+`tfw.New` wraps any `io.ReadWriter` — a serial port via `serialport.Open`, a
+pty, or an `tfwsim` subprocess pipe, which is how the SDK's own tests run
 without hardware:
 
 ```go
@@ -69,25 +69,25 @@ if err != nil {
 }
 defer conn.Close()
 
-dev := ag.New(conn, ag.WithTimeout(10*time.Second))
+dev := tfw.New(conn, tfw.WithTimeout(10*time.Second))
 ctx := context.Background()
 
 caps, err := dev.Caps(ctx)
 if err != nil {
-    var ve *ag.ProtocolVersionError
+    var ve *tfw.ProtocolVersionError
     if errors.As(err, &ve) {
         // caps is still populated; log what the device claimed before refusing it
     }
     return err
 }
-if !caps.Has(ag.FeatureAttest) {
+if !caps.Has(tfw.FeatureAttest) {
     return errors.New("device has no attestation support")
 }
 ```
 
 ## Surface groups
 
-Everything below is a method on `*ag.Device` unless noted. Signatures and the
+Everything below is a method on `*tfw.Device` unless noted. Signatures and the
 full constant list are in `engineering.md`; this is the shape a consumer
 reaches for by task.
 
@@ -106,18 +106,18 @@ reaches for by task.
 | attestation | `Attest(ctx, nonce []byte) ([]byte, error)`, `AttestCert(ctx, nonce []byte) ([]byte, error)` |
 | auth session (element tier only) | `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer, nonce, serial []byte) error` |
 | provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS` |
-| raw codec | `ag.EncodeRequest`, `ag.EncodeResponse`, `ag.Decode`, `ag.CRC16` |
+| raw codec | `tfw.EncodeRequest`, `tfw.EncodeResponse`, `tfw.Decode`, `tfw.CRC16` |
 
 ## Error handling
 
 Every method returns a typed error from `sdk/go/errors.go`. Match with
 `errors.As` for the fields, `errors.Is` against the five published sentinels
-(`ag.ErrShortFrame`, `ag.ErrBadCRC`, `ag.ErrBadFormat`, `ag.ErrPayloadTooLarge`,
-`ag.ErrTimeout`) for the category. Full table: `engineering.md#error-semantics`.
+(`tfw.ErrShortFrame`, `tfw.ErrBadCRC`, `tfw.ErrBadFormat`, `tfw.ErrPayloadTooLarge`,
+`tfw.ErrTimeout`) for the category. Full table: `engineering.md#error-semantics`.
 
 ```go
 _, err := dev.EEPROMWrite(ctx, addr, data)
-var rangeErr *ag.ArgRangeError
+var rangeErr *tfw.ArgRangeError
 if errors.As(err, &rangeErr) {
     // rangeErr.Arg, .Value, .Min, .Max, .Unit — nothing was sent to the device
 }
@@ -156,5 +156,5 @@ obtainable from wherever it was recorded at provisioning, or from a fresh
 ## What is not exported
 
 No transport type beyond `io.ReadWriter`. No logging or metrics hooks — see
-`engineering.md#observability`. No YAML or config-file parser — `agprov`'s
-template format is internal to `cmd/agprov`, not part of this API.
+`engineering.md#observability`. No YAML or config-file parser — `tfwprov`'s
+template format is internal to `cmd/tfwprov`, not part of this API.

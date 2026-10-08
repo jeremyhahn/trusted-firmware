@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"context"
@@ -11,15 +11,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/jeremyhahn/arduino-generic/sdk/go/internal/vectors"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 )
 
 // SYS_INFO is the second reply whose LENGTH is part of the contract (#5,
 // after CAPS): err_crc and err_format are appended, so this host must read a
 // reply from firmware older than itself without failing and a reply from
-// firmware at least as new as itself with both counters. agsim proves the SDK
-// agrees with the firmware as it is TODAY; the older shape is one agsim
-// cannot be, which is what testdata/vectors.h's AGV_SYSINFO_OLD_REPLY is for.
+// firmware at least as new as itself with both counters. tfwsim proves the SDK
+// agrees with the firmware as it is TODAY; the older shape is one tfwsim
+// cannot be, which is what testdata/vectors.h's TFWV_SYSINFO_OLD_REPLY is for.
 
 func TestSysInfoParsesTheAppendedFramerCounters(t *testing.T) {
 	link := &cannedLink{payload: []byte(vectors.SysInfoNewReply)}

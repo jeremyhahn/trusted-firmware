@@ -1,9 +1,9 @@
-# ag-boot — architecture
+# tfw-boot — architecture
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
-`ag-boot` is a second, separate firmware image, linked with its own `main()`,
+`tfw-boot` is a second, separate firmware image, linked with its own `main()`,
 its own HAL and its own section address, flashed into the boot section with
 `BOOTRST` programmed. On every reset it measures the application, verifies its
 signature, checks the anti-rollback floor, derives the DICE layer-0 CDI, and
@@ -22,7 +22,7 @@ consumption is [../dice-attestation/architecture.md](../dice-attestation/archite
 
 | Component | Files | Owns |
 |---|---|---|
-| Boot decision | `boot/boot_policy.c`, `boot/boot_image.c` | `ag_boot_evaluate`: trailer parse, rollback check, measurement compare, signature check, in that order |
+| Boot decision | `boot/boot_policy.c`, `boot/boot_image.c` | `tfw_boot_evaluate`: trailer parse, rollback check, measurement compare, signature check, in that order |
 | Measurement | `boot/boot_measure.h`, `boot/measure/{measure_soft,measure_atecc608a}.c` | SHA-256 over flash, one backend linked |
 | Verification | `boot/boot_verify.h`, `boot/verify/{verify_ed25519_donna,verify_atecc608a}.c` | signature check, one backend linked |
 | DICE layer 0 | `boot/boot_cdi.h`, `boot/tier/{cdi_soft,cdi_atecc}.c` | CDI derivation and the rollback floor's authority |
@@ -32,10 +32,10 @@ consumption is [../dice-attestation/architecture.md](../dice-attestation/archite
 | OTA session | `boot/boot_ota.{c,h}`, `boot/boot_session.{c,h}` | the four-command wire protocol, linked only when `BOOT_OTA=1` |
 | HAL | `boot/boot_hal.h`, `boot/hal/avr/boot_hal_avr.c` | flash, EEPROM, UART, handoff placement, jump/reset |
 | Shared with the application | `src/crypto/sha256.c`, `src/proto/frame.c`, `src/proto/crc16.c`, `src/proto/crc16_update.c`, `src/hal/avr/hal_early.c` | one hash, one frame codec, one watchdog-disarm sequence. The application's *firmware* image links `src/hal/avr/hal_crc16.c` instead of `crc16_update.c` for the per-byte fold (#12); the bootloader does not carry that substitution, so it keeps the portable form. |
-| Wire layouts | `include/ag/boot.h` | the trailer, the reserved-EEPROM region, the handoff block — each has a second party that must agree byte for byte |
+| Wire layouts | `include/tfw/boot.h` | the trailer, the reserved-EEPROM region, the handoff block — each has a second party that must agree byte for byte |
 
 `boot/boot_main.c` composes these into `main()` and owns nothing else: every
-refusal reason lives in `ag_boot_evaluate` so "why did this device not boot"
+refusal reason lives in `tfw_boot_evaluate` so "why did this device not boot"
 has one place to read, not a scatter of checks between peripheral setup.
 
 ## Data flow
@@ -44,20 +44,20 @@ has one place to read, not a scatter of checks between peripheral setup.
 reset (BOOTRST) -> .init3 (hal_early.c: clear MCUSR, disarm watchdog)
   -> main(): request_take (read + clear the app's update request), uart_init, cdi_init
   -> platform_load (reserved EEPROM)                -> fail: recovery(reason)
-  -> boot_state == STAGED?                           -> yes: recovery(AG_ERR_CRYPTO)
+  -> boot_state == STAGED?                           -> yes: recovery(TFW_ERR_CRYPTO)
   -> floor_load
   -> request honoured?                               -> yes: session_open (bounded; returns on
                                                         idle timeout, hands over on a verified OTA_END)
-  -> ag_boot_evaluate(floor):
+  -> tfw_boot_evaluate(floor):
        trailer_parse -> rollback_permit -> measure -> compare -> verify
                                                                 -> fail: recovery(reason)
   -> floor_advance + floor_store (only on a verified boot)
-  -> ag_boot_hand_over: cdi_derive -> handoff_build -> handoff_write -> zeroize -> jump_application
+  -> tfw_boot_hand_over: cdi_derive -> handoff_build -> handoff_write -> zeroize -> jump_application
 ```
 
 Recovery is one of two link-time backends. `recovery_ota.c` serves the framed
-OTA session (`AG_CMD_OTA_*`) over the polled UART and re-enters
-`ag_boot_evaluate` on `OTA_END`; `recovery_halt.c` disables interrupts and
+OTA session (`TFW_CMD_OTA_*`) over the polled UART and re-enters
+`tfw_boot_evaluate` on `OTA_END`; `recovery_halt.c` disables interrupts and
 sleeps forever, because the framed path plus the hash plus the boot decision
 do not fit an 8 KB-or-smaller image alongside signature verification (see
 [cli.md](cli.md) and `mk/boot.mk`'s `BOOT_SUPPORTED` rows).
@@ -75,15 +75,15 @@ The `RESET` itself needs the operator auth session on the element tier.
 - **The signing key never enters the boot section as a value the code can be
   tricked into replacing.** On `BOOT_SIG=ed25519-donna` it is patched into
   boot-section flash at provisioning and pinned by a SHA-256 in reserved
-  EEPROM (`ag_boot_check_pubkey_pin`); on `BOOT_SIG=atecc608a` it never leaves
-  a locked element slot at all, named by number, and `ag_boot_pubkey` answers
-  `AG_ERR_UNSUPPORTED` because there is nothing to hash and nothing to pin.
+  EEPROM (`tfw_boot_check_pubkey_pin`); on `BOOT_SIG=atecc608a` it never leaves
+  a locked element slot at all, named by number, and `tfw_boot_pubkey` answers
+  `TFW_ERR_UNSUPPORTED` because there is nothing to hash and nothing to pin.
 - **The UDS never reaches the application.** It is consumed inside the
-  bootloader (`ag_boot_cdi_derive`) and only the derived CDI crosses into
+  bootloader (`tfw_boot_cdi_derive`) and only the derived CDI crosses into
   SRAM. Under BLB1 mode 3 the application cannot read boot-section flash at
   all, so even a UDS held in flash (`cdi_soft.c`) is physically unreachable
   from application code — the CDI, not the secret, is what the handoff block
-  in `include/ag/boot.h` carries.
+  in `include/tfw/boot.h` carries.
 - **No boot-section code is callable from the application.** The handoff is
   data in `.noinit` SRAM, written once and read once, precisely because a
   trampoline into the boot section would void the BLB mode 3 read barrier
@@ -109,12 +109,12 @@ The `RESET` itself needs the operator auth session on the element tier.
 
 ## What this deliberately does not do
 
-- **No signing.** `ag_boot_verify` has no counterpart that produces a
+- **No signing.** `tfw_boot_verify` has no counterpart that produces a
   signature; the private key belongs to the build system, never to a device.
 - **No arbitrary flash read/write command.** The four-command OTA surface
-  (`AG_CMD_OTA_*`) writes pages sequentially and never lets a caller name an
-  address inside the boot section — `ag_boot_flash_write_page` refuses any
-  write that would reach `AG_BOOT_APP_END`.
+  (`TFW_CMD_OTA_*`) writes pages sequentially and never lets a caller name an
+  address inside the boot section — `tfw_boot_flash_write_page` refuses any
+  write that would reach `TFW_BOOT_APP_END`.
 - **No bootloader self-update over the wire.** There is no command that
   rewrites the boot section; a bootloader that could replace itself over UART
   is one an attacker could replace over UART, and there is no key-rotation

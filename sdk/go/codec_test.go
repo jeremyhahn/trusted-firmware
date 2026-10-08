@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"bytes"
@@ -10,13 +10,13 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/jeremyhahn/arduino-generic/sdk/go/internal/vectors"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 )
 
 // The wire frames testdata/vectors.h froze for I2C_CONFIG and SPI_CONFIG
 // (issue #21). This is the cross-implementation check the vectors exist for:
 // EncodeRequest is a from-scratch Go implementation of the same framing
-// ag_frame_encode_request performs in C, so the two agreeing on these exact
+// tfw_frame_encode_request performs in C, so the two agreeing on these exact
 // bytes -- rather than merely on each other's round trip -- is what pins the
 // wire rather than a regression.
 func TestEncodeRequestMatchesTheFrozenWireFrames(t *testing.T) {

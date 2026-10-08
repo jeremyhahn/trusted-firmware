@@ -3,12 +3,12 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
 #define PIN_REG(p) _SFR_MEM8((p)->port)
 
-static uint8_t level_of(const ag_pinref_t *p)
+static uint8_t level_of(const tfw_pinref_t *p)
 {
     return (uint8_t)((PIN_REG(p) & (uint8_t)(1u << p->bit)) != 0u);
 }
@@ -22,29 +22,29 @@ static uint8_t level_of(const ag_pinref_t *p)
  * introduces is a few microseconds on a signal whose shortest meaningful pulse
  * is twenty-six.
  */
-ag_status_t ag_hal_pulse_in(const ag_pinref_t *p, uint8_t level,
+tfw_status_t tfw_hal_pulse_in(const tfw_pinref_t *p, uint8_t level,
                             uint32_t timeout_us, uint32_t *out_us)
 {
     uint32_t waited = 0u;
     uint32_t width  = 0u;
 
     while (level_of(p) == level) {          /* wait out a pulse in progress */
-        if (++waited > timeout_us) { return AG_ERR_TIMEOUT; }
+        if (++waited > timeout_us) { return TFW_ERR_TIMEOUT; }
         _delay_us(1);
     }
     while (level_of(p) != level) {          /* wait for the edge */
-        if (++waited > timeout_us) { return AG_ERR_TIMEOUT; }
+        if (++waited > timeout_us) { return TFW_ERR_TIMEOUT; }
         _delay_us(1);
     }
     while (level_of(p) == level) {          /* measure */
-        if (++width > timeout_us) { return AG_ERR_TIMEOUT; }
+        if (++width > timeout_us) { return TFW_ERR_TIMEOUT; }
         _delay_us(1);
     }
     *out_us = width;
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
+tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,
                                  uint16_t *out_us, uint8_t max_edges,
                                  uint32_t timeout_us, uint8_t *out_n)
 {
@@ -53,7 +53,7 @@ ag_status_t ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
     uint32_t idle = 0u;
 
     while (level_of(p) != want) {           /* line up on the first edge */
-        if (++idle > timeout_us) { return AG_ERR_TIMEOUT; }
+        if (++idle > timeout_us) { return TFW_ERR_TIMEOUT; }
         _delay_us(1);
     }
 
@@ -67,12 +67,12 @@ ag_status_t ag_hal_pulse_capture(const ag_pinref_t *p, uint8_t start_level,
                  * stops talking after forty bits has said everything it had
                  * to say. */
                 *out_n = n;
-                return n ? AG_OK : AG_ERR_TIMEOUT;
+                return n ? TFW_OK : TFW_ERR_TIMEOUT;
             }
             _delay_us(1);
         }
         out_us[n++] = (uint16_t)(w > 65535u ? 65535u : w);
     }
     *out_n = n;
-    return AG_OK;
+    return TFW_OK;
 }

@@ -13,7 +13,7 @@
  * So: every write is range-checked, and overflow is STICKY. A handler emits
  * its response fields in sequence and the dispatcher asks once, at the end,
  * whether they all fit -- turning what used to be a memory-corrupting bug into
- * an AG_ERR_TOO_LONG status the host can act on.
+ * an TFW_ERR_TOO_LONG status the host can act on.
  *
  * An overflowing write stores NOTHING. It does not fill the remaining space
  * and truncate, because a half-written field is a well-formed frame carrying
@@ -21,8 +21,8 @@
  *
  * Scalars go out little-endian, by shift and mask.
  */
-#ifndef AG_WRITER_H
-#define AG_WRITER_H
+#ifndef TFW_WRITER_H
+#define TFW_WRITER_H
 
 #include <stdint.h>
 
@@ -31,23 +31,23 @@ typedef struct {
     uint8_t  cap;
     uint8_t  pos;
     uint8_t  overflow; /* sticky: set once, never cleared */
-} ag_writer_t;
+} tfw_writer_t;
 
-void ag_writer_init(ag_writer_t *w, uint8_t *buf, uint8_t cap);
+void tfw_writer_init(tfw_writer_t *w, uint8_t *buf, uint8_t cap);
 
-void ag_write_u8(ag_writer_t *w, uint8_t v);
-void ag_write_u16(ag_writer_t *w, uint16_t v);
-void ag_write_u32(ag_writer_t *w, uint32_t v);
-void ag_write_blob(ag_writer_t *w, const uint8_t *src, uint8_t n);
+void tfw_write_u8(tfw_writer_t *w, uint8_t v);
+void tfw_write_u16(tfw_writer_t *w, uint16_t v);
+void tfw_write_u32(tfw_writer_t *w, uint32_t v);
+void tfw_write_blob(tfw_writer_t *w, const uint8_t *src, uint8_t n);
 
-/* Bytes written so far. Meaningful only when ag_writer_ok() is true; after an
+/* Bytes written so far. Meaningful only when tfw_writer_ok() is true; after an
  * overflow it reports what was committed before the first refusal, which is
  * not a frame anyone should send. */
-uint8_t ag_writer_len(const ag_writer_t *w);
+uint8_t tfw_writer_len(const tfw_writer_t *w);
 
-uint8_t ag_writer_remaining(const ag_writer_t *w);
+uint8_t tfw_writer_remaining(const tfw_writer_t *w);
 
 /* True when every write so far fitted. */
-uint8_t ag_writer_ok(const ag_writer_t *w);
+uint8_t tfw_writer_ok(const tfw_writer_t *w);
 
-#endif /* AG_WRITER_H */
+#endif /* TFW_WRITER_H */

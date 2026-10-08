@@ -13,14 +13,16 @@ VERSION := $(shell cat VERSION)
 
 include mk/host.mk
 include mk/go.mk
-include mk/avr.mk
-# After mk/avr.mk: ag-boot is a second image built by the same toolchain, and it
-# reuses CC_AVR, OBJCOPY, SIZE and the board profile that file establishes.
+# mk/firmware.mk reads the board's profile.mk and includes mk/arch/$(ARCH).mk.
+include mk/firmware.mk
+# After mk/firmware.mk: tfw-boot is a second image built by the same toolchain,
+# and it reuses ARCH_CC, ARCH_OBJCOPY, ARCH_SIZE, HAL_DIR and the board profile
+# that file establishes.
 include mk/boot.mk
 include mk/docker.mk
 include mk/integration.mk
-# After mk/avr.mk: the benchmark image is the firmware's own object list with
-# main.c exchanged, so it needs AVR_SRCS, AVR_CFLAGS and the board profile.
+# After mk/firmware.mk: the benchmark image is the firmware's own object list
+# with main.c exchanged, so it needs FW_SRCS, FW_CFLAGS and the board profile.
 include mk/bench.mk
 include mk/release.mk
 
@@ -74,7 +76,7 @@ verify-vendor:
 # met, not before.
 ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test boot-test board-sweep \
     coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
-    integration-test-boot reproducible-check
+    integration-test-boot reproducible-check ci-matrix-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci firmware-attested

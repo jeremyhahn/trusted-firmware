@@ -2,15 +2,15 @@
 /* SPDX-License-Identifier: commercial */
 
 #include "update_request.h"
-#include "ag/hal.h"
+#include "tfw/hal.h"
 #include "boot_request.h"
 
-uint8_t ag_update_request_supported(void)
+uint8_t tfw_update_request_supported(void)
 {
     return 1u;
 }
 
-void ag_update_request_arm(void)
+void tfw_update_request_arm(void)
 {
-    ag_boot_request_encode(ag_hal_handoff_block());
+    tfw_boot_request_encode(tfw_hal_handoff_block());
 }

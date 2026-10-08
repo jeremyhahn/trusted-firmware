@@ -14,19 +14,19 @@
  */
 
 #include "unity.h"
-#include "ag/board.h"
+#include "tfw/board.h"
 #include "board_profile.h"
 
 void setUp(void) {}
 void tearDown(void) {}
 
-static void expect_pin(ag_pin_t pin, uint16_t port, uint8_t bit)
+static void expect_pin(tfw_pin_t pin, uint16_t port, uint8_t bit)
 {
-    ag_pinref_t r;
+    tfw_pinref_t r;
     char        msg[48];
 
     snprintf(msg, sizeof msg, "pin %u", (unsigned)pin);
-    TEST_ASSERT_EQUAL_MESSAGE(AG_OK, ag_board_pin(pin, &r), msg);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_board_pin(pin, &r), msg);
     TEST_ASSERT_EQUAL_HEX16_MESSAGE(port, r.port, msg);
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(bit, r.bit, msg);
 }
@@ -37,19 +37,19 @@ static void expect_pin(ag_pin_t pin, uint16_t port, uint8_t bit)
  * table, and it is there because PG5 is where OC0B comes out. */
 static void test_digital_0_through_5_zigzag_across_ports_e_and_g(void)
 {
-    expect_pin(0u, AG_ADDR_PINE, 0u);
-    expect_pin(1u, AG_ADDR_PINE, 1u);
-    expect_pin(2u, AG_ADDR_PINE, 4u);
-    expect_pin(3u, AG_ADDR_PINE, 5u);
-    expect_pin(4u, AG_ADDR_PING, 5u);
-    expect_pin(5u, AG_ADDR_PINE, 3u);
+    expect_pin(0u, TFW_ADDR_PINE, 0u);
+    expect_pin(1u, TFW_ADDR_PINE, 1u);
+    expect_pin(2u, TFW_ADDR_PINE, 4u);
+    expect_pin(3u, TFW_ADDR_PINE, 5u);
+    expect_pin(4u, TFW_ADDR_PING, 5u);
+    expect_pin(5u, TFW_ADDR_PINE, 3u);
 }
 
 /* D6..D9 are PORTH bits 3..6, the four PWM pins from Timer4 and Timer2. */
 static void test_digital_6_through_9_map_to_port_h(void)
 {
     for (uint8_t i = 6u; i <= 9u; i++) {
-        expect_pin(i, AG_ADDR_PINH, (uint8_t)(i - 3u));
+        expect_pin(i, TFW_ADDR_PINH, (uint8_t)(i - 3u));
     }
 }
 
@@ -58,7 +58,7 @@ static void test_digital_6_through_9_map_to_port_h(void)
 static void test_digital_10_through_13_map_to_the_high_half_of_port_b(void)
 {
     for (uint8_t i = 10u; i <= 13u; i++) {
-        expect_pin(i, AG_ADDR_PINB, (uint8_t)(i - 6u));
+        expect_pin(i, TFW_ADDR_PINB, (uint8_t)(i - 6u));
     }
 }
 
@@ -66,17 +66,17 @@ static void test_digital_10_through_13_map_to_the_high_half_of_port_b(void)
  * TX first -- so the bit numbers run backwards within the pair. */
 static void test_the_spare_usart_pins_are_on_ports_j_and_h(void)
 {
-    expect_pin(14u, AG_ADDR_PINJ, 1u);   /* TX3 */
-    expect_pin(15u, AG_ADDR_PINJ, 0u);   /* RX3 */
-    expect_pin(16u, AG_ADDR_PINH, 1u);   /* TX2 */
-    expect_pin(17u, AG_ADDR_PINH, 0u);   /* RX2 */
+    expect_pin(14u, TFW_ADDR_PINJ, 1u);   /* TX3 */
+    expect_pin(15u, TFW_ADDR_PINJ, 0u);   /* RX3 */
+    expect_pin(16u, TFW_ADDR_PINH, 1u);   /* TX2 */
+    expect_pin(17u, TFW_ADDR_PINH, 0u);   /* RX2 */
 }
 
 /* D18..D21 are PORTD bits 3,2,1,0: USART1 then I2C, counting down. */
 static void test_digital_18_through_21_count_down_port_d(void)
 {
     for (uint8_t i = 18u; i <= 21u; i++) {
-        expect_pin(i, AG_ADDR_PIND, (uint8_t)(21u - i));
+        expect_pin(i, TFW_ADDR_PIND, (uint8_t)(21u - i));
     }
 }
 
@@ -85,7 +85,7 @@ static void test_digital_18_through_21_count_down_port_d(void)
 static void test_digital_22_through_29_map_to_port_a_in_order(void)
 {
     for (uint8_t i = 22u; i <= 29u; i++) {
-        expect_pin(i, AG_ADDR_PINA, (uint8_t)(i - 22u));
+        expect_pin(i, TFW_ADDR_PINA, (uint8_t)(i - 22u));
     }
 }
 
@@ -95,7 +95,7 @@ static void test_digital_22_through_29_map_to_port_a_in_order(void)
 static void test_digital_30_through_37_count_down_port_c(void)
 {
     for (uint8_t i = 30u; i <= 37u; i++) {
-        expect_pin(i, AG_ADDR_PINC, (uint8_t)(37u - i));
+        expect_pin(i, TFW_ADDR_PINC, (uint8_t)(37u - i));
     }
 }
 
@@ -103,17 +103,17 @@ static void test_digital_30_through_37_count_down_port_c(void)
  * that belong to neither of the blocks on either side of them. */
 static void test_digital_38_through_41_are_the_leftovers_of_ports_d_and_g(void)
 {
-    expect_pin(38u, AG_ADDR_PIND, 7u);
-    expect_pin(39u, AG_ADDR_PING, 2u);
-    expect_pin(40u, AG_ADDR_PING, 1u);
-    expect_pin(41u, AG_ADDR_PING, 0u);
+    expect_pin(38u, TFW_ADDR_PIND, 7u);
+    expect_pin(39u, TFW_ADDR_PING, 2u);
+    expect_pin(40u, TFW_ADDR_PING, 1u);
+    expect_pin(41u, TFW_ADDR_PING, 0u);
 }
 
 /* D42..D49 are PORTL bits 7 down to 0, the second descending block. */
 static void test_digital_42_through_49_count_down_port_l(void)
 {
     for (uint8_t i = 42u; i <= 49u; i++) {
-        expect_pin(i, AG_ADDR_PINL, (uint8_t)(49u - i));
+        expect_pin(i, TFW_ADDR_PINL, (uint8_t)(49u - i));
     }
 }
 
@@ -121,17 +121,17 @@ static void test_digital_42_through_49_count_down_port_l(void)
  * sit on bits 4..7 rather than at the bottom of the port. */
 static void test_the_spi_pins_count_down_the_low_half_of_port_b(void)
 {
-    expect_pin(50u, AG_ADDR_PINB, 3u);   /* MISO */
-    expect_pin(51u, AG_ADDR_PINB, 2u);   /* MOSI */
-    expect_pin(52u, AG_ADDR_PINB, 1u);   /* SCK  */
-    expect_pin(53u, AG_ADDR_PINB, 0u);   /* SS   */
+    expect_pin(50u, TFW_ADDR_PINB, 3u);   /* MISO */
+    expect_pin(51u, TFW_ADDR_PINB, 2u);   /* MOSI */
+    expect_pin(52u, TFW_ADDR_PINB, 1u);   /* SCK  */
+    expect_pin(53u, TFW_ADDR_PINB, 0u);   /* SS   */
 }
 
 /* A0..A7 are PORTF bits 0..7, reachable as digital pins 54..61. */
 static void test_analog_0_through_7_map_to_port_f(void)
 {
     for (uint8_t i = 54u; i <= 61u; i++) {
-        expect_pin(i, AG_ADDR_PINF, (uint8_t)(i - 54u));
+        expect_pin(i, TFW_ADDR_PINF, (uint8_t)(i - 54u));
     }
 }
 
@@ -141,7 +141,7 @@ static void test_analog_0_through_7_map_to_port_f(void)
 static void test_analog_8_through_15_map_to_port_k(void)
 {
     for (uint8_t i = 62u; i <= 69u; i++) {
-        expect_pin(i, AG_ADDR_PINK, (uint8_t)(i - 62u));
+        expect_pin(i, TFW_ADDR_PINK, (uint8_t)(i - 62u));
     }
 }
 
@@ -150,15 +150,15 @@ static void test_analog_8_through_15_map_to_port_k(void)
  * separately because it is the pin every bring-up test blinks. */
 static void test_the_builtin_led_is_pin_13_on_port_b_bit_7(void)
 {
-    expect_pin(13u, AG_ADDR_PINB, 7u);
-    TEST_ASSERT_TRUE(ag_board_pin_flags(13u) & AG_PIN_LED);
+    expect_pin(13u, TFW_ADDR_PINB, 7u);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(13u) & TFW_PIN_LED);
 }
 
 static void test_analog_pins_report_their_adc_channel(void)
 {
     for (uint8_t i = 54u; i <= 69u; i++) {
         uint8_t ch;
-        TEST_ASSERT_EQUAL(AG_OK, ag_board_adc_channel(i, &ch));
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_adc_channel(i, &ch));
         TEST_ASSERT_EQUAL_UINT8((uint8_t)(i - 54u), ch);
     }
 }
@@ -169,9 +169,9 @@ static void test_analog_pins_report_their_adc_channel(void)
 static void test_the_high_adc_channels_are_numbered_8_through_15(void)
 {
     uint8_t ch;
-    TEST_ASSERT_EQUAL(AG_OK, ag_board_adc_channel(62u, &ch));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_adc_channel(62u, &ch));
     TEST_ASSERT_EQUAL_UINT8(8u, ch);
-    TEST_ASSERT_EQUAL(AG_OK, ag_board_adc_channel(69u, &ch));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_adc_channel(69u, &ch));
     TEST_ASSERT_EQUAL_UINT8(15u, ch);
 }
 
@@ -179,7 +179,7 @@ static void test_digital_pins_have_no_adc_channel(void)
 {
     uint8_t ch;
     for (uint8_t i = 0u; i <= 53u; i++) {
-        TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, ag_board_adc_channel(i, &ch));
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
     }
 }
 
@@ -189,14 +189,14 @@ static void test_digital_pins_have_no_adc_channel(void)
  * clock" are different facts, and only one of them might change. */
 static void test_the_tick_timers_pins_are_reserved_not_merely_absent(void)
 {
-    ag_pwmref_t r;
+    tfw_pwmref_t r;
 
-    TEST_ASSERT_FALSE(ag_board_pin_flags(4u)  & AG_PIN_PWM);
-    TEST_ASSERT_FALSE(ag_board_pin_flags(13u) & AG_PIN_PWM);
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(4u)  & TFW_PIN_PWM);
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(13u) & TFW_PIN_PWM);
     /* Reserved, not simply missing: both pins refuse a duty cycle, and they do
-     * so because the table holds AG_PWM_RSVD rather than AG_PWM_NONE. */
-    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, ag_board_pwm(4u,  &r));
-    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, ag_board_pwm(13u, &r));
+     * so because the table holds TFW_PWM_RSVD rather than TFW_PWM_NONE. */
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(4u,  &r));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(13u, &r));
 }
 
 /* The thirteen genuine PWM pins, listed rather than derived: 2, 3 and 5..12 in
@@ -208,13 +208,13 @@ static void test_every_genuine_pwm_pin_is_advertised(void)
                                         11u, 12u, 44u, 45u, 46u };
     size_t i;
 
-    TEST_ASSERT_EQUAL_UINT(AG_PWM_COUNT, sizeof pwm_pins / sizeof pwm_pins[0]);
+    TEST_ASSERT_EQUAL_UINT(TFW_PWM_COUNT, sizeof pwm_pins / sizeof pwm_pins[0]);
     for (i = 0u; i < sizeof pwm_pins / sizeof pwm_pins[0]; i++) {
-        ag_pwmref_t r;
+        tfw_pwmref_t r;
         char        msg[48];
         snprintf(msg, sizeof msg, "pin %u", (unsigned)pwm_pins[i]);
-        TEST_ASSERT_TRUE_MESSAGE(ag_board_pin_flags(pwm_pins[i]) & AG_PIN_PWM, msg);
-        TEST_ASSERT_EQUAL_MESSAGE(AG_OK, ag_board_pwm(pwm_pins[i], &r), msg);
+        TEST_ASSERT_TRUE_MESSAGE(tfw_board_pin_flags(pwm_pins[i]) & TFW_PIN_PWM, msg);
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_board_pwm(pwm_pins[i], &r), msg);
     }
 }
 
@@ -223,13 +223,13 @@ static void test_every_genuine_pwm_pin_is_advertised(void)
  * symptom would be two pins that dim together. */
 static void test_no_two_pins_share_an_output_compare_unit(void)
 {
-    for (uint8_t a = 0u; a < AG_PIN_COUNT; a++) {
-        ag_pwmref_t ra;
-        if (ag_board_pwm(a, &ra) != AG_OK) { continue; }
-        for (uint8_t b = (uint8_t)(a + 1u); b < AG_PIN_COUNT; b++) {
-            ag_pwmref_t rb;
+    for (uint8_t a = 0u; a < TFW_PIN_COUNT; a++) {
+        tfw_pwmref_t ra;
+        if (tfw_board_pwm(a, &ra) != TFW_OK) { continue; }
+        for (uint8_t b = (uint8_t)(a + 1u); b < TFW_PIN_COUNT; b++) {
+            tfw_pwmref_t rb;
             char        msg[64];
-            if (ag_board_pwm(b, &rb) != AG_OK) { continue; }
+            if (tfw_board_pwm(b, &rb) != TFW_OK) { continue; }
             snprintf(msg, sizeof msg, "pins %u and %u share a compare unit",
                      (unsigned)a, (unsigned)b);
             TEST_ASSERT_FALSE_MESSAGE(ra.ocr == rb.ocr && ra.com_bit == rb.com_bit, msg);
@@ -242,20 +242,20 @@ static void test_no_two_pins_share_an_output_compare_unit(void)
  * USARTs are free, and must not be marked as though they were not. */
 static void test_the_uart_pins_are_marked_in_use(void)
 {
-    TEST_ASSERT_TRUE(ag_board_pin_flags(0u) & AG_PIN_IN_USE);
-    TEST_ASSERT_TRUE(ag_board_pin_flags(1u) & AG_PIN_IN_USE);
-    TEST_ASSERT_FALSE(ag_board_pin_flags(14u) & AG_PIN_IN_USE);
-    TEST_ASSERT_FALSE(ag_board_pin_flags(19u) & AG_PIN_IN_USE);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(0u) & TFW_PIN_IN_USE);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(1u) & TFW_PIN_IN_USE);
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(14u) & TFW_PIN_IN_USE);
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(19u) & TFW_PIN_IN_USE);
 }
 
 static void test_a_pin_beyond_the_board_is_refused(void)
 {
-    ag_pinref_t r;
+    tfw_pinref_t r;
     uint8_t     ch;
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_PIN, ag_board_pin(AG_PIN_COUNT, &r));
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_PIN, ag_board_pin(255u, &r));
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_PIN, ag_board_adc_channel(AG_PIN_COUNT, &ch));
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_board_pin_flags(AG_PIN_COUNT));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(255u, &r));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_adc_channel(TFW_PIN_COUNT, &ch));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_board_pin_flags(TFW_PIN_COUNT));
 }
 
 /* No two pins may resolve to the same port and bit. A copy-paste slip in a
@@ -263,13 +263,13 @@ static void test_a_pin_beyond_the_board_is_refused(void)
  * other. */
 static void test_no_two_pins_share_a_port_and_bit(void)
 {
-    for (uint8_t a = 0u; a < AG_PIN_COUNT; a++) {
-        ag_pinref_t ra;
-        if (ag_board_pin(a, &ra) != AG_OK) { continue; }
-        for (uint8_t b = (uint8_t)(a + 1u); b < AG_PIN_COUNT; b++) {
-            ag_pinref_t rb;
+    for (uint8_t a = 0u; a < TFW_PIN_COUNT; a++) {
+        tfw_pinref_t ra;
+        if (tfw_board_pin(a, &ra) != TFW_OK) { continue; }
+        for (uint8_t b = (uint8_t)(a + 1u); b < TFW_PIN_COUNT; b++) {
+            tfw_pinref_t rb;
             char        msg[64];
-            if (ag_board_pin(b, &rb) != AG_OK) { continue; }
+            if (tfw_board_pin(b, &rb) != TFW_OK) { continue; }
             snprintf(msg, sizeof msg, "pins %u and %u collide", (unsigned)a, (unsigned)b);
             TEST_ASSERT_FALSE_MESSAGE(ra.port == rb.port && ra.bit == rb.bit, msg);
         }
@@ -279,13 +279,13 @@ static void test_no_two_pins_share_a_port_and_bit(void)
 /* Likewise no two pins may claim the same ADC channel. */
 static void test_no_two_pins_share_an_adc_channel(void)
 {
-    for (uint8_t a = 0u; a < AG_PIN_COUNT; a++) {
+    for (uint8_t a = 0u; a < TFW_PIN_COUNT; a++) {
         uint8_t ca;
-        if (ag_board_adc_channel(a, &ca) != AG_OK) { continue; }
-        for (uint8_t b = (uint8_t)(a + 1u); b < AG_PIN_COUNT; b++) {
+        if (tfw_board_adc_channel(a, &ca) != TFW_OK) { continue; }
+        for (uint8_t b = (uint8_t)(a + 1u); b < TFW_PIN_COUNT; b++) {
             uint8_t cb;
             char    msg[64];
-            if (ag_board_adc_channel(b, &cb) != AG_OK) { continue; }
+            if (tfw_board_adc_channel(b, &cb) != TFW_OK) { continue; }
             snprintf(msg, sizeof msg, "pins %u and %u share ADC channel",
                      (unsigned)a, (unsigned)b);
             TEST_ASSERT_NOT_EQUAL_MESSAGE(ca, cb, msg);
@@ -295,23 +295,23 @@ static void test_no_two_pins_share_an_adc_channel(void)
 
 static void test_every_pin_is_either_digital_or_adc(void)
 {
-    for (uint8_t i = 0u; i < AG_PIN_COUNT; i++) {
-        uint8_t f = ag_board_pin_flags(i);
-        TEST_ASSERT_TRUE_MESSAGE(f & (AG_PIN_DIGITAL | AG_PIN_ADC), "a pin that can do nothing");
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t f = tfw_board_pin_flags(i);
+        TEST_ASSERT_TRUE_MESSAGE(f & (TFW_PIN_DIGITAL | TFW_PIN_ADC), "a pin that can do nothing");
     }
 }
 
 /* Unlike the 328P, this part has no ADC-only pin: every one of the seventy has
- * a real digital port, so ag_board_pin must succeed for all of them. A missing
+ * a real digital port, so tfw_board_pin must succeed for all of them. A missing
  * row would zero-fill to port A bit 0 and pass everything except this. */
 static void test_every_pin_has_a_digital_port(void)
 {
-    for (uint8_t i = 0u; i < AG_PIN_COUNT; i++) {
-        ag_pinref_t r;
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        tfw_pinref_t r;
         char        msg[48];
         snprintf(msg, sizeof msg, "pin %u", (unsigned)i);
-        TEST_ASSERT_EQUAL_MESSAGE(AG_OK, ag_board_pin(i, &r), msg);
-        TEST_ASSERT_TRUE_MESSAGE(ag_board_pin_flags(i) & AG_PIN_DIGITAL, msg);
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_board_pin(i, &r), msg);
+        TEST_ASSERT_TRUE_MESSAGE(tfw_board_pin_flags(i) & TFW_PIN_DIGITAL, msg);
     }
 }
 

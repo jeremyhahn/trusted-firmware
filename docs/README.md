@@ -1,9 +1,12 @@
 # Documentation
 
-arduino-generic is generic AVR firmware plus a Layer 0 Go SDK. It is a drop-in
+trusted-firmware is AVR firmware plus a Layer 0 Go SDK. It is a drop-in
 replacement for basic Arduino firmware: every Arduino capability is on the wire
 and in the SDK, with secure boot, a DICE device identity and go-trusted-platform
 integration added. It carries no application logic.
+
+Where the project is going: [`../ROADMAP.md`](../ROADMAP.md) and
+[`multi-arch/architecture.md`](multi-arch/architecture.md).
 
 Six capabilities, each a five-file feature folder — `architecture.md`,
 `engineering.md`, `cli.md`, `api.md`, `user.md`. **NORMATIVE** means a conflict
@@ -14,9 +17,9 @@ with the code is a defect to fix in the document first.
 | [`wire-protocol/`](wire-protocol/architecture.md) | the frame, resync, versioning, the command table and the golden vectors |
 | [`device-capabilities/`](device-capabilities/architecture.md) | GPIO, the pin scheduler, analog/PWM/tone, pulse, EEPROM, the buses, and the link-time HAL behind them |
 | [`dice-attestation/`](dice-attestation/architecture.md) | the crypto tiers, the CDI, the alias certificate and its UCCS evidence |
-| [`secure-boot/`](secure-boot/architecture.md) | `ag-boot`: measure, verify, anti-rollback, recovery and handoff |
+| [`secure-boot/`](secure-boot/architecture.md) | `tfw-boot`: measure, verify, anti-rollback, recovery and handoff |
 | [`device-provisioning/`](device-provisioning/architecture.md) | taking a blank part to an identity-bearing device, and the irreversible steps |
-| [`host-sdk/`](host-sdk/architecture.md) | `sdk/go`, `agctl`, `agprov` and `agsim` — one host implementation |
+| [`host-sdk/`](host-sdk/architecture.md) | `sdk/go`, `tfwctl`, `tfwprov` and `tfwsim` — one host implementation |
 
 Cross-cutting material that belongs to no single feature:
 

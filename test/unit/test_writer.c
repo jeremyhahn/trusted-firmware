@@ -8,30 +8,30 @@
 #define CAP 16u
 
 static uint8_t     buf[CAP];
-static ag_writer_t w;
+static tfw_writer_t w;
 
 void setUp(void)
 {
     memset(buf, 0xEE, sizeof buf);          /* poison, so "untouched" is visible */
-    ag_writer_init(&w, buf, CAP);
+    tfw_writer_init(&w, buf, CAP);
 }
 void tearDown(void) {}
 
 static void test_writer_starts_empty_and_clean(void)
 {
-    TEST_ASSERT_TRUE(ag_writer_ok(&w));
-    TEST_ASSERT_EQUAL_UINT8(0u,  ag_writer_len(&w));
-    TEST_ASSERT_EQUAL_UINT8(CAP, ag_writer_remaining(&w));
+    TEST_ASSERT_TRUE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(0u,  tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(CAP, tfw_writer_remaining(&w));
 }
 
 static void test_writer_encodes_scalars_little_endian(void)
 {
-    ag_write_u8(&w,  0x11u);
-    ag_write_u16(&w, 0x3322u);
-    ag_write_u32(&w, 0x77665544u);
+    tfw_write_u8(&w,  0x11u);
+    tfw_write_u16(&w, 0x3322u);
+    tfw_write_u32(&w, 0x77665544u);
 
-    TEST_ASSERT_TRUE(ag_writer_ok(&w));
-    TEST_ASSERT_EQUAL_UINT8(7u, ag_writer_len(&w));
+    TEST_ASSERT_TRUE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(7u, tfw_writer_len(&w));
     TEST_ASSERT_EQUAL_HEX8(0x11u, buf[0]);
     TEST_ASSERT_EQUAL_HEX8(0x22u, buf[1]);  /* low byte first */
     TEST_ASSERT_EQUAL_HEX8(0x33u, buf[2]);
@@ -44,9 +44,9 @@ static void test_writer_encodes_scalars_little_endian(void)
 static void test_writer_copies_a_blob(void)
 {
     const uint8_t src[3] = { 0xA1u, 0xB2u, 0xC3u };
-    ag_write_blob(&w, src, 3u);
+    tfw_write_blob(&w, src, 3u);
 
-    TEST_ASSERT_TRUE(ag_writer_ok(&w));
+    TEST_ASSERT_TRUE(tfw_writer_ok(&w));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(src, buf, 3u);
 }
 
@@ -55,21 +55,21 @@ static void test_writer_permits_filling_to_capacity_exactly(void)
 {
     uint8_t i;
     for (i = 0u; i < CAP; i++) {
-        ag_write_u8(&w, i);
+        tfw_write_u8(&w, i);
     }
-    TEST_ASSERT_TRUE(ag_writer_ok(&w));
-    TEST_ASSERT_EQUAL_UINT8(CAP, ag_writer_len(&w));
-    TEST_ASSERT_EQUAL_UINT8(0u,  ag_writer_remaining(&w));
+    TEST_ASSERT_TRUE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(CAP, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(0u,  tfw_writer_remaining(&w));
 }
 
 static void test_writer_refuses_one_byte_past_capacity(void)
 {
     uint8_t i;
     for (i = 0u; i < CAP; i++) {
-        ag_write_u8(&w, i);
+        tfw_write_u8(&w, i);
     }
-    ag_write_u8(&w, 0xFFu);
-    TEST_ASSERT_FALSE(ag_writer_ok(&w));
+    tfw_write_u8(&w, 0xFFu);
+    TEST_ASSERT_FALSE(tfw_writer_ok(&w));
 }
 
 /* THE DEFECT THIS TYPE EXISTS TO PREVENT.
@@ -82,17 +82,17 @@ static void test_writer_refuses_one_byte_past_capacity(void)
  * reports failure. */
 static void test_writer_overflowing_write_stores_nothing(void)
 {
-    ag_writer_t tight;
+    tfw_writer_t tight;
     uint8_t     small[4];
     const uint8_t src[8] = { 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u };
 
     memset(small, 0xEE, sizeof small);
-    ag_writer_init(&tight, small, (uint8_t)sizeof small);
+    tfw_writer_init(&tight, small, (uint8_t)sizeof small);
 
-    ag_write_blob(&tight, src, 8u);          /* needs 8, has 4 */
+    tfw_write_blob(&tight, src, 8u);          /* needs 8, has 4 */
 
-    TEST_ASSERT_FALSE(ag_writer_ok(&tight));
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_writer_len(&tight));
+    TEST_ASSERT_FALSE(tfw_writer_ok(&tight));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&tight));
     TEST_ASSERT_EACH_EQUAL_HEX8(0xEEu, small, sizeof small);  /* nothing written */
 }
 
@@ -101,17 +101,17 @@ static void test_writer_overflowing_write_stores_nothing(void)
  * long field followed by a short one produces a frame missing its middle. */
 static void test_writer_overflow_is_sticky(void)
 {
-    ag_writer_t tight;
+    tfw_writer_t tight;
     uint8_t     small[2];
 
     memset(small, 0xEE, sizeof small);
-    ag_writer_init(&tight, small, (uint8_t)sizeof small);
+    tfw_writer_init(&tight, small, (uint8_t)sizeof small);
 
-    ag_write_u32(&tight, 0xDEADBEEFu);       /* needs 4, has 2 */
-    TEST_ASSERT_FALSE(ag_writer_ok(&tight));
+    tfw_write_u32(&tight, 0xDEADBEEFu);       /* needs 4, has 2 */
+    TEST_ASSERT_FALSE(tfw_writer_ok(&tight));
 
-    ag_write_u8(&tight, 0x5Au);              /* would fit, must still refuse */
-    TEST_ASSERT_FALSE(ag_writer_ok(&tight));
+    tfw_write_u8(&tight, 0x5Au);              /* would fit, must still refuse */
+    TEST_ASSERT_FALSE(tfw_writer_ok(&tight));
     TEST_ASSERT_EACH_EQUAL_HEX8(0xEEu, small, sizeof small);
 }
 
@@ -120,17 +120,17 @@ static void test_writer_overflow_is_sticky(void)
 static void test_writer_refuses_a_length_that_would_wrap_the_cursor(void)
 {
     static const uint8_t big[250] = { 0 };
-    ag_write_blob(&w, big, 250u);
+    tfw_write_blob(&w, big, 250u);
 
-    TEST_ASSERT_FALSE(ag_writer_ok(&w));
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_writer_len(&w));
+    TEST_ASSERT_FALSE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 }
 
 static void test_writer_zero_length_blob_is_a_no_op(void)
 {
-    ag_write_blob(&w, buf, 0u);
-    TEST_ASSERT_TRUE(ag_writer_ok(&w));
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_writer_len(&w));
+    tfw_write_blob(&w, buf, 0u);
+    TEST_ASSERT_TRUE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 }
 
 int main(void)

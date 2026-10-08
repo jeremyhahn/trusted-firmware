@@ -3,8 +3,8 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
 #define PIN_REG(p)  _SFR_MEM8((p)->port)
 #define DDR_REG(p)  _SFR_MEM8((p)->port + 1u)
@@ -36,13 +36,13 @@ static uint8_t twi_wait(void)
     return 0u;
 }
 
-ag_status_t ag_hal_i2c_init(uint32_t hz)
+tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
     uint32_t divisor;
 
     /*
      * TWBR is an 8-bit register and SCL = F_CPU / (16 + 2 * TWBR) at this
-     * prescaler of 1, so not every hz the cap layer's AG_I2C_HZ_MIN..MAX lets
+     * prescaler of 1, so not every hz the cap layer's TFW_I2C_HZ_MIN..MAX lets
      * through is one THIS BOARD can actually produce -- that interval is a
      * generic sanity check, and F_CPU is a per-board fact this file is one of
      * the few allowed to know.
@@ -67,7 +67,7 @@ ag_status_t ag_hal_i2c_init(uint32_t hz)
      * chooses the larger TWBR of the two candidates, which is the SLOWER
      * actual clock, so the real rate never exceeds the one asked for. */
     if (hz == 0uL) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
     if (F_CPU <= 16uL * hz) {
         divisor = 0uL;                 /* at or past F_CPU/16, the fastest TWBR=0 gives */
@@ -77,61 +77,61 @@ ag_status_t ag_hal_i2c_init(uint32_t hz)
         divisor = (numer + denom - 1uL) / denom;
     }
     if (divisor > 255UL) {
-        return AG_ERR_RANGE;          /* below what an 8-bit TWBR can reach */
+        return TFW_ERR_RANGE;          /* below what an 8-bit TWBR can reach */
     }
     TWSR = 0u;                                   /* prescaler 1 */
     TWBR = (uint8_t)divisor;
     TWCR = (uint8_t)_BV(TWEN);
-    return AG_OK;
+    return TFW_OK;
 }
 
-static ag_status_t twi_start(uint8_t addr_rw)
+static tfw_status_t twi_start(uint8_t addr_rw)
 {
     TWCR = (uint8_t)(_BV(TWINT) | _BV(TWSTA) | _BV(TWEN));
-    if (!twi_wait()) { return AG_ERR_TIMEOUT; }
+    if (!twi_wait()) { return TFW_ERR_TIMEOUT; }
     TWDR = addr_rw;
     TWCR = (uint8_t)(_BV(TWINT) | _BV(TWEN));
-    if (!twi_wait()) { return AG_ERR_TIMEOUT; }
+    if (!twi_wait()) { return TFW_ERR_TIMEOUT; }
     /* 0x18 = address+W acked, 0x40 = address+R acked. Anything else means no
      * device answered, which is a NACK and not a timeout -- the distinction
      * tells a host "nothing there" rather than "the bus is broken". */
     if ((TWSR & 0xF8u) != 0x18u && (TWSR & 0xF8u) != 0x40u) {
         TWCR = (uint8_t)(_BV(TWINT) | _BV(TWSTO) | _BV(TWEN));
-        return AG_ERR_NACK;
+        return TFW_ERR_NACK;
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
+tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
                             uint8_t *rd, uint8_t rlen)
 {
-    ag_status_t st;
+    tfw_status_t st;
     uint8_t     i;
 
     if (wlen) {
         st = twi_start((uint8_t)(addr7 << 1));
-        if (st != AG_OK) { return st; }
+        if (st != TFW_OK) { return st; }
         for (i = 0u; i < wlen; i++) {
             TWDR = wr[i];
             TWCR = (uint8_t)(_BV(TWINT) | _BV(TWEN));
-            if (!twi_wait()) { return AG_ERR_TIMEOUT; }
-            if ((TWSR & 0xF8u) != 0x28u) { return AG_ERR_NACK; }
+            if (!twi_wait()) { return TFW_ERR_TIMEOUT; }
+            if ((TWSR & 0xF8u) != 0x28u) { return TFW_ERR_NACK; }
         }
     }
     if (rlen) {
         st = twi_start((uint8_t)((addr7 << 1) | 1u));
-        if (st != AG_OK) { return st; }
+        if (st != TFW_OK) { return st; }
         for (i = 0u; i < rlen; i++) {
             /* ACK every byte but the last: the final NACK is how the slave is
              * told to stop driving the bus. */
             TWCR = (uint8_t)(_BV(TWINT) | _BV(TWEN) |
                              ((i + 1u < rlen) ? _BV(TWEA) : 0u));
-            if (!twi_wait()) { return AG_ERR_TIMEOUT; }
+            if (!twi_wait()) { return TFW_ERR_TIMEOUT; }
             rd[i] = TWDR;
         }
     }
     TWCR = (uint8_t)(_BV(TWINT) | _BV(TWSTO) | _BV(TWEN));
-    return AG_OK;
+    return TFW_OK;
 }
 
 /* ------------------------------------------------------------------- SPI */
@@ -140,7 +140,7 @@ ag_status_t ag_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
  * magnitude against a real transfer, so it is a BOUND rather than a timing
  * parameter, and it is what turns a clock that never toggles -- a shorted
  * line, a slave holding MISO, SPE cleared because nothing ever called
- * ag_hal_spi_init() -- into AG_ERR_TIMEOUT instead of a device that never
+ * tfw_hal_spi_init() -- into TFW_ERR_TIMEOUT instead of a device that never
  * answers another command again. */
 #define SPI_SPIN_LIMIT 60000u
 
@@ -154,7 +154,7 @@ static uint8_t spi_wait(void)
     return 0u;
 }
 
-ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
+tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
 {
     /*
      * MOSI, SCK and SS as outputs -- and the bits come from the board, not from
@@ -171,23 +171,23 @@ ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
      * go low takes the SPI hardware out of master mode mid-transfer.
      *
      * DESELECTED FIRST, and that ordering is load-bearing. This now runs at
-     * boot (main.c's ag_bus_init()), before a host has issued a single
+     * boot (main.c's tfw_bus_init()), before a host has issued a single
      * SPI_XFER -- so if the hardware SS pin also happens to be a real
      * device's chip-select, as it usually is, PORTB's latch must already say
      * "high" before DDRB turns the pin into a driven output. Reversed, the
      * pin drives LOW for the instant between the two writes -- SS's reset
      * value is 0 -- which selects that device the moment DDRB takes effect,
      * with no transfer under way and no way for a host to have prevented it.
-     * ag_hal_spi_xfer's own per-transfer assert/deassert is unaffected: it
+     * tfw_hal_spi_xfer's own per-transfer assert/deassert is unaffected: it
      * always ends by driving its caller's cs pin high again. */
-    PORTB |= (uint8_t)_BV(AG_SPI_BIT_SS);
-    DDRB  |= (uint8_t)(_BV(AG_SPI_BIT_MOSI) | _BV(AG_SPI_BIT_SCK)
-                      | _BV(AG_SPI_BIT_SS));
+    PORTB |= (uint8_t)_BV(TFW_SPI_BIT_SS);
+    DDRB  |= (uint8_t)(_BV(TFW_SPI_BIT_MOSI) | _BV(TFW_SPI_BIT_SCK)
+                      | _BV(TFW_SPI_BIT_SS));
     SPCR = (uint8_t)(_BV(SPE) | _BV(MSTR)
                      | (uint8_t)((mode & 0x03u) << CPHA)
                      | (uint8_t)(clkdiv & 0x03u)
                      | (uint8_t)(lsb_first ? _BV(DORD) : 0u));
-    return AG_OK;
+    return TFW_OK;
 }
 
 /*
@@ -196,7 +196,7 @@ ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
  * reach them as ordinary GPIO after this runs -- clearing SCK's DDR bit
  * stops the clock from toggling, and driving the hardware SS pin low while
  * it is an input clears MSTR per the datasheet, dropping out of master mode
- * entirely. Re-running ag_hal_spi_init() would restore both, but nothing
+ * entirely. Re-running tfw_hal_spi_init() would restore both, but nothing
  * calls it again once boot has. The same gap exists for I2C's SDA/SCL,
  * predates this file's boot-time init, and is a board-descriptor /
  * pin-ownership question -- whether these pins should be marked reserved
@@ -205,7 +205,7 @@ ag_status_t ag_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb_first)
  * here.
  */
 
-ag_status_t ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
+tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
                             uint8_t *rd, uint8_t len)
 {
     uint8_t i;
@@ -221,13 +221,13 @@ ag_status_t ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
              * selected forever, which is a second failure riding on the
              * first. */
             PORT_REG(cs) |= (uint8_t)(1u << cs->bit);
-            return AG_ERR_TIMEOUT;
+            return TFW_ERR_TIMEOUT;
         }
         rd[i] = SPDR;
     }
 
     PORT_REG(cs) |= (uint8_t)(1u << cs->bit);      /* release */
-    return AG_OK;
+    return TFW_OK;
 }
 
 /* --------------------------------------------------------------- 1-Wire */
@@ -240,23 +240,23 @@ ag_status_t ag_hal_spi_xfer(const ag_pinref_t *cs, const uint8_t *wr,
  * fight another device that is pulling low.
  */
 
-static void ow_low(const ag_pinref_t *p)
+static void ow_low(const tfw_pinref_t *p)
 {
     PORT_REG(p) = (uint8_t)(PORT_REG(p) & (uint8_t)~(1u << p->bit));
     DDR_REG(p) |= (uint8_t)(1u << p->bit);
 }
 
-static void ow_release(const ag_pinref_t *p)
+static void ow_release(const tfw_pinref_t *p)
 {
     DDR_REG(p) = (uint8_t)(DDR_REG(p) & (uint8_t)~(1u << p->bit));
 }
 
-static uint8_t ow_level(const ag_pinref_t *p)
+static uint8_t ow_level(const tfw_pinref_t *p)
 {
     return (uint8_t)((PIN_REG(p) & (uint8_t)(1u << p->bit)) != 0u);
 }
 
-ag_status_t ag_hal_ow_reset(const ag_pinref_t *p, uint8_t *out_presence)
+tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
 {
     ow_low(p);
     _delay_us(480);
@@ -266,17 +266,17 @@ ag_status_t ag_hal_ow_reset(const ag_pinref_t *p, uint8_t *out_presence)
      * means nobody is there. */
     *out_presence = (uint8_t)(ow_level(p) == 0u);
     _delay_us(410);
-    return AG_OK;
+    return TFW_OK;
 }
 
-static void ow_write_bit(const ag_pinref_t *p, uint8_t bit)
+static void ow_write_bit(const tfw_pinref_t *p, uint8_t bit)
 {
     ow_low(p);
     if (bit) { _delay_us(6);  ow_release(p); _delay_us(64); }
     else     { _delay_us(60); ow_release(p); _delay_us(10); }
 }
 
-static uint8_t ow_read_bit(const ag_pinref_t *p)
+static uint8_t ow_read_bit(const tfw_pinref_t *p)
 {
     uint8_t v;
     ow_low(p);
@@ -288,17 +288,17 @@ static uint8_t ow_read_bit(const ag_pinref_t *p)
     return v;
 }
 
-ag_status_t ag_hal_ow_write(const ag_pinref_t *p, const uint8_t *buf, uint8_t len)
+tfw_status_t tfw_hal_ow_write(const tfw_pinref_t *p, const uint8_t *buf, uint8_t len)
 {
     for (uint8_t i = 0u; i < len; i++) {
         for (uint8_t b = 0u; b < 8u; b++) {
             ow_write_bit(p, (uint8_t)((buf[i] >> b) & 1u));   /* LSB first */
         }
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_hal_ow_read(const ag_pinref_t *p, uint8_t *buf, uint8_t len)
+tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
 {
     for (uint8_t i = 0u; i < len; i++) {
         uint8_t v = 0u;
@@ -307,5 +307,5 @@ ag_status_t ag_hal_ow_read(const ag_pinref_t *p, uint8_t *buf, uint8_t len)
         }
         buf[i] = v;
     }
-    return AG_OK;
+    return TFW_OK;
 }

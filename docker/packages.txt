@@ -16,7 +16,7 @@ simavr           # the emulator: models ADC, EEPROM, USART, SPI, TWI, timers,
 libsimavr-dev    # GPIO with pin-change interrupts, and the watchdog
 libelf-dev       # simavr reads the firmware .elf through libelf
 
-build-essential  # the host compiler, for the unit tests and agsim
+build-essential  # the host compiler, for the unit tests and tfwsim
 make
 
 clang-format     # stands in for gofmt
@@ -28,5 +28,5 @@ lcov
 
 python3
 
-openssl          # agctl auth's external signer: parses/signs an operator
-                 # key in its own process so the key never enters agctl's
+openssl          # tfwctl auth's external signer: parses/signs an operator
+                 # key in its own process so the key never enters tfwctl's

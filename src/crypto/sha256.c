@@ -9,15 +9,15 @@
  * along with it. This is one file, has no dependencies, and is pinned to the
  * published NIST vectors -- which is the only property that matters for a hash.
  *
- * The round constants live in flash on AVR via AG_PROGMEM; reading them
+ * The round constants live in flash on AVR via TFW_PROGMEM; reading them
  * costs one instruction and saves 256 bytes of a 2 KB SRAM.
  */
 
 #include <string.h>
 #include "sha256.h"
-#include "ag/progmem.h"
+#include "tfw/progmem.h"
 
-static const uint32_t K[64] AG_PROGMEM = {
+static const uint32_t K[64] TFW_PROGMEM = {
     0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
     0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
     0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
@@ -36,12 +36,7 @@ static const uint32_t K[64] AG_PROGMEM = {
     0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
 };
 
-#ifdef __AVR__
-#include <avr/pgmspace.h>
-#define KCONST(i) ((uint32_t)pgm_read_dword(&K[(i)]))
-#else
-#define KCONST(i) (K[(i)])
-#endif
+#define KCONST(i) tfw_pgm_u32(&K[(i)])
 
 #define ROR(x, n) (((x) >> (n)) | ((x) << (32u - (n))))
 #define CH(x, y, z)  (((x) & (y)) ^ ((~(x)) & (z)))
@@ -51,7 +46,7 @@ static const uint32_t K[64] AG_PROGMEM = {
 #define SIG0(x) (ROR(x, 7)  ^ ROR(x, 18) ^ ((x) >> 3))
 #define SIG1(x) (ROR(x, 17) ^ ROR(x, 19) ^ ((x) >> 10))
 
-static void transform(ag_sha256_t *c, const uint8_t *chunk)
+static void transform(tfw_sha256_t *c, const uint8_t *chunk)
 {
     uint32_t w[64];
     uint32_t a, b, cc, d, e, f, g, h;
@@ -81,7 +76,7 @@ static void transform(ag_sha256_t *c, const uint8_t *chunk)
     c->state[4] += e; c->state[5] += f; c->state[6] += g;  c->state[7] += h;
 }
 
-void ag_sha256_init(ag_sha256_t *c)
+void tfw_sha256_init(tfw_sha256_t *c)
 {
     c->state[0] = 0x6a09e667u; c->state[1] = 0xbb67ae85u;
     c->state[2] = 0x3c6ef372u; c->state[3] = 0xa54ff53au;
@@ -91,7 +86,7 @@ void ag_sha256_init(ag_sha256_t *c)
     c->buflen = 0u;
 }
 
-void ag_sha256_update(ag_sha256_t *c, const uint8_t *data, uint16_t len)
+void tfw_sha256_update(tfw_sha256_t *c, const uint8_t *data, uint16_t len)
 {
     uint16_t i;
 
@@ -105,7 +100,7 @@ void ag_sha256_update(ag_sha256_t *c, const uint8_t *data, uint16_t len)
     }
 }
 
-void ag_sha256_final(ag_sha256_t *c, uint8_t out[32])
+void tfw_sha256_final(tfw_sha256_t *c, uint8_t out[32])
 {
     uint8_t  i = c->buflen;
     uint64_t total;
@@ -135,42 +130,42 @@ void ag_sha256_final(ag_sha256_t *c, uint8_t out[32])
     }
 }
 
-void ag_sha256(const uint8_t *data, uint16_t len, uint8_t out[32])
+void tfw_sha256(const uint8_t *data, uint16_t len, uint8_t out[32])
 {
-    ag_sha256_t c;
-    ag_sha256_init(&c);
-    ag_sha256_update(&c, data, len);
-    ag_sha256_final(&c, out);
+    tfw_sha256_t c;
+    tfw_sha256_init(&c);
+    tfw_sha256_update(&c, data, len);
+    tfw_sha256_final(&c, out);
 }
 
-void ag_hmac_sha256(const uint8_t *key, uint8_t keylen,
+void tfw_hmac_sha256(const uint8_t *key, uint8_t keylen,
                     const uint8_t *data, uint16_t datalen,
                     uint8_t out[32])
 {
     uint8_t     k[64];
     uint8_t     pad[64];
     uint8_t     inner[32];
-    ag_sha256_t c;
+    tfw_sha256_t c;
     uint8_t     i;
 
     memset(k, 0, sizeof k);
     if (keylen > 64u) {
-        ag_sha256(key, keylen, k);      /* an over-long key is hashed first */
+        tfw_sha256(key, keylen, k);      /* an over-long key is hashed first */
     } else {
         memcpy(k, key, keylen);
     }
 
     for (i = 0u; i < 64u; i++) { pad[i] = (uint8_t)(k[i] ^ 0x36u); }
-    ag_sha256_init(&c);
-    ag_sha256_update(&c, pad, 64u);
-    ag_sha256_update(&c, data, datalen);
-    ag_sha256_final(&c, inner);
+    tfw_sha256_init(&c);
+    tfw_sha256_update(&c, pad, 64u);
+    tfw_sha256_update(&c, data, datalen);
+    tfw_sha256_final(&c, inner);
 
     for (i = 0u; i < 64u; i++) { pad[i] = (uint8_t)(k[i] ^ 0x5cu); }
-    ag_sha256_init(&c);
-    ag_sha256_update(&c, pad, 64u);
-    ag_sha256_update(&c, inner, 32u);
-    ag_sha256_final(&c, out);
+    tfw_sha256_init(&c);
+    tfw_sha256_update(&c, pad, 64u);
+    tfw_sha256_update(&c, inner, 32u);
+    tfw_sha256_final(&c, out);
 
     /* The expanded key is derived from a secret. Leaving it on the stack for
      * whatever runs next to find would undo the point of holding the key in a

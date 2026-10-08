@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 
 #include "gpio.h"
-#include "ag/board.h"
-#include "ag/hal.h"
+#include "tfw/board.h"
+#include "tfw/hal.h"
 
 /*
  * Resolves a logical pin and refuses the ones this build must not touch.
@@ -13,74 +13,74 @@
  * host never learns why the device stopped answering. Refusing it is the only
  * behaviour that leaves a diagnosable system.
  */
-static ag_status_t resolve_writable(ag_pin_t pin, ag_pinref_t *ref)
+static tfw_status_t resolve_writable(tfw_pin_t pin, tfw_pinref_t *ref)
 {
-    uint8_t     flags = ag_board_pin_flags(pin);
-    ag_status_t st    = ag_board_pin(pin, ref);
+    uint8_t     flags = tfw_board_pin_flags(pin);
+    tfw_status_t st    = tfw_board_pin(pin, ref);
 
-    if (st != AG_OK) {
+    if (st != TFW_OK) {
         return st;
     }
-    if (flags & (AG_PIN_RESERVED | AG_PIN_IN_USE)) {
-        return AG_ERR_RESERVED_PIN;
+    if (flags & (TFW_PIN_RESERVED | TFW_PIN_IN_USE)) {
+        return TFW_ERR_RESERVED_PIN;
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_gpio_cmd_mode(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_gpio_cmd_mode(tfw_reader_t *r, tfw_writer_t *w)
 {
-    ag_pin_t      pin  = ag_read_u8(r);
-    uint8_t       mode = ag_read_u8(r);
-    ag_pinref_t   ref;
-    ag_status_t   st;
+    tfw_pin_t      pin  = tfw_read_u8(r);
+    uint8_t       mode = tfw_read_u8(r);
+    tfw_pinref_t   ref;
+    tfw_status_t   st;
 
     (void)w;
     st = resolve_writable(pin, &ref);
-    if (st != AG_OK) {
+    if (st != TFW_OK) {
         return st;
     }
-    if (mode > (uint8_t)AG_PIN_INPUT_PULLUP) {
-        return AG_ERR_RANGE;
+    if (mode > (uint8_t)TFW_PIN_INPUT_PULLUP) {
+        return TFW_ERR_RANGE;
     }
-    return ag_hal_gpio_mode(&ref, (ag_pin_mode_t)mode);
+    return tfw_hal_gpio_mode(&ref, (tfw_pin_mode_t)mode);
 }
 
 /* Reading is permitted on a reserved pin: observing the UART line is harmless,
  * and a blanket refusal would make diagnosing a wiring problem harder than it
  * needs to be. Only driving is refused. */
-ag_status_t ag_gpio_cmd_read(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_gpio_cmd_read(tfw_reader_t *r, tfw_writer_t *w)
 {
-    ag_pin_t    pin = ag_read_u8(r);
-    ag_pinref_t ref;
-    ag_status_t st;
+    tfw_pin_t    pin = tfw_read_u8(r);
+    tfw_pinref_t ref;
+    tfw_status_t st;
     uint8_t     level;
 
-    st = ag_board_pin(pin, &ref);
-    if (st != AG_OK) {
+    st = tfw_board_pin(pin, &ref);
+    if (st != TFW_OK) {
         return st;
     }
-    st = ag_hal_gpio_read(&ref, &level);
-    if (st != AG_OK) {
+    st = tfw_hal_gpio_read(&ref, &level);
+    if (st != TFW_OK) {
         return st;
     }
-    ag_write_u8(w, level);
-    return AG_OK;
+    tfw_write_u8(w, level);
+    return TFW_OK;
 }
 
-ag_status_t ag_gpio_cmd_write(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_gpio_cmd_write(tfw_reader_t *r, tfw_writer_t *w)
 {
-    ag_pin_t    pin   = ag_read_u8(r);
-    uint8_t     level = ag_read_u8(r);
-    ag_pinref_t ref;
-    ag_status_t st;
+    tfw_pin_t    pin   = tfw_read_u8(r);
+    uint8_t     level = tfw_read_u8(r);
+    tfw_pinref_t ref;
+    tfw_status_t st;
 
     (void)w;
     st = resolve_writable(pin, &ref);
-    if (st != AG_OK) {
+    if (st != TFW_OK) {
         return st;
     }
     if (level > 1u) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
-    return ag_hal_gpio_write(&ref, level);
+    return tfw_hal_gpio_write(&ref, level);
 }

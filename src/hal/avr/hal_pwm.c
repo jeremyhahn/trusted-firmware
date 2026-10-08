@@ -3,8 +3,8 @@
 
 #include <avr/io.h>
 #include <util/atomic.h>
-#include "ag/hal.h"
-#include "ag/config.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
 
 #define REG8(a)  _SFR_MEM8(a)
 #define REG16(a) _SFR_MEM16(a)
@@ -16,7 +16,7 @@
  * calls pwm_write should not have its timers running, both for the power and
  * because a timer left counting is a timer someone else cannot use.
  */
-ag_status_t ag_hal_pwm_write(const ag_pwmref_t *p, uint8_t duty)
+tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
         /* WGM(n)0 selects fast PWM 8-bit on both timer families here, and the
@@ -33,10 +33,10 @@ ag_status_t ag_hal_pwm_write(const ag_pwmref_t *p, uint8_t duty)
             REG8(p->ocr) = duty;
         }
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_hal_pwm_stop(const ag_pwmref_t *p)
+tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
 {
     ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
         /* Disconnect the pin from the compare unit and leave it a plain GPIO,
@@ -44,7 +44,7 @@ ag_status_t ag_hal_pwm_stop(const ag_pwmref_t *p)
          * through the timer and quietly prevent digital_write from working. */
         REG8(p->tccra) = (uint8_t)(REG8(p->tccra) & (uint8_t)~_BV(p->com_bit));
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
 /* ---------------------------------------------------------------- tone */

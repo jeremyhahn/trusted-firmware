@@ -1,4 +1,4 @@
-// arduino-generic/sdk/go -- the host side of the AVR wire protocol.
+// trusted-firmware/sdk/go -- the host side of the AVR wire protocol.
 //
 // A LAYER 0 ORDINARY LIBRARY, and the dependency list is the whole point.
 // Nothing imports it yet; go-xkms (Layer 3) and go-trusted-platform (Layer 5)
@@ -18,7 +18,7 @@
 // If that ever changes, go-enclave becomes a mandatory dependency -- the
 // constitution is absolute that no project hand-rolls locked-memory handling --
 // and this module stops being dependency-free.
-module github.com/jeremyhahn/arduino-generic/sdk/go
+module github.com/jeremyhahn/trusted-firmware/sdk/go
 
 go 1.26.5
 

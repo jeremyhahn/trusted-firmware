@@ -41,7 +41,7 @@ papered over with a test that reaches it.
 **Branch coverage is 80.4%, and that is the more honest number.** Line coverage
 counts a line with a condition on it as covered when either arm runs. The gap
 between the two is mostly error paths in the bus drivers, where a peripheral
-would have to fail at a particular moment — and `ag_mock_fail_next()` reaches
+would have to fail at a particular moment — and `tfw_mock_fail_next()` reaches
 many of those, but not all.
 
 **Coverage says nothing about the wire.** The golden vectors are what hold the C

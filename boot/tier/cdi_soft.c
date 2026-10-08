@@ -26,8 +26,8 @@
 
 #include "../boot_cdi.h"
 #include "../boot_hal.h"
-#include "ag/boot.h"
-#include "ag/progmem.h"
+#include "tfw/boot.h"
+#include "tfw/progmem.h"
 #include "sha256.h"
 
 /*
@@ -37,71 +37,71 @@
  * chip erase leaves behind. Treating it as a secret would mean every
  * un-provisioned device in a fleet derived the same CDI from the same "key" --
  * so it is the one value this file refuses, and the refusal is what turns a
- * missed provisioning step into an honest AG_ERR_NOT_PROVISIONED instead of a
+ * missed provisioning step into an honest TFW_ERR_NOT_PROVISIONED instead of a
  * fleet of identical identities.
  */
 #define UDS_LEN 32u
 
-static const uint8_t uds_slot[UDS_LEN] AG_PROGMEM = {
+static const uint8_t uds_slot[UDS_LEN] TFW_PROGMEM = {
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
     0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu
 };
 
-ag_status_t ag_boot_cdi_init(void)
+tfw_status_t tfw_boot_cdi_init(void)
 {
-    return AG_OK;
+    return TFW_OK;
 }
 
-uint8_t ag_boot_cdi_tier(void)
+uint8_t tfw_boot_cdi_tier(void)
 {
-    return (uint8_t)AG_CRYPTO_SOFTWARE;
+    return (uint8_t)TFW_CRYPTO_SOFTWARE;
 }
 
-ag_status_t ag_boot_cdi_derive(const uint8_t measurement[AG_BOOT_MEASURE_LEN],
-                               uint8_t cdi[AG_BOOT_MEASURE_LEN])
+tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
+                               uint8_t cdi[TFW_BOOT_MEASURE_LEN])
 {
     uint8_t uds[UDS_LEN];
     uint8_t erased = 0xFFu;
     uint8_t i;
 
     for (i = 0u; i < UDS_LEN; i++) {
-        uds[i]  = (uint8_t)ag_pgm_u8(&uds_slot[i]);
+        uds[i]  = (uint8_t)tfw_pgm_u8(&uds_slot[i]);
         erased &= uds[i];
     }
     if (erased == 0xFFu) {
         memset(uds, 0, sizeof uds);
-        return AG_ERR_NOT_PROVISIONED;
+        return TFW_ERR_NOT_PROVISIONED;
     }
 
-    ag_hmac_sha256(uds, (uint8_t)UDS_LEN, measurement, AG_BOOT_MEASURE_LEN, cdi);
+    tfw_hmac_sha256(uds, (uint8_t)UDS_LEN, measurement, TFW_BOOT_MEASURE_LEN, cdi);
 
     /* The copy on the stack is the UDS itself, not a derivative. Leaving it for
      * whatever runs next -- including the application, a few hundred
      * instructions later, in the same SRAM -- would hand across the one value
      * BLB mode 3 exists to keep on this side of the barrier. */
     memset(uds, 0, sizeof uds);
-    return AG_OK;
+    return TFW_OK;
 }
 
 /*
  * No monotonic counter on this tier, so the floor lives in reserved EEPROM and
  * the caller maintains it there.
  *
- * Reported as AG_ERR_UNSUPPORTED rather than by returning a zero floor. A zero
+ * Reported as TFW_ERR_UNSUPPORTED rather than by returning a zero floor. A zero
  * floor is a real, legitimate value -- a device that has never been updated --
  * and a tier with no counter must not be able to masquerade as one whose
  * counter happens to read zero.
  */
-ag_status_t ag_boot_floor_read(uint32_t *out)
+tfw_status_t tfw_boot_floor_read(uint32_t *out)
 {
     (void)out;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-ag_status_t ag_boot_floor_write(uint32_t value)
+tfw_status_t tfw_boot_floor_write(uint32_t value)
 {
     (void)value;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }

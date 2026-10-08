@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"testing"
 
-	"github.com/jeremyhahn/arduino-generic/sdk/go/internal/vectors"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 )
 
 // The Go and C implementations are pinned to the same published bytes. A

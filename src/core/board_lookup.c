@@ -23,91 +23,91 @@
  * names neither file and points at neither cause.
  */
 
-#include "ag/board.h"
-#include "ag/config.h"
-#include "ag/progmem.h"
+#include "tfw/board.h"
+#include "tfw/config.h"
+#include "tfw/progmem.h"
 
-ag_status_t ag_board_pin(ag_pin_t pin, ag_pinref_t *out)
+tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
 {
     uint8_t pb, port;
 
-    if (pin >= AG_PIN_COUNT) {
-        return AG_ERR_BAD_PIN;
+    if (pin >= TFW_PIN_COUNT) {
+        return TFW_ERR_BAD_PIN;
     }
-    pb   = ag_pgm_u8(&ag_board_pins[pin].port_bit);
+    pb   = tfw_pgm_u8(&tfw_board_pins[pin].port_bit);
     port = (uint8_t)(pb >> 4);
-    if (port == AG_PORT_NONE) {
-        return AG_ERR_UNSUPPORTED;   /* exists, but has no digital port */
+    if (port == TFW_PORT_NONE) {
+        return TFW_ERR_UNSUPPORTED;   /* exists, but has no digital port */
     }
-    out->port = ag_pgm_u16(&ag_board_ports[port].pin_addr);
+    out->port = tfw_pgm_u16(&tfw_board_ports[port].pin_addr);
     out->bit  = (uint8_t)(pb & 0x0Fu);
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_board_adc_channel(ag_pin_t pin, uint8_t *out)
+tfw_status_t tfw_board_adc_channel(tfw_pin_t pin, uint8_t *out)
 {
     uint8_t ch;
 
-    if (pin >= AG_PIN_COUNT) {
-        return AG_ERR_BAD_PIN;
+    if (pin >= TFW_PIN_COUNT) {
+        return TFW_ERR_BAD_PIN;
     }
-    ch = ag_pgm_u8(&ag_board_pins[pin].adc_ch);
-    if (ch == AG_ADC_NONE) {
-        return AG_ERR_UNSUPPORTED;
+    ch = tfw_pgm_u8(&tfw_board_pins[pin].adc_ch);
+    if (ch == TFW_ADC_NONE) {
+        return TFW_ERR_UNSUPPORTED;
     }
     *out = ch;
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_board_pwm(ag_pin_t pin, ag_pwmref_t *out)
+tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out)
 {
     uint8_t idx;
 
-    if (pin >= AG_PIN_COUNT) {
-        return AG_ERR_BAD_PIN;
+    if (pin >= TFW_PIN_COUNT) {
+        return TFW_ERR_BAD_PIN;
     }
-    idx = ag_pgm_u8(&ag_board_pins[pin].pwm_idx);
-    /* AG_PWM_NONE and AG_PWM_RSVD are both refusals here, and the board table
+    idx = tfw_pgm_u8(&tfw_board_pins[pin].pwm_idx);
+    /* TFW_PWM_NONE and TFW_PWM_RSVD are both refusals here, and the board table
      * keeps them distinct only so CAPS can tell a host WHICH refusal it is. */
-    if (idx == AG_PWM_NONE || idx == AG_PWM_RSVD) {
-        return AG_ERR_UNSUPPORTED;
+    if (idx == TFW_PWM_NONE || idx == TFW_PWM_RSVD) {
+        return TFW_ERR_UNSUPPORTED;
     }
-    out->tccra   = ag_pgm_u16(&ag_board_pwms[idx].tccra);
-    out->ocr     = ag_pgm_u16(&ag_board_pwms[idx].ocr);
-    out->com_bit = ag_pgm_u8(&ag_board_pwms[idx].com_bit);
-    out->is16    = ag_pgm_u8(&ag_board_pwms[idx].is16);
-    return AG_OK;
+    out->tccra   = tfw_pgm_u16(&tfw_board_pwms[idx].tccra);
+    out->ocr     = tfw_pgm_u16(&tfw_board_pwms[idx].ocr);
+    out->com_bit = tfw_pgm_u8(&tfw_board_pwms[idx].com_bit);
+    out->is16    = tfw_pgm_u8(&tfw_board_pwms[idx].is16);
+    return TFW_OK;
 }
 
-uint8_t ag_board_pin_port_bit(ag_pin_t pin)
+uint8_t tfw_board_pin_port_bit(tfw_pin_t pin)
 {
-    if (pin >= AG_PIN_COUNT) {
+    if (pin >= TFW_PIN_COUNT) {
         return 0xFFu;
     }
-    return ag_pgm_u8(&ag_board_pins[pin].port_bit);
+    return tfw_pgm_u8(&tfw_board_pins[pin].port_bit);
 }
 
-uint8_t ag_board_pin_pwm_state(ag_pin_t pin)
+uint8_t tfw_board_pin_pwm_state(tfw_pin_t pin)
 {
     uint8_t idx;
 
-    if (pin >= AG_PIN_COUNT) {
+    if (pin >= TFW_PIN_COUNT) {
         return 0u;
     }
-    idx = ag_pgm_u8(&ag_board_pins[pin].pwm_idx);
-    if (idx == AG_PWM_NONE) { return 0u; }
-    if (idx == AG_PWM_RSVD) { return 2u; }
+    idx = tfw_pgm_u8(&tfw_board_pins[pin].pwm_idx);
+    if (idx == TFW_PWM_NONE) { return 0u; }
+    if (idx == TFW_PWM_RSVD) { return 2u; }
     return 1u;
 }
 
-uint8_t ag_board_pin_flags(ag_pin_t pin)
+uint8_t tfw_board_pin_flags(tfw_pin_t pin)
 {
-    if (pin >= AG_PIN_COUNT) {
+    if (pin >= TFW_PIN_COUNT) {
         return 0u;
     }
-    return ag_pgm_u8(&ag_board_pins[pin].flags);
+    return tfw_pgm_u8(&tfw_board_pins[pin].flags);
 }
 
-uint8_t ag_board_pin_count(void) { return AG_PIN_COUNT; }
+uint8_t tfw_board_pin_count(void) { return TFW_PIN_COUNT; }
 
-const char *ag_board_name(void) { return AG_BOARD_NAME; }
+const char *tfw_board_name(void) { return TFW_BOARD_NAME; }

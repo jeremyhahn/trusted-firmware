@@ -19,31 +19,31 @@
  */
 
 #include "unity.h"
-#include "ag/board.h"
-#include "ag/progmem.h"
+#include "tfw/board.h"
+#include "tfw/progmem.h"
 #include "board_profile.h"
 
 void setUp(void) {}
 void tearDown(void) {}
 
-static void expect_pin(ag_pin_t pin, uint16_t port, uint8_t bit)
+static void expect_pin(tfw_pin_t pin, uint16_t port, uint8_t bit)
 {
-    ag_pinref_t r;
+    tfw_pinref_t r;
     char        msg[48];
 
     snprintf(msg, sizeof msg, "pin %u", (unsigned)pin);
-    TEST_ASSERT_EQUAL_MESSAGE(AG_OK, ag_board_pin(pin, &r), msg);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_board_pin(pin, &r), msg);
     TEST_ASSERT_EQUAL_HEX16_MESSAGE(port, r.port, msg);
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(bit, r.bit, msg);
 }
 
-static void expect_adc(ag_pin_t pin, uint8_t channel)
+static void expect_adc(tfw_pin_t pin, uint8_t channel)
 {
     uint8_t ch;
     char    msg[48];
 
     snprintf(msg, sizeof msg, "pin %u adc", (unsigned)pin);
-    TEST_ASSERT_EQUAL_MESSAGE(AG_OK, ag_board_adc_channel(pin, &ch), msg);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_board_adc_channel(pin, &ch), msg);
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(channel, ch, msg);
 }
 
@@ -53,10 +53,10 @@ static void expect_adc(ag_pin_t pin, uint8_t channel)
  * This is the single most transposable row in the table. */
 static void test_digital_0_through_3_are_port_d_in_header_order(void)
 {
-    expect_pin(0u, AG_ADDR_PIND, 2u);   /* RXD1 */
-    expect_pin(1u, AG_ADDR_PIND, 3u);   /* TXD1 */
-    expect_pin(2u, AG_ADDR_PIND, 1u);   /* SDA  */
-    expect_pin(3u, AG_ADDR_PIND, 0u);   /* SCL  */
+    expect_pin(0u, TFW_ADDR_PIND, 2u);   /* RXD1 */
+    expect_pin(1u, TFW_ADDR_PIND, 3u);   /* TXD1 */
+    expect_pin(2u, TFW_ADDR_PIND, 1u);   /* SDA  */
+    expect_pin(3u, TFW_ADDR_PIND, 0u);   /* SCL  */
 }
 
 /* The rest of port D: D4 is PD4, D6 is PD7 and D12 is PD6. Note that D6 is bit
@@ -64,50 +64,50 @@ static void test_digital_0_through_3_are_port_d_in_header_order(void)
  * "somewhere on port D". */
 static void test_the_remaining_port_d_pins(void)
 {
-    expect_pin(4u,  AG_ADDR_PIND, 4u);
-    expect_pin(6u,  AG_ADDR_PIND, 7u);
-    expect_pin(12u, AG_ADDR_PIND, 6u);
+    expect_pin(4u,  TFW_ADDR_PIND, 4u);
+    expect_pin(6u,  TFW_ADDR_PIND, 7u);
+    expect_pin(12u, TFW_ADDR_PIND, 6u);
 }
 
 /* Port C contributes exactly two pins, at the TOP of the port: D5 is PC6 and
  * D13 is PC7. A 328P habit would look for PC0. */
 static void test_port_c_carries_only_pins_5_and_13(void)
 {
-    expect_pin(5u,  AG_ADDR_PINC, 6u);
-    expect_pin(13u, AG_ADDR_PINC, 7u);
+    expect_pin(5u,  TFW_ADDR_PINC, 6u);
+    expect_pin(13u, TFW_ADDR_PINC, 7u);
 }
 
 /* Port E contributes exactly one pin: D7 is PE6. A port with one usable bit is
  * the kind of thing that gets dropped from a table entirely. */
 static void test_port_e_carries_only_pin_7(void)
 {
-    expect_pin(7u, AG_ADDR_PINE, 6u);
+    expect_pin(7u, TFW_ADDR_PINE, 6u);
 }
 
 /* D8..D11 are PB4..PB7, and D14..D17 are the SPI pins MISO, SCK, MOSI, SS --
  * PB3, PB1, PB2, PB0, which is NOT ascending order. */
 static void test_port_b_carries_the_upper_digitals_and_the_spi_pins(void)
 {
-    expect_pin(8u,  AG_ADDR_PINB, 4u);
-    expect_pin(9u,  AG_ADDR_PINB, 5u);
-    expect_pin(10u, AG_ADDR_PINB, 6u);
-    expect_pin(11u, AG_ADDR_PINB, 7u);
-    expect_pin(14u, AG_ADDR_PINB, 3u);   /* MISO */
-    expect_pin(15u, AG_ADDR_PINB, 1u);   /* SCK  */
-    expect_pin(16u, AG_ADDR_PINB, 2u);   /* MOSI */
-    expect_pin(17u, AG_ADDR_PINB, 0u);   /* SS   */
+    expect_pin(8u,  TFW_ADDR_PINB, 4u);
+    expect_pin(9u,  TFW_ADDR_PINB, 5u);
+    expect_pin(10u, TFW_ADDR_PINB, 6u);
+    expect_pin(11u, TFW_ADDR_PINB, 7u);
+    expect_pin(14u, TFW_ADDR_PINB, 3u);   /* MISO */
+    expect_pin(15u, TFW_ADDR_PINB, 1u);   /* SCK  */
+    expect_pin(16u, TFW_ADDR_PINB, 2u);   /* MOSI */
+    expect_pin(17u, TFW_ADDR_PINB, 0u);   /* SS   */
 }
 
 /* A0..A5 are pins 18..23 and run DOWN port F from bit 7, skipping bits 3 and 2
  * which the part does not bond out. A0 is PF7, not PF0. */
 static void test_analog_0_through_5_run_down_port_f(void)
 {
-    expect_pin(18u, AG_ADDR_PINF, 7u);   /* A0 */
-    expect_pin(19u, AG_ADDR_PINF, 6u);   /* A1 */
-    expect_pin(20u, AG_ADDR_PINF, 5u);   /* A2 */
-    expect_pin(21u, AG_ADDR_PINF, 4u);   /* A3 */
-    expect_pin(22u, AG_ADDR_PINF, 1u);   /* A4 */
-    expect_pin(23u, AG_ADDR_PINF, 0u);   /* A5 */
+    expect_pin(18u, TFW_ADDR_PINF, 7u);   /* A0 */
+    expect_pin(19u, TFW_ADDR_PINF, 6u);   /* A1 */
+    expect_pin(20u, TFW_ADDR_PINF, 5u);   /* A2 */
+    expect_pin(21u, TFW_ADDR_PINF, 4u);   /* A3 */
+    expect_pin(22u, TFW_ADDR_PINF, 1u);   /* A4 */
+    expect_pin(23u, TFW_ADDR_PINF, 0u);   /* A5 */
 }
 
 /* The built-in LED is pin 13, PORTC bit 7. Stated separately because it is the
@@ -116,8 +116,8 @@ static void test_analog_0_through_5_run_down_port_f(void)
  * already has memorised. */
 static void test_the_builtin_led_is_pin_13_on_port_c_bit_7(void)
 {
-    expect_pin(13u, AG_ADDR_PINC, 7u);
-    TEST_ASSERT_TRUE(ag_board_pin_flags(13u) & AG_PIN_LED);
+    expect_pin(13u, TFW_ADDR_PINC, 7u);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(13u) & TFW_PIN_LED);
 }
 
 /* A0..A5 carry ADC7 down to ADC0 -- the channel number falls as the pin number
@@ -150,18 +150,18 @@ static void test_the_high_bank_channels_live_on_digital_pins(void)
 }
 
 /* Every channel the table claims must be inside the bound the HAL range-checks
- * against, or a pin exists that ag_hal_adc_read will refuse. Channel 13 is the
- * highest real one, so AG_ADC_COUNT has to be 14 -- not 12, the number of
+ * against, or a pin exists that tfw_hal_adc_read will refuse. Channel 13 is the
+ * highest real one, so TFW_ADC_COUNT has to be 14 -- not 12, the number of
  * channels that actually exist. */
 static void test_every_claimed_channel_is_within_the_hal_bound(void)
 {
-    for (uint8_t i = 0u; i < AG_PIN_COUNT; i++) {
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         uint8_t ch;
         char    msg[64];
-        if (ag_board_adc_channel(i, &ch) != AG_OK) { continue; }
-        snprintf(msg, sizeof msg, "pin %u channel %u exceeds AG_ADC_COUNT",
+        if (tfw_board_adc_channel(i, &ch) != TFW_OK) { continue; }
+        snprintf(msg, sizeof msg, "pin %u channel %u exceeds TFW_ADC_COUNT",
                  (unsigned)i, (unsigned)ch);
-        TEST_ASSERT_TRUE_MESSAGE(ch < AG_ADC_COUNT, msg);
+        TEST_ASSERT_TRUE_MESSAGE(ch < TFW_ADC_COUNT, msg);
     }
 }
 
@@ -169,10 +169,10 @@ static void test_every_claimed_channel_is_within_the_hal_bound(void)
  * either would convert a floating input and return plausible noise. */
 static void test_no_pin_claims_a_channel_the_part_does_not_have(void)
 {
-    for (uint8_t i = 0u; i < AG_PIN_COUNT; i++) {
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         uint8_t ch;
         char    msg[64];
-        if (ag_board_adc_channel(i, &ch) != AG_OK) { continue; }
+        if (tfw_board_adc_channel(i, &ch) != TFW_OK) { continue; }
         snprintf(msg, sizeof msg, "pin %u claims nonexistent channel %u",
                  (unsigned)i, (unsigned)ch);
         TEST_ASSERT_TRUE_MESSAGE(ch != 2u && ch != 3u, msg);
@@ -189,8 +189,8 @@ static void test_digital_only_pins_have_no_adc_channel(void)
     for (uint8_t i = 0u; i < sizeof digital_only / sizeof digital_only[0]; i++) {
         char msg[48];
         snprintf(msg, sizeof msg, "pin %u", (unsigned)digital_only[i]);
-        TEST_ASSERT_EQUAL_MESSAGE(AG_ERR_UNSUPPORTED,
-                                  ag_board_adc_channel(digital_only[i], &ch), msg);
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_UNSUPPORTED,
+                                  tfw_board_adc_channel(digital_only[i], &ch), msg);
     }
 }
 
@@ -199,19 +199,19 @@ static void test_digital_only_pins_have_no_adc_channel(void)
  * reserved rather than absent: "no PWM here" and "this build spent it on the
  * clock" are different facts, and only one of them might change.
  *
- * Read from the table rather than through ag_board_pwm, because that lookup
- * collapses both cases to AG_ERR_UNSUPPORTED on purpose -- the distinction
+ * Read from the table rather than through tfw_board_pwm, because that lookup
+ * collapses both cases to TFW_ERR_UNSUPPORTED on purpose -- the distinction
  * exists only for CAPS, so only a direct read can prove it survived. */
 static void test_the_tick_timers_pins_are_reserved_not_merely_absent(void)
 {
-    TEST_ASSERT_EQUAL_UINT8(AG_PWM_RSVD, ag_pgm_u8(&ag_board_pins[3].pwm_idx));
-    TEST_ASSERT_EQUAL_UINT8(AG_PWM_RSVD, ag_pgm_u8(&ag_board_pins[11].pwm_idx));
-    TEST_ASSERT_FALSE(ag_board_pin_flags(3u)  & AG_PIN_PWM);
-    TEST_ASSERT_FALSE(ag_board_pin_flags(11u) & AG_PIN_PWM);
+    TEST_ASSERT_EQUAL_UINT8(TFW_PWM_RSVD, tfw_pgm_u8(&tfw_board_pins[3].pwm_idx));
+    TEST_ASSERT_EQUAL_UINT8(TFW_PWM_RSVD, tfw_pgm_u8(&tfw_board_pins[11].pwm_idx));
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(3u)  & TFW_PIN_PWM);
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(11u) & TFW_PIN_PWM);
     /* while the three genuine PWM pins are advertised */
-    TEST_ASSERT_TRUE(ag_board_pin_flags(5u)  & AG_PIN_PWM);
-    TEST_ASSERT_TRUE(ag_board_pin_flags(9u)  & AG_PIN_PWM);
-    TEST_ASSERT_TRUE(ag_board_pin_flags(10u) & AG_PIN_PWM);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(5u)  & TFW_PIN_PWM);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(9u)  & TFW_PIN_PWM);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(10u) & TFW_PIN_PWM);
 }
 
 /* Pins 6 and 13 have Timer4 compare outputs that this build does not drive, so
@@ -220,8 +220,8 @@ static void test_the_tick_timers_pins_are_reserved_not_merely_absent(void)
  * that does not exist. */
 static void test_the_timer4_pins_report_pwm_absent_not_reserved(void)
 {
-    TEST_ASSERT_EQUAL_UINT8(AG_PWM_NONE, ag_pgm_u8(&ag_board_pins[6].pwm_idx));
-    TEST_ASSERT_EQUAL_UINT8(AG_PWM_NONE, ag_pgm_u8(&ag_board_pins[13].pwm_idx));
+    TEST_ASSERT_EQUAL_UINT8(TFW_PWM_NONE, tfw_pgm_u8(&tfw_board_pins[6].pwm_idx));
+    TEST_ASSERT_EQUAL_UINT8(TFW_PWM_NONE, tfw_pgm_u8(&tfw_board_pins[13].pwm_idx));
 }
 
 /* The three PWM pins must resolve to the registers that drive them. A pin whose
@@ -229,22 +229,22 @@ static void test_the_timer4_pins_report_pwm_absent_not_reserved(void)
  * nobody asked about, and silence on the one that was asked for. */
 static void test_pwm_pins_resolve_to_their_own_compare_unit(void)
 {
-    ag_pwmref_t r;
+    tfw_pwmref_t r;
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_board_pwm(9u, &r));
-    TEST_ASSERT_EQUAL_HEX16(AG_ADDR_TCCR1A, r.tccra);
-    TEST_ASSERT_EQUAL_HEX16(AG_ADDR_OCR1AL, r.ocr);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(9u, &r));
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR1A, r.tccra);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR1AL, r.ocr);
     TEST_ASSERT_EQUAL_UINT8(COM1A1_BIT, r.com_bit);
     TEST_ASSERT_TRUE(r.is16);
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_board_pwm(10u, &r));
-    TEST_ASSERT_EQUAL_HEX16(AG_ADDR_TCCR1A, r.tccra);
-    TEST_ASSERT_EQUAL_HEX16(AG_ADDR_OCR1BL, r.ocr);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(10u, &r));
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR1A, r.tccra);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR1BL, r.ocr);
     TEST_ASSERT_EQUAL_UINT8(COM1B1_BIT, r.com_bit);
 
-    TEST_ASSERT_EQUAL(AG_OK, ag_board_pwm(5u, &r));
-    TEST_ASSERT_EQUAL_HEX16(AG_ADDR_TCCR3A, r.tccra);
-    TEST_ASSERT_EQUAL_HEX16(AG_ADDR_OCR3AL, r.ocr);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(5u, &r));
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR3A, r.tccra);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR3AL, r.ocr);
     TEST_ASSERT_EQUAL_UINT8(COM3A1_BIT, r.com_bit);
 }
 
@@ -253,19 +253,19 @@ static void test_pwm_pins_resolve_to_their_own_compare_unit(void)
  * the branch it is sitting on. */
 static void test_the_uart_pins_are_marked_in_use(void)
 {
-    TEST_ASSERT_TRUE(ag_board_pin_flags(0u) & AG_PIN_IN_USE);
-    TEST_ASSERT_TRUE(ag_board_pin_flags(1u) & AG_PIN_IN_USE);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(0u) & TFW_PIN_IN_USE);
+    TEST_ASSERT_TRUE(tfw_board_pin_flags(1u) & TFW_PIN_IN_USE);
 }
 
 static void test_a_pin_beyond_the_board_is_refused(void)
 {
-    ag_pinref_t r;
+    tfw_pinref_t r;
     uint8_t     ch;
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_PIN, ag_board_pin(AG_PIN_COUNT, &r));
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_PIN, ag_board_pin(255u, &r));
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_PIN, ag_board_adc_channel(AG_PIN_COUNT, &ch));
-    TEST_ASSERT_EQUAL(AG_ERR_BAD_PIN, ag_board_pwm(AG_PIN_COUNT, (ag_pwmref_t *)0));
-    TEST_ASSERT_EQUAL_UINT8(0u, ag_board_pin_flags(AG_PIN_COUNT));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(255u, &r));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_adc_channel(TFW_PIN_COUNT, &ch));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pwm(TFW_PIN_COUNT, (tfw_pwmref_t *)0));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_board_pin_flags(TFW_PIN_COUNT));
 }
 
 /* No two pins may resolve to the same port and bit. A copy-paste slip in the
@@ -274,13 +274,13 @@ static void test_a_pin_beyond_the_board_is_refused(void)
  * since those are aliases for pins 4, 6, 8, 9, 10 and 12. */
 static void test_no_two_pins_share_a_port_and_bit(void)
 {
-    for (uint8_t a = 0u; a < AG_PIN_COUNT; a++) {
-        ag_pinref_t ra;
-        if (ag_board_pin(a, &ra) != AG_OK) { continue; }
-        for (uint8_t b = (uint8_t)(a + 1u); b < AG_PIN_COUNT; b++) {
-            ag_pinref_t rb;
+    for (uint8_t a = 0u; a < TFW_PIN_COUNT; a++) {
+        tfw_pinref_t ra;
+        if (tfw_board_pin(a, &ra) != TFW_OK) { continue; }
+        for (uint8_t b = (uint8_t)(a + 1u); b < TFW_PIN_COUNT; b++) {
+            tfw_pinref_t rb;
             char        msg[64];
-            if (ag_board_pin(b, &rb) != AG_OK) { continue; }
+            if (tfw_board_pin(b, &rb) != TFW_OK) { continue; }
             snprintf(msg, sizeof msg, "pins %u and %u collide", (unsigned)a, (unsigned)b);
             TEST_ASSERT_FALSE_MESSAGE(ra.port == rb.port && ra.bit == rb.bit, msg);
         }
@@ -290,13 +290,13 @@ static void test_no_two_pins_share_a_port_and_bit(void)
 /* Likewise no two pins may claim the same ADC channel. */
 static void test_no_two_pins_share_an_adc_channel(void)
 {
-    for (uint8_t a = 0u; a < AG_PIN_COUNT; a++) {
+    for (uint8_t a = 0u; a < TFW_PIN_COUNT; a++) {
         uint8_t ca;
-        if (ag_board_adc_channel(a, &ca) != AG_OK) { continue; }
-        for (uint8_t b = (uint8_t)(a + 1u); b < AG_PIN_COUNT; b++) {
+        if (tfw_board_adc_channel(a, &ca) != TFW_OK) { continue; }
+        for (uint8_t b = (uint8_t)(a + 1u); b < TFW_PIN_COUNT; b++) {
             uint8_t cb;
             char    msg[64];
-            if (ag_board_adc_channel(b, &cb) != AG_OK) { continue; }
+            if (tfw_board_adc_channel(b, &cb) != TFW_OK) { continue; }
             snprintf(msg, sizeof msg, "pins %u and %u share ADC channel", (unsigned)a, (unsigned)b);
             TEST_ASSERT_NOT_EQUAL_MESSAGE(ca, cb, msg);
         }
@@ -305,23 +305,23 @@ static void test_no_two_pins_share_an_adc_channel(void)
 
 static void test_every_pin_is_either_digital_or_adc(void)
 {
-    for (uint8_t i = 0u; i < AG_PIN_COUNT; i++) {
-        uint8_t f = ag_board_pin_flags(i);
-        TEST_ASSERT_TRUE_MESSAGE(f & (AG_PIN_DIGITAL | AG_PIN_ADC), "a pin that can do nothing");
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t f = tfw_board_pin_flags(i);
+        TEST_ASSERT_TRUE_MESSAGE(f & (TFW_PIN_DIGITAL | TFW_PIN_ADC), "a pin that can do nothing");
     }
 }
 
 /* Unlike the 328P, whose A6 and A7 are ADC-only on the TQFP package, every ADC
- * input on this part is a real port pin. So no row may carry AG_PORT_NONE --
+ * input on this part is a real port pin. So no row may carry TFW_PORT_NONE --
  * a pin that refused digital_write here would be a table error, not a package
  * limitation. */
 static void test_no_pin_on_this_part_is_adc_only(void)
 {
-    for (uint8_t i = 0u; i < AG_PIN_COUNT; i++) {
-        ag_pinref_t r;
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        tfw_pinref_t r;
         char        msg[48];
         snprintf(msg, sizeof msg, "pin %u has no digital port", (unsigned)i);
-        TEST_ASSERT_EQUAL_MESSAGE(AG_OK, ag_board_pin(i, &r), msg);
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, tfw_board_pin(i, &r), msg);
     }
 }
 
@@ -331,9 +331,9 @@ static void test_no_pin_on_this_part_is_adc_only(void)
  * until the next firmware build. */
 static void test_the_board_reports_its_identity(void)
 {
-    TEST_ASSERT_EQUAL_UINT8(24u, ag_board_pin_count());
-    TEST_ASSERT_EQUAL_STRING("atmega32u4", ag_board_name());
-    TEST_ASSERT_EQUAL_UINT8(0x03u, AG_BOARD_ID);
+    TEST_ASSERT_EQUAL_UINT8(24u, tfw_board_pin_count());
+    TEST_ASSERT_EQUAL_STRING("atmega32u4", tfw_board_name());
+    TEST_ASSERT_EQUAL_UINT8(0x03u, TFW_BOARD_ID);
 }
 
 int main(void)

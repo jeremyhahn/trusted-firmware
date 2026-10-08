@@ -10,12 +10,12 @@
  * golden measurement a platform holds becomes wrong at once, with no symptom
  * except devices that stop verifying.
  */
-#ifndef AG_BOOT_MEASURE_H
-#define AG_BOOT_MEASURE_H
+#ifndef TFW_BOOT_MEASURE_H
+#define TFW_BOOT_MEASURE_H
 
 #include <stdint.h>
-#include "ag/boot.h"
-#include "ag/status.h"
+#include "tfw/boot.h"
+#include "tfw/status.h"
 
 /*
  * SHA-256 over program memory [0, len).
@@ -26,48 +26,48 @@
  * verifier has to be told about, and the one thing a golden measurement cannot
  * survive is a convention that lives only in this file.
  *
- * `len` is bounded by AG_BOOT_MAX_IMAGE_LEN, which is the trailer's address --
- * see ag_boot_trailer_parse for why an image measuring its own signature is a
+ * `len` is bounded by TFW_BOOT_MAX_IMAGE_LEN, which is the trailer's address --
+ * see tfw_boot_trailer_parse for why an image measuring its own signature is a
  * fixed point that does not exist.
  */
-ag_status_t ag_boot_measure(uint32_t len, uint8_t out[AG_BOOT_MEASURE_LEN]);
+tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN]);
 
 /* SHA-256 over an arbitrary buffer, used for the public key hash. Here rather
- * than calling ag_sha256 directly so that boot/ has one dependency on the hash
+ * than calling tfw_sha256 directly so that boot/ has one dependency on the hash
  * and the size report can attribute it. */
-void ag_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[AG_BOOT_MEASURE_LEN]);
+void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASURE_LEN]);
 
 /*
- * Builds the AG_BOOT_HANDOFF_LEN-byte block described in include/ag/boot.h.
+ * Builds the TFW_BOOT_HANDOFF_LEN-byte block described in include/tfw/boot.h.
  *
  * Pure, so the layout the application will parse is testable without an MCU.
  * The bootloader's own copy of the CDI is the caller's to zeroize; this
  * function does not take ownership of it, because a function that cleared its
  * caller's buffer would be a surprise the one time someone needed it twice.
  *
- * `reset_cause` is the raw MCUSR byte hal_early.c latched before ag-boot's own
+ * `reset_cause` is the raw MCUSR byte hal_early.c latched before tfw-boot's own
  * .init3 cleared it -- issue #18. It is carried verbatim, not decoded: decoding
  * belongs to src/hal/avr/hal_sys.c, which already has the priority order, and
  * a second decoder here would be a second place for that order to drift.
  */
-void ag_boot_handoff_build(uint8_t *block,
+void tfw_boot_handoff_build(uint8_t *block,
                            uint8_t tier,
-                           const uint8_t cdi[AG_BOOT_MEASURE_LEN],
-                           const uint8_t measurement[AG_BOOT_MEASURE_LEN],
+                           const uint8_t cdi[TFW_BOOT_MEASURE_LEN],
+                           const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                            uint32_t image_version,
                            uint8_t reset_cause);
 
 /* Parses one back. The application's side of the same layout -- and the reason
- * the round trip is a test rather than an assumption. Returns AG_ERR_CRC on a
+ * the round trip is a test rather than an assumption. Returns TFW_ERR_CRC on a
  * block that was never written or was overwritten by a stack that grew into it,
  * which on a part with no MPU is the failure worth naming. Returns
- * AG_ERR_UNSUPPORTED on a version this build does not know -- see
- * include/ag/boot.h for why that degrades exactly like no handoff at all. */
-ag_status_t ag_boot_handoff_parse(const uint8_t *block,
+ * TFW_ERR_UNSUPPORTED on a version this build does not know -- see
+ * include/tfw/boot.h for why that degrades exactly like no handoff at all. */
+tfw_status_t tfw_boot_handoff_parse(const uint8_t *block,
                                   uint8_t *tier,
-                                  uint8_t cdi[AG_BOOT_MEASURE_LEN],
-                                  uint8_t measurement[AG_BOOT_MEASURE_LEN],
+                                  uint8_t cdi[TFW_BOOT_MEASURE_LEN],
+                                  uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                                   uint32_t *image_version,
                                   uint8_t *reset_cause);
 
-#endif /* AG_BOOT_MEASURE_H */
+#endif /* TFW_BOOT_MEASURE_H */

@@ -1,26 +1,26 @@
 # Host SDK
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 ## What this is
 
 **One host implementation.** Not one per tool: one codec, one framing
 implementation, one transport, in `sdk/go`, and every command
-(`agctl`, `agprov`) is a `main` package in that same module.
-`tools/agsim` is the peer on the other end — the firmware, not a client.
+(`tfwctl`, `tfwprov`) is a `main` package in that same module.
+`tools/tfwsim` is the peer on the other end — the firmware, not a client.
 
 ## Component boundaries
 
 | Component | Owns | Depends on |
 |---|---|---|
-| `sdk/go` (package `aggeneric`) | frame codec, CRC, `Device`, commands, provisioning, attestation, errors | stdlib only |
+| `sdk/go` (package `tfw`) | frame codec, CRC, `Device`, commands, provisioning, attestation, errors | stdlib only |
 | `sdk/go/serialport` | opening a physical port | `go.bug.st/serial` |
 | `sdk/go/internal/vectors` | published wire vectors, mirrored from `testdata/vectors.h` | stdlib only |
 | `sdk/go/templates` | reviewable provisioning templates (data, not code) | — |
-| `sdk/go/cmd/agctl` | reference client: every command, human output and `--json` | `aggeneric`, `serialport` |
-| `sdk/go/cmd/agprov` | provisioning with a commit guard | `aggeneric`, `serialport` |
-| `tools/agsim` | firmware sources + mock HAL, linked for the host | `src/proto`, `src/core`, `src/caps`, `test/mock` |
+| `sdk/go/cmd/tfwctl` | reference client: every command, human output and `--json` | `tfw`, `serialport` |
+| `sdk/go/cmd/tfwprov` | provisioning with a commit guard | `tfw`, `serialport` |
+| `tools/tfwsim` | firmware sources + mock HAL, linked for the host | `src/proto`, `src/core`, `src/caps`, `test/mock` |
 
 `serialport` is its own package for one reason: a consumer that only needs the
 codec (`go-xkms` verifying evidence, say) links no serial library at all. Only
@@ -36,7 +36,7 @@ drain, and a reply to an already-timed-out request is discarded, because
 returning it would answer the wrong caller. See `sdk/go/device.go:Do`.
 
 The codec (`sdk/go/codec.go`) is pure: `EncodeRequest`/`EncodeResponse`/`Decode`
-touch no I/O and are shared by production code and `agsim_test.go`'s
+touch no I/O and are shared by production code and `tfwsim_test.go`'s
 cross-implementation suite. `Decode` resynchronises on the next `SOF` rather
 than discarding a whole buffer — a genuine frame may start inside garbage.
 
@@ -62,7 +62,7 @@ than discarding a whole buffer — a genuine frame may start inside garbage.
   requires the session `AuthChallenge`/`AuthResponse` establish.
 - **Provisioning commands (`0x70`–`0x75`) exist on the wire permanently and are
   implemented almost nowhere.** A production build carries
-  `AG_FEATURE_PROVISION 0`, so its dispatch table has no entry for them and it
+  `TFW_FEATURE_PROVISION 0`, so its dispatch table has no entry for them and it
   answers "unknown command". Only a provisioning-jig image has the handlers.
   See `docs/device-provisioning/user.md` for the full sequence and why.
 
@@ -79,16 +79,16 @@ graph and make itself unimportable by the very projects it exists for.
 gate runs now, in this repository's CI, rather than at the point a Layer 3 or
 Layer 5 consumer discovers the violation.
 
-## `agsim` is the firmware, not a stub
+## `tfwsim` is the firmware, not a stub
 
-`tools/agsim` links the real `src/proto`, `src/core` and `src/caps` sources
+`tools/tfwsim` links the real `src/proto`, `src/core` and `src/caps` sources
 against the mock HAL and speaks the protocol on stdio. It is the device,
 compiled for the host — not a hand-written fake that would drift the moment
-either side changed. `sdk/go/agsim_test.go` runs the SDK against it, which is
+either side changed. `sdk/go/tfwsim_test.go` runs the SDK against it, which is
 what makes the whole protocol testable with zero hardware and, more
 importantly, is the only check that the C codec and the Go codec have not
 drifted apart. That test **fails**, with an explicit message to run
-`make agsim`, if the binary is missing — never a skip, because a skipped
+`make tfwsim`, if the binary is missing — never a skip, because a skipped
 cross-implementation test reports success while checking nothing.
 
 ## The codec exists exactly twice
@@ -108,24 +108,24 @@ contract; a failure here is a wire break, not a test to update. See
 - **Importing any in-house SDK from `sdk/go`.** Would invert the Layer 0
   dependency graph — see above. `sdk-verify` exists specifically to catch this
   by accident, not just by intent.
-- **A separate flashing tool.** `avrdude` is the tool; `agprov` and `agctl`
+- **A separate flashing tool.** `avrdude` is the tool; `tfwprov` and `tfwctl`
   call it nowhere and reimplement none of it. See `docs/development/flashing.md`.
-- **A C `agctl` beside the Go one.** Two host-side parsers to keep in
+- **A C `tfwctl` beside the Go one.** Two host-side parsers to keep in
   agreement for no gain — the C codec is already proven by the firmware itself
-  and by `agsim`.
+  and by `tfwsim`.
 - **A YAML library for provisioning templates.** A dependency added to
   `sdk/go` is a dependency added to every Layer 3/5 consumer. The template
-  format is six keys; `sdk/go/cmd/agprov/template.go` parses `key = value` by
+  format is six keys; `sdk/go/cmd/tfwprov/template.go` parses `key = value` by
   hand rather than pull in a parser for the whole graph.
 - **A transport abstraction with one implementation.** Serial is the
   transport. `Device` takes an `io.ReadWriter`, which already admits a pty or
-  an `agsim` subprocess pipe; when Ethernet lands it is a second concrete
+  an `tfwsim` subprocess pipe; when Ethernet lands it is a second concrete
   implementation, not a plugin system designed in advance for it.
 
 ## What this deliberately does not do
 
 - **No second parser anywhere.** A tool that needs to read a frame imports
-  `aggeneric`. A wrapper package around it would be a second place for the
+  `tfw`. A wrapper package around it would be a second place for the
   wire format to be described, which is a second place for it to be wrong.
 - **No key handling.** See "trust boundaries" above; it is what keeps this
   module at Layer 0.
@@ -136,5 +136,5 @@ contract; a failure here is a wire break, not a test to update. See
 ## See also
 
 - `docs/wire-protocol/architecture.md` — the wire frame this SDK encodes and decodes
-- `docs/device-provisioning/user.md` — the provisioning sequence `agprov` drives
-- `docs/development/testing.md` — how `agsim` fits the three test tiers
+- `docs/device-provisioning/user.md` — the provisioning sequence `tfwprov` drives
+- `docs/development/testing.md` — how `tfwsim` fits the three test tiers

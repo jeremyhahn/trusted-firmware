@@ -1,6 +1,6 @@
 # CryptoAuthLib evaluation — decision record
 
-Scope: whether `arduino-generic` links Microchip's CryptoAuthLib to drive the
+Scope: whether `trusted-firmware` links Microchip's CryptoAuthLib to drive the
 ATECC608A, or writes a minimal purpose-built driver.
 
 **Decision: a minimal purpose-built driver.** Blocked on licence; would not fit
@@ -89,7 +89,7 @@ profile actually uses:
 |---|---|
 | `Wake` / `Idle` | the bit-banged low pulse plus tWHI; standard TWI cannot express it |
 | `Read` | config zone, serial number, lock state |
-| `Write` / `PrivWrite` | provisioning only, behind `agprov --commit` |
+| `Write` / `PrivWrite` | provisioning only, behind `tfwprov --commit` |
 | `Lock` | provisioning only, irreversible |
 | `Nonce` + `GenKey` / `Sign` | DeviceID and the attestation signature |
 | `HMAC` | CDI = HMAC(UDS, H(firmware)) without the UDS leaving the element |

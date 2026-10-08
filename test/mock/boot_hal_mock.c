@@ -10,9 +10,9 @@
  * a mock that invented its own would let an address bug pass every test. */
 #define MOCK_PAGE 128u
 
-static uint8_t  flash[AG_FLASH_TOTAL];
-static uint8_t  eeprom[AG_EEPROM_SIZE];
-static uint8_t  handoff_block[AG_BOOT_HANDOFF_LEN];
+static uint8_t  flash[TFW_FLASH_TOTAL];
+static uint8_t  eeprom[TFW_EEPROM_SIZE];
+static uint8_t  handoff_block[TFW_BOOT_HANDOFF_LEN];
 
 static uint8_t  rx[4096];
 static size_t   rx_head, rx_tail;
@@ -28,7 +28,7 @@ static unsigned empty_polls;
 static unsigned consumed;
 static void   (*rx_idle_hook)(unsigned);
 
-void ag_boot_mock_reset(void)
+void tfw_boot_mock_reset(void)
 {
     /* Flash starts ERASED, not zeroed. An erased AVR reads 0xFF, and a test
      * that began from zeros would be testing against a state no real part is
@@ -49,25 +49,25 @@ void ag_boot_mock_reset(void)
     rx_idle_hook = 0;
 }
 
-uint8_t *ag_boot_mock_flash(void)     { return flash; }
-size_t   ag_boot_mock_flash_size(void){ return sizeof flash; }
-uint8_t *ag_boot_mock_eeprom(void)    { return eeprom; }
-unsigned ag_boot_mock_page_writes(void)   { return page_writes; }
-uint32_t ag_boot_mock_last_page_addr(void){ return last_page; }
-void     ag_boot_mock_fail_writes(unsigned n) { fail_writes = n; }
-const uint8_t *ag_boot_mock_handoff(void) { return handoff_block; }
+uint8_t *tfw_boot_mock_flash(void)     { return flash; }
+size_t   tfw_boot_mock_flash_size(void){ return sizeof flash; }
+uint8_t *tfw_boot_mock_eeprom(void)    { return eeprom; }
+unsigned tfw_boot_mock_page_writes(void)   { return page_writes; }
+uint32_t tfw_boot_mock_last_page_addr(void){ return last_page; }
+void     tfw_boot_mock_fail_writes(unsigned n) { fail_writes = n; }
+const uint8_t *tfw_boot_mock_handoff(void) { return handoff_block; }
 
-void ag_boot_mock_set_handoff(const uint8_t *b, size_t n)
+void tfw_boot_mock_set_handoff(const uint8_t *b, size_t n)
 {
     memcpy(handoff_block, b, n);
 }
-unsigned ag_boot_mock_rx_consumed(void) { return consumed; }
-unsigned ag_boot_mock_rx_empty_polls(void) { return empty_polls; }
-void ag_boot_mock_on_rx_idle(void (*hook)(unsigned empty_polls)) { rx_idle_hook = hook; }
-unsigned ag_boot_mock_jumped(void)    { return jumped; }
-unsigned ag_boot_mock_did_reset(void) { return reset_calls; }
+unsigned tfw_boot_mock_rx_consumed(void) { return consumed; }
+unsigned tfw_boot_mock_rx_empty_polls(void) { return empty_polls; }
+void tfw_boot_mock_on_rx_idle(void (*hook)(unsigned empty_polls)) { rx_idle_hook = hook; }
+unsigned tfw_boot_mock_jumped(void)    { return jumped; }
+unsigned tfw_boot_mock_did_reset(void) { return reset_calls; }
 
-void ag_boot_mock_feed_rx(const uint8_t *b, size_t n)
+void tfw_boot_mock_feed_rx(const uint8_t *b, size_t n)
 {
     /* A drained queue starts over, so a test can stream far more than the
      * buffer holds as long as it never queues more than that at once. */
@@ -79,7 +79,7 @@ void ag_boot_mock_feed_rx(const uint8_t *b, size_t n)
     }
 }
 
-size_t ag_boot_mock_drain_tx(uint8_t *out, size_t cap)
+size_t tfw_boot_mock_drain_tx(uint8_t *out, size_t cap)
 {
     size_t n = (tx_n < cap) ? tx_n : cap;
     memcpy(out, tx, n);
@@ -89,7 +89,7 @@ size_t ag_boot_mock_drain_tx(uint8_t *out, size_t cap)
 
 /* ---------------------------------------------------------- the contract */
 
-void ag_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
+void tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
 {
     for (uint8_t i = 0u; i < len; i++) {
         uint32_t a = addr + i;
@@ -97,50 +97,50 @@ void ag_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
     }
 }
 
-uint16_t ag_boot_flash_page_size(void) { return MOCK_PAGE; }
+uint16_t tfw_boot_flash_page_size(void) { return MOCK_PAGE; }
 
-ag_status_t ag_boot_flash_write_page(uint32_t addr, const uint8_t *data)
+tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 {
     if ((addr % MOCK_PAGE) != 0u) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
     /* The same refusal the AVR HAL makes, and it is here rather than only there
      * so the test suite exercises it: an OTA image one page too long would
      * otherwise overwrite the bootloader. */
-    if (addr + MOCK_PAGE > AG_BOOT_APP_END) {
-        return AG_ERR_PROTECTED_REGION;
+    if (addr + MOCK_PAGE > TFW_BOOT_APP_END) {
+        return TFW_ERR_PROTECTED_REGION;
     }
     if (fail_writes > 0u) {
         fail_writes--;
-        return AG_ERR_INTERNAL;
+        return TFW_ERR_INTERNAL;
     }
     memcpy(&flash[addr], data, MOCK_PAGE);
     page_writes++;
     last_page = addr;
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > sizeof eeprom) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
     memcpy(buf, &eeprom[addr], len);
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+tfw_status_t tfw_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > sizeof eeprom) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
     memcpy(&eeprom[addr], buf, len);
-    return AG_OK;
+    return TFW_OK;
 }
 
-void ag_boot_uart_init(uint32_t baud) { (void)baud; }
+void tfw_boot_uart_init(uint32_t baud) { (void)baud; }
 
-uint8_t ag_boot_uart_rx(uint8_t *out)
+uint8_t tfw_boot_uart_rx(uint8_t *out)
 {
     if (rx_tail >= rx_head && rx_idle_hook) {
         rx_idle_hook(empty_polls);
@@ -154,22 +154,22 @@ uint8_t ag_boot_uart_rx(uint8_t *out)
     return 1u;
 }
 
-void ag_boot_uart_tx(uint8_t byte)
+void tfw_boot_uart_tx(uint8_t byte)
 {
     if (tx_n < sizeof tx) {
         tx[tx_n++] = byte;
     }
 }
 
-void ag_boot_handoff_write(const uint8_t *block, uint8_t len)
+void tfw_boot_handoff_write(const uint8_t *block, uint8_t len)
 {
     memcpy(handoff_block, block, len);
 }
 
-void ag_boot_handoff_read(uint8_t *buf, uint8_t len)
+void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
 {
     memcpy(buf, handoff_block, len);
 }
 
-void ag_boot_jump_application(void) { jumped++; }
-void ag_boot_reset(void)            { reset_calls++; }
+void tfw_boot_jump_application(void) { jumped++; }
+void tfw_boot_reset(void)            { reset_calls++; }

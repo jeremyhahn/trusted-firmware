@@ -54,75 +54,75 @@
  */
 #define SLOT_IMAGE_SIGNING 2u
 
-ag_status_t ag_boot_pubkey(uint8_t out[AG_BOOT_PUBKEY_LEN])
+tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN])
 {
     /*
      * There is nothing to return, and that is not a gap.
      *
      * The key never leaves the element and the bootloader never holds it, so
      * there is no buffer for this contract to fill. The caller does not need it
-     * either: ag_boot_verify answers the only question anyone asks of a public
+     * either: tfw_boot_verify answers the only question anyone asks of a public
      * key, which is whether a signature is good. A backend that handed the key
      * out would invite a caller to verify with it in software, which is the
      * arrangement this backend exists to avoid.
      */
     (void)out;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-ag_status_t ag_boot_verify(const uint8_t *msg, uint16_t msglen,
-                           const uint8_t sig[AG_BOOT_SIG_LEN],
-                           const uint8_t pub[AG_BOOT_PUBKEY_LEN])
+tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
+                           const uint8_t sig[TFW_BOOT_SIG_LEN],
+                           const uint8_t pub[TFW_BOOT_PUBKEY_LEN])
 {
     uint8_t     digest[32];
-    ag_status_t st;
+    tfw_status_t st;
 
     /* The key is the element's, named by slot. A caller that supplied one is
      * using this backend wrongly, and ignoring it silently would let a
      * substituted key look as if it had been honoured. */
     if (pub != 0) {
-        return AG_ERR_UNSUPPORTED;
+        return TFW_ERR_UNSUPPORTED;
     }
     if (msg == 0 || sig == 0) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
 
     /*
      * ECDSA signs a digest, and the element verifies what is in TempKey.
      *
-     * THROUGH ag_boot_hash, WHICH IS THE BUILD'S ONE HASH, and not ag_sha256.
+     * THROUGH tfw_boot_hash, WHICH IS THE BUILD'S ONE HASH, and not tfw_sha256.
      * The reason is the whole reason BOOT_MEASURE=atecc608a exists: calling the
      * software hash from here links src/crypto/sha256.c into the boot section,
      * which is 4 052 bytes against a 4 096-byte section -- so the 328P
      * configuration does not link at all, and nothing noticed only because
-     * ag_boot_verify was unreachable and LTO deleted the call.
+     * tfw_boot_verify was unreachable and LTO deleted the call.
      *
      * The cost argument that used to sit here -- a bus round trip per 64-byte
      * block is seconds of boot time -- is about the IMAGE, which is tens of
-     * kilobytes. This message is AG_BOOT_TR_SIGNED_LEN bytes: one Start and one
+     * kilobytes. This message is TFW_BOOT_TR_SIGNED_LEN bytes: one Start and one
      * End, once per boot. It was the right argument attached to the wrong call.
      */
-    ag_boot_hash(msg, msglen, digest);
+    tfw_boot_hash(msg, msglen, digest);
 
-    if (ag_atecc_wake() != AG_OK) {
+    if (tfw_atecc_wake() != TFW_OK) {
         /* An element that does not answer is not a pass. A bootloader that
          * booted anyway when its verifier was absent would be one an attacker
          * defeats by cutting two traces. */
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
 
-    st = ag_atecc_exec(AG_ATECC_OP_NONCE, AG_ATECC_NONCE_PASSTHRU, 0u,
+    st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
                        digest, 32u, 0, 0u, T_NONCE);
-    if (st == AG_OK) {
+    if (st == TFW_OK) {
         /* A status response of zero is a valid signature. Anything else --
          * including the element's own "miscompare" -- is a refusal, and they
          * are deliberately not distinguished: the caller's correct response to
          * every one of them is identical, and a caller handed three failure
          * statuses is one that will eventually treat one as recoverable. */
-        st = ag_atecc_exec(OP_VERIFY, VERIFY_MODE_STORED,
+        st = tfw_atecc_exec(OP_VERIFY, VERIFY_MODE_STORED,
                            (uint16_t)SLOT_IMAGE_SIGNING,
-                           sig, AG_BOOT_SIG_LEN, 0, 0u, T_VERIFY);
+                           sig, TFW_BOOT_SIG_LEN, 0, 0u, T_VERIFY);
     }
-    (void)ag_atecc_sleep();
-    return st == AG_OK ? AG_OK : AG_ERR_CRYPTO;
+    (void)tfw_atecc_sleep();
+    return st == TFW_OK ? TFW_OK : TFW_ERR_CRYPTO;
 }

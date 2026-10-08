@@ -33,20 +33,20 @@
  * A ceiling is only ever moved DOWN, by making the code faster.
  * ------------------------------------------------------------------------
  */
-#ifndef AG_BENCH_TARGETS_H
-#define AG_BENCH_TARGETS_H
+#ifndef TFW_BENCH_TARGETS_H
+#define TFW_BENCH_TARGETS_H
 
 typedef enum {
-    AG_BENCH_FRAME_BYTE = 0,  /* frame decode, cycles per received byte */
-    AG_BENCH_CRC_BYTE,        /* CRC-16, cycles per byte */
-    AG_BENCH_SCHED_SWEEP,     /* ag_sched_poll(), cycles per full sweep */
-    AG_BENCH_SCHED_PER_SLOT,  /* the same worst sweep, cycles per armed slot (#11) */
-    AG_BENCH_TICK_ISR,        /* the millisecond tick ISR, cycles */
-    AG_BENCH_WRITE_LATENCY,   /* DIGITAL_WRITE, SOF to response, microseconds */
-    AG_BENCH_WRITE_DEVICE_US, /* the same exchange, device share only (#11) */
-    AG_BENCH_CMD_RATE,        /* sustained commands per second at 115200 */
-    AG_BENCH_METRIC_COUNT
-} ag_bench_metric_t;
+    TFW_BENCH_FRAME_BYTE = 0,  /* frame decode, cycles per received byte */
+    TFW_BENCH_CRC_BYTE,        /* CRC-16, cycles per byte */
+    TFW_BENCH_SCHED_SWEEP,     /* tfw_sched_poll(), cycles per full sweep */
+    TFW_BENCH_SCHED_PER_SLOT,  /* the same worst sweep, cycles per armed slot (#11) */
+    TFW_BENCH_TICK_ISR,        /* the millisecond tick ISR, cycles */
+    TFW_BENCH_WRITE_LATENCY,   /* DIGITAL_WRITE, SOF to response, microseconds */
+    TFW_BENCH_WRITE_DEVICE_US, /* the same exchange, device share only (#11) */
+    TFW_BENCH_CMD_RATE,        /* sustained commands per second at 115200 */
+    TFW_BENCH_METRIC_COUNT
+} tfw_bench_metric_t;
 
 typedef struct {
     const char *name;
@@ -54,45 +54,45 @@ typedef struct {
     double      target;   /* what the project plan asks for */
     int         higher_is_better;
     const char *reason;   /* the plan's justification, printed on failure */
-} ag_bench_budget_t;
+} tfw_bench_budget_t;
 
-static const ag_bench_budget_t ag_bench_budget[AG_BENCH_METRIC_COUNT] = {
-    [AG_BENCH_FRAME_BYTE] = {
+static const tfw_bench_budget_t tfw_bench_budget[TFW_BENCH_METRIC_COUNT] = {
+    [TFW_BENCH_FRAME_BYTE] = {
         "frame decode, per byte", "cycles", 40.0, 0,
         "a byte arrives every ~87 us at 115200; 40 cycles is 2.5 us at 16 MHz,\n"
         "        which leaves >30x headroom for ISR jitter"
     },
-    [AG_BENCH_CRC_BYTE] = {
+    [TFW_BENCH_CRC_BYTE] = {
         "CRC-16, per byte", "cycles", 20.0, 0,
         "avr-libc's _crc_xmodem_update is ~16 cycles branch-free; #12 put it\n"
         "        behind the HAL for the AVR build, which should add nothing to that"
     },
-    [AG_BENCH_SCHED_SWEEP] = {
-        "ag_sched_poll(), full sweep", "cycles", 200.0, 0,
+    [TFW_BENCH_SCHED_SWEEP] = {
+        "tfw_sched_poll(), full sweep", "cycles", 200.0, 0,
         "it runs on every pass of the superloop and must not perturb the\n"
         "        millisecond tick"
     },
     /*
      * #11: the plan stated this "at 16 slots", which makes it a target for one
      * specific board rather than a rate -- and 200 cycles is below the cost of
-     * an EMPTY sweep on that board (242, see AG_BENCH_SCHED_SWEEP's own MISS).
+     * an EMPTY sweep on that board (242, see TFW_BENCH_SCHED_SWEEP's own MISS).
      * Restated per armed slot it is comparable across the 328P's eight and the
      * 2560's sixteen, and it is what the row above's total actually decomposes
      * into: (200 cycle plan) / 16 slots = 12.5 cycles/slot is the target this
      * row checks, so the size-dependent row above is retained for regression
      * tracking and this one is where the plan's intent is actually measured.
      */
-    [AG_BENCH_SCHED_PER_SLOT] = {
-        "ag_sched_poll(), per armed slot, worst sweep", "cycles/slot", 12.5, 0,
+    [TFW_BENCH_SCHED_PER_SLOT] = {
+        "tfw_sched_poll(), per armed slot, worst sweep", "cycles/slot", 12.5, 0,
         "the plan's 200 cycles at 16 slots restated as a rate, so it means the\n"
         "        same thing on every board's slot count"
     },
-    [AG_BENCH_TICK_ISR] = {
+    [TFW_BENCH_TICK_ISR] = {
         "tick ISR, vector to reti", "cycles", 12.0, 0,
         "it must not disturb the bit timing of a software UART on the parts\n"
         "        that need one"
     },
-    [AG_BENCH_WRITE_LATENCY] = {
+    [TFW_BENCH_WRITE_LATENCY] = {
         "DIGITAL_WRITE, SOF to response", "us", 300.0, 0,
         "the exchange is dominated by the UART, not by the firmware's logic"
     },
@@ -106,12 +106,12 @@ static const ag_bench_budget_t ag_bench_budget[AG_BENCH_METRIC_COUNT] = {
      * retained because a host cares about the whole round trip; this one is
      * where the plan's target is reachable and enforced.
      */
-    [AG_BENCH_WRITE_DEVICE_US] = {
+    [TFW_BENCH_WRITE_DEVICE_US] = {
         "DIGITAL_WRITE, device share only", "us", 300.0, 0,
         "the plan's 300 us, restated excluding the wire the firmware cannot\n"
         "        make faster"
     },
-    [AG_BENCH_CMD_RATE] = {
+    [TFW_BENCH_CMD_RATE] = {
         "sustained command rate", "cmd/s", 400.0, 1,
         "a stop-and-wait bound set by the link, not by the CPU"
     },
@@ -132,10 +132,10 @@ static const ag_bench_budget_t ag_bench_budget[AG_BENCH_METRIC_COUNT] = {
  */
 typedef struct {
     const char       *board;
-    ag_bench_metric_t metric;
+    tfw_bench_metric_t metric;
     double            ceiling;
     const char       *why;
-} ag_bench_pin_t;
+} tfw_bench_pin_t;
 
 /*
  * THE ROUNDING RULE, so a pin is not a knife edge.
@@ -146,7 +146,7 @@ typedef struct {
  *
  * A wall-clock span is pinned at the measured worst plus two percent, rounded up
  * to the next twenty-five microseconds. A round trip depends on where in the
- * superloop the last request byte happens to land, and ag_sched_poll alone is
+ * superloop the last request byte happens to land, and tfw_sched_poll alone is
  * eight microseconds of that loop -- so anything anywhere in it changing size
  * moves this number by more than the thing being budgeted did. Pinning it to the
  * microsecond would fail the build for reasons nobody could act on, and a gate
@@ -154,7 +154,7 @@ typedef struct {
  * path is elsewhere and is not rounded: bench_harness.c requires the firmware's
  * share of the exchange to stay below the wire's.
  */
-static const ag_bench_pin_t ag_bench_pins[] = {
+static const tfw_bench_pin_t tfw_bench_pins[] = {
     /*
      * ---------------------------------------------------------------------
      * CRC-16 WAS FIVE TIMES ITS BUDGET; #12 BROUGHT IT TO ABOUT ONE AND A HALF.
@@ -165,7 +165,7 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * the 0x1021 polynomial a nibble at a time with swap, andi and eor.
      *
      * The portable, bit-serial fold in src/proto/crc16_update.c is still what
-     * the host, agsim and the bootloader link, and it still costs what this row
+     * the host, tfwsim and the bootloader link, and it still costs what this row
      * used to be pinned at (103/105 cycles) -- that number is not wrong, it is
      * just no longer what the FIRMWARE pays. #12 put the fast form behind the
      * HAL (src/hal/avr/hal_crc16.c) for the AVR build only, exactly where the
@@ -175,15 +175,15 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * a volatile function pointer so `-flto` cannot inline it away, which is
      * what the file's own header says makes these numbers upper bounds. The
      * shipped firmware's `-flto` build can and does inline the one-line wrapper
-     * bodily into ag_framer_push, so its real cost is lower than this pin.
+     * bodily into tfw_framer_push, so its real cost is lower than this pin.
      * ---------------------------------------------------------------------
      */
-    { "atmega328p", AG_BENCH_CRC_BYTE,      31.0,
+    { "atmega328p", TFW_BENCH_CRC_BYTE,      31.0,
       "avr-libc's branch-free fold plus the call/return this benchmark image "
       "forces around it so -flto cannot inline the call away" },
-    { "atmega2560", AG_BENCH_CRC_BYTE,      33.0,
+    { "atmega2560", TFW_BENCH_CRC_BYTE,      33.0,
       "as the 328P, plus the extra byte of program counter this part pushes on "
-      "every call into ag_crc16_update" },
+      "every call into tfw_crc16_update" },
 
     /*
      * FRAME DECODE WAS THREE TIMES ITS BUDGET; NOW A LITTLE OVER ITS BUDGET
@@ -200,19 +200,19 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * brought this row down by almost exactly the same fifty-eight cycles the
      * CRC row itself dropped by (from ~120/122 to 62/64).
      */
-    { "atmega328p", AG_BENCH_FRAME_BYTE,    62.0,
-      "31 of it is ag_crc16_update through the same forced call boundary; the "
+    { "atmega328p", TFW_BENCH_FRAME_BYTE,    62.0,
+      "31 of it is tfw_crc16_update through the same forced call boundary; the "
       "framer's own state machine is the other 31" },
-    { "atmega2560", AG_BENCH_FRAME_BYTE,    64.0,
-      "33 of it is ag_crc16_update through the same forced call boundary; the "
+    { "atmega2560", TFW_BENCH_FRAME_BYTE,    64.0,
+      "33 of it is tfw_crc16_update through the same forced call boundary; the "
       "framer's own state machine is the other 31" },
 
     /*
      * THE SCHEDULER SWEEP IS OVER BUDGET IN EVERY STATE, INCLUDING AN EMPTY ONE.
      *
      * The plan's 200 cycles is for sixteen slots, which is the ATmega2560's
-     * AG_SCHED_SLOTS. On that part an EMPTY sweep is already 242 cycles: reading
-     * ag_hal_millis costs an atomic section and a four-byte load, and then each
+     * TFW_SCHED_SLOTS. On that part an EMPTY sweep is already 242 cycles: reading
+     * tfw_hal_millis costs an atomic section and a four-byte load, and then each
      * of sixteen slots costs a load and a bit test whether it is armed or not.
      * Sixteen armed but not due is 546. Sixteen coming due at once is 2 158,
      * because each one then resolves its pin through the board descriptor and
@@ -227,12 +227,12 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * code -- but it does delay the next command by that much, once.
      *
      * This row is retained for regression tracking on the total a host actually
-     * waits; AG_BENCH_SCHED_PER_SLOT below is where #11 restates the plan's
+     * waits; TFW_BENCH_SCHED_PER_SLOT below is where #11 restates the plan's
      * intent as a number both boards can be held to the same way.
      */
-    { "atmega328p", AG_BENCH_SCHED_SWEEP,   1066.0,
+    { "atmega328p", TFW_BENCH_SCHED_SWEEP,   1066.0,
       "eight slots all coming due at once, each resolving a pin and writing a port" },
-    { "atmega2560", AG_BENCH_SCHED_SWEEP,   2158.0,
+    { "atmega2560", TFW_BENCH_SCHED_SWEEP,   2158.0,
       "sixteen slots all coming due at once; an empty sweep on this part is "
       "already 242 cycles, so the 200 in the plan is unreachable at 16 slots" },
 
@@ -248,16 +248,16 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * integers, not a sampled cycle count, so the fraction is part of what
      * repeats.
      */
-    { "atmega328p", AG_BENCH_SCHED_PER_SLOT, 133.25,
+    { "atmega328p", TFW_BENCH_SCHED_PER_SLOT, 133.25,
       "1066 cycles (the worst full sweep) / 8 armed slots" },
-    { "atmega2560", AG_BENCH_SCHED_PER_SLOT, 134.875,
+    { "atmega2560", TFW_BENCH_SCHED_PER_SLOT, 134.875,
       "2158 cycles (the worst full sweep) / 16 armed slots" },
 
     /*
      * THE TICK ISR IS FIVE TIMES ITS BUDGET, and the cause is not the ISR body
      * anyone wrote -- it is the type of the counter.
      *
-     * `ticks` is an ag_ms_t, four bytes, and volatile. Incrementing it is four
+     * `ticks` is an tfw_ms_t, four bytes, and volatile. Incrementing it is four
      * lds, an adiw and two adc, four sts -- twenty cycles -- and to do that the
      * ISR must first save r24 through r27 alongside r1 and SREG, which is
      * nineteen more in push and pop. The `ticks++` in the source is one line;
@@ -268,9 +268,9 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * that ISR in src/hal/avr/hal_tick.c used to claim ten -- corrected by #13
      * to the measured figure below.
      */
-    { "atmega328p", AG_BENCH_TICK_ISR,      58.0,
+    { "atmega328p", TFW_BENCH_TICK_ISR,      58.0,
       "a 32-bit volatile increment plus the register bank it forces the ISR to save" },
-    { "atmega2560", AG_BENCH_TICK_ISR,      59.0,
+    { "atmega2560", TFW_BENCH_TICK_ISR,      59.0,
       "as the 328P; this part's wider program counter is paid on entry, not in "
       "the handler" },
 
@@ -291,13 +291,13 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * an eight-byte request and a seven-byte reply.
      *
      * This row is retained for regression tracking on the total a host actually
-     * waits; AG_BENCH_WRITE_DEVICE_US below is where #11 restates the plan's
+     * waits; TFW_BENCH_WRITE_DEVICE_US below is where #11 restates the plan's
      * 300 us against the part of the exchange this repository can actually
      * move.
      */
-    { "atmega328p", AG_BENCH_WRITE_LATENCY, 1600.0,
+    { "atmega328p", TFW_BENCH_WRITE_LATENCY, 1600.0,
       "1402 us of it is fifteen frame bytes on the wire; the device adds 169" },
-    { "atmega2560", AG_BENCH_WRITE_LATENCY, 1625.0,
+    { "atmega2560", TFW_BENCH_WRITE_LATENCY, 1625.0,
       "1402 us of it is fifteen frame bytes on the wire; the device adds 173" },
 
     /*
@@ -308,8 +308,8 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      * plan's 300 once restated to exclude the wire time no firmware change can
      * touch. NOT pinned, deliberately: unlike every row above, this target is
      * reachable as stated, so it needs no ceiling narrower than the plan's own
-     * number -- the same reason AG_BENCH_CMD_RATE carries no pin either. `verdict()`
-     * falls through to ag_bench_budget[m].target and the row prints as met, not
+     * number -- the same reason TFW_BENCH_CMD_RATE carries no pin either. `verdict()`
+     * falls through to tfw_bench_budget[m].target and the row prints as met, not
      * as MISS, which is the whole point of the restatement.
      *
      * These two numbers move a little with any change to the firmware's
@@ -321,6 +321,6 @@ static const ag_bench_pin_t ag_bench_pins[] = {
      */
 };
 
-#define AG_BENCH_PIN_COUNT (sizeof ag_bench_pins / sizeof ag_bench_pins[0])
+#define TFW_BENCH_PIN_COUNT (sizeof tfw_bench_pins / sizeof tfw_bench_pins[0])
 
-#endif /* AG_BENCH_TARGETS_H */
+#endif /* TFW_BENCH_TARGETS_H */

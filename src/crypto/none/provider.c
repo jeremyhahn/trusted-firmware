@@ -3,7 +3,7 @@
 /*
  * THE UNATTESTED TIER.
  *
- * AG_CRYPTO_NONE has been in ag_crypto_tier_t since the protocol was written,
+ * TFW_CRYPTO_NONE has been in tfw_crypto_tier_t since the protocol was written,
  * described there as "no provider: unattested". This is the implementation of
  * it, and it exists because a part turned up that cannot honestly report
  * anything else.
@@ -12,7 +12,7 @@
  * key lives in flash behind lock bits" -- which requires a boot section to put
  * the key in and BLB lock bits to keep the application out of it. The ATtiny85
  * has neither: no boot-loader section, no BOOTRST, no boot lock bits. Linking
- * the software tier there would make CAPS report AG_CRYPTO_SOFTWARE on a part
+ * the software tier there would make CAPS report TFW_CRYPTO_SOFTWARE on a part
  * where the sentence that tier stands for is false, and a verifier reads that
  * byte to decide what evidence from the device is worth.
  *
@@ -22,31 +22,31 @@
  * flash of an 8 KB part -- is a consequence rather than the reason.
  *
  * WHAT A HOST SEES. CAPS reports tier 0 and an empty algorithm bitmap, so a
- * host knows before it asks that there is no root of trust here. AG_FEATURE_
+ * host knows before it asks that there is no root of trust here. TFW_FEATURE_
  * ATTEST is 0 on any board using this tier, so ATTEST is not even in the
- * command table and answers AG_ERR_UNKNOWN_CMD. There is no path by which a
+ * command table and answers TFW_ERR_UNKNOWN_CMD. There is no path by which a
  * device on this tier produces something that could be mistaken for evidence.
  *
- * EVERY OPERATION REFUSES, and none of them approximates. ag_crypto_sha256
+ * EVERY OPERATION REFUSES, and none of them approximates. tfw_crypto_sha256
  * could be implemented -- hashing needs no key -- and deliberately is not: it
  * would pull in the very implementation this tier exists to leave out, to
  * provide a digest with nothing to sign it. A caller that wants a hash and
- * cannot have one gets AG_ERR_UNSUPPORTED and knows where it stands.
+ * cannot have one gets TFW_ERR_UNSUPPORTED and knows where it stands.
  *
  * Link-time substitution, exactly as the other two tiers are: the Makefile
  * links one provider per image, there is no vtable and no runtime selection, so
  * an image built for this tier cannot be talked into signing anything.
  */
 
-#include "ag/crypto.h"
-#include "ag/protocol.h"
+#include "tfw/crypto.h"
+#include "tfw/protocol.h"
 #include "../../core/handoff.h"
 #include "../../core/secure_zero.h"
 
-ag_status_t ag_crypto_init(void)
+tfw_status_t tfw_crypto_init(void)
 {
     /*
-     * Drains and discards any CDI ag-boot handed off, even on a tier that
+     * Drains and discards any CDI tfw-boot handed off, even on a tier that
      * signs with nothing and derives nothing. A board that links this
      * provider still links the real src/core/handoff.c whenever it has a
      * boot section (mk/avr.mk's IDENTITY_SRCS is chosen by RAM_END, not by
@@ -59,21 +59,21 @@ ag_status_t ag_crypto_init(void)
      */
     {
         uint8_t discard[32];
-        if (ag_boot_handoff_take_cdi(discard)) {
-            ag_secure_zero(discard, sizeof discard);
+        if (tfw_boot_handoff_take_cdi(discard)) {
+            tfw_secure_zero(discard, sizeof discard);
         }
     }
     /* Nothing else to derive. A device with no identity still boots, and
      * says so. */
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_crypto_tier_t ag_crypto_tier(void)
+tfw_crypto_tier_t tfw_crypto_tier(void)
 {
-    return AG_CRYPTO_NONE;
+    return TFW_CRYPTO_NONE;
 }
 
-uint16_t ag_crypto_algorithms(void)
+uint16_t tfw_crypto_algorithms(void)
 {
     /* Empty, and that is the point: a host negotiates against this and finds
      * nothing, rather than selecting an algorithm the device then fails to
@@ -81,58 +81,58 @@ uint16_t ag_crypto_algorithms(void)
     return 0u;
 }
 
-ag_status_t ag_crypto_random(uint8_t *out, uint8_t len)
+tfw_status_t tfw_crypto_random(uint8_t *out, uint8_t len)
 {
     (void)out; (void)len;
     /* No AVR in this family has a TRNG, and this tier has no CDI to stretch
      * either. A predictable nonce presented as a random one is worse than a
      * refusal: the refusal stops the protocol and the prediction does not. */
-    return AG_ERR_CRYPTO;
+    return TFW_ERR_CRYPTO;
 }
 
-ag_status_t ag_crypto_sha256(const uint8_t *data, uint16_t len, uint8_t out[AG_SHA256_LEN])
+tfw_status_t tfw_crypto_sha256(const uint8_t *data, uint16_t len, uint8_t out[TFW_SHA256_LEN])
 {
     (void)data; (void)len; (void)out;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-ag_status_t ag_crypto_hmac(uint8_t slot, const uint8_t *data, uint16_t len,
-                           uint8_t out[AG_SHA256_LEN])
+tfw_status_t tfw_crypto_hmac(uint8_t slot, const uint8_t *data, uint16_t len,
+                           uint8_t out[TFW_SHA256_LEN])
 {
     (void)slot; (void)data; (void)len; (void)out;
-    /* AG_ERR_UNSUPPORTED and not AG_ERR_NOT_PROVISIONED. The difference is
+    /* TFW_ERR_UNSUPPORTED and not TFW_ERR_NOT_PROVISIONED. The difference is
      * actionable: "not provisioned" invites a host to go and provision the
      * device, and there is nothing here to provision. */
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-ag_status_t ag_crypto_sign(const uint8_t digest[AG_SHA256_LEN],
-                           uint8_t sig[AG_SIG_LEN], uint8_t *alg_id)
+tfw_status_t tfw_crypto_sign(const uint8_t digest[TFW_SHA256_LEN],
+                           uint8_t sig[TFW_SIG_LEN], uint8_t *alg_id)
 {
     (void)digest; (void)sig; (void)alg_id;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-ag_status_t ag_crypto_pubkey(uint8_t out[AG_SIG_LEN])
+tfw_status_t tfw_crypto_pubkey(uint8_t out[TFW_SIG_LEN])
 {
     (void)out;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-ag_status_t ag_crypto_counter(uint8_t idx, uint32_t *out)
+tfw_status_t tfw_crypto_counter(uint8_t idx, uint32_t *out)
 {
     (void)idx; (void)out;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
 /* issue #4: no operator-signature session on the tier with no crypto at
  * all. AUTH_CHALLENGE/AUTH_RESPONSE are not compiled into a CRYPTO=none image
  * (mk/avr.mk links auth_session_none.c), so this is unreachable in practice --
  * present only because every provider implements the whole contract. */
-ag_status_t ag_crypto_verify_operator(const uint8_t digest[AG_SHA256_LEN],
-                                      const uint8_t sig[AG_SIG_LEN],
-                                      const uint8_t pubkey[AG_SIG_LEN])
+tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[TFW_SHA256_LEN],
+                                      const uint8_t sig[TFW_SIG_LEN],
+                                      const uint8_t pubkey[TFW_SIG_LEN])
 {
     (void)digest; (void)sig; (void)pubkey;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
+ARCH           := avr
 MCU            := atmega328p
 F_CPU          := 16000000
 AVRDUDE_PART   := m328p
@@ -11,7 +12,7 @@ RAM_BUDGET     := 1024
 FLASH_TOTAL    := 32768
 RAM_TOTAL      := 2048
 
-# ag-boot's geometry. BOOT_SECTION is BOOTSZ in BYTES (2048 words); BOOT_BUDGET
+# tfw-boot's geometry. BOOT_SECTION is BOOTSZ in BYTES (2048 words); BOOT_BUDGET
 # is the gate mk/boot.mk enforces, and it is the section size because there is
 # nowhere else for a bootloader to go. RAM_END is the last SRAM address, used to
 # place the CDI handoff block at the top of SRAM and the bootloader's stack

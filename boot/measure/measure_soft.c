@@ -25,30 +25,30 @@
  */
 #define MEASURE_CHUNK 32u
 
-void ag_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[AG_BOOT_MEASURE_LEN])
+void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
 {
-    ag_sha256(data, len, out);
+    tfw_sha256(data, len, out);
 }
 
-ag_status_t ag_boot_measure(uint32_t len, uint8_t out[AG_BOOT_MEASURE_LEN])
+tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
 {
-    ag_sha256_t ctx;
+    tfw_sha256_t ctx;
     uint8_t     chunk[MEASURE_CHUNK];
     uint32_t    addr = 0u;
 
-    if (len == 0u || len > AG_BOOT_MAX_IMAGE_LEN) {
-        return AG_ERR_RANGE;
+    if (len == 0u || len > TFW_BOOT_MAX_IMAGE_LEN) {
+        return TFW_ERR_RANGE;
     }
 
-    ag_sha256_init(&ctx);
+    tfw_sha256_init(&ctx);
     while (addr < len) {
         uint32_t left = len - addr;
         uint8_t  n    = (left < (uint32_t)MEASURE_CHUNK)
                       ? (uint8_t)left : (uint8_t)MEASURE_CHUNK;
-        ag_boot_flash_read(addr, chunk, n);
-        ag_sha256_update(&ctx, chunk, n);
+        tfw_boot_flash_read(addr, chunk, n);
+        tfw_sha256_update(&ctx, chunk, n);
         addr += n;
     }
-    ag_sha256_final(&ctx, out);
-    return AG_OK;
+    tfw_sha256_final(&ctx, out);
+    return TFW_OK;
 }

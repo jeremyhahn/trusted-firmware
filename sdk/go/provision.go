@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 // Provisioning commands.
 //
 // These exist on the wire permanently and are implemented almost nowhere: a
-// production firmware is built with AG_FEATURE_PROVISION 0, so its dispatch
+// production firmware is built with TFW_FEATURE_PROVISION 0, so its dispatch
 // table has no entry for any of them and it answers ErrUnknownCommand. Only the
 // image on a provisioning jig carries the handlers, and that image is replaced
 // before the part leaves the bench.
@@ -37,7 +37,7 @@ const (
 	ZoneData   uint8 = 0x01
 )
 
-// Slot assignments, mirroring AG_ATECC_SLOT_* in src/crypto/atecc608a/atecc.h.
+// Slot assignments, mirroring TFW_ATECC_SLOT_* in src/crypto/atecc608a/atecc.h.
 // A template that disagrees with these produces a part that is configured for a
 // firmware other than the one that will run on it, and the element cannot be
 // unlocked to correct it.
@@ -151,7 +151,7 @@ func (d *Device) ProvGenKey(ctx context.Context, slot uint8) ([]byte, error) {
 }
 
 // ProvPubKey recomputes the public point from the private key already in the
-// slot. It generates nothing, which is what makes `agprov --verify` safe to run
+// slot. It generates nothing, which is what makes `tfwprov --verify` safe to run
 // against a provisioned part.
 func (d *Device) ProvPubKey(ctx context.Context, slot uint8) ([]byte, error) {
 	return d.provKey(ctx, CmdProvPubKey, slot)

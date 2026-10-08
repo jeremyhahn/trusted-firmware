@@ -12,7 +12,7 @@
  * an implicit declaration, which C99 onwards rejects.
  *
  * THERE IS NO ENTROPY SOURCE HERE AND THIS IS NOT ONE. No AVR in this family
- * has a TRNG -- src/crypto/soft/provider.c refuses ag_crypto_random for exactly
+ * has a TRNG -- src/crypto/soft/provider.c refuses tfw_crypto_random for exactly
  * this reason rather than returning something that merely looks random. The
  * definition in verify_ed25519_donna.c is reachable only from
  * ed25519_sign_open_batch, which this bootloader never calls and --gc-sections
@@ -20,11 +20,11 @@
  * nothing, and anything that started calling it would be a bug this comment is
  * the evidence for.
  */
-#ifndef AG_DONNA_SHIM_H
-#define AG_DONNA_SHIM_H
+#ifndef TFW_DONNA_SHIM_H
+#define TFW_DONNA_SHIM_H
 
 #include <stddef.h>
 
 void ed25519_randombytes_unsafe(void *p, size_t len);
 
-#endif /* AG_DONNA_SHIM_H */
+#endif /* TFW_DONNA_SHIM_H */

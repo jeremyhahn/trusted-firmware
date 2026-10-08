@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# ag-boot: a SECOND, SEPARATE image.
+# tfw-boot: a SECOND, SEPARATE image.
 #
 # Not another configuration of the firmware. It links a different HAL, a
 # different main(), a different section address and a different budget, and it
@@ -16,8 +16,16 @@
 #                         reports and a verifier recomputes
 #   src/proto/frame.c     one codec, so OTA frames and application frames are
 #                         framed the same way by construction
-#   src/hal/avr/hal_early.c  one "clear MCUSR and disarm the watchdog", because
+#   $(HAL_DIR)/hal_early.c  one "clear MCUSR and disarm the watchdog", because
 #                         the copy that is wrong bootloops the part
+#
+# Like mk/firmware.mk this file names no architecture: the HAL is $(HAL_DIR),
+# the bootloader's own is $(BOOT_HAL_DIR), and the toolchain, the placement flags
+# and the programmer are mk/arch/$(ARCH).mk's.
+
+# tfw-boot's own hardware layer -- flash, EEPROM, UART, handoff placement, jump
+# and reset -- one file per architecture, named for it.
+BOOT_HAL_DIR := boot/hal/$(ARCH)
 
 
 # The tier, chosen at LINK time exactly as CRYPTO is for the application.
@@ -26,10 +34,10 @@ ifeq ($(BOOT_TIER),soft)
 BOOT_TIER_SRCS := boot/tier/cdi_soft.c
 else ifeq ($(BOOT_TIER),atecc608a)
 # The element driver the APPLICATION links, not a second copy of it. hal_bus.c
-# and hal_sys.c come along for ag_hal_i2c_xfer and ag_hal_delay_us; everything
+# and hal_sys.c come along for tfw_hal_i2c_xfer and tfw_hal_delay_us; everything
 # else in them is unreferenced and --gc-sections drops it.
 BOOT_TIER_SRCS := boot/tier/cdi_atecc.c src/crypto/atecc608a/atecc.c \
-                  src/hal/avr/hal_bus.c src/hal/avr/hal_sys.c src/core/board_lookup.c \
+                  $(HAL_DIR)/hal_bus.c $(HAL_DIR)/hal_sys.c src/core/board_lookup.c \
                   boards/$(BOARD)/board.c
 else
 $(error unknown BOOT_TIER "$(BOOT_TIER)" -- expected soft or atecc608a)
@@ -89,25 +97,25 @@ BOOT_OTA_SRCS := boot/recovery/recovery_halt.c
 BOOT_OTA_DEFS :=
 endif
 
-# Sorted, for the same reason mk/avr.mk sorts: a wildcard's order depends on the
+# Sorted, for the same reason mk/firmware.mk sorts: a wildcard's order depends on the
 # filesystem, and link order affects the image, so an unsorted list makes the
 # reproducibility check pass on one machine and fail on another.
 # The CONFIGURATION is part of the output path, exactly as the crypto tier is
-# for the application. ag-boot with the element's hash and ag-boot with the
+# for the application. tfw-boot with the element's hash and tfw-boot with the
 # software hash are different images with different measurements; sharing one
 # directory meant the second build silently reused the first one's objects and
 # reported its size, which is a measurement that cannot be wrong and is.
 BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
-BOOT_TARGET  := $(BOOT_DIR_OUT)/ag-boot
+BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 
 BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_request.c boot/boot_entry.c \
   boot/boot_platform.c boot/boot_policy.c \
-  boot/hal/avr/boot_hal_avr.c \
+  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c \
   src/proto/crc16.c src/proto/crc16_update.c \
-  src/hal/avr/hal_early.c src/core/secure_zero.c \
+  $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
 
 BOOT_OBJS := $(patsubst %.c,$(BOOT_DIR_OUT)/%.o,$(BOOT_SRCS))
@@ -115,16 +123,14 @@ BOOT_OBJS := $(patsubst %.c,$(BOOT_DIR_OUT)/%.o,$(BOOT_SRCS))
 # The same reproducibility flags as the application, and for a stronger reason:
 # the bootloader is what a verifier must be able to identify, and a bootloader
 # nobody can rebuild byte-for-byte is a root of trust nobody can audit.
-BOOT_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
-               -Os -flto -ffunction-sections -fdata-sections \
-               -fno-fat-lto-objects \
+BOOT_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
                -ffile-prefix-map=$(CURDIR)=. \
                -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a \
-               -Isrc/hal/avr -Isrc/third_party/ed25519-donna \
+               -I$(HAL_DIR) -Isrc/third_party/ed25519-donna \
                -Iboot -Iboot/verify -I$(BOARD_DIR) \
-               -DAG_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS)
+               -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS)
 
 # The vendored tree, built WITHOUT -Werror and without our warning set.
 #
@@ -134,53 +140,25 @@ BOOT_CFLAGS := -std=c11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
 # supplies the empty <sys/param.h> avr-libc does not have, and -include supplies
 # the one declaration upstream expects the integrator to provide -- both without
 # editing a vendored byte. See test/third_party/MANIFEST.md.
-DONNA_CFLAGS := -std=gnu11 -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL \
-                -Os -flto -ffunction-sections -fdata-sections \
-                -fno-fat-lto-objects \
+DONNA_CFLAGS := -std=gnu11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                 -ffile-prefix-map=$(CURDIR)=. \
                 -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE_ASM \
                 -Iboot/verify/shim -Isrc/third_party/ed25519-donna \
                 -include boot/verify/donna_shim.h
 
-# .text at the boot section's start, and the stack below the handoff block.
-#
-# AG_BOOT_HANDOFF_LEN bytes at the top of SRAM belong to the CDI handoff, so the
-# bootloader's stack must start below them or the first deep call writes over
-# the thing it is about to hand across. AVR data addresses carry the 0x800000
-# offset the linker uses to tell flash from SRAM.
-#
-# Guarded on BOOT_SECTION because not every board has one. These three lines
-# are expanded on EVERY make invocation, whatever the target, so a board whose
-# profile states no boot geometry -- the ATtiny85 has no boot-loader section at
-# all -- turned `make firmware` into a shell arithmetic error printed before the
-# first compile, pointing at nothing. The bootloader targets still fail for that
-# board, which is correct; they now fail on the linker script rather than on
-# every unrelated build.
-ifneq ($(BOOT_SECTION),)
-BOOT_TEXT_START := $(shell printf '0x%x' $$(( $(FLASH_TOTAL) - $(BOOT_SECTION) )))
-BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
-BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
-endif
-
-# `.handoff`, NOT the generic `.noinit` output section -- src/hal/avr/
-# hal_early.c's ag_hal_early_flags lives in ordinary (unpinned) `.noinit` too,
-# in THIS image as well, for the same "must survive past .init3, before .bss
-# is cleared" reason. Pinning the generic section's address would carry every
-# object assigned to it to this one fixed spot, overflowing the 80 bytes meant
-# for the handoff block alone.
-BOOT_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax \
-                -Wl,-T,mk/handoff.ld \
-                -Wl,--section-start=.text=$(BOOT_TEXT_START) \
-                -Wl,--section-start=.handoff=$(BOOT_HANDOFF_AT) \
-                -Wl,--defsym=__stack=$(BOOT_STACK_TOP)
+# Where .text starts and where the handoff block and the stack go are the
+# architecture's to say -- ARCH_BOOT_PLACEMENT_LDFLAGS, which also explains why
+# a board with no boot section still gets through every unrelated make
+# invocation. The `.handoff` section is NOT the generic `.noinit`: see there.
+BOOT_LDFLAGS := $(ARCH_LDFLAGS) $(ARCH_BOOT_PLACEMENT_LDFLAGS)
 
 $(BOOT_DIR_OUT)/src/third_party/ed25519-donna/%.o: src/third_party/ed25519-donna/%.c
 	@mkdir -p $(dir $@)
-	@$(CC_AVR) $(DONNA_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
+	@$(ARCH_CC) $(DONNA_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
 
 $(BOOT_DIR_OUT)/%.o: %.c
 	@mkdir -p $(dir $@)
-	@$(CC_AVR) $(BOOT_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
+	@$(ARCH_CC) $(BOOT_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
 
 # A failed link is REPORTED, not dumped.
 #
@@ -191,8 +169,8 @@ $(BOOT_DIR_OUT)/%.o: %.c
 # boot-core-size and bootloader-budget, which answer the two questions the
 # failure actually raises: how big is the core, and how big is the backend.
 $(BOOT_TARGET).elf: $(BOOT_OBJS)
-	@$(CC_AVR) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS) 2>$(BOOT_DIR_OUT)/link.err || { \
-	  echo "ag-boot does not link for $(BOARD): it does not fit in the boot section."; \
+	@$(ARCH_CC) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS) 2>$(BOOT_DIR_OUT)/link.err || { \
+	  echo "tfw-boot does not link for $(BOARD): it does not fit in the boot section."; \
 	  echo; \
 	  sed 's/^/  ld: /' $(BOOT_DIR_OUT)/link.err | grep -E 'overflow|will not fit|overlaps' || true; \
 	  echo; \
@@ -207,7 +185,7 @@ $(BOOT_TARGET).elf: $(BOOT_OBJS)
 # genuinely NOLOAD, the same section type `.bss` already is, so it carries no
 # bytes in the ELF and objcopy already leaves it out on its own.
 $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
-	@$(OBJCOPY) -O ihex -R .eeprom $< $@
+	@$(ARCH_OBJCOPY) -O ihex -R .eeprom $< $@
 
 
 # ---------------------------------------------------------------- host tests
@@ -310,7 +288,7 @@ $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The session loop with ag_boot_evaluate and ag_boot_hand_over supplied by the
+# The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
 $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_session.c \
         boot/recovery/recovery_ota.c boot/boot_store.c src/proto/frame.c \
@@ -326,11 +304,11 @@ boot-test: $(BOOT_TEST_BINS)
 	@fail=0; for t in $(BOOT_TEST_BINS); do \
 	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
 
-## bootloader: build ag-boot for BOARD and enforce the boot-section budget
+## bootloader: build tfw-boot for BOARD and enforce the boot-section budget
 bootloader: $(BOOT_TARGET).hex boot-size-check
 	@echo "built $(BOOT_TARGET).hex"
 
-## boot-size-check: fail when ag-boot does not fit in the boot section
+## boot-size-check: fail when tfw-boot does not fit in the boot section
 # A GATE, exactly as size-check is for the application, and a prerequisite of
 # `bootloader` rather than something to run when someone remembers.
 #
@@ -338,9 +316,9 @@ bootloader: $(BOOT_TARGET).hex boot-size-check
 # size. It is NOT raised to meet an image: on the 328P there is nothing to raise
 # it to, because 2048 words is the largest BOOTSZ the part has.
 boot-size-check: $(BOOT_TARGET).elf
-	@flash=$$($(SIZE) --format=berkeley $< | awk 'NR==2{print $$1+$$2}'); \
-	 ram=$$($(SIZE)  --format=berkeley $< | awk 'NR==2{print $$2+$$3}'); \
-	 printf 'ag-boot %-10s flash %6s / %-6s   ram %5s / %-5s (%s tier, %s)\n' \
+	@flash=$$($(ARCH_SIZE) --format=berkeley $< | awk 'NR==2{print $$1+$$2}'); \
+	 ram=$$($(ARCH_SIZE)  --format=berkeley $< | awk 'NR==2{print $$2+$$3}'); \
+	 printf 'tfw-boot %-10s flash %6s / %-6s   ram %5s / %-5s (%s tier, %s)\n' \
 	   "$(BOARD)" "$$flash" "$(BOOT_BUDGET)" "$$ram" "$(RAM_TOTAL)" \
 	   "$(BOOT_TIER)" "$(BOOT_SIG)"; \
 	 if [ "$$flash" -gt "$(BOOT_BUDGET)" ]; then \
@@ -348,7 +326,7 @@ boot-size-check: $(BOOT_TARGET).elf
 	   echo "run 'make bootloader-budget' for the per-component breakdown"; \
 	   exit 1; fi
 
-## bootloader-budget: what each part of ag-boot costs, measured
+## bootloader-budget: what each part of tfw-boot costs, measured
 # The numbers boot/boot_verify.h quotes, reproduced rather than asserted.
 #
 # Built WITHOUT -flto, because an LTO object carries bytecode and no sections --
@@ -361,37 +339,37 @@ BOOT_CORE_SRCS := $(filter-out $(BOOT_SIG_SRCS),$(BOOT_SRCS))
 
 bootloader-budget:
 	@mkdir -p $(BOOT_MEAS_DIR)
-	@echo "ag-boot component sizes -- $(BOARD), $(BOOT_TIER) tier, $(BOOT_SIG)"
+	@echo "tfw-boot component sizes -- $(BOARD), $(BOOT_TIER) tier, $(BOOT_SIG)"
 	@echo "budget: $(BOOT_BUDGET) bytes (BOOTSZ $(BOOT_SECTION) bytes, part flash $(FLASH_TOTAL), part SRAM $(RAM_TOTAL))"
 	@echo
 	@core=0; \
 	 for src in $(BOOT_CORE_SRCS); do \
 	   o=$(BOOT_MEAS_DIR)/$$(echo $$src | tr / _).o; \
-	   $(CC_AVR) $(BOOT_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
-	   n=$$($(SIZE) --format=berkeley $$o | awk 'NR==2{print $$1+$$2}'); \
+	   $(ARCH_CC) $(BOOT_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
+	   n=$$($(ARCH_SIZE) --format=berkeley $$o | awk 'NR==2{print $$1+$$2}'); \
 	   printf '  %-52s %7s\n' "$$src" "$$n"; core=$$((core+n)); \
 	 done; \
 	 printf '  %-52s %7s\n' "-- core, summed before --gc-sections" "$$core"; \
 	 echo; \
 	 for src in $(BOOT_SIG_SRCS); do \
 	   o=$(BOOT_MEAS_DIR)/$$(echo $$src | tr / _).o; \
-	   $(CC_AVR) $(if $(findstring third_party,$(src)),$(DONNA_CFLAGS),$(BOOT_CFLAGS)) -fno-lto -c -o $$o $$src 2>/dev/null || \
-	     $(CC_AVR) $(DONNA_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
-	   n=$$($(SIZE) --format=berkeley $$o | awk 'NR==2{print $$1+$$2}'); \
+	   $(ARCH_CC) $(if $(findstring third_party,$(src)),$(DONNA_CFLAGS),$(BOOT_CFLAGS)) -fno-lto -c -o $$o $$src 2>/dev/null || \
+	     $(ARCH_CC) $(DONNA_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
+	   n=$$($(ARCH_SIZE) --format=berkeley $$o | awk 'NR==2{print $$1+$$2}'); \
 	   printf '  %-52s %7s\n' "$$src" "$$n"; \
 	 done
 	@echo
 	@$(MAKE) --no-print-directory boot-core-size
 	@echo
 	@echo "signature backend, linked and gc-sectioned (verify reachable only):"
-	@$(CC_AVR) $(DONNA_CFLAGS) -fno-lto -fstack-usage -c \
+	@$(ARCH_CC) $(DONNA_CFLAGS) -fno-lto -fstack-usage -c \
 	   -o $(BOOT_MEAS_DIR)/su.o src/third_party/ed25519-donna/ed25519.c 2>/dev/null; \
 	 mv ed25519.su $(BOOT_MEAS_DIR)/ 2>/dev/null || true; \
 	 awk -F'\t' '$$1 ~ /ed25519_sign_open$$/ {printf "  peak stack frame  %7s bytes   (part SRAM %s)\n", $$2, "$(RAM_TOTAL)"}' \
 	   $(BOOT_MEAS_DIR)/ed25519.su 2>/dev/null || true
 
-## boot-core-size: ag-boot WITHOUT a signature backend, linked and measured
-# NOT A BOOTLOADER AND NOT FLASHABLE. ag_boot_verify and ag_boot_pubkey are
+## boot-core-size: tfw-boot WITHOUT a signature backend, linked and measured
+# NOT A BOOTLOADER AND NOT FLASHABLE. tfw_boot_verify and tfw_boot_pubkey are
 # resolved to address zero by --defsym, so this image would jump into the reset
 # vector instead of verifying anything. It exists to answer one question
 # precisely: how much of the boot section everything EXCEPT the signature
@@ -404,49 +382,46 @@ boot-core-size:
 	@mkdir -p $(BOOT_MEAS_DIR)
 	@for src in $(BOOT_CORE_SRCS); do \
 	   o=$(BOOT_MEAS_DIR)/lto_$$(echo $$src | tr / _).o; \
-	   $(CC_AVR) $(BOOT_CFLAGS) -frandom-seed=$$(basename $$src) -c -o $$o $$src; \
+	   $(ARCH_CC) $(BOOT_CFLAGS) -frandom-seed=$$(basename $$src) -c -o $$o $$src; \
 	 done
 	@# Linked at address zero, NOT at the boot section's start. The question is
 	@# how many bytes the core is, and placing it at 0x7000 makes an image that
 	@# is merely too big fail to link instead of reporting its size -- which is
 	@# the one thing this target exists to do.
-	@$(CC_AVR) -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax \
-	   -Wl,--defsym=ag_boot_verify=0 -Wl,--defsym=ag_boot_pubkey=0 \
+	@$(ARCH_CC) -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax \
+	   -Wl,--defsym=tfw_boot_verify=0 -Wl,--defsym=tfw_boot_pubkey=0 \
 	   -o $(BOOT_MEAS_DIR)/core.elf $(BOOT_MEAS_DIR)/lto_*.o
-	@flash=$$($(SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$1+$$2}'); \
-	 ram=$$($(SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$2+$$3}'); \
-	 printf 'ag-boot core, linked (measure + verify seam + rollback + EEPROM + CDI + OTA + UART + framing):\n'; \
+	@flash=$$($(ARCH_SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$1+$$2}'); \
+	 ram=$$($(ARCH_SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$2+$$3}'); \
+	 printf 'tfw-boot core, linked (measure + verify seam + rollback + EEPROM + CDI + OTA + UART + framing):\n'; \
 	 printf '  flash %6s / %-6s   ram %5s / %-5s\n' "$$flash" "$(BOOT_BUDGET)" "$$ram" "$(RAM_TOTAL)"; \
 	 printf '  a signature backend has %s bytes of flash and %s bytes of SRAM to fit in\n' \
 	   "$$(($(BOOT_BUDGET)-flash))" "$$(($(RAM_TOTAL)-ram))"
 
-## bootloader-reproducible: two ag-boot builds in different directories, diffed
+## bootloader-reproducible: two tfw-boot builds in different directories, diffed
 bootloader-reproducible:
 	@rm -rf /tmp/agboot-a /tmp/agboot-b
 	@cp -a . /tmp/agboot-a && cp -a . /tmp/agboot-b
 	@$(MAKE) -C /tmp/agboot-a --no-print-directory BOARD=$(BOARD) BOOT_TIER=$(BOOT_TIER) $(BOOT_TARGET).hex >/dev/null
 	@$(MAKE) -C /tmp/agboot-b --no-print-directory BOARD=$(BOARD) BOOT_TIER=$(BOOT_TIER) $(BOOT_TARGET).hex >/dev/null
 	@if cmp -s /tmp/agboot-a/$(BOOT_TARGET).hex /tmp/agboot-b/$(BOOT_TARGET).hex; then \
-	   echo "ag-boot reproducible: two builds in different directories are byte-identical"; \
+	   echo "tfw-boot reproducible: two builds in different directories are byte-identical"; \
 	 else \
-	   echo "ag-boot NOT REPRODUCIBLE"; exit 1; \
+	   echo "tfw-boot NOT REPRODUCIBLE"; exit 1; \
 	 fi
 
-## boot-flash: write ag-boot to a connected board over ISP
-# NOT the `arduino` programmer. That one talks TO a bootloader, and the boot
-# section is the one place a bootloader cannot write. This needs an ISP.
+## boot-flash: write tfw-boot to a connected board over ISP
+# NOT the application's programmer. That one talks TO a bootloader, and the boot
+# section is the one place a bootloader cannot write. This needs an ISP -- see
+# ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk.
 boot-flash: $(BOOT_TARGET).hex
-	avrdude -v -p$(AVRDUDE_PART) -c$(ISP_PROG) -P$(ISP_PORT) \
-	        -Uflash:w:$<:i
-
-ISP_PROG ?= usbasp
-ISP_PORT ?= usb
+	$(ARCH_BOOT_FLASH)
 
 .PHONY: boot-test bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible boot-flash
 
 # ------------------------------------------------------- simavr integration
 #
-# The real ag-boot image, the real application image and a modelled ATECC608A on
+# The real tfw-boot image, the real application image and a modelled ATECC608A on
 # the emulated TWI bus. Part of `make ci`.
 #
 # Its own variable rather than mk/integration.mk's INT_DIR: that file is
@@ -457,7 +432,7 @@ ISP_PORT ?= usb
 # The BOARD is in the path. The harness compiles the board profile in, so a
 # 2560 harness and a 328P harness are different programs, and a shared path
 # means the second build reuses the first one's binary and reports its result --
-# the same defect mk/avr.mk's output path exists to prevent.
+# the same defect mk/firmware.mk's output path exists to prevent.
 BOOT_INT_DIR := $(BUILD_DIR)/integration/$(BOARD)
 
 # WHICH ROW OF BOOT_SUPPORTED THIS RUNS, and it is not the default board.
@@ -482,12 +457,12 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
-	   -I$(BOARD_DIR) -DAG_BOARD_HEADER='"board_profile.h"' \
-	   -DAG_SIMAVR_MCU='"$(MCU)"' \
+	   -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
+	   -DTFW_SIMAVR_MCU='"$(MCU)"' \
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"
 
-## integration-test-boot: run ag-boot under simavr
+## integration-test-boot: run tfw-boot under simavr
 # Recursive, because this suite runs one specific row of BOOT_SUPPORTED on one
 # specific board and a variable set on the command line would otherwise follow
 # whatever BOARD the caller happened to have.

@@ -33,10 +33,10 @@ HOST_BOARD ?= atmega328p
 # The alias certificate is enabled here too, though the host build links the
 # SOFTWARE provider and that provider has no asymmetric key. That is on purpose:
 # the refusal is the behaviour worth pinning, and a build with the command
-# compiled out would answer AG_ERR_UNKNOWN_CMD -- which says the firmware has
+# compiled out would answer TFW_ERR_UNKNOWN_CMD -- which says the firmware has
 # never heard of certificates, not that this tier cannot issue one. The
 # element-backed path gets its own binary below, against the software element.
-HOST_EXTRA_DEFS ?= -DAG_FEATURE_ATTEST=1 -DAG_FEATURE_ALIAS_CERT=1
+HOST_EXTRA_DEFS ?= -DTFW_FEATURE_ATTEST=1 -DTFW_FEATURE_ALIAS_CERT=1
 
 # -std=c11 is required, not stylistic: the buffer-sizing invariants are
 # enforced with _Static_assert, which C99 does not have.
@@ -44,7 +44,7 @@ HOST_CFLAGS := -std=c11 -g -O1 \
                -Wall -Wextra -Werror -Wconversion -Wshadow \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
                -Iinclude -Isrc -Isrc/proto -Isrc/core -Isrc/caps -Isrc/crypto -Isrc/crypto/soft -Iboot -Itest/mock -Iboards/$(HOST_BOARD) -Itestdata -I$(UNITY_DIR) \
-               -DAG_BOARD_HEADER='"board_profile.h"' $(HOST_EXTRA_DEFS)
+               -DTFW_BOARD_HEADER='"board_profile.h"' $(HOST_EXTRA_DEFS)
 
 
 # Unity's own sources are third-party; its warnings are not ours to fix, and
@@ -82,20 +82,20 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # header fails on a register the 328P does not have, which is correct behaviour
 # reported as a build break.
 # test_atecc is excluded too, and for a different reason: it links the SOFTWARE
-# ELEMENT rather than the mock HAL, because both define ag_hal_i2c_xfer and the
+# ELEMENT rather than the mock HAL, because both define tfw_hal_i2c_xfer and the
 # whole point is that the driver talks to something that behaves like the part.
 # It gets its own rule below.
 # test_alias joins that list for the same reason test_atecc is on it: the alias
 # certificate is signed by an element, so its suite links the software element
 # as the I2C HAL and the ATECC provider as the crypto tier. Linking it beside
-# the mock would be two definitions of ag_hal_i2c_xfer.
+# the mock would be two definitions of tfw_hal_i2c_xfer.
 # test_bus_element joins that list for the same reason: it links the software
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
 # functions, either of which the mock also defines.
 # test_crypto_none is excluded for a different reason: HOST_LIB_SRCS already
 # links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
 # provider.c instead -- linking both would be two definitions of
-# ag_crypto_init and everything else in include/ag/crypto.h.
+# tfw_crypto_init and everything else in include/tfw/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_provision.c test/unit/test_alias.c \
                             test/unit/test_model_p256.c \
@@ -148,7 +148,7 @@ $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 
 # The ATECC608A driver against the software element. A separate link because
 # the model IS the I2C HAL here -- linking it beside the mock would be two
-# definitions of ag_hal_i2c_xfer, and choosing between them with a flag would
+# definitions of tfw_hal_i2c_xfer, and choosing between them with a flag would
 # mean the tested build is not the shipped one.
 $(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
                         src/crypto/atecc608a/atecc.c \
@@ -166,7 +166,7 @@ $(HOST_DIR)/test_provision: test/unit/test_provision.c $(ELEMENT_MODEL) \
                             src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
-	   -DAG_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
+	   -DTFW_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The alias certificate, driven by the element that signs it. Its DER and CBOR
 # vectors need no provider at all, but the command path does, and pinning the
@@ -227,7 +227,7 @@ $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
 # hal_mock.c, and the test file supplies its own tiny stand-ins for the
 # handful of other HAL calls storage.c's and sys.c's non-auth handlers still
 # reference even though this suite never calls them (RESET's own poll, CAPS,
-# PING, SYS_INFO) -- the same reason test_alias.c defines ag_hal_millis.
+# PING, SYS_INFO) -- the same reason test_alias.c defines tfw_hal_millis.
 $(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c $(ELEMENT_MODEL) \
                                 src/core/auth_session.c src/caps/storage.c src/caps/sys.c \
                                 src/core/reader.c src/core/writer.c \
@@ -306,7 +306,7 @@ lint:
 	          --error-exitcode=1 --inline-suppr --quiet \
 	          --suppress=missingIncludeSystem \
 	          --suppress=unusedFunction \
-	          -DAG_BOARD_HEADER='"board_profile.h"' -DAG_PROGMEM= \
+	          -DTFW_BOARD_HEADER='"board_profile.h"' -DTFW_PROGMEM= \
 	          -Iinclude -Isrc -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
 	          src/ boards/ boot/
@@ -323,10 +323,20 @@ lint:
 	@# src/hal/avr does and for exactly one conditional: the far-flash read, which
 	@# is required above 64 KB and is a fact about the silicon rather than a
 	@# feature anyone chose.
-	@if grep -rn '^[[:space:]]*#[[:space:]]*if' src/core src/proto src/caps boot \
-	     --include='*.c' | grep -v 'commands.def' | grep -v '^boot/hal/avr/'; then \
+	@# The sweep covers every .c and .h under src/, boot/ and tools/. Exempt:
+	@# the per-architecture HAL directories (src/hal/*/, boot/hal/*/, named as
+	@# globs so a second architecture needs no edit here), commands.def, the
+	@# vendored src/third_party (cppcheck skips it for the same reason), and the
+	@# include guard of a header -- an #ifndef of a NAME_H macro, which is not a
+	@# conditional on anything. config.h, progmem.h and the board profiles live
+	@# under include/ and boards/, which this sweep does not enter.
+	@if grep -rn '^[[:space:]]*#[[:space:]]*if' src boot tools \
+	     --include='*.c' --include='*.h' --exclude-dir=third_party \
+	     | grep -v 'commands.def' \
+	     | grep -v '^src/hal/[^/]*/' | grep -v '^boot/hal/[^/]*/' \
+	     | grep -v ':[[:space:]]*#[[:space:]]*ifndef[[:space:]]\+[A-Za-z0-9_]*_H[[:space:]]*$$'; then \
 	  echo "preprocessor conditional outside the whitelist (see above)"; \
-	  echo "a default belongs in include/ag/config.h, where a board can override it"; \
+	  echo "a default belongs in include/tfw/config.h, where a board can override it"; \
 	  exit 1; \
 	fi
 	@echo "no out-of-whitelist conditionals"
@@ -337,23 +347,23 @@ lint:
 	fi
 	@echo "no build timestamps"
 
-# ----------------------------------------------------------------- agsim
+# ----------------------------------------------------------------- tfwsim
 #
 # The firmware as a host binary, one per crypto tier -- the same choice the
 # firmware's own build makes, and made the same way: by which files are linked.
 #
-#   agsim              software tier. No asymmetric key, so ATTEST_CERT answers
+#   tfwsim              software tier. No asymmetric key, so ATTEST_CERT answers
 #                      "unsupported" and ATTEST "not provisioned".
-#   agsim-atecc608a    element tier. The REAL ATECC608A driver and provider, with
+#   tfwsim-atecc608a    element tier. The REAL ATECC608A driver and provider, with
 #                      test/model/atecc608a.c as the I2C bus. Started with
 #                      explicit options it holds a deterministic TEST identity
 #                      and mints DICE evidence over the wire. See
-#                      tools/agsim/tier_atecc608a.c for the options and for why
+#                      tools/tfwsim/tier_atecc608a.c for the options and for why
 #                      the evidence is real P-256 under a TEST key nobody may trust.
 #
-# `make agsim CRYPTO=atecc608a` is `make agsim-atecc608a`, so the tier is named
+# `make tfwsim CRYPTO=atecc608a` is `make tfwsim-atecc608a`, so the tier is named
 # the way it is for `make firmware`.
-AGSIM_COMMON := tools/agsim/main.c tools/agsim/tier.h
+TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h
 
 # The element tier swaps the software provider (and its UDS mock) for the ATECC608A
 # driver, its provider and the software element. hal_mock.c is still linked for
@@ -365,35 +375,35 @@ AGSIM_COMMON := tools/agsim/main.c tools/agsim/tier.h
 # constraint that does not exist on a host). The element tier is the only tier
 # that can verify an operator signature, and the simulator exists to let a host
 # exercise exactly what that tier does. The override is a one-line overlay
-# profile, tools/agsim/element/board_profile.h, found first on the include path;
+# profile, tools/tfwsim/element/board_profile.h, found first on the include path;
 # no firmware source or board profile is touched, and no AVR image sees it.
-AGSIM_ELEMENT_INC := -Itools/agsim/element
-AGSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c \
+TFWSIM_ELEMENT_INC := -Itools/tfwsim/element
+TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c \
                                    src/core/auth_session_none.c, \
                                    $(HOST_LIB_SRCS)) \
                       src/core/auth_session.c \
                       src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                       $(ELEMENT_MODEL)
 
-## agsim: build the firmware as a host binary speaking the protocol on stdio
-agsim: $(HOST_DIR)/agsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)
-$(HOST_DIR)/agsim: $(AGSIM_COMMON) tools/agsim/tier_soft.c $(HOST_LIB_SRCS) | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/agsim -o $@ \
-	   tools/agsim/main.c tools/agsim/tier_soft.c $(HOST_LIB_SRCS) $(EXTRA_LDFLAGS)
+## tfwsim: build the firmware as a host binary speaking the protocol on stdio
+tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)
+$(HOST_DIR)/tfwsim: $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(HOST_LIB_SRCS) | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(HOST_LIB_SRCS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
-## agsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
-agsim-atecc608a: $(HOST_DIR)/agsim-atecc608a
-$(HOST_DIR)/agsim-atecc608a: $(AGSIM_COMMON) tools/agsim/tier_atecc608a.c $(AGSIM_ELEMENT_SRCS) | $(HOST_DIR)
-	@$(CC) $(AGSIM_ELEMENT_INC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
-	   -Itools/agsim $(MODEL_INC) -o $@ \
-	   tools/agsim/main.c tools/agsim/tier_atecc608a.c $(AGSIM_ELEMENT_SRCS) $(EXTRA_LDFLAGS)
+## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
+tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a
+$(HOST_DIR)/tfwsim-atecc608a: $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) | $(HOST_DIR)
+	@$(CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	   -Itools/tfwsim $(MODEL_INC) -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 clean-host:
 	@rm -rf $(HOST_DIR)
 
-.PHONY: test test-asan coverage clean-host agsim agsim-atecc608a lint
+.PHONY: test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint
 
 # ---------------------------------------------------------------- board sweep
 #
@@ -422,7 +432,7 @@ board-sweep:
 	  mkdir -p $(SWEEP_DIR); \
 	  $(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	     -Iinclude -Isrc -Isrc/core -Itest/mock -Iboards/$$b -I$(UNITY_DIR) \
-	     -DAG_BOARD_HEADER='"board_profile.h"' \
+	     -DTFW_BOARD_HEADER='"board_profile.h"' \
 	     -o $(SWEEP_DIR)/$$b "$$src" src/core/board_lookup.c boards/$$b/board.c \
 	     $(UNITY_DIR)/unity.c || { echo "BUILD FAILED: $$b"; fail=1; continue; }; \
 	  echo "--- $$b"; ./$(SWEEP_DIR)/$$b || fail=1; ran=$$((ran+1)); \

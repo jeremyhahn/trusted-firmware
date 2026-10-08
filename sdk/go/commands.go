@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"context"
@@ -36,7 +36,7 @@ const (
 const sysInfoErrCountersEnd = sysInfoLen + 4 // err_crc:2, err_format:2
 
 // timerMaxMillis is the longest timer the device will arm, mirroring
-// AG_SCHED_MAX_MS.
+// TFW_SCHED_MAX_MS.
 //
 // Half the range of the uint32 the wire carries, and the half is the point:
 // the sweep decides whether a deadline has passed with a SIGNED difference, so
@@ -109,14 +109,14 @@ func (d *Device) Caps(ctx context.Context) (*Caps, error) {
 // "There is nothing here", twice, and they are not the same shape.
 //
 // The port byte is the board descriptor's own packing: a port index in the high
-// nibble and a bit in the low. A pin with no digital port carries AG_PORT_NONE
+// nibble and a bit in the low. A pin with no digital port carries TFW_PORT_NONE
 // in the high nibble, so the test is on the NIBBLE, not on the whole byte --
 // A6 on an ATmega328P arrives as 0xF0, which a whole-byte comparison against
 // 0xFF reads as port 15, bit 0: a port no board has, reported as one it does.
 // A pin beyond the board is 0xFF, which the same nibble test also catches.
 const (
-	pinPortNone    = 0x0F // AG_PORT_NONE, in the high nibble
-	pinADCChanNone = 0xFF // AG_ADC_NONE, a whole byte
+	pinPortNone    = 0x0F // TFW_PORT_NONE, in the high nibble
+	pinADCChanNone = 0xFF // TFW_ADC_NONE, a whole byte
 )
 
 // PinInfo asks the device about one pin.
@@ -183,8 +183,8 @@ type ResetMode uint8
 const (
 	// ResetSoft restarts the application firmware.
 	ResetSoft ResetMode = 0
-	// ResetBootloader restarts into ag-boot's OTA session, for updating a
-	// healthy device. ag-boot announces it with an EVENT of status OK and no
+	// ResetBootloader restarts into tfw-boot's OTA session, for updating a
+	// healthy device. tfw-boot announces it with an EVENT of status OK and no
 	// payload, answers PING, and boots the existing application again if no
 	// update frame is accepted within about ten seconds. On the element tier
 	// it requires an authenticated session (AuthChallenge/AuthResponse) and
@@ -519,7 +519,7 @@ func (d *Device) SPITransfer(ctx context.Context, cs uint8, write []byte) ([]byt
 }
 
 // I2CClockMin and I2CClockMax bound what SetI2CClock will send. Mirrors
-// AG_I2C_HZ_MIN/AG_I2C_HZ_MAX in include/ag/config.h: below the floor the
+// TFW_I2C_HZ_MIN/TFW_I2C_HZ_MAX in include/tfw/config.h: below the floor the
 // device's clock divisor cannot express the request meaningfully, and above
 // the ceiling -- Fast-mode, 400 kHz -- is past what this family's TWI
 // peripherals are rated for, not merely what their divisor can compute.
@@ -532,7 +532,7 @@ const (
 // a transfer already needing the previous rate should complete before this is
 // sent.
 //
-// ag_bus_init() (main.c) already set 100 kHz at boot, so this is only needed
+// tfw_bus_init() (main.c) already set 100 kHz at boot, so this is only needed
 // to run the bus at something else -- a sensor datasheet asking for 400 kHz,
 // say.
 //
@@ -565,7 +565,7 @@ const (
 	SPIMode3 SPIMode = 3
 )
 
-// SPIClockDiv is the raw two-bit divider field ag_hal_spi_init writes into
+// SPIClockDiv is the raw two-bit divider field tfw_hal_spi_init writes into
 // SPCR's SPR1:SPR0 -- a code, not a divisor, because the actual divisor is a
 // property of the board's F_CPU that this SDK has no way to know.
 type SPIClockDiv uint8
@@ -575,7 +575,7 @@ const (
 	SPIClockDiv4  SPIClockDiv = 0
 	SPIClockDiv16 SPIClockDiv = 1
 	SPIClockDiv64 SPIClockDiv = 2
-	// SPIClockDiv128 is the slowest, and what ag_bus_init() sets at boot.
+	// SPIClockDiv128 is the slowest, and what tfw_bus_init() sets at boot.
 	SPIClockDiv128 SPIClockDiv = 3
 )
 
@@ -583,7 +583,7 @@ const (
 // order. Applied immediately; a transfer already in flight should complete
 // before this is sent.
 //
-// ag_bus_init() (main.c) already set mode 0, the slowest divider and
+// tfw_bus_init() (main.c) already set mode 0, the slowest divider and
 // MSB-first at boot, so this is only needed to match a specific device --
 // mode 3 and MSB-first for an SD card, say.
 func (d *Device) ConfigureSPI(ctx context.Context, mode SPIMode, clkdiv SPIClockDiv, lsbFirst bool) error {

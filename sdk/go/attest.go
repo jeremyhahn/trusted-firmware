@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"context"
@@ -38,9 +38,9 @@ const (
 	// EvidenceLen is the size of one complete attestation frame.
 	EvidenceLen = 164
 
-	attestPage = 48 // AG_ATTEST_PAGE
+	attestPage = 48 // TFW_ATTEST_PAGE
 	attestHdr  = 2  // [page:1][total:1] ahead of each ATTEST page
-	aliasPage  = 60 // AG_ALIAS_PAGE
+	aliasPage  = 60 // TFW_ALIAS_PAGE
 )
 
 // Attest asks the device for nonce-bound attestation evidence.
@@ -76,7 +76,7 @@ func (d *Device) Attest(ctx context.Context, nonce []byte) ([]byte, error) {
 			return nil, err
 		}
 		// A page with no evidence in it would loop forever. The device answers
-		// AG_ERR_RANGE past the end rather than an empty success, so reaching
+		// TFW_ERR_RANGE past the end rather than an empty success, so reaching
 		// here means the two ends disagree about the length.
 		if body, err = attestPageBody(f.Payload); err != nil {
 			return nil, err

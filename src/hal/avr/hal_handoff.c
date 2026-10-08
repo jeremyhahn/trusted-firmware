@@ -3,7 +3,7 @@
 /*
  * The application's side of the CDI handoff address.
  *
- * ag-boot places its handoff block at a FIXED SRAM address it derives from
+ * tfw-boot places its handoff block at a FIXED SRAM address it derives from
  * the board's RAM_END (mk/boot.mk's BOOT_HANDOFF_AT), because there is no
  * shared linker script between the two images for it to name a symbol in
  * instead. The application has to land on the identical address by the same
@@ -33,21 +33,21 @@
  * misread.
  */
 
-#include "ag/boot.h"
+#include "tfw/boot.h"
 
 /*
  * `.handoff`, a section of its own -- NOT the generic `.noinit` other
  * uninitialised-but-not-zeroed data (src/hal/avr/hal_early.c's
- * ag_hal_early_flags, notably) also lives in. mk/avr.mk pins THIS section to
+ * tfw_hal_early_flags, notably) also lives in. mk/avr.mk pins THIS section to
  * a fixed address with `--section-start`; pinning the generic `.noinit`
  * output section would move every OTHER object assigned to it there too,
  * which is exactly the collision that shipped once, briefly, in this file's
- * history -- `ag_hal_early_flags` landing inside this array's 80 bytes and
+ * history -- `tfw_hal_early_flags` landing inside this array's 80 bytes and
  * overflowing the region the linker had for it.
  */
-static uint8_t handoff[AG_BOOT_HANDOFF_LEN] __attribute__((section(".handoff")));
+static uint8_t handoff[TFW_BOOT_HANDOFF_LEN] __attribute__((section(".handoff")));
 
-uint8_t *ag_hal_handoff_block(void)
+uint8_t *tfw_hal_handoff_block(void)
 {
     return handoff;
 }

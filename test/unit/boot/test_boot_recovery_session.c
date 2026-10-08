@@ -1,14 +1,14 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The bounded update session -- ag_boot_session_open.
+ * The bounded update session -- tfw_boot_session_open.
  *
  * The idle timeout is the only thing between an unauthenticated peer and a
  * healthy device parked in the bootloader forever, so it is tested as a
  * number: the receive loop's empty polls are counted by the mock, and each
  * test asserts how many there were before the loop gave up.
  *
- * ag_boot_evaluate and ag_boot_hand_over are replaced here by controllable
+ * tfw_boot_evaluate and tfw_boot_hand_over are replaced here by controllable
  * doubles. Neither is under test -- the policy has its own suite, and the real
  * hand-over jumps -- what is under test is what the session does with their
  * answers.
@@ -28,11 +28,11 @@
 #define BYTES 500u
 #define PAGE_SZ 128u
 
-static ag_status_t evaluate_result;
+static tfw_status_t evaluate_result;
 static unsigned    hand_overs;
 static unsigned    evaluates;
 
-ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out)
+tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
 {
     (void)floor;
     memset(out, 0, sizeof *out);
@@ -40,7 +40,7 @@ ag_status_t ag_boot_evaluate(uint32_t floor, ag_boot_verdict_t *out)
     return evaluate_result;
 }
 
-void ag_boot_hand_over(const ag_boot_verdict_t *v)
+void tfw_boot_hand_over(const tfw_boot_verdict_t *v)
 {
     (void)v;
     hand_overs++;
@@ -49,25 +49,25 @@ void ag_boot_hand_over(const ag_boot_verdict_t *v)
 /* A tier that keeps no floor of its own, which is a legitimate answer
  * (boot_cdi.h): boot_store.c then falls back to the EEPROM copy. It keeps the
  * tier drivers, and their HAL, out of this link. */
-ag_status_t ag_boot_floor_read(uint32_t *out)
+tfw_status_t tfw_boot_floor_read(uint32_t *out)
 {
     (void)out;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-ag_status_t ag_boot_floor_write(uint32_t value)
+tfw_status_t tfw_boot_floor_write(uint32_t value)
 {
     (void)value;
-    return AG_ERR_UNSUPPORTED;
+    return TFW_ERR_UNSUPPORTED;
 }
 
-static ag_boot_platform_t plat;
+static tfw_boot_platform_t plat;
 
 void setUp(void)
 {
-    ag_boot_mock_reset();
+    tfw_boot_mock_reset();
     memset(&plat, 0, sizeof plat);
-    evaluate_result = AG_OK;
+    evaluate_result = TFW_OK;
     hand_overs = 0u;
     evaluates = 0u;
 }
@@ -77,18 +77,18 @@ void tearDown(void) {}
 
 static void feed_frame(uint8_t seq, uint8_t cmd, const uint8_t *p, uint8_t n)
 {
-    uint8_t  buf[AG_MAX_FRAME];
-    uint16_t len = ag_frame_encode_request(buf, sizeof buf, seq, cmd, p, n);
+    uint8_t  buf[TFW_MAX_FRAME];
+    uint16_t len = tfw_frame_encode_request(buf, sizeof buf, seq, cmd, p, n);
 
     TEST_ASSERT_TRUE(len > 0u);
-    ag_boot_mock_feed_rx(buf, len);
+    tfw_boot_mock_feed_rx(buf, len);
 }
 
 static void feed_ota_begin(uint32_t total)
 {
     uint8_t p[4] = { (uint8_t)total, (uint8_t)(total >> 8),
                      (uint8_t)(total >> 16), (uint8_t)(total >> 24) };
-    feed_frame(1u, AG_CMD_OTA_BEGIN, p, 4u);
+    feed_frame(1u, TFW_CMD_OTA_BEGIN, p, 4u);
 }
 
 /* A whole image of `total` bytes, in frames that fit a payload. */
@@ -101,7 +101,7 @@ static void feed_ota_image(uint32_t total)
     for (off = 0u; off < total; off += 32u) {
         p[0] = (uint8_t)off;         p[1] = (uint8_t)(off >> 8);
         p[2] = (uint8_t)(off >> 16); p[3] = (uint8_t)(off >> 24);
-        feed_frame(2u, AG_CMD_OTA_DATA, p, sizeof p);
+        feed_frame(2u, TFW_CMD_OTA_DATA, p, sizeof p);
     }
 }
 
@@ -109,28 +109,28 @@ static void feed_ota_image(uint32_t total)
 typedef struct {
     unsigned events;
     unsigned responses;
-    ag_status_t first_event_status;
-    ag_status_t last_status;
+    tfw_status_t first_event_status;
+    tfw_status_t last_status;
 } tx_summary_t;
 
 static tx_summary_t summarise_tx(void)
 {
     uint8_t      raw[2048];
-    size_t       n = ag_boot_mock_drain_tx(raw, sizeof raw);
-    ag_framer_t  f;
+    size_t       n = tfw_boot_mock_drain_tx(raw, sizeof raw);
+    tfw_framer_t  f;
     tx_summary_t s;
     size_t       i;
 
     memset(&s, 0, sizeof s);
-    ag_framer_init(&f);
+    tfw_framer_init(&f);
     for (i = 0u; i < n; i++) {
-        if (ag_framer_push(&f, raw[i]) != AG_FRAME_READY) { continue; }
-        if (ag_frame_op(&f) == AG_OP_EVENT) {
-            if (s.events++ == 0u) { s.first_event_status = ag_frame_status(&f); }
+        if (tfw_framer_push(&f, raw[i]) != TFW_FRAME_READY) { continue; }
+        if (tfw_frame_op(&f) == TFW_OP_EVENT) {
+            if (s.events++ == 0u) { s.first_event_status = tfw_frame_status(&f); }
         } else {
             s.responses++;
         }
-        s.last_status = ag_frame_status(&f);
+        s.last_status = tfw_frame_status(&f);
     }
     return s;
 }
@@ -138,13 +138,13 @@ static tx_summary_t summarise_tx(void)
 static void open_session(uint32_t idle_polls, uint32_t idle_bytes,
                          uint32_t max_polls, uint32_t max_bytes)
 {
-    ag_boot_session_limits_t lim;
+    tfw_boot_session_limits_t lim;
 
     lim.idle_polls = idle_polls;
     lim.idle_bytes = idle_bytes;
     lim.max_polls  = max_polls;
     lim.max_bytes  = max_bytes;
-    ag_boot_session_open(&plat, &lim);
+    tfw_boot_session_open(&plat, &lim);
 }
 
 static unsigned hook_at;
@@ -164,15 +164,15 @@ static void speak_after(unsigned polls, void (*feed)(void))
     hook_at = polls;
     hook_fired = 0;
     hook_feed = feed;
-    ag_boot_mock_on_rx_idle(idle_hook);
+    tfw_boot_mock_on_rx_idle(idle_hook);
 }
 
-static void feed_ping(void)  { feed_frame(7u, AG_CMD_PING, 0, 0u); }
+static void feed_ping(void)  { feed_frame(7u, TFW_CMD_PING, 0, 0u); }
 static void feed_begin(void) { feed_ota_begin(256u); }
 static void feed_stray_data(void)
 {
     static const uint8_t p[5] = { 0, 0, 0, 0, 0xEE };
-    feed_frame(8u, AG_CMD_OTA_DATA, p, sizeof p);      /* no BEGIN: refused */
+    feed_frame(8u, TFW_CMD_OTA_DATA, p, sizeof p);      /* no BEGIN: refused */
 }
 
 /* ------------------------------------------------------------- the bound */
@@ -184,10 +184,10 @@ static void test_an_idle_session_returns_after_the_bound(void)
 {
     open_session(IDLE, 0u, 0u, 0u);
 
-    TEST_ASSERT_EQUAL_UINT(IDLE, ag_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(IDLE, tfw_boot_mock_rx_empty_polls());
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
-    TEST_ASSERT_EQUAL_UINT(0u, ag_boot_mock_did_reset());
-    TEST_ASSERT_EQUAL_UINT(0u, ag_boot_mock_jumped());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_did_reset());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_jumped());
 }
 
 /* A host that opens a session must be able to tell it from a refusal: the
@@ -200,18 +200,18 @@ static void test_the_session_announces_itself_as_requested_not_refused(void)
     open_session(IDLE, 0u, 0u, 0u);
     s = summarise_tx();
     TEST_ASSERT_EQUAL_UINT(1u, s.events);
-    TEST_ASSERT_EQUAL_INT(AG_OK, s.first_event_status);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, s.first_event_status);
 }
 
 static void test_ping_is_answered_during_the_session(void)
 {
     tx_summary_t s;
 
-    feed_frame(5u, AG_CMD_PING, 0, 0u);
+    feed_frame(5u, TFW_CMD_PING, 0, 0u);
     open_session(IDLE, 0u, 0u, 0u);
     s = summarise_tx();
     TEST_ASSERT_EQUAL_UINT(1u, s.responses);
-    TEST_ASSERT_EQUAL_INT(AG_OK, s.last_status);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, s.last_status);
 }
 
 /* PING is what a probe sends. If it restarted the clock, anyone on the wire
@@ -221,7 +221,7 @@ static void test_ping_does_not_extend_the_session(void)
 {
     speak_after(60u, feed_ping);
     open_session(IDLE, 0u, 0u, 0u);
-    TEST_ASSERT_EQUAL_UINT(IDLE, ag_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(IDLE, tfw_boot_mock_rx_empty_polls());
 }
 
 /* A refused update frame is not progress either. */
@@ -229,7 +229,7 @@ static void test_a_rejected_update_frame_does_not_extend_the_session(void)
 {
     speak_after(60u, feed_stray_data);
     open_session(IDLE, 0u, 0u, 0u);
-    TEST_ASSERT_EQUAL_UINT(IDLE, ag_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(IDLE, tfw_boot_mock_rx_empty_polls());
 }
 
 /* A transfer that is moving must be allowed to finish: an accepted OTA_BEGIN
@@ -238,7 +238,7 @@ static void test_an_accepted_update_frame_restarts_the_bound(void)
 {
     speak_after(60u, feed_begin);
     open_session(IDLE, 0u, 0u, 0u);
-    TEST_ASSERT_EQUAL_UINT(60u + IDLE, ag_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(60u + IDLE, tfw_boot_mock_rx_empty_polls());
 }
 
 /* --------------------------------------------------- a busy line is bounded */
@@ -251,12 +251,12 @@ static void test_a_continuous_junk_stream_ends_the_session_after_the_byte_budget
     uint8_t junk[BYTES + 100u];
 
     memset(junk, 0xEE, sizeof junk);        /* never SOF: no frame ever forms */
-    ag_boot_mock_feed_rx(junk, sizeof junk);
+    tfw_boot_mock_feed_rx(junk, sizeof junk);
 
     open_session(IDLE, BYTES, 0u, 0u);
 
-    TEST_ASSERT_EQUAL_UINT(0u, ag_boot_mock_rx_empty_polls());
-    TEST_ASSERT_EQUAL_UINT(BYTES, ag_boot_mock_rx_consumed());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(BYTES, tfw_boot_mock_rx_consumed());
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
 }
 
@@ -266,19 +266,19 @@ static void test_a_ping_flood_ends_the_session_after_the_byte_budget(void)
     unsigned i;
 
     for (i = 0u; i < 100u; i++) {
-        feed_frame((uint8_t)i, AG_CMD_PING, 0, 0u);      /* 6 bytes each */
+        feed_frame((uint8_t)i, TFW_CMD_PING, 0, 0u);      /* 6 bytes each */
     }
     open_session(IDLE, BYTES, 0u, 0u);
 
-    TEST_ASSERT_EQUAL_UINT(0u, ag_boot_mock_rx_empty_polls());
-    TEST_ASSERT_EQUAL_UINT(BYTES, ag_boot_mock_rx_consumed());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(BYTES, tfw_boot_mock_rx_consumed());
 }
 
 static void feed_junk_burst(void)
 {
     uint8_t junk[BYTES - 50u];
     memset(junk, 0xEE, sizeof junk);
-    ag_boot_mock_feed_rx(junk, sizeof junk);
+    tfw_boot_mock_feed_rx(junk, sizeof junk);
 }
 
 static void feed_begin_then_junk(void)
@@ -294,17 +294,17 @@ static void test_progress_restarts_the_byte_budget(void)
 {
     speak_after(0u, feed_junk_burst);
     open_session(IDLE, BYTES, 0u, 0u);
-    TEST_ASSERT_EQUAL_UINT(BYTES - 50u, ag_boot_mock_rx_consumed());
-    TEST_ASSERT_EQUAL_UINT(IDLE, ag_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(BYTES - 50u, tfw_boot_mock_rx_consumed());
+    TEST_ASSERT_EQUAL_UINT(IDLE, tfw_boot_mock_rx_empty_polls());
 
-    ag_boot_mock_reset();
+    tfw_boot_mock_reset();
     memset(&plat, 0, sizeof plat);
     feed_junk_burst();
     speak_after(0u, feed_begin_then_junk);
     open_session(IDLE, BYTES, 0u, 0u);
     /* 450 + begin frame + 450 more junk bytes: over BYTES in total, so only a
      * reset by the accepted OTA_BEGIN lets it reach the poll bound. */
-    TEST_ASSERT_EQUAL_UINT(IDLE, ag_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(IDLE, tfw_boot_mock_rx_empty_polls());
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
 }
 
@@ -317,7 +317,7 @@ static void feed_data(uint32_t offset, uint8_t n)
     memset(p, 0xA5, sizeof p);
     p[0] = (uint8_t)offset;         p[1] = (uint8_t)(offset >> 8);
     p[2] = (uint8_t)(offset >> 16); p[3] = (uint8_t)(offset >> 24);
-    feed_frame(2u, AG_CMD_OTA_DATA, p, (uint8_t)(4u + n));
+    feed_frame(2u, TFW_CMD_OTA_DATA, p, (uint8_t)(4u + n));
 }
 
 static uint32_t drip_offset;
@@ -347,14 +347,14 @@ static void test_a_drip_of_valid_frames_ends_at_the_poll_ceiling(void)
     const uint32_t ceiling = 1000u;
 
     drip_offset = 0u;
-    ag_boot_mock_on_rx_idle(drip_hook);
+    tfw_boot_mock_on_rx_idle(drip_hook);
     open_session(IDLE, 0u, ceiling, 0u);
 
     /* Every iteration counts, received byte or not; the one that trips the
      * ceiling returns before it polls. */
     TEST_ASSERT_EQUAL_UINT(ceiling - 1u,
-                           ag_boot_mock_rx_empty_polls() + ag_boot_mock_rx_consumed());
-    TEST_ASSERT_TRUE(ag_boot_mock_rx_consumed() > 20u * 6u);  /* really was accepting frames */
+                           tfw_boot_mock_rx_empty_polls() + tfw_boot_mock_rx_consumed());
+    TEST_ASSERT_TRUE(tfw_boot_mock_rx_consumed() > 20u * 6u);  /* really was accepting frames */
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
 }
 
@@ -371,8 +371,8 @@ static void test_a_flood_of_valid_frames_ends_at_the_byte_ceiling(void)
     }
     open_session(IDLE, BYTES, 0u, ceiling);
 
-    TEST_ASSERT_EQUAL_UINT(ceiling, ag_boot_mock_rx_consumed());
-    TEST_ASSERT_EQUAL_UINT(0u, ag_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(ceiling, tfw_boot_mock_rx_consumed());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_rx_empty_polls());
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
 }
 
@@ -384,13 +384,13 @@ static void test_a_refused_end_ends_the_requested_session(void)
 {
     feed_ota_begin(256u);
     feed_data(0u, 32u);
-    feed_frame(3u, AG_CMD_OTA_END, 0, 0u);      /* 32 of 256 bytes: refused */
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);      /* 32 of 256 bytes: refused */
     feed_ota_begin(256u);
     open_session(IDLE, 0u, 0u, 0u);
 
     TEST_ASSERT_EQUAL_UINT(0u, evaluates);
-    TEST_ASSERT_EQUAL_UINT(0u, ag_boot_mock_rx_empty_polls());
-    TEST_ASSERT_TRUE(ag_boot_mock_rx_consumed() < 10u + 42u + 6u + 10u);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_rx_empty_polls());
+    TEST_ASSERT_TRUE(tfw_boot_mock_rx_consumed() < 10u + 42u + 6u + 10u);
 }
 
 /* The same for an END whose image fails verification, and a second BEGIN
@@ -399,16 +399,16 @@ static void test_a_failed_verification_ends_the_requested_session(void)
 {
     feed_ota_begin(256u);
     feed_ota_image(256u);
-    feed_frame(3u, AG_CMD_OTA_END, 0, 0u);
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
     feed_ota_begin(256u);
-    evaluate_result = AG_ERR_CRYPTO;
+    evaluate_result = TFW_ERR_CRYPTO;
 
     open_session(IDLE, 0u, 0u, 0u);
 
     TEST_ASSERT_EQUAL_UINT(1u, evaluates);
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
-    TEST_ASSERT_EQUAL_UINT(0u, ag_boot_mock_rx_empty_polls());
-    TEST_ASSERT_EQUAL_UINT(10u + 8u * 42u + 6u, ag_boot_mock_rx_consumed());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(10u + 8u * 42u + 6u, tfw_boot_mock_rx_consumed());
 }
 
 /* ------------------------------------------- a full legitimate update fits */
@@ -419,12 +419,12 @@ static int      full_end_sent;
 static void full_image_hook(unsigned empty_polls)
 {
     (void)empty_polls;
-    if (full_offset < AG_BOOT_APP_END) {
+    if (full_offset < TFW_BOOT_APP_END) {
         feed_data(full_offset, 32u);        /* the smallest chunk the ceiling assumes */
         full_offset += 32u;
     } else if (!full_end_sent) {
         full_end_sent = 1;
-        feed_frame(3u, AG_CMD_OTA_END, 0, 0u);
+        feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
     }
 }
 
@@ -434,21 +434,21 @@ static void full_image_hook(unsigned empty_polls)
  * where an iteration costs nothing, so its margin is argued in config.h. */
 static void test_a_full_size_update_completes_inside_the_ceilings(void)
 {
-    const uint32_t max_bytes = AG_BOOT_SESSION_MAX_BYTES;
+    const uint32_t max_bytes = TFW_BOOT_SESSION_MAX_BYTES;
 
     full_offset = 0u;
     full_end_sent = 0;
-    feed_ota_begin(AG_BOOT_APP_END);
-    ag_boot_mock_on_rx_idle(full_image_hook);
+    feed_ota_begin(TFW_BOOT_APP_END);
+    tfw_boot_mock_on_rx_idle(full_image_hook);
 
-    open_session(IDLE, AG_BOOT_SESSION_IDLE_BYTES(AG_UART_BAUD), 10000000u, max_bytes);
+    open_session(IDLE, TFW_BOOT_SESSION_IDLE_BYTES(TFW_UART_BAUD), 10000000u, max_bytes);
 
     TEST_ASSERT_EQUAL_UINT(1u, hand_overs);
-    TEST_ASSERT_EQUAL_UINT(AG_BOOT_APP_END / PAGE_SZ, ag_boot_mock_page_writes());
-    TEST_ASSERT_TRUE(ag_boot_mock_rx_consumed() < max_bytes);
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_APP_END / PAGE_SZ, tfw_boot_mock_page_writes());
+    TEST_ASSERT_TRUE(tfw_boot_mock_rx_consumed() < max_bytes);
     /* At the smallest chunk the ceiling assumes, the transfer itself fits with
-     * the whole AG_BOOT_SESSION_SLACK still unspent for retransmits and probes. */
-    TEST_ASSERT_TRUE(ag_boot_mock_rx_consumed() <= max_bytes - AG_BOOT_SESSION_SLACK);
+     * the whole TFW_BOOT_SESSION_SLACK still unspent for retransmits and probes. */
+    TEST_ASSERT_TRUE(tfw_boot_mock_rx_consumed() <= max_bytes - TFW_BOOT_SESSION_SLACK);
 }
 
 /* ------------------------------------------------- recovery is unbounded */
@@ -462,7 +462,7 @@ static void escape_on_idle(unsigned empty_polls)
 }
 
 /* Recovery has nothing to fall back to, so it takes neither a ceiling nor a
- * one-attempt rule. Real ag_boot_recovery, a flood far past every byte bound
+ * one-attempt rule. Real tfw_boot_recovery, a flood far past every byte bound
  * and a failed END followed by a fresh BEGIN: it consumes all of it and is
  * still running when the line goes quiet. */
 static void test_recovery_is_unbounded_and_takes_more_than_one_attempt(void)
@@ -471,21 +471,21 @@ static void test_recovery_is_unbounded_and_takes_more_than_one_attempt(void)
     volatile int returned = 0;
 
     memset(junk, 0xEE, sizeof junk);
-    ag_boot_mock_feed_rx(junk, sizeof junk);
+    tfw_boot_mock_feed_rx(junk, sizeof junk);
     feed_ota_begin(256u);
     feed_data(0u, 32u);
-    feed_frame(3u, AG_CMD_OTA_END, 0, 0u);      /* refused: a failed attempt */
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);      /* refused: a failed attempt */
     feed_ota_begin(256u);                       /* ... and a second one */
-    ag_boot_mock_on_rx_idle(escape_on_idle);
+    tfw_boot_mock_on_rx_idle(escape_on_idle);
 
     if (setjmp(escape) == 0) {
-        ag_boot_recovery(&plat, AG_ERR_CRYPTO);
+        tfw_boot_recovery(&plat, TFW_ERR_CRYPTO);
         returned = 1;
     }
 
     TEST_ASSERT_FALSE(returned);
     TEST_ASSERT_EQUAL_UINT(sizeof junk + 10u + 42u + 6u + 10u,
-                           ag_boot_mock_rx_consumed());
+                           tfw_boot_mock_rx_consumed());
 }
 
 /* ------------------------------------------------------- how it can end */
@@ -495,15 +495,15 @@ static void test_a_verified_update_hands_over(void)
 {
     feed_ota_begin(256u);
     feed_ota_image(256u);
-    feed_frame(3u, AG_CMD_OTA_END, 0, 0u);
-    evaluate_result = AG_OK;
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
+    evaluate_result = TFW_OK;
 
     open_session(IDLE, 0u, 0u, 0u);
 
     TEST_ASSERT_EQUAL_UINT(1u, evaluates);
     TEST_ASSERT_EQUAL_UINT(1u, hand_overs);
-    TEST_ASSERT_EQUAL_UINT(2u, ag_boot_mock_page_writes());
-    TEST_ASSERT_EQUAL_UINT8(AG_BOOT_STATE_GOOD, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT(2u, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, plat.boot_state);
 }
 
 /* The session grants nothing: an image that does not verify is not handed
@@ -514,25 +514,25 @@ static void test_an_unverified_update_is_never_handed_over(void)
 
     feed_ota_begin(256u);
     feed_ota_image(256u);
-    feed_frame(3u, AG_CMD_OTA_END, 0, 0u);
-    evaluate_result = AG_ERR_CRYPTO;
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
+    evaluate_result = TFW_ERR_CRYPTO;
 
     open_session(IDLE, 0u, 0u, 0u);
 
     TEST_ASSERT_EQUAL_UINT(1u, evaluates);
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
-    TEST_ASSERT_EQUAL_UINT8(AG_BOOT_OTA_FAILED, plat.ota_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, plat.ota_state);
     s = summarise_tx();
-    TEST_ASSERT_EQUAL_INT(AG_ERR_CRYPTO, s.last_status);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, s.last_status);
 }
 
 static void test_reset_ends_the_session_by_resetting(void)
 {
     const uint8_t mode[1] = { 0u };
 
-    feed_frame(4u, AG_CMD_RESET, mode, 1u);
+    feed_frame(4u, TFW_CMD_RESET, mode, 1u);
     open_session(IDLE, 0u, 0u, 0u);
-    TEST_ASSERT_EQUAL_UINT(1u, ag_boot_mock_did_reset());
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_boot_mock_did_reset());
 }
 
 /* An application command is not this loop's business and must not move it. */
@@ -540,10 +540,10 @@ static void test_application_commands_are_refused_in_the_session(void)
 {
     tx_summary_t s;
 
-    feed_frame(6u, AG_CMD_CAPS, 0, 0u);
+    feed_frame(6u, TFW_CMD_CAPS, 0, 0u);
     open_session(IDLE, 0u, 0u, 0u);
     s = summarise_tx();
-    TEST_ASSERT_EQUAL_INT(AG_ERR_UNKNOWN_CMD, s.last_status);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNKNOWN_CMD, s.last_status);
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
 }
 

@@ -3,7 +3,7 @@
 
 #include <string.h>
 #include "atecc.h"
-#include "ag/hal.h"
+#include "tfw/hal.h"
 
 /*
  * One buffer, used for the command and then for the response.
@@ -18,9 +18,9 @@
  * seven of those -- it does not count the word address, which is addressing
  * rather than payload -- and using the count's seven to size the buffer is a
  * one-byte overrun at the largest command. cppcheck caught it. */
-static uint8_t buf[AG_ATECC_MAX_DATA + 8u];
+static uint8_t buf[TFW_ATECC_MAX_DATA + 8u];
 
-uint16_t ag_atecc_crc16(const uint8_t *data, uint8_t len)
+uint16_t tfw_atecc_crc16(const uint8_t *data, uint8_t len)
 {
     unsigned int reg = 0u;
     uint8_t      i;
@@ -42,10 +42,10 @@ uint16_t ag_atecc_crc16(const uint8_t *data, uint8_t len)
     return (uint16_t)reg;
 }
 
-ag_status_t ag_atecc_wake(void)
+tfw_status_t tfw_atecc_wake(void)
 {
     uint8_t     rsp[4];
-    ag_status_t st;
+    tfw_status_t st;
 
     /*
      * The wake pulse is SDA held low for at least 60 us, which no I2C API can
@@ -63,41 +63,41 @@ ag_status_t ag_atecc_wake(void)
      * for exactly this reason, so this call is belt-and-suspenders against
      * that path specifically -- but it is the cheap, correct default
      * regardless of what else in the tree might one day call
-     * ag_hal_i2c_init(): the alternative is trusting every future caller to
+     * tfw_hal_i2c_init(): the alternative is trusting every future caller to
      * know this precondition, and the failure mode if one does not is the
      * element silently going quiet, which reads as "no element" rather than
      * "wrong clock". */
-    (void)ag_hal_i2c_init(AG_ATECC_I2C_HZ);
+    (void)tfw_hal_i2c_init(TFW_ATECC_I2C_HZ);
     const uint8_t zero = 0x00u;
-    (void)ag_hal_i2c_xfer(0x00u, &zero, 1u, 0, 0u);
+    (void)tfw_hal_i2c_xfer(0x00u, &zero, 1u, 0, 0u);
 
     /* tWHI: the part is not addressable for about 1.5 ms after the pulse. */
-    ag_hal_delay_us(1500u);
+    tfw_hal_delay_us(1500u);
 
     /* A woken element answers with the four-byte status 0x04 0x11 0x33 0x43.
      * Reading it both confirms the part is there and clears the response
      * buffer, so the next command's response cannot be the wake token. */
-    st = ag_hal_i2c_xfer(AG_ATECC_ADDR, 0, 0u, rsp, (uint8_t)sizeof rsp);
-    if (st != AG_OK) {
-        return AG_ERR_CRYPTO;
+    st = tfw_hal_i2c_xfer(TFW_ATECC_ADDR, 0, 0u, rsp, (uint8_t)sizeof rsp);
+    if (st != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
     if (rsp[0] != 0x04u || rsp[1] != 0x11u) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
-    if (ag_atecc_crc16(rsp, 2u) != (uint16_t)(rsp[2] | ((uint16_t)rsp[3] << 8))) {
-        return AG_ERR_CRC;
+    if (tfw_atecc_crc16(rsp, 2u) != (uint16_t)(rsp[2] | ((uint16_t)rsp[3] << 8))) {
+        return TFW_ERR_CRC;
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_atecc_sleep(void)
+tfw_status_t tfw_atecc_sleep(void)
 {
-    const uint8_t wa = AG_ATECC_WA_SLEEP;
+    const uint8_t wa = TFW_ATECC_WA_SLEEP;
 
     /* Sleep clears TempKey and every other volatile register. Called after any
      * command that put a digest or a nonce in the part, so a reset between two
      * commands cannot leave one there for the next caller to sign. */
-    return ag_hal_i2c_xfer(AG_ATECC_ADDR, &wa, 1u, 0, 0u);
+    return tfw_hal_i2c_xfer(TFW_ATECC_ADDR, &wa, 1u, 0, 0u);
 }
 
 /* Translates the element's own status byte. Its four-byte error response is a
@@ -105,38 +105,38 @@ ag_status_t ag_atecc_sleep(void)
  * has said no; returning the reason rather than a generic failure is what makes
  * "the config zone is locked" distinguishable from "that slot is not readable"
  * at provisioning time, when the difference decides whether to continue. */
-static ag_status_t translate(uint8_t code)
+static tfw_status_t translate(uint8_t code)
 {
     switch (code) {
-    case 0x00u: return AG_OK;
-    case 0x01u: return AG_ERR_CRYPTO;          /* checkmac or verify miscompare */
-    case 0x03u: return AG_ERR_RANGE;           /* parse error: bad opcode or parameter */
-    case 0x05u: return AG_ERR_CRYPTO;          /* ECC fault */
-    case 0x07u: return AG_ERR_CRYPTO;          /* self-test failed */
-    case 0x08u: return AG_ERR_CRYPTO;          /* health test failed */
-    case 0x0Fu: return AG_ERR_UNSUPPORTED;     /* execution error: preconditions not met */
-    case 0x11u: return AG_ERR_CRYPTO;          /* after wake, before a command */
-    case 0xFFu: return AG_ERR_CRC;             /* the element rejected our CRC */
-    default:    return AG_ERR_CRYPTO;
+    case 0x00u: return TFW_OK;
+    case 0x01u: return TFW_ERR_CRYPTO;          /* checkmac or verify miscompare */
+    case 0x03u: return TFW_ERR_RANGE;           /* parse error: bad opcode or parameter */
+    case 0x05u: return TFW_ERR_CRYPTO;          /* ECC fault */
+    case 0x07u: return TFW_ERR_CRYPTO;          /* self-test failed */
+    case 0x08u: return TFW_ERR_CRYPTO;          /* health test failed */
+    case 0x0Fu: return TFW_ERR_UNSUPPORTED;     /* execution error: preconditions not met */
+    case 0x11u: return TFW_ERR_CRYPTO;          /* after wake, before a command */
+    case 0xFFu: return TFW_ERR_CRC;             /* the element rejected our CRC */
+    default:    return TFW_ERR_CRYPTO;
     }
 }
 
-ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
+tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
                           const uint8_t *data, uint8_t dlen,
                           uint8_t *resp, uint8_t rlen, uint16_t exec_ms)
 {
     uint8_t     count, n, got;
     uint16_t    tries;
     uint16_t    crc;
-    ag_status_t st;
+    tfw_status_t st;
 
-    if (dlen > AG_ATECC_MAX_DATA) {
-        return AG_ERR_RANGE;
+    if (dlen > TFW_ATECC_MAX_DATA) {
+        return TFW_ERR_RANGE;
     }
     /* count covers itself, opcode, both parameters, the data and the CRC. */
     count = (uint8_t)(7u + dlen);
 
-    buf[0] = AG_ATECC_WA_COMMAND;
+    buf[0] = TFW_ATECC_WA_COMMAND;
     buf[1] = count;
     buf[2] = opcode;
     buf[3] = p1;
@@ -148,12 +148,12 @@ ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
     /* The CRC covers the count byte onward and NOT the word address, which is
      * addressing rather than payload. Including it produces a packet the part
      * rejects with 0xFF, which reads like a bus fault and is not one. */
-    crc = ag_atecc_crc16(&buf[1], (uint8_t)(count - 2u));
+    crc = tfw_atecc_crc16(&buf[1], (uint8_t)(count - 2u));
     buf[6u + dlen] = (uint8_t)(crc & 0xFFu);
     buf[7u + dlen] = (uint8_t)(crc >> 8);
 
-    st = ag_hal_i2c_xfer(AG_ATECC_ADDR, buf, (uint8_t)(count + 1u), 0, 0u);
-    if (st != AG_OK) {
+    st = tfw_hal_i2c_xfer(TFW_ATECC_ADDR, buf, (uint8_t)(count + 1u), 0, 0u);
+    if (st != TFW_OK) {
         return st;
     }
 
@@ -169,8 +169,8 @@ ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
     n     = rlen ? (uint8_t)(rlen + 3u) : 4u;
     got   = 0u;
     while (tries-- && !got) {
-        ag_hal_delay_us(500u);
-        if (ag_hal_i2c_xfer(AG_ATECC_ADDR, 0, 0u, buf, n) == AG_OK) {
+        tfw_hal_delay_us(500u);
+        if (tfw_hal_i2c_xfer(TFW_ATECC_ADDR, 0, 0u, buf, n) == TFW_OK) {
             got = 1u;
         }
     }
@@ -180,7 +180,7 @@ ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
      * the code below off to check a CRC over the command it transmitted. A part
      * that never answered would have been reported as a CRC failure. */
     if (!got) {
-        return AG_ERR_TIMEOUT;
+        return TFW_ERR_TIMEOUT;
     }
 
     /*
@@ -190,35 +190,35 @@ ag_status_t ag_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
      * path rather than being a special case bolted on.
      */
     if (buf[0] == 4u) {
-        if (ag_atecc_crc16(buf, 2u) != (uint16_t)(buf[2] | ((uint16_t)buf[3] << 8))) {
-            return AG_ERR_CRC;
+        if (tfw_atecc_crc16(buf, 2u) != (uint16_t)(buf[2] | ((uint16_t)buf[3] << 8))) {
+            return TFW_ERR_CRC;
         }
         if (rlen != 0u) {
             /* Data was expected and a status came back. Even status zero is a
              * failure here: the command did not produce what it was asked for. */
-            ag_status_t why = translate(buf[1]);
-            return why == AG_OK ? AG_ERR_CRYPTO : why;
+            tfw_status_t why = translate(buf[1]);
+            return why == TFW_OK ? TFW_ERR_CRYPTO : why;
         }
         return translate(buf[1]);
     }
     if (rlen == 0u || buf[0] != n) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
-    if (ag_atecc_crc16(buf, (uint8_t)(n - 2u))
+    if (tfw_atecc_crc16(buf, (uint8_t)(n - 2u))
             != (uint16_t)(buf[n - 2u] | ((uint16_t)buf[n - 1u] << 8))) {
-        return AG_ERR_CRC;
+        return TFW_ERR_CRC;
     }
     memcpy(resp, &buf[1], rlen);
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey[64],
+tfw_status_t tfw_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey[64],
                                      uint16_t exec_ms)
 {
     /* On the CALLER's stack, not file-static -- see atecc.h's comment on why
      * this command does not grow the shared buf[] above. 8 bytes of overhead
      * (word address, count, opcode, both parameters, two CRC bytes) plus the
-     * 128-byte signature-and-key payload, exactly as ag_atecc_exec sizes its
+     * 128-byte signature-and-key payload, exactly as tfw_atecc_exec sizes its
      * own buffer. */
     uint8_t  cmd[128u + 8u];
     uint8_t  rsp[4];
@@ -227,23 +227,23 @@ ag_status_t ag_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey
     uint16_t tries;
     uint8_t  got;
 
-    cmd[0] = AG_ATECC_WA_COMMAND;
+    cmd[0] = TFW_ATECC_WA_COMMAND;
     cmd[1] = count;
-    cmd[2] = AG_ATECC_OP_VERIFY;
-    cmd[3] = AG_ATECC_VERIFY_EXTERNAL;
-    cmd[4] = (uint8_t)(AG_ATECC_VERIFY_KEYID_P256 & 0xFFu);
-    cmd[5] = (uint8_t)(AG_ATECC_VERIFY_KEYID_P256 >> 8);
+    cmd[2] = TFW_ATECC_OP_VERIFY;
+    cmd[3] = TFW_ATECC_VERIFY_EXTERNAL;
+    cmd[4] = (uint8_t)(TFW_ATECC_VERIFY_KEYID_P256 & 0xFFu);
+    cmd[5] = (uint8_t)(TFW_ATECC_VERIFY_KEYID_P256 >> 8);
     memcpy(&cmd[6], sig, 64u);
     memcpy(&cmd[70], pubkey, 64u);
-    crc = ag_atecc_crc16(&cmd[1], (uint8_t)(count - 2u));
+    crc = tfw_atecc_crc16(&cmd[1], (uint8_t)(count - 2u));
     cmd[6u + 128u] = (uint8_t)(crc & 0xFFu);
     cmd[7u + 128u] = (uint8_t)(crc >> 8);
 
-    if (ag_hal_i2c_xfer(AG_ATECC_ADDR, cmd, (uint8_t)(count + 1u), 0, 0u) != AG_OK) {
-        return AG_ERR_CRYPTO;
+    if (tfw_hal_i2c_xfer(TFW_ATECC_ADDR, cmd, (uint8_t)(count + 1u), 0, 0u) != TFW_OK) {
+        return TFW_ERR_CRYPTO;
     }
 
-    /* The same poll ag_atecc_exec runs for a status-only reply (Verify
+    /* The same poll tfw_atecc_exec runs for a status-only reply (Verify
      * External without a MAC answers with exactly one status byte, wrapped in
      * the same four-byte shape Write and Lock use) -- duplicated rather than
      * shared because the two functions no longer agree on where the command
@@ -251,19 +251,19 @@ ag_status_t ag_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey
     tries = (uint16_t)(exec_ms * 2u) + 4u;
     got   = 0u;
     while (tries-- && !got) {
-        ag_hal_delay_us(500u);
-        if (ag_hal_i2c_xfer(AG_ATECC_ADDR, 0, 0u, rsp, 4u) == AG_OK) {
+        tfw_hal_delay_us(500u);
+        if (tfw_hal_i2c_xfer(TFW_ATECC_ADDR, 0, 0u, rsp, 4u) == TFW_OK) {
             got = 1u;
         }
     }
     if (!got) {
-        return AG_ERR_TIMEOUT;
+        return TFW_ERR_TIMEOUT;
     }
     if (rsp[0] != 4u) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
-    if (ag_atecc_crc16(rsp, 2u) != (uint16_t)(rsp[2] | ((uint16_t)rsp[3] << 8))) {
-        return AG_ERR_CRC;
+    if (tfw_atecc_crc16(rsp, 2u) != (uint16_t)(rsp[2] | ((uint16_t)rsp[3] << 8))) {
+        return TFW_ERR_CRC;
     }
     return translate(rsp[1]);
 }

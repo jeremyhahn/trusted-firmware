@@ -7,7 +7,7 @@
  * harness.c asks whether the shipped image WORKS. This asks what it SPENDS.
  * Both run the same .elf on the same emulated ATmega for the same reason: a
  * cycle count is a property of one instruction stream on one core, and an x86
- * measurement of ag_framer_push would be a number about a machine this firmware
+ * measurement of tfw_framer_push would be a number about a machine this firmware
  * never runs on. simavr keeps an exact cycle counter, avr->cycle, incremented
  * per instruction from the same tables the datasheet's timing column comes
  * from, so every figure below is countable rather than sampled -- run it twice
@@ -20,7 +20,7 @@
  *
  * ------------------------------------------------------------- the two images
  *
- * arduino-generic.elf -- the firmware that ships. The tick ISR, the command
+ * trusted-firmware.elf -- the firmware that ships. The tick ISR, the command
  *   latency and the sustained rate are measured on it, in situ, because all
  *   three are properties of the whole running system rather than of a function:
  *   an ISR is entered by hardware, and a round trip goes through the USART, the
@@ -28,14 +28,14 @@
  *
  * agbench.elf -- the same objects with src/main.c exchanged for
  *   test/bench/bench_main.c. The per-byte and per-sweep costs are measured on
- *   it, because -flto inlines ag_framer_push and ag_sched_poll bodily into
+ *   it, because -flto inlines tfw_framer_push and tfw_sched_poll bodily into
  *   main() in the shipped image: `avr-nm` finds no symbol, so there is no
  *   address to call and no boundary to bracket. See the header of bench_main.c
  *   for what that costs in fidelity -- in short, an out-of-line body is the
  *   compiler's general compilation and the inlined one can only be faster, so
  *   these numbers are upper bounds.
  *
- *   The claim is CHECKED and not asserted: ag_crc16_update survives as a real
+ *   The claim is CHECKED and not asserted: tfw_crc16_update survives as a real
  *   function in both images, and measure_crc_identity() below calls it in each
  *   and requires the same cycle count.
  *
@@ -67,20 +67,20 @@
 #include <simavr/sim_io.h>
 #include <simavr/avr_uart.h>
 
-#include "ag/status.h"
-#include "ag/protocol.h"
-#include "ag/config.h"
+#include "tfw/status.h"
+#include "tfw/protocol.h"
+#include "tfw/config.h"
 #include "crc16.h"
 #include "targets.h"
 
-#ifndef AG_SIMAVR_MCU
-#error "AG_SIMAVR_MCU must name the part -- the .elf does not carry it"
+#ifndef TFW_SIMAVR_MCU
+#error "TFW_SIMAVR_MCU must name the part -- the .elf does not carry it"
 #endif
-#ifndef AG_BENCH_F_CPU
-#error "AG_BENCH_F_CPU must match the -DF_CPU the image was built with"
+#ifndef TFW_BENCH_F_CPU
+#error "TFW_BENCH_F_CPU must match the -DF_CPU the image was built with"
 #endif
-#ifndef AG_BENCH_BOARD
-#error "AG_BENCH_BOARD must name the board whose ceilings apply"
+#ifndef TFW_BENCH_BOARD
+#error "TFW_BENCH_BOARD must name the board whose ceilings apply"
 #endif
 
 /*
@@ -174,8 +174,8 @@ static void image_load(image_t *im, const char *path)
      * harness was compiled against -- and it must match the -DF_CPU the image
      * was built with, or every baud divisor and timer reload in it is computed
      * against a different clock than the one it runs on. */
-    im->fw.frequency = (uint32_t)AG_BENCH_F_CPU;
-    strcpy(im->fw.mmcu, AG_SIMAVR_MCU);
+    im->fw.frequency = (uint32_t)TFW_BENCH_F_CPU;
+    strcpy(im->fw.mmcu, TFW_SIMAVR_MCU);
 
     im->avr = avr_make_mcu_by_name(im->fw.mmcu);
     if (!im->avr) {
@@ -305,7 +305,7 @@ static uint8_t call_ret_lo;
  * the arguments the caller has just poked into r24 and downwards, and restoring
  * that afterwards leaves those values in the resting machine's registers.
  *
- * What that cost: agbench.elf's resting loop is `lds r24, ag_bench_trigger; cp
+ * What that cost: agbench.elf's resting loop is `lds r24, tfw_bench_trigger; cp
  * r24, r1; breq`, and the first benchmark leaves 8 in r24. The next time the
  * part was allowed to run freely -- to let ten milliseconds pass so a scheduler
  * deadline could arrive -- the comparison read the 8 rather than the trigger,
@@ -402,7 +402,7 @@ static uint32_t a_sched_active, a_bench_buf, a_crc_update_bench;
  * whatever n the author happened to pick -- and the published number then
  * changes when someone changes n, for no reason connected to the code. The
  * difference between two runs cancels every term that does not scale: the
- * emulated call, the closing `ret`, ag_framer_init, the prologue.
+ * emulated call, the closing `ret`, tfw_framer_init, the prologue.
  */
 static double slope(avr_cycle_count_t lo, avr_cycle_count_t hi, unsigned dn)
 {
@@ -415,7 +415,7 @@ static double slope(avr_cycle_count_t lo, avr_cycle_count_t hi, unsigned dn)
 /*
  * Three fill patterns, and the gate takes the worst of them.
  *
- * The CRC is not a fixed cost per byte. ag_crc16_update folds the polynomial in
+ * The CRC is not a fixed cost per byte. tfw_crc16_update folds the polynomial in
  * only when the register's top bit is set, so eight conditional branches per
  * byte make the cost depend on the DATA -- a few cycles either way. One pattern
  * would report whichever end of that range the author's test vector happened to
@@ -429,14 +429,14 @@ static void fill_buf(uint8_t *buf, unsigned which)
 {
     unsigned i;
 
-    /* Bytes 0 and 1 are SOF and a LEN of AG_MAX_LEN, so every byte from index
-     * two onwards is consumed by AG_FRAME_BODY -- the state that stores the
+    /* Bytes 0 and 1 are SOF and a LEN of TFW_MAX_LEN, so every byte from index
+     * two onwards is consumed by TFW_FRAME_BODY -- the state that stores the
      * byte and folds it into the running CRC, and the one a real frame spends
      * all but four of its bytes in. The two runs differ only in how many body
      * bytes they push, so the slope is that state and nothing else. */
-    buf[0] = AG_SOF;
-    buf[1] = AG_MAX_LEN;
-    for (i = 2u; i < AG_MAX_FRAME; i++) {
+    buf[0] = TFW_SOF;
+    buf[1] = TFW_MAX_LEN;
+    for (i = 2u; i < TFW_MAX_FRAME; i++) {
         buf[i] = (which == 0u) ? 0x00u
                : (which == 1u) ? 0xFFu
                                : (uint8_t)(i * 7u);
@@ -445,7 +445,7 @@ static void fill_buf(uint8_t *buf, unsigned which)
 
 static double measure_frame_byte(void)
 {
-    uint8_t  buf[AG_MAX_FRAME];
+    uint8_t  buf[TFW_MAX_FRAME];
     double   worst = 0.0;
     unsigned f;
 
@@ -469,7 +469,7 @@ static double measure_frame_byte(void)
 
 static double measure_crc_byte(void)
 {
-    uint8_t  buf[AG_MAX_FRAME];
+    uint8_t  buf[TFW_MAX_FRAME];
     double   worst = 0.0;
     unsigned f;
 
@@ -491,7 +491,7 @@ static double measure_crc_byte(void)
     return worst;
 }
 
-/* Arms n slots for `ms` from now, through the real ag_sched_cmd_set. */
+/* Arms n slots for `ms` from now, through the real tfw_sched_cmd_set. */
 static uint8_t sched_arm(uint8_t n, uint32_t ms)
 {
     arg_u8(bench.avr, 24, n);      /* uint8_t  -> r25:r24, value in r24 */
@@ -520,7 +520,7 @@ static double sched_sweep_slope(avr_cycle_count_t *fixed_out)
     per = slope(c1, c17, 16u);
     if (fixed_out) {
         /* What one call costs that is not a sweep: the emulated call's `ret`
-         * and ag_bench_sched_run's own prologue and loop setup. Needed below,
+         * and tfw_bench_sched_run's own prologue and loop setup. Needed below,
          * where a sweep that FIRES cannot be measured by repetition -- it fires
          * once and the table is then empty. */
         *fixed_out = (avr_cycle_count_t)((double)c1 - per);
@@ -552,9 +552,9 @@ static double measure_sched_sweep(double *per_slot_out)
     (void)sched_arm(0u, 0u);                 /* also re-inits the table */
     empty = sched_sweep_slope(NULL);
 
-    /* Far enough out that nothing is due, and inside AG_SCHED_MAX_MS. */
-    n = sched_arm((uint8_t)AG_SCHED_SLOTS, 1000000uL);
-    if (n != (uint8_t)AG_SCHED_SLOTS) {
+    /* Far enough out that nothing is due, and inside TFW_SCHED_MAX_MS. */
+    n = sched_arm((uint8_t)TFW_SCHED_SLOTS, 1000000uL);
+    if (n != (uint8_t)TFW_SCHED_SLOTS) {
         fatal("could not arm every scheduler slot");
         return -1.0;
     }
@@ -563,15 +563,15 @@ static double measure_sched_sweep(double *per_slot_out)
     /* Due. One millisecond, then let the tick run past it -- the interrupt is
      * the firmware's own, so this is the real deadline arriving and not a
      * counter poked from outside. */
-    n = sched_arm((uint8_t)AG_SCHED_SLOTS, 1uL);
-    if (n != (uint8_t)AG_SCHED_SLOTS) {
+    n = sched_arm((uint8_t)TFW_SCHED_SLOTS, 1uL);
+    if (n != (uint8_t)TFW_SCHED_SLOTS) {
         fatal("could not arm every scheduler slot for the firing sweep");
         return -1.0;
     }
     /* Ten milliseconds of the part running on its own, so the tick ISR carries
      * the millisecond counter past the deadline. The clock that matters is the
      * firmware's, not one the harness poked into SRAM. */
-    run_until_cycle(bench.avr, bench.avr->cycle + (avr_cycle_count_t)(AG_BENCH_F_CPU / 100u));
+    run_until_cycle(bench.avr, bench.avr->cycle + (avr_cycle_count_t)(TFW_BENCH_F_CPU / 100u));
 
     arg_u8(bench.avr, 24, 1u);
     c_due = call_fn(&bench, a_sched_run);
@@ -584,7 +584,7 @@ static double measure_sched_sweep(double *per_slot_out)
 
     printf("    sweep: %.0f cycles empty, %.0f with %u armed and none due, "
            "%.0f with %u firing\n",
-           empty, armed, (unsigned)AG_SCHED_SLOTS, due, (unsigned)AG_SCHED_SLOTS);
+           empty, armed, (unsigned)TFW_SCHED_SLOTS, due, (unsigned)TFW_SCHED_SLOTS);
 
     /* The gate takes the worst, because the budget has to hold on the pass
      * where every timer expires at once -- which is the pass a host that armed
@@ -597,7 +597,7 @@ static double measure_sched_sweep(double *per_slot_out)
      * silently undercount here otherwise -- the row would keep dividing by a
      * cost that stopped being the worst case. */
     if (per_slot_out) {
-        *per_slot_out = empty / (double)AG_SCHED_SLOTS;
+        *per_slot_out = empty / (double)TFW_SCHED_SLOTS;
     }
     return empty;
 }
@@ -629,12 +629,12 @@ static unsigned frame_request(uint8_t *out, uint8_t seq, uint8_t cmd,
     unsigned i = 0;
     uint16_t crc;
 
-    out[i++] = AG_SOF;
+    out[i++] = TFW_SOF;
     out[i++] = (uint8_t)(2u + plen);
     out[i++] = seq;
     out[i++] = cmd;
     for (uint8_t k = 0; k < plen; k++) { out[i++] = payload[k]; }
-    crc = ag_crc16(&out[1], (uint16_t)(i - 1u));
+    crc = tfw_crc16(&out[1], (uint16_t)(i - 1u));
     out[i++] = (uint8_t)(crc & 0xFFu);
     out[i++] = (uint8_t)(crc >> 8);
     return i;
@@ -651,17 +651,17 @@ static int find_response(uint8_t seq, unsigned *last_index)
         unsigned len, total;
         uint16_t want, got;
 
-        if (tx_byte[i] != AG_SOF) { continue; }
+        if (tx_byte[i] != TFW_SOF) { continue; }
         len = tx_byte[i + 1u];
-        if (len < AG_LEN_MIN || len > AG_MAX_LEN) { continue; }
-        total = len + AG_FRAME_OVERHEAD;
+        if (len < TFW_LEN_MIN || len > TFW_MAX_LEN) { continue; }
+        total = len + TFW_FRAME_OVERHEAD;
         if (i + total > tx_n) { continue; }
-        want = ag_crc16(&tx_byte[i + 1u], (uint16_t)(len + 1u));
+        want = tfw_crc16(&tx_byte[i + 1u], (uint16_t)(len + 1u));
         got  = (uint16_t)(tx_byte[i + total - 2u]
                           | ((uint16_t)tx_byte[i + total - 1u] << 8));
         if (want != got) { continue; }
         if (tx_byte[i + 2u] != seq) { continue; }
-        if (!(tx_byte[i + 3u] & AG_OP_RESPONSE_BIT)) { continue; }
+        if (!(tx_byte[i + 3u] & TFW_OP_RESPONSE_BIT)) { continue; }
         *last_index = i + total - 1u;
         return (int)i;
     }
@@ -737,7 +737,7 @@ static int exchange(uint8_t seq, uint8_t cmd, const uint8_t *pay, uint8_t plen,
 
 static double cycles_to_us(double c)
 {
-    return c * 1e6 / (double)AG_BENCH_F_CPU;
+    return c * 1e6 / (double)TFW_BENCH_F_CPU;
 }
 
 /*
@@ -785,7 +785,7 @@ static void uart_calibrate(void)
     ubrr = (uint16_t)((uint16_t)prod.avr->data[R_UBRR0L]
                       | ((uint16_t)prod.avr->data[R_UBRR0H] << 8));
     u2x  = (uint8_t)(prod.avr->data[R_UCSR0A] & BIT_U2X0);
-    baud = (double)AG_BENCH_F_CPU / ((u2x ? 8.0 : 16.0) * ((double)ubrr + 1.0));
+    baud = (double)TFW_BENCH_F_CPU / ((u2x ? 8.0 : 16.0) * ((double)ubrr + 1.0));
 
     /*
      * The divisor the firmware chose, checked against the baud rate it claims to
@@ -793,7 +793,7 @@ static void uart_calibrate(void)
      * much more, and a wrong divisor is the classic thing a host build cannot
      * catch -- it is arithmetic over F_CPU that only becomes wrong on the part.
      */
-    nominal = (double)AG_UART_BAUD;
+    nominal = (double)TFW_UART_BAUD;
     err     = (baud - nominal) / nominal;
     printf("  %-62s %s\n",
            "the USART divisor produces the baud rate the firmware claims",
@@ -805,7 +805,7 @@ static void uart_calibrate(void)
     }
 
     wire_baud   = baud;
-    wire_cycles = (double)AG_BENCH_F_CPU * NOMINAL_BYTE_BITS / baud;
+    wire_cycles = (double)TFW_BENCH_F_CPU * NOMINAL_BYTE_BITS / baud;
     printf("    wire: UBRR0=%u U2X0=%s -> %.0f baud (%.2f%% off nominal), "
            "%.0f cycles per byte\n",
            ubrr, u2x ? "on" : "off", baud, err * 100.0, wire_cycles);
@@ -918,7 +918,7 @@ static double measure_tick_isr(const char **name_out)
 /* ------------------------------------------------- the cross-image check */
 
 /*
- * ag_crc16_update is the one function under test that survives as a real
+ * tfw_crc16_update is the one function under test that survives as a real
  * symbol in BOTH images -- everything else -flto inlines away in the shipped
  * one. Calling it in each and requiring the same cycle count is the evidence
  * for the claim bench_main.c makes: that agbench.elf is the same compilation of
@@ -930,11 +930,11 @@ static double measure_tick_isr(const char **name_out)
  */
 static void measure_crc_identity(void)
 {
-    uint32_t          in_prod = sym_addr(&prod, "ag_crc16_update");
+    uint32_t          in_prod = sym_addr(&prod, "tfw_crc16_update");
     avr_cycle_count_t c_prod, c_bench;
 
     if (in_prod == SYM_NONE || a_crc_update_bench == SYM_NONE) {
-        fatal("ag_crc16_update is missing from one of the images");
+        fatal("tfw_crc16_update is missing from one of the images");
         return;
     }
 
@@ -947,7 +947,7 @@ static void measure_crc_identity(void)
     c_bench = call_fn(&bench, a_crc_update_bench);
 
     printf("  %-62s %s\n",
-           "the benchmark image compiles ag_crc16_update as the firmware does",
+           "the benchmark image compiles tfw_crc16_update as the firmware does",
            c_prod == c_bench ? "ok" : "FAIL");
     if (c_prod != c_bench) {
         printf("    firmware %" PRI_avr_cycle_count " cycles, benchmark image %"
@@ -959,21 +959,21 @@ static void measure_crc_identity(void)
 
 /* --------------------------------------------------------------- the gate */
 
-static double measured[AG_BENCH_METRIC_COUNT];
+static double measured[TFW_BENCH_METRIC_COUNT];
 
-static double ceiling_for(ag_bench_metric_t m, const char **why)
+static double ceiling_for(tfw_bench_metric_t m, const char **why)
 {
     size_t i;
 
-    for (i = 0; i < AG_BENCH_PIN_COUNT; i++) {
-        if (ag_bench_pins[i].metric == m &&
-            strcmp(ag_bench_pins[i].board, AG_BENCH_BOARD) == 0) {
-            *why = ag_bench_pins[i].why;
-            return ag_bench_pins[i].ceiling;
+    for (i = 0; i < TFW_BENCH_PIN_COUNT; i++) {
+        if (tfw_bench_pins[i].metric == m &&
+            strcmp(tfw_bench_pins[i].board, TFW_BENCH_BOARD) == 0) {
+            *why = tfw_bench_pins[i].why;
+            return tfw_bench_pins[i].ceiling;
         }
     }
     *why = NULL;
-    return ag_bench_budget[m].target;
+    return tfw_bench_budget[m].target;
 }
 
 /*
@@ -987,17 +987,17 @@ static int verdict(void)
     int          missed = 0;
     unsigned     m;
 
-    for (m = 0; m < AG_BENCH_METRIC_COUNT; m++) {
-        const ag_bench_budget_t *b = &ag_bench_budget[m];
+    for (m = 0; m < TFW_BENCH_METRIC_COUNT; m++) {
+        const tfw_bench_budget_t *b = &tfw_bench_budget[m];
         const char              *why;
-        double                   cap = ceiling_for((ag_bench_metric_t)m, &why);
+        double                   cap = ceiling_for((tfw_bench_metric_t)m, &why);
         double                   got = measured[m];
         int                      bad;
 
         bad = b->higher_is_better ? (got < cap) : (got > cap);
 
         printf("  %-12s %-32s %9.1f / %-9.1f %s%s\n",
-               AG_BENCH_BOARD, b->name, got, cap,
+               TFW_BENCH_BOARD, b->name, got, cap,
                b->unit, bad ? "   OVER" : "");
 
         if (why) {
@@ -1017,11 +1017,11 @@ static int verdict(void)
     if (missed) {
         printf("  %s: %d of %d metrics are over the PLAN'S target and pinned at what\n"
                "  they cost today. They cannot get worse; they are still owed.\n",
-               AG_BENCH_BOARD, missed, AG_BENCH_METRIC_COUNT);
+               TFW_BENCH_BOARD, missed, TFW_BENCH_METRIC_COUNT);
     }
     if (over) {
         printf("PERFORMANCE BUDGET EXCEEDED for %s: %d of %d metrics\n",
-               AG_BENCH_BOARD, over, AG_BENCH_METRIC_COUNT);
+               TFW_BENCH_BOARD, over, TFW_BENCH_METRIC_COUNT);
     }
     return over;
 }
@@ -1042,19 +1042,19 @@ int main(int argc, char **argv)
     }
 
     printf("bench: %s on %s at %lu Hz, %lu baud\n",
-           AG_BENCH_BOARD, AG_SIMAVR_MCU,
-           (unsigned long)AG_BENCH_F_CPU, (unsigned long)AG_UART_BAUD);
+           TFW_BENCH_BOARD, TFW_SIMAVR_MCU,
+           (unsigned long)TFW_BENCH_F_CPU, (unsigned long)TFW_UART_BAUD);
 
     /* ------------------------------------------------ the benchmark image */
 
     image_load(&bench, bench_path);
-    a_framer_run       = sym_addr(&bench, "ag_bench_framer_run");
-    a_crc_run          = sym_addr(&bench, "ag_bench_crc_run");
-    a_sched_run        = sym_addr(&bench, "ag_bench_sched_run");
-    a_sched_arm        = sym_addr(&bench, "ag_bench_sched_arm");
-    a_sched_active     = sym_addr(&bench, "ag_bench_sched_active");
-    a_bench_buf        = sym_addr(&bench, "ag_bench_buf");
-    a_crc_update_bench = sym_addr(&bench, "ag_crc16_update");
+    a_framer_run       = sym_addr(&bench, "tfw_bench_framer_run");
+    a_crc_run          = sym_addr(&bench, "tfw_bench_crc_run");
+    a_sched_run        = sym_addr(&bench, "tfw_bench_sched_run");
+    a_sched_arm        = sym_addr(&bench, "tfw_bench_sched_arm");
+    a_sched_active     = sym_addr(&bench, "tfw_bench_sched_active");
+    a_bench_buf        = sym_addr(&bench, "tfw_bench_buf");
+    a_crc_update_bench = sym_addr(&bench, "tfw_crc16_update");
 
     if (a_framer_run == SYM_NONE || a_crc_run == SYM_NONE ||
         a_sched_run  == SYM_NONE || a_sched_arm == SYM_NONE ||
@@ -1067,23 +1067,23 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    /* Past bring-up and into the resting loop. Generous: ag_crypto_init on the
+    /* Past bring-up and into the resting loop. Generous: tfw_crypto_init on the
      * software tier derives an identity before main() settles. Then the resting
      * state is taken, BEFORE any argument is written into a register -- see
      * snap_take() for what happens when that ordering is the other way round. */
     run_instructions(bench.avr, 2000000L);
     snap_take(&bench);
 
-    measured[AG_BENCH_FRAME_BYTE]  = measure_frame_byte();
-    measured[AG_BENCH_CRC_BYTE]    = measure_crc_byte();
+    measured[TFW_BENCH_FRAME_BYTE]  = measure_frame_byte();
+    measured[TFW_BENCH_CRC_BYTE]    = measure_crc_byte();
     /* The split, because the two budgets are nested and the totals alone do not
      * say which one is in trouble: every byte the framer stores it also folds
      * into the CRC, so the frame-decode figure CONTAINS the CRC figure. */
-    printf("    per received byte: %.0f cycles total = %.0f in ag_crc16_update "
+    printf("    per received byte: %.0f cycles total = %.0f in tfw_crc16_update "
            "+ %.0f in the framer's state machine\n",
-           measured[AG_BENCH_FRAME_BYTE], measured[AG_BENCH_CRC_BYTE],
-           measured[AG_BENCH_FRAME_BYTE] - measured[AG_BENCH_CRC_BYTE]);
-    measured[AG_BENCH_SCHED_SWEEP] = measure_sched_sweep(&measured[AG_BENCH_SCHED_PER_SLOT]);
+           measured[TFW_BENCH_FRAME_BYTE], measured[TFW_BENCH_CRC_BYTE],
+           measured[TFW_BENCH_FRAME_BYTE] - measured[TFW_BENCH_CRC_BYTE]);
+    measured[TFW_BENCH_SCHED_SWEEP] = measure_sched_sweep(&measured[TFW_BENCH_SCHED_PER_SLOT]);
 
     /* -------------------------------------------------- the shipped image */
 
@@ -1101,10 +1101,10 @@ int main(int argc, char **argv)
     tx_n = 0;
     run_until_cycle(prod.avr, prod.avr->cycle + (avr_cycle_count_t)(wire_cycles * 20.0));
 
-    measured[AG_BENCH_TICK_ISR] = measure_tick_isr(&isr_name);
+    measured[TFW_BENCH_TICK_ISR] = measure_tick_isr(&isr_name);
     printf("    tick ISR: %s, %.0f cycles including the part's %u-cycle "
            "interrupt response\n",
-           isr_name, measured[AG_BENCH_TICK_ISR], AVR_INT_ENTRY_CYCLES);
+           isr_name, measured[TFW_BENCH_TICK_ISR], AVR_INT_ENTRY_CYCLES);
 
     /* DIGITAL_WRITE. The pin is made an output first, because the budget is for
      * the command a host issues in a loop, not for the one-off that configures
@@ -1113,7 +1113,7 @@ int main(int argc, char **argv)
     {
         const uint8_t mode_out[2] = { 13u, 1u };
 
-        if (exchange(0x40u, AG_CMD_PIN_MODE, mode_out, 2u, &at) != 0) {
+        if (exchange(0x40u, TFW_CMD_PIN_MODE, mode_out, 2u, &at) != 0) {
             fatal("PIN_MODE did not answer");
             return 1;
         }
@@ -1159,8 +1159,8 @@ int main(int argc, char **argv)
      * quoted latency come from an exchange the quoted rate never contained.
      *
      * The worst and not the first. The device is a superloop: a byte can land
-     * at any point in it, so a round trip varies by wherever ag_sched_poll and
-     * ag_sys_poll happened to be. One sample is a sample; a budget wants the
+     * at any point in it, so a round trip varies by wherever tfw_sched_poll and
+     * tfw_sys_poll happened to be. One sample is a sample; a budget wants the
      * tail.
      */
     {
@@ -1174,7 +1174,7 @@ int main(int argc, char **argv)
         for (k = 0; k < reps; k++) {
             avr_cycle_count_t total, dev;
 
-            if (exchange((uint8_t)(0x50u + k), AG_CMD_DIGITAL_WRITE, high, 2u, &at) != 0) {
+            if (exchange((uint8_t)(0x50u + k), TFW_CMD_DIGITAL_WRITE, high, 2u, &at) != 0) {
                 fatal("a DIGITAL_WRITE round trip was lost");
                 return 1;
             }
@@ -1189,9 +1189,9 @@ int main(int argc, char **argv)
             run_until_cycle(prod.avr, at.resp_done);
         }
 
-        measured[AG_BENCH_WRITE_LATENCY] = cycles_to_us((double)worst);
-        measured[AG_BENCH_CMD_RATE] =
-            (double)reps * (double)AG_BENCH_F_CPU / (double)(prod.avr->cycle - t0);
+        measured[TFW_BENCH_WRITE_LATENCY] = cycles_to_us((double)worst);
+        measured[TFW_BENCH_CMD_RATE] =
+            (double)reps * (double)TFW_BENCH_F_CPU / (double)(prod.avr->cycle - t0);
 
         /*
          * The decomposition, which is the claim the plan was actually making.
@@ -1206,7 +1206,7 @@ int main(int argc, char **argv)
          * as stated. Restated as the device's own share, excluding the wire it
          * cannot make faster, 300 us is the reachable target this row now
          * checks. */
-        measured[AG_BENCH_WRITE_DEVICE_US] = device_us;
+        measured[TFW_BENCH_WRITE_DEVICE_US] = device_us;
         printf("    DIGITAL_WRITE round trip: worst %.0f us, best %.0f us\n",
                cycles_to_us((double)worst), cycles_to_us((double)best));
         printf("      = %.0f us of wire (15 frame bytes at %.0f baud) "
@@ -1214,7 +1214,7 @@ int main(int argc, char **argv)
                link_floor_us, wire_baud, device_us);
         printf("    sustained: %.0f cmd/s, the device busy for %.1f%% of it "
                "and the link for the rest\n",
-               measured[AG_BENCH_CMD_RATE],
+               measured[TFW_BENCH_CMD_RATE],
                100.0 * (double)busy / (double)(prod.avr->cycle - t0));
 
         /*
@@ -1245,6 +1245,6 @@ int main(int argc, char **argv)
     if (verdict()) { failures++; }
 
     printf("%s: %s, %d failure(s)\n",
-           failures ? "FAIL" : "PASS", AG_BENCH_BOARD, failures);
+           failures ? "FAIL" : "PASS", TFW_BENCH_BOARD, failures);
     return failures ? 1 : 0;
 }

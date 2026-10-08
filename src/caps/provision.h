@@ -1,20 +1,20 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
-/* Provisioning command handlers. Present only when AG_FEATURE_PROVISION is 1;
+/* Provisioning command handlers. Present only when TFW_FEATURE_PROVISION is 1;
  * see provision.c for why the default is 0 and why that default is the
  * security property rather than a convenience. */
-#ifndef AG_PROVISION_H
-#define AG_PROVISION_H
+#ifndef TFW_PROVISION_H
+#define TFW_PROVISION_H
 
-#include "ag/status.h"
+#include "tfw/status.h"
 #include "../core/reader.h"
 #include "../core/writer.h"
 
-ag_status_t ag_prov_cmd_info(ag_reader_t *r, ag_writer_t *w);
-ag_status_t ag_prov_cmd_write_config(ag_reader_t *r, ag_writer_t *w);
-ag_status_t ag_prov_cmd_lock(ag_reader_t *r, ag_writer_t *w);
-ag_status_t ag_prov_cmd_genkey(ag_reader_t *r, ag_writer_t *w);
-ag_status_t ag_prov_cmd_pubkey(ag_reader_t *r, ag_writer_t *w);
-ag_status_t ag_prov_cmd_seed_uds(ag_reader_t *r, ag_writer_t *w);
+tfw_status_t tfw_prov_cmd_info(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_prov_cmd_write_config(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_prov_cmd_lock(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_prov_cmd_genkey(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_prov_cmd_pubkey(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_prov_cmd_seed_uds(tfw_reader_t *r, tfw_writer_t *w);
 
-#endif /* AG_PROVISION_H */
+#endif /* TFW_PROVISION_H */

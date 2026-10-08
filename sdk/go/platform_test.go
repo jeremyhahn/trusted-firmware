@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"encoding/binary"
@@ -50,7 +50,7 @@ func TestBuildPlatformBlockLayout(t *testing.T) {
 		t.Fatalf("operator_pubkey mismatch")
 	}
 	// boot_state, ota_state, boot_count, rollback_floor, boot_fail_count: all
-	// zero on a factory-fresh block -- AG_BOOT_STATE_EMPTY is zero by
+	// zero on a factory-fresh block -- TFW_BOOT_STATE_EMPTY is zero by
 	// definition, and the counters simply have not happened yet.
 	for i := 40; i < platformOffSerial; i++ {
 		if raw[i] != 0 {
@@ -60,7 +60,7 @@ func TestBuildPlatformBlockLayout(t *testing.T) {
 }
 
 // The CRC must be the same algorithm and cover the same span
-// boot/boot_platform.c's ag_boot_platform_crc computes -- a Go tool baking an
+// boot/boot_platform.c's tfw_boot_platform_crc computes -- a Go tool baking an
 // image the firmware's own parser cannot verify would fail silently on the
 // device, not here.
 func TestBuildPlatformBlockCRCCoversThePrefix(t *testing.T) {

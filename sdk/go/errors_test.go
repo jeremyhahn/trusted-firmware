@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-License-Identifier: commercial
 
-package aggeneric
+package tfw
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 
 func TestFrameErrorReportsWhatWasWrong(t *testing.T) {
 	err := &FrameError{Reason: "response with no room for a status byte"}
-	assert.Equal(t, "aggeneric: malformed frame: response with no room for a status byte", err.Error())
+	assert.Equal(t, "tfw: malformed frame: response with no room for a status byte", err.Error())
 }
 
 func TestFrameErrorMatchesItsSentinel(t *testing.T) {
@@ -39,7 +39,7 @@ func TestFrameErrorMatchesItsSentinel(t *testing.T) {
 
 func TestCRCErrorCarriesBothChecksums(t *testing.T) {
 	err := &CRCError{Computed: 0x1234, Claimed: 0xABCD}
-	assert.Equal(t, "aggeneric: frame CRC mismatch: computed 1234, frame claims abcd", err.Error())
+	assert.Equal(t, "tfw: frame CRC mismatch: computed 1234, frame claims abcd", err.Error())
 }
 
 // The one every existing test depends on: a decode failure must still answer
@@ -60,7 +60,7 @@ func TestCRCErrorMatchesItsSentinelAndUnpacks(t *testing.T) {
 
 func TestPayloadSizeErrorReportsSizeAndLimit(t *testing.T) {
 	err := &PayloadSizeError{Size: 65, Limit: MaxPayload}
-	assert.Equal(t, "aggeneric: payload of 65 bytes exceeds the protocol maximum of 64", err.Error())
+	assert.Equal(t, "tfw: payload of 65 bytes exceeds the protocol maximum of 64", err.Error())
 }
 
 func TestPayloadSizeErrorMatchesItsSentinel(t *testing.T) {
@@ -76,7 +76,7 @@ func TestPayloadSizeErrorMatchesItsSentinel(t *testing.T) {
 
 func TestShortReplyErrorNamesTheCommandAndBothLengths(t *testing.T) {
 	err := &ShortReplyError{Cmd: CmdCaps, Got: 9, Need: capsHeaderLen}
-	assert.Equal(t, "aggeneric: command 0x00 reply is 9 bytes, needs at least 14", err.Error())
+	assert.Equal(t, "tfw: command 0x00 reply is 9 bytes, needs at least 14", err.Error())
 }
 
 // A truncated REPLY is not a truncated FRAME: the frame arrived whole and its
@@ -96,7 +96,7 @@ func TestShortReplyErrorIsNotAShortFrame(t *testing.T) {
 
 func TestProtocolVersionErrorCarriesBothVersions(t *testing.T) {
 	err := &ProtocolVersionError{DeviceMajor: 2, DeviceMinor: 3, HostMajor: 1, HostMinor: 0}
-	assert.Equal(t, "aggeneric: device speaks protocol 2.3, this host speaks 1.0", err.Error())
+	assert.Equal(t, "tfw: device speaks protocol 2.3, this host speaks 1.0", err.Error())
 }
 
 func TestProtocolVersionErrorUnpacks(t *testing.T) {
@@ -119,12 +119,12 @@ func TestArgRangeErrorReportsTheBoundsItRefused(t *testing.T) {
 		{
 			name: "a duration the scheduler cannot hold",
 			err:  &ArgRangeError{Cmd: CmdTimerSet, Arg: "duration", Value: 0, Min: 1, Max: timerMaxMillis, Unit: "ms"},
-			want: "aggeneric: command 0x14: duration is 0 ms, outside 1..2147483647",
+			want: "tfw: command 0x14: duration is 0 ms, outside 1..2147483647",
 		},
 		{
 			name: "an eeprom chunk over what the device commits at once",
 			err:  &ArgRangeError{Cmd: CmdEEPROMWrite, Arg: "length", Value: 9, Min: 1, Max: EEPROMChunk, Unit: "bytes"},
-			want: "aggeneric: command 0x41: length is 9 bytes, outside 1..8",
+			want: "tfw: command 0x41: length is 9 bytes, outside 1..8",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestArgRangeErrorUnpacks(t *testing.T) {
 
 func TestTimeoutErrorNamesTheCommandItWaitedFor(t *testing.T) {
 	err := &TimeoutError{Cmd: CmdAttest, Elapsed: 3 * time.Second}
-	assert.Equal(t, "aggeneric: command 0x60 did not respond after 3s", err.Error())
+	assert.Equal(t, "tfw: command 0x60 did not respond after 3s", err.Error())
 }
 
 func TestTimeoutErrorMatchesItsSentinel(t *testing.T) {
@@ -158,7 +158,7 @@ func TestTimeoutErrorMatchesItsSentinel(t *testing.T) {
 
 func TestLinkErrorReportsTheDirectionAndTheCause(t *testing.T) {
 	err := &LinkError{Op: "write", Err: fmt.Errorf("port not open")}
-	assert.Equal(t, "aggeneric: write: port not open", err.Error())
+	assert.Equal(t, "tfw: write: port not open", err.Error())
 }
 
 // The distinction a caller acts on -- a closed port needs a reconnect, a

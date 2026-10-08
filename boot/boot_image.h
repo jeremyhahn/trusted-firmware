@@ -9,34 +9,34 @@
  * be tested on x86 -- including the cases a bench cannot easily produce, such
  * as an image_len that reaches into its own signature.
  */
-#ifndef AG_BOOT_IMAGE_H
-#define AG_BOOT_IMAGE_H
+#ifndef TFW_BOOT_IMAGE_H
+#define TFW_BOOT_IMAGE_H
 
 #include <stdint.h>
-#include "ag/boot.h"
-#include "ag/status.h"
+#include "tfw/boot.h"
+#include "tfw/status.h"
 
-/* Parses AG_BOOT_TRAILER_LEN bytes into `out`.
+/* Parses TFW_BOOT_TRAILER_LEN bytes into `out`.
  *
  * Refuses, rather than returning a trailer the caller must then re-check:
- *   AG_ERR_UNSUPPORTED  the magic is absent, or the trailer version is one
+ *   TFW_ERR_UNSUPPORTED  the magic is absent, or the trailer version is one
  *                       this bootloader does not know
- *   AG_ERR_RANGE        image_len is zero, or reaches the trailer
- *   AG_ERR_CRYPTO       image_version is zero
+ *   TFW_ERR_RANGE        image_len is zero, or reaches the trailer
+ *   TFW_ERR_CRYPTO       image_version is zero
  *
  * image_version zero is refused because an unversioned image has no place in a
  * rollback floor: accepting one would mean accepting an image that can never be
  * superseded and never be refused. A tool that forgot to stamp a version gets a
  * clear failure instead of an image that quietly opts out of anti-rollback.
  */
-ag_status_t ag_boot_trailer_parse(const uint8_t *raw, ag_boot_trailer_t *out);
+tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out);
 
 /* Serialises a trailer back to bytes. The signing tool's side of the same
  * layout, and the reason the round trip is testable: a parser tested only
  * against bytes some other program produced is a parser tested against that
  * program's bugs. `signature` may be NULL, which leaves the signature zeroed --
  * that is the form the measurement and the signed span are computed over. */
-void ag_boot_trailer_serialise(const ag_boot_trailer_t *tr, uint8_t *raw);
+void tfw_boot_trailer_serialise(const tfw_boot_trailer_t *tr, uint8_t *raw);
 
 /* ------------------------------------------------------------ anti-rollback */
 
@@ -47,11 +47,11 @@ void ag_boot_trailer_serialise(const ag_boot_trailer_t *tr, uint8_t *raw);
  * the image already running is a repair, not a downgrade, and a rule that
  * refused it would turn a corrupted-but-current device into a brick.
  *
- * Returns AG_OK or AG_ERR_PROTECTED_REGION -- the same status the EEPROM guard
+ * Returns TFW_OK or TFW_ERR_PROTECTED_REGION -- the same status the EEPROM guard
  * uses, because it is the same sentence: this is platform-owned and your
  * request does not get to change it.
  */
-ag_status_t ag_boot_rollback_permit(uint32_t version, uint32_t floor);
+tfw_status_t tfw_boot_rollback_permit(uint32_t version, uint32_t floor);
 
 /*
  * How far the floor may be advanced in one update, and why there is a limit.
@@ -64,18 +64,18 @@ ag_status_t ag_boot_rollback_permit(uint32_t version, uint32_t floor);
  * back because the counter does not decrease.
  *
  * So a jump larger than this is refused. The cost is that a device cannot skip
- * more than AG_BOOT_FLOOR_MAX_STEP security versions in a single update and
+ * more than TFW_BOOT_FLOOR_MAX_STEP security versions in a single update and
  * must be walked up through the intermediate ones. That is a real operational
  * cost, and it is smaller than the alternative, which is unrecoverable.
  */
-#define AG_BOOT_FLOOR_MAX_STEP 16u
+#define TFW_BOOT_FLOOR_MAX_STEP 16u
 
 /* Computes the floor after `version` has verified and booted.
  *
- * Returns the new floor in *out and AG_OK, or AG_ERR_RANGE with *out unchanged
+ * Returns the new floor in *out and TFW_OK, or TFW_ERR_RANGE with *out unchanged
  * when the step is too large. A version at or below the floor leaves it alone:
  * the floor only ever goes up, which is the whole property.
  */
-ag_status_t ag_boot_floor_advance(uint32_t version, uint32_t floor, uint32_t *out);
+tfw_status_t tfw_boot_floor_advance(uint32_t version, uint32_t floor, uint32_t *out);
 
-#endif /* AG_BOOT_IMAGE_H */
+#endif /* TFW_BOOT_IMAGE_H */

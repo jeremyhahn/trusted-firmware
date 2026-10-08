@@ -3,9 +3,9 @@
 /*
  * Provisioning -- the commands that write a device's identity.
  *
- * THIS FILE IS NOT IN A PRODUCTION IMAGE. AG_FEATURE_PROVISION defaults to 0,
+ * THIS FILE IS NOT IN A PRODUCTION IMAGE. TFW_FEATURE_PROVISION defaults to 0,
  * the Makefile does not compile this translation unit, commands.def emits no
- * dispatch entries, and a fielded device answers AG_ERR_UNKNOWN_CMD to every id
+ * dispatch entries, and a fielded device answers TFW_ERR_UNKNOWN_CMD to every id
  * below. The gate is file selection, not a runtime check, because a runtime
  * check is a thing an attacker argues with.
  *
@@ -17,7 +17,7 @@
  *
  * WHAT THIS DOES NOT DO, and must not:
  *
- *  - It does not generate the UDS on the host. AG_CMD_PROV_SEED_UDS takes no
+ *  - It does not generate the UDS on the host. TFW_CMD_PROV_SEED_UDS takes no
  *    key material; the element fills its own slot from its own TRNG. A UDS the
  *    host generated is a UDS the host has seen, and a provisioning station is
  *    exactly the machine an attacker would target to get it.
@@ -33,8 +33,8 @@
 
 #include <string.h>
 #include "provision.h"
-#include "ag/protocol.h"
-#include "ag/config.h"
+#include "tfw/protocol.h"
+#include "tfw/config.h"
 #include "../crypto/atecc608a/atecc.h"
 
 /* Datasheet maxima, in milliseconds. */
@@ -52,30 +52,30 @@
 #define CONFIG_ZONE_WORDS 32u
 #define BLOCK_WORDS        8u
 
-ag_status_t ag_prov_cmd_info(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_prov_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint8_t     rev[4];
     uint8_t     cfg[32];
-    ag_status_t st;
+    tfw_status_t st;
 
     (void)r;
-    if (ag_atecc_wake() != AG_OK) {
+    if (tfw_atecc_wake() != TFW_OK) {
         /* Not "no element": we cannot tell an absent part from one whose bus is
-         * miswired or running too fast for the wake pulse. Saying AG_ERR_NACK
+         * miswired or running too fast for the wake pulse. Saying TFW_ERR_NACK
          * points at the bus, which is where the fault usually is. */
-        return AG_ERR_NACK;
+        return TFW_ERR_NACK;
     }
-    st = ag_atecc_exec(AG_ATECC_OP_INFO, AG_ATECC_INFO_REVISION, 0u,
+    st = tfw_atecc_exec(TFW_ATECC_OP_INFO, TFW_ATECC_INFO_REVISION, 0u,
                        0, 0u, rev, 4u, T_INFO);
-    if (st == AG_OK) {
+    if (st == TFW_OK) {
         /* Config block 0 carries the serial number, in bytes 0-3 and 8-12. */
-        st = ag_atecc_exec(AG_ATECC_OP_READ,
-                           (uint8_t)(AG_ATECC_ZONE_CONFIG | AG_ATECC_ZONE_32),
+        st = tfw_atecc_exec(TFW_ATECC_OP_READ,
+                           (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
                            0u, 0, 0u, cfg, 32u, T_READ);
     }
-    if (st == AG_OK) {
-        ag_write_blob(w, rev, 4u);
-        ag_write_blob(w, cfg, 32u);
+    if (st == TFW_OK) {
+        tfw_write_blob(w, rev, 4u);
+        tfw_write_blob(w, cfg, 32u);
 
         /*
          * THE LOCK BYTES ARE IN BLOCK 2, NOT BLOCK 0, and this read is the
@@ -91,36 +91,36 @@ ag_status_t ag_prov_cmd_info(ag_reader_t *r, ag_writer_t *w)
          * Only the two bytes are forwarded, not the whole block. Block 2 also
          * holds slot access policies, and a host that received them would have
          * a second copy of the provisioning template to disagree with the real
-         * one; `agprov --verify` compares against the template, not against
+         * one; `tfwprov --verify` compares against the template, not against
          * what the device thinks the template was.
          */
         uint8_t blk2[32];
 
-        st = ag_atecc_exec(AG_ATECC_OP_READ,
-                           (uint8_t)(AG_ATECC_ZONE_CONFIG | AG_ATECC_ZONE_32),
+        st = tfw_atecc_exec(TFW_ATECC_OP_READ,
+                           (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
                            (uint16_t)(2u * 8u), 0, 0u, blk2, 32u, T_READ);
-        if (st == AG_OK) {
-            ag_write_u8(w, blk2[86u - 64u]);   /* LockValue:  the data zone */
-            ag_write_u8(w, blk2[87u - 64u]);   /* LockConfig: the config zone */
+        if (st == TFW_OK) {
+            tfw_write_u8(w, blk2[86u - 64u]);   /* LockValue:  the data zone */
+            tfw_write_u8(w, blk2[87u - 64u]);   /* LockConfig: the config zone */
         }
     }
 
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }
 
-ag_status_t ag_prov_cmd_write_config(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_prov_cmd_write_config(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t        block = ag_read_u8(r);
-    const uint8_t *data  = ag_read_blob(r, 32u);
-    ag_status_t    st;
+    uint8_t        block = tfw_read_u8(r);
+    const uint8_t *data  = tfw_read_blob(r, 32u);
+    tfw_status_t    st;
 
     (void)w;
     if (!data) {
-        return AG_ERR_BAD_ARGC;
+        return TFW_ERR_BAD_ARGC;
     }
     if (block >= CONFIG_ZONE_WORDS / BLOCK_WORDS) {
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
     /* Blocks 0 and 1 hold the serial number, the revision and the OTP mode --
      * the element refuses writes to most of it, and the parts it does accept
@@ -128,27 +128,27 @@ ag_status_t ag_prov_cmd_write_config(ag_reader_t *r, ag_writer_t *w)
      * element's execution error, at the point where a template is being
      * debugged and the difference matters. */
     if (block < 2u) {
-        return AG_ERR_PROTECTED_REGION;
+        return TFW_ERR_PROTECTED_REGION;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_NACK;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_NACK;
     }
-    st = ag_atecc_exec(AG_ATECC_OP_WRITE,
-                       (uint8_t)(AG_ATECC_ZONE_CONFIG | AG_ATECC_ZONE_32),
+    st = tfw_atecc_exec(TFW_ATECC_OP_WRITE,
+                       (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
                        (uint16_t)(block * BLOCK_WORDS), data, 32u, 0, 0u, T_WRITE);
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }
 
-ag_status_t ag_prov_cmd_lock(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_prov_cmd_lock(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t     zone = ag_read_u8(r);
-    uint16_t    crc  = ag_read_u16(r);
-    ag_status_t st;
+    uint8_t     zone = tfw_read_u8(r);
+    uint16_t    crc  = tfw_read_u16(r);
+    tfw_status_t st;
 
     (void)w;
-    if (zone != AG_ATECC_LOCK_CONFIG && zone != AG_ATECC_LOCK_DATA) {
-        return AG_ERR_RANGE;
+    if (zone != TFW_ATECC_LOCK_CONFIG && zone != TFW_ATECC_LOCK_DATA) {
+        return TFW_ERR_RANGE;
     }
     /*
      * THE SUMMARY CRC IS REQUIRED, and this is the one place in the firmware
@@ -162,79 +162,79 @@ ag_status_t ag_prov_cmd_lock(ag_reader_t *r, ag_writer_t *w)
      * irreversible step, so the two have to agree.
      */
     if (crc == 0u) {
-        return AG_ERR_BAD_ARGC;
+        return TFW_ERR_BAD_ARGC;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_NACK;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_NACK;
     }
-    st = ag_atecc_exec(AG_ATECC_OP_LOCK, zone, crc, 0, 0u, 0, 0u, T_LOCK);
-    (void)ag_atecc_sleep();
+    st = tfw_atecc_exec(TFW_ATECC_OP_LOCK, zone, crc, 0, 0u, 0, 0u, T_LOCK);
+    (void)tfw_atecc_sleep();
     return st;
 }
 
-ag_status_t ag_prov_cmd_genkey(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_prov_cmd_genkey(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t     slot = ag_read_u8(r);
+    uint8_t     slot = tfw_read_u8(r);
     uint8_t     pub[64];
-    ag_status_t st;
+    tfw_status_t st;
 
-    if (slot != AG_ATECC_SLOT_DEVICEID) {
+    if (slot != TFW_ATECC_SLOT_DEVICEID) {
         /* One slot holds the DeviceID key. Generating into another would
          * produce a key nothing in this firmware will ever sign with, which is
          * a silent way to appear provisioned and not be. */
-        return AG_ERR_RANGE;
+        return TFW_ERR_RANGE;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_NACK;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_NACK;
     }
     /* Private mode. The private half is created inside the element and never
      * exists anywhere else; what comes back is the public point. */
-    st = ag_atecc_exec(AG_ATECC_OP_GENKEY, AG_ATECC_GENKEY_PRIVATE,
+    st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PRIVATE,
                        slot, 0, 0u, pub, 64u, T_GENKEY);
-    if (st == AG_OK) {
-        ag_write_blob(w, pub, 64u);
+    if (st == TFW_OK) {
+        tfw_write_blob(w, pub, 64u);
     }
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }
 
-ag_status_t ag_prov_cmd_pubkey(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_prov_cmd_pubkey(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t     slot = ag_read_u8(r);
+    uint8_t     slot = tfw_read_u8(r);
     uint8_t     pub[64];
-    ag_status_t st;
+    tfw_status_t st;
 
-    if (slot != AG_ATECC_SLOT_DEVICEID) {
-        return AG_ERR_RANGE;
+    if (slot != TFW_ATECC_SLOT_DEVICEID) {
+        return TFW_ERR_RANGE;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_NACK;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_NACK;
     }
     /* Public mode recomputes the point from the private key already in the
      * slot. It does NOT generate a new one -- that is PROV_GENKEY, and keeping
-     * them separate is why `agprov --verify` can read a device back without any
+     * them separate is why `tfwprov --verify` can read a device back without any
      * chance of replacing the identity it is verifying. */
-    st = ag_atecc_exec(AG_ATECC_OP_GENKEY, AG_ATECC_GENKEY_PUBLIC,
+    st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PUBLIC,
                        slot, 0, 0u, pub, 64u, T_GENKEY);
-    if (st == AG_OK) {
-        ag_write_blob(w, pub, 64u);
+    if (st == TFW_OK) {
+        tfw_write_blob(w, pub, 64u);
     }
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }
 
-ag_status_t ag_prov_cmd_seed_uds(ag_reader_t *r, ag_writer_t *w)
+tfw_status_t tfw_prov_cmd_seed_uds(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t     slot = ag_read_u8(r);
+    uint8_t     slot = tfw_read_u8(r);
     uint8_t     rnd[32];
-    ag_status_t st;
+    tfw_status_t st;
 
     (void)w;
-    if (slot != AG_ATECC_SLOT_UDS) {
-        return AG_ERR_RANGE;
+    if (slot != TFW_ATECC_SLOT_UDS) {
+        return TFW_ERR_RANGE;
     }
-    if (ag_atecc_wake() != AG_OK) {
-        return AG_ERR_NACK;
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_NACK;
     }
     /*
      * The UDS comes from the element's own TRNG and goes into a slot configured
@@ -246,20 +246,20 @@ ag_status_t ag_prov_cmd_seed_uds(ag_reader_t *r, ag_writer_t *w)
      * This is the difference between "the device has a secret" and "the device
      * has a secret somebody typed in".
      */
-    st = ag_atecc_exec(AG_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, T_RANDOM);
-    if (st == AG_OK) {
-        st = ag_atecc_exec(AG_ATECC_OP_NONCE, AG_ATECC_NONCE_PASSTHRU, 0u,
+    st = tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, T_RANDOM);
+    if (st == TFW_OK) {
+        st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
                            rnd, 32u, 0, 0u, T_NONCE);
     }
-    if (st == AG_OK) {
-        st = ag_atecc_exec(AG_ATECC_OP_WRITE,
-                           (uint8_t)(AG_ATECC_ZONE_DATA | AG_ATECC_ZONE_32),
+    if (st == TFW_OK) {
+        st = tfw_atecc_exec(TFW_ATECC_OP_WRITE,
+                           (uint8_t)(TFW_ATECC_ZONE_DATA | TFW_ATECC_ZONE_32),
                            (uint16_t)((uint16_t)slot << 3), rnd, 32u, 0, 0u, T_WRITE);
     }
     /* The copy in SRAM is scrubbed whether or not the write succeeded. A
      * failed provisioning attempt must not leave the secret in a buffer for
      * the next command to reuse. */
     memset(rnd, 0, sizeof rnd);
-    (void)ag_atecc_sleep();
+    (void)tfw_atecc_sleep();
     return st;
 }

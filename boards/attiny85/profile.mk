@@ -6,12 +6,13 @@
 # no BOOTRST fuse, so there is nowhere for a bootloader to live and nothing to
 # jump to it -- every flash write comes in over SPI from an external programmer.
 # `usbasp` is named because it is the common one; any ISP works.
+ARCH           := avr
 MCU            := attiny85
 # 8 MHz from the internal RC oscillator, which is the part's own default with
 # CKDIV8 unprogrammed. NOT 16 MHz: the 16 MHz option is the internal PLL, which
 # is the same RC oscillator multiplied and therefore no more accurate, and the
 # software UART's error budget is dominated by that oscillator rather than by
-# the divisor. See AG_UART_BAUD in board_profile.h for the arithmetic.
+# the divisor. See TFW_UART_BAUD in board_profile.h for the arithmetic.
 F_CPU          := 8000000
 AVRDUDE_PART   := t85
 AVRDUDE_PROG   := usbasp
@@ -23,7 +24,7 @@ AVRDUDE_PORT   ?= usb
 AVRDUDE_BAUD   := 19200
 
 # A part shipped from the factory has CKDIV8 programmed and boots at 1 MHz.
-# That is NOT a fuse that has to be changed: ag_hal_init writes CLKPR = 0 as its
+# That is NOT a fuse that has to be changed: tfw_hal_init writes CLKPR = 0 as its
 # first act, so the part is at the full oscillator rate before the software
 # UART's bit clock is programmed. CKSEL is the fuse that matters, and the
 # factory default -- the 8 MHz internal RC -- is the one F_CPU above assumes.
@@ -44,19 +45,19 @@ RAM_TOTAL      := 512
 #   soft       the software tier's definition is a key in BOOT-SECTION flash
 #              behind BLB lock bits. This part has no boot section and no boot
 #              lock bits, so there is nowhere to put one. An image carrying that
-#              tier would report AG_CRYPTO_SOFTWARE to a host deciding what the
+#              tier would report TFW_CRYPTO_SOFTWARE to a host deciding what the
 #              device's evidence is worth, and the sentence that byte stands for
 #              would be false.
 #   atecc608a  the element is an I2C device. This part has a USI and no TWI.
 #
-# `none` is AG_CRYPTO_NONE, which ag_crypto_tier_t has named since the protocol
+# `none` is TFW_CRYPTO_NONE, which tfw_crypto_tier_t has named since the protocol
 # was written. CAPS reports tier 0 and an empty algorithm bitmap, ATTEST is not
 # in the command table, and a host learns all of that before it asks.
 BOARD_TIERS    := none
 CRYPTO         ?= none
 
 # No BOOT_SECTION, BOOT_BUDGET or RAM_END, and their absence is deliberate.
-# ag-boot cannot exist on this part: there is no boot-loader section, so there
+# tfw-boot cannot exist on this part: there is no boot-loader section, so there
 # is no read-while-write region to execute a flash write from and no lock bits
 # that would hide a UDS from the application. mk/boot.mk's BOOT_SUPPORTED list
 # does not name this board, and a `make bootloader BOARD=attiny85` is meant to

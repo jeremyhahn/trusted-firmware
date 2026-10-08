@@ -26,7 +26,7 @@ voids the BLB read barrier from the inside.
 
 | Setting | Value | Why |
 |---|---|---|
-| `BOOTRST` | programmed | the part enters the bootloader on reset, which is what lets `ag-boot` measure before the application runs |
+| `BOOTRST` | programmed | the part enters the bootloader on reset, which is what lets `tfw-boot` measure before the application runs |
 | `BOOTSZ` | 2048 words (4 KB) | enough for Ed25519 verify plus the anti-rollback check |
 | `BLB1` mode | **3** | the application cannot read or write the boot section; this is the barrier the software-tier UDS sits behind |
 | `BLB0` mode | 3 | the boot section cannot be rewritten by the application |
@@ -72,12 +72,12 @@ Locking the element's config zone and data zone is **permanent**. There is no
 erase, no reset, no factory command. A wrong configuration template bricks the
 part.
 
-This is the entire reason `agprov` has three separate modes rather than one:
+This is the entire reason `tfwprov` has three separate modes rather than one:
 
 ```sh
-agprov --dry-run --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
-agprov --verify  --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
-agprov --commit  --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 --yes-i-mean-it
+tfwprov --dry-run --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
+tfwprov --verify  --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
+tfwprov --commit  --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 --yes-i-mean-it
 ```
 
 `--dry-run` prints the plan and touches nothing. `--verify` reads the part back
@@ -98,7 +98,7 @@ plans around an unlock that does not exist.
 
 ## Verification
 
-`agprov --verify` reads back and compares:
+`tfwprov --verify` reads back and compares:
 
 - every fuse byte against the template
 - the lock byte

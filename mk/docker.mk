@@ -5,7 +5,7 @@
 # gets the same answer the gate will give, which is the only way a gate stays
 # trusted rather than argued with.
 
-CI_IMAGE ?= arduino-generic-ci:local
+CI_IMAGE ?= trusted-firmware-ci:local
 DOCKER   ?= docker
 
 # Run as the invoking user, not root. Without this the container writes

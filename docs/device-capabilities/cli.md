@@ -1,15 +1,15 @@
 # Device capabilities: CLI
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 >
 > Conflicts with this document are defects. Fix them here first.
 
-`agctl` (`sdk/go/cmd/agctl/main.go`) is the reference client:
-`agctl [flags] <port> <command> [args]`. It talks to one board over serial;
+`tfwctl` (`sdk/go/cmd/tfwctl/main.go`) is the reference client:
+`tfwctl [flags] <port> <command> [args]`. It talks to one board over serial;
 `ports` lists what the host can see and takes no port argument.
 
 ```sh
-agctl --baud 115200 --timeout 10s --json <port> <command> [args]
+tfwctl --baud 115200 --timeout 10s --json <port> <command> [args]
 ```
 
 | flag | default | does |
@@ -21,8 +21,8 @@ agctl --baud 115200 --timeout 10s --json <port> <command> [args]
 ## Verbs this feature exposes today
 
 Every command in this capability set has a verb. The GPIO and scheduler verbs
-are in `sdk/go/cmd/agctl/main.go`; the rest are in
-`sdk/go/cmd/agctl/peripherals.go`.
+are in `sdk/go/cmd/tfwctl/main.go`; the rest are in
+`sdk/go/cmd/tfwctl/peripherals.go`.
 
 | verb | args | does |
 |---|---|---|
@@ -42,18 +42,18 @@ are in `sdk/go/cmd/agctl/main.go`; the rest are in
 ## Examples
 
 ```sh
-agctl /dev/ttyACM0 caps
-agctl /dev/ttyACM0 pin 13
-agctl /dev/ttyACM0 mode 7 out
-agctl /dev/ttyACM0 write 7 1
-agctl /dev/ttyACM0 read 2
-agctl /dev/ttyACM0 timer 7 0 5s          # drive pin 7 low for 5s, device reverts it high
-agctl /dev/ttyACM0 timer-query 7
-agctl /dev/ttyACM0 timer-cancel 7 apply
-agctl --json /dev/ttyACM0 sys
-agctl /dev/ttyACM0 ping hello
-agctl /dev/ttyACM0 reset soft
-agctl ports
+tfwctl /dev/ttyACM0 caps
+tfwctl /dev/ttyACM0 pin 13
+tfwctl /dev/ttyACM0 mode 7 out
+tfwctl /dev/ttyACM0 write 7 1
+tfwctl /dev/ttyACM0 read 2
+tfwctl /dev/ttyACM0 timer 7 0 5s          # drive pin 7 low for 5s, device reverts it high
+tfwctl /dev/ttyACM0 timer-query 7
+tfwctl /dev/ttyACM0 timer-cancel 7 apply
+tfwctl --json /dev/ttyACM0 sys
+tfwctl /dev/ttyACM0 ping hello
+tfwctl /dev/ttyACM0 reset soft
+tfwctl ports
 ```
 
 Duration parsing for `timer` accepts Go's `time.ParseDuration` syntax
@@ -64,7 +64,7 @@ default.
 ## The rule this CLI is measured against
 
 `../host-sdk/architecture.md`: "if a command exists on the wire and is not
-reachable from `agctl`, that is a gap in `agctl`."
+reachable from `tfwctl`, that is a gap in `tfwctl`."
 
 | verb | args | does |
 |---|---|---|
@@ -88,7 +88,7 @@ reachable from `agctl`, that is a gap in `agctl`."
 Addresses and counts accept `0x` prefixes. Payloads are hex without
 separators. `--json` applies to every verb.
 
-`sdk/go/cmd/agctl/peripherals_test.go` holds the regression: it drives every
-verb against `agsim` and fails on "unknown command", which is what a verb
+`sdk/go/cmd/tfwctl/peripherals_test.go` holds the regression: it drives every
+verb against `tfwsim` and fails on "unknown command", which is what a verb
 silently losing its dispatch would otherwise look like — the SDK method keeps
 working and only the CLI loses it.

@@ -8,7 +8,7 @@
  * this codebase's own `-Os` build (see the verification this file's .c
  * carries). The secret would then survive on the stack for as long as nothing
  * overwrites that memory, defeating the "drain it even with no use for it"
- * rule every CDI-copy site in this tree follows. `ag_secure_zero` writes
+ * rule every CDI-copy site in this tree follows. `tfw_secure_zero` writes
  * through a `volatile`-qualified pointer, which the C standard treats as an
  * observable side effect the compiler must not remove, regardless of whether
  * anything reads the memory afterward.
@@ -19,11 +19,11 @@
  * the same reasoning this project applies to the CRC and the reset-cause
  * decoder.
  */
-#ifndef AG_CORE_SECURE_ZERO_H
-#define AG_CORE_SECURE_ZERO_H
+#ifndef TFW_CORE_SECURE_ZERO_H
+#define TFW_CORE_SECURE_ZERO_H
 
 #include <stddef.h>
 
-void ag_secure_zero(void *p, size_t n);
+void tfw_secure_zero(void *p, size_t n);
 
-#endif /* AG_CORE_SECURE_ZERO_H */
+#endif /* TFW_CORE_SECURE_ZERO_H */

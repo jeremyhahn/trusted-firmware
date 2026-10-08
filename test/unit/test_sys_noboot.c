@@ -13,49 +13,49 @@
 #include "dispatch.h"
 #include "sys.h"
 #include "hal_mock.h"
-#include "ag/protocol.h"
-#include "ag/config.h"
-#include "ag/boot.h"
+#include "tfw/protocol.h"
+#include "tfw/config.h"
+#include "tfw/boot.h"
 
-static uint8_t     inbuf[AG_MAX_PAYLOAD];
-static uint8_t     outbuf[AG_MAX_PAYLOAD];
-static ag_reader_t r;
-static ag_writer_t w;
+static uint8_t     inbuf[TFW_MAX_PAYLOAD];
+static uint8_t     outbuf[TFW_MAX_PAYLOAD];
+static tfw_reader_t r;
+static tfw_writer_t w;
 
 void setUp(void)
 {
-    ag_mock_reset();
-    ag_sys_reset_state();
+    tfw_mock_reset();
+    tfw_sys_reset_state();
 }
 void tearDown(void) {}
 
-static ag_status_t reset_with(uint8_t mode)
+static tfw_status_t reset_with(uint8_t mode)
 {
     inbuf[0] = mode;
-    ag_reader_init(&r, inbuf, 1u);
-    ag_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
-    return ag_dispatch(AG_CMD_RESET, &r, &w);
+    tfw_reader_init(&r, inbuf, 1u);
+    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+    return tfw_dispatch(TFW_CMD_RESET, &r, &w);
 }
 
 /* Honest rather than quiet: a host that asked for a bootloader this part does
  * not have is told so, and the device does not reset out from under it. */
 static void test_reset_to_bootloader_is_unsupported_without_a_boot_section(void)
 {
-    TEST_ASSERT_EQUAL(AG_ERR_UNSUPPORTED, reset_with(1u));
-    TEST_ASSERT_FALSE(ag_sys_reset_pending());
-    ag_sys_poll();
-    TEST_ASSERT_EQUAL_UINT(0u, ag_mock_reset_count());
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, reset_with(1u));
+    TEST_ASSERT_FALSE(tfw_sys_reset_pending());
+    tfw_sys_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
 }
 
 static void test_soft_reset_still_works_without_a_boot_section(void)
 {
     uint8_t i, untouched = 1u;
 
-    TEST_ASSERT_EQUAL(AG_OK, reset_with(0u));
-    ag_sys_poll();
-    TEST_ASSERT_EQUAL_UINT(1u, ag_mock_reset_count());
-    for (i = 0u; i < AG_BOOT_REQUEST_LEN; i++) {
-        if (ag_mock_handoff()[i] != 0u) { untouched = 0u; }
+    TEST_ASSERT_EQUAL(TFW_OK, reset_with(0u));
+    tfw_sys_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+    for (i = 0u; i < TFW_BOOT_REQUEST_LEN; i++) {
+        if (tfw_mock_handoff()[i] != 0u) { untouched = 0u; }
     }
     TEST_ASSERT_TRUE(untouched);
 }

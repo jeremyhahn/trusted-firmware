@@ -1,6 +1,6 @@
 # Reproducible builds
 
-> **Status: NORMATIVE** · Scope: `mk/avr.mk`, `make reproducible-check`
+> **Status: NORMATIVE** · Scope: `mk/firmware.mk`, `mk/arch/`, `make reproducible-check`
 > · Last verified: 2026-09-22
 >
 > This is a requirement, not a property we happen to have. It is checked on

@@ -44,20 +44,35 @@ build at `CRYPTO=soft` and `CRYPTO=atecc608a`; the ATtiny85 builds only at
 and no boot section. `BOARD_TIERS` in each `profile.mk` is where that is
 recorded, and `firmware-matrix` reads it rather than assuming a cross product.
 
+The build takes the architecture from the board: every `boards/<board>/profile.mk`
+says `ARCH := avr`, and `mk/firmware.mk` and `mk/boot.mk` — which name no
+toolchain, flag or HAL path — pick up `mk/arch/$(ARCH).mk` (toolchain, flags,
+size, programmer, linker placement) and `src/hal/$(ARCH)/`. A second architecture
+is a directory, not an edit to those files. `BOARD=` is unchanged.
+
+The CI workflow's firmware matrix is a hand-written list of board × tier pairs.
+`make ci-matrix-check` (part of `make ci`, and a step of the lint job) compares it
+with `make firmware-matrix-list`, which prints what `firmware-matrix` builds, and
+fails if either has a pair the other lacks.
+
+`make provenance` records `arch`, `compiler` and `toolchain` for each image, and
+`make sbom` the same for the toolchain, using whatever the architecture file
+names — nothing in `mk/release.mk` says `avr`.
+
 ## The simulator
 
 ```sh
-make agsim
-./build/host/agsim --pty        # prints a pty path on stderr
+make tfwsim
+./build/host/tfwsim --pty        # prints a pty path on stderr
 ```
 
-`agsim` is the firmware, not a model of it. The Go SDK's cross-implementation
+`tfwsim` is the firmware, not a model of it. The Go SDK's cross-implementation
 tests run against it, which is what proves the C and Go codecs agree without
 hardware.
 
 ```sh
-make agsim-atecc608a            # or: make agsim CRYPTO=atecc608a
-./build/host/agsim-atecc608a --pty --provision-element
+make tfwsim-atecc608a            # or: make tfwsim CRYPTO=atecc608a
+./build/host/tfwsim-atecc608a --pty --provision-element
 ```
 
 The element-tier build links the real ATECC608A driver and provider against
@@ -72,7 +87,7 @@ A board is data, not code. Add `boards/<name>/` with:
 
 - `board_profile.h` — pin count, sizing, feature deviations, port register addresses
 - `board.c` — the pin table
-- `profile.mk` — MCU, clock, budgets, programmer, crypto tiers
+- `profile.mk` — `ARCH`, MCU, clock, budgets, programmer, crypto tiers
 
 Then add a test asserting the pin table against the datasheet, as
 `test/unit/test_board_328p.c` does. **If adding a board requires touching

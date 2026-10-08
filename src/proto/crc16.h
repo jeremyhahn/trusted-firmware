@@ -10,10 +10,10 @@
  * still holds HD=4, so every one-, two- and three-bit error is detected, as is
  * every error of odd weight and every burst up to sixteen bits.
  *
- * ag_crc16_update() has two definitions and exactly one is ever linked:
+ * tfw_crc16_update() has two definitions and exactly one is ever linked:
  *
  *   src/proto/crc16_update.c  -- portable C, table-free, one bit at a time.
- *     This is what host tests, agsim and the bootloader build against, and it
+ *     This is what host tests, tfwsim and the bootloader build against, and it
  *     is the definition the cross-implementation suite and the Go mirror
  *     check themselves against. One implementation compiled for host and
  *     device alike is one implementation that can disagree with itself in
@@ -36,28 +36,28 @@
  * variant -- 0x0000 yields XMODEM, 0xFFFF yields CCITT-FALSE, which is what
  * this is.
  */
-#ifndef AG_CRC16_H
-#define AG_CRC16_H
+#ifndef TFW_CRC16_H
+#define TFW_CRC16_H
 
 #include <stdint.h>
 
-#define AG_CRC16_INIT  0xFFFFu
+#define TFW_CRC16_INIT  0xFFFFu
 
 /* The published check value: the CRC of the nine ASCII bytes "123456789".
  * Pinned in the test suite so a change to this file that alters the wire is a
  * test failure rather than a field incident. Both definitions of
- * ag_crc16_update above must produce it. */
-#define AG_CRC16_CHECK 0x29B1u
+ * tfw_crc16_update above must produce it. */
+#define TFW_CRC16_CHECK 0x29B1u
 
 /* Folds one byte into a running CRC. Exactly one of src/proto/crc16_update.c
  * and src/hal/avr/hal_crc16.c is linked in any given build; see the header
  * comment above for which. */
-uint16_t ag_crc16_update(uint16_t crc, uint8_t byte);
+uint16_t tfw_crc16_update(uint16_t crc, uint8_t byte);
 
 /* Convenience for a contiguous buffer; identical to seeding with
- * AG_CRC16_INIT and folding each byte in turn. Portable in every build --
+ * TFW_CRC16_INIT and folding each byte in turn. Portable in every build --
  * src/proto/crc16.c -- since it is a thin loop over whichever
- * ag_crc16_update() is linked and is not itself the hot path. */
-uint16_t ag_crc16(const uint8_t *buf, uint16_t len);
+ * tfw_crc16_update() is linked and is not itself the hot path. */
+uint16_t tfw_crc16(const uint8_t *buf, uint16_t len);
 
-#endif /* AG_CRC16_H */
+#endif /* TFW_CRC16_H */

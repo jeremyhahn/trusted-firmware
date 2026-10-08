@@ -1,6 +1,6 @@
 # Wire protocol — user guide
 
-> **Status: NORMATIVE** · Scope: arduino-generic · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
 Task-oriented usage of the wire protocol from a host. For the reference
@@ -14,7 +14,7 @@ is available, how large a payload the device accepts — follows from it.
 
 ```go
 conn, _ := serialport.Open("/dev/ttyUSB0", serialport.DefaultBaud)
-dev := aggeneric.New(conn)
+dev := tfw.New(conn)
 caps, err := dev.Caps(context.Background())
 ```
 
@@ -23,7 +23,7 @@ from this host's — the frames themselves may not parse the same way, and
 nothing beyond `CAPS` should be trusted. `caps` is still returned alongside
 the error so the mismatch can be logged.
 
-Equivalently from the shell: `agctl /dev/ttyUSB0 caps`.
+Equivalently from the shell: `tfwctl /dev/ttyUSB0 caps`.
 
 ## Prove the path works
 
@@ -32,7 +32,7 @@ hardware — the first thing to run against an unfamiliar device or a new
 transport.
 
 ```sh
-agctl /dev/ttyUSB0 ping hello
+tfwctl /dev/ttyUSB0 ping hello
 ```
 
 ## Read a pin's descriptor before using it
@@ -45,7 +45,7 @@ and a distinct `PWMSystemTick` value — not the same as "no compare unit at
 all," and not something a different pin can fix.
 
 ```sh
-agctl /dev/ttyUSB0 pin 13
+tfwctl /dev/ttyUSB0 pin 13
 ```
 
 ## Drive a pin and let the device revert it
@@ -55,9 +55,9 @@ duration — the deadline is owned by the device so a host that crashes with a
 load energised does not leave it energised.
 
 ```sh
-agctl /dev/ttyUSB0 timer 13 1 5s     # drive pin 13 high for 5s, then release
-agctl /dev/ttyUSB0 timer-query 13    # active? held level? time remaining?
-agctl /dev/ttyUSB0 timer-cancel 13   # stop it early
+tfwctl /dev/ttyUSB0 timer 13 1 5s     # drive pin 13 high for 5s, then release
+tfwctl /dev/ttyUSB0 timer-query 13    # active? held level? time remaining?
+tfwctl /dev/ttyUSB0 timer-cancel 13   # stop it early
 ```
 
 ## Handle events
@@ -71,7 +71,7 @@ Events accumulate on the `Device` and are read with `Events()`:
 ```go
 for _, ev := range dev.Events() {
     switch ev.Payload[0] {
-    case aggeneric.EventBoot:
+    case tfw.EventBoot:
         caps, _ = dev.Caps(ctx) // re-establish everything
     }
 }
@@ -92,6 +92,6 @@ vocabulary. See `api.md` for the full status table.
 
 ## Provisioning is a separate, guarded tool
 
-`agprov`, not `agctl`, and only against a device built with
-`AG_FEATURE_PROVISION` — a fielded device has no provisioning handler at
-all and answers `AG_ERR_UNKNOWN_CMD`. See `../device-provisioning/user.md`.
+`tfwprov`, not `tfwctl`, and only against a device built with
+`TFW_FEATURE_PROVISION` — a fielded device has no provisioning handler at
+all and answers `TFW_ERR_UNKNOWN_CMD`. See `../device-provisioning/user.md`.

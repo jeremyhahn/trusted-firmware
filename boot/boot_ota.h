@@ -23,8 +23,8 @@
  * duration of the write the device has no bootable application at all.
  *
  * THE RECOVERY IS THE BOOTLOADER ITSELF. Before the first page is erased, the
- * reserved EEPROM boot_state is set to AG_BOOT_STATE_STAGED, and it is only
- * returned to AG_BOOT_STATE_GOOD once the whole image has been measured and its
+ * reserved EEPROM boot_state is set to TFW_BOOT_STATE_STAGED, and it is only
+ * returned to TFW_BOOT_STATE_GOOD once the whole image has been measured and its
  * signature has verified. A bootloader that finds STAGED on the next reset
  * knows the application region is not to be trusted, does not jump into it, and
  * stays in OTA waiting for another image. So an interrupted update leaves a
@@ -39,19 +39,19 @@
  * decision, not a firmware one.
  * ------------------------------------------------------------------------
  */
-#ifndef AG_BOOT_OTA_H
-#define AG_BOOT_OTA_H
+#ifndef TFW_BOOT_OTA_H
+#define TFW_BOOT_OTA_H
 
 #include <stdint.h>
-#include "ag/boot.h"
-#include "ag/status.h"
+#include "tfw/boot.h"
+#include "tfw/status.h"
 
 typedef enum {
-    AG_OTA_IDLE = 0,
-    AG_OTA_RECEIVING,
-    AG_OTA_COMPLETE,   /* every byte arrived; nothing has been verified yet */
-    AG_OTA_FAILED
-} ag_ota_state_t;
+    TFW_OTA_IDLE = 0,
+    TFW_OTA_RECEIVING,
+    TFW_OTA_COMPLETE,   /* every byte arrived; nothing has been verified yet */
+    TFW_OTA_FAILED
+} tfw_ota_state_t;
 
 /*
  * How much of an image is buffered before it reaches flash.
@@ -66,15 +66,15 @@ typedef enum {
  * is unavoidable: the alternative is a read-modify-write of each page through a
  * second buffer, which costs the same RAM and adds a failure mode.
  */
-#define AG_OTA_PAGE_MAX 256u
+#define TFW_OTA_PAGE_MAX 256u
 
 /* Writes one page. Supplied by the caller so this file touches no hardware:
  * the bootloader passes the flash HAL, the tests pass an array. */
-typedef ag_status_t (*ag_ota_page_write_fn)(uint32_t addr, const uint8_t *data,
+typedef tfw_status_t (*tfw_ota_page_write_fn)(uint32_t addr, const uint8_t *data,
                                             uint16_t len);
 
 typedef struct {
-    ag_ota_page_write_fn write_page;
+    tfw_ota_page_write_fn write_page;
     uint16_t page_size;
 
     uint8_t  state;
@@ -83,20 +83,20 @@ typedef struct {
     uint32_t next_offset;      /* the offset the next chunk must carry */
 
     uint16_t buf_used;
-    uint8_t  buf[AG_OTA_PAGE_MAX];
-} ag_ota_t;
+    uint8_t  buf[TFW_OTA_PAGE_MAX];
+} tfw_ota_t;
 
-/* `page_size` must be non-zero, no larger than AG_OTA_PAGE_MAX and a power of
- * two; ag_ota_init refuses otherwise, because a page size that is none of those
+/* `page_size` must be non-zero, no larger than TFW_OTA_PAGE_MAX and a power of
+ * two; tfw_ota_init refuses otherwise, because a page size that is none of those
  * turns every address computation below into a silent corruption. */
-ag_status_t ag_ota_init(ag_ota_t *o, ag_ota_page_write_fn write_page,
+tfw_status_t tfw_ota_init(tfw_ota_t *o, tfw_ota_page_write_fn write_page,
                         uint16_t page_size);
 
 /*
  * OTA_BEGIN. Declares the total image length, trailer included.
  *
  * Refuses a length that is not a whole number of pages, and one that does not
- * reach the trailer: an image shorter than AG_BOOT_TRAILER_LEN has nowhere to
+ * reach the trailer: an image shorter than TFW_BOOT_TRAILER_LEN has nowhere to
  * carry a signature, and accepting it would mean erasing the application to
  * write something that could never verify.
  *
@@ -106,7 +106,7 @@ ag_status_t ag_ota_init(ag_ota_t *o, ag_ota_page_write_fn write_page,
  * against a number nobody signed. The rollback decision happens at commit, on
  * the parsed trailer, and never on anything the wire asserted.
  */
-ag_status_t ag_ota_begin(ag_ota_t *o, uint32_t total_len);
+tfw_status_t tfw_ota_begin(tfw_ota_t *o, uint32_t total_len);
 
 /*
  * OTA_DATA. `offset` is carried in every chunk and must match exactly.
@@ -114,23 +114,23 @@ ag_status_t ag_ota_begin(ag_ota_t *o, uint32_t total_len);
  * Not a convenience: a chunk stream with no offset is a stream where one
  * dropped frame silently shifts everything after it, and the image then fails
  * to verify for a reason that looks like a signing bug. An explicit offset
- * turns that into AG_ERR_RANGE on the frame that actually went missing.
+ * turns that into TFW_ERR_RANGE on the frame that actually went missing.
  */
-ag_status_t ag_ota_data(ag_ota_t *o, uint32_t offset, const uint8_t *data,
+tfw_status_t tfw_ota_data(tfw_ota_t *o, uint32_t offset, const uint8_t *data,
                         uint8_t len);
 
 /* OTA_END. Refuses unless exactly declared_len bytes arrived. Flushes a partial
  * final page, padding it with 0xFF -- erased flash -- so the measurement covers
  * the same bytes a verifier computing it from the image file would see. */
-ag_status_t ag_ota_end(ag_ota_t *o);
+tfw_status_t tfw_ota_end(tfw_ota_t *o);
 
 /* Abandons a session. The flash already written is left alone: it is already
  * unbootable and the boot_state that says so is the caller's to maintain.
  * Erasing it here would spend the device's remaining seconds of supply on
  * making a bad image differently bad. */
-void ag_ota_abort(ag_ota_t *o);
+void tfw_ota_abort(tfw_ota_t *o);
 
-uint8_t  ag_ota_state(const ag_ota_t *o);
-uint32_t ag_ota_received(const ag_ota_t *o);
+uint8_t  tfw_ota_state(const tfw_ota_t *o);
+uint32_t tfw_ota_received(const tfw_ota_t *o);
 
-#endif /* AG_BOOT_OTA_H */
+#endif /* TFW_BOOT_OTA_H */

@@ -41,27 +41,27 @@ static void wr_u16(uint8_t *p, uint16_t v)
     p[1] = (uint8_t)((v >> 8) & 0xFFu);
 }
 
-ag_status_t ag_boot_trailer_parse(const uint8_t *raw, ag_boot_trailer_t *out)
+tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
 {
-    uint32_t magic = rd_u32(&raw[AG_BOOT_TR_MAGIC]);
-    uint16_t ver   = rd_u16(&raw[AG_BOOT_TR_VERSION]);
+    uint32_t magic = rd_u32(&raw[TFW_BOOT_TR_MAGIC]);
+    uint16_t ver   = rd_u16(&raw[TFW_BOOT_TR_VERSION]);
 
-    if (magic != AG_BOOT_TRAILER_MAGIC) {
-        return AG_ERR_UNSUPPORTED;
+    if (magic != TFW_BOOT_TRAILER_MAGIC) {
+        return TFW_ERR_UNSUPPORTED;
     }
     /* An exact match, not "at least". A trailer version this build does not
      * know might move a field the signature covers, and guessing at it is how a
      * bootloader ends up verifying one span and measuring another. Extending
      * means a new version number and a build that knows both. */
-    if (ver != AG_BOOT_TRAILER_VERSION) {
-        return AG_ERR_UNSUPPORTED;
+    if (ver != TFW_BOOT_TRAILER_VERSION) {
+        return TFW_ERR_UNSUPPORTED;
     }
 
-    out->image_version = rd_u32(&raw[AG_BOOT_TR_IMAGE_VERSION]);
-    out->image_len     = rd_u32(&raw[AG_BOOT_TR_IMAGE_LEN]);
+    out->image_version = rd_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION]);
+    out->image_len     = rd_u32(&raw[TFW_BOOT_TR_IMAGE_LEN]);
 
     if (out->image_version == 0u) {
-        return AG_ERR_CRYPTO;
+        return TFW_ERR_CRYPTO;
     }
     /*
      * An image may not reach its own trailer.
@@ -76,47 +76,47 @@ ag_status_t ag_boot_trailer_parse(const uint8_t *raw, ag_boot_trailer_t *out)
      * way that looks like a toolchain bug. Bound it here and the failure names
      * itself.
      */
-    if (out->image_len == 0u || out->image_len > AG_BOOT_MAX_IMAGE_LEN) {
-        return AG_ERR_RANGE;
+    if (out->image_len == 0u || out->image_len > TFW_BOOT_MAX_IMAGE_LEN) {
+        return TFW_ERR_RANGE;
     }
 
-    memcpy(out->measurement, &raw[AG_BOOT_TR_MEASUREMENT], AG_BOOT_MEASURE_LEN);
-    memcpy(out->signature,   &raw[AG_BOOT_TR_SIGNATURE],   AG_BOOT_SIG_LEN);
-    return AG_OK;
+    memcpy(out->measurement, &raw[TFW_BOOT_TR_MEASUREMENT], TFW_BOOT_MEASURE_LEN);
+    memcpy(out->signature,   &raw[TFW_BOOT_TR_SIGNATURE],   TFW_BOOT_SIG_LEN);
+    return TFW_OK;
 }
 
-void ag_boot_trailer_serialise(const ag_boot_trailer_t *tr, uint8_t *raw)
+void tfw_boot_trailer_serialise(const tfw_boot_trailer_t *tr, uint8_t *raw)
 {
-    memset(raw, 0, AG_BOOT_TRAILER_LEN);
-    wr_u32(&raw[AG_BOOT_TR_MAGIC], AG_BOOT_TRAILER_MAGIC);
-    wr_u16(&raw[AG_BOOT_TR_VERSION], AG_BOOT_TRAILER_VERSION);
-    wr_u32(&raw[AG_BOOT_TR_IMAGE_VERSION], tr->image_version);
-    wr_u32(&raw[AG_BOOT_TR_IMAGE_LEN], tr->image_len);
-    memcpy(&raw[AG_BOOT_TR_MEASUREMENT], tr->measurement, AG_BOOT_MEASURE_LEN);
-    memcpy(&raw[AG_BOOT_TR_SIGNATURE], tr->signature, AG_BOOT_SIG_LEN);
+    memset(raw, 0, TFW_BOOT_TRAILER_LEN);
+    wr_u32(&raw[TFW_BOOT_TR_MAGIC], TFW_BOOT_TRAILER_MAGIC);
+    wr_u16(&raw[TFW_BOOT_TR_VERSION], TFW_BOOT_TRAILER_VERSION);
+    wr_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION], tr->image_version);
+    wr_u32(&raw[TFW_BOOT_TR_IMAGE_LEN], tr->image_len);
+    memcpy(&raw[TFW_BOOT_TR_MEASUREMENT], tr->measurement, TFW_BOOT_MEASURE_LEN);
+    memcpy(&raw[TFW_BOOT_TR_SIGNATURE], tr->signature, TFW_BOOT_SIG_LEN);
 }
 
-ag_status_t ag_boot_rollback_permit(uint32_t version, uint32_t floor)
+tfw_status_t tfw_boot_rollback_permit(uint32_t version, uint32_t floor)
 {
     /* Plain comparison, not a difference. `version - floor` on unsigned
      * arithmetic wraps for every downgrade and compares as an enormous positive
      * number, which is the classic way this check is written wrong and passes
      * its happy-path test. */
     if (version < floor) {
-        return AG_ERR_PROTECTED_REGION;
+        return TFW_ERR_PROTECTED_REGION;
     }
-    return AG_OK;
+    return TFW_OK;
 }
 
-ag_status_t ag_boot_floor_advance(uint32_t version, uint32_t floor, uint32_t *out)
+tfw_status_t tfw_boot_floor_advance(uint32_t version, uint32_t floor, uint32_t *out)
 {
     if (version <= floor) {
         *out = floor;               /* the floor never descends */
-        return AG_OK;
+        return TFW_OK;
     }
-    if ((version - floor) > (uint32_t)AG_BOOT_FLOOR_MAX_STEP) {
-        return AG_ERR_RANGE;
+    if ((version - floor) > (uint32_t)TFW_BOOT_FLOOR_MAX_STEP) {
+        return TFW_ERR_RANGE;
     }
     *out = version;
-    return AG_OK;
+    return TFW_OK;
 }

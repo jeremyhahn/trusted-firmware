@@ -28,6 +28,7 @@
 #include "boot_recovery.h"
 #include "boot_request.h"
 #include "boot_store.h"
+#include "boot_tick.h"
 #include "hal_early.h"
 #include "core/secure_zero.h"
 
@@ -153,9 +154,9 @@ int main(void)
          * so the table would read as zeros, and zero disables every bound. */
         tfw_boot_session_limits_t lim;
 
-        lim.idle_polls = TFW_BOOT_SESSION_IDLE_POLLS(F_CPU);
+        lim.idle_polls = TFW_BOOT_SESSION_IDLE_POLLS(TFW_BOOT_TICK_HZ);
         lim.idle_bytes = TFW_BOOT_SESSION_IDLE_BYTES(TFW_UART_BAUD);
-        lim.max_polls  = TFW_BOOT_SESSION_MAX_POLLS(F_CPU);
+        lim.max_polls  = TFW_BOOT_SESSION_MAX_POLLS(TFW_BOOT_TICK_HZ);
         lim.max_bytes  = TFW_BOOT_SESSION_MAX_BYTES;
         tfw_boot_session_open(&plat, &lim);
     }

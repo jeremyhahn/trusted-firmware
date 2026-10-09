@@ -6,7 +6,7 @@
  *
  * This links boot/boot_platform.c's tfw_boot_platform_parse -- the decode half
  * of the same layout tfwprov writes and the bootloader also reads -- and calls
- * it over bytes fetched with the application's own tfw_hal_eeprom_read. It does
+ * it over bytes fetched with the application's own tfw_hal_nvm_read. It does
  * not link, and has no way to reach, tfw_boot_platform_serialise: an
  * application able to write this block back would be an application able to
  * forge its own device_serial, which is the exact hole

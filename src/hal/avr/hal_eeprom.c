@@ -31,3 +31,10 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     }
     return TFW_OK;
 }
+
+/* The platform block's store is this same EEPROM, from address zero -- so not a
+ * second routine but a second name for the read above, one body at one
+ * address. A copy would be a second place for the reserved block and the
+ * EEPROM capability to start disagreeing about what a read returns. */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+    __attribute__((alias("tfw_hal_eeprom_read")));

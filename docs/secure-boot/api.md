@@ -67,8 +67,10 @@ Differences from recovery:
   be trusted to bound anything on their own; the last two are the ceiling that
   nothing resets. Defaults: `TFW_BOOT_SESSION_IDLE_SECONDS` 10 s;
   `TFW_BOOT_SESSION_MAX_SECONDS` 60 s (six idle windows);
-  `TFW_BOOT_SESSION_POLL_CYCLES` 77 cycles per iteration, measured by the simavr
-  suite, which fails if the real duration drifts; `TFW_BOOT_SESSION_MAX_BYTES`
+  the poll limits are those seconds times the boot HAL's `TFW_BOOT_TICK_HZ` --
+  on AVR `F_CPU / TFW_BOOT_POLL_CYCLES`, 77 cycles per iteration
+  (`boot/hal/avr/boot_tick.h`), measured by the simavr suite, which fails if
+  the real duration drifts; `TFW_BOOT_SESSION_MAX_BYTES`
   = application size + 10 bytes of framing per 32 data bytes + 16 + 8 KB slack
   (about 83 KB on the ATmega2560, 46 KB on the 28 KB parts).
   **Margin for a full legitimate update**, ATmega2560, 56 KB at 115200 baud,

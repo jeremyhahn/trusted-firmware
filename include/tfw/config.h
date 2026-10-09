@@ -153,45 +153,64 @@
 
 /* ---------------------------------------------------- flash geometry, for tfw-boot
  *
- * The part's total flash and the size of its boot section. A board profile
- * states both; the defaults below describe an ATmega328P with BOOTSZ at its
- * largest setting, which is what docs/security/fuses-and-lockbits.md specifies.
+ * The part's total flash, and where in it the application and tfw-boot each
+ * live: a base and a size for both regions. A board profile states them; the
+ * defaults below describe an ATmega328P with BOOTSZ at its largest setting,
+ * which is what docs/security/fuses-and-lockbits.md specifies.
  *
- * include/tfw/boot.h derives the application end, the trailer address and the
- * largest measurable image from these, so a board that changes BOOTSZ cannot
- * leave a stale application-end address behind it -- which would put the
- * trailer at an address the bootloader does not look at, and the device would
- * refuse every image with "no trailer".
+ * Base and size, not "the boot section is whatever is left at the top". That
+ * is where BOOTRST puts it on AVR, and so it is what every AVR profile says --
+ * but it is a fact about the part, and stating it in the profile keeps the
+ * shared code from depending on it. include/tfw/boot.h derives the application
+ * end, the trailer address and the largest measurable image from these, and
+ * asserts the two regions fit the part without overlapping. A stale
+ * application end would put the trailer at an address the bootloader does not
+ * look at, and the device would refuse every image with "no trailer".
  *
- * TFW_BOOT_SECTION_SIZE is BOOTSZ IN BYTES, not in words. The fuse is programmed
+ * TFW_BOOT_REGION_SIZE is BOOTSZ IN BYTES, not in words. The fuse is programmed
  * in words (2048 words on the 328P) and the datasheet tables are in words,
- * which is the one place this number is easy to state at half its value. */
+ * which is the one place this number is easy to state at half its value.
+ *
+ * TFW_OTA_PAGE_MAX is the largest flash page tfw-boot's OTA buffer holds
+ * (boot/boot_ota.h). It is a buffer size and so a RAM cost: it must be at least
+ * the part's page and a power of two, and an OTA session refuses a HAL whose
+ * page is larger. */
 #ifndef TFW_FLASH_TOTAL
 #define TFW_FLASH_TOTAL 32768uL
 #endif
-#ifndef TFW_BOOT_SECTION_SIZE
-#define TFW_BOOT_SECTION_SIZE 4096uL
+#ifndef TFW_BOOT_REGION_SIZE
+#define TFW_BOOT_REGION_SIZE 4096uL
+#endif
+#ifndef TFW_BOOT_REGION_BASE
+#define TFW_BOOT_REGION_BASE (TFW_FLASH_TOTAL - TFW_BOOT_REGION_SIZE)
+#endif
+#ifndef TFW_APP_REGION_BASE
+#define TFW_APP_REGION_BASE 0uL
+#endif
+#ifndef TFW_APP_REGION_SIZE
+#define TFW_APP_REGION_SIZE TFW_BOOT_REGION_BASE
+#endif
+#ifndef TFW_OTA_PAGE_MAX
+#define TFW_OTA_PAGE_MAX 256u
 #endif
 
 /*
  * How long tfw-boot keeps an application-requested update session open without
  * seeing the transfer make progress, before it gives up and boots the image.
  *
- * Measured in receive-loop iterations, because tfw-boot has no timer and must
- * not grow a delay: TFW_BOOT_SESSION_POLL_CYCLES is the cost of one iteration of
- * boot/recovery/recovery_ota.c with nothing received, in CPU cycles, and the
- * simavr suite (test/integration/simavr/boot_harness.c) measures the real
- * duration against this so a change to the loop that makes the number wrong
- * fails CI rather than silently stretching or shrinking the window.
+ * Counted in ticks of the boot HAL, TFW_BOOT_TICK_HZ a second (boot/boot_hal.h).
+ * tfw-boot has no timer and must not grow a delay, so on AVR its tick is one
+ * pass of boot/recovery/recovery_ota.c's receive loop with nothing received,
+ * and boot/hal/avr/boot_tick.h states what that pass costs. The simavr suite
+ * (test/integration/simavr/boot_harness.c) measures the real duration against
+ * it, so a change to the loop that makes the number wrong fails CI rather than
+ * silently stretching or shrinking the window.
  */
 #ifndef TFW_BOOT_SESSION_IDLE_SECONDS
 #define TFW_BOOT_SESSION_IDLE_SECONDS 10uL
 #endif
-#ifndef TFW_BOOT_SESSION_POLL_CYCLES
-#define TFW_BOOT_SESSION_POLL_CYCLES  77uL
-#endif
-#define TFW_BOOT_SESSION_IDLE_POLLS(f_cpu) \
-    (((uint32_t)(f_cpu) / TFW_BOOT_SESSION_POLL_CYCLES) * TFW_BOOT_SESSION_IDLE_SECONDS)
+#define TFW_BOOT_SESSION_IDLE_POLLS(tick_hz) \
+    ((uint32_t)(tick_hz) * TFW_BOOT_SESSION_IDLE_SECONDS)
 
 /* The same bound for a BUSY line: bytes, not empty polls. 8N1 is ten bits a
  * byte, so baud/10 bytes a second is the most the line can deliver and the
@@ -219,8 +238,8 @@
 #ifndef TFW_BOOT_SESSION_MAX_SECONDS
 #define TFW_BOOT_SESSION_MAX_SECONDS (6uL * TFW_BOOT_SESSION_IDLE_SECONDS)
 #endif
-#define TFW_BOOT_SESSION_MAX_POLLS(f_cpu) \
-    (((uint32_t)(f_cpu) / TFW_BOOT_SESSION_POLL_CYCLES) * TFW_BOOT_SESSION_MAX_SECONDS)
+#define TFW_BOOT_SESSION_MAX_POLLS(tick_hz) \
+    ((uint32_t)(tick_hz) * TFW_BOOT_SESSION_MAX_SECONDS)
 
 /* How many single-ended ADC channels the part has. The HAL bounds against this
  * rather than a literal 8, because a Mega has sixteen and reading channel 12 on

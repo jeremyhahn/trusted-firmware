@@ -62,6 +62,12 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *data, uint8_t le
     return TFW_OK;
 }
 
+/* The platform block's store is the same array, as it is on AVR. */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    return tfw_hal_eeprom_read(addr, buf, len);
+}
+
 static const uint8_t SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11

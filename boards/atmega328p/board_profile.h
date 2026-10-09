@@ -62,12 +62,25 @@
  * fails the build when an image exceeds it, so flash creep is caught on the
  * commit that causes it rather than the day someone tries to add a feature and
  * finds there is no room. */
-/* The part, and the slice of it BOOTSZ takes. 2048 WORDS is 4096 bytes, and the
- * fuse is programmed in words -- which is the one place this number is easy to
- * state at half its value. include/tfw/boot.h derives the application end, the
- * image trailer's address and the 4 KB gate in mk/boot.mk from these two. */
+/* The part, and how it is split between the application and tfw-boot. BOOTSZ
+ * at 2048 WORDS is 4096 bytes, and the fuse is programmed in words -- which is
+ * the one place this number is easy to state at half its value. BOOTRST
+ * enters the boot section at the TOP of flash and the reset vector is at
+ * address zero, so the application region is everything below it.
+ * include/tfw/boot.h derives the application end, the image trailer's address
+ * and the largest measurable image from these; profile.mk states BOOT_BASE
+ * for the linker, and mk/arch/avr.mk checks the two agree with the top of
+ * flash.
+ *
+ * TFW_OTA_PAGE_MAX is the OTA page buffer, not the part's page: SPM_PAGESIZE
+ * is 128 here and the buffer is sized for the 2560's 256, so every board
+ * links the same tfw-boot RAM layout (boot/boot_ota.h). */
 #define TFW_FLASH_TOTAL       32768uL
-#define TFW_BOOT_SECTION_SIZE 4096uL
+#define TFW_BOOT_REGION_SIZE  4096uL
+#define TFW_BOOT_REGION_BASE  (TFW_FLASH_TOTAL - TFW_BOOT_REGION_SIZE)
+#define TFW_APP_REGION_BASE   0uL
+#define TFW_APP_REGION_SIZE   TFW_BOOT_REGION_BASE
+#define TFW_OTA_PAGE_MAX      256u
 
 #define TFW_FLASH_BUDGET 16384u
 #define TFW_RAM_BUDGET   1024u

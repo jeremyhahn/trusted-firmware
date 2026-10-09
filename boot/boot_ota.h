@@ -58,15 +58,16 @@ typedef enum {
  *
  * Exactly one flash page, because a page is the smallest thing that can be
  * written and erasing one to write half of it would destroy the other half. The
- * buffer is sized for the largest page in the family -- 256 bytes on the Mega,
- * 128 on the 328P -- because the bootloader must link against one number and a
- * per-board buffer would be a per-board RAM budget nobody could check.
+ * buffer is TFW_OTA_PAGE_MAX bytes, from the board profile (include/tfw/config.h).
+ * Every AVR board states 256 -- the largest page in the family, the Mega's;
+ * 128 on the 328P -- because one number for the family is one tfw-boot RAM
+ * layout for it, and a per-board buffer would be a per-board RAM budget
+ * nobody could check.
  *
  * On the 328P that is 256 bytes of a 2 048-byte SRAM spent on a buffer, and it
  * is unavoidable: the alternative is a read-modify-write of each page through a
  * second buffer, which costs the same RAM and adds a failure mode.
  */
-#define TFW_OTA_PAGE_MAX 256u
 
 /* Writes one page. Supplied by the caller so this file touches no hardware:
  * the bootloader passes the flash HAL, the tests pass an array. */

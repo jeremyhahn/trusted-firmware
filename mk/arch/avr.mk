@@ -79,8 +79,17 @@ endif
 # first compile, pointing at nothing. The bootloader targets still fail for that
 # board, which is correct; they now fail on the linker script rather than on
 # every unrelated build.
+#
+# BOOT_BASE is the profile's, but on AVR it has exactly one right value: BOOTRST
+# enters the boot section at the top of flash, so the section must end there. A
+# profile that says otherwise links a bootloader the part never runs, and the
+# reset vector lands in whatever the application left at the real address --
+# refused here rather than found on a bench.
 ifneq ($(BOOT_SECTION),)
-ARCH_BOOT_TEXT_START := $(shell printf '0x%x' $$(( $(FLASH_TOTAL) - $(BOOT_SECTION) )))
+ifneq ($(shell echo $$(( $(BOOT_BASE) + $(BOOT_SECTION) ))),$(FLASH_TOTAL))
+$(error BOOT_BASE "$(BOOT_BASE)" + BOOT_SECTION $(BOOT_SECTION) is not FLASH_TOTAL $(FLASH_TOTAL): BOOTRST puts the AVR boot section at the top of flash)
+endif
+ARCH_BOOT_TEXT_START := $(shell printf '0x%x' $$(( $(BOOT_BASE) )))
 ARCH_BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
 ARCH_BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
 endif

@@ -70,9 +70,18 @@
  * twice the 328P's. The bootloader gate in mk/boot.mk follows this rather than
  * a constant, which is the whole point of keeping it here: tfw-boot has twice
  * the room on this part and the gate must say so rather than refusing an image
- * that fits. */
+ * that fits.
+ *
+ * As on the 328P, BOOTRST puts the boot section at the top of flash and the
+ * application region is everything below it, from the reset vector at zero.
+ * 256 bytes is this part's SPM_PAGESIZE and the largest page in the family,
+ * which is why it is every board's TFW_OTA_PAGE_MAX. */
 #define TFW_FLASH_TOTAL       262144uL
-#define TFW_BOOT_SECTION_SIZE 8192uL
+#define TFW_BOOT_REGION_SIZE  8192uL
+#define TFW_BOOT_REGION_BASE  (TFW_FLASH_TOTAL - TFW_BOOT_REGION_SIZE)
+#define TFW_APP_REGION_BASE   0uL
+#define TFW_APP_REGION_SIZE   TFW_BOOT_REGION_BASE
+#define TFW_OTA_PAGE_MAX      256u
 
 #define TFW_FLASH_BUDGET 65536u
 #define TFW_RAM_BUDGET   1024u

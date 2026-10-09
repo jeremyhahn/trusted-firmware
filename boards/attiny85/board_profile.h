@@ -271,7 +271,7 @@
  * There is NO BOOT SECTION. The ATtiny85 has no boot-loader section and no
  * BOOTRST fuse -- SPM works only from... nowhere an application can use it
  * safely, because there is no NRWW section to execute from during a write. So
- * tfw-boot cannot exist on this part, TFW_BOOT_SECTION_SIZE is 0, and the whole
+ * tfw-boot cannot exist on this part, TFW_BOOT_REGION_SIZE is 0, and the whole
  * 8 KB is application space.
  *
  * That also removes the software tier's key store: src/crypto/soft/uds_flash.c
@@ -279,7 +279,10 @@
  * section to put one in. It is a second, independent reason attestation is off
  * here, and it is the one that does not move with the budget. */
 #define TFW_FLASH_TOTAL       8192uL
-#define TFW_BOOT_SECTION_SIZE 0uL
+#define TFW_BOOT_REGION_SIZE  0uL
+#define TFW_BOOT_REGION_BASE  TFW_FLASH_TOTAL
+#define TFW_APP_REGION_BASE   0uL
+#define TFW_APP_REGION_SIZE   TFW_FLASH_TOTAL
 
 /* Half the flash and half the SRAM, the same rule as every other board, and
  * the same kind of gate: `make firmware` fails when an image exceeds one. On a

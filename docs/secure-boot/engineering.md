@@ -88,14 +88,15 @@ mock update fails to link, not silently):
 void        tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len);
 tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data);
 uint16_t    tfw_boot_flash_page_size(void);
-tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
-tfw_status_t tfw_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
+tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len);
+tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len);
 void        tfw_boot_uart_init(uint32_t baud);
 uint8_t     tfw_boot_uart_rx(uint8_t *out);      // never blocks
 void        tfw_boot_uart_tx(uint8_t byte);       // blocks
 void        tfw_boot_handoff_write(const uint8_t *block, uint8_t len);
 void        tfw_boot_jump_application(void);       // does not return
 void        tfw_boot_reset(void);                  // does not return
+// and TFW_BOOT_TICK_HZ, a constant from $(BOOT_HAL_DIR)/boot_tick.h
 ```
 
 Types (`boot/boot_policy.h`, `include/tfw/boot.h`, `boot/boot_ota.h`,
@@ -206,7 +207,7 @@ Selected in `mk/boot.mk`, each resolving to exactly one linked file set:
 | `BOOT_MEASURE` | `soft`, `atecc608a` | `soft` | `boot/measure/measure_{soft,atecc608a}.c` |
 | `BOOT_SIG` | `ed25519-donna`, `atecc608a` | `ed25519-donna` | `boot/verify/verify_{ed25519_donna,atecc608a}.c` |
 | `BOOT_OTA` | `0`, `1` | `1` | `recovery_ota.c` + the OTA/session sources, or `recovery_halt.c` alone |
-| `BOARD` | a `boards/*/profile.mk` name | — | `BOOT_SECTION`, `BOOT_BUDGET`, `FLASH_TOTAL`, `RAM_TOTAL`, MCU |
+| `BOARD` | a `boards/*/profile.mk` name | — | `BOOT_BASE`, `BOOT_SECTION`, `BOOT_BUDGET`, `FLASH_TOTAL`, `RAM_TOTAL`, MCU |
 
 `BOOT_BUDGET` equals `BOOT_SECTION` on every board profile
 (`boards/*/profile.mk`) — the bootloader's flash budget is the whole boot

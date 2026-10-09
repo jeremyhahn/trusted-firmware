@@ -45,6 +45,17 @@ uint16_t tfw_boot_flash_page_size(void)
     return (uint16_t)SPM_PAGESIZE;
 }
 
+/* The board profile's geometry against the part's. A page larger than the OTA
+ * buffer would have tfw_ota_init refuse every session, and an application end
+ * that is not on a page boundary would leave the last page straddling the boot
+ * section -- the write the protected-region check below then refuses, with no
+ * way to deliver a full-size image at all. */
+_Static_assert((uint32_t)SPM_PAGESIZE <= (uint32_t)TFW_OTA_PAGE_MAX,
+               "TFW_OTA_PAGE_MAX is smaller than this part's flash page");
+_Static_assert((TFW_BOOT_APP_BASE % (uint32_t)SPM_PAGESIZE) == 0u
+               && (TFW_BOOT_APP_END % (uint32_t)SPM_PAGESIZE) == 0u,
+               "the application region is not page-aligned");
+
 tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 {
     uint16_t i;
@@ -96,9 +107,10 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
     return TFW_OK;
 }
 
-/* --------------------------------------------------------------- eeprom */
+/* ------------------------------------------------------------------ nvm */
 
-tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+/* The platform block's store is the part's EEPROM, from address zero. */
+tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;
@@ -107,7 +119,7 @@ tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
     return TFW_OK;
 }
 
-tfw_status_t tfw_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;

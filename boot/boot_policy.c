@@ -82,7 +82,7 @@ tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
     /* The pinned hash comes straight from EEPROM rather than from a parsed
      * tfw_boot_platform_t, so that this function has one input -- the floor --
      * and no ordering dependency on who parsed what first. */
-    st = tfw_boot_eeprom_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    st = tfw_boot_nvm_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
     if (st != TFW_OK) {
         return st;
     }

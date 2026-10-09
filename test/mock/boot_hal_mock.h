@@ -38,7 +38,7 @@ uint32_t tfw_boot_mock_last_page_addr(void);
  * partway through a transfer, which no bench can arrange on demand. */
 void tfw_boot_mock_fail_writes(unsigned n);
 
-uint8_t *tfw_boot_mock_eeprom(void);
+uint8_t *tfw_boot_mock_nvm(void);
 
 /* The byte link, from the test's side. */
 void   tfw_boot_mock_feed_rx(const uint8_t *b, size_t n);

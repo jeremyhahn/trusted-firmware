@@ -129,7 +129,7 @@ BOOT_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                -ffile-prefix-map=$(CURDIR)=. \
                -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a \
                -I$(HAL_DIR) -Isrc/third_party/ed25519-donna \
-               -Iboot -Iboot/verify -I$(BOARD_DIR) \
+               -Iboot -Iboot/verify -I$(BOOT_HAL_DIR) -I$(BOARD_DIR) \
                -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS)
 
 # The vendored tree, built WITHOUT -Werror and without our warning set.
@@ -388,7 +388,7 @@ boot-core-size:
 	@# how many bytes the core is, and placing it at 0x7000 makes an image that
 	@# is merely too big fail to link instead of reporting its size -- which is
 	@# the one thing this target exists to do.
-	@$(ARCH_CC) -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax \
+	@$(ARCH_CC) $(ARCH_LDFLAGS) \
 	   -Wl,--defsym=tfw_boot_verify=0 -Wl,--defsym=tfw_boot_pubkey=0 \
 	   -o $(BOOT_MEAS_DIR)/core.elf $(BOOT_MEAS_DIR)/lto_*.o
 	@flash=$$($(ARCH_SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$1+$$2}'); \

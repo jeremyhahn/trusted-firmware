@@ -17,7 +17,9 @@ FLASH_TOTAL    := 262144
 RAM_TOTAL      := 8192
 
 # tfw-boot's geometry. The Mega's largest BOOTSZ is 4096 words, so 8192 bytes --
-# twice the 328P's. The gate follows the part rather than a constant.
+# twice the 328P's. The gate follows the part rather than a constant. BOOT_BASE
+# is where the linker places it: the top of flash, which mk/arch/avr.mk checks.
 BOOT_SECTION   := 8192
+BOOT_BASE      := 0x3e000
 BOOT_BUDGET    := 8192
 RAM_END        := 0x21FF

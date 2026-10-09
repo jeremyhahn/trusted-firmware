@@ -56,7 +56,8 @@ RAM_TOTAL      := 512
 BOARD_TIERS    := none
 CRYPTO         ?= none
 
-# No BOOT_SECTION, BOOT_BUDGET or RAM_END, and their absence is deliberate.
+# No BOOT_SECTION, BOOT_BASE, BOOT_BUDGET or RAM_END, and their absence is
+# deliberate.
 # tfw-boot cannot exist on this part: there is no boot-loader section, so there
 # is no read-while-write region to execute a flash write from and no lock bits
 # that would hide a UDS from the application. mk/boot.mk's BOOT_SUPPORTED list

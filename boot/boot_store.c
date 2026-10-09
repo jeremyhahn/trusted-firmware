@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The reserved-EEPROM accessors and the rollback floor.
+ * The platform-block accessors, over the boot HAL's NVM, and the rollback floor.
  *
  * Their own translation unit because BOTH the boot path and the OTA recovery
  * path need them: main() reads the floor before deciding, and the recovery
@@ -18,7 +18,7 @@ static uint8_t ee[TFW_BOOT_EE_LEN];
 
 void tfw_boot_platform_load(tfw_boot_platform_t *p, tfw_status_t *st)
 {
-    *st = tfw_boot_eeprom_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    *st = tfw_boot_nvm_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
     if (*st == TFW_OK) {
         *st = tfw_boot_platform_parse(ee, p);
     }
@@ -27,7 +27,7 @@ void tfw_boot_platform_load(tfw_boot_platform_t *p, tfw_status_t *st)
 void tfw_boot_platform_store(const tfw_boot_platform_t *p)
 {
     tfw_boot_platform_serialise(p, ee);
-    (void)tfw_boot_eeprom_write(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    (void)tfw_boot_nvm_write(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
 }
 
 /*

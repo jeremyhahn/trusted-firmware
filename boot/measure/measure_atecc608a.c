@@ -91,14 +91,14 @@ tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
      * because a second padding implementation is a second chance to disagree
      * with FIPS 180-4 about a digest a verifier will recompute. */
     while (st == TFW_OK && (len - addr) > (uint32_t)SHA_BLOCK) {
-        tfw_boot_flash_read(addr, block, SHA_BLOCK);
+        tfw_boot_flash_read(TFW_BOOT_APP_BASE + addr, block, SHA_BLOCK);
         st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_UPDATE,
                            SHA_BLOCK, block, SHA_BLOCK, 0, 0u, T_SHA);
         addr += SHA_BLOCK;
     }
     if (st == TFW_OK) {
         uint8_t tail = (uint8_t)(len - addr);
-        tfw_boot_flash_read(addr, block, tail);
+        tfw_boot_flash_read(TFW_BOOT_APP_BASE + addr, block, tail);
         st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_END, tail,
                            block, tail, out, TFW_BOOT_MEASURE_LEN, T_SHA);
     }

@@ -26,7 +26,9 @@ RAM_TOTAL      := 2560
 
 # tfw-boot's geometry. Flashing it here REPLACES Caterina, and with it the
 # 1200-baud-touch reset the avr109 programmer above depends on -- recovery then
-# needs an ISP. See board_profile.h.
+# needs an ISP. See board_profile.h. BOOT_BASE is where the linker places it:
+# the top of flash, which mk/arch/avr.mk checks.
 BOOT_SECTION   := 4096
+BOOT_BASE      := 0x7000
 BOOT_BUDGET    := 4096
 RAM_END        := 0x0AFF

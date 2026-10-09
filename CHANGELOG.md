@@ -8,6 +8,13 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- **Codex code review on the CI server** (#24). A pull request labelled
+  `code-review` is reviewed by Codex on the `codex` runner, which approves it
+  or requests changes as the `codex` user, pinned to the head commit. No
+  repository secret is involved. See `docs/development/code-review.md`.
+
 ## [0.1.0-alpha] - 2026-10-08
 
 This project continues arduino-generic `v0.7.0-alpha` (archived repository

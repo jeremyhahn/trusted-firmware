@@ -45,7 +45,7 @@ tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
         uint32_t left = len - addr;
         uint8_t  n    = (left < (uint32_t)MEASURE_CHUNK)
                       ? (uint8_t)left : (uint8_t)MEASURE_CHUNK;
-        tfw_boot_flash_read(addr, chunk, n);
+        tfw_boot_flash_read(TFW_BOOT_APP_BASE + addr, chunk, n);
         tfw_sha256_update(&ctx, chunk, n);
         addr += n;
     }

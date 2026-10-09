@@ -137,6 +137,21 @@ tfw_status_t      tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_lev
 tfw_status_t      tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
 tfw_status_t      tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
 
+/* ------------------------------------------------------------------- nvm */
+
+/* The store tfw-boot's platform block lives in (TFW_BOOT_EE_* in
+ * include/tfw/boot.h), addressed from its own zero -- the application's side of
+ * boot/boot_hal.h's tfw_boot_nvm_read. Separate from the EEPROM capability
+ * above because that is a host-visible store and this is the part's: on AVR
+ * the two are the same EEPROM and src/caps/storage.c refuses writes to the
+ * platform block's span of it, but a part without EEPROM keeps the block
+ * wherever its HAL keeps state that survives a reset.
+ *
+ * READ ONLY, on purpose. The bootloader is the block's one writer
+ * (tfw_boot_nvm_write); an application with a write half here would be one
+ * able to forge its own device_serial -- see src/core/platform_id.h. */
+tfw_status_t      tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len);
+
 /* -------------------------------------------------------------- handoff */
 
 /*

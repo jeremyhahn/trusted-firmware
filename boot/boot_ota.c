@@ -23,8 +23,9 @@ static tfw_status_t flush(tfw_ota_t *o)
     /* The page this buffer belongs to is the one ending at `received`, because
      * bytes are only ever appended in order. Computing it from `received`
      * rather than keeping a separate cursor removes the one thing that could
-     * disagree with itself. */
-    addr = (o->received - o->buf_used);
+     * disagree with itself. Offsets count from the application region's base,
+     * so that is where the page lands. */
+    addr = TFW_BOOT_APP_BASE + (o->received - o->buf_used);
 
     while (o->buf_used < o->page_size) {
         o->buf[o->buf_used++] = ERASED;
@@ -57,7 +58,7 @@ tfw_status_t tfw_ota_init(tfw_ota_t *o, tfw_ota_page_write_fn write_page,
 
 tfw_status_t tfw_ota_begin(tfw_ota_t *o, uint32_t total_len)
 {
-    if (total_len == 0u || total_len > TFW_BOOT_APP_END) {
+    if (total_len == 0u || total_len > TFW_BOOT_APP_SIZE) {
         return TFW_ERR_RANGE;
     }
     /* Shorter than a trailer means nowhere to carry a signature. Refusing here

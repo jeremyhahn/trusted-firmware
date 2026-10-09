@@ -134,9 +134,16 @@
  * here REPLACES it, and with it the 1200-baud-touch reset that avrdude's avr109
  * programmer depends on. That is a real consequence and it is why this board is
  * not the one the bootloader work targets: recovering a part whose Caterina has
- * been replaced needs an ISP, not a USB cable. */
+ * been replaced needs an ISP, not a USB cable.
+ *
+ * The split is the 328P's: boot section at the top, application from zero,
+ * and the family's one 256-byte OTA page buffer over a 128-byte SPM page. */
 #define TFW_FLASH_TOTAL       32768uL
-#define TFW_BOOT_SECTION_SIZE 4096uL
+#define TFW_BOOT_REGION_SIZE  4096uL
+#define TFW_BOOT_REGION_BASE  (TFW_FLASH_TOTAL - TFW_BOOT_REGION_SIZE)
+#define TFW_APP_REGION_BASE   0uL
+#define TFW_APP_REGION_SIZE   TFW_BOOT_REGION_BASE
+#define TFW_OTA_PAGE_MAX      256u
 
 #define TFW_FLASH_BUDGET 14336u
 #define TFW_RAM_BUDGET   1280u

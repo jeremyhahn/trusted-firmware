@@ -88,7 +88,7 @@ static void test_begin_refuses_a_partial_page_and_an_oversized_image(void)
     tfw_ota_t o;
     fresh(&o);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_ota_begin(&o, PAGE * 4u + 1u));
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_ota_begin(&o, TFW_BOOT_APP_END + PAGE));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_ota_begin(&o, TFW_BOOT_APP_SIZE + PAGE));
 }
 
 /* ------------------------------------------------------------------ data */

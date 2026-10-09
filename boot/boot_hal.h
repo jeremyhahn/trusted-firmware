@@ -54,10 +54,15 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data);
 
 uint16_t tfw_boot_flash_page_size(void);
 
-/* --------------------------------------------------------------- eeprom */
+/* ------------------------------------------------------------------ nvm */
 
-tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len);
-tfw_status_t tfw_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len);
+/* The non-volatile store the platform block (TFW_BOOT_EE_* in
+ * include/tfw/boot.h) lives in, addressed from its own zero. On AVR it is the
+ * part's EEPROM; a part without one maps it wherever its HAL keeps state that
+ * survives a reset, and nothing above this line needs to know which. A span
+ * past the end of the store is TFW_ERR_RANGE, never a partial transfer. */
+tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len);
+tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len);
 
 /* ----------------------------------------------------------------- uart */
 
@@ -83,6 +88,13 @@ void tfw_boot_handoff_write(const uint8_t *block, uint8_t len);
  * include/tfw/boot.h) and tfw-boot reads it before it writes a handoff of its own
  * over it. */
 void tfw_boot_handoff_read(uint8_t *buf, uint8_t len);
+
+/* ----------------------------------------------------------------- tick */
+
+/* TFW_BOOT_TICK_HZ: how many ticks the bootloader counts a second, from which
+ * boot/boot_main.c sets the update session's time limits (include/tfw/config.h).
+ * A constant, not a function, stated by the architecture's boot_tick.h in
+ * $(BOOT_HAL_DIR) -- boot/hal/avr/boot_tick.h says what a tick is there. */
 
 /* ---------------------------------------------------------------- control */
 

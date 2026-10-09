@@ -419,7 +419,7 @@ static int      full_end_sent;
 static void full_image_hook(unsigned empty_polls)
 {
     (void)empty_polls;
-    if (full_offset < TFW_BOOT_APP_END) {
+    if (full_offset < TFW_BOOT_APP_SIZE) {
         feed_data(full_offset, 32u);        /* the smallest chunk the ceiling assumes */
         full_offset += 32u;
     } else if (!full_end_sent) {
@@ -438,13 +438,13 @@ static void test_a_full_size_update_completes_inside_the_ceilings(void)
 
     full_offset = 0u;
     full_end_sent = 0;
-    feed_ota_begin(TFW_BOOT_APP_END);
+    feed_ota_begin(TFW_BOOT_APP_SIZE);
     tfw_boot_mock_on_rx_idle(full_image_hook);
 
     open_session(IDLE, TFW_BOOT_SESSION_IDLE_BYTES(TFW_UART_BAUD), 10000000u, max_bytes);
 
     TEST_ASSERT_EQUAL_UINT(1u, hand_overs);
-    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_APP_END / PAGE_SZ, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_APP_SIZE / PAGE_SZ, tfw_boot_mock_page_writes());
     TEST_ASSERT_TRUE(tfw_boot_mock_rx_consumed() < max_bytes);
     /* At the smallest chunk the ceiling assumes, the transfer itself fits with
      * the whole TFW_BOOT_SESSION_SLACK still unspent for retransmits and probes. */

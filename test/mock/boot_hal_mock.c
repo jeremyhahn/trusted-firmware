@@ -51,7 +51,7 @@ void tfw_boot_mock_reset(void)
 
 uint8_t *tfw_boot_mock_flash(void)     { return flash; }
 size_t   tfw_boot_mock_flash_size(void){ return sizeof flash; }
-uint8_t *tfw_boot_mock_eeprom(void)    { return eeprom; }
+uint8_t *tfw_boot_mock_nvm(void)    { return eeprom; }
 unsigned tfw_boot_mock_page_writes(void)   { return page_writes; }
 uint32_t tfw_boot_mock_last_page_addr(void){ return last_page; }
 void     tfw_boot_mock_fail_writes(unsigned n) { fail_writes = n; }
@@ -120,7 +120,7 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
     return TFW_OK;
 }
 
-tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
+tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > sizeof eeprom) {
         return TFW_ERR_RANGE;
@@ -129,7 +129,7 @@ tfw_status_t tfw_boot_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
     return TFW_OK;
 }
 
-tfw_status_t tfw_boot_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > sizeof eeprom) {
         return TFW_ERR_RANGE;

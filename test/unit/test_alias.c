@@ -61,6 +61,12 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
     return TFW_OK;
 }
 
+/* The platform block's store is the same array, as it is on AVR. */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    return tfw_hal_eeprom_read(addr, buf, len);
+}
+
 uint8_t *tfw_hal_handoff_block(void)
 {
     return test_handoff;

@@ -55,7 +55,9 @@ one line each and the alternative is a wrong pin on a bench.
 Also state, with the reasoning in a comment: `TFW_BOARD_NAME`, a unique
 `TFW_BOARD_ID`, `TFW_PIN_COUNT`, `TFW_PORT_COUNT`, `TFW_PWM_COUNT`, `TFW_ADC_COUNT`,
 `TFW_EEPROM_SIZE`, `TFW_TICK_TIMER`, `TFW_SCHED_SLOTS`, the flash and RAM budgets,
-and — for each peripheral the part has — `TFW_UART_N` with its two vector names,
+the flash geometry (`TFW_FLASH_TOTAL`, `TFW_APP_REGION_BASE`/`_SIZE`,
+`TFW_BOOT_REGION_BASE`/`_SIZE` and `TFW_OTA_PAGE_MAX`, which
+`include/tfw/boot.h` checks for overlap and fit), and — for each peripheral the part has — `TFW_UART_N` with its two vector names,
 `TFW_TONE_PIN`, and the three `TFW_SPI_BIT_*` positions. A board that states none
 of the last three is saying it has none of those peripherals, and must gate the
 matching feature off. Everything else takes its default from
@@ -127,8 +129,15 @@ CI workflow's firmware matrix is a hand list that `make ci-matrix-check` compare
 against it in both directions, so the matrix cannot queue a build that could only
 ever fail, nor leave a board unbuilt.
 
-A board with no boot section also states no `BOOT_SECTION`, `BOOT_BUDGET` or
-`RAM_END`, and does not appear in `BOOT_SUPPORTED` in `mk/boot.mk`.
+A board with a boot section states `BOOT_BASE`, the address tfw-boot links at,
+alongside `BOOT_SECTION`. It must equal `TFW_BOOT_REGION_BASE` in
+`board_profile.h`. On AVR, `mk/arch/avr.mk` also checks that `BOOT_BASE` plus
+`BOOT_SECTION` is `FLASH_TOTAL`, because BOOTRST puts the boot section at the
+top of flash.
+
+A board with no boot section also states no `BOOT_BASE`, `BOOT_SECTION`,
+`BOOT_BUDGET` or `RAM_END`, and does not appear in `BOOT_SUPPORTED` in
+`mk/boot.mk`.
 
 ## The test
 

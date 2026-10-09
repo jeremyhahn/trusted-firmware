@@ -50,8 +50,9 @@
  *     4     2  trailer_version  TFW_BOOT_TRAILER_VERSION
  *     6     2  reserved
  *     8     4  image_version    the anti-rollback security version number
- *    12     4  image_len        bytes measured, counted from address 0
- *    16    32  measurement      SHA-256 over [0, image_len) -- this is FWHash
+ *    12     4  image_len        bytes measured, counted from the region's base
+ *                               (TFW_BOOT_APP_BASE; address 0 on AVR)
+ *    16    32  measurement      SHA-256 over those bytes -- this is FWHash
  *   ----------  the signed span ends here: bytes [0, 48)
  *    48    64  signature        Ed25519 over the signed span
  *   112    16  reserved
@@ -95,10 +96,13 @@ typedef struct {
     uint8_t  signature[TFW_BOOT_SIG_LEN];
 } tfw_boot_trailer_t;
 
-/* --------------------------------------------- platform-reserved EEPROM */
+/* ------------------------------------------------ platform-reserved NVM */
 /*
- * EEPROM [0x000, 0x0C0). The region src/caps/storage.c refuses writes to, and
- * the reason that refusal is a security boundary rather than tidiness: the
+ * NVM [0x000, 0x0C0). tfw-boot reads and writes it through tfw_boot_nvm_*
+ * (boot/boot_hal.h); the application can only read it, through
+ * tfw_hal_nvm_read (include/tfw/hal.h). On AVR the NVM is the part's EEPROM,
+ * and this is the region src/caps/storage.c refuses writes to -- and the
+ * reason that refusal is a security boundary rather than tidiness: the
  * pubkey hash below IS the root of trust, and the generic EEPROM write would
  * otherwise let anyone with the serial line replace it.
  *
@@ -328,25 +332,52 @@ typedef struct {
 
 /* ------------------------------------------------------------- geometry */
 /*
- * Derived, never stated twice. A board profile gives TFW_FLASH_TOTAL and
- * TFW_BOOT_SECTION_SIZE; everything below follows, so a board that changes
- * BOOTSZ cannot leave a stale application-end address behind it.
+ * Derived, never stated twice. A board profile gives the application and boot
+ * regions as a base and a size each (include/tfw/config.h); everything below
+ * follows, so a board that changes BOOTSZ cannot leave a stale
+ * application-end address behind it.
+ *
+ * The application region starts at TFW_BOOT_APP_BASE and an image is laid out
+ * from there: the measurement and every OTA offset count from the base, and
+ * the trailer sits at the region's end. On every AVR board the base is zero,
+ * where the reset vector is.
  */
 #include "tfw/config.h"
 
-#define TFW_BOOT_APP_END      ((uint32_t)TFW_FLASH_TOTAL - (uint32_t)TFW_BOOT_SECTION_SIZE)
+#define TFW_BOOT_APP_BASE     ((uint32_t)TFW_APP_REGION_BASE)
+#define TFW_BOOT_APP_SIZE     ((uint32_t)TFW_APP_REGION_SIZE)
+#define TFW_BOOT_APP_END      (TFW_BOOT_APP_BASE + TFW_BOOT_APP_SIZE)
 #define TFW_BOOT_TRAILER_ADDR (TFW_BOOT_APP_END - (uint32_t)TFW_BOOT_TRAILER_LEN)
-#define TFW_BOOT_START        TFW_BOOT_APP_END
+#define TFW_BOOT_START        ((uint32_t)TFW_BOOT_REGION_BASE)
 
 /* The largest image the trailer may claim. An image_len that reached into the
  * trailer would let a crafted image cover its own signature with the
- * measurement, so the bound is the trailer's address and not the region's. */
-#define TFW_BOOT_MAX_IMAGE_LEN TFW_BOOT_TRAILER_ADDR
+ * measurement, so the bound is the trailer's offset and not the region's
+ * size. */
+#define TFW_BOOT_MAX_IMAGE_LEN (TFW_BOOT_TRAILER_ADDR - TFW_BOOT_APP_BASE)
+
+/* A profile whose regions do not fit the part, or overlap, would have tfw-boot
+ * accept an OTA page on top of itself: the protected-region check in the flash
+ * HAL is only as right as TFW_BOOT_APP_END. Refused here, at compile time, on
+ * every board and on the host. An empty boot region (the ATtiny85) overlaps
+ * nothing. */
+_Static_assert(TFW_APP_REGION_SIZE > TFW_BOOT_TRAILER_LEN,
+               "the application region must hold at least an image trailer");
+_Static_assert(TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE <= TFW_FLASH_TOTAL,
+               "the application region runs past the end of flash");
+_Static_assert(TFW_BOOT_REGION_BASE + TFW_BOOT_REGION_SIZE <= TFW_FLASH_TOTAL,
+               "the boot region runs past the end of flash");
+_Static_assert(TFW_BOOT_REGION_SIZE == 0u
+               || TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE <= TFW_BOOT_REGION_BASE
+               || TFW_BOOT_REGION_BASE + TFW_BOOT_REGION_SIZE <= TFW_APP_REGION_BASE,
+               "the application and boot regions overlap");
+_Static_assert(TFW_OTA_PAGE_MAX != 0u && (TFW_OTA_PAGE_MAX & (TFW_OTA_PAGE_MAX - 1u)) == 0u,
+               "TFW_OTA_PAGE_MAX must be a power of two");
 
 /*
  * The most bytes a requested update session may receive in total (see
  * include/tfw/config.h on why it is a ceiling nothing restarts). A full image
- * is TFW_BOOT_APP_END bytes. Each OTA_DATA frame carries
+ * is TFW_BOOT_APP_SIZE bytes. Each OTA_DATA frame carries
  *
  *   SOF + LEN + SEQ + OP + CRC16  =  6 bytes of framing
  *   offset                        =  4 bytes
@@ -364,8 +395,8 @@ typedef struct {
 #define TFW_BOOT_SESSION_FRAME_OVERHEAD 10uL
 #define TFW_BOOT_SESSION_SLACK          8192uL
 #define TFW_BOOT_SESSION_MAX_BYTES \
-    ((uint32_t)TFW_BOOT_APP_END \
-     + (((uint32_t)TFW_BOOT_APP_END / TFW_BOOT_SESSION_CHUNK_MIN) + 1uL) \
+    (TFW_BOOT_APP_SIZE \
+     + ((TFW_BOOT_APP_SIZE / TFW_BOOT_SESSION_CHUNK_MIN) + 1uL) \
        * TFW_BOOT_SESSION_FRAME_OVERHEAD \
      + 16uL + TFW_BOOT_SESSION_SLACK)
 

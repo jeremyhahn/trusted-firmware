@@ -14,9 +14,11 @@ RAM_TOTAL      := 2048
 
 # tfw-boot's geometry. BOOT_SECTION is BOOTSZ in BYTES (2048 words); BOOT_BUDGET
 # is the gate mk/boot.mk enforces, and it is the section size because there is
-# nowhere else for a bootloader to go. RAM_END is the last SRAM address, used to
-# place the CDI handoff block at the top of SRAM and the bootloader's stack
-# below it.
+# nowhere else for a bootloader to go. BOOT_BASE is where the linker places it --
+# TFW_BOOT_REGION_BASE in board_profile.h, the top of flash, which
+# mk/arch/avr.mk checks. RAM_END is the last SRAM address, used to place the CDI
+# handoff block at the top of SRAM and the bootloader's stack below it.
 BOOT_SECTION   := 4096
+BOOT_BASE      := 0x7000
 BOOT_BUDGET    := 4096
 RAM_END        := 0x08FF

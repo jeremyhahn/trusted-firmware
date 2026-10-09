@@ -1143,7 +1143,7 @@ static void test_requested_update_session(elf_firmware_t *boot, elf_firmware_t *
           "and CAPS is unknown, so this is the bootloader and not the application");
 
     /* Left alone it times out into the normal boot. The wait is measured: it is
-     * what TFW_BOOT_SESSION_POLL_CYCLES promises, and a loop that changed cost
+     * what TFW_BOOT_POLL_CYCLES (boot/hal/avr/boot_tick.h) promises, and a loop that changed cost
      * without the constant following would otherwise stretch or shrink it. */
     from_device_n = 0;
     elapsed = run_until_cycles(app_booted, nominal * 2u);

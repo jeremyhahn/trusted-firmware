@@ -288,6 +288,13 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     return TFW_OK;
 }
 
+/* The same array, as on AVR: the platform block sits in the EEPROM a test
+ * provisions through tfw_hal_eeprom_write or the mock's backing store. */
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    return tfw_hal_eeprom_read(addr, buf, len);
+}
+
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
     regs[p->tccra % REGS] |= (uint8_t)(1u << p->com_bit);

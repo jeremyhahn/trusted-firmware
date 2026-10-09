@@ -108,7 +108,7 @@ static void install_signed_image(uint32_t version, uint8_t body_fill)
     tfw_boot_hash(g_public, TFW_BOOT_PUBKEY_LEN, plat.pubkey_hash);
     plat.boot_state = TFW_BOOT_STATE_GOOD;
     tfw_boot_platform_serialise(&plat, ee);
-    memcpy(tfw_boot_mock_eeprom(), ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
 }
 
 void setUp(void)
@@ -257,7 +257,7 @@ static void test_a_relabelled_version_is_refused(void)
 static void test_a_public_key_the_device_does_not_pin_is_refused(void)
 {
     tfw_boot_verdict_t v;
-    uint8_t *ee = tfw_boot_mock_eeprom();
+    uint8_t *ee = tfw_boot_mock_nvm();
     uint8_t  raw[TFW_BOOT_EE_LEN];
 
     install_signed_image(3u, 0x5Au);

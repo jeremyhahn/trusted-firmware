@@ -8,8 +8,33 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+New entries go to `changelog.d/<issue>-<slug>.md`; the release step concatenates
+them into this file.
+
+## [0.2.0-alpha] - 2026-10-09
+
 ### Changed
 
+- **BREAKING: boot handoff version 3** (#10). The block keeps its layout, but
+  byte 76 now holds the abstract `tfw_reset_cause_t` instead of the raw `MCUSR`,
+  so neither side decodes a register. A version 2 block is refused rather than
+  reinterpreted. The decode lives only in `src/hal/avr/hal_reset_decode.h`.
+- **Board-driven boot geometry and NVM** (#26). A board profile states the
+  application and boot regions as a base and a size each
+  (`TFW_APP_REGION_BASE/SIZE`, `TFW_BOOT_REGION_BASE/SIZE`, `TFW_OTA_PAGE_MAX`)
+  rather than "the boot section is what is left at the top of flash";
+  `TFW_BOOT_SECTION_SIZE` is now `TFW_BOOT_REGION_SIZE`. Image measurement and
+  OTA offsets count from the application base, and `include/tfw/boot.h` asserts
+  at compile time that the regions fit the part and do not overlap.
+  - The platform-reserved EEPROM is reached through `tfw_boot_nvm_*` in tfw-boot
+    and `tfw_hal_nvm_read` in the application.
+  - The boot session idle window counts ticks of the boot HAL
+    (`TFW_BOOT_TICK_HZ`) instead of `TFW_BOOT_SESSION_POLL_CYCLES`.
+  - `mk/arch/avr.mk` refuses a profile whose `BOOT_BASE + BOOT_SECTION` is not
+    the end of flash.
+- **Arch-neutral HAL contract** (#9, #13). `tfw_pinref_t` and `tfw_pwmref_t`
+  come from the architecture's `hal_types.h`, and `tfw_hal_irq_enable()` is
+  added so core no longer assumes what unmasking interrupts means.
 - **BREAKING: wire protocol 2.0** (#12). `TFW_PROTO_VERSION_MAJOR` and the Go
   `ProtoVersionMajor` are 2 (were 1), minor 0, because of the six-byte pin page
   below: a frame an older host cannot parse is a major change.
@@ -52,6 +77,8 @@ Pre-1.0, MINOR carries breaking changes.
 
 ### Added
 
+- **Arch-leak gate** (#13). `make lint-arch-leak-selftest` is part of
+  `make ci`, so architecture-specific names cannot leak into shared code.
 - **Codex code review on the CI server** (#24). A pull request labelled
   `code-review` is reviewed by Codex on the `codex` runner, which approves it
   or requests changes as the `codex` user, pinned to the head commit. No

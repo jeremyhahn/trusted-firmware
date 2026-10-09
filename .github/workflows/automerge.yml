@@ -1,4 +1,4 @@
-# automerge v9: a PR merges itself once CI is green; a `code-review` PR also
+# automerge v10: a PR merges itself once CI is green; a `code-review` PR also
 # needs one approval from the reviewer list, by someone other than its
 # author. A restricted repository can replace that list entirely with its
 # own. PRs that are behind main land together as one merge-train PR.
@@ -120,8 +120,12 @@ on:
     # The repository's CI workflow; the documentation repos call theirs Docs.
     workflows: [CI, Docs]
     types: [completed]
+  # v10: every 30 minutes, not 10. Across the fleet the 10-minute sweep made
+  # most of the Actions queue and starved CI (dept-software#59); PR events and
+  # CI completion cover a PR becoming mergeable, and the sweep picks up
+  # approvals and merge-train races.
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/30 * * * *'
 
 # Runs queue rather than cancel, so a train is never cut off mid-landing where
 # concurrency is honoured. Gitea may not honour it: see train() for the races.

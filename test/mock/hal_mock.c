@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "hal_mock.h"
 #include "tfw/hal.h"
 #include "tfw/boot.h"
 #include "handoff.h"
-#include "reset_cause.h"
 
 #define RX_CAP 4096u
 #define TX_CAP 4096u
@@ -18,13 +19,10 @@ static uint8_t          tx[TX_CAP];
 static size_t           tx_len;
 static size_t           tx_capacity;      /* 0 = unlimited */
 static tfw_reset_cause_t cause;
-static uint16_t         free_ram;
+static uint32_t         free_ram;
 static unsigned         resets;
+static uint8_t          irq_on;
 
-/* A flat pseudo-register file covering the whole low SRAM range, indexed the
- * same way the real HAL indexes real registers. Modelling the addresses rather
- * than the pins means the mock exercises the board descriptor's arithmetic too:
- * a table with a wrong port address fails here, not only on hardware. */
 #define EEPROM_SIZE 1024u
 static uint8_t  eeprom[EEPROM_SIZE];
 static uint8_t  handoff[TFW_BOOT_HANDOFF_LEN];
@@ -41,17 +39,96 @@ static uint8_t  ow_present;
 static uint32_t last_i2c_hz;
 static uint8_t  last_spi_mode, last_spi_clkdiv, last_spi_lsb;
 
-#define REGS 256u
-static uint8_t regs[REGS];
-#define PINR(port)  regs[(port) % REGS]
-#define DDRR(port)  regs[((port) + 1u) % REGS]
-#define PORTR(port) regs[((port) + 2u) % REGS]
+/* Pin and PWM state, kept per OPAQUE KEY and not in a register file.
+ *
+ * The keys are whatever the board descriptor put in the pin and PWM references
+ * (hal_types.h): the mock tells one from another and nothing else. It does not
+ * add offsets to them, so there is no PINx/DDRx/PORTx overlay here to agree with
+ * the AVR's, and a test that passes against this mock has not leaned on one.
+ * Each port keeps the three things a pin has -- what the line is doing, which
+ * way it points, what the output latch holds -- as bit masks. Thirty-two bits
+ * wide, because the host's pin coordinate is wider than the AVR's (hal_types.h)
+ * and a bit the board table can name must reach a state that can hold it. */
+typedef struct {
+    uint16_t key;
+    uint8_t  used;
+    uint32_t line;   /* level driven onto an input by the test */
+    uint32_t dir;    /* 1 = output */
+    uint32_t latch;  /* output level, or the pull-up on an input */
+} mock_port_t;
+
+static uint32_t pin_mask(uint8_t bit) { return (uint32_t)1u << bit; }
+
+typedef struct {
+    uint16_t key;
+    uint8_t  used;
+    uint8_t  val;
+} mock_word_t;
+
+#define MOCK_SLOTS 32u
+static mock_port_t ports[MOCK_SLOTS];
+static mock_word_t pwm_ctl[MOCK_SLOTS];   /* connected bits, per control key */
+static mock_word_t pwm_duty[MOCK_SLOTS];  /* duty, per duty key */
+
+static void slot_overflow(void)
+{
+    fputs("hal_mock: more distinct pin/PWM keys than the mock tracks\n", stderr);
+    abort();
+}
+
+static mock_port_t *port_find(uint16_t key, uint8_t create)
+{
+    static mock_port_t none;
+    uint8_t i;
+
+    for (i = 0u; i < MOCK_SLOTS; i++) {
+        if (ports[i].used && ports[i].key == key) { return &ports[i]; }
+    }
+    if (!create) {
+        memset(&none, 0, sizeof none);
+        return &none;
+    }
+    for (i = 0u; i < MOCK_SLOTS; i++) {
+        if (!ports[i].used) {
+            ports[i].used = 1u;
+            ports[i].key  = key;
+            return &ports[i];
+        }
+    }
+    slot_overflow();
+    return &ports[0];
+}
+
+static mock_word_t *word_find(mock_word_t *tab, uint16_t key, uint8_t create)
+{
+    static mock_word_t none;
+    uint8_t i;
+
+    for (i = 0u; i < MOCK_SLOTS; i++) {
+        if (tab[i].used && tab[i].key == key) { return &tab[i]; }
+    }
+    if (!create) {
+        none.val = 0u;
+        return &none;
+    }
+    for (i = 0u; i < MOCK_SLOTS; i++) {
+        if (!tab[i].used) {
+            tab[i].used = 1u;
+            tab[i].key  = key;
+            return &tab[i];
+        }
+    }
+    slot_overflow();
+    return &tab[0];
+}
 
 void tfw_mock_reset(void)
 {
     now = 0u; rx_head = rx_tail = 0u; tx_len = 0u; tx_capacity = 0u;
-    cause = TFW_RESET_POWER_ON; free_ram = 1024u; resets = 0u;
-    memset(regs, 0, sizeof regs);
+    cause = TFW_RESET_POWER_ON; free_ram = 1024u; resets = 0u; irq_on = 0u;
+    memset(ports, 0, sizeof ports);
+    memset(pwm_ctl, 0, sizeof pwm_ctl);
+    memset(pwm_duty, 0, sizeof pwm_duty);
     memset(eeprom, 0xFF, sizeof eeprom);   /* erased EEPROM reads as 0xFF */
     memset(handoff, 0, sizeof handoff);    /* zeroed: reads as "no handoff" */
     memset(adc_value, 0, sizeof adc_value);
@@ -76,11 +153,14 @@ uint8_t  tfw_mock_last_spi_mode(void)    { return last_spi_mode; }
 uint8_t  tfw_mock_last_spi_clkdiv(void)  { return last_spi_clkdiv; }
 uint8_t  tfw_mock_last_spi_lsb(void)     { return last_spi_lsb; }
 
-uint8_t tfw_mock_pwm_duty(uint16_t ocr) { return regs[ocr % REGS]; }
-
-uint8_t tfw_mock_pwm_connected(uint16_t tccra, uint8_t com_bit)
+uint8_t tfw_mock_pwm_duty(uint16_t duty_key)
 {
-    return (uint8_t)((regs[tccra % REGS] & (uint8_t)(1u << com_bit)) != 0u);
+    return word_find(pwm_duty, duty_key, 0u)->val;
+}
+
+uint8_t tfw_mock_pwm_connected(uint16_t ctl_key, uint8_t bit)
+{
+    return (uint8_t)((word_find(pwm_ctl, ctl_key, 0u)->val & (uint8_t)(1u << bit)) != 0u);
 }
 
 uint16_t tfw_mock_tone_hz(void) { return tone_hz; }
@@ -107,29 +187,39 @@ uint8_t *tfw_hal_handoff_block(void) { return handoff; }
 
 uint8_t tfw_mock_pin_level(uint16_t port, uint8_t bit)
 {
-    /* An output pin's level is its PORT latch; an input's is the line. */
-    if (DDRR(port) & (uint8_t)(1u << bit)) {
-        return (uint8_t)((PORTR(port) & (uint8_t)(1u << bit)) != 0u);
+    const mock_port_t *s = port_find(port, 0u);
+    uint32_t mask = pin_mask(bit);
+
+    /* An output pin's level is its latch; an input's is the line. */
+    if (s->dir & mask) {
+        return (uint8_t)((s->latch & mask) != 0u);
     }
-    return (uint8_t)((PINR(port) & (uint8_t)(1u << bit)) != 0u);
+    return (uint8_t)((s->line & mask) != 0u);
 }
 
 uint8_t tfw_mock_pin_is_output(uint16_t port, uint8_t bit)
 {
-    return (uint8_t)((DDRR(port) & (uint8_t)(1u << bit)) != 0u);
+    return (uint8_t)((port_find(port, 0u)->dir & pin_mask(bit)) != 0u);
 }
 
 uint8_t tfw_mock_pin_pullup(uint16_t port, uint8_t bit)
 {
-    return (uint8_t)(!(DDRR(port) & (uint8_t)(1u << bit)) &&
-                     (PORTR(port) & (uint8_t)(1u << bit)));
+    const mock_port_t *s = port_find(port, 0u);
+    uint32_t mask = pin_mask(bit);
+
+    return (uint8_t)(!(s->dir & mask) && (s->latch & mask));
 }
 
 void tfw_mock_set_input_level(uint16_t port, uint8_t bit, uint8_t level)
 {
-    if (level) { PINR(port) |= (uint8_t)(1u << bit); }
-    else       { PINR(port) = (uint8_t)(PINR(port) & (uint8_t)~(1u << bit)); }
+    mock_port_t *s = port_find(port, 1u);
+    uint32_t mask = pin_mask(bit);
+
+    if (level) { s->line |= mask; }
+    else       { s->line = s->line & ~mask; }
 }
+
+uint8_t tfw_mock_irq_enabled(void) { return irq_on; }
 
 void tfw_mock_set_millis(tfw_ms_t t) { now = t; }
 void tfw_mock_advance(tfw_ms_t dt)   { now += dt; }
@@ -153,7 +243,7 @@ size_t tfw_mock_drain_tx(uint8_t *out, size_t cap)
 size_t tfw_mock_tx_pending(void)              { return tx_len; }
 void   tfw_mock_set_tx_capacity(size_t n)     { tx_capacity = n; }
 void   tfw_mock_set_reset_cause(tfw_reset_cause_t c) { cause = c; }
-void   tfw_mock_set_free_ram(uint16_t n)      { free_ram = n; }
+void   tfw_mock_set_free_ram(uint32_t n)      { free_ram = n; }
 unsigned tfw_mock_reset_count(void)           { return resets; }
 
 /* ------------------------------------------------------- the HAL itself */
@@ -164,27 +254,28 @@ tfw_status_t      tfw_hal_init(void)         { return TFW_OK; }
  * Mirrors src/hal/avr/hal_sys.c's own preference: a valid handoff (issue #18)
  * wins over whatever the test set directly with tfw_mock_set_reset_cause,
  * exactly as tfw-boot's observation wins over the application's own .init3 on
- * real hardware. Two HAL implementations of the same contract, not one
- * decoder duplicated -- tfw_reset_cause_decode is the one place the bit
- * priority lives.
+ * real hardware. The handoff already carries the abstract cause, so there is
+ * nothing to decode here.
  */
 tfw_reset_cause_t tfw_hal_reset_cause(void)
 {
     uint8_t handed_off;
 
     if (tfw_boot_handoff_reset_cause(&handed_off)) {
-        return tfw_reset_cause_decode(handed_off);
+        return (tfw_reset_cause_t)handed_off;
     }
     return cause;
 }
 tfw_ms_t          tfw_hal_millis(void)       { return now; }
 __attribute__((weak))
 void             tfw_hal_delay_us(uint16_t us) { (void)us; }
-uint16_t         tfw_hal_free_ram(void)     { return free_ram; }
+uint32_t         tfw_hal_free_ram(void)     { return free_ram; }
 
 /* On the device this never returns. Here it counts and returns, because a test
  * that could not continue past a reset could not assert anything about it. */
 void tfw_hal_reset(void) { resets++; }
+
+void tfw_hal_irq_enable(void) { irq_on = 1u; }
 
 tfw_status_t tfw_hal_uart_init(uint32_t baud) { (void)baud; return TFW_OK; }
 
@@ -215,19 +306,20 @@ uint8_t tfw_hal_uart_tx_idle(void) { return (uint8_t)(tx_len == 0u); }
 
 tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 {
-    uint8_t mask = (uint8_t)(1u << p->bit);
+    mock_port_t *s = port_find(p->port, 1u);
+    uint32_t mask = pin_mask(p->bit);
 
     switch (mode) {
     case TFW_PIN_OUTPUT:
-        DDRR(p->port) |= mask;
+        s->dir |= mask;
         return TFW_OK;
     case TFW_PIN_INPUT:
-        DDRR(p->port)  = (uint8_t)(DDRR(p->port)  & (uint8_t)~mask);
-        PORTR(p->port) = (uint8_t)(PORTR(p->port) & (uint8_t)~mask);
+        s->dir   = s->dir & ~mask;
+        s->latch = s->latch & ~mask;
         return TFW_OK;
     case TFW_PIN_INPUT_PULLUP:
-        DDRR(p->port)   = (uint8_t)(DDRR(p->port) & (uint8_t)~mask);
-        PORTR(p->port) |= mask;
+        s->dir    = s->dir & ~mask;
+        s->latch |= mask;
         return TFW_OK;
     default:
         return TFW_ERR_RANGE;
@@ -236,25 +328,23 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
 
 tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 {
-    uint8_t mask = (uint8_t)(1u << p->bit);
-    if (level) { PORTR(p->port) |= mask; }
-    else       { PORTR(p->port) = (uint8_t)(PORTR(p->port) & (uint8_t)~mask); }
+    mock_port_t *s = port_find(p->port, 1u);
+    uint32_t mask = pin_mask(p->bit);
+
+    if (level) { s->latch |= mask; }
+    else       { s->latch = s->latch & ~mask; }
     return TFW_OK;
 }
 
 tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
-    /* On real silicon PINx is the pin's SYNCHRONISER, not an input-only
-     * latch: reading it on an output pin returns the level the port is
-     * driving. A mock that returned only the externally-applied level would
+    /* On real silicon the input register is the pin's SYNCHRONISER, not an
+     * input-only latch: reading it on an output pin returns the level the port
+     * is driving. A mock that returned only the externally-applied level would
      * make read-after-write on an output fail here and work on hardware,
      * which is the worst direction for a mock to be wrong in -- it sends you
      * hunting for a firmware bug that does not exist. */
-    if (DDRR(p->port) & (uint8_t)(1u << p->bit)) {
-        *out = (uint8_t)((PORTR(p->port) & (uint8_t)(1u << p->bit)) != 0u);
-    } else {
-        *out = (uint8_t)((PINR(p->port) & (uint8_t)(1u << p->bit)) != 0u);
-    }
+    *out = tfw_mock_pin_level(p->port, p->bit);
     return TFW_OK;
 }
 
@@ -297,14 +387,16 @@ tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
 
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
-    regs[p->tccra % REGS] |= (uint8_t)(1u << p->com_bit);
-    regs[p->ocr % REGS]    = duty;
+    word_find(pwm_ctl, p->ctl, 1u)->val |= (uint8_t)(1u << p->bit);
+    word_find(pwm_duty, p->duty, 1u)->val = duty;
     return TFW_OK;
 }
 
 tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
 {
-    regs[p->tccra % REGS] = (uint8_t)(regs[p->tccra % REGS] & (uint8_t)~(1u << p->com_bit));
+    mock_word_t *w = word_find(pwm_ctl, p->ctl, 1u);
+
+    w->val = (uint8_t)(w->val & (uint8_t)~(1u << p->bit));
     return TFW_OK;
 }
 

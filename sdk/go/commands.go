@@ -18,7 +18,7 @@ import (
 const (
 	capsHeaderLen     = 14
 	capsAlgorithmsEnd = 16
-	capsPinPageLen    = 5
+	capsPinPageLen    = 6 // pin, flags, port, bit, adc, pwm (#12: was 5, port and bit packed)
 )
 
 // The other fixed reply layouts, named where the numbers would otherwise be
@@ -34,6 +34,12 @@ const (
 // after they existed does -- the same appended-tail pattern capsAlgorithmsEnd
 // uses for CAPS.
 const sysInfoErrCountersEnd = sysInfoLen + 4 // err_crc:2, err_format:2
+
+// sysInfoFreeRAM32End is where the exact free RAM ends (#12): a u32 appended
+// after the counters, because the u16 in the original position cannot describe
+// a part with more than 64 KiB. A device that sends it also saturates the u16
+// at 0xFFFF; a device that does not is complete by its own contract.
+const sysInfoFreeRAM32End = sysInfoErrCountersEnd + 4
 
 // timerMaxMillis is the longest timer the device will arm, mirroring
 // TFW_SCHED_MAX_MS.
@@ -76,7 +82,7 @@ func (d *Device) Caps(ctx context.Context) (*Caps, error) {
 		FirmwareMajor: p[2],
 		FirmwareMinor: p[3],
 		FirmwarePatch: p[4],
-		BoardID:       p[5],
+		BoardID:       BoardID(p[5]),
 		PinCount:      p[6],
 		SchedSlots:    p[7],
 		MaxPayload:    p[8],
@@ -108,14 +114,12 @@ func (d *Device) Caps(ctx context.Context) (*Caps, error) {
 
 // "There is nothing here", twice, and they are not the same shape.
 //
-// The port byte is the board descriptor's own packing: a port index in the high
-// nibble and a bit in the low. A pin with no digital port carries TFW_PORT_NONE
-// in the high nibble, so the test is on the NIBBLE, not on the whole byte --
-// A6 on an ATmega328P arrives as 0xF0, which a whole-byte comparison against
-// 0xFF reads as port 15, bit 0: a port no board has, reported as one it does.
-// A pin beyond the board is 0xFF, which the same nibble test also catches.
+// Port and bit are a whole byte each since #12 (they were nibbles of one byte,
+// capping a port at 16 bits). A pin with no digital port carries 0xFF in both,
+// which no port index can be: the old nibble test existed because 0xF0 was a
+// real encoding of A6, and that ambiguity is gone with the packing.
 const (
-	pinPortNone    = 0x0F // TFW_PORT_NONE, in the high nibble
+	pinPortNone    = 0xFF // TFW_WIRE_PORT_NONE, in the port byte and the bit byte
 	pinADCChanNone = 0xFF // TFW_ADC_NONE, a whole byte
 )
 
@@ -137,14 +141,14 @@ func (d *Device) PinInfo(ctx context.Context, pin uint8) (*PinInfo, error) {
 	p := f.Payload
 	// The pin is echoed rather than assumed, so a descriptor stays identifiable
 	// once it has been copied away from the call that asked for it.
-	info := &PinInfo{Pin: p[0], Flags: PinFlags(p[1]), PWM: PWMSupport(p[4])}
-	if p[2]>>4 != pinPortNone {
+	info := &PinInfo{Pin: p[0], Flags: PinFlags(p[1]), PWM: PWMSupport(p[5])}
+	if p[2] != pinPortNone {
 		info.HasPort = true
-		info.Port, info.Bit = p[2]>>4, p[2]&0x0F
+		info.Port, info.Bit = p[2], p[3]
 	}
-	if p[3] != pinADCChanNone {
+	if p[4] != pinADCChanNone {
 		info.HasADC = true
-		info.ADCChannel = p[3]
+		info.ADCChannel = p[4]
 	}
 	return info, nil
 }
@@ -163,7 +167,7 @@ func (d *Device) SysInfo(ctx context.Context) (*SysInfo, error) {
 		// A full 32 bits. The firmware this replaces pushed millis() through
 		// itoa() into an int and wrapped every 65 seconds.
 		Uptime:     time.Duration(binary.LittleEndian.Uint32(p[0:4])) * time.Millisecond,
-		FreeRAM:    binary.LittleEndian.Uint16(p[4:6]),
+		FreeRAM:    uint32(binary.LittleEndian.Uint16(p[4:6])),
 		ResetCause: ResetCause(p[6]),
 	}
 	// Appended, #5: a device older than this host sends exactly sysInfoLen
@@ -173,6 +177,10 @@ func (d *Device) SysInfo(ctx context.Context) (*SysInfo, error) {
 	if len(p) >= sysInfoErrCountersEnd {
 		si.ErrCRC = binary.LittleEndian.Uint16(p[sysInfoLen : sysInfoLen+2])
 		si.ErrFormat = binary.LittleEndian.Uint16(p[sysInfoLen+2 : sysInfoErrCountersEnd])
+	}
+	// Appended, #12: the exact free RAM replaces the saturated u16.
+	if len(p) >= sysInfoFreeRAM32End {
+		si.FreeRAM = binary.LittleEndian.Uint32(p[sysInfoErrCountersEnd:sysInfoFreeRAM32End])
 	}
 	return si, nil
 }

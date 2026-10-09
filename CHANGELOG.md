@@ -8,12 +8,58 @@ Pre-1.0, MINOR carries breaking changes.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: wire protocol 2.0** (#12). `TFW_PROTO_VERSION_MAJOR` and the Go
+  `ProtoVersionMajor` are 2 (were 1), minor 0, because of the six-byte pin page
+  below: a frame an older host cannot parse is a major change.
+  - Wire: CAPS board-header byte 0 is `0x02` (was `0x01`); byte 1 stays `0x00`.
+  - A 1.x host refuses this firmware, and this host refuses 1.x firmware, with
+    `ProtocolVersionError` instead of misreading the shifted pin-page fields.
+    Firmware and host must be upgraded together.
+- **BREAKING: the CAPS pin page is six bytes** (#12), so a part with 32-bit
+  ports can be described. A host built before this reads the wrong bytes.
+  - Was `[pin][flags][port<<4|bit][adc][pwm]` (5 bytes); is
+    `[pin][flags][port][bit][adc][pwm]` (6 bytes).
+  - Wire byte 2 is now the port index alone, byte 3 the bit, each a whole byte;
+    ADC channel moves from byte 3 to byte 4, PWM state from byte 4 to byte 5.
+  - "No digital port" is `0xFF` in both port and bit (was a high nibble of
+    `0x0F`).
+  - Go: `PinInfo` is unchanged in shape; `capsPinPageLen` is 6.
+  - The firmware now fills port and bit whole from the board table. The pin
+    coordinate is per-architecture (`tfw_pin_coord_t`, `TFW_PB`,
+    `TFW_PORT_NONE` in `src/hal/<arch>/hal_types.h`): the AVR keeps one byte of
+    two nibbles, and the host build and `tfwsim` store a byte each. Core no
+    longer unpacks nibbles, so a non-AVR part can report port 18 or bit 31.
+  - `tfw_board_pin_port_bit()` is removed. Its contract was the AVR's packed
+    byte, and the pin page replaces it.
+- **SYS_INFO gains an appended u32 `free_ram`** (#12). The reply is 15 bytes
+  (was 11): `[uptime:4][free_ram:2][reset_cause:1][err_crc:2][err_format:2]
+  [free_ram32:4]`.
+  - Wire bytes 11-14 are new. Bytes 0-10 keep their offsets, so a host that
+    reads only the earlier shapes still parses correctly.
+  - The u16 at bytes 4-5 is kept rather than replaced, since the issue asks
+    for an *appended* field and an older host keeps working. It now saturates at
+    `0xFFFF` instead of wrapping; `free_ram32` is exact and wins when present.
+  - `tfw_hal_free_ram()` returns `uint32_t`; the Go `SysInfo.FreeRAM` is `uint32`.
+- Vectors re-pinned in `testdata/vectors.h` and `sdk/go/internal/vectors`:
+  `TFWV_SYSINFO_WIDE_REPLY` and `TFWV_SYSINFO_BIG_REPLY` added (`NEW` and `OLD`
+  unchanged, now prefixes of the firmware's reply). `TFWV_CAPS_PROTO_REPLY`
+  (`02 00`) and `TFWV_CAPS_PIN13_REPLY` (`0d 81 00 05 ff 00`, the 328P's LED
+  pin page) added, with Go mirrors `CapsProtoReply` and `CapsPin13Reply`;
+  `scripts/verify-vectors.sh` checks they agree. No earlier vector carried the
+  version, so none changed.
+
 ### Added
 
 - **Codex code review on the CI server** (#24). A pull request labelled
   `code-review` is reviewed by Codex on the `codex` runner, which approves it
   or requests changes as the `codex` user, pinned to the head commit. No
   repository secret is involved. See `docs/development/code-review.md`.
+- Board-id registry, `docs/boards/board-id-registry.md`, with per-family ranges
+  (`0x01`-`0x3F` AVR, `0x40`-`0x7F` Cortex-M, `0x80`-`0xBF` ESP32/other), and
+  the Go `tfw.BoardID` type with `String()` and `Family()`. `Caps.BoardID` is
+  now that type; `tfwctl caps` prints the name beside the raw id.
 
 ## [0.1.0-alpha] - 2026-10-08
 

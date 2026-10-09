@@ -41,8 +41,6 @@
  * written. They exist so the linker can see a reference.
  */
 
-#include <avr/interrupt.h>
-
 #include "tfw/hal.h"
 #include "tfw/crypto.h"
 #include "tfw/config.h"
@@ -189,7 +187,7 @@ int main(void)
     tfw_crypto_init();
     tfw_sched_init();
 
-    sei();
+    tfw_hal_irq_enable();
 
     for (;;) {
         if (tfw_bench_trigger) {

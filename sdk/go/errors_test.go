@@ -100,10 +100,11 @@ func TestProtocolVersionErrorCarriesBothVersions(t *testing.T) {
 }
 
 func TestProtocolVersionErrorUnpacks(t *testing.T) {
-	var err error = &ProtocolVersionError{DeviceMajor: 2, HostMajor: ProtoVersionMajor}
+	// A 1.x device against this 2.x host: the mismatch the #12 bump exists for.
+	var err error = &ProtocolVersionError{DeviceMajor: 1, HostMajor: ProtoVersionMajor}
 	var pe *ProtocolVersionError
 	require.True(t, errors.As(err, &pe))
-	assert.Equal(t, uint8(2), pe.DeviceMajor)
+	assert.Equal(t, uint8(1), pe.DeviceMajor)
 	assert.Equal(t, ProtoVersionMajor, pe.HostMajor)
 	// It is nobody's sentinel: a version mismatch is a decision for the caller,
 	// not a category to be swept up with framing failures.

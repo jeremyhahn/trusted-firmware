@@ -28,6 +28,7 @@
 #include <stdint.h>
 #include "tfw/status.h"
 #include "tfw/types.h"
+#include "hal_types.h"   /* tfw_pinref_t, tfw_pwmref_t: the architecture's, opaque to core */
 
 /* ------------------------------------------------------------- lifecycle */
 
@@ -41,6 +42,12 @@ tfw_reset_cause_t tfw_hal_reset_cause(void);
 
 /* Does not return. */
 void             tfw_hal_reset(void);
+
+/* Unmasks interrupts. Called once, from main(), after every init that must not
+ * be interrupted half-way. The ISRs the HAL installs (the tick, the UART) are
+ * inert until this runs; nothing in core may assume interrupts are on before it
+ * or know what "on" means on this part. */
+void             tfw_hal_irq_enable(void);
 
 /* ------------------------------------------------------------------ time */
 
@@ -95,15 +102,9 @@ tfw_status_t      tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw);
 
 /* ------------------------------------------------------------ pwm / tone */
 
-/* A pin resolved to an output-compare unit, the PWM analogue of tfw_pinref_t.
- * The HAL takes this rather than a pin number for the same reason: it does no
- * lookup and is identical code on every part in the family. */
-typedef struct {
-    uint16_t tccra;    /* address of TCCRnA */
-    uint16_t ocr;      /* address of OCRnx (low byte, for a 16-bit timer) */
-    uint8_t  com_bit;  /* bit position of COMnx1 within TCCRnA */
-    uint8_t  is16;     /* the timer is 16-bit, so OCR is a word */
-} tfw_pwmref_t;
+/* tfw_pwmref_t, the PWM analogue of tfw_pinref_t, is defined by the
+ * architecture too (hal_types.h). The HAL takes it rather than a pin number for
+ * the same reason: it does no lookup. */
 
 tfw_status_t      tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty);
 tfw_status_t      tfw_hal_pwm_stop(const tfw_pwmref_t *p);
@@ -191,6 +192,6 @@ tfw_status_t      tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t l
 /* Bytes between the top of the heap and the current stack pointer. Reported by
  * SYS_INFO; a host watching it fall knows about a leak before the device dies
  * of one. */
-uint16_t         tfw_hal_free_ram(void);
+uint32_t         tfw_hal_free_ram(void);
 
 #endif /* TFW_HAL_H */

@@ -84,7 +84,7 @@ static void test_the_handoff_block_round_trips(void)
 
     memset(cdi, 0xC1, sizeof cdi);
     memset(meas, 0x7E, sizeof meas);
-    tfw_boot_handoff_build(block, TFW_CRYPTO_SECURE_ELEMENT, cdi, meas, 9u, 0x00u);
+    tfw_boot_handoff_build(block, TFW_CRYPTO_SECURE_ELEMENT, cdi, meas, 9u, TFW_RESET_UNKNOWN);
 
     TEST_ASSERT_EQUAL_INT(TFW_OK,
         tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
@@ -97,9 +97,8 @@ static void test_the_handoff_block_round_trips(void)
 
 /*
  * The reset cause round-trips too, and it is covered by the CRC -- issue #18.
- * The bit pattern here is WDRF|PORF, the same combination hal_sys.c's own
- * priority order resolves to TFW_RESET_WATCHDOG, but decoding is not this
- * file's job: it carries the raw byte and nothing more.
+ * What crosses is the abstract tfw_reset_cause_t, as its wire value -- the
+ * literal 3, not the enum's name, so a renumbering fails here.
  */
 static void test_the_reset_cause_round_trips_and_is_crc_covered(void)
 {
@@ -110,11 +109,12 @@ static void test_the_reset_cause_round_trips_and_is_crc_covered(void)
 
     memset(cdi, 0xAA, sizeof cdi);
     memset(meas, 0x55, sizeof meas);
-    tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, meas, 3u, 0x09u);
+    tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, meas, 3u, TFW_RESET_BROWNOUT);
 
+    TEST_ASSERT_EQUAL_UINT8(3u, block[TFW_BOOT_HO_RESET_CAUSE]);
     TEST_ASSERT_EQUAL_INT(TFW_OK,
         tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
-    TEST_ASSERT_EQUAL_UINT8(0x09u, cause);
+    TEST_ASSERT_EQUAL_UINT8(3u, cause);
 
     /* Corrupting the reset cause byte must be caught: version 2 widened CRC
      * coverage to include it precisely so a stack that grew one byte further
@@ -193,6 +193,28 @@ static void test_an_older_handoff_version_is_refused_not_misread(void)
         tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
 }
 
+/*
+ * Version 2 put the RAW MCUSR at offset 76; version 3 puts the abstract enum
+ * there. Same layout, different meaning, so the version byte is the only thing
+ * standing between a version 2 watchdog (0x08) and an application reporting a
+ * cause no host knows. It must be refused, never reinterpreted.
+ */
+static void test_a_version_2_raw_mcusr_block_is_refused_not_reinterpreted(void)
+{
+    uint8_t block[TFW_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], meas[32], tier, cause;
+    uint32_t ver;
+
+    memset(cdi, 1, sizeof cdi);
+    memset(meas, 2, sizeof meas);
+    tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, meas, 1u, TFW_RESET_UNKNOWN);
+    block[TFW_BOOT_HO_VERSION] = 2u;
+    block[TFW_BOOT_HO_RESET_CAUSE] = 0x08u;   /* WDRF, as v2 wrote it */
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED,
+        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+}
+
 /* The application reports the tier the BOOTLOADER observed, and a host decides
  * what evidence is worth before it accepts any. Carrying it verbatim is what
  * makes that ordering mean anything. */
@@ -224,6 +246,7 @@ int main(void)
     RUN_TEST(test_a_block_overwritten_by_the_stack_is_caught);
     RUN_TEST(test_an_unknown_handoff_version_is_refused);
     RUN_TEST(test_an_older_handoff_version_is_refused_not_misread);
+    RUN_TEST(test_a_version_2_raw_mcusr_block_is_refused_not_reinterpreted);
     RUN_TEST(test_the_tier_is_carried_verbatim);
     return UNITY_END();
 }

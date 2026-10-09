@@ -28,7 +28,7 @@ consumption is [../dice-attestation/architecture.md](../dice-attestation/archite
 | DICE layer 0 | `boot/boot_cdi.h`, `boot/tier/{cdi_soft,cdi_atecc}.c` | CDI derivation and the rollback floor's authority |
 | Reserved EEPROM | `boot/boot_platform.{c,h}`, `boot/boot_store.{c,h}` | parse/serialise and the floor's software-tier fallback |
 | Handoff | `boot/boot_handoff.c` | building/parsing the CDI block the application reads |
-| Recovery | `boot/boot_recovery.h`, `boot/recovery/{recovery_halt,recovery_ota}.c` | what runs when nothing may boot, one backend linked |
+| Recovery | `boot/boot_recovery.h`, `boot/recovery/recovery_ota.c`, `boot/hal/avr/recovery_halt.c` | what runs when nothing may boot, one backend linked |
 | OTA session | `boot/boot_ota.{c,h}`, `boot/boot_session.{c,h}` | the four-command wire protocol, linked only when `BOOT_OTA=1` |
 | HAL | `boot/boot_hal.h`, `boot/hal/avr/boot_hal_avr.c` | flash, EEPROM, UART, handoff placement, jump/reset |
 | Shared with the application | `src/crypto/sha256.c`, `src/proto/frame.c`, `src/proto/crc16.c`, `src/proto/crc16_update.c`, `src/hal/avr/hal_early.c` | one hash, one frame codec, one watchdog-disarm sequence. The application's *firmware* image links `src/hal/avr/hal_crc16.c` instead of `crc16_update.c` for the per-byte fold (#12); the bootloader does not carry that substitution, so it keeps the portable form. |

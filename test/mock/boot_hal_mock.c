@@ -27,6 +27,7 @@ static unsigned reset_calls;
 static unsigned empty_polls;
 static unsigned consumed;
 static void   (*rx_idle_hook)(unsigned);
+static tfw_reset_cause_t cause;
 
 void tfw_boot_mock_reset(void)
 {
@@ -47,6 +48,7 @@ void tfw_boot_mock_reset(void)
     empty_polls = 0u;
     consumed = 0u;
     rx_idle_hook = 0;
+    cause = TFW_RESET_UNKNOWN;
 }
 
 uint8_t *tfw_boot_mock_flash(void)     { return flash; }
@@ -173,3 +175,6 @@ void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
 
 void tfw_boot_jump_application(void) { jumped++; }
 void tfw_boot_reset(void)            { reset_calls++; }
+
+tfw_reset_cause_t tfw_boot_reset_cause(void)      { return cause; }
+void tfw_boot_mock_set_reset_cause(tfw_reset_cause_t c) { cause = c; }

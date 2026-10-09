@@ -41,7 +41,7 @@ void tfw_boot_handoff_build(uint8_t *block,
                            const uint8_t cdi[TFW_BOOT_MEASURE_LEN],
                            const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                            uint32_t image_version,
-                           uint8_t reset_cause)
+                           tfw_reset_cause_t reset_cause)
 {
     uint16_t crc;
 
@@ -52,7 +52,7 @@ void tfw_boot_handoff_build(uint8_t *block,
     memcpy(&block[TFW_BOOT_HO_CDI],         cdi,         TFW_BOOT_MEASURE_LEN);
     memcpy(&block[TFW_BOOT_HO_MEASUREMENT], measurement, TFW_BOOT_MEASURE_LEN);
     wr_u32(&block[TFW_BOOT_HO_IMAGE_VER], image_version);
-    block[TFW_BOOT_HO_RESET_CAUSE] = reset_cause;
+    block[TFW_BOOT_HO_RESET_CAUSE] = (uint8_t)reset_cause;
 
     /* Version 2 widens CRC coverage to include reset_cause and the byte beside
      * it -- see include/tfw/boot.h for why the CRC moved rather than the block

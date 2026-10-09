@@ -16,6 +16,7 @@
 #include <stdint.h>
 #include "tfw/boot.h"
 #include "tfw/status.h"
+#include "tfw/types.h"
 
 /*
  * SHA-256 over program memory [0, len).
@@ -45,17 +46,17 @@ void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASU
  * function does not take ownership of it, because a function that cleared its
  * caller's buffer would be a surprise the one time someone needed it twice.
  *
- * `reset_cause` is the raw MCUSR byte hal_early.c latched before tfw-boot's own
- * .init3 cleared it -- issue #18. It is carried verbatim, not decoded: decoding
- * belongs to src/hal/avr/hal_sys.c, which already has the priority order, and
- * a second decoder here would be a second place for that order to drift.
+ * `reset_cause` is the abstract cause the boot HAL observed before anything
+ * could clear it -- issue #18, abstracted by #10. It is carried as the enum's
+ * own value: the register it came from is the HAL's business, and the
+ * application that reads this block decodes nothing.
  */
 void tfw_boot_handoff_build(uint8_t *block,
                            uint8_t tier,
                            const uint8_t cdi[TFW_BOOT_MEASURE_LEN],
                            const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                            uint32_t image_version,
-                           uint8_t reset_cause);
+                           tfw_reset_cause_t reset_cause);
 
 /* Parses one back. The application's side of the same layout -- and the reason
  * the round trip is a test rather than an assumption. Returns TFW_ERR_CRC on a

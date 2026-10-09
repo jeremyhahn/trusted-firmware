@@ -69,8 +69,8 @@ func TestAgainstFirmwareCaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ProtoMajor != 1 {
-		t.Errorf("protocol major = %d, want 1", c.ProtoMajor)
+	if c.ProtoMajor != 2 {
+		t.Errorf("protocol major = %d, want 2", c.ProtoMajor)
 	}
 	if c.MaxPayload != MaxPayload {
 		t.Errorf("device MaxPayload = %d, host constant = %d -- the two must agree or a host will send frames the device refuses",
@@ -491,8 +491,9 @@ func TestAgainstFirmwareCapsReportsTheAlgorithmsItCanPerform(t *testing.T) {
 	}
 }
 
-// CAPS answers per-pin pages, and this is the check that the five bytes the
-// firmware writes are the five bytes this SDK reads. The board is the real
+// CAPS answers per-pin pages, and this is the check that the six bytes the
+// firmware writes are the six bytes this SDK reads (#12: port and bit a whole
+// byte each). The board is the real
 // ATmega328P table, compiled and linked into the simulator.
 func TestAgainstFirmwarePinInfo(t *testing.T) {
 	d := startSim(t)
@@ -508,8 +509,8 @@ func TestAgainstFirmwarePinInfo(t *testing.T) {
 	if !led.Flags.Has(PinDigital | PinLED) {
 		t.Errorf("pin 13 flags = %s, want digital and led", led.Flags)
 	}
-	if !led.HasPort || led.Bit != 5 {
-		t.Errorf("pin 13 = port bit %d (present %v), want PB5", led.Bit, led.HasPort)
+	if !led.HasPort || led.Port != 0 || led.Bit != 5 {
+		t.Errorf("pin 13 = port %d bit %d (present %v), want PB5", led.Port, led.Bit, led.HasPort)
 	}
 	if led.HasADC {
 		t.Error("pin 13 has no analog channel")

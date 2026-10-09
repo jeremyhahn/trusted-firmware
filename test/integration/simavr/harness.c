@@ -288,7 +288,7 @@ int main(int argc, char **argv)
     {
         int ok = exchange(0x22, TFW_CMD_CAPS, NULL, 0, &status, out, &outlen);
         check(ok && status == TFW_OK, "CAPS answers");
-        check(ok && out[0] == TFW_PROTO_VERSION_MAJOR, "CAPS reports protocol major 1");
+        check(ok && out[0] == TFW_PROTO_VERSION_MAJOR, "CAPS reports protocol major 2");
         check(ok && out[6] == 22, "CAPS reports the 328P's 22 pins");
     }
 
@@ -299,12 +299,26 @@ int main(int argc, char **argv)
         avr_cycle_count_t  before;
         int ok = exchange(0x23, TFW_CMD_SYS_INFO, NULL, 0, &status, out, &outlen);
         check(ok && status == TFW_OK, "SYS_INFO answers");
-        /* #5: err_crc and err_format are appended after reset_cause, so the
-         * reply grew from 7 bytes to 11 on real silicon, not only on the host
-         * mock, and a boot with no traffic yet has raised neither. */
-        check(ok && outlen == 11u, "SYS_INFO's reply carries the appended framer counters");
+        /* #12: the reply is 15 bytes. err_crc and err_format (bytes 7..10)
+         * follow reset_cause, and the exact u32 free_ram is appended after
+         * them at bytes 11..14. This is the length on real silicon, not only
+         * on the host mock. A boot with no traffic yet has raised no framing
+         * error. */
+        check(ok && outlen == 15u, "SYS_INFO's reply carries #12's appended u32 free_ram");
         check(ok && out[7] == 0u && out[8] == 0u && out[9] == 0u && out[10] == 0u,
               "a freshly booted device has seen no framing errors");
+        {
+            uint32_t ram16 = (uint32_t)out[4] | ((uint32_t)out[5] << 8);
+            uint32_t ram32 = (uint32_t)out[11] | ((uint32_t)out[12] << 8)
+                           | ((uint32_t)out[13] << 16) | ((uint32_t)out[14] << 24);
+
+            check(ok && outlen == 15u && ram32 != 0u,
+                  "the appended u32 free_ram is non-zero");
+            /* The u16 saturates at 0xFFFF; below that the two are equal. */
+            check(ok && outlen == 15u
+                  && ram16 == ((ram32 > 0xFFFFu) ? 0xFFFFu : ram32),
+                  "the u16 free_ram is the u32 saturated at 0xFFFF");
+        }
         t1 = (uint32_t)out[0] | ((uint32_t)out[1] << 8)
            | ((uint32_t)out[2] << 16) | ((uint32_t)out[3] << 24);
 

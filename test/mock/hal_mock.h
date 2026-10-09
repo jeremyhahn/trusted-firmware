@@ -2,7 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The host implementation of the HAL, plus the controls a test needs to drive
- * it. Linked instead of src/hal/avr; the code under test cannot tell.
+ * it. Linked instead of src/hal/avr, with test/mock/hal_types.h standing in for
+ * src/hal/avr/hal_types.h; the code under test cannot tell.
  *
  * This is test infrastructure, not a shipping port, which is why it lives under
  * test/ rather than src/hal/host/ -- src/ holds firmware and nothing else.
@@ -32,8 +33,10 @@ size_t tfw_mock_drain_tx(uint8_t *out, size_t cap);
 size_t tfw_mock_tx_pending(void);
 void   tfw_mock_set_tx_capacity(size_t n);   /* 0 = unlimited; models a full ring */
 
-/* gpio: a flat pseudo-register file, so a test can read back what the code
- * under test wrote and assert on the pin rather than on the call. */
+/* gpio: per-port state keyed by the board descriptor's opaque port value, so a
+ * test can read back what the code under test wrote and assert on the pin
+ * rather than on the call. The mock models pins, not registers: see
+ * test/mock/hal_types.h. */
 uint8_t tfw_mock_pin_level(uint16_t port, uint8_t bit);
 uint8_t tfw_mock_pin_is_output(uint16_t port, uint8_t bit);
 uint8_t tfw_mock_pin_pullup(uint16_t port, uint8_t bit);
@@ -52,9 +55,10 @@ size_t   tfw_mock_eeprom_size(void);
  * with tfw_boot_handoff_build (boot/boot_handoff.c) and copies it in here. */
 uint8_t *tfw_mock_handoff(void);
 
-/* pwm: the duty a pin was last given, and whether it is connected at all */
-uint8_t tfw_mock_pwm_duty(uint16_t ocr);
-uint8_t tfw_mock_pwm_connected(uint16_t tccra, uint8_t com_bit);
+/* pwm: the duty a pin was last given, and whether it is connected at all. The
+ * arguments are the board descriptor's opaque duty and control keys. */
+uint8_t tfw_mock_pwm_duty(uint16_t duty_key);
+uint8_t tfw_mock_pwm_connected(uint16_t ctl_key, uint8_t bit);
 uint16_t tfw_mock_tone_hz(void);
 
 /* pulse: the intervals the next capture will report */
@@ -78,7 +82,8 @@ uint8_t  tfw_mock_last_spi_lsb(void);
 
 /* system */
 void   tfw_mock_set_reset_cause(tfw_reset_cause_t c);
-void   tfw_mock_set_free_ram(uint16_t n);
+void   tfw_mock_set_free_ram(uint32_t n);
 unsigned tfw_mock_reset_count(void);         /* how often tfw_hal_reset() was called */
+uint8_t  tfw_mock_irq_enabled(void);         /* 1 once tfw_hal_irq_enable() was called */
 
 #endif /* TFW_HAL_MOCK_H */

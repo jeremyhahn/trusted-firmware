@@ -171,7 +171,7 @@ All in `include/tfw/config.h`, resolved `-D` > board profile > default:
 | `TFW_MAX_FRAME` (derived) | `TFW_MAX_LEN + 4` | largest frame on the wire |
 | `TFW_FRAME_IDLE_MS` | 250 | how long a partial frame may sit before the framer abandons it |
 | `TFW_UART_BAUD` | 115200 | matched by `serialport.DefaultBaud` in the Go SDK |
-| `TFW_PROTO_VERSION_MAJOR` / `_MINOR` | 1 / 0 | rejected on major mismatch, tolerated in both directions on minor |
+| `TFW_PROTO_VERSION_MAJOR` / `_MINOR` | 2 / 0 (2.0 since #12's six-byte pin page) | rejected on major mismatch, tolerated in both directions on minor |
 | `TFW_I2C_DEFAULT_HZ` | 100000 | `tfw_bus_init()`'s boot-time I2C clock |
 | `TFW_I2C_HZ_MIN` / `_MAX` | 1000 / 400000 | `I2C_CONFIG`'s accepted interval, capped at Fast-mode |
 | `TFW_SPI_DEFAULT_MODE` / `_CLKDIV` / `_LSB_FIRST` | 0 / 3 / 0 | `tfw_bus_init()`'s boot-time SPI mode 0, slowest divider, MSB-first |

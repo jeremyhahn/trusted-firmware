@@ -88,6 +88,12 @@ Two flags deserve care because the difference is reported to hosts:
   input, which can be read and never written. The 328P's A6 and A7 are the only
   instance in the tree.
 
+A pin's coordinate is written `TFW_PB(port, bit)` and never packed by hand: the
+macro, `TFW_PORT_NONE` and the coordinate type behind them are the
+architecture's (`src/hal/<arch>/hal_types.h`). On the AVR they pack into one
+byte of two nibbles; another architecture may store a wider coordinate, and the
+same row compiles against either.
+
 **`TFW_PWM_COUNT` may be 0**, and then `tfw_board_pwms` is an empty array and the
 third `_Static_assert` pins the count rather than the row count. Every pin that
 has a compare unit is then `TFW_PWM_RSVD`: on a board with no PWM at all, telling

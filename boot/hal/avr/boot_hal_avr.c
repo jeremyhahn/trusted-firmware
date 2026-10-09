@@ -19,6 +19,7 @@
 #include "tfw/boot.h"
 #include "../../boot_hal.h"
 #include "avr_usart_regs.h"
+#include "hal_early.h"   /* the latch and its decode: the architecture's, not boot_hal.h's */
 
 /* ---------------------------------------------------------------- flash */
 
@@ -261,4 +262,15 @@ void tfw_boot_reset(void)
     WDTCSR = (uint8_t)(_BV(WDCE) | _BV(WDE));
     WDTCSR = (uint8_t)_BV(WDE);
     for (;;) { }
+}
+
+/*
+ * hal_early.c's latch of MCUSR, decoded there -- the same code, in the same
+ * three-instruction neighbourhood, the application's HAL reads. It is the
+ * latch and not a fresh read of the register because .init3 has already
+ * cleared MCUSR by the time main() can ask.
+ */
+tfw_reset_cause_t tfw_boot_reset_cause(void)
+{
+    return tfw_hal_early_reset_cause();
 }

@@ -72,20 +72,45 @@ HMAC-SHA256. **Not** the same numbering as the `AlgID` byte inside an
 attestation frame (`0x01`, `0x02`, `0x10` — sparse, to leave room below
 `0x10` for future asymmetric algorithms).
 
-**Pin descriptor** response (request carries a one-byte pin index), 5 bytes:
+**Pin descriptor** response (request carries a one-byte pin index), 6 bytes
+(#12; was 5, with port and bit packed into one byte as two nibbles):
 
 ```
 off  size  field
  0    1    PIN        echoed
  1    1    FLAGS      DIGITAL 0x01, PWM 0x02, ADC 0x04, RESERVED 0x20, IN_USE 0x40, LED 0x80
- 2    1    PORT_BIT   port in the high nibble, bit in the low; high nibble 0x0F = no digital port
- 3    1    ADC_CH     ADC channel, or 0xFF
- 4    1    PWM        0 no compare unit; 1 available; 2 spent on the millisecond tick
+ 2    1    PORT       port index; 0xFF = no digital port
+ 3    1    BIT        bit within the port, 0..255; 0xFF when PORT is 0xFF
+ 4    1    ADC_CH     ADC channel, or 0xFF
+ 5    1    PWM        0 no compare unit; 1 available; 2 spent on the millisecond tick
 ```
+
+Port and bit are a whole byte each so a part with 32-bit ports (Cortex-M) fits.
+How the board table stores a pin's coordinate is the architecture's
+(`tfw_pin_coord_t` in `src/hal/<arch>/hal_types.h`): the AVR keeps one byte of
+two nibbles, since its ports and bits fit, and the host build (`tfwsim`) stores
+a whole byte of each. Core reads the coordinate only through the architecture's
+accessors, so the page carries whatever the architecture stores, untruncated.
+
+The board id (header offset 5) is allocated per architecture family:
+[`../boards/board-id-registry.md`](../boards/board-id-registry.md).
 
 Both major and minor of the reported proto version are checked by a host: a
 major mismatch is refused (`ProtocolVersionError` in the Go SDK), minor is
 tolerated in either direction.
+
+The current version is **2.0**. History:
+
+| version | change | wire bytes |
+|---|---|---|
+| 1.0 | initial | header bytes 0-1 `01 00`; five-byte pin page `[pin][flags][port<<4\|bit][adc][pwm]` |
+| 2.0 (#12) | six-byte pin page, port and bit a whole byte each | header bytes 0-1 `02 00`; pin-page byte 2 is the port alone, byte 3 the bit, ADC moves from byte 3 to 4, PWM state from 4 to 5; "no port" is `FF FF` (was a high nibble of `0x0F`) |
+
+A 1.x host reading a 2.0 pin page would take the bit for the ADC channel and
+the ADC channel for the PWM state, which is why this is a major and not a
+minor: a 2.x host and 1.x firmware, or the reverse, refuse each other at CAPS.
+Pinned as `TFWV_CAPS_PROTO_REPLY` and `TFWV_CAPS_PIN13_REPLY` in
+`testdata/vectors.h` and their Go mirrors.
 
 ## Command table
 
@@ -98,7 +123,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x00 | `CAPS` | always | `[]` or `[pin:1]` | board header or pin descriptor, above |
 | 0x01 | `PING` | always | `bytes[0..MaxPayload]` | the same bytes, echoed |
 | 0x02 | `RESET` | always | `[mode:1]` (0 soft, 1 bootloader) | none; device acks, drains, then restarts. Mode 0 restarts the application. Mode 1 restarts into tfw-boot's OTA session (see below). Mode 1 requires the operator auth session (`TFW_ERR_AUTH_REQUIRED` without one) on the element tier; soft and `CRYPTO=none` builds link the permissive gate and need none. On a board with no boot section (ATtiny85) mode 1 is refused with `TFW_ERR_UNSUPPORTED` and nothing resets, so the host is told rather than silently handed the application. Any other mode is `TFW_ERR_RANGE` |
-| 0x03 | `SYS_INFO` | always | `[]` | `[uptime_ms:4][free_ram:2][reset_cause:1][err_crc:2][err_format:2]` -- the last four bytes are appended (#5); a host that knows only the first seven still parses correctly |
+| 0x03 | `SYS_INFO` | always | `[]` | `[uptime_ms:4][free_ram:2][reset_cause:1][err_crc:2][err_format:2][free_ram32:4]` -- the last four bytes of the counters are appended (#5) and `free_ram32` after them (#12); a host that knows only the first seven still parses correctly. `free_ram` saturates at 0xFFFF; `free_ram32` is exact and wins when present |
 | 0x04 | `WDT_SET` | **reserved, no handler in any build** | — | `TFW_ERR_UNKNOWN_CMD` |
 | 0x05 | `SLEEP` | **reserved, no handler in any build** | — | `TFW_ERR_UNKNOWN_CMD` |
 | 0x10 | `PIN_MODE` | `TFW_FEATURE_GPIO` | `[pin:1][mode:1]` (0 in, 1 out, 2 input-pullup) | none |

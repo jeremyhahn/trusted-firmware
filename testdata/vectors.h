@@ -109,6 +109,35 @@
 #define TFWV_SYSINFO_NEW_REPLY     "\x78\x56\x34\x12\x21\x03\x04\x05\x00\x07\x00"
 #define TFWV_SYSINFO_NEW_REPLY_LEN 11u
 
+/* #12: free_ram widened by APPENDING a u32 after err_format; the u16 stays where
+ * it was, saturating at 0xFFFF. WIDE is what the firmware sends today and
+ * begins with NEW, byte for byte: free_ram=0x00000321 appended.
+ *
+ * BIG is the case the widening exists for: free_ram=0x00012345, which the u16
+ * cannot hold and so reads 0xFFFF there, with the exact value in the tail. */
+#define TFWV_SYSINFO_WIDE_REPLY "\x78\x56\x34\x12\x21\x03\x04\x05\x00\x07\x00\x21\x03\x00\x00"
+#define TFWV_SYSINFO_WIDE_REPLY_LEN 15u
+
+#define TFWV_SYSINFO_BIG_REPLY "\x78\x56\x34\x12\xff\xff\x04\x05\x00\x07\x00\x45\x23\x01\x00"
+#define TFWV_SYSINFO_BIG_REPLY_LEN 15u
+
+/* ------------------------------------------------------------------ CAPS -- */
+/* #12 made the pin page six bytes and so bumped the protocol to 2.0: a 1.x host
+ * reading the page would take the bit for the ADC channel and the ADC channel
+ * for the PWM state. Both are pinned here as literal wire bytes.
+ *
+ * PROTO is the board header's first two bytes, major then minor. A host refuses
+ * a device whose major differs from its own, so this pair is what turns the
+ * page's layout change into a refusal rather than a misread.
+ *
+ * PIN13 is the 328P's pin page for its LED: pin 13, flags DIGITAL|LED (0x81),
+ * port 0 (PORTB), bit 5, no ADC channel, no compare unit. */
+#define TFWV_CAPS_PROTO_REPLY     "\x02\x00"
+#define TFWV_CAPS_PROTO_REPLY_LEN 2u
+
+#define TFWV_CAPS_PIN13_REPLY     "\x0d\x81\x00\x05\xff\x00"
+#define TFWV_CAPS_PIN13_REPLY_LEN 6u
+
 /* ------------------------------------------------------------ wire frames */
 /* One full encoded request -- SOF through CRC16 -- for I2C_CONFIG and
  * SPI_CONFIG (issue #21), each at a fixed SEQ and payload. Produced once by

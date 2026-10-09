@@ -65,6 +65,10 @@ const uint8_t *tfw_boot_mock_handoff(void);
  * leaves them before a reset. */
 void tfw_boot_mock_set_handoff(const uint8_t *b, size_t n);
 
+/* What tfw_boot_reset_cause() reports. Cleared to TFW_RESET_UNKNOWN by
+ * tfw_boot_mock_reset(). */
+void tfw_boot_mock_set_reset_cause(tfw_reset_cause_t c);
+
 /* Whether the bootloader jumped or reset, since neither can actually happen on
  * the host and a test must be able to tell which it asked for. */
 unsigned tfw_boot_mock_jumped(void);

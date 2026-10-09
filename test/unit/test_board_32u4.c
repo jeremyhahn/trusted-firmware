@@ -232,20 +232,20 @@ static void test_pwm_pins_resolve_to_their_own_compare_unit(void)
     tfw_pwmref_t r;
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(9u, &r));
-    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR1A, r.tccra);
-    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR1AL, r.ocr);
-    TEST_ASSERT_EQUAL_UINT8(COM1A1_BIT, r.com_bit);
-    TEST_ASSERT_TRUE(r.is16);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR1A, r.ctl);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR1AL, r.duty);
+    TEST_ASSERT_EQUAL_UINT8(COM1A1_BIT, r.bit);
+    TEST_ASSERT_TRUE(r.wide);
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(10u, &r));
-    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR1A, r.tccra);
-    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR1BL, r.ocr);
-    TEST_ASSERT_EQUAL_UINT8(COM1B1_BIT, r.com_bit);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR1A, r.ctl);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR1BL, r.duty);
+    TEST_ASSERT_EQUAL_UINT8(COM1B1_BIT, r.bit);
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(5u, &r));
-    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR3A, r.tccra);
-    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR3AL, r.ocr);
-    TEST_ASSERT_EQUAL_UINT8(COM3A1_BIT, r.com_bit);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_TCCR3A, r.ctl);
+    TEST_ASSERT_EQUAL_HEX16(TFW_ADDR_OCR3AL, r.duty);
+    TEST_ASSERT_EQUAL_UINT8(COM3A1_BIT, r.bit);
 }
 
 /* Pins 0 and 1 are the UART this firmware is talking over -- USART1 on PD2 and

@@ -9,8 +9,8 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 #include "hal_early.h"
+#include "hal_reset_decode.h"
 #include "../../core/handoff.h"
-#include "../../core/reset_cause.h"
 
 extern int  __heap_start;
 extern int *__brkval;
@@ -19,15 +19,6 @@ extern int *__brkval;
  * Sharing it rather than keeping a copy here is what makes "clear MCUSR and
  * disarm the watchdog" one sequence in the tree instead of two that can drift.
  * See that file for why those three instructions cannot happen later. */
-
-/* The bit positions tfw_reset_cause_decode assumes, pinned against avr-libc --
- * the same arrangement each board's board_profile.h uses for register
- * addresses, so a transposed bit is a compile error naming the constant
- * rather than a silently wrong decode. */
-_Static_assert(TFW_MCUSR_PORF  == _BV(PORF),  "PORF bit position");
-_Static_assert(TFW_MCUSR_EXTRF == _BV(EXTRF), "EXTRF bit position");
-_Static_assert(TFW_MCUSR_BORF  == _BV(BORF),  "BORF bit position");
-_Static_assert(TFW_MCUSR_WDRF  == _BV(WDRF),  "WDRF bit position");
 
 tfw_status_t tfw_hal_init(void)
 {
@@ -43,20 +34,21 @@ tfw_reset_cause_t tfw_hal_reset_cause(void)
     uint8_t handed_off;
 
     /*
-     * tfw-boot's handoff carries the MCUSR IT saw, latched before ITS OWN
+     * tfw-boot's handoff carries the (already decoded) cause IT saw, latched before ITS OWN
      * .init3 cleared the register -- issue #18. Preferred when a valid
      * handoff exists, because by the time this runs OUR OWN .init3 has
      * already read MCUSR a second time and found it clear: whatever ran
      * before us -- tfw-boot, or a stock bootloader with no handoff at all --
-     * got there first. Falling back to tfw_hal_early_flags is exactly what a
+     * got there first. Falling back to our own latch (decoded inline: the application has no use for the
+     * out-of-line copy in hal_early.c, which only tfw-boot links in) is exactly what a
      * stock bootloader's case needs: no handoff exists, MCUSR was already
      * zero by the time even OUR .init3 ran, and TFW_RESET_UNKNOWN is the
      * honest answer -- see docs/device-capabilities/.
      */
     if (tfw_boot_handoff_reset_cause(&handed_off)) {
-        return tfw_reset_cause_decode(handed_off);
+        return (tfw_reset_cause_t)handed_off;
     }
-    return tfw_reset_cause_decode(tfw_hal_early_flags);
+    return tfw_avr_reset_decode(tfw_hal_early_flags);
 }
 
 /*
@@ -72,6 +64,11 @@ void tfw_hal_reset(void)
     cli();
     wdt_enable(WDTO_15MS);
     for (;;) { }
+}
+
+void tfw_hal_irq_enable(void)
+{
+    sei();
 }
 
 void tfw_hal_delay_us(uint16_t us)
@@ -92,9 +89,11 @@ void tfw_hal_delay_us(uint16_t us)
  * .bss, and .noinit holds live state (the reset-cause latch hal_early.c writes
  * in .init3), so __bss_end would count occupied bytes as free.
  */
-uint16_t tfw_hal_free_ram(void)
+uint32_t tfw_hal_free_ram(void)
 {
     int marker;
     int top = (__brkval == 0) ? (int)&__heap_start : (int)__brkval;
+    /* int is 16 bits here, so the difference is already the whole answer; the
+     * u32 return is the contract's width, for parts with more than 64 KiB. */
     return (uint16_t)((int)&marker - top);
 }

@@ -20,7 +20,7 @@
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
 
-#include "../boot_recovery.h"
+#include "../../boot_recovery.h"
 
 /* No loop to open a session in: the request is spent by the caller and this
  * returns at once, so the device boots its image. */

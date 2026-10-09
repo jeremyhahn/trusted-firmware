@@ -11,7 +11,6 @@
 #include "tfw/config.h"
 #include "vectors.h"
 #include "tfw/boot.h"
-#include "reset_cause.h"
 #include "auth_session.h"
 #include "boot_request.h"
 
@@ -114,10 +113,22 @@ static void test_caps_reports_the_protocol_version_and_feature_bitmap(void)
     TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_CAPS, 0, 0u));
     TEST_ASSERT_EQUAL_HEX8(TFW_PROTO_VERSION_MAJOR, outbuf[0]);
     TEST_ASSERT_EQUAL_HEX8(TFW_PROTO_VERSION_MINOR, outbuf[1]);
+    /* and those are the literal bytes the SDK refuses any other major against */
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_CAPS_PROTO_REPLY, outbuf,
+                                  TFWV_CAPS_PROTO_REPLY_LEN);
     /* the feature bitmap is the last four bytes, little-endian */
     uint32_t feats = (uint32_t)outbuf[10] | ((uint32_t)outbuf[11] << 8)
                    | ((uint32_t)outbuf[12] << 16) | ((uint32_t)outbuf[13] << 24);
     TEST_ASSERT_EQUAL_HEX32(TFW_FEATURE_BITMAP, feats);
+}
+
+/* The six-byte pin page (#12), against the literal the SDK parses. */
+static void test_caps_pin_page_is_the_six_byte_wire_vector(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_CAPS, (const uint8_t *)"\x0d", 1u));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_CAPS_PIN13_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_CAPS_PIN13_REPLY, outbuf,
+                                  TFWV_CAPS_PIN13_REPLY_LEN);
 }
 
 /* CAPS must report what was COMPILED IN. If this ever drifts from the gates in
@@ -168,7 +179,7 @@ static void test_reset_rejects_an_unknown_mode(void)
 
 static uint8_t request_armed(void)
 {
-    return tfw_boot_request_valid(tfw_mock_handoff(), TFW_MCUSR_WDRF);
+    return tfw_boot_request_valid(tfw_mock_handoff(), TFW_RESET_WATCHDOG);
 }
 
 /* The request is what makes mode 1 mean something: tfw-boot reads it after the
@@ -260,9 +271,28 @@ static void test_sys_info_appends_the_framer_error_counters(void)
     tfw_sys_set_framer_errors(5u, 7u);
 
     TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_SYS_INFO, 0, 0u));
-    TEST_ASSERT_EQUAL_UINT8(TFWV_SYSINFO_NEW_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_SYSINFO_WIDE_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_SYSINFO_WIDE_REPLY, outbuf,
+                                  TFWV_SYSINFO_WIDE_REPLY_LEN);
+    /* #12 appended free_ram's u32 after these, so the reply a host built for #5
+     * reads is still its prefix. */
     TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_SYSINFO_NEW_REPLY, outbuf,
                                   TFWV_SYSINFO_NEW_REPLY_LEN);
+}
+
+/* #12: a free_ram the u16 cannot hold saturates there and arrives exact in the
+ * appended u32. Wrapping would hand an older host a small, wrong number. */
+static void test_sys_info_widens_free_ram_by_appending_a_u32(void)
+{
+    tfw_mock_set_millis(0x12345678u);
+    tfw_mock_set_free_ram(0x00012345u);
+    tfw_mock_set_reset_cause(TFW_RESET_WATCHDOG);
+    tfw_sys_set_framer_errors(5u, 7u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_SYS_INFO, 0, 0u));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_SYSINFO_BIG_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_SYSINFO_BIG_REPLY, outbuf,
+                                  TFWV_SYSINFO_BIG_REPLY_LEN);
 }
 
 /* A device that has seen no framing errors reports zero rather than something
@@ -312,6 +342,7 @@ int main(void)
     RUN_TEST(test_ping_echoes_its_payload);
     RUN_TEST(test_ping_with_no_payload_replies_with_no_payload);
     RUN_TEST(test_caps_reports_the_protocol_version_and_feature_bitmap);
+    RUN_TEST(test_caps_pin_page_is_the_six_byte_wire_vector);
     RUN_TEST(test_caps_agrees_with_the_dispatch_table_about_attestation);
     RUN_TEST(test_reset_defers_until_the_link_is_idle);
     RUN_TEST(test_reset_does_not_fire_while_the_response_is_still_draining);
@@ -323,6 +354,7 @@ int main(void)
     RUN_TEST(test_no_request_is_left_while_the_response_is_draining);
     RUN_TEST(test_a_refused_reset_leaves_no_request);
     RUN_TEST(test_sys_info_reports_uptime_free_ram_and_reset_cause);
+    RUN_TEST(test_sys_info_widens_free_ram_by_appending_a_u32);
     RUN_TEST(test_sys_info_appends_the_framer_error_counters);
     RUN_TEST(test_sys_info_reports_zero_counters_when_nothing_has_gone_wrong);
     RUN_TEST(test_sys_info_does_not_truncate_saturated_counters);

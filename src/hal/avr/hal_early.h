@@ -11,9 +11,15 @@
 #define TFW_HAL_EARLY_H
 
 #include <stdint.h>
+#include "tfw/types.h"
 
 /* MCUSR as it was at reset, latched and then cleared. Not valid before .init3,
- * which is to say not at any point a caller can observe. */
+ * which is to say not at any point a caller can observe. Callers want the
+ * decoded cause below, not this register image. */
 extern uint8_t tfw_hal_early_flags;
+
+/* The latched MCUSR, decoded -- the one place either image turns the register
+ * into the architecture-neutral enum. See hal_reset_decode.h. */
+tfw_reset_cause_t tfw_hal_early_reset_cause(void);
 
 #endif /* TFW_HAL_EARLY_H */

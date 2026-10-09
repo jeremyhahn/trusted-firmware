@@ -19,7 +19,7 @@ writer over the frame payload (`src/core/reader.h`, `src/core/writer.h`).
 | `src/caps/pulse.h` | `tfw_pulse_cmd_in`, `tfw_pulse_cmd_capture` | one pulse width; edge-interval capture |
 | `src/caps/storage.h` | `tfw_storage_cmd_read`, `tfw_storage_cmd_write` | EEPROM read/write |
 | `src/caps/bus.h` | `tfw_i2c_cmd_xfer`, `tfw_i2c_cmd_config`, `tfw_spi_cmd_xfer`, `tfw_spi_cmd_config`, `tfw_ow_cmd_reset`, `_write`, `_read`; `tfw_bus_init` | I2C, SPI, 1-Wire; `tfw_bus_init` applies the boot defaults, called once from `main.c` |
-| `include/tfw/board.h` | `tfw_board_pin`, `tfw_board_adc_channel`, `tfw_board_pwm`, `tfw_board_pin_port_bit`, `tfw_board_pin_pwm_state`, `tfw_board_pin_flags`, `tfw_board_pin_count`, `tfw_board_name` | resolve a logical pin; consulted by every handler above before touching hardware |
+| `include/tfw/board.h` | `tfw_board_pin`, `tfw_board_adc_channel`, `tfw_board_pwm`, `tfw_board_pin_page`, `tfw_board_pin_pwm_state`, `tfw_board_pin_flags`, `tfw_board_pin_count`, `tfw_board_name` | resolve a logical pin; consulted by every handler above before touching hardware |
 | `include/tfw/hal.h` | `tfw_hal_gpio_*`, `tfw_hal_adc_*`, `tfw_hal_pwm_*`, `tfw_hal_tone_*`, `tfw_hal_pulse_*`, `tfw_hal_eeprom_*`, `tfw_hal_i2c_init`, `tfw_hal_i2c_xfer`, `tfw_hal_spi_init`, `tfw_hal_spi_xfer`, `tfw_hal_ow_*` | one implementation linked per image: `src/hal/avr/*.c` for the device, `test/mock/hal_mock.c` for the host |
 
 Go SDK (`sdk/go/commands.go`) mirrors this 1:1 as `(*Device)` methods —

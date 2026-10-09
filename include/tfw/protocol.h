@@ -59,8 +59,12 @@
 
 /* Major changes when a frame cannot be parsed by an older host; minor when
  * fields are added that an older host can ignore. Hosts accept an equal major
- * and any minor at or above their own, so a fleet may run mixed firmware. */
-#define TFW_PROTO_VERSION_MAJOR 1u
+ * and any minor at or above their own, so a fleet may run mixed firmware.
+ *
+ * 2.0 (#12): the CAPS pin page went from five bytes to six, port and bit each a
+ * whole byte, which shifted the ADC and PWM fields. A 1.x host would misread
+ * them, so it must refuse a 2.x device rather than parse it. */
+#define TFW_PROTO_VERSION_MAJOR 2u
 #define TFW_PROTO_VERSION_MINOR 0u
 
 /* ------------------------------------------------------------- command ids */

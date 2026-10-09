@@ -152,7 +152,7 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 			var b strings.Builder
 			fmt.Fprintf(&b, "protocol    %d.%d\n", c.ProtoMajor, c.ProtoMinor)
 			fmt.Fprintf(&b, "firmware    %d.%d.%d\n", c.FirmwareMajor, c.FirmwareMinor, c.FirmwarePatch)
-			fmt.Fprintf(&b, "board id    0x%02x\n", c.BoardID)
+			fmt.Fprintf(&b, "board id    0x%02x (%s)\n", uint8(c.BoardID), c.BoardID)
 			fmt.Fprintf(&b, "pins        %d\n", c.PinCount)
 			fmt.Fprintf(&b, "sched slots %d\n", c.SchedSlots)
 			fmt.Fprintf(&b, "max payload %d\n", c.MaxPayload)

@@ -30,7 +30,7 @@
  * of CAPS/PING/SYS_INFO is exercised; sys.c still references them at link
  * time. */
 tfw_ms_t     tfw_hal_millis(void)              { return 0u; }
-uint16_t    tfw_hal_free_ram(void)            { return 0u; }
+uint32_t    tfw_hal_free_ram(void)            { return 0u; }
 tfw_reset_cause_t tfw_hal_reset_cause(void)    { return TFW_RESET_UNKNOWN; }
 uint8_t     tfw_hal_uart_tx_idle(void)        { return 1u; }
 void        tfw_hal_reset(void)               {}

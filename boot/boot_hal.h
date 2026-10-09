@@ -35,6 +35,7 @@
 
 #include <stdint.h>
 #include "tfw/status.h"
+#include "tfw/types.h"
 
 /* ---------------------------------------------------------------- flash */
 
@@ -95,6 +96,21 @@ void tfw_boot_handoff_read(uint8_t *buf, uint8_t len);
  * boot/boot_main.c sets the update session's time limits (include/tfw/config.h).
  * A constant, not a function, stated by the architecture's boot_tick.h in
  * $(BOOT_HAL_DIR) -- boot/hal/avr/boot_tick.h says what a tick is there. */
+
+/* ----------------------------------------------------------- reset cause */
+
+/* Why the part last reset, as THIS image's own early init observed it -- before
+ * anything could clear it. The bootloader runs first, so this is the only
+ * record there is. Already abstract: the register it is read from, and how its
+ * bits are laid out, are the HAL's business and nothing above this contract
+ * decodes them.
+ *
+ * The early init that latches it is the architecture's and is SHARED with the
+ * application image (src/hal/<arch>/hal_early.c), so that "clear the flags and
+ * disarm the watchdog" exists once. The latch itself is declared by that file's
+ * own header, which boot/hal/<arch> includes; the portable bootloader sees only
+ * the decoded cause here and never names the architecture's latch. */
+tfw_reset_cause_t tfw_boot_reset_cause(void);
 
 /* ---------------------------------------------------------------- control */
 

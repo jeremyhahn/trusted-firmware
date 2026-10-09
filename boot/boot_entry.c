@@ -9,14 +9,14 @@
 #include "boot_hal.h"
 #include "boot_request.h"
 
-uint8_t tfw_boot_request_take(uint8_t mcusr)
+uint8_t tfw_boot_request_take(tfw_reset_cause_t cause)
 {
     uint8_t req[TFW_BOOT_REQUEST_LEN];
     static const uint8_t zero[TFW_BOOT_REQUEST_LEN] = { 0u };
     uint8_t valid;
 
     tfw_boot_handoff_read(req, TFW_BOOT_REQUEST_LEN);
-    valid = tfw_boot_request_valid(req, mcusr);
+    valid = tfw_boot_request_valid(req, cause);
     tfw_boot_handoff_write(zero, TFW_BOOT_REQUEST_LEN);
     return valid;
 }

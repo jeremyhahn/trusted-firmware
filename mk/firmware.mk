@@ -182,7 +182,7 @@ FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
              -Wall -Wextra -Werror -Wconversion -Wshadow \
              -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
              -ffile-prefix-map=$(CURDIR)=. \
-             -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(BOARD_DIR) \
+             -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(HAL_DIR) -I$(BOARD_DIR) \
              -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS)
 
 # The CDI handoff block's placement is the architecture's: see
@@ -221,7 +221,7 @@ FW_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
   src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board_lookup.c \
-  src/core/reset_cause.c src/core/secure_zero.c $(IDENTITY_SRCS) \
+  src/core/secure_zero.c $(IDENTITY_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \

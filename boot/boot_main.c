@@ -29,7 +29,6 @@
 #include "boot_request.h"
 #include "boot_store.h"
 #include "boot_tick.h"
-#include "hal_early.h"
 #include "core/secure_zero.h"
 
 
@@ -70,16 +69,17 @@ void tfw_boot_hand_over(const tfw_boot_verdict_t *v)
     }
 
     /*
-     * tfw_hal_early_flags is hal_early.c's OWN latch of MCUSR, taken before
-     * ITS OWN .init3 cleared the register -- the same three instructions this
-     * image and the application both run, see that file's header. Reading it
-     * here rather than re-reading MCUSR is the point: by the time main() runs
-     * the register has already been cleared once, by us, and issue #18 is
-     * exactly the bug of something -- a bootloader, ours or the stock one --
-     * doing that before the value was carried anywhere.
+     * The boot HAL's reset cause is the HAL's OWN latch, taken before ITS OWN
+     * .init3 cleared the register -- the same three instructions this image
+     * and the application both run. Asking it here rather than re-reading the
+     * register is the point: by the time main() runs the register has already
+     * been cleared once, by us, and issue #18 is exactly the bug of something
+     * -- a bootloader, ours or the stock one -- doing that before the value
+     * was carried anywhere. What crosses to the application is the abstract
+     * cause, never the register image: the application decodes nothing.
      */
     tfw_boot_handoff_build(block, tfw_boot_cdi_tier(), cdi, v->measurement,
-                          v->trailer.image_version, tfw_hal_early_flags);
+                          v->trailer.image_version, tfw_boot_reset_cause());
     tfw_boot_handoff_write(block, TFW_BOOT_HANDOFF_LEN);
 
     tfw_secure_zero(cdi, sizeof cdi);
@@ -101,11 +101,11 @@ int main(void)
      * The application's one-shot update request, taken before ANYTHING else
      * can fail or reset: take clears it unconditionally, so whatever happens
      * from here on -- a refused image, a session abandoned, a power cut -- the
-     * next reset starts from nothing. tfw_hal_early_flags is this image's own
-     * latch of MCUSR (hal_early.c), which is how a request is told apart from
-     * garbage left by a power cycle: only a watchdog reset honours it.
+     * next reset starts from nothing. The boot HAL's reset cause is how a
+     * request is told apart from garbage left by a power cycle: only a
+     * watchdog reset honours it.
      */
-    update = tfw_boot_request_take(tfw_hal_early_flags);
+    update = tfw_boot_request_take(tfw_boot_reset_cause());
 
     tfw_boot_uart_init(TFW_UART_BAUD);
     (void)tfw_boot_cdi_init();

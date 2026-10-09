@@ -99,8 +99,9 @@ Eight bytes at the start of the CDI handoff region: `TFW_BOOT_REQUEST_MAGIC`
 span both images already agree on (placed by the same formula at link time,
 never zeroed by the C runtime, and free once the application has consumed the
 handoff). Honoured only if `tfw_boot_request_valid`: both words match **and**
-tfw-boot's MCUSR latch is a watchdog reset with no power-on, external or
-brown-out flag. `tfw_boot_request_take` clears it unconditionally before
+tfw-boot's reset cause (`tfw_boot_reset_cause()`) is `TFW_RESET_WATCHDOG` — on
+AVR the HAL reports that only for a watchdog reset with no power-on, external
+or brown-out flag beside it. `tfw_boot_request_take` clears it unconditionally before
 anything else in `main()`, so an abandoned or timed-out session never repeats.
 Shared encoder/validator: `boot/boot_request.{c,h}`; the application's side is
 `src/core/update_request.c` (`_none.c` on boards with no boot section).
@@ -182,20 +183,23 @@ at startup, before `tfw_crypto_init`):
 | Offset | Size | Field | Notes |
 |---:|---:|---|---|
 | 0 | 4 | `magic` | `TFW_BOOT_HANDOFF_MAGIC` = `0x49444341` |
-| 4 | 1 | `version` | `TFW_BOOT_HANDOFF_VERSION` = 2 |
+| 4 | 1 | `version` | `TFW_BOOT_HANDOFF_VERSION` = 3 |
 | 5 | 1 | `tier` | the `tfw_crypto_tier_t` `tfw_boot_cdi_tier()` observed |
 | 6 | 2 | `flags` | |
 | 8 | 32 | `cdi` | `HMAC(UDS, measurement)` |
 | 40 | 32 | `measurement` | so the application reports the `FWHash` actually verified, not a recomputation |
 | 72 | 4 | `image_version` | |
-| 76 | 1 | `reset_cause` | raw `MCUSR`, latched by `hal_early.c` before tfw-boot's own `.init3` clears it — issue #18 |
+| 76 | 1 | `reset_cause` | `tfw_reset_cause_t`, decoded by the boot HAL from the latch it took before tfw-boot's own `.init3` cleared the register — issue #18, abstracted by issue #10 |
 | 77 | 1 | reserved | |
 | 78 | 2 | `crc16` | over bytes `[0, 78)` |
 
 Version 2 repurposed bytes rather than growing the block: version 1 held
 `crc16` at offset 76 and two reserved bytes at 78; version 2 moved `crc16` to
 the end of what it now covers, widening coverage to include `reset_cause`.
-`TFW_BOOT_HANDOFF_LEN` is unchanged.
+`TFW_BOOT_HANDOFF_LEN` is unchanged. Version 3 (issue #10) keeps the layout and
+changes what byte 76 means: version 2 carried the raw `MCUSR` there, version 3
+the abstract `tfw_reset_cause_t`, so neither side decodes a register and a
+version 2 block is refused rather than reinterpreted.
 
 Built by `tfw_boot_handoff_build`, parsed by `tfw_boot_handoff_parse`
 (`boot/boot_handoff.c`) — pure functions over the byte layout, testable
@@ -224,7 +228,8 @@ growing the block rather than repurposing bytes the way the handoff record
 below does. A region written under version 1 parses as unprovisioned
 (`TFW_ERR_UNSUPPORTED`) under a version-2-aware build — every field,
 `device_serial` included — not partially: see "Reserved EEPROM" above.
-`TFW_BOOT_HANDOFF_VERSION` is `2` — version 1 held `crc16` at offset 76 and
+`TFW_BOOT_HANDOFF_VERSION` is `3` (version 3, issue #10, changed byte 76 from
+the raw `MCUSR` to the abstract reset cause without moving it) — version 1 held `crc16` at offset 76 and
 two reserved bytes at 78; version 2 (issue #18) repurposed the first
 reserved byte as `reset_cause` and moved `crc16` to cover it, without
 growing the block. An application and a bootloader built from sources on

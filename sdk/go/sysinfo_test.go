@@ -27,7 +27,7 @@ func TestSysInfoParsesTheAppendedFramerCounters(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 0x12345678*time.Millisecond, si.Uptime)
-	assert.Equal(t, uint16(0x0321), si.FreeRAM)
+	assert.Equal(t, uint32(0x0321), si.FreeRAM)
 	assert.Equal(t, ResetWatchdog, si.ResetCause)
 	assert.Equal(t, uint16(5), si.ErrCRC)
 	assert.Equal(t, uint16(7), si.ErrFormat)
@@ -42,13 +42,39 @@ func TestSysInfoAcceptsTheSevenByteReplyOfOlderFirmware(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 0x12345678*time.Millisecond, si.Uptime)
-	assert.Equal(t, uint16(0x0321), si.FreeRAM)
+	assert.Equal(t, uint32(0x0321), si.FreeRAM)
 	assert.Equal(t, ResetWatchdog, si.ResetCause)
 	// Not reported, not zero-errors: there is no way to tell the two apart
 	// from a reply this short, and the zero value is what a host that never
 	// knew the field existed already assumed.
 	assert.Equal(t, uint16(0), si.ErrCRC)
 	assert.Equal(t, uint16(0), si.ErrFormat)
+}
+
+// #12: the exact free RAM is a u32 appended after the counters. The WIDE reply
+// begins with the NEW one byte for byte, and a free RAM the u16 cannot hold
+// arrives saturated there and exact in the tail.
+func TestSysInfoReadsTheAppendedU32FreeRAM(t *testing.T) {
+	assert.Equal(t, vectors.SysInfoNewReply, vectors.SysInfoWideReply[:len(vectors.SysInfoNewReply)])
+
+	si, err := New(&cannedLink{payload: []byte(vectors.SysInfoWideReply)}).SysInfo(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0x0321), si.FreeRAM)
+	assert.Equal(t, uint16(5), si.ErrCRC)
+	assert.Equal(t, uint16(7), si.ErrFormat)
+
+	si, err = New(&cannedLink{payload: []byte(vectors.SysInfoBigReply)}).SysInfo(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0x00012345), si.FreeRAM, "the u32 wins over the saturated u16")
+	assert.Equal(t, ResetWatchdog, si.ResetCause)
+}
+
+// A device that sends the counters but not the u32 is complete by its own
+// contract; its saturated or exact u16 stands.
+func TestSysInfoWithoutTheU32KeepsTheU16(t *testing.T) {
+	si, err := New(&cannedLink{payload: []byte(vectors.SysInfoNewReply)}).SysInfo(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0x0321), si.FreeRAM)
 }
 
 func TestSysInfoRejectsAReplyShorterThanTheOriginalShape(t *testing.T) {

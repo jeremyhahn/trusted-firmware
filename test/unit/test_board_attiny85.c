@@ -177,12 +177,13 @@ static void test_a_pin_beyond_the_board_is_refused(void)
     tfw_pinref_t r;
     tfw_pwmref_t p;
     uint8_t     ch;
+    uint8_t     page[TFW_PIN_PAGE_LEN];
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(255u, &r));
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_adc_channel(TFW_PIN_COUNT, &ch));
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pwm(TFW_PIN_COUNT, &p));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_board_pin_flags(TFW_PIN_COUNT));
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_board_pin_port_bit(TFW_PIN_COUNT));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin_page(TFW_PIN_COUNT, page));
 }
 
 /* No two pins may resolve to the same port and bit. A copy-paste slip in the
@@ -226,13 +227,18 @@ static void test_every_pin_is_either_digital_or_adc(void)
     }
 }
 
-/* The packed byte CAPS reports verbatim: port index in the high nibble, bit in
- * the low. It cannot be derived from tfw_board_pin(), whose tfw_pinref_t carries
- * the PINx memory address rather than an index. */
-static void test_the_packed_port_byte_is_the_descriptors_own_packing(void)
+/* The port and bit CAPS reports in the pin page: one port, pin N on bit N. It
+ * cannot be derived from tfw_board_pin(), whose tfw_pinref_t carries the PINx
+ * memory address rather than an index. Asserted through the page and not a
+ * packed byte, because the packing is the architecture's (hal_types.h). */
+static void test_the_page_carries_the_descriptors_port_and_bit(void)
 {
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
-        TEST_ASSERT_EQUAL_HEX8(TFW_PB(0u, i), tfw_board_pin_port_bit(i));
+        uint8_t page[TFW_PIN_PAGE_LEN];
+
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin_page(i, page));
+        TEST_ASSERT_EQUAL_HEX8(0u, page[2]);
+        TEST_ASSERT_EQUAL_HEX8(i, page[3]);
     }
 }
 
@@ -343,7 +349,7 @@ int main(void)
     RUN_TEST(test_no_two_pins_share_a_port_and_bit);
     RUN_TEST(test_no_two_pins_share_an_adc_channel);
     RUN_TEST(test_every_pin_is_either_digital_or_adc);
-    RUN_TEST(test_the_packed_port_byte_is_the_descriptors_own_packing);
+    RUN_TEST(test_the_page_carries_the_descriptors_port_and_bit);
     RUN_TEST(test_the_board_has_exactly_one_port_and_six_pins);
     RUN_TEST(test_the_sizing_deviations_are_the_ones_the_ram_budget_assumes);
     RUN_TEST(test_caps_reports_absent_everything_this_part_cannot_do);

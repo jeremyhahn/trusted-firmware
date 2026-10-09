@@ -12,7 +12,6 @@
 #include "unity.h"
 #include "boot_request.h"
 #include "boot_hal_mock.h"
-#include "reset_cause.h"
 
 void setUp(void) { tfw_boot_mock_reset(); }
 void tearDown(void) {}
@@ -53,7 +52,7 @@ static void test_an_encoded_request_after_a_watchdog_reset_is_valid(void)
 {
     uint8_t req[TFW_BOOT_REQUEST_LEN];
     tfw_boot_request_encode(req);
-    TEST_ASSERT_TRUE(tfw_boot_request_valid(req, TFW_MCUSR_WDRF));
+    TEST_ASSERT_TRUE(tfw_boot_request_valid(req, TFW_RESET_WATCHDOG));
 }
 
 static void test_the_power_on_fill_patterns_are_not_a_request(void)
@@ -61,11 +60,11 @@ static void test_the_power_on_fill_patterns_are_not_a_request(void)
     uint8_t region[TFW_BOOT_REQUEST_LEN];
 
     memset(region, 0x00, sizeof region);
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(region, TFW_MCUSR_WDRF));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(region, TFW_RESET_WATCHDOG));
     memset(region, 0xFF, sizeof region);
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(region, TFW_MCUSR_WDRF));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(region, TFW_RESET_WATCHDOG));
     memset(region, 0xAA, sizeof region);
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(region, TFW_MCUSR_WDRF));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(region, TFW_RESET_WATCHDOG));
 }
 
 /* The complement is the check: a magic alone, or a complement alone, or either
@@ -78,17 +77,17 @@ static void test_a_damaged_request_is_not_valid(void)
     tfw_boot_request_encode(req);
     for (i = 0u; i < TFW_BOOT_REQUEST_LEN; i++) {
         req[i] ^= 0x01u;
-        TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_WDRF));
+        TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_WATCHDOG));
         req[i] ^= 0x01u;
     }
 
     tfw_boot_request_encode(req);
     memset(&req[TFW_BOOT_REQ_OFF_INVERSE], 0, 4u);
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_WDRF));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_WATCHDOG));
 
     tfw_boot_request_encode(req);
     memset(&req[TFW_BOOT_REQ_OFF_MAGIC], 0, 4u);
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_WDRF));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_WATCHDOG));
 }
 
 /* Only the application's RESET causes a watchdog reset with nothing else set.
@@ -99,13 +98,16 @@ static void test_only_a_pure_watchdog_reset_honours_a_request(void)
     uint8_t req[TFW_BOOT_REQUEST_LEN];
     tfw_boot_request_encode(req);
 
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, 0u));
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_PORF));
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_EXTRF));
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_BORF));
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_WDRF | TFW_MCUSR_PORF));
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_WDRF | TFW_MCUSR_EXTRF));
-    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_MCUSR_WDRF | TFW_MCUSR_BORF));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_UNKNOWN));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_POWER_ON));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_EXTERNAL));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_BROWNOUT));
+    /* A cause this build has never heard of -- a future HAL's -- is not a
+     * watchdog reset either. */
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, (tfw_reset_cause_t)200));
+    /* "Watchdog and something else" cannot be expressed here: the HAL reports a
+     * mixed reset as the other cause (see test_reset_cause.c), so the gate's
+     * "nothing else set" holds by construction. */
 }
 
 /* ------------------------------------------------------------------ take */
@@ -113,7 +115,7 @@ static void test_only_a_pure_watchdog_reset_honours_a_request(void)
 static void test_take_honours_a_request_and_clears_it(void)
 {
     put_request();
-    TEST_ASSERT_TRUE(tfw_boot_request_take(TFW_MCUSR_WDRF));
+    TEST_ASSERT_TRUE(tfw_boot_request_take(TFW_RESET_WATCHDOG));
     TEST_ASSERT_TRUE(region_is_zero(tfw_boot_mock_handoff(), TFW_BOOT_REQUEST_LEN));
 }
 
@@ -121,8 +123,8 @@ static void test_take_honours_a_request_and_clears_it(void)
 static void test_a_request_is_honoured_once(void)
 {
     put_request();
-    TEST_ASSERT_TRUE(tfw_boot_request_take(TFW_MCUSR_WDRF));
-    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_MCUSR_WDRF));
+    TEST_ASSERT_TRUE(tfw_boot_request_take(TFW_RESET_WATCHDOG));
+    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_RESET_WATCHDOG));
 }
 
 /* Cleared even when refused, or a request left by an earlier reset would wait
@@ -130,9 +132,9 @@ static void test_a_request_is_honoured_once(void)
 static void test_take_clears_a_request_it_refuses(void)
 {
     put_request();
-    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_MCUSR_PORF));
+    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_RESET_POWER_ON));
     TEST_ASSERT_TRUE(region_is_zero(tfw_boot_mock_handoff(), TFW_BOOT_REQUEST_LEN));
-    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_MCUSR_WDRF));
+    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_RESET_WATCHDOG));
 }
 
 static void test_take_ignores_garbage(void)
@@ -140,7 +142,7 @@ static void test_take_ignores_garbage(void)
     uint8_t junk[TFW_BOOT_REQUEST_LEN] = { 1, 2, 3, 4, 5, 6, 7, 8 };
 
     tfw_boot_mock_set_handoff(junk, sizeof junk);
-    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_MCUSR_WDRF));
+    TEST_ASSERT_FALSE(tfw_boot_request_take(TFW_RESET_WATCHDOG));
     TEST_ASSERT_TRUE(region_is_zero(tfw_boot_mock_handoff(), TFW_BOOT_REQUEST_LEN));
 }
 
@@ -154,7 +156,7 @@ static void test_take_leaves_the_rest_of_the_region_alone(void)
     memset(before, 0x5A, sizeof before);
     tfw_boot_mock_set_handoff(before, sizeof before);
     put_request();
-    (void)tfw_boot_request_take(TFW_MCUSR_WDRF);
+    (void)tfw_boot_request_take(TFW_RESET_WATCHDOG);
 
     TEST_ASSERT_EQUAL_UINT8_ARRAY(&before[TFW_BOOT_REQUEST_LEN],
                                   &tfw_boot_mock_handoff()[TFW_BOOT_REQUEST_LEN],

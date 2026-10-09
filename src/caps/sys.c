@@ -22,27 +22,42 @@ static uint8_t reset_mode;
 
 /* SYS_INFO's view of the framer's counters, refreshed once a pass by
  * tfw_sys_set_framer_errors(). See sys.h for why this indirection exists
- * rather than sys.c reaching into the transport itself. */
-static uint16_t sys_err_crc;
-static uint16_t sys_err_format;
+ * rather than sys.c reaching into the transport itself.
+ *
+ * Held as the four bytes SYS_INFO sends -- crc then format, each a
+ * little-endian u16 -- so the reply copies them in one call. Storing a u16 a
+ * byte at a time costs no more than storing it whole; sending it as two u16
+ * writes cost the 32U4 element build flash it did not have (#12). */
+static uint8_t sys_err_wire[4];
 
 void tfw_sys_reset_state(void)
 {
-    reset_pending  = 0u;
-    reset_mode     = 0u;
-    sys_err_crc    = 0u;
-    sys_err_format = 0u;
+    reset_pending = 0u;
+    reset_mode    = 0u;
+    tfw_sys_set_framer_errors(0u, 0u);
 }
 
 void tfw_sys_set_framer_errors(uint16_t err_crc, uint16_t err_format)
 {
-    sys_err_crc    = err_crc;
-    sys_err_format = err_format;
+    sys_err_wire[0] = (uint8_t)(err_crc & 0xFFu);
+    sys_err_wire[1] = (uint8_t)(err_crc >> 8);
+    sys_err_wire[2] = (uint8_t)(err_format & 0xFFu);
+    sys_err_wire[3] = (uint8_t)(err_format >> 8);
 }
 
 uint8_t tfw_sys_reset_pending(void)
 {
     return reset_pending;
+}
+
+/* Four bytes, in the order given, as one little-endian u32: on the wire exactly
+ * what four tfw_write_u8 calls would put there. Given constants the word folds
+ * at compile time, and the calls it saves are part of what pays for #12 on the
+ * 32U4 element build, which has no flash to spare. */
+static void write_bytes4(tfw_writer_t *w, uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3)
+{
+    tfw_write_u32(w, (uint32_t)b0 | ((uint32_t)b1 << 8) |
+                     ((uint32_t)b2 << 16) | ((uint32_t)b3 << 24));
 }
 
 /*
@@ -61,46 +76,35 @@ tfw_status_t tfw_sys_cmd_caps(tfw_reader_t *r, tfw_writer_t *w)
 {
     if (tfw_reader_remaining(r) == 1u) {
         /*
-         * A pin page. Five bytes per pin, asked for one pin at a time, because
-         * an ATmega2560's full table is 350 bytes and fits in no frame this
-         * protocol defines.
+         * A pin page. Six bytes per pin -- see tfw_board_pin_page() for the
+         * layout -- asked for one pin at a time, because an ATmega2560's full
+         * table would not fit in any frame this protocol defines.
          *
          * The PWM byte distinguishes three states, not two: the pin has an
          * output-compare unit, it has none, or it has one that this build spent
          * on the millisecond tick. A host that cannot tell the last two apart
          * will move a load to a different pin when the right fix is a different
          * build.
-         */
-        uint8_t pin = tfw_read_u8(r);
-        uint8_t adc = TFW_ADC_NONE;
-
-        /* Bounds first. Reading the descriptor before checking happens to be
-         * safe -- the accessors bound-check and return zero -- but a bounds
+         *
+         * Bounds first: tfw_board_pin_page() refuses a pin beyond the board
+         * before it reads the table, and writes nothing when it does. A bounds
          * check that comes after the read is one somebody will later move a
-         * read in front of. */
-        if (pin >= tfw_board_pin_count()) {
-            return TFW_ERR_BAD_PIN;
+         * read in front of.
+         */
+        uint8_t      page[TFW_PIN_PAGE_LEN];
+        tfw_status_t st = tfw_board_pin_page(tfw_read_u8(r), page);
+
+        if (st != TFW_OK) {
+            return st;
         }
-        (void)tfw_board_adc_channel(pin, &adc);
-        tfw_write_u8(w, pin);
-        tfw_write_u8(w, tfw_board_pin_flags(pin));
-        /* The port index and bit exactly as the board packs them -- high nibble
-         * TFW_PORT_NONE for a pin with no digital port, which is an ADC-only
-         * input that can be read and never written. */
-        tfw_write_u8(w, tfw_board_pin_port_bit(pin));
-        tfw_write_u8(w, adc);
-        tfw_write_u8(w, tfw_board_pin_pwm_state(pin));
+        tfw_write_blob(w, page, TFW_PIN_PAGE_LEN);
         return TFW_OK;
     }
 
-    tfw_write_u8(w,  TFW_PROTO_VERSION_MAJOR);
-    tfw_write_u8(w,  TFW_PROTO_VERSION_MINOR);
-    tfw_write_u8(w,  TFW_FW_MAJOR);
-    tfw_write_u8(w,  TFW_FW_MINOR);
-    tfw_write_u8(w,  TFW_FW_PATCH);
-    tfw_write_u8(w,  TFW_BOARD_ID);
-    tfw_write_u8(w,  TFW_PIN_COUNT);
-    tfw_write_u8(w,  (uint8_t)TFW_SCHED_SLOTS);
+    write_bytes4(w, TFW_PROTO_VERSION_MAJOR, TFW_PROTO_VERSION_MINOR,
+                 TFW_FW_MAJOR, TFW_FW_MINOR);
+    write_bytes4(w, TFW_FW_PATCH, TFW_BOARD_ID,
+                 TFW_PIN_COUNT, (uint8_t)TFW_SCHED_SLOTS);
     tfw_write_u8(w,  (uint8_t)TFW_MAX_PAYLOAD);
     /* Asked, not assumed. A host learns what root of trust it is talking to
      * before it decides what any evidence from this device is worth. */
@@ -191,12 +195,18 @@ tfw_status_t tfw_sys_cmd_reset(tfw_reader_t *r, tfw_writer_t *w)
  */
 tfw_status_t tfw_sys_cmd_sys_info(tfw_reader_t *r, tfw_writer_t *w)
 {
+    uint32_t ram;
+
     (void)r;
     tfw_write_u32(w, tfw_hal_millis());
-    tfw_write_u16(w, tfw_hal_free_ram());
+    ram = tfw_hal_free_ram();
+    /* The u16 stays where it always was, saturating at 0xFFFF rather than
+     * wrapping, so an older host reads "at least 64 KiB free" instead of a small
+     * wrong number. The exact value is the u32 appended at the end. */
+    tfw_write_u16(w, (ram > 0xFFFFu) ? 0xFFFFu : (uint16_t)ram);
     tfw_write_u8(w,  (uint8_t)tfw_hal_reset_cause());
-    tfw_write_u16(w, sys_err_crc);
-    tfw_write_u16(w, sys_err_format);
+    tfw_write_blob(w, sys_err_wire, sizeof sys_err_wire);
+    tfw_write_u32(w, ram);
     return TFW_OK;
 }
 

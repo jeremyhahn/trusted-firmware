@@ -230,11 +230,12 @@ typedef struct {
  *    40    32  measurement   so the application reports the FWHash that was
  *                            actually verified, rather than recomputing one
  *    72     4  image_version
- *    76     1  reset_cause   raw MCUSR, latched by hal_early.c before tfw-boot's
- *                            OWN .init3 clears it -- issue #18. Decoded by the
- *                            same priority order src/hal/avr/hal_sys.c uses,
- *                            so there is one decoder rather than two that can
- *                            drift.
+ *    76     1  reset_cause   tfw_reset_cause_t, as the boot HAL decoded it from
+ *                            the latch it took before tfw-boot's OWN early init
+ *                            cleared the register -- issue #18. Abstract: no
+ *                            register image crosses this block, so neither
+ *                            side decodes anything and the value means the
+ *                            same on every architecture.
  *    77     1  reserved
  *    78     2  crc16         over bytes [0, 78)
  *
@@ -244,6 +245,13 @@ typedef struct {
  * the other two, now covering 78 bytes instead of 76. TFW_BOOT_HANDOFF_LEN does
  * not change -- there was already room, and moving the CRC to the end of what
  * it covers is the ordinary shape for a growable checksum, not a special case.
+ *
+ * VERSION 3 CHANGES WHAT BYTE 76 MEANS, NOT WHERE IT IS. Version 2 carried the
+ * raw MCUSR there; version 3 carries the abstract tfw_reset_cause_t. The layout
+ * is identical, so only the version byte tells the two apart -- an application
+ * that read a version 2 block as an enum would report a watchdog reset (MCUSR
+ * 0x08) as a value no host knows. Hence the bump rather than a quiet
+ * reinterpretation: a mismatched pair degrades to "no handoff" below.
  *
  * VERSION MISMATCH IS HANDLED, NOT ASSUMED AWAY. tfw_boot_handoff_parse refuses
  * a version it does not exactly recognise (TFW_ERR_UNSUPPORTED), exactly as it
@@ -273,7 +281,7 @@ typedef struct {
  * it, and the bootloader zeroizes its own copy before jumping.
  */
 #define TFW_BOOT_HANDOFF_MAGIC  0x49444341uL  /* 'A','C','D','I' little-endian */
-#define TFW_BOOT_HANDOFF_VERSION 2u
+#define TFW_BOOT_HANDOFF_VERSION 3u
 #define TFW_BOOT_HANDOFF_LEN     80u
 
 #define TFW_BOOT_HO_MAGIC        0u
@@ -312,8 +320,8 @@ typedef struct {
  * honoured by roughly one cold boot in 256. Eight bytes -- a 32-bit magic and
  * its complement -- are a 1 in 2^32 coincidence, and the complement is what
  * rejects the all-zero and all-ones fills that are the common power-on
- * patterns. The request is ALSO only honoured when tfw-boot's own latch of
- * MCUSR says the reset was a watchdog reset and nothing else, because only the
+ * patterns. The request is ALSO only honoured when tfw-boot's own
+ * reset cause says the reset was a watchdog reset and nothing else, because only the
  * application's RESET causes one: a brown-out, a power cycle or the reset
  * button must never open a session even if the bytes happen to match.
  *

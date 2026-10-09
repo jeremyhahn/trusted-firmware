@@ -232,7 +232,7 @@ static void test_no_two_pins_share_an_output_compare_unit(void)
             if (tfw_board_pwm(b, &rb) != TFW_OK) { continue; }
             snprintf(msg, sizeof msg, "pins %u and %u share a compare unit",
                      (unsigned)a, (unsigned)b);
-            TEST_ASSERT_FALSE_MESSAGE(ra.ocr == rb.ocr && ra.com_bit == rb.com_bit, msg);
+            TEST_ASSERT_FALSE_MESSAGE(ra.duty == rb.duty && ra.bit == rb.bit, msg);
         }
     }
 }

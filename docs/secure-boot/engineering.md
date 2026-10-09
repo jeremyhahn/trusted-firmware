@@ -58,8 +58,8 @@ void tfw_boot_session_open(tfw_boot_platform_t *plat,
 
 // boot/boot_request.h — the update-session request (include/tfw/boot.h)
 void    tfw_boot_request_encode(uint8_t *region);
-uint8_t tfw_boot_request_valid(const uint8_t *region, uint8_t mcusr);
-uint8_t tfw_boot_request_take(uint8_t mcusr);   // clears, then reports
+uint8_t tfw_boot_request_valid(const uint8_t *region, tfw_reset_cause_t cause);
+uint8_t tfw_boot_request_take(tfw_reset_cause_t cause);   // clears, then reports
 ```
 
 OTA state machine and session (`boot/boot_ota.h`, `boot/boot_session.h`, linked
@@ -139,8 +139,9 @@ typedef enum { TFW_BOOT_SESSION_CONTINUE, TFW_BOOT_SESSION_COMMIT, TFW_BOOT_SESS
   the application (`src/core/handoff.c`); there is no trampoline, because one
   BLS-callable entry point would void the BLB mode 3 read barrier that keeps
   the UDS out of the application's reach from the inside. The same block
-  also carries the `MCUSR` value tfw-boot's `.init3` observed before clearing
-  it (handoff version 2, issue #18) — the one record of the reset cause that
+  also carries the reset cause tfw-boot's `.init3` observed before clearing
+  `MCUSR`, already decoded to `tfw_reset_cause_t` by the HAL (handoff version 3,
+  issues #18 and #10) — the one record of the reset cause that
   survives a bootloader running at all.
 - **`.init3` runs before any C runtime work, in both images, from one shared
   file** (`src/hal/avr/hal_early.c`). It reads and clears `MCUSR` and disarms

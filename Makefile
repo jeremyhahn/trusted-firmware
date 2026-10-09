@@ -74,7 +74,7 @@ verify-vendor:
 # deliberately and its numbers are in docs/development/performance.md; the debt
 # is tracked in #11, #12 and #13. It goes back in when the rows it measures are
 # met, not before.
-ci: verify-vendor verify-vectors lint sdk-verify sdk-lint test boot-test board-sweep \
+ci: verify-vendor verify-vectors lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep \
     coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
     integration-test-boot reproducible-check ci-matrix-check
 	@echo "CI gate: green"

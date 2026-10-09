@@ -47,6 +47,25 @@ const (
 	SysInfoNewReply = "\x78\x56\x34\x12\x21\x03\x04\x05\x00\x07\x00"
 )
 
+// SYS_INFO with free_ram widened, #12. The u32 is appended after err_format and
+// the u16 stays where it was, saturating at 0xFFFF. SysInfoWideReply is what the
+// firmware sends today and begins with SysInfoNewReply byte for byte;
+// SysInfoBigReply carries a free_ram of 0x00012345, which the u16 cannot hold.
+const (
+	SysInfoWideReply = "\x78\x56\x34\x12\x21\x03\x04\x05\x00\x07\x00\x21\x03\x00\x00"
+	SysInfoBigReply  = "\x78\x56\x34\x12\xff\xff\x04\x05\x00\x07\x00\x45\x23\x01\x00"
+)
+
+// CAPS, #12. The pin page grew from five bytes to six, which shifted the ADC and
+// PWM fields, so the protocol major went to 2: a 1.x host must refuse the device
+// rather than misread it. CapsProtoReply is the board header's first two bytes,
+// major then minor. CapsPin13Reply is the 328P's LED pin: pin 13, flags
+// DIGITAL|LED, port 0, bit 5, no ADC channel, no compare unit.
+const (
+	CapsProtoReply = "\x02\x00"
+	CapsPin13Reply = "\x0d\x81\x00\x05\xff\x00"
+)
+
 // Wire frames. Each is one full encoded request -- SOF through CRC16 -- for
 // I2C_CONFIG or SPI_CONFIG (issue #21) at a fixed SEQ and payload, produced
 // once by the C encoder and frozen here. A change to either command's id,

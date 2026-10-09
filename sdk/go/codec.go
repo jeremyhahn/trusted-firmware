@@ -20,8 +20,9 @@ const (
 	// The version of the wire this host speaks, mirroring
 	// TFW_PROTO_VERSION_MAJOR and _MINOR. Major changes when a frame cannot be
 	// parsed by an older host; minor when fields are appended that an older
-	// host can ignore, which is why only the major is ever rejected.
-	ProtoVersionMajor uint8 = 1
+	// host can ignore, which is why only the major is ever rejected. 2 since
+	// #12 made the CAPS pin page six bytes, which a 1.x host would misread.
+	ProtoVersionMajor uint8 = 2
 	ProtoVersionMinor uint8 = 0
 )
 

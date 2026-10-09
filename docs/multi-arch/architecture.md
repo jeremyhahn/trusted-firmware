@@ -30,12 +30,12 @@ Phase 4 ([#21](http://git.example.internal/jeremyhahn/trusted-firmware/issues/21
 | Today | Moves to | Issue |
 |---|---|---|
 | ~~Build hardcodes `src/hal/avr`~~ **done:** `ARCH := avr` in each `profile.mk`, `mk/arch/$(ARCH).mk`, `HAL_DIR := src/hal/$(ARCH)` | `ARCH`-selected HAL directory | [#8](http://git.example.internal/jeremyhahn/trusted-firmware/issues/8) |
-| `tfw_pinref_t` / `tfw_pwmref_t` hold AVR register shapes | opaque, HAL-defined refs | [#9](http://git.example.internal/jeremyhahn/trusted-firmware/issues/9) |
-| `src/main.c` includes `<avr/interrupt.h>`, calls `sei()` | HAL interrupt-enable call | [#9](http://git.example.internal/jeremyhahn/trusted-firmware/issues/9) |
+| ~~`tfw_pinref_t` / `tfw_pwmref_t` hold AVR register shapes~~ **done:** defined with the port and PWM row types in `src/hal/<arch>/hal_types.h` (the host's is `test/mock/hal_types.h`), opaque to core | opaque, HAL-defined refs | [#9](http://git.example.internal/jeremyhahn/trusted-firmware/issues/9) |
+| ~~`src/main.c` includes `<avr/interrupt.h>`, calls `sei()`~~ **done:** `tfw_hal_irq_enable()` | HAL interrupt-enable call | [#9](http://git.example.internal/jeremyhahn/trusted-firmware/issues/9) |
 | MCUSR reset-cause decoding in core and boot | HAL returns a neutral cause | [#10](http://git.example.internal/jeremyhahn/trusted-firmware/issues/10) |
 | Boot section at top of flash, 256-byte OTA page, EEPROM platform block, `F_CPU`-based session polls | boot HAL geometry, NVM and timing | [#11](http://git.example.internal/jeremyhahn/trusted-firmware/issues/11) |
-| CAPS pin descriptor: 4-bit port and bit | wider, generalised descriptor | [#12](http://git.example.internal/jeremyhahn/trusted-firmware/issues/12) |
-| `free_ram` is a u16 | wider field | [#12](http://git.example.internal/jeremyhahn/trusted-firmware/issues/12) |
+| ~~CAPS pin descriptor: 4-bit port and bit~~ **done:** a whole byte each, 6-byte page | wider, generalised descriptor | [#12](http://git.example.internal/jeremyhahn/trusted-firmware/issues/12) |
+| ~~`free_ram` is a u16~~ **done:** u16 kept, exact u32 appended to SYS_INFO | wider field | [#12](http://git.example.internal/jeremyhahn/trusted-firmware/issues/12) |
 | Conditional-confinement gate misses `src/crypto`, `src/main.c`, `tools/`, headers | gate covers them; arch-leak gate added | [#13](http://git.example.internal/jeremyhahn/trusted-firmware/issues/13) |
 
 Wire changes extend; ids and status codes never renumber.
@@ -62,7 +62,7 @@ The board id is one byte (`TFW_BOARD_ID` in `boards/*/board_profile.h`). Ranges:
 | `0xC0`-`0xFF` | unallocated |
 
 Current ids: `0x01` ATmega328P, `0x02` ATmega2560, `0x03` ATmega32U4, `0x04` ATtiny85.
-Ids extend; they never renumber. Registry work: [#12](http://git.example.internal/jeremyhahn/trusted-firmware/issues/12).
+Ids extend; they never renumber. The registry is [`../boards/board-id-registry.md`](../boards/board-id-registry.md).
 
 ## 6. Roots of trust per architecture
 

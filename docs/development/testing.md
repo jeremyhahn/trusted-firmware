@@ -57,7 +57,7 @@ What it checks today:
 
 - the firmware transmits at all on boot, at the configured baud
 - `PING` round-trips, returns `TFW_OK` and echoes its payload
-- `CAPS` answers, reports protocol major 1 and the 328P's 22 pins
+- `CAPS` answers, reports protocol major 2 and the 328P's 22 pins
 - `SYS_INFO` answers and the millisecond tick ISR is **running at ~1 kHz** —
   the CTC divisor is wrong on x86 by construction, so only this tier sees it
 - `PIN_MODE` + `DIGITAL_WRITE` on pin 13, read back **from the real PORT

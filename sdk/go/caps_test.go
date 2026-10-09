@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 )
 
 // CAPS is the one reply whose LENGTH is part of the contract rather than an
@@ -48,7 +50,7 @@ func (l *cannedLink) Read(p []byte) (int, error) { return l.rx.Read(p) }
 // capsHeader builds the board header a current firmware sends.
 func capsHeader(algorithms uint16) []byte {
 	return []byte{
-		1, 0, // protocol 1.0
+		2, 0, // protocol 2.0
 		0, 1, 0, // firmware 0.1.0
 		0x01,                   // board id
 		22,                     // pin count
@@ -104,22 +106,44 @@ func TestCapsRejectsAReplyShorterThanTheBoardHeader(t *testing.T) {
 }
 
 func TestCapsRejectsAProtocolMajorItCannotParse(t *testing.T) {
-	p := capsHeader(0)
-	p[0], p[1] = 2, 7
-	link := &cannedLink{payload: p}
+	for _, tc := range []struct {
+		name         string
+		major, minor uint8
+	}{
+		// #12: firmware from before the six-byte pin page reports 1.x. This
+		// host would read its five-byte page with the bit, ADC and PWM fields
+		// shifted, so it must refuse the device rather than misread it.
+		{name: "an older major, 1 against 2", major: 1, minor: 0},
+		{name: "a newer major", major: 3, minor: 7},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := capsHeader(0)
+			p[0], p[1] = tc.major, tc.minor
+			link := &cannedLink{payload: p}
 
-	c, err := New(link).Caps(context.Background())
-	require.Error(t, err)
-	// Returned alongside the error on purpose: what the device said about
-	// itself is the only useful thing to log when a host refuses to talk to it.
-	require.NotNil(t, c)
-	assert.Equal(t, uint8(2), c.ProtoMajor)
+			c, err := New(link).Caps(context.Background())
+			require.Error(t, err)
+			// Returned alongside the error on purpose: what the device said about
+			// itself is the only useful thing to log when a host refuses to talk to it.
+			require.NotNil(t, c)
+			assert.Equal(t, tc.major, c.ProtoMajor)
 
-	var pe *ProtocolVersionError
-	require.True(t, errors.As(err, &pe))
-	assert.Equal(t, uint8(2), pe.DeviceMajor)
-	assert.Equal(t, uint8(7), pe.DeviceMinor)
-	assert.Equal(t, ProtoVersionMajor, pe.HostMajor)
+			var pe *ProtocolVersionError
+			require.True(t, errors.As(err, &pe))
+			assert.Equal(t, tc.major, pe.DeviceMajor)
+			assert.Equal(t, tc.minor, pe.DeviceMinor)
+			assert.Equal(t, ProtoVersionMajor, pe.HostMajor)
+		})
+	}
+}
+
+// The version this host speaks is the literal pair the firmware's vector pins,
+// so a bump on one side without the other fails here and in the C suite.
+func TestTheHostSpeaksTheProtocolVersionTheVectorsPin(t *testing.T) {
+	require.Len(t, vectors.CapsProtoReply, 2)
+	assert.Equal(t, vectors.CapsProtoReply[0], ProtoVersionMajor)
+	assert.Equal(t, vectors.CapsProtoReply[1], ProtoVersionMinor)
+	assert.Equal(t, []byte(vectors.CapsProtoReply), capsHeader(0)[:2])
 }
 
 // A minor ahead of this host's is not an error: tolerating it in both
@@ -142,7 +166,7 @@ func TestPinInfoParsesADescriptor(t *testing.T) {
 	}{
 		{
 			name: "a digital pin whose compare unit is usable",
-			wire: []byte{9, byte(PinDigital | PinPWM), 0x01, 0xFF, 1},
+			wire: []byte{9, byte(PinDigital | PinPWM), 0x00, 0x01, 0xFF, 1},
 			want: PinInfo{Pin: 9, Flags: PinDigital | PinPWM, HasPort: true, Port: 0, Bit: 1, PWM: PWMAvailable},
 		},
 		{
@@ -150,31 +174,39 @@ func TestPinInfoParsesADescriptor(t *testing.T) {
 			// build spent it on the millisecond tick, so the fix is a different
 			// firmware rather than a different pin.
 			name: "a pin whose compare unit drives the tick",
-			wire: []byte{5, byte(PinDigital | PinPWM), 0x25, 0xFF, 2},
+			wire: []byte{5, byte(PinDigital | PinPWM), 0x02, 0x05, 0xFF, 2},
 			want: PinInfo{Pin: 5, Flags: PinDigital | PinPWM, HasPort: true, Port: 2, Bit: 5, PWM: PWMSystemTick},
 		},
 		{
-			// 0xF0, not 0xFF. The firmware writes the descriptor's own packing,
-			// so "no digital port" is TFW_PORT_NONE in the HIGH NIBBLE and the
-			// low nibble is whatever the table holds. A whole-byte comparison
-			// against 0xFF reads this as port 15 bit 0 -- a port no board has,
-			// reported as one it does -- and every ADC-only pin on a 328P
-			// arrives exactly this way.
+			// Port 0 bit 5 on the Uno's LED: the wire vector the firmware's
+			// own suite asserts it sends.
+			name: "the onboard led",
+			wire: []byte(vectors.CapsPin13Reply),
+			want: PinInfo{Pin: 13, Flags: PinDigital | PinLED, HasPort: true, Port: 0, Bit: 5, PWM: PWMNone},
+		},
+		{
+			// #12: "no digital port" is 0xFF in the port byte and the bit byte.
+			// Every ADC-only pin on a 328P arrives exactly this way.
 			name: "an adc-only pin with no digital port at all",
-			wire: []byte{20, byte(PinADC), 0xF0, 6, 0},
+			wire: []byte{20, byte(PinADC), 0xFF, 0xFF, 6, 0},
 			want: PinInfo{Pin: 20, Flags: PinADC, HasADC: true, ADCChannel: 6, PWM: PWMNone},
 		},
 		{
-			// And a pin beyond the board, which the firmware answers 0xFF for.
-			// The same nibble test has to catch both.
-			name: "a pin the board does not have",
-			wire: []byte{99, 0, 0xFF, 0xFF, 0},
-			want: PinInfo{Pin: 99, PWM: PWMNone},
+			name: "a pin this build has claimed for itself",
+			wire: []byte{1, byte(PinDigital | PinInUse), 0x02, 0x01, 0xFF, 0},
+			want: PinInfo{Pin: 1, Flags: PinDigital | PinInUse, HasPort: true, Port: 2, Bit: 1, PWM: PWMNone},
 		},
 		{
-			name: "a pin this build has claimed for itself",
-			wire: []byte{1, byte(PinDigital | PinInUse), 0x21, 0xFF, 0},
-			want: PinInfo{Pin: 1, Flags: PinDigital | PinInUse, HasPort: true, Port: 2, Bit: 1, PWM: PWMNone},
+			// What the nibble packing could not say: a Cortex-M port 3 with a
+			// bit past 15, and a port index past 15.
+			name: "a wide port and bit",
+			wire: []byte{40, byte(PinDigital), 0x03, 0x1F, 0xFF, 0},
+			want: PinInfo{Pin: 40, Flags: PinDigital, HasPort: true, Port: 3, Bit: 31, PWM: PWMNone},
+		},
+		{
+			name: "a port index above 15",
+			wire: []byte{41, byte(PinDigital), 0x12, 0x00, 0xFF, 0},
+			want: PinInfo{Pin: 41, Flags: PinDigital, HasPort: true, Port: 18, Bit: 0, PWM: PWMNone},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -187,14 +219,14 @@ func TestPinInfoParsesADescriptor(t *testing.T) {
 }
 
 func TestPinInfoRejectsATruncatedDescriptor(t *testing.T) {
-	link := &cannedLink{payload: []byte{9, byte(PinDigital), 0x01}}
+	link := &cannedLink{payload: []byte{9, byte(PinDigital), 0x01, 0x02, 0xFF}}
 	_, err := New(link).PinInfo(context.Background(), 9)
 	require.Error(t, err)
 
 	var se *ShortReplyError
 	require.True(t, errors.As(err, &se))
 	assert.Equal(t, capsPinPageLen, se.Need)
-	assert.Equal(t, 3, se.Got)
+	assert.Equal(t, 5, se.Got)
 }
 
 // A pin the board does not have is refused by the DEVICE, and that refusal

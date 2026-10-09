@@ -73,4 +73,19 @@ if [ -z "$c_str_only" ] && [ -z "$g_str_only" ]; then
   echo "SYS_INFO reply vectors agree: $(echo "$c_str" | wc -l) values, both languages"
 fi
 
+# CAPS reply vectors -- the protocol version bytes and the six-byte pin page,
+# #12 -- string literals compared the same way, by NAME and VALUE together: the
+# version pair and a pin page must not be able to swap places and still agree.
+c_caps=$(sed -n 's/^#define TFWV_CAPS_\([A-Z0-9_]*\)_REPLY *"\(.*\)"$/\1 \2/p' "$C" | tr 'A-Z' 'a-z' | sort)
+g_caps=$(sed -n 's/^\tCaps\([A-Za-z0-9]*\)Reply *= *"\(.*\)"$/\1 \2/p' "$G" | tr 'A-Z' 'a-z' | sort)
+
+if [ -z "$c_caps" ]; then
+  echo "no CAPS reply vectors found in $C"; fail=1
+elif [ "$c_caps" != "$g_caps" ]; then
+  echo "CAPS reply vectors differ:"; echo "  $C:"; echo "$c_caps" | sed 's/^/    /'
+  echo "  $G:"; echo "$g_caps" | sed 's/^/    /'; fail=1
+else
+  echo "CAPS reply vectors agree: $(echo "$c_caps" | wc -l) values, both languages"
+fi
+
 exit $fail

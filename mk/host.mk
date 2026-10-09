@@ -101,7 +101,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c \
-                            test/unit/test_sys_noboot.c, \
+                            test/unit/test_sys_noboot.c \
+                            test/unit/test_pin_coord.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -127,7 +128,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/attest.c \
                  src/caps/alias.c \
                  src/caps/uccs.c \
-                 src/core/handoff.c src/core/platform_id.c src/core/reset_cause.c \
+                 src/core/handoff.c src/core/platform_id.c \
                  src/core/secure_zero.c \
                  src/core/auth_session_none.c \
                  src/core/update_request.c boot/boot_request.c \
@@ -207,7 +208,7 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
 # nothing without the tier that refuses everything instead.
 $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
                         src/crypto/none/provider.c \
-                        src/core/handoff.c src/core/reset_cause.c src/core/secure_zero.c \
+                        src/core/handoff.c src/core/secure_zero.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         test/mock/hal_mock.c test/mock/uds_mock.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -219,6 +220,15 @@ $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
 $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
                         $(filter-out src/core/update_request.c,$(HOST_LIB_SRCS)) \
                         src/core/update_request_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_pin_coord brings its own board tables -- a port 18 and a bit 31, which no
+# real board has -- so it links board_lookup.c and the mock HAL without
+# boards/$(HOST_BOARD)/board.c, whose tables would be second definitions.
+$(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
+                        test/mock/hal_mock.c src/core/handoff.c src/core/secure_zero.c \
+                        boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -252,7 +262,7 @@ $(HOST_DIR)/test_model_p256: test/unit/test_model_p256.c $(ELEMENT_MODEL) \
 
 HOST_EXTRA_BINS := $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
-                    $(HOST_DIR)/test_auth_session
+                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)
@@ -300,14 +310,14 @@ COVERAGE_FLOOR ?= 90
 # definition explicitly rather than having its complaints suppressed: told the
 # configuration it can analyse the code, whereas a suppression would also hide
 # the next genuinely unknown macro.
-lint:
+lint: lint-arch-leak
 	@cppcheck --enable=warning,style,performance,portability \
 	          --check-level=exhaustive \
 	          --error-exitcode=1 --inline-suppr --quiet \
 	          --suppress=missingIncludeSystem \
 	          --suppress=unusedFunction \
 	          -DTFW_BOARD_HEADER='"board_profile.h"' -DTFW_PROGMEM= \
-	          -Iinclude -Isrc -Iboards/atmega328p -Iboot \
+	          -Iinclude -Isrc -Isrc/hal/avr -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
 	          src/ boards/ boot/
 	@echo "cppcheck clean"
@@ -346,6 +356,58 @@ lint:
 	  exit 1; \
 	fi
 	@echo "no build timestamps"
+
+## lint-arch-leak: AVR must not leak out of its directories
+# The tree is arch-neutral only if nothing outside the AVR's own directories
+# names the AVR: <avr/...> headers, F_CPU, MCUSR, or a bare PROGMEM (TFW_PROGMEM
+# is the neutral spelling and is not matched -- the pattern wants a non-identifier
+# character on each side of the word). Exempt, and nothing else: src/hal/avr/,
+# boot/hal/avr/, boards/ and mk/arch/avr.mk (neither of which is swept) and
+# include/tfw/progmem.h, the one toolchain shim. A real leak is moved behind the
+# HAL or progmem.h, never added to this list.
+#
+# Only code is matched: each file goes through the preprocessor in
+# -fpreprocessed -dD mode first, which removes comments exactly (it knows a
+# "//" inside a string from one outside) and expands nothing, so prose such as
+# "MCUSR is already clear" is untouched in the source and invisible to the gate.
+# A file the compiler cannot strip fails the gate instead of passing it.
+ARCH_LEAK_ROOT ?= .
+ARCH_LEAK_DIRS := src boot tools include test
+ARCH_LEAK_PAT  := <avr/|(^|[^A-Za-z0-9_])(F_CPU|MCUSR|PROGMEM)([^A-Za-z0-9_]|$$)
+lint-arch-leak:
+	@cd $(ARCH_LEAK_ROOT) && fail=0; \
+	for f in $$(find $(ARCH_LEAK_DIRS) -type f \( -name '*.c' -o -name '*.h' \) \
+	            -not -path 'src/hal/avr/*' -not -path 'boot/hal/avr/*' \
+	            -not -path 'include/tfw/progmem.h' | sort); do \
+	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
+	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
+	  hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_PAT)' || true); \
+	  if [ -n "$$hits" ]; then echo "$$f:"; printf '%s\n' "$$hits"; fail=1; fi; \
+	done; \
+	if [ $$fail -ne 0 ]; then \
+	  echo "AVR leaked out of its directories (see above)"; \
+	  echo "move it behind include/tfw/hal.h or include/tfw/progmem.h"; \
+	  exit 1; \
+	fi
+	@echo "no arch leaks"
+
+## lint-arch-leak-selftest: the arch-leak gate fails on a plant, in a temp copy
+# Plants go into a throwaway tree, never into this one. Each leak must fail the
+# gate; prose in a comment and the exempt directories must not.
+lint-arch-leak-selftest:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	mkdir -p $(addprefix $$t/,$(ARCH_LEAK_DIRS)) $$t/src/crypto $$t/src/hal/avr && \
+	printf '/* MCUSR is already clear; F_CPU, <avr/io.h>, PROGMEM */\n// MCUSR\nint ok;\nconst int k TFW_PROGMEM = 0;\n' > $$t/src/crypto/ok.c && \
+	printf '#include <avr/io.h>\nint f_cpu;\n' > $$t/src/hal/avr/exempt.h && \
+	$(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null || \
+	  { echo "selftest: clean tree was rejected"; exit 1; }; \
+	for leak in '#include <avr/io.h>' 'int x = F_CPU;' 'int x = MCUSR;' 'const int x PROGMEM = 0;'; do \
+	  printf '%s\n' "$$leak" > $$t/src/crypto/plant.c; \
+	  if $(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null 2>&1; then \
+	    echo "selftest: gate passed a planted: $$leak"; exit 1; \
+	  fi; \
+	done; \
+	echo "arch-leak gate rejects every plant"
 
 # ----------------------------------------------------------------- tfwsim
 #
@@ -403,7 +465,8 @@ $(HOST_DIR)/tfwsim-atecc608a: $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(T
 clean-host:
 	@rm -rf $(HOST_DIR)
 
-.PHONY: test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint
+.PHONY: test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint \
+        lint-arch-leak lint-arch-leak-selftest
 
 # ---------------------------------------------------------------- board sweep
 #

@@ -38,6 +38,16 @@
 #include <avr/wdt.h>
 
 #include "hal_early.h"
+#include "hal_reset_decode.h"
+
+/* The bit positions tfw_avr_reset_decode assumes, pinned against avr-libc --
+ * the same arrangement each board's board_profile.h uses for register
+ * addresses, so a transposed bit is a compile error naming the constant
+ * rather than a silently wrong decode. */
+_Static_assert(TFW_MCUSR_PORF  == _BV(PORF),  "PORF bit position");
+_Static_assert(TFW_MCUSR_EXTRF == _BV(EXTRF), "EXTRF bit position");
+_Static_assert(TFW_MCUSR_BORF  == _BV(BORF),  "BORF bit position");
+_Static_assert(TFW_MCUSR_WDRF  == _BV(WDRF),  "WDRF bit position");
 
 /*
  * `.noinit`, NOT the ordinary (`.bss`) storage a plain global would get.
@@ -63,4 +73,9 @@ void tfw_hal_early_init(void)
     tfw_hal_early_flags = MCUSR;
     MCUSR              = 0u;
     wdt_disable();
+}
+
+tfw_reset_cause_t tfw_hal_early_reset_cause(void)
+{
+    return tfw_avr_reset_decode(tfw_hal_early_flags);
 }

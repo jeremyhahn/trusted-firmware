@@ -4,7 +4,6 @@
 #include <string.h>
 
 #include "boot_request.h"
-#include "core/reset_cause.h"
 
 static void wr_u32(uint8_t *p, uint32_t v)
 {
@@ -28,12 +27,9 @@ void tfw_boot_request_encode(uint8_t *region)
     wr_u32(&region[TFW_BOOT_REQ_OFF_INVERSE], TFW_BOOT_REQUEST_INVERSE);
 }
 
-uint8_t tfw_boot_request_valid(const uint8_t *region, uint8_t mcusr)
+uint8_t tfw_boot_request_valid(const uint8_t *region, tfw_reset_cause_t cause)
 {
-    const uint8_t causes = TFW_MCUSR_PORF | TFW_MCUSR_EXTRF | TFW_MCUSR_BORF
-                         | TFW_MCUSR_WDRF;
-
-    if ((mcusr & causes) != TFW_MCUSR_WDRF) {
+    if (cause != TFW_RESET_WATCHDOG) {
         return 0u;
     }
     if (rd_u32(&region[TFW_BOOT_REQ_OFF_MAGIC]) != TFW_BOOT_REQUEST_MAGIC) {

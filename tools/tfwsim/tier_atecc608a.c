@@ -38,7 +38,6 @@
 #include "atecc608a_model.h"
 #include "boot_measure.h"
 #include "hal_mock.h"
-#include "reset_cause.h"
 #include "sha256.h"
 #include "tfw/types.h"
 
@@ -248,6 +247,6 @@ void tfwsim_tier_seed(void)
 
         test_cdi(cdi);
         tfw_boot_handoff_build(tfw_mock_handoff(), (uint8_t)TFW_CRYPTO_SECURE_ELEMENT,
-                              cdi, image_hash, 1u, (uint8_t)TFW_MCUSR_PORF);
+                              cdi, image_hash, 1u, TFW_RESET_POWER_ON);
     }
 }

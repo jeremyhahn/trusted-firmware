@@ -167,7 +167,7 @@ func (s AlgorithmSet) String() string {
 type Caps struct {
 	ProtoMajor, ProtoMinor                      uint8
 	FirmwareMajor, FirmwareMinor, FirmwarePatch uint8
-	BoardID                                     uint8
+	BoardID                                     BoardID
 	PinCount                                    uint8
 	SchedSlots                                  uint8
 	MaxPayload                                  uint8
@@ -278,7 +278,8 @@ func (p PWMSupport) String() string {
 type PinInfo struct {
 	Pin   uint8
 	Flags PinFlags
-	// Port and Bit locate the pin in the board's port table. HasPort is false
+	// Port and Bit locate the pin in the board's port table, a whole byte each
+	// on the wire (#12) so a part with 32-bit ports fits. HasPort is false
 	// for an ADC-only input, which has no digital port at all and can be read
 	// but never written -- so Port and Bit are meaningless rather than zero,
 	// and a caller must consult HasPort rather than compare them against zero.
@@ -298,8 +299,11 @@ type PinInfo struct {
 // alone, and reporting zero rather than failing the whole reply is what lets
 // a fleet running mixed firmware read this at all.
 type SysInfo struct {
-	Uptime     time.Duration
-	FreeRAM    uint16
+	Uptime time.Duration
+	// FreeRAM is a u32 (#12). Firmware older than that sends only a u16, which
+	// saturates at 0xFFFF; the exact value arrives in the appended tail, and
+	// SysInfo prefers it when present.
+	FreeRAM    uint32
 	ResetCause ResetCause
 	ErrCRC     uint16
 	ErrFormat  uint16

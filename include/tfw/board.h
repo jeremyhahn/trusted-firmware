@@ -4,7 +4,7 @@
  * The board descriptor: pure data plus pure lookup.
  *
  * This layer sits ABOVE the HAL, not inside it, and that placement is the whole
- * design. It contains no register access -- only addresses stored as numbers --
+ * design. It contains no register access -- only the architecture's descriptor rows --
  * so it compiles and runs on the host, which means the REAL ATmega328P pin
  * table is unit-tested on x86. A wrong port bit for pin 13 is otherwise a class
  * of bug findable only by wiring up a board and watching the wrong LED.
@@ -22,13 +22,13 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 
-#define TFW_PORT_NONE 0x0Fu  /* the pin has no digital port (ADC-only) */
 #define TFW_ADC_NONE  0xFFu
 #define TFW_PWM_NONE  0xFFu
 #define TFW_PWM_RSVD  0xFEu  /* has an output-compare unit, but its timer is the system tick */
 
-/* Packs a port index and a bit into one byte. */
-#define TFW_PB(port, bit) ((uint8_t)(((port) << 4) | (bit)))
+/* A pin's coordinate -- tfw_pin_coord_t, TFW_PB(port, bit) and TFW_PORT_NONE --
+ * is the architecture's, in hal_types.h: how wide a port index and a bit are,
+ * and how they pack, depends on the silicon. */
 
 /* Per-pin capability flags, as CAPS reports them. */
 #define TFW_PIN_DIGITAL  0x01u
@@ -38,19 +38,14 @@
 #define TFW_PIN_IN_USE   0x40u  /* claimed by this build: the UART pins, say */
 #define TFW_PIN_LED      0x80u
 
-typedef struct {
-    uint16_t pin_addr;  /* address of PINx; DDRx is +1 and PORTx is +2 on every classic AVR */
-} tfw_port_desc_t;
+/* tfw_port_desc_t and tfw_pwm_desc_t -- one row of the port table and of the PWM
+ * table -- are the architecture's, in hal_types.h (reached through tfw/hal.h):
+ * what a port or a PWM channel IS depends on the silicon. The pin table below
+ * is not: a pin is a coordinate, an ADC channel, a PWM index and flags on any
+ * architecture; only the coordinate's width is the architecture's. */
 
 typedef struct {
-    uint16_t tccra;
-    uint16_t ocr;
-    uint8_t  com_bit;
-    uint8_t  is16;
-} tfw_pwm_desc_t;
-
-typedef struct {
-    uint8_t port_bit;   /* TFW_PB(port index, bit) */
+    tfw_pin_coord_t port_bit;   /* TFW_PB(port index, bit) */
     uint8_t adc_ch;     /* ADC channel, or TFW_ADC_NONE */
     uint8_t pwm_idx;    /* index into the PWM table, or TFW_PWM_NONE / TFW_PWM_RSVD */
     uint8_t flags;
@@ -59,8 +54,8 @@ typedef struct {
 /*
  * The three tables every board supplies, and the ONLY thing a board supplies.
  *
- * The lookups below are identical on every classic AVR -- same packing, same
- * PROGMEM reads, same bounds -- so they live once in src/core/board_lookup.c and the
+ * The lookups below are identical on every board -- same rows, same flash
+ * reads, same bounds, the coordinate read through the architecture's accessors -- so they live once in src/core/board_lookup.c and the
  * board directories hold nothing but data. Before this split each board carried
  * its own copy of ninety lines of lookup, which is ninety lines that can differ
  * between two boards for no reason anyone intended.
@@ -91,17 +86,6 @@ tfw_status_t tfw_board_adc_channel(tfw_pin_t pin, uint8_t *out);
  * them might change. */
 tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out);
 
-/* The pin's port index and bit, packed as the descriptor stores them: port in
- * the high nibble, bit in the low. TFW_PORT_NONE in the high nibble means the
- * pin has no digital port at all. Returns 0xFF for a pin beyond the board.
- *
- * CAPS reports this byte verbatim. It cannot be derived from tfw_board_pin(),
- * whose tfw_pinref_t carries the PINx MEMORY ADDRESS rather than a port index --
- * the index is not recoverable from it, which is how the first version of the
- * pin page came to report a hardcoded high nibble for every pin on every board.
- */
-uint8_t     tfw_board_pin_port_bit(tfw_pin_t pin);
-
 /* Three states, because two would lose the one a host acts on:
  *
  *   0  the pin has no output-compare unit
@@ -113,6 +97,25 @@ uint8_t     tfw_board_pin_port_bit(tfw_pin_t pin);
  * refusals into TFW_ERR_UNSUPPORTED, so the distinction has to come from here.
  */
 uint8_t     tfw_board_pin_pwm_state(tfw_pin_t pin);
+
+/* The CAPS pin page (#12), six bytes: pin, flags, port, bit, adc channel, pwm
+ * state. Port and bit are a whole byte each on the wire, so a part with 32-bit
+ * ports or more than sixteen of them fits; a pin with no digital port carries
+ * TFW_WIRE_PORT_NONE in both. The descriptor's coordinate is read only through
+ * the architecture's accessors (hal_types.h), so the page carries whatever port
+ * and bit the architecture stores -- a nibble on the AVR, a byte elsewhere.
+ *
+ * This is also the only place a pin's port INDEX leaves the firmware: it cannot
+ * be derived from tfw_board_pin(), whose tfw_pinref_t is the architecture's
+ * opaque reference rather than an index, which is how the first version of the
+ * pin page came to report a hardcoded port for every pin on every board.
+ *
+ * Built in one place so CAPS writes it with a single tfw_write_blob rather
+ * than six calls. Returns TFW_ERR_BAD_PIN, writing nothing, for a pin beyond
+ * the board. */
+#define TFW_PIN_PAGE_LEN   6u
+#define TFW_WIRE_PORT_NONE 0xFFu
+tfw_status_t tfw_board_pin_page(tfw_pin_t pin, uint8_t *out);
 
 /* Capability flags, for CAPS. Returns 0 for a pin that does not exist. */
 uint8_t     tfw_board_pin_flags(tfw_pin_t pin);

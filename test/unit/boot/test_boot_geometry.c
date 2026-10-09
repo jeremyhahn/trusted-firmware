@@ -20,8 +20,10 @@
 #include "boot_ota.h"
 
 /* The session limits are pinned at the 16 MHz every AVR board ships at. The tick
- * header takes F_CPU from the compiler on the target; the host build has none. */
-#define F_CPU 16000000UL
+ * header takes F_CPU from the compiler on the target; the host build has none, so
+ * mk/boot.mk gives BOOT_TEST_CFLAGS the same 16 MHz. The clock is a build input,
+ * and a test outside the AVR directories does not get to name the register-level
+ * macro (make lint-arch-leak). */
 #include "hal/avr/boot_tick.h"
 
 typedef struct {

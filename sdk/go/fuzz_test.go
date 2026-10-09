@@ -78,7 +78,7 @@ func FuzzReplyParsers(f *testing.F) {
 	f.Add(make([]byte, 16)) // a current one
 	f.Add(make([]byte, 36)) // the PROV_INFO reply that used to be read past
 	f.Add(make([]byte, 38)) // the one that is correct now
-	f.Add(make([]byte, 5))  // a CAPS pin page
+	f.Add(make([]byte, 6))  // a CAPS pin page
 	f.Add(make([]byte, 64)) // a full payload
 
 	f.Fuzz(func(t *testing.T, payload []byte) {

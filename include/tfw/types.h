@@ -13,19 +13,10 @@ typedef uint32_t tfw_ms_t;
  * the board descriptor translates them to a port and bit. */
 typedef uint8_t tfw_pin_t;
 
-/* A pin resolved to hardware: the address of its PINx register and the bit
- * within it. On every classic AVR, DDRx is PINx+1 and PORTx is PINx+2, so this
- * pair locates all three.
- *
- * The HAL takes THIS rather than an tfw_pin_t. That is the whole reason the HAL
- * is identical code on every part in the family: it does no lookup, consults no
- * table and knows nothing about which board it is on. Translation happens one
- * layer up, in boards/<board>/board.c, which is plain C with no register access
- * and therefore compiles and is unit-tested on the host. */
-typedef struct {
-    uint16_t port;  /* address of PINx, as a memory-mapped SRAM address */
-    uint8_t  bit;
-} tfw_pinref_t;
+/* tfw_pinref_t -- a pin resolved to hardware -- is defined by the architecture,
+ * in src/hal/<arch>/hal_types.h, and reaches code through include/tfw/hal.h.
+ * Core sees it as opaque: it declares one, has tfw_board_pin() fill it and
+ * hands it to the HAL, and never names a field. */
 
 typedef enum {
     TFW_PIN_INPUT        = 0,
@@ -33,10 +24,16 @@ typedef enum {
     TFW_PIN_INPUT_PULLUP = 2
 } tfw_pin_mode_t;
 
-/* Why the part last reset. Latched from MCUSR in the first instructions after
- * boot and reported by SYS_INFO, so a host can tell a commanded reboot from a
- * brownout or a watchdog bite -- which is the difference between "expected"
- * and "this device is failing". */
+/* Why the part last reset. Latched from the part's reset-status register in the
+ * first instructions after boot, decoded by the HAL (the only code that knows
+ * the register), and reported by SYS_INFO and carried in tfw-boot's handoff, so
+ * a host can tell a commanded reboot from a brownout or a watchdog bite -- which
+ * is the difference between "expected" and "this device is failing".
+ *
+ * TFW_RESET_WATCHDOG means a watchdog reset and nothing else: it is what the
+ * update-request gate honours, so a HAL must not report it for a reset that
+ * something other than the watchdog also caused. These values are the wire;
+ * they extend, they never renumber. */
 typedef enum {
     TFW_RESET_UNKNOWN  = 0,
     TFW_RESET_POWER_ON = 1,

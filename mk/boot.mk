@@ -93,7 +93,7 @@ ifeq ($(BOOT_OTA),1)
 BOOT_OTA_SRCS := boot/recovery/recovery_ota.c boot/boot_ota.c boot/boot_session.c src/proto/frame.c
 BOOT_OTA_DEFS :=
 else
-BOOT_OTA_SRCS := boot/recovery/recovery_halt.c
+BOOT_OTA_SRCS := $(BOOT_HAL_DIR)/recovery_halt.c
 BOOT_OTA_DEFS :=
 endif
 
@@ -239,8 +239,12 @@ BOOT_TEST_BINS  := $(patsubst test/unit/boot/%.c,$(BOOT_TEST_DIR)/%,$(BOOT_TEST_
 # -DED25519_FORCE_32BIT so the host exercises the SAME 32-bit field arithmetic
 # the AVR build compiles. Without it an x86-64 host takes donna's uint128 path
 # and the tests would be testing a program the device never runs.
+#
+# -DF_CPU: boot/hal/avr/boot_tick.h, which test_boot_geometry pins, reads the
+# clock from the compiler as it does on the target. 16 MHz is what every AVR
+# board ships at, and it is supplied here so that no test source has to name it.
 BOOT_TEST_CFLAGS := $(HOST_CFLAGS) -Iboot -Iboot/verify -Itest/mock \
-                    -Isrc/third_party/ed25519-donna
+                    -Isrc/third_party/ed25519-donna -DF_CPU=16000000UL
 BOOT_DONNA_HOST  := -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE_ASM \
                     -DED25519_FORCE_32BIT -include boot/verify/donna_shim.h
 
@@ -457,7 +461,7 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
-	   -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
+	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
 	   -DTFW_SIMAVR_MCU='"$(MCU)"' \
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"

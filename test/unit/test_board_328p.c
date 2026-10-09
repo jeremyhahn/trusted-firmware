@@ -182,25 +182,54 @@ static void test_every_pin_is_either_digital_or_adc(void)
  * and a constant high nibble went out for every pin on every board. The bit was
  * right, which is what made it survive review.
  */
-static void test_the_packed_port_byte_is_the_descriptors_own_packing(void)
+static void page_port_bit(tfw_pin_t pin, uint8_t *port, uint8_t *bit)
 {
-    TEST_ASSERT_EQUAL_HEX8(TFW_PB(0u, 5u), tfw_board_pin_port_bit(13u));  /* PB5, the LED */
-    TEST_ASSERT_EQUAL_HEX8(TFW_PB(2u, 0u), tfw_board_pin_port_bit(0u));   /* PD0, RX */
-    TEST_ASSERT_EQUAL_HEX8(TFW_PB(1u, 0u), tfw_board_pin_port_bit(14u));  /* PC0, A0 */
+    uint8_t page[TFW_PIN_PAGE_LEN];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin_page(pin, page));
+    *port = page[2];
+    *bit  = page[3];
 }
 
-/* A6 and A7 are ADC-only on the TQFP package and absent from the DIP. The high
- * nibble says so, and that is the only way a host can learn a pin exists and
+/* Asserted through the page and not a packed byte: the packing is the
+ * architecture's (hal_types.h) and this suite runs against the host's, which is
+ * deliberately not the AVR's nibbles. The page is what CAPS sends. */
+static void test_the_page_carries_the_descriptors_port_and_bit(void)
+{
+    uint8_t port, bit;
+
+    page_port_bit(13u, &port, &bit);  /* PB5, the LED */
+    TEST_ASSERT_EQUAL_HEX8(0u, port);
+    TEST_ASSERT_EQUAL_HEX8(5u, bit);
+    page_port_bit(0u, &port, &bit);   /* PD0, RX */
+    TEST_ASSERT_EQUAL_HEX8(2u, port);
+    TEST_ASSERT_EQUAL_HEX8(0u, bit);
+    page_port_bit(14u, &port, &bit);  /* PC0, A0 */
+    TEST_ASSERT_EQUAL_HEX8(1u, port);
+    TEST_ASSERT_EQUAL_HEX8(0u, bit);
+}
+
+/* A6 and A7 are ADC-only on the TQFP package and absent from the DIP. The port
+ * byte says so, and that is the only way a host can learn a pin exists and
  * cannot be written. */
 static void test_an_adc_only_pin_reports_no_port(void)
 {
-    TEST_ASSERT_EQUAL_HEX8(TFW_PORT_NONE, (uint8_t)(tfw_board_pin_port_bit(20u) >> 4));
-    TEST_ASSERT_EQUAL_HEX8(TFW_PORT_NONE, (uint8_t)(tfw_board_pin_port_bit(21u) >> 4));
+    uint8_t port, bit;
+
+    page_port_bit(20u, &port, &bit);
+    TEST_ASSERT_EQUAL_HEX8(TFW_WIRE_PORT_NONE, port);
+    TEST_ASSERT_EQUAL_HEX8(TFW_WIRE_PORT_NONE, bit);
+    page_port_bit(21u, &port, &bit);
+    TEST_ASSERT_EQUAL_HEX8(TFW_WIRE_PORT_NONE, port);
+    TEST_ASSERT_EQUAL_HEX8(TFW_WIRE_PORT_NONE, bit);
 }
 
-static void test_a_pin_beyond_the_board_has_no_packed_port(void)
+static void test_a_pin_beyond_the_board_has_no_page(void)
 {
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_board_pin_port_bit(99u));
+    uint8_t page[TFW_PIN_PAGE_LEN] = { 0xAAu, 0xAAu, 0xAAu, 0xAAu, 0xAAu, 0xAAu };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin_page(99u, page));
+    TEST_ASSERT_EQUAL_HEX8(0xAAu, page[0]);   /* wrote nothing */
 }
 
 /*
@@ -248,9 +277,9 @@ int main(void)
     RUN_TEST(test_no_two_pins_share_a_port_and_bit);
     RUN_TEST(test_no_two_pins_share_an_adc_channel);
     RUN_TEST(test_every_pin_is_either_digital_or_adc);
-    RUN_TEST(test_the_packed_port_byte_is_the_descriptors_own_packing);
+    RUN_TEST(test_the_page_carries_the_descriptors_port_and_bit);
     RUN_TEST(test_an_adc_only_pin_reports_no_port);
-    RUN_TEST(test_a_pin_beyond_the_board_has_no_packed_port);
+    RUN_TEST(test_a_pin_beyond_the_board_has_no_page);
     RUN_TEST(test_the_tick_timers_pins_report_reserved_not_absent);
     RUN_TEST(test_a_usable_compare_unit_reports_available);
     RUN_TEST(test_a_pin_with_no_compare_unit_reports_none);

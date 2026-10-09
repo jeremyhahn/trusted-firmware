@@ -11,8 +11,6 @@
  * not answer while it waited.
  */
 
-#include <avr/interrupt.h>
-
 #include "tfw/hal.h"
 #include "tfw/crypto.h"
 #include "tfw/config.h"
@@ -79,7 +77,7 @@ static void startup(void)
 int main(void)
 {
     startup();
-    sei();
+    tfw_hal_irq_enable();
 
     /* Announce ourselves. An unexpected boot event is how a host learns the
      * device reset underneath it, which invalidates everything it believed

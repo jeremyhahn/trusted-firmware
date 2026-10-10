@@ -58,7 +58,7 @@ require (
 	github.com/jeremyhahn/go-xkms v0.51.0-alpha
 	github.com/jeremyhahn/go-xkms/sdk/go v0.51.0-alpha
 	github.com/jeremyhahn/go-xkms/xkey v0.51.0-alpha
-	github.com/jeremyhahn/trusted-firmware/sdk/go v0.0.0
+	github.com/jeremyhahn/trusted-firmware/sdk/go v0.3.0-alpha
 	github.com/kevinburke/ssh_config v1.6.0
 	github.com/mark3labs/mcp-go v0.45.0
 	github.com/miekg/dns v1.1.72
@@ -307,7 +307,3 @@ require (
 )
 
 replace github.com/armon/go-metrics => github.com/armon/go-metrics v0.4.1
-
-// The Layer 0 SDK is built from this tree, so a change to the wire protocol is
-// tested against its adapter in the same commit.
-replace github.com/jeremyhahn/trusted-firmware/sdk/go => ../sdk/go

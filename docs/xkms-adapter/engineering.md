@@ -5,9 +5,13 @@
 Package: `xkms/avr` · Import path
 `github.com/jeremyhahn/trusted-firmware/xkms/avr`
 
-Upstream: `github.com/jeremyhahn/trusted-firmware/sdk/go` (built from this tree
-through a `replace`), a Layer 0 module whose only dependencies are `go.bug.st/serial` and `testify`. Importing
+Upstream: `github.com/jeremyhahn/trusted-firmware/sdk/go` (required at a tagged
+version, `v0.3.0-alpha`; there is no `replace`, so the module is consumable once tagged), a Layer 0 module whose only dependencies are `go.bug.st/serial` and `testify`. Importing
 it from Layer 3 is permitted and is what it exists for.
+
+Release order: tag `sdk/go`, bump the `sdk/go` requirement in `xkms/go.mod` to
+that tag, then tag `xkms/`. The module never builds against the working-tree
+`sdk/go`; a wire change reaches the adapter only through a new `sdk/go` tag.
 
 ## Exported surface
 

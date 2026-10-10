@@ -15,6 +15,7 @@
 #include "../caps/storage.h"
 #include "../caps/attest.h"
 #include "../caps/alias.h"
+#include "../caps/csr.h"
 #include "auth_session.h"
 
 typedef struct {

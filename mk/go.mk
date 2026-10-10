@@ -42,8 +42,37 @@ sdk-verify:
 	fi
 	@echo "sdk/go: zero in-house dependencies -- Layer 0 invariant holds"
 
+# xkms/ is a SEPARATE module from sdk/go and sits above it: it adapts the AVR
+# device to go-xkms's backend interfaces, so it imports go-xkms (Layer 3) and
+# the SDK (Layer 0), which sdk/go itself must never do. It is built against the
+# SDK in this tree through a replace directive, so a wire change and the adapter
+# that depends on it are tested together.
+#
+# codec_json is go-xkms's build tag for its ACME client, which the end-to-end
+# test drives; without it that test would silently not be compiled.
+XKMS_DIR            := xkms
+XKMS_TAGS           ?= codec_json
+XKMS_COVERAGE_FLOOR ?= 90
+
+## xkms-test: run the xkms adapter's tests, including the end-to-end test
+# Depends on both simulators for the reason sdk-test does: the end-to-end test
+# enrolls the REAL firmware compiled for the host, never a downloaded binary.
+xkms-test: tfwsim tfwsim-atecc608a
+	@cd $(XKMS_DIR) && $(GO) test -count=1 -tags $(XKMS_TAGS) ./...
+
+## xkms-coverage: xkms adapter statement coverage, failing under the floor
+xkms-coverage: tfwsim tfwsim-atecc608a
+	@mkdir -p coverage
+	@cd $(XKMS_DIR) && $(GO) test -count=1 -tags $(XKMS_TAGS) \
+	  -coverprofile=../coverage/xkms.out ./... && \
+	  total=$$($(GO) tool cover -func=../coverage/xkms.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
+	  echo "xkms: $$total% statement coverage (floor $(XKMS_COVERAGE_FLOOR)%)" && \
+	  if [ "$${total%.*}" -lt "$(XKMS_COVERAGE_FLOOR)" ]; then \
+	    echo "xkms coverage is below the floor"; exit 1; \
+	  fi
+
 ## verify-vectors: check the C and Go wire vectors carry identical values
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test sdk-lint sdk-verify verify-vectors
+.PHONY: sdk-build sdk-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage

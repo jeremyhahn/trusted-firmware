@@ -65,7 +65,8 @@ off  size  field
 ```
 
 Feature bitmap bits (LSB first): GPIO, SCHED, ANALOG, PWM, TONE, PULSE,
-EEPROM, I2C, SPI, ONEWIRE, ATTEST, DEADMAN, PROVISION, ALIAS_CERT, AUTH_SESSION.
+EEPROM, I2C, SPI, ONEWIRE, ATTEST, DEADMAN, PROVISION, ALIAS_CERT, AUTH_SESSION,
+ATTEST_CSR.
 
 Algorithm bitmap: `0x0001` ECDSA P-256/SHA-256, `0x0002` Ed25519, `0x0004`
 HMAC-SHA256. **Not** the same numbering as the `AlgID` byte inside an
@@ -155,6 +156,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x61 | `AUTH_CHALLENGE` | `TFW_FEATURE_AUTH_SESSION` (element tier only) | `[]` | `[nonce:16]`, single-use |
 | 0x62 | `AUTH_RESPONSE` | `TFW_FEATURE_AUTH_SESSION` (element tier only) | `[sig:64]` — P-256 over `domain\|\|device_serial\|\|nonce` under the operator public key | none; grants a session lasting until reset |
 | 0x63 | `ATTEST_CERT` | `TFW_FEATURE_ALIAS_CERT` | `[nonce:32]` (mint) or `[page:1]` | `[page:1][total:2 LE][bytes:0..60]` — DER cert, 471-473 bytes total, paged |
+| 0x64 | `ATTEST_CSR` | `TFW_FEATURE_ATTEST_CSR` (ATmega2560 element tier only) | `[b:32]` | `[sig:64]` r‖s — the DeviceID key's P-256 signature over the 365-byte CertificationRequestInfo the device builds and the host rebuilds; nothing paged, nothing kept. Any other length is `TFW_ERR_BAD_ARGC` |
 | 0x68 | `OTA_BEGIN` | **tfw-boot only** | `[total_len:4]` | in the application: `TFW_ERR_UNKNOWN_CMD` |
 | 0x69 | `OTA_DATA` | **tfw-boot only** | `[offset:4]bytes[1..]` | in the application: `TFW_ERR_UNKNOWN_CMD` |
 | 0x6A | `OTA_END` | **tfw-boot only** | `[]` | in the application: `TFW_ERR_UNKNOWN_CMD` |
@@ -191,6 +193,23 @@ soft-tier or `CRYPTO=none` image does not compile them in at all and answers
 `TFW_ERR_UNKNOWN_CMD`, the same as any other absent feature: the only
 available software-tier verify primitive does not fit this device family
 (`docs/security/threat-model.md`).
+
+`ATTEST_CSR` (issue #30) is built only beside `ATTEST_CERT`, so never on the
+ATtiny85 or the ATmega32U4, and the ATmega328P's profile turns it off by name
+because it puts that part's element image over its flash budget; the 32U4's
+profile says so by name too (owner ruling on #6, 2026-10-09). The ATmega2560's
+element tier is the one image that carries it; elsewhere 0x64 answers
+`TFW_ERR_UNKNOWN_CMD` and CAPS bit 15 is clear. The
+host sends 32 bytes and nothing else; the device fills a fixed PKCS#10
+CertificationRequestInfo from its own key, UEID and measurement, puts `b`
+in the evidence extension's nonce, and signs it. It names itself by the
+lowercase hex of its full UEID (type byte + DeviceID, 34 digits, go-xkms#1441).
+The host never sends a digest
+and never sees the CRI: it rebuilds the same 365 bytes from the alias
+certificate and `b`, and wraps them with the signature. The template and the
+host's rebuild recipe are in
+[../dice-attestation/api.md](../dice-attestation/api.md); the bytes are pinned
+as `TFWV_CSR_CRI` in `testdata/vectors.h`. CAPS reports it as feature bit 15.
 
 ## RESET into the bootloader
 

@@ -105,6 +105,14 @@
 _Static_assert(TFW_UCCS_LEN == UCCS_ENVELOPE_LEN + TFW_UCCS_COSWID_LEN,
                "the claims set length and its CoSWID length disagree");
 
+/* The UEID's place, from what precedes it: the map head, the nonce key, the
+ * nonce's two-byte head and the nonce, the three-byte ueid key, and the ueid's
+ * own one-byte head. */
+_Static_assert(TFW_UCCS_UEID_LEN == TFW_ATTEST_ID_LEN + 1u,
+               "the UEID is no longer the type byte and the DeviceID");
+_Static_assert(TFW_UCCS_OFF_UEID == 1u + 1u + 2u + TFW_ALIAS_NONCE_LEN + 3u + 1u,
+               "the UEID is no longer where the possession CSR reads it");
+
 /*
  * Product constants. They identify the SOFTWARE, not the device -- the device
  * is the ueid claim -- so they are the same in every image of a given firmware
@@ -233,7 +241,7 @@ tfw_status_t tfw_uccs_encode(tfw_writer_t *w,
      * gives it as the first byte of the value, which is why this emits a
      * 17-byte string and not a 16-byte one inside something. */
     head(w, MT_UINT, CLAIM_UEID);
-    head(w, MT_BSTR, (uint16_t)(TFW_ATTEST_ID_LEN + 1u));
+    head(w, MT_BSTR, TFW_UCCS_UEID_LEN);
     tfw_write_u8(w, UEID_TYPE_RAND);
     tfw_write_blob(w, ueid, TFW_ATTEST_ID_LEN);
 

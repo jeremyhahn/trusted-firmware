@@ -379,6 +379,9 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 		return emit(out, asJSON, map[string]any{"certificate": hex.EncodeToString(der), "len": len(der)},
 			func() string { return hex.EncodeToString(der) + "\n" })
 
+	case "attest-csr":
+		return attestCSR(ctx, dev, args, asJSON, out)
+
 	case "auth":
 		// Element tier only. serial is the device's OWN platform identity,
 		// never generated here -- it comes from wherever the fleet already

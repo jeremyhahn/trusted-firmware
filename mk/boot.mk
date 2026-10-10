@@ -154,11 +154,14 @@ BOOT_LDFLAGS := $(ARCH_LDFLAGS) $(ARCH_BOOT_PLACEMENT_LDFLAGS)
 
 $(BOOT_DIR_OUT)/src/third_party/ed25519-donna/%.o: src/third_party/ed25519-donna/%.c
 	@mkdir -p $(dir $@)
-	@$(ARCH_CC) $(DONNA_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
+	@$(ARCH_CC) $(DONNA_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
 
 $(BOOT_DIR_OUT)/%.o: %.c
 	@mkdir -p $(dir $@)
-	@$(ARCH_CC) $(BOOT_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
+	@$(ARCH_CC) $(BOOT_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
+
+# See the same line in mk/firmware.mk: the headers each object read.
+-include $(BOOT_OBJS:.o=.d)
 
 # A failed link is REPORTED, not dumped.
 #
@@ -263,7 +266,7 @@ $(BOOT_TEST_DIR):
 # The vendored unit, compiled once without our warning set -- the same
 # arrangement mk/host.mk uses for Unity and for the same reason.
 $(BOOT_TEST_DIR)/donna_shim.o: boot/verify/donna_shim.c | $(BOOT_TEST_DIR)
-	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BOOT_TEST_DIR)/donna.o: src/third_party/ed25519-donna/ed25519.c | $(BOOT_TEST_DIR)
 	@$(CC) -std=gnu11 -g -O1 $(BOOT_DONNA_HOST) \
@@ -279,29 +282,29 @@ $(BOOT_TEST_DIR)/test_boot_element: test/unit/boot/test_boot_element.c \
         src/proto/crc16.c src/proto/crc16_update.c \
         $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_ed25519: test/unit/boot/test_boot_ed25519.c \
         boot/verify/verify_ed25519_donna.c $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
         boot/boot_policy.c $(BOOT_LOGIC_SRCS) $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
 $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_session.c \
         boot/recovery/recovery_ota.c boot/boot_store.c src/proto/frame.c \
         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 ## boot-test: run the bootloader's host unit tests
 boot-test: $(BOOT_TEST_BINS)
@@ -459,7 +462,7 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
         src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
         boot/boot_image.c boot/boot_platform.c boot/boot_request.c
 	@mkdir -p $(BOOT_INT_DIR)
-	@$(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
+	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
 	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
 	   -DTFW_SIMAVR_MCU='"$(MCU)"' \

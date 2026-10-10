@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The element-tier simulator's view of the host board profile: the real one,
- * with the operator-signature auth session switched on.
+ * with the operator-signature auth session and ATTEST_CSR switched on.
  *
  * boards/atmega328p/board_profile.h turns TFW_FEATURE_AUTH_SESSION off because
  * the feature does not fit that part's flash (see the measurement there). That
@@ -22,5 +22,11 @@
 
 #undef  TFW_FEATURE_AUTH_SESSION
 #define TFW_FEATURE_AUTH_SESSION 1
+
+/* ATTEST_CSR (issue #30), likewise: the 328P's profile says 0 because the
+ * request builder puts that part over its flash budget, and the simulator is
+ * where a host exercises the element tier's possession signature. */
+#undef  TFW_FEATURE_ATTEST_CSR
+#define TFW_FEATURE_ATTEST_CSR 1
 
 #endif /* TFWSIM_ELEMENT_BOARD_PROFILE_H */

@@ -94,6 +94,10 @@ const (
 	// FeatureAuthSession is issue #4's AUTH_CHALLENGE/AUTH_RESPONSE session,
 	// bit 14 -- element tier only. See AuthChallenge/AuthResponse.
 	FeatureAuthSession
+	// FeatureAttestCSR is issue #30's ATTEST_CSR, bit 15 -- the possession
+	// signature over a device-templated CertificationRequestInfo. See
+	// AttestCSR.
+	FeatureAttestCSR
 )
 
 // AlgorithmSet is the set of signature algorithms a device's crypto provider

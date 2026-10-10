@@ -10,7 +10,16 @@ produces an image with all of it, and every other target runs inside it.
 ```sh
 make ci          # what CI requires, run locally
 make docker-ci   # the same, inside the toolchain image
+make xkms-test xkms-coverage   # the xkms adapter gate, a separate job
 ```
+
+There are two gates. `make ci` covers everything that needs only this checkout
+and public modules, so it runs in the toolchain image. The `xkms/` adapter module
+depends on the private go-xkms module, which the image has no route to and which
+must not be given a credential baked into a layer, so `make xkms-test` and
+`make xkms-coverage` are not part of `make ci`. The `xkms` CI job runs them on the
+runner, and it is part of the CI Gate: a change is green only when both pass. To
+run the whole gate locally, run both commands where go-xkms is reachable.
 
 `make help` lists every target.
 

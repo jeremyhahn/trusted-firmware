@@ -127,12 +127,106 @@ Label `3` (evidence) is used rather than `6` (payload): RFC 9711 §4.2.16
 requires an evidence CoSWID, and a payload tag would claim this is what was
 *installed* rather than what was *measured*.
 
+## `ATTEST_CSR` — 0x64
+
+Proof of possession of the DeviceID key at ACME finalize
+([adr-possession-at-acme-finalize.md](adr-possession-at-acme-finalize.md)).
+Built only on the ATmega2560's element tier. It needs `ATTEST_CERT`, so
+`boards/attiny85` has no handler; the `boards/atmega32u4` and
+`boards/atmega328p` profiles turn it off by name, by owner ruling on #6
+(2026-10-09) — the 328P because it puts the element image over its flash budget;
+see `engineering.md`. Each answers `TFW_ERR_UNKNOWN_CMD` and reports `CAPS`
+bit 15 clear. On a build that has it, a tier with no asymmetric key answers
+`TFW_ERR_UNSUPPORTED` and an unprovisioned element `TFW_ERR_NOT_PROVISIONED`,
+exactly as `ATTEST_CERT`'s mint does.
+
+```
+request:  ATTEST_CSR(b[32])
+response: [sig:64]   r‖s, P-256 over SHA-256(CertificationRequestInfo)
+```
+
+One exchange: nothing is paged and nothing is kept, so it does not disturb an
+`ATTEST_CERT` paging in progress or leave a certificate for one to read. Any
+request length but 32 is `TFW_ERR_BAD_ARGC`.
+
+### What the device signs, `src/caps/csr.c`
+
+A PKCS#10 `CertificationRequestInfo` (RFC 2986 §4.1), 365 bytes, every one of
+them fixed except four holes the device fills from its own state:
+
+```
+off  size  field
+  0    9   30 82 01 69  02 01 00  30 00         SEQUENCE, version 0, subject = empty Name
+  9   27   SubjectPublicKeyInfo header          id-ecPublicKey / prime256v1, BIT STRING 00 04  -- from TBS_PREFIX
+ 36   64   HOLE: the DeviceID point X‖Y
+100   57   attributes [0]: one extensionRequest (1.2.840.113549.1.9.14) holding
+             subjectAltName (2.5.29.17), critical:
+               otherName id-on-permanentIdentifier (1.3.6.1.5.5.7.8.3),
+               PermanentIdentifier { identifierValue UTF8String (34) }
+157   34   HOLE: the UEID, 17 bytes as 34 lowercase hex digits
+191   23   tcg-dice-UCCS-evidence Extension header, critical                    -- from TBS_PREFIX
+214  151   HOLE: the UCCS claims set above, with b as the nonce
+```
+
+The `identifierValue` is the lowercase hex of the full UEID — the type byte
+then the DeviceID, 34 digits, e.g. `01a1b2c3d4e5f60718293a4b5c6d7e8f90` — as
+go-xkms#1441 profiles it. The device hexes the very 17 bytes it places in the
+`ueid` claim, so the name and the evidence cannot disagree.
+
+The two headers marked `TBS_PREFIX` are read from the alias certificate's
+template, so the request and the certificate cannot describe the key or the
+evidence differently. The subject is empty, which is why the subjectAltName is
+critical (RFC 5280 §4.2.1.6). `assigner` is omitted from the
+PermanentIdentifier.
+
+### Building the request is go-xkms's
+
+This repo does not own certificate profiles. The host knows every hole — `b`
+because it chose it, and the point, the DeviceID and the firmware hash from the
+alias certificate it already verified — so go-xkms reproduces the 365 bytes
+itself (go-xkms#1441), checks the device's signature over SHA-256 of them under
+the DeviceID point, and wraps the `CertificationRequest`:
+
+```
+CertificationRequest ::= SEQUENCE {
+  certificationRequestInfo  <the 365 bytes>,
+  signatureAlgorithm        ecdsa-with-SHA256 (1.2.840.10045.4.3.2), no parameters,
+  signature                 BIT STRING, DER ECDSA-Sig-Value { r, s } from the 64 bytes }
+}
+```
+
+A rebuild that differs by one byte from the device's fails to verify; it never
+yields a CSR for something else. The device never sees a digest, a subject or
+an extension from the host — only `b`, a fixed-width field inside a CBOR byte
+string inside an OCTET STRING, which changes no length and no tag.
+`TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` in `testdata/vectors.h` pin the bytes
+for the model element; the C tests pin them, and `sdk/go` carries no copy.
+
+### Host SDK — `Device.AttestCSR`
+
+```go
+sig, err := dev.AttestCSR(ctx, b) // b is [tfw.AliasNonceLen]byte; sig is [tfw.CSRSigLen]byte, r‖s
+```
+
+Transport only. In order:
+
+1. `CAPS` bit 15 must be set. If not, `AttestCSR` returns
+   `tfw.StatusErrUnsupported` (wrapped, so `errors.Is` matches) and nothing
+   else is sent.
+2. `ATTEST_CSR(b)` — the 64-byte `r‖s`, returned as it came; any other length is
+   a `*tfw.ShortReplyError`. A refusal comes back as the status the device gave.
+
+The SDK does not mint the alias certificate, build the CertificationRequestInfo,
+or verify the signature: a signature that does not verify is the caller's to
+find, with the profile code that knows what was signed. The result carries no
+private key and the SDK holds none.
+
 ## `CAPS` — 0x00, the fields this feature depends on
 
 ```
 off  size  field
   9    1   CryptoTier     tfw_crypto_tier_t: 0 none, 1 software, 2 secure element, 3 tpm2 (reserved, unimplemented)
- 10    4   Features       little-endian bitmap; bit 10 = TFW_FEATURE_ATTEST, bit 13 = TFW_FEATURE_ALIAS_CERT
+ 10    4   Features       little-endian bitmap; bit 10 = TFW_FEATURE_ATTEST, bit 13 = TFW_FEATURE_ALIAS_CERT, bit 15 = TFW_FEATURE_ATTEST_CSR
  14    2   Algorithms     little-endian bitmap; bit 0 ECDSA-P256-SHA256, bit 1 Ed25519, bit 2 HMAC-SHA256; absent on firmware built before it existed
 ```
 

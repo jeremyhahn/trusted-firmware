@@ -121,6 +121,19 @@
  */
 #define TFW_FEATURE_ALIAS_CERT 0
 
+/*
+ * ATTEST_CSR (issue #30) is OFF here too, by the owner's ruling of 2026-10-09,
+ * and it would be off regardless: the request reads its key and evidence
+ * headers out of the alias certificate's template and is only ever built beside
+ * it. Said here anyway, so the exclusion is a decision on record rather than a
+ * side effect of the line above, and survives that line ever changing.
+ *
+ * WHAT IS LOST: a 32U4 cannot prove possession of its DeviceID key at ACME
+ * finalize. A host asking for ATTEST_CSR gets TFW_ERR_UNKNOWN_CMD and CAPS
+ * reports the feature bit clear.
+ */
+#define TFW_FEATURE_ATTEST_CSR 0
+
 /* Half the usable space, each. Usable flash is 28672 bytes, not 32768, because
  * Caterina owns the top 4 KB -- so the half is 14336 rather than 16384. RAM is
  * half of 2560.

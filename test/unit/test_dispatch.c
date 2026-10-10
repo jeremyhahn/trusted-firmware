@@ -72,6 +72,24 @@ static void test_auth_commands_are_absent_from_a_soft_tier_build(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, run(TFW_CMD_AUTH_RESPONSE, 0, 0u));
 }
 
+/* issue #30: this binary takes the 328P's profile, which leaves ATTEST_CSR out
+ * because it puts the part over its flash budget. Unlinked, it must answer like
+ * any command the build never heard of, and CAPS must say so before a host asks
+ * -- bit 15 clear, the alias certificate's bit 13 still set beside it. */
+static void test_attest_csr_is_absent_from_a_328p_build_and_caps_says_so(void)
+{
+    uint32_t feats;
+    const uint8_t b[TFW_ALIAS_NONCE_LEN] = { 0u };
+
+    TEST_ASSERT_FALSE(tfw_dispatch_knows(TFW_CMD_ATTEST_CSR));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, run(TFW_CMD_ATTEST_CSR, b, (uint8_t)sizeof b));
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_CAPS, 0, 0u));
+    feats = (uint32_t)outbuf[10] | ((uint32_t)outbuf[11] << 8)
+          | ((uint32_t)outbuf[12] << 16) | ((uint32_t)outbuf[13] << 24);
+    TEST_ASSERT_EQUAL_HEX32(0u, feats & (1uL << 15));
+    TEST_ASSERT_EQUAL_HEX32(1uL << 13, feats & (1uL << 13));
+}
+
 static void test_the_system_commands_are_all_present(void)
 {
     TEST_ASSERT_TRUE(tfw_dispatch_knows(TFW_CMD_CAPS));
@@ -336,6 +354,7 @@ int main(void)
     RUN_TEST(test_an_unknown_command_is_refused);
     RUN_TEST(test_the_five_reserved_ids_have_no_handler);
     RUN_TEST(test_auth_commands_are_absent_from_a_soft_tier_build);
+    RUN_TEST(test_attest_csr_is_absent_from_a_328p_build_and_caps_says_so);
     RUN_TEST(test_the_system_commands_are_all_present);
     RUN_TEST(test_a_payload_shorter_than_the_minimum_is_refused);
     RUN_TEST(test_a_payload_longer_than_the_maximum_is_refused);

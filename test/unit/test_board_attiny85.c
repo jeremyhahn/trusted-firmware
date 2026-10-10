@@ -286,6 +286,7 @@ static void test_caps_reports_absent_everything_this_part_cannot_do(void)
     TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_SPI,     "a USI is not an SPI peripheral");
     TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_ONEWIRE, "1-Wire shares hal_bus.c with TWI and SPI");
     TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_ATTEST,  "no boot section means no key store");
+    TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_ATTEST_CSR, "no element tier to sign it");
     /* and the primitives that DO survive */
     TEST_ASSERT_EQUAL_MESSAGE(1, TFW_FEATURE_GPIO,   "gpio is the point of the board");
     TEST_ASSERT_EQUAL_MESSAGE(1, TFW_FEATURE_ANALOG, "three ADC channels are real");

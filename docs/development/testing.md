@@ -121,8 +121,12 @@ make integration-test           # simavr, needs the firmware built
 make bench-check                # the cycle budget, both benchmarked boards
 make bench-run BOARD=atmega2560 # one board
 make coverage                   # with the 90 % floor enforced
-make ci                         # everything the gate requires
+make ci                         # everything the gate requires, bar the xkms job
+make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
 ```
+
+The xkms adapter module needs the private go-xkms module, so its two targets are
+outside `make ci` (and so outside `make docker-ci`); see `building.md`.
 
 Tier 2 needs the AVR toolchain and `libsimavr`; `make docker-test` runs the
 whole gate in the pinned CI image if you do not have them locally.

@@ -58,6 +58,19 @@
  * board either; see docs/security/threat-model.md. */
 #define TFW_FEATURE_AUTH_SESSION 0
 
+/* ATTEST_CSR (issue #30) does not fit either. Measured by CI on ac493c8: the
+ * atecc608a tier with it on is 16 884 / 16 384 bytes, 500 over -- the request
+ * builder is small, but it lands on an image that had no room left to give.
+ * The owner's ruling on #6 was that the 328P is excluded from ACME enrolment if
+ * the command puts it over budget, the same way the ATmega32U4 is; it does.
+ *
+ * The alias certificate stays on: this excludes the possession signature only.
+ *
+ * WHAT IS LOST: a 328P cannot prove possession of its DeviceID key at ACME
+ * finalize. A host asking for ATTEST_CSR gets TFW_ERR_UNKNOWN_CMD and CAPS
+ * reports bit 15 clear. Only the ATmega2560's element tier carries it. */
+#define TFW_FEATURE_ATTEST_CSR 0
+
 /* Half the part, each. The budget is a gate, not an estimate: `make size-check`
  * fails the build when an image exceeds it, so flash creep is caught on the
  * commit that causes it rather than the day someone tries to add a feature and

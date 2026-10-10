@@ -181,6 +181,23 @@ cert, err := dev.AttestCert(ctx, nonce) // tfw.AliasNonceLen == 32 bytes
 verify certificates or run enrolment policy — that is go-xkms's and
 go-trusted-platform's job; hand the bytes across that boundary unmodified.
 
+## Prove possession of the DeviceID key at ACME finalize
+
+`ATTEST_CSR`/`Device.AttestCSR` returns the signature the DeviceID key made for
+ACME finalize, with the same `b` you gave `AttestCert`:
+
+```go
+var b [tfw.AliasNonceLen]byte
+copy(b[:], nonce)                      // SHA-256(keyAuthorization), as above
+sig, err := dev.AttestCSR(ctx, b)      // [tfw.CSRSigLen]byte, r‖s as the device sent it
+```
+
+The call is transport only: it neither builds the PKCS#10 request nor checks the
+signature. The CertificationRequestInfo the device signed and the request around
+it are go-xkms's to reproduce and verify (go-xkms#1441); hand `sig` and `b`
+across that boundary unmodified. The CLI equivalent is
+`tfwctl <port> attest-csr --nonce <hex>` (`cli.md`), which prints `sig` as hex.
+
 ## Read the failure a device gives you
 
 | You see | It means |
@@ -189,6 +206,8 @@ go-trusted-platform's job; hand the bytes across that boundary unmodified.
 | `TFW_ERR_NOT_PROVISIONED` | the element is present but has no UDS/DeviceID yet — run `tfwprov --commit` |
 | `TFW_ERR_UNSUPPORTED` from `ATTEST_CERT` | this device's tier has no public key to certify (software tier), or this board has no room for the certificate builder |
 | `TFW_ERR_RANGE` while paging | you asked for a page past the document's end, or reused a page index after sending a new nonce |
+| `TFW_ERR_UNSUPPORTED` from `AttestCSR` | CAPS bit 15 is clear (the 32U4, or a build without the alias certificate), or the tier has no asymmetric key — nothing was asked of the device |
+| `*tfw.ShortReplyError` from `AttestCSR` | the device answered with something other than 64 bytes |
 
 ## Known limitation: the measurement fields are not live yet
 

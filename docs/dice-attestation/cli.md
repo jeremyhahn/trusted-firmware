@@ -20,6 +20,32 @@ come from whoever is deciding whether to trust the answer. A nonce of the
 wrong length is refused before a frame goes out — the two lengths differ
 because they answer different questions, and are documented in `api.md`.
 
+## `tfwctl attest-csr`
+
+```
+tfwctl [-baud N] [-timeout D] [-json] <port> attest-csr --nonce <32 hex bytes>
+```
+
+Prints the 64-byte `r‖s` signature the device's DeviceID key made for that
+challenge, as 128 hex digits and a newline. With `-json` it prints
+`{"signature": <hex>, "len": 64}` instead. It is `sdk/go/cmd/tfwctl/attestcsr.go`
+over `Device.AttestCSR`.
+
+The signature is all the device returns. The `CertificationRequest` around it
+(the CertificationRequestInfo, the DER wrapping, the check against the DeviceID
+key) is certificate-profile work and go-xkms's, so this verb does not build one.
+
+```
+tfwctl /dev/ttyACM0 attest-csr --nonce "$(printf %s "$KEY_AUTH" | sha256sum | cut -d' ' -f1)"
+```
+
+The nonce is the caller's, as for `attest-cert`, and is a flag here, as the verb
+shipped. The flag is required; a missing, empty, non-hex or
+wrong-length nonce, an unknown flag or a stray argument is refused before a frame
+goes out, and nothing is written to stdout on any failure. A device that does not
+offer the command fails with `TFW_ERR_UNSUPPORTED`; `tfwctl caps` lists
+`attest-csr` among the features when it does.
+
 ## `tfwctl caps` — see the root of trust before trusting anything it says
 
 ```

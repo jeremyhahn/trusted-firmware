@@ -94,6 +94,13 @@ TFW_CMD_ENTRY(TFW_CMD_ATTEST, ATTEST, tfw_attest_cmd, 1u, TFW_ATTEST_NONCE_LEN)
 TFW_CMD_ENTRY(TFW_CMD_ATTEST_CERT, ATTEST_CERT, tfw_alias_cmd, 1u, TFW_ALIAS_NONCE_LEN)
 #endif
 
+/* The possession signature at ACME finalize -- issue #30. Exactly 32 bytes in,
+ * because b is a fixed-width field of a fixed template: see src/caps/csr.c and
+ * TFW_FEATURE_ATTEST_CSR in config.h. */
+#if TFW_FEATURE_ATTEST_CSR
+TFW_CMD_ENTRY(TFW_CMD_ATTEST_CSR, ATTEST_CSR, tfw_csr_cmd, TFW_ALIAS_NONCE_LEN, TFW_ALIAS_NONCE_LEN)
+#endif
+
 /* The operator-signature auth session -- issue #4. Gated by CRYPTO tier,
  * exactly as TFW_FEATURE_ALIAS_CERT is just above and for a related reason:
  * see TFW_FEATURE_AUTH_SESSION in config.h. A soft or CRYPTO=none image has no

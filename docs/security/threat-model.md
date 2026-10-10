@@ -96,6 +96,44 @@ exactly as they always were. A verifier reading a soft-tier device's `CAPS`
 already knows this — the feature bit is clear — and should not expect these
 two resources to be protected on it.
 
+## What the DeviceID key will sign
+
+Whoever holds the serial line can ask the DeviceID key for a signature, so
+what it signs is the whole of what that line can obtain. It signs three
+structures and no others:
+
+1. the `ATTEST` evidence frame, bytes `[0, 74)`, with a 16-byte host nonce;
+2. the alias `TBSCertificate` (`ATTEST_CERT`), with a 32-byte host nonce;
+3. a PKCS#10 `CertificationRequestInfo` (`ATTEST_CSR`, issue #30), with a
+   32-byte host `b`.
+
+**Only fixed templates with fixed-width host fields are ever signed.** Each
+structure is built on the device from a template in its own flash and its own
+state; the host's only input is a nonce whose width the dispatcher enforces,
+inside a field that no value of it can resize or retag. No command signs a
+host-supplied digest, and none takes a host-supplied subject, name or
+extension — a signing oracle over arbitrary bytes is what this rule exists to
+prevent. Adding a fourth structure, or any host field that is not fixed-width,
+changes this section first.
+
+The three cannot be confused for one another. The frame opens `0x01`, which no
+DER SEQUENCE does; the TBS has its `[0]` version tag at offset 4 where the CRI
+has INTEGER 0; and the CRI's empty subject `30 00` at offset 7 lies where a
+TBS must carry an AlgorithmIdentifier with a mandatory OID. So a signature over
+one is never a valid signature over another (`test/unit/test_csr.c` checks all
+six directions).
+
+What a hostile host *can* obtain from `ATTEST_CSR` is a CSR naming this device
+— its own key, a subjectAltName `permanentIdentifier` holding the hex of its
+own UEID, its own measurement — for any `b` it likes. That is a statement the
+device makes about itself and nothing else. It proves possession of the key,
+not authority to enrol it: the ACME server must still check that the SAN is
+the identifier being finalized and that `b` is the value its own challenge
+bound (`docs/dice-attestation/adr-possession-at-acme-finalize.md`). Only the
+ATmega2560's element tier builds the command. The ATmega32U4 and ATmega328P do
+not (owner ruling on #6, 2026-10-09: excluded where it puts the part over
+budget), so neither can prove possession at finalize at all.
+
 ## Structural limits that will not be fixed
 
 **No AVR in this family has a memory protection unit.** Once the application

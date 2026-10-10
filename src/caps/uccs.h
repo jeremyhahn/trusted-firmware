@@ -24,6 +24,14 @@
  * why it is a constant here rather than something the encoder discovers. */
 #define TFW_UCCS_COSWID_LEN 84u
 
+/* The UEID: the ueid claim's value, RFC 9711's type byte and then the 16-byte
+ * DeviceID. Everything before it in the claims set is fixed width, so it sits
+ * at a fixed offset, and the possession CSR names the device by hexing these
+ * bytes where they lie -- one encoding of the device's identity, read by both
+ * documents, rather than a second that could drift from it. */
+#define TFW_UCCS_UEID_LEN 17u
+#define TFW_UCCS_OFF_UEID 40u
+
 /*
  * Encodes the claims set into w.
  *

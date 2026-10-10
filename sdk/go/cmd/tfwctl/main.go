@@ -60,6 +60,9 @@ commands
   1wire-reset <pin>                1wire-write <pin> <hex>   1wire-read <pin> <count>
   attest <16 hex bytes>            runtime evidence, nonce is YOURS
   attest-cert <32 hex bytes>       the alias certificate, DER
+  attest-csr --nonce <32 hex bytes>
+                                   the possession signature, r||s as hex
+                                   for that challenge: DER on stdout, or PEM
   auth <16 hex bytes> <key.pem> [-- <verb> <args...>]
                                    element tier only: authenticate with the
                                    operator key (PEM EC private key path;
@@ -339,7 +342,7 @@ func featureList(c *tfw.Caps) string {
 		{tfw.FeatureEEPROM, "eeprom"}, {tfw.FeatureI2C, "i2c"}, {tfw.FeatureSPI, "spi"},
 		{tfw.FeatureOneWire, "onewire"}, {tfw.FeatureAttest, "attest"}, {tfw.FeatureDeadman, "deadman"},
 		{tfw.FeatureProvision, "provision"}, {tfw.FeatureAliasCert, "attest-cert"},
-		{tfw.FeatureAuthSession, "auth"},
+		{tfw.FeatureAuthSession, "auth"}, {tfw.FeatureAttestCSR, "attest-csr"},
 	} {
 		if c.Has(f.bit) {
 			on = append(on, f.name)

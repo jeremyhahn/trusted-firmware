@@ -103,7 +103,7 @@ reaches for by task.
 | timing-critical sensors | `PulseIn`, `PulseCapture` |
 | EEPROM | `EEPROMRead`, `EEPROMWrite` |
 | buses | `I2CTransfer`, `SetI2CClock`, `SPITransfer`, `ConfigureSPI`, `OneWireReset/Write/Read` |
-| attestation | `Attest(ctx, nonce []byte) ([]byte, error)`, `AttestCert(ctx, nonce []byte) ([]byte, error)` |
+| attestation | `Attest(ctx, nonce []byte) ([]byte, error)`, `AttestCert(ctx, nonce []byte) ([]byte, error)`, `AttestCSR(ctx, b [32]byte) ([64]byte, error)` |
 | auth session (element tier only) | `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer, nonce, serial []byte) error` |
 | provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS` |
 | raw codec | `tfw.EncodeRequest`, `tfw.EncodeResponse`, `tfw.Decode`, `tfw.CRC16` |
@@ -125,9 +125,11 @@ if errors.As(err, &rangeErr) {
 
 ## Attestation consumers
 
-`go-xkms` is the intended importer of `Attest`/`AttestCert`. Neither call
-holds or returns a private key — `AttestCert` returns DER bytes the device
-signed itself; the nonce widths (`AttestNonceLen` 16, `AliasNonceLen` 32) are
+`go-xkms` is the intended importer of `Attest`/`AttestCert`/`AttestCSR`. None
+of the calls holds or returns a private key — `AttestCert` returns DER bytes the
+device signed itself, and `AttestCSR` returns the 64-byte signature the device
+made, with no request built around it and none verified (that is go-xkms's; see
+`docs/dice-attestation/api.md`); the nonce widths (`AttestNonceLen` 16, `AliasNonceLen` 32) are
 deliberately different and must not be conflated (see `attest.go` and
 `docs/dice-attestation/architecture.md`).
 

@@ -36,6 +36,13 @@ HOST_BOARD ?= atmega328p
 # compiled out would answer TFW_ERR_UNKNOWN_CMD -- which says the firmware has
 # never heard of certificates, not that this tier cannot issue one. The
 # element-backed path gets its own binary below, against the software element.
+#
+# ATTEST_CSR is NOT turned on here. The host build takes the 328P's profile,
+# which says 0 for want of flash, so this build's dispatcher has no ATTEST_CSR
+# entry and answers it TFW_ERR_UNKNOWN_CMD exactly as the 328P image does --
+# test_dispatch pins that. A -D here would also be a macro redefinition of the
+# profile's 0. tfw_csr_cmd itself is tested by test_csr, and served by
+# tfwsim-atecc608a through its overlay profile.
 HOST_EXTRA_DEFS ?= -DTFW_FEATURE_ATTEST=1 -DTFW_FEATURE_ALIAS_CERT=1
 
 # -std=c11 is required, not stylistic: the buffer-sizing invariants are
@@ -50,6 +57,14 @@ HOST_CFLAGS := -std=c11 -g -O1 \
 # Unity's own sources are third-party; its warnings are not ours to fix, and
 # -Werror over a vendored tree turns an upstream bump into a build break.
 UNITY_CFLAGS := -std=c11 -g -O1 -I$(UNITY_DIR)
+
+# Header dependencies. Every host binary is built by ONE cc command over many
+# sources, so there is no object file for gcc's -MMD to hang a .d file on; the
+# wrapper writes $@.d beside the output instead (see mk/ccdeps.sh), and the
+# -include at the foot of this file reads them back. Without it an edit to a
+# header rebuilt nothing: a stale tfwsim reported protocol 1.0 after protocol.h
+# had moved to 2.
+HOST_CC := sh mk/ccdeps.sh $(CC)
 
 SAN_FLAGS   := -fsanitize=address,undefined -fno-omit-frame-pointer
 COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
@@ -89,6 +104,7 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # certificate is signed by an element, so its suite links the software element
 # as the I2C HAL and the ATECC provider as the crypto tier. Linking it beside
 # the mock would be two definitions of tfw_hal_i2c_xfer.
+# test_csr joins it for the same reason: the possession signature is the element's.
 # test_bus_element joins that list for the same reason: it links the software
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
 # functions, either of which the mock also defines.
@@ -98,6 +114,7 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # tfw_crypto_init and everything else in include/tfw/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_provision.c test/unit/test_alias.c \
+                            test/unit/test_csr.c \
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c \
@@ -127,6 +144,8 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/crypto/soft/provider.c \
                  src/caps/attest.c \
                  src/caps/alias.c \
+                 src/caps/tmpl.c \
+                 src/caps/csr.c \
                  src/caps/uccs.c \
                  src/core/handoff.c src/core/platform_id.c \
                  src/core/secure_zero.c \
@@ -145,7 +164,7 @@ $(HOST_DIR)/unity.o: $(UNITY_DIR)/unity.c | $(HOST_DIR)
 	@$(CC) $(UNITY_CFLAGS) -c -o $@ $<
 
 $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The ATECC608A driver against the software element. A separate link because
 # the model IS the I2C HAL here -- linking it beside the mock would be two
@@ -157,7 +176,7 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
                         src/crypto/sha256.c \
                         src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # Provisioning, same arrangement and the same reason: it drives the element, so
@@ -166,7 +185,7 @@ $(HOST_DIR)/test_provision: test/unit/test_provision.c $(ELEMENT_MODEL) \
                             src/caps/provision.c src/core/reader.c src/core/writer.c \
                             src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -DTFW_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The alias certificate, driven by the element that signs it. Its DER and CBOR
@@ -174,14 +193,27 @@ $(HOST_DIR)/test_provision: test/unit/test_provision.c $(ELEMENT_MODEL) \
 # bytes in the same binary that exercises the command is what stops the two
 # drifting apart.
 $(HOST_DIR)/test_alias: test/unit/test_alias.c $(ELEMENT_MODEL) \
-                        src/caps/alias.c src/caps/uccs.c \
+                        src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
                         src/core/reader.c src/core/writer.c \
                         src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                         src/crypto/sha256.c src/caps/attest.c \
                         src/core/handoff.c src/core/platform_id.c src/core/secure_zero.c \
                         boot/boot_handoff.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# ATTEST_CSR, the same arrangement as test_alias: its CertificationRequestInfo
+# vector needs no provider, the command it pins does.
+$(HOST_DIR)/test_csr: test/unit/test_csr.c $(ELEMENT_MODEL) \
+                      src/caps/csr.c src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
+                      src/core/reader.c src/core/writer.c \
+                      src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
+                      src/crypto/sha256.c src/caps/attest.c \
+                      src/core/handoff.c src/core/platform_id.c src/core/secure_zero.c \
+                      boot/boot_handoff.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
+                      $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # I2C_CONFIG's refusal on an element build (src/caps/bus.c) -- the one
@@ -200,7 +232,7 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
                                src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c \
                                src/proto/crc16.c src/proto/crc16_update.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule
@@ -212,7 +244,7 @@ $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         test/mock/hal_mock.c test/mock/uds_mock.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # test_sys_noboot is the same case from the other side: the whole host library
 # with the no-bootloader stub where update_request.c would be, which is exactly
@@ -221,7 +253,7 @@ $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
                         $(filter-out src/core/update_request.c,$(HOST_LIB_SRCS)) \
                         src/core/update_request_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # test_pin_coord brings its own board tables -- a port 18 and a bit 31, which no
 # real board has -- so it links board_lookup.c and the mock HAL without
@@ -230,7 +262,7 @@ $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
                         test/mock/hal_mock.c src/core/handoff.c src/core/secure_zero.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The operator-signature auth session, driven against the software element --
 # issue #4. Same arrangement as test_alias: the model IS the I2C HAL, so no
@@ -248,7 +280,7 @@ $(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c $(ELEMENT_MODEL) \
                                 boot/boot_platform.c boot/boot_handoff.c \
                                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The model's curve, pinned against RFC 6979 and an independent derivation. It
@@ -257,10 +289,10 @@ $(HOST_DIR)/test_model_p256: test/unit/test_model_p256.c $(ELEMENT_MODEL) \
                              src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
                              src/proto/crc16.c src/proto/crc16_update.c \
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord
 
@@ -436,7 +468,9 @@ TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h
 # atmega328p profile it otherwise takes (which says 0 for want of flash, a
 # constraint that does not exist on a host). The element tier is the only tier
 # that can verify an operator signature, and the simulator exists to let a host
-# exercise exactly what that tier does. The override is a one-line overlay
+# exercise exactly what that tier does. ATTEST_CSR is on in it for the same
+# reason: the profile's 0 is the 328P's flash, and the element tier is the tier
+# that serves it. The override is an overlay
 # profile, tools/tfwsim/element/board_profile.h, found first on the include path;
 # no firmware source or board profile is touched, and no AVR image sees it.
 TFWSIM_ELEMENT_INC := -Itools/tfwsim/element
@@ -450,20 +484,25 @@ TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_moc
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)
 $(HOST_DIR)/tfwsim: $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(HOST_LIB_SRCS) | $(HOST_DIR)
-	@$(CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(HOST_LIB_SRCS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a
 $(HOST_DIR)/tfwsim-atecc608a: $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) | $(HOST_DIR)
-	@$(CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 clean-host:
 	@rm -rf $(HOST_DIR)
+
+# The .d files mk/ccdeps.sh wrote. After every rule in the file so nothing here
+# becomes the default goal; mk/boot.mk's land in $(HOST_DIR)/boot and are read
+# by the same line. -include, because the first build has none.
+-include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d)
 
 .PHONY: test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint \
         lint-arch-leak lint-arch-leak-selftest
@@ -480,6 +519,13 @@ clean-host:
 #
 # Only the board suite is swept. The capability suites assert against the 328P's
 # pin numbers on purpose; running them against a Mega would test the test.
+#
+# Each is compiled with the feature flags of its board's LAST tier in
+# BOARD_TIERS -- the most capable image it ships, the element tier where there is
+# one -- as `make feature-defs` reports them from the same variables the image's
+# FW_CFLAGS carry. Without them every tier-selected gate reads config.h's 0, and
+# a board test asserting where ATTEST_CSR (#30) is present could not pass, nor
+# one asserting where it is absent mean anything.
 BOARDS := $(notdir $(wildcard boards/*))
 
 SWEEP_DIR := $(BUILD_DIR)/sweep
@@ -493,15 +539,61 @@ board-sweep:
 	  if [ ! -f "$$src" ]; then \
 	    echo "MISSING: $$b has no descriptor test"; fail=1; continue; fi; \
 	  mkdir -p $(SWEEP_DIR); \
+	  tiers=$$($(MAKE) -s --no-print-directory board-tiers BOARD=$$b); tier=$${tiers##* }; \
+	  defs=$$($(MAKE) -s --no-print-directory feature-defs BOARD=$$b CRYPTO=$$tier) || \
+	    { echo "NO FEATURE DEFS: $$b $$tier"; fail=1; continue; }; \
 	  $(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	     -Iinclude -Isrc -Isrc/core -Itest/mock -Iboards/$$b -I$(UNITY_DIR) \
-	     -DTFW_BOARD_HEADER='"board_profile.h"' \
+	     -DTFW_BOARD_HEADER='"board_profile.h"' $$defs \
 	     -o $(SWEEP_DIR)/$$b "$$src" src/core/board_lookup.c boards/$$b/board.c \
 	     $(UNITY_DIR)/unity.c || { echo "BUILD FAILED: $$b"; fail=1; continue; }; \
-	  echo "--- $$b"; ./$(SWEEP_DIR)/$$b || fail=1; ran=$$((ran+1)); \
+	  echo "--- $$b ($$tier:$${defs:- no tier features})"; ./$(SWEEP_DIR)/$$b || fail=1; ran=$$((ran+1)); \
 	done; \
 	echo "board-sweep: $$ran board(s)"; \
 	[ "$$ran" -gt 0 ] || { echo "board-sweep swept nothing"; exit 1; }; \
 	exit $$fail
 
 .PHONY: board-sweep
+
+# ------------------------------------------------------------ header deps check
+#
+## header-deps-check: prove an edited header makes the built binaries out of date
+# For each pair "binary header": build the binary, assert `make -q` calls it up
+# to date, bump the header's mtime, assert `make -q` now calls it out of date.
+# The first assertion is not decoration -- a binary that is stale before the
+# touch makes the second one pass for the wrong reason.
+#
+# Nothing tracked is modified. The header's mtime is the only thing changed, and
+# it is put back from a reference copy on every exit path, so a failed check
+# does not leave the tree looking edited. The binaries are the ordinary ones and
+# are rebuilt at the end so the check does not leave them stale either.
+#
+#   tfwsim, protocol.h   the case that was reported: a stale tfwsim answered
+#                        protocol 1.0 after protocol.h had moved to 2
+#   a unit test, config.h    the pattern rule every suite shares
+#   a boot test, config.h    mk/boot.mk's own rules
+HDEP_UNIT := $(HOST_DIR)/test_frame
+HDEP_BOOT := $(HOST_DIR)/boot/test_boot_image
+HDEP_PAIRS := $(HOST_DIR)/tfwsim:include/tfw/protocol.h \
+              $(HDEP_UNIT):include/tfw/config.h \
+              $(HDEP_BOOT):include/tfw/config.h
+
+header-deps-check:
+	@set -e; ref=$$(mktemp); cur=; \
+	 restore() { [ -z "$$cur" ] || touch -r "$$ref" "$$cur"; rm -f "$$ref"; }; \
+	 trap restore EXIT; \
+	 for pair in $(HDEP_PAIRS); do \
+	   bin=$${pair%%:*}; hdr=$${pair#*:}; \
+	   $(MAKE) --no-print-directory $$bin > /dev/null; \
+	   if ! $(MAKE) -q --no-print-directory $$bin; then \
+	     echo "header-deps-check: $$bin is out of date straight after being built"; exit 1; fi; \
+	   cur=$$hdr; touch -r "$$hdr" "$$ref"; touch "$$hdr"; \
+	   if $(MAKE) -q --no-print-directory $$bin; then \
+	     echo "header-deps-check: touching $$hdr did not make $$bin out of date"; exit 1; fi; \
+	   touch -r "$$ref" "$$hdr"; cur=; \
+	   $(MAKE) --no-print-directory $$bin > /dev/null; \
+	   echo "  ok  $$bin depends on $$hdr"; \
+	 done; \
+	 echo "header-deps-check: edited headers rebuild the host binaries"
+
+.PHONY: header-deps-check

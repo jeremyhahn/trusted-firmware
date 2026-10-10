@@ -315,6 +315,16 @@ static void test_every_pin_has_a_digital_port(void)
     }
 }
 
+/* #30: the Mega's element image is the one that carries ATTEST_CSR -- the only
+ * part with the flash for it -- and CAPS bit 15 says so. Compiled with the
+ * element tier's own flags (`make board-sweep`); config.h alone would say 0. */
+static void test_the_element_image_carries_attest_csr(void)
+{
+    TEST_ASSERT_EQUAL_MESSAGE(1, TFW_FEATURE_ALIAS_CERT, "the template ATTEST_CSR reads");
+    TEST_ASSERT_EQUAL_MESSAGE(1, TFW_FEATURE_ATTEST_CSR, "the one part enrolled at ACME finalize");
+    TEST_ASSERT_EQUAL_HEX32(1uL << 15, TFW_FEATURE_BITMAP & (1uL << 15));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -343,5 +353,6 @@ int main(void)
     RUN_TEST(test_no_two_pins_share_an_adc_channel);
     RUN_TEST(test_every_pin_is_either_digital_or_adc);
     RUN_TEST(test_every_pin_has_a_digital_port);
+    RUN_TEST(test_the_element_image_carries_attest_csr);
     return UNITY_END();
 }

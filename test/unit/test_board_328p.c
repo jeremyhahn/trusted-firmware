@@ -260,6 +260,19 @@ static void test_a_pin_with_no_compare_unit_reports_none(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_board_pin_pwm_state(99u));  /* and one that does not exist */
 }
 
+/* #30: ATTEST_CSR puts this part's element image 500 bytes over its budget, so
+ * the profile leaves it out by the owner's ruling on #6 -- and CAPS bit 15 says
+ * so. Compiled with the element tier's own flags (`make board-sweep`), so the
+ * alias certificate's presence is what shows the gate is the image's and not
+ * config.h's default: the request is out, the certificate it rides beside is in. */
+static void test_the_element_image_carries_the_alias_certificate_but_not_attest_csr(void)
+{
+    TEST_ASSERT_EQUAL_MESSAGE(1, TFW_FEATURE_ALIAS_CERT, "the element tier certifies its alias key");
+    TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_ATTEST_CSR, "over budget on this part (#30)");
+    TEST_ASSERT_EQUAL_HEX32(1uL << 13, TFW_FEATURE_BITMAP & (1uL << 13));
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_FEATURE_BITMAP & (1uL << 15));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -283,5 +296,6 @@ int main(void)
     RUN_TEST(test_the_tick_timers_pins_report_reserved_not_absent);
     RUN_TEST(test_a_usable_compare_unit_reports_available);
     RUN_TEST(test_a_pin_with_no_compare_unit_reports_none);
+    RUN_TEST(test_the_element_image_carries_the_alias_certificate_but_not_attest_csr);
     return UNITY_END();
 }

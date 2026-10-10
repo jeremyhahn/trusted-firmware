@@ -145,8 +145,14 @@ ifeq ($(ALIAS_OFF),1)
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
 else
-ALIAS_SRCS  := src/caps/alias.c src/caps/uccs.c
+ALIAS_SRCS  := src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c
 ALIAS_DEFS  := -DTFW_FEATURE_ALIAS_CERT=1
+# ATTEST_CSR -- issue #30 -- reads its fixed headers out of the alias template,
+# so it is only ever selected beside it; a profile can still say no to it alone.
+ifneq ($(call feature_off,ATTEST_CSR),1)
+ALIAS_SRCS  += src/caps/csr.c
+ALIAS_DEFS  += -DTFW_FEATURE_ATTEST_CSR=1
+endif
 endif
 # The operator-signature auth session -- issue #4. Unlike ALIAS_CERT this
 # costs the element's own Verify command and a few hundred bytes, not a
@@ -233,7 +239,11 @@ FW_OBJS := $(patsubst %.c,$(FW_DIR)/%.o,$(FW_SRCS))
 
 $(FW_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	@$(ARCH_CC) $(FW_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<
+	@$(ARCH_CC) $(FW_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
+
+# The headers each object read, written by -MMD beside it. Without these an edit
+# to a header rebuilt no image: the .o depended on its .c and nothing else.
+-include $(FW_OBJS:.o=.d)
 
 $(TARGET).elf: $(FW_OBJS)
 	@$(ARCH_CC) $(FW_LDFLAGS) -o $@ $(FW_OBJS)
@@ -277,6 +287,13 @@ FIRMWARE_BOARDS := $(notdir $(wildcard boards/*))
 board-tiers:
 	@echo $(BOARD_TIERS)
 
+## feature-defs: print the -D feature flags the BOARD/CRYPTO image compiles with (used by board-sweep)
+# The same variables FW_CFLAGS carries, so a test compiled with this output sees
+# the gates the image was built with -- not config.h's defaults, which say 0 to
+# every tier-selected feature on every board.
+feature-defs:
+	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS)
+
 ## firmware-matrix-list: print every "board tier" pair firmware-matrix builds
 firmware-matrix-list:
 	@for b in $(FIRMWARE_BOARDS); do \
@@ -306,7 +323,7 @@ ci-matrix-check:
 	   diff <(echo "$$want") <(echo "$$have") | sed 's/^/  /'; exit 1; fi; \
 	 echo "ci-matrix-check: $$(echo "$$want" | wc -l) board/tier pairs, workflow and Makefile agree"
 
-.PHONY: board-tiers firmware-matrix-list ci-matrix-check
+.PHONY: board-tiers feature-defs firmware-matrix-list ci-matrix-check
 
 firmware-matrix:
 	@fail=0; \

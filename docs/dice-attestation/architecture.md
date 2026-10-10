@@ -6,8 +6,17 @@
 ## Ownership boundary
 
 This repo owns the AVR wire protocol, the firmware that speaks it (`src/caps/attest.c`,
-`src/caps/alias.c`, `src/caps/uccs.c`, `src/crypto/`), and the host SDK for it
-(`sdk/go/attest.go`). It does **not** own DICE ASN.1, certificate profiles or
+`src/caps/alias.c`, `src/caps/csr.c`, `src/caps/uccs.c`, `src/crypto/`), the host SDK for it
+(`sdk/go`, Layer 0, zero in-house dependencies), and the `xkms` adapter module
+(`github.com/jeremyhahn/trusted-firmware/xkms`).
+
+The owner ruled on 2026-10-09 that go-xkms and go-quicbaas implement standards
+(TPM2, PKCS#11, TCG DICE, EAT/UCCS, device-attest-01, RFC 9334) and define the
+plug-in interfaces. A firmware we wrote ships its xkms integration as an adapter
+module in its own repo, registered through go-xkms's registry hook. The AVR
+xkms backend is therefore this repo's, not go-xkms's.
+
+It does **not** own DICE ASN.1, certificate profiles or
 attestation verification — those belong to go-xkms. It does not own device
 enrolment, the device registry or fleet policy — those belong to
 go-trusted-platform. A gap in either is filed against that repo, never worked
@@ -29,8 +38,10 @@ a verifier to assume otherwise.
 | `src/crypto/none/provider.c` | a fourth, build-time tier for silicon too small to hold the software tier's contract honestly (ATtiny85 has no boot section, no BLB lock bits) — always `TFW_CRYPTO_NONE`, every operation `TFW_ERR_UNSUPPORTED` |
 | `src/caps/attest.c` | `ATTEST`: builds and pages the 164-byte evidence frame |
 | `src/caps/alias.c` | `ATTEST_CERT`: builds the TBSCertificate, mints and pages the alias certificate |
-| `src/caps/uccs.c` | encodes the UCCS claims set carried inside the certificate |
-| `include/tfw/protocol.h` | wire constants for both commands, both nonce widths, frame header |
+| `src/caps/csr.c` | `ATTEST_CSR`: fills the CertificationRequestInfo template and signs it, for possession at ACME finalize |
+| `src/caps/tmpl.c` | the one template walker both DER documents are emitted through: a table of fixed runs and holes, hashed or windowed |
+| `src/caps/uccs.c` | encodes the UCCS claims set carried inside the certificate and the request |
+| `include/tfw/protocol.h` | wire constants for the three commands, both nonce widths, frame header |
 | `sdk/go/attest.go` | host-side paging and nonce-width validation for both commands |
 
 **Substituted at link time, like the HAL, never through a vtable.** One
@@ -109,6 +120,50 @@ the alias certificate, as the CWT claim `nonce` (key `10`). Alongside it:
 (key `273`, a CoSWID naming the firmware hash). All three keys were read from
 the IANA CWT/EAT claims registry via RFC 9711 §10.2, not assumed —
 `src/caps/uccs.c`. `api.md` has the exact CBOR.
+
+## What the DeviceID key signs
+
+Three structures, and only these:
+
+| | Command | Host contributes | Built in |
+|---|---|---|---|
+| the evidence frame, bytes `[0, 74)` | `ATTEST` 0x60 | a 16-byte nonce | `src/caps/attest.c` |
+| the alias `TBSCertificate`, 383 bytes | `ATTEST_CERT` 0x63 | a 32-byte nonce | `src/caps/alias.c` |
+| a PKCS#10 `CertificationRequestInfo`, 365 bytes | `ATTEST_CSR` 0x64 | a 32-byte `b` | `src/caps/csr.c` |
+
+**The rule: only fixed templates with fixed-width host fields are ever
+signed.** The device builds every byte it signs from a template in its own
+flash and its own state; the host's only input is a nonce of a width the
+dispatcher enforces, placed where no value of it can change a length, a tag
+or the document's shape. No command signs a host-supplied digest, and none
+takes a host-supplied subject, name or extension. A fourth structure, or a
+host field of variable width, is a threat-model change first
+(`docs/security/threat-model.md`).
+
+The three are mutually unparseable, so a signature over one can never be
+presented as a signature over another: the frame opens `0x01`, which is not a
+SEQUENCE; the TBS carries its `[0]` version (`A0`) at offset 4, where the
+CRI must have INTEGER 0; and the CRI's empty subject `30 00` at offset 7 sits
+where a TBS needs its signature AlgorithmIdentifier, whose OID is mandatory.
+
+`ATTEST_CSR` exists because ACME finalize wants a CSR signed by the key being
+certified, and the device never sees the finalize request
+([adr-possession-at-acme-finalize.md](adr-possession-at-acme-finalize.md),
+option (c)). `sdk/go` hands back the 64-byte signature and stops there. go-xkms
+rebuilds the CRI from the alias certificate and `b`, verifies the signature,
+wraps it and submits it; the CRI names the device only by a
+subjectAltName `permanentIdentifier` holding the lowercase hex of its full UEID
+(type byte + DeviceID, 34 digits, go-xkms#1441), so a CSR for some
+other name cannot be assembled from it. The CRI reads its key and evidence
+headers out of the alias template, so the two documents cannot describe either
+differently.
+
+**Which parts can enrol.** Only the ATmega2560's element tier builds it. The
+owner's ruling on #6 (2026-10-09) excludes a part from ACME enrolment where the
+command puts it over budget: the ATmega328P's element image measured 16 884 /
+16 384 bytes with it, so its profile turns it off (the alias certificate stays);
+the ATmega32U4's profile turns it off too; and it is never built anywhere
+`ATTEST_CERT` is not.
 
 ## The evidence frame
 

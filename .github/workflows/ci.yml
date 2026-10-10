@@ -6,6 +6,8 @@
 # -Werror -Wconversion, and govulncheck -- which has no analogue without a
 # package manager -- becomes a vendored-dependency manifest verified by hash.
 # sdk/go is a real Go module and carries the full, unmodified Go gate set.
+# xkms/ is a second Go module, above it, that depends on a private module; see
+# the `xkms` job for why it is the one job that runs outside the image.
 #
 # Two gates here exist in no other repository in the fleet, because nothing
 # else in it ships to a part with 2 KB of RAM or signs its own image:
@@ -361,10 +363,60 @@ jobs:
         # fake, which would drift from the firmware the moment either changed.
         run: docker run --rm "$IMG" make sdk-test
 
+  xkms:
+    name: xkms adapter
+    runs-on: ubuntu-latest
+    # The one job that does NOT run in the toolchain image, and the reason is
+    # access. xkms/ imports github.com/jeremyhahn/go-xkms, a private module on
+    # our Gitea. The fleet runner injects GOPRIVATE and a tokenised git rewrite
+    # for github.com/jeremyhahn/* into the JOB's environment; `docker build`
+    # bakes the source into an image and inherits none of it, so a
+    # `go mod download` inside the build cannot reach Gitea. Handing the image a
+    # token as a build argument would put a credential in an image layer and in
+    # this file's history, so the job runs on the runner instead and takes the
+    # access the runner already provides. No credential belongs in this
+    # workflow, and none is here.
+    #
+    # What it needs from the runner is what the image otherwise supplies: a Go
+    # toolchain (set up below, at the version the image pins), and a host C
+    # compiler and make for tfwsim, which the end-to-end test enrols. avr-gcc is
+    # not needed -- the simulators are host builds -- so the 7.3.0 problem the
+    # other jobs avoid by using the image does not arise here.
+    env:
+      # Same as the image: the toolchain is pinned, never fetched on demand.
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          # Keep in step with GO_VERSION in docker/Dockerfile.ci. go-xkms
+          # requires Go >= 1.27.1; the exact version is pinned so this job and
+          # `make ci` in the image compile with the same compiler.
+          go-version: '1.27.2'
+          # The module cache is keyed on a go.sum at the repository root, and
+          # there is none; xkms/go.sum is not where the action looks.
+          cache: false
+      - name: host toolchain for tfwsim
+        run: |
+          go version
+          for tool in gcc make; do
+            command -v "$tool" >/dev/null || { echo "the runner has no $tool; tfwsim cannot be built"; exit 1; }
+          done
+      - name: private module access
+        # Fail HERE, naming the cause, rather than as a compile error forty
+        # lines into the test run. If this step fails the runner did not inject
+        # GOPRIVATE and the git rewrite for github.com/jeremyhahn/*.
+        run: cd xkms && go mod download github.com/jeremyhahn/go-xkms
+      - name: xkms adapter tests and coverage
+        # The same two targets `make ci` runs. Both depend on tfwsim and
+        # tfwsim-atecc608a, so the end-to-end test enrols the real firmware
+        # compiled for the host and never a binary somebody downloaded.
+        run: make xkms-test xkms-coverage
+
   gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [lint, unit, sanitizers, firmware, integration, sdk]
+    needs: [lint, unit, sanitizers, firmware, integration, sdk, xkms]
     if: always()
     steps:
       - name: results
@@ -378,6 +430,7 @@ jobs:
           echo "firmware    ${{ needs.firmware.result }}"
           echo "integration ${{ needs.integration.result }}"
           echo "sdk         ${{ needs.sdk.result }}"
+          echo "xkms        ${{ needs.xkms.result }}"
       - name: fail unless every job succeeded
         if: >-
           needs.lint.result != 'success' ||
@@ -385,5 +438,6 @@ jobs:
           needs.sanitizers.result != 'success' ||
           needs.firmware.result != 'success' ||
           needs.integration.result != 'success' ||
-          needs.sdk.result != 'success'
+          needs.sdk.result != 'success' ||
+          needs.xkms.result != 'success'
         run: exit 1

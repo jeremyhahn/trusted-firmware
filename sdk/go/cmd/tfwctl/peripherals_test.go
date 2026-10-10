@@ -129,6 +129,7 @@ func TestEveryPeripheralVerbIsDispatched(t *testing.T) {
 		{"1wire-read", []string{"4", "9"}},
 		{"attest", []string{strings.Repeat("00", tfw.AttestNonceLen)}},
 		{"attest-cert", []string{strings.Repeat("00", tfw.AliasNonceLen)}},
+		{"attest-csr", []string{"--nonce", strings.Repeat("00", tfw.AliasNonceLen)}},
 		// tfwsim links the soft tier, so this reaches TFW_ERR_UNKNOWN_CMD --
 		// a real Status, not a dispatch failure, which is exactly what this
 		// table checks: the verb itself is wired up in tfwctl regardless of

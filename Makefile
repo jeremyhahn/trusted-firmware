@@ -74,7 +74,15 @@ verify-vendor:
 # deliberately and its numbers are in docs/development/performance.md; the debt
 # is tracked in #11, #12 and #13. It goes back in when the rows it measures are
 # met, not before.
-ci: verify-vendor verify-vectors lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep \
+#
+# `xkms-test` and `xkms-coverage` are NOT HERE either, for a different reason:
+# the xkms adapter module depends on the private go-xkms module, and the
+# toolchain image behind `make docker-ci` has no route to it, so `make ci` there
+# would fail on a cold cache for want of a credential that must not be baked
+# into a layer. They are their own targets, run by the `xkms` CI job on the
+# runner, which is part of the CI Gate. Run `make ci xkms-test xkms-coverage`
+# where go-xkms is reachable to run both gates.
+ci: verify-vendor verify-vectors lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep header-deps-check \
     coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
     integration-test-boot reproducible-check ci-matrix-check
 	@echo "CI gate: green"

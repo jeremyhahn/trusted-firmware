@@ -83,6 +83,17 @@
 #ifndef TFW_FEATURE_ALIAS_CERT
 #define TFW_FEATURE_ALIAS_CERT  0
 #endif
+/* ATTEST_CSR, the possession signature over a CertificationRequestInfo --
+ * issue #30.
+ *
+ * DEFAULT 0, and the Makefile turns it on only beside TFW_FEATURE_ALIAS_CERT:
+ * the request reads its key and evidence headers out of the alias certificate's
+ * template, so it cannot exist without it. A board can still say 0 to this
+ * alone, which is how the ATmega32U4's and ATmega328P's profiles record the
+ * owner's exclusion. */
+#ifndef TFW_FEATURE_ATTEST_CSR
+#define TFW_FEATURE_ATTEST_CSR  0
+#endif
 #ifndef TFW_FEATURE_DEADMAN
 #define TFW_FEATURE_DEADMAN     0   /* opt-in: safe for a motor, wrong for a lamp */
 #endif
@@ -130,7 +141,8 @@
     | ((uint32_t)TFW_FEATURE_DEADMAN << 11) \
     | ((uint32_t)TFW_FEATURE_PROVISION << 12) \
     | ((uint32_t)TFW_FEATURE_ALIAS_CERT << 13) \
-    | ((uint32_t)TFW_FEATURE_AUTH_SESSION << 14) )
+    | ((uint32_t)TFW_FEATURE_AUTH_SESSION << 14) \
+    | ((uint32_t)TFW_FEATURE_ATTEST_CSR << 15) )
 
 /* ------------------------------------------------------- board identity */
 /* A board profile supplies these. The host build has no board and takes the

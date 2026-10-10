@@ -336,6 +336,18 @@ static void test_the_board_reports_its_identity(void)
     TEST_ASSERT_EQUAL_UINT8(0x03u, TFW_BOARD_ID);
 }
 
+/* Neither the alias certificate nor ATTEST_CSR (#30) fits beside Caterina, and
+ * the profile says both; CAPS bits 13 and 15 say so to a host. Compiled with the
+ * element tier's own flags (`make board-sweep`), whose AUTH_SESSION is on here
+ * -- the proof that this reads the image's gates rather than config.h's 0s. */
+static void test_the_element_image_carries_neither_alias_cert_nor_attest_csr(void)
+{
+    TEST_ASSERT_EQUAL_MESSAGE(1, TFW_FEATURE_AUTH_SESSION, "the element tier's flags are in force");
+    TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_ALIAS_CERT, "does not fit beside the DFU bootloader");
+    TEST_ASSERT_EQUAL_MESSAGE(0, TFW_FEATURE_ATTEST_CSR, "owner's ruling, and no template to read");
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_FEATURE_BITMAP & ((1uL << 13) | (1uL << 15)));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -361,5 +373,6 @@ int main(void)
     RUN_TEST(test_every_pin_is_either_digital_or_adc);
     RUN_TEST(test_no_pin_on_this_part_is_adc_only);
     RUN_TEST(test_the_board_reports_its_identity);
+    RUN_TEST(test_the_element_image_carries_neither_alias_cert_nor_attest_csr);
     return UNITY_END();
 }

@@ -28,10 +28,11 @@
  * WHY A TEMPLATE. Every field of the TBS except three is the same in every
  * certificate this firmware will ever issue -- the algorithm identifiers, the
  * names, the validity, the extension's OID and every DER length around it. A
- * template is 232 bytes of flash and three range tests; a general DER writer is
- * a length stack, a two-pass size computation and a class of bug where the
- * lengths and the contents disagree. The builder is already the largest thing
- * this firmware gained; a general writer is not a close call.
+ * template is 232 bytes of flash and a table of steps for src/caps/tmpl.c to
+ * walk; a general DER writer is a length stack, a two-pass size computation and
+ * a class of bug where the lengths and the contents disagree. The builder is
+ * already the largest thing this firmware gained; a general writer is not a
+ * close call.
  *
  * THE THREE HOLES are the serial number, the subject public key and the claims
  * set. The first two sit inside the prefix; the claims set is the last thing in
@@ -55,6 +56,7 @@
 #include <string.h>
 #include "alias.h"
 #include "attest.h"
+#include "tmpl.h"
 #include "uccs.h"
 #include "tfw/config.h"
 #include "tfw/crypto.h"
@@ -83,7 +85,7 @@ static const uint8_t TBS_PREFIX[] TFW_PROGMEM = {
     0x30, 0x82, 0x01, 0x7B,
     /* version [0] EXPLICIT INTEGER 2 -- v3, which extensions require */
     0xA0, 0x03, 0x02, 0x01, 0x02,
-    /* serialNumber INTEGER, 8 bytes. THE HOLE: see serial_byte for why the
+    /* serialNumber INTEGER, 8 bytes. THE HOLE: see SERIAL_LEN for why the
      * leading byte is forced into 0x40..0x7F. */
     0x02, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     /* signature AlgorithmIdentifier: ecdsa-with-SHA256, 1.2.840.10045.4.3.2.
@@ -135,13 +137,6 @@ static const uint8_t TBS_PREFIX[] TFW_PROGMEM = {
     0x81, 0x9A, 0x04, 0x81, 0x97
 };
 
-/* The same AlgorithmIdentifier again, in Certificate.signatureAlgorithm. RFC
- * 5280 section 4.1.1.2 requires the two to match; they are the same bytes and
- * the template's copy is not reachable from here, so this is the second. */
-static const uint8_t SIG_ALG[] TFW_PROGMEM = {
-    0x30, 0x0A, 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02
-};
-
 #define TBS_PREFIX_LEN ((uint16_t)sizeof TBS_PREFIX)
 #define TBS_LEN        ((uint16_t)(TBS_PREFIX_LEN + TFW_UCCS_LEN))
 
@@ -157,71 +152,66 @@ _Static_assert(TBS_LEN == 383u, "the TBSCertificate changed size");
 _Static_assert(TBS_OFF_SPKI + TFW_ALIAS_POINT_LEN
                    == TBS_PREFIX_LEN - TBS_EXT_HEADER_LEN,
                "the public key hole no longer ends where the extensions begin");
-
-/*
- * The emit sink: one pass hashes, the other windows, and the certificate is
- * described once for both.
- *
- * A certificate is 471 to 473 bytes and an element-backed 328P image has 239
- * bytes of its RAM budget left, so it is never held whole. The bytes are
- * generated afresh for every window -- once to be signed, once per page to be
- * sent -- which costs time on a device that is idle between frames anyway, and
- * costs no RAM at all.
- */
-typedef struct {
-    tfw_sha256_t *hash;   /* the signing pass */
-    uint8_t     *out;    /* the windowing pass */
-    uint16_t     from;   /* first offset the window wants */
-    uint8_t      cap;    /* how many bytes it can take */
-    uint16_t     pos;    /* offsets emitted so far; the total, at the end */
-    uint8_t      got;    /* bytes placed in the window */
-} emit_t;
-
-static void put(emit_t *e, uint8_t b)
-{
-    if (e->hash) {
-        tfw_sha256_update(e->hash, &b, 1u);
-    }
-    if (e->out && e->pos >= e->from && e->got < e->cap) {
-        e->out[e->got++] = b;
-    }
-    e->pos++;
-}
-
-static void put_pgm(emit_t *e, const uint8_t *p, uint16_t n)
-{
-    uint16_t i;
-    for (i = 0u; i < n; i++) {
-        put(e, tfw_pgm_u8(&p[i]));
-    }
-}
+/* The spans the possession CSR reads out of this template. Each ends exactly
+ * where it must: the key header at the key, the Extension at the claims set. */
+_Static_assert(TFW_ALIAS_TBS_OFF_SPKI_HDR + TFW_ALIAS_TBS_SPKI_HDR_LEN
+                   == TBS_OFF_SPKI,
+               "the SubjectPublicKeyInfo header no longer ends at the point");
+_Static_assert(TFW_ALIAS_TBS_OFF_UCCS_EXT + TFW_ALIAS_TBS_UCCS_EXT_LEN
+                   == TBS_PREFIX_LEN,
+               "the evidence Extension no longer ends at the claims set");
 
 /*
  * The serial number, from the nonce.
  *
  * A CA that reissues one serial with different contents has broken the one
- * thing a serial is for, so this varies per challenge. The high bit is cleared
- * and the 0x40 bit set, which puts the leading byte in 0x40..0x7F: DER INTEGERs
- * are signed and minimally encoded, so a leading byte of 0x00 would need
- * stripping and one at or above 0x80 would need a zero prepended. Either would
- * make the serial's width depend on the nonce, and a template cannot have a
- * field that changes length.
+ * thing a serial is for, so this varies per challenge. The leading byte is read
+ * TFW_TMPL_POS, which clears its high bit and sets its 0x40 bit and so puts it
+ * in 0x40..0x7F: DER INTEGERs are signed and minimally encoded, so a leading
+ * byte of 0x00 would need stripping and one at or above 0x80 would need a zero
+ * prepended. Either would make the serial's width depend on the nonce, and a
+ * template cannot have a field that changes length.
  */
-static uint8_t serial_byte(const uint8_t *nonce, uint8_t i)
-{
-    return i == 0u ? (uint8_t)((nonce[0] | 0x40u) & 0x7Fu) : nonce[i];
-}
-
 #define SERIAL_LEN 8u
 
-static tfw_status_t emit_tbs(emit_t *e, const tfw_alias_parts_t *p)
+/* The signature AlgorithmIdentifier inside the TBS, which RFC 5280 section
+ * 4.1.1.2 requires Certificate.signatureAlgorithm to repeat. It is read twice
+ * from the one copy, so the two cannot differ. */
+#define TBS_OFF_SIG_ALG 19u
+#define SIG_ALG_LEN     12u
+_Static_assert(TBS_OFF_SERIAL + SERIAL_LEN == TBS_OFF_SIG_ALG,
+               "the AlgorithmIdentifier no longer follows the serial");
+
+#define S_TBS(k)  ((uint8_t)((k) | TFW_ALIAS_SRC_TBS))
+
+/*
+ * The certificate's template: the TBS, then the signatureAlgorithm that follows
+ * it. The first TBS_STEPS are the TBSCertificate -- the bytes the DeviceID key
+ * signs -- and the last is read only by the windowing pass.
+ */
+static const tfw_tmpl_step_t STEPS[] TFW_PROGMEM = {
+    { S_TBS(TFW_TMPL_PGM), 0u, TBS_OFF_SERIAL },
+    { TFW_TMPL_POS | TFW_ALIAS_SRC_NONCE, 0u, 1u },
+    { TFW_TMPL_RAM | TFW_ALIAS_SRC_NONCE, 1u, SERIAL_LEN - 1u },
+    { S_TBS(TFW_TMPL_PGM), TBS_OFF_SIG_ALG, TBS_OFF_SPKI - TBS_OFF_SIG_ALG },
+    { TFW_TMPL_RAM | TFW_ALIAS_SRC_PUBKEY, 0u, TFW_ALIAS_POINT_LEN },
+    { S_TBS(TFW_TMPL_PGM), TBS_OFF_SPKI + TFW_ALIAS_POINT_LEN, TBS_EXT_HEADER_LEN },
+    { TFW_TMPL_RAM | TFW_ALIAS_SRC_UCCS, 0u, TFW_UCCS_LEN },
+    /* Certificate.signatureAlgorithm */
+    { S_TBS(TFW_TMPL_PGM), TBS_OFF_SIG_ALG, SIG_ALG_LEN }
+};
+
+#define CERT_STEPS ((uint8_t)(sizeof STEPS / sizeof STEPS[0]))
+#define TBS_STEPS  ((uint8_t)(CERT_STEPS - 1u))
+
+tfw_status_t tfw_alias_sources(const tfw_alias_parts_t *p, const uint8_t *own,
+                             uint8_t uccs[TFW_UCCS_LEN],
+                             const uint8_t *src[TFW_ALIAS_SRC_COUNT])
 {
-    uint8_t     uccs[TFW_UCCS_LEN];
     tfw_writer_t uw;
     tfw_status_t st;
-    uint16_t    i;
 
-    tfw_writer_init(&uw, uccs, (uint8_t)sizeof uccs);
+    tfw_writer_init(&uw, uccs, (uint8_t)TFW_UCCS_LEN);
     st = tfw_uccs_encode(&uw, p->nonce, TFW_ALIAS_NONCE_LEN, p->ueid, p->fw_hash);
     if (st != TFW_OK) {
         return st;
@@ -233,19 +223,11 @@ static tfw_status_t emit_tbs(emit_t *e, const tfw_alias_parts_t *p)
     if (tfw_writer_len(&uw) != TFW_UCCS_LEN) {
         return TFW_ERR_INTERNAL;
     }
-
-    for (i = 0u; i < TBS_PREFIX_LEN; i++) {
-        uint8_t b = tfw_pgm_u8(&TBS_PREFIX[i]);
-        if (i >= TBS_OFF_SERIAL && i < TBS_OFF_SERIAL + SERIAL_LEN) {
-            b = serial_byte(p->nonce, (uint8_t)(i - TBS_OFF_SERIAL));
-        } else if (i >= TBS_OFF_SPKI && i < TBS_OFF_SPKI + TFW_ALIAS_POINT_LEN) {
-            b = p->pubkey[i - TBS_OFF_SPKI];
-        }
-        put(e, b);
-    }
-    for (i = 0u; i < TFW_UCCS_LEN; i++) {
-        put(e, uccs[i]);
-    }
+    src[TFW_ALIAS_SRC_TBS]    = TBS_PREFIX;
+    src[TFW_ALIAS_SRC_OWN]    = own;
+    src[TFW_ALIAS_SRC_NONCE]  = p->nonce;
+    src[TFW_ALIAS_SRC_PUBKEY] = p->pubkey;
+    src[TFW_ALIAS_SRC_UCCS]   = uccs;
     return TFW_OK;
 }
 
@@ -269,7 +251,7 @@ static uint8_t int_content_len(const uint8_t *v)
     return (uint8_t)((v[i] & 0x80u) ? (33u - i) : (32u - i));
 }
 
-static void put_int(emit_t *e, const uint8_t *v)
+static void put_int(tfw_emit_t *e, const uint8_t *v)
 {
     uint8_t i = 0u;
     uint8_t n = int_content_len(v);
@@ -277,17 +259,17 @@ static void put_int(emit_t *e, const uint8_t *v)
     while (i < 31u && v[i] == 0u) {
         i++;
     }
-    put(e, 0x02u);
-    put(e, n);
+    tfw_emit_put(e, 0x02u);
+    tfw_emit_put(e, n);
     if (v[i] & 0x80u) {
-        put(e, 0x00u);
+        tfw_emit_put(e, 0x00u);
     }
     while (i < 32u) {
-        put(e, v[i++]);
+        tfw_emit_put(e, v[i++]);
     }
 }
 
-static tfw_status_t emit_cert(emit_t *e, const tfw_alias_parts_t *p)
+static tfw_status_t emit_cert(tfw_emit_t *e, const tfw_alias_parts_t *p)
 {
     /* ECDSA-Sig-Value SEQUENCE content, then the BIT STRING that wraps it with
      * a leading count of unused bits. Both stay under 128, so both take a
@@ -296,26 +278,28 @@ static tfw_status_t emit_cert(emit_t *e, const tfw_alias_parts_t *p)
     uint8_t  sv   = (uint8_t)(4u + int_content_len(p->sig)
                                  + int_content_len(&p->sig[32]));
     uint8_t  bits = (uint8_t)(3u + sv);
-    uint16_t body = (uint16_t)(TBS_LEN + (uint16_t)sizeof SIG_ALG + 2u + bits);
-    tfw_status_t st;
+    uint16_t body = (uint16_t)(TBS_LEN + SIG_ALG_LEN + 2u + bits);
+    uint8_t        uccs[TFW_UCCS_LEN];
+    const uint8_t *src[TFW_ALIAS_SRC_COUNT];
+    tfw_status_t   st;
 
-    put(e, 0x30u);
-    put(e, 0x82u);
-    put(e, (uint8_t)(body >> 8));
-    put(e, (uint8_t)body);
-
-    st = emit_tbs(e, p);
+    st = tfw_alias_sources(p, NULL, uccs, src);
     if (st != TFW_OK) {
         return st;
     }
 
-    put_pgm(e, SIG_ALG, (uint16_t)sizeof SIG_ALG);
+    tfw_emit_put(e, 0x30u);
+    tfw_emit_put(e, 0x82u);
+    tfw_emit_put(e, (uint8_t)(body >> 8));
+    tfw_emit_put(e, (uint8_t)body);
 
-    put(e, 0x03u);
-    put(e, bits);
-    put(e, 0x00u);            /* unused bits */
-    put(e, 0x30u);
-    put(e, sv);
+    tfw_tmpl_emit(e, STEPS, CERT_STEPS, src);
+
+    tfw_emit_put(e, 0x03u);
+    tfw_emit_put(e, bits);
+    tfw_emit_put(e, 0x00u);   /* unused bits */
+    tfw_emit_put(e, 0x30u);
+    tfw_emit_put(e, sv);
     put_int(e, p->sig);
     put_int(e, &p->sig[32]);
     return TFW_OK;
@@ -324,18 +308,15 @@ static tfw_status_t emit_cert(emit_t *e, const tfw_alias_parts_t *p)
 tfw_status_t tfw_alias_tbs_digest(const tfw_alias_parts_t *p,
                                 uint8_t out[TFW_SHA256_LEN])
 {
-    tfw_sha256_t c;
-    emit_t      e;
-    tfw_status_t st;
+    uint8_t        uccs[TFW_UCCS_LEN];
+    const uint8_t *src[TFW_ALIAS_SRC_COUNT];
+    tfw_status_t   st;
 
-    memset(&e, 0, sizeof e);
-    tfw_sha256_init(&c);
-    e.hash = &c;
-    st = emit_tbs(&e, p);
+    st = tfw_alias_sources(p, NULL, uccs, src);
     if (st != TFW_OK) {
         return st;
     }
-    tfw_sha256_final(&c, out);
+    tfw_tmpl_digest(STEPS, TBS_STEPS, src, out);
     return TFW_OK;
 }
 
@@ -343,7 +324,7 @@ tfw_status_t tfw_alias_cert(const tfw_alias_parts_t *p, uint16_t off,
                           uint8_t *out, uint8_t cap,
                           uint16_t *total, uint8_t *got)
 {
-    emit_t      e;
+    tfw_emit_t   e;
     tfw_status_t st;
 
     memset(&e, 0, sizeof e);

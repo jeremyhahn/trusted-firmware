@@ -132,6 +132,12 @@
  * differently shaped pages, and an id costs nothing where a mode byte would
  * cost every existing host a reparse. Ids extend and never renumber. */
 #define TFW_CMD_ATTEST_CERT       0x63u
+/* Possession at ACME finalize -- issue #30. [b:32] in, [sig:64] r||s out: the
+ * DeviceID key's signature over a CertificationRequestInfo the device fills
+ * from its own state, with b as the UCCS nonce. The host rebuilds the same
+ * bytes; the signature is the only thing that crosses the wire. See
+ * src/caps/csr.c. */
+#define TFW_CMD_ATTEST_CSR        0x64u
 
 /* AUTH_CHALLENGE's reply and AUTH_RESPONSE's request payload widths. Wire-level
  * constants, deliberately separate from TFW_SIG_LEN in tfw/crypto.h: that one

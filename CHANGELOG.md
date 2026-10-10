@@ -11,6 +11,125 @@ Pre-1.0, MINOR carries breaking changes.
 New entries go to `changelog.d/<issue>-<slug>.md`; the release step concatenates
 them into this file.
 
+## [0.3.0-alpha] - 2026-10-10
+
+### Added
+
+- **The xkms adapter module** (#28). `github.com/jeremyhahn/trusted-firmware/xkms`
+  is the AVR device as an xkms key provider, moved here from go-xkms's
+  `pkg/backend/avr` rather than rewritten. It is a separate module from `sdk/go`
+  on purpose: it imports go-xkms (Layer 3) and `sdk/go` (Layer 0), and `sdk/go`
+  must stay free of in-house dependencies.
+  - Provenance: the paths were imported verbatim, in their own commit, from
+    go-xkms tag `v0.51.0-alpha` (`73ea01410dc9791c97dd2ae105945d26b1a12e0a`):
+    `pkg/backend/avr/*`, `sdk/go/backends_avr*.go`,
+    `docs/avr-device-backend/*` and `pkg/acme/client/device_attest_dice_e2e_test.go`.
+    Later commits move them into `xkms/` (`avr/`, `backends_avr*.go`, `e2e/`) and
+    `docs/xkms-adapter/`, and adapt them.
+  - The adaptation is the rename (`sdk/go` import, the `tfw` alias, `tfwsim`, the
+    `tfw` certificate subjects), protocol 2 (the fake CAPS header claims 2.0, the
+    major-refusal test covers 1 and 3) and the `uint32` `FreeRAM`.
+  - `xkms/go.mod` requires go-xkms `v0.51.0-alpha` and replaces the SDK with
+    `../sdk/go`. `xkms/register.go` marks where the go-xkms#1439 registration
+    goes and implements nothing.
+  - The end-to-end test enrols the real firmware compiled for the host
+    (`tfwsim`, `tfwsim-atecc608a`), not a binary somebody downloaded.
+- **`make xkms-test` and `make xkms-coverage`** (#28), their own targets and not
+  part of `make ci`: `make docker-ci` runs `make ci` in a container with no route
+  to the private go-xkms module.
+- **An `xkms` CI job** (#28), joined to the `CI Gate`, which runs both targets. It
+  runs on the runner rather than in the toolchain image, because the image cannot
+  reach the private go-xkms module and a credential must not be baked into a
+  layer.
+- **`make header-deps-check`** (#29), part of `make ci`. For `tfwsim`, a
+  unit test and a boot test it asserts the binary is up to date after a build,
+  touches one header it includes, and fails unless the binary is then out of
+  date. The header's mtime is restored on every exit path. The motivating case
+  was a stale `tfwsim` that answered protocol 1.0 after `protocol.h` had moved
+  to 2.
+- **`ATTEST_CSR`, command 0x64** (#30). Proof of possession of the DeviceID key
+  at ACME finalize, option (c) of the possession ruling on #6.
+  - Request `[b:32]`, response `[sig:64]`: `r‖s`, the DeviceID key's P-256
+    signature over SHA-256 of a PKCS#10 `CertificationRequestInfo`. Any other
+    request length is `TFW_ERR_BAD_ARGC`. One exchange: nothing is paged and
+    nothing is kept, so it does not disturb an `ATTEST_CERT` in progress.
+  - CAPS feature bit 15, `TFW_FEATURE_ATTEST_CSR`. Selected only beside
+    `ATTEST_CERT`; a board profile can turn it off alone.
+  - The device builds the request itself from a fixed template: 365 bytes, version
+    0, an empty subject, its `SubjectPublicKeyInfo`, and an `extensionRequest`
+    holding a critical subjectAltName `otherName` `id-on-permanentIdentifier`
+    and the critical `tcg-dice-UCCS-evidence` extension carrying the claims set
+    with `b` as the nonce. The host rebuilds the same bytes; it chooses `b` and
+    nothing else.
+  - The permanent identifier is the lowercase hex of the full 17-byte UEID, type
+    byte included: 34 hex digits, per go-xkms#1441.
+  - `src/caps/csr.c` is a second table for the one template walker,
+    `src/caps/tmpl.c` (`tfw_tmpl_emit`, `tfw_tmpl_digest`), which the alias
+    certificate now also goes through. No new static RAM; the key buffer doubles
+    as the signature buffer.
+- **Vectors** (#30), literals from an independent encoder, read back by OpenSSL:
+  `TFWV_CSR_CRI` (365 bytes) and `TFWV_CSR_CRI_DIGEST` in `testdata/vectors.h`,
+  beside `TFWV_ALIAS_PUBKEY` and `TFWV_UCCS` (151 bytes) in
+  `testdata/uccs_vectors.h`. `test_csr` also pins the alias certificate beside
+  them and checks that none of the three signed structures parses as another.
+- Board docs, `docs/boards/atmega32u4.md`, recording which commands that part
+  leaves out.
+- **`Device.AttestCSR`** (#31). `AttestCSR(ctx, b [AliasNonceLen]byte)` returns the
+  64-byte `r‖s` signature the device's DeviceID key made over its
+  CertificationRequestInfo (`ATTEST_CSR`, #30), as a `[CSRSigLen]byte`.
+  - Transport only. This repo does not own certificate profiles: go-xkms
+    reproduces the 365-byte CertificationRequestInfo itself, verifies the
+    signature over it and builds the PKCS#10 request (go-xkms#1441). `sdk/go`
+    holds no template, no ASN.1, no OIDs and no Go mirror of the CSR vectors; the
+    C vectors and C tests stay and pin what the device emits.
+  - `b` is the same 32 bytes handed to `AttestCert`. No alias certificate is
+    minted: the call is `CAPS`, then `ATTEST_CSR`.
+  - A device whose CAPS do not report `FeatureAttestCSR` is refused with
+    `StatusErrUnsupported`, wrapped, before any attestation command is sent. A
+    reply of any length but 64 is a `*ShortReplyError`.
+    `sdk/go` still has no in-house dependencies.
+- **`FeatureAttestCSR`** (#31), CAPS feature bit 15, the `sdk/go` name for the
+  firmware's `TFW_FEATURE_ATTEST_CSR`, and **`CSRSigLen`** (64), the length of the
+  reply.
+- **`tfwctl attest-csr --nonce <hex32>`** (#31). Prints the signature as 128 hex
+  digits on stdout, or `{"signature": <hex>, "len": 64}` with `--json`. The nonce
+  is a flag, not a positional argument.
+- **`tfwsim.StartElementVia`** (#31). `StartElement` with the connection to the
+  simulator passed through a `wrap` function before the `Device` sees it, so a
+  test can stand between a host and a real device and rewrite a frame in flight.
+- Documentation of `Device.AttestCSR` and `tfwctl attest-csr` in
+  `docs/dice-attestation` (`api.md`, `cli.md`, `user.md`, `engineering.md`) and
+  `docs/host-sdk/api.md`.
+- **The possession ADR** (#6, #36), accepted as option (c) with Amendments 1 and
+  2. Only the 2560 element tier links `ATTEST_CSR`, and `sdk/go` `AttestCSR` is
+  transport only.
+
+### Changed
+
+- **The CI image's Go toolchain is 1.27.2** (#28), was 1.26.5, because go-xkms
+  requires Go 1.27.1 or later. `GOTOOLCHAIN` stays `local`, and the `xkms` job
+  pins the same version.
+- **Host and AVR objects rebuild when an included header changes** (#29). An
+  edited header used to leave stale objects and test binaries behind, because a
+  target depended on its `.c` files and nothing else.
+  - Host binaries are compiled and linked by one `cc` command over many sources,
+    where gcc's `-MMD` keeps only the last source's headers. `mk/ccdeps.sh`
+    wraps that command and writes `<output>.d` with `-MM -MP -MT`, naming every
+    header of every source; a deleted header is not a build error.
+  - The AVR firmware and tfw-boot objects (`mk/firmware.mk`, `mk/boot.mk`) read
+    their per-object `.d` files the same way. All of them are read with
+    `-include`, after every rule, because the first build has none.
+- **Only the ATmega2560 element tier carries `ATTEST_CSR`** (#30). The ATmega328P
+  profile turns it off by name because it puts that part's element image over
+  its flash budget (16 884 against 16 384 bytes); its alias certificate stays.
+  The ATmega32U4 profile turns it off by name under the owner's ruling on #6
+  (2026-10-09). The ATtiny85 and the ATmega32U4 have no `ATTEST_CERT`, and the
+  command follows it. Everywhere else 0x64 answers `TFW_ERR_UNKNOWN_CMD` and CAPS
+  bit 15 is clear.
+- **The host build no longer forces `ATTEST_CSR` on** (#30). CAPS bit 15 is set
+  only where `ATTEST_CSR` is linked: the 2560 element tier and the simulator's
+  element tier. `make board-sweep` pins this per board.
+
 ## [0.2.0-alpha] - 2026-10-09
 
 ### Changed

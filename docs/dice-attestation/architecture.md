@@ -245,6 +245,13 @@ stated where `mint()` fetches the subject key.
   `HMAC(UDS, H(firmware))`, so the root of trust the device reports in `CAPS`
   and the evidence it signs come from the same measurement chain.
 
+## Accepted: possession at ACME finalize
+
+How the DeviceID key proves possession when an ACME order is finalized is
+decided (issue #6, accepted 2026-10-09) in
+[`adr-possession-at-acme-finalize.md`](adr-possession-at-acme-finalize.md):
+a device-templated PKCS#10. Not yet implemented; the ADR lists the issues.
+
 ## Trust boundaries
 
 A DICE device does not join the wider network directly — admission there

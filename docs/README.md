@@ -50,6 +50,10 @@ it will read them.
 - **Why the nonce travels in `tcg-dice-UCCS-evidence`** — `dice-attestation/architecture.md`.
   The spec's own mechanism rather than a repurposed `vendorInfo`, and the one
   sentence of §6.1.4 this device cannot satisfy, said plainly.
+- **How the DeviceID key proves possession at ACME finalize** —
+  [`dice-attestation/adr-possession-at-acme-finalize.md`](dice-attestation/adr-possession-at-acme-finalize.md).
+  **ACCEPTED 2026-10-09** (issue #6): a device-templated PKCS#10,
+  no signing oracle, and what the 32U4 cannot afford.
 - **Why there is no `delay()`** — `device-capabilities/architecture.md`.
 - **Why the pin timer stays in firmware** — `device-capabilities/engineering.md`.
   A pin told to hold a level for ten minutes must revert in ten minutes whether

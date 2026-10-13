@@ -57,7 +57,19 @@ func TestConcurrentCallsDoNotConsumeEachOthersReplies(t *testing.T) {
 		answer(tfw.CmdProvPubKey, point).
 		answerAttestCertRepeating(certificate)
 
-	b := newTestBackend(t, link)
+	// What this pins is which reply a caller gets, not how fast: a crossed
+	// reply fails at once (the fake link answers EOF once its buffer is
+	// drained, and -race reports the unsynchronised access), so it needs no
+	// deadline to surface. linkTimeout is wall clock started once the wire is
+	// held, and on a loaded -race runner the holder of the wire can be
+	// descheduled mid-AttestCert for longer than 50ms: that tripped this test
+	// with "context deadline exceeded" while every reply was its own.
+	// Deadlines are pinned by the RequestTimeout tests below.
+	config := testConfig()
+	config.RequestTimeout = 30 * time.Second
+	b, err := NewBackend(context.Background(), config, newTestDevice(link))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
 	attrs := &types.KeyAttributes{CN: DefaultKeyCN}
 
 	// Each call is a different command, so a crossed reply is not merely a

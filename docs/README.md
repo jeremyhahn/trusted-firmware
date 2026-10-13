@@ -8,7 +8,7 @@ integration added. It carries no application logic.
 Where the project is going: [`../ROADMAP.md`](../ROADMAP.md) and
 [`multi-arch/architecture.md`](multi-arch/architecture.md).
 
-Six capabilities, each a five-file feature folder — `architecture.md`,
+Seven capabilities, each a five-file feature folder — `architecture.md`,
 `engineering.md`, `cli.md`, `api.md`, `user.md`. **NORMATIVE** means a conflict
 with the code is a defect to fix in the document first.
 
@@ -20,6 +20,7 @@ with the code is a defect to fix in the document first.
 | [`secure-boot/`](secure-boot/architecture.md) | `tfw-boot`: measure, verify, anti-rollback, recovery and handoff |
 | [`device-provisioning/`](device-provisioning/architecture.md) | taking a blank part to an identity-bearing device, and the irreversible steps |
 | [`host-sdk/`](host-sdk/architecture.md) | `sdk/go`, `tfwctl`, `tfwprov` and `tfwsim` — one host implementation |
+| [`xkms-adapter/`](xkms-adapter/architecture.md) | the AVR backend for go-xkms, registered through go-xkms's backend registry hook |
 
 Cross-cutting material that belongs to no single feature:
 

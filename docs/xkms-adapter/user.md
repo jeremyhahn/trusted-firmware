@@ -1,6 +1,6 @@
 # AVR Device Backend — User Guide
 
-> **Status: NORMATIVE** · Feature: `avr-device-backend` · Repo: `go-xkms` · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Feature: `xkms-adapter` · Repo: `trusted-firmware` · Last verified: 2026-09-23
 
 ## What this is for
 

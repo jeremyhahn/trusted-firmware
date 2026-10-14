@@ -3,7 +3,7 @@
 trusted-firmware is AVR firmware plus a Layer 0 Go SDK. It is a drop-in
 replacement for basic Arduino firmware: every Arduino capability is on the wire
 and in the SDK, with secure boot, a DICE device identity and go-trusted-platform
-integration added. It carries no application logic.
+integration added. It is the framework and SDK for device applications, which live in their own `trusted-firmware-<application>` repositories; the firmware itself carries no application logic.
 
 Where the project is going: [`../ROADMAP.md`](../ROADMAP.md) and
 [`multi-arch/architecture.md`](multi-arch/architecture.md).

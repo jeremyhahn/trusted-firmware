@@ -9,7 +9,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 
 ## Milestones
 
-- [Release candidate](../../milestone/35) — RC — no projected date set
+- [Dev complete](../../milestone/35) — Dev complete — no projected date set
 
 ## Complete
 
@@ -48,20 +48,24 @@ None planned.
 
 ## Future
 
-Gated: no other platform until AVR has every primitive and a proven physical end-to-end run (#7). Design: [docs/multi-arch/architecture.md](docs/multi-arch/architecture.md). Both wait behind the AVR gate, in this order: first AVR proven on the Nano and the Mega ([#7](../../issues/7)), then the SE052F, then the STM32H5 with the SE052F on its bus as the reference trusted device. The OPTIGA Trust M, RP2350, ESP32-C6 and nRF54L15 come after the SE052F and the STM32H5; there is no order of work among the RP2350, ESP32-C6 and nRF54L15 yet: the owner decides when AVR is proven.
+Gated: no other platform until AVR has every primitive and a proven physical end-to-end run (#7). Design: [docs/multi-arch/architecture.md](docs/multi-arch/architecture.md). Both wait behind the AVR gate, in this order: first AVR proven on the Nano and the Mega ([#7](../../issues/7)), then the SE052F, then the i.MX 95's Cortex-M7 as the cortex-m reference part, then the STM32H5 with the SE052F on its bus as the reference trusted device. The OPTIGA Trust M, RP2350, ESP32-P4 and nRF54L15 come after the SE052F and the STM32H5; there is no order of work among the RP2350, ESP32-P4 and nRF54L15 yet: the owner decides when AVR is proven.
 
 - **secure-element-se05x** — the SE052F element tier — no issue yet — blocked: AVR gate (#7)
-- **stm32h5** — STM32H5 with the SE052F on its bus as the reference trusted device — no issue yet — blocked: AVR gate (#7)
+- **imx95** — i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO, the cortex-m reference part — no issue yet — blocked: AVR gate (#7)
+- **stm32h5** — STM32H5, the second Cortex-M target, with the SE052F on its bus as the reference trusted device — no issue yet — blocked: AVR gate (#7)
 - **optiga-trust-m** — the OPTIGA Trust M element tier — no issue yet — blocked: AVR gate (#7)
 - **rp2350** — RP2350 on the Pico 2 W — no issue yet — blocked: AVR gate (#7)
-- **esp32-c6** — ESP32-C6FH4 on the FireBeetle 2 — [#23](../../issues/23) — blocked: AVR gate (#7)
+- **esp32-p4** — ESP32-P4 on a PoE Ethernet board, its ESP32-C6 co-processor off — no issue yet — blocked: AVR gate (#7)
 - **nrf54l15** — nRF54L15 on the nRF54L15-DK — no issue yet — blocked: AVR gate (#7)
 - **mcxn947** — MCXN947 on the FRDM-MCXN947 — no issue yet — blocked: AVR gate (#7)
-- **cortex-m** — Phase 5: first Cortex-M port — [#22](../../issues/22) — blocked: owner gate (#7)
-- **cortex-m** — ADR: first Cortex-M reference part and CI emulation target — [#14](../../issues/14) — blocked: owner gate (#7)
+- **cortex-m** — Phase 5: the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — blocked: owner gate (#7)
+- **cortex-m** — ADR: Cortex-M reference part and CI emulation target — [#14](../../issues/14) — blocked: owner gate (#7)
 - **cortex-m** — ADR: Cortex-M trust model and the relation to TF-M — [#15](../../issues/15) — blocked: owner gate (#7)
-- **esp32** — Phase 6: ESP32 — [#23](../../issues/23) — blocked: owner gate (#7)
-- **esp32** — ADR: ESP32 integration boundary and transport — [#16](../../issues/16) — blocked: owner gate (#7)
+- **esp32** — Phase 6: the ESP-IDF architecture port, the ESP32-P4 first — [#23](../../issues/23) — blocked: owner gate (#7)
+- **esp32** — ADR: ESP-IDF integration boundary and transport — [#16](../../issues/16) — blocked: owner gate (#7)
+- **application-sdk** — the application interface for `trusted-firmware-<application>` repositories — no issue yet — open
+- **ota** — signed whole-image updates with rollback, from go-trusted-platform's control plane — no issue yet — open
+- **device-onboarding** — DICE-only devices enroll by device profile through the adapter seam — no issue yet — open
 
 ## Dependencies
 

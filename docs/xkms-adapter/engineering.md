@@ -1,6 +1,7 @@
 # AVR Device Backend — Engineering
 
-> **Status: NORMATIVE** · Feature: `xkms-adapter` · Repo: `trusted-firmware` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28); prose not yet revised for the move
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28); prose not yet revised for the move
+> Conflicts with this document are defects. Fix them here first.
 
 Package: `xkms/avr` · Import path
 `github.com/jeremyhahn/trusted-firmware/xkms/avr`

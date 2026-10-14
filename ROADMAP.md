@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status: REFERENCE** · Last verified: 2026-10-13
+> **Status: REFERENCE** · Last verified: 2026-10-14
 > What is complete and what remains, in milestone order. Features and requirements: [docs/SPEC.md](docs/SPEC.md).
 
 ## Mission
@@ -69,7 +69,7 @@ Upstream, bottom-up; each step is released before the next:
 
 1. go-xkms tags the backend registry hook.
 2. Here: #28 phases B and C, tagged `xkms/v0.2.0-alpha` — [#28](../../issues/28).
-3. go-trusted-platform and xkey switch to the adapter — [go-trusted-platform#771](../../../go-trusted-platform/issues/771), [go-xkms#1440](../../../go-xkms/issues/1440).
+3. go-quicbaas registers the adapter in its composition; go-trusted-platform and xkey reach the devices through go-quicbaas and never import the adapter — [go-trusted-platform#771](../../../go-trusted-platform/issues/771), [go-xkms#1440](../../../go-xkms/issues/1440).
 4. go-xkms removes its AVR backend — [go-xkms#1439](../../../go-xkms/issues/1439).
 5. go-quicbaas drops its indirect require — [go-quicbaas#1185](../../../go-quicbaas/issues/1185).
 

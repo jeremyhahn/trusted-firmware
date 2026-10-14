@@ -1,19 +1,23 @@
 # trusted-firmware — specification
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-13
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-14
 > Conflicts with this document are defects. Fix them here first.
 
 ## Purpose
 
-Bare-metal ANSI C firmware for classic AVR, and `sdk/go`, the Layer 0 Go SDK that drives it.
-A drop-in replacement for basic Arduino firmware: every Arduino capability is on the wire and in the SDK, with secure boot, a DICE device identity and go-trusted-platform integration added.
-It carries no application logic. go-xkms and go-trusted-platform import `sdk/go`; the `xkms` adapter module plugs the AVR device into go-xkms's backend registry.
+trusted-firmware is not a layer of the Go stack and embeds no Go layer: it is a device repository under the owner's HSM and device split, the device tier.
+It owns the device firmware, the secure world and on-device key handling: bare-metal ANSI C for classic AVR, a drop-in replacement for basic Arduino firmware with secure boot and a DICE device identity added, carrying no application logic.
+`sdk/go` is the Layer 0 Go SDK that drives it, with zero in-house dependencies and nothing below it to inherit or re-export; go-xkms and go-trusted-platform import it.
+It provides the go-xkms backend adapter for its devices, one of the hardware crypto implementations go-quicbaas passes to go-xkms.
+Its devices consume go-xkms's generic DICE and attestation verification through the adapter seam, and are provisioned and attested by go-trusted-platform.
 
 ## Boundaries
 
 - Owns the AVR wire protocol and the firmware that speaks it.
 - Owns `sdk/go` (host-sdk): Layer 0, zero in-house dependencies, no private keys; consumed by go-trusted-platform at `v0.3.0-alpha`.
-- Owns the `xkms` adapter module (xkms-adapter, `github.com/jeremyhahn/trusted-firmware/xkms`) and all AVR-specific xkms code; it provides the AVR backend to go-xkms backend-registry, a seam confirmed on both sides, and go-trusted-platform and xkey blank-import it.
+- Owns the `xkms` adapter module (xkms-adapter, `github.com/jeremyhahn/trusted-firmware/xkms`) and all AVR-specific xkms code: one of the hardware crypto implementations go-quicbaas passes to go-xkms, registered through go-xkms's backend registry hook and consumed by go-quicbaas's composition; go-trusted-platform and xkey reach the devices through go-quicbaas and never import the adapter.
+- Embeds no Go layer: the firmware and `sdk/go` import no project of the stack, and the `xkms` adapter module uses go-xkms only for its backend interfaces and registry hook, adding a backend and never re-exporting or re-modelling go-xkms services.
+- Brings no database, cluster, engine or store of its own: device state lives on the device, and records about devices live in the deployment's one datastore, owned by the layers above.
 - go-xkms holds generic DICE, EAT, device-attest-01, the verifiers, the backend interfaces and the registration hook, and nothing AVR-specific.
 - go-quicbaas has a generic verifier and no firmware dependency.
 - Never owns DICE ASN.1, certificate profiles, DICE verification or attestation verification: go-xkms owns them.
@@ -33,7 +37,7 @@ It carries no application logic. go-xkms and go-trusted-platform import `sdk/go`
 | secure-boot | shipped | `tfw-boot` measures the application, verifies its signature, enforces the anti-rollback floor and derives the layer-0 CDI on every reset. A refusal at any step keeps the device in recovery. The build is reproducible, so the expected firmware hash is computable from source. | docs/secure-boot/ |
 | device-provisioning | shipped | Takes a blank part to an identity-bearing device once, on a bench, never over the network. Provisioning commands are absent from every production image. Fuses and lock bits, the secure element and the serial are set by independent tools, none able to undo another's step. | docs/device-provisioning/ |
 | host-sdk | shipped | `sdk/go` is the Layer 0 host implementation: codec, framing, transport, provisioning and attestation calls, with zero in-house dependencies. `tfwctl` and `tfwprov` are commands in that module. `tfwsim` is the real firmware built for the host, and the SDK is tested against it. | docs/host-sdk/ |
-| xkms-adapter | in progress | The AVR backend for go-xkms, registered through go-xkms's backend registry hook: a read-only key provider that answers from the device's `CAPS` reply and refuses what the part cannot do. It holds no private key and reaches the wire only through `sdk/go`. Remaining (#28 phases B and C): bump go-xkms, implement `xkms/register.go`, finalize through `Device.AttestCSR`, tag `xkms/v0.2.0-alpha`. | docs/xkms-adapter/ |
+| xkms-adapter | in progress | The AVR backend for go-xkms, registered through go-xkms's backend registry hook and consumed by go-quicbaas's composition as one of the hardware crypto implementations it passes to go-xkms; go-trusted-platform and xkey reach the devices through go-quicbaas and never import it. It is a read-only key provider that answers from the device's `CAPS` reply and refuses what the part cannot do. It holds no private key and reaches the wire only through `sdk/go`. Remaining (#28 phases B and C): bump go-xkms, implement `xkms/register.go`, finalize through `Device.AttestCSR`, tag `xkms/v0.2.0-alpha`. | docs/xkms-adapter/ |
 | cortex-m | future | The first Cortex-M port, with ADRs for the reference part and CI emulation target and for the trust model and its relation to TF-M. Per-architecture code lives only behind the HAL, the boot HAL and the board profiles. Starts only once AVR has every primitive and a proven physical end-to-end run (#7). | docs/multi-arch/ |
 | stm32h5 | future | The Cortex-M target of phase #22: a Cortex-M33 with TrustZone, enrolling over Ethernet, on two targets. The STM32H573I-DK is the reference board: hardware crypto, ST Secure Manager and a factory device certificate. The NUCLEO-H563ZI is the secondary target: it proves our own TrustZone secure world and software crypto on a part without ST's secure services, the common case across the H5, U5 and L5 lines. One design decision is open: ST's Secure Manager as the secure world, with its PSA attestation token verified by go-xkms's EAT path, or our own TrustZone firmware. | docs/multi-arch/ |
 | secure-element-se05x | future | The element tier on the NXP EdgeLock SE052F, next to the ATECC608 tier. The on-device C driver is ours; the host-side Go backend is go-enclave's (its row se052f-secure-element, go-enclave #191). go-xkms sees only evidence and the NXP-issued device certificate. The tier fits the ATmega2560, ATmega32U4 and Cortex-M targets, not the ATmega328P. | docs/multi-arch/ |
@@ -50,7 +54,7 @@ It carries no application logic. go-xkms and go-trusted-platform import `sdk/go`
 - Boot commands and record layouts of `tfw-boot` — [secure-boot/api.md](secure-boot/api.md).
 - Go SDK: `sdk/go` (host-sdk), consumed by go-trusted-platform at `v0.3.0-alpha` — [host-sdk/api.md](host-sdk/api.md).
 - CLI: `tfwctl` and `tfwsim` — [host-sdk/cli.md](host-sdk/cli.md); `tfwprov` — [device-provisioning/cli.md](device-provisioning/cli.md).
-- xkms adapter (xkms-adapter): provides the AVR backend to go-xkms backend-registry; go-trusted-platform and xkey blank-import it — [xkms-adapter/api.md](xkms-adapter/api.md).
+- xkms adapter (xkms-adapter): one of the hardware crypto implementations go-quicbaas passes to go-xkms, registered through go-xkms's backend registry hook and consumed by go-quicbaas's composition; go-trusted-platform and xkey reach the devices through go-quicbaas and never import the adapter — [xkms-adapter/api.md](xkms-adapter/api.md).
 - Build, test and flash: the Makefile targets — [development/building.md](development/building.md).
 
 ## Release criteria

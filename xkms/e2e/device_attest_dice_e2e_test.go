@@ -114,9 +114,16 @@ type diceElement struct {
 
 func newDiceElement(t *testing.T) *diceElement {
 	t.Helper()
+	return newDiceElementOn(t, tfwsim.StartElement(t))
+}
+
+// newDiceElementOn is the element on a device the caller opened: the
+// simulator, or a board on the bench (hw_enroll_test.go). Everything after the
+// link is the same flow whichever it is.
+func newDiceElementOn(t *testing.T, device *tfw.Device) *diceElement {
+	t.Helper()
 	cfg := avr.DefaultConfig()
 	cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	device := tfwsim.StartElement(t)
 	backend, err := avr.NewBackend(context.Background(), cfg, device)
 	require.NoError(t, err)
 
@@ -249,6 +256,7 @@ type diceEnrollment struct {
 	server   *deviceAttestServer
 	client   *client.Client
 	verifier *verdictRecorder
+	issuer   *x509.Certificate
 }
 
 // newDiceEnrollment serves device-attest-01 with "dice" evidence anchored in
@@ -280,11 +288,18 @@ func newDiceEnrollment(t *testing.T, devices deviceattest01.DeviceResolver) *dic
 
 	recorder := &verdictRecorder{TrustAnchorVerifier: verifier}
 	server := startDeviceAttestServer(t, caCert, caKey, recorder)
-	return &diceEnrollment{server: server, client: newDeviceAttestRoundTripClient(t, server), verifier: recorder}
+	return &diceEnrollment{server: server, client: newDeviceAttestRoundTripClient(t, server), verifier: recorder, issuer: caCert}
 }
 
 func (e *diceEnrollment) enroll(element client.TPMModule) (*x509.Certificate, error) {
-	return e.client.DeviceAttest(context.Background(), &client.EnrollmentConfig{
+	return deviceAttest(e.client, element)
+}
+
+// deviceAttest is the one device-attest-01 exchange, against whichever ACME
+// server the client was made for: the in-process one, or a control plane on
+// the bench.
+func deviceAttest(acmeClient *client.Client, element client.TPMModule) (*x509.Certificate, error) {
+	return acmeClient.DeviceAttest(context.Background(), &client.EnrollmentConfig{
 		Challenge:  string(client.ChallengeTypeDeviceAttest01),
 		TPMModule:  element,
 		CommonName: "sensor-1.example.com",

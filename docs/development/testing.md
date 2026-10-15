@@ -137,6 +137,20 @@ It is outside `make ci` because CI has no board. The seam itself is
 unit-tested on the host (`sdk/go/internal/peer`), and that test is in
 `make sdk-test`.
 
+## Enrolling a real board — `make hw-enroll` (not a gate)
+
+```sh
+make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex X||Y from tfwprov>
+```
+
+This is issue #7's recorded run. It enrolls a flashed, provisioned
+element-tier board through device-attest-01 and writes a run record to commit
+under `docs/development/enrollment-runs/`. The harness is
+`TestHardwareEnrollment` (`xkms/e2e`), and `make xkms-test` runs it against
+`tfwsim`. Without `DEVICE` it fails. The procedure, the preconditions and
+their blockers are in
+**[docs/development/hardware-enrollment.md](hardware-enrollment.md)**.
+
 ## Golden vectors
 
 The protocol codec necessarily exists twice — in C for the device and in Go for
@@ -160,6 +174,7 @@ make ci                         # everything the gate requires, bar the xkms job
 make platform-bake-build-check  # in `make ci`: the bench bake image links for both boards, under its flash ceiling
 make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0  # the cross-implementation suite on a flashed board
+make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex>  # issue #7's enrollment run on a provisioned board
 ```
 
 The xkms adapter module needs the private go-xkms module, so its two targets are

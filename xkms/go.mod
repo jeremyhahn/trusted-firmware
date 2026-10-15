@@ -91,6 +91,7 @@ require (
 	github.com/cockroachdb/redact v1.1.8 // indirect
 	github.com/cockroachdb/swiss v0.0.0-20260820225851-333444432258 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb // indirect
+	github.com/creack/goselect v0.1.2 // indirect
 	github.com/dolthub/flatbuffers/v23 v23.3.3-dh.2 // indirect
 	github.com/dolthub/go-icu-regex v0.0.0-20260610153742-72563bc7ca83 // indirect
 	github.com/dolthub/go-mysql-server v0.20.1-0.20260812191550-bda99d66b4bf // indirect
@@ -214,6 +215,7 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	gitlab.com/yawning/secp256k1-voi v0.0.0-20230925100816-f2616030848b // indirect
+	go.bug.st/serial v1.6.4 // indirect
 	go.etcd.io/etcd/api/v3 v3.7.2 // indirect
 	go.mongodb.org/mongo-driver v1.17.10 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.8.0 // indirect

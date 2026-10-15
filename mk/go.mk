@@ -88,8 +88,30 @@ xkms-coverage: tfwsim tfwsim-atecc608a
 	    echo "xkms coverage is below the floor"; exit 1; \
 	  fi
 
+## hw-enroll: enroll one board through device-attest-01 and write its run record (#7)
+# NOT in `ci`, for the reason bench-check is not: it needs a board on the bench.
+# The harness it runs is xkms/e2e TestHardwareEnrollment, which `xkms-test`
+# runs against tfwsim, so the only thing this adds over CI is the board.
+# DEVICE is the board's serial port; there is no default and no fallback to the
+# simulator, because a hardware run that cannot reach hardware is a failure.
+# DEVICEID is the hex X||Y tfwprov --commit printed, for the in-process ACME
+# server; ACME_DIRECTORY names a control plane instead, ACME_ROOTS the PEM its
+# TLS chains to. Procedure: docs/development/hardware-enrollment.md.
+HW_ENROLL_RECORDS ?= docs/development/enrollment-runs
+hw-enroll:
+	@if [ -z "$(DEVICE)" ]; then \
+	  echo "hw-enroll: set DEVICE=<serial port>, e.g. make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex X||Y>"; \
+	  echo "           or DEVICE=<port> ACME_DIRECTORY=<url> [ACME_ROOTS=<pem>] (docs/development/hardware-enrollment.md)"; \
+	  exit 1; \
+	fi
+	@mkdir -p $(HW_ENROLL_RECORDS)
+	@cd $(XKMS_DIR) && TFW_HW_DEVICE='$(DEVICE)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_BOOT_WAIT='$(BOOT_WAIT)' \
+	  TFW_HW_ACME_DIRECTORY='$(ACME_DIRECTORY)' TFW_HW_ACME_ROOTS='$(if $(ACME_ROOTS),$(abspath $(ACME_ROOTS)))' \
+	  TFW_HW_RECORD_DIR=$(abspath $(HW_ENROLL_RECORDS)) \
+	  $(GO) test -count=1 -tags $(XKMS_TAGS) -run '^TestHardwareEnrollment$$' -v ./e2e/
+
 ## verify-vectors: check the C and Go wire vectors carry identical values
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage
+.PHONY: sdk-build sdk-test hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage hw-enroll

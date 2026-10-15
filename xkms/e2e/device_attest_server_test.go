@@ -161,9 +161,17 @@ func startDeviceAttestServer(t *testing.T, issuerCert *x509.Certificate, issuerK
 // in-memory key-value store, the same storage the server side uses.
 func newDeviceAttestRoundTripClient(t *testing.T, server *deviceAttestServer) *client.Client {
 	t.Helper()
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	return newDeviceAttestClient(t, server.URL+"/acme/directory", []string{string(certPEM)})
+}
+
+// newDeviceAttestClient is go-xkms's ACME client for the directory at
+// directoryURL, with a registered account. trustedRoots are the PEM roots its
+// TLS is checked against; none means the system pool.
+func newDeviceAttestClient(t *testing.T, directoryURL string, trustedRoots []string) *client.Client {
+	t.Helper()
 	accountKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
 
 	kv, err := kvadapter.New(xkmsstorage.NewMemory())
 	require.NoError(t, err)
@@ -180,9 +188,10 @@ func newDeviceAttestRoundTripClient(t *testing.T, server *deviceAttestServer) *c
 		AccountEmail:  "device@example.com",
 		AccountSigner: accountKey,
 		Config: &client.Config{
-			DirectoryURL: server.URL + "/acme/directory",
-			TrustedRoots: []string{string(certPEM)},
-			Timeout:      30 * time.Second,
+			DirectoryURL:   directoryURL,
+			TrustedRoots:   trustedRoots,
+			SystemCertPool: len(trustedRoots) == 0,
+			Timeout:        30 * time.Second,
 		},
 		Storage:            accounts,
 		CertificateStorage: certificates,

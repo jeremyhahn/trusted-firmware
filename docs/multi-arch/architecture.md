@@ -26,18 +26,18 @@ consumer repository uses this one's core and owns no protocol logic.
 
 ## 3. AVR-specific today, and where it moves
 
-Phase 4 ([#21](http://git.example.internal/jeremyhahn/trusted-firmware/issues/21)).
+Phase 4 ([#21](../../../../issues/21)).
 
 | Today | Moves to | Issue |
 |---|---|---|
-| ~~Build hardcodes `src/hal/avr`~~ **done:** `ARCH := avr` in each `profile.mk`, `mk/arch/$(ARCH).mk`, `HAL_DIR := src/hal/$(ARCH)` | `ARCH`-selected HAL directory | [#8](http://git.example.internal/jeremyhahn/trusted-firmware/issues/8) |
-| ~~`tfw_pinref_t` / `tfw_pwmref_t` hold AVR register shapes~~ **done:** defined with the port and PWM row types in `src/hal/<arch>/hal_types.h` (the host's is `test/mock/hal_types.h`), opaque to core | opaque, HAL-defined refs | [#9](http://git.example.internal/jeremyhahn/trusted-firmware/issues/9) |
-| ~~`src/main.c` includes `<avr/interrupt.h>`, calls `sei()`~~ **done:** `tfw_hal_irq_enable()` | HAL interrupt-enable call | [#9](http://git.example.internal/jeremyhahn/trusted-firmware/issues/9) |
-| MCUSR reset-cause decoding in core and boot | HAL returns a neutral cause | [#10](http://git.example.internal/jeremyhahn/trusted-firmware/issues/10) |
-| Boot section at top of flash, 256-byte OTA page, EEPROM platform block, `F_CPU`-based session polls | boot HAL geometry, NVM and timing | [#11](http://git.example.internal/jeremyhahn/trusted-firmware/issues/11) |
-| ~~CAPS pin descriptor: 4-bit port and bit~~ **done:** a whole byte each, 6-byte page | wider, generalised descriptor | [#12](http://git.example.internal/jeremyhahn/trusted-firmware/issues/12) |
-| ~~`free_ram` is a u16~~ **done:** u16 kept, exact u32 appended to SYS_INFO | wider field | [#12](http://git.example.internal/jeremyhahn/trusted-firmware/issues/12) |
-| Conditional-confinement gate misses `src/crypto`, `src/main.c`, `tools/`, headers | gate covers them; arch-leak gate added | [#13](http://git.example.internal/jeremyhahn/trusted-firmware/issues/13) |
+| ~~Build hardcodes `src/hal/avr`~~ **done:** `ARCH := avr` in each `profile.mk`, `mk/arch/$(ARCH).mk`, `HAL_DIR := src/hal/$(ARCH)` | `ARCH`-selected HAL directory | [#8](../../../../issues/8) |
+| ~~`tfw_pinref_t` / `tfw_pwmref_t` hold AVR register shapes~~ **done:** defined with the port and PWM row types in `src/hal/<arch>/hal_types.h` (the host's is `test/mock/hal_types.h`), opaque to core | opaque, HAL-defined refs | [#9](../../../../issues/9) |
+| ~~`src/main.c` includes `<avr/interrupt.h>`, calls `sei()`~~ **done:** `tfw_hal_irq_enable()` | HAL interrupt-enable call | [#9](../../../../issues/9) |
+| MCUSR reset-cause decoding in core and boot | HAL returns a neutral cause | [#10](../../../../issues/10) |
+| Boot section at top of flash, 256-byte OTA page, EEPROM platform block, `F_CPU`-based session polls | boot HAL geometry, NVM and timing | [#11](../../../../issues/11) |
+| ~~CAPS pin descriptor: 4-bit port and bit~~ **done:** a whole byte each, 6-byte page | wider, generalised descriptor | [#12](../../../../issues/12) |
+| ~~`free_ram` is a u16~~ **done:** u16 kept, exact u32 appended to SYS_INFO | wider field | [#12](../../../../issues/12) |
+| Conditional-confinement gate misses `src/crypto`, `src/main.c`, `tools/`, headers | gate covers them; arch-leak gate added | [#13](../../../../issues/13) |
 
 Wire changes extend; ids and status codes never renumber.
 
@@ -73,11 +73,11 @@ Each choice is an ADR before any code.
 - **AVR**: tfw-boot, with a software or ATECC608A tier.
 - **Cortex-M33** (LPC55S69, MCXN, STM32U5): the vendor ROM provides secure boot and, on
   LPC55S6x, a DICE CDI. A ROM CDI tier replaces tfw-boot there. Part and CI emulation:
-  [#14](http://git.example.internal/jeremyhahn/trusted-firmware/issues/14). Trust model and
-  Trusted Firmware-M (Arm's project; "TF-M" for short): [#15](http://git.example.internal/jeremyhahn/trusted-firmware/issues/15),
+  [#14](../../../../issues/14). Trust model and
+  Trusted Firmware-M (Arm's project; "TF-M" for short): [#15](../../../../issues/15),
   proposed in [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md).
 - **ESP32**: secure boot v2, flash encryption and the DS peripheral:
-  [#16](http://git.example.internal/jeremyhahn/trusted-firmware/issues/16).
+  [#16](../../../../issues/16).
 
 ## 7. Support matrix
 
@@ -87,6 +87,6 @@ Each choice is an ADR before any code.
 | AVR | ATmega2560 | none, soft, ATECC608A | supported |
 | AVR | ATmega32U4 | none, soft, ATECC608A | supported |
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |
-| Cortex-M33 | LPC55S69, MCXN, STM32U5 | ROM CDI | planned ([#22](http://git.example.internal/jeremyhahn/trusted-firmware/issues/22)) |
-| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, DS (`hmac-ds`); `none` | in progress ([#48](http://git.example.internal/jeremyhahn/trusted-firmware/issues/48), ADR [#16](http://git.example.internal/jeremyhahn/trusted-firmware/issues/16)) |
-| Other | | | planned ([#17](http://git.example.internal/jeremyhahn/trusted-firmware/issues/17)) |
+| Cortex-M33 | LPC55S69, MCXN, STM32U5 | ROM CDI | planned ([#22](../../../../issues/22)) |
+| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, DS (`hmac-ds`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
+| Other | | | planned ([#17](../../../../issues/17)) |

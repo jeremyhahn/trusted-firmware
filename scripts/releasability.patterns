@@ -1,0 +1,18 @@
+# The one list of private-fleet values the releasability gate looks for.
+# Format: class <TAB> extended regex (case-insensitive) <TAB> waiver.
+#
+# Every line carries an inline waiver, because this file is published and
+# scanned like any other: these are the values the rule exists to find.
+# Docs and tests point here and do not repeat them (docs/development/releasability.md).
+# A new fleet value is one line here and one plant in scripts/releasability-test.sh.
+#
+lab-address	192\.168\.101\.	# lab-string-ok: the fleet subnet this rule exists to find
+lab-address	(^|[^0-9.])10\.4\.5\.	# lab-string-ok: the bench VLAN this rule exists to find
+lab-host	gpu-host	# lab-string-ok: a fleet hostname this rule exists to find
+lab-host	(^|[^A-Za-z0-9])mini-0[0-9]	# lab-string-ok: a fleet hostname this rule exists to find
+lab-host	dellemc	# lab-string-ok: a fleet hostname this rule exists to find
+lab-host	tgw-[0-9]+	# lab-string-ok: a fleet hostname this rule exists to find
+lab-host	vstation-[0-9]+	# lab-string-ok: a fleet hostname this rule exists to find
+owner-path	/(home|Users)/jhahn	# lab-string-ok: the owner's home directory this rule exists to find
+owner-account	(^|[^A-Za-z0-9_./-])jeremyhahn($|[^A-Za-z0-9_/-])	# lab-string-ok: the owner's account name on its own; module and org paths are not a hit
+owner-account	(^|[^A-Za-z0-9_./-])jhahn($|[^A-Za-z0-9_/-])	# lab-string-ok: the owner's local account name on its own

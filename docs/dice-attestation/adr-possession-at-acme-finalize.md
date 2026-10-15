@@ -1,6 +1,6 @@
 # ADR: proving possession of the DeviceID key at ACME finalize
 
-> **Status: ACCEPTED (2026-10-09)** · Issue: [#6](http://git.example.internal/jeremyhahn/trusted-firmware/issues/6)
+> **Status: ACCEPTED (2026-10-09)** · Issue: [#6](../../../../issues/6)
 > · Scope: trusted-firmware (device side), go-xkms (challenge and finalize side),
 > go-trusted-platform (enrolment) · Date: 2026-10-09
 >
@@ -90,7 +90,7 @@ challenge time is already proven.** Two things are missing:
 
 4. **Ownership** (owner ruling 2026-10-09):
    - go-xkms owns the standards and profiles: DICE, EAT/UCCS, draft-acme-device-attest, RFC 9334, and the certificate and CSR profiles.
-   - trusted-firmware owns the wire protocol, the firmware, `sdk/go` and its xkms adapter ([#28](http://git.example.internal/jeremyhahn/trusted-firmware/issues/28)).
+   - trusted-firmware owns the wire protocol, the firmware, `sdk/go` and its xkms adapter ([#28](../../../../issues/28)).
    - go-trusted-platform owns enrolment.
 
    The challenge and finalize checks of any option land in go-xkms. The device

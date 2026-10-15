@@ -1,7 +1,7 @@
 # ADR: the ESP-IDF integration boundary and transport
 
-> **Status: ACCEPTED (2026-10-15)** · Issue: [#16](http://git.example.internal/jeremyhahn/trusted-firmware/issues/16)
-> · Implementation: [#48](http://git.example.internal/jeremyhahn/trusted-firmware/issues/48)
+> **Status: ACCEPTED (2026-10-15)** · Issue: [#16](../../../../issues/16)
+> · Implementation: [#48](../../../../issues/48)
 > · Scope: trusted-firmware (HAL, boot HAL, board profiles, build) · Date: 2026-10-15
 >
 > The owner lifted the AVR gate for `esp32-p4` on 2026-10-15 (00:32Z) and ordered

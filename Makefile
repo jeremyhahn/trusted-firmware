@@ -91,12 +91,24 @@ verify-vendor:
 # into a layer. They are their own targets, run by the `xkms` CI job on the
 # runner, which is part of the CI Gate. Run `make ci xkms-test xkms-coverage`
 # where go-xkms is reachable to run both gates.
-ci: verify-vendor verify-vectors lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep header-deps-check \
+ci: verify-vendor verify-vectors releasability releasability-test lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep header-deps-check \
     coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
     integration-test-boot reproducible-check ci-matrix-check app-sdk-check app-firmware-check
 	@echo "CI gate: green"
 
-.PHONY: help version clean verify-vendor ci firmware-attested
+.PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test
+
+## releasability: no private-fleet value in any file that would be published
+# The pattern list is scripts/releasability.patterns, the one place the fleet's
+# subnet, hostnames and paths are written down. No network. Rule, classes and
+# the export-ignore list: docs/development/releasability.md.
+releasability:
+	@scripts/releasability.sh
+
+## releasability-test: the releasability gate fails on a plant, and export-ignore holds
+# Plants go into throwaway repositories, never into this tree. No skip guard.
+releasability-test:
+	@scripts/releasability-test.sh
 
 ## firmware-attested: build the DICE-HW image, which is a different image
 # Different provider, different size. The default build would never exercise

@@ -12,10 +12,15 @@ Each board's network block is written over serial with `sdk/go`'s
 `WriteNetConfig` before the Ethernet link is tested. None of these values is
 in the firmware.
 
+The addresses below are RFC 5737 documentation addresses standing in for the
+bench network's. The values the bench uses come from the operator's local
+configuration and are not recorded in this repository; a result recorded here
+reads the same with either.
+
 | Board | IP / mask | Gateway | Endpoint | MAC |
 |---|---|---|---|---|
-| Nano | `192.0.2.21/24` | none (`0.0.0.0`) | `192.0.2.1`, at the port the endpoint listens on | the shield's sticker address if supplied, else `tfw.DerivedMAC` |
-| Mega | `192.0.2.22/24` | none (`0.0.0.0`) | `192.0.2.1`, at the port the endpoint listens on | the shield's sticker address if supplied, else `tfw.DerivedMAC` |
+| Nano | `198.51.100.21/24` | none (`0.0.0.0`) | `198.51.100.1`, at the port the endpoint listens on | the shield's sticker address if supplied, else `tfw.DerivedMAC` |
+| Mega | `198.51.100.22/24` | none (`0.0.0.0`) | `198.51.100.1`, at the port the endpoint listens on | the shield's sticker address if supplied, else `tfw.DerivedMAC` |
 
 ## Matrix
 
@@ -36,7 +41,7 @@ in the firmware.
 3. **The Ethernet link with a static address.** The block above is written over
    serial. The device brings the link up from it without a reset.
 4. **TCP to the control plane's endpoint.** The device opens the connection to
-   `192.0.2.1` and a `tfw.Listener` there accepts it.
+   `198.51.100.1` and a `tfw.Listener` there accepts it.
 5. **Attestation commands over TCP on the tier the board has.** `CAPS` reports
    the software tier. `ATTEST` returns evidence over the host's nonce, and it
    verifies under the device's key. `ATTEST_CERT` and `ATTEST_CSR` answer
@@ -63,9 +68,9 @@ STK500v2 bootloader. The images were built with the toolchain
 |---|---|---|
 | 1 | Both images built, size-checked, and flashed with `make flash` (avrdude wrote and verified) | Pass |
 | 2 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0` on each image: the whole cross-implementation suite, over serial. On the Ethernet image, by `tfwctl`: writing D4, D10 and D50–D53, PWM on D10 and `SPI_XFER` with D10 as chip select | Pass on both images. Each shield pin answers "pin is reserved", `SPI_XFER` answers "target is platform-reserved", and tone is refused; D9 and D22 still work |
-| 3 | The network block (`192.0.2.22/24`, gateway `0.0.0.0`, endpoint `192.0.2.1:7020`, `tfw.DerivedMAC`) | **Not run.** The derived MAC needs the device's identity, and this Mega has none. `ATTEST` answers "no provisioned identity": the platform block at `0x000` is a torn write. Its first 128 bytes were written; the rest, the CRC included, are `0xFF`. This is the stock bootloader's EEPROM corruption [provisioning](../device-provisioning/user.md#task-provision-a-new-part) describes, and baking the block again needs an ISP programmer, which the bench does not have. No sticker MAC was supplied. The network block at `0x0C0` was left unwritten (all `0xFF`) |
+| 3 | The network block (`198.51.100.22/24`, gateway `0.0.0.0`, endpoint `198.51.100.1:7020`, `tfw.DerivedMAC`) | **Not run.** The derived MAC needs the device's identity, and this Mega has none. `ATTEST` answers "no provisioned identity": the platform block at `0x000` is a torn write. Its first 128 bytes were written; the rest, the CRC included, are `0xFF`. This is the stock bootloader's EEPROM corruption [provisioning](../device-provisioning/user.md#task-provision-a-new-part) describes, and baking the block again needs an ISP programmer, which the bench does not have. No sticker MAC was supplied. The network block at `0x0C0` was left unwritten (all `0xFF`) |
 | — | Reading back the W5100's `GAR`, `SUBR`, `SHAR` and `SIPR` | **Not run.** No diagnostic exposes them. The firmware writes those registers from a valid network block and never reads them back, and `SPI_XFER` refuses the shield's chip select |
-| 4 | TCP to `192.0.2.22:7020` from the lane's container on the bench host | **Not run as specified.** The container has no address on VLAN 405: only `172.17.0.2/16` on its bridge, and loopback. A connect with a 5 s timeout timed out unanswered. The device had no network block in any case |
+| 4 | TCP to `198.51.100.22:7020` from the lane's container on the bench host | **Not run as specified.** The container has no address on VLAN 405: only `172.17.0.2/16` on its bridge, and loopback. A connect with a 5 s timeout timed out unanswered. The device had no network block in any case |
 | 5–7 | Attestation over TCP, the off-allow-list refusal, the same identity after a reset | **Not run.** They need item 4, and items 5 and 7 need an identity |
 
 ## The day the ATECC608C (MIKROE-6774 Click board) arrives

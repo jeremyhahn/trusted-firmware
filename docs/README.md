@@ -33,7 +33,7 @@ Cross-cutting material that belongs to no single feature:
 | [`security/fuses-and-lockbits.md`](security/fuses-and-lockbits.md) | the fuse and lock-bit reference the provisioning procedure applies |
 | [`attestation/cryptoauthlib-evaluation.md`](attestation/cryptoauthlib-evaluation.md) | why not Microchip's own library, with the licence clause and the measured size |
 | [`boards/`](boards/adding-a-board.md) | what a board is, the [board-id registry](boards/board-id-registry.md), and [`attiny85.md`](boards/attiny85.md), the part that broke five assumptions |
-| [`development/`](development/building.md) | building, testing, coverage, flashing, reproducible builds |
+| [`development/`](development/building.md) | building, testing, coverage, flashing, reproducible builds, [public releasability](development/releasability.md) |
 
 ## Where the hard decisions are written down
 

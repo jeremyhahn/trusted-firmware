@@ -160,8 +160,8 @@ The Ethernet link accepts exactly these commands:
 
   | Board | IP / mask | Gateway | Endpoint |
   |---|---|---|---|
-  | Nano (ATmega328P) | `192.0.2.21/24` | none (`0.0.0.0`) | `192.0.2.1`, at the port the endpoint listens on |
-  | Mega (ATmega2560) | `192.0.2.22/24` | none (`0.0.0.0`) | `192.0.2.1`, at the port the endpoint listens on |
+  | Nano (ATmega328P) | `198.51.100.21/24` | none (`0.0.0.0`) | `198.51.100.1`, at the port the endpoint listens on |
+  | Mega (ATmega2560) | `198.51.100.22/24` | none (`0.0.0.0`) | `198.51.100.1`, at the port the endpoint listens on |
 
 - **DHCP is not in the image. It arrives with the boot node.** A DHCP client on
   the AVR is a UDP state machine (DISCOVER, OFFER, REQUEST, ACK, lease renewal)

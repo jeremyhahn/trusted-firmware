@@ -1,0 +1,17 @@
+# Files that exist for the private development workflow and are not published.
+# `export-ignore` is honoured by `git archive`, which is what a forge's source
+# tarball and the public tree are cut with. It is NOT honoured by pushing this
+# history to another remote (docs/development/releasability.md).
+# scripts/releasability-test.sh pins this list against the tracked tree.
+
+# Agent context, at any depth.
+CLAUDE.md export-ignore
+AGENTS.md export-ignore
+.claude export-ignore
+.serena export-ignore
+
+# Forge-only workflows and their lint configuration. ci.yml is published.
+.github/workflows/automerge.yml export-ignore
+.github/workflows/code-review.yml export-ignore
+.github/workflows/qwen-review.yml export-ignore
+.github/actionlint.yaml export-ignore

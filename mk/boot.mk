@@ -112,7 +112,7 @@ BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_request.c boot/boot_entry.c \
-  boot/boot_platform.c boot/boot_policy.c \
+  boot/boot_platform.c boot/boot_policy.c boot/boot_trial.c \
   $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c \
   src/proto/crc16.c src/proto/crc16_update.c \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
@@ -255,7 +255,7 @@ BOOT_DONNA_HOST  := -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE
 # every suite that linked it would have to provide a signature backend. It is
 # added explicitly by the one suite that tests it.
 BOOT_LOGIC_SRCS := boot/boot_image.c boot/measure/measure_soft.c boot/boot_handoff.c boot/boot_ota.c \
-                   boot/boot_platform.c boot/boot_session.c \
+                   boot/boot_platform.c boot/boot_session.c boot/boot_trial.c \
                    boot/boot_request.c boot/boot_entry.c \
                    src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
                    test/mock/boot_hal_mock.c
@@ -300,6 +300,12 @@ $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
 $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_session.c \
         boot/recovery/recovery_ota.c boot/boot_store.c src/proto/frame.c \
         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The settle against the floor's authority: the real boot_store.c over the mock
+# EEPROM, with the element's counter supplied by the test.
+$(BOOT_TEST_DIR)/test_boot_settle: test/unit/boot/test_boot_settle.c \
+        boot/boot_store.c $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
@@ -454,6 +460,11 @@ BOOT_INT_DIR := $(BUILD_DIR)/integration/$(BOARD)
 BOOT_INT_BOARD := atmega2560
 BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1
 
+# The image_flags the harness's signer stamps into the trailer
+# (include/tfw/boot.h): 0x00 a release image, 0x01 a development one. A build
+# setting, like the board id, which the signer takes from the board profile.
+IMAGE_FLAGS ?= 0x00
+
 # The same warning set as the firmware. The harness is a model of a part other
 # people will read as documentation for it, so it is held to the standard the
 # thing it models is held to.
@@ -465,7 +476,7 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
 	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
 	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
-	   -DTFW_SIMAVR_MCU='"$(MCU)"' \
+	   -DTFW_SIMAVR_MCU='"$(MCU)"' -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' \
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"
 

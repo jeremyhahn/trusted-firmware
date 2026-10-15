@@ -29,6 +29,7 @@
 #include "boot_request.h"
 #include "boot_store.h"
 #include "boot_tick.h"
+#include "boot_trial.h"
 #include "core/secure_zero.h"
 
 
@@ -88,14 +89,31 @@ void tfw_boot_hand_over(const tfw_boot_verdict_t *v)
     tfw_boot_jump_application();
 }
 
+/*
+ * Ends the trial, if there is one to end, and goes to recovery with `st`.
+ *
+ * Both ways a trial ends at boot -- a reset that found it still running, and a
+ * pending image that did not verify -- store TRIAL, FAILED and stop. One tail
+ * for the two, because the boot section has no room for the second copy.
+ * Anything else (a GOOD image that no longer verifies) is not a trial: nothing
+ * is written, and recovery reports why.
+ */
+static _Noreturn void end_trial(tfw_boot_platform_t *plat, tfw_status_t st)
+{
+    if (tfw_boot_trial_fail(plat) == TFW_OK) {
+        tfw_boot_platform_store(plat);
+    }
+    tfw_boot_recovery(plat, st);
+}
+
 int main(void)
 {
     tfw_boot_platform_t plat;
     tfw_boot_verdict_t  verdict;
     tfw_status_t        st;
     uint32_t           floor;
-    uint32_t           next;
     uint8_t            update;
+    tfw_boot_reset_action_t act;
 
     /*
      * The application's one-shot update request, taken before ANYTHING else
@@ -124,29 +142,76 @@ int main(void)
         tfw_boot_recovery(&plat, st);
     }
 
-    floor = tfw_boot_floor_load(&plat);
+    /*
+     * The one trial (decision 9), decided before anything else is looked at.
+     * Each case below writes the platform block once; its comment says what a
+     * reset in the middle of that write leaves. On the soft tier a torn write
+     * of the block fails its CRC, and the next reset finds no usable region:
+     * recovery, which refuses to overwrite it (tfw_boot_platform_store).
+     */
+    act = tfw_boot_trial_at_reset(&plat);
+    if (act == TFW_BOOT_RESET_FAIL) {
+        /*
+         * A reset found the trial still running: the image never confirmed --
+         * it hung, was reset by the watchdog, lost power or chose not to. It
+         * does not run again; there is no second trial and no previous image
+         * to go back to on the in-place path, so recovery: another OTA round.
+         * A reset before or during this write repeats it (fail is idempotent).
+         */
+        end_trial(&plat, TFW_ERR_BAD_STATE);
+    }
 
     /*
-     * An update that started and never finished.
-     *
-     * The application region is whatever the interrupted write left behind.
-     * Jumping into it would execute a half-erased image -- which on AVR is
-     * 0xFF, decoded as a long run of SBRS instructions, and the part wanders
-     * into whatever happens to be after it. Refuse and stay here.
+     * The floor everything below is checked against. An element that is there
+     * and cannot be read leaves no floor to check against: the EEPROM copy is
+     * not the authority on that build, so it is not used in its place. Nothing
+     * is verified and nothing runs -- recovery, reporting TFW_ERR_CRYPTO, where
+     * every image is refused for the same reason until the read succeeds; a
+     * RESET command reads it again. The block is not written here, so a
+     * CONFIRMED trial is still there to settle when it does -- and recovery
+     * refuses OTA_BEGIN over it (tfw_boot_trial_begin_permit) until then.
      */
-    if (plat.boot_state == TFW_BOOT_STATE_STAGED) {
-        tfw_boot_recovery(&plat, TFW_ERR_CRYPTO);
+    st = tfw_boot_floor_load(&plat, &floor);
+    if (st != TFW_OK) {
+        tfw_boot_recovery(&plat, st);
+    }
+    if (act == TFW_BOOT_RESET_SETTLE) {
+        /*
+         * The trial was confirmed. The floor advances now, to the version of
+         * the image that proved it runs, never at staging or on trial
+          * (decision 5), and GOOD is written only once the authority holds it.
+         * On the element tier the counter is written first and the block
+         * second: a reset before or during the counter write finds CONFIRMED
+         * again and carries the counter on from wherever it stopped; a reset
+         * between them finds CONFIRMED again, the advance is then no step, and
+         * only GOOD is written. A counter write the element refuses writes
+         * nothing: the block stays CONFIRMED, this boot goes on with the image
+         * it verified against the old floor, and the next reset retries the
+         * advance. It opens no update session either: the session evaluates
+         * against the floor the element still holds, below the confirmed
+         * version, and an older image could slip in before the advance. The
+         * request is dropped; the application asks again once it has settled.
+         * On the soft tier the floor and GOOD are one write of the block.
+         */
+        st = tfw_boot_evaluate(floor, &verdict);
+        if (st != TFW_OK) {
+            tfw_boot_recovery(&plat, st);
+        }
+        if (tfw_boot_settle(&plat, verdict.trailer.image_version, &floor) != TFW_OK) {
+            update = 0u;
+        }
     }
 
     /*
      * A healthy device that was asked to take an update. Reached only after the
-     * platform block loaded and no update is half-done -- both of those are
+     * platform block loaded and no trial is left to end -- both of those are
      * recovery already, which serves the same loop without a limit.
      *
      * This returns when the session times out, and everything below then runs
-     * as it would have: measure, verify, floor, jump. Asking for a session
-     * therefore grants nothing; an image delivered in it is evaluated by the
-     * same tfw_boot_evaluate as one found at reset.
+     * as it would have: measure, verify, jump. Asking for a session therefore
+     * grants nothing; an image delivered in it is evaluated by the same
+     * tfw_boot_evaluate as one found at reset, and one that verifies runs only
+     * on trial.
      */
     if (update) {
         /* Field by field, not an initialiser: on AVR a constant aggregate is
@@ -161,17 +226,38 @@ int main(void)
         tfw_boot_session_open(&plat, &lim);
     }
 
-    st = tfw_boot_evaluate(floor, &verdict);
-    if (st != TFW_OK) {
-        tfw_boot_recovery(&plat, st);
+    /*
+     * An update that started and was never armed for its trial.
+     *
+     * STAGED is stored before the first page is written, so the application
+     * region is whatever the interrupted write left behind -- or a whole image
+     * that verifies but never ran on trial. Jumping into the first would
+     * execute a half-erased image -- which on AVR is 0xFF, decoded as a long
+     * run of SBRS instructions, and the part wanders into whatever happens to
+     * be after it. Jumping into the second would accept it untried. Checked
+     * after the session, which may itself have left one of these behind.
+     */
+    if (plat.boot_state == TFW_BOOT_STATE_STAGED) {
+        tfw_boot_recovery(&plat, TFW_ERR_CRYPTO);
     }
 
-    /* The floor advances on a verified boot, not on a verified update. An image
-     * that verifies but cannot run leaves the floor where it was, so the
-     * previous version is still installable. */
-    if (tfw_boot_floor_advance(verdict.trailer.image_version, floor,
-                              &next) == TFW_OK && next != floor) {
-        tfw_boot_floor_store(&plat, next);
+    st = tfw_boot_evaluate(floor, &verdict);
+    if (st != TFW_OK) {
+        /* A pending image that does not verify gets no trial: TRIAL, FAILED,
+         * as an unconfirmed trial ends, so no later reset boots it -- not even
+         * one whose evaluation passes because the failure was transient. A
+         * reset before this write leaves PENDING: evaluated again, and at
+         * most tried, never booted as accepted. */
+        end_trial(&plat, st);
+    }
+
+    /*
+     * A pending image that verified: armed for its one trial before the jump.
+     * A reset before this write leaves PENDING (tried again, as if never
+     * reached); after it, TRIAL (the trial ended, unconfirmed).
+     */
+    if (tfw_boot_trial_arm(&plat) == TFW_OK) {
+        tfw_boot_platform_store(&plat);
     }
 
     tfw_boot_hand_over(&verdict);

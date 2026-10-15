@@ -6,6 +6,7 @@
 #include "unity.h"
 #include "frame.h"
 #include "crc16.h"
+#include "vectors.h"
 
 static tfw_framer_t f;
 
@@ -50,6 +51,18 @@ static void test_response_sets_the_response_bit_and_carries_status(void)
     TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING | TFW_OP_RESPONSE_BIT, tfw_frame_op(&f));
     TEST_ASSERT_EQUAL_HEX8(TFW_ERR_BAD_PIN, tfw_frame_status(&f));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&f));
+}
+
+/* Status 19 is pinned by a literal, not by the enum it came from: a renumber
+ * would move the enum, and only a literal notices. */
+static void test_bad_state_response_matches_the_vector(void)
+{
+    static const uint8_t want[] = TFWV_FRAME_OTA_BEGIN_BAD_STATE_RESP;
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_response(wire, sizeof wire, 0x03u,
+                                          TFW_CMD_OTA_BEGIN, TFW_ERR_BAD_STATE, 0, 0u);
+    TEST_ASSERT_EQUAL_UINT16(sizeof want - 1u, n);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, n);
 }
 
 static void test_event_uses_the_reserved_op_and_no_sequence(void)
@@ -247,6 +260,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_request_round_trips);
     RUN_TEST(test_response_sets_the_response_bit_and_carries_status);
+    RUN_TEST(test_bad_state_response_matches_the_vector);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);
     RUN_TEST(test_maximum_payload_is_a_valid_frame);

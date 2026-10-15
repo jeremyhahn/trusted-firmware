@@ -63,6 +63,14 @@ tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
         return st;
     }
 
+    /* The board binding before the floor: an image for another board is
+     * refused whatever its version, and before anything is measured. The id
+     * is the profile's -- this file names no board. */
+    st = tfw_boot_binding_permit(&out->trailer, (uint8_t)TFW_BOARD_ID);
+    if (st != TFW_OK) {
+        return st;
+    }
+
     st = tfw_boot_rollback_permit(out->trailer.image_version, floor);
     if (st != TFW_OK) {
         return st;
@@ -118,8 +126,8 @@ tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
     }
 
     /* The signed span is the trailer's first TFW_BOOT_TR_SIGNED_LEN bytes as
-     * they sit in flash -- magic, layout version, image version, image length
-     * and the measurement. Signing the measurement alone would leave the
+     * they sit in flash -- magic, layout version, board id, image flags, image
+     * version, image length and the measurement. Signing the measurement alone would leave the
      * version unauthenticated and hand an attacker anti-rollback for a
      * four-byte edit; see include/tfw/boot.h. */
     return tfw_boot_verify(raw, TFW_BOOT_TR_SIGNED_LEN,

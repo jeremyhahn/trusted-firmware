@@ -49,7 +49,8 @@ typedef enum {
     TFW_ERR_PROTECTED_REGION = 16, /* the target is platform-reserved */
     TFW_ERR_AUTH_REQUIRED    = 17, /* command needs an authenticated session */
 
-    TFW_ERR_INTERNAL         = 18  /* a condition the firmware believes impossible */
+    TFW_ERR_INTERNAL         = 18, /* a condition the firmware believes impossible */
+    TFW_ERR_BAD_STATE        = 19  /* the command is not valid in the current OTA state */
 } tfw_status_t;
 
 /*

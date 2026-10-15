@@ -30,6 +30,7 @@ consumption is [../dice-attestation/architecture.md](../dice-attestation/archite
 | Handoff | `boot/boot_handoff.c` | building/parsing the CDI block the application reads |
 | Recovery | `boot/boot_recovery.h`, `boot/recovery/recovery_ota.c`, `boot/hal/avr/recovery_halt.c` | what runs when nothing may boot, one backend linked |
 | OTA session | `boot/boot_ota.{c,h}`, `boot/boot_session.{c,h}` | the four-command wire protocol, linked only when `BOOT_OTA=1` |
+| The one trial | `boot/boot_trial.{c,h}` | the OTA state machine's transitions and refusals, pure over the platform block ([../ota/architecture.md](../ota/architecture.md#what-runs-today-77)) |
 | HAL | `boot/boot_hal.h`, `boot/hal/avr/boot_hal_avr.c` | flash, EEPROM, UART, handoff placement, jump/reset |
 | Shared with the application | `src/crypto/sha256.c`, `src/proto/frame.c`, `src/proto/crc16.c`, `src/proto/crc16_update.c`, `src/hal/avr/hal_early.c` | one hash, one frame codec, one watchdog-disarm sequence. The application's *firmware* image links `src/hal/avr/hal_crc16.c` instead of `crc16_update.c` for the per-byte fold (#12); the bootloader does not carry that substitution, so it keeps the portable form. |
 | Wire layouts | `include/tfw/boot.h` | the trailer, the reserved-EEPROM region, the handoff block — each has a second party that must agree byte for byte |
@@ -44,14 +45,17 @@ has one place to read, not a scatter of checks between peripheral setup.
 reset (BOOTRST) -> .init3 (hal_early.c: clear MCUSR, disarm watchdog)
   -> main(): request_take (read + clear the app's update request), uart_init, cdi_init
   -> platform_load (reserved EEPROM)                -> fail: recovery(reason)
-  -> boot_state == STAGED?                           -> yes: recovery(TFW_ERR_CRYPTO)
   -> floor_load
+  -> trial_at_reset:  TRIAL                          -> FAILED, recovery(TFW_ERR_BAD_STATE)
+                      CONFIRMED                      -> evaluate, floor := version, GOOD
   -> request honoured?                               -> yes: session_open (bounded; returns on
-                                                        idle timeout, hands over on a verified OTA_END)
+                                                        idle timeout, arms the trial and hands
+                                                        over on a verified OTA_END)
+  -> boot_state == STAGED?                           -> yes: recovery(TFW_ERR_CRYPTO)
   -> tfw_boot_evaluate(floor):
-       trailer_parse -> rollback_permit -> measure -> compare -> verify
-                                                                -> fail: recovery(reason)
-  -> floor_advance + floor_store (only on a verified boot)
+       trailer_parse -> binding_permit -> rollback_permit -> measure -> compare -> verify
+                                                                -> fail: PENDING -> TRIAL+FAILED, recovery(reason)
+  -> PENDING? arm: TRIAL
   -> tfw_boot_hand_over: cdi_derive -> handoff_build -> handoff_write -> zeroize -> jump_application
 ```
 

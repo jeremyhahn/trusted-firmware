@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The image trailer, and the two questions asked of it.
+ * The image trailer, and the three questions asked of it.
  *
- * "Is this a well-formed trailer?" and "may this version run here?" are pure
- * functions of bytes and two integers. They touch no register, read no flash
+ * "Is this a well-formed trailer?", "was it built for this board?" and "may
+ * this version run here?" are pure functions of bytes and integers. They touch no register, read no flash
  * and call nothing, which is what lets the whole of the accept/refuse decision
  * be tested on x86 -- including the cases a bench cannot easily produce, such
  * as an image_len that reaches into its own signature.
@@ -37,6 +37,30 @@ tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
  * program's bugs. `signature` may be NULL, which leaves the signature zeroed --
  * that is the form the measurement and the signed span are computed over. */
 void tfw_boot_trailer_serialise(const tfw_boot_trailer_t *tr, uint8_t *raw);
+
+/* ------------------------------------------------------------ the binding */
+
+/*
+ * MAY THIS IMAGE RUN ON THIS BOARD? `board_id` is the part's own TFW_BOARD_ID,
+ * passed in rather than read here so the decision stays a pure function of
+ * its inputs and every refusal is reachable from a host test.
+ *
+ * Returns TFW_ERR_UNSUPPORTED, as for a trailer version this bootloader does
+ * not know, when:
+ *   - the trailer's board_id is 0, which names no board and is what every
+ *     image built before the field existed carries;
+ *   - the trailer's board_id is not this board's -- a genuine image, signed by
+ *     the key for another board id, is still not an image for this part;
+ *   - an image_flags bit outside TFW_BOOT_IMAGE_FLAGS_KNOWN is set.
+ *
+ * TFW_BOOT_IMAGE_FLAG_DEV is parsed and carried, and not judged here: what a
+ * development image may do on a production key is a policy of its own.
+ *
+ * The check is not an authentication: the signature, verified last, is what
+ * makes board_id trustworthy. Run before the floor it only refuses early, and
+ * a refusal changes nothing.
+ */
+tfw_status_t tfw_boot_binding_permit(const tfw_boot_trailer_t *tr, uint8_t board_id);
 
 /* ------------------------------------------------------------ anti-rollback */
 

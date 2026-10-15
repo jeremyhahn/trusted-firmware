@@ -33,6 +33,7 @@ const (
 	StatusErrProtectedRegion Status = 16
 	StatusErrAuthRequired    Status = 17
 	StatusErrInternal        Status = 18
+	StatusErrBadState        Status = 19
 )
 
 var statusNames = map[Status]string{
@@ -55,6 +56,7 @@ var statusNames = map[Status]string{
 	StatusErrProtectedRegion: "target is platform-reserved",
 	StatusErrAuthRequired:    "command requires an authenticated session",
 	StatusErrInternal:        "internal error",
+	StatusErrBadState:        "command not valid in the current OTA state",
 }
 
 func (s Status) String() string {

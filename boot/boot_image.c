@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 
 #include <string.h>
+#include "boot_platform.h"
 
 #include "boot_image.h"
 
@@ -14,37 +15,10 @@
  * the host tests would be testing a layout the device does not use. src/proto
  * does it this way for the same reason.
  */
-static uint32_t rd_u32(const uint8_t *p)
-{
-    return (uint32_t)p[0]
-         | ((uint32_t)p[1] << 8)
-         | ((uint32_t)p[2] << 16)
-         | ((uint32_t)p[3] << 24);
-}
-
-static uint16_t rd_u16(const uint8_t *p)
-{
-    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
-}
-
-static void wr_u32(uint8_t *p, uint32_t v)
-{
-    p[0] = (uint8_t)(v & 0xFFu);
-    p[1] = (uint8_t)((v >> 8) & 0xFFu);
-    p[2] = (uint8_t)((v >> 16) & 0xFFu);
-    p[3] = (uint8_t)((v >> 24) & 0xFFu);
-}
-
-static void wr_u16(uint8_t *p, uint16_t v)
-{
-    p[0] = (uint8_t)(v & 0xFFu);
-    p[1] = (uint8_t)((v >> 8) & 0xFFu);
-}
-
 tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
 {
-    uint32_t magic = rd_u32(&raw[TFW_BOOT_TR_MAGIC]);
-    uint16_t ver   = rd_u16(&raw[TFW_BOOT_TR_VERSION]);
+    uint32_t magic = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_MAGIC]);
+    uint16_t ver   = tfw_boot_rd_u16(&raw[TFW_BOOT_TR_VERSION]);
 
     if (magic != TFW_BOOT_TRAILER_MAGIC) {
         return TFW_ERR_UNSUPPORTED;
@@ -57,8 +31,10 @@ tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
         return TFW_ERR_UNSUPPORTED;
     }
 
-    out->image_version = rd_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION]);
-    out->image_len     = rd_u32(&raw[TFW_BOOT_TR_IMAGE_LEN]);
+    out->image_version = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION]);
+    out->image_len     = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_IMAGE_LEN]);
+    out->board_id      = raw[TFW_BOOT_TR_BOARD_ID];
+    out->image_flags   = raw[TFW_BOOT_TR_IMAGE_FLAGS];
 
     if (out->image_version == 0u) {
         return TFW_ERR_CRYPTO;
@@ -88,12 +64,28 @@ tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
 void tfw_boot_trailer_serialise(const tfw_boot_trailer_t *tr, uint8_t *raw)
 {
     memset(raw, 0, TFW_BOOT_TRAILER_LEN);
-    wr_u32(&raw[TFW_BOOT_TR_MAGIC], TFW_BOOT_TRAILER_MAGIC);
-    wr_u16(&raw[TFW_BOOT_TR_VERSION], TFW_BOOT_TRAILER_VERSION);
-    wr_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION], tr->image_version);
-    wr_u32(&raw[TFW_BOOT_TR_IMAGE_LEN], tr->image_len);
+    tfw_boot_wr_u32(&raw[TFW_BOOT_TR_MAGIC], TFW_BOOT_TRAILER_MAGIC);
+    tfw_boot_wr_u16(&raw[TFW_BOOT_TR_VERSION], TFW_BOOT_TRAILER_VERSION);
+    raw[TFW_BOOT_TR_BOARD_ID]    = tr->board_id;
+    raw[TFW_BOOT_TR_IMAGE_FLAGS] = tr->image_flags;
+    tfw_boot_wr_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION], tr->image_version);
+    tfw_boot_wr_u32(&raw[TFW_BOOT_TR_IMAGE_LEN], tr->image_len);
     memcpy(&raw[TFW_BOOT_TR_MEASUREMENT], tr->measurement, TFW_BOOT_MEASURE_LEN);
     memcpy(&raw[TFW_BOOT_TR_SIGNATURE], tr->signature, TFW_BOOT_SIG_LEN);
+}
+
+tfw_status_t tfw_boot_binding_permit(const tfw_boot_trailer_t *tr, uint8_t board_id)
+{
+    /* Zero is checked on its own, not left to the comparison, so that a part
+     * built without a board profile -- TFW_BOARD_ID 0 -- cannot accept the
+     * unbound images it would otherwise match. */
+    if (tr->board_id == 0u || tr->board_id != board_id) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    if ((tr->image_flags & (uint8_t)~TFW_BOOT_IMAGE_FLAGS_KNOWN) != 0u) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    return TFW_OK;
 }
 
 tfw_status_t tfw_boot_rollback_permit(uint32_t version, uint32_t floor)

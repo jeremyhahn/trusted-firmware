@@ -18,6 +18,8 @@ const (
 	BoardATmega2560  BoardID = 0x02
 	BoardATmega32U4  BoardID = 0x03
 	BoardATtiny85    BoardID = 0x04
+	BoardESP32P4PoE  BoardID = 0x80
+	BoardESP32QEMU   BoardID = 0x81
 	boardAVRFirst    BoardID = 0x01
 	boardAVRLast     BoardID = 0x3F
 	boardCortexFirst BoardID = 0x40
@@ -31,6 +33,8 @@ var boardNames = map[BoardID]string{
 	BoardATmega2560: "atmega2560",
 	BoardATmega32U4: "atmega32u4",
 	BoardATtiny85:   "attiny85",
+	BoardESP32P4PoE: "esp32p4-poe",
+	BoardESP32QEMU:  "esp32-qemu",
 }
 
 // Family names the architecture family whose range the id falls in, or

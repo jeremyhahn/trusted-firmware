@@ -39,6 +39,21 @@ func TestEncodeRequestMatchesTheFrozenWireFrames(t *testing.T) {
 	}
 }
 
+// TestBadStateResponseMatchesVector pins status 19 on the wire. The literal,
+// not the constant, is what a renumber cannot move.
+func TestBadStateResponseMatchesVector(t *testing.T) {
+	got, err := EncodeResponse(3, Cmd(0x68), StatusErrBadState, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte(vectors.FrameOTABeginBadStateResp)) {
+		t.Errorf("OTA_BEGIN BAD_STATE frame = % x, want % x", got, vectors.FrameOTABeginBadStateResp)
+	}
+	if StatusErrBadState.String() != "command not valid in the current OTA state" {
+		t.Errorf("StatusErrBadState = %q", StatusErrBadState.String())
+	}
+}
+
 func TestRequestRoundTrips(t *testing.T) {
 	payload := []byte{0x0D, 0x01}
 	wire, err := EncodeRequest(0x42, CmdDigitalWrite, payload)

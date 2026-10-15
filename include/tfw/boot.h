@@ -48,7 +48,10 @@
  *   off  size  field
  *     0     4  magic            TFW_BOOT_TRAILER_MAGIC
  *     4     2  trailer_version  TFW_BOOT_TRAILER_VERSION
- *     6     2  reserved
+ *     6     1  board_id         the board the image was built for: the
+ *                               registry's TFW_BOARD_ID, never 0
+ *     7     1  image_flags      bit 0 TFW_BOOT_IMAGE_FLAG_DEV, a development
+ *                               image; bits 1-7 reserved, zero
  *     8     4  image_version    the anti-rollback security version number
  *    12     4  image_len        bytes measured, counted from the region's base
  *                               (TFW_BOOT_APP_BASE; address 0 on AVR)
@@ -69,6 +72,14 @@
  * does not move it. On the element tier the floor is the part's monotonic
  * counter, which has roughly two million increments for the life of the device;
  * a version bumped per release would spend that budget on nothing.
+ *
+ * THE SIGNATURE COVERS THE BOARD ID for the same reason. One image key per
+ * board id (docs/ota/adr-ota-image-format-and-trust.md, decisions 2 and 10)
+ * means a 328P image and a 2560 image are both genuine; an unsigned board_id
+ * would let either be relabelled for the other and flashed into a part whose
+ * fuses, pins and boot section it was never built for. board_id 0 is the value
+ * every trailer carried before this field existed, so it is refused: an image
+ * that does not name its board is rebuilt, not guessed at.
  */
 #define TFW_BOOT_TRAILER_MAGIC    0x4D494654uL   /* 'T','F','I','M' little-endian */
 #define TFW_BOOT_TRAILER_VERSION  1u
@@ -76,7 +87,8 @@
 
 #define TFW_BOOT_TR_MAGIC         0u
 #define TFW_BOOT_TR_VERSION       4u
-#define TFW_BOOT_TR_RESERVED0     6u
+#define TFW_BOOT_TR_BOARD_ID      6u
+#define TFW_BOOT_TR_IMAGE_FLAGS   7u
 #define TFW_BOOT_TR_IMAGE_VERSION 8u
 #define TFW_BOOT_TR_IMAGE_LEN     12u
 #define TFW_BOOT_TR_MEASUREMENT   16u
@@ -87,11 +99,19 @@
 #define TFW_BOOT_SIG_LEN          64u
 #define TFW_BOOT_PUBKEY_LEN       32u
 
+/* image_flags. Only the bits named here are defined; an image with any other
+ * bit set is refused, so a later bit cannot mean something to the signer and
+ * nothing to a bootloader that predates it. */
+#define TFW_BOOT_IMAGE_FLAG_DEV    0x01u   /* a development image */
+#define TFW_BOOT_IMAGE_FLAGS_KNOWN 0x01u
+
 /* The parsed trailer. A value type: parsing happens once, from bytes, and
  * every later decision reads this rather than re-indexing the buffer. */
 typedef struct {
     uint32_t image_version;
     uint32_t image_len;
+    uint8_t  board_id;
+    uint8_t  image_flags;
     uint8_t  measurement[TFW_BOOT_MEASURE_LEN];
     uint8_t  signature[TFW_BOOT_SIG_LEN];
 } tfw_boot_trailer_t;
@@ -197,12 +217,22 @@ typedef struct {
 #define TFW_BOOT_STATE_STAGED  1u   /* a write started and did not complete */
 #define TFW_BOOT_STATE_GOOD    2u   /* an image verified and was committed */
 
+/* The one trial (docs/ota/adr-ota-image-format-and-trust.md, decision 9). The
+ * values are the ADR's proposal (6.3, open question 10): they extend the
+ * enumeration and none renumbers. TRIAL is written before the jump, so ANY
+ * reset that finds it -- the deadline, the watchdog, a crash, a power cut --
+ * ends the trial as failed. CONFIRMED is the control plane's answer; the floor
+ * advances to the running image's version at the next reset, and only then. */
+#define TFW_BOOT_STATE_TRIAL     3u /* running once, not confirmed */
+#define TFW_BOOT_STATE_CONFIRMED 4u /* confirmed; the floor not yet advanced */
+
 /* ota_state, for the host's benefit: reported by OTA_STATUS so an interrupted
  * session can be resumed or abandoned deliberately rather than guessed at. */
 #define TFW_BOOT_OTA_IDLE      0u
 #define TFW_BOOT_OTA_RECEIVING 1u
 #define TFW_BOOT_OTA_VERIFIED  2u
-#define TFW_BOOT_OTA_FAILED    3u
+#define TFW_BOOT_OTA_FAILED    3u   /* refused, or the trial ended unconfirmed */
+#define TFW_BOOT_OTA_PENDING   4u   /* activated: to be tried at the next reset */
 
 /* The parsed region. */
 typedef struct {

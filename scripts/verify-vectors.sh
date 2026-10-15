@@ -103,4 +103,19 @@ else
   echo "APP_INFO reply vectors agree: $(echo "$c_app" | wc -l) values, both languages"
 fi
 
+# Image trailer v1 signed spans, #76 -- compared by NAME and VALUE together: a
+# board's span and the mismatched or unbound one must not be able to swap
+# places and still agree.
+c_tr=$(sed -n 's/^#define TFWV_TRAILER_\([A-Z0-9_]*\)_SPAN *"\(.*\)"$/\1 \2/p' "$C" | tr 'A-Z' 'a-z' | sort)
+g_tr=$(sed -n 's/^\tTrailer\([A-Za-z0-9]*\)Span *= *"\(.*\)"$/\1 \2/p' "$G" | tr 'A-Z' 'a-z' | sort)
+
+if [ -z "$c_tr" ]; then
+  echo "no image trailer vectors found in $C"; fail=1
+elif [ "$c_tr" != "$g_tr" ]; then
+  echo "image trailer vectors differ:"; echo "  $C:"; echo "$c_tr" | sed 's/^/    /'
+  echo "  $G:"; echo "$g_tr" | sed 's/^/    /'; fail=1
+else
+  echo "image trailer vectors agree: $(echo "$c_tr" | wc -l) values, both languages"
+fi
+
 exit $fail

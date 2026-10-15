@@ -125,7 +125,7 @@ renumbered (ADR, open question 10). The bootloader owns the transitions marked
 | `VERIFIED` | trailer, board id, floor, measurement, signature and, where verified, the manifest passed the gate | `OTA_ACTIVATE` → `PENDING`; refused with `TFW_ERR_BAD_STATE` if the measurement is the last failed one |
 | `PENDING` | to be tried at the next reset | boot: copy or swap, evaluate → `TRIAL`, or roll back → `FAILED` |
 | `TRIAL` | running once, not confirmed; the trial deadline and the watchdog are armed | `OTA_CONFIRM` → `CONFIRMED`; **any** reset → boot rolls back → `FAILED` |
-| `CONFIRMED` | confirmed by the control plane; the floor not yet advanced | boot, next reset: floor := version → `GOOD` |
+| `CONFIRMED` | confirmed by the control plane; the floor not yet advanced | boot, next reset: floor := version → `GOOD`; `OTA_BEGIN` is refused until then |
 | `GOOD` | the image the device boots | replaced when another image confirms |
 | `FAILED` | refused, or the trial ended unconfirmed; its measurement is kept | overwritten by the next `OTA_BEGIN` |
 
@@ -180,6 +180,82 @@ boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
   network and stager included, so the next round starts exactly as the first.
   It reports `FAILED`, the fallback flags and the failed measurement in
   `OTA_INFO`, and its old `FWHash` at attestation.
+
+### What runs today (#77)
+
+The transitions are pure functions in `boot/boot_trial.{c,h}`, over the two
+state bytes of the platform block; a transition in the wrong state answers
+`TFW_ERR_BAD_STATE` (19) and changes nothing. Host tests drive every
+transition and every refusal (`test/unit/boot/test_boot_trial.c`). The
+encoding, from `include/tfw/boot.h`:
+
+| Byte | Values |
+|---|---|
+| `boot_state` | `EMPTY` 0, `STAGED` 1, `GOOD` 2, `TRIAL` 3, `CONFIRMED` 4 |
+| `ota_state` | `IDLE` 0, `RECEIVING` 1, `VERIFIED` 2, `FAILED` 3, `PENDING` 4 |
+
+| Function | Transition | Refused (`TFW_ERR_BAD_STATE`) |
+|---|---|---|
+| `tfw_boot_trial_at_reset` | picks, in order: `TRIAL` → fail, `CONFIRMED` → settle, `PENDING` → try, else boot | never |
+| `tfw_boot_trial_arm` | `PENDING` → `TRIAL`, before the jump | nothing pending; a trial running; a confirm not yet settled |
+| `tfw_boot_trial_fail` | `TRIAL` or `PENDING` → `TRIAL`, `FAILED`, so every later reset fails again; a pending image refused at evaluation never boots, even once a transient failure clears | no trial and nothing pending |
+| `tfw_boot_trial_confirm` | `TRIAL` → `CONFIRMED` | outside a trial; a trial already failed |
+| `tfw_boot_trial_settle` | `CONFIRMED` → `GOOD`, floor := version | no confirm |
+| `tfw_boot_trial_activate` | `VERIFIED` → `PENDING` | no verified image; a trial running; the measurement that last failed |
+| `tfw_boot_trial_begin_permit` | — | `OTA_BEGIN` while an image is pending; while a confirm is not yet settled |
+
+The only path that exists yet is the in-place boot session (`recovery_ota.c`),
+which writes the application region directly. On it:
+
+- `STAGED` is stored before the first page is erased. A transfer that stops,
+  even after the last page, leaves `STAGED`, and `tfw-boot` refuses to boot it.
+- A verified `OTA_END` is `PENDING` at once and armed in the same write:
+  `STAGED` → `TRIAL`. The floor does not move.
+- A reset that finds `TRIAL` writes `FAILED` and stays in recovery. There is
+  no previous image to restore, so recovery is another OTA round, which
+  `OTA_BEGIN` accepts.
+- A reset that finds `CONFIRMED` evaluates the image, advances the floor to its
+  version and writes `GOOD`, before the update request is served. `GOOD` waits
+  for the authority to hold the floor: an element that refuses the counter
+  write leaves `CONFIRMED`, the image boots without an update session, and the
+  next reset retries the advance.
+- Every reset reads the floor from its authority before anything is evaluated,
+  except a `TRIAL` failed at reset, which evaluates nothing. Where there is no
+  element the authority is the EEPROM copy. An element that is there and fails
+  the read is not covered by that copy: nothing is verified and nothing runs,
+  the boot lands in recovery with `TFW_ERR_CRYPTO`, every image an update
+  delivers is refused with the same status while the read fails, and the block
+  is not written -- a `CONFIRMED` is settled at the first reset that reads the
+  counter. `RESET` from recovery reads it again.
+- Recovery refuses `OTA_BEGIN` with `TFW_ERR_BAD_STATE` while the block is
+  `CONFIRMED`. The first page would replace `CONFIRMED` with `STAGED`, and the
+  confirmed version's floor advance would be lost: an older signed image could
+  then be accepted once the counter read recovered. The refusal writes nothing,
+  so a reset leaves `CONFIRMED` and settles it; a transfer is accepted once that
+  settle has written `GOOD`. The way forward is a reset (`RESET` from recovery),
+  not a retried transfer.
+
+What a reset in the middle of each write leaves:
+
+| Write | Reset before it | Reset during it | Reset after it |
+|---|---|---|---|
+| `STAGED`, before the first page | the old state, region untouched | a torn block | `STAGED`: recovery |
+| `TRIAL`, after a verified `OTA_END` or a pending image at reset | `STAGED` or `PENDING`: recovery, or tried again | a torn block | `TRIAL`: the next reset fails it |
+| `FAILED`, a trial found at reset | `TRIAL`: failed again | a torn block | `FAILED`: recovery |
+| settle, element tier: counter, then `GOOD` | `CONFIRMED`: settled again | the counter is the element's, carried on from where it stopped; the block is torn | between the two, `CONFIRMED` with the counter advanced: the advance is no step, only `GOOD` is written; a refused counter write writes nothing: `CONFIRMED`, settled again; a refused counter read writes nothing either: recovery, `CONFIRMED`, where `OTA_BEGIN` is refused until a reset settles it |
+| settle, software tier: floor and `GOOD` in one block | `CONFIRMED`: settled again | a torn block | `GOOD` |
+
+A torn block fails its CRC, and the next reset finds no usable platform block:
+recovery, with no pinned key, so nothing verifies until a programmer rewrites
+the region. Recovery never writes the zeroed block it was given over the torn
+one. Closing that window needs the state outside the block's CRC or in its own
+record, which is open question 10.
+
+Not yet: the store and the A/B slots (#75 and later), so no copy, swap or
+restore; `OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are
+proposed); keeping the failed measurement (open question 10); and the trial
+deadline and watchdog (`TFW_OTA_TRIAL_TIMEOUT_S` is a board value, open
+question 6, and the application's `.init3` disarms the watchdog today).
 
 ## Trust boundaries
 

@@ -124,6 +124,34 @@ static void test_serialising_preserves_bytes_the_struct_does_not_model(void)
     TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_platform_parse(raw, &p));
 }
 
+/* The block is copied whole, so the multi-byte fields are only as right as the
+ * target's byte order. These literals are the layout: little-endian, each field
+ * at its offset. They are not computed from the code they check. */
+static void test_multi_byte_fields_are_little_endian_at_their_offsets(void)
+{
+    static const uint8_t floor[4] = { 0x04u, 0x03u, 0x02u, 0x01u };
+    static const uint8_t count[4] = { 0x0Du, 0x0Cu, 0x0Bu, 0x0Au };
+    static const uint8_t fails[2] = { 0x06u, 0x05u };
+    uint8_t raw[TFW_BOOT_EE_LEN];
+    tfw_boot_platform_t p;
+
+    build(raw, &p);
+    p.rollback_floor = 0x01020304u;
+    p.boot_count     = 0x0A0B0C0Du;
+    p.fail_count     = 0x0506u;
+    tfw_boot_platform_serialise(&p, raw);
+
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(floor, &raw[40], 4);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(count, &raw[44], 4);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(fails, &raw[50], 2);
+
+    memset(&p, 0, sizeof p);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_platform_parse(raw, &p));
+    TEST_ASSERT_EQUAL_HEX32(0x01020304u, p.rollback_floor);
+    TEST_ASSERT_EQUAL_HEX32(0x0A0B0C0Du, p.boot_count);
+    TEST_ASSERT_EQUAL_HEX16(0x0506u, p.fail_count);
+}
+
 static void test_the_crc_covers_everything_below_it(void)
 {
     uint8_t raw[TFW_BOOT_EE_LEN];
@@ -197,6 +225,7 @@ int main(void)
     RUN_TEST(test_a_corrupted_byte_is_caught_by_the_crc);
     RUN_TEST(test_a_corrupted_pubkey_hash_is_caught);
     RUN_TEST(test_serialising_preserves_bytes_the_struct_does_not_model);
+    RUN_TEST(test_multi_byte_fields_are_little_endian_at_their_offsets);
     RUN_TEST(test_the_crc_covers_everything_below_it);
     RUN_TEST(test_a_baked_eeprom_image_is_decoded_correctly);
     return UNITY_END();

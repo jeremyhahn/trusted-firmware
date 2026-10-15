@@ -31,7 +31,7 @@ void tfw_boot_session_open(tfw_boot_platform_t *plat,
     (void)lim;
 }
 
-void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t reason)
+_Noreturn void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t reason)
 {
     (void)plat;
     (void)reason;

@@ -42,4 +42,13 @@ void tfw_boot_platform_serialise(const tfw_boot_platform_t *in, uint8_t *raw);
  * that checks nothing. */
 uint16_t tfw_boot_platform_crc(const uint8_t *raw);
 
+/* Little-endian field access, for every boot-side layout: the platform block,
+ * the image trailer and the update request. One copy, here, because each file
+ * keeping its own left three identical copies in a boot section with no room
+ * for them; boot_platform.c is in every link that has the other two. */
+uint32_t tfw_boot_rd_u32(const uint8_t *p);
+uint16_t tfw_boot_rd_u16(const uint8_t *p);
+void     tfw_boot_wr_u32(uint8_t *p, uint32_t v);
+void     tfw_boot_wr_u16(uint8_t *p, uint16_t v);
+
 #endif /* TFW_BOOT_PLATFORM_H */

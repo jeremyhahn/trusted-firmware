@@ -109,7 +109,10 @@ tfw_status_t tfw_boot_floor_read(uint32_t *out)
                        TFW_ATECC_COUNTER_BOOT, 0, 0u, v, 4u, TFW_ATECC_T_COUNTER);
     (void)tfw_atecc_sleep();
     if (st != TFW_OK) {
-        return st;
+        /* Not st: the driver maps the part's 0x0F to TFW_ERR_UNSUPPORTED,
+         * which the caller reads as "no element" and covers with the EEPROM
+         * copy. A present element that fails the read is a crypto error. */
+        return TFW_ERR_CRYPTO;
     }
     *out = (uint32_t)v[0] | ((uint32_t)v[1] << 8)
          | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);
@@ -125,6 +128,12 @@ tfw_status_t tfw_boot_floor_read(uint32_t *out)
  * the caller's check is the policy, and this loop re-reads the counter each
  * time rather than trusting its own arithmetic, because the counter is the
  * authority and the arithmetic is not.
+ *
+ * A present element that fails answers TFW_ERR_CRYPTO, never the driver's own
+ * status: the driver translates an execution error (0x0F) to
+ * TFW_ERR_UNSUPPORTED, and from here that means there is no element
+ * (boot_cdi.h) -- the caller would take EEPROM as the authority and settle
+ * with the counter where it was.
  */
 tfw_status_t tfw_boot_floor_write(uint32_t value)
 {
@@ -139,7 +148,7 @@ tfw_status_t tfw_boot_floor_write(uint32_t value)
 
         tfw_status_t st = tfw_boot_floor_read(&now);
         if (st != TFW_OK) {
-            return st;
+            return TFW_ERR_CRYPTO;
         }
         if (now >= value) {
             return TFW_OK;
@@ -151,7 +160,7 @@ tfw_status_t tfw_boot_floor_write(uint32_t value)
                            TFW_ATECC_COUNTER_BOOT, 0, 0u, v, 4u, TFW_ATECC_T_COUNTER);
         (void)tfw_atecc_sleep();
         if (st != TFW_OK) {
-            return st;
+            return TFW_ERR_CRYPTO;
         }
     }
     /* The counter did not reach the target within the permitted number of

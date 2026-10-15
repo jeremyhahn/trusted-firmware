@@ -195,6 +195,12 @@
 #ifndef TFW_BOARD_ID
 #define TFW_BOARD_ID   0x00u
 #endif
+
+/* The image_flags a signer stamps into the image trailer (include/tfw/boot.h):
+ * a build setting, 0 for a release image. Never a board's to choose. */
+#ifndef TFW_IMAGE_FLAGS
+#define TFW_IMAGE_FLAGS 0x00u
+#endif
 #ifndef TFW_PIN_COUNT
 #define TFW_PIN_COUNT  0u
 #endif

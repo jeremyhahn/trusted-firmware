@@ -62,7 +62,10 @@ tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN]
  * own, and the caller then falls back to the EEPROM copy. That is a tier
  * capability question and not a fallback in the disallowed sense: the two tiers
  * genuinely store the floor in two different places, and the one that has a
- * counter must use it.
+ * counter must use it. Both answer the same way, and TFW_ERR_UNSUPPORTED from
+ * either means exactly that and nothing else: an element that is there and
+ * fails says so with another status, which the caller reports rather than
+ * falling back (tfw_boot_floor_load, tfw_boot_floor_store).
  */
 tfw_status_t tfw_boot_floor_read(uint32_t *out);
 tfw_status_t tfw_boot_floor_write(uint32_t value);

@@ -172,8 +172,8 @@ static int run_until(int (*done)(void), long budget)
 }
 
 /* A whole boot: measure ~12 KB sixty-four bytes at a time through the element,
- * verify, derive the CDI, advance the counter and jump. Measured at 8.4 M
- * cycles; the budget is loose because it bounds a hang, not a performance
+ * verify, derive the CDI and jump. Measured at 8.4 M cycles; the reset that
+ * settles a confirm evaluates twice and advances the counter. The budget is loose because it bounds a hang, not a performance
  * target, and a tight one would fail on a slower emulator for no reason. */
 #define BUDGET_BOOT     40000000L
 /* One frame in, one frame out, at 115 200 on a polled USART. */
@@ -337,6 +337,11 @@ static struct {
     tfw_sha256_t sha;
     int         sha_active;
     uint32_t    counter;
+    /* Increments still to refuse with an execution error, before the counter
+     * moves: a transient fault on the write the settle depends on. */
+    unsigned    incr_refused;
+    /* Counter reads still to refuse the same way: the floor read at reset. */
+    unsigned    read_refused;
 
     /* What the element was ASKED to do. The assertions read these to say where
      * the bootloader stopped, which is evidence no UART frame carries. */
@@ -481,6 +486,16 @@ static void el_execute(void)
 
     case 0x24u:   /* Counter */
         if (p2 != EL_COUNTER_BOOT) { el_status(0x0Fu); return; }
+        if (p1 == 0x01u && el.incr_refused > 0u) {
+            el.incr_refused--;
+            el_status(0x0Fu);
+            return;
+        }
+        if (p1 == 0x00u && el.read_refused > 0u) {
+            el.read_refused--;
+            el_status(0x0Fu);
+            return;
+        }
         if (p1 == 0x01u) { el.counter++; }
         body[0] = (uint8_t)(el.counter & 0xFFu);
         body[1] = (uint8_t)((el.counter >> 8) & 0xFFu);
@@ -742,7 +757,8 @@ static void sha256_span(const uint8_t *p, uint32_t n, uint8_t out[32])
     tfw_sha256_final(&ctx, out);
 }
 
-static void build_image(const elf_firmware_t *app, uint32_t version, long tamper_at)
+static void build_image_for(const elf_firmware_t *app, uint32_t version,
+                            uint8_t board_id, long tamper_at)
 {
     tfw_boot_trailer_t tr;
     uint8_t           raw[TFW_BOOT_TRAILER_LEN];
@@ -755,13 +771,15 @@ static void build_image(const elf_firmware_t *app, uint32_t version, long tamper
     memset(&tr, 0, sizeof tr);
     tr.image_version = version;
     tr.image_len     = image_len;
+    tr.board_id      = board_id;
+    tr.image_flags   = (uint8_t)TFW_IMAGE_FLAGS;
     sha256_span(image, image_len, tr.measurement);
 
-    /* The signature covers the trailer PREFIX -- magic, layout version, image
-     * version, image length and the measurement -- not the measurement alone.
-     * Signing the measurement by itself would leave the version
-     * unauthenticated and hand an attacker anti-rollback for a four-byte edit;
-     * see include/tfw/boot.h. */
+    /* The signature covers the trailer PREFIX -- magic, layout version, board
+     * id, image flags, image version, image length and the measurement -- not
+     * the measurement alone. Signing the measurement by itself would leave the
+     * version unauthenticated and hand an attacker anti-rollback for a
+     * four-byte edit; see include/tfw/boot.h. */
     tfw_boot_trailer_serialise(&tr, raw);
     tfw_sha256(raw, TFW_BOOT_TR_SIGNED_LEN, prefix_digest);
     element_sign(prefix_digest, &raw[TFW_BOOT_TR_SIGNATURE]);
@@ -774,6 +792,13 @@ static void build_image(const elf_firmware_t *app, uint32_t version, long tamper
     if (tamper_at >= 0) {
         image[tamper_at] ^= 0x01u;
     }
+}
+
+/* An image as the signer builds it for the board under test: the board
+ * profile's id, the build's image_flags. */
+static void build_image(const elf_firmware_t *app, uint32_t version, long tamper_at)
+{
+    build_image_for(app, version, (uint8_t)TFW_BOARD_ID, tamper_at);
 }
 
 /*
@@ -790,7 +815,7 @@ static const uint8_t TEST_DEVICE_SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5
 };
 
-static void build_eeprom(void)
+static void build_eeprom_state(uint8_t boot_state, uint8_t ota_state)
 {
     tfw_boot_platform_t plat;
 
@@ -806,9 +831,34 @@ static void build_eeprom(void)
      * reads it, and would make a regression that started reading it look like
      * a pass.
      */
-    plat.boot_state = TFW_BOOT_STATE_GOOD;
+    plat.boot_state = boot_state;
+    plat.ota_state  = ota_state;
     memcpy(plat.serial, TEST_DEVICE_SERIAL, TFW_BOOT_SERIAL_LEN);
     tfw_boot_platform_serialise(&plat, eeprom_image);
+}
+
+static void build_eeprom(void)
+{
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+}
+
+/*
+ * The platform block as the device left it in its EEPROM, copied into
+ * eeprom_image as well, so the next install() powers the part up on exactly
+ * what the last run wrote. With ee NULL simavr hands back a pointer into its
+ * own EEPROM rather than copying, which every version of the ioctl does.
+ */
+static tfw_status_t stored_platform(tfw_boot_platform_t *p)
+{
+    avr_eeprom_desc_t d = { .ee = NULL, .offset = TFW_BOOT_EE_BASE,
+                            .size = TFW_BOOT_EE_LEN };
+
+    (void)avr_ioctl(avr, AVR_IOCTL_EEPROM_GET, &d);
+    if (d.ee == NULL) {
+        return TFW_ERR_INTERNAL;
+    }
+    memcpy(eeprom_image, d.ee, TFW_BOOT_EE_LEN);
+    return tfw_boot_platform_parse(eeprom_image, p);
 }
 
 static void install(elf_firmware_t *boot, uint32_t counter)
@@ -938,8 +988,11 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
           "the digest went in through Nonce and the element accepted the signature");
     check(el.hmac == 2,
           "the CDI was derived inside the element, from the UDS it holds");
-    check(el.counter == 3u,
-          "the rollback floor advanced in the element's counter, not in EEPROM");
+    /* A plain boot moves no floor: it advances only at the reset that settles
+     * a confirmed trial (ADR decision 5), which test_floor_advances_at_settle
+     * drives. */
+    check(el.counter == 0u,
+          "a plain boot leaves the element's counter where it was");
 
     from_device_n = 0;
     n = frame_request(wire, 0x31, TFW_CMD_CAPS, NULL, 0);
@@ -1013,6 +1066,173 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
     }
 }
 
+/*
+ * THE FLOOR ON THE ELEMENT TIER, ALONG THE ONE TRIAL (ADR decisions 5 and 9).
+ *
+ * The floor lives in the element's monotonic counter, never in EEPROM, and it
+ * moves at exactly one point: the reset that finds a confirmed trial. Each
+ * install() below is a power-up of the same part, carrying the EEPROM the last
+ * run wrote and the counter the element kept.
+ *
+ * Staging is the EEPROM an activate leaves -- GOOD and PENDING, the signed
+ * image already in the application region -- and the confirm is the CONFIRMED
+ * that tfw_boot_trial_confirm sets. Neither has a wire id yet (decision 8's
+ * ids are proposed), so the harness writes the state they would; everything
+ * the bootloader does with it is the real image's.
+ */
+static void test_floor_advances_at_settle(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    tfw_boot_platform_t p;
+    uint8_t status;
+
+    printf("the floor across one trial:\n");
+    build_image(app, 3u, -1);
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING);
+    install(boot, 0u);
+
+    check(run_until(app_booted, BUDGET_BOOT), "a pending image boots, on trial");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
+          && p.ota_state == TFW_BOOT_OTA_IDLE,
+          "TRIAL was stored before the jump");
+    check(el.counter == 0u, "a trial boot leaves the element's counter where it was");
+
+    /* The application confirms; then the settling reset. */
+    p.boot_state = TFW_BOOT_STATE_CONFIRMED;
+    tfw_boot_platform_serialise(&p, eeprom_image);
+    install(boot, el.counter);
+    check(run_until(app_booted, BUDGET_BOOT), "the confirmed image boots at the next reset");
+    check(el.counter == 3u,
+          "the rollback floor advanced in the element's counter at the settling reset");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
+          && p.rollback_floor == 0u,
+          "settled to GOOD, and the floor in EEPROM did not move");
+
+    install(boot, el.counter);
+    check(run_until(app_booted, BUDGET_BOOT), "the settled image boots");
+    check(el.counter == 3u, "a plain boot after the settle moves the counter no further");
+
+    /* A trial that ends without a confirm: no second run, no floor. */
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING);
+    install(boot, 0u);
+    check(run_until(app_booted, BUDGET_BOOT), "another pending image boots, on trial");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL,
+          "TRIAL was stored before the jump");
+    install(boot, el.counter);
+    check(run_until(event_arrived, BUDGET_BOOT),
+          "the reset that ends the trial unconfirmed says why");
+    check(find_event(&status) && status == TFW_ERR_BAD_STATE && !app_booted(),
+          "refused with TFW_ERR_BAD_STATE: the image does not run a second time");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
+          && p.ota_state == TFW_BOOT_OTA_FAILED,
+          "FAILED is stored");
+    check(el.counter == 0u, "an unconfirmed trial leaves the element's counter where it was");
+}
+
+/*
+ * The settle when the element refuses the counter write (#82), with the status
+ * the driver reads as TFW_ERR_UNSUPPORTED. The confirmed image still boots,
+ * the block stays CONFIRMED, and the next reset retries the advance -- GOOD is
+ * written only once the counter holds the image's version.
+ */
+static void test_a_refused_floor_advance_is_retried(elf_firmware_t *boot,
+                                                    elf_firmware_t *app)
+{
+    tfw_boot_platform_t p;
+
+    printf("a floor advance the element refuses:\n");
+    build_image(app, 3u, -1);
+    build_eeprom_state(TFW_BOOT_STATE_CONFIRMED, TFW_BOOT_OTA_IDLE);
+    install(boot, 0u);
+    el.incr_refused = 1u;
+
+    check(run_until(app_booted, BUDGET_BOOT),
+          "the confirmed image boots though the counter write was refused");
+    check(el.counter == 0u, "the element's counter did not move");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_CONFIRMED
+          && p.rollback_floor == 0u,
+          "CONFIRMED is kept and nothing is written to EEPROM in its place");
+
+    install(boot, el.counter);
+    check(run_until(app_booted, BUDGET_BOOT), "the next reset boots it again");
+    check(el.counter == 3u,
+          "and retried the advance: the counter holds the confirmed version");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
+          && p.rollback_floor == 0u,
+          "settled to GOOD, and the floor in EEPROM did not move");
+}
+
+/*
+ * #82, the read side: the element answers the floor read with an execution
+ * error (0x0F, which the driver maps to TFW_ERR_UNSUPPORTED -- "no element").
+ * The EEPROM copy, here 0 under a counter at 5, must not stand in for it: the
+ * version-3 image would pass that. Nothing is verified and nothing runs;
+ * recovery says TFW_ERR_CRYPTO, and the next reset reads the counter and
+ * refuses the image as below the floor.
+ */
+static void test_an_unreadable_floor_is_not_the_eeprom_copy(elf_firmware_t *boot,
+                                                            elf_firmware_t *app)
+{
+    tfw_boot_platform_t p;
+    uint8_t status;
+
+    printf("a floor read the element refuses:\n");
+    build_image(app, 3u, -1);
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    install(boot, 5u);
+    el.read_refused = 1u;
+
+    check(run_until(event_arrived, BUDGET_BOOT), "the refusal says why");
+    check(find_event(&status) && status == TFW_ERR_CRYPTO && !app_booted(),
+          "recovery with TFW_ERR_CRYPTO, and the image did not run");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
+          && p.rollback_floor == 0u,
+          "the block is as it was");
+
+    install(boot, el.counter);
+    check(run_until(event_arrived, BUDGET_BOOT), "the next reset reads the counter");
+    check(find_event(&status) && status == TFW_ERR_PROTECTED_REGION && !app_booted(),
+          "and refuses the image as below the floor, not for the read");
+}
+
+/*
+ * A pending image refused at evaluation, then a reset at which it would verify.
+ *
+ * The tampered bit stands in for any refusal, a transient one included: an
+ * element that did not answer refuses the same way, and answers at the next
+ * reset. That reset must not boot the image as accepted -- no trial ran and
+ * nothing confirmed it -- so the refusal is stored as an ended trial.
+ */
+static void test_a_refused_pending_image_never_boots(elf_firmware_t *boot,
+                                                    elf_firmware_t *app)
+{
+    tfw_boot_platform_t p;
+    uint8_t status;
+
+    printf("a pending image refused at evaluation:\n");
+    build_image(app, 3u, 1000);
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING);
+    install(boot, 0u);
+    check(run_until(event_arrived, BUDGET_BOOT), "the refusal says why");
+    check(find_event(&status) && status == TFW_ERR_CRYPTO && !app_booted(),
+          "refused with TFW_ERR_CRYPTO, and it did not run");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
+          && p.ota_state == TFW_BOOT_OTA_FAILED,
+          "stored as an ended trial: TRIAL, FAILED");
+
+    /* The cause clears: the same version now verifies. */
+    build_image(app, 3u, -1);
+    install(boot, el.counter);
+    check(run_until(event_arrived, BUDGET_BOOT),
+          "the reset after the refusal says why");
+    check(find_event(&status) && status == TFW_ERR_BAD_STATE && !app_booted(),
+          "refused with TFW_ERR_BAD_STATE: an image that verifies now still does not run");
+    check(el.verify == 0, "and it was not evaluated at all");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
+          && p.ota_state == TFW_BOOT_OTA_FAILED,
+          "TRIAL, FAILED is kept");
+    check(el.counter == 0u, "the refused image leaves the element's counter where it was");
+}
+
 static void test_tampered_image_refuses(elf_firmware_t *boot, elf_firmware_t *app)
 {
     uint8_t status;
@@ -1076,6 +1296,27 @@ static void test_downgrade_refuses(elf_firmware_t *boot, elf_firmware_t *app)
     check(el.counter == 5u, "the floor did not move for a refused image");
 }
 
+static void test_another_boards_image_refuses(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    uint8_t status;
+
+    printf("an image for another board:\n");
+    /* Signed by the same key, measured correctly, above the floor: everything
+     * is right except the board it names. The binding comes before the floor,
+     * so nothing is hashed and nothing moves. */
+    build_image_for(app, 3u, (uint8_t)(TFW_BOARD_ID + 1u), -1);
+    build_eeprom();
+    install(boot, 0u);
+
+    check(run_until(event_arrived, BUDGET_BOOT),
+          "the device says why within the cycle budget");
+    check(find_event(&status) && status == TFW_ERR_UNSUPPORTED,
+          "refused with TFW_ERR_UNSUPPORTED");
+    check(el.sha_blocks == 0,
+          "and refused before measuring: the binding came first");
+    check(el.counter == 0u, "the floor did not move for a refused image");
+}
+
 /*
  * Issue #28: a healthy device, asked over the wire to take an update.
  *
@@ -1102,6 +1343,42 @@ static int response_status_is(uint8_t seq, uint8_t want)
 {
     uint8_t status, plen, buf[64];
     return find_response(seq, &status, buf, &plen) && status == want;
+}
+
+/*
+ * Codex P1 on #82: a reset finds CONFIRMED and the element refuses the counter
+ * read (0x0F), so recovery is entered before the settle. A transfer begun there
+ * would replace CONFIRMED with STAGED at its first page and lose the floor
+ * advance; OTA_BEGIN is refused and the block left alone. The next reset reads
+ * the counter, settles, and boots the confirmed image.
+ */
+static void test_an_unsettled_confirm_refuses_a_transfer(elf_firmware_t *boot,
+                                                         elf_firmware_t *app)
+{
+    const uint8_t begin[4] = { 0x00, 0x01, 0x00, 0x00 };    /* 256 bytes */
+    tfw_boot_platform_t p;
+    uint8_t status;
+
+    printf("a transfer while a confirm is unsettled:\n");
+    build_image(app, 3u, -1);
+    build_eeprom_state(TFW_BOOT_STATE_CONFIRMED, TFW_BOOT_OTA_IDLE);
+    install(boot, 0u);
+    el.read_refused = 1u;
+
+    check(run_until(event_arrived, BUDGET_BOOT), "the refusal says why");
+    check(find_event(&status) && status == TFW_ERR_CRYPTO && !app_booted(),
+          "recovery with TFW_ERR_CRYPTO, and the image did not run");
+    send_and_wait(0x71, TFW_CMD_OTA_BEGIN, begin, sizeof begin);
+    check(response_status_is(0x71, TFW_ERR_BAD_STATE),
+          "OTA_BEGIN is refused while the block is CONFIRMED");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_CONFIRMED,
+          "and the block is still CONFIRMED");
+
+    install(boot, el.counter);
+    check(run_until(app_booted, BUDGET_BOOT), "the next reset boots the confirmed image");
+    check(el.counter == 3u, "the counter holds the confirmed version");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD,
+          "settled to GOOD");
 }
 
 static uint64_t run_until_cycles(int (*done)(void), uint64_t budget)
@@ -1321,8 +1598,14 @@ int main(int argc, char **argv)
            boot_elf, app_elf, TFW_SIMAVR_MCU);
 
     test_signed_image_boots(&boot, &app);
+    test_floor_advances_at_settle(&boot, &app);
+    test_a_refused_floor_advance_is_retried(&boot, &app);
+    test_an_unreadable_floor_is_not_the_eeprom_copy(&boot, &app);
+    test_an_unsettled_confirm_refuses_a_transfer(&boot, &app);
+    test_a_refused_pending_image_never_boots(&boot, &app);
     test_tampered_image_refuses(&boot, &app);
     test_downgrade_refuses(&boot, &app);
+    test_another_boards_image_refuses(&boot, &app);
     test_requested_update_session(&boot, &app);
     test_request_after_power_on_is_ignored(&boot, &app);
     test_junk_stream_cannot_park_the_session(&boot, &app);

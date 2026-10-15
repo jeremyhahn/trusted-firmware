@@ -75,7 +75,8 @@ static uint8_t nib(char c)
  * covers is the span the bootloader verifies. A test that hand-wrote a trailer
  * would only prove the parser reads what the test wrote.
  */
-static void install_signed_image(uint32_t version, uint8_t body_fill)
+static void install_bound_image(uint32_t version, uint8_t body_fill,
+                                uint8_t board_id, uint8_t image_flags)
 {
     uint8_t *flash = tfw_boot_mock_flash();
     uint8_t  raw[TFW_BOOT_TRAILER_LEN];
@@ -92,12 +93,15 @@ static void install_signed_image(uint32_t version, uint8_t body_fill)
     memset(&tr, 0, sizeof tr);
     tr.image_version = version;
     tr.image_len     = IMAGE_LEN;
+    tr.board_id      = board_id;
+    tr.image_flags   = image_flags;
     tfw_sha256(flash, IMAGE_LEN, tr.measurement);
 
-    /* The signature covers the trailer PREFIX -- magic, layout version, image
-     * version, image length and the measurement -- not the measurement alone.
-     * Signing the measurement by itself would leave the version
-     * unauthenticated, which test_a_relabelled_version_is_refused exercises. */
+    /* The signature covers the trailer PREFIX -- magic, layout version, board
+     * id, image flags, image version, image length and the measurement -- not
+     * the measurement alone. Signing the measurement by itself would leave the
+     * version unauthenticated, which test_a_relabelled_version_is_refused
+     * exercises. */
     tfw_boot_trailer_serialise(&tr, raw);
     ed25519_sign(raw, TFW_BOOT_TR_SIGNED_LEN, g_secret, g_public,
                  &raw[TFW_BOOT_TR_SIGNATURE]);
@@ -109,6 +113,12 @@ static void install_signed_image(uint32_t version, uint8_t body_fill)
     plat.boot_state = TFW_BOOT_STATE_GOOD;
     tfw_boot_platform_serialise(&plat, ee);
     memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+}
+
+/* An image built for this board: the board profile's id, no flags. */
+static void install_signed_image(uint32_t version, uint8_t body_fill)
+{
+    install_bound_image(version, body_fill, (uint8_t)TFW_BOARD_ID, 0u);
 }
 
 void setUp(void)
@@ -246,6 +256,70 @@ static void test_a_relabelled_version_is_refused(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_evaluate(5u, &v));
 }
 
+/* A correctly signed image for another board. Every other check would pass;
+ * the binding refuses it first, and the EEPROM the device boots from is the
+ * EEPROM it had. */
+static void test_a_signed_image_for_another_board_is_refused(void)
+{
+    tfw_boot_verdict_t v;
+    uint8_t            ee[TFW_BOOT_EE_LEN];
+
+    install_bound_image(3u, 0x5Au, (uint8_t)(TFW_BOARD_ID + 1u), 0u);
+    memcpy(ee, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ee, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+}
+
+/* board_id 0, signed: every image from before the field. Rebuilt, not booted. */
+static void test_a_signed_unbound_image_is_refused(void)
+{
+    tfw_boot_verdict_t v;
+
+    install_bound_image(3u, 0x5Au, 0u, 0u);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_evaluate(0u, &v));
+}
+
+/* A reserved flag, signed: refused. A development image is not refused here. */
+static void test_a_signed_image_with_a_reserved_flag_is_refused(void)
+{
+    tfw_boot_verdict_t v;
+
+    install_bound_image(3u, 0x5Au, (uint8_t)TFW_BOARD_ID, 0x80u);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_evaluate(0u, &v));
+
+    install_bound_image(3u, 0x5Au, (uint8_t)TFW_BOARD_ID, TFW_BOOT_IMAGE_FLAG_DEV);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_HEX8(TFW_BOOT_IMAGE_FLAG_DEV, v.trailer.image_flags);
+}
+
+/* The binding is checked before the floor: an image for another board below
+ * the floor names the board, not the version. */
+static void test_the_board_is_checked_before_the_floor(void)
+{
+    tfw_boot_verdict_t v;
+
+    install_bound_image(2u, 0x5Au, (uint8_t)(TFW_BOARD_ID + 1u), 0u);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_evaluate(5u, &v));
+}
+
+/* Another board's genuine image, relabelled with this board's id. It now
+ * passes the binding, and is still refused, because the board id is inside
+ * the signed span and nobody signed this one for this board. */
+static void test_a_relabelled_board_id_is_refused(void)
+{
+    tfw_boot_verdict_t v;
+    tfw_boot_trailer_t tr;
+    uint8_t *flash = tfw_boot_mock_flash();
+
+    install_bound_image(3u, 0x5Au, (uint8_t)(TFW_BOARD_ID + 1u), 0u);
+    flash[TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_BOARD_ID] = (uint8_t)TFW_BOARD_ID;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+        tfw_boot_trailer_parse(flash + TFW_BOOT_TRAILER_ADDR, &tr));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_binding_permit(&tr, (uint8_t)TFW_BOARD_ID));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_evaluate(0u, &v));
+}
+
 /* ------------------------------------------------------- the key pinning */
 
 /*
@@ -317,6 +391,11 @@ int main(void)
     RUN_TEST(test_a_downgrade_is_refused);
     RUN_TEST(test_the_current_version_still_boots);
     RUN_TEST(test_a_relabelled_version_is_refused);
+    RUN_TEST(test_a_signed_image_for_another_board_is_refused);
+    RUN_TEST(test_a_signed_unbound_image_is_refused);
+    RUN_TEST(test_a_signed_image_with_a_reserved_flag_is_refused);
+    RUN_TEST(test_the_board_is_checked_before_the_floor);
+    RUN_TEST(test_a_relabelled_board_id_is_refused);
     RUN_TEST(test_a_public_key_the_device_does_not_pin_is_refused);
     RUN_TEST(test_the_pin_check_accepts_the_matching_key);
     RUN_TEST(test_equal_is_constant_time_and_correct);

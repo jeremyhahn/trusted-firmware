@@ -22,6 +22,9 @@
 #include "boot_hal_mock.h"
 #include "boot_hal.h"
 #include "boot_cdi.h"
+#include "boot_platform.h"
+#include "boot_store.h"
+#include "boot_trial.h"
 #include "frame.h"
 
 #define IDLE 100u
@@ -29,6 +32,7 @@
 #define PAGE_SZ 128u
 
 static tfw_status_t evaluate_result;
+static uint32_t     verdict_version;
 static unsigned    hand_overs;
 static unsigned    evaluates;
 
@@ -36,6 +40,7 @@ tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
 {
     (void)floor;
     memset(out, 0, sizeof *out);
+    out->trailer.image_version = verdict_version;
     evaluates++;
     return evaluate_result;
 }
@@ -49,16 +54,27 @@ void tfw_boot_hand_over(const tfw_boot_verdict_t *v)
 /* A tier that keeps no floor of its own, which is a legitimate answer
  * (boot_cdi.h): boot_store.c then falls back to the EEPROM copy. It keeps the
  * tier drivers, and their HAL, out of this link. */
+/* The tier's answer to a floor read: no element unless a test says otherwise. */
+static tfw_status_t floor_read_result;
+
+/* The element's counter, when floor_read_result says one is there and reads. */
+static uint32_t el_counter;
+
 tfw_status_t tfw_boot_floor_read(uint32_t *out)
 {
-    (void)out;
-    return TFW_ERR_UNSUPPORTED;
+    if (floor_read_result == TFW_OK) {
+        *out = el_counter;
+    }
+    return floor_read_result;
 }
 
 tfw_status_t tfw_boot_floor_write(uint32_t value)
 {
-    (void)value;
-    return TFW_ERR_UNSUPPORTED;
+    if (floor_read_result == TFW_ERR_UNSUPPORTED) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    el_counter = value;
+    return TFW_OK;
 }
 
 static tfw_boot_platform_t plat;
@@ -68,8 +84,11 @@ void setUp(void)
     tfw_boot_mock_reset();
     memset(&plat, 0, sizeof plat);
     evaluate_result = TFW_OK;
+    verdict_version = 0u;
     hand_overs = 0u;
     evaluates = 0u;
+    floor_read_result = TFW_ERR_UNSUPPORTED;
+    el_counter = 0u;
 }
 void tearDown(void) {}
 
@@ -490,9 +509,13 @@ static void test_recovery_is_unbounded_and_takes_more_than_one_attempt(void)
 
 /* ------------------------------------------------------- how it can end */
 
-/* A completed, verified update hands over: this is the session doing its job. */
+/* A completed, verified update hands over: this is the session doing its job.
+ * It hands over on trial, and the floor has not moved (decisions 5 and 9). */
 static void test_a_verified_update_hands_over(void)
 {
+    plat.boot_state     = TFW_BOOT_STATE_GOOD;
+    plat.rollback_floor = 3u;
+    verdict_version     = 9u;
     feed_ota_begin(256u);
     feed_ota_image(256u);
     feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
@@ -503,7 +526,183 @@ static void test_a_verified_update_hands_over(void)
     TEST_ASSERT_EQUAL_UINT(1u, evaluates);
     TEST_ASSERT_EQUAL_UINT(1u, hand_overs);
     TEST_ASSERT_EQUAL_UINT(2u, tfw_boot_mock_page_writes());
-    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_IDLE, plat.ota_state);
+    TEST_ASSERT_EQUAL_UINT32(3u, plat.rollback_floor);
+}
+
+/* Writes a loaded platform block to the mock EEPROM and loads it into `plat`,
+ * so tfw_boot_platform_store persists what the session decides. */
+static void load_platform(uint8_t boot_state, uint8_t ota_state)
+{
+    uint8_t      ee[TFW_BOOT_EE_LEN];
+    tfw_status_t st;
+
+    memset(ee, 0xFF, sizeof ee);
+    plat.boot_state = boot_state;
+    plat.ota_state  = ota_state;
+    tfw_boot_platform_serialise(&plat, ee);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+    memset(&plat, 0, sizeof plat);
+    tfw_boot_platform_load(&plat, &st);
+    TEST_ASSERT_EQUAL(TFW_OK, st);
+}
+
+static tfw_boot_platform_t stored(void)
+{
+    tfw_boot_platform_t p;
+    tfw_status_t        st;
+
+    tfw_boot_platform_load(&p, &st);
+    TEST_ASSERT_EQUAL(TFW_OK, st);
+    return p;
+}
+
+/* The trial is what reaches EEPROM before the jump, and the floor is not. */
+static void test_a_verified_update_stores_the_trial_before_the_jump(void)
+{
+    tfw_boot_platform_t p;
+
+    plat.rollback_floor = 3u;
+    load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    verdict_version = 9u;
+    feed_ota_begin(256u);
+    feed_ota_image(256u);
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
+
+    open_session(IDLE, 0u, 0u, 0u);
+
+    TEST_ASSERT_EQUAL_UINT(1u, hand_overs);
+    p = stored();
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, p.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_IDLE, p.ota_state);
+    TEST_ASSERT_EQUAL_UINT32(3u, p.rollback_floor);
+}
+
+/* STAGED reaches EEPROM before the first page, so a transfer that stops short
+ * of OTA_END -- here a whole image, never committed -- cannot boot untried. */
+static void test_a_transfer_left_unfinished_is_stored_as_staged(void)
+{
+    load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    feed_ota_begin(256u);
+    feed_ota_image(256u);
+
+    open_session(IDLE, 0u, 0u, 0u);
+
+    TEST_ASSERT_EQUAL_UINT(2u, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_STAGED, stored().boot_state);
+}
+
+/* OTA_BEGIN while an image is pending is refused, and nothing is written. */
+static void test_begin_while_an_image_is_pending_is_bad_state(void)
+{
+    tx_summary_t s;
+
+    load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING);
+    feed_ota_begin(256u);
+
+    open_session(IDLE, 0u, 0u, 0u);
+
+    s = summarise_tx();
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_STATE, s.last_status);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_PENDING, stored().ota_state);
+}
+
+/* Codex P1 on #82: a reset found CONFIRMED and the element's counter read
+ * failed, so main() entered recovery before the settle. A transfer begun there
+ * would replace CONFIRMED with STAGED at its first page and lose the floor
+ * advance. Refused, the block untouched; the reset that reads the counter
+ * settles it, and only then is a transfer accepted. */
+static void enter_recovery(tfw_status_t why)
+{
+    if (setjmp(escape) == 0) {
+        tfw_boot_recovery(&plat, why);
+    }
+}
+
+static void test_begin_while_a_confirm_is_unsettled_waits_for_a_reset(void)
+{
+    tx_summary_t s;
+    uint32_t     floor;
+
+    el_counter = 3u;
+    floor_read_result = TFW_ERR_CRYPTO;
+    load_platform(TFW_BOOT_STATE_CONFIRMED, TFW_BOOT_OTA_IDLE);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_boot_floor_load(&plat, &floor));
+    feed_ota_begin(256u);
+    tfw_boot_mock_on_rx_idle(escape_on_idle);
+    enter_recovery(TFW_ERR_CRYPTO);
+
+    s = summarise_tx();
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_STATE, s.last_status);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_CONFIRMED, stored().boot_state);
+
+    /* the next reset, with the read working */
+    floor_read_result = TFW_OK;
+    plat = stored();
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_SETTLE, tfw_boot_trial_at_reset(&plat));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_load(&plat, &floor));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_settle(&plat, 7u, &floor));
+    TEST_ASSERT_EQUAL_UINT32(7u, el_counter);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, stored().boot_state);
+
+    feed_ota_begin(256u);
+    enter_recovery(TFW_ERR_CRYPTO);
+    s = summarise_tx();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, s.last_status);
+}
+
+/* The converse: from GOOD, recovery takes a transfer. */
+static void test_begin_from_good_is_accepted_in_recovery(void)
+{
+    tx_summary_t s;
+
+    load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    feed_ota_begin(256u);
+    tfw_boot_mock_on_rx_idle(escape_on_idle);
+    enter_recovery(TFW_ERR_CRYPTO);
+
+    s = summarise_tx();
+    TEST_ASSERT_EQUAL_INT(TFW_OK, s.last_status);
+}
+
+/* After a failed trial another OTA round is accepted (owner 16:25Z). */
+static void test_a_failed_trial_takes_another_round(void)
+{
+    load_platform(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_FAILED);
+    feed_ota_begin(256u);
+    feed_ota_image(256u);
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
+
+    open_session(IDLE, 0u, 0u, 0u);
+
+    TEST_ASSERT_EQUAL_UINT(1u, hand_overs);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, stored().boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_IDLE, stored().ota_state);
+}
+
+/* A block that did not load -- torn, corrupted -- reaches recovery as zeros,
+ * and is never overwritten with them. */
+static void test_a_block_that_did_not_load_is_never_overwritten(void)
+{
+    uint8_t      before[TFW_BOOT_EE_LEN];
+    tfw_status_t st;
+
+    load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    tfw_boot_mock_nvm()[TFW_BOOT_EE_LEN - 1u] ^= 0x01u;   /* break the CRC */
+    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    tfw_boot_platform_load(&plat, &st);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, st);
+    memset(&plat, 0, sizeof plat);
+
+    feed_ota_begin(256u);
+    feed_ota_image(256u);
+    open_session(IDLE, 0u, 0u, 0u);
+
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
 }
 
 /* The session grants nothing: an image that does not verify is not handed
@@ -520,6 +719,27 @@ static void test_an_unverified_update_is_never_handed_over(void)
     open_session(IDLE, 0u, 0u, 0u);
 
     TEST_ASSERT_EQUAL_UINT(1u, evaluates);
+    TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, plat.ota_state);
+    s = summarise_tx();
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, s.last_status);
+}
+
+/* #82, the read side: an element that fails the floor read leaves nothing to
+ * check the image against. It is refused without being evaluated against the
+ * EEPROM copy, and the event says why. */
+static void test_an_unreadable_floor_refuses_the_update_unevaluated(void)
+{
+    tx_summary_t s;
+
+    feed_ota_begin(256u);
+    feed_ota_image(256u);
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
+    floor_read_result = TFW_ERR_CRYPTO;
+
+    open_session(IDLE, 0u, 0u, 0u);
+
+    TEST_ASSERT_EQUAL_UINT(0u, evaluates);
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, plat.ota_state);
     s = summarise_tx();
@@ -567,6 +787,14 @@ int main(void)
     RUN_TEST(test_an_accepted_update_frame_restarts_the_bound);
     RUN_TEST(test_a_verified_update_hands_over);
     RUN_TEST(test_an_unverified_update_is_never_handed_over);
+    RUN_TEST(test_an_unreadable_floor_refuses_the_update_unevaluated);
+    RUN_TEST(test_a_verified_update_stores_the_trial_before_the_jump);
+    RUN_TEST(test_a_transfer_left_unfinished_is_stored_as_staged);
+    RUN_TEST(test_begin_while_an_image_is_pending_is_bad_state);
+    RUN_TEST(test_begin_while_a_confirm_is_unsettled_waits_for_a_reset);
+    RUN_TEST(test_begin_from_good_is_accepted_in_recovery);
+    RUN_TEST(test_a_failed_trial_takes_another_round);
+    RUN_TEST(test_a_block_that_did_not_load_is_never_overwritten);
     RUN_TEST(test_reset_ends_the_session_by_resetting);
     RUN_TEST(test_application_commands_are_refused_in_the_session);
     return UNITY_END();

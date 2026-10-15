@@ -127,7 +127,8 @@ The last `TFW_BOOT_TRAILER_LEN` (128) bytes of the application region, at
 |---:|---:|---|---|
 | 0 | 4 | `magic` | `TFW_BOOT_TRAILER_MAGIC` = `0x4D494654` |
 | 4 | 2 | `trailer_version` | `TFW_BOOT_TRAILER_VERSION` = 1, exact match required |
-| 6 | 2 | reserved | |
+| 6 | 1 | `board_id` | `TFW_BOOT_TR_BOARD_ID`; the board-id registry's `TFW_BOARD_ID`. `tfw-boot` refuses an image whose `board_id` is 0 or not its own, before the anti-rollback floor |
+| 7 | 1 | `image_flags` | `TFW_BOOT_TR_IMAGE_FLAGS`; bit 0 `TFW_BOOT_IMAGE_FLAG_DEV` marks a development image; bits 1-7 are reserved, and an image with any of them set is refused |
 | 8 | 4 | `image_version` | the anti-rollback security version number; 0 is refused |
 | 12 | 4 | `image_len` | bytes measured, from address 0; bounded by `TFW_BOOT_MAX_IMAGE_LEN` |
 | 16 | 32 | `measurement` | SHA-256 over `[0, image_len)` — this is `FWHash` |
@@ -136,8 +137,10 @@ The last `TFW_BOOT_TRAILER_LEN` (128) bytes of the application region, at
 | 112 | 16 | reserved | |
 
 Parsed by `tfw_boot_trailer_parse`, serialised by `tfw_boot_trailer_serialise`
-(`boot/boot_image.c`). The build-time signing tool and the OTA-sending host
-tool are the two other parties.
+(`boot/boot_image.c`); `tfw_boot_binding_permit` beside them decides the
+`board_id` and `image_flags` check. The build-time signing tool and the
+OTA-sending host tool are the two other parties; the signer takes `board_id`
+from the board profile and `image_flags` from the build (`IMAGE_FLAGS`).
 
 ### Reserved EEPROM
 
@@ -153,8 +156,8 @@ refused for application writes by `src/caps/storage.c`:
 | 8 | 32 | `pubkey_hash` | SHA-256 of the 32-byte Ed25519 public key; ignored on the element tier |
 | 40 | 4 | `rollback_floor` | software tier only; the element tier uses its own monotonic counter |
 | 44 | 4 | `boot_count` | |
-| 48 | 1 | `boot_state` | `TFW_BOOT_STATE_EMPTY`(0) / `STAGED`(1) / `GOOD`(2) |
-| 49 | 1 | `ota_state` | `TFW_BOOT_OTA_IDLE`(0) / `RECEIVING`(1) / `VERIFIED`(2) / `FAILED`(3) |
+| 48 | 1 | `boot_state` | `TFW_BOOT_STATE_EMPTY`(0) / `STAGED`(1) / `GOOD`(2) / `TRIAL`(3) / `CONFIRMED`(4) — the one trial, [../ota/architecture.md](../ota/architecture.md#what-runs-today-77); extended, never renumbered |
+| 49 | 1 | `ota_state` | `TFW_BOOT_OTA_IDLE`(0) / `RECEIVING`(1) / `VERIFIED`(2) / `FAILED`(3) / `PENDING`(4) |
 | 50 | 2 | `boot_fail_count` | |
 | 52 | 16 | `device_serial` | baked into the `.eep` image by `tfwprov --bake-eeprom` before the part is ever flashed — there is no wire command that writes it |
 | 68 | 64 | `operator_pubkey` | the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), P-256 as X‖Y; element tier only, baked in the same way as `device_serial`; see [../security/threat-model.md](../security/threat-model.md) |

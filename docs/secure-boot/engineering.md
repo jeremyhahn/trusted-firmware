@@ -18,6 +18,7 @@ tfw_status_t tfw_boot_check_pubkey_pin(const uint8_t pinned[TFW_BOOT_MEASURE_LEN
 uint8_t     tfw_boot_equal(const uint8_t *a, const uint8_t *b, uint8_t n);
 tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out);
 void        tfw_boot_trailer_serialise(const tfw_boot_trailer_t *tr, uint8_t *raw);
+tfw_status_t tfw_boot_binding_permit(const tfw_boot_trailer_t *tr, uint8_t board_id);
 tfw_status_t tfw_boot_rollback_permit(uint32_t version, uint32_t floor);
 tfw_status_t tfw_boot_floor_advance(uint32_t version, uint32_t floor, uint32_t *out);
 ```
@@ -80,6 +81,25 @@ tfw_status_t tfw_boot_session_handle(tfw_ota_t *ota, uint8_t cmd,
                                     tfw_boot_session_action_t *action);
 ```
 
+The one trial (`boot/boot_trial.h`, linked in every image; pure over the
+platform block, so the caller stores the result; a transition in the wrong
+state answers `TFW_ERR_BAD_STATE` and changes nothing — see
+[../ota/architecture.md](../ota/architecture.md#what-runs-today-77)):
+
+```c
+tfw_boot_reset_action_t tfw_boot_trial_at_reset(const tfw_boot_platform_t *p);
+tfw_status_t tfw_boot_trial_arm(tfw_boot_platform_t *p);      // PENDING -> TRIAL
+tfw_status_t tfw_boot_trial_fail(tfw_boot_platform_t *p);     // TRIAL or PENDING -> TRIAL, FAILED
+tfw_status_t tfw_boot_trial_settle(tfw_boot_platform_t *p, uint32_t version,
+                                   uint32_t floor, uint32_t *next); // CONFIRMED -> GOOD
+// no wire id yet (decision 8's ids are proposed): reached from tests only
+tfw_status_t tfw_boot_trial_confirm(tfw_boot_platform_t *p);  // TRIAL -> CONFIRMED
+tfw_status_t tfw_boot_trial_activate(tfw_boot_platform_t *p,
+                                     const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
+                                     const uint8_t *failed);  // VERIFIED -> PENDING
+tfw_status_t tfw_boot_trial_begin_permit(const tfw_boot_platform_t *p);
+```
+
 HAL contract (`boot/boot_hal.h`; `boot/hal/avr/boot_hal_avr.c` for the device,
 `test/mock/boot_hal_mock.c` for the host — a function added here without a
 mock update fails to link, not silently):
@@ -130,10 +150,37 @@ typedef enum { TFW_BOOT_SESSION_CONTINUE, TFW_BOOT_SESSION_COMMIT, TFW_BOOT_SESS
   would leave `image_version` unauthenticated, letting an attacker relabel a
   genuine old image with a high version and defeat anti-rollback with a
   four-byte edit and no key.
-- **The floor only advances after a verified *boot*, never after a verified
-  update that did not run.** `tfw_boot_floor_advance` is called from
-  `tfw_boot_hand_over`'s caller in `boot_main.c` and from `recovery_ota.c`'s
-  commit path — both only after `tfw_boot_evaluate` returned `TFW_OK`.
+- **The floor only advances after a confirm, never at staging or on trial**
+  (ADR decision 5). `tfw_boot_floor_advance` is called only from
+  `tfw_boot_trial_settle`, which `boot_main.c` runs through `tfw_boot_settle`
+  at the reset that finds `CONFIRMED`, after `tfw_boot_evaluate` returned
+  `TFW_OK` for the image that confirmed. A verified `OTA_END` arms the trial and
+  leaves the floor where it was.
+- **`GOOD` is written only once the floor's authority holds the new value.**
+  `tfw_boot_floor_store` returns `TFW_OK` only then: from the element, or from
+  EEPROM when the element answers `TFW_ERR_UNSUPPORTED` (there is none). Any
+  other element error is returned and EEPROM is not written, so
+  `tfw_boot_settle` leaves the block `CONFIRMED`, opens no update session, and
+  the next reset retries the advance (#82).
+- **Nothing is verified against a floor that is not the authority's.**
+  `tfw_boot_floor_load` has the store's contract: the EEPROM copy only when the
+  element answers `TFW_ERR_UNSUPPORTED`, the element's error otherwise, and the
+  element tier reports any failed read -- the part's `0x0F` included, which the
+  driver maps to `TFW_ERR_UNSUPPORTED` -- as `TFW_ERR_CRYPTO`. On that error
+  `main()` goes to recovery with it, unverified and without writing the block,
+  and the recovery `OTA_END` refuses the image with it rather than evaluating
+  (#82).
+- **No transfer starts over an unsettled confirm.** `tfw_boot_trial_begin_permit`
+  refuses `OTA_BEGIN` with `TFW_ERR_BAD_STATE` while the block is `CONFIRMED`,
+  as it does while an image is pending. Recovery holds `CONFIRMED` when the
+  floor read failed before the settle; the first page write would replace it
+  with `STAGED` and lose the advance, so an older signed image could pass
+  `OTA_END` once the read recovered. A reset retries the settle, and a transfer
+  is accepted after it has written `GOOD` (#82).
+- **A platform block that did not load is never written.** `main()` hands a
+  zeroed block to recovery when the stored one is torn or unprovisioned;
+  `tfw_boot_platform_store` refuses to write it back, so recovery cannot turn a
+  CRC failure into a block of zeros.
 - **No boot-section callable is exposed to the application.** The CDI crosses
   in `.noinit` SRAM, written once by `tfw_boot_handoff_write` and read once by
   the application (`src/core/handoff.c`); there is no trampoline, because one
@@ -174,10 +221,13 @@ path:
 | Status | Source | Meaning |
 |---|---|---|
 | `TFW_ERR_UNSUPPORTED` | `tfw_boot_trailer_parse` | no trailer magic, or a trailer/EEPROM layout version this build does not know |
+| `TFW_ERR_UNSUPPORTED` | `tfw_boot_binding_permit` | the trailer's `board_id` is 0 or not this build's `TFW_BOARD_ID`, or `image_flags` sets a reserved bit — checked before the floor, so nothing is written |
 | `TFW_ERR_RANGE` | `tfw_boot_trailer_parse` | `image_len` is zero or reaches into the trailer |
 | `TFW_ERR_PROTECTED_REGION` | `tfw_boot_rollback_permit` | `image_version` is below the floor — a downgrade |
 | `TFW_ERR_CRYPTO` | `tfw_boot_evaluate` (measurement compare), `tfw_boot_trailer_parse` (`image_version == 0`), `tfw_boot_verify` | the flash does not hash to the recorded measurement, or the signature does not verify |
 | `TFW_ERR_NOT_PROVISIONED` | `tfw_boot_check_pubkey_pin` | the bootloader's key is not the one reserved EEPROM pins, or (`tfw_boot_platform_load`) the region was never provisioned |
+| `TFW_ERR_BAD_STATE` | `boot_main.c` (`tfw_boot_trial_at_reset`) | a reset found the trial still running: the image never confirmed and does not run again; recovery is another OTA round |
+| `TFW_ERR_BAD_STATE` | `recovery_ota.c` (`tfw_boot_trial_begin_permit`), as an `OTA_BEGIN` response | an image is pending its trial |
 
 `tfw_boot_check_pubkey_pin` returning `TFW_ERR_UNSUPPORTED` is **not** a
 refusal reaching `tfw_boot_evaluate`'s caller as an error — it means the
@@ -189,7 +239,8 @@ applies to `tfw_boot_floor_read` on the software tier, which has no counter of
 its own.
 
 An unverified boot's only other path is `boot_state == TFW_BOOT_STATE_STAGED`
-in `boot_main.c` — an OTA that started and never finished — which is refused
+in `boot_main.c` — an OTA that started and was never armed for its trial,
+whether it stopped mid-transfer or after the last page — which is refused
 with `TFW_ERR_CRYPTO` before `tfw_boot_evaluate` even runs, because jumping into
 a half-erased application region (`0xFF`, which decodes as a long run of
 `SBRS` on AVR) is not a decision `tfw_boot_evaluate` needs to make twice.

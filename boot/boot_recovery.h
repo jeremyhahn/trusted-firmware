@@ -28,9 +28,11 @@
 #include "boot_platform.h"
 #include "boot_policy.h"
 
-/* Called when nothing may be booted. Does not return. `reason` is the status
- * that got us here, reported to a host where one is listening. */
-void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t reason);
+/* Called when nothing may be booted. Does not return, and says so: without
+ * _Noreturn every call site in main() keeps a fall-through path the boot
+ * section has no room for. `reason` is the status that got us here, reported
+ * to a host where one is listening. */
+_Noreturn void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t reason);
 
 /* Derives the CDI, hands it over and jumps into the application. Does not
  * return. Declared here because the OTA recovery calls it too, after an image

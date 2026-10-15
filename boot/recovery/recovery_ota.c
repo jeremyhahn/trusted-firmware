@@ -20,17 +20,32 @@
 #include "../boot_recovery.h"
 #include "../boot_store.h"
 #include "../boot_session.h"
+#include "../boot_trial.h"
 #include "frame.h"
 
 static tfw_framer_t framer;
 static tfw_ota_t    ota;
 static uint8_t     outbuf[TFW_MAX_FRAME];
+static tfw_boot_platform_t *cur;
 
 /* ------------------------------------------------------------------ ota */
 
+/*
+ * STAGED is stored before the first page is erased. From then until the trial
+ * is armed the region holds no image that may run: half of one while the
+ * transfer lasts, and a whole, verified, unconfirmed one between the last page
+ * and the TRIAL write. Without the mark, a reset in that second window would
+ * find GOOD and boot the new image as accepted, with no trial. A reset during
+ * this write itself leaves the old state (the page is not yet touched) or a
+ * torn block (see tfw_boot_platform_store).
+ */
 static tfw_status_t write_page(uint32_t addr, const uint8_t *data, uint16_t len)
 {
     (void)len;   /* always one whole page; tfw_ota pads the tail */
+    if (cur->boot_state != TFW_BOOT_STATE_STAGED) {
+        cur->boot_state = TFW_BOOT_STATE_STAGED;
+        tfw_boot_platform_store(cur);
+    }
     return tfw_boot_flash_write_page(addr, data);
 }
 
@@ -86,6 +101,7 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
     uint32_t total_polls = 0u;
     uint32_t total_bytes = 0u;
 
+    cur = plat;
     (void)tfw_ota_init(&ota, write_page, tfw_boot_flash_page_size());
     tfw_framer_init(&framer);
 
@@ -129,10 +145,14 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
             tfw_status_t st;
             uint16_t n;
 
-            st = tfw_boot_session_handle(&ota, cmd,
-                                        tfw_frame_payload(&framer),
-                                        tfw_frame_payload_len(&framer),
-                                        resp, &rlen, &action);
+            action = TFW_BOOT_SESSION_CONTINUE;
+            st = cmd == TFW_CMD_OTA_BEGIN ? tfw_boot_trial_begin_permit(plat) : TFW_OK;
+            if (st == TFW_OK) {
+                st = tfw_boot_session_handle(&ota, cmd,
+                                            tfw_frame_payload(&framer),
+                                            tfw_frame_payload_len(&framer),
+                                            resp, &rlen, &action);
+            }
 
             n = tfw_frame_encode_response(outbuf, sizeof outbuf, seq, cmd, st,
                                          resp, rlen);
@@ -159,13 +179,17 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
              * The same tfw_boot_evaluate the cold path runs, against the same
              * floor, with the same ordering. One decision function, so an image
              * that would be refused at boot cannot be accepted at update.
+             * A floor whose authority cannot be read refuses the image: the
+             * EEPROM copy is not the element's floor and checks nothing.
              */
             {
                 tfw_boot_verdict_t v;
-                uint32_t          floor = tfw_boot_floor_load(plat);
-                uint32_t          next;
+                uint32_t           floor;
 
-                st = tfw_boot_evaluate(floor, &v);
+                st = tfw_boot_floor_load(plat, &floor);
+                if (st == TFW_OK) {
+                    st = tfw_boot_evaluate(floor, &v);
+                }
                 n  = tfw_frame_encode_event(outbuf, sizeof outbuf, st, 0, 0u);
                 emit(outbuf, n);
 
@@ -185,12 +209,15 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
                     continue;
                 }
 
-                if (tfw_boot_floor_advance(v.trailer.image_version, floor,
-                                          &next) == TFW_OK) {
-                    tfw_boot_floor_store(plat, next);
-                }
-                plat->boot_state = TFW_BOOT_STATE_GOOD;
-                plat->ota_state  = TFW_BOOT_OTA_VERIFIED;
+                /* The one trial (decision 9). The image is already where it
+                 * runs, so a verified OTA_END is activated at once, and the
+                 * trial is armed before the jump. The floor does not move:
+                 * it advances at the reset after a confirm (decision 5).
+                 * One write, STAGED -> TRIAL. A reset before it leaves STAGED
+                 * (recovery, the image does not run); during it, a torn block
+                 * (recovery); after it, TRIAL (the trial failed: recovery). */
+                plat->ota_state = TFW_BOOT_OTA_PENDING;
+                (void)tfw_boot_trial_arm(plat);
                 tfw_boot_platform_store(plat);
 
                 tfw_boot_hand_over(&v);
@@ -209,7 +236,7 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
  * behaviour. It is also the only one that keeps the device reachable, which is
  * what an interrupted update needs.
  */
-void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t entry_reason)
+_Noreturn void tfw_boot_recovery(tfw_boot_platform_t *plat, tfw_status_t entry_reason)
 {
     serve(plat, entry_reason, 0);
     for (;;) { }   /* unreachable: an unbounded serve() does not return */

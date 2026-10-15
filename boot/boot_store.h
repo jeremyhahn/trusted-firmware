@@ -13,8 +13,19 @@ void     tfw_boot_platform_store(const tfw_boot_platform_t *p);
 
 /* The floor, from whichever authority this build has: the element's monotonic
  * counter where there is one, because it is the only copy that cannot be made
- * to descend, and the reserved EEPROM copy otherwise. */
-uint32_t tfw_boot_floor_load(const tfw_boot_platform_t *p);
-void     tfw_boot_floor_store(tfw_boot_platform_t *p, uint32_t value);
+ * to descend, and the reserved EEPROM copy otherwise. TFW_OK with the floor
+ * in `*out`; an element that is there and fails the read returns its error,
+ * never the EEPROM copy. */
+tfw_status_t tfw_boot_floor_load(const tfw_boot_platform_t *p, uint32_t *out);
+
+/* TFW_OK only when that authority holds `value`; an element error is returned,
+ * never covered by an EEPROM write. */
+tfw_status_t tfw_boot_floor_store(tfw_boot_platform_t *p, uint32_t value);
+
+/* Settles a confirmed trial: the floor advances to `version`, then GOOD is
+ * written. A failed advance leaves the block CONFIRMED, so the next reset
+ * retries it. *floor is the floor in force, raised once the advance holds. */
+tfw_status_t tfw_boot_settle(tfw_boot_platform_t *p, uint32_t version,
+                             uint32_t *floor);
 
 #endif /* TFW_BOOT_STORE_H */

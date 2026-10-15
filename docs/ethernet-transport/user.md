@@ -8,7 +8,7 @@
 - An Arduino Nano or Uno (ATmega328P) or an Arduino Mega 2560.
 - A WIZnet W5100 shield (Arduino Ethernet Shield Rev3 or compatible) or a W5500
   shield (Arduino Ethernet Shield 2).
-- The ATECC608A element for the element tier: signed attestation, the alias
+- The ATECC608C (MIKROE-6774 Click board) for the element tier: signed attestation, the alias
   certificate and enrolment. Without it, build the software tier
   (`CRYPTO=soft`), whose `ATTEST` evidence is an HMAC and which cannot enrol.
 - A serial connection for provisioning and for writing the network settings.

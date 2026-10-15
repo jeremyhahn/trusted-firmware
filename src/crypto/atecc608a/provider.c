@@ -61,22 +61,6 @@
 #include "../../core/handoff.h"
 #include "../../core/secure_zero.h"
 
-/* Datasheet maximum execution times, in milliseconds. They bound the poll in
- * tfw_atecc_exec; a number that is too small gives up on a part that was about
- * to answer, which presents as intermittent hardware. */
-#define T_INFO     5u
-#define T_RANDOM  23u
-#define T_NONCE    7u
-#define T_SHA     36u
-#define T_SIGN    64u
-#define T_GENKEY 115u
-#define T_COUNTER  6u
-#define T_READ     1u
-/* Same figure boot/verify/verify_atecc608a.c already uses for this opcode on
- * this part -- the datasheet maximum for Verify, the slowest command either
- * of them issues. */
-#define T_VERIFY  72u
-
 static uint8_t present;        /* the element answered a wake and an Info */
 static uint8_t have_cdi;
 
@@ -139,7 +123,7 @@ tfw_status_t tfw_crypto_init(void)
         return TFW_OK;          /* no element on this board */
     }
     if (tfw_atecc_exec(TFW_ATECC_OP_INFO, TFW_ATECC_INFO_REVISION, 0u,
-                      0, 0u, rev, 4u, T_INFO) != TFW_OK) {
+                      0, 0u, rev, 4u, TFW_ATECC_T_INFO) != TFW_OK) {
         (void)tfw_atecc_sleep();
         return TFW_OK;
     }
@@ -206,7 +190,7 @@ tfw_status_t tfw_crypto_random(uint8_t *out, uint8_t len)
     if (tfw_atecc_wake() != TFW_OK) {
         return TFW_ERR_CRYPTO;
     }
-    st = tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, T_RANDOM);
+    st = tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, TFW_ATECC_T_RANDOM);
     (void)tfw_atecc_sleep();
     if (st != TFW_OK) {
         return st;
@@ -242,16 +226,16 @@ tfw_status_t tfw_crypto_hmac(uint8_t slot, const uint8_t *data, uint16_t len,
     /* Start, then whole 64-byte blocks, then End with the remainder. The key
      * is named by slot and never appears on the bus in any of the three. */
     st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_START, slot,
-                       0, 0u, 0, 0u, T_SHA);
+                       0, 0u, 0, 0u, TFW_ATECC_T_SHA);
     while (st == TFW_OK && (uint16_t)(len - off) > 64u) {
         st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_UPDATE, 64u,
-                           &data[off], 64u, 0, 0u, T_SHA);
+                           &data[off], 64u, 0, 0u, TFW_ATECC_T_SHA);
         off = (uint16_t)(off + 64u);
     }
     if (st == TFW_OK) {
         uint8_t tail = (uint8_t)(len - off);
         st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_END, tail,
-                           tail ? &data[off] : 0, tail, out, 32u, T_SHA);
+                           tail ? &data[off] : 0, tail, out, 32u, TFW_ATECC_T_SHA);
     }
     (void)tfw_atecc_sleep();
     return st;
@@ -281,10 +265,10 @@ tfw_status_t tfw_crypto_sign(const uint8_t digest[32], uint8_t sig[64],
      * signature one over OUR digest rather than over something derived from it,
      * which is the only form a verifier holding the same digest can check. */
     st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
-                       digest, 32u, 0, 0u, T_NONCE);
+                       digest, 32u, 0, 0u, TFW_ATECC_T_NONCE);
     if (st == TFW_OK) {
         st = tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
-                           TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, T_SIGN);
+                           TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, TFW_ATECC_T_SIGN);
     }
     (void)tfw_atecc_sleep();
     if (st == TFW_OK) {
@@ -308,7 +292,7 @@ tfw_status_t tfw_crypto_pubkey(uint8_t out[64])
      * GENKEY_PRIVATE, and it is reachable only from provisioning, because
      * running it here would silently replace the device's identity. */
     st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PUBLIC,
-                       TFW_ATECC_SLOT_DEVICEID, 0, 0u, out, 64u, T_GENKEY);
+                       TFW_ATECC_SLOT_DEVICEID, 0, 0u, out, 64u, TFW_ATECC_T_GENKEY);
     (void)tfw_atecc_sleep();
     return st == TFW_OK ? TFW_OK : TFW_ERR_NOT_PROVISIONED;
 }
@@ -328,7 +312,7 @@ tfw_status_t tfw_crypto_counter(uint8_t idx, uint32_t *out)
         return TFW_ERR_CRYPTO;
     }
     st = tfw_atecc_exec(TFW_ATECC_OP_COUNTER, TFW_ATECC_COUNTER_READ, idx,
-                       0, 0u, v, 4u, T_COUNTER);
+                       0, 0u, v, 4u, TFW_ATECC_T_COUNTER);
     (void)tfw_atecc_sleep();
     if (st != TFW_OK) {
         return st;
@@ -377,12 +361,12 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
      * verbatim, no seed update, no element randomness mixed in -- the
      * element verifies OUR digest and not something derived from it. */
     st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
-                       digest, 32u, 0, 0u, T_NONCE);
+                       digest, 32u, 0, 0u, TFW_ATECC_T_NONCE);
     if (st == TFW_OK) {
         /* Its own command, not tfw_atecc_exec -- see atecc.h's comment on
          * tfw_atecc_verify_external for why: this payload is nearly double
          * the shared buffer tfw_atecc_exec reuses for every other command. */
-        st = tfw_atecc_verify_external(sig, pubkey, T_VERIFY);
+        st = tfw_atecc_verify_external(sig, pubkey, TFW_ATECC_T_VERIFY);
     }
     (void)tfw_atecc_sleep();
     return st;

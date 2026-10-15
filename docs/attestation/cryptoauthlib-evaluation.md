@@ -3,6 +3,11 @@
 Scope: whether `trusted-firmware` links Microchip's CryptoAuthLib to drive the
 ATECC608A, or writes a minimal purpose-built driver.
 
+The boards now take the ATECC608C (MIKROE-6774 Click board). The decision
+stands: the 608C runs the same command set as the 608A (AN5078, DS00005078),
+and the driver's execution times are taken from CryptoAuthLib's ATECC608 table
+(`lib/calib/calib_execution.c`) as data, with none of its code linked.
+
 **Decision: a minimal purpose-built driver.** Blocked on licence; would not fit
 regardless. Both are recorded below with the evidence, because the reason to
 write something Microchip already wrote had better be a number and not a

@@ -6,7 +6,7 @@
  * THE SECURE ELEMENT IS NOT REACHABLE THROUGH THESE.
  *
  * A generic I2C command that could address any device on the bus could address
- * the ATECC608A, which sits on that same bus. That would let a host talk to the
+ * the ATECC608C, which sits on that same bus. That would let a host talk to the
  * element directly, around the firmware's crypto layer: reading its
  * configuration, exhausting its monotonic counters, or issuing commands the
  * attestation path assumes only it issues. The device's own root of trust would
@@ -43,7 +43,7 @@
  * exists. A board that someday wants I2C without SPI would need this split
  * the same way hal_bus.c's own comment says 1-Wire would.
  *
- * tfw_crypto_init() (main.c) runs AFTER this, not before: the ATECC608A
+ * tfw_crypto_init() (main.c) runs AFTER this, not before: the ATECC608
  * provider calls tfw_hal_i2c_init() itself at its own required rate, and that
  * call must be the one left standing on an element build. Running this first
  * makes the generic default the one that loses a conflict rather than the one
@@ -71,7 +71,9 @@ tfw_status_t tfw_i2c_cmd_xfer(tfw_reader_t *r, tfw_writer_t *w)
     if (addr > 0x7Fu) {
         return TFW_ERR_RANGE;
     }
-    if (addr == TFW_I2C_RESERVED_ADDR) {
+    /* Both: the element's address from the board profile, and the reserved
+     * one hosts were told about before the element moved (config.h). */
+    if (addr == TFW_I2C_RESERVED_ADDR || addr == TFW_ELEMENT_I2C_ADDR) {
         return TFW_ERR_PROTECTED_REGION;
     }
     if (rlen > TFW_BUS_MAX) {

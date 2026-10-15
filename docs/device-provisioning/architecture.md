@@ -8,6 +8,11 @@ and lock bits on the MCU, the ATECC608A secure element's configuration and
 locking, and the device serial. It happens once, on a bench or a jig, never
 over the network and never from the production firmware.
 
+The boards take the ATECC608C (MIKROE-6774 Click board), which ships
+pre-provisioned with its zones already locked. Until the owner chooses a slot
+map for it, `tfwprov --commit` refuses it; see
+[`engineering.md`](engineering.md#the-atecc608c-mikroe-6774-click-board).
+
 See also: [`engineering.md`](engineering.md) (exported surface, invariants,
 tests), [`cli.md`](cli.md) (`tfwprov` verbs and flags), [`api.md`](api.md)
 (wire commands), [`user.md`](user.md) (the walkthrough).

@@ -1,7 +1,12 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * ATECC608A transport: one command in, one response out.
+ * ATECC608 transport: one command in, one response out.
+ *
+ * The part is the ATECC608C (MIKROE-6774 Click board) -- issue #7. The
+ * directory and CRYPTO=atecc608a keep the name they were built under; the
+ * 608A, 608B and 608C share the command set and packet format this file uses
+ * (Microchip AN2237, DS40002237A, and AN5078, DS00005078A).
  *
  * This is the whole element driver. It is small on purpose -- see
  * docs/attestation/cryptoauthlib-evaluation.md for why Microchip's own library
@@ -20,12 +25,17 @@
 #define TFW_ATECC_H
 
 #include <stdint.h>
+#include "tfw/config.h"
 #include "tfw/status.h"
 
 /* The element's I2C address. Blacklisted from the generic I2C_XFER command --
  * see src/caps/bus.c -- because a host that can talk to the element directly
- * can ask it to sign things this firmware never agreed to. */
-#define TFW_ATECC_ADDR   0x60u
+ * can ask it to sign things this firmware never agreed to.
+ *
+ * Board-profile data (TFW_ELEMENT_I2C_ADDR, include/tfw/config.h), because the
+ * ATECC608C variants do not share one address: the TrustFLEX part on the
+ * MIKROE-6774 Click answers at 0x36. */
+#define TFW_ATECC_ADDR   TFW_ELEMENT_I2C_ADDR
 
 /* The bus rate the wake pulse depends on -- see tfw_atecc_wake()'s comment.
  * I2C_CONFIG (src/caps/bus.c) reconfigures this same TWI peripheral for the
@@ -34,7 +44,49 @@
  * time, rather than trusting whatever the generic command left behind --
  * the alternative is an element that answers until the first I2C_CONFIG and
  * silently stops. */
-#define TFW_ATECC_I2C_HZ 100000uL
+#define TFW_ATECC_I2C_HZ TFW_ELEMENT_I2C_HZ
+
+/* A profile can choose the rate, but not one the wake pulse cannot survive:
+ * tWLO is at least 60 us (DS40002515B table 10-2) and the pulse is eight or
+ * nine bit times, so 100 kHz is the ceiling. Above it the part never wakes and
+ * reads as absent. */
+_Static_assert(TFW_ATECC_I2C_HZ <= 100000uL,
+               "the element's wake pulse needs the bus at or below 100 kHz");
+
+/*
+ * Maximum execution times, in milliseconds, for every command this firmware
+ * issues. They bound the poll in tfw_atecc_exec; a number that is too small
+ * gives up on a part that was about to answer, which presents as intermittent
+ * hardware. One table, because the application, the provisioning image and
+ * tfw-boot all talk to the same part.
+ *
+ * WHERE THEY COME FROM. Microchip publishes no per-command times for the
+ * ATECC608C outside its NDA datasheet: neither DS40002515B (the TrustFLEX
+ * datasheet) nor DS40002513B (the summary) carries them. The figures are
+ * cryptoauthlib's ATECC608 table for clock divider M0
+ * (lib/calib/calib_execution.c, MicrochipTech/cryptoauthlib main at
+ * d49c7d578efb), the times Microchip's own library waits on this part. The
+ * values this driver used before were short of them: Sign 64 -> 115, Verify 72 -> 105, Counter 6 -> 25, Nonce 7 -> 20, Read 1 -> 5, Write 26
+ * -> 45, Lock 15 -> 35. AN2237 (DS40002237A) and AN5078 (DS00005078A) record
+ * the 608B and 608C as slower again in places -- Read data up to 2.5 ms -- all
+ * inside these bounds.
+ *
+ * M0 assumes the TrustFLEX ships with ChipMode's clock divider at zero.
+ * DS40002515B lists the ChipMode features the part sets and no divider; a part
+ * configured for M1 or M2 runs Sign in up to 220 or 665 ms and would time out
+ * here.
+ */
+#define TFW_ATECC_T_INFO      5u
+#define TFW_ATECC_T_READ      5u
+#define TFW_ATECC_T_WRITE    45u
+#define TFW_ATECC_T_LOCK     35u
+#define TFW_ATECC_T_RANDOM   23u
+#define TFW_ATECC_T_NONCE    20u
+#define TFW_ATECC_T_SHA      36u
+#define TFW_ATECC_T_COUNTER  25u
+#define TFW_ATECC_T_SIGN    115u
+#define TFW_ATECC_T_GENKEY  115u
+#define TFW_ATECC_T_VERIFY  105u
 
 /* Word addresses. The first byte of every I2C write selects what follows. */
 #define TFW_ATECC_WA_RESET   0x00u

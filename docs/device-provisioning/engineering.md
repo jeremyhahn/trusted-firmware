@@ -1,6 +1,6 @@
 # Device provisioning — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-15
 > Conflicts with this document are defects. Fix them here first.
 
 See [`architecture.md`](architecture.md) for component boundaries and trust
@@ -178,6 +178,53 @@ frame is sent where the check does not require the device.
   hex, N ≥ 2), `config_lock_crc`, `data_lock_crc` (both non-zero). See
   [`api.md`](api.md) for the format and `sdk/go/templates/atecc608a-dice.conf`
   for the shipped example.
+
+## The ATECC608C (MIKROE-6774 Click board)
+
+The element the boards take is the ATECC608C-TFLXTLS on MikroE's ECC608 Trust
+Click (MIKROE-6774). The build identifier stays `atecc608a`: the 608C runs the
+same command set, opcodes, packet format, counters and wake timing as the 608A
+(AN5078, DS00005078; the 608A-to-608B guide, DS40002237A). The driver changes
+for the 608C are the I2C address, which is now board-profile data, and the
+execution times, now one table in `src/crypto/atecc608a/atecc.h`.
+
+| Fact | Value | Source |
+|---|---|---|
+| Part at the element address | ATECC608C-TFLXTLS, revision `00 00 60 05` | schematic v100 (U3); AN5078 |
+| I2C address as shipped | `0x36`, changeable once by `UpdateExtra` | DS40002515B §3.1 |
+| Other parts on the Click | ATECC608C-TNGTLS at `0x35`, ECC608-TMNGTLS at `0x38`, same bus | schematic v100 (U2, U4) |
+| State as shipped | pre-provisioned (TrustFLEX): config and data zones locked, slot policies set by Microchip | DS40002515B page 1 and §3 |
+| Supply / I/O | 2.0–5.5 V supply, 1.8–5.5 V I/O | DS40002515B page 1 |
+| VCC select | JP1 "VCC SEL", 3V3 or 5V; set to 5V for the AVRs. The schematic does not show the shipped position | schematic v100 |
+| Pull-ups | R5, R6, 4.7 kΩ to the Click's VCC | schematic v100 |
+| Pins | mikroBUS SDA and SCL; Nano A4/A5, Mega D20/D21 by flying lead | schematic v100; `boards/*/board_profile.h` |
+| Bus speed | 100 kHz in the profiles; the part is rated to 1 MHz, but the wake pulse needs ≤ 100 kHz | DS40002515B table 10-3 |
+| KDF details, clock divider | under NDA; not used and not guessed. Execution times assume the 608A's default divider | — |
+
+Sources:
+[DS40002515B](https://ww1.microchip.com/downloads/aemDocuments/documents/SCBU/ProductDocuments/DataSheets/ATECC608C-TFLXTLS-CryptoAuthentication-Data-Sheet-DS40002515.pdf),
+[DS40002513](https://ww1.microchip.com/downloads/aemDocuments/documents/SCBU/ProductDocuments/DataSheets/ATECC608C-CryptoAuthentication-Summary-Data-Sheet-DS40002513.pdf),
+[AN5078, DS00005078](https://ww1.microchip.com/downloads/aemDocuments/documents/SCBU/ApplicationNotes/ApplicationNotes/AN5078-ATECC608B-to-ATECC608C-Migration-Guide-DS00005078.pdf),
+[DS40002237A](https://ww1.microchip.com/downloads/en/Appnotes/Migrating-from-the-ATECC608A-to-the-ATECC608B-DS40002237A.pdf),
+[ECC608 Trust Click schematic v100](https://download.mikroe.com/documents/add-on-boards/click/ecc608-trust-click/ecc608-trust-click-schematic.pdf).
+
+**The slot map is an open owner decision.** The `--commit` sequence above
+assumes a blank part. The TFLXTLS is not blank: its zones are locked, so
+`tfwprov --commit` refuses it. Its slot policies (DS40002515B §3.2.3) do not
+match ours:
+
+- Slot 0 holds a permanent primary key that Microchip generated. It signs
+  external messages, so it can serve as the DeviceID, but `ProvGenKey` cannot
+  replace it.
+- Slot 1, where `SlotUDS` points, is an internal-sign private key, not a secret,
+  so the CDI HMAC fails. The element tier therefore answers `NOT_PROVISIONED`.
+- A 32-byte secret fits only slot 5. That slot takes an encrypted write under
+  the slot-6 I/O protection key, which needs GenDig, and the driver does not
+  implement it.
+- The secure-boot public key belongs in slot 15, not slot 2.
+
+`SlotUDS` is pinned in `sdk/go/provision.go`, so moving it is a wire-visible
+choice for the owner, not a driver fix.
 
 ## Test strategy
 

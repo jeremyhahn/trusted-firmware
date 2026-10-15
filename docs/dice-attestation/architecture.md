@@ -53,7 +53,7 @@ a root of trust it does not have. See `include/tfw/crypto.h`.
 
 | | DICE-HW | DICE-SW |
 |---|---|---|
-| Condition | an ATECC608A | neither element nor TPM |
+| Condition | an ATECC608 (the boards take the ATECC608C (MIKROE-6774 Click board)) | neither element nor TPM |
 | UDS | never-readable element slot | boot-section flash, BLB mode 3 |
 | CDI | `HMAC(UDS, H(firmware))` inside the element | software `HMAC(UDS, H(firmware))` |
 | Signs with | ECDSA P-256 (element) | HMAC-SHA256 (verifier holds the key) |

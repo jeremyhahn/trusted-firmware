@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The ATECC608A driver, against a software model of the element.
+ * The ATECC608 driver, against a software model of the element -- the 608C
+ * on the MIKROE-6774 Click board.
  *
  * No part is needed. What is tested is everything that is silent when it is
  * wrong: the packet layout, the span the CRC covers, the difference between a
@@ -22,6 +23,7 @@
 #include "atecc.h"
 #include "atecc608a_model.h"
 #include "tfw/crypto.h"
+#include "tfw/hal.h"
 #include "tfw/protocol.h"
 #include "tfw/boot.h"
 #include "boot_measure.h"
@@ -508,7 +510,135 @@ static void test_sign_with_nothing_in_tempkey_is_an_execution_error(void)
     tfw_model_provision();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
     TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
-                                               TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, 64u));
+                                               TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u,
+                                               TFW_ATECC_T_SIGN));
+}
+
+/* ------------------------------------------------- the part on the bench */
+
+/* The ATECC608C-TFLXTLS on the MIKROE-6774 Click answers at 0x36 as shipped
+ * (DS40002515B section 3.1), not at the 608A's 0x60. The host build compiles
+ * against boards/atmega328p, so this is the Nano's profile speaking. */
+static void test_the_driver_addresses_the_click_boards_part_at_0x36(void)
+{
+    uint8_t rev[4];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_INFO, TFW_ATECC_INFO_REVISION, 0u,
+                      0, 0u, rev, 4u, TFW_ATECC_T_INFO));
+    TEST_ASSERT_EQUAL_HEX8(0x36u, tfw_model_last_addr());
+}
+
+/* Info's revision word: 00 00 60 05 on the 608C, where the 608A said
+ * 00 00 60 02 (AN5078, DS00005078A). */
+static void test_info_reads_the_608c_revision(void)
+{
+    static const uint8_t want[4] = { 0x00u, 0x00u, 0x60u, 0x05u };
+    uint8_t              rev[4];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_INFO, TFW_ATECC_INFO_REVISION, 0u,
+                      0, 0u, rev, 4u, TFW_ATECC_T_INFO));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, rev, 4u);
+}
+
+/* The maximum execution times, clock divider M0, from cryptoauthlib's ATECC608
+ * table (lib/calib/calib_execution.c). Literals, so a change to atecc.h has to
+ * change this too. */
+static void test_the_execution_times_are_the_608s_m0_maxima(void)
+{
+    TEST_ASSERT_EQUAL_UINT16(5u,   TFW_ATECC_T_INFO);
+    TEST_ASSERT_EQUAL_UINT16(5u,   TFW_ATECC_T_READ);
+    TEST_ASSERT_EQUAL_UINT16(45u,  TFW_ATECC_T_WRITE);
+    TEST_ASSERT_EQUAL_UINT16(35u,  TFW_ATECC_T_LOCK);
+    TEST_ASSERT_EQUAL_UINT16(23u,  TFW_ATECC_T_RANDOM);
+    TEST_ASSERT_EQUAL_UINT16(20u,  TFW_ATECC_T_NONCE);
+    TEST_ASSERT_EQUAL_UINT16(36u,  TFW_ATECC_T_SHA);
+    TEST_ASSERT_EQUAL_UINT16(25u,  TFW_ATECC_T_COUNTER);
+    TEST_ASSERT_EQUAL_UINT16(115u, TFW_ATECC_T_SIGN);
+    TEST_ASSERT_EQUAL_UINT16(115u, TFW_ATECC_T_GENKEY);
+    TEST_ASSERT_EQUAL_UINT16(105u, TFW_ATECC_T_VERIFY);
+}
+
+/* A part that takes the whole of every maximum still answers every provider
+ * call. Before the 608C, Sign waited 64 ms, Verify 72, Counter 6 and Nonce 7:
+ * each would have timed out here. */
+static void test_the_provider_survives_a_part_at_its_maximum_execution_times(void)
+{
+    uint8_t  digest[32], sig[64], pub[64], opsig[64], opub[64], out[32], alg, i;
+    uint32_t v;
+
+    for (i = 0u; i < 32u; i++) { digest[i] = (uint8_t)(0x44u + i); }
+    TEST_ASSERT_TRUE(tfw_model_p256_public(OP_PRIV, opub));
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(OP_PRIV, digest, opsig));
+    tfw_model_provision();
+    tfw_model_set_exec_ms(TFW_ATECC_OP_INFO,    5u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_RANDOM,  23u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_NONCE,   20u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_SHA,     36u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_COUNTER, 25u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_SIGN,    115u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_GENKEY,  115u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_VERIFY,  105u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(pub));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sign(digest, sig, &alg));
+    TEST_ASSERT_TRUE(tfw_model_p256_verify(pub, digest, sig));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, opsig, opub));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_counter(TFW_ATECC_COUNTER_BOOT, &v));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_random(out, 32u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_hmac(TFW_ATECC_SLOT_UDS, digest, 32u, out));
+}
+
+/* The other side of the same fact: the 608A-era Sign bound of 64 ms gives up
+ * on a part that takes the 115 ms it is allowed. */
+static void test_a_sign_bound_shorter_than_115_ms_times_out(void)
+{
+    uint8_t digest[32] = { 3 }, sig[64];
+
+    tfw_model_provision();
+    tfw_model_set_exec_ms(TFW_ATECC_OP_SIGN, 115u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
+                      digest, 32u, 0, 0u, TFW_ATECC_T_NONCE));
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT,
+        tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
+                      TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, 64u));
+}
+
+/* Idle (word address 0x02) keeps TempKey; only sleep (0x01) clears it
+ * (DS40002515B section 8.2.1). A Sign after idle and a fresh wake signs the
+ * digest Nonce loaded before. */
+static void test_idle_keeps_tempkey_and_sleep_does_not(void)
+{
+    static const uint8_t idle = TFW_ATECC_WA_IDLE;
+    uint8_t              digest[32], sig[64], i;
+
+    for (i = 0u; i < 32u; i++) { digest[i] = (uint8_t)(0xC0u ^ i); }
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
+                      digest, 32u, 0, 0u, TFW_ATECC_T_NONCE));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(TFW_ATECC_ADDR, &idle, 1u, 0, 0u));
+    TEST_ASSERT_FALSE(tfw_model_is_awake());
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(digest, tfw_model_tempkey(), 32u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
+                      TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, TFW_ATECC_T_SIGN));
+    TEST_ASSERT_TRUE(tfw_model_p256_verify(tfw_model_deviceid_public(), digest, sig));
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_sleep());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_NOT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
+                      TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u, TFW_ATECC_T_SIGN));
 }
 
 int main(void)
@@ -548,5 +678,13 @@ int main(void)
     RUN_TEST(test_the_boot_counter_is_read_from_the_element);
     RUN_TEST(test_a_counter_the_part_does_not_have_is_refused);
     RUN_TEST(test_init_drains_a_handed_off_cdi_even_though_this_tier_has_no_use_for_it);
+    /* Last: these initialise the provider, and the absent-element test above
+     * depends on running before anything has. */
+    RUN_TEST(test_the_driver_addresses_the_click_boards_part_at_0x36);
+    RUN_TEST(test_info_reads_the_608c_revision);
+    RUN_TEST(test_the_execution_times_are_the_608s_m0_maxima);
+    RUN_TEST(test_the_provider_survives_a_part_at_its_maximum_execution_times);
+    RUN_TEST(test_a_sign_bound_shorter_than_115_ms_times_out);
+    RUN_TEST(test_idle_keeps_tempkey_and_sleep_does_not);
     return UNITY_END();
 }

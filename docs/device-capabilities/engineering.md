@@ -138,7 +138,9 @@ file.
 | `TFW_SCHED_MAX_MS` | `0x7FFFFFFF` | longest timer the sweep can arm |
 | `TFW_MAX_PAYLOAD` | 64 | frame buffer size; bounds `TFW_CAPTURE_MAX` and the bus transfer ceiling |
 | `TFW_EEPROM_SIZE` | 1024 | per-board EEPROM extent; overridden per board |
-| `TFW_I2C_RESERVED_ADDR` | `0x60` | the element's address, refused by `I2C_XFER` |
+| `TFW_I2C_RESERVED_ADDR` | `0x60` | the address hosts were told is the element's, refused by `I2C_XFER` |
+| `TFW_ELEMENT_I2C_ADDR` | `0x60`; `0x36` in the Nano and Mega profiles | the element's address, used by the driver and refused by `I2C_XFER` |
+| `TFW_ELEMENT_I2C_HZ` | 100000 | the element's bus speed; the driver asserts it is at most 100 kHz for the wake pulse |
 | `TFW_I2C_DEFAULT_HZ` | 100000 | `tfw_bus_init()`'s boot-time I2C clock |
 | `TFW_I2C_HZ_MIN` / `_MAX` | 1000 / 400000 | `I2C_CONFIG`'s accepted interval, capped at Fast-mode |
 | `TFW_SPI_DEFAULT_MODE` / `_CLKDIV` / `_LSB_FIRST` | 0 / 3 / 0 | `tfw_bus_init()`'s boot-time SPI mode, divider and bit order |

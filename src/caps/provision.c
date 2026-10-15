@@ -29,6 +29,14 @@
  *    host supplies from a template; this file writes what it is given and
  *    reports what the element said. The template is reviewable; a policy
  *    encoded here would not be.
+ *
+ * THE PART ON THE BENCH IS ALREADY CONFIGURED. The element tier targets the
+ * ATECC608C (MIKROE-6774 Click board), whose TrustFLEX part arrives with its
+ * config zone locked and its data zone locked (DS40002515B section 3.1). On it
+ * PROV_WRITE_CONFIG, PROV_LOCK, PROV_GENKEY and PROV_SEED_UDS come back with
+ * the element's execution error, as they would on any locked part; PROV_INFO
+ * and PROV_PUBKEY are what apply. What provisioning means for a pre-configured
+ * part is open -- docs/device-provisioning/engineering.md.
  */
 
 #include <string.h>
@@ -36,15 +44,6 @@
 #include "tfw/protocol.h"
 #include "tfw/config.h"
 #include "../crypto/atecc608a/atecc.h"
-
-/* Datasheet maxima, in milliseconds. */
-#define T_INFO      5u
-#define T_READ      1u
-#define T_WRITE    26u
-#define T_LOCK     15u
-#define T_GENKEY  115u
-#define T_RANDOM   23u
-#define T_NONCE     7u
 
 /* The config zone is 128 bytes, written 32 at a time. Word address units are
  * 4-byte words, and a 32-byte write is 8 words -- so block n starts at word
@@ -66,12 +65,12 @@ tfw_status_t tfw_prov_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
         return TFW_ERR_NACK;
     }
     st = tfw_atecc_exec(TFW_ATECC_OP_INFO, TFW_ATECC_INFO_REVISION, 0u,
-                       0, 0u, rev, 4u, T_INFO);
+                       0, 0u, rev, 4u, TFW_ATECC_T_INFO);
     if (st == TFW_OK) {
         /* Config block 0 carries the serial number, in bytes 0-3 and 8-12. */
         st = tfw_atecc_exec(TFW_ATECC_OP_READ,
                            (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
-                           0u, 0, 0u, cfg, 32u, T_READ);
+                           0u, 0, 0u, cfg, 32u, TFW_ATECC_T_READ);
     }
     if (st == TFW_OK) {
         tfw_write_blob(w, rev, 4u);
@@ -98,7 +97,7 @@ tfw_status_t tfw_prov_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
 
         st = tfw_atecc_exec(TFW_ATECC_OP_READ,
                            (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
-                           (uint16_t)(2u * 8u), 0, 0u, blk2, 32u, T_READ);
+                           (uint16_t)(2u * 8u), 0, 0u, blk2, 32u, TFW_ATECC_T_READ);
         if (st == TFW_OK) {
             tfw_write_u8(w, blk2[86u - 64u]);   /* LockValue:  the data zone */
             tfw_write_u8(w, blk2[87u - 64u]);   /* LockConfig: the config zone */
@@ -135,7 +134,7 @@ tfw_status_t tfw_prov_cmd_write_config(tfw_reader_t *r, tfw_writer_t *w)
     }
     st = tfw_atecc_exec(TFW_ATECC_OP_WRITE,
                        (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
-                       (uint16_t)(block * BLOCK_WORDS), data, 32u, 0, 0u, T_WRITE);
+                       (uint16_t)(block * BLOCK_WORDS), data, 32u, 0, 0u, TFW_ATECC_T_WRITE);
     (void)tfw_atecc_sleep();
     return st;
 }
@@ -167,7 +166,7 @@ tfw_status_t tfw_prov_cmd_lock(tfw_reader_t *r, tfw_writer_t *w)
     if (tfw_atecc_wake() != TFW_OK) {
         return TFW_ERR_NACK;
     }
-    st = tfw_atecc_exec(TFW_ATECC_OP_LOCK, zone, crc, 0, 0u, 0, 0u, T_LOCK);
+    st = tfw_atecc_exec(TFW_ATECC_OP_LOCK, zone, crc, 0, 0u, 0, 0u, TFW_ATECC_T_LOCK);
     (void)tfw_atecc_sleep();
     return st;
 }
@@ -190,7 +189,7 @@ tfw_status_t tfw_prov_cmd_genkey(tfw_reader_t *r, tfw_writer_t *w)
     /* Private mode. The private half is created inside the element and never
      * exists anywhere else; what comes back is the public point. */
     st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PRIVATE,
-                       slot, 0, 0u, pub, 64u, T_GENKEY);
+                       slot, 0, 0u, pub, 64u, TFW_ATECC_T_GENKEY);
     if (st == TFW_OK) {
         tfw_write_blob(w, pub, 64u);
     }
@@ -215,7 +214,7 @@ tfw_status_t tfw_prov_cmd_pubkey(tfw_reader_t *r, tfw_writer_t *w)
      * them separate is why `tfwprov --verify` can read a device back without any
      * chance of replacing the identity it is verifying. */
     st = tfw_atecc_exec(TFW_ATECC_OP_GENKEY, TFW_ATECC_GENKEY_PUBLIC,
-                       slot, 0, 0u, pub, 64u, T_GENKEY);
+                       slot, 0, 0u, pub, 64u, TFW_ATECC_T_GENKEY);
     if (st == TFW_OK) {
         tfw_write_blob(w, pub, 64u);
     }
@@ -238,23 +237,33 @@ tfw_status_t tfw_prov_cmd_seed_uds(tfw_reader_t *r, tfw_writer_t *w)
     }
     /*
      * The UDS comes from the element's own TRNG and goes into a slot configured
-     * never-readable. It crosses the element's internal bus and not the serial
-     * link -- Random into TempKey, then Write from TempKey into the slot -- so
-     * the host never holds it and a compromised provisioning station learns
-     * nothing it could use.
+     * never-readable. It never crosses the serial link: the host never holds
+     * it, so a compromised provisioning station learns nothing it could use.
+     *
+     * It DOES cross the I2C bus, three times -- Random returns it to this
+     * MCU, Nonce sends it back to set TempKey, and the Write carries it in the
+     * clear -- and it sits in SRAM until the scrub below. An earlier comment
+     * here said otherwise. That exposure is the jig's, on a bench, before the
+     * part leaves it; an encrypted Write would close it and needs an IO
+     * protection key this flow does not have.
+     *
+     * On the MIKROE-6774's TrustFLEX ATECC608C this command cannot succeed:
+     * its data zone ships locked and slot 1 holds an internal-sign ECC key
+     * (DS40002515B sections 3.1 and 3.2.3), so the Write is refused and the
+     * element's execution error comes back.
      *
      * This is the difference between "the device has a secret" and "the device
      * has a secret somebody typed in".
      */
-    st = tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, T_RANDOM);
+    st = tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, rnd, 32u, TFW_ATECC_T_RANDOM);
     if (st == TFW_OK) {
         st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
-                           rnd, 32u, 0, 0u, T_NONCE);
+                           rnd, 32u, 0, 0u, TFW_ATECC_T_NONCE);
     }
     if (st == TFW_OK) {
         st = tfw_atecc_exec(TFW_ATECC_OP_WRITE,
                            (uint8_t)(TFW_ATECC_ZONE_DATA | TFW_ATECC_ZONE_32),
-                           (uint16_t)((uint16_t)slot << 3), rnd, 32u, 0, 0u, T_WRITE);
+                           (uint16_t)((uint16_t)slot << 3), rnd, 32u, 0, 0u, TFW_ATECC_T_WRITE);
     }
     /* The copy in SRAM is scrubbed whether or not the write succeeded. A
      * failed provisioning attempt must not leave the secret in a buffer for

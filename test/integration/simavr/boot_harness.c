@@ -12,7 +12,7 @@
  * against a flash array and proves the DECISION is right. This loads the real
  * tfw-boot.elf into a real ATmega model, puts the real application image and a
  * real trailer in the emulated flash, a real provisioned region in the emulated
- * EEPROM and a real ATECC608A on the emulated TWI bus, and proves the thing
+ * EEPROM and a real ATECC608C on the emulated TWI bus, and proves the thing
  * that ships works -- LPM against the actual program memory, the actual EEPROM
  * peripheral, the actual TWI state machine in src/hal/avr/hal_bus.c, the polled
  * USART at the actual baud divisor, and the jump landing where the application
@@ -241,7 +241,7 @@ static void on_twi_status(struct avr_irq_t *irq, uint32_t value, void *param)
     addr_phase = 0;
 }
 
-/* --------------------------------------------- an ATECC608A on the wire */
+/* --------------------------------------------- an ATECC608C on the wire */
 /*
  * A SECOND MODEL OF THE SAME PART, AND THAT IS DELIBERATE.
  *
@@ -272,7 +272,11 @@ static void on_twi_status(struct avr_irq_t *irq, uint32_t value, void *param)
  * that is not the thing under test.
  */
 
-#define EL_ADDR             0x60u
+/* The ATECC608C-TFLXTLS on the MIKROE-6774 Click answers at 0x36 as shipped
+ * (DS40002515B section 3.1), and boards/atmega2560/board_profile.h says so.
+ * A literal, not the profile's macro: a bootloader that drifted from the part
+ * on the bench has to fail here, not follow the drift. */
+#define EL_ADDR             0x36u
 #define EL_SLOT_IMAGE_SIGN  2u
 #define EL_COUNTER_BOOT     0u
 
@@ -399,8 +403,9 @@ static void el_execute(void)
     case 0x30u:   /* Info. Not issued by this bootloader; kept because it is the
                    * one command that tells "no part" from "wrong part", and a
                    * model that could not answer it would be modelling a part
-                   * nobody could identify. */
-        body[0] = 0x00u; body[1] = 0x00u; body[2] = 0x60u; body[3] = 0x02u;
+                   * nobody could identify. 0x05 is the 608C's revision
+                   * (AN5078, DS00005078A). */
+        body[0] = 0x00u; body[1] = 0x00u; body[2] = 0x60u; body[3] = 0x05u;
         el_respond(body, 4u);
         return;
 

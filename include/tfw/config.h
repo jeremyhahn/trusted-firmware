@@ -329,6 +329,31 @@
 #define TFW_I2C_RESERVED_ADDR 0x60u
 #endif
 
+/* The secure element's 7-bit I2C address and the bus clock its driver runs,
+ * src/crypto/atecc608a/ -- issue #7.
+ *
+ * Board-profile data, because the address is a fact about the part on the
+ * board, not about the driver: the ATECC608C variants ship at different
+ * addresses (DS40002515B section 3.1 puts the TrustFLEX at 0x36 and says it
+ * differs from the standard part's). The default is 0x60, the address this
+ * driver always used, so a board that states nothing builds what it built
+ * before. The blank ATECC608C's own shipped address is only in Microchip's
+ * NDA datasheet and is not guessed here.
+ *
+ * I2C_XFER refuses this address as well as TFW_I2C_RESERVED_ADDR above: the
+ * reserved address stays refused because hosts already rely on it (the Go
+ * SDK's I2CReservedAddr), and this one is refused wherever the element
+ * actually sits.
+ *
+ * The clock must stay at or below 100 kHz: the wake pulse is the low period of
+ * a byte, and src/crypto/atecc608a/atecc.h asserts it. */
+#ifndef TFW_ELEMENT_I2C_ADDR
+#define TFW_ELEMENT_I2C_ADDR 0x60u
+#endif
+#ifndef TFW_ELEMENT_I2C_HZ
+#define TFW_ELEMENT_I2C_HZ 100000uL
+#endif
+
 /* The Ethernet shield's two chip selects: the W5x00's and its SD card's. The
  * Arduino shields put them on D10 and D4 on every board; a board wired
  * otherwise overrides them. */

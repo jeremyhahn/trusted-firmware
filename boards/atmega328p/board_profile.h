@@ -188,4 +188,28 @@ _Static_assert(COM2A1_BIT == COM2A1, "COM2A1 bit position");
 #define TFW_SPI_BIT_SCK  5u
 #define TFW_SPI_BIT_SS   2u
 
+/* The secure element: ATECC608C (MIKROE-6774 Click board) -- issue #7.
+ *
+ * The Click carries three ATECC608C variants on one SDA/SCL pair: TNGTLS at
+ * 0x35, TFLXTLS at 0x36 and TMNGTLS at 0x38 (MikroE schematic v100,
+ * download.mikroe.com/documents/add-on-boards/click/ecc608-trust-click/
+ * ecc608-trust-click-schematic.pdf). The element tier talks to the TrustFLEX
+ * part, whose default 7-bit address is 0x36 (Microchip DS40002515B section 3.1)
+ * -- the one of the three whose slots are meant to be configured by the
+ * customer. The other two are ordinary devices on the bus.
+ *
+ * 100 kHz because the wake pulse is the low period of a byte written to address
+ * zero (src/crypto/atecc608a/atecc.c); the part itself is rated to 1 MHz
+ * (DS40002515B table 10-3).
+ *
+ * The pins are the TWI peripheral's, fixed by the silicon: SDA is PC4, SCL is
+ * PC5, A4 and A5 on the Uno, Nano and Pro Mini alike. They are stated so the
+ * wiring has one written source and the board test can hold it to the pin
+ * table; nothing selects them at run time. They share nothing with the
+ * Ethernet shield's D10/D4 chip selects or its D11-D13 SPI lines. */
+#define TFW_ELEMENT_I2C_ADDR 0x36u
+#define TFW_ELEMENT_I2C_HZ   100000uL
+#define TFW_ELEMENT_PIN_SDA  18u   /* A4, PC4 */
+#define TFW_ELEMENT_PIN_SCL  19u   /* A5, PC5 */
+
 #endif /* TFW_BOARD_ATMEGA328P_H */

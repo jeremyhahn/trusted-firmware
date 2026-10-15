@@ -241,4 +241,19 @@ _Static_assert(TFW_EEPROM_SIZE == (E2END + 1u), "EEPROM size");
 #define TFW_SPI_BIT_SCK  1u
 #define TFW_SPI_BIT_SS   0u
 
+/* The secure element: ATECC608C (MIKROE-6774 Click board) -- issue #7.
+ *
+ * The same Click and the same part as boards/atmega328p/board_profile.h, whose
+ * comment carries the sources: the TrustFLEX ATECC608C at its default 0x36, on
+ * a bus held to 100 kHz for the wake pulse.
+ *
+ * The TWI pins are PD1 SDA and PD0 SCL, header pins 20 and 21. The Mega's A4
+ * and A5 are plain analog inputs, so a Click wired as on a Nano is not on the
+ * bus at all. Clear of the Ethernet shield's D10/D4 chip selects and of its
+ * SPI on D50-D53. */
+#define TFW_ELEMENT_I2C_ADDR 0x36u
+#define TFW_ELEMENT_I2C_HZ   100000uL
+#define TFW_ELEMENT_PIN_SDA  20u   /* D20, PD1 */
+#define TFW_ELEMENT_PIN_SCL  21u   /* D21, PD0 */
+
 #endif /* TFW_BOARD_ATMEGA2560_H */

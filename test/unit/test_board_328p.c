@@ -14,6 +14,7 @@
 #include "unity.h"
 #include "tfw/board.h"
 #include "board_profile.h"
+#include "tfw/config.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -273,9 +274,48 @@ static void test_the_element_image_carries_the_alias_certificate_but_not_attest_
     TEST_ASSERT_EQUAL_HEX32(0u, TFW_FEATURE_BITMAP & (1uL << 15));
 }
 
+/* The MIKROE-6774 Click's element: the ATECC608C-TFLXTLS at 0x36 as shipped
+ * (DS40002515B section 3.1), on the bus at 100 kHz -- the ceiling its wake
+ * pulse allows (table 10-2). The Nano's TWI is A4 (PC4, SDA) and A5 (PC5,
+ * SCL) per the ATmega328P datasheet's port C alternate functions. */
+static void test_the_click_element_is_on_the_twi_pins_at_0x36(void)
+{
+    uint8_t port, bit;
+
+    TEST_ASSERT_EQUAL_HEX8(0x36u, TFW_ELEMENT_I2C_ADDR);
+    TEST_ASSERT_EQUAL_UINT32(100000uL, TFW_ELEMENT_I2C_HZ);
+    TEST_ASSERT_EQUAL_UINT8(18u, TFW_ELEMENT_PIN_SDA);
+    TEST_ASSERT_EQUAL_UINT8(19u, TFW_ELEMENT_PIN_SCL);
+    expect_pin(TFW_ELEMENT_PIN_SDA, TFW_ADDR_PINC, 4u);
+    expect_pin(TFW_ELEMENT_PIN_SCL, TFW_ADDR_PINC, 5u);
+    page_port_bit(TFW_ELEMENT_PIN_SDA, &port, &bit);
+    TEST_ASSERT_EQUAL_HEX8(1u, port);
+    TEST_ASSERT_EQUAL_HEX8(4u, bit);
+    page_port_bit(TFW_ELEMENT_PIN_SCL, &port, &bit);
+    TEST_ASSERT_EQUAL_HEX8(1u, port);
+    TEST_ASSERT_EQUAL_HEX8(5u, bit);
+}
+
+/* Clear of the Ethernet shield: its W5x00 select on D10, its SD select on D4,
+ * and the SPI bus on D11-D13. */
+static void test_the_click_element_does_not_collide_with_the_ethernet_shield(void)
+{
+    static const uint8_t shield[] = { 4u, 10u, 11u, 12u, 13u };
+    uint8_t              i;
+
+    TEST_ASSERT_EQUAL_UINT8(10u, TFW_ETH_CS_PIN);
+    TEST_ASSERT_EQUAL_UINT8(4u,  TFW_ETH_SD_CS_PIN);
+    for (i = 0u; i < sizeof shield; i++) {
+        TEST_ASSERT_NOT_EQUAL(shield[i], TFW_ELEMENT_PIN_SDA);
+        TEST_ASSERT_NOT_EQUAL(shield[i], TFW_ELEMENT_PIN_SCL);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_the_click_element_is_on_the_twi_pins_at_0x36);
+    RUN_TEST(test_the_click_element_does_not_collide_with_the_ethernet_shield);
     RUN_TEST(test_digital_0_through_7_map_to_port_d);
     RUN_TEST(test_digital_8_through_13_map_to_port_b);
     RUN_TEST(test_analog_0_through_5_map_to_port_c);

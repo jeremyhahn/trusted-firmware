@@ -161,9 +161,9 @@ tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
      * The element NACKs every read while it is working, so the wait is a poll
      * rather than a sleep and a command that finishes early is read early. The
      * bound comes from the datasheet's maximum execution time for the command;
-     * past it the part is not busy, it is broken. Sign is ~50 ms and GenKey
-     * ~115 ms, so a fixed tries count would either give up on those or spin
-     * pointlessly on Random.
+     * past it the part is not busy, it is broken. Sign and GenKey take up to
+     * 115 ms and Read 5 (atecc.h), so a fixed tries count would either give
+     * up on those or spin pointlessly on Read.
      */
     tries = (uint16_t)(exec_ms * 2u) + 4u;    /* one try per 500 us, plus slack */
     n     = rlen ? (uint8_t)(rlen + 3u) : 4u;

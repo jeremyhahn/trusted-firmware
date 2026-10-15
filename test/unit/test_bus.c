@@ -43,7 +43,7 @@ static void test_an_i2c_transfer_reaches_the_addressed_device(void)
 /*
  * THE CARVE-OUT.
  *
- * The ATECC608A sits on the same I2C bus. A generic transfer that could address
+ * The ATECC608 sits on the same I2C bus. A generic transfer that could address
  * it would let a host talk to the element around the firmware's crypto layer --
  * reading its configuration, exhausting its monotonic counters, or issuing
  * commands the attestation path assumes only it issues. The device's own root
@@ -63,6 +63,18 @@ static void test_the_reserved_address_is_refused_even_with_no_element_present(vo
 {
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION,
         run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x60u, 0u, 0x01u }, 3u));
+}
+
+/* The ATECC608C-TFLXTLS on the MIKROE-6774 Click answers at 0x36 as shipped
+ * (DS40002515B section 3.1). The board profile says so, and the carve-out
+ * follows it -- and keeps 0x60 too, because hosts were told about that one. */
+static void test_the_click_boards_element_address_is_refused(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION,
+        run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x36u, 1u, 0x00u }, 3u));
+    TEST_ASSERT_NOT_EQUAL(0x36u, tfw_mock_last_i2c_addr());
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION,
+        run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x36u, 0u, 0x01u }, 3u));
 }
 
 static void test_an_address_beyond_seven_bits_is_refused(void)
@@ -203,6 +215,7 @@ int main(void)
     RUN_TEST(test_an_i2c_transfer_reaches_the_addressed_device);
     RUN_TEST(test_the_secure_elements_address_is_refused);
     RUN_TEST(test_the_reserved_address_is_refused_even_with_no_element_present);
+    RUN_TEST(test_the_click_boards_element_address_is_refused);
     RUN_TEST(test_an_address_beyond_seven_bits_is_refused);
     RUN_TEST(test_a_read_longer_than_a_reply_can_carry_is_refused);
     RUN_TEST(test_an_spi_transfer_is_full_duplex);

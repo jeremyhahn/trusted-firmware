@@ -39,6 +39,7 @@ static void test_info_reports_the_element(void)
     prep(0, 0u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_info(&r, &w));
     TEST_ASSERT_EQUAL_HEX8(0x60u, outbuf[2]);        /* the 608 family byte */
+    TEST_ASSERT_EQUAL_HEX8(0x05u, outbuf[3]);        /* 608C (AN5078, DS00005078A) */
 }
 
 /*
@@ -292,9 +293,49 @@ static void test_seeding_any_other_slot_is_refused(void)
     TEST_ASSERT_EQUAL_HEX8(0u, tfw_model_last_opcode());
 }
 
+/*
+ * A part that takes the whole of every maximum execution time (cryptoauthlib's
+ * ATECC608 M0 table: Read 5 ms, Write 45, Lock 35, GenKey 115, Random 23,
+ * Nonce 20) still completes the whole procedure. Before the 608C the firmware
+ * waited 1, 26 and 15 ms for Read, Write and Lock, and timed out on each.
+ */
+static void test_the_procedure_survives_a_part_at_its_maximum_execution_times(void)
+{
+    const uint8_t slot[1] = { TFW_ATECC_SLOT_DEVICEID };
+    const uint8_t uds[1]  = { TFW_ATECC_SLOT_UDS };
+    const uint8_t cfg[3]  = { TFW_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+    const uint8_t dat[3]  = { TFW_ATECC_LOCK_DATA, 0x34u, 0x12u };
+    uint8_t       blk[33] = { 2u };
+
+    tfw_model_set_exec_ms(TFW_ATECC_OP_INFO,   5u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_READ,   5u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_WRITE,  45u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_LOCK,   35u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_GENKEY, 115u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_RANDOM, 23u);
+    tfw_model_set_exec_ms(TFW_ATECC_OP_NONCE,  20u);
+
+    prep(0, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_info(&r, &w));
+    prep(blk, 33u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_write_config(&r, &w));
+    prep(cfg, 3u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+    prep(slot, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_genkey(&r, &w));
+    prep(slot, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_pubkey(&r, &w));
+    prep(uds, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_seed_uds(&r, &w));
+    prep(dat, 3u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+    TEST_ASSERT_TRUE(tfw_model_data_locked());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_the_procedure_survives_a_part_at_its_maximum_execution_times);
     RUN_TEST(test_info_reports_the_element);
     RUN_TEST(test_info_carries_both_lock_bytes);
     RUN_TEST(test_info_reports_a_locked_part_as_locked);

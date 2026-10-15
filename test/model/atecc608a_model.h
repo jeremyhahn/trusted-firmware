@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
-/* Controls for the software ATECC608A. See atecc608a.c for what it does and
- * does not model, and why having one is approved rather than assumed. */
+/* Controls for the software ATECC608 -- the 608C on the bench. See
+ * atecc608a.c for what it does and does not model, and why having one is
+ * approved rather than assumed. */
 #ifndef TFW_ATECC_MODEL_H
 #define TFW_ATECC_MODEL_H
 
@@ -16,10 +17,17 @@ void     tfw_model_reset(void);
 void     tfw_model_provision(void);
 /* NACK the next n reads, as the real part does while a command executes. */
 void     tfw_model_set_busy(uint8_t reads);
+/* Make the part busy for this many milliseconds every time this opcode
+ * arrives: it NACKs ms*2 reads, the driver's 500 us poll. Zero clears it. A
+ * test gives the datasheet's execution time and proves the driver waits that
+ * long -- and that a shorter wait in the driver would have failed. */
+void     tfw_model_set_exec_ms(uint8_t opcode, uint16_t ms);
 /* Make every command fail with this element status code. */
 void     tfw_model_force_status(uint8_t status);
 void     tfw_model_set_counter(uint32_t v);
 uint8_t  tfw_model_last_opcode(void);
+/* The 7-bit address the last non-wake transfer went to, answered or not. */
+uint8_t  tfw_model_last_addr(void);
 uint8_t  tfw_model_is_awake(void);
 uint8_t *tfw_model_tempkey(void);
 uint8_t  tfw_model_config_locked(void);

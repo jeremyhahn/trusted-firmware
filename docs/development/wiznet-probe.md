@@ -129,6 +129,9 @@ could not be flashed, and the chip is still unknown.
 
 The board runs the owner's dosing-controller application, which already drives
 the Ethernet chip. It reports `0.0.0.0`, which suggests DHCP did not complete.
-Flashing the probe needs an ISP programmer, or a bootloader burned with one.
-Both are outside this lane, which may not touch fuses or the bootloader, and
-both would erase the dosing-controller sketch.
+The board is no longer held: the owner freed both boards for reflashing
+(2026-10-15 03:40Z), so the dosing-controller sketch may be erased. Since no
+serial bootloader answers, the probe still cannot go in over USB. The next step
+is an ISP programmer that burns Optiboot (and with it BOOTRST and the boot
+section size); after that the board takes `make wiznet-probe-flash` like the
+Mega. Until that run, the Nano's controller is unknown.

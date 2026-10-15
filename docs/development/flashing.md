@@ -29,6 +29,12 @@ build/<board>/soft/trusted-firmware.hex        no element; software tier
 build/<board>/atecc608a/trusted-firmware.hex   DICE-HW
 ```
 
+The element image drives the ATECC608C (MIKROE-6774 Click board). It talks to
+the TFLXTLS part at the address and on the TWI pins in the board profile:
+`0x36`, Nano A4/A5 and Mega D20/D21, at 100 kHz. Set the Click's JP1 to 5V
+before powering it. The wiring and sources are in
+[device provisioning](../device-provisioning/engineering.md#the-atecc608c-mikroe-6774-click-board).
+
 Flashing the element image onto a board with no element is not an error: the
 provider probes for the part, does not find it, reports `TFW_CRYPTO_NONE` in
 `CAPS` and refuses every crypto operation. That is the correct behaviour — but

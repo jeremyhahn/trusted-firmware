@@ -16,6 +16,7 @@
 #include "unity.h"
 #include "tfw/board.h"
 #include "board_profile.h"
+#include "tfw/config.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -325,9 +326,39 @@ static void test_the_element_image_carries_attest_csr(void)
     TEST_ASSERT_EQUAL_HEX32(1uL << 15, TFW_FEATURE_BITMAP & (1uL << 15));
 }
 
+/* The MIKROE-6774 Click's element: the ATECC608C-TFLXTLS at 0x36 as shipped
+ * (DS40002515B section 3.1), at 100 kHz (table 10-2). The Mega's TWI is D20
+ * (PD1, SDA) and D21 (PD0, SCL); its A4/A5 are plain analog inputs. */
+static void test_the_click_element_is_on_the_twi_pins_at_0x36(void)
+{
+    TEST_ASSERT_EQUAL_HEX8(0x36u, TFW_ELEMENT_I2C_ADDR);
+    TEST_ASSERT_EQUAL_UINT32(100000uL, TFW_ELEMENT_I2C_HZ);
+    TEST_ASSERT_EQUAL_UINT8(20u, TFW_ELEMENT_PIN_SDA);
+    TEST_ASSERT_EQUAL_UINT8(21u, TFW_ELEMENT_PIN_SCL);
+    expect_pin(TFW_ELEMENT_PIN_SDA, TFW_ADDR_PIND, 1u);
+    expect_pin(TFW_ELEMENT_PIN_SCL, TFW_ADDR_PIND, 0u);
+}
+
+/* Clear of the Ethernet shield: D10 (W5x00 select), D4 (SD select) and the
+ * Mega's SPI on D50-D53. */
+static void test_the_click_element_does_not_collide_with_the_ethernet_shield(void)
+{
+    static const uint8_t shield[] = { 4u, 10u, 50u, 51u, 52u, 53u };
+    uint8_t              i;
+
+    TEST_ASSERT_EQUAL_UINT8(10u, TFW_ETH_CS_PIN);
+    TEST_ASSERT_EQUAL_UINT8(4u,  TFW_ETH_SD_CS_PIN);
+    for (i = 0u; i < sizeof shield; i++) {
+        TEST_ASSERT_NOT_EQUAL(shield[i], TFW_ELEMENT_PIN_SDA);
+        TEST_ASSERT_NOT_EQUAL(shield[i], TFW_ELEMENT_PIN_SCL);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_the_click_element_is_on_the_twi_pins_at_0x36);
+    RUN_TEST(test_the_click_element_does_not_collide_with_the_ethernet_shield);
     RUN_TEST(test_digital_0_through_5_zigzag_across_ports_e_and_g);
     RUN_TEST(test_digital_6_through_9_map_to_port_h);
     RUN_TEST(test_digital_10_through_13_map_to_the_high_half_of_port_b);

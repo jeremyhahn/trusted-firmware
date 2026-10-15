@@ -38,11 +38,6 @@
 #define VERIFY_MODE_STORED 0x00u
 #define VERIFY_KEY_P256    0x0004u
 
-/* Datasheet maxima, in milliseconds. Verify is the slowest command this
- * firmware issues by a wide margin. */
-#define T_NONCE   7u
-#define T_VERIFY 72u
-
 /*
  * The slot holding the image-signing public key.
  *
@@ -112,7 +107,7 @@ tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
     }
 
     st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
-                       digest, 32u, 0, 0u, T_NONCE);
+                       digest, 32u, 0, 0u, TFW_ATECC_T_NONCE);
     if (st == TFW_OK) {
         /* A status response of zero is a valid signature. Anything else --
          * including the element's own "miscompare" -- is a refusal, and they
@@ -121,7 +116,7 @@ tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
          * statuses is one that will eventually treat one as recoverable. */
         st = tfw_atecc_exec(OP_VERIFY, VERIFY_MODE_STORED,
                            (uint16_t)SLOT_IMAGE_SIGNING,
-                           sig, TFW_BOOT_SIG_LEN, 0, 0u, T_VERIFY);
+                           sig, TFW_BOOT_SIG_LEN, 0, 0u, TFW_ATECC_T_VERIFY);
     }
     (void)tfw_atecc_sleep();
     return st == TFW_OK ? TFW_OK : TFW_ERR_CRYPTO;

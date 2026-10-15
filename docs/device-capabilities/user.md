@@ -122,7 +122,8 @@ err = dev.SetI2CClock(ctx, 400_000)                              // Fast-mode
 err = dev.ConfigureSPI(ctx, tfw.SPIMode3, tfw.SPIClockDiv16, false) // an SD card
 ```
 
-Address `0x60` on I2C and a chip-select the board has claimed for its own
+Address `0x60` on I2C, the board's element address (`0x36` on the Nano and
+Mega), and a chip-select the board has claimed for its own
 secure element or TPM are refused — that hardware is not reachable through
 these generic commands, by design, so a compromised host cannot go around the
 device's own root of trust. See `../dice-attestation/architecture.md` for why.

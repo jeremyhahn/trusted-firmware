@@ -30,25 +30,6 @@
 #include "tfw/hal.h"
 #include "atecc.h"
 
-/*
- * 100 kHz, and it is a precondition rather than a preference.
- *
- * The element wakes on a low SDA of at least 60 us, which tfw_atecc_wake
- * produces as the low period of a byte written to address zero -- nine bit
- * times, so 90 us at this rate. Leave TWBR at its reset value and the ATmega's
- * TWI runs at F_CPU/16, which is 1 MHz at 16 MHz: the same write is 9 us, the
- * part never wakes, and the symptom is an element that reads as absent on a
- * board that has one. Every boot then fails TFW_ERR_CRYPTO with nothing to point
- * at. src/crypto/atecc608a/atecc.c says the same thing over tfw_atecc_wake.
- */
-#define TFW_ATECC_BUS_HZ 100000uL
-
-/* Datasheet maximum execution times, in milliseconds. Not guesses: the element
- * NACKs while busy, so these bound the polling rather than time it, and a
- * command that finishes early is read early. */
-#define T_SHA     36u
-#define T_COUNTER  6u
-
 static uint8_t present;
 
 tfw_status_t tfw_boot_cdi_init(void)
@@ -56,8 +37,16 @@ tfw_status_t tfw_boot_cdi_init(void)
     /* The bus, before anything tries to use it. The application does this in
      * src/crypto/atecc608a/provider.c; the bootloader shares the driver but not
      * that provider, so this is where the same call belongs. It is first
-     * because tfw_atecc_wake below is the first transfer on the bus. */
-    (void)tfw_hal_i2c_init(TFW_ATECC_BUS_HZ);
+     * because tfw_atecc_wake below is the first transfer on the bus.
+     *
+     * TFW_ATECC_I2C_HZ, the board profile's rate, and it is a precondition
+     * rather than a preference: atecc.h asserts it is at most 100 kHz. The
+     * element wakes on a low SDA of at least 60 us, which tfw_atecc_wake
+     * produces as the low period of a byte written to address zero. Leave
+     * TWBR at its reset value and the ATmega's TWI runs at F_CPU/16, which is
+     * 1 MHz at 16 MHz: the same write is 9 us, the part never wakes, and the
+     * symptom is an element that reads as absent on a board that has one. */
+    (void)tfw_hal_i2c_init(TFW_ATECC_I2C_HZ);
 
     present = (tfw_atecc_wake() == TFW_OK) ? 1u : 0u;
     if (present) {
@@ -91,11 +80,11 @@ tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN]
     /* Start names the key by slot; End carries the whole 32-byte measurement,
      * which is under one block, so there is no Update in between. */
     st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_START,
-                       TFW_ATECC_SLOT_UDS, 0, 0u, 0, 0u, T_SHA);
+                       TFW_ATECC_SLOT_UDS, 0, 0u, 0, 0u, TFW_ATECC_T_SHA);
     if (st == TFW_OK) {
         st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_HMAC_END,
                            TFW_BOOT_MEASURE_LEN, measurement,
-                           TFW_BOOT_MEASURE_LEN, cdi, TFW_BOOT_MEASURE_LEN, T_SHA);
+                           TFW_BOOT_MEASURE_LEN, cdi, TFW_BOOT_MEASURE_LEN, TFW_ATECC_T_SHA);
     }
 
     /* Sleep zeroes the part's volatile state, TempKey included. Without it a
@@ -117,7 +106,7 @@ tfw_status_t tfw_boot_floor_read(uint32_t *out)
         return TFW_ERR_CRYPTO;
     }
     st = tfw_atecc_exec(TFW_ATECC_OP_COUNTER, TFW_ATECC_COUNTER_READ,
-                       TFW_ATECC_COUNTER_BOOT, 0, 0u, v, 4u, T_COUNTER);
+                       TFW_ATECC_COUNTER_BOOT, 0, 0u, v, 4u, TFW_ATECC_T_COUNTER);
     (void)tfw_atecc_sleep();
     if (st != TFW_OK) {
         return st;
@@ -159,7 +148,7 @@ tfw_status_t tfw_boot_floor_write(uint32_t value)
             return TFW_ERR_CRYPTO;
         }
         st = tfw_atecc_exec(TFW_ATECC_OP_COUNTER, TFW_ATECC_COUNTER_INCR,
-                           TFW_ATECC_COUNTER_BOOT, 0, 0u, v, 4u, T_COUNTER);
+                           TFW_ATECC_COUNTER_BOOT, 0, 0u, v, 4u, TFW_ATECC_T_COUNTER);
         (void)tfw_atecc_sleep();
         if (st != TFW_OK) {
             return st;

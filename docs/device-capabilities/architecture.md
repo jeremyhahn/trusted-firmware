@@ -93,7 +93,7 @@ two places here, and both refuse rather than weaken the primitive:
 | protected resource | enforced in | refusal |
 |---|---|---|
 | EEPROM `[0x000, 0x080)` — bootloader pubkey hash, serial, boot counter, OTA state | `src/caps/storage.c` | `TFW_ERR_PROTECTED_REGION` |
-| I2C address `0x60` (`TFW_I2C_RESERVED_ADDR`) — the ATECC608A, refused whether fitted or not | `src/caps/bus.c` | `TFW_ERR_PROTECTED_REGION` |
+| I2C address `0x60` (`TFW_I2C_RESERVED_ADDR`) and the board profile's element address (`TFW_ELEMENT_I2C_ADDR`, `0x36` for the ATECC608C (MIKROE-6774 Click board) on the Nano and Mega), refused whether fitted or not | `src/caps/bus.c` | `TFW_ERR_PROTECTED_REGION` |
 | SPI chip-select flagged `TFW_PIN_RESERVED`/`TFW_PIN_IN_USE` — a TPM's CS, or the UART's pins | `src/caps/bus.c` | `TFW_ERR_PROTECTED_REGION` |
 | the boot section | not reachable by any primitive here | n/a — no callable exists |
 

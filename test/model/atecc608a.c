@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * A software ATECC608A, on the host's I2C.
+ * A software ATECC608C, on the host's I2C, at the board profile's address.
  *
  * WHY THIS EXISTS, AND WHY IT IS NOT AN ORDINARY MOCK.
  *
@@ -73,9 +73,11 @@ static uint8_t awake;
 static uint8_t provisioned;      /* a UDS is in the slot */
 static uint8_t has_key;          /* slot 0 holds an ECC private key */
 static uint8_t tempkey_valid;    /* Nonce loaded TempKey since the last sleep */
-static uint8_t busy_reads;       /* NACK this many reads before answering */
+static uint16_t busy_reads;      /* NACK this many reads before answering */
+static uint16_t exec_ms[256];    /* per opcode: busy this long on each arrival */
 static uint8_t forced_status;    /* if non-zero, every command fails with this */
 static uint8_t last_opcode;
+static uint8_t last_addr;
 static uint32_t counter0;
 static uint32_t random_calls;    /* Random's n-th answer differs from its first */
 
@@ -269,7 +271,8 @@ void tfw_model_reset(void)
 {
     awake = 0u; provisioned = 0u; has_key = 0u; busy_reads = 0u;
     forced_status = 0u; last_opcode = 0u; counter0 = 0u; random_calls = 0u;
-    rsp_len = 0u;
+    rsp_len = 0u; last_addr = 0u;
+    memset(exec_ms, 0, sizeof exec_ms);
     memset(rsp, 0, sizeof rsp);
     memset(config, 0, sizeof config);
     memset(slots, 0, sizeof slots);
@@ -315,7 +318,9 @@ const uint8_t *tfw_model_verify_last_pubkey(void) { return verify_last_pubkey; }
 void tfw_model_set_busy(uint8_t reads)   { busy_reads = reads; }
 void tfw_model_force_status(uint8_t st)  { forced_status = st; }
 void tfw_model_set_counter(uint32_t v)   { counter0 = v; }
+void tfw_model_set_exec_ms(uint8_t op, uint16_t ms) { exec_ms[op] = ms; }
 uint8_t tfw_model_last_opcode(void)      { return last_opcode; }
+uint8_t tfw_model_last_addr(void)        { return last_addr; }
 uint8_t tfw_model_is_awake(void)         { return awake; }
 
 static void respond(const uint8_t *body, uint8_t n)
@@ -362,13 +367,17 @@ static void handle_command(const uint8_t *p, uint8_t n)
     }
 
     last_opcode = opcode;
+    /* The driver polls every 500 us, so ms of execution is ms*2 NACKed reads. */
+    if (exec_ms[opcode]) { busy_reads = (uint16_t)(exec_ms[opcode] * 2u); }
     if (forced_status) { respond_status(forced_status); return; }
 
     switch (opcode) {
     case TFW_ATECC_OP_INFO:
-        /* Revision word. The real part returns four bytes whose middle two
-         * identify the die; 0x60 is the 608 family. */
-        body[0] = 0x00u; body[1] = 0x00u; body[2] = 0x60u; body[3] = 0x02u;
+        /* Revision word. 0x60 is the 608 family; the last byte is the die
+         * revision: 0x02 on the 608A, 0x03 on the 608B, 0x05 on the 608C
+         * (Microchip AN5078, DS00005078A). The part on the bench is a 608C,
+         * so the model is one. */
+        body[0] = 0x00u; body[1] = 0x00u; body[2] = 0x60u; body[3] = 0x05u;
         respond(body, 4u);
         return;
 
@@ -623,6 +632,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
         respond_status(0x11u);
         return TFW_ERR_NACK;         /* and the NACK is expected */
     }
+    last_addr = addr7;
     if (addr7 != TFW_ATECC_ADDR) {
         return TFW_ERR_NACK;
     }
@@ -639,8 +649,10 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
             memset(tfw_model_tempkey(), 0, 32u);   /* sleep clears volatile state */
             return TFW_OK;
         case TFW_ATECC_WA_IDLE:
-            tempkey_valid = 0u;
-            memset(tfw_model_tempkey(), 0, 32u);
+            /* Idle keeps TempKey and the SHA context; only sleep loses them
+             * (DS40002515B section 8.2.1). It does stop the part answering
+             * until the next wake. */
+            awake = 0u;
             return TFW_OK;
         case TFW_ATECC_WA_COMMAND:
             handle_command(wr, wlen);

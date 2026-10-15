@@ -33,6 +33,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 
 ## Now
 
+- **ethernet-transport** — the wire protocol over a WIZnet W5100 or W5500 on the Nano and the Mega 2560, enrolling and attesting over Ethernet; closes AVR — [#55](../../issues/55) — open
 - **xkms-adapter** — phases B and C: registered through go-xkms's hook, finalize through `Device.AttestCSR`, `xkms/v0.2.0-alpha` — [#28](../../issues/28) — blocked: go-xkms registry hook tag
 - **xkms-adapter** — AVR enrollment into go-trusted-platform, through the adapter — [#20](../../issues/20) — open
 - **xkms-adapter** — downstream migration to the adapter — [#19](../../issues/19) — open

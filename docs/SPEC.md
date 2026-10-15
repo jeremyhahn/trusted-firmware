@@ -67,5 +67,6 @@ Its devices consume go-xkms's generic DICE and attestation verification through 
 
 - Dev complete: `docs/SPEC.md` and `ROADMAP.md` exist in the handbook's shapes and agree (#39).
 - Dev complete: the owner approves the whole of both files.
+- Dev complete: CI conforms to the handbook's `software/conventions/ci-standard.md`: build, unit tests, integration tests, security scans and the latest-version check, all in the project's devcontainer image.
 - Dev complete: this project's own rows shipped, and every row go-trusted-platform's SPEC names on it as a seam shipped (its `firmware`, `avr-attestation` and `device-enrollment` rows), with the `sdk/go` and `xkms` adapter APIs stable; until then tags are `-alpha` only.
 - Dev complete, AVR: the Arduino Nano (ATmega328P) and the Arduino Mega 2560 each enrol (device-attest-01) and attest over Ethernet against the test control plane, and the firmware's tests pass on both boards; the ATmega32U4 and the ATtiny85 are covered by the simulator (owner, 2026-10-15). Every test except the element tier on the ATECC608C (MIKROE-6774 Click board) and ACME enrolment runs on both boards now; the element tier and device-attest-01 enrolment run on both boards the day the ATECC608C (MIKROE-6774 Click board) arrives (owner, 2026-10-15 01:23Z).

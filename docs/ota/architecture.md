@@ -1,35 +1,40 @@
 # OTA — architecture
 
-> **Status: PROPOSED (2026-10-15)** · Issue: #52 · Scope: trusted-firmware (image
-> format, device side, `sdk/go` upload helper); go-trusted-platform and
-> go-quicbaas (seams only) · Last verified: 2026-10-15
+> **Status: ACCEPTED (owner, 2026-10-15) where the ADR's decisions are
+> ACCEPTED; PROPOSED where they are** · Issue: #52 · Scope: trusted-firmware
+> (image format, device side, `sdk/go` upload helper); go-trusted-platform,
+> go-quicbaas, go-xkms and qrdb (seams only) · Last verified: 2026-10-15
 >
-> Becomes NORMATIVE when [adr-ota-image-format-and-trust.md](adr-ota-image-format-and-trust.md)
-> is accepted. No code exists for anything here that is not already shipped by
+> Decisions, their reasons and the measured flash are in
+> [adr-ota-image-format-and-trust.md](adr-ota-image-format-and-trust.md). No
+> code exists for anything here that is not already shipped by
 > [`secure-boot/`](../secure-boot/architecture.md). The SPEC row `ota` stays
 > `future`.
 
 OTA replaces the whole image, firmware and application together, with a signed
-one, and never lowers its version. On a part with room for two images, a new
-image runs on trial and the device falls back to the old one by itself if the
-new one does not confirm. On a part without room, the update is written in
-place by the bootloader, which is the single-slot path `tfw-boot` ships today.
+one, and never lowers its security version. Every board with a boot section
+takes its image over the network (W5100 or W5500) and over serial. The new
+image boots once on trial. The control plane confirms it after attesting the
+device; if it does not, the device rolls back by itself, and recovery is another
+OTA round.
 
-Decisions and their reasons are in the ADR. This file holds the shape:
-who owns what, how an image travels, what the device does with it.
+This file holds the shape: who owns what, how an image travels, and what the
+device does with it.
 
 ## Ownership
 
 | Piece | Owner | This project's part |
 |---|---|---|
-| Image format: the trailer, its signed span, the measurement | trusted-firmware | owns it |
-| Verifying an image before it runs, the anti-rollback floor, slots, trial and confirm | trusted-firmware (`tfw-boot` and its ports), or MCUboot or the vendor boot ROM where a port composes one | owns it, or composes theirs |
+| Image format: trailer v1 with the board id, its signed span, the measurement | trusted-firmware | owns it |
+| The device's manifest profile (a SUIT subset, ES256) and the build's to-be-signed manifest | trusted-firmware | owns the profile and the encoder; signs nothing |
+| Verifying an image before it runs, the anti-rollback floor, slots, the trial | trusted-firmware (`tfw-boot`), or MCUboot, ESP-IDF or the vendor boot ROM where a port composes one | owns it, or composes theirs |
 | The upload helper: driving `OTA_*` on a device connection | trusted-firmware (`sdk/go`) | owns it |
-| Which device gets which image, when, in which wave; pausing a rollout; the confirm policy | go-trusted-platform (fleet policy, rollout) | none: states the seam |
+| Which device gets which image, when, in which wave; pausing a rollout; the confirm after attestation | go-trusted-platform (fleet policy, rollout, control plane) | none: states the seam |
 | The device-facing endpoint the device connects to | go-trusted-platform | none: states the seam |
-| Image bytes and their signed CoRIM manifest | go-quicbaas (reference-values store) | none: states the seam |
-| CoRIM encoding and signing, appraisal of the post-update `FWHash` | go-xkms (through go-quicbaas) | none: reports the need |
-| The private keys that sign images and manifests | not this project; see the ADR's open questions | holds none |
+| Image bytes, their signed SUIT envelope and their signed CoRIM | go-quicbaas (reference-values store) | none: states the seam |
+| The image key and the manifest signer, per board id; CoRIM signing; appraisal of the post-update `FWHash` | go-xkms, reached through go-quicbaas | none: states the need |
+| Placing the verification key in the element's slot | go-xkms's provisioning seam row; `tfwprov` writes the slot on the bench | the bench write |
+| The permissions `ota.activate` and `ota.confirm` | qrdb (RBAC vocabulary), checked by go-trusted-platform | none: states the seam |
 
 This project keeps no registry, store, update server or private key. A gap in
 any of the other repos is reported against that repo, never worked around
@@ -38,151 +43,184 @@ here.
 ## Data flow
 
 ```
-build (reproducible)  ──► image + trailer to-be-signed bytes
-                              │  signed by the image key (custody: open question)
+build (reproducible) ──► image + trailer v1 TBS (48 B) + SUIT manifest TBS
+                              │  go-quicbaas ──► go-xkms: the board id's P-256 key,
+                              │  hardware-backed; raw r‖s and COSE_Sign1 come back
                               ▼
-                       signed image ──► CoRIM manifest (digest = trailer measurement)
-                              │                │
-                              └──► go-quicbaas reference-values store ◄──┘
-                                              │
-            go-trusted-platform rollout ──────┤ picks image for (board, application, device),
-                                              │ the application as APP_INFO reports it
-                                              │ checks the image digest against its CoRIM
-                                              ▼
-device ──(opens the connection)──► go-trusted-platform device-facing endpoint
-                                              │ sdk/go upload helper, as the host:
-                                              │ OTA_BEGIN, OTA_DATA..., OTA_END
-                                              ▼
-device: verify (signature, measurement, floor) ──► activate ──► trial boot
-        ──► confirm (or automatic fallback) ──► floor advances ──► ATTEST
-                                              │
-            go-trusted-platform ◄─────────────┘ new FWHash, appraised against the CoRIM
+                     signed image + signed SUIT envelope + signed CoRIM
+                              │      (one measurement in all three)
+                              ▼
+                 go-quicbaas reference-values store
+                              │
+   go-trusted-platform ───────┤ picks an image for (board id, application, profile)
+   rollout                    │ checks the digest against the CoRIM and the envelope
+                              ▼
+device ──(opens TCP or serial)──► go-trusted-platform device-facing endpoint
+                              │ auth session (AUTH_CHALLENGE, AUTH_RESPONSE)
+                              │ sdk/go upload helper: OTA_BEGIN, OTA_DATA…, OTA_END
+                              │ OTA_ACTIVATE  (principal holds ota.activate)
+                              ▼
+device application: stage, gate (trailer, board id, floor, SHA-256, signature, manifest)
+device boot:        copy or swap, evaluate (authoritative), one trial
+                              │
+device ──(reconnects)──► OTA_INFO, ATTEST ──► go-trusted-platform
+                              │ appraises the new FWHash against the CoRIM
+                              │ OTA_CONFIRM  (principal holds ota.confirm)
+                              ▼
+device: CONFIRMED ──next reset──► floor advances
 ```
 
 - The device opens the connection; it never listens. That is the Ethernet
-  transport's rule and OTA does not change it.
+  transport's rule, and OTA does not change it.
 - The host side of every `OTA_*` exchange is `sdk/go`, imported by
-  go-trusted-platform. On a bench it is `tfwctl` on a serial port.
-- The device trusts only the signature and the floor. The CoRIM is checked by
-  the control plane before it sends an image and by the verifier after the
-  device reports the new `FWHash`. A device running an image outside the store
-  fails appraisal at its next attestation.
+  go-trusted-platform. On a bench it is `tfwctl`, on a serial port or TCP.
+- The device trusts the signature, the board id and the floor. The CoRIM is
+  checked by the control plane before it sends an image, and by the verifier
+  after the device reports the new `FWHash`. A device running an image outside
+  the store fails appraisal at its next attestation and is never confirmed.
 
 ## Arch classes
 
-| Class | Parts | Layout | Who verifies | Floor |
-|---|---|---|---|---|
-| AVR, no boot section | ATtiny85 | none: no secure boot, no OTA | nobody | none |
-| AVR, 4 KB boot section | ATmega328P, ATmega32U4 | single slot, in place, written by `tfw-boot` (shipped) | `tfw-boot` | reserved EEPROM (soft tier) or the element's monotonic counter |
-| AVR, 8 KB boot section | ATmega2560 | single slot today; A/B by swap-move is an option (open question) | `tfw-boot` | as above |
-| Cortex-M33 under TF-M ([trust-model ADR](../cortex-m/adr-trust-model-vs-tf-m.md) (b1)) | STM32H5, nRF54L15, MCXN947, RP2350 | MCUboot's primary and secondary slots, written through PSA Firmware Update | MCUboot (BL2) | MCUboot's per-image security counter |
-| Cortex-M, `tfw-boot` port | an M33 under option (a); an M7 without an SoC root of trust | A/B: hardware bank swap where the part has it, swap-move otherwise | `tfw-boot` port | a counter in OTP or secure flash, per port ADR |
-| Composed vendor boot | ESP32-P4 (ESP-IDF) | the vendor's A/B partitions | the vendor chain | the vendor's one-way fuses |
-| Platform image | i.MX 95 M7 | trusted-imx95's container; who stages it is open | AHAB | the AHAB container version or an enclave counter, never writable from the A55 |
+| Class | Parts | Layout | Receives over | Who verifies | Floor |
+|---|---|---|---|---|---|
+| AVR, no boot section | ATtiny85 | none: no secure boot, no OTA (proposed exemption) | — | nobody | none |
+| AVR, 4 KB boot section | ATmega328P, ATmega32U4 | one internal slot; the staged image and a backup of the running one in an external SPI store | network and serial, in the application | the application gates; `tfw-boot` verifies, copies and evaluates | the element's monotonic counter |
+| AVR, 8 KB boot section | ATmega2560 | A/B by swap-move; network images staged in an external SPI store | network and serial in the application; serial in `tfw-boot` too | as above, plus the manifest in the application | as above |
+| Cortex-M33 under TF-M ([trust-model ADR](../cortex-m/adr-trust-model-vs-tf-m.md) (b1)) | STM32H5, nRF54L15, MCXN947, RP2350 | MCUboot's primary and secondary slots, written through PSA Firmware Update | the non-secure application | MCUboot (BL2) | MCUboot's per-image security counter |
+| Cortex-M, `tfw-boot` port | an M33 under option (a); an M7 without an SoC root of trust | A/B: a hardware bank swap where the part has one, swap-move otherwise | the application | `tfw-boot` port | a counter in OTP or secure flash, per port ADR |
+| Composed vendor boot | ESP32-P4 (ESP-IDF) | ESP-IDF's `ota_0`/`ota_1` and `otadata` | the application | ESP-IDF secure boot v2, plus our trailer v1 (`board_id` `0x80`) | the eFuse secure version |
+| Platform image | i.MX 95 M7 | pending #15 | pending #15 | AHAB and the ELE | pending #15: the AHAB fuse version is per container set |
 
-**What AVR gets.** The ATmega328P and ATmega32U4 get exactly what ships: the
-bootloader's four-command session over serial, entered by `RESET` mode 1 or by
-a failed boot, writing in place. No new wire command, no new state, no A/B. An
-interrupted update leaves the device in recovery until a good image arrives.
-The ATtiny85 gets nothing: it has no boot section, so no secure boot and no
-update path. The ATmega2560 gets the same as the 328P unless the owner chooses
-A/B for it.
+**AVR stages outside the MCU.** On classic AVR only boot-section code can
+execute `SPM`, and an entry point the application could call would void the
+BLB1 read barrier that keeps the UDS out of its reach. The W5x00 session does
+not fit either boot section: it is about 2 KB, and the 2560 is over by 660 to
+1 230 bytes, the 328P by more than 4 KB. So the application receives the image,
+over Ethernet or serial, and streams it into an SPI store on the shield bus.
+`tfw-boot` takes it from the store at the next reset. The boot never parses
+network input.
 
-**AVR cannot stage an image from the application.** On classic AVR only code in
-the boot section can execute `SPM`, so the application cannot write flash. A
-boot-section entry point the application could call would void the BLB1 read
-barrier that keeps the UDS out of its reach. So an AVR image always travels
-through the bootloader, and the bootloader speaks serial only. An AVR device
-on Ethernet alone cannot be updated over the network today. That is an open
-question for the owner, with options, in the ADR.
+**What each AVR image carries.**
+
+| Board | Boot | Application | Transports in the shipped image |
+|---|---|---|---|
+| ATmega2560 | serial session, swap-move, store read, trial: 7 924 of 8 192 | `ETH=1`, stager, manifest reader: about 24 445 of 65 536 | both |
+| ATmega328P | verify-and-copy, trial: 3 924 of 4 096 | `ETH=1`, stager: about 19 267, and about 22 153 with the manifest reader | both, under the 28 672 region budget (proposed); none under the 16 384 policy line |
+| ATmega32U4 | as the 328P, unmeasured | no Ethernet controller wired yet | follow-up |
 
 ## Device state machine
 
-### Single slot (AVR, shipped)
+### Slot states
 
-```
-RUNNING ──RESET mode 1──► SESSION (bounded) ──timeout, nothing written──► RUNNING
-   ▲                          │
-   │                          ├─OTA_BEGIN, OTA_DATA (first page erased: old image gone)
-   │                          ▼
-   │                      RECEIVING ──timeout or failure──► RECOVERY (unbounded)
-   │                          │                                │
-   │                          └─OTA_END ─► evaluate ◄──────────┘ (OTA_END)
-   │                                          │
-   └──── floor advances, jump ◄── TFW_OK ─────┴── refused ──► RECOVERY
-```
-
-The floor advances on the first verified boot of the new image, because there
-is no older image to fall back to. `tfw_app_after_update` is called on that
-boot; a refusal is reported, as the application SDK states, and the image
-stays.
-
-### A/B
-
-Each slot has a state. The bootloader owns the transitions marked `boot`; the
-application owns the rest.
+Every class reports the same states through `OTA_INFO`. On AVR they are encoded
+in the platform block's `boot_state` and `ota_state`, extended and never
+renumbered (ADR, open question 10). The bootloader owns the transitions marked
+`boot`; the application owns the rest.
 
 | State | Meaning | Left by |
 |---|---|---|
-| `EMPTY` | no image | `OTA_BEGIN` (app) → `RECEIVING` |
-| `RECEIVING` | bytes arriving into the inactive slot | `OTA_END` with every byte → `STAGED`; a new `OTA_BEGIN` restarts |
-| `STAGED` | every byte arrived; nothing verified | the advisory check → `VERIFIED` or `FAILED` |
-| `VERIFIED` | trailer, floor, measurement and signature passed the advisory check | `OTA_ACTIVATE` → `PENDING` |
-| `PENDING` | to be tried on the next boot | boot: full evaluation → `TRIAL`, or → `FAILED` |
-| `TRIAL` | running, not confirmed; boot attempts left counted down before each jump | confirm → `CONFIRMED`; boot: attempts exhausted → `FAILED` and fall back |
-| `CONFIRMED` | the image the device boots | replaced when another slot confirms → `FALLBACK` |
-| `FALLBACK` | the previous confirmed image, kept for a fallback | overwritten by the next `OTA_BEGIN` |
-| `FAILED` | refused or did not confirm | overwritten by the next `OTA_BEGIN` |
+| `EMPTY` | no image staged | `OTA_BEGIN` (app) → `RECEIVING` |
+| `RECEIVING` | bytes arriving into the store or the inactive slot | `OTA_END` with every byte → `STAGED`; a new `OTA_BEGIN` restarts |
+| `STAGED` | every byte arrived; nothing verified | the application's gate → `VERIFIED` or `FAILED` |
+| `VERIFIED` | trailer, board id, floor, measurement, signature and, where verified, the manifest passed the gate | `OTA_ACTIVATE` → `PENDING`; refused with `TFW_ERR_BAD_STATE` if the measurement is the last failed one |
+| `PENDING` | to be tried at the next reset | boot: copy or swap, evaluate → `TRIAL`, or roll back → `FAILED` |
+| `TRIAL` | running once, not confirmed; the trial deadline and the watchdog are armed | `OTA_CONFIRM` → `CONFIRMED`; **any** reset → boot rolls back → `FAILED` |
+| `CONFIRMED` | confirmed by the control plane; the floor not yet advanced | boot, next reset: floor := version → `GOOD` |
+| `GOOD` | the image the device boots | replaced when another image confirms |
+| `FAILED` | refused, or the trial ended unconfirmed; its measurement is kept | overwritten by the next `OTA_BEGIN` |
+
+### ATmega2560: A/B by swap-move
 
 ```
-inactive slot:  EMPTY/FAILED/FALLBACK ─OTA_BEGIN─► RECEIVING ─OTA_END─► STAGED
-                  ─check─► VERIFIED ─OTA_ACTIVATE─► PENDING ─reset─►
-boot:           evaluate PENDING slot ─ok─► TRIAL (attempts--) ─jump─►
-application:    init OK, after_update OK [, host OTA_CONFIRM] ─► CONFIRMED
-                                                                 floor := version
-                                                                 old slot := FALLBACK
-boot, TRIAL with no attempts left:  slot := FAILED, boot FALLBACK (evaluated as always)
+application: EMPTY/FAILED ─OTA_BEGIN─► RECEIVING ─OTA_END─► STAGED ─gate─► VERIFIED
+               (network: into the SPI store; serial: into the store, or the
+                boot session writes the secondary slot directly)
+             VERIFIED ─OTA_ACTIVATE─► PENDING ─reset─►
+boot:        PENDING: verify the store copy, copy it into the secondary slot,
+             swap-move (progress in EEPROM), evaluate the primary
+               ─ok─► TRIAL, arm the watchdog ─jump─►
+               ─refused─► swap back, FAILED, evaluate and boot the previous image
+application: init OK, tfw_app_after_update OK ─► connect, attest, wait
+             ─OTA_CONFIRM─► CONFIRMED          (deadline expired ─► reset)
+boot:        TRIAL at reset ─► swap back, FAILED, flags: fell back
+             CONFIRMED at reset ─► floor := version, GOOD, then anything PENDING
 ```
 
-- The bootloader evaluates the slot it is about to boot, on every boot, with
-  the shipped order: trailer, floor, measurement, signature. That includes
-  the fallback slot. The application's check before `VERIFIED` saves a reboot
+### ATmega328P and ATmega32U4: store-staged, one internal slot
+
+```
+application: OTA_BEGIN ─► back the running image up to the store's PREV
+             OTA_DATA… ─► the store's STAGE  ─OTA_END─► STAGED ─gate─► VERIFIED
+             VERIFIED ─OTA_ACTIVATE─► PENDING ─reset─►
+boot:        PENDING: copy STAGE into the application region (idempotent),
+             TRIAL, evaluate the internal copy (authoritative)
+               ─ok─► arm the watchdog ─jump─►
+               ─refused─► copy PREV back, FAILED, flags: refused
+application: as the 2560
+boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
+             evaluate PREV as every boot ─ok─► run it ─refused─► halt (programmer)
+             CONFIRMED at reset ─► floor := version, GOOD
+```
+
+- The bootloader evaluates the image it is about to boot, on every boot, in the
+  same order: trailer, board id, floor, measurement, signature. That includes
+  the restored or swapped-back fallback. The application's gate saves a reboot
   into a refusal; it is not a security boundary.
-- The floor advances on **confirm**, not on the first boot. Advancing it on the
-  trial boot would make the fallback image older than the floor, and the
-  fallback would be refused.
-- A trial that hangs is ended by the watchdog. The attempt counter is written
-  before the jump, so a crash on every boot still runs out.
+- **One trial.** The trial state is written before the jump, so any reset in
+  it, whether the deadline, the watchdog, a crash or a power cut, rolls back.
+  There is no attempt counter. The same image is not activated again.
+- **The timeout** is per board, `TFW_OTA_TRIAL_TIMEOUT_S` in
+  `boards/*/board_profile.h` (name and values proposed). The application
+  counts it; `tfw-boot` arms the watchdog, which the application SDK pets during
+  the trial.
+- **The floor advances after confirm**, at the next reset and before any pending
+  image is handled. Advancing it on the trial boot would put the fallback below
+  the floor, and it would be refused.
+- **After a rollback**, the restored image is the full previous application,
+  network and stager included, so the next round starts exactly as the first.
+  It reports `FAILED`, the fallback flags and the failed measurement in
+  `OTA_INFO`, and its old `FWHash` at attestation.
 
 ## Trust boundaries
 
-- **The signature and the floor are the only things the device trusts.** The
-  transport, the control plane and the store are not trusted for integrity:
-  any byte of the image can be wrong and the device refuses it. The control
-  plane is trusted only to choose which signed image a device should run.
+- **The signature, the board id and the floor are the only things the device
+  trusts.** The transport, the store, the control plane and the external SPI
+  store are not trusted for integrity: any byte of the image can be wrong, and
+  the device refuses it. The control plane is trusted only to choose which
+  signed image a device runs, and to confirm it.
 - **The bootloader is the authority.** Nothing the application decided about an
-  image survives into the boot decision except the slot states, and every
-  slot is evaluated again before it runs.
+  image survives into the boot decision except the slot states, and every image
+  is evaluated again before it runs.
+- **The external store is outside the boundary.** The boot copies from it and
+  then evaluates the internal copy; it never executes from it. A compromised
+  application can corrupt `PREV`. On the 328P that leaves no runnable image, and
+  recovery needs a programmer; on the 2560 the fallback is the other internal
+  slot, which the application cannot write.
 - **The bootloader is never updated over the wire.** The trailer format a
-  deployed `tfw-boot` accepts is fixed for that device's life. A change to the
-  trailer reaches deployed AVR devices only by a bench reflash.
-- **Anti-rollback is as strong as its counter.** The software tier's EEPROM
-  floor stops a replayed old image arriving over the wire. It does not stop an
-  attacker who runs code on the device, since any AVR code can write EEPROM.
-  The element tier's counter does.
-- **Activation changes what runs.** On A/B parts `OTA_ACTIVATE` and
-  `OTA_CONFIRM` need the operator auth session on the element tier, as
-  `RESET` already does.
+  deployed `tfw-boot` accepts is fixed for that device's life. Adding the
+  board-id check, A/B or the store path is a bench reflash.
+- **Anti-rollback is as strong as its counter.** Every AVR board ships the
+  element tier, whose monotonic counter holds against code on the device. A soft
+  EEPROM floor would stop only a replayed old image arriving over the wire.
+- **Activation changes what runs.** `OTA_ACTIVATE` and `OTA_CONFIRM` need the
+  operator auth session on the element tier, over Ethernet as over serial. The
+  control plane sends them only for a principal holding `ota.activate` or
+  `ota.confirm` in the device's tenant.
+- **The element's I²C bus** carries the measure and verify results. An
+  interposer is the element tier's known risk, as it is on every boot today.
 
 ## Alternatives rejected
 
 | Alternative | Rejected because |
 |---|---|
-| The device verifies the CoRIM | CBOR, COSE and a second key do not fit a 4 KB boot section, and the device would trust two signers for one fact. The trailer already binds version and measurement under the image key; the CoRIM is the fleet's record of the same digest. |
-| An SPM entry point in the AVR boot section so the application can stage an image | It voids the BLB1 mode 3 read barrier from inside: the application could reach boot-section code. The secure-boot architecture forbids it for the same reason it forbids a CDI trampoline. |
-| A scratch-page swap for an AVR A/B | One scratch page is erased once per page swapped. A 120 KB slot is 480 pages, and AVR flash is rated for 10 000 erase cycles, so the scratch page wears out in about twenty updates. Swap-move shifts the slot by one page instead and wears every page about twice per update. |
-| Advancing the floor on the first boot of a new A/B image | The fallback image would then be below the floor and refused, so the device would have nothing to fall back to. |
-| A pull model: the device downloads from a URL | The device has no HTTP client and no TLS, and the device never chooses its own image: that is fleet policy, which is go-trusted-platform's. |
+| The device verifies the CoRIM | The CoRIM is the verifier's artifact (owner, 2026-10-15). The device verifies a SUIT subset carrying the same four facts. |
+| An SPM entry point in the AVR boot section so the application can stage an image | It voids the BLB1 mode 3 read barrier from inside: the application could reach boot-section code. The secure-boot architecture forbids it, for the same reason it forbids a CDI trampoline. |
+| The W5x00 session in the AVR bootloader | Measured: it does not fit either boot section (ADR 6.1). |
+| A serial-attached host doing the network side | Rejected by the owner (2026-10-15). |
+| A scratch-page swap for the 2560's A/B | One scratch page is erased once per page swapped. A 64 KB slot is 256 pages, and AVR flash is rated for 10 000 erase cycles, so the scratch page wears out in about forty updates. Swap-move shifts the slot by one page instead and wears every page about twice per update. |
+| Advancing the floor on the first boot of a new image | The fallback image would then be below the floor and refused, so the device would have nothing to fall back to. |
+| More than one trial, or a device-local confirm | Rejected by the owner (2026-10-15). |
+| A pull model: the device downloads from a URL | The device has no HTTP client and no TLS, and it never chooses its own image: that is fleet policy, which is go-trusted-platform's. |
 | A store, registry or update server in this repo | go-quicbaas owns the store and go-trusted-platform the endpoint and rollout; a second one here is the duplication L1 forbids. |
 
 ## What this deliberately does not do
@@ -190,9 +228,11 @@ boot, TRIAL with no attempts left:  slot := FAILED, boot FALLBACK (evaluated as 
 - **No delta updates.** A delta needs the old image readable at the destination
   and a patcher in the trusted computing base. Whole images only.
 - **No encryption of the image.** Confidentiality of firmware is the platform's
-  flash-encryption feature where a part has one (ESP32), not this format's.
+  flash-encryption feature where a part has one (ESP32), not this format's. The
+  manifest profile therefore takes only the authentication half of SUIT's MTI
+  profile.
 - **No bootloader update over the wire**, on any class.
 - **No partial updates of the application alone.** The image is one
   measurement, firmware and application together.
 - **No rollout logic on the device.** The device does not decide when to
-  update; it accepts or refuses what it is sent.
+  update; it accepts or refuses what it is sent, and the control plane confirms.

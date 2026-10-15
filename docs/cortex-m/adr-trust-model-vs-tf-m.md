@@ -492,6 +492,36 @@ without renumbering:
    - Can the enclave bind the M7's measurement into a key (a CDI), and should
      go-xkms accept the enclave's own attestation as an endorsement? #14
      decision 8 leaves the CDI source here.
+
+   Facts gathered for the M7's OTA (2026-10-15, #52; the full table is decision
+   12 of [the OTA ADR](../ota/adr-ota-image-format-and-trust.md)). The question
+   stays open. UM12527 could not be read from that lane, so board facts are
+   from NXP's public pages.
+   - **Verified:** the AHAB container carries an 8-bit `fuse_version` that must
+     be at least the fused value, and a 16-bit `sw_version` that selects
+     between images and is not a floor (SPSDK AHAB documentation; U-Boot
+     `doc/imx/imx95_container.txt`). The ELE commit command fuses the version
+     (SPSDK, *i.MX95 Anti-rollback Protection Example*).
+   - **Verified:** the M7 image is an optional `cortex_m7_app` in the OEM
+     container of the primary container set, loaded to `0x303C0000`, so it
+     shares that container's fuse version with the System Manager and SPL
+     (SPSDK, *i.MX 95 AHAB with U-Boot*). Updating it is a boot-container
+     update unless the M7 is loaded later from its own container.
+   - **Verified:** the ELE HSM API has no general monotonic counter for
+     software. A limited, fuse-backed counter makes key-store exports roll-back
+     resistant under `STRICT_OPERATION`; `hsm_data_storage` stores data
+     encrypted under a device-derived key (NXP RM00284).
+   - **Verified:** the ROM has a secondary boot (the other eMMC boot partition,
+     or an image offset), which U-Boot reads from the ROM's passover data
+     (U-Boot, *imx9: scmi: Support iMX95/94/952 secondary boot*, 2026-04). On
+     eMMC the boot pointer is `BOOT_PARTITION_ENABLE` (JEDEC JESD84-B51).
+   - **Unverified:** the fuse word behind the OEM fuse version and its width
+     (needed from the i.MX 95 Security Reference Manual or AN14533); whether
+     data storage is covered by the strict-operation counter, and its size
+     (RM00284); what triggers the ROM fallback, and whether software can force
+     a one-time secondary boot (i.MX 95 Reference Manual, boot chapter);
+     whether the M7 can reach the ELE messaging unit (i.MX 95 Reference
+     Manual).
 8. **TF-M release policy.** Track LTS only (2.3, to April 2029), and what is
    our response time to a TF-M advisory?
 9. **PSA Certified.** Pursue device-level certification? Ask a lab whether our

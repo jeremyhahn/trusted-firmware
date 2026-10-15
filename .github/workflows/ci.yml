@@ -97,6 +97,15 @@ jobs:
         # The matrix is a hand list; this is what keeps it honest. It is in
         # `make ci` too -- see the comment on the matrix.
         run: docker run --rm "$IMG" make ci-matrix-check
+      - name: remove this job's images
+        # Every job leaves ~4.4 GB behind otherwise, and the runner daemon is
+        # shared. Only this job's own tags: no prune, no wildcard. IMG is unset
+        # when the build step never started, and an image may be missing when
+        # it stopped partway, so neither is an error here.
+        if: always()
+        run: |
+          [ -n "${IMG:-}" ] || exit 0
+          docker rmi -f "$IMG" "$IMG-base" 2>&1 | grep -v 'No such image' || true
 
   unit:
     name: Host unit tests
@@ -142,6 +151,15 @@ jobs:
         run: docker run --rm "$IMG" make board-sweep
       - name: coverage
         run: docker run --rm "$IMG" make coverage
+      - name: remove this job's images
+        # Every job leaves ~4.4 GB behind otherwise, and the runner daemon is
+        # shared. Only this job's own tags: no prune, no wildcard. IMG is unset
+        # when the build step never started, and an image may be missing when
+        # it stopped partway, so neither is an error here.
+        if: always()
+        run: |
+          [ -n "${IMG:-}" ] || exit 0
+          docker rmi -f "$IMG" "$IMG-base" 2>&1 | grep -v 'No such image' || true
 
   sanitizers:
     name: ASan and UBSan
@@ -182,6 +200,15 @@ jobs:
         # so this is where a memory bug will be. It has already caught one
         # defect the ordinary build had constant-folded away.
         run: docker run --rm "$IMG" make test-asan
+      - name: remove this job's images
+        # Every job leaves ~4.4 GB behind otherwise, and the runner daemon is
+        # shared. Only this job's own tags: no prune, no wildcard. IMG is unset
+        # when the build step never started, and an image may be missing when
+        # it stopped partway, so neither is an error here.
+        if: always()
+        run: |
+          [ -n "${IMG:-}" ] || exit 0
+          docker rmi -f "$IMG" "$IMG-base" 2>&1 | grep -v 'No such image' || true
 
   firmware:
     name: Firmware (${{ matrix.board }}, ${{ matrix.crypto }})
@@ -267,6 +294,15 @@ jobs:
         with:
           name: firmware-${{ matrix.board }}-${{ matrix.crypto }}
           path: build/${{ matrix.board }}/${{ matrix.crypto }}/*.hex
+      - name: remove this job's images
+        # Every job leaves ~4.4 GB behind otherwise, and the runner daemon is
+        # shared. Only this job's own tags: no prune, no wildcard. IMG is unset
+        # when the build step never started, and an image may be missing when
+        # it stopped partway, so neither is an error here.
+        if: always()
+        run: |
+          [ -n "${IMG:-}" ] || exit 0
+          docker rmi -f "$IMG" "$IMG-base" 2>&1 | grep -v 'No such image' || true
 
   integration:
     name: Emulated firmware (simavr)
@@ -316,6 +352,15 @@ jobs:
         # of the two is a gate a developer cannot reproduce, and this repository
         # has gone red over that three times.
         run: docker run --rm "$IMG" make integration-test-boot
+      - name: remove this job's images
+        # Every job leaves ~4.4 GB behind otherwise, and the runner daemon is
+        # shared. Only this job's own tags: no prune, no wildcard. IMG is unset
+        # when the build step never started, and an image may be missing when
+        # it stopped partway, so neither is an error here.
+        if: always()
+        run: |
+          [ -n "${IMG:-}" ] || exit 0
+          docker rmi -f "$IMG" "$IMG-base" 2>&1 | grep -v 'No such image' || true
 
   sdk:
     name: Go SDK
@@ -362,6 +407,15 @@ jobs:
         # These talk to tfwsim: the real firmware compiled for the host. Not a
         # fake, which would drift from the firmware the moment either changed.
         run: docker run --rm "$IMG" make sdk-test
+      - name: remove this job's images
+        # Every job leaves ~4.4 GB behind otherwise, and the runner daemon is
+        # shared. Only this job's own tags: no prune, no wildcard. IMG is unset
+        # when the build step never started, and an image may be missing when
+        # it stopped partway, so neither is an error here.
+        if: always()
+        run: |
+          [ -n "${IMG:-}" ] || exit 0
+          docker rmi -f "$IMG" "$IMG-base" 2>&1 | grep -v 'No such image' || true
 
   xkms:
     name: xkms adapter

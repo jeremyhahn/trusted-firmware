@@ -495,33 +495,41 @@ without renumbering:
 
    Facts gathered for the M7's OTA (2026-10-15, #52; the full table is decision
    12 of [the OTA ADR](../ota/adr-ota-image-format-and-trust.md)). The question
-   stays open. UM12527 could not be read from that lane, so board facts are
-   from NXP's public pages.
-   - **Verified:** the AHAB container carries an 8-bit `fuse_version` that must
-     be at least the fused value, and a 16-bit `sw_version` that selects
-     between images and is not a floor (SPSDK AHAB documentation; U-Boot
-     `doc/imx/imx95_container.txt`). The ELE commit command fuses the version
-     (SPSDK, *i.MX95 Anti-rollback Protection Example*).
-   - **Verified:** the M7 image is an optional `cortex_m7_app` in the OEM
-     container of the primary container set, loaded to `0x303C0000`, so it
-     shares that container's fuse version with the System Manager and SPL
-     (SPSDK, *i.MX 95 AHAB with U-Boot*). Updating it is a boot-container
-     update unless the M7 is loaded later from its own container.
-   - **Verified:** the ELE HSM API has no general monotonic counter for
-     software. A limited, fuse-backed counter makes key-store exports roll-back
-     resistant under `STRICT_OPERATION`; `hsm_data_storage` stores data
-     encrypted under a device-derived key (NXP RM00284).
-   - **Verified:** the ROM has a secondary boot (the other eMMC boot partition,
-     or an image offset), which U-Boot reads from the ROM's passover data
-     (U-Boot, *imx9: scmi: Support iMX95/94/952 secondary boot*, 2026-04). On
-     eMMC the boot pointer is `BOOT_PARTITION_ENABLE` (JEDEC JESD84-B51).
-   - **Unverified:** the fuse word behind the OEM fuse version and its width
-     (needed from the i.MX 95 Security Reference Manual or AN14533); whether
-     data storage is covered by the strict-operation counter, and its size
-     (RM00284); what triggers the ROM fallback, and whether software can force
-     a one-time secondary boot (i.MX 95 Reference Manual, boot chapter);
-     whether the M7 can reach the ELE messaging unit (i.MX 95 Reference
-     Manual).
+   stays open. The device is the NXP FRDM-IMX95-PRO (UM12527). Facts were
+   checked against UM12527 Rev. 1.0, RM00284 Rev. 4.5 and IMX95CEC Rev. 8.
+   - **Verified:** the board has up to six Cortex-A55, one Cortex-M7 and one
+     Cortex-M33 (UM12527 §1.2 Table 1). For the family, the M7 runs at up to
+     800 MHz with 512 KB of TCM (IMX95CEC Rev. 8, Table 1).
+   - **Verified:** memory is a 16 GB LPDDR5, a 32 GB eMMC 5.1 on uSDHC1 (the
+     default boot device), microSD on uSDHC2, and a 512 Mbit Winbond
+     W25Q512NWEIQ NOR on XSPI (UM12527 §1.2, §2.6, §2.8–§2.10). On SW4, FlexSPI
+     NOR is `x100` (UM12527 §2.3 Table 7). The four debug UARTs on J22 have no
+     fixed core mapping (UM12527 §2.19).
+   - **Verified:** `hsm_commit()` with `HSM_COMMIT_OEM_FW_VERSION` fuses the
+     OEM container's firmware version (RM00284 §3.35). The ELE's monotonic
+     counter protects only key-store exports made under `STRICT_OPERATION`
+     with the monotonic flag (§2.4.2). Its fuse words are assigned once per
+     device by `hsm_dev_mono_counter()` (§3.24). There is no general counter
+     for software. Data storage sits in the Linux filesystem, with no strict
+     or monotonic flag and no roll-back claim (§3.8).
+   - **Verified:** the ELE boot mode (`crrm_set_boot_mode()`) is a recovery
+     path, not a trial-boot pointer (RM00284 §3.25). On eMMC, the boot pointer
+     is `BOOT_PARTITION_ENABLE` (JEDEC JESD84-B51).
+   - **Public, outside the set:** the AHAB `fuse_version` (8-bit floor) and
+     `sw_version` (16-bit, not a floor) come from SPSDK and U-Boot
+     `doc/imx/imx95_container.txt`. So does the M7 as `cortex_m7_app` in the
+     primary container set, sharing its fuse version, from SPSDK *i.MX 95 AHAB
+     with U-Boot*. The ROM's secondary boot comes from the U-Boot patch
+     *imx9: scmi: Support iMX95/94/952 secondary boot*, 2026-04.
+   - **Needed:**
+     - from the i.MX 95 Security Reference Manual: the fuse word behind the OEM
+       fuse version and its steps, and the number of monotonic-counter fuse
+       words;
+     - from IMX95RM, AHAB chapter: the container fields;
+     - from IMX95RM, System Boot chapter: what triggers the ROM fallback, the
+       secondary-offset fuse, whether software can force a one-time secondary
+       boot, and whether the ROM boots the enabled eMMC partition;
+     - from IMX95RM: whether the M7 can reach an ELE messaging unit.
 8. **TF-M release policy.** Track LTS only (2.3, to April 2029), and what is
    our response time to a TF-M advisory?
 9. **PSA Certified.** Pursue device-level certification? Ask a lab whether our

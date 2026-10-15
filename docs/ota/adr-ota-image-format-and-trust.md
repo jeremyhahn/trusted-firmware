@@ -632,49 +632,89 @@ command until then. The CA's recommendation, recorded for that decision:
   primary/secondary fallback applies, and the boot pointer flips only after the
   control plane's confirm.
 
-**What the public sources confirm, and what they do not.** UM12527 (FRDM-IMX95-PRO
-Board User Manual, Rev 1.0, in trusted-imx95's `docs/references/`) was not
-readable from this lane: the forge holds it in a private repository and no token
-was available. Each board fact below is therefore from NXP's public pages and is
-marked against UM12527.
+**What the vendor documents confirm, and what they do not.** The device is the
+NXP FRDM-IMX95-PRO. These facts were checked on 2026-10-15 (#52) against NXP's
+documents from trusted-imx95's `docs/references/`, read from NXP's public copies:
+
+- UM12527, *FRDM-IMX95-PRO Board User Manual*, Rev. 1.0, 22 June 2026;
+- RM00284, *EdgeLock Enclave Hardware Security Module API*, Rev. 4.5,
+  24 September 2026;
+- IMX95CEC, the i.MX 95 commercial data sheet, Rev. 8, 7 April 2026. Its
+  revision was not compared with trusted-imx95's copy.
+
+AN14471 and AN14861 are in that set, but they cover the i.MX RT1170 and RT1180,
+so nothing here is cited from them. The i.MX 95 Reference Manual (IMX95RM) and
+the Security Reference Manual (SRM) are not in the set. Rows that depend on
+them say "needed from". The SPSDK and U-Boot rows come from public sources
+outside the set and are marked that way.
 
 | Fact | Status | Source |
 |---|---|---|
-| Cores: Cortex-A55 (up to six), one Cortex-M7 up to 800 MHz, one Cortex-M33 up to 333 MHz | verified, public | NXP, *Getting Started with the FRDM i.MX 95 Pro*, board overview; to cite from UM12527 |
-| Memories: LPDDR5 and eMMC | verified, public; **sizes unverified** (16 GB LPDDR5 and 32 GB eMMC reported in the press) | as above; needed from UM12527: memory sizes and parts |
-| Boot modes on SW4: serial downloader (USB, Cortex-M33), uSDHC1 8-bit eMMC 5.1 (**the default**), uSDHC2 4-bit SD 3.0, FlexSPI serial NOR | verified, public | as above, "Boot mode" |
-| The SW4 setting for FlexSPI NOR | **unverified**: NXP's pages disagree (`x100`, `1000`) | needed from UM12527: the boot-switch table |
-| Debug: one USB-C port, J22, exposing four UARTs | verified, public | as above, "Debug"; NXP says the mapping is not fixed and to open all four |
-| Which COM port belongs to which core | **unverified** | needed from UM12527: the debug-UART-to-core mapping |
-| The AHAB container header has an 8-bit `fuse_version`: "must be equal or greater than the version stored in fuses to allow loading this container" | verified | SPSDK AHAB documentation; U-Boot `doc/imx/imx95_container.txt` |
-| It also has a 16-bit `sw_version`, used by the boot companion to choose among images with the same fuse version. **It is not a floor.** | verified | as above |
-| The fuse version is committed by the ELE commit command (`ahab_commit`, OEM firmware-version info) | verified | SPSDK, *i.MX95 Anti-rollback Protection Example* (`nxpele commit -i oem_fw_fuse`) |
-| Which i.MX 95 fuse word backs the OEM container's fuse version, and how many steps it allows | **unverified** | needed from the i.MX 95 Security Reference Manual (fuse map) or NXP AN14533 |
-| The M7 image is an optional `cortex_m7_app` in the OEM container of the primary container set, loaded to `0x303C0000`, beside the System Manager and U-Boot SPL. **Its fuse version is the container's, shared with them.** | verified | SPSDK, *i.MX 95 AHAB with U-Boot* |
-| The ELE HSM API (RM00284, which covers the i.MX 95) has a **monotonic counter** that makes key-store exports to NVM roll-back resistant when `STRICT_OPERATION` is set. It is limited: once blown, exports warn that updates are no longer roll-back protected | verified | NXP RM00284, *EdgeLock Enclave Hardware Security Module API* |
-| The API offers **no general monotonic counter to software**. `hsm_data_storage` stores data in NVM, encrypted under a device-derived key | verified | as above |
-| Whether a value in data storage is covered by the strict-operation counter, and the counter's size | **unverified** | needed from RM00284: the data-storage and strict-operation sections, the counter's width |
-| The i.MX 95 ROM has a secondary boot. From eMMC it boots the other boot partition; from other devices, an image offset. U-Boot reads "boot stage" (secondary `0x9`) and the image offset from the ROM's passover data | verified | U-Boot patch *imx9: scmi: Support iMX95/94/952 secondary boot* (2026-04) |
-| What triggers the fallback (authentication failure, load failure), the i.MX 95's secondary-offset fuse, and whether software can force a one-time secondary boot (as the i.MX 8M's persist-secondary bit does) | **unverified** | needed from the i.MX 95 Reference Manual, boot chapter |
-| The boot pointer on eMMC: the device's `BOOT_PARTITION_ENABLE` (`EXT_CSD[179]`) selects the boot partition | verified as the eMMC mechanism | JEDEC JESD84-B51 |
-| That the i.MX 95 ROM boots the enabled partition first | **unverified** | needed from the i.MX 95 Reference Manual, boot chapter |
+| The board's processor is the MIMX9596AVZXNAC: up to six Cortex-A55, one Cortex-M7 and one Cortex-M33 | verified | UM12527 Rev. 1.0, §1.2 Table 1 |
+| The M7 runs at up to 800 MHz with 512 KB of TCM; the M33 at up to 333 MHz with 512 KB of TCM | verified for the family | IMX95CEC Rev. 8, Table 1. The board's part is not among IMX95CEC's commercial part numbers. Its own figures are needed from the data sheet that lists it; UM12527 §6 names IMX95IEC |
+| Memories: one 16 GB LPDDR5, Micron MT62F4G32D8DV-023FAIT (U21); 32 GB eMMC 5.1, Micron MTFC32GBCAQTC-IT (U19), on uSDHC1; a microSD slot (J1) on uSDHC2; 512 Mbit 1.8 V quad SPI NOR, Winbond W25Q512NWEIQ (U16), on XSPI | verified (settles tf-52's row) | UM12527 Rev. 1.0, §1.2 Table 1, §2.6, §2.8, §2.9, §2.10 |
+| Boot devices: eMMC on uSDHC1 (**the default**), microSD on uSDHC2, FlexSPI serial NOR, and USB serial download (on USB1 by default) | verified | UM12527 Rev. 1.0, §1.2 Table 1, §2.3 Table 7 |
+| SW4 is a 4-position DIP switch; SW4[1..4] drive `BOOT_MODE3..0`, with ON = 1. `x001` is the serial downloader, `x010` eMMC, `x011` SD and `x100` FlexSPI NOR. The table names the Cortex-M33 as the boot core | verified | UM12527 Rev. 1.0, §1.6, §2.3 Table 7 |
+| FlexSPI NOR is `x100`: SW4[2] ON, SW4[3] and SW4[4] OFF, SW4[1] either. `1000` is wrong | verified (settles tf-52's row) | UM12527 Rev. 1.0, §2.3 Table 7 |
+| Holding K2 at power-up or reset boots from microSD instead of eMMC, without changing SW4. K1 is a PMIC cold reset that leaves `NVCC_BBSM_1P8` powered | verified | UM12527 Rev. 1.0, §1.7 Table 4 |
+| Debug: a CH9114F (U67) behind USB-C J22 gives four UARTs at 115200 8N1, one each for the A55, the M33 and the M7 | verified | UM12527 Rev. 1.0, §1.2 Table 1, §2.19 |
+| Which COM port belongs to which core | **not fixed**: the manual says to open all four. The M7's port is found by its output | UM12527 Rev. 1.0, §2.19 (settles tf-52's row) |
+| `hsm_commit()` writes the SRK revocation and firmware version from the NXP and OEM containers into fuses. The OEM bits are `HSM_COMMIT_OEM_FW_VERSION` and `HSM_COMMIT_OEM_SRK_REVOCATION`. Only the boot ELE firmware offers it | verified | RM00284 Rev. 4.5, §3.35 |
+| The AHAB container header has an 8-bit `fuse_version`, which must be at least the fused value, and a 16-bit `sw_version`, which picks between images and **is not a floor** | public, outside the set; field widths and meaning needed from IMX95RM / SRM (AHAB chapter) | SPSDK AHAB documentation; U-Boot `doc/imx/imx95_container.txt` |
+| SPSDK's anti-rollback example commits with `nxpele commit -i oem_fw_fuse` | public, outside the set; consistent with RM00284 §3.35 | SPSDK, *i.MX95 Anti-rollback Protection Example* |
+| Which fuse word backs the OEM container's fuse version, and how many steps it allows | **needed from the i.MX 95 Security Reference Manual (fuse map) / IMX95RM** | — |
+| The M7 image is an optional `cortex_m7_app` in the OEM container of the primary container set, loaded to `0x303C0000`, beside the System Manager and U-Boot SPL. **It shares that container's fuse version** | public, outside the set; needed from IMX95RM (System Boot and AHAB chapters) | SPSDK, *i.MX 95 AHAB with U-Boot* |
+| The ELE writes the key store to NVM only after a strict operation. Key-store updates count once the strict operation is acknowledged. The monotonic counter is limited, so RM00284 advises batching updates before a strict one. Once the counter is spent, each export warns that updates are not roll-back protected | verified | RM00284 Rev. 4.5, §2.4, §2.4.2 |
+| The counter is reached only through flags on key-store operations, never by a call of its own. Key generation and import: `HSM_OP_KEY_GENERATION_FLAGS_MONOTONIC_COUNTER` and `..._STRICT_OPERATION` (§3.2.3.10, §3.2.3.11, §3.2.4.2). Key groups: `HSM_OP_MANAGE_KEY_GROUP_FLAGS_MONOTONIC` and `..._SYNC_KEYSTORE` (§3.2.3.14, §3.2.3.15). The key-store service: `HSM_SVC_KEY_STORE_FLAGS_MONOTONIC` and `..._STRICT_OPERATION` (§3.22.3.4, §3.22.3.5). Key exchange: §3.20.3.7, §3.20.3.8 | verified | RM00284 Rev. 4.5 |
+| `hsm_dev_mono_counter()` splits the counter's fuse words between the ELE HSM, V2X HSM and V2X SHE, once per device. With no such OTP configuration, a counter operation warns and applies no roll-back protection. `hsm_get_info()` returns `chip_monotonic_counter` (16 bits) | verified | RM00284 Rev. 4.5, §3.24, §3.19 |
+| How many monotonic-counter fuse words the i.MX 95 has, and so how many strict updates a device can make | **needed from the i.MX 95 Security Reference Manual (fuse map)** | — |
+| The API offers **no general monotonic counter to software**: nothing increments or reads a counter for a value of the caller's own | verified, by absence across the API | RM00284 Rev. 4.5, §3 |
+| Data storage (`hsm_data_storage`, `hsm_enc_data_storage`, `hsm_data_ops`, `hsm_enc_data_ops`) stores and retrieves blobs by `data_id` in "the Linux filesystem managed by" the ELE firmware. **Its flags carry no strict or monotonic bit, and RM00284 claims no roll-back protection for it.** tf-52's "encrypted under a device-derived key" is not in RM00284 and is withdrawn | verified | RM00284 Rev. 4.5, §3.8, §3.8.5.1, §3.8.5.2 |
+| `hsm_dev_attest()` and `hsm_dev_getinfo()` report the OEM SRK revocation status (uncommitted changes excluded), the firmware hash and the lifecycle, but no firmware version | verified | RM00284 Rev. 4.5, §3.12, §3.13 |
+| `crrm_get_boot_mode()` and `crrm_set_boot_mode()` hold a boot mode in the BBSM: normal `0x69`, recovery download `0x3c`, recovery install `0x5a`. Only download→install, install→normal and install→download are allowed, one per boot cycle. It is a recovery mode, not a trial-boot pointer | verified | RM00284 Rev. 4.5, §3.25 |
+| The ELE identifies a caller by its domain ID and messaging unit | verified | RM00284 Rev. 4.5, §3.22.1 |
+| Whether the M7 has a messaging unit to the ELE | **needed from IMX95RM** | — |
+| The ROM has a secondary boot: from eMMC, the other boot partition; from other devices, an image offset. U-Boot reads the boot stage (secondary `0x9`) and the offset from the ROM's passover data | public, outside the set; needed from IMX95RM (System Boot chapter) | U-Boot patch *imx9: scmi: Support iMX95/94/952 secondary boot* (2026-04) |
+| What triggers the fallback (authentication or load failure), the i.MX 95's secondary-offset fuse, and whether software can force a one-time secondary boot | **needed from IMX95RM, System Boot chapter** (UM12527 §2.3 Table 7 points there) | — |
+| On eMMC, the boot pointer is the device's `BOOT_PARTITION_ENABLE` (`EXT_CSD[179]`) | verified as the eMMC mechanism | JEDEC JESD84-B51 |
+| Whether the i.MX 95 ROM boots the enabled partition first | **needed from IMX95RM, System Boot chapter** | — |
 
 **What the facts mean for the recommendation**, for #15 to weigh:
 
-- The AHAB floor exists, but it is **per container set, not per M7 image**. A
-  bump raises the floor of the System Manager and the SPL too, which fits
-  "bumped only for revocation".
+- **"AHAB and the ELE verify the M7 container" holds** as far as the set goes.
+  The ELE commits the OEM container's firmware version and SRK revocation
+  (RM00284 §3.35). The container format itself needs IMX95RM / SRM.
+- **The fuse-backed floor holds.** It is **per container set, not per M7
+  image** (public SPSDK, to confirm against IMX95RM). A bump raises the floor
+  of the System Manager and the SPL as well, which fits "bumped only for
+  revocation". How many bumps a device allows needs the SRM's fuse map.
+- **The per-release version "in enclave secure storage" does not hold as
+  written.** ELE data storage has no counter. It lives in the A-core's Linux
+  filesystem, and RM00284 makes no roll-back claim for it (§3.8). Only
+  key-store exports made under `STRICT_OPERATION` with the monotonic flag are
+  counter-protected (§2.4.2).
+
+  *Inference, not stated by RM00284:* a version becomes roll-back resistant if
+  it is tied to the key store. For example, a key or key group could be
+  rotated at each confirm and exported under strict operation with the
+  monotonic flag, with the M7 checking the version against it. Each release
+  then spends one counter step. The steps come from fuse words that
+  `hsm_dev_mono_counter()` assigns once per device (§3.24), and their number
+  needs the SRM. The other choice is to keep only the AHAB floor and accept
+  roll-back within a fuse level. #15 decides.
 - **Updating the M7 image means updating the boot container set**, which
   trusted-imx95 owns. The alternative is to load the M7 later, from its own
-  container authenticated through the ELE. #15 decides.
-- **The per-release version.** If it lives in ELE data storage, its roll-back
-  resistance depends on the strict-operation counter. That counter is
-  fuse-limited, so one strict update per release consumes it. Unverified until
-  RM00284's sections are read.
+  container, authenticated through the ELE. That also needs the M7, or the
+  core that loads it, to reach an ELE messaging unit (IMX95RM). #15 decides.
+- **"The A-core agent stages into the inactive slot" fits the board.** The
+  default boot device is the eMMC on uSDHC1 (UM12527 §2.3, §2.9). That the
+  A55's Linux writes it is an inference, not stated in the manual. The slot
+  layout and how the ROM chooses between slots need IMX95RM.
 - **"Flip the pointer only after confirm"** needs a way to boot the staged
-  container once without flipping. A one-time secondary boot is unverified on
-  the i.MX 95. Without it, the trial has to run after the flip, with the ROM's
-  fallback as the safety net.
+  container once without flipping. The ELE's boot mode (RM00284 §3.25) is a
+  recovery path, not that. A one-time secondary boot needs IMX95RM. Without
+  one, the trial runs after the flip, with the ROM's fallback as the safety
+  net.
 
 Open question 7 of the
 [trust-model ADR](../cortex-m/adr-trust-model-vs-tf-m.md#open-questions-for-the-owner)

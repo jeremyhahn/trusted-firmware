@@ -220,8 +220,17 @@ func (b *Backend) initAttestation() error {
 	return nil
 }
 
+// BackendType is the type this backend registers under with go-xkms, and the
+// backend segment of every Key ID it holds ("tfw:<type>:<algorithm>:<cn>").
+//
+// It is "tfw" and not "avr" because go-xkms still compiles in a backend of its
+// own under "avr" (pkg/backend/avr) until go-xkms#1439 step 3 removes it, and a
+// registry name is held once per process. Key IDs written as "avr:..." do not
+// resolve to this backend; see CHANGELOG.md.
+const BackendType types.BackendType = "tfw"
+
 // Type returns the backend type identifier.
-func (b *Backend) Type() types.BackendType { return types.BackendTypeAVR }
+func (b *Backend) Type() types.BackendType { return BackendType }
 
 // Capabilities reports what this backend can do, derived from what the device
 // said about itself.

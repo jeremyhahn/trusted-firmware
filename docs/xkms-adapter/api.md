@@ -126,3 +126,8 @@ than the SDK's own 10-second default.
 from `pkg/backend`, `sdk/go` and `pkg/xkms` (as `xkms.BackendAVR`), and are
 recognised by `types.ParseStoreType`, `types.StoreType.IsValid`,
 `xkms.BackendType.IsValid`, `keyIDToBackendType` and `backendTypeToStoreType`.
+
+They name go-xkms's built-in backend, not this one. This backend registers
+itself as `tfw` (`xkms/register.go`, through `xkms.RegisterExternalBackend`):
+`Backend.Type()` and its keys' store type are `tfw`, and a Key ID beginning
+`avr:` does not resolve to it.

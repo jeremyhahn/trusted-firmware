@@ -69,7 +69,8 @@ func TestAVRBackendIsConstructableFromTheSDK(t *testing.T) {
 
 	// The enum value and the backend it names are reachable from the same
 	// place, which was the whole complaint.
-	assert.Equal(t, types.BackendTypeAVR, (&avr.Backend{}).Type())
+	assert.Equal(t, xkms.AVRBackendType, (&avr.Backend{}).Type())
+	assert.Equal(t, types.BackendType("tfw"), xkms.AVRBackendType)
 
 	// A refusal the constructor makes, classified through the SDK's sentinel
 	// rather than through pkg/.
@@ -112,6 +113,14 @@ func TestAVRErrorsAreTheCanonicalSentinels(t *testing.T) {
 			assert.Same(t, pair.pkg, pair.sdk, "the SDK re-exports a copy rather than the sentinel")
 		})
 	}
+}
+
+// init has registered the backend; RegisterAVRBackend is the same call, so a
+// second one is go-xkms refusing a name it already holds.
+func TestRegisterAVRBackendIsRefusedASecondTime(t *testing.T) {
+	err := xkms.RegisterAVRBackend()
+
+	assert.ErrorIs(t, err, types.ErrBackendTypeRegistered)
 }
 
 // The format string is the one the ACME challenge uses for the same evidence.

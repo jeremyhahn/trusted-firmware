@@ -19,7 +19,7 @@ that tag, then tag `xkms/`. The module never builds against the working-tree
 | Symbol | What it is |
 |---|---|
 | `NewBackend(ctx, *Config, *tfw.Device) (*Backend, error)` | Reads `CAPS` and caches it. Fails when the device is absent, silent, or speaks a protocol major this host does not. |
-| `Backend.Type() types.BackendType` | `types.BackendTypeAVR` (`"avr"`). |
+| `Backend.Type() types.BackendType` | `"tfw"`, the type `register.go` registers through go-xkms's `RegisterExternalBackend`. Its keys' store type is `tfw` too, so their Key IDs read `tfw:...`. |
 | `Backend.Capabilities() types.Capabilities` | Answers from the cached `CAPS`. No I/O, no allocation. |
 | `Backend.Caps() tfw.Caps` | The device's `CAPS` reply verbatim. |
 | `Backend.AttestLevel() (types.AttestLevel, error)` | Derived from `Caps.CryptoTier` and nothing else. |

@@ -115,7 +115,7 @@ func (b *Backend) keyAttributes() *types.KeyAttributes {
 		CN:            b.config.KeyCN,
 		KeyAlgorithm:  x509.ECDSA,
 		KeyType:       types.KeyTypeIDevID,
-		StoreType:     types.StoreAVR,
+		StoreType:     types.StoreType(BackendType),
 		ECCAttributes: &types.ECCAttributes{Curve: elliptic.P256()},
 		Hash:          crypto.SHA256,
 		AttestLevel:   level,

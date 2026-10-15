@@ -25,6 +25,12 @@ var (
 	// the attached device, so there is no useful degraded mode.
 	ErrNilDevice = errors.New("avr backend: nil device")
 
+	// ErrInvalidFactoryConfig indicates NewKeyProvider was handed a
+	// configuration value of the wrong type. A value under a known key that
+	// is not what the key documents is refused rather than ignored: ignoring
+	// it would run a backend the caller did not configure.
+	ErrInvalidFactoryConfig = errors.New("avr backend: invalid factory configuration")
+
 	// ErrMissingKeyCN indicates Config.KeyCN was set to the empty string.
 	// The device's identity key needs a name to be addressed by, and an
 	// empty one would match every KeyAttributes that forgot to set a CN.
@@ -75,6 +81,19 @@ var (
 	// builds itself; a signature over opaque bytes a host handed it would be
 	// a signature over whatever the holder of those bytes says it is.
 	ErrSigningUnsupported = errors.New("avr backend: the device signs no host-supplied digest")
+
+	// ErrInvalidAttestation indicates PossessionSigner was handed something
+	// other than an attestation AttestKey produced: no alias certificate, a
+	// key that is not P-256, or a nonce of the wrong width.
+	ErrInvalidAttestation = errors.New("avr backend: not an attestation this backend produced")
+
+	// ErrPossessionMismatch indicates the device's possession signature does
+	// not verify over the digest the caller asked to be signed: the device
+	// built a different CertificationRequestInfo from the one the caller did.
+	// The device never signs the caller's bytes, so this is how a disagreement
+	// about the template, the identity or the nonce shows up -- refused here
+	// rather than at the CA.
+	ErrPossessionMismatch = errors.New("avr backend: the device signed a different possession request")
 
 	// ErrDecryptionUnsupported indicates the wire protocol defines no
 	// decryption command. The element's key is a signing identity.

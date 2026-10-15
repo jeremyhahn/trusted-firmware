@@ -40,10 +40,11 @@ import (
 // ---------------------------------------------------------------------------
 
 // AVRBackend is one attached AVR device as a key provider. It is a
-// types.KeyProvider and an attesting provider; it is deliberately not a signer,
-// because the wire protocol defines no command that signs a digest the host
-// supplied -- a device that did would be a signing oracle for anyone who
-// reached the serial line.
+// types.KeyProvider and an attesting provider; it is deliberately not a general
+// signer, because the wire protocol defines no command that signs a digest the
+// host supplied -- a device that did would be a signing oracle for anyone who
+// reached the serial line. The one signature it gives is ACME finalize's
+// possession request, which the device builds itself: see PossessionSigner.
 type AVRBackend = avr.Backend
 
 // AVRConfig configures the backend: the common name the device's one key is
@@ -145,6 +146,10 @@ var (
 	// degraded mode: every answer the backend gives comes from the device.
 	ErrAVRNilDevice = avr.ErrNilDevice
 
+	// ErrAVRInvalidFactoryConfig reports a BackendConfigs["tfw"] value of the
+	// wrong type.
+	ErrAVRInvalidFactoryConfig = avr.ErrInvalidFactoryConfig
+
 	// ErrAVRMissingKeyCN reports an empty key common name, refused rather than
 	// defaulted because it would otherwise match every request that forgot to
 	// set one.
@@ -176,6 +181,15 @@ var (
 	// ErrAVRSigningUnsupported reports the deliberate absence of a command
 	// that signs a host-supplied digest.
 	ErrAVRSigningUnsupported = avr.ErrSigningUnsupported
+
+	// ErrAVRInvalidAttestation reports a PossessionSigner asked for with an
+	// attestation AttestKey did not produce.
+	ErrAVRInvalidAttestation = avr.ErrInvalidAttestation
+
+	// ErrAVRPossessionMismatch reports a possession signature that does not
+	// verify over the request the caller built: another nonce, another
+	// identity or another key.
+	ErrAVRPossessionMismatch = avr.ErrPossessionMismatch
 
 	// ErrAVRDecryptionUnsupported reports that the element's key is a signing
 	// identity and the wire defines no decryption command.

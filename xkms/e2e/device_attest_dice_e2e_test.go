@@ -21,10 +21,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
+	"fmt"
+	"io"
+	"log/slog"
 	"math/big"
 	"sync/atomic"
 	"testing"
@@ -32,6 +35,7 @@ import (
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
+	"github.com/jeremyhahn/trusted-firmware/xkms/avr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,6 +43,7 @@ import (
 	"github.com/jeremyhahn/go-xkms/pkg/acme/client"
 	"github.com/jeremyhahn/go-xkms/pkg/attestation/dice"
 	"github.com/jeremyhahn/go-xkms/pkg/ca"
+	"github.com/jeremyhahn/go-xkms/pkg/types"
 )
 
 // These tests enroll the REAL trusted-firmware firmware, compiled for the host
@@ -48,71 +53,38 @@ import (
 //   - the device mints a DICE alias certificate over the nonce derived from the
 //     challenge's key authorization (ATTEST_CERT, signed with real P-256);
 //   - the client POSTs it as the attestation object and the server verifies it
-//     with the production deviceattest01.TrustAnchorVerifier;
+//     with the production deviceattest01.TrustAnchorVerifier, anchored in the
+//     device's provisioning record;
 //   - the order's identifier is the device's ueid, read from the evidence;
-//   - finalization binds the CSR's key to the alias certificate's key.
+//   - finalization sends the possession request, signed by the device itself
+//     over the same nonce (ATTEST_CSR, through avr.Backend.PossessionSigner).
 //
 // The simulator binaries are built by `make tfwsim`. A missing binary FAILS
 // these tests (tfwsim reports the command); they never skip.
-//
-// UNRESOLVED (trusted-firmware#28): this file came out of go-xkms's
-// pkg/acme/client, and three helpers it calls -- deviceAttestServer,
-// startDeviceAttestServer and newDeviceAttestRoundTripClient -- are unexported
-// test code in that package's other _test.go files, so they do not exist in this
-// module and it does not compile until go-xkms exports an ACME test server for
-// device-attest-01 (or the tests move back). Do not copy them in: that is a
-// reimplementation of what go-xkms owns (L2).
 
-// testDeviceIDSeed is the published string whose SHA-256 is the private half
-// of the simulator's TEST DeviceID key (trusted-firmware test/model/atecc608a.c).
-// It is public on purpose: the identity is a test identity and nothing outside
-// a test may trust it. The private half is needed here only to sign the CSR,
-// because the firmware has no command that signs one; see diceElement.
-const testDeviceIDSeed = "tfwsim-atecc608a TEST DeviceID key v1"
-
-// diceDeviceIDKey returns the simulator's DeviceID private key and proves it is
-// the key the firmware signs with by comparing it to tfwsim's public point.
-func diceDeviceIDKey(t *testing.T) *ecdsa.PrivateKey {
+// provisioningRecord is the record a provisioning step writes for a device:
+// its ueid and the DeviceID public key read from it at the factory (the
+// raw-key path of deviceattest01.ProvisionedDevice). The alias certificate
+// must carry that key and verify under it; only the public key crosses over.
+func provisioningRecord(t *testing.T, ueid string, deviceID *ecdsa.PublicKey) deviceRegistry {
 	t.Helper()
-	scalar := sha256.Sum256([]byte(testDeviceIDSeed))
-	key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), scalar[:])
+	spki, err := x509.MarshalPKIXPublicKey(deviceID)
 	require.NoError(t, err)
-	require.True(t, key.PublicKey.Equal(tfwsim.TestDeviceIDPublicKey()),
-		"the published seed no longer derives tfwsim.TestDeviceIDPublicKey: the simulator's identity changed")
-	return key
+	return deviceRegistry{ueid: {DeviceIDKey: spki}}
 }
 
-// provisioningRecord is the DeviceID certificate a provisioning step records
-// for a device: the CA that provisioned the part certifies the DeviceID public
-// key under the name the alias certificate names as its issuer. A deployment
-// configures it as a dice_root; only the public key crosses over.
-func provisioningRecord(t *testing.T, deviceID *ecdsa.PublicKey) *x509.Certificate {
-	t.Helper()
-	factoryKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	factory := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "Provisioning CA"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
+// deviceRegistry is the device registry the server anchors "dice" evidence
+// in, keyed by the hex of the ueid. go-trusted-platform owns the real one;
+// this holds only what a provisioning step would have written.
+type deviceRegistry map[string]*deviceattest01.ProvisionedDevice
+
+// ResolveDevice implements deviceattest01.DeviceResolver.
+func (r deviceRegistry) ResolveDevice(_ context.Context, ueid string) (*deviceattest01.ProvisionedDevice, error) {
+	record, ok := r[ueid]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", deviceattest01.ErrDeviceNotProvisioned, ueid)
 	}
-	record := &x509.Certificate{
-		SerialNumber:          big.NewInt(2),
-		Subject:               pkix.Name{CommonName: "tfw DeviceID"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, record, factory, deviceID, factoryKey)
-	require.NoError(t, err)
-	cert, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	return cert
+	return record, nil
 }
 
 // diceElement is the ACME client's view of the simulated device. It implements
@@ -120,70 +92,109 @@ func provisioningRecord(t *testing.T, deviceID *ecdsa.PublicKey) *x509.Certifica
 // DeviceIdentity and CreateAttestedKey; the embedded interface is nil, so a
 // call to any other method fails loudly rather than answering.
 //
-// The device is the real firmware. Its alias key is its DeviceID key, so the
-// CSR for "the attested key" is signed by that key. The firmware has no
-// command that signs a CSR (trusted-firmware has ATTEST, ATTEST_CERT, AUTH and
-// PROV_* only), which is why signer holds the public test key's private half.
+// The device is the real firmware, reached through the adapter's backend: the
+// challenge is answered with AttestKey's alias certificate and finalize is
+// signed by the device's ATTEST_CSR through PossessionSigner. No private key
+// is held on the host.
 type diceElement struct {
 	client.TPMModule
 
 	device   *tfw.Device
+	backend  *avr.Backend
 	identity string
-	signer   crypto.Signer
 
 	// nonceFor derives the nonce the device attests over from the key
 	// authorization. The draft's is deviceattest01.DICENonce.
 	nonceFor func(keyAuthorization string) []byte
+
+	// signerFor returns the finalize signer for the attestation the device
+	// made for the challenge. The adapter's is Backend.PossessionSigner.
+	signerFor func(att *avr.Attestation) (crypto.Signer, error)
 }
 
 func newDiceElement(t *testing.T) *diceElement {
 	t.Helper()
+	cfg := avr.DefaultConfig()
+	cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	device := tfwsim.StartElement(t)
+	backend, err := avr.NewBackend(context.Background(), cfg, device)
+	require.NoError(t, err)
+
 	element := &diceElement{
-		device:   tfwsim.StartElement(t),
-		signer:   diceDeviceIDKey(t),
-		nonceFor: deviceattest01.DICENonce,
+		device:    device,
+		backend:   backend,
+		nonceFor:  deviceattest01.DICENonce,
+		signerFor: backend.PossessionSigner,
 	}
 
 	// The device's identity is read from its own evidence, by the rule the
 	// server reads it with, so client and server cannot disagree.
-	probe := element.attestCert(t, deviceattest01.DICENonce("identity-probe"))
-	leaf, err := x509.ParseCertificate(probe)
+	probe, err := element.attest(deviceattest01.DICENonce("identity-probe"))
 	require.NoError(t, err)
-	element.identity, err = deviceattest01.DeviceIdentityFromCertificate(deviceattest01.FormatDICE, leaf)
+	element.identity, err = deviceattest01.DeviceIdentityFromCertificate(deviceattest01.FormatDICE, probe.Certificate)
 	require.NoError(t, err)
 	return element
 }
 
-func (e *diceElement) attestCert(t testing.TB, nonce []byte) []byte {
-	t.Helper()
+func (e *diceElement) attest(nonce []byte) (*avr.Attestation, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	der, err := e.device.AttestCert(ctx, nonce)
-	require.NoError(t, err)
-	return der
+	result, err := e.backend.AttestKey(ctx, &types.KeyAttributes{CN: avr.DefaultKeyCN}, nonce)
+	if err != nil {
+		return nil, err
+	}
+	return result.(*avr.Attestation), nil
 }
 
 // DeviceIdentity implements TPMModule.
 func (e *diceElement) DeviceIdentity() (string, error) { return e.identity, nil }
 
 // CreateAttestedKey implements TPMModule: the device mints its alias
-// certificate over the challenge's nonce and the client wraps it as a "dice"
-// attestation object.
+// certificate over the challenge's nonce, the client wraps it as a "dice"
+// attestation object, and the possession signer for that same nonce signs
+// the finalize request.
 func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.AttestedKey, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	der, err := e.device.AttestCert(ctx, e.nonceFor(keyAuthorization))
+	att, err := e.attest(e.nonceFor(keyAuthorization))
 	if err != nil {
 		return nil, err
 	}
 	statement, err := deviceattest01.EncodeAttestationRequest(&deviceattest01.AttestationObject{
 		Format:       deviceattest01.FormatDICE.String(),
-		AttStatement: deviceattest01.AttestationStatement{X5c: []interface{}{der}},
+		AttStatement: deviceattest01.AttestationStatement{X5c: []interface{}{att.CertificateDER}},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &client.AttestedKey{Statement: statement, Signer: e.signer}, nil
+	signer, err := e.signerFor(att)
+	if err != nil {
+		return nil, err
+	}
+	return &client.AttestedKey{Statement: statement, Signer: signer, Format: deviceattest01.FormatDICE}, nil
+}
+
+// uncheckedDeviceSigner hands the server whatever ATTEST_CSR returns for its
+// nonce, without the check PossessionSigner makes, so a test can show the
+// server refusing what the adapter would have refused first.
+type uncheckedDeviceSigner struct {
+	device *tfw.Device
+	pub    crypto.PublicKey
+	nonce  [tfw.AliasNonceLen]byte
+}
+
+func (s *uncheckedDeviceSigner) Public() crypto.PublicKey { return s.pub }
+
+func (s *uncheckedDeviceSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	raw, err := s.device.AttestCSR(ctx, s.nonce)
+	if err != nil {
+		return nil, err
+	}
+	half := len(raw) / 2
+	return asn1.Marshal(struct{ R, S *big.Int }{
+		new(big.Int).SetBytes(raw[:half]),
+		new(big.Int).SetBytes(raw[half:]),
+	})
 }
 
 // verdictRecorder wraps the production verifier and remembers why it last
@@ -191,17 +202,30 @@ func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.Att
 // failed attestation is the same incorrectResponse -- so a test that must tell
 // "the nonce was wrong" from "the root was untrusted" reads it here, where the
 // verdict is made, instead of weakening what the client is told.
+//
+// It embeds the concrete verifier, not the AttestationVerifier interface: a
+// "dice" attestation is anchored through RegisteredDeviceVerifier, and a
+// wrapper that hid it would be refused as having no device registry.
 type verdictRecorder struct {
-	deviceattest01.AttestationVerifier
+	*deviceattest01.TrustAnchorVerifier
 	refusal atomic.Pointer[error]
 }
 
 func (r *verdictRecorder) VerifyAttestationObject(obj *deviceattest01.AttestationObject, expectedChallenge []byte) error {
-	return r.record(r.AttestationVerifier.VerifyAttestationObject(obj, expectedChallenge))
+	return r.record(r.TrustAnchorVerifier.VerifyAttestationObject(obj, expectedChallenge))
 }
 
 func (r *verdictRecorder) VerifyAKCertificateChain(certs [][]byte) error {
-	return r.record(r.AttestationVerifier.VerifyAKCertificateChain(certs))
+	return r.record(r.TrustAnchorVerifier.VerifyAKCertificateChain(certs))
+}
+
+func (r *verdictRecorder) VerifyRegisteredDevice(ctx context.Context, leaf *x509.Certificate, keyAuthorization string) ([]byte, error) {
+	spki, err := r.TrustAnchorVerifier.VerifyRegisteredDevice(ctx, leaf, keyAuthorization)
+	return spki, r.record(err)
+}
+
+func (r *verdictRecorder) ConfirmRegisteredDevice(ctx context.Context, ueid string, attestedSPKI []byte) error {
+	return r.record(r.TrustAnchorVerifier.ConfirmRegisteredDevice(ctx, ueid, attestedSPKI))
 }
 
 func (r *verdictRecorder) record(err error) error {
@@ -227,14 +251,14 @@ type diceEnrollment struct {
 	verifier *verdictRecorder
 }
 
-// newDiceEnrollment serves device-attest-01 with dice_roots set to anchors.
-// RequireDeviceSignedLeaf is the AVR profile the xkmsd configuration sets: the
-// alias certificate's issuer is the element's own DeviceID key.
-func newDiceEnrollment(t *testing.T, anchors ...*x509.Certificate) *diceEnrollment {
+// newDiceEnrollment serves device-attest-01 with "dice" evidence anchored in
+// devices. RequireDeviceSignedLeaf is the AVR profile the xkmsd configuration
+// sets: the alias certificate's issuer is the element's own DeviceID key.
+func newDiceEnrollment(t *testing.T, devices deviceattest01.DeviceResolver) *diceEnrollment {
 	t.Helper()
 	verifier, err := deviceattest01.NewTrustAnchorVerifier(deviceattest01.TrustAnchors{
-		DICERoots: anchors,
-		DICE:      deviceattest01.DICEPolicy{RequireDeviceSignedLeaf: true},
+		Devices: devices,
+		DICE:    deviceattest01.DICEPolicy{RequireDeviceSignedLeaf: true},
 	})
 	require.NoError(t, err)
 
@@ -254,7 +278,7 @@ func newDiceEnrollment(t *testing.T, anchors ...*x509.Certificate) *diceEnrollme
 	caCert, err := x509.ParseCertificate(der)
 	require.NoError(t, err)
 
-	recorder := &verdictRecorder{AttestationVerifier: verifier}
+	recorder := &verdictRecorder{TrustAnchorVerifier: verifier}
 	server := startDeviceAttestServer(t, caCert, caKey, recorder)
 	return &diceEnrollment{server: server, client: newDeviceAttestRoundTripClient(t, server), verifier: recorder}
 }
@@ -290,7 +314,7 @@ func permanentIdentifier(t *testing.T, cert *x509.Certificate) string {
 // is for the DeviceID key it attested and bound to the ueid.
 func TestDeviceAttestDICEEnrollsTheRealFirmware(t *testing.T) {
 	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, tfwsim.TestDeviceIDPublicKey()))
+	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
 
 	assert.Equal(t, hex.EncodeToString(append([]byte{0x01}, tfwsim.TestSerial[:]...)), element.identity,
 		"the identity is the hex of the ueid, type byte included")
@@ -315,7 +339,7 @@ func TestDeviceAttestDICEEnrollsTheRealFirmware(t *testing.T) {
 // evidence is genuine, but it is not that device's.
 func TestDeviceAttestDICERefusesAnotherUeid(t *testing.T) {
 	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, tfwsim.TestDeviceIDPublicKey()))
+	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
 	element.identity = hex.EncodeToString(append([]byte{0x01}, []byte("another-device-1")...))
 
 	cert, err := enrollment.enroll(element)
@@ -329,7 +353,7 @@ func TestDeviceAttestDICERefusesAnotherUeid(t *testing.T) {
 // refused, whatever else about it is genuine.
 func TestDeviceAttestDICERefusesTheWrongNonce(t *testing.T) {
 	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, tfwsim.TestDeviceIDPublicKey()))
+	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
 	element.nonceFor = func(string) []byte { return deviceattest01.DICENonce("another-token.another-thumbprint") }
 
 	cert, err := enrollment.enroll(element)
@@ -341,14 +365,14 @@ func TestDeviceAttestDICERefusesTheWrongNonce(t *testing.T) {
 		"the verifier must have refused the evidence for its nonce, not for another reason")
 }
 
-// A CSR for any key but the attested one is refused at finalization, even
-// though the device's evidence verified.
+// A possession request signed by any key but the attested one is refused at
+// finalization, even though the device's evidence verified.
 func TestDeviceAttestDICERefusesACSRForAnotherKey(t *testing.T) {
 	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, tfwsim.TestDeviceIDPublicKey()))
+	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
 	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	element.signer = other
+	element.signerFor = func(*avr.Attestation) (crypto.Signer, error) { return other, nil }
 
 	cert, err := enrollment.enroll(element)
 
@@ -357,21 +381,79 @@ func TestDeviceAttestDICERefusesACSRForAnotherKey(t *testing.T) {
 	assert.Empty(t, enrollment.server.issued)
 }
 
-// Evidence that does not descend from a configured dice_root is refused: the
-// chain is self-consistent whoever made it.
-func TestDeviceAttestDICERefusesUntrustedRoots(t *testing.T) {
+// The device's possession signature for another nonce is refused by the
+// server: the request it signed is not the one for this challenge.
+func TestDeviceAttestDICERefusesACSRForAnotherNonce(t *testing.T) {
 	element := newDiceElement(t)
-	stranger, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, &stranger.PublicKey))
+	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
+	element.signerFor = func(att *avr.Attestation) (crypto.Signer, error) {
+		signer := &uncheckedDeviceSigner{device: element.device, pub: att.Certificate.PublicKey}
+		copy(signer.nonce[:], deviceattest01.DICENonce("another-token.another-thumbprint"))
+		return signer, nil
+	}
 
 	cert, err := enrollment.enroll(element)
 
-	require.ErrorContains(t, err, "urn:ietf:params:acme:error:incorrectResponse")
+	require.ErrorContains(t, err, "urn:ietf:params:acme:error:badCSR")
+	assert.Nil(t, cert)
+	assert.Empty(t, enrollment.server.issued)
+	assert.NoError(t, enrollment.verifier.Refusal(), "the evidence was right: the refusal must be about the CSR")
+}
+
+// The adapter refuses the same request before it is sent: PossessionSigner
+// for an attestation made over another nonce returns no signature for this
+// challenge's request, and nothing is finalized.
+func TestDeviceAttestDICEPossessionSignerRefusesAnotherNoncesRequest(t *testing.T) {
+	element := newDiceElement(t)
+	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
+	element.signerFor = func(*avr.Attestation) (crypto.Signer, error) {
+		other, err := element.attest(deviceattest01.DICENonce("another-token.another-thumbprint"))
+		if err != nil {
+			return nil, err
+		}
+		return element.backend.PossessionSigner(other)
+	}
+
+	cert, err := enrollment.enroll(element)
+
+	// The ACME client reports the cause as text, not as a chain.
+	require.ErrorContains(t, err, avr.ErrPossessionMismatch.Error())
+	assert.Nil(t, cert)
+	assert.Empty(t, enrollment.server.issued)
+}
+
+// Evidence whose key is not the one the device's provisioning record holds is
+// refused: the alias certificate is self-consistent whoever made it.
+func TestDeviceAttestDICERefusesAnotherProvisionedKey(t *testing.T) {
+	element := newDiceElement(t)
+	stranger, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, &stranger.PublicKey))
+
+	cert, err := enrollment.enroll(element)
+
+	require.ErrorContains(t, err, "urn:ietf:params:acme:error:unauthorized")
 	assert.Nil(t, cert)
 	assert.Empty(t, enrollment.server.issued)
 	refusal := enrollment.verifier.Refusal()
-	assert.ErrorIs(t, refusal, deviceattest01.ErrCertificateChainInvalid)
+	assert.ErrorIs(t, refusal, deviceattest01.ErrDeviceNotAuthorized)
+	assert.ErrorIs(t, refusal, deviceattest01.ErrAttestedKeyMismatch)
 	assert.NotErrorIs(t, refusal, dice.ErrNonceMismatch,
-		"the nonce was right: the refusal must be about the root")
+		"the nonce was right: the refusal must be about the record")
+}
+
+// A device nobody provisioned is refused, however genuine its evidence: there
+// is no record to anchor it in.
+func TestDeviceAttestDICERefusesAnUnprovisionedDevice(t *testing.T) {
+	element := newDiceElement(t)
+	enrollment := newDiceEnrollment(t, deviceRegistry{})
+
+	cert, err := enrollment.enroll(element)
+
+	require.ErrorContains(t, err, "urn:ietf:params:acme:error:unauthorized")
+	assert.Nil(t, cert)
+	assert.Empty(t, enrollment.server.issued)
+	refusal := enrollment.verifier.Refusal()
+	assert.ErrorIs(t, refusal, deviceattest01.ErrDeviceNotAuthorized)
+	assert.ErrorIs(t, refusal, deviceattest01.ErrDeviceNotProvisioned)
 }

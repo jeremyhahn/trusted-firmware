@@ -5,12 +5,46 @@
 
 package xkms
 
-// Registration of the AVR backend with go-xkms goes here.
+import (
+	"github.com/jeremyhahn/trusted-firmware/xkms/avr"
+
+	goxkms "github.com/jeremyhahn/go-xkms/pkg/xkms"
+)
+
+// AVRBackendType is the go-xkms backend type the AVR backend registers under:
+// "tfw". go-xkms keeps "avr" for its own built-in backend until go-xkms#1439
+// step 3, so Key IDs written as "avr:..." do not resolve here.
+const AVRBackendType = avr.BackendType
+
+// The keys of the AVR backend's entry in AutoConfig.BackendConfigs["tfw"].
+const (
+	// AVRConfigKeyDevice is the attached *tfw.Device. Required.
+	AVRConfigKeyDevice = avr.ConfigKeyDevice
+
+	// AVRConfigKeyConfig is the backend's *AVRConfig. Optional.
+	AVRConfigKeyConfig = avr.ConfigKeyConfig
+)
+
+// init registers the AVR backend with go-xkms, so importing this package --
+// blank, if nothing else is needed from it -- makes "tfw" a backend type
+// AutoInitialize constructs from AutoConfig.BackendConfigs["tfw"].
 //
-// NOT IMPLEMENTED YET, ON PURPOSE. go-xkms#1439 step 1 adds the backend
-// registry hook this module registers against, and it is not released: the
-// module requires go-xkms v0.51.0-alpha, which predates it. Writing a stub
-// against an interface that does not exist would guess at its shape, and the
-// guess would have to be undone. When #1439 ships, bump the go-xkms requirement
-// and register avr.Backend's constructor here, in an init or an exported
-// Register function as the hook prescribes.
+// A refused registration panics. It means another module already holds the
+// name, and the alternative is a process that starts with the backend silently
+// missing and fails later, on a device, at a distance from the cause.
+func init() {
+	if err := RegisterAVRBackend(); err != nil {
+		panic(err)
+	}
+}
+
+// RegisterAVRBackend registers the AVR backend with go-xkms's registry hook.
+// init has already called it; a second call is refused with an error that
+// satisfies errors.Is(err, types.ErrBackendTypeRegistered), as go-xkms refuses
+// every name registered twice.
+func RegisterAVRBackend() error {
+	return goxkms.RegisterExternalBackend(goxkms.ExternalBackend{
+		Type:    goxkms.BackendType(avr.BackendType),
+		Factory: avr.NewKeyProvider,
+	})
+}

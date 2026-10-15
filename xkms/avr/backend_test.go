@@ -153,12 +153,14 @@ func TestNewBackendAttachesToADeviceWithAnUnknownTier(t *testing.T) {
 
 // -------------------------------------------------------------- what it reports
 
-func TestTypeIsAVR(t *testing.T) {
+// "tfw", not "avr": go-xkms holds "avr" for its built-in backend until
+// go-xkms#1439 step 3. That the name round-trips through the store parser once
+// registered is pinned where the registration happens, in the parent package.
+func TestTypeIsTFW(t *testing.T) {
 	b := newTestBackend(t, secureElementLink())
 
-	assert.Equal(t, types.BackendTypeAVR, b.Type())
-	assert.Equal(t, types.StoreAVR, types.ParseStoreType(string(b.Type())),
-		"the backend's own type must round-trip through the store parser")
+	assert.Equal(t, types.BackendType("tfw"), b.Type())
+	assert.NotEqual(t, types.BackendTypeAVR, b.Type())
 }
 
 // The attestation level comes from the device's crypto tier and from nothing
@@ -351,7 +353,7 @@ func TestListKeysDescribesTheOneKeyTheDeviceHolds(t *testing.T) {
 
 	key := keys[0]
 	assert.Equal(t, DefaultKeyCN, key.CN)
-	assert.Equal(t, types.StoreAVR, key.StoreType)
+	assert.Equal(t, types.StoreType("tfw"), key.StoreType)
 	assert.Equal(t, types.AttestLevelHardware, key.AttestLevel)
 	assert.Equal(t, types.KeyTypeIDevID, key.KeyType)
 	assert.False(t, key.Exportable)

@@ -28,6 +28,9 @@ include mk/integration.mk
 # with main.c exchanged, so it needs FW_SRCS, FW_CFLAGS and the board profile.
 include mk/bench.mk
 include mk/release.mk
+# After mk/firmware.mk, for FW_CFLAGS, HAL_DIR and the board profile. A bench
+# image only: nothing in `ci` depends on it.
+include mk/wiznet-probe.mk
 
 ## help: list every target with its description
 help:

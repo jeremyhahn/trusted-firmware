@@ -34,7 +34,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 ## Now
 
 - **ethernet-transport** — the wire protocol over a WIZnet W5100 or W5500 on the Nano and the Mega 2560, enrolling and attesting over Ethernet; closes AVR — [#55](../../issues/55) — open
-- **xkms-adapter** — phases B and C shipped: registered through go-xkms's hook (`RegisterExternalBackend`, go-xkms v0.55.0-alpha), finalize through `Device.AttestCSR`, tagged `xkms/v0.2.0-alpha`; remaining: the DICE end-to-end test was red on the possession template seam at merge, and its state is unconfirmed — [#28](../../issues/28) — in progress
+- **xkms-adapter** — phases B and C shipped: registered through go-xkms's hook (`RegisterExternalBackend`, go-xkms v0.55.0-alpha), finalize through `Device.AttestCSR`, tagged `xkms/v0.2.0-alpha`; the DICE end-to-end test passes in CI (the `xkms adapter` job, run 52567 on main at `9ed0af2`, and before it on `733beff`, the merge `xkms/v0.2.0-alpha` tags) — [#28](../../issues/28) — in progress
 - **xkms-adapter** — AVR enrollment into go-trusted-platform, through the adapter — [#20](../../issues/20) — open
 - **xkms-adapter** — downstream migration to the adapter — [#19](../../issues/19) — open
 - **xkms-adapter** — physical-board enrollment run end to end, the gate for other platforms — [#7](../../issues/7) — open
@@ -79,7 +79,7 @@ Upstream, bottom-up; each step is released before the next:
 4. go-xkms removes its AVR backend — [go-xkms#1439](../../../go-xkms/issues/1439).
 5. go-quicbaas drops its indirect require — [go-quicbaas#1185](../../../go-quicbaas/issues/1185).
 
-- Pinned: go-xkms v0.51.0-alpha in `xkms/go.mod`.
+- Pinned: go-xkms v0.55.0-alpha in `xkms/go.mod`.
 - go-xkms profiles the possession CSR and verifies the DICE evidence — [go-xkms#1441](../../../go-xkms/issues/1441).
 - go-trusted-platform enrolls devices — [go-trusted-platform#696](../../../go-trusted-platform/issues/696), [go-trusted-platform#772](../../../go-trusted-platform/issues/772).
 - Downstream: go-xkms and go-trusted-platform import `sdk/go`, so it keeps zero in-house dependencies.

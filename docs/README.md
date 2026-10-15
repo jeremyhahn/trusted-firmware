@@ -65,6 +65,10 @@ it will read them.
   [`cortex-m/adr-trust-model-vs-tf-m.md`](cortex-m/adr-trust-model-vs-tf-m.md).
   **PROPOSED 2026-10-15** (issue #15): TF-M with our attestation partition on
   the M33, MPU-only isolation on the M7, and the owner's open questions.
+- **How an OTA image is signed, verified and rolled back** —
+  [`ota/adr-ota-image-format-and-trust.md`](ota/adr-ota-image-format-and-trust.md).
+  **PROPOSED** (issue #52): the trailer per arch class, the floor per tier,
+  A/B where a part has room, and what AVR gets.
 - **Why there is no `delay()`** — `device-capabilities/architecture.md`.
 - **Why the pin timer stays in firmware** — `device-capabilities/engineering.md`.
   A pin told to hold a level for ten minutes must revert in ten minutes whether

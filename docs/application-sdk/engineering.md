@@ -59,6 +59,22 @@ application build costs the runner and the application. Applications target
 boards with room: one that does not fit the ATmega328P or ATmega32U4 ATECC608A
 tier is expected, and no budget is raised for it.
 
+Measured with avr-gcc 14.2.0 (Debian 13, binutils-avr 2.43.50, avr-libc 2.2.1),
+`make firmware BOARD=<b> CRYPTO=<t>`, sizes from `avr-size`: flash is `.text` +
+`.data`, RAM is `.data` + `.bss`, in bytes. The example application is
+`APP_DIR=test/app/example`, built at `main` (after #64).
+
+| Board | Tier | No application, `9ed0af2` (before APP_INFO) | No application, `main` | Example application, `main` |
+|---|---|---|---|---|
+| atmega328p | soft | 12898 flash / 717 RAM | 12898 flash / 717 RAM | 13620 flash / 728 RAM |
+| atmega328p | atecc608a | 16076 flash / 923 RAM | 16076 flash / 923 RAM | does not fit: 16804 flash against the 16384 limit (RAM 934) |
+| atmega2560 | soft | 13290 flash / 765 RAM | 13290 flash / 765 RAM | 14016 flash / 776 RAM |
+| atmega2560 | atecc608a | 18366 flash / 989 RAM | 18366 flash / 989 RAM | 19088 flash / 1000 RAM |
+
+The no-application images at `9ed0af2` and at `main` are byte-for-byte the same
+size in flash and RAM on every board and tier: the "same size" claim holds. The
+example application costs 722 to 726 bytes of flash and 11 of RAM.
+
 ## The descriptor
 
 ```

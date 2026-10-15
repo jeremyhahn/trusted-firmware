@@ -52,6 +52,7 @@ Gated: no other platform until AVR has every primitive and a proven physical end
 
 - **secure-element-se05x** — the SE052F element tier — no issue yet — blocked: AVR gate (#7)
 - **imx95** — i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO, the cortex-m reference part — no issue yet — blocked: AVR gate (#7)
+- **hsm-self-defence** — i.MX 95 M7 enforcement of the tamper response under tenant-signed policies and scripts, with seams to go-xkms and go-trusted-platform; the NPU policy selection only after the HSM node runs — no issue yet — blocked: AVR gate (#7)
 - **stm32h5** — STM32H5, the second Cortex-M target, with the SE052F on its bus as the reference trusted device — no issue yet — blocked: AVR gate (#7)
 - **optiga-trust-m** — the OPTIGA Trust M element tier — no issue yet — blocked: AVR gate (#7)
 - **rp2350** — RP2350 on the Pico 2 W — no issue yet — blocked: AVR gate (#7)

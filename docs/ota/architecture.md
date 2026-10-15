@@ -8,7 +8,8 @@
 > Decisions, their reasons and the measured flash are in
 > [adr-ota-image-format-and-trust.md](adr-ota-image-format-and-trust.md). No
 > code exists for anything here that is not already shipped by
-> [`secure-boot/`](../secure-boot/architecture.md). The SPEC row `ota` stays
+> [`secure-boot/`](../secure-boot/architecture.md), the trial state machine
+> (#77) or the manifest gate (#78). The SPEC row `ota` stays
 > `future`.
 
 OTA replaces the whole image, firmware and application together, with a signed
@@ -251,8 +252,63 @@ the region. Recovery never writes the zeroed block it was given over the torn
 one. Closing that window needs the state outside the block's CRC or in its own
 record, which is open question 10.
 
+### The manifest gate (#78)
+
+The application, never `tfw-boot`, reads the SUIT envelope and refuses to
+activate an image whose manifest does not hold. `src/core/suit.{c,h}` is the
+reader and the gate; `tfw-boot` is unchanged. The reader is iterative, bounds
+every length by what remains and by the profile, and refuses any member the
+profile does not list:
+
+```
+107({2: bstr .cbor [bstr .cbor [-16, bstr32],
+                    bstr .cbor 18([h'A10126', {} / {4: bstr<=32}, nil, bstr64])],
+     3: bstr .cbor {1: 1, 2: seq, 3: bstr .cbor {2: [[1..4 bstr<=16]],
+                                                  4: bstr .cbor [20, {1: vendor-id,
+                                                                      2: class-id,
+                                                                      3: bstr .cbor [-16, bstr32],
+                                                                      14: image-size}]}}})
+```
+
+It authenticates before it parses: the manifest digest over the bstr-wrapped
+manifest, then ES256 over the Sig_structure
+`["Signature1", h'A10126', h'', <the digest member>]`, verified by the element
+against the board id's one image key in slot 2, the key `tfw-boot` already
+uses (`tfw_crypto_verify_image`). No new crypto library. The gate writes
+`VERIFIED` when every check holds and `FAILED` otherwise, so
+`tfw_boot_trial_activate` refuses with `TFW_ERR_BAD_STATE` and no boot request
+is written. Existing status codes only:
+
+| Refused | Status |
+|---|---|
+| truncated; a length past what remains or past its bound; an 8-byte argument; an envelope over 320 bytes | `TFW_ERR_RANGE` (11) |
+| a wrong type, tag, key or algorithm; an unlisted or extra member; trailing bytes; an indefinite length | `TFW_ERR_UNSUPPORTED` (7) |
+| the manifest digest or the signature | `TFW_ERR_CRYPTO` (14) |
+| the vendor id, the class id against the board id, an unbound class id, the trailer's `board_id` | `TFW_ERR_UNSUPPORTED` |
+| the image digest against the staged image or the trailer's measurement | `TFW_ERR_CRYPTO` |
+| the size against the staged length or the trailer's `image_len` | `TFW_ERR_RANGE` |
+| the sequence number against the trailer's `image_version` | `TFW_ERR_PROTECTED_REGION` (16) |
+
+The vendor id is UUIDv5(URL, `https://github.com/jeremyhahn/trusted-firmware`)
+in `include/tfw/config.h`; each class id is UUIDv5(vendor, board name) in the
+board's `board_profile.h`. The build emits the bytes to sign: `make suit-tbs
+IMAGE_VERSION=<n>` writes `.suit-manifest` and `.suit-tbs` beside the image,
+and `make suit-envelope SUIT_SIG=<r||s>` wraps go-xkms's signature. No signing
+code is in this tree. The vectors are literals in `testdata/suit_vectors.h`.
+
+Only the ATmega2560 on the element tier links the reader (`OTA_MANIFEST := 1`
+in its `profile.mk`; `mk/firmware.mk` adds `src/core/suit.c` to the object
+list). The 328P and 32U4 keep the trailer alone under their 16 384-byte line,
+and the software tier has no stored key to verify against.
+
+Nothing calls the gate yet: there is no application stager and no
+`OTA_ACTIVATE`, so `--gc-sections` drops it and no image grows. Carriage, the
+envelope after the image in the same `OTA_DATA` stream and counted in
+`OTA_BEGIN`'s total, is open question 5 and is not wired.
+
 Not yet: the store and the A/B slots (#75 and later), so no copy, swap or
-restore; `OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are
+restore; the stager that carries the envelope and calls the manifest gate;
+`OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are
 proposed); keeping the failed measurement (open question 10); and the trial
 deadline and watchdog (`TFW_OTA_TRIAL_TIMEOUT_S` is a board value, open
 question 6, and the application's `.init3` disarms the watchdog today).

@@ -19,6 +19,11 @@
 #define TFW_BOARD_NAME "atmega32u4"
 #define TFW_BOARD_ID   0x03u   /* 0x01 is the 328P, 0x02 the 2560 */
 
+/* UUIDv5(TFW_SUIT_VENDOR_ID, "atmega32u4"): the SUIT class id a manifest for
+ * this board names (issue #78). dd66c967-8557-5e77-b407-8668fd409931. */
+#define TFW_SUIT_CLASS_ID { 0xddu, 0x66u, 0xc9u, 0x67u, 0x85u, 0x57u, 0x5eu, 0x77u, \
+                            0xb4u, 0x07u, 0x86u, 0x68u, 0xfdu, 0x40u, 0x99u, 0x31u }
+
 /*
  * Pin numbering: the Leonardo/Micro core's map, 0..23, with no holes.
  *

@@ -14,6 +14,11 @@
 #define TFW_BOARD_NAME "atmega328p"
 #define TFW_BOARD_ID   0x01u
 
+/* UUIDv5(TFW_SUIT_VENDOR_ID, "atmega328p"): the SUIT class id a manifest for
+ * this board names (issue #78). 7a83e13f-8c4f-51bb-80ab-e1b82735410e. */
+#define TFW_SUIT_CLASS_ID { 0x7au, 0x83u, 0xe1u, 0x3fu, 0x8cu, 0x4fu, 0x51u, 0xbbu, \
+                            0x80u, 0xabu, 0xe1u, 0xb8u, 0x27u, 0x35u, 0x41u, 0x0eu }
+
 /* D0..D13 are 0..13; A0..A5 are 14..19; A6 and A7 are 20 and 21 and exist only
  * on the TQFP package the Nano uses. These are the numbers printed on the
  * board, because that is the number the person holding it can see. */

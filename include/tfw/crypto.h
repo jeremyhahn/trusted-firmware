@@ -103,4 +103,17 @@ tfw_status_t      tfw_crypto_verify_operator(const uint8_t digest[TFW_SHA256_LEN
                                            const uint8_t sig[TFW_SIG_LEN],
                                            const uint8_t pubkey[TFW_SIG_LEN]);
 
+/* Verify an ES256 signature over `digest` against the board id's
+ * image-signing key -- the same stored key tfw-boot checks the trailer
+ * against, so one P-256 key per board id verifies both the trailer and a SUIT
+ * manifest (issue #78). The key is not passed: it is provisioned, and an
+ * application that could name the key it is checked against could name its
+ * own.
+ *
+ * TFW_ERR_UNSUPPORTED on a tier with no stored image key -- every tier but the
+ * secure element. TFW_ERR_CRYPTO on a signature that does not verify or an
+ * element that will not answer. */
+tfw_status_t      tfw_crypto_verify_image(const uint8_t digest[TFW_SHA256_LEN],
+                                        const uint8_t sig[TFW_SIG_LEN]);
+
 #endif /* TFW_CRYPTO_H */

@@ -136,3 +136,10 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[TFW_SHA256_LEN],
     (void)digest; (void)sig; (void)pubkey;
     return TFW_ERR_UNSUPPORTED;
 }
+
+tfw_status_t tfw_crypto_verify_image(const uint8_t digest[TFW_SHA256_LEN],
+                                   const uint8_t sig[TFW_SIG_LEN])
+{
+    (void)digest; (void)sig;
+    return TFW_ERR_UNSUPPORTED;
+}

@@ -241,3 +241,9 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
     (void)digest; (void)sig; (void)pubkey;
     return TFW_ERR_UNSUPPORTED;
 }
+
+tfw_status_t tfw_crypto_verify_image(const uint8_t digest[32], const uint8_t sig[64])
+{
+    (void)digest; (void)sig;
+    return TFW_ERR_UNSUPPORTED;
+}

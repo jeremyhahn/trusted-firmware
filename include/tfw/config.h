@@ -201,6 +201,19 @@
 #ifndef TFW_IMAGE_FLAGS
 #define TFW_IMAGE_FLAGS 0x00u
 #endif
+
+/* The SUIT manifest's identifiers (issue #78, docs/ota/adr-ota-image-format-
+ * and-trust.md decision 3). The vendor id is the project's, the same on every
+ * board: UUIDv5(NAMESPACE_URL, "https://github.com/jeremyhahn/trusted-firmware"),
+ * f5ce0048-68e5-5fcf-b79b-5b1cffbf22ac. The class id is the board's --
+ * UUIDv5(vendor id, TFW_BOARD_NAME) -- and so is board data: a profile states
+ * it. All zero means no class is bound, and the manifest gate refuses every
+ * manifest, the way tfw-boot refuses a trailer on board id 0. */
+#define TFW_SUIT_VENDOR_ID { 0xf5u, 0xceu, 0x00u, 0x48u, 0x68u, 0xe5u, 0x5fu, 0xcfu, \
+                             0xb7u, 0x9bu, 0x5bu, 0x1cu, 0xffu, 0xbfu, 0x22u, 0xacu }
+#ifndef TFW_SUIT_CLASS_ID
+#define TFW_SUIT_CLASS_ID  { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
+#endif
 #ifndef TFW_PIN_COUNT
 #define TFW_PIN_COUNT  0u
 #endif

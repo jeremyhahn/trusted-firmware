@@ -117,6 +117,9 @@ static uint8_t  verify_last_sig[64];
 /* issue #4: External mode's public key, alongside the signature above --
  * populated only when the driver used mode 0x02, zero otherwise. */
 static uint8_t  verify_last_pubkey[64];
+/* issue #78: a stored-mode slot with a real key, set by a test. 0xFF: none. */
+static uint8_t  stored_pub_slot = 0xFFu;
+static uint8_t  stored_pub[64];
 static uint8_t  verify_seen;
 
 /* ------------------------------------------------------------------ P-256
@@ -278,6 +281,7 @@ void tfw_model_reset(void)
     memset(slots, 0, sizeof slots);
     config_locked = 0u; data_locked = 0u;
     sha_active = 0u; verify_should_pass = 0u; verify_seen = 0u; absent = 0u;
+    stored_pub_slot = 0xFFu; memset(stored_pub, 0, sizeof stored_pub);
     tempkey_valid = 0u; hmac_active = 0u; hmac_len = 0u; genkey_count = 0u;
     memset(tfw_model_tempkey(), 0, 32u);
     memset(slot0_priv, 0, sizeof slot0_priv);
@@ -311,6 +315,11 @@ uint8_t tfw_model_config_locked(void) { return config_locked; }
 uint8_t tfw_model_data_locked(void)   { return data_locked; }
 const uint8_t *tfw_model_slot(uint8_t n) { return n < 16u ? slots[n] : 0; }
 void tfw_model_set_verify_result(uint8_t pass) { verify_should_pass = pass; }
+void tfw_model_set_stored_pubkey(uint8_t slot, const uint8_t pub[64])
+{
+    stored_pub_slot = slot;
+    memcpy(stored_pub, pub, sizeof stored_pub);
+}
 void tfw_model_set_absent(uint8_t yes) { absent = yes; }
 uint8_t tfw_model_verify_seen(void) { return verify_seen; }
 const uint8_t *tfw_model_verify_last_sig(void) { return verify_last_sig; }
@@ -570,6 +579,12 @@ static void handle_command(const uint8_t *p, uint8_t n)
             if (n < 6u + 64u) { respond_status(0x03u); return; }
             memcpy(verify_last_sig, &p[6], 64u);
             verify_seen = 1u;
+            if (param2 == (uint16_t)stored_pub_slot) {
+                if (!tempkey_valid) { respond_status(0x0Fu); return; }
+                respond_status(tfw_model_p256_verify(stored_pub, tfw_model_tempkey(), &p[6])
+                                   ? (uint8_t)0x00u : (uint8_t)0x01u);
+                return;
+            }
             respond_status(verify_should_pass ? (uint8_t)0x00u : (uint8_t)0x01u);  /* 0x01 = miscompare */
             return;
         }

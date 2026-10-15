@@ -41,6 +41,12 @@ const uint8_t *tfw_model_slot(uint8_t n);
  * bootloader's image check, whose key sits in a locked slot the model does not
  * populate). External mode is real ECDSA and ignores this. */
 void           tfw_model_set_verify_result(uint8_t pass);
+/* Gives a stored-mode slot a real P-256 public key (X||Y). From then on a
+ * stored-mode Verify naming that slot is real ECDSA over TempKey and ignores
+ * the flag above; one naming another slot still answers from the flag. Issue
+ * #78's manifest suite, whose vectors carry a real signature. Cleared by
+ * tfw_model_reset(). */
+void           tfw_model_set_stored_pubkey(uint8_t slot, const uint8_t pub[64]);
 /* No element on the board: every transfer NACKs. Distinct from a busy part --
  * a driver must tell "not there" from "not yet". */
 void           tfw_model_set_absent(uint8_t yes);

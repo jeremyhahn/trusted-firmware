@@ -902,7 +902,14 @@ reference value. A gap there is filed against go-xkms.
   - the 32U4: measure, and wire an Ethernet controller.
 - The ATmega2560 A/B by swap-move, with its EEPROM swap record.
 - Manifest verification: the SUIT subset reader in the application, and the
-  build's manifest emitter.
+  build's manifest emitter. Done in #78 for the 2560 on the element tier
+  (`src/core/suit.c`, `tools/suit-emit/`, [architecture.md](architecture.md)).
+  What remains:
+  - the stager that carries the envelope after the image (open question 5) and
+    calls the gate before `OTA_ACTIVATE`;
+  - the 328P and 32U4 gate, if their region budget ever holds it;
+  - go-xkms signing the emitted Sig_structure with the board id's key, and
+    returning raw `r||s`.
 - The board id in the trailer on AVR: `tfw-boot`'s check, the build writing
   byte 6, and the bench reflash of every board.
 - Transport selection per image: link files per board where only one transport

@@ -124,6 +124,7 @@ _Static_assert(TFW_ATECC_I2C_HZ <= 100000uL,
  * names the P-256 curve, not a slot; it is a curve selector in this mode. */
 #define TFW_ATECC_VERIFY_EXTERNAL   0x02u
 #define TFW_ATECC_VERIFY_KEYID_P256 0x0004u
+#define TFW_ATECC_VERIFY_STORED     0x00u  /* Verify against a public key in a slot */
 #define TFW_ATECC_GENKEY_PRIVATE  0x04u
 #define TFW_ATECC_GENKEY_PUBLIC   0x00u
 #define TFW_ATECC_COUNTER_READ    0x00u
@@ -144,6 +145,7 @@ _Static_assert(TFW_ATECC_I2C_HZ <= 100000uL,
  */
 #define TFW_ATECC_SLOT_DEVICEID 0u  /* ECC private key, never readable, the DICE ECA key */
 #define TFW_ATECC_SLOT_UDS      1u  /* the UDS, as an HMAC key that never leaves the part */
+#define TFW_ATECC_SLOT_IMAGE    2u  /* the board id's image-signing public key (boot's slot) */
 #define TFW_ATECC_COUNTER_BOOT  0u  /* monotonic boot count and the anti-rollback floor */
 
 /* The largest command payload tfw_atecc_exec's SHARED, FILE-STATIC buffer

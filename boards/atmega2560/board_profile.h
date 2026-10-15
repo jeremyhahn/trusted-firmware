@@ -18,6 +18,11 @@
  * host must read an unknown id as unrecognised rather than as a board it knows. */
 #define TFW_BOARD_ID   0x02u
 
+/* UUIDv5(TFW_SUIT_VENDOR_ID, "atmega2560"): the SUIT class id a manifest for
+ * this board names (issue #78). dc97b9d0-38d6-58e0-bb18-98bb2414d131. */
+#define TFW_SUIT_CLASS_ID { 0xdcu, 0x97u, 0xb9u, 0xd0u, 0x38u, 0xd6u, 0x58u, 0xe0u, \
+                            0xbbu, 0x18u, 0x98u, 0xbbu, 0x24u, 0x14u, 0xd1u, 0x31u }
+
 /* D0..D53 are 0..53 and A0..A15 are 54..69 -- the numbers printed on the board,
  * because that is the number the person holding it can see. Unlike the 328P
  * there is no ADC-only pin here: every one of the seventy has a digital port. */

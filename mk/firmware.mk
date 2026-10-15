@@ -205,6 +205,18 @@ else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
 endif
 
+# The SUIT manifest reader and activation gate (issue #78), by FILE SELECTION:
+# on the element tier, whose stored image key verifies the manifest's ES256,
+# and only on a board whose profile.mk opts in with OTA_MANIFEST := 1 -- the
+# ATmega2560 today. The 328P and 32U4 sit under the 16 384-byte policy line,
+# where the ADR's decision 6 leaves the trailer alone; they opt in only once a
+# measured image fits the region budget with the reader in it.
+ifeq ($(CRYPTO)$(OTA_MANIFEST),atecc608a1)
+MANIFEST_SRCS := src/core/suit.c
+else
+MANIFEST_SRCS :=
+endif
+
 FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(APP_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
@@ -276,7 +288,7 @@ FW_SRCS := $(sort \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
-  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) \
+  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) \
   $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c)))
 

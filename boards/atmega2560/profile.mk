@@ -28,3 +28,7 @@ RAM_END        := 0x21FF
 # Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
 # The chip file checks the part's identity, so the wrong shield stays down.
 ETH_CHIP       ?= w5100
+
+# The SUIT manifest reader and gate (issue #78; mk/firmware.mk): the element-tier
+# image carries src/core/suit.c. The 2560 has the room; ADR decision 6.
+OTA_MANIFEST   := 1

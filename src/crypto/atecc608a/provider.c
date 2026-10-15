@@ -371,3 +371,27 @@ tfw_status_t tfw_crypto_verify_operator(const uint8_t digest[32],
     (void)tfw_atecc_sleep();
     return st;
 }
+
+tfw_status_t tfw_crypto_verify_image(const uint8_t digest[32], const uint8_t sig[64])
+{
+    tfw_status_t st;
+
+    if (!present) {
+        return TFW_ERR_CRYPTO;
+    }
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_CRYPTO;
+    }
+
+    /* The same load as above, then Verify in stored mode against the slot
+     * tfw-boot verifies the trailer with: 64 bytes of signature fit the
+     * shared buffer, so this one does go through tfw_atecc_exec. */
+    st = tfw_atecc_exec(TFW_ATECC_OP_NONCE, TFW_ATECC_NONCE_PASSTHRU, 0u,
+                       digest, 32u, 0, 0u, TFW_ATECC_T_NONCE);
+    if (st == TFW_OK) {
+        st = tfw_atecc_exec(TFW_ATECC_OP_VERIFY, TFW_ATECC_VERIFY_STORED,
+                           TFW_ATECC_SLOT_IMAGE, sig, 64u, 0, 0u, TFW_ATECC_T_VERIFY);
+    }
+    (void)tfw_atecc_sleep();
+    return st;
+}

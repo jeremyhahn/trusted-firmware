@@ -129,7 +129,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
-                            test/unit/test_w5x00.c test/unit/test_link_eth.c, \
+                            test/unit/test_w5x00.c test/unit/test_link_eth.c \
+                            test/unit/test_suit.c test/unit/test_suit_emit.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -191,6 +192,28 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The SUIT manifest reader and gate (issue #78), the same arrangement: the
+# signature is checked by the element tier's own path, against the software
+# element holding the vectors' key in the image-signing slot. Built with the
+# ATmega2560's profile rather than HOST_BOARD's, because the 2560 is the board
+# that links the reader and testdata/suit_vectors.h carries its class id.
+SUIT_TEST_CFLAGS := $(subst -Iboards/$(HOST_BOARD) ,-Iboards/atmega2560 ,$(HOST_CFLAGS))
+$(HOST_DIR)/test_suit: test/unit/test_suit.c $(ELEMENT_MODEL) \
+                       src/core/suit.c boot/boot_trial.c boot/boot_image.c boot/boot_platform.c \
+                       src/crypto/atecc608a/atecc.c \
+                       src/crypto/atecc608a/provider.c \
+                       src/crypto/sha256.c \
+                       src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                       $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(SUIT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The build's SUIT emitter (tools/suit-emit/, mk/suit.mk) against the same
+# literals. In no other object list, as tools/platform-bake/ is in none.
+$(HOST_DIR)/test_suit_emit: test/unit/test_suit_emit.c tools/suit-emit/emit.c src/crypto/sha256.c \
+                            $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(SUIT_TEST_CFLAGS) -Itools/suit-emit $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # Provisioning, same arrangement and the same reason: it drives the element, so
 # the software element is its I2C HAL.
@@ -381,7 +404,8 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
-                    $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500
+                    $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
+                    $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)

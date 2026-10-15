@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# 16 MB. Two OTA slots of 6 MB and ESP-IDF's OTA data; the three tfw_* data
+# partitions are this firmware's (src/hal/esp32/hal_esp32.h). Flash
+# encryption is on for this board, so the `encrypted` partitions are.
+# Name,      Type, SubType, Offset,   Size,     Flags
+tfw_plat,    data, 0x40,    0x11000,  0x1000,   encrypted
+tfw_id,      data, 0x41,    0x12000,  0x1000,
+tfw_eeprom,  data, 0x42,    0x13000,  0x1000,   encrypted
+otadata,     data, ota,     0x14000,  0x2000,
+ota_0,       app,  ota_0,   0x20000,  0x600000,
+ota_1,       app,  ota_1,   0x620000, 0x600000,

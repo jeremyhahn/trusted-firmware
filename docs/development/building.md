@@ -90,6 +90,49 @@ the wire. It starts blank; its identity options and their limits (the model does
 real P-256 under a published TEST key, so its evidence verifies and must never be
 trusted) are in `docs/host-sdk/cli.md`.
 
+## ESP32 (ESP-IDF)
+
+```sh
+make esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3   # or ESP_TARGET=esp32
+make esp32-build BOARD=esp32p4-poe
+make esp32-qemu-test   # both esp32-qemu machines in Espressif's QEMU
+```
+
+Neither target is in `make ci`, and the toolchain image carries no ESP-IDF.
+Both refuse any toolchain but the pins in
+[`adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integration.md#toolchain-pins)
+(`mk/arch/esp32.mk`). The install goes outside the clone, under `$HOME`. These
+are the steps that worked on Debian 13 without root:
+
+```sh
+mkdir -p ~/esp && cd ~/esp
+git clone --depth 1 -b v5.5.5 --recursive --shallow-submodules \
+    https://github.com/espressif/esp-idf
+cd esp-idf
+./install.sh esp32,esp32c3,esp32p4
+. ./export.sh
+python tools/idf_tools.py install cmake ninja          # not installed on Linux by default
+python tools/idf_tools.py install qemu-riscv32 qemu-xtensa
+python -m pip install esp-secure-cert-tool==2.6.1      # the DS encoder qemu_test.py uses
+```
+
+Three host gaps, each fixed without root:
+
+- **No `ensurepip`** (Debian's `python3-venv` is absent): `install.sh` fails to
+  create its Python environment. Create it at the path it names with the same
+  interpreter, then rerun `install.sh`:
+  `uv venv --seed --python /usr/bin/python3 ~/.espressif/python_env/idf5.5_py3.13_env`.
+- **QEMU's shared libraries** (`libSDL2-2.0.so.0`, `libslirp.so.0`, and SDL's
+  `libXss`, `libdecor-0`, `libsamplerate`): `idf_tools.py` removes a QEMU it
+  cannot run. Download its archives with `idf_tools.py download qemu-riscv32
+  qemu-xtensa`, unpack each into
+  `~/.espressif/tools/qemu-<arch>/esp_develop_9.2.2_20260417/`, and unpack the
+  Debian packages `libsdl2-2.0-0 libslirp0 libxss1 libdecor-0-0 libsamplerate0`
+  (`apt-get download`, `dpkg-deb -x`) into a directory on `LD_LIBRARY_PATH`.
+- **QEMU not on `PATH`**: add both
+  `~/.espressif/tools/qemu-<arch>/esp_develop_9.2.2_20260417/qemu/bin`
+  directories after `. ./export.sh`.
+
 ## Adding a board
 
 A board is data, not code. Add `boards/<name>/` with:

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# The original ESP32: secure boot v2 needs chip revision 3, and the test's
+# eFuses state it.
+CONFIG_ESP32_REV_MIN_3=y

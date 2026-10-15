@@ -15,10 +15,12 @@ type.
 | transport | carries the frame bytes unmodified | notes |
 |---|---|---|
 | UART, 8N1 | yes | `TFW_UART_BAUD` default 115200; `serialport.Open` in the Go SDK |
+| TCP over WIZnet W5100/W5500 | yes | the device opens the connection; allow-listed commands only — see `../ethernet-transport/` |
 | `tfwsim` stdio pipe | yes | real firmware compiled for the host; same codec, same bytes |
 
-No second framing exists for either. Ethernet, when it lands, is a second
-`Link` carrying the same frames — see `../host-sdk/architecture.md`.
+No second framing exists for any of them. Ethernet is a second `Link`
+carrying the same frames — see `../ethernet-transport/architecture.md` and
+`../host-sdk/architecture.md`.
 
 ## The frame
 

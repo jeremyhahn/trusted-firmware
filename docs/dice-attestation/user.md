@@ -58,8 +58,7 @@ a device does:
 make tfwsim-atecc608a       # same as: make tfwsim CRYPTO=atecc608a
 ```
 
-From Go, in a test (`go-xkms` `pkg/backend/avr`, `go-trusted-platform`
-`pkg/firmware/avr`, or this repo's own):
+From Go, in a test (this repo's `xkms` module, `github.com/jeremyhahn/trusted-firmware/xkms`, or `sdk/go`):
 
 ```go
 import "github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"

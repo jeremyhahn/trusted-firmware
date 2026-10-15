@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# What every ESP32 board's image is, before the board's own
+# boards/<board>/sdkconfig.defaults and the build's generated key fragment
+# (mk/arch/esp32-targets.mk) are applied over it.
+
+# Secure boot v2, RSA-3072, ESP-IDF's. The build signs the bootloader and the
+# application with a key generated into the build directory on first build
+# (never committed); the ROM verifies the bootloader against the key digest
+# in eFuse and the bootloader verifies the application.
+CONFIG_SECURE_BOOT=y
+CONFIG_SECURE_BOOT_V2_ENABLED=y
+CONFIG_SECURE_BOOT_V2_RSA_ENABLED=y
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
+
+# The partition table moves up to make room for the larger signed bootloader;
+# the board's partitions.csv starts its data partitions above it.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_OFFSET=0x10000
+
+# The CDI handoff block: TFW_BOOT_HANDOFF_LEN (80) bytes of RTC-retained
+# memory at a fixed address both images know, outside ESP-IDF's own CRC.
+CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC=y
+CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=0x50
+# CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_IN_CRC is not set
+
+# The measurement must be computable from source: no build path, no time.
+CONFIG_APP_REPRODUCIBLE_BUILD=y
+CONFIG_APP_COMPILE_TIME_DATE=n
+
+# The identity self-check runs DS and a big-number verify on the main task.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y
+
+# No radio is ever brought up by this firmware.
+CONFIG_ESP_WIFI_ENABLED=n
+CONFIG_BT_ENABLED=n

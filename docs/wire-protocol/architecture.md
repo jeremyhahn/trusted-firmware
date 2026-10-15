@@ -12,7 +12,7 @@ C and Go implementations to the same bytes. Covers `include/tfw/protocol.h`,
 ## Component boundaries
 
 ```
-L5  TRANSPORT   src/proto/transport.c   the only layer that touches the UART HAL
+L5  TRANSPORT   src/proto/transport.c   the only layer that touches a link (UART, W5x00)
 L4  FRAMING     src/proto/frame.c       pure function of bytes; no I/O, no registers
 L3  DISPATCH    src/core/dispatch.c     reader/writer + capability entry points
 ```

@@ -113,7 +113,7 @@ endif
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(HAL_DIR)/hal_tone.c $(HAL_DIR)/hal_pwm.c $(HAL_DIR)/hal_bus.c \
-                $(HAL_DIR)/hal_uart.c $(HAL_DIR)/hal_uart_soft.c
+                $(HAL_DIR)/hal_uart.c $(HAL_DIR)/hal_uart_soft.c $(ARCH_HAL_OPTIONAL)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -190,8 +190,19 @@ else
 AUTH_SRCS   := src/core/auth_session.c
 AUTH_DEFS   := -DTFW_FEATURE_AUTH_SESSION=1
 endif
+else ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_TIERS)),)
+# A tier the ARCHITECTURE provides, because its provider drives that
+# architecture's own key hardware -- the ESP32's HMAC and DS peripherals, say.
+# mk/arch/$(ARCH).mk names the tier and its sources, which live in the HAL
+# directory and are listed in ARCH_HAL_OPTIONAL so no other tier links them.
+# No alias certificate and no auth session: both are the element tier's.
+CRYPTO_SRCS := $(ARCH_CRYPTO_SRCS_$(CRYPTO))
+ALIAS_SRCS  :=
+ALIAS_DEFS  :=
+AUTH_SRCS   := src/core/auth_session_none.c
+AUTH_DEFS   :=
 else
-$(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a)
+$(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
 endif
 
 FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(APP_SUFFIX)
@@ -227,12 +238,21 @@ FW_LDFLAGS := $(strip $(ARCH_LDFLAGS) $(ARCH_FW_PLACEMENT_LDFLAGS))
 # (which such a board's profile already turns off) for --gc-sections to drop.
 # Costed on the ATtiny85: firmware-matrix caught this the first time around --
 # the real modules pushed it 77 bytes over a 256-byte RAM budget.
-ifneq ($(RAM_END),)
+# An architecture whose bootloader hands off by other means than a fixed SRAM
+# address -- ESP-IDF's RTC-retained memory -- says so with ARCH_HANDOFF := 1.
+ifneq ($(RAM_END)$(ARCH_HANDOFF),)
 IDENTITY_SRCS := src/core/handoff.c src/core/platform_id.c \
                  src/core/update_request.c \
                  boot/boot_handoff.c boot/boot_platform.c boot/boot_request.c
 else
 IDENTITY_SRCS := src/core/handoff_none.c src/core/platform_id_none.c \
+                 src/core/update_request_none.c
+endif
+# A bootloader that hands off but opens no update session (ESP-IDF's, until
+# its OTA is wired to the wire) takes no request either, so RESET(1) is
+# refused rather than quietly behaving as a soft reset.
+ifeq ($(ARCH_UPDATE_REQUEST),none)
+IDENTITY_SRCS := $(filter-out src/core/update_request.c boot/boot_request.c,$(IDENTITY_SRCS)) \
                  src/core/update_request_none.c
 endif
 
@@ -327,7 +347,13 @@ $(TARGET).hex: $(TARGET).elf
 # A board states its tiers in profile.mk. One that says nothing gets the two it
 # always had, so no existing board changes.
 BOARD_TIERS     ?= soft atecc608a
-FIRMWARE_BOARDS := $(notdir $(wildcard boards/*))
+# A board whose profile.mk sets IMAGE_TARGET is built by that target and not by
+# `make firmware` -- an ESP-IDF board is built by ESP-IDF's own toolchain, which
+# the CI image does not carry. It stays out of this list, so firmware-matrix,
+# ci-matrix-check and provenance never build it, and board-sweep (which reads
+# every directory) still compiles and tests its descriptor.
+OTHER_IMAGE_BOARDS := $(notdir $(patsubst %/profile.mk,%,$(shell grep -l '^IMAGE_TARGET[[:space:]]*:\?=' boards/*/profile.mk)))
+FIRMWARE_BOARDS := $(filter-out $(OTHER_IMAGE_BOARDS),$(notdir $(wildcard boards/*)))
 
 ## board-tiers: print the crypto tiers BOARD supports (used by firmware-matrix)
 board-tiers:

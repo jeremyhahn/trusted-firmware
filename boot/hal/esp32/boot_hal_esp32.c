@@ -1,0 +1,202 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+/*
+ * boot/boot_hal.h on ESP-IDF's second-stage bootloader.
+ *
+ * Linked into the bootloader beside layer 0 (boot_l0.c), which uses the
+ * handoff and the reset cause; --gc-sections drops what nothing calls. The
+ * rest is here so the contract is whole on this architecture, and every
+ * entry is ESP-IDF's bootloader support or ROM, never a driver of ours:
+ *
+ *   flash     bootloader_flash_*, which encrypt and decrypt when flash
+ *             encryption is on. A "page" is the 4 KB flash sector, the unit
+ *             the part erases (#11: the contract's 16-bit page size and
+ *             256-byte OTA page are the AVR's; this answers 4096).
+ *   nvm       the `tfw_plat` data partition, found in the partition table
+ *             by label -- the same block the application reads through
+ *             tfw_hal_nvm_read
+ *   uart      the ROM console, polled
+ *   handoff   the custom area of ESP-IDF's RTC-retained record
+ *   control   ESP-IDF's loader and ESP-IDF's reset
+ */
+
+#include <string.h>
+#include "sdkconfig.h"
+#include "esp_flash_encrypt.h"
+#include "esp_flash_partitions.h"
+#include "esp_rom_sys.h"
+#include "esp_rom_uart.h"
+#include "esp_image_format.h"
+#include "bootloader_common.h"
+#include "bootloader_flash_priv.h"
+#include "bootloader_utility.h"
+#include "soc/reset_reasons.h"
+
+#include "boot_hal.h"
+#include "tfw/boot.h"
+
+#define FLASH_PAGE 4096u
+#define PLAT_LABEL "tfw_plat"
+
+void tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+    if (bootloader_flash_read(addr, buf, len, true) != ESP_OK) {
+        memset(buf, 0xFF, len);         /* what erased flash reads as */
+    }
+}
+
+tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
+{
+    static uint8_t page[FLASH_PAGE];
+
+    if (addr % FLASH_PAGE != 0u) {
+        return TFW_ERR_RANGE;
+    }
+    memcpy(page, data, FLASH_PAGE);
+    if (bootloader_flash_erase_sector(addr / FLASH_PAGE) != ESP_OK ||
+        bootloader_flash_write(addr, page, FLASH_PAGE, esp_flash_encryption_enabled()) != ESP_OK) {
+        return TFW_ERR_INTERNAL;
+    }
+    return TFW_OK;
+}
+
+uint16_t tfw_boot_flash_page_size(void)
+{
+    return (uint16_t)FLASH_PAGE;
+}
+
+/* The platform partition's offset and size, from the partition table. */
+static int plat_partition(uint32_t *offset, uint32_t *size)
+{
+    const esp_partition_info_t *t;
+    int                         i;
+    int                         found = 0;
+
+    t = bootloader_mmap(ESP_PARTITION_TABLE_OFFSET, ESP_PARTITION_TABLE_MAX_LEN);
+    if (t == NULL) {
+        return 0;
+    }
+    for (i = 0; i < (int)(ESP_PARTITION_TABLE_MAX_LEN / sizeof *t); i++) {
+        if (t[i].magic != ESP_PARTITION_MAGIC) {
+            break;
+        }
+        if (strncmp((const char *)t[i].label, PLAT_LABEL, sizeof t[i].label) == 0) {
+            *offset = t[i].pos.offset;
+            *size   = t[i].pos.size;
+            found   = 1;
+            break;
+        }
+    }
+    bootloader_munmap(t);
+    return found;
+}
+
+tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    uint32_t off;
+    uint32_t size;
+
+    if (!plat_partition(&off, &size)) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    if ((uint32_t)addr + len > size) {
+        return TFW_ERR_RANGE;
+    }
+    return bootloader_flash_read(off + addr, buf, len, true) == ESP_OK ? TFW_OK : TFW_ERR_INTERNAL;
+}
+
+tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+{
+    static uint8_t sector[FLASH_PAGE];
+    uint32_t       off;
+    uint32_t       size;
+
+    if (!plat_partition(&off, &size)) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    if ((uint32_t)addr + len > size || (uint32_t)addr + len > FLASH_PAGE) {
+        return TFW_ERR_RANGE;
+    }
+    if (bootloader_flash_read(off, sector, FLASH_PAGE, true) != ESP_OK) {
+        return TFW_ERR_INTERNAL;
+    }
+    memcpy(&sector[addr], buf, len);
+    return tfw_boot_flash_write_page(off, sector);
+}
+
+void tfw_boot_uart_init(uint32_t baud)
+{
+    (void)baud;                         /* the ROM console is already configured */
+}
+
+uint8_t tfw_boot_uart_rx(uint8_t *out)
+{
+    return (uint8_t)(esp_rom_output_rx_one_char(out) == 0);
+}
+
+void tfw_boot_uart_tx(uint8_t byte)
+{
+    (void)esp_rom_output_tx_one_char(byte);
+}
+
+void tfw_boot_handoff_write(const uint8_t *block, uint8_t len)
+{
+    uint8_t *dst = bootloader_common_get_rtc_retain_mem()->custom;
+
+    memcpy(dst, block, len > TFW_BOOT_HANDOFF_LEN ? TFW_BOOT_HANDOFF_LEN : len);
+}
+
+void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
+{
+    const uint8_t *src = bootloader_common_get_rtc_retain_mem()->custom;
+
+    memcpy(buf, src, len > TFW_BOOT_HANDOFF_LEN ? TFW_BOOT_HANDOFF_LEN : len);
+}
+
+/* The ROM's reset reason, which nothing before the bootloader clears. Only
+ * the reasons every ESP-IDF target names are decoded; software resets and
+ * deep-sleep wakes have no wire value (#10) and read as unknown. */
+tfw_reset_cause_t tfw_boot_reset_cause(void)
+{
+    switch (esp_rom_get_reset_reason(0)) {
+    case RESET_REASON_CHIP_POWER_ON: return TFW_RESET_POWER_ON;
+    case RESET_REASON_SYS_BROWN_OUT: return TFW_RESET_BROWNOUT;
+#if CONFIG_IDF_TARGET_ESP32P4
+    /* The P4's ROM names its watchdog resets without an instance number. */
+    case RESET_REASON_CORE_MWDT:
+    case RESET_REASON_CORE_RWDT:
+    case RESET_REASON_CPU_MWDT:
+    case RESET_REASON_CPU_RWDT:
+    case RESET_REASON_SYS_RWDT:
+#else
+    case RESET_REASON_CORE_MWDT0:
+    case RESET_REASON_CORE_RTC_WDT:
+    case RESET_REASON_CPU0_MWDT0:
+    case RESET_REASON_CPU0_RTC_WDT:
+    case RESET_REASON_SYS_RTC_WDT:
+#endif
+                                     return TFW_RESET_WATCHDOG;
+    default:                         return TFW_RESET_UNKNOWN;
+    }
+}
+
+/* ESP-IDF's loader: it chooses the slot, verifies it under secure boot and
+ * jumps. Layer 0's own path (boot_l0.c) calls the same two functions. */
+void tfw_boot_jump_application(void)
+{
+    bootloader_state_t bs = { 0 };
+
+    if (bootloader_utility_load_partition_table(&bs)) {
+        int index = bootloader_utility_get_selected_boot_partition(&bs);
+
+        if (index != INVALID_INDEX) {
+            bootloader_utility_load_boot_image(&bs, index);
+        }
+    }
+    bootloader_reset();
+}
+
+void tfw_boot_reset(void)
+{
+    bootloader_reset();
+}

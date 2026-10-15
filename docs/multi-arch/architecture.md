@@ -4,7 +4,8 @@
 
 Only AVR is implemented. Everything else here is planned and marked with its issue.
 Order of work: [ROADMAP.md](../../ROADMAP.md). No other-platform work starts until AVR
-has every primitive and a proven end-to-end example (owner ruling 2026-10-08).
+has every primitive and a proven end-to-end example (owner ruling 2026-10-08); the owner
+lifted the gate for `esp32-p4` on 2026-10-15.
 
 ## 1. Goal
 
@@ -61,7 +62,8 @@ The board id is one byte (`TFW_BOARD_ID` in `boards/*/board_profile.h`). Ranges:
 | `0x80`-`0xBF` | ESP32 and other |
 | `0xC0`-`0xFF` | unallocated |
 
-Current ids: `0x01` ATmega328P, `0x02` ATmega2560, `0x03` ATmega32U4, `0x04` ATtiny85.
+Current ids: `0x01` ATmega328P, `0x02` ATmega2560, `0x03` ATmega32U4, `0x04` ATtiny85,
+`0x80` ESP32-P4 PoE board, `0x81` Espressif QEMU.
 Ids extend; they never renumber. The registry is [`../boards/board-id-registry.md`](../boards/board-id-registry.md).
 
 ## 6. Roots of trust per architecture
@@ -86,5 +88,5 @@ Each choice is an ADR before any code.
 | AVR | ATmega32U4 | none, soft, ATECC608A | supported |
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |
 | Cortex-M33 | LPC55S69, MCXN, STM32U5 | ROM CDI | planned ([#22](http://git.example.internal/jeremyhahn/trusted-firmware/issues/22)) |
-| ESP32 | to be chosen | secure boot v2, DS | planned ([#23](http://git.example.internal/jeremyhahn/trusted-firmware/issues/23)) |
+| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, DS (`hmac-ds`); `none` | in progress ([#48](http://git.example.internal/jeremyhahn/trusted-firmware/issues/48), ADR [#16](http://git.example.internal/jeremyhahn/trusted-firmware/issues/16)) |
 | Other | | | planned ([#17](http://git.example.internal/jeremyhahn/trusted-firmware/issues/17)) |

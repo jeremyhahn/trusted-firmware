@@ -31,6 +31,9 @@ include mk/release.mk
 # After mk/firmware.mk, for FW_CFLAGS, HAL_DIR and the board profile. A bench
 # image only: nothing in `ci` depends on it.
 include mk/wiznet-probe.mk
+# An architecture's own targets, for architectures whose image a different
+# build system produces (mk/arch/esp32-targets.mk: ESP-IDF). Never in `ci`.
+include $(wildcard mk/arch/*-targets.mk)
 
 ## help: list every target with its description
 help:

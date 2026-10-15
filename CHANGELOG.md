@@ -11,6 +11,121 @@ Pre-1.0, MINOR carries breaking changes.
 New entries go to `changelog.d/<issue>-<slug>.md`; the release step concatenates
 them into this file.
 
+## [0.4.0-alpha] - 2026-10-15
+
+### Added
+
+- **The Ethernet transport over a WIZnet W5100 or W5500** (#55, #59). `make
+  ETH=1` links the Ethernet link beside serial. The device dials its endpoint
+  and dispatches only `CAPS`, `APP_INFO`, `ATTEST`, `ATTEST_CERT` and
+  `ATTEST_CSR` over it; every other command is `TFW_ERR_UNKNOWN_CMD`.
+  `tfwsim --eth` runs it on the host.
+- **`sdk/go`: `tfw.Listen`, `tfw.NewListener`, `Listener` and `TCPDevice`**
+  (#59), the host side of the Ethernet transport: the host listens, the device
+  connects, `Accept` returns the device.
+- **`sdk/go`: the network config** (#59). `NetConfig`, `NetConfigError`,
+  `Device.WriteNetConfig`, `DerivedMAC`, `NetConfigAddr` and `NetConfigLen`
+  write the 32-byte network block at EEPROM `0x0C0` over serial.
+- **`sdk/go`: `tfwsim.StartElementEthernet`** (#59), the element-tier simulator
+  as an Ethernet device, returning its serial and its TCP link.
+- **`make wiznet-probe`** (#55, #58), a probe image that reports which WIZnet
+  chip a shield carries.
+- **The application SDK** (#51, #57): an application linked by naming an
+  `APP_DIR` (`TFW_FEATURE_APP`), its runner, and `TFW_CAPBIT_*` naming the CAPS
+  bits; `make app-sdk-check`, `app-firmware-check` and `tfwsim-app-example`.
+- **`APP_INFO`, command 0x06** (#51, #64), the linked application's descriptor
+  and runner state in a 63-byte reply, with literal vectors. An image with no
+  application answers `TFW_ERR_UNKNOWN_CMD`, so it is unchanged on the wire.
+- **`sdk/go`: `Device.AppInfo`, `AppInfo`, `AppState` and `CmdAppInfo`** (#51,
+  #64).
+- **`make hw-test BOARD=<board> PORT=<dev>`** (#7) runs the SDK's
+  cross-implementation suite, the one `make sdk-test` runs against `tfwsim`,
+  against a flashed board on a serial port. The suite gets its connection
+  through one seam, `sdk/go/internal/peer`. That seam resets the board by
+  pulsing DTR and waits for its BOOT event. The suite checks the pins of the
+  board it is told it has, and `CAPS` must report that board. A missing or
+  silent port fails the run. The target is not part of `make ci`.
+- **`make hw-enroll DEVICE=<serial port> [DEVICEID=<hex>] [ACME_DIRECTORY=<url>]`**
+  (#7) enrolls a provisioned element-tier board through device-attest-01 and
+  writes a run record (board, transport, tier, ueid, verdict, UTC time, the
+  issued chain in PEM) under `docs/development/enrollment-runs/`. The harness
+  is `TestHardwareEnrollment` in `xkms/e2e`; `make xkms-test` runs it against
+  `tfwsim`. It is outside `make ci`, as `bench-check` is. A board over TCP waits
+  for an `sdk/go` tag carrying #59. Procedure:
+  `docs/development/hardware-enrollment.md`.
+- **`TFW_ELEMENT_I2C_ADDR` and `TFW_ELEMENT_I2C_HZ`** (#7, #60), the secure
+  element's I2C address and clock as board-profile data for the ATECC608C
+  variants; the default stays 0x60, and `I2C_XFER` refuses the element's address.
+- **`make platform-bake` and `make platform-bake-flash`** (#7, #68), a bench
+  image that writes the platform block through the stock bootloader and checks
+  it on the part.
+- **The ESP-IDF port** (#16, #48, #65): the HAL and boot HAL on ESP-IDF v5.5.5,
+  boards `esp32-qemu` and `esp32p4-poe`, `make esp32-build` and `make
+  esp32-qemu-test` (secure boot, identity and the wire in Espressif's QEMU).
+- **An `esp32` CI job** (#48, #68), in a pinned ESP-IDF image, part of the `CI
+  Gate`.
+- **The xkms adapter's possession signer and go-xkms factory** (#28, #44):
+  `Backend.PossessionSigner` for ACME finalize over `ATTEST_CSR`, and
+  `avr.NewKeyProvider` with `ConfigKeyDevice` and `ConfigKeyConfig`.
+- **`make releasability`** (#1) fails on a private-fleet address, hostname,
+  owner path or owner account name in any file that would be published (the
+  tracked files minus the `export-ignore` entries in `.gitattributes`), and
+  prints `file:line: class` for each. `make releasability-test` proves it on
+  planted values and proves `git archive` drops the agent files and the
+  forge-only workflows. Both are part of `make ci`.
+- **A qwen review job** (dept-infra#164) for pull requests handed to opencode.
+- **Cortex-M ADRs** (#63): the reference part and emulation, and the trust model
+  against TF-M.
+- **The TrustFLEX 608C slot-map ADR** (#7, #63).
+- **The OTA architecture and image-format ADR** (#52, #66), rewritten to the
+  owner's answers (#52, #15, #70), with the i.MX 95 M7 facts from RM00284 and
+  UM12527 (#80).
+- **The application SDK's measured flash cost** (#51, #66).
+
+### Changed
+
+- **The xkms adapter registers the AVR backend with go-xkms as `tfw`** (#28).
+  `xkms/go.mod` requires go-xkms `v0.53.0-alpha`, which carries the
+  external-backend hook (go-xkms#1439 step 1). Importing
+  `github.com/jeremyhahn/trusted-firmware/xkms`, blank if nothing else is needed,
+  makes `tfw` a backend type that `AutoInitialize` constructs from
+  `AutoConfig.BackendConfigs["tfw"]`. That entry carries `device` (the attached
+  `*tfw.Device`, required) and `config` (an `*avr.Config`, optional).
+  - go-xkms `v0.53.0-alpha` still requires `arduino-generic/sdk/go` for that
+    built-in backend, so it stays in `xkms/go.mod` as an indirect requirement
+    until step 3.
+- **BREAKING: Key IDs beginning `avr:` no longer resolve to the xkms adapter's
+  backend** (#28, #44). The backend's `Type()` and its keys' store type are now
+  `tfw`, so its Key IDs read `tfw:...`. go-xkms keeps `avr` for its own built-in
+  backend until go-xkms#1439 step 3, and a backend type is held once per
+  process. A stored `avr:` Key ID that meant this device has to be rewritten as
+  `tfw:`. The adapter does not migrate it.
+- **`xkms/go.mod` requires `sdk/go v0.3.0-alpha`** (#28, #38) and no longer
+  `replace`s it with `../sdk/go`. A tagged module with a local replace is not
+  consumable, so this unblocks tagging `xkms/`. Release order is now: tag
+  `sdk/go`, bump `xkms/go.mod`, tag `xkms/`. The `xkms` tests find
+  `tfwsim-atecc608a` through `TFWSIM_DIR` (the directory holding it), since
+  the SDK now sits in the module cache rather than beside the adapter.
+- **`tfwprov bake-eeprom`'s advice** (#7, #68): the Mega 2560's STK500v2
+  bootloader writes EEPROM correctly but reads it back from the wrong address,
+  so avrdude's verify cannot be trusted there.
+- **Each CI job removes its own images when it ends** (#61, #62).
+- **The code-review workflow is template v4.2** (DS-1570, #42).
+- **`docs/SPEC.md` and `ROADMAP.md` agree** (#39, #41).
+- **xkms-adapter doc headers under the deletion rule** (#39, #43).
+- **SPEC Purpose and Boundaries under the layered-stack ruling** (#45).
+- **SPEC device-framework rows, architecture ports and dev complete** (#46).
+- **SPEC hsm-self-defence row, i.MX 95 M7 tamper response** (#47).
+- **ROADMAP issue links for the device-framework and hsm-self-defence rows** (#54).
+- **SPEC ethernet-transport row, Cortex-M in QEMU, AVR dev complete** (#56).
+- **SPEC: AVR dev complete before the element** (#55, #58).
+- **SPEC states the CI-standard release criterion** (DS-1925, #69).
+- **SPEC and ROADMAP pass the audit** (DS-1935, #73).
+
+### Fixed
+
+- **The xkms concurrency test's deadline** (#40) was too tight under CI load.
+
 ## [0.3.0-alpha] - 2026-10-10
 
 ### Added

@@ -116,6 +116,11 @@ tfwprov --bake-eeprom --serial <16-byte hex> \
        --operator-pubkey <64-byte hex, element tier> \
        --out platform.eep
 avrdude -c <prog> -p <part> -U eeprom:w:platform.eep:i
+#    On a BENCH part with no ISP programmer, still running its stock serial
+#    bootloader, the bench bake image writes the same tfwprov block instead
+#    (never a production part; fuses and lock bits stay on ISP):
+#      make platform-bake       BOARD=<board> SERIAL=<16-byte hex>
+#      make platform-bake-flash BOARD=<board> SERIAL=<16-byte hex> AVRDUDE_PORT=<dev>
 
 # 2. Fuses.
 avrdude -c <prog> -p <part> -U lfuse:w:...:m -U hfuse:w:...:m -U efuse:w:...:m

@@ -92,6 +92,30 @@ on the port, because `CAPS` is checked against it. The target flashes nothing
 and fails when the port is missing or the board is silent. See
 [testing](testing.md#the-suite-on-a-real-board--make-hw-test-not-a-gate).
 
+## Baking the platform block on a bench board
+
+A board that still runs its stock serial bootloader and has no ISP programmer
+on it gets its platform identity block from the bench bake image: a separate
+image that carries the block `tfwprov --bake-eeprom` produces, writes it into
+`[0x000, 0x0C0)`, prints one line and halts. On the Mega:
+
+```sh
+make platform-bake       BOARD=atmega2560 SERIAL=<16-byte hex>
+make platform-bake-flash BOARD=atmega2560 SERIAL=<16-byte hex> AVRDUDE_PORT=<dev>
+# then read the one line at 115200:
+#   platform-bake board=atmega2560 serial=<hex> result=baked
+make BOARD=atmega2560 firmware
+make BOARD=atmega2560 flash AVRDUDE_PORT=<dev>
+```
+
+`result=` is `baked`, `already` (the block was there — what a second, DTR-reset
+run prints), `refused` (a different valid block was there and is left alone) or
+`readback-failed`. `make flash` passes `-D`, so flashing the application
+afterwards keeps the block. This is a bench path only: it needs the ability to
+flash arbitrary code, which already owns the part; a production part runs
+`tfw-boot`, which takes signed images only, and the bake image is never
+vendor-signed. See [device provisioning](../device-provisioning/user.md#task-bake-the-block-on-a-bench-board-through-its-stock-bootloader).
+
 ## Fuses and lock bits
 
 Not here. See `docs/security/fuses-and-lockbits.md` — several of those settings

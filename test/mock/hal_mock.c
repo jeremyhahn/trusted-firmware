@@ -25,6 +25,10 @@ static uint8_t          irq_on;
 
 #define EEPROM_SIZE 1024u
 static uint8_t  eeprom[EEPROM_SIZE];
+static size_t   ee_written;              /* bytes tfw_hal_eeprom_write was handed */
+static uint32_t ee_lo, ee_hi;            /* the span [ee_lo, ee_hi) they covered */
+#define EE_NOT_STUCK 0xFFFFFFFFuL
+static uint32_t ee_stuck = EE_NOT_STUCK; /* a cell whose writes do not stick */
 static uint8_t  handoff[TFW_BOOT_HANDOFF_LEN];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
@@ -130,6 +134,7 @@ void tfw_mock_reset(void)
     memset(pwm_ctl, 0, sizeof pwm_ctl);
     memset(pwm_duty, 0, sizeof pwm_duty);
     memset(eeprom, 0xFF, sizeof eeprom);   /* erased EEPROM reads as 0xFF */
+    ee_written = 0u; ee_lo = ee_hi = 0u; ee_stuck = EE_NOT_STUCK;
     memset(handoff, 0, sizeof handoff);    /* zeroed: reads as "no handoff" */
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
@@ -181,6 +186,14 @@ void tfw_mock_set_adc(uint8_t channel, uint16_t raw)
 
 uint8_t *tfw_mock_eeprom(void) { return eeprom; }
 size_t   tfw_mock_eeprom_size(void) { return sizeof eeprom; }
+void     tfw_mock_eeprom_stuck_at(uint16_t addr) { ee_stuck = addr; }
+
+size_t tfw_mock_eeprom_written(uint16_t *lo, uint16_t *hi)
+{
+    *lo = (uint16_t)ee_lo;
+    *hi = (uint16_t)ee_hi;
+    return ee_written;
+}
 uint8_t *tfw_mock_handoff(void) { return handoff; }
 
 uint8_t *tfw_hal_handoff_block(void) { return handoff; }
@@ -373,8 +386,19 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 
 tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
+    uint8_t i;
+
     if ((uint32_t)addr + len > EEPROM_SIZE) { return TFW_ERR_RANGE; }
-    memcpy(&eeprom[addr], buf, len);
+    if (len != 0u) {
+        if (ee_written == 0u || addr < ee_lo)              { ee_lo = addr; }
+        if (ee_written == 0u || (uint32_t)addr + len > ee_hi) { ee_hi = (uint32_t)addr + len; }
+        ee_written += len;
+    }
+    for (i = 0u; i < len; i++) {
+        if ((uint32_t)addr + i != ee_stuck) {
+            eeprom[addr + i] = buf[i];
+        }
+    }
     return TFW_OK;
 }
 

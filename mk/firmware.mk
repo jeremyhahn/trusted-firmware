@@ -366,6 +366,14 @@ board-tiers:
 feature-defs:
 	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS) $(APP_DEFS)
 
+## board-eth-chip: print the Ethernet controller BOARD names, or nothing (used by platform-bake-no-link-check)
+board-eth-chip:
+	@echo $(ETH_CHIP)
+
+## firmware-srcs: print the object list `firmware` links for BOARD/CRYPTO/PROVISION/ETH/APP (used by platform-bake-no-link-check)
+firmware-srcs:
+	@echo $(FW_SRCS) $(APP_SRCS)
+
 ## firmware-matrix-list: print every "board tier" pair firmware-matrix builds
 firmware-matrix-list:
 	@for b in $(FIRMWARE_BOARDS); do \
@@ -395,7 +403,7 @@ ci-matrix-check:
 	   diff <(echo "$$want") <(echo "$$have") | sed 's/^/  /'; exit 1; fi; \
 	 echo "ci-matrix-check: $$(echo "$$want" | wc -l) board/tier pairs, workflow and Makefile agree"
 
-.PHONY: board-tiers feature-defs firmware-matrix-list ci-matrix-check
+.PHONY: board-tiers board-eth-chip feature-defs firmware-srcs firmware-matrix-list ci-matrix-check
 
 firmware-matrix:
 	@fail=0; \

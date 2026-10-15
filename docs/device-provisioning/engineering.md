@@ -71,20 +71,100 @@ untouched.
 
 **The programmer matters, not just the file.** The `.eep` file this tool
 writes has been verified correct offline (byte-for-byte, against
-`tfw_boot_platform_parse`'s own decode — see the test row below). On a real
-Mega 2560 with its factory STK500v2 bootloader, `avrdude -c wiring -U
-eeprom:w:platform.eep:i` was observed to corrupt the write in transit: bytes
-`0x00`–`0x1b` landed, the rest of the record stream was dropped, and avrdude
-reported a verification mismatch (chip-erase-based terminal-mode writes also
-failed outright). The resulting on-device block fails its CRC, and
-`tfw_platform_id_init` correctly treats a bad-CRC block as unprovisioned
-rather than as a forged identity — that is the firmware working as designed,
-not evidence the bake was fine. It was not. Baking this image therefore
-requires an ISP programmer. `tfw-boot` exposes only PING, OTA and RESET
+`tfw_boot_platform_parse`'s own decode — see the test row below). ISP is the
+supported route. `tfw-boot` exposes only PING, OTA and RESET
 (`boot/boot_session.c`), and the application's `EEPROM_WRITE` refuses the
-region unconditionally, so neither offers another route. The stock
-serial bootloader's programmer type (`-c wiring`/`-c arduino`) is not a
-supported way to write this block. See [`user.md`](user.md), step 1.
+region unconditionally, so neither offers another one.
+
+A stock serial bootloader is a bench route, and on the Mega 2560 its
+verification is wrong, not its write. On 2026-10-15, on the bench Mega with
+its factory STK500v2 bootloader, `avrdude -c wiring -p m2560 -D -U
+eeprom:w:platform.eep:i` wrote a fresh 192-byte block and reported:
+
+```
+avrdude: 192 bytes of eeprom written
+avrdude: verifying eeprom memory against platform.eep
+avrdude warning: verification mismatch
+        device 0x54 != input 0x00 at addr 0x001c (error)
+avrdude error: verification mismatch
+```
+
+The application's own `EEPROM_READ`, eight bytes at a time over `[0x000,
+0x0C0)`, then read back every byte of the file, the CRC at `0x0BE` included.
+The write had landed. The bootloader writes EEPROM at the address it is
+given and reads it from twice that address: avrdude's eight-byte read page
+*j* returns the part's page *2j*. The word `de ad be ef` that the application
+reads at `0x100`, outside the block, reads through avrdude at `0x080`. Every avrdude EEPROM
+read through this bootloader shows that pattern: the block's even pages packed into the
+first half, then `0xFF`, then whatever sits at twice the address.
+
+That is what the earlier "a prefix landed, the rest was dropped" reading saw.
+The block the part held then was not a torn v2 write either. It carried the
+pre-#3 magic `'A','G','P','R'` and layout version 1, a bake from before the
+rename, which a current build rejects by its magic alone. And the
+software-tier `ATTEST` that answered "no provisioned identity" did so for a
+third reason: behind a stock bootloader the software tier has no UDS
+(`src/crypto/soft/uds_flash.c`), so it cannot sign whatever the block holds.
+
+Do not trust avrdude's EEPROM verification through this bootloader, and do not
+take a failed one as proof of a bad write. Check the block on the part: with
+the application's `EEPROM_READ` (the software tier reads the reserved region;
+the element tier gates the read behind the operator session), or with the
+bench bake image below, which writes the block from code running on the part
+and checks it with the firmware's own parse. The bake image is the documented
+route for a board without an ISP programmer. It does not depend on the
+bootloader's EEPROM commands at all, and some stock bootloaders have none.
+
+### The bench bake image (`make platform-bake`, issue #7)
+
+A separate AVR image that writes the `.eep` block from the inside, for a
+development board that still runs its stock serial bootloader and has no ISP
+programmer on it.
+
+```sh
+make platform-bake BOARD=<board> SERIAL=<hex> [PUBKEY_HASH=<hex>] [OPERATOR_PUBKEY=<hex>]
+make platform-bake-flash BOARD=<board> SERIAL=<hex> [AVRDUDE_PORT=<dev>]
+```
+
+**Why it is not a hole.** It needs the ability to flash arbitrary code to the
+part, and whoever has that already owns the part: they could flash any image
+that writes any EEPROM. A production part runs `tfw-boot`, which accepts
+signed images only, and the bake image is never signed with a vendor key — it
+cannot run there. ISP remains the path for fuses and lock bits, which no code
+on the part can set.
+
+**One encoder.** `mk/platform-bake.mk` runs `tfwprov --bake-eeprom` with the
+same flags, converts its Intel HEX to binary with the host's GNU `objcopy`
+(Debian 13's `binutils-avr` 2.43.50 cannot read Intel HEX: `avr-objcopy -I
+ihex` fails with "invalid operation"),
+and turns the bytes into a C array (`build/platform-bake/<board>/gen/block.c`).
+Nothing in the image or the build lays out the block a second time. A block of
+any length but `TFW_BOOT_EE_LEN` fails to compile.
+
+**What it does, once per boot** (`tools/platform-bake/bake.c`,
+`tfw_bake_run`):
+
+1. Reads `[0x000, 0x0C0)` through `tfw_hal_nvm_read` — the view the
+   firmware's `tfw_platform_id_init` and `tfw-boot` take.
+2. A valid block equal to its own: `already`, nothing written.
+3. A valid block that differs: `refused`, nothing written. A device that
+   already has an identity keeps it; see `include/tfw/boot.h` on re-baking.
+4. Anything else — blank, torn, a bad CRC, a layout this build does not know:
+   writes the 192 bytes through `tfw_hal_eeprom_write`, reads them back, and
+   checks them with the same `tfw_boot_platform_parse` the firmware uses:
+   `baked` or `readback-failed`.
+
+Then it prints `platform-bake board=<board> serial=<hex> result=<result>` at
+the board's `TFW_UART_BAUD` and halts. It never writes outside the region.
+
+**What it links.** `tools/platform-bake/main.c` and `bake.c`, the generated
+block, `boot/boot_platform.c`, the firmware's CRC pair, and the HAL's sys,
+early, EEPROM and UART files — compiled with the firmware's `FW_CFLAGS` and
+linked with its `FW_LDFLAGS`, by reference. `make platform-bake-no-link-check`,
+part of `make ci`, asks `mk/firmware.mk` for the object list of every board and
+tier, with and without `PROVISION=1` and `ETH=1`, and fails if any bake object
+is in one, or if `src/`, `boot/` or `include/` name the bake image. The
+application's `EEPROM_WRITE` refusal of the region does not change.
 
 CLI: `sdk/go/cmd/tfwprov` (binary `tfwprov`) — see [`cli.md`](cli.md).
 
@@ -235,6 +315,7 @@ proposed answer are in [the slot-map ADR](adr-trustflex-608c-slot-map.md).
 | Go unit | `sdk/go/provision_test.go` | `ProvInfo` payload decoding (both lock-byte polarities, truncated/missing-lock-byte replies, a production image's `ErrUnknownCommand`), `ProvLock`'s zero-CRC refusal, `ProvWriteConfig`'s size check |
 | Go unit | `sdk/go/platform_test.go` | `BuildPlatformBlock`'s layout, CRC coverage and tamper detection |
 | Firmware unit (cross-language) | `test/unit/boot/test_boot_platform.c`'s `test_a_baked_eeprom_image_is_decoded_correctly` | a LITERAL byte-for-byte capture of what `tfwprov --bake-eeprom` actually wrote, decoded by `tfw_boot_platform_parse` — the two implementations of one layout checked against each other's output, not just against themselves |
+| Firmware unit (bake image) | `test/unit/test_platform_bake.c`, linked against the mock HAL | the bench bake image's decision on a LITERAL `tfwprov --bake-eeprom` block — blank and torn regions baked with exactly 192 bytes and nothing past them, an equal block `already` with nothing written, a different valid block `refused` and left alone, a stuck cell `readback-failed`, an invalid carried block never written, the exact result line |
 | Simulator / tfwsim | `sdk/go/tfwsim_test.go` | wire-level EEPROM reserved-region enforcement (`EEPROMWrite` at `0x000`, `0x07F`, `0x100`) exercised against the real firmware build, not a model |
 | Integration (simavr) | `test/integration/simavr/boot_harness.c`'s `test_signed_image_boots` | a serial baked into the emulated EEPROM reaches `ATTEST`'s `DeviceID` over the real wire, through `tfw_platform_id_init`, on the real compiled application — end to end, not mocked |
 

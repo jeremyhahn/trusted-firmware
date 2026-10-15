@@ -48,6 +48,12 @@ void tfw_mock_set_adc(uint8_t channel, uint16_t raw);
 /* eeprom: a flat array the test can inspect directly */
 uint8_t *tfw_mock_eeprom(void);
 size_t   tfw_mock_eeprom_size(void);
+/* What tfw_hal_eeprom_write was handed since the last reset: the byte count,
+ * and in *lo and *hi the span [lo, hi) those bytes covered (0 and 0 if none). */
+size_t   tfw_mock_eeprom_written(uint16_t *lo, uint16_t *hi);
+/* A cell whose writes do not stick -- the read-back that disagrees with what
+ * was written. Off until set; tfw_mock_reset turns it off again. */
+void     tfw_mock_eeprom_stuck_at(uint16_t addr);
 
 /* handoff: the raw TFW_BOOT_HANDOFF_LEN-byte block tfw_hal_handoff_block()
  * returns. Zeroed by tfw_mock_reset(), which reads as "no handoff" -- the same

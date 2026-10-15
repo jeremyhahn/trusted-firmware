@@ -126,6 +126,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_crypto_none.c \
                             test/unit/test_sys_noboot.c \
                             test/unit/test_pin_coord.c \
+                            test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_link_eth.c, \
@@ -276,6 +277,17 @@ $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The bench bake image's decision (mk/platform-bake.mk), through the mock HAL.
+# Its own link because tools/platform-bake/ is in no other object list -- not
+# the firmware's, and not this file's HOST_LIB_SRCS -- and must stay that way.
+$(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-bake/bake.c \
+                        boot/boot_platform.c \
+                        test/mock/hal_mock.c src/core/handoff.c src/core/secure_zero.c \
+                        boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o tools/platform-bake/bake.h | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) -Itools/platform-bake $(EXTRA_CFLAGS) -o $@ \
+	   $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The operator-signature auth session, driven against the software element --
 # issue #4. Same arrangement as test_alias: the model IS the I2C HAL, so no
 # hal_mock.c, and the test file supplies its own tiny stand-ins for the
@@ -367,6 +379,7 @@ $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
 HOST_EXTRA_BINS := $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
+                    $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500
 

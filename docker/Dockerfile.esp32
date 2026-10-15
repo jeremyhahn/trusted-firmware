@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# The ESP32 CI image: ESP-IDF, Espressif's QEMU, and what `make esp32-build` and
+# `make esp32-qemu-test` need besides. Separate from Dockerfile.ci on purpose --
+# that image is Debian with avr-gcc, and ESP-IDF's toolchains, Python
+# environment and QEMU are an input of their own: a measurement is only
+# reproducible from source with the same toolchain (docs/multi-arch/
+# adr-esp-idf-integration.md, "Toolchain pins").
+#
+# The base is Espressif's own image, because ESP-IDF is theirs and L2 says never
+# to reimplement what another project owns. It is pinned by digest: a tag can be
+# moved, a digest cannot. The tag is recorded beside it so a human can read what
+# the digest is, and the digest is of the multi-architecture index, so a build
+# on arm64 gets the same release.
+#   espressif/idf:v5.5.5 -> sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
+# Keep the version in step with ESP_IDF_VERSION in mk/arch/esp32.mk, which
+# refuses any other.
+FROM espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# `export.sh` puts the toolchains and ESP-IDF's Python environment on PATH. The
+# base image's entrypoint sources it for `docker run`; a RUN step has no
+# entrypoint, so each one that needs a tool sources it itself.
+SHELL ["/bin/bash", "-c"]
+
+# make drives the targets. The rest is QEMU's runtime: idf_tools.py removes a
+# QEMU it cannot run, so a missing library shows up as a missing binary.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      make git ca-certificates curl xz-utils \
+      libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Go, for the `wirecheck` host of the QEMU test. The same version and checksum
+# as Dockerfile.ci, for the same reason: the compiler is an input to what the
+# test measures. Keep in step with GO_VERSION there. GOTOOLCHAIN=local because
+# the image must not fetch a newer toolchain on its own.
+ARG GO_VERSION=1.27.2
+ARG GO_SHA256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
+RUN curl -fsSLo /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+    && echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOTOOLCHAIN=local
+
+# What the ADR pins, installed by ESP-IDF's own idf_tools.py. Its tools.json at
+# the v5.5.5 tag names the version and the checksum of each archive, so the pin
+# is ESP-IDF's, not ours. The base image carries the toolchains already; naming
+# the targets again makes the build fail here, not in the job, if it does not.
+#   Espressif QEMU   esp_develop_9.2.2_20260417  (qemu-riscv32, qemu-xtensa)
+#   CMake / Ninja    3.30.2 / 1.12.1
+#   DS encoder       esp-secure-cert-tool 2.6.1, which qemu_test.py uses
+# Keep the QEMU version in step with ESP_QEMU_VERSION in mk/arch/esp32.mk.
+ARG ESP_QEMU_VERSION=esp_develop_9.2.2_20260417
+RUN . "$IDF_PATH/export.sh" >/dev/null \
+    && python "$IDF_PATH/tools/idf_tools.py" install \
+         cmake ninja qemu-riscv32 qemu-xtensa \
+    && . "$IDF_PATH/export.sh" >/dev/null \
+    && python -m pip install --no-cache-dir esp-secure-cert-tool==2.6.1 \
+    && qemu-system-riscv32 --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}" \
+    && qemu-system-xtensa --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}"
+
+# The versions are an input to every measurement the job makes; recording them
+# lets a result that moved be attributed to the code or to the toolchain.
+RUN . "$IDF_PATH/export.sh" >/dev/null \
+    && { echo "# trusted-firmware ESP32 CI image"; \
+         idf.py --version; \
+         riscv32-esp-elf-gcc --version | head -n 1; \
+         xtensa-esp-elf-gcc --version | head -n 1; \
+         cmake --version | head -n 1; \
+         ninja --version; \
+         qemu-system-riscv32 --version | head -n 1; \
+         qemu-system-xtensa --version | head -n 1; \
+         go version; \
+       } > /etc/ci-toolchain.txt
+
+WORKDIR /src

@@ -21,6 +21,11 @@ must not be given a credential baked into a layer, so `make xkms-test` and
 runner, and it is part of the CI Gate: a change is green only when both pass. To
 run the whole gate locally, run both commands where go-xkms is reachable.
 
+The `esp32` CI job is the third part of the gate: it builds `docker/Dockerfile.esp32`
+(ESP-IDF v5.5.5 pinned by digest, Espressif's QEMU, Go) and runs
+`make esp32-build BOARD=esp32p4-poe` and `make esp32-qemu-test` in it. Both
+targets are outside `make ci`; the section [ESP32](#esp32-esp-idf) covers them.
+
 `make help` lists every target.
 
 ## Host tests
@@ -98,8 +103,8 @@ make esp32-build BOARD=esp32p4-poe
 make esp32-qemu-test   # both esp32-qemu machines in Espressif's QEMU
 ```
 
-Neither target is in `make ci`, and the toolchain image carries no ESP-IDF.
-Both refuse any toolchain but the pins in
+Neither target is in `make ci`, and the toolchain image carries no ESP-IDF; the
+`esp32` CI job runs them in `docker/Dockerfile.esp32`, which has it. Both refuse any toolchain but the pins in
 [`adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integration.md#toolchain-pins)
 (`mk/arch/esp32.mk`). The install goes outside the clone, under `$HOME`. These
 are the steps that worked on Debian 13 without root:

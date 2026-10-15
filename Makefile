@@ -31,6 +31,10 @@ include mk/release.mk
 # After mk/firmware.mk, for FW_CFLAGS, HAL_DIR and the board profile. A bench
 # image only: nothing in `ci` depends on it.
 include mk/wiznet-probe.mk
+# After mk/firmware.mk and mk/go.mk: the bench bake image (#7) is built with the
+# firmware's flags and HAL, around a block tfwprov writes. The image is a bench
+# image only; its no-link check is in `ci`.
+include mk/platform-bake.mk
 # An architecture's own targets, for architectures whose image a different
 # build system produces (mk/arch/esp32-targets.mk: ESP-IDF). Never in `ci`.
 include $(wildcard mk/arch/*-targets.mk)
@@ -93,7 +97,8 @@ verify-vendor:
 # where go-xkms is reachable to run both gates.
 ci: verify-vendor verify-vectors releasability releasability-test lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep header-deps-check \
     coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
-    integration-test-boot reproducible-check ci-matrix-check app-sdk-check app-firmware-check
+    integration-test-boot reproducible-check ci-matrix-check app-sdk-check app-firmware-check \
+    platform-bake-no-link-check platform-bake-build-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test

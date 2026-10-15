@@ -25,6 +25,7 @@ tests), [`cli.md`](cli.md) (`tfwprov` verbs and flags), [`api.md`](api.md)
 | `tfwprov` (`sdk/go/cmd/tfwprov`) | drives the ATECC608A over the wire protocol | set fuses, set lock bits, or write the platform-reserved EEPROM region |
 | `src/caps/provision.c` | the six `PROV_*` command handlers | exist in a production build — `TFW_FEATURE_PROVISION` defaults to 0 and the file is not compiled in |
 | `sdk/go/provision.go` | typed host calls (`Device.Prov*`) over `sdk/go` | generate or read back any secret; the element refuses reading a never-readable slot |
+| bench bake image (`make platform-bake`, `tools/platform-bake/`) | writing the one platform block `tfwprov --bake-eeprom` produced into `[0x000, 0x0C0)` on a bench part that still runs its stock serial bootloader | encode a block itself, overwrite a different valid block, write outside the region, run on a production part (`tfw-boot` takes signed images only and this image is never vendor-signed), set fuses or lock bits, or link into an application image (`make platform-bake-no-link-check`) |
 | the provisioning template (`sdk/go/templates/*.conf`) | slot policy for the config zone | be interpreted by the firmware — the firmware writes the block it is given and has no opinion about policy |
 
 Three independent mechanisms, three independent tools. None of them can undo

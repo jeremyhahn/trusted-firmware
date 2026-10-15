@@ -157,6 +157,7 @@ make bench-check                # the cycle budget, both benchmarked boards
 make bench-run BOARD=atmega2560 # one board
 make coverage                   # with the 90 % floor enforced
 make ci                         # everything the gate requires, bar the xkms job
+make platform-bake-build-check  # in `make ci`: the bench bake image links for both boards, under its flash ceiling
 make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0  # the cross-implementation suite on a flashed board
 ```

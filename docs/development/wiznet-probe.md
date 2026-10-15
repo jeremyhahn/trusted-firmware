@@ -63,6 +63,10 @@ The unpacked avrdude needs `-C $HOME/avr/etc/avrdude.conf` and an
 `LD_LIBRARY_PATH` pointing at the unpacked libraries. A two-line wrapper script
 on `PATH` supplies both, so `$(ARCH_FLASH)` runs unchanged.
 
+This `binutils-avr` cannot read Intel HEX: `avr-objcopy -I ihex` fails with
+"invalid operation", even on a file it wrote itself. `make platform-bake`
+converts `tfwprov`'s HEX with the host's GNU `objcopy` for that reason.
+
 ## Flashing and reading
 
 Every board is flashed through its own bootloader. The probe never writes

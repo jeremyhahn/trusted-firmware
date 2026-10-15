@@ -32,10 +32,13 @@ static tfw_transport_t transport;
  *
  * Kept out of line on purpose. main() never returns, so under -flto any
  * initializer inlined into it leaves its locals in main's frame for the life
- * of the device: tfw_platform_id_init's 128-byte EEPROM image and the element
- * provider's CDI buffer cost 241 bytes of a 2 KB part's stack that no command
- * could ever use. Called through a real frame, that scratch is released before
- * the first byte arrives. */
+ * of the device. Measured with avr-gcc 14.2 on the atmega328p element image:
+ * inlined, startup's locals grow main's frame from 80 to 148 bytes -- 68 bytes
+ * of a 2 KB part's stack that no command could ever use. tfw_platform_id_init's
+ * TFW_BOOT_EE_LEN-byte (192) EEPROM image is in that function's own 316-byte
+ * frame, which this compiler keeps out of line either way; one that inlined it
+ * would pin it in main's frame too. Called through a real frame, that scratch
+ * is released before the first byte arrives. */
 static void startup(void) __attribute__((noinline));
 
 static void startup(void)

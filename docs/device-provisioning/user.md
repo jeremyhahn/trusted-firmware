@@ -25,19 +25,21 @@ care about — several steps below cannot be undone.
    storage.c`'s refusal of the reserved region is absolute — so it goes into
    a `.eep` image here and is flashed alongside the fuses below.
 
-   **Use an ISP programmer, never the part's stock Arduino serial
-   bootloader.** `tfw-boot` has no EEPROM-write command, and the application
-   refuses this region over the wire, so ISP is the only supported path. On a real Mega 2560 running the
-   factory STK500v2 bootloader, `avrdude -c wiring ... -U eeprom:w:
-   platform.eep:i` has been observed to corrupt the write at the protocol
-   level — a prefix of the bytes kept, the rest silently dropped partway
-   through, and avrdude itself reports the verification mismatch. This is not
-   a theoretical risk to hedge against; it reproduced on bench hardware. The
-   firmware's own response to the resulting bad-CRC block is correct — it
-   reports "no provisioned identity" rather than trusting a torn write — but
-   the device will not have the serial you intended, and you will not find
-   out from the firmware; you find out from avrdude's own verification
-   failure, so do not ignore it.
+   **Use an ISP programmer.** `tfw-boot` has no EEPROM-write command, and the
+   application refuses this region over the wire, so on this production path
+   ISP is the only supported route. A bench board with no ISP to hand has the
+   bake image, below: it goes through the bootloader's flash write and checks
+   the block on the part.
+
+   Do not trust avrdude's verification of an EEPROM write through a stock
+   serial bootloader. On a real Mega 2560 with the factory STK500v2
+   bootloader, `avrdude -c wiring ... -U eeprom:w:platform.eep:i` writes the
+   block correctly, then reports a verification mismatch. The bootloader reads
+   EEPROM back from twice the address it was asked for, so avrdude compares
+   the wrong bytes. A failed verify there is not proof of a bad write, and a
+   readback through the same bootloader is not proof of a good one. Check the
+   block on the part. The [engineering notes](engineering.md) give the
+   evidence.
 
    ```sh
    tfwprov --bake-eeprom --serial <16-byte hex> --out platform.eep
@@ -114,6 +116,60 @@ care about — several steps below cannot be undone.
    ```
 
 Full flag reference: [`cli.md`](cli.md). Wire-level detail: [`api.md`](api.md).
+
+## Task: bake the block on a bench board through its stock bootloader
+
+For a development board that still runs its stock serial bootloader — an Uno,
+a Nano, a Mega 2560 — and no ISP programmer on the desk. **A bench path only.**
+It works because a stock bootloader flashes arbitrary code, and whoever can do
+that already owns the part. A production part runs `tfw-boot`, which takes
+signed images only; the bake image is never signed with a vendor key, so it
+cannot reach one. Fuses and lock bits still need ISP.
+
+1. **Build the bake image for the board and serial.** It carries exactly the
+   block `tfwprov --bake-eeprom` writes for the same flags.
+
+   ```sh
+   make platform-bake BOARD=atmega2560 SERIAL=<16-byte hex> \
+        [PUBKEY_HASH=<32-byte hex>] [OPERATOR_PUBKEY=<64-byte hex>]
+   ```
+
+2. **Flash it through the bootloader, and watch the port.**
+
+   ```sh
+   make platform-bake-flash BOARD=atmega2560 SERIAL=<16-byte hex> AVRDUDE_PORT=<dev>
+   ```
+
+   On boot it prints one line at the board's baud (115200 on the Uno, Nano
+   and Mega) and halts:
+
+   ```
+   platform-bake board=atmega2560 serial=<32 hex digits> result=baked
+   ```
+
+   | `result=` | What it means | What to do |
+   |---|---|---|
+   | `baked` | the region was blank, torn or failed its CRC; the block was written, read back and parsed | flash the application |
+   | `already` | the region already holds this exact block; nothing was written | flash the application |
+   | `refused` | the region holds a **different** valid block; nothing was written | stop — this part already has an identity, and replacing it is not a bench decision (`include/tfw/boot.h`) |
+   | `readback-failed` | the write did not read back as the block | do not use the part's identity; retry once, then suspect the supply or the EEPROM |
+
+   Opening the port resets most of these boards through DTR, which runs the
+   image again. A second line reading `already` after `baked` is that rerun,
+   not a fault.
+
+3. **Flash the application over it.** `make flash` passes `-D`, so avrdude does
+   not chip-erase and the EEPROM keeps the block.
+
+   ```sh
+   make BOARD=atmega2560 firmware
+   make BOARD=atmega2560 flash AVRDUDE_PORT=<dev>
+   ```
+
+The image writes only `[0x000, 0x0C0)`; the rest of the EEPROM is never
+touched. The application's own `EEPROM_WRITE` refusal of the region is the
+same as ever — the bake image is a separate image, and no part of it links into
+the application.
 
 ## Why these fuses matter
 

@@ -57,21 +57,32 @@ reads the same with either.
 
 The Mega 2560 with its W5100 shield, on `/dev/ttyACM0`, through its stock
 STK500v2 bootloader. The images were built with the toolchain
-[the probe records](../development/wiznet-probe.md#toolchain):
+[the probe records](../development/wiznet-probe.md#toolchain). There were two
+passes that day. The first ran items 1 and 2 and stopped at the network block,
+which needs the device's serial. The second gave the part its platform block
+and ran what serial reaches.
 
 | Image | Flash / RAM | SHA-256 of the `.hex` |
 |---|---|---|
-| `BOARD=atmega2560 CRYPTO=soft` | 13290 / 765 bytes | `d636f84bfa700cfdcde308db7fe49209036519ef96347b3602be0c715dc0cc3a` |
-| `BOARD=atmega2560 CRYPTO=soft ETH=1` (W5100) | 15254 / 785 bytes | `181b5eda8de8ce21052796d6fe0605ec4e07badf0cef1772f9249507cb959858` |
+| `BOARD=atmega2560 CRYPTO=soft`, first pass | 13290 / 765 bytes | `d636f84bfa700cfdcde308db7fe49209036519ef96347b3602be0c715dc0cc3a` |
+| `BOARD=atmega2560 CRYPTO=soft ETH=1` (W5100), first pass | 15254 / 785 bytes | `181b5eda8de8ce21052796d6fe0605ec4e07badf0cef1772f9249507cb959858` |
+| `BOARD=atmega2560 CRYPTO=soft ETH=1` (W5100), second pass | 15262 / 785 bytes | `923646184b196a7ac1873e1ab42448cfac3cde791b99b7ff33812137bb0b26bb` |
+
+The second pass's platform block is `tfwprov --bake-eeprom --serial
+54465700000000000000000000002560`, with no pubkey hash and no operator key,
+which the software tier never reads. The SHA-256 of its `.eep` is
+`1f1d2e349937a2f436f240d2069356e3beb08e10ce7116d0d4e50dd5aeed8c29`.
 
 | # | What ran | Result |
 |---|---|---|
-| 1 | Both images built, size-checked, and flashed with `make flash` (avrdude wrote and verified) | Pass |
-| 2 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0` on each image: the whole cross-implementation suite, over serial. On the Ethernet image, by `tfwctl`: writing D4, D10 and D50–D53, PWM on D10 and `SPI_XFER` with D10 as chip select | Pass on both images. Each shield pin answers "pin is reserved", `SPI_XFER` answers "target is platform-reserved", and tone is refused; D9 and D22 still work |
-| 3 | The network block (`198.51.100.22/24`, gateway `0.0.0.0`, endpoint `198.51.100.1:7020`, `tfw.DerivedMAC`) | **Not run.** The derived MAC needs the device's identity, and this Mega has none. `ATTEST` answers "no provisioned identity": the platform block at `0x000` is a torn write. Its first 128 bytes were written; the rest, the CRC included, are `0xFF`. This is the stock bootloader's EEPROM corruption [provisioning](../device-provisioning/user.md#task-provision-a-new-part) describes, and baking the block again needs an ISP programmer, which the bench does not have. No sticker MAC was supplied. The network block at `0x0C0` was left unwritten (all `0xFF`) |
+| 1 | The images built, size-checked, and flashed with `make flash` (avrdude wrote and verified) | Pass, both passes |
+| 2 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`: the whole cross-implementation suite, over serial. In the first pass, on both images, and by `tfwctl` on the Ethernet image: writing D4, D10 and D50–D53, PWM on D10 and `SPI_XFER` with D10 as chip select | Pass. First pass, on both images: each shield pin answers "pin is reserved", `SPI_XFER` answers "target is platform-reserved", and tone is refused; D9 and D22 still work. Second pass, on the Ethernet image with the platform block in place: pass, and the block was unchanged afterwards |
+| — | The platform block at `0x000`, second pass | Written through the stock bootloader by `avrdude -c wiring -p m2560 -D -U eeprom:w:platform.eep:i`. avrdude reported `verification mismatch`, `device 0x54 != input 0x00 at addr 0x001c`. The application's `EEPROM_READ` then read all 192 bytes back equal to the file, the CRC included. The bootloader's EEPROM read is at fault, not its write ([provisioning](../device-provisioning/engineering.md)). The first pass misread the block the same way. The part did not hold a torn write of this layout. It held a layout-1 block with the pre-rename magic `'A','G','P','R'`, which a current build rejects by its magic. The bench bake image was not needed |
+| 3 | The network block (`198.51.100.22/24`, gateway `0.0.0.0`, endpoint `198.51.100.1:7020`, `tfw.DerivedMAC`), second pass | Written over serial with `WriteNetConfig`. The MAC is `tfw.DerivedMAC` of the serial, `5a:ed:09:10:bf:59`. Read back over serial, it equals `MarshalBinary`'s 32 bytes. The bench's own addresses were not available to the run, so these documentation values are what the device holds; the bench network needs the block written again with its own. Over serial there is no way to see whether the device brings the link up; item 4 is that test |
 | — | Reading back the W5100's `GAR`, `SUBR`, `SHAR` and `SIPR` | **Not run.** No diagnostic exposes them. The firmware writes those registers from a valid network block and never reads them back, and `SPI_XFER` refuses the shield's chip select |
-| 4 | TCP to `198.51.100.22:7020` from the lane's container on the bench host | **Not run as specified.** The container has no address on VLAN 405: only `172.17.0.2/16` on its bridge, and loopback. A connect with a 5 s timeout timed out unanswered. The device had no network block in any case |
-| 5–7 | Attestation over TCP, the off-allow-list refusal, the same identity after a reset | **Not run.** They need item 4, and items 5 and 7 need an identity |
+| 4 | TCP between the device and the lane's container on the bench host | **Not run as specified**, both passes. The container has only its Docker bridge address and loopback, with no address on the board's network. In the second pass, a connect to `198.51.100.22:7020` with a 5 s timeout timed out unanswered. Reaching the board's network is Infrastructure's |
+| 5–6 | Attestation over TCP, the off-allow-list refusal | **Not run.** They need item 4 |
+| 7 | The same identity after a reset, over serial, second pass | **Partly run.** After a soft `RESET`, and the reset each port open causes, the serial at `0x034` and the MAC in the network block read back unchanged. The evidence half cannot run on this image. Behind a stock bootloader the software tier has no UDS (`src/crypto/soft/uds_flash.c`), so `ATTEST` answers "no provisioned identity" whatever the platform block holds. Evidence needs `tfw-boot` handing off a CDI, which needs ISP to install, or the element tier |
 
 ## The day the ATECC608C (MIKROE-6774 Click board) arrives
 

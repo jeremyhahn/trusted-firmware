@@ -72,7 +72,8 @@ Each choice is an ADR before any code.
 - **Cortex-M33** (LPC55S69, MCXN, STM32U5): the vendor ROM provides secure boot and, on
   LPC55S6x, a DICE CDI. A ROM CDI tier replaces tfw-boot there. Part and CI emulation:
   [#14](http://git.example.internal/jeremyhahn/trusted-firmware/issues/14). Trust model and
-  Trusted Firmware-M (Arm's project; "TF-M" for short): [#15](http://git.example.internal/jeremyhahn/trusted-firmware/issues/15).
+  Trusted Firmware-M (Arm's project; "TF-M" for short): [#15](http://git.example.internal/jeremyhahn/trusted-firmware/issues/15),
+  proposed in [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md).
 - **ESP32**: secure boot v2, flash encryption and the DS peripheral:
   [#16](http://git.example.internal/jeremyhahn/trusted-firmware/issues/16).
 

@@ -73,7 +73,9 @@ The TFLXTLS ships with its configuration and data zones locked and its slot
 policies set by Microchip (DS40002515B §3). Its slot map is not the one the
 provisioning flow writes, so the element tier answers `NOT_PROVISIONED` until
 the owner chooses a slot map for it
-([provisioning](../device-provisioning/engineering.md#the-atecc608c-mikroe-6774-click-board)).
+([provisioning](../device-provisioning/engineering.md#the-atecc608c-mikroe-6774-click-board);
+the options and the bench reads that come first are in
+[the slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md)).
 
 Once it is provisioned, the element tier and device-attest-01 enrolment run
 on each board whose element image builds:

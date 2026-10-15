@@ -60,6 +60,10 @@ the firmware's headers. A second copy of a wire format is a copy that drifts,
 and the half that drifts is always the one nobody is testing against real
 firmware.
 
+Where this backend is constructed and called during enrolment, and what
+go-quicbaas and go-trusted-platform owe it, is
+[`../device-onboarding/architecture.md`](../device-onboarding/architecture.md).
+
 ## Why `Capabilities.Keys` is false
 
 `Keys` reads as "generates and stores keys". This backend does neither: the

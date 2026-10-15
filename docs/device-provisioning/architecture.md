@@ -97,7 +97,9 @@ in [`engineering.md`](engineering.md).
   key. Turning that key into a certificate (ACME `device-attest-01` with an EAB
   credential), enrolling the device, and fleet policy are go-trusted-platform's
   job, not this repo's — see that project's docs. A gap there is filed against
-  that repo, never worked around here.
+  that repo, never worked around here. The sequence from this bench to an
+  enrolled device, with the owner of each step, is
+  [`../device-onboarding/architecture.md`](../device-onboarding/architecture.md).
 
 ## Decommission
 

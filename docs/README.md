@@ -28,6 +28,7 @@ Cross-cutting material that belongs to no single feature:
 
 | | |
 |---|---|
+| [`device-onboarding/architecture.md`](device-onboarding/architecture.md) | first power-on to enrolled: each step, its owning repository, what this repo provides at the seam, and the requirements on the others (draft, #53) |
 | [`security/threat-model.md`](security/threat-model.md) | attacker classes, what each profile defends against, the named residual gaps |
 | [`security/fuses-and-lockbits.md`](security/fuses-and-lockbits.md) | the fuse and lock-bit reference the provisioning procedure applies |
 | [`attestation/cryptoauthlib-evaluation.md`](attestation/cryptoauthlib-evaluation.md) | why not Microchip's own library, with the licence clause and the measured size |
@@ -57,6 +58,13 @@ it will read them.
   [`dice-attestation/adr-possession-at-acme-finalize.md`](dice-attestation/adr-possession-at-acme-finalize.md).
   **ACCEPTED 2026-10-09** (issue #6): a device-templated PKCS#10,
   no signing oracle, and what the 32U4 cannot afford.
+- **Which Cortex-M part comes first, and what CI emulates** —
+  [`cortex-m/adr-reference-part-and-emulation.md`](cortex-m/adr-reference-part-and-emulation.md).
+  **PROPOSED** (issue #14): the i.MX 95 Cortex-M7 and QEMU `mps2-an500`.
+- **Whose secure world runs on Cortex-M, ours or TF-M's** —
+  [`cortex-m/adr-trust-model-vs-tf-m.md`](cortex-m/adr-trust-model-vs-tf-m.md).
+  **PROPOSED 2026-10-15** (issue #15): TF-M with our attestation partition on
+  the M33, MPU-only isolation on the M7, and the owner's open questions.
 - **Why there is no `delay()`** — `device-capabilities/architecture.md`.
 - **Why the pin timer stays in firmware** — `device-capabilities/engineering.md`.
   A pin told to hold a level for ten minutes must revert in ten minutes whether

@@ -224,7 +224,8 @@ match ours:
 - The secure-boot public key belongs in slot 15, not slot 2.
 
 `SlotUDS` is pinned in `sdk/go/provision.go`, so moving it is a wire-visible
-choice for the owner, not a driver fix.
+choice for the owner, not a driver fix. The shipped layout, the options and a
+proposed answer are in [the slot-map ADR](adr-trustflex-608c-slot-map.md).
 
 ## Test strategy
 

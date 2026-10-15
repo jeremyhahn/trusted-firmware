@@ -13,7 +13,9 @@ uses to accept a device's connection.
 
 It does not own the device-facing endpoint, enrolment, the device registry or
 fleet policy. Those are go-trusted-platform's. Evidence verification is go-xkms's.
-The seam is the row in the ADR's "Seam to go-trusted-platform" section.
+The seam is the row in the ADR's "Seam to go-trusted-platform" section. Where
+the Ethernet link sits in the whole onboarding sequence is
+[`../device-onboarding/architecture.md`](../device-onboarding/architecture.md).
 
 ## Layers
 

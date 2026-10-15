@@ -13,7 +13,7 @@ a run record, which the operator commits.
 
 The harness is `TestHardwareEnrollment` in `xkms/e2e`. Under `make xkms-test`,
 which the `xkms` CI job runs, it enrolls `tfwsim-atecc608a` over serial and
-reads back the record it wrote. So the code a bench run takes is the code CI
+over TCP, and reads back the record each run wrote. So the code a bench run takes is the code CI
 takes, and the only untested part is the board itself.
 
 ## Which board, which tier
@@ -28,7 +28,8 @@ provisioned DeviceID key that the device cannot export.
 
 The owner's dev-complete criterion (2026-10-15) is both boards enrolling and
 attesting **over Ethernet** against the go-trusted-platform test control
-plane. Today the harness drives a board over serial only (see Ethernet below).
+plane. The harness drives a board over serial or over TCP (see Ethernet
+below).
 
 ## Preconditions and their blockers (2026-10-15)
 
@@ -37,7 +38,6 @@ plane. Today the harness drives a board over serial only (see Ethernet below).
 | ATECC608C on a MIKROE-6774, wired to the board | the element tier | the part has not arrived |
 | An ISP programmer | `tfw-boot`, which measures the image into the DICE handoff, is written over ISP (`make boot-flash`). The fuses and the platform block are ISP too (`docs/device-provisioning/user.md`). The Nano has no other route | none on the bench |
 | A route from the operator's host to VLAN 405 | the test control plane, and the Ethernet boards | none from the lane containers (Infrastructure) |
-| An `sdk/go` tag carrying the Ethernet transport (#59) | `xkms` builds only against a tagged `sdk/go` (`docs/xkms-adapter/engineering.md`), and `v0.3.0-alpha` has no `tfw.Listen`. Until it does, the harness has no TCP target, for `tfwsim` or for a board | tag `sdk/go`, then bump `xkms/go.mod` |
 
 ## The commands
 
@@ -84,11 +84,12 @@ make hw-enroll DEVICE=/dev/ttyACM0 ACME_DIRECTORY=https://<control plane>/acme/d
 
 | Variable | Meaning |
 |---|---|
-| `DEVICE` | required. The board's serial port. A `host:port` fails and names the missing `sdk/go` tag |
+| `DEVICE` | required. The board. Its form picks the transport: a `host:port` is TCP, the address this host listens on; anything else is a serial port |
 | `DEVICEID` | the in-process server only. The 64-byte X‖Y DeviceID key, in hex |
 | `ACME_DIRECTORY` | an external ACME directory URL. Unset, the in-process server |
 | `ACME_ROOTS` | a PEM file of the roots the directory's TLS chains to |
-| `BOOT_WAIT` | how long to wait for the board's BOOT event after the port opens (Go duration). Raise it for a `BOOT_MEASURE=atecc608a` boot |
+| `BOOT_WAIT` | serial only. How long to wait for the board's BOOT event after the port opens (Go duration). Raise it for a `BOOT_MEASURE=atecc608a` boot |
+| `CONNECT_WAIT` | TCP only. How long to wait for the board to connect (Go duration). Default `1m` |
 | `HW_ENROLL_RECORDS` | where the record goes. Default `docs/development/enrollment-runs` |
 
 Without `DEVICE`, the target fails and says what to set. It never falls back to
@@ -115,9 +116,23 @@ It records no address, port or URL.
 
 ## Ethernet
 
-The board-over-TCP target and the `tfwsim`-over-TCP target
-(`tfwsim.StartElementEthernet`) both go into `enrollTargets` once
-`xkms/go.mod` requires an `sdk/go` tag that has `tfw.Listen`. The device dials
-the host (`sdk/go/tcp.go`). So over Ethernet, `DEVICE` will be the address the
-harness listens on, and the board's network block will name that address as
-its endpoint (`docs/ethernet-transport/user.md`).
+The device dials the host, never the reverse (`sdk/go/tcp.go`). So over
+Ethernet `DEVICE` is the address the harness listens on, and the board's
+network block names that address as its endpoint
+(`docs/ethernet-transport/user.md`). The harness accepts the first device that
+connects and enrolls it through the same flow and the same go-xkms ACME client
+as over serial. Which device connected is read from its evidence, never from
+its source address.
+
+```sh
+make hw-enroll DEVICE=192.0.2.1:7000 DEVICEID=<hex X||Y from tfwprov>
+make hw-enroll DEVICE=192.0.2.1:7000 ACME_DIRECTORY=https://<control plane>/acme/directory ACME_ROOTS=<pem>
+```
+
+`192.0.2.1` stands for the operator host's address on the board's network
+(RFC 5737 documentation range); take the real one from the bench. A port that
+cannot be bound, or no device connecting within `CONNECT_WAIT`, fails the run.
+
+Under `make xkms-test` the TCP target is `tfwsim.StartElementEthernet`: the
+simulator boots with a network block whose endpoint is a loopback listener,
+dials it, and is enrolled over that connection. Its record says `tcp`.

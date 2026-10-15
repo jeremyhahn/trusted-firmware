@@ -45,11 +45,15 @@ import (
 // of them and the run is the simulator's, so the code a bench run takes is the
 // code CI takes. Procedure: docs/development/hardware-enrollment.md.
 const (
-	// envDevice is the board: a serial port path. Unset, the simulator.
+	// envDevice is the board: a serial port path, or the "host:port" this
+	// host listens on for a board over Ethernet. Unset, the simulator.
 	envDevice = "TFW_HW_DEVICE"
 	// envBootWait is how long to wait for the board's BOOT event after the
 	// port opens (Go duration). Unset, tfw.DefaultBootWait.
 	envBootWait = "TFW_HW_BOOT_WAIT"
+	// envConnectWait is how long to wait for a board over Ethernet to
+	// connect (Go duration). Unset, defaultConnectWait.
+	envConnectWait = "TFW_HW_CONNECT_WAIT"
 	// envDeviceID is the board's DeviceID public key as tfwprov --commit
 	// printed it (hex X||Y). The in-process server's registry holds it; a
 	// control plane holds its own and does not read this.
@@ -65,6 +69,10 @@ const (
 	envRecordDir = "TFW_HW_RECORD_DIR"
 )
 
+// defaultConnectWait covers a board's boot, its link coming up and its first
+// dial, which follows a backoff when the host was not yet listening.
+const defaultConnectWait = time.Minute
+
 // enrollTarget is a device to enroll and what a registry knows about it.
 type enrollTarget struct {
 	name      string
@@ -75,13 +83,11 @@ type enrollTarget struct {
 }
 
 // enrollTargets is the operator's board when one is named, else the
-// simulator.
+// simulator over each transport.
 //
-// The simulator over TCP (tfwsim.StartElementEthernet) is not here yet: the
-// Ethernet transport (#59) is in the working tree's sdk/go and not in the tag
-// xkms/go.mod requires, and this module never builds against the working tree
-// (docs/xkms-adapter/engineering.md). It goes in with the go.mod bump to the
-// first sdk/go tag that carries it, and so does a board over TCP.
+// The transport is read from the form of the name: a "host:port" is TCP, and
+// is the address this host listens on for the board to dial; anything else is
+// a serial port path.
 func enrollTargets(t *testing.T) []enrollTarget {
 	t.Helper()
 	spec := os.Getenv(envDevice)
@@ -91,12 +97,23 @@ func enrollTargets(t *testing.T) []enrollTarget {
 			transport: "serial",
 			open:      func(t *testing.T) *tfw.Device { return tfwsim.StartElement(t) },
 			deviceID:  func(*testing.T) *ecdsa.PublicKey { return tfwsim.TestDeviceIDPublicKey() },
+		}, {
+			name:      "tfwsim-tcp",
+			transport: "tcp",
+			open: func(t *testing.T) *tfw.Device {
+				_, eth := tfwsim.StartElementEthernet(t)
+				return eth.Device
+			},
+			deviceID: func(*testing.T) *ecdsa.PublicKey { return tfwsim.TestDeviceIDPublicKey() },
 		}}
 	}
 	if _, _, err := net.SplitHostPort(spec); err == nil {
-		t.Fatalf("%s=%s is a TCP address: a board over Ethernet needs tfw.Listen (#59), which is not "+
-			"in the sdk/go tag xkms/go.mod requires. Tag sdk/go and bump xkms/go.mod first, or use the "+
-			"board's serial port", envDevice, spec)
+		return []enrollTarget{{
+			name:      "operator-tcp",
+			transport: "tcp",
+			open:      func(t *testing.T) *tfw.Device { return acceptTCPBoard(t, spec) },
+			deviceID:  operatorDeviceID,
+		}}
 	}
 	return []enrollTarget{{
 		name:      "operator-serial",
@@ -118,6 +135,29 @@ func openSerialBoard(t *testing.T, path string) *tfw.Device {
 	require.NoError(t, err, "opening %s", path)
 	t.Cleanup(func() { _ = port.Close() })
 	return tfw.New(port, tfw.WithBootWait(bootWait))
+}
+
+// acceptTCPBoard listens on addr and takes the first device that connects.
+// The device dials the host (sdk/go/tcp.go), so addr is this host's address
+// and the board's network block names it as the endpoint.
+func acceptTCPBoard(t *testing.T, addr string) *tfw.Device {
+	t.Helper()
+	connectWait := defaultConnectWait
+	if s := os.Getenv(envConnectWait); s != "" {
+		d, err := time.ParseDuration(s)
+		require.NoError(t, err, "%s", envConnectWait)
+		connectWait = d
+	}
+	raw, err := net.Listen("tcp", addr)
+	require.NoError(t, err, "listening on %s", addr)
+	ln := tfw.NewListener(raw)
+	t.Cleanup(func() { _ = ln.Close() })
+	require.NoError(t, raw.(*net.TCPListener).SetDeadline(time.Now().Add(connectWait)))
+	eth, err := ln.Accept()
+	require.NoError(t, err, "no device connected to %s within %s: check the board's network block names "+
+		"this address as its endpoint, and raise %s if it boots slowly", addr, connectWait, envConnectWait)
+	t.Cleanup(func() { _ = eth.Close() })
+	return eth.Device
 }
 
 func operatorDeviceID(t *testing.T) *ecdsa.PublicKey {
@@ -315,6 +355,31 @@ func TestHardwareEnrollment(t *testing.T) {
 			}
 			assert.Contains(t, string(written), "| Board | "+record.Board+" |")
 			assert.Contains(t, string(written), "| Evidence verdict | accepted ")
+		})
+	}
+}
+
+// TestEnrollTargetsTransportFromDevice pins the rule `make hw-enroll` documents:
+// the form of DEVICE picks the transport, and an unset DEVICE runs the
+// simulator over both.
+func TestEnrollTargetsTransportFromDevice(t *testing.T) {
+	for _, tc := range []struct {
+		device string
+		want   []string
+	}{
+		{"", []string{"tfwsim-serial/serial", "tfwsim-tcp/tcp"}},
+		{"/dev/ttyACM0", []string{"operator-serial/serial"}},
+		{"192.0.2.1:7000", []string{"operator-tcp/tcp"}},
+		{"0.0.0.0:7000", []string{"operator-tcp/tcp"}},
+		{"[2001:db8::1]:7000", []string{"operator-tcp/tcp"}},
+	} {
+		t.Run(tc.device, func(t *testing.T) {
+			t.Setenv(envDevice, tc.device)
+			var got []string
+			for _, target := range enrollTargets(t) {
+				got = append(got, target.name+"/"+target.transport)
+			}
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

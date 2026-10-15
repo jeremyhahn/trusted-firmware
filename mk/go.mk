@@ -92,20 +92,22 @@ xkms-coverage: tfwsim tfwsim-atecc608a
 # NOT in `ci`, for the reason bench-check is not: it needs a board on the bench.
 # The harness it runs is xkms/e2e TestHardwareEnrollment, which `xkms-test`
 # runs against tfwsim, so the only thing this adds over CI is the board.
-# DEVICE is the board's serial port; there is no default and no fallback to the
-# simulator, because a hardware run that cannot reach hardware is a failure.
+# DEVICE is the board; there is no default and no fallback to the simulator,
+# because a hardware run that cannot reach hardware is a failure. Its form picks
+# the transport: a host:port is TCP, the address this host listens on for the
+# board to dial (CONNECT_WAIT bounds the wait); anything else is a serial port.
 # DEVICEID is the hex X||Y tfwprov --commit printed, for the in-process ACME
 # server; ACME_DIRECTORY names a control plane instead, ACME_ROOTS the PEM its
 # TLS chains to. Procedure: docs/development/hardware-enrollment.md.
 HW_ENROLL_RECORDS ?= docs/development/enrollment-runs
 hw-enroll:
 	@if [ -z "$(DEVICE)" ]; then \
-	  echo "hw-enroll: set DEVICE=<serial port>, e.g. make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex X||Y>"; \
+	  echo "hw-enroll: set DEVICE=<serial port> or DEVICE=<listen host:port>, e.g. make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex X||Y>"; \
 	  echo "           or DEVICE=<port> ACME_DIRECTORY=<url> [ACME_ROOTS=<pem>] (docs/development/hardware-enrollment.md)"; \
 	  exit 1; \
 	fi
 	@mkdir -p $(HW_ENROLL_RECORDS)
-	@cd $(XKMS_DIR) && TFW_HW_DEVICE='$(DEVICE)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_BOOT_WAIT='$(BOOT_WAIT)' \
+	@cd $(XKMS_DIR) && TFW_HW_DEVICE='$(DEVICE)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_BOOT_WAIT='$(BOOT_WAIT)' TFW_HW_CONNECT_WAIT='$(CONNECT_WAIT)' \
 	  TFW_HW_ACME_DIRECTORY='$(ACME_DIRECTORY)' TFW_HW_ACME_ROOTS='$(if $(ACME_ROOTS),$(abspath $(ACME_ROOTS)))' \
 	  TFW_HW_RECORD_DIR=$(abspath $(HW_ENROLL_RECORDS)) \
 	  $(GO) test -count=1 -tags $(XKMS_TAGS) -run '^TestHardwareEnrollment$$' -v ./e2e/

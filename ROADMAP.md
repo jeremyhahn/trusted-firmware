@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status: REFERENCE** · Last verified: 2026-10-14
+> **Status: REFERENCE** · Last verified: 2026-10-15
 > What is complete and what remains, in milestone order. Features and requirements: [docs/SPEC.md](docs/SPEC.md).
 
 ## Mission
@@ -38,6 +38,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 - **xkms-adapter** — AVR enrollment into go-trusted-platform, through the adapter — [#20](../../issues/20) — open
 - **xkms-adapter** — downstream migration to the adapter — [#19](../../issues/19) — open
 - **xkms-adapter** — physical-board enrollment run end to end, the gate for other platforms — [#7](../../issues/7) — open
+- **application-sdk** — the application interface for `trusted-firmware-<application>` repositories — [#51](../../issues/51) — in progress
 
 ## Next
 
@@ -65,7 +66,6 @@ Gated: no other platform until AVR has every primitive and a proven physical end
 - **cortex-m** — ADR: Cortex-M trust model and the relation to TF-M — [#15](../../issues/15) — blocked: owner gate (#7)
 - **esp32** — Phase 6: the ESP-IDF architecture port, the ESP32-P4 first — [#23](../../issues/23) — blocked: owner gate (#7)
 - **esp32** — ADR: ESP-IDF integration boundary and transport — [#16](../../issues/16) — blocked: owner gate (#7)
-- **application-sdk** — the application interface for `trusted-firmware-<application>` repositories — [#51](../../issues/51) — open
 - **ota** — signed whole-image updates with rollback, from go-trusted-platform's control plane — [#52](../../issues/52) — open
 - **device-onboarding** — DICE-only devices enroll by device profile through the adapter seam — [#53](../../issues/53) — open
 

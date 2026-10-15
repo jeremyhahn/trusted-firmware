@@ -22,6 +22,7 @@
 #include "core/handoff.h"
 #include "core/platform_id.h"
 #include "core/auth_session.h"
+#include "core/app_runner.h"
 
 tfw_status_t tfw_hal_tick_init(void);
 
@@ -72,6 +73,11 @@ static void startup(void)
     tfw_sched_init();
     tfw_auth_session_init();
     tfw_transport_init(&transport);
+
+    /* Last, so the application finds every capability it may use already up,
+     * and still before interrupts: its init owns the device until it returns.
+     * A refusal is not an error here. The firmware serves on without it. */
+    tfw_app_runner_start();
 }
 
 int main(void)
@@ -91,5 +97,6 @@ int main(void)
         tfw_sys_set_framer_errors(transport.framer.err_crc, transport.framer.err_format);
         tfw_sched_poll();
         tfw_sys_poll();
+        tfw_app_runner_poll();
     }
 }

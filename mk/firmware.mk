@@ -171,7 +171,7 @@ else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a)
 endif
 
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(APP_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The toolchain binaries and the flags that name a machine, an optimisation
@@ -228,6 +228,7 @@ FW_SRCS := $(sort \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
   src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board_lookup.c \
   src/core/secure_zero.c $(IDENTITY_SRCS) \
+  $(APP_RUNNER_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
@@ -245,8 +246,29 @@ $(FW_DIR)/%.o: %.c
 # to a header rebuilt no image: the .o depended on its .c and nothing else.
 -include $(FW_OBJS:.o=.d)
 
-$(TARGET).elf: $(FW_OBJS)
-	@$(ARCH_CC) $(FW_LDFLAGS) -o $@ $(FW_OBJS)
+# An application's sources (mk/app.mk), compiled with the firmware's machine,
+# optimisation and warning flags and its reproducibility flags, but against
+# include/ and the board only: src/ is the firmware's own, and an application
+# that reached into it would break on the next refactor of a file it never
+# named. APP_PREFIX_MAP keeps the application's path out of the image, as
+# -ffile-prefix-map=$(CURDIR) keeps this one's.
+APP_FW_OBJS := $(patsubst %.c,$(FW_DIR)/app/%.o,$(APP_SRCS))
+APP_FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) $(APP_WARN_CFLAGS) \
+                 -ffile-prefix-map=$(CURDIR)=. $(APP_PREFIX_MAP) \
+                 -Iinclude -I$(HAL_DIR) -I$(BOARD_DIR) \
+                 -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) \
+                 $(APP_CFLAGS)
+
+ifneq ($(APP_SRCS),)
+$(APP_FW_OBJS): $(FW_DIR)/app/%.o: $(APP_ABS)/%.c
+	@mkdir -p $(dir $@)
+	@$(ARCH_CC) $(APP_FW_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
+
+-include $(APP_FW_OBJS:.o=.d)
+endif
+
+$(TARGET).elf: $(FW_OBJS) $(APP_FW_OBJS)
+	@$(ARCH_CC) $(FW_LDFLAGS) -o $@ $(FW_OBJS) $(APP_FW_OBJS)
 
 # -R .eeprom only. mk/handoff.ld (in FW_LDFLAGS, above) makes `.handoff`
 # genuinely NOLOAD -- SHT_NOBITS, the same section type `.bss` already is --

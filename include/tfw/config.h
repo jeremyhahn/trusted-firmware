@@ -123,26 +123,46 @@
 #define TFW_FEATURE_PROVISION   0
 #endif
 
+/* The bit each feature occupies in the CAPS Features field. These are the wire:
+ * they extend and never renumber. Named so an application can say which
+ * capabilities it needs (include/tfw/app.h) without a copy of this table. */
+#define TFW_CAPBIT_GPIO          0u
+#define TFW_CAPBIT_SCHED         1u
+#define TFW_CAPBIT_ANALOG        2u
+#define TFW_CAPBIT_PWM           3u
+#define TFW_CAPBIT_TONE          4u
+#define TFW_CAPBIT_PULSE         5u
+#define TFW_CAPBIT_EEPROM        6u
+#define TFW_CAPBIT_I2C           7u
+#define TFW_CAPBIT_SPI           8u
+#define TFW_CAPBIT_ONEWIRE       9u
+#define TFW_CAPBIT_ATTEST       10u
+#define TFW_CAPBIT_DEADMAN      11u
+#define TFW_CAPBIT_PROVISION    12u
+#define TFW_CAPBIT_ALIAS_CERT   13u
+#define TFW_CAPBIT_AUTH_SESSION 14u
+#define TFW_CAPBIT_ATTEST_CSR   15u
+
 /* The bitmap CAPS reports. Derived, never hand-maintained -- a hand-written
  * copy of this drifts from the gates above and then the host is told the
  * firmware has a capability it does not. */
 #define TFW_FEATURE_BITMAP ( \
-      ((uint32_t)TFW_FEATURE_GPIO    <<  0) \
-    | ((uint32_t)TFW_FEATURE_SCHED   <<  1) \
-    | ((uint32_t)TFW_FEATURE_ANALOG  <<  2) \
-    | ((uint32_t)TFW_FEATURE_PWM     <<  3) \
-    | ((uint32_t)TFW_FEATURE_TONE    <<  4) \
-    | ((uint32_t)TFW_FEATURE_PULSE   <<  5) \
-    | ((uint32_t)TFW_FEATURE_EEPROM  <<  6) \
-    | ((uint32_t)TFW_FEATURE_I2C     <<  7) \
-    | ((uint32_t)TFW_FEATURE_SPI     <<  8) \
-    | ((uint32_t)TFW_FEATURE_ONEWIRE <<  9) \
-    | ((uint32_t)TFW_FEATURE_ATTEST  << 10) \
-    | ((uint32_t)TFW_FEATURE_DEADMAN << 11) \
-    | ((uint32_t)TFW_FEATURE_PROVISION << 12) \
-    | ((uint32_t)TFW_FEATURE_ALIAS_CERT << 13) \
-    | ((uint32_t)TFW_FEATURE_AUTH_SESSION << 14) \
-    | ((uint32_t)TFW_FEATURE_ATTEST_CSR << 15) )
+      ((uint32_t)TFW_FEATURE_GPIO         << TFW_CAPBIT_GPIO) \
+    | ((uint32_t)TFW_FEATURE_SCHED        << TFW_CAPBIT_SCHED) \
+    | ((uint32_t)TFW_FEATURE_ANALOG       << TFW_CAPBIT_ANALOG) \
+    | ((uint32_t)TFW_FEATURE_PWM          << TFW_CAPBIT_PWM) \
+    | ((uint32_t)TFW_FEATURE_TONE         << TFW_CAPBIT_TONE) \
+    | ((uint32_t)TFW_FEATURE_PULSE        << TFW_CAPBIT_PULSE) \
+    | ((uint32_t)TFW_FEATURE_EEPROM       << TFW_CAPBIT_EEPROM) \
+    | ((uint32_t)TFW_FEATURE_I2C          << TFW_CAPBIT_I2C) \
+    | ((uint32_t)TFW_FEATURE_SPI          << TFW_CAPBIT_SPI) \
+    | ((uint32_t)TFW_FEATURE_ONEWIRE      << TFW_CAPBIT_ONEWIRE) \
+    | ((uint32_t)TFW_FEATURE_ATTEST       << TFW_CAPBIT_ATTEST) \
+    | ((uint32_t)TFW_FEATURE_DEADMAN      << TFW_CAPBIT_DEADMAN) \
+    | ((uint32_t)TFW_FEATURE_PROVISION    << TFW_CAPBIT_PROVISION) \
+    | ((uint32_t)TFW_FEATURE_ALIAS_CERT   << TFW_CAPBIT_ALIAS_CERT) \
+    | ((uint32_t)TFW_FEATURE_AUTH_SESSION << TFW_CAPBIT_AUTH_SESSION) \
+    | ((uint32_t)TFW_FEATURE_ATTEST_CSR   << TFW_CAPBIT_ATTEST_CSR) )
 
 /* ------------------------------------------------------- board identity */
 /* A board profile supplies these. The host build has no board and takes the
@@ -351,6 +371,23 @@
  * that is why it is a knob and not a constant. */
 #ifndef TFW_PULSE_MAX_US
 #define TFW_PULSE_MAX_US 50000UL
+#endif
+
+/* How long one tfw_app_run() may take before the runner counts an overrun
+ * (docs/application-sdk/engineering.md). At 115200 baud the 64-byte receive
+ * ring overflows about 5.5 ms after the loop stops draining it; with a 1 ms
+ * tick a measured 2 ms is under 3 ms real, which leaves the transport half.
+ * Measured, never enforced -- a board with a slower link can raise it. */
+#ifndef TFW_APP_RUN_BUDGET_MS
+#define TFW_APP_RUN_BUDGET_MS 2u
+#endif
+
+/* Image slots this board's update path has: 1 is tfw-boot replacing the image
+ * in place, 2 is A/B with rollback. An application that declares more than the
+ * board has does not start. Only counted when the image can request an update
+ * at all -- a board with no bootloader serves none. */
+#ifndef TFW_OTA_SLOTS
+#define TFW_OTA_SLOTS 1u
 #endif
 
 /* A scheduled interval may not exceed 2^31 ms. Above that the signed-difference

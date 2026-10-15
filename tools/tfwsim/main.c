@@ -41,6 +41,7 @@
 #include "auth_session.h"
 #include "sched.h"
 #include "bus.h"
+#include "app_runner.h"
 #include "tier.h"
 
 static tfw_transport_t t;
@@ -75,6 +76,7 @@ static void pump(const uint8_t *in, size_t n, int out_fd)
         tfw_sys_set_framer_errors(t.framer.err_crc, t.framer.err_format);
         tfw_sched_poll();
         tfw_sys_poll();
+        tfw_app_runner_poll();
         got = tfw_mock_drain_tx(out, sizeof out);
         if (got) {
             ssize_t w = write(out_fd, out, got);
@@ -105,6 +107,7 @@ static int run(int in_fd, int out_fd)
     tfw_sched_init();
     tfw_auth_session_init();
     tfw_transport_init(&t);
+    tfw_app_runner_start();
     (void)tfw_transport_send_event(&t, TFW_EVENT_BOOT);
     pump(0, 0u, out_fd);
 

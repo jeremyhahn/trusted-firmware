@@ -8,8 +8,9 @@ integration added. It is the framework and SDK for device applications, which li
 Where the project is going: [`../ROADMAP.md`](../ROADMAP.md) and
 [`multi-arch/architecture.md`](multi-arch/architecture.md).
 
-Seven capabilities, each a five-file feature folder — `architecture.md`,
-`engineering.md`, `cli.md`, `api.md`, `user.md`. **NORMATIVE** means a conflict
+Eight capabilities, each a feature folder — `architecture.md`,
+`engineering.md`, `api.md`, `user.md`, and `cli.md` where there is a command
+line. **NORMATIVE** means a conflict
 with the code is a defect to fix in the document first.
 
 | Feature | What it covers |
@@ -21,6 +22,7 @@ with the code is a defect to fix in the document first.
 | [`device-provisioning/`](device-provisioning/architecture.md) | taking a blank part to an identity-bearing device, and the irreversible steps |
 | [`host-sdk/`](host-sdk/architecture.md) | `sdk/go`, `tfwctl`, `tfwprov` and `tfwsim` — one host implementation |
 | [`xkms-adapter/`](xkms-adapter/architecture.md) | the AVR backend for go-xkms, registered through go-xkms's backend registry hook |
+| [`application-sdk/`](application-sdk/architecture.md) | the C interface a `trusted-firmware-<application>` repository links into the image: descriptor, hooks, configuration, build |
 
 Cross-cutting material that belongs to no single feature:
 

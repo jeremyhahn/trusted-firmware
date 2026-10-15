@@ -10,6 +10,7 @@
 #include "../core/dispatch.h"
 #include "../core/auth_session.h"
 #include "../core/update_request.h"
+#include "../core/app_runner.h"
 
 /* Bumped by hand when the firmware is released; distinct from the protocol
  * version, which describes the wire and moves far less often. */
@@ -213,6 +214,11 @@ tfw_status_t tfw_sys_cmd_sys_info(tfw_reader_t *r, tfw_writer_t *w)
 void tfw_sys_poll(void)
 {
     if (reset_pending && tfw_hal_uart_tx_idle()) {
+        /* The application stops here, after the reply has drained and before
+         * anything is armed: its hooks can neither delay the reply nor see a
+         * request half-made. A RESET(0) that superseded a RESET(1) is a plain
+         * reset to the application too. */
+        tfw_app_runner_stop((uint8_t)(reset_mode == 1u));
         if (reset_mode == 1u) {
             tfw_update_request_arm();
         }

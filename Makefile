@@ -11,6 +11,9 @@ SHELL := /bin/bash
 
 VERSION := $(shell cat VERSION)
 
+# First: host.mk and firmware.mk both name their outputs after APP_DIR's
+# application, and link the empty runner, app_runner_none.c, when there is none.
+include mk/app.mk
 include mk/host.mk
 include mk/go.mk
 # mk/firmware.mk reads the board's profile.mk and includes mk/arch/$(ARCH).mk.
@@ -84,7 +87,7 @@ verify-vendor:
 # where go-xkms is reachable to run both gates.
 ci: verify-vendor verify-vectors lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep header-deps-check \
     coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
-    integration-test-boot reproducible-check ci-matrix-check
+    integration-test-boot reproducible-check ci-matrix-check app-sdk-check app-firmware-check
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci firmware-attested

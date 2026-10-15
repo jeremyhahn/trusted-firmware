@@ -119,7 +119,9 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c \
                             test/unit/test_sys_noboot.c \
-                            test/unit/test_pin_coord.c, \
+                            test/unit/test_pin_coord.c \
+                            test/unit/test_app_none.c \
+                            test/unit/test_app_example.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -152,8 +154,10 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/core/auth_session_none.c \
                  src/core/update_request.c boot/boot_request.c \
                  boot/boot_handoff.c boot/boot_platform.c \
+                 src/core/app_runner.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
+                 test/mock/app_mock.c \
                  src/core/board_lookup.c \
                  boards/$(HOST_BOARD)/board.c
 
@@ -279,6 +283,7 @@ $(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c $(ELEMENT_MODEL) \
                                 src/core/update_request.c boot/boot_request.c \
                                 boot/boot_platform.c boot/boot_handoff.c \
                                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
+                                src/core/app_runner_none.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -292,9 +297,40 @@ $(HOST_DIR)/test_model_p256: test/unit/test_model_p256.c $(ELEMENT_MODEL) \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The application interface (docs/application-sdk/). An application is compiled
+# with its own flags, as a separate object: against include/, the board and the
+# mock HAL's types, never src/ -- the same boundary mk/firmware.mk draws -- and
+# with the project's warning set, since it is linked into the image. Like
+# unity.o, WITHOUT $(EXTRA_CFLAGS): the object outlives one invocation.
+APP_HOST_BASE_CFLAGS := -std=c11 -g -O1 $(APP_WARN_CFLAGS) \
+                        -Iinclude -Itest/mock -Iboards/$(HOST_BOARD) \
+                        -DTFW_BOARD_HEADER='"board_profile.h"' $(HOST_EXTRA_DEFS)
+
+# test_app_none: the build with no application, which is every build without
+# APP_DIR. The host library minus the runner and the recording mock, plus the
+# empty runner.
+$(HOST_DIR)/test_app_none: test/unit/test_app_none.c \
+                        $(filter-out src/core/app_runner.c test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+                        src/core/app_runner_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_app_example: the example application, compiled as an application is --
+# APP_HOST_BASE_CFLAGS, no -Isrc -- and driven through the runner by the suite.
+$(HOST_DIR)/test-app-example/example.o: test/app/example/example.c
+	@mkdir -p $(dir $@)
+	@$(CC) $(APP_HOST_BASE_CFLAGS) -MMD -MP -c -o $@ $<
+
+$(HOST_DIR)/test_app_example: test/unit/test_app_example.c \
+                        $(filter-out test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+                        $(HOST_DIR)/test-app-example/example.o \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 HOST_EXTRA_BINS := $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
-                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord
+                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
+                    $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)
@@ -475,25 +511,53 @@ TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h
 # no firmware source or board profile is touched, and no AVR image sees it.
 TFWSIM_ELEMENT_INC := -Itools/tfwsim/element
 TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c \
-                                   src/core/auth_session_none.c, \
+                                   src/core/auth_session_none.c src/core/app_runner.c \
+                                   test/mock/app_mock.c, \
                                    $(HOST_LIB_SRCS)) \
                       src/core/auth_session.c \
                       src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
-                      $(ELEMENT_MODEL)
+                      $(ELEMENT_MODEL) $(APP_RUNNER_SRCS)
+
+# The simulator links the runner an image would (mk/app.mk): the real one with
+# APP_DIR's application, or the empty one. Never the recording mock, which is
+# the tests'.
+TFWSIM_SOFT_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+                    $(APP_RUNNER_SRCS)
+
+# An application's objects, one directory per tier: the element tier's overlay
+# profile is a different config.h, and an application's TFW_APP_STATIC_CHECK is
+# checked against the profile of the image it is linked into.
+APP_HOST_DIR          := $(HOST_DIR)/app-$(APP_NAME)
+APP_HOST_OBJS         := $(patsubst %.c,$(APP_HOST_DIR)/%.o,$(APP_SRCS))
+APP_HOST_ELEMENT_DIR  := $(HOST_DIR)/app-$(APP_NAME)-atecc608a
+APP_HOST_ELEMENT_OBJS := $(patsubst %.c,$(APP_HOST_ELEMENT_DIR)/%.o,$(APP_SRCS))
+APP_HOST_CFLAGS       := $(APP_HOST_BASE_CFLAGS) -ffile-prefix-map=$(CURDIR)=. $(APP_PREFIX_MAP) $(APP_CFLAGS)
+
+ifneq ($(APP_SRCS),)
+$(APP_HOST_OBJS): $(APP_HOST_DIR)/%.o: $(APP_ABS)/%.c
+	@mkdir -p $(dir $@)
+	@$(CC) $(APP_HOST_CFLAGS) -MMD -MP -c -o $@ $<
+
+$(APP_HOST_ELEMENT_OBJS): $(APP_HOST_ELEMENT_DIR)/%.o: $(APP_ABS)/%.c
+	@mkdir -p $(dir $@)
+	@$(CC) $(TFWSIM_ELEMENT_INC) $(APP_HOST_CFLAGS) -MMD -MP -c -o $@ $<
+
+-include $(APP_HOST_OBJS:.o=.d) $(APP_HOST_ELEMENT_OBJS:.o=.d)
+endif
 
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
-tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)
-$(HOST_DIR)/tfwsim: $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(HOST_LIB_SRCS) | $(HOST_DIR)
+tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)$(APP_SUFFIX)
+$(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(HOST_LIB_SRCS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
-tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a
-$(HOST_DIR)/tfwsim-atecc608a: $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) | $(HOST_DIR)
+tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
+$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 clean-host:
@@ -502,7 +566,7 @@ clean-host:
 # The .d files mk/ccdeps.sh wrote. After every rule in the file so nothing here
 # becomes the default goal; mk/boot.mk's land in $(HOST_DIR)/boot and are read
 # by the same line. -include, because the first build has none.
--include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d)
+-include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
 .PHONY: test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint \
         lint-arch-leak lint-arch-leak-selftest

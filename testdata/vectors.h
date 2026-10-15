@@ -138,6 +138,34 @@
 #define TFWV_CAPS_PIN13_REPLY     "\x0d\x81\x00\x05\xff\x00"
 #define TFWV_CAPS_PIN13_REPLY_LEN 6u
 
+/* ---------------------------------------------------------------- APP_INFO */
+/* The APP_INFO reply (#51), 63 bytes, written by hand from the layout in
+ * include/tfw/protocol.h and docs/wire-protocol/api.md:
+ *
+ *   [state:1][overruns:2][abi:1][ota_slots:1][major:1][minor:1][patch:2]
+ *   [config_len:2][required_caps:4][name:16][profile:32]
+ *
+ * HEARTBEAT is the example application (test/app/example) as tfwsim runs it:
+ * RUNNING, no overruns, ABI 1, no update slots, version 1.0.0, no
+ * configuration, GPIO required, named "heartbeat", default profile.
+ *
+ * OVERRUN is the recording mock's descriptor, RUNNING with 0x0102 calls over
+ * budget: the overrun count is little-endian, 02 01.
+ *
+ * REFUSED is a descriptor the runner refuses (required_caps bit 31, which no
+ * image has), reported as written: UNSUPPORTED, overruns cleared at start,
+ * slots 2, version 2.3.1029 (patch 05 04), config_len 0x0102, required_caps
+ * 0x80000001, a 15-character name filling its field to the NUL, and the profile
+ * "bmc/esp32-p4". */
+#define TFWV_APPINFO_HEARTBEAT_REPLY "\x01\x00\x00\x01\x00\x01\x00\x00\x00\x00\x00\x01\x00\x00\x00\x68\x65\x61\x72\x74\x62\x65\x61\x74\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+#define TFWV_APPINFO_HEARTBEAT_REPLY_LEN 63u
+
+#define TFWV_APPINFO_OVERRUN_REPLY "\x01\x02\x01\x01\x00\x00\x00\x00\x00\x10\x00\x00\x00\x00\x00\x6d\x6f\x63\x6b\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+#define TFWV_APPINFO_OVERRUN_REPLY_LEN 63u
+
+#define TFWV_APPINFO_REFUSED_REPLY "\x03\x00\x00\x01\x02\x02\x03\x05\x04\x02\x01\x01\x00\x00\x80\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6a\x6b\x6c\x6d\x6e\x6f\x00\x62\x6d\x63\x2f\x65\x73\x70\x33\x32\x2d\x70\x34\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+#define TFWV_APPINFO_REFUSED_REPLY_LEN 63u
+
 /* ------------------------------------------------------------ wire frames */
 /* One full encoded request -- SOF through CRC16 -- for I2C_CONFIG and
  * SPI_CONFIG (issue #21), each at a fixed SEQ and payload. Produced once by

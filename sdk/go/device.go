@@ -18,6 +18,7 @@ const (
 	CmdPing         Cmd = 0x01
 	CmdReset        Cmd = 0x02
 	CmdSysInfo      Cmd = 0x03
+	CmdAppInfo      Cmd = 0x06
 	CmdPinMode      Cmd = 0x10
 	CmdDigitalRead  Cmd = 0x11
 	CmdDigitalWrite Cmd = 0x12
@@ -335,6 +336,58 @@ func (r ResetCause) String() string {
 		return "brownout"
 	case ResetWatchdog:
 		return "watchdog"
+	}
+	return "unknown"
+}
+
+// AppInfo is the application linked into the image and how its runner is
+// doing -- APP_INFO, issue #51. Only an image built with an application answers
+// it; any other answers StatusErrUnknownCmd, the same as a device built before
+// the command existed.
+//
+// The descriptor fields are reported as the application wrote them, including
+// when the runner refused it, so a host can say why. Nothing here is
+// authenticated: Profile is what the device says it runs under, and the
+// binding to the code that says it is the FWHash in its evidence.
+type AppInfo struct {
+	State AppState
+	// Overruns counts polls that ran past their budget. It saturates at 0xFFFF.
+	Overruns     uint16
+	ABI          uint8
+	OTASlots     uint8
+	VersionMajor uint8
+	VersionMinor uint8
+	VersionPatch uint16
+	ConfigLen    uint16
+	// RequiredCaps is the CAPS bitmap the application needs, by bit.
+	RequiredCaps uint32
+	Name         string
+	Profile      string
+}
+
+// AppState is the application runner's state.
+type AppState uint8
+
+const (
+	AppIdle        AppState = 0
+	AppRunning     AppState = 1
+	AppFailed      AppState = 2
+	AppUnsupported AppState = 3
+	AppStopped     AppState = 4
+)
+
+func (s AppState) String() string {
+	switch s {
+	case AppIdle:
+		return "idle"
+	case AppRunning:
+		return "running"
+	case AppFailed:
+		return "failed"
+	case AppUnsupported:
+		return "unsupported"
+	case AppStopped:
+		return "stopped"
 	}
 	return "unknown"
 }

@@ -18,9 +18,24 @@ sdk-build:
 # Depends on both simulators: the cross-implementation tests talk to the REAL
 # firmware compiled for the host, so a stale or missing binary would leave the
 # only check that the two codecs agree silently untested. tfwsim-atecc608a is the
-# element tier, the only peer that produces DICE evidence.
-sdk-test: tfwsim tfwsim-atecc608a
+# element tier, the only peer that produces DICE evidence; tfwsim-app-example the
+# only one with an application, so the only one that answers APP_INFO.
+sdk-test: tfwsim tfwsim-atecc608a tfwsim-app-example
 	@cd $(SDK_DIR) && $(GO) test -count=1 ./...
+
+## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=)
+# The same TestAgainstFirmware* suite sdk-test runs against tfwsim, pointed at
+# the board on PORT through the suite's one transport seam,
+# sdk/go/internal/peer. BOARD tells the suite which board's pins to expect, and
+# CAPS must report that board. Not part of `make ci`: CI has no board. A missing
+# PORT, a port that does not exist and a board that does not answer all fail;
+# none of them is a skip. Flash the image first (`make flash`); the suite does
+# not. -p 1 because every test opens, and so resets, the one board.
+HW_TEST_RUN ?= ^TestAgainstFirmware
+hw-test:
+	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev>"; exit 1; fi
+	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) $(GO) test -count=1 -p 1 -run '$(HW_TEST_RUN)' .
 
 ## sdk-lint: gofmt and vet the Go SDK
 sdk-lint:
@@ -77,4 +92,4 @@ xkms-coverage: tfwsim tfwsim-atecc608a
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage
+.PHONY: sdk-build sdk-test hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage

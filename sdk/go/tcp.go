@@ -13,8 +13,8 @@ import "net"
 // the source address can say; ask it, with Attest and the evidence calls, and
 // verify what it answers.
 //
-// Over Ethernet the device dispatches only CAPS, ATTEST, ATTEST_CERT and
-// ATTEST_CSR. Every other command is answered with StatusErrUnknownCmd, which
+// Over Ethernet the device dispatches only CAPS, APP_INFO (in an image with an
+// application), ATTEST, ATTEST_CERT and ATTEST_CSR. Every other command is answered with StatusErrUnknownCmd, which
 // is the same status an older device gives for a command it was built
 // without.
 type Listener struct {

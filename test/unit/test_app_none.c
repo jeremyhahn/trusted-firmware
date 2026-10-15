@@ -52,10 +52,26 @@ static void test_a_reset_still_resets(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_IDLE, tfw_app_runner_state());
 }
 
+/* An image with no application has no APP_INFO handler: it answers as for any
+ * absent feature, so the no-application image is unchanged on the wire. */
+static void test_app_info_is_unknown_without_an_application(void)
+{
+    uint8_t      in[1] = { 0u };
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    tfw_reader_init(&r, in, 0u);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNKNOWN_CMD, tfw_dispatch(TFW_CMD_APP_INFO, &r, &w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_empty_runner_stays_idle);
     RUN_TEST(test_a_reset_still_resets);
+    RUN_TEST(test_app_info_is_unknown_without_an_application);
     return UNITY_END();
 }

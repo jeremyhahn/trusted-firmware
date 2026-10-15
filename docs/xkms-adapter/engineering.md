@@ -1,25 +1,33 @@
 # AVR Device Backend — Engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28); prose not yet revised for the move
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28) · Last verified: 2026-10-15
 > Conflicts with this document are defects. Fix them here first.
 
-Package: `xkms/avr` · Import path
-`github.com/jeremyhahn/trusted-firmware/xkms/avr`
+Module: `github.com/jeremyhahn/trusted-firmware/xkms`, in `xkms/`, tagged
+`xkms/v0.2.0-alpha`. Package: `xkms/avr` · Import path
+`github.com/jeremyhahn/trusted-firmware/xkms/avr`. The root package `xkms`
+registers the backend with go-xkms and re-exports the `avr` surface (see below).
 
-Upstream: `github.com/jeremyhahn/trusted-firmware/sdk/go` (required at a tagged
-version, `v0.3.0-alpha`; there is no `replace`, so the module is consumable once tagged), a Layer 0 module whose only dependencies are `go.bug.st/serial` and `testify`. Importing
-it from Layer 3 is permitted and is what it exists for.
+The module sits above both of its dependencies. It imports go-xkms (Layer 3),
+pinned in `xkms/go.mod` to `github.com/jeremyhahn/go-xkms v0.55.0-alpha`, and
+`github.com/jeremyhahn/trusted-firmware/sdk/go` (Layer 0), required at
+`v0.3.0-alpha`. There is no `replace`. `sdk/go` is a separate module on purpose:
+go-xkms and go-trusted-platform import it, so it cannot depend on this one.
+`make sdk-verify` keeps it free of in-house dependencies.
 
 Release order: tag `sdk/go`, bump the `sdk/go` requirement in `xkms/go.mod` to
 that tag, then tag `xkms/`. The module never builds against the working-tree
 `sdk/go`; a wire change reaches the adapter only through a new `sdk/go` tag.
+Raising the go-xkms requirement is likewise an edit to `xkms/go.mod`.
 
 ## Exported surface
 
 | Symbol | What it is |
 |---|---|
 | `NewBackend(ctx, *Config, *tfw.Device) (*Backend, error)` | Reads `CAPS` and caches it. Fails when the device is absent, silent, or speaks a protocol major this host does not. |
-| `Backend.Type() types.BackendType` | `"tfw"`, the type `register.go` registers through go-xkms's `RegisterExternalBackend`. Its keys' store type is `tfw` too, so their Key IDs read `tfw:...`. |
+| `Backend.Type() types.BackendType` | `"tfw"` (`avr.BackendType`), the type `xkms/register.go` registers through go-xkms's `RegisterExternalBackend`. Its keys' store type is `tfw` too, so their Key IDs read `tfw:...`. |
+| `NewKeyProvider(map[string]interface{}) (types.KeyProvider, error)` | The factory the registry calls. Reads `ConfigKeyDevice` (required `*tfw.Device`) and `ConfigKeyConfig` (optional `*Config`) from the map; a wrong type is `ErrInvalidFactoryConfig`. |
+| `Backend.PossessionSigner(*Attestation) (crypto.Signer, error)` | The signer that proves possession of the attested key during finalize. It asks the device for `Device.AttestCSR` and returns only a signature that verifies over the digest it was asked to sign, under the attested key; anything else is `ErrPossessionMismatch`. |
 | `Backend.Capabilities() types.Capabilities` | Answers from the cached `CAPS`. No I/O, no allocation. |
 | `Backend.Caps() tfw.Caps` | The device's `CAPS` reply verbatim. |
 | `Backend.AttestLevel() (types.AttestLevel, error)` | Derived from `Caps.CryptoTier` and nothing else. |
@@ -31,20 +39,33 @@ that tag, then tag `xkms/`. The module never builds against the working-tree
 | `Backend.ListKeys(ctx)` | The one key the device holds, or none. No I/O. |
 | `DeviceKey` | `Public()`, `Slot()`, `CN()`, `Equal()`. Deliberately not a `crypto.Signer`. |
 | `Algorithms` | `Can`, `Named`, `Unnamed`, `Empty`, `Set`, `String`. |
-| `Attestation` | Format, parsed leaf, DER, `dice.ClaimsSet`, nonce, attest level, crypto tier, `Anchored`. |
+| `Attestation` | Format, parsed leaf, DER, `dice.ClaimsSet`, UEID, nonce, attest level, crypto tier, `Anchored`. |
 | `AttestationConfig` | `TrustStore *truststore.Config`, `Intermediates [][]byte`. |
 | `Identity` | `Serial`, `SerialBytes`, `Revision`, `ConfigLocked`, `DataLocked`, `Provisioned()`. |
 | `FormatDICE` | `"dice"`, the same string `device-attest-01` uses for this evidence. |
 | `Config`, `DefaultConfig()`, `Config.Validate()` | `KeyCN`, `Slot`, `RequestTimeout`, `Attestation`, `Logger`. |
 
-Every one of them is re-exported from `sdk/go/backends_avr.go` under an `AVR`
-prefix — `AVRBackend`, `AVRConfig`, `NewAVRBackend`, `ErrAVR<Name>` — as type
-aliases to these declarations rather than copies. A consumer subject to a layer
-guard that refuses `go-xkms/pkg/...` reaches the backend there; `BackendTypeAVR`
-on its own named a capability it could not construct. The device itself comes
-from `trusted-firmware/sdk/go`, which a consumer imports directly: it is another
-project's Layer 0 SDK, and re-exporting it here would be this repository
-speaking for an API it does not own.
+The root package re-exports these from `xkms/backends_avr.go` under an `AVR`
+prefix — `AVRBackend`, `AVRConfig`, `NewAVRBackend`, `DefaultAVRConfig`,
+`ErrAVR<Name>` — and `xkms/register.go` adds `AVRBackendType`,
+`AVRConfigKeyDevice`, `AVRConfigKeyConfig` and `RegisterAVRBackend`. They are
+not in `sdk/go`: that module carries no AVR backend symbols, because it must not
+depend on go-xkms. The device itself comes from `trusted-firmware/sdk/go`, which
+a consumer imports directly.
+
+## Registration
+
+Importing package `xkms` (blank is enough) runs an `init` that calls
+`RegisterAVRBackend`, which registers `avr.BackendType` (`"tfw"`) and
+`avr.NewKeyProvider` with go-xkms's `RegisterExternalBackend`. A refused
+registration panics: another module already holds the name, and a process that
+started without the backend would fail later, on a device, far from the cause. A
+second call to `RegisterAVRBackend` returns an error satisfying
+`errors.Is(err, types.ErrBackendTypeRegistered)`.
+
+The registry type is `tfw`, not `avr`: go-xkms keeps `avr` for its own built-in
+backend until go-xkms#1439 step 3, so a Key ID written `avr:...` does not resolve
+to this backend.
 
 `GenerateKey`, `Signer`, `Decrypter`, `DeleteKey` and `RotateKey` exist to
 satisfy `types.KeyProvider` and always refuse. Each refusal names a permanent
@@ -110,7 +131,8 @@ All sentinels, all prefixed `avr backend:`. Grouped by what a caller should do:
 
 - **Fix the call** — `ErrNilConfig`, `ErrNilDevice`, `ErrMissingKeyCN`,
   `ErrInvalidSlot`, `ErrInvalidKeyAttributes`, `ErrUnknownKey`,
-  `ErrInvalidNonce`, `ErrTrustStoreInit`, `ErrBackendClosed`.
+  `ErrInvalidNonce`, `ErrTrustStoreInit`, `ErrBackendClosed`,
+  `ErrInvalidFactoryConfig`, `ErrInvalidAttestation`.
 - **Refuse the evidence** — `ErrMalformedCertificate`, plus the `dice` package's
   own errors returned unwrapped so there is one vocabulary and one place each
   check lives: `ErrUnsupportedKeyType`, `ErrUnsupportedSignatureAlgorithm`,
@@ -120,7 +142,7 @@ All sentinels, all prefixed `avr backend:`. Grouped by what a caller should do:
   `ErrGenerationUnsupported`, `ErrDeletionUnsupported`,
   `ErrRotationUnsupported`.
 - **Refuse the device** — `ErrProtocolVersion`, `ErrUnknownCryptoTier`,
-  `ErrNoDeviceKey`, `ErrInvalidDevicePoint`.
+  `ErrNoDeviceKey`, `ErrInvalidDevicePoint`, `ErrPossessionMismatch`.
 - **Retry, reconnect or read the firmware** — `ErrDeviceUnreachable`,
   `ErrDeviceProtocol`, `ErrDeviceRefused`, `ErrCommandUnavailable`,
   `ErrNotProvisioned`, `ErrDeviceCrypto`, `ErrAuthRequired`, `ErrDeviceBusy`,
@@ -159,7 +181,15 @@ context.Canceled)` still works across this layer.
 
 ## Tests
 
-`make test-avr`, `make bench-avr`, `make coverage-avr`. Coverage is 99.6%.
+`make xkms-test` and `make xkms-coverage` (floor `XKMS_COVERAGE_FLOOR`, 90%).
+Both depend on `tfwsim` and `tfwsim-atecc608a` and run with `-tags codec_json`
+from `xkms/`. They are not part of `make ci`: the module depends on the private
+go-xkms module, so they run in the `xkms` CI job, which is part of the CI Gate.
+Run `make ci xkms-test xkms-coverage` where go-xkms is reachable.
+
+`xkms/e2e` drives a `device-attest-01` DICE enrolment against the real firmware
+compiled for the host (`tfwsim`, `tfwsim-atecc608a`). `xkms/registration` tests
+the registry hook.
 
 There is no hardware and CI has none, so the tests drive a **fake link and the
 real codec**: every byte a test sends is framed by the SDK's own
@@ -207,6 +237,8 @@ Both blockers reported against `v0.2.0-alpha` are fixed in `v0.3.0-alpha`:
 36-byte one from older firmware is refused as short rather than read past), and
 `Attest`/`AttestCert` exist with internal paging and exported nonce widths.
 
-The one remaining disagreement — `dice.Verify` requiring a `DiceTcbInfo` the
-alias profile does not emit — was resolved in `dice` rather than worked around
-here: §6.1.4 permits UCCS "in place of" `DiceTcbInfo`. See `architecture.md`.
+The disagreement over `dice.Verify` requiring a `DiceTcbInfo` the alias profile
+does not emit was resolved in go-xkms's `dice` rather than worked around here:
+§6.1.4 permits UCCS "in place of" `DiceTcbInfo`. `checkAliasCertificate` now
+makes the one `dice.Verify` call, with `RequireDeviceSignedLeaf`. See
+`architecture.md`.

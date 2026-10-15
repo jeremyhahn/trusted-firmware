@@ -1,6 +1,6 @@
 # AVR Device Backend — Architecture
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-15
 > Conflicts with this document are defects. Fix them here first.
 
 ## The problem
@@ -19,7 +19,8 @@ they had already committed to it.
 
 ## Shape chosen: a read-only key provider that reports from the device's CAPS reply
 
-`pkg/backend/avr` implements `types.KeyProvider` and nothing more. Every answer
+`xkms/avr` (module `github.com/jeremyhahn/trusted-firmware/xkms`, tagged
+`xkms/v0.2.0-alpha`) implements `types.KeyProvider` and nothing more. Every answer
 it gives about the device comes from the device's own `CAPS` reply, read once at
 construction and cached; every operation the part cannot perform refuses with a
 sentinel that says which permanent property of the part or the protocol refuses
@@ -32,6 +33,27 @@ caller ──opens link──► io.ReadWriter
                           │
                    avr.Backend  ──► types.KeyProvider
 ```
+
+## Where it lives, and how go-xkms finds it
+
+The owner ruled on 2026-10-09 that go-xkms defines the plug-in interfaces and
+implements standards, and that a firmware we wrote ships its xkms integration as
+an adapter module in its own repository. So this backend lives in
+`trusted-firmware`, in the `xkms/` module, and sits above both of its
+dependencies: it imports go-xkms (Layer 3, pinned in `xkms/go.mod`) and
+`sdk/go` (Layer 0). Nothing imports it except through go-xkms's registry. It is a
+module of its own, not part of `sdk/go`, because go-xkms and go-trusted-platform
+import `sdk/go` and it must stay free of in-house dependencies.
+
+Package `xkms` (`xkms/register.go`) registers the backend in an `init`, through
+go-xkms's `RegisterExternalBackend`, under the type `tfw` with `avr.NewKeyProvider`
+as the factory. A program that blank-imports the package gets `tfw` as a backend
+type that go-xkms's `AutoInitialize` constructs from
+`AutoConfig.BackendConfigs["tfw"]`, whose entries are the attached `*tfw.Device`
+and an optional `*avr.Config`. The type is `tfw` because go-xkms still holds
+`avr` for its built-in backend.
+
+## The link
 
 The backend does not own the link. A device is one physical thing with several
 concerns on it, and the code that opened the port is the code that should close
@@ -50,7 +72,9 @@ would not be the deadline the read got.
 ## The boundary with trusted-firmware
 
 `trusted-firmware` owns the AVR wire protocol, the firmware that speaks it and
-the host SDK for it. This package owns none of those. Every byte that reaches
+the host SDK for it (`sdk/go`). This module sits in the same repository and still
+owns none of those: it reaches the wire only through `sdk/go`, at a tagged
+version. Every byte that reaches
 the wire is put there by an SDK call — there is no frame built here, no command
 id declared here, no reply layout parsed here.
 
@@ -70,7 +94,7 @@ go-quicbaas and go-trusted-platform owe it, is
 identity is created on a provisioning jig, inside an element whose zones are
 then locked irreversibly, by firmware that is replaced before the part ships.
 
-It is also load-bearing elsewhere. `pkg/xkms/algorithms.go`'s
+It is also load-bearing elsewhere. go-xkms's `pkg/xkms/algorithms.go`'s
 `BuildAlgorithmsResponse` advertises ECDSA at four curve sizes, RSA at three key
 sizes and Ed25519 for **every** backend whose `Keys` is true. For this device
 that would claim eight algorithms it cannot perform, one of which — Ed25519 —
@@ -93,8 +117,8 @@ verifier nonce = SHA-256(ACME key authorization)       32 bytes
    the eat_nonce claim of tcg-dice-UCCS-evidence
         │
         ▼
-   parse → curve and signature algorithm → read the extension →
-   constant-time nonce compare → anchor (when roots are configured)
+   parse → dice.Verify (P-256 device-signed leaf, UCCS extension,
+   constant-time nonce compare, anchor when roots are configured)
 ```
 
 The nonce check is **unconditional**. The device has no clock, so that nonce is
@@ -110,30 +134,38 @@ rather than the whole authorization — and produce a mismatch whose cause is
 invisible from either end. A caller that passes a raw key authorization is
 refused for its width.
 
-### Why `AttestKey` does not call `dice.Verify`
+### How `AttestKey` verifies
 
-It cannot, on any device shipping today, and the reason is worth stating
-because the obvious reading of the code is that it should.
+`checkAliasCertificate` parses the certificate and makes one `dice.Verify` call
+with the issued nonce, the configured roots and `RequireDeviceSignedLeaf`. The
+decoded `dice.ClaimsSet` and UEID it returns are handed to the caller in
+`Attestation`, the UEID and the firmware measurement being CWT claims 256 and 273
+inside the `tcg-dice-UCCS-evidence` extension. Nothing about the DICE formats is
+reimplemented here.
 
-`dice.Verify` reads the leaf's `tcg-dice-TcbInfo` extension unconditionally and
-refuses a certificate carrying none. The AVR alias profile emits **exactly one**
-extension: `tcg-dice-UCCS-evidence`, critical. The UEID and the firmware
-measurement travel as CWT claims 256 and 273 *inside that extension's claims
-set* rather than as X.509 extensions of their own, because the certificate is
-assembled on an 8-bit part from a 230-byte PROGMEM template and every extra
-extension costs flash the part does not have.
+`RequireDeviceSignedLeaf` is needed because the alias certificate is signed by
+the DeviceID key in the same element and that key's certificate is not in the
+chain, so the generic device-residency rule has no certificate to check the
+signature algorithm on. Without it an alias signed with ECDSA-SHA384 would pass a
+backend documented to accept the one algorithm the element emits.
 
-So this package composes the same code one level down —
-`dice.UccsFromCertificate`, which reads precisely the extension the device emits
-— and anchors with `crypto/x509`. Nothing about the DICE formats is
-reimplemented; `Attestation.Claims` hands the caller the decoded claims set so
-the UEID and the measurement are read as the raw CBOR the device encoded.
+This was not always one call. `dice.Verify` once demanded a `DiceTcbInfo`
+extension that the AVR alias profile does not emit (it carries only the critical
+`tcg-dice-UCCS-evidence`, because the certificate is assembled on an 8-bit part
+from a 230-byte PROGMEM template). That was the verifier being wrong: §6.1.4
+permits UCCS "in place of" `DiceTcbInfo`. It was fixed in go-xkms's `dice`, and
+the open-coded sequence here was removed.
 
-`TestDiceVerifyStillRefusesTheProfileTheDeviceEmits` pins this as a test result
-rather than a claim in a comment. **When it starts failing, delete the long way
-round**: either the profile gained a `DiceTcbInfo` or `dice.Verify` made it
-optional, and `checkAliasCertificate` should collapse into one `dice.Verify`
-call.
+### Possession and finalize
+
+Finalize needs a signature by the attested key over a request the device builds.
+The protocol has no command that signs a host-supplied digest, so
+`Backend.PossessionSigner(att)` returns a `crypto.Signer` that asks the device for
+`Device.AttestCSR` with the attestation's nonce and returns the signature only if
+it verifies, under the attested key, over the SHA-256 digest it was asked to sign.
+Any other digest — another document, another nonce, a request for another
+identity — is refused with `ErrPossessionMismatch`. A device without the
+`FeatureAttestCSR` bit refuses with the device's unsupported status.
 
 ## Rejected alternatives
 

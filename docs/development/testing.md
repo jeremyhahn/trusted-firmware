@@ -3,8 +3,8 @@
 Scope: how this firmware is tested, what each tier can and cannot catch, and
 why the tiers are separate. Last verified 2026-09-22 against `make ci`.
 
-Everything here runs with **no hardware attached**. A bench Arduino is for
-bring-up, never for a gate.
+Everything the gate runs needs **no hardware attached**. A bench Arduino is for
+bring-up and for `make hw-test` (below), never for a gate.
 
 ## The three tiers
 
@@ -102,6 +102,41 @@ dominates each miss, how the tick ISR's span is defined, and a simavr modelling
 defect that makes the emulated UART run at half rate unless the harness corrects
 for it — which matters to tier 2 as well.
 
+## The suite on a real board — `make hw-test` (not a gate)
+
+```sh
+make flash   BOARD=atmega2560 AVRDUDE_PORT=/dev/ttyACM0
+make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0
+```
+
+`make hw-test` runs the SDK's cross-implementation suite, the
+`TestAgainstFirmware*` tests that `make sdk-test` runs against `tfwsim`,
+against the image flashed on a real board. It is the same suite, not a copy.
+The one difference is the transport, chosen in `sdk/go/internal/peer`:
+
+- With `TFW_HW_PORT` unset, which is every CI run, the peer is `tfwsim`.
+- With `TFW_HW_PORT` set (`hw-test` sets it from `PORT`, and `TFW_HW_BOARD`
+  from `BOARD`), the peer is the board on that port. The seam first resets the
+  board by pulsing DTR, as avrdude does. It then waits up to 5 s for the board
+  to transmit, and hands the first bytes, the BOOT event, to the suite
+  unconsumed. Each test therefore gets a freshly reset board, as it would get a
+  fresh `tfwsim` process.
+
+It does not rely on opening the port to reset the board. A port left with
+`-hupcl`, for example by a probe run's `stty`, keeps DTR up across close and
+open. The board would then not reset and would send no BOOT event.
+
+`BOARD` selects the pin facts the suite expects (`peerBoards` in
+`sdk/go/tfwsim_test.go`), and `CAPS` must report that board. `tfwsim` is the
+328P. A board that is not in that table fails the run. So do a missing `PORT`,
+a port that does not exist, and a board that does not answer within the
+bound. None of these is a skip. Flash the image first: the target tests what
+is on the board and flashes nothing.
+
+It is outside `make ci` because CI has no board. The seam itself is
+unit-tested on the host (`sdk/go/internal/peer`), and that test is in
+`make sdk-test`.
+
 ## Golden vectors
 
 The protocol codec necessarily exists twice — in C for the device and in Go for
@@ -123,6 +158,7 @@ make bench-run BOARD=atmega2560 # one board
 make coverage                   # with the 90 % floor enforced
 make ci                         # everything the gate requires, bar the xkms job
 make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
+make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0  # the cross-implementation suite on a flashed board
 ```
 
 The xkms adapter module needs the private go-xkms module, so its two targets are
@@ -135,6 +171,7 @@ whole gate in the pinned CI image if you do not have them locally.
 
 - **No hardware in CI.** No USB, no serial port, no flashing. A gate that needs
   a device plugged in is a gate that fails for reasons unrelated to the change.
+  `make hw-test` is run by hand, on a bench.
 - **No mocking of the firmware itself.** `tfwsim` is the real firmware sources
   compiled for x86; the simavr harness is the real image. Neither is a stub, so
   neither can drift from what ships.

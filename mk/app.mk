@@ -19,6 +19,11 @@
 # src/core/app_runner.c; with no APP_DIR it is src/core/app_runner_none.c,
 # whose entry points are empty, so a build with no application links no
 # runner, no descriptor and no configuration code and costs no flash.
+#
+# APP_DEFS turns on TFW_FEATURE_APP beside the real runner, and only beside it:
+# the flag gives APP_INFO its commands.def entry, and the handler is defined in
+# app_runner.c. An image with no application has neither, and answers APP_INFO
+# TFW_ERR_UNKNOWN_CMD.
 
 APP_DIR ?=
 
@@ -55,6 +60,7 @@ endif
 
 APP_SUFFIX       := -app-$(APP_NAME)
 APP_RUNNER_SRCS  := src/core/app_runner.c
+APP_DEFS         := -DTFW_FEATURE_APP=1
 # After the CURDIR map, so it is the one that applies to an application inside
 # this checkout too: the image does not record where the application was built.
 APP_PREFIX_MAP   := -ffile-prefix-map=$(APP_ABS)=app
@@ -65,6 +71,7 @@ APP_SRCS         :=
 APP_CFLAGS       :=
 APP_SUFFIX       :=
 APP_RUNNER_SRCS  := src/core/app_runner_none.c
+APP_DEFS         :=
 APP_PREFIX_MAP   :=
 endif
 
@@ -87,10 +94,16 @@ app-sdk-check:
 	  { echo "app-sdk-check: tfwsim-app-$$name did not exit cleanly"; exit 1; }; \
 	echo "app-sdk-check: the example builds out of tree and runs"
 
+## tfwsim-app-example: build the software-tier simulator with the example application linked
+# A make of its own because APP_DIR names one application per invocation; the
+# cross-implementation tests need this image beside the two without one.
+tfwsim-app-example:
+	@$(MAKE) --no-print-directory tfwsim APP_DIR=test/app/example
+
 ## app-firmware-check: build the example application's firmware image for BOARD from outside the tree
 app-firmware-check:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	cp -a test/app/example/. "$$t/" && \
 	$(MAKE) --no-print-directory firmware APP_DIR="$$t" BOARD=$(BOARD)
 
-.PHONY: app-sdk-check app-firmware-check
+.PHONY: app-sdk-check app-firmware-check tfwsim-app-example

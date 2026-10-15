@@ -2,8 +2,9 @@
 
 > **Status: DRAFT** · Scope: trusted-firmware · Last verified: 2026-10-15
 > What the hardware run of [the ADR](adr-wire-protocol-over-w5x00.md) covers on
-> each board, now and when the ATECC608C (MIKROE-6774 Click board) arrives. No
-> run has happened yet.
+> each board, now and when the ATECC608C (MIKROE-6774 Click board) arrives. The
+> Mega's software tier ran on 2026-10-15 as far as serial reaches
+> ([the Mega run](#the-mega-run-2026-10-15)); the Nano has not run.
 
 ## Values the run writes
 
@@ -46,6 +47,26 @@ in the firmware.
 7. **The same identity after a reset.** After a reset the device reconnects
    with the same MAC. Its `ATTEST` evidence carries the same DeviceID and
    verifies under the same key.
+
+## The Mega run, 2026-10-15
+
+The Mega 2560 with its W5100 shield, on `/dev/ttyACM0`, through its stock
+STK500v2 bootloader. The images were built with the toolchain
+[the probe records](../development/wiznet-probe.md#toolchain):
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft` | 13290 / 765 bytes | `d636f84bfa700cfdcde308db7fe49209036519ef96347b3602be0c715dc0cc3a` |
+| `BOARD=atmega2560 CRYPTO=soft ETH=1` (W5100) | 15254 / 785 bytes | `181b5eda8de8ce21052796d6fe0605ec4e07badf0cef1772f9249507cb959858` |
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | Both images built, size-checked, and flashed with `make flash` (avrdude wrote and verified) | Pass |
+| 2 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0` on each image: the whole cross-implementation suite, over serial. On the Ethernet image, by `tfwctl`: writing D4, D10 and D50–D53, PWM on D10 and `SPI_XFER` with D10 as chip select | Pass on both images. Each shield pin answers "pin is reserved", `SPI_XFER` answers "target is platform-reserved", and tone is refused; D9 and D22 still work |
+| 3 | The network block (`192.0.2.22/24`, gateway `0.0.0.0`, endpoint `192.0.2.1:7020`, `tfw.DerivedMAC`) | **Not run.** The derived MAC needs the device's identity, and this Mega has none. `ATTEST` answers "no provisioned identity": the platform block at `0x000` is a torn write. Its first 128 bytes were written; the rest, the CRC included, are `0xFF`. This is the stock bootloader's EEPROM corruption [provisioning](../device-provisioning/user.md#task-provision-a-new-part) describes, and baking the block again needs an ISP programmer, which the bench does not have. No sticker MAC was supplied. The network block at `0x0C0` was left unwritten (all `0xFF`) |
+| — | Reading back the W5100's `GAR`, `SUBR`, `SHAR` and `SIPR` | **Not run.** No diagnostic exposes them. The firmware writes those registers from a valid network block and never reads them back, and `SPI_XFER` refuses the shield's chip select |
+| 4 | TCP to `192.0.2.22:7020` from the lane's container on the bench host | **Not run as specified.** The container has no address on VLAN 405: only `172.17.0.2/16` on its bridge, and loopback. A connect with a 5 s timeout timed out unanswered. The device had no network block in any case |
+| 5–7 | Attestation over TCP, the off-allow-list refusal, the same identity after a reset | **Not run.** They need item 4, and items 5 and 7 need an identity |
 
 ## The day the ATECC608C (MIKROE-6774 Click board) arrives
 

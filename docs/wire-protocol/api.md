@@ -127,6 +127,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x03 | `SYS_INFO` | always | `[]` | `[uptime_ms:4][free_ram:2][reset_cause:1][err_crc:2][err_format:2][free_ram32:4]` -- the last four bytes of the counters are appended (#5) and `free_ram32` after them (#12); a host that knows only the first seven still parses correctly. `free_ram` saturates at 0xFFFF; `free_ram32` is exact and wins when present |
 | 0x04 | `WDT_SET` | **reserved, no handler in any build** | — | `TFW_ERR_UNKNOWN_CMD` |
 | 0x05 | `SLEEP` | **reserved, no handler in any build** | — | `TFW_ERR_UNKNOWN_CMD` |
+| 0x06 | `APP_INFO` | `TFW_FEATURE_APP` (images built with an `APP_DIR` only) | `[]` | `[state:1][overruns:2][abi:1][ota_slots:1][major:1][minor:1][patch:2][config_len:2][required_caps:4][name:16][profile:32]`, 63 bytes — the runner and the application descriptor as written, in every state; see [application-sdk/api.md](../application-sdk/api.md#app_info) |
 | 0x10 | `PIN_MODE` | `TFW_FEATURE_GPIO` | `[pin:1][mode:1]` (0 in, 1 out, 2 input-pullup) | none |
 | 0x11 | `DIGITAL_READ` | `TFW_FEATURE_GPIO` | `[pin:1]` | `[level:1]` |
 | 0x12 | `DIGITAL_WRITE` | `TFW_FEATURE_GPIO` | `[pin:1][level:1]` | none |
@@ -185,6 +186,11 @@ answered only by `tfw-boot`; an application build must answer
 any current build** — reserved, and refused as `TFW_ERR_UNKNOWN_CMD`
 everywhere today; see `include/tfw/protocol.h` for the one-line note against
 each.
+
+`APP_INFO` (issue #51) is in the table only of an image built with an
+application (`TFW_FEATURE_APP`, set by `APP_DIR`). Every other image answers
+`TFW_ERR_UNKNOWN_CMD`, as it did before the id existed. It has no CAPS bit:
+the command answering is the capability.
 
 `AUTH_CHALLENGE`/`AUTH_RESPONSE` (issue #4) are implemented, but **element
 tier only** (`TFW_FEATURE_AUTH_SESSION`, on for `CRYPTO=atecc608a` except where

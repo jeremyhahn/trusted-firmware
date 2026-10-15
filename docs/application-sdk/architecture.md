@@ -157,9 +157,11 @@ with `tfw_app_config_read`. Nothing new crosses the wire.
 - It does not isolate the application from the firmware, or from the pins the
   host commands. There is no pin reservation yet: an application and a host
   that drive the same pin conflict. A follow-up proposes one.
-- It does not let an application add wire commands, report its state over the
-  wire or add evidence claims. Each is a proposed follow-up, and each is a
-  wire or evidence change with vectors.
+- It does not let an application add wire commands or add evidence claims.
+  Each is a proposed follow-up, and each is a wire or evidence change with
+  vectors. The firmware itself reports the application's state and descriptor
+  with APP_INFO ([api.md](api.md#app_info)); the application adds nothing to
+  that reply.
 - It does not call `after_update`. The confirm step it belongs to is the `ota`
   row's, and the call site is fixed here so that row has nothing to design.
 - It does not support more than one application per image. A product that is

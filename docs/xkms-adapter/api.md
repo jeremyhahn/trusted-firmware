@@ -1,6 +1,6 @@
 # AVR Device Backend — API
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-15
 > Conflicts with this document are defects. Fix them here first.
 
 ## Transports
@@ -12,14 +12,45 @@
 | gRPC | no |
 | MCP | no |
 | CLI | no |
-| SDK (`sdk/go`) | **yes** — `NewAVRBackend`, `AVRConfig`, `AVRAttestation`, the `ErrAVR*` sentinels, and the `BackendTypeAVR` / `StoreAVR` constants |
+| SDK (`sdk/go`) | no — `sdk/go` is Layer 0 and carries no AVR backend symbols; the wire client is `tfw.Device` |
+| Go module `github.com/jeremyhahn/trusted-firmware/xkms` | **yes** — `avr.NewBackend`, `avr.NewKeyProvider`, and the `AVR`-prefixed re-exports in package `xkms` |
+| go-xkms backend registry | **yes** — registered as type `tfw` by `xkms/register.go` |
 | ACME `device-attest-01` | indirectly — the caller forwards `Attestation.CertificateDER` as `dice`-format evidence |
 
-The backend is not served over a network transport, and that is a pending
-decision rather than an omission. Serving it needs a daemon configuration that
-names a device's serial port and the lifetime of the link over it — which port
-belongs to which tenant, what happens when the device is unplugged mid-request,
-whether one process may hold two devices. None of those are coding questions.
+The backend is not served over a network transport by this repository. It
+registers with go-xkms, so a daemon that links package `xkms` and puts an attached
+`*tfw.Device` in `AutoConfig.BackendConfigs["tfw"]` can construct it; opening the
+port is the host program's job. A daemon configuration that names a device's
+serial port, and the lifetime of the link over it, is a decision for the daemon's
+owner — which port belongs to which tenant, what happens when the device is
+unplugged mid-request, whether one process may hold two devices.
+
+## Registration
+
+```go
+import (
+    tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
+    _ "github.com/jeremyhahn/trusted-firmware/xkms" // registers "tfw" in init
+    "github.com/jeremyhahn/trusted-firmware/xkms/avr"
+    goxkms "github.com/jeremyhahn/go-xkms/pkg/xkms"
+)
+
+err := goxkms.AutoInitialize(&goxkms.AutoConfig{
+    BackendConfigs: map[goxkms.BackendType]map[string]interface{}{
+        goxkms.BackendType(avr.BackendType): {
+            avr.ConfigKeyDevice: tfw.New(port), // required: *tfw.Device
+            avr.ConfigKeyConfig: avr.DefaultConfig(), // optional: *avr.Config
+        },
+    },
+    // ... the rest of go-xkms's configuration
+})
+```
+
+The `init` panics if the name `tfw` is already registered. `RegisterAVRBackend`
+is exported, but `init` has already called it; a second call returns an error
+satisfying `errors.Is(err, types.ErrBackendTypeRegistered)`. A value of the wrong
+type under either key fails with `ErrInvalidFactoryConfig`, and a missing device
+with `ErrNilDevice`.
 
 ## Embedded Go API
 
@@ -84,8 +115,7 @@ A trust store that will not load fails `NewBackend`, not the first attestation:
 discovering it later would mean discovering it in front of a device waiting to
 enrol.
 
-`pkg/backend/avr` itself imports only the SDK's root package, which depends on
-nothing outside the standard library. The `serialport` subpackage above is the
+`xkms/avr` reaches the wire only through the SDK's root package. The `serialport` subpackage above is the
 caller's choice and brings `go.bug.st/serial` into the caller's graph, not into
 this one — any `io.ReadWriter` will do, including a pty or a subprocess pipe.
 
@@ -94,15 +124,22 @@ so it composes anywhere either interface is accepted. It is safe to use from
 several goroutines: every command is serialised on the link, and a multi-frame
 exchange such as `AttestKey` stays contiguous.
 
-### From the SDK
+### Finalize
 
-A consumer under a layer guard that refuses `go-xkms/pkg/...` uses the same API
-through `sdk/go`, which aliases these declarations rather than copying them:
+`backend.PossessionSigner(att)` returns the `crypto.Signer` that proves possession
+of the attested key. It asks the device for `Device.AttestCSR` and returns a
+signature only when it verifies over the digest it was asked to sign; any other
+digest returns `ErrPossessionMismatch`, and an `att` this backend did not produce
+returns `ErrInvalidAttestation`.
+
+### Through package `xkms`
+
+A consumer that wants one import for the backend uses the root package, which
+aliases the `avr` declarations rather than copying them:
 
 ```go
 import (
     tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
-    "github.com/jeremyhahn/trusted-firmware/sdk/go/serialport"
     xkms "github.com/jeremyhahn/trusted-firmware/xkms"
 )
 
@@ -112,22 +149,17 @@ if errors.Is(err, xkms.ErrAVRNoDeviceKey) {
 }
 ```
 
-The device comes from `trusted-firmware/sdk/go` directly. That module is another
-project's Layer 0 SDK; re-exporting its types from here would be this
-repository speaking for an API it does not own.
+The device comes from `trusted-firmware/sdk/go` directly, which this module does
+not re-export.
 
 `Config.RequestTimeout` is applied to the device as well as to each call's
 context, so a 60-second timeout waits 60 seconds on a device that is slow rather
 than the SDK's own 10-second default.
 
-## Type constants
+## Backend type
 
-`types.BackendTypeAVR` (`"avr"`) and `types.StoreAVR` (`"avr"`) are re-exported
-from `pkg/backend`, `sdk/go` and `pkg/xkms` (as `xkms.BackendAVR`), and are
-recognised by `types.ParseStoreType`, `types.StoreType.IsValid`,
-`xkms.BackendType.IsValid`, `keyIDToBackendType` and `backendTypeToStoreType`.
-
-They name go-xkms's built-in backend, not this one. This backend registers
-itself as `tfw` (`xkms/register.go`, through `xkms.RegisterExternalBackend`):
-`Backend.Type()` and its keys' store type are `tfw`, and a Key ID beginning
-`avr:` does not resolve to it.
+The backend's type, and its keys' store type, is `"tfw"` (`avr.BackendType`,
+re-exported as `xkms.AVRBackendType`). go-xkms's own `types.BackendTypeAVR`
+(`"avr"`) names its built-in backend, not this one, until go-xkms#1439 step 3; a
+Key ID beginning `avr:` does not resolve to this backend, and a Key ID reads
+`tfw:...`.

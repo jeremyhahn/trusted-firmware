@@ -7,9 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
 )
 
@@ -25,9 +27,64 @@ import (
 // A missing binary fails the test rather than skipping it: a skipped
 // cross-implementation test reports success while checking nothing, and this is
 // the only test that proves the two codecs agree.
-func startSimRaw(t *testing.T) *simproc.Conn {
+func startSimRaw(t *testing.T) io.ReadWriteCloser {
 	t.Helper()
-	return simproc.Start(t, simproc.Software)
+	return peer.Start(t, simproc.Software)
+}
+
+// peerBoard is what this suite has to know about the board it talks to: pin
+// numbers and what the board's own profile says about them. tfwsim is compiled
+// against the 328P's profile; `make hw-test` names the board on the port.
+type peerBoard struct {
+	// resetCause is what SYS_INFO reports after the connect. tfwsim starts
+	// from power-on. A real board was just reset through DTR, and its stock
+	// bootloader cleared MCUSR before the application could latch it, so the
+	// honest answer is unknown (src/hal/avr/hal_sys.c).
+	resetCause ResetCause
+	ledPort    uint8      // the LED pin 13's port index
+	ledBit     uint8      // and bit
+	ledPWM     PWMSupport // what pin 13's compare unit, if any, is doing
+	analog     uint8      // a pin with an ADC channel and a digital port
+	adcPin     uint8      // the ADC pin the descriptor test reads
+	adcChannel uint8      // adcPin's channel
+	adcPort    bool       // whether adcPin has a digital port
+	adcOnly    int        // how many pins are ADC inputs with no digital port
+	tickPin    uint8      // a compare-unit pin whose timer is the millisecond tick
+	noPWMPin   uint8      // a digital pin with no compare unit at all
+}
+
+var peerBoards = map[string]peerBoard{
+	"atmega328p": {
+		resetCause: ResetPowerOn,
+		ledPort:    0, ledBit: 5, ledPWM: PWMNone, // PB5
+		analog: 14,                                // A0, PC0
+		adcPin: 20, adcChannel: 6, adcPort: false, // A6
+		adcOnly: 2,               // A6 and A7
+		tickPin: 5, noPWMPin: 13, // OC0B
+	},
+	"atmega2560": {
+		resetCause: ResetUnknown,
+		ledPort:    1, ledBit: 7, ledPWM: PWMSystemTick, // PB7, OC0A
+		analog: 54, // A0, PF0
+		adcPin: 54, adcChannel: 0, adcPort: true,
+		adcOnly: 0,               // every ADC input on the Mega is also a digital pin
+		tickPin: 4, noPWMPin: 22, // OC0B; PA0
+	},
+}
+
+// board returns the facts for the board the suite is talking to. A board this
+// table does not know fails the test: guessing its pins would test the guess.
+func board(t *testing.T) (string, peerBoard) {
+	t.Helper()
+	target, err := peer.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, ok := peerBoards[target.Board]
+	if !ok {
+		t.Fatalf("%s=%s: no pin facts for that board in peerBoards", peer.BoardEnv, target.Board)
+	}
+	return target.Board, b
 }
 
 func startSim(t *testing.T, opts ...Option) *Device {
@@ -64,10 +121,16 @@ func TestAgainstFirmwarePingWithMaximumPayload(t *testing.T) {
 }
 
 func TestAgainstFirmwareCaps(t *testing.T) {
+	name, _ := board(t)
 	d := startSim(t)
 	c, err := d.Caps(context.Background())
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The pin facts this suite asserts are the named board's; a peer that is
+	// some other board would fail them for the wrong reason.
+	if c.BoardID.String() != name {
+		t.Errorf("board = %s, want %s", c.BoardID, name)
 	}
 	if c.ProtoMajor != 2 {
 		t.Errorf("protocol major = %d, want 2", c.ProtoMajor)
@@ -93,6 +156,7 @@ func TestAgainstFirmwareCaps(t *testing.T) {
 }
 
 func TestAgainstFirmwareSysInfo(t *testing.T) {
+	_, b := board(t)
 	d := startSim(t)
 	si, err := d.SysInfo(context.Background())
 	if err != nil {
@@ -101,8 +165,8 @@ func TestAgainstFirmwareSysInfo(t *testing.T) {
 	if si.FreeRAM == 0 {
 		t.Error("free RAM reported as zero")
 	}
-	if si.ResetCause != ResetPowerOn {
-		t.Errorf("reset cause = %v, want power-on", si.ResetCause)
+	if si.ResetCause != b.resetCause {
+		t.Errorf("reset cause = %v, want %v", si.ResetCause, b.resetCause)
 	}
 	// #5: the real firmware, freshly started and talked to over a clean pipe,
 	// has seen no framing errors -- this is the check that the appended
@@ -111,6 +175,37 @@ func TestAgainstFirmwareSysInfo(t *testing.T) {
 	if si.ErrCRC != 0 || si.ErrFormat != 0 {
 		t.Errorf("framer error counters = crc %d format %d, want 0 0 on a clean link",
 			si.ErrCRC, si.ErrFormat)
+	}
+}
+
+// APP_INFO, #51, against the firmware with test/app/example linked: what the C
+// runner reports decodes to what the example's descriptor says. Overruns is
+// left out -- it counts real polls against a real clock.
+func TestAgainstFirmwareAppInfo(t *testing.T) {
+	d := New(simproc.Start(t, simproc.App), WithTimeout(5*time.Second))
+	ai, err := d.AppInfo(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ai.Overruns = 0
+	want := AppInfo{
+		State:        AppRunning,
+		ABI:          1,
+		VersionMajor: 1,
+		RequiredCaps: 1 << 0,
+		Name:         "heartbeat",
+	}
+	if *ai != want {
+		t.Errorf("AppInfo = %+v, want %+v", *ai, want)
+	}
+}
+
+// An image with no application has no APP_INFO, and says so the way it says it
+// for any command it was built without.
+func TestAgainstFirmwareAppInfoIsAbsentWithoutAnApplication(t *testing.T) {
+	d := startSim(t)
+	if _, err := d.AppInfo(context.Background()); !errors.Is(err, StatusErrUnknownCmd) {
+		t.Fatalf("AppInfo err = %v, want %v", err, StatusErrUnknownCmd)
 	}
 }
 
@@ -355,10 +450,33 @@ func TestAgainstFirmwareReservedPinsAreRefused(t *testing.T) {
 }
 
 func TestAgainstFirmwareAdcOnlyPinCannotBeDriven(t *testing.T) {
+	_, b := board(t)
 	d := startSim(t)
-	// A6 exists as an ADC input and has no digital port at all.
-	if err := d.DigitalWrite(context.Background(), 20, true); err == nil {
-		t.Fatal("expected an ADC-only pin to be refused")
+	ctx := context.Background()
+	c, err := d.Caps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Every pin the device describes as an ADC input with no digital port
+	// (the 328P's A6 and A7) must refuse to be driven. The count is the
+	// board's, so a board with none, the Mega, proves it has none rather than
+	// passing on an empty list.
+	found := 0
+	for pin := uint8(0); pin < c.PinCount; pin++ {
+		info, err := d.PinInfo(ctx, pin)
+		if err != nil {
+			t.Fatalf("pin %d: %v", pin, err)
+		}
+		if !info.HasADC || info.HasPort {
+			continue
+		}
+		found++
+		if err := d.DigitalWrite(ctx, pin, true); err == nil {
+			t.Errorf("pin %d is ADC-only and was driven", pin)
+		}
+	}
+	if found != b.adcOnly {
+		t.Fatalf("%d ADC-only pins, want %d", found, b.adcOnly)
 	}
 }
 
@@ -419,11 +537,12 @@ func TestAgainstFirmwareUnprovisionedDeviceRefusesToAttest(t *testing.T) {
 }
 
 func TestAgainstFirmwareAnalogReadReturnsRawCounts(t *testing.T) {
+	_, b := board(t)
 	d := startSim(t)
 	// The mock reports zero until told otherwise; the point here is that the
 	// command round-trips and the pin maps to a channel at all.
-	if _, err := d.AnalogRead(context.Background(), 14); err != nil {
-		t.Fatalf("A0: %v", err)
+	if _, err := d.AnalogRead(context.Background(), b.analog); err != nil {
+		t.Fatalf("A0 (pin %d): %v", b.analog, err)
 	}
 	if _, err := d.AnalogRead(context.Background(), 13); err == nil {
 		t.Fatal("expected a digital-only pin to have no analog reading")
@@ -431,20 +550,22 @@ func TestAgainstFirmwareAnalogReadReturnsRawCounts(t *testing.T) {
 }
 
 func TestAgainstFirmwarePWM(t *testing.T) {
+	_, b := board(t)
 	d := startSim(t)
 	ctx := context.Background()
 
 	if err := d.PWMWrite(ctx, 9, 128); err != nil {
-		t.Fatalf("pin 9 is OC1A and should accept a duty: %v", err)
+		t.Fatalf("pin 9 has a free compare unit and should accept a duty: %v", err)
 	}
-	// Pins 5 and 6 have compare units, but Timer0 is the millisecond tick.
-	// The refusal is what stops a host writing a duty into a timer counting
-	// something else and wondering why nothing moves.
-	if err := d.PWMWrite(ctx, 5, 128); err == nil {
-		t.Error("pin 5 should refuse PWM: its timer drives the tick")
+	// Timer0 is the millisecond tick, so its compare pins have units that are
+	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
+	// stops a host writing a duty into a timer counting something else and
+	// wondering why nothing moves.
+	if err := d.PWMWrite(ctx, b.tickPin, 128); err == nil {
+		t.Errorf("pin %d should refuse PWM: its timer drives the tick", b.tickPin)
 	}
-	if err := d.PWMWrite(ctx, 13, 128); err == nil {
-		t.Error("pin 13 has no compare unit and should refuse PWM")
+	if err := d.PWMWrite(ctx, b.noPWMPin, 128); err == nil {
+		t.Errorf("pin %d has no compare unit and should refuse PWM", b.noPWMPin)
 	}
 }
 
@@ -496,6 +617,7 @@ func TestAgainstFirmwareCapsReportsTheAlgorithmsItCanPerform(t *testing.T) {
 // byte each). The board is the real
 // ATmega328P table, compiled and linked into the simulator.
 func TestAgainstFirmwarePinInfo(t *testing.T) {
+	_, b := board(t)
 	d := startSim(t)
 	ctx := context.Background()
 
@@ -509,17 +631,20 @@ func TestAgainstFirmwarePinInfo(t *testing.T) {
 	if !led.Flags.Has(PinDigital | PinLED) {
 		t.Errorf("pin 13 flags = %s, want digital and led", led.Flags)
 	}
-	if !led.HasPort || led.Port != 0 || led.Bit != 5 {
-		t.Errorf("pin 13 = port %d bit %d (present %v), want PB5", led.Port, led.Bit, led.HasPort)
+	if !led.HasPort || led.Port != b.ledPort || led.Bit != b.ledBit {
+		t.Errorf("pin 13 = port %d bit %d (present %v), want port %d bit %d",
+			led.Port, led.Bit, led.HasPort, b.ledPort, b.ledBit)
 	}
 	if led.HasADC {
 		t.Error("pin 13 has no analog channel")
 	}
-	if led.PWM != PWMNone {
-		t.Errorf("pin 13 pwm = %s, want none: it has no compare unit", led.PWM)
+	// None on the 328P, which has no compare unit there; on the Mega it is
+	// OC0A, spent on the tick.
+	if led.PWM != b.ledPWM {
+		t.Errorf("pin 13 pwm = %s, want %s", led.PWM, b.ledPWM)
 	}
 
-	// Pin 9 is OC1A, and Timer1 is nobody's tick on this board.
+	// Pin 9 is OC1A on the 328P and OC2B on the Mega; neither timer is the tick.
 	pwm, err := d.PinInfo(ctx, 9)
 	if err != nil {
 		t.Fatal(err)
@@ -531,21 +656,21 @@ func TestAgainstFirmwarePinInfo(t *testing.T) {
 		t.Errorf("pin 9 flags = %s, want pwm", pwm.Flags)
 	}
 
-	// A6 exists as an analog input and has no digital port at all, which the
-	// descriptor must say rather than report port 0 bit 0 -- a pin that can be
-	// read and never written.
-	adc, err := d.PinInfo(ctx, 20)
+	// The 328P's A6 exists as an analog input and has no digital port at all,
+	// which the descriptor must say rather than report port 0 bit 0 -- a pin
+	// that can be read and never written. The Mega's A0 has both.
+	adc, err := d.PinInfo(ctx, b.adcPin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if adc.HasPort {
-		t.Error("pin 20 reported a digital port; A6 has none")
+	if adc.HasPort != b.adcPort {
+		t.Errorf("pin %d digital port present = %v, want %v", b.adcPin, adc.HasPort, b.adcPort)
 	}
-	if !adc.HasADC || adc.ADCChannel != 6 {
-		t.Errorf("pin 20 adc = %d (present %v), want channel 6", adc.ADCChannel, adc.HasADC)
+	if !adc.HasADC || adc.ADCChannel != b.adcChannel {
+		t.Errorf("pin %d adc = %d (present %v), want channel %d", b.adcPin, adc.ADCChannel, adc.HasADC, b.adcChannel)
 	}
-	if !adc.Flags.Has(PinADC) || adc.Flags.Has(PinDigital) {
-		t.Errorf("pin 20 flags = %s, want adc and not digital", adc.Flags)
+	if !adc.Flags.Has(PinADC) || adc.Flags.Has(PinDigital) != b.adcPort {
+		t.Errorf("pin %d flags = %s, want adc, and digital only with a port", b.adcPin, adc.Flags)
 	}
 
 	// The UART pins are in use by this build; a host must be able to see that

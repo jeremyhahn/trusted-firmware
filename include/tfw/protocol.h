@@ -78,6 +78,7 @@
 #define TFW_CMD_SYS_INFO          0x03u
 #define TFW_CMD_WDT_SET           0x04u   /* reserved, not implemented */
 #define TFW_CMD_SLEEP             0x05u   /* reserved, not implemented */
+#define TFW_CMD_APP_INFO          0x06u   /* only in an image with an application */
 
 /* gpio and the pin scheduler */
 #define TFW_CMD_PIN_MODE          0x10u
@@ -300,6 +301,21 @@
  * widen an evidence frame that every deployed host parses at a fixed offset.
  */
 #define TFW_ALIAS_NONCE_LEN  32u
+
+/* ------------------------------------------------------------------ APP_INFO
+ *
+ * The linked application's descriptor and the runner's state, one fixed
+ * 63-byte reply, little-endian like every other:
+ *
+ *   [state:1][overruns:2][abi:1][ota_slots:1]
+ *   [version_major:1][version_minor:1][version_patch:2]
+ *   [config_len:2][required_caps:4][name:16][profile:32]
+ *
+ * The descriptor's fields are its own bytes, in its own order, minus the magic:
+ * a descriptor the runner refused is reported as written, and `state` says it
+ * was refused. name and profile are their whole fields, NUL-padded. The request
+ * is empty; a later page byte could extend it without breaking this shape. */
+#define TFW_APP_INFO_LEN     63u
 
 /* ------------------------------------------------------------------ events */
 #define TFW_EVENT_BOOT            0x01u  /* sent once at startup; an unexpected

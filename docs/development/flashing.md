@@ -77,6 +77,21 @@ tfwctl timer-set /dev/ttyUSB0 13 1 5000
 If it does not, the timer is being driven from the host somewhere and the safety
 property this firmware exists to provide is not there.
 
+## Conformance on the board
+
+Once the image is flashed, run the SDK's cross-implementation suite against it:
+
+```sh
+make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0
+```
+
+This is the suite `make sdk-test` runs against `tfwsim`. Each test resets the
+board by pulsing DTR and waits for its BOOT event, so the run needs no manual
+reset and works even on a port left with `-hupcl`. `BOARD` must be the board
+on the port, because `CAPS` is checked against it. The target flashes nothing
+and fails when the port is missing or the board is silent. See
+[testing](testing.md#the-suite-on-a-real-board--make-hw-test-not-a-gate).
+
 ## Fuses and lock bits
 
 Not here. See `docs/security/fuses-and-lockbits.md` — several of those settings

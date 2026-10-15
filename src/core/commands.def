@@ -25,6 +25,15 @@ TFW_CMD_ENTRY(TFW_CMD_PING,     PING,     tfw_sys_cmd_ping,     0u, TFW_MAX_PAYL
 TFW_CMD_ENTRY(TFW_CMD_RESET,    RESET,    tfw_sys_cmd_reset,    1u, 1u)
 TFW_CMD_ENTRY(TFW_CMD_SYS_INFO, SYS_INFO, tfw_sys_cmd_sys_info, 0u, 0u)
 
+/* The linked application -- docs/application-sdk/. Only an image built with an
+ * APP_DIR has an application to report, and only that image links the runner
+ * that defines the handler; every other one answers TFW_ERR_UNKNOWN_CMD, so a
+ * build with no application is unchanged on the wire. See TFW_FEATURE_APP in
+ * config.h. */
+#if TFW_FEATURE_APP
+TFW_CMD_ENTRY(TFW_CMD_APP_INFO, APP_INFO, tfw_app_cmd_info, 0u, 0u)
+#endif
+
 /* ---- gpio ---- */
 #if TFW_FEATURE_GPIO
 TFW_CMD_ENTRY(TFW_CMD_PIN_MODE,      PIN_MODE,      tfw_gpio_cmd_mode,  2u, 2u)

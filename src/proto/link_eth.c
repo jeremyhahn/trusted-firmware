@@ -131,6 +131,7 @@ uint8_t tfw_link_admits(uint8_t cmd)
     }
     switch (cmd) {
     case TFW_CMD_CAPS:          /* enrolment: what the part can hold */
+    case TFW_CMD_APP_INFO:      /* enrolment: the device profile it runs under */
     case TFW_CMD_ATTEST:        /* UCCS evidence over the verifier's nonce */
     case TFW_CMD_ATTEST_CERT:   /* the alias certificate over the nonce */
     case TFW_CMD_ATTEST_CSR:    /* the templated CSR for ACME finalize */

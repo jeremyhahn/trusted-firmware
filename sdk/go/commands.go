@@ -4,6 +4,7 @@
 package tfw
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"time"
@@ -26,6 +27,17 @@ const (
 const (
 	sysInfoLen    = 7 // uptime:4, free RAM:2, reset cause:1
 	timerQueryLen = 6 // active:1, held level:1, remaining:4
+)
+
+// APP_INFO, #51: state:1, overruns:2, abi:1, ota_slots:1, version:1+1+2,
+// config_len:2, required_caps:4, then the name and profile fields, each
+// NUL-padded to its fixed width.
+const (
+	appInfoNameOff    = 15
+	appInfoNameLen    = 16
+	appInfoProfileOff = appInfoNameOff + appInfoNameLen
+	appInfoProfileLen = 32
+	appInfoLen        = appInfoProfileOff + appInfoProfileLen
 )
 
 // sysInfoErrCountersEnd is where the framer's error counters end. #5 appended
@@ -183,6 +195,41 @@ func (d *Device) SysInfo(ctx context.Context) (*SysInfo, error) {
 		si.FreeRAM = binary.LittleEndian.Uint32(p[sysInfoErrCountersEnd:sysInfoFreeRAM32End])
 	}
 	return si, nil
+}
+
+// AppInfo reads the application linked into the image and its runner's
+// state. A device with no application answers StatusErrUnknownCmd.
+func (d *Device) AppInfo(ctx context.Context) (*AppInfo, error) {
+	f, err := d.Do(ctx, CmdAppInfo, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(f.Payload) < appInfoLen {
+		return nil, &ShortReplyError{Cmd: CmdAppInfo, Got: len(f.Payload), Need: appInfoLen}
+	}
+	p := f.Payload
+	return &AppInfo{
+		State:        AppState(p[0]),
+		Overruns:     binary.LittleEndian.Uint16(p[1:3]),
+		ABI:          p[3],
+		OTASlots:     p[4],
+		VersionMajor: p[5],
+		VersionMinor: p[6],
+		VersionPatch: binary.LittleEndian.Uint16(p[7:9]),
+		ConfigLen:    binary.LittleEndian.Uint16(p[9:11]),
+		RequiredCaps: binary.LittleEndian.Uint32(p[11:appInfoNameOff]),
+		Name:         nulPadded(p[appInfoNameOff:appInfoProfileOff]),
+		Profile:      nulPadded(p[appInfoProfileOff:appInfoLen]),
+	}, nil
+}
+
+// nulPadded is a fixed-width field up to its first NUL. A field the writer
+// filled to the brim has none and is all text.
+func nulPadded(b []byte) string {
+	if i := bytes.IndexByte(b, 0); i >= 0 {
+		b = b[:i]
+	}
+	return string(b)
 }
 
 // ResetMode selects what a reset lands in.

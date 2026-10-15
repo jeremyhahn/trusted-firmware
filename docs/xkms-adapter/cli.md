@@ -1,16 +1,17 @@
 # AVR Device Backend — CLI
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-15
 > Conflicts with this document are defects. Fix them here first.
 
 No CLI surface. The backend is reachable only through the Go API: it is
 constructed around a link the caller has already opened, and `xkmsctl` has no
 verb that opens a serial port.
 
-`xkmsctl backends list` will not show it either, for the same reason — the
-backend is not registered by `pkg/server`'s `initializeBackends`, because there
-is no daemon configuration yet that says which port a device is on. That
-decision is open; see `api.md`.
+The backend registers with go-xkms as type `tfw` when a program imports package
+`xkms` (see `api.md`), and go-xkms never imports this module, so
+`xkmsctl backends list` will not show it. Whether a daemon links the module is
+that daemon's decision: there is no configuration yet that says which port a
+device is on.
 
 The device's own vendor CLI, `tfwctl`, ships with `trusted-firmware` and is the
 tool for talking to a part directly.

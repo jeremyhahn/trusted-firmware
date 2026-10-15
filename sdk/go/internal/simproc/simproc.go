@@ -37,6 +37,9 @@ var (
 	Software = Binary{Name: "tfwsim", Make: "make tfwsim"}
 	// Element is the ATECC608A-tier simulator.
 	Element = Binary{Name: "tfwsim-atecc608a", Make: "make tfwsim-atecc608a"}
+	// App is the software-tier simulator with test/app/example linked, the
+	// only image that answers APP_INFO.
+	App = Binary{Name: "tfwsim-app-heartbeat", Make: "make tfwsim-app-example"}
 )
 
 // NotBuiltError reports a simulator binary that is not where it should be.

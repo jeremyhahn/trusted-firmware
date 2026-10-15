@@ -13,8 +13,11 @@
 
 #include <stdint.h>
 
-/* The runner's state. Numbered now because an APP_INFO command will report it,
- * and on the wire values extend and never renumber. */
+#include "tfw/status.h"
+#include "dispatch.h"
+
+/* The runner's state, reported by APP_INFO. On the wire values extend and never
+ * renumber. */
 typedef uint8_t tfw_app_state_t;
 #define TFW_APP_STATE_IDLE        0u   /* not started */
 #define TFW_APP_STATE_RUNNING     1u   /* init returned TFW_OK */
@@ -38,5 +41,11 @@ tfw_app_state_t tfw_app_runner_state(void);
 
 /* Calls of tfw_app_run over budget since start, saturating at 0xFFFF. */
 uint16_t tfw_app_runner_overruns(void);
+
+/* APP_INFO, wired into commands.def only when TFW_FEATURE_APP is on (an
+ * APP_DIR is named, mk/app.mk). Defined beside the runner and nowhere else, so
+ * an image that links app_runner_none.c has no handler to reference. The reply
+ * is TFW_APP_INFO_LEN bytes; see include/tfw/protocol.h for the layout. */
+tfw_status_t tfw_app_cmd_info(tfw_reader_t *r, tfw_writer_t *w);
 
 #endif /* TFW_CORE_APP_RUNNER_H */

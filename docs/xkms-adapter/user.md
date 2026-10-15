@@ -1,6 +1,6 @@
 # AVR Device Backend — User Guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-15
 > Conflicts with this document are defects. Fix them here first.
 
 ## What this is for

@@ -17,6 +17,7 @@
 #include "../caps/alias.h"
 #include "../caps/csr.h"
 #include "auth_session.h"
+#include "app_runner.h"
 
 typedef struct {
     uint8_t          id;

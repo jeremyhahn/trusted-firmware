@@ -45,6 +45,12 @@ HOST_BOARD ?= atmega328p
 # tfwsim-atecc608a through its overlay profile.
 HOST_EXTRA_DEFS ?= -DTFW_FEATURE_ATTEST=1 -DTFW_FEATURE_ALIAS_CERT=1
 
+# APP_INFO's entry, for every link that carries the real runner -- which is
+# where its handler is, as mk/app.mk pairs APP_DEFS with app_runner.c. Not in
+# HOST_CFLAGS: test_app_none and a tfwsim with no APP_DIR link the empty
+# runner, and must answer APP_INFO as an image with no application does.
+HOST_APP_DEFS := -DTFW_FEATURE_APP=1
+
 # -std=c11 is required, not stylistic: the buffer-sizing invariants are
 # enforced with _Static_assert, which C99 does not have.
 HOST_CFLAGS := -std=c11 -g -O1 \
@@ -170,7 +176,7 @@ $(HOST_DIR)/unity.o: $(UNITY_DIR)/unity.c | $(HOST_DIR)
 	@$(CC) $(UNITY_CFLAGS) -c -o $@ $<
 
 $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The ATECC608A driver against the software element. A separate link because
 # the model IS the I2C HAL here -- linking it beside the mock would be two
@@ -259,7 +265,7 @@ $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
                         $(filter-out src/core/update_request.c,$(HOST_LIB_SRCS)) \
                         src/core/update_request_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # test_pin_coord brings its own board tables -- a port 18 and a bit 31, which no
 # real board has -- so it links board_lookup.c and the mock HAL without
@@ -327,7 +333,7 @@ $(HOST_DIR)/test_app_example: test/unit/test_app_example.c \
                         $(filter-out test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
                         $(HOST_DIR)/test-app-example/example.o \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The Ethernet controller drivers -- issue #55 -- against the software W5100 /
 # W5500, which IS the SPI HAL here, so no hal_mock.c: both define
@@ -356,7 +362,7 @@ $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
                         src/proto/link_eth.c src/net/netcfg.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 HOST_EXTRA_BINS := $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
@@ -589,14 +595,14 @@ endif
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
+	@$(HOST_CC) $(HOST_CFLAGS) $(APP_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"

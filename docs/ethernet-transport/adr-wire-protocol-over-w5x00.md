@@ -91,6 +91,7 @@ The Ethernet link accepts exactly these commands:
 | Id | Command | Why it is needed over Ethernet |
 |---|---|---|
 | `0x00` | `CAPS` | Enrolment: the xkms adapter decides what the device can do (tier, algorithms, board) from `CAPS`, and refuses a key the part cannot hold. Read-only. |
+| `0x06` | `APP_INFO` | Enrolment, added with #51: the application descriptor's `profile` is the device profile go-trusted-platform onboards the device under. Read-only, holds no secret, and unauthenticated like `CAPS`; `FWHash` binds it to the code. |
 | `0x60` | `ATTEST` | Attestation: UCCS evidence over the verifier's nonce. |
 | `0x63` | `ATTEST_CERT` | Attestation and enrolment: the alias certificate over the nonce. |
 | `0x64` | `ATTEST_CSR` | Enrolment: the device-templated PKCS#10 for ACME finalize. |
@@ -102,7 +103,7 @@ The Ethernet link accepts exactly these commands:
   commands exist; it would also be a new code an older host has to read as
   unrecognised. Nothing is renumbered.
 - A command on the list that the image does not carry (`ATTEST_CSR` on a 328P
-  image today) answers `TFW_ERR_UNKNOWN_CMD` from the dispatcher, as it does on
+  image today, `APP_INFO` in an image with no application) answers `TFW_ERR_UNKNOWN_CMD` from the dispatcher, as it does on
   serial.
 - `PING`, `SYS_INFO` and `RESET` are left off. Liveness is TCP's; `SYS_INFO` is
   diagnostics for the bench host; `RESET` from the network is a denial of service.

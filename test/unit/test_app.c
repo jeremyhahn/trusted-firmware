@@ -20,6 +20,13 @@
 #include "hal_mock.h"
 #include "tfw/protocol.h"
 #include "tfw/config.h"
+#include "vectors.h"
+
+_Static_assert(sizeof TFWV_APPINFO_OVERRUN_REPLY - 1u == TFWV_APPINFO_OVERRUN_REPLY_LEN,
+               "the OVERRUN literal is its stated length");
+_Static_assert(sizeof TFWV_APPINFO_REFUSED_REPLY - 1u == TFWV_APPINFO_REFUSED_REPLY_LEN,
+               "the REFUSED literal is its stated length");
+_Static_assert(TFWV_APPINFO_OVERRUN_REPLY_LEN == TFW_APP_INFO_LEN, "APP_INFO is 63 bytes");
 
 static uint8_t      inbuf[TFW_MAX_PAYLOAD];
 static uint8_t      outbuf[TFW_MAX_PAYLOAD];
@@ -294,6 +301,58 @@ static void test_configuration_never_reaches_past_the_eeprom(void)
                           tfw_app_config_write((uint16_t)(TFW_EEPROM_SIZE - TFW_APP_CONFIG_BASE), &b, 1u));
 }
 
+/* ---- APP_INFO ---- */
+
+static tfw_status_t app_info(uint8_t payload_len)
+{
+    inbuf[0] = 0u;
+    tfw_reader_init(&r, inbuf, payload_len);
+    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
+    return tfw_dispatch(TFW_CMD_APP_INFO, &r, &w);
+}
+
+static void test_app_info_reports_the_runner_and_the_descriptor(void)
+{
+    uint32_t i;
+
+    tfw_mock_app_set_run_ms(TFW_APP_RUN_BUDGET_MS + 1u);
+    tfw_app_runner_start();
+    for (i = 0u; i < 0x0102u; i++) {
+        tfw_app_runner_poll();
+    }
+    TEST_ASSERT_EQUAL_INT(TFW_OK, app_info(0u));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_APPINFO_OVERRUN_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_APPINFO_OVERRUN_REPLY, outbuf,
+                                 TFWV_APPINFO_OVERRUN_REPLY_LEN);
+}
+
+/* The host diagnosing an application that never started needs what was
+ * refused, so a refused descriptor is reported as written. */
+static void test_app_info_reports_a_refused_descriptor_as_written(void)
+{
+    tfw_app_descriptor_t *d = tfw_mock_app_descriptor();
+
+    d->ota_slots     = TFW_APP_OTA_AB;
+    d->version_major = 2u;
+    d->version_minor = 3u;
+    d->version_patch = 1029u;
+    d->config_len    = 0x0102u;
+    d->required_caps = TFW_APP_CAP(31u) | TFW_APP_CAP(0u);
+    memcpy(d->name, "abcdefghijklmno", TFW_APP_NAME_LEN);
+    memcpy(d->profile, "bmc/esp32-p4", 13u);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_UNSUPPORTED, tfw_app_runner_state());
+    TEST_ASSERT_EQUAL_INT(TFW_OK, app_info(0u));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_APPINFO_REFUSED_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_APPINFO_REFUSED_REPLY, outbuf,
+                                 TFWV_APPINFO_REFUSED_REPLY_LEN);
+}
+
+static void test_app_info_takes_no_payload(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_ARGC, app_info(1u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -324,5 +383,8 @@ int main(void)
     RUN_TEST(test_configuration_past_the_declared_length_is_out_of_range);
     RUN_TEST(test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not);
     RUN_TEST(test_configuration_never_reaches_past_the_eeprom);
+    RUN_TEST(test_app_info_reports_the_runner_and_the_descriptor);
+    RUN_TEST(test_app_info_reports_a_refused_descriptor_as_written);
+    RUN_TEST(test_app_info_takes_no_payload);
     return UNITY_END();
 }

@@ -16,6 +16,10 @@
 #include "tfw/app.h"
 #include "tfw/board.h"
 #include "tfw/protocol.h"
+#include "vectors.h"
+
+_Static_assert(sizeof TFWV_APPINFO_HEARTBEAT_REPLY - 1u == TFWV_APPINFO_HEARTBEAT_REPLY_LEN,
+               "the HEARTBEAT literal is its stated length");
 
 static tfw_pinref_t led;
 
@@ -90,6 +94,24 @@ static void test_a_reset_leaves_the_pin_low(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_STOPPED, tfw_app_runner_state());
 }
 
+/* The vector tfwsim-app-heartbeat answers in sdk/go's cross-implementation
+ * suite, pinned here against the same descriptor on the mock HAL. */
+static void test_app_info_reports_the_example(void)
+{
+    uint8_t      in[1] = { 0u };
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    tfw_app_runner_start();
+    tfw_reader_init(&r, in, 0u);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_dispatch(TFW_CMD_APP_INFO, &r, &w));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_APPINFO_HEARTBEAT_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_APPINFO_HEARTBEAT_REPLY, out,
+                                 TFWV_APPINFO_HEARTBEAT_REPLY_LEN);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -97,5 +119,6 @@ int main(void)
     RUN_TEST(test_the_heartbeat_starts_with_its_pin_an_output);
     RUN_TEST(test_the_heartbeat_toggles_every_500_ms_and_never_waits);
     RUN_TEST(test_a_reset_leaves_the_pin_low);
+    RUN_TEST(test_app_info_reports_the_example);
     return UNITY_END();
 }

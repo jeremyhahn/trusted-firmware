@@ -88,4 +88,19 @@ else
   echo "CAPS reply vectors agree: $(echo "$c_caps" | wc -l) values, both languages"
 fi
 
+# APP_INFO reply vectors, #51 -- the runner and the descriptor, compared by NAME
+# and VALUE together as CAPS is: the example, the overrun and the refused
+# descriptor must not be able to swap places and still agree.
+c_app=$(sed -n 's/^#define TFWV_APPINFO_\([A-Z0-9_]*\)_REPLY *"\(.*\)"$/\1 \2/p' "$C" | tr 'A-Z' 'a-z' | sort)
+g_app=$(sed -n 's/^\tAppInfo\([A-Za-z0-9]*\)Reply *= *"\(.*\)"$/\1 \2/p' "$G" | tr 'A-Z' 'a-z' | sort)
+
+if [ -z "$c_app" ]; then
+  echo "no APP_INFO reply vectors found in $C"; fail=1
+elif [ "$c_app" != "$g_app" ]; then
+  echo "APP_INFO reply vectors differ:"; echo "  $C:"; echo "$c_app" | sed 's/^/    /'
+  echo "  $G:"; echo "$g_app" | sed 's/^/    /'; fail=1
+else
+  echo "APP_INFO reply vectors agree: $(echo "$c_app" | wc -l) values, both languages"
+fi
+
 exit $fail

@@ -6,6 +6,7 @@
 #include "tfw/config.h"
 #include "tfw/hal.h"
 #include "tfw/progmem.h"
+#include "tfw/protocol.h"
 
 static tfw_app_state_t state;
 static uint16_t        overruns;
@@ -109,6 +110,44 @@ tfw_app_state_t tfw_app_runner_state(void)
 uint16_t tfw_app_runner_overruns(void)
 {
     return overruns;
+}
+
+/* The reply is the descriptor minus its magic, behind the runner's two
+ * fields. Both lengths are pinned here so that growing the descriptor's
+ * strings breaks the build rather than the 64-byte payload. */
+_Static_assert(TFW_APP_INFO_LEN == 15u + TFW_APP_NAME_LEN + TFW_APP_PROFILE_LEN,
+               "APP_INFO is the descriptor minus its magic, plus state and overruns");
+_Static_assert(TFW_APP_INFO_LEN <= TFW_MAX_PAYLOAD,
+               "APP_INFO must fit one reply");
+
+static void write_pgm_str(tfw_writer_t *w, const char *p, uint8_t n)
+{
+    uint8_t i;
+
+    for (i = 0u; i < n; i++) {
+        tfw_write_u8(w, tfw_pgm_u8(&p[i]));
+    }
+}
+
+/* Reported whatever the state, including UNSUPPORTED: a host diagnosing why
+ * an application never started needs the descriptor the runner refused. */
+tfw_status_t tfw_app_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
+{
+    const tfw_app_descriptor_t *d = &tfw_app_descriptor;
+
+    (void)r;
+    tfw_write_u8(w,  state);
+    tfw_write_u16(w, overruns);
+    tfw_write_u8(w,  tfw_pgm_u8(&d->abi));
+    tfw_write_u8(w,  tfw_pgm_u8(&d->ota_slots));
+    tfw_write_u8(w,  tfw_pgm_u8(&d->version_major));
+    tfw_write_u8(w,  tfw_pgm_u8(&d->version_minor));
+    tfw_write_u16(w, tfw_pgm_u16(&d->version_patch));
+    tfw_write_u16(w, tfw_pgm_u16(&d->config_len));
+    tfw_write_u32(w, tfw_pgm_u32(&d->required_caps));
+    write_pgm_str(w, d->name, TFW_APP_NAME_LEN);
+    write_pgm_str(w, d->profile, TFW_APP_PROFILE_LEN);
+    return TFW_OK;
 }
 
 /* The region is checked against the declared length and the part both: the

@@ -33,8 +33,9 @@ Internal, in `src/core/app_runner.h`. Applications must not include it.
 | `tfw_app_runner_start(void)` | `startup()` in `src/main.c`, `run()` in `tools/tfwsim/main.c` |
 | `tfw_app_runner_poll(void)` | the superloop, and tfwsim's `pump()` |
 | `tfw_app_runner_stop(uint8_t for_update)` | `tfw_sys_poll()` in `src/caps/sys.c`, before the reset |
-| `tfw_app_runner_state(void)` | tests; the APP_INFO follow-up |
-| `tfw_app_runner_overruns(void)` | tests; the APP_INFO follow-up |
+| `tfw_app_runner_state(void)` | tests |
+| `tfw_app_runner_overruns(void)` | tests |
+| `tfw_app_cmd_info(r, w)` | the dispatcher, for APP_INFO, through `src/core/commands.def` when `TFW_FEATURE_APP` is on |
 
 Link-time selection, in `mk/app.mk`, `mk/firmware.mk` and `mk/host.mk`:
 
@@ -45,6 +46,10 @@ Link-time selection, in `mk/app.mk`, `mk/firmware.mk` and `mk/host.mk`:
 | `make tfwsim` | `src/core/app_runner_none.c` | none |
 | `make tfwsim APP_DIR=<path>` | `src/core/app_runner.c` | the application's, against the mock HAL |
 | unit tests (`HOST_LIB_SRCS`) | `src/core/app_runner.c` | `test/mock/app_mock.c`, a call-recording application |
+
+A build that links `app_runner.c` also defines `TFW_FEATURE_APP=1`, which
+puts APP_INFO in the command table: `APP_DEFS` in `mk/app.mk`, and
+`HOST_APP_DEFS` for the unit tests. The no-application rows define nothing.
 
 The no-application rows link no runner, no descriptor and no configuration
 code. `app_runner_none.c` defines the runner's entry points empty, so under
@@ -74,8 +79,9 @@ off  size  field            meaning
 64 bytes, every field naturally aligned, with `_Static_assert` on the size and
 on each offset. It is a `const` object in flash, so it is inside the region
 tfw-boot measures and `FWHash` covers it. Its address is not fixed. Tools find
-it by the symbol name in the ELF, or scan the image for the magic. A host will
-read it over the wire through the APP_INFO follow-up.
+it by the symbol name in the ELF, or scan the image for the magic. A host
+reads every field but the magic over the wire with APP_INFO
+([api.md](api.md#app_info)).
 
 `profile` names the device profile that go-trusted-platform onboards a device
 running this application under. The namespace is go-trusted-platform's. The
@@ -101,8 +107,9 @@ observe do not.
 5. **The firmware without an application is the firmware before this
    interface.** It links `app_runner_none.c`, whose empty entry points inline
    away, so it costs no flash. The call sites are the same, so the default
-   build exercises them. The wire is unchanged: `make verify-vectors` passes
-   untouched.
+   build exercises them. The wire is unchanged: it has no APP_INFO entry and
+   answers `TFW_ERR_UNKNOWN_CMD` as it always did, and `make verify-vectors`
+   passes with no existing vector moved.
 6. **An application compiles against public headers only.** Its include path
    is `include/`, the board directory (for `board_profile.h`, which
    `config.h` pulls in) and the architecture's `hal_types.h` directory (for the
@@ -160,9 +167,8 @@ outputs must be safe across those makes their reset state the safe state;
 
 ## Error semantics
 
-`tfw_app_runner_state()` returns one of these. The numbers are fixed now
-because the APP_INFO follow-up will put them on the wire, where values extend
-and never renumber.
+`tfw_app_runner_state()` returns one of these. APP_INFO puts them on the wire
+as its first byte, so they extend and never renumber.
 
 | Value | State | Entered when |
 |---|---|---|
@@ -267,12 +273,13 @@ Nothing secret goes in the region. Any host with wire access can read it.
 
 | Test | Proves |
 |---|---|
-| `test_app` | hook order, including both stop paths through a real `RESET` command; a failing `init` leaves FAILED with no later call; each descriptor check gives UNSUPPORTED with `init` never called; overruns are counted and saturate; config read and write stay inside the region |
-| `test_app_none` | the default links with the empty runner and no application, no hook or descriptor is needed, the runner stays IDLE and a `RESET` still resets |
-| `test_app_example` | the example under `test/app/example`, compiled with the application flags, links into the host library and toggles its pin on time |
+| `test_app` | hook order, including both stop paths through a real `RESET` command; a failing `init` leaves FAILED with no later call; each descriptor check gives UNSUPPORTED with `init` never called; overruns are counted and saturate; config read and write stay inside the region; APP_INFO reports the runner and the descriptor as written, a refused one included, and takes no payload |
+| `test_app_none` | the default links with the empty runner and no application, no hook or descriptor is needed, the runner stays IDLE and a `RESET` still resets, and APP_INFO answers `TFW_ERR_UNKNOWN_CMD` |
+| `test_app_example` | the example under `test/app/example`, compiled with the application flags, links into the host library and toggles its pin on time, and APP_INFO reports it byte for byte |
 | `make app-sdk-check` | the example copied to a temporary directory outside the tree builds `tfwsim` with `APP_DIR` and runs it |
 | `make app-firmware-check` | the same copy builds a firmware image for `BOARD`, through the size gate |
-| `make tfwsim`, `make verify-vectors`, the SDK suite | the default image is unchanged on the wire |
+| `make tfwsim`, `make verify-vectors`, the SDK suite | the default image is unchanged on the wire, and the APP_INFO vectors agree in C and Go |
+| `make sdk-test` | `Device.AppInfo` decodes what `tfwsim-app-heartbeat` sends, and the default `tfwsim` answers `TFW_ERR_UNKNOWN_CMD` |
 
 The call-recording application, `test/mock/app_mock.c`, is linked into every
 unit test through `HOST_LIB_SRCS`. Each suite that links an application of its

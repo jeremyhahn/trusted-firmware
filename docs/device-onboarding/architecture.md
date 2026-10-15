@@ -160,7 +160,7 @@ verifier's nonce alone; no board in this family has a clock.
 
 ### Wire commands
 
-The Ethernet link admits exactly `0x00`, `0x60`, `0x63` and `0x64`, pinned id by
+The Ethernet link admits exactly `0x00`, `0x06`, `0x60`, `0x63` and `0x64`, pinned id by
 id against literals in `test/unit/test_link_eth.c`. Every other id received on
 Ethernet answers `TFW_ERR_UNKNOWN_CMD` and is never dispatched
 ([allow-list](../ethernet-transport/adr-wire-protocol-over-w5x00.md#2-allow-list)).
@@ -168,6 +168,7 @@ Ethernet answers `TFW_ERR_UNKNOWN_CMD` and is never dispatched
 | Id | Command | Link | `sdk/go` call | Pinned by |
 |---|---|---|---|---|
 | `0x00` | `CAPS` | serial, Ethernet | `Device.Caps` | `TFWV_CAPS_PROTO_REPLY`, `TFWV_CAPS_PIN13_REPLY` in `testdata/vectors.h`; Go mirror `sdk/go/internal/vectors` |
+| `0x06` | `APP_INFO` | serial, Ethernet; images with an application only | `Device.AppInfo` (the descriptor's `profile` among it) | `TFWV_APPINFO_*` in `testdata/vectors.h`; Go mirror `sdk/go/internal/vectors`; checked from Go against `tfwsim-app-heartbeat` |
 | `0x60` | `ATTEST` | serial, Ethernet | `Device.Attest` (16-byte nonce) | the frame layout in `include/tfw/protocol.h`; no literal frame vector |
 | `0x63` | `ATTEST_CERT` | serial, Ethernet | `Device.AttestCert` (32-byte nonce) | `TFWV_UCCS`, `TFWV_ALIAS_TBS_DIGEST`, `TFWV_ALIAS_CERT` and its negative variants in `testdata/uccs_vectors.h` |
 | `0x64` | `ATTEST_CSR` | serial, Ethernet | `Device.AttestCSR` (32-byte `b`, returns 64 bytes) | `TFWV_CSR_CRI`, `TFWV_CSR_CRI_DIGEST` in `testdata/vectors.h`; checked from Go in `sdk/go/tfwsim/attestcsr_test.go`; go-xkms pins its CRI builder to the same bytes |
@@ -309,6 +310,7 @@ around one.
 - **No enrolment, registry, profile or verification code.** Those are
   go-trusted-platform's and go-xkms's; this page names the seam.
 - **No ACME client on the device, no DHCP yet, no listening port.** The device
-  dials one provisioned endpoint and answers four commands.
+  dials one provisioned endpoint and answers five commands, `APP_INFO` only
+  in an image with an application.
 - **No new command, status, vector or `sdk/go` call.** Every row above cites what
   already ships.

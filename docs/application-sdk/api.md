@@ -140,12 +140,49 @@ them.
 `APP_DIR` may be absolute or relative to this repository. Make runs here, in
 the trusted-firmware checkout, with `-C` from anywhere else.
 
+## APP_INFO
+
+Command `0x06`, issue #51. It is present only in an image built with an
+`APP_DIR`. Every other image answers `TFW_ERR_UNKNOWN_CMD`, so a build with no
+application is unchanged on the wire. It takes no payload. It is not a CAPS
+bit: the command answering is the capability.
+
+The reply is 63 bytes, little-endian:
+
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 1 | runner state: 0 idle, 1 running, 2 failed, 3 unsupported, 4 stopped |
+| 1 | 2 | overrun count, saturating at `0xFFFF` |
+| 3 | 1 | `abi` |
+| 4 | 1 | `ota_slots` |
+| 5 | 1 | `version_major` |
+| 6 | 1 | `version_minor` |
+| 7 | 2 | `version_patch` |
+| 9 | 2 | `config_len` |
+| 11 | 4 | `required_caps` |
+| 15 | 16 | `name`, NUL-padded |
+| 31 | 32 | `profile`, NUL-padded |
+
+The descriptor fields are reported as written, in every state. A host can then
+say why a runner refused an application (`unsupported`), not only that it did.
+The magic is left out. Every other check the runner makes can be read off
+the reply and CAPS, so an `unsupported` reply whose fields all pass means the
+magic was wrong.
+
+APP_INFO is admitted over Ethernet. `profile` is what the device is onboarded
+under ([architecture.md](architecture.md)), and the reply is read-only and
+holds no secret. It is not authenticated. `profile` is what the device says it
+runs; the binding to the code that says it is `FWHash`.
+
+The vectors are `TFWV_APPINFO_*` in `testdata/vectors.h`, mirrored in
+`sdk/go/internal/vectors`. `Device.AppInfo` decodes the reply in `sdk/go`.
+
 ## Reserved for follow-ups
 
 Not declared, so no application defines them yet:
 
 - `tfw_status_t tfw_app_claims(uint8_t *buf, uint8_t cap, uint8_t *len)`,
   the application's EAT submodule claims
-  ([architecture.md](architecture.md#evidence-claims)).
-- An `APP_INFO` command reporting the descriptor, the runner state and the
-  overrun count, with its vectors and an `sdk/go` decoder.
+  ([architecture.md](architecture.md#evidence-claims)). Its only caller is
+  the `submods` claim, which changes the evidence layout, so it is declared
+  with that change.

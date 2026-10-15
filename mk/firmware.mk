@@ -213,7 +213,7 @@ FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
              -ffile-prefix-map=$(CURDIR)=. \
              -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(HAL_DIR) -I$(BOARD_DIR) \
              -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) \
-             $(LINK_DEFS)
+             $(LINK_DEFS) $(APP_DEFS)
 
 # The CDI handoff block's placement is the architecture's: see
 # ARCH_FW_PLACEMENT_LDFLAGS, which is empty on a board with no RAM_END.
@@ -338,7 +338,7 @@ board-tiers:
 # the gates the image was built with -- not config.h's defaults, which say 0 to
 # every tier-selected feature on every board.
 feature-defs:
-	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS)
+	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS) $(APP_DEFS)
 
 ## firmware-matrix-list: print every "board tier" pair firmware-matrix builds
 firmware-matrix-list:

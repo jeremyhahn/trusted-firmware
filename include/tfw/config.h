@@ -131,6 +131,16 @@
 #ifndef TFW_FEATURE_ETHERNET
 #define TFW_FEATURE_ETHERNET    0
 #endif
+/* An application is linked -- docs/application-sdk/. DEFAULT 0, turned on by
+ * naming an APP_DIR (mk/app.mk), which also links the real runner in place of
+ * src/core/app_runner_none.c. Read in one place, commands.def, to give
+ * APP_INFO its entry: an image with no application has no handler and answers
+ * TFW_ERR_UNKNOWN_CMD, so it is unchanged on the wire. Not in the CAPS bitmap
+ * for the reason ETHERNET is not: a bit there is a wire change, and a host
+ * learns whether an application is present by asking APP_INFO. */
+#ifndef TFW_FEATURE_APP
+#define TFW_FEATURE_APP         0
+#endif
 
 /* The bit each feature occupies in the CAPS Features field. These are the wire:
  * they extend and never renumber. Named so an application can say which

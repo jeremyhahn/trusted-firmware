@@ -1,6 +1,6 @@
 # ADR: the ESP-IDF integration boundary and transport
 
-> **Status: ACCEPTED (2026-10-15)** · Issue: [#16](../../../../issues/16)
+> **Status: ACCEPTED (2026-10-15), signed off by the Company Agent at 03:20Z** · Issue: [#16](../../../../issues/16)
 > · Implementation: [#48](../../../../issues/48)
 > · Scope: trusted-firmware (HAL, boot HAL, board profiles, build) · Date: 2026-10-15
 >
@@ -151,7 +151,7 @@ is on; two builds of one commit gave the same image digest.
 
 | # | Decision |
 |---|---|
-| 1 | **Glue (option 1c).** `mk/arch/esp32/` holds the ESP-IDF project (`CMakeLists.txt`, `main/CMakeLists.txt`, `sdkconfig.defaults`); `mk/arch/esp32-targets.mk` holds `esp32-build` and `esp32-qemu-test`. `FW_SRCS` is the only source list. `make firmware BOARD=<esp32 board>` refuses and names `esp32-build`; `make ci` is unchanged and runs none of this. |
+| 1 | **Glue (option 1c).** `mk/arch/esp32/` holds the ESP-IDF project (`CMakeLists.txt`, `main/CMakeLists.txt`, `sdkconfig.defaults`); `mk/arch/esp32-targets.mk` holds `esp32-build` and `esp32-qemu-test`. `FW_SRCS` is the only source list. `make firmware BOARD=<esp32 board>` refuses and names `esp32-build`. `make ci` is unchanged and runs none of this; the separate `esp32` CI job runs both targets (see Consequences). |
 | 2 | **Composed from ESP-IDF:** ROM and second-stage bootloader; secure boot v2 (RSA-3072, signing by `espsecure.py`, verification by `esp_image_verify`); flash encryption (release mode on the P4 board; off in QEMU); the partition table and OTA slot selection; the eFuse API; ROM HMAC (`ets_hmac_calculate_message`); DS (`esp_ds_sign`); `esp_partition`; `esp_eth` and lwIP; the GPIO, LEDC, ADC one-shot, I2C master and SPI master drivers; `esp_timer`; FreeRTOS as the host of one task. **Ours:** layer 0 (`boot/hal/esp32/boot_l0.c`), the boot HAL (`boot/hal/esp32/boot_hal_esp32.c`), the HAL (`src/hal/esp32/`), the `hmac-ds` crypto provider (`src/hal/esp32/crypto_hmac_ds.c`), the TCP byte link, the DeviceID record format, and the QEMU harness. |
 | 3 | **Layer 0 replaces the second-stage bootloader's entry (option 2c).** The ROM verifies the bootloader (secure boot v2) and is the root. Layer 0 verifies the slot it is about to boot with `esp_image_verify`; the image's appended SHA-256, covered by the signature, is the **measurement**. The CDI is `HMAC-SHA256(UDS, measurement)`, computed by the HMAC peripheral from the eFuse key whose purpose is `HMAC_UP`, which is the UDS. The handoff goes into ESP-IDF's RTC-retained memory: its custom area (`CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=0x50`), kept out of the record's CRC. A slot that fails verification hands off **no tier**, so a fallback slot boots without a CDI rather than with one derived for another image. ESP-IDF's loader then verifies again and loads: a second verification, about 40 ms in QEMU, kept rather than re-implementing the loader. |
 | 4 | **DeviceID (option 3b).** An RSA key, 3072-bit on the C3 and up to 4096 on the P4, held by DS: its `esp_ds_data_t` ciphertext sits in the `tfw_id` partition, under the eFuse key whose purpose is `HMAC_DOWN_DIGITAL_SIGNATURE`. It is independent of the CDI, as on the element tier, and survives firmware updates; the measurement reaches a verifier through evidence the DeviceID signs. Each boot the provider signs a fixed self-test digest through DS and verifies it against the record's modulus. **The wire cannot carry it yet**: its signatures are 64 bytes and its templates P-256. So the tier reports `TFW_CRYPTO_SECURE_ELEMENT` (an on-die key store) with no algorithms, `ATTEST` is off, and sign and pubkey refuse. The ECDSA peripheral (3c) is the alternative to weigh at P4 bring-up (follow-up 4). |
@@ -202,8 +202,18 @@ is on; two builds of one commit gave the same image digest.
 - **The C6 co-processor** on the P4 board is held in reset from the first
   instruction of `tfw_hal_init` (`TFW_ESP_COPROC_EN_GPIO`, latched with
   `gpio_hold_en`), so no firmware runs on it and its radio never starts.
-- **`make ci` does not cover the port.** The CI image has no ESP-IDF, and a
-  gate that cannot run would be a failure, not a skip.
+- **CI covers the port in its own job, not in `make ci`.** The `make ci` image
+  (`docker/Dockerfile.ci`) has no ESP-IDF, and a gate that cannot run would be
+  a failure, not a skip. So the `esp32` job in `.github/workflows/ci.yml`
+  builds `docker/Dockerfile.esp32` instead: Espressif's `espressif/idf:v5.5.5`
+  image pinned by digest, Espressif QEMU `esp_develop_9.2.2_20260417`
+  (`qemu-riscv32`, `qemu-xtensa`), CMake, Ninja, `esp-secure-cert-tool` 2.6.1
+  and Go. In that image it runs `make esp32-build BOARD=esp32p4-poe`, the only
+  place the P4 image is built, since no emulator exists for it, and then
+  `make esp32-qemu-test`, which builds `esp32-qemu` for both machines and runs
+  the checks above on `esp32c3` and on `esp32`. The job has no skip guard: a
+  missing ESP-IDF or QEMU fails it. The `CI Gate` job requires `esp32` to
+  succeed, as it does every other job.
 
 ## Follow-up issues (proposed, not filed)
 
@@ -212,9 +222,8 @@ is on; two builds of one commit gave the same image digest.
    reset, the C6 enable), then the first boot on silicon: secure boot v2 and
    flash encryption in release mode burned for real, the IP101 link, and the
    QEMU suite's checks repeated on hardware.
-2. **A CI runner image with ESP-IDF v5.5.5 and Espressif QEMU**, so that
-   `esp32-build` for every ESP32 board and `esp32-qemu-test` become CI gates
-   rather than local targets.
+2. **A CI runner image with ESP-IDF v5.5.5 and Espressif QEMU.** Done by
+   PR #68: the `esp32` CI job, built from `docker/Dockerfile.esp32`.
 3. **An RSA DeviceID on the wire, and its profile in go-xkms**, or the owner's
    choice of the P4's ECDSA peripheral instead. Either way, an ADR first: an
    extended signature length (384–512 bytes, so paged) and an RSA alias or

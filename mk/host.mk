@@ -121,7 +121,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_sys_noboot.c \
                             test/unit/test_pin_coord.c \
                             test/unit/test_app_none.c \
-                            test/unit/test_app_example.c, \
+                            test/unit/test_app_example.c \
+                            test/unit/test_w5x00.c test/unit/test_link_eth.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -132,6 +133,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/core/writer.c \
                  src/proto/frame.c \
                  src/proto/transport.c \
+                 src/proto/link_serial.c \
                  src/core/dispatch.c \
                  src/caps/sys.c \
                  src/caps/gpio.c \
@@ -327,10 +329,40 @@ $(HOST_DIR)/test_app_example: test/unit/test_app_example.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+# The Ethernet controller drivers -- issue #55 -- against the software W5100 /
+# W5500, which IS the SPI HAL here, so no hal_mock.c: both define
+# tfw_hal_spi_xfer. One test source, linked once per chip file, with the chip
+# it expects named on the command line; each binary also puts the other part on
+# the bus and asserts it is refused untouched.
+# No two sources in one host binary may share a basename: a binary built by one
+# cc command names its coverage files <binary>-<basename>.gcno/.gcda, so two
+# w5x00.c's would write one pair and `make coverage` would read a stamp
+# mismatch. Hence the model is w5x00_model.c, after its header.
+W5X_TEST_SRCS := test/unit/test_w5x00.c test/model/w5x00_model.c src/net/w5x00.c \
+                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c
+
+$(HOST_DIR)/test_w5100: $(W5X_TEST_SRCS) src/net/w5100.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=1 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_w5500: $(W5X_TEST_SRCS) src/net/w5500.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The Ethernet image's link: the whole host library with link_eth.c where
+# link_serial.c would be -- what mk/firmware.mk links for ETH=1 -- and the TCP
+# socket faked in the suite itself at include/tfw/eth.h.
+$(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        src/proto/link_eth.c src/net/netcfg.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
-                    $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example
+                    $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
+                    $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)
@@ -495,6 +527,15 @@ lint-arch-leak-selftest:
 # the way it is for `make firmware`.
 TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h
 
+# Both simulators carry the Ethernet image's link, with a host TCP socket as
+# the controller (tools/tfwsim/eth_socket.c), off until `--eth`; without it the
+# socket answers as an absent controller and the serial behaviour is the serial
+# image's. -DTFW_FEATURE_ETHERNET is NOT passed: all it does is reserve the
+# shield's SPI and select pins, and the host's socket sits on no pin -- a
+# simulator that refused D10-D13 would only break the GPIO suites that use them.
+TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c tools/tfwsim/eth_socket.c
+TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) $(TFWSIM_LINK_SRCS)
+
 # The element tier swaps the software provider (and its UDS mock) for the ATECC608A
 # driver, its provider and the software element. hal_mock.c is still linked for
 # everything that is not the I2C bus: its I2C and delay symbols are weak for
@@ -513,7 +554,7 @@ TFWSIM_ELEMENT_INC := -Itools/tfwsim/element
 TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c \
                                    src/core/auth_session_none.c src/core/app_runner.c \
                                    test/mock/app_mock.c, \
-                                   $(HOST_LIB_SRCS)) \
+                                   $(TFWSIM_LIB_SRCS)) \
                       src/core/auth_session.c \
                       src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                       $(ELEMENT_MODEL) $(APP_RUNNER_SRCS)
@@ -521,7 +562,7 @@ TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_moc
 # The simulator links the runner an image would (mk/app.mk): the real one with
 # APP_DIR's application, or the empty one. Never the recording mock, which is
 # the tests'.
-TFWSIM_SOFT_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c,$(HOST_LIB_SRCS)) \
+TFWSIM_SOFT_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c,$(TFWSIM_LIB_SRCS)) \
                     $(APP_RUNNER_SRCS)
 
 # An application's objects, one directory per tier: the element tier's overlay

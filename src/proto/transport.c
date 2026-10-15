@@ -4,6 +4,7 @@
 #include "transport.h"
 #include "tfw/hal.h"
 #include "tfw/config.h"
+#include "tfw/link.h"
 #include "../core/dispatch.h"
 #include "../core/reader.h"
 #include "../core/writer.h"
@@ -15,18 +16,21 @@ void tfw_transport_init(tfw_transport_t *t)
     t->out_pos    = 0u;
     t->last_rx_ms = 0u;
     t->in_frame   = 0u;
+    t->out_event  = 0u;
 }
 
-/* Pushes as much of the pending response as the ring will take. Returns 1 if
+/* Pushes as much of the pending response as the link will take. Returns 1 if
  * bytes are still owed. */
 static uint8_t drain(tfw_transport_t *t)
 {
     while (t->out_pos < t->out_len) {
-        if (!tfw_hal_uart_tx_try(t->out[t->out_pos])) {
+        if (!tfw_link_tx_try(t->out[t->out_pos], t->out_event)) {
             return 1u;                    /* ring full; resume next poll */
         }
         t->out_pos++;
     }
+    tfw_link_tx_done(t->out_event);
+    t->out_event = 0u;
     t->out_len = 0u;
     t->out_pos = 0u;
     return 0u;
@@ -54,7 +58,9 @@ static void handle(tfw_transport_t *t)
     tfw_reader_init(&r, tfw_frame_payload(&t->framer), tfw_frame_payload_len(&t->framer));
     tfw_writer_init(&w, payload, (uint8_t)sizeof payload);
 
-    st = tfw_dispatch(op, &r, &w);
+    /* A command the link does not carry gets the answer a command absent from
+     * the image gets: from that wire's side, it is absent. */
+    st = tfw_link_admits(op) ? tfw_dispatch(op, &r, &w) : TFW_ERR_UNKNOWN_CMD;
 
     /* On failure the reply carries the status and no payload. A partial reply
      * beside a failure status is something a host would have to guess about. */
@@ -76,6 +82,8 @@ void tfw_transport_poll(tfw_transport_t *t)
 {
     uint8_t byte;
 
+    tfw_link_poll();
+
     /* Finish what is owed before reading more. */
     if (t->out_len && drain(t)) {
         return;
@@ -89,7 +97,7 @@ void tfw_transport_poll(tfw_transport_t *t)
         t->in_frame = 0u;
     }
 
-    while (tfw_hal_uart_rx(&byte)) {
+    while (tfw_link_rx(&byte, t->in_frame)) {
         tfw_frame_event_t e = tfw_framer_push(&t->framer, byte);
 
         t->last_rx_ms = tfw_hal_millis();
@@ -145,7 +153,8 @@ uint8_t tfw_transport_send_event(tfw_transport_t *t, uint8_t event_id)
     }
     t->out_len = tfw_frame_encode_event(t->out, (uint16_t)sizeof t->out,
                                        TFW_OK, &event_id, 1u);
-    t->out_pos = 0u;
+    t->out_pos   = 0u;
+    t->out_event = 1u;
     (void)drain(t);
     return 1u;
 }

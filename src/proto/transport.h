@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The only layer that touches the byte link. Everything above it -- framing,
+ * The only layer that touches the byte link, through tfw/link.h, which picks
+ * the wire at link time (the UART alone, or the UART and Ethernet). Everything
+ * above it -- framing,
  * dispatch, capabilities -- is a pure function of bytes and state, which is
  * what lets all of it run on the host.
  *
@@ -29,6 +31,7 @@ typedef struct {
     uint16_t    out_pos;      /* how many of them have reached the ring */
     tfw_ms_t     last_rx_ms;   /* for the partial-frame idle guard */
     uint8_t     in_frame;     /* a frame is partially received */
+    uint8_t     out_event;    /* the pending bytes are an event: serial only */
 } tfw_transport_t;
 
 void tfw_transport_init(tfw_transport_t *t);

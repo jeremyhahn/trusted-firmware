@@ -122,6 +122,15 @@
 #ifndef TFW_FEATURE_PROVISION
 #define TFW_FEATURE_PROVISION   0
 #endif
+/* The wire protocol over a WIZnet W5100 or W5500 beside serial -- issue #55,
+ * docs/ethernet-transport/. DEFAULT 0, turned on by `make ETH=1`, which also
+ * links the Ethernet link and the board's controller file in place of the
+ * serial-only link. Read in one place, include/tfw/board.h, to claim the
+ * shield's pins. Not in the CAPS bitmap: a bit there is a wire change, and
+ * whether a host needs one is an open question in the ADR. */
+#ifndef TFW_FEATURE_ETHERNET
+#define TFW_FEATURE_ETHERNET    0
+#endif
 
 /* The bit each feature occupies in the CAPS Features field. These are the wire:
  * they extend and never renumber. Named so an application can say which
@@ -318,6 +327,16 @@
  * actually override, because config.h has already been included by then. */
 #ifndef TFW_I2C_RESERVED_ADDR
 #define TFW_I2C_RESERVED_ADDR 0x60u
+#endif
+
+/* The Ethernet shield's two chip selects: the W5x00's and its SD card's. The
+ * Arduino shields put them on D10 and D4 on every board; a board wired
+ * otherwise overrides them. */
+#ifndef TFW_ETH_CS_PIN
+#define TFW_ETH_CS_PIN    10u
+#endif
+#ifndef TFW_ETH_SD_CS_PIN
+#define TFW_ETH_SD_CS_PIN 4u
 #endif
 
 /* Defaults tfw_bus_init() (src/caps/bus.c) applies at boot, before the host has

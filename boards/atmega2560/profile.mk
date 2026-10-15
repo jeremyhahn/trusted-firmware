@@ -23,3 +23,8 @@ BOOT_SECTION   := 8192
 BOOT_BASE      := 0x3e000
 BOOT_BUDGET    := 8192
 RAM_END        := 0x21FF
+
+# The Ethernet controller an ETH=1 image drives (docs/ethernet-transport/): the
+# Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
+# The chip file checks the part's identity, so the wrong shield stays down.
+ETH_CHIP       ?= w5100

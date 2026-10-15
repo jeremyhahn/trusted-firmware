@@ -38,6 +38,14 @@
 #define TFW_PIN_IN_USE   0x40u  /* claimed by this build: the UART pins, say */
 #define TFW_PIN_LED      0x80u
 
+/* IN_USE in an Ethernet image, for the Ethernet shield's pins -- its two chip
+ * selects and the SPI lines -- and nothing in any other image. A board table
+ * ORs it into those rows, so GPIO, the scheduler, PWM, tone and SPI_XFER refuse
+ * them exactly when the controller owns them, and a serial image's CAPS is
+ * byte-for-byte what it was. An expression, not an #if, so the rows read the
+ * same in every build. */
+#define TFW_PIN_ETH      ((TFW_FEATURE_ETHERNET) ? TFW_PIN_IN_USE : 0u)
+
 /* tfw_port_desc_t and tfw_pwm_desc_t -- one row of the port table and of the PWM
  * table -- are the architecture's, in hal_types.h (reached through tfw/hal.h):
  * what a port or a PWM channel IS depends on the silicon. The pin table below

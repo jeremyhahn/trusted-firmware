@@ -85,6 +85,29 @@ BUS_SRCS := $(if $(BUS_OFF),src/caps/bus_none.c,src/caps/bus.c $(HAL_DIR)/hal_bu
 UART_SRCS := $(if $(call profile_says,TFW_UART_SOFT,1), \
                   $(HAL_DIR)/hal_uart_soft.c,$(HAL_DIR)/hal_uart.c)
 
+# What the transport reads frames from: the UART alone, or the UART and a TCP
+# connection through a WIZnet shield -- issue #55, docs/ethernet-transport/.
+# Both files define tfw/link.h, so exactly one is linked, and an image built
+# without ETH=1 carries no network code at all. The controller is the board's
+# word (ETH_CHIP in profile.mk), overridable on the command line for the other
+# shield; a board that names none cannot be built with ETH=1. The output path
+# carries the choice, as it carries the crypto tier, because an Ethernet image
+# is different firmware.
+ETH ?= 0
+ifeq ($(ETH),1)
+ifeq ($(ETH_CHIP),)
+$(error ETH=1 but $(BOARD_DIR)/profile.mk names no ETH_CHIP -- this board has no Ethernet support)
+endif
+ifeq ($(wildcard src/net/$(ETH_CHIP).c),)
+$(error unknown ETH_CHIP "$(ETH_CHIP)" -- expected one of: $(basename $(notdir $(filter-out src/net/w5x00.c src/net/netcfg.c,$(wildcard src/net/*.c)))))
+endif
+LINK_SRCS := src/proto/link_eth.c src/net/w5x00.c src/net/netcfg.c src/net/$(ETH_CHIP).c
+LINK_DEFS := -DTFW_FEATURE_ETHERNET=1
+else
+LINK_SRCS := src/proto/link_serial.c
+LINK_DEFS :=
+endif
+
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
@@ -171,7 +194,7 @@ else
 $(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a)
 endif
 
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(APP_SUFFIX)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(APP_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The toolchain binaries and the flags that name a machine, an optimisation
@@ -189,7 +212,8 @@ FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
              -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
              -ffile-prefix-map=$(CURDIR)=. \
              -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(HAL_DIR) -I$(BOARD_DIR) \
-             -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS)
+             -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) \
+             $(LINK_DEFS)
 
 # The CDI handoff block's placement is the architecture's: see
 # ARCH_FW_PLACEMENT_LDFLAGS, which is empty on a board with no RAM_END.
@@ -225,7 +249,7 @@ endif
 #   CRYPTO=atecc608a the element holds the UDS and signs; DICE-HW
 FW_SRCS := $(sort \
   src/main.c \
-  src/proto/crc16.c src/proto/frame.c src/proto/transport.c \
+  src/proto/crc16.c src/proto/frame.c src/proto/transport.c $(LINK_SRCS) \
   src/core/reader.c src/core/writer.c src/core/dispatch.c src/core/board_lookup.c \
   src/core/secure_zero.c $(IDENTITY_SRCS) \
   $(APP_RUNNER_SRCS) \
@@ -314,7 +338,7 @@ board-tiers:
 # the gates the image was built with -- not config.h's defaults, which say 0 to
 # every tier-selected feature on every board.
 feature-defs:
-	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS)
+	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS)
 
 ## firmware-matrix-list: print every "board tier" pair firmware-matrix builds
 firmware-matrix-list:

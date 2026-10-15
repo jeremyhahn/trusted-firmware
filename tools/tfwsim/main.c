@@ -12,6 +12,10 @@
  *
  *   tfwsim            speak the protocol on stdin/stdout
  *   tfwsim --pty      the same, on a pty whose path is printed to stderr
+ *   tfwsim --eth      also an Ethernet device: it dials the endpoint in its
+ *                     EEPROM network block over a host TCP socket and serves
+ *                     the Ethernet allow-list there, as an ETH=1 image does
+ *                     (tools/tfwsim/eth_socket.c, issue #55)
  *
  * Two binaries come from this file, one per crypto tier, linked the way the
  * firmware links its provider: `tfwsim` (software tier) and `tfwsim-atecc608a`
@@ -25,6 +29,7 @@
 #define _XOPEN_SOURCE 600
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +48,7 @@
 #include "bus.h"
 #include "app_runner.h"
 #include "tier.h"
+#include "eth_socket.h"
 
 static tfw_transport_t t;
 
@@ -85,7 +91,7 @@ static void pump(const uint8_t *in, size_t n, int out_fd)
     }
 }
 
-static int run(int in_fd, int out_fd)
+static int run(int in_fd, int out_fd, int eth)
 {
     uint8_t buf[512];
 
@@ -112,17 +118,39 @@ static int run(int in_fd, int out_fd)
     pump(0, 0u, out_fd);
 
     for (;;) {
-        ssize_t n = read(in_fd, buf, sizeof buf);
-        if (n < 0) {
+        struct pollfd p[2];
+        nfds_t        np = 1u;
+        ssize_t       n  = 0;
+
+        /* Without --eth this waits on stdin alone, forever: the same blocking
+         * read it always was. With it, the socket is waited on too, and the
+         * wait is a 1 ms tick so the link's reconnect deadline arrives with
+         * no traffic to carry it. */
+        p[0].fd = in_fd; p[0].events = POLLIN; p[0].revents = 0;
+        if (eth && tfwsim_eth_fd() >= 0) {
+            p[1].fd = tfwsim_eth_fd(); p[1].events = POLLIN; p[1].revents = 0;
+            np = 2u;
+        }
+        if (poll(p, np, eth ? 1 : -1) < 0) {
             if (errno == EINTR) { continue; }
             return 1;
         }
-        if (n == 0) {
-            return 0;                     /* peer closed */
+        if (p[0].revents) {
+            n = read(in_fd, buf, sizeof buf);
+            if (n < 0) {
+                if (errno == EINTR) { continue; }
+                return 1;
+            }
+            if (n == 0) {
+                return 0;                     /* peer closed */
+            }
+        } else if (!eth) {
+            continue;
         }
-        /* Time advances with traffic. Nothing here needs a real clock, and a
-         * simulated one keeps a run reproducible: the same input produces the
-         * same output, which is what makes this usable as a test oracle. */
+        /* Time advances with traffic, and with --eth by one tick per wait.
+         * Nothing here needs a real clock, and a simulated one keeps a serial
+         * run reproducible: the same input produces the same output, which is
+         * what makes this usable as a test oracle. */
         tfw_mock_advance(1u);
         pump(buf, (size_t)n, out_fd);
     }
@@ -130,7 +158,7 @@ static int run(int in_fd, int out_fd)
 
 int main(int argc, char **argv)
 {
-    int i = 1, pty = 0;
+    int i = 1, pty = 0, eth = 0;
 
     while (i < argc) {
         int used;
@@ -140,10 +168,16 @@ int main(int argc, char **argv)
             i++;
             continue;
         }
+        if (strcmp(argv[i], "--eth") == 0) {
+            eth = 1;
+            tfwsim_eth_enable();
+            i++;
+            continue;
+        }
         used = tfwsim_tier_option(argc - i, &argv[i]);
         if (used <= 0) {
             if (used == 0) {
-                fprintf(stderr, "tfwsim: unknown option %s\nusage: %s [--pty]%s\n",
+                fprintf(stderr, "tfwsim: unknown option %s\nusage: %s [--pty] [--eth]%s\n",
                         argv[i], argv[0], tfwsim_tier_usage());
             }
             return 2;
@@ -167,7 +201,7 @@ int main(int argc, char **argv)
         /* stderr, so stdout stays clean for anything piping this. */
         fprintf(stderr, "%s\n", slave);
         fflush(stderr);
-        return run(master, master);
+        return run(master, master, eth);
     }
-    return run(STDIN_FILENO, STDOUT_FILENO);
+    return run(STDIN_FILENO, STDOUT_FILENO, eth);
 }

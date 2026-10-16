@@ -131,6 +131,14 @@
 #ifndef TFW_FEATURE_ETHERNET
 #define TFW_FEATURE_ETHERNET    0
 #endif
+
+/* The application-side OTA stager -- issue #75, docs/ota/. DEFAULT 0, turned on
+ * by `make OTA_STAGE=1` (which ETH=1 implies), which links src/core/ota_stage.c
+ * and the board's external store driver. Read in one place, commands.def, to
+ * claim OTA_BEGIN..OTA_STATUS for the application. */
+#ifndef TFW_FEATURE_OTA_STAGE
+#define TFW_FEATURE_OTA_STAGE   0
+#endif
 /* An application is linked -- docs/application-sdk/. DEFAULT 0, turned on by
  * naming an APP_DIR (mk/app.mk), which also links the real runner in place of
  * src/core/app_runner_none.c. Read in one place, commands.def, to give
@@ -220,6 +228,20 @@
 #ifndef TFW_EEPROM_SIZE
 #define TFW_EEPROM_SIZE 1024u
 #endif
+/* EEPROM the bootloader keeps ABOVE the platform block (include/tfw/boot.h's
+ * TFW_BOOT_EE_LEN, the wire's EEPROMReservedEnd), which EEPROM_WRITE refuses
+ * as it refuses the block itself and EEPROM_READ gates the same way. A board
+ * whose bootloader keeps state there names the range -- the ATmega2560's
+ * swap-move journal. Every other board says nothing and gets an empty range at
+ * the block's end, which the block's own check already covers, so the test
+ * folds away; an empty range at 0 would be a comparison against zero that
+ * -Wtype-limits rejects. Read only where include/tfw/boot.h is in scope. */
+#ifndef TFW_BOOT_EE_EXTRA_BASE
+#define TFW_BOOT_EE_EXTRA_BASE TFW_BOOT_EE_LEN
+#endif
+#ifndef TFW_BOOT_EE_EXTRA_LEN
+#define TFW_BOOT_EE_EXTRA_LEN  0u
+#endif
 
 /* ---------------------------------------------------- flash geometry, for tfw-boot
  *
@@ -259,6 +281,15 @@
 #endif
 #ifndef TFW_APP_REGION_SIZE
 #define TFW_APP_REGION_SIZE TFW_BOOT_REGION_BASE
+#endif
+/* The highest address tfw-boot may program, and where it copies a staged
+ * image: the application region itself, unless the board keeps a second slot
+ * (the 2560's swap-move). */
+#ifndef TFW_APP_WRITE_END
+#define TFW_APP_WRITE_END (TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE)
+#endif
+#ifndef TFW_OTA_STAGE_DEST
+#define TFW_OTA_STAGE_DEST TFW_APP_REGION_BASE
 #endif
 #ifndef TFW_OTA_PAGE_MAX
 #define TFW_OTA_PAGE_MAX 256u

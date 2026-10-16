@@ -163,6 +163,19 @@
 #define TFW_APP_REGION_SIZE   TFW_BOOT_REGION_BASE
 #define TFW_OTA_PAGE_MAX      256u
 
+/* The external SPI NOR store -- the 328P's layout, because the application
+ * region is the same 28 672 bytes. See boards/atmega328p/board_profile.h and
+ * ADR open question 2: D8 is the proposed chip select, not a ruling. */
+#define TFW_OTA_STORE_CS_PIN      8u
+#define TFW_OTA_STORE_CS_IO       B, 4u   /* D8 = PB4, for tfw-boot, which has no pin table */
+#define TFW_ETH_CS_IO             B, 6u   /* D10 = PB6, the WIZnet: held high by tfw-boot */
+#define TFW_SD_CS_IO              D, 4u   /* D4 = PD4, the SD socket: likewise */
+#define TFW_OTA_STORE_STAGE_ADDR  0x000000ul
+#define TFW_OTA_STORE_STAGE_LEN   0x7000ul    /* 28 672: 7 sectors */
+#define TFW_OTA_STORE_MANIFEST    0x007000ul
+#define TFW_OTA_STORE_PREV_ADDR   0x008000ul
+#define TFW_OTA_STORE_MARK_ADDR   0x00F000ul
+
 #define TFW_FLASH_BUDGET 14336u
 #define TFW_RAM_BUDGET   1280u
 

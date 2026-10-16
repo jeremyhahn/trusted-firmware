@@ -148,15 +148,16 @@
 #define TFW_AUTH_NONCE_LEN 16u
 #define TFW_AUTH_SIG_LEN   64u
 
-/* over-the-air update -- ANSWERED BY tfw-boot, NEVER BY THE APPLICATION
+/* over-the-air update -- tfw-boot writes flash; the application only stages
  *
- * These ids appear in no entry of src/core/commands.def and they must not. The
- * application cannot write flash: SPM executes only from the boot section, and
- * the one way to give the application access would be a trampoline into the
- * boot section -- which voids the BLB mode 3 read barrier the software tier's
- * UDS sits behind. So an application asked for OTA_BEGIN answers
- * TFW_ERR_UNKNOWN_CMD, which is exactly right: it tells the host to reset into
- * the bootloader and ask there.
+ * The application cannot write its own flash: SPM executes only from the boot
+ * section, and the one way to give the application access would be a
+ * trampoline into the boot section -- which voids the BLB mode 3 read barrier
+ * the software tier's UDS sits behind. An image built with OTA_STAGE=1 answers
+ * these four ids by streaming into the external store instead (issue #75, ADR
+ * decision 8), with the same payloads; tfw-boot installs from there. An image
+ * without the stager answers TFW_ERR_UNKNOWN_CMD, which tells the host to reset
+ * into the bootloader and ask there.
  *
  * Reserved in the application's range rather than in a range of their own,
  * because a host discovers which it is talking to by the answer it gets and

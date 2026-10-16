@@ -96,6 +96,20 @@
 #define TFW_BOOT_TR_SIGNATURE     48u
 
 #define TFW_BOOT_MEASURE_LEN      32u
+
+/*
+ * The MARK record at TFW_OTA_STORE_MARK_ADDR in a board's external OTA store
+ * (issue #75): [magic:4 LE 'TFSG'][total_len:4 LE][measurement:32]. The
+ * application's stager (src/core/ota_stage.c) writes it once a staged image
+ * passed its checks, programming the magic last, so a record cut short by a
+ * reset reads as no record; tfw-boot (boot/boot_stage.c) reads it. One
+ * definition here because two programs must agree on it.
+ */
+#define TFW_STAGE_MARK_MAGIC  0x47534654uL
+#define TFW_STAGE_MARK_O_LEN  4u
+#define TFW_STAGE_MARK_O_HASH 8u
+#define TFW_STAGE_MARK_LEN    40u
+
 #define TFW_BOOT_SIG_LEN          64u
 #define TFW_BOOT_PUBKEY_LEN       32u
 

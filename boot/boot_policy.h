@@ -60,6 +60,12 @@ typedef struct {
  */
 tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out);
 
+/* The same gate over an image that starts at `base` rather than at the
+ * application region's: the 2560's secondary slot, checked before it is
+ * swapped in, so a refused image costs no page write (issue #75).
+ * tfw_boot_evaluate is this at TFW_BOOT_APP_BASE. */
+tfw_status_t tfw_boot_evaluate_at(uint32_t base, uint32_t floor, tfw_boot_verdict_t *out);
+
 /*
  * Confirms the bootloader's own public key is the one this device was
  * provisioned to trust: SHA-256 over the 32-byte key, compared against the hash

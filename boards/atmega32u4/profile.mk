@@ -38,3 +38,9 @@ RAM_END        := 0x0AFF
 # `make boot-flash` reads it before the erase; mk/arch/avr.mk.
 BOOT_EESAVE_FUSE := hfuse
 BOOT_EESAVE_BIT  := 3
+
+# The external store the OTA stager writes into (issue #75, docs/ota/): its
+# driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.
+# The part and its chip select are ADR open question 2; the select is board
+# data in board_profile.h (TFW_OTA_STORE_CS_PIN).
+OTA_STORE      := spi_nor

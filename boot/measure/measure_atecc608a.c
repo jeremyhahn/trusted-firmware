@@ -67,7 +67,19 @@ void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASU
     (void)tfw_atecc_sleep();
 }
 
+static tfw_status_t flash(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+    tfw_boot_flash_read(addr, buf, len);
+    return TFW_OK;
+}
+
 tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
+{
+    return tfw_boot_measure_from(flash, TFW_BOOT_APP_BASE, len, out);
+}
+
+tfw_status_t tfw_boot_measure_from(tfw_boot_reader_t rd, uint32_t base, uint32_t len,
+                                   uint8_t out[TFW_BOOT_MEASURE_LEN])
 {
     uint8_t     block[SHA_BLOCK];
     uint32_t    addr = 0u;
@@ -90,16 +102,20 @@ tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
      * because a second padding implementation is a second chance to disagree
      * with FIPS 180-4 about a digest a verifier will recompute. */
     while (st == TFW_OK && (len - addr) > (uint32_t)SHA_BLOCK) {
-        tfw_boot_flash_read(TFW_BOOT_APP_BASE + addr, block, SHA_BLOCK);
-        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_UPDATE,
-                           SHA_BLOCK, block, SHA_BLOCK, 0, 0u, TFW_ATECC_T_SHA);
+        st = rd(base + addr, block, SHA_BLOCK);
+        if (st == TFW_OK) {
+            st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_UPDATE,
+                               SHA_BLOCK, block, SHA_BLOCK, 0, 0u, TFW_ATECC_T_SHA);
+        }
         addr += SHA_BLOCK;
     }
     if (st == TFW_OK) {
         uint8_t tail = (uint8_t)(len - addr);
-        tfw_boot_flash_read(TFW_BOOT_APP_BASE + addr, block, tail);
-        st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_END, tail,
-                           block, tail, out, TFW_BOOT_MEASURE_LEN, TFW_ATECC_T_SHA);
+        st = rd(base + addr, block, tail);
+        if (st == TFW_OK) {
+            st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_END, tail,
+                               block, tail, out, TFW_BOOT_MEASURE_LEN, TFW_ATECC_T_SHA);
+        }
     }
     memset(block, 0, sizeof block);
     (void)tfw_atecc_sleep();

@@ -19,6 +19,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "tfw/hal.h"
 #include "tfw/types.h"
 
 void   tfw_mock_reset(void);
@@ -73,6 +74,10 @@ void tfw_mock_set_capture(const uint16_t *us, uint8_t n);
 
 /* buses: the bytes a transfer will return, and what it was asked to send */
 void    tfw_mock_set_bus_response(const uint8_t *b, uint8_t n);
+/* The mock's SPI transfer, for a model that answers one select and leaves the
+ * rest to the mock (test/model/spi_nor_model.c). */
+tfw_status_t tfw_mock_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
+                               uint8_t *rd, uint8_t len);
 uint8_t tfw_mock_last_i2c_addr(void);
 uint8_t tfw_mock_ow_presence_set(uint8_t present);
 

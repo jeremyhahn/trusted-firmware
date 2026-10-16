@@ -75,7 +75,7 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
      * overwrite the bootloader with application code, and the device would
      * never run anything again. One comparison prevents it.
      */
-    if (addr + (uint32_t)SPM_PAGESIZE > TFW_BOOT_APP_END) {
+    if (addr + (uint32_t)SPM_PAGESIZE > (uint32_t)TFW_APP_WRITE_END) {
         return TFW_ERR_PROTECTED_REGION;
     }
 

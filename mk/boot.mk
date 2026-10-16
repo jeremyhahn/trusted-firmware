@@ -97,6 +97,40 @@ BOOT_OTA_SRCS := $(BOOT_HAL_DIR)/recovery_halt.c
 BOOT_OTA_DEFS :=
 endif
 
+# The application-staged image in the external OTA store (issue #75, ADR 6.3),
+# or not. The path an application without a session in the boot section
+# updates by: boot_stage.c reads the stager's mark, checks the staged image
+# again and copies it in. Read only -- the store's bus is
+# $(BOOT_HAL_DIR)/boot_ota_store_<arch>.c, three opcodes, and not the
+# application's driver. Off, a stub that never finds an image is linked in its
+# place, and LTO folds its one call away.
+#
+# Its own axis and off by default, like BOOT_OTA and for the same reason: it is
+# a size trade, and the 4 KB parts cannot afford it. The board profile's
+# OTA_STORE says only that the part is there to be read; whether this image
+# reads it is the configuration's to say, in a BOOT_SUPPORTED row.
+BOOT_STORE ?= 0
+ifeq ($(BOOT_STORE),1)
+ifeq ($(OTA_STORE),)
+$(error BOOT_STORE=1 but $(BOARD_DIR)/profile.mk names no OTA_STORE -- this board has no external store)
+endif
+BOOT_STORE_SRCS := boot/boot_stage.c $(BOOT_HAL_DIR)/boot_ota_store_$(ARCH).c
+else
+BOOT_STORE_SRCS := boot/boot_stage_none.c
+endif
+
+# The 2560's swap-move, on a board with two slots (BOOT_AB in profile.mk) and
+# only where an image lands in the secondary: the store's copy, or the serial
+# session's (TFW_OTA_STAGE_DEST). A row with neither has nothing to swap in,
+# and links the stub, as does every other board.
+BOOT_SWAP_SRC := boot/boot_swap_none.c
+ifeq ($(BOOT_AB),1)
+ifneq ($(BOOT_OTA)$(BOOT_STORE),00)
+BOOT_SWAP_SRC := boot/boot_swap.c
+endif
+endif
+BOOT_STORE_SRCS += $(BOOT_SWAP_SRC)
+
 # Sorted, for the same reason mk/firmware.mk sorts: a wildcard's order depends on the
 # filesystem, and link order affects the image, so an unsorted list makes the
 # reproducibility check pass on one machine and fail on another.
@@ -105,7 +139,7 @@ endif
 # software hash are different images with different measurements; sharing one
 # directory meant the second build silently reused the first one's objects and
 # reported its size, which is a measurement that cannot be wrong and is.
-BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)
+BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(BOOT_STORE)
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
 BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 
@@ -116,7 +150,7 @@ BOOT_SRCS := $(sort \
   $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c \
   src/proto/crc16.c src/proto/crc16_update.c \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
-  $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
+  $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
 
 BOOT_OBJS := $(patsubst %.c,$(BOOT_DIR_OUT)/%.o,$(BOOT_SRCS))
 
@@ -209,25 +243,30 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 # and `make bootloader` reports the overage rather than failing obscurely.
 #
 #   328P / 32U4  4 KB section  element hash + element verify, no OTA in boot
-#   2560         8 KB section  the same, plus OTA in boot
+#   2560         8 KB section  the same, plus OTA in boot or the external store
+#
+# The last field is BOOT_STORE. The 2560 with both OTA and the store does not
+# fit (8 548 / 8 192 at 59fa3ab), so it is not a row.
 #
 # A row that stops fitting is a build failure here, which is the point: the
 # margin on a 4 KB part is 1 728 bytes and it is the kind of thing that
 # disappears one commit at a time.
 BOOT_SUPPORTED := \
-  atmega328p:atecc608a:atecc608a:atecc608a:0 \
-  atmega32u4:atecc608a:atecc608a:atecc608a:0 \
-  atmega2560:atecc608a:atecc608a:atecc608a:0 \
-  atmega2560:atecc608a:atecc608a:atecc608a:1
+  atmega328p:atecc608a:atecc608a:atecc608a:0:0 \
+  atmega32u4:atecc608a:atecc608a:atecc608a:0:0 \
+  atmega2560:atecc608a:atecc608a:atecc608a:0:0 \
+  atmega2560:atecc608a:atecc608a:atecc608a:1:0 \
+  atmega2560:atecc608a:atecc608a:atecc608a:0:1
 
 bootloader-check:
 	@fail=0; \
 	for row in $(BOOT_SUPPORTED); do \
 	  b=$${row%%:*}; r=$${row#*:}; \
 	  t=$${r%%:*}; r=$${r#*:}; m=$${r%%:*}; r=$${r#*:}; \
-	  g=$${r%%:*}; o=$${r#*:}; \
+	  g=$${r%%:*}; r=$${r#*:}; o=$${r%%:*}; s=$${r#*:}; \
 	  if ! $(MAKE) --no-print-directory bootloader BOARD=$$b \
-	        BOOT_TIER=$$t BOOT_MEASURE=$$m BOOT_SIG=$$g BOOT_OTA=$$o; then \
+	        BOOT_TIER=$$t BOOT_MEASURE=$$m BOOT_SIG=$$g BOOT_OTA=$$o \
+	        BOOT_STORE=$$s; then \
 	    echo "SUPPORTED CONFIGURATION NO LONGER FITS: $$row"; fail=1; \
 	  fi; \
 	done; \
@@ -298,7 +337,7 @@ $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
 # The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
 $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_session.c \
-        boot/recovery/recovery_ota.c boot/boot_store.c src/proto/frame.c \
+        boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c src/proto/frame.c \
         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -307,6 +346,34 @@ $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_s
 $(BOOT_TEST_DIR)/test_boot_settle: test/unit/boot/test_boot_settle.c \
         boot/boot_store.c $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The external store's read, check and copy (issue #75), against the software
+# NOR part on the mock's store bus. The platform block's write is the test's,
+# so it can see the order of states the copy stores; boot_store.c stays out.
+BOOT_STAGE_TEST_SRCS := test/unit/boot/test_boot_stage.c boot/boot_stage.c \
+                        test/model/spi_nor_model.c $(BOOT_LOGIC_SRCS)
+
+$(BOOT_TEST_DIR)/test_boot_stage: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# Again under the 2560's profile, where STAGE (64 KB) is smaller than the
+# application region and the trailer that ends the staged stream is copied to
+# the region's end, far past it. The host board's extra feature defines are
+# the application's, and are left out rather than redefined over the 2560's.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_stage_2560
+BOOT_TEST_2560_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/atmega2560,\
+                          $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+
+$(BOOT_TEST_DIR)/test_boot_stage_2560: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The swap-move is the 2560's alone: its geometry is in that profile only.
+# With the serial session, so a session's image is seen landing in the
+# secondary and swapped in; tfw_boot_evaluate and the floor are the test's.
+$(BOOT_TEST_DIR)/test_boot_swap: test/unit/boot/test_boot_swap.c boot/boot_swap.c \
+                                 boot/recovery/recovery_ota.c src/proto/frame.c \
+                                 $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
@@ -432,11 +499,11 @@ bootloader-reproducible:
 # before anything is built. The defaults are soft/ed25519-donna, which fit no
 # board's boot section, so `make boot-flash BOARD=<board>` with no BOOT_*
 # variables used to rebuild them and stop at the link with an overflow.
-BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA)
+BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA):$(BOOT_STORE)
 BOOT_FITS := $(filter $(BOARD):%,$(BOOT_SUPPORTED))
 ifneq ($(filter boot-flash,$(MAKECMDGOALS)),)
 ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
-$(error boot-flash: $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows, which fit, are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
+$(error boot-flash: $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows, which fit, are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
 endif
 ifeq ($(and $(BOOT_EESAVE_FUSE),$(BOOT_EESAVE_BIT)),)
 $(error boot-flash: boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so boot-flash cannot check that the chip erase keeps the EEPROM)
@@ -476,7 +543,8 @@ BOOT_INT_DIR := $(BUILD_DIR)/integration/$(BOARD)
 # the three-byte PC and the far-flash read, which is where the jump and the
 # measurement have the most room to be wrong. See the header of boot_harness.c.
 BOOT_INT_BOARD := atmega2560
-BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1
+BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1 \
+                  BOOT_STORE=0
 
 # The image_flags the harness's signer stamps into the trailer
 # (include/tfw/boot.h): 0x00 a release image, 0x01 a development one. A build

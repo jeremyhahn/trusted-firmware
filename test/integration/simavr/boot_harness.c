@@ -735,9 +735,25 @@ static int find_response(uint8_t seq, uint8_t *status, uint8_t *payload, uint8_t
  * application answering CAPS after the jump, and only code that runs can do
  * that.
  */
-static uint8_t image[TFW_BOOT_APP_END];
+/* Up to TFW_APP_WRITE_END, not the primary's end: on a board with two slots (the
+ * 2560, ADR decision 7) an image is staged in the secondary at
+ * TFW_OTA_STAGE_DEST and swapped into the primary by tfw-boot. On a board with
+ * one slot the two ends are the same address. */
+static uint8_t image[TFW_APP_WRITE_END];
 static uint8_t eeprom_image[TFW_BOOT_EE_LEN];
 static uint32_t image_len;
+
+/* What one run left in the part, for a test that resets it without
+ * rebuilding: the flash a swap rewrote and the EEPROM beyond the platform
+ * block, where the swap record lives. Set by carry(), used once by install(). */
+static uint8_t eeprom_all[TFW_EEPROM_SIZE];
+static int     carried;
+
+/* The layout, as data: a board stages in its primary or it has a secondary. */
+static int two_slots(void)
+{
+    return (uint32_t)TFW_OTA_STAGE_DEST != TFW_BOOT_APP_BASE;
+}
 
 /* tfw_sha256 takes a uint16_t length and an application region does not fit in
  * one. Chunked here rather than widened there: the device hashes 64 bytes at a
@@ -801,6 +817,35 @@ static void build_image(const elf_firmware_t *app, uint32_t version, long tamper
     build_image_for(app, version, (uint8_t)TFW_BOARD_ID, tamper_at);
 }
 
+/* A pending image where the board stages one. With one slot it replaces the
+ * image in place. With two (ADR decision 7) it goes to the secondary at
+ * TFW_OTA_STAGE_DEST, and the primary holds `previous`: the image tfw-boot
+ * swaps out for the trial, and back in when the trial ends unconfirmed. */
+static void stage_pending(const elf_firmware_t *app, uint32_t previous,
+                          uint32_t version, long tamper_at)
+{
+    static uint8_t pending[TFW_BOOT_APP_SIZE];
+
+    build_image(app, version, tamper_at);
+    if (!two_slots()) {
+        return;
+    }
+    memcpy(pending, image, sizeof pending);
+    build_image(app, previous, -1);
+    memcpy(&image[TFW_OTA_STAGE_DEST], pending, sizeof pending);
+}
+
+/* The version in the primary's trailer: which image a reset would run. */
+static uint32_t primary_version(void)
+{
+    tfw_boot_trailer_t tr;
+
+    if (tfw_boot_trailer_parse(&avr->flash[TFW_BOOT_TRAILER_ADDR], &tr) != TFW_OK) {
+        return 0xFFFFFFFFu;
+    }
+    return tr.image_version;
+}
+
 /*
  * The serial `tfwprov --bake-eeprom` would have baked in before this part was
  * ever flashed -- see sdk/go/cmd/tfwprov/eeprom.go. Non-zero so this image is
@@ -861,6 +906,25 @@ static tfw_status_t stored_platform(tfw_boot_platform_t *p)
     return tfw_boot_platform_parse(eeprom_image, p);
 }
 
+/* Keep what this run left in the part for the next install(): a reset, not a
+ * reflash. A swap rewrites both slots and records its progress in EEPROM
+ * outside the platform block, and a test that reinstalled the images it built
+ * would undo the swap the device just did. The platform block still comes from
+ * eeprom_image, which the test may have edited, as an application would. */
+static void carry(void)
+{
+    avr_eeprom_desc_t d = { .ee = NULL, .offset = 0u, .size = TFW_EEPROM_SIZE };
+
+    memcpy(image, avr->flash, sizeof image);
+    (void)avr_ioctl(avr, AVR_IOCTL_EEPROM_GET, &d);
+    if (d.ee == NULL) {
+        fprintf(stderr, "no EEPROM to carry across the reset\n");
+        exit(2);
+    }
+    memcpy(eeprom_all, d.ee, sizeof eeprom_all);
+    carried = 1;
+}
+
 static void install(elf_firmware_t *boot, uint32_t counter)
 {
     avr = avr_make_mcu_by_name(TFW_SIMAVR_MCU);
@@ -890,9 +954,15 @@ static void install(elf_firmware_t *boot, uint32_t counter)
     }
 
     /* The application image goes straight into the emulated program memory,
-     * BELOW the bootloader the .elf just placed at TFW_BOOT_APP_END. */
-    memcpy(avr->flash, image, TFW_BOOT_APP_END);
+     * BELOW the bootloader the .elf just placed above TFW_APP_WRITE_END. */
+    memcpy(avr->flash, image, sizeof image);
 
+    if (carried) {
+        avr_eeprom_desc_t d = { .ee = eeprom_all, .offset = 0u,
+                                .size = TFW_EEPROM_SIZE };
+        avr_ioctl(avr, AVR_IOCTL_EEPROM_SET, &d);
+        carried = 0;
+    }
     {
         avr_eeprom_desc_t d = { .ee = eeprom_image, .offset = TFW_BOOT_EE_BASE,
                                 .size = TFW_BOOT_EE_LEN };
@@ -1086,7 +1156,7 @@ static void test_floor_advances_at_settle(elf_firmware_t *boot, elf_firmware_t *
     uint8_t status;
 
     printf("the floor across one trial:\n");
-    build_image(app, 3u, -1);
+    stage_pending(app, 2u, 3u, -1);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING);
     install(boot, 0u);
 
@@ -1094,11 +1164,13 @@ static void test_floor_advances_at_settle(elf_firmware_t *boot, elf_firmware_t *
     check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
           && p.ota_state == TFW_BOOT_OTA_IDLE,
           "TRIAL was stored before the jump");
+    check(primary_version() == 3u, "the image on trial is the one in the primary");
     check(el.counter == 0u, "a trial boot leaves the element's counter where it was");
 
     /* The application confirms; then the settling reset. */
     p.boot_state = TFW_BOOT_STATE_CONFIRMED;
     tfw_boot_platform_serialise(&p, eeprom_image);
+    carry();
     install(boot, el.counter);
     check(run_until(app_booted, BUDGET_BOOT), "the confirmed image boots at the next reset");
     check(el.counter == 3u,
@@ -1107,24 +1179,42 @@ static void test_floor_advances_at_settle(elf_firmware_t *boot, elf_firmware_t *
           && p.rollback_floor == 0u,
           "settled to GOOD, and the floor in EEPROM did not move");
 
+    carry();
     install(boot, el.counter);
     check(run_until(app_booted, BUDGET_BOOT), "the settled image boots");
     check(el.counter == 3u, "a plain boot after the settle moves the counter no further");
+    check(primary_version() == 3u, "and it is the confirmed image");
 
     /* A trial that ends without a confirm: no second run, no floor. */
+    stage_pending(app, 2u, 3u, -1);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING);
     install(boot, 0u);
     check(run_until(app_booted, BUDGET_BOOT), "another pending image boots, on trial");
     check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL,
           "TRIAL was stored before the jump");
+    carry();
     install(boot, el.counter);
-    check(run_until(event_arrived, BUDGET_BOOT),
-          "the reset that ends the trial unconfirmed says why");
-    check(find_event(&status) && status == TFW_ERR_BAD_STATE && !app_booted(),
-          "refused with TFW_ERR_BAD_STATE: the image does not run a second time");
-    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
-          && p.ota_state == TFW_BOOT_OTA_FAILED,
-          "FAILED is stored");
+    if (two_slots()) {
+        /* ADR decision 7: the other slot holds the image before the trial, so
+         * an unconfirmed trial falls back to it rather than to recovery. */
+        check(run_until(app_booted, BUDGET_BOOT),
+              "the reset that ends the trial unconfirmed boots the previous image");
+        check(!find_event(&status) || status == TFW_OK,
+              "and reports no refusal: it is not recovery");
+        check(primary_version() == 2u,
+              "the image on trial is swapped out: it does not run a second time");
+        check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
+              && p.ota_state == TFW_BOOT_OTA_FAILED,
+              "GOOD, FAILED is stored");
+    } else {
+        check(run_until(event_arrived, BUDGET_BOOT),
+              "the reset that ends the trial unconfirmed says why");
+        check(find_event(&status) && status == TFW_ERR_BAD_STATE && !app_booted(),
+              "refused with TFW_ERR_BAD_STATE: the image does not run a second time");
+        check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
+              && p.ota_state == TFW_BOOT_OTA_FAILED,
+              "FAILED is stored");
+    }
     check(el.counter == 0u, "an unconfirmed trial leaves the element's counter where it was");
 }
 
@@ -1209,27 +1299,56 @@ static void test_a_refused_pending_image_never_boots(elf_firmware_t *boot,
     uint8_t status;
 
     printf("a pending image refused at evaluation:\n");
-    build_image(app, 3u, 1000);
+    stage_pending(app, 2u, 3u, 1000);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING);
     install(boot, 0u);
-    check(run_until(event_arrived, BUDGET_BOOT), "the refusal says why");
-    check(find_event(&status) && status == TFW_ERR_CRYPTO && !app_booted(),
-          "refused with TFW_ERR_CRYPTO, and it did not run");
-    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
-          && p.ota_state == TFW_BOOT_OTA_FAILED,
-          "stored as an ended trial: TRIAL, FAILED");
+    if (two_slots()) {
+        /* ADR decision 7 and the swap-move in docs/ota/architecture.md: the
+         * pending image is checked in the secondary before a page is written,
+         * and one that is refused there is never swapped. The round ends as a
+         * failed trial does, GOOD with FAILED, and the primary runs on. */
+        check(run_until(app_booted, BUDGET_BOOT),
+              "refused in the secondary, and the previous image boots");
+        check(memcmp(avr->flash, image, sizeof image) == 0,
+              "and no swap page was written: both slots are as staged");
+        check(primary_version() == 2u, "the primary still holds the previous image");
+        check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
+              && p.ota_state == TFW_BOOT_OTA_FAILED,
+              "stored as an ended round: GOOD, FAILED");
 
-    /* The cause clears: the same version now verifies. */
-    build_image(app, 3u, -1);
-    install(boot, el.counter);
-    check(run_until(event_arrived, BUDGET_BOOT),
-          "the reset after the refusal says why");
-    check(find_event(&status) && status == TFW_ERR_BAD_STATE && !app_booted(),
-          "refused with TFW_ERR_BAD_STATE: an image that verifies now still does not run");
-    check(el.verify == 0, "and it was not evaluated at all");
-    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
-          && p.ota_state == TFW_BOOT_OTA_FAILED,
-          "TRIAL, FAILED is kept");
+        /* The cause clears: the same version now verifies. FAILED is not
+         * PENDING, so it is not looked at again. */
+        stage_pending(app, 2u, 3u, -1);
+        carried = 0;
+        install(boot, el.counter);
+        check(run_until(app_booted, BUDGET_BOOT),
+              "the reset after the refusal boots the previous image");
+        check(memcmp(avr->flash, image, sizeof image) == 0 && primary_version() == 2u,
+              "an image that verifies now still is not swapped in");
+        check(el.verify == 1, "and only the primary was evaluated");
+        check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
+              && p.ota_state == TFW_BOOT_OTA_FAILED,
+              "GOOD, FAILED is kept");
+    } else {
+        check(run_until(event_arrived, BUDGET_BOOT), "the refusal says why");
+        check(find_event(&status) && status == TFW_ERR_CRYPTO && !app_booted(),
+              "refused with TFW_ERR_CRYPTO, and it did not run");
+        check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
+              && p.ota_state == TFW_BOOT_OTA_FAILED,
+              "stored as an ended trial: TRIAL, FAILED");
+
+        /* The cause clears: the same version now verifies. */
+        build_image(app, 3u, -1);
+        install(boot, el.counter);
+        check(run_until(event_arrived, BUDGET_BOOT),
+              "the reset after the refusal says why");
+        check(find_event(&status) && status == TFW_ERR_BAD_STATE && !app_booted(),
+              "refused with TFW_ERR_BAD_STATE: an image that verifies now still does not run");
+        check(el.verify == 0, "and it was not evaluated at all");
+        check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL
+              && p.ota_state == TFW_BOOT_OTA_FAILED,
+              "TRIAL, FAILED is kept");
+    }
     check(el.counter == 0u, "the refused image leaves the element's counter where it was");
 }
 

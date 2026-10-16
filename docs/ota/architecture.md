@@ -301,13 +301,250 @@ in its `profile.mk`; `mk/firmware.mk` adds `src/core/suit.c` to the object
 list). The 328P and 32U4 keep the trailer alone under their 16 384-byte line,
 and the software tier has no stored key to verify against.
 
-Nothing calls the gate yet: there is no application stager and no
+Nothing calls the gate yet: the stager (below) does not, and there is no
 `OTA_ACTIVATE`, so `--gc-sections` drops it and no image grows. Carriage, the
 envelope after the image in the same `OTA_DATA` stream and counted in
 `OTA_BEGIN`'s total, is open question 5 and is not wired.
 
-Not yet: the store and the A/B slots (#75 and later), so no copy, swap or
-restore; the stager that carries the envelope and calls the manifest gate;
+### The application stager (#75)
+
+An image with an external store links `src/core/ota_stage.c` and the store's
+driver, `src/store/spi_nor.c`. It answers the four session commands tfw-boot
+answers, with the same payloads, states and refusals, and puts the bytes in
+the store's `STAGE` area instead of application flash. The build selects it
+by object list. `OTA_STAGE` defaults to `ETH` on a board whose `profile.mk`
+names an `OTA_STORE`. The 328P, 32U4 and 2560 name `spi_nor`, and the 32U4,
+having no Ethernet, builds without it unless `OTA_STAGE=1`.
+
+- `OTA_BEGIN` checks the length first: it must exceed the trailer, fit
+  `STAGE`, and be whole 256-byte pages. Then it erases the `MARK` sector, so a
+  record from an earlier round is gone before a byte of `STAGE` changes.
+- `OTA_DATA` takes the next offset only and erases each sector as the stream
+  enters it.
+- `OTA_END` needs every byte. It reads the trailer and checks the magic,
+  version, board id and image length, then hashes the body and compares the
+  hash with the trailer's measurement. A mismatch is `ERR_CRYPTO` and the
+  session is `FAILED`. A match writes the `MARK` record,
+  `[magic 'TFSG'][total_len:4][measurement:32]`, with the magic programmed
+  last, so a record cut short by a reset reads as no record.
+- These are the stager's checks only. Signature, version floor and manifest
+  are tfw-boot's gate, which reads `MARK` and verifies `STAGE` again before it
+  copies anything. The store is outside the trust boundary.
+
+The chip select is D8 on every AVR board. It is the proposal from open
+question 2, not a ruling, and is a single line in each `board_profile.h`. An
+image that links the stager reserves the pin, as an Ethernet image reserves
+the shield's.
+
+`tfwsim` links the stager with `test/model/spi_nor_model.c`, a software
+25-series part, as the store. `make test` runs the stager against the model.
+The SDK's `StageImage` stages over serial and TCP in
+`sdk/go/tfwsim/ota_test.go`.
+
+### tfw-boot's copy of STAGE (#75)
+
+A tfw-boot built with `BOOT_STORE=1` links `boot/boot_stage.c` and the store's
+read-only bus, `boot/hal/avr/boot_ota_store_avr.c`. `main()` calls
+`tfw_boot_stage_take` once per reset, after the platform block settles and
+before a session or the `STAGED` check. The contract is in `boot/boot_stage.h`.
+
+- **The mark.** The stager's `MARK` record names the staged stream. With no
+  valid record, or a length that does not fit `STAGE` or the application
+  region, nothing is copied and the boot goes on as before.
+- **The re-check.** The staged trailer must parse, be bound to this board
+  (`tfw_boot_binding_permit`) and not be below the floor
+  (`tfw_boot_rollback_permit`). These are the same checks the gate makes. The
+  SHA-256 over `image_len` staged bytes, through `tfw_boot_measure_from` on
+  the build's own hash backend, must equal both the trailer's measurement and
+  the mark's. The signature is not checked here: `tfw_boot_evaluate` checks
+  it on the copied image, as on any other.
+- **The copy.** Page by page through `tfw_boot_flash_write_page`. The body's
+  pages go first; the page holding the trailer is written last. Until that
+  page is written the region has no trailer for the new image, so a cut
+  anywhere earlier leaves nothing that parses as it. On the 2560, `STAGE`
+  (64 KB) is smaller than the region, so the trailer lands at the region's
+  end, past the end of `STAGE`.
+- **The hand-over.** `STAGED` is written before the first page. `GOOD` with
+  `ota_state` `PENDING` is written after the last, so the image goes to the
+  one trial boot (#82, `boot/boot_trial.c`, above) exactly as a session's
+  verified `OTA_END` does. A fresh image is taken only where
+  `tfw_boot_trial_begin_permit` allows a new round. An image that is already
+  installed (its trailer equals the staged one) is not copied again.
+- **An interrupted copy.** A reset mid-copy leaves `STAGED`. The next boot
+  copies again from the first page: the store is never written by the boot, so
+  the source is still there. This is resumed whatever the trial state is.
+
+`test/unit/boot/test_boot_stage.c` runs this against the NOR model on the
+mock's store bus, twice: under the 328P's profile, and as
+`test_boot_stage_2560`, which includes an image that ends exactly at `STAGE`'s
+end. The tests cover a valid copy into its trial; a bad hash, a wrong board
+id, a missing mark and a version below the floor, each of which copies
+nothing; and a copy cut at a chosen page that recovers on the next boot.
+
+**`BOOT_STORE`** (`mk/boot.mk`) is its own setting and defaults to off, like
+`BOOT_OTA`. The board's `OTA_STORE` says only that the part is fitted. Off,
+`boot/boot_stage_none.c` is linked instead, and LTO folds its one call away.
+It is the sixth field of a `BOOT_SUPPORTED` row
+([engineering.md](../secure-boot/engineering.md)). Only the 2560 without OTA
+in boot has it on (5 332 / 8 192 flash at 6800776). The 328P and 32U4 do not:
+their sections are 4 096 bytes with 3 812 and 3 882 used, and the copy path
+costs more than the margin.
+
+**The 2560's swap-move** (`boot/boot_swap.c`). The application region is the
+primary slot: 64 KB at `0x00000`, the trailer at `0xFF80`, and one 256-byte
+move unit above it. The secondary is at `0x10100`. Both are board data in the
+2560's `board_profile.h` (`TFW_SWAP_*`, open question 7). There is no backup
+area, because the other slot holds the fallback. The staged image is copied
+into the secondary (`TFW_OTA_STAGE_DEST`), and the primary is untouched until
+the swap. The move shifts the primary up a unit, top first. Then each unit
+swaps in two writes, and each write's source survives the step after it.
+
+Progress is journalled in two five-byte copies at EEPROM `0x0E0`–`0x0E9`
+(open question 10). Each copy holds the phase, the step, a sequence number and
+a CRC-16 over the three. The phase also says which way the swap runs and, once
+a forward swap ends, that the slots are swapped. Every advance writes the copy
+not holding the current position, reads both back and checks that the new one
+is now the newest valid copy. A reset that tears an EEPROM byte can leave a
+value that is neither the old one nor the new one. That copy then fails its
+CRC, and the other still names the step before, which the next boot resumes
+from. If neither copy is valid, the position cannot be read, and the record
+reads idle: nothing is moved on a guess. The gate judges the primary as it
+stands, and a half-moved primary is refused into recovery, where a new image
+swaps in whole.
+
+The journal makes the 2560's bootloader-owned EEPROM reach past the wire's
+`EEPROMReservedEnd` (`0xC0`). The rows `0x0E0`–`0x0E9` are the board profile's
+`TFW_BOOT_EE_EXTRA_BASE` and `TFW_BOOT_EE_EXTRA_LEN`, and the firmware refuses
+host writes there: `EEPROM_WRITE` answers `TFW_ERR_PROTECTED_REGION`, and
+`EEPROM_READ` takes the same auth gate as the platform block
+(`src/caps/storage.c`). Raising the bound to cover the journal is with the
+owner (the ADR's open question 12).
+
+`main()` makes three calls around the trial. Each changes nothing on a board
+without the slots, where `boot_swap_none.c` is linked.
+
+- **At reset:** a swap that a reset cut short is finished before anything
+  reads a slot. If the slots are swapped:
+  - a trial that ended unconfirmed falls back to the image before it, not to
+    recovery;
+  - a confirmed trial is kept, and the record goes idle before `GOOD` is
+    written.
+- **Before the gate:** a pending image is checked in the secondary first, by
+  `tfw_boot_evaluate_at` at the secondary's base: the same trailer, board id,
+  floor, measurement and signature checks as the primary's gate, with no
+  second parser or hash. A refused image is never swapped: the block goes
+  `GOOD` with `FAILED`, and the primary keeps running. A verified one is
+  swapped into the primary, where `tfw_boot_evaluate` checks it again.
+- **Refused, or on a failed trial:** the block is written first, `GOOD` with
+  `FAILED` (`tfw_boot_trial_fall_back`, under fail's guard). Then the slots
+  swap back. A reset between the two finds the block `GOOD` and the slots
+  swapped, and runs the swap back then.
+
+The serial session in the boot writes the secondary too, from
+`TFW_OTA_STAGE_DEST`, so the primary is untouched while an image arrives. At a
+whole `OTA_END`, `tfw_boot_swap_commit` stores `PENDING` with the primary's
+image still `GOOD`, which is the state the store's copy leaves. It then checks
+the image in the secondary, swaps it in, and `tfw_boot_evaluate` checks it
+where it runs:
+
+- **Refused in the secondary:** no swap page is written, the block goes
+  `GOOD` with `FAILED`, and the primary boots.
+- **Verified:** the trial is armed, as before.
+- **Refused after the swap:** the slots swap back, and the previous image
+  boots.
+- **Reset from the commit on:** the next boot follows `main()`'s path. The
+  image is checked again or the swap resumes, and the image goes to its one
+  trial.
+
+On a board with the slots the session does not store `STAGED`: the primary is
+whole while an image arrives, so a reset during a transfer is an ordinary boot
+through the primary's gate, not recovery. Recovery stays for a primary that
+fails its gate. `write_page` stores `STAGED` only where `TFW_OTA_STAGE_DEST` is
+the primary's base.
+
+`mk/boot.mk` links `boot_swap.c` where the board has the slots (`BOOT_AB` in
+`profile.mk`) and an image can land in the secondary. On the 2560 that is the
+`BOOT_OTA=1` row and the `BOOT_STORE=1` row. Every other row and board links
+the stub, whose commit does nothing, so a single-slot session writes in place
+as before.
+
+`test/unit/boot/test_boot_swap.c` (2560 profile) covers:
+
+- a full swap;
+- a reset cut at each of its 1 536 page writes;
+- a rollback, and a cut during it;
+- images that fill the slot;
+- a boot that resumes a swap cut in each phase;
+- a confirmed trial that keeps the swap;
+- a failed trial that swaps back;
+- a fall-back cut short and finished at the next boot;
+- an image the gate refuses after the swap;
+- an image refused in the secondary, which writes no swap page;
+- a session cut short, which leaves the secondary written, the primary
+  untouched, and a reset that boots the primary;
+- a session image that is checked, then swapped, then tried (the secondary's
+  check sees only the session's 2 page writes; the total is 2 + 1 536);
+- a session image refused in the secondary: the session's 2 page writes and
+  no swap;
+- a session whose swap is cut, then a boot that finishes the swap and enters
+  the trial.
+
+No size has been measured, because there is no avr-gcc on the dev host. By
+arithmetic, the store row is about 6 000 / 8 192: 5 332, plus the ADR's +424,
+plus about 200 for the three calls and the second slot check. The
+`BOOT_OTA=1` row is about 7 650 / 8 192: 6 942, plus the +424 swap core, plus
+about 200 for the calls and the commit, plus about 50 for the secondary's
+check (a flash reader, the trailer address and the call before the swap).
+The secondary's check reuses the gate, so a signed update is verified twice:
+once in the secondary and once in the primary. Both rows are measured on a host with
+avr-gcc.
+
+#### Open (for the CA and owner; not decided here)
+
+- **The selects.** The store's select is D8 on every AVR board, as open
+  question 2 proposes. The W5x00's (D10) and the SD socket's (D4) are held
+  high while the boot has the bus open. Each is one `*_CS_IO` line in
+  `board_profile.h`. Options:
+  - rule D8 as proposed;
+  - move it per board, which is a one-line change each.
+- **A stale mark after a UART update.** The boot never writes the store, so a
+  mark stays until the application's next `OTA_BEGIN` erases it. Suppose an
+  image is installed over the boot's own session (UART) and the old staged
+  image is still marked. That image is then copied back over the new one, as
+  long as its version is not below the floor. The rollback floor is the only
+  thing that stops it today. Options:
+  - the boot's session erases or invalidates `MARK` when it commits, which is
+    a store write in the boot;
+  - `MARK` carries a round counter that the platform block records;
+  - the boot takes a staged image only when the platform block says the
+    application staged one;
+  - A/B with swap-move, which replaces the single-slot copy. This does not
+    close it: the copy into the secondary still reads `MARK`. A staged image
+    that either slot already holds is not taken, so an image that failed and
+    was swapped back is not tried again. It still cannot happen on any row:
+    the `BOOT_OTA=1` row has a session and no store, so nothing reads `MARK`,
+    and the store row has no session in the boot. It comes back with any row
+    that has both, and OTA plus the store does not fit (below).
+- **The store on the 4 KB parts.** It does not fit next to the element tier.
+  Options:
+  - The application copies before the reset. Code outside the boot section
+    cannot program flash on AVR, so this needs a small page-write entry point
+    in the boot section. The boot still evaluates the copied image at the next
+    reset.
+  - The store only on the 2560.
+  - A smaller signature tier. There is none below the element path these rows
+    already use.
+- **The 2560 with OTA and the store.** It was 8 548 / 8 192 before the size
+  slice and has not been measured since, so it is not a row. By arithmetic,
+  not measured: the size slice took 80 bytes off the store-on row, and the
+  ADR puts swap-move at +424, so about 8 892. That is over the section even
+  with the shrink. Options:
+  - measure it at 6800776 and add the row if it fits;
+  - choose one update path per image, as the application does with its
+    transport.
+
+Not yet: the 328P/32U4 `PREV` restore;
+the stager carrying the envelope and calling the manifest gate;
 `OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are
 proposed); keeping the failed measurement (open question 10); and the trial
 deadline and watchdog (`TFW_OTA_TRIAL_TIMEOUT_S` is a board value, open

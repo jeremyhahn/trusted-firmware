@@ -462,9 +462,11 @@ static void test_events_go_to_serial_only(void)
 /* THE ALLOW-LIST, as literals. Every id a request can carry, against the link
  * with the current frame on Ethernet. A change here is a decision about what
  * the network may ask the device for, made in the ADR first. */
-static void test_ethernet_admits_the_enrolment_and_attestation_commands_and_nothing_else(void)
+static void test_ethernet_admits_the_enrolment_attestation_and_staging_commands_and_nothing_else(void)
 {
-    static const uint8_t admitted[] = { 0x00u, 0x06u, 0x60u, 0x63u, 0x64u };
+    /* 0x68..0x6B: OTA staging, ADR decision 8 and owner answer 8 (issue #75). */
+    static const uint8_t admitted[] = { 0x00u, 0x06u, 0x60u, 0x63u, 0x64u,
+                                        0x68u, 0x69u, 0x6Au, 0x6Bu };
     unsigned id, i;
     uint8_t  want;
 
@@ -537,7 +539,7 @@ int main(void)
     RUN_TEST(test_frames_waiting_on_both_wires_are_both_answered);
     RUN_TEST(test_a_reply_to_a_dropped_connection_is_abandoned_and_serial_carries_on);
     RUN_TEST(test_events_go_to_serial_only);
-    RUN_TEST(test_ethernet_admits_the_enrolment_and_attestation_commands_and_nothing_else);
+    RUN_TEST(test_ethernet_admits_the_enrolment_attestation_and_staging_commands_and_nothing_else);
     RUN_TEST(test_serial_admits_every_command);
     RUN_TEST(test_a_command_off_the_list_is_answered_unknown_and_does_not_run);
     RUN_TEST(test_attest_over_ethernet_reaches_the_attestation_module);

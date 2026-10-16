@@ -40,7 +40,7 @@ typedef struct {
 static const geometry_t rows[] = {
     /* id     app base  app end   trailer   max image  boot start boot size  page */
     { 0x01u, 0u,       28672u,   28544u,   28544u,    0x7000u,   4096u,     256u }, /* 328P */
-    { 0x02u, 0u,       253952u,  253824u,  253824u,   0x3E000u,  8192u,     256u }, /* 2560 */
+    { 0x02u, 0u,       65536u,   65408u,   65408u,    0x3E000u,  8192u,     256u }, /* 2560: the A/B primary */
     { 0x03u, 0u,       28672u,   28544u,   28544u,    0x7000u,   4096u,     256u }, /* 32U4 */
     { 0x04u, 0u,       8192u,    8064u,    8064u,     8192u,     0u,        256u }, /* tiny85 */
 };

@@ -65,6 +65,24 @@ uint16_t tfw_boot_flash_page_size(void);
 tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len);
 tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len);
 
+/* ---------------------------------------------------------------- store */
+
+/* The external OTA store the application stages into (issue #75), read only:
+ * tfw-boot never programs or erases it. Linked only into a boot whose board
+ * is built with BOOT_STORE=1 (mk/boot.mk), from
+ * $(BOOT_HAL_DIR)/boot_ota_store_<arch>.c; the chip select is board data
+ * (TFW_OTA_STORE_CS_IO in board_profile.h).
+ *
+ * open makes the SPI bus the store's, with every other select on it parked
+ * high; close returns each pin and the peripheral to its reset state, which is
+ * how the application must find them. cmd is one transaction: the store's
+ * select held low while `clen` bytes of `cmd` go out, then `ilen` bytes come
+ * back into `in` -- a read of any length in one select, so the caller needs
+ * no staging buffer. */
+tfw_status_t tfw_boot_store_open(void);
+tfw_status_t tfw_boot_store_cmd(const uint8_t *cmd, uint8_t clen, uint8_t *in, uint16_t ilen);
+void         tfw_boot_store_close(void);
+
 /* ----------------------------------------------------------------- uart */
 
 void    tfw_boot_uart_init(uint32_t baud);

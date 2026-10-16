@@ -268,14 +268,18 @@ the ATmega328P and ATmega32U4, `BOOTSZ` at 4096 bytes is the part's largest
 setting, so there is nothing to raise it to.
 
 `mk/boot.mk`'s `BOOT_SUPPORTED` is the only combination set that fits and is
-built by `make bootloader-check`:
+built by `make bootloader-check` (`BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE`):
 
 ```
-atmega328p:atecc608a:atecc608a:atecc608a:0
-atmega32u4:atecc608a:atecc608a:atecc608a:0
-atmega2560:atecc608a:atecc608a:atecc608a:0
-atmega2560:atecc608a:atecc608a:atecc608a:1
+atmega328p:atecc608a:atecc608a:atecc608a:0:0
+atmega32u4:atecc608a:atecc608a:atecc608a:0:0
+atmega2560:atecc608a:atecc608a:atecc608a:0:0
+atmega2560:atecc608a:atecc608a:atecc608a:1:0
+atmega2560:atecc608a:atecc608a:atecc608a:0:1
 ```
+
+`BOOT_STORE=1` links the external store's read, check and copy (issue #75);
+it is off by default and in no 4 KB row.
 
 `ed25519-donna` never appears in a supported row: its verify path alone is
 72,930 bytes against every boot section this family has. It stays buildable

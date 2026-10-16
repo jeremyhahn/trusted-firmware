@@ -217,7 +217,34 @@ else
 MANIFEST_SRCS :=
 endif
 
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(APP_SUFFIX)
+# The application-side OTA stager (issue #75, docs/ota/), by FILE SELECTION. The
+# board names its external store's driver in profile.mk (OTA_STORE := spi_nor),
+# and an Ethernet image stages by default, the network being the transport an
+# update arrives on; OTA_STAGE=1 asks for it on a serial image. A board that
+# names no store cannot be built with it, and a board with no store -- or an
+# image with neither flag -- links none of it, only ota_stage_none.c's no-op
+# tfw_stage_init, which main.c calls on every image to park the store's select.
+# hal_bus.c holds the SPI driver the store talks through; it is already linked
+# unless all three buses are off, and $(sort) drops the second copy.
+OTA_STAGE ?= $(if $(OTA_STORE),$(ETH),0)
+ifeq ($(OTA_STAGE),1)
+ifeq ($(OTA_STORE),)
+$(error OTA_STAGE=1 but $(BOARD_DIR)/profile.mk names no OTA_STORE -- this board has no external store)
+endif
+ifeq ($(wildcard src/store/$(OTA_STORE).c),)
+$(error unknown OTA_STORE "$(OTA_STORE)" -- expected one of: $(basename $(notdir $(wildcard src/store/*.c))))
+endif
+STAGE_SRCS := src/core/ota_stage.c src/store/$(OTA_STORE).c src/crypto/sha256.c $(HAL_DIR)/hal_bus.c
+STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1
+else
+STAGE_SRCS := src/core/ota_stage_none.c
+STAGE_DEFS :=
+endif
+# The output path says so only where the choice is not ETH's default, so every
+# image that existed before keeps its path.
+STAGE_SUFFIX := $(if $(filter 1,$(OTA_STAGE)),$(if $(filter 1,$(ETH)),,-stage),$(if $(and $(filter 1,$(ETH)),$(OTA_STORE)),-nostage,))
+
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(STAGE_SUFFIX)$(APP_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The toolchain binaries and the flags that name a machine, an optimisation
@@ -236,7 +263,7 @@ FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
              -ffile-prefix-map=$(CURDIR)=. \
              -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(HAL_DIR) -I$(BOARD_DIR) \
              -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) \
-             $(LINK_DEFS) $(APP_DEFS)
+             $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS)
 
 # The CDI handoff block's placement is the architecture's: see
 # ARCH_FW_PLACEMENT_LDFLAGS, which is empty on a board with no RAM_END.
@@ -288,7 +315,7 @@ FW_SRCS := $(sort \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
-  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) \
+  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) \
   $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c)))
 
@@ -376,7 +403,7 @@ board-tiers:
 # the gates the image was built with -- not config.h's defaults, which say 0 to
 # every tier-selected feature on every board.
 feature-defs:
-	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS) $(APP_DEFS)
+	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS)
 
 ## board-eth-chip: print the Ethernet controller BOARD names, or nothing (used by platform-bake-no-link-check)
 board-eth-chip:

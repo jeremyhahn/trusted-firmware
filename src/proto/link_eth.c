@@ -135,6 +135,10 @@ uint8_t tfw_link_admits(uint8_t cmd)
     case TFW_CMD_ATTEST:        /* UCCS evidence over the verifier's nonce */
     case TFW_CMD_ATTEST_CERT:   /* the alias certificate over the nonce */
     case TFW_CMD_ATTEST_CSR:    /* the templated CSR for ACME finalize */
+    case TFW_CMD_OTA_BEGIN:     /* staging into the external store -- ADR */
+    case TFW_CMD_OTA_DATA:      /* decision 8's widening, owner answer 8; an */
+    case TFW_CMD_OTA_END:       /* image without the stager answers these */
+    case TFW_CMD_OTA_STATUS:    /* UNKNOWN_CMD as it always did */
         return 1u;
     default:
         return 0u;

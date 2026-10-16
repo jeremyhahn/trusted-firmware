@@ -27,6 +27,8 @@
 #include "boot_policy.h"
 #include "boot_recovery.h"
 #include "boot_request.h"
+#include "boot_stage.h"
+#include "boot_swap.h"
 #include "boot_store.h"
 #include "boot_tick.h"
 #include "boot_trial.h"
@@ -149,7 +151,10 @@ int main(void)
      * of the block fails its CRC, and the next reset finds no usable region:
      * recovery, which refuses to overwrite it (tfw_boot_platform_store).
      */
-    act = tfw_boot_trial_at_reset(&plat);
+    /* On a board with two slots (the 2560), a swap a reset cut short is
+     * finished first, and a swapped trial that ended goes back to the image
+     * before it rather than to recovery (boot_swap.h). Elsewhere, unchanged. */
+    act = tfw_boot_swap_at_reset(&plat, tfw_boot_trial_at_reset(&plat));
     if (act == TFW_BOOT_RESET_FAIL) {
         /*
          * A reset found the trial still running: the image never confirmed --
@@ -213,6 +218,16 @@ int main(void)
      * tfw_boot_evaluate as one found at reset, and one that verifies runs only
      * on trial.
      */
+    /*
+     * An image the application staged in the external store (issue #75). Read,
+     * checked again and copied in here, before a session and before the STAGED
+     * check below: a copy a reset cut short left STAGED, and is redone from
+     * the store rather than sent to recovery. One that copies leaves PENDING,
+     * and goes to tfw_boot_evaluate and its one trial below like any other.
+     * Nothing staged, or nothing that checks, copies nothing and boots on.
+     */
+    (void)tfw_boot_stage_take(&plat, floor);
+
     if (update) {
         /* Field by field, not an initialiser: on AVR a constant aggregate is
          * emitted as initialised data in RAM, and tfw-boot has no .data copy --
@@ -241,7 +256,15 @@ int main(void)
         tfw_boot_recovery(&plat, TFW_ERR_CRYPTO);
     }
 
+    /* A pending image in the secondary is checked there and, passed, swapped
+     * into the primary, where the gate evaluates it. Refused in the secondary,
+     * nothing is swapped; refused in the primary, the slots swap back. Either
+     * way the previous image is evaluated and booted as it was. */
+    (void)tfw_boot_swap_take(&plat, floor);
     st = tfw_boot_evaluate(floor, &verdict);
+    if (st != TFW_OK && tfw_boot_swap_fall_back(&plat) == TFW_OK) {
+        st = tfw_boot_evaluate(floor, &verdict);
+    }
     if (st != TFW_OK) {
         /* A pending image that does not verify gets no trial: TRIAL, FAILED,
          * as an unconfirmed trial ends, so no later reset boots it -- not even

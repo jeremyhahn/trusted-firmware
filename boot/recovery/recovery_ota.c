@@ -20,6 +20,7 @@
 #include "../boot_recovery.h"
 #include "../boot_store.h"
 #include "../boot_session.h"
+#include "../boot_swap.h"
 #include "../boot_trial.h"
 #include "frame.h"
 
@@ -42,7 +43,12 @@ static tfw_boot_platform_t *cur;
 static tfw_status_t write_page(uint32_t addr, const uint8_t *data, uint16_t len)
 {
     (void)len;   /* always one whole page; tfw_ota pads the tail */
-    if (cur->boot_state != TFW_BOOT_STATE_STAGED) {
+    /* Only where the session writes the region in place. On a board with two
+     * slots it writes the secondary: the primary is whole until the swap, and
+     * a reset mid-transfer boots it through the gate as on any boot. Nothing
+     * reads the secondary until OTA_END stores PENDING. */
+    if ((uint32_t)TFW_OTA_STAGE_DEST == (uint32_t)TFW_BOOT_APP_BASE &&
+        cur->boot_state != TFW_BOOT_STATE_STAGED) {
         cur->boot_state = TFW_BOOT_STATE_STAGED;
         tfw_boot_platform_store(cur);
     }
@@ -93,6 +99,126 @@ static uint8_t is_progress(uint8_t cmd, tfw_status_t st)
  * measure/verify/jump; see tfw_boot_session_open for what that means for a
  * region the failed attempt already overwrote.
  */
+/* What serve does after a frame: carry on, carry on with the idle bounds
+ * restarted, or end the session. */
+typedef enum {
+    NEXT_CONTINUE,
+    NEXT_PROGRESS,
+    NEXT_END
+} next_t;
+
+/*
+ * One whole frame: answered, and on a verified OTA_END the image activated.
+ *
+ * Kept out of line on purpose. The session's clock is its empty pass
+ * (boot_tick.h), and an empty pass touches nothing here. Under -flto this
+ * function, the swap-move and the gate inlined into serve made serve's frame
+ * 220 bytes on the 2560 OTA image, past ldd/std's 63-byte reach, and moved its
+ * 32-bit poll counters there: an empty pass went from 77 to about 104 cycles,
+ * and the session ran 35% past its window. Out of line, its resp[] and the
+ * commit's locals are a frame of their own, live only while a frame is
+ * handled, and serve keeps its counters in registers.
+ */
+static next_t answer(tfw_boot_platform_t *plat,
+                     const tfw_boot_session_limits_t *lim) __attribute__((noinline));
+
+static next_t answer(tfw_boot_platform_t *plat,
+                     const tfw_boot_session_limits_t *lim)
+{
+    uint8_t  resp[TFW_MAX_PAYLOAD];
+    uint8_t  rlen = 0u;
+    uint8_t  cmd  = tfw_frame_op(&framer);
+    uint8_t  seq  = tfw_frame_seq(&framer);
+    tfw_boot_session_action_t action;
+    tfw_status_t st;
+    uint16_t n;
+    next_t   next;
+
+    action = TFW_BOOT_SESSION_CONTINUE;
+    st = cmd == TFW_CMD_OTA_BEGIN ? tfw_boot_trial_begin_permit(plat) : TFW_OK;
+    if (st == TFW_OK) {
+        st = tfw_boot_session_handle(&ota, cmd,
+                                    tfw_frame_payload(&framer),
+                                    tfw_frame_payload_len(&framer),
+                                    resp, &rlen, &action);
+    }
+
+    n = tfw_frame_encode_response(outbuf, sizeof outbuf, seq, cmd, st,
+                                 resp, rlen);
+    emit(outbuf, n);
+
+    next = is_progress(cmd, st) ? NEXT_PROGRESS : NEXT_CONTINUE;
+    if (action == TFW_BOOT_SESSION_RESET) {
+        tfw_boot_reset();
+    }
+    if (lim && cmd == TFW_CMD_OTA_END && st != TFW_OK) {
+        return NEXT_END;   /* the one attempt failed before verification */
+    }
+    if (action != TFW_BOOT_SESSION_COMMIT) {
+        return next;
+    }
+
+    /*
+     * COMMIT. Every byte arrived; now find out whether any of it was
+     * signed.
+     *
+     * The same tfw_boot_evaluate the cold path runs, against the same
+     * floor, with the same ordering. One decision function, so an image
+     * that would be refused at boot cannot be accepted at update.
+     * A floor whose authority cannot be read refuses the image: the
+     * EEPROM copy is not the element's floor and checks nothing.
+     *
+     * On a board with two slots the image is in the secondary. It is
+     * checked there first and, passed, swapped into the primary, where
+     * the gate reads it again; refused in the secondary nothing is
+     * swapped, refused in the primary the slots swap back, and the
+     * previous image is as it was (tfw_boot_swap_commit). Elsewhere it
+     * was written in place.
+     */
+    {
+        tfw_boot_verdict_t v;
+        uint32_t           floor;
+
+        st = tfw_boot_floor_load(plat, &floor);
+        if (st == TFW_OK) {
+            st = tfw_boot_swap_commit(plat, floor);
+        }
+        if (st == TFW_OK) {
+            st = tfw_boot_evaluate(floor, &v);
+        }
+        n  = tfw_frame_encode_event(outbuf, sizeof outbuf, st, 0, 0u);
+        emit(outbuf, n);
+
+        if (st != TFW_OK) {
+            /* The application region holds an image that will not
+             * verify. In recovery the loop carries on and takes another
+             * attempt. In a requested session this was the one attempt:
+             * return, and the caller's tfw_boot_evaluate -- which will
+             * fail the same way -- lands in recovery if the region was
+             * overwritten. */
+            tfw_ota_abort(&ota);
+            (void)tfw_boot_swap_fall_back(plat);
+            plat->ota_state = TFW_BOOT_OTA_FAILED;
+            tfw_boot_platform_store(plat);
+            return lim ? NEXT_END : next;
+        }
+
+        /* The one trial (decision 9). The image is already where it
+         * runs, so a verified OTA_END is activated at once, and the
+         * trial is armed before the jump. The floor does not move:
+         * it advances at the reset after a confirm (decision 5).
+         * One write, STAGED -> TRIAL. A reset before it leaves STAGED
+         * (recovery, the image does not run); during it, a torn block
+         * (recovery); after it, TRIAL (the trial failed: recovery). */
+        plat->ota_state = TFW_BOOT_OTA_PENDING;
+        (void)tfw_boot_trial_arm(plat);
+        tfw_boot_platform_store(plat);
+
+        tfw_boot_hand_over(&v);
+    }
+    return next;
+}
+
 static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
                   const tfw_boot_session_limits_t *lim)
 {
@@ -116,6 +242,7 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
 
     for (;;) {
         uint8_t byte;
+        next_t  next;
 
         if (lim && lim->max_polls != 0u && ++total_polls >= lim->max_polls) {
             return;
@@ -136,92 +263,13 @@ static void serve(tfw_boot_platform_t *plat, tfw_status_t entry_reason,
             continue;
         }
 
-        {
-            uint8_t  resp[TFW_MAX_PAYLOAD];
-            uint8_t  rlen = 0u;
-            uint8_t  cmd  = tfw_frame_op(&framer);
-            uint8_t  seq  = tfw_frame_seq(&framer);
-            tfw_boot_session_action_t action;
-            tfw_status_t st;
-            uint16_t n;
-
-            action = TFW_BOOT_SESSION_CONTINUE;
-            st = cmd == TFW_CMD_OTA_BEGIN ? tfw_boot_trial_begin_permit(plat) : TFW_OK;
-            if (st == TFW_OK) {
-                st = tfw_boot_session_handle(&ota, cmd,
-                                            tfw_frame_payload(&framer),
-                                            tfw_frame_payload_len(&framer),
-                                            resp, &rlen, &action);
-            }
-
-            n = tfw_frame_encode_response(outbuf, sizeof outbuf, seq, cmd, st,
-                                         resp, rlen);
-            emit(outbuf, n);
-
-            if (is_progress(cmd, st)) {
-                idle  = 0u;
-                bytes = 0u;
-            }
-            if (action == TFW_BOOT_SESSION_RESET) {
-                tfw_boot_reset();
-            }
-            if (lim && cmd == TFW_CMD_OTA_END && st != TFW_OK) {
-                return;   /* the one attempt failed before verification */
-            }
-            if (action != TFW_BOOT_SESSION_COMMIT) {
-                continue;
-            }
-
-            /*
-             * COMMIT. Every byte arrived; now find out whether any of it was
-             * signed.
-             *
-             * The same tfw_boot_evaluate the cold path runs, against the same
-             * floor, with the same ordering. One decision function, so an image
-             * that would be refused at boot cannot be accepted at update.
-             * A floor whose authority cannot be read refuses the image: the
-             * EEPROM copy is not the element's floor and checks nothing.
-             */
-            {
-                tfw_boot_verdict_t v;
-                uint32_t           floor;
-
-                st = tfw_boot_floor_load(plat, &floor);
-                if (st == TFW_OK) {
-                    st = tfw_boot_evaluate(floor, &v);
-                }
-                n  = tfw_frame_encode_event(outbuf, sizeof outbuf, st, 0, 0u);
-                emit(outbuf, n);
-
-                if (st != TFW_OK) {
-                    /* The application region holds an image that will not
-                     * verify. In recovery the loop carries on and takes another
-                     * attempt. In a requested session this was the one attempt:
-                     * return, and the caller's tfw_boot_evaluate -- which will
-                     * fail the same way -- lands in recovery if the region was
-                     * overwritten. */
-                    tfw_ota_abort(&ota);
-                    plat->ota_state = TFW_BOOT_OTA_FAILED;
-                    tfw_boot_platform_store(plat);
-                    if (lim) {
-                        return;
-                    }
-                    continue;
-                }
-
-                /* The one trial (decision 9). The image is already where it
-                 * runs, so a verified OTA_END is activated at once, and the
-                 * trial is armed before the jump. The floor does not move:
-                 * it advances at the reset after a confirm (decision 5).
-                 * One write, STAGED -> TRIAL. A reset before it leaves STAGED
-                 * (recovery, the image does not run); during it, a torn block
-                 * (recovery); after it, TRIAL (the trial failed: recovery). */
-                plat->ota_state = TFW_BOOT_OTA_PENDING;
-                (void)tfw_boot_trial_arm(plat);
-                tfw_boot_platform_store(plat);
-
-                tfw_boot_hand_over(&v);
-            }
+        next = answer(plat, lim);
+        if (next == NEXT_END) {
+            return;
+        }
+        if (next == NEXT_PROGRESS) {
+            idle  = 0u;
+            bytes = 0u;
         }
     }
 }

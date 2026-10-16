@@ -23,6 +23,7 @@
 #include "core/platform_id.h"
 #include "core/auth_session.h"
 #include "core/app_runner.h"
+#include "core/ota_stage.h"
 
 tfw_status_t tfw_hal_tick_init(void);
 
@@ -64,6 +65,11 @@ static void startup(void)
      * by the generic default that follows it. */
     tfw_hal_adc_init();
     tfw_bus_init();
+    /* The external store's select goes high before anything talks on the SPI
+     * bus it shares with the transport's controller: a NOR whose select
+     * floats low answers that traffic (#75). ota_stage_none.c is the no-op on
+     * an image without the store. */
+    tfw_stage_init();
 
     /* Both consuming reads, and both before tfw_crypto_init(): the crypto
      * provider's own init is what takes the handed-off CDI (src/core/

@@ -100,6 +100,24 @@
 #define TFW_APP_REGION_SIZE   TFW_BOOT_REGION_BASE
 #define TFW_OTA_PAGE_MAX      256u
 
+/* The external SPI NOR store the application stages an OTA image into (issue
+ * #75, docs/ota/adr-ota-image-format-and-trust.md decision 6.3). A 512 Kbit
+ * part on the shield bus, on its own chip select: D8, clear of the WIZnet's D10
+ * and the SD socket's D4. The pin is OPEN QUESTION 2 in the ADR -- this is the
+ * proposal the stager was built against, not a ruling. The layout is the ADR's
+ * table: STAGE holds the whole application region, the manifest sector follows,
+ * PREV is the backup of the running image, and the MARK sector is the staged
+ * record tfw-boot reads. Every area starts on a 4 KB sector. */
+#define TFW_OTA_STORE_CS_PIN      8u
+#define TFW_OTA_STORE_CS_IO       B, 0u   /* D8 = PB0, for tfw-boot, which has no pin table */
+#define TFW_ETH_CS_IO             B, 2u   /* D10 = PB2, the WIZnet: held high by tfw-boot */
+#define TFW_SD_CS_IO              D, 4u   /* D4 = PD4, the SD socket: likewise */
+#define TFW_OTA_STORE_STAGE_ADDR  0x000000ul
+#define TFW_OTA_STORE_STAGE_LEN   0x7000ul    /* 28 672: 7 sectors */
+#define TFW_OTA_STORE_MANIFEST    0x007000ul
+#define TFW_OTA_STORE_PREV_ADDR   0x008000ul
+#define TFW_OTA_STORE_MARK_ADDR   0x00F000ul
+
 #define TFW_FLASH_BUDGET 16384u
 #define TFW_RAM_BUDGET   1024u
 

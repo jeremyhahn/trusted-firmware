@@ -487,12 +487,21 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 tfw_status_t tfw_hal_spi_init(uint8_t mode, uint8_t clkdiv, uint8_t lsb)
 { last_spi_mode = mode; last_spi_clkdiv = clkdiv; last_spi_lsb = lsb; return TFW_OK; }
 
-tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
-                            uint8_t *rd, uint8_t len)
+tfw_status_t tfw_mock_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
+                               uint8_t *rd, uint8_t len)
 {
     (void)cs; (void)wr;
     for (uint8_t i = 0u; i < len; i++) { rd[i] = i < bus_resp_n ? bus_resp[i] : 0u; }
     return TFW_OK;
+}
+
+/* Weak so test/model/spi_nor_model.c can be the SPI bus (issue #75): it
+ * answers its own chip select and hands every other one to the function above. */
+__attribute__((weak))
+tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
+                            uint8_t *rd, uint8_t len)
+{
+    return tfw_mock_spi_xfer(cs, wr, rd, len);
 }
 
 tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)

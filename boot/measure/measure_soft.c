@@ -30,7 +30,19 @@ void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASU
     tfw_sha256(data, len, out);
 }
 
+static tfw_status_t flash(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+    tfw_boot_flash_read(addr, buf, len);
+    return TFW_OK;
+}
+
 tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
+{
+    return tfw_boot_measure_from(flash, TFW_BOOT_APP_BASE, len, out);
+}
+
+tfw_status_t tfw_boot_measure_from(tfw_boot_reader_t rd, uint32_t base, uint32_t len,
+                                   uint8_t out[TFW_BOOT_MEASURE_LEN])
 {
     tfw_sha256_t ctx;
     uint8_t     chunk[MEASURE_CHUNK];
@@ -42,10 +54,14 @@ tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN])
 
     tfw_sha256_init(&ctx);
     while (addr < len) {
-        uint32_t left = len - addr;
-        uint8_t  n    = (left < (uint32_t)MEASURE_CHUNK)
-                      ? (uint8_t)left : (uint8_t)MEASURE_CHUNK;
-        tfw_boot_flash_read(TFW_BOOT_APP_BASE + addr, chunk, n);
+        uint32_t     left = len - addr;
+        uint8_t      n    = (left < (uint32_t)MEASURE_CHUNK)
+                            ? (uint8_t)left : (uint8_t)MEASURE_CHUNK;
+        tfw_status_t st   = rd(base + addr, chunk, n);
+
+        if (st != TFW_OK) {
+            return st;
+        }
         tfw_sha256_update(&ctx, chunk, n);
         addr += n;
     }

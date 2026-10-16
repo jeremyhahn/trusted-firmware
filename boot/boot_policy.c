@@ -40,8 +40,20 @@ tfw_status_t tfw_boot_check_pubkey_pin(const uint8_t pinned[TFW_BOOT_MEASURE_LEN
     return TFW_OK;
 }
 
+static tfw_status_t flash(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+    tfw_boot_flash_read(addr, buf, len);
+    return TFW_OK;
+}
+
 tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
 {
+    return tfw_boot_evaluate_at(TFW_BOOT_APP_BASE, floor, out);
+}
+
+tfw_status_t tfw_boot_evaluate_at(uint32_t base, uint32_t floor, tfw_boot_verdict_t *out)
+{
+    const uint32_t tr_at = base + (TFW_BOOT_TRAILER_ADDR - TFW_BOOT_APP_BASE);
     uint8_t        raw[TFW_BOOT_TRAILER_LEN];
     uint8_t        pubkey[TFW_BOOT_PUBKEY_LEN];
     uint8_t        pinned[TFW_BOOT_MEASURE_LEN];
@@ -54,8 +66,8 @@ tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
      * but 256-byte trailers on a later layout would silently truncate, and a
      * loop that cannot express the bug is better than a comment asking nobody
      * to introduce it. */
-    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR, raw, TFW_BOOT_TRAILER_LEN / 2u);
-    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR + (TFW_BOOT_TRAILER_LEN / 2u),
+    tfw_boot_flash_read(tr_at, raw, TFW_BOOT_TRAILER_LEN / 2u);
+    tfw_boot_flash_read(tr_at + (TFW_BOOT_TRAILER_LEN / 2u),
                        &raw[TFW_BOOT_TRAILER_LEN / 2u], TFW_BOOT_TRAILER_LEN / 2u);
 
     st = tfw_boot_trailer_parse(raw, &out->trailer);
@@ -76,7 +88,7 @@ tfw_status_t tfw_boot_evaluate(uint32_t floor, tfw_boot_verdict_t *out)
         return st;
     }
 
-    st = tfw_boot_measure(out->trailer.image_len, out->measurement);
+    st = tfw_boot_measure_from(flash, base, out->trailer.image_len, out->measurement);
     if (st != TFW_OK) {
         return st;
     }

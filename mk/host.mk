@@ -130,7 +130,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_link_eth.c \
-                            test/unit/test_suit.c test/unit/test_suit_emit.c, \
+                            test/unit/test_suit.c test/unit/test_suit_emit.c \
+                           test/unit/test_ota_stage.c test/unit/test_storage_2560.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -399,13 +400,34 @@ $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+# The OTA stager (issue #75) as an OTA_STAGE=1 image links it, with the software
+# NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
+$(HOST_DIR)/test_ota_stage: test/unit/test_ota_stage.c $(HOST_LIB_SRCS) \
+                        src/core/ota_stage.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# EEPROM under the ATmega2560's profile, whose bootloader keeps its swap-move
+# journal above the platform block (issue #75), so the range EEPROM_WRITE
+# refuses there is that profile's data. The suite supplies tfw_auth_gate itself
+# to see which reads take it, so neither auth_session file is linked; the host
+# board's extra feature defines are left out as test_boot_stage_2560 leaves them.
+STORAGE_2560_CFLAGS := $(subst -Iboards/$(HOST_BOARD) ,-Iboards/atmega2560 ,\
+                         $(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS)))
+$(HOST_DIR)/test_storage_2560: test/unit/test_storage_2560.c src/caps/storage.c \
+                               src/core/reader.c src/core/writer.c test/mock/hal_mock.c \
+                               src/core/handoff.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                               src/core/secure_zero.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(STORAGE_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
-                    $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit
+                    $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit \
+                    $(HOST_DIR)/test_storage_2560
 
 ## test: build and run the host unit tests
 test: $(TEST_BINS) $(HOST_EXTRA_BINS)
@@ -434,7 +456,7 @@ coverage:
 	@# and boot/tier and boot/verify, which reach flash and an element through
 	@# PROGMEM and I2C rather than through anything a host build can drive.
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
-	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry)\.c' \
+	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage)\.c' \
 	       --filter 'boot/recovery/recovery_ota\.c' \
 	       --exclude 'src/hal/avr/' --print-summary \
 	       --html-details coverage/index.html --fail-under-line $(COVERAGE_FLOOR)
@@ -577,7 +599,14 @@ TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h
 # shield's SPI and select pins, and the host's socket sits on no pin -- a
 # simulator that refused D10-D13 would only break the GPIO suites that use them.
 TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c tools/tfwsim/eth_socket.c
-TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) $(TFWSIM_LINK_SRCS)
+# Both simulators also carry the OTA stager (issue #75), as an ETH=1 image does,
+# with test/model/spi_nor_model.c as the external store on its select. Its
+# tfw_hal_spi_xfer overrides the mock's weak one and hands every other select
+# back to it.
+TFWSIM_STAGE_SRCS := src/core/ota_stage.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c
+TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -Itest/model
+TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) $(TFWSIM_LINK_SRCS) \
+                    $(TFWSIM_STAGE_SRCS)
 
 # The element tier swaps the software provider (and its UDS mock) for the ATECC608A
 # driver, its provider and the software element. hal_mock.c is still linked for
@@ -632,14 +661,14 @@ endif
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(APP_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
+	@$(HOST_CC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(EXTRA_CFLAGS) \
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"

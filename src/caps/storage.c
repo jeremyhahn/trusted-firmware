@@ -51,6 +51,17 @@
  * stays responsive. */
 #define TFW_EEPROM_CHUNK 8u
 
+/* Whether [addr, addr + len) touches bootloader-owned EEPROM: the platform
+ * block, or the range a board's bootloader keeps above it (the ATmega2560's
+ * swap journal, include/tfw/config.h). A board that keeps none declares an
+ * empty range at the block's end, and its half of the test folds away. */
+static uint8_t boot_owned(uint16_t addr, uint8_t len)
+{
+    return (uint8_t)(addr < TFW_EEPROM_RESERVED_END
+                     || (addr < TFW_BOOT_EE_EXTRA_BASE + TFW_BOOT_EE_EXTRA_LEN
+                         && (uint16_t)(addr + len) > TFW_BOOT_EE_EXTRA_BASE));
+}
+
 tfw_status_t tfw_storage_cmd_read(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint16_t addr = tfw_read_u16(r);
@@ -68,7 +79,7 @@ tfw_status_t tfw_storage_cmd_read(tfw_reader_t *r, tfw_writer_t *w)
     }
     /* Mirrors the write path's own reasoning below: the whole read must clear
      * the reserved region, not merely start above it. */
-    if (addr < TFW_EEPROM_RESERVED_END) {
+    if (boot_owned(addr, len)) {
         st = tfw_auth_gate();
         if (st != TFW_OK) {
             return st;
@@ -98,8 +109,8 @@ tfw_status_t tfw_storage_cmd_write(tfw_reader_t *r, tfw_writer_t *w)
     /* The whole write must clear the reserved region, not merely start above
      * it. A write beginning at 0x7F and running eight bytes would otherwise
      * reach 0x86 -- past the boundary -- having passed a check on its first
-     * address only. */
-    if (addr < TFW_EEPROM_RESERVED_END) {
+     * address only. The same holds for a board's range above the region. */
+    if (boot_owned(addr, len)) {
         return TFW_ERR_PROTECTED_REGION;
     }
     data = tfw_read_blob(r, len);

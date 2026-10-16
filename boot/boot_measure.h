@@ -33,6 +33,15 @@
  */
 tfw_status_t tfw_boot_measure(uint32_t len, uint8_t out[TFW_BOOT_MEASURE_LEN]);
 
+/* The same hash over [base, base + len) of another source: the external store
+ * a staged image waits in (issue #75, boot/boot_stage.c). tfw_boot_measure is
+ * this over program memory, so the two cannot hash a span differently. A read
+ * that fails ends the hash with its status. */
+typedef tfw_status_t (*tfw_boot_reader_t)(uint32_t addr, uint8_t *buf, uint8_t len);
+
+tfw_status_t tfw_boot_measure_from(tfw_boot_reader_t rd, uint32_t base, uint32_t len,
+                                   uint8_t out[TFW_BOOT_MEASURE_LEN]);
+
 /* SHA-256 over an arbitrary buffer, used for the public key hash. Here rather
  * than calling tfw_sha256 directly so that boot/ has one dependency on the hash
  * and the size report can attribute it. */

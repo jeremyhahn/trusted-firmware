@@ -33,3 +33,9 @@ BOOT_EESAVE_BIT  := 3
 # Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
 # The chip file checks the part's identity, so the wrong shield stays down.
 ETH_CHIP       ?= w5100
+
+# The external store the OTA stager writes into (issue #75, docs/ota/): its
+# driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.
+# The part and its chip select are ADR open question 2; the select is board
+# data in board_profile.h (TFW_OTA_STORE_CS_PIN).
+OTA_STORE      := spi_nor

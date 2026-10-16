@@ -99,6 +99,16 @@ static void test_the_first_byte_above_the_boundary_is_writable(void)
     TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0C0]);
 }
 
+/* The ATmega2560's bootloader keeps its swap journal at 0x0E0-0x0E9, above the
+ * platform block, and its build refuses it (test_storage_2560.c). This board
+ * declares no such range, so the same address is the application's. */
+static void test_a_board_without_the_range_accepts_0x0E0(void)
+{
+    const uint8_t one[1] = { 0x5A };
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0E0u, one, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0E0]);
+}
+
 /* Reading the reserved region on THIS (soft-tier) build is still permitted
  * unconditionally: TFW_FEATURE_AUTH_SESSION is off here (HOST_EXTRA_DEFS does
  * not turn it on, and this binary links auth_session_none.c), so
@@ -149,6 +159,7 @@ int main(void)
     RUN_TEST(test_the_reserved_region_cannot_be_written);
     RUN_TEST(test_a_write_straddling_the_boundary_is_refused_entirely);
     RUN_TEST(test_the_first_byte_above_the_boundary_is_writable);
+    RUN_TEST(test_a_board_without_the_range_accepts_0x0E0);
     RUN_TEST(test_the_reserved_region_can_be_read);
     RUN_TEST(test_an_address_past_the_part_is_refused);
     RUN_TEST(test_a_length_running_past_the_end_is_refused);

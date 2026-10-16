@@ -877,8 +877,15 @@ reference value. A gap there is filed against go-xkms.
    - whether `tfw.ParseImage` also reads MCUboot's header.
 10. **New EEPROM records.** The swap record at `0x0E0`, the `TRIAL`,
     `CONFIRMED` and `PENDING` values, and the failed measurement in the platform
-    block's reserved range.
+    block's reserved range. On the ATmega2560 the bootloader-owned EEPROM
+    extends past `EEPROMReservedEnd` (`0xC0`): the swap journal's two copies
+    sit at `0x0E0`–`0x0E9`. The firmware refuses host writes there
+    (`EEPROM_WRITE` answers `TFW_ERR_PROTECTED_REGION`) and gates host reads
+    there as it gates the platform block.
 11. **The i.MX 95 M7**, with #15 (decision 12).
+12. **The ATmega2560's EEPROM bound.** The proper fix is raising
+    `EEPROMReservedEnd` and `TFW_BOOT_EE_LEN` to cover the swap journal; that is
+    with the owner.
 
 ## Follow-ups (listed, not filed)
 

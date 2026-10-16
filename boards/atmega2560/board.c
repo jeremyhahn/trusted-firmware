@@ -57,7 +57,7 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /*  5  D5  PE3 OC3A */ { TFW_PB(4u, 3u),  TFW_ADC_NONE, 2u,          TFW_PIN_DIGITAL | TFW_PIN_PWM },
 /*  6  D6  PH3 OC4A */ { TFW_PB(7u, 3u),  TFW_ADC_NONE, 3u,          TFW_PIN_DIGITAL | TFW_PIN_PWM },
 /*  7  D7  PH4 OC4B */ { TFW_PB(7u, 4u),  TFW_ADC_NONE, 4u,          TFW_PIN_DIGITAL | TFW_PIN_PWM },
-/*  8  D8  PH5 OC4C */ { TFW_PB(7u, 5u),  TFW_ADC_NONE, 5u,          TFW_PIN_DIGITAL | TFW_PIN_PWM },
+/*  8  D8  PH5 OC4C */ { TFW_PB(7u, 5u),  TFW_ADC_NONE, 5u,          TFW_PIN_DIGITAL | TFW_PIN_PWM | TFW_PIN_OTA_STORE },
 /*  9  D9  PH6 OC2B */ { TFW_PB(7u, 6u),  TFW_ADC_NONE, 6u,          TFW_PIN_DIGITAL | TFW_PIN_PWM },
 /* 10  D10 PB4 OC2A */ { TFW_PB(1u, 4u),  TFW_ADC_NONE, 7u,          TFW_PIN_DIGITAL | TFW_PIN_PWM | TFW_PIN_ETH },
 /* 11  D11 PB5 OC1A */ { TFW_PB(1u, 5u),  TFW_ADC_NONE, 8u,          TFW_PIN_DIGITAL | TFW_PIN_PWM },

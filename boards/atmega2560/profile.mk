@@ -38,3 +38,14 @@ ETH_CHIP       ?= w5100
 # The SUIT manifest reader and gate (issue #78; mk/firmware.mk): the element-tier
 # image carries src/core/suit.c. The 2560 has the room; ADR decision 6.
 OTA_MANIFEST   := 1
+
+# The external store the OTA stager writes into (issue #75, docs/ota/): its
+# driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.
+# The part and its chip select are ADR open question 2; the select is board
+# data in board_profile.h (TFW_OTA_STORE_CS_PIN).
+OTA_STORE      := spi_nor
+
+# A/B by swap-move (ADR decision 7): the primary and secondary slots are board
+# data in board_profile.h (TFW_SWAP_*). tfw-boot links boot/boot_swap.c where
+# an image lands in the secondary, mk/boot.mk.
+BOOT_AB        := 1

@@ -23,9 +23,10 @@ static tfw_status_t flush(tfw_ota_t *o)
     /* The page this buffer belongs to is the one ending at `received`, because
      * bytes are only ever appended in order. Computing it from `received`
      * rather than keeping a separate cursor removes the one thing that could
-     * disagree with itself. Offsets count from the application region's base,
-     * so that is where the page lands. */
-    addr = TFW_BOOT_APP_BASE + (o->received - o->buf_used);
+     * disagree with itself. Offsets count from where the board stages an
+     * image: the application region's base, or on a board with two slots the
+     * secondary, which tfw-boot swaps in before the gate (boot_swap.h). */
+    addr = (uint32_t)TFW_OTA_STAGE_DEST + (o->received - o->buf_used);
 
     while (o->buf_used < o->page_size) {
         o->buf[o->buf_used++] = ERASED;

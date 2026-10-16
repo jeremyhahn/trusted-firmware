@@ -120,6 +120,18 @@ TFW_CMD_ENTRY(TFW_CMD_AUTH_CHALLENGE, AUTH_CHALLENGE, tfw_auth_cmd_challenge, 0u
 TFW_CMD_ENTRY(TFW_CMD_AUTH_RESPONSE,  AUTH_RESPONSE,  tfw_auth_cmd_response, TFW_AUTH_SIG_LEN, TFW_AUTH_SIG_LEN)
 #endif
 
+/* ---- OTA staging: the application side of docs/ota/ -- issue #75 ----
+ *
+ * The same four ids tfw-boot answers, with the same payloads, now answered by
+ * the application into the external store (ADR decision 8). OTA_ACTIVATE and
+ * OTA_CONFIRM are not here: their ids are still a proposal. */
+#if TFW_FEATURE_OTA_STAGE
+TFW_CMD_ENTRY(TFW_CMD_OTA_BEGIN,  OTA_BEGIN,  tfw_stage_cmd_begin,  4u, 4u)
+TFW_CMD_ENTRY(TFW_CMD_OTA_DATA,   OTA_DATA,   tfw_stage_cmd_data,   5u, TFW_MAX_PAYLOAD)
+TFW_CMD_ENTRY(TFW_CMD_OTA_END,    OTA_END,    tfw_stage_cmd_end,    0u, 0u)
+TFW_CMD_ENTRY(TFW_CMD_OTA_STATUS, OTA_STATUS, tfw_stage_cmd_status, 0u, 0u)
+#endif
+
 /* ---- provisioning: a jig image only, never a production one ----
  *
  * TFW_FEATURE_PROVISION defaults to 0 in config.h, so a fielded device has no

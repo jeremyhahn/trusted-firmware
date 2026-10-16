@@ -47,6 +47,16 @@ tfw_status_t tfw_boot_trial_fail(tfw_boot_platform_t *p)
     return TFW_OK;
 }
 
+tfw_status_t tfw_boot_trial_fall_back(tfw_boot_platform_t *p)
+{
+    tfw_status_t st = tfw_boot_trial_fail(p);
+
+    if (st == TFW_OK) {
+        p->boot_state = TFW_BOOT_STATE_GOOD;
+    }
+    return st;
+}
+
 tfw_status_t tfw_boot_trial_settle(tfw_boot_platform_t *p, uint32_t version,
                                    uint32_t floor, uint32_t *next)
 {

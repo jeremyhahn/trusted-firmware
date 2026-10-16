@@ -39,7 +39,8 @@ make bootloader-check
 
 No flags. Iterates `mk/boot.mk`'s `BOOT_SUPPORTED` rows (currently
 `atmega328p`, `atmega32u4` and `atmega2560` with `BOOT_TIER=BOOT_MEASURE=
-BOOT_SIG=atecc608a`, the 2560 built both with and without OTA) and fails if
+BOOT_SIG=atecc608a`, the 2560 built with OTA, without it, and without it but
+with the external store, `BOOT_STORE=1`) and fails if
 any row stops fitting its boot section. Part of `make ci`.
 
 ## `make bootloader-budget` — the per-component size breakdown

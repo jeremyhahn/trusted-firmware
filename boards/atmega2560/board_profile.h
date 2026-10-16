@@ -85,8 +85,37 @@
 #define TFW_BOOT_REGION_SIZE  8192uL
 #define TFW_BOOT_REGION_BASE  (TFW_FLASH_TOTAL - TFW_BOOT_REGION_SIZE)
 #define TFW_APP_REGION_BASE   0uL
-#define TFW_APP_REGION_SIZE   TFW_BOOT_REGION_BASE
+#define TFW_APP_REGION_SIZE   TFW_SWAP_SLOT_LEN   /* the A/B primary, below */
 #define TFW_OTA_PAGE_MAX      256u
+
+/* The external SPI NOR store (ADR decision 6.2). STAGE is 64 KB plus the
+ * manifest sector, and the ADR's table gives the 2560 no backup area. D8
+ * is the proposed chip select -- ADR open question 2, not a ruling. */
+#define TFW_OTA_STORE_CS_PIN      8u
+#define TFW_OTA_STORE_CS_IO       H, 5u   /* D8 = PH5, for tfw-boot, which has no pin table */
+#define TFW_ETH_CS_IO             B, 4u   /* D10 = PB4, the WIZnet: held high by tfw-boot */
+#define TFW_SD_CS_IO              G, 5u   /* D4 = PG5, the SD socket: likewise */
+#define TFW_OTA_STORE_STAGE_ADDR  0x000000ul
+#define TFW_OTA_STORE_STAGE_LEN   0x10000ul   /* 65 536: 16 sectors */
+#define TFW_OTA_STORE_MANIFEST    0x010000ul
+#define TFW_OTA_STORE_MARK_ADDR   0x011000ul
+
+/* A/B by swap-move (ADR decision 7; the layout under "Where every byte goes",
+ * slot size open question 7, the record open question 10). The primary is the
+ * 64 KB image budget plus the one move page; the secondary follows it. The
+ * swap record is ten bytes of EEPROM after the network block. */
+#define TFW_SWAP_PRIMARY_BASE     0x00000ul
+#define TFW_SWAP_SECONDARY_BASE   0x10100ul
+#define TFW_SWAP_SLOT_LEN         0x10000ul
+#define TFW_SWAP_RECORD_ADDR      0x0E0u
+/* The journal at the record address: two checked five-byte copies
+ * (boot/boot_swap.c), 0x0E0-0x0E9. It lies past TFW_BOOT_EE_LEN, the bound the
+ * wire states as EEPROMReservedEnd, so it is named here and the application's
+ * EEPROM_WRITE refuses it as it refuses the platform block. */
+#define TFW_BOOT_EE_EXTRA_BASE    TFW_SWAP_RECORD_ADDR
+#define TFW_BOOT_EE_EXTRA_LEN     10u
+#define TFW_APP_WRITE_END         (TFW_SWAP_SECONDARY_BASE + TFW_SWAP_SLOT_LEN)
+#define TFW_OTA_STAGE_DEST        TFW_SWAP_SECONDARY_BASE
 
 #define TFW_FLASH_BUDGET 65536u
 #define TFW_RAM_BUDGET   1024u

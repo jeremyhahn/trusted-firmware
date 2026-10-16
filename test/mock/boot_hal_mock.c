@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 
+#include <limits.h>
 #include <string.h>
 
 #include "boot_hal_mock.h"
@@ -22,6 +23,12 @@ static size_t   tx_n;
 static unsigned page_writes;
 static uint32_t last_page;
 static unsigned fail_writes;
+static unsigned cut_left = UINT_MAX;
+static unsigned tear_left = UINT_MAX;
+static uint8_t  tear_byte;
+static uint8_t  tear_val;
+static uint8_t  torn;
+static void   (*g_store)(uint8_t *buf, uint16_t len);
 static unsigned jumped;
 static unsigned reset_calls;
 static unsigned empty_polls;
@@ -43,6 +50,10 @@ void tfw_boot_mock_reset(void)
     page_writes = 0u;
     last_page = 0u;
     fail_writes = 0u;
+    cut_left = UINT_MAX;
+    tear_left = UINT_MAX;
+    torn = 0u;
+    g_store = 0;
     jumped = 0u;
     reset_calls = 0u;
     empty_polls = 0u;
@@ -57,6 +68,18 @@ uint8_t *tfw_boot_mock_nvm(void)    { return eeprom; }
 unsigned tfw_boot_mock_page_writes(void)   { return page_writes; }
 uint32_t tfw_boot_mock_last_page_addr(void){ return last_page; }
 void     tfw_boot_mock_fail_writes(unsigned n) { fail_writes = n; }
+void     tfw_boot_mock_cut_after(unsigned ok)  { cut_left = ok; }
+
+void tfw_boot_mock_tear_nvm(unsigned ok, uint8_t byte, uint8_t val)
+{
+    tear_left = ok;
+    tear_byte = byte;
+    tear_val  = val;
+    torn      = 0u;
+    if (ok == UINT_MAX) {
+        cut_left = UINT_MAX;
+    }
+}
 const uint8_t *tfw_boot_mock_handoff(void) { return handoff_block; }
 
 void tfw_boot_mock_set_handoff(const uint8_t *b, size_t n)
@@ -99,6 +122,39 @@ void tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
     }
 }
 
+/* ---------------------------------------------------------------- store */
+
+void tfw_boot_mock_on_store(void (*xfer)(uint8_t *buf, uint16_t len))
+{
+    g_store = xfer;
+}
+
+tfw_status_t tfw_boot_store_open(void)
+{
+    return (g_store != 0) ? TFW_OK : TFW_ERR_UNSUPPORTED;
+}
+
+tfw_status_t tfw_boot_store_cmd(const uint8_t *cmd, uint8_t clen, uint8_t *in, uint16_t ilen)
+{
+    uint8_t t[4u + 512u];
+
+    if (g_store == 0) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    if ((uint32_t)clen + ilen > sizeof t) {
+        return TFW_ERR_RANGE;
+    }
+    memcpy(t, cmd, clen);
+    memset(&t[clen], 0, ilen);
+    g_store(t, (uint16_t)(clen + ilen));
+    memcpy(in, &t[clen], ilen);
+    return TFW_OK;
+}
+
+void tfw_boot_store_close(void)
+{
+}
+
 uint16_t tfw_boot_flash_page_size(void) { return MOCK_PAGE; }
 
 tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
@@ -109,13 +165,17 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
     /* The same refusal the AVR HAL makes, and it is here rather than only there
      * so the test suite exercises it: an OTA image one page too long would
      * otherwise overwrite the bootloader. */
-    if (addr + MOCK_PAGE > TFW_BOOT_APP_END) {
+    if (addr + MOCK_PAGE > (uint32_t)TFW_APP_WRITE_END) {
         return TFW_ERR_PROTECTED_REGION;
     }
     if (fail_writes > 0u) {
         fail_writes--;
         return TFW_ERR_INTERNAL;
     }
+    if (cut_left == 0u) {
+        return TFW_ERR_INTERNAL;
+    }
+    cut_left--;
     memcpy(&flash[addr], data, MOCK_PAGE);
     page_writes++;
     last_page = addr;
@@ -135,6 +195,21 @@ tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     if ((uint32_t)addr + len > sizeof eeprom) {
         return TFW_ERR_RANGE;
+    }
+    if (torn != 0u) {
+        return TFW_ERR_INTERNAL;
+    }
+    if (tear_left == 0u) {
+        if (tear_byte < len) {
+            memcpy(&eeprom[addr], buf, tear_byte);
+            eeprom[addr + tear_byte] = tear_val;
+        }
+        torn     = 1u;
+        cut_left = 0u;
+        return TFW_ERR_INTERNAL;
+    }
+    if (tear_left != UINT_MAX) {
+        tear_left--;
     }
     memcpy(&eeprom[addr], buf, len);
     return TFW_OK;

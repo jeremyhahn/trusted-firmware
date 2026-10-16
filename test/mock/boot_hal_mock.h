@@ -38,6 +38,22 @@ uint32_t tfw_boot_mock_last_page_addr(void);
  * partway through a transfer, which no bench can arrange on demand. */
 void tfw_boot_mock_fail_writes(unsigned n);
 
+/* A power cut: the next `ok` page writes land and every one after fails, until
+ * tfw_boot_mock_reset or cut_after(UINT_MAX) -- which, unlike a reset, leaves
+ * flash as the cut left it, so a test can boot again over it. */
+void tfw_boot_mock_cut_after(unsigned ok);
+
+/* A power cut inside an EEPROM write: the next `ok` nvm writes land whole; the
+ * one after lands its first `byte` bytes, leaves `val` in the one at `byte` --
+ * neither old nor new, as an erase-then-write cut short does -- and keeps the
+ * rest as they were. It fails, and so does every write after it, EEPROM or
+ * flash, until tfw_boot_mock_reset or tear_nvm(UINT_MAX, 0, 0). */
+void tfw_boot_mock_tear_nvm(unsigned ok, uint8_t byte, uint8_t val);
+
+/* Route tfw_boot_store_cmd to a model of the external store (issue #75), as
+ * one full-duplex transaction; with none set, the store does not open. */
+void tfw_boot_mock_on_store(void (*xfer)(uint8_t *buf, uint16_t len));
+
 uint8_t *tfw_boot_mock_nvm(void);
 
 /* The byte link, from the test's side. */

@@ -49,6 +49,12 @@ tfw_status_t tfw_boot_trial_arm(tfw_boot_platform_t *p);
  * its own write repeats it. */
 tfw_status_t tfw_boot_trial_fail(tfw_boot_platform_t *p);
 
+/* An ended trial, or a pending image refused, where the board has put the
+ * previous image back (the 2560's swap-move): the same guard as fail, then
+ * GOOD, with FAILED kept for the image that ended. The previous image boots
+ * as it did before the round. */
+tfw_status_t tfw_boot_trial_fall_back(tfw_boot_platform_t *p);
+
 /* CONFIRMED -> GOOD at reset, with the floor the running image's version
  * implies. *next is the floor to store: `version` where tfw_boot_floor_advance
  * allows it, `floor` otherwise. Returns tfw_boot_floor_advance's answer;

@@ -45,6 +45,10 @@
  * byte-for-byte what it was. An expression, not an #if, so the rows read the
  * same in every build. */
 #define TFW_PIN_ETH      ((TFW_FEATURE_ETHERNET) ? TFW_PIN_IN_USE : 0u)
+/* The OTA store's chip select (TFW_OTA_STORE_CS_PIN), taken the same way by an
+ * image that links the stager (issue #75): driving it low would put the NOR on
+ * the shared bus in the middle of someone else's transfer. */
+#define TFW_PIN_OTA_STORE ((TFW_FEATURE_OTA_STAGE) ? TFW_PIN_IN_USE : 0u)
 
 /* tfw_port_desc_t and tfw_pwm_desc_t -- one row of the port table and of the PWM
  * table -- are the architecture's, in hal_types.h (reached through tfw/hal.h):

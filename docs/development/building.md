@@ -67,7 +67,8 @@ CI (`.github/workflows/ci.yml`, the fleet template) runs the Go jobs (lint,
 security, build, test, modules, cross-arch) on the runner, the `image` job's
 build, test, security, deps-check, ESP32 and trivy image steps in the
 devcontainer, and `integration` (full tier: push, dispatch or the `ci:full`
-label) under compose. `CI Gate` is the one required check.
+label, which takes effect on the next push, update-branch or
+workflow_dispatch) under compose. `CI Gate` is the one required check.
 
 `make help` lists every target.
 

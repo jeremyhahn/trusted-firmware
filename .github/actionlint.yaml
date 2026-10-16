@@ -41,3 +41,4 @@ self-hosted-runner:
     - claude
     - code-review
     - qwen
+    - ci-gate

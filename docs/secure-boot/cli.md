@@ -98,6 +98,7 @@ make boot-flash BOARD=atmega328p BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a \
 | `BOOT_TIER`, `BOOT_MEASURE`, `BOOT_SIG`, `BOOT_OTA` | a supported row for `BOARD`, below | `soft`, `soft`, `ed25519-donna`, `1` | yes: the defaults fit no board |
 | `ISP_PROG` | any `avrdude -c` programmer id | `usbasp` | no |
 | `ISP_PORT` | any `avrdude -P` port | `usb` | no |
+| `BOOT_EEPROM_RESTORE` | `0`, `1` | `0` | no: only when `EESAVE` is not programmed, below |
 
 **Not** the `arduino` bootloader programmer — that one talks *to* a
 bootloader, and the boot section is the one region a running bootloader
@@ -125,11 +126,36 @@ Every other combination fails the link on every board, the defaults
 (`soft`/`soft`/`ed25519-donna`/`1`) and `BOOT_TIER=atecc608a` alone included.
 No configuration without the element fits any board.
 
-`boot-flash` runs avrdude without `-D`, so it chip-erases the part first. The
-application goes with it, the lock bits are cleared, and the EEPROM survives
-only with `EESAVE` programmed
-([../security/fuses-and-lockbits.md](../security/fuses-and-lockbits.md)). How
-the application then gets onto the board is in [user.md](user.md).
+### The chip erase, and the EEPROM
+
+Over ISP a flash page cannot be rewritten without a chip erase, so writing the
+boot section erases the part: the application goes, the lock bits are cleared,
+and the EEPROM goes too unless `EESAVE` is programmed
+([../security/fuses-and-lockbits.md](../security/fuses-and-lockbits.md)). The
+EEPROM holds the platform block, so a bare erase loses the device's serial and
+with it its identity. `boot-flash` therefore never erases blind. It reads the
+fuse that holds `EESAVE` first:
+
+| Board | `EESAVE` | Where it is stated |
+|---|---|---|
+| `atmega328p`, `atmega32u4`, `atmega2560` | high fuse (`hfuse`) bit 3; programmed when it reads 0 | `BOOT_EESAVE_FUSE`, `BOOT_EESAVE_BIT` in `boards/<board>/profile.mk` |
+
+- **`EESAVE` programmed:** it flashes, and the erase keeps the EEPROM.
+- **`EESAVE` not programmed:** it refuses and exits non-zero, printing the two
+  ways on:
+  - program `EESAVE` first, with the exact command for this board worked out
+    from the fuse byte it just read (bit 3 cleared, nothing else changed), e.g.
+    for a Mega reading `0xd8`:
+    `avrdude -pm2560 -cusbasp -Pusb -U hfuse:w:0xd0:m`;
+  - or run it again with `BOOT_EEPROM_RESTORE=1`. It reads the EEPROM to
+    `build/eeprom-<board>-<UTC timestamp>.hex`, erases and flashes, writes the
+    EEPROM back with `-D`, reads it back and compares. A failure or a mismatch
+    exits non-zero and leaves the saved file in place, with the command that
+    writes it back. On success the saved copy is kept.
+
+`boot-flash` writes no fuse itself. A board with no `BOOT_EESAVE_*` in its
+profile is refused at parse time. How the application then gets onto the board
+is in [user.md](user.md).
 
 ## `make boot-test` — the host unit suite
 

@@ -116,6 +116,39 @@ flash arbitrary code, which already owns the part; a production part runs
 `tfw-boot`, which takes signed images only, and the bake image is never
 vendor-signed. See [device provisioning](../device-provisioning/user.md#task-bake-the-block-on-a-bench-board-through-its-stock-bootloader).
 
+## Re-provisioning a board over ISP
+
+The bench commands the Mega's re-provisioning ran on 2026-10-16 are in [the
+ISP route record](isp-route.md#the-mega-re-provisioned-over-isp-2026-10-16):
+the EEPROM read before anything writes, and the image written with `-D`. What
+this project's tools add to that route is below. `ISP_PROG`/`ISP_PORT`
+default to `usbasp`/`usb`. The Mega with the element and the Ethernet shield:
+
+```sh
+ROW="BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1"
+
+# The EEPROM image: platform block and network block, one 224-byte file.
+make build/tools/tfwprov
+build/tools/tfwprov --bake-eeprom --serial <16-byte hex> \
+        --operator-pubkey <64-byte hex> \
+        --bake-netblock --mac 5a:ed:09:10:bf:59 --ip 198.51.100.22/24 \
+        --gateway 0.0.0.0 --endpoint 198.51.100.1:7020 \
+        --out build/eeprom.eep
+
+# tfw-boot. boot-flash reads EESAVE first and will not erase the EEPROM:
+# with EESAVE unprogrammed it refuses and prints the hfuse write that
+# programs it, or it saves, flashes, restores and compares the EEPROM
+# when asked to with BOOT_EEPROM_RESTORE=1.
+make boot-flash BOARD=atmega2560 $ROW
+
+# The signed application: see ../secure-boot/user.md.
+```
+
+No step here chip-erases except `boot-flash`, and that one only behind its
+`EESAVE` check ([../secure-boot/cli.md](../secure-boot/cli.md)). Never run a
+bare `avrdude -e`, or a flash write without `-D`, on a provisioned part: the
+erase takes the platform block, and with it the device's identity.
+
 ## Fuses and lock bits
 
 Not here. See `docs/security/fuses-and-lockbits.md` — several of those settings

@@ -438,10 +438,15 @@ ifneq ($(filter boot-flash,$(MAKECMDGOALS)),)
 ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
 $(error boot-flash: $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows, which fit, are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
 endif
+ifeq ($(and $(BOOT_EESAVE_FUSE),$(BOOT_EESAVE_BIT)),)
+$(error boot-flash: boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so boot-flash cannot check that the chip erase keeps the EEPROM)
+endif
 endif
 
+# The recipe reads EESAVE before the chip erase and refuses an erase that would
+# take the EEPROM; see ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk.
 boot-flash: $(BOOT_TARGET).hex
-	$(ARCH_BOOT_FLASH)
+	@$(ARCH_BOOT_FLASH)
 
 .PHONY: boot-test bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible boot-flash
 

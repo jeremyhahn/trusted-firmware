@@ -103,6 +103,25 @@ was written to the Mega.
 | Re-provisioning over ISP, later that day (Company Agent m233: the erase was an Arduino IDE "Burn Bootloader") | **Pass.** The platform block came from `tfwprov --bake-eeprom --serial 54465700000000000000000000002560` (the same `.eep` as the second pass). The network block came from `NetConfig.MarshalBinary` with the second pass's values. Both were written with `avrdude -c usbasp -p m2560 -D -U eeprom:w:…:i`: no erase, no fuse, no lock. Read back over ISP, `0x000`–`0x0FF` equals the second pass's dump byte for byte |
 | The second pass's application, through the stock bootloader | **Pass.** `make flash BOARD=atmega2560 CRYPTO=soft ETH=1` wrote the same `.hex` (`92364618…`). `CAPS` answers atmega2560 on the software tier, and `tfwctl eeprom-read` reads `0x000`–`0x0DF` equal to the image, the serial and the MAC included. `make hw-test` and `ATTEST` were not run ([the record](../development/isp-route.md#the-mega-re-provisioned-over-isp-2026-10-16)) |
 
+## The boot-flash EESAVE guard on the Mega, 2026-10-16
+
+The same Mega, after the re-provisioning above, through a USBasp on ISP
+(`-c usbasp -P usb`), with avrdude 7.1.
+The run was read-only. A wrapper named `avrdude`, first on `PATH`, passed a
+command to the real avrdude only when every `-U` was a read (`:r:`) and there
+was no `-e`, `-t`, `-T` or `-x`. It logged and refused anything else. Before
+the run it refused a fake `-n -U hfuse:w:0xD0:m`, an `-e`, a bare
+`-U flash.hex` and an EEPROM write. No fuse, lock bit or memory was written.
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | `avrdude -p atmega2560 -c usbasp -P usb -q -q -U <fuse>:r:-:h` for `hfuse`, `lfuse`, `efuse` and `lock`, which is how the guard reads `hfuse`, with stdout and stderr captured apart | stdout is the byte and a newline, nothing else: `0xd8`, `0xff`, `0xfd`, `0xcf`. stderr is one line, `avrdude error: cannot set sck period; please check for usbasp firmware update`, and the exit status is 0. The guard's `$(...)` takes only stdout, so the old programmer firmware does not break the parse |
+| 2 | `make boot-flash BOARD=atmega2560 BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1`, the supported OTA row | Refused, exit 2: `boot-flash: REFUSED. EESAVE is not programmed (hfuse=0xd8, bit 3 reads 1)`. It printed the fix `avrdude -pm2560 -cusbasp -Pusb -U hfuse:w:0xd0:m` and the `BOOT_EEPROM_RESTORE=1` route. The wrapper saw one avrdude call, the `hfuse` read, and refused none |
+| 3 | The fuses read again, and `-U eeprom:r:<file>:r` before and after item 2 | Fuses unchanged (`ff`/`d8`/`fd`, lock `cf`). The two 4096-byte reads are equal, SHA-256 `9860d5e87779c86952f36667f3e23e1bb384342452ac103c89ffd4ecc8581cff`. The 192-byte platform block at `0x000` equals, byte for byte, `tfwprov --bake-eeprom --serial 54465700000000000000000000002560`. That rebuilt `.eep` has the 10-15 SHA-256 above, so the block is the one the re-provisioning wrote |
+
+`BOOT_EEPROM_RESTORE=1` was not run, because it writes by design. EESAVE stays
+unprogrammed on this part until the owner decides otherwise.
+
 ## The day the ATECC608C (MIKROE-6774 Click board) arrives
 
 The Click carries three ATECC608 parts on one I2C bus: an ATECC608C-TNGTLS at

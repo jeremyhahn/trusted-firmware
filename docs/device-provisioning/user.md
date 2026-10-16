@@ -53,7 +53,26 @@ care about — several steps below cannot be undone.
    omit it on a soft-tier or `CRYPTO=none` build, where nothing ever reads
    the field. See [`cli.md`](cli.md).
 
-2. **Set fuses.** `BOOTRST` and `BOOTSZ` programmed, `BODLEVEL` enabled,
+   An Ethernet board (`ETH=1`) also needs its network block at `0x0C0`, right
+   after the platform block. `--bake-netblock` encodes it with the SDK's
+   `NetConfig` encoder, and given with `--bake-eeprom` it writes both blocks as
+   one image, the 224 bytes `[0x000, 0x0E0)`:
+
+   ```sh
+   tfwprov --bake-eeprom --serial <16-byte hex> \
+           --bake-netblock --mac 5a:ed:09:10:bf:59 --ip 198.51.100.22/24 \
+           --gateway 0.0.0.0 --endpoint 198.51.100.1:7020 --out platform.eep
+   avrdude -c <isp-prog> -p <part> -D -U eeprom:w:platform.eep:i
+   ```
+
+   `--bake-netblock` alone writes only `[0x0C0, 0x0E0)`, for a part whose
+   platform block is already right. A running device can also take the block
+   over serial (`WriteNetConfig`); see
+   [../ethernet-transport/user.md](../ethernet-transport/user.md).
+
+2. **Set fuses.** `EESAVE` programmed: `make boot-flash` chip-erases the
+   part, and refuses to while the erase would take this EEPROM with it
+   ([../secure-boot/cli.md](../secure-boot/cli.md)). `BOOTRST` and `BOOTSZ` programmed, `BODLEVEL` enabled,
    `DWEN` unprogrammed. Do this before flashing anything else — see "Why
    these fuses" below for `BODLEVEL` in particular.
 

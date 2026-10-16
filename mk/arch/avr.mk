@@ -110,5 +110,62 @@ ARCH_FLASH = avrdude -v -p$(AVRDUDE_PART) -c$(AVRDUDE_PROG) -P$(AVRDUDE_PORT) \
 ISP_PROG ?= usbasp
 ISP_PORT ?= usb
 
-ARCH_BOOT_FLASH = avrdude -v -p$(AVRDUDE_PART) -c$(ISP_PROG) -P$(ISP_PORT) \
-                  -Uflash:w:$<:i
+ARCH_ISP = avrdude -p$(AVRDUDE_PART) -c$(ISP_PROG) -P$(ISP_PORT)
+
+# NEVER A BARE CHIP ERASE. Over ISP a flash page cannot be rewritten without
+# the chip erase, so replacing the boot section needs one -- and the erase takes
+# the EEPROM with it unless EESAVE is programmed. The EEPROM holds the platform
+# block, the device's serial and with it its identity: a board flashed this way
+# comes back as a different device, or as none (CA m233, item 4).
+#
+# So the fuse is read first. Which fuse byte and bit is EESAVE is the board's
+# (BOOT_EESAVE_FUSE, BOOT_EESAVE_BIT in boards/<board>/profile.mk); an AVR fuse
+# bit is programmed when it reads 0.
+#
+#   EESAVE programmed      flash as before; the erase keeps the EEPROM.
+#   not, by default        refuse, and print the two ways on: the exact hfuse
+#                          write that programs EESAVE and nothing else, worked
+#                          out from the byte just read, or the opt-in below.
+#   BOOT_EEPROM_RESTORE=1  read the EEPROM to a timestamped file under
+#                          $(BUILD_DIR)/, erase and flash, write it back with -D,
+#                          read it back and compare. A mismatch fails and the
+#                          saved file stays where it is.
+#
+# No fuse is ever written here. A fuse write is an operator's decision, made with
+# the command in front of them.
+BOOT_EEPROM_RESTORE ?= 0
+
+ARCH_BOOT_FLASH = \
+  fuse=$$($(ARCH_ISP) -q -q -U $(BOOT_EESAVE_FUSE):r:-:h) || exit 1; \
+  case "$$fuse" in 0x[0-9a-fA-F]*) ;; \
+    *) echo "boot-flash: could not read $(BOOT_EESAVE_FUSE): avrdude printed '$$fuse'" >&2; exit 1;; esac; \
+  if [ $$(( (fuse >> $(BOOT_EESAVE_BIT)) & 1 )) -eq 0 ]; then \
+    echo "boot-flash: EESAVE is programmed ($(BOOT_EESAVE_FUSE)=$$fuse): the chip erase keeps the EEPROM"; \
+    $(ARCH_ISP) -v -Uflash:w:$<:i; \
+  elif [ "$(BOOT_EEPROM_RESTORE)" = 1 ]; then \
+    save=$(BUILD_DIR)/eeprom-$(BOARD)-$$(date -u +%Y%m%dT%H%M%SZ).hex; \
+    echo "boot-flash: EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse); saving the EEPROM to $$save"; \
+    mkdir -p $(BUILD_DIR) && \
+    $(ARCH_ISP) -U eeprom:r:$$save:i && \
+    $(ARCH_ISP) -v -Uflash:w:$<:i && \
+    $(ARCH_ISP) -D -U eeprom:w:$$save:i && \
+    $(ARCH_ISP) -U eeprom:r:$$save.readback:i || \
+      { echo "boot-flash: FAILED part-way. The EEPROM as it was is in $$save; write it back with:" >&2; \
+        echo "  $(ARCH_ISP) -D -U eeprom:w:$$save:i" >&2; exit 1; }; \
+    if ! cmp -s $$save $$save.readback; then \
+      echo "boot-flash: EEPROM READ-BACK MISMATCH. Saved before the erase: $$save; on the part now: $$save.readback" >&2; \
+      echo "  write it back with: $(ARCH_ISP) -D -U eeprom:w:$$save:i" >&2; exit 1; \
+    fi; \
+    rm -f $$save.readback; \
+    echo "boot-flash: the EEPROM was written back and reads back equal; the saved copy is $$save"; \
+  else \
+    fix=$$(printf '0x%02x' $$(( fuse & ~(1 << $(BOOT_EESAVE_BIT)) & 0xff ))); \
+    echo "boot-flash: REFUSED. EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse, bit $(BOOT_EESAVE_BIT) reads 1)," >&2; \
+    echo "  and writing the boot section needs a chip erase, which would take the EEPROM" >&2; \
+    echo "  -- the platform block, and the device's identity -- with it. Either:" >&2; \
+    echo "  program EESAVE first (this clears bit $(BOOT_EESAVE_BIT) and changes nothing else):" >&2; \
+    echo "    $(ARCH_ISP) -U $(BOOT_EESAVE_FUSE):w:$$fix:m" >&2; \
+    echo "  or have boot-flash save the EEPROM, flash, write it back and compare:" >&2; \
+    echo "    make boot-flash BOARD=$(BOARD) BOOT_TIER=$(BOOT_TIER) BOOT_MEASURE=$(BOOT_MEASURE) BOOT_SIG=$(BOOT_SIG) BOOT_OTA=$(BOOT_OTA) BOOT_EEPROM_RESTORE=1" >&2; \
+    exit 1; \
+  fi

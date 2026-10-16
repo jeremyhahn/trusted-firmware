@@ -41,8 +41,13 @@ Order matters, because `boot-flash` chip-erases the part (see [cli.md](cli.md)):
    [../device-provisioning/user.md](../device-provisioning/user.md). Until the
    element holds the image key, `tfw-boot` has nothing to verify an image
    against, the provisioning image included, and stays in recovery.
-2. `make boot-flash`. The element keeps its keys, and with `EESAVE` programmed
-   the EEPROM keeps the platform block; the application is erased.
+2. `make boot-flash`. The element keeps its keys, and the application is
+   erased. The EEPROM, which holds the platform block, survives the erase only
+   with `EESAVE` programmed, so `boot-flash` reads the fuse first and refuses if
+   it is not. It prints the `avrdude -U hfuse:w:…:m` that programs `EESAVE` for
+   this board; run it and `boot-flash` again. Or pass `BOOT_EEPROM_RESTORE=1`,
+   and `boot-flash` saves the EEPROM under `build/`, flashes, writes it back
+   and checks it (see [cli.md](cli.md)). Never erase the part another way.
 3. Install the signed production image, below.
 4. The lock bits, last: they stop ISP writes, and a chip erase clears them.
 

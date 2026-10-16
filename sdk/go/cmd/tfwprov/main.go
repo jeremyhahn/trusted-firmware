@@ -26,7 +26,9 @@
 // EEPROM block -- the device serial, among other fields -- as a .eep image
 // flashed BEFORE any of the above. It opens no port and touches no element:
 // see include/tfw/boot.h and docs/device-provisioning/ for why that field
-// cannot be written any other way.
+// cannot be written any other way. --bake-netblock writes the Ethernet
+// network block after it (sdk/go/netcfg.go) the same way, and the two
+// together write one image of both.
 package main
 
 import (
@@ -57,6 +59,10 @@ a separate mode, taking no port and no --config:
 
   --bake-eeprom --serial <hex16> --out <file.eep>   write a platform-block .eep image
                 [--pubkey-hash <hex32>] [--operator-pubkey <hex64>]
+  --bake-netblock --mac <aa:bb:..> --ip <a.b.c.d/prefix> --gateway <a.b.c.d>
+                --endpoint <a.b.c.d:port> --out <file.eep>   write a network-block .eep image
+                [--mask <a.b.c.d> in place of the /prefix]
+  both together write one image of both blocks, EEPROM [0x000, 0x0E0)
 
 flags
 `)
@@ -81,8 +87,15 @@ func main() {
 		serialHex  = flag.String("serial", "", "--bake-eeprom: 16-byte device serial, hex")
 		hashHex    = flag.String("pubkey-hash", "", "--bake-eeprom: 32-byte SHA-256 of the bootloader's Ed25519 pubkey, hex (element tier: omit)")
 		opKeyHex   = flag.String("operator-pubkey", "", "--bake-eeprom: 64-byte P-256 operator public key (X||Y), hex -- the AUTH_CHALLENGE/AUTH_RESPONSE trust anchor, element tier only")
-		outPath    = flag.String("out", "", "--bake-eeprom: the .eep file to write")
+		outPath    = flag.String("out", "", "--bake-eeprom/--bake-netblock: the .eep file to write")
+		bakeNet    = flag.Bool("bake-netblock", false, "write a network-block .eep image at 0x0C0; touches no device (with --bake-eeprom: one image of both)")
+		nf         netblockFlags
 	)
+	flag.StringVar(&nf.mac, "mac", "", "--bake-netblock: the device's MAC, aa:bb:cc:dd:ee:ff (unicast)")
+	flag.StringVar(&nf.ip, "ip", "", "--bake-netblock: the device's IPv4 address, a.b.c.d or a.b.c.d/prefix")
+	flag.StringVar(&nf.mask, "mask", "", "--bake-netblock: the netmask, a.b.c.d (or give a prefix on --ip)")
+	flag.StringVar(&nf.gateway, "gateway", "", "--bake-netblock: the gateway, a.b.c.d; 0.0.0.0 for none")
+	flag.StringVar(&nf.endpoint, "endpoint", "", "--bake-netblock: the host the device connects to, a.b.c.d:port")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -97,20 +110,33 @@ func main() {
 	// element template, because it writes a FILE the device has not been
 	// flashed with yet. Kept out of the modes/NArg check below, which is
 	// entirely about the wire-provisioning modes.
-	if *bakeEEPROM {
+	//
+	// --bake-netblock is the same kind of mode for the network block, and the
+	// two together write one image of both.
+	if *bakeEEPROM || *bakeNet {
+		mode := "--bake-eeprom"
+		if !*bakeEEPROM {
+			mode = "--bake-netblock"
+		}
 		if *dryRun || *verify || *commit {
-			fail(errors.New("--bake-eeprom is its own mode; it does not combine with --dry-run/--verify/--commit"))
+			fail(fmt.Errorf("%s is its own mode; it does not combine with --dry-run/--verify/--commit", mode))
 		}
 		if flag.NArg() != 0 {
-			fail(errors.New("--bake-eeprom takes no positional argument (it opens no port); did you mean to drop the port, or to run one of --dry-run/--verify/--commit instead?"))
+			fail(fmt.Errorf("%s takes no positional argument (it opens no port); did you mean to drop the port, or to run one of --dry-run/--verify/--commit instead?", mode))
 		}
 		if *outPath == "" {
-			fail(errors.New("--bake-eeprom requires --out"))
+			fail(fmt.Errorf("%s requires --out", mode))
 		}
-		if *serialHex == "" {
+		if *bakeEEPROM && *serialHex == "" {
 			fail(errors.New("--bake-eeprom requires --serial (16 bytes, hex)"))
 		}
-		if err := runBakeEEPROM(*outPath, *serialHex, *hashHex, *opKeyHex); err != nil {
+		if !*bakeEEPROM && (*serialHex != "" || *hashHex != "" || *opKeyHex != "") {
+			fail(errors.New("--serial/--pubkey-hash/--operator-pubkey belong to --bake-eeprom; pass it too for one image of both blocks"))
+		}
+		if !*bakeNet && nf.any() {
+			fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint belong to --bake-netblock; pass it too for one image of both blocks"))
+		}
+		if err := runBake(*outPath, *bakeEEPROM, *serialHex, *hashHex, *opKeyHex, *bakeNet, nf); err != nil {
 			fail(err)
 		}
 		return
@@ -128,6 +154,9 @@ func main() {
 	}
 	if err := rejectBakeFlags(*serialHex, *hashHex, *opKeyHex, *outPath); err != nil {
 		fail(err)
+	}
+	if nf.any() {
+		fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint belong to --bake-netblock; --dry-run/--verify/--commit do not use them"))
 	}
 	if *commit && !*confirm {
 		fail(errors.New("--commit is irreversible on this part: pass --yes-i-mean-it"))

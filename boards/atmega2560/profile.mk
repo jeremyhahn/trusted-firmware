@@ -24,6 +24,12 @@ BOOT_BASE      := 0x3e000
 BOOT_BUDGET    := 8192
 RAM_END        := 0x21FF
 
+# EESAVE, the fuse bit that keeps the EEPROM through a chip erase: high fuse
+# bit 3 (ATmega2560 data sheet, Memory Programming, the Fuse High Byte table).
+# `make boot-flash` reads it before the erase; mk/arch/avr.mk.
+BOOT_EESAVE_FUSE := hfuse
+BOOT_EESAVE_BIT  := 3
+
 # The Ethernet controller an ETH=1 image drives (docs/ethernet-transport/): the
 # Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
 # The chip file checks the part's identity, so the wrong shield stays down.

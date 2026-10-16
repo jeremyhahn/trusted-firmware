@@ -32,3 +32,9 @@ BOOT_SECTION   := 4096
 BOOT_BASE      := 0x7000
 BOOT_BUDGET    := 4096
 RAM_END        := 0x0AFF
+
+# EESAVE, the fuse bit that keeps the EEPROM through a chip erase: high fuse
+# bit 3 (ATmega32U4 data sheet, Memory Programming, the Fuse High Byte table).
+# `make boot-flash` reads it before the erase; mk/arch/avr.mk.
+BOOT_EESAVE_FUSE := hfuse
+BOOT_EESAVE_BIT  := 3

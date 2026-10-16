@@ -15,11 +15,13 @@ sequence.
 ```
 tfwprov [flags] <port>                                  # --dry-run / --verify / --commit
 tfwprov --bake-eeprom --serial <hex> --out <file> [flags]  # no port, no element
+tfwprov --bake-netblock --mac <mac> --ip <a.b.c.d/n> --gateway <a.b.c.d> \
+        --endpoint <a.b.c.d:port> --out <file>             # no port, no element
 ```
 
-Exactly one of `--dry-run`, `--verify`, `--commit`, `--bake-eeprom` is
-required. The first three take exactly one positional argument, the serial
-port; `--bake-eeprom` takes none.
+Exactly one of `--dry-run`, `--verify`, `--commit`, or the bake modes
+(`--bake-eeprom`, `--bake-netblock`, or both) is required. The first three take
+exactly one positional argument, the serial port; the bake modes take none.
 
 ## Flags
 
@@ -37,7 +39,16 @@ port; `--bake-eeprom` takes none.
 | `--serial` | `""` | `--bake-eeprom`: the 16-byte device serial, hex |
 | `--pubkey-hash` | `""` | `--bake-eeprom`: SHA-256 of the bootloader's Ed25519 pubkey, hex. Ignored on the element tier; load-bearing on `BOOT_SIG=ed25519-donna` — omitting it there bakes an all-zero hash and prints a warning, and `tfw-boot` will refuse every image until the real one is set. An explicit all-zero value is refused |
 | `--operator-pubkey` | `""` | `--bake-eeprom`: 64-byte P-256 operator public key (X‖Y), hex — the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), element tier only. Omitting it bakes an all-zero key and prints a warning: `AUTH_RESPONSE` will refuse every attempt until the real key is set |
-| `--out` | `""` | `--bake-eeprom`: the `.eep` file to write |
+| `--out` | `""` | `--bake-eeprom`/`--bake-netblock`: the `.eep` file to write |
+| `--bake-netblock` | `false` | write the Ethernet network block (`sdk/go/netcfg.go`, layout in [../ethernet-transport/api.md](../ethernet-transport/api.md)) as an `.eep` image at `[0x0C0, 0x0E0)`, encoded by `NetConfig.MarshalBinary`. Opens no port. With `--bake-eeprom` too, one file of both blocks: the contiguous 224 bytes `[0x000, 0x0E0)` |
+| `--mac` | `""` | `--bake-netblock`: the device's MAC, `aa:bb:cc:dd:ee:ff`; unicast |
+| `--ip` | `""` | `--bake-netblock`: the device's IPv4 address, `a.b.c.d/prefix`, or `a.b.c.d` with `--mask` |
+| `--mask` | `""` | `--bake-netblock`: the netmask, `a.b.c.d`, contiguous. Refused together with a `/prefix` on `--ip` |
+| `--gateway` | `""` | `--bake-netblock`: the gateway, required; `0.0.0.0` for none |
+| `--endpoint` | `""` | `--bake-netblock`: the host the device connects to, `a.b.c.d:port`; not `0.0.0.0`, not port 0 |
+
+A flag of one bake mode given without that mode is refused, never ignored:
+`--serial` without `--bake-eeprom`, or `--mac` without `--bake-netblock`.
 
 Every invocation of `--dry-run`/`--verify`/`--commit` first calls `ProvInfo`
 and prints the element's revision, serial, and lock state. This is the same
@@ -106,16 +117,20 @@ error against a production image is the most common cause by far.
 
 ## Full sequence, including the parts outside `tfwprov`
 
-`--bake-eeprom` touches a file, never a device; every other mode here only
+The bake modes touch a file, never a device; every other mode here only
 ever touches the secure element. Fuses and lock bits are set with `avrdude`,
 outside this tool, and always in this order relative to it:
 
 ```sh
 # 1. Bake the platform-reserved EEPROM block and flash it, before anything else.
+#    An Ethernet (ETH=1) board takes its network block in the same image:
+#    add --bake-netblock and its flags for one 224-byte file, [0x000, 0x0E0).
 tfwprov --bake-eeprom --serial <16-byte hex> \
        --operator-pubkey <64-byte hex, element tier> \
+       [--bake-netblock --mac <mac> --ip <a.b.c.d/n> --gateway <a.b.c.d> \
+        --endpoint <a.b.c.d:port>] \
        --out platform.eep
-avrdude -c <prog> -p <part> -U eeprom:w:platform.eep:i
+avrdude -c <prog> -p <part> -D -U eeprom:w:platform.eep:i
 #    On a BENCH part with no ISP programmer, still running its stock serial
 #    bootloader, the bench bake image writes the same tfwprov block instead
 #    (never a production part; fuses and lock bits stay on ISP):

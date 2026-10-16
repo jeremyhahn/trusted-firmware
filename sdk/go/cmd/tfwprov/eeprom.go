@@ -69,7 +69,7 @@ func parseFixedHex(flag, s string, want int) ([]byte, error) {
 
 // runBakeEEPROM builds the platform-reserved EEPROM block and writes it as an
 // Intel HEX file covering ONLY that block's addresses -- see
-// writeIHEXPartial for why a partial file is the safe form and not a
+// writeIHEXSegments for why a partial file is the safe form and not a
 // shortcut.
 //
 // This is deliberately the one tfwprov mode that opens no serial port: the
@@ -78,6 +78,27 @@ func parseFixedHex(flag, s string, want int) ([]byte, error) {
 // be in the image before the device is ever flashed, and that is a file
 // operation, not a device one. See docs/device-provisioning/.
 func runBakeEEPROM(outPath, serialHex, pubkeyHashHex, operatorPubkeyHex string) error {
+	var p bakedPlatform
+	if err := platformBlockFromFlags(&p, serialHex, pubkeyHashHex, operatorPubkeyHex); err != nil {
+		return err
+	}
+	return writeBakedImage(outPath, &p, nil)
+}
+
+// bakedPlatform is a built platform block and the fields it was built from,
+// kept so the summary printed after the write names them.
+type bakedPlatform struct {
+	block          [tfw.PlatformBlockLen]byte
+	serial         [tfw.SerialLen]byte
+	pubkeyHash     [tfw.PubkeyHashLen]byte
+	operatorPubkey [tfw.OperatorPubkeyLen]byte
+}
+
+// platformBlockFromFlags validates the --bake-eeprom flags and builds the
+// platform block from them into dst. The warnings for an omitted pubkey hash
+// or operator key go to stderr here, once, whichever image the block ends up
+// in.
+func platformBlockFromFlags(dst *bakedPlatform, serialHex, pubkeyHashHex, operatorPubkeyHex string) error {
 	serialBytes, err := parseFixedHex("serial", serialHex, tfw.SerialLen)
 	if err != nil {
 		return err
@@ -159,7 +180,31 @@ func runBakeEEPROM(outPath, serialHex, pubkeyHashHex, operatorPubkeyHex string) 
 			"  operator public key (P-256, X||Y, 64 bytes) is baked in.")
 	}
 
-	block := tfw.BuildPlatformBlock(serial, pubkeyHash, operatorPubkey)
+	*dst = bakedPlatform{
+		block:          tfw.BuildPlatformBlock(serial, pubkeyHash, operatorPubkey),
+		serial:         serial,
+		pubkeyHash:     pubkeyHash,
+		operatorPubkey: operatorPubkey,
+	}
+	return nil
+}
+
+// writeBakedImage writes the platform block, the network block, or both, as
+// one Intel HEX file holding only their addresses. Either may be nil, not
+// both. The two are contiguous on the part -- the network block starts where
+// the platform block ends -- so the combined file is the one 224-byte run
+// [0x000, 0x0E0) a bench writes with a single `-U eeprom:w:`.
+func writeBakedImage(outPath string, p *bakedPlatform, netblock []byte) error {
+	var segs []ihexSegment
+	if p != nil {
+		segs = append(segs, ihexSegment{base: 0, data: p.block[:]})
+	}
+	if netblock != nil {
+		segs = append(segs, ihexSegment{base: tfw.NetConfigAddr, data: netblock})
+	}
+	if len(segs) == 0 {
+		return errors.New("tfwprov: nothing to bake")
+	}
 
 	f, err := os.Create(outPath)
 	if err != nil {
@@ -167,12 +212,12 @@ func runBakeEEPROM(outPath, serialHex, pubkeyHashHex, operatorPubkeyHex string) 
 	}
 	// No `defer f.Close()`: a deferred, error-discarding Close is exactly
 	// wrong for a file whose correctness is the one thing this command
-	// exists to produce. Both writeIHEXPartial's own error and Close's own
+	// exists to produce. Both writeIHEXSegments's own error and Close's own
 	// (a buffered write that fails to reach disk surfaces there, not
 	// earlier) are propagated, and the success line below is the LAST
 	// thing this function does -- never printed over a file that did not
 	// finish writing.
-	if err := writeIHEXPartial(f, 0, block[:]); err != nil {
+	if err := writeIHEXSegments(f, segs...); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("tfwprov: writing %s: %w", outPath, err)
 	}
@@ -180,10 +225,17 @@ func runBakeEEPROM(outPath, serialHex, pubkeyHashHex, operatorPubkeyHex string) 
 		return fmt.Errorf("tfwprov: closing %s: %w", outPath, err)
 	}
 
-	fmt.Printf("baked platform block -> %s\n", outPath)
-	fmt.Printf("  serial          %s\n", hex.EncodeToString(serial[:]))
-	fmt.Printf("  pubkey_hash     %s\n", hex.EncodeToString(pubkeyHash[:]))
-	fmt.Printf("  operator_pubkey %s\n", hex.EncodeToString(operatorPubkey[:]))
+	if p != nil {
+		fmt.Printf("baked platform block [0x%03X, 0x%03X) -> %s\n", 0, tfw.PlatformBlockLen, outPath)
+		fmt.Printf("  serial          %s\n", hex.EncodeToString(p.serial[:]))
+		fmt.Printf("  pubkey_hash     %s\n", hex.EncodeToString(p.pubkeyHash[:]))
+		fmt.Printf("  operator_pubkey %s\n", hex.EncodeToString(p.operatorPubkey[:]))
+	}
+	if netblock != nil {
+		fmt.Printf("baked network block [0x%03X, 0x%03X) -> %s\n",
+			tfw.NetConfigAddr, tfw.NetConfigAddr+len(netblock), outPath)
+		fmt.Printf("  bytes           % x\n", netblock)
+	}
 	fmt.Println()
 	fmt.Println("Flash it BEFORE the device is ever powered with production firmware,")
 	fmt.Println("with an ISP programmer. tfw-boot has no EEPROM-write command. A stock")
@@ -193,7 +245,7 @@ func runBakeEEPROM(outPath, serialHex, pubkeyHashHex, operatorPubkeyHex string) 
 	fmt.Println("address, so avrdude reports a mismatch on a write that landed. On a")
 	fmt.Println("bench board, `make platform-bake` writes the block and checks it on")
 	fmt.Println("the part. See docs/device-provisioning/user.md.")
-	fmt.Printf("  avrdude -c <isp-prog> -p <part> -U eeprom:w:%s:i\n", outPath)
+	fmt.Printf("  avrdude -c <isp-prog> -p <part> -D -U eeprom:w:%s:i\n", outPath)
 	return nil
 }
 
@@ -203,9 +255,9 @@ func runBakeEEPROM(outPath, serialHex, pubkeyHashHex, operatorPubkeyHex string) 
 // kind of file to anyone reading it.
 const ihexRecordLen = 16
 
-// writeIHEXPartial writes `data` (bounded by a uint16 address, this tool's
-// block is 128 bytes) as Intel HEX data records starting at `base`, followed
-// by an EOF record.
+// writeIHEXSegments writes each segment's data (bounded by a uint16 address;
+// this tool's blocks end at 0x0E0) as Intel HEX data records starting at its
+// base, followed by one EOF record.
 //
 // PARTIAL ON PURPOSE. avrdude's `-U eeprom:w:file:i` writes only the
 // addresses a hex file contains and leaves the rest of the part's EEPROM
@@ -214,14 +266,16 @@ const ihexRecordLen = 16
 // alternative, a full EEPROM-sized image padded with 0xFF, would overwrite
 // user data the write command already permits outside the reserved region,
 // for no reason this tool has any business having an opinion about.
-func writeIHEXPartial(w io.Writer, base uint16, data []byte) error {
-	for off := 0; off < len(data); off += ihexRecordLen {
-		end := off + ihexRecordLen
-		if end > len(data) {
-			end = len(data)
-		}
-		if err := writeIHEXRecord(w, base+uint16(off), 0x00, data[off:end]); err != nil {
-			return err
+func writeIHEXSegments(w io.Writer, segs ...ihexSegment) error {
+	for _, s := range segs {
+		for off := 0; off < len(s.data); off += ihexRecordLen {
+			end := off + ihexRecordLen
+			if end > len(s.data) {
+				end = len(s.data)
+			}
+			if err := writeIHEXRecord(w, s.base+uint16(off), 0x00, s.data[off:end]); err != nil {
+				return err
+			}
 		}
 	}
 	// The EOF record: zero-length, address zero, type 01. Its checksum is
@@ -229,6 +283,12 @@ func writeIHEXPartial(w io.Writer, base uint16, data []byte) error {
 	// the two's-complement checksum of that is 0xFF.
 	_, err := fmt.Fprintf(w, ":00000001FF\n")
 	return err
+}
+
+// ihexSegment is one run of bytes at an EEPROM address.
+type ihexSegment struct {
+	base uint16
+	data []byte
 }
 
 // writeIHEXRecord writes one Intel HEX record: `:LLAAAATT<data>CC`, LL the

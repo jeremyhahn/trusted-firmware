@@ -68,3 +68,5 @@ None planned.
 - go-xkms profiles the possession CSR and verifies the DICE evidence — [go-xkms#1441](../../../go-xkms/issues/1441).
 - go-trusted-platform enrolls devices — [go-trusted-platform#696](../../../go-trusted-platform/issues/696), [go-trusted-platform#772](../../../go-trusted-platform/issues/772).
 - Downstream: go-xkms and go-trusted-platform import `sdk/go`, so it keeps zero in-house dependencies.
+- Standards watch: draft-ietf-suit-manifest, pinned -37 — `src/core/suit.c`, `tools/suit-emit/`.
+- Standards watch: draft-ietf-suit-mti, pinned -23 — `src/core/suit.c` (the ES256 profile's authentication half).

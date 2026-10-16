@@ -68,9 +68,14 @@ commands
                                    operator key (PEM EC private key path;
                                    never read by tfwctl itself -- see
                                    externalECKeySigner) against the given
-                                   device serial, gating eeprom-read below
-                                   the reserved boundary until the device
-                                   resets (reset boot is gated too). A gated verb after --
+                                   device serial, opening eeprom-read below
+                                   the reserved boundary (and the Mega
+                                   2560's swap journal, 0x0E0-0x0E9) until
+                                   the device resets (reset boot is gated
+                                   too). Unauthenticated, those reads get
+                                   StatusErrAuthRequired on the Mega 2560
+                                   and 32U4 element tier; every other build
+                                   leaves them ungated. A gated verb after --
                                    runs in the SAME connection, which matters
                                    on boards (the Mega 2560) that reset on
                                    reopen and would otherwise discard the

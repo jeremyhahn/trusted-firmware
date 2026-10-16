@@ -107,9 +107,10 @@ tfw_status_t tfw_storage_cmd_write(tfw_reader_t *r, tfw_writer_t *w)
         return TFW_ERR_RANGE;
     }
     /* The whole write must clear the reserved region, not merely start above
-     * it. A write beginning at 0x7F and running eight bytes would otherwise
-     * reach 0x86 -- past the boundary -- having passed a check on its first
-     * address only. The same holds for a board's range above the region. */
+     * it. A write beginning at 0xBF and running eight bytes would otherwise
+     * reach 0xC6 -- past the boundary at 0xC0 -- having passed a check on its
+     * first address only. The same holds for a board's range above the region
+     * (the ATmega2560's journal at 0x0E0-0x0E9). */
     if (boot_owned(addr, len)) {
         return TFW_ERR_PROTECTED_REGION;
     }

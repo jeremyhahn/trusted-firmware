@@ -377,8 +377,11 @@ $(BOOT_TEST_DIR)/test_boot_stage_2560: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity
 # The swap-move is the 2560's alone: its geometry is in that profile only.
 # With the serial session, so a session's image is seen landing in the
 # secondary and swapped in; tfw_boot_evaluate and the floor are the test's.
+# And with the store's copy over the software NOR part, so the store row's
+# image is seen reaching the same swap and the same trial (#77).
 $(BOOT_TEST_DIR)/test_boot_swap: test/unit/boot/test_boot_swap.c boot/boot_swap.c \
                                  boot/recovery/recovery_ota.c src/proto/frame.c \
+                                 boot/boot_stage.c test/model/spi_nor_model.c \
                                  $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

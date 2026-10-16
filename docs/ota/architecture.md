@@ -556,6 +556,41 @@ once in the secondary and once in the primary.
   - choose one update path per image, as the application does with its
     transport.
 
+  **The store-copy boot and the trial, 2026-10-16.** What a `BOOT_STORE=1`
+  boot does with a staged image, on main at b1c71f4. The tests are in
+  `make boot-test`; the simavr suite runs the `BOOT_OTA=1` row only.
+  - (a) Trial: yes. The copy leaves the image `PENDING` in the secondary
+    (`boot/boot_stage.c:224`), the swap takes it in (`boot/boot_main.c:263`)
+    and it is armed `TRIAL` before the jump (`boot/boot_main.c:282`,
+    `boot/boot_trial.c:34`). Pinned by `test_boot_swap`:
+    `test_a_store_image_unconfirmed_swaps_back_and_is_not_retried`, from the
+    real copy out of the NOR model.
+  - (b) Confirm: the boot needs one, but nothing gives it yet. Only
+    `CONFIRMED` settles (`boot/boot_trial.c:18`). Pinned by
+    `test_a_confirmed_store_image_settles_and_is_not_copied_again`. Missing on
+    every row, not this row alone: nothing in `boot/` or `src/` calls
+    `tfw_boot_trial_confirm`, and `OTA_CONFIRM` is not on the wire (see "Not
+    yet" below). So every trial on main ends unconfirmed. Estimate, not
+    measured: 0 B of the boot section, which already links the transition. The
+    cost is in the application, about 150 to 250 B for the command and the
+    platform block's write.
+  - (c) Rollback: yes. A reset that finds `TRIAL` (`boot/boot_trial.c:15`)
+    swaps back to the image before it (`boot/boot_swap.c:229`, from
+    `boot/boot_main.c:157`). The store's mark, still present, does not
+    re-copy the failed image (`boot/boot_stage.c:186`). An image refused after
+    the swap swaps back the same way (`boot/boot_main.c:265`). Pinned by
+    `test_a_store_image_unconfirmed_swaps_back_and_is_not_retried` and
+    `test_an_image_refused_after_the_swap_swaps_back`.
+  - (d) Anti-rollback floor: yes. The image is checked before any page is
+    copied (`boot/boot_stage.c:200`), in the secondary before the swap
+    (`boot/boot_swap.c:251`) and by the gate in the primary. The floor moves
+    only at settle (`boot/boot_main.c:205`). Pinned by
+    `test_an_image_below_the_floor_copies_nothing` (`test_boot_stage_2560`),
+    `test_a_store_image_below_the_floor_never_reaches_a_slot`, and by
+    `test_settle_advances_the_floor_to_the_confirmed_version`
+    (`test_boot_trial`). The gate's own floor check is pinned by
+    `test_boot_policy`, which does not depend on the row.
+
 Not yet: the 328P/32U4 `PREV` restore;
 the stager carrying the envelope and calling the manifest gate;
 `OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are

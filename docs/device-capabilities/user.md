@@ -101,9 +101,15 @@ data, err := dev.EEPROMRead(ctx, 0x100, 4)
 ```
 
 Writes and reads are capped at 8 bytes per call — chunk larger payloads
-yourself. Addresses below `0x080` belong to the platform (bootloader hash,
-serial, boot counter, OTA state); a write there is refused, a read is not,
-because those bytes are public by nature.
+yourself. Addresses `0x000`-`0x0BF` belong to the platform (bootloader hash,
+serial, boot counter, operator key, OTA state), and on the ATmega2560 so does
+the swap journal at `0x0E0`-`0x0E9`. A write touching any of those bytes is
+refused with `TFW_ERR_PROTECTED_REGION`; a read of them needs an authenticated
+session on a build that has one.
+
+> Corrected 2026-10-16: this said addresses below `0x080`, and that a read was
+> never refused. The firmware's bound is `TFW_BOOT_EE_LEN` (192) in
+> `src/caps/storage.c`.
 
 ## Talk to an I2C, SPI or 1-Wire device
 

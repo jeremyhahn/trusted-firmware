@@ -110,6 +110,56 @@ func TestEthernetDeviceRefusesWhatIsNotOnTheAllowList(t *testing.T) {
 	}
 }
 
+// The four OTA staging ids are on the Ethernet allow-list (src/proto/link_eth.c,
+// tfw_link_admits). The link refuses anything else with StatusErrUnknownCmd, so
+// each id here is driven to a reply that is not that one: tfwsim links the
+// stager, and every answer below is the stager's.
+func TestEthernetDeviceAdmitsTheOTAIdsOverTCP(t *testing.T) {
+	ctx := context.Background()
+	_, eth := tfwsim.StartElementEthernet(t)
+
+	if s, n, err := eth.OTAStatus(ctx); err != nil || s != tfw.OTAIdle || n != 0 {
+		t.Fatalf("OTA_STATUS over TCP = %v, %d, %v; want %v, 0, nil", s, n, err, tfw.OTAIdle)
+	}
+	if err := eth.OTABegin(ctx, 1000); !errors.Is(err, tfw.StatusErrRange) {
+		t.Fatalf("OTA_BEGIN 1000 over TCP: %v, want %v", err, tfw.StatusErrRange)
+	}
+	if err := eth.OTABegin(ctx, 512); err != nil {
+		t.Fatalf("OTA_BEGIN 512 over TCP: %v", err)
+	}
+	img := stageImage(512, 200)
+	if err := eth.OTAData(ctx, 0, img[:tfw.OTAChunk]); err != nil {
+		t.Fatalf("OTA_DATA 0 over TCP: %v", err)
+	}
+	if err := eth.OTAEnd(ctx); !errors.Is(err, tfw.StatusErrFraming) {
+		t.Fatalf("early OTA_END over TCP: %v, want %v", err, tfw.StatusErrFraming)
+	}
+	// The early END failed the session, and STATUS says so.
+	if s, n, err := eth.OTAStatus(ctx); err != nil || s != tfw.OTAFailed || n != tfw.OTAChunk {
+		t.Fatalf("OTA_STATUS over TCP = %v, %d, %v; want %v, %d, nil", s, n, err, tfw.OTAFailed, tfw.OTAChunk)
+	}
+}
+
+// The OTA ADR (docs/ota/adr-ota-image-format-and-trust.md, decision 8, :516-517)
+// names AUTH_CHALLENGE, AUTH_RESPONSE and OTA_INFO, OTA_ACTIVATE and
+// OTA_CONFIRM for the Ethernet allow-list too; the code admits none of them
+// today, and the owner has not ruled which is right. This pins today's code.
+func TestEthernetDeviceRefusesAuthAndOTAActivateOverTCP(t *testing.T) {
+	ctx := context.Background()
+	_, eth := tfwsim.StartElementEthernet(t)
+
+	for _, c := range []tfw.Cmd{
+		tfw.CmdAuthChallenge, tfw.CmdAuthResponse,
+		tfw.Cmd(0x6C), // OTA_INFO
+		tfw.Cmd(0x6D), // OTA_ACTIVATE
+		tfw.Cmd(0x6E), // OTA_CONFIRM
+	} {
+		if _, err := eth.Do(ctx, c, nil); !errors.Is(err, tfw.StatusErrUnknownCmd) {
+			t.Errorf("command 0x%02X over TCP: %v, want %v", uint8(c), err, tfw.StatusErrUnknownCmd)
+		}
+	}
+}
+
 // Both links at once: a host on serial is not shut out while the Ethernet
 // link is up, and the two answers do not cross.
 func TestSerialAndEthernetAreAnsweredSideBySide(t *testing.T) {

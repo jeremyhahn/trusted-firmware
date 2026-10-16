@@ -12,13 +12,16 @@
 #include "tfw/boot.h"
 #include "boot_hal.h"
 #include "boot_hal_mock.h"
+#include "boot_measure.h"
 #include "boot_policy.h"
 #include "boot_recovery.h"
+#include "boot_stage.h"
 #include "boot_store.h"
 #include "boot_swap.h"
 #include "boot_trial.h"
 #include "crc16.h"
 #include "frame.h"
+#include "../../model/spi_nor_model.h"
 
 #define SLOT  ((uint32_t)TFW_SWAP_SLOT_LEN)
 #define PRI   ((uint32_t)TFW_SWAP_PRIMARY_BASE)
@@ -574,6 +577,148 @@ static void test_garbage_in_both_copies_moves_nothing(void)
     assert_slots(img_b, img_a);
 }
 
+/* ---- The store row (BOOT_STORE=1): the copy, the swap and the trial ----
+ *
+ * main()'s order on the store row: tfw_boot_stage_take copies the staged image
+ * into the secondary and leaves it PENDING, tfw_boot_swap_take swaps it in,
+ * and it is armed for its one trial. The tests above start from that PENDING;
+ * these reach it through the real copy, from the software NOR part. */
+
+#define ST_VERSION 7u
+
+static uint8_t st_stream[TFW_OTA_STORE_STAGE_LEN];
+static uint8_t img_s[TFW_SWAP_SLOT_LEN];   /* the secondary after the copy */
+
+static const uint8_t *st_src;
+
+static tfw_status_t st_read(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+    memcpy(buf, &st_src[addr], len);
+    return TFW_OK;
+}
+
+static void st_wr32(uint8_t *b, uint32_t v)
+{
+    b[0] = (uint8_t)v;
+    b[1] = (uint8_t)(v >> 8);
+    b[2] = (uint8_t)(v >> 16);
+    b[3] = (uint8_t)(v >> 24);
+}
+
+/* What the application's stager leaves in the store, as test_boot_stage.c
+ * lays it out: a 1000-byte image padded to 1072, its trailer, and the mark. */
+static void st_stage(void)
+{
+    uint32_t total = 1200u;
+    uint32_t body  = total - TFW_BOOT_TRAILER_LEN;
+    uint8_t  digest[TFW_BOOT_MEASURE_LEN];
+    uint8_t  mark[TFW_STAGE_MARK_LEN];
+    uint8_t *tr    = &st_stream[body];
+    uint32_t i;
+
+    tfw_nor_model_reset();
+    tfw_boot_mock_on_store(tfw_nor_model_xfer);
+    for (i = 0u; i < body; i++) {
+        st_stream[i] = (uint8_t)(i * 5u + 1u);
+    }
+    st_src = st_stream;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_measure_from(st_read, 0u, 1000u, digest));
+    memset(tr, 0, TFW_BOOT_TRAILER_LEN);
+    st_wr32(&tr[TFW_BOOT_TR_MAGIC], TFW_BOOT_TRAILER_MAGIC);
+    tr[TFW_BOOT_TR_VERSION]  = (uint8_t)TFW_BOOT_TRAILER_VERSION;
+    tr[TFW_BOOT_TR_BOARD_ID] = TFW_BOARD_ID;
+    st_wr32(&tr[TFW_BOOT_TR_IMAGE_VERSION], ST_VERSION);
+    st_wr32(&tr[TFW_BOOT_TR_IMAGE_LEN], 1000u);
+    memcpy(&tr[TFW_BOOT_TR_MEASUREMENT], digest, sizeof digest);
+    memset(&tr[TFW_BOOT_TR_SIGNATURE], 0x5A, TFW_BOOT_SIG_LEN);
+    tfw_nor_model_load((uint32_t)TFW_OTA_STORE_STAGE_ADDR, st_stream, total);
+    st_wr32(mark, TFW_STAGE_MARK_MAGIC);
+    st_wr32(&mark[TFW_STAGE_MARK_O_LEN], total);
+    memcpy(&mark[TFW_STAGE_MARK_O_HASH], digest, sizeof digest);
+    tfw_nor_model_load((uint32_t)TFW_OTA_STORE_MARK_ADDR, mark, sizeof mark);
+
+    memset(&plat, 0, sizeof plat);
+    plat.boot_state = TFW_BOOT_STATE_GOOD;
+    plat.ota_state  = TFW_BOOT_OTA_IDLE;
+    stored = plat;
+    stores = 0u;
+}
+
+/* One boot of the store row up to the jump: copy, swap, arm. */
+static void st_boot_into_trial(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, ST_VERSION));
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, stored.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_PENDING, stored.ota_state);
+    assert_slots(img_a, &tfw_boot_mock_flash()[SEC]);
+    memcpy(img_s, &tfw_boot_mock_flash()[SEC], SLOT);
+    TEST_ASSERT_EQUAL_MEMORY(st_stream, img_s, 1000u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, ST_VERSION));
+    assert_slots(img_s, img_a);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_arm(&plat));
+    tfw_boot_platform_store(&plat);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, stored.boot_state);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nor_model_violations());
+}
+
+/* (a) and (c): a store image runs only on trial, and a reset that finds the
+ * trial unconfirmed swaps back to A -- and the mark the store still holds does
+ * not give the image that failed a second trial. */
+static void test_a_store_image_unconfirmed_swaps_back_and_is_not_retried(void)
+{
+    unsigned writes;
+
+    st_stage();
+    st_boot_into_trial();
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, stored.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, stored.ota_state);
+    assert_slots(img_a, img_s);
+
+    writes = tfw_boot_mock_page_writes();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_stage_take(&plat, ST_VERSION));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, ST_VERSION));   /* nothing pending */
+    TEST_ASSERT_EQUAL_UINT(writes, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());
+    assert_slots(img_a, img_s);
+}
+
+/* (b): only the application's confirm keeps it. Confirmed, the next reset
+ * settles with the slots kept, and the store's mark copies nothing again. */
+static void test_a_confirmed_store_image_settles_and_is_not_copied_again(void)
+{
+    unsigned writes;
+
+    st_stage();
+    st_boot_into_trial();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_confirm(&plat));
+    tfw_boot_platform_store(&plat);
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_SETTLE, reset());
+    assert_slots(img_s, img_a);
+    plat.boot_state = TFW_BOOT_STATE_GOOD;   /* main()'s settle */
+    tfw_boot_platform_store(&plat);
+
+    writes = tfw_boot_mock_page_writes();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_stage_take(&plat, ST_VERSION));
+    TEST_ASSERT_EQUAL_UINT(writes, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());
+    assert_slots(img_s, img_a);
+}
+
+/* (d), the copy's half: below the floor, the store image is neither copied
+ * nor swapped, and A boots as it was. */
+static void test_a_store_image_below_the_floor_never_reaches_a_slot(void)
+{
+    st_stage();
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION,
+                      tfw_boot_stage_take(&plat, ST_VERSION + 1u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, ST_VERSION + 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_UINT(0u, stores);
+    assert_slots(img_a, img_b);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -599,5 +744,8 @@ int main(void)
     RUN_TEST(test_a_torn_settle_settles_at_the_next_boot);
     RUN_TEST(test_a_settle_whose_idle_write_fails_settles_nothing);
     RUN_TEST(test_garbage_in_both_copies_moves_nothing);
+    RUN_TEST(test_a_store_image_unconfirmed_swaps_back_and_is_not_retried);
+    RUN_TEST(test_a_confirmed_store_image_settles_and_is_not_copied_again);
+    RUN_TEST(test_a_store_image_below_the_floor_never_reaches_a_slot);
     return UNITY_END();
 }

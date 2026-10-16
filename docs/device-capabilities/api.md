@@ -118,8 +118,16 @@ EEPROM_READ   req  addr:u16  len:u8                            resp  data:blob(l
 EEPROM_WRITE  req  addr:u16  data:blob                         resp  (none)
 ```
 
-`len`/`len(data)` is bounded by `TFW_EEPROM_CHUNK` (8). `addr` below `0x080`
-is refused on write (`TFW_ERR_PROTECTED_REGION`) and permitted on read.
+`len`/`len(data)` is bounded by `TFW_EEPROM_CHUNK` (8). A write any byte of
+which falls in `0x000`-`0x0BF` (`TFW_BOOT_EE_LEN`, 192 bytes) is refused
+(`TFW_ERR_PROTECTED_REGION`); on the ATmega2560 so is one touching the swap
+journal at `0x0E0`-`0x0E9`. A read of those bytes passes `tfw_auth_gate`: it
+needs an authenticated session on a build that has one
+(`TFW_ERR_AUTH_REQUIRED` otherwise).
+
+> Corrected 2026-10-16: this said `addr` below `0x080` was refused on write and
+> permitted on read. The bound is `TFW_EEPROM_RESERVED_END` = `TFW_BOOT_EE_LEN`
+> (`src/caps/storage.c`, `boot_owned`), checked over the whole span.
 
 ## Buses
 

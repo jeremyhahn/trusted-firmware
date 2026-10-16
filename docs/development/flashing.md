@@ -13,8 +13,13 @@ make BOARD=atmega328p firmware
 make BOARD=atmega328p flash AVRDUDE_PORT=/dev/ttyUSB0
 ```
 
-`AVRDUDE_PORT` defaults to `/dev/ttyUSB0` and is the one setting you will
-usually override. `AVRDUDE_PART`, `AVRDUDE_PROG` and `AVRDUDE_BAUD` come from
+`AVRDUDE_PORT` defaults per board, in the board's `profile.mk`: `/dev/ttyUSB0`
+on the ATmega328P (the default `BOARD`), `/dev/ttyACM0` on the ATmega2560 and
+the ATmega32U4, `usb` on the ATtiny85. It is the one setting you will
+usually override.
+
+> Corrected 2026-10-16: this said `AVRDUDE_PORT` defaults to `/dev/ttyUSB0`.
+> The Makefile sets no default of its own; each `boards/<board>/profile.mk` does. `AVRDUDE_PART`, `AVRDUDE_PROG` and `AVRDUDE_BAUD` come from
 the profile — an Uno is `arduino` at 115200, a Nano with the old bootloader is
 the same programmer at 57600, and getting that wrong looks like a dead board
 rather than a wrong baud rate.

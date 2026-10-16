@@ -414,7 +414,10 @@ func (d *Device) SetADCReference(ctx context.Context, ref ADCReference) error {
 // deadline. The host does the chunking; the device stays responsive.
 const EEPROMChunk = 8
 
-// EEPROMReservedEnd is the first address a host may always write.
+// EEPROMReservedEnd is the first address past the platform block,
+// [0x000, 0x0C0) on every board. A board's bootloader may keep EEPROM above
+// it too, which the device refuses the same way: the ATmega2560's swap
+// journal at 0x0E0-0x0E9 (boards/atmega2560/board_profile.h).
 //
 // Below it live the bootloader's public-key hash, the device serial, the boot
 // counter, the OTA state and -- element tier only, since issue #4 -- the
@@ -432,14 +435,18 @@ const EEPROMReservedEnd = 0xC0
 
 // EEPROMRead reads up to EEPROMChunk bytes.
 //
-// On an element-tier device, an address below EEPROMReservedEnd additionally
-// requires an authenticated session (see AuthChallenge/AuthResponse) --
-// StatusErrAuthRequired otherwise. On a soft-tier or CRYPTO=none device this
-// is NOT enforced: AUTH_CHALLENGE/AUTH_RESPONSE are not compiled into either
-// tier (the element is what makes an operator signature checkable without a
-// shared secret on the device), so every read is permitted there exactly as
-// it always was. See docs/security/threat-model.md for why that gap is
-// accepted rather than hidden.
+// A read is read-gated when it starts below EEPROMReservedEnd or, on the
+// ATmega2560 only, overlaps the swap-journal record at 0x0E0-0x0E9. The gate
+// is enforced only by an image built with CRYPTO=atecc608a (the element tier,
+// `make firmware-attested`) for a board whose profile leaves the auth session
+// on: the ATmega2560 and the ATmega32U4. There a gated read without an
+// authenticated session (see AuthChallenge/AuthResponse) returns
+// StatusErrAuthRequired. Every other build links the permissive gate and the
+// read is permitted exactly as it always was: the soft tier (the default on
+// every AVR board), CRYPTO=none (the ATtiny85's only tier), the ESP32 hmac-ds
+// tier, and the ATmega328P even on the element tier, whose profile turns the
+// session off for want of flash. See docs/security/threat-model.md for why
+// that gap is accepted rather than hidden.
 func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, error) {
 	if n == 0 || n > EEPROMChunk {
 		return nil, &ArgRangeError{
@@ -455,7 +462,8 @@ func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, 
 	return f.Payload, nil
 }
 
-// EEPROMWrite writes up to EEPROMChunk bytes at or above EEPROMReservedEnd.
+// EEPROMWrite writes up to EEPROMChunk bytes at or above EEPROMReservedEnd,
+// outside any range the board's bootloader keeps there.
 func (d *Device) EEPROMWrite(ctx context.Context, addr uint16, data []byte) error {
 	if len(data) == 0 || len(data) > EEPROMChunk {
 		return &ArgRangeError{

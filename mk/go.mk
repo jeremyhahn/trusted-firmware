@@ -40,7 +40,12 @@ hw-test:
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) $(GO) test -count=1 -p 1 -run '$(HW_TEST_RUN)' .
 
 ## sdk-lint: gofmt and vet the Go SDK
+# vet compiles the tests, so it downloads their modules. That download goes
+# first, through deps-check.py's bounded retry: a proxy that is down for a
+# moment is asked again, a module that is wrong or missing fails at once, and
+# gofmt and vet then run once, from the cache, so a real finding fails first time.
 sdk-lint:
+	@python3 scripts/deps-check.py download $(SDK_DIR)
 	@cd $(SDK_DIR) && out=$$($(GO) fmt ./... ) && \
 	  if [ -n "$$out" ]; then echo "gofmt rewrote:"; echo "$$out"; exit 1; fi
 	@cd $(SDK_DIR) && $(GO) vet ./...

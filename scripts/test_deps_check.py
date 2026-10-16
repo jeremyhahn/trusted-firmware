@@ -132,5 +132,41 @@ class FetchRetry(unittest.TestCase):
         self.sleep.assert_not_called()
 
 
+class DownloadRetry(unittest.TestCase):
+    # What main's push run 54635 failed on, in sdk-lint (#103 had no retry there).
+    TLS = ('go: github.com/stretchr/testify@v1.12.1: Get "https://proxy.golang.org/github.com/'
+           'stretchr/testify/@v/v1.12.1.zip": net/http: TLS handshake timeout')
+    GONE = "go: example.com/m@v1.0.0: reading https://proxy.golang.org/example.com/m/@v/v1.0.0.zip: 404 Not Found"
+
+    def setUp(self):
+        self.sleep = mock.patch.object(dc.time, "sleep").start()
+        mock.patch("sys.stderr", new_callable=io.StringIO).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def runner(self, *answers):
+        return mock.patch.object(dc.subprocess, "run", side_effect=list(answers)).start()
+
+    def test_tls_handshake_timeout_then_success_passes(self):
+        r = self.runner(done(1, stderr=self.TLS), done(0))
+        self.assertEqual(dc.main(["deps-check.py", "download", "sdk/go"]), 0)
+        self.assertEqual(r.call_count, 2)
+        self.assertEqual(r.call_args.args[0], ["go", "list", "-deps", "-test", "./..."])
+        self.assertEqual(r.call_args.kwargs["cwd"], "sdk/go")
+
+    def test_three_timeouts_fail(self):
+        r = self.runner(*[done(1, stderr=self.TLS)] * 3)
+        self.assertEqual(dc.main(["deps-check.py", "download", "sdk/go"]), 1)
+        self.assertEqual(r.call_count, 3)
+
+    def test_a_missing_module_fails_at_once(self):
+        r = self.runner(done(1, stderr=self.GONE), done(0))
+        self.assertEqual(dc.main(["deps-check.py", "download", "sdk/go"]), 1)
+        self.assertEqual(r.call_count, 1)
+        self.sleep.assert_not_called()
+
+    def test_no_module_dir_is_a_usage_error(self):
+        self.assertEqual(dc.main(["deps-check.py", "download"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

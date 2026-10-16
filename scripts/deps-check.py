@@ -9,6 +9,9 @@
 #   deps-check.py toolchain       the pins in scripts/tool-pins.sh, and the AVR
 #                                 toolchain the image actually installed
 #   deps-check.py go <module>...  every require in each module's go.mod
+#   deps-check.py download <module>...
+#                                 not a check: fetch the modules for a gate
+#                                 that compiles, with the lookups' retry
 #
 # Where the reason lives, as devops.md §9 says it must:
 #   a toolchain pin   HELD_<NAME>="..." in scripts/tool-pins.sh
@@ -365,10 +368,30 @@ def go_modules(dirs):
     return rep
 
 
+def download(dirs):
+    """Fetch the modules each module's packages and tests import (what vet
+    compiles), retrying a transient failure.
+
+    Not a check: it lets a gate that compiles (sdk-lint) reach the proxy
+    through attempt(), so a proxy that is down for a moment is asked again and
+    a module that is wrong or missing fails on the first try."""
+    for d in dirs:
+        try:
+            run(["go", "list", "-deps", "-test", "./..."], cwd=d, upstream=True)
+        except LookupFailed as e:
+            print(f"download: {d}: {e}", file=sys.stderr)
+            return 1
+    return 0
+
+
 def main(argv):
-    if len(argv) < 2 or argv[1] not in ("toolchain", "go") or (argv[1] == "go" and len(argv) < 3):
-        print("usage: deps-check.py toolchain | go <module dir>...", file=sys.stderr)
+    if len(argv) < 2 or argv[1] not in ("toolchain", "go", "download") or \
+            (argv[1] != "toolchain" and len(argv) < 3):
+        print("usage: deps-check.py toolchain | go <module dir>... | download <module dir>...",
+              file=sys.stderr)
         return 2
+    if argv[1] == "download":
+        return download(argv[2:])
     if shutil.which("git") is None:
         print("deps-check: git is missing: run in the devcontainer image", file=sys.stderr)
         return 1

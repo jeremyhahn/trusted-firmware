@@ -21,7 +21,9 @@
 /* At reset, before anything reads either slot. Resumes a swap a reset cut
  * short. Then, swapped: a trial that ended unconfirmed (TFW_BOOT_RESET_FAIL)
  * falls back and boots the previous image (TFW_BOOT_RESET_BOOT); a confirmed
- * one is kept; a fall-back whose swap never started is run. Returns the
+ * one is kept, and settles (TFW_BOOT_RESET_SETTLE) only once the idle record
+ * is stored -- else it boots unsettled, still CONFIRMED, and the next reset
+ * retries; a fall-back whose swap never started is run. Returns the
  * action main() goes on with. */
 tfw_boot_reset_action_t tfw_boot_swap_at_reset(tfw_boot_platform_t *p,
                                                tfw_boot_reset_action_t act);

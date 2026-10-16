@@ -220,8 +220,11 @@ tfw_boot_reset_action_t tfw_boot_swap_at_reset(tfw_boot_platform_t *p,
     }
     if (act == TFW_BOOT_RESET_SETTLE) {
         /* Kept: idle before GOOD is written, so a reset between them settles
-         * an ordinary confirmed trial. */
-        (void)put(PH_IDLE, 0u);
+         * an ordinary confirmed trial. Not stored, nothing settles: the block
+         * stays CONFIRMED at the old floor, and the next reset retries. */
+        if (put(PH_IDLE, 0u) != TFW_OK) {
+            act = TFW_BOOT_RESET_BOOT;
+        }
     } else if (act == TFW_BOOT_RESET_FAIL) {
         if (tfw_boot_swap_fall_back(p) == TFW_OK) {
             act = TFW_BOOT_RESET_BOOT;

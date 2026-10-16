@@ -513,6 +513,40 @@ static void test_a_torn_settle_settles_at_the_next_boot(void)
     assert_slots(img_b, img_a);
 }
 
+/* Codex review 5268 P2: an idle write that fails its readback settles nothing.
+ * main() advances the floor and stores GOOD only on SETTLE, so the block stays
+ * CONFIRMED at the old floor, and the next reset settles it -- PH_DONE with
+ * GOOD, which would swap back below the new floor, is never stored. */
+static void test_a_settle_whose_idle_write_fails_settles_nothing(void)
+{
+    tfw_boot_reset_action_t act;
+
+    pending();
+    plat.rollback_floor = 3u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 3u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_arm(&plat));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_confirm(&plat));
+    tfw_boot_platform_store(&plat);
+    tfw_boot_mock_tear_nvm(0u, 1u, 0x00u);
+    plat = stored;
+    act = tfw_boot_swap_at_reset(&plat, tfw_boot_trial_at_reset(&plat));
+    tfw_boot_mock_tear_nvm(UINT_MAX, 0u, 0u);
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, act);   /* not SETTLE: no advance */
+    TEST_ASSERT_EQUAL_HEX8(0x44u, phase());
+    TEST_ASSERT_EQUAL(TFW_BOOT_STATE_CONFIRMED, stored.boot_state);
+    TEST_ASSERT_EQUAL_UINT32(3u, stored.rollback_floor);
+    assert_slots(img_b, img_a);
+
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_SETTLE, reset());   /* retried */
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, phase());
+    assert_slots(img_b, img_a);
+    plat.rollback_floor = 5u;                 /* main()'s settle */
+    plat.boot_state     = TFW_BOOT_STATE_GOOD;
+    tfw_boot_platform_store(&plat);
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());   /* and no swap back */
+    assert_slots(img_b, img_a);
+}
+
 /* Both copies damaged, here in the middle of a swap: no position can be read,
  * so nothing is moved on a guess. The record reads idle, the boot leaves the
  * slots as they are for the gate to judge, and a later swap starts whole. */
@@ -563,6 +597,7 @@ int main(void)
     RUN_TEST(test_a_torn_progress_write_resumes_the_swap);
     RUN_TEST(test_a_torn_progress_write_resumes_the_swap_back);
     RUN_TEST(test_a_torn_settle_settles_at_the_next_boot);
+    RUN_TEST(test_a_settle_whose_idle_write_fails_settles_nothing);
     RUN_TEST(test_garbage_in_both_copies_moves_nothing);
     return UNITY_END();
 }

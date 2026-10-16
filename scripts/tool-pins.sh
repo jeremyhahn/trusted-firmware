@@ -57,6 +57,7 @@ GO_IMAGE=golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d1
 # The golangci-lint version. Every literal pin in .github/workflows/ci.yml must
 # match it, and each of these.
 GOLANGCI_VERSION=v2.14.0
+HELD_GOLANGCI="the fleet template's pin (ci-template v1.20 checks v2.14.0 outside the CUSTOMIZE blocks); the next one comes from the Company Agent's versions.conf (devops.md §9)"
 # The workflow linter, for .github/workflows.
 ACTIONLINT_VERSION=v1.7.12
 GOSEC_VERSION=v2.29.0

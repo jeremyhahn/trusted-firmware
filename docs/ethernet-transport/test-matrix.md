@@ -1,10 +1,13 @@
 # Ethernet transport — hardware test matrix
 
-> **Status: DRAFT** · Scope: trusted-firmware · Last verified: 2026-10-15
+> **Status: DRAFT** · Scope: trusted-firmware · Last verified: 2026-10-16
 > What the hardware run of [the ADR](adr-wire-protocol-over-w5x00.md) covers on
 > each board, now and when the ATECC608C (MIKROE-6774 Click board) arrives. The
 > Mega's software tier ran on 2026-10-15 as far as serial reaches
-> ([the Mega run](#the-mega-run-2026-10-15)); the Nano has not run.
+> ([the Mega run](#the-mega-run-2026-10-15)). On 2026-10-16 the part read
+> erased, and `tfw-boot` did not go in. Its two blocks were then re-provisioned
+> over ISP and its application flashed again ([over ISP](#the-mega-over-isp-2026-10-16)).
+> The Nano has not run.
 
 ## Values the run writes
 
@@ -83,6 +86,22 @@ which the software tier never reads. The SHA-256 of its `.eep` is
 | 4 | TCP between the device and the lane's container on the bench host | **Not run as specified**, both passes. The container has only its Docker bridge address and loopback, with no address on the board's network. In the second pass, a connect to `198.51.100.22:7020` with a 5 s timeout timed out unanswered. Reaching the board's network is Infrastructure's |
 | 5–6 | Attestation over TCP, the off-allow-list refusal | **Not run.** They need item 4 |
 | 7 | The same identity after a reset, over serial, second pass | **Partly run.** After a soft `RESET`, and the reset each port open causes, the serial at `0x034` and the MAC in the network block read back unchanged. The evidence half cannot run on this image. Behind a stock bootloader the software tier has no UDS (`src/crypto/soft/uds_flash.c`), so `ATTEST` answers "no provisioned identity" whatever the platform block holds. Evidence needs `tfw-boot` handing off a CDI, which needs ISP to install, or the element tier |
+
+## The Mega over ISP, 2026-10-16
+
+A USBasp on the Mega's ICSP header ran the first steps toward `tfw-boot`,
+which item 7's evidence needs
+([the ISP route](../development/isp-route.md#the-mega-2026-10-16)). Nothing
+was written to the Mega.
+
+| What ran | Result |
+|---|---|
+| Signature and fuses over ISP | `0x1E9801`; fuses `0xFF` (low), `0xD8` (high), `0xFD` (extended); lock `0xCF`. The same before and after the run |
+| The EEPROM, read out over ISP | All `0xFF`. The platform block and network block of the second pass above are gone, and so is the application. The STK500v2 bootloader is intact. They were erased between that pass and this run, by something this run did not see |
+| `make boot-flash BOARD=atmega2560 ISP_PROG=usbasp ISP_PORT=usb` | **Did not build.** The default row (soft, ed25519-donna) does not fit the 8 KB boot section, and avrdude never ran. The supported element row builds, but needs the ATECC608C and a provisioned EEPROM |
+| `make hw-test`, the identity and the `tfw-boot` evidence | **Not run.** There is no application on the part and no `tfw-boot` |
+| Re-provisioning over ISP, later that day (Company Agent m233: the erase was an Arduino IDE "Burn Bootloader") | **Pass.** The platform block came from `tfwprov --bake-eeprom --serial 54465700000000000000000000002560` (the same `.eep` as the second pass). The network block came from `NetConfig.MarshalBinary` with the second pass's values. Both were written with `avrdude -c usbasp -p m2560 -D -U eeprom:w:…:i`: no erase, no fuse, no lock. Read back over ISP, `0x000`–`0x0FF` equals the second pass's dump byte for byte |
+| The second pass's application, through the stock bootloader | **Pass.** `make flash BOARD=atmega2560 CRYPTO=soft ETH=1` wrote the same `.hex` (`92364618…`). `CAPS` answers atmega2560 on the software tier, and `tfwctl eeprom-read` reads `0x000`–`0x0DF` equal to the image, the serial and the MAC included. `make hw-test` and `ATTEST` were not run ([the record](../development/isp-route.md#the-mega-re-provisioned-over-isp-2026-10-16)) |
 
 ## The day the ATECC608C (MIKROE-6774 Click board) arrives
 

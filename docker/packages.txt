@@ -1,11 +1,17 @@
 # The toolchain, single-sourced.
 #
-# Both docker/Dockerfile.ci and the CI workflow install exactly this list, so a
-# developer running `make docker-ci` and the gate running on a runner are using
-# the same tools. Two lists would drift, and the drift would show up as a gate
-# that passes locally and fails in CI for reasons nobody can reproduce.
+# build/docker/devcontainer/Dockerfile installs exactly this list, and every CI
+# stage runs in that image, so a developer running `make docker-ci` and the gate
+# running on a runner are using the same tools. Two lists would drift, and the
+# drift would show up as a gate that passes locally and fails in CI for reasons
+# nobody can reproduce.
 #
 # One package per line; # starts a comment.
+#
+# The Dockerfile splits it: a line whose comment begins `[toolchain]` is an
+# analysis tool, installed in the `toolchain` stage only, so it never ships into
+# `integration` (handbook devcontainer.md §1); every other line is the compiler
+# and runtime, installed in `base`.
 
 gcc-avr          # the AVR compiler
 avr-libc         # its C library and device headers
@@ -19,12 +25,12 @@ libelf-dev       # simavr reads the firmware .elf through libelf
 build-essential  # the host compiler, for the unit tests and tfwsim
 make
 
-clang-format     # stands in for gofmt
-clang-tidy       # stands in for golangci-lint
-cppcheck         # stands in for go vet
+clang-format     # [toolchain] stands in for gofmt
+clang-tidy       # [toolchain] stands in for golangci-lint
+cppcheck         # [toolchain] stands in for go vet
 
-gcovr            # coverage, with the 90% floor
-lcov
+gcovr            # [toolchain] coverage, with the 90% floor
+lcov             # [toolchain]
 
 python3
 

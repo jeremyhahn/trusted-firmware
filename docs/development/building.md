@@ -3,35 +3,78 @@
 > **Status: NORMATIVE** · Scope: the build system · Last verified: 2026-09-22
 
 Nothing here requires an AVR toolchain on your machine. `make docker-build`
-produces an image with all of it, and every other target runs inside it.
+produces the devcontainer with all of it, and every other target runs inside it.
+
+## The image
+
+`build/docker/devcontainer/Dockerfile` is the one image the gate runs in
+(handbook devcontainer.md §1). Its stages:
+
+| Stage | Contents | Runs |
+|---|---|---|
+| `tools`, `modules` | build-only: the Go-built analysis tools at their pins; the module cache for `sdk/go`, `test/integration/esp32` and `xkms/`, fetched with the forge credentials as a BuildKit secret | nothing; copied into the stages below |
+| `base` | Debian trixie-slim by digest, the AVR and host toolchains (`docker/packages.txt`), Go by checksum, a non-root user, the module cache with `GOPROXY=off` | nothing on its own |
+| `toolchain` | `base` + cppcheck, gcovr, clang-format/-tidy, golangci-lint, actionlint, gosec, govulncheck, trivy, shellcheck, git, jq | build, test, security, deps-check |
+| `integration` | `base` + the source baked in, no setuid bits, non-root | integration-test; `compose.yaml` beside it runs it read-only, without network or capabilities |
+| `esp32` | Espressif's `espressif/idf:v5.5.5` by digest, its QEMU, Go and the module cache | `esp32-build`, `esp32-qemu-test` |
+
+Every version is in `scripts/tool-pins.sh`. The Dockerfile sources it, and
+`make deps-check` reads it. `docker/packages.txt` is the apt list: lines tagged
+`[toolchain]` go to the toolchain stage only.
+
+```sh
+make docker-build MODULE_ENV_FILE=~/.config/gomodauth.env   # every stage
+make docker-run CMD='make security' # one command in the toolchain image, tree mounted
+make docker-ci                      # make ci in the toolchain image
+make integration-test               # stage 3 in the integration image, under compose
+```
+
+`MODULE_ENV_FILE` holds the forge credentials (`GOPRIVATE` and the git
+`GIT_CONFIG_*` lines) that reach the private go-xkms. They go in as a BuildKit
+secret, never a build argument or a layer; without them `xkms/`'s modules do
+not resolve and the build fails.
 
 ## The gate
 
+The five stages of handbook ci-standard.md §1, each a target in `mk/stages.mk`,
+wired as the fleet template wires them:
+
+| Stage | Gates |
+|---|---|
+| `make build` | `firmware-matrix` (size budgets), `bootloader-check`, `sdk-build`, the three tfwsim builds, `reproducible-check`, `provenance`, `app-firmware-check`, `platform-bake-no-link-check`, `platform-bake-build-check`, `header-deps-check` |
+| `make test` | `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan`, `verify-vectors`, `xkms-coverage` |
+| `make integration-test` | `integration-test-host` in the integration image: `integration-test-simavr`, `integration-test-boot`, `sdk-test` (with the cross-implementation suite), `app-sdk-check`, `xkms-test` |
+| `make security` | `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-govulncheck`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan` |
+| `make deps-check` | `scripts/deps-check.py`: every pin in `scripts/tool-pins.sh` and every Go require, `xkms/` included, against its latest release |
+
+Each stage first checks for its tools and fails if one is missing. Run it in
+the image instead. A pin may sit behind its latest release only with its reason
+written in place: `HELD_<NAME>` in the pin file, or a `held:` comment on the
+require's line in go.mod. deps-check needs the network.
+
 ```sh
-make ci          # what CI requires, run locally
+make ci          # build, test, integration-test-host, security: what CI requires, in place
 make docker-ci   # the same, inside the toolchain image
-make xkms-test xkms-coverage   # the xkms adapter gate, a separate job
+make deps-check  # the fifth stage; needs the network, so not in `make ci`
 ```
 
-There are two gates. `make ci` covers everything that needs only this checkout
-and public modules, so it runs in the toolchain image. The `xkms/` adapter module
-depends on the private go-xkms module, which the image has no route to and which
-must not be given a credential baked into a layer, so `make xkms-test` and
-`make xkms-coverage` are not part of `make ci`. The `xkms` CI job runs them on the
-runner, and it is part of the CI Gate: a change is green only when both pass. To
-run the whole gate locally, run both commands where go-xkms is reachable.
+`make ci` runs the third stage as `integration-test-host`, in place, so it needs
+no docker daemon; CI's `integration` job runs `make integration-test` in the
+image. `xkms/` is in the stages, so `make ci` needs go-xkms: in the image it is
+in the module cache, elsewhere it needs the forge credentials.
 
-The `esp32` CI job is the third part of the gate: it builds `docker/Dockerfile.esp32`
-(ESP-IDF v5.5.5 pinned by digest, Espressif's QEMU, Go) and runs
-`make esp32-build BOARD=esp32p4-poe` and `make esp32-qemu-test` in it. Both
-targets are outside `make ci`; the section [ESP32](#esp32-esp-idf) covers them.
+CI (`.github/workflows/ci.yml`, the fleet template) runs the Go jobs (lint,
+security, build, test, modules, cross-arch) on the runner, the `image` job's
+build, test, security, deps-check, ESP32 and trivy image steps in the
+devcontainer, and `integration` (full tier: push, dispatch or the `ci:full`
+label) under compose. `CI Gate` is the one required check.
 
 `make help` lists every target.
 
 ## Host tests
 
 ```sh
-make test        # the unit suite; under a second
+make host-test   # the unit suite; under a second
 make test-asan   # the same suite under AddressSanitizer and UBSan
 make coverage    # with a 90% floor on the host-testable layers
 ```
@@ -52,6 +95,9 @@ make reproducible-check          # two builds in different dirs must be identica
 make flash AVRDUDE_PORT=/dev/ttyUSB0
 ```
 
+Flashing over an ISP programmer, with the boot-flash EESAVE guard, is in
+[`isp-route.md`](isp-route.md).
+
 Boards: `atmega328p`, `atmega2560`, `atmega32u4`, `attiny85`. The first three
 build at `CRYPTO=soft` and `CRYPTO=atecc608a`; the ATtiny85 builds only at
 `CRYPTO=none`, because neither of the others is possible on a part with no I2C
@@ -63,11 +109,6 @@ says `ARCH := avr`, and `mk/firmware.mk` and `mk/boot.mk` — which name no
 toolchain, flag or HAL path — pick up `mk/arch/$(ARCH).mk` (toolchain, flags,
 size, programmer, linker placement) and `src/hal/$(ARCH)/`. A second architecture
 is a directory, not an edit to those files. `BOARD=` is unchanged.
-
-The CI workflow's firmware matrix is a hand-written list of board × tier pairs.
-`make ci-matrix-check` (part of `make ci`, and a step of the lint job) compares it
-with `make firmware-matrix-list`, which prints what `firmware-matrix` builds, and
-fails if either has a pair the other lacks.
 
 `make provenance` records `arch`, `compiler` and `toolchain` for each image, and
 `make sbom` the same for the toolchain, using whatever the architecture file
@@ -124,8 +165,8 @@ runs and the three values are ignored. They are declared in
 `mk/arch/esp32/main/Kconfig.projbuild`, and a value that is not a dotted quad
 stops the build at configure time. With a static address no DHCP client runs.
 
-Neither target is in `make ci`, and the toolchain image carries no ESP-IDF; the
-`esp32` CI job runs them in `docker/Dockerfile.esp32`, which has it. Both refuse any toolchain but the pins in
+Neither target is in `make ci`, and the toolchain image carries no ESP-IDF; CI's
+`image` job runs them in the devcontainer's `esp32` stage, which has it. Both refuse any toolchain but the pins in
 [`adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integration.md#toolchain-pins)
 (`mk/arch/esp32.mk`). The install goes outside the clone, under `$HOME`. These
 are the steps that worked on Debian 13 without root:

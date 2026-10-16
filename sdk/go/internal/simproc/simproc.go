@@ -106,7 +106,7 @@ func Start(tb testing.TB, b Binary, args ...string) *Conn {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	cmd := exec.Command(path, args...)
+	cmd := exec.Command(path, args...) // #nosec G204 -- path is Locate's answer, the tfwsim binary this repo's own make target built, and args are the test's literal flags; no shell, no outside input
 	cmd.Stderr = os.Stderr
 	in, err := cmd.StdinPipe()
 	if err != nil {

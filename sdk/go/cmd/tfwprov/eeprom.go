@@ -5,6 +5,7 @@ package main
 
 import (
 	"crypto/ecdh"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -206,7 +207,7 @@ func writeBakedImage(outPath string, p *bakedPlatform, netblock []byte) error {
 		return errors.New("tfwprov: nothing to bake")
 	}
 
-	f, err := os.Create(outPath)
+	f, err := os.Create(outPath) // #nosec G304 -- outPath is the operator's own --out argument; tfwprov runs as the operator and can create nothing they could not
 	if err != nil {
 		return fmt.Errorf("tfwprov: %w", err)
 	}
@@ -295,11 +296,16 @@ type ihexSegment struct {
 // byte count, AAAA the 16-bit address, TT the record type, CC the
 // two's-complement checksum of every byte before it.
 func writeIHEXRecord(w io.Writer, addr uint16, recType byte, data []byte) error {
-	sum := byte(len(data)) + byte(addr>>8) + byte(addr) + recType
-	for _, b := range data {
+	n := len(data)
+	if n < 0 || n > 0xFF {
+		return fmt.Errorf("ihex: a record holds at most 255 bytes, got %d", n)
+	}
+	head := binary.BigEndian.AppendUint16([]byte{byte(n)}, addr)
+	sum := recType
+	for _, b := range append(head, data...) {
 		sum += b
 	}
-	checksum := byte(0x100 - int(sum))
+	checksum := -sum // two's complement, mod 256
 
 	if _, err := fmt.Fprintf(w, ":%02X%04X%02X", len(data), addr, recType); err != nil {
 		return err

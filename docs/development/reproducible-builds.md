@@ -40,8 +40,10 @@ did not exist then, and it generates different code.
 Installing the toolchain per job — the obvious arrangement — means a build that
 silently uses a different compiler than the one anyone tested with, which breaks
 reproducibility *and* moves every size-budget number at the same time. The
-toolchain is therefore pinned in `docker/Dockerfile.ci`, the image records what
-it contains in `/etc/ci-toolchain.txt`, and every job prints it.
+toolchain is therefore pinned in the devcontainer
+(`build/docker/devcontainer/Dockerfile`, every version in `scripts/tool-pins.sh`),
+the image records what it contains in `/etc/ci-toolchain.txt`, and
+`make docker-build` prints it.
 
 A reproducible build is reproducible **with a stated toolchain**. Without naming
 the compiler, the claim is not falsifiable.

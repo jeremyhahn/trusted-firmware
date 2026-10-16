@@ -72,11 +72,12 @@ func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 	}
 
 	pub, err := dev.ProvPubKey(ctx, tfw.SlotDeviceID)
-	if err != nil {
+	switch {
+	case err != nil:
 		problems = append(problems, fmt.Sprintf("DeviceID public key unreadable: %v", err))
-	} else if bytes.Equal(pub, make([]byte, 64)) {
+	case bytes.Equal(pub, make([]byte, 64)):
 		problems = append(problems, "DeviceID slot holds no key")
-	} else {
+	default:
 		fmt.Printf("deviceid  %s\n", hex.EncodeToString(pub))
 	}
 

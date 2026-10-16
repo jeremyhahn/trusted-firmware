@@ -174,7 +174,9 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	defer link.Close()
+	// By here every step has reported its own result; a Close error on the
+	// way out changes nothing written to the device.
+	defer func() { _ = link.Close() }()
 
 	dev := tfw.New(link, tfw.WithTimeout(*timeout))
 	ctx := context.Background()

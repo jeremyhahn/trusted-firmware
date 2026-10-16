@@ -15,6 +15,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"time"
@@ -40,7 +41,7 @@ func main() {
 	if err != nil {
 		fail("dial", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // every check has printed or failed by here
 	ctx := context.Background()
 
 	caps, err := d.Caps(ctx)
@@ -64,7 +65,12 @@ func main() {
 		info.Uptime, info.FreeRAM, uint8(info.ResetCause))
 
 	if *expect != "" {
-		got, err := d.EEPROMRead(ctx, markAddr, uint8(len(*expect)))
+		n := len(*expect)
+		if n > math.MaxUint8 {
+			fail("eeprom read", fmt.Errorf("-expect is %d bytes; one read carries at most %d", n, math.MaxUint8))
+			return // fail exits; the return is for a reader who cannot see that
+		}
+		got, err := d.EEPROMRead(ctx, markAddr, uint8(n))
 		if err != nil {
 			fail("eeprom read", err)
 		}
@@ -109,7 +115,7 @@ func dial(addr string, wait time.Duration) (*tfw.Device, net.Conn, error) {
 			return d, conn, nil
 		}
 		last = fmt.Errorf("ping: %v (echo %q)", err, echo)
-		conn.Close()
+		_ = conn.Close() // abandoned for a fresh dial; last already says why
 		time.Sleep(500 * time.Millisecond)
 	}
 	return nil, nil, fmt.Errorf("no answer from %s within %v: %v", addr, wait, last)

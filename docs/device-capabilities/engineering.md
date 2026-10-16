@@ -168,7 +168,7 @@ simavr suite below is what actually exercises those bits.
 The board descriptor is tested separately: `make board-sweep` compiles each
 board's own `test_board_<short>.c` against **that board's own profile**,
 because compiling one board's test against another's register set fails on
-day one. Ordinary `make test` excludes it for that reason.
+day one. Ordinary `make host-test` excludes it for that reason.
 
 `make ci`'s cross-implementation suite runs the real firmware, built for the
 host as `tfwsim`, so protocol-level behaviour for every capability here is

@@ -389,7 +389,7 @@ BOARD_TIERS     ?= soft atecc608a
 # A board whose profile.mk sets IMAGE_TARGET is built by that target and not by
 # `make firmware` -- an ESP-IDF board is built by ESP-IDF's own toolchain, which
 # the CI image does not carry. It stays out of this list, so firmware-matrix,
-# ci-matrix-check and provenance never build it, and board-sweep (which reads
+# and provenance never build it, and board-sweep (which reads
 # every directory) still compiles and tests its descriptor.
 OTHER_IMAGE_BOARDS := $(notdir $(patsubst %/profile.mk,%,$(shell grep -l '^IMAGE_TARGET[[:space:]]*:\?=' boards/*/profile.mk)))
 FIRMWARE_BOARDS := $(filter-out $(OTHER_IMAGE_BOARDS),$(notdir $(wildcard boards/*)))
@@ -421,28 +421,7 @@ firmware-matrix-list:
 	  done; \
 	done
 
-## ci-matrix-check: fail when the CI firmware matrix differs from firmware-matrix
-# The workflow's firmware matrix is a HAND LIST -- GitHub and Gitea both want it
-# written out in the file -- and a hand list of what the Makefile derives is a
-# list that drifts: a new board builds under `make ci` and is never built by the
-# server, or the reverse. This is the gate that says so, in both directions.
-#
-# It reads the `- {board: X, crypto: Y}` lines of the firmware job and compares
-# them, as a set, with firmware-matrix-list. A workflow with NO such line is a
-# failure and not a pass: a check that finds nothing to compare has not checked.
-ci-matrix-check:
-	@want=$$($(MAKE) -s --no-print-directory firmware-matrix-list | sort); \
-	 have=$$(sed -n 's/^ *- {board: \([a-z0-9]*\), crypto: \([a-z0-9]*\)}$$/\1 \2/p' \
-	         .github/workflows/ci.yml | sort); \
-	 if [ -z "$$have" ]; then \
-	   echo "ci-matrix-check: no '- {board: X, crypto: Y}' lines in .github/workflows/ci.yml"; exit 1; fi; \
-	 if [ "$$want" != "$$have" ]; then \
-	   echo "ci-matrix-check: the workflow's firmware matrix is not what 'make firmware-matrix' builds."; \
-	   echo "  '<' = built by make, missing from the workflow; '>' = in the workflow, not built by make"; \
-	   diff <(echo "$$want") <(echo "$$have") | sed 's/^/  /'; exit 1; fi; \
-	 echo "ci-matrix-check: $$(echo "$$want" | wc -l) board/tier pairs, workflow and Makefile agree"
-
-.PHONY: board-tiers board-eth-chip feature-defs firmware-srcs firmware-matrix-list ci-matrix-check
+.PHONY: board-tiers board-eth-chip feature-defs firmware-srcs firmware-matrix-list
 
 firmware-matrix:
 	@fail=0; \

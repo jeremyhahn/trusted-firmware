@@ -3,7 +3,10 @@
 
 package tfw
 
-import "fmt"
+import (
+	"encoding/binary"
+	"fmt"
+)
 
 // The wire contract. Mirrors include/tfw/protocol.h; the two are pinned to the
 // same vectors.
@@ -74,7 +77,7 @@ func encode(seq Seq, op byte, status *byte, payload []byte) ([]byte, error) {
 		n++
 	}
 	out := make([]byte, 0, n+frameOverhead)
-	out = append(out, SOF, byte(n), byte(seq), op)
+	out = append(out, SOF, byte(n), byte(seq), op) // #nosec G115 -- n is at most maxLen (67): the MaxPayload check above bounds it
 	if status != nil {
 		out = append(out, *status)
 	}
@@ -83,7 +86,7 @@ func encode(seq Seq, op byte, status *byte, payload []byte) ([]byte, error) {
 	// The CRC spans LEN through the end of the body. Covering LEN is what makes
 	// a corrupted length detectable before it has mis-framed whatever follows.
 	crc := CRC16(out[1:])
-	return append(out, byte(crc), byte(crc>>8)), nil
+	return binary.LittleEndian.AppendUint16(out, crc), nil
 }
 
 // Decode parses one frame from the front of b, returning it and the number of

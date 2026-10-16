@@ -11,14 +11,32 @@ bring-up and for `make hw-test` (below), never for a gate.
 
 | Tier | Target | Runs | What only it can catch |
 |---|---|---|---|
-| 1 — unit | `make test` | x86-64, mock HAL | logic: framing, dispatch, bounds, the scheduler's rollover |
-| 2 — emulated | `make integration-test` | the real `.elf` under simavr | register-level behaviour: baud divisor, interrupt vectors, peripheral bring-up order, tick rate |
+| 1 — unit | `make host-test` | x86-64, mock HAL | logic: framing, dispatch, bounds, the scheduler's rollover |
+| 2 — emulated | `make integration-test-simavr` | the real `.elf` under simavr | register-level behaviour: baud divisor, interrupt vectors, peripheral bring-up order, tick rate |
 | 3 — integrity | `make lint size-check reproducible-check` | the build itself | drift: flash/SRAM budgets, byte-for-byte reproducibility, out-of-whitelist `#if` |
 | 4 — cost (not a gate) | `make bench-check` | the real `.elf` under simavr | drift in TIME: cycles per decoded byte, per scheduler sweep, per tick interrupt, and the round-trip latency |
 
 `make ci` runs tiers 1 to 3 plus the sanitizers and the Go SDK suite. **Tier 4
 is run deliberately and gates nothing** — see `performance.md` for why, and for
 the numbers.
+
+## The five CI stages
+
+The gate is grouped into the five stages of handbook ci-standard.md §1, and
+`make ci` runs them in this order (`mk/stages.mk`; the full list of gates per
+stage is in `building.md`):
+
+| Stage | Holds |
+|---|---|
+| `make build` | tier 3's budgets and reproducibility: every image at every tier, the bootloader, tfwsim, the SDK |
+| `make test` | tier 1: `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan`, `verify-vectors` |
+| `make integration-test` | tier 2 and the cross-implementation suite: `integration-test-simavr`, `integration-test-boot`, `sdk-test`, `app-sdk-check` |
+| `make security` | tier 3's `lint`, plus gosec, govulncheck, golangci-lint, go mod verify, the secrets scan, vendored hashes and releasability |
+| `make deps-check` | no toolchain pin or Go require behind its latest release without a written reason |
+
+All five run in the devcontainer, `build/docker/devcontainer/Dockerfile`:
+integration-test in its `integration` stage, the other four in `toolchain`.
+A stage whose tool is missing fails and names it. It never skips.
 
 ## Tier 1 — host unit tests
 
@@ -165,24 +183,28 @@ update.
 ## Running one thing
 
 ```sh
-make test                      # all unit suites
+make host-test                 # all unit suites
 ./build/host/test_frame         # one suite
-make integration-test           # simavr, needs the firmware built
+make integration-test-simavr    # simavr, needs the firmware built
+make test                       # stage 2: unit, boot, board sweep, coverage, sanitizers
+make security                   # stage 4: cppcheck, gosec, govulncheck, golangci-lint, secrets
+make deps-check                 # stage 5: pins and Go requires against their latest release
 make bench-check                # the cycle budget, both benchmarked boards
 make bench-run BOARD=atmega2560 # one board
 make coverage                   # with the 90 % floor enforced
 make ci                         # everything the gate requires, bar the xkms job
 make platform-bake-build-check  # in `make ci`: the bench bake image links for both boards, under its flash ceiling
 make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
+make xkms-security xkms-deps-check  # its security and latest-version checks; the same job
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0  # the cross-implementation suite on a flashed board
 make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex>  # issue #7's enrollment run on a provisioned board
 ```
 
-The xkms adapter module needs the private go-xkms module, so its two targets are
+The xkms adapter module needs the private go-xkms module, so its four targets are
 outside `make ci` (and so outside `make docker-ci`); see `building.md`.
 
-Tier 2 needs the AVR toolchain and `libsimavr`; `make docker-test` runs the
-whole gate in the pinned CI image if you do not have them locally.
+Tier 2 needs the AVR toolchain and `libsimavr`; `make docker-ci` runs the
+whole gate in the devcontainer if you do not have them locally.
 
 ## What this deliberately does not do
 

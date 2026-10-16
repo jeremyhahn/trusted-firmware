@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# The Go linters handbook devops.md §8 names, for every Go module here: sdk/go,
+# xkms/ and test/integration/esp32 (`make go-golangci`, `make xkms-security`).
+# The full rule sets, no exclusions: a finding is fixed or, where it is a false
+# positive, suppressed in place with a //nolint:<linter> // <reason> comment.
+#
+# gosimple is not listed: golangci-lint v2 folded it into staticcheck, which
+# runs its checks.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - unused
+    - ineffassign
+    - misspell
+    - gocritic
+
+formatters:
+  enable:
+    - gofmt

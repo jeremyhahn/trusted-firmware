@@ -429,8 +429,10 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_link_eth $(HOST_D
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit \
                     $(HOST_DIR)/test_storage_2560
 
-## test: build and run the host unit tests
-test: $(TEST_BINS) $(HOST_EXTRA_BINS)
+## host-test: build and run the host unit tests
+# One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
+# board sweep, coverage and the sanitizers.
+host-test: $(TEST_BINS) $(HOST_EXTRA_BINS)
 	@fail=0; for t in $(TEST_BINS) $(HOST_EXTRA_BINS); do \
 	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
 
@@ -439,12 +441,12 @@ test: $(TEST_BINS) $(HOST_EXTRA_BINS)
 # where a memory bug will be, so it gets its own gate rather than riding along.
 test-asan:
 	@$(MAKE) --no-print-directory clean-host
-	@$(MAKE) --no-print-directory test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
+	@$(MAKE) --no-print-directory host-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
 
 ## coverage: run the host tests with coverage and enforce the floor
 coverage:
 	@$(MAKE) --no-print-directory clean-host
-	@$(MAKE) --no-print-directory test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
+	@$(MAKE) --no-print-directory host-test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
 	@# The boot suites too, or boot/'s lines are counted and never executed --
 	@# which reads as a coverage collapse caused by adding tests.
 	@$(MAKE) --no-print-directory boot-test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
@@ -681,14 +683,14 @@ clean-host:
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint \
+.PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint \
         lint-arch-leak lint-arch-leak-selftest
 
 # ---------------------------------------------------------------- board sweep
 #
 # Every board's descriptor, each compiled against ITS OWN profile.
 #
-# The ordinary `make test` configures the host build for one board, so it proves
+# The ordinary `make host-test` configures the host build for one board, so it proves
 # nothing about the others -- and a board whose table is never compiled is a
 # rung that checks nothing, which is the failure that looks most like success.
 # This builds one descriptor test per board, each with HOST_BOARD set to that

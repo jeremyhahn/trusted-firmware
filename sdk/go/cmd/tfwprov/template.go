@@ -43,11 +43,13 @@ type template struct {
 // cost of not doing so is a third-party parser in the dependency graph of every
 // consumer.
 func loadTemplate(path string) (*template, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is the operator's own --template argument; tfwprov runs as the operator and can open nothing they could not
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	// Read-only: a Close error has lost no data, and a read error is the
+	// scanner's to report below.
+	defer func() { _ = f.Close() }()
 
 	t := &template{Blocks: map[uint8][]byte{}}
 	sc := bufio.NewScanner(f)

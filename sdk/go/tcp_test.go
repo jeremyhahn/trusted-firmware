@@ -25,7 +25,7 @@ func dialEcho(t *testing.T, addr net.Addr) <-chan net.Addr {
 			t.Errorf("dial: %v", err)
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }() // the test's assertions are on the far end; this side only goes away
 		out <- c.LocalAddr()
 		var buf []byte
 		chunk := make([]byte, 256)
@@ -65,7 +65,7 @@ func listen(t *testing.T, opts ...Option) *Listener {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() }) // a test that closes it itself checks that Close; this is only the backstop
 	return l
 }
 
@@ -80,7 +80,7 @@ func TestAcceptReturnsAWorkingDeviceWithoutWaitingForBoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }() // a test that closes it itself checks that Close; this is only the backstop
 	if waited := time.Since(before); waited >= DefaultBootWait {
 		t.Fatalf("Accept took %s; it must not wait for BOOT", waited)
 	}

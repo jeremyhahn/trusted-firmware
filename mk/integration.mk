@@ -11,8 +11,9 @@
 
 INT_DIR := $(BUILD_DIR)/integration
 
-## integration-test: run the firmware image under simavr
-integration-test: $(INT_DIR)/harness $(TARGET).elf
+## integration-test-simavr: run the firmware image under simavr
+# One part of the `integration-test` stage (mk/stages.mk).
+integration-test-simavr: $(INT_DIR)/harness $(TARGET).elf
 	@./$(INT_DIR)/harness $(TARGET).elf
 
 $(INT_DIR)/harness: test/integration/simavr/harness.c src/proto/crc16.c src/proto/crc16_update.c
@@ -22,4 +23,4 @@ $(INT_DIR)/harness: test/integration/simavr/harness.c src/proto/crc16.c src/prot
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"
 
-.PHONY: integration-test
+.PHONY: integration-test-simavr

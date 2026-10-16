@@ -56,7 +56,7 @@ beside each row.
 ## Where the numbers stand
 
 ATmega328P and ATmega2560, 16 MHz, `CRYPTO=soft`, avr-gcc as pinned in
-`docker/Dockerfile.ci`.
+the devcontainer (`build/docker/devcontainer/Dockerfile`, `scripts/tool-pins.sh`).
 
 | | plan's target | 328P | 2560 | verdict |
 |---|---|---|---|---|

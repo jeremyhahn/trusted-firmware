@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"time"
 )
 
@@ -446,7 +447,7 @@ func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, 
 			Min: 1, Max: EEPROMChunk, Unit: "bytes",
 		}
 	}
-	p := []byte{byte(addr), byte(addr >> 8), n}
+	p := append(binary.LittleEndian.AppendUint16(nil, addr), n)
 	f, err := d.Do(ctx, CmdEEPROMRead, p)
 	if err != nil {
 		return nil, err
@@ -462,7 +463,7 @@ func (d *Device) EEPROMWrite(ctx context.Context, addr uint16, data []byte) erro
 			Min: 1, Max: EEPROMChunk, Unit: "bytes",
 		}
 	}
-	p := append([]byte{byte(addr), byte(addr >> 8)}, data...)
+	p := append(binary.LittleEndian.AppendUint16(nil, addr), data...)
 	_, err := d.Do(ctx, CmdEEPROMWrite, p)
 	return err
 }
@@ -493,16 +494,33 @@ func (d *Device) NoTone(ctx context.Context, pin uint8) error {
 	return err
 }
 
+// pulseTimeout is a pulse timeout as the wire's uint32 of microseconds. A
+// negative one, or one past the field's ~71 minutes, is refused here: cast, it
+// would wrap into a different timeout the caller never asked for.
+func pulseTimeout(cmd Cmd, timeout time.Duration) (uint32, error) {
+	us := timeout.Microseconds()
+	if us < 0 || us > math.MaxUint32 {
+		return 0, &ArgRangeError{
+			Cmd: cmd, Arg: "timeout", Value: us,
+			Min: 0, Max: math.MaxUint32, Unit: "us",
+		}
+	}
+	return uint32(us), nil
+}
+
 // PulseIn measures one pulse of the given level.
 func (d *Device) PulseIn(ctx context.Context, pin uint8, high bool, timeout time.Duration) (time.Duration, error) {
 	level := byte(0)
 	if high {
 		level = 1
 	}
-	us := timeout.Microseconds()
+	us, err := pulseTimeout(CmdPulseIn, timeout)
+	if err != nil {
+		return 0, err
+	}
 	p := make([]byte, 6)
 	p[0], p[1] = pin, level
-	binary.LittleEndian.PutUint32(p[2:], uint32(us))
+	binary.LittleEndian.PutUint32(p[2:], us)
 	f, err := d.Do(ctx, CmdPulseIn, p)
 	if err != nil {
 		return 0, err
@@ -525,9 +543,13 @@ func (d *Device) PulseCapture(ctx context.Context, pin uint8, startHigh bool, ma
 	if startHigh {
 		start = 1
 	}
+	us, err := pulseTimeout(CmdPulseCapture, timeout)
+	if err != nil {
+		return nil, err
+	}
 	p := make([]byte, 7)
 	p[0], p[1], p[2] = pin, start, maxEdges
-	binary.LittleEndian.PutUint32(p[3:], uint32(timeout.Microseconds()))
+	binary.LittleEndian.PutUint32(p[3:], us)
 	f, err := d.Do(ctx, CmdPulseCapture, p)
 	if err != nil {
 		return nil, err

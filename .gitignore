@@ -1,5 +1,8 @@
-# build output
-build/
+# build output; build/docker/ is source (the devcontainer, handbook
+# devcontainer.md §1) and `make clean` keeps it
+/build/*
+!/build/docker/
+*/**/build/
 *.o
 *.d
 !changelog.d/

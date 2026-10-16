@@ -51,9 +51,12 @@ func writeTestECKey(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("writing test key: %v", err)
 	}
-	defer f.Close()
 	if err := pem.Encode(f, &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}); err != nil {
+		_ = f.Close()
 		t.Fatalf("encoding test key: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("writing test key: %v", err)
 	}
 	return path
 }

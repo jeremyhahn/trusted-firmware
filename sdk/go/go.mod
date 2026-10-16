@@ -24,11 +24,10 @@ go 1.26.5
 
 require (
 	github.com/stretchr/testify v1.12.1
-	go.bug.st/serial v1.6.4
+	go.bug.st/serial v1.8.0
 )
 
 require (
-	github.com/creack/goselect v0.1.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/sys v0.19.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )

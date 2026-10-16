@@ -50,11 +50,12 @@ func (m *meddler) Write(p []byte) (int, error) { return m.conn.Write(p) }
 
 func (m *meddler) Read(p []byte) (int, error) {
 	if len(m.rx) == 0 {
-		head := make([]byte, 2)
-		if _, err := io.ReadFull(m.conn, head); err != nil {
+		var head [2]byte
+		if _, err := io.ReadFull(m.conn, head[:]); err != nil {
 			return 0, err
 		}
-		frame := append(head, make([]byte, int(head[1])+frameOverhead-2)...)
+		frame := make([]byte, int(head[1])+frameOverhead)
+		copy(frame, head[:])
 		if _, err := io.ReadFull(m.conn, frame[2:]); err != nil {
 			return 0, err
 		}

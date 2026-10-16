@@ -491,7 +491,7 @@ type externalKeySigner struct {
 func (s *externalKeySigner) Public() crypto.PublicKey { return nil } // unused: AuthResponse never calls it
 
 func (s *externalKeySigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
-	cmd := exec.Command("openssl", "pkeyutl", "-sign", "-inkey", s.path, "-pkeyopt", "digest:sha256")
+	cmd := exec.Command("openssl", "pkeyutl", "-sign", "-inkey", s.path, "-pkeyopt", "digest:sha256") // #nosec G204 -- the program is the fixed "openssl" and no shell is involved; s.path, the operator's own key file, is one argv element and cannot become a command
 	cmd.Stdin = bytes.NewReader(digest)
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
@@ -512,7 +512,7 @@ func externalECKeySigner(path string) (crypto.Signer, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	cmd := exec.Command("openssl", "pkey", "-in", path, "-noout")
+	cmd := exec.Command("openssl", "pkey", "-in", path, "-noout") // #nosec G204 -- the program is the fixed "openssl" and no shell is involved; path, the operator's own key file, is one argv element and cannot become a command
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

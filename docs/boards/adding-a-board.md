@@ -116,9 +116,8 @@ that says which. Boards stay flat — `boards/<board>/`, never
 
 A board on an architecture the tree already has adds nothing else. **A new
 architecture** is `mk/arch/<arch>.mk` (the contract is listed at the top of
-`mk/arch/avr.mk`), `src/hal/<arch>/`, `boot/hal/<arch>/` if it has a bootloader,
-and one line in `.github/workflows/ci.yml` per board and tier —
-`make ci-matrix-check` names the lines it is missing. No edit to `mk/firmware.mk`,
+`mk/arch/avr.mk`), `src/hal/<arch>/`, and `boot/hal/<arch>/` if it has a bootloader; its toolchain
+goes in the devcontainer. No edit to `mk/firmware.mk`, `.github/workflows/ci.yml`,
 `mk/boot.mk` or `mk/release.mk`.
 
 The budgets are **gates, not estimates** — `make firmware` fails when an image
@@ -130,10 +129,9 @@ Optionally `BOARD_TIERS`, the crypto tiers this part can carry. A board that say
 nothing gets `soft atecc608a`, which every board had while every part had a TWI
 peripheral and a boot section. State it when one of them is impossible: the
 element tier needs I2C, and the software tier's whole definition is a key in
-boot-section flash behind lock bits. `make firmware-matrix` reads this, and the
-CI workflow's firmware matrix is a hand list that `make ci-matrix-check` compares
-against it in both directions, so the matrix cannot queue a build that could only
-ever fail, nor leave a board unbuilt.
+boot-section flash behind lock bits. `make firmware-matrix` reads this, and CI runs
+`make build`, which runs firmware-matrix, so CI cannot queue a build that could
+only ever fail, nor leave a board unbuilt.
 
 A board with a boot section states `BOOT_BASE`, the address tfw-boot links at,
 alongside `BOOT_SECTION`. It must equal `TFW_BOOT_REGION_BASE` in
@@ -148,7 +146,7 @@ A board with no boot section also states no `BOOT_BASE`, `BOOT_SECTION`,
 ## The test
 
 `make board-sweep` compiles each board's descriptor suite **against that board's
-own profile** and runs them all. The ordinary `make test` excludes them, because
+own profile** and runs them all. The ordinary `make host-test` excludes them, because
 the host build is configured for one board and compiling a Mega's test against
 the 328P's header fails on a register the 328P does not have.
 
@@ -246,7 +244,6 @@ needs it.
 make firmware BOARD=<board>                  # size budget + the address asserts
 make firmware BOARD=<board> CRYPTO=atecc608a # if BOARD_TIERS has it: a different image
 make firmware-matrix                         # every board at every tier ITS PROFILE claims
-make ci-matrix-check                         # the CI workflow's matrix lists exactly those
 make board-sweep                             # every board, each against its own profile
 make reproducible-check BOARD=<board>        # two builds, byte-identical
 ```

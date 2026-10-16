@@ -18,7 +18,7 @@
  * would read back as whatever the bus last carried.
  *
  * This suite runs under `make board-sweep`, which compiles it against this
- * board's own profile. It is not in `make test`, which is configured for one
+ * board's own profile. It is not in `make host-test`, which is configured for one
  * board and would compile this against the 328P's header.
  */
 

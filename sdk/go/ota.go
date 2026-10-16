@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 // The OTA session -- docs/ota/. The same four commands, with the same payloads
@@ -99,7 +100,11 @@ func (d *Device) OTAStatus(ctx context.Context) (OTAState, uint32, error) {
 // It stops at the first refusal and returns it; OTAStatus says how far the
 // device got, and a fresh StageImage starts over.
 func (d *Device) StageImage(ctx context.Context, image []byte) error {
-	if err := d.OTABegin(ctx, uint32(len(image))); err != nil {
+	total, err := otaTotal(int64(len(image)))
+	if err != nil {
+		return err
+	}
+	if err := d.OTABegin(ctx, total); err != nil {
 		return err
 	}
 	for off := 0; off < len(image); off += OTAChunk {
@@ -109,4 +114,17 @@ func (d *Device) StageImage(ctx context.Context, image []byte) error {
 		}
 	}
 	return d.OTAEnd(ctx)
+}
+
+// otaTotal converts an image length to BEGIN's u32 total. An image past the
+// wire field is refused here, not truncated: a wrapped total would announce
+// a different image than the one that follows.
+func otaTotal(n int64) (uint32, error) {
+	if n < 0 || n > math.MaxUint32 {
+		return 0, &ArgRangeError{
+			Cmd: CmdOTABegin, Arg: "image", Value: n,
+			Min: 0, Max: math.MaxUint32, Unit: "bytes",
+		}
+	}
+	return uint32(n), nil
 }

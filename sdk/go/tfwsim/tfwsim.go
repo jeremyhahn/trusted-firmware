@@ -59,7 +59,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -105,11 +104,11 @@ func TestDeviceIDPublicKey() *ecdsa.PublicKey {
 	if err != nil || len(raw) != 64 {
 		panic("tfwsim: testDeviceIDPublic is not 64 hex-encoded bytes")
 	}
-	return &ecdsa.PublicKey{
-		Curve: elliptic.P256(),
-		X:     new(big.Int).SetBytes(raw[:32]),
-		Y:     new(big.Int).SetBytes(raw[32:]),
+	pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), append([]byte{0x04}, raw...))
+	if err != nil {
+		panic("tfwsim: testDeviceIDPublic is not a P-256 point: " + err.Error())
 	}
+	return pub
 }
 
 // bootTimeout bounds each command. The simulator answers in microseconds; this
@@ -152,9 +151,13 @@ func StartElementWithOperator(tb testing.TB, operator *ecdsa.PublicKey, opts ...
 	if operator == nil || operator.Curve != elliptic.P256() {
 		tb.Fatal("tfwsim: the operator key must be a P-256 public key")
 	}
+	// Bytes is the uncompressed SEC 1 point, 0x04 || X || Y.
+	sec1, err := operator.Bytes()
+	if err != nil || len(sec1) != 1+tfw.OperatorPubkeyLen {
+		tb.Fatalf("tfwsim: the operator key is not a valid P-256 point: %v", err)
+	}
 	var point [tfw.OperatorPubkeyLen]byte
-	operator.X.FillBytes(point[:32])
-	operator.Y.FillBytes(point[32:])
+	copy(point[:], sec1[1:])
 	return startTestIdentity(tb, point, nil, opts)
 }
 

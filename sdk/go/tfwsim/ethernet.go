@@ -5,6 +5,7 @@ package tfwsim
 
 import (
 	"encoding/hex"
+	"errors"
 	"net"
 	"net/netip"
 	"os"
@@ -32,9 +33,9 @@ func StartElementEthernet(tb testing.TB, opts ...tfw.Option) (serial *tfw.Device
 		tb.Fatal(err)
 	}
 	ln := tfw.NewListener(raw, append([]tfw.Option{tfw.WithTimeout(bootTimeout)}, opts...)...)
-	tb.Cleanup(func() { ln.Close() })
+	tb.Cleanup(func() { logClose(tb, "listener", ln.Close()) })
 
-	port := uint16(raw.Addr().(*net.TCPAddr).Port)
+	port := raw.Addr().(*net.TCPAddr).AddrPort().Port()
 	cfg := tfw.NetConfig{
 		MAC:      net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01},
 		IP:       netip.MustParseAddr("192.0.2.10"),
@@ -68,6 +69,15 @@ func StartElementEthernet(tb testing.TB, opts ...tfw.Option) (serial *tfw.Device
 	if err != nil {
 		tb.Fatalf("tfwsim: the device never connected: %v", err)
 	}
-	tb.Cleanup(func() { eth.Close() })
+	tb.Cleanup(func() { logClose(tb, "ethernet link", eth.Close()) })
 	return serial, eth
+}
+
+// logClose reports a teardown Close that failed. Logged, not failed: the test
+// has finished by then, and a test that closed the link itself has done
+// nothing wrong.
+func logClose(tb testing.TB, what string, err error) {
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		tb.Logf("tfwsim: closing the %s: %v", what, err)
+	}
 }

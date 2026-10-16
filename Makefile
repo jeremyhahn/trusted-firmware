@@ -41,6 +41,8 @@ include mk/platform-bake.mk
 # An architecture's own targets, for architectures whose image a different
 # build system produces (mk/arch/esp32-targets.mk: ESP-IDF). Never in `ci`.
 include $(wildcard mk/arch/*-targets.mk)
+# Last: the five CI stages are made of the targets every file above defines.
+include mk/stages.mk
 
 ## help: list every target with its description
 help:
@@ -51,8 +53,10 @@ version:
 	@echo $(VERSION)
 
 ## clean: remove every build artefact
+# build/docker/ is the devcontainer's source, not output, so it survives.
 clean:
-	@rm -rf $(BUILD_DIR) coverage
+	@[ ! -d $(BUILD_DIR) ] || find $(BUILD_DIR) -mindepth 1 -maxdepth 1 ! -path $(BUILD_DIR)/docker -exec rm -rf {} +
+	@rm -rf coverage
 	@echo "cleaned"
 
 ## verify-vendor: check every vendored dependency against its recorded hash
@@ -76,8 +80,8 @@ verify-vendor:
 	  echo "UNRECORDED: $$present vendored files present, $$listed recorded in MANIFEST.md"; fail=1; fi; \
 	exit $$fail
 
-## ci: everything the CI gate requires
-# EVERYTHING. `coverage` was missing from this list while the workflow ran it,
+## ci: everything the CI gate requires: the five stages, in order
+# EVERYTHING. `coverage` was missing from the gate list while the workflow ran it,
 # so a coverage failure could only be discovered on the server -- which is the
 # same defect as a gate written out in the workflow file instead of in a target,
 # and it cost a red main. If CI runs it, it belongs here.
@@ -91,17 +95,21 @@ verify-vendor:
 # is tracked in #11, #12 and #13. It goes back in when the rows it measures are
 # met, not before.
 #
-# `xkms-test` and `xkms-coverage` are NOT HERE either, for a different reason:
-# the xkms adapter module depends on the private go-xkms module, and the
-# toolchain image behind `make docker-ci` has no route to it, so `make ci` there
-# would fail on a cold cache for want of a credential that must not be baked
-# into a layer. They are their own targets, run by the `xkms` CI job on the
-# runner, which is part of the CI Gate. Run `make ci xkms-test xkms-coverage`
-# where go-xkms is reachable to run both gates.
-ci: verify-vendor verify-vectors releasability releasability-test lint lint-arch-leak-selftest sdk-verify sdk-lint test boot-test board-sweep header-deps-check \
-    coverage test-asan sdk-test firmware-matrix bootloader-check provenance integration-test \
-    integration-test-boot reproducible-check ci-matrix-check app-sdk-check app-firmware-check \
-    platform-bake-no-link-check platform-bake-build-check
+# The xkms adapter is in the stages (mk/stages.mk). It needs the private
+# go-xkms: where that is unreachable, so is a green `make ci`. The image carries
+# it, fetched at build time with the forge credentials as a BuildKit secret.
+#
+# The stages are handbook ci-standard.md §1's, wired the way the fleet
+# template's `ci` wires them: build, test, integration-test-host (the suites in
+# place, so `make ci` needs no docker daemon) and security. deps-check is not
+# here, as in the template: it asks upstream, so it needs the network, and CI's
+# `image` job runs it in the toolchain image. Each is a sub-make so the order is
+# the order even under -j: a stage starts only when the one before it is green.
+ci:
+	@$(MAKE) --no-print-directory build
+	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory integration-test-host
+	@$(MAKE) --no-print-directory security
 	@echo "CI gate: green"
 
 .PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test

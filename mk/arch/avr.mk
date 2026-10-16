@@ -23,6 +23,7 @@
 #   ARCH_FW_PLACEMENT_LDFLAGS          where the application puts the handoff
 #   ARCH_BOOT_PLACEMENT_LDFLAGS        where tfw-boot puts .text and the handoff
 #   ARCH_FLASH, ARCH_BOOT_FLASH        recipes that write the image to a part
+#   ARCH_BOARD_RESTORE                 the recipe that puts the factory state back
 
 ARCH_CC      := avr-gcc
 ARCH_OBJCOPY := avr-objcopy
@@ -164,34 +165,60 @@ BOOT_EEPROM_RESTORE ?= 0
 ARCH_BOOT_FLASH = \
   fuse=$$($(ARCH_ISP) -q -q -U $(BOOT_EESAVE_FUSE):r:-:h) || exit 1; \
   case "$$fuse" in 0x[0-9a-fA-F]*) ;; \
-    *) echo "boot-flash: could not read $(BOOT_EESAVE_FUSE): avrdude printed '$$fuse'" >&2; exit 1;; esac; \
+    *) echo "$@: could not read $(BOOT_EESAVE_FUSE): avrdude printed '$$fuse'" >&2; exit 1;; esac; \
   if [ $$(( (fuse >> $(BOOT_EESAVE_BIT)) & 1 )) -eq 0 ]; then \
-    echo "boot-flash: EESAVE is programmed ($(BOOT_EESAVE_FUSE)=$$fuse): the chip erase keeps the EEPROM"; \
+    echo "$@: EESAVE is programmed ($(BOOT_EESAVE_FUSE)=$$fuse): the chip erase keeps the EEPROM"; \
     $(ARCH_ISP) -v -Uflash:w:$<:i; \
   elif [ "$(BOOT_EEPROM_RESTORE)" = 1 ]; then \
     save=$(BUILD_DIR)/eeprom-$(BOARD)-$$(date -u +%Y%m%dT%H%M%SZ).hex; \
-    echo "boot-flash: EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse); saving the EEPROM to $$save"; \
+    echo "$@: EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse); saving the EEPROM to $$save"; \
     mkdir -p $(BUILD_DIR) && \
     $(ARCH_ISP) -U eeprom:r:$$save:i && \
     $(ARCH_ISP) -v -Uflash:w:$<:i && \
     $(ARCH_ISP) -D -U eeprom:w:$$save:i && \
     $(ARCH_ISP) -U eeprom:r:$$save.readback:i || \
-      { echo "boot-flash: FAILED part-way. The EEPROM as it was is in $$save; write it back with:" >&2; \
+      { echo "$@: FAILED part-way. The EEPROM as it was is in $$save; write it back with:" >&2; \
         echo "  $(ARCH_ISP) -D -U eeprom:w:$$save:i" >&2; exit 1; }; \
     if ! cmp -s $$save $$save.readback; then \
-      echo "boot-flash: EEPROM READ-BACK MISMATCH. Saved before the erase: $$save; on the part now: $$save.readback" >&2; \
+      echo "$@: EEPROM READ-BACK MISMATCH. Saved before the erase: $$save; on the part now: $$save.readback" >&2; \
       echo "  write it back with: $(ARCH_ISP) -D -U eeprom:w:$$save:i" >&2; exit 1; \
     fi; \
     rm -f $$save.readback; \
-    echo "boot-flash: the EEPROM was written back and reads back equal; the saved copy is $$save"; \
+    echo "$@: the EEPROM was written back and reads back equal; the saved copy is $$save"; \
   else \
     fix=$$(printf '0x%02x' $$(( fuse & ~(1 << $(BOOT_EESAVE_BIT)) & 0xff ))); \
-    echo "boot-flash: REFUSED. EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse, bit $(BOOT_EESAVE_BIT) reads 1)," >&2; \
+    echo "$@: REFUSED. EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse, bit $(BOOT_EESAVE_BIT) reads 1)," >&2; \
     echo "  and writing the boot section needs a chip erase, which would take the EEPROM" >&2; \
     echo "  -- the platform block, and the device's identity -- with it. Either:" >&2; \
     echo "  program EESAVE first (this clears bit $(BOOT_EESAVE_BIT) and changes nothing else):" >&2; \
     echo "    $(ARCH_ISP) -U $(BOOT_EESAVE_FUSE):w:$$fix:m" >&2; \
-    echo "  or have boot-flash save the EEPROM, flash, write it back and compare:" >&2; \
-    echo "    make boot-flash BOARD=$(BOARD) BOOT_TIER=$(BOOT_TIER) BOOT_MEASURE=$(BOOT_MEASURE) BOOT_SIG=$(BOOT_SIG) BOOT_OTA=$(BOOT_OTA) BOOT_EEPROM_RESTORE=1" >&2; \
+    echo "  or have $@ save the EEPROM, flash, write it back and compare:" >&2; \
+    echo "    make $@ BOARD=$(BOARD) $(ISP_RERUN) BOOT_EEPROM_RESTORE=1" >&2; \
     exit 1; \
   fi
+
+# `make board-restore` (mk/board-restore.mk): the board as it left the factory,
+# its stock bootloader and the FACTORY_* fuse and lock bytes of its profile.mk,
+# recorded on its page under docs/development/bench/. The hex is checked against
+# the profile's SHA-256 first, so nothing is erased for the wrong file. The boot
+# section goes in through ARCH_BOOT_FLASH, so its chip erase is behind the same
+# EESAVE guard. The fuses follow, the high fuse (which holds EESAVE on every AVR
+# board here) last, so the erase ran with EESAVE as it was. The lock byte comes last of all: a chip erase is the
+# only thing that clears it. Each byte is then read back and compared.
+ARCH_BOARD_RESTORE = \
+  sum=$$(sha256sum $< | cut -d' ' -f1); \
+  if [ "$$sum" != "$(FACTORY_BOOT_HEX_SHA256)" ]; then \
+    echo "$@: REFUSED. $< has SHA-256 $$sum, not the stock bootloader's $(FACTORY_BOOT_HEX_SHA256)" >&2; \
+    exit 1; fi; \
+  { $(ARCH_BOOT_FLASH); } || exit 1; \
+  $(ARCH_ISP) -U lfuse:w:$(FACTORY_LFUSE):m -U efuse:w:$(FACTORY_EFUSE):m \
+              -U hfuse:w:$(FACTORY_HFUSE):m -U lock:w:$(FACTORY_LOCK):m || exit 1; \
+  for pair in lfuse:$(FACTORY_LFUSE) hfuse:$(FACTORY_HFUSE) efuse:$(FACTORY_EFUSE) lock:$(FACTORY_LOCK); do \
+    f=$${pair%%:*}; want=$${pair\#*:}; \
+    got=$$($(ARCH_ISP) -q -q -U $$f:r:-:h) || exit 1; \
+    case "$$got" in 0x[0-9a-fA-F]*) ;; \
+      *) echo "$@: could not read $$f back: avrdude printed '$$got'" >&2; exit 1;; esac; \
+    if [ $$((got)) -ne $$((want)) ]; then \
+      echo "$@: $$f reads $$got after the write, not the factory $$want" >&2; exit 1; fi; \
+  done; \
+  echo "$@: $(BOARD) has its stock bootloader and the factory fuses: lfuse=$(FACTORY_LFUSE) hfuse=$(FACTORY_HFUSE) efuse=$(FACTORY_EFUSE) lock=$(FACTORY_LOCK)"

@@ -154,6 +154,24 @@ No step here chip-erases except `boot-flash`, and that one only behind its
 bare `avrdude -e`, or a flash write without `-D`, on a provisioned part: the
 erase takes the platform block, and with it the device's identity.
 
+## Putting a bench board back
+
+A bench board the project is finished with goes back to its factory state:
+the stock bootloader and the fuse and lock bytes its page in
+[bench/](bench/) recorded before the first write.
+
+```sh
+make board-restore BOARD=atmega2560 BOARD_RESTORE_HEX=<stock bootloader .hex>
+```
+
+The hex is not in this tree (the stock bootloaders are GPL); the board's page
+says where it comes from. The target refuses a file whose SHA-256 is not the
+`FACTORY_BOOT_HEX_SHA256` in the board's `profile.mk`, then writes it through
+the same `EESAVE` guard as `boot-flash` (refuse, or `BOOT_EEPROM_RESTORE=1`),
+writes `FACTORY_LFUSE`, `FACTORY_EFUSE`, `FACTORY_HFUSE` and `FACTORY_LOCK`,
+and reads all four back. A board with no `FACTORY_*` values is refused before
+anything runs. The restore leaves `EESAVE` as the factory had it, unprogrammed.
+
 ## Fuses and lock bits
 
 Not here. See `docs/security/fuses-and-lockbits.md` — several of those settings

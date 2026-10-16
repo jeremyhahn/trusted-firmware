@@ -43,6 +43,7 @@ ARCH_BOOT_OPT_CFLAGS :=
 ARCH_BOOT_PLACEMENT_LDFLAGS :=
 ARCH_FLASH      = $(ARCH_ESP_REFUSE)
 ARCH_BOOT_FLASH = $(ARCH_ESP_REFUSE)
+ARCH_BOARD_RESTORE = $(ARCH_ESP_REFUSE)
 
 # The bootloader's layer 0 hands the CDI off through ESP-IDF's RTC-retained
 # memory (src/hal/esp32/hal_handoff.c), so the real identity sources link.

@@ -22,6 +22,9 @@ include mk/firmware.mk
 # and it reuses ARCH_CC, ARCH_OBJCOPY, ARCH_SIZE, HAL_DIR and the board profile
 # that file establishes.
 include mk/boot.mk
+# After mk/boot.mk: board-restore writes the stock bootloader through
+# ARCH_BOOT_FLASH's EESAVE guard. A bench target only: never in `ci`.
+include mk/board-restore.mk
 include mk/docker.mk
 include mk/integration.mk
 # After mk/firmware.mk: the benchmark image is the firmware's own object list

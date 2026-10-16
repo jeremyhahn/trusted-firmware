@@ -15,9 +15,17 @@ are those of [the wire protocol](../wire-protocol/). On Ethernet:
 | Id | Command |
 |---|---|
 | `0x00` | `CAPS` |
+| `0x06` | `APP_INFO` |
 | `0x60` | `ATTEST` |
 | `0x63` | `ATTEST_CERT` |
 | `0x64` | `ATTEST_CSR` |
+| `0x68` | `OTA_BEGIN` |
+| `0x69` | `OTA_DATA` |
+| `0x6A` | `OTA_END` |
+| `0x6B` | `OTA_STATUS` |
+
+An image without the OTA stager answers the four OTA commands with
+`TFW_ERR_UNKNOWN_CMD`, as it does on serial.
 
 ## Network block
 

@@ -30,6 +30,16 @@ RAM_END        := 0x21FF
 BOOT_EESAVE_FUSE := hfuse
 BOOT_EESAVE_BIT  := 3
 
+# The factory state `make board-restore` puts back (mk/board-restore.mk): the
+# bench Mega's fuse and lock bytes read over ISP before the project's first
+# write to it, and the SHA-256 of Arduino's stk500boot_v2_mega2560.hex, the
+# stock bootloader its boot section held. docs/development/bench/mega2560.md.
+FACTORY_LFUSE := 0xff
+FACTORY_HFUSE := 0xd8
+FACTORY_EFUSE := 0xfd
+FACTORY_LOCK  := 0xcf
+FACTORY_BOOT_HEX_SHA256 := 081bd53f385df747b03bdafe7e154c1f72589f490be8138f3c4cc5517c93253b
+
 # The Ethernet controller an ETH=1 image drives (docs/ethernet-transport/): the
 # Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
 # The chip file checks the part's identity, so the wrong shield stays down.

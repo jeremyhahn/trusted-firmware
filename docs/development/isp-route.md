@@ -91,6 +91,12 @@ above. Every run prints `cannot set sck period; please check for usbasp
 firmware update`, because the clone's firmware predates that request. It then
 programs at its own default clock, and every read below completed through it.
 
+Each bench board has a page with its factory bootloader, fuse bytes and
+restore procedure, written before the project's first write to it (owner,
+CA m346): [the Mega 2560](bench/mega2560.md) and [the Nano](bench/nano.md).
+The Mega's page also records that this USBasp cannot address the
+ATmega2560's low 128 KB.
+
 ### The Mega, 2026-10-16
 
 The USBasp is on the Mega's ICSP header, and the Mega is on USB as

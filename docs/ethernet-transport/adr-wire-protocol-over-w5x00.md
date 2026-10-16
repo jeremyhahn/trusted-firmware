@@ -2,11 +2,15 @@
 
 > **Status: PROPOSED** · Issue: #55 · Scope: trusted-firmware (device
 > and `sdk/go`), go-trusted-platform (device-facing endpoint, seam only)
-> · Last verified: 2026-10-15
+> · Last verified: 2026-10-16 for the build selection (Drivers, Transport per
+> image), the Ethernet link and its allow-list, and the `sdk/go` listener,
+> checked against `mk/firmware.mk`, `src/proto/link_eth.c`, `src/net/`,
+> `sdk/go/tcp.go` and `sdk/go/tfwsim/ethernet_test.go`; 2026-10-15 for the rest
 >
 > Every decision below is taken and implemented on the branch except one: how
 > the ATmega328P carries Ethernet within its flash. That needs the owner's choice
-> ("The 328P budget", below). Nothing shipped changes until then: Ethernet is off
+> ("The 328P budget", below). The owner ruled on 2026-10-15 how an image selects
+> its transport (decision 7); that ruling does not make the choice. Nothing shipped changes until then: Ethernet is off
 > in every default image.
 
 ## The question
@@ -95,6 +99,10 @@ The Ethernet link accepts exactly these commands:
 | `0x60` | `ATTEST` | Attestation: UCCS evidence over the verifier's nonce. |
 | `0x63` | `ATTEST_CERT` | Attestation and enrolment: the alias certificate over the nonce. |
 | `0x64` | `ATTEST_CSR` | Enrolment: the device-templated PKCS#10 for ACME finalize. |
+| `0x68` | `OTA_BEGIN` | Update, added with #75: opens staging of an image into the external store. The [OTA ADR's decision 8](../ota/adr-ota-image-format-and-trust.md#8-wire-commands--accepted-status-code-rbac-ethernet-proposed-ids-and-layouts) widens the list for the update path. |
+| `0x69` | `OTA_DATA` | Update, added with #75: carries the image bytes into the external store, under the OTA ADR's decision 8. |
+| `0x6A` | `OTA_END` | Update, added with #75: every byte arrived, nothing verified; under the OTA ADR's decision 8. |
+| `0x6B` | `OTA_STATUS` | Update, added with #75: the staging state and the bytes received, so the control plane can resume; under the OTA ADR's decision 8. |
 
 - Every other command received on Ethernet is answered with the existing status
   `TFW_ERR_UNKNOWN_CMD` (4) and is never dispatched. That is the answer the device
@@ -112,6 +120,11 @@ The Ethernet link accepts exactly these commands:
 - The check runs in the transport before dispatch, from a table in the Ethernet
   link's file. A serial-only image has no table and no check. A unit test pins all
   128 command ids against the literal list above.
+- **Widened since, by the OTA ADR.** `src/proto/link_eth.c` also admits
+  `OTA_BEGIN`, `OTA_DATA`, `OTA_END` and `OTA_STATUS`, for staging into the
+  external store ([OTA ADR](../ota/adr-ota-image-format-and-trust.md), decision
+  8). An image without the stager answers them `TFW_ERR_UNKNOWN_CMD`, as above.
+  The table here is this ADR's decision; the OTA ADR owns the widening.
 
 ### 3. Addressing
 
@@ -189,8 +202,9 @@ The Ethernet link accepts exactly these commands:
   byte, identify the chip. They are given a register space and an offset. The
   socket logic common to both is `src/net/w5x00.c`, written once against those
   primitives. The board's `profile.mk` names its shield's controller
-  (`ETH_CHIP`); `make ETH=1` links the link, the socket logic and that one
-  driver file. No vtable, no runtime dispatch.
+  (`ETH_CHIP`); `make ETH=1` links the link, the socket logic, the network
+  block's reader (`src/net/netcfg.c`) and that one driver file. No vtable, no
+  runtime dispatch.
 - **Identity is checked before the chip is trusted, and the wrong chip fails
   closed.** Each driver resets the chip through `MR` and then reads:
   - **W5500:** `VERSIONR` at `0x0039` must read `0x04`.
@@ -272,6 +286,30 @@ platform's SPEC needs, in its own words:
 
 Filing that row is go-trusted-platform's work; this ADR only reports it.
 
+### 7. Transport per image
+
+The owner ruled on 2026-10-15 at 16:15Z (DS-1904, issue #55), verbatim:
+
+> "a constrained board's image selects serial or network at build time where
+> both do not fit (object list, never #if in logic); both where they fit. The
+> 2560 carries both. For the 328P, the OTA ADR rewrite (#52) states which images
+> carry which."
+
+- **Selection is by object list.** `make ETH=1` adds the Ethernet link, the
+  socket logic, the block reader and the board's driver file to the image
+  (`mk/firmware.mk`); without it the image links no network code. No `#if` in
+  logic chooses a transport.
+- **Both links where they fit.** An image that carries Ethernet keeps serial,
+  and the two share one transport (decision 1). The ATmega2560's `ETH=1` image
+  carries both, and fits (The 328P budget, below).
+- **The 328P's split is the OTA ADR's.** Which 328P images carry serial,
+  Ethernet or both is stated in the OTA ADR rewrite (#52), not here.
+- **What the ruling does not settle**, both the owner's:
+  - whether `ETH=1` becomes the ATmega2560's default image, which changes the
+    default `CAPS` reply (tone refused, the shield's pins reserved) and the CI
+    matrix;
+  - the 328P budget choice among options (a)-(d) below.
+
 ## The 328P budget
 
 Measured with avr-gcc 14.2.0, element tier (`CRYPTO=atecc608a`), against each
@@ -337,9 +375,13 @@ so the image can be measured, and its default image is unchanged.
 
 ## Follow-ups
 
-- The owner's choice for the 328P (above).
-- The owner's call on Ethernet by default in the Mega's image, which removes tone
-  there, and the CI matrix entry for whichever Ethernet images ship.
+- **Ruled 2026-10-15 16:15Z:** how an image selects its transport, by object
+  list at build time (decision 7).
+- Open, the owner's: the choice for the 328P among (a)-(d) (above); the ruling
+  does not make it.
+- Open, the owner's: whether `ETH=1` becomes the Mega's default image, which
+  removes tone there and changes the default `CAPS` reply, and the CI matrix
+  entry for whichever Ethernet images ship; the ruling does not make it.
 - The Nano's shield, which could not be probed. A W5100 is expected.
 - The sticker MAC of each shield, which replaces the derived one when supplied.
 - DHCP, when the boot node serves the bench network (see Addressing).

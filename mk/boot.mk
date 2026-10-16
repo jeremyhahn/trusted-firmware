@@ -531,7 +531,10 @@ endif
 endif
 
 # The recipe reads EESAVE before the chip erase and refuses an erase that would
-# take the EEPROM; see ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk.
+# take the EEPROM; see ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk. ISP_RERUN is what
+# that refusal tells the operator to run again, BOOT_EEPROM_RESTORE=1 added.
+boot-flash: ISP_RERUN = BOOT_TIER=$(BOOT_TIER) BOOT_MEASURE=$(BOOT_MEASURE) BOOT_SIG=$(BOOT_SIG) \
+                        BOOT_OTA=$(BOOT_OTA) BOOT_STORE=$(BOOT_STORE)
 boot-flash: $(BOOT_TARGET).hex
 	@$(ARCH_BOOT_FLASH)
 

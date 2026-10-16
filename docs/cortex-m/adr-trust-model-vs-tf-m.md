@@ -4,7 +4,7 @@
 > Cortex-M secure world and boot chain); go-xkms and go-quicbaas (what they must
 > accept, seam only) · Related: #14,
 > [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) ·
-> Last verified: 2026-10-15
+> Last verified: 2026-10-16
 >
 > Nothing here is implemented, and nothing is decided until the owner accepts it.
 > The `cortex-m` row is gated behind the AVR physical end-to-end run (#7). This
@@ -81,6 +81,24 @@ L2 say.
   and 640 KB of SRAM, the MCXN947 2 MB and 512 KB, the nRF54L15 1.5 MB of RRAM
   and 256 KB, and the RP2350 520 KB of SRAM with external flash. Flash is not
   the constraint it was on the 328P.
+- **Board pages checked, 2026-10-16**
+  ([`stm32h573i-dk.md`](../boards/stm32h573i-dk.md),
+  [`rp2350-pico2w.md`](../boards/rp2350-pico2w.md),
+  [`nrf54l15-dk.md`](../boards/nrf54l15-dk.md)). Three differences from the
+  figures above, none of which changes the conclusion that flash is not the
+  constraint:
+  - **nRF54L15:** Nordic's datasheet gives the family's NVM as up to 1524 KB of
+    RRAM (about 1.49 MiB, not 1.5 MB) and RAM up to 256 KB. The per-part figure
+    was not confirmed from the section read.
+  - **STM32H573:** 2 MB and 640 KB match ST's product page, but not the
+    datasheet DS14053, which could not be retrieved. The figure is not confirmed.
+  - **RP2350:** 520 KB of SRAM is confirmed (product brief RP-008374-DS-1).
+    "External flash" is 4 MB on the Pico 2 W. The RP2350A has no internal flash,
+    and the RP2354 variants carry 2 MB stacked.
+
+  The facts bear on open questions 2 (Secure Manager, UM3254; Nordic's TF-M as
+  the only nRF54L15 secure world) and 4 (the RP2350's OTP key store has no
+  public-key accelerator; the nRF54L15's KMU hides keys from secure code).
 
 ## What TF-M is, in the terms that matter here
 

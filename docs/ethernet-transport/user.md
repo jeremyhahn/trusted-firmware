@@ -67,7 +67,9 @@ dev, err := l.Accept()
 caps, err := dev.Caps(ctx)
 ```
 
-Only `CAPS`, `ATTEST`, `ATTEST_CERT` and `ATTEST_CSR` work over Ethernet. Every
+Only `CAPS`, `APP_INFO`, `ATTEST`, `ATTEST_CERT`, `ATTEST_CSR` and the OTA
+staging commands (`OTA_BEGIN`, `OTA_DATA`, `OTA_END`, `OTA_STATUS`) work over
+Ethernet. Every
 other command answers "unknown command"; use serial for those.
 
 ## If the device does not connect

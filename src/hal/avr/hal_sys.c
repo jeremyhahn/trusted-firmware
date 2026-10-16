@@ -58,10 +58,17 @@ tfw_reset_cause_t tfw_hal_reset_cause(void)
  * configured, every interrupt still enabled and the stack wherever it was. Half
  * the chip believes it is still running. The watchdog performs a real hardware
  * reset, which is what the caller asked for.
+ *
+ * Disarmed first, so the 15 ms period is a fresh start and not a prescaler
+ * change on a watchdog already running. The trial (#77) calls this with the
+ * 8 s watchdog armed; simavr keeps the running 8 s timer across a prescaler
+ * change, so without the disarm the trial's deadline reset landed a whole
+ * period late there.
  */
 void tfw_hal_reset(void)
 {
     cli();
+    wdt_disable();
     wdt_enable(WDTO_15MS);
     for (;;) { }
 }

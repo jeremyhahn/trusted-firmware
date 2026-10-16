@@ -2019,6 +2019,94 @@ static void test_an_unconfirmed_store_image_swaps_back(elf_firmware_t *boot,
     check(store_untouched(), "tfw-boot only read the store");
 }
 
+/*
+ * The trial deadline (#77), with no reset from the harness. The application's
+ * ota_trial.c counts TFW_OTA_TRIAL_TIMEOUT_S from the board profile -- the
+ * board value, never a shorter one for speed -- and at expiry takes a
+ * watchdog reset into tfw-boot, which finds TRIAL unconfirmed and swaps back.
+ *
+ * The reset is observed as the part shows it: WDRF (bit 3) in MCUSR (data
+ * address 0x54), set by simavr's watchdog at the reset and cleared by
+ * tfw-boot's .init3 a few instructions later, so it is polled every
+ * instruction. simavr may zero avr->cycle at a reset, so the cycles are
+ * summed step by step rather than subtracted.
+ */
+static int mcusr_wdrf(void) { return (avr->data[0x54] & 0x08u) != 0u; }
+
+/* Runs to the reset edge -- the first instruction back at BOOTRST's entry --
+ * and samples MCUSR there, before tfw-boot's .init3 can clear it. Returns the
+ * cycles to the edge, or the budget if the part never reset. */
+static uint64_t run_until_reset(uint64_t budget, int *wdrf)
+{
+    uint64_t elapsed = 0u;
+    uint64_t last    = avr->cycle;
+
+    *wdrf = 0;
+    while (elapsed < budget && avr->state != cpu_Done && avr->state != cpu_Crashed) {
+        avr_run(avr);
+        elapsed += avr->cycle >= last ? avr->cycle - last : avr->cycle;
+        last     = avr->cycle;
+        if (avr->pc == avr->reset_pc) {
+            *wdrf = mcusr_wdrf();
+            return elapsed;
+        }
+    }
+    return budget;
+}
+
+static void test_an_unconfirmed_store_image_rolls_back_at_the_deadline(
+    elf_firmware_t *boot, elf_firmware_t *app)
+{
+    /* 60 s at 16 MHz is 960,000,000 cycles; the store boot before it measured
+     * 85,354,510. The wait runs a second past the deadline plus one 8 s
+     * watchdog period, so a late reset is measured and not cut off. */
+    const uint64_t deadline = (uint64_t)TFW_OTA_TRIAL_TIMEOUT_S * F_CPU_HZ;
+    const uint64_t wdt      = 8ull * F_CPU_HZ;
+    tfw_boot_platform_t p;
+    uint64_t            booted, to_reset;
+    int                 wdrf;
+    uint8_t             wire[64], sysinfo[64], sysinfo_len, status;
+    unsigned            n;
+
+    printf("store row: a trial nothing confirms, left to its deadline:\n");
+    stage_in_store(app, 2u, 3u, -1);
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    boot_with_store(boot, 2u);
+    check(run_until(app_booted, BUDGET_BOOT_STORE) && primary_version() == 3u,
+          "the staged image boots");
+    booted = avr->cycle;               /* from power-on: install made the core */
+    memset(&p, 0, sizeof p);
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL,
+          "on trial");
+
+    to_reset = run_until_reset(deadline + wdt + F_CPU_HZ, &wdrf);
+    printf("  reset %llu cycles after the boot event, deadline %llu\n",
+           (unsigned long long)to_reset, (unsigned long long)deadline);
+    check(to_reset < deadline + wdt + F_CPU_HZ, "the part resets by itself");
+    check(wdrf, "the reset flags at the reset edge: WDRF, the watchdog");
+    /* The count starts after power-on, so the reset cannot come before the
+     * deadline does; nor later than one watchdog period after it. */
+    check(booted + to_reset >= deadline && to_reset <= deadline + wdt,
+          "the reset lands at the deadline, within one watchdog period");
+
+    from_device_n = 0;
+    check(run_until(app_booted, BUDGET_BOOT_STORE), "the reset boots");
+    check(primary_version() == 2u, "the previous image, copied back from PREV");
+    check(block_failed(1), "GOOD, FAILED is stored");
+    check(el.counter == 2u, "an unconfirmed trial leaves the floor where it was");
+    check(store_untouched(), "tfw-boot only read the store");
+
+    /* The same cause, as tfw-boot latched it and handed it off. */
+    from_device_n = 0;
+    n = frame_request(wire, 0x37, TFW_CMD_SYS_INFO, NULL, 0u);
+    send(wire, n);
+    wait_for_seq = 0x37;
+    run_until(response_arrived, BUDGET_EXCHANGE);
+    check(find_response(0x37, &status, sysinfo, &sysinfo_len) && status == TFW_OK
+          && sysinfo_len >= 7u && sysinfo[6] == 4u /* TFW_RESET_WATCHDOG */,
+          "SYS_INFO reports the watchdog reset");
+}
+
 /* What the boot refuses from the store before a page of the application
  * region is written: a staged byte that does not match the measurement, and
  * an image below the floor. The primary runs on. */
@@ -2085,6 +2173,7 @@ int main(int argc, char **argv)
     if (argc > 3 && strcmp(argv[3], "store") == 0) {
         test_a_store_image_runs_its_trial_and_settles(&boot, &app);
         test_an_unconfirmed_store_image_swaps_back(&boot, &app);
+        test_an_unconfirmed_store_image_rolls_back_at_the_deadline(&boot, &app);
         test_a_bad_store_image_copies_nothing(&boot, &app);
         store_bus_report();
         printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);

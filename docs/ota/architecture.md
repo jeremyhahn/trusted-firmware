@@ -601,7 +601,9 @@ NOR model (`test/model/spi_nor_model.c`) sits on the emulated SPI bus behind
 D8, and the harness lays in it what the stager leaves: the signed image, padded
 to pages, its trailer last, and the `MARK` record. The images are trailer v1
 with the board id, signed by the harness's modelled element as every image in
-that suite is.
+that suite is. The application in that image is the real one, with the SDK
+tick and `src/core/ota_trial.c` linked, so a trial left alone runs out at its
+deadline on the emulated part, with no reset from the harness.
 
 | Link of the round | Under simavr | Where else |
 |---|---|---|
@@ -609,7 +611,8 @@ that suite is.
 | tfw-boot reads `MARK` and `STAGE`, checks, copies into the secondary, swaps in, arms `TRIAL`, the application boots | yes, `test_a_store_image_runs_its_trial_and_settles` | `test_boot_stage_2560`, `test_boot_swap` |
 | `CONFIRMED` at reset: the floor advances to the version, `GOOD`; the mark is not copied again | yes, same test; the harness writes `CONFIRMED` into the block | `test_boot_trial`, `test_boot_swap` |
 | `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | no: not on the wire, their ids are decision 8's proposal | none |
-| a trial not confirmed: the reset swaps back, `GOOD` `FAILED`, the marked image not taken again, the floor unmoved | yes, `test_an_unconfirmed_store_image_swaps_back` | `test_boot_swap` |
+| a trial not confirmed: the reset swaps back, `GOOD` `FAILED`, the marked image not taken again, the floor unmoved | yes, `test_an_unconfirmed_store_image_swaps_back`; the harness forces that reset | `test_boot_swap` |
+| the trial deadline: nothing confirms, the application's `ota_trial.c` takes a watchdog reset at `TFW_OTA_TRIAL_TIMEOUT_S` (the board value, 60 s), WDRF in MCUSR at the reset edge and `TFW_RESET_WATCHDOG` in `SYS_INFO`, within one 8 s watchdog period of the deadline (`tfw_hal_reset` disarms the 8 s watchdog before its 15 ms one, which simavr would otherwise not apply); tfw-boot copies `PREV` back, `GOOD` `FAILED` | yes, `test_an_unconfirmed_store_image_rolls_back_at_the_deadline`, about 1.05 billion emulated cycles | `test_ota_trial`, `test_boot_trial` |
 | a staged byte that fails the hash, an image below the floor: no page written, the primary boots | yes, `test_a_bad_store_image_copies_nothing` | `test_boot_stage_2560` |
 | the store is only read by tfw-boot | yes: no erase, no program and no malformed transaction reach the model on any boot | — |
 

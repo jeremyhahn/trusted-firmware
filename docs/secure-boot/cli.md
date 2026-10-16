@@ -1,6 +1,6 @@
 # tfw-boot — CLI
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-16
 > Conflicts with this document are defects. Fix them here first.
 
 `tfw-boot` is a bare-metal image with no shell of its own; its CLI is the
@@ -88,18 +88,48 @@ difference.
 ## `make boot-flash` — write tfw-boot over ISP
 
 ```sh
-make boot-flash BOARD=atmega328p ISP_PROG=usbasp ISP_PORT=usb
+make boot-flash BOARD=atmega328p BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a \
+     BOOT_SIG=atecc608a BOOT_OTA=0 ISP_PROG=usbasp ISP_PORT=usb
 ```
 
 | Flag | Values | Default | Required |
 |---|---|---|---|
 | `BOARD` | a board name | — | yes |
+| `BOOT_TIER`, `BOOT_MEASURE`, `BOOT_SIG`, `BOOT_OTA` | a supported row for `BOARD`, below | `soft`, `soft`, `ed25519-donna`, `1` | yes: the defaults fit no board |
 | `ISP_PROG` | any `avrdude -c` programmer id | `usbasp` | no |
 | `ISP_PORT` | any `avrdude -P` port | `usb` | no |
 
 **Not** the `arduino` bootloader programmer — that one talks *to* a
 bootloader, and the boot section is the one region a running bootloader
 cannot write to itself. This target requires an ISP programmer.
+
+`boot-flash` builds the configuration its variables name, so they must name one
+that fits. It refuses any other before building anything, and names the rows
+that fit `BOARD`. The rows are `BOOT_SUPPORTED` in `mk/boot.mk`, the set
+`make bootloader-check` builds. Every row needs an ATECC608 on the board's I²C
+bus: the ATECC608C on the MIKROE-6774 on the bench, build name `atecc608a`.
+
+Measured with `make bootloader` for all 16 combinations per board (avr-gcc
+14.2.0, 2026-10-16):
+
+| Board | Boot section | `BOOT_TIER` `BOOT_MEASURE` `BOOT_SIG` | `BOOT_OTA` | Flash | SRAM | `boot-flash` |
+|---|---|---|---|---|---|---|
+| `atmega328p` | 4 096 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 812 | 351 / 2 048 | yes |
+| `atmega32u4` | 4 096 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 882 | 351 / 2 560 | yes |
+| `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `1` | 6 942 | 777 / 8 192 | yes: the only row with the serial OTA session |
+| `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 972 | 351 / 8 192 | yes |
+| `atmega2560` | 8 192 B | `atecc608a` `soft` `atecc608a` | `0` | 7 252 | 351 / 8 192 | no: it fits, but it is not a supported row |
+| `attiny85` | none | — | — | — | — | no: the part has no boot section |
+
+Every other combination fails the link on every board, the defaults
+(`soft`/`soft`/`ed25519-donna`/`1`) and `BOOT_TIER=atecc608a` alone included.
+No configuration without the element fits any board.
+
+`boot-flash` runs avrdude without `-D`, so it chip-erases the part first. The
+application goes with it, the lock bits are cleared, and the EEPROM survives
+only with `EESAVE` programmed
+([../security/fuses-and-lockbits.md](../security/fuses-and-lockbits.md)). How
+the application then gets onto the board is in [user.md](user.md).
 
 ## `make boot-test` — the host unit suite
 

@@ -427,6 +427,19 @@ bootloader-reproducible:
 # NOT the application's programmer. That one talks TO a bootloader, and the boot
 # section is the one place a bootloader cannot write. This needs an ISP -- see
 # ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk.
+#
+# Only a BOOT_SUPPORTED row is flashed, and the refusal comes at parse time,
+# before anything is built. The defaults are soft/ed25519-donna, which fit no
+# board's boot section, so `make boot-flash BOARD=<board>` with no BOOT_*
+# variables used to rebuild them and stop at the link with an overflow.
+BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA)
+BOOT_FITS := $(filter $(BOARD):%,$(BOOT_SUPPORTED))
+ifneq ($(filter boot-flash,$(MAKECMDGOALS)),)
+ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
+$(error boot-flash: $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows, which fit, are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
+endif
+endif
+
 boot-flash: $(BOOT_TARGET).hex
 	$(ARCH_BOOT_FLASH)
 

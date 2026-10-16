@@ -622,9 +622,23 @@ only, until the command exists.
 Not yet: the 328P/32U4 `PREV` restore;
 the stager carrying the envelope and calling the manifest gate;
 `OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are
-proposed); keeping the failed measurement (open question 10); and the trial
-deadline and watchdog (`TFW_OTA_TRIAL_TIMEOUT_S` is a board value, open
-question 6, and the application's `.init3` disarms the watchdog today).
+proposed); keeping the failed measurement (open question 10); and the
+caller of the trial's stop, `tfw_ota_trial_stop`, which is the `OTA_CONFIRM`
+handler of decision 8. Until it lands, every trial runs out at its deadline
+and rolls back.
+
+What runs of the trial's two layers: `tfw-boot` arms the watchdog at its
+longest period (8 s on AVR, `tfw_boot_watchdog_arm`) after `TRIAL` is written
+and before the jump, on the trial path only, in `boot_main.c` and in the
+recovery session. In the application, `src/core/ota_trial.c` reads the
+platform block's `boot_state` before the application's `init`; in `TRIAL` it
+re-arms the watchdog, and the superloop pets it and counts
+`TFW_OTA_TRIAL_TIMEOUT_S` (60 s on each AVR board with a boot section,
+PROPOSED, open question 6), resetting into `tfw-boot` at expiry. The
+application's `.init3` still disarms the watchdog on every boot, so the
+boot's arm covers the window from the jump to `.init3`, and the re-arm covers
+the rest of the trial. Only the 2560 (`BOOT_AB`) links `ota_trial.c`; the 328P
+and 32U4 link `ota_trial_none.c` until their restore exists.
 
 ## Trust boundaries
 

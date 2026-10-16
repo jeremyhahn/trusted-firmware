@@ -264,6 +264,14 @@ void tfw_boot_reset(void)
     for (;;) { }
 }
 
+void tfw_boot_watchdog_arm(void)
+{
+    /* 8 s, the longest period: the timed sequence tfw_boot_reset uses, with
+     * WDP3|WDP0. The application's .init3 leaves it armed in a trial. */
+    WDTCSR = (uint8_t)(_BV(WDCE) | _BV(WDE));
+    WDTCSR = (uint8_t)(_BV(WDE) | _BV(WDP3) | _BV(WDP0));
+}
+
 /*
  * hal_early.c's latch of MCUSR, decoded there -- the same code, in the same
  * three-instruction neighbourhood, the application's HAL reads. It is the

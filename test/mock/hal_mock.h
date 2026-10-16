@@ -95,6 +95,8 @@ uint8_t  tfw_mock_last_spi_lsb(void);
 void   tfw_mock_set_reset_cause(tfw_reset_cause_t c);
 void   tfw_mock_set_free_ram(uint32_t n);
 unsigned tfw_mock_reset_count(void);         /* how often tfw_hal_reset() was called */
+unsigned tfw_mock_watchdog_arms(void);       /* how often tfw_hal_watchdog_arm() was called */
+unsigned tfw_mock_watchdog_pets(void);       /* how often tfw_hal_watchdog_pet() was called */
 uint8_t  tfw_mock_irq_enabled(void);         /* 1 once tfw_hal_irq_enable() was called */
 
 #endif /* TFW_HAL_MOCK_H */

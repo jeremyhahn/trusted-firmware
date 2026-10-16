@@ -213,6 +213,7 @@ static next_t answer(tfw_boot_platform_t *plat,
         plat->ota_state = TFW_BOOT_OTA_PENDING;
         (void)tfw_boot_trial_arm(plat);
         tfw_boot_platform_store(plat);
+        tfw_boot_watchdog_arm();
 
         tfw_boot_hand_over(&v);
     }

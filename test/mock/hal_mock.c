@@ -21,6 +21,7 @@ static size_t           tx_capacity;      /* 0 = unlimited */
 static tfw_reset_cause_t cause;
 static uint32_t         free_ram;
 static unsigned         resets;
+static unsigned         wdt_arms, wdt_pets;
 static uint8_t          irq_on;
 
 #define EEPROM_SIZE 1024u
@@ -130,6 +131,7 @@ void tfw_mock_reset(void)
 {
     now = 0u; rx_head = rx_tail = 0u; tx_len = 0u; tx_capacity = 0u;
     cause = TFW_RESET_POWER_ON; free_ram = 1024u; resets = 0u; irq_on = 0u;
+    wdt_arms = 0u; wdt_pets = 0u;
     memset(ports, 0, sizeof ports);
     memset(pwm_ctl, 0, sizeof pwm_ctl);
     memset(pwm_duty, 0, sizeof pwm_duty);
@@ -287,6 +289,11 @@ uint32_t         tfw_hal_free_ram(void)     { return free_ram; }
 /* On the device this never returns. Here it counts and returns, because a test
  * that could not continue past a reset could not assert anything about it. */
 void tfw_hal_reset(void) { resets++; }
+
+void tfw_hal_watchdog_arm(void) { wdt_arms++; }
+void tfw_hal_watchdog_pet(void) { wdt_pets++; }
+unsigned tfw_mock_watchdog_arms(void) { return wdt_arms; }
+unsigned tfw_mock_watchdog_pets(void) { return wdt_pets; }
 
 void tfw_hal_irq_enable(void) { irq_on = 1u; }
 

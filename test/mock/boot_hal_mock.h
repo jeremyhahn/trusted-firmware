@@ -90,4 +90,10 @@ void tfw_boot_mock_set_reset_cause(tfw_reset_cause_t c);
 unsigned tfw_boot_mock_jumped(void);
 unsigned tfw_boot_mock_did_reset(void);
 
+/* When the last NVM write, the watchdog arm and the jump happened, as ordinals
+ * on one counter (0: never), so a test can pin their order. */
+unsigned tfw_boot_mock_nvm_write_at(void);
+unsigned tfw_boot_mock_watchdog_at(void);
+unsigned tfw_boot_mock_jump_at(void);
+
 #endif /* TFW_BOOT_HAL_MOCK_H */

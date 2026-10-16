@@ -142,4 +142,11 @@ void tfw_boot_jump_application(void);
 /* Does not return. A real hardware reset, not a jump to zero. */
 void tfw_boot_reset(void);
 
+/* Arms the hardware watchdog at the longest period the part has, for the one
+ * trial (decision 9): called after TRIAL is written and before the jump, on
+ * the trial path only. The application SDK pets it during the trial, so a
+ * hung image is reset and the reset finds TRIAL. The deadline itself is the
+ * application's (TFW_OTA_TRIAL_TIMEOUT_S): AVR's longest period is 8 s. */
+void tfw_boot_watchdog_arm(void);
+
 #endif /* TFW_BOOT_HAL_H */

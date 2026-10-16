@@ -290,6 +290,15 @@ endif
 # A bootloader that hands off but opens no update session (ESP-IDF's, until
 # its OTA is wired to the wire) takes no request either, so RESET(1) is
 # refused rather than quietly behaving as a soft reset.
+# The one trial's application half (#77), only on a board whose tfw-boot can
+# write TRIAL: the A/B part (BOOT_AB in profile.mk, the 2560). The 328P and
+# 32U4 boots have no OTA and no restore yet, so there it would be dead code
+# over their flash budget; they and every other board link the stub.
+ifeq ($(BOOT_AB),1)
+IDENTITY_SRCS += src/core/ota_trial.c
+else
+IDENTITY_SRCS += src/core/ota_trial_none.c
+endif
 ifeq ($(ARCH_UPDATE_REQUEST),none)
 IDENTITY_SRCS := $(filter-out src/core/update_request.c boot/boot_request.c,$(IDENTITY_SRCS)) \
                  src/core/update_request_none.c

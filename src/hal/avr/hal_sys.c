@@ -97,3 +97,13 @@ uint32_t tfw_hal_free_ram(void)
      * u32 return is the contract's width, for parts with more than 64 KiB. */
     return (uint16_t)((int)&marker - top);
 }
+
+void tfw_hal_watchdog_arm(void)
+{
+    wdt_enable(WDTO_8S);
+}
+
+void tfw_hal_watchdog_pet(void)
+{
+    wdt_reset();
+}

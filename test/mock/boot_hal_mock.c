@@ -31,6 +31,9 @@ static uint8_t  torn;
 static void   (*g_store)(uint8_t *buf, uint16_t len);
 static unsigned jumped;
 static unsigned reset_calls;
+/* Ordinals on one counter, so a test can assert the order of the last NVM
+ * write, the watchdog arm and the jump; 0 is "never". */
+static unsigned events, nvm_at, wdt_at, jump_at;
 static unsigned empty_polls;
 static unsigned consumed;
 static void   (*rx_idle_hook)(unsigned);
@@ -56,6 +59,7 @@ void tfw_boot_mock_reset(void)
     g_store = 0;
     jumped = 0u;
     reset_calls = 0u;
+    events = nvm_at = wdt_at = jump_at = 0u;
     empty_polls = 0u;
     consumed = 0u;
     rx_idle_hook = 0;
@@ -212,6 +216,7 @@ tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
         tear_left--;
     }
     memcpy(&eeprom[addr], buf, len);
+    nvm_at = ++events;
     return TFW_OK;
 }
 
@@ -248,8 +253,13 @@ void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
     memcpy(buf, handoff_block, len);
 }
 
-void tfw_boot_jump_application(void) { jumped++; }
+void tfw_boot_jump_application(void) { jumped++; jump_at = ++events; }
 void tfw_boot_reset(void)            { reset_calls++; }
+void tfw_boot_watchdog_arm(void)     { wdt_at = ++events; }
+
+unsigned tfw_boot_mock_nvm_write_at(void) { return nvm_at; }
+unsigned tfw_boot_mock_watchdog_at(void)  { return wdt_at; }
+unsigned tfw_boot_mock_jump_at(void)      { return jump_at; }
 
 tfw_reset_cause_t tfw_boot_reset_cause(void)      { return cause; }
 void tfw_boot_mock_set_reset_cause(tfw_reset_cause_t c) { cause = c; }

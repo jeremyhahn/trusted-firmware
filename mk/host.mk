@@ -124,7 +124,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c \
-                            test/unit/test_sys_noboot.c \
+                            test/unit/test_sys_noboot.c test/unit/test_ota_trial.c \
                             test/unit/test_pin_coord.c \
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
@@ -292,6 +292,15 @@ $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The application's half of the one trial (#77) against the mock HAL's clock
+# and EEPROM, with the platform block reader the application links.
+$(HOST_DIR)/test_ota_trial: test/unit/test_ota_trial.c src/core/ota_trial.c \
+                        boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c \
+                        src/core/secure_zero.c boot/boot_handoff.c \
+                        src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # test_pin_coord brings its own board tables -- a port 18 and a bit 31, which no
 # real board has -- so it links board_lookup.c and the mock HAL without
 # boards/$(HOST_BOARD)/board.c, whose tables would be second definitions.
@@ -420,7 +429,7 @@ $(HOST_DIR)/test_storage_2560: test/unit/test_storage_2560.c src/caps/storage.c 
                                src/core/secure_zero.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(STORAGE_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \

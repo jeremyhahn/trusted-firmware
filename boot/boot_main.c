@@ -281,6 +281,7 @@ int main(void)
      */
     if (tfw_boot_trial_arm(&plat) == TFW_OK) {
         tfw_boot_platform_store(&plat);
+        tfw_boot_watchdog_arm();
     }
 
     tfw_boot_hand_over(&verdict);

@@ -23,6 +23,7 @@
 #include "core/platform_id.h"
 #include "core/auth_session.h"
 #include "core/app_runner.h"
+#include "core/ota_trial.h"
 #include "core/ota_stage.h"
 
 tfw_status_t tfw_hal_tick_init(void);
@@ -85,7 +86,10 @@ static void startup(void)
 
     /* Last, so the application finds every capability it may use already up,
      * and still before interrupts: its init owns the device until it returns.
-     * A refusal is not an error here. The firmware serves on without it. */
+     * A refusal is not an error here. The firmware serves on without it.
+     * In a trial, the watchdog and the deadline start first (#77), so a hang
+     * in the application's init is caught too. */
+    tfw_ota_trial_start();
     tfw_app_runner_start();
 }
 
@@ -107,5 +111,6 @@ int main(void)
         tfw_sched_poll();
         tfw_sys_poll();
         tfw_app_runner_poll();
+        tfw_ota_trial_poll();
     }
 }

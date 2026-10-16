@@ -49,6 +49,7 @@ void tfw_boot_hand_over(const tfw_boot_verdict_t *v)
 {
     (void)v;
     hand_overs++;
+    tfw_boot_jump_application();   /* what the real hand-over ends in */
 }
 
 /* A tier that keeps no floor of its own, which is a legitimate answer
@@ -579,6 +580,42 @@ static void test_a_verified_update_stores_the_trial_before_the_jump(void)
     TEST_ASSERT_EQUAL_UINT32(3u, p.rollback_floor);
 }
 
+/* The order decision 9 needs: TRIAL is written, then the watchdog is armed,
+ * then the jump. Armed earlier, a slow write could reset before TRIAL lands;
+ * armed after, nothing would. */
+static void test_the_watchdog_is_armed_after_trial_and_before_the_jump(void)
+{
+    load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    feed_ota_begin(256u);
+    feed_ota_image(256u);
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
+
+    open_session(IDLE, 0u, 0u, 0u);
+
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, stored().boot_state);
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, tfw_boot_mock_watchdog_at());
+    TEST_ASSERT_EQUAL_UINT(tfw_boot_mock_nvm_write_at() + 1u,
+                           tfw_boot_mock_watchdog_at());
+    TEST_ASSERT_EQUAL_UINT(tfw_boot_mock_watchdog_at() + 1u,
+                           tfw_boot_mock_jump_at());
+}
+
+/* Outside a trial the watchdog stays as it was: a refused image does not arm. */
+static void test_a_refused_update_does_not_arm_the_watchdog(void)
+{
+    load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    feed_ota_begin(256u);
+    feed_ota_image(256u);
+    feed_frame(3u, TFW_CMD_OTA_END, 0, 0u);
+    evaluate_result = TFW_ERR_CRYPTO;
+    tfw_boot_mock_on_rx_idle(escape_on_idle);
+
+    open_session(IDLE, 0u, 0u, 0u);
+
+    TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_watchdog_at());
+}
+
 /* STAGED reaches EEPROM before the first page, so a transfer that stops short
  * of OTA_END -- here a whole image, never committed -- cannot boot untried. */
 static void test_a_transfer_left_unfinished_is_stored_as_staged(void)
@@ -789,6 +826,8 @@ int main(void)
     RUN_TEST(test_an_unverified_update_is_never_handed_over);
     RUN_TEST(test_an_unreadable_floor_refuses_the_update_unevaluated);
     RUN_TEST(test_a_verified_update_stores_the_trial_before_the_jump);
+    RUN_TEST(test_the_watchdog_is_armed_after_trial_and_before_the_jump);
+    RUN_TEST(test_a_refused_update_does_not_arm_the_watchdog);
     RUN_TEST(test_a_transfer_left_unfinished_is_stored_as_staged);
     RUN_TEST(test_begin_while_an_image_is_pending_is_bad_state);
     RUN_TEST(test_begin_while_a_confirm_is_unsettled_waits_for_a_reset);

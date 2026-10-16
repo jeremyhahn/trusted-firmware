@@ -194,4 +194,10 @@ tfw_status_t      tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t l
  * of one. */
 uint32_t         tfw_hal_free_ram(void);
 
+/* The one trial's watchdog (decision 9, src/core/ota_trial.c). Arm sets the
+ * part's longest period (8 s on AVR) and is called only in TRIAL, after .init3
+ * has disarmed the one tfw-boot armed; pet restarts that period. */
+void             tfw_hal_watchdog_arm(void);
+void             tfw_hal_watchdog_pet(void);
+
 #endif /* TFW_HAL_H */

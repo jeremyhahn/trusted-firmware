@@ -558,7 +558,8 @@ once in the secondary and once in the primary.
 
   **The store-copy boot and the trial, 2026-10-16.** What a `BOOT_STORE=1`
   boot does with a staged image, on main at b1c71f4. The tests are in
-  `make boot-test`; the simavr suite runs the `BOOT_OTA=1` row only.
+  `make boot-test`; the simavr suite runs this row too since #75's
+  round slice (below).
   - (a) Trial: yes. The copy leaves the image `PENDING` in the secondary
     (`boot/boot_stage.c:224`), the swap takes it in (`boot/boot_main.c:263`)
     and it is armed `TRIAL` before the jump (`boot/boot_main.c:282`,
@@ -590,6 +591,33 @@ once in the secondary and once in the primary.
     `test_settle_advances_the_floor_to_the_confirmed_version`
     (`test_boot_trial`). The gate's own floor check is pinned by
     `test_boot_policy`, which does not depend on the row.
+
+### The OTA round under simavr (#75, #77)
+
+`make integration-test-boot` runs the real tfw-boot and the real application
+image under simavr on two 2560 rows: `BOOT_OTA=1`, as before, and
+`BOOT_STORE=1`, the store row (`boot_harness ... store`). On the store row the
+NOR model (`test/model/spi_nor_model.c`) sits on the emulated SPI bus behind
+D8, and the harness lays in it what the stager leaves: the signed image, padded
+to pages, its trailer last, and the `MARK` record. The images are trailer v1
+with the board id, signed by the harness's modelled element as every image in
+that suite is.
+
+| Link of the round | Under simavr | Where else |
+|---|---|---|
+| `OTA_BEGIN`/`OTA_DATA`/`OTA_END` over TCP through the W5x00 into the store | no: the W5x00 model is the HAL's SPI calls, not a part on a bus, and the application's network path is not on the emulated bus | `tfwsim`, `sdk/go/tfwsim/ota_test.go`, serial and TCP; the bench |
+| tfw-boot reads `MARK` and `STAGE`, checks, copies into the secondary, swaps in, arms `TRIAL`, the application boots | yes, `test_a_store_image_runs_its_trial_and_settles` | `test_boot_stage_2560`, `test_boot_swap` |
+| `CONFIRMED` at reset: the floor advances to the version, `GOOD`; the mark is not copied again | yes, same test; the harness writes `CONFIRMED` into the block | `test_boot_trial`, `test_boot_swap` |
+| `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | no: not on the wire, their ids are decision 8's proposal | none |
+| a trial not confirmed: the reset swaps back, `GOOD` `FAILED`, the marked image not taken again, the floor unmoved | yes, `test_an_unconfirmed_store_image_swaps_back` | `test_boot_swap` |
+| a staged byte that fails the hash, an image below the floor: no page written, the primary boots | yes, `test_a_bad_store_image_copies_nothing` | `test_boot_stage_2560` |
+| the store is only read by tfw-boot | yes: no erase, no program and no malformed transaction reach the model on any boot | — |
+
+The bench repeats the round with the W5x00, the NOR part and the element on a
+2560; it is the only place the network leg and the store meet the real boot.
+The application's refusal of the failed image at `OTA_ACTIVATE`
+(`tfw_boot_trial_activate`, `TFW_ERR_BAD_STATE`) is pinned by `test_boot_trial`
+only, until the command exists.
 
 Not yet: the 328P/32U4 `PREV` restore;
 the stager carrying the envelope and calling the manifest gate;

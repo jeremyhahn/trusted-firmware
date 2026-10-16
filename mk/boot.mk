@@ -577,10 +577,11 @@ IMAGE_FLAGS ?= 0x00
 $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
         src/proto/crc16.c src/proto/crc16_update.c \
         src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
-        boot/boot_image.c boot/boot_platform.c boot/boot_request.c
+        boot/boot_image.c boot/boot_platform.c boot/boot_request.c \
+        test/model/spi_nor_model.c
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
-	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot \
+	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot -Itest/model \
 	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
 	   -DTFW_SIMAVR_MCU='"$(MCU)"' -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' \
 	   -o $@ $^ -lsimavr -lelf
@@ -590,14 +591,24 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
 # Recursive, because this suite runs one specific row of BOOT_SUPPORTED on one
 # specific board and a variable set on the command line would otherwise follow
 # whatever BOARD the caller happened to have.
+#
+# Then the BOOT_STORE=1 row (#75, #77): the image staged in the external store,
+# a modelled 25-series part on the emulated SPI bus, read, checked, copied into
+# the secondary, swapped in, tried, confirmed or swapped back. It is the only
+# row with the store (OTA plus the store does not fit, docs/ota/architecture.md).
+BOOT_INT_STORE_ROW := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=0 \
+                      BOOT_STORE=1
+
 integration-test-boot:
 	@$(MAKE) --no-print-directory boot-harness-run \
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_ROW)
+	@$(MAKE) --no-print-directory boot-harness-run \
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) BOOT_HARNESS_MODE=store
 
 # The application .elf is a prerequisite and not an assumption: "a correctly
 # signed image boots" is observed by the application answering CAPS after the
 # jump, so the image in the emulated flash has to be code that runs.
 boot-harness-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
-	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
+	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf $(BOOT_HARNESS_MODE)
 
 .PHONY: integration-test-boot boot-harness-run

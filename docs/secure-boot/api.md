@@ -25,7 +25,7 @@ device."
 | `TFW_CMD_PING` | `0x01` | 0–N bytes, echoed | same bytes | the only command answered identically by both images; used to tell "in the bootloader, waiting" from "dead" |
 | `TFW_CMD_RESET` | `0x02` | `[mode:1]` | none | `TFW_BOOT_SESSION_RESET`; the loop calls `tfw_boot_reset()` after the response frame is sent |
 | `TFW_CMD_OTA_BEGIN` | `0x68` | `[total_len:4]` | none | declares the whole image length, trailer included; refuses a length that is not a whole page count or does not reach `TFW_BOOT_TRAILER_LEN`. No version argument — the version lives inside the trailer, under the signature |
-| `TFW_CMD_OTA_DATA` | `0x69` | `[offset:4][bytes:1..]` | none | `offset` must match the session's `next_offset` exactly; a chunk stream with no offset would let one dropped frame silently shift everything after it |
+| `TFW_CMD_OTA_DATA` | `0x69` | `[offset:4][bytes:1..]` | none | `offset` must match the bytes the session has received so far exactly; a chunk stream with no offset would let one dropped frame silently shift everything after it |
 | `TFW_CMD_OTA_END` | `0x6A` | none | none | refuses unless exactly `declared_len` bytes arrived; flushes a partial final page padded with `0xFF`. Success here means every byte arrived — **nothing has been verified**. The session action is `TFW_BOOT_SESSION_COMMIT`, which makes the recovery loop run `tfw_boot_evaluate` next |
 | `TFW_CMD_OTA_STATUS` | `0x6B` | none | `[state:1][received:4]` | `state` is `tfw_ota_state_t`: `TFW_OTA_IDLE`(0) / `RECEIVING`(1) / `COMPLETE`(2) / `FAILED`(3) |
 

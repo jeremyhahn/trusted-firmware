@@ -105,7 +105,7 @@ network input.
 
 | Board | Boot | Application | Transports in the shipped image |
 |---|---|---|---|
-| ATmega2560 | serial session, swap-move, store read, trial: 7 924 of 8 192 | `ETH=1`, stager, manifest reader: about 24 445 of 65 536 | both |
+| ATmega2560 | serial session, swap-move, trial: 7 666 of 8 192; or store read, swap-move, trial: 6 256 of 8 192. Both together are 8 916, which does not fit (element tier, measured with `ARCH_BOOT_OPT_CFLAGS`; 9 110 with `-mcall-prologues` alone, 9 616 before) | `ETH=1`, stager, manifest reader: about 24 445 of 65 536 | both |
 | ATmega328P | verify-and-copy, trial: 3 924 of 4 096 | `ETH=1`, stager: about 19 267, and about 22 153 with the manifest reader | both, under the 28 672 region budget (proposed); none under the 16 384 policy line |
 | ATmega32U4 | as the 328P, unmeasured | no Ethernet controller wired yet | follow-up |
 
@@ -386,8 +386,8 @@ nothing; and a copy cut at a chosen page that recovers on the next boot.
 `boot/boot_stage_none.c` is linked instead, and LTO folds its one call away.
 It is the sixth field of a `BOOT_SUPPORTED` row
 ([engineering.md](../secure-boot/engineering.md)). Only the 2560 without OTA
-in boot has it on (5 332 / 8 192 flash at 6800776). The 328P and 32U4 do not:
-their sections are 4 096 bytes with 3 812 and 3 882 used, and the copy path
+in boot has it on (6 302 / 8 192 flash, with swap-move). The 328P and 32U4 do
+not: their sections are 4 096 bytes with 3 758 and 3 828 used, and the copy path
 costs more than the margin.
 
 **The 2560's swap-move** (`boot/boot_swap.c`). The application region is the
@@ -489,15 +489,12 @@ as before.
 - a session whose swap is cut, then a boot that finishes the swap and enters
   the trial.
 
-No size has been measured, because there is no avr-gcc on the dev host. By
-arithmetic, the store row is about 6 000 / 8 192: 5 332, plus the ADR's +424,
-plus about 200 for the three calls and the second slot check. The
-`BOOT_OTA=1` row is about 7 650 / 8 192: 6 942, plus the +424 swap core, plus
-about 200 for the calls and the commit, plus about 50 for the secondary's
-check (a flash reader, the trailer address and the call before the swap).
+Measured (avr-gcc 14.2.0, `make bootloader-check`): the store row is 6 302 /
+8 192 and the `BOOT_OTA=1` row 7 832 / 8 192. The `BOOT_OTA=1` row was 8 190
+before issue #75's size slice built tfw-boot with `-mcall-prologues`
+(`mk/arch/avr.mk`), which took 358 bytes off it and shrank every other row.
 The secondary's check reuses the gate, so a signed update is verified twice:
-once in the secondary and once in the primary. Both rows are measured on a host with
-avr-gcc.
+once in the secondary and once in the primary.
 
 #### Open (for the CA and owner; not decided here)
 
@@ -534,12 +531,28 @@ avr-gcc.
   - The store only on the 2560.
   - A smaller signature tier. There is none below the element path these rows
     already use.
-- **The 2560 with OTA and the store.** It was 8 548 / 8 192 before the size
-  slice and has not been measured since, so it is not a row. By arithmetic,
-  not measured: the size slice took 80 bytes off the store-on row, and the
-  ADR puts swap-move at +424, so about 8 892. That is over the section even
-  with the shrink. Options:
-  - measure it at 6800776 and add the row if it fits;
+- **The 2560 with OTA and the store.** It does not fit, so it is not a row.
+  Measured with avr-gcc 14.2.0 and `ARCH_BOOT_OPT_CFLAGS` (`-mcall-prologues
+  -mstrict-X -fno-tree-scev-cprop`), the full image linked at address zero
+  from the objects `make $(BOOT_TARGET).elf BOARD=atmega2560 BOOT_OTA=1
+  BOOT_STORE=1` builds, read as the build's size check reads it (the same link
+  gives 7 666 for the `BOOT_OTA=1` row and 6 256 for the `BOOT_STORE=1` row,
+  as the size check reports). `make bootloader` now refuses this configuration
+  before it builds:
+  - element tier (`atecc608a` for tier, measure and signature): 8 916 / 8 192,
+    724 bytes over;
+  - soft tier (`soft`, `soft`, `ed25519-donna`), at 03089f4: 96 492 / 8 192,
+    88 300 bytes over.
+
+  Size-only work with no change of behaviour (issue #75) took the element tier
+  from 9 110 to 8 916: two code generation flags (60) and two smaller OTA
+  session paths (134). What is left under that rule is worth tens of bytes, not
+  724. With `-mcall-prologues` alone, at 03089f4: element tier 9 110. Before
+  it, at c319f07: element tier 9 616, 1 424 bytes over; soft tier 98 204,
+  90 012 bytes over. Neither fits within 8 192 either way.
+
+  Options:
+  - take 724 bytes off the element-tier image and add the row;
   - choose one update path per image, as the application does with its
     transport.
 

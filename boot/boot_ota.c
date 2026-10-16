@@ -68,14 +68,15 @@ tfw_status_t tfw_ota_begin(tfw_ota_t *o, uint32_t total_len)
     if (total_len <= (uint32_t)TFW_BOOT_TRAILER_LEN) {
         return TFW_ERR_RANGE;
     }
-    if ((total_len % (uint32_t)o->page_size) != 0u) {
+    /* A mask, not a remainder: tfw_ota_init admitted only a power of two, and
+     * a 32-bit division would link a routine for nothing else. */
+    if ((total_len & ((uint32_t)o->page_size - 1u)) != 0u) {
         return TFW_ERR_RANGE;
     }
 
     o->state        = (uint8_t)TFW_OTA_RECEIVING;
     o->declared_len = total_len;
     o->received     = 0u;
-    o->next_offset  = 0u;
     o->buf_used     = 0u;
     return TFW_OK;
 }
@@ -95,7 +96,7 @@ tfw_status_t tfw_ota_data(tfw_ota_t *o, uint32_t offset, const uint8_t *data,
      * stream that may be rewound is a stream where the bytes finally measured
      * are not the bytes finally written, and the two would differ only for the
      * pages the rewind touched. */
-    if (offset != o->next_offset) {
+    if (offset != o->received) {
         return TFW_ERR_RANGE;
     }
     if ((uint32_t)len > (o->declared_len - o->received)) {
@@ -113,7 +114,6 @@ tfw_status_t tfw_ota_data(tfw_ota_t *o, uint32_t offset, const uint8_t *data,
             }
         }
     }
-    o->next_offset = o->received;
     return TFW_OK;
 }
 
@@ -146,7 +146,6 @@ void tfw_ota_abort(tfw_ota_t *o)
 {
     o->state    = (uint8_t)TFW_OTA_IDLE;
     o->received = 0u;
-    o->next_offset = 0u;
     o->buf_used = 0u;
     o->declared_len = 0u;
 }

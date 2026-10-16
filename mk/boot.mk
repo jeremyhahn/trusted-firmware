@@ -164,7 +164,8 @@ BOOT_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a \
                -I$(HAL_DIR) -Isrc/third_party/ed25519-donna \
                -Iboot -Iboot/verify -I$(BOOT_HAL_DIR) -I$(BOARD_DIR) \
-               -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS)
+               -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS) \
+               $(ARCH_BOOT_OPT_CFLAGS)
 
 # The vendored tree, built WITHOUT -Werror and without our warning set.
 #
@@ -239,14 +240,20 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 ## bootloader-check: build every SUPPORTED bootloader configuration
 #
 # The supported set, and it is short because the boot section is small. Each row
-# is a configuration that fits on that board; anything not listed does not fit,
-# and `make bootloader` reports the overage rather than failing obscurely.
+# is a configuration that fits on that board; anything not listed is not
+# supported, and `make bootloader` and `make boot-flash` refuse it before they
+# build anything (below). `make bootloader-budget` measures any configuration.
 #
 #   328P / 32U4  4 KB section  element hash + element verify, no OTA in boot
 #   2560         8 KB section  the same, plus OTA in boot or the external store
 #
+# Flash used, avr-gcc 14.2.0 with ARCH_BOOT_OPT_CFLAGS (issue #75): 328P 3 746,
+# 32U4 3 816, 2560 3 906; 2560 with OTA (session, swap-move, trial) 7 666, was
+# 8 190; 2560 with the store 6 256.
+#
 # The last field is BOOT_STORE. The 2560 with both OTA and the store does not
-# fit (8 548 / 8 192 at 59fa3ab), so it is not a row.
+# fit (8 916 / 8 192 on the element tier with ARCH_BOOT_OPT_CFLAGS; 9 616 at
+# c319f07 without), so it is not a row.
 #
 # A row that stops fitting is a build failure here, which is the point: the
 # margin on a 4 KB part is 1 728 bytes and it is the kind of thing that
@@ -495,16 +502,26 @@ bootloader-reproducible:
 # section is the one place a bootloader cannot write. This needs an ISP -- see
 # ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk.
 #
-# Only a BOOT_SUPPORTED row is flashed, and the refusal comes at parse time,
-# before anything is built. The defaults are soft/ed25519-donna, which fit no
-# board's boot section, so `make boot-flash BOARD=<board>` with no BOOT_*
-# variables used to rebuild them and stop at the link with an overflow.
+# Only a BOOT_SUPPORTED row is built by `bootloader` or flashed by `boot-flash`,
+# and the refusal comes at parse time, before anything is built. The defaults
+# are soft/ed25519-donna, which fit no board's boot section, so a bare
+# `make boot-flash BOARD=<board>` used to rebuild them and stop at the link with
+# an overflow; and `make bootloader` with BOOT_TIER=soft and the element's
+# measure and signature stopped at the link on an undefined tfw_atecc_sleep.
+# The targets that measure a configuration rather than ship it --
+# bootloader-budget, boot-core-size -- are not refused: they exist for the rows
+# that do not fit.
 BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA):$(BOOT_STORE)
 BOOT_FITS := $(filter $(BOARD):%,$(BOOT_SUPPORTED))
-ifneq ($(filter boot-flash,$(MAKECMDGOALS)),)
+# A literal comma, which $(if) would otherwise read as its argument separator.
+BOOT_COMMA := ,
+BOOT_GATED_GOAL := $(firstword $(filter bootloader boot-flash,$(MAKECMDGOALS)))
+ifneq ($(BOOT_GATED_GOAL),)
 ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
-$(error boot-flash: $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows, which fit, are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
+$(error $(BOOT_GATED_GOAL): $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows$(BOOT_COMMA) which fit$(BOOT_COMMA) are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
 endif
+endif
+ifneq ($(filter boot-flash,$(MAKECMDGOALS)),)
 ifeq ($(and $(BOOT_EESAVE_FUSE),$(BOOT_EESAVE_BIT)),)
 $(error boot-flash: boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so boot-flash cannot check that the chip erase keeps the EEPROM)
 endif

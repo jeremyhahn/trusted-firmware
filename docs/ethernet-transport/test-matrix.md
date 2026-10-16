@@ -145,6 +145,17 @@ is [the probe's](../development/wiznet-probe.md#toolchain), unpacked under
 | 4 | TCP between the lane's container and the board | **Not run as specified.** The container has `eth0` at `172.17.0.2/16`, a default route via the Docker bridge at `172.17.0.1`, and loopback; it has no address or route on the board's network. A connect to `198.51.100.22:7020` with a 5 s timeout timed out unanswered. The device also holds the documentation values above, not the bench network's. Reaching the board's network is Infrastructure's |
 | 5–7 | Attestation over TCP, the off-allow-list refusal, the identity after a reset | **Not run.** Items 5 and 6 need item 4. Item 7's evidence still needs `tfw-boot` or the element tier |
 
+## The Mega's network block, from the operator's configuration, 2026-10-16
+
+The same Mega, over serial on `/dev/ttyACM0` only, with the application it
+held and the bench network's addresses from the operator's configuration.
+Nothing was flashed.
+
+| # | What ran | Result |
+|---|---|---|
+| 3 | The network block read over serial, then written with `WriteNetConfig`: the bench network's addresses from the operator's configuration (static, /24, no gateway; the endpoint is the control plane on that network, port 7020), `tfw.DerivedMAC` of the serial | **Pass.** Before the write it held the documentation values of item 3 of [the 10-15 second pass](#the-mega-run-2026-10-15), with that pass's MAC. Read back after the write, the 32 bytes equal `MarshalBinary`'s, the MAC unchanged. After the reset a port open causes, they read back the same. [The run on `5f62610`](#the-mega-on-perf55-2560-ram-5f62610-2026-10-16) later found the block still holding these values |
+| 4 | From the lane's container, a TCP connect to the device's bench address, port 7020, with a 5 s timeout, retried | **Fail.** It timed out unanswered, as the connect to the documentation address did [on `9ee1db3`](#the-mega-on-main-9ee1db3-2026-10-16). Whether the container has a route to the bench network was not established |
+
 ## The day the ATECC608C (MIKROE-6774 Click board) arrives
 
 The Click carries three ATECC608 parts on one I2C bus: an ATECC608C-TNGTLS at

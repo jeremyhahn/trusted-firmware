@@ -80,8 +80,9 @@ typedef struct {
 
     uint8_t  state;
     uint32_t declared_len;     /* what OTA_BEGIN promised */
-    uint32_t received;         /* bytes accepted so far */
-    uint32_t next_offset;      /* the offset the next chunk must carry */
+    uint32_t received;         /* bytes accepted so far, and so the offset the
+                                * next chunk must carry: a chunk that fails
+                                * fails the session, so the two never part */
 
     uint16_t buf_used;
     uint8_t  buf[TFW_OTA_PAGE_MAX];

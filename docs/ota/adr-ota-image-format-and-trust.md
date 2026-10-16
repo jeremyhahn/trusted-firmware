@@ -299,11 +299,16 @@ application cannot write flash, so it stages into storage outside the MCU.
 | Boot build, ATmega2560 | Flash | RAM | Free of 8 192 |
 |---|---|---|---|
 | shipped `BOOT_OTA=1` (serial) | 6 840 | 774 | 1 352 |
-| + swap-move | 7 264 (+424) | 1 030 (+256, one page buffer) | 928 |
-| + external store read and copy (register-level SPI) | 7 560 (+296) | 1 158 (+128) | 632 |
-| + verification of the staged image from the store, and the trial | **7 924** | 1 158 | **268** |
-| the same with a store write path (not needed on the 2560: its fallback is the other slot) | 7 988 | 1 158 | 204 |
+| + swap-move | 7 264 (+424), projected; with the trial, measured 7 832¹ | 1 030 (+256, one page buffer) | 928 |
+| + external store read and copy (register-level SPI) | 7 560 (+296), projected¹ | 1 158 (+128) | 632 |
+| + verification of the staged image from the store, and the trial | **7 924**, the ADR's projection; measured 9 110¹ | 1 158 | **268**, projected; measured 918 over¹ |
+| the same with a store write path (not needed on the 2560: its fallback is the other slot) | 7 988, projected¹ | 1 158 | 204 |
 | for comparison: no serial session, swap-move, store and trial (`BOOT_OTA=0`) | 5 104 | 734 | 3 088 |
+
+¹ Measured with `-mcall-prologues`, element tier: `BOOT_OTA=1` (serial session,
+swap-move, trial) 7 832; `BOOT_STORE=1` 6 302; both together 9 110 of 8 192,
+918 over. Before `-mcall-prologues`, at c319f07: 8 190, 6 618 and 9 616.
+See [architecture.md, "The 2560 with OTA and the store"](architecture.md#open-for-the-ca-and-owner-not-decided-here).
 
 The serial session's retargeting from in place to the secondary slot is an
 address change, not measured separately.
@@ -322,7 +327,7 @@ address change, not measured separately.
 | `0x00000`–`0x100FF` | 257 pages, 65 792 | primary slot: the 65 536-byte image budget plus the one move page; the trailer ends at `0x0FFFF` |
 | `0x10100`–`0x200FF` | 256 pages, 65 536 | secondary slot |
 | `0x20100`–`0x3DFFF` | 122 624 | erased and unused by OTA; a later budget raise grows both slots into it, by a bench reflash |
-| `0x3E000`–`0x3FFFF` | 8 192 | `tfw-boot`, 7 924 measured, 268 free |
+| `0x3E000`–`0x3FFFF` | 8 192 | `tfw-boot`, 7 924 projected, 268 free; measured 9 110 with `-mcall-prologues`, 918 over ([architecture.md](architecture.md#open-for-the-ca-and-owner-not-decided-here)) |
 | external SPI store | at least 65 536 + the manifest | the staged network image; no backup area, since the other slot holds the fallback |
 | EEPROM, platform block | `boot_state` @48, `ota_state` @49 | slot and trial states (decision 9) |
 | EEPROM, after the network block | proposed `0x0E0`: the swap record | swap phase and step, so a power cut resumes the swap (decision 7) |
@@ -435,7 +440,7 @@ Open question 2.
 
 | Board | Image | Boot carries | Application carries | Ships |
 |---|---|---|---|---|
-| ATmega2560 | `ETH=1`, element tier | serial (7 924 with swap, store and trial) | serial **and** network (about 24 445 with stager and manifest) | **both**: network through the application, serial through the application or the boot session |
+| ATmega2560 | `ETH=1`, element tier | serial (7 924 with swap, store and trial, projected; measured 9 110 with `-mcall-prologues`, which does not fit: [architecture.md](architecture.md#open-for-the-ca-and-owner-not-decided-here)) | serial **and** network (about 24 445 with stager and manifest) | **both**: network through the application, serial through the application or the boot session |
 | ATmega2560 | `ETH=0` (no shield) | serial | serial | serial in the boot session; the application's serial path needs the store, which sits on the shield bus |
 | ATmega328P | `ETH=1`, region budget | none: verify and copy (3 924) | serial **and** network (about 22 153) | **both**, through the application |
 | ATmega328P | 16 384 policy line | none | serial, no OTA | **no OTA**: no transport fits (6.3) |

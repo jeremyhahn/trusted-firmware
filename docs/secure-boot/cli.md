@@ -105,22 +105,25 @@ make boot-flash BOARD=atmega328p BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a \
 bootloader, and the boot section is the one region a running bootloader
 cannot write to itself. This target requires an ISP programmer.
 
-`boot-flash` builds the configuration its variables name, so they must name one
-that fits. It refuses any other before building anything, and names the rows
-that fit `BOARD`. The rows are `BOOT_SUPPORTED` in `mk/boot.mk`, the set
-`make bootloader-check` builds. Every row needs an ATECC608 on the board's I²C
-bus: the ATECC608C on the MIKROE-6774 on the bench, build name `atecc608a`.
+`bootloader` and `boot-flash` build the configuration their variables name, so
+they must name one that fits. Each refuses any other before building anything,
+and names the rows that fit `BOARD`. The rows are `BOOT_SUPPORTED` in
+`mk/boot.mk`, the set `make bootloader-check` builds. Every row needs an
+ATECC608 on the board's I²C bus: the ATECC608C on the MIKROE-6774 on the bench,
+build name `atecc608a`.
 
-Measured with `make bootloader` for all 16 combinations per board (avr-gcc
-14.2.0, 2026-10-16):
+Measured with `make bootloader-check` (avr-gcc 14.2.0, tfw-boot built with
+`-mcall-prologues`, 2026-10-16); the unsupported row is the `.elf` alone, since
+`make bootloader` refuses it:
 
 | Board | Boot section | `BOOT_TIER` `BOOT_MEASURE` `BOOT_SIG` | `BOOT_OTA` | Flash | SRAM | `boot-flash` |
 |---|---|---|---|---|---|---|
-| `atmega328p` | 4 096 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 812 | 351 / 2 048 | yes |
-| `atmega32u4` | 4 096 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 882 | 351 / 2 560 | yes |
-| `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `1` | 6 942 | 777 / 8 192 | yes: the only row with the serial OTA session |
-| `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 972 | 351 / 8 192 | yes |
-| `atmega2560` | 8 192 B | `atecc608a` `soft` `atecc608a` | `0` | 7 252 | 351 / 8 192 | no: it fits, but it is not a supported row |
+| `atmega328p` | 4 096 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 758 | 351 / 2 048 | yes |
+| `atmega32u4` | 4 096 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 828 | 351 / 2 560 | yes |
+| `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `1` | 7 832 | 1 037 / 8 192 | yes: the only row with the serial OTA session (swap-move, trial) |
+| `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 918 | 351 / 8 192 | yes |
+| `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `0`, `BOOT_STORE=1` | 6 302 | 869 / 8 192 | yes: the external store's copy, swap-move, trial |
+| `atmega2560` | 8 192 B | `atecc608a` `soft` `atecc608a` | `0` | 7 070 | 351 / 8 192 | no: it fits, but it is not a supported row |
 | `attiny85` | none | — | — | — | — | no: the part has no boot section |
 
 Every other combination fails the link on every board, the defaults

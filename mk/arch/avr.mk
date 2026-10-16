@@ -45,6 +45,24 @@ ARCH_OPT_CFLAGS  := -Os -flto -ffunction-sections -fdata-sections \
 
 ARCH_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 
+# Code size before speed, for tfw-boot alone (issue #75): -mcall-prologues
+# replaces each function's register saves and restores with a call to one
+# shared libgcc routine. A few cycles a call, which a bootloader that waits on
+# the element and the UART never notices, against 358 bytes on the 2560's
+# OTA-in-boot row and less on every other row; none grows. It is a code
+# generation choice only, so the image decides what it decided before. LTO
+# records it in each object, so the link needs no copy. The application is not
+# built so.
+#
+# -mstrict-X keeps the X pointer register to plain loads and stores, so the
+# compiler stops synthesising displacement addressing through it; and
+# -fno-tree-scev-cprop stops loop exit values being recomputed after a loop
+# where they are already in a register. Both are code generation only, and
+# measured on every row: neither grows any, and together they take 12 bytes
+# off each 4 KB row, 32 off the 2560's OTA row, 46 off its store row and 60
+# off the two together.
+ARCH_BOOT_OPT_CFLAGS := -mcall-prologues -mstrict-X -fno-tree-scev-cprop
+
 # The CDI handoff block's SRAM address, and the stack kept below it -- issue
 # #6/#18. THE SAME FORMULA for the application and for tfw-boot, because the two
 # images must land on the identical address with no shared linker script to

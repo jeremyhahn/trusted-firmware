@@ -200,6 +200,17 @@ unchanged. The EEPROM's SHA-256 was `e6804337…bd1a1e2f`, the same as before.
 | atecc608a:soft:ed25519-donna:1 | [hardware enrolment](hardware-enrollment.md) line 50, which sets `BOOT_TIER` only | does not link: core 10254 / 8192 | — |
 | atecc608a:atecc608a:atecc608a:1 | `BOOT_SUPPORTED` | builds: 6840 / 8192 flash, 774 / 8192 RAM | `692055b275466c56a4963e6a4a61e4b3a54d58e6d854cf8c8176c0c68ad68dcf` |
 
+Since 5342430 (2026-10-16), `make bootloader` and `make boot-flash` refuse the
+two soft-signature rows at parse time, before anything is built:
+
+```text
+mk/boot.mk:520: *** boot-flash: atmega2560:soft:soft:ed25519-donna:1:0 (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration. For atmega2560 the supported rows, which fit, are: atmega2560:atecc608a:atecc608a:atecc608a:0:0 atmega2560:atecc608a:atecc608a:atecc608a:1:0 atmega2560:atecc608a:atecc608a:atecc608a:0:1. See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md.  Stop.
+```
+
+Measured that day, the two refused rows' cores are 10 004 and 11 242 of 8192
+(`make boot-core-size`), and the supported row builds to 7832 / 8192 flash and
+1037 / 8192 RAM.
+
 The supported row was not flashed, for three reasons:
 
 - It needs the element. The ATECC608C is not fitted

@@ -63,14 +63,18 @@ build-tools:
 # start with clean-host, which deletes $(HOST_DIR) while host-test, boot-test
 # or board-sweep could be building into it under `make -j`. Serial here, so
 # `make -j8 ci` and `make ci` run the same thing; each sub-make still uses -j.
-TEST_GATES := host-test boot-test board-sweep coverage test-asan verify-vectors xkms-coverage
+TEST_GATES := host-test boot-test board-sweep coverage test-asan verify-vectors xkms-coverage scripts-test
 
 test: test-tools
 	@for g in $(TEST_GATES); do $(MAKE) --no-print-directory $$g || exit 1; done
 	@echo "stage test: green"
 
 test-tools:
-	$(call require-tools,gcc gcovr)
+	$(call require-tools,gcc gcovr python3)
+
+## scripts-test: the unit tests of the Python scripts (scripts/test_*.py), no network
+scripts-test:
+	@python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
 # -------------------------------------------------------- integration-test
 ## integration-test: stage 3 -- integration-test-host in the integration image, under compose
@@ -208,4 +212,4 @@ deps-check-tools:
 
 .PHONY: build build-tools test test-tools integration-test integration-test-host integration-test-tools \
         security security-tools go-vet go-mod-verify go-gosec go-govulncheck go-golangci \
-        secrets-scan trivy-image xkms-security deps-check xkms-deps-check deps-check-tools
+        secrets-scan trivy-image xkms-security deps-check xkms-deps-check deps-check-tools scripts-test

@@ -24,6 +24,8 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 
 PINS = "scripts/tool-pins.sh"
@@ -32,10 +34,42 @@ DOCKERFILE_PINS = [
     ("build/docker/devcontainer/Dockerfile", ["BASE_IMAGE", "BASE_DIGEST"]),
 ]
 TIMEOUT = 60
+# An upstream lookup is tried ATTEMPTS times when it fails transiently, with
+# BACKOFF seconds before each retry. BOUND is the whole lookup, every attempt
+# and pause included: the 600 s mk/stages.mk relies on, so a real hang still
+# fails and a retry never makes a lookup slower than one attempt was allowed.
+ATTEMPTS = 3
+BACKOFF = (2, 8)
+BOUND = 600
+# What an upstream that is down for a moment says: a 5xx or 429 (git over
+# https, the Go proxy), and a name, connection, TLS or time failure.
+TRANSIENT = re.compile(
+    r"returned error: (?:5\d\d|429)\b|\b(?:5\d\d|429) [A-Z][a-z]"
+    r"|(?i:could not resolve|no such host|name resolution|connection (?:reset|refused|timed out)"
+    r"|timed out|i/o timeout|tls handshake|ssl(?:_| connect)|gnutls|unexpected eof|early eof)")
 
 
 class LookupFailed(Exception):
     pass
+
+
+class Transient(LookupFailed):
+    """A failure the next attempt may not have."""
+
+
+def attempt(once):
+    """once(budget) up to ATTEMPTS times while it fails Transient, inside BOUND.
+
+    The last failure is raised as it came: after the last attempt a lookup
+    fails exactly as a single attempt would."""
+    deadline = time.monotonic() + BOUND
+    for n in range(ATTEMPTS):
+        try:
+            return once(deadline - time.monotonic())
+        except Transient as e:
+            if n + 1 == ATTEMPTS or time.monotonic() + BACKOFF[n] >= deadline:
+                raise
+        time.sleep(BACKOFF[n])
 
 
 def load_pins(path=PINS):
@@ -53,23 +87,36 @@ def load_pins(path=PINS):
 
 
 def fetch(url, headers=None, method="GET"):
-    req = urllib.request.Request(url, headers=headers or {}, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            return r.read().decode(), r.headers
-    except OSError as e:
-        raise LookupFailed(f"{url}: {e}") from e
+    def once(budget):
+        req = urllib.request.Request(url, headers=headers or {}, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=min(TIMEOUT, budget)) as r:
+                return r.read().decode(), r.headers
+        except urllib.error.HTTPError as e:
+            kind = Transient if e.code >= 500 or e.code == 429 else LookupFailed
+            raise kind(f"{url}: {e}") from e
+        except OSError as e:
+            raise Transient(f"{url}: {e}") from e
+    return attempt(once)
 
 
-def run(cmd, cwd=None):
-    try:
-        out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                             timeout=600, check=False)
-    except FileNotFoundError as e:
-        raise LookupFailed(f"{cmd[0]} is missing: run in the devcontainer image") from e
-    if out.returncode != 0:
-        raise LookupFailed(f"{' '.join(cmd)}: {out.stderr.strip()[-600:]}")
-    return out.stdout
+def run(cmd, cwd=None, upstream=False):
+    """cmd's stdout. upstream: cmd asks the network, so a TRANSIENT failure is retried."""
+    def once(budget):
+        try:
+            out = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                                 timeout=budget, check=False)
+        except FileNotFoundError as e:
+            raise LookupFailed(f"{cmd[0]} is missing: run in the devcontainer image") from e
+        except subprocess.TimeoutExpired as e:
+            kind = Transient if upstream else LookupFailed
+            raise kind(f"{' '.join(cmd)}: no answer in {budget:.0f} s") from e
+        if out.returncode != 0:
+            err = out.stderr.strip()
+            kind = Transient if upstream and TRANSIENT.search(err) else LookupFailed
+            raise kind(f"{' '.join(cmd)}: {err[-600:]}")
+        return out.stdout
+    return attempt(once)
 
 
 def numbers(version):
@@ -81,7 +128,7 @@ def latest_tag(repo, pattern):
 
     The pattern's groups are the version numbers, so a pre-release tag (-rc,
     -beta, -dev) does not match and is never taken for a release."""
-    out = run(["git", "ls-remote", "--tags", "--refs", repo])
+    out = run(["git", "ls-remote", "--tags", "--refs", repo], upstream=True)
     best = None
     for line in out.splitlines():
         name = line.split("refs/tags/", 1)[-1]
@@ -296,7 +343,7 @@ def go_modules(dirs):
             # and asking upstream for its latest would only ask for a credential.
             local = {r["Old"]["Path"] for r in edit.get("Replace") or [] if not r["New"].get("Version")}
             listed = sorted({r["Path"] for r in edit.get("Require") or []} - local)
-            mods = decode_stream(run(["go", "list", "-m", "-u", "-json"] + listed, cwd=d)) if listed else []
+            mods = decode_stream(run(["go", "list", "-m", "-u", "-json"] + listed, cwd=d, upstream=True)) if listed else []
         except LookupFailed as e:
             rep.fail(d, e)
             continue

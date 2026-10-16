@@ -1,6 +1,6 @@
 # ADR: the wire protocol over a WIZnet W5100 or W5500
 
-> **Status: PROPOSED (2026-10-15)** · Issue: #55 · Scope: trusted-firmware (device
+> **Status: PROPOSED** · Issue: #55 · Scope: trusted-firmware (device
 > and `sdk/go`), go-trusted-platform (device-facing endpoint, seam only)
 > · Last verified: 2026-10-15
 >

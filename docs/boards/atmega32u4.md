@@ -16,7 +16,7 @@ cannot be reclaimed, so its budget is half of 28 672: 14 336 bytes of flash.
 |---|---|---|
 | `ATTEST` 0x60 | yes | the evidence frame, with the measurement and the nonce |
 | `ATTEST_CERT` 0x63 | **no** | the certificate builder, its template and the claims-set encoder are 2 540 bytes; an element-backed image with them measured 14 706, 370 over budget |
-| `ATTEST_CSR` 0x64 | **no** | owner ruling, 2026-10-09 (issue #30); it is built only beside `ATTEST_CERT` in any case |
+| `ATTEST_CSR` 0x64 | **no** | excluded on this board (issue #30); it is built only beside `ATTEST_CERT` in any case |
 
 Both absences answer `TFW_ERR_UNKNOWN_CMD`, and `CAPS` reports feature bits 13
 (`ALIAS_CERT`) and 15 (`ATTEST_CSR`) clear, so a host learns this before it

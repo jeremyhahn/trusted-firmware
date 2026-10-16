@@ -1,16 +1,13 @@
 # ADR: OTA image format, trust and device state
 
-> **Status: ACCEPTED (owner, 2026-10-15) for the decisions marked ACCEPTED;
-> the parts marked PROPOSED still need a choice** · Issue: #52 · Scope:
-> trusted-firmware (image format, device side, `sdk/go` upload helper);
-> go-trusted-platform, go-quicbaas, go-xkms and qrdb (seams only) · Last
-> verified: 2026-10-15
+> **Status: ACCEPTED for the decisions marked ACCEPTED; the parts marked
+> PROPOSED still need a choice** · Issue: #52 · Scope: trusted-firmware (image
+> format, device side, `sdk/go` upload helper); go-trusted-platform,
+> go-quicbaas, go-xkms and qrdb (seams only) · Last verified: 2026-10-16
 >
-> The owner answered the twelve questions of the first draft on 2026-10-15
-> (f518455), corrected answers 1 and 6 at 16:15Z and settled answer 9 at
-> 16:25Z. Each decision cites that ruling as "owner, 2026-10-15, answer N".
-> Design and measurement only. No code, wire change or SPEC status change
-> follows from this document; the code is the follow-ups at the end.
+> Design and measurement. The code is the follow-ups at the end; the trailer
+> board id, trial boot, confirm, rollback and the floor at settle are
+> implemented (#76, #77).
 
 ## The question
 
@@ -46,12 +43,10 @@ Shape and data flow: [architecture.md](architecture.md).
   `BOOT_OTA=0` a refused boot halts.
 - **What ships.** Every AVR board ships the element tier in boot (ATECC608C
   measure and verify). The ATmega328P and ATmega32U4 ship `BOOT_OTA=0`: they
-  have **no update path at all** today; a refused image needs a programmer. The
-  first draft said they had a single-slot path; that was wrong. Only the
+  have **no update path at all** today; a refused image needs a programmer. Only the
   ATmega2560 can carry `BOOT_OTA=1`.
 - The bootloader is never updated over the wire. Any change to it reaches a
-  deployed board by a bench reflash, which the owner accepts for every change
-  below (owner, 2026-10-15, answers 2 and 6).
+  deployed board by a bench reflash, which is accepted for every change below.
 - On classic AVR only boot-section code can execute `SPM`, so the application
   cannot write flash. A boot-section entry point for it is forbidden: it voids
   the BLB1 read barrier that keeps the UDS out of the application's reach.
@@ -83,7 +78,7 @@ Shape and data flow: [architecture.md](architecture.md).
 - `sdk/go` keeps zero in-house dependencies and holds no private key.
 - Frameworks first: a manufacturer's or community's update framework is used
   where it does the job, and our code is written only where it fails or for the
-  common abstraction (owner, 2026-10-15, answer 12).
+  common abstraction.
 - This project owns no store, registry, rollout or signing key, and reimplements
   nothing another project owns.
 
@@ -91,7 +86,7 @@ Shape and data flow: [architecture.md](architecture.md).
 
 ### 1. The four facts — ACCEPTED
 
-Owner, 2026-10-15, answers 3 and 6. Every image carries four facts under the
+Every image carries four facts under the
 image key's signature, in two forms on the device (the trailer and, where it
 fits, the manifest of decision 3) and in a third form for the fleet (the CoRIM):
 
@@ -104,7 +99,7 @@ fits, the manifest of decision 3) and in a third form for the fleet (the CoRIM):
 
 A device that verifies both forms checks that they agree, field by field. A
 mismatch is a refusal. The CoRIM is never verified on the device; it stays the
-verifier's artifact (owner, 2026-10-15, answer 3).
+verifier's artifact.
 
 How the facts are carried per arch class:
 
@@ -117,12 +112,12 @@ How the facts are carried per arch class:
   end of the slot. The measurement covers the image from the slot base, so it is
   the same in either slot.
 - **Composed vendor boot (ESP32-P4): the vendor's signature plus our trailer**
-  (owner, 2026-10-15, answer 6; decision 11).
+  (decision 11).
 - **i.MX 95 M7: AHAB's container** (decision 12, pending #15).
 
 ### 2. Trailer v1 with the board id — ACCEPTED
 
-Owner, 2026-10-15, answer 6, corrected at 16:15Z: there is no trailer version 2.
+There is no trailer version 2.
 
 - The trailer stays **version 1**, the same 128 bytes and offsets. The two
   reserved bytes become **`board_id` at byte 6** and **`image_flags` at byte
@@ -132,25 +127,26 @@ Owner, 2026-10-15, answer 6, corrected at 16:15Z: there is no trailer version 2.
   esp32p4-poe `0x80`, esp32-qemu `0x81`.
 - `image_flags` bit 0 marks a development image, which a production key never
   signs. The other bits are reserved and zero.
-- **Today's parser** (`tfw_boot_trailer_parse`) never reads bytes 6 and 7. It
-  accepts any value there, and the signature authenticates them because they are
-  in the signed span. A deployed bootloader therefore boots a new-format image,
-  but it does not check the binding.
-- **The new `tfw-boot` checks** `board_id` against its own `TFW_BOARD_ID`,
-  after the parse and before the floor. An image for another board is refused
-  as any refused image is: no state change, nothing written. A `board_id` of 0,
-  which today's images carry, is refused too, so every image is rebuilt with its
-  board's id.
+- **The parser** (`tfw_boot_trailer_parse`, `boot/boot_image.c`) reads
+  `board_id` from byte 6 and `image_flags` from byte 7. The signature
+  authenticates both, because they are in the signed span.
+- **`tfw-boot` checks the binding** with `tfw_boot_binding_permit`
+  (`boot/boot_image.c`), which `boot/boot_policy.c` calls with its own
+  `TFW_BOARD_ID` right after the parse and before the floor. An image for
+  another board is refused as any refused image is: no state change, nothing
+  written. A `board_id` of 0, which every trailer carried before the field
+  existed, is refused too, and so is an `image_flags` bit outside the known set.
+  `testdata/vectors.h` pins one well-formed trailer per profiled board id and
+  the refused cases (another board, board id 0, an unknown flag).
 - Every bench board is reflashed with the new `tfw-boot`, and every image is
-  rebuilt; no backward compatibility is kept (owner, 2026-10-15, answers 2 and
-  6).
+  rebuilt; no backward compatibility is kept.
 - One image key per board id (decision 10) binds the same fact a second way: an
   image signed for a 328P fails verification on a 2560 even before the byte is
   read.
 
 ### 3. The manifest — ACCEPTED (format), PROPOSED (carriage and key sharing)
 
-Owner, 2026-10-15, answer 3: the device verifies a signed compact manifest
+The device verifies a signed compact manifest
 beside the image, in the SUIT family, on every board with room; the 328P
 verifies at least the signed trailer.
 
@@ -211,7 +207,7 @@ verifies at least the signed trailer.
   activation (trailer, board id, floor, measurement, signature, manifest) only
   save a reboot into a refusal. Nothing the application decided is trusted at
   boot.
-- **The device does not verify the CoRIM** (owner, 2026-10-15, answer 3). The
+- **The device does not verify the CoRIM.** The
   control plane checks the image against it before sending, and the verifier
   appraises the device's reported `FWHash` against it afterwards.
 
@@ -248,8 +244,6 @@ verifies at least the signed trailer.
 | i.MX 95 M7 | pending #15; the facts found are in decision 12 | decision 12 |
 
 ### 6. Transports and the AVR network path — ACCEPTED (requirement), PROPOSED (budget and store)
-
-Owner, 2026-10-15, answer 1, corrected at 16:15Z:
 
 - Network OTA over TCP/IP (W5100 or W5500) is required on every board, the 328P
   included, beside serial.
@@ -338,7 +332,7 @@ The slot size is open question 7.
 #### 6.3 The ATmega328P: four candidates, one design
 
 The 328P boot section cannot hold even the serial session (6 668 bytes against
-4 096), so the 328P has no update path today. The owner's four candidates:
+4 096), so the 328P has no update path today. Four candidates:
 
 | Candidate | Flash | RAM | Hardware | Attack surface | Verdict |
 |---|---|---|---|---|---|
@@ -391,7 +385,7 @@ How it runs:
 | `0x7000`–`0x7FFF` | 4 096 | `tfw-boot`, 3 924 measured, 172 free |
 | store `STAGE`, `0x000000` | 28 672 (seven 4 KB sectors) + the manifest | the staged image |
 | store `PREV`, `0x008000` | 28 672 | the backup of the running image |
-| EEPROM, platform block | `boot_state` @48, `ota_state` @49 | proposed new values extend the enumerations, and none renumbers: `boot_state` gains `TRIAL` (3) and `CONFIRMED` (4); `ota_state` gains `PENDING` (4) |
+| EEPROM, platform block | `boot_state` @48, `ota_state` @49 | the new values extend the enumerations, and none renumbers: `boot_state` gains `TRIAL` (3) and `CONFIRMED` (4); `ota_state` gains `PENDING` (4) (`include/tfw/boot.h`, #76) |
 
 **Both budgets.** The boot section is 4 096 bytes under either budget. The
 application:
@@ -414,7 +408,7 @@ line the 328P has no OTA path on either transport: serial plus stager is over
 by about 897, and the network image by about 1 478 or more. Raising
 `TFW_FLASH_BUDGET` toward the region is option (a) of the Ethernet ADR
 ([../ethernet-transport/adr-wire-protocol-over-w5x00.md](../ethernet-transport/adr-wire-protocol-over-w5x00.md)),
-which the owner has not chosen yet. This ADR depends on it: open question 1.
+which is not chosen yet. This ADR depends on it: open question 1.
 
 **The external store.** The measured driver assumed an SPI NOR (READ `0x03`,
 WREN `0x06`, 4 KB sector erase `0x20`, page program `0x02`, status `0x05`) on
@@ -433,7 +427,7 @@ Open question 2.
   `ETH_CHIP`. Its 14 336 budget line is tighter than the 328P's, so it too needs
   the region budget. Follow-up.
 - **ATtiny85.** It has no boot section, so it has no secure boot, no verified
-  update and no Ethernet controller (8 KB, no `ETH_CHIP`). The owner's "every
+  update and no Ethernet controller (8 KB, no `ETH_CHIP`). "Every
   board" cannot hold here without a boot section, so this ADR proposes the
   ATtiny85 as the one board without OTA: open question 3.
 
@@ -455,8 +449,6 @@ where only one fits, its image links one link file, chosen by its profile, as
 
 ### 7. Slot layout per arch class — ACCEPTED
 
-Owner, 2026-10-15, answers 2 and 12.
-
 - **ATtiny85: none** (open question 3).
 - **ATmega328P and ATmega32U4: one internal slot, with the backup in the
   external store** (6.3). This is not A/B: the fallback is the copy in `PREV`,
@@ -471,7 +463,7 @@ Owner, 2026-10-15, answers 2 and 12.
   - Images stay linked for address 0. The secondary slot lies above 64 KB, so
     the boot HAL reads it with far reads.
   - Moving a Mega to A/B changes its bootloader, so it is a bench reflash, which
-    the owner accepts (answer 2).
+    is accepted.
 - **Cortex-M33 under TF-M: MCUboot's primary and secondary slots,** written
   through PSA Firmware Update. MCUboot's test-and-confirm gives the trial and the
   fallback. Composed, never reimplemented (decision 11).
@@ -482,8 +474,6 @@ Owner, 2026-10-15, answers 2 and 12.
   Composed, never reimplemented.
 
 ### 8. Wire commands — ACCEPTED (status code, RBAC, Ethernet), PROPOSED (ids and layouts)
-
-Owner, 2026-10-15, answers 8 and 10.
 
 **Every board with an update path** serves these in the application:
 
@@ -502,21 +492,21 @@ Owner, 2026-10-15, answers 8 and 10.
   - bit 1: the fallback followed a refusal at evaluation (clear: the trial
     ended unconfirmed);
   - bit 2: the device is in `TRIAL`.
-- **A new status code** (owner, 2026-10-15, answer 10): `TFW_ERR_BAD_STATE`, "the
-  command is not valid in the current OTA state". Its value is the next free one
-  when it lands, 19 today. An older host reads it as unrecognised. It answers:
+- **A new status code:** `TFW_ERR_BAD_STATE`, "the
+  command is not valid in the current OTA state", value 19
+  (`include/tfw/status.h`). An older host reads it as unrecognised. It answers:
   - activate with no verified image;
   - activate of the image that last failed its trial (decision 9);
   - confirm outside `TRIAL`;
   - begin while an image is pending.
-- **RBAC** (owner, 2026-10-15, answer 8): `OTA_ACTIVATE` and `OTA_CONFIRM` are
+- **RBAC:** `OTA_ACTIVATE` and `OTA_CONFIRM` are
   the permissions `ota.activate` and `ota.confirm` in the platform's RBAC model,
   in qrdb's vocabulary, tenant-scoped and carried by the default roles. The
   control plane checks them before it sends either command. The device enforces
   the operator auth session (`AUTH_CHALLENGE` `0x61`, `AUTH_RESPONSE` `0x62`) on
   the element tier, as for `RESET` mode 1, and answers `TFW_ERR_AUTH_REQUIRED`
   (17) without one.
-- **The auth session over Ethernet** (owner, 2026-10-15, answer 8). It works on
+- **The auth session over Ethernet.** It works on
   the TCP link as on serial: the session is frame-level and link-independent.
   The Ethernet allow-list widens from `0x00`, `0x06`, `0x60`, `0x63`, `0x64` to
   add `0x61`, `0x62` and `0x68`–`0x6E`. **PROPOSED:** a session opened on a
@@ -529,9 +519,9 @@ Owner, 2026-10-15, answers 8 and 10.
 
 ### 9. The device state machine: one trial, confirmed by the control plane — ACCEPTED
 
-Owner, 2026-10-15, answer 7 (the control plane confirms, after attestation) and
-answer 9 (16:25Z: one trial boot with a per-board timeout; a failed trial rolls
-back; recovery is another OTA round; the same image gets no second trial).
+The control plane confirms, after attestation. There is one trial boot, with a
+per-board timeout; a failed trial rolls back, recovery is another OTA round,
+and the same image gets no second trial.
 
 The machine is drawn in
 [architecture.md](architecture.md#device-state-machine). The decisions in it:
@@ -580,8 +570,6 @@ The machine is drawn in
 
 ### 10. Keys, custody and the provisioning seam — ACCEPTED (custody, per-board keys), PROPOSED (one key for both formats)
 
-Owner, 2026-10-15, answers 4 and 5.
-
 - **Custody.** The image key and the manifest signer are held in go-xkms and
   reached through go-quicbaas. They are hardware-backed, and the signatures are
   COSE. The build hands go-xkms the trailer's 48 to-be-signed bytes and the
@@ -590,7 +578,7 @@ Owner, 2026-10-15, answers 4 and 5.
 - **One image key per board id.** An image signed for one board fails on another
   even before `board_id` is read. Rotating a board's key is a bench
   reprovisioning, because the element's slot is locked.
-- **The provisioning seam row is go-xkms's** (DS-1902). It places the
+- **The provisioning seam row is go-xkms's.** It places the
   verification key in the element's image-signing slot: slot 2 today, slot 15 on
   the TrustFLEX map the
   [slot-map ADR](../device-provisioning/adr-trustflex-608c-slot-map.md)
@@ -609,8 +597,6 @@ Owner, 2026-10-15, answers 4 and 5.
 
 ### 11. Frameworks first, per arch class — ACCEPTED
 
-Owner, 2026-10-15, answer 12.
-
 | Class | Framework | Our code |
 |---|---|---|
 | Cortex-M33 (STM32H5, nRF54L15, MCXN947, RP2350) | TF-M with MCUboot as BL2 and PSA Firmware Update: slots, swap, test and confirm, security counters | the wire mapping of `0x68`–`0x6E` onto PSA FWU in the non-secure application, and the manifest gate; pending the trust-model ADR (open question 9) |
@@ -621,8 +607,8 @@ Owner, 2026-10-15, answer 12.
 
 ### 12. The i.MX 95 M7 — PROPOSED, decided with #15
 
-Owner, 2026-10-15, answer 11: decided with the trust-model ADR (#15), and no M7
-command until then. The CA's recommendation, recorded for that decision:
+Decided with the trust-model ADR (#15), and no M7 command until then. The
+recommendation for that decision:
 
 - AHAB and the ELE verify the M7 container; there is no trailer check.
 - A two-level floor: the fuse-backed AHAB version, bumped only for revocation,
@@ -633,7 +619,7 @@ command until then. The CA's recommendation, recorded for that decision:
   control plane's confirm.
 
 **What the vendor documents confirm, and what they do not.** The device is the
-NXP FRDM-IMX95-PRO. These facts were checked on 2026-10-15 (#52) against NXP's
+NXP FRDM-IMX95-PRO. These facts are checked (#52) against NXP's
 documents from trusted-imx95's `docs/references/`, read from NXP's public copies:
 
 - UM12527, *FRDM-IMX95-PRO Board User Manual*, Rev. 1.0, 22 June 2026;
@@ -739,7 +725,8 @@ frame itself.
 
 ## Measurements: method
 
-Measured with avr-gcc 14.2.0, on the tree this ADR branches from. The
+Measured with avr-gcc 14.2.0, on the tree this ADR branches from. The sizes in
+this ADR are not re-measured against later code. The
 throwaway prototypes were never committed. They were:
 
 - the TCP session glue;
@@ -815,8 +802,7 @@ those repos' work; this ADR only reports them.
 This widens requirement R1 of the
 [onboarding architecture](../device-onboarding/architecture.md#requirements-on-other-repositories),
 which today has the endpoint issue only `CAPS` and the three attestation
-commands. It now issues `AUTH_CHALLENGE`, `AUTH_RESPONSE` and `0x68`–`0x6E` too
-(owner, 2026-10-15, answer 8).
+commands. It now issues `AUTH_CHALLENGE`, `AUTH_RESPONSE` and `0x68`–`0x6E` too.
 
 ### go-quicbaas
 
@@ -833,7 +819,7 @@ commands. It now issues `AUTH_CHALLENGE`, `AUTH_RESPONSE` and `0x68`–`0x6E` to
 
 ### go-xkms
 
-The provisioning seam row is go-xkms's (DS-1902; decision 10 states what it
+The provisioning seam row is go-xkms's (decision 10 states what it
 must expose). The image key and the manifest signer are also go-xkms's, as are
 CoRIM encoding and signing and the appraisal of a DICE `FWHash` against a CoRIM
 reference value. A gap there is filed against go-xkms.
@@ -849,14 +835,14 @@ reference value. A gap there is filed against go-xkms.
 
 | Alternative | Rejected because |
 |---|---|
-| A serial-attached host that uploads for the control plane | Rejected by the owner (2026-10-15, answer 1). Every board takes its image over the network itself. |
-| Trailer version 2 | Rejected by the owner (2026-10-15, answer 6, 16:15Z). Version 1 gains `board_id` in a byte today's parser ignores, and the boards are reflashed. |
-| The vendor's signature only, on composed platforms | Rejected by the owner (2026-10-15, answer 6). Our trailer rides beside it, so the four facts have one form on every class. |
-| Device-local confirm | Rejected by the owner (2026-10-15, answer 7). Confirm follows the control plane's appraisal of the new image's attestation. |
-| More than one trial boot | Rejected by the owner (2026-10-15, answer 9). One trial; a failure means another OTA round. |
-| Reusing an existing status for a bad OTA state | Rejected by the owner (2026-10-15, answer 10). `TFW_ERR_BUSY` (8) means a peripheral. |
+| A serial-attached host that uploads for the control plane | Every board takes its image over the network itself. |
+| Trailer version 2 | Version 1 carries `board_id` in a formerly reserved byte, and the boards are reflashed. |
+| The vendor's signature only, on composed platforms | Our trailer rides beside it, so the four facts have one form on every class. |
+| Device-local confirm | Confirm follows the control plane's appraisal of the new image's attestation. |
+| More than one trial boot | One trial; a failure means another OTA round. |
+| Reusing an existing status for a bad OTA state | `TFW_ERR_BUSY` (8) means a peripheral. |
 | A W5x00 session in the AVR boot section | Measured: the 2560 is over by 660 to 1 230 bytes, and the 328P over by more than 4 KB (6.1). |
-| The device verifies the CoRIM | The CoRIM is the verifier's artifact (owner, answer 3). The device verifies the SUIT envelope, which carries the same four facts. |
+| The device verifies the CoRIM | The CoRIM is the verifier's artifact. The device verifies the SUIT envelope, which carries the same four facts. |
 | EdDSA for the manifest | The ATECC608C verifies only P-256, and software Ed25519 needs 50 340 to 72 930 bytes. ES256 runs on every class with room. |
 | An SPM entry point so the AVR application can write flash | It voids the boot section's read barrier from inside. |
 | The 328P boot taking the backup itself | It does not fit: 4 504 or 4 292 bytes against 4 096 (6.3). The application takes it, and the boot only restores. |
@@ -910,12 +896,14 @@ reference value. A gap there is filed against go-xkms.
   - the 328P and 32U4 gate, if their region budget ever holds it;
   - go-xkms signing the emitted Sig_structure with the board id's key, and
     returning raw `r||s`.
-- The board id in the trailer on AVR: `tfw-boot`'s check, the build writing
-  byte 6, and the bench reflash of every board.
+- The board id in the trailer on AVR: `tfw-boot`'s check is done in #76
+  (`tfw_boot_binding_permit`, `boot/boot_image.c`). What remains is the build
+  writing byte 6 and the bench reflash of every board.
 - Transport selection per image: link files per board where only one transport
   fits (none today).
 - The new status code `TFW_ERR_BAD_STATE`, with its wire vector and the Go
-  mirror.
+  mirror. Done: `include/tfw/status.h`, `testdata/vectors.h`,
+  `sdk/go/status.go`.
 - OTA commands over Ethernet with the auth session: the allow-list widened to
   `0x61`, `0x62` and `0x68`–`0x6E`.
 - The provisioning seam: `tfwprov` writes go-xkms's exported key into the

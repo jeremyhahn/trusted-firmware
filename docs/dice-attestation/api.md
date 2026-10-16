@@ -133,8 +133,7 @@ Proof of possession of the DeviceID key at ACME finalize
 ([adr-possession-at-acme-finalize.md](adr-possession-at-acme-finalize.md)).
 Built only on the ATmega2560's element tier. It needs `ATTEST_CERT`, so
 `boards/attiny85` has no handler; the `boards/atmega32u4` and
-`boards/atmega328p` profiles turn it off by name, by owner ruling on #6
-(2026-10-09) — the 328P because it puts the element image over its flash budget;
+`boards/atmega328p` profiles turn it off by name (#6) — the 328P because it puts the element image over its flash budget;
 see `engineering.md`. Each answers `TFW_ERR_UNKNOWN_CMD` and reports `CAPS`
 bit 15 clear. On a build that has it, a tier with no asymmetric key answers
 `TFW_ERR_UNSUPPORTED` and an unprovisioned element `TFW_ERR_NOT_PROVISIONED`,

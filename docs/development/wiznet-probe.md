@@ -1,5 +1,8 @@
 # The Ethernet controller probe
 
+> **Status: INFORMATIVE** · Scope: `test/hw/wiznet-probe/`, `mk/wiznet-probe.mk`
+> · Last verified: 2026-10-16
+
 Issue #55. Before writing the drivers for the W5100 and W5500, we read which
 controller each bench shield actually carries. The probe answers that question
 and nothing more. It is a probe, not the driver, and it is not part of
@@ -133,8 +136,7 @@ could not be flashed, and the chip is still unknown.
 
 The board runs the owner's dosing-controller application, which already drives
 the Ethernet chip. It reports `0.0.0.0`, which suggests DHCP did not complete.
-The board is no longer held: the owner freed both boards for reflashing
-(2026-10-15 03:40Z), so the dosing-controller sketch may be erased. Since no
+Both boards are free to reflash, so the dosing-controller sketch may be erased. Since no
 serial bootloader answers, the probe still cannot go in over USB. The next step
 is an ISP programmer that burns Optiboot (and with it BOOTRST and the boot
 section size); after that the board takes `make wiznet-probe-flash` like the

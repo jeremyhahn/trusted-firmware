@@ -1,6 +1,6 @@
 # ADR: the Cortex-M trust model, and its relation to TF-M
 
-> **Status: PROPOSED (2026-10-15)** · Issue: #15 · Scope: trusted-firmware (the
+> **Status: PROPOSED** · Issue: #15 · Scope: trusted-firmware (the
 > Cortex-M secure world and boot chain); go-xkms and go-quicbaas (what they must
 > accept, seam only) · Related: #14,
 > [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) ·
@@ -82,39 +82,11 @@ L2 say.
   and 256 KB, and the RP2350 520 KB of SRAM with external flash. Flash is not
   the constraint it was on the 328P.
 
-## Sources
-
-Retrieved 2026-10-15. "Latest" pages of the TF-M documentation were checked
-against the pinned v2.3.1 pages below.
-
-| Source | Version | URL |
-|---|---|---|
-| TF-M releases and LTS tracker | v2.3.1, 2026-08-19; LTS 2.3 (first released 2026-04-28, maintained to April 2029) and LTS 2.1 (maintained to May 2027) | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/releases/index.html |
-| TF-M Profile Small | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/configuration/profiles/tfm_profile_small.html |
-| TF-M Profile Medium | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/configuration/profiles/tfm_profile_medium.html |
-| TF-M Initial Attestation integration guide | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/integration_guide/services/tfm_attestation_integration_guide.html |
-| TF-M adding a secure partition | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/integration_guide/services/tfm_secure_partition_addition.html |
-| TF-M builtin keys | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/design_docs/tfm_builtin_keys.html |
-| TF-M secure boot (BL2, MCUboot) | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/design_docs/booting/tfm_secure_boot.html |
-| TF-M firmware update service | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/design_docs/services/tfm_fwu_service.html |
-| TF-M platforms | v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/platform/index.html |
-| TF-M licence | v2.3.1 (BSD-3-Clause) | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/contributing/lic.html |
-| TF-M security advisories | TFMV-1 to TFMV-14 at v2.3.1 | https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/security/security_advisories/index.html |
-| tf-m-extras DICE Protection Environment partition | v2.3.1 (the "latest" page, which reports v2.3.1) | https://trustedfirmware-m.readthedocs.io/projects/tf-m-extras/en/latest/partitions/dice_protection_environment/dice_protection_environment.html |
-| PSA Certified Attestation API (IHI 0085) | 2.0.0, May 2026 | https://arm-software.github.io/psa-api/attestation/2.0/ |
-| PSA Certified Crypto API (IHI 0086) | 1.5.0 | https://arm-software.github.io/psa-api/crypto/1.5/ |
-| PSA Certified Firmware Update API (IHI 0093) | 1.0.1 | https://arm-software.github.io/psa-api/fwu/1.0/ |
-| PSA Certified Secure Storage API (IHI 0087) | 1.0.4 | https://arm-software.github.io/psa-api/storage/1.0/ |
-| Arm Firmware Framework for M (FF-M, DEN 0063) | 1.0 | https://developer.arm.com/documentation/den0063/latest/ |
-| FF-M 1.1 Extensions (AES 0039) | 1.1 | https://developer.arm.com/documentation/aes0039/latest |
-| Platform Security Model (DEN 0128) | 1.1 | https://developer.arm.com/documentation/den0128/latest |
-| RFC 9783, Arm's PSA Attestation Token | June 2025 | https://www.rfc-editor.org/rfc/rfc9783 |
-| RFC 9711, Entity Attestation Token | | https://www.rfc-editor.org/rfc/rfc9711 |
-| PSA Certified scheme (governed by GlobalPlatform since 2025, per IHI 0085 1.0.4) | | https://www.psacertified.org/ |
-| MCUboot (Apache-2.0) | | https://docs.mcuboot.com/ |
-| QEMU MPS2 and MPS3 boards | master | https://www.qemu.org/docs/master/system/arm/mps2.html |
-
 ## What TF-M is, in the terms that matter here
+
+TF-M pages are cited at v2.3.1, retrieved 2026-10-15, by path under
+<https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/>. "Latest" pages were
+checked against those pinned pages.
 
 - **Profiles.** Profile Small uses the SFN model, isolation level 1 and
   symmetric crypto only. Its Initial Attestation is an HMAC-SHA256 `COSE_Mac0`,
@@ -123,9 +95,12 @@ against the pinned v2.3.1 pages below.
   ECDSA. Its Initial Attestation is asymmetric, and it boots multiple images with
   anti-rollback. Profile Large adds isolation level 3. A device-attest-01
   enrolment needs an asymmetric DeviceID key, so **Profile Medium is the
-  smallest profile that fits our evidence.**
-- **The token.** PSA Certified Attestation API 2.0.0 (May 2026) requires the
-  report to be an RFC 9783 PSA attestation token. That token is a CBOR claims set
+  smallest profile that fits our evidence.** (`configuration/profiles/tfm_profile_small.html`,
+  `configuration/profiles/tfm_profile_medium.html`.)
+- **The token.** PSA Certified Attestation API 2.0.0 (IHI 0085, May 2026,
+  <https://arm-software.github.io/psa-api/attestation/2.0/>) requires the
+  report to be an RFC 9783 PSA attestation token
+  (<https://www.rfc-editor.org/rfc/rfc9783>, June 2025). That token is a CBOR claims set
   in a tagged `COSE_Sign1` (or `COSE_Mac0` for symmetric keys) with no CWT tag.
   Its claims are:
   - `nonce`: key 10, 32, 48 or 64 bytes.
@@ -137,23 +112,30 @@ against the pinned v2.3.1 pages below.
   - Software components: key 2399, each with a measurement value and a signer ID.
   - Verification service indicator: key 2400.
   - Certification reference: key 2398.
-  - `eat_profile`: `tag:psacertified.org,2023:psa#tfm` for TF-M.
+  - `eat_profile`: `tag:psacertified.org,2023:psa#tfm` for TF-M
+    (`integration_guide/services/tfm_attestation_integration_guide.html`).
 
   The TF-M profile says a receiver must accept ES256, ES384 and ES512 (and
   HMAC256/256 to HMAC512/512 for `COSE_Mac0`), and identifies the verification
   key by Instance ID.
 - **Keys.** A builtin key is usable only by the callers its policy table names;
-  a caller with no policy entry gets usage flags of zero (TF-M builtin keys).
+  a caller with no policy entry gets usage flags of zero
+  (`design_docs/tfm_builtin_keys.html`).
   That is what lets a secure partition own a key that the non-secure side
   cannot use.
-- **Boot and update.** BL2 is MCUboot. It verifies the secure and non-secure
-  images, enforces security counters, and passes measurements to the attestation
-  service. The firmware update service implements the PSA Firmware Update API.
+- **Boot and update.** BL2 is MCUboot (<https://docs.mcuboot.com/>). It verifies
+  the secure and non-secure images, enforces security counters, and passes
+  measurements to the attestation service (`design_docs/booting/tfm_secure_boot.html`).
+  The firmware update service (`design_docs/services/tfm_fwu_service.html`)
+  implements the PSA Firmware Update API (IHI 0093 1.0.1,
+  <https://arm-software.github.io/psa-api/fwu/1.0/>).
 - **DICE.** TF-M itself derives no DICE CDI. The DICE Protection Environment in
   tf-m-extras does derive CDIs and certificates, but it emits CWT certificates in
   the Open DICE profile (not X.509 with `tcg-dice-UCCS-evidence`), and it is
-  built and tested on Arm's RSE platform.
-- **Platforms upstream at v2.3.1.** STM32H573I-DK (not the NUCLEO-H563ZI),
+  built and tested on Arm's RSE platform
+  (<https://trustedfirmware-m.readthedocs.io/projects/tf-m-extras/en/latest/partitions/dice_protection_environment/dice_protection_environment.html>,
+  which reports v2.3.1).
+- **Platforms upstream at v2.3.1** (`platform/index.html`). STM32H573I-DK (not the NUCLEO-H563ZI),
   FRDM-MCXN947, LPCXpresso55S69, RP2350, nRF5340 and nRF9160/9161, and the
   MCIMX93-EVK (the i.MX 93, whose M33 is not taken by a System Manager). There
   is no nRF54L15 port upstream. Nordic carries TF-M for that part in its own SDK.
@@ -196,7 +178,8 @@ the secure image is rejected below.
   crypto library we link instead of writing (L2) brings its own licence. The
   candidates are TF-PSA-Crypto (Apache-2.0 OR GPL-2.0-or-later) and the
   vendor's PKA driver.
-- **PSA Certified.** Nothing is inherited. A chip's PSA Certified certificate
+- **PSA Certified** (<https://www.psacertified.org/>, governed by GlobalPlatform
+  since 2025). Nothing is inherited. A chip's PSA Certified certificate
   covers the vendor's root of trust software, not a secure world we wrote. A
   certificate of our own would mean a lab evaluation of this code at Level 2 or
   above. Level 1 is a self-assessed questionnaire, and the PSA Functional API
@@ -209,7 +192,9 @@ the secure image is rejected below.
 - **L1 and L2.** L1 is satisfied: one owner, us. L2 names in-house owners, and
   TF-M is not one, so L2 does not forbid this. Its intent does, though. A
   secure partition manager, the secure fault and veneer discipline, secure
-  storage and an update service are a large, reviewed, security-maintained body
+  storage (PSA Secure Storage API, IHI 0087 1.0.4,
+  <https://arm-software.github.io/psa-api/storage/1.0/>) and an update service
+  are a large, reviewed, security-maintained body
   of code with ports already upstream for three of our M33 targets. Writing a
   second one is the reimplementation L2 exists to stop. The SPEC already applies
   that rule to ESP-IDF's secure boot and OTA on the ESP32-P4: "composed and
@@ -221,7 +206,9 @@ There are two shapes, and only one of them keeps the signing rule.
 
 - **(b1) Our attestation code as a TF-M secure partition, the recommended shape.**
   - The partition is an Application RoT partition at isolation level 2 (Profile
-    Medium, IPC model).
+    Medium, IPC model; FF-M, DEN 0063 1.0,
+    <https://developer.arm.com/documentation/den0063/latest/>, and its 1.1
+    Extensions, AES 0039, <https://developer.arm.com/documentation/aes0039/latest>).
   - It holds the three template builders and nothing else.
   - The DeviceID key is a builtin key whose policy names our partition alone, or
     a key derived from the HUK with our partition id in the derivation. The
@@ -233,7 +220,8 @@ There are two shapes, and only one of them keeps the signing rule.
     the non-secure image's measurement, computed in the partition before the
     non-secure image starts.
 - **(b2) Our firmware as a non-secure client of PSA Crypto, rejected.** If the
-  non-secure firmware holds a DeviceID key handle and calls `psa_sign_hash`,
+  non-secure firmware holds a DeviceID key handle and calls `psa_sign_hash`
+  (PSA Crypto API, IHI 0086 1.5.0, <https://arm-software.github.io/psa-api/crypto/1.5/>),
   everything non-secure becomes a signing oracle for that key, and a bug in the
   wire protocol parser signs whatever an attacker wants. That breaks the one
   rule the attestation design rests on. Calling **Initial Attestation** from the
@@ -253,7 +241,8 @@ There are two shapes, and only one of them keeps the signing rule.
   - Everything listed for (a).
   - If the owner wants the token: the RFC 9783 token under the `tfm` profile
     (tagged `COSE_Sign1`, ES256 at least, a 33-byte `ueid`, a 32–64-byte
-    `nonce`, the software components claim), on go-xkms's EAT path.
+    `nonce`, the software components claim), on go-xkms's EAT path (RFC 9711,
+    <https://www.rfc-editor.org/rfc/rfc9711>).
   - The binding between the IAK's Instance ID and our DeviceID. Which side
     proves that binding is a design question for go-xkms, not for us.
 
@@ -264,8 +253,8 @@ There are two shapes, and only one of them keeps the signing rule.
   is reported, not checked by reading go-xkms.
 - **Licence.** Every component is permissive, so all of them are compatible
   with AGPL-3.0-or-later and with our commercial licence:
-  - TF-M and tf-m-extras: BSD-3-Clause.
-  - MCUboot: Apache-2.0.
+  - TF-M and tf-m-extras: BSD-3-Clause (`contributing/lic.html`).
+  - MCUboot: Apache-2.0 (<https://docs.mcuboot.com/>).
   - TF-PSA-Crypto: Apache-2.0 OR GPL-2.0-or-later.
   - QCBOR and t_cose: BSD-3-Clause.
 
@@ -279,7 +268,8 @@ There are two shapes, and only one of them keeps the signing rule.
   CryptoAuthLib (`docs/attestation/cryptoauthlib-evaluation.md`, Finding 1).
 - **PSA Certified.** This is the only option that keeps PSA Certified open:
   - A chip vendor certifies a chip together with a specific TF-M version and
-    configuration as its PSA RoT.
+    configuration as its PSA RoT (Platform Security Model, DEN 0128 1.1,
+    <https://developer.arm.com/documentation/den0128/latest>).
   - A device built on it may cite that certificate (RFC 9783's certification
     reference claim exists for this) only while it runs that PSA RoT unchanged.
   - Whether adding our Application RoT partition at isolation level 2 leaves the
@@ -303,8 +293,9 @@ There are two shapes, and only one of them keeps the signing rule.
     moves either to the device (our partition, before it confirms the image) or
     to the Verifier at attestation (open question 6).
   - The TF-M secure image itself is updated on TF-M's cadence. TF-M has two LTS
-    lines (2.1 to May 2027, 2.3 to April 2029) and fourteen advisories to date,
-    and we would owe our fleet a release for each advisory that touches our
+    lines (2.1 to May 2027, 2.3 to April 2029; v2.3.1 is of 2026-08-19,
+    `releases/index.html`) and fourteen advisories to date (TFMV-1 to TFMV-14,
+    `security/security_advisories/index.html`), and we would owe our fleet a release for each advisory that touches our
     configuration.
 - **L1 and L2.** L1: the secure partition manager, isolation, crypto, secure
   storage, boot and update are TF-M's and MCUboot's. We own the partition, its
@@ -450,7 +441,8 @@ without renumbering:
   DeviceID key.
 - **A local TF-M fork carrying our partition.** It breaks L1's "no local fork"
   and makes every TF-M advisory a merge. The partition is out of tree, which
-  TF-M's out-of-tree partition support allows.
+  TF-M's out-of-tree partition support allows
+  (`integration_guide/services/tfm_secure_partition_addition.html`).
 
 ## Open questions for the owner
 
@@ -493,7 +485,7 @@ without renumbering:
      go-xkms accept the enclave's own attestation as an endorsement? #14
      decision 8 leaves the CDI source here.
 
-   Facts gathered for the M7's OTA (2026-10-15, #52; the full table is decision
+   Facts gathered for the M7's OTA (#52; the full table is decision
    12 of [the OTA ADR](../ota/adr-ota-image-format-and-trust.md)). The question
    stays open. The device is the NXP FRDM-IMX95-PRO (UM12527). Facts were
    checked against UM12527 Rev. 1.0, RM00284 Rev. 4.5 and IMX95CEC Rev. 8.
@@ -542,8 +534,9 @@ without renumbering:
 ## Follow-ups
 
 - **F1.** Measure the footprint of TF-M v2.3.1 at Profile Medium with BL2, and
-  of a stub partition, on QEMU `mps2-an505`. That is #14's later M33 emulation
-  target, and TF-M has platform support for it. Measure the (c) privileged
+  of a stub partition, on QEMU `mps2-an505`
+  (<https://www.qemu.org/docs/master/system/arm/mps2.html>). That is #14's later
+  M33 emulation target, and TF-M has platform support for it. Measure the (c) privileged
   layer on #14's M7 target, `mps2-an500`. Replace every estimate in this ADR
   with the measured figure. F1 needs `mps2-an505` in CI, but this ADR does not
   (#14's open question 9 asks when it lands).

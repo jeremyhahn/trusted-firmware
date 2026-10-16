@@ -1,7 +1,8 @@
 # Testing
 
-Scope: how this firmware is tested, what each tier can and cannot catch, and
-why the tiers are separate. Last verified 2026-09-22 against `make ci`.
+> **Status: INFORMATIVE** · Scope: `make ci`, `make bench-check` · Last verified: 2026-09-22
+> How this firmware is tested, what each tier can and cannot catch, and why the
+> tiers are separate.
 
 Everything the gate runs needs **no hardware attached**. A bench Arduino is for
 bring-up and for `make hw-test` (below), never for a gate.

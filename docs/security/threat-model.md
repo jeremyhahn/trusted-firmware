@@ -131,8 +131,7 @@ not authority to enrol it: the ACME server must still check that the SAN is
 the identifier being finalized and that `b` is the value its own challenge
 bound (`docs/dice-attestation/adr-possession-at-acme-finalize.md`). Only the
 ATmega2560's element tier builds the command. The ATmega32U4 and ATmega328P do
-not (owner ruling on #6, 2026-10-09: excluded where it puts the part over
-budget), so neither can prove possession at finalize at all.
+not (#6: excluded where it puts the part over budget), so neither can prove possession at finalize at all.
 
 ## Structural limits that will not be fixed
 

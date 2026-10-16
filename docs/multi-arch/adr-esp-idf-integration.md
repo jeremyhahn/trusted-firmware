@@ -1,13 +1,11 @@
 # ADR: the ESP-IDF integration boundary and transport
 
-> **Status: ACCEPTED (2026-10-15), signed off by the Company Agent at 03:20Z** · Issue: [#16](../../../../issues/16)
+> **Status: ACCEPTED** · Issue: [#16](../../../../issues/16)
 > · Implementation: [#48](../../../../issues/48)
-> · Scope: trusted-firmware (HAL, boot HAL, board profiles, build) · Date: 2026-10-15
+> · Scope: trusted-firmware (HAL, boot HAL, board profiles, build) · Last verified: 2026-10-16
 >
-> The owner lifted the AVR gate for `esp32-p4` on 2026-10-15 (00:32Z) and ordered
-> the port onto Espressif's QEMU until the board arrives. This ADR records the
-> boundary that port is built on. The Company Agent accepted it on 2026-10-15
-> (03:20Z); the sign-off is at the end.
+> The AVR gate is lifted for `esp32-p4`, and the port runs on Espressif's QEMU
+> until the board arrives. This ADR records the boundary that port is built on.
 
 ## The question
 
@@ -259,13 +257,8 @@ is on; two builds of one commit gave the same image digest.
     `BoardESP32P4PoE` and `BoardESP32QEMU` in `sdk/go/boardid.go`, pinned in
     `sdk/go/boardid_test.go`.
 
-## Sign-off
+## Decision
 
-```
-Decision: ACCEPTED as proposed
-Options chosen: 1c glue, 2c layer 0, 3b DS DeviceID, 4b TCP framing, 5b esp32c3+esp32
-Board ids: 0x80 esp32p4-poe, 0x81 esp32-qemu
-Signed off by: Company Agent, 2026-10-15 03:20Z, recorded in the company rulings; the owner can overrule
-Date: 2026-10-15
-Notes:
-```
+Accepted as proposed: options 1c (glue), 2c (layer 0), 3b (DS DeviceID), 4b
+(TCP framing) and 5b (`esp32c3` and `esp32`). Board ids: `0x80` esp32p4-poe,
+`0x81` esp32-qemu.

@@ -1,7 +1,8 @@
 # CryptoAuthLib evaluation — decision record
 
-Scope: whether `trusted-firmware` links Microchip's CryptoAuthLib to drive the
-ATECC608A, or writes a minimal purpose-built driver.
+> **Status: INFORMATIVE** · Scope: `src/crypto/atecc608a/` · Last verified: 2026-10-16
+> Whether `trusted-firmware` links Microchip's CryptoAuthLib to drive the
+> ATECC608A, or writes a minimal purpose-built driver.
 
 The boards now take the ATECC608C (MIKROE-6774 Click board). The decision
 stands: the 608C runs the same command set as the 608A (AN5078, DS00005078),
@@ -87,8 +88,8 @@ of the job.
 
 ## What we write instead
 
-Not a reimplementation of CryptoAuthLib. Six commands, which is what the DICE-HW
-profile actually uses:
+Not a reimplementation of CryptoAuthLib. Only the commands the DICE-HW profile
+uses (`src/crypto/atecc608a/atecc.h`):
 
 | command | why |
 |---|---|
@@ -97,7 +98,9 @@ profile actually uses:
 | `Write` / `PrivWrite` | provisioning only, behind `tfwprov --commit` |
 | `Lock` | provisioning only, irreversible |
 | `Nonce` + `GenKey` / `Sign` | DeviceID and the attestation signature |
-| `HMAC` | CDI = HMAC(UDS, H(firmware)) without the UDS leaving the element |
+| `SHA` (HMAC mode) | CDI = HMAC(UDS, H(firmware)) without the UDS leaving the element |
+| `Verify` | an external signature checked against a stored public key |
+| `Info` | the revision probe that tells the element is present |
 | `Random` | the TRNG — the entropy source DICE HW Requirements §6.2.4.1(6) wants |
 | `Counter` | monotonic boot count and the anti-rollback floor |
 

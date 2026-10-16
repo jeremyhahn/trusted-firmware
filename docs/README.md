@@ -1,5 +1,8 @@
 # Documentation
 
+> **Status: INFORMATIVE** · Scope: `docs/` · Last verified: 2026-10-16
+> The map of this repository's documentation: which folder holds what.
+
 trusted-firmware is AVR firmware plus a Layer 0 Go SDK. It is a drop-in
 replacement for basic Arduino firmware: every Arduino capability is on the wire
 and in the SDK, with secure boot, a DICE device identity and go-trusted-platform
@@ -8,7 +11,7 @@ integration added. It is the framework and SDK for device applications, which li
 Where the project is going: [`../ROADMAP.md`](../ROADMAP.md) and
 [`multi-arch/architecture.md`](multi-arch/architecture.md).
 
-Eight capabilities, each a feature folder — `architecture.md`,
+Each capability is a feature folder — `architecture.md`,
 `engineering.md`, `api.md`, `user.md`, and `cli.md` where there is a command
 line. **NORMATIVE** means a conflict
 with the code is a defect to fix in the document first.
@@ -23,6 +26,8 @@ with the code is a defect to fix in the document first.
 | [`host-sdk/`](host-sdk/architecture.md) | `sdk/go`, `tfwctl`, `tfwprov` and `tfwsim` — one host implementation |
 | [`xkms-adapter/`](xkms-adapter/architecture.md) | the AVR backend for go-xkms, registered through go-xkms's backend registry hook |
 | [`application-sdk/`](application-sdk/architecture.md) | the C interface a `trusted-firmware-<application>` repository links into the image: descriptor, hooks, configuration, build |
+| [`ethernet-transport/`](ethernet-transport/architecture.md) | the wire protocol over TCP through a WIZnet W5100 or W5500 (draft, #55) |
+| [`ota/`](ota/architecture.md) | signed over-the-air updates: the image format, trial boot, confirm and rollback (#52) |
 
 Cross-cutting material that belongs to no single feature:
 
@@ -56,18 +61,19 @@ it will read them.
   sentence of §6.1.4 this device cannot satisfy, said plainly.
 - **How the DeviceID key proves possession at ACME finalize** —
   [`dice-attestation/adr-possession-at-acme-finalize.md`](dice-attestation/adr-possession-at-acme-finalize.md).
-  **ACCEPTED 2026-10-09** (issue #6): a device-templated PKCS#10,
+  **ACCEPTED** (issue #6): a device-templated PKCS#10,
   no signing oracle, and what the 32U4 cannot afford.
 - **Which Cortex-M part comes first, and what CI emulates** —
   [`cortex-m/adr-reference-part-and-emulation.md`](cortex-m/adr-reference-part-and-emulation.md).
   **PROPOSED** (issue #14): the i.MX 95 Cortex-M7 and QEMU `mps2-an500`.
 - **Whose secure world runs on Cortex-M, ours or TF-M's** —
   [`cortex-m/adr-trust-model-vs-tf-m.md`](cortex-m/adr-trust-model-vs-tf-m.md).
-  **PROPOSED 2026-10-15** (issue #15): TF-M with our attestation partition on
+  **PROPOSED** (issue #15): TF-M with our attestation partition on
   the M33, MPU-only isolation on the M7, and the owner's open questions.
 - **How an OTA image is signed, verified and rolled back** —
   [`ota/adr-ota-image-format-and-trust.md`](ota/adr-ota-image-format-and-trust.md).
-  **PROPOSED** (issue #52): the trailer per arch class, the floor per tier,
+  **ACCEPTED** for the decisions it marks so, **PROPOSED** for the rest
+  (issue #52): the trailer per arch class, the floor per tier,
   A/B where a part has room, and what AVR gets.
 - **Why there is no `delay()`** — `device-capabilities/architecture.md`.
 - **Why the pin timer stays in firmware** — `device-capabilities/engineering.md`.

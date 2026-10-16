@@ -10,9 +10,8 @@ This repo owns the AVR wire protocol, the firmware that speaks it (`src/caps/att
 (`sdk/go`, Layer 0, zero in-house dependencies), and the `xkms` adapter module
 (`github.com/jeremyhahn/trusted-firmware/xkms`).
 
-The owner ruled on 2026-10-09 that go-xkms and go-quicbaas implement standards
-(TPM2, PKCS#11, TCG DICE, EAT/UCCS, device-attest-01, RFC 9334) and define the
-plug-in interfaces. A firmware we wrote ships its xkms integration as an adapter
+go-xkms and go-quicbaas implement standards (TPM2, PKCS#11, TCG DICE, EAT/UCCS,
+device-attest-01, RFC 9334) and define the plug-in interfaces. A firmware we wrote ships its xkms integration as an adapter
 module in its own repo, registered through go-xkms's registry hook. The AVR
 xkms backend is therefore this repo's, not go-xkms's.
 
@@ -158,8 +157,8 @@ other name cannot be assembled from it. The CRI reads its key and evidence
 headers out of the alias template, so the two documents cannot describe either
 differently.
 
-**Which parts can enrol.** Only the ATmega2560's element tier builds it. The
-owner's ruling on #6 (2026-10-09) excludes a part from ACME enrolment where the
+**Which parts can enrol.** Only the ATmega2560's element tier builds it. A part
+is excluded from ACME enrolment (#6) where the
 command puts it over budget: the ATmega328P's element image measured 16 884 /
 16 384 bytes with it, so its profile turns it off (the alias certificate stays);
 the ATmega32U4's profile turns it off too; and it is never built anywhere
@@ -248,9 +247,9 @@ stated where `mint()` fetches the subject key.
 ## Accepted: possession at ACME finalize
 
 How the DeviceID key proves possession when an ACME order is finalized is
-decided (issue #6, accepted 2026-10-09) in
+decided (issue #6) in
 [`adr-possession-at-acme-finalize.md`](adr-possession-at-acme-finalize.md):
-a device-templated PKCS#10. Not yet implemented; the ADR lists the issues.
+a device-templated PKCS#10, implemented as `ATTEST_CSR` (0x64, `src/caps/csr.c`).
 
 ## Trust boundaries
 

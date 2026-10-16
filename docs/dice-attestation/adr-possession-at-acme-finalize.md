@@ -1,18 +1,18 @@
 # ADR: proving possession of the DeviceID key at ACME finalize
 
-> **Status: ACCEPTED (2026-10-09)** · Issue: [#6](../../../../issues/6)
+> **Status: ACCEPTED** · Issue: [#6](../../../../issues/6)
 > · Scope: trusted-firmware (device side), go-xkms (challenge and finalize side),
-> go-trusted-platform (enrolment) · Date: 2026-10-09
+> go-trusted-platform (enrolment) · Last verified: 2026-10-16
 >
-> The owner accepted option (c) on 2026-10-09; see the sign-off block at the end.
-> Nothing here is implemented yet; the follow-up issues carry the work.
+> Option (c) is accepted. The device side is implemented: `ATTEST_CSR` (0x64,
+> `src/caps/csr.c`) and `sdk/go`'s `AttestCSR` (`sdk/go/attestcsr.go`).
 >
-> **Amended 2026-10-09** after Codex's review of PR #32: `K` is now checked
+> **Amendment 1:** `K` is checked
 > against the provisioning record before the challenge is valid, and carried to
 > finalize as a persisted attested key. The 32U4 figures were re-measured. Option
-> (c) and every owner sub-decision are unchanged; see "Amendment 1" at the end.
+> (c) and every sub-decision are unchanged; see "Amendment 1" at the end.
 >
-> **Amended again 2026-10-10** after Codex's second review: on the raw-key path
+> **Amendment 2:** on the raw-key path
 > go-xkms verifies the alias leaf's signature under the provisioned key; the
 > identifier is the hex of the full UEID; and the CSR is assembled by go-xkms,
 > with `sdk/go` as transport only. See "Amendment 2" at the end.
@@ -41,7 +41,7 @@ assembled itself**. The host chooses a nonce of fixed width, and nothing else:
 | Command | Preimage | Host-chosen bytes | Where |
 |---|---|---|---|
 | `ATTEST` (0x60) | the first 73 bytes of the evidence frame: version, nonce, DeviceID, FWHash, BootCount, UptimeMs | 16-byte nonce at offset 1 | `src/caps/attest.c` `build()` |
-| `ATTEST_CERT` (0x63) | a 383-byte TBSCertificate: a 232-byte template with three holes (serial, subject point, UCCS claims set) | 32-byte nonce, which becomes `eat_nonce` and sets the serial | `src/caps/alias.c` `emit_tbs()` / `mint()` |
+| `ATTEST_CERT` (0x63) | a 383-byte TBSCertificate: a 232-byte template with three holes (serial, subject point, UCCS claims set) | 32-byte nonce, which becomes `eat_nonce` and sets the serial | `src/caps/alias.c` `tfw_alias_tbs_digest()` / `mint()` |
 
 The header comment of `src/caps/alias.c` explains why the device builds the
 whole TBS: *"a signature over 32 opaque bytes is a signature over anything the
@@ -88,7 +88,7 @@ challenge time is already proven.** Two things are missing:
    commit this amendment starts from. The compiler was gcc-avr 14.2.0 from
    Debian trixie, the CI image's toolchain (`docker/Dockerfile.ci`).
 
-4. **Ownership** (owner ruling 2026-10-09):
+4. **Ownership:**
    - go-xkms owns the standards and profiles: DICE, EAT/UCCS, draft-acme-device-attest, RFC 9334, and the certificate and CSR profiles.
    - trusted-firmware owns the wire protocol, the firmware, `sdk/go` and its xkms adapter ([#28](../../../../issues/28)).
    - go-trusted-platform owns enrolment.
@@ -318,7 +318,7 @@ without it.
 
 - **P1 fails.** a1 is the oracle itself. a2 without checks is the oracle with
   extra steps: the "CRI" can be a forged evidence prefix or alias TBS.
-- Adding checks to a2 *is* the structure-checked `SIGN_CSR` the owner rejected.
+- Adding checks to a2 *is* the structure-checked `SIGN_CSR`, which is rejected.
 - P2 holds, given the registry binding, and P4 holds. P3 holds only if the host
   chooses to put an order value in the CRI.
 
@@ -759,7 +759,7 @@ ways to close it:
 
 ## Resolved questions
 
-1. **Option (c).** Accepted by the owner, 2026-10-09.
+1. **Option (c).** Accepted.
 2. **The 32U4.** Excluded from ACME enrolment; it keeps `ATTEST` for runtime
    freshness.
 3. **Where the binding sits.** The UCCS `nonce` in `extensionRequest`, not
@@ -772,23 +772,9 @@ ways to close it:
    of the full UEID, `0x01 ‖ DeviceID`, 34 digits, as go-xkms#1441 profiles it
    and the firmware emits (Amendment 2).
 
-## Sign-off
+## Amendment 1: `K` is bound and persisted
 
-```
-Decision: accepted
-Option chosen: (c) device-templated PKCS#10 at finalize, device-attest-01 challenge unchanged
-32U4 path: excluded from ACME enrolment (keeps ATTEST for runtime freshness)
-Signed off by: owner (Jeremy Hahn)   Date: 2026-10-09
-Notes:
-- Binding: the UCCS nonce in extensionRequest, not challengePassword.
-- The device returns only the signature; the host reconstructs the CRI.
-- The 328P is excluded if size-check shows it over budget.
-- Identifier: permanent-identifier; go-xkms has the final word (go-xkms#1441).
-```
-
-## Amendment 1 (2026-10-09): Codex's review of PR #32
-
-Option (c) and every owner sub-decision above stand unchanged:
+Option (c) and every sub-decision above stand unchanged:
 
 - the 32U4 is excluded;
 - the binding is the UCCS `nonce` in `extensionRequest`;
@@ -808,9 +794,9 @@ and corrects one set of figures.
 2. **[P1] `K` is persisted for finalize.** The verifier sets an attested SPKI
    on the persisted, authorization-scoped `DeviceAttestation` record, and
    finalize compares the CSR with it. If it is absent, the result is `badCSR`.
-   Codex's premise is half right for go-xkms v0.51.0-alpha:
-   - right: `ChallengeVerifierFunc` returns only an error;
-   - wrong: `ACMEChallenge` does carry a verifier result, `DeviceAttestation`,
+   In go-xkms v0.51.0-alpha:
+   - `ChallengeVerifierFunc` returns only an error;
+   - `ACMEChallenge` does carry a verifier result, `DeviceAttestation`,
      through `AttestingVerifier`.
 
    That record has no attested key, though. Its `dice` binding reads the key
@@ -821,9 +807,9 @@ and corrects one set of figures.
    larger gap than the accepted text stated. The 328P was measured at 16 054,
    which leaves 330 bytes free.
 
-## Amendment 2 (2026-10-10): Codex's second review of PR #32
+## Amendment 2: the raw-key path, the identifier and the CSR's owner
 
-Option (c), every owner sub-decision, and Amendment 1's shape stand unchanged.
+Option (c), every sub-decision, and Amendment 1's shape stand unchanged.
 go-xkms has agreed that shape: `AttestedSPKI` on `entities.DeviceAttestation`
 set through `AttestingVerifier`, a resolver that returns a provisioned key or a
 DeviceID endorsement, and a registry re-query at finalize. This amendment

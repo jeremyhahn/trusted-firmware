@@ -4,8 +4,7 @@
 
 Only AVR is implemented. Everything else here is planned and marked with its issue.
 Order of work: [ROADMAP.md](../../ROADMAP.md). No other-platform work starts until AVR
-has every primitive and a proven end-to-end example (owner ruling 2026-10-08); the owner
-lifted the gate for `esp32-p4` on 2026-10-15.
+has every primitive and a proven end-to-end example; the gate is lifted for `esp32-p4`.
 
 ## 1. Goal
 

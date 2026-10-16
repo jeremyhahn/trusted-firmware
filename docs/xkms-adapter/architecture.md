@@ -36,9 +36,9 @@ caller ──opens link──► io.ReadWriter
 
 ## Where it lives, and how go-xkms finds it
 
-The owner ruled on 2026-10-09 that go-xkms defines the plug-in interfaces and
-implements standards, and that a firmware we wrote ships its xkms integration as
-an adapter module in its own repository. So this backend lives in
+go-xkms defines the plug-in interfaces and implements standards, and a firmware
+we wrote ships its xkms integration as an adapter module in its own repository.
+So this backend lives in
 `trusted-firmware`, in the `xkms/` module, and sits above both of its
 dependencies: it imports go-xkms (Layer 3, pinned in `xkms/go.mod`) and
 `sdk/go` (Layer 0). Nothing imports it except through go-xkms's registry. It is a

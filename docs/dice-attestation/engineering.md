@@ -170,8 +170,7 @@ not fit the certificate builder alongside everything else. `ATTEST` still
 works on both; only `ATTEST_CERT` is absent.
 
 `TFW_FEATURE_ATTEST_CSR` follows `ALIAS_CERT` and so is absent on both too. Two
-profiles also turn it off by name, under the owner's ruling on #6 (2026-10-09)
-that a part is excluded from ACME enrolment if the command puts it over budget:
+profiles also turn it off by name, because a part is excluded (#6) from ACME enrolment if the command puts it over budget:
 
 - **ATmega32U4** — so it stays off even if the certificate builder ever fits.
 - **ATmega328P** — its element image with the command measured 16 884 / 16 384

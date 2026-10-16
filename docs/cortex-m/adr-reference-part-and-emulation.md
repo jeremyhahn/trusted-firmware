@@ -1,18 +1,17 @@
 # ADR: the Cortex-M reference part and its CI emulation target
 
-> **Status: PROPOSED (2026-10-15)** · Issue: #14 · SPEC rows: `cortex-m` (future),
+> **Status: PROPOSED** · Issue: #14 · SPEC rows: `cortex-m` (future),
 > `imx95`, `stm32h5` · Scope: trusted-firmware only · Last verified: 2026-10-15
 >
 > Documentation only. No code, build file, board id or SPEC row changes with this
-> ADR. Every number marked *confirm* comes from a document the lane could not
-> read (see "Sources"), and is a starting point for the owner, not a fact.
+> ADR. Every number marked *confirm* comes from a document that could not be read
+> (named where it is used), and is a starting point for the owner, not a fact.
 
 ## The question
 
 The SPEC row `cortex-m` says the Cortex-M ports are generic architecture ports,
 Cortex-M7 and Cortex-M33 first, each a HAL and a boot-HAL port, with boards as
-data. The owner ruled at 19:48Z (DS-1704) that the i.MX 95's
-Cortex-M7 is a board. Until the hardware arrives, the Cortex-M targets run in
+data. The i.MX 95's Cortex-M7 is a board. Until the hardware arrives, the Cortex-M targets run in
 QEMU.
 
 This ADR decides four things:
@@ -86,7 +85,7 @@ The trust model, and how it relates to TF-M, is #15 and is not decided here.
 ### 1. The reference part: the i.MX 95 Cortex-M7
 
 The first Cortex-M port is written against the **Cortex-M7 of the NXP i.MX 95**
-on the FRDM-IMX95 board (SPEC row `imx95`), as the owner ruled. The second
+on the NXP FRDM-IMX95-PRO board (UM12527; SPEC row `imx95`). The second
 target is a Cortex-M33 with TrustZone-M: the STM32H5 (SPEC row `stm32h5`).
 
 | | i.MX 95 Cortex-M7 (reference) | STM32H5 Cortex-M33 (second) |
@@ -101,15 +100,19 @@ target is a Cortex-M33 with TrustZone-M: the STM32H5 (SPEC row `stm32h5`).
 
 Why the M7 goes first:
 
-- **The ruling says so**, and the M7 is the core that `hsm-self-defence` needs.
+- **The SPEC row `imx95` makes it a board**, and the M7 is the core that
+  `hsm-self-defence` needs.
 - **The trust model is closest to what works today.** Keys stay in a separate
   element (ELE, as the ATECC608A today), and the firmware only asks for
   operations. The Cortex-M port does not have to wait for the TrustZone and TF-M
   decision in #15.
 - **The core HAL carries over.** SysTick, NVIC, SCB, the MPU and the vector
   table are architecturally the same in Armv7-M and in the Non-secure state of
-  Armv8-M Mainline. The `src/hal/cortex-m/` core is shared, and only the
-  per-CPU flags and the SoC files differ.
+  Armv8-M Mainline (Armv7-M Architecture Reference Manual, DDI 0403, chapter
+  B3 "System Address Map"; Armv8-M Architecture Reference Manual, DDI 0553, its
+  system address map chapter; neither could be fetched, so this is to confirm).
+  The `src/hal/cortex-m/` core is shared, and only the per-CPU flags and the SoC
+  files differ.
 
 What it costs:
 
@@ -146,9 +149,12 @@ boards/frdm-imx95-m7/        profile.mk: ARCH := cortex-m, CPU := cortex-m7, SOC
 ### 3. The CI emulation target: QEMU `mps2-an500`
 
 The Cortex-M7 CI target is **QEMU `mps2-an500`**: the Arm MPS2 board with the
-AN500 FPGA image, a Cortex-M7. It is the only Cortex-M7 machine in QEMU 10.0.
+AN500 FPGA image, a Cortex-M7 (Arm Application Note AN500, DAI 0500,
+<https://developer.arm.com/documentation/dai0500/latest/>, not fetched). It is the
+only Cortex-M7 machine in QEMU 10.0.
 
-The facts below are read from `hw/arm/mps2.c` at QEMU v10.0.0, which is the
+The facts below are read from QEMU `hw/arm/mps2.c` at v10.0.0
+(<https://gitlab.com/qemu-project/qemu/-/raw/v10.0.0/hw/arm/mps2.c>), which is the
 version Debian trixie ships.
 
 **Memory.** Everything is RAM. The board has no flash controller.
@@ -214,7 +220,7 @@ It reads as zero and ignores writes.
 |---|---|
 | GPIO (the block is unimplemented), ADC, PWM, tone, pulse capture, one-wire | the bench, on hardware |
 | EEPROM; any flash controller, erase or wear | the bench; the boot-HAL unit tests on the mock |
-| The i.MX 95 itself: ELE, AHAB, SM, SCMI, MU, TRDC, LPUART, LPI2C, LPSPI, TPM | the bench on the FRDM-IMX95, and trusted-imx95's own tests |
+| The i.MX 95 itself: ELE, AHAB, SM, SCMI, MU, TRDC, LPUART, LPI2C, LPSPI, TPM | the bench on the NXP FRDM-IMX95-PRO (UM12527), and trusted-imx95's own tests |
 | Caches, TCM timing, bus contention, cycle-accurate timing | the bench; there is no Cortex-M bench tier until hardware |
 | Real interrupt latency under load | the bench |
 
@@ -251,7 +257,9 @@ those capabilities report `TFW_ERR_UNSUPPORTED`. They do not pretend.
 
 **The M33 later.** The Cortex-M33 emulation target is **QEMU `mps2-an505`**: a
 single Cortex-M33 with the Security Extension, an IDAU, and the MPC and PPC
-security controllers. `mps2-an521` is the dual-core variant. Both are what TF-M
+security controllers (QEMU `hw/arm/mps2-tz.c` at v10.0.0,
+<https://gitlab.com/qemu-project/qemu/-/raw/v10.0.0/hw/arm/mps2-tz.c>; Arm AN505,
+DAI 0505). `mps2-an521` is the dual-core variant (AN521, DAI 0521). Both are what TF-M
 and Zephyr test against. The M33 target lands with the STM32H5 port or with
 #15, not with this one.
 
@@ -334,6 +342,10 @@ Tests that do not need tfw-boot load the application alone with `-kernel` at
 
 ### 6. Toolchain
 
+The versions are from the Debian sources API for trixie
+(<https://sources.debian.org/api/src/gcc-arm-none-eabi/>, `binutils-arm-none-eabi/`,
+`newlib/` and `qemu/` under the same path).
+
 | | Debian trixie package | Version |
 |---|---|---|
 | Compiler | `gcc-arm-none-eabi` | 15:14.2.rel1-1 (GCC 14.2, the same GCC as `gcc-avr`'s 14.2.0) |
@@ -382,7 +394,9 @@ not the silicon's size.
 - **The QEMU board carries the i.MX 95 figures.** A build that fits the
   emulator therefore fits the reference part.
 - **The i.MX 95 figures must be checked** against the M7's TCM size in IMX95RM
-  and the M7 logical machine in the SM configuration (open question 2).
+  (the i.MX 95 Applications Processor Reference Manual, its M7 memory map;
+  NXP, registration required, not read) and the M7 logical machine in the SM
+  configuration (open question 2).
 
 ### 8. The boot chain on the i.MX 95
 
@@ -397,7 +411,10 @@ power-on
 ```
 
 - **L0 is NXP's.** The ROM, the ELE and the SM are the measured and verified
-  boot. That is the "ROM CDI tier replaces tfw-boot" case
+  boot. The AHAB container format is the one NXP AN12312 describes for i.MX 8
+  (<https://www.nxp.com/docs/en/application-note/AN12312.pdf>, not fetched;
+  i.MX 9 inherits it), and the SM is NXP's `imx-sm`
+  (<https://github.com/nxp-imx/imx-sm>). That is the "ROM CDI tier replaces tfw-boot" case
   `multi-arch/architecture.md` §6 already anticipates, and the ATtiny85's
   "no boot section" shape.
 - **The M7 starts from the AHAB container**, before and independent of the
@@ -406,39 +423,9 @@ power-on
   firmware is therefore an update of that container (open question 5).
 - **The CDI source on the i.MX 95 is open (#15).** It is either a derivation in
   the ELE keyed by the measured M7 image, or something else the ELE offers. The
-  DICE certificate profile itself stays go-xkms's.
-
-## Sources
-
-The QEMU source and the Debian versions were read in this session:
-
-- QEMU `hw/arm/mps2.c`, v10.0.0:
-  <https://gitlab.com/qemu-project/qemu/-/raw/v10.0.0/hw/arm/mps2.c>
-- QEMU `hw/arm/mps2-tz.c`, v10.0.0 (AN505, AN521):
-  <https://gitlab.com/qemu-project/qemu/-/raw/v10.0.0/hw/arm/mps2-tz.c>
-- Debian trixie package versions: <https://sources.debian.org/api/src/gcc-arm-none-eabi/>,
-  <https://sources.debian.org/api/src/binutils-arm-none-eabi/>,
-  <https://sources.debian.org/api/src/newlib/>,
-  <https://sources.debian.org/api/src/qemu/>
-- NXP System Manager source: <https://github.com/nxp-imx/imx-sm>
-
-The documents below are cited by number. The lane could not fetch them:
-developer.arm.com answered 403 to automated requests, and the NXP links need a
-login or answered 404. Every *confirm* above traces to one of them.
-
-| Number | Title | Where |
-|---|---|---|
-| IMX95RM | i.MX 95 Applications Processor Reference Manual (TCM sizes, M7 memory map, TRDC) | NXP, registration required: <https://www.nxp.com/products/i.MX95> |
-| IMX95SRM | i.MX 95 Security Reference Manual (ELE, AHAB, key derivation) | NXP, NDA |
-| IMX95IEC / IMX95AEC | i.MX 95 data sheets (industrial, automotive) | <https://www.nxp.com/products/i.MX95> |
-| AN12312 | Secure Boot on i.MX 8 and i.MX 8X Families using AHAB (the AHAB container format i.MX 9 inherits) | <https://www.nxp.com/docs/en/application-note/AN12312.pdf> |
-| DDI 0403 | Armv7-M Architecture Reference Manual | <https://developer.arm.com/documentation/ddi0403/latest/> |
-| DDI 0553 | Armv8-M Architecture Reference Manual | <https://developer.arm.com/documentation/ddi0553/latest/> |
-| DDI 0489 | Arm Cortex-M7 Processor Technical Reference Manual | <https://developer.arm.com/documentation/ddi0489/latest/> |
-| DUI 0646 | Cortex-M7 Devices Generic User Guide | <https://developer.arm.com/documentation/dui0646/latest/> |
-| 100230 | Arm Cortex-M33 Processor Technical Reference Manual | <https://developer.arm.com/documentation/100230/latest/> |
-| DAI 0500 | Application Note AN500: Cortex-M7 SMM on V2M-MPS2 | <https://developer.arm.com/documentation/dai0500/latest/> |
-| DAI 0505 / DAI 0521 | AN505: Cortex-M33 with the IoT Kit; AN521: dual Cortex-M33 with the SSE-200 subsystem; both on V2M-MPS2+ | <https://developer.arm.com/documentation/dai0505/latest/>, <https://developer.arm.com/documentation/dai0521/latest/> |
+  DICE certificate profile itself stays go-xkms's. What the ELE offers is in the
+  i.MX 95 Security Reference Manual (IMX95SRM, its ELE key-derivation chapter;
+  NXP, NDA, not read).
 
 ## Open questions for the owner
 
@@ -447,10 +434,11 @@ login or answered 404. Every *confirm* above traces to one of them.
    `frdm-imx95-m7`. Ids are allocated in the change that adds the board, not
    here.
 2. **The i.MX 95 budgets.** The 128 KiB code and 32 KiB RAM figures need
-   checking against the M7 TCM size in IMX95RM, which the lane could not read,
+   checking against the M7 TCM size in IMX95RM, which could not be read,
    and against the TCM the SM configuration gives the M7.
 3. **The M7's console.** Which LPUART, and which pins, the SM configuration
-   assigns to the M7 logical machine on the FRDM-IMX95. That is trusted-imx95's
+   assigns to the M7 logical machine on the NXP FRDM-IMX95-PRO (UM12527). That
+   is trusted-imx95's
    configuration, so the question is a dependency on that repository.
 4. **The platform block on the i.MX 95.** There are three candidates:
    - a read-only block inside the signed container;
@@ -475,7 +463,7 @@ login or answered 404. Every *confirm* above traces to one of them.
 
 | Alternative | Why not |
 |---|---|
-| An M33 part first (STM32H5) | Against the ruling. It also puts the TrustZone and TF-M decision (#15) on the critical path of the first Cortex-M image. |
+| An M33 part first (STM32H5) | The i.MX 95's M7 is the board the SPEC names. It also puts the TrustZone and TF-M decision (#15) on the critical path of the first Cortex-M image. |
 | QEMU `mps3-an547` | A Cortex-M55: Armv8.1-M with Helium. That is the wrong ISA for both the M7 and the M33. |
 | QEMU `netduinoplus2`, `olimex-stm32-h405` | STM32F405, a Cortex-M4: neither an M7 nor TrustZone-M. |
 | QEMU `lm3s6965evb`, `lm3s811evb`, `mps2-an385`, `mps2-an511` | Cortex-M3: no Armv7E-M, no FPU, and no part we target. |
@@ -495,7 +483,7 @@ login or answered 404. Every *confirm* above traces to one of them.
     trust.
   - §7 has no Cortex-M7 row.
 
-  Both predate the 19:48Z ruling and need a docs pass.
+  Both need a docs pass to match this ADR.
 - **trusted-imx95.** It must provide the M7 logical machine, its console and
   the M7 slot in the boot container. This is reported as a dependency, not
   worked around here.

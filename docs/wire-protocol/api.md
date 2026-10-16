@@ -205,7 +205,7 @@ available software-tier verify primitive does not fit this device family
 `ATTEST_CSR` (issue #30) is built only beside `ATTEST_CERT`, so never on the
 ATtiny85 or the ATmega32U4, and the ATmega328P's profile turns it off by name
 because it puts that part's element image over its flash budget; the 32U4's
-profile says so by name too (owner ruling on #6, 2026-10-09). The ATmega2560's
+profile says so by name too (#6). The ATmega2560's
 element tier is the one image that carries it; elsewhere 0x64 answers
 `TFW_ERR_UNKNOWN_CMD` and CAPS bit 15 is clear. The
 host sends 32 bytes and nothing else; the device fills a fixed PKCS#10

@@ -1,6 +1,9 @@
 # Board-id registry
 
-**NORMATIVE.** The board id is the byte at offset 5 of the CAPS board header. It
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-16
+> Conflicts with this document are defects. Fix them here first.
+
+The board id is the byte at offset 5 of the CAPS board header. It
 is `TFW_BOARD_ID` in `boards/<board>/board_profile.h` and `tfw.BoardID` in
 `sdk/go`. It names a board *build target*, not a silicon part: two boards on one
 MCU take two ids.

@@ -1,19 +1,19 @@
 # Performance
 
-Scope: what the firmware costs in cycles, how it is measured, and which of the
-project plan's targets it meets. Last verified 2026-09-26 against
-`make bench-check`, after #12 (the CRC fix) and #11 (the ceiling policy and the
-two restated targets).
+> **Status: INFORMATIVE** · Scope: `make bench-check`, `test/bench/` · Last verified: 2026-09-26
+> What the firmware costs in cycles, how it is measured, and which of the
+> project plan's targets it meets, after #12 (the CRC fix) and #11 (the ceiling
+> policy and the two restated targets).
 
 Run it with `make bench-check`. It is **not** part of `make ci` and not run by
-any CI job (owner ruling, 2026-09-23, ratified 2026-09-26): six of eight rows
+any CI job: six of eight rows
 are still over the plan's target even after #12, so a gate over them would be
 either permanently red or pinned at today's cost and green while the firmware
 is that far over budget. A green `make ci` keeps meaning what it has always
 meant. The remaining debt is tracked in #11 and #13's follow-ons, and this
 document is where the numbers live in the meantime.
 
-## The ceiling policy is ratified (#11)
+## The ceiling policy (#11)
 
 `test/bench/targets.h` carries two columns per row: `target`, the plan's own
 number, kept verbatim; and `ceiling`, what the gate actually enforces. Where
@@ -35,9 +35,7 @@ the code cannot get slower without failing `make bench-check` -- while the
 alternative the plan's own document warns about elsewhere applies here too: *a
 gate that can pass vacuously is worse than no gate.* This one cannot pass
 vacuously -- it enforces no-regression on eight real numbers and states the gap
-on six of them, every run -- but the distinction is now an explicit,
-owner-ratified policy rather than an assumption embedded in one file's
-comments.
+on six of them, every run -- and the distinction is an explicit policy.
 
 ## What the gate is
 
@@ -142,7 +140,7 @@ regression.)
 
 ## Target vs ceiling, in one place
 
-See *The ceiling policy is ratified (#11)* above for the policy itself. The
+See *The ceiling policy (#11)* above for the policy itself. The
 rounding rule, precisely: a cycle count is pinned at the measured value rounded
 up to the next whole cycle — it is exactly reproducible, so anything costing a
 cycle more fails. A ratio derived from two exact integers (the per-armed-slot

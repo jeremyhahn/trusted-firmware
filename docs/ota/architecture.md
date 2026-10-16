@@ -1,15 +1,15 @@
 # OTA — architecture
 
-> **Status: ACCEPTED (owner, 2026-10-15) where the ADR's decisions are
-> ACCEPTED; PROPOSED where they are** · Issue: #52 · Scope: trusted-firmware
+> **Status: ACCEPTED where the ADR's decisions are ACCEPTED; PROPOSED where
+> they are** · Issue: #52 · Scope: trusted-firmware
 > (image format, device side, `sdk/go` upload helper); go-trusted-platform,
 > go-quicbaas, go-xkms and qrdb (seams only) · Last verified: 2026-10-15
 >
 > Decisions, their reasons and the measured flash are in
 > [adr-ota-image-format-and-trust.md](adr-ota-image-format-and-trust.md). No
 > code exists for anything here that is not already shipped by
-> [`secure-boot/`](../secure-boot/architecture.md), the trial state machine
-> (#77) or the manifest gate (#78). The SPEC row `ota` stays
+> [`secure-boot/`](../secure-boot/architecture.md), the trailer's board-id
+> check (#76), the trial state machine (#77) or the manifest gate (#78). The SPEC row `ota` stays
 > `future`.
 
 OTA replaces the whole image, firmware and application together, with a signed
@@ -345,13 +345,13 @@ question 6, and the application's `.init3` disarms the watchdog today).
 
 | Alternative | Rejected because |
 |---|---|
-| The device verifies the CoRIM | The CoRIM is the verifier's artifact (owner, 2026-10-15). The device verifies a SUIT subset carrying the same four facts. |
+| The device verifies the CoRIM | The CoRIM is the verifier's artifact. The device verifies a SUIT subset carrying the same four facts. |
 | An SPM entry point in the AVR boot section so the application can stage an image | It voids the BLB1 mode 3 read barrier from inside: the application could reach boot-section code. The secure-boot architecture forbids it, for the same reason it forbids a CDI trampoline. |
 | The W5x00 session in the AVR bootloader | Measured: it does not fit either boot section (ADR 6.1). |
-| A serial-attached host doing the network side | Rejected by the owner (2026-10-15). |
+| A serial-attached host doing the network side | Every board takes its image over the network itself. |
 | A scratch-page swap for the 2560's A/B | One scratch page is erased once per page swapped. A 64 KB slot is 256 pages, and AVR flash is rated for 10 000 erase cycles, so the scratch page wears out in about forty updates. Swap-move shifts the slot by one page instead and wears every page about twice per update. |
 | Advancing the floor on the first boot of a new image | The fallback image would then be below the floor and refused, so the device would have nothing to fall back to. |
-| More than one trial, or a device-local confirm | Rejected by the owner (2026-10-15). |
+| More than one trial, or a device-local confirm | One trial; a failure means another OTA round. Confirm follows the control plane's appraisal of the new image's attestation. |
 | A pull model: the device downloads from a URL | The device has no HTTP client and no TLS, and it never chooses its own image: that is fleet policy, which is go-trusted-platform's. |
 | A store, registry or update server in this repo | go-quicbaas owns the store and go-trusted-platform the endpoint and rollout; a second one here is the duplication L1 forbids. |
 

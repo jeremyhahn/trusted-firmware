@@ -69,7 +69,7 @@ caps, err := dev.Caps(ctx)
 
 Only `CAPS`, `APP_INFO`, `ATTEST`, `ATTEST_CERT`, `ATTEST_CSR` and the OTA
 staging commands (`OTA_BEGIN`, `OTA_DATA`, `OTA_END`, `OTA_STATUS`) work over
-Ethernet. Every
+Ethernet ([api.md](api.md)). Every
 other command answers "unknown command"; use serial for those.
 
 ## If the device does not connect

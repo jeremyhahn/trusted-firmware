@@ -9,8 +9,13 @@
 > [adr-ota-image-format-and-trust.md](adr-ota-image-format-and-trust.md). No
 > code exists for anything here that is not already shipped by
 > [`secure-boot/`](../secure-boot/architecture.md), the trailer's board-id
-> check (#76), the trial state machine (#77) or the manifest gate (#78). The SPEC row `ota` stays
-> `future`.
+> check (#76), the trial state machine (#77), the manifest gate (#78), or the
+> application stager, tfw-boot's copy of `STAGE` and the 2560's swap-move (#75).
+> The SPEC row `ota` is `in progress`.
+>
+> For the code on main: [engineering.md](engineering.md) (modules, gating,
+> tests), [api.md](api.md) (the wire and `sdk/go`) and [user.md](user.md)
+> (staging an image on a 2560).
 
 OTA replaces the whole image, firmware and application together, with a signed
 one, and never lowers its security version. Every board with a boot section

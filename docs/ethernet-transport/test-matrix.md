@@ -229,3 +229,29 @@ The RAM figure now includes `.data`, which the gate at `9ee1db3` left out.
 | 4 | One `ATTEST` round, `tfwctl attest` with a 16-byte nonce | **The FWHash claim was not observable.** `ATTEST` answers "no provisioned identity", as in item 7 of the 10-15 second pass: behind a stock bootloader the software tier has no UDS, so the signature fails and no evidence leaves the device. The FWHash fallback runs before the signature, but its 32 bytes are never sent. Seeing the claim needs `tfw-boot` or the element tier |
 | 5 | Host writes to the swap journal with `tfwctl eeprom-write`, each writing the bytes already there | `0x0E0` alone, `0x0E9` alone, and `0x0DE`–`0x0E1` across the network block's end: each refused with `TFW_ERR_PROTECTED_REGION` ("target is platform-reserved"), and `0x0DE`–`0x0E1` read back unchanged. `0x0EA` alone: written (`0xFF` to `0x5A`), read back `0x5A`, and restored to `0xFF` |
 | — | `0x000`–`0x0FF` read again after the suite and the writes | Equal to the first read, byte for byte |
+
+## The bench Mega on main fd7a696, 2026-10-16
+
+The bench Mega 2560 without the W5100 shield, with EESAVE programmed, on
+`/dev/ttyACM0`, through its stock STK500v2 bootloader only: no ISP, no erase,
+no fuse, lock or boot-section access. Main had moved on since
+[`5f62610`](#the-mega-on-perf55-2560-ram-5f62610-2026-10-16): the OTA boot
+margin and the Mega's network block record (#102), and the simavr store row,
+with trial, confirm and rollback (#109). The ATECC608C does not answer, so no
+boot row ran. The toolchain is [the probe's](../development/wiznet-probe.md#toolchain),
+unpacked under `$HOME/avr`, behind an `avrdude` wrapper that refused `-e`,
+`usbasp`, any fuse or lock argument and terminal mode.
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft` at `fd7a696`, no Ethernet: the board has no shield | 13328 / 765 bytes | `06d5215fd6733bd452444ac17069e5b777ab7555090b0e08e5a68ede1cc70b36` |
+
+| # | What ran | Result |
+|---|---|---|
+| — | `0x000`–`0x0FF` read over serial before the flash, eight bytes a command on one connection | The 192-byte platform block equals, byte for byte, `tfwprov --bake-eeprom --serial 54465700000000000000000000002560`, whose `.eep` has the 10-15 SHA-256 above. The network block at `0x0C0` is valid and holds the operator's configuration. `0x0E0`–`0x0FF` read `0xFF` |
+| 1 | The image built, size-checked, and flashed with `make flash` (`avrdude -c wiring … -D`) | Pass. avrdude wrote and verified 13328 bytes |
+| 2 | `0x000`–`0x0FF` read again after the flash | **Equal to the read before, byte for byte; not re-provisioned** |
+| 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`: the whole cross-implementation suite, over serial, after `make tfwsim tfwsim-app-example` | Pass: 28 top-level tests passed, none failed, none skipped. A first run also passed, but one EEPROM read from another process opened the port while it ran, so it was run again alone; the count is the second run's |
+| 4 | `OTA_INFO` (`0x6C`) on a board `tfw-boot` never armed | Status 4, "unknown command", with no payload. Not GOOD/none: `0x6C` has no entry in `include/tfw/protocol.h` or `src/core/commands.def` at `fd7a696`, so no image answers it yet. `OTA_STATUS` (`0x6B`) answers status 4 too |
+| 4 | `OTA_BEGIN` (`0x68`) with a total of 256 bytes, on a board with no store | Status 4, "unknown command". As [the stager](../ota/architecture.md#the-application-stager-75) says, only an image with an external store links `src/core/ota_stage.c`; this image links `src/core/ota_stage_none.c`, so `OTA_BEGIN`, `OTA_DATA`, `OTA_END` and `OTA_STATUS` are not in its dispatch table. `OTA_STATUS` and `OTA_INFO` read after it answer status 4 again. Nothing was written |
+| — | `0x000`–`0x0FF` read again after the suite and the OTA commands | Equal to the first read, byte for byte. No byte was changed, so none was restored |

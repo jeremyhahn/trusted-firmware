@@ -44,6 +44,8 @@ commands
   timer <pin> <0|1> <duration>   drive a pin, the DEVICE reverts it
   timer-cancel <pin> [apply]
   timer-query <pin>
+  ota-stage <image>  stage an image file; the DEVICE gates it
+  ota-status         the OTA session's state and bytes received
   ports              list the serial ports this host can see
 
   analog <pin>                     one conversion, raw counts
@@ -331,9 +333,41 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 			return fmt.Sprintf("held %d, %s remaining\n", b2i(st.HeldLevel), st.Remaining)
 		})
 
+	case "ota-stage":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: ota-stage <image>")
+		}
+		// No parsing here: the device gates the image, and a refusal is its
+		// status, returned as every other verb returns one.
+		image, err := os.ReadFile(args[0])
+		if err != nil {
+			return fmt.Errorf("usage: ota-stage <image>: %w", err)
+		}
+		if err := dev.StageImage(ctx, image); err != nil {
+			return err
+		}
+		return emitOTAStatus(ctx, dev, asJSON, out)
+
+	case "ota-status":
+		if len(args) != 0 {
+			return fmt.Errorf("usage: ota-status")
+		}
+		return emitOTAStatus(ctx, dev, asJSON, out)
+
 	default:
 		return runPeripheral(ctx, dev, cmd, args, asJSON, out)
 	}
+}
+
+// emitOTAStatus prints OTA_STATUS's state and received count: the one way
+// both ota- verbs print it.
+func emitOTAStatus(ctx context.Context, dev *tfw.Device, asJSON bool, out io.Writer) error {
+	st, received, err := dev.OTAStatus(ctx)
+	if err != nil {
+		return err
+	}
+	return emit(out, asJSON, map[string]any{"state": st.String(), "received": received},
+		func() string { return fmt.Sprintf("%s, %d bytes received\n", st, received) })
 }
 
 func featureList(c *tfw.Caps) string {

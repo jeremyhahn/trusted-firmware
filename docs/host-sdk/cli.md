@@ -38,6 +38,8 @@ tfwctl ports
 | `timer` | `<pin> <0\|1> <duration>` | drives a pin to the given level; the **device** reverts it after `duration` (Go duration syntax, e.g. `5s`) |
 | `timer-cancel` | `<pin> [apply]` | cancels a pin's timer; `apply` drives the pin to the level it would have reverted to |
 | `timer-query` | `<pin>` | whether a timer is active, held level, remaining duration |
+| `ota-stage` | `<image>` | stages the image file through `OTA_BEGIN`, `OTA_DATA` in `OTAChunk` pieces and `OTA_END`, then prints `OTA_STATUS`'s state and received count; tfwctl does not parse the image, the device gates it, and a refusal prints its status and exits non-zero |
+| `ota-status` | | `OTA_STATUS`: the staging session's state and received count, printed as `ota-stage` prints them |
 | `ports` | — | lists serial ports this host can see; no device connection made |
 
 An unsolicited boot event seen during any exchange prints a note to stderr:

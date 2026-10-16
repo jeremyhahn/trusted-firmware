@@ -7,7 +7,8 @@
 >
 > Design and measurement. The code is the follow-ups at the end; the trailer
 > board id, trial boot, confirm, rollback and the floor at settle are
-> implemented (#76, #77).
+> implemented (#76, #77), as are the manifest gate (#78), the application
+> stager, tfw-boot's copy from the store and the 2560's swap-move (#75).
 
 ## The question
 
@@ -724,7 +725,9 @@ signature verification, since that is the device's.
 | `(*Device).Activate(ctx, now bool) error` | `OTA_ACTIVATE` |
 | `(*Device).Confirm(ctx) error` | `OTA_CONFIRM` |
 
-`tfwctl` gains an `ota` verb over the same calls. go-trusted-platform calls the
+`tfwctl` gains an `ota-stage` verb over `(*Device).StageImage`
+(`sdk/go/ota.go`), the staging call that exists; the name is recorded
+in the SPEC `ota` row ([SPEC](../SPEC.md)). go-trusted-platform calls the
 helper on the device's connection, serial or TCP; it never encodes an `OTA_*`
 frame itself.
 

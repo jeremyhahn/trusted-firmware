@@ -24,8 +24,10 @@ are those of [the wire protocol](../wire-protocol/). On Ethernet:
 | `0x6A` | `OTA_END` |
 | `0x6B` | `OTA_STATUS` |
 
-An image without the OTA stager answers the four OTA commands with
-`TFW_ERR_UNKNOWN_CMD`, as it does on serial.
+The list is `tfw_link_admits` in `src/proto/link_eth.c`. An id on it that the
+image does not carry still answers `TFW_ERR_UNKNOWN_CMD` (4), as it does on
+serial: `APP_INFO` needs an application, and the four `OTA_*` commands need the
+stager ([OTA API](../ota/api.md)).
 
 ## Network block
 

@@ -7,6 +7,10 @@
 > checked against `mk/firmware.mk`, `src/proto/link_eth.c`, `src/net/`,
 > `sdk/go/tcp.go` and `sdk/go/tfwsim/ethernet_test.go`; 2026-10-15 for the rest
 >
+> 2026-10-16: decision 2's table brought in line with the code
+> (`tfw_link_admits`, `src/proto/link_eth.c`): the four `OTA_*` ids, which the
+> OTA ADR's decision 8 admits (#75, #55).
+>
 > Every decision below is taken and implemented on the branch except one: how
 > the ATmega328P carries Ethernet within its flash. That needs the owner's choice
 > ("The 328P budget", below). The owner ruled on 2026-10-15 how an image selects
@@ -99,10 +103,10 @@ The Ethernet link accepts exactly these commands:
 | `0x60` | `ATTEST` | Attestation: UCCS evidence over the verifier's nonce. |
 | `0x63` | `ATTEST_CERT` | Attestation and enrolment: the alias certificate over the nonce. |
 | `0x64` | `ATTEST_CSR` | Enrolment: the device-templated PKCS#10 for ACME finalize. |
-| `0x68` | `OTA_BEGIN` | Update, added with #75: opens staging of an image into the external store. The [OTA ADR's decision 8](../ota/adr-ota-image-format-and-trust.md#8-wire-commands--accepted-status-code-rbac-ethernet-proposed-ids-and-layouts) widens the list for the update path. |
-| `0x69` | `OTA_DATA` | Update, added with #75: carries the image bytes into the external store, under the OTA ADR's decision 8. |
-| `0x6A` | `OTA_END` | Update, added with #75: every byte arrived, nothing verified; under the OTA ADR's decision 8. |
-| `0x6B` | `OTA_STATUS` | Update, added with #75: the staging state and the bytes received, so the control plane can resume; under the OTA ADR's decision 8. |
+| `0x68` | `OTA_BEGIN` | Update, added with #75: opens staging of an image into the external store; the SPEC `ota` row has every board take its image over the network (TCP through the W5100 or W5500). The [OTA ADR's decision 8](../ota/adr-ota-image-format-and-trust.md#8-wire-commands--accepted-status-code-rbac-ethernet-proposed-ids-and-layouts) widens the list for the update path. |
+| `0x69` | `OTA_DATA` | Update, added with #75: carries the image bytes into the external store, one chunk at the offset the device expects, under the OTA ADR's decision 8. |
+| `0x6A` | `OTA_END` | Update, added with #75: closes the transfer once every byte arrived; the device checks the staged image against its trailer; under the OTA ADR's decision 8. |
+| `0x6B` | `OTA_STATUS` | Update, added with #75: the staging state and the bytes received, so the control plane can resume; read-only; under the OTA ADR's decision 8. |
 
 - Every other command received on Ethernet is answered with the existing status
   `TFW_ERR_UNKNOWN_CMD` (4) and is never dispatched. That is the answer the device
@@ -111,7 +115,8 @@ The Ethernet link accepts exactly these commands:
   commands exist; it would also be a new code an older host has to read as
   unrecognised. Nothing is renumbered.
 - A command on the list that the image does not carry (`ATTEST_CSR` on a 328P
-  image today, `APP_INFO` in an image with no application) answers `TFW_ERR_UNKNOWN_CMD` from the dispatcher, as it does on
+  image today, `APP_INFO` in an image with no application, the `OTA_*` commands in an image
+  without the stager) answers `TFW_ERR_UNKNOWN_CMD` from the dispatcher, as it does on
   serial.
 - `PING`, `SYS_INFO` and `RESET` are left off. Liveness is TCP's; `SYS_INFO` is
   diagnostics for the bench host; `RESET` from the network is a denial of service.

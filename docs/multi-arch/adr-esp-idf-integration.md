@@ -239,15 +239,25 @@ is on; two builds of one commit gave the same image digest.
    `ARCH_UPDATE_REQUEST` dropped once it exists.
 6. **Reset causes the HAL cannot name yet** (#10 follow-on). `tfw_reset_cause_t`
    has no value for a software reset or a panic; ESP-IDF reports both, and the
-   port maps them to unknown.
+   port maps them to unknown. **Done (#48):** `TFW_RESET_SOFTWARE` (5) and
+   `TFW_RESET_PANIC` (6) in `include/tfw/types.h`, mapped in
+   `src/hal/esp32/hal_sys.c` and `boot/hal/esp32/boot_hal_esp32.c`, named in
+   `sdk/go/device.go`, with `TFWV_SYSINFO_SOFTWARE_REPLY` and
+   `TFWV_SYSINFO_PANIC_REPLY` in `testdata/vectors.h` and its Go mirror.
 7. **Boot geometry beyond 16-bit pages** (#11 follow-on). The OTA page and its
    counters were sized for 256-byte AVR pages; a 4 KB sector and multi-megabyte
    slots want wider fields before the OTA session is ported.
 8. **Pulse capture with RMT** instead of polling `esp_timer`.
 9. **A static address from the board configuration**, for networks without
-   DHCP.
+   DHCP. **Done (#48):** `CONFIG_TFW_ETH_STATIC_IP` and its address, mask and
+   gateway in `mk/arch/esp32/main/Kconfig.projbuild`, applied in
+   `src/hal/esp32/hal_eth.c`, off by default; set in a board's
+   `sdkconfig.defaults` or an `ESP_SDKCONFIG_EXTRA` file, as
+   `docs/development/building.md` shows.
 10. **`sdk/go` board names for `0x80` and `0x81`** (`sdk/go/boardid.go`), held
-    back here because `sdk/go` was out of this change's scope.
+    back here because `sdk/go` was out of this change's scope. **Done (#48):**
+    `BoardESP32P4PoE` and `BoardESP32QEMU` in `sdk/go/boardid.go`, pinned in
+    `sdk/go/boardid_test.go`.
 
 ## Sign-off
 

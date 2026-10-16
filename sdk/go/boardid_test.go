@@ -27,11 +27,14 @@ func TestBoardIDStringNamesKnownBoards(t *testing.T) {
 	assert.Equal(t, "attiny85", BoardATtiny85.String())
 	assert.Equal(t, "esp32p4-poe", BoardESP32P4PoE.String())
 	assert.Equal(t, "esp32-qemu", BoardESP32QEMU.String())
+	assert.Equal(t, "esp32/other", BoardESP32P4PoE.Family())
+	assert.Equal(t, "esp32/other", BoardESP32QEMU.Family())
 }
 
 func TestBoardIDStringReportsTheFamilyOfAnUnknownID(t *testing.T) {
 	assert.Equal(t, "unknown avr board 0x3f", BoardID(0x3F).String())
 	assert.Equal(t, "unknown cortex-m board 0x40", BoardID(0x40).String())
+	assert.Equal(t, "unknown esp32/other board 0x82", BoardID(0x82).String())
 	assert.Equal(t, "unknown esp32/other board 0xbf", BoardID(0xBF).String())
 	assert.Equal(t, "unknown unallocated board 0x00", BoardID(0x00).String())
 	assert.Equal(t, "unknown unallocated board 0xc0", BoardID(0xC0).String())

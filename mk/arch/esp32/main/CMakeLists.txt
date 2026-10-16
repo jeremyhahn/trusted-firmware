@@ -38,6 +38,23 @@ if(NOT CONFIG_ETH_USE_OPENETH AND NOT CONFIG_ETH_USE_ESP32_EMAC)
     message(FATAL_ERROR "the board's sdkconfig.defaults selects no Ethernet MAC")
 endif()
 
+# A static address (mk/arch/esp32/main/Kconfig.projbuild) is three dotted quads.
+# Checked here, at configure time, so a typo is a build error and not a board
+# that boots with no address.
+if(CONFIG_TFW_ETH_STATIC_IP)
+    foreach(knob TFW_ETH_IP_ADDR TFW_ETH_NETMASK TFW_ETH_GATEWAY)
+        set(quad "${CONFIG_${knob}}")
+        if(NOT quad MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
+            message(FATAL_ERROR "CONFIG_${knob}=\"${quad}\" is not a dotted-quad IPv4 address")
+        endif()
+        foreach(octet ${CMAKE_MATCH_1} ${CMAKE_MATCH_2} ${CMAKE_MATCH_3} ${CMAKE_MATCH_4})
+            if(octet GREATER 255)
+                message(FATAL_ERROR "CONFIG_${knob}=\"${quad}\" has an octet above 255")
+            endif()
+        endforeach()
+    endforeach()
+endif()
+
 idf_component_register(
     SRCS ${TFW_SRCS}
     PRIV_INCLUDE_DIRS

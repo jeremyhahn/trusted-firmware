@@ -298,6 +298,27 @@ static void test_sys_info_appends_the_framer_error_counters(void)
                                   TFWV_SYSINFO_NEW_REPLY_LEN);
 }
 
+/* #48: the reset causes appended after TFW_RESET_WATCHDOG reach the wire at byte
+ * 6, checked against literal replies. */
+static void test_sys_info_reports_the_appended_reset_causes(void)
+{
+    tfw_mock_set_millis(0x12345678u);
+    tfw_mock_set_free_ram(0x0321u);
+    tfw_sys_set_framer_errors(5u, 7u);
+
+    tfw_mock_set_reset_cause(TFW_RESET_SOFTWARE);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_SYS_INFO, 0, 0u));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_SYSINFO_SOFTWARE_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_SYSINFO_SOFTWARE_REPLY, outbuf,
+                                  TFWV_SYSINFO_SOFTWARE_REPLY_LEN);
+
+    tfw_mock_set_reset_cause(TFW_RESET_PANIC);
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_SYS_INFO, 0, 0u));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_SYSINFO_PANIC_REPLY_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY((const uint8_t *)TFWV_SYSINFO_PANIC_REPLY, outbuf,
+                                  TFWV_SYSINFO_PANIC_REPLY_LEN);
+}
+
 /* #12: a free_ram the u16 cannot hold saturates there and arrives exact in the
  * appended u32. Wrapping would hand an older host a small, wrong number. */
 static void test_sys_info_widens_free_ram_by_appending_a_u32(void)
@@ -375,6 +396,7 @@ int main(void)
     RUN_TEST(test_sys_info_reports_uptime_free_ram_and_reset_cause);
     RUN_TEST(test_sys_info_widens_free_ram_by_appending_a_u32);
     RUN_TEST(test_sys_info_appends_the_framer_error_counters);
+    RUN_TEST(test_sys_info_reports_the_appended_reset_causes);
     RUN_TEST(test_sys_info_reports_zero_counters_when_nothing_has_gone_wrong);
     RUN_TEST(test_sys_info_does_not_truncate_saturated_counters);
     RUN_TEST(test_uptime_survives_past_sixteen_bits);

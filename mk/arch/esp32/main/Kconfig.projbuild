@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# The board knobs of the ESP32 port. A board or deployment sets them in its
+# sdkconfig.defaults (boards/<board>/sdkconfig.defaults, or the file
+# ESP_SDKCONFIG_EXTRA names); nothing here is read by the wire protocol.
+
+menu "Trusted firmware"
+
+    config TFW_ETH_STATIC_IP
+        bool "Use a static IPv4 address instead of DHCP"
+        default n
+        help
+            Off, the board asks the network for its address over DHCP. On, it
+            takes the address, mask and gateway below and runs no DHCP client,
+            for a network that has no DHCP server.
+
+    config TFW_ETH_IP_ADDR
+        string "IPv4 address"
+        depends on TFW_ETH_STATIC_IP
+        default "192.0.2.10"
+        help
+            Dotted quad, for example 192.0.2.10 (RFC 5737 TEST-NET-1).
+
+    config TFW_ETH_NETMASK
+        string "IPv4 netmask"
+        depends on TFW_ETH_STATIC_IP
+        default "255.255.255.0"
+        help
+            Dotted quad, for example 255.255.255.0.
+
+    config TFW_ETH_GATEWAY
+        string "IPv4 gateway"
+        depends on TFW_ETH_STATIC_IP
+        default "192.0.2.1"
+        help
+            Dotted quad, for example 192.0.2.1.
+
+endmenu

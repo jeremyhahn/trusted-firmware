@@ -153,15 +153,19 @@ void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
     memcpy(buf, src, len > TFW_BOOT_HANDOFF_LEN ? TFW_BOOT_HANDOFF_LEN : len);
 }
 
-/* The ROM's reset reason, which nothing before the bootloader clears. Only
- * the reasons every ESP-IDF target names are decoded; software resets and
- * deep-sleep wakes have no wire value (#10) and read as unknown. */
+/* The ROM's reset reason, which nothing before the bootloader clears. A
+ * software reset is named, but the ROM cannot tell a requested restart from a
+ * panic -- both end in a software reset -- so it reports TFW_RESET_SOFTWARE and
+ * the application refines it from ESP-IDF's own record (#48). Deep-sleep wakes
+ * have no wire value and read as unknown. */
 tfw_reset_cause_t tfw_boot_reset_cause(void)
 {
     switch (esp_rom_get_reset_reason(0)) {
     case RESET_REASON_CHIP_POWER_ON: return TFW_RESET_POWER_ON;
     case RESET_REASON_SYS_BROWN_OUT: return TFW_RESET_BROWNOUT;
+    case RESET_REASON_CORE_SW:       return TFW_RESET_SOFTWARE;
 #if CONFIG_IDF_TARGET_ESP32P4
+    case RESET_REASON_CPU_SW:        return TFW_RESET_SOFTWARE;
     /* The P4's ROM names its watchdog resets without an instance number. */
     case RESET_REASON_CORE_MWDT:
     case RESET_REASON_CORE_RWDT:
@@ -169,6 +173,7 @@ tfw_reset_cause_t tfw_boot_reset_cause(void)
     case RESET_REASON_CPU_RWDT:
     case RESET_REASON_SYS_RWDT:
 #else
+    case RESET_REASON_CPU0_SW:       return TFW_RESET_SOFTWARE;
     case RESET_REASON_CORE_MWDT0:
     case RESET_REASON_CORE_RTC_WDT:
     case RESET_REASON_CPU0_MWDT0:

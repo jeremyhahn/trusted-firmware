@@ -103,6 +103,27 @@ make esp32-build BOARD=esp32p4-poe
 make esp32-qemu-test   # both esp32-qemu machines in Espressif's QEMU
 ```
 
+The board gets its IPv4 address from DHCP. For a network with no DHCP server, set
+a static address in the board's `boards/<board>/sdkconfig.defaults` (the
+`esp32p4-poe` file carries the lines commented out) or in a file of your own,
+passed as `ESP_SDKCONFIG_EXTRA`:
+
+```sh
+cat > static.defaults <<'EOF'
+CONFIG_TFW_ETH_STATIC_IP=y
+CONFIG_TFW_ETH_IP_ADDR="192.0.2.10"
+CONFIG_TFW_ETH_NETMASK="255.255.255.0"
+CONFIG_TFW_ETH_GATEWAY="192.0.2.1"
+EOF
+make esp32-build BOARD=esp32p4-poe ESP_SDKCONFIG_EXTRA=static.defaults
+```
+
+The addresses are RFC 5737 documentation addresses; use your network's.
+`CONFIG_TFW_ETH_STATIC_IP` is off by default, and while it is off the DHCP client
+runs and the three values are ignored. They are declared in
+`mk/arch/esp32/main/Kconfig.projbuild`, and a value that is not a dotted quad
+stops the build at configure time. With a static address no DHCP client runs.
+
 Neither target is in `make ci`, and the toolchain image carries no ESP-IDF; the
 `esp32` CI job runs them in `docker/Dockerfile.esp32`, which has it. Both refuse any toolchain but the pins in
 [`adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integration.md#toolchain-pins)

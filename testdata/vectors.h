@@ -121,6 +121,15 @@
 #define TFWV_SYSINFO_BIG_REPLY "\x78\x56\x34\x12\xff\xff\x04\x05\x00\x07\x00\x45\x23\x01\x00"
 #define TFWV_SYSINFO_BIG_REPLY_LEN 15u
 
+/* #48: reset_cause values appended after TFW_RESET_WATCHDOG. The reply is WIDE's
+ * with only byte 6 changed -- reset_cause=TFW_RESET_SOFTWARE(5) and
+ * TFW_RESET_PANIC(6) -- so a host that knows neither still reads the rest. */
+#define TFWV_SYSINFO_SOFTWARE_REPLY "\x78\x56\x34\x12\x21\x03\x05\x05\x00\x07\x00\x21\x03\x00\x00"
+#define TFWV_SYSINFO_SOFTWARE_REPLY_LEN 15u
+
+#define TFWV_SYSINFO_PANIC_REPLY "\x78\x56\x34\x12\x21\x03\x06\x05\x00\x07\x00\x21\x03\x00\x00"
+#define TFWV_SYSINFO_PANIC_REPLY_LEN 15u
+
 /* ------------------------------------------------------------------ CAPS -- */
 /* #12 made the pin page six bytes and so bumped the protocol to 2.0: a 1.x host
  * reading the page would take the bit for the ADC channel and the ADC channel

@@ -22,7 +22,7 @@ esp_empty :=
 esp_space := $(esp_empty) $(esp_empty)
 esp_list   = $(subst $(esp_space),;,$(strip $(1)))
 
-## esp32-build: build an ESP32 board's ESP-IDF image (BOARD=esp32-qemu|esp32p4-poe, ESP_TARGET for QEMU)
+## esp32-build: build an ESP32 board's ESP-IDF image (BOARD=esp32-qemu|esp32p4-poe, ESP_TARGET for QEMU, ESP_SDKCONFIG_EXTRA=<file> for a deployment's overlay, e.g. a static address)
 esp32-build:
 	@if [ "$(ARCH)" != esp32 ]; then \
 	   echo "esp32-build: $(BOARD) is ARCH $(ARCH); the ESP32 boards are: $(ESP32_BOARDS)"; exit 1; fi
@@ -45,7 +45,7 @@ esp32-build:
 	@rm -f $(ESP_OUT)/sdkconfig
 	@idf.py -C $(ESP_PROJECT) -B $(abspath $(ESP_OUT))/idf -DIDF_TARGET=$(ESP_TARGET) \
 	   -DSDKCONFIG=$(abspath $(ESP_OUT))/sdkconfig \
-	   -DSDKCONFIG_DEFAULTS="$(abspath $(ESP_PROJECT)/sdkconfig.defaults);$(abspath $(BOARD_DIR)/sdkconfig.defaults);$(abspath $(ESP_OUT))/sdkconfig.build" \
+	   -DSDKCONFIG_DEFAULTS="$(abspath $(ESP_PROJECT)/sdkconfig.defaults);$(abspath $(BOARD_DIR)/sdkconfig.defaults);$(if $(ESP_SDKCONFIG_EXTRA),$(abspath $(ESP_SDKCONFIG_EXTRA));)$(abspath $(ESP_OUT))/sdkconfig.build" \
 	   -DTFW_ROOT=$(CURDIR) -DTFW_BOARD_DIR=$(abspath $(BOARD_DIR)) \
 	   -DTFW_SRCS="$(call esp_list,$(abspath $(FW_SRCS) $(ARCH_EXTRA_SRCS)))" \
 	   -DTFW_DEFS="$(call esp_list,$(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS))" \

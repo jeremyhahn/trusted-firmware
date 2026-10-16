@@ -324,6 +324,8 @@ const (
 	ResetExternal ResetCause = 2
 	ResetBrownout ResetCause = 3
 	ResetWatchdog ResetCause = 4
+	ResetSoftware ResetCause = 5
+	ResetPanic    ResetCause = 6
 )
 
 func (r ResetCause) String() string {
@@ -336,6 +338,10 @@ func (r ResetCause) String() string {
 		return "brownout"
 	case ResetWatchdog:
 		return "watchdog"
+	case ResetSoftware:
+		return "software"
+	case ResetPanic:
+		return "panic"
 	}
 	return "unknown"
 }

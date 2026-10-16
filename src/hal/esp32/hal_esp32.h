@@ -20,7 +20,7 @@
 tfw_status_t tfw_esp_board_init(void);
 
 /* Brings the Ethernet link and its netif up (hal_eth.c). Idempotent; the
- * address comes from DHCP. Returns TFW_ERR_INTERNAL if ESP-IDF refuses. */
+ * address comes from DHCP, or from the board's static one. Returns TFW_ERR_INTERNAL if ESP-IDF refuses. */
 tfw_status_t tfw_esp_eth_start(void);
 
 /* esp_reset_reason() to the wire's reset cause (hal_sys.c). */

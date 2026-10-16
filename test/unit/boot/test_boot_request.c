@@ -102,6 +102,8 @@ static void test_only_a_pure_watchdog_reset_honours_a_request(void)
     TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_POWER_ON));
     TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_EXTERNAL));
     TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_BROWNOUT));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_SOFTWARE));
+    TEST_ASSERT_FALSE(tfw_boot_request_valid(req, TFW_RESET_PANIC));
     /* A cause this build has never heard of -- a future HAL's -- is not a
      * watchdog reset either. */
     TEST_ASSERT_FALSE(tfw_boot_request_valid(req, (tfw_reset_cause_t)200));

@@ -12,9 +12,10 @@
  *   CONFIG_ETH_USE_OPENETH     the OpenCores MAC Espressif's QEMU emulates,
  *                              with the DP83848 PHY model it answers as
  *
- * The address comes from DHCP. A static address, if a deployment wants one,
- * is a board knob for a later change; nothing in the wire protocol depends on
- * which.
+ * The address comes from DHCP, unless the board sets CONFIG_TFW_ETH_STATIC_IP
+ * (mk/arch/esp32/main/Kconfig.projbuild) and gives an address, mask and
+ * gateway for a network with no DHCP server. Nothing in the wire protocol
+ * depends on which.
  */
 
 #include "esp_eth.h"
@@ -89,6 +90,29 @@ static esp_eth_phy_t *new_phy(void)
 #endif
 }
 
+#if CONFIG_TFW_ETH_STATIC_IP
+/* The board's address, mask and gateway (Kconfig.projbuild) in place of DHCP.
+ * The DHCP client is stopped first: esp_netif will not take an address while
+ * it could still be asked for one. mk/arch/esp32/main/CMakeLists.txt has
+ * already refused a value that is not a dotted quad. */
+static esp_err_t use_static_address(esp_netif_t *netif)
+{
+    esp_netif_ip_info_t info;
+    esp_err_t           err;
+
+    if (esp_netif_str_to_ip4(CONFIG_TFW_ETH_IP_ADDR, &info.ip) != ESP_OK ||
+        esp_netif_str_to_ip4(CONFIG_TFW_ETH_NETMASK, &info.netmask) != ESP_OK ||
+        esp_netif_str_to_ip4(CONFIG_TFW_ETH_GATEWAY, &info.gw) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    err = esp_netif_dhcpc_stop(netif);
+    if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+        return err;
+    }
+    return esp_netif_set_ip_info(netif, &info);
+}
+#endif
+
 tfw_status_t tfw_esp_eth_start(void)
 {
     esp_netif_config_t      netif_cfg = ESP_NETIF_DEFAULT_ETH();
@@ -117,6 +141,11 @@ tfw_status_t tfw_esp_eth_start(void)
     if (netif == NULL || mac == NULL || phy == NULL) {
         return TFW_ERR_INTERNAL;
     }
+#if CONFIG_TFW_ETH_STATIC_IP
+    if (use_static_address(netif) != ESP_OK) {
+        return TFW_ERR_INTERNAL;
+    }
+#endif
     {
         esp_eth_config_t cfg = ETH_DEFAULT_CONFIG(mac, phy);
         if (esp_eth_driver_install(&cfg, &eth) != ESP_OK) {

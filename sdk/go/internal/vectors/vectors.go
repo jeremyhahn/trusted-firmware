@@ -56,6 +56,14 @@ const (
 	SysInfoBigReply  = "\x78\x56\x34\x12\xff\xff\x04\x05\x00\x07\x00\x45\x23\x01\x00"
 )
 
+// SYS_INFO with a reset_cause appended after TFW_RESET_WATCHDOG, #48. Each is
+// SysInfoWideReply with only byte 6 changed: TFW_RESET_SOFTWARE (5) and
+// TFW_RESET_PANIC (6).
+const (
+	SysInfoSoftwareReply = "\x78\x56\x34\x12\x21\x03\x05\x05\x00\x07\x00\x21\x03\x00\x00"
+	SysInfoPanicReply    = "\x78\x56\x34\x12\x21\x03\x06\x05\x00\x07\x00\x21\x03\x00\x00"
+)
+
 // CAPS, #12. The pin page grew from five bytes to six, which shifted the ADC and
 // PWM fields, so the protocol major went to 2: a 1.x host must refuse the device
 // rather than misread it. CapsProtoReply is the board header's first two bytes,

@@ -32,14 +32,19 @@ typedef enum {
  *
  * TFW_RESET_WATCHDOG means a watchdog reset and nothing else: it is what the
  * update-request gate honours, so a HAL must not report it for a reset that
- * something other than the watchdog also caused. These values are the wire;
- * they extend, they never renumber. */
+ * something other than the watchdog also caused. TFW_RESET_SOFTWARE is a reset
+ * the firmware or the platform's own restart call asked for, and TFW_RESET_PANIC
+ * one its fatal-error handler took; a HAL that cannot tell them apart reports
+ * the cause it can prove, or TFW_RESET_UNKNOWN. These values are the wire; they
+ * extend, they never renumber. */
 typedef enum {
     TFW_RESET_UNKNOWN  = 0,
     TFW_RESET_POWER_ON = 1,
     TFW_RESET_EXTERNAL = 2,
     TFW_RESET_BROWNOUT = 3,
-    TFW_RESET_WATCHDOG = 4
+    TFW_RESET_WATCHDOG = 4,
+    TFW_RESET_SOFTWARE = 5,
+    TFW_RESET_PANIC    = 6
 } tfw_reset_cause_t;
 
 /* How strong the device's root of trust is. Reported in CAPS so the platform

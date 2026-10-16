@@ -54,17 +54,27 @@ tfw_status_t tfw_hal_init(void)
  * there is one, carries the same cause as the bootloader saw it, and is
  * preferred for the same reason the AVR prefers it: it is the first observer.
  *
- * Software resets and panics have no value of their own in tfw_reset_cause_t
- * (#10) and report TFW_RESET_UNKNOWN rather than a cause they are not.
+ * The one exception is a handed-off software reset (#48). The ROM, which is all
+ * the bootloader can read, ends a requested restart, a panic and a task or
+ * interrupt watchdog alike in a software reset; ESP-IDF's own record of why it
+ * restarted, which esp_reset_reason() reads, tells them apart, so a handed-off
+ * TFW_RESET_SOFTWARE is refined by it. Reasons with no value of their own,
+ * such as a deep-sleep wake, report TFW_RESET_UNKNOWN rather than a cause they
+ * are not.
  */
 tfw_reset_cause_t tfw_hal_reset_cause(void)
 {
     uint8_t handed_off;
+    tfw_reset_cause_t refined;
 
-    if (tfw_boot_handoff_reset_cause(&handed_off)) {
+    if (!tfw_boot_handoff_reset_cause(&handed_off)) {
+        return tfw_esp_reset_decode(esp_reset_reason());
+    }
+    if (handed_off != (uint8_t)TFW_RESET_SOFTWARE) {
         return (tfw_reset_cause_t)handed_off;
     }
-    return tfw_esp_reset_decode(esp_reset_reason());
+    refined = tfw_esp_reset_decode(esp_reset_reason());
+    return refined == TFW_RESET_UNKNOWN ? TFW_RESET_SOFTWARE : refined;
 }
 
 tfw_reset_cause_t tfw_esp_reset_decode(esp_reset_reason_t reason)
@@ -76,6 +86,8 @@ tfw_reset_cause_t tfw_esp_reset_decode(esp_reset_reason_t reason)
     case ESP_RST_INT_WDT:
     case ESP_RST_TASK_WDT:
     case ESP_RST_WDT:      return TFW_RESET_WATCHDOG;
+    case ESP_RST_SW:       return TFW_RESET_SOFTWARE;
+    case ESP_RST_PANIC:    return TFW_RESET_PANIC;
     default:               return TFW_RESET_UNKNOWN;
     }
 }

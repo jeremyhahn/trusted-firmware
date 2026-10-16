@@ -192,3 +192,29 @@ on each board whose element image builds:
 Ethernet device on a loopback socket (`tfwsim --eth`). It covers `CAPS`,
 `ATTEST`, `ATTEST_CERT` and `ATTEST_CSR` over TCP, the off-allow-list refusal,
 and serial and Ethernet answering side by side.
+
+## The Mega on perf/55-2560-ram 5f62610, 2026-10-16
+
+The same Mega and W5100 shield, on `/dev/ttyACM0`, through its stock
+STK500v2 bootloader only: no ISP, no erase, no fuse or lock access. The branch
+moves the command dispatch table, the auth domain and the unmeasured label to
+PROGMEM, read back through `tfw_pgm_copy`; attest's FWHash fallback reuses the
+handoff buffer; and the size gate counts `.data` as RAM. The toolchain is
+[the probe's](../development/wiznet-probe.md#toolchain), unpacked under `/tmp`,
+behind an `avrdude` wrapper that refused `-e`, `usbasp` and any fuse or lock
+argument.
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft ETH=1` (W5100) at `5f62610` | 17532 / 797 bytes | `4d6bcd813d29d79dad8ff6180d8d3cb26da5143a0e1297d83ad8459444653670` |
+
+The RAM figure now includes `.data`, which the gate at `9ee1db3` left out.
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | The image built, size-checked, and flashed with `make flash` (`avrdude -c wiring … -D`) | Pass. avrdude wrote and verified 17532 bytes |
+| 2 | The platform block and network block, read back over serial with `tfwctl eeprom-read`, `0x000`–`0x0FF`, eight bytes a command | **Present; not re-provisioned.** The 192-byte platform block equals, byte for byte, `tfwprov --bake-eeprom --serial 54465700000000000000000000002560`, whose `.eep` has the 10-15 SHA-256 above. The network block at `0x0C0` is valid and holds the operator's configuration, no longer the documentation values, with MAC `5a:ed:09:10:bf:59`. `0x0E0`–`0x0FF` read `0xFF` |
+| 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`: the whole cross-implementation suite, over serial, after `make tfwsim tfwsim-app-example` | Pass. Every command went through the PROGMEM dispatch table. `TestAgainstFirmwareUnknownCommandIsAnswered`, also run alone with `HW_TEST_RUN`, passed: command `0x7E` answers status 4, "unknown command" |
+| 4 | One `ATTEST` round, `tfwctl attest` with a 16-byte nonce | **The FWHash claim was not observable.** `ATTEST` answers "no provisioned identity", as in item 7 of the 10-15 second pass: behind a stock bootloader the software tier has no UDS, so the signature fails and no evidence leaves the device. The FWHash fallback runs before the signature, but its 32 bytes are never sent. Seeing the claim needs `tfw-boot` or the element tier |
+| 5 | Host writes to the swap journal with `tfwctl eeprom-write`, each writing the bytes already there | `0x0E0` alone, `0x0E9` alone, and `0x0DE`–`0x0E1` across the network block's end: each refused with `TFW_ERR_PROTECTED_REGION` ("target is platform-reserved"), and `0x0DE`–`0x0E1` read back unchanged. `0x0EA` alone: written (`0xFF` to `0x5A`), read back `0x5A`, and restored to `0xFF` |
+| — | `0x000`–`0x0FF` read again after the suite and the writes | Equal to the first read, byte for byte |

@@ -93,7 +93,7 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	 img_len=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \
 	 sha_hex=$$(sha256sum $(TARGET).hex | cut -d' ' -f1); \
 	 flash=$$($(ARCH_SIZE) --format=berkeley $(TARGET).elf | awk 'NR==2{print $$1+$$2}'); \
-	 ram=$$($(ARCH_SIZE)  --format=berkeley $(TARGET).elf | awk 'NR==2{print $$2+$$3}'); \
+	 ram=$$($(call ARCH_RAM_USED,$(TARGET).elf)); \
 	 printf '{\n' > $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "board": "%s",\n'            "$(BOARD)"   >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "arch": "%s",\n'             "$(ARCH)"    >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \

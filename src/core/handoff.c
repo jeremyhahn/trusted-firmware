@@ -70,6 +70,13 @@ const uint8_t *tfw_boot_handoff_measurement(void)
     return have ? measurement : 0;
 }
 
+const uint8_t *tfw_boot_handoff_fw_hash(void)
+{
+    /* .bss before init, and memset by init on every path that leaves `have`
+     * at 0: the buffer is the zero answer until a valid handoff fills it. */
+    return measurement;
+}
+
 uint8_t tfw_boot_handoff_reset_cause(uint8_t *out)
 {
     if (!have) {

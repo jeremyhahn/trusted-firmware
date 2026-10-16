@@ -12,11 +12,12 @@
 #include "tfw/crypto.h"
 #include "tfw/boot.h"
 #include "tfw/protocol.h"
+#include "tfw/progmem.h"
 
 /* Domain-separates the signed message from anything else an operator key
  * might ever be asked to sign -- and from ATTEST's and ATTEST_CERT's own
  * nonce-bound messages, which this is not and must not be confusable with. */
-static const char TFW_AUTH_DOMAIN[] = "tfw-auth-v1";
+static const char TFW_AUTH_DOMAIN[] TFW_PROGMEM = "tfw-auth-v1";
 #define TFW_AUTH_DOMAIN_LEN (sizeof(TFW_AUTH_DOMAIN) - 1u)   /* drop the NUL */
 
 static uint8_t nonce[TFW_AUTH_NONCE_LEN];
@@ -87,7 +88,7 @@ tfw_status_t tfw_auth_cmd_response(tfw_reader_t *r, tfw_writer_t *w)
     /* Consumed now, before the verify runs, whether or not it succeeds. */
     challenge_pending = 0u;
 
-    memcpy(&msg[0], TFW_AUTH_DOMAIN, TFW_AUTH_DOMAIN_LEN);
+    tfw_pgm_copy(&msg[0], TFW_AUTH_DOMAIN, TFW_AUTH_DOMAIN_LEN);
     memcpy(&msg[TFW_AUTH_DOMAIN_LEN], tfw_platform_id_serial(), TFW_BOOT_SERIAL_LEN);
     memcpy(&msg[TFW_AUTH_DOMAIN_LEN + TFW_BOOT_SERIAL_LEN], nonce, TFW_AUTH_NONCE_LEN);
     (void)tfw_crypto_sha256(msg, (uint16_t)sizeof msg, digest);

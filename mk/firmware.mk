@@ -444,7 +444,8 @@ firmware: $(TARGET).hex size-check
 # causes it instead of the day a feature will not fit.
 size-check: $(TARGET).elf
 	@flash=$$($(ARCH_SIZE) --format=berkeley $< | awk 'NR==2{print $$1+$$2}'); \
-	 ram=$$($(ARCH_SIZE)  --format=berkeley $< | awk 'NR==2{print $$2+$$3}'); \
+	 ram=$$($(call ARCH_RAM_USED,$<)); \
+	 case "$$flash$$ram" in ''|*[!0-9]*) echo "size-check: cannot measure $<"; exit 1;; esac; \
 	 printf '%-12s flash %6s / %-6s (%2d%% of part)   ram %5s / %-5s (%2d%% of part)\n' \
 	   "$(BOARD)" "$$flash" "$(FLASH_BUDGET)" "$$((100*flash/$(FLASH_TOTAL)))" \
 	   "$$ram" "$(RAM_BUDGET)" "$$((100*ram/$(RAM_TOTAL)))"; \

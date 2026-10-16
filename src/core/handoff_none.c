@@ -23,6 +23,12 @@ const uint8_t *tfw_boot_handoff_measurement(void)
     return 0;
 }
 
+const uint8_t *tfw_boot_handoff_fw_hash(void)
+{
+    static const uint8_t zero[TFW_BOOT_MEASURE_LEN] = { 0 };
+    return zero;
+}
+
 uint8_t tfw_boot_handoff_reset_cause(uint8_t *out)
 {
     (void)out;

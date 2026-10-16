@@ -25,11 +25,14 @@
 #define tfw_pgm_u8(p)      pgm_read_byte(p)
 #define tfw_pgm_u16(p)     pgm_read_word(p)
 #define tfw_pgm_u32(p)     ((uint32_t)pgm_read_dword(p))
+#define tfw_pgm_copy(d, s, n) memcpy_P((d), (s), (n))
 #else
+#include <string.h>
 #define TFW_PROGMEM        /* nothing: the host has one address space */
 #define tfw_pgm_u8(p)      (*(const uint8_t *)(p))
 #define tfw_pgm_u16(p)     (*(const uint16_t *)(p))
 #define tfw_pgm_u32(p)     (*(const uint32_t *)(p))
+#define tfw_pgm_copy(d, s, n) memcpy((d), (s), (n))
 #endif
 
 #endif /* TFW_PROGMEM_H */

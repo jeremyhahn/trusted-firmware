@@ -67,9 +67,7 @@ const uint8_t *tfw_attest_device_id(void)
 
 const uint8_t *tfw_attest_fw_hash(void)
 {
-    static const uint8_t zero[TFW_SHA256_LEN] = { 0 };
-    const uint8_t *measurement = tfw_boot_handoff_measurement();
-    return measurement ? measurement : zero;
+    return tfw_boot_handoff_fw_hash();
 }
 
 static void put_u32(uint8_t *p, uint32_t v)

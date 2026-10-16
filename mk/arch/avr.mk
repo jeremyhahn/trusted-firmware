@@ -15,6 +15,7 @@
 # and a new architecture that leaves one out fails at the first use of it:
 #
 #   ARCH_CC, ARCH_OBJCOPY, ARCH_SIZE   the toolchain binaries
+#   ARCH_RAM_USED                      $(call ...,elf): static RAM the image takes
 #   ARCH_LIBC                          named in the SBOM
 #   ARCH_MACH_CFLAGS                   which machine, and the clock it runs at
 #   ARCH_OPT_CFLAGS                    optimisation and section/LTO policy
@@ -27,6 +28,13 @@ ARCH_CC      := avr-gcc
 ARCH_OBJCOPY := avr-objcopy
 ARCH_SIZE    := avr-size
 ARCH_LIBC    := avr-libc
+
+# Static RAM an image occupies: every section the ELF places in SRAM, read from
+# the section table by address. Not avr-size's berkeley `data`: a .data that
+# holds only constants is flagged READONLY and berkeley counts it as text, so
+# a gate built on it would pass an image whose .data does not fit. avr-ld maps
+# the data space at 0x800000 and EEPROM at 0x810000; SRAM is what lies between.
+ARCH_RAM_USED = $(ARCH_SIZE) -A -d $(1) | awk '$$3 >= 8388608 && $$3 < 8454144 { s += $$2 } END { if (NR) print s + 0 }'
 
 # -flto and --gc-sections together are what make link-time HAL substitution pay
 # off: an unused peripheral's code is not merely unreferenced, it is gone, and

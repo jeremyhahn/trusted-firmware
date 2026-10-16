@@ -4,6 +4,7 @@
 #include "dispatch.h"
 #include "tfw/protocol.h"
 #include "tfw/config.h"
+#include "tfw/progmem.h"
 #include "../caps/sys.h"
 #include "../caps/gpio.h"
 #include "../caps/sched.h"
@@ -31,36 +32,40 @@ typedef struct {
  * the table is small, the scan is a handful of comparisons, and a sparse array
  * indexed by command id would cost 256 pointers of flash to save them. */
 #define TFW_CMD_ENTRY(id, name, handler, lo, hi) { (id), (handler), (lo), (hi) },
-static const tfw_cmd_entry_t TABLE[] = {
+/* In flash: in RAM it was the largest constant in .data. */
+static const tfw_cmd_entry_t TABLE[] TFW_PROGMEM = {
 #include "commands.def"
 };
 #undef TFW_CMD_ENTRY
 
 #define TABLE_LEN ((uint8_t)(sizeof TABLE / sizeof TABLE[0]))
 
-static const tfw_cmd_entry_t *find(uint8_t cmd)
+/* Copies the entry for `cmd` out of the table into `out`; 0 when unknown. */
+static uint8_t find(uint8_t cmd, tfw_cmd_entry_t *out)
 {
     uint8_t i;
     for (i = 0u; i < TABLE_LEN; i++) {
-        if (TABLE[i].id == cmd) {
-            return &TABLE[i];
+        if (tfw_pgm_u8(&TABLE[i].id) == cmd) {
+            tfw_pgm_copy(out, &TABLE[i], sizeof *out);
+            return 1u;
         }
     }
-    return 0;
+    return 0u;
 }
 
 uint8_t tfw_dispatch_knows(uint8_t cmd)
 {
-    return (uint8_t)(find(cmd) != 0);
+    tfw_cmd_entry_t e;
+    return find(cmd, &e);
 }
 
 tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
 {
-    const tfw_cmd_entry_t *e = find(cmd);
-    uint8_t               n;
-    tfw_status_t           st;
+    tfw_cmd_entry_t e;
+    uint8_t         n;
+    tfw_status_t    st;
 
-    if (!e) {
+    if (!find(cmd, &e)) {
         return TFW_ERR_UNKNOWN_CMD;
     }
 
@@ -68,11 +73,11 @@ tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
      * check its own would eventually have one that did not, and the symptom
      * would be a read past the payload rather than a clean refusal. */
     n = tfw_reader_remaining(r);
-    if (n < e->min_payload || n > e->max_payload) {
+    if (n < e.min_payload || n > e.max_payload) {
         return TFW_ERR_BAD_ARGC;
     }
 
-    st = e->fn(r, w);
+    st = e.fn(r, w);
     if (st != TFW_OK) {
         return st;
     }

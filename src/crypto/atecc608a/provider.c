@@ -60,6 +60,11 @@
 #include "../sha256.h"
 #include "../../core/handoff.h"
 #include "../../core/secure_zero.h"
+#include "tfw/progmem.h"
+
+/* What an unprovisioned-by-boot device derives its CDI from: 29 bytes, no NUL. */
+static const char UNMEASURED[] TFW_PROGMEM = "tfw-unmeasured-application-v1";
+#define UNMEASURED_LEN ((uint16_t)(sizeof UNMEASURED - 1u))
 
 static uint8_t present;        /* the element answered a wake and an Info */
 static uint8_t have_cdi;
@@ -143,7 +148,9 @@ tfw_status_t tfw_crypto_init(void)
      * FWHash, the measurement a verifier actually checks, comes from the
      * bootloader's handoff by way of src/caps/attest.c -- not from here.
      */
-    tfw_sha256((const uint8_t *)"tfw-unmeasured-application-v1", 29u, measurement);
+    /* The label is hashed in place: it lives in flash, not in .data. */
+    tfw_pgm_copy(measurement, UNMEASURED, UNMEASURED_LEN);
+    tfw_sha256(measurement, UNMEASURED_LEN, measurement);
     st = tfw_crypto_hmac(TFW_ATECC_SLOT_UDS, measurement, sizeof measurement, cdi);
     (void)tfw_atecc_sleep();
     /* Zeroized here, the moment the one bit it was for -- did the element

@@ -36,6 +36,11 @@
 #include "../sha256.h"
 #include "../../core/handoff.h"
 #include "../../core/secure_zero.h"
+#include "tfw/progmem.h"
+
+/* What an unprovisioned-by-boot device derives its CDI from: 29 bytes, no NUL. */
+static const char UNMEASURED[] TFW_PROGMEM = "tfw-unmeasured-application-v1";
+#define UNMEASURED_LEN ((uint16_t)(sizeof UNMEASURED - 1u))
 
 /*
  * The device secret comes from the PLATFORM, not from this file.
@@ -146,7 +151,9 @@ tfw_status_t tfw_crypto_init(void)
     if (!uds) {
         return TFW_OK;      /* not an error: an unprovisioned device still boots */
     }
-    tfw_sha256((const uint8_t *)"tfw-unmeasured-application-v1", 29u, measurement);
+    /* The label is hashed in place: it lives in flash, not in .data. */
+    tfw_pgm_copy(measurement, UNMEASURED, UNMEASURED_LEN);
+    tfw_sha256(measurement, UNMEASURED_LEN, measurement);
     tfw_hmac_sha256(uds, 32u, measurement, sizeof measurement, cdi);
     provisioned = 1u;
     return TFW_OK;

@@ -27,6 +27,12 @@ void tfw_boot_handoff_init(void);
  * not recompute anything. */
 const uint8_t *tfw_boot_handoff_measurement(void);   /* TFW_BOOT_MEASURE_LEN bytes, or NULL */
 
+/* FWHash as evidence reports it: the measurement above, or TFW_BOOT_MEASURE_LEN
+ * zero bytes when there is none. Never NULL. The zeros are the handoff's own
+ * buffer, which is all-zero whenever no valid handoff was found, so no image
+ * keeps a second 32-byte constant for the same answer. */
+const uint8_t *tfw_boot_handoff_fw_hash(void);
+
 /* 1 and *out set when a valid handoff carried a reset cause; 0 otherwise, in
  * which case the caller's own .init3 observation is the only one there is --
  * see src/hal/avr/hal_sys.c. */

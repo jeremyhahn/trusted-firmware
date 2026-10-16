@@ -122,6 +122,29 @@ the run it refused a fake `-n -U hfuse:w:0xD0:m`, an `-e`, a bare
 `BOOT_EEPROM_RESTORE=1` was not run, because it writes by design. EESAVE stays
 unprogrammed on this part until the owner decides otherwise.
 
+## The Mega on main 9ee1db3, 2026-10-16
+
+The same Mega and W5100 shield, on `/dev/ttyACM0`, through its stock
+STK500v2 bootloader only: no ISP, no erase, no fuse or lock access. Main had
+moved on since the passes above: OTA, the 2560's swap journal at
+`0x0E0`–`0x0E9`, and the firmware's refusal of host writes there. The toolchain
+is [the probe's](../development/wiznet-probe.md#toolchain), unpacked under
+`/tmp`.
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft ETH=1` (W5100) at `9ee1db3` | 17494 / 797 bytes | `741a499bc5d55841faf60f4a5b598aea921ead2211c1768bac35947355bdb875` |
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | The image built, size-checked, and flashed with `make flash` (`avrdude -c wiring … -D`) | Pass. avrdude wrote and verified 17494 bytes |
+| — | The platform block and network block, read back over serial with `tfwctl eeprom-read`, `0x000`–`0x0FF` | **Present; not re-provisioned.** The 192-byte platform block equals, byte for byte, `tfwprov --bake-eeprom --serial 54465700000000000000000000002560`, whose `.eep` has the 10-15 SHA-256 above. The network block at `0x0C0` holds the second pass's values: `198.51.100.22/24`, gateway `0.0.0.0`, endpoint `198.51.100.1:7020`, MAC `5a:ed:09:10:bf:59`. `0x0E0`–`0x0FF` read `0xFF` |
+| 2 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`: the whole cross-implementation suite, over serial | Pass. The suite needs `make tfwsim tfwsim-app-example` first: without `build/host/tfwsim-app-heartbeat`, `TestAgainstFirmwareAppInfo` fails and says so |
+| — | Host writes to the swap journal with `tfwctl eeprom-write`, each writing the bytes already there | `0x0E0` alone, `0x0E9` alone, and `0x0DE`–`0x0E1` across the network block's end: each refused with `TFW_ERR_PROTECTED_REGION` ("target is platform-reserved"). `0x0EA` alone: written (`0xFF` to `0x5A`), read back `0x5A`, and restored to `0xFF` |
+| — | `0x000`–`0x0FF` read again after the suite and the writes | Equal to the first read, byte for byte |
+| 4 | TCP between the lane's container and the board | **Not run as specified.** The container has `eth0` at `172.17.0.2/16`, a default route via the Docker bridge at `172.17.0.1`, and loopback; it has no address or route on the board's network. A connect to `198.51.100.22:7020` with a 5 s timeout timed out unanswered. The device also holds the documentation values above, not the bench network's. Reaching the board's network is Infrastructure's |
+| 5–7 | Attestation over TCP, the off-allow-list refusal, the identity after a reset | **Not run.** Items 5 and 6 need item 4. Item 7's evidence still needs `tfw-boot` or the element tier |
+
 ## The day the ATECC608C (MIKROE-6774 Click board) arrives
 
 The Click carries three ATECC608 parts on one I2C bus: an ATECC608C-TNGTLS at

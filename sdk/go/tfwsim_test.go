@@ -181,7 +181,10 @@ func TestAgainstFirmwareSysInfo(t *testing.T) {
 // APP_INFO, #51, against the firmware with test/app/example linked: what the C
 // runner reports decodes to what the example's descriptor says. Overruns is
 // left out -- it counts real polls against a real clock.
-func TestAgainstFirmwareAppInfo(t *testing.T) {
+// Not a TestAgainstFirmware* test: it starts tfwsim-app-heartbeat itself rather
+// than going through the peer seam, because the board image carries no
+// application. `make hw-test` selects ^TestAgainstFirmware, so it must not match.
+func TestAgainstAppSimulatorAppInfo(t *testing.T) {
 	d := New(simproc.Start(t, simproc.App), WithTimeout(5*time.Second))
 	ai, err := d.AppInfo(context.Background())
 	if err != nil {

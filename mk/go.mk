@@ -30,7 +30,9 @@ sdk-test: tfwsim tfwsim-atecc608a tfwsim-app-example
 # CAPS must report that board. Not part of `make ci`: CI has no board. A missing
 # PORT, a port that does not exist and a board that does not answer all fail;
 # none of them is a skip. Flash the image first (`make flash`); the suite does
-# not. -p 1 because every test opens, and so resets, the one board.
+# not. -p 1 because every test opens, and so resets, the one board. Every
+# TestAgainstFirmware* test reaches its peer through that seam; a test that
+# starts a simulator itself is named otherwise, so none needs a host binary here.
 HW_TEST_RUN ?= ^TestAgainstFirmware
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev>"; exit 1; fi

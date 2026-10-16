@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status: REFERENCE** · Last verified: 2026-10-15
+> **Status: REFERENCE** · Last verified: 2026-10-16
 > What is complete and what remains, in milestone order. Features and requirements: [docs/SPEC.md](docs/SPEC.md).
 
 ## Mission
@@ -9,7 +9,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 
 ## Milestones
 
-- [Dev complete](../../milestone/35) — RC — 2026-11-11 — 8 open, 1 closed
+- [Dev complete](../../milestone/35) — RC — 2026-11-11 — 12 open, 5 closed
 
 ## Complete
 
@@ -31,7 +31,9 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 - **application-sdk** — the application interface for `trusted-firmware-<application>` repositories — [#51](../../issues/51) — open
 - **esp32-p4** — ESP32-P4 on a PoE Ethernet board, on Espressif's QEMU until the board arrives — [#48](../../issues/48) — open
 - **esp32** — the ESP-IDF architecture port, the ESP32-P4 first — [#23](../../issues/23) — open
-- **esp32** — ADR: ESP-IDF integration boundary and transport — [#16](../../issues/16) — open
+- **esp32** — ADR: ESP-IDF integration boundary and transport — [#16](../../issues/16) — done
+- **ota** — signed whole-image updates with rollback, from go-trusted-platform's control plane — [#52](../../issues/52) — open
+- **ota** — network and serial OTA on the AVR boards — [#75](../../issues/75) — open
 
 ## Next
 
@@ -54,7 +56,6 @@ None planned.
 - **cortex-m** — the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — blocked: AVR gate (#7)
 - **cortex-m** — ADR: Cortex-M reference part and CI emulation target — [#14](../../issues/14) — blocked: AVR gate (#7)
 - **cortex-m** — ADR: Cortex-M trust model and the relation to TF-M — [#15](../../issues/15) — blocked: AVR gate (#7)
-- **ota** — signed whole-image updates with rollback, from go-trusted-platform's control plane — [#52](../../issues/52) — open
 - **device-onboarding** — DICE-only devices enroll by device profile through the adapter seam — [#53](../../issues/53) — open
 
 ## Dependencies

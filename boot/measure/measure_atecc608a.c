@@ -44,7 +44,7 @@ void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASU
      * and this file would save nothing at all. One hash implementation per
      * image, and on this configuration it is the element's.
      */
-    uint8_t     off = 0u;
+    uint16_t    off = 0u;
     tfw_status_t st;
 
     memset(out, 0, TFW_BOOT_MEASURE_LEN);
@@ -56,9 +56,10 @@ void tfw_boot_hash(const uint8_t *data, uint16_t len, uint8_t out[TFW_BOOT_MEASU
     while (st == TFW_OK && (uint16_t)(len - off) > SHA_BLOCK) {
         st = tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_UPDATE,
                            SHA_BLOCK, &data[off], SHA_BLOCK, 0, 0u, TFW_ATECC_T_SHA);
-        off = (uint8_t)(off + SHA_BLOCK);
+        off = (uint16_t)(off + SHA_BLOCK);
     }
     if (st == TFW_OK) {
+        /* The loop leaves len - off <= SHA_BLOCK (64), so it fits a uint8_t. */
         uint8_t tail = (uint8_t)(len - off);
         (void)tfw_atecc_exec(TFW_ATECC_OP_SHA, TFW_ATECC_SHA_SHA256_END, tail,
                             tail ? &data[off] : 0, tail, out,

@@ -272,12 +272,15 @@ static uint8_t  absent;
 
 /* Fault hooks: one corrupted read, one NACKed command. */
 static uint8_t corrupt_idx, corrupt_mask, nack_command;
+static tfw_model_cmd_t log_cmds[TFW_MODEL_LOG_MAX];
+static uint8_t log_n;
 
 void tfw_model_reset(void)
 {
     awake = 0u; provisioned = 0u; has_key = 0u; busy_reads = 0u;
     forced_status = 0u; last_opcode = 0u; counter0 = 0u; random_calls = 0u;
-    rsp_len = 0u; last_addr = 0u;
+    rsp_len = 0u; last_addr = 0u; log_n = 0u;
+    memset(log_cmds, 0, sizeof log_cmds);
     corrupt_idx = 0u; corrupt_mask = 0u; nack_command = 0u;
     memset(exec_ms, 0, sizeof exec_ms);
     memset(rsp, 0, sizeof rsp);
@@ -336,6 +339,12 @@ void tfw_model_set_counter(uint32_t v)   { counter0 = v; }
 void tfw_model_set_exec_ms(uint8_t op, uint16_t ms) { exec_ms[op] = ms; }
 uint8_t tfw_model_last_opcode(void)      { return last_opcode; }
 uint8_t tfw_model_last_addr(void)        { return last_addr; }
+
+uint8_t tfw_model_log_count(void)       { return log_n; }
+const tfw_model_cmd_t *tfw_model_log(uint8_t i)
+{
+    return i < log_n && i < TFW_MODEL_LOG_MAX ? &log_cmds[i] : 0;
+}
 uint8_t tfw_model_is_awake(void)         { return awake; }
 
 static void respond(const uint8_t *body, uint8_t n)
@@ -382,6 +391,13 @@ static void handle_command(const uint8_t *p, uint8_t n)
     }
 
     last_opcode = opcode;
+    if (log_n < TFW_MODEL_LOG_MAX) {
+        tfw_model_cmd_t *e = &log_cmds[log_n];
+        e->opcode = opcode; e->p1 = param1; e->p2 = param2;
+        e->dlen = (uint8_t)(count - 7u);
+        memcpy(e->data, &p[6], e->dlen < sizeof e->data ? e->dlen : sizeof e->data);
+    }
+    if (log_n < 0xFFu) { log_n++; }
     /* The driver polls every 500 us, so ms of execution is ms*2 NACKed reads. */
     if (exec_ms[opcode]) { busy_reads = (uint16_t)(exec_ms[opcode] * 2u); }
     if (forced_status) { respond_status(forced_status); return; }

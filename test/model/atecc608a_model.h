@@ -33,6 +33,20 @@ void     tfw_model_set_counter(uint32_t v);
 uint8_t  tfw_model_last_opcode(void);
 /* The 7-bit address the last non-wake transfer went to, answered or not. */
 uint8_t  tfw_model_last_addr(void);
+/* Every command the part accepted (count and CRC good), in order, so a test
+ * can pin the exact sequence a driver sends. The first TFW_MODEL_LOG_MAX are
+ * kept; the count goes on (to 255) so a test still sees there were more.
+ * Cleared by tfw_model_reset(). */
+#define TFW_MODEL_LOG_MAX 16u
+typedef struct {
+    uint8_t  opcode;
+    uint8_t  p1;
+    uint16_t p2;
+    uint8_t  dlen;
+    uint8_t  data[128];
+} tfw_model_cmd_t;
+uint8_t                tfw_model_log_count(void);
+const tfw_model_cmd_t *tfw_model_log(uint8_t i);
 uint8_t  tfw_model_is_awake(void);
 uint8_t *tfw_model_tempkey(void);
 uint8_t  tfw_model_config_locked(void);

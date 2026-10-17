@@ -11,13 +11,13 @@ module github.com/jeremyhahn/trusted-firmware/xkms
 
 go 1.27.2
 
-// The versions below are the module graph go-xkms v0.55.0-alpha resolved. They
+// The versions below are the module graph go-xkms v0.56.0-alpha resolved. They
 // are listed here so the graph is pruned (every module's go.mod is not needed
 // to build), which is what lets this module build from a populated module cache
 // with GOPROXY=off.
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/jeremyhahn/go-xkms v0.55.0-alpha // held: v0.56.0-alpha not yet in the factory module cache; update follows (deps-gap-xkms-v056)
+	github.com/jeremyhahn/go-xkms v0.56.0-alpha
 	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.0-alpha
 	github.com/stretchr/testify v1.12.1
 )
@@ -88,6 +88,7 @@ require (
 	github.com/cockroachdb/redact v1.1.8 // indirect
 	github.com/cockroachdb/swiss v0.0.0-20260820225851-333444432258 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20250429170803-42689b6311bb // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dolthub/flatbuffers/v23 v23.3.3-dh.2 // indirect
 	github.com/dolthub/go-icu-regex v0.0.0-20260610153742-72563bc7ca83 // indirect
 	github.com/dolthub/go-mysql-server v0.20.1-0.20260812191550-bda99d66b4bf // indirect
@@ -111,7 +112,7 @@ require (
 	github.com/go-playground/universal-translator v0.18.2 // indirect
 	github.com/go-playground/validator/v10 v10.30.5 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.55.0-alpha (its latest) calls it with one in pkg/acme/challenges/device-attest-01; it moves when go-xkms does
+	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.56.0-alpha (its latest, which requires v0.17.4) calls it with one in pkg/acme/challenges/device-attest-01; it moves when go-xkms does
 	github.com/go-webauthn/x v0.3.1 // indirect
 	github.com/goccy/go-json v0.11.2 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
@@ -143,14 +144,14 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0 // indirect
 	github.com/jeremyhahn/arduino-generic/sdk/go v0.7.0-alpha // indirect
 	github.com/jeremyhahn/go-codec v1.4.0 // indirect
-	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.8.0-rc.2 removes enclave.MemoryEnclave, which go-quicraft v0.20.0 and go-truststrap v0.6.0-alpha (this graph's, via go-xkms v0.55.0-alpha) still call; every one of go-xkms, go-qrdb, go-quicraft and go-truststrap requires v0.8.0-alpha, so it moves when they do
+	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.8.0-rc.2 removes enclave.MemoryEnclave, which go-quicraft v0.20.0 and go-truststrap v0.6.0-alpha (this graph's, via go-xkms v0.56.0-alpha) still call; every one of go-xkms, go-qrdb, go-quicraft and go-truststrap requires v0.8.0-alpha, so it moves when they do
 	github.com/jeremyhahn/go-frost v0.3.0-alpha // indirect
 	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect
-	github.com/jeremyhahn/go-qrdb v0.47.0-alpha // indirect; held: v0.48.0-alpha moves with go-qrdb/sdk/go, held for the reason on that line
-	github.com/jeremyhahn/go-qrdb/sdk/go v0.47.0-alpha // indirect; held: v0.48.0-alpha removes sdk.IssuedCert.KeyPEM, which go-xkms v0.55.0-alpha (its latest, which requires v0.47.0-alpha) sets in pkg/init; it moves when go-xkms does
+	github.com/jeremyhahn/go-qrdb v0.48.0-alpha // indirect; held: v0.50.0-alpha moves with go-qrdb/sdk/go, held for the reason on that line
+	github.com/jeremyhahn/go-qrdb/sdk/go v0.48.0-alpha // indirect; held: go-xkms v0.56.0-alpha (its latest) requires v0.48.0-alpha, and the hold yields only to what go-xkms requires (CA m511); v0.50.0-alpha is not in the factory module cache, so no build against it was tried; it moves when go-xkms does
 	github.com/jeremyhahn/go-quicraft v0.20.0 // indirect
 	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect
-	github.com/jeremyhahn/go-xkms/sdk/go v0.55.0-alpha // indirect; held: v0.56.0-alpha not yet in the factory module cache; update follows (deps-gap-xkms-v056)
+	github.com/jeremyhahn/go-xkms/sdk/go v0.56.0-alpha // indirect
 	github.com/jeroenrinzema/psql-wire v0.20.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -161,6 +162,12 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
+	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
+	github.com/lestrrat-go/httpcc v1.0.1 // indirect
+	github.com/lestrrat-go/httprc v1.0.6 // indirect
+	github.com/lestrrat-go/iter v1.0.2 // indirect
+	github.com/lestrrat-go/jwx/v2 v2.1.7 // indirect
+	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/lestrrat-go/strftime v1.2.0 // indirect
 	github.com/mark3labs/mcp-go v1.3.0 // indirect
 	github.com/mattn/go-ieproxy v0.0.12 // indirect
@@ -189,6 +196,7 @@ require (
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
+	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
@@ -201,6 +209,10 @@ require (
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.2 // indirect
+	github.com/veraison/corim v1.1.2 // indirect
+	github.com/veraison/eat v0.0.0-20210331113810-3da8a4dd42ff // indirect; held: go-xkms v0.56.0-alpha (its latest) requires this version; v0.0.0-20261009144514-752feb05b2e9 is not in the factory module cache, so no build against it was tried; it moves when go-xkms does or the cache has it
+	github.com/veraison/go-cose v1.3.0 // indirect
+	github.com/veraison/swid v1.1.1-0.20230911094910-8ffdd07a22ca // indirect
 	github.com/viterin/partial v1.1.0 // indirect
 	github.com/viterin/vek v0.4.3 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect

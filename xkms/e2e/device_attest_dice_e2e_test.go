@@ -226,9 +226,9 @@ func (r *verdictRecorder) VerifyAKCertificateChain(certs [][]byte) error {
 	return r.record(r.TrustAnchorVerifier.VerifyAKCertificateChain(certs))
 }
 
-func (r *verdictRecorder) VerifyRegisteredDevice(ctx context.Context, leaf *x509.Certificate, keyAuthorization string) ([]byte, error) {
-	spki, err := r.TrustAnchorVerifier.VerifyRegisteredDevice(ctx, leaf, keyAuthorization)
-	return spki, r.record(err)
+func (r *verdictRecorder) VerifyRegisteredDevice(ctx context.Context, leaf *x509.Certificate, keyAuthorization string) (*deviceattest01.VerifiedAttestation, error) {
+	verified, err := r.TrustAnchorVerifier.VerifyRegisteredDevice(ctx, leaf, keyAuthorization)
+	return verified, r.record(err)
 }
 
 func (r *verdictRecorder) ConfirmRegisteredDevice(ctx context.Context, ueid string, attestedSPKI []byte) error {

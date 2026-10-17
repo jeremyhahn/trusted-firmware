@@ -14,10 +14,23 @@
 # fetched from the source the board's page gives, and the recipe refuses one
 # whose SHA-256 is not the profile's. See ARCH_BOARD_RESTORE in mk/arch/$(ARCH).mk.
 
-## board-restore: put the stock bootloader and the factory fuses back over ISP
+## board-restore: put the board's factory state back (AVR: ISP; ESP32: the flash image)
 BOARD_RESTORE_HEX ?=
+# An ESP32 board is restored from the whole-flash image read before the first
+# write: FACTORY_FLASH_BYTES and FACTORY_FLASH_SHA256 in its profile.mk, the
+# image named by BOARD_RESTORE_IMAGE, the port by ESP_PORT. eFuses are never
+# written. See ARCH_BOARD_RESTORE in mk/arch/esp32.mk.
+BOARD_RESTORE_IMAGE ?=
 
 ifneq ($(filter board-restore,$(MAKECMDGOALS)),)
+ifeq ($(ARCH),esp32)
+ifeq ($(and $(FACTORY_FLASH_BYTES),$(FACTORY_FLASH_SHA256)),)
+$(error board-restore: boards/$(BOARD)/profile.mk records no factory flash image (FACTORY_FLASH_*); a board's is recorded before its first write, see docs/development/bench/)
+endif
+ifeq ($(and $(BOARD_RESTORE_IMAGE),$(ESP_PORT)),)
+$(error board-restore: set BOARD_RESTORE_IMAGE, the factory flash image with SHA-256 $(FACTORY_FLASH_SHA256), and ESP_PORT, the board's serial port)
+endif
+else
 ifeq ($(and $(FACTORY_LFUSE),$(FACTORY_HFUSE),$(FACTORY_EFUSE),$(FACTORY_LOCK),$(FACTORY_BOOT_HEX_SHA256)),)
 $(error board-restore: boards/$(BOARD)/profile.mk records no factory state (FACTORY_*); a board's is recorded before its first write, see docs/development/bench/)
 endif
@@ -28,11 +41,12 @@ ifeq ($(BOARD_RESTORE_HEX),)
 $(error board-restore: BOARD_RESTORE_HEX is not set. It is the stock bootloader .hex with SHA-256 $(FACTORY_BOOT_HEX_SHA256); the board's page in docs/development/bench/ says where it comes from)
 endif
 endif
+endif
 
 # What the EESAVE refusal tells the operator to run again, BOOT_EEPROM_RESTORE=1
 # added.
 board-restore: ISP_RERUN = BOARD_RESTORE_HEX=$(BOARD_RESTORE_HEX)
-board-restore: $(BOARD_RESTORE_HEX)
+board-restore: $(BOARD_RESTORE_HEX) $(BOARD_RESTORE_IMAGE)
 	@$(ARCH_BOARD_RESTORE)
 
 .PHONY: board-restore

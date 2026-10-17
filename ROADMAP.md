@@ -16,14 +16,14 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 - **wire-protocol** — wire constants under the new names, CAPS pin descriptor, board-id registry — [#3](../../issues/3), [#12](../../issues/12) — done
 - **device-capabilities** — architecture-neutral structure, HAL free of AVR types, reset cause, lint gates — [#21](../../issues/21), [#9](../../issues/9), [#10](../../issues/10), [#13](../../issues/13) — done
 - **boards** — `ARCH` from the board profile; ATmega328P, ATmega2560, ATmega32U4, ATtiny85 — [#8](../../issues/8), [v0.3.0-alpha](../../releases/tag/v0.3.0-alpha) — done
-- **secure-boot** — boot geometry and timing from the board, `boot.mk` freed of AVR-only flags — [#11](../../issues/11), [#25](../../issues/25) — done
+- **secure-boot** — boot geometry and timing from the board, `boot.mk` freed of AVR-only flags; P-256 verify on every row, the 2560 soft base row fit at 303 s per boot (item 79) — [#11](../../issues/11), [#25](../../issues/25) — done
 - **dice-attestation** — DeviceID possession ADR, `ATTEST_CSR` (0x64) — [#6](../../issues/6), [#30](../../issues/30) — done
 - **device-provisioning** — provisioning commands and `tfwprov` — [v0.3.0-alpha](../../releases/tag/v0.3.0-alpha) — done
 - **host-sdk** — `tfw_` rename, `Device.AttestCSR`, host rebuild on header change, `sdk/go` — [#2](../../issues/2), [#31](../../issues/31), [#29](../../issues/29), [sdk/go/v0.3.0-alpha](../../releases/tag/sdk/go/v0.3.0-alpha) — done
 
 ## Now
 
-- **ethernet-transport** — the wire protocol over a W5100 or W5500 on the Nano and the Mega 2560; closes AVR — [#55](../../issues/55) — open
+- **ethernet-transport** — the wire protocol over a W5100 or W5500 on the Nano and the Mega 2560, the 328P only with a secure element (item 79); closes AVR — [#55](../../issues/55) — open
 - **xkms-adapter** — AVR backend registered through go-xkms's hook, finalize through `Device.AttestCSR` — [#28](../../issues/28) — open
 - **xkms-adapter** — AVR enrollment into go-trusted-platform, through the adapter — [#20](../../issues/20) — open
 - **xkms-adapter** — downstream migration to the adapter — [#19](../../issues/19) — open

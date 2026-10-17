@@ -56,6 +56,28 @@ func TestAgainstFirmwareAutoWithNoElementRunsTheSoftTier(t *testing.T) {
 	}
 }
 
+// CAPS reports the commands compiled into the image, not the ones the running
+// tier can serve (CA m507, option B). The auto image compiles the element's
+// auth session, so the soft tier lists it, and the dispatcher refuses it there.
+func TestAgainstFirmwareAutoWithNoElementReportsTheCompiledBitmapAndRefusesAuth(t *testing.T) {
+	d := startAuto(t, "--no-element")
+	ctx := context.Background()
+	c, err := d.Caps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
+		tfw.FeatureTone | tfw.FeaturePulse | tfw.FeatureEEPROM | tfw.FeatureI2C |
+		tfw.FeatureSPI | tfw.FeatureOneWire | tfw.FeatureAttest | tfw.FeatureAliasCert |
+		tfw.FeatureAuthSession | tfw.FeatureAttestCSR
+	if c.Features != want {
+		t.Fatalf("CAPS features = %#x, want the compiled bitmap %#x", c.Features, want)
+	}
+	if _, err := d.AuthChallenge(ctx); !errors.Is(err, tfw.StatusErrCrypto) {
+		t.Fatalf("AUTH_CHALLENGE on the soft tier: %v, want %v", err, tfw.StatusErrCrypto)
+	}
+}
+
 // With the element on the bus the image runs the element tier, and its gate
 // refuses OTA_ACTIVATE without an operator session.
 func TestAgainstFirmwareAutoWithTheElementRunsTheElementTier(t *testing.T) {

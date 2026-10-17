@@ -145,11 +145,16 @@ There is no trailer version 2.
   image signed for a 328P fails verification on a 2560 even before the byte is
   read.
 
-### 3. The manifest — ACCEPTED (format), PROPOSED (carriage and key sharing)
+### 3. The manifest — ACCEPTED (format and carriage), PROPOSED (key sharing)
 
 The device verifies a signed compact manifest
 beside the image, in the SUIT family, on every board with room; the 328P
 verifies at least the signed trailer.
+
+**Carriage (owner ruling 2026-10-17, CA m499, #78).** The SUIT-subset manifest
+travels with the image in the trailer: v1 plus `board_id`, with no trailer v2.
+`tfw-boot` verifies it before activation on every board. The 4 KB parts
+(ATmega328P and ATmega32U4) do trailer-only verification.
 
 - **Profile: a subset of the SUIT manifest** (draft-ietf-suit-manifest, in the
   RFC Editor queue, with its IANA registry). It is the authentication half of the
@@ -172,24 +177,26 @@ verifies at least the signed trailer.
 
 | Board | Manifest | Trailer | Where |
 |---|---|---|---|
-| ATmega2560 | yes | yes | manifest in the application, before activation; trailer in `tfw-boot`, every boot |
-| ATmega328P, ATmega32U4 | **only under the region budget** (decision 6) | yes | as the 2560; under the 16 384 policy line the trailer alone |
+| ATmega2560 | yes | yes | both in `tfw-boot`: the manifest before activation (ruling 3, CA m499), the trailer every boot |
+| ATmega328P, ATmega32U4 | no: trailer-only (ruling 3, CA m499) | yes | trailer in `tfw-boot`, every boot |
 | ATtiny85 | no | no | no secure boot (decision 6) |
 | ESP32-P4 | yes | yes, beside the vendor's signature | decision 11 |
 | Cortex-M33 under TF-M | proposed: in the non-secure application before PSA FWU install | MCUboot's TLVs | open question 9 |
 | i.MX 95 M7 | none until #15 | AHAB | decision 12 |
 
-- **The bootloader is the authority; the manifest check is a gate before
-  activation.** On AVR the manifest reader is about 2 900 bytes (measured,
-  decision 6), which fits no boot section beside the rest. So the application
-  verifies the manifest and refuses to activate an image whose manifest fails,
-  and `tfw-boot` verifies the trailer on every boot. The manifest adds the
+- **The bootloader is the authority, and it verifies the manifest before
+  activation** (ruling 3: owner ruling 2026-10-17, CA m499, #78). `tfw-boot`
+  verifies the manifest, carried in the trailer, before activation on every
+  board, and the trailer on every boot. The 4 KB parts (ATmega328P and
+  ATmega32U4) do trailer-only verification. On AVR the manifest reader measured
+  about 2 900 bytes (decision 6). The manifest adds the
   binding by class id and an independently encoded copy of the four facts. It
   does not move the trust boundary.
 - **The encoder and the signer.** This project's image build emits the
   manifest's to-be-signed bytes, as it emits the trailer's. go-xkms signs both,
   the manifest as `COSE_Sign1` (decision 10). No COSE signing code lives here.
-- **PROPOSED — carriage.** The signed envelope travels in the same `OTA_DATA`
+- **Carriage, superseded by ruling 3** (the manifest travels in the trailer:
+  Carriage, above). Proposed before it: The signed envelope travels in the same `OTA_DATA`
   stream, after the image: `OTA_BEGIN`'s total counts both, and the application
   stores the envelope after the image in the external store. No new command id.
   Open question 5.
@@ -613,10 +620,12 @@ The machine is drawn in
   `image_version` and `measurement` are the failed image's. Its evidence carries
   the old `FWHash`. The control plane learns all of this on the device's next
   connection: it reads `OTA_INFO` before anything else, and attestation shows the
-  image it did not send. The failed measurement is kept (PROPOSED: 32 bytes in
-  the platform block's reserved range, open question 10). `OTA_ACTIVATE` of the
-  same measurement answers `TFW_ERR_BAD_STATE`. That is a policy check in the
-  application, not a boot check; the same image gets no second trial.
+  image it did not send. The failed measurement is not kept in the platform
+  block: open question 10 is closed by item 56 (owner ruling 2026-10-17, CA
+  m499), because the store MARK is cleared at fallback and the failed image is
+  never copied back in. Nothing checks
+  `OTA_ACTIVATE` against the failed measurement (ruling 1, item 72: owner ruling
+  2026-10-17, CA m499).
 - **How the next round starts.**
   - On the ATmega2560, from the previous image, which the swap-back left in the
     primary slot. It is evaluated before it runs, and the next round is an

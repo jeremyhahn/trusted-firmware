@@ -211,10 +211,18 @@ func (b *Backend) initAttestation() error {
 	if err != nil {
 		return &errs.Joined{Lead: ErrTrustStoreInit, Cause: err}
 	}
-	b.roots = store.CertPool()
+	roots, err := store.CertPool()
+	if err != nil {
+		return &errs.Joined{Lead: ErrTrustStoreInit, Detail: "cert pool", Cause: err}
+	}
+	b.roots = roots
+	count, err := store.Count()
+	if err != nil {
+		return &errs.Joined{Lead: ErrTrustStoreInit, Detail: "count", Cause: err}
+	}
 
 	b.logger.Info("avr attestation anchoring enabled",
-		"roots", store.Count(),
+		"roots", count,
 		"intermediates", len(b.config.Attestation.Intermediates),
 	)
 	return nil

@@ -12,3 +12,8 @@ ESP_TARGETS  := esp32p4
 ESP_TARGET   := esp32p4
 BOARD_TIERS  := hmac-ds
 CRYPTO       ?= hmac-ds
+
+# The factory state, read 2026-10-17 before the project's first write
+# (docs/development/bench/esp32-p4.md); `make board-restore` writes it back.
+FACTORY_FLASH_BYTES  := 33554432
+FACTORY_FLASH_SHA256 := c2d4ac0f25246b053d4d25f62580578a5f2b2a37002f7cda7a9d3a548702fde0

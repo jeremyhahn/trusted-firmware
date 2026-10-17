@@ -120,7 +120,8 @@ network input.
 
 Every class reports the same states through `OTA_INFO`. On AVR they are encoded
 in the platform block's `boot_state` and `ota_state`, extended and never
-renumbered (ADR, open question 10). The bootloader owns the transitions marked
+renumbered (ADR; open question 10 is closed by item 56, owner ruling
+2026-10-17, CA m499). The bootloader owns the transitions marked
 `boot`; the application owns the rest.
 
 | State | Meaning | Left by |
@@ -303,8 +304,10 @@ What a reset in the middle of each write leaves:
 A torn block fails its CRC, and the next reset finds no usable platform block:
 recovery, with no pinned key, so nothing verifies until a programmer rewrites
 the region. Recovery never writes the zeroed block it was given over the torn
-one. Closing that window needs the state outside the block's CRC or in its own
-record, which is open question 10.
+one. Open question 10 is answered by item 56 (ruling 72: owner ruling 2026-10-17,
+CA m499): the store MARK is cleared at fallback, so the failed
+image is never copied back in, and the failed measurement is not kept in the
+platform block.
 
 ### The manifest gate (#78)
 
@@ -454,7 +457,8 @@ the swap. The move shifts the primary up a unit, top first. Then each unit
 swaps in two writes, and each write's source survives the step after it.
 
 Progress is journalled in two five-byte copies at EEPROM `0x0E0`–`0x0E9`
-(open question 10). Each copy holds the phase, the step, a sequence number and
+(item 56, ruling 72: owner ruling 2026-10-17, CA m499).
+Each copy holds the phase, the step, a sequence number and
 a CRC-16 over the three. The phase also says which way the swap runs and, once
 a forward swap ends, that the slots are swapped. Every advance writes the copy
 not holding the current position, reads both back and checks that the new one
@@ -714,8 +718,9 @@ the command itself is on the wire at `0x6D`, serial only.
 
 Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
 the stager carrying the envelope and calling the manifest gate;
-`OTA_ACTIVATE` over TCP (serial only for now); and keeping the failed
-measurement (open question 10). `OTA_INFO`, `OTA_ACTIVATE` and `OTA_CONFIRM`
+and `OTA_ACTIVATE` over TCP (serial only for now). The failed measurement
+is not kept: open question 10 is closed by item 56 (owner ruling 2026-10-17,
+CA m499). `OTA_INFO`, `OTA_ACTIVATE` and `OTA_CONFIRM`
 are on the wire at decision 8's ids, and `OTA_CONFIRM` leaves the trial
 deadline running (#137).
 

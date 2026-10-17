@@ -108,6 +108,15 @@ static _Noreturn void end_trial(tfw_boot_platform_t *plat, tfw_status_t st)
     tfw_boot_recovery(plat, st);
 }
 
+/* Recovery for any status but TFW_OK: one call site for main's checks that
+ * have nowhere else to go. */
+static void recover_unless_ok(tfw_boot_platform_t *plat, tfw_status_t st)
+{
+    if (st != TFW_OK) {
+        tfw_boot_recovery(plat, st);
+    }
+}
+
 int main(void)
 {
     tfw_boot_platform_t plat;
@@ -186,10 +195,7 @@ int main(void)
      * CONFIRMED trial is still there to settle when it does -- and recovery
      * refuses OTA_BEGIN over it (tfw_boot_trial_begin_permit) until then.
      */
-    st = tfw_boot_floor_load(&plat, &floor);
-    if (st != TFW_OK) {
-        tfw_boot_recovery(&plat, st);
-    }
+    recover_unless_ok(&plat, tfw_boot_floor_load(&plat, &floor));
     if (act == TFW_BOOT_RESET_SETTLE) {
         /*
          * The trial was confirmed. The floor advances now, to the version of
@@ -208,10 +214,7 @@ int main(void)
          * request is dropped; the application asks again once it has settled.
          * On the soft tier the floor and GOOD are one write of the block.
          */
-        st = tfw_boot_evaluate(floor, &verdict);
-        if (st != TFW_OK) {
-            tfw_boot_recovery(&plat, st);
-        }
+        recover_unless_ok(&plat, tfw_boot_evaluate(floor, &verdict));
         if (tfw_boot_settle(&plat, verdict.trailer.image_version, &floor) != TFW_OK) {
             update = 0u;
         }

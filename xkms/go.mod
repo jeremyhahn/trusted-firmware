@@ -17,7 +17,7 @@ go 1.27.2
 // with GOPROXY=off.
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/jeremyhahn/go-xkms v0.55.0-alpha
+	github.com/jeremyhahn/go-xkms v0.55.0-alpha // held: v0.56.0-alpha not yet in the factory module cache; update follows (deps-gap-xkms-v056)
 	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.0-alpha
 	github.com/stretchr/testify v1.12.1
 )
@@ -150,7 +150,7 @@ require (
 	github.com/jeremyhahn/go-qrdb/sdk/go v0.47.0-alpha // indirect; held: v0.48.0-alpha removes sdk.IssuedCert.KeyPEM, which go-xkms v0.55.0-alpha (its latest, which requires v0.47.0-alpha) sets in pkg/init; it moves when go-xkms does
 	github.com/jeremyhahn/go-quicraft v0.20.0 // indirect
 	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect
-	github.com/jeremyhahn/go-xkms/sdk/go v0.55.0-alpha // indirect
+	github.com/jeremyhahn/go-xkms/sdk/go v0.55.0-alpha // indirect; held: v0.56.0-alpha not yet in the factory module cache; update follows (deps-gap-xkms-v056)
 	github.com/jeroenrinzema/psql-wire v0.20.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

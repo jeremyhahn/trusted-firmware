@@ -102,3 +102,96 @@ func TestAgainstFirmwareStagerRefuses(t *testing.T) {
 		t.Fatal("empty DATA: no error")
 	}
 }
+
+// The element tier, because it is the tfwsim tier with a platform block: the
+// software tier carries none and answers every decision-8 command with its
+// load's no-identity status. Values against the ADR's decision 8 (the wire
+// row of docs/ota/adr-ota-image-format-and-trust.md).
+func TestAgainstFirmwareOTAInfo(t *testing.T) {
+	ctx := context.Background()
+	d := tfwsim.StartElement(t)
+
+	for slot := byte(0); slot < 2; slot++ {
+		si, err := d.OTAInfo(ctx, slot)
+		if err != nil {
+			t.Fatalf("INFO %d: %v", slot, err)
+		}
+		// slots 2 and active 0 are the AVR's fixed answer (one primary, the
+		// store); flags 0, the block neither fell back nor is in TRIAL; floor
+		// 0, the element's counter is fresh; state 0, the block is EMPTY
+		// (slot 0) and nothing is staged (slot 1, IDLE); no image version and
+		// no measurement, as slot 0 does not report the running image's and
+		// slot 1 has no MARK.
+		want := tfw.SlotInfo{Slots: 2}
+		if *si != want {
+			t.Fatalf("INFO %d: %+v, want %+v", slot, *si, want)
+		}
+	}
+	if _, err := d.OTAInfo(ctx, 2); !errors.Is(err, tfw.StatusErrRange) {
+		t.Fatalf("INFO 2: %v, want %v", err, tfw.StatusErrRange)
+	}
+}
+
+func TestAgainstFirmwareOTAActivate(t *testing.T) {
+	ctx := context.Background()
+	op := operatorKey(t)
+	d := tfwsim.StartElementWithOperator(t, &op.PublicKey)
+
+	// The mode is checked before the session; the SDK refuses 2 itself, so
+	// it goes raw.
+	if _, err := d.Do(ctx, tfw.CmdOTAActivate, []byte{2}); !errors.Is(err, tfw.StatusErrRange) {
+		t.Fatalf("ACTIVATE 2: %v, want %v", err, tfw.StatusErrRange)
+	}
+	for mode := byte(0); mode < 2; mode++ {
+		if err := d.OTAActivate(ctx, mode); !errors.Is(err, tfw.StatusErrAuthRequired) {
+			t.Fatalf("ACTIVATE %d unauthenticated: %v, want %v", mode, err, tfw.StatusErrAuthRequired)
+		}
+	}
+	nonce, err := d.AuthChallenge(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AuthResponse(ctx, op, nonce, tfwsim.TestSerial[:]); err != nil {
+		t.Fatalf("AuthResponse: %v", err)
+	}
+	for mode := byte(0); mode < 2; mode++ {
+		if err := d.OTAActivate(ctx, mode); !errors.Is(err, tfw.StatusErrBadState) {
+			t.Fatalf("ACTIVATE %d, nothing staged: %v, want %v", mode, err, tfw.StatusErrBadState)
+		}
+	}
+
+	img := stageImage(1024, 700)
+	if err := d.StageImage(ctx, img); err != nil {
+		t.Fatalf("StageImage: %v", err)
+	}
+	if err := d.OTAActivate(ctx, tfw.OTAActivateAtReset); err != nil {
+		t.Fatalf("ACTIVATE at reset, staged: %v", err)
+	}
+	si, err := d.OTAInfo(ctx, 1)
+	if err != nil {
+		t.Fatalf("INFO 1: %v", err)
+	}
+	if si.State != 4 || si.ImageVersion != 3 || si.Measurement != sha256.Sum256(img[:700]) {
+		t.Fatalf("INFO 1 after ACTIVATE: %+v, want PENDING (4), version 3 and the image's hash", *si)
+	}
+}
+
+func TestAgainstFirmwareOTAConfirm(t *testing.T) {
+	ctx := context.Background()
+	op := operatorKey(t)
+	d := tfwsim.StartElementWithOperator(t, &op.PublicKey)
+
+	if err := d.OTAConfirm(ctx); !errors.Is(err, tfw.StatusErrAuthRequired) {
+		t.Fatalf("CONFIRM unauthenticated: %v, want %v", err, tfw.StatusErrAuthRequired)
+	}
+	nonce, err := d.AuthChallenge(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AuthResponse(ctx, op, nonce, tfwsim.TestSerial[:]); err != nil {
+		t.Fatalf("AuthResponse: %v", err)
+	}
+	if err := d.OTAConfirm(ctx); !errors.Is(err, tfw.StatusErrBadState) {
+		t.Fatalf("CONFIRM outside TRIAL: %v, want %v", err, tfw.StatusErrBadState)
+	}
+}

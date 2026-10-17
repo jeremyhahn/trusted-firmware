@@ -51,7 +51,7 @@ tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN])
     uint8_t i;
 
     for (i = 0u; i < TFW_BOOT_PUBKEY_LEN; i++) {
-        out[i]  = (uint8_t)tfw_pgm_u8(&pubkey_slot[i]);
+        out[i]  = (uint8_t)tfw_pgm_far_u8(pubkey_slot, &pubkey_slot[i]);
         erased &= out[i];
     }
     if (erased == 0xFFu) {

@@ -179,14 +179,15 @@ void test_an_element_boot_with_an_unreadable_counter_fails(void)
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor(&plat, &floor));
 }
 
-/* No handoff: the floor in force cannot be named, so none is reported. */
+/* No handoff from tfw-boot: no boot chain is running, so no floor is in force
+ * and the command is not valid in this state. */
 void test_no_handoff_reports_no_floor(void)
 {
     uint32_t floor = 0u;
 
     tfw_model_set_absent(1u);
     tfw_boot_handoff_init();
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor(&plat, &floor));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_otactl_floor(&plat, &floor));
 }
 
 int main(void)

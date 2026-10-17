@@ -53,6 +53,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "uECC.h"   /* the soft row's signer: src/third_party/micro-ecc */
 #include <unistd.h>
 
 #include <simavr/sim_avr.h>
@@ -366,6 +368,63 @@ static void element_sign(const uint8_t digest[32], uint8_t sig[64])
     memcpy(buf, digest, 32);
     memcpy(&buf[32], EL_SIGNING_KEY, 32);
     tfw_sha256(buf, 64u, &sig[32]);
+}
+
+/*
+ * The soft row (BOOT_SIG=p256-soft, #130). Its verifier holds no element, so
+ * the signature is real P-256 ECDSA over the same prefix digest the element row
+ * signs, made by the one micro-ecc this tree vendors (src/third_party/micro-ecc,
+ * the copy the boot verifies with). The keys are made fresh each run: nothing
+ * here is pinned, because nothing here is a wire vector.
+ *
+ * Provisioned the way the jig does it: the public key into the boot's own
+ * `tfw_boot_p256_key` flash slot (boot/verify/p256_key_slot.c) and the UDS into
+ * `uds_slot` (boot/tier/cdi_soft.c), both patched into the loaded boot image
+ * after avr_load_firmware, and the key's SHA-256 pinned in the platform block.
+ */
+static int     soft_row;
+static uint8_t soft_priv[32], soft_pub[64];
+
+static const uint8_t SOFT_UDS[32] = {
+    0x5Au, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
+    0x08u, 0x09u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu,
+    0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
+    0x18u, 0x19u, 0x1Au, 0x1Bu, 0x1Cu, 0x1Du, 0x1Eu, 0xA5u
+};
+
+static void sign_digest(const uint8_t digest[32], uint8_t sig[64])
+{
+    if (!soft_row) {
+        element_sign(digest, sig);
+        return;
+    }
+    if (!uECC_sign(soft_priv, digest, 32u, sig, uECC_secp256r1())) {
+        fprintf(stderr, "uECC_sign failed\n");
+        exit(2);
+    }
+}
+
+/* Writes `len` bytes over the boot's flash symbol whose name starts with
+ * `name` (LTO may suffix a static's name). A slot that is not found is a
+ * harness failure, never a skip. */
+static void soft_patch_slot(const elf_firmware_t *boot, const char *name,
+                            const uint8_t *bytes, size_t len)
+{
+    uint32_t i;
+    size_t   n = strlen(name);
+
+    for (i = 0u; i < boot->symbolcount; i++) {
+        const char *s = boot->symbol[i]->symbol;
+        uint32_t    a = boot->symbol[i]->addr;
+
+        if (strncmp(s, name, n) == 0 && (s[n] == '\0' || s[n] == '.')
+            && a >= boot->flashbase && a + len <= avr->flashend + 1u) {
+            memcpy(&avr->flash[a], bytes, len);
+            return;
+        }
+    }
+    fprintf(stderr, "tfw-boot.elf has no %s slot to provision\n", name);
+    exit(2);
 }
 
 static struct {
@@ -845,7 +904,7 @@ static void build_image_for(const elf_firmware_t *app, uint32_t version,
      * four-byte edit; see include/tfw/boot.h. */
     tfw_boot_trailer_serialise(&tr, raw);
     tfw_sha256(raw, TFW_BOOT_TR_SIGNED_LEN, prefix_digest);
-    element_sign(prefix_digest, &raw[TFW_BOOT_TR_SIGNATURE]);
+    sign_digest(prefix_digest, &raw[TFW_BOOT_TR_SIGNATURE]);
 
     memcpy(&image[TFW_BOOT_TRAILER_ADDR], raw, TFW_BOOT_TRAILER_LEN);
 
@@ -961,6 +1020,10 @@ static void build_eeprom_state(uint8_t boot_state, uint8_t ota_state)
      */
     plat.boot_state = boot_state;
     plat.ota_state  = ota_state;
+    /* The soft row's key IS this bootloader's to check: pin its hash. */
+    if (soft_row) {
+        tfw_sha256(soft_pub, sizeof soft_pub, plat.pubkey_hash);
+    }
     memcpy(plat.serial, TEST_DEVICE_SERIAL, TFW_BOOT_SERIAL_LEN);
     memcpy(plat.operator_pubkey, TEST_OPERATOR_PUBLIC, TFW_BOOT_OPERATOR_PUBKEY_LEN);
     tfw_boot_platform_serialise(&plat, eeprom_image);
@@ -1035,6 +1098,11 @@ static void install(elf_firmware_t *boot, uint32_t counter)
     if (avr->pc == 0u) {
         fprintf(stderr, "tfw-boot.elf has no boot-section entry point\n");
         exit(2);
+    }
+
+    if (soft_row) {
+        soft_patch_slot(boot, "tfw_boot_p256_key", soft_pub, sizeof soft_pub);
+        soft_patch_slot(boot, "uds_slot", SOFT_UDS, sizeof SOFT_UDS);
     }
 
     /* The application image goes straight into the emulated program memory,
@@ -2336,8 +2404,9 @@ static void test_a_corrupt_prev_halts(elf_firmware_t *boot, elf_firmware_t *app)
  * (*Device).StageImage streams an image into the running application's stager,
  * which writes it to the modelled store -- the path stage_in_store stands in
  * for above. SIGUSR1 is the reset: the bridge stops, tfw-boot runs, and the
- * boot is asserted here, from the EEPROM block, as the store row asserts it;
- * the host has no wire command that reads the trial state (OTA_INFO, unbuilt).
+ * boot is asserted here, from the EEPROM block, as the store row asserts it.
+ * The UART is then bridged again for the host's OTA_INFO and OTA_CONFIRM, and a
+ * second SIGUSR1 takes the settling reset, asserted here the same way.
  * Driven by sdk/go/cmd/tfwctl/ota_stage_simavr_test.go, mk/boot.mk.
  *
  * The image is this harness's, signed by its element, so it is written to
@@ -2349,7 +2418,10 @@ static volatile sig_atomic_t bridge_reset;
 
 static void on_reset_signal(int sig)
 {
-    (void)sig;
+    /* Re-armed: under -std=c11 glibc's signal() is the System V one, which
+     * resets the handler to SIG_DFL on delivery, and the trial's settling
+     * reset is the second SIGUSR1. */
+    (void)signal(sig, on_reset_signal);
     bridge_reset = 1;
 }
 
@@ -2362,6 +2434,26 @@ static void bridge_flush(FILE *host)
     }
 }
 
+/* Host bytes into the UART and the device's back out, until SIGUSR1 resets the
+ * part. *eof latches when the host closes its end. */
+static void bridge_until_reset(FILE *host, int *eof)
+{
+    uint8_t b;
+
+    while (!bridge_reset) {
+        if (!*eof) {
+            ssize_t n = read(0, &b, 1u);
+            if (n == 1) {
+                avr_raise_irq(uart_in, b);
+            } else if (n == 0) {
+                *eof = 1;
+            }
+        }
+        run_cycles(BRIDGE_BYTE_STEPS);
+        bridge_flush(host);
+    }
+}
+
 static void test_a_host_staged_image_runs_its_trial(elf_firmware_t *boot,
                                                     elf_firmware_t *app, const char *out)
 {
@@ -2370,7 +2462,6 @@ static void test_a_host_staged_image_runs_its_trial(elf_firmware_t *boot,
     uint32_t total;
     FILE    *f, *host;
     int      fd, eof = 0;
-    uint8_t  b;
     tfw_boot_platform_t p;
 
     /* stdout is the UART from here on; the report goes to stderr. */
@@ -2402,20 +2493,7 @@ static void test_a_host_staged_image_runs_its_trial(elf_firmware_t *boot,
     boot_with_store(boot, 2u);
     check(run_until(app_booted, boot_store_budget()), "the running image boots, the store empty");
     from_device_n = 0u;
-
-    while (!bridge_reset) {
-        if (!eof) {
-            ssize_t n = read(0, &b, 1u);
-            if (n == 1) {
-                avr_raise_irq(uart_in, b);
-            } else if (n == 0) {
-                eof = 1;
-            }
-        }
-        run_cycles(BRIDGE_BYTE_STEPS);
-        bridge_flush(host);
-    }
-    (void)fclose(host);
+    bridge_until_reset(host, &eof);
 
     printf("  reset\n");
     carry();
@@ -2427,6 +2505,30 @@ static void test_a_host_staged_image_runs_its_trial(elf_firmware_t *boot,
     check(el.counter == 2u, "the trial leaves the floor where it was");
     check(tfw_nor_model_violations() == 0u && nor_overrun == 0,
           "every store access, the stager's and tfw-boot's, was well formed");
+
+    /* The host's half of the trial: the UART is bridged again, and <out>.trial
+     * tells the host the trial image is up. It reads the trial, sends
+     * OTA_CONFIRM and resets the part again with SIGUSR1; the settling reset is
+     * asserted here, from the EEPROM block and the element's counter. */
+    from_device_n = 0u;
+    bridge_reset = 0;
+    (void)snprintf(tmp, sizeof tmp, "%s.trial", out);
+    f = fopen(tmp, "wb");
+    if (f == NULL || fclose(f) != 0) {
+        fprintf(stderr, "cannot write %s\n", tmp);
+        exit(2);
+    }
+    bridge_until_reset(host, &eof);
+    (void)fclose(host);
+
+    printf("  reset, after the host's OTA_CONFIRM\n");
+    carry();
+    boot_with_store(boot, el.counter);
+    check(run_until(app_booted, boot_store_budget()), "the confirmed image boots at the next reset");
+    check(el.counter == 3u, "the floor advanced to its version at the settling reset");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
+          && p.ota_state == TFW_BOOT_OTA_IDLE, "settled: GOOD");
+    check(primary_version() == 3u, "the confirmed image is the one that runs");
 }
 
 /* ------------------------------------------------- the network leg (#75, #55)
@@ -2766,6 +2868,137 @@ static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
     check(eth_overrun == 0, "every W5100 frame was four bytes under its select");
 }
 
+/* The soft row's refusal. It has no OTA in the boot, so a refused image is the
+ * halt: no EVENT frame, nothing on the wire. The observation is the one an
+ * image that RAN cannot fail: CAPS, which only the application answers, gets
+ * no TFW_OK within the exchange budget, and no TFW_EVENT_BOOT arrived. */
+/* A soft-row boot: the image hashed in software (sha256_small) and a P-256
+ * verify in micro-ecc's portable C on an 8-bit core, where the element row
+ * hands both to the ATECC608 and boots in 8.4 M cycles. Measured on 125a7d6
+ * (lane-verify): at 1 000 M steps, cycle 1 305 847 145, the boot was still in
+ * the verify (pc in uECC_vli_rshift1, no byte sent) -- over 81 s at 16 MHz.
+ * So the genuine case waits up to BUDGET_BOOT_SOFT_MAX for the first byte and
+ * prints when it came (#130). */
+#define BUDGET_BOOT_SOFT_MAX  20000000000L
+/* The steps the genuine image took to its first byte, 0 until it has run. */
+static long soft_genuine_steps;
+/* A refused image must be watched for at least as long as a genuine one takes
+ * to boot, or "never ran" is only "had not run yet": the measured genuine
+ * steps of this run and half again. If the genuine case never answered there
+ * is no measurement, and the bound is the whole of BUDGET_BOOT_SOFT_MAX. */
+#define BUDGET_BOOT_SOFT \
+    (soft_genuine_steps > 0 ? soft_genuine_steps + soft_genuine_steps / 2 \
+                            : BUDGET_BOOT_SOFT_MAX)
+
+/* Why the genuine soft image did not answer, from what the harness holds:
+ * whether the wait for the device's first byte spent its budget, where the
+ * cpu is and whether it still moves, any refusal tfw-boot sent, and the first
+ * bytes the device sent before CAPS. */
+static void soft_why_not(int spoke_in_time, int refused, uint8_t status,
+                         const uint8_t *spoke, unsigned spoke_n)
+{
+    uint32_t pc = avr->pc;
+
+    printf("    the wait for the first byte %s: %ld of %ld steps, cycle %llu\n",
+           spoke_in_time ? "ended" : "spent its budget",
+           last_run_steps, BUDGET_BOOT_SOFT_MAX, (unsigned long long)avr->cycle);
+    run_cycles(64);
+    printf("    pc 0x%05lx, cpu state %d (%s), %s\n", (unsigned long)pc, (int)avr->state,
+           avr->state == cpu_Sleeping ? "sleeping" : avr->state == cpu_Crashed ? "crashed"
+           : avr->state == cpu_Running ? "running" : "other",
+           avr->pc == pc ? "stuck: the pc did not move in 64 steps" : "still moving");
+    if (refused) {
+        printf("    tfw-boot sent a refusal: status 0x%02x\n", status);
+    } else {
+        printf("    no refusal frame from tfw-boot\n");
+    }
+    printf("    the device sent %u byte(s) before CAPS:", spoke_n);
+    for (unsigned i = 0; i < spoke_n; i++) { printf(" %02x", spoke[i]); }
+    printf("\n");
+}
+
+static void soft_never_ran(const char *what)
+{
+    uint8_t  wire[64], out[64], outlen, status;
+    unsigned n;
+
+    /* The whole soft budget, not BUDGET_BOOT: a refusal that comes only after
+     * the verify must have had the time a genuine image gets, or "never ran"
+     * is only "had not run yet". */
+    run_until(app_booted, BUDGET_BOOT_SOFT);
+    check(!app_booted(), what);
+    from_device_n = 0;
+    n = frame_request(wire, 0x3A, TFW_CMD_CAPS, NULL, 0);
+    send(wire, n);
+    run_cycles(BUDGET_EXCHANGE);
+    check(!(find_response(0x3A, &status, out, &outlen) && status == TFW_OK),
+          "  and CAPS is not answered: the application never ran");
+}
+
+static void test_the_soft_base_row(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    uint8_t  wire[64], out[64], outlen, status;
+    unsigned n;
+    uint8_t  genuine_priv[32];
+    uint8_t  spoke[16];
+    unsigned spoke_n;
+    int      ran, refused;
+    uint8_t  refusal = 0u;
+
+    soft_row = 1;
+    if (!uECC_make_key(soft_pub, soft_priv, uECC_secp256r1())) {
+        fprintf(stderr, "uECC_make_key failed\n");
+        exit(2);
+    }
+    memcpy(genuine_priv, soft_priv, sizeof genuine_priv);
+
+    printf("the soft base row, a genuine image:\n");
+    build_image(app, 3u, -1);
+    build_eeprom();
+    install(boot, 0u);
+    ran = run_until(device_spoke, BUDGET_BOOT_SOFT_MAX);
+    if (ran) {
+        soft_genuine_steps = last_run_steps;
+        printf("    first byte after %ld steps, cycle %llu: %.1f s at 16 MHz\n",
+               last_run_steps, (unsigned long long)avr->cycle,
+               (double)avr->cycle / 16e6);
+    }
+    spoke_n = from_device_n < sizeof spoke ? from_device_n : (unsigned)sizeof spoke;
+    memcpy(spoke, from_device, spoke_n);
+    refused = find_event(&refusal);
+    from_device_n = 0;
+    n = frame_request(wire, 0x39, TFW_CMD_CAPS, NULL, 0);
+    send(wire, n);
+    run_cycles(BUDGET_EXCHANGE);
+    {
+        int answered = find_response(0x39, &status, out, &outlen) && status == TFW_OK;
+
+        check(answered, "a P-256-signed image runs the application (CAPS answers)");
+        if (!answered) { soft_why_not(ran, refused, refusal, spoke, spoke_n); }
+    }
+
+    printf("the soft base row, a tampered image:\n");
+    build_image(app, 3u, 1000);     /* one bit flipped in the body */
+    build_eeprom();
+    install(boot, 0u);
+    soft_never_ran("a tampered image never reaches the application");
+
+    printf("the soft base row, another key's signature:\n");
+    {
+        uint8_t other_pub[64];
+
+        if (!uECC_make_key(other_pub, soft_priv, uECC_secp256r1())) {
+            fprintf(stderr, "uECC_make_key failed\n");
+            exit(2);
+        }
+        build_image(app, 3u, -1);   /* signed by the other key */
+        memcpy(soft_priv, genuine_priv, sizeof soft_priv);
+        build_eeprom();             /* the genuine key stays pinned */
+        install(boot, 0u);          /* and provisioned */
+        soft_never_ran("an image signed by another key never reaches the application");
+    }
+}
+
 /* The element tier's gate holds (#130): an auto application that finds the
  * element gates OTA_ACTIVATE behind the operator session, and the harness
  * bakes no operator key, so none is open. Refused, nothing reaches the store
@@ -2836,6 +3069,11 @@ int main(int argc, char **argv)
     if (argc > 4 && strcmp(argv[3], "bridge") == 0) {
         test_a_host_staged_image_runs_its_trial(&boot, &app, argv[4]);
         store_bus_report();
+        printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
+        return failures ? 1 : 0;
+    }
+    if (argc > 3 && strcmp(argv[3], "soft") == 0) {
+        test_the_soft_base_row(&boot, &app);
         printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
         return failures ? 1 : 0;
     }

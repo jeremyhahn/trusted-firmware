@@ -22,12 +22,14 @@
 #   ARCH_LDFLAGS                       the link flags every image shares
 #   ARCH_FW_PLACEMENT_LDFLAGS          where the application puts the handoff
 #   ARCH_BOOT_PLACEMENT_LDFLAGS        where tfw-boot puts .text and the handoff
+#   ARCH_BOOT_START_SRC, _LDFLAGS      tfw-boot's own startup, in place of the crt
 #   ARCH_FLASH, ARCH_BOOT_FLASH        recipes that write the image to a part
 #   ARCH_BOARD_RESTORE                 the recipe that puts the factory state back
 
 ARCH_CC      := avr-gcc
 ARCH_OBJCOPY := avr-objcopy
 ARCH_SIZE    := avr-size
+ARCH_NM      := avr-nm
 ARCH_LIBC    := avr-libc
 
 # Static RAM an image occupies: every section the ELF places in SRAM, read from
@@ -121,10 +123,24 @@ ARCH_BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
 ARCH_BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
 endif
 
-ARCH_BOOT_PLACEMENT_LDFLAGS := -Wl,-T,mk/handoff.ld \
+# And tfw-boot starts in its own boot/hal/avr/boot_start_avr.S, not the crt:
+# -nostartfiles drops the crt's interrupt vector table, which a boot that takes
+# no interrupt does not need (228 bytes on the 2560). The file says what of the
+# crt it keeps.
+ARCH_BOOT_START_SRC := boot/hal/avr/boot_start_avr.S
+ARCH_BOOT_START_LDFLAGS := -nostartfiles
+
+ARCH_BOOT_PLACEMENT_LDFLAGS := $(ARCH_BOOT_START_LDFLAGS) -Wl,-T,mk/handoff.ld \
                                -Wl,--section-start=.text=$(ARCH_BOOT_TEXT_START) \
                                -Wl,--section-start=.handoff=$(ARCH_BOOT_HANDOFF_AT) \
-                               -Wl,--defsym=__stack=$(ARCH_BOOT_STACK_TOP)
+                               -Wl,--defsym=__stack=$(ARCH_BOOT_STACK_TOP) \
+                               -Wl,--defsym=__TEXT_REGION_LENGTH__=$(FLASH_TOTAL)
+
+# The text region's length is the part's flash, given again. -nostartfiles
+# drops the crt object that supplied it, and the linker script's default is
+# 1 MB: ld then never refuses an oversized boot -- no "region `text'
+# overflowed" -- and .text runs on past the top of flash. The application
+# links the crt (mk/firmware.mk has no -nostartfiles), so it needs no copy.
 
 # Writing an image. Recipes, not rules: mk/firmware.mk owns the targets, so the
 # one `flash` and the one `boot-flash` exist for every architecture and only the

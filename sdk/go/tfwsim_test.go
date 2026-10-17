@@ -143,12 +143,14 @@ func TestAgainstFirmwareCaps(t *testing.T) {
 		t.Error("GPIO not reported; the default build should have it")
 	}
 	// CAPS must report the crypto tier it actually has, so a verifier learns
-	// what it is talking to before it decides what the evidence is worth. The
-	// simulator links the software provider, which is the weakest tier and says
-	// so -- no TRNG, no key isolation, and a symmetric identity whose verifier
-	// could forge any response it could check.
-	if c.CryptoTier != CryptoSoftware {
-		t.Errorf("crypto tier = %v, want software", c.CryptoTier)
+	// what it is talking to before it decides what the evidence is worth
+	// (docs/wire-protocol/api.md:63). tfwsim links the software provider;
+	// tfwsim-auto with the element model on its bus runs the element tier.
+	// Any other tier is one this suite has no facts for.
+	switch c.CryptoTier.String() {
+	case "software", "secure-element":
+	default:
+		t.Errorf("crypto tier = %v, want software or secure-element", c.CryptoTier)
 	}
 	if !c.Has(FeatureAttest) {
 		t.Error("attestation compiled in but not reported in CAPS")
@@ -520,8 +522,21 @@ func TestAgainstFirmwareReservedEEPROMIsRefused(t *testing.T) {
 // 328P profile it simulates is.
 func TestAgainstFirmwareReservedEEPROMReadIsUngatedOnTheSoftTier(t *testing.T) {
 	d := startSim(t)
-	if _, err := d.EEPROMRead(context.Background(), 0x000, 4); err != nil {
-		t.Fatalf("reserved-region read refused on the soft tier: %v", err)
+	// docs/device-provisioning/engineering.md:110: the software tier reads the
+	// reserved region; the element tier gates the read behind the operator
+	// session.
+	_, err := d.EEPROMRead(context.Background(), 0x000, 4)
+	switch tier := peerTier(t, d); tier {
+	case "software":
+		if err != nil {
+			t.Fatalf("reserved-region read refused on the soft tier: %v", err)
+		}
+	case "secure-element":
+		if err == nil {
+			t.Fatal("reserved-region read answered on the element tier without an operator session")
+		}
+	default:
+		t.Fatalf("crypto tier %s: no reserved-read facts for it", tier)
 	}
 }
 
@@ -607,12 +622,34 @@ func TestAgainstFirmwareCapsReportsTheAlgorithmsItCanPerform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Algorithms != AlgHMACSHA256 {
-		t.Fatalf("algorithms = %s (%#04x), want hmac-sha256 alone", c.Algorithms, uint16(c.Algorithms))
+	// docs/dice-attestation/user.md:17: a SOFTWARE-tier device signs with
+	// HMAC-SHA256 only; docs/dice-attestation/cli.md:58: the element adds
+	// ECDSA-P256-SHA256. Neither performs Ed25519.
+	switch tier := c.CryptoTier.String(); tier {
+	case "software":
+		if c.Algorithms != AlgHMACSHA256 {
+			t.Fatalf("algorithms = %s (%#04x), want hmac-sha256 alone", c.Algorithms, uint16(c.Algorithms))
+		}
+	case "secure-element":
+		if c.Algorithms != AlgHMACSHA256|AlgECDSAP256SHA256 {
+			t.Fatalf("algorithms = %s (%#04x), want ecdsa-p256-sha256 and hmac-sha256", c.Algorithms, uint16(c.Algorithms))
+		}
+	default:
+		t.Fatalf("crypto tier %s: no algorithm facts for it", tier)
 	}
-	if c.Algorithms.Can(AlgECDSAP256SHA256) || c.Algorithms.Can(AlgEd25519) {
-		t.Error("the software provider claimed an asymmetric algorithm it cannot perform")
+	if c.Algorithms.Can(AlgEd25519) {
+		t.Error("the provider claimed Ed25519, which neither tier can perform")
 	}
+}
+
+// peerTier is the crypto tier the peer reports in CAPS (root of trust).
+func peerTier(t *testing.T, d *Device) string {
+	t.Helper()
+	c, err := d.Caps(context.Background())
+	if err != nil {
+		t.Fatalf("CAPS: %v", err)
+	}
+	return c.CryptoTier.String()
 }
 
 // CAPS answers per-pin pages, and this is the check that the six bytes the
@@ -704,6 +741,19 @@ func TestAgainstFirmwarePinInfoRefusesAPinTheBoardLacks(t *testing.T) {
 func TestAgainstFirmwareI2CConfigAppliesAClockWithinRange(t *testing.T) {
 	d := startSim(t)
 	ctx := context.Background()
+
+	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI
+	// peripheral on an element build; the software tier applies the clock.
+	switch tier := peerTier(t, d); tier {
+	case "software":
+	case "secure-element":
+		if err := d.SetI2CClock(ctx, 400_000); err == nil {
+			t.Fatal("I2C_CONFIG reconfigured the element's bus on the element tier")
+		}
+		return
+	default:
+		t.Fatalf("crypto tier %s: no I2C_CONFIG facts for it", tier)
+	}
 
 	if err := d.SetI2CClock(ctx, 400_000); err != nil {
 		t.Fatalf("a clock within range should be accepted: %v", err)

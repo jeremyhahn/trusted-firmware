@@ -12,8 +12,11 @@
 # It shares three things with the application on purpose, and each would
 # otherwise be a second copy of something that must not disagree with itself:
 #
-#   src/crypto/sha256.c   the measurement must be the hash the application
-#                         reports and a verifier recomputes
+#   SHA-256               the measurement must be the hash the application
+#                         reports and a verifier recomputes. The boot links
+#                         src/crypto/sha256_small.c, the same API and digest
+#                         as the application's sha256.c in a third of the
+#                         bytes; test/unit/test_sha256.c runs on both (#130)
 #   src/proto/frame.c     one codec, so OTA frames and application frames are
 #                         framed the same way by construction
 #   $(HAL_DIR)/hal_early.c  one "clear MCUSR and disarm the watchdog", because
@@ -43,7 +46,7 @@ else
 $(error unknown BOOT_TIER "$(BOOT_TIER)" -- expected soft or atecc608a)
 endif
 
-# The signature backend. ONE is linked, and there is currently one to choose.
+# The signature backend. ONE is linked.
 #
 # See boot/boot_verify.h for what ed25519-donna measures on this part and why no
 # substitute has been made for it. `make bootloader-budget` reproduces the
@@ -57,9 +60,24 @@ else ifeq ($(BOOT_SIG),atecc608a)
 # frames two commands and holds no curve arithmetic at all -- which is the only
 # way an asymmetric signature fits a 4 KB section on this family.
 BOOT_SIG_SRCS := boot/verify/verify_atecc608a.c
+else ifeq ($(BOOT_SIG),p256-soft)
+# P-256 ECDSA in software (#130, CA m453): the element's signature over the
+# same trailer v1, so one signed image serves both tiers. Every row verifies;
+# a row that does not fit sheds OTA, never this. micro-ecc v1.2, vendored, is
+# configured by UECC_DEFS below and no vendored byte is edited.
+BOOT_SIG_SRCS := boot/verify/verify_p256_soft.c boot/verify/p256_key_slot.c \
+                 src/third_party/micro-ecc/uECC.c
+BOOT_SIG_SU_SRC    := src/third_party/micro-ecc/uECC.c
+BOOT_SIG_SU_CFLAGS  = $(UECC_AVR_CFLAGS)
+BOOT_SIG_SU_FN     := uECC_verify
 else
-$(error unknown BOOT_SIG "$(BOOT_SIG)" -- expected ed25519-donna or atecc608a)
+$(error unknown BOOT_SIG "$(BOOT_SIG)" -- expected ed25519-donna, atecc608a or p256-soft)
 endif
+# What bootloader-budget reports the peak stack frame of: donna's verify unless
+# the arm names its own.
+BOOT_SIG_SU_SRC    ?= src/third_party/ed25519-donna/ed25519.c
+BOOT_SIG_SU_CFLAGS ?= $(DONNA_CFLAGS)
+BOOT_SIG_SU_FN     ?= ed25519_sign_open
 
 # Where the measurement is computed.
 #
@@ -73,7 +91,9 @@ endif
 # hashes 64 bytes per command, so a 28 KB image is about 450 round trips.
 BOOT_MEASURE ?= soft
 ifeq ($(BOOT_MEASURE),soft)
-BOOT_MEASURE_SRCS := boot/measure/measure_soft.c src/crypto/sha256.c
+# The size-first SHA-256 (#130): the same digest, sha256.h's API, a third of
+# the bytes. The application keeps sha256.c for its speed.
+BOOT_MEASURE_SRCS := boot/measure/measure_soft.c src/crypto/sha256_small.c
 else ifeq ($(BOOT_MEASURE),atecc608a)
 BOOT_MEASURE_SRCS := boot/measure/measure_atecc608a.c
 else
@@ -158,7 +178,10 @@ BOOT_SRCS := $(sort \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
 
-BOOT_OBJS := $(patsubst %.c,$(BOOT_DIR_OUT)/%.o,$(BOOT_SRCS))
+# The architecture's startup, assembly, kept out of BOOT_SRCS because every
+# loop over those compiles C. mk/arch/avr.mk says why the boot has its own.
+BOOT_START_OBJ := $(patsubst %.S,$(BOOT_DIR_OUT)/%.o,$(ARCH_BOOT_START_SRC))
+BOOT_OBJS := $(patsubst %.c,$(BOOT_DIR_OUT)/%.o,$(BOOT_SRCS)) $(BOOT_START_OBJ)
 
 # The same reproducibility flags as the application, and for a stronger reason:
 # the bootloader is what a verifier must be able to identify, and a bootloader
@@ -168,10 +191,10 @@ BOOT_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
                -ffile-prefix-map=$(CURDIR)=. \
                -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a \
-               -I$(HAL_DIR) -Isrc/third_party/ed25519-donna \
+               -I$(HAL_DIR) -Isrc/third_party/ed25519-donna -Isrc/third_party/micro-ecc \
                -Iboot -Iboot/verify -I$(BOOT_HAL_DIR) -I$(BOARD_DIR) \
                -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS) \
-               $(ARCH_BOOT_OPT_CFLAGS)
+               $(ARCH_BOOT_OPT_CFLAGS) $(BOOT_OPT_EXTRA)
 
 # The vendored tree, built WITHOUT -Werror and without our warning set.
 #
@@ -185,31 +208,68 @@ DONNA_CFLAGS := -std=gnu11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                 -ffile-prefix-map=$(CURDIR)=. \
                 -DED25519_REFHASH -DED25519_CUSTOMRANDOM -DED25519_NO_INLINE_ASM \
                 -Iboot/verify/shim -Isrc/third_party/ed25519-donna \
-                -include boot/verify/donna_shim.h
+                -include boot/verify/donna_shim.h $(BOOT_OPT_EXTRA)
+
+# micro-ecc (BOOT_SIG=p256-soft), vendored and built the same way, configured
+# only by its own macros: secp256r1 only, no compressed points, verify is all
+# tfw-boot calls (--gc-sections drops the rest). uECC_WORD_SIZE=1 is the AVR's
+# word, and the host test compiles the same word path. UECC_OPT picks
+# uECC_OPTIMIZATION_LEVEL: 0 is portable C, 1 adds the curve's fast reduction,
+# 2 the small AVR assembly; 3 needs the unrolled file, which is not vendored.
+# The default is whichever bootloader-budget measures smallest. It takes the
+# boot's code-size flags (ARCH_BOOT_OPT_CFLAGS, mk/arch/avr.mk) as tfw-boot's
+# own objects do: LTO records them per object, so without them its functions
+# were the only ones in the boot built with call-by-call register saves and
+# loop exit values recomputed (#130).
+#
+# BOOT_OPT_EXTRA is appended to the compile flags of every tfw-boot object,
+# the vendored ones included, and to the link, to measure compiler options
+# against the boot section without a commit per try: for instance
+#   make bootloader BOOT_OPT_EXTRA='-mcall-prologues -fno-jump-tables'
+# Empty by default, so no row's image changes. A row that needs an option
+# takes it into its own flags, never through this knob.
+UECC_OPT  ?= 0
+BOOT_OPT_EXTRA ?=
+UECC_DEFS := -DuECC_SUPPORTS_secp160r1=0 -DuECC_SUPPORTS_secp192r1=0 \
+             -DuECC_SUPPORTS_secp224r1=0 -DuECC_SUPPORTS_secp256k1=0 \
+             -DuECC_SUPPORTS_secp256r1=1 -DuECC_SUPPORT_COMPRESSED_POINT=0 \
+             -DuECC_OPTIMIZATION_LEVEL=$(UECC_OPT)
+UECC_AVR_CFLAGS := -std=gnu11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
+                   -ffile-prefix-map=$(CURDIR)=. $(UECC_DEFS) -DuECC_WORD_SIZE=1 \
+                   -Isrc/third_party/micro-ecc $(ARCH_BOOT_OPT_CFLAGS) $(BOOT_OPT_EXTRA)
 
 # Where .text starts and where the handoff block and the stack go are the
 # architecture's to say -- ARCH_BOOT_PLACEMENT_LDFLAGS, which also explains why
 # a board with no boot section still gets through every unrelated make
 # invocation. The `.handoff` section is NOT the generic `.noinit`: see there.
-BOOT_LDFLAGS := $(ARCH_LDFLAGS) $(ARCH_BOOT_PLACEMENT_LDFLAGS)
+BOOT_LDFLAGS := $(ARCH_LDFLAGS) $(ARCH_BOOT_PLACEMENT_LDFLAGS) $(BOOT_OPT_EXTRA)
 
 $(BOOT_DIR_OUT)/src/third_party/ed25519-donna/%.o: src/third_party/ed25519-donna/%.c
 	@mkdir -p $(dir $@)
 	@$(ARCH_CC) $(DONNA_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
 
+$(BOOT_DIR_OUT)/src/third_party/micro-ecc/%.o: src/third_party/micro-ecc/%.c
+	@mkdir -p $(dir $@)
+	@$(ARCH_CC) $(UECC_AVR_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
+
 $(BOOT_DIR_OUT)/%.o: %.c
 	@mkdir -p $(dir $@)
 	@$(ARCH_CC) $(BOOT_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
+
+$(BOOT_DIR_OUT)/%.o: %.S
+	@mkdir -p $(dir $@)
+	@$(ARCH_CC) $(ARCH_MACH_CFLAGS) -MMD -MP -c -o $@ $<
 
 # See the same line in mk/firmware.mk: the headers each object read.
 -include $(BOOT_OBJS:.o=.d)
 
 # A failed link is REPORTED, not dumped.
 #
-# When the image does not fit, ld says "region `text' overflowed by N bytes"
-# against a base address that is the boot section's start -- so N is not the
-# image's size and is not the overage either, and the first thing anyone does
-# with that message is get the number wrong. The recovery below runs
+# When the image does not fit, ld says "region `text' overflowed by N bytes".
+# N IS the overage past the boot section: the text region starts at 0 and is
+# the whole flash, and .text is placed at BOOT_BASE = FLASH_TOTAL - BOOT_SECTION
+# (mk/arch/avr.mk), so the region's end is the boot section's end. The image is
+# BOOT_SECTION + N bytes; it fits once N bytes go. The recovery below runs
 # boot-core-size and bootloader-budget, which answer the two questions the
 # failure actually raises: how big is the core, and how big is the backend.
 $(BOOT_TARGET).elf: $(BOOT_OBJS)
@@ -261,6 +321,23 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 # fit (8 916 / 8 192 on the element tier with ARCH_BOOT_OPT_CFLAGS; 9 616 at
 # c319f07 without), so it is not a row.
 #
+# The soft tier (#130) has no row without a signature check: every image is
+# verified on every row (CA m453, owner item 79). An unverified OTA image is
+# remote code execution. docs/dice-attestation/architecture.md, "The soft
+# tfw-boot", has the design and the measurements.
+#
+# Soft rows, BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft at the default
+# UECC_OPT, measured by lane-verify at 935494f with ld's own overflow message:
+#
+#   2560, no OTA, no store   fits, 8 190 / 8 192 -- 2 bytes spare. A row.
+#   2560 with the store      2 680 bytes over. Not a row.
+#   2560 with OTA            3 836 bytes over. Not a row.
+#   328P, no OTA, no store   4 030 bytes over. Not a row.
+#   32U4                     not a row.
+#
+# The 2560's store and OTA rows shed OTA, never verification (CA m467): with
+# OTA shed they are the base row.
+#
 # A row that stops fitting is a build failure here, which is the point: the
 # margin on a 4 KB part is 1 728 bytes and it is the kind of thing that
 # disappears one commit at a time.
@@ -269,7 +346,8 @@ BOOT_SUPPORTED := \
   atmega32u4:atecc608a:atecc608a:atecc608a:0:0 \
   atmega2560:atecc608a:atecc608a:atecc608a:0:0 \
   atmega2560:atecc608a:atecc608a:atecc608a:1:0 \
-  atmega2560:atecc608a:atecc608a:atecc608a:0:1
+  atmega2560:atecc608a:atecc608a:atecc608a:0:1 \
+  atmega2560:soft:soft:p256-soft:0:0
 
 bootloader-check:
 	@fail=0; \
@@ -281,11 +359,27 @@ bootloader-check:
 	        BOOT_TIER=$$t BOOT_MEASURE=$$m BOOT_SIG=$$g BOOT_OTA=$$o \
 	        BOOT_STORE=$$s; then \
 	    echo "SUPPORTED CONFIGURATION NO LONGER FITS: $$row"; fail=1; \
+	  elif ! $(MAKE) --no-print-directory boot-load-end-check BOARD=$$b \
+	        BOOT_TIER=$$t BOOT_MEASURE=$$m BOOT_SIG=$$g BOOT_OTA=$$o \
+	        BOOT_STORE=$$s; then \
+	    echo "SUPPORTED CONFIGURATION RUNS PAST FLASH: $$row"; fail=1; \
 	  fi; \
 	done; \
 	exit $$fail
 
-.PHONY: bootloader-check
+# The built boot's load end -- __data_load_end, the last flash byte .text and
+# .data's initial values occupy -- is at most the part's flash. ld refuses an
+# oversized boot only while the link knows the part's flash size (mk/arch/
+# avr.mk's __TEXT_REGION_LENGTH__); this asks the ELF, so a link that lost it
+# again fails here rather than passing an image that runs past the top.
+boot-load-end-check:
+	@end=$$($(ARCH_NM) -P $(BOOT_TARGET).elf | awk '$$1 == "__data_load_end" { print $$3 }'); \
+	 if [ -z "$$end" ]; then \
+	   echo "$(BOOT_TARGET).elf has no __data_load_end"; exit 1; fi; \
+	 if [ $$(( 0x$$end )) -gt $$(( $(FLASH_TOTAL) )) ]; then \
+	   echo "$(BOOT_TARGET).elf ends at 0x$$end, past the part's flash $(FLASH_TOTAL)"; exit 1; fi
+
+.PHONY: bootloader-check boot-load-end-check
 
 BOOT_TEST_DIR   := $(HOST_DIR)/boot
 BOOT_TEST_SRCS  := $(wildcard test/unit/boot/test_*.c)
@@ -346,6 +440,31 @@ $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
         boot/boot_policy.c $(BOOT_LOGIC_SRCS) $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The application's SHA-256 suite, against the boot's size-first object: the
+# same vectors, so sha256.c and sha256_small.c cannot disagree (#130).
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_sha256_small
+$(BOOT_TEST_DIR)/test_sha256_small: test/unit/test_sha256.c src/crypto/sha256_small.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# micro-ecc for BOOT_SIG=p256-soft (#130), with the boot's UECC_DEFS. UECC_WORD
+# is the word path: 1, the AVR's, by default; `make boot-test UECC_WORD=` builds
+# the host's native word, so a verdict that differs between them is a word-path
+# bug (the uecc.o rule is rebuilt by hand for that: rm it first).
+UECC_WORD ?= 1
+UECC_HOST_DEFS := $(UECC_DEFS) $(if $(UECC_WORD),-DuECC_WORD_SIZE=$(UECC_WORD))
+$(BOOT_TEST_DIR)/uecc.o: src/third_party/micro-ecc/uECC.c | $(BOOT_TEST_DIR)
+	@$(CC) -std=gnu11 -g -O1 $(UECC_HOST_DEFS) $(EXTRA_CFLAGS) -c -o $@ $<
+
+# Every Wycheproof P-256 P1363 vector against micro-ecc, and the shipping
+# backend's contract, and a trailer v1 signed as the element tier signs (#130).
+$(BOOT_TEST_DIR)/test_boot_p256_soft: test/unit/boot/test_boot_p256_soft.c \
+        boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c \
+        boot/boot_image.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
+        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
@@ -457,7 +576,8 @@ bootloader-budget:
 	 for src in $(BOOT_SIG_SRCS); do \
 	   o=$(BOOT_MEAS_DIR)/$$(echo $$src | tr / _).o; \
 	   $(ARCH_CC) $(if $(findstring third_party,$(src)),$(DONNA_CFLAGS),$(BOOT_CFLAGS)) -fno-lto -c -o $$o $$src 2>/dev/null || \
-	     $(ARCH_CC) $(DONNA_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
+	     $(ARCH_CC) $(DONNA_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null || \
+	     $(ARCH_CC) $(UECC_AVR_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
 	   n=$$($(ARCH_SIZE) --format=berkeley $$o | awk 'NR==2{print $$1+$$2}'); \
 	   printf '  %-52s %7s\n' "$$src" "$$n"; \
 	 done
@@ -465,11 +585,13 @@ bootloader-budget:
 	@$(MAKE) --no-print-directory boot-core-size
 	@echo
 	@echo "signature backend, linked and gc-sectioned (verify reachable only):"
-	@$(ARCH_CC) $(DONNA_CFLAGS) -fno-lto -fstack-usage -c \
-	   -o $(BOOT_MEAS_DIR)/su.o src/third_party/ed25519-donna/ed25519.c 2>/dev/null; \
-	 mv ed25519.su $(BOOT_MEAS_DIR)/ 2>/dev/null || true; \
-	 awk -F'\t' '$$1 ~ /ed25519_sign_open$$/ {printf "  peak stack frame  %7s bytes   (part SRAM %s)\n", $$2, "$(RAM_TOTAL)"}' \
-	   $(BOOT_MEAS_DIR)/ed25519.su 2>/dev/null || true
+	@$(ARCH_CC) $(BOOT_SIG_SU_CFLAGS) -fno-lto -fstack-usage -c \
+	   -o $(BOOT_MEAS_DIR)/su.o $(BOOT_SIG_SU_SRC) 2>/dev/null; \
+	 mv $(BOOT_MEAS_DIR)/su.su $(BOOT_MEAS_DIR)/sig.su 2>/dev/null || \
+	   mv su.su $(BOOT_MEAS_DIR)/sig.su 2>/dev/null || \
+	   mv $(basename $(notdir $(BOOT_SIG_SU_SRC))).su $(BOOT_MEAS_DIR)/sig.su 2>/dev/null || true; \
+	 awk -F'\t' '$$1 ~ /$(BOOT_SIG_SU_FN)$$/ {printf "  peak stack frame  %7s bytes   (part SRAM %s)\n", $$2, "$(RAM_TOTAL)"}' \
+	   $(BOOT_MEAS_DIR)/sig.su 2>/dev/null || true
 
 ## boot-core-size: tfw-boot WITHOUT a signature backend, linked and measured
 # NOT A BOOTLOADER AND NOT FLASHABLE. tfw_boot_verify and tfw_boot_pubkey are
@@ -487,11 +609,15 @@ boot-core-size:
 	   o=$(BOOT_MEAS_DIR)/lto_$$(echo $$src | tr / _).o; \
 	   $(ARCH_CC) $(BOOT_CFLAGS) -frandom-seed=$$(basename $$src) -c -o $$o $$src; \
 	 done
+	@# The image's own startup and no crt, so the core is the size it ships at.
+	@$(if $(ARCH_BOOT_START_SRC),$(ARCH_CC) $(ARCH_MACH_CFLAGS) -c \
+	   -o $(BOOT_MEAS_DIR)/lto_start.o $(ARCH_BOOT_START_SRC))
 	@# Linked at address zero, NOT at the boot section's start. The question is
 	@# how many bytes the core is, and placing it at 0x7000 makes an image that
 	@# is merely too big fail to link instead of reporting its size -- which is
 	@# the one thing this target exists to do.
-	@$(ARCH_CC) $(ARCH_LDFLAGS) \
+	@$(ARCH_CC) $(ARCH_LDFLAGS) $(ARCH_BOOT_START_LDFLAGS) $(BOOT_OPT_EXTRA) \
+	   $(if $(ARCH_BOOT_STACK_TOP),-Wl$(BOOT_COMMA)--defsym=__stack=$(ARCH_BOOT_STACK_TOP)) \
 	   -Wl,--defsym=tfw_boot_verify=0 -Wl,--defsym=tfw_boot_pubkey=0 \
 	   -o $(BOOT_MEAS_DIR)/core.elf $(BOOT_MEAS_DIR)/lto_*.o
 	@flash=$$($(ARCH_SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$1+$$2}'); \
@@ -608,14 +734,21 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c $(BOOT_HARN
         src/proto/crc16.c src/proto/crc16_update.c \
         src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
         boot/boot_image.c boot/boot_platform.c boot/boot_request.c \
-        test/model/spi_nor_model.c test/model/w5x00_model.c
+        test/model/spi_nor_model.c test/model/w5x00_model.c $(BOOT_INT_DIR)/uECC.o
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot -Itest/model -Itest/integration/simavr \
+	   -Isrc/third_party/micro-ecc $(UECC_DEFS) \
 	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
 	   -DTFW_SIMAVR_MCU='"$(MCU)"' -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' \
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"
+
+# The soft row's signer (#130): the one vendored micro-ecc, built for the host
+# without our warning set, as every vendored tree is.
+$(BOOT_INT_DIR)/uECC.o: src/third_party/micro-ecc/uECC.c
+	@mkdir -p $(BOOT_INT_DIR)
+	@$(HOST_CC) -std=gnu11 -O1 $(UECC_DEFS) -Isrc/third_party/micro-ecc -c -o $@ $<
 
 ## integration-test-boot: run tfw-boot under simavr
 # Recursive, because this suite runs one specific row of BOOT_SUPPORTED on one
@@ -633,6 +766,15 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c $(BOOT_HARN
 # beside the NOR part behind D8, and the harness the TCP peer that streams
 # OTA_BEGIN/OTA_DATA/OTA_END to it before the reset into tfw-boot's trial.
 # ETH=1 is the 2560's default (#55 item 48), so the serial legs say ETH=0.
+#
+# And the soft base row (#130), the one soft row that fits (CA m467):
+# BOOT_SIG=p256-soft at UECC_OPT's default, no element on the bus. The harness
+# provisions the key and UDS slots as the jig does, signs with P-256, and checks
+# that a genuine image runs and that a tampered one, or one signed by another
+# key, never reaches the application. Verification is on this row as on every
+# other (CA m453).
+BOOT_INT_SOFT_ROW := BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 \
+                     BOOT_STORE=0
 BOOT_INT_STORE_ROW := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=0 \
                       BOOT_STORE=1
 
@@ -661,6 +803,8 @@ integration-test-boot:
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=1 BOOT_HARNESS_MODE=net CRYPTO=soft
 	@$(MAKE) --no-print-directory boot-harness-run \
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=1 BOOT_HARNESS_MODE=net-gate CRYPTO=auto
+	@$(MAKE) --no-print-directory boot-harness-run \
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_SOFT_ROW) ETH=0 BOOT_HARNESS_MODE=soft
 
 # The same store row from the host (#75): the application built with the stager
 # (OTA_STAGE=1, mk/firmware.mk), the harness in its bridge mode, and the Go SDK

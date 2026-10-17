@@ -57,18 +57,18 @@ tfw_status_t tfw_boot_evaluate_at(uint32_t base, uint32_t floor, tfw_boot_verdic
     uint8_t        raw[TFW_BOOT_TRAILER_LEN];
     uint8_t        pubkey[TFW_BOOT_PUBKEY_LEN];
     uint8_t        pinned[TFW_BOOT_MEASURE_LEN];
-    uint8_t        ee[TFW_BOOT_EE_LEN];
     const uint8_t *key = pubkey;
     tfw_status_t    st;
+    uint8_t        half;
 
     /* The trailer is read in two halves because tfw_boot_flash_read takes a
      * uint8_t length and the trailer is 128 bytes -- a length of 128 is fine,
      * but 256-byte trailers on a later layout would silently truncate, and a
      * loop that cannot express the bug is better than a comment asking nobody
      * to introduce it. */
-    tfw_boot_flash_read(tr_at, raw, TFW_BOOT_TRAILER_LEN / 2u);
-    tfw_boot_flash_read(tr_at + (TFW_BOOT_TRAILER_LEN / 2u),
-                       &raw[TFW_BOOT_TRAILER_LEN / 2u], TFW_BOOT_TRAILER_LEN / 2u);
+    for (half = 0u; half < TFW_BOOT_TRAILER_LEN; half = (uint8_t)(half + TFW_BOOT_TRAILER_LEN / 2u)) {
+        tfw_boot_flash_read(tr_at + half, &raw[half], TFW_BOOT_TRAILER_LEN / 2u);
+    }
 
     st = tfw_boot_trailer_parse(raw, &out->trailer);
     if (st != TFW_OK) {
@@ -102,11 +102,11 @@ tfw_status_t tfw_boot_evaluate_at(uint32_t base, uint32_t floor, tfw_boot_verdic
     /* The pinned hash comes straight from EEPROM rather than from a parsed
      * tfw_boot_platform_t, so that this function has one input -- the floor --
      * and no ordering dependency on who parsed what first. */
-    st = tfw_boot_nvm_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    st = tfw_boot_nvm_read((uint16_t)(TFW_BOOT_EE_BASE + TFW_BOOT_EE_O_PUBKEY_HASH),
+                           pinned, TFW_BOOT_MEASURE_LEN);
     if (st != TFW_OK) {
         return st;
     }
-    memcpy(pinned, &ee[TFW_BOOT_EE_O_PUBKEY_HASH], TFW_BOOT_MEASURE_LEN);
 
     st = tfw_boot_check_pubkey_pin(pinned, pubkey);
     if (st == TFW_ERR_UNSUPPORTED) {

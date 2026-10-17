@@ -10,9 +10,11 @@
  *
  * mk/firmware.mk compiles ota_floor_atecc.c and ota_floor_eeprom.c with
  * FLOOR_RENAME, so they are tfw_otactl_floor_element and _soft. An element
- * boot whose counter cannot be read fails with that read's TFW_ERR_CRYPTO; no
- * handoff, or a tier this image has no floor for, is TFW_ERR_CRYPTO too: the
- * floor in force cannot be named, so none is reported. The application reads
+ * boot whose counter cannot be read fails with that read's TFW_ERR_CRYPTO; a
+ * tier this image has no floor for is TFW_ERR_CRYPTO too: the floor in force
+ * cannot be named, so none is reported. No handoff from tfw-boot (the stock
+ * bootloader, say) is TFW_ERR_BAD_STATE: no boot chain is running, so there
+ * is no floor in force to name. The application reads
  * the floor and never writes it; tfw-boot owns both stores. */
 #include "tfw/crypto.h"
 #include "handoff.h"
@@ -25,10 +27,13 @@ tfw_status_t tfw_otactl_floor(const tfw_boot_platform_t *p, uint32_t *out)
 {
     const uint8_t *boot_tier = tfw_boot_handoff_tier();
 
-    if (boot_tier && *boot_tier == (uint8_t)TFW_CRYPTO_SECURE_ELEMENT) {
+    if (!boot_tier) {
+        return TFW_ERR_BAD_STATE;
+    }
+    if (*boot_tier == (uint8_t)TFW_CRYPTO_SECURE_ELEMENT) {
         return tfw_otactl_floor_element(p, out);
     }
-    if (boot_tier && *boot_tier == (uint8_t)TFW_CRYPTO_SOFTWARE) {
+    if (*boot_tier == (uint8_t)TFW_CRYPTO_SOFTWARE) {
         return tfw_otactl_floor_soft(p, out);
     }
     return TFW_ERR_CRYPTO;

@@ -40,8 +40,10 @@ make bootloader-check
 No flags. Iterates `mk/boot.mk`'s `BOOT_SUPPORTED` rows (currently
 `atmega328p`, `atmega32u4` and `atmega2560` with `BOOT_TIER=BOOT_MEASURE=
 BOOT_SIG=atecc608a`, the 2560 built with OTA, without it, and without it but
-with the external store, `BOOT_STORE=1`) and fails if
-any row stops fitting its boot section. Part of `make ci`.
+with the external store, `BOOT_STORE=1`; and the `atmega2560` soft base row,
+`BOOT_TIER=BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0`) and
+fails if any row stops fitting its boot section or its load end
+(`__data_load_end`) runs past the part's flash. Part of `make ci`.
 
 ## `make bootloader-budget` — the per-component size breakdown
 
@@ -108,9 +110,10 @@ cannot write to itself. This target requires an ISP programmer.
 `bootloader` and `boot-flash` build the configuration their variables name, so
 they must name one that fits. Each refuses any other before building anything,
 and names the rows that fit `BOARD`. The rows are `BOOT_SUPPORTED` in
-`mk/boot.mk`, the set `make bootloader-check` builds. Every row needs an
+`mk/boot.mk`, the set `make bootloader-check` builds. Every element row needs an
 ATECC608 on the board's I²C bus: the ATECC608C on the MIKROE-6774 on the bench,
-build name `atecc608a`.
+build name `atecc608a`. The soft row needs no element; it verifies the same
+P-256 signature in software (`BOOT_SIG=p256-soft`).
 
 Measured with `make bootloader-check` (avr-gcc 14.2.0, tfw-boot built with
 `-mcall-prologues`, 2026-10-16); the unsupported row is the `.elf` alone, since
@@ -124,11 +127,17 @@ Measured with `make bootloader-check` (avr-gcc 14.2.0, tfw-boot built with
 | `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `0` | 3 918 | 351 / 8 192 | yes |
 | `atmega2560` | 8 192 B | `atecc608a` `atecc608a` `atecc608a` | `0`, `BOOT_STORE=1` | 6 302 | 869 / 8 192 | yes: the external store's copy, swap-move, trial |
 | `atmega2560` | 8 192 B | `atecc608a` `soft` `atecc608a` | `0` | 7 070 | 351 / 8 192 | no: it fits, but it is not a supported row |
+| `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `0` | 8 190 | — | yes: 2 bytes spare (lane-verify, 935494f) |
+| `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `0`, `BOOT_STORE=1` | 2 680 over | — | no: not a row; it sheds OTA, never verification |
+| `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `1` | 3 836 over | — | no: not a row; it sheds OTA, never verification |
+| `atmega328p` | 4 096 B | `soft` `soft` `p256-soft` | `0` | 4 030 over | — | no: not a row |
+| `atmega32u4` | 4 096 B | `soft` `soft` `p256-soft` | `0` | — | — | no: not a row |
 | `attiny85` | none | — | — | — | — | no: the part has no boot section |
 
 Every other combination fails the link on every board, the defaults
 (`soft`/`soft`/`ed25519-donna`/`1`) and `BOOT_TIER=atecc608a` alone included.
-No configuration without the element fits any board.
+The soft rows are built at micro-ecc's `UECC_OPT` default, `0` (`mk/boot.mk`). The 2560 soft base
+row is the one configuration without the element that fits.
 
 ### The chip erase, and the EEPROM
 

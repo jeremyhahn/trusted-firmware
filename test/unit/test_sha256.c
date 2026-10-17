@@ -139,6 +139,52 @@ static void test_hmac_depends_on_the_key(void)
     TEST_ASSERT_FALSE(memcmp(a, b, 32) == 0);
 }
 
+/* FIPS 180-4's own examples beyond one block, literals here because they pin
+ * the hash and not the wire. Run against sha256.c and sha256_small.c alike
+ * (mk/boot.mk's test_sha256_small), so the two cannot disagree (#130). */
+static void test_sha256_of_the_896_bit_two_block_message(void)
+{
+    static const char msg[] =
+        "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn"
+        "hijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu";
+
+    expect((const uint8_t *)msg, (uint16_t)strlen(msg),
+           "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1");
+}
+
+static void test_sha256_of_a_million_a(void)
+{
+    uint8_t      chunk[1000];
+    uint8_t      d[32];
+    char         got[65];
+    tfw_sha256_t c;
+    uint16_t     i;
+
+    memset(chunk, 'a', sizeof chunk);
+    tfw_sha256_init(&c);
+    for (i = 0u; i < 1000u; i++) {
+        tfw_sha256_update(&c, chunk, (uint16_t)sizeof chunk);
+    }
+    tfw_sha256_final(&c, d);
+    hex(d, 32u, got);
+    TEST_ASSERT_EQUAL_STRING(
+        "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0", got);
+}
+
+/* RFC 4231 section 4.3, test case 2: a key shorter than the block. */
+static void test_hmac_sha256_rfc4231_case_2(void)
+{
+    static const char data[] = "what do ya want for nothing?";
+    uint8_t mac[32];
+    char    got[65];
+
+    tfw_hmac_sha256((const uint8_t *)"Jefe", 4u, (const uint8_t *)data,
+                   (uint16_t)strlen(data), mac);
+    hex(mac, 32u, got);
+    TEST_ASSERT_EQUAL_STRING(
+        "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", got);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -150,5 +196,8 @@ int main(void)
     RUN_TEST(test_hmac_sha256_rfc4231_case_1);
     RUN_TEST(test_hmac_hashes_an_overlong_key_rather_than_truncating);
     RUN_TEST(test_hmac_depends_on_the_key);
+    RUN_TEST(test_sha256_of_the_896_bit_two_block_message);
+    RUN_TEST(test_sha256_of_a_million_a);
+    RUN_TEST(test_hmac_sha256_rfc4231_case_2);
     return UNITY_END();
 }

@@ -19,8 +19,9 @@ sdk-build:
 # firmware compiled for the host, so a stale or missing binary would leave the
 # only check that the two codecs agree silently untested. tfwsim-atecc608a is the
 # element tier, the only peer that produces DICE evidence; tfwsim-app-example the
-# only one with an application, so the only one that answers APP_INFO.
-sdk-test: tfwsim tfwsim-atecc608a tfwsim-app-example
+# only one with an application, so the only one that answers APP_INFO;
+# tfwsim-auto the Mega's default tier, which picks one of those two at startup.
+sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
 	@cd $(SDK_DIR) && $(GO) test -count=1 ./...
 
 ## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=)

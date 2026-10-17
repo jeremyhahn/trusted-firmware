@@ -67,7 +67,7 @@ tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN]
     uint8_t i;
 
     for (i = 0u; i < UDS_LEN; i++) {
-        uds[i]  = (uint8_t)tfw_pgm_u8(&uds_slot[i]);
+        uds[i]  = (uint8_t)tfw_pgm_far_u8(uds_slot, &uds_slot[i]);
         erased &= uds[i];
     }
     if (erased == 0xFFu) {

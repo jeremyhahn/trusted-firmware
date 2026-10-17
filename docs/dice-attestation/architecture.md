@@ -215,6 +215,87 @@ the CDI to begin with (see "The DeviceID/Alias split" above), so there was
 nothing to wire up there beyond zeroizing it — see `engineering.md`'s
 invariants.
 
+### The soft tfw-boot (#130)
+
+The ATECC608C is never required on an AVR board (owner ruling, 2026-10-17), so
+a board with no element needs a tfw-boot on the soft tier. Until #130 no row
+had one: the soft tier linked `BOOT_SIG=ed25519-donna`, whose verify path is
+72 930 bytes alone (`boot/boot_verify.h`). The whole 2560 image was 96 492 /
+8 192 at 03089f4 (`docs/ota/architecture.md`). The rest of that image is
+small: `src/crypto/sha256.c` (4 052 bytes, the measurement and the HMAC), the
+UDS read in `boot/tier/cdi_soft.c`, and the core.
+
+**What the engine does.** It does what TCG DICE Hardware Requirements (Rev 78,
+§5) asks of a DICE engine, and nothing more. It measures the next layer
+(`boot/measure/measure_soft.c`, SHA-256 of the image body) and derives that
+layer's CDI as `HMAC-SHA256(UDS, measurement)` (`tfw_boot_cdi_derive`), form (2)
+of §5. Then it hands the CDI over and zeroizes its copy. The engine derives no
+key from the CDI. The keys belong to the layer that receives the CDI:
+`src/crypto/soft/provider.c` derives them in the application from
+`tfw_boot_handoff_take_cdi()`. The boot's only curve code is the signature
+verify below.
+
+**How it checks an image: every row verifies the signature.** tfw-boot
+verifies the image signature on every row, the soft rows included (CA m453,
+2026-10-17; owner queue item 79, pending). An OTA image that is not
+signature-verified is remote code execution on the device, and the owner's
+rule is default deny for every image. A row that does not fit with
+verification keeps verification and either sheds OTA or has its fit
+engineered, never the reverse. There is no `BOOT_SIG=none`.
+
+The soft rows link `BOOT_SIG=p256-soft` (`boot/verify/verify_p256_soft.c`). It
+verifies the signature the element rows verify: P-256 ECDSA (FIPS 186-5
+§6.4.2, SEC 1 v2 §4.1.4), 64 bytes r ‖ s, over the trailer v1
+(`TFW_BOOT_TR_SIGNED_LEN` bytes, hashed with the build's one SHA-256). So one
+signed image serves both tiers, and there is no trailer v2. The curve
+arithmetic is micro-ecc v1.2, vendored in `src/third_party/micro-ecc/` and
+configured only by its own macros in `mk/boot.mk` (secp256r1 only, no
+compressed points, the AVR's 8-bit word). The key is the 64-byte uncompressed
+point in the boot section (`boot/verify/p256_key_slot.c`), as the element
+keeps it in a slot. An erased slot refuses every image. `tfw_boot_pubkey`
+answers `TFW_ERR_UNSUPPORTED`, as the element tier does, so the EEPROM key pin
+is skipped, and a caller that passes a key is refused. Every other check in
+`tfw_boot_evaluate_at` runs as on the element rows: the trailer parse, the
+board binding, the anti-rollback floor, and the tamper check.
+
+**micro-ecc and Wycheproof.** Upstream micro-ecc v1.2's `uECC_verify` rejects
+two valid Wycheproof P-256 / SHA-256 P1363 signatures, tcId 60 and tcId 210:
+its joint u1·G + u2·Q loop adds with a co-Z formula that handles neither a
+doubling nor the point at infinity (open upstream issues #141 and #196). The
+vendored copy carries one recorded local patch for it
+(`src/third_party/micro-ecc/patches/0001-verify-shamir-doubling-and-infinity.patch`).
+`test/unit/boot/test_boot_p256_soft.c` runs all 241 64-byte vectors: 173
+accepted, 68 refused.
+
+**The hash is the fit.** With no signature primitive, SHA-256 and the HMAC
+built on it are the soft engine's only cryptography. `src/crypto/sha256.c`
+spends 4 052 bytes on them, most of it in avr-gcc's inline expansion of each
+32-bit `ROR`/`SHR` pair (twelve rotates and two shifts per round and schedule
+step), a 64-word schedule, eight named working variables and a 64-bit variable
+shift for the length. The boot links `src/crypto/sha256_small.c` in its place
+(`BOOT_MEASURE=soft` in `mk/boot.mk`). It is FIPS 180-4 §6.2.2 exactly, with
+the same `sha256.h` API: one rotate-or-shift routine shared by the four sigma
+functions, the 16-word rolling schedule, the working variables as an array,
+and K in flash through `tfw/progmem.h`. The application keeps `sha256.c` for
+its speed. `test/unit/test_sha256.c` runs against both objects: the empty
+message, "abc", the 448-bit and 896-bit messages, a million "a", and
+RFC 4231 cases 1 and 2. The cost is time, because each rotate is a loop.
+
+**Rows.** Every soft row is `BOOT_TIER=soft BOOT_MEASURE=soft
+BOOT_SIG=p256-soft`, measured by verify's `make bootloader-budget`. A row is in
+`BOOT_SUPPORTED` when it fits; the 2560 base row is (CA m467), with 2 bytes
+spare that the next slices widen. Measured by lane-verify at 935494f with ld's
+own "region `text' overflowed", `UECC_OPT=0`. A row that does not fit sheds
+OTA, never verification (CA m467).
+
+| Board | `BOOT_OTA` | `BOOT_STORE` | Flash / boot section | Verify peak stack / SRAM | Row |
+|---|---|---|---|---|---|
+| `atmega2560` | `0` | `0` | 8 190 / 8 192 | — | yes, `atmega2560:soft:soft:p256-soft:0:0` |
+| `atmega2560` | `0` | `1` | 2 680 over / 8 192 | — | no |
+| `atmega2560` | `1` | `0` | 3 836 over / 8 192 | — | no |
+| `atmega328p` | `0` | `0` | 4 030 over / 4 096 | — | no |
+| `atmega32u4` | `0` | `0` | — / 4 096 | — | no |
+
 **Not wired up: an Alias keypair on the software tier.** Issue #7 asked for
 one, Ed25519, derived from the CDI, held in SRAM, certified by
 `ATTEST_CERT`. It is not implemented: the alias certificate's fixed 232-byte

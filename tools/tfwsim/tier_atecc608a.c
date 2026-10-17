@@ -44,6 +44,7 @@
 static uint8_t *eeprom_image;          /* NULL until --eeprom/--eeprom-bin */
 static size_t   eeprom_len;
 static uint8_t  provision_element;
+static uint8_t  no_element;
 static uint8_t  have_image_hash;
 static uint8_t  image_hash[TFW_BOOT_MEASURE_LEN];
 
@@ -193,6 +194,13 @@ int tfwsim_tier_option(int argc, char **argv)
         provision_element = 1u;
         return 1;
     }
+    /* tfwsim-auto (issue #130): a board with no element fitted. The model
+     * NACKs every transfer, as an empty bus does, so CRYPTO=auto's probe
+     * finds nothing and the image runs the soft root. */
+    if (strcmp(argv[0], "--no-element") == 0) {
+        no_element = 1u;
+        return 1;
+    }
     if (strcmp(argv[0], "--eeprom") == 0 || strcmp(argv[0], "--eeprom-bin") == 0 ||
         strcmp(argv[0], "--image-hash") == 0) {
         if (argc < 2) { return fail(argv[0], "needs a value"); }
@@ -211,7 +219,7 @@ int tfwsim_tier_option(int argc, char **argv)
 const char *tfwsim_tier_usage(void)
 {
     return " [--eeprom FILE.eep | --eeprom-bin FILE] [--provision-element]"
-           " [--image-hash HEX64]";
+           " [--image-hash HEX64] [--no-element]";
 }
 
 /*
@@ -236,6 +244,7 @@ static void test_cdi(uint8_t cdi[TFW_BOOT_MEASURE_LEN])
 void tfwsim_tier_seed(void)
 {
     tfw_model_reset();
+    tfw_model_set_absent(no_element);
     if (provision_element) {
         tfw_model_provision();
     }

@@ -37,6 +37,10 @@ var (
 	Software = Binary{Name: "tfwsim", Make: "make tfwsim"}
 	// Element is the ATECC608A-tier simulator.
 	Element = Binary{Name: "tfwsim-atecc608a", Make: "make tfwsim-atecc608a"}
+	// Auto is the Mega's default CRYPTO=auto tier: the element when one
+	// answers, else the soft root. It takes the element tier's options, and
+	// --no-element takes the part off the bus.
+	Auto = Binary{Name: "tfwsim-auto", Make: "make tfwsim-auto"}
 	// App is the software-tier simulator with test/app/example linked, the
 	// only image that answers APP_INFO.
 	App = Binary{Name: "tfwsim-app-heartbeat", Make: "make tfwsim-app-example"}

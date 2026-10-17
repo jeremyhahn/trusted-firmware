@@ -654,7 +654,7 @@ deadline on the emulated part, with no reset from the harness.
 | the host's `(*Device).StageImage` over the emulated UART into the 2560's stager and store (`OTA_STAGE=1`), then tfw-boot's copy and the trial | yes, `TestOTAStageThroughTfwBoot` against the harness's bridge mode (`boot_harness ... bridge`); the trial state is asserted by the harness, not over the wire | `TestOTAStageAgainstFirmware`, on `tfwsim` |
 | tfw-boot reads `MARK` and `STAGE`, checks, copies into the secondary, swaps in, arms `TRIAL`, the application boots | yes, `test_a_store_image_runs_its_trial_and_settles` | `test_boot_stage_2560`, `test_boot_swap` |
 | `CONFIRMED` at reset: the floor advances to the version, `GOOD`; the mark is not copied again | yes, same test; the harness leaves `OTA_CONFIRM`'s request record and resets; tfw-boot confirms, settles and clears it | `test_boot_trial`, `test_boot_swap` |
-| `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | no: not on the wire, their ids are decision 8's proposal | none |
+| `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | decision 8 proposed them; they landed on the wire at `0x6D` and `0x6E`, beside `OTA_INFO` at `0x6C` (`include/tfw/protocol.h`), `OTA_ACTIVATE` with `TFW_FEATURE_OTA_ACTIVATE` and the other two with `TFW_FEATURE_OTA_CTL` (`src/core/commands.def`), serial only (`src/proto/link_eth.c`); `boot_harness.c` sends `OTA_ACTIVATE` over the emulated UART | `test_ota_stage`, `test_ota_single`; `tfwsim`, `sdk/go/tfwsim/ota_test.go` |
 | a trial not confirmed: the reset swaps back, `GOOD` `FAILED`, the marked image not taken again, the floor unmoved | yes, `test_an_unconfirmed_store_image_swaps_back`; the harness forces that reset | `test_boot_swap` |
 | the trial deadline: nothing confirms, the application's `ota_trial.c` takes a watchdog reset at `TFW_OTA_TRIAL_TIMEOUT_S` (the board value, 60 s), WDRF in MCUSR at the reset edge and `TFW_RESET_WATCHDOG` in `SYS_INFO`, within one 8 s watchdog period of the deadline (`tfw_hal_reset` disarms the 8 s watchdog before its 15 ms one, which simavr would otherwise not apply); tfw-boot copies `PREV` back, `GOOD` `FAILED` | yes, `test_an_unconfirmed_store_image_rolls_back_at_the_deadline`, about 1.05 billion emulated cycles | `test_ota_trial`, `test_boot_trial` |
 | a staged byte that fails the hash, an image below the floor: no page written, the primary boots | yes, `test_a_bad_store_image_copies_nothing` | `test_boot_stage_2560` |
@@ -665,8 +665,8 @@ The bench repeats the round with the W5x00, the NOR part and the element on a
 2560; it is the only place the network leg meets a real controller, a real
 network and the W5500.
 The application's refusal of the failed image at `OTA_ACTIVATE`
-(`tfw_boot_trial_activate`, `TFW_ERR_BAD_STATE`) is pinned by `test_boot_trial`
-only, until the command exists.
+(`tfw_boot_trial_activate`, `TFW_ERR_BAD_STATE`) is pinned by `test_boot_trial`;
+the command itself is on the wire at `0x6D`, serial only.
 
 Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
 the stager carrying the envelope and calling the manifest gate;

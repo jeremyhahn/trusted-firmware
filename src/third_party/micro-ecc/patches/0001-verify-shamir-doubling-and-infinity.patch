@@ -1,0 +1,32 @@
+micro-ecc v1.2 (541b3a7): uECC_verify's joint u1*G + u2*Q loop adds with the
+co-Z formula XYcZ_add, which handles neither R == T nor R at infinity, so it
+rejects valid signatures (Wycheproof P-256 SHA-256 tcId 60 and 210). Take the
+identity and the doubling paths. Apply with: patch -p1 in this directory.
+Upstream: open issues kmackay/micro-ecc#141 and #196, no fix in its history.
+
+--- a/uECC.c	2026-10-17 08:54:29.580862462 +0000
++++ b/uECC.c	2026-10-17 08:54:48.910388997 +0000
+@@ -1581,10 +1581,23 @@
+         index = (!!uECC_vli_testBit(u1, i)) | ((!!uECC_vli_testBit(u2, i)) << 1);
+         point = points[index];
+         if (point) {
++            /* R is the point at infinity (Z = 0): R + T = T. */
++            if (uECC_vli_isZero(z, num_words)) {
++                uECC_vli_set(rx, point, num_words);
++                uECC_vli_set(ry, point + num_words, num_words);
++                z[0] = 1;
++                continue;
++            }
+             uECC_vli_set(tx, point, num_words);
+             uECC_vli_set(ty, point + num_words, num_words);
+             apply_z(tx, ty, z, curve);
+             uECC_vli_modSub(tz, rx, tx, curve->p, num_words); /* Z = x2 - x1 */
++            /* R == T: the co-Z addition does not double, so double. (R == -T
++             * needs nothing: tz is 0, so Z becomes 0, the point at infinity.) */
++            if (uECC_vli_isZero(tz, num_words) && uECC_vli_equal(ry, ty, num_words)) {
++                curve->double_jacobian(rx, ry, z, curve);
++                continue;
++            }
+             XYcZ_add(tx, ty, rx, ry, tx, curve);
+             uECC_vli_modMult_fast(z, z, tz, curve);
+         }

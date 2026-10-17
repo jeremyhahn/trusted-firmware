@@ -96,8 +96,8 @@ simulator with exit status 2 and a message naming it; nothing is skipped.
 
 ### The DeviceID test key, and verifying under it
 
-The model does real P-256 (the vendored micro-ecc v1.1,
-`test/third_party/micro-ecc/`), so the evidence **verifies**. `--provision-element`
+The model does real P-256 (the vendored micro-ecc v1.2,
+`src/third_party/micro-ecc/`, the copy tfw-boot's `p256-soft` links), so the evidence **verifies**. `--provision-element`
 installs a deterministic key so a test can pin it:
 
 | | |

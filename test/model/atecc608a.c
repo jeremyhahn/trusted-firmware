@@ -25,8 +25,8 @@
  *
  *  - SHA-256 is a real SHA-256, and HMAC-SHA256 is a real HMAC keyed by the
  *    slot the driver names.
- *  - P-256 is real, through the vendored micro-ecc (test/third_party/micro-ecc,
- *    pinned in MANIFEST.md): the DeviceID key in slot 0 is a real private key
+ *  - P-256 is real, through the vendored micro-ecc (src/third_party/micro-ecc,
+ *    the boot's v1.2, pinned in MANIFEST.md): the DeviceID key in slot 0 is a real private key
  *    with its real public point, Sign is ECDSA over the digest the driver
  *    loaded into TempKey, and Verify in External mode is a real ECDSA
  *    verification. Sign's k is deterministic (micro-ecc's HMAC-DRBG variant of

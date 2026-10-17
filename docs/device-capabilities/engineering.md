@@ -99,12 +99,14 @@ Go SDK (`sdk/go/commands.go`) mirrors this 1:1 as `(*Device)` methods —
   its own divisor and returns `TFW_ERR_RANGE` for anything it cannot represent
   — without it, a rate the generic bound allowed but the register could not
   hold silently ran the bus at a different, wrong speed instead of refusing.
-- **The secure element's wake pulse depends on the SAME TWI peripheral
-  `I2C_CONFIG` reconfigures.** `tfw_atecc_wake()` (element tier) re-asserts
-  `TFW_ATECC_I2C_HZ` (100 kHz) itself before every wake rather than trusting
-  the rate `tfw_bus_init()` left at boot: a host calling `I2C_CONFIG` to
-  anything faster, for an unrelated sensor, would otherwise leave the wake
-  pulse too short and every later element operation failing until reboot.
+- **On an element build, the bus the secure element sits on is
+  platform-reserved, and `I2C_CONFIG` refuses every request with
+  `TFW_ERR_PROTECTED_REGION` (16), checked before either rate bound**
+  (`src/caps/bus.c`, `tfw_i2c_cmd_config`). `tfw_atecc_wake()` needs that
+  same TWI peripheral at `TFW_ATECC_I2C_HZ` (100 kHz) for its wake pulse, so a
+  host cannot move it. `tfw_atecc_wake()` still re-asserts the rate itself
+  before every wake rather than trusting the rate `tfw_bus_init()` left at
+  boot. On a software-tier build `I2C_CONFIG` applies the clock as above.
 - **Boot-time SPI init deasserts the hardware `SS` pin before making it an
   output.** `tfw_hal_spi_init()` now sets `PORTB`'s `SS` bit high before
   `DDRB`'s, so a real device wired to that pin as its chip-select is never

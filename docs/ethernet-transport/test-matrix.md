@@ -377,3 +377,248 @@ changed sources themselves have still not run on this board.
 | 2 | `0x000`–`0x0FF` read again after the flash | **Equal to the read before, byte for byte; not re-provisioned** |
 | 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, after `make tfwsim tfwsim-app-example`, with `GOFLAGS=-json` | Pass: 28 top-level tests passed, none failed, none skipped |
 | 4 | `0x000`–`0x0FF` read again after the suite | Equal to the first read, byte for byte. No byte was changed, so none was restored. The board stays on this image |
+
+## The bench Mega on main 99fee93, 2026-10-17
+
+The same board and the same rules as [the 36f6aab pass](#the-bench-mega-on-main-36f6aab-2026-10-17),
+with the toolchain of [the WIZnet probe](../development/wiznet-probe.md#toolchain)
+unpacked again under the lane's home directory, behind the same `avrdude`
+wrapper. The firmware is main's at 99fee93. Since 36f6aab main has changed 31
+firmware files, among them #133's PREV restore and #134's `OTA_ACTIVATE`,
+`OTA_CONFIRM` and `OTA_INFO` (`0x6C`–`0x6E`).
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft ETH=0` on main 99fee93 | 13672 / 771 bytes, RAM against the 2048-byte gate | `bb0da8960da544c3b9fb8cbbc8a861315fb221ae9263e61d4aaad01ffb451a11` |
+
+The sizes are 36f6aab's, but the `.hex` is not. Four of the 31 changed files
+reach this image: `src/core/dispatch.c`, `src/core/commands.def`,
+`src/caps/sys.c` and `src/hal/avr/hal_eeprom.c`. The OTA sources do not: the
+object directory holds `ota_stage_none.o` and `ota_trial.o`, and no
+`ota_activate.o`, `ota_ctl.o` or `ota_prev.o`. So this pass runs the changed
+dispatch, `sys` and EEPROM code on silicon. #133's PREV restore and #134's
+three OTA commands are still not on this image. [The bench page](../development/bench/mega2560.md)
+names no Ethernet shield, so this pass has no `ETH=1` row.
+
+| # | What ran | Result |
+|---|---|---|
+| — | `0x000`–`0x0FF` read before the flash with `tfwctl eeprom-read`, eight bytes a command, one invocation (and so one reset) a read | Read in full, no error. Kept outside the repository |
+| 1 | The image built and flashed with `make flash` | Pass. avrdude wrote and verified 13672 bytes |
+| 2 | `0x000`–`0x0FF` read again after the flash | **Equal to the read before, byte for byte; not re-provisioned** |
+| 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, after `make tfwsim tfwsim-app-example`, with `GOFLAGS=-json` | Pass: 28 top-level tests passed, none failed, none skipped |
+| 4 | `0x000`–`0x0FF` read again after the suite | Equal to the first read, byte for byte. No byte was changed, so none was restored. The board stays on this image |
+
+## The bench Mega's OTA control plane on main 99fee93, 2026-10-17
+
+The same board, rules and toolchain as [the 99fee93 pass](#the-bench-mega-on-main-99fee93-2026-10-17),
+which found that its image links none of the OTA control plane. This pass
+flashes the 2560 serial image that does, sends it `OTA_INFO`, `OTA_CONFIRM` and
+`OTA_ACTIVATE`, runs the suite on it, and puts the soft image back.
+
+**The image.** `ota_ctl.c` links only where the board has `BOOT_AB` and the
+image stages (`mk/firmware.mk:320`), and a serial image stages only when asked
+(`mk/firmware.mk:230`). On the 2560 (`BOOT_AB := 1`, `boards/atmega2560/profile.mk:67`)
+that is:
+
+```
+make firmware BOARD=atmega2560 CRYPTO=soft ETH=0 OTA_STAGE=1
+```
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft ETH=0 OTA_STAGE=1` on main 99fee93 (`build/atmega2560/soft-stage`) | 16978 / 815 bytes, RAM against the 2048-byte gate | `ce10ffd547ffde756447be8950d72f402d224723cc74e122496f8f900e84cf3d` |
+
+It links `ota_ctl.o`, `ota_activate.o`, `ota_stage.o`, `ota_trial.o`,
+`ota_floor_eeprom.o`, `ota_prev_none.o` and the `spi_nor.o` store driver
+(`OTA_STORE := spi_nor`, `boards/atmega2560/profile.mk:62`). The bench has no
+SPI NOR store and no tfw-boot. Neither stops the image: `tfw_stage_init`
+discards the store's init status (`src/core/ota_stage.c:129`), and the
+application is flashed at `0x00000` through the stock bootloader as the soft
+image is. What the bench lacks decides only which answers can be checked: no
+store means no staged image, and no tfw-boot means no `TRIAL` and no handoff.
+
+**#133's PREV restore cannot run on any 2560 image.** The 2560 falls back to
+its other slot, so every 2560 stager links `ota_prev_none.c`, not `ota_prev.c`
+(`mk/firmware.mk:241`). PREV is the 328P's and the 32U4's, and is not
+testable on this bench board.
+
+`tfwctl` has no `ota-info` or `ota-confirm`, so the commands went through
+`sdk/go`'s `OTAInfo`, `OTAConfirm`, `OTAActivate` and `OTAStatus`, from a
+program kept outside the repository. `OTA_INFO`'s reply against
+[decision 8](../ota/adr-ota-image-format-and-trust.md#8-wire-commands--accepted-status-code-rbac-ethernet-proposed-ids-and-layouts):
+
+| Field | Slot 0 | Slot 1 | Reading |
+|---|---|---|---|
+| `slots` | 2 | 2 | the 2560's A/B |
+| `active` | 0 | 0 | slot A |
+| `flags` | `0x00` | `0x00` | no fallback, no refusal, not in `TRIAL` |
+| `floor` | 0 | 0 | the platform block's floor (`ota_floor_eeprom.c`); nothing has raised it |
+| `state` | 0 | 0 | slot 0: the platform block's boot state, which no tfw-boot has written; slot 1: no `MARK` in a store, so the block's OTA state |
+| `image_version` | 0 | 0 | no staged image |
+| `measurement` | 32 zero bytes | 32 zero bytes | zeroed for slot 0; slot 1 has no `MARK` |
+
+| # | What ran | Result |
+|---|---|---|
+| — | `0x000`–`0x0FF` read on the soft image with `tfwctl eeprom-read`, as before | Read in full, no error. Kept outside the repository |
+| 1 | The image above built and flashed with `make flash ... OTA_STAGE=1` | Pass. avrdude wrote and verified 16978 bytes |
+| 2 | `OTA_INFO` slot 0 and slot 1 | Status 0, 44 bytes each, the table above |
+| 3 | `OTA_INFO` slot 2 | `TFW_ERR_RANGE` (11) |
+| 4 | `OTA_CONFIRM` | `TFW_ERR_BAD_STATE` (19): the documented answer, confirm outside `TRIAL` |
+| 5 | `OTA_ACTIVATE`, mode 0 | `TFW_ERR_BAD_STATE` (19): the documented answer, activate with no verified image |
+| 6 | `OTA_STATUS` | Status 0, idle, 0 bytes received |
+| 7 | `0x000`–`0x0FF` read after the commands | Equal to the first read, byte for byte |
+| 8 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0` on this image, with `GOFLAGS=-json` | Pass: 28 top-level tests passed, none failed, none skipped |
+| 9 | `0x000`–`0x0FF` read after the suite | Equal to the first read, byte for byte |
+| 10 | main 99fee93's `CRYPTO=soft ETH=0` image flashed back with `make flash` | Pass. avrdude wrote and verified 13672 bytes; `caps` answers board `0x02` |
+| 11 | `0x000`–`0x0FF` read after the restore | Equal to the first read, byte for byte. No byte was changed, so none was restored |
+
+Not checked here: an `OTA_ACTIVATE` that succeeds, an `OTA_CONFIRM` in
+`TRIAL`, and `OTA_INFO`'s fallback flags all need a staged image in a store
+and a tfw-boot that runs the trial, and the bench has neither.
+
+[docs/ota/api.md](../ota/api.md#not-on-the-wire) still says the three
+commands are not on the wire and answer `TFW_ERR_UNKNOWN_CMD`. On this image
+they are, and they answer as decision 8 says. That page is out of date.
+
+## The bench Mega's default CRYPTO=auto image on main a3d525d, 2026-10-17
+
+The same board, rules and toolchain as [the 99fee93 passes](#the-bench-mega-on-main-99fee93-2026-10-17).
+Since #135, `CRYPTO=auto` is the 2560's default: the image links both the
+element and the soft provider and picks one at startup from what it finds. No
+probe of the ATECC608C was sent by hand; what is recorded is what the image's
+own startup check chose. The bench has no element fitted on the I²C bus.
+
+```
+make firmware BOARD=atmega2560 CRYPTO=auto ETH=0
+```
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=auto ETH=0` on main a3d525d (`build/atmega2560/auto`) | 19652 / 1029 bytes, RAM against the 2048-byte gate | `4e840f249596b1dcf5576d0fa7b6fd972972429848608c1295a350dfb3be4834` |
+
+`make firmware BOARD=atmega2560 ETH=0`, with no `CRYPTO`, builds the same
+image. It links `src/crypto/auto/provider.o`, both tiers' providers and
+`atecc.o`. It does not stage (`ETH=0`, no `OTA_STAGE=1`), so it links
+`ota_stage_none.o` and no `ota_ctl.o` or `ota_activate.o`.
+
+`tfwctl caps` on this image, field by field:
+
+| Field | Value |
+|---|---|
+| protocol | 2.0 |
+| firmware | 0.1.0 |
+| board id | `0x02` (atmega2560) |
+| pins | 70 |
+| sched slots | 16 |
+| max payload | 64 |
+| root of trust | **software**: the soft tier |
+| features | gpio sched analog pwm tone pulse eeprom i2c spi onewire attest **attest-cert auth attest-csr** |
+| algorithms | hmac-sha256 |
+
+The soft image on main 99fee93 answers the same, except that its features stop
+at `attest`. The auto image chose the soft tier and still lists the element
+tier's `attest-cert`, `auth` and `attest-csr`.
+
+| # | What ran | Result |
+|---|---|---|
+| — | `tfwctl caps` and `0x000`–`0x0FF` read on 99fee93's soft image, as before | Read in full, no error. Kept outside the repository |
+| 1 | The image above flashed with `make flash BOARD=atmega2560 CRYPTO=auto ETH=0` | Pass. avrdude wrote and verified 19652 bytes |
+| 2 | `tfwctl caps` | The table above: root of trust `software` |
+| 3 | `OTA_INFO` slots 0, 1 and 2, `OTA_CONFIRM`, `OTA_ACTIVATE` mode 0, `OTA_STATUS`, through `sdk/go` | All `TFW_ERR_UNKNOWN_CMD` (4). The image links none of the stager or the control plane, and [docs/ota/api.md](../ota/api.md#activate-confirm-and-info) gives 4 for an image without them. Not `TFW_ERR_CRYPTO` (14): with no `ota_ctl.o` no handoff rule is reached |
+| 4 | `0x000`–`0x0FF` read after the commands | Equal to the first read, byte for byte |
+| 5 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, with `GOFLAGS=-json` | **Fail: 27 top-level tests passed, 1 failed, none skipped.** `TestAgainstFirmwareAuthCommandsAreAbsentOnTheSoftTier`: `tfwsim_test.go:241: AuthChallenge err = crypto provider failed, want unknown command` |
+| 6 | `0x000`–`0x0FF` read after the suite | Equal to the first read, byte for byte |
+| 7 | 99fee93's soft `.hex` (`bb0da896…b451a11`) written back through the stock bootloader with `-D` | Pass. avrdude wrote and verified 13672 bytes. `caps` answers as it did before the pass |
+| 8 | `0x000`–`0x0FF` read after the restore | Equal to the first read, byte for byte. No byte was changed, so none was restored |
+
+The failure is recorded, not fixed. On the soft tier the auto image answers
+`AUTH_CHALLENGE` with `TFW_ERR_CRYPTO` (the provider failed) where the suite
+expects the soft image's `TFW_ERR_UNKNOWN_CMD`, and its CAPS advertises `auth`.
+Which of the image or the suite's soft-tier rule is right for an auto image
+that fell back to soft is open.
+
+The note above that `docs/ota/api.md` is out of date was true at 99fee93;
+a3d525d's page (#136) documents the three commands.
+
+## The bench Mega's CRYPTO=auto image with the OTA stager on main a3d525d, 2026-10-17
+
+The same board, rules and toolchain as [the default auto pass](#the-bench-megas-default-cryptoauto-image-on-main-a3d525d-2026-10-17).
+That pass found the default image links no `ota_ctl.o`. `OTA_STAGE=1` is the
+variable that links it on a serial image: a serial image stages only when asked
+(`mk/firmware.mk:237`), and the control plane links where `BOOT_AB` and
+`OTA_STAGE` are both 1 (`mk/firmware.mk:327`). No probe of the ATECC608C was
+sent by hand, and no suite was run this pass.
+
+```
+make firmware BOARD=atmega2560 CRYPTO=auto ETH=0 OTA_STAGE=1
+```
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=auto ETH=0 OTA_STAGE=1` on main a3d525d (`build/atmega2560/auto-stage`) | 23278 / 1073 bytes, RAM against the 2048-byte gate | `e46935553bf682a9d11639cca3e4a6852ae7159eb30cb2e1f7eacd74671a86a5` |
+
+It links `ota_ctl.o`, `ota_activate.o`, `ota_stage.o`, `ota_trial.o`,
+`ota_prev_none.o`, `spi_nor.o`, and all three floors: `ota_floor_auto.o`,
+`ota_floor_atecc.o` and `ota_floor_eeprom.o`.
+
+CAPS on this image: root of trust **software**; features `gpio sched analog pwm
+tone pulse eeprom i2c spi onewire attest attest-cert auth attest-csr`, the same
+as the default auto image.
+
+| # | What ran | Result |
+|---|---|---|
+| — | `tfwctl caps` and `0x000`–`0x0FF` read on 99fee93's soft image | Read in full, no error. Kept outside the repository |
+| 1 | The image above flashed with `make flash ... OTA_STAGE=1` | Pass. avrdude wrote and verified 23278 bytes |
+| 2 | `tfwctl caps` | Root of trust `software`, features as above |
+| 3 | `OTA_INFO` slot 0 and slot 1, through `sdk/go` | `TFW_ERR_CRYPTO` (14) for both. That is the auto floor's rule: with no handoff there is no tier to take the floor from (`src/core/ota_floor_auto.c:12`, `:34`). [docs/ota/api.md](../ota/api.md#activate-confirm-and-info) lists no 14 for `OTA_INFO` (its table, `api.md:84`, has only `TFW_ERR_RANGE`) |
+| 4 | `OTA_INFO` slot 2 | `TFW_ERR_RANGE` (11), as `api.md:84` says |
+| 5 | `OTA_STATUS` | Status 0, idle, 0 bytes received (`api.md:25`) |
+| 6 | `OTA_ACTIVATE`, mode 0 | `TFW_ERR_BAD_STATE` (19): no image is complete, as `api.md:87` says. Not `TFW_ERR_AUTH_REQUIRED` (17): the image runs the soft tier (`api.md:86`) |
+| 7 | `OTA_CONFIRM` | `TFW_ERR_BAD_STATE` (19): no trial is running and no handoff, as `api.md:88` says |
+| 8 | `0x000`–`0x0FF` read after the commands | Equal to the first read, byte for byte |
+| 9 | 99fee93's soft `.hex` (`bb0da896…b451a11`) written back through the stock bootloader with `-D` | Pass. avrdude wrote and verified 13672 bytes. `caps` answers exactly as before the pass |
+| 10 | `0x000`–`0x0FF` read after the restore | Equal to the first read, byte for byte. No byte was changed, so none was restored |
+
+The one answer the API page does not document is `OTA_INFO`'s
+`TFW_ERR_CRYPTO` on an auto image with no handoff. The code says it on purpose;
+the page's status table is short of that row.
+
+## The bench Mega over Ethernet on main a3d525d, 2026-10-17
+
+The same board, rules and toolchain as [the auto passes](#the-bench-megas-default-cryptoauto-image-on-main-a3d525d-2026-10-17).
+Since #135 the 2560's default `CRYPTO` is `auto`, and `ETH=1` is its default
+since item 48, so the line [the 36f6aab pass](#the-bench-mega-on-main-36f6aab-2026-10-17)
+gave for the W5100 image, minus its `CRYPTO=`, is:
+
+```
+make firmware BOARD=atmega2560
+```
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560` (`CRYPTO=auto ETH=1`, W5100) on main a3d525d (`build/atmega2560/auto-eth-w5100`) | 25224 / 1093 bytes, RAM against the 2048-byte gate | `865d56c267f566baafdd9ed70cc43ef4cc267c25058ce7c31a91dd41d293365d` |
+
+It links `w5100.o`, `w5x00.o`, `netcfg.o`, and, since an Ethernet image stages
+by default, the stager and `ota_ctl.o`.
+
+**This board has no Ethernet shield.** [The bench page](../development/bench/mega2560.md)
+names none, and [the matrix](#matrix) gives the bench Mega the serial-only
+row. The 36f6aab pass built the W5100 image and did not flash it; it is not an
+Ethernet run.
+The lane that ran this pass also has no route to the bench network. Items 3 to
+7 need the link and did not run. This pass flashed the Ethernet image on the
+shieldless board and ran items 1 and 2 only.
+
+| Item | What ran | Result |
+|---|---|---|
+| — | `tfwctl caps` and `0x000`–`0x0FF` read on 99fee93's soft image | Read in full, no error. Kept outside the repository |
+| 1 | The image above built, size-checked and flashed with `make flash BOARD=atmega2560 PORT=/dev/ttyACM0` | Pass. avrdude wrote and verified 25224 bytes |
+| 2 | `tfwctl caps`, then `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, with `GOFLAGS=-json` | CAPS: root of trust `software`; features `gpio sched analog pwm tone pulse eeprom i2c spi onewire attest attest-cert auth attest-csr`. **Suite: 27 top-level tests passed, 1 failed, none skipped.** `TestAgainstFirmwareAuthCommandsAreAbsentOnTheSoftTier`: `tfwsim_test.go:241: AuthChallenge err = crypto provider failed, want unknown command`, the same failure as on the serial auto image |
+| 3 | The Ethernet link with a static address | Not run: no shield, no route |
+| 4 | TCP to `198.51.100.1` | Not run: no shield, no route |
+| 5 | Attestation commands over TCP | Not run over TCP. Item 5 expects `ATTEST_CERT` and `ATTEST_CSR` to answer "unknown command" on the software tier. On this auto image CAPS lists `attest-cert`, `auth` and `attest-csr` on the software tier, and over serial `AUTH_CHALLENGE` answers `TFW_ERR_CRYPTO`, so item 5's text does not hold for an auto image as it stands. The expected text is left unchanged |
+| 6 | The off-allow-list refusal over TCP | Not run: no shield, no route |
+| 7 | The same identity after a reset, over TCP | Not run: no shield, no route |
+| — | `0x000`–`0x0FF` read after the flash and after the suite | Equal to the first read, byte for byte |
+| — | 99fee93's soft `.hex` (`bb0da896…b451a11`) written back through the stock bootloader with `-D` | Pass. avrdude wrote and verified 13672 bytes. `caps` answers exactly as before the pass |
+| — | `0x000`–`0x0FF` read after the restore | Equal to the first read, byte for byte. No byte was changed, so none was restored |

@@ -84,8 +84,9 @@ COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 # object outlives one invocation, so an object built with the sanitizer or
 # coverage flags of `test-asan` / `coverage` would be linked into the next,
 # plain build and fail there. The link still carries the flags. Only secp256r1 is selected, on the command line
-# rather than by editing a vendored header.
-UECC_DIR    := test/third_party/micro-ecc
+# rather than by editing a vendored header. The copy is the boot's v1.2 (#130), one
+# for both; this is the model's own -D set, and the boot's UECC_DEFS are untouched.
+UECC_DIR    := src/third_party/micro-ecc
 UECC_CFLAGS := -std=c11 -g -O1 -I$(UECC_DIR) \
                -DuECC_SUPPORTS_secp160r1=0 -DuECC_SUPPORTS_secp192r1=0 \
                -DuECC_SUPPORTS_secp224r1=0 -DuECC_SUPPORTS_secp256k1=0
@@ -197,12 +198,16 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
 
 # CRYPTO=auto's dispatch (issue #130) against the software element, both
 # providers renamed by mk/firmware.mk's CRYPTO_RENAME exactly as the image's are.
+# The renamed provider and floor objects are, like unity.o, WITHOUT
+# $(EXTRA_CFLAGS): the object outlives one invocation, so one built by
+# `test-asan` / `coverage` would be linked into the next, plain build and fail
+# there. The link still carries the flags.
 $(HOST_DIR)/crypto_auto_%.o: | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) $(call CRYPTO_RENAME,$*) -c -o $@ $<
+	@$(HOST_CC) $(HOST_CFLAGS) $(MODEL_INC) $(call CRYPTO_RENAME,$*) -c -o $@ $<
 $(HOST_DIR)/crypto_auto_soft.o: src/crypto/soft/provider.c
 $(HOST_DIR)/crypto_auto_element.o: src/crypto/atecc608a/provider.c
 $(HOST_DIR)/floor_auto_%.o: | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) $(call FLOOR_RENAME,$*) -c -o $@ $<
+	@$(HOST_CC) $(HOST_CFLAGS) $(MODEL_INC) $(call FLOOR_RENAME,$*) -c -o $@ $<
 $(HOST_DIR)/floor_auto_soft.o: src/core/ota_floor_eeprom.c
 $(HOST_DIR)/floor_auto_element.o: src/core/ota_floor_atecc.c
 $(HOST_DIR)/test_crypto_auto: test/unit/test_crypto_auto.c $(ELEMENT_MODEL) \
@@ -744,6 +749,44 @@ $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_at
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
+# CRYPTO=auto (issue #130), the Mega's default tier: the element when one
+# answers, else the soft root, linked as mk/firmware.mk links the image -- both
+# providers, both floors and the element's auth session renamed, behind the
+# dispatcher, the auto floor and the auto gate. The bus is the element model,
+# as in tfwsim-atecc608a, with that tier's options; --no-element takes the part
+# off the bus, so one binary probes either way at startup as the board does.
+# The renamed objects have their own directory, built with the element
+# overlay profile and the stage defines the link uses, and, like unity.o,
+# WITHOUT $(EXTRA_CFLAGS): they outlive one invocation.
+TFWSIM_AUTO_DIR  := $(HOST_DIR)/tfwsim-auto.o
+TFWSIM_AUTO_OBJS := $(TFWSIM_AUTO_DIR)/crypto_soft.o $(TFWSIM_AUTO_DIR)/crypto_element.o \
+                    $(TFWSIM_AUTO_DIR)/floor_soft.o $(TFWSIM_AUTO_DIR)/floor_element.o \
+                    $(TFWSIM_AUTO_DIR)/auth_element.o
+TFWSIM_AUTO_SRCS := $(filter-out src/crypto/atecc608a/provider.c src/core/auth_session.c \
+                                 src/core/ota_floor_atecc.c,$(TFWSIM_ELEMENT_SRCS)) \
+                    src/crypto/auto/provider.c src/core/auth_session_auto.c \
+                    src/core/ota_floor_auto.c test/mock/uds_mock.c
+TFWSIM_AUTO_CC   = @mkdir -p $(TFWSIM_AUTO_DIR) && $(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) \
+                   $(TFWSIM_STAGE_DEFS) -Itools/tfwsim $(MODEL_INC)
+$(TFWSIM_AUTO_DIR)/crypto_%.o:
+	$(TFWSIM_AUTO_CC) $(call CRYPTO_RENAME,$*) -c -o $@ $<
+$(TFWSIM_AUTO_DIR)/crypto_soft.o: src/crypto/soft/provider.c
+$(TFWSIM_AUTO_DIR)/crypto_element.o: src/crypto/atecc608a/provider.c
+$(TFWSIM_AUTO_DIR)/floor_%.o:
+	$(TFWSIM_AUTO_CC) $(call FLOOR_RENAME,$*) -c -o $@ $<
+$(TFWSIM_AUTO_DIR)/floor_soft.o: src/core/ota_floor_eeprom.c
+$(TFWSIM_AUTO_DIR)/floor_element.o: src/core/ota_floor_atecc.c
+$(TFWSIM_AUTO_DIR)/auth_element.o: src/core/auth_session.c
+	$(TFWSIM_AUTO_CC) $(AUTH_RENAME) -c -o $@ $<
+
+## tfwsim-auto: build the CRYPTO=auto simulator (element if it answers, else soft; --no-element)
+tfwsim-auto: $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX)
+$(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) \
+	   -Itools/tfwsim $(MODEL_INC) -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
 clean-host:
 	@rm -rf $(HOST_DIR)
 
@@ -752,7 +795,7 @@ clean-host:
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a lint \
+.PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a tfwsim-auto lint \
         lint-arch-leak lint-arch-leak-selftest
 
 # ---------------------------------------------------------------- board sweep

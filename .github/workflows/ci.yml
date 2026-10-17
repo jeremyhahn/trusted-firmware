@@ -456,7 +456,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Build tfwsim
-        run: make tfwsim tfwsim-atecc608a tfwsim-app-example
+        run: make tfwsim tfwsim-atecc608a tfwsim-app-example tfwsim-auto
 
       # Three steps: run, classify, gate coverage. A failing package contributes
       # no coverage, so a single combined step would report one flaky test as

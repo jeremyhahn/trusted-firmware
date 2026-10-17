@@ -282,7 +282,7 @@ jobs:
   # run on one daemon never build into, or remove, each other's image.
   image-toolchain:
     name: Devcontainer image [build, test]
-    runs-on: ubuntu-latest
+    runs-on: bigdisk
     # At most 55 min cold build + 1 (build) + 12.5 (test) = 68.5, plus margin.
     timeout-minutes: 80
     env:
@@ -322,7 +322,7 @@ jobs:
 
   image-security:
     name: Devcontainer image [security, deps-check, trivy image]
-    runs-on: ubuntu-latest
+    runs-on: bigdisk
     # At most 55 min cold build + 11 (security) + 0.3 (deps-check) + ~5 (trivy
     # image: database fetch and scan) = 71.3, plus margin.
     timeout-minutes: 85
@@ -382,7 +382,7 @@ jobs:
 
   image-esp32:
     name: Devcontainer image [esp32 build, esp32 qemu]
-    runs-on: ubuntu-latest
+    runs-on: bigdisk
     # At most 55 min cold build + 3 (esp32-build) + esp32-qemu-test (past 6 min when
     # run 55218 was cut off; 15 allowed) = 73, plus margin.
     timeout-minutes: 90

@@ -8,8 +8,11 @@
 # The image is the devcontainer, build/docker/devcontainer/Dockerfile (handbook
 # devcontainer.md §1, §6): its `toolchain` stage runs build, test, security and
 # deps-check, its `integration` stage the integration suite, its `esp32` stage
-# the ESP-IDF build and the QEMU test. The ci.yml `image` job builds all three
-# with `make docker-build` and runs each stage through
+# the ESP-IDF build and the QEMU test. `make docker-build` builds all three.
+# CI splits them over three parallel jobs, each building only the images it
+# runs: `image-toolchain` (docker-build-toolchain), `image-security`
+# (docker-build-toolchain and docker-build-it, for the trivy scan) and
+# `image-esp32` (docker-build-esp32), each stage through
 # scripts/in-toolchain-image.sh; the `integration` job runs `make
 # integration-test` (mk/stages.mk).
 
@@ -64,10 +67,16 @@ esp32-image:
 	@echo $(ESP32_IMAGE)
 
 ## docker-build: build the toolchain, integration and esp32 images
-docker-build: docker-build-it
+docker-build: docker-build-it docker-build-toolchain docker-build-esp32
+
+## docker-build-toolchain: build the toolchain image (TOOLCHAIN_IMAGE)
+docker-build-toolchain:
 	@$(DOCKER_BUILD) --target toolchain -t $(TOOLCHAIN_IMAGE) .
-	@$(DOCKER_BUILD) --target esp32 -t $(ESP32_IMAGE) .
 	@$(DOCKER) run --rm $(TOOLCHAIN_IMAGE) cat /etc/ci-toolchain.txt
+
+## docker-build-esp32: build the esp32 image (ESP32_IMAGE)
+docker-build-esp32:
+	@$(DOCKER_BUILD) --target esp32 -t $(ESP32_IMAGE) .
 
 ## docker-build-it: build the integration image (IT_IMAGE), the source baked in
 docker-build-it:
@@ -85,4 +94,4 @@ docker-ci:
 docker-firmware:
 	@$(DOCKER) run --rm $(DOCKER_USER) $(DOCKER_ENV) -v "$(CURDIR)":/src $(TOOLCHAIN_IMAGE) make firmware BOARD=$(BOARD)
 
-.PHONY: toolchain-image esp32-image docker-build docker-build-it docker-run docker-ci docker-firmware
+.PHONY: toolchain-image esp32-image docker-build docker-build-toolchain docker-build-esp32 docker-build-it docker-run docker-ci docker-firmware

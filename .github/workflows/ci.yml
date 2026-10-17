@@ -13,7 +13,8 @@
 # Two tiers (#293; handbook sdlc.md §5a, devops.md §1/§5):
 #
 #   PR tier    every run. lint, security, build, test, cross-arch, modules,
-#              image (the AVR firmware, sanitizers and ESP32 QEMU stages).
+#              image-toolchain, image-security, image-esp32 (the AVR
+#              firmware, sanitizers, scans and ESP32 QEMU stages).
 #   Full tier  push to main, workflow_dispatch, or a pull_request carrying
 #              the label `ci:full`, which takes effect on the next push,
 #              update-branch or workflow_dispatch. integration.
@@ -63,7 +64,7 @@ env:
   # CUSTOMIZE: sdk/go's measured floor, below the template's 90. The total is
   # 59.7% under this job's command (unit tests and the tfwsim cross-
   # implementation suite); raising it to 90 is tracked debt, not a waiver. The
-  # C firmware's floor is `make coverage`'s, in the image job.
+  # C firmware's floor is `make coverage`'s, in the image-toolchain job.
   COVERAGE_THRESHOLD: 59
   # Modules resolve from tags, never from a workspace. A stray go.work in the
   # tree would silently change what every job compiles (the Makefile and
@@ -257,28 +258,35 @@ jobs:
           (cd xkms && govulncheck -tags codec_json ./...) || rc=1
           exit $rc
 
-  # CUSTOMIZE (ci-template v1.18, image job): builds the devcontainer images
-  # from build/docker/devcontainer/Dockerfile at this commit, runs the
-  # toolchain stages in the toolchain image (handbook ci-standard.md §1-§2),
-  # and gates the integration image with trivy image. The checkout is copied
-  # into each toolchain container (scripts/in-toolchain-image.sh): the daemon
-  # is reached through a socket, so a bind mount would resolve on its host.
-  # make security and make deps-check get a network, for the vulnerability
-  # databases and the module proxy; build and test run without one. The scan
-  # is a gate only: nothing is uploaded to code scanning. trusted-firmware:
-  # build and test are the AVR firmware matrix, simavr-free host suites,
-  # sanitizers and coverage (mk/stages.mk); the esp32 image builds the
-  # ESP32-P4 firmware and runs it under Espressif's QEMU.
-  image:
-    name: Devcontainer image [build, test, security, deps-check, esp32 qemu, trivy image]
+  # CUSTOMIZE (ci-template v1.18, image jobs): the devcontainer images from
+  # build/docker/devcontainer/Dockerfile at this commit, split over three jobs
+  # that start at once, each building only the images it runs:
+  #   image-toolchain  make build, make test           (toolchain image)
+  #   image-security   make security, make deps-check  (toolchain image)
+  #                    and trivy image                 (integration image)
+  #   image-esp32      make esp32-build, esp32-qemu-test (esp32 image)
+  # One job ran all of it in series and missed its 90 minutes on a cold
+  # BuildKit cache (run 55218: a 55-minute build of the three images, then
+  # 34 minutes of stages, cut off in esp32-qemu-test). Each job's timeout is
+  # the whole cold build of all three images (55 min, an upper bound on any
+  # one of them) plus its own stages plus margin. The toolchain stages run in
+  # the toolchain image (handbook ci-standard.md §1-§2) with the checkout
+  # copied in (scripts/in-toolchain-image.sh): the daemon is reached through a
+  # socket, so a bind mount would resolve on its host. make security and make
+  # deps-check get a network, for the vulnerability databases and the module
+  # proxy; build and test run without one. The scan is a gate only: nothing is
+  # uploaded to code scanning. trusted-firmware: build and test are the AVR
+  # firmware matrix, simavr-free host suites, sanitizers and coverage
+  # (mk/stages.mk); the esp32 image builds the ESP32-P4 firmware and runs it
+  # under Espressif's QEMU. The image tags carry the job, so two jobs of one
+  # run on one daemon never build into, or remove, each other's image.
+  image-toolchain:
+    name: Devcontainer image [build, test]
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # At most 55 min cold build + 1 (build) + 12.5 (test) = 68.5, plus margin.
+    timeout-minutes: 80
     env:
-      IT_IMAGE: trusted-firmware-ci-it:${{ github.run_id }}-${{ github.run_attempt }}-image
-      # The toolchain and esp32 image tags (mk/docker.mk), unique per run as
-      # IT_IMAGE is: by commit alone, two runs of one commit would build, use and
-      # remove each other's images.
-      TOOLCHAIN_TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}
+      TOOLCHAIN_TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}-toolchain
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -295,17 +303,53 @@ jobs:
             if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
           done
 
-      - name: Build the toolchain, integration and esp32 images
+      - name: Build the toolchain image
         run: |
-          make docker-build MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_IMAGE="$IT_IMAGE"
+          make docker-build-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
-          echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
 
       - name: make build (toolchain image)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make build
 
       - name: make test (toolchain image)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make test
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          docker image rm "${TOOLCHAIN_IMAGE:-}" 2>/dev/null || true
+
+  image-security:
+    name: Devcontainer image [security, deps-check, trivy image]
+    runs-on: ubuntu-latest
+    # At most 55 min cold build + 11 (security) + 0.3 (deps-check) + ~5 (trivy
+    # image: database fetch and scan) = 71.3, plus margin.
+    timeout-minutes: 85
+    env:
+      IT_IMAGE: trusted-firmware-ci-it:${{ github.run_id }}-${{ github.run_attempt }}-image
+      TOOLCHAIN_TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}-security
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Reap stale CI stacks
+        run: scripts/reap-stale-ci-stacks.sh trusted-firmware-ci-
+
+      # As in the integration job: the forge credentials reach the build only
+      # as the gomodauth BuildKit secret, from a file outside the context.
+      - name: Write the module credential file
+        run: |
+          umask 077
+          : > "$RUNNER_TEMP/gomodauth.env"
+          for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+          done
+
+      # trivy runs from the toolchain image, so this job builds both.
+      - name: Build the toolchain and integration images
+        run: |
+          make docker-build-it docker-build-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_IMAGE="$IT_IMAGE"
+          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       - name: make security (toolchain image)
         env:
@@ -316,12 +360,6 @@ jobs:
         env:
           IN_IMAGE_NETWORK: bridge
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make deps-check
-
-      - name: make esp32-build (esp32 image)
-        run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-build BOARD=esp32p4-poe
-
-      - name: make esp32-qemu-test (esp32 image)
-        run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-qemu-test
 
       - name: trivy image (integration image)
         env:
@@ -340,7 +378,48 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/gomodauth.env" it-image.tar
           docker image rm "$IT_IMAGE" || true
-          docker image rm "${TOOLCHAIN_IMAGE:-}" "${ESP32_IMAGE:-}" 2>/dev/null || true
+          docker image rm "${TOOLCHAIN_IMAGE:-}" 2>/dev/null || true
+
+  image-esp32:
+    name: Devcontainer image [esp32 build, esp32 qemu]
+    runs-on: ubuntu-latest
+    # At most 55 min cold build + 3 (esp32-build) + esp32-qemu-test (past 6 min when
+    # run 55218 was cut off; 15 allowed) = 73, plus margin.
+    timeout-minutes: 90
+    env:
+      TOOLCHAIN_TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}-esp32
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Reap stale CI stacks
+        run: scripts/reap-stale-ci-stacks.sh trusted-firmware-ci-
+
+      # As in the integration job: the forge credentials reach the build only
+      # as the gomodauth BuildKit secret, from a file outside the context.
+      - name: Write the module credential file
+        run: |
+          umask 077
+          : > "$RUNNER_TEMP/gomodauth.env"
+          for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+          done
+
+      - name: Build the esp32 image
+        run: |
+          make docker-build-esp32 MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
+
+      - name: make esp32-build (esp32 image)
+        run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-build BOARD=esp32p4-poe
+
+      - name: make esp32-qemu-test (esp32 image)
+        run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-qemu-test
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          docker image rm "${ESP32_IMAGE:-}" 2>/dev/null || true
 
   build:
     name: Build
@@ -363,7 +442,7 @@ jobs:
 
   # CUSTOMIZE: sdk/go's suite, the Go unit tests and the cross-implementation
   # suite against tfwsim (the real firmware compiled for the host) together.
-  # The C suites run in the image job's `make test`.
+  # The C suites run in the image-toolchain job's `make test`.
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -684,7 +763,7 @@ jobs:
     name: CI Gate
     runs-on: ci-gate
     if: always()
-    needs: [lint, security, build, test, integration, modules, cross-arch, image, arch-gates]
+    needs: [lint, security, build, test, integration, modules, cross-arch, image-toolchain, image-security, image-esp32, arch-gates]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -709,7 +788,9 @@ jobs:
           check test              "${{ needs.test.result }}" pr
           check modules           "${{ needs.modules.result }}" pr
           check cross-arch        "${{ needs.cross-arch.result }}" pr
-          check image             "${{ needs.image.result }}" pr
+          check image-toolchain   "${{ needs.image-toolchain.result }}" pr
+          check image-security    "${{ needs.image-security.result }}" pr
+          check image-esp32       "${{ needs.image-esp32.result }}" pr
           check arch-gates        "${{ needs.arch-gates.result }}" pr
           check integration       "${{ needs.integration.result }}" full
           exit $BAD

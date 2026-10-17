@@ -45,7 +45,7 @@ endef
 # so the flash budgets are build gates; platform-bake-build-check holds the bake
 # image's flash ceiling. header-deps-check is here because it is about what
 # gets built: a header edit rebuilding what includes it. CI runs firmware-matrix
-# itself, in the image job, so there is no workflow matrix to keep in step.
+# itself, in the image-toolchain job, so there is no workflow matrix to keep in step.
 build: build-tools firmware-matrix bootloader-check sdk-build tfwsim tfwsim-atecc608a \
        tfwsim-app-example reproducible-check provenance app-firmware-check \
        platform-bake-no-link-check platform-bake-build-check header-deps-check
@@ -164,7 +164,7 @@ secrets-scan:
 	@echo "secrets-scan: no secret in the tree"
 
 ## trivy-image: build and scan the integration image (needs docker; devops.md §8)
-# CI's `image` job runs the same scan on the image it builds at the commit under
+# CI's `image-security` job runs the same scan on the image it builds at the commit under
 # test. TRIVY_IMAGE_FLAGS are that step's flags, word for word (the CUSTOMIZE
 # block in .github/workflows/ci.yml): exclusions live there, in the template
 # form, never in a .trivyignore (CA m269). Change both together.

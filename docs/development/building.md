@@ -64,9 +64,10 @@ image. `xkms/` is in the stages, so `make ci` needs go-xkms: in the image it is
 in the module cache, elsewhere it needs the forge credentials.
 
 CI (`.github/workflows/ci.yml`, the fleet template) runs the Go jobs (lint,
-security, build, test, modules, cross-arch) on the runner, the `image` job's
-build, test, security, deps-check, ESP32 and trivy image steps in the
-devcontainer, and `integration` (full tier: push, dispatch or the `ci:full`
+security, build, test, modules, cross-arch) on the runner; in the
+devcontainer, three image jobs that start at once, `image-toolchain` (build,
+test), `image-security` (security, deps-check, trivy image) and `image-esp32`
+(ESP32 build and QEMU test); and `integration` (full tier: push, dispatch or the `ci:full`
 label, which takes effect on the next push, update-branch or
 workflow_dispatch) under compose. `CI Gate` is the one required check.
 
@@ -167,7 +168,7 @@ runs and the three values are ignored. They are declared in
 stops the build at configure time. With a static address no DHCP client runs.
 
 Neither target is in `make ci`, and the toolchain image carries no ESP-IDF; CI's
-`image` job runs them in the devcontainer's `esp32` stage, which has it. Both refuse any toolchain but the pins in
+`image-esp32` job runs them in the devcontainer's `esp32` stage, which has it. Both refuse any toolchain but the pins in
 [`adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integration.md#toolchain-pins)
 (`mk/arch/esp32.mk`). The install goes outside the clone, under `$HOME`. These
 are the steps that worked on Debian 13 without root:

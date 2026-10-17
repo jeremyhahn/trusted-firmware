@@ -147,7 +147,8 @@ boot:        PENDING: verify the store copy, copy it into the secondary slot,
                ─ok─► TRIAL, arm the watchdog ─jump─►
                ─refused─► swap back, FAILED, evaluate and boot the previous image
 application: init OK, tfw_app_after_update OK ─► connect, attest, wait
-             ─OTA_CONFIRM─► CONFIRMED          (deadline expired ─► reset)
+             ─OTA_CONFIRM─► CONFIRMED, signature recorded; the deadline
+             still runs (deadline expired ─► reset, confirmed or not)
 boot:        TRIAL at reset ─► swap back, FAILED, flags: fell back
              CONFIRMED at reset ─► floor := version, GOOD, then anything PENDING
 ```
@@ -172,6 +173,45 @@ boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
   same order: trailer, board id, floor, measurement, signature. That includes
   the restored or swapped-back fallback. The application's gate saves a reboot
   into a refusal; it is not a security boundary.
+- **Authorization** (CA m502 item 2, 2026-10-17, #137; design, code in
+  slice 2). `OTA_ACTIVATE` and `OTA_CONFIRM` carry a COSE_Sign1 ES256 signature
+  by the row key ([api.md](api.md), "Authorization by the row key"), and
+  tfw-boot checks it at the next reset, option (ii), with the verifier and key
+  that check the image. The application writes the activate signature into the
+  store beside the `MARK`, and the confirm signature into the confirm request
+  in EEPROM, which grows by 64 bytes (the address is slice 2's, with the EEPROM
+  map follow-up #125). tfw-boot rebuilds the payload from the trailer and the
+  floor; a `MARK` whose signature fails is cleared and reported `FAILED`, as a
+  refused image is, and a confirm request whose signature fails is no confirm,
+  so the trial rolls back.
+- **The confirm keeps the trial deadline** (PR #139 review, P1). An
+  application that cannot verify the confirm signature itself must not end the
+  trial on it: `OTA_AUTH` takes any 64 bytes, so a confirm that stopped the
+  deadline would let an unauthenticated client keep an unattested image running
+  for ever. Under option (ii) no row's application verifies (the element tier's
+  verify is tfw-boot's call into the element too), so on every row `OTA_CONFIRM`
+  records the signature in the confirm request and does **not** stop the
+  deadline; slice 2 drops the `tfw_ota_trial_stop` call from the confirm
+  handler. `tfw_ota_trial_poll` goes on as in any trial: it pets the watchdog
+  until the deadline and then stops, and the watchdog resets into tfw-boot
+  within one 8 s period. The trial therefore ends in a reset either way, the
+  deadline's or an earlier `RESET` from the control plane, and that boot
+  verifies the recorded confirmation: valid, the image is `CONFIRMED` and
+  settles to `GOOD`; invalid or absent, it falls back as an unconfirmed trial.
+  A row whose application verified the signature before recording it could stop
+  the deadline at the confirm, as the pre-#137 handler does; no row does today.
+- Option (i), the application verifying at the
+  command, was refused: the soft provider has no application verifier
+  (`src/crypto/soft/provider.c:258`), linking micro-ecc into the application
+  costs kilobytes on the 4 KB parts, and a confirm verify at UECC_OPT 0 cannot
+  finish inside the 60 s trial deadline (`TFW_OTA_TRIAL_TIMEOUT_S`). The cost of
+  (ii), all estimates (the lane image has no AVR toolchain; slice 2 measures):
+
+  | Row | Boot flash | Fits | Time at the settling boot |
+  |---|---|---|---|
+  | 2560 soft base (UECC_OPT 0) | about 250 B: the Sig_structure prefix, the payload encoding, one SHA-256 and verify call, the signature read | only once item 79's soft base is engineered to fit 8192 B; it does not link today (`docs/development/isp-route.md:195`) | one more P-256 verify, about 303 s more, so about 606 s at the activation boot and 303 s more at the confirm-settling boot; every other boot unchanged |
+  | 2560 element tier | about 200 B; the verify is the element's | 8192 B: yes on the supported row (`docs/development/isp-route.md:216`, 7832 B) | tens of ms |
+  | 328P and 32U4, 4 KB boot (trailer-only) | about 250 B | not established; the 328P soft row is on owner hold (m467) | as the 2560 at the same UECC_OPT |
 - **One trial.** The trial state is written before the jump, so any reset in
   it, whether the deadline, the watchdog, a crash or a power cut, rolls back.
   There is no attempt counter. The same image is not activated again: at a

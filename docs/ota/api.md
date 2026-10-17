@@ -76,8 +76,11 @@ holds a `MARK`; otherwise the OTA state (0 idle, 1 receiving, 2 verified,
 `OTA_ACTIVATE` (`src/core/ota_activate.c`) re-reads and re-verifies the image
 `OTA_END` verified and writes `MARK`; mode 1 then resets the device after the
 reply. `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
-running image, bound to its measurement, and stops the trial deadline;
-tfw-boot settles it at the next reset.
+running image, bound to its measurement. Before #137 slice 2 it also stops the
+trial deadline; from slice 2 it records the held confirm signature and leaves
+the deadline running, so the trial ends in a reset either way, and tfw-boot
+verifies the signature and settles it at that reset
+([architecture.md](architecture.md), "The confirm keeps the trial deadline").
 
 | Command | Status | When |
 |---|---|---|
@@ -85,12 +88,94 @@ tfw-boot settles it at the next reset.
 | `OTA_INFO` | `TFW_ERR_CRYPTO` (14) | the floor in force cannot be read: on an element image (`CRYPTO=atecc608a`), the element does not wake or its boot counter cannot be read; on a `CRYPTO=auto` image, the handoff's tier is neither the element nor software, or it is the element and the element does not wake or its counter cannot be read. An image with any other `CRYPTO` reports the platform block's floor and never answers it |
 | `OTA_INFO` | `TFW_ERR_BAD_STATE` (19) | on a `CRYPTO=auto` image, no running image was handed off by tfw-boot |
 | `OTA_ACTIVATE` | `TFW_ERR_RANGE` (11) | `mode` is above 1 |
-| `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | on the element tier, outside an operator auth session |
+| `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | on the element tier, outside an operator auth session; on every tier (#137, slice 2), when no `OTA_AUTH` immediately precedes it |
 | `OTA_ACTIVATE` | `TFW_ERR_BAD_STATE` (19) | a trial is running or confirmed and not yet settled; no image is complete; or the staged image no longer hashes to the one `OTA_END` verified |
 | `OTA_CONFIRM` | `TFW_ERR_BAD_STATE` (19) | no trial is running, or no running image was handed off by tfw-boot |
 | any | `TFW_ERR_BAD_ARGC` (5) | the payload length is wrong for the command |
 
 A store or EEPROM failure returns the driver's status.
+
+### Authorization by the row key (#137, design; code in slice 2)
+
+CA m502 item 2, 2026-10-17, option (a) of #137. On the soft tier anyone on the
+wire could activate a verified staged image and confirm a running trial: the
+gate passes with no session (`src/core/auth_session_none.c`,
+`src/core/auth_session_auto.c`) before `tfw_otactl_cmd_activate`
+(`src/core/ota_activate.c:41`) and `tfw_otactl_cmd_confirm`
+(`src/core/ota_ctl.c:113`). From slice 2 each command needs an authorization
+that tfw-boot checks with the row's verification key, the key that verifies the
+staged image. One gate on every tier, with no session, no nonce and no TRNG.
+
+**What is signed.** A COSE_Sign1 (RFC 9052 §4.2) with ES256 (RFC 9053 §2.1),
+the protected header `h'A10126'` the SUIT manifest already uses, no external
+AAD, and a detached payload (RFC 9052 §2: the payload is `nil` on the wire and
+the device rebuilds it from what it already holds). The device sends the
+64-byte `r||s` only. The bytes signed are the Sig_structure (RFC 9052 §4.4):
+
+```
+["Signature1", h'A10126', h'', bstr .cbor payload]
+activate payload: ["tfw-ota-activate", measurement: bstr32, version: uint, mode: uint]
+confirm payload:  ["tfw-ota-confirm",  measurement: bstr32, version: uint]
+```
+
+- The text string is the domain separation: a confirm signature never
+  activates, and an activate signature never confirms.
+- `measurement` is the staged image's SHA-256, the trailer measurement
+  `OTA_END` verified; for confirm, the running image's, which tfw-boot handed
+  off. `version` is that image's trailer `image_version`.
+- `mode` is the activate request's byte, so the signer decides whether the
+  device resets now.
+- **Replay** is stopped by the version against the anti-rollback floor, not by a
+  boot counter. tfw-boot already holds both and refuses an image below the
+  floor; the floor advances at every confirm, so an authorization for any older
+  image is dead once a newer one confirms. The measurement binds it to one
+  image, and the key, one per board id, to one board class. A boot counter would
+  need a persistent counter and a read round trip before every signature. What
+  remains: an authorization replays only for the same image at the same
+  version, which its signer already approved once.
+- No SUIT construct covers this: SUIT authenticates a manifest
+  (draft-ietf-suit-manifest-37 §8.3), and a second envelope with an invoke
+  sequence per command would put the envelope parser on the boot path. COSE_Sign1
+  over a fixed payload reuses the manifest's algorithm, header and key.
+
+**Who signs.** go-xkms's signing service, which holds the row key; neither this
+project nor `sdk/go` holds a private key. go-trusted-platform's `device-ota`
+seam builds the Sig_structure, has go-xkms sign it, and sends the signature.
+
+**Where the signed fields come from** (PR #139 review, P2). The signer signs
+the identity of the image it built and staged, not what the device reports:
+
+| Field | Source |
+|---|---|
+| `measurement` (activate) | the SHA-256 of the image the host staged, its trailer `measurement`, the value `OTA_END` verified |
+| `version` (activate) | that image's trailer `image_version` |
+| `mode` (activate) | the host's choice, the byte it sends in `OTA_ACTIVATE` |
+| `measurement`, `version` (confirm) | the same image's trailer values: the image the host activated, now running its trial |
+
+`OTA_INFO` is not the source and cannot be: slot 0 reports zero version and
+measurement, and slot 1 reports them only once `MARK` exists, after the
+activation being authorized. It is a check after the fact: the host may read it
+to see that the device runs, or has staged, the image it signed for. A
+signature over any other values fails at tfw-boot, as a wrong key does.
+
+**The wire.** `TFW_MAX_PAYLOAD` is 64 (`include/tfw/config.h:375`), so
+`[mode:1][sig:64]` does not fit. The signature arrives in a new command, the
+next free id; no request format changes:
+
+| Id | Command | Request | Reply |
+|---|---|---|---|
+| `0x6F` | `OTA_AUTH` (proposed) | `[sig:64]`, ES256 `r\|\|s` | none |
+
+`OTA_AUTH` holds the signature in RAM for the next command only; any command
+consumes or discards it. `OTA_ACTIVATE` with `[mode:1]` and `OTA_CONFIRM` with
+no payload keep their ids and formats and take the held signature; without one
+they answer `TFW_ERR_AUTH_REQUIRED` (17). An older host's 1-byte `[mode]`
+therefore gets a defined refusal with an existing status code, and an older
+image answers `OTA_AUTH` with `TFW_ERR_UNKNOWN_CMD` (4). The element tier keeps
+its operator session and adds this check: a session alone no longer activates.
+The application does not verify (the soft provider has no image verifier,
+`src/crypto/soft/provider.c:258`); it stores the signature with what it writes,
+and tfw-boot decides ([architecture.md](architecture.md), "Authorization").
 
 ## `sdk/go`
 

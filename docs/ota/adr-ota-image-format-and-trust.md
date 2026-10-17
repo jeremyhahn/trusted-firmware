@@ -551,6 +551,14 @@ where only one fits, its image links one link file, chosen by its profile, as
     `0xFF` only when it is set, so an ordinary boot wears nothing. The handler
     also stops the trial deadline (`tfw_ota_trial_stop`). The settling reset is
     the control plane's next `RESET` or any power cycle.
+
+    > **Amended 2026-10-17** (#137, PR #139 review P1): `OTA_CONFIRM` records
+    > the confirm signature and no longer stops the trial deadline, on every
+    > row, the element tier included (its verify is tfw-boot's too). The trial
+    > ends in a reset either way, and tfw-boot verifies the recorded
+    > confirmation at that reset. See
+    > [architecture.md](architecture.md#device-state-machine), "The confirm
+    > keeps the trial deadline" (`architecture.md:186-201`).
 - A host tells an OTA-capable image by `OTA_INFO` answering. An image without it
   answers `TFW_ERR_UNKNOWN_CMD`. There is no `CAPS` bit, following `APP_INFO`.
 - On an M33 under TF-M the application maps these commands onto PSA Firmware
@@ -623,6 +631,14 @@ The machine is drawn in
     residual risk, and the price of a 4 KB boot section.
 - **Confirm and the floor.** `OTA_CONFIRM` sets `CONFIRMED` and disarms the
   deadline. The boot advances the floor at the next reset (decision 5).
+
+  > **Amended 2026-10-17** (#137, PR #139 review P1): `OTA_CONFIRM` records
+  > the confirm signature and the trial deadline keeps running, on every row,
+  > the element tier included (its verify is tfw-boot's too). tfw-boot verifies
+  > the confirmation at the reset that ends the trial, and only a valid one
+  > sets `CONFIRMED` and advances the floor. See
+  > [architecture.md](architecture.md#device-state-machine), "The confirm
+  > keeps the trial deadline" (`architecture.md:186-201`).
 
 ### 10. Keys, custody and the provisioning seam — ACCEPTED (custody, per-board keys), PROPOSED (one key for both formats)
 

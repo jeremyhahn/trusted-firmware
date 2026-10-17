@@ -3,7 +3,8 @@
 > **Status: DRAFT** · Issue: #75, #52 · Scope: trusted-firmware · Last verified: 2026-10-16
 > Staging an image into the external store of an ATmega2560, as main does it
 > today. `tfwctl ota-stage <image>` and `tfwctl ota-status` stage an image and
-> read the session ([cli.md](../host-sdk/cli.md)); the steps below use `sdk/go`.
+> read the session, and `tfwctl ota-activate [now]` takes it
+> ([cli.md](../wire-protocol/cli.md)); the steps below also use `sdk/go`.
 
 ## What you need
 
@@ -65,9 +66,53 @@ are in [api.md](api.md). A refused or interrupted transfer leaves no `MARK`, and
 the running image is untouched. Start again with `tfwctl ota-stage` or
 `StageImage`.
 
+## Activate the image
+
+A staged image is not taken by itself: `OTA_END` leaves it verified in RAM and
+writes no `MARK`, so a reset after staging alone boots the running image again.
+The operator, or the control plane after its checks, activates it:
+
+```sh
+tfwctl <port> ota-activate         # OTA_ACTIVATE mode 0: taken at the next reset
+activated; taken at the next reset
+
+tfwctl <port> ota-activate now     # mode 1: the device resets after its reply
+activated; the device resets now
+```
+
+`-json` prints `{"activated": true, "reset_now": <bool>}`. The device
+re-reads and re-verifies the whole staged image, then writes `MARK`. It
+answers `TFW_ERR_BAD_STATE` (19) when no verified image is staged, when a trial
+is running or its confirm is not yet settled, or when the image fails the
+re-check; `TFW_ERR_RANGE` (11) for a mode other than 0 or 1; and, on the
+element tier, the auth gate's status outside an operator session. tfwctl prints
+`tfwctl: <error>` on stderr and exits 1, as it does for a wrong argument
+(`usage: ota-activate [now]`).
+
+The staged state lives in RAM. A board that resets when its port is opened
+(the Mega 2560 over USB serial) has lost it by the time a separate
+`ota-activate` connects, and answers `TFW_ERR_BAD_STATE`. Stage and activate on
+one connection instead:
+
+```sh
+tfwctl <port> ota-stage --activate <image>       # stage, activate, then print OTA_STATUS
+tfwctl <port> ota-stage --activate=now <image>   # stage, activate, reset now
+activated; the device resets now
+```
+
+With `--activate=now` tfwctl sends nothing after `OTA_ACTIVATE`'s reply: the
+device is resetting, so it does not read `OTA_STATUS`, and `-json` prints
+`{"activated": true, "reset_now": true}`. A refusal at either step exits 1.
+
+A board with one slot, the ATmega328P or ATmega32U4 with a stager, answers
+`OTA_ACTIVATE` the same way, with the same re-check, the same `MARK` and the
+same refusals. At the reset its tfw-boot copies the image into its one internal
+slot, with the previous image backed up in the store.
+
 ## At the next reset
 
-Reset the board (`tfwctl reset`, or power). tfw-boot then:
+After `ota-activate`, reset the board (`tfwctl reset`, or power); after
+`ota-activate now` it resets itself. tfw-boot then:
 
 1. reads `MARK` and checks the staged image again: trailer, board id, floor and
    SHA-256;
@@ -78,15 +123,18 @@ Reset the board (`tfwctl reset`, or power). tfw-boot then:
 A refused image is never swapped in, and the previous image keeps running. A
 reset during the copy or the swap resumes it at the next boot.
 
-The trial is confirmed only by `CONFIRMED` in the platform block, and nothing
-on the wire writes it yet: `OTA_CONFIRM` is a proposal ([api.md](api.md)). So
-on main the next reset after a trial swaps the previous image back and marks
-the new one `FAILED`; the same staged image is not taken again. The states and
+The trial is confirmed only by `OTA_CONFIRM` (0x6E, [api.md](api.md)), which
+the control plane sends to the running new image after attestation; tfwctl has
+no verb for it, so a host sends it through `sdk/go`:
+`(*Device).OTAConfirm(ctx context.Context) error` (`sdk/go/ota.go`). Without
+it the next reset after a trial swaps the previous image back and marks the
+new one `FAILED`; the same staged image is not taken again. The states and
 each case are in [architecture.md](architecture.md).
 
 ## Not covered here
 
-- The ATmega328P and ATmega32U4: the store copy does not fit their 4 KB boot
-  sections, so they have no store row.
+- The ATmega328P and ATmega32U4 in detail: they have a store row with one slot
+  and the previous image kept as `PREV` in the store, copied back at a fallback
+  (`mk/boot.mk`, #52); "Activate the image" above covers what differs.
 - tfw-boot's own serial session (`BOOT_OTA=1`), which writes the secondary
   directly: see [architecture.md](architecture.md).

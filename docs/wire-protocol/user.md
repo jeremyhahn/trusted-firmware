@@ -60,6 +60,27 @@ tfwctl /dev/ttyUSB0 timer-query 13    # active? held level? time remaining?
 tfwctl /dev/ttyUSB0 timer-cancel 13   # stop it early
 ```
 
+## Stage an image, then activate it
+
+`OTA_END` finishes the stream and leaves the image verified in RAM; it takes
+nothing. `OTA_ACTIVATE` is the separate step that does: the device re-verifies
+the staged image, writes the store's `MARK`, and takes the image at the next
+reset, or resets now. Activating is the control plane's call, so the two are
+separate verbs (`../ota/user.md`).
+
+```sh
+tfwctl /dev/ttyUSB0 ota-stage image.bin              # stage only
+tfwctl /dev/ttyUSB0 ota-activate                     # taken at the next reset
+tfwctl /dev/ttyUSB0 ota-activate now                 # the device resets now
+tfwctl /dev/ttyUSB0 ota-stage --activate=now image.bin
+```
+
+The session's verified state lives in RAM, so a board that resets when its
+port is opened (the Mega 2560 over USB serial) has lost it by the time a
+separate `ota-activate` run speaks, and answers `TFW_ERR_BAD_STATE`. There,
+stage with `--activate` or `--activate=now`, which sends `OTA_ACTIVATE` on the
+same connection.
+
 ## Handle events
 
 A device may send an unsolicited event — `EVENT_BOOT` means it restarted

@@ -38,7 +38,7 @@ tfwctl ports
 | `timer` | `<pin> <0\|1> <duration>` | drives a pin to the given level; the **device** reverts it after `duration` (Go duration syntax, e.g. `5s`) |
 | `timer-cancel` | `<pin> [apply]` | cancels a pin's timer; `apply` drives the pin to the level it would have reverted to |
 | `timer-query` | `<pin>` | whether a timer is active, held level, remaining duration |
-| `ota-stage` | `<image>` | stages the image file through `OTA_BEGIN`, `OTA_DATA` in `OTAChunk` pieces and `OTA_END`, then prints `OTA_STATUS`'s state and received count; tfwctl does not parse the image, the device gates it, and a refusal prints its status and exits non-zero |
+| `ota-stage` | `[--activate[=now]] <image>` | stages the image file through `OTA_BEGIN`, `OTA_DATA` in `OTAChunk` pieces and `OTA_END`, then prints `OTA_STATUS`'s state and received count; tfwctl does not parse the image, the device gates it, and a refusal prints its status and exits non-zero. `--activate` then sends `OTA_ACTIVATE` mode 0 on the same connection before `OTA_STATUS`; `--activate=now` sends mode 1, prints `activated; the device resets now` and sends no frame after its reply: the one way on a board that resets on open (the Mega 2560) |
 | `ota-status` | | `OTA_STATUS`: the staging session's state and received count, printed as `ota-stage` prints them. A board built without a stager answers device status 4, `TFW_ERR_UNKNOWN_CMD`: tfwctl prints `tfwctl: unknown command` on stderr and exits 1 |
 | `ports` | — | lists serial ports this host can see; no device connection made |
 
@@ -129,3 +129,4 @@ anyone can sign as this device. The binary also has the operator-signature auth
 session compiled in. See
 `docs/dice-attestation/user.md#produce-real-dice-evidence-with-no-hardware`.
 Go tests should use `sdk/go/tfwsim` rather than launching it by hand.
+| `ota-activate` | `[now]` | `OTA_ACTIVATE`: the staged, verified image is taken at the next reset (`activated; taken at the next reset`), or with `now` the device resets after its reply (`activated; the device resets now`); `--json` prints `activated` and `reset_now`. A refusal prints `tfwctl: <error>` and exits 1; on a board that resets on open the session is gone and the device answers `TFW_ERR_BAD_STATE` |

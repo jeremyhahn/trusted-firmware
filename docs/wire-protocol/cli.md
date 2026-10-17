@@ -25,6 +25,9 @@ that exercise them, so a reader does not have to cross-reference by hand.
 | `timer-query <pin>` | `TIMER_QUERY` (0x16) |
 | `i2c-config <hz>` | `I2C_CONFIG` (0x55) |
 | `spi-config <mode> <clkdiv> <msb\|lsb>` | `SPI_CONFIG` (0x56) |
+| `ota-stage [--activate[=now]] <image>` | `OTA_BEGIN` (0x68), `OTA_DATA` (0x69), `OTA_END` (0x6A), then `OTA_STATUS` (0x6B); with `--activate`, `OTA_ACTIVATE` (0x6D) mode 0 on the same connection before `OTA_STATUS`; with `--activate=now`, mode 1 and no frame after its reply |
+| `ota-status` | `OTA_STATUS` (0x6B) |
+| `ota-activate [now]` | `OTA_ACTIVATE` (0x6D): mode 0, taken at the next reset; `now`, mode 1, the device resets after its reply |
 | `ports` | none — lists serial ports the host can see; no device round trip |
 
 Flags: `--baud` (default `serialport.DefaultBaud`, 115200, matching

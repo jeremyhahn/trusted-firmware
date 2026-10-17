@@ -89,7 +89,9 @@ There are two routes for a signed image:
 - **The OTA session**, on a `BOOT_OTA=1` board (the `atmega2560`), as in
   "Update the application" below. `tfwctl ota-stage <image>` and `tfwctl
   ota-status` stage an image and read the session
-  ([cli.md](../host-sdk/cli.md)); activate and confirm are not yet on the wire.
+  ([cli.md](../host-sdk/cli.md)); `tfwctl ota-activate [now]` or `ota-stage
+  --activate` activates it ([Activate the image](../ota/user.md#activate-the-image)),
+  and the control plane confirms the trial with `OTA_CONFIRM` through `sdk/go`'s `(*Device).OTAConfirm(ctx context.Context) error`.
 
 Provisioning writes the pinned public-key hash and the initial rollback floor
 that `tfw-boot` checks on every boot, and on the element tier places the image
@@ -118,8 +120,12 @@ first afterward and decides whether to jump back into the application.
 ## Update the application (OTA-capable boards only)
 
 `tfwctl ota-stage <image>` stages an image and `tfwctl ota-status` reads the
-session — see [cli.md](../host-sdk/cli.md); activate and confirm are not yet on
-the wire. On a board built with
+session — see [cli.md](../host-sdk/cli.md). `tfwctl ota-activate [now]`, or
+`ota-stage --activate[=now]` on a board that resets when its port opens, sends
+`OTA_ACTIVATE` ([Activate the image](../ota/user.md#activate-the-image),
+[Stage an image, then activate it](../wire-protocol/user.md#stage-an-image-then-activate-it));
+`OTA_CONFIRM` has no tfwctl verb, and the control plane sends it through
+`sdk/go`'s `(*Device).OTAConfirm(ctx context.Context) error` after attestation. On a board built with
 `BOOT_OTA=1`, updating means a host program that frames
 `TFW_CMD_OTA_BEGIN`/`OTA_DATA`/`OTA_END` against `sdk/go`'s codec directly (see
 [api.md](api.md) for the exact payloads). What to expect once that exists:

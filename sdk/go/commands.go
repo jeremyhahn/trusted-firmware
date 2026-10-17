@@ -507,7 +507,8 @@ func (d *Device) NoTone(ctx context.Context, pin uint8) error {
 // would wrap into a different timeout the caller never asked for.
 func pulseTimeout(cmd Cmd, timeout time.Duration) (uint32, error) {
 	us := timeout.Microseconds()
-	if us < 0 || us > math.MaxUint32 {
+	// timeout < 0 refuses -500ns, which truncates to 0 us; us < 0 is the bound gosec reads for the cast.
+	if timeout < 0 || us < 0 || us > math.MaxUint32 {
 		return 0, &ArgRangeError{
 			Cmd: cmd, Arg: "timeout", Value: us,
 			Min: 0, Max: math.MaxUint32, Unit: "us",

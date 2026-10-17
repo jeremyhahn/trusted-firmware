@@ -412,7 +412,7 @@ $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
 # The OTA stager (issue #75) as an OTA_STAGE=1 image links it, with the software
 # NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
 $(HOST_DIR)/test_ota_stage: test/unit/test_ota_stage.c $(HOST_LIB_SRCS) \
-                        src/core/ota_stage.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -625,7 +625,7 @@ TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c tools/tfwsim/eth_socke
 # with test/model/spi_nor_model.c as the external store on its select. Its
 # tfw_hal_spi_xfer overrides the mock's weak one and hands every other select
 # back to it.
-TFWSIM_STAGE_SRCS := src/core/ota_stage.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c
+TFWSIM_STAGE_SRCS := src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c
 TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -Itest/model
 TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) $(TFWSIM_LINK_SRCS) \
                     $(TFWSIM_STAGE_SRCS)

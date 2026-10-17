@@ -240,6 +240,44 @@ static void test_an_image_ending_at_the_end_of_stage(void)
     }
 }
 
+/* Item 56: the block as a fallback leaves it, GOOD with FAILED, which permits
+ * a new round, and a region that no longer holds the staged image. Without
+ * the clear the next reset copies the failed image in again; with it, the
+ * MARK is gone and nothing is taken. */
+static void test_a_fallback_clears_the_mark_and_the_next_reset_takes_nothing(void)
+{
+    const uint8_t *mark;
+
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    plat.ota_state = TFW_BOOT_OTA_FAILED;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_forget());
+    mark = &tfw_nor_model_mem()[MARK];
+    TEST_ASSERT_EQUAL_HEX8(0u, mark[0] | mark[1] | mark[2] | mark[3]);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_stage_take(&plat, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_UINT(0u, stores);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, plat.ota_state);
+}
+
+/* The control: the same block and store, not cleared, takes the image. */
+static void test_an_uncleared_mark_after_a_fallback_is_taken_again(void)
+{
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    plat.ota_state = TFW_BOOT_OTA_FAILED;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, 0u));
+    assert_installed(1200u);
+}
+
+/* A store that does not answer: the clear fails, and writes nothing. */
+static void test_a_clear_on_a_silent_store_fails(void)
+{
+    tfw_boot_mock_on_store(NULL);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_boot_stage_forget());
+    TEST_ASSERT_EQUAL_UINT(0u, stores);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -252,5 +290,8 @@ int main(void)
     RUN_TEST(test_an_installed_image_is_not_copied_again);
     RUN_TEST(test_a_copy_cut_at_a_chosen_page_recovers_on_the_next_boot);
     RUN_TEST(test_an_image_ending_at_the_end_of_stage);
+    RUN_TEST(test_a_fallback_clears_the_mark_and_the_next_reset_takes_nothing);
+    RUN_TEST(test_an_uncleared_mark_after_a_fallback_is_taken_again);
+    RUN_TEST(test_a_clear_on_a_silent_store_fails);
     return UNITY_END();
 }

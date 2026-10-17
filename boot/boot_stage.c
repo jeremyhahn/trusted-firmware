@@ -19,8 +19,10 @@
 #include "boot_store.h"
 #include "boot_trial.h"
 
+#define OP_PROGRAM 0x02u
 #define OP_READ    0x03u
 #define OP_STATUS  0x05u
+#define OP_WREN    0x06u
 #define OP_JEDEC   0x9Fu
 #define ST_WIP     0x01u
 
@@ -41,27 +43,40 @@ static uint32_t rd32(const uint8_t *b)
            ((uint32_t)b[3] << 24);
 }
 
+/* A part that is not mid-write: status reads only, the one command a busy part
+ * takes. */
+static tfw_status_t idle(void)
+{
+    uint8_t      op = OP_STATUS;
+    uint8_t      sr;
+    uint16_t     n;
+    tfw_status_t st = TFW_OK;
+
+    for (n = 0u; st == TFW_OK; n++) {
+        if (n == BUSY_POLLS) {
+            return TFW_ERR_TIMEOUT;
+        }
+        st = tfw_boot_store_cmd(&op, 1u, &sr, 1u);
+        if (st == TFW_OK && (sr & ST_WIP) == 0u) {
+            break;
+        }
+    }
+    return st;
+}
+
 /* A part that answers, and is not mid-write. An absent part reads all ones or
  * all zeros, depending on what MISO floats to. */
 static tfw_status_t ready(void)
 {
     uint8_t      op = OP_JEDEC;
     uint8_t      id[3];
-    uint16_t     n;
     tfw_status_t st = tfw_boot_store_cmd(&op, 1u, id, 3u);
 
     if (st == TFW_OK && ((id[0] == 0x00u && id[1] == 0x00u) || (id[0] == 0xFFu && id[1] == 0xFFu))) {
         st = TFW_ERR_NACK;
     }
-    op = OP_STATUS;
-    for (n = 0u; st == TFW_OK; n++) {
-        if (n == BUSY_POLLS) {
-            return TFW_ERR_TIMEOUT;
-        }
-        st = tfw_boot_store_cmd(&op, 1u, id, 1u);
-        if (st == TFW_OK && (id[0] & ST_WIP) == 0u) {
-            break;
-        }
+    if (st == TFW_OK) {
+        st = idle();
     }
     return st;
 }
@@ -88,7 +103,7 @@ static tfw_status_t store_read(uint32_t addr, uint8_t *buf, uint8_t len)
  * the image's `body` bytes followed by its trailer; the region holds the body
  * from its base and the trailer at its end, which on the 2560 is far past the
  * end of STAGE. What lies between is erased. */
-static tfw_status_t copy_page(uint32_t a, uint16_t ps, uint32_t body)
+static tfw_status_t copy_page(uint32_t src, uint32_t a, uint16_t ps, uint32_t body)
 {
     uint32_t     rel = a - TFW_BOOT_APP_BASE;
     uint32_t     end = a + ps;
@@ -101,12 +116,12 @@ static tfw_status_t copy_page(uint32_t a, uint16_t ps, uint32_t body)
         if (stop > end) {
             stop = end;
         }
-        st = fetch(STAGE + rel, page, (uint16_t)(stop - a));
+        st = fetch(src + rel, page, (uint16_t)(stop - a));
     }
     if (st == TFW_OK && end > TFW_BOOT_TRAILER_ADDR) {
         uint32_t from = (a > TFW_BOOT_TRAILER_ADDR) ? a : TFW_BOOT_TRAILER_ADDR;
 
-        st = fetch(STAGE + body + (from - TFW_BOOT_TRAILER_ADDR),
+        st = fetch(src + body + (from - TFW_BOOT_TRAILER_ADDR),
                    &page[from - a], (uint16_t)(end - from));
     }
     if (st == TFW_OK) {
@@ -126,7 +141,7 @@ static uint8_t holds(uint32_t at, const uint8_t *raw)
 /* The body's pages in order, then the page that holds the trailer, last: until
  * it is written the region has no trailer for this image, so a cut anywhere
  * before it cannot leave something that parses as the new image. */
-static tfw_status_t copy(uint32_t body)
+static tfw_status_t copy(uint32_t src, uint32_t body)
 {
     uint16_t     ps = tfw_boot_flash_page_size();
     uint32_t     tp;
@@ -138,10 +153,10 @@ static tfw_status_t copy(uint32_t body)
     }
     tp = TFW_BOOT_TRAILER_ADDR & ~(uint32_t)(ps - 1u);
     for (a = TFW_BOOT_APP_BASE; st == TFW_OK && a < tp && a - TFW_BOOT_APP_BASE < body; a += ps) {
-        st = copy_page(a, ps, body);
+        st = copy_page(src, a, ps, body);
     }
     for (a = tp; st == TFW_OK && a < TFW_BOOT_APP_END; a += ps) {
-        st = copy_page(a, ps, body);
+        st = copy_page(src, a, ps, body);
     }
     return st;
 }
@@ -216,7 +231,7 @@ static tfw_status_t take(tfw_boot_platform_t *p, uint32_t floor)
 
     p->boot_state = TFW_BOOT_STATE_STAGED;
     tfw_boot_platform_store(p);
-    st = copy(body);
+    st = copy(STAGE, body);
     if (st != TFW_OK) {
         return st;   /* STAGED stays: the next boot copies again */
     }
@@ -242,6 +257,51 @@ tfw_status_t tfw_boot_stage_take(tfw_boot_platform_t *p, uint32_t floor)
             st = take(p, floor);
             tfw_boot_store_close();
         }
+    }
+    return st;
+}
+
+tfw_status_t tfw_boot_stage_forget(void)
+{
+    uint8_t      cmd[4u + 4u];
+    uint32_t     a = (uint32_t)TFW_OTA_STORE_MARK_ADDR;
+    tfw_status_t st = tfw_boot_store_open();
+
+    /* The magic, the MARK's first word, programmed to zero: no erase, and a
+     * program a reset cuts short has already cleared a bit of it. */
+    if (st == TFW_OK) {
+        st = ready();
+    }
+    if (st == TFW_OK) {
+        cmd[0] = OP_WREN;
+        st = tfw_boot_store_cmd(cmd, 1u, cmd, 0u);
+    }
+    if (st == TFW_OK) {
+        cmd[0] = OP_PROGRAM;
+        cmd[1] = (uint8_t)(a >> 16);
+        cmd[2] = (uint8_t)(a >> 8);
+        cmd[3] = (uint8_t)a;
+        memset(&cmd[4], 0, 4u);
+        st = tfw_boot_store_cmd(cmd, (uint8_t)sizeof cmd, cmd, 0u);
+    }
+    /* Busy with the program: only a status read until it ends. */
+    if (st == TFW_OK) {
+        st = idle();
+    }
+    tfw_boot_store_close();
+    return st;
+}
+
+tfw_status_t tfw_boot_stage_copy(uint32_t src, uint32_t body)
+{
+    tfw_status_t st = tfw_boot_store_open();
+
+    if (st == TFW_OK) {
+        st = ready();
+        if (st == TFW_OK) {
+            st = copy(src, body);
+        }
+        tfw_boot_store_close();
     }
     return st;
 }

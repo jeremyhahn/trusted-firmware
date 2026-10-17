@@ -154,7 +154,14 @@ int main(void)
     /* On a board with two slots (the 2560), a swap a reset cut short is
      * finished first, and a swapped trial that ended goes back to the image
      * before it rather than to recovery (boot_swap.h). Elsewhere, unchanged. */
-    act = tfw_boot_swap_at_reset(&plat, tfw_boot_trial_at_reset(&plat));
+    /* A trial that ended is a fallback where there is an image to fall back
+     * to: the store's MARK, which names the image that failed, is cleared
+     * first, so no later reset takes it again (item 56). */
+    act = tfw_boot_trial_at_reset(&plat);
+    if (act == TFW_BOOT_RESET_FAIL) {
+        (void)tfw_boot_stage_forget();
+    }
+    act = tfw_boot_swap_at_reset(&plat, act);
     if (act == TFW_BOOT_RESET_FAIL) {
         /*
          * A reset found the trial still running: the image never confirmed --
@@ -262,6 +269,9 @@ int main(void)
      * way the previous image is evaluated and booted as it was. */
     (void)tfw_boot_swap_take(&plat, floor);
     st = tfw_boot_evaluate(floor, &verdict);
+    if (st != TFW_OK && plat.ota_state == TFW_BOOT_OTA_PENDING) {
+        (void)tfw_boot_stage_forget();
+    }
     if (st != TFW_OK && tfw_boot_swap_fall_back(&plat) == TFW_OK) {
         st = tfw_boot_evaluate(floor, &verdict);
     }

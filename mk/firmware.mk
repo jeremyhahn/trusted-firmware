@@ -236,6 +236,13 @@ ifeq ($(wildcard src/store/$(OTA_STORE).c),)
 $(error unknown OTA_STORE "$(OTA_STORE)" -- expected one of: $(basename $(notdir $(wildcard src/store/*.c))))
 endif
 STAGE_SRCS := src/core/ota_stage.c src/store/$(OTA_STORE).c src/crypto/sha256.c $(HAL_DIR)/hal_bus.c
+# OTA_BEGIN backs the running image up to PREV where the fallback is the store
+# (the 328P and 32U4, #52); the 2560 falls back to its other slot.
+ifeq ($(BOOT_AB),1)
+STAGE_SRCS += src/core/ota_prev_none.c
+else
+STAGE_SRCS += src/core/ota_prev.c $(HAL_DIR)/hal_eeprom.c
+endif
 STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1
 else
 STAGE_SRCS := src/core/ota_stage_none.c

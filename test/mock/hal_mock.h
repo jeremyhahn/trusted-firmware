@@ -23,6 +23,7 @@
 #include "tfw/types.h"
 
 void   tfw_mock_reset(void);
+uint8_t *tfw_mock_flash(void);   /* the program flash tfw_hal_flash_read reads, 32 KB */
 
 /* time travel */
 void   tfw_mock_set_millis(tfw_ms_t t);

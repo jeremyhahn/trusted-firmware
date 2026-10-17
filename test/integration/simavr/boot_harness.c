@@ -1913,6 +1913,42 @@ static int store_untouched(void)
         && tfw_nor_model_violations() == 0u && nor_overrun == 0;
 }
 
+/* The store as staged, taken by stage_in_store() and again after anything a
+ * case lays in it beside the stager's image. */
+static uint8_t store_staged[TFW_NOR_MODEL_SIZE];
+
+static void store_snapshot(void)
+{
+    memcpy(store_staged, tfw_nor_model_mem(), sizeof store_staged);
+}
+
+/* A fallback clears the MARK (item 56, tfw_boot_stage_forget): one program,
+ * the MARK's magic to zero, and no other byte of the store changed. A program
+ * anywhere else either changes a byte or is a second program, and fails. */
+static int store_mark_cleared_only(void)
+{
+    const uint8_t *now  = tfw_nor_model_mem();
+    uint32_t       mark = (uint32_t)TFW_OTA_STORE_MARK_ADDR;
+    uint32_t       i;
+
+    if (tfw_nor_model_erases() != 0u || tfw_nor_model_programs() != 1u ||
+        tfw_nor_model_violations() != 0u || nor_overrun != 0) {
+        return 0;
+    }
+    for (i = 0u; i < sizeof store_staged; i++) {
+        uint8_t want = (i >= mark && i < mark + 4u) ? 0u : store_staged[i];
+
+        if (now[i] != want) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The store's PREV on this board, or -1 where it has none: from
+ * boot_harness_prev.c or boot_harness_prev_none.c, by the object list. */
+long boot_harness_prev_addr(void);
+
 /* What the application's stager leaves for `version`: the image padded to
  * whole pages, its trailer last, and the MARK record naming the stream
  * (docs/ota/architecture.md, "The application stager"). Signed by the
@@ -1961,6 +1997,7 @@ static void stage_in_store(const elf_firmware_t *app, uint32_t running, uint32_t
     nor_overrun = 0;
     tfw_nor_model_load(TFW_OTA_STORE_STAGE_ADDR, stream, total);
     tfw_nor_model_load(TFW_OTA_STORE_MARK_ADDR, mark, sizeof mark);
+    store_snapshot();
     build_image(app, running, -1);
 }
 
@@ -2067,7 +2104,7 @@ static void test_an_unconfirmed_store_image_swaps_back(elf_firmware_t *boot,
           "the failed image, still marked in the store, is not copied again");
     check(block_failed(0), "FAILED is kept");
     check(el.counter == 2u, "an unconfirmed trial leaves the floor where it was");
-    check(store_untouched(), "tfw-boot only read the store");
+    check(store_mark_cleared_only(), "tfw-boot only cleared the MARK");
 }
 
 /*
@@ -2145,7 +2182,7 @@ static void test_an_unconfirmed_store_image_rolls_back_at_the_deadline(
     check(primary_version() == 2u, "the previous image, copied back from PREV");
     check(block_failed(1), "GOOD, FAILED is stored");
     check(el.counter == 2u, "an unconfirmed trial leaves the floor where it was");
-    check(store_untouched(), "tfw-boot only read the store");
+    check(store_mark_cleared_only(), "tfw-boot only cleared the MARK");
 
     /* The same cause, as tfw-boot latched it and handed it off. */
     from_device_n = 0;
@@ -2182,6 +2219,96 @@ static void test_a_bad_store_image_copies_nothing(elf_firmware_t *boot,
     check(memcmp(avr->flash, image, sizeof image) == 0 && primary_version() == 2u,
           "and no page was written");
     check(el.counter == 2u && store_untouched(), "the floor and the store unmoved");
+}
+
+/* ---- The 328P's fallback: PREV copied back (issue #52) --------------------
+ *
+ * The 328P has one internal slot. The application backs the running image up
+ * to the store's PREV at OTA_BEGIN; tfw-boot copies it back when a trial ends
+ * unconfirmed or a pending image is refused (boot/boot_prev.c), and evaluates
+ * it as every boot. PREV is laid out as the region itself, trailer at its end.
+ * The harness lays in PREV what the application's backup leaves. Run as the
+ * "prev" row, a 328P BOOT_STORE=1 tfw-boot; the row is not in BOOT_SUPPORTED
+ * until its size is measured.
+ *
+ * These pin the documented round ("The same image is not activated again"):
+ * each fallback clears the store's MARK (item 56), so the reset after it takes
+ * nothing, and that one program is all tfw-boot writes to the store. PREV's
+ * address is the board's, from boot_harness_prev.c (mk/boot.mk). */
+
+/* After stage_in_store(), which resets the model: the running image, version
+ * `running`, as the backup at OTA_BEGIN wrote it. Leaves it in image[]. */
+static void back_up_to_prev(const elf_firmware_t *app, uint32_t running, long tamper_at)
+{
+    build_image(app, running, tamper_at);
+    tfw_nor_model_load((uint32_t)boot_harness_prev_addr(), image, TFW_BOOT_MAX_IMAGE_LEN);
+    store_snapshot();
+}
+
+static void test_an_unconfirmed_trial_restores_prev(elf_firmware_t *boot,
+                                                    elf_firmware_t *app)
+{
+    tfw_boot_platform_t p;
+
+    printf("prev row: a staged image whose trial is not confirmed:\n");
+    stage_in_store(app, 2u, 3u, -1);
+    back_up_to_prev(app, 2u, -1);
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    boot_with_store(boot, 2u);
+    check(run_until(app_booted, boot_store_budget()) && primary_version() == 3u,
+          "the staged image is copied in and boots");
+    memset(&p, 0, sizeof p);
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL,
+          "on trial");
+
+    carry();
+    boot_with_store(boot, el.counter);
+    check(run_until(app_booted, boot_store_budget()), "the reset that ends the trial boots");
+    check(memcmp(avr->flash, image, TFW_BOOT_MAX_IMAGE_LEN) == 0 && primary_version() == 2u,
+          "PREV, copied back whole");
+    check(block_failed(1), "GOOD, FAILED is stored");
+    check(el.counter == 2u, "an unconfirmed trial leaves the floor where it was");
+    check(store_mark_cleared_only(), "tfw-boot only cleared the MARK");
+}
+
+static void test_a_refused_pending_image_restores_prev(elf_firmware_t *boot,
+                                                       elf_firmware_t *app)
+{
+    uint32_t body;
+
+    printf("prev row: a staged image the gate refuses after the copy:\n");
+    /* The signature, in the staged trailer: the copy's hash check passes and
+     * only tfw_boot_evaluate, on the copied image, refuses it. */
+    body = ((app->flashsize + TFW_BOOT_TRAILER_LEN + 255u) & ~255u) - TFW_BOOT_TRAILER_LEN;
+    stage_in_store(app, 2u, 3u, (long)(body + TFW_BOOT_TR_SIGNATURE));
+    back_up_to_prev(app, 2u, -1);
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    boot_with_store(boot, 2u);
+    check(run_until(app_booted, boot_store_budget()), "the refused image does not stop the boot");
+    check(memcmp(avr->flash, image, TFW_BOOT_MAX_IMAGE_LEN) == 0 && primary_version() == 2u,
+          "PREV is copied back and runs");
+    check(block_failed(1), "GOOD, FAILED is stored");
+    check(el.counter == 2u && store_mark_cleared_only(), "the floor unmoved, only the MARK cleared");
+}
+
+static void test_a_corrupt_prev_halts(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    printf("prev row: a trial ends and PREV is corrupt:\n");
+    stage_in_store(app, 2u, 3u, -1);
+    back_up_to_prev(app, 2u, 1000);     /* one bit, after the backup was made */
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    boot_with_store(boot, 2u);
+    check(run_until(app_booted, boot_store_budget()) && primary_version() == 3u,
+          "the staged image boots its trial");
+
+    carry();
+    boot_with_store(boot, el.counter);
+    check(!run_until(app_booted, boot_store_budget()),
+          "the restored image fails the gate and nothing runs: halt, for the programmer");
+    check(memcmp(avr->flash, image, TFW_BOOT_MAX_IMAGE_LEN) == 0,
+          "PREV was copied back as the store held it");
+    check(block_failed(1), "GOOD, FAILED is stored before the evaluation");
+    check(el.counter == 2u && store_mark_cleared_only(), "the floor unmoved, only the MARK cleared");
 }
 
 /* ------------------------------------------------------- the host's half (#75)
@@ -2638,6 +2765,19 @@ int main(int argc, char **argv)
         test_an_unconfirmed_store_image_swaps_back(&boot, &app);
         test_an_unconfirmed_store_image_rolls_back_at_the_deadline(&boot, &app);
         test_a_bad_store_image_copies_nothing(&boot, &app);
+        store_bus_report();
+        printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
+        return failures ? 1 : 0;
+    }
+    /* The 328P's BOOT_STORE=1 row: one slot, PREV in the store (#52). */
+    if (argc > 3 && strcmp(argv[3], "prev") == 0) {
+        if (boot_harness_prev_addr() < 0) {
+            printf("FAIL: the prev row needs a board with PREV in its store (the 328P)\n");
+            return 1;
+        }
+        test_an_unconfirmed_trial_restores_prev(&boot, &app);
+        test_a_refused_pending_image_restores_prev(&boot, &app);
+        test_a_corrupt_prev_halts(&boot, &app);
         store_bus_report();
         printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
         return failures ? 1 : 0;

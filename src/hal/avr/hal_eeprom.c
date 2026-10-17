@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 
 #include <avr/eeprom.h>
+#include <avr/pgmspace.h>
 #include <avr/wdt.h>
 #include "tfw/hal.h"
 #include "tfw/config.h"
@@ -38,3 +39,14 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
  * EEPROM capability to start disagreeing about what a read returns. */
 tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
     __attribute__((alias("tfw_hal_eeprom_read")));
+
+/* Not EEPROM, but the other read-only store the part keeps across a reset:
+ * its program flash. Far on a part past 64 KB. */
+void tfw_hal_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+#if FLASHEND > 0xFFFFul
+    memcpy_PF(buf, (uint_farptr_t)addr, len);
+#else
+    memcpy_P(buf, (const void *)(uint16_t)addr, len);
+#endif
+}

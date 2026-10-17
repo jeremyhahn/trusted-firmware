@@ -38,4 +38,12 @@ tfw_status_t tfw_stage_cmd_data(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_stage_cmd_end(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_stage_cmd_status(tfw_reader_t *r, tfw_writer_t *w);
 
+/* OTA_BEGIN's first step on a one-slot board (the 328P and 32U4, issue #52):
+ * the running image, the whole application region, copied into the store's
+ * PREV, where tfw-boot copies it back from when the round fails
+ * (boot/boot_prev.c). src/core/ota_prev.c; on a board whose fallback is a
+ * second internal slot, src/core/ota_prev_none.c, which does nothing. The
+ * store's first failing status, with PREV part written. */
+tfw_status_t tfw_ota_prev_backup(void);
+
 #endif

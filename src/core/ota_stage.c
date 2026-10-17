@@ -147,6 +147,9 @@ tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w)
     if (st == TFW_OK) {
         st = tfw_store_erase(((uint32_t)TFW_OTA_STORE_MARK_ADDR));
     }
+    if (st == TFW_OK) {
+        st = tfw_ota_prev_backup();   /* after the mark: no boot takes a stale image */
+    }
     if (st != TFW_OK) {
         return fail(st);
     }

@@ -123,11 +123,17 @@ endif
 # only where an image lands in the secondary: the store's copy, or the serial
 # session's (TFW_OTA_STAGE_DEST). A row with neither has nothing to swap in,
 # and links the stub, as does every other board.
+#
+# On a board with one slot and PREV in its store (the 328P and 32U4, #52), the
+# store row links boot_prev.c in the same place: the fallback copies PREV back
+# instead of swapping.
 BOOT_SWAP_SRC := boot/boot_swap_none.c
 ifeq ($(BOOT_AB),1)
 ifneq ($(BOOT_OTA)$(BOOT_STORE),00)
 BOOT_SWAP_SRC := boot/boot_swap.c
 endif
+else ifeq ($(BOOT_STORE),1)
+BOOT_SWAP_SRC := boot/boot_prev.c
 endif
 BOOT_STORE_SRCS += $(BOOT_SWAP_SRC)
 
@@ -385,6 +391,13 @@ $(BOOT_TEST_DIR)/test_boot_swap: test/unit/boot/test_boot_swap.c boot/boot_swap.
                                  $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The 328P's fallback (#52): PREV copied back by the store's copy loop, under
+# the host board's profile, which is the 328P's.
+$(BOOT_TEST_DIR)/test_boot_prev: test/unit/boot/test_boot_prev.c boot/boot_prev.c \
+                                 boot/boot_stage.c test/model/spi_nor_model.c \
+                                 $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -574,10 +587,18 @@ BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a 
 # setting, like the board id, which the signer takes from the board profile.
 IMAGE_FLAGS ?= 0x00
 
+# The harness's half that names the store's PREV (#52): only a board whose
+# profile has one links it; the 2560, which falls back to its secondary slot,
+# links the stub, and the harness's prev row fails there.
+BOOT_INT_PREV_SRC := test/integration/simavr/boot_harness_prev_none.c
+ifneq ($(filter atmega328p atmega32u4,$(BOARD)),)
+BOOT_INT_PREV_SRC := test/integration/simavr/boot_harness_prev.c
+endif
+
 # The same warning set as the firmware. The harness is a model of a part other
 # people will read as documentation for it, so it is held to the standard the
 # thing it models is held to.
-$(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
+$(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c $(BOOT_INT_PREV_SRC) \
         src/proto/crc16.c src/proto/crc16_update.c \
         src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
         boot/boot_image.c boot/boot_platform.c boot/boot_request.c \

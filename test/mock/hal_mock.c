@@ -416,6 +416,20 @@ tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
     return tfw_hal_eeprom_read(addr, buf, len);
 }
 
+/* The part's program flash, as large as the largest one-slot part's: what a
+ * test lays in it is the running image OTA_BEGIN backs up. */
+static uint8_t flash[0x8000];
+
+uint8_t *tfw_mock_flash(void)
+{
+    return flash;
+}
+
+void tfw_hal_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+    memcpy(buf, &flash[addr], len);
+}
+
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
     word_find(pwm_ctl, p->ctl, 1u)->val |= (uint8_t)(1u << p->bit);

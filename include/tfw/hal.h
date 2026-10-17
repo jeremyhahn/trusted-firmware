@@ -153,6 +153,12 @@ tfw_status_t      tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_
  * able to forge its own device_serial -- see src/core/platform_id.h. */
 tfw_status_t      tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len);
 
+/* The part's own program flash, from address zero: the running image's bytes.
+ * For OTA_BEGIN on a one-slot board, which backs the running image up to the
+ * external store's PREV before it takes a byte of the new one
+ * (src/core/ota_prev.c, issue #52). Read only; linked only where called. */
+void              tfw_hal_flash_read(uint32_t addr, uint8_t *buf, uint8_t len);
+
 /* -------------------------------------------------------------- handoff */
 
 /*

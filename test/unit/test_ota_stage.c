@@ -142,8 +142,10 @@ static void test_slot_sized_image_fills_stage(void)
     TEST_ASSERT_EQUAL(TFW_OK, end());
     expect_status(TFW_STAGE_COMPLETE, total);
     expect_staged(total);
-    /* The MARK sector, then each STAGE sector once as the stream enters it. */
-    TEST_ASSERT_EQUAL_UINT32(1u + total / 4096u, tfw_nor_model_erases());
+    /* The MARK sector, PREV's for the backup (#52), then each STAGE sector
+     * once as the stream enters it. */
+    TEST_ASSERT_EQUAL_UINT32(1u + TFW_BOOT_APP_SIZE / 4096u + total / 4096u,
+                             tfw_nor_model_erases());
 }
 
 static void test_write_past_the_end_is_refused(void)
@@ -220,6 +222,28 @@ static void test_init_parks_selects_before_any_transfer(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
 }
 
+/* On a one-slot board (#52), OTA_BEGIN copies the running image -- the whole
+ * application region -- into PREV before it takes a byte, and a stream
+ * after it leaves PREV as it was. */
+static void test_begin_backs_the_running_image_up_to_prev(void)
+{
+    uint8_t *flash = tfw_mock_flash();
+    uint32_t i;
+
+    for (i = 0u; i < TFW_BOOT_APP_SIZE; i++) {
+        flash[TFW_BOOT_APP_BASE + i] = (uint8_t)(i * 3u + 11u);
+    }
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    TEST_ASSERT_EQUAL_MEMORY(&flash[TFW_BOOT_APP_BASE],
+                             &tfw_nor_model_mem()[TFW_OTA_STORE_PREV_ADDR], TFW_BOOT_APP_SIZE);
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL_MEMORY(&flash[TFW_BOOT_APP_BASE],
+                             &tfw_nor_model_mem()[TFW_OTA_STORE_PREV_ADDR], TFW_BOOT_APP_SIZE);
+    expect_staged(512u);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -229,5 +253,6 @@ int main(void)
     RUN_TEST(test_interrupted_stream_then_fresh_begin);
     RUN_TEST(test_hash_mismatch_fails_without_a_mark);
     RUN_TEST(test_init_parks_selects_before_any_transfer);
+    RUN_TEST(test_begin_backs_the_running_image_up_to_prev);
     return UNITY_END();
 }

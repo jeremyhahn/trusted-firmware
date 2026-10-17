@@ -174,7 +174,12 @@ boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
   into a refusal; it is not a security boundary.
 - **One trial.** The trial state is written before the jump, so any reset in
   it, whether the deadline, the watchdog, a crash or a power cut, rolls back.
-  There is no attempt counter. The same image is not activated again.
+  There is no attempt counter. The same image is not activated again: at a
+  fallback, before the fallback itself, `tfw-boot` clears the store's `MARK`
+  (owner ruling 2026-10-17, item 56; `tfw_boot_stage_forget`,
+  `boot/boot_stage.c`), so no later reset copies the failed image back in. The
+  clear programs the `MARK`'s magic to zero, so a clear a reset cuts short
+  leaves no `MARK` either.
 - **The timeout** is per board, `TFW_OTA_TRIAL_TIMEOUT_S` in
   `boards/*/board_profile.h` (name and values proposed). The application
   counts it; `tfw-boot` arms the watchdog, which the application SDK pets during
@@ -597,6 +602,38 @@ once in the secondary and once in the primary.
     (`test_boot_trial`). The gate's own floor check is pinned by
     `test_boot_policy`, which does not depend on the row.
 
+### The 328P and 32U4 fallback from PREV (#52)
+
+What runs today, on the host only. Neither half is on a board or under simavr
+yet.
+
+- **The backup, in the application.** An image that links the stager on a
+  board without `BOOT_AB` also links `src/core/ota_prev.c` (`mk/firmware.mk`);
+  the 2560 links `ota_prev_none.c`, since its other slot is the fallback.
+  `OTA_BEGIN` erases `MARK`, then erases `PREV` and copies the application
+  region into it through `tfw_hal_flash_read`, before any `OTA_DATA` is taken.
+  `PREV` is laid out as the region itself, its trailer at the end.
+  `test/unit/test_ota_stage.c` and `tfwsim` link the real backup; the
+  slot-sized test counts `PREV`'s sector erases.
+- **The restore, in tfw-boot.** A `BOOT_STORE=1` row without `BOOT_AB` links
+  `boot/boot_prev.c` in place of `boot_swap_none.c` (`mk/boot.mk`). A `TRIAL`
+  found at reset, and a pending image the gate refuses after the copy, both
+  copy `PREV` back whole with the store's own copy loop
+  (`tfw_boot_stage_copy`, trailer page last), then store `GOOD` with `FAILED`
+  (`tfw_boot_trial_fall_back`). The block is written after the copy, so a reset
+  mid-copy finds `TRIAL` or `PENDING` and copies again. `main()` evaluates the
+  restored image as every boot; refused, it halts in `recovery_halt.c`, for the
+  programmer. `test/unit/boot/test_boot_prev.c` (328P profile) covers a trial
+  found at reset, a refused pending image, nothing to fall back from, a restore
+  cut short and redone, and a store that does not answer.
+- **Not a row yet.** Neither part's `BOOT_STORE=1` row is in `BOOT_SUPPORTED`:
+  their 4 096-byte sections had 3 758 and 3 828 bytes used before the copy
+  path (above), and the row's size with the restore is not measured. Until it
+  is, the 328P and 32U4 link `ota_trial_none.c` (below), and
+  `test/integration/simavr/boot_harness.c`'s `prev` row (an unconfirmed trial
+  restores `PREV`; a refused pending image restores it; a corrupt `PREV`
+  halts; each `GOOD`, `FAILED`) is written and not run.
+
 ### The OTA round under simavr (#75, #77)
 
 `make integration-test-boot` runs the real tfw-boot and the real application
@@ -621,6 +658,7 @@ deadline on the emulated part, with no reset from the harness.
 | the trial deadline: nothing confirms, the application's `ota_trial.c` takes a watchdog reset at `TFW_OTA_TRIAL_TIMEOUT_S` (the board value, 60 s), WDRF in MCUSR at the reset edge and `TFW_RESET_WATCHDOG` in `SYS_INFO`, within one 8 s watchdog period of the deadline (`tfw_hal_reset` disarms the 8 s watchdog before its 15 ms one, which simavr would otherwise not apply); tfw-boot copies `PREV` back, `GOOD` `FAILED` | yes, `test_an_unconfirmed_store_image_rolls_back_at_the_deadline`, about 1.05 billion emulated cycles | `test_ota_trial`, `test_boot_trial` |
 | a staged byte that fails the hash, an image below the floor: no page written, the primary boots | yes, `test_a_bad_store_image_copies_nothing` | `test_boot_stage_2560` |
 | the store is only read by tfw-boot | yes: no erase, no program and no malformed transaction reach the model on any boot | — |
+| 328P: a trial not confirmed or a pending image refused copies `PREV` back, `GOOD` `FAILED`; a corrupt `PREV` halts | no: the `prev` row is written, not run, until the 328P's `BOOT_STORE=1` row is measured and in `BOOT_SUPPORTED`; two of its three cases meet the re-take gap below | `test_boot_prev` |
 
 The bench repeats the round with the W5x00, the NOR part and the element on a
 2560; it is the only place the network leg meets a real controller, a real
@@ -629,13 +667,21 @@ The application's refusal of the failed image at `OTA_ACTIVATE`
 (`tfw_boot_trial_activate`, `TFW_ERR_BAD_STATE`) is pinned by `test_boot_trial`
 only, until the command exists.
 
-Not yet: the 328P/32U4 `PREV` restore;
+Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
 the stager carrying the envelope and calling the manifest gate;
 `OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are
 proposed); keeping the failed measurement (open question 10); and the
 caller of the trial's stop, `tfw_ota_trial_stop`, which is the `OTA_CONFIRM`
 handler of decision 8. Until it lands, every trial runs out at its deadline
 and rolls back.
+
+A gap in the 328P/32U4 restore, recorded and not designed here:
+
+- **The fallback flags.** The diagram's `flags: refused` and
+  `flags: fell back` (lines 159 and 161) are not written. The platform block
+  has a `flags` byte (`TFW_BOOT_EE_O_FLAGS`, `include/tfw/boot.h`), but no bit
+  for either is defined, and a refusal and a fallback both store `GOOD` with
+  `FAILED`, which `OTA_INFO` cannot tell apart.
 
 What runs of the trial's two layers: `tfw-boot` arms the watchdog at its
 longest period (8 s on AVR, `tfw_boot_watchdog_arm`) after `TRIAL` is written
@@ -648,7 +694,8 @@ PROPOSED, open question 6), resetting into `tfw-boot` at expiry. The
 application's `.init3` still disarms the watchdog on every boot, so the
 boot's arm covers the window from the jump to `.init3`, and the re-arm covers
 the rest of the trial. Only the 2560 (`BOOT_AB`) links `ota_trial.c`; the 328P
-and 32U4 link `ota_trial_none.c` until their restore exists.
+and 32U4 link `ota_trial_none.c` until their `BOOT_STORE=1` row, which can
+write `TRIAL` and restore `PREV`, is in `BOOT_SUPPORTED`.
 
 ## Trust boundaries
 

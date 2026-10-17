@@ -12,3 +12,8 @@ tfw_status_t tfw_boot_stage_take(tfw_boot_platform_t *p, uint32_t floor)
     (void)floor;
     return TFW_ERR_UNSUPPORTED;
 }
+
+tfw_status_t tfw_boot_stage_forget(void)
+{
+    return TFW_ERR_UNSUPPORTED;
+}

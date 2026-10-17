@@ -37,13 +37,15 @@ func plan(t *template, info *tfw.ElementInfo) {
 	fmt.Printf("  lock data zone         summary crc 0x%04x   IRREVERSIBLE\n", t.DataLockCRC)
 
 	fmt.Println()
-	if info.ConfigLocked {
-		fmt.Println("  NOTE: the config zone is already LOCKED. --commit will fail at that step,")
-		fmt.Println("        and every step before it will already have been attempted.")
-	}
-	if info.DataLocked {
-		fmt.Println("  NOTE: the data zone is already LOCKED. This part is already provisioned")
-		fmt.Println("        or was provisioned differently. It cannot be reconfigured.")
+	// Says what runCommit will do: refuse a locked data zone before anything,
+	// and skip the config steps on a locked config zone.
+	switch {
+	case info.DataLocked:
+		fmt.Println("  NOTE: the data zone is already LOCKED. --commit will refuse this part: it is")
+		fmt.Println("        already provisioned, or was provisioned differently, and cannot be reconfigured.")
+	case info.ConfigLocked:
+		fmt.Println("  NOTE: the config zone is already LOCKED. --commit will skip the config steps")
+		fmt.Println("        and start at the DeviceID key; the template's config blocks are not written.")
 	}
 }
 
@@ -153,4 +155,4 @@ func (e *verifyError) Error() string {
 
 type commitError struct{ why string }
 
-func (e *commitError) Error() string { return "tfwprov: " + e.why }
+func (e *commitError) Error() string { return e.why }

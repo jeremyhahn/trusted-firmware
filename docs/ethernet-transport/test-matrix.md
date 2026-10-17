@@ -31,8 +31,10 @@ reads the same with either.
 |---|---|---|---|---|---|
 | Mega (ATmega2560) | USB serial; Ethernet on the bench network | W5100 (probed, [docs/development/wiznet-probe.md](../development/wiznet-probe.md)) | Not fitted (ordered) | Software (`CRYPTO=soft ETH=1`) | Now: everything below except the element tier and enrolment. |
 | Mega (ATmega2560) | USB serial; Ethernet on the bench network | W5100 (probed) | Fitted: Click SDA to D20, SCL to D21 | Element (`CRYPTO=atecc608a ETH=1`) | The day the ATECC608C (MIKROE-6774 Click board) arrives: the element tier and device-attest-01 enrolment. |
+| Mega (ATmega2560) | USB serial only | None used: W5100 fitted in [the 10-15 first pass](#the-mega-run-2026-10-15), no shield in [fd7a696](#the-bench-mega-on-main-fd7a696-2026-10-16) and [train/ota75e](#the-bench-mega-on-trainota75e-2026-10-16) | Not used by this tier; did not answer in [fd7a696](#the-bench-mega-on-main-fd7a696-2026-10-16) | Software, serial only (`CRYPTO=soft`, no `ETH`) | Run in [the 10-15 first pass](#the-mega-run-2026-10-15), [fd7a696](#the-bench-mega-on-main-fd7a696-2026-10-16) and [train/ota75e](#the-bench-mega-on-trainota75e-2026-10-16): built, size-checked, flashed with `make flash`, and `make hw-test`'s whole cross-implementation suite over serial, each a pass. In fd7a696 and train/ota75e: `0x000`–`0x0FF` read back unchanged across the flash, and the `OTA_*` commands and `tfwctl ota-stage`/`ota-status` answer "unknown command", as an image linking `ota_stage_none.c` does. No TCP item applies. |
 | Nano (ATmega328P) | USB serial; Ethernet on the bench network | W5100 expected; not probed (no serial bootloader answers; Optiboot goes in by ISP first) | Not fitted (ordered) | Software (`CRYPTO=soft ETH=1`) | Now, once Optiboot is burned: everything below except the element tier and enrolment. The software-tier Ethernet image fits the 328P's flash budget. |
 | Nano (ATmega328P) | USB serial; Ethernet on the bench network | W5100 expected; not probed (no serial bootloader answers; Optiboot goes in by ISP first) | Fitted: Click SDA to A4, SCL to A5 | Element (`CRYPTO=atecc608a ETH=1`) | Its Ethernet image waits for the owner's budget choice: it is over the 328P's flash budget today ([the options](adr-wire-protocol-over-w5x00.md#the-328p-budget)). The day the ATECC608C (MIKROE-6774 Click board) arrives and that choice is made: the element tier and device-attest-01 enrolment. |
+| Nano (ATmega328P) | USB serial only | None | Not used by this tier | Software, serial only (`CRYPTO=soft`, no `ETH`) | Not run. It waits, as the Nano's other rows do, for Optiboot to go in by ISP first ([the Nano's page](../development/bench/nano.md)). |
 | ATmega32U4, ATtiny85 | — | None | — | — | Covered by the simulator. |
 
 ## What is tested now, on each board
@@ -55,6 +57,9 @@ reads the same with either.
 7. **The same identity after a reset.** After a reset the device reconnects
    with the same MAC. Its `ATTEST` evidence carries the same DeviceID and
    verifies under the same key.
+
+Items 1 and 2 apply to the serial-only build too, with its image in place of
+the Ethernet one; items 3 to 6 need the Ethernet link.
 
 ## The Mega run, 2026-10-15
 

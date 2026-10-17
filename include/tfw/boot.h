@@ -248,6 +248,20 @@ typedef struct {
 #define TFW_BOOT_OTA_FAILED    3u   /* refused, or the trial ended unconfirmed */
 #define TFW_BOOT_OTA_PENDING   4u   /* activated: to be tried at the next reset */
 
+/* OTA_CONFIRM's request (issue #77). The platform block has one writer,
+ * tfw-boot, so the application never writes CONFIRMED: it leaves this record
+ * at TFW_BOOT_CONFIRM_ADDR, past the block in the board's TFW_BOOT_EE_EXTRA_*
+ * span that EEPROM_WRITE refuses, and tfw-boot takes it at the next reset.
+ * [magic][first 8 bytes of the trial image's measurement][CRC16 LE of the 9
+ * before]. The measurement binds it to the one image: a stale record never
+ * matches a later trial's, and the CRC rejects a torn write. tfw-boot clears it
+ * (the magic to 0xFF) whenever it ends a trial, either way. */
+#define TFW_BOOT_CONFIRM_MAGIC    0xC9u
+#define TFW_BOOT_CONFIRM_O_MEAS   1u
+#define TFW_BOOT_CONFIRM_MEAS_LEN 8u
+#define TFW_BOOT_CONFIRM_O_CRC    9u
+#define TFW_BOOT_CONFIRM_LEN      11u
+
 /* The parsed region. */
 typedef struct {
     uint8_t  pubkey_hash[TFW_BOOT_MEASURE_LEN];

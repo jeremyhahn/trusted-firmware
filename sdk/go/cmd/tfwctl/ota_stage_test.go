@@ -30,10 +30,13 @@ type otaDevice struct {
 	state    tfw.OTAState
 	received uint32
 	ends     int
+	modes    []byte
+	cmds     []tfw.Cmd
 }
 
 func (o *otaDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 	cmd := f.Cmd()
+	o.cmds = append(o.cmds, cmd)
 	if o.refuseStatus != 0 && cmd == o.refuseCmd {
 		// One-shot, as the stager's refusal is for the session it fails.
 		st := o.refuseStatus
@@ -53,6 +56,11 @@ func (o *otaDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 	case tfw.CmdOTAEnd:
 		o.ends++
 		o.state = tfw.OTAComplete
+	case tfw.CmdOTAActivate:
+		if o.state != tfw.OTAComplete {
+			return tfw.StatusErrBadState, nil
+		}
+		o.modes = append(o.modes, f.Payload[0])
 	case tfw.CmdOTAStatus:
 		return tfw.StatusOK, binary.LittleEndian.AppendUint32([]byte{byte(o.state)}, o.received)
 	default:
@@ -216,7 +224,7 @@ func TestOTAStageArgumentErrorsAreUsageErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// A nil device: a usage error must be found before the wire.
 			err := run(context.Background(), nil, "ota-stage", tc.args, false, io.Discard)
-			if err == nil || !strings.HasPrefix(err.Error(), "usage: ota-stage <image>") {
+			if err == nil || !strings.HasPrefix(err.Error(), "usage: ota-stage [--activate[=now]] <image>") {
 				t.Fatalf("err = %v, want a usage error", err)
 			}
 		})
@@ -311,5 +319,128 @@ func TestOTAStatusTakesNoArguments(t *testing.T) {
 	err := run(context.Background(), nil, "ota-status", []string{"now"}, false, io.Discard)
 	if err == nil || !strings.HasPrefix(err.Error(), "usage: ota-status") {
 		t.Fatalf("err = %v, want a usage error", err)
+	}
+}
+
+// ota-stage stops at END: it never activates, and ota-activate is the step
+// that does, at the next reset or now.
+func TestOTAActivateIsItsOwnStepAfterStage(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		mode byte
+		out  string
+	}{
+		{nil, tfw.OTAActivateAtReset, "activated; taken at the next reset"},
+		{[]string{"now"}, tfw.OTAActivateResetNow, "activated; the device resets now"},
+	} {
+		o := &otaDevice{}
+		dev := startOTADevice(t, o)
+		if err := run(context.Background(), dev, "ota-stage", []string{writeImage(t, patterned(10))}, false, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if len(o.modes) != 0 {
+			t.Fatalf("ota-stage sent OTA_ACTIVATE %v; it must stop at END", o.modes)
+		}
+		var buf bytes.Buffer
+		if err := run(context.Background(), dev, "ota-activate", tc.args, false, &buf); err != nil {
+			t.Fatal(err)
+		}
+		if len(o.modes) != 1 || o.modes[0] != tc.mode {
+			t.Fatalf("OTA_ACTIVATE modes = %v, want [%d]", o.modes, tc.mode)
+		}
+		if got := strings.TrimSpace(buf.String()); got != tc.out {
+			t.Fatalf("ota-activate printed %q, want %q", got, tc.out)
+		}
+	}
+}
+
+func TestOTAActivateBeforeAVerifiedImageIsTheDevicesRefusal(t *testing.T) {
+	dev := startOTADevice(t, &otaDevice{})
+	err := run(context.Background(), dev, "ota-activate", nil, true, io.Discard)
+	if !errors.Is(err, tfw.StatusErrBadState) {
+		t.Fatalf("err = %v, want %v", err, tfw.StatusErrBadState)
+	}
+}
+
+func TestOTAActivateArgumentErrorsAreUsageErrors(t *testing.T) {
+	for _, args := range [][]string{{"later"}, {"now", "now"}} {
+		err := run(context.Background(), nil, "ota-activate", args, false, io.Discard)
+		if err == nil || err.Error() != "usage: ota-activate [now]" {
+			t.Fatalf("%v: err = %v, want a usage error", args, err)
+		}
+	}
+}
+
+// openResetting opens a fresh Device on o as the CLI does on every run, over a
+// transport that resets the board on open: the RAM-only session is lost.
+func openResetting(t *testing.T, o *otaDevice) *tfw.Device {
+	t.Helper()
+	o.state, o.total, o.received = 0, 0, 0
+	return startOTADevice(t, o)
+}
+
+// On a board that resets on open, a separate ota-activate run finds no staged
+// session; ota-stage --activate stages and activates over the one connection.
+func TestOTAStageActivateIsOneConnectionOnABoardThatResetsOnOpen(t *testing.T) {
+	image := writeImage(t, patterned(10))
+	o := &otaDevice{}
+	if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{image}, false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	err := run(context.Background(), openResetting(t, o), "ota-activate", nil, false, io.Discard)
+	if !errors.Is(err, tfw.StatusErrBadState) {
+		t.Fatalf("separate ota-activate: err = %v, want %v", err, tfw.StatusErrBadState)
+	}
+
+	for _, tc := range []struct {
+		flag string
+		mode byte
+	}{
+		{"--activate", byte(tfw.OTAActivateAtReset)},
+		{"--activate=now", byte(tfw.OTAActivateResetNow)},
+	} {
+		o := &otaDevice{}
+		if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{tc.flag, image}, false, io.Discard); err != nil {
+			t.Fatalf("%s: %v", tc.flag, err)
+		}
+		if len(o.modes) != 1 || o.modes[0] != tc.mode {
+			t.Fatalf("%s: OTA_ACTIVATE modes %v, want [%d]", tc.flag, o.modes, tc.mode)
+		}
+	}
+	err = run(context.Background(), nil, "ota-stage", []string{"--activate=later", image}, false, io.Discard)
+	if err == nil || err.Error() != "usage: ota-stage [--activate[=now]] <image>" {
+		t.Fatalf("err = %v, want a usage error", err)
+	}
+}
+
+// The board resets once the reset-now reply drains, so ota-stage
+// --activate=now sends nothing after OTA_ACTIVATE; --activate may still ask
+// for the status.
+func TestOTAStageActivateNowSendsNothingAfterTheReply(t *testing.T) {
+	image := writeImage(t, patterned(10))
+	for _, tc := range []struct {
+		flag  string
+		after int
+	}{
+		{"--activate=now", 0},
+		{"--activate", 1},
+	} {
+		o := &otaDevice{}
+		var out bytes.Buffer
+		if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{tc.flag, image}, true, &out); err != nil {
+			t.Fatalf("%s: %v", tc.flag, err)
+		}
+		last := -1
+		for i, c := range o.cmds {
+			if c == tfw.CmdOTAActivate {
+				last = i
+			}
+		}
+		if last < 0 || len(o.cmds)-last-1 != tc.after {
+			t.Fatalf("%s: commands %v, want %d after OTA_ACTIVATE", tc.flag, o.cmds, tc.after)
+		}
+		if tc.after == 0 && !bytes.Contains(out.Bytes(), []byte(`"reset_now": true`)) {
+			t.Fatalf("%s: output %q, want the activation result", tc.flag, out.String())
+		}
 	}
 }

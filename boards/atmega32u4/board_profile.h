@@ -164,7 +164,7 @@
  * tfw-boot's 8 s watchdog only catches a hang inside it. It must cover a boot
  * (a taken store boot on the 2560: 5,334 ms at 16 MHz), the connection, one
  * attestation and the confirm. */
-#define TFW_OTA_TRIAL_TIMEOUT_S 60u   /* PROPOSED, ADR open question 6 */
+#define TFW_OTA_TRIAL_TIMEOUT_S 60u   /* OTA ADR, open question 6, settled */
 #define TFW_APP_REGION_BASE   0uL
 #define TFW_APP_REGION_SIZE   TFW_BOOT_REGION_BASE
 #define TFW_OTA_PAGE_MAX      256u

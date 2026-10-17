@@ -228,6 +228,32 @@
  * never takes a number an older host already reads as something else. */
 #define TFWV_FRAME_OTA_BEGIN_BAD_STATE_RESP "\xa5\x03\x03\xe8\x13\x05\xfd"
 
+/* ADR decision 8's control commands (issue #77), produced by an independent
+ * CRC-16/CCITT-FALSE and frozen. Pins 0x6C, 0x6D and 0x6E and the 44-byte
+ * OTA_INFO reply's order and byte order. */
+
+/* TFW_CMD_OTA_INFO (0x6C), seq 0x04, payload slot=1. */
+#define TFWV_FRAME_OTA_INFO_REQ "\xa5\x03\x04\x6c\x01\xba\x9d"
+
+/* Its response, status OK: slots=2 active=0 flags=0x05 (fell back, trial)
+ * floor=7 (LE) state=4 (PENDING) image_version=42 (LE) measurement=0xAB x 32. */
+#define TFWV_FRAME_OTA_INFO_RESP "\xa5\x2f\x04\xec\x00\x02\x00\x05\x07\x00\x00\x00\x04\x2a\x00\x00\x00\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xd8\x23"
+
+/* TFW_CMD_OTA_ACTIVATE (0x6D), seq 0x05, payload mode=1 (reset now). */
+#define TFWV_FRAME_OTA_ACTIVATE_REQ "\xa5\x03\x05\x6d\x01\xbb\x99"
+
+/* Its response, status OK, no payload. */
+#define TFWV_FRAME_OTA_ACTIVATE_RESP "\xa5\x03\x05\xed\x00\x02\x92"
+
+/* Its fail-closed refusal: status TFW_ERR_BAD_STATE (19), no payload. */
+#define TFWV_FRAME_OTA_ACTIVATE_BAD_STATE_RESP "\xa5\x03\x05\xed\x13\x50\xb0"
+
+/* TFW_CMD_OTA_CONFIRM (0x6E), seq 0x06, no payload. */
+#define TFWV_FRAME_OTA_CONFIRM_REQ "\xa5\x02\x06\x6e\x32\x85"
+
+/* Its response, status OK, no payload. */
+#define TFWV_FRAME_OTA_CONFIRM_RESP "\xa5\x03\x06\xee\x00\x01\x9e"
+
 /* ---------------------------------------------------------- ATTEST_CSR -- */
 /* The CertificationRequestInfo ATTEST_CSR (0x64, issue #30) signs, and its
  * SHA-256. The command sends only the signature; a host rebuilds these bytes

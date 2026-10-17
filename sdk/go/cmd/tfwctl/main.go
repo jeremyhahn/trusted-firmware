@@ -44,8 +44,14 @@ commands
   timer <pin> <0|1> <duration>   drive a pin, the DEVICE reverts it
   timer-cancel <pin> [apply]
   timer-query <pin>
-  ota-stage <image>  stage an image file; the DEVICE gates it
+  ota-stage [--activate[=now]] <image>
+                     stage an image file; the DEVICE gates it. --activate
+                     sends ota-activate [now] on the same connection: the
+                     one way on a board that resets on open (the Mega 2560)
   ota-status         the OTA session's state and bytes received
+  ota-activate [now] take the staged, verified image at the next reset, or
+                     reset now; ota-stage does not (OTA ADR decision 8).
+                     Needs a transport that does not reset the board on open
   ports              list the serial ports this host can see
 
   analog <pin>                     one conversion, raw counts
@@ -334,19 +340,71 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		})
 
 	case "ota-stage":
+		// --activate sends OTA_ACTIVATE on this same connection after
+		// OTA_END. The session's COMPLETE state is RAM only, and a board that
+		// resets on open (the Mega 2560 over USB serial) loses it before a
+		// separate ota-activate run can send anything.
+		activate, mode := false, tfw.OTAActivateAtReset
+		if len(args) == 2 {
+			switch args[0] {
+			case "--activate":
+				activate = true
+			case "--activate=now":
+				activate, mode = true, tfw.OTAActivateResetNow
+			default:
+				return fmt.Errorf("usage: ota-stage [--activate[=now]] <image>")
+			}
+			args = args[1:]
+		}
 		if len(args) != 1 {
-			return fmt.Errorf("usage: ota-stage <image>")
+			return fmt.Errorf("usage: ota-stage [--activate[=now]] <image>")
 		}
 		// No parsing here: the device gates the image, and a refusal is its
 		// status, returned as every other verb returns one.
 		image, err := os.ReadFile(args[0])
 		if err != nil {
-			return fmt.Errorf("usage: ota-stage <image>: %w", err)
+			return fmt.Errorf("usage: ota-stage [--activate[=now]] <image>: %w", err)
 		}
 		if err := dev.StageImage(ctx, image); err != nil {
 			return err
 		}
+		if activate {
+			if err := dev.OTAActivate(ctx, mode); err != nil {
+				return err
+			}
+			// The board resets once the reply drains: any further request
+			// races the reset, so reset-now reports the activation alone.
+			if mode == tfw.OTAActivateResetNow {
+				return emit(out, asJSON, map[string]any{"activated": true, "reset_now": true},
+					func() string { return "activated; the device resets now\n" })
+			}
+		}
 		return emitOTAStatus(ctx, dev, asJSON, out)
+
+	case "ota-activate":
+		// Its own verb, not the end of ota-stage: OTA_END finishes the stream,
+		// and taking the image is the control plane's call (OTA ADR decision
+		// 8). The device re-verifies the store before it writes the MARK.
+		// It needs a transport that does not reset the board on open: on one
+		// that does, the staged session is gone and the device answers
+		// TFW_ERR_BAD_STATE, so stage there with ota-stage --activate.
+		mode := tfw.OTAActivateAtReset
+		switch {
+		case len(args) == 1 && args[0] == "now":
+			mode = tfw.OTAActivateResetNow
+		case len(args) != 0:
+			return fmt.Errorf("usage: ota-activate [now]")
+		}
+		if err := dev.OTAActivate(ctx, mode); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"activated": true, "reset_now": mode == tfw.OTAActivateResetNow},
+			func() string {
+				if mode == tfw.OTAActivateResetNow {
+					return "activated; the device resets now\n"
+				}
+				return "activated; taken at the next reset\n"
+			})
 
 	case "ota-status":
 		if len(args) != 0 {

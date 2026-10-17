@@ -521,6 +521,36 @@ where only one fits, its image links one link file, chosen by its profile, as
   `OTA_CONFIRM` stay on serial. **PROPOSED:** a session opened on a
   connection ends when that connection closes, as well as at reset, so a
   reconnecting peer starts unauthenticated (open question 8).
+- **`OTA_END`, then `OTA_ACTIVATE`.** `OTA_END` verifies the stream and leaves
+  the image `VERIFIED` in RAM; it writes no MARK, so a reset after it takes
+  nothing. `OTA_ACTIVATE` alone makes an image `PENDING`: it requires
+  `VERIFIED`, re-reads and re-verifies the whole staged image against the hash
+  `OTA_END` checked, and only then writes the MARK. Anything else answers
+  `TFW_ERR_BAD_STATE`. The split keeps one owner per transition: the stream's
+  end is the stager's, the decision to boot it is the control plane's, and an
+  image changed in the store between the two is refused rather than tried.
+  `OTA_ACTIVATE` is served on serial only for now and answers
+  `TFW_ERR_UNKNOWN_CMD` over TCP.
+- **The confirm request record.** `OTA_CONFIRM` does not write the platform
+  block, whose only writer is tfw-boot (`include/tfw/hal.h`). It leaves a
+  request that tfw-boot applies at the next reset:
+  - layout, 11 bytes (`TFW_BOOT_CONFIRM_*`, `include/tfw/boot.h`):
+    `[magic 0xC9:1][measurement:8][crc:2]`. The measurement is the first 8 bytes
+    of the running image's, from `tfw_boot_handoff_measurement()`. The CRC is
+    CRC-16/CCITT-FALSE over the first 9 bytes, little-endian;
+  - where: `TFW_BOOT_CONFIRM_ADDR`, EEPROM `0x0EA`–`0x0F4` on the 2560, after the
+    swap journal (`0x0E0`–`0x0E9`). It is inside the span host `EEPROM_WRITE`
+    refuses (`TFW_BOOT_EE_EXTRA_LEN`, 21 bytes), so only the application's
+    handler writes it;
+  - why outside the block: the block keeps a single writer, and a torn request
+    is just an invalid one. A torn write of the block could lose its state;
+  - who clears it, and when: tfw-boot, at the reset that ends the trial, either
+    way. With a valid request bound to the primary's trailer measurement it
+    confirms and settles: `CONFIRMED`, then `GOOD`, and the floor advances. A
+    stale, corrupt or absent request fails the trial. The magic is written
+    `0xFF` only when it is set, so an ordinary boot wears nothing. The handler
+    also stops the trial deadline (`tfw_ota_trial_stop`). The settling reset is
+    the control plane's next `RESET` or any power cycle.
 - A host tells an OTA-capable image by `OTA_INFO` answering. An image without it
   answers `TFW_ERR_UNKNOWN_CMD`. There is no `CAPS` bit, following `APP_INFO`.
 - On an M33 under TF-M the application maps these commands onto PSA Firmware
@@ -544,9 +574,26 @@ The machine is drawn in
   against the CoRIM, and only then sends `OTA_CONFIRM`. A device-local confirm
   is gone. `tfw_app_after_update` refusing ends the trial at once, as failed.
 - **Where the timeout is configured.** A per-board constant in
-  `boards/*/board_profile.h`, `TFW_OTA_TRIAL_TIMEOUT_S` (name PROPOSED, value
-  per board PROPOSED, open question 6). It must cover a boot, the connection,
-  one attestation and the confirm. It is enforced in two layers:
+  `boards/*/board_profile.h`, `TFW_OTA_TRIAL_TIMEOUT_S`: **60 s on each AVR
+  board with a boot section** (2560, 328P, 32U4; the ATtiny85 has no trial,
+  open question 3). It must cover a boot, the connection, one attestation and
+  the confirm, and is sized as follows:
+  - the boot is outside it. The application counts from its own `init`, after
+    tfw-boot's swap and verify; tfw-boot's watchdog arm covers the jump to
+    `.init3`;
+  - the connection is most of it: W5x00 link-up, then DHCP, whose client
+    retransmits after 4 s and then 8 s (RFC 2131 §4.1), so two lost
+    `DISCOVER`s cost 12 s before the third goes out. Then go-trusted-platform's
+    TCP connection and the auth session (decision 8);
+  - one attestation, the evidence signature, and one `OTA_CONFIRM` frame;
+  - the rest is margin, at least 2x the sum above;
+  - the deadline is the application's tick, and the reset lands within one 8 s
+    watchdog period of it, so a failed trial ends by 68 s.
+
+  None of the connection or attestation times is measured in these documents
+  yet. The bench measures them on the Nano and the Mega over Ethernet. A board
+  whose measured sum leaves less than 2x margin raises its own value; the name
+  does not change. It is enforced in two layers:
   - the application's tick counts the deadline and, at expiry, resets into
     `tfw-boot`;
   - `tfw-boot` arms the hardware watchdog before the trial jump, and the
@@ -874,8 +921,8 @@ reference value. A gap there is filed against go-xkms.
    is proposed (decision 3).
 5. **Manifest carriage.** The signed envelope appended to the `OTA_DATA` stream,
    counted in `OTA_BEGIN`'s total, with no new command (decision 3).
-6. **The trial timeout.** The name `TFW_OTA_TRIAL_TIMEOUT_S` and each board's
-   value.
+6. **The trial timeout.** Settled: `TFW_OTA_TRIAL_TIMEOUT_S`, 60 s on each
+   AVR board with a boot section (decision 9, "Where the timeout is configured").
 7. **The 2560's slot size.** 64 KB slots matching the image budget (proposed:
    the shortest swap, and the running image under the 64 KB near-read boundary),
    or the largest pair the region holds (495 and 496 pages).

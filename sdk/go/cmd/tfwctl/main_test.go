@@ -106,9 +106,9 @@ func TestRunArgumentErrorsAreRefusedBeforeTheWire(t *testing.T) {
 		{"timer-cancel with a bad pin", "timer-cancel", []string{"x"}, `pin "x": `},
 		{"timer-query without a pin", "timer-query", nil, "usage: timer-query <pin>"},
 		{"timer-query with a bad pin", "timer-query", []string{"x"}, `pin "x": `},
-		{"ota-stage without an image", "ota-stage", nil, "usage: ota-stage <image>"},
-		{"ota-stage with two images", "ota-stage", []string{"a", "b"}, "usage: ota-stage <image>"},
-		{"ota-stage with a missing image", "ota-stage", []string{missing}, "usage: ota-stage <image>: open "},
+		{"ota-stage without an image", "ota-stage", nil, "usage: ota-stage [--activate[=now]] <image>"},
+		{"ota-stage with two images", "ota-stage", []string{"a", "b"}, "usage: ota-stage [--activate[=now]] <image>"},
+		{"ota-stage with a missing image", "ota-stage", []string{missing}, "usage: ota-stage [--activate[=now]] <image>: open "},
 		{"ota-status with an argument", "ota-status", []string{"now"}, "usage: ota-status"},
 		{"an unknown subcommand", "morse", nil, "unknown command"},
 	} {

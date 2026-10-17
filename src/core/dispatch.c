@@ -20,6 +20,7 @@
 #include "auth_session.h"
 #include "app_runner.h"
 #include "ota_stage.h"
+#include "ota_ctl.h"
 
 typedef struct {
     uint8_t          id;

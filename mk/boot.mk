@@ -598,14 +598,20 @@ endif
 # The same warning set as the firmware. The harness is a model of a part other
 # people will read as documentation for it, so it is held to the standard the
 # thing it models is held to.
-$(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c $(BOOT_INT_PREV_SRC) \
+# The two-slot cases (the confirm request, the swap record) by object list.
+BOOT_HARNESS_AB_SRC := test/integration/simavr/boot_harness_ab_none.c
+ifeq ($(BOOT_AB),1)
+BOOT_HARNESS_AB_SRC := test/integration/simavr/boot_harness_ab.c
+endif
+
+$(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c $(BOOT_HARNESS_AB_SRC) $(BOOT_INT_PREV_SRC) \
         src/proto/crc16.c src/proto/crc16_update.c \
         src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
         boot/boot_image.c boot/boot_platform.c boot/boot_request.c \
         test/model/spi_nor_model.c test/model/w5x00_model.c
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
-	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot -Itest/model \
+	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot -Itest/model -Itest/integration/simavr \
 	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
 	   -DTFW_SIMAVR_MCU='"$(MCU)"' -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' \
 	   -o $@ $^ -lsimavr -lelf

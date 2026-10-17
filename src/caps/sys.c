@@ -51,6 +51,12 @@ uint8_t tfw_sys_reset_pending(void)
     return reset_pending;
 }
 
+void tfw_sys_reset_soon(void)
+{
+    reset_mode    = 0u;
+    reset_pending = 1u;
+}
+
 /* Four bytes, in the order given, as one little-endian u32: on the wire exactly
  * what four tfw_write_u8 calls would put there. Given constants the word folds
  * at compile time, and the calls it saves are part of what pays for #12 on the

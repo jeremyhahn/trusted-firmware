@@ -15,7 +15,15 @@
 #include "hal_mock.h"
 #include "spi_nor_model.h"
 #include "ota_stage.h"
+#include "ota_store.h"
+#include "ota_ctl.h"
+#include "boot_platform.h"
+#include "tfw/hal.h"
+#include "caps/sys.h"
 #include "sha256.h"
+#include "crc16.h"
+#include "handoff.h"
+#include "boot_measure.h"
 
 #define TRAILER   128u
 #define CHUNK     60u      /* TFW_MAX_PAYLOAD less the offset */
@@ -128,6 +136,8 @@ static void test_short_image_is_staged_and_marked(void)
     stream(0u, 512u);
     TEST_ASSERT_EQUAL(TFW_OK, end());
     expect_status(TFW_STAGE_COMPLETE, 512u);
+    TEST_ASSERT_FALSE(marked());          /* ended, not activated: never taken */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
     expect_staged(512u);
 }
 
@@ -141,6 +151,7 @@ static void test_slot_sized_image_fills_stage(void)
     stream(0u, total);
     TEST_ASSERT_EQUAL(TFW_OK, end());
     expect_status(TFW_STAGE_COMPLETE, total);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
     expect_staged(total);
     /* The MARK sector, PREV's for the backup (#52), then each STAGE sector
      * once as the stream enters it. */
@@ -169,6 +180,7 @@ static void test_interrupted_stream_then_fresh_begin(void)
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
     stream(0u, 512u);
     TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
     TEST_ASSERT_TRUE(marked());
 
     /* A new session withdraws the old record before a byte of STAGE moves. */
@@ -185,6 +197,7 @@ static void test_interrupted_stream_then_fresh_begin(void)
     stream(0u, 768u);
     TEST_ASSERT_EQUAL(TFW_OK, end());
     expect_status(TFW_STAGE_COMPLETE, 768u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
     expect_staged(768u);
 }
 
@@ -222,6 +235,174 @@ static void test_init_parks_selects_before_any_transfer(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
 }
 
+/* ---- OTA_INFO, OTA_CONFIRM, OTA_ACTIVATE (#77, ADR decision 8) ---- */
+
+static void put_block(uint8_t boot_state, uint8_t ota_state)
+{
+    uint8_t             raw[TFW_BOOT_EE_LEN];
+    tfw_boot_platform_t p;
+
+    memset(&p, 0, sizeof p);
+    p.rollback_floor = 7u;
+    p.boot_state     = boot_state;
+    p.ota_state      = ota_state;
+    tfw_boot_platform_serialise(&p, raw);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+}
+
+static void get_block(uint8_t raw[TFW_BOOT_EE_LEN])
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+}
+
+static tfw_status_t ctl(tfw_status_t (*fn)(tfw_reader_t *, tfw_writer_t *),
+                        const uint8_t *in, uint8_t n, uint8_t out[44], uint8_t *len)
+{
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_status_t st;
+
+    tfw_reader_init(&r, in, n);
+    tfw_writer_init(&w, out, 44u);
+    st = fn(&r, &w);
+    *len = (uint8_t)tfw_writer_len(&w);
+    return st;
+}
+
+static void test_info_reports_the_block_and_the_marked_image(void)
+{
+    uint8_t s1 = 1u, s0 = 0u, s9 = 9u, out[44], n;
+
+    put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_FAILED);
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(44u, n);
+    TEST_ASSERT_EQUAL_UINT8(2u, out[0]);
+    TEST_ASSERT_EQUAL_UINT8(0u, out[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x05u, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(7u, out[3]);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, out[7]);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ctl(tfw_otactl_cmd_info, &s9, 1u, out, &n));
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s1, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_IDLE, out[7]);      /* nothing marked */
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s1, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_IDLE, out[7]);      /* ended, not activated */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s1, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, out[2]);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_PENDING, out[7]);
+    TEST_ASSERT_EQUAL_MEMORY(meas, &out[12], TFW_BOOT_MEASURE_LEN);
+}
+
+static void test_activate_takes_a_verified_image_and_resets_on_mode_1(void)
+{
+    uint8_t m0 = 0u, m1 = 1u, m2 = 2u, out[44], n;
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ctl(tfw_otactl_cmd_activate, &m2, 1u, out, &n));
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    TEST_ASSERT_TRUE(marked());           /* ACTIVATE is the MARK's one writer */
+    expect_staged(512u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sys_reset_pending());
+    tfw_sys_reset_state();
+}
+
+static void test_activate_fails_closed_on_an_unverifiable_block(void)
+{
+    uint8_t m1 = 1u, out[44], n, before[TFW_BOOT_EE_LEN], after[TFW_BOOT_EE_LEN];
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    img[17] ^= 0x40u;                     /* the body no longer matches its trailer */
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, end());
+    get_block(before);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    get_block(after);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+    expect_status(TFW_STAGE_FAILED, 512u);
+
+    /* Mid-stream: no MARK, refused the same way. */
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    /* In TRIAL: the running trial is confirmed or failed first. */
+    put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_IDLE);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+}
+
+/* Body and trailer replaced together after OTA_END: the new image verifies on
+ * its own, but it is not the measurement END checked, so ACTIVATE refuses. */
+static void test_activate_takes_only_the_image_end_verified(void)
+{
+    uint8_t  m0 = 0u, out[44], n, before[TFW_BOOT_EE_LEN], after[TFW_BOOT_EE_LEN];
+    uint32_t off;
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    build(512u, 300u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_erase(TFW_OTA_STORE_STAGE_ADDR));
+    for (off = 0u; off < 512u; off += TFW_STORE_CHUNK) {
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_store_write(TFW_OTA_STORE_STAGE_ADDR + off, &img[off], TFW_STORE_CHUNK));
+    }
+    get_block(before);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    get_block(after);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_FALSE(marked());
+}
+
+/* CONFIRM leaves its request for tfw-boot and never writes the platform block
+ * (include/tfw/hal.h: tfw-boot is its one writer). */
+static void test_confirm_writes_its_request_and_never_the_block(void)
+{
+    uint8_t   out[44], n, raw[TFW_BOOT_EE_LEN], before[TFW_BOOT_EE_LEN];
+    uint8_t   block[TFW_BOOT_HANDOFF_LEN], cdi[32] = { 0 }, m[32];
+    uint8_t  *rec = tfw_mock_eeprom() + TFW_BOOT_CONFIRM_ADDR;
+    uint16_t  crc;
+
+    memset(m, 0x3Cu, sizeof m);
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
+    /* TRIAL with no handoff: no image to bind the request to. */
+    put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_IDLE);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, rec[0]);
+
+    tfw_boot_handoff_build(block, 0u, cdi, m, 3u, 0u);
+    memcpy(tfw_mock_handoff(), block, sizeof block);
+    tfw_boot_handoff_init();
+    get_block(before);
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    get_block(raw);
+    TEST_ASSERT_EQUAL_MEMORY(before, raw, TFW_BOOT_EE_LEN);   /* still TRIAL */
+    TEST_ASSERT_EQUAL_HEX8(TFW_BOOT_CONFIRM_MAGIC, rec[0]);
+    TEST_ASSERT_EQUAL_MEMORY(m, &rec[TFW_BOOT_CONFIRM_O_MEAS], TFW_BOOT_CONFIRM_MEAS_LEN);
+    crc = tfw_crc16(rec, TFW_BOOT_CONFIRM_O_CRC);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)crc, rec[TFW_BOOT_CONFIRM_O_CRC]);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(crc >> 8), rec[TFW_BOOT_CONFIRM_O_CRC + 1u]);
+}
+
 /* On a one-slot board (#52), OTA_BEGIN copies the running image -- the whole
  * application region -- into PREV before it takes a byte, and a stream
  * after it leaves PREV as it was. */
@@ -241,6 +422,7 @@ static void test_begin_backs_the_running_image_up_to_prev(void)
     TEST_ASSERT_EQUAL(TFW_OK, end());
     TEST_ASSERT_EQUAL_MEMORY(&flash[TFW_BOOT_APP_BASE],
                              &tfw_nor_model_mem()[TFW_OTA_STORE_PREV_ADDR], TFW_BOOT_APP_SIZE);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());   /* the MARK's one writer (#77) */
     expect_staged(512u);
 }
 
@@ -253,6 +435,11 @@ int main(void)
     RUN_TEST(test_interrupted_stream_then_fresh_begin);
     RUN_TEST(test_hash_mismatch_fails_without_a_mark);
     RUN_TEST(test_init_parks_selects_before_any_transfer);
+    RUN_TEST(test_info_reports_the_block_and_the_marked_image);
+    RUN_TEST(test_activate_takes_a_verified_image_and_resets_on_mode_1);
+    RUN_TEST(test_activate_fails_closed_on_an_unverifiable_block);
+    RUN_TEST(test_activate_takes_only_the_image_end_verified);
+    RUN_TEST(test_confirm_writes_its_request_and_never_the_block);
     RUN_TEST(test_begin_backs_the_running_image_up_to_prev);
     return UNITY_END();
 }

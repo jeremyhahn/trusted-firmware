@@ -123,4 +123,20 @@ const (
 	// FrameOTABeginBadStateResp is the TFW_CMD_OTA_BEGIN response, seq 3,
 	// status TFW_ERR_BAD_STATE (19), no payload.
 	FrameOTABeginBadStateResp = "\xa5\x03\x03\xe8\x13\x05\xfd"
+	// FrameOTAInfoReq is TFW_CMD_OTA_INFO (0x6C), seq 4, slot 1 (#77).
+	FrameOTAInfoReq = "\xa5\x03\x04\x6c\x01\xba\x9d"
+	// FrameOTAInfoResp is its response, status OK: slots 2, active 0, flags
+	// 0x05, floor 7, state 4 (PENDING), image_version 42, measurement 0xAB x 32.
+	FrameOTAInfoResp = "\xa5\x2f\x04\xec\x00\x02\x00\x05\x07\x00\x00\x00\x04\x2a\x00\x00\x00\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xab\xd8\x23"
+	// FrameOTAActivateReq is TFW_CMD_OTA_ACTIVATE (0x6D), seq 5, mode 1.
+	FrameOTAActivateReq = "\xa5\x03\x05\x6d\x01\xbb\x99"
+	// FrameOTAActivateResp is its response, status OK, no payload.
+	FrameOTAActivateResp = "\xa5\x03\x05\xed\x00\x02\x92"
+	// FrameOTAActivateBadStateResp is its fail-closed refusal, status
+	// TFW_ERR_BAD_STATE (19), no payload.
+	FrameOTAActivateBadStateResp = "\xa5\x03\x05\xed\x13\x50\xb0"
+	// FrameOTAConfirmReq is TFW_CMD_OTA_CONFIRM (0x6E), seq 6, no payload.
+	FrameOTAConfirmReq = "\xa5\x02\x06\x6e\x32\x85"
+	// FrameOTAConfirmResp is its response, status OK, no payload.
+	FrameOTAConfirmResp = "\xa5\x03\x06\xee\x00\x01\x9e"
 )

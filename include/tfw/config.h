@@ -139,6 +139,19 @@
 #ifndef TFW_FEATURE_OTA_STAGE
 #define TFW_FEATURE_OTA_STAGE   0
 #endif
+/* OTA_INFO, OTA_CONFIRM and OTA_ACTIVATE (issue #77), set by mk/firmware.mk
+ * from the object list: a BOOT_AB board's image that also stages. Never set by
+ * hand; the handlers are src/core/ota_ctl.c, linked only with this. */
+#ifndef TFW_FEATURE_OTA_CTL
+#define TFW_FEATURE_OTA_CTL     0
+#endif
+/* OTA_ACTIVATE alone (issue #77), set by mk/firmware.mk for every OTA_STAGE=1
+ * image, single-slot or A/B: OTA_END does not write the MARK, so a stager
+ * without it could never install what it staged. Never set by hand; the
+ * handler is src/core/ota_activate.c, linked only with this. */
+#ifndef TFW_FEATURE_OTA_ACTIVATE
+#define TFW_FEATURE_OTA_ACTIVATE 0
+#endif
 /* An application is linked -- docs/application-sdk/. DEFAULT 0, turned on by
  * naming an APP_DIR (mk/app.mk), which also links the real runner in place of
  * src/core/app_runner_none.c. Read in one place, commands.def, to give
@@ -241,6 +254,12 @@
 #endif
 #ifndef TFW_BOOT_EE_EXTRA_LEN
 #define TFW_BOOT_EE_EXTRA_LEN  0u
+#endif
+/* OTA_CONFIRM's request record (include/tfw/boot.h). Only a board with the
+ * trial links OTA_CONFIRM and places it, inside its EXTRA span (the 2560); the
+ * host builds that link it for tests and tfwsim take the 2560's place. */
+#ifndef TFW_BOOT_CONFIRM_ADDR
+#define TFW_BOOT_CONFIRM_ADDR  0x0EAu
 #endif
 
 /* ---------------------------------------------------- flash geometry, for tfw-boot

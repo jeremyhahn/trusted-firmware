@@ -64,7 +64,8 @@ static void test_the_journal_lies_past_the_platform_block(void)
 {
     TEST_ASSERT_EQUAL_HEX16(0x0C0u, TFW_BOOT_EE_LEN);
     TEST_ASSERT_EQUAL_HEX16(0x0E0u, TFW_BOOT_EE_EXTRA_BASE);
-    TEST_ASSERT_EQUAL_UINT(10u, TFW_BOOT_EE_EXTRA_LEN);
+    TEST_ASSERT_EQUAL_UINT(21u, TFW_BOOT_EE_EXTRA_LEN);   /* the journal, then OTA_CONFIRM's request */
+    TEST_ASSERT_EQUAL_HEX16(0x0EAu, TFW_BOOT_CONFIRM_ADDR);
 }
 
 static void test_each_end_of_the_journal_is_refused(void)
@@ -73,6 +74,10 @@ static void test_each_end_of_the_journal_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0E9u, 1u));
     TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0E0]);
     TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0E9]);
+    /* OTA_CONFIRM's request record (#77) is tfw-boot's to take, never the host's. */
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0EAu, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0F4u, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0F4]);
 }
 
 /* Refused whole: a write is checked over every byte it reaches, not its start. */
@@ -88,9 +93,9 @@ static void test_a_write_over_either_edge_is_refused(void)
 static void test_the_bytes_either_side_are_writable(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0DFu, 1u));
-    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0EAu, 1u));
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0F5u, 1u));
     TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0DF]);
-    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0EA]);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0F5]);
     TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0E0]);
 }
 
@@ -99,7 +104,7 @@ static void test_a_read_of_the_journal_takes_the_gate(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_read(0x0E9u, 2u));
     TEST_ASSERT_EQUAL_UINT(1u, gate_calls);
-    TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x0EAu, 1u));
+    TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x0F5u, 1u));
     TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x0DFu, 1u));
     TEST_ASSERT_EQUAL_UINT(1u, gate_calls);
 }

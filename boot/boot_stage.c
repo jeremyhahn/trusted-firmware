@@ -292,6 +292,13 @@ tfw_status_t tfw_boot_stage_forget(void)
     return st;
 }
 
+void tfw_boot_stage_after_reset(tfw_boot_reset_action_t trial, tfw_boot_reset_action_t act)
+{
+    if (trial == TFW_BOOT_RESET_FAIL && act != TFW_BOOT_RESET_SETTLE) {
+        (void)tfw_boot_stage_forget();
+    }
+}
+
 tfw_status_t tfw_boot_stage_copy(uint32_t src, uint32_t body)
 {
     tfw_status_t st = tfw_boot_store_open();

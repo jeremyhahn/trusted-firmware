@@ -110,7 +110,7 @@ network input.
 
 | Board | Boot | Application | Transports in the shipped image |
 |---|---|---|---|
-| ATmega2560 | serial session, swap-move, trial: 7 666 of 8 192; or store read, swap-move, trial: 6 256 of 8 192. Both together are 8 916, which does not fit (element tier, measured with `ARCH_BOOT_OPT_CFLAGS`; 9 110 with `-mcall-prologues` alone, 9 616 before) | `ETH=1`, stager, manifest reader: about 24 445 of 65 536 | both |
+| ATmega2560 | serial session, swap-move, trial: 7 954 of 8 192; or store read, swap-move, trial: 6 492 of 8 192 (verify-measured, with the confirm request). Both together were 8 916 before the confirm request, which does not fit (element tier, measured with `ARCH_BOOT_OPT_CFLAGS`; 9 110 with `-mcall-prologues` alone, 9 616 before) | `ETH=1`, stager, manifest reader: about 24 445 of 65 536 | both |
 | ATmega328P | verify-and-copy, trial: 3 924 of 4 096 | `ETH=1`, stager: about 19 267, and about 22 153 with the manifest reader | both, under the 28 672 region budget (proposed); none under the 16 384 policy line |
 | ATmega32U4 | as the 328P, unmeasured | no Ethernet controller wired yet | follow-up |
 
@@ -181,7 +181,8 @@ boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
   clear programs the `MARK`'s magic to zero, so a clear a reset cuts short
   leaves no `MARK` either.
 - **The timeout** is per board, `TFW_OTA_TRIAL_TIMEOUT_S` in
-  `boards/*/board_profile.h` (name and values proposed). The application
+  `boards/*/board_profile.h`, 60 s on each AVR board with a boot section
+  (ADR, "Where the timeout is configured"). The application
   counts it; `tfw-boot` arms the watchdog, which the application SDK pets during
   the trial.
 - **The floor advances after confirm**, at the next reset and before any pending
@@ -207,12 +208,12 @@ encoding, from `include/tfw/boot.h`:
 
 | Function | Transition | Refused (`TFW_ERR_BAD_STATE`) |
 |---|---|---|
-| `tfw_boot_trial_at_reset` | picks, in order: `TRIAL` → fail, `CONFIRMED` → settle, `PENDING` → try, else boot | never |
+| `tfw_boot_trial_at_reset` | picks, in order: `TRIAL` → fail, `CONFIRMED` → settle, `PENDING` → try, else boot; on the 2560, `TRIAL` with a valid confirm request (ADR decision 8) → confirm, then settle | never |
 | `tfw_boot_trial_arm` | `PENDING` → `TRIAL`, before the jump | nothing pending; a trial running; a confirm not yet settled |
 | `tfw_boot_trial_fail` | `TRIAL` or `PENDING` → `TRIAL`, `FAILED`, so every later reset fails again; a pending image refused at evaluation never boots, even once a transient failure clears | no trial and nothing pending |
-| `tfw_boot_trial_confirm` | `TRIAL` → `CONFIRMED` | outside a trial; a trial already failed |
+| `tfw_boot_trial_confirm` | `TRIAL` → `CONFIRMED`, called only by tfw-boot at reset, from `OTA_CONFIRM`'s request record | outside a trial; a trial already failed |
 | `tfw_boot_trial_settle` | `CONFIRMED` → `GOOD`, floor := version | no confirm |
-| `tfw_boot_trial_activate` | `VERIFIED` → `PENDING` | no verified image; a trial running; the measurement that last failed |
+| `tfw_boot_trial_activate` | `VERIFIED` → `PENDING`, from `OTA_ACTIVATE` after it re-verifies the image and writes the MARK; `OTA_END` alone leaves `VERIFIED` | no verified image; a trial running; the measurement that last failed |
 | `tfw_boot_trial_begin_permit` | — | `OTA_BEGIN` while an image is pending; while a confirm is not yet settled |
 
 The only path that exists yet is the in-place boot session (`recovery_ota.c`),
@@ -652,7 +653,7 @@ deadline on the emulated part, with no reset from the harness.
 | `OTA_BEGIN`/`OTA_DATA`/`OTA_END` over TCP through the W5100 into the 2560's stager and store (`ETH=1`), then tfw-boot's copy and the trial | yes, `test_a_network_staged_image_runs_its_trial` (`boot_harness ... net`): the W5x00 model (`test/model/w5x00_model.c`) on the emulated SPI bus behind D10, beside the NOR part behind D8, and the harness the TCP peer through the model's peer calls; the W5100 only, the board's `ETH_CHIP` | `tfwsim`, `sdk/go/tfwsim/ota_test.go`, serial and TCP; the bench |
 | the host's `(*Device).StageImage` over the emulated UART into the 2560's stager and store (`OTA_STAGE=1`), then tfw-boot's copy and the trial | yes, `TestOTAStageThroughTfwBoot` against the harness's bridge mode (`boot_harness ... bridge`); the trial state is asserted by the harness, not over the wire | `TestOTAStageAgainstFirmware`, on `tfwsim` |
 | tfw-boot reads `MARK` and `STAGE`, checks, copies into the secondary, swaps in, arms `TRIAL`, the application boots | yes, `test_a_store_image_runs_its_trial_and_settles` | `test_boot_stage_2560`, `test_boot_swap` |
-| `CONFIRMED` at reset: the floor advances to the version, `GOOD`; the mark is not copied again | yes, same test; the harness writes `CONFIRMED` into the block | `test_boot_trial`, `test_boot_swap` |
+| `CONFIRMED` at reset: the floor advances to the version, `GOOD`; the mark is not copied again | yes, same test; the harness leaves `OTA_CONFIRM`'s request record and resets; tfw-boot confirms, settles and clears it | `test_boot_trial`, `test_boot_swap` |
 | `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | no: not on the wire, their ids are decision 8's proposal | none |
 | a trial not confirmed: the reset swaps back, `GOOD` `FAILED`, the marked image not taken again, the floor unmoved | yes, `test_an_unconfirmed_store_image_swaps_back`; the harness forces that reset | `test_boot_swap` |
 | the trial deadline: nothing confirms, the application's `ota_trial.c` takes a watchdog reset at `TFW_OTA_TRIAL_TIMEOUT_S` (the board value, 60 s), WDRF in MCUSR at the reset edge and `TFW_RESET_WATCHDOG` in `SYS_INFO`, within one 8 s watchdog period of the deadline (`tfw_hal_reset` disarms the 8 s watchdog before its 15 ms one, which simavr would otherwise not apply); tfw-boot copies `PREV` back, `GOOD` `FAILED` | yes, `test_an_unconfirmed_store_image_rolls_back_at_the_deadline`, about 1.05 billion emulated cycles | `test_ota_trial`, `test_boot_trial` |
@@ -669,11 +670,10 @@ only, until the command exists.
 
 Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
 the stager carrying the envelope and calling the manifest gate;
-`OTA_CONFIRM` and `OTA_ACTIVATE` on the wire (decision 8's ids are
-proposed); keeping the failed measurement (open question 10); and the
-caller of the trial's stop, `tfw_ota_trial_stop`, which is the `OTA_CONFIRM`
-handler of decision 8. Until it lands, every trial runs out at its deadline
-and rolls back.
+`OTA_ACTIVATE` over TCP (serial only for now); and keeping the failed
+measurement (open question 10). `OTA_INFO`, `OTA_ACTIVATE` and `OTA_CONFIRM`
+are on the wire at decision 8's ids, and `OTA_CONFIRM` calls
+`tfw_ota_trial_stop`.
 
 A gap in the 328P/32U4 restore, recorded and not designed here:
 
@@ -689,8 +689,8 @@ and before the jump, on the trial path only, in `boot_main.c` and in the
 recovery session. In the application, `src/core/ota_trial.c` reads the
 platform block's `boot_state` before the application's `init`; in `TRIAL` it
 re-arms the watchdog, and the superloop pets it and counts
-`TFW_OTA_TRIAL_TIMEOUT_S` (60 s on each AVR board with a boot section,
-PROPOSED, open question 6), resetting into `tfw-boot` at expiry. The
+`TFW_OTA_TRIAL_TIMEOUT_S` (60 s on each AVR board with a boot section, ADR
+open question 6, settled), resetting into `tfw-boot` at expiry. The
 application's `.init3` still disarms the watchdog on every boot, so the
 boot's arm covers the window from the jump to `.init3`, and the re-arm covers
 the rest of the trial. Only the 2560 (`BOOT_AB`) links `ota_trial.c`; the 328P

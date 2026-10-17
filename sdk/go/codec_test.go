@@ -54,6 +54,42 @@ func TestBadStateResponseMatchesVector(t *testing.T) {
 	}
 }
 
+// ADR decision 8's control commands (#77), each frame against its literal.
+func TestOTAControlFramesMatchVectors(t *testing.T) {
+	info := append([]byte{2, 0, 0x05, 7, 0, 0, 0, 4, 0x2A, 0, 0, 0}, bytes.Repeat([]byte{0xAB}, 32)...)
+	enc := func(f func() ([]byte, error)) []byte {
+		b, err := f()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	for _, c := range []struct {
+		name string
+		got  []byte
+		want string
+	}{
+		{"OTA_INFO req", enc(func() ([]byte, error) { return EncodeRequest(4, CmdOTAInfo, []byte{1}) }), vectors.FrameOTAInfoReq},
+		{"OTA_INFO resp", enc(func() ([]byte, error) { return EncodeResponse(4, CmdOTAInfo, StatusOK, info) }), vectors.FrameOTAInfoResp},
+		{"OTA_ACTIVATE req", enc(func() ([]byte, error) { return EncodeRequest(5, CmdOTAActivate, []byte{OTAActivateResetNow}) }), vectors.FrameOTAActivateReq},
+		{"OTA_ACTIVATE resp", enc(func() ([]byte, error) { return EncodeResponse(5, CmdOTAActivate, StatusOK, nil) }), vectors.FrameOTAActivateResp},
+		{"OTA_ACTIVATE BAD_STATE", enc(func() ([]byte, error) { return EncodeResponse(5, CmdOTAActivate, StatusErrBadState, nil) }), vectors.FrameOTAActivateBadStateResp},
+		{"OTA_CONFIRM req", enc(func() ([]byte, error) { return EncodeRequest(6, CmdOTAConfirm, nil) }), vectors.FrameOTAConfirmReq},
+		{"OTA_CONFIRM resp", enc(func() ([]byte, error) { return EncodeResponse(6, CmdOTAConfirm, StatusOK, nil) }), vectors.FrameOTAConfirmResp},
+	} {
+		if !bytes.Equal(c.got, []byte(c.want)) {
+			t.Errorf("%s frame = % x, want % x", c.name, c.got, c.want)
+		}
+	}
+	f, _, err := Decode([]byte(vectors.FrameOTAInfoResp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Payload) != OTAInfoLen {
+		t.Errorf("OTA_INFO reply payload = %d bytes, want %d", len(f.Payload), OTAInfoLen)
+	}
+}
+
 func TestRequestRoundTrips(t *testing.T) {
 	payload := []byte{0x0D, 0x01}
 	wire, err := EncodeRequest(0x42, CmdDigitalWrite, payload)

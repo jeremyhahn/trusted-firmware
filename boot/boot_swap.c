@@ -209,6 +209,36 @@ tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
     return st;
 }
 
+/* OTA_CONFIRM's request (include/tfw/boot.h): whole, and naming the image the
+ * primary holds -- its trailer's measurement, which the gate checks again
+ * before the image runs. */
+static uint8_t confirm_requested(void)
+{
+    uint8_t c[TFW_BOOT_CONFIRM_LEN];
+    uint8_t m[TFW_BOOT_CONFIRM_MEAS_LEN];
+
+    (void)tfw_boot_nvm_read(TFW_BOOT_CONFIRM_ADDR, c, TFW_BOOT_CONFIRM_LEN);
+    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_MEASUREMENT, m, sizeof m);
+    return (uint8_t)(c[0] == TFW_BOOT_CONFIRM_MAGIC
+                     && tfw_crc16(c, TFW_BOOT_CONFIRM_O_CRC)
+                            == (uint16_t)(c[TFW_BOOT_CONFIRM_O_CRC]
+                                          | ((uint16_t)c[TFW_BOOT_CONFIRM_O_CRC + 1u] << 8))
+                     && memcmp(&c[TFW_BOOT_CONFIRM_O_MEAS], m, sizeof m) == 0);
+}
+
+/* Cleared once a trial has ended, either way, so no request outlives its trial;
+ * written only when set, so an ordinary boot wears nothing. */
+static void confirm_clear(void)
+{
+    uint8_t c = 0xFFu;
+
+    (void)tfw_boot_nvm_read(TFW_BOOT_CONFIRM_ADDR, &c, 1u);
+    if (c != 0xFFu) {
+        c = 0xFFu;
+        (void)tfw_boot_nvm_write(TFW_BOOT_CONFIRM_ADDR, &c, 1u);
+    }
+}
+
 tfw_boot_reset_action_t tfw_boot_swap_at_reset(tfw_boot_platform_t *p,
                                                tfw_boot_reset_action_t act)
 {
@@ -216,8 +246,19 @@ tfw_boot_reset_action_t tfw_boot_swap_at_reset(tfw_boot_platform_t *p,
         (void)tfw_boot_swap();
     }
     if (record() != PH_DONE) {
+        confirm_clear();
         return act;
     }
+    /* A trial the application confirmed (OTA_CONFIRM) settles: CONFIRMED is
+     * stored before the request is cleared, so a reset between the two finds
+     * CONFIRMED and settles it as before. Without a valid request, TRIAL fails
+     * exactly as it always has. */
+    if (act == TFW_BOOT_RESET_FAIL && confirm_requested() != 0u
+        && tfw_boot_trial_confirm(p) == TFW_OK) {
+        tfw_boot_platform_store(p);
+        act = TFW_BOOT_RESET_SETTLE;
+    }
+    confirm_clear();
     if (act == TFW_BOOT_RESET_SETTLE) {
         /* Kept: idle before GOOD is written, so a reset between them settles
          * an ordinary confirmed trial. Not stored, nothing settles: the block

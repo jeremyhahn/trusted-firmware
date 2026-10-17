@@ -243,7 +243,10 @@ STAGE_SRCS += src/core/ota_prev_none.c
 else
 STAGE_SRCS += src/core/ota_prev.c $(HAL_DIR)/hal_eeprom.c
 endif
-STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1
+# OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
+# single-slot board without it could never install what it staged.
+STAGE_SRCS += src/core/ota_activate.c
+STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1
 else
 STAGE_SRCS := src/core/ota_stage_none.c
 STAGE_DEFS :=
@@ -307,6 +310,20 @@ IDENTITY_SRCS += src/core/ota_trial.c
 else
 IDENTITY_SRCS += src/core/ota_trial_none.c
 endif
+# OTA_INFO, OTA_CONFIRM and OTA_ACTIVATE (#77, ADR decision 8), by FILE
+# SELECTION: only where tfw-boot runs the trial (BOOT_AB) and the image stages
+# into the store, the block ACTIVATE verifies. Every other image has no entry
+# and answers TFW_ERR_UNKNOWN_CMD. boot_image.c is tfw_boot_trial_settle's floor
+# helper, which --gc-sections drops with settle. OTA_INFO's floor is the
+# element's counter on the element tier and the platform block's elsewhere
+# (src/core/ota_floor.h), chosen here by file.
+ifeq ($(BOOT_AB)$(OTA_STAGE),11)
+OTACTL_SRCS := src/core/ota_ctl.c boot/boot_trial.c boot/boot_image.c \
+               $(if $(filter atecc608a,$(CRYPTO)),src/core/ota_floor_atecc.c,src/core/ota_floor_eeprom.c)
+FW_CFLAGS   += -DTFW_FEATURE_OTA_CTL=1
+else
+OTACTL_SRCS :=
+endif
 ifeq ($(ARCH_UPDATE_REQUEST),none)
 IDENTITY_SRCS := $(filter-out src/core/update_request.c boot/boot_request.c,$(IDENTITY_SRCS)) \
                  src/core/update_request_none.c
@@ -332,7 +349,7 @@ FW_SRCS := $(sort \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c src/caps/storage.c src/caps/attest.c \
   src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
-  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) \
+  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) \
   $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c)))
 

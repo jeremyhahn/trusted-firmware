@@ -809,6 +809,146 @@ static void test_a_journal_write_that_does_not_land_moves_nothing(void)
     assert_slots(img_b, img_a);
 }
 
+/* ---- OTA_CONFIRM's request (issue #77, include/tfw/boot.h) ---------------- */
+
+static uint8_t *conf(void) { return tfw_boot_mock_nvm() + TFW_BOOT_CONFIRM_ADDR; }
+
+/* B swapped in and on trial, as the reset after its hand-over finds it. */
+static void on_trial(void)
+{
+    pending();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_arm(&plat));
+    tfw_boot_platform_store(&plat);
+}
+
+/* The record the application writes, naming the primary's image -- or, with
+ * `flip`, another image's measurement. */
+static void build_request(uint8_t c[TFW_BOOT_CONFIRM_LEN], uint8_t magic, uint8_t flip)
+{
+    uint16_t crc;
+
+    c[0] = magic;
+    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_MEASUREMENT,
+                        &c[TFW_BOOT_CONFIRM_O_MEAS], TFW_BOOT_CONFIRM_MEAS_LEN);
+    c[TFW_BOOT_CONFIRM_O_MEAS] ^= flip;
+    crc = tfw_crc16(c, TFW_BOOT_CONFIRM_O_CRC);
+    c[TFW_BOOT_CONFIRM_O_CRC]      = (uint8_t)crc;
+    c[TFW_BOOT_CONFIRM_O_CRC + 1u] = (uint8_t)(crc >> 8);
+}
+
+static void request(uint8_t magic, uint8_t flip)
+{
+    uint8_t c[TFW_BOOT_CONFIRM_LEN];
+
+    build_request(c, magic, flip);
+    memcpy(conf(), c, sizeof c);
+}
+
+/* Not confirmed: the trial fails and the next boot is A's again, the record
+ * cleared, exactly as a trial with no request. */
+static void expect_failed_trial(void)
+{
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, stored.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, stored.ota_state);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, conf()[0]);
+    assert_slots(img_a, img_b);
+}
+
+static void test_a_valid_confirm_request_settles_the_trial(void)
+{
+    uint32_t next;
+
+    on_trial();
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_SETTLE, reset());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_CONFIRMED, stored.boot_state);  /* before the clear */
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, conf()[0]);
+    assert_slots(img_b, img_a);
+    /* main()'s settle: GOOD, and the floor at the confirmed version. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_settle(&plat, 4u, 0u, &next));
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT32(4u, next);
+}
+
+static void test_a_stale_confirm_request_fails_the_trial(void)
+{
+    on_trial();
+    request(TFW_BOOT_CONFIRM_MAGIC, 0x01u);   /* another image's measurement */
+    expect_failed_trial();
+}
+
+static void test_a_corrupt_confirm_request_fails_the_trial(void)
+{
+    on_trial();
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    conf()[TFW_BOOT_CONFIRM_O_CRC] ^= 0x01u;
+    expect_failed_trial();
+
+    on_trial();
+    request((uint8_t)(TFW_BOOT_CONFIRM_MAGIC ^ 0x01u), 0u);
+    expect_failed_trial();
+}
+
+static void test_a_trial_with_no_confirm_request_fails(void)
+{
+    on_trial();
+    expect_failed_trial();
+}
+
+/* A reset inside the application's record write leaves a CRC that does not
+ * match: no request, and the trial fails as an unconfirmed one does. */
+static void test_a_torn_confirm_request_confirms_nothing(void)
+{
+    uint8_t c[TFW_BOOT_CONFIRM_LEN];
+
+    on_trial();
+    build_request(c, TFW_BOOT_CONFIRM_MAGIC, 0u);
+    tfw_boot_mock_tear_nvm(0u, 5u, 0x00u);
+    (void)tfw_boot_nvm_write(TFW_BOOT_CONFIRM_ADDR, c, sizeof c);
+    tfw_boot_mock_tear_nvm(UINT_MAX, 0u, 0u);
+    TEST_ASSERT_EQUAL_HEX8(TFW_BOOT_CONFIRM_MAGIC, conf()[0]);   /* begun, not whole */
+    expect_failed_trial();
+}
+
+/* main()'s reset as boot_main.c runs it: the trial's verdict, the swap's, and
+ * the MARK decided on the first. Returns whether the MARK's magic survived. */
+static int st_reset_keeps_mark(tfw_boot_reset_action_t want)
+{
+    tfw_boot_reset_action_t trial, act;
+    const uint8_t          *m;
+
+    plat = stored;
+    tfw_boot_mock_cut_after(UINT_MAX);
+    trial = tfw_boot_trial_at_reset(&plat);
+    act   = tfw_boot_swap_at_reset(&plat, trial);
+    TEST_ASSERT_EQUAL(want, act);
+    tfw_boot_stage_after_reset(trial, act);
+    m = tfw_nor_model_mem() + TFW_OTA_STORE_MARK_ADDR;
+    return m[0] != 0u || m[1] != 0u || m[2] != 0u || m[3] != 0u;
+}
+
+/* Item 56 on the store row: the trial failed and the fallback boots A, and the
+ * MARK of the image that failed is still forgotten. */
+static void test_a_failed_trial_that_falls_back_forgets_its_mark(void)
+{
+    st_stage();
+    st_boot_into_trial();
+    TEST_ASSERT_FALSE(st_reset_keeps_mark(TFW_BOOT_RESET_BOOT));
+    assert_slots(img_a, img_s);
+}
+
+/* A trial OTA_CONFIRM's request settles keeps the MARK: its image is installed. */
+static void test_a_confirmed_store_trial_keeps_its_mark(void)
+{
+    st_stage();
+    st_boot_into_trial();
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    TEST_ASSERT_TRUE(st_reset_keeps_mark(TFW_BOOT_RESET_SETTLE));
+    assert_slots(img_s, img_a);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -836,6 +976,13 @@ int main(void)
     RUN_TEST(test_garbage_in_both_copies_moves_nothing);
     RUN_TEST(test_a_store_image_unconfirmed_swaps_back_and_is_not_retried);
     RUN_TEST(test_a_confirmed_store_image_settles_and_is_not_copied_again);
+    RUN_TEST(test_a_valid_confirm_request_settles_the_trial);
+    RUN_TEST(test_a_stale_confirm_request_fails_the_trial);
+    RUN_TEST(test_a_corrupt_confirm_request_fails_the_trial);
+    RUN_TEST(test_a_trial_with_no_confirm_request_fails);
+    RUN_TEST(test_a_torn_confirm_request_confirms_nothing);
+    RUN_TEST(test_a_failed_trial_that_falls_back_forgets_its_mark);
+    RUN_TEST(test_a_confirmed_store_trial_keeps_its_mark);
     RUN_TEST(test_a_store_image_below_the_floor_never_reaches_a_slot);
     RUN_TEST(test_a_fall_back_torn_before_the_swap_back_runs_it_at_the_next_boot);
     RUN_TEST(test_a_fall_back_over_a_block_already_failed_moves_nothing);

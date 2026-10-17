@@ -167,6 +167,11 @@
 #define TFW_CMD_OTA_DATA          0x69u  /* [offset:4][bytes:1..] */
 #define TFW_CMD_OTA_END           0x6Au  /* no payload; verification follows */
 #define TFW_CMD_OTA_STATUS        0x6Bu  /* -> [state:1][received:4] */
+/* ADR decision 8 (owner ruling 2026-10-17, items 21 and 55), served by the
+ * application on serial only: the Ethernet allow-list stays 0x68-0x6B. */
+#define TFW_CMD_OTA_INFO          0x6Cu  /* [slot:1] -> 44 bytes, see ota_ctl.c */
+#define TFW_CMD_OTA_ACTIVATE      0x6Du  /* [mode:1]: 0 next reset, 1 reset now */
+#define TFW_CMD_OTA_CONFIRM       0x6Eu  /* no payload; TRIAL -> CONFIRMED */
 
 /* provisioning -- PRESENT ONLY IN A PROVISIONING BUILD
  *

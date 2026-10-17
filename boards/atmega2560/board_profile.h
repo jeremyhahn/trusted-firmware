@@ -96,7 +96,7 @@
  * tfw-boot's 8 s watchdog only catches a hang inside it. It must cover a boot
  * (a taken store boot on the 2560: 5,334 ms at 16 MHz), the connection, one
  * attestation and the confirm. */
-#define TFW_OTA_TRIAL_TIMEOUT_S 60u   /* PROPOSED, ADR open question 6 */
+#define TFW_OTA_TRIAL_TIMEOUT_S 60u   /* OTA ADR, open question 6, settled */
 #define TFW_APP_REGION_BASE   0uL
 #define TFW_APP_REGION_SIZE   TFW_SWAP_SLOT_LEN   /* the A/B primary, below */
 #define TFW_OTA_PAGE_MAX      256u
@@ -124,9 +124,12 @@
 /* The journal at the record address: two checked five-byte copies
  * (boot/boot_swap.c), 0x0E0-0x0E9. It lies past TFW_BOOT_EE_LEN, the bound the
  * wire states as EEPROMReservedEnd, so it is named here and the application's
- * EEPROM_WRITE refuses it as it refuses the platform block. */
+ * EEPROM_WRITE refuses it as it refuses the platform block. OTA_CONFIRM's
+ * request record (include/tfw/boot.h, issue #77) follows it, 0x0EA-0x0F4, in
+ * the same refused span. */
+#define TFW_BOOT_CONFIRM_ADDR     0x0EAu
 #define TFW_BOOT_EE_EXTRA_BASE    TFW_SWAP_RECORD_ADDR
-#define TFW_BOOT_EE_EXTRA_LEN     10u
+#define TFW_BOOT_EE_EXTRA_LEN     21u
 #define TFW_APP_WRITE_END         (TFW_SWAP_SECONDARY_BASE + TFW_SWAP_SLOT_LEN)
 #define TFW_OTA_STAGE_DEST        TFW_SWAP_SECONDARY_BASE
 

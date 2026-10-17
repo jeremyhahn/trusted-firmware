@@ -38,6 +38,20 @@ tfw_status_t tfw_stage_cmd_data(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_stage_cmd_end(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_stage_cmd_status(tfw_reader_t *r, tfw_writer_t *w);
 
+/* The image the store's MARK names (issue #77): its trailer's measurement into
+ * `hash` and its version into *version. With `full` set, the staged bytes are
+ * read back and hashed against that measurement as OTA_END did. TFW_OK only
+ * when the MARK is whole, its length in bounds and its hash the trailer's (and,
+ * with `full`, the bytes hash to it); TFW_ERR_BAD_STATE otherwise. Reads only:
+ * the store, the MARK and the session are left as they were. */
+tfw_status_t tfw_stage_marked(uint8_t *hash /* [32] */, uint32_t *version,
+                              uint8_t full);
+
+/* OTA_ACTIVATE's half (issue #77): the image OTA_END verified in this session,
+ * hashed again, then the MARK written -- the only writer of it. TFW_ERR_BAD_STATE
+ * and nothing written unless the session is complete and the bytes verify. */
+tfw_status_t tfw_stage_activate(void);
+
 /* OTA_BEGIN's first step on a one-slot board (the 328P and 32U4, issue #52):
  * the running image, the whole application region, copied into the store's
  * PREV, where tfw-boot copies it back from when the round fails

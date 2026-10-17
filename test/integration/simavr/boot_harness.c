@@ -70,6 +70,7 @@
 #include "boot_image.h"
 #include "boot_platform.h"
 #include "boot_request.h"
+#include "boot_harness_ab.h"
 #include "sha256.h"
 #include "crc16.h"
 #include "spi_nor_model.h"
@@ -1231,10 +1232,10 @@ static void test_floor_advances_at_settle(elf_firmware_t *boot, elf_firmware_t *
     check(primary_version() == 3u, "the image on trial is the one in the primary");
     check(el.counter == 0u, "a trial boot leaves the element's counter where it was");
 
-    /* The application confirms; then the settling reset. */
-    p.boot_state = TFW_BOOT_STATE_CONFIRMED;
-    tfw_boot_platform_serialise(&p, eeprom_image);
+    /* The application confirms, as the board's image does; then the reset
+     * tfw-boot settles it at. */
     carry();
+    harness_confirm(avr, eeprom_all, eeprom_image, &p);
     install(boot, el.counter);
     check(run_until(app_booted, BUDGET_BOOT), "the confirmed image boots at the next reset");
     check(el.counter == 3u,
@@ -2051,9 +2052,8 @@ static void test_a_store_image_runs_its_trial_and_settles(elf_firmware_t *boot,
     check(el.counter == 2u, "the trial leaves the floor where it was");
     check(store_untouched(), "tfw-boot only read the store, and every read was well formed");
 
-    p.boot_state = TFW_BOOT_STATE_CONFIRMED;
-    tfw_boot_platform_serialise(&p, eeprom_image);
     carry();
+    harness_confirm(avr, eeprom_all, eeprom_image, &p);
     boot_with_store(boot, el.counter);
     check(run_until(app_booted, boot_store_budget()), "the confirmed image boots at the next reset");
     check(el.counter == 3u, "the floor advanced to its version at the settling reset");
@@ -2615,21 +2615,6 @@ static const char *boot_symbol_at(const elf_firmware_t *boot, uint32_t pc, uint3
     return name;
 }
 
-/* The swap record (boot_swap.c) as tfw-boot last wrote it: phase, then unit. */
-static void print_swap_record(void)
-{
-    avr_eeprom_desc_t d = { .ee = NULL, .offset = TFW_SWAP_RECORD_ADDR,
-                            .size = TFW_BOOT_EE_EXTRA_LEN };
-    uint32_t i;
-
-    (void)avr_ioctl(avr, AVR_IOCTL_EEPROM_GET, &d);
-    printf("  swap record:");
-    for (i = 0u; d.ee != NULL && i < TFW_BOOT_EE_EXTRA_LEN; i++) {
-        printf(" %02x", d.ee[i]);
-    }
-    printf("\n");
-}
-
 static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
                                                        elf_firmware_t *app)
 {
@@ -2671,7 +2656,40 @@ static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
     }
     check(st == TFW_OK, "every OTA_DATA over TCP is taken, in order");
     check(net_exchange(++seq, TFW_CMD_OTA_END, NULL, 0u, boot_store_budget()) == TFW_OK,
-          "OTA_END over TCP checks the stream and marks the store");
+          "OTA_END over TCP checks the stream; it writes no MARK");
+    {
+        /* ACTIVATE is serial only: it re-reads the whole store before the MARK,
+         * so it gets the store's budget, not an ordinary exchange's. */
+        static const char *const names[] = {
+            "OK", "ERR_CRC", "ERR_FRAMING", "ERR_TOO_LONG", "ERR_UNKNOWN_CMD",
+            "ERR_BAD_ARGC", "ERR_BAD_PIN", "ERR_UNSUPPORTED", "ERR_BUSY",
+            "ERR_TIMEOUT", "ERR_NACK", "ERR_RANGE", "ERR_NO_SLOT",
+            "ERR_RESERVED_PIN", "ERR_CRYPTO", "ERR_NOT_PROVISIONED",
+            "ERR_PROTECTED_REGION", "ERR_AUTH_REQUIRED", "ERR_INTERNAL",
+            "ERR_BAD_STATE",
+        };
+        /* [mode:1], OTA ADR decision 8: 0, taken at the next reset, which
+         * this leg takes itself. */
+        const uint8_t mode = 0u;
+        uint8_t  wire[16], status = 0u, rpl[64], rplen = 0u;
+        unsigned wn = frame_request(wire, ++seq, TFW_CMD_OTA_ACTIVATE, &mode, 1u);
+        long     budget = boot_store_budget();
+        int      got;
+
+        from_device_n = 0;
+        send(wire, wn);
+        wait_for_seq = seq;
+        run_until(response_arrived, budget);
+        got = find_response(seq, &status, rpl, &rplen);
+        if (!got) {
+            printf("  OTA_ACTIVATE: no response within %ld steps\n", budget);
+        } else if (status != TFW_OK) {
+            printf("  OTA_ACTIVATE answered %u (TFW_%s)\n", (unsigned)status,
+                   status < sizeof names / sizeof names[0] ? names[status] : "unknown");
+        }
+        check(got && status == TFW_OK,
+              "OTA_ACTIVATE over serial re-verifies the store and writes the MARK");
+    }
 
     printf("  reset\n");
     carry();
@@ -2697,7 +2715,7 @@ static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
          * arguments of one call the order is unspecified, and the last run
          * printed the loop's offset beside the right name. */
         printf("  in %s+0x%lx\n", fn, (unsigned long)off);
-        print_swap_record();
+        harness_print_swap_record(avr);
         /* Every image hash on this tier is the element's SHA engine, one
          * command per 64-byte block, so the boot's time grows with the image:
          * how many whole-image hashes the steps went on. */

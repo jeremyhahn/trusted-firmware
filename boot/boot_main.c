@@ -116,6 +116,7 @@ int main(void)
     uint32_t           floor;
     uint8_t            update;
     tfw_boot_reset_action_t act;
+    tfw_boot_reset_action_t trial;
 
     /*
      * The application's one-shot update request, taken before ANYTHING else
@@ -157,11 +158,13 @@ int main(void)
     /* A trial that ended is a fallback where there is an image to fall back
      * to: the store's MARK, which names the image that failed, is cleared
      * first, so no later reset takes it again (item 56). */
-    act = tfw_boot_trial_at_reset(&plat);
-    if (act == TFW_BOOT_RESET_FAIL) {
-        (void)tfw_boot_stage_forget();
-    }
-    act = tfw_boot_swap_at_reset(&plat, act);
+    /* The MARK goes on the trial's own verdict (tfw_boot_stage_after_reset):
+     * a trial that failed forgets it unless OTA_CONFIRM's request turned the
+     * failure into a settle -- even when the fallback then boots the previous
+     * image (item 56). Before any take, so no later reset takes it again. */
+    trial = tfw_boot_trial_at_reset(&plat);
+    act   = tfw_boot_swap_at_reset(&plat, trial);
+    tfw_boot_stage_after_reset(trial, act);
     if (act == TFW_BOOT_RESET_FAIL) {
         /*
          * A reset found the trial still running: the image never confirmed --

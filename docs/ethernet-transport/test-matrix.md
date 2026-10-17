@@ -343,3 +343,37 @@ Against the docs:
   on main can report, because the command is not on the wire. The answer is
   status 4, as before. Not a contradiction; the state cannot be checked on
   silicon until `OTA_INFO` lands.
+
+## The bench Mega on main 36f6aab, 2026-10-17
+
+The same board and the same rules as [the ec135de pass](#the-bench-mega-on-main-ec135de-2026-10-16),
+with the toolchain of [the WIZnet probe](../development/wiznet-probe.md#toolchain)
+unpacked again under the lane's home directory, behind an `avrdude` wrapper that
+refuses `-e`, any fuse, lock or EEPROM write, and any write without `-D`. The
+firmware is main's at 36f6aab. Since ec135de main has changed 13 firmware files,
+among them `src/core/suit.c`, #119's `tfw_boot_hash` offset in `boot/boot_store.c`,
+and #132's Ethernet rows and the 2560's RAM gate at a quarter of SRAM (2048 bytes).
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft ETH=0` on main 36f6aab | 13672 / 771 bytes, RAM against the 2048-byte gate | `1105c64dc99c5711b07c6cb48d701c1afe1c6b61c2fa8408434dd27873b897f6` |
+
+Since #132, `ETH=1` is the 2560's default, so the shieldless image needs
+`ETH=0` on the command line. A plain `make firmware BOARD=atmega2560 CRYPTO=soft`
+builds the W5100 image instead (17928 / 803 bytes). That image was built but
+not flashed. [The bench page](../development/bench/mega2560.md) names no
+Ethernet shield, so this pass has no `ETH=1` row.
+
+The `.hex` is byte for byte the one ec135de built. The 13 changed files do not
+reach it: the image's object directory holds no `suit.o`, because only the element
+tier carries the SUIT reader, and `boot_store.c` is `tfw-boot`'s, not the
+application's. So this pass checks main's build of the image on silicon. The
+changed sources themselves have still not run on this board.
+
+| # | What ran | Result |
+|---|---|---|
+| — | `0x000`–`0x0FF` read before the flash with `tfwctl eeprom-read`, eight bytes a command, one invocation (and so one reset) a read | Read in full, no error. Kept outside the repository |
+| 1 | The image built and flashed with `make flash` | Pass. avrdude wrote and verified 13672 bytes |
+| 2 | `0x000`–`0x0FF` read again after the flash | **Equal to the read before, byte for byte; not re-provisioned** |
+| 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, after `make tfwsim tfwsim-app-example`, with `GOFLAGS=-json` | Pass: 28 top-level tests passed, none failed, none skipped |
+| 4 | `0x000`–`0x0FF` read again after the suite | Equal to the first read, byte for byte. No byte was changed, so none was restored. The board stays on this image |

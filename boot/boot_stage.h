@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "tfw/boot.h"
 #include "tfw/status.h"
+#include "boot_trial.h"
 
 /*
  * Takes the image the application staged in the external OTA store (issue
@@ -42,6 +43,12 @@ tfw_status_t tfw_boot_stage_take(tfw_boot_platform_t *p, uint32_t floor);
  * Opens and closes the store's bus. TFW_ERR_UNSUPPORTED with no store.
  */
 tfw_status_t tfw_boot_stage_forget(void);
+
+/* The reset's call (#77, item 56): `trial` is tfw_boot_trial_at_reset's
+ * verdict, `act` what tfw_boot_swap_at_reset made of it. A failed trial forgets
+ * the MARK unless OTA_CONFIRM's request settled it; a fallback that boots the
+ * previous image is still a failed trial. */
+void tfw_boot_stage_after_reset(tfw_boot_reset_action_t trial, tfw_boot_reset_action_t act);
 
 /*
  * The copy take() runs, from any area of the store: `body` bytes from `src`

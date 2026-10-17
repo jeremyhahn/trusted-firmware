@@ -38,6 +38,8 @@
 static uint8_t  state;
 static uint32_t total;
 static uint32_t received;
+/* The measurement OTA_END verified: OTA_ACTIVATE takes that image only. */
+static uint8_t  verified[TFW_BOOT_MEASURE_LEN];
 
 static uint32_t rd32(const uint8_t *p)
 {
@@ -61,11 +63,11 @@ static tfw_status_t fail(tfw_status_t st)
 
 /* The trailer is the last TFW_BOOT_TRAILER_LEN bytes of the staged stream; the
  * measurement it carries is left in want for the MARK record. */
-static tfw_status_t verify(uint8_t want[TFW_BOOT_MEASURE_LEN])
+static tfw_status_t verify(uint32_t tot, uint8_t want[TFW_BOOT_MEASURE_LEN])
 {
     uint8_t      blk[BLOCK];
     tfw_sha256_t c;
-    uint32_t     tr = ((uint32_t)TFW_OTA_STORE_STAGE_ADDR) + total - TFW_BOOT_TRAILER_LEN;
+    uint32_t     tr = ((uint32_t)TFW_OTA_STORE_STAGE_ADDR) + tot - TFW_BOOT_TRAILER_LEN;
     uint32_t     len;
     uint32_t     at;
     uint8_t      n;
@@ -83,7 +85,7 @@ static tfw_status_t verify(uint8_t want[TFW_BOOT_MEASURE_LEN])
     }
     /* An image may not reach its own trailer -- boot/boot_image.c. */
     len = rd32(&blk[TFW_BOOT_TR_IMAGE_LEN]);
-    if (len == 0u || len > total - TFW_BOOT_TRAILER_LEN) {
+    if (len == 0u || len > tot - TFW_BOOT_TRAILER_LEN) {
         return TFW_ERR_RANGE;
     }
     st = tfw_store_read(tr + TFW_BOOT_TR_MEASUREMENT, want, TFW_BOOT_MEASURE_LEN);
@@ -202,15 +204,33 @@ tfw_status_t tfw_stage_cmd_end(tfw_reader_t *r, tfw_writer_t *w)
     if (received != total) {
         return fail(TFW_ERR_FRAMING);
     }
-    st = verify(hash);
-    if (st == TFW_OK) {
-        st = mark(hash);
-    }
+    /* Verified and recorded as the session's, not marked: the MARK is
+     * OTA_ACTIVATE's (tfw_stage_activate), so tfw-boot never takes an image
+     * that was ended and not activated. */
+    st = verify(total, hash);
     if (st != TFW_OK) {
         return fail(st);
     }
+    memcpy(verified, hash, TFW_BOOT_MEASURE_LEN);
     state = TFW_STAGE_COMPLETE;
     return TFW_OK;
+}
+
+/* Reached only from src/core/ota_ctl.c. The image this session's OTA_END
+ * verified, read back and hashed again, then marked: body first, magic last,
+ * so a torn write leaves no MARK. TFW_ERR_BAD_STATE, and nothing written, for
+ * anything but a complete session whose bytes still verify. */
+tfw_status_t tfw_stage_activate(void)
+{
+    uint8_t hash[TFW_BOOT_MEASURE_LEN];
+
+    /* The image OTA_END verified, not whatever verifies now: a body and
+     * trailer replaced together after END hash to a different measurement. */
+    if (state != TFW_STAGE_COMPLETE || verify(total, hash) != TFW_OK
+        || memcmp(hash, verified, TFW_BOOT_MEASURE_LEN) != 0) {
+        return TFW_ERR_BAD_STATE;
+    }
+    return mark(hash);
 }
 
 tfw_status_t tfw_stage_cmd_status(tfw_reader_t *r, tfw_writer_t *w)
@@ -218,5 +238,43 @@ tfw_status_t tfw_stage_cmd_status(tfw_reader_t *r, tfw_writer_t *w)
     (void)r;
     tfw_write_u8(w, state);
     tfw_write_u32(w, received);
+    return TFW_OK;
+}
+
+/* Reached only from src/core/ota_ctl.c, so an image without OTA_CTL drops it at
+ * --gc-sections. The MARK record is read, never written: its length bounds the
+ * trailer as BEGIN's checks bound total, and the trailer's measurement must be
+ * the one OTA_END recorded. `full` reads the stream back through verify(). */
+tfw_status_t tfw_stage_marked(uint8_t *hash, uint32_t *version, uint8_t full)
+{
+    uint8_t  rec[TFW_STAGE_MARK_LEN];
+    uint8_t  v[4];
+    uint32_t len;
+    uint32_t tr;
+
+    *version = 0u;
+    if (state == TFW_STAGE_RECEIVING
+        || tfw_store_read(((uint32_t)TFW_OTA_STORE_MARK_ADDR), rec, TFW_STAGE_MARK_LEN) != TFW_OK
+        || rd32(rec) != TFW_STAGE_MARK_MAGIC) {
+        return TFW_ERR_BAD_STATE;
+    }
+    len = rd32(&rec[TFW_STAGE_MARK_O_LEN]);
+    if (len <= (uint32_t)TFW_BOOT_TRAILER_LEN || len > ((uint32_t)TFW_OTA_STORE_STAGE_LEN) ||
+        (len % (uint32_t)TFW_OTA_PAGE_MAX) != 0u) {
+        return TFW_ERR_BAD_STATE;
+    }
+    tr = ((uint32_t)TFW_OTA_STORE_STAGE_ADDR) + len - TFW_BOOT_TRAILER_LEN;
+    if (full != 0u) {
+        if (verify(len, hash) != TFW_OK) {
+            return TFW_ERR_BAD_STATE;
+        }
+    } else if (tfw_store_read(tr + TFW_BOOT_TR_MEASUREMENT, hash, TFW_BOOT_MEASURE_LEN) != TFW_OK) {
+        return TFW_ERR_BAD_STATE;
+    }
+    if (memcmp(hash, &rec[TFW_STAGE_MARK_O_HASH], TFW_BOOT_MEASURE_LEN) != 0
+        || tfw_store_read(tr + TFW_BOOT_TR_IMAGE_VERSION, v, 4u) != TFW_OK) {
+        return TFW_ERR_BAD_STATE;
+    }
+    *version = rd32(v);
     return TFW_OK;
 }

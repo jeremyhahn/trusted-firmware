@@ -85,6 +85,11 @@ func TestOTAStageThroughTfwBoot(t *testing.T) {
 		t.Fatalf("StageImage: %v", err)
 	}
 	expectSimStatus(t, dev, fmt.Sprintf("%s, %d bytes received", tfw.OTAComplete, len(img)))
+	// OTA_END writes no MARK; OTA_ACTIVATE re-verifies and writes it, so
+	// without it the reset takes nothing (OTA ADR decision 8).
+	if err := run(context.Background(), dev, "ota-activate", nil, false, io.Discard); err != nil {
+		t.Fatalf("ota-activate: %v", err)
+	}
 
 	if err := cmd.Process.Signal(syscall.SIGUSR1); err != nil {
 		t.Fatalf("resetting the part: %v", err)

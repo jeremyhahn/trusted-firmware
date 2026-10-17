@@ -131,7 +131,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_link_eth.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c \
-                           test/unit/test_ota_stage.c test/unit/test_storage_2560.c, \
+                           test/unit/test_ota_stage.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
+                            test/unit/test_storage_2560.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -413,8 +414,28 @@ $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
 # NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
 $(HOST_DIR)/test_ota_stage: test/unit/test_ota_stage.c $(HOST_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_floor_eeprom.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# A single-slot stager (the 328P, the 32U4; #77): the stager, PREV and
+# OTA_ACTIVATE, without ota_ctl.c -- the shape mk/firmware.mk links there.
+$(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_LIB_SRCS) \
+                        src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_activate.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# OTA_INFO on the element tier (#77): the same link with the element's floor
+# file, the ATECC608A driver and the software element as the I2C bus, whose
+# tfw_hal_i2c_xfer overrides the mock's weak one as tfwsim-atecc608a's does.
+$(HOST_DIR)/test_ota_info_atecc: test/unit/test_ota_info_atecc.c $(HOST_LIB_SRCS) \
+                        src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_floor_atecc.c src/crypto/atecc608a/atecc.c $(ELEMENT_MODEL) \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) $(MODEL_INC) -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # EEPROM under the ATmega2560's profile, whose bootloader keeps its swap-move
 # journal above the platform block (issue #75), so the range EEPROM_WRITE
@@ -429,7 +450,7 @@ $(HOST_DIR)/test_storage_2560: test/unit/test_storage_2560.c src/caps/storage.c 
                                src/core/secure_zero.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(STORAGE_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
@@ -625,8 +646,16 @@ TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c tools/tfwsim/eth_socke
 # with test/model/spi_nor_model.c as the external store on its select. Its
 # tfw_hal_spi_xfer overrides the mock's weak one and hands every other select
 # back to it.
-TFWSIM_STAGE_SRCS := src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c
-TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -Itest/model
+TFWSIM_STAGE_SRCS := src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                     src/core/ota_activate.c
+TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -Itest/model
+# And decision 8's OTA_INFO, OTA_ACTIVATE and OTA_CONFIRM (#77), as a 2560
+# stage image links them. The platform block is the mock's EEPROM; there is no
+# tfw-boot behind it, so the trial deadline is the stub's and nothing resets
+# into a copy or a rollback -- that leg is simavr's (make integration-test-boot).
+TFWSIM_STAGE_SRCS += src/core/ota_ctl.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                     src/core/ota_floor_eeprom.c
+TFWSIM_STAGE_DEFS += -DTFW_FEATURE_OTA_CTL=1
 TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) $(TFWSIM_LINK_SRCS) \
                     $(TFWSIM_STAGE_SRCS)
 
@@ -647,9 +676,9 @@ TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) $(TFW
 TFWSIM_ELEMENT_INC := -Itools/tfwsim/element
 TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c \
                                    src/core/auth_session_none.c src/core/app_runner.c \
-                                   test/mock/app_mock.c, \
+                                   test/mock/app_mock.c src/core/ota_floor_eeprom.c, \
                                    $(TFWSIM_LIB_SRCS)) \
-                      src/core/auth_session.c \
+                      src/core/auth_session.c src/core/ota_floor_atecc.c \
                       src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                       $(ELEMENT_MODEL) $(APP_RUNNER_SRCS)
 

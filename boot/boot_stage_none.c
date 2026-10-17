@@ -17,3 +17,9 @@ tfw_status_t tfw_boot_stage_forget(void)
 {
     return TFW_ERR_UNSUPPORTED;
 }
+
+void tfw_boot_stage_after_reset(tfw_boot_reset_action_t trial, tfw_boot_reset_action_t act)
+{
+    (void)trial;
+    (void)act;
+}

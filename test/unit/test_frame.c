@@ -65,6 +65,44 @@ static void test_bad_state_response_matches_the_vector(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, n);
 }
 
+/* ADR decision 8's control commands (#77): 0x6C, 0x6D and 0x6E and the 44-byte
+ * OTA_INFO reply, each against its literal. */
+static void check(const uint8_t *want, uint16_t wlen, uint16_t n, const uint8_t *wire)
+{
+    TEST_ASSERT_EQUAL_UINT16(wlen, n);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, n);
+}
+
+static void test_ota_control_frames_match_the_vectors(void)
+{
+    static const uint8_t info_req[] = TFWV_FRAME_OTA_INFO_REQ;
+    static const uint8_t info_resp[] = TFWV_FRAME_OTA_INFO_RESP;
+    static const uint8_t act_req[] = TFWV_FRAME_OTA_ACTIVATE_REQ;
+    static const uint8_t act_resp[] = TFWV_FRAME_OTA_ACTIVATE_RESP;
+    static const uint8_t act_bad[] = TFWV_FRAME_OTA_ACTIVATE_BAD_STATE_RESP;
+    static const uint8_t conf_req[] = TFWV_FRAME_OTA_CONFIRM_REQ;
+    static const uint8_t conf_resp[] = TFWV_FRAME_OTA_CONFIRM_RESP;
+    uint8_t info[44] = { 2u, 0u, 0x05u, 7u, 0u, 0u, 0u, 4u, 0x2Au, 0u, 0u, 0u };
+    uint8_t one = 1u;
+    uint8_t wire[TFW_MAX_FRAME];
+
+    memset(&info[12], 0xABu, 32u);
+    check(info_req, sizeof info_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 4u, TFW_CMD_OTA_INFO, &one, 1u), wire);
+    check(info_resp, sizeof info_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 4u, TFW_CMD_OTA_INFO, TFW_OK, info, 44u), wire);
+    check(act_req, sizeof act_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_OTA_ACTIVATE, &one, 1u), wire);
+    check(act_resp, sizeof act_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 5u, TFW_CMD_OTA_ACTIVATE, TFW_OK, 0, 0u), wire);
+    check(act_bad, sizeof act_bad - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 5u, TFW_CMD_OTA_ACTIVATE, TFW_ERR_BAD_STATE, 0, 0u), wire);
+    check(conf_req, sizeof conf_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 6u, TFW_CMD_OTA_CONFIRM, 0, 0u), wire);
+    check(conf_resp, sizeof conf_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 6u, TFW_CMD_OTA_CONFIRM, TFW_OK, 0, 0u), wire);
+}
+
 static void test_event_uses_the_reserved_op_and_no_sequence(void)
 {
     uint8_t  wire[TFW_MAX_FRAME];
@@ -261,6 +299,7 @@ int main(void)
     RUN_TEST(test_request_round_trips);
     RUN_TEST(test_response_sets_the_response_bit_and_carries_status);
     RUN_TEST(test_bad_state_response_matches_the_vector);
+    RUN_TEST(test_ota_control_frames_match_the_vectors);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);
     RUN_TEST(test_maximum_payload_is_a_valid_frame);

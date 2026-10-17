@@ -14,6 +14,7 @@
 #include "suit.h"
 #include "tfw/config.h"
 #include "tfw/crypto.h"
+#include "tfw/progmem.h"
 
 #define MT_UINT   0u
 #define MT_NINT   1u
@@ -174,9 +175,22 @@ static tfw_status_t suit_digest(cur_t c, uint8_t out[TFW_SUIT_DIGEST_LEN])
 /* COSE_Sign1_Tagged, payload detached: only ES256 in the protected header,
  * nothing or a key id in the unprotected one. The key id is not trusted for
  * anything -- the key is the board's slot -- so it is bounded and skipped. */
+/* The constants this file matches against live in flash: on AVR a const array
+ * without TFW_PROGMEM is copied into RAM at startup (#55). Nonzero
+ * where ram[0..n) and pgm[0..n) differ; a null ram compares against zeros. */
+static uint8_t pgm_differs(const uint8_t *ram, const uint8_t *pgm, uint8_t n)
+{
+    uint8_t i, diff = 0u;
+
+    for (i = 0u; i < n; i++) {
+        diff = (uint8_t)(diff | ((ram ? ram[i] : 0u) ^ tfw_pgm_u8(&pgm[i])));
+    }
+    return diff;
+}
+
 static tfw_status_t cose_sign1(cur_t c, uint8_t sig[TFW_SIG_LEN])
 {
-    static const uint8_t es256[3] = { 0xA1u, 0x01u, 0x26u };   /* {1: -7} */
+    static const uint8_t es256[3] TFW_PROGMEM = { 0xA1u, 0x01u, 0x26u };   /* {1: -7} */
     cur_t        s;
     uint8_t      m;
     uint32_t     v;
@@ -184,7 +198,7 @@ static tfw_status_t cose_sign1(cur_t c, uint8_t sig[TFW_SIG_LEN])
 
     if (st == TFW_OK) st = expect(&c, MT_ARRAY, 4u);
     if (st == TFW_OK) st = bstr(&c, sizeof es256, &s);
-    if (st == TFW_OK && (s.n != sizeof es256 || memcmp(s.p, es256, sizeof es256) != 0)) {
+    if (st == TFW_OK && (s.n != sizeof es256 || pgm_differs(s.p, es256, sizeof es256) != 0u)) {
         st = TFW_ERR_UNSUPPORTED;
     }
     if (st == TFW_OK) st = head(&c, &m, &v);
@@ -354,15 +368,14 @@ static tfw_status_t hold(const tfw_suit_manifest_t *m, const tfw_boot_trailer_t 
                          const uint8_t staged_digest[TFW_SUIT_DIGEST_LEN],
                          uint32_t staged_len)
 {
-    static const uint8_t vendor[TFW_SUIT_ID_LEN]   = TFW_SUIT_VENDOR_ID;
-    static const uint8_t class_id[TFW_SUIT_ID_LEN] = TFW_SUIT_CLASS_ID;
-    static const uint8_t unbound[TFW_SUIT_ID_LEN]  = { 0u };
+    static const uint8_t vendor[TFW_SUIT_ID_LEN]   TFW_PROGMEM = TFW_SUIT_VENDOR_ID;
+    static const uint8_t class_id[TFW_SUIT_ID_LEN] TFW_PROGMEM = TFW_SUIT_CLASS_ID;
 
     /* The binding: this project's vendor id, this board's class id, and a
      * trailer naming this board. A board with no class id binds nothing. */
-    if (memcmp(m->vendor, vendor, TFW_SUIT_ID_LEN) != 0
-        || memcmp(class_id, unbound, TFW_SUIT_ID_LEN) == 0
-        || memcmp(m->class_id, class_id, TFW_SUIT_ID_LEN) != 0
+    if (pgm_differs(m->vendor, vendor, TFW_SUIT_ID_LEN) != 0u
+        || pgm_differs(0, class_id, TFW_SUIT_ID_LEN) == 0u
+        || pgm_differs(m->class_id, class_id, TFW_SUIT_ID_LEN) != 0u
         || tr->board_id != TFW_BOARD_ID) {
         return TFW_ERR_UNSUPPORTED;
     }

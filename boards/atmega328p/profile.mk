@@ -34,6 +34,15 @@ BOOT_EESAVE_BIT  := 3
 # The chip file checks the part's identity, so the wrong shield stays down.
 ETH_CHIP       ?= w5100
 
+# The soft-crypto Ethernet node is a supported row of its own (owner ruling,
+# issue #55 item 48), budgeted by firmware-matrix like the tiers. The default
+# stays serial only; the element tier over Ethernet is not a row. The row has no
+# stager (OTA_STAGE=0): one update path per image (item 20), and the 328P's boot
+# is copy-only and trailer-only (items 19, 57), so it cannot take an image from
+# the external store. Its update path is serial. With the stager it measured
+# 17 144 / 16 384 flash.
+BOARD_ROWS     := soft:ETH=1,OTA_STAGE=0
+
 # The external store the OTA stager writes into (issue #75, docs/ota/): its
 # driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.
 # The part and its chip select are ADR open question 2; the select is board

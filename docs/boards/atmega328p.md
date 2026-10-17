@@ -34,6 +34,25 @@ Programming*, Fuse High Byte table; section number not confirmed). The Arduino
 A000005); its tech specs were not read for this page, so no value here is
 confirmed against it.
 
+### Build rows
+
+`make firmware-matrix` builds and size-checks each row (owner ruling, issue
+#55 item 48):
+
+| Row | Settings | Source |
+|---|---|---|
+| Software tier, serial (the default) | `CRYPTO=soft` | `BOARD_TIERS`, `mk/firmware.mk` |
+| Element tier, serial | `CRYPTO=atecc608a` | the same |
+| Soft-crypto Ethernet node | `CRYPTO=soft ETH=1 OTA_STAGE=0` | `profile.mk:37`–`44` |
+
+The Ethernet node has no OTA stager: one update path per image, and the 328P's
+boot is copy-only and trailer-only, so it cannot take an image from the external
+store. It is updated over serial. With the stager linked it measured 17 144 /
+16 384 bytes of flash. The element tier over Ethernet is not a row: it is over
+the flash budget ([the options](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
+The ATECC608C is never required: the software tier, with the soft DICE root, is
+the default.
+
 The budget is the tightest of the element boards, and two things do not fit
 in it. Each answers `TFW_ERR_UNKNOWN_CMD` with its `CAPS` bit clear:
 

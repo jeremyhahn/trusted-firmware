@@ -92,7 +92,8 @@ UART_SRCS := $(if $(call profile_says,TFW_UART_SOFT,1), \
 # word (ETH_CHIP in profile.mk), overridable on the command line for the other
 # shield; a board that names none cannot be built with ETH=1. The output path
 # carries the choice, as it carries the crypto tier, because an Ethernet image
-# is different firmware.
+# is different firmware. A board may make ETH=1 its default (ETH ?= 1 in
+# profile.mk, the ATmega2560); every other board's default is serial only.
 ETH ?= 0
 ifeq ($(ETH),1)
 ifeq ($(ETH_CHIP),)
@@ -395,6 +396,12 @@ $(TARGET).hex: $(TARGET).elf
 # A board states its tiers in profile.mk. One that says nothing gets the two it
 # always had, so no existing board changes.
 BOARD_TIERS     ?= soft atecc608a
+# Rows a board builds besides its tiers at their defaults: "tier:VAR=value",
+# more than one setting comma-separated ("soft:ETH=1,OTA_STAGE=0"), each a
+# named configuration with the same size-check as the default rows. The
+# 2560's ETH=0 rows (the shieldless bench Mega) and the 328P's soft-tier
+# Ethernet node are here (issue #55 item 48).
+BOARD_ROWS      ?=
 # A board whose profile.mk sets IMAGE_TARGET is built by that target and not by
 # `make firmware` -- an ESP-IDF board is built by ESP-IDF's own toolchain, which
 # the CI image does not carry. It stays out of this list, so firmware-matrix,
@@ -422,23 +429,30 @@ board-eth-chip:
 firmware-srcs:
 	@echo $(FW_SRCS) $(APP_SRCS)
 
-## firmware-matrix-list: print every "board tier" pair firmware-matrix builds
+## board-rows: print BOARD's extra "tier:VAR=value" rows (used by firmware-matrix-list)
+board-rows:
+	@echo $(BOARD_ROWS)
+
+## firmware-matrix-list: print every "board tier [VAR=value]" row firmware-matrix builds
 firmware-matrix-list:
 	@for b in $(FIRMWARE_BOARDS); do \
 	  for t in $$($(MAKE) -s --no-print-directory board-tiers BOARD=$$b); do \
 	    echo "$$b $$t"; \
 	  done; \
+	  for r in $$($(MAKE) -s --no-print-directory board-rows BOARD=$$b); do \
+	    v=$${r#*:}; echo "$$b $${r%%:*} $${v//,/ }"; \
+	  done; \
 	done
 
-.PHONY: board-tiers board-eth-chip feature-defs firmware-srcs firmware-matrix-list
+.PHONY: board-tiers board-rows board-eth-chip feature-defs firmware-srcs firmware-matrix-list
 
 firmware-matrix:
-	@fail=0; \
-	for b in $(FIRMWARE_BOARDS); do \
-	  for t in $$($(MAKE) --no-print-directory board-tiers BOARD=$$b); do \
-	    $(MAKE) --no-print-directory firmware BOARD=$$b CRYPTO=$$t || fail=1; \
-	  done; \
-	done; \
+	@fail=0; n=0; \
+	while read -r b t v; do \
+	  $(MAKE) --no-print-directory firmware BOARD=$$b CRYPTO=$$t $$v || fail=1; \
+	  n=$$((n+1)); \
+	done < <($(MAKE) -s --no-print-directory firmware-matrix-list); \
+	[ "$$n" -gt 0 ] || { echo "firmware-matrix built nothing"; exit 1; }; \
 	exit $$fail
 
 .PHONY: firmware-matrix

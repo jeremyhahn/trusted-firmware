@@ -9,10 +9,10 @@ AVRDUDE_PART   := m2560
 AVRDUDE_PROG   := wiring
 AVRDUDE_PORT   ?= /dev/ttyACM0
 AVRDUDE_BAUD   := 115200
-# A quarter of the flash and an eighth of the SRAM; see board_profile.h for why
-# the fractions are smaller than the 328P's and the headroom is still larger.
+# A quarter of the flash and a quarter of the SRAM; see board_profile.h for why
+# the fractions are smaller than the 328P's and why the RAM gate is 2048 (#55).
 FLASH_BUDGET   := 65536
-RAM_BUDGET     := 1024
+RAM_BUDGET     := 2048
 FLASH_TOTAL    := 262144
 RAM_TOTAL      := 8192
 
@@ -44,6 +44,12 @@ FACTORY_BOOT_HEX_SHA256 := 081bd53f385df747b03bdafe7e154c1f72589f490be8138f3c4cc
 # Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
 # The chip file checks the part's identity, so the wrong shield stays down.
 ETH_CHIP       ?= w5100
+
+# ETH=1 is this board's default (owner ruling, issue #55 item 48): a Mega built
+# with no ETH= is the Ethernet node. The shieldless bench Mega is the explicit
+# ETH=0 row below, built and budgeted on every tier like the default rows.
+ETH            ?= 1
+BOARD_ROWS     := soft:ETH=0 atecc608a:ETH=0
 
 # The SUIT manifest reader and gate (issue #78; mk/firmware.mk): the element-tier
 # image carries src/core/suit.c. The 2560 has the room; ADR decision 6.

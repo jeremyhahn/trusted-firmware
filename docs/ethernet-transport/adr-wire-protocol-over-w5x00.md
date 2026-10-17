@@ -42,7 +42,10 @@ offers a host, and what go-trusted-platform's SPEC needs to say.
 - The RAM budget is the tightest constraint on both reference boards. Before this
   work the ATmega2560 element image used 988 of its 1 024-byte RAM budget, and the
   ATmega328P element image used 922. A second transport instance (a framer plus a
-  frame buffer) would not fit on either.
+  frame buffer) would not fit on either. With `ETH=1` the 2560's default (issue
+  #55, item 48), its element image measured 1 027 bytes (`.bss` 946, `.noinit` 1,
+  the handoff block 80). No static could be freed without a change of behaviour,
+  so the 2560's gate is now 2 048 bytes, a quarter of SRAM like its flash budget.
 - The ATmega328P element image used 16 052 of its 16 384-byte flash budget: 332
   bytes free.
 - Evidence (UCCS, the alias certificate, the CSR) is signed by the element and
@@ -125,11 +128,17 @@ The Ethernet link accepts exactly these commands:
 - The check runs in the transport before dispatch, from a table in the Ethernet
   link's file. A serial-only image has no table and no check. A unit test pins all
   128 command ids against the literal list above.
-- **Widened since, by the OTA ADR.** `src/proto/link_eth.c` also admits
-  `OTA_BEGIN`, `OTA_DATA`, `OTA_END` and `OTA_STATUS`, for staging into the
-  external store ([OTA ADR](../ota/adr-ota-image-format-and-trust.md), decision
-  8). An image without the stager answers them `TFW_ERR_UNKNOWN_CMD`, as above.
-  The table here is this ADR's decision; the OTA ADR owns the widening.
+- **Widened since, by the OTA ADR, and narrowed to `0x68`–`0x6B`.**
+  `src/proto/link_eth.c` also admits `OTA_BEGIN`, `OTA_DATA`, `OTA_END` and
+  `OTA_STATUS`, for staging into the external store
+  ([OTA ADR](../ota/adr-ota-image-format-and-trust.md), decision 8). An image
+  without the stager answers them `TFW_ERR_UNKNOWN_CMD`, as above. The OTA ADR
+  proposed `AUTH_CHALLENGE` `0x61`, `AUTH_RESPONSE` `0x62` and `0x6C`–`0x6E` as
+  well; the owner's ruling on issue #55 (item 48, 2026-10-17) narrowed the
+  update commands to `0x68`–`0x6B`, so those answer `TFW_ERR_UNKNOWN_CMD` over
+  Ethernet like any other id off the list (`test/unit/test_link_eth.c`,
+  `test_an_update_command_past_0x6b_is_answered_unknown_over_ethernet`). No
+  status code and no command id changed.
 
 ### 3. Addressing
 

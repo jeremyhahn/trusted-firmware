@@ -512,10 +512,13 @@ where only one fits, its image links one link file, chosen by its profile, as
   the operator auth session (`AUTH_CHALLENGE` `0x61`, `AUTH_RESPONSE` `0x62`) on
   the element tier, as for `RESET` mode 1, and answers `TFW_ERR_AUTH_REQUIRED`
   (17) without one.
-- **The auth session over Ethernet.** It works on
-  the TCP link as on serial: the session is frame-level and link-independent.
+- **The Ethernet allow-list.** The session is frame-level and
+  link-independent, but the narrowed list below keeps it on serial.
   The Ethernet allow-list widens from `0x00`, `0x06`, `0x60`, `0x63`, `0x64` to
-  add `0x61`, `0x62` and `0x68`–`0x6E`. **PROPOSED:** a session opened on a
+  add `0x68`–`0x6B` and no more: the owner's ruling on issue #55 (item 48,
+  2026-10-17) narrowed the proposed `0x61`, `0x62` and `0x68`–`0x6E` to the four
+  staging commands, so the session, `OTA_INFO`, `OTA_ACTIVATE` and
+  `OTA_CONFIRM` stay on serial. **PROPOSED:** a session opened on a
   connection ends when that connection closes, as well as at reset, so a
   reconnecting peer starts unauthenticated (open question 8).
 - A host tells an OTA-capable image by `OTA_INFO` answering. An image without it
@@ -919,8 +922,9 @@ reference value. A gap there is filed against go-xkms.
 - The new status code `TFW_ERR_BAD_STATE`, with its wire vector and the Go
   mirror. Done: `include/tfw/status.h`, `testdata/vectors.h`,
   `sdk/go/status.go`.
-- OTA commands over Ethernet with the auth session: the allow-list widened to
-  `0x61`, `0x62` and `0x68`–`0x6E`.
+- OTA commands over Ethernet: the allow-list widened to `0x68`–`0x6B` only, as
+  narrowed by the owner's ruling on issue #55 (item 48). Done:
+  `src/proto/link_eth.c`, `test/unit/test_link_eth.c`.
 - The provisioning seam: `tfwprov` writes go-xkms's exported key into the
   element's slot; mirror go-xkms's row in the SPEC once it lands.
 - The one trial: the watchdog arm in `tfw-boot`, and the deadline and the

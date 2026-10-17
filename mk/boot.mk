@@ -605,16 +605,17 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
 # W5100 model (test/model/w5x00_model.c) on the emulated SPI bus behind D10
 # beside the NOR part behind D8, and the harness the TCP peer that streams
 # OTA_BEGIN/OTA_DATA/OTA_END to it before the reset into tfw-boot's trial.
+# ETH=1 is the 2560's default (#55 item 48), so the serial legs say ETH=0.
 BOOT_INT_STORE_ROW := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=0 \
                       BOOT_STORE=1
 
 integration-test-boot:
 	@$(MAKE) --no-print-directory boot-harness-run \
-	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_ROW)
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_ROW) ETH=0
 	@$(MAKE) --no-print-directory boot-harness-run \
-	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) BOOT_HARNESS_MODE=store
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 BOOT_HARNESS_MODE=store
 	@$(MAKE) --no-print-directory boot-bridge-run \
-	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) OTA_STAGE=1
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 OTA_STAGE=1
 	@$(MAKE) --no-print-directory boot-harness-run \
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=1 BOOT_HARNESS_MODE=net
 

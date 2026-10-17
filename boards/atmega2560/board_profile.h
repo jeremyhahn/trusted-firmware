@@ -62,13 +62,20 @@
  * not even a consideration. */
 #define TFW_FEATURE_ATTEST 1
 
-/* A quarter of the flash and an eighth of the SRAM. The 328P takes half of each
+/* A quarter of the flash and a quarter of the SRAM. The 328P takes half of each
  * because half of 32 KB is already near what the firmware needs; a quarter of
  * 256 KB is four times that in absolute terms, so the smaller fraction still
  * leaves far more headroom than the 328P has ever had.
  *
+ * The RAM gate was an eighth (1 024 bytes, the 328P's figure in absolute terms)
+ * until the ETH=1 default with the element tier measured 1 027: .bss 946,
+ * .noinit 1, the handoff block 80 (issue #55). No static could be freed without
+ * a change of behaviour, so the gate takes the same fraction as flash. The
+ * remaining 6 KB is stack.
+ *
  * The budget is a gate, not an estimate: `make size-check` fails the build when
- * an image exceeds it, so flash creep is caught on the commit that causes it.
+ * an image exceeds it, so flash and RAM creep are caught on the commit that
+ * causes it.
  * A budget set to the whole part would catch nothing until the day there is no
  * room left to fix it in. */
 /* 256 KB of flash, and the Mega's largest BOOTSZ -- 4096 WORDS, so 8192 bytes,
@@ -124,7 +131,7 @@
 #define TFW_OTA_STAGE_DEST        TFW_SWAP_SECONDARY_BASE
 
 #define TFW_FLASH_BUDGET 65536u
-#define TFW_RAM_BUDGET   1024u
+#define TFW_RAM_BUDGET   2048u
 
 /*
  * Register addresses.

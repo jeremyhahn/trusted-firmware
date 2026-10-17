@@ -107,7 +107,8 @@ platform-bake-srcs:
 # asked of mk/firmware.mk itself through firmware-srcs. Before any of that, the
 # bake image's own list must hold what the check looks for -- a pattern that
 # matched nothing anywhere would pass and have checked nothing. And no source an
-# application compiles may name the bake image's symbols.
+# application compiles may name the bake image's symbols. A board's extra rows
+# (BOARD_ROWS) vary only ETH, which this sweep covers on every tier already.
 platform-bake-no-link-check:
 	@own=$$($(MAKE) -s --no-print-directory platform-bake-srcs BOARD=atmega328p); \
 	 for p in $(PLATBAKE_SRC_DIR)/main.c $(PLATBAKE_SRC_DIR)/bake.c gen/block.c; do \
@@ -115,7 +116,8 @@ platform-bake-no-link-check:
 	     *) echo "platform-bake-no-link-check: the bake image's own list lacks $$p -- the check would be vacuous"; exit 1;; esac; \
 	 done; \
 	 fail=0; n=0; \
-	 while read -r b t; do \
+	 while read -r b t x; do \
+	   [ -z "$$x" ] || continue; \
 	   chip=$$($(MAKE) -s --no-print-directory board-eth-chip BOARD=$$b); \
 	   for v in "PROVISION=0 ETH=0" "PROVISION=1 ETH=0" $${chip:+"PROVISION=0 ETH=1" "PROVISION=1 ETH=1"}; do \
 	     srcs=$$($(MAKE) -s --no-print-directory firmware-srcs BOARD=$$b CRYPTO=$$t $$v) || { \

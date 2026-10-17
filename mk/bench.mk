@@ -84,10 +84,12 @@ bench-run: $(BENCH_DIR)/bench_harness $(BENCH_TARGET).elf $(TARGET).elf
 BENCH_BOARDS ?= atmega328p atmega2560
 
 ## bench-check: the performance gate -- fails the build on a regression
+# ETH=0: the budget times a serial exchange, and the 2560's default is now the
+# Ethernet image (#55 item 48), so the serial image is named.
 bench-check:
 	@fail=0; \
 	for b in $(BENCH_BOARDS); do \
-	  $(MAKE) --no-print-directory bench-run BOARD=$$b || fail=1; \
+	  $(MAKE) --no-print-directory bench-run BOARD=$$b ETH=0 || fail=1; \
 	done; \
 	if [ $$fail -ne 0 ]; then echo "bench-check: FAILED"; else echo "bench-check: green"; fi; \
 	exit $$fail

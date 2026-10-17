@@ -299,3 +299,42 @@ Against the docs:
   laid out as `simImage` in `sdk/go/cmd/tfwctl/ota_stage_test.go` lays them out.
   On this board the device never reads the trailer, so the test does not depend
   on it.
+
+## The bench Mega on main ec135de, 2026-10-16
+
+The same board and the same rules as [the train/ota75e pass](#the-bench-mega-on-trainota75e-2026-10-16),
+with the same toolchain behind the same refusing `avrdude` wrapper. The firmware
+is main's at ec135de, which adds #110: `src/core/ota_trial.c`,
+`src/hal/avr/hal_sys.c` and `src/main.c` re-arm and pet the watchdog and count
+the trial deadline in the application. This is the first silicon run of that
+code, on a board `tfw-boot` never armed.
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft` on train/ota75f, no Ethernet | 13672 / 771 bytes | `1105c64dc99c5711b07c6cb48d701c1afe1c6b61c2fa8408434dd27873b897f6` |
+
+The image links `src/core/ota_trial.c`: the build's object directory holds
+`src/core/ota_trial.o` and no `ota_trial_none.o`, and the ELF's symbol table
+has `tfw_ota_trial_start`. That matches [the trial's two layers](../ota/architecture.md#the-ota-round-under-simavr-75-77):
+only the 2560 links `ota_trial.c`.
+
+| # | What ran | Result |
+|---|---|---|
+| — | `0x000`–`0x0FF` read before the flash, eight bytes a command, through the SDK's `EEPROMRead` (the call behind `tfwctl eeprom-read`) on one connection | Read in full, no error. Kept outside the repository |
+| 1 | The image built and flashed with `make flash` | Pass. avrdude wrote and verified 13672 bytes |
+| 2 | `0x000`–`0x0FF` read again after the flash | **Equal to the read before, byte for byte; not re-provisioned** |
+| 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, after `make tfwsim tfwsim-app-example` | Pass: 28 top-level tests passed, none failed, none skipped. Counted from a second run with `GOFLAGS=-json`; the first run passed too |
+| 4 | No reset by itself: one connection held open, `SYS_INFO` and `OTA_INFO` (`0x6C`) sent, 200 s idle with nothing sent, then both sent again. 200 s is over 3x the 2560's `TFW_OTA_TRIAL_TIMEOUT_S` of 60 s ([architecture.md](../ota/architecture.md#the-ota-round-under-simavr-75-77)) | **No reset.** Uptime 6 ms at the first `SYS_INFO`, 3 min 20.3 s at the second, on the same session, with no unsolicited boot event between. Reset cause reads unknown both times |
+| 4 | `OTA_INFO` (`0x6C`) state | Status 4, "unknown command", no payload, both times. `0x6C` still has no entry in `src/core/commands.def` at ec135de, so no image answers it; the same answer as the fd7a696 and train/ota75e passes |
+| 5 | `0x000`–`0x0FF` read again after the suite and the idle check | Equal to the first read, byte for byte. No byte was changed, so none was restored. The board stays on this image |
+
+Against the docs:
+
+- The watchdog: [architecture.md](../ota/architecture.md#the-ota-round-under-simavr-75-77)
+  says `ota_trial.c` re-arms the watchdog only when the platform block's
+  `boot_state` is `TRIAL`. This board's block is not in `TRIAL`, and the board
+  ran 200 s without a reset, so the application did not arm it. That matches.
+- `OTA_INFO`: docs/ota names no state for a board with no trial that an image
+  on main can report, because the command is not on the wire. The answer is
+  status 4, as before. Not a contradiction; the state cannot be checked on
+  silicon until `OTA_INFO` lands.

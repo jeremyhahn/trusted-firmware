@@ -1,6 +1,6 @@
 # Roadmap
 
-> **Status: REFERENCE** · Last verified: 2026-10-16
+> **Status: REFERENCE** · Last verified: 2026-10-17
 > What is complete and what remains, in milestone order. Features and requirements: [docs/SPEC.md](docs/SPEC.md).
 
 ## Mission
@@ -45,13 +45,13 @@ None planned.
 
 ## Future
 
-- **secure-element-se05x** — the SE052F element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7)
+- **secure-element-se05x** — the SE052F element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7), which waits on the soft DICE root ([#130](../../issues/130)) and go-xkms's signing key, not on the element
 - **imx95** — i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO, the cortex-m reference part — [#49](../../issues/49) — blocked: AVR gate (#7)
 - **hsm-self-defence** — i.MX 95 M7 tamper-response enforcement under tenant-signed policies — [#50](../../issues/50) — blocked: AVR gate (#7)
-- **stm32h5** — STM32H5, the second Cortex-M target, with the SE052F as the reference trusted device — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7)
-- **optiga-trust-m** — the OPTIGA Trust M element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7)
-- **rp2350** — RP2350 on the Pico 2 W — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7)
-- **nrf54l15** — nRF54L15 on the nRF54L15-DK — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7)
+- **stm32h5** — STM32H5, the second Cortex-M target, with the SE052F as the reference trusted device — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#126](../../issues/126); port blocked: AVR gate (#7)
+- **optiga-trust-m** — the OPTIGA Trust M element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#127](../../issues/127); port blocked: AVR gate (#7), which waits on [#130](../../issues/130) and go-xkms's signing key, not on the element
+- **rp2350** — RP2350 on the Pico 2 W — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#128](../../issues/128); port blocked: AVR gate (#7)
+- **nrf54l15** — nRF54L15 on the nRF54L15-DK — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#129](../../issues/129); port blocked: AVR gate (#7)
 - **mcxn947** — MCXN947 on the FRDM-MCXN947 — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7)
 - **cortex-m** — the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — blocked: AVR gate (#7)
 - **cortex-m** — ADR: Cortex-M reference part and CI emulation target — [#14](../../issues/14) — blocked: AVR gate (#7)

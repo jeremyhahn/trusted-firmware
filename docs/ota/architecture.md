@@ -595,7 +595,8 @@ once in the secondary and once in the primary.
   before it builds:
   - element tier (`atecc608a` for tier, measure and signature): 8 916 / 8 192,
     724 bytes over;
-  - soft tier (`soft`, `soft`, `ed25519-donna`), at 03089f4: 96 492 / 8 192,
+  - soft tier (`soft`, `soft`, `ed25519-donna`; item 79, owner ruling
+    2026-10-17, makes the verifier P-256 on every row), at 03089f4: 96 492 / 8 192,
     88 300 bytes over.
 
   Size-only work with no change of behaviour (issue #75) took the element tier

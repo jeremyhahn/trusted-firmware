@@ -47,6 +47,8 @@ care about — several steps below cannot be undone.
    ```
 
    `--pubkey-hash` is also this step's job on `BOOT_SIG=ed25519-donna`
+   (no row under item 79, owner ruling 2026-10-17: the verifier is P-256 on
+   every row)
    (software-verify) builds; it is ignored on the element tier and may be
    omitted there. `--operator-pubkey` is this step's job for the
    `AUTH_CHALLENGE`/`AUTH_RESPONSE` session (issue #4, element tier only) —

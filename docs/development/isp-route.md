@@ -189,7 +189,8 @@ The command exits 2 before avrdude runs. With no `BOOT_*` variables it builds
 `make bootloader`'s default row:
 
 - `BOOT_TIER` soft (`mk/boot.mk` line 32);
-- `BOOT_SIG` ed25519-donna (line 51);
+- `BOOT_SIG` ed25519-donna (since item 79, owner ruling 2026-10-17, the
+  default is the row's P-256 verifier);
 - `BOOT_MEASURE` soft (line 74);
 - `BOOT_OTA` 1 (line 91).
 
@@ -205,6 +206,10 @@ unchanged. The EEPROM's SHA-256 was `e6804337…bd1a1e2f`, the same as before.
 | soft:soft:ed25519-donna:1 | the default, and the command above | does not link: core 9152 / 8192 | — |
 | atecc608a:soft:ed25519-donna:1 | [hardware enrolment](hardware-enrollment.md) line 50, which sets `BOOT_TIER` only | does not link: core 10254 / 8192 | — |
 | atecc608a:atecc608a:atecc608a:1 | `BOOT_SUPPORTED` | builds: 6840 / 8192 flash, 774 / 8192 RAM | `692055b275466c56a4963e6a4a61e4b3a54d58e6d854cf8c8176c0c68ad68dcf` |
+
+Neither `ed25519-donna` row above is a row under item 79 (owner ruling
+2026-10-17): the verifier is P-256 on every row. `make` now defaults to the
+board's supported row: `soft:soft:p256-soft:0:0` on the 2560.
 
 Since 5342430 (2026-10-16), `make bootloader` and `make boot-flash` refuse the
 two soft-signature rows at parse time, before anything is built:

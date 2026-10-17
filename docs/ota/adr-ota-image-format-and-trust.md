@@ -836,7 +836,9 @@ Only these numbers and this method are kept.
   data, end with the gate.
 - **The manifest reader.** Linked against stubs, less the stubs' own size:
   about 2 886 bytes on both parts. The unlinked object is 3 222.
-- **Software Ed25519 for a soft-tier AVR boot.** ed25519-donna links at 72 930
+- **Software Ed25519 for a soft-tier AVR boot.** Superseded by item 79 (owner
+  ruling 2026-10-17): the verifier is P-256 on every row, `p256-soft` on the
+  soft tier. ed25519-donna links at 72 930
   bytes. Monocypher 4.0.2's `crypto_ed25519_check` links at 50 340 bytes of
   text, with a 1 077-byte stack frame, on the 2560. Neither fits a boot
   section; software SHA-256 alone is about 3 450.

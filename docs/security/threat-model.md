@@ -81,6 +81,10 @@ and its worst case is a 10 second delay per request plus a refused update.
 A session lasts until the device resets; there is no separate inactivity
 timeout.
 
+> Item 79 (owner ruling 2026-10-17): the tfw-boot verifier is P-256 on every
+> row; the 2560 soft row verifies with `BOOT_SIG=p256-soft` (`mk/boot.mk:350`).
+> The paragraph below predates it.
+
 **This is element tier only, and that is a real gap on the other two, not a
 temporary one.** The software tier's only available primitive for an
 external-key signature check, ed25519-donna (already vendored for

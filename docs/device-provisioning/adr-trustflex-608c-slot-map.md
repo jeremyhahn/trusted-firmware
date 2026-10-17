@@ -239,8 +239,9 @@ encrypted write to slot 5.
   - **Flash.** Choosing the part is a board-profile address change. If no UDS
     slot is writable, the tier can only run as in (d2).
   - **Boot.** Without a writable slot 15, `BOOT_SIG=atecc608a` has no key to
-    verify against, and boot falls back to the existing `BOOT_SIG=ed25519-donna`
-    row, at that row's boot-section cost.
+    verify against. There is no `BOOT_SIG=ed25519-donna` row to fall back to:
+    item 79 (owner ruling 2026-10-17) makes the verifier P-256 on every row, so
+    boot falls back to `BOOT_SIG=p256-soft`, at that row's boot-section cost.
   - **Wire.** Nothing new beyond (d2).
 - **(b2) TMNGTLS at `0x38`.** Its slot map is not recorded: its data sheet was
   not retrieved. Its key lifecycle is meant to run through Microchip's keySTREAM

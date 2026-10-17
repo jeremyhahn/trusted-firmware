@@ -20,10 +20,10 @@ make bootloader BOARD=atmega328p BOOT_TIER=atecc608a \
 | Flag | Values | Default | Required |
 |---|---|---|---|
 | `BOARD` | a name under `boards/` (`atmega328p`, `atmega32u4`, `atmega2560`, …) | — | yes |
-| `BOOT_TIER` | `soft`, `atecc608a` | `soft` | no |
-| `BOOT_MEASURE` | `soft`, `atecc608a` | `soft` | no |
-| `BOOT_SIG` | `ed25519-donna`, `atecc608a` | `ed25519-donna` | no |
-| `BOOT_OTA` | `0`, `1` | `1` | no |
+| `BOOT_TIER` | `soft`, `atecc608a` | `atecc608a` on a 4 KB section, else `soft` | no |
+| `BOOT_MEASURE` | `soft`, `atecc608a` | `BOOT_TIER` | no |
+| `BOOT_SIG` | `ed25519-donna`, `atecc608a`, `p256-soft` | the row's P-256 verifier: `atecc608a` on the element tier, `p256-soft` on the soft tier (item 79, owner ruling 2026-10-17); `ed25519-donna` for `bootloader-budget` and `boot-core-size` | no |
+| `BOOT_OTA` | `0`, `1` | `1` with `BOOT_SIG=atecc608a` on an 8 KB section, else `0` | no |
 
 Produces `build/<board>/boot/<config>/tfw-boot.hex`, where `<config>` encodes
 all four variables so two configurations never share objects. Runs
@@ -98,7 +98,7 @@ make boot-flash BOARD=atmega328p BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a \
 | Flag | Values | Default | Required |
 |---|---|---|---|
 | `BOARD` | a board name | — | yes |
-| `BOOT_TIER`, `BOOT_MEASURE`, `BOOT_SIG`, `BOOT_OTA` | a supported row for `BOARD`, below | `soft`, `soft`, `ed25519-donna`, `1` | yes: the defaults fit no board |
+| `BOOT_TIER`, `BOOT_MEASURE`, `BOOT_SIG`, `BOOT_OTA` | a supported row for `BOARD`, below | the board's supported row: `atecc608a`, `atecc608a`, `atecc608a`, `0` on a 4 KB section; `soft`, `soft`, `p256-soft`, `0` on the 2560 (item 79, owner ruling 2026-10-17) | no |
 | `ISP_PROG` | any `avrdude -c` programmer id | `usbasp` | no |
 | `ISP_PORT` | any `avrdude -P` port | `usb` | no |
 | `BOOT_EEPROM_RESTORE` | `0`, `1` | `0` | no: only when `EESAVE` is not programmed, below |
@@ -134,8 +134,10 @@ Measured with `make bootloader-check` (avr-gcc 14.2.0, tfw-boot built with
 | `atmega32u4` | 4 096 B | `soft` `soft` `p256-soft` | `0` | — | — | no: not a row |
 | `attiny85` | none | — | — | — | — | no: the part has no boot section |
 
-Every other combination fails the link on every board, the defaults
-(`soft`/`soft`/`ed25519-donna`/`1`) and `BOOT_TIER=atecc608a` alone included.
+Every other combination fails the link on every board. The defaults name
+the board's supported row: the verifier is P-256 on every row (item 79, owner
+ruling 2026-10-17), so `BOOT_SIG` defaults to `atecc608a` on the element tier
+and `p256-soft` on the soft tier.
 The soft rows are built at micro-ecc's `UECC_OPT` default, `0` (`mk/boot.mk`). The 2560 soft base
 row is the one configuration without the element that fits.
 

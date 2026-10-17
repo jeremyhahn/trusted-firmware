@@ -77,7 +77,9 @@ The `RESET` itself needs the operator auth session on the element tier.
 ## Trust boundaries
 
 - **The signing key never enters the boot section as a value the code can be
-  tricked into replacing.** On `BOOT_SIG=ed25519-donna` it is patched into
+  tricked into replacing.** (Item 79, owner ruling 2026-10-17: the verifier
+  is P-256 on every row, so no row ships `ed25519-donna`.) On
+  `BOOT_SIG=ed25519-donna` it is patched into
   boot-section flash at provisioning and pinned by a SHA-256 in reserved
   EEPROM (`tfw_boot_check_pubkey_pin`); on `BOOT_SIG=atecc608a` it never leaves
   a locked element slot at all, named by number, and `tfw_boot_pubkey` answers

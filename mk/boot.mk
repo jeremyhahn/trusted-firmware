@@ -32,7 +32,12 @@ BOOT_HAL_DIR := boot/hal/$(ARCH)
 
 
 # The tier, chosen at LINK time exactly as CRYPTO is for the application.
-BOOT_TIER ?= soft
+#
+# The defaults name the board's supported row (item 79, owner ruling
+# 2026-10-17): a 4 KB section has only the element row, which verifies on the
+# element; the 2560 defaults to its soft row, which verifies P-256 in software
+# and sheds OTA (CA m467). An explicit BOOT_*= still wins over every default.
+BOOT_TIER ?= $(if $(filter 4096,$(BOOT_SECTION)),atecc608a,soft)
 ifeq ($(BOOT_TIER),soft)
 BOOT_TIER_SRCS := boot/tier/cdi_soft.c
 else ifeq ($(BOOT_TIER),atecc608a)
@@ -48,10 +53,14 @@ endif
 
 # The signature backend. ONE is linked.
 #
-# See boot/boot_verify.h for what ed25519-donna measures on this part and why no
-# substitute has been made for it. `make bootloader-budget` reproduces the
-# numbers rather than asking anyone to believe them.
-BOOT_SIG ?= ed25519-donna
+# The default is the row's P-256 verifier (item 79, owner ruling 2026-10-17):
+# the element's on the element tier, p256-soft on the soft tier. The measuring
+# targets, bootloader-budget and boot-core-size, keep ed25519-donna: they exist
+# for the rows that do not fit, and boot/boot_verify.h quotes what donna
+# measures on this part. They reproduce the numbers rather than asking anyone
+# to believe them.
+BOOT_MEASURING_GOAL := $(filter bootloader-budget boot-core-size,$(MAKECMDGOALS))
+BOOT_SIG ?= $(if $(BOOT_MEASURING_GOAL),ed25519-donna,$(if $(filter atecc608a,$(BOOT_TIER)),atecc608a,p256-soft))
 ifeq ($(BOOT_SIG),ed25519-donna)
 BOOT_SIG_SRCS := boot/verify/verify_ed25519_donna.c boot/verify/donna_shim.c \
                  src/third_party/ed25519-donna/ed25519.c
@@ -89,7 +98,7 @@ BOOT_SIG_SU_FN     ?= ed25519_sign_open
 # The digest is identical either way: SHA-256 is defined over the byte sequence,
 # not over how the bytes were delivered. What differs is time -- the element
 # hashes 64 bytes per command, so a 28 KB image is about 450 round trips.
-BOOT_MEASURE ?= soft
+BOOT_MEASURE ?= $(BOOT_TIER)
 ifeq ($(BOOT_MEASURE),soft)
 # The size-first SHA-256 (#130): the same digest, sha256.h's API, a third of
 # the bytes. The application keeps sha256.c for its speed.
@@ -108,7 +117,9 @@ endif
 # measures, verifies and commits. On a part whose boot section is 8 KB the
 # question does not arise; on a 4 KB part it is the difference between having
 # secure boot and not.
-BOOT_OTA ?= 1
+# On by default only where a row has it: the element verifier on an 8 KB
+# section. A 4 KB row and the soft row shed OTA, never verification.
+BOOT_OTA ?= $(if $(and $(filter atecc608a,$(BOOT_SIG)),$(filter-out 4096,$(BOOT_SECTION))),1,0)
 ifeq ($(BOOT_OTA),1)
 BOOT_OTA_SRCS := boot/recovery/recovery_ota.c boot/boot_ota.c boot/boot_session.c src/proto/frame.c
 BOOT_OTA_DEFS :=
@@ -646,10 +657,8 @@ bootloader-reproducible:
 #
 # Only a BOOT_SUPPORTED row is built by `bootloader` or flashed by `boot-flash`,
 # and the refusal comes at parse time, before anything is built. The defaults
-# are soft/ed25519-donna, which fit no board's boot section, so a bare
-# `make boot-flash BOARD=<board>` used to rebuild them and stop at the link with
-# an overflow; and `make bootloader` with BOOT_TIER=soft and the element's
-# measure and signature stopped at the link on an undefined tfw_atecc_sleep.
+# name the board's supported row (above); a row named by hand that is not one
+# is refused here rather than stopping at the link.
 # The targets that measure a configuration rather than ship it --
 # bootloader-budget, boot-core-size -- are not refused: they exist for the rows
 # that do not fit.

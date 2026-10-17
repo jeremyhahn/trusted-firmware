@@ -258,10 +258,10 @@ Selected in `mk/boot.mk`, each resolving to exactly one linked file set:
 
 | Variable | Values | Default | Selects |
 |---|---|---|---|
-| `BOOT_TIER` | `soft`, `atecc608a` | `soft` | `boot/tier/cdi_{soft,atecc}.c` |
-| `BOOT_MEASURE` | `soft`, `atecc608a` | `soft` | `boot/measure/measure_{soft,atecc608a}.c` |
-| `BOOT_SIG` | `ed25519-donna`, `atecc608a` | `ed25519-donna` | `boot/verify/verify_{ed25519_donna,atecc608a}.c` |
-| `BOOT_OTA` | `0`, `1` | `1` | `recovery_ota.c` + the OTA/session sources, or `recovery_halt.c` alone |
+| `BOOT_TIER` | `soft`, `atecc608a` | `atecc608a` on a 4 KB section, else `soft` | `boot/tier/cdi_{soft,atecc}.c` |
+| `BOOT_MEASURE` | `soft`, `atecc608a` | `BOOT_TIER` | `boot/measure/measure_{soft,atecc608a}.c` |
+| `BOOT_SIG` | `ed25519-donna`, `atecc608a`, `p256-soft` | the row's P-256 verifier, `atecc608a` or `p256-soft` (item 79, owner ruling 2026-10-17); `ed25519-donna` for the measuring targets | `boot/verify/verify_{ed25519_donna,atecc608a,p256_soft}.c` |
+| `BOOT_OTA` | `0`, `1` | `1` with `BOOT_SIG=atecc608a` on an 8 KB section, else `0` | `recovery_ota.c` + the OTA/session sources, or `recovery_halt.c` alone |
 | `BOARD` | a `boards/*/profile.mk` name | — | `BOOT_BASE`, `BOOT_SECTION`, `BOOT_BUDGET`, `FLASH_TOTAL`, `RAM_TOTAL`, MCU |
 
 `BOOT_BUDGET` equals `BOOT_SECTION` on every board profile
@@ -279,11 +279,14 @@ atmega32u4:atecc608a:atecc608a:atecc608a:0:0
 atmega2560:atecc608a:atecc608a:atecc608a:0:0
 atmega2560:atecc608a:atecc608a:atecc608a:1:0
 atmega2560:atecc608a:atecc608a:atecc608a:0:1
+atmega2560:soft:soft:p256-soft:0:0
 ```
 
 `BOOT_STORE=1` links the external store's read, check and copy (issue #75);
 it is off by default and in no 4 KB row.
 
+Item 79 (owner ruling 2026-10-17): the verifier is P-256 on every row, the
+element's `Verify` on the element rows and `p256-soft` on the soft row.
 `ed25519-donna` never appears in a supported row: its verify path alone is
 72,930 bytes against every boot section this family has. It stays buildable
 and tested so that claim is a measurement, not an assertion — see

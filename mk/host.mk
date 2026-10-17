@@ -126,6 +126,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c \
                             test/unit/test_sys_noboot.c test/unit/test_ota_trial.c \
+                            test/unit/test_none_variants.c test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
                             test/unit/test_pin_coord.c \
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
@@ -318,6 +319,34 @@ $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The no-boot stand-ins (#130): the four files a build without tfw-boot links
+# where the handoff, the platform block, the stager and PREV would be. No host
+# library: each is pinned alone, as the board links it.
+$(HOST_DIR)/test_none_variants: test/unit/test_none_variants.c \
+                        src/core/handoff_none.c src/core/platform_id_none.c \
+                        src/core/ota_stage_none.c src/core/ota_prev_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same stand-ins on the wire (#130): the whole host library with them where
+# handoff.c and platform_id.c would be, so ATTEST answers as a no-boot board's.
+$(HOST_DIR)/test_noboot_wire: test/unit/test_noboot_wire.c \
+                        $(filter-out src/core/handoff.c src/core/platform_id.c,$(HOST_LIB_SRCS)) \
+                        src/core/handoff_none.c src/core/platform_id_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# OTA_INFO on that build (#130): test_ota_stage's link with the same two
+# stand-ins in place of handoff.c and platform_id.c.
+$(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
+                        $(filter-out src/core/handoff.c src/core/platform_id.c,$(HOST_LIB_SRCS)) \
+                        src/core/handoff_none.c src/core/platform_id_none.c \
+                        src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_floor_eeprom.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The application's half of the one trial (#77) against the mock HAL's clock
 # and EEPROM, with the platform block reader the application links.
 $(HOST_DIR)/test_ota_trial: test/unit/test_ota_trial.c src/core/ota_trial.c \
@@ -475,7 +504,7 @@ $(HOST_DIR)/test_storage_2560: test/unit/test_storage_2560.c src/caps/storage.c 
                                src/core/secure_zero.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(STORAGE_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \

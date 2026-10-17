@@ -14,9 +14,10 @@
  *                flags bit 0: ota_state FAILED (the last boot fell back); bit 2:
  *                TRIAL. Bit 1 (refused at evaluation) is not told apart here.
  *   OTA_CONFIRM  In TRIAL only: the confirm request record (include/tfw/boot.h)
- *                bound to the running image, and the trial's deadline stopped.
- *                The platform block is not written; tfw-boot takes the request
- *                at the next reset, settles the trial and advances the floor.
+ *                bound to the running image. The trial's deadline keeps running
+ *                (#137): the trial ends in a reset on every row, and tfw-boot
+ *                takes the request there, settles the trial and advances the
+ *                floor. The platform block is not written.
  *   OTA_ACTIVATE [mode:1] -- 0 at the next reset, 1 reset now. The image OTA_END
  *                verified is read back and hashed again, and only then is the
  *                store's MARK written (VERIFIED -> PENDING); an image that cannot
@@ -29,6 +30,8 @@
  * CONFIRM and ACTIVATE take the operator auth session where the tier has one.
  * No static state: the block is read into the stack on each call.
  */
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include "tfw/boot.h"
 #include "tfw/config.h"
@@ -37,8 +40,8 @@
 #include "boot_trial.h"
 #include "auth_session.h"
 #include "ota_stage.h"
-#include "ota_trial.h"
 #include "ota_ctl.h"
+#include "ota_auth.h"
 #include "ota_floor.h"
 #include "handoff.h"
 #include "crc16.h"
@@ -110,6 +113,14 @@ tfw_status_t tfw_otactl_cmd_confirm(tfw_reader_t *r, tfw_writer_t *w)
 
     (void)r;
     (void)w;
+    /* The row key's authorization first (#137): a confirm without one writes
+     * no request. Nor does one with it stop the trial deadline: a confirm the
+     * application cannot check would otherwise end the trial. The signature is not
+     * stored: the confirm request at TFW_BOOT_CONFIRM_ADDR (include/tfw/config.h)
+     * sits in the 2560's EXTRA span, which has no 64 bytes for it until #125. */
+    if (tfw_ota_auth_take() == NULL) {
+        return TFW_ERR_AUTH_REQUIRED;
+    }
     st = tfw_auth_gate();
     if (st == TFW_OK) {
         st = load(raw, &plat);
@@ -131,10 +142,6 @@ tfw_status_t tfw_otactl_cmd_confirm(tfw_reader_t *r, tfw_writer_t *w)
     crc = tfw_crc16(raw, TFW_BOOT_CONFIRM_O_CRC);
     raw[TFW_BOOT_CONFIRM_O_CRC]      = (uint8_t)crc;
     raw[TFW_BOOT_CONFIRM_O_CRC + 1u] = (uint8_t)(crc >> 8);
-    st = tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, raw, TFW_BOOT_CONFIRM_LEN);
-    if (st == TFW_OK) {
-        tfw_ota_trial_stop();
-    }
-    return st;
+    return tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, raw, TFW_BOOT_CONFIRM_LEN);
 }
 

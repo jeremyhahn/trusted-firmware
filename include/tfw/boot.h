@@ -109,6 +109,13 @@
 #define TFW_STAGE_MARK_O_LEN  4u
 #define TFW_STAGE_MARK_O_HASH 8u
 #define TFW_STAGE_MARK_LEN    40u
+/* OTA_ACTIVATE's authorization (#137): the ES256 r||s that OTA_AUTH held,
+ * written right after the MARK before the MARK's magic, for tfw-boot to verify
+ * with the image key (docs/ota/api.md, "Authorization by the row key"). */
+#define TFW_OTA_AUTH_SIG_LEN  64u
+#define TFW_STAGE_MARK_O_SIG  TFW_STAGE_MARK_LEN
+/* OTA_ACTIVATE's mode byte, signed with it (#137). */
+#define TFW_STAGE_MARK_O_MODE (TFW_STAGE_MARK_O_SIG + TFW_OTA_AUTH_SIG_LEN)
 
 #define TFW_BOOT_SIG_LEN          64u
 #define TFW_BOOT_PUBKEY_LEN       32u

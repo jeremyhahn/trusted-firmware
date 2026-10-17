@@ -183,16 +183,19 @@ boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
   map follow-up #125). tfw-boot rebuilds the payload from the trailer and the
   floor; a `MARK` whose signature fails is cleared and reported `FAILED`, as a
   refused image is, and a confirm request whose signature fails is no confirm,
-  so the trial rolls back.
+  so the trial rolls back. Until #125 the confirm request has no room for the
+  signature: `OTA_CONFIRM` takes it from `OTA_AUTH` and drops it
+  (`src/core/ota_ctl.c`), and tfw-boot settles a confirm request on its magic,
+  CRC and measurement alone (`boot/boot_swap.c`, `confirm_requested`).
 - **The confirm keeps the trial deadline** (PR #139 review, P1). An
   application that cannot verify the confirm signature itself must not end the
   trial on it: `OTA_AUTH` takes any 64 bytes, so a confirm that stopped the
   deadline would let an unauthenticated client keep an unattested image running
   for ever. Under option (ii) no row's application verifies (the element tier's
   verify is tfw-boot's call into the element too), so on every row `OTA_CONFIRM`
-  records the signature in the confirm request and does **not** stop the
-  deadline; slice 2 drops the `tfw_ota_trial_stop` call from the confirm
-  handler. `tfw_ota_trial_poll` goes on as in any trial: it pets the watchdog
+  writes the confirm request and does **not** stop the deadline; the confirm
+  handler calls no trial function, and `tfw_ota_trial_stop` is gone
+  (`src/core/ota_trial.c`). `tfw_ota_trial_poll` goes on as in any trial: it pets the watchdog
   until the deadline and then stops, and the watchdog resets into tfw-boot
   within one 8 s period. The trial therefore ends in a reset either way, the
   deadline's or an earlier `RESET` from the control plane, and that boot
@@ -712,8 +715,8 @@ Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
 the stager carrying the envelope and calling the manifest gate;
 `OTA_ACTIVATE` over TCP (serial only for now); and keeping the failed
 measurement (open question 10). `OTA_INFO`, `OTA_ACTIVATE` and `OTA_CONFIRM`
-are on the wire at decision 8's ids, and `OTA_CONFIRM` calls
-`tfw_ota_trial_stop`.
+are on the wire at decision 8's ids, and `OTA_CONFIRM` leaves the trial
+deadline running (#137).
 
 A gap in the 328P/32U4 restore, recorded and not designed here:
 

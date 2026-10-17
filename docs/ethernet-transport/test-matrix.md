@@ -622,3 +622,68 @@ shieldless board and ran items 1 and 2 only.
 | — | `0x000`–`0x0FF` read after the flash and after the suite | Equal to the first read, byte for byte |
 | — | 99fee93's soft `.hex` (`bb0da896…b451a11`) written back through the stock bootloader with `-D` | Pass. avrdude wrote and verified 13672 bytes. `caps` answers exactly as before the pass |
 | — | `0x000`–`0x0FF` read after the restore | Equal to the first read, byte for byte. No byte was changed, so none was restored |
+
+## The bench Mega refuses an unauthorized OTA_ACTIVATE (#137), 2026-10-17
+
+The same board and rules as [the stager pass](#the-bench-megas-cryptoauto-image-with-the-ota-stager-on-main-a3d525d-2026-10-17),
+on the #137 train (`fix/137-activate-auth`): `OTA_ACTIVATE` and `OTA_CONFIRM`
+answer `TFW_ERR_AUTH_REQUIRED` (17) unless the command just before was
+`OTA_AUTH` (`src/core/ota_auth.c`). No probe of the ATECC608C was sent, and no
+suite was run.
+
+```
+make firmware BOARD=atmega2560 CRYPTO=auto ETH=0 OTA_STAGE=1
+```
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| The line above on the #137 train (`build/atmega2560/auto-stage`) | 23464 / 1138 bytes, RAM against the 2048-byte gate | `b70f03993728360cca62a04027289b0206cc108dd153f664dfe76097fd079065` |
+| The same line on main 533a86f | 23286 / 1073 bytes | `8e0ba26dc8cf25c7bf216529bf9f504bf85dc82b7b0eb1d8ec876fcfeeb2da00` |
+
+#137 costs this row 178 bytes of flash and 65 bytes of RAM.
+
+`tfwctl` cannot send these cases. It refuses `ota-activate` and `ota-confirm`
+without `--sig` or `--sig-file` before anything goes on the wire
+(`sdk/go/cmd/tfwctl/main.go:411`, `:438`), and the Mega resets when the port
+opens, which drops a staged session before a separate `ota-activate` run
+starts. So a short program, kept outside the repository with its own `go.mod`
+and a `replace` to `sdk/go`, ran every step below on one connection through
+`sdk/go`. It staged the image `stageImage(1024, 700)` builds in
+`sdk/go/tfwsim/ota_test.go:19`, with the trailer's board id set to the
+2560's (0x02). The board reported no boot event during either run.
+
+| # | What ran | Result |
+|---|---|---|
+| — | `tfwctl caps`, `0x000`–`0x0FF` and the flash read on 99fee93's soft image | Read in full, no error. Kept outside the repository |
+| 1 | The image above flashed with `make flash ... OTA_STAGE=1` (`-D`) | Pass. avrdude wrote and verified 23464 bytes. CAPS: root of trust `software`; features `gpio sched analog pwm tone pulse eeprom i2c spi onewire attest attest-cert auth attest-csr` |
+| 2 | `OTA_INFO` slot 1, before staging and after every step below | `TFW_ERR_BAD_STATE` (19) every time. Slot 1 never read PENDING |
+| 3 | `StageImage`, 1024 bytes | `TFW_ERR_UNSUPPORTED` (7) at `OTA_END`; `OTA_STATUS` then reads failed, 1024 bytes received. The first run, with the simulator's board id 0x01, answered the same. The cause is below: this board has no store fitted. **No image was staged** |
+| 4 | `OTA_ACTIVATE` mode 0, no `OTA_AUTH` | `TFW_ERR_AUTH_REQUIRED` (17), as `sdk/go/tfwsim/ota_test.go:127` pins |
+| 5 | `OTA_AUTH` with 64 bytes of 0xA5, then `OTA_ACTIVATE` mode 0 | `OTA_AUTH`: `TFW_OK` (0); the soft tier holds the signature and does not verify it (tfw-boot does, at reset; `ota_test.go:108`). `OTA_ACTIVATE`: `TFW_ERR_BAD_STATE` (19), past the gate, because step 3 left no complete image. The case the brief asked for, a held invalid signature against a staged image, did not run |
+| 6 | `OTA_CONFIRM`, no `OTA_AUTH` | `TFW_ERR_AUTH_REQUIRED` (17), as `ota_test.go:130` pins |
+| 7 | 99fee93's soft `.hex` (`bb0da896…b451a11`) written back through the stock bootloader with `-D` | Pass. avrdude wrote and verified 13672 bytes. `caps` answers exactly as before the pass |
+| 8 | `0x000`–`0x0FF` read after the restore | Equal to the first read, byte for byte. No byte was changed, so none was restored |
+
+On the board, the gate refuses both unauthorized commands with 17.
+
+**Why the stager answers 7: this row stages into an SPI NOR the bench Mega does
+not have.** The 2560's `OTA_STORE` is `spi_nor` (`boards/atmega2560/profile.mk:70`),
+selected on D8 (`boards/atmega2560/board_profile.h:106`). No NOR is fitted on
+the board, so nothing drives MISO on that select. `tfwctl spi 8` on the factory
+image returned each request byte for byte: `03` with nine zero bytes, `05 00`,
+and `9F` with three zero bytes. `src/store/spi_nor.c` reads by clocking out zeros
+(`:153`), so a store read returns zeros. The status read in `wait_ready` (`:82`)
+therefore sees WIP clear, and every erase, program and `OTA_DATA` "succeeds"
+without storing anything, which is why 1024 bytes read as received. At
+`OTA_END`, `verify` reads the trailer back as zeros. Its first check, the magic
+(`src/core/ota_stage.c:79`), fails against `TFIM`, as do the version and board
+id after it, and `:83` answers `TFW_ERR_UNSUPPORTED`. With no store, 7 is the
+right answer for this row. No code change was made.
+
+No row on this bench can stage. `spi_nor` is the 2560's only store
+driver, and it needs a NOR on D8. The Nano's row links no stager (`OTA_STAGE=0`,
+[the matrix](#matrix)). So the case #137 names, a held invalid signature against
+a staged image, did not run on hardware. Showing it on the board needs an SPI NOR
+wired to D8 with the SPI bus on D50–D53, which is a cabling question for the
+owner. Until then the host suite (`test/unit/test_ota_stage.c`) and tfwsim
+(`sdk/go/tfwsim/ota_test.go:110`) are where that case runs.

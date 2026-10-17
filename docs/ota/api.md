@@ -76,10 +76,11 @@ holds a `MARK`; otherwise the OTA state (0 idle, 1 receiving, 2 verified,
 `OTA_ACTIVATE` (`src/core/ota_activate.c`) re-reads and re-verifies the image
 `OTA_END` verified and writes `MARK`; mode 1 then resets the device after the
 reply. `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
-running image, bound to its measurement. Before #137 slice 2 it also stops the
-trial deadline; from slice 2 it records the held confirm signature and leaves
-the deadline running, so the trial ends in a reset either way, and tfw-boot
-verifies the signature and settles it at that reset
+running image, bound to its measurement, and leaves the trial deadline
+running (#137), so the trial ends in a reset either way and tfw-boot settles it
+at that reset. Until the EEPROM map follow-up #125 the confirm request has no
+room for the held confirm signature: `OTA_CONFIRM` takes it and drops it, and
+tfw-boot does not yet verify it
 ([architecture.md](architecture.md), "The confirm keeps the trial deadline").
 
 | Command | Status | When |

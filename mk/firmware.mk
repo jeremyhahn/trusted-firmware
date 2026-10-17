@@ -253,7 +253,7 @@ STAGE_SRCS += src/core/ota_prev.c $(HAL_DIR)/hal_eeprom.c
 endif
 # OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
 # single-slot board without it could never install what it staged.
-STAGE_SRCS += src/core/ota_activate.c
+STAGE_SRCS += src/core/ota_activate.c src/core/ota_auth.c
 STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1
 else
 STAGE_SRCS := src/core/ota_stage_none.c

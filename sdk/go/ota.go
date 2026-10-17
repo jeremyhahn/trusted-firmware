@@ -31,7 +31,13 @@ const (
 const (
 	CmdOTAInfo     Cmd = 0x6C // [slot:1] -> 44 bytes, see SlotInfo
 	CmdOTAActivate Cmd = 0x6D // [mode:1] -> -
-	CmdOTAConfirm  Cmd = 0x6E // - -> -
+	CmdOTAConfirm  Cmd = 0x6E
+	// CmdOTAAuth holds the row key's ES256 authorization (r||s) for the
+	// next OTA_ACTIVATE or OTA_CONFIRM (#137).
+	CmdOTAAuth Cmd = 0x6F
+
+	// OTAAuthSigLen is OTA_AUTH's payload, the ES256 r||s (#137).
+	OTAAuthSigLen = 64 // - -> -
 )
 
 // OTAInfoLen is OTA_INFO's reply length.
@@ -95,6 +101,15 @@ func (d *Device) OTAActivate(ctx context.Context, mode byte) error {
 		}
 	}
 	_, err := d.Do(ctx, CmdOTAActivate, []byte{mode})
+	return err
+}
+
+// OTAAuth sends OTA_AUTH: the row key's authorization, signed by go-xkms,
+// which the device holds for the next command only. Call it right before
+// OTAActivate or OTAConfirm; without it they answer StatusErrAuthRequired.
+// The SDK neither builds nor verifies the signature (docs/ota/api.md).
+func (d *Device) OTAAuth(ctx context.Context, sig [OTAAuthSigLen]byte) error {
+	_, err := d.Do(ctx, CmdOTAAuth, sig[:])
 	return err
 }
 

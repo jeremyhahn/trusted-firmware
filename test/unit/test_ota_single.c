@@ -17,6 +17,9 @@
 #include "boot_platform.h"
 #include "tfw/hal.h"
 #include "sha256.h"
+#include <string.h>
+#include "tfw/protocol.h"
+#include "dispatch.h"
 
 #define TRAILER   128u
 #define CHUNK     60u      /* TFW_MAX_PAYLOAD less the offset */
@@ -24,6 +27,19 @@
 static uint8_t img[TFW_OTA_STORE_STAGE_LEN];
 
 void setUp(void)    { tfw_nor_model_reset(); }
+
+/* OTA_AUTH through the dispatcher (#137), so the next command finds it held. */
+static void authorize(void)
+{
+    uint8_t      sig[TFW_OTA_AUTH_SIG_LEN], out[8];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    memset(sig, 0xA5, sizeof sig);
+    tfw_reader_init(&r, sig, (uint8_t)sizeof sig);
+    tfw_writer_init(&w, out, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
+}
 void tearDown(void) { }
 
 static void put32(uint8_t *p, uint32_t v)
@@ -118,6 +134,7 @@ static void test_activate_marks_the_staged_image(void)
 
     put_good_block();
     stage(512u, 200u);
+    authorize();
     TEST_ASSERT_EQUAL(TFW_OK, call(tfw_otactl_cmd_activate, &m0, 1u));
     TEST_ASSERT_TRUE(marked());
 }

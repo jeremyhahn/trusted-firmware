@@ -439,7 +439,7 @@ $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
 # NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
 $(HOST_DIR)/test_ota_stage: test/unit/test_ota_stage.c $(HOST_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_ctl.c src/core/ota_activate.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
@@ -448,7 +448,7 @@ $(HOST_DIR)/test_ota_stage: test/unit/test_ota_stage.c $(HOST_LIB_SRCS) \
 # OTA_ACTIVATE, without ota_ctl.c -- the shape mk/firmware.mk links there.
 $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_activate.c \
+                        src/core/ota_activate.c src/core/ota_auth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -457,7 +457,7 @@ $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_LIB_SRCS) \
 # tfw_hal_i2c_xfer overrides the mock's weak one as tfwsim-atecc608a's does.
 $(HOST_DIR)/test_ota_info_atecc: test/unit/test_ota_info_atecc.c $(HOST_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_ctl.c src/core/ota_activate.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_atecc.c src/crypto/atecc608a/atecc.c $(ELEMENT_MODEL) \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) $(MODEL_INC) -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
@@ -672,7 +672,7 @@ TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c tools/tfwsim/eth_socke
 # tfw_hal_spi_xfer overrides the mock's weak one and hands every other select
 # back to it.
 TFWSIM_STAGE_SRCS := src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                     src/core/ota_activate.c
+                     src/core/ota_activate.c src/core/ota_auth.c
 TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -Itest/model
 # And decision 8's OTA_INFO, OTA_ACTIVATE and OTA_CONFIRM (#77), as a 2560
 # stage image links them. The platform block is the mock's EEPROM; there is no

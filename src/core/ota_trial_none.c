@@ -8,4 +8,3 @@
 
 void tfw_ota_trial_start(void) { }
 void tfw_ota_trial_poll(void)  { }
-void tfw_ota_trial_stop(void)  { }

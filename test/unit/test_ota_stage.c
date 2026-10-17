@@ -24,6 +24,9 @@
 #include "crc16.h"
 #include "handoff.h"
 #include "boot_measure.h"
+#include <string.h>
+#include "tfw/protocol.h"
+#include "dispatch.h"
 
 #define TRAILER   128u
 #define CHUNK     60u      /* TFW_MAX_PAYLOAD less the offset */
@@ -32,6 +35,19 @@ static uint8_t img[TFW_OTA_STORE_STAGE_LEN];
 static uint8_t meas[32];
 
 void setUp(void)    { tfw_nor_model_reset(); }
+
+/* OTA_AUTH through the dispatcher (#137), so the next command finds it held. */
+static void authorize(void)
+{
+    uint8_t      sig[TFW_OTA_AUTH_SIG_LEN], out[8];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    memset(sig, 0xA5, sizeof sig);
+    tfw_reader_init(&r, sig, (uint8_t)sizeof sig);
+    tfw_writer_init(&w, out, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
+}
 void tearDown(void) { }
 
 static void put32(uint8_t *p, uint32_t v)
@@ -311,11 +327,13 @@ static void test_activate_takes_a_verified_image_and_resets_on_mode_1(void)
     TEST_ASSERT_FALSE(marked());
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ctl(tfw_otactl_cmd_activate, &m2, 1u, out, &n));
     TEST_ASSERT_FALSE(marked());
+    authorize();
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(0u, n);
     TEST_ASSERT_TRUE(marked());           /* ACTIVATE is the MARK's one writer */
     expect_staged(512u);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+    authorize();
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_sys_reset_pending());
     tfw_sys_reset_state();
@@ -332,6 +350,7 @@ static void test_activate_fails_closed_on_an_unverifiable_block(void)
     stream(0u, 512u);
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, end());
     get_block(before);
+    authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     get_block(after);
     TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
@@ -341,9 +360,11 @@ static void test_activate_fails_closed_on_an_unverifiable_block(void)
 
     /* Mid-stream: no MARK, refused the same way. */
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     /* In TRIAL: the running trial is confirmed or failed first. */
     put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_IDLE);
+    authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
 }
 
@@ -365,6 +386,7 @@ static void test_activate_takes_only_the_image_end_verified(void)
         TEST_ASSERT_EQUAL(TFW_OK, tfw_store_write(TFW_OTA_STORE_STAGE_ADDR + off, &img[off], TFW_STORE_CHUNK));
     }
     get_block(before);
+    authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
     get_block(after);
     TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
@@ -382,9 +404,11 @@ static void test_confirm_writes_its_request_and_never_the_block(void)
 
     memset(m, 0x3Cu, sizeof m);
     put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
     /* TRIAL with no handoff: no image to bind the request to. */
     put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_IDLE);
+    authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
     TEST_ASSERT_EQUAL_HEX8(0xFFu, rec[0]);
 
@@ -392,6 +416,7 @@ static void test_confirm_writes_its_request_and_never_the_block(void)
     memcpy(tfw_mock_handoff(), block, sizeof block);
     tfw_boot_handoff_init();
     get_block(before);
+    authorize();
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(0u, n);
     get_block(raw);
@@ -426,6 +451,62 @@ static void test_begin_backs_the_running_image_up_to_prev(void)
     expect_staged(512u);
 }
 
+/* #137: no held signature, 17 for both commands; nothing marked, nothing written. */
+static void test_activate_and_confirm_need_ota_auth(void)
+{
+    uint8_t m0 = 0u, out[44], n, ping[1] = { 0 };
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_FALSE(marked());
+    put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_IDLE);
+    tfw_mock_eeprom()[TFW_BOOT_CONFIRM_ADDR] = 0xFFu;
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
+    TEST_ASSERT_NOT_EQUAL(TFW_BOOT_CONFIRM_MAGIC, tfw_mock_eeprom()[TFW_BOOT_CONFIRM_ADDR]);
+    /* Any other command between drops it; so does a short OTA_AUTH. */
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    authorize();
+    tfw_reader_init(&r, ping, 0u);
+    tfw_writer_init(&w, out, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dispatch(TFW_CMD_PING, &r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    authorize();
+    tfw_reader_init(&r, ping, 1u);
+    tfw_writer_init(&w, out, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_FALSE(marked());
+    /* One signature, one command. */
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+}
+
+/* #137: the held signature is written after the MARK, for tfw-boot. */
+static void test_the_signature_is_stored_with_the_mark(void)
+{
+    uint8_t m0 = 0u, out[44], n, sig[TFW_OTA_AUTH_SIG_LEN], want[TFW_OTA_AUTH_SIG_LEN];
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_TRUE(marked());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_read(((uint32_t)TFW_OTA_STORE_MARK_ADDR) + TFW_STAGE_MARK_O_SIG,
+                                             sig, (uint8_t)sizeof sig));
+    memset(want, 0xA5, sizeof want);
+    TEST_ASSERT_EQUAL_MEMORY(want, sig, sizeof sig);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -441,5 +522,7 @@ int main(void)
     RUN_TEST(test_activate_takes_only_the_image_end_verified);
     RUN_TEST(test_confirm_writes_its_request_and_never_the_block);
     RUN_TEST(test_begin_backs_the_running_image_up_to_prev);
+    RUN_TEST(test_activate_and_confirm_need_ota_auth);
+    RUN_TEST(test_the_signature_is_stored_with_the_mark);
     return UNITY_END();
 }

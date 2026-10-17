@@ -22,6 +22,8 @@
 #include "boot_store.h"
 #include "boot_trial.h"
 #include "../../model/spi_nor_model.h"
+#include "boot_verify_mock.h"
+#include "../../../testdata/vectors.h"
 
 /* Where a staged image lands: the secondary slot on the 2560, the region
  * itself on the host board. */
@@ -36,6 +38,8 @@ static uint8_t             trailer[TFW_BOOT_TRAILER_LEN];
 static tfw_boot_platform_t plat;
 static unsigned            stores;
 static uint8_t             stored_states[8];
+static uint8_t             good_sig[TFW_BOOT_SIG_LEN];
+static const uint8_t       mode0 = 0u;
 
 /* The platform block's write, recorded rather than kept: what matters here is
  * the order of states the copy stores. */
@@ -92,6 +96,8 @@ static void stage(uint32_t image_len, uint32_t total, uint8_t board, int marked)
         wr32(&mark[TFW_STAGE_MARK_O_LEN], total);
         memcpy(&mark[TFW_STAGE_MARK_O_HASH], digest, sizeof digest);
         tfw_nor_model_load(MARK, mark, sizeof mark);
+        tfw_nor_model_load(MARK + TFW_STAGE_MARK_O_SIG, good_sig, sizeof good_sig);
+        tfw_nor_model_load(MARK + TFW_STAGE_MARK_O_MODE, &mode0, 1u);
     }
 }
 
@@ -124,6 +130,8 @@ void setUp(void)
     plat.boot_state = TFW_BOOT_STATE_GOOD;
     plat.ota_state  = TFW_BOOT_OTA_IDLE;
     stores = 0u;
+    memset(good_sig, 0x5A, sizeof good_sig);
+    tfw_boot_verify_mock_want(NULL);
 }
 
 void tearDown(void) {}
@@ -278,6 +286,57 @@ static void test_a_clear_on_a_silent_store_fails(void)
     TEST_ASSERT_EQUAL_UINT(0u, stores);
 }
 
+/* #137: tfw-boot verifies the row key's signature over the activate
+ * Sig_structure before it takes the image. */
+static void test_an_authorized_image_is_taken_over_the_sig_structure(void)
+{
+    static const uint8_t vec[] = TFWV_OTA_ACTIVATE_SIG_STRUCTURE;
+    uint8_t              want[sizeof vec - 1u];
+    const uint8_t       *msg;
+    uint16_t             len;
+
+    tfw_boot_verify_mock_want(good_sig);
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, VERSION));
+    assert_installed(1200u);
+    memcpy(want, vec, sizeof want);
+    memcpy(&want[TFWV_OTA_ACTIVATE_SIG_STRUCTURE_HASH_AT], &trailer[TFW_BOOT_TR_MEASUREMENT],
+           TFW_BOOT_MEASURE_LEN);
+    msg = tfw_boot_verify_mock_msg(&len);
+    TEST_ASSERT_EQUAL_UINT16(sizeof want, len);
+    TEST_ASSERT_EQUAL_MEMORY(want, msg, sizeof want);
+}
+
+static void assert_refused_and_forgotten(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_boot_stage_take(&plat, VERSION));
+    assert_nothing_copied();
+    TEST_ASSERT_EQUAL_HEX8(0x00u, tfw_nor_model_mem()[MARK]);
+    /* The next reset takes nothing. */
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, VERSION));
+    assert_nothing_copied();
+}
+
+static void test_a_bad_authorization_clears_the_mark(void)
+{
+    static const uint8_t other[TFW_BOOT_SIG_LEN] = { 1u };
+
+    tfw_boot_verify_mock_want(other);
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    assert_refused_and_forgotten();
+}
+
+static void test_a_missing_authorization_clears_the_mark(void)
+{
+    uint8_t erased[TFW_BOOT_SIG_LEN + 1u];
+
+    tfw_boot_verify_mock_want(good_sig);
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    memset(erased, 0xFF, sizeof erased);
+    tfw_nor_model_load(MARK + TFW_STAGE_MARK_O_SIG, erased, sizeof erased);
+    assert_refused_and_forgotten();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -285,6 +344,9 @@ int main(void)
     RUN_TEST(test_a_bad_hash_copies_nothing);
     RUN_TEST(test_a_wrong_board_id_copies_nothing);
     RUN_TEST(test_a_missing_mark_copies_nothing);
+    RUN_TEST(test_an_authorized_image_is_taken_over_the_sig_structure);
+    RUN_TEST(test_a_bad_authorization_clears_the_mark);
+    RUN_TEST(test_a_missing_authorization_clears_the_mark);
     RUN_TEST(test_an_image_below_the_floor_copies_nothing);
     RUN_TEST(test_no_new_round_over_a_pending_image);
     RUN_TEST(test_an_installed_image_is_not_copied_again);

@@ -345,6 +345,10 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		// resets on open (the Mega 2560 over USB serial) loses it before a
 		// separate ota-activate run can send anything.
 		activate, mode := false, tfw.OTAActivateAtReset
+		sig, args, signed, err := takeOTASig(args)
+		if err != nil {
+			return err
+		}
 		if len(args) == 2 {
 			switch args[0] {
 			case "--activate":
@@ -356,8 +360,11 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 			}
 			args = args[1:]
 		}
-		if len(args) != 1 {
+		if len(args) != 1 || signed && !activate {
 			return fmt.Errorf("usage: ota-stage [--activate[=now]] <image>")
+		}
+		if activate && !signed {
+			return needOTASig("ota-stage --activate")
 		}
 		// No parsing here: the device gates the image, and a refusal is its
 		// status, returned as every other verb returns one.
@@ -369,6 +376,9 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 			return err
 		}
 		if activate {
+			if err := dev.OTAAuth(ctx, sig); err != nil {
+				return err
+			}
 			if err := dev.OTAActivate(ctx, mode); err != nil {
 				return err
 			}
@@ -389,11 +399,21 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		// that does, the staged session is gone and the device answers
 		// TFW_ERR_BAD_STATE, so stage there with ota-stage --activate.
 		mode := tfw.OTAActivateAtReset
+		sig, args, signed, err := takeOTASig(args)
+		if err != nil {
+			return err
+		}
 		switch {
 		case len(args) == 1 && args[0] == "now":
 			mode = tfw.OTAActivateResetNow
 		case len(args) != 0:
 			return fmt.Errorf("usage: ota-activate [now]")
+		}
+		if !signed {
+			return needOTASig("ota-activate")
+		}
+		if err := dev.OTAAuth(ctx, sig); err != nil {
+			return err
 		}
 		if err := dev.OTAActivate(ctx, mode); err != nil {
 			return err
@@ -405,6 +425,28 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 				}
 				return "activated; taken at the next reset\n"
 			})
+
+	case "ota-confirm":
+		// Confirms the running trial image; tfw-boot settles it at the next
+		// reset. The signature binds the running image's measurement (#137).
+		sig, args, signed, err := takeOTASig(args)
+		if err != nil {
+			return err
+		}
+		if len(args) != 0 {
+			return fmt.Errorf("usage: ota-confirm %s", otaSigUsage)
+		}
+		if !signed {
+			return needOTASig("ota-confirm")
+		}
+		if err := dev.OTAAuth(ctx, sig); err != nil {
+			return err
+		}
+		if err := dev.OTAConfirm(ctx); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"confirmed": true},
+			func() string { return "confirmed; settled at the next reset\n" })
 
 	case "ota-status":
 		if len(args) != 0 {

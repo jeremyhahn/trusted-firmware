@@ -61,6 +61,9 @@ tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN])
     return TFW_OK;
 }
 
+/* EdDSA, RFC 9053 §2.2. */
+const uint8_t tfw_boot_cose_alg = 0x27u;
+
 tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
                            const uint8_t sig[TFW_BOOT_SIG_LEN],
                            const uint8_t pub[TFW_BOOT_PUBKEY_LEN])

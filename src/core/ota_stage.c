@@ -233,6 +233,28 @@ tfw_status_t tfw_stage_activate(void)
     return mark(hash);
 }
 
+tfw_status_t tfw_stage_authorize(const uint8_t sig[TFW_OTA_AUTH_SIG_LEN], uint8_t mode)
+{
+    tfw_status_t st;
+
+    if (state != TFW_STAGE_COMPLETE) {
+        return TFW_ERR_BAD_STATE;
+    }
+    /* Erased first: NOR programs only 1 to 0, so a second activate's signature
+     * over the first would leave their AND. The sector holds the MARK alone,
+     * which tfw_stage_activate writes again after this. */
+    st = tfw_store_erase((uint32_t)TFW_OTA_STORE_MARK_ADDR);
+    if (st != TFW_OK) {
+        return st;
+    }
+    st = tfw_store_write(((uint32_t)TFW_OTA_STORE_MARK_ADDR) + TFW_STAGE_MARK_O_SIG,
+                         sig, (uint8_t)TFW_OTA_AUTH_SIG_LEN);
+    if (st != TFW_OK) {
+        return st;
+    }
+    return tfw_store_write(((uint32_t)TFW_OTA_STORE_MARK_ADDR) + TFW_STAGE_MARK_O_MODE, &mode, 1u);
+}
+
 tfw_status_t tfw_stage_cmd_status(tfw_reader_t *r, tfw_writer_t *w)
 {
     (void)r;

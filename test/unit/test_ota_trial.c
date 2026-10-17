@@ -5,6 +5,7 @@
  * resets, the stop ends the count, and any other state arms nothing.
  */
 
+#include <stdint.h>
 #include <string.h>
 
 #include "unity.h"
@@ -59,16 +60,21 @@ static void test_the_deadline_resets_and_not_before(void)
     TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
 }
 
-static void test_the_stop_ends_the_count_and_keeps_petting(void)
+/* OTA_CONFIRM writes its request and leaves the count alone (#137): there is
+ * no call that stops it, so a confirmed trial is petted up to the deadline and
+ * reset there like any other, and tfw-boot settles it from the request. */
+static void test_a_confirmed_trial_still_resets_at_the_deadline(void)
 {
     provision(TFW_BOOT_STATE_TRIAL);
     tfw_ota_trial_start();
-    tfw_ota_trial_stop();
 
-    tfw_mock_advance(DEADLINE_MS * 2u);
+    tfw_mock_advance(DEADLINE_MS / 2u);
     tfw_ota_trial_poll();
     TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
-    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_pets());
+    tfw_mock_advance(DEADLINE_MS);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+    TEST_ASSERT_EQUAL_UINT(2u, tfw_mock_watchdog_pets());
 }
 
 static void check_arms_nothing(uint8_t boot_state)
@@ -106,7 +112,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_trial_boot_rearms_and_pets);
     RUN_TEST(test_the_deadline_resets_and_not_before);
-    RUN_TEST(test_the_stop_ends_the_count_and_keeps_petting);
+    RUN_TEST(test_a_confirmed_trial_still_resets_at_the_deadline);
     RUN_TEST(test_any_other_state_arms_nothing);
     RUN_TEST(test_no_platform_block_arms_nothing);
     return UNITY_END();

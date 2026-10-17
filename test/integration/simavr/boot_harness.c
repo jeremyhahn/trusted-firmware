@@ -50,11 +50,14 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "uECC.h"   /* the soft row's signer: src/third_party/micro-ecc */
+#include "third_party/ed25519-donna/ed25519.h"  /* soft-ed25519's signer */
 #include <unistd.h>
 
 #include <simavr/sim_avr.h>
@@ -384,6 +387,10 @@ static void element_sign(const uint8_t digest[32], uint8_t sig[64])
  */
 static int     soft_row;
 static uint8_t soft_priv[32], soft_pub[64];
+/* The soft-ed25519 leg (#137, CA m522): BOOT_SIG=ed25519-donna, signed with
+ * the host build of the same donna (boot_harness_donna.h). */
+static int     ed_row;
+static uint8_t ed_priv[32], ed_pub[32];
 
 static const uint8_t SOFT_UDS[32] = {
     0x5Au, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
@@ -903,8 +910,16 @@ static void build_image_for(const elf_firmware_t *app, uint32_t version,
      * version unauthenticated and hand an attacker anti-rollback for a
      * four-byte edit; see include/tfw/boot.h. */
     tfw_boot_trailer_serialise(&tr, raw);
-    tfw_sha256(raw, TFW_BOOT_TR_SIGNED_LEN, prefix_digest);
-    sign_digest(prefix_digest, &raw[TFW_BOOT_TR_SIGNATURE]);
+    if (ed_row) {
+        /* EdDSA signs the prefix itself, not a digest of it: donna's
+         * ed25519_sign_open is given the raw prefix
+         * (boot/verify/verify_ed25519_donna.c, boot/boot_policy.c). */
+        ed25519_sign(raw, TFW_BOOT_TR_SIGNED_LEN, ed_priv, ed_pub,
+                     &raw[TFW_BOOT_TR_SIGNATURE]);
+    } else {
+        tfw_sha256(raw, TFW_BOOT_TR_SIGNED_LEN, prefix_digest);
+        sign_digest(prefix_digest, &raw[TFW_BOOT_TR_SIGNATURE]);
+    }
 
     memcpy(&image[TFW_BOOT_TRAILER_ADDR], raw, TFW_BOOT_TRAILER_LEN);
 
@@ -1021,7 +1036,9 @@ static void build_eeprom_state(uint8_t boot_state, uint8_t ota_state)
     plat.boot_state = boot_state;
     plat.ota_state  = ota_state;
     /* The soft row's key IS this bootloader's to check: pin its hash. */
-    if (soft_row) {
+    if (ed_row) {
+        tfw_sha256(ed_pub, sizeof ed_pub, plat.pubkey_hash);
+    } else if (soft_row) {
         tfw_sha256(soft_pub, sizeof soft_pub, plat.pubkey_hash);
     }
     memcpy(plat.serial, TEST_DEVICE_SERIAL, TFW_BOOT_SERIAL_LEN);
@@ -1108,6 +1125,22 @@ static void install(elf_firmware_t *boot, uint32_t counter)
     /* The application image goes straight into the emulated program memory,
      * BELOW the bootloader the .elf just placed above TFW_APP_WRITE_END. */
     memcpy(avr->flash, image, sizeof image);
+
+    /* A boot linked BELOW TFW_APP_WRITE_END -- the relocated Ed25519 leg's
+     * diagnostic build, too big for any boot section -- was just overwritten
+     * by that copy. Its bytes go back, and its slots are patched again. A
+     * boot in its own section is above the image and is not touched. */
+    if (boot->flashbase < sizeof image) {
+        memcpy(avr->flash + boot->flashbase, boot->flash, boot->flashsize);
+        if (soft_row) {
+            soft_patch_slot(boot, "tfw_boot_p256_key", soft_pub, sizeof soft_pub);
+            soft_patch_slot(boot, "uds_slot", SOFT_UDS, sizeof SOFT_UDS);
+        }
+        if (ed_row) {
+            soft_patch_slot(boot, "pubkey_slot", ed_pub, sizeof ed_pub);
+            soft_patch_slot(boot, "uds_slot", SOFT_UDS, sizeof SOFT_UDS);
+        }
+    }
 
     if (carried) {
         avr_eeprom_desc_t d = { .ee = eeprom_all, .offset = 0u,
@@ -2037,6 +2070,57 @@ static int store_mark_cleared_only(void)
  * boot_harness_prev.c or boot_harness_prev_none.c, by the object list. */
 long boot_harness_prev_addr(void);
 
+/* The row key's authorization of an activate (#137, docs/ota/api.md,
+ * "Authorization by the row key"): the COSE_Sign1 Sig_structure byte for byte
+ * as tfw-boot's cose_activate (boot/boot_stage.c) builds it, signed by the
+ * row's key as every image in this suite is (sign_digest). The header names
+ * ES256 (-7, 0x26): both simavr rows, the element and the soft root, are P-256. Its digest is SHA-256 of the
+ * structure, which is what verify_atecc608a.c loads into TempKey. */
+static void sign_activate(const uint8_t hash[32], uint32_t version, uint8_t mode,
+                          uint8_t sig[TFW_OTA_AUTH_SIG_LEN])
+{
+    static const uint8_t head[] = {
+        0x84, 0x6A, 'S','i','g','n','a','t','u','r','e','1', 0x43, 0xA1, 0x01, 0x26,
+        0x40, 0x58, 0x00,
+        0x84, 0x70, 't','f','w','-','o','t','a','-','a','c','t','i','v','a','t','e',
+        0x58, 0x20
+    };
+    uint8_t  b[sizeof head + 32u + 5u + 1u], digest[32];
+    unsigned n = sizeof head;
+
+    memcpy(b, head, n);
+    memcpy(&b[n], hash, 32u);
+    n += 32u;
+    if (version < 24u) {
+        b[n++] = (uint8_t)version;
+    } else if (version <= 0xFFu) {
+        b[n++] = 0x18u;
+        b[n++] = (uint8_t)version;
+    } else if (version <= 0xFFFFu) {
+        b[n++] = 0x19u;
+        b[n++] = (uint8_t)(version >> 8);
+        b[n++] = (uint8_t)version;
+    } else {
+        b[n++] = 0x1Au;
+        b[n++] = (uint8_t)(version >> 24);
+        b[n++] = (uint8_t)(version >> 16);
+        b[n++] = (uint8_t)(version >> 8);
+        b[n++] = (uint8_t)version;
+    }
+    b[n++] = mode;
+    b[18] = (uint8_t)(n - 19u);    /* the payload's length, after the 0x58 */
+    tfw_sha256(b, (uint16_t)n, digest);    /* n <= sizeof b, 77 */
+    sign_digest(digest, sig);
+}
+
+/* The authorization of the last stage_stream(): mode 0, for the version it
+ * staged. stage_in_store() lays it in the MARK; net_activate() sends it. */
+static uint8_t staged_auth[TFW_OTA_AUTH_SIG_LEN];
+
+/* Set by a case that wants the MARK signed for another version: a signature
+ * from the row key, but not this activate's. */
+static int stage_auth_wrong;
+
 /* What the application's stager leaves for `version`: the image padded to
  * whole pages, its trailer last, and the MARK record naming the stream
  * (docs/ota/architecture.md, "The application stager"). Signed by the
@@ -2055,6 +2139,8 @@ static uint32_t stage_stream(const elf_firmware_t *app, uint32_t version, uint8_
     }
     memcpy(stream, image, body);
     memcpy(&stream[body], &image[TFW_BOOT_TRAILER_ADDR], TFW_BOOT_TRAILER_LEN);
+    sign_activate(&image[TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_MEASUREMENT],
+                  stage_auth_wrong ? version + 1u : version, 0u, staged_auth);
     return total;
 }
 
@@ -2063,6 +2149,7 @@ static void stage_in_store(const elf_firmware_t *app, uint32_t running, uint32_t
 {
     static uint8_t stream[TFW_OTA_STORE_STAGE_LEN];
     uint8_t  mark[TFW_STAGE_MARK_LEN];
+    uint8_t  auth[TFW_OTA_AUTH_SIG_LEN + 1u];
     uint32_t total;
 
     total = stage_stream(app, version, stream);
@@ -2076,6 +2163,10 @@ static void stage_in_store(const elf_firmware_t *app, uint32_t running, uint32_t
     mark[TFW_STAGE_MARK_O_LEN + 3u] = (uint8_t)(total >> 24);
     memcpy(&mark[TFW_STAGE_MARK_O_HASH], &image[TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_MEASUREMENT],
            TFW_BOOT_MEASURE_LEN);
+    /* What tfw_stage_authorize (src/core/ota_stage.c) writes after it: the
+     * signature at O_SIG, the mode after it. */
+    memcpy(auth, staged_auth, TFW_OTA_AUTH_SIG_LEN);
+    auth[TFW_OTA_AUTH_SIG_LEN] = 0u;
     /* After the mark is made, as a store corrupted behind the stager's back. */
     if (tamper_at >= 0) {
         stream[tamper_at] ^= 0x01u;
@@ -2085,6 +2176,7 @@ static void stage_in_store(const elf_firmware_t *app, uint32_t running, uint32_t
     nor_overrun = 0;
     tfw_nor_model_load(TFW_OTA_STORE_STAGE_ADDR, stream, total);
     tfw_nor_model_load(TFW_OTA_STORE_MARK_ADDR, mark, sizeof mark);
+    tfw_nor_model_load(TFW_OTA_STORE_MARK_ADDR + TFW_STAGE_MARK_O_SIG, auth, sizeof auth);
     store_snapshot();
     build_image(app, running, -1);
 }
@@ -2306,6 +2398,28 @@ static void test_a_bad_store_image_copies_nothing(elf_firmware_t *boot,
     check(memcmp(avr->flash, image, sizeof image) == 0 && primary_version() == 2u,
           "and no page was written");
     check(el.counter == 2u && store_untouched(), "the floor and the store unmoved");
+}
+
+/* A MARK whose authorization is the row key's but for another version (#137):
+ * tfw-boot copies nothing, forgets the MARK -- one program, its magic to zero
+ * -- and the primary runs on. */
+static void test_a_wrongly_authorized_store_image_is_forgotten(elf_firmware_t *boot,
+                                                               elf_firmware_t *app)
+{
+    tfw_boot_platform_t p;
+
+    printf("store row: a staged image whose activate is wrongly signed:\n");
+    stage_auth_wrong = 1;
+    stage_in_store(app, 2u, 3u, -1);
+    stage_auth_wrong = 0;
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    boot_with_store(boot, 2u);
+    check(run_until(app_booted, boot_store_budget()), "a wrongly signed activate: the primary boots");
+    check(memcmp(avr->flash, image, sizeof image) == 0 && primary_version() == 2u,
+          "and no page was written");
+    check(store_mark_cleared_only(), "the MARK is forgotten: its magic to zero, nothing else");
+    check(el.counter == 2u && stored_platform(&p) == TFW_OK &&
+          p.boot_state == TFW_BOOT_STATE_GOOD, "the floor unmoved, the block still GOOD");
 }
 
 /* ---- The 328P's fallback: PREV copied back (issue #52) --------------------
@@ -2803,6 +2917,25 @@ static int net_activate(uint8_t *seqp, uint8_t *status)
 
     *status = 0u;
 
+    /* OTA_AUTH first (#137): the row key's authorization of the version
+     * net_stage() streamed, which tfw-boot checks at the reset. */
+    {
+        uint8_t  aw[TFW_OTA_AUTH_SIG_LEN + 16u];
+        unsigned an;
+
+        an = frame_request(aw, ++*seqp, TFW_CMD_OTA_AUTH, staged_auth,
+                           (unsigned)sizeof staged_auth);
+        from_device_n = 0;
+        send(aw, an);
+        wait_for_seq = *seqp;
+        run_until(response_arrived, budget);
+        if (!find_response(*seqp, status, rpl, &rplen) || *status != TFW_OK) {
+            printf("  OTA_AUTH: no response or refused (%u)\n", (unsigned)*status);
+            return 0;
+        }
+        wn = frame_request(wire, ++*seqp, TFW_CMD_OTA_ACTIVATE, &mode, 1u);
+    }
+
     from_device_n = 0;
     send(wire, wn);
     wait_for_seq = *seqp;
@@ -2999,6 +3132,63 @@ static void test_the_soft_base_row(elf_firmware_t *boot, elf_firmware_t *app)
     }
 }
 
+/*
+ * The soft base row with BOOT_SIG=ed25519-donna in place of p256-soft (#137,
+ * CA m511, m522): the same genuine image, the same first-byte line, so the two
+ * verifiers are measured on one footing. The row fits no boot section, so
+ * mk/boot.mk builds it at the address the caller names (ARCH_BOOT_TEXT_START,
+ * 0x2c000) and install() keeps it there. A measurement, not a supported row:
+ * ES256 stays the only activate algorithm in code until the owner rules.
+ */
+static void test_the_soft_base_row_ed25519(elf_firmware_t *boot, elf_firmware_t *app)
+{
+    /* RFC 8032 §7.1 TEST 1's secret: fixed, so every run signs the same bytes. */
+    static const uint8_t secret[32] = {
+        0x9du, 0x61u, 0xb1u, 0x9du, 0xefu, 0xfdu, 0x5au, 0x60u,
+        0xbau, 0x84u, 0x4au, 0xf4u, 0x92u, 0xecu, 0x2cu, 0xc4u,
+        0x44u, 0x49u, 0xc5u, 0x69u, 0x7bu, 0x32u, 0x69u, 0x19u,
+        0x70u, 0x3bu, 0xacu, 0x03u, 0x1cu, 0xaeu, 0x7fu, 0x60u
+    };
+    uint8_t  wire[64], out[64], outlen, status;
+    unsigned n;
+    uint8_t  spoke[16];
+    unsigned spoke_n;
+    int      ran, refused;
+    uint8_t  refusal = 0u;
+
+    soft_row = 0;
+    ed_row   = 1;
+    memcpy(ed_priv, secret, sizeof ed_priv);
+    ed25519_publickey(ed_priv, ed_pub);
+
+    printf("the soft base row, ed25519-donna, a genuine image:\n");
+    printf("    ed25519-donna tfw-boot text+data %lu B at 0x%lx\n",
+           (unsigned long)boot->flashsize, (unsigned long)boot->flashbase);
+    build_image(app, 3u, -1);
+    build_eeprom();
+    install(boot, 0u);
+    ran = run_until(device_spoke, BUDGET_BOOT_SOFT_MAX);
+    if (ran) {
+        printf("    ed25519-donna first byte after %ld steps, cycle %llu: %.1f s at 16 MHz\n",
+               last_run_steps, (unsigned long long)avr->cycle,
+               (double)avr->cycle / 16e6);
+    }
+    spoke_n = from_device_n < sizeof spoke ? from_device_n : (unsigned)sizeof spoke;
+    memcpy(spoke, from_device, spoke_n);
+    refused = find_event(&refusal);
+    from_device_n = 0;
+    n = frame_request(wire, 0x39, TFW_CMD_CAPS, NULL, 0);
+    send(wire, n);
+    run_cycles(BUDGET_EXCHANGE);
+    {
+        int answered = find_response(0x39, &status, out, &outlen) && status == TFW_OK;
+
+        check(answered, "an Ed25519-signed image runs the application (CAPS answers)");
+        if (!answered) { soft_why_not(ran, refused, refusal, spoke, spoke_n); }
+    }
+    ed_row = 0;
+}
+
 /* The element tier's gate holds (#130): an auto application that finds the
  * element gates OTA_ACTIVATE behind the operator session, and the harness
  * bakes no operator key, so none is open. Refused, nothing reaches the store
@@ -3072,6 +3262,11 @@ int main(int argc, char **argv)
         printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
         return failures ? 1 : 0;
     }
+    if (argc > 3 && strcmp(argv[3], "soft-ed25519") == 0) {
+        test_the_soft_base_row_ed25519(&boot, &app);
+        printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
+        return failures ? 1 : 0;
+    }
     if (argc > 3 && strcmp(argv[3], "soft") == 0) {
         test_the_soft_base_row(&boot, &app);
         printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
@@ -3094,6 +3289,7 @@ int main(int argc, char **argv)
         test_an_unconfirmed_store_image_swaps_back(&boot, &app);
         test_an_unconfirmed_store_image_rolls_back_at_the_deadline(&boot, &app);
         test_a_bad_store_image_copies_nothing(&boot, &app);
+        test_a_wrongly_authorized_store_image_is_forgotten(&boot, &app);
         store_bus_report();
         printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
         return failures ? 1 : 0;
@@ -3129,3 +3325,6 @@ int main(int argc, char **argv)
     printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
     return failures ? 1 : 0;
 }
+
+/* Last, so that none of donna's macros reach the code above. */
+#include "boot_harness_donna.h"

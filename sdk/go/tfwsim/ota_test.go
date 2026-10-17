@@ -103,6 +103,62 @@ func TestAgainstFirmwareStagerRefuses(t *testing.T) {
 	}
 }
 
+// OTA_AUTH on the soft tier (#137): the firmware, not a fake. Without a
+// signature held from the command just before, OTA_ACTIVATE and OTA_CONFIRM
+// answer TFW_ERR_AUTH_REQUIRED; any command between drops it; one signature
+// authorizes one command. The simulator does not verify it -- tfw-boot does,
+// at reset -- so any 64 bytes pass here.
+func TestAgainstFirmwareOTAAuthAuthorizesOneCommand(t *testing.T) {
+	ctx := context.Background()
+	d := tfwsim.Start(t)
+	var sig [tfw.OTAAuthSigLen]byte
+	for i := range sig {
+		sig[i] = 0xA5
+	}
+	auth := func() {
+		t.Helper()
+		if err := d.OTAAuth(ctx, sig); err != nil {
+			t.Fatalf("OTAAuth: %v", err)
+		}
+	}
+	if err := d.StageImage(ctx, stageImage(512, 200)); err != nil {
+		t.Fatalf("StageImage: %v", err)
+	}
+
+	if err := d.OTAActivate(ctx, tfw.OTAActivateAtReset); !errors.Is(err, tfw.StatusErrAuthRequired) {
+		t.Fatalf("activate, no OTA_AUTH: %v, want %v", err, tfw.StatusErrAuthRequired)
+	}
+	if err := d.OTAConfirm(ctx); !errors.Is(err, tfw.StatusErrAuthRequired) {
+		t.Fatalf("confirm, no OTA_AUTH: %v, want %v", err, tfw.StatusErrAuthRequired)
+	}
+
+	auth()
+	if _, err := d.Do(ctx, tfw.CmdPing, nil); err != nil {
+		t.Fatalf("PING: %v", err)
+	}
+	if err := d.OTAActivate(ctx, tfw.OTAActivateAtReset); !errors.Is(err, tfw.StatusErrAuthRequired) {
+		t.Fatalf("activate after PING: %v, want %v", err, tfw.StatusErrAuthRequired)
+	}
+
+	// Authorized, confirm passes the gate to its own checks, which refuse:
+	// no tfw-boot handed off a running trial here.
+	auth()
+	if err := d.OTAConfirm(ctx); err == nil || errors.Is(err, tfw.StatusErrAuthRequired) {
+		t.Fatalf("confirm, authorized: %v, want a refusal past the gate", err)
+	}
+
+	// Authorized, activate passes OTA_AUTH's check; this unprovisioned
+	// simulator's auth gate then refuses, so the MARK leg is the host suite's
+	// (test/unit/test_ota_stage.c).
+	auth()
+	if err := d.OTAActivate(ctx, tfw.OTAActivateAtReset); err == nil || errors.Is(err, tfw.StatusErrAuthRequired) {
+		t.Fatalf("activate, authorized: %v, want a refusal past OTA_AUTH's check", err)
+	}
+	if err := d.OTAActivate(ctx, tfw.OTAActivateAtReset); !errors.Is(err, tfw.StatusErrAuthRequired) {
+		t.Fatalf("activate again, same OTA_AUTH: %v, want %v", err, tfw.StatusErrAuthRequired)
+	}
+}
+
 // The element tier, because it is the tfwsim tier with a platform block: the
 // software tier carries none and answers every decision-8 command with its
 // load's no-identity status. Values against the ADR's decision 8 (the wire
@@ -155,6 +211,7 @@ func TestAgainstFirmwareOTAActivate(t *testing.T) {
 		t.Fatalf("AuthResponse: %v", err)
 	}
 	for mode := byte(0); mode < 2; mode++ {
+		heldAuth(t, d)
 		if err := d.OTAActivate(ctx, mode); !errors.Is(err, tfw.StatusErrBadState) {
 			t.Fatalf("ACTIVATE %d, nothing staged: %v, want %v", mode, err, tfw.StatusErrBadState)
 		}
@@ -164,6 +221,7 @@ func TestAgainstFirmwareOTAActivate(t *testing.T) {
 	if err := d.StageImage(ctx, img); err != nil {
 		t.Fatalf("StageImage: %v", err)
 	}
+	heldAuth(t, d)
 	if err := d.OTAActivate(ctx, tfw.OTAActivateAtReset); err != nil {
 		t.Fatalf("ACTIVATE at reset, staged: %v", err)
 	}
@@ -191,7 +249,22 @@ func TestAgainstFirmwareOTAConfirm(t *testing.T) {
 	if err := d.AuthResponse(ctx, op, nonce, tfwsim.TestSerial[:]); err != nil {
 		t.Fatalf("AuthResponse: %v", err)
 	}
+	heldAuth(t, d)
 	if err := d.OTAConfirm(ctx); !errors.Is(err, tfw.StatusErrBadState) {
 		t.Fatalf("CONFIRM outside TRIAL: %v, want %v", err, tfw.StatusErrBadState)
+	}
+}
+
+// heldAuth sends OTA_AUTH (#137) so the next command passes the application's
+// gate to the checks a test is about. The simulator only holds the signature;
+// tfw-boot verifies it at reset, so any 64 bytes do here.
+func heldAuth(t *testing.T, d *tfw.Device) {
+	t.Helper()
+	var sig [tfw.OTAAuthSigLen]byte
+	for i := range sig {
+		sig[i] = 0xA5
+	}
+	if err := d.OTAAuth(context.Background(), sig); err != nil {
+		t.Fatalf("OTAAuth: %v", err)
 	}
 }

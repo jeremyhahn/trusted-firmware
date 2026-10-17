@@ -75,4 +75,11 @@ tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
  */
 tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN]);
 
+/*
+ * The COSE algorithm (RFC 9053) tfw_boot_verify checks, as its one-byte CBOR
+ * negative integer: ES256 (-7, 0x26) on the element, EdDSA (-8, 0x27) on
+ * donna. The OTA_ACTIVATE authorization's protected header names it (#137).
+ */
+extern const uint8_t tfw_boot_cose_alg;
+
 #endif /* TFW_BOOT_VERIFY_H */

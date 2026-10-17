@@ -52,6 +52,12 @@ tfw_status_t tfw_stage_marked(uint8_t *hash /* [32] */, uint32_t *version,
  * and nothing written unless the session is complete and the bytes verify. */
 tfw_status_t tfw_stage_activate(void);
 
+/* OTA_ACTIVATE's authorization (#137): the held signature written after the
+ * MARK (TFW_STAGE_MARK_O_SIG), before tfw_stage_activate writes the MARK's
+ * magic. TFW_ERR_BAD_STATE and nothing written unless the session is complete;
+ * otherwise the store's status. */
+tfw_status_t tfw_stage_authorize(const uint8_t sig[TFW_OTA_AUTH_SIG_LEN], uint8_t mode);
+
 /* OTA_BEGIN's first step on a one-slot board (the 328P and 32U4, issue #52):
  * the running image, the whole application region, copied into the store's
  * PREV, where tfw-boot copies it back from when the round fails

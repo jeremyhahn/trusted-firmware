@@ -50,6 +50,7 @@ func expectTier(t *testing.T, d *tfw.Device, want tfw.CryptoTier) {
 func TestAgainstFirmwareAutoWithNoElementRunsTheSoftTier(t *testing.T) {
 	d := startAuto(t, "--no-element")
 	expectTier(t, d, tfw.CryptoSoftware)
+	heldAuth(t, d)
 	if err := d.OTAActivate(context.Background(), 0); !errors.Is(err, tfw.StatusErrBadState) {
 		t.Fatalf("OTA_ACTIVATE on the soft tier: %v, want %v", err, tfw.StatusErrBadState)
 	}
@@ -60,6 +61,7 @@ func TestAgainstFirmwareAutoWithNoElementRunsTheSoftTier(t *testing.T) {
 func TestAgainstFirmwareAutoWithTheElementRunsTheElementTier(t *testing.T) {
 	d := startAuto(t, "--provision-element")
 	expectTier(t, d, tfw.CryptoSecureElement)
+	heldAuth(t, d) // so the refusal is the session's, not OTA_AUTH's
 	if err := d.OTAActivate(context.Background(), 0); !errors.Is(err, tfw.StatusErrAuthRequired) {
 		t.Fatalf("OTA_ACTIVATE without a session: %v, want %v", err, tfw.StatusErrAuthRequired)
 	}

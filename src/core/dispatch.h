@@ -31,6 +31,11 @@ typedef tfw_status_t (*tfw_cmd_handler_t)(tfw_reader_t *r, tfw_writer_t *w);
  * something a host should parse. */
 tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w);
 
+/* The id of the last command tfw_dispatch finished, known or not, refused or
+ * not; 0 before the first. Inside a handler it is the command before this one:
+ * OTA_AUTH's signature counts only for the command right after it (#137). */
+uint8_t tfw_dispatch_last(void);
+
 /* True if this build has a handler for cmd. Used by CAPS and by the tests. */
 uint8_t tfw_dispatch_knows(uint8_t cmd);
 

@@ -21,6 +21,7 @@
 #include "app_runner.h"
 #include "ota_stage.h"
 #include "ota_ctl.h"
+#include "ota_auth.h"
 
 typedef struct {
     uint8_t          id;
@@ -60,7 +61,10 @@ uint8_t tfw_dispatch_knows(uint8_t cmd)
     return find(cmd, &e);
 }
 
-tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
+/* The last command dispatched, whatever its status (tfw_dispatch_last). */
+static uint8_t last;
+
+static tfw_status_t run(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
 {
     tfw_cmd_entry_t e;
     uint8_t         n;
@@ -95,4 +99,17 @@ tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
         return TFW_ERR_BAD_ARGC;
     }
     return TFW_OK;
+}
+
+tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
+{
+    tfw_status_t st = run(cmd, r, w);
+
+    last = cmd;
+    return st;
+}
+
+uint8_t tfw_dispatch_last(void)
+{
+    return last;
 }

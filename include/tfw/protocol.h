@@ -172,6 +172,7 @@
 #define TFW_CMD_OTA_INFO          0x6Cu  /* [slot:1] -> 44 bytes, see ota_ctl.c */
 #define TFW_CMD_OTA_ACTIVATE      0x6Du  /* [mode:1]: 0 next reset, 1 reset now */
 #define TFW_CMD_OTA_CONFIRM       0x6Eu  /* no payload; TRIAL -> CONFIRMED */
+#define TFW_CMD_OTA_AUTH          0x6Fu  /* [sig:64]: held for the next command (#137) */
 
 /* provisioning -- PRESENT ONLY IN A PROVISIONING BUILD
  *

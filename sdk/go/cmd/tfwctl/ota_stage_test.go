@@ -31,6 +31,7 @@ type otaDevice struct {
 	received uint32
 	ends     int
 	modes    []byte
+	sigs     [][]byte
 	cmds     []tfw.Cmd
 }
 
@@ -56,6 +57,9 @@ func (o *otaDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 	case tfw.CmdOTAEnd:
 		o.ends++
 		o.state = tfw.OTAComplete
+	case tfw.CmdOTAAuth:
+		o.sigs = append(o.sigs, append([]byte(nil), f.Payload...))
+	case tfw.CmdOTAConfirm:
 	case tfw.CmdOTAActivate:
 		if o.state != tfw.OTAComplete {
 			return tfw.StatusErrBadState, nil
@@ -342,7 +346,7 @@ func TestOTAActivateIsItsOwnStepAfterStage(t *testing.T) {
 			t.Fatalf("ota-stage sent OTA_ACTIVATE %v; it must stop at END", o.modes)
 		}
 		var buf bytes.Buffer
-		if err := run(context.Background(), dev, "ota-activate", tc.args, false, &buf); err != nil {
+		if err := run(context.Background(), dev, "ota-activate", append(tc.args, testSig), false, &buf); err != nil {
 			t.Fatal(err)
 		}
 		if len(o.modes) != 1 || o.modes[0] != tc.mode {
@@ -356,7 +360,7 @@ func TestOTAActivateIsItsOwnStepAfterStage(t *testing.T) {
 
 func TestOTAActivateBeforeAVerifiedImageIsTheDevicesRefusal(t *testing.T) {
 	dev := startOTADevice(t, &otaDevice{})
-	err := run(context.Background(), dev, "ota-activate", nil, true, io.Discard)
+	err := run(context.Background(), dev, "ota-activate", []string{testSig}, true, io.Discard)
 	if !errors.Is(err, tfw.StatusErrBadState) {
 		t.Fatalf("err = %v, want %v", err, tfw.StatusErrBadState)
 	}
@@ -387,7 +391,7 @@ func TestOTAStageActivateIsOneConnectionOnABoardThatResetsOnOpen(t *testing.T) {
 	if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{image}, false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	err := run(context.Background(), openResetting(t, o), "ota-activate", nil, false, io.Discard)
+	err := run(context.Background(), openResetting(t, o), "ota-activate", []string{testSig}, false, io.Discard)
 	if !errors.Is(err, tfw.StatusErrBadState) {
 		t.Fatalf("separate ota-activate: err = %v, want %v", err, tfw.StatusErrBadState)
 	}
@@ -400,7 +404,7 @@ func TestOTAStageActivateIsOneConnectionOnABoardThatResetsOnOpen(t *testing.T) {
 		{"--activate=now", byte(tfw.OTAActivateResetNow)},
 	} {
 		o := &otaDevice{}
-		if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{tc.flag, image}, false, io.Discard); err != nil {
+		if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{tc.flag, testSig, image}, false, io.Discard); err != nil {
 			t.Fatalf("%s: %v", tc.flag, err)
 		}
 		if len(o.modes) != 1 || o.modes[0] != tc.mode {
@@ -427,7 +431,7 @@ func TestOTAStageActivateNowSendsNothingAfterTheReply(t *testing.T) {
 	} {
 		o := &otaDevice{}
 		var out bytes.Buffer
-		if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{tc.flag, image}, true, &out); err != nil {
+		if err := run(context.Background(), openResetting(t, o), "ota-stage", []string{tc.flag, testSig, image}, true, &out); err != nil {
 			t.Fatalf("%s: %v", tc.flag, err)
 		}
 		last := -1
@@ -442,5 +446,59 @@ func TestOTAStageActivateNowSendsNothingAfterTheReply(t *testing.T) {
 		if tc.after == 0 && !bytes.Contains(out.Bytes(), []byte(`"reset_now": true`)) {
 			t.Fatalf("%s: output %q, want the activation result", tc.flag, out.String())
 		}
+	}
+}
+
+// testSig is a well-formed authorization; the fake, like the device, does not
+// verify it (tfw-boot does, at reset).
+var testSig = "--sig=" + strings.Repeat("a5", tfw.OTAAuthSigLen)
+
+// Since #137 the device refuses OTA_ACTIVATE and OTA_CONFIRM without OTA_AUTH
+// just before: tfwctl refuses first, sending nothing, and with the
+// authorization sends OTA_AUTH immediately before the command.
+func TestOTAActivateAndConfirmSendTheAuthorizationFirst(t *testing.T) {
+	ctx := context.Background()
+	image := writeImage(t, patterned(10))
+	for _, tc := range []struct {
+		cmd  string
+		args []string
+	}{
+		{"ota-activate", nil},
+		{"ota-confirm", nil},
+		{"ota-stage", []string{"--activate", image}},
+	} {
+		o := &otaDevice{}
+		err := run(ctx, startOTADevice(t, o), tc.cmd, tc.args, false, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "--sig=") || len(o.cmds) != 0 {
+			t.Fatalf("%s without --sig: err = %v, sent %v; want a refusal and nothing sent", tc.cmd, err, o.cmds)
+		}
+	}
+
+	raw := bytes.Repeat([]byte{0x5a}, tfw.OTAAuthSigLen)
+	path := filepath.Join(t.TempDir(), "auth.sig")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		cmd  string
+		args []string
+		next tfw.Cmd
+		sig  []byte
+	}{
+		{"ota-confirm", []string{testSig}, tfw.CmdOTAConfirm, bytes.Repeat([]byte{0xa5}, tfw.OTAAuthSigLen)},
+		{"ota-confirm", []string{"--sig-file=" + path}, tfw.CmdOTAConfirm, raw},
+		{"ota-stage", []string{"--activate=now", "--sig-file=" + path, image}, tfw.CmdOTAActivate, raw},
+	} {
+		o := &otaDevice{}
+		if err := run(ctx, startOTADevice(t, o), tc.cmd, tc.args, false, io.Discard); err != nil {
+			t.Fatalf("%s %v: %v", tc.cmd, tc.args, err)
+		}
+		n := len(o.cmds)
+		if n < 2 || o.cmds[n-2] != tfw.CmdOTAAuth || o.cmds[n-1] != tc.next || len(o.sigs) != 1 || !bytes.Equal(o.sigs[0], tc.sig) {
+			t.Fatalf("%s %v: sent %v with %x; want OTA_AUTH with the signature, then %v", tc.cmd, tc.args, o.cmds, o.sigs, tc.next)
+		}
+	}
+	if err := run(ctx, nil, "ota-confirm", []string{"--sig=abcd"}, false, io.Discard); err == nil {
+		t.Fatal("a short --sig: no error")
 	}
 }

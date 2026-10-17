@@ -100,7 +100,14 @@ func TestOTAStageThroughTfwBoot(t *testing.T) {
 	expectSimStatus(t, dev, fmt.Sprintf("%s, %d bytes received", tfw.OTAComplete, len(img)))
 	// OTA_END writes no MARK; OTA_ACTIVATE re-verifies and writes it, so
 	// without it the reset takes nothing (OTA ADR decision 8).
-	if err := run(context.Background(), dev, "ota-activate", nil, false, io.Discard); err != nil {
+	// The row key's authorization (#137), which tfw-boot verifies at the
+	// reset: for the version and measurement in the staged image's trailer.
+	sig := simavrActivateSig(img)
+	sigFile := filepath.Join(t.TempDir(), "activate.sig")
+	if err := os.WriteFile(sigFile, sig[:], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(context.Background(), dev, "ota-activate", []string{"--sig-file=" + sigFile}, false, io.Discard); err != nil {
 		t.Fatalf("ota-activate: %v", err)
 	}
 	// The staged slot is PENDING (4) at the harness's version 3.
@@ -138,6 +145,12 @@ func TestOTAStageThroughTfwBoot(t *testing.T) {
 	}
 	// OTA_CONFIRM (api.md:64) answers TFW_OK (0); BAD_STATE (19, api.md:90)
 	// would mean no trial or no handoff.
+	// OTA_CONFIRM is authorized the same way; tfw-boot does not re-check
+	// the confirm's signature (docs/SPEC.md, the ota row), so the
+	// activate's serves.
+	if err := dev.OTAAuth(context.Background(), sig); err != nil {
+		t.Fatalf("OTA_AUTH before OTA_CONFIRM: %v", err)
+	}
 	if err := dev.OTAConfirm(context.Background()); err != nil {
 		t.Fatalf("OTA_CONFIRM on trial: %v, want TFW_OK (0)", err)
 	}

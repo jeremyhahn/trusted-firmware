@@ -51,6 +51,18 @@ func TestOTAActivateSendsTheMode(t *testing.T) {
 	}
 }
 
+func TestOTAAuthSendsTheSignature(t *testing.T) {
+	var sig [64]byte
+	for i := range sig {
+		sig[i] = byte(i)
+	}
+	link := &captureLink{}
+	require.NoError(t, New(link).OTAAuth(context.Background(), sig))
+	require.Len(t, link.sent, 1)
+	assert.Equal(t, CmdOTAAuth, link.sent[0].Cmd())
+	assert.Equal(t, sig[:], link.sent[0].Payload)
+}
+
 func TestOTAActivateRefusesAnUnknownModeBeforeTheWire(t *testing.T) {
 	link := &captureLink{}
 	err := New(link).OTAActivate(context.Background(), 2)

@@ -141,6 +141,9 @@ TFW_CMD_ENTRY(TFW_CMD_OTA_INFO,     OTA_INFO,     tfw_otactl_cmd_info,     1u, 1
  * TFW_FEATURE_OTA_ACTIVATE in config.h. */
 #if TFW_FEATURE_OTA_ACTIVATE
 TFW_CMD_ENTRY(TFW_CMD_OTA_ACTIVATE, OTA_ACTIVATE, tfw_otactl_cmd_activate, 1u, 1u)
+/* OTA_AUTH (#137) goes with OTA_ACTIVATE: src/core/ota_auth.c. 0..64 so a short
+ * request reaches the handler and drops the held signature. */
+TFW_CMD_ENTRY(TFW_CMD_OTA_AUTH,     OTA_AUTH,     tfw_ota_auth_cmd,        0u, 64u)
 #endif
 #if TFW_FEATURE_OTA_CTL
 TFW_CMD_ENTRY(TFW_CMD_OTA_CONFIRM,  OTA_CONFIRM,  tfw_otactl_cmd_confirm,  0u, 0u)

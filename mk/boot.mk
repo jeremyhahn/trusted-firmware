@@ -483,7 +483,7 @@ $(BOOT_TEST_DIR)/test_boot_settle: test/unit/boot/test_boot_settle.c \
 # NOR part on the mock's store bus. The platform block's write is the test's,
 # so it can see the order of states the copy stores; boot_store.c stays out.
 BOOT_STAGE_TEST_SRCS := test/unit/boot/test_boot_stage.c boot/boot_stage.c \
-                        test/model/spi_nor_model.c $(BOOT_LOGIC_SRCS)
+                        test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS)
 
 $(BOOT_TEST_DIR)/test_boot_stage: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -506,14 +506,14 @@ $(BOOT_TEST_DIR)/test_boot_stage_2560: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity
 # image is seen reaching the same swap and the same trial (#77).
 $(BOOT_TEST_DIR)/test_boot_swap: test/unit/boot/test_boot_swap.c boot/boot_swap.c \
                                  boot/recovery/recovery_ota.c src/proto/frame.c \
-                                 boot/boot_stage.c test/model/spi_nor_model.c \
+                                 boot/boot_stage.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                  $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The 328P's fallback (#52): PREV copied back by the store's copy loop, under
 # the host board's profile, which is the 328P's.
 $(BOOT_TEST_DIR)/test_boot_prev: test/unit/boot/test_boot_prev.c boot/boot_prev.c \
-                                 boot/boot_stage.c test/model/spi_nor_model.c \
+                                 boot/boot_stage.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                  $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

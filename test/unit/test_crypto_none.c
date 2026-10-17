@@ -45,6 +45,11 @@ static void test_every_operation_refuses(void)
         uint32_t n;
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &n));
     }
+    {
+        uint8_t digest[32] = {0}, sig[64] = {0};
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_operator(digest, sig, out));
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(digest, sig));
+    }
 }
 
 /*

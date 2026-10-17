@@ -463,12 +463,23 @@ coverage:
 	@# boot/ is measured on the same terms as src/: the LOGIC is in, the
 	@# register-poking is out. boot/hal/avr is excluded for the reason
 	@# src/hal/avr is -- a number counting code x86 cannot execute would not mean
-	@# anything -- and so are boot_main.c, which is a superloop with no return,
-	@# and boot/tier and boot/verify, which reach flash and an element through
-	@# PROGMEM and I2C rather than through anything a host build can drive.
+	@# anything -- and so is boot_main.c, which is a superloop with no return.
+	@# The crypto tiers are in: sha256.c and the soft, none and ATECC608A
+	@# providers and driver, and boot/measure and boot/verify, against the mock
+	@# HAL or the software element. Out, each built only for AVR: boot/tier's
+	@# cdi_soft.c and cdi_atecc.c (mk/boot.mk BOOT_TIER_SRCS, no host suite
+	@# links them) and src/crypto/soft/uds_flash.c (mk/firmware.mk CRYPTO_SRCS;
+	@# the host links test/mock/uds_mock.c in its place).
+	@# boot_swap.c (the 2560's swap-move and its journal), boot_trial.c,
+	@# boot_store.c and boot_handoff.c are in: the OTA rollback path, all of it
+	@# over the boot HAL's EEPROM and flash, which the mock drives. boot_swap_none.c
+	@# is out with the HAL: a stub with no branch to take.
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
-	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage)\.c' \
+	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage|swap|trial|store|handoff)\.c' \
 	       --filter 'boot/recovery/recovery_ota\.c' \
+	       --filter 'src/crypto/(sha256|soft/provider|none/provider|atecc608a/atecc|atecc608a/provider)\.c' \
+	       --filter 'boot/measure/measure_(soft|atecc608a)\.c' \
+	       --filter 'boot/verify/(verify_ed25519_donna|verify_atecc608a|donna_shim)\.c' \
 	       --exclude 'src/hal/avr/' --print-summary \
 	       --html-details coverage/index.html --fail-under-line $(COVERAGE_FLOOR)
 

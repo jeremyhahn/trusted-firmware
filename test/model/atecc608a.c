@@ -270,11 +270,15 @@ static uint8_t  hmac_active;
  * "not there" from "not yet". */
 static uint8_t  absent;
 
+/* Fault hooks: one corrupted read, one NACKed command. */
+static uint8_t corrupt_idx, corrupt_mask, nack_command;
+
 void tfw_model_reset(void)
 {
     awake = 0u; provisioned = 0u; has_key = 0u; busy_reads = 0u;
     forced_status = 0u; last_opcode = 0u; counter0 = 0u; random_calls = 0u;
     rsp_len = 0u; last_addr = 0u;
+    corrupt_idx = 0u; corrupt_mask = 0u; nack_command = 0u;
     memset(exec_ms, 0, sizeof exec_ms);
     memset(rsp, 0, sizeof rsp);
     memset(config, 0, sizeof config);
@@ -326,6 +330,8 @@ const uint8_t *tfw_model_verify_last_sig(void) { return verify_last_sig; }
 const uint8_t *tfw_model_verify_last_pubkey(void) { return verify_last_pubkey; }
 void tfw_model_set_busy(uint8_t reads)   { busy_reads = reads; }
 void tfw_model_force_status(uint8_t st)  { forced_status = st; }
+void tfw_model_corrupt_next_read(uint8_t idx, uint8_t mask) { corrupt_idx = idx; corrupt_mask = mask; }
+void tfw_model_nack_next_command(void)   { nack_command = 1u; }
 void tfw_model_set_counter(uint32_t v)   { counter0 = v; }
 void tfw_model_set_exec_ms(uint8_t op, uint16_t ms) { exec_ms[op] = ms; }
 uint8_t tfw_model_last_opcode(void)      { return last_opcode; }
@@ -670,6 +676,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
             awake = 0u;
             return TFW_OK;
         case TFW_ATECC_WA_COMMAND:
+            if (nack_command) { nack_command = 0u; return TFW_ERR_NACK; }
             handle_command(wr, wlen);
             return TFW_OK;
         default:
@@ -685,6 +692,10 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
          * mismatch. Truncating silently here would hide that. */
         memcpy(rd, rsp, rlen < rsp_len ? rlen : rsp_len);
         if (rlen > rsp_len) { memset(&rd[rsp_len], 0, (size_t)(rlen - rsp_len)); }
+        if (corrupt_mask && corrupt_idx < rlen) {
+            rd[corrupt_idx] ^= corrupt_mask;   /* one read only, then clean */
+            corrupt_mask = 0u;
+        }
         return TFW_OK;
     }
     return TFW_OK;

@@ -24,6 +24,11 @@ void     tfw_model_set_busy(uint8_t reads);
 void     tfw_model_set_exec_ms(uint8_t opcode, uint16_t ms);
 /* Make every command fail with this element status code. */
 void     tfw_model_force_status(uint8_t status);
+/* Flip the bits of mask in byte idx of the next read the part answers -- the
+ * wake token or a response -- as a noisy bus would. One read, then clean. */
+void     tfw_model_corrupt_next_read(uint8_t idx, uint8_t mask);
+/* NACK the next command write, as a part that dropped off the bus would. */
+void     tfw_model_nack_next_command(void);
 void     tfw_model_set_counter(uint32_t v);
 uint8_t  tfw_model_last_opcode(void);
 /* The 7-bit address the last non-wake transfer went to, answered or not. */

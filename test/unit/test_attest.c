@@ -129,6 +129,16 @@ static void test_there_is_no_monotonic_counter_without_an_element(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &n));
 }
 
+/* An HMAC tier holds no public key to check a signature against, so it refuses
+ * both verifies -- a TFW_OK here would be every operator and every image
+ * accepted on a device that cannot tell them apart. */
+static void test_the_software_tier_verifies_no_signature(void)
+{
+    uint8_t digest[32] = {0}, sig[64] = {0}, pub[64] = {0};
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_operator(digest, sig, pub));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(digest, sig));
+}
+
 /* A page request before any evidence exists would otherwise return zeros that
  * look like a valid answer. */
 static void test_a_page_request_with_no_evidence_is_refused(void)
@@ -596,6 +606,7 @@ int main(void)
     RUN_TEST(test_the_software_tier_refuses_to_invent_randomness);
     RUN_TEST(test_a_symmetric_identity_has_no_public_key);
     RUN_TEST(test_there_is_no_monotonic_counter_without_an_element);
+    RUN_TEST(test_the_software_tier_verifies_no_signature);
     RUN_TEST(test_a_page_request_with_no_evidence_is_refused);
     RUN_TEST(test_a_wrong_sized_argument_is_refused);
     RUN_TEST(test_the_evidence_layout_matches_the_specification);

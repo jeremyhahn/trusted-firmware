@@ -158,7 +158,10 @@ typedef enum { TFW_BOOT_SESSION_CONTINUE, TFW_BOOT_SESSION_COMMIT, TFW_BOOT_SESS
   leaves the floor where it was.
 - **`GOOD` is written only once the floor's authority holds the new value.**
   `tfw_boot_floor_store` returns `TFW_OK` only then: from the element, or from
-  EEPROM when the element answers `TFW_ERR_UNSUPPORTED` (there is none). Any
+  EEPROM when the element answers `TFW_ERR_UNSUPPORTED` (there is none) and the
+  EEPROM copy was written. A block this boot did not load is refused with
+  `TFW_ERR_BAD_STATE`, a failed EEPROM write is returned, and the block's
+  in-RAM floor stays the old one (#75). Any
   other element error is returned and EEPROM is not written, so
   `tfw_boot_settle` leaves the block `CONFIRMED`, opens no update session, and
   the next reset retries the advance (#82).

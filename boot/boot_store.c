@@ -35,13 +35,18 @@ void tfw_boot_platform_load(tfw_boot_platform_t *p, tfw_status_t *st)
  * with zeros. Refusing keeps the torn block as it is, for a programmer to
  * repair, rather than turning it into an unprovisioned one.
  */
-void tfw_boot_platform_store(const tfw_boot_platform_t *p)
+static tfw_status_t platform_write(const tfw_boot_platform_t *p)
 {
     if (!loaded) {
-        return;
+        return TFW_ERR_BAD_STATE;
     }
     tfw_boot_platform_serialise(p, ee);
-    (void)tfw_boot_nvm_write(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    return tfw_boot_nvm_write(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+}
+
+void tfw_boot_platform_store(const tfw_boot_platform_t *p)
+{
+    (void)platform_write(p);
 }
 
 /*
@@ -78,17 +83,25 @@ tfw_status_t tfw_boot_floor_load(const tfw_boot_platform_t *p, uint32_t *out)
  * reach the target -- is returned as it is, and EEPROM is NOT written: on this
  * tier the element's counter is the floor, and a higher EEPROM copy beside a
  * lower counter would only make the advance look done when it is not.
+ * The EEPROM copy is the authority only once it is written: a block this boot
+ * did not load is refused (TFW_ERR_BAD_STATE) and a failed write is returned,
+ * and either way `p->rollback_floor` keeps the floor EEPROM still holds.
  */
 tfw_status_t tfw_boot_floor_store(tfw_boot_platform_t *p, uint32_t value)
 {
-    tfw_status_t st = tfw_boot_floor_write(value);
+    tfw_boot_platform_t next;
+    tfw_status_t        st = tfw_boot_floor_write(value);
 
     if (st != TFW_ERR_UNSUPPORTED) {
         return st;                    /* the element is the authority */
     }
-    p->rollback_floor = value;
-    tfw_boot_platform_store(p);
-    return TFW_OK;
+    next = *p;
+    next.rollback_floor = value;
+    st = platform_write(&next);
+    if (st == TFW_OK) {
+        p->rollback_floor = value;
+    }
+    return st;
 }
 
 /*

@@ -109,6 +109,33 @@ static void test_a_measurement_of_nothing_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_measure(0u, got));
 }
 
+/* tfw_boot_hash over more than one SHA block takes the Update loop. */
+static void test_a_hash_over_two_blocks_matches_the_software_hash(void)
+{
+    uint8_t data[130], want[32], got[32];
+    uint8_t i;
+
+    for (i = 0; i < sizeof data; i++) {
+        data[i] = (uint8_t)(i * 7u + 1u);
+    }
+    tfw_sha256(data, (uint16_t)sizeof data, want);
+    tfw_boot_hash(data, (uint16_t)sizeof data, got);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, got, 32);
+}
+
+/* An element that refuses the hash leaves a zero digest, which matches no
+ * key, and a refused measurement is an error, not a digest. */
+static void test_an_element_refusal_fails_the_hash_and_the_measurement(void)
+{
+    uint8_t data[64] = {0}, zero[32] = {0}, got[32];
+
+    tfw_model_force_status(0x0Fu);
+    memset(got, 0xA5, sizeof got);
+    tfw_boot_hash(data, (uint16_t)sizeof data, got);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, got, 32);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_boot_measure(130u, got));
+}
+
 /* ------------------------------------------------------------- verify */
 
 static void test_a_valid_signature_is_accepted(void)
@@ -183,6 +210,8 @@ int main(void)
     RUN_TEST(test_a_measurement_of_whole_blocks_has_no_tail);
     RUN_TEST(test_an_absent_element_refuses_to_measure);
     RUN_TEST(test_a_measurement_of_nothing_is_refused);
+    RUN_TEST(test_a_hash_over_two_blocks_matches_the_software_hash);
+    RUN_TEST(test_an_element_refusal_fails_the_hash_and_the_measurement);
     RUN_TEST(test_a_valid_signature_is_accepted);
     RUN_TEST(test_a_bad_signature_is_refused);
     RUN_TEST(test_an_absent_element_refuses_to_verify);

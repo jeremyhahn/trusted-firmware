@@ -50,6 +50,13 @@ void tfw_boot_mock_cut_after(unsigned ok);
  * flash, until tfw_boot_mock_reset or tear_nvm(UINT_MAX, 0, 0). */
 void tfw_boot_mock_tear_nvm(unsigned ok, uint8_t byte, uint8_t val);
 
+/* The next `n` EEPROM reads fail with TFW_ERR_INTERNAL and fill nothing. */
+void tfw_boot_mock_fail_nvm_reads(unsigned n);
+
+/* The next `n` EEPROM writes report TFW_OK and land nothing: a cell that no
+ * longer takes a write, which only a read back can see. */
+void tfw_boot_mock_lose_nvm_writes(unsigned n);
+
 /* Route tfw_boot_store_cmd to a model of the external store (issue #75), as
  * one full-duplex transaction; with none set, the store does not open. */
 void tfw_boot_mock_on_store(void (*xfer)(uint8_t *buf, uint16_t len));

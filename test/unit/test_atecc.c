@@ -166,6 +166,131 @@ static void test_a_parse_error_is_distinguished_from_an_execution_error(void)
         tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, out, 32u, 23u));
 }
 
+/* The rest of the status byte's table (src/crypto/atecc608a/atecc.c,
+ * translate): a miscompare, an ECC fault, a failed self or health test, a
+ * command before the part is ready, a rejected CRC and a code the datasheet
+ * does not list. Each is a refusal; none is ever TFW_OK. */
+static void test_every_other_element_status_is_a_refusal(void)
+{
+    static const struct { uint8_t code; tfw_status_t want; } map[] = {
+        { 0x01u, TFW_ERR_CRYPTO }, { 0x05u, TFW_ERR_CRYPTO },
+        { 0x07u, TFW_ERR_CRYPTO }, { 0x08u, TFW_ERR_CRYPTO },
+        { 0x11u, TFW_ERR_CRYPTO }, { 0xFFu, TFW_ERR_CRC },
+        { 0x42u, TFW_ERR_CRYPTO },
+    };
+    uint8_t out[32];
+    size_t  i;
+
+    for (i = 0; i < sizeof map / sizeof map[0]; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+        tfw_model_force_status(map[i].code);
+        TEST_ASSERT_EQUAL_MESSAGE(map[i].want,
+            tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, out, 32u, 23u),
+            "status code");
+    }
+}
+
+/* A wake token that is not 04 11, or whose CRC does not match, is not an
+ * element answering: a noisy bus or another part at 0x36. */
+static void test_a_corrupt_wake_token_is_refused(void)
+{
+    tfw_model_corrupt_next_read(0u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_atecc_wake());
+    tfw_model_corrupt_next_read(1u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_atecc_wake());
+    tfw_model_corrupt_next_read(2u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+}
+
+/* A response with the wrong count byte, a bad data CRC or a bad CRC on a
+ * status-only reply is refused, never returned as data. */
+static void test_a_corrupt_response_is_refused(void)
+{
+    uint8_t out[32];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    tfw_model_corrupt_next_read(0u, 0x01u);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, out, 32u, 23u));
+    tfw_model_corrupt_next_read(34u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC,
+        tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, out, 32u, 23u));
+    tfw_model_force_status(0x0Fu);
+    tfw_model_corrupt_next_read(2u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC,
+        tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, out, 32u, 23u));
+}
+
+/* Verify External's own poll: a dropped command, a part that never answers,
+ * a reply that is not four bytes and a reply whose CRC is wrong. */
+static void test_verify_external_refuses_every_bus_fault(void)
+{
+    uint8_t sig[64] = {0}, pub[64] = {0};
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    tfw_model_nack_next_command();
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_atecc_verify_external(sig, pub, 0u));
+    tfw_model_set_busy(8u);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_atecc_verify_external(sig, pub, 0u));
+    tfw_model_set_busy(0u);
+    tfw_model_corrupt_next_read(0u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_atecc_verify_external(sig, pub, 0u));
+    tfw_model_corrupt_next_read(2u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC, tfw_atecc_verify_external(sig, pub, 0u));
+}
+
+static void assert_every_provider_call_refused(void)
+{
+    uint8_t  d[32] = {0}, s[64] = {0}, p[64] = {0}, out[32];
+    uint8_t  alg;
+    uint32_t v;
+
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_crypto_random(out, 32u));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_crypto_hmac(TFW_ATECC_SLOT_UDS, d, 32u, out));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_crypto_sign(d, s, &alg));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_crypto_pubkey(p));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_crypto_counter(TFW_ATECC_COUNTER_BOOT, &v));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_crypto_verify_operator(d, s, p));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_crypto_verify_image(d, s));
+}
+
+/* An element that answers the wake but refuses INFO is not taken as present. */
+static void test_an_element_that_refuses_info_is_not_present(void)
+{
+    tfw_model_provision();
+    tfw_model_force_status(0x0Fu);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    tfw_model_force_status(0x00u);
+    assert_every_provider_call_refused();
+}
+
+/* No element at all: every provider call refuses before it touches the bus. */
+static void test_every_provider_call_refuses_with_no_element(void)
+{
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    assert_every_provider_call_refused();
+}
+
+/* An element that was present at init and then stops answering its wake. */
+static void test_every_provider_call_refuses_when_the_element_goes_quiet(void)
+{
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    tfw_model_set_absent(1u);
+    assert_every_provider_call_refused();
+}
+
+/* An element that wakes but refuses every command after init. */
+static void test_every_provider_call_refuses_when_the_element_refuses(void)
+{
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    tfw_model_force_status(0x0Fu);
+    assert_every_provider_call_refused();
+}
+
 /* The part NACKs reads while it works. A command that finishes late must still
  * be read, and one that never finishes must time out rather than hang. */
 static void test_a_busy_element_is_polled_until_it_answers(void)
@@ -654,6 +779,10 @@ int main(void)
     RUN_TEST(test_a_payload_longer_than_the_buffer_is_refused);
     RUN_TEST(test_an_element_error_is_returned_as_an_error_not_as_data);
     RUN_TEST(test_a_parse_error_is_distinguished_from_an_execution_error);
+    RUN_TEST(test_every_other_element_status_is_a_refusal);
+    RUN_TEST(test_a_corrupt_wake_token_is_refused);
+    RUN_TEST(test_a_corrupt_response_is_refused);
+    RUN_TEST(test_verify_external_refuses_every_bus_fault);
     RUN_TEST(test_a_busy_element_is_polled_until_it_answers);
     RUN_TEST(test_an_element_that_never_answers_times_out);
     RUN_TEST(test_an_absent_element_reports_no_tier_and_refuses_everything);
@@ -686,5 +815,12 @@ int main(void)
     RUN_TEST(test_the_provider_survives_a_part_at_its_maximum_execution_times);
     RUN_TEST(test_a_sign_bound_shorter_than_115_ms_times_out);
     RUN_TEST(test_idle_keeps_tempkey_and_sleep_does_not);
+    /* Last: each calls tfw_crypto_init, and the provider's state outlives
+     * setUp -- test_an_absent_element_reports_no_tier_and_refuses_everything
+     * needs a provider that has never been initialised. */
+    RUN_TEST(test_an_element_that_refuses_info_is_not_present);
+    RUN_TEST(test_every_provider_call_refuses_with_no_element);
+    RUN_TEST(test_every_provider_call_refuses_when_the_element_goes_quiet);
+    RUN_TEST(test_every_provider_call_refuses_when_the_element_refuses);
     return UNITY_END();
 }

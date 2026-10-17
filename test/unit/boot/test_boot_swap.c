@@ -719,6 +719,96 @@ static void test_a_store_image_below_the_floor_never_reaches_a_slot(void)
     assert_slots(img_a, img_b);
 }
 
+/* A failed trial whose fall back stores the block and then has the first
+ * journal write of the swap back torn: the block is GOOD and FAILED, the
+ * record still swapped. The next boot is an ordinary one, and at_reset's
+ * BOOT case runs the whole swap back from there. */
+static void test_a_fall_back_torn_before_the_swap_back_runs_it_at_the_next_boot(void)
+{
+    tfw_boot_reset_action_t act;
+
+    pending();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_arm(&plat));
+    tfw_boot_platform_store(&plat);
+    plat = stored;
+    tfw_boot_mock_tear_nvm(0u, 0u, 0x00u);
+    act = tfw_boot_swap_at_reset(&plat, tfw_boot_trial_at_reset(&plat));
+    tfw_boot_mock_tear_nvm(UINT_MAX, 0u, 0u);
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_FAIL, act);
+    TEST_ASSERT_EQUAL_HEX8(0x44u, phase());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, stored.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, stored.ota_state);
+    assert_slots(img_b, img_a);
+
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, phase());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, stored.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, stored.ota_state);
+    assert_slots(img_a, img_b);
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());   /* and stays */
+    assert_slots(img_a, img_b);
+}
+
+/* Swapped, with a block the trial cannot fail -- already fallen back: the
+ * fall back is refused before it stores the block or moves a page. */
+static void test_a_fall_back_over_a_block_already_failed_moves_nothing(void)
+{
+    unsigned pages;
+
+    pending();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
+    plat.boot_state = TFW_BOOT_STATE_GOOD;
+    plat.ota_state  = TFW_BOOT_OTA_FAILED;
+    stores = 0u;
+    pages  = tfw_boot_mock_page_writes();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_swap_fall_back(&plat));
+    TEST_ASSERT_EQUAL_UINT(0u, stores);
+    TEST_ASSERT_EQUAL_UINT(pages, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_HEX8(0x44u, phase());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_GOOD, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, plat.ota_state);
+    assert_slots(img_b, img_a);
+}
+
+/* A commit while swapped is refused untouched: the primary holds the image on
+ * trial, and the gate would evaluate that instead of the one just sent. */
+static void test_a_commit_while_swapped_is_refused_untouched(void)
+{
+    tfw_boot_platform_t before;
+    unsigned            pages;
+
+    pending();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
+    stores = 0u;
+    pages  = tfw_boot_mock_page_writes();
+    before = plat;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_swap_commit(&plat, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, stores);
+    TEST_ASSERT_EQUAL_UINT(pages, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_MEMORY(&before, &plat, sizeof plat);
+    TEST_ASSERT_EQUAL_HEX8(0x44u, phase());
+    assert_slots(img_b, img_a);
+}
+
+/* A journal write the EEPROM reports done but never takes: the read back sees
+ * it, and no page is moved under a record that does not say so. The next
+ * attempt, over a cell that takes writes again, swaps as usual. */
+static void test_a_journal_write_that_does_not_land_moves_nothing(void)
+{
+    pending();
+    tfw_boot_mock_lose_nvm_writes(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_boot_swap_take(&plat, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, phase());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_PENDING, plat.ota_state);
+    assert_slots(img_a, img_b);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
+    TEST_ASSERT_EQUAL_HEX8(0x44u, phase());
+    assert_slots(img_b, img_a);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -747,5 +837,9 @@ int main(void)
     RUN_TEST(test_a_store_image_unconfirmed_swaps_back_and_is_not_retried);
     RUN_TEST(test_a_confirmed_store_image_settles_and_is_not_copied_again);
     RUN_TEST(test_a_store_image_below_the_floor_never_reaches_a_slot);
+    RUN_TEST(test_a_fall_back_torn_before_the_swap_back_runs_it_at_the_next_boot);
+    RUN_TEST(test_a_fall_back_over_a_block_already_failed_moves_nothing);
+    RUN_TEST(test_a_commit_while_swapped_is_refused_untouched);
+    RUN_TEST(test_a_journal_write_that_does_not_land_moves_nothing);
     return UNITY_END();
 }

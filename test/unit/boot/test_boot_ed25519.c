@@ -30,6 +30,7 @@
 #include <string.h>
 #include "unity.h"
 #include "boot_verify.h"
+#include "donna_shim.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -161,6 +162,25 @@ static void test_an_unprovisioned_pubkey_slot_refuses(void)
     }
 }
 
+/* The one integrator hook donna wants (boot/verify/donna_shim.c). Verify never
+ * draws on it; only signing does, and tfw-boot never signs. It fills with
+ * zeros, every byte, so a caller that one day did sign would produce an
+ * obviously fixed nonce rather than one that looks random and is not. */
+static void test_the_shim_randomness_is_all_zero(void)
+{
+    uint8_t buf[40];
+    size_t  i;
+
+    memset(buf, 0xA5, sizeof buf);
+    ed25519_randombytes_unsafe(buf, 32u);
+    for (i = 0; i < 32u; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00u, buf[i]);
+    }
+    for (; i < sizeof buf; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, buf[i]);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -172,5 +192,6 @@ int main(void)
     RUN_TEST(test_the_wrong_public_key_is_refused);
     RUN_TEST(test_an_all_zero_signature_is_refused);
     RUN_TEST(test_an_unprovisioned_pubkey_slot_refuses);
+    RUN_TEST(test_the_shim_randomness_is_all_zero);
     return UNITY_END();
 }

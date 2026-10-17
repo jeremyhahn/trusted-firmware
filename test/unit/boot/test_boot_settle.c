@@ -300,6 +300,75 @@ void test_the_soft_tier_settles_to_good_in_one_boot(void)
     TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, tfw_boot_trial_at_reset(&plat));
 }
 
+/* A block the EEPROM would not read is the torn block's case: nothing was
+ * loaded, so nothing is written over it, and the bytes stay for a programmer. */
+void test_a_block_that_will_not_read_is_never_written(void)
+{
+    uint8_t      before[TFW_BOOT_EE_LEN];
+    tfw_status_t st;
+
+    reset_with(TFW_BOOT_STATE_GOOD, 3u);
+    memcpy(before, tfw_boot_mock_nvm(), sizeof before);
+    tfw_boot_mock_fail_nvm_reads(1u);
+    memset(&plat, 0, sizeof plat);
+    tfw_boot_platform_load(&plat, &st);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, st);
+
+    plat.boot_state = TFW_BOOT_STATE_TRIAL;
+    tfw_boot_platform_store(&plat);
+    TEST_ASSERT_EQUAL_MEMORY(before, tfw_boot_mock_nvm(), sizeof before);
+    reload();
+    TEST_ASSERT_EQUAL(TFW_BOOT_STATE_GOOD, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT32(3u, plat.rollback_floor);
+}
+
+/* tfw_boot_floor_store's contract: TFW_OK only when the authority holds the
+ * value. Without an element the authority is the EEPROM copy, and over a block
+ * this boot could not read that copy is never written. */
+void test_a_floor_store_over_a_block_that_will_not_read_is_not_ok(void)
+{
+    uint32_t     floor;
+    tfw_status_t st;
+
+    reset_with(TFW_BOOT_STATE_GOOD, 3u);
+    tfw_boot_mock_fail_nvm_reads(1u);
+    memset(&plat, 0, sizeof plat);
+    tfw_boot_platform_load(&plat, &st);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, st);
+
+    st = tfw_boot_floor_store(&plat, 7u);
+    reload();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_load(&plat, &floor));
+    TEST_ASSERT_EQUAL_UINT32(3u, floor);       /* the write was refused */
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, st);         /* so it must not say done */
+}
+
+/* The settle over that block: the EEPROM floor is refused, so the block stays
+ * CONFIRMED at the old floor, nothing is written, and the next reset retries. */
+void test_a_refused_eeprom_floor_keeps_confirmed(void)
+{
+    uint8_t      before[TFW_BOOT_EE_LEN];
+    uint32_t     floor = 3u;
+    tfw_status_t st;
+
+    reset_with(TFW_BOOT_STATE_CONFIRMED, 3u);
+    memcpy(before, tfw_boot_mock_nvm(), sizeof before);
+    tfw_boot_mock_fail_nvm_reads(1u);
+    memset(&plat, 0, sizeof plat);
+    tfw_boot_platform_load(&plat, &st);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, st);
+    plat.boot_state     = TFW_BOOT_STATE_CONFIRMED;
+    plat.rollback_floor = 3u;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_settle(&plat, 7u, &floor));
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_CONFIRMED, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT32(3u, plat.rollback_floor);
+    TEST_ASSERT_EQUAL_UINT32(3u, floor);
+    TEST_ASSERT_EQUAL_MEMORY(before, tfw_boot_mock_nvm(), sizeof before);
+    reload();
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_SETTLE, tfw_boot_trial_at_reset(&plat));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -314,5 +383,8 @@ int main(void)
     RUN_TEST(test_a_counter_stopped_part_way_is_carried_on_at_the_next_reset);
     RUN_TEST(test_a_reset_after_the_counter_write_only_writes_good);
     RUN_TEST(test_the_soft_tier_settles_to_good_in_one_boot);
+    RUN_TEST(test_a_block_that_will_not_read_is_never_written);
+    RUN_TEST(test_a_floor_store_over_a_block_that_will_not_read_is_not_ok);
+    RUN_TEST(test_a_refused_eeprom_floor_keeps_confirmed);
     return UNITY_END();
 }

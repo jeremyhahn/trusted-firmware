@@ -28,6 +28,8 @@ static unsigned tear_left = UINT_MAX;
 static uint8_t  tear_byte;
 static uint8_t  tear_val;
 static uint8_t  torn;
+static unsigned nvm_read_fails;
+static unsigned nvm_lost_writes;
 static void   (*g_store)(uint8_t *buf, uint16_t len);
 static unsigned jumped;
 static unsigned reset_calls;
@@ -56,6 +58,8 @@ void tfw_boot_mock_reset(void)
     cut_left = UINT_MAX;
     tear_left = UINT_MAX;
     torn = 0u;
+    nvm_read_fails = 0u;
+    nvm_lost_writes = 0u;
     g_store = 0;
     jumped = 0u;
     reset_calls = 0u;
@@ -83,6 +87,16 @@ void tfw_boot_mock_tear_nvm(unsigned ok, uint8_t byte, uint8_t val)
     if (ok == UINT_MAX) {
         cut_left = UINT_MAX;
     }
+}
+
+void tfw_boot_mock_fail_nvm_reads(unsigned n)
+{
+    nvm_read_fails = n;
+}
+
+void tfw_boot_mock_lose_nvm_writes(unsigned n)
+{
+    nvm_lost_writes = n;
 }
 const uint8_t *tfw_boot_mock_handoff(void) { return handoff_block; }
 
@@ -191,6 +205,10 @@ tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
     if ((uint32_t)addr + len > sizeof eeprom) {
         return TFW_ERR_RANGE;
     }
+    if (nvm_read_fails != 0u) {
+        nvm_read_fails--;
+        return TFW_ERR_INTERNAL;
+    }
     memcpy(buf, &eeprom[addr], len);
     return TFW_OK;
 }
@@ -214,6 +232,10 @@ tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
     }
     if (tear_left != UINT_MAX) {
         tear_left--;
+    }
+    if (nvm_lost_writes != 0u) {
+        nvm_lost_writes--;
+        return TFW_OK;
     }
     memcpy(&eeprom[addr], buf, len);
     nvm_at = ++events;

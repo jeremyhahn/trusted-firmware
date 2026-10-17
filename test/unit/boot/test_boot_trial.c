@@ -181,6 +181,19 @@ void test_fail_is_refused_with_no_trial_and_nothing_pending(void)
     assert_state(TFW_BOOT_STATE_CONFIRMED, TFW_BOOT_OTA_IDLE);
 }
 
+/* The fall back is the fail plus GOOD: refused where the fail is, and then
+ * GOOD is not written either -- a block already fallen back stays FAILED. */
+void test_fall_back_is_refused_with_no_trial_and_nothing_pending(void)
+{
+    at(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_FAILED);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_trial_fall_back(&p));
+    assert_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_FAILED);
+
+    at(TFW_BOOT_STATE_CONFIRMED, TFW_BOOT_OTA_IDLE);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_boot_trial_fall_back(&p));
+    assert_state(TFW_BOOT_STATE_CONFIRMED, TFW_BOOT_OTA_IDLE);
+}
+
 /* ---------------------------------------------------------- confirm */
 
 void test_confirm_accepts_a_running_trial(void)
@@ -391,6 +404,7 @@ int main(void)
     RUN_TEST(test_a_pending_image_refused_at_evaluation_fails_at_every_reset);
     RUN_TEST(test_a_transient_refusal_is_not_undone_by_a_good_reset);
     RUN_TEST(test_fail_is_refused_with_no_trial_and_nothing_pending);
+    RUN_TEST(test_fall_back_is_refused_with_no_trial_and_nothing_pending);
     RUN_TEST(test_confirm_accepts_a_running_trial);
     RUN_TEST(test_confirm_is_refused_outside_a_trial);
     RUN_TEST(test_confirm_is_refused_after_the_trial_failed);

@@ -118,7 +118,7 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
 # provider.c instead -- linking both would be two definitions of
 # tfw_crypto_init and everything else in include/tfw/crypto.h.
-TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c \
+TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test/unit/test_crypto_auto.c \
                             test/unit/test_provision.c test/unit/test_alias.c \
                             test/unit/test_csr.c \
                             test/unit/test_model_p256.c \
@@ -192,6 +192,26 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
                         src/crypto/sha256.c \
                         src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# CRYPTO=auto's dispatch (issue #130) against the software element, both
+# providers renamed by mk/firmware.mk's CRYPTO_RENAME exactly as the image's are.
+$(HOST_DIR)/crypto_auto_%.o: | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) $(call CRYPTO_RENAME,$*) -c -o $@ $<
+$(HOST_DIR)/crypto_auto_soft.o: src/crypto/soft/provider.c
+$(HOST_DIR)/crypto_auto_element.o: src/crypto/atecc608a/provider.c
+$(HOST_DIR)/floor_auto_%.o: | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) $(call FLOOR_RENAME,$*) -c -o $@ $<
+$(HOST_DIR)/floor_auto_soft.o: src/core/ota_floor_eeprom.c
+$(HOST_DIR)/floor_auto_element.o: src/core/ota_floor_atecc.c
+$(HOST_DIR)/test_crypto_auto: test/unit/test_crypto_auto.c $(ELEMENT_MODEL) \
+                              src/crypto/atecc608a/atecc.c src/crypto/auto/provider.c \
+                              $(HOST_DIR)/crypto_auto_soft.o $(HOST_DIR)/crypto_auto_element.o \
+                              src/core/ota_floor_auto.c $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
+                              src/crypto/sha256.c test/mock/uds_mock.c \
+                              src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -450,7 +470,7 @@ $(HOST_DIR)/test_storage_2560: test/unit/test_storage_2560.c src/caps/storage.c 
                                src/core/secure_zero.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(STORAGE_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \

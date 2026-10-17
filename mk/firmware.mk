@@ -154,8 +154,16 @@ ALIAS_SRCS  :=
 ALIAS_DEFS  :=
 AUTH_SRCS   := src/core/auth_session_none.c
 AUTH_DEFS   :=
-else ifeq ($(CRYPTO),atecc608a)
+else ifneq ($(filter $(CRYPTO),atecc608a auto),)
 CRYPTO_SRCS := src/crypto/sha256.c src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c
+# THE MEGA'S RUNTIME TIER (issue #130): everything the element image links, and
+# the soft provider beside it, each renamed per object by CRYPTO_RENAME below;
+# src/crypto/auto/provider.c chooses one at init -- the element when one
+# answers, else the soft root. docs/dice-attestation/architecture.md, "The
+# Mega's runtime tier".
+ifeq ($(CRYPTO),auto)
+CRYPTO_SRCS += src/crypto/soft/provider.c src/crypto/soft/uds_flash.c src/crypto/auto/provider.c
+endif
 # The alias certificate rides with the tier that can sign one, and only on a
 # board with room for it. It is gated by FILE SELECTION, exactly as tone is: a
 # certificate names a subject public key, the software tier's identity is an
@@ -188,7 +196,7 @@ ifeq ($(AUTH_OFF),1)
 AUTH_SRCS   := src/core/auth_session_none.c
 AUTH_DEFS   :=
 else
-AUTH_SRCS   := src/core/auth_session.c
+AUTH_SRCS   := src/core/auth_session.c $(if $(filter auto,$(CRYPTO)),src/core/auth_session_auto.c)
 AUTH_DEFS   := -DTFW_FEATURE_AUTH_SESSION=1
 endif
 else ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_TIERS)),)
@@ -203,7 +211,7 @@ ALIAS_DEFS  :=
 AUTH_SRCS   := src/core/auth_session_none.c
 AUTH_DEFS   :=
 else
-$(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft or atecc608a$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
+$(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft, atecc608a or auto$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
 endif
 
 # The SUIT manifest reader and activation gate (issue #78), by FILE SELECTION:
@@ -212,7 +220,7 @@ endif
 # ATmega2560 today. The 328P and 32U4 sit under the 16 384-byte policy line,
 # where the ADR's decision 6 leaves the trailer alone; they opt in only once a
 # measured image fits the region budget with the reader in it.
-ifeq ($(CRYPTO)$(OTA_MANIFEST),atecc608a1)
+ifneq ($(filter $(CRYPTO)$(OTA_MANIFEST),atecc608a1 auto1),)
 MANIFEST_SRCS := src/core/suit.c
 else
 MANIFEST_SRCS :=
@@ -319,7 +327,7 @@ endif
 # (src/core/ota_floor.h), chosen here by file.
 ifeq ($(BOOT_AB)$(OTA_STAGE),11)
 OTACTL_SRCS := src/core/ota_ctl.c boot/boot_trial.c boot/boot_image.c \
-               $(if $(filter atecc608a,$(CRYPTO)),src/core/ota_floor_atecc.c,src/core/ota_floor_eeprom.c)
+               $(if $(filter atecc608a,$(CRYPTO)),src/core/ota_floor_atecc.c,$(if $(filter auto,$(CRYPTO)),src/core/ota_floor_atecc.c src/core/ota_floor_eeprom.c src/core/ota_floor_auto.c,src/core/ota_floor_eeprom.c))
 FW_CFLAGS   += -DTFW_FEATURE_OTA_CTL=1
 else
 OTACTL_SRCS :=
@@ -340,6 +348,8 @@ endif
 #
 #   CRYPTO=soft      SHA-256 and HMAC in software, UDS in boot-section flash
 #   CRYPTO=atecc608a the element holds the UDS and signs; DICE-HW
+#   CRYPTO=auto      both, the element when one answers at init, else soft:
+#                    one branch per entry in src/crypto/auto/provider.c
 FW_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c $(LINK_SRCS) \
@@ -354,6 +364,30 @@ FW_SRCS := $(sort \
   $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c)))
 
 FW_OBJS := $(patsubst %.c,$(FW_DIR)/%.o,$(FW_SRCS))
+
+# CRYPTO=auto links two providers that define the same eleven tfw_crypto_*
+# names. Each is compiled with its names renamed, so neither source changes;
+# src/crypto/auto/provider.c defines the public ones. mk/host.mk uses the list.
+CRYPTO_RENAME = $(foreach f,init tier algorithms random sha256 hmac sign pubkey counter \
+                  verify_operator verify_image,-Dtfw_crypto_$(f)=tfw_crypto_$(1)_$(f))
+FLOOR_RENAME = -Dtfw_otactl_floor=tfw_otactl_floor_$(1)
+AUTH_RENAME = -Dtfw_auth_session_init=tfw_auth_element_session_init -Dtfw_auth_gate=tfw_auth_element_gate
+# AUTO_RENAMES takes an object directory, so the firmware's objects and the
+# benchmark's (mk/bench.mk, which compiles the same sources) get one list.
+define AUTO_RENAMES
+$(1)/src/crypto/soft/provider.o:      FW_CFLAGS += $(call CRYPTO_RENAME,soft)
+$(1)/src/crypto/atecc608a/provider.o: FW_CFLAGS += $(call CRYPTO_RENAME,element)
+# The auth session the same way: auth_session.c's gate is the element's, and
+# src/core/auth_session_auto.c answers the public one on the dispatch's choice.
+$(1)/src/core/auth_session.o:         FW_CFLAGS += $(AUTH_RENAME)
+# And OTA_INFO's rollback floor: src/core/ota_floor_auto.c reads the element's
+# counter or the platform block's floor on the dispatch's choice.
+$(1)/src/core/ota_floor_atecc.o:      FW_CFLAGS += $(call FLOOR_RENAME,element)
+$(1)/src/core/ota_floor_eeprom.o:     FW_CFLAGS += $(call FLOOR_RENAME,soft)
+endef
+ifeq ($(CRYPTO),auto)
+$(eval $(call AUTO_RENAMES,$(FW_DIR)))
+endif
 
 $(FW_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

@@ -33,6 +33,9 @@ BENCH_OBJS := $(patsubst %.c,$(BENCH_DIR)/%.o,$(BENCH_SRCS))
 # Identical flags to mk/firmware.mk's, by reference and not by copy. A second
 # copy of FW_CFLAGS here would drift from the first, and the whole claim of this
 # gate is that it measures the compilation the firmware gets.
+ifeq ($(CRYPTO),auto)
+$(eval $(call AUTO_RENAMES,$(BENCH_DIR)))
+endif
 $(BENCH_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	@$(ARCH_CC) $(FW_CFLAGS) -frandom-seed=$(notdir $<) -c -o $@ $<

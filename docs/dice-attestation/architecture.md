@@ -263,6 +263,118 @@ measured. The gateway's own attestation, admission policy and the public
 verification path are go-xkms's and go-trusted-platform's, not this repo's —
 see `docs/security/threat-model.md` for the boundary as drawn on this side.
 
+## The Mega's runtime tier
+
+Owner ruling of 2026-10-17 (CA m435, issue #130 criterion 1): the ATECC608C is
+never required on an AVR board. The Mega 2560 links both the element provider
+and the software DICE root, and at runtime runs the element when one answers,
+else the soft root. The boot side (`feat/130-soft-root`) is not this section's.
+
+Until now the tier was a build choice: `mk/firmware.mk:136`–`:207` picks one of
+`CRYPTO=soft|none|atecc608a`, and each tier's source list brings its own
+`tfw_crypto_init()` (`src/crypto/soft/provider.c:65`,
+`src/crypto/atecc608a/provider.c:72`). `CRYPTO=auto` is a fourth value, the
+2560 profile's default.
+
+**One image, two providers, no vtable.** Both provider files define the same
+eleven `tfw_crypto_*` symbols of `include/tfw/crypto.h`. Under `CRYPTO=auto`
+each is compiled with a per-object `-D` rename list (`tfw_crypto_init` →
+`tfw_crypto_soft_init` / `tfw_crypto_element_init`, and so on for all eleven),
+so neither provider's source changes and neither carries a conditional. The
+public names are then defined once, by `src/crypto/auto/provider.c`: one
+`uint8_t` chosen at init, and in each entry a single branch to the soft or
+element function. That is cheaper than a `const` table in flash: a table makes
+every entry a live reference through a pointer load, the branch costs a few
+words per entry and leaves calls the compiler can see. `--gc-sections` keeps
+both providers' entries (both are reachable from the dispatch) and still drops
+every peripheral and capability nothing calls, as it does today. The cost is
+one byte of RAM and the dispatch's branches.
+
+**The probe runs once, at `tfw_crypto_init`, and the choice never changes until
+reset.** The dispatch probes before either provider's init runs, because the
+element provider drains the boot handoff's CDI unconditionally
+(`src/crypto/atecc608a/provider.c:106`) and the soft provider needs that CDI
+when tfw-boot derived it from the soft UDS (`src/crypto/soft/provider.c:115`).
+The probe is the element provider's own presence test: the I2C bus at
+`TFW_ATECC_I2C_HZ`, the wake answer (`src/crypto/atecc608a/atecc.c:77`), and an
+`Info(Revision)` that must return with a good CRC, then sleep. All three pass →
+the element provider's init runs, and the element is chosen only if it then
+reports `TFW_CRYPTO_SECURE_ELEMENT`. Any of them fails — no bus, no wake, a
+wake with a failed or corrupt Info, the half-way case — → only the soft
+provider's init runs. There is no mix: every later call goes to the one
+provider chosen, and an element that disappears afterwards fails its calls
+with `TFW_ERR_CRYPTO` rather than falling over to the soft key. The one race,
+an element that answers the probe and not its own init a moment later, falls
+to soft after the element provider has drained the handoff's CDI. It cannot
+sign under a wrong key: the drain clears only the CDI, the handoff's tier
+stays readable (`src/core/handoff.c:89`–`:102`), so the soft provider either
+finds a handoff naming its own tier with no CDI left and stays unprovisioned,
+finds one naming the element and refuses it, or finds none and derives from
+its own UDS (`src/crypto/soft/provider.c:116`–`:129`).
+
+**The evidence states the tier.** `SYS_INFO` writes `tfw_crypto_tier()`
+(`src/caps/sys.c:112`), which the dispatch answers from the chosen provider:
+`TFW_CRYPTO_SOFTWARE` from the soft root (`src/crypto/soft/provider.c:162`),
+`TFW_CRYPTO_SECURE_ELEMENT` only from an element that answered
+(`src/crypto/atecc608a/provider.c:169`). `tfw_crypto_algorithms()` is the
+chosen provider's too, so a soft-rooted Mega advertises HMAC-SHA256 only and
+signs with `TFW_ALG_HMAC_SHA256`. Its `tfw_crypto_pubkey` refuses, so no alias
+certificate can name an element key for it.
+
+**The element path is whole.** An `auto` image links everything the
+`atecc608a` image links (`mk/firmware.mk`, the `atecc608a auto` branch): the
+alias certificate, the CSR, the auth session and, where the profile opts in,
+the SUIT reader. Each reaches the element through the dispatch, so with the
+soft root chosen they refuse as that tier must (no public key, no image key,
+no TRNG). The auth gate is `src/core/auth_session_auto.c`: `auth_session.c`'s
+operator-signature gate, renamed per object, when the dispatch chose the
+element, and the soft tier's permissive answer when it chose soft. The ATTEST
+refusal of a CDI handed off for the other tier stays where it is, in the soft
+provider's init (`src/crypto/soft/provider.c:116`–`:129`), and runs only when
+the dispatch chose soft; the element provider never derives from the handoff.
+
+No image writes DiceTcbInfo vendorInfo today (the alias template carries none),
+so the `.24.1`/`.24.2` statement is not yet emitted by any tier. No wire byte and no status code changes.
+
+**Cost.** `make size-check BOARD=atmega2560` (the default is now `CRYPTO=auto`)
+against `make size-check BOARD=atmega2560 CRYPTO=soft` and `CRYPTO=atecc608a`
+gives the 2560's flash and RAM for each, measured in lane-verify.
+
+**The boot harness.** `integration-test-boot`'s first row (`mk/boot.mk`) builds
+its application `CRYPTO=soft` by name: `test_signed_image_boots` proves a soft
+application refuses the element-derived CDI tfw-boot hands off, and an `auto`
+image on that bus finds the element and rightly takes the element's path
+(one more element HMAC at init, and an ATTEST that signs).
+
+The bridge row (`boot-bridge-run`) is `CRYPTO=soft` as well. Its test,
+`TestOTAStageThroughTfwBoot`, checks the stager through tfw-boot. On an element
+tier, OTA_ACTIVATE takes the operator session gate (`tfw_auth_gate()`, called
+by the handler itself). There is no list of gated commands. The harness bakes
+no operator key, so no session could be opened there, and the gate stays.
+
+**The rollback floor.** OTA_INFO's floor follows the boot's tier, not the
+application's dispatch. `src/core/ota_floor_auto.c` reads the `tier` byte
+tfw-boot wrote into the handoff (offset 5, `include/tfw/boot.h:285`):
+
+- an element boot reports the element's boot counter;
+- a soft boot reports the platform block's EEPROM floor;
+- with no handoff, or an element counter that cannot be read, the answer is
+  `TFW_ERR_CRYPTO`, never the EEPROM copy.
+
+The reason is that tfw-boot enforces the floor of its own tier, so the floor
+OTA_INFO reports must be the one enforced. Suppose an element boot is followed
+by an application probe that fails transiently and chooses soft. That
+application still reports the counter, because the EEPROM copy can be stale
+(`src/core/ota_floor.h`) while the counter is the floor in force.
+`ota_floor_atecc.c` and `ota_floor_eeprom.c` are linked side by side with
+`FLOOR_RENAME`.
+
+The application only reads the floor. tfw-boot enforces it and advances it at
+settle (decision 5), on its own build-time tier, and it never decrements either
+store. If the tier changes between boots (an element fitted or removed), the
+boot's tier, and with it the store OTA_INFO reads, is still tfw-boot's. The
+floor that is enforced does not move, and it never moves backwards.
+
 ## What this deliberately does not do
 
 - **No key material crosses the wire, ever.** No command exports a private

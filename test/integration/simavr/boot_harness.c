@@ -925,6 +925,24 @@ static const uint8_t TEST_DEVICE_SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5
 };
 
+/* The test operator key pair (issue #130): a P-256 key made for this harness
+ * and never anything else, so its private half is a literal here and lives
+ * only under test/. The public half is the platform block's operator_pubkey,
+ * which tfw_platform_id_operator_pubkey (src/core/platform_id.c) reads for the
+ * application's AUTH_RESPONSE check; tfw-boot does not read it. Public is
+ * X || Y, big-endian. The private half has external linkage so an unused
+ * const is not a -Werror; it is the signer's for a session leg. */
+const uint8_t TEST_OPERATOR_PRIVATE[32] = {
+    0x00, 0x47, 0xc9, 0x19, 0xaf, 0x8d, 0xee, 0x2d, 0x7d, 0x82, 0xf3, 0x8e, 0xc5, 0xeb, 0xbd, 0x42,
+    0x4e, 0x84, 0x9a, 0xd2, 0x8e, 0x7b, 0xa1, 0xab, 0x76, 0xd5, 0x19, 0x44, 0x95, 0xde, 0xd7, 0x90
+};
+static const uint8_t TEST_OPERATOR_PUBLIC[TFW_BOOT_OPERATOR_PUBKEY_LEN] = {
+    0x6c, 0x7e, 0x9a, 0xc4, 0xe6, 0xfc, 0xe8, 0xca, 0x7a, 0x63, 0x21, 0xab, 0x03, 0x16, 0x8a, 0xfc,
+    0xbd, 0xe8, 0x54, 0x8e, 0xbf, 0x7a, 0xe5, 0xef, 0x1d, 0xf1, 0x67, 0x53, 0x8d, 0x84, 0x69, 0x9c,
+    0x5d, 0x5b, 0xca, 0x65, 0x93, 0x19, 0x18, 0xec, 0x62, 0xa5, 0x42, 0xf0, 0x59, 0xb7, 0x41, 0xd0,
+    0x00, 0x24, 0xb4, 0xe9, 0x66, 0x4a, 0x10, 0xe7, 0x85, 0xd6, 0x1a, 0xee, 0x1e, 0xab, 0x65, 0xf9
+};
+
 static void build_eeprom_state(uint8_t boot_state, uint8_t ota_state)
 {
     tfw_boot_platform_t plat;
@@ -944,6 +962,7 @@ static void build_eeprom_state(uint8_t boot_state, uint8_t ota_state)
     plat.boot_state = boot_state;
     plat.ota_state  = ota_state;
     memcpy(plat.serial, TEST_DEVICE_SERIAL, TFW_BOOT_SERIAL_LEN);
+    memcpy(plat.operator_pubkey, TEST_OPERATOR_PUBLIC, TFW_BOOT_OPERATOR_PUBKEY_LEN);
     tfw_boot_platform_serialise(&plat, eeprom_image);
 }
 
@@ -2615,17 +2634,16 @@ static const char *boot_symbol_at(const elf_firmware_t *boot, uint32_t pc, uint3
     return name;
 }
 
-static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
-                                                       elf_firmware_t *app)
+/* The network leg's staging: the running image (version 2) booted, the store
+ * empty, and version 3 streamed to it over TCP through OTA_END. */
+static void net_stage(elf_firmware_t *boot, elf_firmware_t *app, uint8_t *seqp)
 {
     static uint8_t stream[TFW_OTA_STORE_STAGE_LEN];
     uint8_t  pl[TFW_MAX_PAYLOAD];
     uint32_t total, off, n = 0u;
     uint8_t  seq = 0u;
-    int      st, booted, stored;
-    tfw_boot_platform_t p;
+    int      st;
 
-    printf("store row, over the network: an image staged through the W5100 to its trial:\n");
     total = stage_stream(app, 3u, stream);
 
     build_image(app, 2u, -1);
@@ -2657,39 +2675,58 @@ static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
     check(st == TFW_OK, "every OTA_DATA over TCP is taken, in order");
     check(net_exchange(++seq, TFW_CMD_OTA_END, NULL, 0u, boot_store_budget()) == TFW_OK,
           "OTA_END over TCP checks the stream; it writes no MARK");
-    {
-        /* ACTIVATE is serial only: it re-reads the whole store before the MARK,
-         * so it gets the store's budget, not an ordinary exchange's. */
-        static const char *const names[] = {
-            "OK", "ERR_CRC", "ERR_FRAMING", "ERR_TOO_LONG", "ERR_UNKNOWN_CMD",
-            "ERR_BAD_ARGC", "ERR_BAD_PIN", "ERR_UNSUPPORTED", "ERR_BUSY",
-            "ERR_TIMEOUT", "ERR_NACK", "ERR_RANGE", "ERR_NO_SLOT",
-            "ERR_RESERVED_PIN", "ERR_CRYPTO", "ERR_NOT_PROVISIONED",
-            "ERR_PROTECTED_REGION", "ERR_AUTH_REQUIRED", "ERR_INTERNAL",
-            "ERR_BAD_STATE",
-        };
-        /* [mode:1], OTA ADR decision 8: 0, taken at the next reset, which
-         * this leg takes itself. */
-        const uint8_t mode = 0u;
-        uint8_t  wire[16], status = 0u, rpl[64], rplen = 0u;
-        unsigned wn = frame_request(wire, ++seq, TFW_CMD_OTA_ACTIVATE, &mode, 1u);
-        long     budget = boot_store_budget();
-        int      got;
+    *seqp = seq;
+}
 
-        from_device_n = 0;
-        send(wire, wn);
-        wait_for_seq = seq;
-        run_until(response_arrived, budget);
-        got = find_response(seq, &status, rpl, &rplen);
-        if (!got) {
-            printf("  OTA_ACTIVATE: no response within %ld steps\n", budget);
-        } else if (status != TFW_OK) {
-            printf("  OTA_ACTIVATE answered %u (TFW_%s)\n", (unsigned)status,
-                   status < sizeof names / sizeof names[0] ? names[status] : "unknown");
-        }
-        check(got && status == TFW_OK,
-              "OTA_ACTIVATE over serial re-verifies the store and writes the MARK");
+/* OTA_ACTIVATE over serial, mode 0; 1 when it answered, its status in *status. */
+static int net_activate(uint8_t *seqp, uint8_t *status)
+{
+    /* ACTIVATE is serial only: it re-reads the whole store before the MARK,
+     * so it gets the store's budget, not an ordinary exchange's. */
+    static const char *const names[] = {
+        "OK", "ERR_CRC", "ERR_FRAMING", "ERR_TOO_LONG", "ERR_UNKNOWN_CMD",
+        "ERR_BAD_ARGC", "ERR_BAD_PIN", "ERR_UNSUPPORTED", "ERR_BUSY",
+        "ERR_TIMEOUT", "ERR_NACK", "ERR_RANGE", "ERR_NO_SLOT",
+        "ERR_RESERVED_PIN", "ERR_CRYPTO", "ERR_NOT_PROVISIONED",
+        "ERR_PROTECTED_REGION", "ERR_AUTH_REQUIRED", "ERR_INTERNAL",
+        "ERR_BAD_STATE",
+    };
+    /* [mode:1], OTA ADR decision 8: 0, taken at the next reset, which
+     * this leg takes itself. */
+    const uint8_t mode = 0u;
+    uint8_t  wire[16], rpl[64], rplen = 0u;
+    unsigned wn = frame_request(wire, ++*seqp, TFW_CMD_OTA_ACTIVATE, &mode, 1u);
+    long     budget = boot_store_budget();
+    int      got;
+
+    *status = 0u;
+
+    from_device_n = 0;
+    send(wire, wn);
+    wait_for_seq = *seqp;
+    run_until(response_arrived, budget);
+    got = find_response(*seqp, status, rpl, &rplen);
+    if (!got) {
+        printf("  OTA_ACTIVATE: no response within %ld steps\n", budget);
+    } else if (*status != TFW_OK) {
+        printf("  OTA_ACTIVATE answered %u (TFW_%s)\n", (unsigned)*status,
+               *status < sizeof names / sizeof names[0] ? names[*status] : "unknown");
     }
+    return got;
+}
+
+static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
+                                                       elf_firmware_t *app)
+{
+    uint32_t off = 0u;
+    uint8_t  seq = 0u, status = 0u;
+    int      booted, stored;
+    tfw_boot_platform_t p;
+
+    printf("store row, over the network: an image staged through the W5100 to its trial:\n");
+    net_stage(boot, app, &seq);
+    check(net_activate(&seq, &status) && status == TFW_OK,
+          "OTA_ACTIVATE over serial re-verifies the store and writes the MARK");
 
     printf("  reset\n");
     carry();
@@ -2727,6 +2764,36 @@ static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
     check(tfw_nor_model_violations() == 0u && nor_overrun == 0,
           "every store access, the stager's and tfw-boot's, was well formed");
     check(eth_overrun == 0, "every W5100 frame was four bytes under its select");
+}
+
+/* The element tier's gate holds (#130): an auto application that finds the
+ * element gates OTA_ACTIVATE behind the operator session, and the harness
+ * bakes no operator key, so none is open. Refused, nothing reaches the store
+ * and the reset boots the primary as it was. */
+static void test_an_element_tier_activate_refuses_without_a_session(elf_firmware_t *boot,
+                                                                     elf_firmware_t *app)
+{
+    uint8_t seq = 0u, status = 0u;
+    int     stored;
+    tfw_boot_platform_t p;
+
+    printf("store row, over the network, element tier: OTA_ACTIVATE without a session:\n");
+    net_stage(boot, app, &seq);
+    store_snapshot();
+    check(net_activate(&seq, &status) && status == TFW_ERR_AUTH_REQUIRED,
+          "OTA_ACTIVATE without a session answers TFW_ERR_AUTH_REQUIRED");
+    check(memcmp(tfw_nor_model_mem(), store_staged, sizeof store_staged) == 0,
+          "the store's MARK is not written");
+
+    printf("  reset\n");
+    carry();
+    boot_with_store(boot, el.counter);
+    attach_eth();
+    check(run_until(app_booted, boot_store_budget()), "the running image boots again");
+    check(primary_version() == 2u, "the primary is the image it was");
+    stored = stored_platform(&p) == TFW_OK;
+    check(stored && p.boot_state == TFW_BOOT_STATE_GOOD, "it is GOOD, not on trial");
+    check(el.counter == 2u, "the floor is where it was");
 }
 
 int main(int argc, char **argv)
@@ -2768,6 +2835,12 @@ int main(int argc, char **argv)
      * are not its tests; the row is named by the caller, mk/boot.mk. */
     if (argc > 4 && strcmp(argv[3], "bridge") == 0) {
         test_a_host_staged_image_runs_its_trial(&boot, &app, argv[4]);
+        store_bus_report();
+        printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
+        return failures ? 1 : 0;
+    }
+    if (argc > 3 && strcmp(argv[3], "net-gate") == 0) {
+        test_an_element_tier_activate_refuses_without_a_session(&boot, &app);
         store_bus_report();
         printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
         return failures ? 1 : 0;

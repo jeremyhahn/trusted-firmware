@@ -636,15 +636,31 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c $(BOOT_HARN
 BOOT_INT_STORE_ROW := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=0 \
                       BOOT_STORE=1
 
+# The first row's application is CRYPTO=soft by name: test_signed_image_boots
+# (test/integration/simavr/boot_harness.c) proves a soft application refuses
+# the element-derived CDI tfw-boot hands off. The 2560's default is CRYPTO=auto
+# (issue #130), which finds the element on this bus and rightly takes the
+# element's path, so that case has to ask for the soft image. The bridge row's
+# application is CRYPTO=soft for a like reason: TestOTAStageThroughTfwBoot is
+# the stager through tfw-boot, and the harness bakes no operator public key, so
+# an element-tier image's OTA_ACTIVATE gate (src/core/ota_activate.c) could not
+# be opened by anyone on this bench, as it must not be. The network row's
+# application is CRYPTO=soft for the same reason: its leg ends in OTA_ACTIVATE.
+# The element tier's gate is the net-gate row's: the same network row built
+# CRYPTO=auto with the element answering, where OTA_ACTIVATE without a session
+# answers TFW_ERR_AUTH_REQUIRED, writes no MARK, and the reset boots the
+# primary as it was.
 integration-test-boot:
 	@$(MAKE) --no-print-directory boot-harness-run \
-	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_ROW) ETH=0
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_ROW) ETH=0 CRYPTO=soft
 	@$(MAKE) --no-print-directory boot-harness-run \
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 BOOT_HARNESS_MODE=store
 	@$(MAKE) --no-print-directory boot-bridge-run \
-	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 OTA_STAGE=1
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 OTA_STAGE=1 CRYPTO=soft
 	@$(MAKE) --no-print-directory boot-harness-run \
-	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=1 BOOT_HARNESS_MODE=net
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=1 BOOT_HARNESS_MODE=net CRYPTO=soft
+	@$(MAKE) --no-print-directory boot-harness-run \
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=1 BOOT_HARNESS_MODE=net-gate CRYPTO=auto
 
 # The same store row from the host (#75): the application built with the stager
 # (OTA_STAGE=1, mk/firmware.mk), the harness in its bridge mode, and the Go SDK

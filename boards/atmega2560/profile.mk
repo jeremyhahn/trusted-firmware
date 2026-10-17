@@ -49,7 +49,15 @@ ETH_CHIP       ?= w5100
 # with no ETH= is the Ethernet node. The shieldless bench Mega is the explicit
 # ETH=0 row below, built and budgeted on every tier like the default rows.
 ETH            ?= 1
-BOARD_ROWS     := soft:ETH=0 atecc608a:ETH=0
+
+# The runtime tier (owner ruling of 2026-10-17, issue #130 criterion 1): the
+# element when one answers at init, else the soft root. The element is never
+# required; docs/dice-attestation/architecture.md, "The Mega's runtime tier".
+CRYPTO         ?= auto
+# The default is a release image like the two fixed tiers: firmware-matrix,
+# provenance and the size gate build it, the shieldless row as well.
+BOARD_TIERS    := soft atecc608a auto
+BOARD_ROWS     := soft:ETH=0 atecc608a:ETH=0 auto:ETH=0
 
 # The SUIT manifest reader and gate (issue #78; mk/firmware.mk): the element-tier
 # image carries src/core/suit.c. The 2560 has the room; ADR decision 6.

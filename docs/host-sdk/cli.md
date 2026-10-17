@@ -39,7 +39,7 @@ tfwctl ports
 | `timer-cancel` | `<pin> [apply]` | cancels a pin's timer; `apply` drives the pin to the level it would have reverted to |
 | `timer-query` | `<pin>` | whether a timer is active, held level, remaining duration |
 | `ota-stage` | `<image>` | stages the image file through `OTA_BEGIN`, `OTA_DATA` in `OTAChunk` pieces and `OTA_END`, then prints `OTA_STATUS`'s state and received count; tfwctl does not parse the image, the device gates it, and a refusal prints its status and exits non-zero |
-| `ota-status` | | `OTA_STATUS`: the staging session's state and received count, printed as `ota-stage` prints them |
+| `ota-status` | | `OTA_STATUS`: the staging session's state and received count, printed as `ota-stage` prints them. A board built without a stager answers device status 4, `TFW_ERR_UNKNOWN_CMD`: tfwctl prints `tfwctl: unknown command` on stderr and exits 1 |
 | `ports` | — | lists serial ports this host can see; no device connection made |
 
 An unsolicited boot event seen during any exchange prints a note to stderr:

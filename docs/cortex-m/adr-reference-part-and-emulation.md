@@ -448,6 +448,9 @@ power-on
    Only tfw-boot writes it today, and the i.MX 95 has no tfw-boot.
 5. **M7 OTA.** Is the M7 image updated only as part of trusted-imx95's
    container? Or does the M7 get A/B slots and its own tfw-boot later?
+   Answered in part (owner, 2026-10-15, Q11): AHAB and the enclave verify the
+   M7 container; the anti-rollback floor and who stages the image are decided
+   with the trust-model ADR (#15), and there is no M7 OTA command until then.
 6. **Reset causes.** `tfw_reset_cause_t` has no `SOFTWARE` and no `LOCKUP`.
    Both are common on Cortex-M. Appending them (`5`, `6`) is an extend-only wire
    change for its own PR. Until then they read as `UNKNOWN`.

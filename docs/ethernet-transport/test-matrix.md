@@ -255,3 +255,47 @@ unpacked under `$HOME/avr`, behind an `avrdude` wrapper that refused `-e`,
 | 4 | `OTA_INFO` (`0x6C`) on a board `tfw-boot` never armed | Status 4, "unknown command", with no payload. Not GOOD/none: `0x6C` has no entry in `include/tfw/protocol.h` or `src/core/commands.def` at `fd7a696`, so no image answers it yet. `OTA_STATUS` (`0x6B`) answers status 4 too |
 | 4 | `OTA_BEGIN` (`0x68`) with a total of 256 bytes, on a board with no store | Status 4, "unknown command". As [the stager](../ota/architecture.md#the-application-stager-75) says, only an image with an external store links `src/core/ota_stage.c`; this image links `src/core/ota_stage_none.c`, so `OTA_BEGIN`, `OTA_DATA`, `OTA_END` and `OTA_STATUS` are not in its dispatch table. `OTA_STATUS` and `OTA_INFO` read after it answer status 4 again. Nothing was written |
 | — | `0x000`–`0x0FF` read again after the suite and the OTA commands | Equal to the first read, byte for byte. No byte was changed, so none was restored |
+
+## The bench Mega on train/ota75e, 2026-10-16
+
+The same board and the same rules as [the fd7a696 pass](#the-bench-mega-on-main-fd7a696-2026-10-16):
+the Mega 2560 without the shield, with EESAVE programmed, on `/dev/ttyACM0`,
+through its stock STK500v2 bootloader only, with no ISP, erase, fuse, lock or
+boot-section access. The toolchain is [the probe's](../development/wiznet-probe.md#toolchain)
+again, behind the same refusing `avrdude` wrapper. The train adds the host's
+`tfwctl ota-stage` and `tfwctl ota-status` verbs ([cli.md](../host-sdk/cli.md)).
+The firmware did not change: the image hashes as fd7a696's did.
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| `BOARD=atmega2560 CRYPTO=soft` on train/ota75e, no Ethernet | 13328 / 765 bytes | `06d5215fd6733bd452444ac17069e5b777ab7555090b0e08e5a68ede1cc70b36`, fd7a696's |
+
+| # | What ran | Result |
+|---|---|---|
+| — | `0x000`–`0x0FF` read with `tfwctl eeprom-read`, eight bytes a command (the verb's limit), before the flash | Read in full, no error. Kept outside the repository |
+| 1 | The image built and flashed with `make flash` | Pass. avrdude wrote and verified 13328 bytes |
+| 2 | `0x000`–`0x0FF` read again after the flash | **Equal to the read before, byte for byte; not re-provisioned** |
+| 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, after `make tfwsim tfwsim-app-example` | Pass: 28 top-level tests passed, none failed, none skipped |
+| 4 | `tfwctl /dev/ttyACM0 ota-status`, before anything else | Status 4: prints `tfwctl: unknown command`, exit 1, with `-json` too. This image links `src/core/ota_stage_none.c`, so `OTA_STATUS` is not in its dispatch table ([the stager](../ota/architecture.md#the-application-stager-75)) |
+| 4 | `tfwctl /dev/ttyACM0 ota-stage <image>`, board id `0x02`: the 13328-byte application, `0xFF`-padded to 13568 bytes (53 pages), trailer v1 in the last 128 bytes, version 1, unsigned | Status 4 at `OTA_BEGIN`: prints `tfwctl: unknown command`, exit 1, nothing else printed and nothing sent after it. `ota-status` after it: status 4 again, exit 1 |
+| 4 | The same with board id `0x01` | The same: status 4, exit 1; `ota-status` status 4, exit 1. The board id is never reached |
+| 5 | `0x000`–`0x0FF` read again after the suite and the OTA verbs; `ping` | Equal to the first read, byte for byte; `ping` answers. The board stays on this image |
+
+Against the docs:
+
+- `ota-stage`: matches [cli.md](../host-sdk/cli.md). A refusal prints its
+  status and exits non-zero, and nothing follows the refused `OTA_BEGIN`.
+- `ota-status`: [cli.md](../host-sdk/cli.md) names only the state and the
+  received count. It does not say what an image without the stager answers.
+  That answer is status 4 and exit 1, which [the stager](../ota/architecture.md#the-application-stager-75)
+  predicts. This is a gap in cli.md, not a contradiction.
+- **Finding:** [the OTA user guide](../ota/user.md) still says "`tfwctl` has no
+  OTA verb; the steps use `sdk/go`". [The secure-boot user guide](../secure-boot/user.md)
+  says the same twice, under "Install the application under tfw-boot" and
+  "Update the application". All three predate the train's verbs.
+- **Finding:** no trailer v1 tool exists. [The secure-boot user guide](../secure-boot/user.md#install-the-application-under-tfw-boot)
+  says `make firmware` writes no trailer and the tree holds no tool that stamps
+  one. So both images were made by a throwaway script outside the repository,
+  laid out as `simImage` in `sdk/go/cmd/tfwctl/ota_stage_test.go` lays them out.
+  On this board the device never reads the trailer, so the test does not depend
+  on it.

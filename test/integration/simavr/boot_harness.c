@@ -45,9 +45,15 @@
  * and that needs a device that answers.
  */
 
+/* dup2, fdopen, fcntl and read: the bridge mode's UART is the process's stdio. */
+#define _POSIX_C_SOURCE 200809L
+
+#include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <simavr/sim_avr.h>
 #include <simavr/sim_elf.h>
@@ -67,6 +73,10 @@
 #include "sha256.h"
 #include "crc16.h"
 #include "spi_nor_model.h"
+#include "tfw/config.h"
+#include "tfw/hal.h"
+#include "tfw/eth.h"
+#include "w5x00_model.h"
 
 /* The element's CRC, from the driver rather than from a second copy of it.
  * Declared rather than included, because atecc.h also declares the transport
@@ -195,8 +205,23 @@ static int run_until(int (*done)(void), long budget)
  *     cost 7.97 M, 648 steps a byte with the page writes and the journal.
  * A taken boot: three element measurements (the store, the primary twice,
  * 24.20 + 2 x 7.83 = 39.86 M) and the copy (13 500 x 648 = 8.75 M) is
- * 48.6 M steps, about 66 M cycles. Half as much again for margin. */
-#define BUDGET_BOOT_STORE 75000000L
+ * 48.6 M steps, about 66 M cycles. The time grows with the image, so the
+ * budget is derived from its length: boot_store_budget(), below. */
+#define STORE_STEPS_PASS_BYTE    1816L   /* the store pass, above */
+#define STORE_STEPS_COPY_BYTE     648L   /* the copy pass, above */
+/* One element measurement of the primary, CDI and jump included: the
+ * floor-refused 7.83 M over its 13 328-byte image, rounded up. */
+#define STORE_STEPS_MEASURE_BYTE  588L
+#define STORE_MEASURES              2L   /* the secondary before the swap, the primary after */
+/* What does not grow with the image (the swap, its journal, the start to the
+ * BOOT event): the store row's taken boot, 62.08 M steps on the verify node
+ * (verify.4, 2026-10-16), less 13 328 x 3 640 = 48.51 M of the per-byte terms,
+ * rounded up. */
+#define STORE_STEPS_FIXED    13600000L
+/* The store row's 75 M over its 62.08 M: the margin it ran under before the
+ * budget was derived, kept. */
+#define STORE_MARGIN_NUM            6L
+#define STORE_MARGIN_DEN            5L
 /* One frame in, one frame out, at 115 200 on a polled USART. */
 #define BUDGET_EXCHANGE   800000L
 
@@ -836,6 +861,24 @@ static void build_image_for(const elf_firmware_t *app, uint32_t version,
 static void build_image(const elf_firmware_t *app, uint32_t version, long tamper_at)
 {
     build_image_for(app, version, (uint8_t)TFW_BOARD_ID, tamper_at);
+}
+
+/*
+ * The step budget of a store-row boot, the one that takes a staged image the
+ * longest: the store pass, the copy and both measurements over the image last
+ * built, plus the fixed part, times the margin. Every element measurement is
+ * one SHA command per 64-byte block, so a fixed cap that fits one image runs
+ * out on a larger one (the network row's 17 532-byte ETH image ran out at
+ * 75 M, 2.6 hashes in). Also bounds the stager's OTA_END, which hashes the
+ * same image once through the same element.
+ */
+static long boot_store_budget(void)
+{
+    long per_byte = STORE_STEPS_PASS_BYTE + STORE_STEPS_COPY_BYTE
+                  + STORE_MEASURES * STORE_STEPS_MEASURE_BYTE;
+
+    return ((long)image_len * per_byte + STORE_STEPS_FIXED) * STORE_MARGIN_NUM
+           / STORE_MARGIN_DEN;
 }
 
 /* A pending image where the board stages one. With one slot it replaces the
@@ -1790,12 +1833,12 @@ static void store_bus_report(void)
     hz = avr->frequency ? (unsigned long)avr->frequency : 16000000UL;
     printf("  store bus: READ %lu (bytes %lu, max 0x%06lx), PP %lu, SE %lu, WREN %lu, RDSR %lu,"
            " other %lu; unselected %lu, overrun %d, open %u (op 0x%02x);"
-           " boot steps %ld of BUDGET_BOOT_STORE %ld, cycles %llu (%llu ms at %lu Hz),"
+           " boot steps %ld of a budget of %ld, cycles %llu (%llu ms at %lu Hz),"
            " cpu state %d\n",
            nor_ops[NC_READ], nor_read_bytes, nor_read_max, nor_ops[NC_PP], nor_ops[NC_SE],
            nor_ops[NC_WREN], nor_ops[NC_RDSR], nor_ops[NC_OTHER], nor_unselected, nor_overrun,
            nor_selected ? (unsigned)nor_n : 0u, nor_selected && nor_n ? nor_tx[0] : 0u,
-           last_run_steps, (long)BUDGET_BOOT_STORE, (unsigned long long)avr->cycle,
+           last_run_steps, boot_store_budget(), (unsigned long long)avr->cycle,
            (unsigned long long)(avr->cycle * 1000u / hz), hz, (int)avr->state);
 }
 
@@ -1875,22 +1918,30 @@ static int store_untouched(void)
  * (docs/ota/architecture.md, "The application stager"). Signed by the
  * harness's element, as every image in this suite is. Then the primary is
  * built back as `running`, which is what the device runs while it stages. */
-static void stage_in_store(const elf_firmware_t *app, uint32_t running, uint32_t version,
-                           long tamper_at)
+static uint32_t stage_stream(const elf_firmware_t *app, uint32_t version, uint8_t *stream)
 {
-    static uint8_t stream[TFW_OTA_STORE_STAGE_LEN];
-    uint8_t  mark[TFW_STAGE_MARK_LEN];
     uint32_t total, body;
 
     build_image(app, version, -1);
     total = (image_len + TFW_BOOT_TRAILER_LEN + 255u) & ~255u;
     body  = total - TFW_BOOT_TRAILER_LEN;
-    if (total > sizeof stream) {
+    if (total > TFW_OTA_STORE_STAGE_LEN) {
         fprintf(stderr, "the application does not fit STAGE\n");
         exit(2);
     }
     memcpy(stream, image, body);
     memcpy(&stream[body], &image[TFW_BOOT_TRAILER_ADDR], TFW_BOOT_TRAILER_LEN);
+    return total;
+}
+
+static void stage_in_store(const elf_firmware_t *app, uint32_t running, uint32_t version,
+                           long tamper_at)
+{
+    static uint8_t stream[TFW_OTA_STORE_STAGE_LEN];
+    uint8_t  mark[TFW_STAGE_MARK_LEN];
+    uint32_t total;
+
+    total = stage_stream(app, version, stream);
     mark[0] = (uint8_t)TFW_STAGE_MARK_MAGIC;
     mark[1] = (uint8_t)(TFW_STAGE_MARK_MAGIC >> 8);
     mark[2] = (uint8_t)(TFW_STAGE_MARK_MAGIC >> 16);
@@ -1956,7 +2007,7 @@ static void test_a_store_image_runs_its_trial_and_settles(elf_firmware_t *boot,
     stage_in_store(app, 2u, 3u, -1);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     boot_with_store(boot, 2u);
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "the staged image boots, on trial");
+    check(run_until(app_booted, boot_store_budget()), "the staged image boots, on trial");
     check(primary_version() == 3u, "it was read from the store and swapped into the primary");
     check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL,
           "TRIAL was stored before the jump");
@@ -1967,14 +2018,14 @@ static void test_a_store_image_runs_its_trial_and_settles(elf_firmware_t *boot,
     tfw_boot_platform_serialise(&p, eeprom_image);
     carry();
     boot_with_store(boot, el.counter);
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "the confirmed image boots at the next reset");
+    check(run_until(app_booted, boot_store_budget()), "the confirmed image boots at the next reset");
     check(el.counter == 3u, "the floor advanced to its version at the settling reset");
     check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD
           && p.ota_state == TFW_BOOT_OTA_IDLE, "settled: GOOD");
 
     carry();
     boot_with_store(boot, el.counter);
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "the next reset boots it again");
+    check(run_until(app_booted, boot_store_budget()), "the next reset boots it again");
     check(memcmp(avr->flash, image, sizeof image) == 0,
           "and the mark still in the store copies nothing: it is installed");
     check(primary_version() == 3u && el.counter == 3u, "the settled image, the floor unmoved");
@@ -1994,7 +2045,7 @@ static void test_an_unconfirmed_store_image_swaps_back(elf_firmware_t *boot,
     stage_in_store(app, 2u, 3u, -1);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     boot_with_store(boot, 2u);
-    check(run_until(app_booted, BUDGET_BOOT_STORE) && primary_version() == 3u,
+    check(run_until(app_booted, boot_store_budget()) && primary_version() == 3u,
           "the staged image boots");
     /* stored_platform() also refreshes eeprom_image, which install() writes
      * over the block at the next power-up: without it the reset that ends the
@@ -2005,13 +2056,13 @@ static void test_an_unconfirmed_store_image_swaps_back(elf_firmware_t *boot,
 
     carry();
     boot_with_store(boot, el.counter);
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "the reset that ends the trial boots");
+    check(run_until(app_booted, boot_store_budget()), "the reset that ends the trial boots");
     check(primary_version() == 2u, "the previous image, swapped back");
     check(block_failed(1), "GOOD, FAILED is stored");
 
     carry();
     boot_with_store(boot, el.counter);
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "and the reset after that boots");
+    check(run_until(app_booted, boot_store_budget()), "and the reset after that boots");
     check(memcmp(avr->flash, image, sizeof image) == 0 && primary_version() == 2u,
           "the failed image, still marked in the store, is not copied again");
     check(block_failed(0), "FAILED is kept");
@@ -2072,7 +2123,7 @@ static void test_an_unconfirmed_store_image_rolls_back_at_the_deadline(
     stage_in_store(app, 2u, 3u, -1);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     boot_with_store(boot, 2u);
-    check(run_until(app_booted, BUDGET_BOOT_STORE) && primary_version() == 3u,
+    check(run_until(app_booted, boot_store_budget()) && primary_version() == 3u,
           "the staged image boots");
     booted = avr->cycle;               /* from power-on: install made the core */
     memset(&p, 0, sizeof p);
@@ -2090,7 +2141,7 @@ static void test_an_unconfirmed_store_image_rolls_back_at_the_deadline(
           "the reset lands at the deadline, within one watchdog period");
 
     from_device_n = 0;
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "the reset boots");
+    check(run_until(app_booted, boot_store_budget()), "the reset boots");
     check(primary_version() == 2u, "the previous image, copied back from PREV");
     check(block_failed(1), "GOOD, FAILED is stored");
     check(el.counter == 2u, "an unconfirmed trial leaves the floor where it was");
@@ -2119,7 +2170,7 @@ static void test_a_bad_store_image_copies_nothing(elf_firmware_t *boot,
     stage_in_store(app, 2u, 3u, 1000);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     boot_with_store(boot, 2u);
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "a staged image that fails its hash: the primary boots");
+    check(run_until(app_booted, boot_store_budget()), "a staged image that fails its hash: the primary boots");
     check(memcmp(avr->flash, image, sizeof image) == 0, "and no page was written");
     check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_GOOD,
           "the block still says GOOD");
@@ -2127,10 +2178,410 @@ static void test_a_bad_store_image_copies_nothing(elf_firmware_t *boot,
     stage_in_store(app, 2u, 1u, -1);
     build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     boot_with_store(boot, 2u);
-    check(run_until(app_booted, BUDGET_BOOT_STORE), "a staged image below the floor: the primary boots");
+    check(run_until(app_booted, boot_store_budget()), "a staged image below the floor: the primary boots");
     check(memcmp(avr->flash, image, sizeof image) == 0 && primary_version() == 2u,
           "and no page was written");
     check(el.counter == 2u && store_untouched(), "the floor and the store unmoved");
+}
+
+/* ------------------------------------------------------- the host's half (#75)
+ *
+ * The bridge mode: UART0 is this process's stdin and stdout, so the Go SDK's
+ * (*Device).StageImage streams an image into the running application's stager,
+ * which writes it to the modelled store -- the path stage_in_store stands in
+ * for above. SIGUSR1 is the reset: the bridge stops, tfw-boot runs, and the
+ * boot is asserted here, from the EEPROM block, as the store row asserts it;
+ * the host has no wire command that reads the trial state (OTA_INFO, unbuilt).
+ * Driven by sdk/go/cmd/tfwctl/ota_stage_simavr_test.go, mk/boot.mk.
+ *
+ * The image is this harness's, signed by its element, so it is written to
+ * `out` for the host to send. One byte per 2000 steps: more than a character
+ * time at 115200, a tenth of send()'s pace, because an image is many frames. */
+#define BRIDGE_BYTE_STEPS 2000L
+
+static volatile sig_atomic_t bridge_reset;
+
+static void on_reset_signal(int sig)
+{
+    (void)sig;
+    bridge_reset = 1;
+}
+
+static void bridge_flush(FILE *host)
+{
+    if (from_device_n > 0u) {
+        (void)fwrite(from_device, 1u, from_device_n, host);
+        (void)fflush(host);
+        from_device_n = 0u;
+    }
+}
+
+static void test_a_host_staged_image_runs_its_trial(elf_firmware_t *boot,
+                                                    elf_firmware_t *app, const char *out)
+{
+    static uint8_t stream[TFW_OTA_STORE_STAGE_LEN];
+    char     tmp[4096];
+    uint32_t total;
+    FILE    *f, *host;
+    int      fd, eof = 0;
+    uint8_t  b;
+    tfw_boot_platform_t p;
+
+    /* stdout is the UART from here on; the report goes to stderr. */
+    fd = dup(1);
+    if (fd < 0 || dup2(2, 1) < 0 || (host = fdopen(fd, "wb")) == NULL) {
+        fprintf(stderr, "cannot hand stdout to the UART\n");
+        exit(2);
+    }
+    if (signal(SIGUSR1, on_reset_signal) == SIG_ERR
+        || fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK) < 0) {
+        fprintf(stderr, "cannot set up the bridge\n");
+        exit(2);
+    }
+
+    printf("store row, from the host: an image staged over the UART to its trial:\n");
+    total = stage_stream(app, 3u, stream);
+    (void)snprintf(tmp, sizeof tmp, "%s.tmp", out);
+    f = fopen(tmp, "wb");
+    if (f == NULL || fwrite(stream, 1u, total, f) != total || fclose(f) != 0
+        || rename(tmp, out) != 0) {
+        fprintf(stderr, "cannot write the image to %s\n", out);
+        exit(2);
+    }
+
+    build_image(app, 2u, -1);
+    tfw_nor_model_reset();
+    nor_overrun = 0;
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    boot_with_store(boot, 2u);
+    check(run_until(app_booted, boot_store_budget()), "the running image boots, the store empty");
+    from_device_n = 0u;
+
+    while (!bridge_reset) {
+        if (!eof) {
+            ssize_t n = read(0, &b, 1u);
+            if (n == 1) {
+                avr_raise_irq(uart_in, b);
+            } else if (n == 0) {
+                eof = 1;
+            }
+        }
+        run_cycles(BRIDGE_BYTE_STEPS);
+        bridge_flush(host);
+    }
+    (void)fclose(host);
+
+    printf("  reset\n");
+    carry();
+    boot_with_store(boot, el.counter);
+    check(run_until(app_booted, boot_store_budget()), "the staged image boots, on trial");
+    check(primary_version() == 3u, "it was read from the store and swapped into the primary");
+    check(stored_platform(&p) == TFW_OK && p.boot_state == TFW_BOOT_STATE_TRIAL,
+          "TRIAL was stored before the jump");
+    check(el.counter == 2u, "the trial leaves the floor where it was");
+    check(tfw_nor_model_violations() == 0u && nor_overrun == 0,
+          "every store access, the stager's and tfw-boot's, was well formed");
+}
+
+/* ------------------------------------------------- the network leg (#75, #55)
+ *
+ * The same store row with the update arriving over TCP: the application built
+ * with ETH=1 (the stager is ETH's default where the board names an OTA_STORE),
+ * the W5100 on the emulated SPI bus behind D10, beside the NOR part behind D8,
+ * and this harness the TCP peer the device connects out to.
+ *
+ * The part is test/model/w5x00_model.c, the one the driver's host tests run
+ * against, and not a second model. It is written at the HAL's transfer call,
+ * a whole frame at a time; the bus delivers a byte at a time, so a frame is
+ * gathered under its select and handed to the model at its fourth byte, which
+ * is where the part answers a read. The first three answers are the model's
+ * own, taken once from a read of MR. A W5100 frame is four bytes and no more;
+ * anything longer under one select is counted, not guessed at. */
+#define M2560_DDRB      0x24u
+#define M2560_PORTB     0x25u
+#define ETH_CS_BIT      4u                  /* D10 = PB4, TFW_ETH_CS_IO */
+#define W5X_FRAME_LEN   4u
+#define W5X_S0_SR       0x03u               /* socket 0's status register */
+#define W5X_SR_SYNSENT  0x15u
+#define W5X_SR_ESTAB    0x17u
+#define NET_CHUNK       (TFW_MAX_PAYLOAD - 4u)
+
+/* Steps, as every budget here. Up is the chip's reset and the connect, which
+ * the link starts on its first poll; a frame is one TCP exchange and its store
+ * write. OTA_END reads the whole stream back and checks it, as tfw-boot's copy
+ * does, and gets the store row's budget. */
+#define BUDGET_NET_UP     5000000L
+#define BUDGET_NET_FRAME  2000000L
+
+static const tfw_pinref_t eth_cs = { .bit = ETH_CS_BIT };
+static uint8_t  eth_tx[W5X_FRAME_LEN];
+static unsigned eth_n;
+static int      eth_selected;
+static uint8_t  eth_echo[W5X_FRAME_LEN - 1u];
+static int      eth_overrun;
+static int      eth_accepts;
+
+static int eth_select_low(void)
+{
+    uint8_t bit = (uint8_t)(1u << ETH_CS_BIT);
+
+    return (avr->data[M2560_DDRB] & bit) != 0 && (avr->data[M2560_PORTB] & bit) == 0;
+}
+
+static void eth_select_changed(void)
+{
+    int low = eth_select_low();
+
+    if (low && !eth_selected) {
+        eth_n = 0u;
+    }
+    eth_selected = low;
+}
+
+static void on_portb(struct avr_irq_t *irq, uint32_t value, void *param)
+{
+    (void)irq; (void)value; (void)param;
+    eth_select_changed();
+}
+
+static void on_eth_spi(struct avr_irq_t *irq, uint32_t value, void *param)
+{
+    uint8_t rd[W5X_FRAME_LEN];
+    uint8_t reply;
+
+    (void)irq; (void)param;
+    eth_select_changed();
+    if (!eth_selected) {
+        return;
+    }
+    if (eth_n >= sizeof eth_tx) {
+        eth_overrun++;
+        return;
+    }
+    eth_tx[eth_n++] = (uint8_t)value;
+    if (eth_n < W5X_FRAME_LEN) {
+        reply = eth_echo[eth_n - 1u];
+    } else {
+        (void)tfw_hal_spi_xfer(&eth_cs, eth_tx, rd, W5X_FRAME_LEN);
+        reply = rd[W5X_FRAME_LEN - 1u];
+    }
+    avr_raise_irq(avr_io_getirq(avr, AVR_IOCTL_SPI_GETIRQ(0), SPI_IRQ_INPUT), reply);
+}
+
+static void attach_eth(void)
+{
+    static const uint8_t read_mr[W5X_FRAME_LEN] = { 0x0Fu, 0x00u, 0x00u, 0x00u };
+    uint8_t rd[W5X_FRAME_LEN];
+
+    w5x_model_reset(W5X_MODEL_W5100);
+    (void)tfw_hal_spi_init(0u, 0u, 0u);     /* mode 0, MSB first: what the AVR HAL sets */
+    (void)tfw_hal_spi_xfer(&eth_cs, read_mr, rd, W5X_FRAME_LEN);
+    memcpy(eth_echo, rd, sizeof eth_echo);
+    eth_n = 0u;
+    eth_selected = 0;
+    eth_overrun = 0;
+    eth_accepts = 0;
+    avr_irq_register_notify(avr_io_getirq(avr, AVR_IOCTL_SPI_GETIRQ(0), SPI_IRQ_OUTPUT),
+                            on_eth_spi, NULL);
+    avr_irq_register_notify(avr_io_getirq(avr, AVR_IOCTL_IOPORT_GETIRQ('B'), ETH_CS_BIT),
+                            on_portb, NULL);
+}
+
+/* The network settings the link reads at TFW_NETCFG_ADDR (include/tfw/eth.h):
+ * a device at 192.168.1.50 connecting out to the harness at .10, port 9000. */
+static void provision_netcfg(void)
+{
+    uint8_t raw[TFW_NETCFG_LEN];
+    uint16_t crc;
+    static const uint8_t mac[6] = { 0x02u, 0x54u, 0x46u, 0x57u, 0x00u, 0x01u };
+    avr_eeprom_desc_t d = { .ee = raw, .offset = TFW_NETCFG_ADDR, .size = TFW_NETCFG_LEN };
+
+    memset(raw, 0, sizeof raw);
+    raw[0] = 'T'; raw[1] = 'F'; raw[2] = 'N'; raw[3] = 'C';
+    raw[4] = TFW_NETCFG_VERSION;
+    memcpy(&raw[6], mac, sizeof mac);
+    raw[12] = 192u; raw[13] = 168u; raw[14] = 1u;   raw[15] = 50u;
+    raw[16] = 255u; raw[17] = 255u; raw[18] = 255u; raw[19] = 0u;
+    raw[20] = 192u; raw[21] = 168u; raw[22] = 1u;   raw[23] = 1u;
+    raw[24] = 192u; raw[25] = 168u; raw[26] = 1u;   raw[27] = 10u;
+    raw[28] = (uint8_t)(9000u >> 8); raw[29] = (uint8_t)(9000u & 0xFFu);
+    crc = tfw_crc16(raw, 30u);
+    raw[30] = (uint8_t)(crc & 0xFFu);
+    raw[31] = (uint8_t)(crc >> 8);
+    avr_ioctl(avr, AVR_IOCTL_EEPROM_SET, &d);
+}
+
+/* The peer's side of the wire, run between steps: take the connect, and move
+ * what the device SENT into from_device, where find_response reads frames. */
+static void net_pump(void)
+{
+    if (w5x_model_sock(W5X_S0_SR) == W5X_SR_SYNSENT) {
+        w5x_model_peer_accept();
+        eth_accepts++;
+    }
+    if (from_device_n < RXCAP) {
+        from_device_n += w5x_model_peer_recv(&from_device[from_device_n],
+                                             (uint16_t)(RXCAP - from_device_n));
+    }
+}
+
+static int net_up(void)
+{
+    net_pump();
+    return eth_accepts > 0 && w5x_model_sock(W5X_S0_SR) == W5X_SR_ESTAB;
+}
+
+static int net_answered(void)
+{
+    uint8_t status, plen, buf[256];
+
+    net_pump();
+    return find_response(wait_for_seq, &status, buf, &plen);
+}
+
+/* One request over TCP and its answer's status, or -1 for none in budget. One
+ * frame in flight at a time, so the model's 2 KB RX buffer never wraps. */
+static int net_exchange(uint8_t seq, uint8_t cmd, const uint8_t *payload, uint8_t plen,
+                        long budget)
+{
+    uint8_t  wire[TFW_MAX_PAYLOAD + 8u];
+    uint8_t  status, rlen, buf[256];
+    unsigned n = frame_request(wire, seq, cmd, payload, plen);
+
+    from_device_n = 0u;
+    w5x_model_peer_send(wire, (uint16_t)n);
+    wait_for_seq = seq;
+    if (!run_until(net_answered, budget) || !find_response(seq, &status, buf, &rlen)) {
+        return -1;
+    }
+    return status;
+}
+
+static void put_u32(uint8_t *out, uint32_t v)
+{
+    out[0] = (uint8_t)v;
+    out[1] = (uint8_t)(v >> 8);
+    out[2] = (uint8_t)(v >> 16);
+    out[3] = (uint8_t)(v >> 24);
+}
+
+/*
+ * The function a PC in tfw-boot lies in: the nearest symbol at or below it,
+ * looked for only inside the boot section, where the absolute symbols that
+ * spoil a whole-table nearest lookup (region lengths, register aliases) are
+ * not. Both the symbols and the PC are byte addresses.
+ */
+static const char *boot_symbol_at(const elf_firmware_t *boot, uint32_t pc, uint32_t *off)
+{
+    const char *name = "an unnamed address";
+    uint32_t    best = 0u, i;
+
+    for (i = 0u; i < boot->symbolcount; i++) {
+        uint32_t a = boot->symbol[i]->addr;
+
+        if (a >= boot->flashbase && a <= pc && a >= best && boot->symbol[i]->symbol[0] != '\0') {
+            best = a;
+            name = boot->symbol[i]->symbol;
+        }
+    }
+    *off = pc - best;
+    return name;
+}
+
+/* The swap record (boot_swap.c) as tfw-boot last wrote it: phase, then unit. */
+static void print_swap_record(void)
+{
+    avr_eeprom_desc_t d = { .ee = NULL, .offset = TFW_SWAP_RECORD_ADDR,
+                            .size = TFW_BOOT_EE_EXTRA_LEN };
+    uint32_t i;
+
+    (void)avr_ioctl(avr, AVR_IOCTL_EEPROM_GET, &d);
+    printf("  swap record:");
+    for (i = 0u; d.ee != NULL && i < TFW_BOOT_EE_EXTRA_LEN; i++) {
+        printf(" %02x", d.ee[i]);
+    }
+    printf("\n");
+}
+
+static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
+                                                       elf_firmware_t *app)
+{
+    static uint8_t stream[TFW_OTA_STORE_STAGE_LEN];
+    uint8_t  pl[TFW_MAX_PAYLOAD];
+    uint32_t total, off, n = 0u;
+    uint8_t  seq = 0u;
+    int      st, booted, stored;
+    tfw_boot_platform_t p;
+
+    printf("store row, over the network: an image staged through the W5100 to its trial:\n");
+    total = stage_stream(app, 3u, stream);
+
+    build_image(app, 2u, -1);
+    tfw_nor_model_reset();
+    nor_overrun = 0;
+    build_eeprom_state(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    boot_with_store(boot, 2u);
+    provision_netcfg();
+    attach_eth();
+    check(run_until(app_booted, boot_store_budget()), "the running image boots, the store empty");
+    check(run_until(net_up, BUDGET_NET_UP),
+          "it connects out through the W5100 and the harness takes the connection");
+
+    put_u32(pl, total);
+    st = net_exchange(++seq, TFW_CMD_OTA_BEGIN, pl, 4u, BUDGET_NET_FRAME);
+    check(st == TFW_OK, "OTA_BEGIN over TCP is taken");
+    for (off = 0u; off < total && st == TFW_OK; off += n) {
+        n = total - off;
+        if (n > NET_CHUNK) {
+            n = NET_CHUNK;
+        }
+        put_u32(pl, off);
+        memcpy(&pl[4], &stream[off], n);
+        st = net_exchange(++seq, TFW_CMD_OTA_DATA, pl, (uint8_t)(4u + n), BUDGET_NET_FRAME);
+    }
+    if (st != TFW_OK) {
+        printf("  OTA_DATA at offset %lu answered %d\n", (unsigned long)off, st);
+    }
+    check(st == TFW_OK, "every OTA_DATA over TCP is taken, in order");
+    check(net_exchange(++seq, TFW_CMD_OTA_END, NULL, 0u, boot_store_budget()) == TFW_OK,
+          "OTA_END over TCP checks the stream and marks the store");
+
+    printf("  reset\n");
+    carry();
+    boot_with_store(boot, el.counter);
+    attach_eth();
+    booted = run_until(app_booted, boot_store_budget());
+    check(booted, "the staged image boots, on trial");
+    check(primary_version() == 3u, "it was read from the store and swapped into the primary");
+    stored = stored_platform(&p) == TFW_OK;
+    check(stored && p.boot_state == TFW_BOOT_STATE_TRIAL, "TRIAL was stored before the jump");
+    if (!booted) {
+        /* Where it stopped: a PC in the boot section is tfw-boot still at
+         * work; W5100 register writes mean the application ran, since
+         * tfw-boot only holds its select high. */
+        printf("  after the reset: pc 0x%05lx (boot section from 0x%05lx), boot_state %u,"
+               " ota_state %u, UART bytes %u, W5100 writes %lu\n",
+               (unsigned long)avr->pc, (unsigned long)boot->flashbase,
+               stored ? (unsigned)p.boot_state : 0xFFu, stored ? (unsigned)p.ota_state : 0xFFu,
+               from_device_n, (unsigned long)w5x_model_writes());
+        const char *fn = boot_symbol_at(boot, avr->pc, &off);
+
+        /* The offset is read only once the lookup has set it: as two
+         * arguments of one call the order is unspecified, and the last run
+         * printed the loop's offset beside the right name. */
+        printf("  in %s+0x%lx\n", fn, (unsigned long)off);
+        print_swap_record();
+        /* Every image hash on this tier is the element's SHA engine, one
+         * command per 64-byte block, so the boot's time grows with the image:
+         * how many whole-image hashes the steps went on. */
+        printf("  element: %u SHA blocks (%lu per %lu-byte image), %u verifies,"
+               " %lu steps\n", el.sha_blocks, (unsigned long)((image_len - 1u) / 64u + 2u),
+               (unsigned long)image_len, el.verify, (unsigned long)last_run_steps);
+    }
+    check(el.counter == 2u, "the trial leaves the floor where it was");
+    check(tfw_nor_model_violations() == 0u && nor_overrun == 0,
+          "every store access, the stager's and tfw-boot's, was well formed");
+    check(eth_overrun == 0, "every W5100 frame was four bytes under its select");
 }
 
 int main(int argc, char **argv)
@@ -2170,6 +2621,18 @@ int main(int argc, char **argv)
 
     /* The BOOT_STORE=1 row has no session in the boot, so the session tests
      * are not its tests; the row is named by the caller, mk/boot.mk. */
+    if (argc > 4 && strcmp(argv[3], "bridge") == 0) {
+        test_a_host_staged_image_runs_its_trial(&boot, &app, argv[4]);
+        store_bus_report();
+        printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
+        return failures ? 1 : 0;
+    }
+    if (argc > 3 && strcmp(argv[3], "net") == 0) {
+        test_a_network_staged_image_runs_its_trial(&boot, &app);
+        store_bus_report();
+        printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
+        return failures ? 1 : 0;
+    }
     if (argc > 3 && strcmp(argv[3], "store") == 0) {
         test_a_store_image_runs_its_trial_and_settles(&boot, &app);
         test_an_unconfirmed_store_image_swaps_back(&boot, &app);

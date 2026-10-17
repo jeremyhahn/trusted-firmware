@@ -612,7 +612,8 @@ deadline on the emulated part, with no reset from the harness.
 
 | Link of the round | Under simavr | Where else |
 |---|---|---|
-| `OTA_BEGIN`/`OTA_DATA`/`OTA_END` over TCP through the W5x00 into the store | no: the W5x00 model is the HAL's SPI calls, not a part on a bus, and the application's network path is not on the emulated bus | `tfwsim`, `sdk/go/tfwsim/ota_test.go`, serial and TCP; the bench |
+| `OTA_BEGIN`/`OTA_DATA`/`OTA_END` over TCP through the W5100 into the 2560's stager and store (`ETH=1`), then tfw-boot's copy and the trial | yes, `test_a_network_staged_image_runs_its_trial` (`boot_harness ... net`): the W5x00 model (`test/model/w5x00_model.c`) on the emulated SPI bus behind D10, beside the NOR part behind D8, and the harness the TCP peer through the model's peer calls; the W5100 only, the board's `ETH_CHIP` | `tfwsim`, `sdk/go/tfwsim/ota_test.go`, serial and TCP; the bench |
+| the host's `(*Device).StageImage` over the emulated UART into the 2560's stager and store (`OTA_STAGE=1`), then tfw-boot's copy and the trial | yes, `TestOTAStageThroughTfwBoot` against the harness's bridge mode (`boot_harness ... bridge`); the trial state is asserted by the harness, not over the wire | `TestOTAStageAgainstFirmware`, on `tfwsim` |
 | tfw-boot reads `MARK` and `STAGE`, checks, copies into the secondary, swaps in, arms `TRIAL`, the application boots | yes, `test_a_store_image_runs_its_trial_and_settles` | `test_boot_stage_2560`, `test_boot_swap` |
 | `CONFIRMED` at reset: the floor advances to the version, `GOOD`; the mark is not copied again | yes, same test; the harness writes `CONFIRMED` into the block | `test_boot_trial`, `test_boot_swap` |
 | `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | no: not on the wire, their ids are decision 8's proposal | none |
@@ -622,7 +623,8 @@ deadline on the emulated part, with no reset from the harness.
 | the store is only read by tfw-boot | yes: no erase, no program and no malformed transaction reach the model on any boot | — |
 
 The bench repeats the round with the W5x00, the NOR part and the element on a
-2560; it is the only place the network leg and the store meet the real boot.
+2560; it is the only place the network leg meets a real controller, a real
+network and the W5500.
 The application's refusal of the failed image at `OTA_ACTIVATE`
 (`tfw_boot_trial_activate`, `TFW_ERR_BAD_STATE`) is pinned by `test_boot_trial`
 only, until the command exists.

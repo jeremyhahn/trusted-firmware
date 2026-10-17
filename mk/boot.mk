@@ -581,7 +581,7 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
         src/proto/crc16.c src/proto/crc16_update.c \
         src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
         boot/boot_image.c boot/boot_platform.c boot/boot_request.c \
-        test/model/spi_nor_model.c
+        test/model/spi_nor_model.c test/model/w5x00_model.c
 	@mkdir -p $(BOOT_INT_DIR)
 	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a -Iboot -Itest/model \
@@ -599,6 +599,12 @@ $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c \
 # a modelled 25-series part on the emulated SPI bus, read, checked, copied into
 # the secondary, swapped in, tried, confirmed or swapped back. It is the only
 # row with the store (OTA plus the store does not fit, docs/ota/architecture.md).
+#
+# Last, its network leg (#75, #55): the application built with ETH=1, whose
+# stager is ETH's default on a board with an OTA_STORE (mk/firmware.mk), the
+# W5100 model (test/model/w5x00_model.c) on the emulated SPI bus behind D10
+# beside the NOR part behind D8, and the harness the TCP peer that streams
+# OTA_BEGIN/OTA_DATA/OTA_END to it before the reset into tfw-boot's trial.
 BOOT_INT_STORE_ROW := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=0 \
                       BOOT_STORE=1
 
@@ -607,6 +613,18 @@ integration-test-boot:
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_ROW)
 	@$(MAKE) --no-print-directory boot-harness-run \
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) BOOT_HARNESS_MODE=store
+	@$(MAKE) --no-print-directory boot-bridge-run \
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) OTA_STAGE=1
+	@$(MAKE) --no-print-directory boot-harness-run \
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=1 BOOT_HARNESS_MODE=net
+
+# The same store row from the host (#75): the application built with the stager
+# (OTA_STAGE=1, mk/firmware.mk), the harness in its bridge mode, and the Go SDK
+# staging into it over the emulated UART. The test starts the harness itself.
+boot-bridge-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
+	@cd $(SDK_DIR) && TFW_BOOT_HARNESS=$(abspath $(BOOT_INT_DIR)/boot_harness) \
+	   TFW_BOOT_ELF=$(abspath $(BOOT_TARGET).elf) TFW_APP_ELF=$(abspath $(TARGET).elf) \
+	   $(GO) test -count=1 -tags simavr -run '^TestOTAStageThroughTfwBoot$$' ./cmd/tfwctl/
 
 # The application .elf is a prerequisite and not an assumption: "a correctly
 # signed image boots" is observed by the application answering CAPS after the
@@ -614,4 +632,4 @@ integration-test-boot:
 boot-harness-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
 	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf $(BOOT_HARNESS_MODE)
 
-.PHONY: integration-test-boot boot-harness-run
+.PHONY: integration-test-boot boot-harness-run boot-bridge-run

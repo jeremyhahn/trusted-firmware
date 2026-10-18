@@ -136,6 +136,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_ota_hold_link.c \
+                             test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_stage_marked.c \
@@ -501,10 +502,32 @@ $(HOST_DIR)/test_w5500_nocs: $(W5X_NOCS_SRCS) src/net/w5500.c $(HOST_DIR)/unity.
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
 	   -DTFW_ETH_CS_PIN=21u -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same drivers and model under hostile register values: the suite wraps the
+# model's tfw_hal_spi_xfer at link time to rewrite what the socket registers
+# answer, so the driver and the model are linked exactly as above.
+W5X_MUT_SRCS := test/unit/test_w5x00_mutate.c test/model/w5x00_model.c src/net/w5x00.c \
+                src/core/board_lookup.c boards/$(HOST_BOARD)/board.c
+
+$(HOST_DIR)/test_w5100_mutate: $(W5X_MUT_SRCS) src/net/w5100.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=1 \
+	   -Wl,--wrap=tfw_hal_spi_xfer -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_w5500_mutate: $(W5X_MUT_SRCS) src/net/w5500.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
+	   -Wl,--wrap=tfw_hal_spi_xfer -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The Ethernet image's link: the whole host library with link_eth.c where
 # link_serial.c would be -- what mk/firmware.mk links for ETH=1 -- and the TCP
 # socket faked in the suite itself at include/tfw/eth.h.
 $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        src/proto/link_eth.c src/net/netcfg.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same link, its faked socket hostile: states that flip, starts that fail,
+# replies refused part way, request frames mutated on the way in.
+$(HOST_DIR)/test_link_eth_mutate: test/unit/test_link_eth_mutate.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
                         src/proto/link_eth.c src/net/netcfg.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -581,13 +604,14 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
+                    $(HOST_DIR)/test_w5100_mutate $(HOST_DIR)/test_w5500_mutate \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small
 

@@ -30,6 +30,7 @@ void     w5x_model_cr_stuck(uint8_t on);           /* a command is never taken *
 void     w5x_model_cr_stuck_on(uint8_t cr);        /* only command cr is never taken; 0: none */
 void     w5x_model_size_unstable(uint8_t on);      /* FSR and RSR never read the same twice */
 void     w5x_model_tx_cap(uint16_t cap);           /* FSR reads no more than this */
+void     w5x_model_rsr_reads(uint16_t v);          /* RSR reads v, steadily; 0: the true size */
 /* The socket's buffer pointers after the next OPEN, so wrap-around in both the
  * 16-bit pointer and the 2 KB buffer is reachable. */
 void     w5x_model_seed_pointers(uint16_t p);

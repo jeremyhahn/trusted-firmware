@@ -157,6 +157,15 @@ uint8_t tfw_eth_rx(uint8_t *out)
         if (rx_left == 0u) {
             return 0u;
         }
+        if (rx_left > W5X_BUF_SIZE) {
+            /* More than the ring holds, which no genuine part reports: a
+             * glitched or counterfeit chip or a bus fault. Reading it would
+             * go round the ring and hand up bytes never received, and no
+             * part of it can be trusted, so the link is dropped as a hang-up
+             * is and the host reconnects. */
+            tfw_eth_close();
+            return 0u;
+        }
         rx_rd = rd16(W5X_SN_RX_RD);
     }
     *out = w5x_rd(W5X_RX0, rx_rd);

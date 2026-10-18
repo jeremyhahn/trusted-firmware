@@ -73,6 +73,7 @@ static uint8_t  cr_stuck;
 static uint8_t  cr_stuck_on;   /* the one command never taken; 0: none */
 static uint8_t  unstable, flip;
 static uint16_t tx_cap;
+static uint16_t rsr_forced;
 static uint16_t seed;
 static uint32_t writes;
 static uint16_t rtr_reset;        /* what RTR and RCR read after a reset */
@@ -127,6 +128,7 @@ void w5x_model_reset(uint8_t which)
     unstable = 0u;
     flip     = 0u;
     tx_cap   = 0xFFFFu;
+    rsr_forced = 0u;
     seed     = 0u;
     writes   = 0u;
     spi_ok   = 0u;
@@ -207,7 +209,7 @@ static uint8_t reg_read(uint8_t space, uint16_t off)
             return off == S_TX_FSR ? (uint8_t)(v >> 8) : (uint8_t)v;
         }
         if (off == S_RX_RSR || off == S_RX_RSR + 1u) {
-            v = rsr;
+            v = rsr_forced ? rsr_forced : rsr;
             if (unstable) {
                 flip = (uint8_t)(flip + (off == S_RX_RSR));
                 v = (uint16_t)(v ^ (flip & 1u));
@@ -444,6 +446,7 @@ void     w5x_model_cr_stuck(uint8_t on)        { cr_stuck = on; }
 void     w5x_model_cr_stuck_on(uint8_t cr)     { cr_stuck_on = cr; }
 void     w5x_model_size_unstable(uint8_t on)   { unstable = on; }
 void     w5x_model_tx_cap(uint16_t cap)        { tx_cap = cap; }
+void     w5x_model_rsr_reads(uint16_t v)       { rsr_forced = v; }
 void     w5x_model_seed_pointers(uint16_t p)   { seed = p; }
 void     w5x_model_retry_reset(uint16_t rtr, uint8_t rcr) { rtr_reset = rtr; rcr_reset = rcr; }
 uint8_t  w5x_model_common(uint16_t off)        { return off < sizeof common ? common[off] : 0u; }

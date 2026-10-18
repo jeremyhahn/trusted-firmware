@@ -17,7 +17,7 @@
 #define SOCK0_BASE  0x0400u
 #define TX0_BASE    0x4000u
 #define RX0_BASE    0x6000u
-#define BUF_MASK    0x07FFu       /* 2 KB per socket, the reset sizing */
+#define BUF_MASK    (W5X_BUF_SIZE - 1u)
 
 #define RTR_HI      0x0017u       /* retry time, 0x07D0 (200 ms) after reset */
 #define RTR_LO      0x0018u

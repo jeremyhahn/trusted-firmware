@@ -26,6 +26,10 @@
 #define W5X_TX0     2u
 #define W5X_RX0     3u
 
+/* Each of socket 0's buffers holds 2 KB on both chips: the reset sizing, which
+ * neither chip file changes. */
+#define W5X_BUF_SIZE 0x0800u
+
 uint8_t      w5x_rd(uint8_t space, uint16_t off);
 void         w5x_wr(uint8_t space, uint16_t off, uint8_t v);
 

@@ -29,7 +29,10 @@ tfw_status_t tfw_ota_auth_cmd(tfw_reader_t *r, tfw_writer_t *w)
 
 const uint8_t *tfw_ota_auth_take(void)
 {
-    uint8_t ok = (uint8_t)(holding != 0u && tfw_dispatch_last() == TFW_CMD_OTA_AUTH);
+    /* The last dispatch must be an OTA_AUTH that succeeded: one the table
+     * refused never reached tfw_ota_auth_cmd to drop the hold. */
+    uint8_t ok = (uint8_t)(holding != 0u && tfw_dispatch_last() == TFW_CMD_OTA_AUTH
+                           && tfw_dispatch_last_ok() != 0u);
 
     holding = 0u;
     return ok ? held : NULL;

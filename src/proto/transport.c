@@ -60,7 +60,12 @@ static void handle(tfw_transport_t *t)
 
     /* A command the link does not carry gets the answer a command absent from
      * the image gets: from that wire's side, it is absent. */
-    st = tfw_link_admits(op) ? tfw_dispatch(op, &r, &w) : TFW_ERR_UNKNOWN_CMD;
+    if (tfw_link_admits(op)) {
+        st = tfw_dispatch(op, &r, &w);
+    } else {
+        tfw_dispatch_refused(op);
+        st = TFW_ERR_UNKNOWN_CMD;
+    }
 
     /* On failure the reply carries the status and no payload. A partial reply
      * beside a failure status is something a host would have to guess about. */
@@ -117,6 +122,7 @@ void tfw_transport_poll(tfw_transport_t *t)
              * informative than silence, and the host's own timeout covers the
              * case where it is unusable. */
             t->in_frame = 0u;
+            tfw_dispatch_refused(tfw_frame_op(&t->framer) & 0x7Fu);
             reply_status(t, tfw_frame_seq(&t->framer), tfw_frame_op(&t->framer) & 0x7Fu,
                          TFW_ERR_CRC);
             (void)drain(t);

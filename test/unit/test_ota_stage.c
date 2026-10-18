@@ -454,7 +454,7 @@ static void test_begin_backs_the_running_image_up_to_prev(void)
 /* #137: no held signature, 17 for both commands; nothing marked, nothing written. */
 static void test_activate_and_confirm_need_ota_auth(void)
 {
-    uint8_t m0 = 0u, out[44], n, ping[1] = { 0 };
+    uint8_t m0 = 0u, out[44], n, ping[1] = { 0 }, big[65];
     tfw_reader_t r;
     tfw_writer_t w;
 
@@ -478,6 +478,14 @@ static void test_activate_and_confirm_need_ota_auth(void)
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
     authorize();
     tfw_reader_init(&r, ping, 1u);
+    tfw_writer_init(&w, out, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_FALSE(marked());
+    /* So does a long one, which the table refuses before the handler runs. */
+    authorize();
+    memset(big, 0xA5, sizeof big);
+    tfw_reader_init(&r, big, 65u);
     tfw_writer_init(&w, out, sizeof out);
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));

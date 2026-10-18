@@ -31,10 +31,21 @@ typedef tfw_status_t (*tfw_cmd_handler_t)(tfw_reader_t *r, tfw_writer_t *w);
  * something a host should parse. */
 tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w);
 
+/* A request the transport answered with a refusal without dispatching it -- a
+ * command the link does not admit, a frame whose CRC failed -- finishes here,
+ * as a refused cmd: tfw_dispatch_last() reads cmd, tfw_dispatch_last_ok() 0.
+ * The device answered something in between, so a held OTA_AUTH is gone (#137). */
+void tfw_dispatch_refused(uint8_t cmd);
+
 /* The id of the last command tfw_dispatch finished, known or not, refused or
  * not; 0 before the first. Inside a handler it is the command before this one:
  * OTA_AUTH's signature counts only for the command right after it (#137). */
 uint8_t tfw_dispatch_last(void);
+
+/* 1 if that command finished TFW_OK, 0 if it was refused, whether by the table
+ * before its handler ran or by the handler; 0 before the first. A refused
+ * OTA_AUTH holds nothing for the command after it (#137). */
+uint8_t tfw_dispatch_last_ok(void);
 
 /* True if this build has a handler for cmd. Used by CAPS and by the tests. */
 uint8_t tfw_dispatch_knows(uint8_t cmd);

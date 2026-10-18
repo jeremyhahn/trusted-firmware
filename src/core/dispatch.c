@@ -63,6 +63,8 @@ uint8_t tfw_dispatch_knows(uint8_t cmd)
 
 /* The last command dispatched, whatever its status (tfw_dispatch_last). */
 static uint8_t last;
+/* Whether it finished TFW_OK (tfw_dispatch_last_ok). */
+static uint8_t last_ok;
 
 static tfw_status_t run(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
 {
@@ -105,11 +107,23 @@ tfw_status_t tfw_dispatch(uint8_t cmd, tfw_reader_t *r, tfw_writer_t *w)
 {
     tfw_status_t st = run(cmd, r, w);
 
-    last = cmd;
+    last    = cmd;
+    last_ok = (uint8_t)(st == TFW_OK);
     return st;
+}
+
+void tfw_dispatch_refused(uint8_t cmd)
+{
+    last    = cmd;
+    last_ok = 0u;
 }
 
 uint8_t tfw_dispatch_last(void)
 {
     return last;
+}
+
+uint8_t tfw_dispatch_last_ok(void)
+{
+    return last_ok;
 }

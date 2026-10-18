@@ -123,7 +123,7 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # provider.c instead -- linking both would be two definitions of
 # tfw_crypto_init and everything else in include/tfw/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test/unit/test_crypto_auto.c \
-                            test/unit/test_provision.c test/unit/test_alias.c \
+                            test/unit/test_provision.c test/unit/test_provision_mutate.c test/unit/test_auth_mutate.c test/unit/test_alias.c \
                             test/unit/test_csr.c \
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
@@ -135,9 +135,9 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
-                            test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c \
-                            test/unit/test_suit.c test/unit/test_suit_emit.c \
-                           test/unit/test_ota_stage.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
+                            test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_ota_hold_link.c \
+                            test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c \
+                           test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_stage_marked.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c, \
                             $(wildcard test/unit/test_*.c))
@@ -242,7 +242,8 @@ $(HOST_DIR)/test_otactl_floor: test/unit/test_otactl_floor.c $(ELEMENT_MODEL) \
 # ATmega2560's profile rather than HOST_BOARD's, because the 2560 is the board
 # that links the reader and testdata/suit_vectors.h carries its class id.
 SUIT_TEST_CFLAGS := $(subst -Iboards/$(HOST_BOARD) ,-Iboards/atmega2560 ,$(HOST_CFLAGS))
-$(HOST_DIR)/test_suit: test/unit/test_suit.c $(ELEMENT_MODEL) \
+# test_suit_mutate feeds the reader mutated envelopes, on the same link.
+$(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                        src/core/suit.c boot/boot_trial.c boot/boot_image.c boot/boot_platform.c \
                        src/crypto/atecc608a/atecc.c \
                        src/crypto/atecc608a/provider.c \
@@ -260,7 +261,7 @@ $(HOST_DIR)/test_suit_emit: test/unit/test_suit_emit.c tools/suit-emit/emit.c sr
 
 # Provisioning, same arrangement and the same reason: it drives the element, so
 # the software element is its I2C HAL.
-$(HOST_DIR)/test_provision: test/unit/test_provision.c $(ELEMENT_MODEL) \
+$(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                             src/caps/provision.c src/core/reader.c src/core/writer.c \
                             src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -414,7 +415,7 @@ $(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-ba
 # handful of other HAL calls storage.c's and sys.c's non-auth handlers still
 # reference even though this suite never calls them (RESET's own poll, CAPS,
 # PING, SYS_INFO) -- the same reason test_alias.c defines tfw_hal_millis.
-$(HOST_DIR)/test_auth_session: test/unit/test_auth_session.c $(ELEMENT_MODEL) \
+$(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                                 src/core/auth_session.c src/caps/storage.c src/caps/sys.c \
                                 src/core/reader.c src/core/writer.c \
                                 src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -511,7 +512,7 @@ $(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
 
 # The OTA stager (issue #75) as an OTA_STAGE=1 image links it, with the software
 # NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
-$(HOST_DIR)/test_ota_stage: test/unit/test_ota_stage.c $(HOST_LIB_SRCS) \
+$(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
@@ -533,6 +534,17 @@ $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_LIB_SRCS) \
                         src/core/ota_activate.c src/core/ota_auth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# OTA_AUTH's hold through the transport (#137): test_link_eth's link with
+# test_ota_single's stager and OTA_ACTIVATE, so a request the Ethernet link
+# refuses sits between OTA_AUTH and OTA_ACTIVATE.
+$(HOST_DIR)/test_ota_hold_link: test/unit/test_ota_hold_link.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        src/proto/link_eth.c src/net/netcfg.c \
+                        src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_activate.c src/core/ota_auth.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_ETHERNET=1 -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # OTA_INFO on the element tier (#77): the same link with the element's floor
 # file, the ATECC608A driver and the software element as the I2C bus, whose
@@ -569,14 +581,14 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
-                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
+                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
-                    $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit \
+                    $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small
 
 ## host-test: build and run the host unit tests

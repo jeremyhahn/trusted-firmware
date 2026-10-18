@@ -350,10 +350,15 @@ jobs:
       # gets the `pr` set (ci-standard.md §6).
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IT_IMAGE: ${{ github.event.repository.name }}-ci-it:${{ github.run_id }}-${{ github.run_attempt }}-image
-      # CUSTOMIZE (trusted-firmware): the toolchain and esp32 tags carry the
-      # run, so two runs of one commit on one daemon never build into, or
-      # remove, each other's image (mk/docker.mk defaults to the commit).
-      TOOLCHAIN_TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): the toolchain and
+      # esp32 images are tagged by a hash of their inputs (mk/docker.mk) and
+      # reused across runs and jobs. IMAGE_CLASS is the trust class as a tag
+      # suffix: a pull request reads main's images and writes only `pr` ones.
+      # A build goes to a per-run tag first (IMAGE_BUILD_ID), so two runs
+      # building one hash on one daemon never export to the same name at once.
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -378,13 +383,26 @@ jobs:
       # sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032)
       # goes here; the container shares the runner's kernel.
 
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): the forge's
+      # container registry, from github.server_url, holds the hash-tagged
+      # images and their cache; the forge credentials log in to it when they
+      # are for its host (none on the github.com mirror).
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): `make docker-images`
+      # reuses the toolchain and esp32 images by hash, from the daemon, then
+      # the registry, and builds (and pushes) only when both miss
+      # (scripts/ensure-image.sh). The integration image is per run and builds
+      # with the toolchain image as its cache, so only its source layers build.
       - name: Build the devcontainer images
         run: |
           ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
             for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
               if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
             done )
-          make docker-build MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_IMAGE="$IT_IMAGE"
+          make docker-images MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          make docker-build-it MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_IMAGE="$IT_IMAGE"
           rm -f "$RUNNER_TEMP/gomodauth.env"
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV" # CUSTOMIZE: the esp32 stages
@@ -394,6 +412,13 @@ jobs:
       - name: Trim the CI caches
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         run: scripts/trim-ci-caches.sh "$CI_STACK_PREFIX" "$TOOLCHAIN_IMAGE"
+
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): no job removes a
+      # hash-tagged image, since other runs share it; this keeps the newest
+      # three hashes of each on the host. It never fails the job.
+      - name: Trim the devcontainer images
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/trim-ci-images.sh "$TOOLCHAIN_IMAGE" "$ESP32_IMAGE"
 
       # make lint: gofmt, vet, golangci-lint, actionlint with shellcheck
       # (devops.md §4). .golangci.yml enables staticcheck, errcheck, unused,
@@ -571,8 +596,8 @@ jobs:
             trivy image --input it-image.tar --ignore-unfixed --skip-dirs /opt/go/mod --severity CRITICAL,HIGH --exit-code 1
 
       # CUSTOMIZE (trusted-firmware): the ESP32-P4 firmware, built in the esp32
-      # image and run under Espressif's QEMU. `make docker-build` builds that
-      # image with the other two.
+      # image and run under Espressif's QEMU. `make docker-images` reuses or
+      # builds that image with the toolchain one.
       - name: make esp32-build (esp32 image)
         if: ${{ !cancelled() && env.ESP32_IMAGE != '' }}
         run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-build BOARD=esp32p4-poe
@@ -586,8 +611,9 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/gomodauth.env" it-image.tar
           docker image rm "$IT_IMAGE" || true
-          # CUSTOMIZE: the run-tagged toolchain and esp32 images (TOOLCHAIN_TAG).
-          docker image rm "${TOOLCHAIN_IMAGE:-}" "${ESP32_IMAGE:-}" 2>/dev/null || true
+          # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry
+          # login. The hash-tagged images stay: other runs share them.
+          rm -rf "$RUNNER_TEMP/docker-config"
 
   # Integration tests run in the integration image (ci-standard.md §2), as a
   # compose stack on the runner host started by `make integration-test`. The
@@ -607,6 +633,12 @@ jobs:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       IT_PROJECT: ${{ github.event.repository.name }}-ci-${{ github.run_id }}-${{ github.run_attempt }}
       IT_IMAGE: ${{ github.event.repository.name }}-ci-it:${{ github.run_id }}-${{ github.run_attempt }}
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): the image job's trust
+      # classes. This job computes the same hash-tagged toolchain image name
+      # from the same commit (mk/docker.mk) and builds the integration image
+      # with it as the cache; it never builds the toolchain image itself.
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -629,6 +661,11 @@ jobs:
 
       # CUSTOMIZE: host tuning the suite needs goes here, as in the test job.
 
+      # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry the
+      # integration image's build reads the toolchain image's cache from.
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
       - name: Write the module credential file
         run: |
           umask 077
@@ -644,6 +681,7 @@ jobs:
         if: always()
         run: |
           rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config" # CUSTOMIZE (trusted-firmware, m644): the registry login
           # CUSTOMIZE: compose.yaml reads the image as TRUSTED_FIRMWARE_IT_IMAGE.
           TRUSTED_FIRMWARE_IT_IMAGE="$IT_IMAGE" docker compose -f build/docker/devcontainer/compose.yaml -p "$IT_PROJECT" down --volumes || true
           docker image rm "$IT_IMAGE" || true

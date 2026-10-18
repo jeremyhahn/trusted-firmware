@@ -28,6 +28,8 @@ static uint8_t  busy;
 static uint8_t  busy_polls = 1u;
 static uint8_t  ready;   /* a part leaves the factory erased; tfwsim never resets */
 static uint32_t erases, programs, violations;
+static uint8_t  fail_at;
+static uint16_t xfer_ms;
 
 static tfw_nor_model_bus_t bus_mode;
 /* The lowest and highest byte each kind of write has touched since a clear. */
@@ -58,6 +60,21 @@ void tfw_nor_model_reset(void)
     erases = programs = violations = 0u;
     bus_mode = TFW_NOR_MODEL_PRESENT;
     tfw_nor_model_clear_spans();
+    fail_at = 0u;
+    xfer_ms = 0u;
+}
+
+void tfw_nor_model_fail_xfer(uint8_t nth)    { fail_at = nth; }
+void tfw_nor_model_set_xfer_ms(uint16_t ms)  { xfer_ms = ms; }
+uint16_t tfw_nor_model_xfer_ms(void)         { return xfer_ms; }
+
+uint8_t tfw_nor_model_take_fault(void)
+{
+    if (fail_at == 0u) {
+        return 0u;
+    }
+    fail_at--;
+    return (uint8_t)(fail_at == 0u);
 }
 
 const uint8_t *tfw_nor_model_mem(void)        { return mem; }

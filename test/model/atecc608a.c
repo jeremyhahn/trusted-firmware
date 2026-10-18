@@ -269,9 +269,13 @@ static uint8_t  hmac_active;
  * with nothing on it does. Distinct from a busy part -- a driver must tell
  * "not there" from "not yet". */
 static uint8_t  absent;
+static uint8_t  i2c_init_fails;
 
 /* Fault hooks: one corrupted read, one NACKed command. */
 static uint8_t corrupt_idx, corrupt_mask, nack_command;
+/* Countdowns for tfw_model_fail_wakes_after / tfw_model_fail_commands_after:
+ * while armed, that many more succeed and every one after fails. */
+static uint8_t wake_fail_armed, wakes_left, cmd_fail_armed, commands_left;
 static tfw_model_cmd_t log_cmds[TFW_MODEL_LOG_MAX];
 static uint8_t log_n;
 
@@ -288,6 +292,8 @@ void tfw_model_reset(void)
     memset(slots, 0, sizeof slots);
     config_locked = 0u; data_locked = 0u;
     sha_active = 0u; verify_should_pass = 0u; verify_seen = 0u; absent = 0u;
+    i2c_init_fails = 0u;
+    wake_fail_armed = 0u; wakes_left = 0u; cmd_fail_armed = 0u; commands_left = 0u;
     stored_pub_slot = 0xFFu; memset(stored_pub, 0, sizeof stored_pub);
     tempkey_valid = 0u; hmac_active = 0u; hmac_len = 0u; genkey_count = 0u;
     memset(tfw_model_tempkey(), 0, 32u);
@@ -328,6 +334,7 @@ void tfw_model_set_stored_pubkey(uint8_t slot, const uint8_t pub[64])
     memcpy(stored_pub, pub, sizeof stored_pub);
 }
 void tfw_model_set_absent(uint8_t yes) { absent = yes; }
+void tfw_model_fail_i2c_init(uint8_t yes) { i2c_init_fails = yes; }
 uint8_t tfw_model_verify_seen(void) { return verify_seen; }
 const uint8_t *tfw_model_verify_last_sig(void) { return verify_last_sig; }
 const uint8_t *tfw_model_verify_last_pubkey(void) { return verify_last_pubkey; }
@@ -653,6 +660,9 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
      * 400 kHz that is 22 us, below the 60 us the part requires, so a driver
      * that configured the fast bus would never wake it. The model refuses the
      * same way the silicon would: by not waking. */
+    if (i2c_init_fails) {
+        return TFW_ERR_BUSY;
+    }
     return hz <= 100000uL ? TFW_OK : TFW_OK;
 }
 
@@ -665,6 +675,10 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
     if (addr7 == 0x00u) {
         /* The wake pulse. Nothing is listening at address zero; the part wakes
          * on the low line and then answers its own address with 04 11 33 43. */
+        if (wake_fail_armed) {
+            if (wakes_left == 0u) { return TFW_ERR_NACK; }   /* stays asleep */
+            wakes_left--;
+        }
         awake = 1u;
         respond_status(0x11u);
         return TFW_ERR_NACK;         /* and the NACK is expected */
@@ -693,6 +707,10 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
             return TFW_OK;
         case TFW_ATECC_WA_COMMAND:
             if (nack_command) { nack_command = 0u; return TFW_ERR_NACK; }
+            if (cmd_fail_armed) {
+                if (commands_left == 0u) { return TFW_ERR_NACK; }
+                commands_left--;
+            }
             handle_command(wr, wlen);
             return TFW_OK;
         default:
@@ -727,3 +745,10 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
  * clock.
  */
 void tfw_hal_delay_us(uint16_t us) { (void)us; }
+
+/* A part that answers n more wakes and then sleeps through every pulse, so a
+ * test can fail the second wake of a sequence and not the first. Off by
+ * default; cleared by tfw_model_reset(). */
+void tfw_model_fail_wakes_after(uint8_t n)    { wake_fail_armed = 1u; wakes_left = n; }
+/* The same for command writes: n more are taken, every one after is NACKed. */
+void tfw_model_fail_commands_after(uint8_t n) { cmd_fail_armed = 1u; commands_left = n; }

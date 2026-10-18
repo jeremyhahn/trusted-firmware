@@ -29,6 +29,7 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
         cs->port != me.port || cs->bit != me.bit) {
         return tfw_mock_spi_xfer(cs, wr, rd, len);
     }
+    tfw_mock_advance(tfw_nor_model_xfer_ms());
     xfers++;
     if (fail_at != 0u && xfers == fail_at) {
         return fail_st;         /* the part never sees it */
@@ -36,6 +37,9 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
     if (fail_erases != 0u && len != 0u && wr[0] == NOR_MODEL_ERASE_4K) {
         fail_erases--;
         return fail_status;   /* the part never sees it: the array is unchanged */
+    }
+    if (tfw_nor_model_take_fault()) {
+        return TFW_ERR_BUSY;
     }
     memmove(rd, wr, len);
     tfw_nor_model_xfer(rd, len);

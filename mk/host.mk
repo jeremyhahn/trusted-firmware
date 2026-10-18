@@ -124,7 +124,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_csr.c \
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
-                            test/unit/test_crypto_none.c \
+                            test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_ota_trial.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
@@ -319,6 +319,17 @@ $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
                         src/core/handoff.c src/core/secure_zero.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         test/mock/hal_mock.c test/mock/uds_mock.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The image's UDS source, src/crypto/soft/uds_flash.c, in place of
+# test/mock/uds_mock.c, under the software provider -- HOST_LIB_SRCS carries
+# the mock, so this suite has its own link line too.
+$(HOST_DIR)/test_uds_flash: test/unit/test_uds_flash.c \
+                        src/crypto/soft/uds_flash.c src/crypto/soft/provider.c src/crypto/sha256.c \
+                        src/core/handoff.c src/core/secure_zero.c \
+                        boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        test/mock/hal_mock.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -556,7 +567,7 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
 HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
-                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
+                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
@@ -593,10 +604,17 @@ coverage:
 	@# anything -- and so is boot_main.c, which is a superloop with no return.
 	@# The crypto tiers are in: sha256.c and the soft, none and ATECC608A
 	@# providers and driver, and boot/measure and boot/verify, against the mock
-	@# HAL or the software element. Out, each built only for AVR: boot/tier's
-	@# cdi_soft.c and cdi_atecc.c (mk/boot.mk BOOT_TIER_SRCS, no host suite
-	@# links them) and src/crypto/soft/uds_flash.c (mk/firmware.mk CRYPTO_SRCS;
-	@# the host links test/mock/uds_mock.c in its place).
+	@# HAL or the software element. So are the auto provider (test_crypto_auto)
+	@# and src/crypto/soft/uds_flash.c (test_uds_flash, which links it in place
+	@# of test/mock/uds_mock.c). So are boot/tier's cdi_soft.c, erased
+	@# (test_boot_cdi_soft) and with its UDS slot patched as the jig patches
+	@# it (test_boot_cdi_soft_uds), and cdi_atecc.c on the software element
+	@# (test_boot_cdi_atecc).
+	@# src/net/ is in: w5x00.c, w5100.c and w5500.c against the software W5100 /
+	@# W5500 (test_w5100, test_w5500 and their _nocs links), netcfg.c through
+	@# test_link_eth. So is src/store/spi_nor.c, on the software NOR part
+	@# (test_spi_nor and the stager's links: test_ota_stage, test_stage_marked,
+	@# test_ota_single, test_ota_info_atecc, test_noboot_ota).
 	@# boot_swap.c (the 2560's swap-move and its journal), boot_trial.c,
 	@# boot_store.c and boot_handoff.c are in: the OTA rollback path, all of it
 	@# over the boot HAL's EEPROM and flash, which the mock drives. boot_swap_none.c
@@ -604,8 +622,11 @@ coverage:
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
 	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage|swap|trial|store|handoff)\.c' \
 	       --filter 'boot/recovery/recovery_ota\.c' \
-	       --filter 'src/crypto/(sha256|soft/provider|none/provider|atecc608a/atecc|atecc608a/provider)\.c' \
+	       --filter 'src/crypto/(sha256|soft/provider|soft/uds_flash|none/provider|atecc608a/atecc|atecc608a/provider|auto/provider)\.c' \
+	       --filter 'src/net/(netcfg|w5100|w5500|w5x00)\.c' \
+	       --filter 'src/store/spi_nor\.c' \
 	       --filter 'boot/measure/measure_(soft|atecc608a)\.c' \
+	       --filter 'boot/tier/cdi_(soft|atecc)\.c' \
 	       --filter 'boot/verify/(verify_ed25519_donna|verify_atecc608a|donna_shim)\.c' \
 	       --exclude 'src/hal/avr/' --print-summary \
 	       --html-details coverage/index.html --fail-under-line $(COVERAGE_FLOOR)

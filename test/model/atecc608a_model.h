@@ -69,6 +69,9 @@ void           tfw_model_set_stored_pubkey(uint8_t slot, const uint8_t pub[64]);
 /* No element on the board: every transfer NACKs. Distinct from a busy part --
  * a driver must tell "not there" from "not yet". */
 void           tfw_model_set_absent(uint8_t yes);
+/* The bus itself refuses to come up: tfw_hal_i2c_init answers TFW_ERR_BUSY.
+ * Off by default; cleared by tfw_model_reset(). */
+void           tfw_model_fail_i2c_init(uint8_t yes);
 uint8_t        tfw_model_verify_seen(void);
 /* The signature the driver actually sent, so a test can prove it forwarded the
  * one it was given rather than something it constructed. */
@@ -98,5 +101,10 @@ int            tfw_model_p256_sign(const uint8_t priv[32], const uint8_t digest[
                                   uint8_t sig[64]);
 int            tfw_model_p256_verify(const uint8_t pub[64], const uint8_t digest[32],
                                     const uint8_t sig[64]);
+/* n more wakes (or command writes) succeed, then every one fails -- a part that
+ * drops off the bus partway through a sequence. Off by default; cleared by
+ * tfw_model_reset(). */
+void           tfw_model_fail_wakes_after(uint8_t n);
+void           tfw_model_fail_commands_after(uint8_t n);
 
 #endif /* TFW_ATECC_MODEL_H */

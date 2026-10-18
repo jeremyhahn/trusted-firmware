@@ -111,6 +111,95 @@ void test_the_choice_never_changes_until_reset(void)
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_sign(digest, sig, &alg));
 }
 
+/* A bus that will not start is no element: src/crypto/auto/provider.c's
+ * first probe step fails and the soft root runs. */
+void test_a_bus_that_will_not_start_runs_the_soft_root(void)
+{
+    tfw_model_provision();
+    tfw_model_fail_i2c_init(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    assert_soft_identity();
+}
+
+/* Every remaining entry of the dispatcher answers as the chosen provider's
+ * own entry does, called directly. */
+typedef struct {
+    tfw_status_t (*random)(uint8_t *out, uint8_t len);
+    tfw_status_t (*sha256)(const uint8_t *data, uint16_t len, uint8_t out[32]);
+    tfw_status_t (*hmac)(uint8_t slot, const uint8_t *data, uint16_t len, uint8_t out[32]);
+    tfw_status_t (*counter)(uint8_t idx, uint32_t *out);
+    tfw_status_t (*verify_operator)(const uint8_t digest[32], const uint8_t sig[64],
+                                    const uint8_t pubkey[64]);
+    tfw_status_t (*verify_image)(const uint8_t digest[32], const uint8_t sig[64]);
+} provider_t;
+
+tfw_status_t tfw_crypto_soft_random(uint8_t *out, uint8_t len);
+tfw_status_t tfw_crypto_soft_sha256(const uint8_t *data, uint16_t len, uint8_t out[32]);
+tfw_status_t tfw_crypto_soft_hmac(uint8_t slot, const uint8_t *data, uint16_t len, uint8_t out[32]);
+tfw_status_t tfw_crypto_soft_counter(uint8_t idx, uint32_t *out);
+tfw_status_t tfw_crypto_soft_verify_operator(const uint8_t digest[32], const uint8_t sig[64],
+                                             const uint8_t pubkey[64]);
+tfw_status_t tfw_crypto_soft_verify_image(const uint8_t digest[32], const uint8_t sig[64]);
+tfw_status_t tfw_crypto_element_random(uint8_t *out, uint8_t len);
+tfw_status_t tfw_crypto_element_sha256(const uint8_t *data, uint16_t len, uint8_t out[32]);
+tfw_status_t tfw_crypto_element_hmac(uint8_t slot, const uint8_t *data, uint16_t len, uint8_t out[32]);
+tfw_status_t tfw_crypto_element_counter(uint8_t idx, uint32_t *out);
+tfw_status_t tfw_crypto_element_verify_operator(const uint8_t digest[32], const uint8_t sig[64],
+                                                const uint8_t pubkey[64]);
+tfw_status_t tfw_crypto_element_verify_image(const uint8_t digest[32], const uint8_t sig[64]);
+
+static void assert_entries_follow(const provider_t *p)
+{
+    static const uint8_t msg[3] = { 'a', 'b', 'c' };
+    uint8_t  got[64], want[64];
+    uint32_t got_n = 0u, want_n = 0u;
+
+    TEST_ASSERT_EQUAL(p->random(want, 32u), tfw_crypto_random(got, 32u));
+
+    memset(got, 0, sizeof got);
+    memset(want, 0xFF, sizeof want);
+    TEST_ASSERT_EQUAL(p->sha256(msg, sizeof msg, want), tfw_crypto_sha256(msg, sizeof msg, got));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32u);
+
+    memset(got, 0, sizeof got);
+    memset(want, 0xFF, sizeof want);
+    TEST_ASSERT_EQUAL(p->hmac(0u, msg, sizeof msg, want), tfw_crypto_hmac(0u, msg, sizeof msg, got));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32u);
+
+    TEST_ASSERT_EQUAL(p->counter(0u, &want_n), tfw_crypto_counter(0u, &got_n));
+    TEST_ASSERT_EQUAL_UINT32(want_n, got_n);
+
+    memset(got, 0x11, sizeof got);
+    TEST_ASSERT_EQUAL(p->verify_operator(digest, got, got), tfw_crypto_verify_operator(digest, got, got));
+    TEST_ASSERT_EQUAL(p->verify_image(digest, got), tfw_crypto_verify_image(digest, got));
+}
+
+void test_a_soft_boot_answers_every_entry_from_the_soft_root(void)
+{
+    static const provider_t soft = {
+        tfw_crypto_soft_random, tfw_crypto_soft_sha256, tfw_crypto_soft_hmac,
+        tfw_crypto_soft_counter, tfw_crypto_soft_verify_operator, tfw_crypto_soft_verify_image
+    };
+
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
+    assert_entries_follow(&soft);
+}
+
+void test_an_element_boot_answers_every_entry_from_the_element(void)
+{
+    static const provider_t element = {
+        tfw_crypto_element_random, tfw_crypto_element_sha256, tfw_crypto_element_hmac,
+        tfw_crypto_element_counter, tfw_crypto_element_verify_operator, tfw_crypto_element_verify_image
+    };
+
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SECURE_ELEMENT, tfw_crypto_tier());
+    assert_entries_follow(&element);
+}
+
 /* OTA_INFO's rollback floor follows the boot's tier, read from the handoff
  * (src/core/ota_floor_auto.c), never the application's own probe. */
 static tfw_boot_platform_t plat;
@@ -276,5 +365,8 @@ int main(void)
     RUN_TEST(test_the_soft_tier_gate_answers_ok_without_the_element_gate);
     RUN_TEST(test_the_session_init_is_the_element_s_on_the_element_tier);
     RUN_TEST(test_the_session_init_is_the_element_s_on_the_soft_tier);
+    RUN_TEST(test_a_bus_that_will_not_start_runs_the_soft_root);
+    RUN_TEST(test_a_soft_boot_answers_every_entry_from_the_soft_root);
+    RUN_TEST(test_an_element_boot_answers_every_entry_from_the_element);
     return UNITY_END();
 }

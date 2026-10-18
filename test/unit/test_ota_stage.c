@@ -714,6 +714,69 @@ static void test_data_fails_on_a_store_erase_failure(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
 }
 
+/* src/store/spi_nor.c's error paths, through the model's fault switches. An
+ * erase is WREN, ERASE, then status polls; a write of one page is WREN,
+ * PROGRAM, then status polls; a read is one transfer. Each failing transfer's
+ * status comes back unchanged. */
+void test_the_store_hands_back_a_failed_erase_transfer(void)
+{
+    uint8_t nth;
+
+    for (nth = 1u; nth <= 3u; nth++) {
+        tfw_nor_model_reset();
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_store_init());
+        tfw_nor_model_fail_xfer(nth);
+        TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_store_erase(TFW_OTA_STORE_STAGE_ADDR));
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
+void test_the_store_hands_back_a_failed_write_transfer(void)
+{
+    static const uint8_t src[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    uint8_t nth;
+
+    for (nth = 1u; nth <= 2u; nth++) {
+        tfw_nor_model_reset();
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_store_init());
+        tfw_nor_model_fail_xfer(nth);
+        TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_store_write(TFW_OTA_STORE_STAGE_ADDR, src, sizeof src));
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+}
+
+void test_the_store_hands_back_a_failed_read_transfer(void)
+{
+    uint8_t buf[8];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_init());
+    memset(buf, 0xA5, sizeof buf);
+    tfw_nor_model_fail_xfer(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_store_read(TFW_OTA_STORE_STAGE_ADDR, buf, sizeof buf));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5u, buf, sizeof buf);
+}
+
+void test_the_store_refuses_more_than_a_chunk(void)
+{
+    uint8_t buf[TFW_STORE_CHUNK + 1u];
+
+    memset(buf, 0, sizeof buf);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_init());
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_store_read(TFW_OTA_STORE_STAGE_ADDR, buf, (uint8_t)sizeof buf));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_store_write(TFW_OTA_STORE_STAGE_ADDR, buf, (uint8_t)sizeof buf));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+}
+
+void test_a_part_that_stays_busy_times_the_erase_out(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_init());
+    tfw_mock_set_millis(0u);
+    tfw_nor_model_set_busy_polls(255u);
+    tfw_nor_model_set_xfer_ms(20u);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_store_erase(TFW_OTA_STORE_STAGE_ADDR));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_model_erases());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -744,5 +807,10 @@ int main(void)
     RUN_TEST(test_a_trailer_measurement_unlike_the_mark_is_refused);
     RUN_TEST(test_begin_fails_on_a_store_erase_failure);
     RUN_TEST(test_data_fails_on_a_store_erase_failure);
+    RUN_TEST(test_the_store_hands_back_a_failed_erase_transfer);
+    RUN_TEST(test_the_store_hands_back_a_failed_write_transfer);
+    RUN_TEST(test_the_store_hands_back_a_failed_read_transfer);
+    RUN_TEST(test_the_store_refuses_more_than_a_chunk);
+    RUN_TEST(test_a_part_that_stays_busy_times_the_erase_out);
     return UNITY_END();
 }

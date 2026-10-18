@@ -477,6 +477,38 @@ $(BOOT_TEST_DIR)/test_boot_p256_soft: test/unit/boot/test_boot_p256_soft.c \
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The two DICE layer 0 tiers (BOOT_TIER_SRCS above). test_boot_cdi_soft links
+# cdi_soft.c as built, its UDS slot the erased placeholder. test_boot_cdi_soft_uds
+# links the same source with the slot patched after compilation, as the
+# provisioning jig patches the image: -fdata-sections puts the slot in a section
+# of its own and objcopy replaces its 32 bytes, so the source under test is the
+# one that ships. objcopy fails if the section is not there. test_boot_cdi_atecc
+# links cdi_atecc.c and the real driver against the software element.
+CDI_SOFT_TEST_UDS := cdi_soft.c TEST UDS, not a key!!
+
+$(BOOT_TEST_DIR)/cdi_soft_uds.o: boot/tier/cdi_soft.c | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -fdata-sections -c -o $@ $<
+	@printf '%s' '$(CDI_SOFT_TEST_UDS)' > $@.uds
+	@objcopy --update-section .rodata.uds_slot=$@.uds $@
+
+$(BOOT_TEST_DIR)/test_boot_cdi_soft: test/unit/boot/test_boot_cdi_soft.c \
+        boot/tier/cdi_soft.c src/crypto/sha256_small.c test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(BOOT_TEST_DIR)/test_boot_cdi_soft_uds: test/unit/boot/test_boot_cdi_soft_uds.c \
+        $(BOOT_TEST_DIR)/cdi_soft_uds.o src/crypto/sha256_small.c test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(BOOT_TEST_DIR)/test_boot_cdi_atecc: test/unit/boot/test_boot_cdi_atecc.c \
+        boot/tier/cdi_atecc.c src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
+        src/proto/crc16.c src/proto/crc16_update.c \
+        $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
 $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_session.c \

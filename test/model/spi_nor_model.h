@@ -57,6 +57,16 @@ uint32_t       tfw_nor_model_erase_hi(void);
 uint32_t       tfw_nor_model_erases(void);
 uint32_t       tfw_nor_model_programs(void);
 uint32_t       tfw_nor_model_violations(void);
+/* Fault switches for the driver's error paths, off by default and cleared by
+ * tfw_nor_model_reset(). fail_xfer(n): the n-th transfer to the part from
+ * now (1 = the next) answers TFW_ERR_BUSY and moves nothing; 0 is off.
+ * set_xfer_ms(ms): every transfer to the part advances the mock clock by ms,
+ * so a part held busy runs a driver's deadline out. spi_nor_hal.c asks
+ * take_fault() and xfer_ms() on every transfer to the part. */
+void           tfw_nor_model_fail_xfer(uint8_t nth);
+void           tfw_nor_model_set_xfer_ms(uint16_t ms);
+uint8_t        tfw_nor_model_take_fault(void);
+uint16_t       tfw_nor_model_xfer_ms(void);
 
 /* One transaction, the reply over the request in buf. Longer than
  * TFW_NOR_MODEL_XFER_MAX is a violation: a page read and its command fit. */

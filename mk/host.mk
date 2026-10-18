@@ -128,17 +128,17 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
-                            test/unit/test_sys_noboot.c test/unit/test_ota_trial.c \
+                            test/unit/test_sys_noboot.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
                             test/unit/test_pin_coord.c \
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
-                            test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_ota_hold_link.c \
+                            test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c \
-                           test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
+                           test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_stage_marked.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c, \
                             $(wildcard test/unit/test_*.c))
@@ -383,7 +383,8 @@ $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
 
 # The application's half of the one trial (#77) against the mock HAL's clock
 # and EEPROM, with the platform block reader the application links.
-$(HOST_DIR)/test_ota_trial: test/unit/test_ota_trial.c src/core/ota_trial.c \
+# test_ota_trial_mutate mutates that block on the same link.
+$(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate: $(HOST_DIR)/%: test/unit/%.c src/core/ota_trial.c \
                         boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c \
                         src/core/secure_zero.c boot/boot_handoff.c \
                         src/proto/crc16.c src/proto/crc16_update.c \
@@ -518,8 +519,9 @@ $(HOST_DIR)/test_w5500_mutate: $(W5X_MUT_SRCS) src/net/w5500.c $(HOST_DIR)/unity
 
 # The Ethernet image's link: the whole host library with link_eth.c where
 # link_serial.c would be -- what mk/firmware.mk links for ETH=1 -- and the TCP
-# socket faked in the suite itself at include/tfw/eth.h.
-$(HOST_DIR)/test_link_eth: test/unit/test_link_eth.c \
+# socket faked in the suite itself at include/tfw/eth.h. test_netcfg_mutate
+# mutates the network block on the same link.
+$(HOST_DIR)/test_link_eth $(HOST_DIR)/test_netcfg_mutate: $(HOST_DIR)/%: test/unit/%.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
                         src/proto/link_eth.c src/net/netcfg.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -535,7 +537,8 @@ $(HOST_DIR)/test_link_eth_mutate: test/unit/test_link_eth_mutate.c \
 
 # The OTA stager (issue #75) as an OTA_STAGE=1 image links it, with the software
 # NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
-$(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) \
+# test_appstate_mutate mutates the handoff and platform block on the same link.
+$(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
@@ -604,7 +607,7 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \

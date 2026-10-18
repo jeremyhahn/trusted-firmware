@@ -31,12 +31,11 @@ tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
         return TFW_ERR_UNSUPPORTED;
     }
 
-    out->image_version = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION]);
-    out->image_len     = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_IMAGE_LEN]);
-    out->board_id      = raw[TFW_BOOT_TR_BOARD_ID];
-    out->image_flags   = raw[TFW_BOOT_TR_IMAGE_FLAGS];
+    /* Checked in locals, so a refused trailer writes nothing to *out. */
+    uint32_t image_version = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION]);
+    uint32_t image_len     = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_IMAGE_LEN]);
 
-    if (out->image_version == 0u) {
+    if (image_version == 0u) {
         return TFW_ERR_CRYPTO;
     }
     /*
@@ -52,9 +51,14 @@ tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
      * way that looks like a toolchain bug. Bound it here and the failure names
      * itself.
      */
-    if (out->image_len == 0u || out->image_len > TFW_BOOT_MAX_IMAGE_LEN) {
+    if (image_len == 0u || image_len > TFW_BOOT_MAX_IMAGE_LEN) {
         return TFW_ERR_RANGE;
     }
+
+    out->image_version = image_version;
+    out->image_len     = image_len;
+    out->board_id      = raw[TFW_BOOT_TR_BOARD_ID];
+    out->image_flags   = raw[TFW_BOOT_TR_IMAGE_FLAGS];
 
     memcpy(out->measurement, &raw[TFW_BOOT_TR_MEASUREMENT], TFW_BOOT_MEASURE_LEN);
     memcpy(out->signature,   &raw[TFW_BOOT_TR_SIGNATURE],   TFW_BOOT_SIG_LEN);

@@ -19,6 +19,12 @@ tfw_status_t tfw_netcfg_decode(const uint8_t *raw, tfw_netcfg_t *out)
         tfw_crc16(raw, 30u) != (uint16_t)(raw[30] | (uint16_t)raw[31] << 8)) {
         return TFW_ERR_NOT_PROVISIONED;
     }
+    /* A zero peer or port is refused before anything is written, so a
+     * refused block never leaves *out partly decoded. */
+    if ((raw[28] | raw[29]) == 0u ||
+        (raw[24] | raw[25] | raw[26] | raw[27]) == 0u) {
+        return TFW_ERR_NOT_PROVISIONED;
+    }
     for (i = 0u; i < 6u; i++) {
         out->mac[i] = raw[6u + i];
     }
@@ -29,10 +35,6 @@ tfw_status_t tfw_netcfg_decode(const uint8_t *raw, tfw_netcfg_t *out)
         out->peer[i]    = raw[24u + i];
     }
     out->port = (uint16_t)((uint16_t)raw[28] << 8 | raw[29]);
-    if (out->port == 0u ||
-        (out->peer[0] | out->peer[1] | out->peer[2] | out->peer[3]) == 0u) {
-        return TFW_ERR_NOT_PROVISIONED;
-    }
     return TFW_OK;
 }
 

@@ -75,6 +75,33 @@ static void test_a_length_past_the_trailer_is_refused(void)
 
 /* ------------------------------------------------------------- handoff */
 
+/* Parses into sentinel-filled outputs and checks a refusal wrote none of
+ * them. Returns the parser's status. */
+static tfw_status_t parse_untouched(const uint8_t *block, uint8_t *tier,
+                                    uint8_t cdi[32], uint8_t meas[32],
+                                    uint32_t *ver, uint8_t *cause)
+{
+    uint8_t      sentinel[32];
+    uint32_t     ver_sentinel;
+    tfw_status_t st;
+
+    memset(sentinel, 0xA5, sizeof sentinel);
+    memset(&ver_sentinel, 0xA5, sizeof ver_sentinel);
+    *tier  = 0xA5u;
+    *cause = 0xA5u;
+    *ver   = ver_sentinel;
+    memcpy(cdi, sentinel, sizeof sentinel);
+    memcpy(meas, sentinel, sizeof sentinel);
+    st = tfw_boot_handoff_parse(block, tier, cdi, meas, ver, cause);
+    TEST_ASSERT_NOT_EQUAL_INT(TFW_OK, st);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, *tier);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, *cause);
+    TEST_ASSERT_EQUAL_HEX32(ver_sentinel, *ver);
+    TEST_ASSERT_EQUAL_MEMORY(sentinel, cdi, sizeof sentinel);
+    TEST_ASSERT_EQUAL_MEMORY(sentinel, meas, sizeof sentinel);
+    return st;
+}
+
 static void test_the_handoff_block_round_trips(void)
 {
     uint8_t block[TFW_BOOT_HANDOFF_LEN];
@@ -121,7 +148,7 @@ static void test_the_reset_cause_round_trips_and_is_crc_covered(void)
      * into the block does not hand the application a cause nobody observed. */
     block[TFW_BOOT_HO_RESET_CAUSE] ^= 0xFFu;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC,
-        tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
+        parse_untouched(block, &tier, got_cdi, got_meas, &ver, &cause));
 }
 
 /* No bootloader ran, or one from a build that predates the handoff. The
@@ -134,7 +161,7 @@ static void test_an_unwritten_block_is_not_a_handoff(void)
 
     memset(block, 0, sizeof block);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED,
-        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+        parse_untouched(block, &tier, cdi, meas, &ver, &cause));
 }
 
 /*
@@ -154,7 +181,7 @@ static void test_a_block_overwritten_by_the_stack_is_caught(void)
     block[TFW_BOOT_HO_CDI + 5u] ^= 0x40u;
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC,
-        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+        parse_untouched(block, &tier, cdi, meas, &ver, &cause));
 }
 
 static void test_an_unknown_handoff_version_is_refused(void)
@@ -169,7 +196,7 @@ static void test_an_unknown_handoff_version_is_refused(void)
     block[TFW_BOOT_HO_VERSION] = TFW_BOOT_HANDOFF_VERSION + 1u;
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED,
-        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+        parse_untouched(block, &tier, cdi, meas, &ver, &cause));
 }
 
 /*
@@ -190,7 +217,7 @@ static void test_an_older_handoff_version_is_refused_not_misread(void)
     block[TFW_BOOT_HO_VERSION] = 1u;
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED,
-        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+        parse_untouched(block, &tier, cdi, meas, &ver, &cause));
 }
 
 /*
@@ -212,7 +239,7 @@ static void test_a_version_2_raw_mcusr_block_is_refused_not_reinterpreted(void)
     block[TFW_BOOT_HO_RESET_CAUSE] = 0x08u;   /* WDRF, as v2 wrote it */
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED,
-        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+        parse_untouched(block, &tier, cdi, meas, &ver, &cause));
 }
 
 /* The application reports the tier the BOOTLOADER observed, and a host decides

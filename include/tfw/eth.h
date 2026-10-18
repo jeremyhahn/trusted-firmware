@@ -42,7 +42,7 @@ typedef struct {
 } tfw_netcfg_t;
 
 /* Decodes a raw block. TFW_ERR_NOT_PROVISIONED for a wrong magic, version or
- * CRC, a zero endpoint or a zero port. */
+ * CRC, a zero endpoint or a zero port; *out is written only on TFW_OK. */
 tfw_status_t tfw_netcfg_decode(const uint8_t *raw, tfw_netcfg_t *out);
 
 /* Reads the block from EEPROM and decodes it. Never cached: a block written

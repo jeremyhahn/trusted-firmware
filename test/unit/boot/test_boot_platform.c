@@ -31,6 +31,21 @@ static void build(uint8_t raw[TFW_BOOT_EE_LEN], tfw_boot_platform_t *p)
     tfw_boot_platform_serialise(p, raw);
 }
 
+/* Parses into a sentinel-filled *out and checks a refusal left every byte of
+ * it as the caller passed it. Returns the parser's status. */
+static tfw_status_t parse_untouched(const uint8_t *raw, tfw_boot_platform_t *out)
+{
+    tfw_boot_platform_t sentinel;
+    tfw_status_t        st;
+
+    memset(out, 0xA5, sizeof *out);
+    memcpy(&sentinel, out, sizeof sentinel);
+    st = tfw_boot_platform_parse(raw, out);
+    TEST_ASSERT_NOT_EQUAL_INT(TFW_OK, st);
+    TEST_ASSERT_EQUAL_MEMORY(&sentinel, out, sizeof sentinel);
+    return st;
+}
+
 static void test_round_trips_every_field(void)
 {
     uint8_t raw[TFW_BOOT_EE_LEN];
@@ -58,7 +73,7 @@ static void test_a_blank_region_reports_not_provisioned(void)
     tfw_boot_platform_t out;
 
     memset(raw, 0xFF, sizeof raw);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, tfw_boot_platform_parse(raw, &out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, parse_untouched(raw, &out));
 }
 
 static void test_a_zeroed_region_reports_not_provisioned(void)
@@ -67,7 +82,7 @@ static void test_a_zeroed_region_reports_not_provisioned(void)
     tfw_boot_platform_t out;
 
     memset(raw, 0x00, sizeof raw);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, tfw_boot_platform_parse(raw, &out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, parse_untouched(raw, &out));
 }
 
 static void test_an_unknown_layout_version_is_refused(void)
@@ -77,7 +92,7 @@ static void test_an_unknown_layout_version_is_refused(void)
 
     build(raw, &in);
     raw[TFW_BOOT_EE_O_LAYOUT] = TFW_BOOT_EE_VERSION + 1u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_platform_parse(raw, &out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, parse_untouched(raw, &out));
 }
 
 /* A corrupted rollback floor is a downgrade attack that arrives by accident.
@@ -89,7 +104,7 @@ static void test_a_corrupted_byte_is_caught_by_the_crc(void)
 
     build(raw, &in);
     raw[TFW_BOOT_EE_O_ROLLBACK_FLOOR] ^= 0x08u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, tfw_boot_platform_parse(raw, &out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, parse_untouched(raw, &out));
 }
 
 static void test_a_corrupted_pubkey_hash_is_caught(void)
@@ -99,7 +114,7 @@ static void test_a_corrupted_pubkey_hash_is_caught(void)
 
     build(raw, &in);
     raw[TFW_BOOT_EE_O_PUBKEY_HASH + 31u] ^= 0x01u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, tfw_boot_platform_parse(raw, &out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, parse_untouched(raw, &out));
 }
 
 /*

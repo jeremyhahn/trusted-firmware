@@ -113,20 +113,26 @@ static void make_input(uint8_t raw[TFW_BOOT_TRAILER_LEN])
 static void test_mutated_trailers_parse_inside_their_contract(void)
 {
     static uint8_t scratch[TFW_BOOT_TRAILER_LEN];
-    unsigned long  ok = 0u, refused = 0u;
+    unsigned long  ok = 0u, refused = 0u, untouched = 0u;
 
     for (uint32_t it = 0; it < ITERATIONS; it++) {
         uint8_t           *raw = malloc(TFW_BOOT_TRAILER_LEN);
-        tfw_boot_trailer_t tr;
+        tfw_boot_trailer_t tr, sentinel;
         tfw_status_t       st;
 
         TEST_ASSERT_NOT_NULL(raw);
         make_input(scratch);
         memcpy(raw, scratch, TFW_BOOT_TRAILER_LEN);
-        memset(&tr, 0, sizeof tr);
+        memset(&tr, 0xA5, sizeof tr);
+        memcpy(&sentinel, &tr, sizeof sentinel);
         st = tfw_boot_trailer_parse(raw, &tr);
         TEST_ASSERT_TRUE(st == TFW_OK || st == TFW_ERR_UNSUPPORTED ||
                          st == TFW_ERR_RANGE || st == TFW_ERR_CRYPTO);
+        /* A refusal of any class leaves the caller's trailer as it was. */
+        if (st != TFW_OK) {
+            TEST_ASSERT_EQUAL_MEMORY(&sentinel, &tr, sizeof tr);
+            untouched++;
+        }
         if (st != TFW_OK) {
             refused++;
             free(raw);
@@ -174,11 +180,47 @@ static void test_mutated_trailers_parse_inside_their_contract(void)
     /* Proof the loop ran and reached both sides of the parser. */
     TEST_ASSERT_GREATER_THAN_UINT32(0u, ok);
     TEST_ASSERT_GREATER_THAN_UINT32(0u, refused);
+    TEST_ASSERT_GREATER_THAN_UINT32(0u, untouched);
+}
+
+/* A trailer that passes magic and version and is then refused writes nothing:
+ * the image_version and image_len checks run before any field reaches *out. */
+static void refused_leaves_trailer(const uint8_t head[16], tfw_status_t want)
+{
+    uint8_t            raw[TFW_BOOT_TRAILER_LEN];
+    tfw_boot_trailer_t tr, sentinel;
+
+    memset(raw, 0, sizeof raw);
+    memcpy(raw, head, 16);
+    memset(&tr, 0xA5, sizeof tr);
+    memcpy(&sentinel, &tr, sizeof sentinel);
+    TEST_ASSERT_EQUAL(want, tfw_boot_trailer_parse(raw, &tr));
+    TEST_ASSERT_EQUAL_MEMORY(&sentinel, &tr, sizeof tr);
+}
+
+static void test_version_zero_refused_leaves_trailer_untouched(void)
+{
+    static const uint8_t head[16] = {
+        0x54, 0x46, 0x49, 0x4D, 0x01, 0x00, 0x02, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+    };
+    refused_leaves_trailer(head, TFW_ERR_CRYPTO);
+}
+
+static void test_length_zero_refused_leaves_trailer_untouched(void)
+{
+    static const uint8_t head[16] = {
+        0x54, 0x46, 0x49, 0x4D, 0x01, 0x00, 0x02, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    refused_leaves_trailer(head, TFW_ERR_RANGE);
 }
 
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_mutated_trailers_parse_inside_their_contract);
+    RUN_TEST(test_version_zero_refused_leaves_trailer_untouched);
+    RUN_TEST(test_length_zero_refused_leaves_trailer_untouched);
     return UNITY_END();
 }

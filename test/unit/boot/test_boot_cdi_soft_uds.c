@@ -58,10 +58,11 @@ static void test_another_measurement_derives_another_cdi(void)
 /* Provisioning changes the CDI, not the tier or the floor. */
 static void test_the_tier_and_floor_do_not_depend_on_the_uds(void)
 {
-    uint32_t v = 3u;
+    uint32_t v = 0xA5A5A5A5u;
 
     TEST_ASSERT_EQUAL_UINT8(TFW_CRYPTO_SOFTWARE, tfw_boot_cdi_tier());
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_floor_read(&v));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, v);
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_floor_write(v));
 }
 

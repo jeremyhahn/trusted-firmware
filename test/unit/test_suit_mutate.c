@@ -149,14 +149,20 @@ static void test_mutated_envelopes_read_inside_their_contract(void)
     for (uint32_t it = 0; it < ITERATIONS; it++) {
         uint16_t            n  = make_input(scratch);
         uint8_t            *in = malloc(n);
-        tfw_suit_manifest_t m;
+        tfw_suit_manifest_t m, sentinel;
         tfw_status_t        st;
 
         TEST_ASSERT_NOT_NULL(in);
         memcpy(in, scratch, n);
+        memset(&m, 0xA5, sizeof m);
+        memcpy(&sentinel, &m, sizeof sentinel);
         st = tfw_suit_read(in, n, &m);
         TEST_ASSERT_TRUE(st == TFW_OK || st == TFW_ERR_RANGE ||
                          st == TFW_ERR_UNSUPPORTED || st == TFW_ERR_CRYPTO);
+        /* Every refusal, the walk's and the signature's, leaves *out as it was. */
+        if (st != TFW_OK) {
+            TEST_ASSERT_EQUAL_MEMORY(&sentinel, &m, sizeof m);
+        }
         if (st == TFW_OK) {
             ok++;
             TEST_ASSERT_TRUE(n <= TFW_SUIT_ENVELOPE_MAX);

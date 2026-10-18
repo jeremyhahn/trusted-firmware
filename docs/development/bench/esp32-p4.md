@@ -4,8 +4,13 @@ The factory record for the ESP32-P4 board (`boards/esp32p4-poe`), written
 before the project's first write to it under the owner's ruling of 2026-10-16
 (CA m346) and the record-only order of 2026-10-17 (CA m522): every bench board
 is the project's to flash, provision and reconfigure once its factory state is
-on its page. Nothing was written to the board for this record. Further P4 work
-waits on the AVR gate (#7).
+on its page. Nothing was written to the board for this record. The gate is
+lifted in full (owner ruling 2026-10-18, CA m623). Before any write, a lane
+reads the board again and compares it with this page; the steps that burn an
+eFuse or enable secure boot or flash encryption are owner decisions
+([`../../multi-arch/esp32-p4-design.md`](../../multi-arch/esp32-p4-design.md) §4).
+The part has 32 MB of flash; the board profile builds for 16 MB
+(`boards/esp32p4-poe/sdkconfig.defaults`), which bench slice 7 settles.
 
 | | |
 |---|---|

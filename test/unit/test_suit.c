@@ -304,6 +304,148 @@ static void test_a_resigned_envelope_reads(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_suit_read(env, sizeof SUIT_ENVELOPE, &m));
 }
 
+/* One field inside the signed manifest, rewritten in place and re-signed, so
+ * the refusal is the field check's and not the signature's. Every rewrite
+ * keeps the manifest's length, so resign()'s offsets hold. A refused read
+ * leaves *out as it found it. */
+static void assert_field_refused(uint16_t off, uint8_t was, uint8_t now, tfw_status_t want)
+{
+    tfw_suit_manifest_t m;
+    uint8_t             untouched[sizeof m];
+
+    memcpy(env, SUIT_ENVELOPE, sizeof SUIT_ENVELOPE);
+    TEST_ASSERT_EQUAL_HEX8(was, env[off]);
+    env[off] = now;
+    resign();
+    memset(&m, 0xA5, sizeof m);
+    memset(untouched, 0xA5, sizeof untouched);
+    TEST_ASSERT_EQUAL(want, tfw_suit_read(env, sizeof SUIT_ENVELOPE, &m));
+    TEST_ASSERT_EQUAL_MEMORY(untouched, &m, sizeof m);
+}
+
+/* suit.c manifest: {1: 1, 2: seq, 3: bstr(common)} at env[124]. */
+static void test_a_manifest_that_is_not_a_three_member_map_is_refused(void)
+{
+    assert_field_refused(124u, 0xA3u, 0xA2u, TFW_ERR_UNSUPPORTED);
+}
+
+static void test_a_manifest_version_that_is_not_one_is_refused(void)
+{
+    assert_field_refused(125u, 0x01u, 0x04u, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(126u, 0x01u, 0x02u, TFW_ERR_UNSUPPORTED);   /* the value */
+}
+
+/* suit.c uint32_member, through the sequence number. */
+static void test_a_sequence_that_is_not_an_unsigned_integer_is_refused(void)
+{
+    assert_field_refused(127u, 0x02u, 0x05u, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(128u, 0x07u, 0x1Bu, TFW_ERR_RANGE);         /* an 8-byte head */
+    assert_field_refused(128u, 0x07u, 0x1Cu, TFW_ERR_UNSUPPORTED);   /* a reserved head */
+    assert_field_refused(128u, 0x07u, 0x27u, TFW_ERR_UNSUPPORTED);   /* -8 */
+}
+
+static void test_a_common_member_that_is_not_a_bstr_is_refused(void)
+{
+    assert_field_refused(129u, 0x03u, 0x06u, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(130u, 0x58u, 0x18u, TFW_ERR_UNSUPPORTED);   /* a uint */
+}
+
+/* suit.c common: {2: [[h'00']], 4: bstr(shared sequence)} at env[132]. */
+static void test_a_common_map_of_the_wrong_shape_is_refused(void)
+{
+    assert_field_refused(132u, 0xA2u, 0xA3u, TFW_ERR_UNSUPPORTED);
+    assert_field_refused(133u, 0x02u, 0x03u, TFW_ERR_UNSUPPORTED);   /* the components key */
+    assert_field_refused(134u, 0x81u, 0x82u, TFW_ERR_UNSUPPORTED);   /* two components */
+}
+
+static void test_a_component_id_of_no_parts_or_too_many_is_refused(void)
+{
+    assert_field_refused(135u, 0x81u, 0x9Cu, TFW_ERR_UNSUPPORTED);   /* a reserved head */
+    assert_field_refused(135u, 0x81u, 0x80u, TFW_ERR_UNSUPPORTED);   /* no parts */
+    assert_field_refused(135u, 0x81u, 0x85u, TFW_ERR_UNSUPPORTED);   /* five parts */
+}
+
+static void test_a_component_part_that_is_not_a_short_bstr_is_refused(void)
+{
+    assert_field_refused(136u, 0x41u, 0x51u, TFW_ERR_RANGE);         /* 17 bytes */
+    assert_field_refused(136u, 0x41u, 0x01u, TFW_ERR_UNSUPPORTED);   /* a uint */
+}
+
+static void test_a_shared_sequence_member_that_is_not_a_bstr_is_refused(void)
+{
+    assert_field_refused(138u, 0x04u, 0x05u, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(139u, 0x58u, 0x18u, TFW_ERR_UNSUPPORTED);   /* a uint */
+}
+
+/* suit.c shared_seq: [20, {1: vendor, 2: class, 3: digest, 14: size}] at
+ * env[141]. */
+static void test_a_shared_sequence_of_the_wrong_shape_is_refused(void)
+{
+    assert_field_refused(141u, 0x82u, 0x83u, TFW_ERR_UNSUPPORTED);
+    assert_field_refused(142u, 0x14u, 0x15u, TFW_ERR_UNSUPPORTED);   /* not override-parameters */
+    assert_field_refused(143u, 0xA4u, 0xA5u, TFW_ERR_UNSUPPORTED);
+}
+
+/* suit.c bstr_fixed, through the vendor and class ids. */
+static void test_a_vendor_id_that_is_not_sixteen_bytes_is_refused(void)
+{
+    assert_field_refused(144u, 0x01u, 0x04u, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(145u, 0x50u, 0x4Fu, TFW_ERR_UNSUPPORTED);   /* 15 bytes */
+    assert_field_refused(145u, 0x50u, 0x10u, TFW_ERR_UNSUPPORTED);   /* a uint */
+}
+
+static void test_a_class_id_that_is_not_sixteen_bytes_is_refused(void)
+{
+    assert_field_refused(162u, 0x02u, 0x03u, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(163u, 0x50u, 0x4Fu, TFW_ERR_UNSUPPORTED);   /* 15 bytes */
+    assert_field_refused(163u, 0x50u, 0x10u, TFW_ERR_UNSUPPORTED);   /* a uint */
+}
+
+/* suit.c suit_digest, through the image digest: [-16, bstr(32)]. */
+static void test_an_image_digest_that_is_not_sha256_is_refused(void)
+{
+    assert_field_refused(180u, 0x03u, 0x04u, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(181u, 0x58u, 0x18u, TFW_ERR_UNSUPPORTED);   /* a uint */
+    assert_field_refused(183u, 0x82u, 0x83u, TFW_ERR_UNSUPPORTED);   /* three members */
+    assert_field_refused(184u, 0x2Fu, 0x2Eu, TFW_ERR_UNSUPPORTED);   /* -15 */
+    assert_field_refused(185u, 0x58u, 0x18u, TFW_ERR_UNSUPPORTED);   /* a uint */
+    assert_field_refused(186u, 0x20u, 0x1Fu, TFW_ERR_UNSUPPORTED);   /* 31 bytes */
+}
+
+static void test_an_image_size_that_is_not_an_unsigned_integer_is_refused(void)
+{
+    assert_field_refused(219u, 0x0Eu, 0x0Fu, TFW_ERR_UNSUPPORTED);   /* the key */
+    assert_field_refused(220u, 0x18u, 0x1Bu, TFW_ERR_RANGE);         /* an 8-byte head */
+    assert_field_refused(220u, 0x18u, 0x38u, TFW_ERR_UNSUPPORTED);   /* a negative int */
+}
+
+/* suit.c hold, the vendor binding: a validly signed manifest naming another
+ * vendor reads, and the gate refuses it. The link uses the ATmega2560's
+ * profile (mk/host.mk SUIT_TEST_CFLAGS), so the class id and board id held
+ * against are the 2560's. */
+static void test_a_signed_foreign_vendor_id_is_refused_by_the_gate(void)
+{
+    tfw_suit_manifest_t m;
+
+    TEST_ASSERT_EQUAL_HEX8(0x50u, env[145]);
+    env[146] ^= 0x01u;
+    resign();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_suit_read(env, sizeof SUIT_ENVELOPE, &m));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, gate(env, sizeof SUIT_ENVELOPE, SUIT_IMAGE_DIGEST,
+                                                sizeof SUIT_IMAGE));
+    assert_refused_before_activation();
+}
+
+/* suit.c hold, the size binding's second half: the staged length agrees with
+ * the manifest and the trailer's does not. */
+static void test_a_size_the_trailer_disagrees_with_is_refused(void)
+{
+    tr.image_len = sizeof SUIT_IMAGE + 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, gate(env, sizeof SUIT_ENVELOPE, SUIT_IMAGE_DIGEST,
+                                          sizeof SUIT_IMAGE));
+    assert_refused_before_activation();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -329,5 +471,20 @@ int main(void)
     RUN_TEST(test_a_kid_in_the_unprotected_header_reads);
     RUN_TEST(test_a_resigned_envelope_reads);
     RUN_TEST(test_a_component_id_that_is_not_an_array_is_refused);
+    RUN_TEST(test_a_manifest_that_is_not_a_three_member_map_is_refused);
+    RUN_TEST(test_a_manifest_version_that_is_not_one_is_refused);
+    RUN_TEST(test_a_sequence_that_is_not_an_unsigned_integer_is_refused);
+    RUN_TEST(test_a_common_member_that_is_not_a_bstr_is_refused);
+    RUN_TEST(test_a_common_map_of_the_wrong_shape_is_refused);
+    RUN_TEST(test_a_component_id_of_no_parts_or_too_many_is_refused);
+    RUN_TEST(test_a_component_part_that_is_not_a_short_bstr_is_refused);
+    RUN_TEST(test_a_shared_sequence_member_that_is_not_a_bstr_is_refused);
+    RUN_TEST(test_a_shared_sequence_of_the_wrong_shape_is_refused);
+    RUN_TEST(test_a_vendor_id_that_is_not_sixteen_bytes_is_refused);
+    RUN_TEST(test_a_class_id_that_is_not_sixteen_bytes_is_refused);
+    RUN_TEST(test_an_image_digest_that_is_not_sha256_is_refused);
+    RUN_TEST(test_an_image_size_that_is_not_an_unsigned_integer_is_refused);
+    RUN_TEST(test_a_signed_foreign_vendor_id_is_refused_by_the_gate);
+    RUN_TEST(test_a_size_the_trailer_disagrees_with_is_refused);
     return UNITY_END();
 }

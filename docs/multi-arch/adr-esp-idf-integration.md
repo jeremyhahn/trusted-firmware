@@ -233,10 +233,16 @@ is on; two builds of one commit gave the same image digest.
    point and cannot carry an RSA modulus. The DS ciphertext is computed on the
    bench today (`esp_secure_cert`'s encoder), with the private key in hand.
    This needs a provisioning flow, and settling the entropy source, before any
-   key is generated on the part.
+   key is generated on the part. **Partly superseded (owner ruling 2026-10-17,
+   CA m499 and m522; Amendment 2026-10-18):** with a P-256 DeviceID the
+   64-byte point fits `PROV_GENKEY` and no DS ciphertext is computed; the
+   provisioning flow and the entropy source remain
+   ([`esp32-p4-design.md`](esp32-p4-design.md) §2.4, slice 6).
 5. **OTA through ESP-IDF's `esp_ota` and `secure_version`.** An update
    session on the wire, anti-rollback from the eFuse counter, and
-   `ARCH_UPDATE_REQUEST` dropped once it exists.
+   `ARCH_UPDATE_REQUEST` dropped once it exists. The mapping onto `esp_ota_*`,
+   the trial boot and the floor: [`esp32-p4-design.md`](esp32-p4-design.md)
+   §2.3, slices 4 and 5.
 6. **Reset causes the HAL cannot name yet** (#10 follow-on). `tfw_reset_cause_t`
    has no value for a software reset or a panic; ESP-IDF reports both, and the
    port maps them to unknown. **Done (#48):** `TFW_RESET_SOFTWARE` (5) and
@@ -264,3 +270,23 @@ is on; two builds of one commit gave the same image digest.
 Accepted as proposed: options 1c (glue), 2c (layer 0), 3b (DS DeviceID), 4b
 (TCP framing) and 5b (`esp32c3` and `esp32`). Board ids: `0x80` esp32p4-poe,
 `0x81` esp32-qemu.
+
+## Amendment 2026-10-18
+
+**Status: PROPOSED**, for the owner, on the rulings named below.
+
+- **Decision 4 (option 3b) is superseded** by the owner ruling of 2026-10-17
+  (CA m499, confirmed by CA m522, #48): there is no RSA DeviceID; the DICE
+  DeviceID is ECDSA P-256 on every board, ES256 only. The proposed replacement
+  is option 3a in a P-256 form: the DeviceID derived through the HMAC
+  peripheral from the `HMAC_UP` UDS, with the DS peripheral out of the
+  identity path ([`esp32-p4-design.md`](esp32-p4-design.md) §2.1). Option 3c,
+  the ECDSA peripheral, stays the silicon-only hardening path.
+- **Every tfw-boot row verifies a signature** (owner ruling 2026-10-17, CA
+  m453). On this port layer 0 adds an ES256 check of trailer v1 and the
+  SUIT-subset manifest, inside the span secure boot v2 signs (`docs/SPEC.md`
+  row `ota`, item 23), to decision 3's `esp_image_verify`
+  ([`esp32-p4-design.md`](esp32-p4-design.md) §2.2).
+- **The gate is lifted in full** (owner ruling 2026-10-18, CA m623): identity on
+  QEMU `esp32c3`, hardware-in-the-loop on the bench after its factory state is
+  recorded ([`esp32-p4-design.md`](esp32-p4-design.md) §4).

@@ -4,7 +4,7 @@
 #   usage: scripts/in-toolchain-image.sh <image> <command...>
 #   e.g.   scripts/in-toolchain-image.sh go-enclave-toolchain:abc make build
 #
-# in-toolchain-template: v1 (ci-template v1.21). Ships beside ci.yml; copy it to
+# in-toolchain-template: v2 (ci-template v1.22). Ships beside ci.yml; copy it to
 # scripts/ with the workflow. From go-quicraft's scripts/in-toolchain-image.sh
 # (a141c3c), with the container prefix and uid taken from the environment.
 #
@@ -25,10 +25,23 @@
 # IN_IMAGE_NETWORK=bridge gives the container a network, for the stages that
 # must reach one: `make deps-check` asks the module proxy for the newest
 # releases, and `make security` fetches the vulnerability databases. Only then
-# are GOPROXY reopened, a writable module cache used under /tmp, and the forge
-# credentials passed through, by NAME from
+# are GOPROXY reopened, a writable module cache mounted (below; /tmp/gomodcache
+# with CI_CACHE=off), and the forge credentials passed through, by NAME from
 # this environment (the four variables dependency-resolution.md §6 has the
 # runner inject), so no token ever appears on a command line.
+#
+# v2 (ci-template v1.22, Company Agent m616 item 2): the caches live in named
+# volumes on the daemon's host (ci-standard.md §6), never in the container's
+# writable layer or its 3 GB /tmp: GOCACHE at /cache/gobuild and
+# GOLANGCI_LINT_CACHE at /cache/golangci for every stage, and, for a bridge
+# stage, GOMODCACHE at /cache/gomod (a no-network stage keeps the image's own
+# read-only module cache, so it still proves the image works offline). The
+# volumes are <CI_STACK_PREFIX>cache-<class>-{gobuild,golangci,gomod}, one set
+# per repo, trust class and daemon host, kept across jobs. CI_CACHE_CLASS
+# (default pr) is `main` only for a push to main, so a pull request never
+# writes a cache that main's build reads. A new volume's root is given to
+# IN_IMAGE_UID by a helper container holding CHOWN and nothing else.
+# scripts/trim-ci-caches.sh bounds their size. CI_CACHE=off mounts none (v1).
 #
 # The container is named <CI_STACK_PREFIX>tc-<pid>-<random>, under the prefix
 # scripts/reap-stale-ci-stacks.sh reaps (default <checkout dir>-ci-, which in CI
@@ -54,6 +67,16 @@ case $uid in
 esac
 prefix=${CI_STACK_PREFIX:-$(basename "$PWD")-ci-}
 name="${prefix}tc-$$-${RANDOM}"
+cache=${CI_CACHE:-on}
+case $cache in
+  on | off) ;;
+  *) echo "CI_CACHE must be on or off: $cache" >&2; exit 2 ;;
+esac
+class=${CI_CACHE_CLASS:-pr}
+case $class in
+  pr | main) ;;
+  *) echo "CI_CACHE_CLASS must be pr or main: $class" >&2; exit 2 ;;
+esac
 args=(
   --name "$name"
   --init
@@ -68,23 +91,40 @@ args=(
   --user "$uid:$uid"
   --workdir /src
   --env HOME=/tmp
-  # CUSTOMIZE (trusted-firmware): the Go build cache, golangci-lint's cache and
-  # (below) the module cache go under /var/tmp (mode 1777) in the container's
-  # own writable layer: on disk, not in the /tmp tmpfs, whose RAM-backed 3 GB
-  # go-xkms's dependency tree overfilled in xkms-security (CI run 53647). The
-  # layer goes with the container, so cleanup removes them. trivy's databases
-  # (the Java one is near 1 GB) and every tool's temporary files go there too
-  # (CI run 53668).
-  --env GOCACHE=/var/tmp/gocache
-  --env GOLANGCI_LINT_CACHE=/var/tmp/golangci-lint
+  --env CI="${CI:-}"
+  # CUSTOMIZE (trusted-firmware): trivy's databases (the Java one is near
+  # 1 GB) and every tool's temporary files go under /var/tmp (mode 1777) in
+  # the container's own writable layer: on disk, not in the /tmp tmpfs, whose
+  # RAM-backed 3 GB go-xkms's dependency tree overfilled in xkms-security
+  # (CI runs 53647, 53668). The layer goes with the container, so cleanup
+  # removes them. The Go caches are in v2's volumes below.
   --env TRIVY_CACHE_DIR=/var/tmp/trivy
   --env TMPDIR=/var/tmp
-  --env CI="${CI:-}"
 )
+modcache=/var/tmp/gomodcache # CUSTOMIZE: /var/tmp, above
+if [ "$cache" = on ]; then
+  vols="${prefix}cache-${class}"
+  docker run --rm --network none --cap-drop ALL --cap-add CHOWN \
+    --security-opt no-new-privileges:true --user 0:0 \
+    -v "$vols-gobuild:/c/gobuild" -v "$vols-golangci:/c/golangci" -v "$vols-gomod:/c/gomod" \
+    "$image" sh -c "for d in /c/*; do [ \"\$(stat -c %u:%g \"\$d\")\" = $uid:$uid ] || chown $uid:$uid \"\$d\"; done" >/dev/null
+  args+=(
+    -v "$vols-gobuild:/cache/gobuild" --env GOCACHE=/cache/gobuild
+    -v "$vols-golangci:/cache/golangci" --env GOLANGCI_LINT_CACHE=/cache/golangci
+  )
+  if [ "$network" = bridge ]; then
+    args+=(-v "$vols-gomod:/cache/gomod")
+    modcache=/cache/gomod
+  fi
+else
+  # CUSTOMIZE (trusted-firmware): with CI_CACHE=off, the Go build and
+  # golangci-lint caches go under /var/tmp, as above.
+  args+=(--env GOCACHE=/var/tmp/gocache --env GOLANGCI_LINT_CACHE=/var/tmp/golangci-lint)
+fi
 if [ "$network" = bridge ]; then
   # The baked module cache is read-only to the run's user and holds only the
   # root module's build list; the nested modules deps-check walks fetch more.
-  args+=(--env "GOPROXY=https://proxy.golang.org,direct" --env GOMODCACHE=/var/tmp/gomodcache) # CUSTOMIZE: /var/tmp, above
+  args+=(--env "GOPROXY=https://proxy.golang.org,direct" --env "GOMODCACHE=$modcache")
   for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
     if [ -n "${!v:-}" ]; then args+=(--env "$v"); fi
   done

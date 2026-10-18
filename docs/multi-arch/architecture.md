@@ -75,8 +75,9 @@ Each choice is an ADR before any code.
   [#14](../../../../issues/14). Trust model and
   Trusted Firmware-M (Arm's project; "TF-M" for short): [#15](../../../../issues/15),
   proposed in [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md).
-- **ESP32**: secure boot v2, flash encryption and the DS peripheral:
-  [#16](../../../../issues/16).
+- **ESP32**: secure boot v2, flash encryption and the HMAC peripheral:
+  [#16](../../../../issues/16). The P-256 DeviceID, layer 0's ES256 gate, OTA
+  on `esp_ota` and the port's slices: [`esp32-p4-design.md`](esp32-p4-design.md).
 
 ## 7. Support matrix
 

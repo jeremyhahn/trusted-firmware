@@ -228,6 +228,11 @@
  * never takes a number an older host already reads as something else. */
 #define TFWV_FRAME_OTA_BEGIN_BAD_STATE_RESP "\xa5\x03\x03\xe8\x13\x05\xfd"
 
+/* TFW_CMD_OTA_BEGIN (0x68) response, seq 0x03, status TFW_ERR_NO_STORE (20),
+ * no payload: no part answered on the store's select (#167). Pins status 20's
+ * value on the wire, appended after 19. */
+#define TFWV_FRAME_OTA_BEGIN_NO_STORE_RESP "\xa5\x03\x03\xe8\x14\xe2\x8d"
+
 /* ADR decision 8's control commands (issue #77), produced by an independent
  * CRC-16/CCITT-FALSE and frozen. Pins 0x6C, 0x6D and 0x6E and the 44-byte
  * OTA_INFO reply's order and byte order. */

@@ -4,7 +4,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -172,34 +171,5 @@ func TestExternalKeySignerSignsWithTheOperatorKey(t *testing.T) {
 		}
 	} else if len(sig) == 0 {
 		t.Fatal("openssl returned an empty signature")
-	}
-}
-
-func TestPeripheralVerbsCoverEveryOption(t *testing.T) {
-	dev := startSim(t)
-	ctx := context.Background()
-	for _, tc := range []struct {
-		verb string
-		args []string
-	}{
-		{"adc-ref", []string{"vcc"}},
-		{"adc-ref", []string{"external"}},
-		{"spi-config", []string{"0", "1", "lsb"}},
-		{"spi-config", []string{"0", "1", "msb"}},
-		{"mode", []string{"3", "in"}},
-		{"mode", []string{"3", "pullup"}},
-		{"timer-query", []string{"3"}},
-	} {
-		t.Run(tc.verb+" "+strings.Join(tc.args, "_"), func(t *testing.T) {
-			for _, asJSON := range []bool{false, true} {
-				var buf bytes.Buffer
-				if err := run(ctx, dev, tc.verb, tc.args, asJSON, &buf); err != nil {
-					t.Fatalf("%s %v: %v", tc.verb, tc.args, err)
-				}
-				if buf.Len() == 0 {
-					t.Fatalf("%s %v printed nothing", tc.verb, tc.args)
-				}
-			}
-		})
 	}
 }

@@ -128,7 +128,7 @@ static tfw_status_t feed(uint8_t cmd, const uint8_t *payload, unsigned n)
 
     st = tfw_dispatch(cmd, &r, &w);
 
-    if ((unsigned)st > (unsigned)TFW_ERR_BAD_STATE
+    if ((unsigned)st > (unsigned)TFW_ERR_NO_STORE
         || tfw_writer_len(&w) > TFW_MAX_PAYLOAD
         || (!tfw_dispatch_knows(cmd) && st != TFW_ERR_UNKNOWN_CMD)
         || (tfw_dispatch_knows(cmd) && st == TFW_ERR_UNKNOWN_CMD)

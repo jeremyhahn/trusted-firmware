@@ -32,6 +32,7 @@ Status codes (`include/tfw/status.h`) the stager returns:
 | Command | Status | When |
 |---|---|---|
 | `OTA_BEGIN` | `TFW_ERR_RANGE` (11) | `total_len` is not above the trailer's length, is above the store's `STAGE` area, or is not a whole number of `TFW_OTA_PAGE_MAX` (256) pages |
+| `OTA_BEGIN` | `TFW_ERR_NO_STORE` (20) | no part answers READ JEDEC ID (0x9F) on the store's select: the manufacturer byte reads 0x00 or 0xFF |
 | `OTA_DATA` | `TFW_ERR_BUSY` (8) | no transfer is receiving |
 | `OTA_DATA` | `TFW_ERR_RANGE` (11) | `offset` is not the received count, or the bytes run past `total_len` |
 | `OTA_END` | `TFW_ERR_BUSY` (8) | no transfer is receiving |
@@ -43,8 +44,10 @@ Status codes (`include/tfw/status.h`) the stager returns:
 
 A store failure during `OTA_BEGIN`, `OTA_DATA` or `OTA_END` returns the store
 driver's status. Every failure after `OTA_BEGIN` has been accepted leaves the
-state `failed`; a new `OTA_BEGIN` starts over. `OTA_BEGIN` erases `MARK` first,
-so a staged image is never half-replaced.
+state `failed`; a new `OTA_BEGIN` starts over. `OTA_BEGIN` reads the store's
+JEDEC ID before it erases anything: a refusal there, or a bus error on that one
+transaction, erases nothing and leaves the state `idle`. `OTA_BEGIN` then erases
+`MARK` first, so a staged image is never half-replaced.
 
 The stager does not check the signature or the floor. tfw-boot does, at the
 next reset ([architecture.md](architecture.md)).

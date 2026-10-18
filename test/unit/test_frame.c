@@ -65,6 +65,16 @@ static void test_bad_state_response_matches_the_vector(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, n);
 }
 
+static void test_no_store_response_matches_the_vector(void)
+{
+    static const uint8_t want[] = TFWV_FRAME_OTA_BEGIN_NO_STORE_RESP;
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_response(wire, sizeof wire, 0x03u,
+                                          TFW_CMD_OTA_BEGIN, TFW_ERR_NO_STORE, 0, 0u);
+    TEST_ASSERT_EQUAL_UINT16(sizeof want - 1u, n);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, n);
+}
+
 /* ADR decision 8's control commands (#77): 0x6C, 0x6D and 0x6E and the 44-byte
  * OTA_INFO reply, each against its literal. */
 static void check(const uint8_t *want, uint16_t wlen, uint16_t n, const uint8_t *wire)
@@ -314,6 +324,7 @@ int main(void)
     RUN_TEST(test_request_round_trips);
     RUN_TEST(test_response_sets_the_response_bit_and_carries_status);
     RUN_TEST(test_bad_state_response_matches_the_vector);
+    RUN_TEST(test_no_store_response_matches_the_vector);
     RUN_TEST(test_ota_control_frames_match_the_vectors);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);

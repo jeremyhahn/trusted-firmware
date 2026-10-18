@@ -13,15 +13,18 @@
 package registration_test
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
+	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/xkms/avr"
 
 	"github.com/jeremyhahn/go-xkms/pkg/types"
@@ -49,8 +52,38 @@ func TestBlankImportMakesTFWABackendType(t *testing.T) {
 	assert.Equal(t, tfwType, backend)
 }
 
+// capsLink is a device that answers CAPS as a secure-element board and every
+// other command as unknown, framed by the SDK's own encoder: all the backend
+// asks of a device to be constructed. What it does with the device afterwards
+// is xkms/avr's to pin.
+type capsLink struct{ rx bytes.Buffer }
+
+func (l *capsLink) Write(p []byte) (int, error) {
+	f, _, err := tfw.Decode(p)
+	if err != nil {
+		return 0, err
+	}
+	status, payload := tfw.StatusErrUnknownCmd, []byte(nil)
+	if f.Cmd() == tfw.CmdCaps {
+		// protocol 2.0, firmware 0.2.0, board 1, 22 pins, 8 slots, the
+		// largest payload, the secure-element tier, GPIO|ATTEST and ES256.
+		payload = []byte{2, 0, 0, 2, 0, 0x01, 22, 8, tfw.MaxPayload, byte(tfw.CryptoSecureElement), 0, 0, 0, 0, 0, 0}
+		binary.LittleEndian.PutUint32(payload[10:14], tfw.FeatureGPIO|tfw.FeatureAttest)
+		binary.LittleEndian.PutUint16(payload[14:16], uint16(tfw.AlgECDSAP256SHA256))
+		status = tfw.StatusOK
+	}
+	resp, err := tfw.EncodeResponse(f.Seq, f.Cmd(), status, payload)
+	if err != nil {
+		return 0, err
+	}
+	l.rx.Write(resp)
+	return len(p), nil
+}
+
+func (l *capsLink) Read(p []byte) (int, error) { return l.rx.Read(p) }
+
 func TestAutoInitializeConstructsTheAVRBackend(t *testing.T) {
-	device := tfwsim.StartElement(t)
+	device := tfw.New(&capsLink{}, tfw.WithTimeout(time.Second))
 	config := avr.DefaultConfig()
 	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 

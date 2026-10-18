@@ -54,6 +54,21 @@ func TestBadStateResponseMatchesVector(t *testing.T) {
 	}
 }
 
+// TestNoStoreResponseMatchesVector pins status 20 on the wire (#167): OTA_BEGIN
+// refused because no part answered on the store's select.
+func TestNoStoreResponseMatchesVector(t *testing.T) {
+	got, err := EncodeResponse(3, CmdOTABegin, StatusErrNoStore, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte(vectors.FrameOTABeginNoStoreResp)) {
+		t.Errorf("OTA_BEGIN NO_STORE frame = % x, want % x", got, vectors.FrameOTABeginNoStoreResp)
+	}
+	if StatusErrNoStore.String() != "external store did not answer" {
+		t.Errorf("StatusErrNoStore = %q", StatusErrNoStore.String())
+	}
+}
+
 // ADR decision 8's control commands (#77), each frame against its literal.
 func TestOTAControlFramesMatchVectors(t *testing.T) {
 	info := append([]byte{2, 0, 0x05, 7, 0, 0, 0, 4, 0x2A, 0, 0, 0}, bytes.Repeat([]byte{0xAB}, 32)...)

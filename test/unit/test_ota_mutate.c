@@ -240,7 +240,7 @@ static tfw_status_t feed(uint8_t cmd, const uint8_t *payload, unsigned n)
     st = tfw_dispatch(cmd, &r, &w);
     authed = (uint8_t)(cmd == TFW_CMD_OTA_AUTH && st == TFW_OK);
 
-    if ((unsigned)st > (unsigned)TFW_ERR_BAD_STATE || st == TFW_ERR_UNKNOWN_CMD) {
+    if ((unsigned)st > (unsigned)TFW_ERR_NO_STORE || st == TFW_ERR_UNKNOWN_CMD) {
         broke = "a status status.h does not name, or a known command reported unknown";
     } else if (tfw_writer_len(&w) > TFW_MAX_PAYLOAD) {
         broke = "the reply outgrew its buffer";

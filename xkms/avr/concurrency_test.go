@@ -131,32 +131,20 @@ func TestConcurrentCallsDoNotConsumeEachOthersReplies(t *testing.T) {
 // bounds: the call's OWN exchange with the device, not the time it spent
 // waiting for another caller to finish with the wire first.
 //
-// The link here costs perCall on every write, and enough callers are fired at
-// once that the LAST one to reach the wire waits longer than RequestTimeout
-// before its own exchange even starts -- while perCall itself, the only thing
-// RequestTimeout is supposed to bound, comfortably fits inside it. A backend
-// that started the deadline before Lock would fail every caller the queue
-// delayed past RequestTimeout; this asserts every one still succeeds.
+// The link here holds the wire on one caller's exchange until the test lets it
+// go, and the test lets it go only once the callers queued behind it have
+// waited longer than RequestTimeout -- while each exchange itself, the only
+// thing RequestTimeout is supposed to bound, takes no time at all. A backend
+// that started the deadline before Lock would fail every queued caller; this
+// asserts every one still succeeds.
 func TestRequestTimeoutExcludesQueueing(t *testing.T) {
 	const (
-		// perCall is well under requestTimeout so a slow CI host
-		// (-race on a loaded runner) can't push one exchange past it, while
-		// the queue behind 15 other callers is still longer than it.
-		perCall        = 20 * time.Millisecond
 		callers        = 16
 		requestTimeout = 250 * time.Millisecond
 	)
-	// The queue a caller can be made to wait behind is longer than
-	// requestTimeout, but no single exchange is: that gap is exactly what a
-	// deadline started before the wire is acquired would collapse.
-	require.Greater(t, time.Duration(callers-1)*perCall, requestTimeout)
-	require.Less(t, perCall, requestTimeout)
 
-	link := &delayedLink{
-		fakeLink: secureElementLink().
-			answer(tfw.CmdSysInfo, sysInfoPayload(90*time.Second, 512, tfw.ResetPowerOn)),
-		delay: perCall,
-	}
+	link := newGatedLink(secureElementLink().
+		answer(tfw.CmdSysInfo, sysInfoPayload(90*time.Second, 512, tfw.ResetPowerOn)))
 
 	config := testConfig()
 	config.RequestTimeout = requestTimeout
@@ -165,21 +153,31 @@ func TestRequestTimeoutExcludesQueueing(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, b.Close()) })
 
-	var wg sync.WaitGroup
-	errs := make(chan error, callers)
-	for i := 0; i < callers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, err := b.Health(context.Background())
-			errs <- err
-		}()
+	health := func(errs chan<- error) {
+		_, err := b.Health(context.Background())
+		errs <- err
 	}
-	wg.Wait()
-	close(errs)
+	holder := make(chan error, 1)
+	link.armed.Store(true)
+	go health(holder)
+	select {
+	case <-link.held:
+	case err := <-holder:
+		t.Fatalf("the first caller never reached the wire: %v", err)
+	}
+	errs := make(chan error, callers-1)
+	for i := 1; i < callers; i++ {
+		go health(errs)
+	}
+	// The queue's age is the quantity under test: twice RequestTimeout, so a
+	// deadline started before Lock has expired for every queued caller.
+	<-time.After(2 * requestTimeout)
+	close(link.release)
 
-	for err := range errs {
-		require.NoError(t, err, "queueing behind other callers must not count against RequestTimeout")
+	// The holder's own exchange did overrun, and RequestTimeout bounds that.
+	require.ErrorIs(t, <-holder, context.DeadlineExceeded)
+	for i := 1; i < callers; i++ {
+		require.NoError(t, <-errs, "queueing behind other callers must not count against RequestTimeout")
 	}
 }
 
@@ -288,9 +286,7 @@ func (l *stallingLink) Read(p []byte) (int, error) {
 	if deadline.IsZero() {
 		return 0, io.EOF
 	}
-	if wait := time.Until(deadline); wait > 0 {
-		time.Sleep(wait)
-	}
+	<-time.After(time.Until(deadline))
 	return 0, errReadDeadline
 }
 

@@ -50,7 +50,8 @@ typedef enum {
     TFW_ERR_AUTH_REQUIRED    = 17, /* command needs an authenticated session */
 
     TFW_ERR_INTERNAL         = 18, /* a condition the firmware believes impossible */
-    TFW_ERR_BAD_STATE        = 19  /* the command is not valid in the current OTA state */
+    TFW_ERR_BAD_STATE        = 19, /* the command is not valid in the current OTA state */
+    TFW_ERR_NO_STORE         = 20  /* the external store did not answer its JEDEC ID */
 } tfw_status_t;
 
 /*

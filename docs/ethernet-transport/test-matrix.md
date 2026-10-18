@@ -778,3 +778,9 @@ needs an SPI NOR part on D8. tfw-boot taking the image needs tfw-boot in the
 boot section (ISP) and an image signed with go-xkms's key (go-xkms#1606). The
 store driver accepts writes with no part present; a JEDEC id read at
 `OTA_BEGIN` would make the refusal come first rather than last.
+
+**The refusal now comes first (#167).** With that read in place, the same
+board, still with no part on D8, answers `OTA_BEGIN` with `TFW_ERR_NO_STORE`
+(20) in about 4 ms and erases nothing. The session stays idle, so `OTA_DATA` and
+`OTA_END` answer `TFW_ERR_BUSY` (8). The run, its hashes and the restore are on
+[the bench page](../development/bench/mega2560.md#the-no-store-refusal-2026-10-18-167).

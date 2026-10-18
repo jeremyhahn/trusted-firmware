@@ -32,6 +32,11 @@ func usage() {
 
   tfwctl [flags] <port> <command> [args]
 
+<port> is a serial port, or tcp://host:port for an Ethernet device: tfwctl
+listens there, the device's network-block endpoint, and runs the command on
+the first device to connect within -timeout. Over Ethernet the device answers
+only CAPS, APP_INFO, the attestation commands and OTA staging.
+
 commands
   ping [text]        echo text through the device
   caps               what the device is and what it can do
@@ -49,6 +54,7 @@ commands
                      sends ota-activate [now] on the same connection: the
                      one way on a board that resets on open (the Mega 2560)
   ota-status         the OTA session's state and bytes received
+  ota-info <slot>    OTA_INFO for slot 0 (running) or 1 (staged)
   ota-activate [now] take the staged, verified image at the next reset, or
                      reset now; ota-stage does not (OTA ADR decision 8).
                      Needs a transport that does not reset the board on open
@@ -126,13 +132,26 @@ func main() {
 
 	port, cmd, args := flag.Arg(0), flag.Arg(1), flag.Args()[2:]
 
-	conn, err := serialport.Open(port, *baud)
-	if err != nil {
+	var dev *tfw.Device
+	addr, isTCP, err := tcpAddr(port)
+	switch {
+	case err != nil:
 		fail(err)
+	case isTCP:
+		td, err := listenForDevice(addr, *timeout, tfw.WithTimeout(*timeout))
+		if err != nil {
+			fail(err)
+		}
+		defer func() { _ = td.Close() }()
+		dev = td.Device
+	default:
+		conn, err := serialport.Open(port, *baud)
+		if err != nil {
+			fail(err)
+		}
+		defer func() { _ = conn.Close() }()
+		dev = tfw.New(conn, tfw.WithTimeout(*timeout), tfw.WithBootWait(*bootWait))
 	}
-	defer func() { _ = conn.Close() }()
-
-	dev := tfw.New(conn, tfw.WithTimeout(*timeout), tfw.WithBootWait(*bootWait))
 	ctx := context.Background()
 
 	if err := run(ctx, dev, cmd, args, *asJSON, os.Stdout); err != nil {
@@ -453,6 +472,27 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 			return fmt.Errorf("usage: ota-status")
 		}
 		return emitOTAStatus(ctx, dev, asJSON, out)
+
+	case "ota-info":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: ota-info <slot>")
+		}
+		slot, err := strconv.ParseUint(args[0], 0, 8)
+		if err != nil {
+			return fmt.Errorf("slot %q: %w", args[0], err)
+		}
+		si, err := dev.OTAInfo(ctx, uint8(slot))
+		if err != nil {
+			return err
+		}
+		m := hex.EncodeToString(si.Measurement[:])
+		return emit(out, asJSON, map[string]any{
+			"slots": si.Slots, "active": si.Active, "flags": si.Flags, "floor": si.Floor,
+			"state": si.State, "image_version": si.ImageVersion, "measurement": m,
+		}, func() string {
+			return fmt.Sprintf("slots %d, active %d, flags %#02x\nfloor %d\nstate %d\nimage version %d\nmeasurement %s\n",
+				si.Slots, si.Active, si.Flags, si.Floor, si.State, si.ImageVersion, m)
+		})
 
 	default:
 		return runPeripheral(ctx, dev, cmd, args, asJSON, out)

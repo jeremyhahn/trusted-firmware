@@ -145,10 +145,17 @@ tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w)
     total    = len;
     received = 0u;
 
+    /* No part on the select reads as ready to READ STATUS, so without the
+     * probe every erase and program "succeeds" and only OTA_END fails (#167).
+     * Refused here, no byte of the store is touched and the session is IDLE. */
     st = tfw_store_init();
     if (st == TFW_OK) {
-        st = tfw_store_erase(((uint32_t)TFW_OTA_STORE_MARK_ADDR));
+        st = tfw_store_probe();
     }
+    if (st != TFW_OK) {
+        return st;
+    }
+    st = tfw_store_erase(((uint32_t)TFW_OTA_STORE_MARK_ADDR));
     if (st == TFW_OK) {
         st = tfw_ota_prev_backup();   /* after the mark: no boot takes a stale image */
     }

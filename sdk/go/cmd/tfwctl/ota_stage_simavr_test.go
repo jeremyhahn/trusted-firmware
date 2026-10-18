@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
@@ -67,14 +68,10 @@ func TestOTAStageThroughTfwBoot(t *testing.T) {
 		}
 	})
 
-	var img []byte
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
-		if img, err = os.ReadFile(staged); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the harness wrote no image: %v", err)
-		}
+	awaitFile(t, staged, time.Minute, "the harness wrote no image")
+	img, err := os.ReadFile(staged)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	conn := struct {
@@ -123,14 +120,7 @@ func TestOTAStageThroughTfwBoot(t *testing.T) {
 	}
 	// The harness asserts the trial boot, bridges the UART again and writes
 	// <staged>.trial. The trial deadline runs in emulated time from here.
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
-		if _, err = os.Stat(staged + ".trial"); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the trial image did not come up: %v (the harness's report is logged)", err)
-		}
-	}
+	awaitFile(t, staged+".trial", time.Minute, "the trial image did not come up")
 	// OTA_STATUS (docs/ota/api.md:19) is the stager's RAM session, which the
 	// reset ended: idle (0, api.md:25), 0 bytes. The trial is OTA_INFO's.
 	expectSimStatus(t, dev, fmt.Sprintf("%s, 0 bytes received", tfw.OTAIdle))
@@ -170,5 +160,45 @@ func TestOTAStageThroughTfwBoot(t *testing.T) {
 	waited = true
 	if err != nil {
 		t.Fatalf("the boot after the reset: %v (the harness's report is logged)", err)
+	}
+}
+
+// awaitFile waits, bounded, for the harness to put path in place: renamed in
+// (the image) or written and closed (the trial marker). inotify wakes the wait
+// on that event; the deadline is the bound.
+func awaitFile(t *testing.T, path string, bound time.Duration, failure string) {
+	t.Helper()
+	fd, err := syscall.InotifyInit1(syscall.IN_NONBLOCK | syscall.IN_CLOEXEC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Non-blocking, so the file is pollable and takes a read deadline.
+	events := os.NewFile(uintptr(fd), "inotify")
+	defer func() { _ = events.Close() }()
+	if _, err := syscall.InotifyAddWatch(fd, filepath.Dir(path), syscall.IN_MOVED_TO|syscall.IN_CLOSE_WRITE); err != nil {
+		t.Fatal(err)
+	}
+	// In place before the watch began.
+	if _, err := os.Stat(path); err == nil {
+		return
+	}
+	if err := events.SetReadDeadline(time.Now().Add(bound)); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Base(path)
+	buf := make([]byte, 4096)
+	for {
+		n, err := events.Read(buf)
+		if err != nil {
+			t.Fatalf("%s: %v (the harness's report is logged)", failure, err)
+		}
+		for off := 0; off+syscall.SizeofInotifyEvent <= n; {
+			ev := (*syscall.InotifyEvent)(unsafe.Pointer(&buf[off]))
+			name := buf[off+syscall.SizeofInotifyEvent : off+syscall.SizeofInotifyEvent+int(ev.Len)]
+			if string(bytes.TrimRight(name, "\x00")) == want {
+				return
+			}
+			off += syscall.SizeofInotifyEvent + int(ev.Len)
+		}
 	}
 }

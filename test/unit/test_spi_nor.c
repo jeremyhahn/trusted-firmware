@@ -1,6 +1,7 @@
 /*
  * The SPI NOR store driver (src/store/spi_nor.c, issue #75) against the
- * software part: the chunk limit, the page split and the bus-error paths.
+ * software part: the chunk limit, the page split, the JEDEC ID probe (#167)
+ * and the bus-error paths.
  *
  * tfw_store_init's TFW_ERR_UNSUPPORTED (spi_nor.c:53) is not here: the select
  * comes from the board profile through tfw_board_pin, and the mock has no way
@@ -102,6 +103,48 @@ static void test_a_bus_error_in_read_is_passed_on(void)
     TEST_ASSERT_EACH_EQUAL_UINT8(0x5Au, buf, sizeof buf);   /* the caller's buffer is untouched */
 }
 
+/* READ JEDEC ID (#167): an empty select reads its manufacturer byte as 0x00
+ * (echoed, or floating low) or 0xFF (floating high). */
+static void test_the_probe_refuses_an_empty_select(void)
+{
+    tfw_mock_reset();                                       /* no bus mode set yet */
+    tfw_nor_model_set_bus(TFW_NOR_MODEL_ABSENT_ECHO);
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_STORE, tfw_store_probe());
+    tfw_nor_model_set_bus(TFW_NOR_MODEL_PRESENT);
+    tfw_nor_model_set_maker(0x00u);
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_STORE, tfw_store_probe());
+    tfw_nor_model_set_bus(TFW_NOR_MODEL_ABSENT_HIGH);
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_STORE, tfw_store_probe());
+    tfw_nor_model_set_bus(TFW_NOR_MODEL_PRESENT);
+    tfw_nor_model_set_maker(0xFFu);
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_STORE, tfw_store_probe());
+    TEST_ASSERT_EQUAL_UINT32(4u, tfw_nor_shim_xfers());     /* one transaction each */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_last_spi_mode());  /* the bus mode, applied first */
+}
+
+/* Any other manufacturer byte is a part: the driver names no vendor. */
+static void test_the_probe_accepts_any_manufacturer(void)
+{
+    static const uint8_t makers[] = { TFW_NOR_MODEL_JEDEC0, 0x01u, 0x7Fu, 0x80u, 0xC2u, 0xFEu };
+    uint8_t i;
+
+    for (i = 0u; i < (uint8_t)sizeof makers; i++) {
+        tfw_nor_model_set_maker(makers[i]);
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_store_probe());
+    }
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)sizeof makers, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
+static void test_a_bus_error_in_the_probe_is_passed_on(void)
+{
+    tfw_nor_shim_fail(1u, BUS_ERR);
+    TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_probe());
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -112,5 +155,8 @@ int main(void)
     RUN_TEST(test_a_bus_error_in_wait_ready_is_passed_on);
     RUN_TEST(test_a_bus_error_in_erase_is_passed_on);
     RUN_TEST(test_a_bus_error_in_read_is_passed_on);
+    RUN_TEST(test_the_probe_refuses_an_empty_select);
+    RUN_TEST(test_the_probe_accepts_any_manufacturer);
+    RUN_TEST(test_a_bus_error_in_the_probe_is_passed_on);
     return UNITY_END();
 }

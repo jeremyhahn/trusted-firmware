@@ -12,24 +12,42 @@ import (
 	"time"
 )
 
+// portDeadline is a real port's read deadline, which fill sets on every read:
+// a Read with nothing to hand back, and nothing coming, blocks until that
+// deadline and reports it expired. Returning at once would spin the SDK's
+// read loop for its whole bound.
+type portDeadline struct{ at time.Time }
+
+func (d *portDeadline) SetReadDeadline(at time.Time) error {
+	d.at = at
+	return nil
+}
+
+func (d *portDeadline) expire() (int, error) {
+	if !d.at.IsZero() {
+		<-time.After(time.Until(d.at))
+	}
+	return 0, os.ErrDeadlineExceeded
+}
+
 // autoResetLink models a serial adapter that resets a classic Arduino on
 // open: the board's bootloader jumps to the application, which announces
-// itself with TFW_EVENT_BOOT some time later, and only then answers ordinary
-// commands. bootAfter == 0 models the adapter that never resets the board at
+// itself with TFW_EVENT_BOOT some reads later, and only then answers ordinary
+// commands. bootOnRead == 0 models the adapter that never resets the board at
 // all -- no event ever comes, which New must still tolerate.
 type autoResetLink struct {
-	start     time.Time
-	bootAfter time.Duration
-	bootSent  bool
-	rx        bytes.Buffer
+	portDeadline
+	bootOnRead int
+	bootSent   bool
+	rx         bytes.Buffer
 	// reads counts calls to Read, so a disabled wait can be proven to have
 	// touched the conn zero times -- a fact, rather than a wall-clock bound
 	// tight enough to flake under scheduler load.
 	reads int
 }
 
-func newAutoResetLink(bootAfter time.Duration) *autoResetLink {
-	return &autoResetLink{start: time.Now(), bootAfter: bootAfter}
+func newAutoResetLink(bootOnRead int) *autoResetLink {
+	return &autoResetLink{bootOnRead: bootOnRead}
 }
 
 func (l *autoResetLink) Write(p []byte) (int, error) {
@@ -53,7 +71,7 @@ func (l *autoResetLink) Read(p []byte) (int, error) {
 	// appending keeps that ordering true here too, whether Read is polled
 	// before any request was sent (New's own wait) or after one already
 	// queued a reply (a disabled wait, where Do does the reading instead).
-	if !l.bootSent && l.bootAfter > 0 && time.Since(l.start) >= l.bootAfter {
+	if !l.bootSent && l.bootOnRead > 0 && l.reads >= l.bootOnRead {
 		ev, err := EncodeResponse(SeqNone, Cmd(opEvent), StatusOK, []byte{EventBoot})
 		if err != nil {
 			return 0, err
@@ -65,10 +83,12 @@ func (l *autoResetLink) Read(p []byte) (int, error) {
 		l.bootSent = true
 	}
 	if l.rx.Len() == 0 {
-		// A real port's read deadline expiring with nothing buffered: not
-		// fatal, and the caller's own bound is what governs.
-		time.Sleep(2 * time.Millisecond)
-		return 0, os.ErrDeadlineExceeded
+		if !l.bootSent && l.bootOnRead > 0 {
+			// The deadline of a read before the reset finishes: nothing
+			// yet, and the caller's own bound is what governs.
+			return 0, os.ErrDeadlineExceeded
+		}
+		return l.expire()
 	}
 	return l.rx.Read(p)
 }
@@ -78,7 +98,7 @@ func (l *autoResetLink) Read(p []byte) (int, error) {
 // without the caller doing anything about the reset, and the consumed event
 // must not resurface as an unexpected one.
 func TestNewWaitsForBootEventThenFirstRequestSucceeds(t *testing.T) {
-	link := newAutoResetLink(20 * time.Millisecond)
+	link := newAutoResetLink(3)
 	before := time.Now()
 	d := New(link, WithBootWait(2*time.Second))
 	if waited := time.Since(before); waited >= 2*time.Second {
@@ -123,23 +143,24 @@ func TestNewFallsThroughWhenNoBootEventArrives(t *testing.T) {
 // PREVIOUS session's reset produced is already sitting in the conn's buffer
 // before New ever reads from it -- exactly what an OS receive buffer hands
 // back on the next open if nothing purges it first -- and a GENUINE BOOT
-// event, from THIS session's own reset, follows later through ordinary Read
-// calls, independent of whatever was already queued.
+// event, from THIS session's own reset, follows on the genuineOnRead-th Read
+// call, independent of whatever was already queued.
 //
 // ResetInputBuffer models the OS-level purge (TCIFLUSH) serialport.Open
 // performs, and that awaitBoot's flushStaleBacklog also asks the conn to
 // perform for itself, through the same optional-interface pattern fill
 // already uses for SetReadDeadline.
 type staleBacklogLink struct {
-	start        time.Time
-	genuineAfter time.Duration // 0 disables the genuine event entirely
-	genuineSent  bool
-	rx           bytes.Buffer
-	resetCalls   int
+	portDeadline
+	genuineOnRead int // 0 disables the genuine event entirely
+	genuineSent   bool
+	reads         int
+	rx            bytes.Buffer
+	resetCalls    int
 }
 
-func newStaleBacklogLink(genuineAfter time.Duration) *staleBacklogLink {
-	l := &staleBacklogLink{start: time.Now(), genuineAfter: genuineAfter}
+func newStaleBacklogLink(genuineOnRead int) *staleBacklogLink {
+	l := &staleBacklogLink{genuineOnRead: genuineOnRead}
 	ev, err := EncodeResponse(SeqNone, Cmd(opEvent), StatusOK, []byte{EventBoot})
 	if err != nil {
 		panic(err) // a fixed, known-good payload; only a test bug makes this fail
@@ -168,7 +189,8 @@ func (l *staleBacklogLink) Write(p []byte) (int, error) {
 }
 
 func (l *staleBacklogLink) Read(p []byte) (int, error) {
-	if !l.genuineSent && l.genuineAfter > 0 && time.Since(l.start) >= l.genuineAfter {
+	l.reads++
+	if !l.genuineSent && l.genuineOnRead > 0 && l.reads >= l.genuineOnRead {
 		ev, err := EncodeResponse(SeqNone, Cmd(opEvent), StatusOK, []byte{EventBoot})
 		if err != nil {
 			return 0, err
@@ -180,8 +202,10 @@ func (l *staleBacklogLink) Read(p []byte) (int, error) {
 		l.genuineSent = true
 	}
 	if l.rx.Len() == 0 {
-		time.Sleep(2 * time.Millisecond)
-		return 0, os.ErrDeadlineExceeded
+		if !l.genuineSent && l.genuineOnRead > 0 {
+			return 0, os.ErrDeadlineExceeded
+		}
+		return l.expire()
 	}
 	return l.rx.Read(p)
 }
@@ -192,7 +216,7 @@ func (l *staleBacklogLink) Read(p []byte) (int, error) {
 // this wrong is precisely what sent a request into the bootloader's window
 // on the session that reported it.
 func TestNewFlushesAStaleBootEventThenWaitsForTheGenuineOne(t *testing.T) {
-	link := newStaleBacklogLink(20 * time.Millisecond)
+	link := newStaleBacklogLink(3)
 	d := New(link, WithBootWait(2*time.Second))
 	if link.resetCalls == 0 {
 		t.Fatal("New never asked the conn to purge its stale backlog")
@@ -244,7 +268,7 @@ func TestNewFlushesAStaleBootEventThenFallsThroughWithNoGenuineOne(t *testing.T)
 // already exercised implicitly by every test above that uses it; asserted
 // explicitly here for the boundary itself.
 func TestNewNeverCallsResetInputBufferOnAConnThatLacksIt(t *testing.T) {
-	link := newAutoResetLink(20 * time.Millisecond)
+	link := newAutoResetLink(3)
 	// autoResetLink has no ResetInputBuffer method; if New required one via
 	// an unchecked type assertion instead of the optional-interface pattern,
 	// this would panic rather than simply proceed without it.
@@ -269,7 +293,7 @@ func (l *failedPurgeLink) ResetInputBuffer() error {
 // accepted or a genuine one being missed. Whatever was queued -- stale,
 // genuine, or both -- is left for Do to observe normally afterward.
 func TestNewFallsThroughImmediatelyWhenThePurgeFails(t *testing.T) {
-	link := &failedPurgeLink{staleBacklogLink: newStaleBacklogLink(5 * time.Millisecond)}
+	link := &failedPurgeLink{staleBacklogLink: newStaleBacklogLink(1)}
 	before := time.Now()
 	d := New(link, WithBootWait(2*time.Second))
 	if waited := time.Since(before); waited >= 2*time.Second {
@@ -279,9 +303,8 @@ func TestNewFallsThroughImmediatelyWhenThePurgeFails(t *testing.T) {
 		t.Fatal("New never attempted the purge at all")
 	}
 
-	// Give the link's genuine event time to land too, then let Do see
-	// whatever was left queued: New must not have consumed any of it.
-	time.Sleep(10 * time.Millisecond)
+	// The link's genuine event lands on the first read, Do's: New must not
+	// have consumed any of what was queued.
 	if _, err := d.Do(context.Background(), CmdPing, nil); err != nil {
 		t.Fatalf("ping: %v", err)
 	}
@@ -308,7 +331,7 @@ func TestWithBootWaitZeroOrNegativeDisablesTheWait(t *testing.T) {
 		{"negative", -time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			link := newStaleBacklogLink(5 * time.Millisecond)
+			link := newStaleBacklogLink(1)
 			d := New(link, WithBootWait(tc.bound))
 			// Facts, not a wall-clock guess: disabled means New never touched
 			// the conn at all, which holds regardless of how long the test
@@ -317,12 +340,11 @@ func TestWithBootWaitZeroOrNegativeDisablesTheWait(t *testing.T) {
 				t.Fatalf("New purged the conn %d time(s) with the boot wait disabled, want zero", link.resetCalls)
 			}
 
-			// Give the link's own genuine BOOT event time to land, then let Do
-			// observe it: with the wait disabled, nothing consumed it on the
-			// way in, and the STALE one queued at construction is still there
-			// too -- Do will see both, in order, which is fine: disabling the
-			// wait means the caller owns interpreting whatever it sees.
-			time.Sleep(10 * time.Millisecond)
+			// The link's own genuine BOOT event lands on the first read, Do's:
+			// with the wait disabled, nothing consumed it on the way in, and
+			// the STALE one queued at construction is still there too -- Do
+			// will see both, in order, which is fine: disabling the wait means
+			// the caller owns interpreting whatever it sees.
 			if _, err := d.Do(context.Background(), CmdPing, nil); err != nil {
 				t.Fatalf("ping: %v", err)
 			}
@@ -342,6 +364,7 @@ func TestWithBootWaitZeroOrNegativeDisablesTheWait(t *testing.T) {
 // awaitBoot sees that is not the boot it is looking for must still reach
 // Device.Events, exactly as Do would record it once ordinary requests begin.
 type eventBeforeBootLink struct {
+	portDeadline
 	sent bool
 	rx   bytes.Buffer
 }
@@ -369,8 +392,7 @@ func (l *eventBeforeBootLink) Read(p []byte) (int, error) {
 		l.sent = true
 	}
 	if l.rx.Len() == 0 {
-		time.Sleep(2 * time.Millisecond)
-		return 0, os.ErrDeadlineExceeded
+		return l.expire()
 	}
 	return l.rx.Read(p)
 }
@@ -449,6 +471,7 @@ func TestDoIsNotWedgedByABootEventArrivingMidRequest(t *testing.T) {
 // answers nothing further -- a device that reset mid-command and never came
 // back for it.
 type bootThenSilentLink struct {
+	portDeadline
 	rx   bytes.Buffer
 	sent bool
 }
@@ -470,8 +493,7 @@ func (l *bootThenSilentLink) Write(p []byte) (int, error) {
 
 func (l *bootThenSilentLink) Read(p []byte) (int, error) {
 	if l.rx.Len() == 0 {
-		time.Sleep(time.Millisecond)
-		return 0, os.ErrDeadlineExceeded
+		return l.expire()
 	}
 	return l.rx.Read(p)
 }

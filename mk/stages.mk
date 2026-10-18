@@ -97,8 +97,8 @@ integration-test: docker-build-it
 ## integration-test-host: the real images under simavr, and tfwsim against the Go SDK and xkms
 # What stage 3 runs inside the integration image, and what a developer runs in
 # place. sdk-test is the Go unit tests and the cross-implementation suite
-# together: they share packages, so splitting them by test name would be a list
-# that drifts. app-sdk-check runs the out-of-tree example application on
+# together, the suite compiled in by the tfwsim build tag rather than picked
+# by test name, which would be a list that drifts. app-sdk-check runs the out-of-tree example application on
 # tfwsim; xkms-test enrols tfwsim through the xkms adapter.
 integration-test-host: integration-test-tools integration-test-simavr integration-test-boot sdk-test app-sdk-check xkms-test
 	@echo "stage integration-test: green"
@@ -155,9 +155,14 @@ go-govulncheck:
 	@fail=0; for d in $(GO_MODULES); do echo "--- govulncheck $$d"; \
 	  (cd $$d && govulncheck$(call go-tags,-tags) ./...) || fail=1; done; exit $$fail
 
+# sdk/go's simulator-driven tests carry the tfwsim tag (#163), so its second
+# pass lints them too.
 go-golangci:
 	@fail=0; for d in $(GO_MODULES); do echo "--- golangci-lint $$d"; \
-	  (cd $$d && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags) ./...) || fail=1; done; exit $$fail
+	  (cd $$d && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags) ./...) || fail=1; done; \
+	echo "--- golangci-lint $(SDK_DIR) (tfwsim)"; \
+	(cd $(SDK_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags,tfwsim) ./...) || fail=1; \
+	exit $$fail
 
 ## secrets-scan: trivy's secret scanner over the tree, failing on any finding
 secrets-scan:

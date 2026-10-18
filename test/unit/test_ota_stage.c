@@ -14,6 +14,7 @@
 #include "tfw/board.h"
 #include "hal_mock.h"
 #include "spi_nor_model.h"
+#include "spi_nor_hal.h"
 #include "ota_stage.h"
 #include "ota_store.h"
 #include "ota_ctl.h"
@@ -528,8 +529,10 @@ static void test_the_signature_is_stored_with_the_mark(void)
     TEST_ASSERT_EQUAL_MEMORY(want, sig, sizeof sig);
 }
 
-/* No part on the select (#75, test-matrix.md #137): nothing in spi_nor.c reads
- * a JEDEC id (ADR open question 2), so these pin what the stager does today. */
+/* No part on the select (#75, test-matrix.md #137, #167): OTA_BEGIN's JEDEC ID
+ * probe reads no manufacturer and refuses before the store is touched, the
+ * session left IDLE. The probe is the only transfer: no erase, no program, no
+ * backup. */
 static void refuse_activate(void)
 {
     uint8_t m1 = 1u, out[44], n;
@@ -541,32 +544,52 @@ static void refuse_activate(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
 }
 
-static void test_absent_nor_on_an_echo_bus_fails_closed_at_end(void)
+static void refused_begin(tfw_nor_model_bus_t bus)
 {
-    tfw_nor_model_set_bus(TFW_NOR_MODEL_ABSENT_ECHO);
+    tfw_nor_shim_reset();
+    tfw_nor_model_set_bus(bus);
     build(512u, 200u);
-    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));   /* WIP reads clear: every erase "succeeds" */
-    stream(0u, 512u);                         /* and every program */
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, end());   /* the trailer magic, ota_stage.c:79 */
-    expect_status(TFW_STAGE_FAILED, 512u);
-    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
-    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_STORE, begin(512u));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());   /* READ JEDEC ID, nothing after */
+    expect_status(TFW_STAGE_IDLE, 0u);
+    /* Not RECEIVING after the refused BEGIN: DATA and END answer BUSY. */
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, data(0u, CHUNK));
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, end());
+    expect_status(TFW_STAGE_IDLE, 0u);
     refuse_activate();
 }
 
-static void test_absent_nor_on_a_high_bus_times_out_the_first_erase(void)
+static void test_absent_nor_on_an_echo_bus_refuses_begin(void)
 {
-    tfw_ms_t t0 = tfw_hal_millis();
+    refused_begin(TFW_NOR_MODEL_ABSENT_ECHO);   /* the bench Mega: reads 0x00 */
+}
 
-    tfw_nor_model_set_bus(TFW_NOR_MODEL_ABSENT_HIGH);
+static void test_absent_nor_on_a_high_bus_refuses_begin(void)
+{
+    refused_begin(TFW_NOR_MODEL_ABSENT_HIGH);   /* reads 0xFF */
+}
+
+/* The refusal latches nothing: once a part answers, BEGIN runs. */
+static void test_begin_runs_once_a_part_answers(void)
+{
+    refused_begin(TFW_NOR_MODEL_ABSENT_ECHO);
+    tfw_nor_model_set_bus(TFW_NOR_MODEL_PRESENT);
+    tfw_nor_model_set_maker(0x01u);             /* not the model's own: any vendor */
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
+/* A bus error on the probe is passed on, and changes nothing either. */
+static void test_a_bus_error_on_the_probe_refuses_begin(void)
+{
+    tfw_nor_shim_reset();
+    tfw_nor_shim_fail(1u, TFW_ERR_NACK);
     build(512u, 200u);
-    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, begin(512u));   /* WIP never clears, spi_nor.c wait_ready */
-    TEST_ASSERT_TRUE((tfw_ms_t)(tfw_hal_millis() - t0) > 0u);
-    /* Not RECEIVING after the failed BEGIN: ota_stage.c:172 and :202 answer BUSY. */
-    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, data(0u, CHUNK));
-    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, end());
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, begin(512u));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());
+    expect_status(TFW_STAGE_IDLE, 0u);
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
-    refuse_activate();
 }
 
 /* spi_nor.c bounds a length, never an address: the callers keep the store's
@@ -803,8 +826,10 @@ int main(void)
     RUN_TEST(test_activate_and_confirm_need_ota_auth);
     RUN_TEST(test_activate_refuses_a_corrupted_platform_block);
     RUN_TEST(test_the_signature_is_stored_with_the_mark);
-    RUN_TEST(test_absent_nor_on_an_echo_bus_fails_closed_at_end);
-    RUN_TEST(test_absent_nor_on_a_high_bus_times_out_the_first_erase);
+    RUN_TEST(test_absent_nor_on_an_echo_bus_refuses_begin);
+    RUN_TEST(test_absent_nor_on_a_high_bus_refuses_begin);
+    RUN_TEST(test_begin_runs_once_a_part_answers);
+    RUN_TEST(test_a_bus_error_on_the_probe_refuses_begin);
     RUN_TEST(test_an_oversize_begin_touches_nothing);
     RUN_TEST(test_data_stays_inside_the_declared_length);
     RUN_TEST(test_a_trailer_image_len_past_its_trailer_is_refused);

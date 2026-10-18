@@ -6,8 +6,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -15,41 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
-	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 )
 
-// attest-csr needs a device with a DeviceID key, so these run against the
-// element-tier simulator; the soft tier is the error case.
+// attest-csr against a device is in e2e_attestcsr_test.go; here only what
+// tfwctl refuses on its own.
 
 var csrNonceHex = strings.Repeat("a5", tfw.AliasNonceLen)
-
-func TestAttestCSRPrintsTheSignatureAsHex(t *testing.T) {
-	var out bytes.Buffer
-	err := run(context.Background(), tfwsim.StartElement(t), "attest-csr", []string{"--nonce", csrNonceHex}, false, &out)
-	require.NoError(t, err)
-
-	line := strings.TrimSuffix(out.String(), "\n")
-	assert.Len(t, line, 2*tfw.CSRSigLen, "stdout must be the hex signature and one newline")
-	sig, err := hex.DecodeString(line)
-	require.NoError(t, err)
-	assert.Len(t, sig, tfw.CSRSigLen)
-}
-
-func TestAttestCSRJSONCarriesTheSignatureAsHex(t *testing.T) {
-	var out bytes.Buffer
-	err := run(context.Background(), tfwsim.StartElement(t), "attest-csr", []string{"--nonce", csrNonceHex}, true, &out)
-	require.NoError(t, err)
-
-	var got struct {
-		Signature string `json:"signature"`
-		Len       int    `json:"len"`
-	}
-	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
-	sig, err := hex.DecodeString(got.Signature)
-	require.NoError(t, err)
-	assert.Equal(t, len(sig), got.Len)
-	assert.Equal(t, tfw.CSRSigLen, got.Len)
-}
 
 // A malformed command line is refused before the device is touched: dev is nil,
 // so reaching it would panic rather than pass.
@@ -78,22 +47,4 @@ func TestAttestCSRRefusesAMalformedCommandLine(t *testing.T) {
 			assert.Zero(t, out.Len(), "nothing may be written on failure")
 		})
 	}
-}
-
-func TestAttestCSRReportsADeviceThatCannotIssueOne(t *testing.T) {
-	var out bytes.Buffer
-	err := run(context.Background(), tfwsim.Start(t), "attest-csr", []string{"--nonce", csrNonceHex}, false, &out)
-
-	var st tfw.Status
-	require.True(t, errorsAsStatus(err, &st), "got %v", err)
-	assert.Equal(t, tfw.StatusErrUnsupported, st)
-	assert.Zero(t, out.Len())
-}
-
-// `caps` names the feature, so a person can see before asking whether the device
-// will answer.
-func TestCapsNamesAttestCSROnADeviceThatOffersIt(t *testing.T) {
-	var out bytes.Buffer
-	require.NoError(t, run(context.Background(), tfwsim.StartElement(t), "caps", nil, false, &out))
-	assert.Contains(t, out.String(), "attest-csr")
 }

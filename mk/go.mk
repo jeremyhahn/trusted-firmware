@@ -36,14 +36,17 @@ sdk-build:
 # element tier, the only peer that produces DICE evidence; tfwsim-app-example the
 # only one with an application, so the only one that answers APP_INFO;
 # tfwsim-auto the Mega's default tier, which picks one of those two at startup.
+# Every test that starts a simulator carries the tfwsim build tag (#163), so
+# this is the one target that compiles them in.
 sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
-	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags) ./...
+	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags,tfwsim) ./...
 
-## sdk-coverage: Go SDK statement coverage, failing under the floor
-# The same simulators and the same run as sdk-test, so the cross-implementation
-# suite counts: it is what reaches the codec and the client end to end.
+## sdk-coverage: Go SDK unit-test statement coverage, failing under the floor
+# Unit tests only (#163): without the tfwsim tag no simulator-driven test is
+# compiled, so the floor is what the unit tests reach on their own and no
+# simulator is built for it. sdk-test runs the cross-implementation suite.
 SDK_COVERAGE_FLOOR ?= 90
-sdk-coverage: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
+sdk-coverage:
 	@mkdir -p coverage
 	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags) -coverprofile=../../coverage/sdk.out ./... && \
 	  total=$$($(GO) tool cover -func=../../coverage/sdk.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
@@ -62,11 +65,12 @@ sdk-coverage: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
 # not. -p 1 because every test opens, and so resets, the one board. Every
 # TestAgainstFirmware* test reaches its peer through that seam; a test that
 # starts a simulator itself is named otherwise, so none needs a host binary here.
+# The suite lives in tfwsim_test.go, which carries the tfwsim build tag.
 HW_TEST_RUN ?= ^TestAgainstFirmware
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev>"; exit 1; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) $(GO) test -count=1$(call go-tags,-tags) -p 1 -run '$(HW_TEST_RUN)' .
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' .
 
 ## sdk-lint: gofmt and vet the Go SDK
 # vet compiles the tests, so it downloads their modules. That download goes
@@ -78,6 +82,7 @@ sdk-lint:
 	@cd $(SDK_DIR) && out=$$($(GO) fmt ./... ) && \
 	  if [ -n "$$out" ]; then echo "gofmt rewrote:"; echo "$$out"; exit 1; fi
 	@cd $(SDK_DIR) && $(GO) vet$(call go-tags,-tags) ./...
+	@cd $(SDK_DIR) && $(GO) vet$(call go-tags,-tags,tfwsim) ./...
 	@echo "sdk/go: gofmt and vet clean"
 
 ## sdk-verify: check the module graph carries no in-house dependency

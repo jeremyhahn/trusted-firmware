@@ -5,9 +5,14 @@
  * docs/ota/adr-ota-image-format-and-trust.md decision 6 (issue #75).
  *
  * The command set is the one every 25-series part shares: READ 0x03, WREN 0x06,
- * the 4 KB sector erase 0x20, PAGE PROGRAM 0x02 and READ STATUS 0x05. Nothing
- * here names a vendor or reads a JEDEC id, so any such part of 512 Kbit or more
- * works, and which one a board carries is ADR open question 2.
+ * the 4 KB sector erase 0x20, PAGE PROGRAM 0x02, READ STATUS 0x05 and READ
+ * JEDEC ID 0x9F. Nothing here names a vendor: the probe reads only whether a
+ * JEP106 manufacturer byte answers, so any such part of 512 Kbit or more works,
+ * and which one a board carries is ADR open question 2.
+ *
+ * READ STATUS cannot tell an empty select from a ready part: WIP reads clear
+ * on a bus that echoes or floats low, so an erase and a program "succeed"
+ * there (#167). The probe is what OTA_BEGIN asks before it erases anything.
  *
  * Each transaction is one tfw_hal_spi_xfer: the HAL holds the select for the
  * whole transfer, so the command, the address and the data share one buffer on
@@ -28,6 +33,7 @@
 #define NOR_ERASE_4K   0x20u
 #define NOR_PROGRAM    0x02u
 #define NOR_STATUS     0x05u
+#define NOR_JEDEC_ID   0x9Fu   /* answers the JEP106 manufacturer byte first */
 #define NOR_WIP        0x01u   /* status bit 0: a program or erase is running */
 #define NOR_PAGE       256u
 #define NOR_HEAD       4u      /* the opcode and a 24-bit address */
@@ -123,6 +129,26 @@ tfw_status_t tfw_store_init(void)
     (void)deselect(TFW_ETH_CS_PIN, &other);
     (void)deselect(TFW_ETH_SD_CS_PIN, &other);
     return deselect(TFW_OTA_STORE_CS_PIN, &cs);
+}
+
+tfw_status_t tfw_store_probe(void)
+{
+    uint8_t      b[2];
+    tfw_status_t st;
+
+    b[0] = NOR_JEDEC_ID;
+    b[1] = 0u;
+    bus();
+    st = tfw_hal_spi_xfer(&cs, b, b, 2u);
+    if (st != TFW_OK) {
+        return st;
+    }
+    /* JEP106 assigns neither: MISO floating low or high, or echoing the 0x00
+     * sent, reads as one of them. */
+    if (b[1] == 0x00u || b[1] == 0xFFu) {
+        return TFW_ERR_NO_STORE;
+    }
+    return TFW_OK;
 }
 
 tfw_status_t tfw_store_erase(uint32_t addr)

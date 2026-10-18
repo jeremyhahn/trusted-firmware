@@ -34,6 +34,7 @@ const (
 	StatusErrAuthRequired    Status = 17
 	StatusErrInternal        Status = 18
 	StatusErrBadState        Status = 19
+	StatusErrNoStore         Status = 20
 )
 
 var statusNames = map[Status]string{
@@ -57,6 +58,7 @@ var statusNames = map[Status]string{
 	StatusErrAuthRequired:    "command requires an authenticated session",
 	StatusErrInternal:        "internal error",
 	StatusErrBadState:        "command not valid in the current OTA state",
+	StatusErrNoStore:         "external store did not answer",
 }
 
 func (s Status) String() string {

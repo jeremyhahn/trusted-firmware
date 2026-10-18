@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
@@ -67,6 +66,10 @@ func (o *otaDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 		o.modes = append(o.modes, f.Payload[0])
 	case tfw.CmdOTAStatus:
 		return tfw.StatusOK, binary.LittleEndian.AppendUint32([]byte{byte(o.state)}, o.received)
+	case tfw.CmdOTAInfo:
+		// Slot 1 PENDING (4) at version 3, floor 7, measurement 0xAB...
+		p := []byte{2, 0, tfw.SlotTrial, 7, 0, 0, 0, 4, 3, 0, 0, 0}
+		return tfw.StatusOK, append(p, bytes.Repeat([]byte{0xAB}, 32)...)
 	default:
 		return tfw.StatusErrUnknownCmd, nil
 	}
@@ -76,48 +79,7 @@ func (o *otaDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 // startOTADevice wires an otaDevice to a tfw.Device over two pipes.
 func startOTADevice(t *testing.T, o *otaDevice) *tfw.Device {
 	t.Helper()
-	reqR, reqW := io.Pipe()
-	repR, repW := io.Pipe()
-	go func() {
-		var buf []byte
-		chunk := make([]byte, 512)
-		for {
-			n, err := reqR.Read(chunk)
-			if err != nil {
-				return
-			}
-			buf = append(buf, chunk[:n]...)
-			for {
-				f, used, err := tfw.Decode(buf)
-				if errors.Is(err, tfw.ErrShortFrame) {
-					break
-				}
-				if err != nil {
-					t.Errorf("fake device: undecodable request: %v", err)
-					return
-				}
-				buf = buf[used:]
-				st, payload := o.answer(f)
-				reply, err := tfw.EncodeResponse(f.Seq, f.Cmd(), st, payload)
-				if err != nil {
-					t.Errorf("fake device: encoding the reply: %v", err)
-					return
-				}
-				if _, err := repW.Write(reply); err != nil {
-					return
-				}
-			}
-		}
-	}()
-	t.Cleanup(func() {
-		_ = reqW.Close()
-		_ = repW.Close()
-	})
-	conn := struct {
-		io.Reader
-		io.Writer
-	}{repR, reqW}
-	return tfw.New(conn, tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0))
+	return startFakeDevice(t, o.answer)
 }
 
 func writeImage(t *testing.T, image []byte) string {
@@ -235,61 +197,6 @@ func TestOTAStageArgumentErrorsAreUsageErrors(t *testing.T) {
 	}
 }
 
-// simImage is an image the firmware's stager accepts: whole pages, the body,
-// then the v1 trailer naming the body's length and SHA-256.
-func simImage(total, body int) []byte {
-	img := bytes.Repeat([]byte{0xFF}, total)
-	copy(img, patterned(body))
-	tr := img[total-128:]
-	clear(tr)
-	copy(tr, "TFIM")
-	binary.LittleEndian.PutUint16(tr[4:], 1)
-	tr[6] = 0x01
-	binary.LittleEndian.PutUint32(tr[8:], 3)
-	binary.LittleEndian.PutUint32(tr[12:], uint32(body))
-	sum := sha256.Sum256(img[:body])
-	copy(tr[16:], sum[:])
-	return img
-}
-
-// Against the firmware: tfwsim links the application stager and a store
-// (mk/host.mk, TFWSIM_STAGE_SRCS), so the verb stages a real image and the
-// device's own gate refuses a tampered one at END.
-func TestOTAStageAgainstFirmware(t *testing.T) {
-	dev := startSim(t)
-	ctx := context.Background()
-
-	var buf bytes.Buffer
-	if err := run(ctx, dev, "ota-stage", []string{writeImage(t, simImage(1024, 700))}, false, &buf); err != nil {
-		t.Fatalf("ota-stage: %v", err)
-	}
-	if got := strings.TrimSpace(buf.String()); got != tfw.OTAComplete.String()+", 1024 bytes received" {
-		t.Fatalf("ota-stage printed %q", got)
-	}
-	expectSimStatus(t, dev, tfw.OTAComplete.String()+", 1024 bytes received")
-
-	img := simImage(1024, 700)
-	img[100] ^= 0x40
-	err := run(ctx, dev, "ota-stage", []string{writeImage(t, img)}, false, io.Discard)
-	if !errors.Is(err, tfw.StatusErrCrypto) {
-		t.Fatalf("tampered image: %v, want %v", err, tfw.StatusErrCrypto)
-	}
-	// The stager's fail() (src/core/ota_stage.c) sets FAILED and leaves the
-	// count alone; only OTA_BEGIN zeroes it.
-	expectSimStatus(t, dev, tfw.OTAFailed.String()+", 1024 bytes received")
-}
-
-func expectSimStatus(t *testing.T, dev *tfw.Device, want string) {
-	t.Helper()
-	var buf bytes.Buffer
-	if err := run(context.Background(), dev, "ota-status", nil, false, &buf); err != nil {
-		t.Fatalf("ota-status: %v", err)
-	}
-	if got := strings.TrimSpace(buf.String()); got != want {
-		t.Fatalf("ota-status printed %q, want %q", got, want)
-	}
-}
-
 func TestOTAStatusPrintsEachState(t *testing.T) {
 	for _, st := range []tfw.OTAState{tfw.OTAIdle, tfw.OTAReceiving, tfw.OTAComplete, tfw.OTAFailed} {
 		t.Run(st.String(), func(t *testing.T) {
@@ -323,6 +230,45 @@ func TestOTAStatusTakesNoArguments(t *testing.T) {
 	err := run(context.Background(), nil, "ota-status", []string{"now"}, false, io.Discard)
 	if err == nil || !strings.HasPrefix(err.Error(), "usage: ota-status") {
 		t.Fatalf("err = %v, want a usage error", err)
+	}
+}
+
+func TestOTAInfoPrintsTheSlot(t *testing.T) {
+	meas := strings.Repeat("ab", 32)
+	dev := startOTADevice(t, &otaDevice{})
+	var buf bytes.Buffer
+	if err := run(context.Background(), dev, "ota-info", []string{"1"}, false, &buf); err != nil {
+		t.Fatal(err)
+	}
+	want := "slots 2, active 0, flags 0x04\nfloor 7\nstate 4\nimage version 3\nmeasurement " + meas + "\n"
+	if buf.String() != want {
+		t.Fatalf("ota-info printed %q, want %q", buf.String(), want)
+	}
+
+	buf.Reset()
+	if err := run(context.Background(), dev, "ota-info", []string{"1"}, true, &buf); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("ota-info --json printed %q: %v", buf.String(), err)
+	}
+	for k, v := range map[string]any{
+		"slots": 2.0, "active": 0.0, "flags": 4.0, "floor": 7.0, "state": 4.0,
+		"image_version": 3.0, "measurement": meas,
+	} {
+		if got[k] != v {
+			t.Errorf("ota-info --json %s = %v, want %v", k, got[k], v)
+		}
+	}
+}
+
+func TestOTAInfoCarriesTheDevicesRefusal(t *testing.T) {
+	dev := startOTADevice(t, &otaDevice{refuseCmd: tfw.CmdOTAInfo, refuseStatus: tfw.StatusErrRange})
+	err := run(context.Background(), dev, "ota-info", []string{"2"}, false, io.Discard)
+	var st tfw.Status
+	if !errorsAsStatus(err, &st) || st != tfw.StatusErrRange {
+		t.Fatalf("ota-info 2: %v, want %v", err, tfw.StatusErrRange)
 	}
 }
 

@@ -47,6 +47,10 @@ typedef enum {
 } tfw_nor_model_bus_t;
 void           tfw_nor_model_set_bus(tfw_nor_model_bus_t bus);
 tfw_nor_model_bus_t tfw_nor_model_bus(void);
+/* The JEP106 manufacturer code the part answers READ JEDEC ID with, in place
+ * of TFW_NOR_MODEL_JEDEC0: any part, not only the one the model is. Reset
+ * restores JEDEC0. */
+void           tfw_nor_model_set_maker(uint8_t m);
 /* The lowest and highest byte programmed or erased since the last clear (or
  * reset). Before any, lo is 0xFFFFFFFF and hi 0. */
 void           tfw_nor_model_clear_spans(void);

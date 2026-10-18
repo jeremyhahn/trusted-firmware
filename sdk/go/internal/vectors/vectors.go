@@ -123,6 +123,9 @@ const (
 	// FrameOTABeginBadStateResp is the TFW_CMD_OTA_BEGIN response, seq 3,
 	// status TFW_ERR_BAD_STATE (19), no payload.
 	FrameOTABeginBadStateResp = "\xa5\x03\x03\xe8\x13\x05\xfd"
+	// FrameOTABeginNoStoreResp is the TFW_CMD_OTA_BEGIN response, seq 3,
+	// status TFW_ERR_NO_STORE (20), no payload (#167).
+	FrameOTABeginNoStoreResp = "\xa5\x03\x03\xe8\x14\xe2\x8d"
 	// FrameOTAInfoReq is TFW_CMD_OTA_INFO (0x6C), seq 4, slot 1 (#77).
 	FrameOTAInfoReq = "\xa5\x03\x04\x6c\x01\xba\x9d"
 	// FrameOTAInfoResp is its response, status OK: slots 2, active 0, flags

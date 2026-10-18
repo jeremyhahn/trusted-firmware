@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The software serial NOR part -- see spi_nor_model.h. The opcodes are the
- * 25-series set src/store/spi_nor.c speaks, plus JEDEC ID, which the driver
- * does not send and tfw-boot's presence probe does. Bus-free: spi_nor_hal.c
+ * 25-series set src/store/spi_nor.c speaks, plus JEDEC ID, which the driver's
+ * probe and tfw-boot's presence probe send. Bus-free: spi_nor_hal.c
  * puts it on the application HAL's SPI, test_boot_stage.c on tfw-boot's.
  */
 #include <string.h>
@@ -30,6 +30,7 @@ static uint8_t  ready;   /* a part leaves the factory erased; tfwsim never reset
 static uint32_t erases, programs, violations;
 static uint8_t  fail_at;
 static uint16_t xfer_ms;
+static uint8_t  maker;
 
 static tfw_nor_model_bus_t bus_mode;
 /* The lowest and highest byte each kind of write has touched since a clear. */
@@ -62,7 +63,10 @@ void tfw_nor_model_reset(void)
     tfw_nor_model_clear_spans();
     fail_at = 0u;
     xfer_ms = 0u;
+    maker = TFW_NOR_MODEL_JEDEC0;
 }
+
+void tfw_nor_model_set_maker(uint8_t m) { maker = m; }
 
 void tfw_nor_model_fail_xfer(uint8_t nth)    { fail_at = nth; }
 void tfw_nor_model_set_xfer_ms(uint16_t ms)  { xfer_ms = ms; }
@@ -117,7 +121,7 @@ static void nor(const uint8_t *wr, uint8_t *rd, uint16_t len)
     }
     switch (wr[0]) {
     case OP_JEDEC:
-        if (len > 1u) { rd[1] = TFW_NOR_MODEL_JEDEC0; }
+        if (len > 1u) { rd[1] = maker; }
         if (len > 2u) { rd[2] = TFW_NOR_MODEL_JEDEC1; }
         if (len > 3u) { rd[3] = TFW_NOR_MODEL_JEDEC2; }
         break;

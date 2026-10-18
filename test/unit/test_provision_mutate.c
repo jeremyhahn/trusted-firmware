@@ -110,7 +110,7 @@ static tfw_status_t feed(unsigned k, const uint8_t *payload, unsigned n)
     st  = e->fn(&r, &w);
     len = tfw_writer_len(&w);
 
-    if ((unsigned)st > (unsigned)TFW_ERR_BAD_STATE) {
+    if ((unsigned)st > (unsigned)TFW_ERR_NO_STORE) {
         broke = "a status status.h does not name";
     } else if (len > TFW_MAX_PAYLOAD) {
         broke = "the reply outgrew its buffer";

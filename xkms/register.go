@@ -33,7 +33,12 @@ const (
 // name, and the alternative is a process that starts with the backend silently
 // missing and fails later, on a device, at a distance from the cause.
 func init() {
-	if err := RegisterAVRBackend(); err != nil {
+	mustRegister(RegisterAVRBackend())
+}
+
+// mustRegister panics on a refused registration, for init.
+func mustRegister(err error) {
+	if err != nil {
 		panic(err)
 	}
 }

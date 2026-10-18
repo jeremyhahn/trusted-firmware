@@ -198,22 +198,19 @@ func TestSuccessfulCallsReturnATrulyNilError(t *testing.T) {
 
 // silentLink accepts every request and never answers: what a device that
 // crashed mid-command looks like from this side.
-type silentLink struct{}
+type silentLink struct{ portDeadline }
 
-func (silentLink) Write(p []byte) (int, error) { return len(p), nil }
+func (*silentLink) Write(p []byte) (int, error) { return len(p), nil }
 
-func (silentLink) Read(p []byte) (int, error) {
-	// A read that returned instantly would spin the loop for the whole
-	// timeout; a deadline error is also what a real serial port reports.
-	time.Sleep(time.Millisecond)
-	return 0, os.ErrDeadlineExceeded
-}
+// Read waits out the deadline Do set, as a real serial port does: a read that
+// returned instantly would spin the loop for the whole timeout.
+func (l *silentLink) Read([]byte) (int, error) { return l.expire() }
 
 func TestDoReportsAnUnansweredCommandAsATimeout(t *testing.T) {
 	// silentLink never produces an error, so the connect-time boot wait would
 	// otherwise pay its own bound before Do even runs; disabled because this
 	// test is about Do's timeout, not New's.
-	d := New(silentLink{}, WithTimeout(20*time.Millisecond), WithBootWait(0))
+	d := New(&silentLink{}, WithTimeout(20*time.Millisecond), WithBootWait(0))
 	_, err := d.Do(context.Background(), CmdPing, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrTimeout))

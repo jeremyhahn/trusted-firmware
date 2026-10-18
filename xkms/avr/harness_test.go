@@ -22,6 +22,7 @@ import (
 	"encoding/binary"
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -307,18 +308,25 @@ func secureElementLink() *fakeLink {
 	))
 }
 
-// delayedLink adds a fixed cost to every write on top of a fakeLink, standing
-// in for a slower device or a race-detector-instrumented run: something that
-// makes a real exchange take measurably longer without changing what it
-// answers. A test drives several callers at a link like this to make the
-// QUEUE, not the device, the thing that takes longer than one caller's
-// RequestTimeout.
-type delayedLink struct {
+// gatedLink, once armed, holds the wire on the next write until the test
+// releases it, over a fakeLink: a device busy with one caller's exchange for as
+// long as the test says, so the QUEUE behind it, not any exchange, is what
+// takes longer than a caller's RequestTimeout.
+type gatedLink struct {
 	*fakeLink
-	delay time.Duration
+	armed   atomic.Bool
+	held    chan struct{} // closed when the armed write holds the wire
+	release chan struct{} // closed by the test to let it go
 }
 
-func (l *delayedLink) Write(p []byte) (int, error) {
-	time.Sleep(l.delay)
+func newGatedLink(link *fakeLink) *gatedLink {
+	return &gatedLink{fakeLink: link, held: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (l *gatedLink) Write(p []byte) (int, error) {
+	if l.armed.CompareAndSwap(true, false) {
+		close(l.held)
+		<-l.release
+	}
 	return l.fakeLink.Write(p)
 }

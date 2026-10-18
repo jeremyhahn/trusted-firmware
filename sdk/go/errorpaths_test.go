@@ -88,7 +88,7 @@ func requireShortReply(t *testing.T, err error, cmd Cmd) {
 // An unknown status must read as unrecognised, never as a known one: that is
 // what an older host sees when a newer firmware adds a code.
 func TestUnknownStatusReadsAsUnrecognised(t *testing.T) {
-	for _, s := range []Status{0x14, 0x7F, 0xEE, 0xFF} {
+	for _, s := range []Status{0x15, 0x7F, 0xEE, 0xFF} {
 		if _, known := statusNames[s]; known {
 			t.Fatalf("status %d is known; pick an unassigned value", s)
 		}

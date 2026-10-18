@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -12,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
 
 // mainEnv set to 1 makes the test binary run main() with the arguments after
@@ -68,6 +65,7 @@ func TestMainExitCodes(t *testing.T) {
 		{"a port with no command is a usage error", []string{"/dev/ttyACM0"}, 2, "tfwctl -- talk to an trusted-firmware device"},
 		{"an unknown flag is a usage error", []string{"--bogus", "p", "ping"}, 2, "flag provided but not defined: -bogus"},
 		{"a port that cannot be opened is a failure", []string{missing, "ping"}, 1, "tfwctl: "},
+		{"a tcp:// endpoint no device dials is a failure", []string{"-timeout=50ms", "tcp://" + freePort(t), "ping"}, 1, "tfwctl: no device connected"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, first := runMain(t, tc.args...)
@@ -110,6 +108,9 @@ func TestRunArgumentErrorsAreRefusedBeforeTheWire(t *testing.T) {
 		{"ota-stage with two images", "ota-stage", []string{"a", "b"}, "usage: ota-stage [--activate[=now]] <image>"},
 		{"ota-stage with a missing image", "ota-stage", []string{missing}, "usage: ota-stage [--activate[=now]] <image>: open "},
 		{"ota-status with an argument", "ota-status", []string{"now"}, "usage: ota-status"},
+		{"ota-info without a slot", "ota-info", nil, "usage: ota-info <slot>"},
+		{"ota-info with two slots", "ota-info", []string{"0", "1"}, "usage: ota-info <slot>"},
+		{"ota-info with a slot past a byte", "ota-info", []string{"256"}, `slot "256": `},
 		{"an unknown subcommand", "morse", nil, "unknown command"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,70 +123,5 @@ func TestRunArgumentErrorsAreRefusedBeforeTheWire(t *testing.T) {
 				t.Fatalf("err = %q, want prefix %q", first, tc.first)
 			}
 		})
-	}
-}
-
-func TestRunCoreVerbsAgainstTfwsim(t *testing.T) {
-	dev := startSim(t)
-	ctx := context.Background()
-	for _, tc := range []struct {
-		verb string
-		args []string
-		text string
-	}{
-		{"ping", []string{"hello", "there"}, `pong: "hello there"`},
-		{"caps", nil, "protocol    "},
-		{"pin", []string{"13"}, "pin         13"},
-		{"sys", nil, "uptime "},
-		{"mode", []string{"13", "out"}, "pin 13 -> out"},
-		{"mode", []string{"12", "in"}, "pin 12 -> in"},
-		{"mode", []string{"12", "pullup"}, "pin 12 -> pullup"},
-		{"write", []string{"13", "1"}, "pin 13 <- 1"},
-		{"read", []string{"12"}, ""},
-		{"timer", []string{"13", "1", "5s"}, "pin 13 held for 5s in slot "},
-		{"timer-query", []string{"13"}, "held 1, "},
-		{"timer-cancel", []string{"13"}, "timer on pin 13 cancelled"},
-		{"timer-query", []string{"13"}, "no timer on that pin"},
-	} {
-		var text, js bytes.Buffer
-		if err := run(ctx, dev, tc.verb, tc.args, false, &text); err != nil {
-			t.Fatalf("%s %v: %v", tc.verb, tc.args, err)
-		}
-		if !strings.HasPrefix(text.String(), tc.text) {
-			t.Errorf("%s %v printed %q, want prefix %q", tc.verb, tc.args, text.String(), tc.text)
-		}
-		if tc.verb == "timer" || tc.verb == "timer-cancel" {
-			continue // one-shot on the device; the JSON form is checked below
-		}
-		if err := run(ctx, dev, tc.verb, tc.args, true, &js); err != nil {
-			t.Fatalf("%s %v --json: %v", tc.verb, tc.args, err)
-		}
-		if !json.Valid(js.Bytes()) {
-			t.Errorf("%s %v --json printed %q, not JSON", tc.verb, tc.args, js.String())
-		}
-	}
-}
-
-func TestRunDeviceRefusalsAreTheDevicesStatus(t *testing.T) {
-	dev := startSim(t)
-	ctx := context.Background()
-	for _, tc := range []struct {
-		verb string
-		args []string
-	}{
-		{"pin", []string{"200"}},
-		{"mode", []string{"200", "out"}},
-		{"read", []string{"200"}},
-		{"write", []string{"200", "1"}},
-		{"timer", []string{"200", "1", "5s"}},
-		{"timer-cancel", []string{"200"}},
-		// timer-query is absent on purpose: the firmware answers a pin it
-		// does not have with "no timer", which is true.
-	} {
-		err := run(ctx, dev, tc.verb, tc.args, false, io.Discard)
-		var st tfw.Status
-		if !errors.As(err, &st) {
-			t.Errorf("%s %v: err = %v, want the device's status", tc.verb, tc.args, err)
-		}
 	}
 }

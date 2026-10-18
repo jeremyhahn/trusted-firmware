@@ -146,9 +146,23 @@ func TestOpenReadReturnsOnASilentLine(t *testing.T) {
 // Open purges what arrived before it: a stale backlog is not a reply.
 func TestOpenDiscardsBytesQueuedBeforeIt(t *testing.T) {
 	master, path := openPTY(t)
-	_, err := master.Write([]byte("stale\n"))
+	stale := []byte("stale\n")
+	_, err := master.Write(stale)
 	require.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
+
+	// The backlog is a backlog once the line discipline has queued it on the
+	// slave side: wait for that, bounded, before Open.
+	slave, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
+	require.NoError(t, err)
+	defer func() { _ = slave.Close() }()
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		var queued int32
+		ioctl(t, slave, syscall.TIOCINQ, unsafe.Pointer(&queued))
+		if int(queued) == len(stale) {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "the backlog never reached the slave (%d bytes queued)", queued)
+	}
 
 	p, err := serialport.Open(path, 0)
 	require.NoError(t, err)

@@ -28,6 +28,12 @@
  * call again: the stager calls it at each OTA_BEGIN. */
 tfw_status_t tfw_store_init(void);
 
+/* Asks the part for its JEDEC ID, one transaction, and touches nothing in it.
+ * TFW_ERR_NO_STORE when no part answers: an empty select reads its
+ * manufacturer byte as 0x00 or 0xFF, neither of which JEP106 assigns. Any other
+ * manufacturer is accepted; the driver names no vendor. */
+tfw_status_t tfw_store_probe(void);
+
 /* Erases the sector holding addr. Returns once the part reports ready, or
  * TFW_ERR_TIMEOUT when it does not within the part's worst case. */
 tfw_status_t tfw_store_erase(uint32_t addr);

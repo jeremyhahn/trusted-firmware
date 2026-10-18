@@ -535,13 +535,16 @@ jobs:
         # firmware's floor alone; `make test` (mk/stages.mk TEST_GATES) runs it
         # with the host C suites, the boot suites, the board sweep, test-asan
         # (ASan and UBSan over the host and boot suites), verify-vectors,
-        # xkms-coverage, sdk-coverage (sdk/go and the cross-implementation suite
-        # against tfwsim, floor 90) and scripts-test, so it is the test stage.
+        # xkms-coverage, sdk-coverage (sdk/go's unit tests alone, floor 90; the
+        # cross-implementation suite is the -race step's) and scripts-test, so
+        # it is the test stage.
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
       # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race, with the
       # cross-implementation suite against tfwsim (the real firmware compiled
-      # for the host), gated at COVERAGE_THRESHOLD. Every tfwsim-* binary the
+      # for the host), gated at COVERAGE_THRESHOLD. The suite is compiled in by
+      # the tfwsim build tag (#163); untagged, this step would run the unit
+      # tests alone and the PR tier no simulator test. Every tfwsim-* binary the
       # suite starts must be on the make line, or the suite fails for want of
       # it. The tests fail the step before the gate reads a profile, so a
       # broken suite is never also reported as a coverage drop.
@@ -553,7 +556,7 @@ jobs:
             export GOWORK=off
             make tfwsim tfwsim-atecc608a tfwsim-app-example tfwsim-auto
             cd sdk/go
-            go test -race -count=1 -timeout=900s -coverprofile=../../coverage.out ./...
+            go test -race -count=1 -timeout=900s -tags tfwsim -coverprofile=../../coverage.out ./...
             total=$(go tool cover -func=../../coverage.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%')
             case "$total" in
               '' | *[!0-9.]*) echo "FAIL: coverage could not be read from coverage.out (got '$total')"; exit 1 ;;

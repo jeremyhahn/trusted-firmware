@@ -95,7 +95,13 @@ func main() {
 
 // dial keeps trying until a PING round-trips. QEMU's user-mode network accepts
 // on the host side before the guest listens and then drops the connection, so
-// a connect alone proves nothing; an echoed PING proves the firmware.
+// a connect alone proves nothing; an echoed PING proves the firmware. The
+// harness runs this once the guest has logged its link up, so the guest's
+// listen is moments away; each try is bounded by its dial and PING deadlines,
+// with nothing slept between them.
+//
+// A refused connect is not retried: QEMU's forwarded port is bound for as long
+// as QEMU runs, so a refusal means there is no QEMU to wait for.
 func dial(addr string, wait time.Duration) (*tfw.Device, net.Conn, error) {
 	deadline := time.Now().Add(wait)
 	msg := []byte("tfw-esp32-qemu")
@@ -103,9 +109,7 @@ func dial(addr string, wait time.Duration) (*tfw.Device, net.Conn, error) {
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err != nil {
-			last = err
-			time.Sleep(500 * time.Millisecond)
-			continue
+			return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
 		}
 		d := tfw.New(conn, tfw.WithBootWait(0), tfw.WithTimeout(2*time.Second))
 		echo, err := d.Ping(context.Background(), msg)
@@ -116,7 +120,6 @@ func dial(addr string, wait time.Duration) (*tfw.Device, net.Conn, error) {
 		}
 		last = fmt.Errorf("ping: %v (echo %q)", err, echo)
 		_ = conn.Close() // abandoned for a fresh dial; last already says why
-		time.Sleep(500 * time.Millisecond)
 	}
 	return nil, nil, fmt.Errorf("no answer from %s within %v: %v", addr, wait, last)
 }

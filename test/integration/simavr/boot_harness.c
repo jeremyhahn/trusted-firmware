@@ -2905,7 +2905,7 @@ static int net_activate(uint8_t *seqp, uint8_t *status)
         "ERR_TIMEOUT", "ERR_NACK", "ERR_RANGE", "ERR_NO_SLOT",
         "ERR_RESERVED_PIN", "ERR_CRYPTO", "ERR_NOT_PROVISIONED",
         "ERR_PROTECTED_REGION", "ERR_AUTH_REQUIRED", "ERR_INTERNAL",
-        "ERR_BAD_STATE",
+        "ERR_BAD_STATE", "ERR_NO_STORE",
     };
     /* [mode:1], OTA ADR decision 8: 0, taken at the next reset, which
      * this leg takes itself. */

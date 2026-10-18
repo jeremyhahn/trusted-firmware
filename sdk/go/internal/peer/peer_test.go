@@ -59,7 +59,8 @@ func TestOpenFailsOnAMissingPort(t *testing.T) {
 
 // fakePort stands in for a serial port: Read returns (0, nil) while it has
 // nothing, as serialport.Open's read timeout does, until silent reads have
-// passed.
+// passed. Each of those returns at once: the silent reads are counted, and a
+// port with nothing at all is bounded by the caller's own deadline.
 type fakePort struct {
 	silent  int
 	data    []byte
@@ -71,14 +72,12 @@ type fakePort struct {
 func (f *fakePort) Read(p []byte) (int, error) {
 	if f.silent > 0 {
 		f.silent--
-		time.Sleep(time.Millisecond)
 		return 0, nil
 	}
 	if f.err != nil {
 		return 0, f.err
 	}
 	if len(f.data) == 0 {
-		time.Sleep(time.Millisecond)
 		return 0, nil
 	}
 	n := copy(p, f.data)
@@ -151,12 +150,16 @@ type resettablePort struct {
 	fakePort
 	calls    []string
 	dtrErr   error
+	raiseErr error // raising DTR only
 	purgeErr error
 }
 
 func (r *resettablePort) SetDTR(on bool) error {
 	if on {
 		r.calls = append(r.calls, "dtr-on")
+		if r.raiseErr != nil {
+			return r.raiseErr
+		}
 	} else {
 		r.calls = append(r.calls, "dtr-off")
 	}
@@ -218,7 +221,7 @@ func TestStartFailsOnAPortThatCannotReset(t *testing.T) {
 
 func TestStartReportsAFailedReset(t *testing.T) {
 	boom := errors.New("boom")
-	for _, r := range []*resettablePort{{dtrErr: boom}, {purgeErr: boom}} {
+	for _, r := range []*resettablePort{{dtrErr: boom}, {raiseErr: boom}, {purgeErr: boom}} {
 		if _, err := start(r, time.Second); !errors.Is(err, boom) {
 			t.Errorf("err = %v, want it to wrap %v", err, boom)
 		}

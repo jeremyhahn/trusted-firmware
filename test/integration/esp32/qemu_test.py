@@ -115,9 +115,13 @@ class Qemu:
         while time.time() < deadline:
             if len(re.findall(pattern, self.text())) >= count:
                 return
-            if self.proc.poll() is not None:
-                raise Failure(f'QEMU exited ({self.proc.returncode}) waiting for {pattern!r}')
-            time.sleep(0.25)
+            # Between reads of the log, wait on the one other thing that can
+            # happen: QEMU exiting.
+            try:
+                self.proc.wait(min(0.25, max(0, deadline - time.time())))
+            except subprocess.TimeoutExpired:
+                continue
+            raise Failure(f'QEMU exited ({self.proc.returncode}) waiting for {pattern!r}')
         raise Failure(f'{timeout}s without {pattern!r} (x{count}) in {self.logpath}')
 
     def stop(self):
@@ -223,7 +227,11 @@ def provision_efuses(work, machine, sign_key, logpath):
             except OSError:
                 if time.time() > deadline:
                     raise Failure('QEMU download mode never opened its serial port')
-                time.sleep(0.2)
+                try:
+                    q.proc.wait(0.2)
+                except subprocess.TimeoutExpired:
+                    continue
+                raise Failure(f'QEMU exited ({q.proc.returncode}) before opening its serial port')
         espefuse = ['espefuse.py', '--chip', machine, '--port', f'socket://127.0.0.1:{port}',
                     '--before', 'no_reset', '--do-not-confirm']
         if machine == 'esp32':
@@ -305,6 +313,7 @@ def main():
     # Boot 1, then the soft reset it ends with: boot 2 in the same QEMU.
     q, port = boot(machine, work / 'flash.bin', efuse, work / 'boot-1-2.log')
     try:
+        q.wait_for(r'tfw-eth: link up')
         expect(wirecheck(wc, port, wlog, '-tier', str(tier), '-mark', mark, '-reset') == 0,
                'boot 1: PING, CAPS (board 0x81, tier %d), SYSINFO over Ethernet; mark written; soft reset' % tier)
         q.wait_for(r'tfw-eth: link up', count=2)
@@ -315,6 +324,7 @@ def main():
     # Boot 3: a new QEMU on the same flash and eFuses.
     q, port = boot(machine, work / 'flash.bin', efuse, work / 'boot-3.log')
     try:
+        q.wait_for(r'tfw-eth: link up')
         expect(wirecheck(wc, port, wlog, '-tier', str(tier), '-expect-mark', mark) == 0,
                'boot 3 (cold): the wire, and the EEPROM mark kept')
     finally:

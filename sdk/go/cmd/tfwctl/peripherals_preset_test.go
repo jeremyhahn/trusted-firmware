@@ -1,3 +1,5 @@
+//go:build tfwsim
+
 package main
 
 import (

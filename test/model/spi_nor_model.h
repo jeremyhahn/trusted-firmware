@@ -36,6 +36,23 @@ const uint8_t *tfw_nor_model_mem(void);
 /* Flips one bit of the array behind the driver's back, as a fault would. */
 void           tfw_nor_model_corrupt(uint32_t addr);
 void           tfw_nor_model_set_busy_polls(uint8_t n);
+/* No part on the select: the bus answers for it. ECHO returns each byte as
+ * sent (the bench Mega, test-matrix.md #137); HIGH reads 0xFF on every byte.
+ * Reset restores PRESENT. */
+typedef enum {
+    TFW_NOR_MODEL_PRESENT = 0,
+    TFW_NOR_MODEL_ABSENT_ECHO,
+    TFW_NOR_MODEL_ABSENT_HIGH
+} tfw_nor_model_bus_t;
+void           tfw_nor_model_set_bus(tfw_nor_model_bus_t bus);
+tfw_nor_model_bus_t tfw_nor_model_bus(void);
+/* The lowest and highest byte programmed or erased since the last clear (or
+ * reset). Before any, lo is 0xFFFFFFFF and hi 0. */
+void           tfw_nor_model_clear_spans(void);
+uint32_t       tfw_nor_model_prog_lo(void);
+uint32_t       tfw_nor_model_prog_hi(void);
+uint32_t       tfw_nor_model_erase_lo(void);
+uint32_t       tfw_nor_model_erase_hi(void);
 uint32_t       tfw_nor_model_erases(void);
 uint32_t       tfw_nor_model_programs(void);
 uint32_t       tfw_nor_model_violations(void);

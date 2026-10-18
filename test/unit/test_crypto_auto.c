@@ -16,12 +16,25 @@
 #include "../mock/uds_mock.h"
 #include "../../src/core/ota_floor.h"
 #include "../../src/core/handoff.h"
+#include "../../src/core/auth_session.h"
 #include "../../boot/boot_measure.h"
 
 tfw_status_t tfw_crypto_soft_sign(const uint8_t digest[32], uint8_t sig[64], uint8_t *alg_id);
 
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
+
+/* The element's auth session, as mk/firmware.mk's AUTH_RENAME names it: these
+ * stand in for auth_session.c so the suite sees which tier's gate
+ * src/core/auth_session_auto.c takes. */
+static unsigned     element_inits, element_gates;
+static tfw_status_t element_gate_answer;
+void tfw_auth_element_session_init(void) { element_inits++; }
+tfw_status_t tfw_auth_element_gate(void)
+{
+    element_gates++;
+    return element_gate_answer;
+}
 
 static const uint8_t soft_uds[32] = {
     0x55, 0x44, 0x53, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
@@ -34,6 +47,9 @@ void setUp(void)
     tfw_model_reset();
     memset(test_handoff, 0, sizeof test_handoff);
     tfw_mock_set_uds(soft_uds);
+    element_inits       = 0u;
+    element_gates       = 0u;
+    element_gate_answer = TFW_OK;
 }
 
 void tearDown(void) {}
@@ -190,6 +206,59 @@ void test_no_handoff_reports_no_floor(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_otactl_floor(&plat, &floor));
 }
 
+/* The auto gate (src/core/auth_session_auto.c): the element's on the element
+ * tier, its answer passed through either way. */
+void test_the_element_tier_gate_passes_what_the_element_gate_passes(void)
+{
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SECURE_ELEMENT, tfw_crypto_tier());
+    element_gate_answer = TFW_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
+    TEST_ASSERT_EQUAL_UINT(1u, element_gates);
+}
+
+void test_the_element_tier_gate_refuses_what_the_element_gate_refuses(void)
+{
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SECURE_ELEMENT, tfw_crypto_tier());
+    element_gate_answer = TFW_ERR_AUTH_REQUIRED;
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+    TEST_ASSERT_EQUAL_UINT(1u, element_gates);
+}
+
+/* The soft tier's gate is auth_session_none.c's answer: TFW_OK, and the
+ * element's gate never asked, even when it would refuse. */
+void test_the_soft_tier_gate_answers_ok_without_the_element_gate(void)
+{
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_NOT_EQUAL(TFW_CRYPTO_SECURE_ELEMENT, tfw_crypto_tier());
+    element_gate_answer = TFW_ERR_AUTH_REQUIRED;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
+    TEST_ASSERT_EQUAL_UINT(0u, element_gates);
+}
+
+/* The session init is the element's on either tier. */
+void test_the_session_init_is_the_element_s_on_the_element_tier(void)
+{
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_SECURE_ELEMENT, tfw_crypto_tier());
+    tfw_auth_session_init();
+    TEST_ASSERT_EQUAL_UINT(1u, element_inits);
+}
+
+void test_the_session_init_is_the_element_s_on_the_soft_tier(void)
+{
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_NOT_EQUAL(TFW_CRYPTO_SECURE_ELEMENT, tfw_crypto_tier());
+    tfw_auth_session_init();
+    TEST_ASSERT_EQUAL_UINT(1u, element_inits);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -202,5 +271,10 @@ int main(void)
     RUN_TEST(test_an_element_that_answers_is_chosen);
     RUN_TEST(test_a_probe_that_fails_half_way_runs_the_soft_root_only);
     RUN_TEST(test_the_choice_never_changes_until_reset);
+    RUN_TEST(test_the_element_tier_gate_passes_what_the_element_gate_passes);
+    RUN_TEST(test_the_element_tier_gate_refuses_what_the_element_gate_refuses);
+    RUN_TEST(test_the_soft_tier_gate_answers_ok_without_the_element_gate);
+    RUN_TEST(test_the_session_init_is_the_element_s_on_the_element_tier);
+    RUN_TEST(test_the_session_init_is_the_element_s_on_the_soft_tier);
     return UNITY_END();
 }

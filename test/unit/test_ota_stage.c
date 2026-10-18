@@ -507,6 +507,112 @@ static void test_the_signature_is_stored_with_the_mark(void)
     TEST_ASSERT_EQUAL_MEMORY(want, sig, sizeof sig);
 }
 
+/* No part on the select (#75, test-matrix.md #137): nothing in spi_nor.c reads
+ * a JEDEC id (ADR open question 2), so these pin what the stager does today. */
+static void refuse_activate(void)
+{
+    uint8_t m1 = 1u, out[44], n;
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+}
+
+static void test_absent_nor_on_an_echo_bus_fails_closed_at_end(void)
+{
+    tfw_nor_model_set_bus(TFW_NOR_MODEL_ABSENT_ECHO);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));   /* WIP reads clear: every erase "succeeds" */
+    stream(0u, 512u);                         /* and every program */
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, end());   /* the trailer magic, ota_stage.c:79 */
+    expect_status(TFW_STAGE_FAILED, 512u);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+    refuse_activate();
+}
+
+static void test_absent_nor_on_a_high_bus_times_out_the_first_erase(void)
+{
+    tfw_ms_t t0 = tfw_hal_millis();
+
+    tfw_nor_model_set_bus(TFW_NOR_MODEL_ABSENT_HIGH);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, begin(512u));   /* WIP never clears, spi_nor.c wait_ready */
+    TEST_ASSERT_TRUE((tfw_ms_t)(tfw_hal_millis() - t0) > 0u);
+    /* Not RECEIVING after the failed BEGIN: ota_stage.c:172 and :202 answer BUSY. */
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, data(0u, CHUNK));
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, end());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+    refuse_activate();
+}
+
+/* spi_nor.c bounds a length, never an address: the callers keep the store's
+ * addresses inside their regions (#75). */
+#define STAGE_END ((uint32_t)TFW_OTA_STORE_STAGE_ADDR + (uint32_t)TFW_OTA_STORE_STAGE_LEN)
+
+static void test_an_oversize_begin_touches_nothing(void)
+{
+    /* ota_stage.c:142 */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(TFW_OTA_STORE_STAGE_LEN + 256u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(0xFFFFFF00u));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+}
+
+static void test_data_stays_inside_the_declared_length(void)
+{
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    tfw_nor_model_clear_spans();
+    stream(0u, 480u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, data(480u, CHUNK));   /* ota_stage.c:175 */
+    TEST_ASSERT_EQUAL_UINT32(TFW_OTA_STORE_STAGE_ADDR, tfw_nor_model_prog_lo());
+    TEST_ASSERT_EQUAL_UINT32(TFW_OTA_STORE_STAGE_ADDR + 479u, tfw_nor_model_prog_hi());
+    TEST_ASSERT_TRUE(tfw_nor_model_erase_hi() < STAGE_END);
+    TEST_ASSERT_TRUE(tfw_nor_model_erase_lo() == 0xFFFFFFFFu ||
+                     tfw_nor_model_erase_lo() >= TFW_OTA_STORE_STAGE_ADDR);
+}
+
+static void test_a_trailer_image_len_past_its_trailer_is_refused(void)
+{
+    build(512u, 200u);
+    put32(&img[512u - TRAILER + 12u], 512u - TRAILER + 1u);   /* reaches its own trailer */
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    tfw_nor_model_clear_spans();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, end());                  /* ota_stage.c:89 */
+    expect_status(TFW_STAGE_FAILED, 512u);
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, tfw_nor_model_prog_lo());
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, tfw_nor_model_erase_lo());
+    refuse_activate();
+}
+
+static int disjoint(uint32_t alo, uint32_t ahi, uint32_t blo, uint32_t bhi)
+{
+    return ahi < blo || alo > bhi;
+}
+
+static void test_the_prev_copy_stays_in_its_region(void)
+{
+    uint32_t sector  = (uint32_t)TFW_STORE_SECTOR;
+    uint32_t sectors = ((uint32_t)TFW_BOOT_APP_SIZE + sector - 1u) / sector;
+    uint32_t lo      = (uint32_t)TFW_OTA_STORE_PREV_ADDR;
+    uint32_t hi      = lo + sectors * sector - 1u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_ota_prev_backup());
+    TEST_ASSERT_EQUAL_UINT32(lo, tfw_nor_model_prog_lo());
+    TEST_ASSERT_EQUAL_UINT32(lo + TFW_BOOT_APP_SIZE - 1u, tfw_nor_model_prog_hi());
+    TEST_ASSERT_EQUAL_UINT32(lo, tfw_nor_model_erase_lo());
+    TEST_ASSERT_EQUAL_UINT32(hi, tfw_nor_model_erase_hi());   /* whole sectors */
+    TEST_ASSERT_TRUE(disjoint(lo, hi, TFW_OTA_STORE_STAGE_ADDR, STAGE_END - 1u));
+    TEST_ASSERT_TRUE(disjoint(lo, hi, TFW_OTA_STORE_MARK_ADDR, TFW_OTA_STORE_MARK_ADDR));
+    TEST_ASSERT_LESS_THAN_UINT32(TFW_NOR_MODEL_SIZE, hi);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -524,5 +630,11 @@ int main(void)
     RUN_TEST(test_begin_backs_the_running_image_up_to_prev);
     RUN_TEST(test_activate_and_confirm_need_ota_auth);
     RUN_TEST(test_the_signature_is_stored_with_the_mark);
+    RUN_TEST(test_absent_nor_on_an_echo_bus_fails_closed_at_end);
+    RUN_TEST(test_absent_nor_on_a_high_bus_times_out_the_first_erase);
+    RUN_TEST(test_an_oversize_begin_touches_nothing);
+    RUN_TEST(test_data_stays_inside_the_declared_length);
+    RUN_TEST(test_a_trailer_image_len_past_its_trailer_is_refused);
+    RUN_TEST(test_the_prev_copy_stays_in_its_region);
     return UNITY_END();
 }

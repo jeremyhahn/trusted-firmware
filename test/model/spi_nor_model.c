@@ -29,6 +29,26 @@ static uint8_t  busy_polls = 1u;
 static uint8_t  ready;   /* a part leaves the factory erased; tfwsim never resets */
 static uint32_t erases, programs, violations;
 
+static tfw_nor_model_bus_t bus_mode;
+/* The lowest and highest byte each kind of write has touched since a clear. */
+static uint32_t prog_lo, prog_hi, erase_lo, erase_hi;
+
+static void span(uint32_t *lo, uint32_t *hi, uint32_t a)
+{
+    if (a < *lo) { *lo = a; }
+    if (a > *hi) { *hi = a; }
+}
+
+void tfw_nor_model_clear_spans(void)
+{
+    prog_lo = erase_lo = 0xFFFFFFFFu;
+    prog_hi = erase_hi = 0u;
+}
+uint32_t tfw_nor_model_prog_lo(void)  { return prog_lo; }
+uint32_t tfw_nor_model_prog_hi(void)  { return prog_hi; }
+uint32_t tfw_nor_model_erase_lo(void) { return erase_lo; }
+uint32_t tfw_nor_model_erase_hi(void) { return erase_hi; }
+
 void tfw_nor_model_reset(void)
 {
     ready = 1u;
@@ -36,11 +56,15 @@ void tfw_nor_model_reset(void)
     wel = busy = 0u;
     busy_polls = 1u;
     erases = programs = violations = 0u;
+    bus_mode = TFW_NOR_MODEL_PRESENT;
+    tfw_nor_model_clear_spans();
 }
 
 const uint8_t *tfw_nor_model_mem(void)        { return mem; }
 void     tfw_nor_model_corrupt(uint32_t addr) { mem[addr % TFW_NOR_MODEL_SIZE] ^= 0x01u; }
 void     tfw_nor_model_set_busy_polls(uint8_t n) { busy_polls = n; }
+void     tfw_nor_model_set_bus(tfw_nor_model_bus_t b) { bus_mode = b; }
+tfw_nor_model_bus_t tfw_nor_model_bus(void)   { return bus_mode; }
 uint32_t tfw_nor_model_erases(void)           { return erases; }
 uint32_t tfw_nor_model_programs(void)         { return programs; }
 uint32_t tfw_nor_model_violations(void)       { return violations; }
@@ -109,6 +133,7 @@ static void nor(const uint8_t *wr, uint8_t *rd, uint16_t len)
                 violations++;   /* a 0 cannot be programmed back to 1 */
             }
             mem[at] &= wr[i];
+            span(&prog_lo, &prog_hi, at);
         }
         programs++;
         wel = 0u;
@@ -117,6 +142,9 @@ static void nor(const uint8_t *wr, uint8_t *rd, uint16_t len)
     case OP_ERASE_4K:
         if (len < HEAD || !writable()) { break; }
         memset(&mem[addr_of(wr) & ~(SECTOR - 1u)], 0xFF, SECTOR);
+        a = addr_of(wr) & ~(uint32_t)(SECTOR - 1u);
+        span(&erase_lo, &erase_hi, a);
+        span(&erase_lo, &erase_hi, a + (uint32_t)(SECTOR - 1u));
         erases++;
         wel = 0u;
         busy = busy_polls;
@@ -136,6 +164,13 @@ void tfw_nor_model_xfer(uint8_t *buf, uint16_t len)
     }
     if (len > sizeof in) {
         violations++;
+        return;
+    }
+    if (bus_mode == TFW_NOR_MODEL_ABSENT_ECHO) {
+        return;                 /* buf already holds what was sent */
+    }
+    if (bus_mode == TFW_NOR_MODEL_ABSENT_HIGH) {
+        memset(buf, 0xFF, len);
         return;
     }
     /* Callers pass one buffer as both, as full duplex allows. */

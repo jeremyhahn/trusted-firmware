@@ -488,6 +488,19 @@ static void test_activate_and_confirm_need_ota_auth(void)
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
 }
 
+/* ota_activate.c:57: an authorized ACTIVATE over a corrupted platform block
+ * answers the block's own refusal and leaves no MARK. */
+static void test_activate_refuses_a_corrupted_platform_block(void)
+{
+    uint8_t m0 = 0u, out[44], n;
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    authorize();
+    tfw_mock_eeprom()[TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN / 2u] ^= 0xFFu;
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_FALSE(marked());
+}
+
 /* #137: the held signature is written after the MARK, for tfw-boot. */
 static void test_the_signature_is_stored_with_the_mark(void)
 {
@@ -613,6 +626,94 @@ static void test_the_prev_copy_stays_in_its_region(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
 }
 
+/* ota_stage.c tfw_stage_cmd_data, the write failure: a chunk longer than one
+ * store write takes (TFW_STORE_CHUNK) is refused by the store, and the stage
+ * fails. The wire cannot carry it (CHUNK is 60); the handler's reader can. */
+static void test_a_chunk_the_store_refuses_fails_the_stage(void)
+{
+    uint8_t in[4u + TFW_STORE_CHUNK + 1u], out[8];
+
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    put32(in, 0u);
+    memcpy(&in[4], img, TFW_STORE_CHUNK + 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call(tfw_stage_cmd_data, in, sizeof in, out));
+    expect_status(TFW_STAGE_FAILED, 0u);
+}
+
+static void stage_and_mark(void)
+{
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
+}
+
+/* tfw_stage_marked with full set re-hashes the stage and answers the mark. */
+static void test_a_full_check_reads_the_marked_image(void)
+{
+    uint8_t  h[32];
+    uint32_t v;
+
+    stage_and_mark();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_marked(h, &v, 1u));
+    TEST_ASSERT_EQUAL_MEMORY(meas, h, 32u);
+    TEST_ASSERT_EQUAL_UINT32(3u, v);
+}
+
+static void test_a_full_check_refuses_a_stage_body_that_changed(void)
+{
+    uint8_t  h[32];
+    uint32_t v;
+
+    stage_and_mark();
+    tfw_nor_model_corrupt(TFW_OTA_STORE_STAGE_ADDR + 17u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_stage_marked(h, &v, 1u));
+    TEST_ASSERT_EQUAL_UINT32(0u, v);
+}
+
+/* The quick check: the trailer's measurement no longer the mark's hash. */
+static void test_a_trailer_measurement_unlike_the_mark_is_refused(void)
+{
+    uint8_t  h[32];
+    uint32_t v;
+
+    stage_and_mark();
+    tfw_nor_model_corrupt(TFW_OTA_STORE_STAGE_ADDR + 512u - TRAILER + TFW_BOOT_TR_MEASUREMENT);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_stage_marked(h, &v, 0u));
+    TEST_ASSERT_EQUAL_UINT32(0u, v);
+}
+
+/* ota_stage.c:156: the mark's erase fails in begin; fail() leaves FAILED. */
+static void test_begin_fails_on_a_store_erase_failure(void)
+{
+    build(512u, 200u);
+    tfw_nor_model_fail_erases(1u, TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, begin(512u));
+    expect_status(TFW_STAGE_FAILED, 0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, data(0u, CHUNK));   /* not RECEIVING */
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));             /* the switch is spent */
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
+/* ota_stage.c:183: a stage sector's erase fails in data; fail() leaves FAILED
+ * with nothing received, and a fresh begin recovers. */
+static void test_data_fails_on_a_store_erase_failure(void)
+{
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    tfw_nor_model_fail_erases(1u, TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, data(0u, CHUNK));
+    expect_status(TFW_STAGE_FAILED, 0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, data(0u, CHUNK));
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    expect_status(TFW_STAGE_RECEIVING, 512u);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -629,6 +730,7 @@ int main(void)
     RUN_TEST(test_confirm_writes_its_request_and_never_the_block);
     RUN_TEST(test_begin_backs_the_running_image_up_to_prev);
     RUN_TEST(test_activate_and_confirm_need_ota_auth);
+    RUN_TEST(test_activate_refuses_a_corrupted_platform_block);
     RUN_TEST(test_the_signature_is_stored_with_the_mark);
     RUN_TEST(test_absent_nor_on_an_echo_bus_fails_closed_at_end);
     RUN_TEST(test_absent_nor_on_a_high_bus_times_out_the_first_erase);
@@ -636,5 +738,11 @@ int main(void)
     RUN_TEST(test_data_stays_inside_the_declared_length);
     RUN_TEST(test_a_trailer_image_len_past_its_trailer_is_refused);
     RUN_TEST(test_the_prev_copy_stays_in_its_region);
+    RUN_TEST(test_a_chunk_the_store_refuses_fails_the_stage);
+    RUN_TEST(test_a_full_check_reads_the_marked_image);
+    RUN_TEST(test_a_full_check_refuses_a_stage_body_that_changed);
+    RUN_TEST(test_a_trailer_measurement_unlike_the_mark_is_refused);
+    RUN_TEST(test_begin_fails_on_a_store_erase_failure);
+    RUN_TEST(test_data_fails_on_a_store_erase_failure);
     return UNITY_END();
 }

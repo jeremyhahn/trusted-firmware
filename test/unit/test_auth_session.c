@@ -63,8 +63,13 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *data, uint8_t le
 }
 
 /* The platform block's store is the same array, as it is on AVR. */
+/* Set by a test to make the platform block unreadable, as a failed NVM read
+ * on the board would be. Cleared by setUp. */
+static uint8_t nvm_read_fails;
+
 tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
+    if (nvm_read_fails) { return TFW_ERR_RANGE; }
     return tfw_hal_eeprom_read(addr, buf, len);
 }
 
@@ -90,6 +95,7 @@ void setUp(void)
 {
     tfw_boot_platform_t plat;
 
+    nvm_read_fails = 0u;
     tfw_model_reset();
     tfw_model_provision();
 
@@ -181,6 +187,33 @@ static void test_challenge_returns_a_nonce_of_the_wire_width(void)
 {
     uint8_t nonce[TFW_AUTH_NONCE_LEN];
     TEST_ASSERT_EQUAL(TFW_OK, challenge(nonce));
+}
+
+/* auth_session.c:47-48: the element will not give a nonce, so no challenge is
+ * left pending and a response to it is refused. */
+static void test_a_challenge_with_no_element_is_a_crypto_error(void)
+{
+    uint8_t sig[TFW_AUTH_SIG_LEN];
+
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, challenge(NULL));
+    tfw_model_set_absent(0u);
+    memset(sig, 0, sizeof sig);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, response(sig));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+}
+
+/* platform_id.c:46: an unreadable platform block gives an all-zero operator
+ * key, never a stale one. */
+static void test_an_unreadable_platform_block_gives_a_zero_operator_key(void)
+{
+    uint8_t key[TFW_BOOT_OPERATOR_PUBKEY_LEN], zero[TFW_BOOT_OPERATOR_PUBKEY_LEN];
+
+    memset(key, 0xA5, sizeof key);
+    memset(zero, 0, sizeof zero);
+    nvm_read_fails = 1u;
+    tfw_platform_id_operator_pubkey(key);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(zero, key, sizeof key);
 }
 
 /* ------------------------------------------------------------ happy path */
@@ -393,6 +426,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_the_gate_is_closed_until_a_session_is_granted);
     RUN_TEST(test_challenge_returns_a_nonce_of_the_wire_width);
+    RUN_TEST(test_a_challenge_with_no_element_is_a_crypto_error);
+    RUN_TEST(test_an_unreadable_platform_block_gives_a_zero_operator_key);
     RUN_TEST(test_a_valid_signature_grants_the_session);
     RUN_TEST(test_the_response_forwards_the_signature_and_the_baked_operator_key);
     RUN_TEST(test_a_signature_from_another_key_is_refused);

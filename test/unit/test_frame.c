@@ -293,6 +293,21 @@ static void test_random_bytes_never_overrun_or_wedge_the_framer(void)
     TEST_ASSERT_GREATER_THAN_UINT16(0u, f.err_crc);
 }
 
+static void test_a_corrupted_state_is_recovered_not_wedged(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, (const uint8_t *)"ab", 2u);
+
+    f.state = 0xFFu;
+    f.want  = 9u;
+    f.got   = 4u;
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, 0x00u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
+    TEST_ASSERT_EQUAL_UINT8(0u, f.want);
+    TEST_ASSERT_EQUAL_UINT8(0u, f.got);
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -314,5 +329,6 @@ int main(void)
     RUN_TEST(test_abort_recovers_from_a_truncated_frame);
     RUN_TEST(test_a_response_too_short_for_its_status_byte_is_malformed);
     RUN_TEST(test_random_bytes_never_overrun_or_wedge_the_framer);
+    RUN_TEST(test_a_corrupted_state_is_recovered_not_wedged);
     return UNITY_END();
 }

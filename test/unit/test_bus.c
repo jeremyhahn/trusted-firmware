@@ -209,6 +209,17 @@ static void test_spi_config_rejects_the_wrong_argument_count(void)
         run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 0u, 0u }, 2u));
 }
 
+static void test_bus_init_applies_the_config_defaults(void)
+{
+    (void)run(TFW_CMD_I2C_CONFIG, (const uint8_t[]){ 0x00u, 0x06u, 0x1Au, 0x80u }, 4u);
+    (void)run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 3u, 2u, 1u }, 3u);
+    tfw_bus_init();
+    TEST_ASSERT_EQUAL_UINT32(TFW_I2C_DEFAULT_HZ, tfw_mock_last_i2c_hz());
+    TEST_ASSERT_EQUAL_UINT8(TFW_SPI_DEFAULT_MODE, tfw_mock_last_spi_mode());
+    TEST_ASSERT_EQUAL_UINT8(TFW_SPI_DEFAULT_CLKDIV, tfw_mock_last_spi_clkdiv());
+    TEST_ASSERT_EQUAL_UINT8(TFW_SPI_DEFAULT_LSB_FIRST, tfw_mock_last_spi_lsb());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -233,5 +244,6 @@ int main(void)
     RUN_TEST(test_spi_config_refuses_a_clkdiv_past_three);
     RUN_TEST(test_spi_config_refuses_a_bit_order_past_one);
     RUN_TEST(test_spi_config_rejects_the_wrong_argument_count);
+    RUN_TEST(test_bus_init_applies_the_config_defaults);
     return UNITY_END();
 }

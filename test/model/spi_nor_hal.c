@@ -15,6 +15,11 @@
 static uint32_t     xfers, fail_at;
 static tfw_status_t fail_st;
 
+#define NOR_MODEL_ERASE_4K 0x20u
+
+static uint8_t      fail_erases;
+static tfw_status_t fail_status;
+
 tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
                               uint8_t *rd, uint8_t len)
 {
@@ -27,6 +32,10 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
     xfers++;
     if (fail_at != 0u && xfers == fail_at) {
         return fail_st;         /* the part never sees it */
+    }
+    if (fail_erases != 0u && len != 0u && wr[0] == NOR_MODEL_ERASE_4K) {
+        fail_erases--;
+        return fail_status;   /* the part never sees it: the array is unchanged */
     }
     memmove(rd, wr, len);
     tfw_nor_model_xfer(rd, len);
@@ -50,3 +59,9 @@ void tfw_nor_shim_fail(uint32_t nth, tfw_status_t st)
 }
 
 uint32_t tfw_nor_shim_xfers(void) { return xfers; }
+
+void tfw_nor_model_fail_erases(uint8_t n, tfw_status_t st)
+{
+    fail_erases = n;
+    fail_status = st;
+}

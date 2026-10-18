@@ -126,7 +126,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c \
                             test/unit/test_sys_noboot.c test/unit/test_ota_trial.c \
-                            test/unit/test_none_variants.c test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
+                            test/unit/test_none_variants.c test/unit/test_none_standins.c \
+                            test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
                             test/unit/test_pin_coord.c \
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
@@ -134,7 +135,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c \
                            test/unit/test_ota_stage.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
-                            test/unit/test_storage_2560.c test/unit/test_otactl_floor.c, \
+                            test/unit/test_stage_marked.c \
+                            test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -338,6 +340,12 @@ $(HOST_DIR)/test_none_variants: test/unit/test_none_variants.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 
+$(HOST_DIR)/test_none_standins: test/unit/test_none_standins.c \
+                        src/core/ota_trial_none.c src/core/auth_session_none.c \
+                        src/core/update_request_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same stand-ins on the wire (#130): the whole host library with them where
 # handoff.c and platform_id.c would be, so ATTEST answers as a no-boot board's.
 $(HOST_DIR)/test_noboot_wire: test/unit/test_noboot_wire.c \
@@ -496,6 +504,14 @@ $(HOST_DIR)/test_ota_stage: test/unit/test_ota_stage.c $(HOST_LIB_SRCS) \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# tfw_stage_marked's refusals, called directly, with test_ota_stage's link.
+$(HOST_DIR)/test_stage_marked: test/unit/test_stage_marked.c $(HOST_LIB_SRCS) \
+                        src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_floor_eeprom.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # A single-slot stager (the 328P, the 32U4; #77): the stager, PREV and
 # OTA_ACTIVATE, without ota_ctl.c -- the shape mk/firmware.mk links there.
 $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_LIB_SRCS) \
@@ -533,7 +549,13 @@ $(HOST_DIR)/test_spi_nor: test/unit/test_spi_nor.c $(HOST_LIB_SRCS) \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+# The soft tfw-boot's size-first SHA-256, in place of sha256.c: both define
+# the API of sha256.h, so it links alone.
+$(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_small.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
@@ -541,7 +563,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_spi_nor $(HOST_DI
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit \
-                    $(HOST_DIR)/test_storage_2560
+                    $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small
 
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the

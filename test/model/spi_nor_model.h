@@ -4,6 +4,7 @@
 #define TFW_SPI_NOR_MODEL_H
 
 #include <stdint.h>
+#include "tfw/status.h"
 
 /*
  * A software 25-series serial NOR part on the HAL's SPI bus -- the external OTA
@@ -64,5 +65,9 @@ void           tfw_nor_model_xfer(uint8_t *buf, uint16_t len);
 /* Puts bytes in the array as a programmer would before the test: what a
  * stager left behind, without going through a driver. */
 void           tfw_nor_model_load(uint32_t addr, const uint8_t *src, uint32_t len);
+/* In spi_nor_hal.c: the next n sector erases on the HAL's bus return st and
+ * never reach the part. Each failure spends one, so a suite that sets n and
+ * reaches n erases leaves the switch off; off unless a suite sets it. */
+void           tfw_nor_model_fail_erases(uint8_t n, tfw_status_t st);
 
 #endif

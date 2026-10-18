@@ -234,6 +234,76 @@ static void test_without_the_key_nothing_verifies(void)
     assert_refused_before_activation();
 }
 
+/* suit.c cose_sign1, the kid branch: an unprotected header of {4: h'01'} is
+ * read past. The header is outside what the signature covers, so the vector's
+ * signature still verifies once the two enclosing lengths grow by three. */
+static void test_a_kid_in_the_unprotected_header_reads(void)
+{
+    static const uint8_t kid_map[4] = { 0xA1u, 0x04u, 0x41u, 0x01u };   /* {4: h'01'} */
+    tfw_suit_manifest_t  m;
+    uint16_t             n = (uint16_t)(sizeof SUIT_ENVELOPE + 3u);
+
+    TEST_ASSERT_TRUE(n <= TFW_SUIT_ENVELOPE_MAX);
+    TEST_ASSERT_EQUAL_HEX8(0xA0u, SUIT_ENVELOPE[53]);   /* the empty map it replaces */
+    memcpy(env, SUIT_ENVELOPE, 53u);
+    memcpy(&env[53], kid_map, sizeof kid_map);
+    memcpy(&env[57], &SUIT_ENVELOPE[54], sizeof SUIT_ENVELOPE - 54u);
+    env[5]  = (uint8_t)(SUIT_ENVELOPE[5] + 3u);    /* the authentication wrapper */
+    env[46] = (uint8_t)(SUIT_ENVELOPE[46] + 3u);   /* the COSE_Sign1 */
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_suit_read(env, n, &m));
+    TEST_ASSERT_EQUAL_UINT32(7u, m.seq);
+}
+
+/* Re-digest the manifest at env[122..221] and re-sign that digest with a key
+ * the test holds, so a manifest edit reaches the manifest reader. */
+static void resign(void)
+{
+    static const uint8_t prefix[19] = {
+        0x84u, 0x6Au, 'S', 'i', 'g', 'n', 'a', 't', 'u', 'r', 'e', '1',
+        0x43u, 0xA1u, 0x01u, 0x26u, 0x40u, 0x58u, 0x24u
+    };
+    uint8_t priv[32];
+    uint8_t pub[64];
+    uint8_t tbs[sizeof prefix + 36u];
+    uint8_t h[32];
+    uint8_t i;
+
+    for (i = 0u; i < sizeof priv; i++) {
+        priv[i] = (uint8_t)(i + 1u);
+    }
+    TEST_ASSERT_EQUAL_INT(1, tfw_model_p256_public(priv, pub));
+    tfw_model_set_stored_pubkey(TFW_ATECC_SLOT_IMAGE, pub);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256(&env[122], (uint16_t)(sizeof SUIT_ENVELOPE - 122u), &env[13]));
+    memcpy(tbs, prefix, sizeof prefix);
+    memcpy(&tbs[sizeof prefix], &env[9], 36u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256(tbs, sizeof tbs, h));
+    TEST_ASSERT_EQUAL_INT(1, tfw_model_p256_sign(priv, h, &env[57]));
+}
+
+/* suit.c common, the components branch: a component identifier that is a
+ * bstr where an array belongs is UNSUPPORTED. */
+static void test_a_component_id_that_is_not_an_array_is_refused(void)
+{
+    tfw_suit_manifest_t m;
+
+    TEST_ASSERT_EQUAL_HEX8(0x81u, env[135]);   /* [[h'00']]: the inner array */
+    env[135] = 0x41u;
+    resign();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_suit_read(env, sizeof SUIT_ENVELOPE, &m));
+}
+
+/* The re-signing itself, so the refusal above is the manifest's and not the
+ * signature's. */
+static void test_a_resigned_envelope_reads(void)
+{
+    tfw_suit_manifest_t m;
+
+    resign();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_suit_read(env, sizeof SUIT_ENVELOPE, &m));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -256,5 +326,8 @@ int main(void)
     RUN_TEST(test_an_eight_byte_length_is_refused);
     RUN_TEST(test_an_envelope_past_the_bound_is_refused);
     RUN_TEST(test_without_the_key_nothing_verifies);
+    RUN_TEST(test_a_kid_in_the_unprotected_header_reads);
+    RUN_TEST(test_a_resigned_envelope_reads);
+    RUN_TEST(test_a_component_id_that_is_not_an_array_is_refused);
     return UNITY_END();
 }

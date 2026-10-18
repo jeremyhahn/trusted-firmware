@@ -149,6 +149,15 @@ static void test_a_readback_that_disagrees_is_reported(void)
     assert_outside_untouched();
 }
 
+/* A region that cannot be read is not known to be blank: refused, unwritten. */
+static void test_an_unreadable_region_is_refused_and_not_written(void)
+{
+    tfw_mock_eeprom_read_fails(1u);
+
+    TEST_ASSERT_EQUAL(TFW_BAKE_REFUSED, tfw_bake_run(WANT));
+    assert_nothing_written();
+}
+
 /* A carried block the bootloader would reject is never written. */
 static void test_an_invalid_carried_block_is_refused_before_any_write(void)
 {
@@ -181,6 +190,8 @@ static void test_every_result_has_its_name(void)
     TEST_ASSERT_EQUAL_STRING("refused",         tfw_bake_result_name(TFW_BAKE_REFUSED));
     TEST_ASSERT_EQUAL_STRING("baked",           tfw_bake_result_name(TFW_BAKE_BAKED));
     TEST_ASSERT_EQUAL_STRING("readback-failed", tfw_bake_result_name(TFW_BAKE_READBACK_FAILED));
+    /* A value from a newer bake.h than this build reads as unrecognised. */
+    TEST_ASSERT_EQUAL_STRING("unknown",         tfw_bake_result_name((tfw_bake_result_t)0x7F));
 }
 
 int main(void)
@@ -192,6 +203,7 @@ int main(void)
     RUN_TEST(test_an_equal_block_is_already_and_writes_nothing);
     RUN_TEST(test_a_different_valid_block_is_refused_and_left_alone);
     RUN_TEST(test_a_readback_that_disagrees_is_reported);
+    RUN_TEST(test_an_unreadable_region_is_refused_and_not_written);
     RUN_TEST(test_an_invalid_carried_block_is_refused_before_any_write);
     RUN_TEST(test_the_result_line);
     RUN_TEST(test_every_result_has_its_name);

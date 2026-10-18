@@ -141,6 +141,20 @@ static void test_a_store_that_does_not_answer_restores_nothing(void)
     assert_nothing_restored();
 }
 
+/* The 328P has no secondary slot: take and commit are boot_swap.h's "nothing
+ * done" answer, TFW_OK with no page written and no state stored, whatever is
+ * pending (boot_prev.c, tfw_boot_swap_take and tfw_boot_swap_commit). */
+static void test_take_and_commit_do_nothing_without_the_slots(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_commit(&plat, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0xFFFFFFFFu));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_commit(&plat, 0xFFFFFFFFu));
+    TEST_ASSERT_EQUAL(TFW_BOOT_STATE_GOOD, plat.boot_state);
+    TEST_ASSERT_EQUAL(TFW_BOOT_OTA_PENDING, plat.ota_state);
+    assert_nothing_restored();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -149,5 +163,6 @@ int main(void)
     RUN_TEST(test_nothing_to_fall_back_from_copies_nothing);
     RUN_TEST(test_a_restore_cut_short_is_redone_at_the_next_reset);
     RUN_TEST(test_a_store_that_does_not_answer_restores_nothing);
+    RUN_TEST(test_take_and_commit_do_nothing_without_the_slots);
     return UNITY_END();
 }

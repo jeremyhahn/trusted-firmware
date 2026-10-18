@@ -608,7 +608,8 @@ coverage:
 	@# boot/ is measured on the same terms as src/: the LOGIC is in, the
 	@# register-poking is out. boot/hal/avr is excluded for the reason
 	@# src/hal/avr is -- a number counting code x86 cannot execute would not mean
-	@# anything -- and so is boot_main.c, which is a superloop with no return.
+	@# anything. The two entry points are out: boot/boot_main.c and src/main.c
+	@# are main()s, superloops with no return, linked only into the AVR images.
 	@# The crypto tiers are in: sha256.c and the soft, none and ATECC608A
 	@# providers and driver, and boot/measure and boot/verify, against the mock
 	@# HAL or the software element. So are the auto provider (test_crypto_auto)
@@ -616,7 +617,11 @@ coverage:
 	@# of test/mock/uds_mock.c). So are boot/tier's cdi_soft.c, erased
 	@# (test_boot_cdi_soft) and with its UDS slot patched as the jig patches
 	@# it (test_boot_cdi_soft_uds), and cdi_atecc.c on the software element
-	@# (test_boot_cdi_atecc).
+	@# (test_boot_cdi_atecc). So is BOOT_SIG=p256-soft, the ES256 check on every
+	@# tfw-boot row: verify_p256_soft.c against Wycheproof (test_boot_p256_soft)
+	@# and with the key slot that ships, p256_key_slot.c, erased
+	@# (test_boot_p256_slot). So is src/crypto/sha256_small.c, the boot's hash
+	@# (test_sha256_small, host and boot, and the soft tiers' links).
 	@# src/net/ is in: w5x00.c, w5100.c and w5500.c against the software W5100 /
 	@# W5500 (test_w5100, test_w5500 and their _nocs links), netcfg.c through
 	@# test_link_eth. So is src/store/spi_nor.c, on the software NOR part
@@ -624,17 +629,25 @@ coverage:
 	@# test_ota_single, test_ota_info_atecc, test_noboot_ota).
 	@# boot_swap.c (the 2560's swap-move and its journal), boot_trial.c,
 	@# boot_store.c and boot_handoff.c are in: the OTA rollback path, all of it
-	@# over the boot HAL's EEPROM and flash, which the mock drives. boot_swap_none.c
-	@# is out with the HAL: a stub with no branch to take.
+	@# over the boot HAL's EEPROM and flash, which the mock drives. So is
+	@# boot_prev.c, the 328P store row's PREV fallback (test_boot_prev). So are
+	@# the rows with no staging and no swap, boot_stage_none.c and
+	@# boot_swap_none.c (test_boot_none_rows, and test_boot_recovery_session).
+	@# The host tools the boards' images carry the output of are in: the SUIT
+	@# emitter, tools/suit-emit/emit.c (test_suit_emit), and the bench bake's
+	@# decision, tools/platform-bake/bake.c (test_platform_bake). Their main.c
+	@# files are out, as no host test links one.
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
-	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage|swap|trial|store|handoff)\.c' \
+	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage|stage_none|swap|swap_none|trial|store|handoff)\.c' \
 	       --filter 'boot/recovery/recovery_ota\.c' \
 	       --filter 'src/crypto/(sha256|soft/provider|soft/uds_flash|none/provider|atecc608a/atecc|atecc608a/provider|auto/provider)\.c' \
 	       --filter 'src/net/(netcfg|w5100|w5500|w5x00)\.c' \
 	       --filter 'src/store/spi_nor\.c' \
 	       --filter 'boot/measure/measure_(soft|atecc608a)\.c' \
 	       --filter 'boot/tier/cdi_(soft|atecc)\.c' \
-	       --filter 'boot/verify/(verify_ed25519_donna|verify_atecc608a|donna_shim)\.c' \
+	       --filter 'boot/verify/(verify_ed25519_donna|verify_atecc608a|donna_shim|verify_p256_soft|p256_key_slot)\.c' \
+	       --filter 'boot/boot_prev\.c' --filter 'src/crypto/sha256_small\.c' \
+	       --filter 'tools/(suit-emit/emit|platform-bake/bake)\.c' \
 	       --exclude 'src/hal/avr/' --print-summary \
 	       --html-details coverage/index.html --fail-under-line $(COVERAGE_FLOOR)
 

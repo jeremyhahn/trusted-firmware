@@ -687,3 +687,41 @@ a staged image, did not run on hardware. Showing it on the board needs an SPI NO
 wired to D8 with the SPI bus on D50–D53, which is a cabling question for the
 owner. Until then the host suite (`test/unit/test_ota_stage.c`) and tfwsim
 (`sdk/go/tfwsim/ota_test.go:110`) are where that case runs.
+
+## The bench Mega with its Ethernet shield on main efa1bac, 2026-10-18
+
+The bench Mega, now with its Ethernet shield, over serial on `/dev/ttyACM0`
+only (#7, #75). The toolchain is [the probe's](../development/wiznet-probe.md#toolchain),
+unpacked under the lane's home directory. Nothing went over ISP. No fuse, lock,
+boot-section or EEPROM byte was written, and no chip erase was sent: both
+flashes went through the stock bootloader with `-D`.
+
+```
+make firmware BOARD=atmega2560 CRYPTO=soft ETH=1
+```
+
+| Image | Flash / RAM | SHA-256 of the `.hex` |
+|---|---|---|
+| The line above on main efa1bac (`build/atmega2560/soft-eth-w5100`, W5100) | 19208 / 901 bytes, against the 65536 / 2048-byte gates | `c79215f8e3662b84a9fd21cdea1f6a26948dd1a599921ad566abfc7c8a61e10d` |
+
+It links `w5100.o`, `w5x00.o`, `netcfg.o`, `link_eth.o`, the stager
+(`ota_stage.o`, `spi_nor.o`) and `ota_ctl.o`.
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | The factory-state record, read only, through the stock bootloader: `avrdude -c wiring -p atmega2560 -P /dev/ttyACM0 -b 115200 -n`, signature, fuses, lock, flash and EEPROM | **Pass**, kept outside the repository. Signature `0x1E9801`, low fuse `0xFF`, extended `0xFD`, lock `0xCF`, as in [the factory record](../development/bench/mega2560.md#factory-values). The high fuse reads **`0xD8`**: the factory value, not the `0xD0` that [the first write](../development/bench/mega2560.md#first-write-2026-10-16-eesave-item-25) left, so `EESAVE` reads unprogrammed. No ISP read was made to confirm it. The boot section hashes to `fdef04c5…742db711`, the stock bootloader's, unchanged. The application region held 15262 bytes (`576b4591…4bbda15f`), not the image the record names, and it answered no command: `ping` and `caps` timed out and it sent nothing in 6 s. So `0x000`–`0x0FF` could not be read through the application before the flash. The bootloader's EEPROM read (`aee3b31a…c5734d83`) cannot be compared with the record's ISP read: it misreads, see item 3 |
+| 2 | The image above built and size-checked | **Pass**. 19208 bytes of flash, 901 of RAM |
+| 3 | `make flash BOARD=atmega2560 CRYPTO=soft ETH=1` | **Pass**. avrdude wrote and verified 19208 bytes. The bootloader's 4096-byte EEPROM read gave the same file before the flash, after it and at the end of the pass. The application's `0x000`–`0x0FF` read after the flash (`ada8b459…580897e4`) differs from the bootloader's in 129 of the 256 bytes: the bootloader's EEPROM read is at fault, as [the 10-15 pass](#the-mega-run-2026-10-15) found. The application's read was the same after the suite, after the probe below and after the second flash |
+| — | The shield probed with `make wiznet-probe-flash BOARD=atmega2560`, then the image above flashed back the same way | **W5100**: every byte the probe clocked back equals [the 10-15 probe's](../development/wiznet-probe.md#arduino-mega-2560-with-an-arduino-ethernet-shield-devttyacm0-2026-10-15). After the second flash `ping` answers |
+| 4 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0` | **Pass**. `ok` for `sdk/go`, the `TestAgainstFirmware` suite against the board |
+| 5 | Serial: `ping`, `caps`, `attest`, `eeprom-read` and a GPIO round trip | `ping`: pass. `caps`: board `0x02`, protocol 2.0, root of trust `software`, features `gpio sched analog pwm tone pulse eeprom i2c spi onewire attest`. CAPS has no transport field, so the transport is not reported. `attest`: `TFW_ERR_NOT_PROVISIONED`. The soft tier's UDS comes only from tfw-boot's handoff (`src/crypto/soft/uds_flash.c:17` returns none), and no tfw-boot is installed. `eeprom-read`: pass, `0x000`–`0x0FF`. GPIO: pass on one connection through `sdk/go`, D13 an output, written 1, 0, 1, 0, each level read back. Across separate `tfwctl` runs it fails, because every port open resets the Mega and the pin's mode with it |
+| 5 | TCP: the same verbs | **Not run.** The network block at `0x0C0` holds the documentation values of [the table above](#values-the-run-writes), not the bench network's that [the 10-16 write](#the-megas-network-block-from-the-operators-configuration-2026-10-16) put there. So the device dials the documentation endpoint, which no host holds. The lane's container sits on a container bridge with no route to the bench network. A TCP connect to the board's configured address on the endpoint port timed out, and the container cannot take the endpoint's address, which a `tfw.Listener` would need (`sdk/go/tcp.go`; the device is the TCP client, and `tfwctl` has no TCP mode). It has no tool to read ARP, and neither CAPS nor `sys` reports link state. No byte of the block was rewritten |
+| 6 | `OTA_BEGIN` (#75) | Over serial, on one connection: `OTA_STATUS` idle, `OTA_BEGIN` for 1024 bytes `TFW_OK`, then `OTA_STATUS` receiving with 0 bytes. Over TCP: not run (item 5). Item 79's "shed OTA" is about tfw-boot's soft store and OTA rows ([the boot rows](../secure-boot/cli.md)), not this application row, which links the stager. With no NOR on D8, `OTA_END` would answer 7, as [the #137 pass](#the-bench-mega-refuses-an-unauthorized-ota_activate-137-2026-10-17) found. tfw-boot was not installed |
+| 7 | Enrolment (#7) | **Not run**: three of its four prerequisites are missing (below). Nothing that enrols was sent |
+
+| Enrolment prerequisite | State | Evidence |
+|---|---|---|
+| The soft DICE root as the runtime default (#130) | Met in the tree | `CRYPTO ?= auto` (`boards/atmega2560/profile.mk:56`): the element when one answers, else the soft root. But the soft root has no identity without tfw-boot: `attest` answers `TFW_ERR_NOT_PROVISIONED` (item 5) |
+| A production image signed with go-xkms's image key (go-xkms#1606) | Missing | This tree holds no image key, and none was made in its place |
+| tfw-boot installed | Missing | The boot section holds the stock bootloader (item 1). Installing tfw-boot needs ISP, and [the USBasp reaches only the upper 128 KB](../development/bench/mega2560.md#the-usbasp-cannot-see-the-low-128-kb) |
+| A reachable go-trusted-platform test control plane at the configured endpoint | Missing | Three TCP connects to the endpoint in the network block, 5 s each, all timed out. The endpoint is the documentation address (item 5) |

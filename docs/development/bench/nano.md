@@ -41,6 +41,37 @@ after a reset, too early for any Arduino bootloader to have waited for a sync.
 So either no bootloader is in the boot section or `BOOTRST` is unprogrammed.
 Which one it is, and the fuses, wait for the ISP read.
 
+## The Nano on its Ethernet base, 2026-10-18
+
+The probe ran again with the Nano seated on its Ethernet base, over
+`/dev/ttyUSB0` only, with avrdude 7.1 unpacked under `$HOME/avr` as in
+[the probe's toolchain](../wiznet-probe.md#toolchain). Every run passed `-n`
+and no `-U`, so nothing was written. avrdude pulses DTR before each attempt.
+
+```sh
+avrdude -n -c arduino  -P /dev/ttyUSB0 -b 115200 -p m328p
+avrdude -n -c arduino  -P /dev/ttyUSB0 -b 57600  -p m328p
+avrdude -n -c stk500v1 -P /dev/ttyUSB0 -b 19200  -p m328p
+stty -F /dev/ttyUSB0 hupcl    # then the 115200 run again
+```
+
+| Programmer, baud | Answer |
+|---|---|
+| `arduino`, 115200 | `resp=0x00` once, then `resp=0x4d` nine times |
+| `arduino`, 57600 | `resp=0x00` once, then `resp=0x80` nine times |
+| `stk500v1`, 19200 | `resp=0x00`, ten times |
+| `arduino`, 115200, after `stty hupcl` | `resp=0x00` once, then `resp=0x4d` nine times |
+
+No bootloader answered, so no signature, fuse, flash or EEPROM record could be
+taken over serial. After a DTR reset the port was then held open for 5 s at
+each baud. At 115200 the sketch sent 97 bytes, the first 73 ms after the reset,
+beginning `Initializing dosing controller...\r\n`, then its `macByte1:` and
+`MAC:` lines (the MAC is not recorded here). At 9600 the same output arrived as
+6 bytes of noise (`dcf258146b92`), first at 78 ms. A sketch talking 73 ms after
+reset confirms the 2026-10-16 reading: nothing in the boot section waits for a
+sync. Base or no base, the serial route gives nothing more; the record needs
+the USBasp on the Nano's ICSP header.
+
 ## Before the first write
 
 The Nano slice reads these over ISP and adds them to this page before anything

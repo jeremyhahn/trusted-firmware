@@ -9,9 +9,24 @@
 GO       ?= go
 SDK_DIR  := sdk/go
 
+# GO_BUILD_TAGS is the CI template's tag set (devcontainer.md §6), space
+# separated: ci.yml passes it to every stage it calls. go-tags joins a module's
+# own tags (its second argument) with it into the deduplicated comma list the Go
+# tools take, behind the tool's flag (the first): $(call go-tags,-tags,a) is
+# " -tags a,b" with GO_BUILD_TAGS=b. With no tag at all it is nothing, so an
+# unset or empty GO_BUILD_TAGS leaves every command line as it was. Every Go
+# build, test, vet and scanner below takes its tags from here, and
+# go-tags-selftest holds them to it.
+GO_BUILD_TAGS ?=
+go_tags_empty :=
+go_tags_space := $(go_tags_empty) $(go_tags_empty)
+go_tags_comma := ,
+go-tag-list = $(subst $(go_tags_space),$(go_tags_comma),$(sort $(1) $(GO_BUILD_TAGS)))
+go-tags = $(if $(call go-tag-list,$(2)), $(1) $(call go-tag-list,$(2)))
+
 ## sdk-build: build the Go SDK and its commands
 sdk-build:
-	@cd $(SDK_DIR) && $(GO) build ./...
+	@cd $(SDK_DIR) && $(GO) build$(call go-tags,-tags) ./...
 	@echo "sdk/go builds"
 
 ## sdk-test: run the Go tests, including the cross-implementation suite
@@ -22,7 +37,7 @@ sdk-build:
 # only one with an application, so the only one that answers APP_INFO;
 # tfwsim-auto the Mega's default tier, which picks one of those two at startup.
 sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
-	@cd $(SDK_DIR) && $(GO) test -count=1 ./...
+	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags) ./...
 
 ## sdk-coverage: Go SDK statement coverage, failing under the floor
 # The same simulators and the same run as sdk-test, so the cross-implementation
@@ -30,7 +45,7 @@ sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
 SDK_COVERAGE_FLOOR ?= 90
 sdk-coverage: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
 	@mkdir -p coverage
-	@cd $(SDK_DIR) && $(GO) test -count=1 -coverprofile=../../coverage/sdk.out ./... && \
+	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags) -coverprofile=../../coverage/sdk.out ./... && \
 	  total=$$($(GO) tool cover -func=../../coverage/sdk.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
 	  echo "sdk/go: $$total% statement coverage (floor $(SDK_COVERAGE_FLOOR)%)" && \
 	  if [ "$${total%.*}" -lt "$(SDK_COVERAGE_FLOOR)" ]; then \
@@ -51,7 +66,7 @@ HW_TEST_RUN ?= ^TestAgainstFirmware
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev>"; exit 1; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) $(GO) test -count=1 -p 1 -run '$(HW_TEST_RUN)' .
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) $(GO) test -count=1$(call go-tags,-tags) -p 1 -run '$(HW_TEST_RUN)' .
 
 ## sdk-lint: gofmt and vet the Go SDK
 # vet compiles the tests, so it downloads their modules. That download goes
@@ -62,7 +77,7 @@ sdk-lint:
 	@python3 scripts/deps-check.py download $(SDK_DIR)
 	@cd $(SDK_DIR) && out=$$($(GO) fmt ./... ) && \
 	  if [ -n "$$out" ]; then echo "gofmt rewrote:"; echo "$$out"; exit 1; fi
-	@cd $(SDK_DIR) && $(GO) vet ./...
+	@cd $(SDK_DIR) && $(GO) vet$(call go-tags,-tags) ./...
 	@echo "sdk/go: gofmt and vet clean"
 
 ## sdk-verify: check the module graph carries no in-house dependency
@@ -96,12 +111,12 @@ XKMS_SIM_DIR        ?= $(abspath build/host)
 # Depends on both simulators for the reason sdk-test does: the end-to-end test
 # enrolls the REAL firmware compiled for the host, never a downloaded binary.
 xkms-test: tfwsim tfwsim-atecc608a
-	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1 -tags $(XKMS_TAGS) ./...
+	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) ./...
 
 ## xkms-coverage: xkms adapter statement coverage, failing under the floor
 xkms-coverage: tfwsim tfwsim-atecc608a
 	@mkdir -p coverage
-	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1 -tags $(XKMS_TAGS) \
+	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
 	  -coverprofile=../coverage/xkms.out ./... && \
 	  total=$$($(GO) tool cover -func=../coverage/xkms.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
 	  echo "xkms: $$total% statement coverage (floor $(XKMS_COVERAGE_FLOOR)%)" && \
@@ -131,10 +146,23 @@ hw-enroll:
 	@cd $(XKMS_DIR) && TFW_HW_DEVICE='$(DEVICE)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_BOOT_WAIT='$(BOOT_WAIT)' TFW_HW_CONNECT_WAIT='$(CONNECT_WAIT)' \
 	  TFW_HW_ACME_DIRECTORY='$(ACME_DIRECTORY)' TFW_HW_ACME_ROOTS='$(if $(ACME_ROOTS),$(abspath $(ACME_ROOTS)))' \
 	  TFW_HW_RECORD_DIR=$(abspath $(HW_ENROLL_RECORDS)) \
-	  $(GO) test -count=1 -tags $(XKMS_TAGS) -run '^TestHardwareEnrollment$$' -v ./e2e/
+	  $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) -run '^TestHardwareEnrollment$$' -v ./e2e/
+
+## go-tags-selftest: every Go invocation the CI stages reach carries GO_BUILD_TAGS; empty changes none
+# The boot bridge runs on integration-test-boot's store row; its AVR
+# prerequisites are taken as built, since a dry run cannot link them.
+go-tags-selftest:
+	@GO_TAGS_BRIDGE='BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 OTA_STAGE=1 CRYPTO=soft' \
+	 GO_TAGS_BRIDGE_PREREQS="$$($(MAKE) --no-print-directory -s go-tags-bridge-prereqs \
+	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_STORE_ROW) ETH=0 OTA_STAGE=1 CRYPTO=soft)" \
+	 TFWPROV_BIN='$(TFWPROV_BIN)' ./scripts/go-tags-selftest.sh
+
+go-tags-bridge-prereqs:
+	@echo $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
 
 ## verify-vectors: check the C and Go wire vectors carry identical values
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test sdk-coverage hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage hw-enroll
+.PHONY: sdk-build sdk-test sdk-coverage hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage hw-enroll \
+        go-tags-selftest go-tags-bridge-prereqs

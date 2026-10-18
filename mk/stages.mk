@@ -131,7 +131,7 @@ integration-test-tools:
 #        alpha (nightly.yml), so it is not here.
 #   trivy image  needs a docker daemon and a built image: `make trivy-image`,
 #        run where the integration image is built.
-security: security-tools lint lint-arch-leak-selftest lint-grep-selftest verify-vendor releasability releasability-test \
+security: security-tools lint lint-arch-leak-selftest lint-grep-selftest go-tags-selftest verify-vendor releasability releasability-test \
           sdk-lint sdk-verify go-vet go-mod-verify go-gosec go-govulncheck go-golangci xkms-security secrets-scan
 	@echo "stage security: green"
 
@@ -142,22 +142,22 @@ security-tools:
 go-vet:
 	@set -e; for d in $(filter-out $(SDK_DIR),$(GO_MODULES)); do \
 	  out=$$(cd $$d && gofmt -l .); if [ -n "$$out" ]; then echo "$$d: gofmt:"; echo "$$out"; exit 1; fi; \
-	  (cd $$d && $(GO) vet ./...); echo "$$d: gofmt and vet clean"; done
+	  (cd $$d && $(GO) vet$(call go-tags,-tags) ./...); echo "$$d: gofmt and vet clean"; done
 
 go-mod-verify:
 	@set -e; for d in $(filter-out $(SDK_DIR),$(GO_MODULES)); do (cd $$d && $(GO) mod verify); done
 
 go-gosec:
 	@fail=0; for d in $(GO_MODULES); do echo "--- gosec $$d"; \
-	  (cd $$d && gosec -quiet ./...) || fail=1; done; exit $$fail
+	  (cd $$d && gosec -quiet$(call go-tags,-tags) ./...) || fail=1; done; exit $$fail
 
 go-govulncheck:
 	@fail=0; for d in $(GO_MODULES); do echo "--- govulncheck $$d"; \
-	  (cd $$d && govulncheck ./...) || fail=1; done; exit $$fail
+	  (cd $$d && govulncheck$(call go-tags,-tags) ./...) || fail=1; done; exit $$fail
 
 go-golangci:
 	@fail=0; for d in $(GO_MODULES); do echo "--- golangci-lint $$d"; \
-	  (cd $$d && golangci-lint run --config $(CURDIR)/.golangci.yml ./...) || fail=1; done; exit $$fail
+	  (cd $$d && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags) ./...) || fail=1; done; exit $$fail
 
 ## secrets-scan: trivy's secret scanner over the tree, failing on any finding
 secrets-scan:
@@ -179,9 +179,9 @@ trivy-image: docker-build-it
 xkms-security:
 	$(call require-tools,$(GO) gosec govulncheck golangci-lint)
 	@cd $(XKMS_DIR) && $(GO) mod verify
-	@cd $(XKMS_DIR) && gosec -quiet -tags $(XKMS_TAGS) ./...
-	@cd $(XKMS_DIR) && govulncheck -tags $(XKMS_TAGS) ./...
-	@cd $(XKMS_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml --build-tags $(XKMS_TAGS) ./...
+	@cd $(XKMS_DIR) && gosec -quiet$(call go-tags,-tags,$(XKMS_TAGS)) ./...
+	@cd $(XKMS_DIR) && govulncheck$(call go-tags,-tags,$(XKMS_TAGS)) ./...
+	@cd $(XKMS_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags,$(XKMS_TAGS)) ./...
 
 # -------------------------------------------------------------- deps-check
 ## deps-check: stage 5 -- fail when a pin is behind its latest release without a reason

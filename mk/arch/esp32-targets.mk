@@ -63,7 +63,7 @@ esp32-qemu-test:
 	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3
 	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32
 	@mkdir -p $(ESP_ROOT)
-	@cd test/integration/esp32 && $(GO) build -o $(abspath $(ESP_ROOT))/wirecheck ./wirecheck
+	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(ESP_ROOT))/wirecheck ./wirecheck
 	@python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-ds esp32c3 $(ESP_ROOT)/wirecheck
 	@python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32-none esp32 $(ESP_ROOT)/wirecheck
 	@echo "esp32-qemu-test: green"

@@ -54,7 +54,7 @@ PLATBAKE_PROV_ARGS := --serial $(SERIAL) \
 # Rebuilt every time and cheap when nothing changed: go build caches.
 $(TFWPROV_BIN): FORCE
 	@mkdir -p $(dir $@)
-	@cd $(SDK_DIR) && $(GO) build -o $(CURDIR)/$@ ./cmd/tfwprov
+	@cd $(SDK_DIR) && $(GO) build$(call go-tags,-tags) -o $(CURDIR)/$@ ./cmd/tfwprov
 
 # Regenerated on every invocation, because SERIAL and the keys are not in the
 # path, and replaced only when tfwprov's bytes differ -- so the same arguments

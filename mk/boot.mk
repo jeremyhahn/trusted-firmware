@@ -891,7 +891,7 @@ integration-test-boot:
 boot-bridge-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
 	@cd $(SDK_DIR) && TFW_BOOT_HARNESS=$(abspath $(BOOT_INT_DIR)/boot_harness) \
 	   TFW_BOOT_ELF=$(abspath $(BOOT_TARGET).elf) TFW_APP_ELF=$(abspath $(TARGET).elf) \
-	   $(GO) test -count=1 -tags simavr -run '^TestOTAStageThroughTfwBoot$$' ./cmd/tfwctl/
+	   $(GO) test -count=1$(call go-tags,-tags,simavr) -run '^TestOTAStageThroughTfwBoot$$' ./cmd/tfwctl/
 
 # The application .elf is a prerequisite and not an assumption: "a correctly
 # signed image boots" is observed by the application answering CAPS after the

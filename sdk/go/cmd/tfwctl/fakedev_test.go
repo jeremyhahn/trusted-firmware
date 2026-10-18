@@ -131,6 +131,12 @@ func (b *benchDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 		s := binary.LittleEndian.AppendUint32(nil, 61000)
 		s = append(s, 0x00, 0x04, 1, 1, 0, 2, 0)
 		return tfw.StatusOK, binary.LittleEndian.AppendUint32(s, 2048)
+	case tfw.CmdAppInfo:
+		// Running, 7 overruns, ABI 1, 2 OTA slots, version 1.2.3, 16 config
+		// bytes, needing CAPS bits 0 and 2; the name and profile NUL padded.
+		a := []byte{byte(tfw.AppRunning), 7, 0, 1, 2, 1, 2, 3, 0, 16, 0, 5, 0, 0, 0}
+		a = append(a, append([]byte("heartbeat"), make([]byte, 16-len("heartbeat"))...)...)
+		return tfw.StatusOK, append(a, append([]byte("bench"), make([]byte, 32-len("bench"))...)...)
 	case tfw.CmdDigitalRead, tfw.CmdOneWireReset:
 		// Odd pins read high and have a device on the wire.
 		return tfw.StatusOK, []byte{p[0] & 1}
@@ -202,6 +208,8 @@ func TestEveryVerbPrintsTheDevicesAnswer(t *testing.T) {
 		{[]string{"pin", "3"}, "port.bit    2.5"},
 		{[]string{"pin", "14"}, "adc channel 6"},
 		{[]string{"sys"}, "free RAM 2048 bytes"},
+		{[]string{"app"}, "name heartbeat\nprofile bench\nstate running\nversion 1.2.3\nabi 1\n" +
+			"required caps 0x00000005\noverruns 7\nota slots 2\nconfig 16 bytes\n"},
 		{[]string{"reset"}, "reset accepted"},
 		{[]string{"reset", "boot"}, "reset accepted"},
 		{[]string{"mode", "3", "in"}, "pin 3 -> in"},

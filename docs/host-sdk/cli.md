@@ -31,6 +31,7 @@ tfwctl ports
 | `caps` | — | protocol/firmware version, board id, pins, sched slots, max payload, root of trust, features, algorithms |
 | `pin` | `<pin>` | one pin's descriptor: flags, port.bit, ADC channel, PWM support |
 | `sys` | — | uptime, free RAM, last reset cause, framer error counters |
+| `app` | — | the application: name, profile, state, version, ABI, the CAPS bits it needs; an image with none answers unknown command |
 | `reset` | `[soft\|boot]` | restart; `boot` enters the bootloader (default `soft`) |
 | `mode` | `<pin> <in\|out\|pullup>` | configures a pin's direction |
 | `read` | `<pin>` | digital read; prints `0` or `1` |
@@ -40,6 +41,8 @@ tfwctl ports
 | `timer-query` | `<pin>` | whether a timer is active, held level, remaining duration |
 | `ota-stage` | `[--activate[=now]] <image>` | stages the image file through `OTA_BEGIN`, `OTA_DATA` in `OTAChunk` pieces and `OTA_END`, then prints `OTA_STATUS`'s state and received count; tfwctl does not parse the image, the device gates it, and a refusal prints its status and exits non-zero. `--activate` then sends `OTA_ACTIVATE` mode 0 on the same connection before `OTA_STATUS`; `--activate=now` sends mode 1, prints `activated; the device resets now` and sends no frame after its reply: the one way on a board that resets on open (the Mega 2560) |
 | `ota-status` | | `OTA_STATUS`: the staging session's state and received count, printed as `ota-stage` prints them. A board built without a stager answers device status 4, `TFW_ERR_UNKNOWN_CMD`: tfwctl prints `tfwctl: unknown command` on stderr and exits 1 |
+| `netcfg set` | `--mac <mac> --ip <addr> --mask <addr> --gateway <addr> --endpoint <addr:port>` | writes the 32-byte network block an Ethernet build dials with, through `Device.WriteNetConfig`, then prints it (`--json`: `mac`, `ip`, `mask`, `gateway`, `endpoint`). tfwctl only parses each flag into its `tfw.NetConfig` field; a flag left out stays zero, and the SDK's `*tfw.NetConfigError` (MAC not 6 bytes or multicast, an address not IPv4, endpoint `0.0.0.0` or port 0) is printed as `tfwctl: <error>`, exit 1, with nothing written. The device dials with the new block from its next boot or link retry |
+| `netcfg get` | — | reads the block back through `Device.ReadNetConfig` and prints it as `netcfg set` does; a block the device would treat as absent (no `TFNC` magic, another version, a CRC mismatch, a zero endpoint) is the SDK's `*tfw.NetConfigError`, exit 1 |
 | `ports` | — | lists serial ports this host can see; no device connection made |
 
 An unsolicited boot event seen during any exchange prints a note to stderr:

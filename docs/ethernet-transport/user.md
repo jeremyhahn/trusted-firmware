@@ -36,7 +36,18 @@ Ethernet link stays down; serial still works.
 ## Configure the network
 
 The device's address and the endpoint it connects to are written once over
-serial, using `sdk/go`:
+serial (step 6 of [onboarding](../device-onboarding/architecture.md)), from the
+command line:
+
+```
+tfwctl /dev/ttyACM0 netcfg set --mac 02:00:00:00:00:01 --ip 192.0.2.10 \
+    --mask 255.255.255.0 --gateway 192.0.2.1 --endpoint 192.0.2.20:7020
+tfwctl /dev/ttyACM0 netcfg get
+```
+
+`netcfg get` reads the block back. Every flag is required; a missing or
+malformed value is refused by the SDK with the field it names, and nothing is
+written. The same from Go, using `sdk/go`:
 
 ```go
 err := dev.WriteNetConfig(ctx, tfw.NetConfig{

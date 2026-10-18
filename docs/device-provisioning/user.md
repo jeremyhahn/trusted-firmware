@@ -69,7 +69,7 @@ care about — several steps below cannot be undone.
 
    `--bake-netblock` alone writes only `[0x0C0, 0x0E0)`, for a part whose
    platform block is already right. A running device can also take the block
-   over serial (`WriteNetConfig`); see
+   over serial (`tfwctl netcfg set`, or `WriteNetConfig` from Go); see
    [../ethernet-transport/user.md](../ethernet-transport/user.md).
 
 2. **Set fuses.** `EESAVE` programmed: `make boot-flash` chip-erases the

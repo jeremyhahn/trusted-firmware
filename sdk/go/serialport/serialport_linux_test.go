@@ -4,6 +4,7 @@ package serialport_test
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.bug.st/serial"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/serialport"
 )
@@ -178,6 +180,111 @@ func TestOpenRefusesAMissingDevice(t *testing.T) {
 	assert.Nil(t, p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "serialport: opening "+path)
+	assert.ErrorIs(t, err, fs.ErrNotExist, "the cause survives the wrap")
+}
+
+// The port is opened for exclusive use: a second Open of a port already open
+// is refused, so two processes cannot interleave frames on one device.
+func TestOpenRefusesAPortAlreadyOpen(t *testing.T) {
+	_, path := openPTY(t)
+	first, err := serialport.Open(path, 0)
+	require.NoError(t, err)
+	defer func() { _ = first.Close() }()
+
+	second, err := serialport.Open(path, 0)
+	assert.Nil(t, second)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "serialport: opening "+path)
+	var perr *serial.PortError
+	require.ErrorAs(t, err, &perr)
+	assert.Equal(t, serial.PortBusy, perr.Code())
+}
+
+func TestOpenCloseTwiceIsHarmless(t *testing.T) {
+	_, path := openPTY(t)
+	p, err := serialport.Open(path, 0)
+	require.NoError(t, err)
+	require.NoError(t, p.Close())
+	assert.NoError(t, p.Close())
+}
+
+func TestOpenReadFailsOnceClosed(t *testing.T) {
+	_, path := openPTY(t)
+	p, err := serialport.Open(path, 0)
+	require.NoError(t, err)
+	require.NoError(t, p.Close())
+
+	n, err := p.Read(make([]byte, 8))
+	assert.Zero(t, n)
+	assert.ErrorIs(t, err, os.ErrClosed)
+}
+
+// A Write after Close never reaches the descriptor: the library's own Write
+// would write to its number, which by then may belong to another file.
+func TestOpenWriteFailsOnceClosed(t *testing.T) {
+	_, path := openPTY(t)
+	p, err := serialport.Open(path, 0)
+	require.NoError(t, err)
+	require.NoError(t, p.Close())
+
+	reused, err := os.CreateTemp(t.TempDir(), "reused")
+	require.NoError(t, err)
+	defer func() { _ = reused.Close() }()
+
+	n, err := p.Write([]byte("stray"))
+	assert.Zero(t, n)
+	require.ErrorIs(t, err, os.ErrClosed)
+	info, err := reused.Stat()
+	require.NoError(t, err)
+	assert.Zero(t, info.Size(), "nothing reached a file opened after Close")
+}
+
+// A reader blocked on a silent line with no read timeout at all is woken by a
+// Close from another goroutine, and Close does not wait on it.
+func TestOpenCloseWakesABlockedReader(t *testing.T) {
+	_, path := openPTY(t)
+	conn, err := serialport.Open(path, 0)
+	require.NoError(t, err)
+	p, ok := conn.(serial.Port)
+	require.True(t, ok, "Open returns a serial.Port")
+	require.NoError(t, p.SetReadTimeout(serial.NoTimeout))
+
+	reading := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(reading)
+		_, err := p.Read(make([]byte, 8))
+		done <- err
+	}()
+	<-reading
+	closed := make(chan error, 1)
+	go func() { closed <- p.Close() }()
+
+	bound := time.After(2 * time.Second)
+	select {
+	case err := <-closed:
+		require.NoError(t, err)
+	case <-bound:
+		t.Fatal("Close did not return while a Read was blocked")
+	}
+	select {
+	case err := <-done:
+		assert.ErrorIs(t, err, os.ErrClosed)
+	case <-bound:
+		t.Fatal("a blocked Read was not woken by Close")
+	}
+}
+
+// Closing the port also releases its exclusive hold.
+func TestOpenSucceedsAgainAfterClose(t *testing.T) {
+	_, path := openPTY(t)
+	p, err := serialport.Open(path, 0)
+	require.NoError(t, err)
+	require.NoError(t, p.Close())
+
+	p, err = serialport.Open(path, 0)
+	require.NoError(t, err)
+	assert.NoError(t, p.Close())
 }
 
 func TestOpenRefusesAPathThatIsNotATTY(t *testing.T) {

@@ -42,6 +42,7 @@ commands
   caps               what the device is and what it can do
   pin <pin>          one pin's descriptor: port, adc channel, pwm
   sys                uptime, free RAM, why it last reset
+  app                the application: name, state, version, the caps it needs
   reset [soft|boot]  restart; boot enters the bootloader
   mode <pin> <in|out|pullup>
   read <pin>
@@ -58,6 +59,10 @@ commands
   ota-activate [now] take the staged, verified image at the next reset, or
                      reset now; ota-stage does not (OTA ADR decision 8).
                      Needs a transport that does not reset the board on open
+  netcfg set --mac <mac> --ip <addr> --mask <addr> --gateway <addr> --endpoint <addr:port>
+                     write the network block an Ethernet build dials with;
+                     the SDK refuses a block the device would not use
+  netcfg get         read the network block back
   ports              list the serial ports this host can see
 
   analog <pin>                     one conversion, raw counts
@@ -236,6 +241,20 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		return emit(out, asJSON, si, func() string {
 			return fmt.Sprintf("uptime %s\nfree RAM %d bytes\nlast reset %s\nframer errors  crc %d format %d\n",
 				si.Uptime, si.FreeRAM, si.ResetCause, si.ErrCRC, si.ErrFormat)
+		})
+
+	case "app":
+		// APP_INFO: an image with no application answers it as an unknown
+		// command, and that status is returned as every other refusal is.
+		ai, err := dev.AppInfo(ctx)
+		if err != nil {
+			return err
+		}
+		return emit(out, asJSON, ai, func() string {
+			return fmt.Sprintf("name %s\nprofile %s\nstate %s\nversion %d.%d.%d\nabi %d\n"+
+				"required caps 0x%08x\noverruns %d\nota slots %d\nconfig %d bytes\n",
+				ai.Name, ai.Profile, ai.State, ai.VersionMajor, ai.VersionMinor, ai.VersionPatch, ai.ABI,
+				ai.RequiredCaps, ai.Overruns, ai.OTASlots, ai.ConfigLen)
 		})
 
 	case "reset":
@@ -493,6 +512,9 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 			return fmt.Sprintf("slots %d, active %d, flags %#02x\nfloor %d\nstate %d\nimage version %d\nmeasurement %s\n",
 				si.Slots, si.Active, si.Flags, si.Floor, si.State, si.ImageVersion, m)
 		})
+
+	case "netcfg":
+		return runNetcfg(ctx, dev, args, asJSON, out)
 
 	default:
 		return runPeripheral(ctx, dev, cmd, args, asJSON, out)

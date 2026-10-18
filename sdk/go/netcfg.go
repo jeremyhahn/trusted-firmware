@@ -146,3 +146,58 @@ func (d *Device) WriteNetConfig(ctx context.Context, c NetConfig) error {
 	}
 	return nil
 }
+
+// UnmarshalBinary decodes a 32-byte network block. It refuses what the
+// firmware's tfw_netcfg_decode treats as absent -- a missing magic, another
+// version, a CRC mismatch, a zero endpoint address or port -- so a block it
+// returns is one the device would bring its link up with.
+func (c *NetConfig) UnmarshalBinary(b []byte) error {
+	if len(b) != NetConfigLen {
+		return &NetConfigError{Field: "block", Reason: fmt.Sprintf("is %d bytes, want %d", len(b), NetConfigLen)}
+	}
+	if string(b[:4]) != "TFNC" {
+		return &NetConfigError{Field: "block", Reason: "has no TFNC magic: not provisioned"}
+	}
+	if b[4] != netcfgVersion {
+		return &NetConfigError{Field: "block", Reason: fmt.Sprintf("version %d is not %d", b[4], netcfgVersion)}
+	}
+	if CRC16(b[:netcfgOffCRC]) != binary.LittleEndian.Uint16(b[netcfgOffCRC:]) {
+		return &NetConfigError{Field: "block", Reason: "CRC does not match"}
+	}
+	peer := netip.AddrFrom4([4]byte(b[netcfgOffPeer : netcfgOffPeer+4]))
+	if peer.IsUnspecified() {
+		return &NetConfigError{Field: "Endpoint", Reason: "address must not be 0.0.0.0"}
+	}
+	port := binary.BigEndian.Uint16(b[netcfgOffPort:])
+	if port == 0 {
+		return &NetConfigError{Field: "Endpoint", Reason: "port must not be 0"}
+	}
+	*c = NetConfig{
+		MAC:      append(net.HardwareAddr(nil), b[netcfgOffMAC:netcfgOffMAC+6]...),
+		IP:       netip.AddrFrom4([4]byte(b[netcfgOffIP : netcfgOffIP+4])),
+		Mask:     netip.AddrFrom4([4]byte(b[netcfgOffMask : netcfgOffMask+4])),
+		Gateway:  netip.AddrFrom4([4]byte(b[netcfgOffGateway : netcfgOffGateway+4])),
+		Endpoint: netip.AddrPortFrom(peer, port),
+	}
+	return nil
+}
+
+// ReadNetConfig reads the network block back with EEPROM_READ, in
+// EEPROMChunk pieces, and decodes it. The block sits at
+// TFW_EEPROM_RESERVED_END, above the reads an element-tier build gates, so it
+// needs no operator session.
+func (d *Device) ReadNetConfig(ctx context.Context) (NetConfig, error) {
+	b := make([]byte, 0, NetConfigLen)
+	for off := 0; off < NetConfigLen; off += EEPROMChunk {
+		p, err := d.EEPROMRead(ctx, uint16(NetConfigAddr+off), EEPROMChunk)
+		if err != nil {
+			return NetConfig{}, err
+		}
+		b = append(b, p...)
+	}
+	var c NetConfig
+	if err := c.UnmarshalBinary(b); err != nil {
+		return NetConfig{}, err
+	}
+	return c, nil
+}

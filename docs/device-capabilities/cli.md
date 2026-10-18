@@ -35,6 +35,7 @@ are in `sdk/go/cmd/tfwctl/main.go`; the rest are in
 | `caps` | — | what the device is and what it can do |
 | `pin` | `<pin>` | one pin's descriptor: port, ADC channel, PWM state |
 | `sys` | — | uptime, free RAM, last reset cause, framer error counters |
+| `app` | — | the application: name, profile, state, version, ABI, the CAPS bits it needs |
 | `ping` | `[text]` | echo `text` through the device |
 | `reset` | `[soft\|boot]` | restart; `boot` enters the bootloader |
 | `ports` | — | list serial ports visible to this host |
@@ -77,6 +78,8 @@ reachable from `tfwctl`, that is a gap in `tfwctl`."
 | `pulse-capture` | `<pin> <0\|1> <max-edges> <timeout>` | intervals the host decodes into bits |
 | `eeprom-read` | `<addr> <count>` | hex out |
 | `eeprom-write` | `<addr> <hex>` | refused below the reserved boundary |
+| `netcfg set` | `--mac <mac> --ip <addr> --mask <addr> --gateway <addr> --endpoint <addr:port>` | the network block at `0x0C0`, encoded and checked by the SDK (`tfw.NetConfig`) |
+| `netcfg get` | | the network block read back and decoded |
 | `i2c` | `<addr7> <hex\|-> <read-count>` | `-` writes nothing |
 | `i2c-config` | `<clock hz>` | reconfigure the bus clock; boots at 100 kHz |
 | `spi` | `<cs pin> <hex>` | full duplex; the reply is the same length |

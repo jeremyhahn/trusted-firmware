@@ -12,10 +12,23 @@ package serialport
 import (
 	"fmt"
 	"io"
+	"os"
+	"sync"
 	"time"
 
 	"go.bug.st/serial"
 )
+
+// openPort and listPorts are the library's open and enumeration calls. They
+// are variables only so a test can make each fail; nothing else assigns them.
+var (
+	openPort  = serial.Open
+	listPorts = serial.GetPortsList
+)
+
+// errClosed is what every method of a port Open returned answers once that
+// port is closed.
+var errClosed = fmt.Errorf("serialport: port is closed: %w", os.ErrClosed)
 
 // DefaultBaud matches TFW_UART_BAUD in the firmware's config.h.
 const DefaultBaud = 115200
@@ -44,11 +57,14 @@ const DefaultBaud = 115200
 // go.bug.st/serial expose) closes essentially all of it -- and for a conn
 // that did not come from here at all, Device's purge is the only one that
 // runs.
+//
+// The port returned is a go.bug.st/serial Port that, once closed, answers every
+// call with an error wrapping os.ErrClosed rather than touching the descriptor.
 func Open(path string, baud int) (io.ReadWriteCloser, error) {
 	if baud <= 0 {
 		baud = DefaultBaud
 	}
-	p, err := serial.Open(path, &serial.Mode{
+	p, err := openPort(path, &serial.Mode{
 		BaudRate: baud,
 		DataBits: 8,
 		Parity:   serial.NoParity,
@@ -68,14 +84,112 @@ func Open(path string, baud int) (io.ReadWriteCloser, error) {
 		_ = p.Close()
 		return nil, fmt.Errorf("serialport: purging %s's receive buffer: %w", path, err)
 	}
-	return p, nil
+	return &port{p: p}, nil
 }
 
 // List returns the serial ports the system can see.
 func List() ([]string, error) {
-	ports, err := serial.GetPortsList()
+	ports, err := listPorts()
 	if err != nil {
 		return nil, fmt.Errorf("serialport: enumerating ports: %w", err)
 	}
 	return ports, nil
+}
+
+// port is the serial.Port Open hands out. The library's own Write, and its
+// ioctls, act on the raw descriptor even after Close, so once the number is
+// reused they reach whatever file now holds it. port refuses every call after
+// Close instead, and closes the library's port once.
+//
+// Every method but Read holds mu for reading across its call, and Close takes
+// it for writing, so no call is in flight on the descriptor when it closes. A
+// Write the line cannot drain therefore holds Close until it can. Read only
+// checks: a Read blocked on a silent line must not hold Close up, and the
+// library's own Read is woken by, and waited for by, its Close.
+type port struct {
+	p      serial.Port
+	mu     sync.RWMutex
+	closed bool
+}
+
+var _ serial.Port = (*port)(nil)
+
+// do runs f on the open port, or refuses once the port is closed.
+func (c *port) do(f func() error) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return errClosed
+	}
+	return f()
+}
+
+func (c *port) isClosed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.closed
+}
+
+func (c *port) Read(b []byte) (int, error) {
+	if c.isClosed() {
+		return 0, errClosed
+	}
+	n, err := c.p.Read(b)
+	if err != nil && c.isClosed() {
+		return n, errClosed
+	}
+	return n, err
+}
+
+func (c *port) Write(b []byte) (n int, err error) {
+	err = c.do(func() (err error) {
+		n, err = c.p.Write(b)
+		return err
+	})
+	return n, err
+}
+
+// Close closes the library's port the first time and returns nil after.
+func (c *port) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+	return c.p.Close()
+}
+
+func (c *port) SetMode(mode *serial.Mode) error {
+	return c.do(func() error { return c.p.SetMode(mode) })
+}
+
+func (c *port) Drain() error { return c.do(c.p.Drain) }
+
+func (c *port) ResetInputBuffer() error { return c.do(c.p.ResetInputBuffer) }
+
+func (c *port) ResetOutputBuffer() error { return c.do(c.p.ResetOutputBuffer) }
+
+func (c *port) SetDTR(dtr bool) error {
+	return c.do(func() error { return c.p.SetDTR(dtr) })
+}
+
+func (c *port) SetRTS(rts bool) error {
+	return c.do(func() error { return c.p.SetRTS(rts) })
+}
+
+func (c *port) GetModemStatusBits() (bits *serial.ModemStatusBits, err error) {
+	err = c.do(func() (err error) {
+		bits, err = c.p.GetModemStatusBits()
+		return err
+	})
+	return bits, err
+}
+
+func (c *port) SetReadTimeout(t time.Duration) error {
+	return c.do(func() error { return c.p.SetReadTimeout(t) })
+}
+
+func (c *port) Break(d time.Duration) error {
+	return c.do(func() error { return c.p.Break(d) })
 }

@@ -40,6 +40,7 @@ func TestEveryVerbReportsALinkFailure(t *testing.T) {
 		{"caps", nil},
 		{"pin", []string{"3"}},
 		{"sys", nil},
+		{"app", nil},
 		{"reset", []string{"boot"}},
 		{"mode", []string{"3", "out"}},
 		{"read", []string{"3"}},
@@ -67,6 +68,8 @@ func TestEveryVerbReportsALinkFailure(t *testing.T) {
 		{"attest", []string{strings.Repeat("00", tfw.AttestNonceLen)}},
 		{"attest-cert", []string{strings.Repeat("00", tfw.AliasNonceLen)}},
 		{"auth", []string{strings.Repeat("00", tfw.SerialLen), key}},
+		{"netcfg", netcfgSetArgs[1:]},
+		{"netcfg", []string{"get"}},
 	} {
 		t.Run(tc.verb, func(t *testing.T) {
 			err := run(context.Background(), dev, tc.verb, tc.args, false, io.Discard)

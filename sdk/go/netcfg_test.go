@@ -6,6 +6,7 @@ package tfw
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"net/netip"
@@ -117,9 +118,12 @@ func TestDerivedAndStickerMACsAreAccepted(t *testing.T) {
 }
 
 // eepromLink answers every request OK and keeps what EEPROM_WRITE asked for.
+// eepromLink is a device whose EEPROM holds what was last written to it, so a
+// read after a write returns the written bytes.
 type eepromLink struct {
 	rx     bytes.Buffer
 	writes [][]byte
+	mem    [1024]byte
 }
 
 func (l *eepromLink) Write(p []byte) (int, error) {
@@ -127,10 +131,16 @@ func (l *eepromLink) Write(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if f.Cmd() == CmdEEPROMWrite {
+	var reply []byte
+	switch f.Cmd() {
+	case CmdEEPROMWrite:
 		l.writes = append(l.writes, append([]byte(nil), f.Payload...))
+		copy(l.mem[binary.LittleEndian.Uint16(f.Payload):], f.Payload[2:])
+	case CmdEEPROMRead:
+		addr := int(binary.LittleEndian.Uint16(f.Payload))
+		reply = l.mem[addr : addr+int(f.Payload[2])]
 	}
-	resp, err := EncodeResponse(f.Seq, f.Cmd(), StatusOK, nil)
+	resp, err := EncodeResponse(f.Seq, f.Cmd(), StatusOK, reply)
 	if err != nil {
 		return 0, err
 	}
@@ -170,5 +180,83 @@ func TestWriteNetConfigSendsNothingForABlockItCannotEncode(t *testing.T) {
 	}
 	if len(link.writes) != 0 {
 		t.Fatalf("%d writes, want none", len(link.writes))
+	}
+}
+
+func TestNetConfigDecodesThePinnedBlock(t *testing.T) {
+	var c NetConfig
+	if err := c.UnmarshalBinary(netcfgVector); err != nil {
+		t.Fatalf("UnmarshalBinary: %v", err)
+	}
+	want := testNetConfig()
+	if !bytes.Equal(c.MAC, want.MAC) || c.IP != want.IP || c.Mask != want.Mask ||
+		c.Gateway != want.Gateway || c.Endpoint != want.Endpoint {
+		t.Fatalf("decoded %+v, want %+v", c, want)
+	}
+}
+
+// The block is re-sealed after each edit but the CRC case, so each case
+// trips exactly the refusal it names -- the same set tfw_netcfg_decode
+// returns TFW_ERR_NOT_PROVISIONED for.
+func TestNetConfigDecodeRefusesWhatTheDeviceTreatsAsAbsent(t *testing.T) {
+	seal := func(b []byte) []byte {
+		binary.LittleEndian.PutUint16(b[netcfgOffCRC:], CRC16(b[:netcfgOffCRC]))
+		return b
+	}
+	edit := func(f func(b []byte)) []byte {
+		b := append([]byte(nil), netcfgVector...)
+		f(b)
+		return seal(b)
+	}
+	cases := map[string]struct {
+		block []byte
+		field string
+	}{
+		"short":     {netcfgVector[:31], "block"},
+		"erased":    {bytes.Repeat([]byte{0xff}, NetConfigLen), "block"},
+		"version":   {edit(func(b []byte) { b[4] = 2 }), "block"},
+		"crc":       {append(append([]byte(nil), netcfgVector[:31]...), netcfgVector[31]^1), "block"},
+		"zero peer": {edit(func(b []byte) { copy(b[netcfgOffPeer:], []byte{0, 0, 0, 0}) }), "Endpoint"},
+		"zero port": {edit(func(b []byte) { b[netcfgOffPort], b[netcfgOffPort+1] = 0, 0 }), "Endpoint"},
+	}
+	for name, tc := range cases {
+		var c NetConfig
+		err := c.UnmarshalBinary(tc.block)
+		var nerr *NetConfigError
+		if !errors.As(err, &nerr) || nerr.Field != tc.field {
+			t.Errorf("%s: err = %v, want a %s refusal", name, err, tc.field)
+		}
+	}
+}
+
+func TestReadNetConfigReturnsTheBlockWriteNetConfigWrote(t *testing.T) {
+	link := &eepromLink{}
+	d := New(link, WithBootWait(0))
+	ctx := context.Background()
+
+	if _, err := d.ReadNetConfig(ctx); err == nil {
+		t.Fatal("ReadNetConfig decoded a blank EEPROM")
+	}
+	if err := d.WriteNetConfig(ctx, testNetConfig()); err != nil {
+		t.Fatalf("WriteNetConfig: %v", err)
+	}
+	got, err := d.ReadNetConfig(ctx)
+	if err != nil {
+		t.Fatalf("ReadNetConfig: %v", err)
+	}
+	if got.Endpoint != testNetConfig().Endpoint || got.IP != testNetConfig().IP {
+		t.Fatalf("read %+v, want %+v", got, testNetConfig())
+	}
+}
+
+type deadLink struct{}
+
+func (deadLink) Write([]byte) (int, error) { return 0, errors.New("link down") }
+func (deadLink) Read([]byte) (int, error)  { return 0, errors.New("link down") }
+
+func TestReadNetConfigReturnsTheLinkError(t *testing.T) {
+	d := New(deadLink{}, WithBootWait(0))
+	if _, err := d.ReadNetConfig(context.Background()); err == nil {
+		t.Fatal("ReadNetConfig succeeded on a dead link")
 	}
 }

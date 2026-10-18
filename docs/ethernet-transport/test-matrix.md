@@ -784,3 +784,44 @@ board, still with no part on D8, answers `OTA_BEGIN` with `TFW_ERR_NO_STORE`
 (20) in about 4 ms and erases nothing. The session stays idle, so `OTA_DATA` and
 `OTA_END` answer `TFW_ERR_BUSY` (8). The run, its hashes and the restore are on
 [the bench page](../development/bench/mega2560.md#the-no-store-refusal-2026-10-18-167).
+
+## The Mega on main b0eab87, 2026-10-18
+
+The bench Mega with its Ethernet shield (W5100), over serial on `/dev/ttyACM0`
+only (#7, #75), after the error-path coverage train (#166), the OTA receive run
+(#168) and the norteststd train (#169, with the NOR check of #167) merged. The
+toolchain is [the probe's](../development/wiznet-probe.md#toolchain), unpacked
+under `/tmp` this time. Nothing went over ISP. No fuse, lock or boot-section byte
+was read or written, no chip erase was sent, and every flash went through the
+stock bootloader with `-D`. Still no SPI NOR part on D8.
+
+```
+make firmware BOARD=atmega2560 CRYPTO=soft ETH=1
+```
+
+| Image | Flash / RAM | SHA-256 |
+|---|---|---|
+| The line above on main b0eab87 (`build/atmega2560/soft-eth-w5100`, W5100), the `.hex` | 19280 / 901 bytes, against the 65536 / 2048-byte gates | `5d0b27be491663a043eb9bd3cf890fb12afc04154e7a6a8d03ed3499a96ab7e7` |
+| Its binary, 19280 bytes | | `ae59be49624e0ea571979de83e3a18265a53cbb89c8046f175831cb123c0e584` |
+
+It is 72 bytes larger than [efa1bac's](#the-bench-mega-with-its-ethernet-shield-on-main-efa1bac-2026-10-18)
+19208, with the same RAM.
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | The factory-state record: the flash read through the stock bootloader (`avrdude -c wiring -p atmega2560 -P /dev/ttyACM0 -b 115200 -D -n -U flash:r:flash.bin:r`), and `0x000`–`0x0FF` through the application, 32 `tfwctl eeprom-read <addr> 8` runs | **Pass**: every hash is [the bench record's](../development/bench/mega2560.md#bench-record-2026-10-18). Flash, all 262144 bytes, `de2df314b01137a1c8d973104374f42f8f198f26422e5326eaccfefff0f234ca`. Boot section `fdef04c5b772b0b4cc6e8919f90036ae88217cf3f0c17c399ef09fa8742db711`. Application region, all 253952 bytes, `8bf39f46b552b9cb212f53792e6497c63f0e407e5c5a30c94d58edc9f674f9d7`. Its used 19208 bytes `2783b1c6abbc26d1fe05635415df423a5c3278b00fcaf5932ae665065a3ec94e`. EEPROM `0x000`–`0x0FF` `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4`. The application answered `ping` |
+| 2 | `make flash BOARD=atmega2560 CRYPTO=soft ETH=1` | **Pass**. avrdude wrote and verified 19280 bytes. `caps`: board `0x02`, protocol 2.0, root of trust `software`, features `gpio sched analog pwm tone pulse eeprom i2c spi onewire attest`, algorithms `hmac-sha256`. `0x000`–`0x0FF` read back over serial hashes to `ada8b459…580897e4`, unchanged: the platform block and the network block at `0x0C0` are in place, and nothing was re-provisioned |
+| 3 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0` | **Pass**, 28 of 28, listed below |
+| 4 | Host writes into the protected region: `tfwctl eeprom-write` of one byte at `0x0E0`, one at `0x0E9`, four at `0x0DE`–`0x0E1`, one at `0x0EA`, one at `0x0F4` and one at `0x0F5`. Each refused write carried the byte already there, so a wrong acceptance would have changed nothing | On main the protected span past the platform block is `0x0E0`–`0x0F4`, 21 bytes: the swap journal at `0x0E0`–`0x0E9`, then OTA_CONFIRM's request record from `0x0EA` (#77; `boards/atmega2560/board_profile.h:130`–`132`, checked by `boot_owned`, `src/caps/storage.c:58`). `0x0F5` is the first writable byte. `0x0E0`, `0x0E9`, `0x0DE`–`0x0E1`: **`TFW_ERR_PROTECTED_REGION` (16)**, as expected. `0x0EA`: **`TFW_ERR_PROTECTED_REGION` (16)**, as the span says; the brief expected a write, from before #77. The byte reads `0xFF` before and after. `0x0F4`, the span's last byte: refused (16). `0x0F5`: **`TFW_OK`**, `0xFF` written as `0x00`, read back `0x00`, then written back and read back `0xFF`. `0x000`–`0x0FF` afterwards: `ada8b459…580897e4`, unchanged |
+| 5 | The NOR check of #167: `tfwctl ota-stage <image>`, no `--activate`, three runs. `OTA_ACTIVATE` was not sent | **`TFW_ERR_NO_STORE` (20)** at `OTA_BEGIN`, every run, and `ota-status` stays `idle, 0 bytes received`. The image was the binary above, padded with `0xFF` to 19456 bytes (76 pages of 256). Unpadded, its 19280 bytes are not a whole number of pages, and `OTA_BEGIN` answers `TFW_ERR_RANGE` (11) first (`src/core/ota_stage.c:142`). The no-store refusal comes from the JEDEC ID read, whose second byte reads `0x00` or `0xFF` with no part on D8 (`tfw_store_probe`, `src/store/spi_nor.c:149`). `tfw_stage_cmd_begin` returns it at `src/core/ota_stage.c:156`, before the store is erased. `tfwctl` took about 2.05 s a run, which is mostly its port open and boot wait. It does not time the request and reply |
+| 6 | Restore: the 19208 bytes the record read, written back the same way (`avrdude -v -pm2560 -cwiring -P/dev/ttyACM0 -b115200 -D -Uflash:w:app-used.bin:r`), then the flash and `0x000`–`0x0FF` read again | **Mismatch in the flash; the board was left as it is until ordered.** avrdude wrote and verified 19208 bytes, and the first 19208 bytes of the read are the record's. But the full read hashes to `8ed9ad5b497a8a3572c1f9eb291f611bf6d306184a1d4dda17dfac91394b33b9`, not `de2df314…f0f234ca`: 71 bytes differ, all in `0x4B08`–`0x4B4F`. That range holds the tail of item 2's image (19280 bytes), where the record has `0xFF`. With `-D` there is no chip erase, and avrdude filled the rest of the last 256-byte page from the device ("76 pages and 248 pad bytes"), so it kept those bytes. The application region now hashes to `3817b7cb9821051707d19471e52af6fd84beab3138252c572a9f4b9e002fd2fd`. The boot section is unchanged (`fdef04c5…742db711`). The factory image's code is in place and answers `ping`. EEPROM `0x000`–`0x0FF`: `ada8b459…580897e4`, unchanged, so nothing was written back. The fix is to write the record's bytes padded with `0xFF` to the page boundary (`0x00000`–`0x04BFF`), which 6b did |
+| 6b | Restore, on order: the record's 19208 bytes padded with `0xFF` to `0x4C00`, 19456 bytes, 76 whole pages (SHA-256 `05106be13c268d0a4700be341784c3d5656c6d0c5cc84d339592614c618f33ed`, byte for byte the record's `0x00000`–`0x04BFF`), written the same way with `-D`. Then the flash and `0x000`–`0x0FF` read again, and `ping` | **Pass.** avrdude wrote and verified 19456 bytes with "0 pad bytes". The write needed the padding because without a chip erase avrdude fills a partial last page from what the flash already holds, so 6's write kept the old bytes in that page. Whole pages of `0xFF` replace them. The full read hashes to `de2df314b01137a1c8d973104374f42f8f198f26422e5326eaccfefff0f234ca`, the record's, byte for byte. Application region `8bf39f46b552b9cb212f53792e6497c63f0e407e5c5a30c94d58edc9f674f9d7`, its used 19208 bytes `2783b1c6abbc26d1fe05635415df423a5c3278b00fcaf5932ae665065a3ec94e`, boot section `fdef04c5b772b0b4cc6e8919f90036ae88217cf3f0c17c399ef09fa8742db711`. EEPROM `0x000`–`0x0FF` `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4`, the record's, so nothing was written back. `ping` answers |
+
+| Test, `TestAgainstFirmware…` | Result |
+|---|---|
+| `Ping`, `PingWithMaximumPayload`, `Caps`, `SysInfo`, `AppInfoIsAbsentWithoutAnApplication`, `UnknownCommandIsAnswered`, `AuthCommandsAreAbsentOnTheSoftTier` | Pass |
+| `WrongArgumentCountIsRefused`, `SurvivesAMalformedBurstBeforeAValidRequest`, `BootEventIsDelivered`, `DefaultBootWaitConsumesTheStartupEvent`, `SustainedExchange` | Pass |
+| `TimerRevertsWithoutTheHost`, `TimerActuallyReverts`, `ReservedPinsAreRefused`, `AdcOnlyPinCannotBeDriven` | Pass |
+| `ReservedEEPROMIsRefused`, `ReservedEEPROMReadIsUngatedOnTheSoftTier`, `UnprovisionedDeviceRefusesToAttest` | Pass |
+| `AnalogReadReturnsRawCounts`, `PWM`, `SecureElementAddressIsRefused`, `OneWireAndPulseAreReachable`, `CapsReportsTheAlgorithmsItCanPerform` | Pass |
+| `PinInfo`, `PinInfoRefusesAPinTheBoardLacks`, `I2CConfigAppliesAClockWithinRange`, `SPIConfigAppliesModeClkdivAndBitOrder` | Pass |

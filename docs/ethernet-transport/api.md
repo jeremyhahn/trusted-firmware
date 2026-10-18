@@ -81,9 +81,14 @@ type NetConfig struct {
 }
 func (c NetConfig) MarshalBinary() ([]byte, error)
 
-// NetConfigError names the field MarshalBinary refused: a MAC that is not six
-// bytes, an address that is not IPv4, or an endpoint the device would treat
-// as absent.
+// UnmarshalBinary decodes a block, refusing what tfw_netcfg_decode treats as
+// absent: no TFNC magic, another version, a CRC mismatch, a zero endpoint
+// address or port.
+func (c *NetConfig) UnmarshalBinary(b []byte) error
+
+// NetConfigError names the field MarshalBinary or UnmarshalBinary refused: a
+// MAC that is not six bytes, an address that is not IPv4, an endpoint the
+// device would treat as absent, or ("block") a block that does not decode.
 type NetConfigError struct {
     Field, Reason string
 }
@@ -102,7 +107,14 @@ func DerivedMAC(id []byte) net.HardwareAddr
 
 // WriteNetConfig writes the block over serial, in EEPROM_WRITE chunks.
 func (d *Device) WriteNetConfig(ctx context.Context, c NetConfig) error
+
+// ReadNetConfig reads the block back over serial, in EEPROM_READ chunks, and
+// decodes it. The block is above the element tier's gated reads.
+func (d *Device) ReadNetConfig(ctx context.Context) (NetConfig, error)
 ```
+
+`tfwctl netcfg set` and `tfwctl netcfg get` are these two calls from the
+command line ([tfwctl reference](../host-sdk/cli.md)).
 
 `Option`s given to `Listen` apply to every accepted `Device`. The BOOT wait is
 always off for a `TCPDevice`.

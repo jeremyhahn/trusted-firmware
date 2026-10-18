@@ -90,7 +90,8 @@ the commands that do it are absent from a production image
    `make ETH=1` ([build selection](../ethernet-transport/architecture.md#build-selection)).
 6. **The network block.** `Device.WriteNetConfig` encodes `tfw.NetConfig` and
    writes the 32-byte block at EEPROM `0x0C0` with `EEPROM_WRITE` (`0x41`) over
-   serial. It holds the MAC, the device's address, mask, gateway, and the
+   serial; `tfwctl netcfg set` does it from the command line, and
+   `tfwctl netcfg get` reads it back through `Device.ReadNetConfig`. It holds the MAC, the device's address, mask, gateway, and the
    endpoint's address and port. Until a shield's assigned MAC is supplied, the
    host writes `tfw.DerivedMAC(id)`. The encoding is this repo's; the values,
    above all the endpoint, are the operator's, taken from go-trusted-platform's
@@ -173,6 +174,7 @@ Ethernet answers `TFW_ERR_UNKNOWN_CMD` and is never dispatched
 | `0x63` | `ATTEST_CERT` | serial, Ethernet | `Device.AttestCert` (32-byte nonce) | `TFWV_UCCS`, `TFWV_ALIAS_TBS_DIGEST`, `TFWV_ALIAS_CERT` and its negative variants in `testdata/uccs_vectors.h` |
 | `0x64` | `ATTEST_CSR` | serial, Ethernet | `Device.AttestCSR` (32-byte `b`, returns 64 bytes) | `TFWV_CSR_CRI`, `TFWV_CSR_CRI_DIGEST` in `testdata/vectors.h`; checked from Go in `sdk/go/tfwsim/attestcsr_test.go`; go-xkms pins its CRI builder to the same bytes |
 | `0x41` | `EEPROM_WRITE` | serial only | `Device.WriteNetConfig` | the network block, a literal in both `test/unit/test_link_eth.c` (`NETCFG`) and `sdk/go/netcfg_test.go` (`netcfgVector`) |
+| `0x40` | `EEPROM_READ` | serial only | `Device.ReadNetConfig` | the same literal, decoded by `(*NetConfig).UnmarshalBinary` in `sdk/go/netcfg_test.go` |
 | `0x70`–`0x75` | `PROV_*` | serial, provisioning image only | `Device.Prov*` | [device-provisioning api](../device-provisioning/api.md) |
 
 `ATTEST_CSR` is built only where the board's profile carries it: today the
@@ -187,7 +189,7 @@ directly. go-quicbaas does not need to (R3).
 | Call | Used at step |
 |---|---|
 | `tfw.Listen`, `tfw.NewListener`, `(*Listener).Accept` → `*TCPDevice` | 8 |
-| `tfw.NetConfig`, `(NetConfig).MarshalBinary`, `tfw.DerivedMAC`, `(*Device).WriteNetConfig` | 6 |
+| `tfw.NetConfig`, `(NetConfig).MarshalBinary`, `(*NetConfig).UnmarshalBinary`, `tfw.DerivedMAC`, `(*Device).WriteNetConfig`, `(*Device).ReadNetConfig` | 6 (through `tfwctl netcfg`) |
 | `(*Device).Caps`, `Attest`, `AttestCert`, `AttestCSR` | 9, 11, 13, 15 (through the adapter) |
 | `(*Device).ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS` | 3 (through `tfwprov`) |
 | `tfwsim.StartElementEthernet` | tests: the real firmware, element tier, on both links |
@@ -262,10 +264,10 @@ around one.
   hand-copied output, is follow-up 6 of the
   [possession ADR](../dice-attestation/adr-possession-at-acme-finalize.md); it is
   not yet filed.
-- **T2 — no command line writes the network block.** Step 6 is reachable only
-  through `Device.WriteNetConfig` from Go
-  ([ethernet user guide](../ethernet-transport/user.md)); neither `tfwctl` nor
-  `tfwprov` exposes it.
+- **T2 — no command line writes the network block. Done:**
+  `tfwctl netcfg set` writes it and `tfwctl netcfg get` reads it back
+  ([ethernet user guide](../ethernet-transport/user.md),
+  [tfwctl reference](../host-sdk/cli.md)).
 - **T3 — the ATmega328P cannot enrol.** Its element-tier Ethernet image is over
   its flash budget, and its profile leaves `ATTEST_CSR` out. The owner's choice
   is pending ([the 328P budget](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).

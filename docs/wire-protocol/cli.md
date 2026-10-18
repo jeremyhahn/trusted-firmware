@@ -16,6 +16,7 @@ that exercise them, so a reader does not have to cross-reference by hand.
 | `caps` | `CAPS` (0x00), no pin argument |
 | `pin <pin>` | `CAPS` (0x00), one-byte pin index |
 | `sys` | `SYS_INFO` (0x03) |
+| `app` | `APP_INFO` (0x06) |
 | `reset [soft\|boot]` | `RESET` (0x02) |
 | `mode <pin> <in\|out\|pullup>` | `PIN_MODE` (0x10) |
 | `read <pin>` | `DIGITAL_READ` (0x11) |
@@ -28,6 +29,8 @@ that exercise them, so a reader does not have to cross-reference by hand.
 | `ota-stage [--activate[=now]] <image>` | `OTA_BEGIN` (0x68), `OTA_DATA` (0x69), `OTA_END` (0x6A), then `OTA_STATUS` (0x6B); with `--activate`, `OTA_ACTIVATE` (0x6D) mode 0 on the same connection before `OTA_STATUS`; with `--activate=now`, mode 1 and no frame after its reply |
 | `ota-status` | `OTA_STATUS` (0x6B) |
 | `ota-activate [now]` | `OTA_ACTIVATE` (0x6D): mode 0, taken at the next reset; `now`, mode 1, the device resets after its reply |
+| `netcfg set --mac … --ip … --mask … --gateway … --endpoint …` | `EEPROM_WRITE` (0x41) ×4, 8 bytes each, at `0x0C0`–`0x0DF`: the network block |
+| `netcfg get` | `EEPROM_READ` (0x40) ×4 over the same range, decoded by `tfw.NetConfig` |
 | `ports` | none — lists serial ports the host can see; no device round trip |
 
 Flags: `--baud` (default `serialport.DefaultBaud`, 115200, matching

@@ -2,7 +2,11 @@
 # Run a command in the toolchain image against a COPY of the checkout.
 #
 #   usage: scripts/in-toolchain-image.sh <image> <command...>
-#   e.g.   scripts/in-toolchain-image.sh trusted-firmware-toolchain:abc make build
+#   e.g.   scripts/in-toolchain-image.sh go-enclave-toolchain:abc make build
+#
+# in-toolchain-template: v1 (ci-template v1.21). Ships beside ci.yml; copy it to
+# scripts/ with the workflow. From go-quicraft's scripts/in-toolchain-image.sh
+# (a141c3c), with the container prefix and uid taken from the environment.
 #
 # How CI runs a stage in the devcontainer image (handbook ci-standard.md §2). A
 # CI runner reaches its Docker daemon through a socket, so a bind mount would
@@ -26,8 +30,10 @@
 # this environment (the four variables dependency-resolution.md §6 has the
 # runner inject), so no token ever appears on a command line.
 #
-# The container is named trusted-firmware-ci-tc-<pid>-<random>, under the prefix
-# scripts/reap-stale-ci-stacks.sh reaps, and is removed on every exit.
+# The container is named <CI_STACK_PREFIX>tc-<pid>-<random>, under the prefix
+# scripts/reap-stale-ci-stacks.sh reaps (default <checkout dir>-ci-, which in CI
+# is <repo>-ci-), and is removed on every exit. IN_IMAGE_UID is the non-root
+# uid the command runs as (default 10001; devcontainer.md §5: any non-root uid).
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -42,8 +48,12 @@ case $network in
   *) echo "IN_IMAGE_NETWORK must be none or bridge: $network" >&2; exit 2 ;;
 esac
 
-uid=10001
-name="trusted-firmware-ci-tc-$$-${RANDOM}"
+uid=${IN_IMAGE_UID:-10001}
+case $uid in
+  "" | 0 | *[!0-9]*) echo "IN_IMAGE_UID must be a non-root numeric uid: $uid" >&2; exit 2 ;;
+esac
+prefix=${CI_STACK_PREFIX:-$(basename "$PWD")-ci-}
+name="${prefix}tc-$$-${RANDOM}"
 args=(
   --name "$name"
   --init
@@ -58,12 +68,13 @@ args=(
   --user "$uid:$uid"
   --workdir /src
   --env HOME=/tmp
-  # The Go build cache, golangci-lint's cache and (below) the module cache go
-  # under /var/tmp (mode 1777) in the container's own writable layer: on disk,
-  # not in the /tmp tmpfs, whose RAM-backed 3 GB go-xkms's dependency tree
-  # overfilled in xkms-security (CI run 53647). The layer goes with the
-  # container, so cleanup removes them. trivy's databases (the Java one is near
-  # 1 GB) and every tool's temporary files go there too (CI run 53668).
+  # CUSTOMIZE (trusted-firmware): the Go build cache, golangci-lint's cache and
+  # (below) the module cache go under /var/tmp (mode 1777) in the container's
+  # own writable layer: on disk, not in the /tmp tmpfs, whose RAM-backed 3 GB
+  # go-xkms's dependency tree overfilled in xkms-security (CI run 53647). The
+  # layer goes with the container, so cleanup removes them. trivy's databases
+  # (the Java one is near 1 GB) and every tool's temporary files go there too
+  # (CI run 53668).
   --env GOCACHE=/var/tmp/gocache
   --env GOLANGCI_LINT_CACHE=/var/tmp/golangci-lint
   --env TRIVY_CACHE_DIR=/var/tmp/trivy
@@ -73,13 +84,13 @@ args=(
 if [ "$network" = bridge ]; then
   # The baked module cache is read-only to the run's user and holds only the
   # root module's build list; the nested modules deps-check walks fetch more.
-  args+=(--env "GOPROXY=https://proxy.golang.org,direct" --env GOMODCACHE=/var/tmp/gomodcache)
+  args+=(--env "GOPROXY=https://proxy.golang.org,direct" --env GOMODCACHE=/var/tmp/gomodcache) # CUSTOMIZE: /var/tmp, above
   for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
     if [ -n "${!v:-}" ]; then args+=(--env "$v"); fi
   done
 fi
 
-stage=
+stage= # CUSTOMIZE: the worktree stage below
 cleanup() {
   docker rm -f -v "$name" >/dev/null 2>&1 || true
   if [ -n "$stage" ]; then rm -rf "$stage"; fi
@@ -88,11 +99,13 @@ trap cleanup EXIT
 
 docker create "${args[@]}" "$image" sh -c "$*" >/dev/null
 if [ -f .git ]; then
-  # A git worktree: `.git` is a file pointing at a git dir outside the checkout,
-  # which the container does not have. Stream in a standalone .git instead: the
-  # common git dir (objects, refs, config) without the other worktrees, this
-  # worktree's HEAD and index, the objects of any alternates folded in, and
-  # core.bare off in case the common dir is a bare repository.
+  # CUSTOMIZE (trusted-firmware): a git worktree, where this repo's work
+  # happens: `.git` is a file pointing at a git dir outside the checkout,
+  # which the container does not have, and build, test and security run git.
+  # Stream in a standalone .git instead: the common git dir (objects, refs,
+  # config) without the other worktrees, this worktree's HEAD and index, the
+  # objects of any alternates folded in, and core.bare off in case the common
+  # dir is a bare repository.
   gitdir=$(git rev-parse --absolute-git-dir)
   common=$(git rev-parse --path-format=absolute --git-common-dir)
   stage=$(mktemp -d)

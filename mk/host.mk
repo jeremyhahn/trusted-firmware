@@ -701,7 +701,7 @@ COVERAGE_FLOOR ?= 90
 # definition explicitly rather than having its complaints suppressed: told the
 # configuration it can analyse the code, whereas a suppression would also hide
 # the next genuinely unknown macro.
-lint: lint-arch-leak
+lint: lint-arch-leak lint-conditionals lint-timestamps
 	@cppcheck --enable=warning,style,performance,portability \
 	          --check-level=exhaustive \
 	          --error-exitcode=1 --inline-suppr --quiet \
@@ -712,41 +712,79 @@ lint: lint-arch-leak
 	          -i src/third_party \
 	          src/ boards/ boot/
 	@echo "cppcheck clean"
-	@# The two grep gates. They used to live only in the CI workflow, which made
-	@# them gates a developer could not run -- and one of them had been failing
-	@# on main for two commits before anyone saw it, because the only place it
-	@# ran was a job nobody reads when the other five are green.
-	@# boot/ is swept on the same terms as src/core, src/proto and src/caps, with
-	@# boot/hal/avr excluded exactly as src/hal/avr is. The bootloader's logic is
-	@# the accept/refuse decision for every image the device will ever run, so it
-	@# is the last place in the tree that should have a build that was never the
-	@# build anyone tested. boot/hal/avr earns the exemption for the same reason
-	@# src/hal/avr does and for exactly one conditional: the far-flash read, which
-	@# is required above 64 KB and is a fact about the silicon rather than a
-	@# feature anyone chose.
-	@# The sweep covers every .c and .h under src/, boot/ and tools/. Exempt:
-	@# the per-architecture HAL directories (src/hal/*/, boot/hal/*/, named as
-	@# globs so a second architecture needs no edit here), commands.def, the
-	@# vendored src/third_party (cppcheck skips it for the same reason), and the
-	@# include guard of a header -- an #ifndef of a NAME_H macro, which is not a
-	@# conditional on anything. config.h, progmem.h and the board profiles live
-	@# under include/ and boards/, which this sweep does not enter.
-	@if grep -rn '^[[:space:]]*#[[:space:]]*if' src boot tools \
+
+# The two grep gates. They used to live only in the CI workflow, which made
+# them gates a developer could not run -- and one of them had been failing
+# on main for two commits before anyone saw it, because the only place it
+# ran was a job nobody reads when the other five are green.
+# A finding is printed as `path:line: rule` and never as the matched line
+# (ci-standard.md §5: a lint step reports path, line and rule only).
+# LINT_GREP_ROOT is the tree they sweep; lint-grep-selftest points it at a
+# throwaway copy.
+LINT_GREP_ROOT ?= .
+
+## lint-conditionals: no preprocessor conditional outside the four places
+# boot/ is swept on the same terms as src/core, src/proto and src/caps, with
+# boot/hal/avr excluded exactly as src/hal/avr is. The bootloader's logic is
+# the accept/refuse decision for every image the device will ever run, so it
+# is the last place in the tree that should have a build that was never the
+# build anyone tested. boot/hal/avr earns the exemption for the same reason
+# src/hal/avr does and for exactly one conditional: the far-flash read, which
+# is required above 64 KB and is a fact about the silicon rather than a
+# feature anyone chose.
+# The sweep covers every .c and .h under src/, boot/ and tools/. Exempt:
+# the per-architecture HAL directories (src/hal/*/, boot/hal/*/, named as
+# globs so a second architecture needs no edit here), commands.def, the
+# vendored src/third_party (cppcheck skips it for the same reason), and the
+# include guard of a header -- an #ifndef of a NAME_H macro, which is not a
+# conditional on anything. config.h, progmem.h and the board profiles live
+# under include/ and boards/, which this sweep does not enter.
+lint-conditionals:
+	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rn '^[[:space:]]*#[[:space:]]*if' src boot tools \
 	     --include='*.c' --include='*.h' --exclude-dir=third_party \
 	     | grep -v 'commands.def' \
 	     | grep -v '^src/hal/[^/]*/' | grep -v '^boot/hal/[^/]*/' \
-	     | grep -v ':[[:space:]]*#[[:space:]]*ifndef[[:space:]]\+[A-Za-z0-9_]*_H[[:space:]]*$$'; then \
+	     | grep -v ':[[:space:]]*#[[:space:]]*ifndef[[:space:]]\+[A-Za-z0-9_]*_H[[:space:]]*$$' || true); \
+	if [ -n "$$hits" ]; then \
+	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$$p:$$n: preprocessor-conditional"; done; \
 	  echo "preprocessor conditional outside the whitelist (see above)"; \
 	  echo "a default belongs in include/tfw/config.h, where a board can override it"; \
 	  exit 1; \
 	fi
 	@echo "no out-of-whitelist conditionals"
-	@if grep -rn '__DATE__\|__TIME__' src/ boards/ include/ boot/; then \
+
+## lint-timestamps: no __DATE__ or __TIME__ in the firmware
+lint-timestamps:
+	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rn '__DATE__\|__TIME__' src/ boards/ include/ boot/ || true); \
+	if [ -n "$$hits" ]; then \
+	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$$p:$$n: build-timestamp"; done; \
 	  echo "a build timestamp would make the image unreproducible, and its"; \
 	  echo "measurement uncomputable from source -- which is signed evidence"; \
 	  exit 1; \
 	fi
 	@echo "no build timestamps"
+
+## lint-grep-selftest: the two grep gates fail on a plant and print path and line only
+# Plants go into a throwaway tree, never into this one. Each plant must fail its
+# gate with `path:line: ` and without the planted text; an include guard and an
+# exempt HAL directory must not.
+lint-grep-selftest:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/boards $$t/include && \
+	printf '#ifndef TFW_OK_H\n#define TFW_OK_H\n#endif\n' > $$t/src/core/ok.h && \
+	printf '#if 1\n#endif\n' > $$t/src/hal/avr/exempt.c && \
+	$(MAKE) --no-print-directory lint-conditionals lint-timestamps LINT_GREP_ROOT=$$t > /dev/null || \
+	  { echo "selftest: clean tree was rejected"; exit 1; }; \
+	for plant in 'conditionals:#if TFW_PLANTED_TEXT' 'timestamps:const char *d = __DATE__; /* TFW_PLANTED_TEXT */'; do \
+	  gate=$${plant%%:*}; printf '%s\n' "$${plant#*:}" > $$t/src/core/plant.c; \
+	  if out=$$($(MAKE) --no-print-directory lint-$$gate LINT_GREP_ROOT=$$t 2>&1); then \
+	    echo "selftest: lint-$$gate passed a plant"; exit 1; \
+	  fi; \
+	  case $$out in *TFW_PLANTED_TEXT*) echo "selftest: lint-$$gate printed the matched text"; exit 1 ;; esac; \
+	  case $$out in *'src/core/plant.c:1: '*) ;; *) echo "selftest: lint-$$gate did not print path:line"; exit 1 ;; esac; \
+	  rm -f $$t/src/core/plant.c; \
+	done; \
+	echo "grep lint gates reject every plant and print path and line only"
 
 ## lint-arch-leak: AVR must not leak out of its directories
 # The tree is arch-neutral only if nothing outside the AVR's own directories
@@ -773,7 +811,9 @@ lint-arch-leak:
 	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
 	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
 	  hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_PAT)' || true); \
-	  if [ -n "$$hits" ]; then echo "$$f:"; printf '%s\n' "$$hits"; fail=1; fi; \
+	  if [ -n "$$hits" ]; then \
+	    printf '%s\n' "$$hits" | while IFS=: read -r n _; do echo "$$f:$$n: arch-leak"; done; fail=1; \
+	  fi; \
 	done; \
 	if [ $$fail -ne 0 ]; then \
 	  echo "AVR leaked out of its directories (see above)"; \
@@ -794,9 +834,11 @@ lint-arch-leak-selftest:
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
 	for leak in '#include <avr/io.h>' 'int x = F_CPU;' 'int x = MCUSR;' 'const int x PROGMEM = 0;'; do \
 	  printf '%s\n' "$$leak" > $$t/src/crypto/plant.c; \
-	  if $(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null 2>&1; then \
+	  if out=$$($(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t 2>&1); then \
 	    echo "selftest: gate passed a planted: $$leak"; exit 1; \
 	  fi; \
+	  case $$out in *"$$leak"*) echo "selftest: gate printed the matched text: $$leak"; exit 1 ;; esac; \
+	  case $$out in *'src/crypto/plant.c:1: arch-leak'*) ;; *) echo "selftest: gate did not print path:line: $$leak"; exit 1 ;; esac; \
 	done; \
 	echo "arch-leak gate rejects every plant"
 
@@ -954,7 +996,7 @@ clean-host:
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
 .PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a tfwsim-auto lint \
-        lint-arch-leak lint-arch-leak-selftest
+        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep
 #

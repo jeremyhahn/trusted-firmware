@@ -131,7 +131,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
-                            test/unit/test_w5x00.c test/unit/test_link_eth.c \
+                            test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c \
                            test/unit/test_ota_stage.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c, \
@@ -465,6 +465,19 @@ $(HOST_DIR)/test_w5500: $(W5X_TEST_SRCS) src/net/w5500.c $(HOST_DIR)/unity.o | $
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same drivers with the chip select on A7, which has no digital port on the
+# host atmega328p: the board lookup refuses it before the bus is touched.
+W5X_NOCS_SRCS := test/unit/test_w5x00_nocs.c test/model/w5x00_model.c src/net/w5x00.c \
+                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c
+
+$(HOST_DIR)/test_w5100_nocs: $(W5X_NOCS_SRCS) src/net/w5100.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=1 \
+	   -DTFW_ETH_CS_PIN=21u -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_w5500_nocs: $(W5X_NOCS_SRCS) src/net/w5500.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
+	   -DTFW_ETH_CS_PIN=21u -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The Ethernet image's link: the whole host library with link_eth.c where
 # link_serial.c would be -- what mk/firmware.mk links for ETH=1 -- and the TCP
 # socket faked in the suite itself at include/tfw/eth.h.
@@ -526,6 +539,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_spi_nor $(HOST_DI
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
+                    $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit \
                     $(HOST_DIR)/test_storage_2560
 

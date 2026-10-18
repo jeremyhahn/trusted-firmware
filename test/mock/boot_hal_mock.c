@@ -31,6 +31,7 @@ static uint8_t  torn;
 static unsigned nvm_read_fails;
 static unsigned nvm_lost_writes;
 static void   (*g_store)(uint8_t *buf, uint16_t len);
+static uint16_t page_size = MOCK_PAGE;
 static unsigned jumped;
 static unsigned reset_calls;
 /* Ordinals on one counter, so a test can assert the order of the last NVM
@@ -68,6 +69,7 @@ void tfw_boot_mock_reset(void)
     consumed = 0u;
     rx_idle_hook = 0;
     cause = TFW_RESET_UNKNOWN;
+    page_size = MOCK_PAGE;
 }
 
 uint8_t *tfw_boot_mock_flash(void)     { return flash; }
@@ -173,7 +175,9 @@ void tfw_boot_store_close(void)
 {
 }
 
-uint16_t tfw_boot_flash_page_size(void) { return MOCK_PAGE; }
+uint16_t tfw_boot_flash_page_size(void) { return page_size; }
+
+void tfw_boot_mock_set_page_size(uint16_t ps) { page_size = ps; }
 
 tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 {

@@ -272,6 +272,19 @@ static void test_the_block_from_eeprom_is_what_the_controller_is_given(void)
     TEST_ASSERT_TRUE(eth.port >= 49152u);
 }
 
+/* A provisioned block behind an EEPROM that refuses the read is no block:
+ * nothing is decoded and the controller is never started. */
+static void test_a_refused_eeprom_read_reads_as_unprovisioned(void)
+{
+    tfw_netcfg_t got;
+
+    provision();
+    tfw_mock_eeprom_read_fails(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_netcfg_load(&got));
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, eth.starts);
+}
+
 /* The block is written over serial, then picked up by the next attempt with
  * no restart: provisioning is EEPROM_WRITE and nothing else. */
 static void test_a_block_written_over_serial_is_used_at_the_next_attempt(void)
@@ -547,6 +560,7 @@ int main(void)
     RUN_TEST(test_a_damaged_or_incomplete_block_is_not_provisioned);
     RUN_TEST(test_a_blank_block_never_starts_the_controller_and_serial_still_answers);
     RUN_TEST(test_the_block_from_eeprom_is_what_the_controller_is_given);
+    RUN_TEST(test_a_refused_eeprom_read_reads_as_unprovisioned);
     RUN_TEST(test_a_block_written_over_serial_is_used_at_the_next_attempt);
     RUN_TEST(test_reconnect_backs_off_from_1_s_to_64_s_and_resets_once_up);
     RUN_TEST(test_a_refused_connect_is_closed_and_retried);

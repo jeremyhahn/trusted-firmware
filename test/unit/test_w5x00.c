@@ -256,6 +256,14 @@ static void test_a_command_the_chip_never_takes_is_given_up(void)
     TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_eth_start(&cfg, 50000u));
 }
 
+/* OPEN is taken and the socket reads INIT; only CONNECT is never taken. */
+static void test_a_connect_the_chip_never_takes_is_given_up(void)
+{
+    w5x_model_cr_stuck_on(0x04u);                    /* CONNECT */
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_eth_start(&cfg, 50000u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_DOWN, tfw_eth_state());
+}
+
 static void test_a_size_that_never_settles_reads_as_nothing(void)
 {
     static const uint8_t b[4] = { 1u, 2u, 3u, 4u };
@@ -294,6 +302,7 @@ int main(void)
     RUN_TEST(test_a_full_transmit_buffer_refuses_the_byte);
     RUN_TEST(test_a_buffer_that_fills_mid_reply_sends_what_is_there);
     RUN_TEST(test_a_command_the_chip_never_takes_is_given_up);
+    RUN_TEST(test_a_connect_the_chip_never_takes_is_given_up);
     RUN_TEST(test_a_size_that_never_settles_reads_as_nothing);
     RUN_TEST(test_close_closes_the_socket);
     return UNITY_END();

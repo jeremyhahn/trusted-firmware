@@ -56,6 +56,9 @@ size_t   tfw_mock_eeprom_written(uint16_t *lo, uint16_t *hi);
 /* A cell whose writes do not stick -- the read-back that disagrees with what
  * was written. Off until set; tfw_mock_reset turns it off again. */
 void     tfw_mock_eeprom_stuck_at(uint16_t addr);
+/* Every tfw_hal_eeprom_read refused, as a bus that never answers. Off until
+ * set; tfw_mock_reset turns it off again. */
+void     tfw_mock_eeprom_read_fails(uint8_t on);
 
 /* handoff: the raw TFW_BOOT_HANDOFF_LEN-byte block tfw_hal_handoff_block()
  * returns. Zeroed by tfw_mock_reset(), which reads as "no handoff" -- the same

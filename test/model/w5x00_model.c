@@ -70,6 +70,7 @@ static uint8_t  wire[4096];       /* what SEND put on the wire, not yet read */
 static uint16_t wire_n;
 static uint8_t  sends;
 static uint8_t  cr_stuck;
+static uint8_t  cr_stuck_on;   /* the one command never taken; 0: none */
 static uint8_t  unstable, flip;
 static uint16_t tx_cap;
 static uint16_t seed;
@@ -122,6 +123,7 @@ void w5x_model_reset(uint8_t which)
     wire_n   = 0u;
     sends    = 0u;
     cr_stuck = 0u;
+    cr_stuck_on = 0u;
     unstable = 0u;
     flip     = 0u;
     tx_cap   = 0xFFFFu;
@@ -236,7 +238,7 @@ static void reg_write(uint8_t space, uint16_t off, uint8_t v)
         break;
     case SPACE_SOCK0:
         if (off == S_CR) {
-            if (cr_stuck) {
+            if (cr_stuck || (cr_stuck_on != 0u && v == cr_stuck_on)) {
                 sock[S_CR] = v;
             } else {
                 command(v);
@@ -439,6 +441,7 @@ uint16_t w5x_model_peer_recv(uint8_t *out, uint16_t cap)
 uint8_t  w5x_model_sends(void)                 { return sends; }
 void     w5x_model_set_sr(uint8_t sr)          { sock[S_SR] = sr; }
 void     w5x_model_cr_stuck(uint8_t on)        { cr_stuck = on; }
+void     w5x_model_cr_stuck_on(uint8_t cr)     { cr_stuck_on = cr; }
 void     w5x_model_size_unstable(uint8_t on)   { unstable = on; }
 void     w5x_model_tx_cap(uint16_t cap)        { tx_cap = cap; }
 void     w5x_model_seed_pointers(uint16_t p)   { seed = p; }

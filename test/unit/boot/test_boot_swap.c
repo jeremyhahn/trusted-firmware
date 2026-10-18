@@ -73,6 +73,22 @@ static void test_a_full_swap_exchanges_the_slots(void)
     TEST_ASSERT_EQUAL_UINT(WRITES, tfw_boot_mock_page_writes());
 }
 
+/* A part reporting no page, one larger than a unit, or one that does not
+ * divide a unit: the swap moves nothing. */
+static void test_a_page_size_the_swap_cannot_use_moves_nothing(void)
+{
+    const uint16_t bad[] = { 0u, (uint16_t)(TFW_OTA_PAGE_MAX + 1u),
+                             (uint16_t)(TFW_OTA_PAGE_MAX / 2u + 1u) };
+    unsigned       i;
+
+    for (i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        tfw_boot_mock_set_page_size(bad[i]);
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_swap());
+        assert_slots(img_a, img_b);
+        TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+    }
+}
+
 static void test_a_rollback_restores_a(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap());
@@ -953,6 +969,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_full_swap_exchanges_the_slots);
+    RUN_TEST(test_a_page_size_the_swap_cannot_use_moves_nothing);
     RUN_TEST(test_a_rollback_restores_a);
     RUN_TEST(test_a_cut_at_any_page_resumes);
     RUN_TEST(test_a_cut_in_the_rollback_still_restores_a);

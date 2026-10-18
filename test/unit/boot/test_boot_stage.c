@@ -101,6 +101,38 @@ static void stage(uint32_t image_len, uint32_t total, uint8_t board, int marked)
     }
 }
 
+/* The software NOR part behind faults of the test's choosing: a status that
+ * never clears WIP, a JEDEC id an absent part reads (`blank_id` 1: zeros, 2:
+ * ones), and a store that goes silent after its `cut_at`th command. `sig_at`
+ * is the command that read the MARK's signature. */
+static unsigned xfers;
+static unsigned cut_at;
+static unsigned sig_at;
+static uint8_t  busy_forever;
+static uint8_t  blank_id;
+
+static void faulty_xfer(uint8_t *buf, uint16_t len)
+{
+    xfers++;
+    if (busy_forever != 0u && buf[0] == 0x05u) {
+        buf[1] = 0x01u;
+        return;
+    }
+    if (blank_id != 0u && buf[0] == 0x9Fu) {
+        memset(&buf[1], (blank_id == 1u) ? 0x00 : 0xFF, 3u);
+        return;
+    }
+    if (buf[0] == 0x03u && sig_at == 0u &&
+        (((uint32_t)buf[1] << 16) | ((uint32_t)buf[2] << 8) | buf[3]) ==
+            MARK + TFW_STAGE_MARK_O_SIG) {
+        sig_at = xfers;
+    }
+    tfw_nor_model_xfer(buf, len);
+    if (xfers == cut_at) {
+        tfw_boot_mock_on_store(NULL);
+    }
+}
+
 static void assert_installed(uint32_t total)
 {
     const uint8_t *flash = tfw_boot_mock_flash();
@@ -132,6 +164,12 @@ void setUp(void)
     stores = 0u;
     memset(good_sig, 0x5A, sizeof good_sig);
     tfw_boot_verify_mock_want(NULL);
+    tfw_boot_verify_mock_pubkey(TFW_OK);
+    xfers = 0u;
+    cut_at = 0u;
+    sig_at = 0u;
+    busy_forever = 0u;
+    blank_id = 0u;
 }
 
 void tearDown(void) {}
@@ -337,6 +375,161 @@ static void test_a_missing_authorization_clears_the_mark(void)
     assert_refused_and_forgotten();
 }
 
+/* A part still mid-write after every status read tfw-boot allows. */
+static void test_a_store_busy_for_ever_times_out(void)
+{
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_boot_mock_on_store(faulty_xfer);
+    busy_forever = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_boot_stage_take(&plat, 0u));
+    assert_nothing_copied();
+}
+
+/* No part on the bus: MISO floating low or high reads an id of all zeros or
+ * all ones. */
+static void test_an_absent_store_is_refused_by_its_id(void)
+{
+    uint8_t b;
+
+    for (b = 1u; b <= 2u; b++) {
+        setUp();
+        stage(1000u, 1200u, TFW_BOARD_ID, 1);
+        tfw_boot_mock_on_store(faulty_xfer);
+        blank_id = b;
+        TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_boot_stage_take(&plat, 0u));
+        assert_nothing_copied();
+    }
+}
+
+/* The store going silent at the MARK's read, then at the trailer's: the
+ * JEDEC id and one status read come before them. */
+static void test_a_store_silent_at_the_mark_or_the_trailer_copies_nothing(void)
+{
+    unsigned n;
+
+    for (n = 2u; n <= 3u; n++) {
+        setUp();
+        stage(1000u, 1200u, TFW_BOARD_ID, 1);
+        tfw_boot_mock_on_store(faulty_xfer);
+        cut_at = n;
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_stage_take(&plat, 0u));
+        assert_nothing_copied();
+        TEST_ASSERT_EQUAL_UINT(n, xfers);
+    }
+}
+
+/* Silent at the signature's read: the error, not AUTH_REQUIRED, so the mark
+ * is not forgotten. */
+static void test_a_store_silent_at_the_signature_keeps_the_mark(void)
+{
+    unsigned n_sig;
+
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_boot_mock_on_store(faulty_xfer);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, 0u));
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, sig_at);
+
+    n_sig = sig_at;
+    setUp();
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_boot_mock_on_store(faulty_xfer);
+    cut_at = n_sig - 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_stage_take(&plat, 0u));
+    assert_nothing_copied();
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)TFW_STAGE_MARK_MAGIC, tfw_nor_model_mem()[MARK]);
+}
+
+/* A MARK whose length leaves no body, or runs past STAGE. */
+static void test_a_mark_length_out_of_range_copies_nothing(void)
+{
+    const uint32_t bad[] = { TFW_BOOT_TRAILER_LEN, (uint32_t)TFW_OTA_STORE_STAGE_LEN + 1u };
+    uint8_t        w[4];
+    unsigned       i;
+
+    for (i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        setUp();
+        stage(1000u, 1200u, TFW_BOARD_ID, 1);
+        wr32(w, bad[i]);
+        tfw_nor_model_load(MARK + TFW_STAGE_MARK_O_LEN, w, sizeof w);
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_stage_take(&plat, 0u));
+        assert_nothing_copied();
+    }
+}
+
+/* A trailer whose image is longer than the body the MARK names. */
+static void test_an_image_longer_than_its_body_copies_nothing(void)
+{
+    stage(1200u - TFW_BOOT_TRAILER_LEN + 1u, 1200u, TFW_BOARD_ID, 1);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_stage_take(&plat, 0u));
+    assert_nothing_copied();
+}
+
+/* The version in the Sig_structure as CBOR's shortest unsigned integer, in
+ * each of its one-, two- and four-byte forms (RFC 8949 §4.2.1). */
+static void test_the_activate_version_is_shortest_cbor(void)
+{
+    static const uint8_t enc[3][6] = {
+        { 0x18u, 0x80u, 0x00u },
+        { 0x19u, 0x12u, 0x34u, 0x00u },
+        { 0x1Au, 0x12u, 0x34u, 0x56u, 0x78u, 0x00u },
+    };
+    static const uint32_t ver[3] = { 0x80u, 0x1234u, 0x12345678uL };
+    static const uint16_t n[3]   = { 3u, 4u, 6u };
+    const uint8_t        *msg;
+    uint16_t              len;
+    uint8_t               w[4];
+    unsigned              i;
+
+    for (i = 0u; i < 3u; i++) {
+        setUp();
+        stage(1000u, 1200u, TFW_BOARD_ID, 1);
+        wr32(w, ver[i]);
+        tfw_nor_model_load(STAGE + 1200u - TFW_BOOT_TRAILER_LEN + TFW_BOOT_TR_IMAGE_VERSION, w,
+                           sizeof w);
+        memcpy(&trailer[TFW_BOOT_TR_IMAGE_VERSION], w, sizeof w);
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, ver[i]));
+        assert_installed(1200u);
+        msg = tfw_boot_verify_mock_msg(&len);
+        TEST_ASSERT_TRUE(len > n[i]);
+        TEST_ASSERT_EQUAL_MEMORY(enc[i], &msg[len - n[i]], n[i]);
+    }
+}
+
+/* A tier whose element keeps its key: the verify is given none. */
+static void test_a_keyless_tier_verifies_without_a_key(void)
+{
+    tfw_boot_verify_mock_pubkey(TFW_ERR_UNSUPPORTED);
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, VERSION));
+    assert_installed(1200u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_verify_mock_keyless());
+}
+
+/* A key that cannot be read: its error, and the mark kept. */
+static void test_an_unreadable_key_copies_nothing_and_keeps_the_mark(void)
+{
+    tfw_boot_verify_mock_pubkey(TFW_ERR_NACK);
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_boot_stage_take(&plat, VERSION));
+    assert_nothing_copied();
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)TFW_STAGE_MARK_MAGIC, tfw_nor_model_mem()[MARK]);
+}
+
+/* A part reporting no page, or one larger than the copy's buffer: nothing
+ * written, and a take cut there stays STAGED for the next boot. */
+static void test_a_page_size_the_copy_cannot_use_is_refused(void)
+{
+    stage(1000u, 1200u, TFW_BOARD_ID, 1);
+    tfw_boot_mock_set_page_size(0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_stage_take(&plat, 0u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_STAGED, plat.boot_state);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+
+    tfw_boot_mock_set_page_size((uint16_t)(TFW_OTA_PAGE_MAX + 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_stage_copy(STAGE, 1200u - TFW_BOOT_TRAILER_LEN));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_page_writes());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -355,5 +548,15 @@ int main(void)
     RUN_TEST(test_a_fallback_clears_the_mark_and_the_next_reset_takes_nothing);
     RUN_TEST(test_an_uncleared_mark_after_a_fallback_is_taken_again);
     RUN_TEST(test_a_clear_on_a_silent_store_fails);
+    RUN_TEST(test_a_store_busy_for_ever_times_out);
+    RUN_TEST(test_an_absent_store_is_refused_by_its_id);
+    RUN_TEST(test_a_store_silent_at_the_mark_or_the_trailer_copies_nothing);
+    RUN_TEST(test_a_store_silent_at_the_signature_keeps_the_mark);
+    RUN_TEST(test_a_mark_length_out_of_range_copies_nothing);
+    RUN_TEST(test_an_image_longer_than_its_body_copies_nothing);
+    RUN_TEST(test_the_activate_version_is_shortest_cbor);
+    RUN_TEST(test_a_keyless_tier_verifies_without_a_key);
+    RUN_TEST(test_an_unreadable_key_copies_nothing_and_keeps_the_mark);
+    RUN_TEST(test_a_page_size_the_copy_cannot_use_is_refused);
     return UNITY_END();
 }

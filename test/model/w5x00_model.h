@@ -27,6 +27,7 @@ uint8_t  w5x_model_sends(void);                    /* SEND commands seen */
 /* Faults. */
 void     w5x_model_set_sr(uint8_t sr);             /* e.g. CLOSED: refused or timed out */
 void     w5x_model_cr_stuck(uint8_t on);           /* a command is never taken */
+void     w5x_model_cr_stuck_on(uint8_t cr);        /* only command cr is never taken; 0: none */
 void     w5x_model_size_unstable(uint8_t on);      /* FSR and RSR never read the same twice */
 void     w5x_model_tx_cap(uint16_t cap);           /* FSR reads no more than this */
 /* The socket's buffer pointers after the next OPEN, so wrap-around in both the

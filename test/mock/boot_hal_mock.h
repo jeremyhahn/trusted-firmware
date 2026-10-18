@@ -61,6 +61,11 @@ void tfw_boot_mock_lose_nvm_writes(unsigned n);
  * one full-duplex transaction; with none set, the store does not open. */
 void tfw_boot_mock_on_store(void (*xfer)(uint8_t *buf, uint16_t len));
 
+/* The page size tfw_boot_flash_page_size reports until the next reset, so a
+ * test can show a part reporting a page the copy cannot use refused. Page
+ * writes stay MOCK_PAGE wide. */
+void tfw_boot_mock_set_page_size(uint16_t ps);
+
 uint8_t *tfw_boot_mock_nvm(void);
 
 /* The byte link, from the test's side. */

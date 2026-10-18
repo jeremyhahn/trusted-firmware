@@ -40,9 +40,20 @@ static const char SECRET_HEX[] =
 static uint8_t g_secret[32];
 static uint8_t g_public[32];
 
+/* Fault switches on the two seams this test supplies: what tfw_boot_pubkey
+ * answers, and what tfw_boot_verify answers when handed no key (the element
+ * tier). setUp puts both back to the soft tier's. */
+static tfw_status_t g_pubkey_st;
+static tfw_status_t g_stored_key_verdict;
+static unsigned     g_verify_calls;
+static unsigned     g_verify_null_key;
+
 /* A settable key slot, standing in for the one in boot-section flash. */
 tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN])
 {
+    if (g_pubkey_st != TFW_OK) {
+        return g_pubkey_st;
+    }
     memcpy(out, g_public, TFW_BOOT_PUBKEY_LEN);
     return TFW_OK;
 }
@@ -52,6 +63,13 @@ tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
                            const uint8_t sig[TFW_BOOT_SIG_LEN],
                            const uint8_t pub[TFW_BOOT_PUBKEY_LEN])
 {
+    g_verify_calls++;
+    if (pub == 0) {
+        /* The stored-key tier: the backend names its own key. This stand-in
+         * has none, so it answers with the verdict the test set. */
+        g_verify_null_key++;
+        return g_stored_key_verdict;
+    }
     if (ed25519_sign_open(msg, (size_t)msglen, pub, sig) != 0) {
         return TFW_ERR_CRYPTO;
     }
@@ -128,6 +146,10 @@ void setUp(void)
                                 | nib(SECRET_HEX[i * 2u + 1u]));
     }
     ed25519_publickey(g_secret, g_public);
+    g_pubkey_st          = TFW_OK;
+    g_stored_key_verdict = TFW_OK;
+    g_verify_calls       = 0u;
+    g_verify_null_key    = 0u;
 }
 
 void tearDown(void) {}
@@ -360,6 +382,53 @@ static void test_the_pin_check_accepts_the_matching_key(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(g_public, pub, 32);
 }
 
+/* boot_policy.c tfw_boot_check_pubkey_pin: a key seam that fails is passed on
+ * unchanged, and tfw_boot_evaluate_at's else-branch returns it before verify. */
+static void test_a_failing_key_seam_is_passed_on_and_nothing_is_verified(void)
+{
+    tfw_boot_verdict_t v;
+    uint8_t pinned[TFW_BOOT_MEASURE_LEN];
+    uint8_t pub[TFW_BOOT_PUBKEY_LEN];
+
+    install_signed_image(3u, 0x5Au);
+    g_pubkey_st = TFW_ERR_INTERNAL;
+
+    memset(pinned, 0, sizeof pinned);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_boot_check_pubkey_pin(pinned, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_UINT(0u, g_verify_calls);
+}
+
+/* The element tier: tfw_boot_pubkey answers UNSUPPORTED, the pin is skipped
+ * and verify is handed NULL, and its verdict is the policy's. */
+static void test_a_key_the_backend_keeps_is_verified_with_no_key(void)
+{
+    tfw_boot_verdict_t v;
+
+    install_signed_image(3u, 0x5Au);
+    g_pubkey_st = TFW_ERR_UNSUPPORTED;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_UINT(1u, g_verify_null_key);
+
+    g_stored_key_verdict = TFW_ERR_CRYPTO;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_UINT(2u, g_verify_null_key);
+}
+
+/* The pinned hash's EEPROM read fails: the policy returns the read's status
+ * and verifies nothing. */
+static void test_a_failed_pin_read_is_passed_on_and_nothing_is_verified(void)
+{
+    tfw_boot_verdict_t v;
+
+    install_signed_image(3u, 0x5Au);
+    tfw_boot_mock_fail_nvm_reads(1u);
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_boot_evaluate(0u, &v));
+    TEST_ASSERT_EQUAL_UINT(0u, g_verify_calls);
+}
+
 /* ------------------------------------------------------- the comparison */
 
 static void test_equal_is_constant_time_and_correct(void)
@@ -398,6 +467,9 @@ int main(void)
     RUN_TEST(test_a_relabelled_board_id_is_refused);
     RUN_TEST(test_a_public_key_the_device_does_not_pin_is_refused);
     RUN_TEST(test_the_pin_check_accepts_the_matching_key);
+    RUN_TEST(test_a_failing_key_seam_is_passed_on_and_nothing_is_verified);
+    RUN_TEST(test_a_key_the_backend_keeps_is_verified_with_no_key);
+    RUN_TEST(test_a_failed_pin_read_is_passed_on_and_nothing_is_verified);
     RUN_TEST(test_equal_is_constant_time_and_correct);
     return UNITY_END();
 }

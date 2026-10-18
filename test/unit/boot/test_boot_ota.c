@@ -227,6 +227,28 @@ static void test_a_short_final_page_pads_with_erased_flash(void)
     TEST_ASSERT_EQUAL_UINT(2u, pages);
 }
 
+/* tfw_ota_begin admits only whole pages and tfw_ota_data flushes each page as
+ * it fills, so at end the buffer is always empty: flush's padding loop
+ * (boot_ota.c:32) and end's flush failure (boot_ota.c:138-139) are never
+ * reached. A writer that refuses every further page proves end writes none. */
+static void test_end_writes_nothing_after_the_last_whole_page(void)
+{
+    tfw_ota_t o;
+    uint8_t  chunk[64];
+
+    fresh(&o);
+    memset(chunk, 0x22, sizeof chunk);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_ota_begin(&o, PAGE * 2u));
+    for (uint32_t off = 0u; off < PAGE * 2u; off += 64u) {
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_ota_data(&o, off, chunk, 64u));
+    }
+    TEST_ASSERT_EQUAL_UINT(2u, pages);
+    fail_after = pages;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_ota_end(&o));
+    TEST_ASSERT_EQUAL_UINT8(TFW_OTA_COMPLETE, tfw_ota_state(&o));
+    TEST_ASSERT_EQUAL_UINT(2u, pages);
+}
+
 static void test_abort_returns_to_idle_and_keeps_no_progress(void)
 {
     tfw_ota_t o;
@@ -257,6 +279,7 @@ int main(void)
     RUN_TEST(test_a_truncated_transfer_is_refused_at_end);
     RUN_TEST(test_a_failing_flash_fails_the_session);
     RUN_TEST(test_a_short_final_page_pads_with_erased_flash);
+    RUN_TEST(test_end_writes_nothing_after_the_last_whole_page);
     RUN_TEST(test_abort_returns_to_idle_and_keeps_no_progress);
     return UNITY_END();
 }

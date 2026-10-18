@@ -96,7 +96,9 @@ restore procedure, written before the project's first write to it (owner,
 CA m346): [the Mega 2560](bench/mega2560.md) and [the Nano](bench/nano.md). The ESP32-P4 board is not an ISP board; its
 factory flash image and eFuse state are on [its page](bench/esp32-p4.md).
 The Mega's page also records that this USBasp cannot address the
-ATmega2560's low 128 KB.
+ATmega2560's low 128 KB. The bench as the owner changed it on 2026-10-18,
+with each board named, is in the table on [the Nano's
+page](bench/nano.md#the-bench-change-2026-10-18).
 
 ### The Mega, 2026-10-16
 
@@ -384,6 +386,35 @@ This is for the owner, before the Nano slice:
    - Check the result by flashing over `/dev/ttyUSB0` with `make flash
      BOARD=atmega328p`. That uses the `arduino` programmer at 115200, from
      `boards/atmega328p/profile.mk`.
+
+### The bench change, 2026-10-18: the cabling question
+
+The owner moved the USBasp to a standard Arduino with no Ethernet shield, and
+left the shield board on USB alone. The USBasp's target still does not answer:
+`program enable: target does not answer (0x01)`, and the signature reads
+`0x000000` under `-F`. While a USBasp session held the target's RESET low,
+both boards on USB kept running, the Nano's sketch on `/dev/ttyUSB0` and the
+Mega's bootloader on `/dev/ttyACM0`. So the USBasp's RESET line is on neither
+of them. [The Nano's page](bench/nano.md#the-bench-change-2026-10-18) has the
+bench table and the reads. Nothing was written, and no factory record could be
+taken.
+
+What software cannot tell, and what this asks the owner:
+
+1. **Which board is the USBasp's cable on?** Two Arduinos are on USB: the Mega
+   (`2341:0042`, the shield board) and the CH340 Nano (`1a86:7523`). Is the
+   ISP board the Nano, or a third board that is not on USB?
+2. **If it is the Nano: the 6-pin header's orientation and seating.** The plug's
+   pin 1 (MISO, the cable's marked wire) goes on the Nano ICSP header's pin 1,
+   at the dot or square pad, at the end opposite the USB socket, fully down on
+   all six pins. A plug turned round gives exactly what was read: MISO on GND
+   reads every bit 0, and RESET on VCC never resets the part.
+3. **If it is a third board: power to the target.** It has power only from the
+   USBasp's target-power jumper (JP1 on the reference design; the label
+   differs between clones) or from its own USB cable, never both.
+4. **JP3, slow clock: open.** It matters only for a target clocked under about
+   1.5 MHz, such as a blank part on its 1 MHz internal clock. An Arduino on its
+   16 MHz crystal does not need it.
 
 ## The programmer: ArduinoISP on the Mega — fallback path, not taken (owner, 2026-10-15)
 

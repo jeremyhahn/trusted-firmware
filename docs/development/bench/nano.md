@@ -88,3 +88,69 @@ The 328P's 32 KB is within the USBasp's reach, unlike the Mega's upper half
 ([the Mega's page](mega2560.md#the-usbasp-cannot-see-the-low-128-kb)). The
 flash read is the resident image, the owner's dosing-controller sketch, which
 the owner has freed. It is recorded only so a restore can tell what was there.
+
+## The bench change, 2026-10-18
+
+The owner changed the bench at 16:42Z. A USBasp is wired to a standard Arduino
+with no Ethernet shield, and a second Arduino, with the shield, is on USB alone.
+This section records what the bench host saw between 16:46Z and 16:51Z. Every
+probe was read only. Nothing was written to any board: no chip erase, no fuse,
+no lock bit, no flash or EEPROM byte. avrdude is the Debian 7.1 in [the ISP
+route](../isp-route.md#toolchain-and-sources), fetched and unpacked again for
+this run with the same package hashes.
+
+| USB | Port | What answered | Board |
+|---|---|---|---|
+| `2341:0042`, Arduino | `/dev/ttyACM0` | The stk500v2 bootloader (`avrdude -c wiring -b 115200 -p m2560 -n`): signature `0x1E9801`. The application (`tfwctl ping`, `caps`): board `0x02` (atmega2560), protocol 2.0, firmware 0.1.0, root of trust `software`. `tfwctl spi 10 …` is refused with `target is platform-reserved`, because D10 is the W5100's chip select in the `ETH=1` build | [The Mega](mega2560.md#the-bench-change-2026-10-18), the shield board |
+| `1a86:7523`, CH340 | `/dev/ttyUSB0` | No bootloader. After a DTR reset the dosing-controller sketch sends its first byte 72 ms later at 115200, the same 97 bytes as on 2026-10-15, beginning `Initializing dosing controller...` | This Nano |
+| `16c0:05dc`, USBasp, `bcdDevice` `0x0102` | `usb` | `-p m328p -n` and `-p m2560 -n`: `cannot set sck period`, then `program enable: target does not answer (0x01)`. With `-F` the signature reads `0x000000` | The ISP target: not identified, below |
+| `1a86:55d3`, CH343 | `/dev/ttyACM1` | Not opened, and not passed into this run | The ESP32-P4, [its page](esp32-p4.md) |
+
+### Whose RESET the USBasp holds
+
+An avrdude session on the USBasp drives the target's RESET low from its
+connect request until it quits. `-F` keeps the session open past the failed
+program enable, and terminal mode holds it open until `quit`:
+
+```sh
+(sleep 12; echo quit) | avrdude -c usbasp -P usb -p m328p -n -F -t
+(sleep 10; echo quit) | avrdude -c usbasp -P usb -p m2560 -n -F -t
+```
+
+| During the session | Answer |
+|---|---|
+| `/dev/ttyUSB0`, a DTR reset and 1.5 s of listening at 115200, three times, 2, 6 and 9 s in | The sketch, 72 ms after each reset, all 97 bytes each time |
+| `/dev/ttyACM0`, `avrdude -c wiring -p m2560 -n`, 2.5 s in | The bootloader answered, signature `0x1E9801` |
+
+A part held in reset runs nothing. So the USBasp's RESET line is on neither
+board that is on USB. That leaves two cases, and software cannot tell them
+apart:
+
+1. **The cable is on the Nano, or the Mega, and does not reach its RESET.** A
+   6-pin plug turned round fits the readings: the USBasp's MISO lands on the
+   target's GND, so every bit reads 0 (`0x000000`), and its RESET lands on the
+   target's VCC. A plug that is not fully seated fits them as well.
+2. **The target is a third board on the USBasp alone.** It is then powered only
+   if the USBasp's target-power jumper is on. An unpowered target also reads
+   `0x000000`.
+
+The owner described two Arduinos, and two are on USB. By elimination the shield
+board is the Mega and the ISP board is this Nano, which puts the bench in case 1.
+That is inferred, not measured.
+
+The slow-clock jumper (JP3) is not the cause if the target is this Nano. Its
+sketch runs at 115200 off a 16 MHz clock, and the USBasp's default clock,
+which this firmware cannot change (`cannot set sck period`), needs a target
+clock above about 1.5 MHz. JP3 matters only for a part on its 1 MHz internal
+clock, such as a blank chip.
+
+**No factory record.** Without an ISP signature the fuses, the lock byte and
+the flash cannot be read, so the factory values above stay as they were. The
+questions for the owner are in [the ISP route](../isp-route.md#the-bench-change-2026-10-18-the-cabling-question).
+
+**tfw-boot on this board, once the ISP read works.** `BOOT_SUPPORTED` in
+`mk/boot.mk` has one 328P row, `atmega328p:atecc608a:atecc608a:atecc608a:0:0`,
+which needs the ATECC608C. The soft row is 4030 bytes over the 4 KB section and
+is not a row. Under CA m435 (the element is never required) and the owner's
+ruling of 2026-10-17 (the 328P is element-only), no tfw-boot build for this board
+can be flashed here.

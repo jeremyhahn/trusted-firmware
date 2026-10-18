@@ -34,6 +34,7 @@ static uint8_t  ee_read_fails;           /* every read refused */
 static uint8_t  handoff[TFW_BOOT_HANDOFF_LEN];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
+static uint8_t  adc_read_fails;          /* every conversion refused */
 static uint16_t tone_hz;
 static uint32_t pulse_in_us;
 static uint16_t capture_us[32];
@@ -142,6 +143,7 @@ void tfw_mock_reset(void)
     memset(handoff, 0, sizeof handoff);    /* zeroed: reads as "no handoff" */
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
+    adc_read_fails = 0u;
     tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
     bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u;
     last_i2c_hz = 0xFFFFFFFFuL; last_spi_mode = last_spi_clkdiv = last_spi_lsb = 0xFFu;
@@ -187,6 +189,8 @@ void tfw_mock_set_adc(uint8_t channel, uint16_t raw)
 {
     if (channel < 8u) { adc_value[channel] = raw; }
 }
+
+void tfw_mock_adc_read_fails(uint8_t on) { adc_read_fails = on; }
 
 uint8_t *tfw_mock_eeprom(void) { return eeprom; }
 size_t   tfw_mock_eeprom_size(void) { return sizeof eeprom; }
@@ -383,6 +387,7 @@ tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     if (channel > 7u) { return TFW_ERR_BAD_PIN; }
+    if (adc_read_fails) { return TFW_ERR_TIMEOUT; }
     *out_raw = adc_value[channel];
     return TFW_OK;
 }

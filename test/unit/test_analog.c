@@ -74,6 +74,16 @@ static void test_a_pin_beyond_the_board_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, run(TFW_CMD_ANALOG_READ, (const uint8_t[]){ 99u }, 1u));
 }
 
+/* A conversion the converter refuses is the converter's status, and no reading
+ * goes out -- a zero in its place would read as a dry sensor. */
+static void test_a_failed_conversion_returns_its_status_and_writes_nothing(void)
+{
+    tfw_mock_set_adc(0u, 512u);
+    tfw_mock_adc_read_fails(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, run(TFW_CMD_ANALOG_READ, (const uint8_t[]){ 14u }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+}
+
 static void test_the_reference_can_be_selected_and_is_range_checked(void)
 {
     for (uint8_t ref = 0u; ref <= 2u; ref++) {
@@ -91,6 +101,7 @@ int main(void)
     RUN_TEST(test_the_adc_only_pins_are_readable);
     RUN_TEST(test_a_digital_only_pin_has_no_analog_reading);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
+    RUN_TEST(test_a_failed_conversion_returns_its_status_and_writes_nothing);
     RUN_TEST(test_the_reference_can_be_selected_and_is_range_checked);
     return UNITY_END();
 }

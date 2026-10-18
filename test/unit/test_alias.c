@@ -723,6 +723,49 @@ static void test_a_page_and_its_header_fit_one_payload(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ALIAS_PAGE + 3u, len);
 }
 
+/* The element answers the GenKey for the subject key, then drops off the bus
+ * before the Sign. The mint is refused with the provider's status, nothing is
+ * written, and the certificate minted before it is no longer served: a page
+ * of it would be bound to a nonce the host has moved on from. */
+static void test_a_sign_that_fails_after_the_subject_key_is_refused(void)
+{
+    uint8_t out[TFW_MAX_PAYLOAD];
+    uint8_t len  = 0xFFu;
+    uint8_t page = 0u;
+
+    provision();
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+
+    tfw_model_fail_wakes_after(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(&page, 1u, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
+}
+
+/* r and s with 31 leading zero bytes: the strip stops at the last byte, which
+ * is still emitted, and a top bit set there still takes its 0x00 pad. The
+ * ECDSA-Sig-Value is then 02 01 05 02 02 00 80, and its lengths say so. */
+static void test_a_signature_with_31_leading_zero_bytes_is_minimal_der(void)
+{
+    static const uint8_t TAIL[12] = {
+        0x03u, 0x0Au, 0x00u, 0x30u, 0x07u,
+        0x02u, 0x01u, 0x05u, 0x02u, 0x02u, 0x00u, 0x80u
+    };
+    tfw_alias_parts_t p = pinned();
+    uint8_t          s[64];
+    uint8_t          got[CERT_MAX];
+    uint16_t         total;
+
+    memset(s, 0, sizeof s);
+    s[31] = 0x05u;
+    s[63] = 0x80u;
+    p.sig = s;
+    total = collect(&p, got);
+    TEST_ASSERT_TRUE(der_exact(got, total));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(TAIL, &got[total - sizeof TAIL], sizeof TAIL);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -747,5 +790,7 @@ int main(void)
     RUN_TEST(test_a_wrong_sized_argument_is_refused);
     RUN_TEST(test_a_page_past_the_end_is_refused);
     RUN_TEST(test_a_page_and_its_header_fit_one_payload);
+    RUN_TEST(test_a_sign_that_fails_after_the_subject_key_is_refused);
+    RUN_TEST(test_a_signature_with_31_leading_zero_bytes_is_minimal_der);
     return UNITY_END();
 }

@@ -517,6 +517,22 @@ static void test_an_element_failure_is_returned_and_writes_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(0u, len);
 }
 
+/* The public key is read and the signature then fails: the GenKey is taken,
+ * every command after it is NACKed. Refused past the key, and nothing written. */
+static void test_a_signing_failure_after_the_key_writes_nothing(void)
+{
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    uint8_t      len = 0xFFu;
+    tfw_status_t st;
+
+    provision();
+    tfw_model_fail_commands_after(1u);
+    st = run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, st);
+    TEST_ASSERT_NOT_EQUAL(TFW_ERR_NOT_PROVISIONED, st);   /* the key was read */
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
+}
+
 /* No state: ATTEST_CSR leaves no certificate behind for ATTEST_CERT to page. */
 static void test_the_command_leaves_no_certificate_behind(void)
 {
@@ -549,6 +565,7 @@ int main(void)
     RUN_TEST(test_a_wrong_sized_b_is_refused);
     RUN_TEST(test_an_unprovisioned_element_refuses);
     RUN_TEST(test_an_element_failure_is_returned_and_writes_nothing);
+    RUN_TEST(test_a_signing_failure_after_the_key_writes_nothing);
     RUN_TEST(test_the_command_leaves_no_certificate_behind);
     return UNITY_END();
 }

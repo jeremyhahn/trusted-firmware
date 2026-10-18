@@ -46,6 +46,9 @@ void    tfw_mock_set_input_level(uint16_t port, uint8_t bit, uint8_t level);
 
 /* adc: a test sets what the converter will report for a channel */
 void tfw_mock_set_adc(uint8_t channel, uint16_t raw);
+/* every conversion fails with TFW_ERR_TIMEOUT while set; tfw_mock_reset
+ * turns it off again. */
+void tfw_mock_adc_read_fails(uint8_t on);
 
 /* eeprom: a flat array the test can inspect directly */
 uint8_t *tfw_mock_eeprom(void);

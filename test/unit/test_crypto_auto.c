@@ -295,6 +295,18 @@ void test_no_handoff_reports_no_floor(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_otactl_floor(&plat, &floor));
 }
 
+/* A boot on a tier this image has no floor for: the floor in force cannot be
+ * named, so none is reported -- neither the EEPROM copy nor the counter. */
+void test_a_boot_on_a_tier_with_no_floor_reports_none(void)
+{
+    uint32_t floor = 0xA5A5A5A5u;
+
+    tfw_model_provision();
+    boot_on((uint8_t)TFW_CRYPTO_NONE);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor(&plat, &floor));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, floor);
+}
+
 /* The auto gate (src/core/auth_session_auto.c): the element's on the element
  * tier, its answer passed through either way. */
 void test_the_element_tier_gate_passes_what_the_element_gate_passes(void)
@@ -355,6 +367,7 @@ int main(void)
     RUN_TEST(test_an_element_boot_whose_probe_failed_reports_the_element_counter);
     RUN_TEST(test_a_soft_boot_reports_the_eeprom_floor);
     RUN_TEST(test_an_element_boot_with_an_unreadable_counter_fails);
+    RUN_TEST(test_a_boot_on_a_tier_with_no_floor_reports_none);
     RUN_TEST(test_no_handoff_reports_no_floor);
     RUN_TEST(test_no_element_runs_the_soft_root);
     RUN_TEST(test_an_element_that_answers_is_chosen);

@@ -62,6 +62,17 @@ static void test_reader_refuses_one_byte_past_the_end(void)
     TEST_ASSERT_FALSE(tfw_reader_ok(&r));
 }
 
+/* A u32 that runs past the end reads as 0, not as the three bytes that were
+ * there, and the cursor does not move. */
+static void test_reader_refuses_a_u32_past_the_end(void)
+{
+    tfw_reader_t s;
+    tfw_reader_init(&s, PAYLOAD, 3u);
+    TEST_ASSERT_EQUAL_HEX32(0u, tfw_read_u32(&s));
+    TEST_ASSERT_FALSE(tfw_reader_ok(&s));
+    TEST_ASSERT_EQUAL_UINT8(3u, tfw_reader_remaining(&s));
+}
+
 /* THE STICKY PROPERTY. After one underflow every later read must fail too,
  * even a read that would have fitted. This is what lets a handler pull six
  * arguments and check once instead of checking six times and getting the
@@ -120,6 +131,7 @@ int main(void)
     RUN_TEST(test_reader_returns_a_pointer_into_the_payload_for_a_blob);
     RUN_TEST(test_reader_permits_reading_exactly_to_the_end);
     RUN_TEST(test_reader_refuses_one_byte_past_the_end);
+    RUN_TEST(test_reader_refuses_a_u32_past_the_end);
     RUN_TEST(test_reader_underflow_is_sticky);
     RUN_TEST(test_reader_zero_return_is_not_a_success_signal);
     RUN_TEST(test_reader_refuses_a_length_that_would_wrap_the_cursor);

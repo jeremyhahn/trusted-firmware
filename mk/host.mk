@@ -115,6 +115,8 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # as the I2C HAL and the ATECC provider as the crypto tier. Linking it beside
 # the mock would be two definitions of tfw_hal_i2c_xfer.
 # test_csr joins it for the same reason: the possession signature is the element's.
+# test_csr_alg links its own stand-in provider, which would be a second
+# tfw_crypto_sign beside the soft provider in HOST_LIB_SRCS.
 # test_bus_element joins that list for the same reason: it links the software
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
 # functions, either of which the mock also defines.
@@ -124,7 +126,7 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # tfw_crypto_init and everything else in include/tfw/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test/unit/test_crypto_auto.c \
                             test/unit/test_provision.c test/unit/test_provision_mutate.c test/unit/test_auth_mutate.c test/unit/test_alias.c \
-                            test/unit/test_csr.c \
+                            test/unit/test_csr.c test/unit/test_csr_alg.c \
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
@@ -295,6 +297,16 @@ $(HOST_DIR)/test_csr: test/unit/test_csr.c $(ELEMENT_MODEL) \
                       boot/boot_handoff.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
                       $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# ATTEST_CSR's refusal of a signature that is not ES256. No shipped provider
+# gives a public key and signs under anything else, so the provider and the
+# attestation identity are the suite's own stand-ins.
+$(HOST_DIR)/test_csr_alg: test/unit/test_csr_alg.c \
+                          src/caps/csr.c src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
+                          src/core/reader.c src/core/writer.c src/crypto/sha256.c \
+                          $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # I2C_CONFIG's refusal on an element build (src/caps/bus.c) -- the one
@@ -607,7 +619,7 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
@@ -1091,3 +1103,9 @@ header-deps-check:
 	 echo "header-deps-check: edited headers rebuild the host binaries"
 
 .PHONY: header-deps-check
+
+# The CAPS handlers on an ETH=1 pin table (#75): the host library as it is, with
+# the shield's pins D10-D13 marked in use, so tone's refusal of D11 runs. It
+# stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)

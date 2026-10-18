@@ -91,12 +91,70 @@ static void pump(const uint8_t *in, size_t n, int out_fd)
     }
 }
 
+/* Presets for the peripherals the mock HAL answers, so a host test can see a
+ * success the mock would otherwise never give: a pulse, a capture, a bus that
+ * answers, a 1-Wire device present. Each is an environment variable and each
+ * unset leaves the mock as tfw_mock_reset() left it, which is what every
+ * existing caller gets.
+ *
+ *   TFWSIM_PULSE_IN_US    the width every pulse-in measures, in us
+ *   TFWSIM_CAPTURE_US     comma-separated edge intervals, in us (at most 32)
+ *   TFWSIM_BUS_RESPONSE   hex bytes an I2C read or a 1-Wire read returns
+ *   TFWSIM_OW_PRESENCE    1 for a device answering a 1-Wire reset
+ */
+static int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') { return c - '0'; }
+    if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
+    if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
+    return -1;
+}
+
+static void preset_mock(void)
+{
+    const char *v;
+
+    v = getenv("TFWSIM_PULSE_IN_US");
+    if (v) {
+        tfw_mock_set_pulse_in((uint32_t)strtoul(v, NULL, 10));
+    }
+    v = getenv("TFWSIM_CAPTURE_US");
+    if (v) {
+        uint16_t us[32];
+        uint8_t  n = 0u;
+        char    *end;
+
+        while (*v && n < 32u) {
+            us[n++] = (uint16_t)strtoul(v, &end, 10);
+            if (*end != ',') { break; }
+            v = end + 1;
+        }
+        tfw_mock_set_capture(us, n);
+    }
+    v = getenv("TFWSIM_BUS_RESPONSE");
+    if (v) {
+        uint8_t b[32];
+        uint8_t n = 0u;
+
+        while (n < sizeof b && hex_nibble(v[0]) >= 0 && hex_nibble(v[1]) >= 0) {
+            b[n++] = (uint8_t)((hex_nibble(v[0]) << 4) | hex_nibble(v[1]));
+            v += 2;
+        }
+        tfw_mock_set_bus_response(b, n);
+    }
+    v = getenv("TFWSIM_OW_PRESENCE");
+    if (v) {
+        (void)tfw_mock_ow_presence_set((uint8_t)(strcmp(v, "1") == 0));
+    }
+}
+
 static int run(int in_fd, int out_fd, int eth)
 {
     uint8_t buf[512];
 
     tfw_mock_reset();
     tfwsim_tier_seed();
+    preset_mock();
     tfw_sys_reset_state();
     /* src/main.c's startup(), in its order, so a test peer cannot behave
      * differently from the device. The bus comes up BEFORE the crypto provider,

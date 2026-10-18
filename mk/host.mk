@@ -72,7 +72,10 @@ UNITY_CFLAGS := -std=c11 -g -O1 -I$(UNITY_DIR)
 # had moved to 2.
 HOST_CC := sh mk/ccdeps.sh $(CC)
 
-SAN_FLAGS   := -fsanitize=address,undefined -fno-omit-frame-pointer
+# -fno-sanitize-recover=all: by default UBSan prints its report and lets the
+# binary carry on and exit 0, so a gate on the exit status passed on undefined
+# behaviour. With it, the first report aborts the test binary and fails the gate.
+SAN_FLAGS   := -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
 COV_FLAGS   := --coverage -fprofile-arcs -ftest-coverage
 
 # The software ATECC608A (test/model/atecc608a.c) does real P-256 through the
@@ -583,12 +586,16 @@ host-test: $(TEST_BINS) $(HOST_EXTRA_BINS)
 	@fail=0; for t in $(TEST_BINS) $(HOST_EXTRA_BINS); do \
 	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
 
-## test-asan: run the host unit tests under AddressSanitizer and UBSan
+## test-asan: run the host and boot unit tests under AddressSanitizer and UBSan
 # The codec is pointer-heavy parser code reached from untrusted bytes. This is
 # where a memory bug will be, so it gets its own gate rather than riding along.
 test-asan:
 	@$(MAKE) --no-print-directory clean-host
 	@$(MAKE) --no-print-directory host-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
+	@# The boot suites too, the way coverage runs them: the bootloader parses an
+	@# untrusted image and verifies its signature, and none of that ran under
+	@# the sanitizers while only host-test did.
+	@$(MAKE) --no-print-directory boot-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
 
 ## coverage: run the host tests with coverage and enforce the floor
 coverage:

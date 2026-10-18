@@ -57,13 +57,15 @@ build-tools:
 # -------------------------------------------------------------------- test
 ## test: stage 2 -- the host unit suites, board sweep, coverage floor, sanitizers
 # verify-vectors is here: the C and Go wire vectors are test data, and a
-# mismatch is a wire break (CLAUDE.md), not a build failure.
+# mismatch is a wire break (CLAUDE.md), not a build failure. xkms-coverage and
+# sdk-coverage hold the two Go modules' statement-coverage floors, as coverage
+# holds the firmware's.
 #
 # The gates run one after another, in a sub-make each: coverage and test-asan
 # start with clean-host, which deletes $(HOST_DIR) while host-test, boot-test
 # or board-sweep could be building into it under `make -j`. Serial here, so
 # `make -j8 ci` and `make ci` run the same thing; each sub-make still uses -j.
-TEST_GATES := host-test boot-test board-sweep coverage test-asan verify-vectors xkms-coverage scripts-test
+TEST_GATES := host-test boot-test board-sweep coverage test-asan verify-vectors xkms-coverage sdk-coverage scripts-test
 
 test: test-tools
 	@for g in $(TEST_GATES); do $(MAKE) --no-print-directory $$g || exit 1; done

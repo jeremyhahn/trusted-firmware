@@ -88,11 +88,14 @@ static void test_rfc8032_test3_verifies(void)
 
 static void test_rfc8032_test1_the_empty_message_verifies(void)
 {
-    uint8_t pub[32], sig[64];
+    /* A real buffer of length 0, not a null pointer: boot_verify.h does not
+     * allow a null msg, both callers pass a buffer, and donna hands msg to
+     * memcpy, whose source must be non-null even for a zero length. */
+    uint8_t pub[32], sig[64], msg[1] = { 0 };
 
     unhex(RFC8032_T1_PUB, pub, 32u);
     unhex(RFC8032_T1_SIG, sig, 64u);
-    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(0, 0u, sig, pub));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(msg, 0u, sig, pub));
 }
 
 /* THE TAMPERED VECTOR. The same RFC 8032 TEST 2, with one bit of the message

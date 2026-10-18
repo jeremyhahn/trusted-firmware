@@ -24,6 +24,19 @@ sdk-build:
 sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
 	@cd $(SDK_DIR) && $(GO) test -count=1 ./...
 
+## sdk-coverage: Go SDK statement coverage, failing under the floor
+# The same simulators and the same run as sdk-test, so the cross-implementation
+# suite counts: it is what reaches the codec and the client end to end.
+SDK_COVERAGE_FLOOR ?= 90
+sdk-coverage: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
+	@mkdir -p coverage
+	@cd $(SDK_DIR) && $(GO) test -count=1 -coverprofile=../../coverage/sdk.out ./... && \
+	  total=$$($(GO) tool cover -func=../../coverage/sdk.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
+	  echo "sdk/go: $$total% statement coverage (floor $(SDK_COVERAGE_FLOOR)%)" && \
+	  if [ "$${total%.*}" -lt "$(SDK_COVERAGE_FLOOR)" ]; then \
+	    echo "sdk/go coverage is below the floor"; exit 1; \
+	  fi
+
 ## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=)
 # The same TestAgainstFirmware* suite sdk-test runs against tfwsim, pointed at
 # the board on PORT through the suite's one transport seam,
@@ -124,4 +137,4 @@ hw-enroll:
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage hw-enroll
+.PHONY: sdk-build sdk-test sdk-coverage hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage hw-enroll

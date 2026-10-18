@@ -78,6 +78,14 @@ func (s *simConn) Close() error {
 
 func startSim(t *testing.T) *tfw.Device {
 	t.Helper()
+	return startSimWith(t)
+}
+
+// startSimWith starts tfwsim with env added to this process's environment:
+// the TFWSIM_* presets tools/tfwsim/main.c reads to make the mock HAL answer
+// a peripheral it otherwise never does.
+func startSimWith(t *testing.T, env ...string) *tfw.Device {
+	t.Helper()
 	bin, err := filepath.Abs("../../../../build/host/tfwsim")
 	if err != nil {
 		t.Fatalf("resolving tfwsim path: %v", err)
@@ -88,6 +96,7 @@ func startSim(t *testing.T) *tfw.Device {
 		t.Fatalf("tfwsim not built at %s -- run `make tfwsim` first: %v", bin, err)
 	}
 	cmd := exec.Command(bin)
+	cmd.Env = append(os.Environ(), env...)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

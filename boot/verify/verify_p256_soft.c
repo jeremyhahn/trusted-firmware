@@ -31,6 +31,9 @@ tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN])
     return TFW_ERR_UNSUPPORTED;
 }
 
+/* ES256: SHA-256, then the P-256 verify. */
+const uint8_t tfw_boot_cose_alg = 0x26u;
+
 tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
                            const uint8_t sig[TFW_BOOT_SIG_LEN],
                            const uint8_t pub[TFW_BOOT_PUBKEY_LEN])

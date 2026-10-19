@@ -1,15 +1,21 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # SPDX-License-Identifier: commercial
 #
-# The ESP32-P4 PoE board: its own EMAC and IP101 PHY, 16 MB of flash, and
+# The ESP32-P4 PoE board: its own EMAC and IP101 PHY, 32 MB of flash, and
 # flash encryption in release mode on top of mk/arch/esp32/sdkconfig.defaults'
 # secure boot v2. Release mode is permanent once the first boot burns it:
 # a development part is provisioned with a development-mode override, never
-# with this file edited in place.
+# with this file edited in place; bench HIL-0 boots with sdkconfig.hil0.
+#
+# 32 MB is the part on the board: a GD25Q256 in the vendor schematic, JEDEC
+# 0xC8 0x4019 read on the bench (docs/development/bench/esp32-p4.md). ESP-IDF
+# v5.5.5 turns on the bootloader's 32-bit flash addressing with it
+# (BOOTLOADER_FLASH_32BIT_ADDR); cache mapping above 16 MB is experimental and
+# stays off, so partitions.csv keeps every app below 16 MB.
 CONFIG_ETH_ENABLED=y
 CONFIG_ETH_USE_ESP32_EMAC=y
 CONFIG_ETH_USE_OPENETH=n
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 
 # DHCP gives the board its address. For a network with no DHCP server, a
 # deployment uncomments these (RFC 5737 TEST-NET-1 addresses; use its own)

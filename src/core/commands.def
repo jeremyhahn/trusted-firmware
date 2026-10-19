@@ -133,8 +133,11 @@ TFW_CMD_ENTRY(TFW_CMD_OTA_STATUS, OTA_STATUS, tfw_stage_cmd_status, 0u, 0u)
 /* The rest of decision 8 -- issue #77. Only an image whose tfw-boot runs the
  * trial (BOOT_AB) and which stages into the store links them: see
  * TFW_FEATURE_OTA_CTL in config.h and src/core/ota_ctl.c. Serial only: none of
- * the three is on the Ethernet allow-list (src/proto/link_eth.c). */
-#if TFW_FEATURE_OTA_CTL
+ * the three is on the Ethernet allow-list (src/proto/link_eth.c). OTA_INFO has
+ * its own gate, TFW_FEATURE_OTA_INFO, which follows OTA_CTL. The ESP32 session
+ * (src/hal/esp32/hal_ota.c, #48) sets all three gates and answers OTA_INFO,
+ * OTA_ACTIVATE and OTA_CONFIRM itself, over ESP-IDF's trial. */
+#if TFW_FEATURE_OTA_INFO
 TFW_CMD_ENTRY(TFW_CMD_OTA_INFO,     OTA_INFO,     tfw_otactl_cmd_info,     1u, 1u)
 #endif
 /* OTA_ACTIVATE is every stager's, single-slot or A/B: src/core/ota_activate.c,

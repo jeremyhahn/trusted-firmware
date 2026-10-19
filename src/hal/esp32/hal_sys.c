@@ -139,3 +139,15 @@ uint32_t tfw_hal_free_ram(void)
 {
     return (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
 }
+
+/* No-ops: ESP-IDF's task and interrupt watchdogs are its own, armed by its
+ * startup, and a trial here is its bootloader's (CONFIG_BOOTLOADER_APP_ROLLBACK_
+ * ENABLE): a trial that never confirms falls back at the next reset, which the
+ * trial deadline in src/core/ota_trial.c asks for. */
+void tfw_hal_watchdog_arm(void)
+{
+}
+
+void tfw_hal_watchdog_pet(void)
+{
+}

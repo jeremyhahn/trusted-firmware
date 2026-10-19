@@ -141,8 +141,9 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
-                            test/unit/test_stage_marked.c \
-                            test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c, \
+                            test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
+                            test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
+                            test/unit/test_deviceid_p256.c test/unit/test_provision_uds.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -271,7 +272,8 @@ $(HOST_DIR)/test_suit_emit: test/unit/test_suit_emit.c tools/suit-emit/emit.c sr
 # Provisioning, same arrangement and the same reason: it drives the element, so
 # the software element is its I2C HAL.
 $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
-                            src/caps/provision.c src/core/reader.c src/core/writer.c \
+                            src/caps/provision.c src/caps/provision_atecc.c \
+                            src/core/reader.c src/core/writer.c \
                             src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -403,7 +405,7 @@ $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
 # and EEPROM, with the platform block reader the application links, and the
 # runner's after_update entry as a fake (test/mock/runner_fake.h).
 # test_ota_trial_mutate mutates that block on the same link.
-$(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate: $(HOST_DIR)/%: test/unit/%.c src/core/ota_trial.c \
+$(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate: $(HOST_DIR)/%: test/unit/%.c src/core/ota_trial.c src/core/ota_trial_block.c \
                         test/mock/runner_fake.c \
                         boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c \
                         src/core/secure_zero.c boot/boot_handoff.c \
@@ -627,7 +629,47 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
+# The P-256 DeviceID from a UDS (issue #48) on micro-ecc, without
+# src/core/secure_zero.c: the suite's own tfw_secure_zero records what it is
+# handed, which is how it sees the scalar zeroed.
+$(HOST_DIR)/test_deviceid_p256: test/unit/test_deviceid_p256.c src/crypto/deviceid_p256.c \
+                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The eFuse-UDS provisioning backend (issue #48) under the shared wire
+# handlers, over a mock part in place of src/hal/esp32/prov_uds.c.
+$(HOST_DIR)/test_provision_uds: test/unit/test_provision_uds.c src/caps/provision.c \
+                                src/caps/provision_uds.c test/mock/prov_uds_mock.c \
+                                src/core/reader.c src/core/writer.c src/core/secure_zero.c \
+                                src/crypto/deviceid_p256.c src/crypto/sha256.c \
+                                $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) \
+	   -DTFW_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 OTA session (#48) on the host: src/hal/esp32/hal_ota.c against a
+# mock esp_ota (test/mock/esp_ota_mock.c, headers in test/mock/esp32/), with the
+# gates mk/firmware.mk gives an ESP32 image: the session, OTA_INFO, OTA_AUTH,
+# OTA_ACTIVATE and OTA_CONFIRM. test_esp_ota builds with ESP-IDF's anti-rollback
+# on (the esp32c3 QEMU board's sdkconfig), test_esp_wire with it off (the P4's),
+# so both arms of hal_ota.c's one CONFIG_ conditional compile and run.
+HOST_ESP_OTA_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 \
+                     -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1
+$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_STAGE_LIB_SRCS) \
+                          src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
+                          test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 wire (#48) under the same session: src/hal/esp32/hal_uart.c over a
+# mock lwIP (test/mock/lwip_mock.c) in place of hal_mock.c's weak byte link, so
+# a request goes socket, transport, dispatch, hal_ota.c, esp_ota as on the part.
+$(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_STAGE_LIB_SRCS) \
+                           src/hal/esp32/hal_uart.c src/hal/esp32/hal_ota.c \
+                           src/core/ota_auth.c boot/boot_image.c \
+                           test/mock/lwip_mock.c test/mock/esp_ota_mock.c \
+                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0 -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
@@ -636,7 +678,13 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
                     $(HOST_DIR)/test_w5100_mutate $(HOST_DIR)/test_w5500_mutate \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
-                    $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small
+                    $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small \
+                    $(HOST_DIR)/test_deviceid_p256 \
+                    $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
+                    $(HOST_DIR)/boot/test_boot_p256_rom $(HOST_DIR)/boot/test_boot_flash_span \
+                    $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
+                    $(HOST_DIR)/boot/test_boot_l0_esp32_sha \
+                    $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire
 
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
@@ -680,7 +728,9 @@ coverage:
 	@# tfw-boot row: verify_p256_soft.c against Wycheproof (test_boot_p256_soft)
 	@# and with the key slot that ships, p256_key_slot.c, erased
 	@# (test_boot_p256_slot). So is src/crypto/sha256_small.c, the boot's hash
-	@# (test_sha256_small, host and boot, and the soft tiers' links).
+	@# (test_sha256_small, host and boot, and the soft tiers' links). So is
+	@# src/crypto/deviceid_p256.c, the P-256 DeviceID from a UDS, against RFC
+	@# 6979 and pinned vectors (test_deviceid_p256).
 	@# src/net/ is in: w5x00.c, w5100.c and w5500.c against the software W5100 /
 	@# W5500 (test_w5100, test_w5500 and their _nocs links), netcfg.c through
 	@# test_link_eth. So is src/store/spi_nor.c, on the software NOR part
@@ -699,7 +749,7 @@ coverage:
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
 	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage|stage_none|swap|swap_none|trial|store|handoff)\.c' \
 	       --filter 'boot/recovery/recovery_ota\.c' \
-	       --filter 'src/crypto/(sha256|soft/provider|soft/uds_flash|none/provider|atecc608a/atecc|atecc608a/provider|auto/provider)\.c' \
+	       --filter 'src/crypto/(sha256|deviceid_p256|soft/provider|soft/uds_flash|none/provider|atecc608a/atecc|atecc608a/provider|auto/provider)\.c' \
 	       --filter 'src/net/(netcfg|w5100|w5500|w5x00)\.c' \
 	       --filter 'src/store/spi_nor\.c' \
 	       --filter 'boot/measure/measure_(soft|atecc608a)\.c' \

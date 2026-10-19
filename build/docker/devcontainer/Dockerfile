@@ -242,14 +242,12 @@ ENV GOPROXY=off
 # the targets again makes the build fail here, not in the job, if it does not.
 #   Espressif QEMU   esp_develop_9.2.2_20260417  (qemu-riscv32, qemu-xtensa)
 #   CMake / Ninja    3.30.2 / 1.12.1
-#   DS encoder       esp-secure-cert-tool 2.6.1, which qemu_test.py uses
 # Keep the QEMU version in step with ESP_QEMU_VERSION in mk/arch/esp32.mk.
 ARG ESP_QEMU_VERSION=esp_develop_9.2.2_20260417
 RUN . "$IDF_PATH/export.sh" >/dev/null \
     && python "$IDF_PATH/tools/idf_tools.py" install \
          cmake ninja qemu-riscv32 qemu-xtensa \
     && . "$IDF_PATH/export.sh" >/dev/null \
-    && python -m pip install --no-cache-dir esp-secure-cert-tool==2.6.1 \
     && qemu-system-riscv32 --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}" \
     && qemu-system-xtensa --version | head -n 1 | grep -qF "${ESP_QEMU_VERSION}"
 

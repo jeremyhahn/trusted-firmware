@@ -715,6 +715,18 @@ static void test_an_oversize_begin_touches_nothing(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
 }
 
+static void test_a_zero_length_begin_touches_nothing(void)
+{
+    /* ota_stage.c:140: 0 is a whole number of pages, so only "must exceed the
+     * trailer" refuses it (docs/ota/api.md, OTA_BEGIN TFW_ERR_RANGE). */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(0u));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+    expect_status(TFW_STAGE_IDLE, 0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, data(0u, CHUNK));
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, end());
+}
+
 static void test_data_stays_inside_the_declared_length(void)
 {
     build(512u, 200u);
@@ -741,6 +753,95 @@ static void test_a_trailer_image_len_past_its_trailer_is_refused(void)
     TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, tfw_nor_model_prog_lo());
     TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, tfw_nor_model_erase_lo());
     refuse_activate();
+}
+
+static void test_a_zero_trailer_image_len_is_refused(void)
+{
+    build(512u, 200u);
+    put32(&img[512u - TRAILER + 12u], 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, end());                  /* ota_stage.c:89 */
+    expect_status(TFW_STAGE_FAILED, 512u);
+    refuse_activate();
+}
+
+static void test_a_trailer_for_another_image_format_or_board_is_unsupported(void)
+{
+    static const uint8_t at[3] = { 0u, 4u, 6u };   /* magic, version, board id */
+    uint8_t i;
+
+    for (i = 0u; i < 3u; i++) {
+        setUp();
+        build(512u, 200u);
+        img[512u - TRAILER + at[i]] ^= 0x80u;
+        TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+        stream(0u, 512u);
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, end());        /* ota_stage.c:84 */
+        expect_status(TFW_STAGE_FAILED, 512u);
+        refuse_activate();
+    }
+}
+
+static tfw_status_t raw(uint8_t cmd, uint8_t n)
+{
+    uint8_t      in[8] = { 0 }, out[8];
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    tfw_reader_init(&r, in, n);
+    tfw_writer_init(&w, out, sizeof out);
+    return tfw_dispatch(cmd, &r, &w);
+}
+
+static void test_a_stager_command_of_the_wrong_length_is_refused(void)
+{
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 120u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, raw(TFW_CMD_OTA_BEGIN, 3u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, raw(TFW_CMD_OTA_BEGIN, 5u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, raw(TFW_CMD_OTA_DATA, 4u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, raw(TFW_CMD_OTA_END, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, raw(TFW_CMD_OTA_STATUS, 1u));
+    /* The table refuses them before the handler: the upload runs on. */
+    expect_status(TFW_STAGE_RECEIVING, 120u);
+    stream(120u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    expect_status(TFW_STAGE_COMPLETE, 512u);
+}
+
+static void test_a_refused_begin_while_receiving_keeps_the_upload(void)
+{
+    uint32_t erases;
+
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 120u);
+    erases = tfw_nor_model_erases();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(500u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, begin(TFW_OTA_STORE_STAGE_LEN + 256u));
+    TEST_ASSERT_EQUAL_UINT32(erases, tfw_nor_model_erases());
+    expect_status(TFW_STAGE_RECEIVING, 120u);
+    TEST_ASSERT_EQUAL(TFW_OK, data(120u, CHUNK));
+    stream(120u + CHUNK, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    expect_status(TFW_STAGE_COMPLETE, 512u);
+}
+
+static void test_a_valid_begin_while_receiving_restarts_from_zero(void)
+{
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 120u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, data(120u, CHUNK));
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    expect_status(TFW_STAGE_COMPLETE, 512u);
 }
 
 static int disjoint(uint32_t alo, uint32_t ahi, uint32_t blo, uint32_t bhi)
@@ -945,8 +1046,14 @@ int main(void)
     RUN_TEST(test_begin_runs_once_a_part_answers);
     RUN_TEST(test_a_bus_error_on_the_probe_refuses_begin);
     RUN_TEST(test_an_oversize_begin_touches_nothing);
+    RUN_TEST(test_a_zero_length_begin_touches_nothing);
     RUN_TEST(test_data_stays_inside_the_declared_length);
     RUN_TEST(test_a_trailer_image_len_past_its_trailer_is_refused);
+    RUN_TEST(test_a_zero_trailer_image_len_is_refused);
+    RUN_TEST(test_a_trailer_for_another_image_format_or_board_is_unsupported);
+    RUN_TEST(test_a_stager_command_of_the_wrong_length_is_refused);
+    RUN_TEST(test_a_refused_begin_while_receiving_keeps_the_upload);
+    RUN_TEST(test_a_valid_begin_while_receiving_restarts_from_zero);
     RUN_TEST(test_the_prev_copy_stays_in_its_region);
     RUN_TEST(test_a_chunk_the_store_refuses_fails_the_stage);
     RUN_TEST(test_a_full_check_reads_the_marked_image);

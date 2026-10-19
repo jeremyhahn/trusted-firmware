@@ -20,7 +20,8 @@
 #include "sha256.h"
 #include "tfw/config.h"
 
-#define IMAGE_MAX (1024ul * 1024ul)
+/* An ESP32 app slot, up to the 16 MiB of flash its addressing reaches. */
+#define IMAGE_MAX (16ul * 1024ul * 1024ul)
 #define OUT_MAX   512u
 
 static size_t slurp(const char *path, uint8_t *buf, size_t cap)

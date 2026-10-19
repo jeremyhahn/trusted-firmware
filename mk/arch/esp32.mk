@@ -19,8 +19,6 @@
 # measurement is only computable from source with the same toolchain.
 ESP_IDF_VERSION      := v5.5.5
 ESP_QEMU_VERSION     := esp_develop_9.2.2_20260417
-# Espressif's DS parameter encoder, used by the QEMU test's provisioner.
-ESP_SECURE_CERT_TOOL := esp-secure-cert-tool==2.6.1
 
 # ------------------------------------------- the mk/firmware.mk contract
 #
@@ -69,16 +67,34 @@ ARCH_BOARD_RESTORE = \
 # The bootloader's layer 0 hands the CDI off through ESP-IDF's RTC-retained
 # memory (src/hal/esp32/hal_handoff.c), so the real identity sources link.
 ARCH_HANDOFF := 1
-# ...but opens no update session: OTA is ESP-IDF's, and not yet on the wire.
+# ...but takes no update request: OTA is ESP-IDF's, and RESET(1) asks
+# tfw-boot for a session this bootloader does not open.
 ARCH_UPDATE_REQUEST := none
+
+# The OTA session (#48, design slices 4 and 5): OTA_BEGIN/DATA/END/STATUS, then
+# OTA_AUTH and OTA_ACTIVATE into the slot that is not running, OTA_CONFIRM on
+# the trial and OTA_INFO, all on esp_ota. It replaces mk/firmware.mk's store
+# stager. The update path it opens is OTA_ACTIVATE's, not RESET(1)'s, which
+# stays refused above.
+ARCH_OTA_SRCS := src/hal/esp32/hal_ota.c
 
 # Sources the image needs that mk/firmware.mk leaves to the HAL. The AVR's HAL
 # carries its own fast CRC update (src/hal/avr/hal_crc16.c); this port links
 # the portable one the host and the bootloaders link, rather than a third.
 ARCH_EXTRA_SRCS := src/proto/crc16_update.c
 
-# The HMAC/DS tier: the HMAC peripheral's CDI and the DS-held DeviceID. Its
-# provider lives in the HAL directory and is linked only for this tier.
-ARCH_CRYPTO_TIERS          := hmac-ds
-ARCH_CRYPTO_SRCS_hmac-ds   := src/crypto/sha256.c src/hal/esp32/crypto_hmac_ds.c
-ARCH_HAL_OPTIONAL          := src/hal/esp32/crypto_hmac_ds.c
+# The HMAC/P-256 tier: the HMAC peripheral's CDI, and the P-256 DeviceID derived
+# from the same UDS (src/crypto/deviceid_p256.c) and signed with the vendored
+# micro-ecc. Its provider lives in the HAL directory and is linked only for
+# this tier.
+ARCH_CRYPTO_TIERS           := hmac-p256
+ARCH_CRYPTO_SRCS_hmac-p256  := src/crypto/sha256.c src/crypto/deviceid_p256.c \
+                               src/third_party/micro-ecc/uECC.c \
+                               src/hal/esp32/crypto_hmac_p256.c
+ARCH_HAL_OPTIONAL           := src/hal/esp32/crypto_hmac_p256.c src/hal/esp32/prov_uds.c \
+                               $(ARCH_OTA_SRCS)
+
+# Its PROVISION=1 jig image: the wire of src/caps/provision.c over the eFuse
+# UDS backend, which draws the UDS from the part's noise source and burns it
+# into the HMAC_UP key block (docs/multi-arch/esp32-p4-design.md section 2.4).
+ARCH_PROV_SRCS_hmac-p256    := src/caps/provision_uds.c src/hal/esp32/prov_uds.c

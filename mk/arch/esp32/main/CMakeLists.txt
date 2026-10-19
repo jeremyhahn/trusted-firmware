@@ -15,7 +15,7 @@
 #   TFW_DEFS       the feature -D flags FW_CFLAGS carries (mk/firmware.mk)
 
 set(tfw_requires
-    bootloader_support driver efuse esp_adc esp_eth esp_event esp_hw_support
+    app_update bootloader_support driver efuse esp_adc esp_eth esp_event esp_hw_support
     esp_netif esp_partition esp_security esp_system esp_timer freertos log
     lwip mbedtls)
 
@@ -60,7 +60,7 @@ idf_component_register(
     PRIV_INCLUDE_DIRS
         "${TFW_ROOT}/include" "${TFW_ROOT}/src" "${TFW_ROOT}/src/proto"
         "${TFW_ROOT}/src/crypto" "${TFW_ROOT}/boot" "${TFW_ROOT}/src/hal/esp32"
-        "${TFW_BOARD_DIR}"
+        "${TFW_ROOT}/src/third_party/micro-ecc" "${TFW_BOARD_DIR}"
     PRIV_REQUIRES ${tfw_requires})
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
@@ -68,12 +68,18 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
 
 # The project's warning set, as -Werror. -Wconversion only on the portable
 # sources: ESP-IDF's own inline headers do not compile clean under it, and the
-# HAL is the one layer that includes them.
+# HAL is the one layer that includes them. Vendored code (micro-ecc, for the
+# hmac-p256 tier) is built as the host build builds it: its own -D set, none
+# of our warnings, and no vendored byte edited.
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -Wall -Wextra -Werror -Wshadow -Wpointer-arith -Wstrict-prototypes
     -ffile-prefix-map=${TFW_ROOT}=.)
 foreach(src ${TFW_SRCS})
-    if(NOT src MATCHES "/src/hal/esp32/")
+    if(src MATCHES "/src/third_party/micro-ecc/")
+        set_source_files_properties(${src} PROPERTIES
+            COMPILE_OPTIONS "-w"
+            COMPILE_DEFINITIONS "uECC_SUPPORTS_secp160r1=0;uECC_SUPPORTS_secp192r1=0;uECC_SUPPORTS_secp224r1=0;uECC_SUPPORTS_secp256k1=0;uECC_SUPPORT_COMPRESSED_POINT=0")
+    elseif(NOT src MATCHES "/src/hal/esp32/")
         set_source_files_properties(${src} PROPERTIES COMPILE_OPTIONS "-Wconversion;-Wcast-qual")
     endif()
 endforeach()

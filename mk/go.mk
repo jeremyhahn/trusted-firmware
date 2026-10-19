@@ -24,6 +24,16 @@ go_tags_comma := ,
 go-tag-list = $(subst $(go_tags_space),$(go_tags_comma),$(sort $(1) $(GO_BUILD_TAGS)))
 go-tags = $(if $(call go-tag-list,$(2)), $(1) $(call go-tag-list,$(2)))
 
+# go-cover-floor prints a `go test -cover` log ($(2)) and fails if any one
+# package in it is under the floor ($(1)). The owner's standard is 90 % per
+# package (m655, #163), so a well-covered package must not carry a thin one
+# past a floor taken on the module's total. A package with no statements has
+# no percentage and is not counted.
+go-cover-floor = ( low=0; while IFS= read -r l; do printf '%s\n' "$$l"; \
+  case $$l in *'coverage: '*'% of statements'*) p=$${l\#\#*coverage: }; p=$${p%%.*}; \
+    if [ "$$p" -lt "$(1)" ]; then echo "package under the $(1)% floor (m655)"; low=1; fi ;; esac; \
+  done < $(2); exit $$low )
+
 ## sdk-build: build the Go SDK and its commands
 sdk-build:
 	@cd $(SDK_DIR) && $(GO) build$(call go-tags,-tags) ./...
@@ -41,14 +51,16 @@ sdk-build:
 sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
 	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags,tfwsim) ./...
 
-## sdk-coverage: Go SDK unit-test statement coverage, failing under the floor
+## sdk-coverage: Go SDK unit-test statement coverage, failing if it or any package is under the floor
 # Unit tests only (#163): without the tfwsim tag no simulator-driven test is
 # compiled, so the floor is what the unit tests reach on their own and no
 # simulator is built for it. sdk-test runs the cross-implementation suite.
 SDK_COVERAGE_FLOOR ?= 90
 sdk-coverage:
 	@mkdir -p coverage
-	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags) -coverprofile=../../coverage/sdk.out ./... && \
+	@cd $(SDK_DIR) && { $(GO) test -count=1$(call go-tags,-tags) -coverprofile=../../coverage/sdk.out ./... \
+	    > ../../coverage/sdk-packages.txt 2>&1; rc=$$?; \
+	  $(call go-cover-floor,$(SDK_COVERAGE_FLOOR),../../coverage/sdk-packages.txt) && [ $$rc -eq 0 ]; } && \
 	  total=$$($(GO) tool cover -func=../../coverage/sdk.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
 	  echo "sdk/go: $$total% statement coverage (floor $(SDK_COVERAGE_FLOOR)%)" && \
 	  if [ "$${total%.*}" -lt "$(SDK_COVERAGE_FLOOR)" ]; then \
@@ -118,11 +130,12 @@ XKMS_SIM_DIR        ?= $(abspath build/host)
 xkms-test: tfwsim tfwsim-atecc608a
 	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) ./...
 
-## xkms-coverage: xkms adapter statement coverage, failing under the floor
+## xkms-coverage: xkms adapter statement coverage, failing if it or any package is under the floor
 xkms-coverage: tfwsim tfwsim-atecc608a
 	@mkdir -p coverage
-	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
-	  -coverprofile=../coverage/xkms.out ./... && \
+	@cd $(XKMS_DIR) && { TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
+	  -coverprofile=../coverage/xkms.out ./... > ../coverage/xkms-packages.txt 2>&1; rc=$$?; \
+	  $(call go-cover-floor,$(XKMS_COVERAGE_FLOOR),../coverage/xkms-packages.txt) && [ $$rc -eq 0 ]; } && \
 	  total=$$($(GO) tool cover -func=../coverage/xkms.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
 	  echo "xkms: $$total% statement coverage (floor $(XKMS_COVERAGE_FLOOR)%)" && \
 	  if [ "$${total%.*}" -lt "$(XKMS_COVERAGE_FLOOR)" ]; then \

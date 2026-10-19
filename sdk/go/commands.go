@@ -443,7 +443,7 @@ const EEPROMReservedEnd = 0xC0
 // authenticated session (see AuthChallenge/AuthResponse) returns
 // StatusErrAuthRequired. Every other build links the permissive gate and the
 // read is permitted exactly as it always was: the soft tier (the default on
-// every AVR board), CRYPTO=none (the ATtiny85's only tier), the ESP32 hmac-ds
+// every AVR board), CRYPTO=none (the ATtiny85's only tier), the ESP32 hmac-p256
 // tier, and the ATmega328P even on the element tier, whose profile turns the
 // session off for want of flash. See docs/security/threat-model.md for why
 // that gap is accepted rather than hidden.

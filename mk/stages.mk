@@ -131,7 +131,7 @@ integration-test-tools:
 #        alpha (nightly.yml), so it is not here.
 #   trivy image  needs a docker daemon and a built image: `make trivy-image`,
 #        run where the integration image is built.
-security: security-tools lint lint-arch-leak-selftest lint-grep-selftest go-tags-selftest verify-vendor releasability releasability-test \
+security: security-tools lint lint-arch-leak-selftest lint-grep-selftest go-tags-selftest esp32-overlay-selftest verify-vendor releasability releasability-test \
           sdk-lint sdk-verify go-vet go-mod-verify go-gosec go-govulncheck go-golangci xkms-security secrets-scan
 	@echo "stage security: green"
 

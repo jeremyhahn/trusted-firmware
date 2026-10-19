@@ -194,8 +194,14 @@ func (d *Device) OTAStatus(ctx context.Context) (OTAState, uint32, error) {
 
 // StageImage runs a whole session: BEGIN, the image in OTAChunk pieces, END.
 // It stops at the first refusal and returns it; OTAStatus says how far the
-// device got, and a fresh StageImage starts over.
+// device got, and a fresh StageImage starts over. An empty image is refused
+// with StatusErrRange before any frame goes out, as the device would refuse it.
 func (d *Device) StageImage(ctx context.Context, image []byte) error {
+	// The device refuses a zero total with StatusErrRange (OTA_BEGIN must
+	// exceed the trailer, docs/ota/api.md); answer it here and send nothing.
+	if len(image) == 0 {
+		return StatusErrRange
+	}
 	total, err := otaTotal(int64(len(image)))
 	if err != nil {
 		return err

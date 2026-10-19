@@ -248,6 +248,15 @@ void tfw_mock_advance(tfw_ms_t dt)   { now += dt; }
 
 void tfw_mock_feed_rx(const uint8_t *b, size_t n)
 {
+    /* What tfw_hal_uart_rx already handed out is given back first. Without
+     * this the two indices only grow, RX_CAP is a lifetime budget rather than
+     * a capacity, and one link -- tfwsim's whole session -- goes deaf after
+     * 4 KiB from the host (issue #163). The AVR ring wraps; this matches it. */
+    if (rx_head != 0u) {
+        memmove(rx, rx + rx_head, rx_tail - rx_head);
+        rx_tail -= rx_head;
+        rx_head  = 0u;
+    }
     for (size_t i = 0; i < n && rx_tail < RX_CAP; i++) {
         rx[rx_tail++] = b[i];
     }
@@ -304,8 +313,12 @@ unsigned tfw_mock_watchdog_pets(void) { return wdt_pets; }
 
 void tfw_hal_irq_enable(void) { irq_on = 1u; }
 
+/* The byte link is weak, so a suite can link an architecture's own in its
+ * place: test_esp_wire links src/hal/esp32/hal_uart.c over a mock lwIP. */
+__attribute__((weak))
 tfw_status_t tfw_hal_uart_init(uint32_t baud) { (void)baud; return TFW_OK; }
 
+__attribute__((weak))
 uint8_t tfw_hal_uart_rx(uint8_t *out)
 {
     if (rx_head >= rx_tail) {
@@ -315,6 +328,7 @@ uint8_t tfw_hal_uart_rx(uint8_t *out)
     return 1u;
 }
 
+__attribute__((weak))
 uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
     /* tx_capacity models a full hardware ring, so the transport's backpressure
@@ -329,6 +343,7 @@ uint8_t tfw_hal_uart_tx_try(uint8_t byte)
     return 1u;
 }
 
+__attribute__((weak))
 uint8_t tfw_hal_uart_tx_idle(void) { return (uint8_t)(tx_len == 0u); }
 
 tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)

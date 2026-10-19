@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 
-#include "tfw/boot.h"
 #include "tfw/config.h"
 #include "tfw/hal.h"
 #include "app_runner.h"
@@ -16,13 +15,8 @@ static tfw_ms_t started;
 
 void tfw_ota_trial_start(void)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
-    tfw_boot_platform_t plat;
-
     armed = 0u;
-    if (tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN) != TFW_OK
-        || tfw_boot_platform_parse(raw, &plat) != TFW_OK
-        || plat.boot_state != TFW_BOOT_STATE_TRIAL) {
+    if (tfw_ota_trial_on() == 0u) {
         return;
     }
     tfw_hal_watchdog_arm();
@@ -47,8 +41,14 @@ void tfw_ota_trial_poll(void)
     }
     tfw_hal_watchdog_pet();
     if ((tfw_ms_t)(tfw_hal_millis() - started) >= TRIAL_MS) {
-        /* Confirmed or not (#137): back into tfw-boot, which finds TRIAL and
-         * settles it by OTA_CONFIRM's request or rolls back. */
+        /* Confirmed or not on the AVR (#137), where boot_state stays TRIAL
+         * until tfw-boot settles it by OTA_CONFIRM's request or rolls back.
+         * On ESP32 a confirm ended the trial, and only an unconfirmed one
+         * resets into ESP-IDF's rollback. */
+        if (tfw_ota_trial_on() == 0u) {
+            armed = 0u;
+            return;
+        }
         tfw_hal_reset();
     }
 }

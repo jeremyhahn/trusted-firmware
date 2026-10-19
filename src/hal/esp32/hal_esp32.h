@@ -16,6 +16,12 @@
  * 21555-21589 as unassigned. See docs/multi-arch/adr-esp-idf-integration.md. */
 #define TFW_ESP_WIRE_PORT 21574u
 
+/* How long the wire's host must have been quiet before a new connection may
+ * take its place (hal_uart.c). Longer than any gap inside a session, where a
+ * host sends its next request as soon as a reply lands; short enough that a
+ * host which restarted is back on within a retry or two. */
+#define TFW_ESP_WIRE_IDLE_MS 2000u
+
 /* The board's own bring-up, from tfw_hal_init (hal_board.c). */
 tfw_status_t tfw_esp_board_init(void);
 
@@ -37,6 +43,7 @@ tfw_status_t tfw_esp_part_write(const char *label, uint32_t off, const uint8_t *
  * them; a table without one makes the capability behind it refuse. */
 #define TFW_ESP_PART_EEPROM   "tfw_eeprom"   /* the host-visible EEPROM capability */
 #define TFW_ESP_PART_PLATFORM "tfw_plat"     /* the platform block (TFW_BOOT_EE_*) */
-#define TFW_ESP_PART_IDENTITY "tfw_id"       /* the DS-sealed DeviceID record */
+#define TFW_ESP_PART_IDENTITY "tfw_id"       /* reserved, not read: the DeviceID is derived (crypto_hmac_p256.c) */
+#define TFW_ESP_PART_AUTH     "tfw_auth"     /* OTA_ACTIVATE's authorization (TFW_BOOT_AUTH_*) */
 
 #endif /* TFW_HAL_ESP32_H */

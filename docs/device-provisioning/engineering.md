@@ -9,7 +9,8 @@ commands.
 
 ## Exported surface
 
-Firmware (`src/caps/provision.c`, `src/caps/provision.h`, compiled only when
+Firmware (`src/caps/provision.c`, `src/caps/provision.h`, with the backend
+`src/caps/provision_atecc.c` on an element part, compiled only when
 `TFW_FEATURE_PROVISION=1`):
 
 ```
@@ -19,6 +20,14 @@ tfw_status_t tfw_prov_cmd_lock(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_genkey(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_pubkey(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_seed_uds(tfw_reader_t *r, tfw_writer_t *w);
+
+/* The backend the handlers call, one file per part. */
+tfw_status_t tfw_prov_info(uint8_t rev[4], uint8_t cfg[32], uint8_t lock[2]);
+tfw_status_t tfw_prov_write_config(uint8_t block, const uint8_t data[32]);
+tfw_status_t tfw_prov_lock(uint8_t zone, uint16_t crc);
+tfw_status_t tfw_prov_genkey(uint8_t slot, uint8_t pub[64]);
+tfw_status_t tfw_prov_pubkey(uint8_t slot, uint8_t pub[64]);
+tfw_status_t tfw_prov_seed_uds(uint8_t slot);
 ```
 
 Go SDK (`sdk/go/provision.go`, package `tfw`):

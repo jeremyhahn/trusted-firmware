@@ -162,43 +162,8 @@ static tfw_status_t copy(uint32_t src, uint32_t body)
     return st;
 }
 
-/* The Sig_structure (RFC 9052 §4.4) of OTA_ACTIVATE's authorization (#137,
- * docs/ota/api.md): ["Signature1", h'A101xx', h'', bstr .cbor
- * ["tfw-ota-activate", measurement, version, mode]], with the payload detached
- * and rebuilt here from what the store and the trailer hold. */
-static const uint8_t SIG1[] = { 0x84u, 0x6Au, 'S', 'i', 'g', 'n', 'a', 't', 'u', 'r', 'e', '1',
-                                0x43u, 0xA1u, 0x01u };
-static const uint8_t ACT[]  = { 0x84u, 0x70u, 't', 'f', 'w', '-', 'o', 't', 'a', '-', 'a', 'c',
-                                't', 'i', 'v', 'a', 't', 'e', 0x58u, 0x20u };
-
-static uint8_t cose_activate(uint8_t *b, const uint8_t *hash, uint32_t version, uint8_t mode)
-{
-    uint8_t n = (uint8_t)sizeof SIG1;
-    uint8_t at;
-    uint8_t k;
-
-    memcpy(b, SIG1, sizeof SIG1);
-    b[n++] = tfw_boot_cose_alg;
-    b[n++] = 0x40u;                           /* external_aad: empty */
-    b[n++] = 0x58u;                           /* the payload's bstr ... */
-    at     = n++;                             /* ... its length, below */
-    memcpy(&b[n], ACT, sizeof ACT);
-    n = (uint8_t)(n + sizeof ACT);
-    memcpy(&b[n], hash, TFW_BOOT_MEASURE_LEN);
-    n = (uint8_t)(n + TFW_BOOT_MEASURE_LEN);
-    /* The version as CBOR's shortest unsigned integer (RFC 8949 §4.2.1). */
-    k = (version < 24u) ? 0u : (version < 0x100u) ? 1u : (version < 0x10000uL) ? 2u : 4u;
-    b[n++] = (uint8_t)((k == 0u) ? version : (k == 1u) ? 0x18u : (k == 2u) ? 0x19u : 0x1Au);
-    while (k != 0u) {
-        k--;
-        b[n++] = (uint8_t)(version >> (8u * k));
-    }
-    b[n++] = mode;
-    b[at]  = (uint8_t)(n - at - 1u);
-    return n;
-}
-
-/* The row key's signature over that, stored beside the MARK by the
+/* The row key's signature over OTA_ACTIVATE's Sig_structure (#137,
+ * tfw_boot_cose_activate), stored beside the MARK by the
  * application. TFW_ERR_AUTH_REQUIRED for a missing or bad one. The element
  * keeps its key, as tfw_boot_evaluate's check finds. */
 static tfw_status_t authorized(const uint8_t *hash, uint32_t version)
@@ -206,6 +171,7 @@ static tfw_status_t authorized(const uint8_t *hash, uint32_t version)
     uint8_t        sig[TFW_BOOT_SIG_LEN + 1u];
     uint8_t        key[TFW_BOOT_PUBKEY_LEN];
     const uint8_t *k = key;
+    uint8_t        len;
     tfw_status_t   st;
 
     st = store_read((uint32_t)TFW_OTA_STORE_MARK_ADDR + TFW_STAGE_MARK_O_SIG, sig, (uint8_t)sizeof sig);
@@ -219,8 +185,8 @@ static tfw_status_t authorized(const uint8_t *hash, uint32_t version)
         return st;
     }
     /* page is free here: holds() is done with it and copy() not begun. */
-    if (tfw_boot_verify(page, cose_activate(page, hash, version, sig[TFW_BOOT_SIG_LEN]),
-                        sig, k) != TFW_OK) {
+    len = tfw_boot_cose_activate(page, hash, version, sig[TFW_BOOT_SIG_LEN]);
+    if (tfw_boot_verify(page, len, sig, k) != TFW_OK) {
         return TFW_ERR_AUTH_REQUIRED;
     }
     return TFW_OK;

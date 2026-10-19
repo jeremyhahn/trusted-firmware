@@ -1,6 +1,6 @@
 # OTA — API
 
-> **Status: DRAFT** · Issue: #75, #52 · Scope: trusted-firmware · Last verified: 2026-10-16
+> **Status: DRAFT** · Issue: #75, #52, #48 · Scope: trusted-firmware · Last verified: 2026-10-18
 > What is on the wire and in `sdk/go` on main. The frames, the other commands
 > and the vectors are those of [the wire protocol](../wire-protocol/).
 
@@ -41,6 +41,11 @@ Status codes (`include/tfw/status.h`) the stager returns:
 | `OTA_END` | `TFW_ERR_RANGE` (11) | the trailer's image length is zero or reaches the trailer |
 | `OTA_END` | `TFW_ERR_CRYPTO` (14) | the SHA-256 of the image is not the trailer's measurement |
 | any | `TFW_ERR_BAD_ARGC` (5) | the payload length is wrong for the command |
+
+`OTA_BEGIN` while a transfer is receiving refuses a bad `total_len` with
+`TFW_ERR_RANGE` before it touches the session, so the running upload goes on at
+its received count; a valid `total_len` starts a new session with nothing
+received.
 
 A store failure during `OTA_BEGIN`, `OTA_DATA` or `OTA_END` returns the store
 driver's status. Every failure after `OTA_BEGIN` has been accepted leaves the
@@ -183,6 +188,99 @@ its operator session and adds this check: a session alone no longer activates.
 The application does not verify (the soft provider has no image verifier,
 `src/crypto/soft/provider.c:258`); it stores the signature with what it writes,
 and tfw-boot decides ([architecture.md](architecture.md), "Authorization").
+
+### ESP32: the session on `esp_ota` (#48)
+
+An ESP32 image stages through ESP-IDF's `esp_ota`
+(`src/hal/esp32/hal_ota.c`, design slices 4 and 5 of
+[the ESP32-P4 design](../multi-arch/esp32-p4-design.md) §2.3), not through an
+external store. The commands, ids and formats are those above. The ESP32 image
+links `src/proto/link_serial.c`, so its TCP wire admits every command it links:
+all eight, `OTA_AUTH`, `OTA_ACTIVATE`, `OTA_CONFIRM` and `OTA_INFO` with the
+four of the session.
+
+`total_len` and `offset` are u32, so they address the 6 MB slot (`0x600000`).
+`OTA_BEGIN` takes the slot ESP-IDF names next
+(`esp_ota_get_next_update_partition`) and opens it with
+`OTA_WITH_SEQUENTIAL_WRITES`: each sector is erased as `OTA_DATA` reaches it,
+so no single command waits on the erase of the whole slot. `total_len` has no
+page rule. Where the statuses differ from the table above:
+
+| Command | Status | When |
+|---|---|---|
+| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | the running image is a trial (`ESP_OTA_IMG_PENDING_VERIFY`), as tfw-boot refuses a session during one |
+| `OTA_BEGIN` | `TFW_ERR_RANGE` (11) | `total_len` is not above the trailer's length, or is above the slot |
+| `OTA_BEGIN` | `TFW_ERR_UNSUPPORTED` (7) | the partition table has no slot to update |
+| `OTA_DATA` | `TFW_ERR_CRYPTO` (14) | the first byte is not the ESP image magic (`ESP_ERR_OTA_VALIDATE_FAILED`) |
+| `OTA_DATA` | `TFW_ERR_RANGE` (11) | as above, or the write runs past the slot |
+| `OTA_END` | `TFW_ERR_CRYPTO` (14) | `esp_ota_end`'s image check fails: the image's structure, its SHA-256 or, under secure boot, its signature |
+
+`OTA_END` still means "every byte arrived". ESP-IDF's check is a stronger
+refusal on top of that, with the existing verify-failure status; it does not
+change what an accepted `OTA_END` means. Any other ESP-IDF error answers
+`TFW_ERR_INTERNAL` (18). Every failure after `OTA_BEGIN` has been accepted
+leaves the state `failed`, and a new `OTA_BEGIN` starts over, as above.
+
+**Activate.** `OTA_ACTIVATE` takes the held `OTA_AUTH` signature, re-checks
+the completed slot as layer 0 will (trailer, board id, the floor, the
+measurement against the slot's SHA-256), writes the signature and `mode` to the
+`tfw_auth` partition and sets the slot to boot with
+`esp_ota_set_boot_partition`; mode 1 then resets after the reply. The
+session's state is in RAM, so `OTA_ACTIVATE` follows `OTA_END` with no reset
+between. The application does not verify the signature. At the next reset ESP-IDF's
+bootloader marks the new slot `ESP_OTA_IMG_PENDING_VERIFY`, and layer 0
+(`boot/hal/esp32/boot_l0.c`) verifies the activate Sig_structure over the
+trailer's measurement and version with the image key before it runs the trial.
+A refused trial is not run: layer 0 boots the slot that ran before, and the next
+reset finds the entry still pending and ESP-IDF marks it `ESP_OTA_IMG_ABORTED`.
+
+**Confirm.** `OTA_CONFIRM` on a trial calls
+`esp_ota_mark_app_valid_cancel_rollback`: the trial ends there, with no reset.
+It takes the held signature and does not verify it; nothing on the ESP32
+verifies a confirm signature yet. A trial nobody confirms resets at
+`TFW_OTA_TRIAL_TIMEOUT_S` (60 s on both ESP32 boards, `src/core/ota_trial.c`),
+and ESP-IDF rolls back to the slot that ran before.
+
+**Anti-rollback.** `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` is on for every ESP32
+board. ESP-IDF's anti-rollback is on where the board profile names the target
+in `ESP_ANTI_ROLLBACK_TARGETS`: today the esp32c3 under QEMU only, whose eFuses
+are a file. There the build stamps `ESP_IMAGE_VERSION` into both the trailer's
+`image_version` and the app's `secure_version`, `OTA_ACTIVATE` and layer 0
+refuse an image where they differ (`TFW_ERR_PROTECTED_REGION`, 16), and
+ESP-IDF raises the eFuse floor to the image's `secure_version` when the image is
+confirmed. Which releases advance the floor on a real board is the owner's
+decision; no board's eFuses are burned until it is made.
+
+| Command | Status | When |
+|---|---|---|
+| `OTA_ACTIVATE` | `TFW_ERR_RANGE` (11) | `mode` is above 1; or the slot's image is not one ESP-IDF can describe, has no appended SHA-256, or leaves no room for the trailer |
+| `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | no `OTA_AUTH` immediately precedes it |
+| `OTA_ACTIVATE` | `TFW_ERR_BAD_STATE` (19) | the session is not complete, the running image is a trial, or ESP-IDF refuses the boot partition |
+| `OTA_ACTIVATE` | `TFW_ERR_UNSUPPORTED` (7) | the trailer's magic or version is wrong, or its board id is not this board's |
+| `OTA_ACTIVATE` | `TFW_ERR_PROTECTED_REGION` (16) | the trailer's version is below the eFuse floor; under anti-rollback, also when it is not the app's `secure_version` |
+| `OTA_ACTIVATE` | `TFW_ERR_CRYPTO` (14) | the trailer's image length or measurement is not the slot's |
+| `OTA_CONFIRM` | `TFW_ERR_BAD_STATE` (19) | the running image is not a trial |
+| `OTA_CONFIRM` | `TFW_ERR_INTERNAL` (18) | ESP-IDF cannot mark the image valid |
+
+A failed write to `tfw_auth` returns its status, and a failed read
+`TFW_ERR_INTERNAL` (18).
+
+`OTA_INFO` on the ESP32:
+
+- `slots` is 2 and `active` is 0. `floor` is the eFuse secure version. The
+  application never writes it; under anti-rollback ESP-IDF raises it at a
+  confirm.
+- `flags`: `0x04` when the running slot is `ESP_OTA_IMG_PENDING_VERIFY`, and
+  `0x01` when the other slot is `ESP_OTA_IMG_ABORTED` or `ESP_OTA_IMG_INVALID`,
+  or still `ESP_OTA_IMG_PENDING_VERIFY` while this one runs: layer 0 refused
+  that trial at its one boot.
+- Slot 0 is the running partition. Its `state` is 3 (trial) or 2 (good), and
+  its `image_version` and `measurement` are real: the app description's
+  `secure_version` (0 where anti-rollback is off, since the build stamps it
+  only there) and the image's SHA-256.
+- Slot 1 is the session's slot. `state` is the OTA state. Once that state is
+  complete, `image_version` and `measurement` are the slot's; until then both
+  are zero.
 
 ## `sdk/go`
 

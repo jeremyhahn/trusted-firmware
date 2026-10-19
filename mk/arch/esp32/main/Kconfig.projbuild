@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: commercial
 #
 # The board knobs of the ESP32 port. A board or deployment sets them in its
-# sdkconfig.defaults (boards/<board>/sdkconfig.defaults, or the file
-# ESP_SDKCONFIG_EXTRA names); nothing here is read by the wire protocol.
+# sdkconfig.defaults (boards/<board>/sdkconfig.defaults, or the files
+# ESP_SDKCONFIG_EXTRA lists); nothing here is read by the wire protocol.
 
 menu "Trusted firmware"
 

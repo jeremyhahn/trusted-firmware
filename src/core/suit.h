@@ -4,14 +4,18 @@
  * The SUIT manifest reader and the activation gate it feeds (issue #78).
  *
  * The profile is docs/ota/adr-ota-image-format-and-trust.md decision 3: a
- * subset of draft-ietf-suit-manifest, SHA-256 and ES256 only. The reader runs
- * in the application, never in tfw-boot: tfw-boot verifies the trailer every
- * boot and stays the authority; this is a gate before activation that adds the
- * class-id binding and an independently encoded copy of the trailer's facts.
+ * subset of draft-ietf-suit-manifest, SHA-256 and ES256 only. On AVR the
+ * reader runs in the application, never in tfw-boot: tfw-boot verifies the
+ * trailer every boot and stays the authority; this is a gate before activation
+ * that adds the class-id binding and an independently encoded copy of the
+ * trailer's facts. ESP32 layer 0 runs it every boot, after the trailer
+ * (boot/hal/esp32/l0_gate.c; docs/multi-arch/esp32-p4-design.md section 2.2).
  *
- * Which boards link it is decided by the object list (mk/firmware.mk), never
- * by a conditional here: a board whose profile.mk sets OTA_MANIFEST := 1 on the
- * element tier gets src/core/suit.c, and no other board carries a byte of it.
+ * Which boards link it is decided by the object list, never by a conditional
+ * here: a board whose profile.mk sets OTA_MANIFEST := 1 on the element tier gets
+ * src/core/suit.c (mk/firmware.mk), the ESP32 bootloader lists it
+ * (boot/hal/esp32/bootloader_components/main/CMakeLists.txt), and no other
+ * board carries a byte of it.
  *
  * Accepted, byte for byte in this order and nothing else:
  *

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 // DirEnv names the environment variable that points at the directory holding
@@ -90,7 +91,7 @@ func Locate(b Binary) (string, error) {
 type Conn struct {
 	cmd *exec.Cmd
 	in  io.WriteCloser
-	out io.ReadCloser
+	out *os.File
 }
 
 func (c *Conn) Read(p []byte) (int, error)  { return c.out.Read(p) }
@@ -101,8 +102,16 @@ func (c *Conn) Close() error {
 	_ = c.in.Close()
 	_ = c.cmd.Process.Kill()
 	_, _ = c.cmd.Process.Wait()
+	_ = c.out.Close()
 	return nil
 }
+
+// SetReadDeadline bounds Read the way a net.Conn's does. tfw.Device applies
+// its per-request timeout through it, so a sim that stops answering fails a
+// request in that time, as a serial port or a TCP link does, instead of
+// blocking on the pipe until go test's alarm (issue #163). The read end is
+// an os.Pipe, which the runtime poller can time out on Unix.
+func (c *Conn) SetReadDeadline(t time.Time) error { return c.out.SetReadDeadline(t) }
 
 // Start launches b with args and stops it when the test ends. A missing binary
 // fails the test.
@@ -119,11 +128,17 @@ func Start(tb testing.TB, b Binary, args ...string) *Conn {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	out, err := cmd.StdoutPipe()
+	// os.Pipe and not StdoutPipe, so the read end is named as an *os.File
+	// and SetReadDeadline is a promise of this type, not of exec's.
+	out, w, err := os.Pipe()
 	if err != nil {
 		tb.Fatal(err)
 	}
-	if err := cmd.Start(); err != nil {
+	cmd.Stdout = w
+	err = cmd.Start()
+	_ = w.Close() // the child holds its own copy; EOF arrives when it exits
+	if err != nil {
+		_ = out.Close()
 		tb.Fatal(err)
 	}
 	c := &Conn{cmd: cmd, in: in, out: out}

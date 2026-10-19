@@ -29,7 +29,7 @@ These dependencies are pinned in three places:
 
 - **On the wire.** `sdk/go/provision.go` pins `SlotDeviceID = 0` and `SlotUDS = 1`.
   `PROV_GENKEY` and `PROV_PUBKEY` accept slot 0 only. `PROV_SEED_UDS` accepts
-  slot 1 only (`src/caps/provision.c`).
+  slot 1 only (`src/caps/provision_atecc.c`).
 - **In the flow.** `--commit` writes config blocks ≥ 2, locks the config zone
   under its CRC, runs `GenKey` on slot 0, seeds the UDS into slot 1, and then
   locks the data zone. It refuses a part whose data zone is already locked.

@@ -14,6 +14,12 @@ CONFIG_SECURE_BOOT_V2_ENABLED=y
 CONFIG_SECURE_BOOT_V2_RSA_ENABLED=y
 CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y
 
+# ESP-IDF's app rollback: a newly activated slot boots once in PENDING_VERIFY
+# and falls back at the next reset unless OTA_CONFIRM marks it valid
+# (src/hal/esp32/hal_ota.c). Anti-rollback is the board's choice, per target
+# (ESP_ANTI_ROLLBACK_TARGETS in boards/<board>/profile.mk).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # The partition table moves up to make room for the larger signed bootloader;
 # the board's partitions.csv starts its data partitions above it.
 CONFIG_PARTITION_TABLE_CUSTOM=y

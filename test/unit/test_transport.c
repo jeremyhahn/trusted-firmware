@@ -263,6 +263,25 @@ static void test_an_event_is_refused_while_a_response_is_pending(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_transport_send_event(&t, TFW_EVENT_DEADMAN));
 }
 
+/* Issue #163: the mock's receive buffer gave back no byte it had handed out,
+ * so one link went deaf after 4 KiB from the host in total, however promptly
+ * each frame was read. tfwsim is this mock behind a pipe, so a long session
+ * hung on its 63rd 60-byte PING. 16 KiB here, well past the old limit. */
+static void test_a_long_session_is_answered_past_four_kib_from_the_host(void)
+{
+    uint8_t  msg[60];
+    unsigned i;
+
+    for (i = 0; i < sizeof msg; i++) { msg[i] = (uint8_t)(i * 5u + 1u); }
+    for (i = 0; i < 256u; i++) {
+        msg[0] = (uint8_t)i;
+        TEST_ASSERT_TRUE_MESSAGE(exchange((uint8_t)i, TFW_CMD_PING, msg, sizeof msg),
+                                 "a PING went unanswered");
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)i, tfw_frame_seq(&rxf));
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(msg, tfw_frame_payload(&rxf), sizeof msg);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -277,5 +296,6 @@ int main(void)
     RUN_TEST(test_a_response_frame_sent_to_the_device_is_ignored);
     RUN_TEST(test_an_event_is_emitted_when_nothing_is_in_flight);
     RUN_TEST(test_an_event_is_refused_while_a_response_is_pending);
+    RUN_TEST(test_a_long_session_is_answered_past_four_kib_from_the_host);
     return UNITY_END();
 }

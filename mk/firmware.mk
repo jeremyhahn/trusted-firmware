@@ -120,9 +120,12 @@ HAL_OPTIONAL := $(HAL_DIR)/hal_tone.c $(HAL_DIR)/hal_pwm.c $(HAL_DIR)/hal_bus.c 
 # file selection: PROVISION=1 compiles the translation unit and defines the
 # feature, and anything else leaves a production image with no handler at all --
 # not a disabled one, not one behind a check an attacker can argue with.
+# provision.c is the wire; the backend under it is the secure element's unless
+# the architecture names one for the tier (ARCH_PROV_SRCS_<tier>, e.g. the
+# ESP32's eFuse UDS). Recursive, because CRYPTO is settled below.
 PROVISION ?= 0
 ifeq ($(PROVISION),1)
-PROV_SRCS  := src/caps/provision.c
+PROV_SRCS   = src/caps/provision.c $(or $(ARCH_PROV_SRCS_$(CRYPTO)),src/caps/provision_atecc.c)
 PROV_DEFS  := -DTFW_FEATURE_PROVISION=1
 else
 PROV_SRCS  :=
@@ -211,7 +214,7 @@ AUTH_DEFS   := -DTFW_FEATURE_AUTH_SESSION=1
 endif
 else ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_TIERS)),)
 # A tier the ARCHITECTURE provides, because its provider drives that
-# architecture's own key hardware -- the ESP32's HMAC and DS peripherals, say.
+# architecture's own key hardware -- the ESP32's HMAC peripheral, say.
 # mk/arch/$(ARCH).mk names the tier and its sources, which live in the HAL
 # directory and are listed in ARCH_HAL_OPTIONAL so no other tier links them.
 # No alias certificate and no auth session: both are the element tier's.
@@ -245,8 +248,16 @@ endif
 # tfw_stage_init, which main.c calls on every image to park the store's select.
 # hal_bus.c holds the SPI driver the store talks through; it is already linked
 # unless all three buses are off, and $(sort) drops the second copy.
-OTA_STAGE ?= $(if $(OTA_STORE),$(ETH),0)
-ifeq ($(OTA_STAGE),1)
+# An architecture whose update path is its own (ESP-IDF's esp_ota, #48) names
+# the session's file in ARCH_OTA_SRCS: that file is the stager, it stages on
+# every image, and it answers OTA_INFO, OTA_ACTIVATE and OTA_CONFIRM over its
+# own trial. OTA_AUTH is the shared holder; the trailer checks are tfw-boot's.
+OTA_STAGE ?= $(if $(ARCH_OTA_SRCS),1,$(if $(OTA_STORE),$(ETH),0))
+ifneq ($(and $(filter 1,$(OTA_STAGE)),$(ARCH_OTA_SRCS)),)
+STAGE_SRCS := $(ARCH_OTA_SRCS) src/core/ota_auth.c boot/boot_image.c
+STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 -DTFW_FEATURE_OTA_ACTIVATE=1 \
+              -DTFW_FEATURE_OTA_CTL=1
+else ifeq ($(OTA_STAGE),1)
 ifeq ($(OTA_STORE),)
 $(error OTA_STAGE=1 but $(BOARD_DIR)/profile.mk names no OTA_STORE -- this board has no external store)
 endif
@@ -270,8 +281,8 @@ STAGE_SRCS := src/core/ota_stage_none.c
 STAGE_DEFS :=
 endif
 # The output path says so only where the choice is not ETH's default, so every
-# image that existed before keeps its path.
-STAGE_SUFFIX := $(if $(filter 1,$(OTA_STAGE)),$(if $(filter 1,$(ETH)),,-stage),$(if $(and $(filter 1,$(ETH)),$(OTA_STORE)),-nostage,))
+# image that existed before keeps its path; an ARCH_OTA_SRCS image always stages.
+STAGE_SUFFIX := $(if $(ARCH_OTA_SRCS),,$(if $(filter 1,$(OTA_STAGE)),$(if $(filter 1,$(ETH)),,-stage),$(if $(and $(filter 1,$(ETH)),$(OTA_STORE)),-nostage,)))
 
 FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(STAGE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)
 TARGET     := $(FW_DIR)/trusted-firmware
@@ -322,8 +333,12 @@ endif
 # The one trial's application half (#77), only on a board whose tfw-boot can
 # write TRIAL: the A/B part (BOOT_AB in profile.mk, the 2560). The 328P and
 # 32U4 boots have no OTA and no restore yet, so there it would be dead code
-# over their flash budget; they and every other board link the stub.
+# over their flash budget; they and every other board link the stub. An
+# architecture whose update path is its own (ARCH_OTA_SRCS, ESP-IDF's) runs
+# the same deadline over its own trial state, which that file answers.
 ifeq ($(BOOT_AB),1)
+IDENTITY_SRCS += src/core/ota_trial.c src/core/ota_trial_block.c
+else ifneq ($(ARCH_OTA_SRCS),)
 IDENTITY_SRCS += src/core/ota_trial.c
 else
 IDENTITY_SRCS += src/core/ota_trial_none.c

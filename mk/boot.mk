@@ -145,7 +145,7 @@ ifeq ($(BOOT_STORE),1)
 ifeq ($(OTA_STORE),)
 $(error BOOT_STORE=1 but $(BOARD_DIR)/profile.mk names no OTA_STORE -- this board has no external store)
 endif
-BOOT_STORE_SRCS := boot/boot_stage.c $(BOOT_HAL_DIR)/boot_ota_store_$(ARCH).c
+BOOT_STORE_SRCS := boot/boot_stage.c boot/boot_cose.c $(BOOT_HAL_DIR)/boot_ota_store_$(ARCH).c
 else
 BOOT_STORE_SRCS := boot/boot_stage_none.c
 endif
@@ -485,6 +485,78 @@ $(BOOT_TEST_DIR)/test_boot_p256_slot: test/unit/boot/test_boot_p256_slot.c \
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The ESP32 layer 0's ES256 gate (#48): trailer v1 and the SUIT manifest after
+# an ESP-IDF image, against the mock HAL, with p256-soft and the shared policy
+# primitives the bootloader links (boot/hal/esp32/bootloader_components/main/
+# CMakeLists.txt). The manifest gate is src/core/suit.c over l0_crypto.c, as
+# the bootloader links it; the test builds its envelopes with suit-emit's
+# encoder. Against the esp32-qemu profile, whose class id the manifest names,
+# and without the host's attestation switches, which that profile sets itself.
+L0_SUIT_HOST   := src/core/suit.c boot/hal/esp32/l0_crypto.c tools/suit-emit/emit.c
+L0_TEST_CFLAGS := $(filter-out $(HOST_EXTRA_DEFS),\
+                    $(subst -Iboards/$(HOST_BOARD) ,-Iboards/esp32-qemu ,$(BOOT_TEST_CFLAGS)))
+$(BOOT_TEST_DIR)/test_boot_l0_esp32: test/unit/boot/test_boot_l0_esp32.c \
+        boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
+        src/proto/crc16.c src/proto/crc16_update.c boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c \
+        $(L0_SUIT_HOST) boot/hal/esp32/verify_digest_soft.c \
+        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The P4's backend, the ROM's ECDSA (boot/hal/esp32/verify_p256_rom.c), against
+# a host ROM over micro-ecc that takes the key and signature little-endian as
+# ESP-IDF documents (test/mock/esp_rom_ecdsa_mock.c): every Wycheproof vector,
+# then the same gate suite as above, so the P4's link is the one tested.
+ESP_ROM_HOST := boot/hal/esp32/verify_p256_rom.c test/mock/esp_rom_ecdsa_mock.c
+$(BOOT_TEST_DIR)/test_boot_p256_rom: test/unit/boot/test_boot_p256_rom.c $(ESP_ROM_HOST) \
+        boot/measure/measure_soft.c src/crypto/sha256_small.c test/mock/boot_hal_mock.c \
+        $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_l0_esp32_rom
+$(BOOT_TEST_DIR)/test_boot_l0_esp32_rom: test/unit/boot/test_boot_l0_esp32.c \
+        boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
+        src/proto/crc16.c src/proto/crc16_update.c $(ESP_ROM_HOST) boot/measure/measure_soft.c src/crypto/sha256_small.c \
+        $(L0_SUIT_HOST) test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 boot HAL's aligned read windows (#48): the arithmetic
+# boot_hal_esp32.c reads every piece through, because bootloader_flash_read
+# refuses an unaligned source, length or destination.
+$(BOOT_TEST_DIR)/test_boot_flash_span: test/unit/boot/test_boot_flash_span.c \
+        boot/hal/esp32/flash_span.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/esp32 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 layer 0's hash (#48), boot/hal/esp32/measure_esp32.c, over the
+# bootloader SHA as the C3 and the P4 build it and, with CONFIG_IDF_TARGET_ESP32,
+# over the ROM SHA as the classic ESP32 does; test/mock/esp_sha_mock.c holds
+# each call to its silicon's contract. Then the gate suite above once more
+# with that hash in place of measure_soft.c's: the link QEMU's hmac-p256 row
+# boots, which refused a SUIT span that was not whole words with a zero digest.
+ESP_SHA_HOST := boot/hal/esp32/measure_esp32.c test/mock/esp_sha_mock.c src/crypto/sha256_small.c
+$(BOOT_TEST_DIR)/test_boot_measure_esp32: test/unit/boot/test_boot_measure_esp32.c $(ESP_SHA_HOST) \
+        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_measure_esp32_classic
+$(BOOT_TEST_DIR)/test_boot_measure_esp32_classic: test/unit/boot/test_boot_measure_esp32.c $(ESP_SHA_HOST) \
+        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=1 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_l0_esp32_sha
+$(BOOT_TEST_DIR)/test_boot_l0_esp32_sha: test/unit/boot/test_boot_l0_esp32.c \
+        boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
+        src/proto/crc16.c src/proto/crc16_update.c boot/verify/verify_p256_soft.c $(ESP_SHA_HOST) \
+        $(L0_SUIT_HOST) boot/hal/esp32/verify_digest_soft.c \
+        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
+	   -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The two DICE layer 0 tiers (BOOT_TIER_SRCS above). test_boot_cdi_soft links
 # cdi_soft.c as built, its UDS slot the erased placeholder. test_boot_cdi_soft_uds
 # links the same source with the slot patched after compilation, as the
@@ -538,7 +610,7 @@ $(BOOT_TEST_DIR)/test_boot_state_mutate: test/unit/boot/test_boot_state_mutate.c
 # The external store's read, check and copy (issue #75), against the software
 # NOR part on the mock's store bus. The platform block's write is the test's,
 # so it can see the order of states the copy stores; boot_store.c stays out.
-BOOT_STAGE_TEST_SRCS := test/unit/boot/test_boot_stage.c boot/boot_stage.c \
+BOOT_STAGE_TEST_SRCS := test/unit/boot/test_boot_stage.c boot/boot_stage.c boot/boot_cose.c \
                         test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS)
 
 $(BOOT_TEST_DIR)/test_boot_stage: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
@@ -556,7 +628,7 @@ $(BOOT_TEST_DIR)/test_boot_stage_2560: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
-$(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c \
+$(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \
         test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS) \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -568,27 +640,27 @@ $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c
 # image is seen reaching the same swap and the same trial (#77).
 $(BOOT_TEST_DIR)/test_boot_swap: test/unit/boot/test_boot_swap.c boot/boot_swap.c \
                                  boot/recovery/recovery_ota.c src/proto/frame.c \
-                                 boot/boot_stage.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
+                                 boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                  $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same link under a journal and a confirm request rewritten at random (#77).
 $(BOOT_TEST_DIR)/test_boot_swap_mutate: test/unit/boot/test_boot_swap_mutate.c boot/boot_swap.c \
                                         boot/recovery/recovery_ota.c src/proto/frame.c \
-                                        boot/boot_stage.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
+                                        boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The 328P's fallback (#52): PREV copied back by the store's copy loop, under
 # the host board's profile, which is the 328P's.
 $(BOOT_TEST_DIR)/test_boot_prev: test/unit/boot/test_boot_prev.c boot/boot_prev.c \
-                                 boot/boot_stage.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
+                                 boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                  $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same fallback under a hostile store, seeded: linked exactly as above.
 $(BOOT_TEST_DIR)/test_boot_prev_mutate: test/unit/boot/test_boot_prev_mutate.c boot/boot_prev.c \
-                                        boot/boot_stage.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
+                                        boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

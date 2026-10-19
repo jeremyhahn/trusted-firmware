@@ -1,6 +1,6 @@
 # Testing
 
-> **Status: INFORMATIVE** · Scope: `make ci`, `make bench-check` · Last verified: 2026-09-22
+> **Status: INFORMATIVE** · Scope: `make ci`, `make bench-check` · Last verified: 2026-10-19
 > How this firmware is tested, what each tier can and cannot catch, and why the
 > tiers are separate.
 
@@ -216,3 +216,33 @@ whole gate in the devcontainer if you do not have them locally.
   neither can drift from what ships.
 - **No timing assertions tighter than the emulator is honest about.** The tick
   rate is checked as ~1 kHz within a tolerance, not to the cycle.
+
+## Owner test standard (m655)
+
+The owner's standard of 2026-10-18 (#163): integration tests are only the
+CLI-driven multi-protocol E2E suites, with none for lower layers. Every package
+is unit-tested to 90 % or better, in memory. No test at any tier sleeps. A PR
+pipeline finishes within one hour. Where each part is met:
+
+| Item | Where it is met |
+|---|---|
+| (a) Inventory of the integration tests by layer, and of every sleep | The table on #163, posted before any code changed |
+| (b) A lower-layer integration test moves into its package's unit suite, or E2E, or goes | #169 (`b0eab87`): `sdk/go/tfwsim`'s simulator suites (attest CSR, auth, auto, DICE, Ethernet, launch, OTA) became `tfwctl` E2E, `sdk/go/cmd/tfwctl/e2e_*_test.go`, and the package kept in-memory fakes (`fake_test.go`, `operator_test.go`). Every test that starts a simulator carries the `tfwsim` build tag, and only `make sdk-test` compiles it in. #170 (`6928bce`): `internal/simproc`'s start test went to `internal/peer`, and `tfwctl` gained the app and netcfg E2E. The cross-implementation suite (`sdk/go/tfwsim_test.go`) becoming `tfwctl` E2E is in flight (#163 decision 1) |
+| (c) Every sleep becomes a bounded polling helper | #169 (`b0eab87`): `awaitFile` in `sdk/go/cmd/tfwctl/ota_stage_simavr_test.go`, `wait_for` in `test/integration/esp32/qemu_test.py`, and fakes driven by the test in `sdk/go`, `internal/peer`, `serialport` and `xkms/avr` |
+| (d) 90 % or better unit coverage per package | `make sdk-coverage` and `make xkms-coverage` fail when any one package is under 90 %, not only the module total (`mk/go.mk`, `go-cover-floor`). `sdk-coverage` builds no simulator: the `tfwsim` tag is off. `make coverage` holds the C sources at 90 % (`mk/host.mk`); #166 (`81cdd4c`) raised the lowest of them |
+| No sleep at any tier | `make lint-test-sleep`, part of `make lint` (#172, `8b640c9`), fails on `time.Sleep` or `time.sleep(` in any Go or Python test file. Production code sleeps only where the delay is the protocol: `internal/peer`'s reset pulse and `scripts/deps-check.py`'s backoff |
+| PR pipeline under one hour | CI minutes: coordinator |
+
+Counts, before (`c33e82d`, the last main commit before #166) and after
+(`8b640c9`):
+
+| Measure | Before | After |
+|---|---|---|
+| Go test files behind an integration build tag (`tfwsim`, `simavr`) | 2 | 16 |
+| Simulator-driven test files in the lower-layer packages `sdk/go/tfwsim` and `internal/simproc` | 8 | 0 |
+| `tfwctl` E2E test files (`sdk/go/cmd/tfwctl/e2e_*_test.go`) | 0 | 10 |
+| Sleep calls in test files | 16, in 8 files | 0 |
+| Sleep calls outside test files | 4, in 3 files | 2, in 2 files |
+| Lowest Go package unit coverage | not gated per package | 91.2 % (`sdk/go/tfwsim`) |
+| Lowest C source line coverage under `make coverage` | — | 95.2 % (`boot/boot_ota.c`) |
+| PR pipeline, CI minutes | coordinator | coordinator |

@@ -22,6 +22,7 @@
 #include "unity.h"
 #include "tfw/board.h"
 #include "board_profile.h"
+#include "tfw/boot.h"
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -151,9 +152,20 @@ static void test_a_pin_beyond_the_board_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
 }
 
-static void test_attest_stays_off_until_ds_has_a_wire_encoding(void)
+/* The hmac-p256 tier signs ES256 with the DeviceID it derives from the UDS. */
+static void test_attest_is_on_with_the_p256_deviceid(void)
 {
-    TEST_ASSERT_EQUAL(0, TFW_FEATURE_ATTEST);
+    TEST_ASSERT_EQUAL(1, TFW_FEATURE_ATTEST);
+}
+
+/* Literals, as test_boot_geometry.c's rows: layer 0's gate and the app's
+ * OTA_ACTIVATE check parse the trailer with this bound. config.h's default,
+ * 28 544, refused every ESP-IDF app at OTA_ACTIVATE with TFW_ERR_RANGE. */
+static void test_the_trailer_bound_is_16_mib_less_the_trailer(void)
+{
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_BOOT_APP_BASE);
+    TEST_ASSERT_EQUAL_UINT32(16777216u, TFW_BOOT_APP_END);
+    TEST_ASSERT_EQUAL_UINT32(16777088u, TFW_BOOT_MAX_IMAGE_LEN);
 }
 
 int main(void)
@@ -169,6 +181,7 @@ int main(void)
     RUN_TEST(test_every_pwm_row_drives_the_pin_that_names_it);
     RUN_TEST(test_the_page_carries_bank_and_offset);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
-    RUN_TEST(test_attest_stays_off_until_ds_has_a_wire_encoding);
+    RUN_TEST(test_attest_is_on_with_the_p256_deviceid);
+    RUN_TEST(test_the_trailer_bound_is_16_mib_less_the_trailer);
     return UNITY_END();
 }

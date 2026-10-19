@@ -58,8 +58,8 @@ each can test:
 | `esp32c3` | `misc.esp32c3.hmac` | `misc.esp32c3.ds` | yes | yes | yes / yes | `nvram.esp32c3.efuse` | `open_eth` |
 | `esp32` | — | — | yes | yes | yes / flash encryption | `nvram.esp32.efuse` | `open_eth` |
 
-The ESP32-C3 is the only machine with the HMAC and DS peripherals, which the
-identity path needs. It is RISC-V, like the P4, and its HMAC, DS and secure
+The ESP32-C3 is the only machine with the HMAC peripheral, which the identity
+path needs (`src/hal/esp32/crypto_hmac_p256.c:76-80`). It is RISC-V, like the P4, and its HMAC, DS and secure
 boot v2 are the same IP generation as the P4's. The ESP32 (Xtensa) has neither
 HMAC nor DS, but it has secure boot v2 (revision 3) and the same Ethernet
 model, so it proves the port is not RISC-V-only and that the `none` tier boots
@@ -77,7 +77,6 @@ other version (`mk/arch/esp32.mk`):
 | Espressif QEMU | `esp_develop_9.2.2_20260417` (`idf_tools.py install qemu-riscv32 qemu-xtensa`) |
 | GCC | `riscv32-esp-elf` and `xtensa-esp-elf` esp-14.2.0_20260121 (ESP-IDF's pin) |
 | CMake / Ninja | 3.30.2 / 1.12.1 (`idf_tools.py install cmake ninja`) |
-| DS parameter encoder | `esp-secure-cert-tool==2.6.1`, in ESP-IDF's Python environment |
 
 A measurement is only reproducible from source with the same toolchain, so the
 pin is part of the trust story, not a convenience. `CONFIG_APP_REPRODUCIBLE_BUILD`
@@ -150,12 +149,12 @@ is on; two builds of one commit gave the same image digest.
 | # | Decision |
 |---|---|
 | 1 | **Glue (option 1c).** `mk/arch/esp32/` holds the ESP-IDF project (`CMakeLists.txt`, `main/CMakeLists.txt`, `sdkconfig.defaults`); `mk/arch/esp32-targets.mk` holds `esp32-build` and `esp32-qemu-test`. `FW_SRCS` is the only source list. `make firmware BOARD=<esp32 board>` refuses and names `esp32-build`. `make ci` is unchanged and runs none of this; the separate `esp32` CI job runs both targets (see Consequences). |
-| 2 | **Composed from ESP-IDF:** ROM and second-stage bootloader; secure boot v2 (RSA-3072, signing by `espsecure.py`, verification by `esp_image_verify`); flash encryption (release mode on the P4 board; off in QEMU); the partition table and OTA slot selection; the eFuse API; ROM HMAC (`ets_hmac_calculate_message`); DS (`esp_ds_sign`); `esp_partition`; `esp_eth` and lwIP; the GPIO, LEDC, ADC one-shot, I2C master and SPI master drivers; `esp_timer`; FreeRTOS as the host of one task. **Ours:** layer 0 (`boot/hal/esp32/boot_l0.c`), the boot HAL (`boot/hal/esp32/boot_hal_esp32.c`), the HAL (`src/hal/esp32/`), the `hmac-ds` crypto provider (`src/hal/esp32/crypto_hmac_ds.c`), the TCP byte link, the DeviceID record format, and the QEMU harness. |
+| 2 | **Composed from ESP-IDF:** ROM and second-stage bootloader; secure boot v2 (RSA-3072, signing by `espsecure.py`, verification by `esp_image_verify`); flash encryption (release mode on the P4 board; off in QEMU); the partition table and OTA slot selection; the eFuse API; ROM HMAC (`ets_hmac_calculate_message`); DS (`esp_ds_sign`); `esp_partition`; `esp_eth` and lwIP; the GPIO, LEDC, ADC one-shot, I2C master and SPI master drivers; `esp_timer`; FreeRTOS as the host of one task. **Ours:** layer 0 (`boot/hal/esp32/boot_l0.c`), the boot HAL (`boot/hal/esp32/boot_hal_esp32.c`), the HAL (`src/hal/esp32/`), the `hmac-ds` crypto provider (`src/hal/esp32/crypto_hmac_ds.c`), the TCP byte link, the DeviceID record format, and the QEMU harness. **Superseded in part (Amendment 2026-10-18):** DS and the DeviceID record are out; the provider is `hmac-p256` (`src/hal/esp32/crypto_hmac_p256.c`), which derives a P-256 DeviceID from the UDS with `esp_hmac_calculate` (`:76-80`). |
 | 3 | **Layer 0 replaces the second-stage bootloader's entry (option 2c).** The ROM verifies the bootloader (secure boot v2) and is the root. Layer 0 verifies the slot it is about to boot with `esp_image_verify`; the image's appended SHA-256, covered by the signature, is the **measurement**. The CDI is `HMAC-SHA256(UDS, measurement)`, computed by the HMAC peripheral from the eFuse key whose purpose is `HMAC_UP`, which is the UDS. The handoff goes into ESP-IDF's RTC-retained memory: its custom area (`CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=0x50`), kept out of the record's CRC. A slot that fails verification hands off **no tier**, so a fallback slot boots without a CDI rather than with one derived for another image. ESP-IDF's loader then verifies again and loads: a second verification, about 40 ms in QEMU, kept rather than re-implementing the loader. |
 | 4 | **DeviceID (option 3b).** An RSA key, 3072-bit on the C3 and up to 4096 on the P4, held by DS: its `esp_ds_data_t` ciphertext sits in the `tfw_id` partition, under the eFuse key whose purpose is `HMAC_DOWN_DIGITAL_SIGNATURE`. It is independent of the CDI, as on the element tier, and survives firmware updates; the measurement reaches a verifier through evidence the DeviceID signs. Each boot the provider signs a fixed self-test digest through DS and verifies it against the record's modulus. **The wire cannot carry it yet**: its signatures are 64 bytes and its templates P-256. So the tier reports `TFW_CRYPTO_SECURE_ELEMENT` (an on-die key store) with no algorithms, `ATTEST` is off, and sign and pubkey refuse. The ECDSA peripheral (3c) is the alternative to weigh at P4 bring-up (follow-up 4). **Superseded (owner ruling 2026-10-17, CA m499, #48):** there is no RSA DeviceID; the DICE DeviceID is ECDSA P-256 on every board. RSA stays only where a vendor's secure boot needs it, for the ESP-IDF image signature, outside our DICE chain. |
-| 5 | **Transport (option 4b).** TCP, port **21574** (`0x5446`, "TF"; IANA lists 21555–21589 as unassigned), the existing framing unchanged on the stream, behind `tfw_hal_uart_*`. One host at a time; a new connection replaces the old one, and bytes sent with no host connected are dropped, as on an unplugged UART. The address comes from DHCP; a static address, when one is wanted, comes from the board configuration, never a literal in code. A host uses `sdk/go` on a `net.Conn` with `WithBootWait(0)`, since a connection does not reset the device. **The AVR Ethernet transport (#55, W5100/W5500) should take the same port and framing**, so that one host path serves both families. On AVR the port is configuration: the AVR Ethernet transport ([`docs/ethernet-transport/`](../ethernet-transport/)) leaves it to "the port the endpoint listens on", and 21574 is this ADR's proposal for that configured value. |
-| 6 | **Geometry and NVM on partitions.** The boot HAL's flash page is the 4096-byte sector. The partition table sits at `0x10000`, because the RSA secure-boot bootloader with layer 0 (44–52 KiB) outgrows the default `0x8000`. Custom data subtypes: `tfw_plat` (`0x40`), the platform block, read-only to the application; `tfw_id` (`0x41`), the DS record; `tfw_eeprom` (`0x42`), the EEPROM capability, written by sector read-modify-write. Then ESP-IDF's `otadata`, `ota_0` and `ota_1`. `tfw_plat` and `tfw_eeprom` are marked `encrypted`; `tfw_id` is not, because it holds only ciphertext and a public modulus. |
-| 7 | **Emulation target (option 5b).** `esp32c3` carries secure boot v2, the HMAC CDI, the DS DeviceID and the wire. `esp32` carries secure boot v2 and the wire on the `none` tier. Evidence: the QOM table above, and `make esp32-qemu-test` (see Consequences). |
+| 5 | **Transport (option 4b).** TCP, port **21574** (`0x5446`, "TF"; IANA lists 21555–21589 as unassigned), the existing framing unchanged on the stream, behind `tfw_hal_uart_*`. One host at a time, and a host in a session keeps it: a new connection is refused while the current host has moved a byte in the last `TFW_ESP_WIRE_IDLE_MS` (2000 ms), and replaces it only once it has gone quiet that long. Every close is logged at WARN with its reason, and a refusal of a request is a status reply, never a closed socket. (#48: a connection the host had given up on, completed late by QEMU's port forward, took the wire from a live OTA session 3 s in.) Bytes sent with no host connected are dropped, as on an unplugged UART. The address comes from DHCP; a static address, when one is wanted, comes from the board configuration, never a literal in code. A host uses `sdk/go` on a `net.Conn` with `WithBootWait(0)`, since a connection does not reset the device. **The AVR Ethernet transport (#55, W5100/W5500) should take the same port and framing**, so that one host path serves both families. On AVR the port is configuration: the AVR Ethernet transport ([`docs/ethernet-transport/`](../ethernet-transport/)) leaves it to "the port the endpoint listens on", and 21574 is this ADR's proposal for that configured value. |
+| 6 | **Geometry and NVM on partitions.** The boot HAL's flash page is the 4096-byte sector. The partition table sits at `0x10000`, because the RSA secure-boot bootloader with layer 0 (44–52 KiB) outgrows the default `0x8000`. Custom data subtypes: `tfw_plat` (`0x40`), the platform block, read-only to the application; `tfw_id` (`0x41`), the DS record; `tfw_eeprom` (`0x42`), the EEPROM capability, written by sector read-modify-write. Then ESP-IDF's `otadata`, `ota_0` and `ota_1`. `tfw_plat` and `tfw_eeprom` are marked `encrypted`; `tfw_id` is not, because it holds only ciphertext and a public modulus. **Superseded in part (Amendment 2026-10-18):** with no DS record, `tfw_id` (`0x41`) is reserved and not read (`src/hal/esp32/crypto_hmac_p256.c:28-29`). |
+| 7 | **Emulation target (option 5b).** `esp32c3` carries secure boot v2, the HMAC CDI, the DS DeviceID and the wire. **Superseded in part (Amendment 2026-10-18):** it carries the P-256 DeviceID on `hmac-p256` (`mk/arch/esp32-targets.mk:103-104`). `esp32` carries secure boot v2 and the wire on the `none` tier. Evidence: the QOM table above, and `make esp32-qemu-test` (see Consequences). |
 | 8 | **Board ids, the fewest:** `0x80` `esp32p4-poe`, and `0x81` `esp32-qemu` for both machines. CAPS already tells a host the one fact that differs between the machines, the crypto tier. A board is a build target, not a part, so the QEMU board is a board. |
 
 ## Consequences
@@ -164,12 +163,13 @@ is on; two builds of one commit gave the same image digest.
   into the build directory at test time and never committed:
   - eFuses burned through QEMU's download mode with `espefuse.py`: the
     secure-boot key digest and enable bit; on the C3 also the UDS (`HMAC_UP`,
-    KEY1) and the DS key (`HMAC_DOWN_DIGITAL_SIGNATURE`, KEY2);
+    KEY1, `test/integration/esp32/qemu_test.py:323`), and no DS key;
   - the ROM verifies the bootloader; the bootloader verifies the app with
     RSA-PSS; layer 0's measurement equals the image's own SHA-256;
   - the C3's CDI fingerprint equals `HMAC-SHA256(UDS, measurement)` computed
-    on the host, and the DeviceID fingerprint equals `SHA-256(n ‖ e)` of the
-    generated key, with the DS self-test verified;
+    on the host, and the DeviceID fingerprint equals `SHA-256(x ‖ y)` of the
+    P-256 point the host derives from the UDS (`qemu_test.py:237`, pinned at
+    `:142`), under which `ATTEST` verifies as ES256 (`qemu_test.py:563`);
   - all three are identical across a soft reset and a cold start of a new QEMU
     on the same flash and eFuses; an EEPROM mark written over the wire
     survives both;
@@ -186,12 +186,21 @@ is on; two builds of one commit gave the same image digest.
 - **Entropy.** `tfw_crypto_random` is `esp_fill_random`. ESP-IDF documents its
   output as true random only while a noise source runs (the radio, or the SAR
   ADC through `bootloader_random_enable`). With Wi-Fi off, this must be
-  settled before any key is generated on the device (follow-up 4).
+  settled before any key is generated on the device (follow-up 4). Settled
+  for the one key the part generates, the UDS: the provisioning draw runs the
+  SAR ADC source itself ([`esp32-p4-design.md`](esp32-p4-design.md) §2.4).
 - **Flash encryption** is on in the P4 profile (release mode) and off in QEMU.
   Nothing in QEMU tests it.
-- **OTA is not on the wire yet.** `RESET(1)` is refused with `UNSUPPORTED`, as
-  on a board with no boot section (`ARCH_UPDATE_REQUEST := none`), not
-  silently turned into a soft reset.
+- **OTA is on the wire through `esp_ota`, not through `RESET(1)`.** The
+  session, `OTA_ACTIVATE`, `OTA_CONFIRM` and `OTA_INFO` run in the application
+  ([`docs/ota/api.md`](../ota/api.md), "ESP32"). `RESET(1)` is still refused
+  with `UNSUPPORTED`, as on a board with no boot section
+  (`ARCH_UPDATE_REQUEST := none`), not silently turned into a soft reset: it
+  asks for a bootloader session this bootloader never opens.
+- **Anti-rollback is on in QEMU only.** The esp32c3 QEMU machine runs ESP-IDF's
+  anti-rollback on its file-backed eFuses; no board does. Which releases
+  advance a board's eFuse floor is the owner's decision, and no eFuse is
+  burned until it is made.
 - **The EEPROM capability wears a flash sector per write**, about 100 000
   cycles. Acceptable for configuration; not for counters.
 - **The wire is unauthenticated on a network,** as it is on a serial cable,
@@ -205,8 +214,7 @@ is on; two builds of one commit gave the same image digest.
   a failure, not a skip. So the `esp32` job in `.github/workflows/ci.yml`
   builds `docker/Dockerfile.esp32` instead: Espressif's `espressif/idf:v5.5.5`
   image pinned by digest, Espressif QEMU `esp_develop_9.2.2_20260417`
-  (`qemu-riscv32`, `qemu-xtensa`), CMake, Ninja, `esp-secure-cert-tool` 2.6.1
-  and Go. In that image it runs `make esp32-build BOARD=esp32p4-poe`, the only
+  (`qemu-riscv32`, `qemu-xtensa`), CMake, Ninja and Go. In that image it runs `make esp32-build BOARD=esp32p4-poe`, the only
   place the P4 image is built, since no emulator exists for it, and then
   `make esp32-qemu-test`, which builds `esp32-qemu` for both machines and runs
   the checks above on `esp32c3` and on `esp32`. The job has no skip guard: a
@@ -237,12 +245,23 @@ is on; two builds of one commit gave the same image digest.
    CA m499 and m522; Amendment 2026-10-18):** with a P-256 DeviceID the
    64-byte point fits `PROV_GENKEY` and no DS ciphertext is computed; the
    provisioning flow and the entropy source remain
-   ([`esp32-p4-design.md`](esp32-p4-design.md) §2.4, slice 6).
+   ([`esp32-p4-design.md`](esp32-p4-design.md) §2.4, slice 6). **Done
+   (#48):** `PROVISION=1` on the `hmac-p256` tier links the AVR's wire
+   handlers (`src/caps/provision.c`) over `src/caps/provision_uds.c` and the
+   ESP32 part HAL `src/hal/esp32/prov_uds.c`. `PROV_GENKEY` draws the UDS
+   with the SAR ADC noise source on for exactly the draw (the bootloader
+   turns it off before the app: ESP-IDF v5.5.5
+   `bootloader_utility.c:792`), burns it as a read- and write-protected
+   `HMAC_UP` key, and returns the DeviceID point; a second call is
+   `PROTECTED_REGION`. Unit test `test_provision_uds`; QEMU step 5 of
+   `test/integration/esp32/qemu_test.py`.
 5. **OTA through ESP-IDF's `esp_ota` and `secure_version`.** An update
    session on the wire, anti-rollback from the eFuse counter, and
    `ARCH_UPDATE_REQUEST` dropped once it exists. The mapping onto `esp_ota_*`,
    the trial boot and the floor: [`esp32-p4-design.md`](esp32-p4-design.md)
-   §2.3, slices 4 and 5.
+   §2.3, slices 4 and 5. **Done (#48)**, but for the last clause:
+   `ARCH_UPDATE_REQUEST` stays `none`, since the update path is
+   `OTA_ACTIVATE`'s and `RESET(1)` has no session to ask for.
 6. **Reset causes the HAL cannot name yet** (#10 follow-on). `tfw_reset_cause_t`
    has no value for a software reset or a panic; ESP-IDF reports both, and the
    port maps them to unknown. **Done (#48):** `TFW_RESET_SOFTWARE` (5) and
@@ -280,7 +299,9 @@ Accepted as proposed: options 1c (glue), 2c (layer 0), 3b (DS DeviceID), 4b
   DeviceID is ECDSA P-256 on every board, ES256 only. The proposed replacement
   is option 3a in a P-256 form: the DeviceID derived through the HMAC
   peripheral from the `HMAC_UP` UDS, with the DS peripheral out of the
-  identity path ([`esp32-p4-design.md`](esp32-p4-design.md) §2.1). Option 3c,
+  identity path ([`esp32-p4-design.md`](esp32-p4-design.md) §2.1). Landed in
+  slice 1 as the `hmac-p256` provider (`src/hal/esp32/crypto_hmac_p256.c:84-107`,
+  `src/crypto/deviceid_p256.c:93-149`). Option 3c,
   the ECDSA peripheral, stays the silicon-only hardening path.
 - **Every tfw-boot row verifies a signature** (owner ruling 2026-10-17, CA
   m453). On this port layer 0 adds an ES256 check of trailer v1 and the

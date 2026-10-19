@@ -77,9 +77,25 @@ tfw_status_t tfw_boot_pubkey(uint8_t out[TFW_BOOT_PUBKEY_LEN]);
 
 /*
  * The COSE algorithm (RFC 9053) tfw_boot_verify checks, as its one-byte CBOR
- * negative integer: ES256 (-7, 0x26) on the element, EdDSA (-8, 0x27) on
- * donna. The OTA_ACTIVATE authorization's protected header names it (#137).
+ * negative integer: ES256 (-7, 0x26) on the element and both P-256 backends,
+ * EdDSA (-8, 0x27) on donna. The OTA_ACTIVATE authorization's protected
+ * header names it (#137).
  */
 extern const uint8_t tfw_boot_cose_alg;
+
+/* The longest Sig_structure tfw_boot_cose_activate builds. */
+#define TFW_BOOT_COSE_ACTIVATE_MAX 77u
+
+/*
+ * The Sig_structure (RFC 9052 §4.4) of OTA_ACTIVATE's authorization (#137,
+ * docs/ota/api.md): ["Signature1", h'A101xx', h'', bstr .cbor
+ * ["tfw-ota-activate", measurement, version, mode]], with the payload
+ * detached and rebuilt from what the trailer holds. Writes it into `b`, at
+ * most TFW_BOOT_COSE_ACTIVATE_MAX bytes, and returns its length: the message
+ * tfw_boot_verify checks the authorization's signature over. One builder for
+ * the AVR store row (boot_stage.c) and the ESP32 layer 0 (l0_gate.c, #48).
+ */
+uint8_t tfw_boot_cose_activate(uint8_t *b, const uint8_t hash[TFW_BOOT_MEASURE_LEN],
+                               uint32_t version, uint8_t mode);
 
 #endif /* TFW_BOOT_VERIFY_H */

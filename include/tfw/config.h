@@ -140,15 +140,21 @@
 #define TFW_FEATURE_OTA_STAGE   0
 #endif
 /* OTA_INFO, OTA_CONFIRM and OTA_ACTIVATE (issue #77), set by mk/firmware.mk
- * from the object list: a BOOT_AB board's image that also stages. Never set by
- * hand; the handlers are src/core/ota_ctl.c, linked only with this. */
+ * from the object list: a BOOT_AB board's image that also stages, and the
+ * ESP32 session (#48). Never set by hand; the handlers are src/core/ota_ctl.c,
+ * or src/hal/esp32/hal_ota.c on esp_ota, linked only with this. */
 #ifndef TFW_FEATURE_OTA_CTL
 #define TFW_FEATURE_OTA_CTL     0
+#endif
+/* OTA_INFO alone: follows OTA_CTL. Set by mk/firmware.mk, never by hand. */
+#ifndef TFW_FEATURE_OTA_INFO
+#define TFW_FEATURE_OTA_INFO    TFW_FEATURE_OTA_CTL
 #endif
 /* OTA_ACTIVATE alone (issue #77), set by mk/firmware.mk for every OTA_STAGE=1
  * image, single-slot or A/B: OTA_END does not write the MARK, so a stager
  * without it could never install what it staged. Never set by hand; the
- * handler is src/core/ota_activate.c, linked only with this. */
+ * handler is src/core/ota_activate.c, or src/hal/esp32/hal_ota.c on esp_ota,
+ * linked only with this. */
 #ifndef TFW_FEATURE_OTA_ACTIVATE
 #define TFW_FEATURE_OTA_ACTIVATE 0
 #endif

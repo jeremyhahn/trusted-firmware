@@ -21,15 +21,22 @@
 #define TFW_BOARD_NAME "esp32-qemu"
 #define TFW_BOARD_ID   0x81u
 
+/* UUIDv5(TFW_SUIT_VENDOR_ID, "esp32-qemu"): the SUIT class id a manifest for
+ * this board names (issue #78). 1023e2f4-fdd0-5f12-9902-c62181fa5681. */
+#define TFW_SUIT_CLASS_ID { 0x10u, 0x23u, 0xe2u, 0xf4u, 0xfdu, 0xd0u, 0x5fu, 0x12u, \
+                            0x99u, 0x02u, 0xc6u, 0x21u, 0x81u, 0xfau, 0x56u, 0x81u }
+
 #define TFW_PIN_COUNT  5u
 #define TFW_PORT_COUNT 1u          /* GPIO 0..31 */
 #define TFW_PWM_COUNT  4u          /* LEDC channels 0..3 on timer 0 */
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE 4096u      /* the tfw_eeprom partition */
 
-/* The wire has no identity to sign with yet on this port: see
- * src/hal/esp32/crypto_hmac_ds.c. */
-#define TFW_FEATURE_ATTEST 0
+/* ATTEST signs with the P-256 DeviceID the hmac-p256 tier derives from the
+ * eFuse UDS (src/hal/esp32/crypto_hmac_p256.c). A tier with no UDS -- none,
+ * on a part with no HMAC peripheral -- answers it NOT_PROVISIONED or
+ * UNSUPPORTED, as an AVR board with no element does. */
+#define TFW_FEATURE_ATTEST 1
 
 /* Tone can drive any GPIO through LEDC; core allows one pin, and it is the
  * one with no PWM channel, so a tone never competes with a duty cycle. */
@@ -43,7 +50,23 @@
 #define TFW_ESP_SPI_MISO_GPIO 19
 #define TFW_ESP_SPI_SCK_GPIO  2
 
-/* Board sizing deviations from config.h: none. The superloop's buffers are
- * the wire's, and the part has RAM to spare. */
+/* Board sizing deviations from config.h: the geometry only. The superloop's
+ * buffers are the wire's, and the part has RAM to spare.
+ *
+ * The geometry is the trailer parser's bound (TFW_BOOT_MAX_IMAGE_LEN), read by
+ * layer 0's gate and by the app's OTA_ACTIVATE check (src/hal/esp32/hal_ota.c),
+ * which refuses what layer 0 would refuse and so must share its bound. Offsets
+ * are slot-relative and every read is bounded by the slot's size from the
+ * partition table: 16 MiB is past any slot. config.h's default, a 32 KB AVR,
+ * would refuse any ESP-IDF app with TFW_ERR_RANGE. */
+#define TFW_FLASH_TOTAL      0x1000000uL
+#define TFW_APP_REGION_BASE  0uL
+#define TFW_APP_REGION_SIZE  0x1000000uL
+#define TFW_BOOT_REGION_SIZE 0uL   /* ESP-IDF's bootloader, outside the slots */
+
+/* The trial deadline (src/core/ota_trial.c): an image ESP-IDF boots as
+ * PENDING_VERIFY that has not had OTA_CONFIRM by then resets, and its
+ * bootloader falls back. 60 s, as each AVR board with a boot section. */
+#define TFW_OTA_TRIAL_TIMEOUT_S 60u
 
 #endif /* TFW_BOARD_ESP32_QEMU_H */

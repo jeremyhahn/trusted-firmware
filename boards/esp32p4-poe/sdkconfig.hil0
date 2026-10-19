@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: commercial
+#
+# Bench HIL-0 on the ESP32-P4 PoE board (docs/multi-arch/esp32-p4-design.md
+# §4, docs/development/bench/esp32-p4.md "HIL-0"). Passed as
+# ESP_SDKCONFIG_EXTRA, which applies after this board's sdkconfig.defaults:
+#
+#   make esp32-build BOARD=esp32p4-poe CRYPTO=none \
+#        ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0
+#
+# HIL-0 writes no eFuse, and either of these would burn some on first boot:
+# ESP-IDF secure boot v2 its key digest, flash encryption its key and
+# counter. Both are off.
+#
+# The app is still built signed, with no secure boot on the part:
+# "Require signed app images" without hardware secure boot builds it with
+# --secure-pad-v2 and signs it with the same RSA key as the release, so
+# boot/hal/esp32/l0_seal.py finds the zero segment it grows for the trailer
+# (it refuses any other image) and re-signs the sealed app. The bootloader is
+# not signed, so the ROM does not check it and ESP-IDF's bootloader does not
+# check the app's RSA signature (SECURE_SIGNED_ON_BOOT_NO_SECURE_BOOT off).
+#
+# The check that runs is not a Kconfig setting: layer 0's ES256 check of the
+# app's trailer v1 against the key pin in tfw_plat is built into the
+# bootloader, and nothing here turns it off (CA m453: there is no
+# BOOT_SIG=none). The tier is not Kconfig either: CRYPTO=none picks the object
+# list, and with no HMAC_UP key in eFuse layer 0 hands off tier none.
+CONFIG_SECURE_BOOT=n
+CONFIG_SECURE_FLASH_ENC_ENABLED=n
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y
+CONFIG_SECURE_SIGNED_ON_BOOT_NO_SECURE_BOOT=n
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y

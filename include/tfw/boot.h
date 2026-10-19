@@ -473,4 +473,28 @@ _Static_assert(TFW_OTA_PAGE_MAX != 0u && (TFW_OTA_PAGE_MAX & (TFW_OTA_PAGE_MAX -
        * TFW_BOOT_SESSION_FRAME_OVERHEAD \
      + 16uL + TFW_BOOT_SESSION_SLACK)
 
+/* ------------------------------------------- the ESP32 activate authorization
+ *
+ * OTA_ACTIVATE's COSE_Sign1 signature on ESP32 (#48), written by the
+ * application into the `tfw_auth` partition before it sets the boot slot, and
+ * read by layer 0 on the first boot of that slot, which checks it with the
+ * image key over tfw_boot_cose_activate's Sig_structure for the slot's own
+ * trailer. Its own 4 KB partition, so rewriting it never erases the sector
+ * that holds the platform block.
+ *
+ *   offset size field
+ *     0     4  magic     TFW_BOOT_AUTH_MAGIC
+ *     4     1  mode      OTA_ACTIVATE's mode, the Sig_structure's last field
+ *     5     3  reserved  0
+ *     8    64  signature r || s
+ *
+ * No CRC: the signature is the integrity, and a record that is torn or stale
+ * fails it the same way a forged one does.
+ */
+#define TFW_BOOT_AUTH_MAGIC   0x55414654uL   /* 'T','F','A','U' little-endian */
+#define TFW_BOOT_AUTH_O_MAGIC 0u
+#define TFW_BOOT_AUTH_O_MODE  4u
+#define TFW_BOOT_AUTH_O_SIG   8u
+#define TFW_BOOT_AUTH_LEN     72u
+
 #endif /* TFW_BOOT_H */

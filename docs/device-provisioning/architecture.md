@@ -23,7 +23,8 @@ tests), [`cli.md`](cli.md) (`tfwprov` verbs and flags), [`api.md`](api.md)
 |---|---|---|
 | ISP programmer (`avrdude`) | fuses, lock bits | touch the secure element or EEPROM |
 | `tfwprov` (`sdk/go/cmd/tfwprov`) | drives the ATECC608A over the wire protocol | set fuses, set lock bits, or write the platform-reserved EEPROM region |
-| `src/caps/provision.c` | the six `PROV_*` command handlers | exist in a production build — `TFW_FEATURE_PROVISION` defaults to 0 and the file is not compiled in |
+| `src/caps/provision.c` | the six `PROV_*` command handlers: the wire alone | exist in a production build — `TFW_FEATURE_PROVISION` defaults to 0 and the file is not compiled in |
+| `src/caps/provision_atecc.c` | the backend those handlers call on an element part: the ATECC608A transactions | the same; the ESP32's `hmac-p256` tier links `src/caps/provision_uds.c` in its place ([`esp32-p4-design.md`](../multi-arch/esp32-p4-design.md) §2.4) |
 | `sdk/go/provision.go` | typed host calls (`Device.Prov*`) over `sdk/go` | generate or read back any secret; the element refuses reading a never-readable slot |
 | bench bake image (`make platform-bake`, `tools/platform-bake/`) | writing the one platform block `tfwprov --bake-eeprom` produced into `[0x000, 0x0C0)` on a bench part that still runs its stock serial bootloader | encode a block itself, overwrite a different valid block, write outside the region, run on a production part (`tfw-boot` takes signed images only and this image is never vendor-signed), set fuses or lock bits, or link into an application image (`make platform-bake-no-link-check`) |
 | the provisioning template (`sdk/go/templates/*.conf`) | slot policy for the config zone | be interpreted by the firmware — the firmware writes the block it is given and has no opinion about policy |
@@ -66,8 +67,8 @@ in [`engineering.md`](engineering.md).
   outside this repo — is the authority; the device's job is only to prove it
   holds the key that record names.
 - **Jig-only, by file selection, not a runtime flag.** `TFW_FEATURE_PROVISION`
-  defaults to `0`; the Makefile excludes `src/caps/provision.c` from the object
-  list and `src/core/commands.def` emits no dispatch entries for `0x70`–`0x75`
+  defaults to `0`; the Makefile excludes `src/caps/provision.c` and its backend
+  from the object list and `src/core/commands.def` emits no dispatch entries for `0x70`–`0x75`
   under `#if TFW_FEATURE_PROVISION`. A production part answers `TFW_ERR_UNKNOWN_CMD`
   to every provisioning command id, because there is no handler to answer with —
   not a disabled one. A device that could be re-provisioned over its own command

@@ -14,7 +14,8 @@
  *             256-byte OTA page are the AVR's; this answers 4096).
  *   nvm       the `tfw_plat` data partition, found in the partition table
  *             by label -- the same block the application reads through
- *             tfw_hal_nvm_read
+ *             tfw_hal_nvm_read; and `tfw_auth`, the activate authorization
+ *             the application writes (tfw_l0_auth_read)
  *   uart      the ROM console, polled
  *   handoff   the custom area of ESP-IDF's RTC-retained record
  *   control   ESP-IDF's loader and ESP-IDF's reset
@@ -33,21 +34,48 @@
 #include "soc/reset_reasons.h"
 
 #include "boot_hal.h"
+#include "flash_span.h"
+#include "l0_gate.h"
 #include "tfw/boot.h"
 
 #define FLASH_PAGE 4096u
 #define PLAT_LABEL "tfw_plat"
+#define AUTH_LABEL "tfw_auth"
+#define BOUNCE     256u                 /* bytes; a multiple of 4 (flash_span.h) */
+
+/* Every read in this file. bootloader_flash_read refuses a source, length or
+ * destination that is not 4-byte aligned, and the contract reads at any byte:
+ * the SUIT envelope's 2-byte length after the trailer is one (l0_gate.c). So
+ * each piece goes through an aligned bounce buffer (flash_span.h). */
+static esp_err_t flash_read(uint32_t addr, uint8_t *buf, uint32_t len, bool decrypt)
+{
+    static uint32_t  bounce[BOUNCE / 4u];
+    tfw_flash_span_t s;
+
+    while (len > 0u) {
+        tfw_flash_span(addr, len, BOUNCE, &s);
+        if (bootloader_flash_read(s.from, bounce, s.len, decrypt) != ESP_OK) {
+            return ESP_FAIL;
+        }
+        memcpy(buf, (const uint8_t *)bounce + s.skip, s.take);
+        addr += s.take;
+        buf  += s.take;
+        len  -= s.take;
+    }
+    return ESP_OK;
+}
 
 void tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
 {
-    if (bootloader_flash_read(addr, buf, len, true) != ESP_OK) {
+    if (flash_read(addr, buf, len, true) != ESP_OK) {
         memset(buf, 0xFF, len);         /* what erased flash reads as */
     }
 }
 
 tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 {
-    static uint8_t page[FLASH_PAGE];
+    /* Words: bootloader_flash_write refuses a source not 4-byte aligned. */
+    static uint32_t page[FLASH_PAGE / 4u];
 
     if (addr % FLASH_PAGE != 0u) {
         return TFW_ERR_RANGE;
@@ -65,8 +93,8 @@ uint16_t tfw_boot_flash_page_size(void)
     return (uint16_t)FLASH_PAGE;
 }
 
-/* The platform partition's offset and size, from the partition table. */
-static int plat_partition(uint32_t *offset, uint32_t *size)
+/* A data partition's offset and size, by label, from the partition table. */
+static int find_partition(const char *label, uint32_t *offset, uint32_t *size)
 {
     const esp_partition_info_t *t;
     int                         i;
@@ -80,7 +108,7 @@ static int plat_partition(uint32_t *offset, uint32_t *size)
         if (t[i].magic != ESP_PARTITION_MAGIC) {
             break;
         }
-        if (strncmp((const char *)t[i].label, PLAT_LABEL, sizeof t[i].label) == 0) {
+        if (strncmp((const char *)t[i].label, label, sizeof t[i].label) == 0) {
             *offset = t[i].pos.offset;
             *size   = t[i].pos.size;
             found   = 1;
@@ -96,13 +124,30 @@ tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
     uint32_t off;
     uint32_t size;
 
-    if (!plat_partition(&off, &size)) {
+    if (!find_partition(PLAT_LABEL, &off, &size)) {
         return TFW_ERR_UNSUPPORTED;
     }
     if ((uint32_t)addr + len > size) {
         return TFW_ERR_RANGE;
     }
-    return bootloader_flash_read(off + addr, buf, len, true) == ESP_OK ? TFW_OK : TFW_ERR_INTERNAL;
+    return flash_read(off + addr, buf, len, true) == ESP_OK ? TFW_OK : TFW_ERR_INTERNAL;
+}
+
+/* l0_gate.h's: the activate authorization, read as written. The partition
+ * is not encrypted -- a signature is not a secret, and the record is its own
+ * integrity -- so the read does not decrypt. */
+tfw_status_t tfw_l0_auth_read(uint8_t rec[TFW_BOOT_AUTH_LEN])
+{
+    uint32_t off;
+    uint32_t size;
+
+    if (!find_partition(AUTH_LABEL, &off, &size)) {
+        return TFW_ERR_AUTH_REQUIRED;
+    }
+    if (size < TFW_BOOT_AUTH_LEN) {
+        return TFW_ERR_RANGE;
+    }
+    return flash_read(off, rec, TFW_BOOT_AUTH_LEN, false) == ESP_OK ? TFW_OK : TFW_ERR_INTERNAL;
 }
 
 tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
@@ -111,13 +156,13 @@ tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
     uint32_t       off;
     uint32_t       size;
 
-    if (!plat_partition(&off, &size)) {
+    if (!find_partition(PLAT_LABEL, &off, &size)) {
         return TFW_ERR_UNSUPPORTED;
     }
     if ((uint32_t)addr + len > size || (uint32_t)addr + len > FLASH_PAGE) {
         return TFW_ERR_RANGE;
     }
-    if (bootloader_flash_read(off, sector, FLASH_PAGE, true) != ESP_OK) {
+    if (flash_read(off, sector, FLASH_PAGE, true) != ESP_OK) {
         return TFW_ERR_INTERNAL;
     }
     memcpy(&sector[addr], buf, len);

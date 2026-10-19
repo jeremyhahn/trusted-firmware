@@ -88,5 +88,5 @@ Each choice is an ADR before any code.
 | AVR | ATmega32U4 | none, soft, ATECC608A | supported |
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |
 | Cortex-M33 | LPC55S69, MCXN, STM32U5 | ROM CDI | planned ([#22](../../../../issues/22)) |
-| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, DS (`hmac-ds`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
+| ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, P-256 DeviceID from the UDS (`hmac-p256`, `boards/esp32p4-poe/profile.mk:13`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
 | Other | | | planned ([#17](../../../../issues/17)) |

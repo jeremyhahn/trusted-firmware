@@ -1,6 +1,6 @@
 # Reference: the standards this repository implements
 
-> **Status: REFERENCE** · Scope: `docs/reference/` · Last verified: 2026-10-16
+> **Status: REFERENCE** · Scope: `docs/reference/` · Last verified: 2026-10-18
 > One entry per standard the code implements, with the copy it is implemented against.
 
 Handbook `software/conventions/documentation.md` §9: where a standard exists,
@@ -51,3 +51,13 @@ override-parameters 20, vendor id 1, image size 14) were checked against -37's C
 | TCG DICE Symmetric Identity Based Device Attestation | revision not cited in code | <https://trustedcomputinggroup.org/resource/dice-symmetric-identity-based-device-attestation/> | The HMAC-SHA256 identity (`TFW_ALG_HMAC_SHA256`): `include/tfw/protocol.h`, `xkms/avr/algorithms.go` |
 
 Each is a TCG specification; its licence does not allow a copy here.
+
+## Board sources
+
+Not standards: the vendor documents a board profile is checked against. Listed
+by title and URL, because none publishes a licence that allows a copy.
+
+| Document | Retrieved | URL | Checked against it |
+|---|---|---|---|
+| Waveshare, *ESP32-P4-WIFI6-POE-ETH Schematic* (3 pages; SHA-256 `885b8f038881c6656486fea143bcf749f17c6a1ec9006cc693dcdb298018380b`) | 2026-10-18 | <https://files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf> | Every pin and the flash part of `boards/esp32p4-poe/`: [`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md), "Pins" |
+| Waveshare, *ESP32-P4-NANO Schematic* | 2026-10-18 | <https://files.waveshare.com/wiki/ESP32-P4-NANO/ESP32-P4-NANO-schematic.pdf> | Ruled out as the bench board: its flash is 16 MB |

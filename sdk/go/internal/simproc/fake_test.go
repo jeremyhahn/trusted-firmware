@@ -21,8 +21,19 @@ import (
 // firmware; what the firmware answers is the tfwsim-tagged suite's job.
 const fakeEnv = "SIMPROC_FAKE_ECHO"
 
+// fakeMute, as fakeEnv's value, makes the fake read and never answer.
+const fakeMute = "mute"
+
 func TestMain(m *testing.M) {
-	if os.Getenv(fakeEnv) != "" {
+	switch os.Getenv(fakeEnv) {
+	case "":
+	case fakeMute:
+		// A sim that has stopped answering: it reads, it never writes.
+		if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	default:
 		if _, err := io.Copy(os.Stdout, os.Stdin); err != nil {
 			os.Exit(1)
 		}
@@ -93,6 +104,26 @@ func TestCloseEndsTheProcess(t *testing.T) {
 	}
 	if len(rest) != 0 {
 		t.Fatalf("read %q after Close, want nothing", rest)
+	}
+}
+
+// A read deadline ends a Read on a process that has stopped answering, as on
+// a net.Conn: what lets tfw.Device's timeout fire on a hung sim (#163).
+func TestAReadDeadlineEndsAReadOnASilentProcess(t *testing.T) {
+	fakeDir(t, Software)
+	t.Setenv(fakeEnv, fakeMute)
+	c := Start(t, Software)
+
+	if _, err := c.Write([]byte("anyone?")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	var err error
+	within(t, time.Minute, "a read past its deadline", func() { _, err = c.Read(make([]byte, 1)) })
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("read past the deadline: %v; want os.ErrDeadlineExceeded", err)
 	}
 }
 

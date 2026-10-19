@@ -149,7 +149,9 @@ make esp32-qemu-test   # both esp32-qemu machines in Espressif's QEMU
 The board gets its IPv4 address from DHCP. For a network with no DHCP server, set
 a static address in the board's `boards/<board>/sdkconfig.defaults` (the
 `esp32p4-poe` file carries the lines commented out) or in a file of your own,
-passed as `ESP_SDKCONFIG_EXTRA`:
+passed as `ESP_SDKCONFIG_EXTRA`. It takes a space-separated list of files,
+applied in the order given after the board's defaults, so a static-address
+file composes with another overlay such as `boards/esp32p4-poe/sdkconfig.hil0`:
 
 ```sh
 cat > static.defaults <<'EOF'
@@ -182,7 +184,6 @@ cd esp-idf
 . ./export.sh
 python tools/idf_tools.py install cmake ninja          # not installed on Linux by default
 python tools/idf_tools.py install qemu-riscv32 qemu-xtensa
-python -m pip install esp-secure-cert-tool==2.6.1      # the DS encoder qemu_test.py uses
 ```
 
 Three host gaps, each fixed without root:

@@ -196,8 +196,10 @@ tfw_status_t tfw_csr_cri(const tfw_alias_parts_t *p, uint16_t off,
 }
 
 /*
- * One exchange, no pages and no state: the response is the signature alone,
- * which fits a frame, and nothing is kept for a later command to read. The key
+ * One exchange, no pages and no state of its own: the response is the
+ * signature alone, which fits a frame, and nothing is kept for a later command
+ * to read. It reads the measurement the ATTEST_CERT mint for b kept, and
+ * changes nothing that mint left, so a paging in progress goes on. The key
  * buffer is the signature buffer too -- the point is consumed by the digest
  * before the element writes r||s over it -- so the frame is no deeper than the
  * alias certificate's mint.
@@ -206,6 +208,7 @@ tfw_status_t tfw_csr_cmd(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint8_t          digest[TFW_SHA256_LEN];
     uint8_t          key[TFW_ALIAS_POINT_LEN];
+    uint8_t          measurement[TFW_SHA256_LEN];
     uint8_t          alg = TFW_ALG_NONE;
     const uint8_t   *b;
     tfw_alias_parts_t p;
@@ -226,9 +229,17 @@ tfw_status_t tfw_csr_cmd(tfw_reader_t *r, tfw_writer_t *w)
         return st;
     }
 
+    /* The 32 bytes the certificate minted for b placed in 273, kept from that
+     * mint, so the request go-xkms rebuilds from the certificate is the one
+     * signed here. Asking the application again could sign a value it has
+     * since moved on from. b with no certificate behind it is refused. */
+    st = tfw_alias_measurement_for(b, measurement);
+    if (st != TFW_OK) {
+        return st;
+    }
     p.nonce   = b;
     p.ueid    = tfw_attest_device_id();
-    p.fw_hash = tfw_attest_fw_hash();
+    p.fw_hash = measurement;
     p.pubkey  = key;
     p.sig     = NULL;
     st = tfw_csr_cri_digest(&p, digest);

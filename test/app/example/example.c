@@ -44,3 +44,15 @@ void tfw_app_run(tfw_ms_t now_ms)
 void tfw_app_shutdown(void)        { (void)tfw_hal_gpio_write(&led, 0u); }
 void tfw_app_before_update(void)   {}
 tfw_status_t tfw_app_after_update(void) { return TFW_OK; }
+
+/* A fixed value, E0 E1 .. FF, that the cross-implementation test expects in the
+ * alias certificate. A real application supplies what its verifier registered:
+ * a digest of its configuration, say. One that has nothing to say returns
+ * TFW_ERR_UNSUPPORTED. */
+tfw_status_t tfw_app_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
+{
+    for (uint8_t i = 0u; i < TFW_APP_EVIDENCE_LEN; i++) {
+        out[i] = (uint8_t)(0xE0u + i);
+    }
+    return TFW_OK;
+}

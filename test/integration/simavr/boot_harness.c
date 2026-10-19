@@ -1252,7 +1252,8 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
     from_device_n = 0;
     n = frame_request(wire, 0x31, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
-    run_cycles(BUDGET_EXCHANGE);
+    wait_for_seq = 0x31;
+    run_until(response_arrived, BUDGET_EXCHANGE);
     check(find_response(0x31, &status, out, &outlen) && status == TFW_OK,
           "CAPS answers, so the APPLICATION is running");
 
@@ -1566,7 +1567,8 @@ static void test_tampered_image_refuses(elf_firmware_t *boot, elf_firmware_t *ap
         from_device_n = 0;
         n = frame_request(wire, 0x32, TFW_CMD_CAPS, NULL, 0);
         send(wire, n);
-        run_cycles(BUDGET_EXCHANGE);
+        wait_for_seq = 0x32;
+        run_until(response_arrived, BUDGET_EXCHANGE);
         check(find_response(0x32, &status, out, &outlen)
               && status == TFW_ERR_UNKNOWN_CMD,
               "CAPS is unknown, so it did NOT jump");
@@ -3063,7 +3065,8 @@ static void soft_never_ran(const char *what)
     from_device_n = 0;
     n = frame_request(wire, 0x3A, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
-    run_cycles(BUDGET_EXCHANGE);
+    wait_for_seq = 0x3A;
+    run_until(response_arrived, BUDGET_EXCHANGE);
     check(!(find_response(0x3A, &status, out, &outlen) && status == TFW_OK),
           "  and CAPS is not answered: the application never ran");
 }
@@ -3102,7 +3105,8 @@ static void test_the_soft_base_row(elf_firmware_t *boot, elf_firmware_t *app)
     from_device_n = 0;
     n = frame_request(wire, 0x39, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
-    run_cycles(BUDGET_EXCHANGE);
+    wait_for_seq = 0x39;
+    run_until(response_arrived, BUDGET_EXCHANGE);
     {
         int answered = find_response(0x39, &status, out, &outlen) && status == TFW_OK;
 
@@ -3179,7 +3183,8 @@ static void test_the_soft_base_row_ed25519(elf_firmware_t *boot, elf_firmware_t 
     from_device_n = 0;
     n = frame_request(wire, 0x39, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
-    run_cycles(BUDGET_EXCHANGE);
+    wait_for_seq = 0x39;
+    run_until(response_arrived, BUDGET_EXCHANGE);
     {
         int answered = find_response(0x39, &status, out, &outlen) && status == TFW_OK;
 

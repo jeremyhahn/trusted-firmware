@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
 )
 
 // StartElementEthernet runs the element-tier simulator with the test identity
@@ -54,7 +55,7 @@ func StartElementEthernet(tb testing.TB, opts ...tfw.Option) (serial *tfw.Device
 		tb.Fatal(err)
 	}
 
-	serial = startElement(tb, nil, opts,
+	serial = startElement(tb, simproc.Element, nil, opts,
 		"--eth",
 		"--eeprom-bin", eep,
 		"--provision-element",

@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 
+#include "tfw/app.h"
 #include "tfw/status.h"
 #include "dispatch.h"
 
@@ -41,6 +42,11 @@ tfw_app_state_t tfw_app_runner_state(void);
 
 /* Calls of tfw_app_run over budget since start, saturating at 0xFFFF. */
 uint16_t tfw_app_runner_overruns(void);
+
+/* The application's evidence, from tfw_app_evidence, but only while it runs:
+ * TFW_OK with out filled, else TFW_ERR_UNSUPPORTED and out untouched -- no
+ * application, one that is not running, or one that supplies none. */
+tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN]);
 
 /* APP_INFO, wired into commands.def only when TFW_FEATURE_APP is on (an
  * APP_DIR is named, mk/app.mk). Defined beside the runner and nowhere else, so

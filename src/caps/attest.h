@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 #ifndef TFW_CAPS_ATTEST_H
 #define TFW_CAPS_ATTEST_H
+#include "tfw/crypto.h"
 #include "tfw/status.h"
 #include "../core/reader.h"
 #include "../core/writer.h"
@@ -30,4 +31,16 @@ void        tfw_attest_reset_state(void);   /* test seam */
  */
 const uint8_t *tfw_attest_device_id(void);   /* TFW_ATTEST_ID_LEN bytes */
 const uint8_t *tfw_attest_fw_hash(void);     /* TFW_SHA256_LEN bytes    */
+
+/*
+ * The 32 bytes the measurements claim (273) carries as the hash-entry value of
+ * its one file, "app": the application's evidence when an application is
+ * running and supplies it (tfw_app_evidence, include/tfw/app.h), otherwise the
+ * firmware measurement above, exactly as before the application had a say. The
+ * claim is go-xkms's shape -- one file, one 32-byte value -- so it has room for
+ * one or the other, never both, and never zeros standing in for an
+ * application's bytes: an application that supplies none leaves the firmware
+ * measurement where it was.
+ */
+void tfw_attest_measurement(uint8_t out[TFW_SHA256_LEN]);
 #endif

@@ -1,6 +1,6 @@
 # DICE attestation — API
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
 > Conflicts with this document are defects. Fix them here first.
 
 ## One wire transport
@@ -119,9 +119,17 @@ CoSWID (RFC 9393), the smallest tag the spec permits carrying one measurement:
 { 0:  h'<16-byte tag-id>',        -- tag-id, a frozen product constant
   1:  "tfw",                      -- software-name
   2:  {31: "tfw", 33: 1},         -- entity: entity-name, role=tag-creator
-  3:  {17: {7: [1, h'<sha-256 fw hash>'], 24: "app"}},  -- evidence -> file -> hash-entry(hash-alg-id=1 sha-256), fs-name
+  3:  {17: {7: [1, h'<32 bytes>'], 24: "app"}},  -- evidence -> file -> hash-entry(hash-alg-id=1 sha-256), fs-name
   12: 0 }                         -- tag-version
 ```
+
+The hash-entry's 32 bytes are the running application's evidence, what its
+`tfw_app_evidence` hook wrote ([application-sdk/api.md](../application-sdk/api.md)).
+Where the image has no application, the application is not running, or its hook
+returned anything but `TFW_OK`, they are the firmware hash `tfw-boot` measured
+(`tfw_attest_measurement`, `src/caps/attest.c`).
+The claim is never absent: go-xkms's possession template requires `273`. The
+host reads the 32 bytes with `tfw.ApplicationEvidence`.
 
 Label `3` (evidence) is used rather than `6` (payload): RFC 9711 §4.2.16
 requires an evidence CoSWID, and a payload tag would claim this is what was
@@ -147,6 +155,26 @@ response: [sig:64]   r‖s, P-256 over SHA-256(CertificationRequestInfo)
 One exchange: nothing is paged and nothing is kept, so it does not disturb an
 `ATTEST_CERT` paging in progress or leave a certificate for one to read. Any
 request length but 32 is `TFW_ERR_BAD_ARGC`.
+
+**`b` must be the nonce of the certificate last minted.** The request carries
+the claims set that certificate carries, and its measurements claim (273) is
+the 32 bytes the mint placed, kept in RAM beside the nonce for the pages that
+follow (`tfw_alias_measurement_for`, `src/caps/alias.c`). `ATTEST_CSR` signs
+those bytes and does not call the application's `tfw_app_evidence` again. An
+application may report its current state, so its evidence may have changed
+since the mint, and go-xkms rebuilds this request from the certificate: a
+fresh value would sign a request it cannot match. The enrollment flow
+satisfies this already, since the possession signer asks with the nonce of
+the attestation it just made.
+
+`b` with no certificate behind it is `TFW_ERR_BAD_ARGC`: nothing minted since
+reset, a mint for another nonce since, or a mint that failed (a mint clears
+what the last one kept before it starts). It is the code an `ATTEST_CERT` page
+request with no certificate behind it already answers, for the same reason:
+the argument names a certificate that does not exist. `TFW_ERR_BAD_STATE` is
+not used, because the OTA ADR defines it for the OTA state and an older host
+names it so. Nothing is kept across a reset, and no EEPROM or flash is
+written.
 
 ### What the device signs, `src/caps/csr.c`
 

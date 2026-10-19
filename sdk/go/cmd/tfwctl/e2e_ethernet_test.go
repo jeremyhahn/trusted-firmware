@@ -140,6 +140,7 @@ func TestE2EEthernetDeviceSignsTheCSRDigestOverTCP(t *testing.T) {
 	for i := range b {
 		b[i] = byte(i)
 	}
+	cliAttestCert(t, eth, b)
 	sig, err := cliCSR(t, eth, b)
 	require.NoError(t, err)
 	assert.True(t, csrVerifies(t, sig, csrDigestForTestIdentity),

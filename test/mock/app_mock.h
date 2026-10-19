@@ -5,7 +5,7 @@
  * include/tfw/app.h and the descriptor, and writes one letter per hook call to
  * a log, so a test asserts the order the runner called them in as one string:
  *
- *   i init   r run   s shutdown   b before_update   a after_update
+ *   i init   r run   s shutdown   b before_update   a after_update   e evidence
  */
 #ifndef TFW_APP_MOCK_H
 #define TFW_APP_MOCK_H
@@ -25,5 +25,8 @@ void        tfw_mock_app_set_init(tfw_status_t st);
 void        tfw_mock_app_set_run_ms(tfw_ms_t ms);
 const char *tfw_mock_app_log(void);
 tfw_ms_t    tfw_mock_app_last_now(void);
+/* What tfw_app_evidence answers and writes; reset makes it TFW_ERR_UNSUPPORTED
+ * over zeros, an application that supplies none. */
+void        tfw_mock_app_set_evidence(tfw_status_t st, const uint8_t ev[TFW_APP_EVIDENCE_LEN]);
 
 #endif /* TFW_APP_MOCK_H */

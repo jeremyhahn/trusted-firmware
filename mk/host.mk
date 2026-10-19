@@ -716,7 +716,7 @@ COVERAGE_FLOOR ?= 90
 # definition explicitly rather than having its complaints suppressed: told the
 # configuration it can analyse the code, whereas a suppression would also hide
 # the next genuinely unknown macro.
-lint: lint-arch-leak lint-conditionals lint-timestamps
+lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
 	@cppcheck --enable=warning,style,performance,portability \
 	          --check-level=exhaustive \
 	          --error-exitcode=1 --inline-suppr --quiet \
@@ -728,7 +728,7 @@ lint: lint-arch-leak lint-conditionals lint-timestamps
 	          src/ boards/ boot/
 	@echo "cppcheck clean"
 
-# The two grep gates. They used to live only in the CI workflow, which made
+# The grep gates. Two of them used to live only in the CI workflow, which made
 # them gates a developer could not run -- and one of them had been failing
 # on main for two commits before anyone saw it, because the only place it
 # ran was a job nobody reads when the other five are green.
@@ -779,25 +779,48 @@ lint-timestamps:
 	fi
 	@echo "no build timestamps"
 
-## lint-grep-selftest: the two grep gates fail on a plant and print path and line only
+## lint-test-sleep: no wall-clock sleep in a Go or Python test file
+# The owner's test standard (m655, #163): a test waits on a condition, never on
+# the clock. A sleep is either too short on a loaded runner, and the test
+# flakes, or too long everywhere else, and the suite crawls; either way it
+# hides the condition the test should have named. Only test files are swept:
+# production code may sleep where the delay is the protocol (internal/peer's
+# reset pulse, scripts/deps-check.py's backoff, whose test mocks the sleep).
+lint-test-sleep:
+	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rnE 'time\.(Sleep|sleep\()' . \
+	     --include='*_test.go' --include='test_*.py' --include='*_test.py' \
+	     --exclude-dir=.git --exclude-dir=build --exclude-dir=coverage \
+	     --exclude-dir=third_party --exclude-dir=vendor || true); \
+	if [ -n "$$hits" ]; then \
+	  printf '%s\n' "$$hits" | while IFS=: read -r p n _; do echo "$${p#./}:$$n: test-sleep"; done; \
+	  echo "a test waits on a condition, never on the clock (m655)"; \
+	  exit 1; \
+	fi
+	@echo "no sleeps in test files"
+
+## lint-grep-selftest: the grep gates fail on a plant and print path and line only
 # Plants go into a throwaway tree, never into this one. Each plant must fail its
-# gate with `path:line: ` and without the planted text; an include guard and an
-# exempt HAL directory must not.
+# gate with `path:line: ` and without the planted text; an include guard, an
+# exempt HAL directory and a sleep outside a test file must not.
 lint-grep-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
-	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/boards $$t/include && \
+	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/boards $$t/include $$t/sdk $$t/scripts && \
 	printf '#ifndef TFW_OK_H\n#define TFW_OK_H\n#endif\n' > $$t/src/core/ok.h && \
 	printf '#if 1\n#endif\n' > $$t/src/hal/avr/exempt.c && \
-	$(MAKE) --no-print-directory lint-conditionals lint-timestamps LINT_GREP_ROOT=$$t > /dev/null || \
+	printf 'time.Sleep(1)\n' > $$t/sdk/exempt.go && \
+	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep LINT_GREP_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
-	for plant in 'conditionals:#if TFW_PLANTED_TEXT' 'timestamps:const char *d = __DATE__; /* TFW_PLANTED_TEXT */'; do \
-	  gate=$${plant%%:*}; printf '%s\n' "$${plant#*:}" > $$t/src/core/plant.c; \
+	for plant in 'conditionals:src/core/plant.c:#if TFW_PLANTED_TEXT' \
+	             'timestamps:src/core/plant.c:const char *d = __DATE__; /* TFW_PLANTED_TEXT */' \
+	             'test-sleep:sdk/plant_test.go:time.Sleep(1) // TFW_PLANTED_TEXT' \
+	             'test-sleep:scripts/test_plant.py:time.sleep(1)  # TFW_PLANTED_TEXT'; do \
+	  gate=$${plant%%:*}; rest=$${plant#*:}; f=$${rest%%:*}; printf '%s\n' "$${rest#*:}" > $$t/$$f; \
 	  if out=$$($(MAKE) --no-print-directory lint-$$gate LINT_GREP_ROOT=$$t 2>&1); then \
 	    echo "selftest: lint-$$gate passed a plant"; exit 1; \
 	  fi; \
 	  case $$out in *TFW_PLANTED_TEXT*) echo "selftest: lint-$$gate printed the matched text"; exit 1 ;; esac; \
-	  case $$out in *'src/core/plant.c:1: '*) ;; *) echo "selftest: lint-$$gate did not print path:line"; exit 1 ;; esac; \
-	  rm -f $$t/src/core/plant.c; \
+	  case $$out in *"$$f:1: "*) ;; *) echo "selftest: lint-$$gate did not print path:line"; exit 1 ;; esac; \
+	  rm -f $$t/$$f; \
 	done; \
 	echo "grep lint gates reject every plant and print path and line only"
 
@@ -1011,7 +1034,7 @@ clean-host:
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
 .PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a tfwsim-auto lint \
-        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-grep-selftest
+        lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep
 #

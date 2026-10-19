@@ -30,11 +30,27 @@
 #include "tfw/boot.h"
 #include "handoff.h"
 #include "platform_id.h"
+#include "tfw/app.h"
 
 /* The same HAL stand-ins test_alias.c defines, for the same reasons: the
  * element model is this binary's I2C HAL, and attest.c's identity accessors
  * read the platform block and the handoff through these. */
 tfw_ms_t tfw_hal_millis(void) { return 0u; }
+
+/* attest.c asks the application runner for 273's bytes; this stands in for it,
+ * so a test chooses whether a running application supplies evidence. */
+static tfw_status_t app_st;
+static uint8_t      app_ev[TFW_APP_EVIDENCE_LEN];
+static uint8_t      app_calls;
+tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
+{
+    app_calls++;
+    if (app_st != TFW_OK) {
+        return app_st;
+    }
+    memcpy(out, app_ev, sizeof app_ev);
+    return TFW_OK;
+}
 
 static uint8_t test_eeprom[TFW_BOOT_EE_LEN];
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
@@ -63,6 +79,7 @@ static const uint8_t PUBKEY[] = TFWV_ALIAS_PUBKEY;
 static const uint8_t SIG[]    = TFWV_ALIAS_SIG;
 static const uint8_t CRI[]    = TFWV_CSR_CRI;
 static const uint8_t CRIDIG[] = TFWV_CSR_CRI_DIGEST;
+static uint8_t       CERTBUF[512];   /* a certificate mint() pages in */
 static const uint8_t CERT[]   = TFWV_ALIAS_CERT;
 
 #define DOC_MAX 512u
@@ -77,6 +94,9 @@ void setUp(void)
     tfw_platform_id_init();
     tfw_boot_handoff_init();
     tfw_crypto_init();
+    app_st = TFW_ERR_UNSUPPORTED;
+    memset(app_ev, 0, sizeof app_ev);
+    app_calls = 0u;
 }
 
 void tearDown(void) {}
@@ -441,6 +461,45 @@ static tfw_status_t run(const uint8_t *p, uint8_t n, uint8_t *out, uint8_t *len)
     return st;
 }
 
+/* ATTEST_CERT for nonce: mints, and pages the whole certificate into cert.
+ * Returns its length. ATTEST_CSR for the same nonce needs this behind it. */
+static uint16_t mint(const uint8_t *nonce, uint8_t *cert)
+{
+    static uint8_t in[TFW_ALIAS_NONCE_LEN];
+    uint8_t        out[TFW_MAX_PAYLOAD];
+    uint16_t       total = 0u, got = 0u;
+    uint8_t        page  = 0u;
+    tfw_reader_t   r;
+    tfw_writer_t   w;
+
+    memcpy(in, nonce, sizeof in);
+    tfw_reader_init(&r, in, sizeof in);
+    do {
+        uint8_t len;
+
+        tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cmd(&r, &w));
+        len   = (uint8_t)(tfw_writer_len(&w) - 3u);
+        total = (uint16_t)((uint32_t)out[1] | ((uint32_t)out[2] << 8));
+        memcpy(&cert[got], &out[3], len);
+        got = (uint16_t)(got + len);
+        page++;
+        tfw_reader_init(&r, &page, 1u);
+    } while (got < total);
+    return total;
+}
+
+/* Where claim 273's 32 bytes sit in a certificate mint() collected: the claims
+ * set is the last thing in the TBS, and the TBS follows the certificate's own
+ * four-byte header. */
+static const uint8_t *cert_273(const uint8_t *cert)
+{
+    const uint8_t *tbs = &cert[4];
+    uint16_t       n   = (uint16_t)(4u + (((uint32_t)tbs[2] << 8) | (uint32_t)tbs[3]));
+
+    return &tbs[n - TFWV_APPEV_UCCS_LEN + TFWV_APPEV_UCCS_HASH_AT];
+}
+
 /*
  * THE HAPPY PATH, checked the way a CA checks it: rebuild the request from b,
  * the DeviceID, the measurement and the element's real public key, hash it,
@@ -457,6 +516,7 @@ static void test_a_provisioned_element_signs_the_request_info(void)
     tfw_alias_parts_t p;
 
     provision();
+    (void)mint(NONCE, CERTBUF);
     TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     TEST_ASSERT_EQUAL_UINT8(TFW_SIG_LEN, len);
 
@@ -473,6 +533,36 @@ static void test_a_provisioned_element_signs_the_request_info(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, out, TFW_SIG_LEN);
 
     digest[0] ^= 0x01u;
+    TEST_ASSERT_FALSE(tfw_model_p256_verify(p.pubkey, digest, out));
+}
+
+/* A running application's evidence is 273's value in the request the device
+ * signs, the same bytes ATTEST_CERT places, and the firmware measurement is not. */
+static void test_a_running_applications_evidence_is_what_the_request_signs(void)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t          out[TFW_MAX_PAYLOAD];
+    uint8_t          digest[TFW_SHA256_LEN];
+    uint8_t          len = 0u;
+    tfw_alias_parts_t p;
+
+    provision();
+    app_st = TFW_OK;
+    memcpy(app_ev, EV, sizeof app_ev);
+    (void)mint(NONCE, CERTBUF);
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(TFW_SIG_LEN, len);
+
+    p.nonce   = NONCE;
+    p.ueid    = tfw_attest_device_id();
+    p.fw_hash = EV;
+    p.pubkey  = tfw_model_deviceid_public();
+    p.sig     = NULL;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_csr_cri_digest(&p, digest));
+    TEST_ASSERT_TRUE(tfw_model_p256_verify(p.pubkey, digest, out));
+
+    p.fw_hash = tfw_attest_fw_hash();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_csr_cri_digest(&p, digest));
     TEST_ASSERT_FALSE(tfw_model_p256_verify(p.pubkey, digest, out));
 }
 
@@ -512,6 +602,7 @@ static void test_an_element_failure_is_returned_and_writes_nothing(void)
     uint8_t len = 0u;
 
     provision();
+    (void)mint(NONCE, CERTBUF);
     tfw_model_force_status(0x0Fu);                 /* execution error */
     TEST_ASSERT_NOT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     TEST_ASSERT_EQUAL_UINT8(0u, len);
@@ -526,6 +617,7 @@ static void test_a_signing_failure_after_the_key_writes_nothing(void)
     tfw_status_t st;
 
     provision();
+    (void)mint(NONCE, CERTBUF);
     tfw_model_fail_commands_after(1u);
     st = run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len);
     TEST_ASSERT_NOT_EQUAL(TFW_OK, st);
@@ -533,19 +625,120 @@ static void test_a_signing_failure_after_the_key_writes_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(0u, len);
 }
 
-/* No state: ATTEST_CSR leaves no certificate behind for ATTEST_CERT to page. */
-static void test_the_command_leaves_no_certificate_behind(void)
+/* ATTEST_CSR changes nothing the mint kept: the next page of the certificate
+ * is the page it would have been, so a paging in progress goes on. */
+static void test_the_command_leaves_the_certificate_as_it_was(void)
 {
-    uint8_t     out[TFW_MAX_PAYLOAD];
-    uint8_t     len = 0u, page = 0u;
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    uint8_t      len = 0u, page = 1u;
+    uint16_t     n;
     tfw_reader_t r;
     tfw_writer_t w;
 
     provision();
+    n = mint(NONCE, CERTBUF);
     TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
     tfw_reader_init(&r, &page, 1u);
     tfw_writer_init(&w, out, (uint8_t)sizeof out);
-    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_alias_cmd(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cmd(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(1u, out[0]);
+    TEST_ASSERT_EQUAL_UINT16(n, (uint16_t)((uint32_t)out[1] | ((uint32_t)out[2] << 8)));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&CERTBUF[TFW_ALIAS_PAGE], &out[3],
+                                 (uint8_t)(tfw_writer_len(&w) - 3u));
+}
+
+/*
+ * THE REVIEW'S CASE. The application's evidence changes between ATTEST_CERT
+ * and ATTEST_CSR -- it may report its current state, so it is allowed to. The
+ * request is signed over the 273 the certificate carries, because go-xkms
+ * rebuilds it from that certificate; the application is not asked again.
+ */
+static void test_evidence_that_changes_after_the_mint_does_not_reach_the_request(void)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t          out[TFW_MAX_PAYLOAD];
+    uint8_t          digest[TFW_SHA256_LEN];
+    uint8_t          len = 0u;
+    tfw_alias_parts_t p;
+
+    provision();
+    app_st = TFW_OK;
+    memcpy(app_ev, EV, sizeof app_ev);
+    (void)mint(NONCE, CERTBUF);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(EV, cert_273(CERTBUF), TFW_SHA256_LEN);
+    TEST_ASSERT_EQUAL_UINT8(1u, app_calls);
+
+    app_ev[0] ^= 0xFFu;                           /* the application moved on */
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(TFW_SIG_LEN, len);
+    TEST_ASSERT_EQUAL_UINT8(1u, app_calls);       /* not asked again */
+
+    p.nonce   = NONCE;
+    p.ueid    = tfw_attest_device_id();
+    p.fw_hash = cert_273(CERTBUF);
+    p.pubkey  = tfw_model_deviceid_public();
+    p.sig     = NULL;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_csr_cri_digest(&p, digest));
+    TEST_ASSERT_TRUE(tfw_model_p256_verify(p.pubkey, digest, out));
+
+    p.fw_hash = app_ev;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_csr_cri_digest(&p, digest));
+    TEST_ASSERT_FALSE(tfw_model_p256_verify(p.pubkey, digest, out));
+}
+
+/*
+ * b with no certificate behind it is refused with TFW_ERR_BAD_ARGC, as a page
+ * request with none is: nothing minted since reset, a certificate minted for
+ * another nonce, a later mint for another nonce, and a mint that failed. The
+ * device signs no request a host could not match to a certificate.
+ */
+static void test_b_with_no_certificate_minted_for_it_is_refused(void)
+{
+    static const uint8_t OTHER[TFW_ALIAS_NONCE_LEN] = { 0xA5u };
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    uint8_t      len = 0xFFu;
+
+    provision();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
+
+    (void)mint(OTHER, CERTBUF);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
+
+    (void)mint(NONCE, CERTBUF);
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    (void)mint(OTHER, CERTBUF);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL(TFW_OK, run(OTHER, TFW_ALIAS_NONCE_LEN, out, &len));
+
+    tfw_alias_reset_state();                      /* what a reset leaves */
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(OTHER, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
+}
+
+/* A mint that fails takes the certificate before it with it, so its nonce
+ * cannot be used to sign over the measurement the earlier mint kept. */
+static void test_a_failed_mint_leaves_nothing_to_sign_over(void)
+{
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    uint8_t      in[TFW_ALIAS_NONCE_LEN];
+    uint8_t      len = 0xFFu;
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    provision();
+    (void)mint(NONCE, CERTBUF);
+    tfw_model_fail_commands_after(1u);            /* key read, signature fails */
+    memcpy(in, NONCE, sizeof in);
+    tfw_reader_init(&r, in, sizeof in);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_alias_cmd(&r, &w));
+
+    tfw_model_reset();
+    provision();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(NONCE, TFW_ALIAS_NONCE_LEN, out, &len));
+    TEST_ASSERT_EQUAL_UINT8(0u, len);
 }
 
 int main(void)
@@ -566,6 +759,10 @@ int main(void)
     RUN_TEST(test_an_unprovisioned_element_refuses);
     RUN_TEST(test_an_element_failure_is_returned_and_writes_nothing);
     RUN_TEST(test_a_signing_failure_after_the_key_writes_nothing);
-    RUN_TEST(test_the_command_leaves_no_certificate_behind);
+    RUN_TEST(test_the_command_leaves_the_certificate_as_it_was);
+    RUN_TEST(test_a_running_applications_evidence_is_what_the_request_signs);
+    RUN_TEST(test_evidence_that_changes_after_the_mint_does_not_reach_the_request);
+    RUN_TEST(test_b_with_no_certificate_minted_for_it_is_refused);
+    RUN_TEST(test_a_failed_mint_leaves_nothing_to_sign_over);
     return UNITY_END();
 }

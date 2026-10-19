@@ -1,18 +1,44 @@
 # ADR: the Cortex-M reference part and its CI emulation target
 
 > **Status: PROPOSED** · Issue: #14 · SPEC rows: `cortex-m` (future),
-> `imx95`, `stm32h5` · Scope: trusted-firmware only · Last verified: 2026-10-15
+> `imx95`, `stm32h5`, `nrf54l15` · Scope: trusted-firmware only · Last verified: 2026-10-18
 >
 > Documentation only. No code, build file, board id or SPEC row changes with this
 > ADR. Every number marked *confirm* comes from a document that could not be read
 > (named where it is used), and is a starting point for the owner, not a fact.
 
+## Changes on 2026-10-18 (owner, CA m623)
+
+The owner ruled on 2026-10-18 (CA m623, 12:35Z) that this ADR is no longer gated
+on the i.MX 95, and that it is decided against the Cortex-M parts on the bench
+host: the STM32H573I-DK and the nRF54L15-DK, both Cortex-M33 with TrustZone-M.
+The generic `cortex-m` port runs on QEMU `mps2-an505` in CI. The hardware order
+stays the SE052F, then the i.MX 95 M7, then the STM32H5, and the STM32H5 port
+starts only once the ESP32-P4 has proven the composed vendor-boot model (#79).
+
+| Decision | What changed |
+|---|---|
+| 1. Reference part | was the i.MX 95 Cortex-M7, first and only reference. Now the Cortex-M33 with TrustZone-M, checked against the two bench boards; the STM32H573I-DK is the reference board and the nRF54L15-DK the second. The i.MX 95 M7 is a board of the port (#49) |
+| 2. Layout | the QEMU board is `mps2-an505` (`CPU := cortex-m33`), not `mps2-an500` |
+| 3. CI emulation | `mps2-an505` is the CI target now, not "the M33 later". `mps2-an500` is no longer in CI; it is kept only as an option for the M7 (question 8) |
+| 4. HAL table | the QEMU column is `mps2-an505`; the M7 column is unchanged |
+| 5. QEMU placement | the map is on `mps2-an505`'s SSRAM, not `mps2-an500`'s PSRAM |
+| 7. Budgets | the QEMU board carries the smallest board's figures; the M7 TCM size is now known for the family |
+| 6, 8 | unchanged |
+
+Each decision below carries the ruling where it changed. The onboarding ADRs
+for the two bench boards are
+[`../multi-arch/adr-stm32h573i-dk-onboarding.md`](../multi-arch/adr-stm32h573i-dk-onboarding.md)
+(#126) and
+[`../multi-arch/adr-nrf54l15-dk-onboarding.md`](../multi-arch/adr-nrf54l15-dk-onboarding.md)
+(#129).
+
 ## The question
 
 The SPEC row `cortex-m` says the Cortex-M ports are generic architecture ports,
 Cortex-M7 and Cortex-M33 first, each a HAL and a boot-HAL port, with boards as
-data. The i.MX 95's Cortex-M7 is a board. Until the hardware arrives, the Cortex-M targets run in
-QEMU.
+data. The i.MX 95's Cortex-M7 is a board. Until a board port lands, the Cortex-M
+targets run in QEMU.
 
 This ADR decides four things:
 
@@ -82,48 +108,63 @@ The trust model, and how it relates to TF-M, is #15 and is not decided here.
 
 ## Decisions
 
-### 1. The reference part: the i.MX 95 Cortex-M7
+### 1. The reference part: the Cortex-M33 with TrustZone-M
 
-The first Cortex-M port is written against the **Cortex-M7 of the NXP i.MX 95**
-on the NXP FRDM-IMX95-PRO board (UM12527; SPEC row `imx95`). The second
-target is a Cortex-M33 with TrustZone-M: the STM32H5 (SPEC row `stm32h5`).
+*Changed 2026-10-18 (owner, CA m623).* This decision used to make the i.MX 95
+Cortex-M7 the first and only reference part, with the STM32H5 second. That text
+is superseded.
 
-| | i.MX 95 Cortex-M7 (reference) | STM32H5 Cortex-M33 (second) |
-|---|---|---|
-| Architecture | Armv7E-M, no Security Extension | Armv8-M Mainline with the Security Extension (TrustZone-M) |
-| Where the code runs | TCM, loaded from the AHAB container; the core has no on-chip flash | on-chip flash, executed in place |
-| Root of trust | ROM + ELE: AHAB verifies the container against the fused SRK hash | ST's immutable root of trust; Secure Manager on the -DK, our own secure world on the NUCLEO |
-| Where keys live | ELE, outside the core | Secure Manager or our secure world (#15) |
-| Isolation from other masters | SoC: TRDC configured by the SM; a separate core from the A55 | TrustZone-M (SAU/IDAU), plus MPCBB/TZSC configured by the secure world |
-| tfw-boot | none in the first port; L0 is NXP's ROM, ELE and SM | plausible: on-chip flash, our own L0 |
-| What we write that is not the HAL | nothing below the firmware | a secure-world image, or an integration with ST's (#15) |
+The generic Cortex-M port is written and checked against the **Cortex-M33 with
+the Security Extension (TrustZone-M)**, the core of both Cortex-M boards on the
+bench host. In CI that core is QEMU `mps2-an505` (decision 3). On hardware:
 
-Why the M7 goes first:
+- the **reference board is the STM32H573I-DK** (SPEC row `stm32h5`): an upstream
+  TF-M platform, with Ethernet from the MCU, so it enrols as the AVR boards do;
+- the **second board is the nRF54L15-DK** (SPEC row `nrf54l15`): no upstream TF-M
+  port, RRAM rather than flash, and no Ethernet;
+- the **i.MX 95 Cortex-M7** on the NXP FRDM-IMX95-PRO (UM12527; SPEC row
+  `imx95`) is a board of the same port (#49): the same core HAL, built with
+  `CPU := cortex-m7`.
 
-- **The SPEC row `imx95` makes it a board**, and the M7 is the core that
-  `hsm-self-defence` needs.
-- **The trust model is closest to what works today.** Keys stay in a separate
-  element (ELE, as the ATECC608A today), and the firmware only asks for
-  operations. The Cortex-M port does not have to wait for the TrustZone and TF-M
-  decision in #15.
-- **The core HAL carries over.** SysTick, NVIC, SCB, the MPU and the vector
-  table are architecturally the same in Armv7-M and in the Non-secure state of
-  Armv8-M Mainline (Armv7-M Architecture Reference Manual, DDI 0403, chapter
-  B3 "System Address Map"; Armv8-M Architecture Reference Manual, DDI 0553, its
-  system address map chapter; neither could be fetched, so this is to confirm).
-  The `src/hal/cortex-m/` core is shared, and only the per-CPU flags and the SoC
-  files differ.
+"Reference" fixes what the core HAL is written against, not the order in which
+boards are brought up. The hardware order is the owner's and stays as ruled:
+the SE052F, then the i.MX 95 M7, then the STM32H5, which waits for #79.
+
+| | STM32H573I-DK (reference board) | nRF54L15-DK (second board) | i.MX 95 Cortex-M7 (a board) |
+|---|---|---|---|
+| Architecture | Armv8-M Mainline with the Security Extension | the same | Armv7E-M, no Security Extension |
+| Where the code runs | on-chip flash, executed in place | on-chip RRAM, executed in place | TCM, loaded from the AHAB container; no on-chip flash |
+| Root of trust | ST's boot ROM (STiRoT or OEMiRoT); #126 | an immutable boot region in RRAM; #129 | ROM + ELE: AHAB verifies the container against the fused SRK hash |
+| Where keys live | the secure world (#15) | the secure world, or a KMU slot (#15) | ELE, outside the core |
+| Isolation from other masters | TrustZone-M (SAU/IDAU), with the flash and SRAM attribution set by the secure world | TrustZone-M, with peripherals assigned to either world | SoC: TRDC configured by the SM; a separate core from the A55 |
+| tfw-boot | depends on #15's model | depends on #15's model | none; L0 is NXP's ROM, ELE and SM |
+| Link to the host | Ethernet, and the STLINK virtual COM port | the J-Link virtual COM port | an LPUART the SM assigns |
+
+Why the M33:
+
+- **Both bench parts are M33s.** A port written against the M7 would be checked
+  on hardware only on a board whose image ships inside another repository's
+  container.
+- **`mps2-an505` models the M33 and its security controllers**, so CI proves the
+  same core the bench boards carry (decision 3).
+- **The core HAL carries over to the M7.** SysTick, NVIC, SCB, the MPU and the
+  vector table are architecturally the same in Armv7-M and in each security
+  state of Armv8-M Mainline (Armv7-M Architecture Reference Manual, DDI 0403,
+  chapter B3 "System Address Map"; Armv8-M Architecture Reference Manual, DDI
+  0553, its system address map chapter; neither could be fetched, so this is to
+  confirm). Only the per-CPU flags and the SoC files differ.
 
 What it costs:
 
-- **The M7 port does not exercise tfw-boot.** The first tfw-boot on Cortex-M
-  is the QEMU board (decision 5), then the STM32H5.
-- **The port depends on trusted-imx95.** That repository must assign the M7 a
-  logical machine in the SM configuration, and place the M7 image in the boot
-  container. Until it does, the port is QEMU-only. This is a dependency to
-  report, not work to do here.
-- **No QEMU model exists.** QEMU has no i.MX 95, and no model of the ELE, the
-  SM or the TRDC. CI therefore proves the core and the protocol, never the SoC
+- **The secure/non-secure split is #15's.** Until #15 is accepted, the QEMU
+  image runs in the Secure state alone, as a part with no secure world would.
+  That is a CI configuration, not a trust model: no Cortex-M board holds a
+  DeviceID key until #15 is accepted.
+- **The M7 board still depends on trusted-imx95.** That repository must assign
+  the M7 a logical machine in the SM configuration, and place the M7 image in
+  the boot container. This is a dependency to report, not work to do here.
+- **No QEMU model of any bench part exists.** QEMU has no STM32H5, no nRF54L15
+  and no i.MX 95. CI therefore proves the core and the protocol, never the SoC
   (decision 3).
 
 ### 2. One architecture, `cortex-m`; CPUs and SoCs are data
@@ -135,55 +176,65 @@ src/hal/cortex-m/mps2/       CMSDK UART, FPGAIO, PL022, SBCon (QEMU board)
 src/hal/cortex-m/imx95/      LPUART, RGPIO, LPI2C, LPSPI, TPM, SCMI-over-MU client
 boot/hal/cortex-m/           the boot HAL core
 boot/hal/cortex-m/mps2/      pseudo-flash and NVM on MPS2 RAM (decision 5)
-boards/mps2-an500/           profile.mk: ARCH := cortex-m, CPU := cortex-m7, SOC := mps2
+boards/mps2-an505/           profile.mk: ARCH := cortex-m, CPU := cortex-m33, SOC := mps2
 boards/frdm-imx95-m7/        profile.mk: ARCH := cortex-m, CPU := cortex-m7, SOC := imx95
 ```
 
 - `profile.mk` gains `CPU` and `SOC` beside `ARCH`.
 - `mk/arch/cortex-m.mk` adds `src/hal/cortex-m/$(SOC)/*.c` to the HAL object
   list. Selection is by make, and the C has no `#if`.
-- A Cortex-M33 board reuses `src/hal/cortex-m/` unchanged. It adds its SoC
-  directory and sets `CPU := cortex-m33`.
+- Every other board reuses `src/hal/cortex-m/` unchanged. It adds its SoC
+  directory and sets its `CPU`: `cortex-m33` for the two bench boards,
+  `cortex-m7` for the i.MX 95.
 - The secure world, if we write one, is #15's design, not this layout's.
 
-### 3. The CI emulation target: QEMU `mps2-an500`
+### 3. The CI emulation target: QEMU `mps2-an505`
 
-The Cortex-M7 CI target is **QEMU `mps2-an500`**: the Arm MPS2 board with the
-AN500 FPGA image, a Cortex-M7 (Arm Application Note AN500, DAI 0500,
-<https://developer.arm.com/documentation/dai0500/latest/>, not fetched). It is the
-only Cortex-M7 machine in QEMU 10.0.
+*Changed 2026-10-18 (owner, CA m623).* The CI target was QEMU `mps2-an500`, a
+Cortex-M7, with `mps2-an505` "for the M33 later". The owner ruled that the
+generic port runs on `mps2-an505` in CI, so that text is superseded.
 
-The facts below are read from QEMU `hw/arm/mps2.c` at v10.0.0
-(<https://gitlab.com/qemu-project/qemu/-/raw/v10.0.0/hw/arm/mps2.c>), which is the
+The CI target is **QEMU `mps2-an505`**: the Arm MPS2 board with the AN505 FPGA
+image, a single Cortex-M33 with the Security Extension, on Arm's IoT Kit
+subsystem (Arm Application Note AN505, DAI 0505, not fetched). It is what TF-M
+and Zephyr test the M33 against.
+
+The facts below are read from QEMU `hw/arm/mps2-tz.c` at v10.0.0
+(<https://gitlab.com/qemu-project/qemu/-/raw/v10.0.0/hw/arm/mps2-tz.c>), which is the
 version Debian trixie ships.
+
+**Security.** The core resets in the Secure state with its Secure vector table
+at `0x10000000`. The IDAU marks an address Secure when bit 28 is set, so every
+region has a Non-secure alias and a Secure alias `0x10000000` above it. Three
+memory protection controllers (MPCs) and the peripheral protection controllers
+(PPCs) gate each region and peripheral; the Secure world configures them.
 
 **Memory.** Everything is RAM. The board has no flash controller.
 
-| Region | Address | Size |
+| Region | Non-secure address | Size |
 |---|---|---|
-| ZBT SSRAM1 | `0x00000000` | 4 MiB, mirrored at `0x00400000` |
-| SSRAM2/3 | `0x20000000` | 4 MiB, mirrored at `0x20400000` |
-| PSRAM | `0x60000000` | 16 MiB |
+| SSRAM-0 | `0x00000000` | 4 MiB, aliased at `0x00400000` |
+| SSRAM-1 | `0x28000000` | 2 MiB |
+| SSRAM-2 | `0x28200000` | 2 MiB |
 
-**Clocks.** SYSCLK is 25 MHz, and the SysTick reference clock is 1 MHz.
+**Clocks.** SYSCLK is 20 MHz.
 
-**Interrupts.** The NVIC has 32 external IRQs.
+**Interrupts.** The IoT Kit takes the first 32 interrupt lines, and the board
+adds 92 more from 32 up.
 
-**Peripherals.**
+**Peripherals** (Non-secure addresses).
 
 | Peripheral | Address | Interrupt | Notes |
 |---|---|---|---|
-| CMSDK APB UART ×5 | `0x40004000`, `0x40005000`, `0x40006000`, `0x40007000`, `0x40009000` | UART0: RX on IRQ 0, TX on IRQ 1 | UART0 is the first `-serial` |
-| CMSDK APB timers ×2 | `0x40000000`, `0x40001000` | IRQs 8 and 9 | |
-| CMSDK dual timer | `0x40002000` | IRQ 10 | |
-| CMSDK watchdog | `0x40008000` | NMI | |
-| FPGAIO (LEDs, switches) | `0x40028000` | | |
-| PL022 SPI ×5 | `0x40020000`, `0x40021000`, `0x40025000`, `0x40026000`, `0x40027000` | | |
-| SBCon bit-banged I2C ×4 | `0x40022000`, `0x40023000`, `0x40029000`, `0x4002a000` | | |
-| LAN9118 Ethernet | | | |
+| CMSDK APB UART ×5 | `0x40200000`–`0x40204000` | UART0: RX on 32, TX on 33 | UART0 is the first `-serial` |
+| PL022 SPI ×5 | `0x40205000`, `0x40206000`, `0x40209000`, `0x4020a000`, `0x4020b000` | 51–55 | |
+| SBCon bit-banged I2C ×4 | `0x40207000`, `0x40208000`, `0x4020c000`, `0x4020d000` | | the last two are the shield buses |
+| FPGAIO | `0x40302000` | | two LEDs, no switches |
+| LAN9118 Ethernet | `0x42000000` | 48 | |
 
-The CMSDK GPIO block at `0x40010000`–`0x40013000` is an *unimplemented device*.
-It reads as zero and ignores writes.
+The CMSDK GPIO blocks at `0x40100000`–`0x40103000` are *unimplemented devices*.
+They read as zero and ignore writes. The timers and the watchdogs are the IoT
+Kit's; their addresses are read in the implementing change.
 
 **What it proves:**
 
@@ -204,7 +255,9 @@ It reads as zero and ignores writes.
   - the scheduler.
 - **Reset:** reset via `SCB->AIRCR.SYSRESETREQ`, and the reset-cause path
   through the HAL.
-- **The MPU (PMSAv7)**, if the port uses one (see open question 7).
+- **The MPU (PMSAv8)**, if the port uses one (see question 5).
+- **TrustZone-M, once #15 is accepted:** the SAU and IDAU attribution, the MPC
+  and PPC set-up, and the Non-secure-callable entries #15 chooses.
 - **Crypto and boot logic:**
   - the `none` and `soft` crypto tiers;
   - tfw-boot's verify, measure and handoff logic, on the pseudo-flash of
@@ -220,13 +273,14 @@ It reads as zero and ignores writes.
 |---|---|
 | GPIO (the block is unimplemented), ADC, PWM, tone, pulse capture, one-wire | the bench, on hardware |
 | EEPROM; any flash controller, erase or wear | the bench; the boot-HAL unit tests on the mock |
+| The STM32H573's and the nRF54L15's own peripherals, boot ROMs, key stores and option bytes or RRAM protection | the bench, on the STM32H573I-DK and the nRF54L15-DK |
 | The i.MX 95 itself: ELE, AHAB, SM, SCMI, MU, TRDC, LPUART, LPI2C, LPSPI, TPM | the bench on the NXP FRDM-IMX95-PRO (UM12527), and trusted-imx95's own tests |
-| Caches, TCM timing, bus contention, cycle-accurate timing | the bench; there is no Cortex-M bench tier until hardware |
+| Caches, TCM timing, bus contention, cycle-accurate timing | the bench, once a board port lands |
 | Real interrupt latency under load | the bench |
 
-The FPGAIO LEDs and switches give the board a few real pins, so the GPIO wire
-path has something to write to. The SoC capability files for ADC, PWM, tone,
-pulse, one-wire and EEPROM are left out of the object list for `mps2-an500`, so
+The two FPGAIO LEDs give the board a few real output pins, so the GPIO wire
+path has something to write to; reads come back from the LEDs' own state. The SoC capability files for ADC, PWM, tone,
+pulse, one-wire and EEPROM are left out of the object list for `mps2-an505`, so
 those capabilities report `TFW_ERR_UNSUPPORTED`. They do not pretend.
 
 **How it runs in `make ci` without a skip guard:**
@@ -237,12 +291,12 @@ those capabilities report `TFW_ERR_UNSUPPORTED`. They do not pretend.
 - **The target.** A new `integration-test-cortex-m` target lives in its own
   `mk/integration-cortex-m.mk`, and `ci:` lists it after
   `integration-test-boot`.
-  - It builds `BOARD=mps2-an500`.
+  - It builds `BOARD=mps2-an505`.
   - It runs a harness in `test/integration/qemu/`.
   - The harness speaks the same frames and makes the same assertions as the
     simavr harness, through the same `src/proto/crc16.c`.
 - **The QEMU command.**
-  `qemu-system-arm -M mps2-an500 -nographic -icount shift=0,sleep=off -kernel <elf>`.
+  `qemu-system-arm -M mps2-an505 -nographic -icount shift=0,sleep=off -kernel <elf>`.
   UART0 goes to a Unix-socket chardev that the harness owns.
   - `-icount` makes virtual time a function of instructions retired, so a run
     is deterministic.
@@ -255,19 +309,18 @@ those capabilities report `TFW_ERR_UNSUPPORTED`. They do not pretend.
   `reproducible-check` pick up the board like any other, because it is a
   directory under `boards/`.
 
-**The M33 later.** The Cortex-M33 emulation target is **QEMU `mps2-an505`**: a
-single Cortex-M33 with the Security Extension, an IDAU, and the MPC and PPC
-security controllers (QEMU `hw/arm/mps2-tz.c` at v10.0.0,
-<https://gitlab.com/qemu-project/qemu/-/raw/v10.0.0/hw/arm/mps2-tz.c>; Arm AN505,
-DAI 0505). `mps2-an521` is the dual-core variant (AN521, DAI 0521). Both are what TF-M
-and Zephyr test against. The M33 target lands with the STM32H5 port or with
-#15, not with this one.
+**`mps2-an500`, kept for the M7 only.** QEMU `mps2-an500` (`hw/arm/mps2.c` at
+v10.0.0; Arm AN500, DAI 0500) is the only Cortex-M7 machine in QEMU 10.0. It
+was this decision's CI target until 2026-10-18. It is no longer in CI. Whether a
+second CI board builds and runs the image with `CPU := cortex-m7`, so that the
+M7's flags are proven before the i.MX 95 port, is question 8. `mps2-an521` is
+the dual-core AN505 (AN521, DAI 0521) and adds nothing a single-core port needs.
 
 ### 4. The HAL, function by function
 
 "Core" means `src/hal/cortex-m/`. The two right-hand columns are the SoC files.
 
-| `hal.h` function | Where | `mps2-an500` (QEMU) | `frdm-imx95-m7` |
+| `hal.h` function | Where | `mps2-an505` (QEMU) | `frdm-imx95-m7` |
 |---|---|---|---|
 | `tfw_hal_init` | core + SoC | SysTick; UART0; FPGAIO | SysTick; LPUART; clocks and pins requested from the SM over SCMI |
 | `tfw_hal_reset_cause` | SoC | a `.noinit` marker set before `SYSRESETREQ`; otherwise `POWER_ON` | the SM's reset reason for the M7 logical machine, over SCMI |
@@ -275,14 +328,14 @@ and Zephyr test against. The M33 target lands with the STM32H5 port or with
 | `tfw_hal_irq_enable` | core | `cpsie i` | `cpsie i` |
 | `tfw_hal_millis` | core | SysTick at 1 kHz | SysTick at 1 kHz |
 | `tfw_hal_delay_us` | core | busy-poll of SysTick `VAL` (no DWT: QEMU does not model `CYCCNT`) | the same |
-| `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | CMSDK UART0, interrupt-driven RX | the LPUART the SM assigns to the M7 (open question 3) |
-| `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | FPGAIO LEDs (out) and switches (in) | RGPIO; pin mux from the SM |
+| `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | CMSDK UART0, interrupt-driven RX | the LPUART the SM assigns to the M7 (question 7) |
+| `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | FPGAIO LEDs (out; a read returns the LED state) | RGPIO; pin mux from the SM |
 | `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | not linked | SAR ADC, if the SM assigns it |
 | `tfw_hal_pwm_write`, `_stop` | SoC | not linked | TPM |
 | `tfw_hal_tone_start`, `_stop` | SoC | not linked | TPM |
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | SoC | not linked | TPM input capture |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | not linked; `TFW_EEPROM_SIZE 0` |
-| `tfw_hal_nvm_read` | SoC | the platform block in PSRAM (decision 5) | open question 4 |
+| `tfw_hal_nvm_read` | SoC | the platform block in SSRAM-0 (decision 5) | question 7 |
 | `tfw_hal_handoff_block` | core | the linker-placed `.handoff` at `RAM_END - 79` | none: no tfw-boot, so no handoff (as the ATtiny85) |
 | `tfw_hal_i2c_init`, `_xfer` | SoC | SBCon bit-bang | LPI2C |
 | `tfw_hal_spi_init`, `_xfer` | SoC | PL022 | LPSPI |
@@ -295,10 +348,10 @@ says the capability is absent.
 
 The boot HAL (`boot/boot_hal.h`), on the QEMU board only:
 
-| `boot_hal.h` function | `mps2-an500` |
+| `boot_hal.h` function | `mps2-an505` |
 |---|---|
-| `tfw_boot_flash_read`, `_write_page`, `_page_size` | memory copy over the application slot in PSRAM; the page size is the profile's `TFW_OTA_PAGE_MAX` |
-| `tfw_boot_nvm_read`, `_write` | the platform block at the top of PSRAM |
+| `tfw_boot_flash_read`, `_write_page`, `_page_size` | memory copy over the application slot in SSRAM-0; the page size is the profile's `TFW_OTA_PAGE_MAX` |
+| `tfw_boot_nvm_read`, `_write` | the platform block at the top of SSRAM-0 |
 | `tfw_boot_uart_init`, `_rx`, `_tx` | CMSDK UART0, polled |
 | `tfw_boot_handoff_write`, `_read` | the `.handoff` section |
 | `tfw_boot_reset_cause`, `tfw_boot_reset` | as the application HAL |
@@ -316,14 +369,17 @@ therefore does not survive a reset. RAM that QEMU did not load keeps its
 contents across a system reset for the life of the process. *Confirm* this
 against `hw/core/loader.c` in the implementing change.
 
-The map follows from that:
+*Changed 2026-10-18 (owner, CA m623):* the map was on `mps2-an500`'s SSRAM1
+and PSRAM. On `mps2-an505` it follows the same rule. The addresses are the
+Secure aliases, because the image runs Secure until #15 is accepted, and each
+is to *confirm* in the implementing change:
 
 | Region | Address | Holds | Why there |
 |---|---|---|---|
-| tfw-boot | SSRAM1 `0x00000000`, 32 KiB | `-kernel` image | reloaded on each reset, which is what a ROM or a locked boot section does |
-| Application slot | PSRAM `0x60000000` | written by OTA through the boot HAL | not loaded by QEMU, so an OTA write survives `SYSRESETREQ` |
-| Platform block | top 4 KiB of PSRAM | written by tfw-boot only | as above |
-| SRAM | SSRAM2 `0x20000000`, `RAM_END` at the RAM budget | `.data`, `.bss`, stack, handoff | the RAM budget is enforced by the linker map, as on AVR |
+| tfw-boot | SSRAM-0 `0x10000000`, 32 KiB | `-kernel` image; the Secure vector table QEMU resets to | reloaded on each reset, which is what a ROM or a locked boot section does |
+| Application slot | SSRAM-0 `0x10100000` (1 MiB up) | written by OTA through the boot HAL | not loaded by QEMU, so an OTA write survives `SYSRESETREQ` |
+| Platform block | top 4 KiB of SSRAM-0 | written by tfw-boot only | as above |
+| SRAM | SSRAM-1 `0x38000000`, `RAM_END` at the RAM budget | `.data`, `.bss`, stack, handoff | the RAM budget is enforced by the linker map, as on AVR |
 
 As a result, the QEMU integration run exercises tfw-boot's whole loop on every
 CI run:
@@ -338,7 +394,7 @@ CI run:
 8. run the protocol assertions.
 
 Tests that do not need tfw-boot load the application alone with `-kernel` at
-`0x60000000`.
+the application slot.
 
 ### 6. Toolchain
 
@@ -384,19 +440,25 @@ not the silicon's size.
 
 | Board | Code budget | RAM budget | Region |
 |---|---|---|---|
-| `mps2-an500` | 131 072 (128 KiB) | 32 768 (32 KiB) | application slot in PSRAM; RAM in SSRAM2 |
-| `mps2-an500` tfw-boot | 32 768 (32 KiB) | 8 192 (8 KiB) | SSRAM1 |
+| `mps2-an505` | 131 072 (128 KiB) | 32 768 (32 KiB) | application slot in SSRAM-0; RAM in SSRAM-1 |
+| `mps2-an505` tfw-boot | 32 768 (32 KiB) | 8 192 (8 KiB) | SSRAM-0 |
 | `frdm-imx95-m7` | 131 072 (128 KiB) *confirm* | 32 768 (32 KiB) *confirm* | the M7's TCM; the split comes from IMX95RM and the SM configuration |
 
 - **The figures are a ceiling, not a target.** They are about twice the
   ATmega2560's 64 KiB and 1 KiB, to leave room for 32-bit code, larger stacks
   and the soft crypto tier.
-- **The QEMU board carries the i.MX 95 figures.** A build that fits the
-  emulator therefore fits the reference part.
-- **The i.MX 95 figures must be checked** against the M7's TCM size in IMX95RM
+- **The QEMU board carries the smallest board's figures.** *Changed 2026-10-18
+  (owner, CA m623):* it carried the i.MX 95's as the reference part's. The
+  STM32H573 (2 MB flash, 640 KB SRAM) and the nRF54L15 (up to 1524 KB RRAM,
+  256 KB RAM) are larger (onboarding ADRs #126 and #129, both *confirm*), so a
+  build that fits the emulator fits every board. A secure image (#15) takes its
+  share of each part outside these figures.
+- **The i.MX 95 figures must be checked** against the M7's TCM. The family's M7
+  has 512 KB of TCM (IMX95CEC Rev. 8, Table 1, as recorded in #15's question 12).
+  The ITCM/DTCM split is in IMX95RM
   (the i.MX 95 Applications Processor Reference Manual, its M7 memory map;
   NXP, registration required, not read) and the M7 logical machine in the SM
-  configuration (open question 2).
+  configuration (question 7).
 
 ### 8. The boot chain on the i.MX 95
 
@@ -420,7 +482,7 @@ power-on
 - **The M7 starts from the AHAB container**, before and independent of the
   A55's Linux. This is what `hsm-self-defence` needs.
 - **The M7 image is signed into trusted-imx95's container.** OTA of the M7
-  firmware is therefore an update of that container (open question 5).
+  firmware is therefore an update of that container (question 9).
 - **The CDI source on the i.MX 95 is open (#15).** It is either a derivation in
   the ELE keyed by the measured M7 image, or something else the ELE offers. The
   DICE certificate profile itself stays go-xkms's. What the ELE offers is in the
@@ -429,44 +491,53 @@ power-on
 
 ## Open questions for the owner
 
-1. **Does an emulation board take a board id?** This ADR proposes `0x40` for
-   `mps2-an500`, following the `esp32-qemu` precedent, and `0x41` for
-   `frdm-imx95-m7`. Ids are allocated in the change that adds the board, not
-   here.
-2. **The i.MX 95 budgets.** The 128 KiB code and 32 KiB RAM figures need
-   checking against the M7 TCM size in IMX95RM, which could not be read,
-   and against the TCM the SM configuration gives the M7.
-3. **The M7's console.** Which LPUART, and which pins, the SM configuration
-   assigns to the M7 logical machine on the NXP FRDM-IMX95-PRO (UM12527). That
-   is trusted-imx95's
-   configuration, so the question is a dependency on that repository.
-4. **The platform block on the i.MX 95.** There are three candidates:
-   - a read-only block inside the signed container;
-   - ELE or fuse data;
-   - SM-managed storage.
+Each question is answered yes or no. The ADR is accepted when all ten are
+answered; a "no" sends the decision it names back for a revision.
 
-   Only tfw-boot writes it today, and the i.MX 95 has no tfw-boot.
-5. **M7 OTA.** Is the M7 image updated only as part of trusted-imx95's
-   container? Or does the M7 get A/B slots and its own tfw-boot later?
-   Answered in part (owner, 2026-10-15, Q11): AHAB and the enclave verify the
-   M7 container; the anti-rollback floor and who stages the image are decided
-   with the trust-model ADR (#15), and there is no M7 OTA command until then.
-6. **Reset causes.** `tfw_reset_cause_t` has no `SOFTWARE` and no `LOCKUP`.
-   Both are common on Cortex-M. Appending them (`5`, `6`) is an extend-only wire
-   change for its own PR. Until then they read as `UNKNOWN`.
-7. **The MPU in the first port.** This ADR leaves it out of the first port.
-   Should stack-overflow and null-pointer guard regions be in the first slice,
-   or follow it?
-8. **The soft-float ABI** (decision 6). It is cheap to keep and costs one flag
-   to change later.
-9. **When the M33 target lands.** Does QEMU `mps2-an505` land with the STM32H5
-   port, or with #15?
+1. **The reference part** (decision 1). Is the port written against the
+   Cortex-M33 with TrustZone-M, with the STM32H573I-DK as the reference board,
+   the nRF54L15-DK as the second board, and the i.MX 95 M7 as a board of the
+   port (#49), not its reference?
+2. **The CI target** (decision 3). Is QEMU `mps2-an505` the only Cortex-M machine
+   in `make ci`, with the image running in the Secure state alone until #15 is
+   accepted?
+3. **Board ids.** Does the emulation board take `0x40`, as `esp32-qemu` takes
+   one, and do the STM32H573I-DK, the nRF54L15-DK and `frdm-imx95-m7` take the
+   next free ids in `0x40`–`0x7F` in the order their ports land? Each id is
+   allocated in the change that adds the board, not here.
+4. **Reset causes.** `tfw_reset_cause_t` has no `SOFTWARE` and no `LOCKUP`, and
+   both are common on Cortex-M. Are they appended as `5` and `6`, an extend-only
+   wire change in its own PR? Until then they read as `UNKNOWN`.
+5. **The MPU.** Does the MPU stay out of the first port and land, with
+   stack-overflow and null-pointer guard regions, before any image links a
+   key-backed attestation command (#15)?
+6. **The soft-float ABI** (decision 6). Is `-mfloat-abi=soft` kept? It costs one
+   flag to change later.
+7. **The i.MX 95 board's open facts.** Are its console (which LPUART and pins the
+   SM assigns the M7 on the NXP FRDM-IMX95-PRO, UM12527), its platform block (a
+   read-only block in the signed container, ELE or fuse data, or SM-managed
+   storage) and its TCM budgets deferred to the i.MX 95 board port (#49), with
+   trusted-imx95 named as its dependency?
+8. **`mps2-an500` for the M7.** Is `mps2-an500` added as a second CI board,
+   built with `CPU := cortex-m7`, before the i.MX 95 port lands? A "no" leaves
+   the M7 flags proven only by the board-sweep build and the bench.
+9. **M7 OTA.** Does the M7 stay without an OTA command, its image updated only
+   inside trusted-imx95's container, until #15 settles the anti-rollback floor
+   and who stages the image? This carries the owner's partial answer of
+   2026-10-15 (Q11: AHAB and the enclave verify the M7 container).
+10. **The nRF54L15-DK's place in the order.** The hardware order is the SE052F,
+    then the i.MX 95 M7, then the STM32H5 (CA m623). Does the nRF54L15-DK port
+    wait behind the STM32H5, under the same #79 gate?
+
+Answered since the last revision: "when does `mps2-an505` land" (with the
+STM32H5 port, or with #15) is closed by CA m623: it is the CI target now.
 
 ## Rejected alternatives
 
 | Alternative | Why not |
 |---|---|
-| An M33 part first (STM32H5) | The i.MX 95's M7 is the board the SPEC names. It also puts the TrustZone and TF-M decision (#15) on the critical path of the first Cortex-M image. |
+| The i.MX 95 M7 as the reference part | Superseded 2026-10-18 (owner, CA m623). Both Cortex-M parts on the bench are M33s, and the M7's image ships inside trusted-imx95's container. The M7 stays a board of the port (#49). |
+| QEMU `mps2-an500` as the CI target | Superseded 2026-10-18 (owner, CA m623): the CI target is `mps2-an505`. `mps2-an500` stays an option for the M7 only (question 8). |
 | QEMU `mps3-an547` | A Cortex-M55: Armv8.1-M with Helium. That is the wrong ISA for both the M7 and the M33. |
 | QEMU `netduinoplus2`, `olimex-stm32-h405` | STM32F405, a Cortex-M4: neither an M7 nor TrustZone-M. |
 | QEMU `lm3s6965evb`, `lm3s811evb`, `mps2-an385`, `mps2-an511` | Cortex-M3: no Armv7E-M, no FPU, and no part we target. |

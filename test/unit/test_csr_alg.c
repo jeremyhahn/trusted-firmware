@@ -26,6 +26,7 @@ static uint8_t      signs;
 
 const uint8_t *tfw_attest_device_id(void) { return ID; }
 const uint8_t *tfw_attest_fw_hash(void)   { return FW; }
+void tfw_attest_measurement(uint8_t out[TFW_SHA256_LEN]) { memcpy(out, FW, TFW_SHA256_LEN); }
 
 tfw_status_t tfw_crypto_pubkey(uint8_t out[64])
 {
@@ -43,10 +44,26 @@ tfw_status_t tfw_crypto_sign(const uint8_t digest[TFW_SHA256_LEN],
     return TFW_OK;
 }
 
+/* ATTEST_CERT for NONCE, which ATTEST_CSR for the same nonce needs behind it. */
+static void mint(void)
+{
+    static uint8_t in[TFW_ALIAS_NONCE_LEN];
+    static uint8_t out[TFW_MAX_PAYLOAD];
+    tfw_reader_t   r;
+    tfw_writer_t   w;
+
+    memcpy(in, NONCE, sizeof in);
+    tfw_reader_init(&r, in, sizeof in);
+    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cmd(&r, &w));
+}
+
 void setUp(void)
 {
     pubkey_st = TFW_OK;
     sign_alg  = TFW_ALG_ECDSA_P256_SHA256;
+    tfw_alias_reset_state();
+    mint();
     signs     = 0u;
 }
 

@@ -28,6 +28,8 @@ import (
 // and is handed 64 bytes. What the device signed is a
 // CertificationRequestInfo, which is certificate-profile work and go-xkms's;
 // tfwctl holds none of it, and nothing here but crypto/ecdsa judges the result.
+// The device signs a request only for the nonce of the certificate it last
+// minted, so each test runs attest-cert for b first, as an enrollment does.
 
 // csrDigestForTestIdentity is SHA-256 of the CertificationRequestInfo the
 // element-tier test identity signs for b = 00 01 .. 1f. It is a literal, not
@@ -69,8 +71,12 @@ func csrVerifies(t *testing.T, sig []byte, digestHex string) bool {
 }
 
 func TestE2EAttestCSRPrintsTheSignatureAsHex(t *testing.T) {
+	d := tfwsim.StartElement(t)
+	b, err := hex.DecodeString(csrNonceHex)
+	require.NoError(t, err)
+	cliAttestCert(t, d, b)
 	var out bytes.Buffer
-	err := run(context.Background(), tfwsim.StartElement(t), "attest-csr", []string{"--nonce", csrNonceHex}, false, &out)
+	err = run(context.Background(), d, "attest-csr", []string{"--nonce", csrNonceHex}, false, &out)
 	require.NoError(t, err)
 
 	line := strings.TrimSuffix(out.String(), "\n")
@@ -85,7 +91,9 @@ func TestE2EAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
 	for i := range b {
 		b[i] = byte(i)
 	}
-	sig, err := cliCSR(t, tfwsim.StartElement(t), b)
+	d := tfwsim.StartElement(t)
+	cliAttestCert(t, d, b)
+	sig, err := cliCSR(t, d, b)
 	require.NoError(t, err)
 	assert.NotEqual(t, make([]byte, tfw.CSRSigLen), sig)
 	assert.True(t, csrVerifies(t, sig, csrDigestForTestIdentity),
@@ -94,13 +102,35 @@ func TestE2EAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
 
 func TestE2EAttestCSRSignatureIsOverTheNonce(t *testing.T) {
 	d := tfwsim.StartElement(t)
+	cliAttestCert(t, d, aliasNonce(0x10))
 	a, err := cliCSR(t, d, aliasNonce(0x10))
 	require.NoError(t, err)
+	cliAttestCert(t, d, aliasNonce(0x20))
 	b, err := cliCSR(t, d, aliasNonce(0x20))
 	require.NoError(t, err)
 
 	assert.NotEqual(t, a, b)
 	assert.False(t, csrVerifies(t, a, csrDigestForTestIdentity), "a signature for another b is not over the pinned digest")
+}
+
+// b with no certificate minted for it is refused as the wrong argument, as a
+// page request with no certificate behind it is: before any attest-cert, and
+// after one for another nonce. Nothing is printed.
+func TestE2EAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
+	d := tfwsim.StartElement(t)
+	var st tfw.Status
+
+	_, err := cliCSR(t, d, aliasNonce(0x60))
+	require.True(t, errorsAsStatus(err, &st), "got %v", err)
+	assert.Equal(t, tfw.StatusErrBadArgc, st)
+
+	cliAttestCert(t, d, aliasNonce(0x61))
+	_, err = cliCSR(t, d, aliasNonce(0x60))
+	require.True(t, errorsAsStatus(err, &st), "got %v", err)
+	assert.Equal(t, tfw.StatusErrBadArgc, st)
+
+	_, err = cliCSR(t, d, aliasNonce(0x61))
+	require.NoError(t, err)
 }
 
 // The software tier builds ATTEST_CSR in beside ATTEST_CERT and refuses it the

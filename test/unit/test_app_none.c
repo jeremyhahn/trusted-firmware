@@ -8,6 +8,7 @@
  * it, and nothing asks for one.
  */
 
+#include <string.h>
 #include "unity.h"
 #include "dispatch.h"
 #include "sys.h"
@@ -33,6 +34,19 @@ static void test_the_empty_runner_stays_idle(void)
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_app_runner_overruns());
     tfw_app_runner_stop(1u);
     TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_IDLE, tfw_app_runner_state());
+}
+
+/* With no application there is no evidence, and the buffer is left as it was. */
+static void test_the_empty_runner_supplies_no_evidence(void)
+{
+    uint8_t out[TFW_APP_EVIDENCE_LEN];
+    uint8_t was[TFW_APP_EVIDENCE_LEN];
+
+    tfw_app_runner_start();
+    memset(out, 0x5A, sizeof out);
+    memset(was, 0x5A, sizeof was);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_app_runner_evidence(out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(was, out, sizeof out);
 }
 
 /* A commanded reset still resets: the stop it calls first is harmless. */
@@ -71,6 +85,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_empty_runner_stays_idle);
+    RUN_TEST(test_the_empty_runner_supplies_no_evidence);
     RUN_TEST(test_a_reset_still_resets);
     RUN_TEST(test_app_info_is_unknown_without_an_application);
     return UNITY_END();

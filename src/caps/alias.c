@@ -356,10 +356,14 @@ tfw_status_t tfw_alias_cert(const tfw_alias_parts_t *p, uint16_t off,
  * the whole reason it fits. The public key IS kept, because fetching it from
  * the element costs a wake, a GenKey and a sleep -- 115 ms of bus time that
  * would otherwise be paid eight times over for a document that cannot change
- * between pages.
+ * between pages. The measurement is kept because an application's evidence is
+ * its own to compute and may differ from one call to the next; read once per
+ * page, it could put one value in the signed bytes and another in a later page.
+ * ATTEST_CSR reads it for the same reason (tfw_alias_measurement_for).
  */
 static uint8_t nonce[TFW_ALIAS_NONCE_LEN];
 static uint8_t pubkey[TFW_ALIAS_POINT_LEN];
+static uint8_t measurement[TFW_SHA256_LEN];
 static uint8_t sig[TFW_SIG_LEN];
 static uint8_t have_cert;
 
@@ -367,15 +371,28 @@ void tfw_alias_reset_state(void)
 {
     memset(nonce, 0, sizeof nonce);
     memset(pubkey, 0, sizeof pubkey);
+    memset(measurement, 0, sizeof measurement);
     memset(sig, 0, sizeof sig);
     have_cert = 0u;
+}
+
+tfw_status_t tfw_alias_measurement_for(const uint8_t *b,
+                                       uint8_t out[TFW_SHA256_LEN])
+{
+    /* The nonce is the verifier's, public and already on the wire, so a
+     * comparison that stops early tells nobody anything they lack. */
+    if (!have_cert || memcmp(nonce, b, sizeof nonce) != 0) {
+        return TFW_ERR_BAD_ARGC;
+    }
+    memcpy(out, measurement, sizeof measurement);
+    return TFW_OK;
 }
 
 static void gather(tfw_alias_parts_t *p)
 {
     p->nonce   = nonce;
     p->ueid    = tfw_attest_device_id();
-    p->fw_hash = tfw_attest_fw_hash();
+    p->fw_hash = measurement;
     p->pubkey  = pubkey;
     p->sig     = sig;
 }
@@ -404,6 +421,7 @@ static tfw_status_t mint(const uint8_t *challenge)
         return st;
     }
 
+    tfw_attest_measurement(measurement);
     gather(&p);
     st = tfw_alias_tbs_digest(&p, digest);
     if (st != TFW_OK) {

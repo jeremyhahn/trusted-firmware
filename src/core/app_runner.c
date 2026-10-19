@@ -112,6 +112,20 @@ uint16_t tfw_app_runner_overruns(void)
     return overruns;
 }
 
+tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
+{
+    uint8_t ev[TFW_APP_EVIDENCE_LEN];
+
+    if (state != TFW_APP_STATE_RUNNING || tfw_app_evidence(ev) != TFW_OK) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    /* Through a copy, so a refusal that wrote half the buffer leaves out as it was. */
+    for (uint8_t i = 0u; i < TFW_APP_EVIDENCE_LEN; i++) {
+        out[i] = ev[i];
+    }
+    return TFW_OK;
+}
+
 /* The reply is the descriptor minus its magic, behind the runner's two
  * fields. Both lengths are pinned here so that growing the descriptor's
  * strings breaks the build rather than the 64-byte payload. */

@@ -1,6 +1,6 @@
 # Application SDK — user guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
 > Conflicts with this document are defects. Fix them here first.
 
 For someone writing a `trusted-firmware-<application>` repository. The
@@ -24,8 +24,9 @@ APP_NAME := heartbeat
 APP_SRCS := heartbeat.c
 ```
 
-`heartbeat.c` defines the descriptor and all five hooks. A hook you have no
-use for is an empty function; leaving one out is a link error.
+`heartbeat.c` defines the descriptor and all six hooks. A hook you have no
+use for is an empty function, or for `tfw_app_evidence` one that returns
+`TFW_ERR_UNSUPPORTED`; leaving one out is a link error.
 
 ```c
 #include "tfw/app.h"
@@ -66,6 +67,11 @@ void tfw_app_run(tfw_ms_t now_ms)
 void tfw_app_shutdown(void)        { (void)tfw_hal_gpio_write(&led, 0u); }
 void tfw_app_before_update(void)   {}
 tfw_status_t tfw_app_after_update(void) { return TFW_OK; }
+tfw_status_t tfw_app_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
+{
+    (void)out;
+    return TFW_ERR_UNSUPPORTED;      /* none: the claim carries the firmware hash */
+}
 ```
 
 A complete version of this is `test/app/example/` in this repository, and the
@@ -83,6 +89,20 @@ test suite builds it from a directory outside the tree, so it stays correct.
 
 A slow `run` is not stopped. It is counted, and the device drops host bytes
 while it runs.
+
+## Put your evidence in the device's attestation
+
+`tfw_app_evidence` hands the firmware 32 bytes for the measurements claim
+(273) of the alias certificate, signed under the device's DeviceID. A verifier
+matches them against the reference registered for your application, so make
+them something that reference can name: a SHA-256 of your configuration, say,
+or of the state you report. Keep the value current in `run` and only copy it
+out here; the call happens inside a host command and has 10 ms.
+
+Return `TFW_OK` only when `out` holds the bytes. Anything else, and the claim
+carries the firmware hash instead, never zeros and never half of what you
+wrote. The test example returns `0xE0..0xFF`; read them back with
+`tfwctl -json <port> attest-cert <nonce>` as `app_evidence`.
 
 ## Build it
 

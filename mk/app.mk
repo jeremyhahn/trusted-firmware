@@ -94,11 +94,14 @@ app-sdk-check:
 	  { echo "app-sdk-check: tfwsim-app-$$name did not exit cleanly"; exit 1; }; \
 	echo "app-sdk-check: the example builds out of tree and runs"
 
-## tfwsim-app-example: build the software-tier simulator with the example application linked
+## tfwsim-app-example: build the software- and element-tier simulators with the example application linked
 # A make of its own because APP_DIR names one application per invocation; the
-# cross-implementation tests need this image beside the two without one.
+# cross-implementation tests need these images beside the ones without one. The
+# element tier's is the only image whose alias certificate carries an
+# application's evidence (#51).
 tfwsim-app-example:
 	@$(MAKE) --no-print-directory tfwsim APP_DIR=test/app/example
+	@$(MAKE) --no-print-directory tfwsim-atecc608a APP_DIR=test/app/example
 
 ## app-firmware-check: build the example application's firmware image for BOARD from outside the tree
 app-firmware-check:

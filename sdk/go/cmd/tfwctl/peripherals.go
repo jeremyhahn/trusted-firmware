@@ -376,8 +376,25 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 		if err != nil {
 			return err
 		}
-		return emit(out, asJSON, map[string]any{"certificate": hex.EncodeToString(der), "len": len(der)},
-			func() string { return hex.EncodeToString(der) + "\n" })
+		// The text form stays the bare certificate. The JSON form adds
+		// app_evidence, the measurements claim's 32 bytes: a running
+		// application's evidence, or the firmware measurement where none
+		// supplied any.
+		text := func() string { return hex.EncodeToString(der) + "\n" }
+		if !asJSON {
+			return emit(out, false, nil, text)
+		}
+		uccs, err := tfw.AliasUCCS(der)
+		if err != nil {
+			return err
+		}
+		ev, err := tfw.ApplicationEvidence(uccs)
+		if err != nil {
+			return err
+		}
+		return emit(out, true, map[string]any{
+			"certificate": hex.EncodeToString(der), "len": len(der), "app_evidence": hex.EncodeToString(ev[:]),
+		}, text)
 
 	case "attest-csr":
 		return attestCSR(ctx, dev, args, asJSON, out)

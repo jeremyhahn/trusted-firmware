@@ -24,6 +24,7 @@
 #include "tfw/config.h"
 #include "tfw/hal.h"
 #include "tfw/protocol.h"
+#include "../core/app_runner.h"
 #include "../core/handoff.h"
 #include "../core/platform_id.h"
 
@@ -68,6 +69,13 @@ const uint8_t *tfw_attest_device_id(void)
 const uint8_t *tfw_attest_fw_hash(void)
 {
     return tfw_boot_handoff_fw_hash();
+}
+
+void tfw_attest_measurement(uint8_t out[TFW_SHA256_LEN])
+{
+    if (tfw_app_runner_evidence(out) != TFW_OK) {
+        memcpy(out, tfw_attest_fw_hash(), TFW_SHA256_LEN);
+    }
 }
 
 static void put_u32(uint8_t *p, uint32_t v)

@@ -181,7 +181,9 @@ func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.Att
 
 // uncheckedDeviceSigner hands the server whatever ATTEST_CSR returns for its
 // nonce, without the check PossessionSigner makes, so a test can show the
-// server refusing what the adapter would have refused first.
+// server refusing what the adapter would have refused first. The device signs
+// a request only for the nonce of the certificate it last minted, so the
+// signer mints one for its nonce first.
 type uncheckedDeviceSigner struct {
 	device *tfw.Device
 	pub    crypto.PublicKey
@@ -193,6 +195,9 @@ func (s *uncheckedDeviceSigner) Public() crypto.PublicKey { return s.pub }
 func (s *uncheckedDeviceSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if _, err := s.device.AttestCert(ctx, s.nonce[:]); err != nil {
+		return nil, err
+	}
 	raw, err := s.device.AttestCSR(ctx, s.nonce)
 	if err != nil {
 		return nil, err

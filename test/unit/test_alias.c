@@ -26,6 +26,8 @@
 #include "attest.h"
 #include "uccs.h"
 #include "uccs_vectors.h"
+#include "vectors.h"
+#include "tfw/app.h"
 #include "atecc608a_model.h"
 #include "tfw/config.h"
 #include "tfw/crypto.h"
@@ -42,6 +44,24 @@
  * the translation unit is linked for its identity accessors and the HAL under
  * this binary is the element model, which has no tick. */
 tfw_ms_t tfw_hal_millis(void) { return 0u; }
+
+/* The application runner, substituted at link time: no application unless a
+ * test supplies one. Each call answers the next byte pattern, so a certificate
+ * that read the evidence twice would carry two values. */
+static tfw_status_t app_st;
+static uint8_t      app_ev[TFW_APP_EVIDENCE_LEN];
+static unsigned     app_calls;
+
+tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
+{
+    app_calls++;
+    if (app_st != TFW_OK) {
+        return app_st;
+    }
+    memcpy(out, app_ev, sizeof app_ev);
+    app_ev[0]++;
+    return TFW_OK;
+}
 
 /*
  * Both identity sources src/core/platform_id.c and src/core/handoff.c read,
@@ -100,6 +120,9 @@ void setUp(void)
     tfw_platform_id_init();
     tfw_boot_handoff_init();
     tfw_crypto_init();
+    app_st    = TFW_ERR_UNSUPPORTED;
+    app_calls = 0u;
+    memset(app_ev, 0, sizeof app_ev);
 }
 
 void tearDown(void) {}
@@ -190,6 +213,36 @@ static uint16_t der_tlv(const uint8_t *p, uint16_t n, uint8_t depth)
         }
     }
     return (uint16_t)(hdr + len);
+}
+
+/* Mints with NONCE and pages the whole certificate into doc. Returns its length. */
+static uint16_t mint_and_page(uint8_t *doc)
+{
+    uint8_t  out[TFW_MAX_PAYLOAD];
+    uint8_t  len = 0u, page;
+    uint16_t total, got;
+    tfw_status_t run_st;
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    tfw_reader_init(&r, NONCE, TFW_ALIAS_NONCE_LEN);
+    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_cmd(&r, &w));
+    len   = tfw_writer_len(&w);
+    total = (uint16_t)((uint16_t)out[1] | ((uint16_t)out[2] << 8));
+    memcpy(doc, &out[3], (size_t)(len - 3u));
+    got = (uint16_t)(len - 3u);
+    for (page = 1u; got < total; page++) {
+        tfw_reader_init(&r, &page, 1u);
+        tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+        run_st = tfw_alias_cmd(&r, &w);
+        TEST_ASSERT_EQUAL(TFW_OK, run_st);
+        len = tfw_writer_len(&w);
+        memcpy(&doc[got], &out[3], (size_t)(len - 3u));
+        got = (uint16_t)(got + (len - 3u));
+    }
+    TEST_ASSERT_EQUAL_UINT16(total, got);
+    return total;
 }
 
 static uint8_t der_exact(const uint8_t *p, uint16_t n)
@@ -658,6 +711,77 @@ static void test_the_signature_is_over_the_tbs_the_device_built(void)
     TEST_ASSERT_FALSE(tfw_model_p256_verify(p.pubkey, digest, expect_sig));
 }
 
+/*
+ * #51. A running application's evidence is the value of 273's one file, read
+ * once at the mint and served unchanged by every page: the certificate is the
+ * one rebuilt from the evidence the first call answered, signed under the
+ * DeviceID key, and the firmware measurement is not in it.
+ */
+static void test_a_running_applications_evidence_is_the_claim_every_page_carries(void)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t  doc[CERT_MAX], want[CERT_MAX];
+    uint8_t  sig_[TFW_SIG_LEN], digest[TFW_SHA256_LEN], fw[TFW_SHA256_LEN];
+    uint16_t total, i;
+    int      found_fw = 0;
+    tfw_alias_parts_t p;
+
+    for (i = 0u; i < sizeof fw; i++) { fw[i] = (uint8_t)(0x70u + i); }
+    {
+        uint8_t block[TFW_BOOT_HANDOFF_LEN], cdi[32];
+        memset(cdi, 0, sizeof cdi);
+        tfw_boot_handoff_build(block, TFW_CRYPTO_SECURE_ELEMENT, cdi, fw, 1u, 0u);
+        memcpy(test_handoff, block, sizeof test_handoff);
+        tfw_boot_handoff_init();
+    }
+    provision();
+    app_st = TFW_OK;
+    memcpy(app_ev, EV, sizeof app_ev);
+
+    total = mint_and_page(doc);
+    TEST_ASSERT_EQUAL_UINT(1u, app_calls);
+
+    p.nonce   = NONCE;
+    p.ueid    = tfw_attest_device_id();
+    p.fw_hash = EV;
+    p.pubkey  = tfw_model_deviceid_public();
+    p.sig     = sig_;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(tfw_model_deviceid_private(), digest, sig_));
+    TEST_ASSERT_EQUAL_UINT16(total, collect(&p, want));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, doc, total);
+
+    for (i = 0u; (uint16_t)(i + sizeof fw) <= total; i++) {
+        if (memcmp(&doc[i], fw, sizeof fw) == 0) { found_fw = 1; }
+    }
+    TEST_ASSERT_FALSE(found_fw);
+}
+
+/* An application that supplies none leaves the firmware measurement in 273:
+ * never zeros, never a stand-in of the firmware's making. */
+static void test_an_application_that_supplies_none_leaves_the_firmware_measurement(void)
+{
+    uint8_t  doc[CERT_MAX], want[CERT_MAX];
+    uint8_t  sig_[TFW_SIG_LEN], digest[TFW_SHA256_LEN];
+    uint16_t total;
+    tfw_alias_parts_t p;
+
+    provision();
+    app_st = TFW_ERR_BAD_STATE;
+    total  = mint_and_page(doc);
+    TEST_ASSERT_EQUAL_UINT(1u, app_calls);
+
+    p.nonce   = NONCE;
+    p.ueid    = tfw_attest_device_id();
+    p.fw_hash = tfw_attest_fw_hash();
+    p.pubkey  = tfw_model_deviceid_public();
+    p.sig     = sig_;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(tfw_model_deviceid_private(), digest, sig_));
+    TEST_ASSERT_EQUAL_UINT16(total, collect(&p, want));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, doc, total);
+}
+
 /* A fresh challenge replaces the document. Serving the previous one would be
  * serving evidence bound to a nonce the host has moved on from. */
 static void test_a_new_nonce_replaces_the_certificate(void)
@@ -786,6 +910,8 @@ int main(void)
     RUN_TEST(test_a_provisioned_element_mints_a_certificate_and_pages_it);
     RUN_TEST(test_a_certificate_minted_before_attest_still_carries_the_real_identity);
     RUN_TEST(test_the_signature_is_over_the_tbs_the_device_built);
+    RUN_TEST(test_a_running_applications_evidence_is_the_claim_every_page_carries);
+    RUN_TEST(test_an_application_that_supplies_none_leaves_the_firmware_measurement);
     RUN_TEST(test_a_new_nonce_replaces_the_certificate);
     RUN_TEST(test_a_wrong_sized_argument_is_refused);
     RUN_TEST(test_a_page_past_the_end_is_refused);

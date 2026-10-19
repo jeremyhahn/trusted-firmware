@@ -6,11 +6,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"io"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,6 +27,7 @@ import (
 	"time"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 )
 
 // answerFunc is a fake device's reply to one request.
@@ -99,6 +108,38 @@ func bootEvent(t testing.TB) []byte {
 type benchDevice struct {
 	noFeatures bool
 	refuse     map[tfw.Cmd]tfw.Status
+	cert       []byte // ATTEST_CERT's certificate; nil serves benchAliasCert
+}
+
+// benchAliasCert is what benchDevice serves for ATTEST_CERT: a certificate whose
+// tcg-dice-UCCS-evidence extension (2.23.133.5.4.6) carries
+// vectors.AppEvWithUccs, so attest-cert --json has a measurements claim to
+// print as app_evidence.
+var benchAliasCert = aliasCertWith([]byte(vectors.AppEvWithUccs))
+
+func aliasCertWith(uccs []byte) []byte {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	val, err := asn1.Marshal(struct{ UCCS []byte }{uccs})
+	if err != nil {
+		panic(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(0x40),
+		Subject:      pkix.Name{CommonName: "tfw Alias"},
+		NotBefore:    time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:     time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC),
+		ExtraExtensions: []pkix.Extension{
+			{Id: asn1.ObjectIdentifier{2, 23, 133, 5, 4, 6}, Critical: true, Value: val},
+		},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		panic(err)
+	}
+	return der
 }
 
 func fill(n int, b byte) []byte { return bytes.Repeat([]byte{b}, n) }
@@ -166,7 +207,15 @@ func (b *benchDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 		if len(p) == 1 {
 			page = p[0]
 		}
-		return tfw.StatusOK, append([]byte{page, 0x2C, 0x01}, fill(60, 0x30)...)
+		cert := b.cert
+		if cert == nil {
+			cert = benchAliasCert
+		}
+		const pageLen = 60
+		start := min(int(page)*pageLen, len(cert))
+		end := min(start+pageLen, len(cert))
+		reply := binary.LittleEndian.AppendUint16([]byte{page}, uint16(len(cert))) //nolint:gosec // a test certificate, a few hundred bytes
+		return tfw.StatusOK, append(reply, cert[start:end]...)
 	case tfw.CmdAttestCSR:
 		return tfw.StatusOK, fill(64, 0x5A)
 	case tfw.CmdAuthChallenge:
@@ -248,7 +297,7 @@ func TestEveryVerbPrintsTheDevicesAnswer(t *testing.T) {
 		{[]string{"1wire-write", "3", "cc44"}, "wrote 2 bytes"},
 		{[]string{"1wire-read", "3", "2"}, "dead\n"},
 		{[]string{"attest", nonce16}, strings.Repeat("e0", tfw.EvidenceLen)},
-		{[]string{"attest-cert", nonce32}, strings.Repeat("30", 300)},
+		{[]string{"attest-cert", nonce32}, hex.EncodeToString(benchAliasCert)},
 		{[]string{"attest-csr", "--nonce", nonce32}, strings.Repeat("5a", 64)},
 		{[]string{"auth", nonce16, key}, "authenticated"},
 		{[]string{"auth", nonce16, key, "--", "read", "3"}, "1\n"},
@@ -282,6 +331,54 @@ func TestCapsNamesNoFeaturesWhenThereAreNone(t *testing.T) {
 	}
 	if !strings.Contains(got, "features    (none)") {
 		t.Fatalf("caps printed %q, want features (none)", got)
+	}
+}
+
+// attest-cert --json names the measurements claim's 32 bytes beside the
+// certificate, so a caller sees the application's evidence without decoding
+// the extension itself.
+func TestAttestCertJSONNamesTheApplicationsEvidence(t *testing.T) {
+	got, err := runVerb(t, &benchDevice{}, true, "attest-cert", nonce32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Certificate string `json:"certificate"`
+		Len         int    `json:"len"`
+		AppEvidence string `json:"app_evidence"`
+	}
+	if err := json.Unmarshal([]byte(got), &out); err != nil {
+		t.Fatalf("attest-cert --json printed %q: %v", got, err)
+	}
+	if out.Certificate != hex.EncodeToString(benchAliasCert) || out.Len != len(benchAliasCert) {
+		t.Fatalf("certificate %q len %d, want the device's %d bytes", out.Certificate, out.Len, len(benchAliasCert))
+	}
+	if want := hex.EncodeToString([]byte(vectors.AppEvExample)); out.AppEvidence != want {
+		t.Fatalf("app_evidence %q, want %q", out.AppEvidence, want)
+	}
+}
+
+// What is not an alias certificate carrying a well-formed claims set is the
+// device's error to report, never a JSON answer with the evidence missing.
+// The text form prints the bytes as the device gave them.
+func TestAttestCertJSONRefusesEvidenceItCannotRead(t *testing.T) {
+	for name, cert := range map[string][]byte{
+		"not a certificate": bytes.Repeat([]byte{0x30}, 300),
+		"claims set":        aliasCertWith([]byte{0xA0}),
+	} {
+		b := &benchDevice{cert: cert}
+		got, err := runVerb(t, b, true, "attest-cert", nonce32)
+		if err == nil {
+			t.Fatalf("%s: printed %q, want an error", name, got)
+		}
+		var ee *tfw.EvidenceError
+		if !errors.As(err, &ee) {
+			t.Fatalf("%s: err = %v (%T), want a *tfw.EvidenceError", name, err, err)
+		}
+		text, err := runVerb(t, b, false, "attest-cert", nonce32)
+		if err != nil || text != hex.EncodeToString(cert)+"\n" {
+			t.Fatalf("%s text: %q, %v; want the bytes as given", name, text, err)
+		}
 	}
 }
 

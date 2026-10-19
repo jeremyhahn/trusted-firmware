@@ -101,7 +101,7 @@ func fake(t *testing.T) string {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	for _, name := range []string{"tfwsim", "tfwsim-atecc608a"} {
+	for _, name := range []string{"tfwsim", "tfwsim-atecc608a", "tfwsim-atecc608a-app-heartbeat"} {
 		if err := os.Symlink(self, filepath.Join(dir, name)); err != nil {
 			t.Fatal(err)
 		}
@@ -170,6 +170,24 @@ func TestStartElementProvisionsTheTestIdentity(t *testing.T) {
 
 	argv := commandLine(t, record)
 	identityArgs(t, argv)
+	want := tfw.BuildPlatformBlock(tfwsim.TestSerial, [tfw.PubkeyHashLen]byte{}, [tfw.OperatorPubkeyLen]byte{})
+	if got := eeprom(t, argv); !bytes.Equal(got, want[:]) {
+		t.Fatalf("EEPROM image\n%x\nwant the test identity's platform block\n%x", got, want)
+	}
+}
+
+// The element+app image is the element simulator with the example
+// application linked in, provisioned with the same test identity.
+func TestStartElementAppRunsTheApplicationImageAsTheTestIdentity(t *testing.T) {
+	record := fake(t)
+	tfwsim.StartElementApp(t)
+
+	argv := commandLine(t, record)
+	if argv[0] != "tfwsim-atecc608a-app-heartbeat" {
+		t.Fatalf("ran %q, want the element+app simulator", argv[0])
+	}
+	// Past the binary, the command line is the element simulator's.
+	identityArgs(t, append([]string{"tfwsim-atecc608a"}, argv[1:]...))
 	want := tfw.BuildPlatformBlock(tfwsim.TestSerial, [tfw.PubkeyHashLen]byte{}, [tfw.OperatorPubkeyLen]byte{})
 	if got := eeprom(t, argv); !bytes.Equal(got, want[:]) {
 		t.Fatalf("EEPROM image\n%x\nwant the test identity's platform block\n%x", got, want)

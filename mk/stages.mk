@@ -112,8 +112,8 @@ integration-test-tools:
 ## security: stage 4 -- static analysis, Go scanners, secrets scan, supply chain
 # devops.md §8 for C and Go:
 #
-#   C: cppcheck at its full level (`lint`, with the preprocessor-confinement
-#      and __DATE__ greps and the arch-leak gate), verify-vendor (the vendored
+#   C: cppcheck at its full level (`lint`, with the preprocessor-confinement,
+#      __DATE__ and test-sleep greps and the arch-leak gate), verify-vendor (the vendored
 #      code's hashes) and releasability.
 #   Go, every module in GO_MODULES: gofmt and vet (sdk-lint, go-vet), gosec,
 #      govulncheck, golangci-lint with .golangci.yml, go mod verify (sdk-verify,

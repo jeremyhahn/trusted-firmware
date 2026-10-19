@@ -2,7 +2,7 @@
 
 > **Status: DRAFT** · Scope: trusted-firmware (device side, `sdk/go`, the `xkms`
 > adapter), seam only for go-xkms, go-quicbaas and go-trusted-platform ·
-> Issue: #53 · SPEC row: `device-onboarding` (future) · Last verified: 2026-10-15
+> Issue: #53 · SPEC row: `device-onboarding` (future) · Last verified: 2026-10-18
 >
 > This page traces a device from first power-on to enrolled and marks, for every
 > step, which repository owns it. It adds no command, call or vector. What it
@@ -275,10 +275,15 @@ around one.
   pre-provisioned part.
 - **T5 — application measurements.** The SPEC row has the evidence carry the
   application's measurement beside the firmware's, and the device profile is
-  matched from it. The alias certificate carries one measurement (273, the
-  firmware hash `tfw-boot` verified). Adding the application's claims is the
-  `application-sdk` row's work in this repo
-  ([application-sdk](../application-sdk/architecture.md)).
+  matched from it. The alias certificate still carries one measurement, claim
+  273, and it is now the application's: the 32 bytes a running application's
+  `tfw_app_evidence` hook supplies, or the firmware hash `tfw-boot` verified
+  where none runs or supplies any
+  ([dice-attestation/api.md](../dice-attestation/api.md)).
+  The firmware's own measurement stays in `ATTEST`'s `FWHash`. Matching the
+  profile from 273 is go-trusted-platform's; carrying the firmware's
+  measurement beside the application's in one certificate (submodules) is a
+  follow-up ([application-sdk](../application-sdk/architecture.md)).
 
 ## Open questions for the owner
 

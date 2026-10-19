@@ -1,6 +1,6 @@
 # Application SDK — API
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
 > Conflicts with this document are defects. Fix them here first.
 
 The C interface between the firmware and an application, and the build
@@ -42,6 +42,8 @@ void         tfw_app_run(tfw_ms_t now_ms);
 void         tfw_app_shutdown(void);
 void         tfw_app_before_update(void);
 tfw_status_t tfw_app_after_update(void);
+#define TFW_APP_EVIDENCE_LEN 32u
+tfw_status_t tfw_app_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN]);
 
 /* Defined by the firmware. */
 tfw_status_t tfw_app_config_read(uint16_t off, uint8_t *buf, uint8_t len);
@@ -75,6 +77,21 @@ const tfw_app_descriptor_t tfw_app_descriptor TFW_PROGMEM = {
 | `tfw_app_shutdown` | none | |
 | `tfw_app_before_update` | none | a notification; the update goes ahead |
 | `tfw_app_after_update` | `tfw_status_t` | `TFW_OK`: confirm the new image. Anything else: do not (the `ota` row; not called yet) |
+| `tfw_app_evidence(out)` | `tfw_status_t` | `TFW_OK`: `out` holds the application's 32 bytes of evidence. Anything else: it supplies none |
+
+`tfw_app_evidence` is called only while the application runs, once each time
+the firmware mints an alias certificate. `ATTEST_CSR` signs the value that mint
+kept and does not call it, so the request matches the certificate when the
+evidence has changed since ([dice-attestation/api.md](../dice-attestation/api.md#attest_csr--0x64)). The 32 bytes
+are opaque to the firmware: it places them in the measurements claim (273),
+where a verifier matches them against the reference registered for this
+application. They are signed under the DeviceID with the rest of the claims
+set. When the hook returns anything but `TFW_OK`, or no application runs, the
+claim carries the firmware hash `tfw-boot` measured, never zeros. A partial
+write of a refused call is discarded. The layout is in
+[dice-attestation/api.md](../dice-attestation/api.md), and the host reads the
+bytes with `tfw.ApplicationEvidence(uccs)` after `tfw.AliasUCCS(der)`, or
+from `tfwctl -json <port> attest-cert <nonce>` as `app_evidence`.
 
 When each is called, what it may do and its budget are in
 [engineering.md](engineering.md#lifecycle-and-timing).
@@ -185,4 +202,5 @@ Not declared, so no application defines them yet:
   the application's EAT submodule claims
   ([architecture.md](architecture.md#evidence-claims)). Its only caller is
   the `submods` claim, which changes the evidence layout, so it is declared
-  with that change.
+  with that change. `tfw_app_evidence` covers the fixed-width case today and
+  stays when it lands.

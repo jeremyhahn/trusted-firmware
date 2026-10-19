@@ -102,6 +102,17 @@ void tfw_app_before_update(void);
  * the bootloader rolls back. Called by the ota work, not yet by this firmware. */
 tfw_status_t tfw_app_after_update(void);
 
+/* The application's evidence: 32 opaque bytes the firmware places in the
+ * measurements claim (273) of the alias certificate, where a verifier matches
+ * them against the reference registered for this application. ATTEST_CSR
+ * signs the bytes the mint kept and does not call this again. Called only
+ * while the application runs, at most once per mint, from the command
+ * dispatcher. TFW_OK means out holds the evidence; any
+ * other status means the application supplies none, and the firmware places
+ * nothing of the application's -- never zeros in its place. Budget 10 ms. */
+#define TFW_APP_EVIDENCE_LEN 32u
+tfw_status_t tfw_app_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN]);
+
 /* ----------------------------------------------------- defined by the firmware */
 
 /* The application's EEPROM region, [0, config_len). TFW_ERR_RANGE outside it,

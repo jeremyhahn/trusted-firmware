@@ -783,7 +783,7 @@ outside the set and are marked that way.
   one, the trial runs after the flip, with the ROM's fallback as the safety
   net.
 
-Open question 7 of the
+Open question 12 of the
 [trust-model ADR](../cortex-m/adr-trust-model-vs-tf-m.md#open-questions-for-the-owner)
 carries the same facts; it stays open.
 

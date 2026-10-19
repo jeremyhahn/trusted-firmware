@@ -18,6 +18,8 @@ static unsigned     log_len;
 static tfw_status_t init_status;
 static tfw_ms_t     run_ms;
 static tfw_ms_t     last_now;
+static tfw_status_t evidence_status;
+static uint8_t      evidence[TFW_APP_EVIDENCE_LEN];
 
 static void record(char c)
 {
@@ -41,6 +43,8 @@ void tfw_mock_app_reset(void)
     init_status = TFW_OK;
     run_ms      = 0u;
     last_now    = 0u;
+    evidence_status = TFW_ERR_UNSUPPORTED;
+    memset(evidence, 0, sizeof evidence);
 }
 
 tfw_app_descriptor_t *tfw_mock_app_descriptor(void) { return &desc; }
@@ -48,6 +52,12 @@ void        tfw_mock_app_set_init(tfw_status_t st)   { init_status = st; }
 void        tfw_mock_app_set_run_ms(tfw_ms_t ms)     { run_ms = ms; }
 const char *tfw_mock_app_log(void)                   { return log_buf; }
 tfw_ms_t    tfw_mock_app_last_now(void)              { return last_now; }
+
+void tfw_mock_app_set_evidence(tfw_status_t st, const uint8_t ev[TFW_APP_EVIDENCE_LEN])
+{
+    evidence_status = st;
+    memcpy(evidence, ev, sizeof evidence);
+}
 
 tfw_status_t tfw_app_init(void)
 {
@@ -69,4 +79,13 @@ tfw_status_t tfw_app_after_update(void)
 {
     record('a');
     return TFW_OK;
+}
+
+/* Writes the bytes whatever it answers, so a test sees whether a refusal's
+ * scribble reaches the caller. */
+tfw_status_t tfw_app_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
+{
+    record('e');
+    memcpy(out, evidence, TFW_APP_EVIDENCE_LEN);
+    return evidence_status;
 }

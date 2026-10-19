@@ -17,6 +17,7 @@
 #include "unity.h"
 #include "uccs.h"
 #include "uccs_vectors.h"
+#include "vectors.h"
 #include "tfw/crypto.h"
 #include "tfw/protocol.h"
 
@@ -24,6 +25,9 @@ static const uint8_t NONCE[]  = TFWV_UCCS_NONCE;
 static const uint8_t UEID[]   = TFWV_UCCS_UEID;
 static const uint8_t FWHASH[] = TFWV_UCCS_FWHASH;
 static const uint8_t WANT[]   = TFWV_UCCS;
+static const uint8_t APPEV[]  = TFWV_APPEV_EXAMPLE;
+static const uint8_t WITH[]   = TFWV_APPEV_WITH_UCCS;
+static const uint8_t WITHOUT[] = TFWV_APPEV_WITHOUT_UCCS;
 
 static uint8_t     buf[TFW_UCCS_LEN + 8u];
 static tfw_writer_t w;
@@ -53,6 +57,26 @@ static void test_the_claims_set_is_the_bytes_the_vector_pins(void)
     TEST_ASSERT_EQUAL(TFW_OK, encode());
     TEST_ASSERT_EQUAL_UINT8(TFWV_UCCS_LEN, tfw_writer_len(&w));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, buf, TFWV_UCCS_LEN);
+}
+
+/* #51: an application's 32 bytes take the firmware measurement's place in 273,
+ * and nothing else moves -- same length, same keys, same CoSWID. */
+static void test_application_evidence_is_the_bytes_the_with_vector_pins(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_uccs_encode(&w, NONCE, TFW_ALIAS_NONCE_LEN, UEID, APPEV));
+    TEST_ASSERT_EQUAL_UINT8(TFWV_APPEV_UCCS_LEN, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WITH, buf, TFWV_APPEV_UCCS_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(APPEV, &buf[TFWV_APPEV_UCCS_HASH_AT], 32u);
+}
+
+/* And with none, the claims set is the one every image without an application
+ * has always emitted. */
+static void test_no_application_evidence_is_the_bytes_the_without_vector_pins(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, encode());
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WITHOUT, buf, TFWV_APPEV_UCCS_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, WITHOUT, TFWV_UCCS_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(FWHASH, &buf[TFWV_APPEV_UCCS_HASH_AT], 32u);
 }
 
 /* The constant the certificate template is built around. If the encoder and the
@@ -250,5 +274,7 @@ int main(void)
     RUN_TEST(test_a_buffer_one_byte_short_is_refused);
     RUN_TEST(test_a_buffer_far_too_small_is_refused);
     RUN_TEST(test_a_buffer_of_exactly_the_right_size_is_accepted);
+    RUN_TEST(test_application_evidence_is_the_bytes_the_with_vector_pins);
+    RUN_TEST(test_no_application_evidence_is_the_bytes_the_without_vector_pins);
     return UNITY_END();
 }

@@ -353,6 +353,78 @@ static void test_app_info_takes_no_payload(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_ARGC, app_info(1u));
 }
 
+/* The evidence a running application supplies is handed on byte for byte. */
+static void test_a_running_application_supplies_its_evidence(void)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t out[TFW_APP_EVIDENCE_LEN];
+
+    tfw_mock_app_set_evidence(TFW_OK, EV);
+    tfw_app_runner_start();
+    memset(out, 0, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_app_runner_evidence(out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(EV, out, sizeof out);
+    TEST_ASSERT_EQUAL_STRING("ie", tfw_mock_app_log());
+}
+
+/* An application that declines supplies nothing, even when it wrote into the
+ * buffer before it declined: the caller's bytes are as they were, never the
+ * half the application left. */
+static void test_an_application_that_declines_leaves_the_buffer_as_it_was(void)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t out[TFW_APP_EVIDENCE_LEN];
+    uint8_t was[TFW_APP_EVIDENCE_LEN];
+
+    tfw_mock_app_set_evidence(TFW_ERR_BAD_STATE, EV);
+    tfw_app_runner_start();
+    memset(out, 0x5A, sizeof out);
+    memset(was, 0x5A, sizeof was);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_app_runner_evidence(out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(was, out, sizeof out);
+    TEST_ASSERT_EQUAL_STRING("ie", tfw_mock_app_log());
+}
+
+/* Only a running application is asked: not one that failed its init, was
+ * stopped or was refused. */
+static void evidence_is_not_asked(const char *log)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t out[TFW_APP_EVIDENCE_LEN];
+    uint8_t was[TFW_APP_EVIDENCE_LEN];
+
+    tfw_mock_app_set_evidence(TFW_OK, EV);
+    memset(out, 0x5A, sizeof out);
+    memset(was, 0x5A, sizeof was);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_app_runner_evidence(out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(was, out, sizeof out);
+    TEST_ASSERT_EQUAL_STRING(log, tfw_mock_app_log());
+}
+
+static void test_a_failed_application_is_not_asked_for_evidence(void)
+{
+    tfw_mock_app_set_init(TFW_ERR_TIMEOUT);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_FAILED, tfw_app_runner_state());
+    evidence_is_not_asked("i");
+}
+
+static void test_a_stopped_application_is_not_asked_for_evidence(void)
+{
+    tfw_app_runner_start();
+    tfw_app_runner_stop(0u);
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_STOPPED, tfw_app_runner_state());
+    evidence_is_not_asked("is");
+}
+
+static void test_a_refused_application_is_not_asked_for_evidence(void)
+{
+    tfw_mock_app_descriptor()->magic = TFW_APP_MAGIC ^ 1u;
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_UNSUPPORTED, tfw_app_runner_state());
+    evidence_is_not_asked("");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -386,5 +458,10 @@ int main(void)
     RUN_TEST(test_app_info_reports_the_runner_and_the_descriptor);
     RUN_TEST(test_app_info_reports_a_refused_descriptor_as_written);
     RUN_TEST(test_app_info_takes_no_payload);
+    RUN_TEST(test_a_running_application_supplies_its_evidence);
+    RUN_TEST(test_an_application_that_declines_leaves_the_buffer_as_it_was);
+    RUN_TEST(test_a_failed_application_is_not_asked_for_evidence);
+    RUN_TEST(test_a_stopped_application_is_not_asked_for_evidence);
+    RUN_TEST(test_a_refused_application_is_not_asked_for_evidence);
     return UNITY_END();
 }

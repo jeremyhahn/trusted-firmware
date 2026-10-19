@@ -127,7 +127,16 @@ func Start(tb testing.TB, opts ...tfw.Option) *tfw.Device {
 // (DeviceID key in slot 0 and a UDS), and a handoff carrying [TestFWHash].
 func StartElement(tb testing.TB, opts ...tfw.Option) *tfw.Device {
 	tb.Helper()
-	return startTestIdentity(tb, [tfw.OperatorPubkeyLen]byte{}, nil, opts)
+	return startTestIdentity(tb, simproc.Element, [tfw.OperatorPubkeyLen]byte{}, nil, opts)
+}
+
+// StartElementApp runs the element-tier simulator with test/app/example
+// linked, provisioned with the test identity as [StartElement] is. The
+// example supplies evidence, so the alias certificate's measurements claim
+// carries the example's 32 bytes rather than [TestFWHash].
+func StartElementApp(tb testing.TB, opts ...tfw.Option) *tfw.Device {
+	tb.Helper()
+	return startTestIdentity(tb, simproc.ElementApp, [tfw.OperatorPubkeyLen]byte{}, nil, opts)
 }
 
 // StartElementVia is [StartElement] with the connection to the simulator passed
@@ -137,7 +146,7 @@ func StartElement(tb testing.TB, opts ...tfw.Option) *tfw.Device {
 // returns the one the Device will use.
 func StartElementVia(tb testing.TB, wrap func(io.ReadWriter) io.ReadWriter, opts ...tfw.Option) *tfw.Device {
 	tb.Helper()
-	return startTestIdentity(tb, [tfw.OperatorPubkeyLen]byte{}, wrap, opts)
+	return startTestIdentity(tb, simproc.Element, [tfw.OperatorPubkeyLen]byte{}, wrap, opts)
 }
 
 // StartElementWithOperator is [StartElement] with operator baked into the
@@ -158,10 +167,10 @@ func StartElementWithOperator(tb testing.TB, operator *ecdsa.PublicKey, opts ...
 	}
 	var point [tfw.OperatorPubkeyLen]byte
 	copy(point[:], sec1[1:])
-	return startTestIdentity(tb, point, nil, opts)
+	return startTestIdentity(tb, simproc.Element, point, nil, opts)
 }
 
-func startTestIdentity(tb testing.TB, operator [tfw.OperatorPubkeyLen]byte, wrap func(io.ReadWriter) io.ReadWriter, opts []tfw.Option) *tfw.Device {
+func startTestIdentity(tb testing.TB, bin simproc.Binary, operator [tfw.OperatorPubkeyLen]byte, wrap func(io.ReadWriter) io.ReadWriter, opts []tfw.Option) *tfw.Device {
 	tb.Helper()
 
 	block := tfw.BuildPlatformBlock(TestSerial, [tfw.PubkeyHashLen]byte{}, operator)
@@ -169,7 +178,7 @@ func startTestIdentity(tb testing.TB, operator [tfw.OperatorPubkeyLen]byte, wrap
 	if err := os.WriteFile(eep, block[:], 0o600); err != nil {
 		tb.Fatal(err)
 	}
-	return startElement(tb, wrap, opts,
+	return startElement(tb, bin, wrap, opts,
 		"--eeprom-bin", eep,
 		"--provision-element",
 		"--image-hash", hex.EncodeToString(TestFWHash[:]))
@@ -180,7 +189,7 @@ func startTestIdentity(tb testing.TB, operator [tfw.OperatorPubkeyLen]byte, wrap
 // what a part straight off the reel does, and attestation must refuse.
 func StartBlankElement(tb testing.TB, opts ...tfw.Option) *tfw.Device {
 	tb.Helper()
-	return startElement(tb, nil, opts)
+	return startElement(tb, simproc.Element, nil, opts)
 }
 
 // StartElementWith runs the element-tier simulator with exactly the given
@@ -189,12 +198,12 @@ func StartBlankElement(tb testing.TB, opts ...tfw.Option) *tfw.Device {
 // options.
 func StartElementWith(tb testing.TB, args []string, opts ...tfw.Option) *tfw.Device {
 	tb.Helper()
-	return startElement(tb, nil, opts, args...)
+	return startElement(tb, simproc.Element, nil, opts, args...)
 }
 
-func startElement(tb testing.TB, wrap func(io.ReadWriter) io.ReadWriter, opts []tfw.Option, args ...string) *tfw.Device {
+func startElement(tb testing.TB, bin simproc.Binary, wrap func(io.ReadWriter) io.ReadWriter, opts []tfw.Option, args ...string) *tfw.Device {
 	tb.Helper()
-	var conn io.ReadWriter = simproc.Start(tb, simproc.Element, args...)
+	var conn io.ReadWriter = simproc.Start(tb, bin, args...)
 	if wrap != nil {
 		conn = wrap(conn)
 	}

@@ -112,6 +112,18 @@ static void test_app_info_reports_the_example(void)
                                  TFWV_APPINFO_HEARTBEAT_REPLY_LEN);
 }
 
+/* The example supplies the evidence the with-claim vector pins. */
+static void test_the_example_supplies_its_evidence(void)
+{
+    static const uint8_t EV[] = TFWV_APPEV_EXAMPLE;
+    uint8_t out[TFW_APP_EVIDENCE_LEN];
+
+    tfw_app_runner_start();
+    memset(out, 0, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_app_runner_evidence(out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(EV, out, sizeof out);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -120,5 +132,6 @@ int main(void)
     RUN_TEST(test_the_heartbeat_toggles_every_500_ms_and_never_waits);
     RUN_TEST(test_a_reset_leaves_the_pin_low);
     RUN_TEST(test_app_info_reports_the_example);
+    RUN_TEST(test_the_example_supplies_its_evidence);
     return UNITY_END();
 }

@@ -103,6 +103,21 @@ else
   echo "APP_INFO reply vectors agree: $(echo "$c_app" | wc -l) values, both languages"
 fi
 
+# Application evidence, #51 -- the claims set with the application's 32 bytes
+# in 273 and the one without, and the bytes themselves. Compared by name and
+# value; the C name's underscores go, so WITH_UCCS meets WithUccs.
+c_ev=$(sed -n 's/^#define TFWV_APPEV_\([A-Z0-9_]*\) *"\(.*\)"$/\1 \2/p' "$C" | tr 'A-Z' 'a-z' | tr -d '_' | sort)
+g_ev=$(sed -n 's/^\tAppEv\([A-Za-z0-9]*\) *= *"\(.*\)"$/\1 \2/p' "$G" | tr 'A-Z' 'a-z' | sort)
+
+if [ -z "$c_ev" ]; then
+  echo "no application evidence vectors found in $C"; fail=1
+elif [ "$c_ev" != "$g_ev" ]; then
+  echo "application evidence vectors differ:"; echo "  $C:"; echo "$c_ev" | sed 's/^/    /'
+  echo "  $G:"; echo "$g_ev" | sed 's/^/    /'; fail=1
+else
+  echo "application evidence vectors agree: $(echo "$c_ev" | wc -l) values, both languages"
+fi
+
 # Image trailer v1 signed spans, #76 -- compared by NAME and VALUE together: a
 # board's span and the mismatched or unbound one must not be able to swap
 # places and still agree.

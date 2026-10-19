@@ -23,7 +23,7 @@
 typedef struct {
     const uint8_t *nonce;    /* TFW_ALIAS_NONCE_LEN -- 32, not the frame's 16 */
     const uint8_t *ueid;     /* TFW_ATTEST_ID_LEN    */
-    const uint8_t *fw_hash;  /* TFW_SHA256_LEN       */
+    const uint8_t *fw_hash;  /* TFW_SHA256_LEN, 273's value: tfw_attest_measurement */
     const uint8_t *pubkey;   /* TFW_ALIAS_POINT_LEN, X||Y */
     const uint8_t *sig;      /* TFW_SIG_LEN, raw r||s     */
 } tfw_alias_parts_t;
@@ -83,5 +83,17 @@ tfw_status_t tfw_alias_cert(const tfw_alias_parts_t *p, uint16_t off,
 
 tfw_status_t tfw_alias_cmd(tfw_reader_t *r, tfw_writer_t *w);
 void        tfw_alias_reset_state(void);   /* test seam */
+
+/*
+ * The 32 bytes of claim 273 in the certificate last minted, if it was minted
+ * for the 32-byte nonce b. ATTEST_CSR signs these and never asks the application again: the
+ * request go-xkms rebuilds is built from that certificate, so it must carry the
+ * value the certificate carries, even when the application's evidence has
+ * changed since. No certificate, a failed mint, a reset or a later mint for
+ * another nonce is TFW_ERR_BAD_ARGC, as a page request with no certificate
+ * behind it is.
+ */
+tfw_status_t tfw_alias_measurement_for(const uint8_t *b,
+                                       uint8_t out[TFW_SHA256_LEN]);
 
 #endif /* TFW_CAPS_ALIAS_H */

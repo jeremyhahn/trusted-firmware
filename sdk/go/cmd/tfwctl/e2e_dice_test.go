@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"strings"
 	"testing"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 )
 
@@ -45,6 +47,60 @@ func TestE2EAttestCertIsDICEEvidenceBoundToTheCallersNonce(t *testing.T) {
 	// RFC 9711 section 4.2.1.1: a leading type byte, 0x01 for a random identifier.
 	assert.Equal(t, append([]byte{0x01}, tfwsim.TestSerial[:]...), ueid, "ueid")
 	assert.Equal(t, tfwsim.TestFWHash[:], fwHash, "FWHash")
+}
+
+// cliAttestCertJSON runs attest-cert --json and returns the certificate and the
+// app_evidence field beside it: the 32 bytes of the certificate's measurements
+// claim (273).
+func cliAttestCertJSON(t *testing.T, dev *tfw.Device, nonce []byte) (*x509.Certificate, []byte) {
+	t.Helper()
+	var got struct {
+		Certificate string `json:"certificate"`
+		Len         int    `json:"len"`
+		AppEvidence string `json:"app_evidence"`
+	}
+	cliJSON(t, dev, &got, "attest-cert", hex.EncodeToString(nonce))
+	der, err := hex.DecodeString(got.Certificate)
+	require.NoError(t, err)
+	require.Len(t, der, got.Len, "attest-cert --json len")
+	ev, err := hex.DecodeString(got.AppEvidence)
+	require.NoError(t, err, "app_evidence is not hex: %q", got.AppEvidence)
+	return parseCert(t, der), ev
+}
+
+// #51: a running application's 32 bytes are claim 273's single hash value in
+// the certificate the DeviceID key signs, and tfwctl prints them as
+// app_evidence. test/app/example supplies vectors.AppEvExample.
+func TestE2EAttestCertCarriesTheApplicationsEvidence(t *testing.T) {
+	d := tfwsim.StartElementApp(t)
+	nonce := aliasNonce(0x51)
+	cert, ev := cliAttestCertJSON(t, d, nonce)
+
+	assert.Equal(t, []byte(vectors.AppEvExample), ev, "app_evidence is the application's 32 bytes")
+	gotNonce, ueid, measured := claimsOf(t, uccsOf(t, cert))
+	assert.Equal(t, []byte(vectors.AppEvExample), measured, "claim 273 carries the application's evidence")
+	assert.Equal(t, nonce, gotNonce, "eat_nonce is the caller's")
+	assert.Equal(t, append([]byte{0x01}, tfwsim.TestSerial[:]...), ueid, "ueid")
+	require.NoError(t, cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature),
+		"the certificate carrying the application's evidence does not verify")
+	tbs := sha256.Sum256(cert.RawTBSCertificate)
+	assert.True(t, ecdsa.VerifyASN1(tfwsim.TestDeviceIDPublicKey(), tbs[:], cert.Signature),
+		"the application's evidence is not signed by the DeviceID key")
+
+	// The application's bytes take claim 273 only: the evidence frame still
+	// reports the firmware measurement.
+	frame := cliAttest(t, d, attestNonce(0x51))
+	assert.Equal(t, tfwsim.TestFWHash[:], frame[offFWHash:offFWHash+32], "the frame's FWHash moved with the application")
+}
+
+// With no application, claim 273 keeps the firmware measurement: go-xkms's
+// possession template has no place for a claims set without it, and the
+// firmware never fabricates the application's bytes.
+func TestE2EAttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement(t *testing.T) {
+	cert, ev := cliAttestCertJSON(t, tfwsim.StartElement(t), aliasNonce(0x52))
+	assert.Equal(t, tfwsim.TestFWHash[:], ev, "app_evidence")
+	_, _, measured := claimsOf(t, uccsOf(t, cert))
+	assert.Equal(t, tfwsim.TestFWHash[:], measured, "claim 273")
 }
 
 // THE POINT OF THE REAL CURVE: the alias certificate's signature verifies, under

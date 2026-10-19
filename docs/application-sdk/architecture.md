@@ -1,6 +1,6 @@
 # Application SDK — architecture
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
 > Conflicts with this document are defects. Fix them here first.
 
 ## Problem
@@ -82,8 +82,8 @@ not with a programmer.
 
 This project owns the hook contract, the descriptor layout, the runner, the
 build hook and the no-application default. It owns the shape of the
-application's evidence claims inside the firmware's own evidence, once that
-lands (see [Evidence claims](#evidence-claims)).
+application's evidence inside the firmware's own evidence: today the 32 bytes
+of claim 273 (see [Evidence claims](#evidence-claims)).
 
 It does not own:
 
@@ -157,9 +157,9 @@ with `tfw_app_config_read`. Nothing new crosses the wire.
 - It does not isolate the application from the firmware, or from the pins the
   host commands. There is no pin reservation yet: an application and a host
   that drive the same pin conflict. A follow-up proposes one.
-- It does not let an application add wire commands or add evidence claims.
-  Each is a proposed follow-up, and each is a wire or evidence change with
-  vectors. The firmware itself reports the application's state and descriptor
+- It does not let an application add wire commands, or add evidence claims
+  beyond its 32 bytes in claim 273. Each is a proposed follow-up, and each is
+  a wire or evidence change with vectors. The firmware itself reports the application's state and descriptor
   with APP_INFO ([api.md](api.md#app_info)); the application adds nothing to
   that reply.
 - It does not call `after_update`. The confirm step it belongs to is the `ota`
@@ -172,8 +172,34 @@ with `tfw_app_config_read`. Nothing new crosses the wire.
 
 ## Evidence claims
 
-Designed here, implemented by a follow-up. An application will be able to
-contribute claims to the firmware's UCCS evidence as one EAT submodule:
+**Today: claim 273.** The alias certificate's claims set carries one
+measurement, `measurements` (key **273**), a CoSWID evidence tag whose one
+hash-entry holds 32 bytes ([dice-attestation/api.md](../dice-attestation/api.md)).
+While an application runs, those 32 bytes are what its `tfw_app_evidence` hook
+writes, for example a hash of its configuration or of the state it is in.
+Where no application runs, or its hook returns anything but `TFW_OK`, they are
+the firmware hash `tfw-boot` measured. The claim is never absent: go-xkms's
+possession template requires `{10, 256, 273}`, and refuses a claims set
+without 273. Because the width is fixed, the claims set stays 151 bytes and
+the TBS 383; nothing about the certificate's shape changes. The host reads the
+bytes with `tfw.ApplicationEvidence`; `tfwctl -json <port> attest-cert <nonce>` prints them
+as `app_evidence`. The image's own measurement stays in `ATTEST`'s `FWHash`,
+so a verifier appraises both.
+
+The hook is called once per certificate minted. The mint keeps the 32 bytes it
+placed in RAM beside its nonce, where it already kept them for the pages that
+follow, and `ATTEST_CSR` for that nonce signs those bytes rather than asking
+the application again. Evidence that reports current state may change between
+the two commands, and go-xkms rebuilds the CSR from the certificate, so a fresh
+value would make the possession signature fail to match. `ATTEST_CSR` for a
+nonce with no certificate minted for it, including after a reset, is
+`TFW_ERR_BAD_ARGC`: the code an `ATTEST_CERT` page request with no certificate
+behind it already answers. No status code is added; the reason is in
+[dice-attestation/api.md](../dice-attestation/api.md#attest_csr--0x64).
+
+**Next: submodules.** Designed here, implemented by a follow-up. An
+application will be able to contribute claims to the firmware's UCCS evidence
+as one EAT submodule:
 
 - **Claim key.** `submods`, key **266** (RFC 9711 §4.2.18), in the claims set
   the alias certificate's `tcg-dice-UCCS-evidence` extension carries.
@@ -188,7 +214,7 @@ contribute claims to the firmware's UCCS evidence as one EAT submodule:
 - **Encoding.** Core deterministic CBOR (RFC 8949 §4.2.1), as the rest of the
   claims set already is. Positive keys sort before negative ones, so the
   firmware writes 270 and 271 first and the application's pairs follow.
-- **Hook.** A sixth hook, `tfw_app_claims`, will hand the firmware the
+- **Hook.** A seventh hook, `tfw_app_claims`, will hand the firmware the
   application's encoded pairs. It is not declared yet: declaring it now would
   make every application define a function nothing calls.
 - **Seam to go-xkms.** go-xkms parses the UCCS. It needs to recognise

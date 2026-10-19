@@ -44,6 +44,9 @@ var (
 	// App is the software-tier simulator with test/app/example linked, the
 	// only image that answers APP_INFO.
 	App = Binary{Name: "tfwsim-app-heartbeat", Make: "make tfwsim-app-example"}
+	// ElementApp is the element-tier simulator with test/app/example linked,
+	// the only image whose alias certificate carries an application's evidence.
+	ElementApp = Binary{Name: "tfwsim-atecc608a-app-heartbeat", Make: "make tfwsim-app-example"}
 )
 
 // NotBuiltError reports a simulator binary that is not where it should be.

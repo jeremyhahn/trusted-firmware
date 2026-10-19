@@ -1,11 +1,11 @@
 # Application SDK — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
 > Conflicts with this document are defects. Fix them here first.
 
 ## Exported surface
 
-Public, in `include/tfw/app.h`. The application defines the first six; the
+Public, in `include/tfw/app.h`. The application defines the first seven; the
 firmware defines the rest.
 
 | Symbol | Defined by | Purpose |
@@ -16,10 +16,11 @@ firmware defines the rest.
 | `tfw_app_shutdown` | application | `void (void)`, before a commanded reset |
 | `tfw_app_before_update` | application | `void (void)`, before a reset into the bootloader |
 | `tfw_app_after_update` | application | `tfw_status_t (void)`, first boot of a new image |
+| `tfw_app_evidence` | application | `tfw_status_t (uint8_t out[TFW_APP_EVIDENCE_LEN])`, 32 bytes for the measurements claim (273) |
 | `tfw_app_config_read` | firmware | read the application's EEPROM region |
 | `tfw_app_config_write` | firmware | write the application's EEPROM region |
 | `TFW_APP_STATIC_CHECK(caps, ota)` | firmware | compile-time compatibility check, used at file scope |
-| `TFW_APP_MAGIC`, `TFW_APP_ABI`, `TFW_APP_NAME_LEN`, `TFW_APP_OTA_*`, `TFW_APP_CAP(bit)`, `TFW_APP_CONFIG_BASE` | firmware | descriptor constants |
+| `TFW_APP_MAGIC`, `TFW_APP_ABI`, `TFW_APP_NAME_LEN`, `TFW_APP_EVIDENCE_LEN`, `TFW_APP_OTA_*`, `TFW_APP_CAP(bit)`, `TFW_APP_CONFIG_BASE` | firmware | descriptor constants |
 
 Capability bit numbers are named in `include/tfw/config.h` as
 `TFW_CAPBIT_GPIO` (0) to `TFW_CAPBIT_ATTEST_CSR` (15). They are the bit numbers
@@ -145,6 +146,14 @@ pass (`init`) or cannot report afterwards (the stop hooks).
 | `before_update` | from `tfw_sys_poll()`, after a `RESET` mode 1 reply has drained, before the update request is armed | shares the stop budget |
 | `shutdown` | straight after `before_update`, or alone for `RESET` mode 0 | **10 ms** with `before_update`, not measured |
 | `after_update` | not called yet; see [after_update](#after_update) | 20 ms with `init` |
+| `evidence` | only while RUNNING, from the command dispatcher, once per alias certificate minted, never for `ATTEST_CSR`, which signs the value the mint kept | **10 ms**, not measured |
+
+**Why `evidence` is not measured.** It runs inside a command, between the
+request and its reply, so the receive ring is not being drained: 10 ms is the
+host's to wait for, not the ring's to absorb. The application should hand back
+bytes it already holds, a hash it keeps current in `run`, rather than compute
+one here. Its output goes through a copy, so a refusal that wrote half of
+`out` leaves the claim the firmware measurement.
 
 **Why 2 ms.** At 115 200 baud a byte arrives every 87 µs, and the receive ring
 holds 63 bytes, so the ring overflows about 5.5 ms after the superloop stops
@@ -296,6 +305,10 @@ Nothing secret goes in the region. Any host with wire access can read it.
 | `make app-firmware-check` | the same copy builds a firmware image for `BOARD`, through the size gate |
 | `make tfwsim`, `make verify-vectors`, the SDK suite | the default image is unchanged on the wire, and the APP_INFO vectors agree in C and Go |
 | `make sdk-test` | `Device.AppInfo` decodes what `tfwsim-app-heartbeat` sends, and the default `tfwsim` answers `TFW_ERR_UNKNOWN_CMD` |
+| `test_app`, `test_app_none`, `test_app_example` (evidence) | a running application's evidence comes back through a copy; a failed, stopped or refused one is never asked; the empty runner supplies none; the example supplies `0xE0..0xFF` |
+| `test_uccs`, `test_alias`, `test_csr` (evidence) | claim 273 is byte for byte `TFWV_APPEV_WITH_UCCS` with an application's evidence and `TFWV_APPEV_WITHOUT_UCCS` without, on every certificate page and in the signed `ATTEST_CSR` request |
+| `ApplicationEvidence` tests, `sdk/go` | the Go decoder returns the 32 bytes from both vectors and refuses a claims set of any other shape with an `*EvidenceError` |
+| `make sdk-test`, `tfwctl` E2E | `tfwctl -json attest-cert` against `tfwsim-atecc608a-app-heartbeat` prints the example's 32 bytes as `app_evidence`, the certificate carries them in 273 and verifies under the DeviceID, and `ATTEST`'s `FWHash` stays the firmware's; against `tfwsim-atecc608a`, 273 is the firmware hash |
 
 The call-recording application, `test/mock/app_mock.c`, is linked into every
 unit test through `HOST_LIB_SRCS`. Each suite that links an application of its

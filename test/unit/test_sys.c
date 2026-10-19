@@ -185,8 +185,9 @@ static void test_poll_after_mode_1_arms_the_boot_request_then_resets(void)
     TEST_ASSERT_TRUE(handoff_touched());
 }
 
-/* sys.c:55: reset_soon forces mode 0, so it supersedes an earlier RESET(1). */
-static void test_reset_soon_is_mode_0_even_after_a_mode_1_request(void)
+/* reset_soon is OTA_ACTIVATE's install reset: tfw-boot finds the image by its
+ * MARK, so it supersedes an earlier RESET(1) and arms no update request. */
+static void test_reset_soon_arms_nothing_even_after_a_mode_1_request(void)
 {
     const uint8_t mode = 1u;
 
@@ -265,7 +266,7 @@ int main(void)
     RUN_TEST(test_poll_does_nothing_without_a_pending_reset);
     RUN_TEST(test_poll_after_mode_0_resets_without_a_boot_request);
     RUN_TEST(test_poll_after_mode_1_arms_the_boot_request_then_resets);
-    RUN_TEST(test_reset_soon_is_mode_0_even_after_a_mode_1_request);
+    RUN_TEST(test_reset_soon_arms_nothing_even_after_a_mode_1_request);
     RUN_TEST(test_reset_state_clears_the_latch);
     RUN_TEST(test_sys_info_saturates_the_u16_and_appends_framer_counters_and_u32_ram);
     RUN_TEST(test_sys_info_after_reset_state_reports_zero_framer_counters);

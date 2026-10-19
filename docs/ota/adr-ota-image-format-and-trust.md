@@ -57,7 +57,9 @@ Shape and data flow: [architecture.md](architecture.md).
   serial-only one; the TCP link keeps the UART, so an `ETH=1` image speaks both.
   `tfw-boot` has no Ethernet driver.
 - The application SDK declares `ota_slots` (none, single, A/B), `TFW_OTA_SLOTS`
-  per board, and `tfw_app_after_update`. Nothing calls it yet.
+  per board, and `tfw_app_after_update`. On the trial boot,
+  `tfw_ota_trial_after_init()` (`src/core/ota_trial.c`) asks it once, after
+  `init` returned `TFW_OK`; a refusal resets into `tfw-boot`, which rolls back.
 - Flash per AVR part:
 
 | Part | Flash | Boot section | Application region | `TFW_FLASH_BUDGET` |
@@ -1002,5 +1004,10 @@ reference value. A gap there is filed against go-xkms.
 - The provisioning seam: `tfwprov` writes go-xkms's exported key into the
   element's slot; mirror go-xkms's row in the SPEC once it lands.
 - The one trial: the watchdog arm in `tfw-boot`, and the deadline and the
-  `tfw_app_after_update` call in the application SDK.
+  `tfw_app_after_update` call in the application SDK. Done: the arm is
+  `tfw_boot_watchdog_arm` (`boot/boot_main.c`); the deadline and the call are
+  in `src/core/ota_trial.c`, from `startup()` in `src/main.c` (#51). What
+  remains: whether a failed `init` in `TRIAL` ends the trial at once, which
+  decision 9 does not say (open question 1 of
+  [the application SDK's engineering.md](../application-sdk/engineering.md#open-questions)).
 - `engineering.md`, `api.md` and `user.md` in this folder, with the code.

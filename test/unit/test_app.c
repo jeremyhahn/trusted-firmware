@@ -99,6 +99,17 @@ static void test_reset_to_bootloader_calls_before_update_then_shutdown(void)
     TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
 }
 
+/* OTA_ACTIVATE mode 1's reset installs the marked image: an update too. */
+static void test_an_install_reset_calls_before_update_then_shutdown(void)
+{
+    tfw_app_runner_start();
+    tfw_app_runner_poll();
+    tfw_sys_reset_soon();
+    tfw_sys_poll();
+    TEST_ASSERT_EQUAL_STRING("irbs", tfw_mock_app_log());
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+}
+
 static void test_a_stopped_application_is_not_run_or_stopped_again(void)
 {
     tfw_app_runner_start();
@@ -425,6 +436,42 @@ static void test_a_refused_application_is_not_asked_for_evidence(void)
     evidence_is_not_asked("");
 }
 
+/* The trial's question (src/core/ota_trial.c): a running application's
+ * after_update answer is passed through as it is, both ways. */
+static void test_a_running_application_answers_the_trial(void)
+{
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_app_runner_after_update());
+    TEST_ASSERT_EQUAL_STRING("ia", tfw_mock_app_log());
+    TEST_ASSERT_EQUAL_UINT8(TFW_APP_STATE_RUNNING, tfw_app_runner_state());
+}
+
+static void test_a_running_application_can_refuse_the_trial(void)
+{
+    tfw_mock_app_set_after_update(TFW_ERR_BAD_STATE);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_app_runner_after_update());
+    TEST_ASSERT_EQUAL_STRING("ia", tfw_mock_app_log());
+}
+
+/* Only the hook refuses: an application whose init refused, or whose
+ * descriptor was refused, is not asked and the trial runs on. */
+static void test_an_application_that_is_not_running_is_not_asked_by_the_trial(void)
+{
+    tfw_mock_app_set_after_update(TFW_ERR_BAD_STATE);
+    tfw_mock_app_set_init(TFW_ERR_TIMEOUT);
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_app_runner_after_update());
+    TEST_ASSERT_EQUAL_STRING("i", tfw_mock_app_log());
+
+    tfw_mock_app_reset();
+    tfw_mock_app_set_after_update(TFW_ERR_BAD_STATE);
+    tfw_mock_app_descriptor()->magic = TFW_APP_MAGIC ^ 1u;
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_app_runner_after_update());
+    TEST_ASSERT_EQUAL_STRING("", tfw_mock_app_log());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -432,6 +479,7 @@ int main(void)
     RUN_TEST(test_run_is_given_the_time_of_the_pass);
     RUN_TEST(test_reset_stops_the_application_before_the_device_resets);
     RUN_TEST(test_reset_to_bootloader_calls_before_update_then_shutdown);
+    RUN_TEST(test_an_install_reset_calls_before_update_then_shutdown);
     RUN_TEST(test_a_stopped_application_is_not_run_or_stopped_again);
     RUN_TEST(test_a_failing_init_leaves_the_application_failed_and_uncalled);
     RUN_TEST(test_a_wrong_magic_is_refused);
@@ -463,5 +511,8 @@ int main(void)
     RUN_TEST(test_a_failed_application_is_not_asked_for_evidence);
     RUN_TEST(test_a_stopped_application_is_not_asked_for_evidence);
     RUN_TEST(test_a_refused_application_is_not_asked_for_evidence);
+    RUN_TEST(test_a_running_application_answers_the_trial);
+    RUN_TEST(test_a_running_application_can_refuse_the_trial);
+    RUN_TEST(test_an_application_that_is_not_running_is_not_asked_by_the_trial);
     return UNITY_END();
 }

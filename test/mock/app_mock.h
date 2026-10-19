@@ -13,7 +13,8 @@
 #include "tfw/app.h"
 
 /* A valid descriptor (name "mock", no capabilities, no update path, 16 bytes of
- * configuration), init answering TFW_OK, run taking no time, an empty log. */
+ * configuration), init and after_update answering TFW_OK, run taking no time,
+ * an empty log. */
 void tfw_mock_app_reset(void);
 
 /* The descriptor the runner reads, writable here so one binary can present
@@ -21,6 +22,8 @@ void tfw_mock_app_reset(void);
 tfw_app_descriptor_t *tfw_mock_app_descriptor(void);
 
 void        tfw_mock_app_set_init(tfw_status_t st);
+/* What tfw_app_after_update answers; reset makes it TFW_OK. */
+void        tfw_mock_app_set_after_update(tfw_status_t st);
 /* Each run advances the mock clock by ms: a slow application, on demand. */
 void        tfw_mock_app_set_run_ms(tfw_ms_t ms);
 const char *tfw_mock_app_log(void);

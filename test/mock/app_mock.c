@@ -16,6 +16,7 @@ extern const tfw_app_descriptor_t tfw_app_descriptor __attribute__((alias("desc"
 static char         log_buf[LOG_CAP + 1u];
 static unsigned     log_len;
 static tfw_status_t init_status;
+static tfw_status_t after_update_status;
 static tfw_ms_t     run_ms;
 static tfw_ms_t     last_now;
 static tfw_status_t evidence_status;
@@ -41,6 +42,7 @@ void tfw_mock_app_reset(void)
     memset(log_buf, 0, sizeof log_buf);
     log_len     = 0u;
     init_status = TFW_OK;
+    after_update_status = TFW_OK;
     run_ms      = 0u;
     last_now    = 0u;
     evidence_status = TFW_ERR_UNSUPPORTED;
@@ -49,6 +51,7 @@ void tfw_mock_app_reset(void)
 
 tfw_app_descriptor_t *tfw_mock_app_descriptor(void) { return &desc; }
 void        tfw_mock_app_set_init(tfw_status_t st)   { init_status = st; }
+void        tfw_mock_app_set_after_update(tfw_status_t st) { after_update_status = st; }
 void        tfw_mock_app_set_run_ms(tfw_ms_t ms)     { run_ms = ms; }
 const char *tfw_mock_app_log(void)                   { return log_buf; }
 tfw_ms_t    tfw_mock_app_last_now(void)              { return last_now; }
@@ -78,7 +81,7 @@ void tfw_app_before_update(void) { record('b'); }
 tfw_status_t tfw_app_after_update(void)
 {
     record('a');
-    return TFW_OK;
+    return after_update_status;
 }
 
 /* Writes the bytes whatever it answers, so a test sees whether a refusal's

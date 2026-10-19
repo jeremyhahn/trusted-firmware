@@ -18,7 +18,14 @@ static void test_ota_trial_start_returns(void)
     TEST_PASS();
 }
 
-/* ota_trial_none.c:10 */
+/* ota_trial_none.c:10: no trial, so no runner to ask -- this link has none. */
+static void test_ota_trial_after_init_returns(void)
+{
+    tfw_ota_trial_after_init();
+    TEST_PASS();
+}
+
+/* ota_trial_none.c:11 */
 static void test_ota_trial_poll_is_safe_to_call_twice(void)
 {
     tfw_ota_trial_poll();
@@ -44,6 +51,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_ota_trial_start_returns);
+    RUN_TEST(test_ota_trial_after_init_returns);
     RUN_TEST(test_ota_trial_poll_is_safe_to_call_twice);
     RUN_TEST(test_auth_session_init_leaves_gate_ok);
     RUN_TEST(test_update_request_arm_leaves_unsupported);

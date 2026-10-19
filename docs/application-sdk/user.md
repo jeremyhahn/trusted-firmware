@@ -155,12 +155,18 @@ what AVR boards have today: tfw-boot replaces the image in place.
 application refuses to start rather than run without its rollback.
 
 Before the device resets into the bootloader, the firmware calls
-`tfw_app_before_update` and then `tfw_app_shutdown`. Save anything the next
-version needs. You cannot refuse the update.
+`tfw_app_before_update` and then `tfw_app_shutdown`: on `RESET` mode 1, on
+`OTA_ACTIVATE` mode 1, whose reset installs the staged image, and on a
+`RESET` mode 0 after `OTA_ACTIVATE` mode 0, which leaves the install to that
+reset. Save anything the next version needs. You cannot refuse the update. A
+`RESET` mode 0 with no image marked calls only `tfw_app_shutdown`.
 
-After an update, `tfw_app_after_update` will be called on the first boot of
-the new image, once `init` succeeds. Return `TFW_OK` only when the new image
-works. That call is wired with the `ota` work; define the hook now.
+After an update, `tfw_app_after_update` is called once on the new image's
+trial boot, straight after `init` succeeds. Return `TFW_OK` when the new image
+works: the trial runs on, and the control plane confirms the image with
+`OTA_CONFIRM` after it attests the device. Anything else ends the trial at
+once: the device resets and `tfw-boot` rolls back to the previous image. It is
+not called on any other boot.
 
 ## When `init` fails
 

@@ -2,7 +2,10 @@
 /*
  * The application's half of the one trial (src/core/ota_trial.c), on the mock
  * HAL's clock: in TRIAL the watchdog is re-armed and petted, the deadline
- * resets, the stop ends the count, and any other state arms nothing.
+ * resets, the stop ends the count, and any other state arms nothing. After the
+ * runner's start, the trial asks after_update once (ADR decision 9): a refusal
+ * resets at once, TFW_OK leaves the deadline running, and outside TRIAL nothing
+ * is asked.
  */
 
 #include <stdint.h>
@@ -14,6 +17,7 @@
 #include "tfw/config.h"
 #include "boot_platform.h"
 #include "ota_trial.h"
+#include "runner_fake.h"
 
 #define DEADLINE_MS ((tfw_ms_t)TFW_OTA_TRIAL_TIMEOUT_S * 1000u)
 
@@ -29,7 +33,7 @@ static void provision(uint8_t boot_state)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN));
 }
 
-void setUp(void)    { tfw_mock_reset(); }
+void setUp(void)    { tfw_mock_reset(); tfw_fake_runner_reset(); }
 void tearDown(void) { }
 
 static void test_a_trial_boot_rearms_and_pets(void)
@@ -107,6 +111,65 @@ static void test_no_platform_block_arms_nothing(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
 }
 
+/* TFW_OK confirms nothing: the trial runs on to its deadline, as an
+ * unconfirmed one does, and the control plane's OTA_CONFIRM settles it. */
+static void test_an_accepted_after_update_leaves_the_trial_running(void)
+{
+    provision(TFW_BOOT_STATE_TRIAL);
+    tfw_ota_trial_start();
+    tfw_ota_trial_after_init();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_fake_runner_after_update_calls());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(DEADLINE_MS - 1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+    tfw_mock_advance(1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_fake_runner_after_update_calls());
+}
+
+/* A refusal ends the trial at once, as failed: the reset lands before any
+ * poll, with no time passed, and tfw-boot finds TRIAL with no confirm. */
+static void test_a_refused_after_update_ends_the_trial_at_once(void)
+{
+    tfw_fake_runner_set_after_update(TFW_ERR_BAD_STATE);
+    provision(TFW_BOOT_STATE_TRIAL);
+    tfw_ota_trial_start();
+    tfw_ota_trial_after_init();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_fake_runner_after_update_calls());
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+}
+
+static void check_not_asked(uint8_t boot_state)
+{
+    tfw_mock_reset();
+    tfw_fake_runner_reset();
+    tfw_fake_runner_set_after_update(TFW_ERR_BAD_STATE);
+    provision(boot_state);
+    tfw_ota_trial_start();
+    tfw_ota_trial_after_init();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_fake_runner_after_update_calls());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+}
+
+/* Not a trial boot, so not a newly installed image: after_update is not
+ * asked, and a refusal it would have given resets nothing. */
+static void test_outside_a_trial_after_update_is_not_asked(void)
+{
+    check_not_asked(TFW_BOOT_STATE_EMPTY);
+    check_not_asked(TFW_BOOT_STATE_STAGED);
+    check_not_asked(TFW_BOOT_STATE_GOOD);
+    check_not_asked(TFW_BOOT_STATE_CONFIRMED);
+
+    tfw_mock_reset();
+    tfw_fake_runner_reset();
+    tfw_ota_trial_start();                 /* erased EEPROM: no block */
+    tfw_ota_trial_after_init();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_fake_runner_after_update_calls());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -115,5 +178,8 @@ int main(void)
     RUN_TEST(test_a_confirmed_trial_still_resets_at_the_deadline);
     RUN_TEST(test_any_other_state_arms_nothing);
     RUN_TEST(test_no_platform_block_arms_nothing);
+    RUN_TEST(test_an_accepted_after_update_leaves_the_trial_running);
+    RUN_TEST(test_a_refused_after_update_ends_the_trial_at_once);
+    RUN_TEST(test_outside_a_trial_after_update_is_not_asked);
     return UNITY_END();
 }

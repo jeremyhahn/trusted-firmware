@@ -78,7 +78,10 @@ holds a `MARK`; otherwise the OTA state (0 idle, 1 receiving, 2 verified,
 
 `OTA_ACTIVATE` (`src/core/ota_activate.c`) re-reads and re-verifies the image
 `OTA_END` verified and writes `MARK`; mode 1 then resets the device after the
-reply. `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
+reply, with the application stopped for an update (`tfw_app_before_update`,
+then `tfw_app_shutdown`) and no update request armed; mode 0 resets nothing,
+and the `RESET` mode 0 that later installs the image stops the application
+the same way (`tfw_stage_install_pending`). `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
 running image, bound to its measurement, and leaves the trial deadline
 running (#137), so the trial ends in a reset either way and tfw-boot settles it
 at that reset. Until the EEPROM map follow-up #125 the confirm request has no

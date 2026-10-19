@@ -97,9 +97,12 @@ void tfw_app_shutdown(void);
  * an update. A notification: it cannot stop the update. */
 void tfw_app_before_update(void);
 
-/* On the first boot of a newly installed image, after tfw_app_init returned
- * TFW_OK. TFW_OK confirms the image; anything else leaves it unconfirmed, so
- * the bootloader rolls back. Called by the ota work, not yet by this firmware. */
+/* Once, on the trial boot of a newly installed image (boot_state TRIAL), after
+ * tfw_app_init returned TFW_OK. TFW_OK confirms nothing: the trial runs on, and
+ * the control plane's OTA_CONFIRM confirms it. Anything else ends the trial at
+ * once, as failed: the firmware resets into the bootloader, which rolls back
+ * (decision 9 of docs/ota/adr-ota-image-format-and-trust.md). Not called on a
+ * board without the trial, nor on any boot that is not one. */
 tfw_status_t tfw_app_after_update(void);
 
 /* The application's evidence: 32 opaque bytes the firmware places in the

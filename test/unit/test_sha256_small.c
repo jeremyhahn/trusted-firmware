@@ -161,6 +161,46 @@ static void test_hmac_sha256_small_rfc4231_case_2(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, out, 32);
 }
 
+/* RFC 4231 case 6: a 131-byte key, longer than the block, which HMAC hashes
+ * to 32 bytes before it pads it -- the branch no shorter key reaches. */
+static void test_hmac_sha256_small_rfc4231_case_6_hashes_a_long_key(void)
+{
+    static const uint8_t want[32] = {
+        0x60, 0xe4, 0x31, 0x59, 0x1e, 0xe0, 0xb6, 0x7f, 0x0d, 0x8a, 0x26, 0xaa,
+        0xcb, 0xf5, 0xb7, 0x7f, 0x8e, 0x0b, 0xc6, 0x21, 0x37, 0x28, 0xc5, 0x14,
+        0x05, 0x46, 0x04, 0x0f, 0x0e, 0xe3, 0x7f, 0x54
+    };
+    static const char data[] = "Test Using Larger Than Block-Size Key - Hash Key First";
+    uint8_t key[131];
+    uint8_t out[32];
+
+    memset(key, 0xaa, sizeof key);
+    tfw_hmac_sha256(key, (uint8_t)sizeof key,
+                    (const uint8_t *)data, (uint16_t)(sizeof data - 1u), out);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, out, 32);
+}
+
+/* RFC 4231 case 7: the same long key over data longer than a block. */
+static void test_hmac_sha256_small_rfc4231_case_7_long_key_long_data(void)
+{
+    static const uint8_t want[32] = {
+        0x9b, 0x09, 0xff, 0xa7, 0x1b, 0x94, 0x2f, 0xcb, 0x27, 0x63, 0x5f, 0xbc,
+        0xd5, 0xb0, 0xe9, 0x44, 0xbf, 0xdc, 0x63, 0x64, 0x4f, 0x07, 0x13, 0x93,
+        0x8a, 0x7f, 0x51, 0x53, 0x5c, 0x3a, 0x35, 0xe2
+    };
+    static const char data[] =
+        "This is a test using a larger than block-size key and a larger "
+        "than block-size data. The key needs to be hashed before being "
+        "used by the HMAC algorithm.";
+    uint8_t key[131];
+    uint8_t out[32];
+
+    memset(key, 0xaa, sizeof key);
+    tfw_hmac_sha256(key, (uint8_t)sizeof key,
+                    (const uint8_t *)data, (uint16_t)(sizeof data - 1u), out);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, out, 32);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -174,5 +214,7 @@ int main(void)
     RUN_TEST(test_sha256_small_split_at_every_offset);
     RUN_TEST(test_hmac_sha256_small_rfc4231_case_1);
     RUN_TEST(test_hmac_sha256_small_rfc4231_case_2);
+    RUN_TEST(test_hmac_sha256_small_rfc4231_case_6_hashes_a_long_key);
+    RUN_TEST(test_hmac_sha256_small_rfc4231_case_7_long_key_long_data);
     return UNITY_END();
 }

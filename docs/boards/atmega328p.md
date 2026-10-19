@@ -59,8 +59,34 @@ in it. Each answers `TFW_ERR_UNKNOWN_CMD` with its `CAPS` bit clear:
 - the operator-signature auth session (`AUTH_CHALLENGE`/`AUTH_RESPONSE`, issue
   #4), `board_profile.h:50`–`64`;
 - `ATTEST_CSR` (issue #30), so the Nano cannot prove possession at ACME
-  finalize, `board_profile.h:66`–`77`. The alias certificate stays on
+  finalize, `board_profile.h:66`–`83`. The alias certificate stays on
   (`test/unit/test_board_328p.c`).
+
+### Soft root, Ethernet and ATTEST_CSR together (issue #53 T3)
+
+The 328P is element-only by the owner's ruling (m522). This is a measurement
+for the owner's T3/T4 decision on #53, not a change to that ruling. Measured by
+CI's `size-check`, each from a clean tree. `MEASURE_SOFT_CSR=1`
+(`mk/firmware.mk`) links the alias builder and `ATTEST_CSR` into a soft image
+for this measurement only. It is never a row. A negative margin is over budget.
+
+| Row | Settings | Flash | Budget | Margin | RAM | Budget | Margin |
+|---|---|---|---|---|---|---|---|
+| A | `CRYPTO=soft ETH=1 OTA_STAGE=0` (as it ships) | 14 964 | 16 384 | 1 420 | 737 | 1 024 | 287 |
+| B | A + `MEASURE_SOFT_CSR=1` | 17 198 | 16 384 | −814 | 930 | 1 024 | 94 |
+| C | B without `OTA_STAGE=0` (stager back on) | 20 156 | 16 384 | −3 772 | 1 041 | 1 024 | −17 |
+| D | `CRYPTO=atecc608a` (element default) | 16 086 | 16 384 | 298 | 955 | 1 024 | 69 |
+
+B and C are lower bounds. The soft provider has no P-256 signer:
+`tfw_crypto_pubkey` returns `TFW_ERR_UNSUPPORTED`, so the measured image can
+only refuse `ATTEST_CSR`, and a soft DeviceID's signer would add its size on
+top.
+
+What sheds first (m467): OTA goes before verify, and `BOOT_SIG=none` is never an
+option (m453). B has already shed OTA, since it is built without the stager, and
+it is still 814 bytes over before the signer is counted. On this part nothing
+left in the OTA class closes that gap. Without the stager the update path is
+serial and the boot's signature verify stays.
 
 ## Board id
 

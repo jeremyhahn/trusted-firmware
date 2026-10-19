@@ -73,6 +73,13 @@ static void test_stage_init_is_safe_to_call_twice(void)
     TEST_PASS();
 }
 
+/* No stager: no reset of this image installs, and RESET stops the application
+ * with shutdown alone (#51). */
+static void test_stage_install_pending_is_zero(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+}
+
 static void test_ota_prev_backup_answers_ok(void)
 {
     TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_ota_prev_backup());
@@ -89,6 +96,7 @@ int main(void)
     RUN_TEST(test_platform_serial_is_all_zero);
     RUN_TEST(test_platform_operator_pubkey_is_all_zero_and_no_wider);
     RUN_TEST(test_stage_init_is_safe_to_call_twice);
+    RUN_TEST(test_stage_install_pending_is_zero);
     RUN_TEST(test_ota_prev_backup_answers_ok);
     return UNITY_END();
 }

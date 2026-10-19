@@ -11,12 +11,19 @@
 #include "../core/auth_session.h"
 #include "../core/update_request.h"
 #include "../core/app_runner.h"
+#include "../core/ota_stage.h"
 
 /* Bumped by hand when the firmware is released; distinct from the protocol
  * version, which describes the wire and moves far less often. */
 #define TFW_FW_MAJOR 0u
 #define TFW_FW_MINOR 1u
 #define TFW_FW_PATCH 0u
+
+/* reset_mode is RESET's wire mode, 0 or 1, or RESET_INSTALL, which no wire
+ * mode reaches: OTA_ACTIVATE's reset into tfw-boot to install the image it
+ * marked. That is an update to the application, so it is told, but tfw-boot
+ * finds the image by the MARK, so no update request is armed. */
+#define RESET_INSTALL 2u
 
 static uint8_t reset_pending;
 static uint8_t reset_mode;
@@ -53,7 +60,7 @@ uint8_t tfw_sys_reset_pending(void)
 
 void tfw_sys_reset_soon(void)
 {
-    reset_mode    = 0u;
+    reset_mode    = RESET_INSTALL;
     reset_pending = 1u;
 }
 
@@ -223,8 +230,11 @@ void tfw_sys_poll(void)
         /* The application stops here, after the reply has drained and before
          * anything is armed: its hooks can neither delay the reply nor see a
          * request half-made. A RESET(0) that superseded a RESET(1) is a plain
-         * reset to the application too. */
-        tfw_app_runner_stop((uint8_t)(reset_mode == 1u));
+         * reset to the application too; OTA_ACTIVATE's install reset is an
+         * update to it, with nothing armed, and so is a RESET(0) after an
+         * OTA_ACTIVATE mode 0 of this session, which tfw-boot installs from
+         * the same MARK (#51). */
+        tfw_app_runner_stop((uint8_t)(reset_mode != 0u || tfw_stage_install_pending() != 0u));
         if (reset_mode == 1u) {
             tfw_update_request_arm();
         }

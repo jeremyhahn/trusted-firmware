@@ -181,7 +181,13 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  test/mock/uds_mock.c \
                  test/mock/app_mock.c \
                  src/core/board_lookup.c \
+                 src/core/ota_stage_none.c \
                  boards/$(HOST_BOARD)/board.c
+
+# RESET asks the stager whether its reset installs (#51), so the host library
+# links the no-stager stand-in an image without OTA_STAGE does. A link that
+# carries ota_stage.c takes HOST_STAGE_LIB_SRCS, the same list without it.
+HOST_STAGE_LIB_SRCS := $(filter-out src/core/ota_stage_none.c,$(HOST_LIB_SRCS))
 
 $(HOST_DIR):
 	@mkdir -p $(HOST_DIR)
@@ -385,7 +391,7 @@ $(HOST_DIR)/test_noboot_wire: test/unit/test_noboot_wire.c \
 # OTA_INFO on that build (#130): test_ota_stage's link with the same two
 # stand-ins in place of handoff.c and platform_id.c.
 $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
-                        $(filter-out src/core/handoff.c src/core/platform_id.c,$(HOST_LIB_SRCS)) \
+                        $(filter-out src/core/handoff.c src/core/platform_id.c,$(HOST_STAGE_LIB_SRCS)) \
                         src/core/handoff_none.c src/core/platform_id_none.c \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
@@ -394,9 +400,11 @@ $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The application's half of the one trial (#77) against the mock HAL's clock
-# and EEPROM, with the platform block reader the application links.
+# and EEPROM, with the platform block reader the application links, and the
+# runner's after_update entry as a fake (test/mock/runner_fake.h).
 # test_ota_trial_mutate mutates that block on the same link.
 $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate: $(HOST_DIR)/%: test/unit/%.c src/core/ota_trial.c \
+                        test/mock/runner_fake.c \
                         boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c \
                         src/core/secure_zero.c boot/boot_handoff.c \
                         src/proto/crc16.c src/proto/crc16_update.c \
@@ -438,7 +446,7 @@ $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate: $(HOST_DIR)/%: test/
                                 src/core/update_request.c boot/boot_request.c \
                                 boot/boot_platform.c boot/boot_handoff.c \
                                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
-                                src/core/app_runner_none.c \
+                                src/core/app_runner_none.c src/core/ota_stage_none.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -550,7 +558,7 @@ $(HOST_DIR)/test_link_eth_mutate: test/unit/test_link_eth_mutate.c \
 # The OTA stager (issue #75) as an OTA_STAGE=1 image links it, with the software
 # NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
 # test_appstate_mutate mutates the handoff and platform block on the same link.
-$(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) \
+$(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
@@ -558,7 +566,7 @@ $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # tfw_stage_marked's refusals, called directly, with test_ota_stage's link.
-$(HOST_DIR)/test_stage_marked: test/unit/test_stage_marked.c $(HOST_LIB_SRCS) \
+$(HOST_DIR)/test_stage_marked: test/unit/test_stage_marked.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
@@ -567,7 +575,7 @@ $(HOST_DIR)/test_stage_marked: test/unit/test_stage_marked.c $(HOST_LIB_SRCS) \
 
 # A single-slot stager (the 328P, the 32U4; #77): the stager, PREV and
 # OTA_ACTIVATE, without ota_ctl.c -- the shape mk/firmware.mk links there.
-$(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_LIB_SRCS) \
+$(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_activate.c src/core/ota_auth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -577,7 +585,7 @@ $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_LIB_SRCS) \
 # test_ota_single's stager and OTA_ACTIVATE, so a request the Ethernet link
 # refuses sits between OTA_AUTH and OTA_ACTIVATE.
 $(HOST_DIR)/test_ota_hold_link: test/unit/test_ota_hold_link.c \
-                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        $(filter-out src/proto/link_serial.c,$(HOST_STAGE_LIB_SRCS)) \
                         src/proto/link_eth.c src/net/netcfg.c \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_activate.c src/core/ota_auth.c \
@@ -587,7 +595,7 @@ $(HOST_DIR)/test_ota_hold_link: test/unit/test_ota_hold_link.c \
 # OTA_INFO on the element tier (#77): the same link with the element's floor
 # file, the ATECC608A driver and the software element as the I2C bus, whose
 # tfw_hal_i2c_xfer overrides the mock's weak one as tfwsim-atecc608a's does.
-$(HOST_DIR)/test_ota_info_atecc: test/unit/test_ota_info_atecc.c $(HOST_LIB_SRCS) \
+$(HOST_DIR)/test_ota_info_atecc: test/unit/test_ota_info_atecc.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_atecc.c src/crypto/atecc608a/atecc.c $(ELEMENT_MODEL) \
@@ -919,7 +927,7 @@ TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -Ite
 TFWSIM_STAGE_SRCS += src/core/ota_ctl.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                      src/core/ota_floor_eeprom.c
 TFWSIM_STAGE_DEFS += -DTFW_FEATURE_OTA_CTL=1
-TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) $(TFWSIM_LINK_SRCS) \
+TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_STAGE_LIB_SRCS)) $(TFWSIM_LINK_SRCS) \
                     $(TFWSIM_STAGE_SRCS)
 
 # The element tier swaps the software provider (and its UDS mock) for the ATECC608A

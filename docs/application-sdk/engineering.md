@@ -1,6 +1,6 @@
 # Application SDK — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-19
 > Conflicts with this document are defects. Fix them here first.
 
 ## Exported surface
@@ -15,7 +15,7 @@ firmware defines the rest.
 | `tfw_app_run` | application | `void (tfw_ms_t now_ms)`, every superloop pass |
 | `tfw_app_shutdown` | application | `void (void)`, before a commanded reset |
 | `tfw_app_before_update` | application | `void (void)`, before a reset into the bootloader |
-| `tfw_app_after_update` | application | `tfw_status_t (void)`, first boot of a new image |
+| `tfw_app_after_update` | application | `tfw_status_t (void)`, once on the trial boot of a new image |
 | `tfw_app_evidence` | application | `tfw_status_t (uint8_t out[TFW_APP_EVIDENCE_LEN])`, 32 bytes for the measurements claim (273) |
 | `tfw_app_config_read` | firmware | read the application's EEPROM region |
 | `tfw_app_config_write` | firmware | write the application's EEPROM region |
@@ -115,8 +115,9 @@ observe do not.
 1. **The runner is the only caller of a hook.** Nothing else in `src/` names a
    `tfw_app_*` hook.
 2. **Hooks are called in one order.** `init` exactly once. Then `run` zero or
-   more times. Then at most one stop: `before_update` (update resets only)
-   followed by `shutdown`. Nothing is called after `shutdown` until the next
+   more times. Then at most one stop: `before_update` (update resets only:
+   `RESET` mode 1, `OTA_ACTIVATE` mode 1, and `RESET` mode 0 after an
+   `OTA_ACTIVATE` mode 0) followed by `shutdown`. Nothing is called after `shutdown` until the next
    reset.
 3. **No hook is called unless `init` returned `TFW_OK`.**
 4. **The descriptor is checked before `init`.** An application that fails the
@@ -143,9 +144,9 @@ pass (`init`) or cannot report afterwards (the stop hooks).
 |---|---|---|
 | `init` | once, at the end of `startup()`, after transport init, **before interrupts are enabled** | 20 ms, not measured: the tick does not run yet |
 | `run` | once per superloop pass while RUNNING, after transport, scheduler and sys have polled | `TFW_APP_RUN_BUDGET_MS`, default **2 ms**, measured |
-| `before_update` | from `tfw_sys_poll()`, after a `RESET` mode 1 reply has drained, before the update request is armed | shares the stop budget |
-| `shutdown` | straight after `before_update`, or alone for `RESET` mode 0 | **10 ms** with `before_update`, not measured |
-| `after_update` | not called yet; see [after_update](#after_update) | 20 ms with `init` |
+| `before_update` | from `tfw_sys_poll()`, after the reply has drained of a `RESET` mode 1, before the update request is armed, or of an `OTA_ACTIVATE` mode 1, whose reset installs the marked image and arms nothing, or of a `RESET` mode 0 after this session's `OTA_ACTIVATE` mode 0, whose reset installs the same way | shares the stop budget |
+| `shutdown` | straight after `before_update`, or alone for a `RESET` mode 0 that installs nothing | **10 ms** with `before_update`, not measured |
+| `after_update` | once, at the end of `startup()`, straight after `init` returned `TFW_OK`, on a trial boot only; see [after_update](#after_update) | 20 ms with `init` |
 | `evidence` | only while RUNNING, from the command dispatcher, once per alias certificate minted, never for `ATTEST_CSR`, which signs the value the mint kept | **10 ms**, not measured |
 
 **Why `evidence` is not measured.** It runs inside a command, between the
@@ -230,13 +231,25 @@ for an application that skipped the macro.
 
 ### after_update
 
-Declared and required now, so the ABI does not change when it is wired. The
-`ota` row will call it on the first boot of a newly installed image, after
-`init` returned `TFW_OK` and before the image is confirmed. `TFW_OK` means
-confirm. Anything else means do not confirm, so the bootloader rolls the
-device back to the previous image on the next reset. On a single-slot board
-there is no previous image; a failure there is reported and the image stays.
-Until that row lands, nothing calls it.
+Called once on the one trial boot of a newly installed image (`boot_state`
+`TRIAL`, decision 9 of
+[the OTA ADR](../ota/adr-ota-image-format-and-trust.md)), after `init`
+returned `TFW_OK` and before anything is served. `startup()` calls
+`tfw_ota_trial_after_init()` straight after the runner's start; in `TRIAL` it
+asks `tfw_app_runner_after_update()`, which calls the hook only while the
+application is RUNNING. It needs no RAM of its own: the trial's `armed` flag
+already says `TRIAL`.
+
+- `TFW_OK` confirms nothing. The trial runs on to its deadline, and the
+  control plane's `OTA_CONFIRM`, after attestation, is what confirms the
+  image. A device-local confirm is gone (ADR decision 9).
+- Anything else ends the trial at once, as failed: the firmware resets into
+  `tfw-boot`, which finds `TRIAL` with no confirm request and rolls back to
+  the previous image. Recovery is another OTA round.
+- Not called on any boot that is not a trial, nor when `init` refused, nor on
+  a board without the trial: there `src/core/ota_trial_none.c` is linked and
+  asks nothing. Today the trial is linked on the ATmega2560 only (`BOOT_AB`,
+  `mk/firmware.mk:316`).
 
 ## Configuration
 
@@ -298,9 +311,11 @@ Nothing secret goes in the region. Any host with wire access can read it.
 
 | Test | Proves |
 |---|---|
-| `test_app` | hook order, including both stop paths through a real `RESET` command; a failing `init` leaves FAILED with no later call; each descriptor check gives UNSUPPORTED with `init` never called; overruns are counted and saturate; config read and write stay inside the region; APP_INFO reports the runner and the descriptor as written, a refused one included, and takes no payload |
+| `test_app` | hook order, including both stop paths through a real `RESET` command and the install reset `OTA_ACTIVATE` mode 1 asks for; a failing `init` leaves FAILED with no later call; each descriptor check gives UNSUPPORTED with `init` never called; overruns are counted and saturate; config read and write stay inside the region; APP_INFO reports the runner and the descriptor as written, a refused one included, and takes no payload |
 | `test_app_none` | the default links with the empty runner and no application, no hook or descriptor is needed, the runner stays IDLE and a `RESET` still resets, and APP_INFO answers `TFW_ERR_UNKNOWN_CMD` |
 | `test_app_example` | the example under `test/app/example`, compiled with the application flags, links into the host library and toggles its pin on time, and APP_INFO reports it byte for byte |
+| `test_ota_stage` (`before_update`) | `OTA_ACTIVATE` mode 1 on a staged image calls `before_update` then `shutdown` once its reply drains, and mode 0 stops nothing |
+| `test_ota_stage` (`RESET` after mode 0) | a `RESET` mode 0 after `OTA_ACTIVATE` mode 0 calls `before_update` then `shutdown`; with nothing marked, or ended and not activated, only `shutdown`; a later `OTA_BEGIN`, a failed stage and a failed second activation clear it |
 | `make app-sdk-check` | the example copied to a temporary directory outside the tree builds `tfwsim` with `APP_DIR` and runs it |
 | `make app-firmware-check` | the same copy builds a firmware image for `BOARD`, through the size gate |
 | `make tfwsim`, `make verify-vectors`, the SDK suite | the default image is unchanged on the wire, and the APP_INFO vectors agree in C and Go |
@@ -314,3 +329,90 @@ The call-recording application, `test/mock/app_mock.c`, is linked into every
 unit test through `HOST_LIB_SRCS`. Each suite that links an application of its
 own filters it out. Its symbols are strong: a suite that links two
 applications fails to link, which is the contract.
+
+## Row status
+
+The `application-sdk` row of [SPEC.md](../SPEC.md), requirement by
+requirement, against the code at the commit that last changed this table.
+Shipped: in the code and pinned by a test. Partial: in the code on some paths,
+with the rest named. Not yet: not in the code. The SPEC row's status sentences
+say what this table says.
+
+| Requirement | Status | Implemented at | Pinned by |
+|---|---|---|---|
+| Descriptor: name, version, device profile, required capabilities, OTA slots, configuration length | shipped | `include/tfw/app.h:52`; checked before `init` at `src/core/app_runner.c:31` | `test_app.c:140` and the descriptor checks after it; `test_app_example.c:39` |
+| Hook `init` | shipped | `src/core/app_runner.c:65`, from `startup()` | `test_app.c:65` |
+| Hook `run` | shipped | `src/core/app_runner.c:75`, every superloop pass, overruns counted | `test_app.c:65` and the overrun tests |
+| Hook `shutdown` | shipped | `src/core/app_runner.c:92`, from `tfw_sys_poll()` at `src/caps/sys.c:227` | `test_app.c:82` |
+| Hook `before_update` | shipped | `src/core/app_runner.c:92`, before `shutdown`, on `RESET` mode 1, on `OTA_ACTIVATE` mode 1 (`src/core/ota_activate.c:33`, through `tfw_sys_reset_soon()` at `src/caps/sys.c:61`), and on a `RESET` mode 0 after `OTA_ACTIVATE` mode 0 of the same session (`src/caps/sys.c:237`, asking `tfw_stage_install_pending()` at `src/core/ota_stage.c:243`: the session's state and the MARK's magic, no new RAM) | `test_app.c:93`, `test_app.c:103`, `test_ota_stage.c:347`, `test_ota_stage.c:398`, `test_ota_stage.c:407`, `test_ota_stage.c:429`, `test_none_variants.c:78` |
+| Hook `after_update` | shipped | declared at `include/tfw/app.h:106`; asked once in `TRIAL` by `tfw_ota_trial_after_init()` at `src/core/ota_trial.c:33`, from `startup()` at `src/main.c:95`, through `tfw_app_runner_after_update()` at `src/core/app_runner.c:128` (RUNNING only); a refusal resets into `tfw-boot` (`src/core/ota_trial.c:38`), `TFW_OK` leaves the trial to `OTA_CONFIRM`; the trial's `armed` flag, no new RAM | `test_ota_trial.c:116`, `test_ota_trial.c:135`, `test_ota_trial.c:159`, `test_app.c:441`, `test_app.c:449`, `test_app.c:459`, `test_app_none.c:53`, `test_none_standins.c:21` |
+| Configuration region | shipped | `TFW_APP_CONFIG_BASE` at `include/tfw/app.h:50`; `src/core/app_runner.c:186` and `:196` | `test_app.c:275`, `test_app.c:287` and the region tests after them |
+| Evidence claims, 32 bytes in claim 273 | shipped | `src/core/app_runner.c:115`; `src/caps/attest.c:76`; claim 273 at `src/caps/uccs.c:76`; `ATTEST_CSR` keeps the mint's at `src/caps/csr.c:232`; Go decoder at `sdk/go/appevidence.go:69` | `TFWV_APPEV_WITH_UCCS` and `TFWV_APPEV_WITHOUT_UCCS` (`testdata/vectors.h:274`, `:275`) in `test_uccs.c:64`, `test_uccs.c:74`, `test_alias.c:720`, `test_csr.c:541`, `sdk/go/appevidence_test.go:117`; `test_app.c:368`; `sdk/go/cmd/tfwctl/e2e_dice_test.go:74` |
+| OTA slots the images use | shipped | `ota_slots`, `TFW_APP_OTA_*` at `include/tfw/app.h:41`; checked against the board at `src/core/app_runner.c:31` and at compile time by `TFW_APP_STATIC_CHECK` (`include/tfw/app.h:131`) | `test_app.c:192` and the test after it |
+| One application per image, no dynamic loading | shipped | one `APP_DIR` in `mk/app.mk:62`; the hooks are strong symbols | the link itself: every unit link carries `test/mock/app_mock.c`, and a suite that adds a second application fails to link |
+| Builds against a released SDK version | shipped | the interface is in `v0.4.0-alpha` (`CHANGELOG.md:33`); `abi` is checked at boot | `make app-sdk-check` (`mk/app.mk:86`), the example built from outside the tree |
+| Board as data at build time | shipped | `make firmware APP_DIR=<path> BOARD=<b>`, `mk/app.mk` | `make app-firmware-check` (`mk/app.mk:107`) |
+| No-application default: no application logic in the firmware | shipped | `src/core/app_runner_none.c`, selected at `mk/app.mk:73` | `test_app_none.c:28`, `test_app_none.c:78` |
+| APP_INFO (0x06) | shipped | `src/core/app_runner.c:153`, in the table at `src/core/commands.def:34` when an application is linked | `test_app.c:325`, `test_app_example.c:99` (`TFWV_APPINFO_HEARTBEAT_REPLY`), `sdk/go/appinfo_test.go:17`, `sdk/go/tfwsim_test.go:187` |
+
+Counts: 14 shipped, 0 partial, 0 not yet. Test paths are under `test/unit/`
+unless named.
+
+What is open, and whose it is:
+
+- **Proposed follow-ups, not requirements of the row:** a pin reservation, so
+  that an application and a host do not drive the same pin, and
+  application-defined wire commands
+  ([architecture.md](architecture.md#what-it-does-not-do)). Each would change
+  the wire, with vectors.
+- **With the owner:** open question 1 below.
+
+## Open questions
+
+### 1. Does a failed `init` in `TRIAL` end the trial at once?
+
+Decision 9 of [the OTA ADR](../ota/adr-ota-image-format-and-trust.md) says
+the new image "runs `init` and `tfw_app_after_update`. If both return
+`TFW_OK`, it opens its connection and reports", and that
+"`tfw_app_after_update` refusing ends the trial at once, as failed" (ADR lines
+586-590; the state machine at `docs/ota/architecture.md:150` draws the same two
+arrows). It names no arrow for a failed `init`: it does not say the trial ends
+at once, and it does not say the trial runs to its deadline.
+
+What the code does today: `tfw_app_runner_start()` marks the application
+FAILED (`src/core/app_runner.c:72`), and `tfw_app_runner_after_update()`
+answers `TFW_OK` for any state but RUNNING (`src/core/app_runner.c:131`), so
+`tfw_ota_trial_after_init()` does not reset. The firmware serves on without
+the application, as it does on any boot, and the trial runs to its deadline.
+`OTA_CONFIRM` does not look at the application's state, so the control plane
+can confirm such an image if it does not read `APP_INFO` first.
+
+The options:
+
+- **A. End the trial at once.** `tfw_ota_trial_after_init()` resets into
+  `tfw-boot` when `armed` and the application is FAILED, the same path a
+  refused `after_update` takes. No command id, status code, wire vector or RAM
+  byte: `armed` and the runner's state already say both facts. Recovery starts
+  up to 68 s sooner, and an image whose application cannot start can never be
+  confirmed, which is what "if both return `TFW_OK`" asks. The cost: the
+  control plane loses the trial's window to read `APP_INFO` and the evidence of
+  the failed image before the rollback.
+- **B. Keep today's behaviour.** The trial runs to its deadline, and the
+  control plane decides from `APP_INFO`'s FAILED state not to confirm. It
+  keeps the diagnostic window, and leaves the "both return `TFW_OK`" condition
+  to the control plane rather than the device.
+- **C. Run to the deadline, but refuse the confirm.** `OTA_CONFIRM` answers
+  `TFW_ERR_BAD_STATE` while the application is FAILED. It keeps the window and
+  holds the condition on the device, at the cost of a new refusal in
+  `OTA_CONFIRM`'s handler and its tests.
+
+Whether UNSUPPORTED (a descriptor that fails its checks, so `init` is never
+called) counts as a failed `init` here is part of the same question; A and C
+would treat it as one.
+
+**Recommendation: A.** It is the reading closest to decision 9's "if both
+return `TFW_OK`", it takes the one reset path the trial already has, and it
+costs no RAM, wire or vector. The diagnostic window B and C keep is worth
+little on a trial that cannot be confirmed: `tfw-boot` keeps the failed
+image's measurement in the `FAILED` record (`docs/ota/architecture.md:137`).
+No code changes until the owner rules.

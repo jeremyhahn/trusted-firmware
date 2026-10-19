@@ -36,7 +36,7 @@ tfw_app_init            once, at boot
 tfw_app_run             every superloop pass while running
 tfw_app_shutdown        before a commanded reset
 tfw_app_before_update   before a reset into the bootloader for an update
-tfw_app_after_update    first boot of a new image (wired by the ota row)
+tfw_app_after_update    once on the trial boot of a new image, after init
 ```
 
 **A no-application default that costs nothing.** A build with no `APP_DIR`
@@ -112,13 +112,17 @@ reset
        ├─ transport poll, scheduler poll, sys poll
        │     └─ sys poll, commanded reset pending and reply drained:
        │           tfw_app_runner_stop(for_update)
-       │             ├─ tfw_app_before_update()   (RESET mode 1 only)
+       │             ├─ tfw_app_before_update()   (RESET mode 1, OTA_ACTIVATE mode 1,
+       │             │                             RESET mode 0 after OTA_ACTIVATE mode 0)
        │             └─ tfw_app_shutdown()
        │           then reset
        └─ tfw_app_runner_poll()      ─► tfw_app_run(now_ms)
 
-first boot of a new image (ota row, not wired yet)
-  └─ after init returned OK: tfw_app_after_update() ─► confirm, or roll back
+trial boot of a new image (boot_state TRIAL, OTA ADR decision 9)
+  └─ startup(), after init returned OK: tfw_ota_trial_after_init()
+        └─ tfw_app_runner_after_update() ─► tfw_app_after_update()
+              ├─ TFW_OK:   the trial runs on; OTA_CONFIRM confirms
+              └─ refusal:  reset now; tfw-boot rolls back
 ```
 
 Configuration flows in from the host through the existing `EEPROM_WRITE`
@@ -143,7 +147,9 @@ with `tfw_app_config_read`. Nothing new crosses the wire.
   A hook that never returns stops the superloop. No cooperative design can
   prevent that, and recovering the device then takes physical access. That is
   why the budgets are part of the contract, and why an application runs on
-  tfwsim before it ships.
+  tfwsim before it ships. `after_update` can refuse, and a refusal rolls the
+  device back, but the hook that answers is the new image's own, signed with
+  it: the application being replaced is never asked.
 - **Secrets never pass through the application.** The application has no
   interface to the UDS, the CDI or any key. The runtime configuration region
   is plain EEPROM, readable by any host with wire access; secrets do not go
@@ -162,8 +168,9 @@ with `tfw_app_config_read`. Nothing new crosses the wire.
   a wire or evidence change with vectors. The firmware itself reports the application's state and descriptor
   with APP_INFO ([api.md](api.md#app_info)); the application adds nothing to
   that reply.
-- It does not call `after_update`. The confirm step it belongs to is the `ota`
-  row's, and the call site is fixed here so that row has nothing to design.
+- It does not confirm an image. `after_update` answering `TFW_OK` lets the
+  trial run on; the confirm is the control plane's `OTA_CONFIRM` (OTA ADR
+  decision 9).
 - It does not support more than one application per image. A product that is
   two applications is one application with two modules, in its own
   repository.

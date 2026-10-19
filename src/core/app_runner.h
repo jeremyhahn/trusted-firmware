@@ -48,6 +48,11 @@ uint16_t tfw_app_runner_overruns(void);
  * application, one that is not running, or one that supplies none. */
 tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN]);
 
+/* The trial's question (src/core/ota_trial.c, once, after start): while
+ * RUNNING, tfw_app_after_update's answer. TFW_OK in any other state -- no
+ * application, or one whose init refused -- so only the hook refuses. */
+tfw_status_t tfw_app_runner_after_update(void);
+
 /* APP_INFO, wired into commands.def only when TFW_FEATURE_APP is on (an
  * APP_DIR is named, mk/app.mk). Defined beside the runner and nowhere else, so
  * an image that links app_runner_none.c has no handler to reference. The reply

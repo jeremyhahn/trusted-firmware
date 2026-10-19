@@ -76,7 +76,7 @@ const tfw_app_descriptor_t tfw_app_descriptor TFW_PROGMEM = {
 | `tfw_app_run(now_ms)` | none | `now_ms` is `tfw_hal_millis()` at the call |
 | `tfw_app_shutdown` | none | |
 | `tfw_app_before_update` | none | a notification; the update goes ahead |
-| `tfw_app_after_update` | `tfw_status_t` | `TFW_OK`: confirm the new image. Anything else: do not (the `ota` row; not called yet) |
+| `tfw_app_after_update` | `tfw_status_t` | Once, on the trial boot of a new image, after `init` returned `TFW_OK`. `TFW_OK`: the trial runs on, and the control plane's `OTA_CONFIRM` confirms. Anything else: the trial ends at once, as failed, and `tfw-boot` rolls back |
 | `tfw_app_evidence(out)` | `tfw_status_t` | `TFW_OK`: `out` holds the application's 32 bytes of evidence. Anything else: it supplies none |
 
 `tfw_app_evidence` is called only while the application runs, once each time

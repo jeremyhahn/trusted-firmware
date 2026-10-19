@@ -37,3 +37,8 @@ tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
     (void)out;
     return TFW_ERR_UNSUPPORTED;
 }
+
+tfw_status_t tfw_app_runner_after_update(void)
+{
+    return TFW_OK;
+}

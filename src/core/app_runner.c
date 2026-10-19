@@ -126,6 +126,11 @@ tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
     return TFW_OK;
 }
 
+tfw_status_t tfw_app_runner_after_update(void)
+{
+    return (state == TFW_APP_STATE_RUNNING) ? tfw_app_after_update() : TFW_OK;
+}
+
 /* The reply is the descriptor minus its magic, behind the runner's two
  * fields. Both lengths are pinned here so that growing the descriptor's
  * strings breaks the build rather than the 64-byte payload. */

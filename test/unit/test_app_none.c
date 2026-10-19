@@ -49,6 +49,13 @@ static void test_the_empty_runner_supplies_no_evidence(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(was, out, sizeof out);
 }
 
+/* No application, nothing to refuse: a trial without one runs on. */
+static void test_the_empty_runner_never_refuses_a_trial(void)
+{
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_app_runner_after_update());
+}
+
 /* A commanded reset still resets: the stop it calls first is harmless. */
 static void test_a_reset_still_resets(void)
 {
@@ -86,6 +93,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_the_empty_runner_stays_idle);
     RUN_TEST(test_the_empty_runner_supplies_no_evidence);
+    RUN_TEST(test_the_empty_runner_never_refuses_a_trial);
     RUN_TEST(test_a_reset_still_resets);
     RUN_TEST(test_app_info_is_unknown_without_an_application);
     return UNITY_END();

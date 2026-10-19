@@ -138,6 +138,16 @@ ifeq ($(CRYPTO),soft)
 CRYPTO_SRCS := src/crypto/sha256.c src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
+# MEASURE_SOFT_CSR=1 is a MEASUREMENT, never a row (issue #53 T3): it links the
+# alias builder and ATTEST_CSR into a soft image only to read what they cost on
+# a board's budget. The soft provider has no public half yet, so the image can
+# only refuse the command, and the figure omits the P-256 signer a soft DeviceID
+# would add. No profile, row or CI target sets it.
+MEASURE_SOFT_CSR ?= 0
+ifeq ($(MEASURE_SOFT_CSR),1)
+ALIAS_SRCS  := src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c src/caps/csr.c
+ALIAS_DEFS  := -DTFW_FEATURE_ALIAS_CERT=1 -DTFW_FEATURE_ATTEST_CSR=1
+endif
 # issue #4: no operator-signature session on this tier -- see
 # TFW_FEATURE_AUTH_SESSION in config.h for why, and auth_session_none.c for
 # what a soft-tier image links instead.
@@ -263,7 +273,7 @@ endif
 # image that existed before keeps its path.
 STAGE_SUFFIX := $(if $(filter 1,$(OTA_STAGE)),$(if $(filter 1,$(ETH)),,-stage),$(if $(and $(filter 1,$(ETH)),$(OTA_STORE)),-nostage,))
 
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(STAGE_SUFFIX)$(APP_SUFFIX)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(STAGE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The toolchain binaries and the flags that name a machine, an optimisation

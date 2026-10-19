@@ -16,7 +16,9 @@ tfw_status_t tfw_sys_cmd_sys_info(tfw_reader_t *r, tfw_writer_t *w);
  * reset only after the UART has drained, so the host actually receives the
  * acknowledgement it is waiting for. */
 uint8_t     tfw_sys_reset_pending(void);
-/* RESET mode 0 after the reply drains: OTA_ACTIVATE mode 1 (issue #77). */
+/* OTA_ACTIVATE mode 1's reset after the reply drains (issue #77): no update
+ * request is armed, as for RESET mode 0, but the application is stopped for
+ * an update, before_update then shutdown (#51). */
 void        tfw_sys_reset_soon(void);
 
 /* Called from the main loop. Performs a deferred reset once the link is idle. */

@@ -6,5 +6,6 @@
 
 #include "ota_trial.h"
 
-void tfw_ota_trial_start(void) { }
-void tfw_ota_trial_poll(void)  { }
+void tfw_ota_trial_start(void)      { }
+void tfw_ota_trial_after_init(void) { }
+void tfw_ota_trial_poll(void)       { }

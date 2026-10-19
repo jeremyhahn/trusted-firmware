@@ -88,9 +88,11 @@ static void startup(void)
      * and still before interrupts: its init owns the device until it returns.
      * A refusal is not an error here. The firmware serves on without it.
      * In a trial, the watchdog and the deadline start first (#77), so a hang
-     * in the application's init is caught too. */
+     * in the application's init is caught too. Then the trial asks the
+     * application's after_update, before anything is served. */
     tfw_ota_trial_start();
     tfw_app_runner_start();
+    tfw_ota_trial_after_init();
 }
 
 int main(void)

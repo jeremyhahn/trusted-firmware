@@ -5,6 +5,7 @@
 #include "tfw/boot.h"
 #include "tfw/config.h"
 #include "tfw/hal.h"
+#include "app_runner.h"
 #include "boot_platform.h"
 #include "ota_trial.h"
 
@@ -27,6 +28,16 @@ void tfw_ota_trial_start(void)
     tfw_hal_watchdog_arm();
     armed   = 1u;
     started = tfw_hal_millis();
+}
+
+void tfw_ota_trial_after_init(void)
+{
+    /* Decision 9: a refusal ends the trial at once, as failed. tfw-boot finds
+     * TRIAL with no confirm request and rolls back. TFW_OK confirms nothing;
+     * the deadline runs on for the control plane's OTA_CONFIRM. */
+    if (armed != 0u && tfw_app_runner_after_update() != TFW_OK) {
+        tfw_hal_reset();
+    }
 }
 
 void tfw_ota_trial_poll(void)

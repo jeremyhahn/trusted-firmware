@@ -240,6 +240,17 @@ tfw_status_t tfw_stage_activate(void)
     return mark(hash);
 }
 
+uint8_t tfw_stage_install_pending(void)
+{
+    uint8_t rec[4];
+
+    /* COMPLETE survives OTA_ACTIVATE; any later OTA_BEGIN leaves it and erases
+     * the MARK, and a failed authorize erased it before writing. */
+    return (uint8_t)(state == TFW_STAGE_COMPLETE
+                     && tfw_store_read(((uint32_t)TFW_OTA_STORE_MARK_ADDR), rec, 4u) == TFW_OK
+                     && rd32(rec) == TFW_STAGE_MARK_MAGIC);
+}
+
 tfw_status_t tfw_stage_authorize(const uint8_t sig[TFW_OTA_AUTH_SIG_LEN], uint8_t mode)
 {
     tfw_status_t st;

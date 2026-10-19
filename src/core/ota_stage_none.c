@@ -13,3 +13,9 @@
 void tfw_stage_init(void)
 {
 }
+
+/* No stager, no MARK this image wrote: every reset is a plain one (#51). */
+uint8_t tfw_stage_install_pending(void)
+{
+    return 0u;
+}

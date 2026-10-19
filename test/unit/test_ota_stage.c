@@ -28,6 +28,8 @@
 #include <string.h>
 #include "tfw/protocol.h"
 #include "dispatch.h"
+#include "app_runner.h"
+#include "app_mock.h"
 
 #define TRAILER   128u
 #define CHUNK     60u      /* TFW_MAX_PAYLOAD less the offset */
@@ -338,6 +340,114 @@ static void test_activate_takes_a_verified_image_and_resets_on_mode_1(void)
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_sys_reset_pending());
     tfw_sys_reset_state();
+}
+
+/* The reset mode 1 asks for installs the image: the application hears of the
+ * update, before_update then shutdown, and mode 0 stops nothing (#51). */
+static void test_activate_tells_the_application_of_the_update_it_resets_into(void)
+{
+    uint8_t m0 = 0u, m1 = 1u, out[44], n;
+
+    tfw_mock_app_reset();
+    tfw_app_runner_start();
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    tfw_sys_poll();
+    TEST_ASSERT_EQUAL_STRING("i", tfw_mock_app_log());
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    tfw_sys_poll();
+    TEST_ASSERT_EQUAL_STRING("ibs", tfw_mock_app_log());
+    tfw_sys_reset_state();
+}
+
+/* A RESET mode 0 and the poll that performs it, from a running application. */
+static void reset_0(void)
+{
+    uint8_t m0 = 0u, out[44], n;
+
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_sys_cmd_reset, &m0, 1u, out, &n));
+    tfw_sys_poll();
+    tfw_sys_reset_state();
+}
+
+/* Staged, ended and activated in mode 0 from a running application. */
+static void activate_0(void)
+{
+    uint8_t m0 = 0u, out[44], n;
+
+    tfw_mock_app_reset();
+    tfw_app_runner_start();
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
+}
+
+/* Mode 0 marks and waits: the RESET that follows is the reset tfw-boot installs
+ * on, so the application hears of the update as mode 1's reset tells it (#51). */
+static void test_a_reset_after_activate_mode_0_is_an_update(void)
+{
+    activate_0();
+    reset_0();
+    TEST_ASSERT_EQUAL_STRING("ibs", tfw_mock_app_log());
+}
+
+/* Nothing staged, or staged and ended but never activated: no MARK, so the
+ * reset installs nothing and the application only shuts down. */
+static void test_a_reset_with_nothing_marked_only_shuts_down(void)
+{
+    tfw_mock_app_reset();
+    tfw_app_runner_start();
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    reset_0();
+    TEST_ASSERT_EQUAL_STRING("is", tfw_mock_app_log());
+
+    tfw_mock_app_reset();
+    tfw_app_runner_start();
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    reset_0();
+    TEST_ASSERT_EQUAL_STRING("is", tfw_mock_app_log());
+}
+
+/* An OTA_BEGIN after the activation erases its MARK, and the stage it opens
+ * failing leaves none; a second activation that fails has erased it too. */
+static void test_a_superseded_or_failed_stage_clears_the_install(void)
+{
+    uint8_t m0 = 0u, out[44], n;
+
+    activate_0();
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    stream(0u, 256u);
+    TEST_ASSERT_EQUAL(TFW_ERR_FRAMING, end());
+    expect_status(TFW_STAGE_FAILED, 256u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    reset_0();
+    TEST_ASSERT_EQUAL_STRING("is", tfw_mock_app_log());
+
+    activate_0();
+    tfw_nor_model_corrupt(TFW_OTA_STORE_STAGE_ADDR + 17u);
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    reset_0();
+    TEST_ASSERT_EQUAL_STRING("is", tfw_mock_app_log());
 }
 
 static void test_activate_fails_closed_on_an_unverifiable_block(void)
@@ -819,6 +929,10 @@ int main(void)
     RUN_TEST(test_init_parks_selects_before_any_transfer);
     RUN_TEST(test_info_reports_the_block_and_the_marked_image);
     RUN_TEST(test_activate_takes_a_verified_image_and_resets_on_mode_1);
+    RUN_TEST(test_activate_tells_the_application_of_the_update_it_resets_into);
+    RUN_TEST(test_a_reset_after_activate_mode_0_is_an_update);
+    RUN_TEST(test_a_reset_with_nothing_marked_only_shuts_down);
+    RUN_TEST(test_a_superseded_or_failed_stage_clears_the_install);
     RUN_TEST(test_activate_fails_closed_on_an_unverifiable_block);
     RUN_TEST(test_activate_takes_only_the_image_end_verified);
     RUN_TEST(test_confirm_writes_its_request_and_never_the_block);

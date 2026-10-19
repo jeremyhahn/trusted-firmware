@@ -236,6 +236,9 @@ tfw_status_t tfw_ow_cmd_read(tfw_reader_t *r, tfw_writer_t *w)
     if (len == 0u || len > TFW_BUS_MAX) {
         return TFW_ERR_RANGE;
     }
+    if (tfw_board_pin_flags(pin) & (TFW_PIN_RESERVED | TFW_PIN_IN_USE)) {
+        return TFW_ERR_RESERVED_PIN;
+    }
     st = tfw_board_pin(pin, &ref);
     if (st != TFW_OK) {
         return st;

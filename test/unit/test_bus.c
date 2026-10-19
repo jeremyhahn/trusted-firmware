@@ -10,6 +10,7 @@
 #include "bus.h"
 #include "dispatch.h"
 #include "hal_mock.h"
+#include "tfw/board.h"
 #include "tfw/protocol.h"
 #include "tfw/config.h"
 
@@ -137,6 +138,33 @@ static void test_onewire_on_a_reserved_pin_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN, run(TFW_CMD_ONEWIRE_RESET, (const uint8_t[]){ 1u }, 1u));
 }
 
+/* Read refuses the pins reset and write refuse, before any read slot. */
+static void test_a_onewire_read_on_a_reserved_or_in_use_pin_is_refused(void)
+{
+    unsigned pin;
+    unsigned refused = 0u;
+    unsigned in_use  = 0u;
+
+    for (pin = 0u; pin < 256u; pin++) {
+        const uint8_t flags = tfw_board_pin_flags((tfw_pin_t)pin);
+
+        if (!(flags & (TFW_PIN_RESERVED | TFW_PIN_IN_USE))) {
+            continue;
+        }
+        TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN,
+            run(TFW_CMD_ONEWIRE_READ, (const uint8_t[]){ (uint8_t)pin, 2u }, 2u));
+        TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN,
+            run(TFW_CMD_ONEWIRE_WRITE, (const uint8_t[]){ (uint8_t)pin, 0xCCu }, 2u));
+        TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN,
+            run(TFW_CMD_ONEWIRE_RESET, (const uint8_t[]){ (uint8_t)pin }, 1u));
+        refused++;
+        in_use += (flags & TFW_PIN_IN_USE) ? 1u : 0u;
+    }
+    TEST_ASSERT_TRUE(in_use > 0u);   /* the UART's pins, on every board */
+    TEST_ASSERT_TRUE(refused >= in_use);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_ow_read_count());
+}
+
 static void test_a_zero_length_bus_transfer_is_refused(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(TFW_CMD_ONEWIRE_READ, (const uint8_t[]){ 9u, 0u }, 2u));
@@ -234,6 +262,7 @@ int main(void)
     RUN_TEST(test_a_onewire_reset_reports_presence);
     RUN_TEST(test_a_onewire_sensor_exchange_needs_no_sensor_code_in_firmware);
     RUN_TEST(test_onewire_on_a_reserved_pin_is_refused);
+    RUN_TEST(test_a_onewire_read_on_a_reserved_or_in_use_pin_is_refused);
     RUN_TEST(test_a_zero_length_bus_transfer_is_refused);
     RUN_TEST(test_i2c_config_applies_a_clock_within_range);
     RUN_TEST(test_i2c_config_refuses_a_clock_below_the_floor);

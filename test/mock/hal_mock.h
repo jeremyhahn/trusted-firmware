@@ -87,6 +87,7 @@ tfw_status_t tfw_mock_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
                                uint8_t *rd, uint8_t len);
 uint8_t tfw_mock_last_i2c_addr(void);
 uint8_t tfw_mock_ow_presence_set(uint8_t present);
+unsigned tfw_mock_ow_read_count(void);         /* how often tfw_hal_ow_read() was called */
 
 /* buses: what the last I2C_CONFIG / SPI_CONFIG actually reached the HAL with,
  * so a test can tell "dispatched and validated" from "dispatched and ignored".

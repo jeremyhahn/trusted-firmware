@@ -43,6 +43,7 @@ static uint8_t  bus_resp[64];
 static uint8_t  bus_resp_n;
 static uint8_t  last_i2c_addr;
 static uint8_t  ow_present;
+static unsigned ow_reads;                /* calls tfw_hal_ow_read took */
 static uint32_t last_i2c_hz;
 static uint8_t  last_spi_mode, last_spi_clkdiv, last_spi_lsb;
 
@@ -145,7 +146,7 @@ void tfw_mock_reset(void)
     adc_ref = 0u;
     adc_read_fails = 0u;
     tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
-    bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u;
+    bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u; ow_reads = 0u;
     last_i2c_hz = 0xFFFFFFFFuL; last_spi_mode = last_spi_clkdiv = last_spi_lsb = 0xFFu;
 }
 
@@ -158,6 +159,7 @@ void tfw_mock_set_bus_response(const uint8_t *b, uint8_t n)
 
 uint8_t tfw_mock_last_i2c_addr(void) { return last_i2c_addr; }
 uint8_t tfw_mock_ow_presence_set(uint8_t present) { ow_present = present; return present; }
+unsigned tfw_mock_ow_read_count(void) { return ow_reads; }
 
 uint32_t tfw_mock_last_i2c_hz(void)      { return last_i2c_hz; }
 uint8_t  tfw_mock_last_spi_mode(void)    { return last_spi_mode; }
@@ -558,6 +560,7 @@ tfw_status_t tfw_hal_ow_write(const tfw_pinref_t *p, const uint8_t *buf, uint8_t
 tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
 {
     (void)p;
+    ow_reads++;
     for (uint8_t i = 0u; i < len; i++) { buf[i] = i < bus_resp_n ? bus_resp[i] : 0u; }
     return TFW_OK;
 }

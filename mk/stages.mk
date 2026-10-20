@@ -193,7 +193,9 @@ xkms-security:
 # scripts/deps-check.py: the toolchain pins in scripts/tool-pins.sh (Go, the
 # base image tag and digest, avr-gcc, avr-libc and simavr as installed, ESP-IDF,
 # the §8 tools) and every require of every Go module, first- and third-party.
-# A held pin carries its reason in place (devops.md §9). It asks upstream, so
+# A held pin carries its reason in place (devops.md §9). A Go module release
+# younger than 7 days is reported, not failed, and fails from then on (CA m823);
+# the toolchain pins fail at once as before. It asks upstream, so
 # it needs the network; the module cache it fills is its own, under build/.
 DEPS_GOPROXY ?= https://proxy.golang.org
 DEPS_GOMODCACHE ?= $(abspath $(BUILD_DIR))/deps-check/gomod

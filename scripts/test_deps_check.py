@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: commercial
 #
 # deps-check.py's retry of a transient upstream failure, through a fake runner
-# and opener: no network, no sleep.
+# and opener, and its 7-day grace for a Go module release: no network, no sleep.
 
+import datetime
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import unittest
@@ -166,6 +168,78 @@ class DownloadRetry(unittest.TestCase):
 
     def test_no_module_dir_is_a_usage_error(self):
         self.assertEqual(dc.main(["deps-check.py", "download"]), 2)
+
+
+class RecentRelease(unittest.TestCase):
+    # A Go module release younger than 7 days is reported, not failed (CA m823),
+    # fed canned `go list -m -u -json` entries against a fixed now.
+    NOW = datetime.datetime(2026, 10, 20, 12, 0, tzinfo=datetime.timezone.utc)
+    GOMOD = ["require (\n",
+             "\tgithub.com/minio/minlz v1.2.2\n",
+             "\tgolang.org/x/telemetry v0.1.0 // held: waits on the image cache\n",
+             ")\n"]
+
+    def setUp(self):
+        mock.patch.object(dc, "now", return_value=self.NOW).start()
+        self.out = mock.patch("sys.stdout", new_callable=io.StringIO).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def entry(self, path="github.com/minio/minlz", age=None, time=None):
+        upd = {"Path": path, "Version": "v1.2.3"}
+        if age is not None:
+            upd["Time"] = (self.NOW - age).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if time is not None:
+            upd["Time"] = time
+        return {"Path": path, "Version": "v1.2.2", "Update": upd}
+
+    def check(self, m):
+        rep = dc.Report()
+        dc.check_module(rep, m, self.GOMOD)
+        return rep, self.out.getvalue()
+
+    def test_two_days_old_is_reported_not_counted(self):
+        rep, out = self.check(self.entry(age=datetime.timedelta(days=2)))
+        self.assertEqual(rep.behind, 0)
+        self.assertEqual(out, "  recent  github.com/minio/minlz v1.2.2 (latest v1.2.3, released 2026-10-18, "
+                              "2 d ago): reported, fails after 7 days\n")
+
+    def test_eight_days_old_is_behind(self):
+        rep, out = self.check(self.entry(age=datetime.timedelta(days=8)))
+        self.assertEqual(rep.behind, 1)
+        self.assertTrue(out.startswith("  BEHIND  github.com/minio/minlz v1.2.2 (latest v1.2.3)"))
+
+    def test_exactly_seven_days_old_is_behind(self):
+        rep, out = self.check(self.entry(age=dc.RECENT))
+        self.assertEqual(rep.behind, 1)
+        self.assertTrue(out.startswith("  BEHIND  "))
+
+    def test_no_time_is_behind(self):
+        rep, out = self.check(self.entry())
+        self.assertEqual(rep.behind, 1)
+        self.assertTrue(out.startswith("  BEHIND  "))
+
+    def test_a_time_that_does_not_parse_is_behind(self):
+        rep, _ = self.check(self.entry(time="yesterday"))
+        self.assertEqual(rep.behind, 1)
+
+    def test_go_nanoseconds_parse(self):
+        rep, out = self.check(self.entry(time="2026-10-19T11:34:56.123456789Z"))
+        self.assertEqual(rep.behind, 0)
+        self.assertIn("released 2026-10-19, 1 d ago", out)
+
+    def test_held_two_days_old_prints_held(self):
+        rep, out = self.check(self.entry("golang.org/x/telemetry", age=datetime.timedelta(days=2)))
+        self.assertEqual(rep.behind, 0)
+        self.assertEqual(out, "  held    golang.org/x/telemetry v1.2.2 (latest v1.2.3): waits on the image cache\n")
+
+    def test_go_modules_exit_code_ignores_a_recent_release(self):
+        listed = json.dumps(self.entry(age=datetime.timedelta(days=2)))
+        edit = json.dumps({"Require": [{"Path": "github.com/minio/minlz"}]})
+        mock.patch.object(dc.subprocess, "run", side_effect=[done(0, edit), done(0, listed)]).start()
+        mock.patch.object(dc.shutil, "which", return_value="/usr/bin/git").start()
+        mock.patch("builtins.open", mock.mock_open(read_data="".join(self.GOMOD))).start()
+        with mock.patch.dict(os.environ, {"DEPS_SEED_GOMODCACHE": ""}):
+            self.assertEqual(dc.main(["deps-check.py", "go", "sdk/go"]), 0)
 
 
 if __name__ == "__main__":

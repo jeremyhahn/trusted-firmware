@@ -17,10 +17,16 @@
 #   a toolchain pin   HELD_<NAME>="..." in scripts/tool-pins.sh
 #   a Go module       a `held: <reason>` comment on its line in go.mod
 #
+# A Go module release younger than RECENT (7 days, CA m823) is reported, not
+# failed: the module cache lags the proxy, so no one can bump to it on the day
+# it appears. From 7 days old it fails like any other. A release whose time go
+# list does not give is behind: an unanswered check is not a pass.
+#
 # It needs the network: the question is what upstream has released. A lookup
 # that fails is a failure, never a pass -- an offline run cannot say the pins
 # are current.
 
+import datetime
 import json
 import os
 import re
@@ -37,6 +43,8 @@ DOCKERFILE_PINS = [
     ("build/docker/devcontainer/Dockerfile", ["BASE_IMAGE", "BASE_DIGEST"]),
 ]
 TIMEOUT = 60
+# A Go module release younger than this is reported, not failed (CA m823).
+RECENT = datetime.timedelta(days=7)
 # An upstream lookup is tried ATTEMPTS times when it fails transiently, with
 # BACKOFF seconds before each retry. BOUND is the whole lookup, every attempt
 # and pause included: the 600 s mk/stages.mk relies on, so a real hang still
@@ -355,17 +363,51 @@ def go_modules(dirs):
         if not listed:
             print("  ok      no require outside this tree")
         for m in mods:
-            upd = m.get("Update")
-            if not upd:
-                print(f"  ok      {m['Path']} {m['Version']}")
-                continue
-            reason = held_in_gomod(gomod, m["Path"])
-            if reason:
-                print(f"  held    {m['Path']} {m['Version']} (latest {upd['Version']}): {reason}")
-            else:
-                print(f"  BEHIND  {m['Path']} {m['Version']} (latest {upd['Version']}), no held: reason in go.mod")
-                rep.behind += 1
+            check_module(rep, m, gomod)
     return rep
+
+
+def now():
+    """The time a release's age is measured from; the tests replace it."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def released(upd):
+    """The update's release time (go list's Update.Time, RFC 3339), or None
+    when it is missing or does not parse."""
+    t = upd.get("Time")
+    if not isinstance(t, str):
+        return None
+    # Go writes up to nine fractional digits and a Z; fromisoformat takes six
+    # and, before Python 3.11, no Z.
+    t = re.sub(r"(\.\d{6})\d+", r"\1", t.strip())
+    t = re.sub(r"[Zz]$", "+00:00", t)
+    try:
+        when = datetime.datetime.fromisoformat(t)
+    except ValueError:
+        return None
+    return when if when.tzinfo else None
+
+
+def check_module(rep, m, gomod):
+    """One entry of `go list -m -u -json`, printed and counted against rep."""
+    upd = m.get("Update")
+    if not upd:
+        print(f"  ok      {m['Path']} {m['Version']}")
+        return
+    reason = held_in_gomod(gomod, m["Path"])
+    if reason:
+        print(f"  held    {m['Path']} {m['Version']} (latest {upd['Version']}): {reason}")
+        return
+    when = released(upd)
+    age = now() - when if when is not None else None
+    if age is not None and age < RECENT:
+        print(f"  recent  {m['Path']} {m['Version']} (latest {upd['Version']}, released "
+              f"{when.date().isoformat()}, {max(age.days, 0)} d ago): "
+              f"reported, fails after {RECENT.days} days")
+        return
+    print(f"  BEHIND  {m['Path']} {m['Version']} (latest {upd['Version']}), no held: reason in go.mod")
+    rep.behind += 1
 
 
 def download(dirs):

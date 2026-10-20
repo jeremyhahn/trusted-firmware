@@ -123,9 +123,15 @@ esp32-hash:
 docker-build: docker-build-it docker-build-toolchain docker-build-esp32
 
 ## docker-images: reuse the toolchain and esp32 images by hash, else build them (CI's image job)
-docker-images:
+docker-images: docker-image-toolchain docker-image-esp32
+
+## docker-image-toolchain: reuse the toolchain image by hash, else build it (a CI leg that needs only it)
+docker-image-toolchain:
 	@IMAGE_PULL=$(IMAGE_PULL) IMAGE_PUSH=$(IMAGE_PUSH) IMAGE_CACHE_REF=$(TOOLCHAIN_CACHE) \
 	  scripts/ensure-image.sh docker-build-toolchain $(TOOLCHAIN_IMAGE) $(TOOLCHAIN_TRUSTED)
+
+## docker-image-esp32: reuse the esp32 image by hash, else build it (the CI leg that runs the ESP32 stages)
+docker-image-esp32:
 	@IMAGE_PULL=$(IMAGE_PULL) IMAGE_PUSH=$(IMAGE_PUSH) IMAGE_CACHE_REF=$(ESP32_CACHE) \
 	  scripts/ensure-image.sh docker-build-esp32 $(ESP32_IMAGE) $(ESP32_TRUSTED)
 
@@ -160,4 +166,4 @@ docker-ci:
 docker-firmware:
 	@$(DOCKER) run --rm $(DOCKER_USER) $(DOCKER_ENV) -v "$(CURDIR)":/src $(TOOLCHAIN_IMAGE) make firmware BOARD=$(BOARD)
 
-.PHONY: toolchain-image esp32-image toolchain-hash esp32-hash docker-build docker-images docker-build-toolchain docker-build-esp32 docker-build-it docker-run docker-ci docker-firmware
+.PHONY: toolchain-image esp32-image toolchain-hash esp32-hash docker-build docker-images docker-image-toolchain docker-image-esp32 docker-build-toolchain docker-build-esp32 docker-build-it docker-run docker-ci docker-firmware

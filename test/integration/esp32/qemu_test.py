@@ -85,6 +85,7 @@ What it checks, in order:
 The serial logs are left in <build-out>/qemu for the reader.
 """
 
+import concurrent.futures
 import contextlib
 import hashlib
 import hmac
@@ -95,6 +96,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -154,14 +156,32 @@ class Failure(Exception):
     pass
 
 
+# The machines' runs share the job's output and rounds 8-10 run side by
+# side, so a line is written whole and names its machine.
+LOG_LOCK = threading.Lock()
+MACHINE = f'{sys.argv[2]}: ' if len(sys.argv) > 2 else ''
+
+
 def log(msg):
-    print(f'esp32-qemu-test: {msg}', flush=True)
+    with LOG_LOCK:
+        print(f'esp32-qemu-test: {MACHINE}{msg}', flush=True)
+
+
+# A port is handed out once, so two QEMUs started side by side never get the
+# same forward.
+PORTS = set()
+PORTS_LOCK = threading.Lock()
 
 
 def free_port():
-    with socket.socket() as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
+    with PORTS_LOCK:
+        while True:
+            with socket.socket() as s:
+                s.bind(('127.0.0.1', 0))
+                port = s.getsockname()[1]
+            if port not in PORTS:
+                PORTS.add(port)
+                return port
 
 
 def qemu_base(machine, flash, efuse):
@@ -393,8 +413,22 @@ def boot(machine, flash, efuse, logpath):
 
 
 def wirecheck(binary, port, logpath, *extra, wait=BOOT_TIMEOUT):
-    return run([binary, '-addr', f'127.0.0.1:{port}', '-wait', f'{wait}s',
-                '-board', str(BOARD_ID)] + list(extra), logpath)
+    """An OTA stream's cost goes into the job's log as well as its own: the
+    command count and stream time wirecheck printed in this call's part of
+    logpath, and the call's wall time."""
+    logpath = Path(logpath)
+    seen = logpath.stat().st_size if logpath.exists() else 0
+    start = time.monotonic()
+    rc = run([binary, '-addr', f'127.0.0.1:{port}', '-wait', f'{wait}s',
+              '-board', str(BOARD_ID)] + list(extra), logpath)
+    if '-ota' in extra:
+        with open(logpath, 'rb') as f:
+            f.seek(seen)
+            mine = f.read().decode(errors='replace')
+        took = re.findall(r'^wirecheck: ota: (\d+ commands in \S+)$', mine, re.M)
+        log(f'  ota {logpath.name}: {took[-1] if took else "no stream time (refused or failed)"}, '
+            f'wirecheck {time.monotonic() - start:.0f} s')
+    return rc
 
 
 def ota(image):
@@ -750,101 +784,113 @@ def main():
                           path.read_text(errors='replace'))
 
     # 8: an activate the image key did not sign.
-    name = 'unauthorized'
-    blog, wlog8 = work / f'boot-{name}.log', work / f'ota-{name}.log'
-    q, port = boot(machine, copy(work / 'flash.bin', work / f'flash-{name}.bin'),
-                   copy(efuse, work / f'efuse-{name}.bin'), blog)
-    try:
-        q.wait_for(link)
-        expect(wirecheck(wc, port, wlog8, *stage, '-auth-key', stranger_pem) == 0,
-               'release 2 streamed; OTA_ACTIVATE after an OTA_AUTH signed by a key the device was not '
-               'paired with: taken, the app holding no key; soft reset', logs=(wlog8, blog))
-        q.wait_for(on_trial)
-        q.wait_for(link, count=2)
-        fell = ota_info(wc, port, work / f'info-{name}-1.log', *attest, '-reset', logs=(blog,))
-        q.wait_for(link, count=3)
-        again = ota_info(wc, port, work / f'info-{name}-2.log', *attest, logs=(blog,))
-    finally:
-        q.stop()
-    text = blog.read_text(errors='replace')
-    expect(f'on trial has no activate authorization (status {ERR_AUTH_REQUIRED})' in text
-           and len(re.findall(on_trial, text)) == 1
-           and verified(blog) == [(f'{o0:x}', m1)] * 3,
-           f'at reset layer 0 refused the trial (AUTH_REQUIRED) and ota_0 ran; the next reset did '
-           'not try it again', logs=(blog,))
-    want = (STATE_GOOD, v1, v1, FLAG_FELL_BACK, m1)
-    expect(fell == want and again == want,
-           f'OTA_INFO after each: ota_0 good, version {v1}, floor {v1}, FELL_BACK, its own '
-           f'measurement (got {fell}, then {again})')
+    def unauthorized():
+        name = 'unauthorized'
+        blog, wlog8 = work / f'boot-{name}.log', work / f'ota-{name}.log'
+        q, port = boot(machine, copy(work / 'flash.bin', work / f'flash-{name}.bin'),
+                       copy(efuse, work / f'efuse-{name}.bin'), blog)
+        try:
+            q.wait_for(link)
+            expect(wirecheck(wc, port, wlog8, *stage, '-auth-key', stranger_pem) == 0,
+                   'release 2 streamed; OTA_ACTIVATE after an OTA_AUTH signed by a key the device was not '
+                   'paired with: taken, the app holding no key; soft reset', logs=(wlog8, blog))
+            q.wait_for(on_trial)
+            q.wait_for(link, count=2)
+            fell = ota_info(wc, port, work / f'info-{name}-1.log', *attest, '-reset', logs=(blog,))
+            q.wait_for(link, count=3)
+            again = ota_info(wc, port, work / f'info-{name}-2.log', *attest, logs=(blog,))
+        finally:
+            q.stop()
+        text = blog.read_text(errors='replace')
+        expect(f'on trial has no activate authorization (status {ERR_AUTH_REQUIRED})' in text
+               and len(re.findall(on_trial, text)) == 1
+               and verified(blog) == [(f'{o0:x}', m1)] * 3,
+               f'at reset layer 0 refused the trial (AUTH_REQUIRED) and ota_0 ran; the next reset did '
+               'not try it again', logs=(blog,))
+        want = (STATE_GOOD, v1, v1, FLAG_FELL_BACK, m1)
+        expect(fell == want and again == want,
+               f'OTA_INFO after each: ota_0 good, version {v1}, floor {v1}, FELL_BACK, its own '
+               f'measurement (got {fell}, then {again})')
 
     # 9: an authorized trial nobody confirms.
-    name = 'rollback'
-    blog, wlog9 = work / f'boot-{name}.log', work / f'ota-{name}.log'
-    q, port = boot(machine, copy(work / 'flash.bin', work / f'flash-{name}.bin'),
-                   copy(efuse, work / f'efuse-{name}.bin'), blog)
-    try:
-        q.wait_for(link)
-        expect(wirecheck(wc, port, wlog9, *stage, '-auth-key', image_pem) == 0,
-               'release 2 streamed; OTA_ACTIVATE after an OTA_AUTH signed by the image key: taken; '
-               'soft reset', logs=(wlog9, blog))
-        q.wait_for(authorized)
-        q.wait_for(link, count=2)
-        trial = ota_info(wc, port, work / f'info-{name}-1.log', *attest, logs=(blog,))
-        # The condition is the app's own reset at its deadline, and the boot after.
-        q.wait_for(link, count=3, timeout=TRIAL_TIMEOUT + BOOT_TIMEOUT)
-        back = ota_info(wc, port, work / f'info-{name}-2.log', *attest, logs=(blog,))
-    finally:
-        q.stop()
-    want = (STATE_TRIAL, v2, v1, FLAG_TRIAL, m2)
-    expect(trial == want,
-           f'on its trial: OTA_INFO says TRIAL, version {v2}, floor {v1}, release 2\'s measurement '
-           f'(got {trial})')
-    text = blog.read_text(errors='replace')
-    expect(len(re.findall(authorized, text)) == 1
-           and verified(blog) == [(f'{o0:x}', m1), (f'{o1:x}', m2), (f'{o0:x}', m1)],
-           f'unconfirmed, the trial reset itself within {TRIAL_TIMEOUT}s and ESP-IDF rolled back '
-           'to ota_0', logs=(blog,))
-    want = (STATE_GOOD, v1, v1, FLAG_FELL_BACK, m1)
-    expect(back == want,
-           f'after the roll-back: ota_0 good, version {v1}, FELL_BACK, the floor still {v1} '
-           f'(got {back})')
+    def rollback():
+        name = 'rollback'
+        blog, wlog9 = work / f'boot-{name}.log', work / f'ota-{name}.log'
+        q, port = boot(machine, copy(work / 'flash.bin', work / f'flash-{name}.bin'),
+                       copy(efuse, work / f'efuse-{name}.bin'), blog)
+        try:
+            q.wait_for(link)
+            expect(wirecheck(wc, port, wlog9, *stage, '-auth-key', image_pem) == 0,
+                   'release 2 streamed; OTA_ACTIVATE after an OTA_AUTH signed by the image key: taken; '
+                   'soft reset', logs=(wlog9, blog))
+            q.wait_for(authorized)
+            q.wait_for(link, count=2)
+            trial = ota_info(wc, port, work / f'info-{name}-1.log', *attest, logs=(blog,))
+            # The condition is the app's own reset at its deadline, and the boot after.
+            q.wait_for(link, count=3, timeout=TRIAL_TIMEOUT + BOOT_TIMEOUT)
+            back = ota_info(wc, port, work / f'info-{name}-2.log', *attest, logs=(blog,))
+        finally:
+            q.stop()
+        want = (STATE_TRIAL, v2, v1, FLAG_TRIAL, m2)
+        expect(trial == want,
+               f'on its trial: OTA_INFO says TRIAL, version {v2}, floor {v1}, release 2\'s measurement '
+               f'(got {trial})')
+        text = blog.read_text(errors='replace')
+        expect(len(re.findall(authorized, text)) == 1
+               and verified(blog) == [(f'{o0:x}', m1), (f'{o1:x}', m2), (f'{o0:x}', m1)],
+               f'unconfirmed, the trial reset itself within {TRIAL_TIMEOUT}s and ESP-IDF rolled back '
+               'to ota_0', logs=(blog,))
+        want = (STATE_GOOD, v1, v1, FLAG_FELL_BACK, m1)
+        expect(back == want,
+               f'after the roll-back: ota_0 good, version {v1}, FELL_BACK, the floor still {v1} '
+               f'(got {back})')
 
     # 10: an authorized trial, confirmed.
-    name = 'confirmed'
-    blog, wlog10 = work / f'boot-{name}.log', work / f'ota-{name}.log'
-    flash10, efuse10 = (copy(work / 'flash.bin', work / f'flash-{name}.bin'),
-                        copy(efuse, work / f'efuse-{name}.bin'))
-    q, port = boot(machine, flash10, efuse10, blog)
-    try:
-        q.wait_for(link)
-        expect(wirecheck(wc, port, wlog10, *stage, '-auth-key', image_pem) == 0,
-               'release 2 streamed and activated, OTA_AUTH signed by the image key; soft reset',
-               logs=(wlog10, blog))
-        q.wait_for(authorized)
-        q.wait_for(link, count=2)
-        kept = ota_info(wc, port, work / f'info-{name}-1.log', *attest,
-                        '-confirm', '-signed-image', rel2, '-auth-key', image_pem, logs=(blog,))
-    finally:
-        q.stop()
-    want = (STATE_GOOD, v2, v2, 0, m2)
-    expect(kept == want,
-           f'OTA_CONFIRM refused without OTA_AUTH, taken after one: release 2 good, unflagged, '
-           f'version {v2}, floor {v2} (got {kept})')
-    cold_log = work / f'boot-{name}-cold.log'
-    q, port = boot(machine, flash10, efuse10, cold_log)
-    try:
-        q.wait_for(link)
-        cold = ota_info(wc, port, work / f'info-{name}-2.log', *attest, logs=(cold_log,))
-    finally:
-        q.stop()
-    expect(cold == want and verified(cold_log) == [(f'{o1:x}', m2)]
-           and not re.findall(on_trial, cold_log.read_text(errors='replace')),
-           f'cold boot: release 2 from ota_1 at 0x{o1:x}, no trial, the same OTA_INFO', logs=(cold_log,))
+    def confirmed():
+        name = 'confirmed'
+        blog, wlog10 = work / f'boot-{name}.log', work / f'ota-{name}.log'
+        flash10, efuse10 = (copy(work / 'flash.bin', work / f'flash-{name}.bin'),
+                            copy(efuse, work / f'efuse-{name}.bin'))
+        q, port = boot(machine, flash10, efuse10, blog)
+        try:
+            q.wait_for(link)
+            expect(wirecheck(wc, port, wlog10, *stage, '-auth-key', image_pem) == 0,
+                   'release 2 streamed and activated, OTA_AUTH signed by the image key; soft reset',
+                   logs=(wlog10, blog))
+            q.wait_for(authorized)
+            q.wait_for(link, count=2)
+            kept = ota_info(wc, port, work / f'info-{name}-1.log', *attest,
+                            '-confirm', '-signed-image', rel2, '-auth-key', image_pem, logs=(blog,))
+        finally:
+            q.stop()
+        want = (STATE_GOOD, v2, v2, 0, m2)
+        expect(kept == want,
+               f'OTA_CONFIRM refused without OTA_AUTH, taken after one: release 2 good, unflagged, '
+               f'version {v2}, floor {v2} (got {kept})')
+        cold_log = work / f'boot-{name}-cold.log'
+        q, port = boot(machine, flash10, efuse10, cold_log)
+        try:
+            q.wait_for(link)
+            cold = ota_info(wc, port, work / f'info-{name}-2.log', *attest, logs=(cold_log,))
+        finally:
+            q.stop()
+        expect(cold == want and verified(cold_log) == [(f'{o1:x}', m2)]
+               and not re.findall(on_trial, cold_log.read_text(errors='replace')),
+               f'cold boot: release 2 from ota_1 at 0x{o1:x}, no trial, the same OTA_INFO', logs=(cold_log,))
+
+    # 8-10 share nothing but their read-only inputs, so they run side by side:
+    # each its own QEMU, copies, port and logs, and each streams the whole
+    # image. Every round runs to its end, so each stops its own QEMU; then the
+    # first failure in round order is raised.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        rounds = [pool.submit(r) for r in (unauthorized, rollback, confirmed)]
+    for r in rounds:
+        r.result()
 
     # 11: the provisioning image, on fresh eFuses and a flash of its own.
     if prov:
         provisioning(prov, machine, sign_key, wc, work, out)
-    log(f'{machine}: green')
+    log('green')
 
 
 if __name__ == '__main__':

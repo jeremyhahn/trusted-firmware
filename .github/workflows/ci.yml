@@ -335,14 +335,21 @@ jobs:
   # are ubuntu-latest, which has Docker (devops.md §1: host-specific choices
   # are guarded on github.server_url).
   image:
-    name: Devcontainer image [lint, build, test, security, deps-check, trivy image]
+    # CUSTOMIZE (trusted-firmware, owner m751 (d), ci-standard.md §10 (d)): this
+    # job builds the run's images once and runs the short stages; the long
+    # stages are the legs below, each `needs: image`, run side by side.
+    name: Devcontainer image [lint, build, trivy image]
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE: give the stages honest headroom. A cold BuildKit cache builds
-    # the three images in 55 min (run 55218); the stages, from the v1.20 jobs:
-    # lint and build ~2, the module and cross-arch loops ~6, test 12.5, the
-    # sdk/go -race run ~10, security 11, deps-check 0.3, trivy image ~5,
-    # esp32-build 3 and esp32-qemu-test 15 = ~65. 55 + 65 = 120, plus margin.
-    timeout-minutes: 150
+    # the three images in 55 min (run 55218); a warm one reuses them. Then lint
+    # and build ~2, the module and cross-arch loops ~6 and trivy image ~5 (run
+    # 245908: start to the end of the loops 30 min, warm). 55 + 13 = 68, plus
+    # margin. The legs' budgets are on the legs.
+    timeout-minutes: 90
+    # CUSTOMIZE (trusted-firmware, m751 (d)): the legs run when the images are
+    # built, whatever the short stages after them did.
+    outputs:
+      built: ${{ steps.images.outputs.built }}
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       # v1.22: the cache volumes' trust class. Only a push to main writes the
@@ -395,7 +402,9 @@ jobs:
       # the registry, and builds (and pushes) only when both miss
       # (scripts/ensure-image.sh). The integration image is per run and builds
       # with the toolchain image as its cache, so only its source layers build.
+      # The legs start on `built`, set once all three images are on hand.
       - name: Build the devcontainer images
+        id: images
         run: |
           ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
             for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
@@ -406,6 +415,7 @@ jobs:
           rm -f "$RUNNER_TEMP/gomodauth.env"
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV" # CUSTOMIZE: the esp32 stages
+          echo "built=true" >> "$GITHUB_OUTPUT" # CUSTOMIZE: the legs' start
 
       # v1.22: bound this repo's cache volumes on the host before the stages
       # add to them (ci-standard.md §6). It never fails the job.
@@ -524,21 +534,150 @@ jobs:
             echo "every module builds and vets for every target"
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "$CROSS_ARCH_SCRIPT"
 
+      # CUSTOMIZE (trusted-firmware, owner m751 (d)): the test stage, sdk/go
+      # under -race, make security with deps-check, and the ESP32 stages are
+      # the legs below. trivy image stays here: the integration image is this
+      # run's own tag, built and removed by this job.
+
+      # The integration image is gated before any push to either registry
+      # (devops.md §8): --ignore-unfixed (v1.19) and --skip-dirs /opt/go/mod
+      # (v1.20). trivy fs and make security never take --ignore-unfixed.
+      - name: trivy image (integration image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        env:
+          IN_IMAGE_NETWORK: bridge
+        run: |
+          docker save -o it-image.tar "$IT_IMAGE"
+          scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" \
+            trivy image --input it-image.tar --ignore-unfixed --skip-dirs /opt/go/mod --severity CRITICAL,HIGH --exit-code 1
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env" it-image.tar
+          docker image rm "$IT_IMAGE" || true
+          # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry
+          # login. The hash-tagged images stay: other runs share them.
+          rm -rf "$RUNNER_TEMP/docker-config"
+
+  # CUSTOMIZE (trusted-firmware, owner m751 (d), ci-standard.md §10 (d) and
+  # §9): the legs. Each runs one long stage of the old image job, side by side
+  # with the others, on the image job's images. The same commit gives the same
+  # content tags (mk/docker.mk), so `make docker-image-<family>` finds the
+  # image on the runner's daemon, else pulls the one the image job pushed, and
+  # builds only when both miss (scripts/ensure-image.sh), through the same
+  # make target, which BuildKit caches. IMAGE_BUILD_ID names the job as well,
+  # so two legs that miss on one daemon never share a build tag. A leg runs
+  # when the image job built the images, whatever its later steps did, as the
+  # stages did inside it. No leg removes or trims a family image (§9; the
+  # image job trims), and none starts a compose stack: in-toolchain-image.sh
+  # removes its own stage container. Each budget: the image, ~10 min for a
+  # pull (seconds for a hit), plus the stage as run 245908 timed it.
+  unit:
+    # CUSTOMIZE (trusted-firmware): the test stage alone, the longest of the
+    # PR tier's stages, so it no longer waits on the others.
+    name: Unit [make test]
+    needs: image
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE: make test took 45 min on run 245908 (19:05 to 19:50: the unit
+    # suite three times, plain, under the sanitizers and for coverage). 10 + 45,
+    # plus margin.
+    timeout-minutes: 75
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the toolchain image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
+
       # The test stage (m601 (c)): make coverage runs the whole unit suite with
       # -race (make test's flags) and fails when total coverage is below
       # COVERAGE_THRESHOLD (testing-guidelines.md), so the suite runs once.
       # Tags matter here too: without them tag-gated packages are neither
       # tested nor counted. The integration stage is its own job below.
       - name: make test (unit suites, sanitizers, coverage floors) # CUSTOMIZE: below
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         # CUSTOMIZE (trusted-firmware): this repo's `make coverage` is the C
         # firmware's floor alone; `make test` (mk/stages.mk TEST_GATES) runs it
         # with the host C suites, the boot suites, the board sweep, test-asan
         # (ASan and UBSan over the host and boot suites), verify-vectors,
         # xkms-coverage, sdk-coverage (sdk/go's unit tests alone, floor 90; the
-        # cross-implementation suite is the -race step's) and scripts-test, so
+        # cross-implementation suite is the sdk-race leg's) and scripts-test, so
         # it is the test stage.
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test GO_BUILD_TAGS='$GO_BUILD_TAGS'"
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
+
+  sdk-race:
+    # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race against tfwsim,
+    # the PR tier's only simulator run, beside the unit leg.
+    name: sdk/go under -race [cross-implementation suite]
+    needs: image
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE: 5 min on run 245908 (19:50 to 19:55); the suite's own bound
+    # is 15 (-timeout=900s), and the tfwsim builds ~3. 10 + 18, plus margin.
+    timeout-minutes: 35
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the toolchain image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race, with the
       # cross-implementation suite against tfwsim (the real firmware compiled
@@ -549,7 +688,6 @@ jobs:
       # it. The tests fail the step before the gate reads a profile, so a
       # broken suite is never also reported as a coverage drop.
       - name: sdk/go under -race (cross-implementation suite, COVERAGE_THRESHOLD)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         env:
           SDK_RACE_SCRIPT: |
             set -eu
@@ -567,13 +705,60 @@ jobs:
             fi
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "COVERAGE_THRESHOLD=$COVERAGE_THRESHOLD; $SDK_RACE_SCRIPT"
 
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
+
+  security:
+    # CUSTOMIZE (trusted-firmware): make security and deps-check need the
+    # network and the toolchain image alone, so they leave the image job.
+    name: Security [make security, deps-check]
+    needs: image
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908) and
+    # deps-check under 1. 10 + 12, plus margin.
+    timeout-minutes: 35
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the toolchain image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
+
       # make security: gosec, govulncheck, go mod verify (devops.md §8), with
       # trivy fs per the phase (§8a). The target owns gosec's flags and its
       # memory bounds (GOMEMLIMIT, GOMAXPROCS, -concurrency; v1.6 to v1.8) and
       # reports a kill by signal as a kill, not a finding. Nothing is uploaded
       # to code scanning (m601 (d): CI runs on Gitea).
       - name: make security
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         env:
           IN_IMAGE_NETWORK: bridge
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make security GO_BUILD_TAGS='$GO_BUILD_TAGS'"
@@ -581,41 +766,75 @@ jobs:
       # Fails when a library, first-party or third-party, is behind its latest
       # release without devops.md §9's documented reason (ci-standard.md §1).
       - name: make deps-check
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        if: ${{ !cancelled() }}
         env:
           IN_IMAGE_NETWORK: bridge
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make deps-check
 
-      # The integration image is gated before any push to either registry
-      # (devops.md §8): --ignore-unfixed (v1.19) and --skip-dirs /opt/go/mod
-      # (v1.20). trivy fs and make security never take --ignore-unfixed.
-      - name: trivy image (integration image)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
-        env:
-          IN_IMAGE_NETWORK: bridge
+      - name: Tear down
+        if: always()
         run: |
-          docker save -o it-image.tar "$IT_IMAGE"
-          scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" \
-            trivy image --input it-image.tar --ignore-unfixed --skip-dirs /opt/go/mod --severity CRITICAL,HIGH --exit-code 1
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
 
-      # CUSTOMIZE (trusted-firmware): the ESP32-P4 firmware, built in the esp32
-      # image and run under Espressif's QEMU. `make docker-images` reuses or
-      # builds that image with the toolchain one.
+  esp32:
+    # CUSTOMIZE (trusted-firmware): the ESP32 stages need the esp32 image
+    # alone and are the run's longest, so they run beside everything else.
+    name: ESP32 [esp32-build, esp32-qemu-test]
+    needs: image
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
+    # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
+    # esp32 run, where one OTA stream takes ~12, was 24 min in at the kill
+    # (boot 4's second stream) with three rounds of ~13 to go: ~68. 10 + 2 + 108
+    # = 120, plus margin.
+    timeout-minutes: 150
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the esp32 image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-esp32 MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
+
+      # The ESP32-P4 firmware, built in the esp32 image and run under
+      # Espressif's QEMU.
       - name: make esp32-build (esp32 image)
-        if: ${{ !cancelled() && env.ESP32_IMAGE != '' }}
         run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-build BOARD=esp32p4-poe
 
       - name: make esp32-qemu-test (esp32 image)
-        if: ${{ !cancelled() && env.ESP32_IMAGE != '' }}
+        if: ${{ !cancelled() }}
         run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-qemu-test
 
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env" it-image.tar
-          docker image rm "$IT_IMAGE" || true
-          # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry
-          # login. The hash-tagged images stay: other runs share them.
+          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   # Integration tests run in the integration image (ci-standard.md §2), as a
@@ -738,7 +957,7 @@ jobs:
     if: always()
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [image, integration, arch-gates]
+    needs: [image, unit, sdk-race, security, esp32, integration, arch-gates]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -764,6 +983,10 @@ jobs:
           # CUSTOMIZE: one line per job in needs above. A job gated to the
           # full tier by its `if:` is marked full; every other job is pr.
           check image       "${{ needs.image.result }}" pr
+          check unit        "${{ needs.unit.result }}" pr
+          check sdk-race    "${{ needs.sdk-race.result }}" pr
+          check security    "${{ needs.security.result }}" pr
+          check esp32       "${{ needs.esp32.result }}" pr
           check integration "${{ needs.integration.result }}" full
           check arch-gates  "${{ needs.arch-gates.result }}" pr
           exit $BAD

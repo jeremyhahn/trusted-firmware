@@ -658,6 +658,13 @@ func (d *Device) Do(ctx context.Context, cmd Cmd, payload []byte) (Frame, error)
 				// the only safe move: returning it would answer this caller
 				// with someone else's result.
 				continue
+			case f.Op != byte(cmd)|0x80:
+				// The seq is ours but the op is not CMD|0x80
+				// (docs/wire-protocol/api.md): another command's reply, or a
+				// request frame, never an answer to this one.
+				return Frame{}, &FrameError{Reason: fmt.Sprintf(
+					"reply to command 0x%02x carries op 0x%02x, want 0x%02x",
+					byte(cmd), f.Op, byte(cmd)|0x80)}
 			default:
 				return f, f.Status.AsError()
 			}

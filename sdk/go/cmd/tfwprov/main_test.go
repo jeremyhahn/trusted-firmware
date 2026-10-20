@@ -37,3 +37,17 @@ func TestRejectBakeFlagsRefusesEachBakeFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestLockWord(t *testing.T) {
+	for _, tc := range []struct {
+		locked bool
+		want   string
+	}{
+		{true, "LOCKED"},
+		{false, "open"},
+	} {
+		if got := lockWord(tc.locked); got != tc.want {
+			t.Errorf("lockWord(%v) = %q, want %q", tc.locked, got, tc.want)
+		}
+	}
+}

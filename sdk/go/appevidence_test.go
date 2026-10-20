@@ -183,7 +183,7 @@ func TestApplicationEvidenceRefusals(t *testing.T) {
 
 // aliasCert returns a certificate carrying extValue as its
 // tcg-dice-UCCS-evidence extension, or no such extension when extValue is nil.
-func aliasCert(t *testing.T, extValue []byte) []byte {
+func aliasCert(t *testing.T, extValue []byte, before ...pkix.Extension) []byte {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
@@ -193,8 +193,9 @@ func aliasCert(t *testing.T, extValue []byte) []byte {
 		NotBefore:    time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 		NotAfter:     time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC),
 	}
+	tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, before...)
 	if extValue != nil {
-		tmpl.ExtraExtensions = []pkix.Extension{{Id: oidUCCSEvidence, Critical: true, Value: extValue}}
+		tmpl.ExtraExtensions = append(tmpl.ExtraExtensions, pkix.Extension{Id: oidUCCSEvidence, Critical: true, Value: extValue})
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	require.NoError(t, err)
@@ -205,6 +206,13 @@ func TestAliasUCCSReturnsTheClaimsSet(t *testing.T) {
 	val, err := asn1.Marshal(struct{ UCCS []byte }{[]byte(vectors.AppEvWithUccs)})
 	require.NoError(t, err)
 	uccs, err := AliasUCCS(aliasCert(t, val))
+	require.NoError(t, err)
+	require.Equal(t, []byte(vectors.AppEvWithUccs), uccs)
+
+	// An extension ahead of it is passed over, not mistaken for the evidence.
+	// 1.3.6.1.4.1.32473 is the documentation enterprise number (RFC 5612).
+	other := pkix.Extension{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 32473, 1}, Value: []byte{0x05, 0x00}}
+	uccs, err = AliasUCCS(aliasCert(t, val, other))
 	require.NoError(t, err)
 	require.Equal(t, []byte(vectors.AppEvWithUccs), uccs)
 }
@@ -253,6 +261,7 @@ func TestCBORRefusals(t *testing.T) {
 		{"text not UTF-8", []byte{0x61, 0xff}},
 		{"array length past the end", []byte{0x82, 0x00}},
 		{"map length past the end", []byte{0xa2, 0x00, 0x00}},
+		{"map count past the end", []byte{0xa2}},
 		{"array truncated item", []byte{0x81, 0x18}},
 		{"map key text", []byte{0xa1, 0x61, 0x61, 0x00}},
 		{"map key truncated", []byte{0xa1, 0x18}},

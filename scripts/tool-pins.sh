@@ -26,6 +26,7 @@ BASE_DIGEST=sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f
 # image means it never fetches a newer one.
 GO_VERSION=1.27.2
 GO_SHA256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
+HELD_GO="the CI jobs run in the Infra-built image trusted-firmware-ci:2026-10-16, which ships go 1.27.2; GO_VERSION, GO_SHA256 and GO_IMAGE move together with the next image refresh"
 
 # --- the AVR toolchain: Debian trixie's packages -----------------------------
 # Installed from docker/packages.txt at the base digest above, so the version

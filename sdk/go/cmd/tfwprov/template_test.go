@@ -55,6 +55,8 @@ func TestLoadTemplateRefusals(t *testing.T) {
 		{"a block that is not hex", "block2 = zz\n", ":1: encoding/hex: invalid byte"},
 		{"a short block", "block2 = 0011\n", ":1: block 2 is 2 bytes, must be 32"},
 		{"no blocks", crcs, "template writes no config blocks"},
+		// Longer than the scanner's 64 KiB line: refused, not truncated.
+		{"a line past the scanner limit", "# " + strings.Repeat("x", 70000) + "\n", "token too long"},
 		{"a zero CRC", "config_lock_crc = 0\ndata_lock_crc = 1\nblock2 = " + block32 + "\n",
 			"template must carry both lock summary CRCs"},
 	} {

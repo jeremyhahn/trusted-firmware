@@ -201,7 +201,8 @@ func (b *benchDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 		if len(p) == 1 {
 			page = p[0]
 		}
-		return tfw.StatusOK, append([]byte{page, tfw.EvidenceLen}, fill(60, 0xE0)...)
+		// 48-byte windows, the last one the 20 bytes left.
+		return tfw.StatusOK, append([]byte{page, tfw.EvidenceLen}, fill(min(48, tfw.EvidenceLen-int(page)*48), 0xE0)...)
 	case tfw.CmdAttestCert:
 		page := byte(0)
 		if len(p) == 1 {

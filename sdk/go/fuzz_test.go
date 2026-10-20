@@ -80,6 +80,24 @@ func FuzzReplyParsers(f *testing.F) {
 	f.Add(make([]byte, 38)) // the one that is correct now
 	f.Add(make([]byte, 6))  // a CAPS pin page
 	f.Add(make([]byte, 64)) // a full payload
+	// Mutations attest_mutate_test.go found taken: an ATTEST page one byte
+	// long, an ATTEST_CERT page one byte long, and one whose total is lower
+	// than the bytes the pages carry.
+	attestLong := []byte{0x00, 0xa4}
+	certLong := []byte{0x00, 0x18, 0x01}
+	certLow := []byte{0x00, 0x00, 0x01}
+	for i := range 60 {
+		if i < 48 {
+			attestLong = append(attestLong, byte(i))
+		}
+		certLong = append(certLong, byte(i*3))
+		certLow = append(certLow, byte(i*3))
+	}
+	f.Add(append(attestLong, 0x00))
+	f.Add(append(certLong, 0x00))
+	f.Add(certLow)
+	// An ATTEST_CERT page under another page's number.
+	f.Add(append([]byte{0x05}, certLong[1:]...))
 
 	f.Fuzz(func(t *testing.T, payload []byte) {
 		if len(payload) > int(MaxPayload) {

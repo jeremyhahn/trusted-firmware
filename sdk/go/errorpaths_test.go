@@ -207,11 +207,11 @@ func TestAttestRefusals(t *testing.T) {
 	require.Equal(t, StatusErrNotProvisioned, asStatus(t, err))
 
 	// The first page is well formed; the second is refused, or empty.
-	first := []byte{0, 10, 0, 1, 2, 3}
+	first := append([]byte{0, 63, 0}, make([]byte, 60)...)
 	_, err = New(&scriptedLink{replies: []cannedLink{{payload: first}, {status: StatusErrRange}}}).
 		AttestCert(ctx, make([]byte, AliasNonceLen))
 	require.Equal(t, StatusErrRange, asStatus(t, err))
-	_, err = New(&scriptedLink{replies: []cannedLink{{payload: first}, {payload: []byte{1, 10, 0}}}}).
+	_, err = New(&scriptedLink{replies: []cannedLink{{payload: first}, {payload: []byte{1, 63, 0}}}}).
 		AttestCert(ctx, make([]byte, AliasNonceLen))
 	requireShortReply(t, err, CmdAttestCert)
 	_, err = New(&cannedLink{payload: []byte{0, 0, 0}}).AttestCert(ctx, make([]byte, AliasNonceLen))

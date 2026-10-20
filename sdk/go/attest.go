@@ -6,6 +6,7 @@ package tfw
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 )
 
 // Attestation commands and the two nonce widths.
@@ -41,6 +42,10 @@ const (
 	attestPage = 48 // TFW_ATTEST_PAGE
 	attestHdr  = 2  // [page:1][total:1] ahead of each ATTEST page
 	aliasPage  = 60 // TFW_ALIAS_PAGE
+	// [page:1][total:2 little-endian] ahead of each ATTEST_CERT page. The
+	// total is two bytes because a certificate is longer than one byte can
+	// count.
+	aliasHdr = 3
 )
 
 // Attest asks the device for nonce-bound attestation evidence.
@@ -64,7 +69,7 @@ func (d *Device) Attest(ctx context.Context, nonce []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	body, err := attestPageBody(f.Payload)
+	body, err := attestPageBody(f.Payload, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -78,12 +83,12 @@ func (d *Device) Attest(ctx context.Context, nonce []byte) ([]byte, error) {
 		// A page with no evidence in it would loop forever. The device answers
 		// TFW_ERR_RANGE past the end rather than an empty success, so reaching
 		// here means the two ends disagree about the length.
-		if body, err = attestPageBody(f.Payload); err != nil {
+		if body, err = attestPageBody(f.Payload, page); err != nil {
 			return nil, err
 		}
 		out = append(out, body...)
 	}
-	return out[:EvidenceLen], nil
+	return out, nil
 }
 
 // attestPageBody strips the [page:1][total:1] header every ATTEST reply
@@ -91,9 +96,25 @@ func (d *Device) Attest(ctx context.Context, nonce []byte) ([]byte, error) {
 // this the headers land in the middle of the evidence: page 0's total byte
 // shifts every field by two and each later page splices two more bytes in, so
 // the frame comes back the right length with the wrong contents.
-func attestPageBody(payload []byte) ([]byte, error) {
+func attestPageBody(payload []byte, page byte) ([]byte, error) {
 	if len(payload) <= attestHdr {
 		return nil, &ShortReplyError{Cmd: CmdAttest, Got: len(payload), Need: attestHdr + 1}
+	}
+	// docs/dice-attestation/api.md: page p carries the 48-byte window at
+	// p*48, the last one the 20 bytes left, and total is always 164. A page
+	// that says otherwise, or carries more than its window, would land its
+	// bytes on another page's offsets.
+	if payload[0] != page || payload[1] != EvidenceLen {
+		return nil, evidenceErr(fmt.Sprintf("ATTEST page %d answered as page %d of %d bytes",
+			page, payload[0], payload[1]))
+	}
+	share := min(attestPage, EvidenceLen-int(page)*attestPage)
+	if len(payload)-attestHdr < share {
+		return nil, &ShortReplyError{Cmd: CmdAttest, Got: len(payload), Need: attestHdr + share}
+	}
+	if len(payload)-attestHdr > share {
+		return nil, evidenceErr(fmt.Sprintf("ATTEST page %d carries %d bytes, its share is %d",
+			page, len(payload)-attestHdr, share))
 	}
 	return payload[attestHdr:], nil
 }
@@ -125,29 +146,62 @@ func (d *Device) AttestCert(ctx context.Context, nonce []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// [page:1][total:2 little-endian][bytes]. The total is two bytes because a
-	// certificate is longer than one byte can count.
-	const hdr = 3
-	if len(f.Payload) < hdr {
-		return nil, &ShortReplyError{Cmd: CmdAttestCert, Got: len(f.Payload), Need: hdr}
+	if len(f.Payload) < aliasHdr {
+		return nil, &ShortReplyError{Cmd: CmdAttestCert, Got: len(f.Payload), Need: aliasHdr}
 	}
 	total := int(binary.LittleEndian.Uint16(f.Payload[1:3]))
 	if total == 0 {
 		return nil, &ShortReplyError{Cmd: CmdAttestCert, Got: 0, Need: 1}
 	}
-
+	// A one-byte page number reaches 256 windows; a total past them could
+	// only be read by asking for page 0 again.
+	if total > 256*aliasPage {
+		return nil, evidenceErr(fmt.Sprintf("ATTEST_CERT total of %d is past the last page", total))
+	}
+	body, err := aliasPageBody(f.Payload, 0, total)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]byte, 0, total)
-	out = append(out, f.Payload[hdr:]...)
+	out = append(out, body...)
 
 	for page := byte(1); len(out) < total; page++ {
 		f, err = d.Do(ctx, CmdAttestCert, []byte{page})
 		if err != nil {
 			return nil, err
 		}
-		if len(f.Payload) <= hdr {
-			return nil, &ShortReplyError{Cmd: CmdAttestCert, Got: len(out), Need: total}
+		if body, err = aliasPageBody(f.Payload, page, total); err != nil {
+			return nil, err
 		}
-		out = append(out, f.Payload[hdr:]...)
+		out = append(out, body...)
 	}
-	return out[:total], nil
+	return out, nil
+}
+
+// aliasPageBody strips the [page:1][total:2 LE] header every ATTEST_CERT
+// reply carries and returns the certificate bytes behind it, which must be
+// page's whole 60-byte window of total (docs/dice-attestation/api.md): a page
+// that carried more would shift every later byte of the certificate, one
+// numbered otherwise is another window's bytes, and one naming another total
+// is another certificate's.
+func aliasPageBody(payload []byte, page byte, total int) ([]byte, error) {
+	if len(payload) < aliasHdr {
+		return nil, &ShortReplyError{Cmd: CmdAttestCert, Got: len(payload), Need: aliasHdr}
+	}
+	if payload[0] != page {
+		return nil, evidenceErr(fmt.Sprintf("ATTEST_CERT page %d answered as page %d", page, payload[0]))
+	}
+	if got := int(binary.LittleEndian.Uint16(payload[1:3])); got != total {
+		return nil, evidenceErr(fmt.Sprintf("ATTEST_CERT page %d names a total of %d, page 0 named %d",
+			page, got, total))
+	}
+	share := min(aliasPage, total-int(page)*aliasPage)
+	if len(payload)-aliasHdr < share {
+		return nil, &ShortReplyError{Cmd: CmdAttestCert, Got: len(payload), Need: aliasHdr + share}
+	}
+	if len(payload)-aliasHdr > share {
+		return nil, evidenceErr(fmt.Sprintf("ATTEST_CERT page %d carries %d bytes, its share is %d",
+			page, len(payload)-aliasHdr, share))
+	}
+	return payload[aliasHdr:], nil
 }

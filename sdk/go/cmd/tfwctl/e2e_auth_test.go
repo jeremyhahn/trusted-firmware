@@ -24,6 +24,8 @@ import (
 // baked into the device's platform block exactly as tfwprov does. The element
 // verifies the signature for real (ECDSA P-256), so these scenarios establish
 // that a signature tfwctl makes opens the session and that nothing else does.
+// The TestFirmware* rows reach it through the peer seam (e2e_peer_test.go); on
+// a board, the operator key is the one TFW_HW_OPERATOR_KEY names.
 //
 // tfwctl takes a fresh challenge for every response, so a response over a
 // superseded challenge cannot be sent through it. That refusal is the firmware's
@@ -35,15 +37,15 @@ import (
 // proof the session is open and not merely that AUTH_RESPONSE returned.
 const platformMagic = "54465052"
 
-func TestE2EAuthSessionIsAdvertisedByTheElementTier(t *testing.T) {
-	pub, _ := writeOperatorKey(t)
-	c := cliCaps(t, tfwsim.StartElementWithOperator(t, pub))
+func TestFirmwareAuthSessionIsAdvertisedByTheElementTier(t *testing.T) {
+	p, _ := startOperator(t)
+	c := cliCaps(t, p.serial)
 	assert.True(t, c.Has(tfw.FeatureAuthSession), "features %#x lack the auth session", c.Features)
 }
 
-func TestE2EAnOperatorSignatureOpensTheSession(t *testing.T) {
-	pub, key := writeOperatorKey(t)
-	d := tfwsim.StartElementWithOperator(t, pub)
+func TestFirmwareAnOperatorSignatureOpensTheSession(t *testing.T) {
+	p, key := startOperator(t)
+	d, serial := p.serial, p.serialHex(t)
 
 	// Closed before: the reserved region is the operator's.
 	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "eeprom-read", "0", "4"),
@@ -51,16 +53,16 @@ func TestE2EAnOperatorSignatureOpensTheSession(t *testing.T) {
 
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), d, "auth",
-		[]string{testSerialHex, key, "--", "eeprom-read", "0", "4"}, false, &out))
+		[]string{serial, key, "--", "eeprom-read", "0", "4"}, false, &out))
 	assert.Equal(t, platformMagic+"\n", out.String(), "platform block magic read inside the session")
 }
 
-func TestE2EASignatureFromAnotherKeyDoesNotOpenTheSession(t *testing.T) {
-	pub, _ := writeOperatorKey(t)
+func TestFirmwareASignatureFromAnotherKeyDoesNotOpenTheSession(t *testing.T) {
+	p, _ := startOperator(t)
 	_, otherKey := writeOperatorKey(t)
-	d := tfwsim.StartElementWithOperator(t, pub)
+	d := p.serial
 
-	assert.Equal(t, tfw.StatusErrCrypto, cliStatus(t, d, "auth", testSerialHex, otherKey),
+	assert.Equal(t, tfw.StatusErrCrypto, cliStatus(t, d, "auth", p.serialHex(t), otherKey),
 		"auth with a key the device does not trust")
 	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "eeprom-read", "0", "4"),
 		"reserved read after a failed authentication")
@@ -68,21 +70,20 @@ func TestE2EASignatureFromAnotherKeyDoesNotOpenTheSession(t *testing.T) {
 
 // The signed message binds the serial, so a signature the operator made for
 // another device is refused by this one.
-func TestE2EASignatureBoundToAnotherDevicesSerialIsRefused(t *testing.T) {
-	pub, key := writeOperatorKey(t)
-	d := tfwsim.StartElementWithOperator(t, pub)
+func TestFirmwareASignatureBoundToAnotherDevicesSerialIsRefused(t *testing.T) {
+	p, key := startOperator(t)
 
 	other := hex.EncodeToString(bytes.Repeat([]byte{0x77}, tfw.SerialLen))
-	assert.Equal(t, tfw.StatusErrCrypto, cliStatus(t, d, "auth", other, key), "auth bound to another serial")
+	assert.Equal(t, tfw.StatusErrCrypto, cliStatus(t, p.serial, "auth", other, key), "auth bound to another serial")
 }
 
 // Every auth takes a fresh challenge, so the same operator opens the session
 // twice running; a replayed nonce would have been refused the second time.
-func TestE2EEachAuthTakesAFreshChallenge(t *testing.T) {
-	pub, key := writeOperatorKey(t)
-	d := tfwsim.StartElementWithOperator(t, pub)
+func TestFirmwareEachAuthTakesAFreshChallenge(t *testing.T) {
+	p, key := startOperator(t)
+	serial := p.serialHex(t)
 	for i := 0; i < 2; i++ {
-		require.NoError(t, run(context.Background(), d, "auth", []string{testSerialHex, key}, false, io.Discard),
+		require.NoError(t, run(context.Background(), p.serial, "auth", []string{serial, key}, false, io.Discard),
 			"auth %d", i+1)
 	}
 }
@@ -90,6 +91,8 @@ func TestE2EEachAuthTakesAFreshChallenge(t *testing.T) {
 func TestE2ETheDefaultElementHasNoOperatorToAuthenticate(t *testing.T) {
 	// StartElement bakes an all-zero operator key, which is not a point on the
 	// curve: no signature, however good, can be verified against it.
+	// Simulator-only: it pins that default of the simulator's, and a board's
+	// operator key is whatever tfwprov wrote.
 	_, key := writeOperatorKey(t)
 	assert.Equal(t, tfw.StatusErrCrypto, cliStatus(t, tfwsim.StartElement(t), "auth", testSerialHex, key),
 		"auth on a device with no operator key")

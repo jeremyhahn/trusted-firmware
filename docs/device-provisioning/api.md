@@ -89,7 +89,7 @@ zero CRC), `TFW_ERR_PROTECTED_REGION` (write to block 0/1), `TFW_ERR_UNKNOWN_CMD
 
 ```
 name            = <string>                     # free-form, printed in --dry-run
-block<N>        = <64 hex chars>                # N >= 2; exactly 32 bytes, written via PROV_WRITE_CONFIG
+block<N>        = <64 hex chars>                # N is 2 or 3; exactly 32 bytes, written via PROV_WRITE_CONFIG
 config_lock_crc = 0x<1-4 hex chars>             # non-zero; sent as PROV_LOCK's summary_crc for zone 0x00
 data_lock_crc   = 0x<1-4 hex chars>             # non-zero; sent as PROV_LOCK's summary_crc for zone 0x01
 ```

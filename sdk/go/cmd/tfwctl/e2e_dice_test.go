@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/vectors"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 )
@@ -34,19 +35,25 @@ import (
 // literal in tfwsim.TestDeviceIDPublicKey. It proves the evidence is well formed
 // and signed; it says nothing about any device, and no peer may trust it.
 //
+// The TestFirmware* rows reach their device through the peer seam
+// (e2e_peer_test.go), so `make hw-test` runs them on a board, where the
+// identity checked is the board's own. The reproducibility row stays on the
+// simulator, and the nonce-width row reaches no device at all.
+//
 // The SDK's own refusal of a wrong-width nonce is a unit test:
 // sdk/go/attest_test.go TestAttestRefusesTheWrongNonceWidth. The frame
 // offsets, the CBOR reader and verifyFrame are in e2e_helpers_test.go.
 
-func TestE2EAttestCertIsDICEEvidenceBoundToTheCallersNonce(t *testing.T) {
+func TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce(t *testing.T) {
+	p := startProvisioned(t)
 	nonce := aliasNonce(0x40)
-	cert := parseCert(t, cliAttestCert(t, tfwsim.StartElement(t), nonce))
+	cert := parseCert(t, cliAttestCert(t, p.serial, nonce))
 	gotNonce, ueid, fwHash := claimsOf(t, uccsOf(t, cert))
 
 	assert.Equal(t, nonce, gotNonce, "eat_nonce is the caller's")
 	// RFC 9711 section 4.2.1.1: a leading type byte, 0x01 for a random identifier.
-	assert.Equal(t, append([]byte{0x01}, tfwsim.TestSerial[:]...), ueid, "ueid")
-	assert.Equal(t, tfwsim.TestFWHash[:], fwHash, "FWHash")
+	assert.Equal(t, append([]byte{0x01}, p.serialNumber(t)...), ueid, "ueid")
+	assert.Equal(t, p.fwHash(t), fwHash, "FWHash")
 }
 
 // cliAttestCertJSON runs attest-cert --json and returns the certificate and the
@@ -71,6 +78,9 @@ func cliAttestCertJSON(t *testing.T, dev *tfw.Device, nonce []byte) (*x509.Certi
 // #51: a running application's 32 bytes are claim 273's single hash value in
 // the certificate the DeviceID key signs, and tfwctl prints them as
 // app_evidence. test/app/example supplies vectors.AppEvExample.
+// Simulator-only: it holds the frame's FWHash to the known TestFWHash, and a
+// board's FWHash is read from this certificate's claim 273, which here carries
+// the application's bytes instead.
 func TestE2EAttestCertCarriesTheApplicationsEvidence(t *testing.T) {
 	d := tfwsim.StartElementApp(t)
 	nonce := aliasNonce(0x51)
@@ -96,23 +106,26 @@ func TestE2EAttestCertCarriesTheApplicationsEvidence(t *testing.T) {
 // With no application, claim 273 keeps the firmware measurement: go-xkms's
 // possession template has no place for a claims set without it, and the
 // firmware never fabricates the application's bytes.
-func TestE2EAttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement(t *testing.T) {
-	cert, ev := cliAttestCertJSON(t, tfwsim.StartElement(t), aliasNonce(0x52))
-	assert.Equal(t, tfwsim.TestFWHash[:], ev, "app_evidence")
+func TestFirmwareAttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement(t *testing.T) {
+	p := startProvisioned(t)
+	cert, ev := cliAttestCertJSON(t, p.serial, aliasNonce(0x52))
+	assert.Equal(t, p.fwHash(t), ev, "app_evidence")
 	_, _, measured := claimsOf(t, uccsOf(t, cert))
-	assert.Equal(t, tfwsim.TestFWHash[:], measured, "claim 273")
+	assert.Equal(t, p.fwHash(t), measured, "claim 273")
 }
 
 // THE POINT OF THE REAL CURVE: the alias certificate's signature verifies, under
 // the DeviceID public key, with the standard library.
-func TestE2EAttestCertSignatureVerifiesUnderTheDeviceIDKey(t *testing.T) {
-	cert := parseCert(t, cliAttestCert(t, tfwsim.StartElement(t), aliasNonce(0x40)))
-	deviceID := tfwsim.TestDeviceIDPublicKey()
+func TestFirmwareAttestCertSignatureVerifiesUnderTheDeviceIDKey(t *testing.T) {
+	p := startProvisioned(t)
+	cert := parseCert(t, cliAttestCert(t, p.serial, aliasNonce(0x40)))
+	deviceID := p.deviceID(t)
 
 	// The subject key IS the DeviceID key (docs/dice-attestation: there is no
-	// separately derived Alias key), and it is the documented one.
+	// separately derived Alias key), and it is the one the device was
+	// provisioned with.
 	subject, ok := cert.PublicKey.(*ecdsa.PublicKey)
-	require.True(t, ok && subject.Equal(deviceID), "subject public key = %v, want the DeviceID test key", cert.PublicKey)
+	require.True(t, ok && subject.Equal(deviceID), "subject public key = %v, want the DeviceID key", cert.PublicKey)
 	require.Equal(t, x509.ECDSAWithSHA256, cert.SignatureAlgorithm)
 
 	// Both ways: the library's own check, and the digest worked out by hand, so a
@@ -123,8 +136,8 @@ func TestE2EAttestCertSignatureVerifiesUnderTheDeviceIDKey(t *testing.T) {
 		"ecdsa.VerifyASN1 rejects the certificate signature under the DeviceID key")
 }
 
-func TestE2EAttestCertSignatureRejectsTamperingAndOtherKeys(t *testing.T) {
-	cert := parseCert(t, cliAttestCert(t, tfwsim.StartElement(t), aliasNonce(0x40)))
+func TestFirmwareAttestCertSignatureRejectsTamperingAndOtherKeys(t *testing.T) {
+	cert := parseCert(t, cliAttestCert(t, startProvisioned(t).serial, aliasNonce(0x40)))
 
 	// One flipped bit anywhere in the signed bytes.
 	tampered := append([]byte(nil), cert.RawTBSCertificate...)
@@ -140,8 +153,8 @@ func TestE2EAttestCertSignatureRejectsTamperingAndOtherKeys(t *testing.T) {
 		"the certificate verified under an unrelated key")
 }
 
-func TestE2EAttestCertDiffersWithTheNonce(t *testing.T) {
-	d := tfwsim.StartElement(t)
+func TestFirmwareAttestCertDiffersWithTheNonce(t *testing.T) {
+	d := startProvisioned(t).serial
 	a := cliAttestCert(t, d, aliasNonce(0x10))
 	b := cliAttestCert(t, d, aliasNonce(0x11))
 	require.NotEqual(t, a, b, "two different nonces produced the same certificate")
@@ -161,25 +174,27 @@ func TestE2EAttestCertDiffersWithTheNonce(t *testing.T) {
 
 func TestE2EAttestCertSameNonceIsReproducible(t *testing.T) {
 	// A simulator is a test oracle only if the same input gives the same
-	// output; the certificate carries no clock.
+	// output; the certificate carries no clock. Simulator-only: the element
+	// model signs deterministically, and the part draws its own k.
 	nonce := aliasNonce(0x77)
 	first := cliAttestCert(t, tfwsim.StartElement(t), nonce)
 	second := cliAttestCert(t, tfwsim.StartElement(t), nonce)
 	assert.Equal(t, first, second, "the same nonce produced different certificates on a fresh simulator")
 }
 
-func TestE2EAttestEvidenceFrame(t *testing.T) {
-	d := tfwsim.StartElement(t)
+func TestFirmwareAttestEvidenceFrame(t *testing.T) {
+	p := startProvisioned(t)
+	d := p.serial
 	nonce := attestNonce(0x5a)
 
 	ev := cliAttest(t, d, nonce)
 	require.Len(t, ev, tfw.EvidenceLen)
 	assert.Equal(t, nonce, ev[offNonce:offNonce+tfw.AttestNonceLen], "frame nonce")
-	assert.Equal(t, tfwsim.TestSerial[:], ev[offDevice:offDevice+tfw.SerialLen], "DeviceID")
-	assert.Equal(t, tfwsim.TestFWHash[:], ev[offFWHash:offFWHash+32], "FWHash")
+	assert.Equal(t, p.serialNumber(t), ev[offDevice:offDevice+tfw.SerialLen], "DeviceID")
+	assert.Equal(t, p.fwHash(t), ev[offFWHash:offFWHash+32], "FWHash")
 	assert.EqualValues(t, algECDSA, ev[offAlg], "algorithm is ECDSA P-256")
 	assert.NotEqual(t, make([]byte, 64), ev[offSig:offSig+64], "signature field is empty")
-	assert.True(t, verifyFrame(tfwsim.TestDeviceIDPublicKey(), ev),
+	assert.True(t, verifyFrame(p.deviceID(t), ev),
 		"the evidence signature does not verify under the DeviceID key")
 
 	other := cliAttest(t, d, attestNonce(0x5b))
@@ -187,9 +202,10 @@ func TestE2EAttestEvidenceFrame(t *testing.T) {
 	assert.NotEqual(t, ev[offSig:offSig+64], other[offSig:offSig+64], "the evidence signature did not change with the nonce")
 }
 
-func TestE2EEvidenceFrameRejectsTamperingAndOtherKeys(t *testing.T) {
-	ev := cliAttest(t, tfwsim.StartElement(t), attestNonce(0x5a))
-	pub := tfwsim.TestDeviceIDPublicKey()
+func TestFirmwareEvidenceFrameRejectsTamperingAndOtherKeys(t *testing.T) {
+	p := startProvisioned(t)
+	ev := cliAttest(t, p.serial, attestNonce(0x5a))
+	pub := p.deviceID(t)
 	require.True(t, verifyFrame(pub, ev), "the untouched frame does not verify")
 
 	// Every field the signature covers: nonce, DeviceID, FWHash. Flipping a bit
@@ -214,23 +230,25 @@ func TestE2EEvidenceFrameRejectsTamperingAndOtherKeys(t *testing.T) {
 // docs/dice-attestation: the DeviceID key signs both artefacts, and the
 // certificate names it as its subject, so one public key checks the frame and
 // the certificate alike. A peer pinning one key per device needs exactly this.
-func TestE2EEvidenceAndCertificateShareOneKey(t *testing.T) {
-	d := tfwsim.StartElement(t)
+func TestFirmwareEvidenceAndCertificateShareOneKey(t *testing.T) {
+	d := startProvisioned(t).serial
 	ev := cliAttest(t, d, attestNonce(0x33))
 	subject, ok := parseCert(t, cliAttestCert(t, d, aliasNonce(0x33))).PublicKey.(*ecdsa.PublicKey)
 	require.True(t, ok, "certificate subject is not an ECDSA key")
 	assert.True(t, verifyFrame(subject, ev), "the evidence frame does not verify under the certificate's subject key")
 }
 
-func TestE2EElementReportsItsRootOfTrust(t *testing.T) {
-	c := cliCaps(t, tfwsim.StartElement(t))
+func TestFirmwareElementReportsItsRootOfTrust(t *testing.T) {
+	c := cliCaps(t, startProvisioned(t).serial)
 	assert.Equal(t, tfw.CryptoSecureElement, c.CryptoTier)
 	assert.True(t, c.Algorithms.Can(tfw.AlgECDSAP256SHA256), "algorithms = %v, want ECDSA P-256", c.Algorithms)
 	assert.True(t, c.Has(tfw.FeatureAttest) && c.Has(tfw.FeatureAliasCert), "features %#x lack attest/alias cert", c.Features)
 }
 
-func TestE2EBlankElementRefusesToAttest(t *testing.T) {
-	d := tfwsim.StartBlankElement(t)
+func TestFirmwareBlankElementRefusesToAttest(t *testing.T) {
+	// No flags: the simulator's element holds no identity, as a board's does
+	// before tfwprov.
+	d := startPeer(t, simproc.Element).serial
 
 	// The element is present, so the tier is honest about it...
 	assert.Equal(t, tfw.CryptoSecureElement, cliCaps(t, d).CryptoTier)
@@ -244,9 +262,9 @@ func TestE2EBlankElementRefusesToAttest(t *testing.T) {
 	assert.Equal(t, tfw.StatusErrNotProvisioned, st)
 }
 
-func TestE2ESoftwareTierStillCannotIssueACertificate(t *testing.T) {
-	// The reason the element tier exists: the default tfwsim has no asymmetric key.
-	_, err := cliHex(t, tfwsim.Start(t), "attest-cert", "certificate", aliasNonce(1))
+func TestFirmwareSoftwareTierStillCannotIssueACertificate(t *testing.T) {
+	// The reason the element tier exists: the software tier has no asymmetric key.
+	_, err := cliHex(t, startPeer(t, simproc.Software).serial, "attest-cert", "certificate", aliasNonce(1))
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "attest-cert on the software tier: %v", err)
 	assert.Equal(t, tfw.StatusErrUnsupported, st)

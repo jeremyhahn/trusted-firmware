@@ -11,10 +11,14 @@ provisioned board through device-attest-01, using go-xkms's ACME client and
 the same flow as `TestDeviceAttestDICEEnrollsTheRealFirmware`. It then writes
 a run record, which the operator commits.
 
-The harness is `TestHardwareEnrollment` in `xkms/e2e`. Under `make xkms-test`,
-which the `xkms` CI job runs, it enrolls `tfwsim-atecc608a` over serial and
-over TCP, and reads back the record each run wrote. So the code a bench run takes is the code CI
-takes, and the only untested part is the board itself.
+The harness is `TestHardwareEnrollment` in `xkms/e2e`, and `make hw-enroll`
+runs it on a board. `make xkms-test` leaves the `xkms/e2e` package out of its
+list (#163 decision 2): out of the list, not skipped inside it.
+`make xkms-coverage` still measures `./...` until #163 slice (e) moves that
+package's other tests. Run directly with `go test ./e2e` and no `TFW_HW_DEVICE`, the
+harness enrolls `tfwsim-atecc608a` over serial and over TCP and reads back the
+record each run wrote, which is how a change to it is checked before a bench
+run.
 
 ## Which board, which tier
 
@@ -157,6 +161,6 @@ make hw-enroll DEVICE=192.0.2.1:7000 ACME_DIRECTORY=https://<control plane>/acme
 (RFC 5737 documentation range); take the real one from the bench. A port that
 cannot be bound, or no device connecting within `CONNECT_WAIT`, fails the run.
 
-Under `make xkms-test` the TCP target is `tfwsim.StartElementEthernet`: the
+On a run with no `TFW_HW_DEVICE` the TCP target is `tfwsim.StartElementEthernet`: the
 simulator boots with a network block whose endpoint is a loopback listener,
 dials it, and is enrolled over that connection. Its record says `tcp`.

@@ -316,10 +316,14 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		if err != nil {
 			return err
 		}
-		if err := dev.DigitalWrite(ctx, pin, args[1] != "0"); err != nil {
+		high, err := parseLevel(args[1])
+		if err != nil {
 			return err
 		}
-		return emit(out, asJSON, map[string]any{"pin": pin, "high": args[1] != "0"},
+		if err := dev.DigitalWrite(ctx, pin, high); err != nil {
+			return err
+		}
+		return emit(out, asJSON, map[string]any{"pin": pin, "high": high},
 			func() string { return fmt.Sprintf("pin %d <- %s\n", pin, args[1]) })
 
 	case "timer":
@@ -330,11 +334,15 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		if err != nil {
 			return err
 		}
+		high, err := parseLevel(args[1])
+		if err != nil {
+			return err
+		}
 		dur, err := time.ParseDuration(args[2])
 		if err != nil {
 			return fmt.Errorf("duration %q: %w", args[2], err)
 		}
-		slot, err := dev.TimerSet(ctx, pin, args[1] != "0", dur)
+		slot, err := dev.TimerSet(ctx, pin, high, dur)
 		if err != nil {
 			return err
 		}
@@ -578,6 +586,18 @@ func b2i(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// parseLevel reads a level argument: exactly "0" or "1", the words the usage
+// text names. Anything else is a usage error, so a typo never drives a pin.
+func parseLevel(s string) (bool, error) {
+	switch s {
+	case "0":
+		return false, nil
+	case "1":
+		return true, nil
+	}
+	return false, fmt.Errorf("level %q, want 0 or 1", s)
 }
 
 func fail(err error) {

@@ -24,7 +24,9 @@ import (
 // The CRYPTO=auto image through tfwctl: one firmware that probes for the
 // element at boot and runs the element tier when it answers, the soft tier
 // when it does not. The platform block carries the test serial and no
-// operator key; the handoff carries the test FWHash.
+// operator key; the handoff carries the test FWHash. Simulator-only, so
+// `make hw-test` does not run these: whether the element answers is the
+// simulator option they vary, and a board's is wired one way.
 
 // heldSig is OTA_AUTH's signature for the scenarios here. The application
 // only holds it; tfw-boot verifies it at reset, so any 64 bytes pass.

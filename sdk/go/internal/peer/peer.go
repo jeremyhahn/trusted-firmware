@@ -8,7 +8,9 @@
 // through simproc. When PortEnv names a serial port the peer is a real board on
 // that port instead (`make hw-test`), and BoardEnv says which board it is. The
 // suite itself is the same either way: it gets an io.ReadWriteCloser and does
-// not know which one it has.
+// not know which one it has. An Ethernet row also listens where
+// Target.Listen says, and the device -- the simulator, or the board EthEnv
+// names the address of -- dials it.
 //
 // A board that is missing or does not answer fails the test. There is no
 // fallback to the simulator and no skip: a hardware run that quietly tested
@@ -19,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -32,6 +35,14 @@ const (
 	PortEnv = "TFW_HW_PORT"
 	// BoardEnv names the board on PortEnv, as boards/<board>/ does.
 	BoardEnv = "TFW_HW_BOARD"
+	// EthEnv names the ip:port this host listens on for the board's Ethernet
+	// link: the endpoint the board's network block dials. A board run that
+	// leaves it unset runs no Ethernet row.
+	EthEnv = "TFW_HW_ETH"
+	// SimListen is where the simulator's Ethernet link is listened for: a
+	// loopback port the kernel picks, which the test writes into the
+	// simulator's network block.
+	SimListen = "127.0.0.1:0"
 	// SimBoard is the board profile tfwsim is compiled against: HOST_BOARD in
 	// mk/host.mk.
 	SimBoard = "atmega328p"
@@ -48,18 +59,43 @@ var ErrSilent = errors.New("the board sent nothing after its port opened -- is t
 type Target struct {
 	Port  string // empty for the simulator
 	Board string
+	Eth   string // where the board dials; empty for the simulator and a serial-only run
 }
 
 // Hardware reports whether the target is a real board.
 func (t Target) Hardware() bool { return t.Port != "" }
+
+// Listen returns the address the Ethernet rows listen on for the device to
+// dial: SimListen for the simulator, EthEnv's for a board. A board's network
+// block names a fixed endpoint, so its address must be an ip:port with a port;
+// a board run that names none fails the row instead of listening where no
+// board will ever dial.
+func (t Target) Listen() (string, error) {
+	if !t.Hardware() {
+		return SimListen, nil
+	}
+	if t.Eth == "" {
+		return "", fmt.Errorf("%s=%s: the Ethernet rows need the ip:port the board dials, and %s names none", PortEnv, t.Port, EthEnv)
+	}
+	ap, err := netip.ParseAddrPort(t.Eth)
+	if err != nil {
+		return "", fmt.Errorf("%s=%s: %w", EthEnv, t.Eth, err)
+	}
+	if ap.Port() == 0 {
+		return "", fmt.Errorf("%s=%s: the board dials a fixed port, so it cannot be 0", EthEnv, t.Eth)
+	}
+	return t.Eth, nil
+}
 
 // FromEnv reads the target from PortEnv and BoardEnv. A port without a board,
 // or a board without a port, is an error rather than a guess: the board decides
 // what the suite expects of the pins, and a board named with no port would
 // otherwise run the simulator under a hardware label.
 func FromEnv() (Target, error) {
-	port, board := os.Getenv(PortEnv), os.Getenv(BoardEnv)
+	port, board, eth := os.Getenv(PortEnv), os.Getenv(BoardEnv), os.Getenv(EthEnv)
 	switch {
+	case port == "" && eth != "":
+		return Target{}, fmt.Errorf("%s=%s names a board's Ethernet link but %s names no port: every Ethernet row starts the board through its serial port", EthEnv, eth, PortEnv)
 	case port == "" && board == "":
 		return Target{Board: SimBoard}, nil
 	case port == "":
@@ -67,20 +103,22 @@ func FromEnv() (Target, error) {
 	case board == "":
 		return Target{}, fmt.Errorf("%s=%s names a port but %s names no board", PortEnv, port, BoardEnv)
 	}
-	return Target{Port: port, Board: board}, nil
+	return Target{Port: port, Board: board, Eth: eth}, nil
 }
 
-// Start connects to the target FromEnv names: sim when it is the simulator,
-// otherwise the board on the port. The connection is closed when the test ends;
-// anything that stops it being made fails the test.
-func Start(tb testing.TB, sim simproc.Binary) io.ReadWriteCloser {
+// Start connects to the target FromEnv names: sim, run with args, when it is
+// the simulator, otherwise the board on the port. args are the simulator's
+// flags; a board has none, it runs what was flashed with the EEPROM it was
+// provisioned with. The connection is closed when the test ends; anything that
+// stops it being made fails the test.
+func Start(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWriteCloser {
 	tb.Helper()
 	t, err := FromEnv()
 	if err != nil {
 		tb.Fatal(err)
 	}
 	if !t.Hardware() {
-		return simproc.Start(tb, sim)
+		return simproc.Start(tb, sim, args...)
 	}
 	c, err := Open(t.Port, StartBound)
 	if err != nil {
@@ -90,13 +128,17 @@ func Start(tb testing.TB, sim simproc.Binary) io.ReadWriteCloser {
 	return c
 }
 
+// openPort is serialport.Open, swapped by tests: a port that resets and boots
+// a board is a board, and the unit tests have none.
+var openPort = serialport.Open
+
 // Open opens a board's serial port, resets the board, and returns once it has
 // started: when it transmits its first byte, which the application does with
 // its BOOT event. That byte is kept for the caller's first Read, so the BOOT
 // event is delivered exactly as tfwsim delivers it. Nothing is written before
 // then, so no request lands in the bootloader.
 func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
-	p, err := serialport.Open(port, 0)
+	p, err := openPort(port, 0)
 	if err != nil {
 		return nil, err
 	}

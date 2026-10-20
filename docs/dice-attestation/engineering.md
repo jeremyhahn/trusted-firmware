@@ -193,7 +193,7 @@ element tier's own feature flags (`make feature-defs`) and pins this per board;
 | Wire vectors, pinned literals | `testdata/vectors.h`, `testdata/uccs_vectors.h`; a vector mismatch is a wire break, not a test to update |
 | Malformed-certificate vectors | `TFWV_ALIAS_CERT_BAD_OUTER` (every X.509 parser rejects it), `TFWV_ALIAS_CERT_BAD_INNER` (OpenSSL and `cryptography` both accept it — the extension-blind failure this project has to fear; `test_alias.c` walks the extension's own DER to catch it) |
 | Go SDK paging and nonce-width tests | `sdk/go/attest_test.go` — `make sdk-test` |
-| Cross-implementation / simulator | `sdk/go/tfwsim_test.go`, against `tfwsim` (`make tfwsim`, then `make ci`) |
+| Cross-implementation / simulator | `sdk/go/cmd/tfwctl/e2e_firmware_test.go`, against `tfwsim` (`make tfwsim`, then `make ci`) |
 | Element-tier simulator: evidence over the wire | `sdk/go/tfwsim/dice_test.go` and `launch_test.go`, against `tfwsim-atecc608a` (`make tfwsim-atecc608a`; `make sdk-test` builds it). The alias certificate parses with `crypto/x509`, carries ueid and FWHash and binds the nonce; its signature verifies under the DeviceID test key with `x509.CheckSignature` and `ecdsa.VerifyASN1`, and so does the `ATTEST` frame's with `ecdsa.Verify`, and each rejects a flipped bit or another key. `auth_test.go` authenticates with an operator key generated in Go. The C side pins the model's curve against RFC 6979 A.2.5 and an independent derivation (`test/unit/test_model_p256.c`). |
 | Element-backed build | `make firmware-attested` (`CRYPTO=atecc608a`); the default `make firmware` never exercises the element path |
 | C/Go vector agreement | `make verify-vectors` |

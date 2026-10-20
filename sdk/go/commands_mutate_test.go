@@ -153,7 +153,7 @@ func TestRequestBuildersRefuseOutOfRange(t *testing.T) {
 		} else {
 			requireSent(t, "OTAActivate", v, sent, err, CmdOTAActivate, []byte{byte(v)})
 		}
-		sent, err = sentBy(1, nil, func(d *Device) error { _, err := d.EEPROMRead(ctx, 0x0123, uint8(v)); return err })
+		sent, err = sentBy(1, make([]byte, v), func(d *Device) error { _, err := d.EEPROMRead(ctx, 0x0123, uint8(v)); return err })
 		if v == 0 || v > EEPROMChunk {
 			requireRefused(t, "EEPROMRead", v, sent, err, CmdEEPROMRead, "length")
 		} else {
@@ -216,14 +216,15 @@ func TestRequestBuildersRefuseAnOversizePayload(t *testing.T) {
 		name   string
 		header int
 		cmd    Cmd
+		rd     func(n int) int
 		call   func(d *Device, w []byte) error
 	}{
-		{"I2CTransfer", 2, CmdI2CXfer, func(d *Device, w []byte) error { _, err := d.I2CTransfer(ctx, 0x50, w, 4); return err }},
-		{"SPITransfer", 1, CmdSPIXfer, func(d *Device, w []byte) error { _, err := d.SPITransfer(ctx, 10, w); return err }},
+		{"I2CTransfer", 2, CmdI2CXfer, func(int) int { return 4 }, func(d *Device, w []byte) error { _, err := d.I2CTransfer(ctx, 0x50, w, 4); return err }},
+		{"SPITransfer", 1, CmdSPIXfer, func(n int) int { return n }, func(d *Device, w []byte) error { _, err := d.SPITransfer(ctx, 10, w); return err }},
 	} {
 		for _, n := range []int{MaxPayload - c.header, MaxPayload - c.header + 1, 255} {
 			w := bytes.Repeat([]byte{0xc3}, n)
-			sent, err := sentBy(1, nil, func(d *Device) error { return c.call(d, w) })
+			sent, err := sentBy(1, make([]byte, c.rd(n)), func(d *Device) error { return c.call(d, w) })
 			if c.header+n <= MaxPayload {
 				if err != nil || len(sent) != 1 || len(sent[0]) != MaxPayload+frameOverhead+2 {
 					t.Errorf("%s of %d bytes: %v, wrote % x", c.name, n, err, sent)

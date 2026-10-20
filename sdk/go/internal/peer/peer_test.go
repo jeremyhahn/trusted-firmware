@@ -15,6 +15,7 @@ import (
 func TestFromEnvDefaultsToTheSimulatorsBoard(t *testing.T) {
 	t.Setenv(PortEnv, "")
 	t.Setenv(BoardEnv, "")
+	t.Setenv(EthEnv, "")
 	got, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +28,7 @@ func TestFromEnvDefaultsToTheSimulatorsBoard(t *testing.T) {
 func TestFromEnvNamesTheBoardOnThePort(t *testing.T) {
 	t.Setenv(PortEnv, "/dev/ttyACM0")
 	t.Setenv(BoardEnv, "atmega2560")
+	t.Setenv(EthEnv, "")
 	got, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -37,14 +39,56 @@ func TestFromEnvNamesTheBoardOnThePort(t *testing.T) {
 }
 
 func TestFromEnvRefusesHalfATarget(t *testing.T) {
-	for _, c := range []struct{ port, board string }{
-		{"/dev/ttyACM0", ""},
-		{"", "atmega2560"},
+	for _, c := range []struct{ port, board, eth string }{
+		{"/dev/ttyACM0", "", ""},
+		{"", "atmega2560", ""},
+		{"", "", "192.0.2.1:5000"},
+		{"", "atmega2560", "192.0.2.1:5000"},
 	} {
 		t.Setenv(PortEnv, c.port)
 		t.Setenv(BoardEnv, c.board)
+		t.Setenv(EthEnv, c.eth)
 		if got, err := FromEnv(); err == nil {
-			t.Errorf("port %q board %q: target = %+v, want an error", c.port, c.board, got)
+			t.Errorf("port %q board %q eth %q: target = %+v, want an error", c.port, c.board, c.eth, got)
+		}
+	}
+}
+
+func TestFromEnvNamesTheBoardsEthernetAddress(t *testing.T) {
+	t.Setenv(PortEnv, "/dev/ttyACM0")
+	t.Setenv(BoardEnv, "atmega2560")
+	t.Setenv(EthEnv, "192.0.2.1:5000")
+	got, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != (Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: "192.0.2.1:5000"}) {
+		t.Fatalf("target = %+v, want atmega2560 on /dev/ttyACM0 dialing 192.0.2.1:5000", got)
+	}
+}
+
+func TestListenIsALoopbackPortForTheSimulator(t *testing.T) {
+	// EthEnv is the board's; the simulator never listens there.
+	got, err := Target{Board: SimBoard, Eth: "192.0.2.1:5000"}.Listen()
+	if err != nil || got != SimListen {
+		t.Fatalf("Listen = %q, %v; want %q", got, err, SimListen)
+	}
+}
+
+func TestListenIsTheAddressTheBoardDials(t *testing.T) {
+	for _, eth := range []string{"192.0.2.1:5000", "0.0.0.0:5000", "[2001:db8::1]:5000"} {
+		got, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: eth}.Listen()
+		if err != nil || got != eth {
+			t.Errorf("Listen = %q, %v; want %q", got, err, eth)
+		}
+	}
+}
+
+func TestListenRefusesABoardWithNoUsableAddress(t *testing.T) {
+	for _, eth := range []string{"", "192.0.2.1", "192.0.2.1:0", "board.invalid:5000", "192.0.2.1:http"} {
+		got, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: eth}.Listen()
+		if err == nil {
+			t.Errorf("eth %q: Listen = %q, want an error", eth, got)
 		}
 	}
 }

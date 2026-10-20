@@ -88,3 +88,20 @@ func TestSysInfoRejectsAReplyShorterThanTheOriginalShape(t *testing.T) {
 	assert.Equal(t, 6, se.Got)
 	assert.Equal(t, sysInfoLen, se.Need)
 }
+
+// The formats are 7, 11 and 15 bytes. Every length between two of them is a
+// field cut in half and refused; past 15 is a newer firmware's tail and reads.
+func TestSysInfoRejectsALengthBetweenTwoFormats(t *testing.T) {
+	full := make([]byte, sysInfoFreeRAM32End+1)
+	for n := 0; n <= len(full); n++ {
+		_, err := New(&cannedLink{payload: full[:n]}).SysInfo(context.Background())
+		switch n {
+		case sysInfoLen, sysInfoErrCountersEnd, sysInfoFreeRAM32End, sysInfoFreeRAM32End + 1:
+			require.NoError(t, err, "a %d-byte reply", n)
+		default:
+			var se *ShortReplyError
+			require.ErrorAs(t, err, &se, "a %d-byte reply", n)
+			assert.Equal(t, n, se.Got)
+		}
+	}
+}

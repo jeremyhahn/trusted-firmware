@@ -50,7 +50,7 @@ No `#if` outside the four allowed places selects any of this.
 |---|---|
 | `make test` (`test_ota_stage`) | The stager against the NOR model: begin, data, end, status, and each refusal |
 | `make boot-test` (`test_boot_stage`, `test_boot_stage_2560`, `test_boot_swap`, `test_boot_trial`) | The copy, a cut copy, the swap and every cut point, rollback, confirm, the floor; listed in [architecture.md](architecture.md) |
-| `make integration-test-host` (`sdk/go/tfwsim`, `TestAgainstFirmwareStagesAnImage`, `TestAgainstFirmwareStagerRefuses`) | `StageImage` against `tfwsim` over serial and TCP; needs `make tfwsim` |
+| `make integration-test-host` (`sdk/go/cmd/tfwctl`, `TestEthernetStagesAnImage`, `TestEthernetStagerRefusesALengthNotWholePages`) | `tfwctl ota-stage` (`StageImage`) against `tfwsim` over serial and TCP, or on a board with `make hw-test ETH=`; needs `make tfwsim` |
 | `make test` (`test_esp_ota`) | The ESP32 session against a mock `esp_ota` (`test/mock/esp_ota_mock.c`): every accept path and refusal, `OTA_INFO`, and nothing that activates |
 | `make esp32-qemu-test` (`test/integration/esp32/qemu_test.py`) | Over Ethernet in QEMU: a tampered app refused at `OTA_END`, the app written to `ota_1`, `ota_0` and `otadata` untouched, and the next boot still on `ota_0` |
 | `make integration-test-boot` | The real tfw-boot and application under simavr on two 2560 rows, `BOOT_OTA=1` and the store row; the cases are in [architecture.md, "The OTA round under simavr"](architecture.md#the-ota-round-under-simavr-75-77) |

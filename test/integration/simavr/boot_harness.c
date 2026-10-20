@@ -194,6 +194,19 @@ static int run_until(int (*done)(void), long budget)
     return done();
 }
 
+/* run_until, where an expired bound fails the row and says which wait and
+ * which bound -- the check after it would otherwise read a reply the device
+ * never finished sending, and blame the reply (#163). */
+static int wait_for(int (*done)(void), long budget, const char *what)
+{
+    char line[128];
+
+    if (run_until(done, budget)) { return 1; }
+    snprintf(line, sizeof line, "wait: %s, within %ld steps", what, budget);
+    check(0, line);
+    return 0;
+}
+
 /* A whole boot: measure ~12 KB sixty-four bytes at a time through the element,
  * verify, derive the CDI and jump. Measured at 8.4 M cycles; the reset that
  * settles a confirm evaluates twice and advances the counter. The budget is loose because it bounds a hang, not a performance
@@ -231,16 +244,59 @@ static int run_until(int (*done)(void), long budget)
 /* One frame in, one frame out, at 115 200 on a polled USART. */
 #define BUDGET_EXCHANGE   800000L
 
+/* USART0's status register by data-space address -- the same on the 328P and
+ * the 2560 -- and its RXC0 bit: up while a received byte waits in UDR0, down
+ * once the firmware has read it. */
+#define R_UCSR0A    0x00C0u
+#define BIT_RXC0    0x80u
+#define BUDGET_BYTE 20000L
+
+static int rx_held;
+
+/* The byte raised last has been read: RXC0 came up when it reached UDR0 and
+ * has gone down again. */
+static int byte_consumed(void)
+{
+    if (avr->data[R_UCSR0A] & BIT_RXC0) { rx_held = 1; return 0; }
+    return rx_held;
+}
+
+/* Each byte goes in once the one before it has been read, which is no faster
+ * than the wire: the emulated USART holds a byte for a character time before
+ * it reaches UDR0. Feeding a whole frame in one instant would test a device
+ * that never exists -- and the bootloader POLLS the USART rather than taking
+ * an interrupt, so a byte that arrives before the previous one was read is a
+ * byte that is genuinely lost. Returns the 1-based index of the first byte
+ * still unread when BUDGET_BYTE expired, or 0 when every byte was read. */
+static unsigned feed(const uint8_t *b, unsigned n)
+{
+    unsigned unread = 0;
+
+    for (unsigned i = 0; i < n; i++) {
+        rx_held = 0;
+        avr_raise_irq(uart_in, b[i]);
+        if (!run_until(byte_consumed, BUDGET_BYTE) && !unread) { unread = i + 1u; }
+    }
+    return unread;
+}
+
+/* Fails the row, naming the wait: the frame by its seq and cmd, and the first
+ * byte of it the device did not read. */
+static void unread_fails(const uint8_t *b, unsigned n, unsigned unread)
+{
+    char line[160];
+
+    snprintf(line, sizeof line,
+             "wait: the device reads byte %u of %u of frame seq 0x%02x cmd 0x%02x, within %ld steps",
+             unread, n, b[2], b[3], BUDGET_BYTE);
+    check(0, line);
+}
+
 static void send(const uint8_t *b, unsigned n)
 {
-    for (unsigned i = 0; i < n; i++) {
-        avr_raise_irq(uart_in, b[i]);
-        /* One byte per ~87 us at 115200. Feeding a whole frame in one instant
-         * would test a device that never exists -- and the bootloader POLLS the
-         * USART rather than taking an interrupt, so a byte that arrives before
-         * the previous one was read is a byte that is genuinely lost. */
-        run_cycles(20000);
-    }
+    unsigned unread = feed(b, n);
+
+    if (unread) { unread_fails(b, n, unread); }
 }
 
 /* ------------------------------------------- simavr 1.6's TWI, corrected */
@@ -1253,7 +1309,7 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
     n = frame_request(wire, 0x31, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
     wait_for_seq = 0x31;
-    run_until(response_arrived, BUDGET_EXCHANGE);
+    wait_for(response_arrived, BUDGET_EXCHANGE, "the CAPS reply arrives");
     check(find_response(0x31, &status, out, &outlen) && status == TFW_OK,
           "CAPS answers, so the APPLICATION is running");
 
@@ -1568,7 +1624,7 @@ static void test_tampered_image_refuses(elf_firmware_t *boot, elf_firmware_t *ap
         n = frame_request(wire, 0x32, TFW_CMD_CAPS, NULL, 0);
         send(wire, n);
         wait_for_seq = 0x32;
-        run_until(response_arrived, BUDGET_EXCHANGE);
+        wait_for(response_arrived, BUDGET_EXCHANGE, "the CAPS refusal arrives");
         check(find_response(0x32, &status, out, &outlen)
               && status == TFW_ERR_UNKNOWN_CMD,
               "CAPS is unknown, so it did NOT jump");
@@ -1813,6 +1869,7 @@ static void test_junk_stream_cannot_park_the_session(elf_firmware_t *boot, elf_f
     start = avr->cycle;
     while (!app_booted() && avr->cycle - start < nominal * 2u) {
         avr_raise_irq(uart_in, 0xEEu);          /* never SOF: no frame forms */
+        /* A fixed pace, not a wait (#163): the rate is the input under test. */
         run_cycles(cycles_per_byte);
         if (from_device_n > RXCAP - 64u) { from_device_n = 0; }
     }
@@ -1822,6 +1879,16 @@ static void test_junk_stream_cannot_park_the_session(elf_firmware_t *boot, elf_f
     check(avr->cycle - start <= nominal * 12u / 10u + BUDGET_BOOT,
           "no later than the configured time plus the verify");
 }
+
+/* The cycle the drip's next frame is due at. */
+static uint64_t drip_due_at;
+
+/* The next frame is due, or the session is over. */
+static int drip_due(void) { return app_booted() || avr->cycle >= drip_due_at; }
+
+/* The frame was answered, or the session it went into has ended: the ceiling
+ * may fall while a frame is on the wire, and then nothing answers it. */
+static int drip_answered(void) { return response_arrived() || app_booted(); }
 
 /*
  * A peer that speaks the OTA grammar slowly. An OTA_BEGIN is accepted, restarts
@@ -1837,8 +1904,8 @@ static void test_valid_frame_drip_hits_the_ceiling(elf_firmware_t *boot, elf_fir
     const uint64_t ceiling = (uint64_t)TFW_BOOT_SESSION_MAX_SECONDS * F_CPU_HZ;
     const uint64_t period  = (uint64_t)(TFW_BOOT_SESSION_IDLE_SECONDS - 2u) * F_CPU_HZ;
     uint8_t  wire[64];
-    unsigned n;
-    uint64_t start, last_sent;
+    unsigned n, unread;
+    uint64_t start;
 
     printf("a drip of valid OTA frames during a session:\n");
     build_image(app, 3u, -1);
@@ -1849,15 +1916,31 @@ static void test_valid_frame_drip_hits_the_ceiling(elf_firmware_t *boot, elf_fir
     check(run_until(session_announced, BUDGET_BOOT), "the session opens");
 
     from_device_n = 0;
-    start = last_sent = avr->cycle;
+    start = avr->cycle;
+    drip_due_at = start + period;
     while (!app_booted() && avr->cycle - start < ceiling * 2u) {
-        if (avr->cycle - last_sent >= period) {
-            last_sent = avr->cycle;
+        if (avr->cycle >= drip_due_at) {
+            drip_due_at = avr->cycle + period;
+            from_device_n = 0;
             n = frame_request(wire, 0x62, TFW_CMD_OTA_BEGIN, begin, sizeof begin);
-            send(wire, n);
+            unread = feed(wire, n);
+            if (unread && avr->cycle - start >= ceiling * 8u / 10u) {
+                /* The ceiling counts polls, the drip counts cycles: from 80%
+                 * of the ceiling -- the window this row already allows -- a
+                 * drip can land after the ceiling closed the session, while
+                 * tfw-boot verifies and nothing polls the USART. Nothing
+                 * reads the frame then; the application booting is the
+                 * outcome under test. Before that window an unread byte is a
+                 * lost byte and fails. */
+                wait_for(app_booted, BUDGET_BOOT,
+                         "a drip the closed session never read, then the application boots");
+                continue;
+            }
+            if (unread) { unread_fails(wire, n, unread); }
+            wait_for_seq = 0x62;
+            wait_for(drip_answered, BUDGET_EXCHANGE, "the OTA_BEGIN reply arrives");
         }
-        run_cycles(100000);
-        if (from_device_n > RXCAP - 64u) { from_device_n = 0; }
+        run_until_cycles(drip_due, period);
     }
     printf("  (drip timeout: %llu cycles, ceiling %llu)\n",
            (unsigned long long)(avr->cycle - start), (unsigned long long)ceiling);
@@ -2565,6 +2648,8 @@ static void bridge_until_reset(FILE *host, int *eof)
                 *eof = 1;
             }
         }
+        /* A slice of free running, not a wait (#163): the host bounds the
+         * exchange, and between its bytes there is nothing to wait for. */
         run_cycles(BRIDGE_BYTE_STEPS);
         bridge_flush(host);
     }
@@ -3025,6 +3110,11 @@ static long soft_genuine_steps;
     (soft_genuine_steps > 0 ? soft_genuine_steps + soft_genuine_steps / 2 \
                             : BUDGET_BOOT_SOFT_MAX)
 
+/* Where soft_why_not's cpu was, and whether it has left it. */
+static uint32_t why_pc;
+
+static int pc_moved(void) { return avr->pc != why_pc; }
+
 /* Why the genuine soft image did not answer, from what the harness holds:
  * whether the wait for the device's first byte spent its budget, where the
  * cpu is and whether it still moves, any refusal tfw-boot sent, and the first
@@ -3037,7 +3127,10 @@ static void soft_why_not(int spoke_in_time, int refused, uint8_t status,
     printf("    the wait for the first byte %s: %ld of %ld steps, cycle %llu\n",
            spoke_in_time ? "ended" : "spent its budget",
            last_run_steps, BUDGET_BOOT_SOFT_MAX, (unsigned long long)avr->cycle);
-    run_cycles(64);
+    /* The row has failed already; an expired bound here is the finding
+     * ("stuck"), printed, not a second failure. */
+    why_pc = pc;
+    run_until(pc_moved, 64);
     printf("    pc 0x%05lx, cpu state %d (%s), %s\n", (unsigned long)pc, (int)avr->state,
            avr->state == cpu_Sleeping ? "sleeping" : avr->state == cpu_Crashed ? "crashed"
            : avr->state == cpu_Running ? "running" : "other",
@@ -3064,7 +3157,10 @@ static void soft_never_ran(const char *what)
     check(!app_booted(), what);
     from_device_n = 0;
     n = frame_request(wire, 0x3A, TFW_CMD_CAPS, NULL, 0);
-    send(wire, n);
+    /* A device that never ran need not read the frame, nor answer it: an
+     * unread byte and an expired wait are what this row expects, so neither
+     * fails it. The check below is the row. */
+    (void)feed(wire, n);
     wait_for_seq = 0x3A;
     run_until(response_arrived, BUDGET_EXCHANGE);
     check(!(find_response(0x3A, &status, out, &outlen) && status == TFW_OK),
@@ -3106,7 +3202,7 @@ static void test_the_soft_base_row(elf_firmware_t *boot, elf_firmware_t *app)
     n = frame_request(wire, 0x39, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
     wait_for_seq = 0x39;
-    run_until(response_arrived, BUDGET_EXCHANGE);
+    wait_for(response_arrived, BUDGET_EXCHANGE, "the CAPS reply arrives");
     {
         int answered = find_response(0x39, &status, out, &outlen) && status == TFW_OK;
 
@@ -3184,7 +3280,7 @@ static void test_the_soft_base_row_ed25519(elf_firmware_t *boot, elf_firmware_t 
     n = frame_request(wire, 0x39, TFW_CMD_CAPS, NULL, 0);
     send(wire, n);
     wait_for_seq = 0x39;
-    run_until(response_arrived, BUDGET_EXCHANGE);
+    wait_for(response_arrived, BUDGET_EXCHANGE, "the CAPS reply arrives");
     {
         int answered = find_response(0x39, &status, out, &outlen) && status == TFW_OK;
 

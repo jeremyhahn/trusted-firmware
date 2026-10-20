@@ -183,14 +183,17 @@ Unit coverage by file: `codec_test.go` (round trips, corruption, resync,
 `attest_test.go`, `fuzz_test.go` (`go test -fuzz`, codec only — no I/O to fuzz
 against).
 
-`tfwsim_test.go` is the cross-implementation suite: it starts `build/host/tfwsim`
-as a subprocess over pipes and runs the SDK's public API against the actual C
-firmware. It **fails** (never skips) if the binary is missing, with a message
+`cmd/tfwctl/e2e_firmware_test.go` holds the cross-implementation scenarios: each
+starts `build/host/tfwsim` through `sdk/go/internal/peer` and runs one `tfwctl`
+verb against the actual C firmware, refusals included; `make hw-test` runs the
+same scenarios against a board on `PORT`. The DICE, AUTH, attest-csr, OTA and
+application rows take the same seam (`e2e_peer_test.go`); which board each
+needs is tabled in [testing](../development/testing.md#which-rows-run-on-a-board). It **fails** (never skips) if the binary is missing, with a message
 to run `make tfwsim` — the one check that the C and Go codecs have not drifted.
 
 `sdk/go/internal/simproc` is the one launcher: it locates the binaries
 (`$TFWSIM_DIR`, else this checkout's `build/host`), starts them and returns a
-`NotBuiltError` naming the make target when one is missing. `tfwsim_test.go` and
+`NotBuiltError` naming the make target when one is missing. The `tfwctl` scenarios and
 the public `sdk/go/tfwsim` package both use it. `sdk/go/tfwsim/*_test.go` is the
 element-tier suite: DICE evidence over the wire, the identity options (including
 an `tfwprov --bake-eeprom` image), and refusal to start on a bad option. It

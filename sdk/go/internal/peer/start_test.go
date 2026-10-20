@@ -18,12 +18,16 @@ import (
 )
 
 // fakeEnv, set in a child's environment, makes this test binary stand in for
-// the simulator: it echoes stdin to stdout until stdin closes. Start is then
-// tested choosing the simulator without the firmware being built.
+// the simulator: it writes its arguments, space-separated, then echoes stdin to
+// stdout until stdin closes. Start is then tested choosing the simulator, and
+// handing it its flags, without the firmware being built.
 const fakeEnv = "PEER_FAKE_ECHO"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(fakeEnv) != "" {
+		if _, err := io.WriteString(os.Stdout, strings.Join(os.Args[1:], " ")); err != nil {
+			os.Exit(1)
+		}
 		if _, err := io.Copy(os.Stdout, os.Stdin); err != nil {
 			os.Exit(1)
 		}
@@ -65,6 +69,29 @@ func startFatal(t *testing.T) string {
 // With no port named, Start runs the simulator it is given and hands back its
 // link.
 func TestStartRunsTheSimulatorWhenNoPortIsNamed(t *testing.T) {
+	c := startFake(t)
+	if _, err := c.Write([]byte("peer")); err != nil {
+		t.Fatal(err)
+	}
+	if got := readWithin(t, c, len("peer")); got != "peer" {
+		t.Fatalf("read %q, want the simulator's echo %q", got, "peer")
+	}
+}
+
+// The Ethernet rows boot the simulator with its network block; the flags reach
+// it as given.
+func TestStartHandsTheSimulatorItsFlags(t *testing.T) {
+	const want = "--eth --eeprom-bin eeprom.bin"
+	c := startFake(t, strings.Fields(want)...)
+	if got := readWithin(t, c, len(want)); got != want {
+		t.Fatalf("the simulator was started with %q, want %q", got, want)
+	}
+}
+
+// startFake runs Start with no port named, so that it starts this test binary
+// as the simulator, with args.
+func startFake(t *testing.T, args ...string) io.ReadWriteCloser {
+	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -77,12 +104,14 @@ func TestStartRunsTheSimulatorWhenNoPortIsNamed(t *testing.T) {
 	t.Setenv(fakeEnv, "1")
 	t.Setenv(PortEnv, "")
 	t.Setenv(BoardEnv, "")
+	t.Setenv(EthEnv, "")
+	return Start(t, simproc.Software, args...)
+}
 
-	c := Start(t, simproc.Software)
-	if _, err := c.Write([]byte("peer")); err != nil {
-		t.Fatal(err)
-	}
-	got := make([]byte, len("peer"))
+// readWithin reads n bytes from c, failing the test if they take a minute.
+func readWithin(t *testing.T, c io.Reader, n int) string {
+	t.Helper()
+	got := make([]byte, n)
 	done := make(chan error, 1)
 	go func() {
 		_, err := io.ReadFull(c, got)
@@ -90,12 +119,13 @@ func TestStartRunsTheSimulatorWhenNoPortIsNamed(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		if err != nil || string(got) != "peer" {
-			t.Fatalf("read %q, %v; want the simulator's echo %q", got, err, "peer")
+		if err != nil {
+			t.Fatalf("read %q: %v", got, err)
 		}
 	case <-time.After(time.Minute):
 		t.Fatal("the simulator did not answer within a minute")
 	}
+	return string(got)
 }
 
 // Half a target fails the test rather than guessing which peer was meant.
@@ -115,6 +145,40 @@ func TestStartFailsOnAMissingPort(t *testing.T) {
 	t.Setenv(BoardEnv, "atmega2560")
 	if msg := startFatal(t); !strings.Contains(msg, missing) {
 		t.Fatalf("Start failed with %q, want it to name %s", msg, missing)
+	}
+}
+
+// A named port is opened, the board on it reset and its BOOT kept for the
+// first Read; the test's cleanup closes the port.
+func TestStartOpensTheNamedPortAndResetsTheBoard(t *testing.T) {
+	const port = "ttyBOARD"
+	r := &resettablePort{}
+	var opened string
+	restore := openPort
+	t.Cleanup(func() { openPort = restore })
+	openPort = func(path string, _ int) (io.ReadWriteCloser, error) {
+		opened = path
+		return &bootAfterPurge{r, []byte{0xA5, 0x01}}, nil
+	}
+	t.Setenv(PortEnv, port)
+	t.Setenv(BoardEnv, "atmega2560")
+
+	t.Run("start", func(t *testing.T) {
+		c := Start(t, simproc.Software)
+		got := make([]byte, 8)
+		n, err := c.Read(got)
+		if err != nil || string(got[:n]) != "\xa5\x01" {
+			t.Fatalf("first read = %x, %v; want the BOOT event a501", got[:n], err)
+		}
+		if r.closed {
+			t.Fatal("the port closed before the test ended")
+		}
+	})
+	if opened != port {
+		t.Fatalf("opened %q, want %s's %q", opened, PortEnv, port)
+	}
+	if !r.closed {
+		t.Fatal("the test's cleanup left the port open")
 	}
 }
 

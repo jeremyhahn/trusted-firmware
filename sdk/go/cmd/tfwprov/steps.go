@@ -64,13 +64,13 @@ func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 		problems = append(problems, "data zone is not locked")
 	}
 
-	// The config blocks the template writes are in blocks 2 and above, which
+	// The config blocks the template writes are blocks 2 and 3, which
 	// ProvInfo does not return -- it reads block 0, where the serial and the
 	// lock bytes live. Comparing what we can and saying plainly what we cannot
 	// is better than a green result that checked less than it implies.
 	if len(t.Blocks) > 0 {
 		problems = append(problems,
-			"config blocks 2+ are not read back: the element does not return a locked config zone")
+			"config blocks 2..3 are not read back: the element does not return a locked config zone")
 	}
 
 	pub, err := dev.ProvPubKey(ctx, tfw.SlotDeviceID)

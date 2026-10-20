@@ -120,6 +120,10 @@
 #define R_UBRR0L 0x00C4u
 #define R_UBRR0H 0x00C5u
 #define BIT_U2X0 0x02u
+/* And the control register's UDRIE0, which the driver clears once it has
+ * nothing left to send (src/hal/avr/hal_uart.c). */
+#define R_UCSR0B   0x00C1u
+#define BIT_UDRIE0 0x20u
 
 /* Nominal 8N1: a start bit, eight data bits and a stop bit. What the emulator
  * actually charges per byte is measured -- see wire_cycles below. */
@@ -621,6 +625,15 @@ static void on_device_tx(struct avr_irq_t *irq, uint32_t value, void *param)
     }
 }
 
+/* The boot event has finished clocking out: its frame is whole, by the length
+ * it carries, and the driver has nothing left to send. */
+static int boot_event_out(void)
+{
+    return tx_n >= 2u && tx_byte[0] == TFW_SOF
+        && tx_n >= (unsigned)tx_byte[1] + TFW_FRAME_OVERHEAD
+        && !(prod.avr->data[R_UCSR0B] & BIT_UDRIE0);
+}
+
 static avr_irq_t *uart_in;
 
 static unsigned frame_request(uint8_t *out, uint8_t seq, uint8_t cmd,
@@ -1098,8 +1111,23 @@ int main(int argc, char **argv)
      * tick while the USART still has bytes to push would sample two handlers. */
     run_instructions(prod.avr, 2000000L);
     uart_calibrate();
+    {
+        const avr_cycle_count_t window = (avr_cycle_count_t)(wire_cycles * 20.0);
+        const avr_cycle_count_t start  = prod.avr->cycle;
+        long                    guard  = 0;
+
+        while (!boot_event_out() && prod.avr->cycle - start < window) {
+            avr_run(prod.avr);
+            if (++guard > STEP_LIMIT) { fatal("emulator made no progress"); return 1; }
+        }
+        if (!boot_event_out()) {
+            printf("  %-62s FAIL\n", "wait: the boot event clocks out");
+            printf("    %u byte(s) out, not done within %llu cycles (20 bytes of wire)\n",
+                   tx_n, (unsigned long long)window);
+            failures++;
+        }
+    }
     tx_n = 0;
-    run_until_cycle(prod.avr, prod.avr->cycle + (avr_cycle_count_t)(wire_cycles * 20.0));
 
     measured[TFW_BENCH_TICK_ISR] = measure_tick_isr(&isr_name);
     printf("    tick ISR: %s, %.0f cycles including the part's %u-cycle "

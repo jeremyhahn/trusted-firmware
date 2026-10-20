@@ -25,7 +25,9 @@ import (
 
 // The simulator's identity options, read back through `tfwctl attest`: what
 // each source of a device's identity contributes, and that a bad one stops the
-// simulator rather than being skipped.
+// simulator rather than being skipped. Simulator-only, so `make hw-test` does
+// not run these: the options are the simulator's launch flags, and a board
+// has none.
 
 func writeFile(t *testing.T, name string, data []byte) string {
 	t.Helper()

@@ -28,8 +28,10 @@ func startSimproc(t *testing.T, b simproc.Binary) (*simproc.Conn, *tfw.Device) {
 
 // tfwsim-app-heartbeat is the one simulator with an application linked, so
 // the one that answers APP_INFO: the heartbeat example, as its app.mk names it.
-func TestE2EAppSimulatorReportsItsApplication(t *testing.T) {
-	_, d := startSimproc(t, simproc.App)
+// Through the peer seam (e2e_peer_test.go), so on a board this row needs the
+// heartbeat image flashed.
+func TestFirmwareAppReportsItsApplication(t *testing.T) {
+	d := startPeer(t, simproc.App).serial
 	var ai tfw.AppInfo
 	cliJSON(t, d, &ai, "app")
 	// How many polls ran past their budget is the host's scheduling, not the
@@ -46,13 +48,13 @@ func TestE2EAppSimulatorReportsItsApplication(t *testing.T) {
 
 // An image with no application answers APP_INFO as an unknown command, and
 // tfwctl hands that status back rather than printing an empty application.
-func TestE2EAppIsAnUnknownCommandWithoutAnApplication(t *testing.T) {
-	_, d := startSimproc(t, simproc.Software)
+func TestFirmwareAppIsAnUnknownCommandWithoutAnApplication(t *testing.T) {
+	d := startPeer(t, simproc.Software).serial
 	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, d, "app"))
 }
 
 // simproc.Start runs the simulator, the device answers on it, and Close ends
-// the process without an error.
+// the process without an error. Simulator-only: the process is what it tests.
 func TestE2ESimprocStartRunsTheSimulatorAndCloseEndsIt(t *testing.T) {
 	c, d := startSimproc(t, simproc.Software)
 	var echo struct{ Echo string }

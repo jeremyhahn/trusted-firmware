@@ -972,3 +972,9 @@ boot-harness-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
 	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf $(BOOT_HARNESS_MODE)
 
 .PHONY: integration-test-boot boot-harness-run boot-bridge-run
+
+# tfw_boot_measure through the boot HAL flash on the ESP32 measure (#163).
+$(BOOT_TEST_DIR)/test_boot_measure_esp32_flash: test/unit/boot/test_boot_measure_esp32_flash.c $(ESP_SHA_HOST) \
+        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

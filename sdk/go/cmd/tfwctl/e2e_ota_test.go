@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
-	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
 )
 
 // The firmware's stager and OTA control, driven through ota-stage,
@@ -31,6 +31,13 @@ import (
 // offset that is not the next and END before the last byte by
 // test_write_past_the_end_is_refused. An empty DATA never leaves the SDK
 // (sdk/go ota_total_test.go TestOTADataOutsideOneChunkIsRefused).
+//
+// The TestFirmware* rows reach their device through the peer seam
+// (e2e_peer_test.go), so `make hw-test` runs them on a board flashed with the
+// stager. They expect its OTA state fresh: nothing in TRIAL, the counter at
+// floor 0. The signatures they hand over are any 64 bytes, which the
+// application only holds; on a board, the image ota-activate leaves PENDING is
+// refused by tfw-boot at the next reset.
 
 type slotInfo struct {
 	Slots        int    `json:"slots"`
@@ -56,18 +63,11 @@ func cliStage(t *testing.T, dev *tfw.Device, img []byte, args ...string) otaStat
 	return s
 }
 
-// startOperator starts the element tier with an operator key provisioned and
-// returns it with the key's PEM path and the serial auth takes.
-func startOperator(t *testing.T) (dev *tfw.Device, serial, keyPath string) {
-	t.Helper()
-	pub, keyPath := writeOperatorKey(t)
-	return tfwsim.StartElementWithOperator(t, pub), hex.EncodeToString(tfwsim.TestSerial[:]), keyPath
-}
-
 // A whole session over serial, then over TCP, then a tampered image the
 // device must refuse at END.
-func TestE2EStagesAnImage(t *testing.T) {
-	serial, eth := startEthernet(t)
+func TestEthernetStagesAnImage(t *testing.T) {
+	p := startEthernet(t)
+	serial, eth := p.serial, p.eth
 
 	assert.Equal(t, otaStatus{tfw.OTAComplete.String(), 1024}, cliStage(t, serial, stageImage(1024, 700)), "serial")
 
@@ -80,16 +80,16 @@ func TestE2EStagesAnImage(t *testing.T) {
 }
 
 // A length that is not whole pages is refused at BEGIN.
-func TestE2EStagerRefusesALengthNotWholePages(t *testing.T) {
-	serial, _ := startEthernet(t)
-	assert.Equal(t, tfw.StatusErrRange, cliStatus(t, serial, "ota-stage", writeFile(t, "odd.bin", make([]byte, 1000))))
+func TestEthernetStagerRefusesALengthNotWholePages(t *testing.T) {
+	p := startEthernet(t)
+	assert.Equal(t, tfw.StatusErrRange, cliStatus(t, p.serial, "ota-stage", writeFile(t, "odd.bin", make([]byte, 1000))))
 }
 
 // OTA_AUTH on the soft tier (#137): the firmware, not a fake. The simulator
 // does not verify the signature -- tfw-boot does, at reset -- so any 64 bytes
 // pass here, and each command gets past the gate to its own checks.
-func TestE2EOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
-	d := tfwsim.Start(t)
+func TestFirmwareOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
+	d := startPeer(t, simproc.Software).serial
 	cliStage(t, d, stageImage(512, 200))
 
 	// No tfw-boot handed off a running trial here.
@@ -97,7 +97,7 @@ func TestE2EOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, tfw.StatusErrAuthRequired, "confirm, authorized")
 
-	// This unprovisioned simulator's auth gate refuses next, so the MARK leg
+	// This unprovisioned device's auth gate refuses next, so the MARK leg
 	// is test_ota_stage.c's.
 	err = run(t.Context(), d, "ota-activate", []string{heldSig}, false, io.Discard)
 	require.Error(t, err)
@@ -108,8 +108,8 @@ func TestE2EOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
 // software tier carries none and answers every decision-8 command with its
 // load's no-identity status. Values against the ADR's decision 8 (the wire
 // row of docs/ota/adr-ota-image-format-and-trust.md).
-func TestE2EOTAInfo(t *testing.T) {
-	d := tfwsim.StartElement(t)
+func TestFirmwareOTAInfo(t *testing.T) {
+	d := startProvisioned(t).serial
 
 	// slots 2 and active 0 are the AVR's fixed answer (one primary, the
 	// store); flags 0, the block neither fell back nor is in TRIAL; floor 0,
@@ -124,8 +124,9 @@ func TestE2EOTAInfo(t *testing.T) {
 	assert.Equal(t, tfw.StatusErrRange, cliStatus(t, d, "ota-info", "2"))
 }
 
-func TestE2EOTAActivate(t *testing.T) {
-	d, serial, keyPath := startOperator(t)
+func TestFirmwareOTAActivate(t *testing.T) {
+	p, keyPath := startOperator(t)
+	d, serial := p.serial, p.serialHex(t)
 
 	for _, args := range [][]string{{heldSig}, {"now", heldSig}} {
 		assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "ota-activate", args...), "ota-activate %v unauthenticated", args[:len(args)-1])
@@ -144,8 +145,9 @@ func TestE2EOTAActivate(t *testing.T) {
 	assert.Equal(t, hex.EncodeToString(sum[:]), si.Measurement)
 }
 
-func TestE2EOTAConfirm(t *testing.T) {
-	d, serial, keyPath := startOperator(t)
+func TestFirmwareOTAConfirm(t *testing.T) {
+	p, keyPath := startOperator(t)
+	d, serial := p.serial, p.serialHex(t)
 
 	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "ota-confirm", heldSig), "unauthenticated")
 	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "auth", serial, keyPath, "--", "ota-confirm", heldSig), "outside TRIAL")

@@ -271,6 +271,44 @@ func TestAuthRefusals(t *testing.T) {
 	require.Equal(t, StatusErrAuthRequired, asStatus(t, err))
 }
 
+// A data read answers exactly the bytes asked for. One short, none at all and
+// one over are each the ends disagreeing, refused, never returned as data.
+func TestDataReadsRefuseAReplyNotTheLengthAsked(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		cmd  Cmd
+		want int
+		read func(d *Device) ([]byte, error)
+	}{
+		{CmdEEPROMRead, 2, func(d *Device) ([]byte, error) { return d.EEPROMRead(ctx, 0x100, 2) }},
+		{CmdI2CXfer, 2, func(d *Device) ([]byte, error) { return d.I2CTransfer(ctx, 0x50, nil, 2) }},
+		{CmdSPIXfer, 2, func(d *Device) ([]byte, error) { return d.SPITransfer(ctx, 10, []byte{0xbe, 0xef}) }},
+		{CmdOneWireRead, 2, func(d *Device) ([]byte, error) { return d.OneWireRead(ctx, 3, 2) }},
+	} {
+		t.Run("cmd"+itoa(uint8(tc.cmd)), func(t *testing.T) {
+			got, err := tc.read(New(&cannedLink{payload: make([]byte, tc.want)}))
+			require.NoError(t, err)
+			require.Len(t, got, tc.want)
+			for _, n := range []int{0, tc.want - 1, tc.want + 1} {
+				got, err := tc.read(New(&cannedLink{payload: make([]byte, n)}))
+				requireShortReply(t, err, tc.cmd)
+				require.Nil(t, got, "a %d-byte reply was returned as data", n)
+			}
+		})
+	}
+
+	// PULSE_CAPTURE: a count over max_edges, or edges that do not match the
+	// count, are refused too.
+	capture := func(p []byte) error {
+		_, err := New(&cannedLink{payload: p}).PulseCapture(ctx, 3, true, 2, time.Millisecond)
+		return err
+	}
+	require.NoError(t, capture([]byte{2, 1, 0, 2, 0}))
+	requireShortReply(t, capture([]byte{3, 1, 0, 2, 0, 3, 0}), CmdPulseCapture)
+	requireShortReply(t, capture([]byte{1, 1, 0, 2, 0}), CmdPulseCapture)
+	requireShortReply(t, capture([]byte{2, 1, 0, 2}), CmdPulseCapture)
+}
+
 func TestECDSADERToRawRefusals(t *testing.T) {
 	der := func(r, s *big.Int) []byte {
 		b, err := asn1.Marshal(ecdsaASN1Sig{R: r, S: s})

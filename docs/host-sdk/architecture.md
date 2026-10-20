@@ -36,8 +36,8 @@ drain, and a reply to an already-timed-out request is discarded, because
 returning it would answer the wrong caller. See `sdk/go/device.go:Do`.
 
 The codec (`sdk/go/codec.go`) is pure: `EncodeRequest`/`EncodeResponse`/`Decode`
-touch no I/O and are shared by production code and `tfwsim_test.go`'s
-cross-implementation suite. `Decode` resynchronises on the next `SOF` rather
+touch no I/O; the cross-implementation scenarios
+(`sdk/go/cmd/tfwctl/e2e_firmware_test.go`) drive them against the firmware. `Decode` resynchronises on the next `SOF` rather
 than discarding a whole buffer — a genuine frame may start inside garbage.
 
 ## Trust boundaries
@@ -84,7 +84,8 @@ Layer 5 consumer discovers the violation.
 `tools/tfwsim` links the real `src/proto`, `src/core` and `src/caps` sources
 against the mock HAL and speaks the protocol on stdio. It is the device,
 compiled for the host — not a hand-written fake that would drift the moment
-either side changed. `sdk/go/tfwsim_test.go` runs the SDK against it, which is
+either side changed. The `tfwctl` `TestFirmware*` scenarios
+(`sdk/go/cmd/tfwctl/e2e_firmware_test.go`) run the CLI and SDK against it, which is
 what makes the whole protocol testable with zero hardware and, more
 importantly, is the only check that the C codec and the Go codec have not
 drifted apart. That test **fails**, with an explicit message to run

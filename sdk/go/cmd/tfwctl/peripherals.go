@@ -129,11 +129,15 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 		if err != nil {
 			return err
 		}
+		high, err := parseLevel(args[1])
+		if err != nil {
+			return err
+		}
 		timeout, err := time.ParseDuration(args[2])
 		if err != nil {
 			return fmt.Errorf("timeout %q: %w", args[2], err)
 		}
-		width, err := dev.PulseIn(ctx, pin, args[1] != "0", timeout)
+		width, err := dev.PulseIn(ctx, pin, high, timeout)
 		if err != nil {
 			return err
 		}
@@ -148,6 +152,10 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 		if err != nil {
 			return err
 		}
+		high, err := parseLevel(args[1])
+		if err != nil {
+			return err
+		}
 		maxEdges, err := parseU8(args[2], "max-edges")
 		if err != nil {
 			return err
@@ -156,7 +164,7 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 		if err != nil {
 			return fmt.Errorf("timeout %q: %w", args[3], err)
 		}
-		edges, err := dev.PulseCapture(ctx, pin, args[1] != "0", maxEdges, timeout)
+		edges, err := dev.PulseCapture(ctx, pin, high, maxEdges, timeout)
 		if err != nil {
 			return err
 		}

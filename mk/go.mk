@@ -67,22 +67,36 @@ sdk-coverage:
 	    echo "sdk/go coverage is below the floor"; exit 1; \
 	  fi
 
-## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=)
-# The same TestAgainstFirmware* suite sdk-test runs against tfwsim, pointed at
-# the board on PORT through the suite's one transport seam,
-# sdk/go/internal/peer. BOARD tells the suite which board's pins to expect, and
-# CAPS must report that board. Not part of `make ci`: CI has no board. A missing
-# PORT, a port that does not exist and a board that does not answer all fail;
-# none of them is a skip. Flash the image first (`make flash`); the suite does
-# not. -p 1 because every test opens, and so resets, the one board. Every
-# TestAgainstFirmware* test reaches its peer through that seam; a test that
-# starts a simulator itself is named otherwise, so none needs a host binary here.
-# The suite lives in tfwsim_test.go, which carries the tfwsim build tag.
-HW_TEST_RUN ?= ^TestAgainstFirmware
+## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=, ETH=)
+# The same tfwctl TestFirmware* scenarios sdk-test runs against tfwsim, pointed
+# at the board on PORT through their one transport seam, sdk/go/internal/peer.
+# BOARD tells the scenarios which board's pins to expect, and CAPS must report
+# that board. Not part of `make ci`: CI has no board. A missing PORT, a port that
+# does not exist and a board that does not answer all fail; none of them is a
+# skip. Flash the image first (`make flash`); the scenarios do not. -p 1 because
+# every scenario opens, and so resets, the one board. Every TestFirmware*
+# scenario reaches its peer through that seam; a test that starts a simulator
+# itself is named otherwise, so none needs a host binary here. They live in
+# sdk/go/cmd/tfwctl's e2e_firmware, e2e_dice, e2e_auth, e2e_attestcsr, e2e_ota
+# and e2e_app test files, which carry the tfwsim build tag; e2e_peer_test.go is
+# the seam. Each row checks the tier it needs and names it when the board's
+# differs, so one command runs them all and a row for another image fails, not
+# skips: docs/development/testing.md tables which board each row needs.
+#
+# ETH adds the TestEthernet* rows (e2e_ethernet_test.go, and the staging rows in
+# e2e_ota_test.go): the ip:port on the bench host that the board's network
+# block dials, which the rows listen on. It has no default: the address is the
+# bench's, and none is written here. The identity rows also take the board's
+# DeviceID key, DEVICEID (the hex X||Y, as hw-enroll takes it), and
+# CRI_DIGEST, the hex SHA-256 of the CertificationRequestInfo the board signs
+# for the CSR rows, which go-xkms reproduces and tfwctl does not. The auth and
+# OTA rows take OPERATOR_KEY, the PEM file of the operator key the board was
+# provisioned to trust.
+HW_TEST_RUN ?= ^TestFirmware$(if $(ETH),|^TestEthernet)
 hw-test:
-	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev>"; exit 1; fi
+	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [ETH=<ip:port the board dials>]"; exit 1; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' .
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(ETH)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' ./cmd/tfwctl
 
 ## sdk-lint: gofmt and vet the Go SDK
 # vet compiles the tests, so it downloads their modules. That download goes
@@ -124,11 +138,14 @@ XKMS_TAGS           ?= codec_json
 XKMS_COVERAGE_FLOOR ?= 90
 XKMS_SIM_DIR        ?= $(abspath build/host)
 
-## xkms-test: run the xkms adapter's tests, including the end-to-end test
-# Depends on both simulators for the reason sdk-test does: the end-to-end test
-# enrolls the REAL firmware compiled for the host, never a downloaded binary.
+## xkms-test: run the xkms adapter's tests, all but the e2e package
+# Depends on both simulators for the reason sdk-test does: the adapter's tests
+# talk to the REAL firmware compiled for the host, never a downloaded binary.
+# ./e2e is left out: it is TestHardwareEnrollment's package, which hw-enroll runs
+# against a board (#163 decision 2). Out of the list, not skipped inside it.
 xkms-test: tfwsim tfwsim-atecc608a
-	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) ./...
+	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
+	  $$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS)) ./... | grep -v '/e2e$$')
 
 ## xkms-coverage: xkms adapter statement coverage, failing if it or any package is under the floor
 xkms-coverage: tfwsim tfwsim-atecc608a
@@ -144,8 +161,8 @@ xkms-coverage: tfwsim tfwsim-atecc608a
 
 ## hw-enroll: enroll one board through device-attest-01 and write its run record (#7)
 # NOT in `ci`, for the reason bench-check is not: it needs a board on the bench.
-# The harness it runs is xkms/e2e TestHardwareEnrollment, which `xkms-test`
-# runs against tfwsim, so the only thing this adds over CI is the board.
+# The harness it runs is xkms/e2e TestHardwareEnrollment; `xkms-test` leaves
+# its package out (#163 decision 2).
 # DEVICE is the board; there is no default and no fallback to the simulator,
 # because a hardware run that cannot reach hardware is a failure. Its form picks
 # the transport: a host:port is TCP, the address this host listens on for the

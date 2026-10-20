@@ -8,10 +8,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"net"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,6 +25,10 @@ import (
 // every dial attempt while it is down (src/proto/link_eth.c tfw_link_poll),
 // and the simulator's EEPROM lives as long as its process, so a restart would
 // start from the image it was given, not from what was written.
+//
+// Simulator-only: it needs a device whose network block is erased, which is an
+// image the simulator is handed, and on a board `netcfg set` would overwrite
+// the block the board was provisioned with.
 func TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint(t *testing.T) {
 	a, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -36,11 +37,7 @@ func TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint(t *testing.T) {
 	t.Cleanup(func() { _ = l.Close() })
 
 	// The platform block alone: the network block after it stays erased.
-	platform := tfw.BuildPlatformBlock(tfwsim.TestSerial, [tfw.PubkeyHashLen]byte{}, [tfw.OperatorPubkeyLen]byte{})
-	eep := filepath.Join(t.TempDir(), "eeprom.bin")
-	require.NoError(t, os.WriteFile(eep, platform[:], 0o600))
-	serial := tfwsim.StartElementWith(t, []string{"--eth", "--eeprom-bin", eep,
-		"--provision-element", "--image-hash", hex.EncodeToString(tfwsim.TestFWHash[:])})
+	serial := tfwsim.StartElementWith(t, append([]string{"--eth"}, elementArgs(t, nil, nil)...))
 
 	var nerr *tfw.NetConfigError
 	err = run(context.Background(), serial, "netcfg", []string{"get"}, false, &bytes.Buffer{})

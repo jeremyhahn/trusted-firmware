@@ -20,11 +20,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
-	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
 )
 
 // attest-csr needs a device with a DeviceID key, so these run against the
-// element-tier simulator; the soft tier is the error case. The host asks for b
+// element tier; the soft tier is the error case. They reach it through the peer
+// seam (e2e_peer_test.go), so `make hw-test` runs them on a board, which is
+// checked against its own DeviceID key and CertificationRequestInfo digest. The host asks for b
 // and is handed 64 bytes. What the device signed is a
 // CertificationRequestInfo, which is certificate-profile work and go-xkms's;
 // tfwctl holds none of it, and nothing here but crypto/ecdsa judges the result.
@@ -61,17 +63,18 @@ func cliCSR(t *testing.T, dev *tfw.Device, b []byte) ([]byte, error) {
 	return sig, nil
 }
 
-func csrVerifies(t *testing.T, sig []byte, digestHex string) bool {
+// csrVerifiesUnder reports whether sig, raw r||s, is pub's over the digest.
+func csrVerifiesUnder(t *testing.T, pub *ecdsa.PublicKey, sig []byte, digestHex string) bool {
 	t.Helper()
 	digest, err := hex.DecodeString(digestHex)
 	require.NoError(t, err)
 	r := new(big.Int).SetBytes(sig[:tfw.CSRSigLen/2])
 	s := new(big.Int).SetBytes(sig[tfw.CSRSigLen/2:])
-	return ecdsa.Verify(tfwsim.TestDeviceIDPublicKey(), digest, r, s)
+	return ecdsa.Verify(pub, digest, r, s)
 }
 
-func TestE2EAttestCSRPrintsTheSignatureAsHex(t *testing.T) {
-	d := tfwsim.StartElement(t)
+func TestFirmwareAttestCSRPrintsTheSignatureAsHex(t *testing.T) {
+	d := startProvisioned(t).serial
 	b, err := hex.DecodeString(csrNonceHex)
 	require.NoError(t, err)
 	cliAttestCert(t, d, b)
@@ -86,38 +89,38 @@ func TestE2EAttestCSRPrintsTheSignatureAsHex(t *testing.T) {
 	assert.Len(t, sig, tfw.CSRSigLen)
 }
 
-func TestE2EAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
+func TestFirmwareAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
 	b := make([]byte, tfw.AliasNonceLen)
 	for i := range b {
 		b[i] = byte(i)
 	}
-	d := tfwsim.StartElement(t)
-	cliAttestCert(t, d, b)
-	sig, err := cliCSR(t, d, b)
+	p := startProvisioned(t)
+	cliAttestCert(t, p.serial, b)
+	sig, err := cliCSR(t, p.serial, b)
 	require.NoError(t, err)
 	assert.NotEqual(t, make([]byte, tfw.CSRSigLen), sig)
-	assert.True(t, csrVerifies(t, sig, csrDigestForTestIdentity),
+	assert.True(t, csrVerifiesUnder(t, p.deviceID(t), sig, p.criDigest(t)),
 		"the signature must verify under the DeviceID key over the pinned digest")
 }
 
-func TestE2EAttestCSRSignatureIsOverTheNonce(t *testing.T) {
-	d := tfwsim.StartElement(t)
-	cliAttestCert(t, d, aliasNonce(0x10))
-	a, err := cliCSR(t, d, aliasNonce(0x10))
+func TestFirmwareAttestCSRSignatureIsOverTheNonce(t *testing.T) {
+	p := startProvisioned(t)
+	cliAttestCert(t, p.serial, aliasNonce(0x10))
+	a, err := cliCSR(t, p.serial, aliasNonce(0x10))
 	require.NoError(t, err)
-	cliAttestCert(t, d, aliasNonce(0x20))
-	b, err := cliCSR(t, d, aliasNonce(0x20))
+	cliAttestCert(t, p.serial, aliasNonce(0x20))
+	b, err := cliCSR(t, p.serial, aliasNonce(0x20))
 	require.NoError(t, err)
 
 	assert.NotEqual(t, a, b)
-	assert.False(t, csrVerifies(t, a, csrDigestForTestIdentity), "a signature for another b is not over the pinned digest")
+	assert.False(t, csrVerifiesUnder(t, p.deviceID(t), a, p.criDigest(t)), "a signature for another b is not over the pinned digest")
 }
 
 // b with no certificate minted for it is refused as the wrong argument, as a
 // page request with no certificate behind it is: before any attest-cert, and
 // after one for another nonce. Nothing is printed.
-func TestE2EAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
-	d := tfwsim.StartElement(t)
+func TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
+	d := startProvisioned(t).serial
 	var st tfw.Status
 
 	_, err := cliCSR(t, d, aliasNonce(0x60))
@@ -136,8 +139,8 @@ func TestE2EAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
 // The software tier builds ATTEST_CSR in beside ATTEST_CERT and refuses it the
 // same way -- it has no asymmetric key to sign with -- so caps says yes and the
 // command itself says unsupported.
-func TestE2EAttestCSRReportsADeviceThatCannotIssueOne(t *testing.T) {
-	_, err := cliCSR(t, tfwsim.Start(t), aliasNonce(0x50))
+func TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne(t *testing.T) {
+	_, err := cliCSR(t, startPeer(t, simproc.Software).serial, aliasNonce(0x50))
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "got %v", err)
 	assert.Equal(t, tfw.StatusErrUnsupported, st)
@@ -184,7 +187,7 @@ func (m *meddler) Read(p []byte) (int, error) {
 
 // A device whose caps does not report bit 15 is refused by the host without
 // being asked: the same element, with the bit cleared on the way back.
-func TestE2EElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
+func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 	const featuresOff, bit15 = 10, 0x80 // byte 1 of the little-endian bitmap
 	m := &meddler{reply: func(f tfw.Frame) []byte {
 		if f.Cmd() != tfw.CmdCaps {
@@ -194,7 +197,8 @@ func TestE2EElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 		p[featuresOff+1] &^= bit15
 		return p
 	}}
-	d := tfwsim.StartElementVia(t, func(c io.ReadWriter) io.ReadWriter { m.conn = c; return m })
+	d := startPeerVia(t, func(c io.ReadWriter) io.ReadWriter { m.conn = c; return m },
+		simproc.Element, elementArgs(t, nil, nil)...).serial
 
 	require.False(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR), "the rewrite did not clear the bit")
 	_, err := cliCSR(t, d, aliasNonce(0x50))
@@ -205,8 +209,8 @@ func TestE2EElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 
 // caps names the feature, so a person can see before asking whether the
 // device will answer.
-func TestE2ECapsNamesAttestCSROnADeviceThatOffersIt(t *testing.T) {
-	d := tfwsim.StartElement(t)
+func TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt(t *testing.T) {
+	d := startProvisioned(t).serial
 	assert.True(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR))
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), d, "caps", nil, false, &out))

@@ -105,6 +105,21 @@ func TestCapsRejectsAReplyShorterThanTheBoardHeader(t *testing.T) {
 	assert.Equal(t, capsHeaderLen, se.Need)
 }
 
+// 15 bytes is the header and half the algorithm bitmap: neither format, so
+// refused rather than read as the legacy header. Longer than 16 is a newer
+// firmware's appended tail and still reads.
+func TestCapsRejectsHalfTheAlgorithmBitmap(t *testing.T) {
+	_, err := New(&cannedLink{payload: capsHeader(0x0003)[:15]}).Caps(context.Background())
+	var se *ShortReplyError
+	require.ErrorAs(t, err, &se)
+	assert.Equal(t, 15, se.Got)
+	assert.Equal(t, capsAlgorithmsEnd, se.Need)
+
+	c, err := New(&cannedLink{payload: append(capsHeader(0x0003), 0xAA)}).Caps(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, AlgorithmSet(0x0003), c.Algorithms)
+}
+
 func TestCapsRejectsAProtocolMajorItCannotParse(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

@@ -13,6 +13,13 @@ import (
 	"strings"
 )
 
+// The config blocks a template may write: PROV_WRITE_CONFIG refuses 0 and 1
+// and the config zone ends at 3 (docs/device-provisioning/api.md).
+const (
+	firstConfigBlock = 2
+	lastConfigBlock  = 3
+)
+
 // A provisioning template: which config blocks to write, and what is expected
 // in each slot afterwards.
 //
@@ -52,6 +59,10 @@ func loadTemplate(path string) (*template, error) {
 	defer func() { _ = f.Close() }()
 
 	t := &template{Blocks: map[uint8][]byte{}}
+	// The line each key was first given on. A repeated key is refused: the
+	// later value silently replacing the first is a template that provisions
+	// a part differently than it reads.
+	seen := map[string]int{}
 	sc := bufio.NewScanner(f)
 	for line := 1; sc.Scan(); line++ {
 		s := strings.TrimSpace(sc.Text())
@@ -63,6 +74,14 @@ func loadTemplate(path string) (*template, error) {
 			return nil, fmt.Errorf("%s:%d: expected key = value", path, line)
 		}
 		key, val = strings.TrimSpace(key), strings.TrimSpace(val)
+		canon := key
+		if idx, err := strconv.ParseUint(strings.TrimPrefix(key, "block"), 10, 8); err == nil && strings.HasPrefix(key, "block") {
+			canon = fmt.Sprintf("block%d", idx) // block02 is block2
+		}
+		if first, dup := seen[canon]; dup {
+			return nil, fmt.Errorf("%s:%d: %s repeats %s:%d", path, line, key, path, first)
+		}
+		seen[canon] = line
 		switch {
 		case key == "name":
 			t.Name = val
@@ -80,6 +99,10 @@ func loadTemplate(path string) (*template, error) {
 			idx, err := strconv.ParseUint(strings.TrimPrefix(key, "block"), 10, 8)
 			if err != nil {
 				return nil, fmt.Errorf("%s:%d: %q is not a block index", path, line, key)
+			}
+			if idx < firstConfigBlock || idx > lastConfigBlock {
+				return nil, fmt.Errorf("%s:%d: block %d is outside the config blocks a template may write, %d..%d",
+					path, line, idx, firstConfigBlock, lastConfigBlock)
 			}
 			raw, err := hex.DecodeString(strings.ReplaceAll(val, " ", ""))
 			if err != nil {

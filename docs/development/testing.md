@@ -93,6 +93,42 @@ the rest.
 Every harness carries a hard cycle-count bound, so a firmware that stops
 answering fails the job instead of hanging it.
 
+## Waits, not sleeps
+
+A test waits for the thing it needs — a reply arrived, a byte was read — and
+the wait has a bound. An expired bound fails the test, and the failure names
+the wait and the bound. A fixed delay is too short on a loaded runner and too
+long everywhere else, and when it is too short the failure blames the reply,
+not the wait.
+
+In the simavr harnesses the form is `run_until(done, budget)`, and
+`wait_for(done, budget, what)` where an expired bound fails the row. Each
+budget is the step count of the fixed wait it replaced, so no row got slower
+(#163). `send()` puts each byte in once the device has read the one before it.
+Two fixed paces stay in `boot_harness.c` because they are not waits:
+
+- the junk stream's one byte per character time, because that rate is the
+  input under test;
+- the host bridge's slice of free running between host bytes. tfwctl, on the
+  other end, bounds the exchange, and between bytes there is nothing to wait
+  for.
+
+`make lint-test-sleep`, part of `make lint`, fails on any `time.Sleep` in a
+`*_test.go` and any `time.sleep(` in a `test_*.py` or `*_test.py`. It prints
+`path:line: test-sleep` for each one.
+
+### Exemptions proposed to the owner
+
+In these places the elapsed time is what is under test, so the fixed interval
+is the stimulus, not a wait. They are proposed, not granted: #163 decision 4
+has no answer yet.
+
+| Site | Interval | Why it is fixed |
+|---|---|---|
+| `test/integration/simavr/harness.c`, the tick check | 1 s of emulated clock | the millisecond tick ISR's count across exactly one second is the measurement |
+| `test/integration/simavr/bench_harness.c`, the scheduler's firing sweep | 10 ms of emulated clock | the firmware's own tick must carry the millisecond counter past the deadline |
+| `sdk/go/internal/peer/peer.go`, `ResetPulse` | 100 ms of DTR held off | the pulse length is what resets the board; there is no condition to watch |
+
 ## Tier 3 — build integrity
 
 - **`size-check`** fails the build when an image exceeds its board budget. It is
@@ -128,9 +164,11 @@ make flash   BOARD=atmega2560 AVRDUDE_PORT=/dev/ttyACM0
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0
 ```
 
-`make hw-test` runs the SDK's cross-implementation suite, the
-`TestAgainstFirmware*` tests that `make sdk-test` runs against `tfwsim`,
-against the image flashed on a real board. It is the same suite, not a copy.
+`make hw-test` runs the cross-implementation scenarios, the `tfwctl`
+`TestFirmware*` tests that `make sdk-test` runs against `tfwsim`, against the
+image flashed on a real board. Which rows those are, and the board each needs,
+is tabled under [Which rows run on a board](#which-rows-run-on-a-board). Each drives one `tfwctl` verb and keeps its
+refusals. They are the same scenarios, not a copy.
 The one difference is the transport, chosen in `sdk/go/internal/peer`:
 
 - With `TFW_HW_PORT` unset, which is every CI run, the peer is `tfwsim`.
@@ -145,8 +183,8 @@ It does not rely on opening the port to reset the board. A port left with
 `-hupcl`, for example by a probe run's `stty`, keeps DTR up across close and
 open. The board would then not reset and would send no BOOT event.
 
-`BOARD` selects the pin facts the suite expects (`peerBoards` in
-`sdk/go/tfwsim_test.go`), and `CAPS` must report that board. `tfwsim` is the
+`BOARD` selects the pin facts the scenarios expect (`peerBoards` in
+`sdk/go/cmd/tfwctl/e2e_firmware_test.go`), and `CAPS` must report that board. `tfwsim` is the
 328P. A board that is not in that table fails the run. So do a missing `PORT`,
 a port that does not exist, and a board that does not answer within the
 bound. None of these is a skip. Flash the image first: the target tests what
@@ -155,6 +193,98 @@ is on the board and flashes nothing.
 It is outside `make ci` because CI has no board. The seam itself is
 unit-tested on the host (`sdk/go/internal/peer`), and that test is in
 `make sdk-test`.
+
+### Which rows run on a board
+
+```sh
+make hw-test BOARD=<board> PORT=<serial port> [ETH=<ip:port>] \
+  DEVICEID=<hex X||Y> CRI_DIGEST=<hex> OPERATOR_KEY=<operator key PEM>
+```
+
+That one command runs every row below. Each reaches its device through
+`sdk/go/cmd/tfwctl/e2e_peer_test.go`, the serial rows' side of the seam. The
+rows need different images, so no single board passes them all. Each row checks
+the crypto tier its image needs before anything else, and a board flashed with
+the other tier fails the row with the tier named. It is never skipped. To run
+only the rows one image serves, narrow the run with `HW_TEST_RUN`, for example
+`HW_TEST_RUN='^TestFirmwareOTA'`.
+
+| File | Rows (`TestFirmware*`) | The board they need | Values they take |
+|---|---|---|---|
+| `e2e_firmware_test.go` | every row | soft tier | `BOARD` |
+| `e2e_dice_test.go` | the seven alias-certificate and evidence rows, `AttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement` and `ElementReportsItsRootOfTrust` | element tier, provisioned | `DEVICEID` |
+| `e2e_dice_test.go` | `BlankElementRefusesToAttest` | element tier, not yet provisioned | — |
+| `e2e_dice_test.go` | `SoftwareTierStillCannotIssueACertificate` | soft tier | — |
+| `e2e_auth_test.go` | the five AUTH rows | element tier, provisioned with an operator key | `OPERATOR_KEY` |
+| `e2e_attestcsr_test.go` | the four signature and caps rows, `AttestCSRRefusesBWithNoCertificateMintedForIt` and `ElementWithoutTheCapsBitIsRefusedAsUnsupported` | element tier, provisioned | `DEVICEID`, `CRI_DIGEST` |
+| `e2e_attestcsr_test.go` | `AttestCSRReportsADeviceThatCannotIssueOne` | soft tier | — |
+| `e2e_ota_test.go` | `OTAAuthLetsTheCommandPastTheGate` | soft tier with the OTA stager | — |
+| `e2e_ota_test.go` | `OTAInfo`, `OTAActivate`, `OTAConfirm` | element tier with the OTA stager, provisioned with an operator key, OTA state fresh | `OPERATOR_KEY` |
+| `e2e_app_test.go` | `AppReportsItsApplication` | the heartbeat application image | — |
+| `e2e_app_test.go` | `AppIsAnUnknownCommandWithoutAnApplication` | soft tier, no application | — |
+
+On a board, a row checks the identity the board reports over `PORT`: its serial
+number and FWHash. It checks the DeviceID key against `DEVICEID` and the CSR
+digest against `CRI_DIGEST`, both described in the next section. The operator
+key is `OPERATOR_KEY`, the PEM file of the key `tfwprov` provisioned the board
+to trust, in the form `tfwctl auth` reads. `hw-test` passes it as
+`TFW_HW_OPERATOR_KEY`. A row that needs one of these values fails when it is
+unset and names the value.
+
+The OTA rows hand over any 64 bytes as the signature. The application only
+holds that signature; tfw-boot verifies it at reset. So the image
+`ota-activate` leaves PENDING on a board is refused at the board's next reset.
+
+These rows stay on `tfwsim` and keep their `TestE2E*` names, so `hw-test` does
+not run them:
+
+| Row | Why it is simulator-only |
+|---|---|
+| `TestE2EAttestCertSameNonceIsReproducible` | the element model signs with a deterministic k; the part draws its own |
+| `TestE2EAttestRejectsAWrongLengthNonceBeforeTheWire` | it reaches no device |
+| `TestE2EAttestCertCarriesTheApplicationsEvidence` | it holds the evidence frame's FWHash to the known `TestFWHash`; a board's FWHash is read from claim 273, which on this image carries the application's bytes |
+| `TestE2ETheDefaultElementHasNoOperatorToAuthenticate` | it pins the simulator's default, a zero operator key; a board's is whatever `tfwprov` wrote |
+| `TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint` | it needs an erased network block, an image only the simulator is handed, and on a board `netcfg set` would overwrite the provisioned block |
+| `TestE2ESimprocStartRunsTheSimulatorAndCloseEndsIt` | it tests the simulator process itself |
+| every row of `e2e_auto_test.go` | they vary whether the element answers, a simulator option; a board is wired one way |
+| every row of `e2e_launch_test.go` | they test the simulator's launch options, and a board has none |
+
+### The Ethernet rows on a board
+
+```sh
+make hw-test BOARD=<board> PORT=<serial port> ETH=<ip:port> DEVICEID=<hex X||Y> CRI_DIGEST=<hex>
+```
+
+`ETH` adds the `TestEthernet*` rows to the run: every row of
+`sdk/go/cmd/tfwctl/e2e_ethernet_test.go` (CAPS, ATTEST, the alias certificate,
+the CSR signature, the allow-list refusals, the OTA staging ids, AUTH and
+OTA_ACTIVATE refused, serial and Ethernet side by side, the network block read
+back) and the two staging rows of `e2e_ota_test.go`. `ETH` is the `ip:port` on
+the bench host that the board's network block names as its endpoint
+(`tfwctl netcfg`); `hw-test` passes it as `TFW_HW_ETH`, and it has no default.
+
+The rows take the same seam as the serial ones. Each listens where
+`peer.Target.Listen` says: a loopback port the kernel picks for `tfwsim`,
+written into the simulator's network block, or `ETH` on a board. Each then
+starts the device through `peer.Start`, which resets a board through `PORT`,
+and waits for the device to dial, up to 30 s. There is no wall-clock wait. A
+board that never dials fails the row, and so do `ETH` without `PORT`, an `ETH`
+that is not an `ip:port`, and port 0.
+
+The assertions are the same on both peers. Where a row checks the device's
+identity, `tfwsim` is expected to answer as the documented test identity. A
+board is expected to answer as itself:
+
+- its crypto tier and serial number are the ones it reports over `PORT`;
+- its DeviceID key is `DEVICEID`, the hex X||Y `tfwprov --commit` printed (the
+  same value `hw-enroll` takes);
+- the CSR row's digest is `CRI_DIGEST`, the SHA-256 of the
+  CertificationRequestInfo the board signs for b = 00 01 … 1f. go-xkms builds
+  that structure (go-xkms#1441), and `tfwctl` does not.
+
+A row that needs `DEVICEID` or `CRI_DIGEST` fails when it is unset. The rows
+expect an element-tier image: CAPS must report the attestation commands, and
+the staging rows need the OTA stager linked.
 
 ## Enrolling a real board — `make hw-enroll` (not a gate)
 
@@ -165,8 +295,9 @@ make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex X||Y from tfwprov>
 This is issue #7's recorded run. It enrolls a flashed, provisioned
 element-tier board through device-attest-01 and writes a run record to commit
 under `docs/development/enrollment-runs/`. The harness is
-`TestHardwareEnrollment` (`xkms/e2e`), and `make xkms-test` runs it against
-`tfwsim`. Without `DEVICE` it fails. The procedure, the preconditions and
+`TestHardwareEnrollment` (`xkms/e2e`); `make hw-enroll` runs it on a board, and
+`make xkms-test` leaves the `xkms/e2e` package out (#163 decision 2).
+Without `DEVICE` it fails. The procedure, the preconditions and
 their blockers are in
 **[docs/development/hardware-enrollment.md](hardware-enrollment.md)**.
 
@@ -197,6 +328,7 @@ make platform-bake-build-check  # in `make ci`: the bench bake image links for b
 make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
 make xkms-security xkms-deps-check  # its security and latest-version checks; the same job
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0  # the cross-implementation suite on a flashed board
+make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0 ETH=<ip:port> DEVICEID=<hex> CRI_DIGEST=<hex> OPERATOR_KEY=<pem>  # every row a board runs, the Ethernet rows too
 make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex>  # issue #7's enrollment run on a provisioned board
 ```
 

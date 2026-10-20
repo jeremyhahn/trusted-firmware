@@ -85,8 +85,13 @@ func (d *Device) Caps(ctx context.Context) (*Caps, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(f.Payload) < capsHeaderLen {
-		return nil, &ShortReplyError{Cmd: CmdCaps, Got: len(f.Payload), Need: capsHeaderLen}
+	// Exactly the legacy header, or at least the header with the algorithm
+	// bitmap: a length in between is half a field, not an older format.
+	switch n := len(f.Payload); {
+	case n < capsHeaderLen:
+		return nil, &ShortReplyError{Cmd: CmdCaps, Got: n, Need: capsHeaderLen}
+	case n > capsHeaderLen && n < capsAlgorithmsEnd:
+		return nil, &ShortReplyError{Cmd: CmdCaps, Got: n, Need: capsAlgorithmsEnd}
 	}
 	p := f.Payload
 	c := &Caps{
@@ -172,8 +177,15 @@ func (d *Device) SysInfo(ctx context.Context) (*SysInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(f.Payload) < sysInfoLen {
-		return nil, &ShortReplyError{Cmd: CmdSysInfo, Got: len(f.Payload), Need: sysInfoLen}
+	// Each appended tail is whole or absent: 7, 11 or at least 15 bytes. A
+	// length in between is a field cut in half, not an older format.
+	switch n := len(f.Payload); {
+	case n < sysInfoLen:
+		return nil, &ShortReplyError{Cmd: CmdSysInfo, Got: n, Need: sysInfoLen}
+	case n > sysInfoLen && n < sysInfoErrCountersEnd:
+		return nil, &ShortReplyError{Cmd: CmdSysInfo, Got: n, Need: sysInfoErrCountersEnd}
+	case n > sysInfoErrCountersEnd && n < sysInfoFreeRAM32End:
+		return nil, &ShortReplyError{Cmd: CmdSysInfo, Got: n, Need: sysInfoFreeRAM32End}
 	}
 	p := f.Payload
 	si := &SysInfo{
@@ -459,7 +471,7 @@ func (d *Device) EEPROMRead(ctx context.Context, addr uint16, n uint8) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	return f.Payload, nil
+	return exactReply(CmdEEPROMRead, f.Payload, int(n))
 }
 
 // EEPROMWrite writes up to EEPROMChunk bytes at or above EEPROMReservedEnd,
@@ -517,6 +529,16 @@ func pulseTimeout(cmd Cmd, timeout time.Duration) (uint32, error) {
 	return uint32(us), nil
 }
 
+// exactReply returns a data reply that is exactly the n bytes the request
+// asked for. Shorter or longer is the two ends disagreeing about the reply,
+// never data: a cut read printed as the bytes would be a wrong answer.
+func exactReply(cmd Cmd, p []byte, n int) ([]byte, error) {
+	if len(p) != n {
+		return nil, &ShortReplyError{Cmd: cmd, Got: len(p), Need: n}
+	}
+	return p, nil
+}
+
 // PulseIn measures one pulse of the given level.
 func (d *Device) PulseIn(ctx context.Context, pin uint8, high bool, timeout time.Duration) (time.Duration, error) {
 	level := byte(0)
@@ -566,9 +588,10 @@ func (d *Device) PulseCapture(ctx context.Context, pin uint8, startHigh bool, ma
 	if len(f.Payload) < 1 {
 		return nil, &ShortReplyError{Cmd: CmdPulseCapture, Got: len(f.Payload), Need: 1}
 	}
+	// More edges than max_edges is a count the request never asked for.
 	n := int(f.Payload[0])
-	if len(f.Payload) < 1+n*2 {
-		return nil, &ShortReplyError{Cmd: CmdPulseCapture, Got: len(f.Payload), Need: 1 + n*2}
+	if n > int(maxEdges) || len(f.Payload) != 1+n*2 {
+		return nil, &ShortReplyError{Cmd: CmdPulseCapture, Got: len(f.Payload), Need: 1 + min(n, int(maxEdges))*2}
 	}
 	out := make([]uint16, n)
 	for i := range out {
@@ -591,7 +614,7 @@ func (d *Device) I2CTransfer(ctx context.Context, addr7 uint8, write []byte, rea
 	if err != nil {
 		return nil, err
 	}
-	return f.Payload, nil
+	return exactReply(CmdI2CXfer, f.Payload, int(readLen))
 }
 
 // SPITransfer clocks len(write) bytes out and the same number in, with the
@@ -601,7 +624,7 @@ func (d *Device) SPITransfer(ctx context.Context, cs uint8, write []byte) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	return f.Payload, nil
+	return exactReply(CmdSPIXfer, f.Payload, len(write))
 }
 
 // I2CClockMin and I2CClockMax bound what SetI2CClock will send. Mirrors
@@ -715,5 +738,5 @@ func (d *Device) OneWireRead(ctx context.Context, pin uint8, n uint8) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return f.Payload, nil
+	return exactReply(CmdOneWireRead, f.Payload, int(n))
 }

@@ -191,7 +191,7 @@ func TestRunVerifyNamesEveryProblem(t *testing.T) {
 		want []string
 	}{
 		{"an unlocked, unkeyed part", &element{pub: make([]byte, 64)}, tfw.ElementInfo{},
-			[]string{"config zone is not locked", "data zone is not locked", "config blocks 2+ are not read back", "DeviceID slot holds no key"}},
+			[]string{"config zone is not locked", "data zone is not locked", "config blocks 2..3 are not read back", "DeviceID slot holds no key"}},
 		{"an unreadable key", &element{refuseCmd: tfw.CmdProvPubKey, refuseNth: 1, refuseStatus: tfw.StatusErrUnknownCmd},
 			tfw.ElementInfo{ConfigLocked: true, DataLocked: true},
 			[]string{"DeviceID public key unreadable: "}},

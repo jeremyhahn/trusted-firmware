@@ -264,7 +264,7 @@ frame is sent where the check does not require the device.
 - **Template:** a `key = value` file (not YAML — see
   [`architecture.md`](architecture.md) for why), parsed by
   `sdk/go/cmd/tfwprov/template.go`. Required keys: `name`, `block<N>` (32 bytes
-  hex, N ≥ 2), `config_lock_crc`, `data_lock_crc` (both non-zero). See
+  hex, N is 2 or 3), `config_lock_crc`, `data_lock_crc` (both non-zero). See
   [`api.md`](api.md) for the format and `sdk/go/templates/atecc608a-dice.conf`
   for the shipped example.
 
@@ -325,7 +325,7 @@ proposed answer are in [the slot-map ADR](adr-trustflex-608c-slot-map.md).
 | Go unit | `sdk/go/platform_test.go` | `BuildPlatformBlock`'s layout, CRC coverage and tamper detection |
 | Firmware unit (cross-language) | `test/unit/boot/test_boot_platform.c`'s `test_a_baked_eeprom_image_is_decoded_correctly` | a LITERAL byte-for-byte capture of what `tfwprov --bake-eeprom` actually wrote, decoded by `tfw_boot_platform_parse` — the two implementations of one layout checked against each other's output, not just against themselves |
 | Firmware unit (bake image) | `test/unit/test_platform_bake.c`, linked against the mock HAL | the bench bake image's decision on a LITERAL `tfwprov --bake-eeprom` block — blank and torn regions baked with exactly 192 bytes and nothing past them, an equal block `already` with nothing written, a different valid block `refused` and left alone, a stuck cell `readback-failed`, an invalid carried block never written, the exact result line |
-| Simulator / tfwsim | `sdk/go/tfwsim_test.go` | wire-level EEPROM reserved-region enforcement (`EEPROMWrite` at `0x000`, `0x07F`, `0x100`) exercised against the real firmware build, not a model |
+| Simulator / tfwsim | `sdk/go/cmd/tfwctl/e2e_firmware_test.go` (`TestFirmwareEEPROM`) | wire-level EEPROM reserved-region enforcement (`tfwctl eeprom-write` at `0x000`, `0x0BF`, `0x100`) exercised against the real firmware build, not a model |
 | Integration (simavr) | `test/integration/simavr/boot_harness.c`'s `test_signed_image_boots` | a serial baked into the emulated EEPROM reaches `ATTEST`'s `DeviceID` over the real wire, through `tfw_platform_id_init`, on the real compiled application — end to end, not mocked |
 
 Run `test-provision`-equivalent unit targets per the top-level `Makefile`

@@ -1190,3 +1190,21 @@ header-deps-check:
 # stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
 $(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ATECC608A driver's I2C transactions mutated (#163): atecc.c alone, with the
+# bus faked in the suite, so no mock HAL and no software element. It stays in
+# TEST_SRCS; this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_atecc_mutate: test/unit/test_atecc_mutate.c src/crypto/atecc608a/atecc.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -o $@ $^ $(EXTRA_LDFLAGS)
+
+# A trial whose platform block leaves TRIAL before its deadline (#163), on
+# test_ota_trial's link. It stays in TEST_SRCS; this explicit rule takes the
+# place of the pattern rule.
+$(HOST_DIR)/test_ota_trial_leave: test/unit/test_ota_trial_leave.c src/core/ota_trial.c src/core/ota_trial_block.c \
+                        test/mock/runner_fake.c \
+                        boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c \
+                        src/core/secure_zero.c boot/boot_handoff.c \
+                        src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

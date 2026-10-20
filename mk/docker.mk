@@ -67,10 +67,20 @@ ESP32_CACHE_FROM     = $(call cache_from,$(ESP32_IMAGE) $(ESP32_TRUSTED) $(ESP32
 IMAGE_PULL        ?= 0
 IMAGE_PUSH        ?= 0
 
-# The integration image bakes the source in, so it stays per run. It is FROM
-# base, whose layers the toolchain image carries, so it builds with the
-# toolchain image as its cache and only its source layers are new.
-IT_IMAGE          ?= trusted-firmware-it:local
+# The integration image bakes the source in, so it is tagged by its whole build
+# context (ci-standard.md §9, ci-template v1.23): the commit's tree, on a dirty
+# checkout the diff and every untracked file .gitignore keeps, and the one
+# build arg the tree does not hold, GO_BUILD_PROXY (the pins are in
+# scripts/tool-pins.sh). Runs of one tree on one runner share one image, and
+# docker-build-it skips the build when the daemon holds the tag. The hash is
+# taken once per make, and only when IT_IMAGE is read. It is FROM base, whose
+# layers the toolchain image carries, so it builds with the toolchain image as
+# its cache and only its source layers are new.
+IT_TAG             = $(eval IT_TAG := $(shell { git rev-parse 'HEAD^{tree}'; \
+                       echo '$(GO_BUILD_PROXY)'; git diff HEAD --binary; \
+                       git ls-files -z --others --exclude-standard | xargs -0r sha256sum; } | \
+                       sha256sum | cut -c1-16))$(IT_TAG)
+IT_IMAGE          ?= trusted-firmware-ci-it:$(IT_TAG)
 IT_PROJECT        ?= trusted-firmware-it-local
 # What the integration service runs: the suites, in place (mk/stages.mk).
 IT_CMD            ?= make integration-test-host
@@ -111,6 +121,10 @@ toolchain-image:
 esp32-image:
 	@echo $(ESP32_IMAGE)
 
+## it-image: print the integration image's name (`make -s it-image`)
+it-image:
+	@echo $(IT_IMAGE)
+
 ## toolchain-hash: print the hash of the toolchain image's inputs, its tag
 toolchain-hash:
 	@echo $(TOOLCHAIN_TAG)
@@ -148,11 +162,17 @@ docker-build-esp32:
 	@$(DOCKER) tag $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) $(ESP32_IMAGE)
 	@$(DOCKER) image rm $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) >/dev/null
 
-## docker-build-it: build the integration image (IT_IMAGE), the source baked in
+## docker-build-it: build the integration image (IT_IMAGE), the source baked in, unless the daemon holds it
 docker-build-it:
-	@$(DOCKER_BUILD) --target integration \
-	  $(call cache_from_refs,$(TOOLCHAIN_IMAGE) $(TOOLCHAIN_TRUSTED) $(TOOLCHAIN_CACHE)) \
-	  -t $(IT_IMAGE) .
+	@if $(DOCKER) image inspect $(IT_IMAGE) >/dev/null 2>&1; then \
+	  echo "==> $(IT_IMAGE) is on the daemon; reusing it"; \
+	else \
+	  $(DOCKER_BUILD) --target integration \
+	    $(call cache_from_refs,$(TOOLCHAIN_IMAGE) $(TOOLCHAIN_TRUSTED) $(TOOLCHAIN_CACHE)) \
+	    -t $(IT_IMAGE)-$(IMAGE_BUILD_ID) . && \
+	  $(DOCKER) tag $(IT_IMAGE)-$(IMAGE_BUILD_ID) $(IT_IMAGE) && \
+	  $(DOCKER) image rm $(IT_IMAGE)-$(IMAGE_BUILD_ID) >/dev/null; \
+	fi
 
 ## docker-run: run CMD, a shell by default, in the toolchain image with the tree mounted
 docker-run:
@@ -166,4 +186,4 @@ docker-ci:
 docker-firmware:
 	@$(DOCKER) run --rm $(DOCKER_USER) $(DOCKER_ENV) -v "$(CURDIR)":/src $(TOOLCHAIN_IMAGE) make firmware BOARD=$(BOARD)
 
-.PHONY: toolchain-image esp32-image toolchain-hash esp32-hash docker-build docker-images docker-image-toolchain docker-image-esp32 docker-build-toolchain docker-build-esp32 docker-build-it docker-run docker-ci docker-firmware
+.PHONY: toolchain-image esp32-image it-image toolchain-hash esp32-hash docker-build docker-images docker-image-toolchain docker-image-esp32 docker-build-toolchain docker-build-esp32 docker-build-it docker-run docker-ci docker-firmware

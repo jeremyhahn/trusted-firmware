@@ -22,6 +22,9 @@
  *   tfw-boot's CDI handoff   --image-hash HEX64 a block built by the SAME
  *                                              builder tfw-boot uses
  *                                              (boot/boot_handoff.c)
+ *   ...from a soft tfw-boot  --boot-tier soft   the handoff names the soft
+ *                                              tier, as BOOT_TIER=soft's does;
+ *                                              the default names the element
  *
  * Element provisioning is seeded directly rather than driven over the wire:
  * the provisioning commands exist only in a jig image (TFW_FEATURE_PROVISION),
@@ -46,6 +49,7 @@ static size_t   eeprom_len;
 static uint8_t  provision_element;
 static uint8_t  no_element;
 static uint8_t  have_image_hash;
+static uint8_t  boot_tier = (uint8_t)TFW_CRYPTO_SECURE_ELEMENT;
 static uint8_t  image_hash[TFW_BOOT_MEASURE_LEN];
 
 /* ------------------------------------------------------------ parsing */
@@ -201,6 +205,20 @@ int tfwsim_tier_option(int argc, char **argv)
         no_element = 1u;
         return 1;
     }
+    /* tfwsim-auto (issue #130): the CDI a soft tfw-boot hands off, derived
+     * from its UDS in boot-section flash, so a board with no element carries
+     * the soft root's identity. */
+    if (strcmp(argv[0], "--boot-tier") == 0) {
+        if (argc < 2) { return fail(argv[0], "needs a value"); }
+        if (strcmp(argv[1], "soft") == 0) {
+            boot_tier = (uint8_t)TFW_CRYPTO_SOFTWARE;
+        } else if (strcmp(argv[1], "element") == 0) {
+            boot_tier = (uint8_t)TFW_CRYPTO_SECURE_ELEMENT;
+        } else {
+            return fail("--boot-tier", "want soft or element");
+        }
+        return 2;
+    }
     if (strcmp(argv[0], "--eeprom") == 0 || strcmp(argv[0], "--eeprom-bin") == 0 ||
         strcmp(argv[0], "--image-hash") == 0) {
         if (argc < 2) { return fail(argv[0], "needs a value"); }
@@ -219,7 +237,7 @@ int tfwsim_tier_option(int argc, char **argv)
 const char *tfwsim_tier_usage(void)
 {
     return " [--eeprom FILE.eep | --eeprom-bin FILE] [--provision-element]"
-           " [--image-hash HEX64] [--no-element]";
+           " [--image-hash HEX64] [--boot-tier soft|element] [--no-element]";
 }
 
 /*
@@ -255,7 +273,7 @@ void tfwsim_tier_seed(void)
         uint8_t cdi[TFW_BOOT_MEASURE_LEN];
 
         test_cdi(cdi);
-        tfw_boot_handoff_build(tfw_mock_handoff(), (uint8_t)TFW_CRYPTO_SECURE_ELEMENT,
+        tfw_boot_handoff_build(tfw_mock_handoff(), boot_tier,
                               cdi, image_hash, 1u, TFW_RESET_POWER_ON);
     }
 }

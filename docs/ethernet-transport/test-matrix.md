@@ -649,7 +649,7 @@ opens, which drops a staged session before a separate `ota-activate` run
 starts. So a short program, kept outside the repository with its own `go.mod`
 and a `replace` to `sdk/go`, ran every step below on one connection through
 `sdk/go`. It staged the image `stageImage(1024, 700)` builds in
-`sdk/go/tfwsim/ota_test.go:19`, with the trailer's board id set to the
+`sdk/go/cmd/tfwctl/e2e_ethernet_test.go:89`, with the trailer's board id set to the
 2560's (0x02). The board reported no boot event during either run.
 
 | # | What ran | Result |
@@ -658,9 +658,9 @@ and a `replace` to `sdk/go`, ran every step below on one connection through
 | 1 | The image above flashed with `make flash ... OTA_STAGE=1` (`-D`) | Pass. avrdude wrote and verified 23464 bytes. CAPS: root of trust `software`; features `gpio sched analog pwm tone pulse eeprom i2c spi onewire attest attest-cert auth attest-csr` |
 | 2 | `OTA_INFO` slot 1, before staging and after every step below | `TFW_ERR_BAD_STATE` (19) every time. Slot 1 never read PENDING |
 | 3 | `StageImage`, 1024 bytes | `TFW_ERR_UNSUPPORTED` (7) at `OTA_END`; `OTA_STATUS` then reads failed, 1024 bytes received. The first run, with the simulator's board id 0x01, answered the same. The cause is below: this board has no store fitted. **No image was staged** |
-| 4 | `OTA_ACTIVATE` mode 0, no `OTA_AUTH` | `TFW_ERR_AUTH_REQUIRED` (17), as `sdk/go/tfwsim/ota_test.go:127` pins |
-| 5 | `OTA_AUTH` with 64 bytes of 0xA5, then `OTA_ACTIVATE` mode 0 | `OTA_AUTH`: `TFW_OK` (0); the soft tier holds the signature and does not verify it (tfw-boot does, at reset; `ota_test.go:108`). `OTA_ACTIVATE`: `TFW_ERR_BAD_STATE` (19), past the gate, because step 3 left no complete image. The case the brief asked for, a held invalid signature against a staged image, did not run |
-| 6 | `OTA_CONFIRM`, no `OTA_AUTH` | `TFW_ERR_AUTH_REQUIRED` (17), as `ota_test.go:130` pins |
+| 4 | `OTA_ACTIVATE` mode 0, no `OTA_AUTH` | `TFW_ERR_AUTH_REQUIRED` (17), as `sdk/go/cmd/tfwctl/e2e_ota_test.go:132` pins |
+| 5 | `OTA_AUTH` with 64 bytes of 0xA5, then `OTA_ACTIVATE` mode 0 | `OTA_AUTH`: `TFW_OK` (0); the soft tier holds the signature and does not verify it (tfw-boot does, at reset; `e2e_ota_test.go:92`). `OTA_ACTIVATE`: `TFW_ERR_BAD_STATE` (19), past the gate, because step 3 left no complete image. The case the brief asked for, a held invalid signature against a staged image, did not run |
+| 6 | `OTA_CONFIRM`, no `OTA_AUTH` | `TFW_ERR_AUTH_REQUIRED` (17), as `e2e_ota_test.go:151` pins |
 | 7 | 99fee93's soft `.hex` (`bb0da896…b451a11`) written back through the stock bootloader with `-D` | Pass. avrdude wrote and verified 13672 bytes. `caps` answers exactly as before the pass |
 | 8 | `0x000`–`0x0FF` read after the restore | Equal to the first read, byte for byte. No byte was changed, so none was restored |
 
@@ -686,7 +686,8 @@ driver, and it needs a NOR on D8. The Nano's row links no stager (`OTA_STAGE=0`,
 a staged image, did not run on hardware. Showing it on the board needs an SPI NOR
 wired to D8 with the SPI bus on D50–D53, which is a cabling question for the
 owner. Until then the host suite (`test/unit/test_ota_stage.c`) and tfwsim
-(`sdk/go/tfwsim/ota_test.go:110`) are where that case runs.
+(`sdk/go/cmd/tfwctl/e2e_ota_test.go:140`, an image staged and activated
+under a held signature the simulator does not verify) are where that case runs.
 
 ## The bench Mega with its Ethernet shield on main efa1bac, 2026-10-18
 

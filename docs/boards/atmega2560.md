@@ -39,20 +39,29 @@ High Byte table; section number not confirmed).
 
 `ETH=1` is this board's default (`profile.mk:51`, owner ruling, issue #55 item
 48): `make firmware BOARD=atmega2560` with no `ETH=` builds the Ethernet image,
-with the OTA stager. The shieldless bench Mega is a named row of its own,
-`ETH=0`, on both tiers (`profile.mk:52`). `make firmware-matrix` builds and
-size-checks all four:
+with the OTA stager. The default tier is `CRYPTO=auto` (`profile.mk:56`,
+owner ruling of 2026-10-17, #130): one image that runs the element when one
+answers at init, else the soft DICE root. The shieldless bench Mega is a named
+row of its own, `ETH=0`, on every tier (`profile.mk:59`–`60`).
+`make firmware-matrix` builds and size-checks all six:
 
 | Row | Settings |
 |---|---|
-| Software tier, Ethernet (the default) | `CRYPTO=soft` (`ETH=1`) |
+| The runtime tier, Ethernet (the default) | `CRYPTO=auto` (`ETH=1`) |
+| Software tier, Ethernet | `CRYPTO=soft` (`ETH=1`) |
 | Element tier, Ethernet | `CRYPTO=atecc608a` (`ETH=1`) |
+| The runtime tier, the shieldless bench Mega | `CRYPTO=auto ETH=0` |
 | Software tier, the shieldless bench Mega | `CRYPTO=soft ETH=0` |
 | Element tier, the shieldless bench Mega | `CRYPTO=atecc608a ETH=0` |
 
 The boot harness's serial legs and `make bench-check` name `ETH=0`
-(`mk/boot.mk`, `mk/bench.mk`). The ATECC608C is never required: the software
-tier, with the soft DICE root, is the default.
+(`mk/boot.mk`, `mk/bench.mk`). The ATECC608C is never required: with no element
+on the bus the default image runs the soft DICE root, and its evidence names that
+root by its algorithm, HMAC-SHA256, where the element's is ES256 (the `tfwctl`
+E2E `TestE2EAutoWithNoElementAttestsOnTheSoftRoot`). The soft root's identity
+is the CDI a soft tfw-boot derives from the UDS in boot-section flash under the
+lock bits; behind the stock bootloader the image runs but `ATTEST` answers "no
+provisioned identity".
 
 The element tier over Ethernet measured 1 027 bytes of RAM (`.bss` 946,
 `.noinit` 1, the handoff block 80), over the old 1 024-byte gate. No static

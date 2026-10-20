@@ -359,8 +359,12 @@ in its `profile.mk`; `mk/firmware.mk` adds `src/core/suit.c` to the object
 list). The 328P and 32U4 keep the trailer alone under their 16 384-byte line,
 and the software tier has no stored key to verify against.
 
-Nothing calls the gate yet: the stager (below) does not, and there is no
-`OTA_ACTIVATE`, so `--gc-sections` drops it and no image grows. Carriage, the
+On AVR nothing calls the gate yet: the stager (below) does not, and
+`OTA_ACTIVATE` (`src/core/ota_activate.c`) checks the authorization and the
+`MARK`, not an envelope, so `--gc-sections` drops it and no image grows.
+Ruling 3 (CA m499) puts it in `tfw-boot` before activation; that is not done.
+The ESP32's layer 0 calls it, after the trailer, at the trial boot
+(`boot/hal/esp32/l0_gate.c`). Carriage, the
 envelope after the image in the same `OTA_DATA` stream and counted in
 `OTA_BEGIN`'s total, is open question 5 and is not wired.
 
@@ -397,7 +401,7 @@ the shield's.
 `tfwsim` links the stager with `test/model/spi_nor_model.c`, a software
 25-series part, as the store. `make test` runs the stager against the model.
 The SDK's `StageImage` stages over serial and TCP in
-`sdk/go/tfwsim/ota_test.go`.
+`sdk/go/cmd/tfwctl/e2e_ota_test.go`.
 
 ### tfw-boot's copy of STAGE (#75)
 
@@ -699,11 +703,11 @@ deadline on the emulated part, with no reset from the harness.
 
 | Link of the round | Under simavr | Where else |
 |---|---|---|
-| `OTA_BEGIN`/`OTA_DATA`/`OTA_END` over TCP through the W5100 into the 2560's stager and store (`ETH=1`), then tfw-boot's copy and the trial | yes, `test_a_network_staged_image_runs_its_trial` (`boot_harness ... net`): the W5x00 model (`test/model/w5x00_model.c`) on the emulated SPI bus behind D10, beside the NOR part behind D8, and the harness the TCP peer through the model's peer calls; the W5100 only, the board's `ETH_CHIP` | `tfwsim`, `sdk/go/tfwsim/ota_test.go`, serial and TCP; the bench |
+| `OTA_BEGIN`/`OTA_DATA`/`OTA_END` over TCP through the W5100 into the 2560's stager and store (`ETH=1`), then tfw-boot's copy and the trial | yes, `test_a_network_staged_image_runs_its_trial` (`boot_harness ... net`): the W5x00 model (`test/model/w5x00_model.c`) on the emulated SPI bus behind D10, beside the NOR part behind D8, and the harness the TCP peer through the model's peer calls; the W5100 only, the board's `ETH_CHIP` | `tfwsim`, `sdk/go/cmd/tfwctl/e2e_ota_test.go`, serial and TCP; the bench |
 | the host's `(*Device).StageImage` over the emulated UART into the 2560's stager and store (`OTA_STAGE=1`), then tfw-boot's copy and the trial | yes, `TestOTAStageThroughTfwBoot` against the harness's bridge mode (`boot_harness ... bridge`); the trial state is asserted by the harness, not over the wire | `TestOTAStageAgainstFirmware`, on `tfwsim` |
 | tfw-boot reads `MARK` and `STAGE`, checks, copies into the secondary, swaps in, arms `TRIAL`, the application boots | yes, `test_a_store_image_runs_its_trial_and_settles` | `test_boot_stage_2560`, `test_boot_swap` |
 | `CONFIRMED` at reset: the floor advances to the version, `GOOD`; the mark is not copied again | yes, same test; the harness leaves `OTA_CONFIRM`'s request record and resets; tfw-boot confirms, settles and clears it | `test_boot_trial`, `test_boot_swap` |
-| `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | decision 8 proposed them; they landed on the wire at `0x6D` and `0x6E`, beside `OTA_INFO` at `0x6C` (`include/tfw/protocol.h`), `OTA_ACTIVATE` with `TFW_FEATURE_OTA_ACTIVATE` and the other two with `TFW_FEATURE_OTA_CTL` (`src/core/commands.def`), serial only (`src/proto/link_eth.c`); `boot_harness.c` sends `OTA_ACTIVATE` over the emulated UART | `test_ota_stage`, `test_ota_single`; `tfwsim`, `sdk/go/tfwsim/ota_test.go` |
+| `OTA_ACTIVATE` and `OTA_CONFIRM` from the application | decision 8 proposed them; they landed on the wire at `0x6D` and `0x6E`, beside `OTA_INFO` at `0x6C` (`include/tfw/protocol.h`), `OTA_ACTIVATE` with `TFW_FEATURE_OTA_ACTIVATE` and the other two with `TFW_FEATURE_OTA_CTL` (`src/core/commands.def`), serial only (`src/proto/link_eth.c`); `boot_harness.c` sends `OTA_ACTIVATE` over the emulated UART | `test_ota_stage`, `test_ota_single`; `tfwsim`, `sdk/go/cmd/tfwctl/e2e_ota_test.go` |
 | a trial not confirmed: the reset swaps back, `GOOD` `FAILED`, the marked image not taken again, the floor unmoved | yes, `test_an_unconfirmed_store_image_swaps_back`; the harness forces that reset | `test_boot_swap` |
 | the trial deadline: nothing confirms, the application's `ota_trial.c` takes a watchdog reset at `TFW_OTA_TRIAL_TIMEOUT_S` (the board value, 60 s), WDRF in MCUSR at the reset edge and `TFW_RESET_WATCHDOG` in `SYS_INFO`, within one 8 s watchdog period of the deadline (`tfw_hal_reset` disarms the 8 s watchdog before its 15 ms one, which simavr would otherwise not apply); tfw-boot copies `PREV` back, `GOOD` `FAILED` | yes, `test_an_unconfirmed_store_image_rolls_back_at_the_deadline`, about 1.05 billion emulated cycles | `test_ota_trial`, `test_boot_trial` |
 | a staged byte that fails the hash, an image below the floor: no page written, the primary boots | yes, `test_a_bad_store_image_copies_nothing` | `test_boot_stage_2560` |
@@ -718,12 +722,21 @@ The application's refusal of the failed image at `OTA_ACTIVATE`
 the command itself is on the wire at `0x6D`, serial only.
 
 Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
-the stager carrying the envelope and calling the manifest gate;
-and `OTA_ACTIVATE` over TCP (serial only for now). The failed measurement
+the envelope carried with the image and the manifest gate called before
+activation on AVR (ruling 3 puts it in `tfw-boot`);
+and `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP (serial only for now: none of
+the control commands is on the Ethernet allow-list, and
+`TestE2EOTAControlIsSerialOnly` pins each one's `TFW_ERR_UNKNOWN_CMD` over TCP
+beside its serial answer on the same simulator). The failed measurement
 is not kept: open question 10 is closed by item 56 (owner ruling 2026-10-17,
 CA m499). `OTA_INFO`, `OTA_ACTIVATE` and `OTA_CONFIRM`
 are on the wire at decision 8's ids, and `OTA_CONFIRM` leaves the trial
-deadline running (#137).
+deadline running (#137). `tfwsim` drives the three end to end from `sdk/go`
+and `tfwctl` (`sdk/go/cmd/tfwctl/e2e_ota_test.go`) with the platform block in
+each state tfw-boot leaves: `OTA_INFO`'s `TRIAL` and fell-back flags,
+`OTA_CONFIRM` taken in `TRIAL` and refused in `CONFIRMED` and after a fall-back,
+`OTA_ACTIVATE` refused in `TRIAL` and `CONFIRMED`, and
+`TFW_ERR_AUTH_REQUIRED` for either sent without `OTA_AUTH`.
 
 A gap in the 328P/32U4 restore, recorded and not designed here:
 

@@ -6,6 +6,10 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -84,4 +88,112 @@ func TestE2EAutoWithNoElementReportsNoFloorForAnElementBoot(t *testing.T) {
 	d := startAuto(t, "--no-element")
 	assert.Equal(t, tfw.StatusErrCrypto, cliStatus(t, d, "ota-info", "0"),
 		"ota-info after an element boot with no element")
+}
+
+// algHMAC is TFW_ALG_HMAC_SHA256 (include/tfw/protocol.h): the evidence's
+// algorithm byte when the soft root signed it.
+const algHMAC = 0x10
+
+// softBoot is the handoff a soft tfw-boot (BOOT_TIER=soft) leaves: its CDI
+// derived from the UDS in boot-section flash, the tier named soft.
+var softBoot = []string{"--no-element", "--boot-tier", "soft"}
+
+// softTestCDI is the CDI tfwsim hands off for the test image
+// (tools/tfwsim/tier_atecc608a.c, test_cdi): SHA-256 of a published label and
+// the image hash. A TEST value nobody may trust.
+func softTestCDI() []byte {
+	h := sha256.Sum256(append([]byte("tfwsim-test-cdi-v1"), tfwsim.TestFWHash[:]...))
+	return h[:]
+}
+
+// With no element and a soft tfw-boot, the default image attests on the soft
+// root (owner ruling 2026-10-17, #130), and the evidence names its root: the
+// algorithm is HMAC-SHA256 under the CDI the soft tfw-boot derived, never the
+// element's ES256. The soft root has no asymmetric key, so it has no alias
+// certificate to issue.
+func TestE2EAutoWithNoElementAttestsOnTheSoftRoot(t *testing.T) {
+	d := startAuto(t, softBoot...)
+	assert.Equal(t, tfw.CryptoSoftware, cliCaps(t, d).CryptoTier)
+
+	nonce := attestNonce(0x5a)
+	ev := cliAttest(t, d, nonce)
+	require.Len(t, ev, tfw.EvidenceLen)
+	assert.Equal(t, nonce, ev[offNonce:offNonce+tfw.AttestNonceLen], "frame nonce")
+	assert.Equal(t, tfwsim.TestSerial[:], ev[offDevice:offDevice+tfw.SerialLen], "DeviceID")
+	assert.Equal(t, tfwsim.TestFWHash[:], ev[offFWHash:offFWHash+32], "FWHash")
+	assert.EqualValues(t, algHMAC, ev[offAlg], "algorithm is HMAC-SHA256, the soft root")
+
+	digest := sha256.Sum256(ev[:offAlg])
+	mac := hmac.New(sha256.New, softTestCDI())
+	mac.Write(digest[:])
+	assert.Equal(t, mac.Sum(nil), ev[offSig:offSig+32], "the evidence MAC under the soft root's CDI")
+	assert.Equal(t, make([]byte, 32), ev[offSig+32:offSig+64], "the MAC's padding")
+
+	assert.Equal(t, tfw.StatusErrUnsupported,
+		cliStatus(t, d, "attest-cert", hex.EncodeToString(aliasNonce(0x77))), "attest-cert on the soft root")
+}
+
+// With an element answering, the same image attests on the element: ES256
+// under the DeviceID key.
+func TestE2EAutoWithTheElementAttestsOnTheElementRoot(t *testing.T) {
+	ev := cliAttest(t, startAuto(t, "--provision-element"), attestNonce(0x5a))
+	require.Len(t, ev, tfw.EvidenceLen)
+	assert.EqualValues(t, algECDSA, ev[offAlg], "algorithm is ECDSA P-256, the element")
+	assert.True(t, verifyFrame(tfwsim.TestDeviceIDPublicKey(), ev),
+		"the evidence signature does not verify under the DeviceID key")
+}
+
+// An element tfw-boot's CDI on a board with no element names a root this
+// image cannot use: it refuses to attest rather than sign under another.
+func TestE2EAutoWithNoElementRefusesAnElementBootsCDI(t *testing.T) {
+	d := startAuto(t, "--no-element")
+	assert.Equal(t, tfw.StatusErrNotProvisioned,
+		cliStatus(t, d, "attest", hex.EncodeToString(attestNonce(0x5a))), "attest after an element boot")
+}
+
+// The soft root leaves the device fully functional: every capability the
+// image reports answers. Those that need nothing on a bus succeed; a bus
+// transfer with no part on it answers with the device's status, never an
+// unknown command.
+func TestE2EAutoWithNoElementEveryCapabilityAnswers(t *testing.T) {
+	d := startAuto(t, softBoot...)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		verb string
+		args []string
+		ok   bool
+	}{
+		{"ping", []string{"hello"}, true},
+		{"sys", nil, true},
+		{"mode", []string{"13", "out"}, true},
+		{"write", []string{"13", "1"}, true},
+		{"read", []string{"12"}, true},
+		{"timer", []string{"13", "1", "5s"}, true},
+		{"timer-cancel", []string{"13"}, true},
+		{"analog", []string{"14"}, true},
+		{"pwm", []string{"3", "128"}, true},
+		{"tone", []string{"11", "1000"}, true},
+		{"notone", []string{"11"}, true},
+		{"eeprom-write", []string{"0x200", "deadbeef"}, true},
+		{"eeprom-read", []string{"0x200", "4"}, true},
+		{"i2c-config", []string{"100000"}, true},
+		{"spi-config", []string{"0", "1", "msb"}, true},
+		{"spi", []string{"10", "0102"}, true},
+		{"attest", []string{hex.EncodeToString(attestNonce(0x01))}, true},
+		{"pulse-in", []string{"2", "1", "10ms"}, false},
+		{"i2c", []string{"0x20", "01", "2"}, false},
+		{"1wire-reset", []string{"4"}, false},
+	} {
+		var out bytes.Buffer
+		err := run(ctx, d, tc.verb, tc.args, false, &out)
+		if tc.ok {
+			assert.NoError(t, err, "%s %v", tc.verb, tc.args)
+			continue
+		}
+		var st tfw.Status
+		if err != nil {
+			require.True(t, errorsAsStatus(err, &st), "%s %v: %v, want a device status", tc.verb, tc.args, err)
+			assert.NotEqual(t, tfw.StatusErrUnknownCmd, st, "%s %v", tc.verb, tc.args)
+		}
+	}
 }

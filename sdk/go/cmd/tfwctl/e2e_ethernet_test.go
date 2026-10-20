@@ -22,6 +22,7 @@ import (
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/peer"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 )
 
 // Issue #55, end to end: the firmware's own link and allow-list dial the
@@ -94,6 +95,35 @@ func simEthernetArgs(t *testing.T, endpoint netip.AddrPort) []string {
 	block, err := cfg.MarshalBinary()
 	require.NoError(t, err)
 	return append([]string{"--eth"}, elementArgs(t, nil, block)...)
+}
+
+// startEthernetWith is the simulator over Ethernet with the platform block
+// given, the network block appended after it, and both of its links: serial
+// and the TCP connection it dialled. The block's state bytes are the
+// simulator's to boot from, so it runs only against tfwsim.
+func startEthernetWith(t *testing.T, platform []byte) (serial, eth *tfw.Device) {
+	t.Helper()
+	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	cfg := tfw.NetConfig{
+		MAC:      net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01},
+		IP:       netip.MustParseAddr("192.0.2.10"),
+		Mask:     netip.MustParseAddr("255.255.255.0"),
+		Gateway:  netip.MustParseAddr("192.0.2.1"),
+		Endpoint: l.Addr().(*net.TCPAddr).AddrPort(),
+	}
+	block, err := cfg.MarshalBinary()
+	require.NoError(t, err)
+	eep := writeFile(t, "eeprom.bin", append(platform[:len(platform):len(platform)], block...))
+
+	serial = tfwsim.StartElementWith(t, []string{"--eth", "--eeprom-bin", eep,
+		"--provision-element", "--image-hash", hex.EncodeToString(tfwsim.TestFWHash[:])})
+	td, err := acceptDevice(l, deviceWait, tfw.WithTimeout(10*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = td.Close() })
+	return serial, td.Device
 }
 
 // stageImage builds a total-byte image whose last 128 bytes are a trailer

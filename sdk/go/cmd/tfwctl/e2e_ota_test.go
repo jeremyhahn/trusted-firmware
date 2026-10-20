@@ -7,6 +7,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"io"
 	"strings"
@@ -17,16 +18,17 @@ import (
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 )
 
 // The firmware's stager and OTA control, driven through ota-stage,
 // ota-status, ota-info, ota-activate and ota-confirm.
 //
 // tfwctl sends OTA_AUTH immediately before every OTA_ACTIVATE and OTA_CONFIRM
-// and refuses either without a signature, so what only a raw sequence can
-// show is pinned in C: no OTA_AUTH, a command between that drops it, and one
-// signature for one command by test/unit/test_ota_stage.c
-// test_activate_and_confirm_need_ota_auth; ACTIVATE mode 2 by
+// and refuses either without a signature, so no OTA_AUTH and one signature for
+// one command go through the SDK's own calls (TestE2EOTAConfirmsARunningTrial);
+// a command between that drops it is pinned in C by
+// test/unit/test_ota_stage.c test_activate_and_confirm_need_ota_auth; ACTIVATE mode 2 by
 // test_activate_takes_a_verified_image_and_resets_on_mode_1; DATA at an
 // offset that is not the next and END before the last byte by
 // test_write_past_the_end_is_refused. An empty DATA never leaves the SDK
@@ -151,4 +153,139 @@ func TestFirmwareOTAConfirm(t *testing.T) {
 
 	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "ota-confirm", heldSig), "unauthenticated")
 	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "auth", serial, keyPath, "--", "ota-confirm", heldSig), "outside TRIAL")
+}
+
+// The platform block's state bytes and its CRC (include/tfw/boot.h), and
+// the values tfw-boot writes there (docs/ota/architecture.md, "What runs
+// today").
+const (
+	blockOffBootState = 48
+	blockOffOTAState  = 49
+	blockOffCRC       = 190
+
+	bootGood      = 2
+	bootTrial     = 3
+	bootConfirmed = 4
+	otaIdle       = 0
+	otaFailed     = 3
+)
+
+// startOperatorIn is startOperator with the platform block in the state
+// tfw-boot leaves it in, and the handoff of the running image tfw-boot jumped
+// to.
+func startOperatorIn(t *testing.T, bootState, otaState byte) (dev *tfw.Device, serial, keyPath string) {
+	t.Helper()
+	block, keyPath := operatorBlock(t, bootState, otaState)
+	dev = tfwsim.StartElementWith(t, []string{"--eeprom-bin", writeFile(t, "platform.bin", block),
+		"--provision-element", "--image-hash", hex.EncodeToString(tfwsim.TestFWHash[:])})
+	return dev, hex.EncodeToString(tfwsim.TestSerial[:]), keyPath
+}
+
+// operatorBlock is a platform block with an operator key provisioned and the
+// state bytes given, and the key's PEM path.
+func operatorBlock(t *testing.T, bootState, otaState byte) (block []byte, keyPath string) {
+	t.Helper()
+	pub, keyPath := writeOperatorKey(t)
+	sec1, err := pub.Bytes()
+	require.NoError(t, err)
+	var op [tfw.OperatorPubkeyLen]byte
+	copy(op[:], sec1[1:])
+
+	b := tfw.BuildPlatformBlock(tfwsim.TestSerial, [tfw.PubkeyHashLen]byte{}, op)
+	b[blockOffBootState], b[blockOffOTAState] = bootState, otaState
+	binary.LittleEndian.PutUint16(b[blockOffCRC:], tfw.CRC16(b[:blockOffCRC]))
+	return b[:], keyPath
+}
+
+// A trial running, as tfw-boot hands it off (#77): OTA_INFO reports it,
+// OTA_ACTIVATE refuses it, and OTA_CONFIRM, authorized, takes it. With the
+// session open, the refusal of a command that came without OTA_AUTH is the
+// signature's alone, and one OTA_AUTH lets one command through.
+func TestE2EOTAConfirmsARunningTrial(t *testing.T) {
+	d, serial, keyPath := startOperatorIn(t, bootTrial, otaIdle)
+	ctx := t.Context()
+
+	trial := slotInfo{Slots: 2, Flags: int(tfw.SlotTrial), State: bootTrial, Measurement: strings.Repeat("00", 32)}
+	assert.Equal(t, trial, cliOTAInfo(t, d, "0"))
+	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "ota-confirm", heldSig), "no session")
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "auth", serial, keyPath, "--", "ota-activate", heldSig), "activate in TRIAL")
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "ota-activate", "now", heldSig), "activate now in TRIAL")
+
+	assert.ErrorIs(t, d.OTAConfirm(ctx), tfw.StatusErrAuthRequired, "confirm without OTA_AUTH")
+	assert.ErrorIs(t, d.OTAActivate(ctx, tfw.OTAActivateAtReset), tfw.StatusErrAuthRequired, "activate without OTA_AUTH")
+
+	require.NoError(t, run(ctx, d, "ota-confirm", []string{heldSig}, false, io.Discard))
+	assert.ErrorIs(t, d.OTAConfirm(ctx), tfw.StatusErrAuthRequired, "the signature is spent")
+
+	// The confirm writes its request, never the block: tfw-boot moves TRIAL
+	// to CONFIRMED at the next reset, so the trial still reads as running.
+	assert.Equal(t, trial, cliOTAInfo(t, d, "0"))
+}
+
+// A confirm tfw-boot has not settled yet: the floor advance is still to
+// come, so neither command takes the block.
+func TestE2EOTARefusesAnUnsettledConfirm(t *testing.T) {
+	d, serial, keyPath := startOperatorIn(t, bootConfirmed, otaIdle)
+
+	assert.Equal(t, slotInfo{Slots: 2, State: bootConfirmed, Measurement: strings.Repeat("00", 32)}, cliOTAInfo(t, d, "0"))
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "auth", serial, keyPath, "--", "ota-confirm", heldSig), "confirm in CONFIRMED")
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "ota-activate", heldSig), "activate in CONFIRMED")
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "ota-activate", "now", heldSig), "activate now in CONFIRMED")
+}
+
+// A trial that ended unconfirmed and was rolled back: GOOD with FAILED.
+// OTA_INFO says so on both slots, and there is no trial left to confirm.
+func TestE2EOTAReportsAFallBack(t *testing.T) {
+	d, serial, keyPath := startOperatorIn(t, bootGood, otaFailed)
+
+	zero := strings.Repeat("00", 32)
+	assert.Equal(t, slotInfo{Slots: 2, Flags: int(tfw.SlotFellBack), State: bootGood, Measurement: zero}, cliOTAInfo(t, d, "0"))
+	assert.Equal(t, slotInfo{Slots: 2, Flags: int(tfw.SlotFellBack), State: otaFailed, Measurement: zero}, cliOTAInfo(t, d, "1"))
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "auth", serial, keyPath, "--", "ota-confirm", heldSig), "confirm after the fall-back")
+}
+
+// The OTA control plane is serial only: OTA_INFO, OTA_ACTIVATE, OTA_AUTH and
+// OTA_CONFIRM are not on the Ethernet allow-list (src/proto/link_eth.c,
+// src/core/commands.def), so over TCP each is TFW_ERR_UNKNOWN_CMD while the
+// same simulator answers it over serial. One tfwsim in a running trial, both
+// transports, every verb: a refusal over TCP is the link's, never the trial's
+// or the missing OTA_AUTH's, and nothing sent over TCP confirms the trial.
+func TestE2EOTAControlIsSerialOnly(t *testing.T) {
+	block, keyPath := operatorBlock(t, bootTrial, otaIdle)
+	serialDev, eth := startEthernetWith(t, block)
+	serial := hex.EncodeToString(tfwsim.TestSerial[:])
+
+	cases := []struct {
+		name   string
+		args   []string
+		serial tfw.Status
+	}{
+		{"ota-info 0", []string{"ota-info", "0"}, tfw.StatusOK},
+		{"ota-info 1", []string{"ota-info", "1"}, tfw.StatusOK},
+		{"ota-info 2", []string{"ota-info", "2"}, tfw.StatusErrRange},
+		{"ota-activate, no OTA_AUTH", []string{"ota-activate", heldSig}, tfw.StatusErrAuthRequired},
+		{"ota-activate now, no OTA_AUTH", []string{"ota-activate", "now", heldSig}, tfw.StatusErrAuthRequired},
+		{"ota-confirm, no OTA_AUTH", []string{"ota-confirm", heldSig}, tfw.StatusErrAuthRequired},
+		{"ota-activate in TRIAL", []string{"auth", serial, keyPath, "--", "ota-activate", heldSig}, tfw.StatusErrBadState},
+		{"ota-activate now in TRIAL", []string{"ota-activate", "now", heldSig}, tfw.StatusErrBadState},
+	}
+	for _, tc := range cases {
+		if tc.serial == tfw.StatusOK {
+			assert.NoError(t, run(t.Context(), serialDev, tc.args[0], tc.args[1:], false, io.Discard), "serial: %s", tc.name)
+		} else {
+			assert.Equal(t, tc.serial, cliStatus(t, serialDev, tc.args[0], tc.args[1:]...), "serial: %s", tc.name)
+		}
+		assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, eth, tc.args[0], tc.args[1:]...), "tcp: %s", tc.name)
+	}
+	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, eth, "auth", serial, keyPath, "--", "ota-confirm", heldSig), "tcp: ota-confirm in TRIAL")
+
+	ctx := t.Context()
+	assert.ErrorIs(t, eth.OTAAuth(ctx, [tfw.OTAAuthSigLen]byte{}), tfw.StatusErrUnknownCmd, "tcp: OTA_AUTH")
+	assert.ErrorIs(t, eth.OTAConfirm(ctx), tfw.StatusErrUnknownCmd, "tcp: OTA_CONFIRM")
+	assert.ErrorIs(t, eth.OTAActivate(ctx, tfw.OTAActivateAtReset), tfw.StatusErrUnknownCmd, "tcp: OTA_ACTIVATE")
+
+	// Serial still holds the trial: TCP confirmed nothing, and serial does.
+	trial := slotInfo{Slots: 2, Flags: int(tfw.SlotTrial), State: bootTrial, Measurement: strings.Repeat("00", 32)}
+	assert.Equal(t, trial, cliOTAInfo(t, serialDev, "0"))
+	require.NoError(t, run(ctx, serialDev, "ota-confirm", []string{heldSig}, false, io.Discard))
 }

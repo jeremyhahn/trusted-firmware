@@ -1388,8 +1388,8 @@ static void test_signed_image_boots(elf_firmware_t *boot, elf_firmware_t *app)
  *
  * Staging is the EEPROM an activate leaves -- GOOD and PENDING, the signed
  * image already in the application region -- and the confirm is the CONFIRMED
- * that tfw_boot_trial_confirm sets. Neither has a wire id yet (decision 8's
- * ids are proposed), so the harness writes the state they would; everything
+ * that tfw_boot_trial_confirm sets. The harness writes that state itself
+ * rather than send OTA_ACTIVATE (0x6D) and OTA_CONFIRM (0x6E); everything
  * the bootloader does with it is the real image's.
  */
 static void test_floor_advances_at_settle(elf_firmware_t *boot, elf_firmware_t *app)

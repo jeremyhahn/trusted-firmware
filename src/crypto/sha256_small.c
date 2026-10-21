@@ -30,6 +30,7 @@
  */
 #include <string.h>
 #include "sha256.h"
+#include "core/secure_zero.h"
 #include "tfw/progmem.h"
 
 static const uint32_t K[64] TFW_PROGMEM = {
@@ -106,38 +107,51 @@ static void put32(uint8_t *p, uint32_t x)
 
 static void transform(tfw_sha256_t *c, const uint8_t *chunk)
 {
-    uint32_t w[16];
-    uint32_t v[8];
-    uint8_t  t;
+    /* The working variables and the schedule in one struct: one clear covers
+     * both, and v comes first so its fixed-index words sit within the AVR's
+     * Y+q reach (q <= 63); w is only ever indexed by a variable. */
+    struct {
+        uint32_t v[8];
+        uint32_t w[16];
+    } s;
+    uint8_t t;
 
-    memcpy(v, c->state, sizeof v);
+    memcpy(s.v, c->state, sizeof s.v);
 
     for (t = 0u; t < 64u; t++) {
         uint32_t t1, t2;
 
         if (t < 16u) {
-            w[t] = get32(&chunk[t * 4u]);
+            s.w[t] = get32(&chunk[t * 4u]);
         } else {
             /* W[t] = s1(W[t-2]) + W[t-7] + s0(W[t-15]) + W[t-16], into the
              * slot W[t-16] held. */
-            w[t & 15u] += sigma(w[(t - 2u) & 15u], SIG_S1)
-                        + w[(t - 7u) & 15u]
-                        + sigma(w[(t - 15u) & 15u], SIG_S0);
+            s.w[t & 15u] += sigma(s.w[(t - 2u) & 15u], SIG_S1)
+                          + s.w[(t - 7u) & 15u]
+                          + sigma(s.w[(t - 15u) & 15u], SIG_S0);
         }
         /* v = a b c d e f g h. Ch and Maj in their fewest-operation forms,
          * equal bit for bit to section 4.1.2's: Ch = g ^ (e & (f ^ g)),
          * Maj = (a & b) | (c & (a | b)). */
-        t1 = v[7] + sigma(v[4], SIG_EP1) + (v[6] ^ (v[4] & (v[5] ^ v[6])))
-           + tfw_pgm_far_u32(K, &K[t]) + w[t & 15u];
-        t2 = sigma(v[0], SIG_EP0) + ((v[0] & v[1]) | (v[2] & (v[0] | v[1])));
-        memmove(&v[1], &v[0], 7u * sizeof v[0]);
-        v[4] += t1;
-        v[0]  = t1 + t2;
+        t1 = s.v[7] + sigma(s.v[4], SIG_EP1) + (s.v[6] ^ (s.v[4] & (s.v[5] ^ s.v[6])))
+           + tfw_pgm_far_u32(K, &K[t]) + s.w[t & 15u];
+        t2 = sigma(s.v[0], SIG_EP0) + ((s.v[0] & s.v[1]) | (s.v[2] & (s.v[0] | s.v[1])));
+        memmove(&s.v[1], &s.v[0], 7u * sizeof s.v[0]);
+        s.v[4] += t1;
+        s.v[0]  = t1 + t2;
     }
 
     for (t = 0u; t < 8u; t++) {
-        c->state[t] += v[t];
+        c->state[t] += s.v[t];
     }
+
+    /* The schedule and the working variables run backwards: from the last
+     * sixteen words of w and the eight of v, the rounds undo to the state this
+     * block started from, and that plus v is the digest. In an HMAC over the
+     * UDS that digest is the CDI (TCG DICE HW Req 6.4), so neither is left in
+     * this frame for the code that runs next. One call for both: each call
+     * site costs tfw-boot flash, and the block count costs it none. */
+    tfw_secure_zero(&s, sizeof s);
 }
 
 void tfw_sha256_init(tfw_sha256_t *c)
@@ -222,16 +236,20 @@ void tfw_hmac_sha256(const uint8_t *key, uint8_t keylen,
                     const uint8_t *data, uint16_t datalen,
                     uint8_t out[32])
 {
-    uint8_t      k[64];
-    uint8_t      inner[32];
-    tfw_sha256_t c;
-    uint8_t      pass, i;
+    /* Every secret this function holds, in one struct so that one clear
+     * covers them all: each tfw_secure_zero call site costs tfw-boot flash. */
+    struct {
+        tfw_sha256_t c;
+        uint8_t      inner[32];
+        uint8_t      k[64];
+    } s;
+    uint8_t pass, i;
 
-    memset(k, 0, sizeof k);
+    memset(s.k, 0, sizeof s.k);
     if (keylen > 64u) {
-        tfw_sha256(key, keylen, k);      /* an over-long key is hashed first */
+        tfw_sha256(key, keylen, s.k);    /* an over-long key is hashed first */
     } else {
-        memcpy(k, key, keylen);
+        memcpy(s.k, key, keylen);
     }
 
     /* Two passes of one loop: inner with ipad over the data, outer with opad
@@ -239,19 +257,21 @@ void tfw_hmac_sha256(const uint8_t *key, uint8_t keylen,
      * then ipad ^ opad, which leaves the key XOR opad (#173). */
     for (pass = 0u; pass < 2u; pass++) {
         for (i = 0u; i < 64u; i++) {
-            k[i] = (uint8_t)(k[i] ^ (pass ? (0x5cu ^ 0x36u) : 0x36u));
+            s.k[i] = (uint8_t)(s.k[i] ^ (pass ? (0x5cu ^ 0x36u) : 0x36u));
         }
-        tfw_sha256_init(&c);
-        tfw_sha256_update(&c, k, 64u);
+        tfw_sha256_init(&s.c);
+        tfw_sha256_update(&s.c, s.k, 64u);
         if (pass) {
-            tfw_sha256_update(&c, inner, 32u);
+            tfw_sha256_update(&s.c, s.inner, 32u);
         } else {
-            tfw_sha256_update(&c, data, datalen);
+            tfw_sha256_update(&s.c, data, datalen);
         }
-        tfw_sha256_final(&c, pass ? out : inner);
+        tfw_sha256_final(&s.c, pass ? out : s.inner);
     }
 
-    /* The expanded key is derived from a secret: not left on the stack. */
-    memset(k, 0, sizeof k);
-    memset(inner, 0, sizeof inner);
+    /* The expanded key is derived from a secret: not left on the stack. Nor
+     * is the context, whose state is the result (the CDI, when the key is the
+     * UDS) and whose buffer holds the inner digest. tfw_secure_zero, because
+     * a memset of a local that is never read again is a dead store. */
+    tfw_secure_zero(&s, sizeof s);
 }

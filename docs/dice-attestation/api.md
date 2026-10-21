@@ -51,10 +51,12 @@ off  size  field
 138   26   Reserved    zero
 ```
 
-164 bytes total. The signature covers bytes `[0, 74)` — everything before
-the signature field, which includes the nonce; that inclusion is what binds
-this evidence to this challenge. `AlgID` lets a verifier interpret
-`Signature` without knowing the device's tier out of band.
+164 bytes total. The signature is over SHA-256 of bytes `[0, 73)`, everything
+before `AlgID`. That includes the nonce, and the inclusion is what binds this
+evidence to this challenge. `AlgID` lets a verifier interpret `Signature`
+without knowing the device's tier out of band; it is not itself signed.
+`test/unit/test_dice_evidence.c` pins a whole soft-root frame against a literal
+computed outside this code.
 
 ## `ATTEST_CERT` — 0x63
 

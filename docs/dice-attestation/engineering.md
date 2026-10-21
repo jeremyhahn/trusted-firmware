@@ -1,9 +1,37 @@
 # DICE attestation — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-21
 > Conflicts with this document are defects. Fix them here first.
 
 See `architecture.md` for design and boundaries; not restated here.
+
+## Row requirements on `main`
+
+The SPEC row `dice-attestation`, requirement by requirement, as `main` stands,
+with the file that meets each, the test that proves it and the TCG text it
+implements (`../reference/README.md`, "Not redistributable"). HW Req is *TCG
+Hardware Requirements for a Device Identifier Composition Engine* rev 78;
+Attest Arch is *TCG DICE Attestation Architecture* rev 23; Sym ID is *TCG DICE
+Symmetric Identity Based Device Attestation*.
+
+| Requirement | State | Met by | Proved by | TCG |
+|---|---|---|---|---|
+| Layer 0 CDI from the UDS and the measured image, soft root | met | `boot/tier/cdi_soft.c` | `test/unit/boot/test_boot_cdi_soft_uds.c`; `test/unit/test_dice_evidence.c` (`CDI = HMAC(UDS, SHA-256(code))` against an independent literal) | HW Req §5, form (2) |
+| Layer 0 CDI, element root | met | `boot/tier/cdi_atecc.c` | `test/unit/boot/test_boot_cdi_atecc.c` | HW Req §5, form (2) |
+| The CDI is cleared once no longer needed | met on the element (the provider's copy, the handoff copy it drains and the driver's response buffer) and in tfw-boot on both tiers (the UDS copy, the HMAC's key (the pads are XORed into it in place), inner digest and context, SHA-256's schedule and working variables, and the hand-over's `cdi` and `block`, the CDI written once, at `TFW_BOOT_HO_CDI`); the application's soft tier is the documented exception (Invariants) | `src/crypto/atecc608a/provider.c`, `src/crypto/atecc608a/atecc.c` (`tfw_atecc_exec` clears its buffer); `boot/tier/cdi_soft.c`, `src/crypto/sha256_small.c`, `boot/boot_main.c` (`tfw_boot_hand_over`) | `test/unit/test_atecc_cdi_clear.c`; `test/unit/boot/test_boot_cdi_soft_clear.c`, `test/unit/boot/test_boot_cdi_atecc_clear.c`, `test/unit/boot/test_boot_hand_over_clear.c` (each against an independent literal; removing any one clear by hand fails one of them) | HW Req §6.4 |
+| The seed stays in tfw-boot; the application takes the CDI from the handoff, and a mismatched tier or the zero sentinel leaves it unprovisioned | met | `src/crypto/soft/provider.c`, `src/core/handoff.c` | `test/unit/test_attest.c` and `test/unit/test_crypto_soft.c` (the handoff refusals), `test/unit/test_dice_evidence.c` | HW Req §5 |
+| UCCS evidence carrying the nonce, in the alias certificate | met (element) | `src/caps/alias.c`, `src/caps/uccs.c` | `test/unit/test_alias.c`, `test/unit/test_uccs.c`, `testdata/uccs_vectors.h`, `sdk/go/tfwsim/dice_test.go` | Attest Arch §6.1.4 (`tcg-dice-UCCS-evidence`, 2.23.133.5.4.6) |
+| The CoSWID claim 273 fields | met | `src/caps/uccs.c` | `test/unit/test_uccs.c`, `testdata/uccs_vectors.h` | Attest Arch §6.1.4 (the evidence it carries); the tag is RFC 9393's |
+| The `ATTEST` frame: nonce inside the signed span, layout as `api.md` | met | `src/caps/attest.c` | `test/unit/test_attest.c`; `test/unit/test_dice_evidence.c` pins all 164 bytes of a soft-root frame | Sym ID |
+| The device-templated PKCS#10 for ACME finalize, with no signing oracle | met on the 2560 element image | `src/caps/csr.c` | `test/unit/test_csr.c`, `TFWV_CSR_CRI` in `testdata/vectors.h` | — (RFC 2986) |
+| `CRYPTO=auto` on the 2560: the element when one answers, else the soft root | met | `src/crypto/auto/provider.c`, `boards/atmega2560/profile.mk` | `test/unit/test_crypto_auto.c`, `sdk/go/cmd/tfwctl/e2e_auto_test.go` | — |
+| Behind a stock bootloader `ATTEST` says not provisioned | met | `src/crypto/soft/uds_flash.c` | `test/unit/test_uds_flash.c`, `test/unit/test_attest.c` | — |
+| The algorithm names the root: HMAC-SHA256 soft, ES256 element | met | `src/crypto/soft/provider.c`, `src/crypto/atecc608a/provider.c` | `test/unit/test_dice_evidence.c`, `test/unit/test_crypto_auto.c`, `sdk/go/cmd/tfwctl/e2e_auto_test.go` | Sym ID |
+| Nano default `CRYPTO=soft` | met | `mk/firmware.mk` (`CRYPTO ?= soft`; the 328P profile sets none) | none | — |
+| 328P only with an element (item 79) | unmet: held for the owner (m467) | — | — | — |
+| P-256 DeviceID on every board, soft root included, no RSA (#48) | unmet: the derivation exists, the soft provider does not sign with it | `src/crypto/deviceid_p256.c` | `test/unit/test_deviceid_p256.c` (derivation only) | — (ES256: RFC 6979, SEC 2) |
+| The chain carries the root type (go-xkms item 76) | unmet: the soft root has no alias certificate | — | — | Attest Arch §6.1, an evidence extension; the encoding is go-xkms's |
+| `DiceTcbInfo` / `vendorInfo` fields | unmet: the vendorInfo seam is blocked (m496) | — | — | Attest Arch §6.1, `tcg-dice-TcbInfo` |
 
 ## Exported surface
 
@@ -70,8 +98,8 @@ mirror of the CSR vectors; `TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` stay in
 ## Invariants
 
 - **The nonce is always inside the signed span.** `attest.c` hashes
-  `evidence[0:OFF_ALG)` (74 bytes) before signing, which includes
-  `OFF_NONCE`; `alias.c` signs a digest of the whole TBS, which includes the
+  `evidence[0:OFF_ALG)` (73 bytes; `AlgID` is not in it) before signing,
+  which includes `OFF_NONCE`; `alias.c` signs a digest of the whole TBS, which includes the
   UCCS claims set. An evidence frame or certificate whose nonce falls outside
   what was hashed is not evidence of anything.
 - **A page fetch with nothing minted is refused**, not zero-filled:
@@ -129,8 +157,11 @@ mirror of the CSR vectors; `TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` stay in
   signs with the CDI — the DeviceID key is element-resident, not
   CDI-derived — so `tfw_crypto_init` holds it in a stack buffer that exists
   only long enough to learn whether the element has a UDS, and clears it
-  before returning: the normative rule (DICE HW Requirements §6.4, "cleared
-  once no longer needed") is genuinely met there. The software tier
+  before returning; the driver (`src/crypto/atecc608a/atecc.c`) clears the
+  static buffer the element's answer was read into at the end of every
+  `tfw_atecc_exec`. The normative rule (DICE HW Requirements §6.4, "cleared
+  once no longer needed") is genuinely met there, and
+  `test/unit/test_atecc_cdi_clear.c` sees each clear. The software tier
   (`src/crypto/soft/provider.c`) cannot meet it: its CDI keys
   `tfw_crypto_hmac`, is the signing key of the HMAC identity (`id_hmac.c`,
   the ATmega328P and ATmega32U4) and gates every signature of the P-256 one
@@ -194,6 +225,7 @@ element tier's own feature flags (`make feature-defs`) and pins this per board;
 | Frame/claims/certificate unit tests | `test/unit/test_attest.c`, `test/unit/test_alias.c`, `test/unit/test_csr.c`, `test/unit/test_uccs.c` — run with `make test` |
 | CSR vectors | `TFWV_CSR_CRI` (365 bytes) and `TFWV_CSR_CRI_DIGEST` in `testdata/vectors.h`, from an independent encoder and checked with `openssl req`; `test_csr.c` also checks that the alias certificate is byte-identical, that `b` moves exactly 32 bytes, and that the signature verifies under the model key |
 | Wire vectors, pinned literals | `testdata/vectors.h`, `testdata/uccs_vectors.h`; a vector mismatch is a wire break, not a test to update |
+| The soft root's DICE chain, end to end | `test/unit/test_dice_evidence.c`: a fixed UDS and image give the CDI (HW Req §5, form (2)), and the handed-off CDI gives all 164 bytes of the `ATTEST` frame. Every literal was computed by an independent implementation (Python `hmac`/`hashlib`) from the TCG text and `api.md`, not by this code |
 | Malformed-certificate vectors | `TFWV_ALIAS_CERT_BAD_OUTER` (every X.509 parser rejects it), `TFWV_ALIAS_CERT_BAD_INNER` (OpenSSL and `cryptography` both accept it — the extension-blind failure this project has to fear; `test_alias.c` walks the extension's own DER to catch it) |
 | Go SDK paging and nonce-width tests | `sdk/go/attest_test.go` — `make sdk-test` |
 | Cross-implementation / simulator | `sdk/go/cmd/tfwctl/e2e_firmware_test.go`, against `tfwsim` (`make tfwsim`, then `make ci`) |

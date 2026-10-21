@@ -133,7 +133,7 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
 # provider.c instead -- linking both would be two definitions of
 # tfw_crypto_init and everything else in include/tfw/crypto.h.
-TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test/unit/test_crypto_auto.c \
+TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test/unit/test_atecc_cdi_clear.c test/unit/test_crypto_auto.c \
                             test/unit/test_provision.c test/unit/test_provision_mutate.c test/unit/test_auth_mutate.c test/unit/test_alias.c \
                             test/unit/test_csr.c test/unit/test_csr_alg.c \
                             test/unit/test_model_p256.c \
@@ -154,7 +154,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_provision_uds.c \
-                            test/unit/test_soft_id_p256.c, \
+                            test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -225,6 +225,17 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The element-root CDI cleared once no longer needed (TCG DICE HW Req 6.4):
+# test_atecc's link without src/core/secure_zero.c, so the suite's own
+# tfw_secure_zero records what it is handed, as test_deviceid_p256's does.
+$(HOST_DIR)/test_atecc_cdi_clear: test/unit/test_atecc_cdi_clear.c $(ELEMENT_MODEL) \
+                                  src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
+                                  src/crypto/sha256.c \
+                                  src/core/handoff.c src/core/handoff_seed.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 # CRYPTO=auto's dispatch (issue #130) against the software element, both
 # providers renamed by mk/firmware.mk's CRYPTO_RENAME exactly as the image's are.
 # The renamed provider and floor objects are, like unity.o, WITHOUT
@@ -253,7 +264,7 @@ $(HOST_DIR)/test_crypto_auto: test/unit/test_crypto_auto.c $(ELEMENT_MODEL) \
 # OTA_INFO's rollback floor, each tier's reader by its renamed name, against
 # the software element -- the same floor objects test_crypto_auto links.
 $(HOST_DIR)/test_otactl_floor: test/unit/test_otactl_floor.c $(ELEMENT_MODEL) \
-                               src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
+                               src/crypto/atecc608a/atecc.c src/crypto/sha256.c src/core/secure_zero.c \
                                $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -287,7 +298,7 @@ $(HOST_DIR)/test_suit_emit: test/unit/test_suit_emit.c tools/suit-emit/emit.c sr
 $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                             src/caps/provision.c src/caps/provision_atecc.c \
                             src/core/reader.c src/core/writer.c \
-                            src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
+                            src/crypto/atecc608a/atecc.c src/crypto/sha256.c src/core/secure_zero.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -DTFW_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
@@ -470,7 +481,7 @@ $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate: $(HOST_DIR)/%: test/
 # The model's curve, pinned against RFC 6979 and an independent derivation. It
 # links the model and the hash and nothing else: no driver, no provider.
 $(HOST_DIR)/test_model_p256: test/unit/test_model_p256.c $(ELEMENT_MODEL) \
-                             src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
+                             src/crypto/sha256.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c \
                              src/proto/crc16.c src/proto/crc16_update.c \
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -653,7 +664,7 @@ $(HOST_DIR)/test_spi_nor: test/unit/test_spi_nor.c $(HOST_LIB_SRCS) \
 
 # The soft tfw-boot's size-first SHA-256, in place of sha256.c: both define
 # the API of sha256.h, so it links alone.
-$(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_small.c \
+$(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_small.c src/core/secure_zero.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -670,6 +681,13 @@ $(HOST_DIR)/test_deviceid_p256: test/unit/test_deviceid_p256.c src/crypto/device
 $(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The soft root's ATTEST frame pinned against the TCG DICE formula (row
+# dice-attestation) is the HMAC-SHA256 identity, mk/firmware.mk SOFT_ID=hmac:
+# the host library with src/crypto/soft/id_hmac.c in place of id_p256.c.
+HOST_HMAC_LIB_SRCS := $(filter-out src/crypto/soft/id_p256.c,$(HOST_LIB_SRCS)) src/crypto/soft/id_hmac.c
+$(HOST_DIR)/test_dice_evidence: test/unit/test_dice_evidence.c $(HOST_HMAC_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_HMAC_LIB_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The eFuse-UDS provisioning backend (issue #48) under the shared wire
 # handlers, over a mock part in place of src/hal/esp32/prov_uds.c.
@@ -704,7 +722,7 @@ $(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_STAGE_LIB_SRCS) \
                            $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0 -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
@@ -715,7 +733,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST
                     $(HOST_DIR)/test_w5100_mutate $(HOST_DIR)/test_w5500_mutate \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small \
-                    $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_soft_id_p256 \
+                    $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
                     $(HOST_DIR)/boot/test_boot_p256_rom $(HOST_DIR)/boot/test_boot_flash_span \
                     $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
@@ -1298,6 +1316,7 @@ $(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR
 # bus faked in the suite, so no mock HAL and no software element. It stays in
 # TEST_SRCS; this explicit rule takes the place of the pattern rule.
 $(HOST_DIR)/test_atecc_mutate: test/unit/test_atecc_mutate.c src/crypto/atecc608a/atecc.c \
+                               src/core/secure_zero.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -o $@ $^ $(EXTRA_LDFLAGS)
 

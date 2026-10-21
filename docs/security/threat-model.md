@@ -106,7 +106,7 @@ Whoever holds the serial line can ask the DeviceID key for a signature, so
 what it signs is the whole of what that line can obtain. It signs three
 structures and no others:
 
-1. the `ATTEST` evidence frame, bytes `[0, 74)`, with a 16-byte host nonce;
+1. the `ATTEST` evidence frame, bytes `[0, 73)`, with a 16-byte host nonce;
 2. the alias `TBSCertificate` (`ATTEST_CERT`), with a 32-byte host nonce;
 3. a PKCS#10 `CertificationRequestInfo` (`ATTEST_CSR`, issue #30), with a
    32-byte host `b`.

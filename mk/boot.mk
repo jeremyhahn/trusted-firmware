@@ -461,7 +461,7 @@ $(BOOT_TEST_DIR)/donna.o: src/third_party/ed25519-donna/ed25519.c | $(BOOT_TEST_
 $(BOOT_TEST_DIR)/test_boot_element: test/unit/boot/test_boot_element.c \
         boot/measure/measure_atecc608a.c boot/verify/verify_atecc608a.c \
         boot/boot_handoff.c src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
-        src/proto/crc16.c src/proto/crc16_update.c \
+        src/core/secure_zero.c src/proto/crc16.c src/proto/crc16_update.c \
         $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -480,7 +480,7 @@ $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
 # The application's SHA-256 suite, against the boot's size-first object: the
 # same vectors, so sha256.c and sha256_small.c cannot disagree (#130).
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_sha256_small
-$(BOOT_TEST_DIR)/test_sha256_small: test/unit/test_sha256.c src/crypto/sha256_small.c \
+$(BOOT_TEST_DIR)/test_sha256_small: test/unit/test_sha256.c src/crypto/sha256_small.c src/core/secure_zero.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -496,7 +496,7 @@ $(BOOT_TEST_DIR)/uecc.o: src/third_party/micro-ecc/uECC.c | $(BOOT_TEST_DIR)
 # Every Wycheproof P-256 P1363 vector against micro-ecc, and the shipping
 # backend's contract, and a trailer v1 signed as the element tier signs (#130).
 $(BOOT_TEST_DIR)/test_boot_p256_soft: test/unit/boot/test_boot_p256_soft.c \
-        boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c \
+        boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
         boot/boot_image.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
         test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
@@ -505,7 +505,7 @@ $(BOOT_TEST_DIR)/test_boot_p256_soft: test/unit/boot/test_boot_p256_soft.c \
 # The same backend with the key slot that ships, erased: refuses every image.
 $(BOOT_TEST_DIR)/test_boot_p256_slot: test/unit/boot/test_boot_p256_slot.c \
         boot/verify/verify_p256_soft.c boot/verify/p256_key_slot.c \
-        boot/measure/measure_soft.c src/crypto/sha256_small.c \
+        boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
         test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -522,7 +522,7 @@ L0_TEST_CFLAGS := $(filter-out $(HOST_EXTRA_DEFS),\
                     $(subst -Iboards/$(HOST_BOARD) ,-Iboards/esp32-qemu ,$(BOOT_TEST_CFLAGS)))
 $(BOOT_TEST_DIR)/test_boot_l0_esp32: test/unit/boot/test_boot_l0_esp32.c \
         boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
-        src/proto/crc16.c src/proto/crc16_update.c boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c \
+        src/proto/crc16.c src/proto/crc16_update.c boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
         $(L0_SUIT_HOST) boot/hal/esp32/verify_digest_soft.c \
         test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
@@ -534,7 +534,7 @@ $(BOOT_TEST_DIR)/test_boot_l0_esp32: test/unit/boot/test_boot_l0_esp32.c \
 # then the same gate suite as above, so the P4's link is the one tested.
 ESP_ROM_HOST := boot/hal/esp32/verify_p256_rom.c test/mock/esp_rom_ecdsa_mock.c
 $(BOOT_TEST_DIR)/test_boot_p256_rom: test/unit/boot/test_boot_p256_rom.c $(ESP_ROM_HOST) \
-        boot/measure/measure_soft.c src/crypto/sha256_small.c test/mock/boot_hal_mock.c \
+        boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
         $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -542,7 +542,7 @@ $(BOOT_TEST_DIR)/test_boot_p256_rom: test/unit/boot/test_boot_p256_rom.c $(ESP_R
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_l0_esp32_rom
 $(BOOT_TEST_DIR)/test_boot_l0_esp32_rom: test/unit/boot/test_boot_l0_esp32.c \
         boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
-        src/proto/crc16.c src/proto/crc16_update.c $(ESP_ROM_HOST) boot/measure/measure_soft.c src/crypto/sha256_small.c \
+        src/proto/crc16.c src/proto/crc16_update.c $(ESP_ROM_HOST) boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
         $(L0_SUIT_HOST) test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -560,7 +560,7 @@ $(BOOT_TEST_DIR)/test_boot_flash_span: test/unit/boot/test_boot_flash_span.c \
 # each call to its silicon's contract. Then the gate suite above once more
 # with that hash in place of measure_soft.c's: the link QEMU's hmac-p256 row
 # boots, which refused a SUIT span that was not whole words with a zero digest.
-ESP_SHA_HOST := boot/hal/esp32/measure_esp32.c test/mock/esp_sha_mock.c src/crypto/sha256_small.c
+ESP_SHA_HOST := boot/hal/esp32/measure_esp32.c test/mock/esp_sha_mock.c src/crypto/sha256_small.c src/core/secure_zero.c
 $(BOOT_TEST_DIR)/test_boot_measure_esp32: test/unit/boot/test_boot_measure_esp32.c $(ESP_SHA_HOST) \
         test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
@@ -597,22 +597,58 @@ $(BOOT_TEST_DIR)/cdi_soft_uds.o: boot/tier/cdi_soft.c | $(BOOT_TEST_DIR)
 	@objcopy --update-section .rodata.uds_slot=$@.uds $@
 
 $(BOOT_TEST_DIR)/test_boot_cdi_soft: test/unit/boot/test_boot_cdi_soft.c \
-        boot/tier/cdi_soft.c src/crypto/sha256_small.c test/mock/boot_hal_mock.c \
+        boot/tier/cdi_soft.c src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_cdi_soft_uds: test/unit/boot/test_boot_cdi_soft_uds.c \
-        $(BOOT_TEST_DIR)/cdi_soft_uds.o src/crypto/sha256_small.c test/mock/boot_hal_mock.c \
+        $(BOOT_TEST_DIR)/cdi_soft_uds.o src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_cdi_atecc: test/unit/boot/test_boot_cdi_atecc.c \
         boot/tier/cdi_atecc.c src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
-        src/proto/crc16.c src/proto/crc16_update.c \
+        src/core/secure_zero.c src/proto/crc16.c src/proto/crc16_update.c \
         $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# HW Req 6.4: no copy of the CDI left once a tier has handed it over. These
+# link test/mock/cdi_residue.c IN PLACE of src/core/secure_zero.c, so every
+# clear is recorded, and the boot's own hash, so the stack check sees the
+# frames the boot leaves.
+$(BOOT_TEST_DIR)/test_boot_cdi_soft_clear: test/unit/boot/test_boot_cdi_soft_clear.c \
+        $(BOOT_TEST_DIR)/cdi_soft_uds.o src/crypto/sha256_small.c test/mock/cdi_residue.c \
+        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(BOOT_TEST_DIR)/test_boot_cdi_atecc_clear: test/unit/boot/test_boot_cdi_atecc_clear.c \
+        boot/tier/cdi_atecc.c src/crypto/atecc608a/atecc.c src/crypto/sha256_small.c \
+        test/mock/cdi_residue.c src/proto/crc16.c src/proto/crc16_update.c \
+        $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The hand-over itself: boot_main.c as built, its main() renamed so Unity's is
+# the program's, over the soft tier with the patched slot and the boot's hash
+# in place of the application's. tfw_boot_evaluate is the test's. The tick is
+# the AVR boot HAL's, as on the target. -z now: the host's lazy binding saves
+# the vector registers, CDI and all, under the first call of each PLT entry,
+# deeper than the next test's hand-over reaches. The target has no dynamic
+# linker, so that copy is not one tfw_boot_hand_over could clear.
+$(BOOT_TEST_DIR)/boot_main_ho.o: boot/boot_main.c | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/avr $(EXTRA_CFLAGS) -c -o $@ $<
+	@objcopy --redefine-sym main=tfw_boot_main_not_linked $@
+
+$(BOOT_TEST_DIR)/test_boot_hand_over_clear: test/unit/boot/test_boot_hand_over_clear.c \
+        $(BOOT_TEST_DIR)/boot_main_ho.o $(BOOT_TEST_DIR)/cdi_soft_uds.o \
+        src/crypto/sha256_small.c test/mock/cdi_residue.c \
+        boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c \
+        boot/boot_stage_none.c src/proto/frame.c \
+        $(filter-out src/crypto/sha256.c,$(BOOT_LOGIC_SRCS)) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(EXTRA_LDFLAGS)
 
 # The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
@@ -908,7 +944,7 @@ endif
 
 $(BOOT_INT_DIR)/boot_harness: test/integration/simavr/boot_harness.c $(BOOT_HARNESS_AB_SRC) $(BOOT_INT_PREV_SRC) \
         src/proto/crc16.c src/proto/crc16_update.c \
-        src/crypto/sha256.c src/crypto/atecc608a/atecc.c \
+        src/crypto/sha256.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c \
         boot/boot_image.c boot/boot_platform.c boot/boot_request.c \
         test/model/spi_nor_model.c test/model/w5x00_model.c $(BOOT_INT_DIR)/uECC.o
 	@mkdir -p $(BOOT_INT_DIR)

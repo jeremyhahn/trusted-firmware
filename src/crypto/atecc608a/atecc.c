@@ -4,6 +4,7 @@
 #include <string.h>
 #include "atecc.h"
 #include "tfw/hal.h"
+#include "../../core/secure_zero.h"
 
 /*
  * One buffer, used for the command and then for the response.
@@ -121,12 +122,72 @@ static tfw_status_t translate(uint8_t code)
     }
 }
 
+/*
+ * Waits for the element's answer to a command just sent, reads it into rx and
+ * checks it: rlen data bytes, copied out to resp, or a four-byte STATUS. Both
+ * tfw_atecc_exec (rx = the shared buf) and tfw_atecc_verify_external (rx = its
+ * own four bytes, rlen 0) end here, so the poll and the checks are written
+ * once: on the element image every byte of flash counts.
+ *
+ * The element NACKs every read while it is working, so the wait is a poll
+ * rather than a sleep and a command that finishes early is read early. The
+ * bound comes from the datasheet's maximum execution time for the command;
+ * past it the part is not busy, it is broken. Sign and GenKey take up to
+ * 115 ms and Read 5 (atecc.h), so a fixed tries count would either give up on
+ * those or spin pointlessly on Read.
+ */
+static tfw_status_t answer(uint8_t *rx, uint8_t *resp, uint8_t rlen, uint16_t exec_ms)
+{
+    uint16_t     tries = (uint16_t)(exec_ms * 2u) + 4u;  /* one try per 500 us, plus slack */
+    uint8_t      n     = rlen ? (uint8_t)(rlen + 3u) : 4u;
+    uint8_t      len;
+
+    /* Out on the read that succeeded, not on "rx[0] is non-zero". rx may be
+     * the buffer the command was just sent from, so after a run of NACKs
+     * rx[0] still holds the word address 0x03 -- which reads as a three-byte
+     * response and sends the code below off to check a CRC over the command
+     * it transmitted. A part that never answered would have been reported as
+     * a CRC failure. */
+    for (;;) {
+        if (tries-- == 0u) {
+            return TFW_ERR_TIMEOUT;
+        }
+        tfw_hal_delay_us(500u);
+        if (tfw_hal_i2c_xfer(TFW_ATECC_ADDR, 0, 0u, rx, n) == TFW_OK) {
+            break;
+        }
+    }
+
+    /*
+     * A four-byte response is the element reporting a STATUS, not returning
+     * data. Commands that produce no data (Write, Lock, Verify) answer this
+     * way on success too, with status zero -- which is why rlen == 0 takes the
+     * same path rather than being a special case bolted on. Either shape
+     * carries its CRC in its last two bytes, so one check covers both.
+     */
+    len = rx[0];
+    if (len != 4u && (rlen == 0u || len != n)) {
+        return TFW_ERR_CRYPTO;
+    }
+    if (tfw_atecc_crc16(rx, (uint8_t)(len - 2u))
+            != (uint16_t)(rx[len - 2u] | ((uint16_t)rx[len - 1u] << 8))) {
+        return TFW_ERR_CRC;
+    }
+    if (len == 4u) {
+        /* Data was expected and a status came back: even status zero is a
+         * failure then, as the command did not produce what it was asked for. */
+        tfw_status_t st = translate(rx[1]);
+        return (rlen != 0u && st == TFW_OK) ? TFW_ERR_CRYPTO : st;
+    }
+    memcpy(resp, &rx[1], rlen);
+    return TFW_OK;
+}
+
 tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
                           const uint8_t *data, uint8_t dlen,
                           uint8_t *resp, uint8_t rlen, uint16_t exec_ms)
 {
-    uint8_t     count, n, got;
-    uint16_t    tries;
+    uint8_t     count;
     uint16_t    crc;
     tfw_status_t st;
 
@@ -157,59 +218,16 @@ tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
         return st;
     }
 
-    /*
-     * The element NACKs every read while it is working, so the wait is a poll
-     * rather than a sleep and a command that finishes early is read early. The
-     * bound comes from the datasheet's maximum execution time for the command;
-     * past it the part is not busy, it is broken. Sign and GenKey take up to
-     * 115 ms and Read 5 (atecc.h), so a fixed tries count would either give
-     * up on those or spin pointlessly on Read.
-     */
-    tries = (uint16_t)(exec_ms * 2u) + 4u;    /* one try per 500 us, plus slack */
-    n     = rlen ? (uint8_t)(rlen + 3u) : 4u;
-    got   = 0u;
-    while (tries-- && !got) {
-        tfw_hal_delay_us(500u);
-        if (tfw_hal_i2c_xfer(TFW_ATECC_ADDR, 0, 0u, buf, n) == TFW_OK) {
-            got = 1u;
-        }
-    }
-    /* An explicit flag, not "buf[0] is non-zero". The buffer is shared with the
-     * command that was just sent, so after a run of NACKs buf[0] still holds
-     * the word address 0x03 -- which reads as a three-byte response and sends
-     * the code below off to check a CRC over the command it transmitted. A part
-     * that never answered would have been reported as a CRC failure. */
-    if (!got) {
-        return TFW_ERR_TIMEOUT;
-    }
-
-    /*
-     * A four-byte response is the element reporting a STATUS, not returning
-     * data. Commands that produce no data (Write, Lock) answer this way on
-     * success too, with status zero -- which is why rlen == 0 takes the same
-     * path rather than being a special case bolted on.
-     */
-    if (buf[0] == 4u) {
-        if (tfw_atecc_crc16(buf, 2u) != (uint16_t)(buf[2] | ((uint16_t)buf[3] << 8))) {
-            return TFW_ERR_CRC;
-        }
-        if (rlen != 0u) {
-            /* Data was expected and a status came back. Even status zero is a
-             * failure here: the command did not produce what it was asked for. */
-            tfw_status_t why = translate(buf[1]);
-            return why == TFW_OK ? TFW_ERR_CRYPTO : why;
-        }
-        return translate(buf[1]);
-    }
-    if (rlen == 0u || buf[0] != n) {
-        return TFW_ERR_CRYPTO;
-    }
-    if (tfw_atecc_crc16(buf, (uint8_t)(n - 2u))
-            != (uint16_t)(buf[n - 2u] | ((uint16_t)buf[n - 1u] << 8))) {
-        return TFW_ERR_CRC;
-    }
-    memcpy(resp, &buf[1], rlen);
-    return TFW_OK;
+    st = answer(buf, resp, rlen, exec_ms);
+    /* A data response may be a secret: the CDI the provider's init asks for
+     * (HMAC over the UDS slot) is one. TCG DICE HW Req 6.4 wants it cleared
+     * once no longer needed, and the caller's copy is the only one that is
+     * still needed, so this file-static copy goes now, through
+     * tfw_secure_zero (src/core/secure_zero.h) rather than memset. Every
+     * path past the command's send is cleared, the refused ones and the
+     * timeout included: one call site, whatever answer() returned. */
+    tfw_secure_zero(buf, sizeof buf);
+    return st;
 }
 
 tfw_status_t tfw_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey[64],
@@ -224,8 +242,6 @@ tfw_status_t tfw_atecc_verify_external(const uint8_t sig[64], const uint8_t pubk
     uint8_t  rsp[4];
     uint8_t  count = (uint8_t)(7u + 128u);
     uint16_t crc;
-    uint16_t tries;
-    uint8_t  got;
 
     cmd[0] = TFW_ATECC_WA_COMMAND;
     cmd[1] = count;
@@ -243,27 +259,9 @@ tfw_status_t tfw_atecc_verify_external(const uint8_t sig[64], const uint8_t pubk
         return TFW_ERR_CRYPTO;
     }
 
-    /* The same poll tfw_atecc_exec runs for a status-only reply (Verify
+    /* The same answer tfw_atecc_exec reads for a status-only reply (Verify
      * External without a MAC answers with exactly one status byte, wrapped in
-     * the same four-byte shape Write and Lock use) -- duplicated rather than
-     * shared because the two functions no longer agree on where the command
-     * buffer lives. */
-    tries = (uint16_t)(exec_ms * 2u) + 4u;
-    got   = 0u;
-    while (tries-- && !got) {
-        tfw_hal_delay_us(500u);
-        if (tfw_hal_i2c_xfer(TFW_ATECC_ADDR, 0, 0u, rsp, 4u) == TFW_OK) {
-            got = 1u;
-        }
-    }
-    if (!got) {
-        return TFW_ERR_TIMEOUT;
-    }
-    if (rsp[0] != 4u) {
-        return TFW_ERR_CRYPTO;
-    }
-    if (tfw_atecc_crc16(rsp, 2u) != (uint16_t)(rsp[2] | ((uint16_t)rsp[3] << 8))) {
-        return TFW_ERR_CRC;
-    }
-    return translate(rsp[1]);
+     * the same four-byte shape Write and Lock use), read into this function's
+     * own four bytes because the two no longer share a command buffer. */
+    return answer(rsp, 0, 0u, exec_ms);
 }

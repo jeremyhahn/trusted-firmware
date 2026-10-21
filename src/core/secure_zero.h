@@ -14,8 +14,9 @@
  * anything reads the memory afterward.
  *
  * One definition, referenced by every CDI-copy site (src/core/handoff.c,
- * boot/boot_main.c, and each of the three crypto providers under
- * src/crypto/) rather than a volatile loop written out again at each one --
+ * boot/boot_main.c, each of the three crypto providers under src/crypto/,
+ * and the element driver's response buffer in src/crypto/atecc608a/atecc.c,
+ * which the element-root CDI passes through) rather than a volatile loop written out again at each one --
  * the same reasoning this project applies to the CRC and the reset-cause
  * decoder.
  */

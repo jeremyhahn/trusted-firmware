@@ -29,6 +29,7 @@
 #include "tfw/boot.h"
 #include "tfw/progmem.h"
 #include "sha256.h"
+#include "core/secure_zero.h"
 #include "deviceid_p256.h"
 
 /*
@@ -85,8 +86,11 @@ static tfw_status_t uds_hmac(const uint8_t *msg, uint8_t msg_len, uint8_t out[32
     /* The copy on the stack is the UDS itself, not a derivative. Leaving it for
      * whatever runs next -- including the application, a few hundred
      * instructions later, in the same SRAM -- would hand across the one value
-     * BLB mode 3 exists to keep on this side of the barrier. */
-    memset(uds, 0, sizeof uds);
+     * BLB mode 3 exists to keep on this side of the barrier. tfw_secure_zero:
+     * a memset of a local never read again is a dead store the compiler may drop.
+     * One exit, so one call clears it on both paths: each call site costs
+     * tfw-boot flash. */
+    tfw_secure_zero(uds, sizeof uds);
     return st;
 }
 

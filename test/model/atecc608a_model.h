@@ -33,6 +33,11 @@ void     tfw_model_set_counter(uint32_t v);
 uint8_t  tfw_model_last_opcode(void);
 /* The 7-bit address the last non-wake transfer went to, answered or not. */
 uint8_t  tfw_model_last_addr(void);
+/* The buffer the driver had the last data response (more than four bytes)
+ * read into, and its length; 0 if none since tfw_model_reset(). The pointer
+ * is the driver's: src/crypto/atecc608a/atecc.c reads into a file-static
+ * buffer, so a test can look at what it still holds after the call. */
+const uint8_t *tfw_model_last_data_read(uint8_t *len);
 /* Every command the part accepted (count and CRC good), in order, so a test
  * can pin the exact sequence a driver sends. The first TFW_MODEL_LOG_MAX are
  * kept; the count goes on (to 255) so a test still sees there were more.

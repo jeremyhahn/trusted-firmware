@@ -126,7 +126,7 @@ Three structures, and only these:
 
 | | Command | Host contributes | Built in |
 |---|---|---|---|
-| the evidence frame, bytes `[0, 74)` | `ATTEST` 0x60 | a 16-byte nonce | `src/caps/attest.c` |
+| the evidence frame, bytes `[0, 73)` | `ATTEST` 0x60 | a 16-byte nonce | `src/caps/attest.c` |
 | the alias `TBSCertificate`, 383 bytes | `ATTEST_CERT` 0x63 | a 32-byte nonce | `src/caps/alias.c` |
 | a PKCS#10 `CertificationRequestInfo`, 365 bytes | `ATTEST_CSR` 0x64 | a 32-byte `b` | `src/caps/csr.c` |
 

@@ -85,6 +85,10 @@ static uint32_t random_calls;    /* Random's n-th answer differs from its first 
  * that follows -- exactly the order the real part imposes. */
 static uint8_t  rsp[70];
 static uint8_t  rsp_len;
+/* Where the driver had the last data response read to, and its length: the
+ * driver's own buffer, which a test inspects after the call (HW Req 6.4). */
+static const uint8_t *last_rd;
+static uint8_t        last_rd_len;
 
 /* The zones, enough of them to answer Read and Write honestly.
  *
@@ -284,6 +288,7 @@ void tfw_model_reset(void)
     awake = 0u; provisioned = 0u; has_key = 0u; busy_reads = 0u;
     forced_status = 0u; last_opcode = 0u; counter0 = 0u; random_calls = 0u;
     rsp_len = 0u; last_addr = 0u; log_n = 0u;
+    last_rd = 0; last_rd_len = 0u;
     memset(log_cmds, 0, sizeof log_cmds);
     corrupt_idx = 0u; corrupt_mask = 0u; nack_command = 0u;
     memset(exec_ms, 0, sizeof exec_ms);
@@ -346,6 +351,11 @@ void tfw_model_set_counter(uint32_t v)   { counter0 = v; }
 void tfw_model_set_exec_ms(uint8_t op, uint16_t ms) { exec_ms[op] = ms; }
 uint8_t tfw_model_last_opcode(void)      { return last_opcode; }
 uint8_t tfw_model_last_addr(void)        { return last_addr; }
+const uint8_t *tfw_model_last_data_read(uint8_t *len)
+{
+    *len = last_rd_len;
+    return last_rd;
+}
 
 uint8_t tfw_model_log_count(void)       { return log_n; }
 const tfw_model_cmd_t *tfw_model_log(uint8_t i)
@@ -482,6 +492,14 @@ static void handle_command(const uint8_t *p, uint8_t n)
                            (uint16_t)(hmac_len + tail), body);
             hmac_active = 0u;
             respond(body, 32u);
+            /* The element's stack is not the MCU's, but here it is the same
+             * stack: leave no CDI for test_boot_cdi_atecc_clear to blame on
+             * the driver. Not tfw_secure_zero, so a suite recording those
+             * sees only the MCU's. */
+            {
+                volatile uint8_t *b = body;
+                for (i = 0u; i < 32u; i++) { b[i] = 0u; }
+            }
             return;
         }
         respond_status(0x03u);      /* parse error */
@@ -735,6 +753,9 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
             rd[corrupt_idx] ^= corrupt_mask;   /* one read only, then clean */
             corrupt_mask = 0u;
         }
+        /* Four bytes is a status or the wake token, read to the driver's
+         * stack; only a data response is worth remembering. */
+        if (rlen > 4u) { last_rd = rd; last_rd_len = rlen; }
         return TFW_OK;
     }
     return TFW_OK;

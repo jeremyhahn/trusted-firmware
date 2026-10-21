@@ -30,6 +30,13 @@
 # and reset -- one file per architecture, named for it.
 BOOT_HAL_DIR := boot/hal/$(ARCH)
 
+# The SoC's half of the bootloader's HAL, on an architecture that splits its
+# HAL by SoC as mk/firmware.mk's HAL_SOC_DIR does: every .c under
+# boot/hal/<arch>/<soc>/, and the SoC file both images share for what
+# $(HAL_DIR)/hal_early.c asks of the part (the watchdog, on Cortex-M). Empty on
+# a board that names no SOC.
+BOOT_SOC_SRCS := $(if $(SOC),$(wildcard $(BOOT_HAL_DIR)/$(SOC)/*.c $(HAL_DIR)/$(SOC)/hal_soc.c))
+
 
 # The tier, chosen at LINK time exactly as CRYPTO is for the application.
 #
@@ -61,6 +68,7 @@ endif
 # to believe them.
 BOOT_MEASURING_GOAL := $(filter bootloader-budget boot-core-size,$(MAKECMDGOALS))
 BOOT_SIG ?= $(if $(BOOT_MEASURING_GOAL),ed25519-donna,$(if $(filter atecc608a,$(BOOT_TIER)),atecc608a,p256-soft))
+BOOT_SIG_OPT_CFLAGS :=
 ifeq ($(BOOT_SIG),ed25519-donna)
 BOOT_SIG_SRCS := boot/verify/verify_ed25519_donna.c boot/verify/donna_shim.c \
                  src/third_party/ed25519-donna/ed25519.c
@@ -77,8 +85,14 @@ else ifeq ($(BOOT_SIG),p256-soft)
 BOOT_SIG_SRCS := boot/verify/verify_p256_soft.c boot/verify/p256_key_slot.c \
                  src/third_party/micro-ecc/uECC.c
 BOOT_SIG_SU_SRC    := src/third_party/micro-ecc/uECC.c
-BOOT_SIG_SU_CFLAGS  = $(UECC_AVR_CFLAGS)
+BOOT_SIG_SU_CFLAGS  = $(UECC_BOOT_CFLAGS)
 BOOT_SIG_SU_FN     := uECC_verify
+# Two code-size options for this backend on AVR, every tfw-boot object and
+# micro-ecc (#173): avr-gcc 14.2 splits each 32-bit value into bytes and hoists
+# loop invariants into registers it then saves, and both cost the 2560's soft
+# row more than the 8 KB section holds. The element rows build without them,
+# so their images are unchanged.
+BOOT_SIG_OPT_CFLAGS := $(if $(filter avr,$(ARCH)),-fno-split-wide-types -fno-move-loop-invariants)
 else
 $(error unknown BOOT_SIG "$(BOOT_SIG)" -- expected ed25519-donna, atecc608a or p256-soft)
 endif
@@ -184,7 +198,7 @@ BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_request.c boot/boot_entry.c \
   boot/boot_platform.c boot/boot_policy.c boot/boot_trial.c \
-  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c \
+  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) \
   src/proto/crc16.c src/proto/crc16_update.c \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
@@ -205,7 +219,7 @@ BOOT_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                -I$(HAL_DIR) -Isrc/third_party/ed25519-donna -Isrc/third_party/micro-ecc \
                -Iboot -Iboot/verify -I$(BOOT_HAL_DIR) -I$(BOARD_DIR) \
                -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS) \
-               $(ARCH_BOOT_OPT_CFLAGS) $(BOOT_OPT_EXTRA)
+               $(ARCH_BOOT_OPT_CFLAGS) $(BOOT_SIG_OPT_CFLAGS) $(BOOT_OPT_EXTRA)
 
 # The vendored tree, built WITHOUT -Werror and without our warning set.
 #
@@ -223,8 +237,9 @@ DONNA_CFLAGS := -std=gnu11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
 
 # micro-ecc (BOOT_SIG=p256-soft), vendored and built the same way, configured
 # only by its own macros: secp256r1 only, no compressed points, verify is all
-# tfw-boot calls (--gc-sections drops the rest). uECC_WORD_SIZE=1 is the AVR's
-# word, and the host test compiles the same word path. UECC_OPT picks
+# tfw-boot calls (--gc-sections drops the rest). The word size and platform are
+# the architecture's (ARCH_UECC_CFLAGS): uECC_WORD_SIZE=1 is the AVR's word, and
+# the host test compiles the same word path. UECC_OPT picks
 # uECC_OPTIMIZATION_LEVEL: 0 is portable C, 1 adds the curve's fast reduction,
 # 2 the small AVR assembly; 3 needs the unrolled file, which is not vendored.
 # The default is whichever bootloader-budget measures smallest. It takes the
@@ -245,9 +260,9 @@ UECC_DEFS := -DuECC_SUPPORTS_secp160r1=0 -DuECC_SUPPORTS_secp192r1=0 \
              -DuECC_SUPPORTS_secp224r1=0 -DuECC_SUPPORTS_secp256k1=0 \
              -DuECC_SUPPORTS_secp256r1=1 -DuECC_SUPPORT_COMPRESSED_POINT=0 \
              -DuECC_OPTIMIZATION_LEVEL=$(UECC_OPT)
-UECC_AVR_CFLAGS := -std=gnu11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
-                   -ffile-prefix-map=$(CURDIR)=. $(UECC_DEFS) -DuECC_WORD_SIZE=1 \
-                   -Isrc/third_party/micro-ecc $(ARCH_BOOT_OPT_CFLAGS) $(BOOT_OPT_EXTRA)
+UECC_BOOT_CFLAGS := -std=gnu11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
+                    -ffile-prefix-map=$(CURDIR)=. $(UECC_DEFS) $(ARCH_UECC_CFLAGS) \
+                    -Isrc/third_party/micro-ecc $(ARCH_BOOT_OPT_CFLAGS) $(BOOT_SIG_OPT_CFLAGS) $(BOOT_OPT_EXTRA)
 
 # Where .text starts and where the handoff block and the stack go are the
 # architecture's to say -- ARCH_BOOT_PLACEMENT_LDFLAGS, which also explains why
@@ -261,7 +276,7 @@ $(BOOT_DIR_OUT)/src/third_party/ed25519-donna/%.o: src/third_party/ed25519-donna
 
 $(BOOT_DIR_OUT)/src/third_party/micro-ecc/%.o: src/third_party/micro-ecc/%.c
 	@mkdir -p $(dir $@)
-	@$(ARCH_CC) $(UECC_AVR_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
+	@$(ARCH_CC) $(UECC_BOOT_CFLAGS) -MMD -MP -frandom-seed=$(notdir $<) -c -o $@ $<
 
 $(BOOT_DIR_OUT)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -323,6 +338,8 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 #
 #   328P / 32U4  4 KB section  element hash + element verify, no OTA in boot
 #   2560         8 KB section  the same, plus OTA in boot or the external store
+#   mps2-an505   32 KB region  soft hash + P-256 in software, no OTA, no store
+#                              (#161, QEMU's Cortex-M33; mk/arch/cortex-m.mk)
 #
 # Flash used, avr-gcc 14.2.0 with ARCH_BOOT_OPT_CFLAGS (issue #75): 328P 3 746,
 # 32U4 3 816, 2560 3 906; 2560 with OTA (session, swap-move, trial) 7 666, was
@@ -341,6 +358,8 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 # UECC_OPT, measured by lane-verify at 935494f with ld's own overflow message:
 #
 #   2560, no OTA, no store   fits, 8 190 / 8 192 -- 2 bytes spare. A row.
+#                            8 064 / 8 192 with the DeviceID seed, after #173's
+#                            rewrites and BOOT_SIG_OPT_CFLAGS (avr-gcc 14.2).
 #   2560 with the store      2 680 bytes over. Not a row.
 #   2560 with OTA            3 836 bytes over. Not a row.
 #   328P, no OTA, no store   4 030 bytes over. Not a row.
@@ -358,7 +377,8 @@ BOOT_SUPPORTED := \
   atmega2560:atecc608a:atecc608a:atecc608a:0:0 \
   atmega2560:atecc608a:atecc608a:atecc608a:1:0 \
   atmega2560:atecc608a:atecc608a:atecc608a:0:1 \
-  atmega2560:soft:soft:p256-soft:0:0
+  atmega2560:soft:soft:p256-soft:0:0 \
+  mps2-an505:soft:soft:p256-soft:0:0
 
 bootloader-check:
 	@fail=0; \
@@ -383,12 +403,17 @@ bootloader-check:
 # oversized boot only while the link knows the part's flash size (mk/arch/
 # avr.mk's __TEXT_REGION_LENGTH__); this asks the ELF, so a link that lost it
 # again fails here rather than passing an image that runs past the top.
+#
+# The top is the part's flash where flash starts at address zero, as on AVR. An
+# architecture whose boot region sits elsewhere in the address space names the
+# region's end address as ARCH_BOOT_LOAD_LIMIT (mk/arch/cortex-m.mk).
+BOOT_LOAD_LIMIT := $(or $(ARCH_BOOT_LOAD_LIMIT),$(FLASH_TOTAL))
 boot-load-end-check:
 	@end=$$($(ARCH_NM) -P $(BOOT_TARGET).elf | awk '$$1 == "__data_load_end" { print $$3 }'); \
 	 if [ -z "$$end" ]; then \
 	   echo "$(BOOT_TARGET).elf has no __data_load_end"; exit 1; fi; \
-	 if [ $$(( 0x$$end )) -gt $$(( $(FLASH_TOTAL) )) ]; then \
-	   echo "$(BOOT_TARGET).elf ends at 0x$$end, past the part's flash $(FLASH_TOTAL)"; exit 1; fi
+	 if [ $$(( 0x$$end )) -gt $$(( $(BOOT_LOAD_LIMIT) )) ]; then \
+	   echo "$(BOOT_TARGET).elf ends at 0x$$end, past the part's flash $(BOOT_LOAD_LIMIT)"; exit 1; fi
 
 .PHONY: bootloader-check boot-load-end-check
 
@@ -730,7 +755,7 @@ bootloader-budget:
 	   o=$(BOOT_MEAS_DIR)/$$(echo $$src | tr / _).o; \
 	   $(ARCH_CC) $(if $(findstring third_party,$(src)),$(DONNA_CFLAGS),$(BOOT_CFLAGS)) -fno-lto -c -o $$o $$src 2>/dev/null || \
 	     $(ARCH_CC) $(DONNA_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null || \
-	     $(ARCH_CC) $(UECC_AVR_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
+	     $(ARCH_CC) $(UECC_BOOT_CFLAGS) -fno-lto -c -o $$o $$src 2>/dev/null; \
 	   n=$$($(ARCH_SIZE) --format=berkeley $$o | awk 'NR==2{print $$1+$$2}'); \
 	   printf '  %-52s %7s\n' "$$src" "$$n"; \
 	 done

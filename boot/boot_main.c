@@ -83,6 +83,13 @@ void tfw_boot_hand_over(const tfw_boot_verdict_t *v)
      */
     tfw_boot_handoff_build(block, tfw_boot_cdi_tier(), cdi, v->measurement,
                           v->trailer.image_version, tfw_boot_reset_cause());
+
+    /* The soft root's DeviceID seed, derived here because the UDS is here
+     * (include/tfw/boot.h, version 4). `cdi` is spent, so it holds the seed;
+     * on a tier with no seed the block keeps the all-zero one. */
+    if (tfw_boot_cdi_device_seed(cdi) == TFW_OK) {
+        tfw_boot_handoff_set_seed(block, cdi);
+    }
     tfw_boot_handoff_write(block, TFW_BOOT_HANDOFF_LEN);
 
     tfw_secure_zero(cdi, sizeof cdi);

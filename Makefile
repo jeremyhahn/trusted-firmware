@@ -41,8 +41,10 @@ include mk/wiznet-probe.mk
 # firmware's flags and HAL, around a block tfwprov writes. The image is a bench
 # image only; its no-link check is in `ci`.
 include mk/platform-bake.mk
-# An architecture's own targets, for architectures whose image a different
-# build system produces (mk/arch/esp32-targets.mk: ESP-IDF). Never in `ci`.
+# An architecture's own targets, for any invocation whatever its BOARD: those
+# whose image a different build system produces (mk/arch/esp32-targets.mk:
+# ESP-IDF) and the emulator suites (mk/arch/cortex-m-targets.mk: QEMU). Never
+# in `ci`; CI runs each as its own step.
 include $(wildcard mk/arch/*-targets.mk)
 # Last: the five CI stages are made of the targets every file above defines.
 include mk/stages.mk

@@ -78,8 +78,8 @@ device says about its own root of trust.
   not 32 bytes. Most likely a raw key authorization instead of
   `DICENonce` of one, or the device's *other* nonce: the 16-byte one belongs in
   the evidence frame and means runtime freshness, not enrolment.
-- `avr backend: unsupported on this build or part` — a software-tier device.
-  It knows exactly what a certificate is and has no public half to certify. This
+- `avr backend: unsupported on this build or part` — a software-tier
+  ATmega328P or ATmega32U4, whose HMAC signer has no public half to certify. This
   is a part to change, not a build.
 - `avr backend: the alias certificate was not produced by the device's element`
   — the certificate's key or signature is not what an ATECC608A makes. It holds

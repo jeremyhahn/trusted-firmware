@@ -81,7 +81,7 @@ The trust model, and how it relates to TF-M, is #15 and is not decided here.
   - The lint gate's exemption already matches nested directories such as
     `src/hal/cortex-m/<soc>/`.
 - **Two placements are fixed by contract.**
-  - The CDI handoff block is 80 bytes at `RAM_END - 79`, and both images place
+  - The CDI handoff block is 112 bytes (version 4; 80 before #173) at `RAM_END - 111`, and both images place
     it with the same linker formula.
   - The platform block is read through `tfw_hal_nvm_read`. Only tfw-boot writes
     it.
@@ -367,7 +367,7 @@ the dual-core AN505 (AN521, DAI 0521) and adds nothing a single-core port needs.
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | SoC | not linked | TPM input capture |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | not linked; `TFW_EEPROM_SIZE 0` |
 | `tfw_hal_nvm_read` | SoC | the platform block in SSRAM-0 (decision 5) | question 7 |
-| `tfw_hal_handoff_block` | core | the linker-placed `.handoff` at `RAM_END - 79` | none: no tfw-boot, so no handoff (as the ATtiny85) |
+| `tfw_hal_handoff_block` | core | the linker-placed `.handoff` at `RAM_END - 111` | none: no tfw-boot, so no handoff (as the ATtiny85) |
 | `tfw_hal_i2c_init`, `_xfer` | SoC | SBCon bit-bang | LPI2C |
 | `tfw_hal_spi_init`, `_xfer` | SoC | PL022 | LPSPI |
 | `tfw_hal_ow_reset`, `_write`, `_read` | SoC | not linked | RGPIO and `tfw_hal_delay_us` |
@@ -456,7 +456,7 @@ The versions are from the Debian sources API for trixie
   The vector table and reset handler are ours, in `src/hal/cortex-m/`.
 - `ARCH_FW_PLACEMENT_LDFLAGS` and `ARCH_BOOT_PLACEMENT_LDFLAGS`:
   - a per-SoC linker script from `mk/arch/cortex-m/<soc>.ld`;
-  - the same `RAM_END - 79` formula for `.handoff` as `avr.mk`, without AVR's
+  - the same `RAM_END - 111` formula for `.handoff` as `avr.mk`, without AVR's
     `0x800000` offset.
 - `ARCH_FLASH`:
   - **QEMU board:** the recipe runs QEMU.

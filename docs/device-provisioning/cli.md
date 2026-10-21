@@ -13,8 +13,8 @@ sequence.
 ## Synopsis
 
 ```
-tfwprov [flags] <port>                                  # --dry-run / --verify / --commit
-tfwprov --bake-eeprom --serial <hex> --out <file> [flags]  # no port, no element
+tfwprov [flags] [--record <file>] <port>                # --dry-run / --verify / --commit
+tfwprov --bake-eeprom --serial <hex> --out <file> [--record <file>] [flags]  # no port, no element
 tfwprov --bake-netblock --mac <mac> --ip <a.b.c.d/n> --gateway <a.b.c.d> \
         --endpoint <a.b.c.d:port> --out <file>             # no port, no element
 tfwprov --bake-netblock --mac <mac> --dhcp --endpoint <a.b.c.d:port> --out <file>
@@ -41,6 +41,7 @@ exactly one positional argument, the serial port; the bake modes take none.
 | `--pubkey-hash` | `""` | `--bake-eeprom`: SHA-256 of the bootloader's Ed25519 pubkey, hex. Ignored on the element tier; load-bearing on `BOOT_SIG=ed25519-donna`, which item 79 (owner ruling 2026-10-17) takes off every row: the verifier is P-256 on every row — omitting it there bakes an all-zero hash and prints a warning, and `tfw-boot` will refuse every image until the real one is set. An explicit all-zero value is refused |
 | `--operator-pubkey` | `""` | `--bake-eeprom`: 64-byte P-256 operator public key (X‖Y), hex — the `AUTH_CHALLENGE`/`AUTH_RESPONSE` session's trust anchor (issue #4), element tier only. Omitting it bakes an all-zero key and prints a warning: `AUTH_RESPONSE` will refuse every attempt until the real key is set |
 | `--out` | `""` | `--bake-eeprom`/`--bake-netblock`: the `.eep` file to write |
+| `--record` | `""` | the [provisioning record](#the-provisioning-record), a JSON file. `--bake-eeprom` starts it with the serial; `--commit` and `--verify` join the DeviceID point to it. Refused with `--dry-run`, and with `--bake-netblock` alone (the network block is not part of the record) |
 | `--bake-netblock` | `false` | write the Ethernet network block (`sdk/go/netcfg.go`, layout in [../ethernet-transport/api.md](../ethernet-transport/api.md)) as an `.eep` image at `[0x0C0, 0x0E0)`, encoded by `NetConfig.MarshalBinary`. Opens no port. With `--bake-eeprom` too, one file of both blocks: the contiguous 224 bytes `[0x000, 0x0E0)` |
 | `--mac` | `""` | `--bake-netblock`: the device's MAC, `aa:bb:cc:dd:ee:ff`; unicast |
 | `--ip` | `""` | `--bake-netblock`: the device's IPv4 address, `a.b.c.d/prefix`, or `a.b.c.d` with `--mask` |
@@ -94,8 +95,10 @@ tfwprov --commit --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0 --ye
 
 Performs the sequence in [`engineering.md`](engineering.md): write config
 blocks, lock config zone, generate the DeviceID key, seed the UDS, lock data
-zone. Prints the DeviceID public key at the end — record it; the provisioning
-record is the authority on this device's identity, not the device itself.
+zone. Prints the DeviceID public key at the end. With `--record`, it also joins
+that key to the record; without it, record the printed key yourself. The
+provisioning record is the authority on this device's identity, not the
+device itself.
 
 ### 3. `--verify` — read back and compare
 
@@ -108,6 +111,59 @@ key, and reads back the public key. It cannot check the config blocks
 themselves once the config zone is locked — the element does not return a
 locked config zone's contents — and says so explicitly in its output rather
 than reporting a weaker pass as a clean one.
+
+## The provisioning record
+
+`--record <file>` writes the pair the device registry anchors enrolment in
+([onboarding step 4](../device-onboarding/architecture.md)): the serial
+`--bake-eeprom` wrote, joined to the DeviceID point `--commit` generated. The
+two halves come from two runs, so the same file is passed to both. No member is
+ours; the record is a JSON claims set of two registered claims:
+
+| Member | Standard | Value |
+|---|---|---|
+| `ueid` | RFC 9711 §4.2.1 (EAT UEID), base64url as a JSON bstr per §7.2.2 | type byte `0x01` (RAND), then the 16-byte serial: the DeviceID field the device's own evidence carries |
+| `cnf.jwk` | RFC 7800 §3.2 (confirmation claim), RFC 7517 (JWK) | the DeviceID public key: `kty` `EC`, `crv` `P-256`, `x`, `y`, per RFC 7518 §6.2.1 |
+
+No RFC 7638 thumbprint is carried; the SDK computes none. The registry's hex
+UEID and DER SPKI are re-encodings of these two members, and that is
+go-trusted-platform's. An example, from test values only (the serial
+`000102…0f` and the P-256 base point):
+
+```json
+{
+  "ueid": "AQABAgMEBQYHCAkKCwwNDg8",
+  "cnf": {
+    "jwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "axfR8uEsQkf4vOblY6RA8ncDfYEt6zOg9KE5RdiYwpY",
+      "y": "T-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU"
+    }
+  }
+}
+```
+
+One record is one device, and `tfwprov` never overwrites one device's record
+with another's:
+
+- `--bake-eeprom` writes `{"ueid": …}` if the file is absent. It leaves a
+  record of the same serial as it is, and refuses one of another serial before
+  it writes the image.
+- `--commit` refuses, before it sends the element anything, when the record is
+  missing or already holds a point: a new key would not be that device's. A
+  failed commit leaves the record unchanged.
+- `--commit` and `--verify` add `cnf` and leave a record that already holds the
+  same point as it is. They refuse a different point: that element is another
+  device.
+- A file that is not a record is refused, never rewritten: an unknown member, a
+  `ueid` of another shape, or a `cnf.jwk` that is not a P-256 point.
+- The file is replaced whole, through a rename in its own directory.
+
+`tfwprov` cannot check on the device that the element sits on the board whose
+serial the record holds. During `--commit` the platform block cannot be read
+without an authenticated session, so the join rests on the operator passing
+the same file to both runs.
 
 ## Exit behavior
 
@@ -131,7 +187,7 @@ tfwprov --bake-eeprom --serial <16-byte hex> \
        --operator-pubkey <64-byte hex, element tier> \
        [--bake-netblock --mac <mac> --ip <a.b.c.d/n> --gateway <a.b.c.d> \
         --endpoint <a.b.c.d:port>] \
-       --out platform.eep
+       --out platform.eep --record device.json
 avrdude -c <prog> -p <part> -D -U eeprom:w:platform.eep:i
 #    On a BENCH part with no ISP programmer, still running its stock serial
 #    bootloader, the bench bake image writes the same tfwprov block instead
@@ -146,7 +202,8 @@ avrdude -c <prog> -p <part> -U lfuse:w:...:m -U hfuse:w:...:m -U efuse:w:...:m
 make BOARD=atmega328p CRYPTO=atecc608a PROVISION=1 firmware
 make BOARD=atmega328p flash
 
-# 4-6. tfwprov, as above: --dry-run, then --commit, then --verify.
+# 4-6. tfwprov, as above: --dry-run, then --commit, then --verify; pass
+#      --record device.json to --commit to join the DeviceID point.
 
 # 7. Lock bits last, only after --verify passes.
 avrdude -c <prog> -p <part> -U lock:w:0x0C:m

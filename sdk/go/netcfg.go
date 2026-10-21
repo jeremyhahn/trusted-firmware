@@ -81,9 +81,10 @@ const macDomain = "tfw-eth-mac-v1"
 // It is the first six bytes of SHA-256("tfw-eth-mac-v1" || id), with bit 1 of
 // the first octet set (locally administered) and bit 0 cleared (unicast). On
 // the element tier id is the DeviceID public key, the 64-byte X||Y of its
-// P-256 point. The software tier has no public key, its identity being a
-// symmetric secret, so there id is the 16-byte serial: the DeviceID field of
-// its ATTEST evidence.
+// P-256 point. On the software tier id is the 16-byte serial, the DeviceID
+// field of its ATTEST evidence: chosen when that tier had no public key, as
+// the ATmega328P and ATmega32U4 still have none, and kept on the ATmega2560's
+// P-256 soft root (docs/ethernet-transport/adr-wire-protocol-over-w5x00.md).
 //
 // The device does not derive anything. The block holds the one MAC it uses,
 // derived or provisioned, so a sticker value replaces this one by writing it.

@@ -29,6 +29,7 @@ alone, before it knows the board.
 | `0x02` | ATmega2560 | `boards/atmega2560` |
 | `0x03` | ATmega32U4 | `boards/atmega32u4` |
 | `0x04` | ATtiny85 | `boards/attiny85` |
+| `0x40` | Arm AN505 (Cortex-M33) as QEMU's `mps2-an505` models it | `boards/mps2-an505` |
 | `0x80` | ESP32-P4 on a PoE Ethernet board | `boards/esp32p4-poe` |
 | `0x81` | Espressif QEMU, `esp32c3` and `esp32` machines | `boards/esp32-qemu` |
 

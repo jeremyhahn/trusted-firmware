@@ -99,6 +99,12 @@ UECC_CFLAGS := -std=c11 -g -O1 -I$(UECC_DIR) \
 MODEL_INC     := -Isrc/crypto/atecc608a -Itest/model -I$(UECC_DIR)
 ELEMENT_MODEL := test/model/atecc608a.c $(HOST_DIR)/uECC.o
 
+# The soft root's identity (#48, #130): the ES256 P-256 DeviceID, as the 2560
+# soft and auto images link it (mk/firmware.mk SOFT_ID=p256). deviceid_p256.c
+# includes uECC.h; uECC.o is the model's object, linked once wherever both are.
+HOST_CFLAGS   += -I$(UECC_DIR)
+SOFT_ID_SRCS  := src/crypto/soft/id_p256.c src/crypto/deviceid_p256.c
+
 $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 	@$(CC) $(UECC_CFLAGS) -c -o $@ $<
 
@@ -147,7 +153,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                            test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
-                            test/unit/test_deviceid_p256.c test/unit/test_provision_uds.c, \
+                            test/unit/test_deviceid_p256.c test/unit/test_provision_uds.c \
+                            test/unit/test_soft_id_p256.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 
@@ -171,12 +178,13 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/storage.c \
                  src/crypto/sha256.c \
                  src/crypto/soft/provider.c \
+                 $(SOFT_ID_SRCS) $(HOST_DIR)/uECC.o \
                  src/caps/attest.c \
                  src/caps/alias.c \
                  src/caps/tmpl.c \
                  src/caps/csr.c \
                  src/caps/uccs.c \
-                 src/core/handoff.c src/core/platform_id.c \
+                 src/core/handoff.c src/core/handoff_seed.c src/core/platform_id.c \
                  src/core/secure_zero.c \
                  src/core/auth_session_none.c \
                  src/core/update_request.c boot/boot_request.c \
@@ -184,6 +192,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/core/app_runner.c \
                  test/mock/hal_mock.c \
                  test/mock/uds_mock.c \
+                 test/mock/boot_soft_mock.c \
                  test/mock/app_mock.c \
                  src/core/board_lookup.c \
                  src/core/ota_stage_none.c \
@@ -211,7 +220,7 @@ $(HOST_DIR)/test_atecc: test/unit/test_atecc.c $(ELEMENT_MODEL) \
                         src/crypto/atecc608a/atecc.c \
                         src/crypto/atecc608a/provider.c \
                         src/crypto/sha256.c \
-                        src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -232,11 +241,11 @@ $(HOST_DIR)/floor_auto_soft.o: src/core/ota_floor_eeprom.c
 $(HOST_DIR)/floor_auto_element.o: src/core/ota_floor_atecc.c
 $(HOST_DIR)/test_crypto_auto: test/unit/test_crypto_auto.c $(ELEMENT_MODEL) \
                               src/crypto/atecc608a/atecc.c src/crypto/auto/provider.c \
-                              $(HOST_DIR)/crypto_auto_soft.o $(HOST_DIR)/crypto_auto_element.o \
+                              $(HOST_DIR)/crypto_auto_soft.o $(HOST_DIR)/crypto_auto_element.o $(SOFT_ID_SRCS) \
                               src/core/ota_floor_auto.c $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
                               src/core/auth_session_auto.c \
                               src/crypto/sha256.c test/mock/uds_mock.c \
-                              src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                              src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -262,7 +271,7 @@ $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_mutate: $(HOST_DIR)/%: test/unit/%.c
                        src/crypto/atecc608a/atecc.c \
                        src/crypto/atecc608a/provider.c \
                        src/crypto/sha256.c \
-                       src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                       src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                        $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(SUIT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -292,7 +301,7 @@ $(HOST_DIR)/test_alias: test/unit/test_alias.c $(ELEMENT_MODEL) \
                         src/core/reader.c src/core/writer.c \
                         src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                         src/crypto/sha256.c src/caps/attest.c \
-                        src/core/handoff.c src/core/platform_id.c src/core/secure_zero.c \
+                        src/core/handoff.c src/core/handoff_seed.c src/core/platform_id.c src/core/secure_zero.c \
                         boot/boot_handoff.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -305,7 +314,7 @@ $(HOST_DIR)/test_csr: test/unit/test_csr.c $(ELEMENT_MODEL) \
                       src/core/reader.c src/core/writer.c \
                       src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                       src/crypto/sha256.c src/caps/attest.c \
-                      src/core/handoff.c src/core/platform_id.c src/core/secure_zero.c \
+                      src/core/handoff.c src/core/handoff_seed.c src/core/platform_id.c src/core/secure_zero.c \
                       boot/boot_handoff.c boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
                       $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -334,7 +343,7 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
                                src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
                                src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                                src/crypto/sha256.c \
-                               src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c \
+                               src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c \
                                src/proto/crc16.c src/proto/crc16_update.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -345,7 +354,7 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
 # nothing without the tier that refuses everything instead.
 $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
                         src/crypto/none/provider.c \
-                        src/core/handoff.c src/core/secure_zero.c \
+                        src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         test/mock/hal_mock.c test/mock/uds_mock.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -356,7 +365,8 @@ $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
 # the mock, so this suite has its own link line too.
 $(HOST_DIR)/test_uds_flash: test/unit/test_uds_flash.c \
                         src/crypto/soft/uds_flash.c src/crypto/soft/provider.c src/crypto/sha256.c \
-                        src/core/handoff.c src/core/secure_zero.c \
+                        $(SOFT_ID_SRCS) $(HOST_DIR)/uECC.o \
+                        src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         test/mock/hal_mock.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -389,7 +399,7 @@ $(HOST_DIR)/test_none_standins: test/unit/test_none_standins.c \
 # The same stand-ins on the wire (#130): the whole host library with them where
 # handoff.c and platform_id.c would be, so ATTEST answers as a no-boot board's.
 $(HOST_DIR)/test_noboot_wire: test/unit/test_noboot_wire.c \
-                        $(filter-out src/core/handoff.c src/core/platform_id.c,$(HOST_LIB_SRCS)) \
+                        $(filter-out src/core/handoff.c src/core/handoff_seed.c src/core/platform_id.c,$(HOST_LIB_SRCS)) \
                         src/core/handoff_none.c src/core/platform_id_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -397,7 +407,7 @@ $(HOST_DIR)/test_noboot_wire: test/unit/test_noboot_wire.c \
 # OTA_INFO on that build (#130): test_ota_stage's link with the same two
 # stand-ins in place of handoff.c and platform_id.c.
 $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
-                        $(filter-out src/core/handoff.c src/core/platform_id.c,$(HOST_STAGE_LIB_SRCS)) \
+                        $(filter-out src/core/handoff.c src/core/handoff_seed.c src/core/platform_id.c,$(HOST_STAGE_LIB_SRCS)) \
                         src/core/handoff_none.c src/core/platform_id_none.c \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
@@ -411,7 +421,7 @@ $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
 # test_ota_trial_mutate mutates that block on the same link.
 $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate: $(HOST_DIR)/%: test/unit/%.c src/core/ota_trial.c src/core/ota_trial_block.c \
                         test/mock/runner_fake.c \
-                        boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c \
+                        boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c src/core/handoff_seed.c \
                         src/core/secure_zero.c boot/boot_handoff.c \
                         src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -421,7 +431,7 @@ $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate: $(HOST_DIR)/%: tes
 # real board has -- so it links board_lookup.c and the mock HAL without
 # boards/$(HOST_BOARD)/board.c, whose tables would be second definitions.
 $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
-                        test/mock/hal_mock.c src/core/handoff.c src/core/secure_zero.c \
+                        test/mock/hal_mock.c src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -431,7 +441,7 @@ $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
 # the firmware's, and not this file's HOST_LIB_SRCS -- and must stay that way.
 $(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-bake/bake.c \
                         boot/boot_platform.c \
-                        test/mock/hal_mock.c src/core/handoff.c src/core/secure_zero.c \
+                        test/mock/hal_mock.c src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o tools/platform-bake/bake.h | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) -Itools/platform-bake $(EXTRA_CFLAGS) -o $@ \
@@ -448,7 +458,7 @@ $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate: $(HOST_DIR)/%: test/
                                 src/core/reader.c src/core/writer.c \
                                 src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
                                 src/crypto/sha256.c src/proto/crc16.c src/proto/crc16_update.c \
-                                src/core/platform_id.c src/core/handoff.c src/core/secure_zero.c \
+                                src/core/platform_id.c src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
                                 src/core/update_request.c boot/boot_request.c \
                                 boot/boot_platform.c boot/boot_handoff.c \
                                 src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
@@ -631,7 +641,7 @@ STORAGE_2560_CFLAGS := $(subst -Iboards/$(HOST_BOARD) ,-Iboards/atmega2560 ,\
                          $(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS)))
 $(HOST_DIR)/test_storage_2560: test/unit/test_storage_2560.c src/caps/storage.c \
                                src/core/reader.c src/core/writer.c test/mock/hal_mock.c \
-                               src/core/handoff.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                               src/core/handoff.c src/core/handoff_seed.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                                src/core/secure_zero.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(STORAGE_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -653,6 +663,13 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
 $(HOST_DIR)/test_deviceid_p256: test/unit/test_deviceid_p256.c src/crypto/deviceid_p256.c \
                                 src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The soft root's identity as that DeviceID (#48, #130), src/crypto/soft/id_p256.c,
+# the same way: the suite's own tfw_secure_zero sees the seed and scalar zeroed,
+# and its own tfw_crypto_soft_uds is the UDS, so no provider is linked.
+$(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
+                               src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The eFuse-UDS provisioning backend (issue #48) under the shared wire
 # handlers, over a mock part in place of src/hal/esp32/prov_uds.c.
@@ -698,7 +715,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST
                     $(HOST_DIR)/test_w5100_mutate $(HOST_DIR)/test_w5500_mutate \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small \
-                    $(HOST_DIR)/test_deviceid_p256 \
+                    $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_soft_id_p256 \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
                     $(HOST_DIR)/boot/test_boot_p256_rom $(HOST_DIR)/boot/test_boot_flash_span \
                     $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
@@ -793,16 +810,33 @@ COVERAGE_FLOOR ?= 90
 # definition explicitly rather than having its complaints suppressed: told the
 # configuration it can analyse the code, whereas a suppression would also hide
 # the next genuinely unknown macro.
-lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
-	@cppcheck --enable=warning,style,performance,portability \
+#
+# The configuration includes the architecture. A HAL and boot HAL are analysed
+# with their own architecture's HAL includes and reference board, never the
+# 328P's: under the 328P's header the Cortex-M application region sits at 0,
+# and cppcheck rightly reports a null vector table and a bounds check that can
+# never fail -- findings about a build that does not exist. Each LINT_ARCH_RUNS
+# row is `hal-dir:board-dir`; its HAL, boot HAL and board are excluded from the
+# AVR run and analysed in a run of their own.
+LINT_CPPCHECK = cppcheck --enable=warning,style,performance,portability \
 	          --check-level=exhaustive \
 	          --error-exitcode=1 --inline-suppr --quiet \
 	          --suppress=missingIncludeSystem \
 	          --suppress=unusedFunction \
 	          -DTFW_BOARD_HEADER='"board_profile.h"' -DTFW_PROGMEM= \
-	          -Iinclude -Isrc -Isrc/hal/avr -Iboards/atmega328p -Iboot \
+	          -Iinclude -Isrc
+LINT_ARCH_RUNS := cortex-m:mps2-an505
+lint-arch-dirs = src/hal/$(1) boot/hal/$(1) boards/$(2)
+
+lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
+	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
+	          $(foreach r,$(LINT_ARCH_RUNS),$(addprefix -i ,$(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))))) \
 	          src/ boards/ boot/
+	@$(foreach r,$(LINT_ARCH_RUNS),$(LINT_CPPCHECK) \
+	          -Isrc/hal/$(word 1,$(subst :, ,$(r))) -Iboot/hal/$(word 1,$(subst :, ,$(r))) \
+	          -Iboards/$(word 2,$(subst :, ,$(r))) -Iboot \
+	          $(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))) &&) true
 	@echo "cppcheck clean"
 
 # The grep gates. Two of them used to live only in the CI workflow, which made
@@ -901,7 +935,7 @@ lint-grep-selftest:
 	done; \
 	echo "grep lint gates reject every plant and print path and line only"
 
-## lint-arch-leak: AVR must not leak out of its directories
+## lint-arch-leak: AVR and Cortex-M must not leak out of their directories
 # The tree is arch-neutral only if nothing outside the AVR's own directories
 # names the AVR: <avr/...> headers, F_CPU, MCUSR, or a bare PROGMEM (TFW_PROGMEM
 # is the neutral spelling and is not matched -- the pattern wants a non-identifier
@@ -909,6 +943,14 @@ lint-grep-selftest:
 # boot/hal/avr/, boards/ and mk/arch/avr.mk (neither of which is swept) and
 # include/tfw/progmem.h, the one toolchain shim. A real leak is moved behind the
 # HAL or progmem.h, never added to this list.
+#
+# The Cortex-M core (#161) the same way, outside src/hal/cortex-m/ and
+# boot/hal/cortex-m/: its register header cm_regs.h and what it defines (the
+# tfw_cm_* helpers, TFW_CM_REG and the SCB, SysTick and NVIC registers), the
+# CMSIS headers and names a port might reach for (core_cm*.h, cmsis_*.h, SCB,
+# NVIC, SysTick, __DSB, __WFI, __disable_irq), and an Arm system instruction in
+# an asm string. The board's own constants, TFW_CM_PLATFORM_BASE among them,
+# are board data and not matched.
 #
 # Only code is matched: each file goes through the preprocessor in
 # -fpreprocessed -dD mode first, which removes comments exactly (it knows a
@@ -918,20 +960,25 @@ lint-grep-selftest:
 ARCH_LEAK_ROOT ?= .
 ARCH_LEAK_DIRS := src boot tools include test
 ARCH_LEAK_PAT  := <avr/|(^|[^A-Za-z0-9_])(F_CPU|MCUSR|PROGMEM)([^A-Za-z0-9_]|$$)
+ARCH_LEAK_CM_PAT := cm_regs\.h|<(core_cm[0-9a-z]*|cmsis_[0-9a-z_]*)\.h>|(^|[^A-Za-z0-9_])(tfw_cm_[a-z_]+|TFW_CM_(REG|VTOR|AIRCR[A-Z_]*|SYST_[A-Z_]+|NVIC_[A-Z]+)|SCB|NVIC|SysTick(_[A-Za-z]+)?|__(DSB|ISB|DMB|WFI|WFE)|__(disable|enable)_irq)([^A-Za-z0-9_]|$$)|"(dsb|isb|dmb|wfi|wfe|cpsi[de]|msr|mrs)[ \\"]
 lint-arch-leak:
 	@cd $(ARCH_LEAK_ROOT) && fail=0; \
 	for f in $$(find $(ARCH_LEAK_DIRS) -type f \( -name '*.c' -o -name '*.h' \) \
-	            -not -path 'src/hal/avr/*' -not -path 'boot/hal/avr/*' \
 	            -not -path 'include/tfw/progmem.h' | sort); do \
 	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
 	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
-	  hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_PAT)' || true); \
+	  hits=; \
+	  case $$f in src/hal/avr/*|boot/hal/avr/*) ;; \
+	    *) hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_PAT)' || true) ;; esac; \
+	  case $$f in src/hal/cortex-m/*|boot/hal/cortex-m/*) ;; \
+	    *) hits="$$hits$$(printf '\n'; printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_CM_PAT)' || true)" ;; esac; \
+	  hits=$$(printf '%s\n' "$$hits" | grep -v '^$$' || true); \
 	  if [ -n "$$hits" ]; then \
 	    printf '%s\n' "$$hits" | while IFS=: read -r n _; do echo "$$f:$$n: arch-leak"; done; fail=1; \
 	  fi; \
 	done; \
 	if [ $$fail -ne 0 ]; then \
-	  echo "AVR leaked out of its directories (see above)"; \
+	  echo "an architecture leaked out of its directories (see above)"; \
 	  echo "move it behind include/tfw/hal.h or include/tfw/progmem.h"; \
 	  exit 1; \
 	fi
@@ -942,12 +989,15 @@ lint-arch-leak:
 # gate; prose in a comment and the exempt directories must not.
 lint-arch-leak-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
-	mkdir -p $(addprefix $$t/,$(ARCH_LEAK_DIRS)) $$t/src/crypto $$t/src/hal/avr && \
-	printf '/* MCUSR is already clear; F_CPU, <avr/io.h>, PROGMEM */\n// MCUSR\nint ok;\nconst int k TFW_PROGMEM = 0;\n' > $$t/src/crypto/ok.c && \
+	mkdir -p $(addprefix $$t/,$(ARCH_LEAK_DIRS)) $$t/src/crypto $$t/src/hal/avr $$t/src/hal/cortex-m && \
+	printf '/* MCUSR is already clear; F_CPU, <avr/io.h>, PROGMEM, tfw_cm_dsb, SysTick, "wfi" */\n// MCUSR\nint ok;\nconst int k TFW_PROGMEM = 0;\nconst char *s = "msrp";\n' > $$t/src/crypto/ok.c && \
 	printf '#include <avr/io.h>\nint f_cpu;\n' > $$t/src/hal/avr/exempt.h && \
+	printf '#include "cm_regs.h"\nvoid f(void) { tfw_cm_dsb(); __asm__ volatile ("wfi"); }\n' > $$t/src/hal/cortex-m/exempt.c && \
 	$(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
-	for leak in '#include <avr/io.h>' 'int x = F_CPU;' 'int x = MCUSR;' 'const int x PROGMEM = 0;'; do \
+	for leak in '#include <avr/io.h>' 'int x = F_CPU;' 'int x = MCUSR;' 'const int x PROGMEM = 0;' \
+	            '#include "cm_regs.h"' 'void f(void) { tfw_cm_irq_off(); }' 'int x = TFW_CM_SYST_CVR;' \
+	            'void f(void) { __WFI(); }' 'void f(void) { __asm__ volatile ("dsb 0xF"); }'; do \
 	  printf '%s\n' "$$leak" > $$t/src/crypto/plant.c; \
 	  if out=$$($(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t 2>&1); then \
 	    echo "selftest: gate passed a planted: $$leak"; exit 1; \
@@ -970,6 +1020,9 @@ lint-arch-leak-selftest:
 #                      and mints DICE evidence over the wire. See
 #                      tools/tfwsim/tier_atecc608a.c for the options and for why
 #                      the evidence is real P-256 under a TEST key nobody may trust.
+#   tfwsim-prov         element tier as a provisioning jig image: the same, plus
+#                      the PROV_* commands, so tfwprov provisions its element
+#                      over the wire.
 #
 # `make tfwsim CRYPTO=atecc608a` is `make tfwsim-atecc608a`, so the tier is named
 # the way it is for `make firmware`.
@@ -1015,6 +1068,8 @@ TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_STAGE_LIB_SRCS))
 # no firmware source or board profile is touched, and no AVR image sees it.
 TFWSIM_ELEMENT_INC := -Itools/tfwsim/element
 TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_mock.c \
+                                   test/mock/boot_soft_mock.c \
+                                   $(SOFT_ID_SRCS) $(HOST_DIR)/uECC.o \
                                    src/core/auth_session_none.c src/core/app_runner.c \
                                    test/mock/app_mock.c src/core/ota_floor_eeprom.c, \
                                    $(TFWSIM_LIB_SRCS)) \
@@ -1072,6 +1127,27 @@ $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_at
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
+# The element tier as a provisioning JIG image (issue #53): tfwsim-atecc608a's
+# object list plus src/caps/provision.c, its element backend
+# src/caps/provision_atecc.c and its define, selected exactly as
+# mk/firmware.mk's PROVISION=1 selects them (PROV_SRCS, PROV_DEFS), and
+# tools/tfwsim/reboot.c, which makes a RESET restart the firmware in place with
+# the EEPROM and the element kept. Started without --provision-element its
+# element is a blank part, so `tfwprov --commit` runs the real PROV_* sequence
+# against the model, and after a RESET ATTEST signs with the key PROV_GENKEY
+# made. Never a template for an image: a device that answers PROV_* has no
+# identity worth attesting to.
+TFWSIM_PROV_SRCS := $(TFWSIM_ELEMENT_SRCS) src/caps/provision.c src/caps/provision_atecc.c tools/tfwsim/reboot.c
+TFWSIM_PROV_DEFS := -DTFW_FEATURE_PROVISION=1
+
+## tfwsim-prov: build the element-tier simulator as a provisioning jig image (PROV_* commands, blank element)
+tfwsim-prov: $(HOST_DIR)/tfwsim-prov$(APP_SUFFIX)
+$(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_PROV_DEFS) $(EXTRA_CFLAGS) \
+	   -Itools/tfwsim $(MODEL_INC) -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
 # CRYPTO=auto (issue #130), the Mega's default tier: the element when one
 # answers, else the soft root, linked as mk/firmware.mk links the image -- both
 # providers, both floors and the element's auth session renamed, behind the
@@ -1088,7 +1164,7 @@ TFWSIM_AUTO_OBJS := $(TFWSIM_AUTO_DIR)/crypto_soft.o $(TFWSIM_AUTO_DIR)/crypto_e
 TFWSIM_AUTO_SRCS := $(filter-out src/crypto/atecc608a/provider.c src/core/auth_session.c \
                                  src/core/ota_floor_atecc.c,$(TFWSIM_ELEMENT_SRCS)) \
                     src/crypto/auto/provider.c src/core/auth_session_auto.c \
-                    src/core/ota_floor_auto.c test/mock/uds_mock.c
+                    src/core/ota_floor_auto.c test/mock/uds_mock.c $(SOFT_ID_SRCS)
 TFWSIM_AUTO_CC   = @mkdir -p $(TFWSIM_AUTO_DIR) && $(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) \
                    $(TFWSIM_STAGE_DEFS) -Itools/tfwsim $(MODEL_INC)
 $(TFWSIM_AUTO_DIR)/crypto_%.o:
@@ -1118,7 +1194,7 @@ clean-host:
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a tfwsim-auto lint \
+.PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep
@@ -1230,7 +1306,7 @@ $(HOST_DIR)/test_atecc_mutate: test/unit/test_atecc_mutate.c src/crypto/atecc608
 # place of the pattern rule.
 $(HOST_DIR)/test_ota_trial_leave: test/unit/test_ota_trial_leave.c src/core/ota_trial.c src/core/ota_trial_block.c \
                         test/mock/runner_fake.c \
-                        boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c \
+                        boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c src/core/handoff_seed.c \
                         src/core/secure_zero.c boot/boot_handoff.c \
                         src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)

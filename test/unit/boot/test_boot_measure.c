@@ -77,6 +77,9 @@ static void test_a_length_past_the_trailer_is_refused(void)
 
 /* Parses into sentinel-filled outputs and checks a refusal wrote none of
  * them. Returns the parser's status. */
+/* Where every parse in this suite puts the device_seed field. */
+static uint8_t seed_out[TFW_BOOT_SEED_LEN];
+
 static tfw_status_t parse_untouched(const uint8_t *block, uint8_t *tier,
                                     uint8_t cdi[32], uint8_t meas[32],
                                     uint32_t *ver, uint8_t *cause)
@@ -92,13 +95,15 @@ static tfw_status_t parse_untouched(const uint8_t *block, uint8_t *tier,
     *ver   = ver_sentinel;
     memcpy(cdi, sentinel, sizeof sentinel);
     memcpy(meas, sentinel, sizeof sentinel);
-    st = tfw_boot_handoff_parse(block, tier, cdi, meas, ver, cause);
+    memcpy(seed_out, sentinel, sizeof sentinel);
+    st = tfw_boot_handoff_parse(block, tier, cdi, meas, ver, cause, seed_out);
     TEST_ASSERT_NOT_EQUAL_INT(TFW_OK, st);
     TEST_ASSERT_EQUAL_HEX8(0xA5u, *tier);
     TEST_ASSERT_EQUAL_HEX8(0xA5u, *cause);
     TEST_ASSERT_EQUAL_HEX32(ver_sentinel, *ver);
     TEST_ASSERT_EQUAL_MEMORY(sentinel, cdi, sizeof sentinel);
     TEST_ASSERT_EQUAL_MEMORY(sentinel, meas, sizeof sentinel);
+    TEST_ASSERT_EQUAL_MEMORY(sentinel, seed_out, sizeof sentinel);
     return st;
 }
 
@@ -114,7 +119,7 @@ static void test_the_handoff_block_round_trips(void)
     tfw_boot_handoff_build(block, TFW_CRYPTO_SECURE_ELEMENT, cdi, meas, 9u, TFW_RESET_UNKNOWN);
 
     TEST_ASSERT_EQUAL_INT(TFW_OK,
-        tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
+        tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause, seed_out));
     TEST_ASSERT_EQUAL_UINT8(TFW_CRYPTO_SECURE_ELEMENT, tier);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(cdi, got_cdi, 32);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(meas, got_meas, 32);
@@ -140,13 +145,44 @@ static void test_the_reset_cause_round_trips_and_is_crc_covered(void)
 
     TEST_ASSERT_EQUAL_UINT8(3u, block[TFW_BOOT_HO_RESET_CAUSE]);
     TEST_ASSERT_EQUAL_INT(TFW_OK,
-        tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause));
+        tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause, seed_out));
     TEST_ASSERT_EQUAL_UINT8(3u, cause);
 
     /* Corrupting the reset cause byte must be caught: version 2 widened CRC
      * coverage to include it precisely so a stack that grew one byte further
      * into the block does not hand the application a cause nobody observed. */
     block[TFW_BOOT_HO_RESET_CAUSE] ^= 0xFFu;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC,
+        parse_untouched(block, &tier, got_cdi, got_meas, &ver, &cause));
+}
+
+/* The DeviceID seed (#173): build leaves it zero ("none"), set_seed writes it
+ * at offset 80 and re-seals the CRC, and a seed corrupted after the seal is
+ * caught rather than handed to the application as some other device's key. */
+static void test_the_device_seed_round_trips_and_is_crc_covered(void)
+{
+    uint8_t block[TFW_BOOT_HANDOFF_LEN];
+    uint8_t cdi[32], meas[32], seed[TFW_BOOT_SEED_LEN], zero[TFW_BOOT_SEED_LEN];
+    uint8_t got_cdi[32], got_meas[32], tier, cause;
+    uint32_t ver;
+
+    memset(cdi, 0xAA, sizeof cdi);
+    memset(meas, 0x55, sizeof meas);
+    memset(seed, 0x5E, sizeof seed);
+    memset(zero, 0x00, sizeof zero);
+    tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, meas, 3u, TFW_RESET_UNKNOWN);
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+        tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause, seed_out));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(zero, seed_out, sizeof zero);
+
+    tfw_boot_handoff_set_seed(block, seed);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(seed, &block[80], sizeof seed);
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+        tfw_boot_handoff_parse(block, &tier, got_cdi, got_meas, &ver, &cause, seed_out));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(seed, seed_out, sizeof seed);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(cdi, got_cdi, 32);
+
+    block[80 + TFW_BOOT_SEED_LEN - 1u] ^= 0x01u;
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC,
         parse_untouched(block, &tier, got_cdi, got_meas, &ver, &cause));
 }
@@ -255,7 +291,7 @@ static void test_the_tier_is_carried_verbatim(void)
     memset(meas, 0, sizeof meas);
     tfw_boot_handoff_build(block, TFW_CRYPTO_NONE, cdi, meas, 1u, 0u);
     TEST_ASSERT_EQUAL_INT(TFW_OK,
-        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause));
+        tfw_boot_handoff_parse(block, &tier, cdi, meas, &ver, &cause, seed_out));
     TEST_ASSERT_EQUAL_UINT8(TFW_CRYPTO_NONE, tier);
 }
 
@@ -269,6 +305,7 @@ int main(void)
     RUN_TEST(test_a_length_past_the_trailer_is_refused);
     RUN_TEST(test_the_handoff_block_round_trips);
     RUN_TEST(test_the_reset_cause_round_trips_and_is_crc_covered);
+    RUN_TEST(test_the_device_seed_round_trips_and_is_crc_covered);
     RUN_TEST(test_an_unwritten_block_is_not_a_handoff);
     RUN_TEST(test_a_block_overwritten_by_the_stack_is_caught);
     RUN_TEST(test_an_unknown_handoff_version_is_refused);

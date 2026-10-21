@@ -44,3 +44,8 @@ BOOT_EESAVE_BIT  := 3
 # The part and its chip select are ADR open question 2; the select is board
 # data in board_profile.h (TFW_OTA_STORE_CS_PIN).
 OTA_STORE      := spi_nor
+
+# The soft root's identity (mk/firmware.mk SOFT_ID): the HMAC signer for now.
+# Whether the P-256 DeviceID fits beside the DFU bootloader is measured before
+# this changes; hmac is the reversible choice.
+SOFT_ID        ?= hmac

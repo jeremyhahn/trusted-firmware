@@ -109,7 +109,7 @@ func TestNetblockDHCPRefusesAStaticAddressBesideIt(t *testing.T) {
 
 func TestBakeNetblockWritesTheBenchFile(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "net.eep")
-	if err := runBake(out, false, "", "", "", true, benchFlags()); err != nil {
+	if err := runBake(out, false, "", "", "", true, benchFlags(), ""); err != nil {
 		t.Fatalf("runBake: %v", err)
 	}
 	data, err := os.ReadFile(out)
@@ -125,7 +125,7 @@ func TestBakeNetblockWritesTheBenchFile(t *testing.T) {
 // the single contiguous 224-byte run [0x000, 0x0E0) the bench wrote.
 func TestBakeBothIsOneContiguousImage(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "both.eep")
-	if err := runBake(out, true, "000102030405060708090a0b0c0d0e0f", "", "", true, benchFlags()); err != nil {
+	if err := runBake(out, true, "000102030405060708090a0b0c0d0e0f", "", "", true, benchFlags(), ""); err != nil {
 		t.Fatalf("runBake: %v", err)
 	}
 	data, err := os.ReadFile(out)

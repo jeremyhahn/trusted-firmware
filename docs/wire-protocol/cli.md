@@ -31,18 +31,21 @@ that exercise them, so a reader does not have to cross-reference by hand.
 | `ota-activate [now]` | `OTA_ACTIVATE` (0x6D): mode 0, taken at the next reset; `now`, mode 1, the device resets after its reply |
 | `netcfg set --mac … --ip … --mask … --gateway … --endpoint …` | `EEPROM_WRITE` (0x41) ×4, 8 bytes each, at `0x0C0`–`0x0DF`: the network block |
 | `netcfg get` | `EEPROM_READ` (0x40) ×4 over the same range, decoded by `tfw.NetConfig` |
+| `eeprom-read <addr> <count>` | `EEPROM_READ` (0x40) |
+| `eeprom-write <addr> <hex>` | `EEPROM_WRITE` (0x41) |
 | `ports` | none — lists serial ports the host can see; no device round trip |
 
 Flags: `--baud` (default `serialport.DefaultBaud`, 115200, matching
 `TFW_UART_BAUD`), `--json` (structured output instead of text), `--timeout`
 (default 10s, matching `Device`'s default in `device.go`).
 
-Analog, PWM, tone, pulse, EEPROM, bus and attestation commands (`api.md`
-lists all of them) are reachable from the Go SDK
-(`sdk/go/commands.go`, `sdk/go/attest.go`) but have no `tfwctl` verb yet — see
-`../host-sdk/architecture.md`: "if a command exists on the wire and is not
-reachable from `tfwctl`, that is a gap in `tfwctl`," not a gap in the
-protocol.
+The analog, PWM, tone, pulse and bus commands have `tfwctl` verbs too, mapped
+in [`../device-capabilities/cli.md`](../device-capabilities/cli.md); the
+attestation verbs (`attest`, `attest-cert`, `attest-csr`, `auth`) are in
+[`../dice-attestation/cli.md`](../dice-attestation/cli.md) and `tfwctl -h`.
+The rule is `../host-sdk/architecture.md`'s: "if a command exists on the wire
+and is not reachable from `tfwctl`, that is a gap in `tfwctl`," not a gap in
+the protocol.
 
 ## Examples
 

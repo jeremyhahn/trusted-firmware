@@ -302,7 +302,11 @@ typedef struct {
  *                            side decodes anything and the value means the
  *                            same on every architecture.
  *    77     1  reserved
- *    78     2  crc16         over bytes [0, 78)
+ *    78     2  crc16         over bytes [0, 78) and [80, 112): every byte
+ *                            but its own
+ *    80    32  device_seed   HMAC(UDS, TFW_DEVICEID_LABEL): the P-256 DeviceID's
+ *                            seed (src/crypto/deviceid_p256.h), all zero when
+ *                            this tfw-boot holds no UDS
  *
  * VERSION 2 REPURPOSES BYTES RATHER THAN GROWING THE BLOCK. Version 1 held
  * `crc16` at offset 76 and two reserved bytes at 78; version 2 puts
@@ -318,11 +322,23 @@ typedef struct {
  * 0x08) as a value no host knows. Hence the bump rather than a quiet
  * reinterpretation: a mismatched pair degrades to "no handoff" below.
  *
+ * VERSION 4 GROWS THE BLOCK, AT ITS END. The soft root signs with a P-256
+ * DeviceID whose seed is HMAC(UDS, TFW_DEVICEID_LABEL), and the UDS stays on
+ * tfw-boot's side of the BLB mode 3 barrier. So tfw-boot, the layer that holds
+ * the secret, derives the seed and hands it across beside the CDI, as TCG DICE
+ * layering has a layer derive the next one's DeviceID material: the
+ * application gets the seed and never the UDS. No field moves: `device_seed`
+ * goes after `crc16`, which stays at 78 and now covers every byte but its own.
+ * TFW_BOOT_HANDOFF_LEN goes from 80 to 112, and with it the region every
+ * image places at the top of SRAM (mk/arch/avr.mk, mk/arch/cortex-m.mk, the
+ * ESP32's RTC reserve).
+ *
  * VERSION MISMATCH IS HANDLED, NOT ASSUMED AWAY. tfw_boot_handoff_parse refuses
  * a version it does not exactly recognise (TFW_ERR_UNSUPPORTED), exactly as it
  * always has -- a build that reads this block never guesses at a layout it was
- * not compiled for. An application newer than its bootloader (a v1 block) or
- * older than its bootloader (a v2 block it does not know) both take that path:
+ * not compiled for. An application newer than its bootloader (a v3 block) or
+ * older than its bootloader (a v4 block it does not know, whose first 80
+ * bytes it never trusts once the version byte fails) both take that path:
  * DeviceID and FWHash stay zero-rather-than-fabricated and the reset cause
  * falls back to whatever the application's own .init3 observed -- UNKNOWN
  * under a stock bootloader, since MCUSR is already clear by the time either
@@ -346,8 +362,8 @@ typedef struct {
  * it, and the bootloader zeroizes its own copy before jumping.
  */
 #define TFW_BOOT_HANDOFF_MAGIC  0x49444341uL  /* 'A','C','D','I' little-endian */
-#define TFW_BOOT_HANDOFF_VERSION 3u
-#define TFW_BOOT_HANDOFF_LEN     80u
+#define TFW_BOOT_HANDOFF_VERSION 4u
+#define TFW_BOOT_HANDOFF_LEN     112u
 
 #define TFW_BOOT_HO_MAGIC        0u
 #define TFW_BOOT_HO_VERSION      4u
@@ -359,6 +375,8 @@ typedef struct {
 #define TFW_BOOT_HO_RESET_CAUSE  76u
 #define TFW_BOOT_HO_RESERVED0    77u
 #define TFW_BOOT_HO_CRC          78u
+#define TFW_BOOT_HO_DEVICE_SEED  80u
+#define TFW_BOOT_SEED_LEN        32u
 
 /* -------------------------------------------- the update-session request */
 /*

@@ -131,9 +131,12 @@ func attestPageBody(payload []byte, page byte) ([]byte, error) {
 // That is the point: a device that signed a host's bytes could not know what it
 // had attested to.
 //
-// Returns ErrUnsupported wrapped in a device error when the build has no
-// element to certify — a software-tier device knows exactly what a certificate
-// is and has no public half to put in one.
+// The element signs with its DeviceID key. A software-tier device built with
+// the P-256 DeviceID (the ATmega2560 soft and auto images, tfwsim) signs ES256
+// under the key it derives from its UDS, and answers StatusErrNotProvisioned
+// while it has none. A software-tier device built with the HMAC signer (the
+// ATmega328P and ATmega32U4) has no public half to put in a certificate and
+// answers StatusErrUnsupported.
 func (d *Device) AttestCert(ctx context.Context, nonce []byte) ([]byte, error) {
 	if len(nonce) != AliasNonceLen {
 		return nil, &ArgRangeError{

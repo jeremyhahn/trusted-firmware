@@ -18,6 +18,7 @@ static uint8_t reset_cause;
 void tfw_boot_handoff_init(void)
 {
     uint8_t    *block = tfw_hal_handoff_block();
+    uint8_t    *seed  = tfw_boot_handoff_seed_store();
     uint32_t    image_version;
     tfw_status_t st;
 
@@ -25,7 +26,7 @@ void tfw_boot_handoff_init(void)
     have_cdi = 0u;
 
     st = tfw_boot_handoff_parse(block, &tier, cdi, measurement,
-                               &image_version, &reset_cause);
+                               &image_version, &reset_cause, seed);
     if (st == TFW_OK) {
         uint8_t i, cdi_is_zero = 1u;
 
@@ -55,6 +56,12 @@ void tfw_boot_handoff_init(void)
         have_cdi = (uint8_t)(cdi_is_zero ? 0u : 1u);
     } else {
         tfw_secure_zero(cdi, sizeof cdi);
+        /* The DeviceID seed (version 4) is kept where something reads it
+         * (handoff_seed.c); an image without the P-256 DeviceID has nowhere
+         * to keep it, and a NULL store folds this away (#173). */
+        if (seed != NULL) {
+            tfw_secure_zero(seed, TFW_BOOT_SEED_LEN);
+        }
         memset(measurement, 0, sizeof measurement);
         tier        = 0u;
         reset_cause = 0u;

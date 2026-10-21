@@ -39,6 +39,8 @@ import sys
 # page. sram_start is the first SRAM address in the data memory map, so the
 # last one is sram_start + sram - 1 (RAM_END). boot is whether the part has a
 # boot loader section; one without has nowhere to keep a key (SPEC row boards).
+# flash_start (default 0) is where the flash span starts; boot_end, when set,
+# is the end of a boot region apart from that flash, else tfw-boot sits at its top.
 PARTS = {
     # ATmega48A/PA/88A/PA/168A/PA/328/P data sheet, DS40002061.
     "atmega328p": dict(flash=32768, sram=2048, sram_start=0x0100, eeprom=1024, boot=True),
@@ -48,6 +50,14 @@ PARTS = {
     "atmega32u4": dict(flash=32768, sram=2560, sram_start=0x0100, eeprom=1024, boot=True),
     # ATtiny25/45/85 data sheet, Atmel-2586: no boot loader section.
     "attiny85": dict(flash=8192, sram=512, sram_start=0x0060, eeprom=512, boot=False),
+    # Arm AN505 as QEMU models it (hw/arm/mps2-tz.c, hw/arm/armsse.c): the code
+    # is SSRAM-1 and -2 at 0x38000000, so TFW_FLASH_TOTAL is an address, the
+    # end of that span; the SRAM is the IoT Kit's internal 32 KiB; no EEPROM.
+    # tfw-boot is not at the top of that flash but in its own 32 KiB at the
+    # base of SSRAM-0, so boot_end is where its region ends.
+    "mps2-an505": dict(flash=4194304, flash_start=0x38000000, sram=32768,
+                       sram_start=0x30000000, eeprom=0, boot=True,
+                       boot_end=0x10008000),
 }
 
 # A port is one I/O register, so a pin's bit is below that register's width.
@@ -301,7 +311,8 @@ def check_budgets(board, mk, defs, value, fail):
         got = mk_int(mk, total, fail) if total in mk else None
         if got is not None and got != want:
             fail("%s %d, but the %s has %d" % (total, got, part, want))
-    for name, want in (("TFW_FLASH_TOTAL", p["flash"]), ("TFW_EEPROM_SIZE", p["eeprom"])):
+    flash_end = p.get("flash_start", 0) + p["flash"]
+    for name, want in (("TFW_FLASH_TOTAL", flash_end), ("TFW_EEPROM_SIZE", p["eeprom"])):
         got = value(name)
         if got is not None and got != want:
             fail("%s %d, but the %s has %d" % (name, got, part, want))
@@ -323,7 +334,11 @@ def check_budgets(board, mk, defs, value, fail):
     if "BOOT_SECTION" in mk and "BOOT_BASE" in mk:
         sect, base = mk_int(mk, "BOOT_SECTION", fail), mk_int(mk, "BOOT_BASE", fail)
         if sect is not None and base is not None:
-            if base + sect != p["flash"]:
+            if "boot_end" in p:
+                if base + sect != p["boot_end"]:
+                    fail("BOOT_BASE 0x%X + BOOT_SECTION %d is not the end of the %s's boot region 0x%X"
+                         % (base, sect, part, p["boot_end"]))
+            elif base + sect != p["flash"]:
                 fail("BOOT_BASE 0x%X + BOOT_SECTION %d is not the top of flash %d"
                      % (base, sect, p["flash"]))
             region = value("TFW_BOOT_REGION_BASE")

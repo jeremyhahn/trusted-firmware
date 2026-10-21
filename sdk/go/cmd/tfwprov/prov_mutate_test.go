@@ -49,7 +49,7 @@ func requireRefusedBeforeFile(t *testing.T, label string, platform bool, serial,
 	netblock bool, nf netblockFlags) {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "image.hex")
-	err := runBake(out, platform, serial, hash, opkey, netblock, nf)
+	err := runBake(out, platform, serial, hash, opkey, netblock, nf, "")
 	if err == nil {
 		t.Fatalf("%s: accepted", label)
 	}
@@ -218,7 +218,7 @@ func readSparseIHEX(t *testing.T, s string) map[int]byte {
 
 func TestABakedImageRoundTripsByteForByte(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "image.hex")
-	if err := runBake(out, true, testSerialHex, mutateHashHex, p256GeneratorHex, true, benchFlags()); err != nil {
+	if err := runBake(out, true, testSerialHex, mutateHashHex, p256GeneratorHex, true, benchFlags(), ""); err != nil {
 		t.Fatal(err)
 	}
 	text, err := os.ReadFile(out) // #nosec G304 -- the test's own temp file

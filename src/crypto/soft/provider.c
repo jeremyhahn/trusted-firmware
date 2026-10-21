@@ -37,6 +37,7 @@
 #include "../../core/handoff.h"
 #include "../../core/secure_zero.h"
 #include "tfw/progmem.h"
+#include "id.h"
 
 /* What an unprovisioned-by-boot device derives its CDI from: 29 bytes, no NUL. */
 static const char UNMEASURED[] TFW_PROGMEM = "tfw-unmeasured-application-v1";
@@ -163,11 +164,8 @@ tfw_crypto_tier_t tfw_crypto_tier(void) { return TFW_CRYPTO_SOFTWARE; }
 
 uint16_t tfw_crypto_algorithms(void)
 {
-    /* HMAC-SHA256 and nothing else. This tier has no asymmetric key at all, so
-     * claiming ECDSA here would be the same defect as a KMS backend advertising
-     * Ed25519 it cannot perform: the host negotiates down to something the
-     * device then fails to do, at the point where it matters most. */
-    return TFW_ALGBIT_HMAC_SHA256;
+    /* The linked identity's: ES256 (id_p256.c) or HMAC (id_hmac.c). */
+    return tfw_soft_id_algorithms();
 }
 
 tfw_status_t tfw_crypto_random(uint8_t *out, uint8_t len)
@@ -197,32 +195,17 @@ tfw_status_t tfw_crypto_hmac(uint8_t slot, const uint8_t *data, uint16_t len, ui
 
 tfw_status_t tfw_crypto_sign(const uint8_t digest[32], uint8_t sig[64], uint8_t *alg_id)
 {
-    uint8_t     mac[32];
-    tfw_status_t st;
-
+    /* The CDI's validity gates signing on every identity: a refused or
+     * mismatched handoff (tfw_crypto_init) refuses here too. */
     if (!provisioned) {
         return TFW_ERR_NOT_PROVISIONED;
     }
-    st = tfw_crypto_hmac(0u, digest, 32u, mac);
-    if (st != TFW_OK) {
-        return st;
-    }
-    /* A 32-byte MAC in a 64-byte field. The remainder is zeroed rather than
-     * left as whatever was on the stack: a verifier must be able to tell the
-     * signature from the padding, and uninitialised padding would also leak
-     * stack contents onto the wire. */
-    memcpy(sig, mac, 32u);
-    memset(sig + 32u, 0, 32u);
-    *alg_id = TFW_ALG_HMAC_SHA256;
-    return TFW_OK;
+    return tfw_soft_id_sign(cdi, digest, sig, alg_id);
 }
 
 tfw_status_t tfw_crypto_pubkey(uint8_t out[64])
 {
-    (void)out;
-    /* A symmetric identity has no public half. Saying so is the honest answer;
-     * returning the key would hand out the ability to forge. */
-    return TFW_ERR_UNSUPPORTED;
+    return tfw_soft_id_pubkey(out);
 }
 
 tfw_status_t tfw_crypto_counter(uint8_t idx, uint32_t *out)

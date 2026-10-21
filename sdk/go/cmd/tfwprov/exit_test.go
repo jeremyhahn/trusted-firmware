@@ -76,6 +76,8 @@ func TestMainExitCodes(t *testing.T) {
 		{"bake-eeprom with a bad serial", []string{"--bake-eeprom", "--out", out, "--serial", "zz"}, 1, "tfwprov: "},
 		{"a wire mode with --out", []string{"--dry-run", "--out", out, port}, 1, "tfwprov: "},
 		{"a wire mode with --mac", []string{"--dry-run", "--mac", "02:00:00:00:00:01", port}, 1, "tfwprov: --mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; --dry-run/--verify/--commit do not use them"},
+		{"bake-netblock with --record", []string{"--bake-netblock", "--out", out, "--record", filepath.Join(dir, "r.json")}, 1, "tfwprov: --record needs the serial: pass --bake-eeprom --serial"},
+		{"dry-run with --record", []string{"--dry-run", "--record", filepath.Join(dir, "r.json"), port}, 1, "tfwprov: --record is written by --bake-eeprom, --commit and --verify"},
 		{"commit without confirmation", []string{"--commit", port}, 1, "tfwprov: --commit is irreversible on this part: pass --yes-i-mean-it"},
 		{"no --config", []string{"--dry-run", port}, 1, "tfwprov: --config is required"},
 		{"a missing template", []string{"--dry-run", "--config", filepath.Join(dir, "absent.tmpl"), port}, 1, "tfwprov: open "},

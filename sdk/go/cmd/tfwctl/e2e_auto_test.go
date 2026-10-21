@@ -8,8 +8,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -90,21 +88,9 @@ func TestE2EAutoWithNoElementReportsNoFloorForAnElementBoot(t *testing.T) {
 		"ota-info after an element boot with no element")
 }
 
-// algHMAC is TFW_ALG_HMAC_SHA256 (include/tfw/protocol.h): the evidence's
-// algorithm byte when the soft root signed it.
-const algHMAC = 0x10
-
 // softBoot is the handoff a soft tfw-boot (BOOT_TIER=soft) leaves: its CDI
 // derived from the UDS in boot-section flash, the tier named soft.
 var softBoot = []string{"--no-element", "--boot-tier", "soft"}
-
-// softTestCDI is the CDI tfwsim hands off for the test image
-// (tools/tfwsim/tier_atecc608a.c, test_cdi): SHA-256 of a published label and
-// the image hash. A TEST value nobody may trust.
-func softTestCDI() []byte {
-	h := sha256.Sum256(append([]byte("tfwsim-test-cdi-v1"), tfwsim.TestFWHash[:]...))
-	return h[:]
-}
 
 // With no element and a soft tfw-boot, the default image attests on the soft
 // root (owner ruling 2026-10-17, #130), and the evidence names its root: the
@@ -112,25 +98,20 @@ func softTestCDI() []byte {
 // element's ES256. The soft root has no asymmetric key, so it has no alias
 // certificate to issue.
 func TestE2EAutoWithNoElementAttestsOnTheSoftRoot(t *testing.T) {
+	// The auto image's soft root signs ES256 under its P-256 DeviceID, which
+	// it derives from the UDS (SOFT_ID=p256, #48, #130), never from the boot's
+	// CDI. The auto simulator has no UDS, as a part tfw-boot has not yet
+	// provisioned has none, so it reports ES256 and refuses to sign until it
+	// is provisioned rather than falling back to HMAC.
 	d := startAuto(t, softBoot...)
-	assert.Equal(t, tfw.CryptoSoftware, cliCaps(t, d).CryptoTier)
+	c := cliCaps(t, d)
+	assert.Equal(t, tfw.CryptoSoftware, c.CryptoTier)
+	assert.Equal(t, tfw.AlgECDSAP256SHA256, c.Algorithms, "algorithms = %s, want ecdsa-p256-sha256 alone", c.Algorithms)
 
-	nonce := attestNonce(0x5a)
-	ev := cliAttest(t, d, nonce)
-	require.Len(t, ev, tfw.EvidenceLen)
-	assert.Equal(t, nonce, ev[offNonce:offNonce+tfw.AttestNonceLen], "frame nonce")
-	assert.Equal(t, tfwsim.TestSerial[:], ev[offDevice:offDevice+tfw.SerialLen], "DeviceID")
-	assert.Equal(t, tfwsim.TestFWHash[:], ev[offFWHash:offFWHash+32], "FWHash")
-	assert.EqualValues(t, algHMAC, ev[offAlg], "algorithm is HMAC-SHA256, the soft root")
-
-	digest := sha256.Sum256(ev[:offAlg])
-	mac := hmac.New(sha256.New, softTestCDI())
-	mac.Write(digest[:])
-	assert.Equal(t, mac.Sum(nil), ev[offSig:offSig+32], "the evidence MAC under the soft root's CDI")
-	assert.Equal(t, make([]byte, 32), ev[offSig+32:offSig+64], "the MAC's padding")
-
-	assert.Equal(t, tfw.StatusErrUnsupported,
-		cliStatus(t, d, "attest-cert", hex.EncodeToString(aliasNonce(0x77))), "attest-cert on the soft root")
+	assert.Equal(t, tfw.StatusErrNotProvisioned,
+		cliStatus(t, d, "attest", hex.EncodeToString(attestNonce(0x5a))), "attest on the unprovisioned soft root")
+	assert.Equal(t, tfw.StatusErrNotProvisioned,
+		cliStatus(t, d, "attest-cert", hex.EncodeToString(aliasNonce(0x77))), "attest-cert on the unprovisioned soft root")
 }
 
 // With an element answering, the same image attests on the element: ES256
@@ -179,7 +160,8 @@ func TestE2EAutoWithNoElementEveryCapabilityAnswers(t *testing.T) {
 		{"i2c-config", []string{"100000"}, true},
 		{"spi-config", []string{"0", "1", "msb"}, true},
 		{"spi", []string{"10", "0102"}, true},
-		{"attest", []string{hex.EncodeToString(attestNonce(0x01))}, true},
+		// The soft root has no UDS here: a status, not an unknown command.
+		{"attest", []string{hex.EncodeToString(attestNonce(0x01))}, false},
 		{"pulse-in", []string{"2", "1", "10ms"}, false},
 		{"i2c", []string{"0x20", "01", "2"}, false},
 		{"1wire-reset", []string{"4"}, false},

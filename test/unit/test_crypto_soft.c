@@ -8,8 +8,10 @@
  */
 #include <string.h>
 #include "unity.h"
+#include "uECC.h"
 #include "hal_mock.h"
 #include "uds_mock.h"
+#include "boot_soft_mock.h"
 #include "handoff.h"
 #include "tfw/crypto.h"
 #include "tfw/protocol.h"
@@ -33,12 +35,6 @@ static const uint8_t SHA_ABC[32] = {
 static const uint8_t HANDOFF_HMAC_ABC[32] = {
     0x45, 0xAF, 0xE7, 0xF1, 0x4B, 0xD8, 0xD8, 0x3D, 0xE1, 0x32, 0x50, 0xA8, 0xCD, 0xFE, 0xE4, 0x97,
     0xEB, 0x8B, 0x7A, 0x34, 0xBB, 0x84, 0x2E, 0x1F, 0x71, 0xCE, 0x7D, 0x69, 0x6A, 0x35, 0xBD, 0xAF
-};
-
-/* HMAC-SHA256(TEST_CDI, 0x42 x 32) */
-static const uint8_t HANDOFF_SIGN_42[32] = {
-    0x6F, 0xAB, 0x1F, 0x36, 0x0E, 0xD3, 0x71, 0x42, 0x9F, 0xAD, 0x6D, 0x27, 0x50, 0x7B, 0xA8, 0x9C,
-    0x6E, 0xE5, 0xEA, 0x0E, 0xC9, 0x30, 0x9E, 0x11, 0xB4, 0x00, 0x39, 0x6D, 0x61, 0x5F, 0xAC, 0x90
 };
 
 /* HMAC-SHA256(HMAC-SHA256(TEST_UDS, SHA-256("tfw-unmeasured-application-v1")), "abc") */
@@ -77,9 +73,9 @@ static void test_the_tier_is_software(void)
     TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
 }
 
-static void test_the_only_algorithm_is_hmac_sha256(void)
+static void test_the_only_algorithm_is_es256(void)
 {
-    TEST_ASSERT_EQUAL_HEX16(TFW_ALGBIT_HMAC_SHA256, tfw_crypto_algorithms());
+    TEST_ASSERT_EQUAL_HEX16(TFW_ALGBIT_ECDSA_P256_SHA256, tfw_crypto_algorithms());
 }
 
 /* ---- refusals ------------------------------------------------------------ */
@@ -93,14 +89,24 @@ static void test_random_is_refused_and_the_buffer_untouched(void)
     TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof out);
 }
 
-static void test_there_is_no_public_key_and_the_buffer_untouched(void)
+static void test_the_public_key_is_the_uds_deviceid_point(void)
+{
+    uint8_t out[64], again[64];
+
+    tfw_mock_boot_soft(TEST_UDS, TEST_CDI);   /* the seed comes in the handoff */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(out));
+    TEST_ASSERT_TRUE(uECC_valid_public_key(out, uECC_secp256r1()));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(again));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(out, again, 64);
+}
+
+static void test_no_uds_has_no_public_key_and_the_buffer_untouched(void)
 {
     uint8_t out[64];
 
-    tfw_mock_set_uds(TEST_UDS);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     memset(out, 0xA5, sizeof out);
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_pubkey(out));
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_pubkey(out));
     TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof out);
 }
 
@@ -254,28 +260,30 @@ static void test_a_software_handoff_with_the_zero_sentinel_refuses_even_with_a_l
 
 /* ---- sign ---------------------------------------------------------------- */
 
-static void test_sign_is_the_hmac_of_the_digest_zero_padded(void)
+static void test_sign_is_es256_and_verifies_under_the_public_key(void)
 {
-    uint8_t digest[32], sig[64];
+    uint8_t digest[32], sig[64], pub[64];
     uint8_t alg = TFW_ALG_NONE;
 
-    hand_off(TFW_CRYPTO_SOFTWARE, TEST_CDI);
+    tfw_mock_boot_soft(TEST_UDS, TEST_CDI);   /* the seed comes in the handoff */
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     memset(digest, 0x42, sizeof digest);
     memset(sig, 0xA5, sizeof sig);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sign(digest, sig, &alg));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(HANDOFF_SIGN_42, sig, 32);
-    TEST_ASSERT_EACH_EQUAL_HEX8(0x00, sig + 32, 32);
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_HMAC_SHA256, alg);
+    TEST_ASSERT_EQUAL_HEX8(0x01, alg);
+    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, alg);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(pub));
+    TEST_ASSERT_TRUE(uECC_verify(pub, digest, 32u, sig, uECC_secp256r1()));
 }
 
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_tier_is_software);
-    RUN_TEST(test_the_only_algorithm_is_hmac_sha256);
+    RUN_TEST(test_the_only_algorithm_is_es256);
     RUN_TEST(test_random_is_refused_and_the_buffer_untouched);
-    RUN_TEST(test_there_is_no_public_key_and_the_buffer_untouched);
+    RUN_TEST(test_the_public_key_is_the_uds_deviceid_point);
+    RUN_TEST(test_no_uds_has_no_public_key_and_the_buffer_untouched);
     RUN_TEST(test_there_is_no_counter_and_the_value_untouched);
     RUN_TEST(test_operator_verify_is_refused_without_reading_the_key);
     RUN_TEST(test_image_verify_is_refused_without_reading_its_arguments);
@@ -291,6 +299,6 @@ int main(void)
     RUN_TEST(test_a_mismatched_tier_handoff_refuses_even_with_a_local_uds);
     RUN_TEST(test_a_mismatched_tier_cdi_is_drained);
     RUN_TEST(test_a_software_handoff_with_the_zero_sentinel_refuses_even_with_a_local_uds);
-    RUN_TEST(test_sign_is_the_hmac_of_the_digest_zero_padded);
+    RUN_TEST(test_sign_is_es256_and_verifies_under_the_public_key);
     return UNITY_END();
 }

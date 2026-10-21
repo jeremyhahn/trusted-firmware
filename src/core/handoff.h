@@ -52,4 +52,23 @@ const uint8_t *tfw_boot_handoff_tier(void);
  */
 uint8_t tfw_boot_handoff_take_cdi(uint8_t out[TFW_BOOT_MEASURE_LEN]);
 
+/*
+ * NOT CONSUMING. Copies the soft root's DeviceID seed tfw-boot derived,
+ * HMAC(UDS, TFW_DEVICEID_LABEL), into `out`; the caller zeroizes its copy
+ * after use. This module keeps its own for the life of the image, as the
+ * provider keeps the CDI: the DeviceID's public point and every signature are
+ * derived from it on demand. Returns 0 when there was no valid handoff or it
+ * carried no seed (`out` is untouched), 1 otherwise. The UDS never reaches the
+ * application; this is what does instead.
+ */
+uint8_t tfw_boot_handoff_device_seed(uint8_t out[TFW_BOOT_SEED_LEN]);
+
+/*
+ * Where tfw_boot_handoff_init keeps that seed: TFW_BOOT_SEED_LEN bytes in
+ * src/core/handoff_seed.c, linked only beside the P-256 DeviceID that reads it,
+ * or NULL from src/core/handoff_seed_none.c, so an image that never reads the
+ * seed keeps none and spends no flash on it (#173). Chosen by file selection.
+ */
+uint8_t *tfw_boot_handoff_seed_store(void);
+
 #endif /* TFW_CORE_HANDOFF_H */

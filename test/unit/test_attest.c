@@ -18,10 +18,13 @@
 #include "tfw/config.h"
 #include "tfw/boot.h"
 #include "uds_mock.h"
+#include "boot_soft_mock.h"
 #include "handoff.h"
 #include "platform_id.h"
 #include "boot_platform.h"
 #include "boot_measure.h"
+#include "sha256.h"
+#include "deviceid_p256.h"
 
 static uint8_t     inbuf[TFW_MAX_PAYLOAD];
 static uint8_t     outbuf[TFW_MAX_PAYLOAD];
@@ -36,15 +39,39 @@ static const uint8_t TEST_UDS[32] = {
 void setUp(void)
 {
     tfw_mock_reset();
+    tfw_boot_handoff_init();        /* no handoff left over from a previous test */
     tfw_attest_reset_state();
     tfw_mock_set_uds(0);            /* unprovisioned by default */
     tfw_crypto_init();
 }
 
+/* What a soft tfw-boot measured, for provision(): any non-zero value. */
+static const uint8_t TEST_MEAS[32] = { 0x4D, 0x45, 0x41, 0x53 };
+
+/* A provisioned soft device: tfw-boot held the UDS and handed over the CDI and
+ * the DeviceID seed (#173). The application never holds the UDS. */
 static void provision(void)
+{
+    tfw_mock_boot_soft(TEST_UDS, TEST_MEAS);
+    tfw_crypto_init();
+}
+
+/* A UDS the application could read itself, with no seed from tfw-boot: the
+ * case the handoff tests below prove is never used to sign. */
+static void local_uds(void)
 {
     tfw_mock_set_uds(TEST_UDS);
     tfw_crypto_init();
+}
+
+/* The seed a soft tfw-boot adds to a test's own block, for `uds`. */
+static void seed_block(uint8_t *block, const uint8_t uds[32])
+{
+    uint8_t seed[TFW_BOOT_SEED_LEN];
+
+    tfw_hmac_sha256(uds, 32u, (const uint8_t *)TFW_DEVICEID_LABEL,
+                    TFW_DEVICEID_LABEL_LEN, seed);
+    tfw_boot_handoff_set_seed(block, seed);
 }
 void tearDown(void) {}
 
@@ -112,12 +139,12 @@ static void test_the_software_tier_refuses_to_invent_randomness(void)
     }
 }
 
-/* A symmetric identity has no public half. Saying so is the honest answer;
- * handing back the key would hand out the ability to forge. */
-static void test_a_symmetric_identity_has_no_public_key(void)
+/* The soft root's public half is its P-256 DeviceID, derived from the UDS
+ * (#48); with no UDS there is none, and the answer says so. */
+static void test_an_unprovisioned_soft_root_has_no_public_key(void)
 {
     uint8_t pub[64];
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_pubkey(pub));
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_pubkey(pub));
 }
 
 /* Without an element there is no monotonic counter, so the boot count is
@@ -129,7 +156,7 @@ static void test_there_is_no_monotonic_counter_without_an_element(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &n));
 }
 
-/* An HMAC tier holds no public key to check a signature against, so it refuses
+/* The soft tier holds no operator or image key to check a signature against, so it refuses
  * both verifies -- a TFW_OK here would be every operator and every image
  * accepted on a device that cannot tell them apart. */
 static void test_the_software_tier_verifies_no_signature(void)
@@ -205,7 +232,7 @@ static void test_the_evidence_is_retrievable_in_pages(void)
         got = (uint8_t)(got + (tfw_writer_len(&w) - 2u));
     }
     TEST_ASSERT_EQUAL_UINT8(TFW_ATTEST_LEN, got);
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_HMAC_SHA256, whole[73]);   /* OFF_ALG */
+    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, whole[73]);   /* OFF_ALG */
 }
 
 /*
@@ -253,7 +280,7 @@ static void test_a_different_device_secret_produces_a_different_signature(void)
 
     memcpy(other_uds, TEST_UDS, sizeof other_uds);
     other_uds[0] ^= 0xFFu;
-    tfw_mock_set_uds(other_uds);
+    tfw_mock_boot_soft(other_uds, TEST_MEAS);
     tfw_crypto_init();
     tfw_attest_reset_state();
 
@@ -265,24 +292,19 @@ static void test_a_different_device_secret_produces_a_different_signature(void)
 }
 
 /* ---------------------------------------------------------------------- */
-/*  The alias certificate, on a tier that cannot issue one.                  */
+/*  The alias certificate on the software tier.                            */
 /* ---------------------------------------------------------------------- */
 
 /*
- * A certificate names a subject PUBLIC key, and this tier's identity is an
- * HMAC. There is no public half, so there is nothing to certify -- and the
- * answer has to be TFW_ERR_UNSUPPORTED rather than a certificate over a point
- * the firmware made up, or over the HMAC key itself, which would hand out the
- * ability to forge every response this device can produce.
- *
- * Distinct from TFW_ERR_UNKNOWN_CMD on purpose. A build with the command
- * compiled out says the firmware has never heard of certificates; this says the
- * firmware knows exactly what one is and this root of trust cannot make it.
+ * A certificate names a subject PUBLIC key. The soft root's is its P-256
+ * DeviceID (#48), so the builder mints one where it is linked; with no UDS it
+ * refuses with TFW_ERR_NOT_PROVISIONED, never a certificate over a point the
+ * firmware made up. A soft image links no builder (mk/firmware.mk ALIAS_SRCS).
  */
-static void test_the_software_tier_refuses_to_issue_an_alias_certificate(void)
+static void test_the_software_tier_mints_an_alias_certificate_for_its_deviceid(void)
 {
     provision();
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+    TEST_ASSERT_EQUAL(TFW_OK,
                       run_cmd(TFW_CMD_ATTEST_CERT, CHALLENGE, TFW_ALIAS_NONCE_LEN));
 }
 
@@ -290,7 +312,7 @@ static void test_the_software_tier_refuses_to_issue_an_alias_certificate(void)
  * identity at all. Either way nothing is issued. */
 static void test_an_unprovisioned_device_refuses_an_alias_certificate(void)
 {
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED,
                       run_cmd(TFW_CMD_ATTEST_CERT, CHALLENGE, TFW_ALIAS_NONCE_LEN));
 }
 
@@ -445,16 +467,15 @@ static void test_a_corrupted_platform_block_leaves_device_id_zero(void)
     }
 }
 
-/* No bootloader ran (or a stock one did): FWHash stays zero. */
-static void test_fw_hash_is_zero_with_no_handoff(void)
+/* No bootloader ran (or a stock one did): ATTEST is refused, the case SPEC
+ * row dice-attestation names behind a stock bootloader. */
+static void test_no_handoff_is_not_provisioned_even_with_a_local_uds(void)
 {
-    uint8_t whole[TFW_ATTEST_LEN];
-
-    provision();
-    full_evidence(whole);
-    for (uint8_t i = 0u; i < TFW_SHA256_LEN; i++) {
-        TEST_ASSERT_EQUAL_HEX8(0x00u, whole[TEST_OFF_FW_HASH + i]);
-    }
+    /* No tfw-boot, or a stock bootloader: no seed, so no DeviceID key and no
+     * evidence -- not evidence signed from a UDS the application read
+     * itself (#173). On a device uds_flash.c answers NULL here too. */
+    local_uds();
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, run(NONCE, TFW_ATTEST_NONCE_LEN));
 }
 
 /*
@@ -468,7 +489,7 @@ static void test_fw_hash_is_zero_with_no_handoff(void)
  * test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_even_
  * with_a_real_local_uds), which would make ATTEST itself refuse and this
  * test's own full_evidence() call fail before ever reaching the FWHash
- * assertion below. provision() is still called so this also proves the
+ * assertion below. local_uds() is still called so this also proves the
  * handed-off CDI takes priority over an available local UDS, not just that
  * a device happens to be provisioned somehow.
  */
@@ -484,10 +505,11 @@ static void test_a_handed_off_measurement_reaches_fw_hash(void)
         measurement[i] = (uint8_t)(0xE0u + i);
     }
     tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, measurement, 1u, 0u);
+    seed_block(block, TEST_UDS);
     memcpy(tfw_mock_handoff(), block, TFW_BOOT_HANDOFF_LEN);
     tfw_boot_handoff_init();
 
-    provision();
+    local_uds();
     full_evidence(whole);
 
     TEST_ASSERT_EQUAL_UINT8_ARRAY(measurement, &whole[TEST_OFF_FW_HASH],
@@ -518,13 +540,14 @@ static void test_a_nonzero_handed_off_cdi_provisions_the_soft_tier_alone(void)
     for (uint8_t i = 0u; i < sizeof cdi; i++)         { cdi[i] = (uint8_t)(0xD0u + i); }
     for (uint8_t i = 0u; i < sizeof measurement; i++) { measurement[i] = (uint8_t)i; }
     tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, cdi, measurement, 1u, 0u);
+    seed_block(block, TEST_UDS);    /* the DeviceID is the seed's; the CDI gates it */
     memcpy(tfw_mock_handoff(), block, TFW_BOOT_HANDOFF_LEN);
     tfw_boot_handoff_init();
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     memset(digest, 0x42, sizeof digest);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sign(digest, sig, &alg));
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_HMAC_SHA256, alg);
+    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, alg);
 }
 
 /*
@@ -555,7 +578,7 @@ static void test_a_mismatched_tier_handoff_refuses_even_with_a_real_local_uds(vo
     memcpy(tfw_mock_handoff(), block, TFW_BOOT_HANDOFF_LEN);
     tfw_boot_handoff_init();
 
-    provision();    /* a REAL local UDS -- tfw_crypto_soft_uds() would succeed */
+    local_uds();    /* a REAL local UDS -- tfw_crypto_soft_uds() would succeed */
 
     memset(digest, 0x42, sizeof digest);
     TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_sign(digest, sig, &alg));
@@ -591,7 +614,7 @@ static void test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_eve
     memcpy(tfw_mock_handoff(), block, TFW_BOOT_HANDOFF_LEN);
     tfw_boot_handoff_init();
 
-    provision();    /* a REAL local UDS -- tfw_crypto_soft_uds() would succeed */
+    local_uds();    /* a REAL local UDS -- tfw_crypto_soft_uds() would succeed */
 
     memset(digest, 0x42, sizeof digest);
     TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_sign(digest, sig, &alg));
@@ -604,7 +627,7 @@ int main(void)
     RUN_TEST(test_an_unprovisioned_device_refuses_to_attest);
     RUN_TEST(test_the_software_tier_reports_itself_as_software);
     RUN_TEST(test_the_software_tier_refuses_to_invent_randomness);
-    RUN_TEST(test_a_symmetric_identity_has_no_public_key);
+    RUN_TEST(test_an_unprovisioned_soft_root_has_no_public_key);
     RUN_TEST(test_there_is_no_monotonic_counter_without_an_element);
     RUN_TEST(test_the_software_tier_verifies_no_signature);
     RUN_TEST(test_a_page_request_with_no_evidence_is_refused);
@@ -618,12 +641,12 @@ int main(void)
     RUN_TEST(test_device_id_is_zero_with_no_platform_block);
     RUN_TEST(test_a_baked_serial_reaches_device_id);
     RUN_TEST(test_a_corrupted_platform_block_leaves_device_id_zero);
-    RUN_TEST(test_fw_hash_is_zero_with_no_handoff);
+    RUN_TEST(test_no_handoff_is_not_provisioned_even_with_a_local_uds);
     RUN_TEST(test_a_handed_off_measurement_reaches_fw_hash);
     RUN_TEST(test_a_nonzero_handed_off_cdi_provisions_the_soft_tier_alone);
     RUN_TEST(test_a_mismatched_tier_handoff_refuses_even_with_a_real_local_uds);
     RUN_TEST(test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_even_with_a_real_local_uds);
-    RUN_TEST(test_the_software_tier_refuses_to_issue_an_alias_certificate);
+    RUN_TEST(test_the_software_tier_mints_an_alias_certificate_for_its_deviceid);
     RUN_TEST(test_an_unprovisioned_device_refuses_an_alias_certificate);
     RUN_TEST(test_an_alias_page_with_no_certificate_is_refused);
     RUN_TEST(test_both_attestation_commands_are_dispatchable);

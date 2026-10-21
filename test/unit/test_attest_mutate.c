@@ -35,6 +35,8 @@
 #include "tfw/protocol.h"
 #include "tfw/config.h"
 #include "uds_mock.h"
+#include "boot_soft_mock.h"
+#include "handoff.h"
 
 #define GUARD       16u
 #define GUARD_BYTE  0xA5u
@@ -76,7 +78,12 @@ static void device(unsigned kind)
 {
     tfw_mock_reset();
     tfw_attest_reset_state();
-    tfw_mock_set_uds(kind == UNPROVISIONED ? 0 : TEST_UDS);
+    tfw_mock_set_uds(0);
+    if (kind == UNPROVISIONED) {
+        tfw_boot_handoff_init();                /* the reset block: no handoff */
+    } else {
+        tfw_mock_boot_soft(TEST_UDS, TEST_UDS); /* the seed in tfw-boot's handoff */
+    }
     tfw_crypto_init();
 }
 
@@ -416,7 +423,8 @@ static void test_the_clean_requests_afterwards(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(&page, 1u, out, &len));
 
     read_evidence();
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_HMAC_SHA256, evidence[73]);   /* OFF_ALG */
+    /* The host links the soft root's P-256 DeviceID (mk/host.mk SOFT_ID_SRCS). */
+    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, evidence[73]);   /* OFF_ALG */
 }
 
 int main(void)

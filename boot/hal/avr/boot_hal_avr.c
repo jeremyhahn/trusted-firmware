@@ -190,7 +190,7 @@ void tfw_boot_uart_tx(uint8_t byte)
  * `.handoff` IS NOLOAD, genuinely -- mk/handoff.ld (linked into BOOT_LDFLAGS)
  * splices `.handoff (NOLOAD) : { *(.handoff) }` into the default script, the
  * same SHT_NOBITS treatment `.bss` already gets. That is what keeps this
- * array's 80 bytes out of the FLASH hex this same Makefile produces, rather
+ * array's 112 bytes out of the FLASH hex this same Makefile produces, rather
  * than an `-R .handoff` at every point an image gets derived from the ELF.
  */
 static uint8_t handoff[TFW_BOOT_HANDOFF_LEN] __attribute__((section(".handoff")));

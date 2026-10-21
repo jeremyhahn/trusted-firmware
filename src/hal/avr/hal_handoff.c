@@ -21,7 +21,7 @@
  * `.handoff` IS NOLOAD, genuinely -- mk/handoff.ld (linked in by both
  * mk/avr.mk and mk/boot.mk) splices `.handoff (NOLOAD) : { *(.handoff) }`
  * into the default script, the same SHT_NOBITS treatment `.bss` already
- * gets. That is what keeps this array's 80 bytes out of every derived
+ * gets. That is what keeps this array's 112 bytes out of every derived
  * image -- the *.hex files, and mk/release.mk's provenance .bin -- rather
  * than an `-R .handoff` repeated at each place one gets produced. See that
  * file for why a fragment rather than a full custom script.
@@ -42,7 +42,7 @@
  * a fixed address with `--section-start`; pinning the generic `.noinit`
  * output section would move every OTHER object assigned to it there too,
  * which is exactly the collision that shipped once, briefly, in this file's
- * history -- `tfw_hal_early_flags` landing inside this array's 80 bytes and
+ * history -- `tfw_hal_early_flags` landing inside this array's 112 bytes and
  * overflowing the region the linker had for it.
  */
 static uint8_t handoff[TFW_BOOT_HANDOFF_LEN] __attribute__((section(".handoff")));

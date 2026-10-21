@@ -573,6 +573,11 @@ static void handle_command(const uint8_t *p, uint8_t n)
         if (data_locked) { respond_status(0x0Fu); return; }
         if (param2 >> 3 < 16u) {
             memcpy(slots[param2 >> 3], tfw_model_tempkey(), 32u);
+            /* The UDS PROV_SEED_UDS wrote is as present as the one
+             * tfw_model_provision() seeds: HMAC on its slot answers. */
+            if (param2 >> 3 == TFW_ATECC_SLOT_UDS) {
+                provisioned = 1u;
+            }
             respond_status(0x00u);
             return;
         }

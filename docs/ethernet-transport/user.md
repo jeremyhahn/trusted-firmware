@@ -10,7 +10,9 @@
   shield (Arduino Ethernet Shield 2).
 - The ATECC608C (MIKROE-6774 Click board) for the element tier: signed attestation, the alias
   certificate and enrolment. Without it, build the software tier
-  (`CRYPTO=soft`), whose `ATTEST` evidence is an HMAC and which cannot enrol.
+  (`CRYPTO=soft`). On the Mega 2560 it signs `ATTEST` evidence ES256 under a
+  P-256 DeviceID derived from its UDS; on the Nano and Uno the evidence is an
+  HMAC. Neither enrols.
 - A serial connection for provisioning and for writing the network settings.
 
 The shield uses D10 for the controller's chip select, D4 for its SD card, and

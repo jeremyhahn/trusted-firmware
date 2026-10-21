@@ -109,12 +109,16 @@ but runs nowhere (slice 7).
   arrived"; it is on the bench (`docs/development/bench/esp32-p4.md`). Fixed by
   slice 7, with `board_profile.h`'s, whose pins were the reference design's and
   are now checked against the board's schematic.
-- **The soft P-256 DeviceID is ruled but not on main.** The AVR soft provider
-  still signs with HMAC-SHA256 and has no public key
-  (`src/crypto/soft/provider.c`, `tfw_crypto_sign`, `tfw_crypto_pubkey`). The
-  P-256 code on main is the boot verifier (`boot/verify/verify_p256_soft.c`)
-  over micro-ecc (`src/third_party/micro-ecc/`), which also has
-  `uECC_compute_public_key` and `uECC_sign`.
+- **The soft P-256 DeviceID is built (#48, #130).** The AVR soft provider
+  (`src/crypto/soft/provider.c`) delegates `tfw_crypto_sign` and
+  `tfw_crypto_pubkey` to the identity its object list picks
+  (`src/crypto/soft/id.h`). `SOFT_ID=p256`, the ATmega2560 soft and auto
+  builds and tfwsim, links `id_p256.c`: a P-256 DeviceID whose seed is
+  HMAC(UDS, `TFW_DEVICEID_LABEL`), signing ES256 (alg id `0x01`) over micro-ecc
+  (`src/third_party/micro-ecc/`). `SOFT_ID=hmac`, the ATmega328P and
+  ATmega32U4, links `id_hmac.c` and keeps the HMAC-SHA256 signer, with no
+  public key. On a device the UDS store (`uds_flash.c`) still returns none, so
+  a soft-rooted board answers `NOT_PROVISIONED` until it lands.
 - **The manifest gate had no caller.** `tfw_suit_gate` (`src/core/suit.c`) was
   called by no file in `boot/` or `src/` (`docs/SPEC.md` row `ota`, "The
   manifest gate is built but nothing calls it yet"). Slice 3 makes ESP32

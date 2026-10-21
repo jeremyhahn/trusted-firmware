@@ -37,6 +37,18 @@ static void test_an_unprovisioned_uds_derives_nothing(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(want, cdi, sizeof cdi);
 }
 
+/* No UDS, no seed: the handoff carries zeros, which the application reads as
+ * "none" (#173). */
+static void test_an_unprovisioned_uds_hands_off_a_zero_seed(void)
+{
+    uint8_t seed[TFW_BOOT_SEED_LEN], zero[TFW_BOOT_SEED_LEN];
+
+    memset(seed, 0xC3, sizeof seed);
+    memset(zero, 0, sizeof zero);
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_boot_cdi_device_seed(seed));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, seed, sizeof seed);
+}
+
 /* No counter on this tier: both directions say so, and the read leaves the
  * caller's value alone rather than reporting a zero floor. */
 static void test_the_floor_is_unsupported(void)
@@ -54,6 +66,7 @@ int main(void)
     RUN_TEST(test_init_has_nothing_to_prepare);
     RUN_TEST(test_the_tier_is_software);
     RUN_TEST(test_an_unprovisioned_uds_derives_nothing);
+    RUN_TEST(test_an_unprovisioned_uds_hands_off_a_zero_seed);
     RUN_TEST(test_the_floor_is_unsupported);
     return UNITY_END();
 }

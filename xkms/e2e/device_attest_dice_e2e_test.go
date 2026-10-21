@@ -17,14 +17,11 @@ package e2e
 
 import (
 	"context"
-	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/asn1"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -34,21 +31,18 @@ import (
 	"time"
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
-	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 	"github.com/jeremyhahn/trusted-firmware/xkms/avr"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	deviceattest01 "github.com/jeremyhahn/go-xkms/pkg/acme/challenges/device-attest-01"
 	"github.com/jeremyhahn/go-xkms/pkg/acme/client"
-	"github.com/jeremyhahn/go-xkms/pkg/attestation/dice"
 	"github.com/jeremyhahn/go-xkms/pkg/ca"
 	"github.com/jeremyhahn/go-xkms/pkg/types"
 )
 
-// These tests enroll the REAL trusted-firmware firmware, compiled for the host
-// and started by tfwsim.StartElement, through go-xkms's ACME client and the real
-// ACME server handlers with device-attest-01 offered:
+// The device-attest-01 enrolment TestHardwareEnrollment (hw_enroll_test.go)
+// runs, through go-xkms's ACME client and the real ACME server handlers with
+// device-attest-01 offered, against a board or the simulator:
 //
 //   - the device mints a DICE alias certificate over the nonce derived from the
 //     challenge's key authorization (ATTEST_CERT, signed with real P-256);
@@ -59,8 +53,9 @@ import (
 //   - finalization sends the possession request, signed by the device itself
 //     over the same nonce (ATTEST_CSR, through avr.Backend.PossessionSigner).
 //
-// The simulator binaries are built by `make tfwsim`. A missing binary FAILS
-// these tests (tfwsim reports the command); they never skip.
+// What the adapter contributes to each step, and each refusal the server
+// makes, is unit-tested in xkms/avr (device_attest_test.go) on frames recorded
+// from the simulator; this file is only the harness the enrolment runs in.
 
 // provisioningRecord is the record a provisioning step writes for a device:
 // its ueid and the DeviceID public key read from it at the factory (the
@@ -99,22 +94,8 @@ func (r deviceRegistry) ResolveDevice(_ context.Context, ueid string) (*deviceat
 type diceElement struct {
 	client.TPMModule
 
-	device   *tfw.Device
 	backend  *avr.Backend
 	identity string
-
-	// nonceFor derives the nonce the device attests over from the key
-	// authorization. The draft's is deviceattest01.DICENonce.
-	nonceFor func(keyAuthorization string) []byte
-
-	// signerFor returns the finalize signer for the attestation the device
-	// made for the challenge. The adapter's is Backend.PossessionSigner.
-	signerFor func(att *avr.Attestation) (crypto.Signer, error)
-}
-
-func newDiceElement(t *testing.T) *diceElement {
-	t.Helper()
-	return newDiceElementOn(t, tfwsim.StartElement(t))
 }
 
 // newDiceElementOn is the element on a device the caller opened: the
@@ -128,10 +109,7 @@ func newDiceElementOn(t *testing.T, device *tfw.Device) *diceElement {
 	require.NoError(t, err)
 
 	element := &diceElement{
-		device:    device,
-		backend:   backend,
-		nonceFor:  deviceattest01.DICENonce,
-		signerFor: backend.PossessionSigner,
+		backend: backend,
 	}
 
 	// The device's identity is read from its own evidence, by the rule the
@@ -161,7 +139,7 @@ func (e *diceElement) DeviceIdentity() (string, error) { return e.identity, nil 
 // attestation object, and the possession signer for that same nonce signs
 // the finalize request.
 func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.AttestedKey, error) {
-	att, err := e.attest(e.nonceFor(keyAuthorization))
+	att, err := e.attest(deviceattest01.DICENonce(keyAuthorization))
 	if err != nil {
 		return nil, err
 	}
@@ -172,41 +150,11 @@ func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.Att
 	if err != nil {
 		return nil, err
 	}
-	signer, err := e.signerFor(att)
+	signer, err := e.backend.PossessionSigner(att)
 	if err != nil {
 		return nil, err
 	}
 	return &client.AttestedKey{Statement: statement, Signer: signer, Format: deviceattest01.FormatDICE}, nil
-}
-
-// uncheckedDeviceSigner hands the server whatever ATTEST_CSR returns for its
-// nonce, without the check PossessionSigner makes, so a test can show the
-// server refusing what the adapter would have refused first. The device signs
-// a request only for the nonce of the certificate it last minted, so the
-// signer mints one for its nonce first.
-type uncheckedDeviceSigner struct {
-	device *tfw.Device
-	pub    crypto.PublicKey
-	nonce  [tfw.AliasNonceLen]byte
-}
-
-func (s *uncheckedDeviceSigner) Public() crypto.PublicKey { return s.pub }
-
-func (s *uncheckedDeviceSigner) Sign(io.Reader, []byte, crypto.SignerOpts) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := s.device.AttestCert(ctx, s.nonce[:]); err != nil {
-		return nil, err
-	}
-	raw, err := s.device.AttestCSR(ctx, s.nonce)
-	if err != nil {
-		return nil, err
-	}
-	half := len(raw) / 2
-	return asn1.Marshal(struct{ R, S *big.Int }{
-		new(big.Int).SetBytes(raw[:half]),
-		new(big.Int).SetBytes(raw[half:]),
-	})
 }
 
 // verdictRecorder wraps the production verifier and remembers why it last
@@ -296,10 +244,6 @@ func newDiceEnrollment(t *testing.T, devices deviceattest01.DeviceResolver) *dic
 	return &diceEnrollment{server: server, client: newDeviceAttestRoundTripClient(t, server), verifier: recorder, issuer: caCert}
 }
 
-func (e *diceEnrollment) enroll(element client.TPMModule) (*x509.Certificate, error) {
-	return deviceAttest(e.client, element)
-}
-
 // deviceAttest is the one device-attest-01 exchange, against whichever ACME
 // server the client was made for: the in-process one, or a control plane on
 // the bench.
@@ -327,153 +271,4 @@ func permanentIdentifier(t *testing.T, cert *x509.Certificate) string {
 	}
 	t.Fatal("the certificate carries no permanentIdentifier")
 	return ""
-}
-
-// A real trusted-firmware device enrolls: the order is for its ueid, its DICE
-// evidence answers the challenge's nonce, and the certificate that is issued
-// is for the DeviceID key it attested and bound to the ueid.
-func TestDeviceAttestDICEEnrollsTheRealFirmware(t *testing.T) {
-	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
-
-	assert.Equal(t, hex.EncodeToString(append([]byte{0x01}, tfwsim.TestSerial[:]...)), element.identity,
-		"the identity is the hex of the ueid, type byte included")
-
-	cert, err := enrollment.enroll(element)
-	require.NoError(t, err)
-	require.NoError(t, enrollment.verifier.Refusal())
-
-	assert.True(t, cert.PublicKey.(*ecdsa.PublicKey).Equal(tfwsim.TestDeviceIDPublicKey()),
-		"the certificate must be for the key the device attested")
-	assert.Equal(t, element.identity, permanentIdentifier(t, cert),
-		"the certificate must be bound to the device's ueid")
-	select {
-	case issued := <-enrollment.server.issued:
-		assert.Equal(t, issued.Raw, cert.Raw)
-	default:
-		t.Fatal("the server issued no certificate")
-	}
-}
-
-// An order for a ueid other than the one the evidence carries is refused: the
-// evidence is genuine, but it is not that device's.
-func TestDeviceAttestDICERefusesAnotherUeid(t *testing.T) {
-	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
-	element.identity = hex.EncodeToString(append([]byte{0x01}, []byte("another-device-1")...))
-
-	cert, err := enrollment.enroll(element)
-
-	require.ErrorContains(t, err, "urn:ietf:params:acme:error:unauthorized")
-	assert.Nil(t, cert)
-	assert.Empty(t, enrollment.server.issued)
-}
-
-// Evidence minted over a different challenge's nonce is a replay and is
-// refused, whatever else about it is genuine.
-func TestDeviceAttestDICERefusesTheWrongNonce(t *testing.T) {
-	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
-	element.nonceFor = func(string) []byte { return deviceattest01.DICENonce("another-token.another-thumbprint") }
-
-	cert, err := enrollment.enroll(element)
-
-	require.ErrorContains(t, err, "urn:ietf:params:acme:error:incorrectResponse")
-	assert.Nil(t, cert)
-	assert.Empty(t, enrollment.server.issued)
-	assert.ErrorIs(t, enrollment.verifier.Refusal(), dice.ErrNonceMismatch,
-		"the verifier must have refused the evidence for its nonce, not for another reason")
-}
-
-// A possession request signed by any key but the attested one is refused at
-// finalization, even though the device's evidence verified.
-func TestDeviceAttestDICERefusesACSRForAnotherKey(t *testing.T) {
-	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
-	other, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	element.signerFor = func(*avr.Attestation) (crypto.Signer, error) { return other, nil }
-
-	cert, err := enrollment.enroll(element)
-
-	require.ErrorContains(t, err, "urn:ietf:params:acme:error:badCSR")
-	assert.Nil(t, cert)
-	assert.Empty(t, enrollment.server.issued)
-}
-
-// The device's possession signature for another nonce is refused by the
-// server: the request it signed is not the one for this challenge.
-func TestDeviceAttestDICERefusesACSRForAnotherNonce(t *testing.T) {
-	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
-	element.signerFor = func(att *avr.Attestation) (crypto.Signer, error) {
-		signer := &uncheckedDeviceSigner{device: element.device, pub: att.Certificate.PublicKey}
-		copy(signer.nonce[:], deviceattest01.DICENonce("another-token.another-thumbprint"))
-		return signer, nil
-	}
-
-	cert, err := enrollment.enroll(element)
-
-	require.ErrorContains(t, err, "urn:ietf:params:acme:error:badCSR")
-	assert.Nil(t, cert)
-	assert.Empty(t, enrollment.server.issued)
-	assert.NoError(t, enrollment.verifier.Refusal(), "the evidence was right: the refusal must be about the CSR")
-}
-
-// The adapter refuses the same request before it is sent: PossessionSigner
-// for an attestation made over another nonce returns no signature for this
-// challenge's request, and nothing is finalized.
-func TestDeviceAttestDICEPossessionSignerRefusesAnotherNoncesRequest(t *testing.T) {
-	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, tfwsim.TestDeviceIDPublicKey()))
-	element.signerFor = func(*avr.Attestation) (crypto.Signer, error) {
-		other, err := element.attest(deviceattest01.DICENonce("another-token.another-thumbprint"))
-		if err != nil {
-			return nil, err
-		}
-		return element.backend.PossessionSigner(other)
-	}
-
-	cert, err := enrollment.enroll(element)
-
-	// The ACME client reports the cause as text, not as a chain.
-	require.ErrorContains(t, err, avr.ErrPossessionMismatch.Error())
-	assert.Nil(t, cert)
-	assert.Empty(t, enrollment.server.issued)
-}
-
-// Evidence whose key is not the one the device's provisioning record holds is
-// refused: the alias certificate is self-consistent whoever made it.
-func TestDeviceAttestDICERefusesAnotherProvisionedKey(t *testing.T) {
-	element := newDiceElement(t)
-	stranger, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	enrollment := newDiceEnrollment(t, provisioningRecord(t, element.identity, &stranger.PublicKey))
-
-	cert, err := enrollment.enroll(element)
-
-	require.ErrorContains(t, err, "urn:ietf:params:acme:error:unauthorized")
-	assert.Nil(t, cert)
-	assert.Empty(t, enrollment.server.issued)
-	refusal := enrollment.verifier.Refusal()
-	assert.ErrorIs(t, refusal, deviceattest01.ErrDeviceNotAuthorized)
-	assert.ErrorIs(t, refusal, deviceattest01.ErrAttestedKeyMismatch)
-	assert.NotErrorIs(t, refusal, dice.ErrNonceMismatch,
-		"the nonce was right: the refusal must be about the record")
-}
-
-// A device nobody provisioned is refused, however genuine its evidence: there
-// is no record to anchor it in.
-func TestDeviceAttestDICERefusesAnUnprovisionedDevice(t *testing.T) {
-	element := newDiceElement(t)
-	enrollment := newDiceEnrollment(t, deviceRegistry{})
-
-	cert, err := enrollment.enroll(element)
-
-	require.ErrorContains(t, err, "urn:ietf:params:acme:error:unauthorized")
-	assert.Nil(t, cert)
-	assert.Empty(t, enrollment.server.issued)
-	refusal := enrollment.verifier.Refusal()
-	assert.ErrorIs(t, refusal, deviceattest01.ErrDeviceNotAuthorized)
-	assert.ErrorIs(t, refusal, deviceattest01.ErrDeviceNotProvisioned)
 }

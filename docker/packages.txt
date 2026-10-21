@@ -22,6 +22,11 @@ simavr           # the emulator: models ADC, EEPROM, USART, SPI, TWI, timers,
 libsimavr-dev    # GPIO with pin-change interrupts, and the watchdog
 libelf-dev       # simavr reads the firmware .elf through libelf
 
+gcc-arm-none-eabi        # the Cortex-M compiler (mk/arch/cortex-m.mk, #161)
+binutils-arm-none-eabi   # its assembler, linker, objcopy, nm and size
+libnewlib-arm-none-eabi  # newlib-nano, the Cortex-M images' C library
+qemu-system-arm          # the emulator: mps2-an505 (make integration-test-cortex-m)
+
 build-essential  # the host compiler, for the unit tests and tfwsim
 make
 

@@ -13,8 +13,8 @@ produces the devcontainer with all of it, and every other target runs inside it.
 | Stage | Contents | Runs |
 |---|---|---|
 | `tools`, `modules` | build-only: the Go-built analysis tools at their pins; the module cache for `sdk/go`, `test/integration/esp32` and `xkms/`, fetched with the forge credentials as a BuildKit secret | nothing; copied into the stages below |
-| `base` | Debian trixie-slim by digest, the AVR and host toolchains (`docker/packages.txt`), Go by checksum, a non-root user, the module cache with `GOPROXY=off` | nothing on its own |
-| `toolchain` | `base` + cppcheck, gcovr, clang-format/-tidy, golangci-lint, actionlint, gosec, govulncheck, trivy, shellcheck, git, jq | build, test, security, deps-check |
+| `base` | Debian trixie-slim by digest, the AVR, Arm Cortex-M and host toolchains and `qemu-system-arm` (`docker/packages.txt`), Go by checksum, a non-root user, the module cache with `GOPROXY=off` | nothing on its own |
+| `toolchain` | `base` + cppcheck, gcovr, clang-format/-tidy, golangci-lint, actionlint, gosec, govulncheck, trivy, shellcheck, git, jq | build, test, security, deps-check; `integration-test-cortex-m` |
 | `integration` | `base` + the source baked in, no setuid bits, non-root | integration-test; `compose.yaml` beside it runs it read-only, without network or capabilities |
 | `esp32` | Espressif's `espressif/idf:v5.5.5` by digest, its QEMU, Go and the module cache | `esp32-build`, `esp32-qemu-test` |
 
@@ -42,10 +42,21 @@ wired as the fleet template wires them:
 | Stage | Gates |
 |---|---|
 | `make build` | `firmware-matrix` (size budgets), `bootloader-check`, `sdk-build`, the three tfwsim builds, `reproducible-check`, `provenance`, `app-firmware-check`, `platform-bake-no-link-check`, `platform-bake-build-check`, `header-deps-check` |
-| `make test` | `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan`, `verify-vectors`, `xkms-coverage` |
+| `make test` | `host-test`, `boot-test`, `board-sweep`, `coverage`, `test-asan`, `verify-vectors`, `xkms-coverage`, `sdk-coverage`, `scripts-test` |
 | `make integration-test` | `integration-test-host` in the integration image: `integration-test-simavr`, `integration-test-boot`, `sdk-test` (with the cross-implementation suite), `app-sdk-check`, `xkms-test` |
 | `make security` | `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-govulncheck`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan` |
 | `make deps-check` | `scripts/deps-check.py`: every pin in `scripts/tool-pins.sh` and every Go require, `xkms/` included, against its latest release |
+
+The two coverage floors in `make test` measure unit tests alone (#163). No
+simulator is built or started for them. `sdk-coverage` compiles `sdk/go`
+without the `tfwsim` tag. `xkms-coverage` tests every `xkms/` package except
+`xkms/e2e`, and prints each package's figure and the total against its 90 %
+floor. Its device-attest-01 checks run in `xkms/avr` against simulator frames
+recorded once as literals (`xkms/avr/device_attest_vectors_test.go`, with the
+command that recorded them). The simulator suites run in `make integration-test`:
+`sdk-test` runs the cross-implementation suite. `xkms-test` runs every `xkms/`
+suite except `xkms/e2e`'s `TestHardwareEnrollment`, the board run behind
+`make hw-enroll`, which it deselects by name (#163 decision 2).
 
 Each stage first checks for its tools and fails if one is missing. Run it in
 the image instead. A pin may sit behind its latest release only with its reason
@@ -137,6 +148,31 @@ The element-tier build links the real ATECC608A driver and provider against
 the wire. It starts blank; its identity options and their limits (the model does
 real P-256 under a published TEST key, so its evidence verifies and must never be
 trusted) are in `docs/host-sdk/cli.md`.
+
+## Cortex-M (QEMU `mps2-an505`)
+
+```sh
+make firmware BOARD=mps2-an505 CRYPTO=soft
+make bootloader BOARD=mps2-an505 BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
+make integration-test-cortex-m   # builds both if needed, then boots them in QEMU
+```
+
+The Cortex-M port's first board (#161) is an emulator, so there is nothing
+to flash. `integration-test-cortex-m` (`mk/arch/cortex-m-targets.mk`) copies
+both images to raw files. `test/integration/cortex-m/cm_image.c` writes a fresh
+P-256 public key and UDS into tfw-boot's slots, signs the application three
+ways and writes the platform block.
+`test/integration/cortex-m/qemu_test.sh` then boots each image in its own
+`qemu-system-arm -M mps2-an505`, with the UART on a Unix socket:
+
+- the genuine image must answer CAPS with board `0x40` and tier 1, take a
+  soft reset, and answer again;
+- the tampered image and the image signed with another key must get no answer
+  for a bounded window, and QEMU must still be running at the end of it.
+
+The Arm toolchain and QEMU are in `docker/packages.txt`, so the toolchain image
+has them. The target is not in `make ci`. CI's image job runs the three
+commands above as their own steps, beside the ESP32 steps.
 
 ## ESP32 (ESP-IDF)
 

@@ -25,11 +25,21 @@
  *   ...from a soft tfw-boot  --boot-tier soft   the handoff names the soft
  *                                              tier, as BOOT_TIER=soft's does;
  *                                              the default names the element
+ *   ...holding a UDS         --uds HEX64        a soft tfw-boot's handoff with
+ *                                              the CDI and the DeviceID seed
+ *                                              it derives from that UDS
+ *                                              (boot/tier/cdi_soft.c)
  *
  * Element provisioning is seeded directly rather than driven over the wire:
  * the provisioning commands exist only in a jig image (TFW_FEATURE_PROVISION),
  * and the model's state lives in this process, so a provisioning session would
  * not survive into the production-shaped binary a test then talks to.
+ *
+ * tfwsim-prov is that jig image: this file and the same object list, plus
+ * src/caps/provision.c and tools/tfwsim/reboot.c (mk/host.mk). Started without
+ * --provision-element its element is blank, `tfwprov --commit` provisions it
+ * over the wire, and after a RESET, which keeps the element, the same process
+ * attests with the key the element generated.
  */
 
 #include <stdint.h>
@@ -40,6 +50,7 @@
 #include "tier.h"
 #include "atecc608a_model.h"
 #include "boot_measure.h"
+#include "deviceid_p256.h"
 #include "hal_mock.h"
 #include "sha256.h"
 #include "tfw/types.h"
@@ -51,6 +62,8 @@ static uint8_t  no_element;
 static uint8_t  have_image_hash;
 static uint8_t  boot_tier = (uint8_t)TFW_CRYPTO_SECURE_ELEMENT;
 static uint8_t  image_hash[TFW_BOOT_MEASURE_LEN];
+static uint8_t  have_uds;
+static uint8_t  uds[32];
 
 /* ------------------------------------------------------------ parsing */
 
@@ -219,6 +232,18 @@ int tfwsim_tier_option(int argc, char **argv)
         }
         return 2;
     }
+    /* tfwsim-auto: what tfw-boot hands a board with no element. On a device
+     * the soft root's DeviceID seed comes only from tfw-boot's handoff, and
+     * the application never sees the UDS (#173), so a host build of that
+     * board needs a stand-in for tfw-boot that holds one. */
+    if (strcmp(argv[0], "--uds") == 0) {
+        if (argc < 2) { return fail(argv[0], "needs a value"); }
+        if (hex_bytes(argv[1], strlen(argv[1]), uds, sizeof uds) < 0) {
+            return fail("--uds", "want 64 hex characters (32 bytes)");
+        }
+        have_uds = 1u;
+        return 2;
+    }
     if (strcmp(argv[0], "--eeprom") == 0 || strcmp(argv[0], "--eeprom-bin") == 0 ||
         strcmp(argv[0], "--image-hash") == 0) {
         if (argc < 2) { return fail(argv[0], "needs a value"); }
@@ -237,7 +262,8 @@ int tfwsim_tier_option(int argc, char **argv)
 const char *tfwsim_tier_usage(void)
 {
     return " [--eeprom FILE.eep | --eeprom-bin FILE] [--provision-element]"
-           " [--image-hash HEX64] [--boot-tier soft|element] [--no-element]";
+           " [--image-hash HEX64] [--boot-tier soft|element] [--uds HEX64]"
+           " [--no-element]";
 }
 
 /*
@@ -269,7 +295,21 @@ void tfwsim_tier_seed(void)
     if (eeprom_image) {
         memcpy(tfw_mock_eeprom(), eeprom_image, eeprom_len);
     }
-    if (have_image_hash) {
+    if (have_uds) {
+        /* What boot/tier/cdi_soft.c and boot/boot_main.c leave for this UDS:
+         * CDI = HMAC-SHA256(UDS, measurement), device_seed =
+         * HMAC-SHA256(UDS, TFW_DEVICEID_LABEL), in a handoff naming the soft
+         * tier. The measurement is --image-hash, or zero without one. */
+        uint8_t cdi[TFW_BOOT_MEASURE_LEN];
+        uint8_t seed[TFW_BOOT_SEED_LEN];
+
+        tfw_hmac_sha256(uds, (uint8_t)sizeof uds, image_hash, TFW_BOOT_MEASURE_LEN, cdi);
+        tfw_hmac_sha256(uds, (uint8_t)sizeof uds, (const uint8_t *)TFW_DEVICEID_LABEL,
+                        TFW_DEVICEID_LABEL_LEN, seed);
+        tfw_boot_handoff_build(tfw_mock_handoff(), (uint8_t)TFW_CRYPTO_SOFTWARE,
+                              cdi, image_hash, 1u, TFW_RESET_POWER_ON);
+        tfw_boot_handoff_set_seed(tfw_mock_handoff(), seed);
+    } else if (have_image_hash) {
         uint8_t cdi[TFW_BOOT_MEASURE_LEN];
 
         test_cdi(cdi);

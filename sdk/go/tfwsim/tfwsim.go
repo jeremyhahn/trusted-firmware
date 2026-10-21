@@ -43,6 +43,11 @@
 // for want of flash. [StartElementWithOperator] bakes the operator's public key
 // into the platform block, so a test can authenticate with a key it generated.
 //
+// [StartProvisioningWith] runs the element tier as a provisioning jig image
+// (tfwsim-prov): the same binary plus the PROV_* commands, its element blank
+// unless told otherwise, so a test drives the real provisioning sequence over
+// the wire and then attests with the key the element generated.
+//
 // # Finding the binaries
 //
 // A missing binary FAILS the test and says how to build it; it never skips.
@@ -50,7 +55,7 @@
 // checkout this package was compiled from -- which is the right answer for a
 // module that depends on this one through a `replace` to a sibling checkout.
 // A module that resolves it from the module cache has no build directory and
-// must set TFWSIM_DIR. Build with `make tfwsim tfwsim-atecc608a`.
+// must set TFWSIM_DIR. Build with `make tfwsim tfwsim-atecc608a tfwsim-prov`.
 package tfwsim
 
 import (
@@ -203,7 +208,23 @@ func StartElementWith(tb testing.TB, args []string, opts ...tfw.Option) *tfw.Dev
 
 func startElement(tb testing.TB, bin simproc.Binary, wrap func(io.ReadWriter) io.ReadWriter, opts []tfw.Option, args ...string) *tfw.Device {
 	tb.Helper()
-	var conn io.ReadWriter = simproc.Start(tb, bin, args...)
+	return startBinary(tb, bin, wrap, opts, args...)
+}
+
+// StartProvisioningWith runs the element tier as a provisioning jig image,
+// tfwsim-prov, with exactly the given command-line arguments: the options are
+// tfwsim-atecc608a's (tools/tfwsim/tier_atecc608a.c). Without
+// --provision-element its element is a blank part, so `tfwprov --commit`
+// provisions it over the wire, and ATTEST afterwards signs with the key the
+// element generated. A device that answers PROV_* is never one to trust.
+func StartProvisioningWith(tb testing.TB, args []string, opts ...tfw.Option) *tfw.Device {
+	tb.Helper()
+	return startBinary(tb, simproc.Prov, nil, opts, args...)
+}
+
+func startBinary(tb testing.TB, b simproc.Binary, wrap func(io.ReadWriter) io.ReadWriter, opts []tfw.Option, args ...string) *tfw.Device {
+	tb.Helper()
+	var conn io.ReadWriter = simproc.Start(tb, b, args...)
 	if wrap != nil {
 		conn = wrap(conn)
 	}

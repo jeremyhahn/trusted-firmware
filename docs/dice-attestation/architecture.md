@@ -32,7 +32,7 @@ a verifier to assume otherwise.
 | File | Responsibility |
 |---|---|
 | `include/tfw/crypto.h` | the provider contract: `tfw_crypto_init/tier/algorithms/random/sha256/hmac/sign/pubkey/counter` |
-| `src/crypto/soft/provider.c` | DICE-SW: HMAC-SHA256 signing, UDS in boot-section flash (`uds_flash.c`) |
+| `src/crypto/soft/provider.c` | DICE-SW: UDS in boot-section flash (`uds_flash.c`); signing and the public key delegate to the identity the object list picks (`src/crypto/soft/id.h`): `id_p256.c`, an ES256 P-256 DeviceID (`SOFT_ID=p256`: ATmega2560, auto, tfwsim) whose seed tfw-boot derives and hands over in handoff v4 (`include/tfw/boot.h`), so the application never reads the UDS, or `id_hmac.c`, HMAC-SHA256 with no public key (`SOFT_ID=hmac`: ATmega328P, ATmega32U4) |
 | `src/crypto/atecc608a/provider.c` | DICE-HW: ECDSA P-256 signing, UDS in a never-readable element slot |
 | `src/crypto/none/provider.c` | a fourth, build-time tier for silicon too small to hold the software tier's contract honestly (ATtiny85 has no boot section, no BLB lock bits) — always `TFW_CRYPTO_NONE`, every operation `TFW_ERR_UNSUPPORTED` |
 | `src/caps/attest.c` | `ATTEST`: builds and pages the 164-byte evidence frame |
@@ -55,7 +55,7 @@ a root of trust it does not have. See `include/tfw/crypto.h`.
 | Condition | an ATECC608 (the boards take the ATECC608C (MIKROE-6774 Click board)) | neither element nor TPM |
 | UDS | never-readable element slot | boot-section flash, BLB mode 3 |
 | CDI | `HMAC(UDS, H(firmware))` inside the element | software `HMAC(UDS, H(firmware))` |
-| Signs with | ECDSA P-256 (element) | HMAC-SHA256 (verifier holds the key) |
+| Signs with | ECDSA P-256 (element) | ECDSA P-256, a DeviceID whose seed tfw-boot derives as HMAC(UDS, `TFW_DEVICEID_LABEL`) and hands over beside the CDI in handoff v4 (`SOFT_ID=p256`); HMAC-SHA256, the verifier holding the key, on the ATmega328P and ATmega32U4 (`SOFT_ID=hmac`) |
 | `CAPS` tier | `TFW_CRYPTO_SECURE_ELEMENT` (2) | `TFW_CRYPTO_SOFTWARE` (1) |
 | Built with | `CRYPTO=atecc608a` | `CRYPTO=soft` (default) |
 
@@ -306,10 +306,13 @@ point, OID `1.3.101.112`) and an Ed25519 signature (64 bytes raw, not an
 ASN.1 `SEQUENCE` of two integers) cannot be expressed inside that template
 without a different certificate profile, and this repo does not own DICE
 ASN.1 profiles (see the top-level `CLAUDE.md`). Raised against the owner
-rather than guessed at. A software-tier image still compiles `ATTEST_CERT`
-out and answers `TFW_ERR_UNKNOWN_CMD`, as it did before; a build that carries
-the command under the software provider answers `TFW_ERR_UNSUPPORTED`, for the
-reason stated where `mint()` fetches the subject key.
+rather than guessed at. A `CRYPTO=soft` or `CRYPTO=none` image
+compiles `ATTEST_CERT` out and answers `TFW_ERR_UNKNOWN_CMD`. A `CRYPTO=auto`
+image carries it; with no element its soft fallback certifies its P-256
+DeviceID, or answers `TFW_ERR_NOT_PROVISIONED` when tfw-boot handed off no
+DeviceID seed. A build that carries the command under a provider with no public
+key answers `TFW_ERR_UNSUPPORTED`, for the reason stated where `mint()` fetches
+the subject key.
 
 ## Alternatives rejected
 
@@ -399,16 +402,18 @@ its own UDS (`src/crypto/soft/provider.c:116`–`:129`).
 `TFW_CRYPTO_SOFTWARE` from the soft root (`src/crypto/soft/provider.c:162`),
 `TFW_CRYPTO_SECURE_ELEMENT` only from an element that answered
 (`src/crypto/atecc608a/provider.c:169`). `tfw_crypto_algorithms()` is the
-chosen provider's too, so a soft-rooted Mega advertises HMAC-SHA256 only and
-signs with `TFW_ALG_HMAC_SHA256`. Its `tfw_crypto_pubkey` refuses, so no alias
-certificate can name an element key for it.
+chosen provider's too, so a soft-rooted Mega advertises ECDSA-P256-SHA256 only
+and signs with `TFW_ALG_ECDSA_P256_SHA256` under its soft P-256 DeviceID
+(`src/crypto/soft/id_p256.c`). Its `tfw_crypto_pubkey` returns that DeviceID,
+never an element key, so an alias certificate minted for it names the soft
+key.
 
 **The element path is whole.** An `auto` image links everything the
 `atecc608a` image links (`mk/firmware.mk`, the `atecc608a auto` branch): the
 alias certificate, the CSR, the auth session and, where the profile opts in,
 the SUIT reader. Each reaches the element through the dispatch, so with the
-soft root chosen they refuse as that tier must (no public key, no image key,
-no TRNG). The auth gate is `src/core/auth_session_auto.c`: `auth_session.c`'s
+soft root chosen they sign under the soft P-256 DeviceID or refuse as that
+tier must (no image key, no TRNG). The auth gate is `src/core/auth_session_auto.c`: `auth_session.c`'s
 operator-signature gate, renamed per object, when the dispatch chose the
 element, and the soft tier's permissive answer when it chose soft. The ATTEST
 refusal of a CDI handed off for the other tier stays where it is, in the soft

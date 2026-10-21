@@ -131,9 +131,12 @@ mirror of the CSR vectors; `TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` stay in
   only long enough to learn whether the element has a UDS, and clears it
   before returning: the normative rule (DICE HW Requirements §6.4, "cleared
   once no longer needed") is genuinely met there. The software tier
-  (`src/crypto/soft/provider.c`) cannot meet it: its CDI is the HMAC key for
-  every operation, resident for the process lifetime by necessity, and the
-  code says so rather than claiming otherwise.
+  (`src/crypto/soft/provider.c`) cannot meet it: its CDI keys
+  `tfw_crypto_hmac`, is the signing key of the HMAC identity (`id_hmac.c`,
+  the ATmega328P and ATmega32U4) and gates every signature of the P-256 one
+  (`id_p256.c`, whose seed and scalar are derived from the UDS per call and
+  zeroed), so it stays resident for the process lifetime by necessity, and
+  the code says so rather than claiming otherwise.
 
 ## Error semantics
 

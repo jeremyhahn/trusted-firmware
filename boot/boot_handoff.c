@@ -36,6 +36,24 @@ static void wr_u32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)((v >> 24) & 0xFFu);
 }
 
+uint16_t tfw_boot_handoff_crc(const uint8_t *block)
+{
+    /* Version 4 grew the block past the CRC rather than moving it, so the
+     * CRC covers what is before it and then what is after it -- see
+     * include/tfw/boot.h. */
+    return tfw_crc16_from(tfw_crc16(block, TFW_BOOT_HO_CRC),
+                          &block[TFW_BOOT_HO_DEVICE_SEED],
+                          (uint16_t)(TFW_BOOT_HANDOFF_LEN - TFW_BOOT_HO_DEVICE_SEED));
+}
+
+static void seal(uint8_t *block)
+{
+    uint16_t crc = tfw_boot_handoff_crc(block);
+
+    block[TFW_BOOT_HO_CRC]      = (uint8_t)(crc & 0xFFu);
+    block[TFW_BOOT_HO_CRC + 1u] = (uint8_t)((crc >> 8) & 0xFFu);
+}
+
 void tfw_boot_handoff_build(uint8_t *block,
                            uint8_t tier,
                            const uint8_t cdi[TFW_BOOT_MEASURE_LEN],
@@ -43,8 +61,6 @@ void tfw_boot_handoff_build(uint8_t *block,
                            uint32_t image_version,
                            tfw_reset_cause_t reset_cause)
 {
-    uint16_t crc;
-
     memset(block, 0, TFW_BOOT_HANDOFF_LEN);
     wr_u32(&block[TFW_BOOT_HO_MAGIC], TFW_BOOT_HANDOFF_MAGIC);
     block[TFW_BOOT_HO_VERSION] = TFW_BOOT_HANDOFF_VERSION;
@@ -53,13 +69,13 @@ void tfw_boot_handoff_build(uint8_t *block,
     memcpy(&block[TFW_BOOT_HO_MEASUREMENT], measurement, TFW_BOOT_MEASURE_LEN);
     wr_u32(&block[TFW_BOOT_HO_IMAGE_VER], image_version);
     block[TFW_BOOT_HO_RESET_CAUSE] = (uint8_t)reset_cause;
+    seal(block);
+}
 
-    /* Version 2 widens CRC coverage to include reset_cause and the byte beside
-     * it -- see include/tfw/boot.h for why the CRC moved rather than the block
-     * growing. */
-    crc = tfw_crc16(block, TFW_BOOT_HO_CRC);
-    block[TFW_BOOT_HO_CRC]      = (uint8_t)(crc & 0xFFu);
-    block[TFW_BOOT_HO_CRC + 1u] = (uint8_t)((crc >> 8) & 0xFFu);
+void tfw_boot_handoff_set_seed(uint8_t *block, const uint8_t seed[TFW_BOOT_SEED_LEN])
+{
+    memcpy(&block[TFW_BOOT_HO_DEVICE_SEED], seed, TFW_BOOT_SEED_LEN);
+    seal(block);
 }
 
 tfw_status_t tfw_boot_handoff_parse(const uint8_t *block,
@@ -67,7 +83,8 @@ tfw_status_t tfw_boot_handoff_parse(const uint8_t *block,
                                   uint8_t cdi[TFW_BOOT_MEASURE_LEN],
                                   uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                                   uint32_t *image_version,
-                                  uint8_t *reset_cause)
+                                  uint8_t *reset_cause,
+                                  uint8_t seed[TFW_BOOT_SEED_LEN])
 {
     uint16_t crc_rx;
 
@@ -83,7 +100,7 @@ tfw_status_t tfw_boot_handoff_parse(const uint8_t *block,
     }
     crc_rx = (uint16_t)((uint16_t)block[TFW_BOOT_HO_CRC]
                         | ((uint16_t)block[TFW_BOOT_HO_CRC + 1u] << 8));
-    if (tfw_crc16(block, TFW_BOOT_HO_CRC) != crc_rx) {
+    if (tfw_boot_handoff_crc(block) != crc_rx) {
         return TFW_ERR_CRC;
     }
 
@@ -92,5 +109,8 @@ tfw_status_t tfw_boot_handoff_parse(const uint8_t *block,
     memcpy(measurement, &block[TFW_BOOT_HO_MEASUREMENT], TFW_BOOT_MEASURE_LEN);
     *image_version = rd_u32(&block[TFW_BOOT_HO_IMAGE_VER]);
     *reset_cause   = block[TFW_BOOT_HO_RESET_CAUSE];
+    if (seed != NULL) {
+        memcpy(seed, &block[TFW_BOOT_HO_DEVICE_SEED], TFW_BOOT_SEED_LEN);
+    }
     return TFW_OK;
 }

@@ -92,6 +92,8 @@ static uint32_t get32(const uint8_t *p)
     return x;
 }
 
+/* Out of line: tfw_sha256_final's three calls, inlined, cost more (#173). */
+static void put32(uint8_t *p, uint32_t x) __attribute__((noinline));
 static void put32(uint8_t *p, uint32_t x)
 {
     uint8_t i;
@@ -108,15 +110,14 @@ static void transform(tfw_sha256_t *c, const uint8_t *chunk)
     uint32_t v[8];
     uint8_t  t;
 
-    for (t = 0u; t < 16u; t++) {
-        w[t] = get32(&chunk[t * 4u]);
-    }
     memcpy(v, c->state, sizeof v);
 
     for (t = 0u; t < 64u; t++) {
         uint32_t t1, t2;
 
-        if (t >= 16u) {
+        if (t < 16u) {
+            w[t] = get32(&chunk[t * 4u]);
+        } else {
             /* W[t] = s1(W[t-2]) + W[t-7] + s0(W[t-15]) + W[t-16], into the
              * slot W[t-16] held. */
             w[t & 15u] += sigma(w[(t - 2u) & 15u], SIG_S1)
@@ -188,14 +189,16 @@ void tfw_sha256_final(tfw_sha256_t *c, uint8_t out[32])
     uint8_t  i = c->buflen;
 
     /* Section 5.1.1: a 1 bit, zeros, then the 64-bit length, spilling into a
-     * second block when the length does not fit in this one. */
+     * second block when the length does not fit in this one. One loop writes
+     * the zeros of both blocks (#173). */
     c->buf[i++] = 0x80u;
-    if (i > 56u) {
-        memset(&c->buf[i], 0, (size_t)(64u - i));
-        transform(c, c->buf);
-        i = 0u;
+    while (i != 56u) {
+        if (i == 64u) {
+            transform(c, c->buf);
+            i = 0u;
+        }
+        c->buf[i++] = 0u;
     }
-    memset(&c->buf[i], 0, (size_t)(56u - i));
     put32(&c->buf[56], n >> 29);
     put32(&c->buf[60], n << 3);
     transform(c, c->buf);
@@ -220,7 +223,6 @@ void tfw_hmac_sha256(const uint8_t *key, uint8_t keylen,
                     uint8_t out[32])
 {
     uint8_t      k[64];
-    uint8_t      pad[64];
     uint8_t      inner[32];
     tfw_sha256_t c;
     uint8_t      pass, i;
@@ -233,13 +235,14 @@ void tfw_hmac_sha256(const uint8_t *key, uint8_t keylen,
     }
 
     /* Two passes of one loop: inner with ipad over the data, outer with opad
-     * over the inner digest. */
+     * over the inner digest. The pad is the key XORed in place: ipad first,
+     * then ipad ^ opad, which leaves the key XOR opad (#173). */
     for (pass = 0u; pass < 2u; pass++) {
         for (i = 0u; i < 64u; i++) {
-            pad[i] = (uint8_t)(k[i] ^ (pass ? 0x5cu : 0x36u));
+            k[i] = (uint8_t)(k[i] ^ (pass ? (0x5cu ^ 0x36u) : 0x36u));
         }
         tfw_sha256_init(&c);
-        tfw_sha256_update(&c, pad, 64u);
+        tfw_sha256_update(&c, k, 64u);
         if (pass) {
             tfw_sha256_update(&c, inner, 32u);
         } else {
@@ -250,6 +253,5 @@ void tfw_hmac_sha256(const uint8_t *key, uint8_t keylen,
 
     /* The expanded key is derived from a secret: not left on the stack. */
     memset(k, 0, sizeof k);
-    memset(pad, 0, sizeof pad);
     memset(inner, 0, sizeof inner);
 }

@@ -451,7 +451,8 @@ jobs:
     # the three images in 55 min (run 55218); a warm one reuses them. Then lint
     # and build ~2, the module and cross-arch loops ~6 and trivy image ~5 (run
     # 245908: start to the end of the loops 30 min, warm). 55 + 13 = 68, plus
-    # margin. The legs' budgets are on the legs.
+    # margin. The Cortex-M steps add ~3 (#161): 71. The legs' budgets are on
+    # the legs.
     timeout-minutes: 90
     # CUSTOMIZE (trusted-firmware, m751 (d)): the legs run when the images are
     # built, whatever the short stages after them did.
@@ -663,10 +664,31 @@ jobs:
             echo "every module builds and vets for every target"
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "$CROSS_ARCH_SCRIPT"
 
+      # CUSTOMIZE (trusted-firmware): the Cortex-M port (#161) on QEMU's
+      # mps2-an505, in the toolchain image, which carries the Arm toolchain and
+      # QEMU (docker/packages.txt). The application, then tfw-boot's one row on
+      # that board -- P-256 verified in software, never BOOT_SIG=none (m453) --
+      # then the suite that boots both: a signed image answers across a reset,
+      # a tampered one and another key's stay silent.
+      - name: make firmware BOARD=mps2-an505 (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=mps2-an505 CRYPTO=soft
+
+      - name: make bootloader BOARD=mps2-an505 (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: >-
+          scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make bootloader BOARD=mps2-an505
+          BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
+
+      - name: make integration-test-cortex-m (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make integration-test-cortex-m
+
       # CUSTOMIZE (trusted-firmware, owner m751 (d)): the test stage, sdk/go
       # under -race, make security with deps-check, and the ESP32 stages are
       # the legs below. trivy image stays here, beside the integration image's
-      # build.
+      # build, and so do the Cortex-M steps above: they run in the toolchain
+      # image this job built.
 
       # The integration image is gated before any push to either registry
       # (devops.md §8): --ignore-unfixed (v1.19) and --skip-dirs /opt/go/mod
@@ -823,7 +845,7 @@ jobs:
           SDK_RACE_SCRIPT: |
             set -eu
             export GOWORK=off
-            make tfwsim tfwsim-atecc608a tfwsim-app-example tfwsim-auto
+            make tfwsim tfwsim-atecc608a tfwsim-app-example tfwsim-auto tfwsim-prov
             cd sdk/go
             go test -race -count=1 -timeout=900s -tags tfwsim -coverprofile=../../coverage.out ./...
             total=$(go tool cover -func=../../coverage.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%')

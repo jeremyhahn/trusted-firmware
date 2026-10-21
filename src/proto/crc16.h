@@ -60,4 +60,10 @@ uint16_t tfw_crc16_update(uint16_t crc, uint8_t byte);
  * tfw_crc16_update() is linked and is not itself the hot path. */
 uint16_t tfw_crc16(const uint8_t *buf, uint16_t len);
 
+/* The same loop carried on from a running CRC, for a CRC over two ranges that
+ * are not contiguous: the handoff's crc16 covers what is before it and then
+ * what is after it (include/tfw/boot.h, version 4). tfw_crc16 is this from
+ * TFW_CRC16_INIT, so the two share one loop (#173). */
+uint16_t tfw_crc16_from(uint16_t crc, const uint8_t *buf, uint16_t len);
+
 #endif /* TFW_CRC16_H */

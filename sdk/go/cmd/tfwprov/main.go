@@ -65,6 +65,11 @@ a separate mode, taking no port and no --config:
                 [--dhcp in place of --ip/--mask/--gateway: leased by a DHCP=1 build]
   both together write one image of both blocks, EEPROM [0x000, 0x0E0)
 
+the provisioning record, a JSON claims set (RFC 9711 ueid, RFC 7800 cnf.jwk):
+
+  --bake-eeprom ... --record <file.json>   start it with the device's UEID
+  --commit/--verify ... --record <file.json>   join the DeviceID point to it
+
 flags
 `)
 	flag.PrintDefaults()
@@ -90,6 +95,7 @@ func main() {
 		opKeyHex   = flag.String("operator-pubkey", "", "--bake-eeprom: 64-byte P-256 operator public key (X||Y), hex -- the AUTH_CHALLENGE/AUTH_RESPONSE trust anchor, element tier only")
 		outPath    = flag.String("out", "", "--bake-eeprom/--bake-netblock: the .eep file to write")
 		bakeNet    = flag.Bool("bake-netblock", false, "write a network-block .eep image at 0x0C0; touches no device (with --bake-eeprom: one image of both)")
+		recordPath = flag.String("record", "", "--bake-eeprom: start a provisioning record (JSON: EAT ueid); --commit/--verify: join the DeviceID point to it (cnf.jwk)")
 		nf         netblockFlags
 	)
 	flag.StringVar(&nf.mac, "mac", "", "--bake-netblock: the device's MAC, aa:bb:cc:dd:ee:ff (unicast)")
@@ -138,7 +144,10 @@ func main() {
 		if !*bakeNet && nf.any() {
 			fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; pass it too for one image of both blocks"))
 		}
-		if err := runBake(*outPath, *bakeEEPROM, *serialHex, *hashHex, *opKeyHex, *bakeNet, nf); err != nil {
+		if !*bakeEEPROM && *recordPath != "" {
+			fail(errors.New("--record needs the serial: pass --bake-eeprom --serial; the network block is not part of the record"))
+		}
+		if err := runBake(*outPath, *bakeEEPROM, *serialHex, *hashHex, *opKeyHex, *bakeNet, nf, *recordPath); err != nil {
 			fail(err)
 		}
 		return
@@ -159,6 +168,9 @@ func main() {
 	}
 	if nf.any() {
 		fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; --dry-run/--verify/--commit do not use them"))
+	}
+	if *dryRun && *recordPath != "" {
+		fail(errors.New("--record is written by --bake-eeprom, --commit and --verify; --dry-run changes nothing"))
 	}
 	if *commit && !*confirm {
 		fail(errors.New("--commit is irreversible on this part: pass --yes-i-mean-it"))
@@ -195,12 +207,12 @@ func main() {
 	case *dryRun:
 		plan(tmpl, info)
 	case *verify:
-		if err := runVerify(ctx, dev, tmpl, info); err != nil {
+		if err := verifyRecorded(ctx, dev, tmpl, info, *recordPath); err != nil {
 			fail(err)
 		}
 		fmt.Println("verify: the part matches the template")
 	case *commit:
-		if err := runCommit(ctx, dev, tmpl, info); err != nil {
+		if err := commitRecorded(ctx, dev, tmpl, info, *recordPath); err != nil {
 			fail(err)
 		}
 		fmt.Println("commit: done. Run --verify before locking anything else.")

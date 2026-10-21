@@ -13,12 +13,15 @@ bring-up and for `make hw-test` (below), never for a gate.
 |---|---|---|---|
 | 1 — unit | `make host-test` | x86-64, mock HAL | logic: framing, dispatch, bounds, the scheduler's rollover |
 | 2 — emulated | `make integration-test-simavr` | the real `.elf` under simavr | register-level behaviour: baud divisor, interrupt vectors, peripheral bring-up order, tick rate |
+| 2 — emulated, Cortex-M | `make integration-test-cortex-m` | the real tfw-boot and application images under QEMU `mps2-an505` | the Cortex-M port's vector table, reset and handoff; tfw-boot's P-256 verify refusing a tampered image and a foreign key on a 32-bit core (#161) |
 | 3 — integrity | `make lint size-check reproducible-check` | the build itself | drift: flash/SRAM budgets, byte-for-byte reproducibility, out-of-whitelist `#if` |
 | 4 — cost (not a gate) | `make bench-check` | the real `.elf` under simavr | drift in TIME: cycles per decoded byte, per scheduler sweep, per tick interrupt, and the round-trip latency |
 
 `make ci` runs tiers 1 to 3 plus the sanitizers and the Go SDK suite. **Tier 4
 is run deliberately and gates nothing** — see `performance.md` for why, and for
-the numbers.
+the numbers. The Cortex-M row of tier 2 is not in `make ci`. CI's image job runs
+it as its own step, `make integration-test-cortex-m (toolchain image)`, after
+building the two images it boots (`building.md`, Cortex-M).
 
 ## The five CI stages
 
@@ -329,7 +332,7 @@ make bench-run BOARD=atmega2560 # one board
 make coverage                   # with the 90 % floor enforced
 make ci                         # everything the gate requires, bar the xkms job
 make platform-bake-build-check  # in `make ci`: the bench bake image links for both boards, under its flash ceiling
-make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
+make xkms-test xkms-coverage    # every xkms suite but TestHardwareEnrollment; the unit tests' 90 % floor, no simulator
 make xkms-security xkms-deps-check  # its security and latest-version checks; the same job
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0  # the cross-implementation suite on a flashed board
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0 HW_ETH=<ip:port> DEVICEID=<hex> CRI_DIGEST=<hex> OPERATOR_KEY=<pem>  # every row a board runs, the Ethernet rows too

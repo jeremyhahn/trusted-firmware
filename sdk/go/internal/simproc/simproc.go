@@ -42,6 +42,9 @@ var (
 	// answers, else the soft root. It takes the element tier's options, and
 	// --no-element takes the part off the bus.
 	Auto = Binary{Name: "tfwsim-auto", Make: "make tfwsim-auto"}
+	// Prov is the element tier as a provisioning jig image: the PROV_*
+	// commands linked, its element blank unless --provision-element.
+	Prov = Binary{Name: "tfwsim-prov", Make: "make tfwsim-prov"}
 	// App is the software-tier simulator with test/app/example linked, the
 	// only image that answers APP_INFO.
 	App = Binary{Name: "tfwsim-app-heartbeat", Make: "make tfwsim-app-example"}

@@ -82,12 +82,14 @@ always required.
 | `-config` | `""` | provisioning template path (see `engineering.md` for the format — it is not YAML despite the flag's own `-h` text) |
 | `-baud` | `115200` | serial baud rate |
 | `-timeout` | `30s` | how long to wait for a reply |
+| `-record` | `""` | the provisioning record, JSON: `-bake-eeprom` starts it with the serial as an RFC 9711 §4.2.1 `ueid`; `-commit`/`-verify` join the DeviceID point as an RFC 7800 §3.2 `cnf` JWK (RFC 7517, RFC 7518 §6.2.1). One device per file; another's is refused, never overwritten ([the provisioning record](../device-provisioning/cli.md#the-provisioning-record)) |
 
 ### Examples
 
 ```sh
 tfwprov -dry-run  -config templates/atecc608a-dice.conf /dev/ttyUSB0
 tfwprov -commit   -config templates/atecc608a-dice.conf /dev/ttyUSB0 -yes-i-mean-it
+tfwprov -commit   -config templates/atecc608a-dice.conf -record device.json /dev/ttyUSB0 -yes-i-mean-it
 tfwprov -verify   -config templates/atecc608a-dice.conf /dev/ttyUSB0
 ```
 
@@ -132,4 +134,15 @@ anyone can sign as this device. The binary also has the operator-signature auth
 session compiled in. See
 `docs/dice-attestation/user.md#produce-real-dice-evidence-with-no-hardware`.
 Go tests should use `sdk/go/tfwsim` rather than launching it by hand.
+
+### `tfwsim-prov` — the element tier as a provisioning jig image
+
+`make tfwsim-prov` builds `build/host/tfwsim-prov`: `tfwsim-atecc608a`'s object
+list plus `src/caps/provision.c` with `TFW_FEATURE_PROVISION=1`, as
+`PROVISION=1` selects them for a board, and `tools/tfwsim/reboot.c`. It takes
+the same options. Started without `--provision-element` its element is blank,
+so `tfwprov --commit` runs the real `PROV_*` sequence against the model. A
+`RESET` restarts the firmware in place with the EEPROM and the element kept,
+and from that boot on `ATTEST` signs with the key `PROV_GENKEY` made. Go tests
+start it with `tfwsim.StartProvisioningWith`.
 | `ota-activate` | `[now]` | `OTA_ACTIVATE`: the staged, verified image is taken at the next reset (`activated; taken at the next reset`), or with `now` the device resets after its reply (`activated; the device resets now`); `--json` prints `activated` and `reset_now`. A refusal prints `tfwctl: <error>` and exits 1; on a board that resets on open the session is gone and the device answers `TFW_ERR_BAD_STATE` |

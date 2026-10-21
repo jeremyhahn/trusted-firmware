@@ -104,7 +104,7 @@ expected=$(cat <<'EOF'
 sdk-build	cd sdk/go && go build ./...
 build/tools/tfwprov	cd sdk/go && go build -o build/tools/tfwprov ./cmd/tfwprov
 sdk-coverage	cd sdk/go && { go test -count=1 -coverprofile=../../coverage/sdk.out ./... \
-xkms-coverage	cd xkms && { TFWSIM_DIR=build/host go test -count=1 -tags codec_json \
+xkms-coverage	{ go test -count=1 -tags codec_json -coverprofile=../coverage/xkms.out $pkgs \
 sdk-test	cd sdk/go && go test -count=1 -tags tfwsim ./...
 xkms-test	cd xkms && TFWSIM_DIR=build/host go test -count=1 -tags codec_json \
 boot-bridge-run	go test -count=1 -tags simavr -run '^TestOTAStageThroughTfwBoot$' ./cmd/tfwctl/

@@ -53,10 +53,10 @@ None planned.
 - **rp2350** — RP2350 on the Pico 2 W — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#128](../../issues/128); port blocked: AVR gate (#7)
 - **nrf54l15** — nRF54L15 on the nRF54L15-DK — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#129](../../issues/129); port: after the generic cortex-m HAL ([#161](../../issues/161)); not in ruling 269's hardware order
 - **mcxn947** — MCXN947 on the FRDM-MCXN947 — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7)
-- **cortex-m** — the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — next: the generic HAL and boot-HAL port on QEMU mps2-an505 ([#161](../../issues/161), awaiting a seat), then hardware in the order SE052F, i.MX 95 M7, STM32H5 (ruling 269)
+- **cortex-m** — the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — in progress: the generic HAL and boot-HAL port on QEMU mps2-an505 ([#161](../../issues/161)), first slice landed (P-256 soft boot, `make integration-test-cortex-m` in CI), then hardware in the order SE052F, i.MX 95 M7, STM32H5 (ruling 269)
 - **cortex-m** — ADR: Cortex-M reference part and CI emulation target — [#14](../../issues/14) — ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)
 - **cortex-m** — ADR: Cortex-M trust model and the relation to TF-M — [#15](../../issues/15) — ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)
-- **device-onboarding** — DICE-only devices enroll by device profile through the adapter seam — [#53](../../issues/53) — open
+- **device-onboarding** — DICE-only devices enroll by device profile through the adapter seam — [#53](../../issues/53) — open; T1 (`tfwprov --record`) and T2 done, T3 and T4 wait on the owner
 
 ## Dependencies
 

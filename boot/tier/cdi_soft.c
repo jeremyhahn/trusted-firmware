@@ -29,6 +29,7 @@
 #include "tfw/boot.h"
 #include "tfw/progmem.h"
 #include "sha256.h"
+#include "deviceid_p256.h"
 
 /*
  * The UDS slot, and the value that means "empty".
@@ -59,30 +60,53 @@ uint8_t tfw_boot_cdi_tier(void)
     return (uint8_t)TFW_CRYPTO_SOFTWARE;
 }
 
-tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
-                               uint8_t cdi[TFW_BOOT_MEASURE_LEN])
+/*
+ * HMAC(UDS, msg) into `out`: the CDI and the DeviceID seed are this with two
+ * messages. One function rather than the UDS read and the HMAC written out in
+ * each saves 116 bytes of the 2560's soft tfw-boot (#173). `out` is untouched
+ * when there is no UDS.
+ */
+static tfw_status_t uds_hmac(const uint8_t *msg, uint8_t msg_len, uint8_t out[32])
 {
-    uint8_t uds[UDS_LEN];
-    uint8_t erased = 0xFFu;
-    uint8_t i;
+    uint8_t      uds[UDS_LEN];
+    uint8_t      erased = 0xFFu;
+    uint8_t      i;
+    tfw_status_t st     = TFW_ERR_NOT_PROVISIONED;
 
     for (i = 0u; i < UDS_LEN; i++) {
         uds[i]  = (uint8_t)tfw_pgm_far_u8(uds_slot, &uds_slot[i]);
         erased &= uds[i];
     }
-    if (erased == 0xFFu) {
-        memset(uds, 0, sizeof uds);
-        return TFW_ERR_NOT_PROVISIONED;
+    if (erased != 0xFFu) {
+        tfw_hmac_sha256(uds, (uint8_t)UDS_LEN, msg, msg_len, out);
+        st = TFW_OK;
     }
-
-    tfw_hmac_sha256(uds, (uint8_t)UDS_LEN, measurement, TFW_BOOT_MEASURE_LEN, cdi);
 
     /* The copy on the stack is the UDS itself, not a derivative. Leaving it for
      * whatever runs next -- including the application, a few hundred
      * instructions later, in the same SRAM -- would hand across the one value
      * BLB mode 3 exists to keep on this side of the barrier. */
     memset(uds, 0, sizeof uds);
-    return TFW_OK;
+    return st;
+}
+
+tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN],
+                               uint8_t cdi[TFW_BOOT_MEASURE_LEN])
+{
+    return uds_hmac(measurement, TFW_BOOT_MEASURE_LEN, cdi);
+}
+
+/* The same derivation src/crypto/soft/id_p256.c made from the UDS before the
+ * UDS stayed on this side: the application now takes the result from the
+ * handoff, and the key it signs with is unchanged. */
+tfw_status_t tfw_boot_cdi_device_seed(uint8_t seed[TFW_BOOT_SEED_LEN])
+{
+    tfw_status_t st = uds_hmac((const uint8_t *)TFW_DEVICEID_LABEL, TFW_DEVICEID_LABEL_LEN, seed);
+
+    if (st != TFW_OK) {
+        memset(seed, 0, TFW_BOOT_SEED_LEN);
+    }
+    return st;
 }
 
 /*

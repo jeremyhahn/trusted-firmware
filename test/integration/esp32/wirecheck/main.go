@@ -1,5 +1,7 @@
 // Command wirecheck is one wire exchange with an ESP32 image over TCP, run by
-// test/integration/esp32/qemu_test.py against QEMU's forwarded port.
+// test/integration/esp32/qemu_test.py against QEMU's forwarded port, or with a
+// Cortex-M image over QEMU's serial port on a Unix socket, run by
+// test/integration/cortex-m/qemu_test.sh (-network unix).
 //
 // It is the Go SDK, unmodified, on a net.Conn: the framing on TCP is the
 // framing on a UART (docs/multi-arch/adr-esp-idf-integration.md), so nothing
@@ -30,6 +32,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"net"
@@ -71,7 +74,17 @@ func main() {
 	confirm := flag.Bool("confirm", false, "OTA_CONFIRM the running trial, OTA_AUTH first")
 	info := flag.Bool("info", false, "print OTA_INFO for both slots")
 	timeout := flag.Duration("timeout", 10*time.Second, "how long one command may take")
+	network := flag.String("network", "tcp", "tcp, or unix for a socket path in -addr")
+	silent := flag.Duration("silent", 0, "pass only if nothing answers a PING for this long")
 	flag.Parse()
+
+	if *silent > 0 {
+		if err := expectSilent(*network, *addr, *silent); err != nil {
+			fail("silent", err)
+		}
+		fmt.Println("wirecheck: ok")
+		return
+	}
 
 	var pub *ecdsa.PublicKey
 	if *deviceID != "" {
@@ -84,7 +97,7 @@ func main() {
 		}
 	}
 
-	d, conn, err := dial(*addr, *wait, *timeout)
+	d, conn, err := dial(*network, *addr, *wait, *timeout)
 	if err != nil {
 		fail("dial", err)
 	}
@@ -265,20 +278,22 @@ func es256Verifies(pub *ecdsa.PublicKey, ev []byte) bool {
 // with nothing slept between them.
 //
 // A refused connect is not retried: QEMU's forwarded port is bound for as long
-// as QEMU runs, so a refusal means there is no QEMU to wait for.
-func dial(addr string, wait, timeout time.Duration) (*tfw.Device, net.Conn, error) {
+// as QEMU runs, so a refusal means there is no QEMU to wait for. The same holds
+// for the Cortex-M suite's Unix socket, which QEMU has bound before -daemonize
+// returns.
+func dial(network, addr string, wait, timeout time.Duration) (*tfw.Device, net.Conn, error) {
 	deadline := time.Now().Add(wait)
 	msg := []byte("tfw-esp32-qemu")
 	var last error
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		conn, err := net.DialTimeout(network, addr, 2*time.Second)
 		if err != nil {
-			return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
+			return nil, nil, fmt.Errorf("dial %s %s: %w", network, addr, err)
 		}
 		d := tfw.New(conn, tfw.WithBootWait(0), tfw.WithTimeout(2*time.Second))
 		echo, err := d.Ping(context.Background(), msg)
 		if err == nil && bytes.Equal(echo, msg) {
-			fmt.Printf("wirecheck: ping echoed over tcp %s\n", addr)
+			fmt.Printf("wirecheck: ping echoed over %s %s\n", network, addr)
 			d = tfw.New(conn, tfw.WithBootWait(0), tfw.WithTimeout(timeout))
 			return d, conn, nil
 		}
@@ -286,6 +301,33 @@ func dial(addr string, wait, timeout time.Duration) (*tfw.Device, net.Conn, erro
 		_ = conn.Close() // abandoned for a fresh dial; last already says why
 	}
 	return nil, nil, fmt.Errorf("no answer from %s within %v: %v", addr, wait, last)
+}
+
+// expectSilent is the refusal's observation on a row with no OTA: tfw-boot
+// that will not boot an image stops (boot/hal/cortex-m/recovery_halt.c) and
+// never answers. It connects -- so there is a QEMU listening -- and passes only
+// if no PING is echoed for the whole window, each try bounded by its PING
+// deadline. That QEMU was still running at the end is the caller's to check.
+func expectSilent(network, addr string, window time.Duration) error {
+	conn, err := net.DialTimeout(network, addr, 2*time.Second)
+	if err != nil {
+		return fmt.Errorf("dial %s %s: %w", network, addr, err)
+	}
+	defer func() { _ = conn.Close() }() // the verdict is already decided
+	msg := []byte("tfw-silent")
+	d := tfw.New(conn, tfw.WithBootWait(0), tfw.WithTimeout(2*time.Second))
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		echo, err := d.Ping(context.Background(), msg)
+		if err == nil && bytes.Equal(echo, msg) {
+			return fmt.Errorf("a PING was echoed over %s %s: the image ran", network, addr)
+		}
+		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+			return fmt.Errorf("%s %s closed: QEMU is gone: %w", network, addr, err)
+		}
+	}
+	fmt.Printf("wirecheck: no answer over %s %s for %v\n", network, addr, window)
+	return nil
 }
 
 // otaCheck streams the image in file through OTA_BEGIN/DATA/END and reads the

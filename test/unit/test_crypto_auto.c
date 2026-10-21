@@ -8,6 +8,7 @@
  */
 #include <string.h>
 #include "unity.h"
+#include "uECC.h"
 #include "atecc.h"
 #include "atecc608a_model.h"
 #include "tfw/crypto.h"
@@ -18,8 +19,11 @@
 #include "../../src/core/handoff.h"
 #include "../../src/core/auth_session.h"
 #include "../../boot/boot_measure.h"
+#include "../../src/crypto/sha256.h"
+#include "../../src/crypto/deviceid_p256.h"
 
 tfw_status_t tfw_crypto_soft_sign(const uint8_t digest[32], uint8_t sig[64], uint8_t *alg_id);
+tfw_status_t tfw_crypto_soft_pubkey(uint8_t out[64]);
 
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
@@ -54,23 +58,44 @@ void setUp(void)
 
 void tearDown(void) {}
 
-/* The identity is the soft root's: the same signature its own provider makes. */
+/* What a soft tfw-boot leaves for soft_uds: the DeviceID seed in the handoff
+ * (#173), the only way the soft root's key reaches the application. */
+static void soft_boot(void)
+{
+    uint8_t cdi[32], measurement[32], seed[TFW_BOOT_SEED_LEN];
+
+    memset(measurement, 0x3E, sizeof measurement);
+    tfw_hmac_sha256(soft_uds, 32u, measurement, sizeof measurement, cdi);
+    tfw_hmac_sha256(soft_uds, 32u, (const uint8_t *)TFW_DEVICEID_LABEL,
+                    TFW_DEVICEID_LABEL_LEN, seed);
+    tfw_boot_handoff_build(test_handoff, (uint8_t)TFW_CRYPTO_SOFTWARE, cdi,
+                           measurement, 2u, 0u);
+    tfw_boot_handoff_set_seed(test_handoff, seed);
+    tfw_boot_handoff_init();
+}
+
+/* The identity is the soft root's: ES256 under its P-256 DeviceID, the same
+ * signature and point its own provider makes. */
 static void assert_soft_identity(void)
 {
-    uint8_t sig[64], want[64], alg = 0u, want_alg = 0u, pub[64];
+    uint8_t sig[64], want[64], alg = 0u, want_alg = 0u, pub[64], want_pub[64];
 
     TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
-    TEST_ASSERT_EQUAL_HEX16(TFW_ALGBIT_HMAC_SHA256, tfw_crypto_algorithms());
+    TEST_ASSERT_EQUAL_HEX16(TFW_ALGBIT_ECDSA_P256_SHA256, tfw_crypto_algorithms());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sign(digest, sig, &alg));
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_HMAC_SHA256, alg);
+    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, alg);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_soft_sign(digest, want, &want_alg));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, sig, 64u);
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_pubkey(pub));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(pub));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_soft_pubkey(want_pub));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want_pub, pub, 64u);
+    TEST_ASSERT_TRUE(uECC_verify(pub, digest, 32u, sig, uECC_secp256r1()));
 }
 
 void test_no_element_runs_the_soft_root(void)
 {
     tfw_model_set_absent(1u);
+    soft_boot();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     assert_soft_identity();
 }
@@ -93,6 +118,7 @@ void test_a_probe_that_fails_half_way_runs_the_soft_root_only(void)
 {
     tfw_model_provision();
     tfw_model_force_status(0x0Fu);
+    soft_boot();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     tfw_model_force_status(0x00u);
     assert_soft_identity();
@@ -117,6 +143,7 @@ void test_a_bus_that_will_not_start_runs_the_soft_root(void)
 {
     tfw_model_provision();
     tfw_model_fail_i2c_init(1u);
+    soft_boot();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     assert_soft_identity();
 }
@@ -182,6 +209,7 @@ void test_a_soft_boot_answers_every_entry_from_the_soft_root(void)
     };
 
     tfw_model_set_absent(1u);
+    soft_boot();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
     assert_entries_follow(&soft);

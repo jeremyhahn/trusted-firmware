@@ -24,6 +24,8 @@
  *     write that maintains it.
  */
 
+#include <string.h>
+
 #include "../boot_cdi.h"
 #include "../boot_image.h"
 #include "tfw/boot.h"
@@ -92,6 +94,14 @@ tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN]
      * sitting in the element for whatever ran next. */
     (void)tfw_atecc_sleep();
     return st;
+}
+
+/* The element's DeviceID key is resident in the part, not derived from a seed:
+ * nothing to hand across, and the handoff's device_seed stays zero. */
+tfw_status_t tfw_boot_cdi_device_seed(uint8_t seed[TFW_BOOT_SEED_LEN])
+{
+    memset(seed, 0, TFW_BOOT_SEED_LEN);
+    return TFW_ERR_UNSUPPORTED;
 }
 
 tfw_status_t tfw_boot_floor_read(uint32_t *out)

@@ -54,8 +54,9 @@ func plan(t *template, info *tfw.ElementInfo) {
 // recomputes a public point from a key that already exists rather than
 // generating one. The separation of ProvPubKey from ProvGenKey is what makes
 // this safe to run against a provisioned device.
-func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo) error {
+func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo) ([]byte, error) {
 	var problems []string
+	var point []byte
 
 	if !info.ConfigLocked {
 		problems = append(problems, "config zone is not locked")
@@ -81,12 +82,13 @@ func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 		problems = append(problems, "DeviceID slot holds no key")
 	default:
 		fmt.Printf("deviceid  %s\n", hex.EncodeToString(pub))
+		point = pub
 	}
 
 	if len(problems) > 0 {
-		return &verifyError{problems}
+		return nil, &verifyError{problems}
 	}
-	return nil
+	return point, nil
 }
 
 // runCommit performs the irreversible sequence, in the one order that works.
@@ -97,21 +99,21 @@ func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 // slots is locked. Getting it wrong does not corrupt anything -- the element
 // refuses -- but it leaves a part partway through a procedure that cannot be
 // restarted.
-func runCommit(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo) error {
+func runCommit(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo) ([]byte, error) {
 	if info.DataLocked {
-		return &commitError{"the data zone is already locked; this part cannot be reconfigured"}
+		return nil, &commitError{"the data zone is already locked; this part cannot be reconfigured"}
 	}
 
 	if !info.ConfigLocked {
 		for _, b := range t.blocks() {
 			fmt.Printf("  writing config block %d\n", b)
 			if err := dev.ProvWriteConfig(ctx, b, t.Blocks[b]); err != nil {
-				return fmt.Errorf("config block %d: %w", b, err)
+				return nil, fmt.Errorf("config block %d: %w", b, err)
 			}
 		}
 		fmt.Println("  locking config zone (irreversible)")
 		if err := dev.ProvLock(ctx, tfw.ZoneConfig, t.ConfigLockCRC); err != nil {
-			return fmt.Errorf("lock config zone: %w", err)
+			return nil, fmt.Errorf("lock config zone: %w", err)
 		}
 	} else {
 		fmt.Println("  config zone already locked; skipping the config steps")
@@ -120,18 +122,18 @@ func runCommit(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 	fmt.Println("  generating the DeviceID key inside the element")
 	pub, err := dev.ProvGenKey(ctx, tfw.SlotDeviceID)
 	if err != nil {
-		return fmt.Errorf("generate DeviceID key: %w", err)
+		return nil, fmt.Errorf("generate DeviceID key: %w", err)
 	}
 	fmt.Printf("  deviceid %s\n", hex.EncodeToString(pub))
 
 	fmt.Println("  seeding the UDS from the element's TRNG")
 	if err := dev.ProvSeedUDS(ctx, tfw.SlotUDS); err != nil {
-		return fmt.Errorf("seed UDS: %w", err)
+		return nil, fmt.Errorf("seed UDS: %w", err)
 	}
 
 	fmt.Println("  locking data zone (irreversible)")
 	if err := dev.ProvLock(ctx, tfw.ZoneData, t.DataLockCRC); err != nil {
-		return fmt.Errorf("lock data zone: %w", err)
+		return nil, fmt.Errorf("lock data zone: %w", err)
 	}
 
 	// The public key belongs in the provisioning record, which is the authority
@@ -140,6 +142,41 @@ func runCommit(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 	// attacker with code execution could also report.
 	fmt.Printf("\nrecord this, it is the provisioning record's DeviceID:\n  %s\n",
 		hex.EncodeToString(pub))
+	return pub, nil
+}
+
+// commitRecorded is --commit, and with --record it joins the generated point
+// to the record --bake-eeprom started. The record is checked before the
+// element is touched: a refusal after the data zone locks would leave a
+// device no record names.
+func commitRecorded(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo, recordPath string) error {
+	if recordPath != "" {
+		if err := recordReadyForPoint(recordPath); err != nil {
+			return err
+		}
+	}
+	pub, err := runCommit(ctx, dev, t, info)
+	if err != nil || recordPath == "" {
+		return err
+	}
+	if err := recordPoint(recordPath, pub); err != nil {
+		return err
+	}
+	fmt.Printf("record: %s joins the serial to this DeviceID\n", recordPath)
+	return nil
+}
+
+// verifyRecorded is --verify, and with --record it checks the element's point
+// against the record, or joins it when --commit ran without one.
+func verifyRecorded(ctx context.Context, dev *tfw.Device, t *template, info *tfw.ElementInfo, recordPath string) error {
+	pub, err := runVerify(ctx, dev, t, info)
+	if err != nil || recordPath == "" {
+		return err
+	}
+	if err := recordPoint(recordPath, pub); err != nil {
+		return err
+	}
+	fmt.Printf("record: %s names this element's DeviceID\n", recordPath)
 	return nil
 }
 

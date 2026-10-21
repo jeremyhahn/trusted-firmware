@@ -50,6 +50,16 @@ tfw_status_t tfw_boot_cdi_derive(const uint8_t measurement[TFW_BOOT_MEASURE_LEN]
                                uint8_t cdi[TFW_BOOT_MEASURE_LEN]);
 
 /*
+ * The soft root's DeviceID seed, HMAC(UDS, TFW_DEVICEID_LABEL), for the
+ * handoff's device_seed field (include/tfw/boot.h). The layer that holds the
+ * UDS derives it, so the application signs with its P-256 DeviceID without the
+ * UDS ever crossing the barrier. TFW_ERR_NOT_PROVISIONED when there is no UDS,
+ * TFW_ERR_UNSUPPORTED on a tier whose DeviceID key is not seed-derived (the
+ * element's is resident in the part); `seed` is zero on any error.
+ */
+tfw_status_t tfw_boot_cdi_device_seed(uint8_t seed[TFW_BOOT_SEED_LEN]);
+
+/*
  * The anti-rollback floor, read and advanced.
  *
  * On the element tier this is the part's monotonic counter, which is authority

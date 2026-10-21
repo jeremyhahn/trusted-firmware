@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -270,6 +271,33 @@ func TestFirmwareSoftwareTierStillCannotIssueACertificate(t *testing.T) {
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "attest-cert on the software tier: %v", err)
 	assert.Equal(t, tfw.StatusErrUnknownCmd, st)
+}
+
+func TestE2EAutoNoElementWithoutASeedCannotIssueACertificate(t *testing.T) {
+	// The CRYPTO=auto image on a board with no element falls back to the soft
+	// root, whose DeviceID comes from the seed tfw-boot hands off. With no
+	// handoff it has no DeviceID to put in a certificate (#48, #130).
+	d := tfw.New(simproc.Start(t, simproc.Auto, "--no-element"), tfw.WithTimeout(5*time.Second))
+	_, err := cliHex(t, d, "attest-cert", "certificate", aliasNonce(1))
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "attest-cert on the auto image's fallback with no seed: %v", err)
+	assert.Equal(t, tfw.StatusErrNotProvisioned, st)
+}
+
+func TestE2EAutoNoElementCertificateVerifiesES256UnderItsDeviceID(t *testing.T) {
+	// With a soft tfw-boot's seed the fallback signs ES256 under its P-256
+	// DeviceID: the same certificate the element issues, from no element at
+	// all (#48, #130).
+	d := tfw.New(simproc.Start(t, simproc.Auto, "--no-element", "--uds", strings.Repeat("5c", 32)), tfw.WithTimeout(5*time.Second))
+	cert := parseCert(t, cliAttestCert(t, d, aliasNonce(0x60)))
+	subject, ok := cert.PublicKey.(*ecdsa.PublicKey)
+	require.True(t, ok, "subject public key is %T, want *ecdsa.PublicKey", cert.PublicKey)
+	require.Equal(t, x509.ECDSAWithSHA256, cert.SignatureAlgorithm)
+	require.NoError(t, cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature))
+
+	ev := cliAttest(t, d, attestNonce(0x61))
+	assert.EqualValues(t, algECDSA, ev[offAlg], "algorithm is ECDSA P-256")
+	assert.True(t, verifyFrame(subject, ev), "the evidence signature does not verify under the certificate's key")
 }
 
 // The two nonce widths are not interchangeable: the CLI refuses a swapped one

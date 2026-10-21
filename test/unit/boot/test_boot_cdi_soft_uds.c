@@ -55,6 +55,33 @@ static void test_another_measurement_derives_another_cdi(void)
     TEST_ASSERT_TRUE(memcmp(kCdi, cdi, sizeof cdi) != 0);
 }
 
+/* HMAC-SHA256 keyed by the same UDS over "tfw-deviceid-v1"
+ * (TFW_DEVICEID_LABEL), computed with Python's hmac module (#173). */
+static const uint8_t kSeed[TFW_BOOT_SEED_LEN] = {
+    0xe3, 0x73, 0x84, 0xd3, 0x34, 0x46, 0x91, 0x7e, 0x78, 0x7b, 0xad, 0xdd, 0xa1, 0x51, 0x5b, 0xcd,
+    0x75, 0x29, 0x46, 0xae, 0x66, 0x13, 0x43, 0xdb, 0xd5, 0xc9, 0xe1, 0x80, 0x91, 0x4d, 0x1e, 0xc4,
+};
+
+/* The DeviceID seed tfw-boot hands the application in place of the UDS. */
+static void test_a_provisioned_uds_derives_the_device_seed(void)
+{
+    uint8_t seed[TFW_BOOT_SEED_LEN];
+
+    memset(seed, 0, sizeof seed);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_cdi_device_seed(seed));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(kSeed, seed, sizeof seed);
+}
+
+/* The seed does not depend on the measurement: it names the device, not the
+ * image, so an update keeps the DeviceID. */
+static void test_the_device_seed_is_not_the_cdi(void)
+{
+    uint8_t seed[TFW_BOOT_SEED_LEN];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_cdi_device_seed(seed));
+    TEST_ASSERT_TRUE(memcmp(kCdi, seed, sizeof seed) != 0);
+}
+
 /* Provisioning changes the CDI, not the tier or the floor. */
 static void test_the_tier_and_floor_do_not_depend_on_the_uds(void)
 {
@@ -71,6 +98,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_provisioned_uds_derives_the_hmac);
     RUN_TEST(test_another_measurement_derives_another_cdi);
+    RUN_TEST(test_a_provisioned_uds_derives_the_device_seed);
+    RUN_TEST(test_the_device_seed_is_not_the_cdi);
     RUN_TEST(test_the_tier_and_floor_do_not_depend_on_the_uds);
     return UNITY_END();
 }

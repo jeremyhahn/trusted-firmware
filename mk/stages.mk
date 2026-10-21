@@ -99,7 +99,8 @@ integration-test: docker-build-it
 # place. sdk-test is the Go unit tests and the cross-implementation suite
 # together, the suite compiled in by the tfwsim build tag rather than picked
 # by test name, which would be a list that drifts. app-sdk-check runs the out-of-tree example application on
-# tfwsim; xkms-test enrols tfwsim through the xkms adapter.
+# tfwsim; xkms-test runs the xkms adapter suites, the board enrollment harness
+# (TestHardwareEnrollment, hw-enroll's) deselected.
 integration-test-host: integration-test-tools integration-test-simavr integration-test-boot sdk-test app-sdk-check xkms-test
 	@echo "stage integration-test: green"
 

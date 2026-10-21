@@ -48,3 +48,8 @@ BOARD_ROWS     := soft:ETH=1,OTA_STAGE=0
 # The part and its chip select are ADR open question 2; the select is board
 # data in board_profile.h (TFW_OTA_STORE_CS_PIN).
 OTA_STORE      := spi_nor
+
+# The soft root's identity (mk/firmware.mk SOFT_ID): the HMAC signer, which links
+# no P-256 code. The P-256 DeviceID on this part's soft row is the owner's call
+# (item 79); until it is made, this row does not change.
+SOFT_ID        ?= hmac

@@ -67,6 +67,15 @@ void tfw_boot_handoff_build(uint8_t *block,
                            uint32_t image_version,
                            tfw_reset_cause_t reset_cause);
 
+/* Puts the soft root's DeviceID seed, HMAC(UDS, TFW_DEVICEID_LABEL), into a
+ * block tfw_boot_handoff_build made, and seals the CRC again. A tfw-boot with
+ * no UDS never calls it, and the block carries the all-zero seed the build
+ * wrote. The seed stays the caller's to zeroize, as the CDI does. */
+void tfw_boot_handoff_set_seed(uint8_t *block, const uint8_t seed[TFW_BOOT_SEED_LEN]);
+
+/* The block's crc16: every byte but its own two (include/tfw/boot.h). */
+uint16_t tfw_boot_handoff_crc(const uint8_t *block);
+
 /* Parses one back. The application's side of the same layout -- and the reason
  * the round trip is a test rather than an assumption. Returns TFW_ERR_CRC on a
  * block that was never written or was overwritten by a stack that grew into it,
@@ -78,6 +87,7 @@ tfw_status_t tfw_boot_handoff_parse(const uint8_t *block,
                                   uint8_t cdi[TFW_BOOT_MEASURE_LEN],
                                   uint8_t measurement[TFW_BOOT_MEASURE_LEN],
                                   uint32_t *image_version,
-                                  uint8_t *reset_cause);
+                                  uint8_t *reset_cause,
+                                  uint8_t seed[TFW_BOOT_SEED_LEN]);
 
 #endif /* TFW_BOOT_MEASURE_H */

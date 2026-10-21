@@ -39,9 +39,10 @@ particular:
 - **A byte link.** `tfw_hal_uart_*` carries the framed wire protocol
   (`src/proto/frame.c`): SOF, length, sequence, CRC-16, resynchronisation on
   the next SOF.
-- **A handoff.** Layer 0 leaves an 80-byte block (`include/tfw/boot.h`) that
-  `src/core/handoff.c` parses once and zeroes: tier, CDI, measurement, image
-  version, reset cause.
+- **A handoff.** Layer 0 leaves a 112-byte block (`include/tfw/boot.h`;
+  80 bytes before version 4, #173) that `src/core/handoff.c` parses once and
+  zeroes: tier, CDI, measurement, image version, reset cause, and on the soft
+  tier the DeviceID seed.
 - **The element-tier precedent.** On the ATECC608A the DeviceID key is
   hardware-resident and is *not* derived from the CDI; the CDI comes from the
   measurement and keys everything else (`docs/dice-attestation/architecture.md`).

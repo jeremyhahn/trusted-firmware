@@ -15,9 +15,13 @@ tfwctl /dev/ttyACM0 caps
 ```
 
 Read `root of trust` (`TFW_CRYPTO_NONE`/`SOFTWARE`/`SECURE_ELEMENT`) and
-`algorithms`. A `SOFTWARE`-tier device signs with HMAC-SHA256 only, and the
+`algorithms`. A `SOFTWARE`-tier ATmega2560 (soft or auto image, no element
+answering) signs ES256 only, under a P-256 DeviceID it derives from its UDS:
+its evidence, and its certificate where the image builds one, verify under its public key for anyone who holds it,
+but the key lives in the application's memory, not in an element. A
+`SOFTWARE`-tier ATmega328P or ATmega32U4 signs with HMAC-SHA256 only, and the
 verifier holds that key — it proves identity to a gateway it already trusts,
-never to a stranger. Only `SECURE_ELEMENT` produces a certificate at all.
+never to a stranger, and produces no certificate.
 
 ## Build a firmware image with attestation enabled
 
@@ -202,8 +206,8 @@ across that boundary unmodified. The CLI equivalent is
 | You see | It means |
 |---|---|
 | `TFW_ERR_UNKNOWN_CMD` | this build has `TFW_FEATURE_ATTEST`/`TFW_FEATURE_ALIAS_CERT` off, or you are talking to a provisioning image |
-| `TFW_ERR_NOT_PROVISIONED` | the element is present but has no UDS/DeviceID yet — run `tfwprov --commit` |
-| `TFW_ERR_UNSUPPORTED` from `ATTEST_CERT` | the build carries the command but its tier has no public key to certify. A software-tier build, or a board with no room for the certificate builder, compiles the command out and answers `TFW_ERR_UNKNOWN_CMD` instead |
+| `TFW_ERR_NOT_PROVISIONED` | the element is present but has no UDS/DeviceID yet — run `tfwprov --commit`. On a `CRYPTO=auto` image with no element it means tfw-boot handed off no DeviceID seed |
+| `TFW_ERR_UNSUPPORTED` from `ATTEST_CERT` | the build carries the command but its tier has no public key to certify. A `CRYPTO=soft` or `CRYPTO=none` image, or a board with no room for the certificate builder, compiles the command out and answers `TFW_ERR_UNKNOWN_CMD` instead; a `CRYPTO=auto` image with no element certifies its soft P-256 DeviceID |
 | `TFW_ERR_RANGE` while paging | you asked for a page past the document's end, or reused a page index after sending a new nonce |
 | `TFW_ERR_UNSUPPORTED` from `AttestCSR` | CAPS bit 15 is clear (the 32U4, or a build without the alias certificate), or the tier has no asymmetric key — nothing was asked of the device |
 | `*tfw.ShortReplyError` from `AttestCSR` | the device answered with something other than 64 bytes |

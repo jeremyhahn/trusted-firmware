@@ -25,10 +25,11 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_OFFSET=0x10000
 
-# The CDI handoff block: TFW_BOOT_HANDOFF_LEN (80) bytes of RTC-retained
-# memory at a fixed address both images know, outside ESP-IDF's own CRC.
+# The CDI handoff block: TFW_BOOT_HANDOFF_LEN (112, version 4) bytes of
+# RTC-retained memory at a fixed address both images know, outside ESP-IDF's
+# own CRC.
 CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC=y
-CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=0x50
+CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=0x70
 # CONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_IN_CRC is not set
 
 # The measurement must be computable from source: no build path, no time.

@@ -67,8 +67,15 @@
 #define tfw_pgm_u16(p)     (*(const uint16_t *)(p))
 #define tfw_pgm_u32(p)     (*(const uint32_t *)(p))
 #define tfw_pgm_copy(d, s, n) memcpy((d), (s), (n))
-#define tfw_pgm_far_u8(base, p)  ((void)(base), *(const uint8_t *)(p))
-#define tfw_pgm_far_u32(base, p) ((void)(base), *(const uint32_t *)(p))
+/* Volatile, unlike the plain reads above: a far table is one the boot holds,
+ * and two of them -- the P-256 key and the UDS (boot/verify/p256_key_slot.c,
+ * boot/tier/cdi_soft.c) -- are built all 0xFF and written into the image after
+ * the link. With -Os -flto a plain read of a const table whose initialiser the
+ * compiler can see folds to that initialiser, so the "erased" test becomes a
+ * constant and the slot itself is dropped: the provisioned bytes would never be
+ * read. AVR's ELPM is opaque to the compiler and never had the problem. */
+#define tfw_pgm_far_u8(base, p)  ((void)(base), *(const volatile uint8_t *)(p))
+#define tfw_pgm_far_u32(base, p) ((void)(base), *(const volatile uint32_t *)(p))
 #endif
 
 #endif /* TFW_PROGMEM_H */

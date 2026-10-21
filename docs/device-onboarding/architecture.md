@@ -84,7 +84,10 @@ the commands that do it are absent from a production image
 4. **The provisioning record.** The pair (UEID, DeviceID SPKI) is what the device
    registry anchors enrolment in. Writing that entry, from the bench and never
    from the enrolment path, is go-trusted-platform's (go-trusted-platform#772).
-   Today the pair leaves this repo as `tfwprov`'s printed output; see T1 below.
+   The pair leaves this repo as `tfwprov --record`'s JSON file: the UEID
+   (RFC 9711 §4.2.1) as `ueid` and the DeviceID point as an RFC 7517 JWK in the
+   RFC 7800 §3.2 `cnf` claim
+   ([device-provisioning CLI](../device-provisioning/cli.md#the-provisioning-record)).
 5. **Lock bits and the production image.** Lock bits go on only after `--verify`
    passes. The production image carries no `PROV_*` handler. An Ethernet image is
    `make ETH=1` ([build selection](../ethernet-transport/architecture.md#build-selection)).
@@ -258,12 +261,16 @@ around one.
 
 ## This repository's own open items
 
-- **T1 — a structured provisioning record.** `tfwprov` prints the serial
-  (`--bake-eeprom`) and the DeviceID point (`--commit`) in separate runs. A
-  record joining them, which go-trusted-platform could ingest for R2 instead of
-  hand-copied output, is follow-up 6 of the
-  [possession ADR](../dice-attestation/adr-possession-at-acme-finalize.md); it is
-  not yet filed.
+- **T1 — a structured provisioning record. Done:** `tfwprov --record <file>`.
+  `--bake-eeprom` starts the record with the serial as an RFC 9711 §4.2.1 `ueid`;
+  `--commit` or `--verify` joins the DeviceID point as an RFC 7800 §3.2 `cnf`
+  `jwk` (RFC 7517; EC P-256, RFC 7518 §6.2.1). A record of another serial or
+  another point is refused, never overwritten. It closes follow-up 6 of the
+  [possession ADR](../dice-attestation/adr-possession-at-acme-finalize.md);
+  go-trusted-platform ingests it for R2
+  ([device-provisioning CLI](../device-provisioning/cli.md#the-provisioning-record)).
+  Open: the link between the serial and the element is the operator's until an
+  authenticated read of the platform block is used.
 - **T2 — no command line writes the network block. Done:**
   `tfwctl netcfg set` writes it and `tfwctl netcfg get` reads it back
   ([ethernet user guide](../ethernet-transport/user.md),

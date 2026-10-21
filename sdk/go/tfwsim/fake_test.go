@@ -101,7 +101,7 @@ func fake(t *testing.T) string {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	for _, name := range []string{"tfwsim", "tfwsim-atecc608a", "tfwsim-atecc608a-app-heartbeat"} {
+	for _, name := range []string{"tfwsim", "tfwsim-atecc608a", "tfwsim-prov", "tfwsim-atecc608a-app-heartbeat"} {
 		if err := os.Symlink(self, filepath.Join(dir, name)); err != nil {
 			t.Fatal(err)
 		}
@@ -252,6 +252,15 @@ func TestStartElementWithPassesTheArgumentsThrough(t *testing.T) {
 	tfwsim.StartElementWith(t, args)
 	if got := commandLine(t, record); !slices.Equal(got, append([]string{"tfwsim-atecc608a"}, args...)) {
 		t.Fatalf("command line %q, want the element tier with %q", got, args)
+	}
+}
+
+func TestStartProvisioningWithRunsTheJigImage(t *testing.T) {
+	record := fake(t)
+	args := []string{"--eeprom", "baked.eep"}
+	tfwsim.StartProvisioningWith(t, args)
+	if got := commandLine(t, record); !slices.Equal(got, append([]string{"tfwsim-prov"}, args...)) {
+		t.Fatalf("command line %q, want the provisioning jig image with %q", got, args)
 	}
 }
 

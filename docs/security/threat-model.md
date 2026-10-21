@@ -143,8 +143,11 @@ not (#6: excluded where it puts the part over budget), so neither can prove poss
 runs, it can read all of SRAM. A CDI that transits SRAM is readable by
 application code. The element tier therefore keeps its signing key inside the
 ATECC608A and zeroizes its CDI buffer as soon as derivation is done. The soft
-tier cannot: its CDI is the HMAC key for every signature, so it stays resident
-in SRAM for the life of the process. Neither tier derives a per-boot Alias key
+tier cannot: its CDI keys `tfw_crypto_hmac` and gates every signature (on the
+ATmega328P and ATmega32U4 it is the HMAC signing key itself), so it stays
+resident in SRAM for the life of the process. Its P-256 DeviceID's seed and
+scalar are derived from the UDS for each signature and zeroed after it
+(`src/crypto/soft/id_p256.c`). Neither tier derives a per-boot Alias key
 (see `docs/dice-attestation/architecture.md`).
 
 **Lock bits are a procedural claim, not a silicon one.** They protect against

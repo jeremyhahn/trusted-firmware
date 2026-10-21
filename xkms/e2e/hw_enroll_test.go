@@ -41,9 +41,7 @@ import (
 
 // The hardware enrollment run (#7): one device-attest-01 enrollment, through
 // the flow the tests above prove, of a device and against an ACME server that
-// are both parameters. `make hw-enroll` sets these; `make xkms-test` sets none
-// of them and the run is the simulator's, so the code a bench run takes is the
-// code CI takes. Procedure: docs/development/hardware-enrollment.md.
+// are both parameters. `make hw-enroll` sets these; run by hand\n// with none of them set it is the simulator's. CI does not run it: `make\n// xkms-test` deselects it (#163 decision 2). Procedure: docs/development/hardware-enrollment.md.
 const (
 	// envDevice is the board: a serial port path, or the "host:port" this
 	// host listens on for a board over Ethernet. Unset, the simulator.

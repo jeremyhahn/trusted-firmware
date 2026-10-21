@@ -102,7 +102,7 @@ static void mutate(uint8_t *p, unsigned n, unsigned crc_at, uint16_t (*crc)(cons
 
 /* ------------------------------------------------------------------ handoff */
 
-static uint16_t handoff_crc(const uint8_t *b) { return tfw_crc16(b, TFW_BOOT_HO_CRC); }
+static uint16_t handoff_crc(const uint8_t *b) { return tfw_boot_handoff_crc(b); }
 
 static void handoff_valid(uint8_t *b)
 {

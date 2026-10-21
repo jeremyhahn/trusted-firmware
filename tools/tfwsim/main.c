@@ -148,13 +148,18 @@ static void preset_mock(void)
     }
 }
 
-static int run(int in_fd, int out_fd, int eth)
-{
-    uint8_t buf[512];
+/*
+ * Whether a RESET restarts the firmware in place. On a device the reset never
+ * returns and the next thing to run is the startup sequence, with the EEPROM
+ * and the element as they were; the mock's tfw_hal_reset() only counts, so
+ * here nothing restarts unless this says so. 0 for every binary but one:
+ * tools/tfwsim/reboot.c, in tfwsim-prov's object list alone, overrides it, so
+ * the key `tfwprov --commit` makes is the key the next boot attests with.
+ */
+__attribute__((weak)) int tfwsim_reboot_on_reset(void) { return 0; }
 
-    tfw_mock_reset();
-    tfwsim_tier_seed();
-    preset_mock();
+static void boot(void)
+{
     tfw_sys_reset_state();
     /* src/main.c's startup(), in its order, so a test peer cannot behave
      * differently from the device. The bus comes up BEFORE the crypto provider,
@@ -173,7 +178,19 @@ static int run(int in_fd, int out_fd, int eth)
     tfw_transport_init(&t);
     tfw_app_runner_start();
     (void)tfw_transport_send_event(&t, TFW_EVENT_BOOT);
+}
+
+static int run(int in_fd, int out_fd, int eth)
+{
+    uint8_t  buf[512];
+    unsigned resets;
+
+    tfw_mock_reset();
+    tfwsim_tier_seed();
+    preset_mock();
+    boot();
     pump(0, 0u, out_fd);
+    resets = tfw_mock_reset_count();
 
     for (;;) {
         struct pollfd p[2];
@@ -211,6 +228,14 @@ static int run(int in_fd, int out_fd, int eth)
          * what makes this usable as a test oracle. */
         tfw_mock_advance(1u);
         pump(buf, (size_t)n, out_fd);
+        /* No tfw_mock_reset() and no tier seed: a reset keeps what a device
+         * keeps. The cause is the one the AVR reports for its own reset. */
+        if (tfwsim_reboot_on_reset() && tfw_mock_reset_count() != resets) {
+            resets = tfw_mock_reset_count();
+            tfw_mock_set_reset_cause(TFW_RESET_WATCHDOG);
+            boot();
+            pump(0, 0u, out_fd);
+        }
     }
 }
 

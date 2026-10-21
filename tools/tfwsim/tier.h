@@ -31,4 +31,11 @@ const char *tfwsim_tier_usage(void);
  */
 void tfwsim_tier_seed(void);
 
+/*
+ * Non-zero when a RESET restarts the firmware in place, keeping the EEPROM and
+ * the element. main.c's weak definition answers 0; tools/tfwsim/reboot.c, in
+ * tfwsim-prov's object list only, answers 1.
+ */
+int tfwsim_reboot_on_reset(void);
+
 #endif /* TFWSIM_TIER_H */

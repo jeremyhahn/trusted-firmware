@@ -3,7 +3,7 @@
 > **Status: INFORMATIVE** · Scope: `make hw-enroll`, `xkms/e2e/hw_enroll_test.go`
 > · Last verified: 2026-10-16
 >
-> Not a gate. CI has no board. It runs the same harness against `tfwsim`.
+> Not a gate. CI has no board, and it does not run this harness (#163 decision 2).
 
 Issue #7's exit is a recorded run that shows the certificate each board was
 issued. `make hw-enroll` makes that run one command. It enrolls a flashed,
@@ -13,12 +13,16 @@ a run record, which the operator commits.
 
 The harness is `TestHardwareEnrollment` in `xkms/e2e`, and `make hw-enroll`
 runs it on a board. `make xkms-test` leaves the `xkms/e2e` package out of its
-list (#163 decision 2): out of the list, not skipped inside it.
-`make xkms-coverage` still measures `./...` until #163 slice (e) moves that
-package's other tests. Run directly with `go test ./e2e` and no `TFW_HW_DEVICE`, the
-harness enrolls `tfwsim-atecc608a` over serial and over TCP and reads back the
-record each run wrote, which is how a change to it is checked before a bench
-run.
+list (#163 decision 2): out of the list, not skipped inside it, and
+`make xkms-coverage` leaves it out too. Run directly with `go test ./e2e` and no
+`TFW_HW_DEVICE`, the harness enrolls `tfwsim-atecc608a` over serial and over TCP
+and reads back the record each run wrote, which is how a change to it is checked
+before a bench run:
+
+```sh
+make tfwsim-atecc608a
+cd xkms && TFWSIM_DIR=$PWD/../build/host go test -tags codec_json ./e2e/
+```
 
 ## Which board, which tier
 

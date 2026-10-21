@@ -45,6 +45,12 @@ func TestLocateReportsAMissingBinaryWithHowToBuildIt(t *testing.T) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
 	}
+
+	// The provisioning jig image says how to build itself, not the element tier.
+	_, err = Locate(Prov)
+	if !errors.As(err, &nb) || !strings.Contains(err.Error(), "run `make tfwsim-prov`") {
+		t.Errorf("Locate(Prov) = %v, want a NotBuiltError naming make tfwsim-prov", err)
+	}
 }
 
 func TestDirDefaultsToTheCheckoutsBuildDirectory(t *testing.T) {

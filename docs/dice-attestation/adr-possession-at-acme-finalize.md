@@ -752,10 +752,16 @@ ways to close it:
      that go-xkms can fail closed.
    - Decommissioning deletes the entry. Devices provisioned before the
      registry existed are backfilled from captured `tfwprov` output.
-6. **To be filed (trusted-firmware), not yet filed:** `tfwprov` emits a
-   structured provisioning record that joins the `--bake-eeprom` serial (the
-   DeviceID; the UEID is `01` followed by it) to the `--commit` DeviceID point. go-trusted-platform could then ingest
-   it instead of hand-copied stdout.
+6. **Done (trusted-firmware #53 T1): `tfwprov --record <file>`.** It writes a
+   structured provisioning record that joins the `--bake-eeprom` serial to the
+   `--commit` (or `--verify`) DeviceID point, which go-trusted-platform
+   ingests instead of hand-copied stdout. No member is ours. The record holds
+   the UEID as the RFC 9711 §4.2.1 `ueid` claim, type `0x01` followed by the
+   serial, base64url as a JSON bstr (§7.2.2). It holds the point as an RFC 7517
+   JWK, EC P-256 per RFC 7518 §6.2.1, in the RFC 7800 §3.2 `cnf` claim. The
+   registry entry's hex UEID and DER SPKI above are re-encodings of those two
+   members, and that is go-trusted-platform's
+   ([device-provisioning CLI](../device-provisioning/cli.md#the-provisioning-record)).
 
 ## Resolved questions
 

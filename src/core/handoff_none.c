@@ -45,3 +45,9 @@ uint8_t tfw_boot_handoff_take_cdi(uint8_t out[TFW_BOOT_MEASURE_LEN])
     (void)out;
     return 0u;
 }
+
+uint8_t tfw_boot_handoff_device_seed(uint8_t out[TFW_BOOT_SEED_LEN])
+{
+    (void)out;
+    return 0u;
+}

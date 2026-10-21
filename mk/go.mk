@@ -45,10 +45,12 @@ sdk-build:
 # only check that the two codecs agree silently untested. tfwsim-atecc608a is the
 # element tier, the only peer that produces DICE evidence; tfwsim-app-example the
 # only one with an application, so the only one that answers APP_INFO;
-# tfwsim-auto the Mega's default tier, which picks one of those two at startup.
+# tfwsim-auto the Mega's default tier, which picks one of those two at startup;
+# tfwsim-prov the element tier as a jig image, the only one tfwprov --commit
+# provisions over the wire.
 # Every test that starts a simulator carries the tfwsim build tag (#163), so
 # this is the one target that compiles them in.
-sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example
+sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov
 	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags,tfwsim) ./...
 
 ## sdk-coverage: Go SDK unit-test statement coverage, failing if it or any package is under the floor
@@ -130,8 +132,9 @@ sdk-verify:
 # device to go-xkms's backend interfaces, so it imports go-xkms (Layer 3) and
 # the SDK (Layer 0), which sdk/go itself must never do. It requires a TAGGED
 # sdk/go, not this tree, so the SDK's source sits in the read-only module cache
-# and the simulators cannot be found relative to it: the targets below hand the
-# test the built binaries' directory through TFWSIM_DIR.
+# and the simulators cannot be found relative to it: a run that starts one
+# (hw-enroll on a board does not; xkms/e2e TestHardwareEnrollment by hand with
+# no board does) hands the test the built binaries' directory through TFWSIM_DIR.
 #
 # codec_json is go-xkms's build tag for its ACME client, which the end-to-end
 # test drives; without it that test would silently not be compiled.
@@ -149,14 +152,20 @@ xkms-test: tfwsim tfwsim-atecc608a
 	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
 	  $$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS)) ./... | grep -v '/e2e$$')
 
-## xkms-coverage: xkms adapter statement coverage, failing if it or any package is under the floor
-xkms-coverage: tfwsim tfwsim-atecc608a
+## xkms-coverage: xkms adapter unit-test statement coverage, failing if it or any package is under the floor
+# Unit tests only (#163), as sdk-coverage is: xkms/e2e, the one package that
+# starts a simulator, is left out of the package list, so no simulator is built
+# or found for it and the floor is what the unit tests reach on their own. The
+# device-attest-01 checks run in xkms/avr against recorded simulator frames.
+# xkms-test leaves xkms/e2e out too; hw-enroll runs it against a board.
+xkms-coverage:
 	@mkdir -p coverage
-	@cd $(XKMS_DIR) && { TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
-	  -coverprofile=../coverage/xkms.out ./... > ../coverage/xkms-packages.txt 2>&1; rc=$$?; \
+	@cd $(XKMS_DIR) && pkgs=$$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS)) ./... | grep -v '/e2e$$') && \
+	  { $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) -coverprofile=../coverage/xkms.out $$pkgs \
+	    > ../coverage/xkms-packages.txt 2>&1; rc=$$?; \
 	  $(call go-cover-floor,$(XKMS_COVERAGE_FLOOR),../coverage/xkms-packages.txt) && [ $$rc -eq 0 ]; } && \
 	  total=$$($(GO) tool cover -func=../coverage/xkms.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%') && \
-	  echo "xkms: $$total% statement coverage (floor $(XKMS_COVERAGE_FLOOR)%)" && \
+	  echo "xkms: $$total% unit-test statement coverage (floor $(XKMS_COVERAGE_FLOOR)%)" && \
 	  if [ "$${total%.*}" -lt "$(XKMS_COVERAGE_FLOOR)" ]; then \
 	    echo "xkms coverage is below the floor"; exit 1; \
 	  fi

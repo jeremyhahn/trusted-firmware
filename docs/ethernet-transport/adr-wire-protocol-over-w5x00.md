@@ -170,9 +170,12 @@ The Ethernet link accepts exactly these commands:
     (unicast).
   - **`id` on the element tier:** the DeviceID public key, the 64-byte X‖Y of
     its P-256 point.
-  - **`id` on the software tier:** that tier has no public key, since its
-    identity is a symmetric secret, so `id` is the 16-byte serial, the DeviceID
-    field of its `ATTEST` evidence.
+  - **`id` on the software tier:** the 16-byte serial, the DeviceID field of
+    its `ATTEST` evidence. This ADR chose it when that tier had no public key,
+    its identity a symmetric secret, as it still is on the ATmega328P and
+    ATmega32U4 (`SOFT_ID=hmac`). The ATmega2560's soft root now has a P-256
+    DeviceID (#48, #130); whether its `id` moves to that key is not decided
+    here, so it stays the serial.
 
   The derivation is the host's, not the device's: the device holds the one MAC
   the block gives it and costs no flash for this. A sticker value replaces a

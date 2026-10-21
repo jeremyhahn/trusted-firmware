@@ -23,6 +23,7 @@
 #   ARCH_FW_PLACEMENT_LDFLAGS          where the application puts the handoff
 #   ARCH_BOOT_PLACEMENT_LDFLAGS        where tfw-boot puts .text and the handoff
 #   ARCH_BOOT_START_SRC, _LDFLAGS      tfw-boot's own startup, in place of the crt
+#   ARCH_UECC_CFLAGS                   micro-ecc's word size and platform in tfw-boot
 #   ARCH_FLASH, ARCH_BOOT_FLASH        recipes that write the image to a part
 #   ARCH_BOARD_RESTORE                 the recipe that puts the factory state back
 
@@ -66,6 +67,11 @@ ARCH_LDFLAGS := -mmcu=$(MCU) -Os -flto -Wl,--gc-sections -Wl,--relax
 # off the two together.
 ARCH_BOOT_OPT_CFLAGS := -mcall-prologues -mstrict-X -fno-tree-scev-cprop
 
+# micro-ecc's word for BOOT_SIG=p256-soft (mk/boot.mk): one byte, the AVR's own,
+# which its platform detection would pick anyway; stated so the host test's
+# UECC_WORD default and the part build name the same word path.
+ARCH_UECC_CFLAGS := -DuECC_WORD_SIZE=1
+
 # The CDI handoff block's SRAM address, and the stack kept below it -- issue
 # #6/#18. THE SAME FORMULA for the application and for tfw-boot, because the two
 # images must land on the identical address with no shared linker script to
@@ -82,13 +88,14 @@ ARCH_BOOT_OPT_CFLAGS := -mcall-prologues -mstrict-X -fno-tree-scev-cprop
 # hal_early.c's tfw_hal_early_flags lives in ordinary (unpinned) `.noinit` too,
 # for the same "must survive past .init3" reason, and pinning the generic
 # section's address would carry every object assigned to it to this one fixed
-# spot, overflowing the 80 bytes meant for the handoff block alone.
+# spot, overflowing the 112 bytes (TFW_BOOT_HANDOFF_LEN, version 4) meant for
+# the handoff block alone.
 #
 # AVR data addresses carry the 0x800000 offset the linker uses to tell flash from
 # SRAM.
 ifneq ($(RAM_END),)
-ARCH_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
-ARCH_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
+ARCH_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 111 )))
+ARCH_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 112 )))
 ARCH_FW_PLACEMENT_LDFLAGS := -Wl,-T,mk/handoff.ld \
                              -Wl,--section-start=.handoff=$(ARCH_HANDOFF_AT) \
                              -Wl,--defsym=__stack=$(ARCH_STACK_TOP)
@@ -119,8 +126,8 @@ ifneq ($(shell echo $$(( $(BOOT_BASE) + $(BOOT_SECTION) ))),$(FLASH_TOTAL))
 $(error BOOT_BASE "$(BOOT_BASE)" + BOOT_SECTION $(BOOT_SECTION) is not FLASH_TOTAL $(FLASH_TOTAL): BOOTRST puts the AVR boot section at the top of flash)
 endif
 ARCH_BOOT_TEXT_START := $(shell printf '0x%x' $$(( $(BOOT_BASE) )))
-ARCH_BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 80 )))
-ARCH_BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 79 )))
+ARCH_BOOT_STACK_TOP  := $(shell printf '0x%x' $$(( $(RAM_END) - 112 )))
+ARCH_BOOT_HANDOFF_AT := $(shell printf '0x%x' $$(( 0x800000 + $(RAM_END) - 111 )))
 endif
 
 # And tfw-boot starts in its own boot/hal/avr/boot_start_avr.S, not the crt:

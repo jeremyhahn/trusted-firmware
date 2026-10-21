@@ -114,7 +114,7 @@ func testTemplate() *template {
 
 func TestRunCommitRunsEveryStepInOrder(t *testing.T) {
 	e := &element{pub: bytes.Repeat([]byte{0x11}, 64)}
-	err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{})
+	_, err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestRunCommitRunsEveryStepInOrder(t *testing.T) {
 
 func TestRunCommitSkipsTheConfigStepsOnALockedConfigZone(t *testing.T) {
 	e := &element{pub: bytes.Repeat([]byte{0x11}, 64)}
-	err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{ConfigLocked: true})
+	_, err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{ConfigLocked: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestRunCommitSkipsTheConfigStepsOnALockedConfigZone(t *testing.T) {
 
 func TestRunCommitRefusesALockedDataZone(t *testing.T) {
 	e := &element{}
-	err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{DataLocked: true})
+	_, err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{DataLocked: true})
 	if err == nil || err.Error() != "the data zone is already locked; this part cannot be reconfigured" {
 		t.Fatalf("err = %v", err)
 	}
@@ -168,7 +168,7 @@ func TestRunCommitStopsAtTheStepThatFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := &element{refuseCmd: tc.cmd, refuseNth: tc.nth, refuseStatus: tfw.StatusErrUnknownCmd,
 				pub: bytes.Repeat([]byte{0x11}, 64)}
-			err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{})
+			_, err := runCommit(context.Background(), startElement(t, e), testTemplate(), &tfw.ElementInfo{})
 			if err == nil || !strings.HasPrefix(err.Error(), tc.first) {
 				t.Fatalf("err = %v, want prefix %q", err, tc.first)
 			}
@@ -197,7 +197,7 @@ func TestRunVerifyNamesEveryProblem(t *testing.T) {
 			[]string{"DeviceID public key unreadable: "}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := runVerify(context.Background(), startElement(t, tc.e), testTemplate(), &tc.info)
+			_, err := runVerify(context.Background(), startElement(t, tc.e), testTemplate(), &tc.info)
 			if err == nil {
 				t.Fatal("verify passed")
 			}
@@ -218,7 +218,7 @@ func TestRunVerifyPassesAKeyedLockedPartWithNoBlocks(t *testing.T) {
 	tm := testTemplate()
 	tm.Blocks = nil
 	e := &element{pub: bytes.Repeat([]byte{0x11}, 64)}
-	if err := runVerify(context.Background(), startElement(t, e), tm, &tfw.ElementInfo{ConfigLocked: true, DataLocked: true}); err != nil {
+	if _, err := runVerify(context.Background(), startElement(t, e), tm, &tfw.ElementInfo{ConfigLocked: true, DataLocked: true}); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -10,13 +10,17 @@
  * has nowhere else to be substituted from that would mean anything -- see
  * crc16.h for where the per-byte fold actually lives.
  */
-uint16_t tfw_crc16(const uint8_t *buf, uint16_t len)
+uint16_t tfw_crc16_from(uint16_t crc, const uint8_t *buf, uint16_t len)
 {
-    uint16_t crc = TFW_CRC16_INIT;
     uint16_t i;
 
     for (i = 0; i < len; i++) {
         crc = tfw_crc16_update(crc, buf[i]);
     }
     return crc;
+}
+
+uint16_t tfw_crc16(const uint8_t *buf, uint16_t len)
+{
+    return tfw_crc16_from(TFW_CRC16_INIT, buf, len);
 }

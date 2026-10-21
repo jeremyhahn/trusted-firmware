@@ -308,8 +308,8 @@ class TestBudgets(FixtureTree):
         self.assertFails("part atmega329p is not one board-check knows")
 
     def test_emulated_board_names_its_machine(self):
-        self.edit("boards/alpha/profile.mk", "MCU            := atmega328p", "QEMU_MACHINE := mps2-an505")
-        self.assertFails("part mps2-an505 is not one board-check knows")
+        self.edit("boards/alpha/profile.mk", "MCU            := atmega328p", "QEMU_MACHINE := mps2-an521")
+        self.assertFails("part mps2-an521 is not one board-check knows")
 
     def test_total_not_the_parts_fails(self):
         self.edit("boards/alpha/profile.mk", "RAM_TOTAL      := 2048", "RAM_TOTAL := 2560")
@@ -335,6 +335,27 @@ class TestBudgets(FixtureTree):
         self.edit("boards/alpha/profile.mk", "BOOT_BASE      := 0x7000", "BOOT_BASE := 0x6000")
         self.assertFails("BOOT_BASE 0x6000 + BOOT_SECTION 4096 is not the top of flash 32768",
                          "BOOT_BASE 0x6000, but TFW_BOOT_REGION_BASE is 0x7000")
+
+    def with_boot_end(self, end):
+        saved = bc.PARTS["atmega328p"]
+        bc.PARTS["atmega328p"] = dict(saved, boot_end=end)
+        self.addCleanup(bc.PARTS.__setitem__, "atmega328p", saved)
+
+    def test_boot_end_replaces_the_top_of_flash(self):
+        # A boot region apart from the flash: the top-of-flash rule no longer
+        # holds, the region's end does.
+        self.with_boot_end(0x8000)
+        self.assertEqual([], bc.check(self.root))
+        self.with_boot_end(0x9000)
+        errors = self.assertFails(
+            "BOOT_BASE 0x7000 + BOOT_SECTION 4096 is not the end of the atmega328p's boot region 0x9000")
+        self.assertNotIn("top of flash", "\n".join(errors))
+
+    def test_no_boot_end_keeps_the_top_of_flash(self):
+        self.assertNotIn("boot_end", bc.PARTS["atmega328p"])
+        self.edit("boards/alpha/profile.mk", "BOOT_SECTION   := 4096", "BOOT_SECTION := 2048")
+        errors = self.assertFails("BOOT_BASE 0x7000 + BOOT_SECTION 2048 is not the top of flash 32768")
+        self.assertNotIn("boot region", "\n".join(errors))
 
     def test_no_boot_part_with_a_soft_tier_fails(self):
         self.edit("boards/tiny/profile.mk", "BOARD_TIERS    := none", "BOARD_TIERS := soft none")

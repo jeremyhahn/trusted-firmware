@@ -89,6 +89,7 @@ tfwprov [flags] <port>
 | `--baud N` | serial baud rate |
 | `--timeout D` | reply timeout |
 | `--force` | refused outright — not accepted as a synonym for `--yes-i-mean-it` |
+| `--record PATH` | `--commit`/`--verify`: join the DeviceID point to the provisioning record `--bake-eeprom --record` started: the UEID (RFC 9711 §4.2.1 `ueid`) and the point as an RFC 7800 §3.2 `cnf` JWK. A different point is refused, never overwritten ([the provisioning record](../device-provisioning/cli.md#the-provisioning-record)) |
 
 Exactly one of `--dry-run` / `--verify` / `--commit` is required.
 

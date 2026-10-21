@@ -177,12 +177,20 @@ func TestFirmwareCaps(t *testing.T) {
 	// CAPS must report the crypto tier it actually has, so a verifier learns
 	// what it is talking to before it decides what the evidence is worth
 	// (docs/wire-protocol/api.md:63), and what it can sign with:
-	// docs/dice-attestation/user.md:17, a SOFTWARE-tier device signs with
-	// HMAC-SHA256 only; docs/dice-attestation/cli.md:58, the element adds
-	// ECDSA-P256-SHA256. Neither performs Ed25519.
+	// docs/dice-attestation/user.md, a SOFTWARE-tier device signs ES256 under
+	// its P-256 DeviceID (SOFT_ID=p256: tfwsim and the ATmega2560), except the
+	// ATmega328P and ATmega32U4 images, which keep the HMAC-SHA256 signer
+	// (SOFT_ID=hmac); docs/dice-attestation/cli.md, the element performs
+	// ECDSA-P256-SHA256 and HMAC-SHA256. Neither performs Ed25519.
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	soft := tfw.AlgECDSAP256SHA256
+	if target.Hardware() && (target.Board == "atmega328p" || target.Board == "atmega32u4") {
+		soft = tfw.AlgHMACSHA256
+	}
 	switch tier := c.CryptoTier.String(); tier {
 	case "software":
-		assert.Equal(t, tfw.AlgHMACSHA256, c.Algorithms, "algorithms = %s, want hmac-sha256 alone", c.Algorithms)
+		assert.Equal(t, soft, c.Algorithms, "algorithms = %s, want %s alone", c.Algorithms, soft)
 	case "secure-element":
 		assert.Equal(t, tfw.AlgHMACSHA256|tfw.AlgECDSAP256SHA256, c.Algorithms,
 			"algorithms = %s, want ecdsa-p256-sha256 and hmac-sha256", c.Algorithms)

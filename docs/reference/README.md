@@ -24,7 +24,10 @@ RFC 9334) and through hardware (ECDSA P-256 in the ATECC608) are not ours.
 | [`rfc2104.txt`](rfc2104.txt) | HMAC: Keyed-Hashing for Message Authentication | RFC 2104 | `src/crypto/sha256.c` (HMAC-SHA256); `boot/tier/cdi_soft.c` |
 | [`rfc8032.txt`](rfc8032.txt) | Edwards-Curve Digital Signature Algorithm (EdDSA) | RFC 8032 | Ed25519 verify only: `boot/verify/verify_ed25519_donna.c` over the vendored `src/third_party/ed25519-donna/` |
 | [`rfc8949.txt`](rfc8949.txt) | Concise Binary Object Representation (CBOR) | RFC 8949 | `src/caps/uccs.c` (deterministic encoding, §4.2.1); `src/core/suit.c` (reader); `tools/suit-emit/` |
-| [`rfc9711.txt`](rfc9711.txt) | The Entity Attestation Token (EAT) | RFC 9711 | Claims set only (`eat_nonce`, `ueid`, `measurements`): `src/caps/uccs.c` |
+| [`rfc9711.txt`](rfc9711.txt) | The Entity Attestation Token (EAT) | RFC 9711 | Claims set only (`eat_nonce`, `ueid`, `measurements`): `src/caps/uccs.c`; `ueid` (§4.2.1, type `0x01`) in `tfwprov --record`'s provisioning record: `sdk/go/cmd/tfwprov/record.go` |
+| [`rfc7517.txt`](rfc7517.txt) | JSON Web Key (JWK) | RFC 7517 | The DeviceID public key in `tfwprov --record`'s provisioning record: `sdk/go/cmd/tfwprov/record.go` |
+| [`rfc7518.txt`](rfc7518.txt) | JSON Web Algorithms (JWA) | RFC 7518 | EC P-256 key members `kty`, `crv`, `x`, `y` (§6.2.1) of that JWK: `sdk/go/cmd/tfwprov/record.go` |
+| [`rfc7800.txt`](rfc7800.txt) | Proof-of-Possession Key Semantics for JSON Web Tokens (JWTs) | RFC 7800 | The `cnf` claim's `jwk` member (§3.2) in that record: `sdk/go/cmd/tfwprov/record.go` |
 | [`rfc9393.txt`](rfc9393.txt) | Concise Software Identification Tags (CoSWID) | RFC 9393 | The minimal evidence tag in `measurements`: `src/caps/uccs.c` |
 | [`rfc9052.txt`](rfc9052.txt) | CBOR Object Signing and Encryption (COSE): Structures and Process | RFC 9052 | `COSE_Sign1_Tagged` and `Sig_structure`, detached payload: `src/core/suit.c`, `tools/suit-emit/` (signing is go-xkms's) |
 | [`rfc9053.txt`](rfc9053.txt) | COSE: Initial Algorithms | RFC 9053 | ES256 (`-7`) identifier and raw r‖s form: `src/core/suit.c` |

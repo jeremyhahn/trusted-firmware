@@ -62,31 +62,18 @@ static tfw_status_t run(const uint8_t *p, uint8_t n)
     return run_cmd(TFW_CMD_ATTEST, p, n);
 }
 
-static void test_attest_on_a_no_boot_build_reports_zero_device_id_and_fw_hash(void)
+static void test_attest_on_a_no_boot_build_is_not_provisioned(void)
 {
-    uint8_t whole[TFW_ATTEST_LEN];
-    uint8_t got;
-    uint8_t page;
-
+    /* handoff_none.c: no tfw-boot, so no DeviceID seed (#173). A UDS the
+     * application can read is not used in its place: the seed is tfw-boot's
+     * alone, so ATTEST answers NOT_PROVISIONED rather than sign. */
     provision();
-    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE, TFW_ATTEST_NONCE_LEN));
-    memcpy(whole, &outbuf[2], (size_t)(tfw_writer_len(&w) - 2u));
-    got = (uint8_t)(tfw_writer_len(&w) - 2u);
-    for (page = 1u; got < TFW_ATTEST_LEN; page++) {
-        TEST_ASSERT_EQUAL(TFW_OK, run(&page, 1u));
-        memcpy(&whole[got], &outbuf[2], (size_t)(tfw_writer_len(&w) - 2u));
-        got = (uint8_t)(got + (tfw_writer_len(&w) - 2u));
-    }
-
-    /* platform_id_none.c: a zero serial. handoff_none.c: no measurement, so
-     * attest.c:105 skips the copy and the field keeps the memset at :85. */
-    TEST_ASSERT_EACH_EQUAL_HEX8(0x00u, &whole[TEST_OFF_DEVICE_ID], TFW_ATTEST_ID_LEN);
-    TEST_ASSERT_EACH_EQUAL_HEX8(0x00u, &whole[TEST_OFF_FW_HASH], TFW_SHA256_LEN);
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, run(NONCE, TFW_ATTEST_NONCE_LEN));
 }
 
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_attest_on_a_no_boot_build_reports_zero_device_id_and_fw_hash);
+    RUN_TEST(test_attest_on_a_no_boot_build_is_not_provisioned);
     return UNITY_END();
 }

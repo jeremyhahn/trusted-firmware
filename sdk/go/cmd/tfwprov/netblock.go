@@ -138,7 +138,7 @@ func netblockFromFlags(f netblockFlags) ([]byte, error) {
 // Both is one file covering [0x000, 0x0E0): the platform block and the
 // network block after it, which is the whole image a bench writes to a part
 // it re-provisions.
-func runBake(outPath string, platform bool, serialHex, hashHex, opKeyHex string, netblock bool, nf netblockFlags) error {
+func runBake(outPath string, platform bool, serialHex, hashHex, opKeyHex string, netblock bool, nf netblockFlags, recordPath string) error {
 	var p *bakedPlatform
 	if platform {
 		p = new(bakedPlatform)
@@ -150,6 +150,13 @@ func runBake(outPath string, platform bool, serialHex, hashHex, opKeyHex string,
 	if netblock {
 		var err error
 		if nb, err = netblockFromFlags(nf); err != nil {
+			return err
+		}
+	}
+	// The record first: one that names another device stops the bake before
+	// an image of this serial exists to be flashed beside it.
+	if recordPath != "" {
+		if err := recordSerial(recordPath, p.serial); err != nil {
 			return err
 		}
 	}

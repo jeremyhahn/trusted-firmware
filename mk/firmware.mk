@@ -30,6 +30,15 @@ include mk/arch/$(ARCH).mk
 # the architecture's, and the optional ones are chosen below by FILE.
 HAL_DIR := src/hal/$(ARCH)
 
+# An architecture that spans more than one family of parts keeps its core in
+# HAL_DIR and each SoC's peripherals in a directory under it, named by the
+# profile's SOC (src/hal/cortex-m/mps2-tz/). Its files join the same wildcard
+# and the same optional list, so a SoC file is selected exactly as a core one
+# is. hal_src names the SoC's copy of a module when it has one, else the
+# core's. Empty on a board that names no SOC: nothing changes there.
+HAL_SOC_DIR := $(if $(SOC),$(HAL_DIR)/$(SOC))
+hal_src = $(or $(if $(HAL_SOC_DIR),$(wildcard $(HAL_SOC_DIR)/$(1))),$(HAL_DIR)/$(1))
+
 # The crypto tier is part of the OUTPUT PATH, not just the object list. The
 # soft and element images are different firmware -- different provider,
 # different size, different measurement -- and writing both to
@@ -55,13 +64,20 @@ profile_says = $(shell grep -Eq '^[[:space:]]*#[[:space:]]*define[[:space:]]+$(1
                        $(BOARD_DIR)/board_profile.h && echo 1)
 feature_off  = $(call profile_says,TFW_FEATURE_$(1),0)
 
-TONE_SRCS := $(if $(call feature_off,TONE),,src/caps/tone.c $(HAL_DIR)/hal_tone.c)
+TONE_SRCS := $(if $(call feature_off,TONE),,src/caps/tone.c $(call hal_src,hal_tone.c))
 
 # PWM. The ATtiny85 spends Timer0 on the millisecond tick and Timer1 on the
 # software UART's bit clock, and Timer1's control register is not a mega's in
 # any case -- so there is no compare unit for tfw_hal_pwm_write to drive and the
 # board sets TFW_FEATURE_PWM 0.
-PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(HAL_DIR)/hal_pwm.c)
+PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.c))
+
+# EEPROM and pulse measurement, each its own command family over its own HAL
+# entry points. A part with neither (the mps2-an505, #161) defines neither
+# entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
+# compile under -Werror, so the board drops the whole file.
+STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
+PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c)
 
 # The three buses, gated as ONE unit because they are one translation unit.
 #
@@ -77,13 +93,13 @@ BUS_OFF  := $(and $(call feature_off,I2C),$(call feature_off,SPI),$(call feature
 # as everywhere else): bus.c provides it when any bus is on, and bus_none.c --
 # a no-op -- provides the same symbol when BUS_OFF, so exactly one is always
 # linked. Mirrors how CRYPTO_SRCS gives every tier its own tfw_crypto_init().
-BUS_SRCS := $(if $(BUS_OFF),src/caps/bus_none.c,src/caps/bus.c $(HAL_DIR)/hal_bus.c)
+BUS_SRCS := $(if $(BUS_OFF),src/caps/bus_none.c,src/caps/bus.c $(call hal_src,hal_bus.c))
 
 # The byte link. A part with no USART needs a software one, and the two
 # implementations define the same four functions -- so exactly one is linked and
 # the choice is the board's, not a flag's.
 UART_SRCS := $(if $(call profile_says,TFW_UART_SOFT,1), \
-                  $(HAL_DIR)/hal_uart_soft.c,$(HAL_DIR)/hal_uart.c)
+                  $(call hal_src,hal_uart_soft.c),$(call hal_src,hal_uart.c))
 
 # What the transport reads frames from: the UART alone, or the UART and a TCP
 # connection through a WIZnet shield -- issue #55, docs/ethernet-transport/.
@@ -129,8 +145,8 @@ endif
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
-HAL_OPTIONAL := $(HAL_DIR)/hal_tone.c $(HAL_DIR)/hal_pwm.c $(HAL_DIR)/hal_bus.c \
-                $(HAL_DIR)/hal_uart.c $(HAL_DIR)/hal_uart_soft.c $(ARCH_HAL_OPTIONAL)
+HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c \
+                  $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c) $(ARCH_HAL_OPTIONAL)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -153,15 +169,28 @@ endif
 # could not carry it. A command-line CRYPTO= still wins over both, so an
 # unbuildable combination can still be asked for and still fails honestly.
 CRYPTO ?= soft
+
+# The soft root's identity (#48, #130), linked by the soft and auto tiers:
+# `p256` is the ES256 DeviceID, derived from the UDS (src/crypto/deviceid_p256.c)
+# and signed with the vendored micro-ecc; `hmac` is the HMAC signer the soft
+# root had before, kept for a board whose profile says the P-256 code does not
+# fit (the ATmega328P, and the ATmega32U4 until its fit is measured). Chosen by
+# file selection, as CRYPTO is.
+SOFT_ID           ?= p256
+SOFT_ID_SRCS_p256 := src/crypto/soft/id_p256.c src/crypto/deviceid_p256.c \
+                     src/third_party/micro-ecc/uECC.c
+SOFT_ID_SRCS_hmac := src/crypto/soft/id_hmac.c
+SOFT_ID_SRCS      := $(or $(SOFT_ID_SRCS_$(SOFT_ID)),$(error unknown SOFT_ID "$(SOFT_ID)" -- expected p256 or hmac))
+
 ifeq ($(CRYPTO),soft)
-CRYPTO_SRCS := src/crypto/sha256.c src/crypto/soft/provider.c src/crypto/soft/uds_flash.c
+CRYPTO_SRCS := src/crypto/sha256.c src/crypto/soft/provider.c src/crypto/soft/uds_flash.c $(SOFT_ID_SRCS)
 ALIAS_SRCS  :=
 ALIAS_DEFS  :=
 # MEASURE_SOFT_CSR=1 is a MEASUREMENT, never a row (issue #53 T3): it links the
 # alias builder and ATTEST_CSR into a soft image only to read what they cost on
-# a board's budget. The soft provider has no public half yet, so the image can
-# only refuse the command, and the figure omits the P-256 signer a soft DeviceID
-# would add. No profile, row or CI target sets it.
+# a board's budget. With SOFT_ID=p256 the figure includes the P-256 DeviceID's
+# signer; with SOFT_ID=hmac the provider has no public half and the image can
+# only refuse the command. No profile, row or CI target sets it.
 MEASURE_SOFT_CSR ?= 0
 ifeq ($(MEASURE_SOFT_CSR),1)
 ALIAS_SRCS  := src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c src/caps/csr.c
@@ -191,12 +220,13 @@ CRYPTO_SRCS := src/crypto/sha256.c src/crypto/atecc608a/atecc.c src/crypto/atecc
 # answers, else the soft root. docs/dice-attestation/architecture.md, "The
 # Mega's runtime tier".
 ifeq ($(CRYPTO),auto)
-CRYPTO_SRCS += src/crypto/soft/provider.c src/crypto/soft/uds_flash.c src/crypto/auto/provider.c
+CRYPTO_SRCS += src/crypto/soft/provider.c src/crypto/soft/uds_flash.c src/crypto/auto/provider.c \
+               $(SOFT_ID_SRCS)
 endif
 # The alias certificate rides with the tier that can sign one, and only on a
 # board with room for it. It is gated by FILE SELECTION, exactly as tone is: a
-# certificate names a subject public key, the software tier's identity is an
-# HMAC and has no public half, so a soft image must not contain the code at all
+# certificate names a subject public key, which the element tier's builder
+# takes from the element, so a soft image does not contain the code at all
 # rather than contain a copy of it that can only refuse -- and the ATmega32U4
 # loses 4 KB of its flash to a DFU bootloader and cannot carry the builder at
 # all. Both boards say so in their profile, and the grep here is what makes the
@@ -337,6 +367,7 @@ FW_LDFLAGS := $(strip $(ARCH_LDFLAGS) $(ARCH_FW_PLACEMENT_LDFLAGS))
 # address -- ESP-IDF's RTC-retained memory -- says so with ARCH_HANDOFF := 1.
 ifneq ($(RAM_END)$(ARCH_HANDOFF),)
 IDENTITY_SRCS := src/core/handoff.c src/core/platform_id.c \
+                 $(if $(filter src/crypto/soft/id_p256.c,$(CRYPTO_SRCS)),src/core/handoff_seed.c,src/core/handoff_seed_none.c) \
                  src/core/update_request.c \
                  boot/boot_handoff.c boot/boot_platform.c boot/boot_request.c
 else
@@ -398,11 +429,11 @@ FW_SRCS := $(sort \
   src/core/secure_zero.c $(IDENTITY_SRCS) \
   $(APP_RUNNER_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
-  src/caps/analog.c src/caps/storage.c src/caps/attest.c \
-  src/caps/pulse.c $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
+  src/caps/analog.c $(STORAGE_SRCS) src/caps/attest.c \
+  $(PULSE_SRCS) $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
   $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) \
-  $(BOARD_DIR)/board.c $(UART_SRCS) \
-  $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c)))
+  $(BOARD_DIR)/board.c $(UART_SRCS) $(ARCH_FW_SRCS) \
+  $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/*.c))))
 
 FW_OBJS := $(patsubst %.c,$(FW_DIR)/%.o,$(FW_SRCS))
 
@@ -426,6 +457,18 @@ $(1)/src/core/auth_session.o:         FW_CFLAGS += $(AUTH_RENAME)
 $(1)/src/core/ota_floor_atecc.o:      FW_CFLAGS += $(call FLOOR_RENAME,element)
 $(1)/src/core/ota_floor_eeprom.o:     FW_CFLAGS += $(call FLOOR_RENAME,soft)
 endef
+# The soft root's P-256 objects (SOFT_ID=p256): the vendored micro-ecc is
+# compiled as the boot compiles it (mk/boot.mk UECC_DEFS), without our warning
+# set -- an upstream's warnings are not ours to fix -- and deviceid_p256.c finds
+# uECC.h. Takes an object directory, as AUTO_RENAMES does, for mk/bench.mk.
+FW_UECC_CFLAGS = -std=gnu11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
+                 -ffile-prefix-map=$(CURDIR)=. $(UECC_DEFS) $(ARCH_UECC_CFLAGS) \
+                 -Isrc/third_party/micro-ecc
+define SOFT_ID_RULES
+$(1)/src/third_party/micro-ecc/uECC.o: FW_CFLAGS = $$(FW_UECC_CFLAGS)
+$(1)/src/crypto/deviceid_p256.o:       FW_CFLAGS += -Isrc/third_party/micro-ecc
+endef
+$(eval $(call SOFT_ID_RULES,$(FW_DIR)))
 ifeq ($(CRYPTO),auto)
 $(eval $(call AUTO_RENAMES,$(FW_DIR)))
 endif

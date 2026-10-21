@@ -54,7 +54,7 @@ func TestPlatformBlockFromFlagsTakesARealOperatorKey(t *testing.T) {
 
 func TestRunBakeStopsOnABadPlatformFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "both.eep")
-	if err := runBake(out, true, strings.Repeat("00", 16), "", "", true, benchFlags()); err == nil {
+	if err := runBake(out, true, strings.Repeat("00", 16), "", "", true, benchFlags(), ""); err == nil {
 		t.Fatal("accepted an all-zero serial")
 	}
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
@@ -164,7 +164,7 @@ func TestRunBakeStopsOnABadNetblockFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "net.eep")
 	f := benchFlags()
 	f.gateway = ""
-	if err := runBake(out, false, "", "", "", true, f); err == nil {
+	if err := runBake(out, false, "", "", "", true, f, ""); err == nil {
 		t.Fatal("accepted a netblock with no gateway")
 	}
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {

@@ -826,3 +826,88 @@ It is 72 bytes larger than [efa1bac's](#the-bench-mega-with-its-ethernet-shield-
 | `ReservedEEPROMIsRefused`, `ReservedEEPROMReadIsUngatedOnTheSoftTier`, `UnprovisionedDeviceRefusesToAttest` | Pass |
 | `AnalogReadReturnsRawCounts`, `PWM`, `SecureElementAddressIsRefused`, `OneWireAndPulseAreReachable`, `CapsReportsTheAlgorithmsItCanPerform` | Pass |
 | `PinInfo`, `PinInfoRefusesAPinTheBoardLacks`, `I2CConfigAppliesAClockWithinRange`, `SPIConfigAppliesModeClkdivAndBitOrder` | Pass |
+
+## The Mega on main 0cae6a2, 2026-10-20
+
+The bench Mega with its Ethernet shield (W5100), over serial on `/dev/ttyACM0`
+only (#7, #75), after the reply-parse train (#177), the coverage train (#178),
+the soft root and OTA train (#179) and the dependency-age train (#181) merged.
+The toolchain is [the probe's](../development/wiznet-probe.md#toolchain),
+unpacked under the lane's home directory. Nothing went over ISP. No fuse, lock
+or boot-section byte was read or written, no chip erase was sent, and the one
+flash went through the stock bootloader with `-D`. Still no SPI NOR part on D8.
+21:59Z to 22:08Z.
+
+```
+make firmware BOARD=atmega2560 CRYPTO=soft ETH=1
+```
+
+| Image | Flash / RAM | SHA-256 |
+|---|---|---|
+| The line above on main 0cae6a2 (`build/atmega2560/soft-eth-w5100`, W5100), the `.hex` | 19374 / 901 bytes, against the 65536 / 2048-byte gates | `d2f07a0c5981606c334e7d7457cb65e709fd0cc83a3bd2bc23a0522009afd1de` |
+| Its binary, 19374 bytes | | `58bea52e7a46f7e0bab3bbcb8df0d28165b539c2bb6900173f67b7a446766079` |
+
+It is 94 bytes larger than [b0eab87's](#the-mega-on-main-b0eab87-2026-10-18)
+19280, with the same RAM. It links the stager, `OTA_INFO`, `OTA_ACTIVATE`,
+`OTA_AUTH`, `OTA_CONFIRM` and the trial (`ota_stage.c`, `ota_ctl.c`,
+`ota_activate.c`, `ota_auth.c`, `ota_trial.c`, `ota_trial_block.c`, `spi_nor.c`):
+an `ETH=1` image on a board with an `OTA_STORE` stages by default
+(`mk/firmware.mk:255`). SPEC's shedding of OTA on the 2560 soft store and OTA
+rows (owner ruling item 79) is about `tfw-boot`'s rows, and no `tfw-boot` is on
+this board.
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | The record, read only: `ping` and `caps` through the application; the flash and EEPROM through the stock bootloader (`avrdude -c wiring -p atmega2560 -P /dev/ttyACM0 -b 115200 -D -n -U flash:r:flash.bin:r -U eeprom:r:eeprom-bl.bin:r`), no fuse or lock byte; `0x000`–`0x0FF` through the application, 32 `tfwctl eeprom-read <addr> 8` runs | **Pass**: every hash is [the bench record's](../development/bench/mega2560.md#bench-record-2026-10-18), in full there. The board still ran that record's 19208-byte `CRYPTO=soft ETH=1` image, which answered `ping` and `caps` (board `0x02`, protocol 2.0, root of trust `software`) |
+| 2 | `make firmware BOARD=atmega2560 CRYPTO=soft ETH=1` | **Pass**. The size check: flash 19374 of 65536, RAM 901 of 2048. Hashes above |
+| 3 | `make flash BOARD=atmega2560 CRYPTO=soft ETH=1 AVRDUDE_PORT=/dev/ttyACM0` (`-D`), with `0x000`–`0x0FF` read before and after | **Pass**. avrdude wrote and verified 19374 bytes. `ping` and `caps` answered as before. `0x000`–`0x0FF` before and after both hash to `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4` |
+| 4 | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0` | **Fail**, two defects, listed below. The 45 `TestFirmware*` rows ran: 18 pass and 27 fail. Of the 27, 26 need what this board lacks, as [testing.md](../development/testing.md#which-rows-run-on-a-board) tables: 16 an element-tier image, 5 an operator key, 3 an element-tier stager, 1 the heartbeat application image, and `OTAAuthLetsTheCommandPastTheGate` a NOR part (`TFW_ERR_NO_STORE`). The 27th is a soft-tier row that fails here, defect A. The 11 `TestEthernet*` rows ran too, with no `ETH=` given, and all failed on `TFW_HW_ETH=1: not an ip:port`: defect B. With `ETH=` empty on the command line they do not run, and the 45 rows give the same 18 and 27 |
+| 5 | Serial CLI: `tfwctl` `ping`, `caps`, `attest`, `eeprom-read`, `netcfg get` and `sys`; a GPIO round trip | **Pass**. `ping`: pong. `caps`: board `0x02`, protocol 2.0, root of trust `software`, features `gpio sched analog pwm tone pulse eeprom i2c spi onewire attest`, algorithms `hmac-sha256`. CAPS has no transport field, so the transport is not reported. `attest`: `TFW_ERR_NOT_PROVISIONED`, as on b0eab87: no `tfw-boot` hands off a soft UDS. `eeprom-read`: pass. `netcfg get`: the block reads back whole: MAC, address, mask, gateway and the endpoint the board dials, all set. Nothing was written to it. GPIO: pass on one connection through `sdk/go`, D13 an output, written 1, 0, 1, 0, each level read back |
+| 6 | The OTA verbs over serial, on one connection through `sdk/go` | **Pass**: each answers as [api.md](../ota/api.md#activate-confirm-and-info) says for a `CRYPTO=soft` stager with no store and no handoff. Below |
+| 7 | `tfwctl tcp://<the network block's endpoint> caps` from the bench host | **Not run**. The lane's container has one address, on the bench host's Docker bridge, and one route, the bridge's default. Its ARP table holds only the bridge's gateway. `tfwctl` could not listen on the endpoint (`bind: cannot assign requested address`), and a TCP connect to the board's address timed out after 5 s |
+| 8 | `0x000`–`0x0FF` after items 5 and 6 | `ada8b459…580897e4`, unchanged |
+
+The board was left running the image of item 2. The record's 19208 bytes,
+padded with `0xFF` to `0x4C00` as [6b of b0eab87](#the-mega-on-main-b0eab87-2026-10-18)
+did (SHA-256 `05106be13c268d0a4700be341784c3d5656c6d0c5cc84d339592614c618f33ed`),
+put it back.
+
+| Item 6 | Status |
+|---|---|
+| `OTA_STATUS` | `TFW_OK`, idle, 0 bytes |
+| `OTA_INFO` 0 and 1 | `TFW_OK`. Slots 2, active 0, flags 0, floor 0, state 0, version 0, a zero measurement. Slot 0's state is the platform block's; slot 1's is the OTA state, idle, as no store holds a `MARK` |
+| `OTA_INFO` 2 | `TFW_ERR_RANGE` (11) |
+| `OTA_BEGIN`, 19456 | `TFW_ERR_NO_STORE` (20), in 4.1 ms, before any erase |
+| `OTA_ACTIVATE` 0, no `OTA_AUTH` before it | `TFW_ERR_AUTH_REQUIRED` (17) |
+| `OTA_CONFIRM`, no `OTA_AUTH` before it | `TFW_ERR_AUTH_REQUIRED` (17) |
+| `OTA_AUTH`, a zero signature | `TFW_OK`: held, and checked by `tfw-boot` at reset |
+| `OTA_ACTIVATE` 0, right after it | `TFW_ERR_BAD_STATE` (19): no image is complete |
+| `OTA_CONFIRM`, right after another | `TFW_ERR_BAD_STATE` (19): no trial is running |
+| `OTA_STATUS`, then `PING` | `TFW_OK`, idle; `PING` answers |
+
+`tfwctl ota-activate` refuses without `--sig` before it sends anything, and
+`tfwctl` has no confirm verb, so item 6 used a bench program outside the
+repository that calls `sdk/go`'s `OTAStatus`, `OTAInfo`, `OTABegin`,
+`OTAActivate`, `OTAAuth` and `OTAConfirm`.
+
+**Defect A.** `TestFirmwareSoftwareTierStillCannotIssueACertificate`
+(`sdk/go/cmd/tfwctl/e2e_dice_test.go:270`) expects `TFW_ERR_UNSUPPORTED` (7)
+from `attest-cert` on the soft tier, and the board answers
+`TFW_ERR_UNKNOWN_CMD` (4). The soft image compiles `ATTEST_CERT` out
+(`src/core/commands.def:102`–`103`, `TFW_FEATURE_ALIAS_CERT` 0 by default,
+`include/tfw/config.h:84`), so the dispatcher has no entry for it. The row
+passes on `tfwsim` only because the host build turns the alias certificate on
+for every tier (`mk/host.mk:46`), and [testing.md](../development/testing.md#which-rows-run-on-a-board)
+lists it as a board row for the soft tier.
+
+**Defect B.** `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0`, the command
+[testing.md](../development/testing.md) gives, runs the `TestEthernet*` rows
+with `TFW_HW_ETH=1`. `hw-test` takes `ETH` as the `ip:port` the board dials
+and says it has no default (`mk/go.mk:88`, `:95`, `:99`), but the 2560's
+profile sets `ETH ?= 1` for the firmware build (`boards/atmega2560/profile.mk:51`),
+and the two share the name.
+
+**Fixed.** A in 537f16b: the docs side with the image, so the soft `tfwsim`
+compiles `ATTEST_CERT` out as the soft image does and the row expects
+`TFW_ERR_UNKNOWN_CMD`. B in 1b17bbd: `hw-test` takes the endpoint as `HW_ETH`,
+which no board profile sets.

@@ -143,7 +143,7 @@ mirror of the CSR vectors; `TFWV_CSR_CRI` and `TFWV_CSR_CRI_DIGEST` stay in
 | `TFW_ERR_RANGE` | page past the end; `tfw_uccs_encode`'s nonce-width check | value outside the permitted interval |
 | `TFW_ERR_NOT_PROVISIONED` | `tfw_crypto_sign`/`pubkey` on a present-but-unseeded element | identity has not been provisioned yet |
 | `TFW_ERR_CRYPTO` | any provider op on `TFW_CRYPTO_NONE`, or an element that will not wake | the crypto provider failed the operation |
-| `TFW_ERR_UNSUPPORTED` | `ATTEST_CERT`/`ATTEST_CSR` on the software or none tier; an algorithm mismatch in `mint()` or `tfw_csr_cmd` | compiled out, or this root of trust cannot do it |
+| `TFW_ERR_UNSUPPORTED` | `ATTEST_CERT`/`ATTEST_CSR` compiled in under a provider with no asymmetric key (a host test build; no shipped soft or none image carries them); an algorithm mismatch in `mint()` or `tfw_csr_cmd` | this root of trust cannot do it |
 | `TFW_ERR_UNKNOWN_CMD` | `ATTEST`/`ATTEST_CERT`/`ATTEST_CSR` on a build with the feature off | no table entry for this command id |
 | `TFW_ERR_INTERNAL` | `tfw_alias_sources` if the claims set did not encode to `TFW_UCCS_LEN` | a condition the firmware believes impossible |
 | `TFW_ERR_TOO_LONG` | `tfw_uccs_encode` overflow | request/response exceeded a bound |

@@ -197,7 +197,7 @@ unit-tested on the host (`sdk/go/internal/peer`), and that test is in
 ### Which rows run on a board
 
 ```sh
-make hw-test BOARD=<board> PORT=<serial port> [ETH=<ip:port>] \
+make hw-test BOARD=<board> PORT=<serial port> [HW_ETH=<ip:port>] \
   DEVICEID=<hex X||Y> CRI_DIGEST=<hex> OPERATOR_KEY=<operator key PEM>
 ```
 
@@ -252,23 +252,27 @@ not run them:
 ### The Ethernet rows on a board
 
 ```sh
-make hw-test BOARD=<board> PORT=<serial port> ETH=<ip:port> DEVICEID=<hex X||Y> CRI_DIGEST=<hex>
+make hw-test BOARD=<board> PORT=<serial port> HW_ETH=<ip:port> DEVICEID=<hex X||Y> CRI_DIGEST=<hex>
 ```
 
-`ETH` adds the `TestEthernet*` rows to the run: every row of
+`HW_ETH` adds the `TestEthernet*` rows to the run: every row of
 `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` (CAPS, ATTEST, the alias certificate,
 the CSR signature, the allow-list refusals, the OTA staging ids, AUTH and
 OTA_ACTIVATE refused, serial and Ethernet side by side, the network block read
-back) and the two staging rows of `e2e_ota_test.go`. `ETH` is the `ip:port` on
+back) and the two staging rows of `e2e_ota_test.go`. `HW_ETH` is the `ip:port` on
 the bench host that the board's network block names as its endpoint
 (`tfwctl netcfg`); `hw-test` passes it as `TFW_HW_ETH`, and it has no default.
+It is not `ETH`, the firmware build's Ethernet switch, which a board's
+`profile.mk` may set: the 2560's says `ETH ?= 1`, and while the two shared a
+name a plain `make hw-test BOARD=atmega2560 PORT=…` ran the Ethernet rows
+against an endpoint of `1`.
 
 The rows take the same seam as the serial ones. Each listens where
 `peer.Target.Listen` says: a loopback port the kernel picks for `tfwsim`,
-written into the simulator's network block, or `ETH` on a board. Each then
+written into the simulator's network block, or `HW_ETH` on a board. Each then
 starts the device through `peer.Start`, which resets a board through `PORT`,
 and waits for the device to dial, up to 30 s. There is no wall-clock wait. A
-board that never dials fails the row, and so do `ETH` without `PORT`, an `ETH`
+board that never dials fails the row, and so do `HW_ETH` without `PORT`, an `HW_ETH`
 that is not an `ip:port`, and port 0.
 
 The assertions are the same on both peers. Where a row checks the device's
@@ -328,7 +332,7 @@ make platform-bake-build-check  # in `make ci`: the bench bake image links for b
 make xkms-test xkms-coverage    # the xkms adapter's tests and 90 % floor; the `xkms` CI job
 make xkms-security xkms-deps-check  # its security and latest-version checks; the same job
 make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0  # the cross-implementation suite on a flashed board
-make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0 ETH=<ip:port> DEVICEID=<hex> CRI_DIGEST=<hex> OPERATOR_KEY=<pem>  # every row a board runs, the Ethernet rows too
+make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0 HW_ETH=<ip:port> DEVICEID=<hex> CRI_DIGEST=<hex> OPERATOR_KEY=<pem>  # every row a board runs, the Ethernet rows too
 make hw-enroll DEVICE=/dev/ttyACM0 DEVICEID=<hex>  # issue #7's enrollment run on a provisioned board
 ```
 

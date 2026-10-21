@@ -306,9 +306,10 @@ point, OID `1.3.101.112`) and an Ed25519 signature (64 bytes raw, not an
 ASN.1 `SEQUENCE` of two integers) cannot be expressed inside that template
 without a different certificate profile, and this repo does not own DICE
 ASN.1 profiles (see the top-level `CLAUDE.md`). Raised against the owner
-rather than guessed at; `ATTEST_CERT` on the software tier still answers
-`TFW_ERR_UNSUPPORTED`, exactly as it did before, for exactly the reason
-stated where `mint()` fetches the subject key.
+rather than guessed at. A software-tier image still compiles `ATTEST_CERT`
+out and answers `TFW_ERR_UNKNOWN_CMD`, as it did before; a build that carries
+the command under the software provider answers `TFW_ERR_UNSUPPORTED`, for the
+reason stated where `mint()` fetches the subject key.
 
 ## Alternatives rejected
 

@@ -31,7 +31,7 @@ import (
 //
 // The TestEthernet* rows reach the device through the transport seam,
 // internal/peer, as the TestFirmware* rows do: tfwsim -- the firmware compiled
-// for the host -- when no port is set, and under `make hw-test ETH=` the board
+// for the host -- when no port is set, and under `make hw-test HW_ETH=` the board
 // on TFW_HW_PORT, whose network block dials TFW_HW_ETH. One row is the
 // cross-implementation check in CI and the bench check on a board.
 //

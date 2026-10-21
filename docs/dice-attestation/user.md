@@ -203,7 +203,7 @@ across that boundary unmodified. The CLI equivalent is
 |---|---|
 | `TFW_ERR_UNKNOWN_CMD` | this build has `TFW_FEATURE_ATTEST`/`TFW_FEATURE_ALIAS_CERT` off, or you are talking to a provisioning image |
 | `TFW_ERR_NOT_PROVISIONED` | the element is present but has no UDS/DeviceID yet — run `tfwprov --commit` |
-| `TFW_ERR_UNSUPPORTED` from `ATTEST_CERT` | this device's tier has no public key to certify (software tier), or this board has no room for the certificate builder |
+| `TFW_ERR_UNSUPPORTED` from `ATTEST_CERT` | the build carries the command but its tier has no public key to certify. A software-tier build, or a board with no room for the certificate builder, compiles the command out and answers `TFW_ERR_UNKNOWN_CMD` instead |
 | `TFW_ERR_RANGE` while paging | you asked for a page past the document's end, or reused a page index after sending a new nonce |
 | `TFW_ERR_UNSUPPORTED` from `AttestCSR` | CAPS bit 15 is clear (the 32U4, or a build without the alias certificate), or the tier has no asymmetric key — nothing was asked of the device |
 | `*tfw.ShortReplyError` from `AttestCSR` | the device answered with something other than 64 bytes |

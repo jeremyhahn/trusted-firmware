@@ -59,9 +59,11 @@ this evidence to this challenge. `AlgID` lets a verifier interpret
 ## `ATTEST_CERT` — 0x63
 
 An alias certificate carrying the same challenge, in the shape TCG DICE
-Attestation Architecture r23 defines. Absent (`TFW_ERR_UNSUPPORTED`) on any
+Attestation Architecture r23 defines. Absent (`TFW_ERR_UNKNOWN_CMD`) on any
 tier with no asymmetric key, and on `boards/attiny85` and
-`boards/atmega32u4` regardless of tier — see `engineering.md`.
+`boards/atmega32u4` regardless of tier — see `engineering.md`. A build that
+carries the command under a provider with no asymmetric key answers
+`TFW_ERR_UNSUPPORTED`.
 
 ```
 request 1: ATTEST_CERT(nonce[32])   mint, return page 0

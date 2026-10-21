@@ -36,6 +36,9 @@ HOST_BOARD ?= atmega328p
 # compiled out would answer TFW_ERR_UNKNOWN_CMD -- which says the firmware has
 # never heard of certificates, not that this tier cannot issue one. The
 # element-backed path gets its own binary below, against the software element.
+# The soft tfwsim is the exception: it answers as a CRYPTO=soft image, which
+# compiles the command out, so it takes the alias certificate back out
+# (TFWSIM_SOFT_OFF below).
 #
 # ATTEST_CSR is NOT turned on here. The host build takes the 328P's profile,
 # which says 0 for want of flash, so this build's dispatcher has no ATTEST_CSR
@@ -1006,7 +1009,15 @@ TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_moc
 # The simulator links the runner an image would (mk/app.mk): the real one with
 # APP_DIR's application, or the empty one. Never the recording mock, which is
 # the tests'.
-TFWSIM_SOFT_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c,$(TFWSIM_LIB_SRCS)) \
+#
+# Nor the alias certificate: a CRYPTO=soft image compiles ATTEST_CERT out and
+# links none of its files (mk/firmware.mk), so it answers TFW_ERR_UNKNOWN_CMD,
+# and the soft simulator must answer what the soft image does. HOST_CFLAGS'
+# define comes off its compile and its application's, and the files off its link.
+TFWSIM_SOFT_OFF  := -DTFW_FEATURE_ALIAS_CERT=1
+TFWSIM_SOFT_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c \
+                                 src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c src/caps/csr.c, \
+                                 $(TFWSIM_LIB_SRCS)) \
                     $(APP_RUNNER_SRCS)
 
 # An application's objects, one directory per tier: the element tier's overlay
@@ -1021,7 +1032,7 @@ APP_HOST_CFLAGS       := $(APP_HOST_BASE_CFLAGS) -ffile-prefix-map=$(CURDIR)=. $
 ifneq ($(APP_SRCS),)
 $(APP_HOST_OBJS): $(APP_HOST_DIR)/%.o: $(APP_ABS)/%.c
 	@mkdir -p $(dir $@)
-	@$(CC) $(APP_HOST_CFLAGS) -MMD -MP -c -o $@ $<
+	@$(CC) $(filter-out $(TFWSIM_SOFT_OFF),$(APP_HOST_CFLAGS)) -MMD -MP -c -o $@ $<
 
 $(APP_HOST_ELEMENT_OBJS): $(APP_HOST_ELEMENT_DIR)/%.o: $(APP_ABS)/%.c
 	@mkdir -p $(dir $@)
@@ -1033,7 +1044,7 @@ endif
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
+	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 

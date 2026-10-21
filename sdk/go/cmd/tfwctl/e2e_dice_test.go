@@ -263,11 +263,13 @@ func TestFirmwareBlankElementRefusesToAttest(t *testing.T) {
 }
 
 func TestFirmwareSoftwareTierStillCannotIssueACertificate(t *testing.T) {
-	// The reason the element tier exists: the software tier has no asymmetric key.
+	// The reason the element tier exists: the software tier has no asymmetric key,
+	// so a CRYPTO=soft image compiles ATTEST_CERT out and has no table entry for it
+	// (docs/dice-attestation/engineering.md, "Error semantics").
 	_, err := cliHex(t, startPeer(t, simproc.Software).serial, "attest-cert", "certificate", aliasNonce(1))
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "attest-cert on the software tier: %v", err)
-	assert.Equal(t, tfw.StatusErrUnsupported, st)
+	assert.Equal(t, tfw.StatusErrUnknownCmd, st)
 }
 
 // The two nonce widths are not interchangeable: the CLI refuses a swapped one

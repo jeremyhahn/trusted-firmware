@@ -141,7 +141,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
-                             test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c \
+                             test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \
+                           test/unit/test_link_dhcp.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
@@ -528,6 +529,20 @@ $(HOST_DIR)/test_w5500_nocs: $(W5X_NOCS_SRCS) src/net/w5500.c $(HOST_DIR)/unity.
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
 	   -DTFW_ETH_CS_PIN=21u -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The DHCP client (src/net/dhcp.c, DHCP=1) on the same drivers and model, its
+# server the test, which reads each datagram off the model's wire and hands
+# replies up behind the header the chip prepends. The clock is the suite's.
+DHCP_TEST_SRCS := test/unit/test_dhcp.c test/model/w5x00_model.c src/net/w5x00.c src/net/dhcp.c \
+                  src/core/board_lookup.c boards/$(HOST_BOARD)/board.c
+
+$(HOST_DIR)/test_dhcp_w5100: $(DHCP_TEST_SRCS) src/net/w5100.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=1 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_dhcp_w5500: $(DHCP_TEST_SRCS) src/net/w5500.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same drivers and model under hostile register values: the suite wraps the
 # model's tfw_hal_spi_xfer at link time to rewrite what the socket registers
 # answer, so the driver and the model are linked exactly as above.
@@ -548,7 +563,7 @@ $(HOST_DIR)/test_w5500_mutate: $(W5X_MUT_SRCS) src/net/w5500.c $(HOST_DIR)/unity
 # mutates the network block on the same link.
 $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_netcfg_mutate: $(HOST_DIR)/%: test/unit/%.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
-                        src/proto/link_eth.c src/net/netcfg.c \
+                        src/proto/link_eth.c src/net/netcfg.c src/net/dhcp_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -556,7 +571,7 @@ $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_netcfg_mutate: $(HOST_DIR)/%: test/un
 # replies refused part way, request frames mutated on the way in.
 $(HOST_DIR)/test_link_eth_mutate: test/unit/test_link_eth_mutate.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
-                        src/proto/link_eth.c src/net/netcfg.c \
+                        src/proto/link_eth.c src/net/netcfg.c src/net/dhcp_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -591,7 +606,7 @@ $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_STAGE_LIB_SRCS) 
 # refuses sits between OTA_AUTH and OTA_ACTIVATE.
 $(HOST_DIR)/test_ota_hold_link: test/unit/test_ota_hold_link.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_STAGE_LIB_SRCS)) \
-                        src/proto/link_eth.c src/net/netcfg.c \
+                        src/proto/link_eth.c src/net/netcfg.c src/net/dhcp_none.c \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_activate.c src/core/ota_auth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -679,6 +694,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
+                    $(HOST_DIR)/test_dhcp_w5100 $(HOST_DIR)/test_dhcp_w5500 $(HOST_DIR)/test_link_dhcp \
                     $(HOST_DIR)/test_w5100_mutate $(HOST_DIR)/test_w5500_mutate \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small \
@@ -965,7 +981,7 @@ TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h
 # image's. -DTFW_FEATURE_ETHERNET is NOT passed: all it does is reserve the
 # shield's SPI and select pins, and the host's socket sits on no pin -- a
 # simulator that refused D10-D13 would only break the GPIO suites that use them.
-TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c tools/tfwsim/eth_socket.c
+TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c src/net/dhcp_none.c tools/tfwsim/eth_socket.c
 # Both simulators also carry the OTA stager (issue #75), as an ETH=1 image does,
 # with test/model/spi_nor_model.c as the external store on its select. Its
 # tfw_hal_spi_xfer overrides the mock's weak one and hands every other select
@@ -1219,3 +1235,11 @@ $(HOST_DIR)/test_ota_trial_leave: test/unit/test_ota_trial_leave.c src/core/ota_
                         src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The link a DHCP=1 image runs: link_eth.c over the DHCP client, not its stand-in,
+# with both sockets faked at include/tfw/eth.h and the lease on the mock clock.
+$(HOST_DIR)/test_link_dhcp: test/unit/test_link_dhcp.c \
+                        $(filter-out src/proto/link_serial.c,$(HOST_LIB_SRCS)) \
+                        src/proto/link_eth.c src/net/netcfg.c src/net/dhcp.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)

@@ -1,6 +1,6 @@
 # Ethernet transport — architecture
 
-> **Status: DRAFT** · Scope: trusted-firmware · Last verified: 2026-10-15
+> **Status: DRAFT** · Scope: trusted-firmware · Last verified: 2026-10-20
 > The decisions and their reasons are in
 > [adr-wire-protocol-over-w5x00.md](adr-wire-protocol-over-w5x00.md). This page
 > describes the shape they produce.
@@ -48,12 +48,22 @@ the Ethernet link sits in the whole onboarding sequence is
   through three primitives that `w5100.c` and `w5500.c` each define:
   read a byte, write a byte, check identity.
 - `netcfg.c` reads and checks the network block from EEPROM.
+- The address comes from `tfw_dhcp_poll`, chosen at link time like the chip:
+  `dhcp.c` (`DHCP=1`) leases one by RFC 2131 on socket 1 in UDP mode before the
+  TCP connection opens, and renews it there beside the connection; `dhcp_none.c` returns the block's own and refuses a
+  block whose flags ask for DHCP.
 
 ## Data flow
 
-1. At each attempt the link reads the network block and, if valid, asks the
-   socket logic to start: reset and identify the controller, program MAC, IP,
-   mask and gateway, open socket 0 as TCP and connect to the endpoint.
+1. At each attempt the link reads the network block and, if valid, asks for the
+   address: the block's own, or a DHCP lease where its flags ask for one. While
+   the lease is being asked for, the link stays down and polls again. Then it
+   asks the socket logic to start: reset and identify the controller, program
+   MAC, IP, mask and gateway, open socket 0 as TCP and connect to the endpoint.
+   While connected, the link asks `tfw_dhcp_due()` on each poll and, when it
+   says so, `tfw_dhcp_renew()` renews the lease at T1 or rebinds it at T2 on
+   socket 1. The connection stays up. A DHCPNAK, or a lease that runs out,
+   drops the connection, and the next attempt asks again.
 2. On each `tfw_transport_poll` the link reads the socket's state. Once it is
    established, received bytes are offered to the framer exactly as UART bytes
    are.
@@ -68,6 +78,8 @@ the Ethernet link sits in the whole onboarding sequence is
   controller in `ETH_CHIP`; `ETH_CHIP=w5500` overrides it.
 - Ethernet images build into their own directory, so they never overwrite the
   default image.
+- `make ETH=1 DHCP=1` adds the DHCP client, into a `-dhcp` directory. It is off
+  by default until it is measured on a board.
 - No `#if` is added outside the whitelisted files. The one compile-time value is
   `TFW_FEATURE_ETHERNET` in `include/tfw/config.h`, used by `include/tfw/board.h`
   as an expression to flag the shield's pins in use.

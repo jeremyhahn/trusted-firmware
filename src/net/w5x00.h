@@ -25,9 +25,12 @@
 #define W5X_SOCK0   1u
 #define W5X_TX0     2u
 #define W5X_RX0     3u
+#define W5X_SOCK1   5u          /* the DHCP client's UDP socket, beside socket 0 */
+#define W5X_TX1     6u
+#define W5X_RX1     7u
 
-/* Each of socket 0's buffers holds 2 KB on both chips: the reset sizing, which
- * neither chip file changes. */
+/* Each of socket 0's and socket 1's buffers holds 2 KB on both chips: the
+ * reset sizing, which neither chip file changes. */
 #define W5X_BUF_SIZE 0x0800u
 
 uint8_t      w5x_rd(uint8_t space, uint16_t off);
@@ -69,6 +72,7 @@ void         w5x_xfer(const tfw_pinref_t *cs, uint8_t *buf, uint8_t len);
 #define W5X_SN_RX_RD   0x0028u
 
 #define W5X_SN_MR_TCP     0x01u
+#define W5X_SN_MR_UDP     0x02u
 
 #define W5X_CR_OPEN       0x01u
 #define W5X_CR_CONNECT    0x04u
@@ -84,6 +88,7 @@ void         w5x_xfer(const tfw_pinref_t *cs, uint8_t *buf, uint8_t len);
 #define W5X_SR_CLOSED      0x00u
 #define W5X_SR_INIT        0x13u
 #define W5X_SR_SYNSENT     0x15u
+#define W5X_SR_UDP         0x22u
 #define W5X_SR_ESTABLISHED 0x17u
 #define W5X_SR_CLOSE_WAIT  0x1Cu
 

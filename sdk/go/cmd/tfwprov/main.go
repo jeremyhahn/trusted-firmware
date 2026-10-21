@@ -62,6 +62,7 @@ a separate mode, taking no port and no --config:
   --bake-netblock --mac <aa:bb:..> --ip <a.b.c.d/prefix> --gateway <a.b.c.d>
                 --endpoint <a.b.c.d:port> --out <file.eep>   write a network-block .eep image
                 [--mask <a.b.c.d> in place of the /prefix]
+                [--dhcp in place of --ip/--mask/--gateway: leased by a DHCP=1 build]
   both together write one image of both blocks, EEPROM [0x000, 0x0E0)
 
 flags
@@ -96,6 +97,7 @@ func main() {
 	flag.StringVar(&nf.mask, "mask", "", "--bake-netblock: the netmask, a.b.c.d (or give a prefix on --ip)")
 	flag.StringVar(&nf.gateway, "gateway", "", "--bake-netblock: the gateway, a.b.c.d; 0.0.0.0 for none")
 	flag.StringVar(&nf.endpoint, "endpoint", "", "--bake-netblock: the host the device connects to, a.b.c.d:port")
+	flag.BoolVar(&nf.dhcp, "dhcp", false, "--bake-netblock: lease the address, mask and gateway by DHCP, in place of --ip/--mask/--gateway")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -134,7 +136,7 @@ func main() {
 			fail(errors.New("--serial/--pubkey-hash/--operator-pubkey belong to --bake-eeprom; pass it too for one image of both blocks"))
 		}
 		if !*bakeNet && nf.any() {
-			fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint belong to --bake-netblock; pass it too for one image of both blocks"))
+			fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; pass it too for one image of both blocks"))
 		}
 		if err := runBake(*outPath, *bakeEEPROM, *serialHex, *hashHex, *opKeyHex, *bakeNet, nf); err != nil {
 			fail(err)
@@ -156,7 +158,7 @@ func main() {
 		fail(err)
 	}
 	if nf.any() {
-		fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint belong to --bake-netblock; --dry-run/--verify/--commit do not use them"))
+		fail(errors.New("--mac/--ip/--mask/--gateway/--endpoint/--dhcp belong to --bake-netblock; --dry-run/--verify/--commit do not use them"))
 	}
 	if *commit && !*confirm {
 		fail(errors.New("--commit is irreversible on this part: pass --yes-i-mean-it"))

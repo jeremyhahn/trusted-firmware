@@ -43,7 +43,7 @@ func TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint(t *testing.T) {
 	err = run(context.Background(), serial, "netcfg", []string{"get"}, false, &bytes.Buffer{})
 	require.ErrorAs(t, err, &nerr, "netcfg get before any block was written")
 
-	var set, got map[string]string
+	var set, got map[string]any
 	cliJSON(t, serial, &set, "netcfg", "set", "--mac", "02:00:00:00:00:01", "--ip", "192.0.2.10",
 		"--mask", "255.255.255.0", "--gateway", "192.0.2.1", "--endpoint", l.Addr().String())
 
@@ -55,4 +55,20 @@ func TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint(t *testing.T) {
 	cliJSON(t, serial, &got, "netcfg", "get")
 	assert.Equal(t, set, got, "netcfg get after netcfg set")
 	assert.Equal(t, l.Addr().String(), got["endpoint"])
+}
+
+// The block netcfg set --dhcp writes survives the firmware's EEPROM and reads
+// back as a DHCP block with no address of its own. tfwsim links the DHCP
+// client's stand-in, so the device does not lease and does not dial it.
+func TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice(t *testing.T) {
+	serial := tfwsim.StartElementWith(t, append([]string{"--eth"}, elementArgs(t, nil, nil)...))
+
+	var set, got map[string]any
+	cliJSON(t, serial, &set, "netcfg", "set", "--dhcp", "--mac", "02:00:00:00:00:01",
+		"--endpoint", "198.51.100.20:7020")
+	cliJSON(t, serial, &got, "netcfg", "get")
+	assert.Equal(t, set, got, "netcfg get after netcfg set --dhcp")
+	assert.Equal(t, true, got["dhcp"])
+	assert.Equal(t, "0.0.0.0", got["ip"])
+	assert.Equal(t, "198.51.100.20:7020", got["endpoint"])
 }

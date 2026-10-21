@@ -27,6 +27,11 @@ const (
 
 	netcfgVersion = 1
 
+	// netcfgFlagDHCP is flags bit 0, TFW_NETCFG_DHCP: the device takes its
+	// IP, mask and gateway from a DHCP lease instead of bytes 12..23.
+	netcfgFlagDHCP = 0x01
+
+	netcfgOffFlags   = 5
 	netcfgOffMAC     = 6
 	netcfgOffIP      = 12
 	netcfgOffMask    = 16
@@ -36,12 +41,17 @@ const (
 	netcfgOffCRC     = 30
 )
 
-// NetConfig is the device's network block: its own static address, and the
-// endpoint it connects to. There is no DHCP; see the ADR in
-// docs/ethernet-transport/ for why. On a network with no router, Gateway is
-// 0.0.0.0. MAC is the shield's own address when it is known, and DerivedMAC
-// otherwise.
+// NetConfig is the device's network block: its own address, and the endpoint
+// it connects to. On a network with no router, Gateway is 0.0.0.0. MAC is the
+// shield's own address when it is known, and DerivedMAC otherwise.
+//
+// DHCP sets flags bit 0: the device leases its IP, mask and gateway (RFC 2131)
+// and ignores the three fields here, which may be left unset and are then
+// written as 0.0.0.0. Only an image built with DHCP=1 carries the client; any
+// other image keeps its link down for such a block. docs/ethernet-transport/
+// has the client.
 type NetConfig struct {
+	DHCP     bool
 	MAC      net.HardwareAddr
 	IP       netip.Addr
 	Mask     netip.Addr
@@ -109,8 +119,14 @@ func (c NetConfig) MarshalBinary() ([]byte, error) {
 	b := make([]byte, NetConfigLen)
 	copy(b, "TFNC")
 	b[4] = netcfgVersion
+	if c.DHCP {
+		b[netcfgOffFlags] = netcfgFlagDHCP
+	}
 	copy(b[netcfgOffMAC:], c.MAC)
 	for _, a := range addrs {
+		if c.DHCP && a.off != netcfgOffPeer && !a.a.IsValid() {
+			continue // leased: left 0.0.0.0
+		}
 		if !a.a.Is4() {
 			return nil, &NetConfigError{Field: a.name, Reason: "must be an IPv4 address"}
 		}
@@ -173,6 +189,7 @@ func (c *NetConfig) UnmarshalBinary(b []byte) error {
 		return &NetConfigError{Field: "Endpoint", Reason: "port must not be 0"}
 	}
 	*c = NetConfig{
+		DHCP:     b[netcfgOffFlags]&netcfgFlagDHCP != 0,
 		MAC:      append(net.HardwareAddr(nil), b[netcfgOffMAC:netcfgOffMAC+6]...),
 		IP:       netip.AddrFrom4([4]byte(b[netcfgOffIP : netcfgOffIP+4])),
 		Mask:     netip.AddrFrom4([4]byte(b[netcfgOffMask : netcfgOffMask+4])),

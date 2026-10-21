@@ -41,6 +41,13 @@ void     w5x_model_retry_reset(uint16_t rtr, uint8_t rcr);
 uint8_t  w5x_model_common(uint16_t off);
 uint8_t  w5x_model_sock(uint16_t off);
 uint16_t w5x_model_sock16(uint16_t off);
+
+/* Sockets 0 and 1 are modelled. The peer calls, w5x_model_set_sr() and the
+ * two above act on socket n from here on: 0 after a reset. */
+void     w5x_model_socket(uint8_t n);
+/* A UDP unicast to ip is never answered at ARP, so the chip drops it and
+ * raises TIMEOUT rather than SEND_OK; every other address answers. */
+void     w5x_model_arp_silent(const uint8_t *ip);
 uint32_t w5x_model_writes(void);                   /* register writes the chip took */
 uint8_t  w5x_model_pin_output(uint16_t port, uint8_t bit);
 uint8_t  w5x_model_pin_high(uint16_t port, uint8_t bit);

@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -77,12 +78,63 @@ func TestNetcfgPrintsJSON(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}
-		var v map[string]string
+		var v map[string]any
 		if err := json.Unmarshal([]byte(got), &v); err != nil {
 			t.Fatalf("%v printed %q, want JSON: %v", args, got, err)
 		}
-		if v["endpoint"] != "198.51.100.20:7020" || v["mac"] != "02:00:00:00:00:01" {
+		if v["endpoint"] != "198.51.100.20:7020" || v["mac"] != "02:00:00:00:00:01" || v["dhcp"] != false {
 			t.Fatalf("%v printed %v", args, v)
+		}
+	}
+}
+
+// netcfgDHCPArgs asks for an address by DHCP in place of a static one.
+var netcfgDHCPArgs = []string{
+	"netcfg", "set", "--dhcp", "--mac", "02:00:00:00:00:01", "--endpoint", "198.51.100.20:7020",
+}
+
+func TestNetcfgSetDHCPWritesTheFlagAndNoAddress(t *testing.T) {
+	e := &eepromDevice{}
+	got, err := runNetcfgVerb(t, e, false, netcfgDHCPArgs...)
+	if err != nil {
+		t.Fatalf("netcfg set --dhcp: %v", err)
+	}
+	if !strings.Contains(got, "dhcp     true") || !strings.Contains(got, "ip       0.0.0.0") {
+		t.Fatalf("netcfg set --dhcp printed %q", got)
+	}
+	var c tfw.NetConfig
+	if err := c.UnmarshalBinary(e.mem[tfw.NetConfigAddr : tfw.NetConfigAddr+tfw.NetConfigLen]); err != nil {
+		t.Fatalf("the written block: %v", err)
+	}
+	if !c.DHCP || c.IP != netip.IPv4Unspecified() || c.Mask != netip.IPv4Unspecified() ||
+		c.Gateway != netip.IPv4Unspecified() || c.Endpoint.String() != "198.51.100.20:7020" {
+		t.Fatalf("the written block decodes as %+v", c)
+	}
+	got, err = runNetcfgVerb(t, e, true, "netcfg", "get")
+	if err != nil {
+		t.Fatalf("netcfg get: %v", err)
+	}
+	var v map[string]any
+	if err := json.Unmarshal([]byte(got), &v); err != nil {
+		t.Fatalf("netcfg get printed %q, want JSON: %v", got, err)
+	}
+	if v["dhcp"] != true || v["ip"] != "0.0.0.0" {
+		t.Fatalf("netcfg get printed %v", v)
+	}
+}
+
+func TestNetcfgSetDHCPRefusesAStaticAddressBesideIt(t *testing.T) {
+	for _, extra := range [][]string{
+		{"--ip", "192.0.2.10"}, {"--mask", "255.255.255.0"}, {"--gateway", "192.0.2.1"},
+	} {
+		e := &eepromDevice{}
+		args := append(append([]string{}, netcfgDHCPArgs...), extra...)
+		_, err := runNetcfgVerb(t, e, false, args...)
+		if err == nil || !strings.Contains(err.Error(), "--dhcp") {
+			t.Errorf("%v: err %v, want a refusal naming --dhcp", extra, err)
+		}
+		if e.mem != ([1024]byte{}) {
+			t.Errorf("%v: wrote the block", extra)
 		}
 	}
 }

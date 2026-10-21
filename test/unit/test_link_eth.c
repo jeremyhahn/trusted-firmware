@@ -220,6 +220,7 @@ static void test_the_literal_block_decodes_to_its_fields(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(gw, c.gateway, 4u);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(peer, c.peer, 4u);
     TEST_ASSERT_EQUAL_UINT16(7020u, c.port);
+    TEST_ASSERT_EQUAL_HEX8(0x00u, c.flags);                /* static addresses */
 }
 
 static void test_the_block_lives_at_0x0c0_for_32_bytes(void)
@@ -259,6 +260,29 @@ static void test_a_blank_block_never_starts_the_controller_and_serial_still_answ
     tfw_link_poll();
     TEST_ASSERT_EQUAL_UINT(0u, eth.starts);
     TEST_ASSERT_TRUE(over_serial(5u, TFW_CMD_PING, 0, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_frame_status(&rxf));
+}
+
+/* Flags bit 0 asks for a DHCP lease. This link has src/net/dhcp_none.c, as
+ * every image built without DHCP=1 does: the block decodes, but the link never
+ * connects from addresses nobody gave it, and serial is untouched. */
+static void test_a_block_asking_for_dhcp_stays_down_without_the_client(void)
+{
+    uint8_t      b[TFW_NETCFG_LEN];
+    tfw_netcfg_t c;
+    uint16_t     crc;
+
+    memcpy(b, NETCFG, sizeof b); b[5] = TFW_NETCFG_DHCP;
+    crc = tfw_crc16(b, 30u); b[30] = (uint8_t)crc; b[31] = (uint8_t)(crc >> 8);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_decode(b, &c));
+    TEST_ASSERT_EQUAL_HEX8(TFW_NETCFG_DHCP, c.flags);
+
+    memcpy(&tfw_mock_eeprom()[TFW_NETCFG_ADDR], b, sizeof b);
+    tfw_link_poll();
+    tfw_mock_advance(LONGEST_BACKOFF_MS + 1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, eth.starts);
+    TEST_ASSERT_TRUE(over_serial(6u, TFW_CMD_PING, 0, 0u));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_frame_status(&rxf));
 }
 
@@ -559,6 +583,7 @@ int main(void)
     RUN_TEST(test_the_block_lives_at_0x0c0_for_32_bytes);
     RUN_TEST(test_a_damaged_or_incomplete_block_is_not_provisioned);
     RUN_TEST(test_a_blank_block_never_starts_the_controller_and_serial_still_answers);
+    RUN_TEST(test_a_block_asking_for_dhcp_stays_down_without_the_client);
     RUN_TEST(test_the_block_from_eeprom_is_what_the_controller_is_given);
     RUN_TEST(test_a_refused_eeprom_read_reads_as_unprovisioned);
     RUN_TEST(test_a_block_written_over_serial_is_used_at_the_next_attempt);

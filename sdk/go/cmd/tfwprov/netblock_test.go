@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -65,6 +66,44 @@ func TestNetblockMaskAndPrefixAreTheSameBlock(t *testing.T) {
 	}
 	if !bytes.Equal(got, benchNetblock) {
 		t.Fatalf("block = % x\nwant    % x", got, benchNetblock)
+	}
+}
+
+func TestNetblockDHCPIsTheFlagAndNoAddress(t *testing.T) {
+	f := netblockFlags{dhcp: true, mac: "02:00:00:00:00:16", endpoint: "198.51.100.1:7020"}
+	got, err := netblockFromFlags(f)
+	if err != nil {
+		t.Fatalf("netblockFromFlags: %v", err)
+	}
+	if got[5] != 0x01 {
+		t.Fatalf("flags byte = %#02x, want bit 0 (DHCP) alone", got[5])
+	}
+	var c tfw.NetConfig
+	if err := c.UnmarshalBinary(got); err != nil {
+		t.Fatalf("the baked block: %v", err)
+	}
+	if !c.DHCP || c.IP != netip.IPv4Unspecified() || c.Mask != netip.IPv4Unspecified() ||
+		c.Gateway != netip.IPv4Unspecified() || c.Endpoint.String() != f.endpoint ||
+		c.MAC.String() != f.mac {
+		t.Fatalf("the baked block decodes as %+v", c)
+	}
+}
+
+func TestNetblockDHCPRefusesAStaticAddressBesideIt(t *testing.T) {
+	for name, edit := range map[string]func(*netblockFlags){
+		"ip":          func(f *netblockFlags) { f.ip = "198.51.100.22/24" },
+		"mask":        func(f *netblockFlags) { f.mask = "255.255.255.0" },
+		"gateway":     func(f *netblockFlags) { f.gateway = "198.51.100.1" },
+		"no mac":      func(f *netblockFlags) { f.mac = "" },
+		"no endpoint": func(f *netblockFlags) { f.endpoint = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := netblockFlags{dhcp: true, mac: "02:00:00:00:00:16", endpoint: "198.51.100.1:7020"}
+			edit(&f)
+			if b, err := netblockFromFlags(f); err == nil {
+				t.Fatalf("accepted; block % x", b)
+			}
+		})
 	}
 }
 

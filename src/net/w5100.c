@@ -7,6 +7,7 @@
  * A frame is four bytes: 0xF0 to write or 0x0F to read, a 16-bit address, one
  * data byte. The address map is flat: common registers at 0, socket 0 at
  * 0x0400, its 2 KB transmit buffer at 0x4000 and receive buffer at 0x6000.
+ * Socket 1 follows each: 0x0500, 0x4800, 0x6800.
  */
 
 #include "w5x00.h"
@@ -15,6 +16,7 @@
 #define OP_READ     0x0Fu
 
 #define SOCK0_BASE  0x0400u
+#define SOCK_STEP   0x0100u       /* socket n's registers at 0x0400 + n * 0x100 */
 #define TX0_BASE    0x4000u
 #define RX0_BASE    0x6000u
 #define BUF_MASK    (W5X_BUF_SIZE - 1u)
@@ -31,6 +33,9 @@ static uint16_t map(uint8_t space, uint16_t off)
     case W5X_SOCK0: return (uint16_t)(SOCK0_BASE + off);
     case W5X_TX0:   return (uint16_t)(TX0_BASE + (off & BUF_MASK));
     case W5X_RX0:   return (uint16_t)(RX0_BASE + (off & BUF_MASK));
+    case W5X_SOCK1: return (uint16_t)(SOCK0_BASE + SOCK_STEP + off);
+    case W5X_TX1:   return (uint16_t)(TX0_BASE + W5X_BUF_SIZE + (off & BUF_MASK));
+    case W5X_RX1:   return (uint16_t)(RX0_BASE + W5X_BUF_SIZE + (off & BUF_MASK));
     default:        return off;
     }
 }

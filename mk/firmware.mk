@@ -99,14 +99,30 @@ ifeq ($(ETH),1)
 ifeq ($(ETH_CHIP),)
 $(error ETH=1 but $(BOARD_DIR)/profile.mk names no ETH_CHIP -- this board has no Ethernet support)
 endif
-ifeq ($(wildcard src/net/$(ETH_CHIP).c),)
-$(error unknown ETH_CHIP "$(ETH_CHIP)" -- expected one of: $(basename $(notdir $(filter-out src/net/w5x00.c src/net/netcfg.c,$(wildcard src/net/*.c)))))
+ETH_CHIPS := $(basename $(notdir $(filter-out src/net/w5x00.c src/net/netcfg.c src/net/dhcp.c src/net/dhcp_none.c,$(wildcard src/net/*.c))))
+ifeq ($(filter $(ETH_CHIP),$(ETH_CHIPS)),)
+$(error unknown ETH_CHIP "$(ETH_CHIP)" -- expected one of: $(ETH_CHIPS))
 endif
 LINK_SRCS := src/proto/link_eth.c src/net/w5x00.c src/net/netcfg.c src/net/$(ETH_CHIP).c
 LINK_DEFS := -DTFW_FEATURE_ETHERNET=1
 else
 LINK_SRCS := src/proto/link_serial.c
 LINK_DEFS :=
+endif
+
+# Where an Ethernet image's address comes from: DHCP=1 links the RFC 2131
+# client (src/net/dhcp.c) for a network block whose flags ask for a lease;
+# otherwise dhcp_none.c takes the block's own addresses and refuses one that
+# asks. Off by default until it is measured on a board; the output path carries
+# the choice.
+DHCP ?= 0
+ifeq ($(DHCP),1)
+ifneq ($(ETH),1)
+$(error DHCP=1 needs ETH=1 -- the client runs on the Ethernet controller)
+endif
+LINK_SRCS += src/net/dhcp.c
+else ifeq ($(ETH),1)
+LINK_SRCS += src/net/dhcp_none.c
 endif
 
 # The HAL modules that are chosen rather than always present. Filtered out of
@@ -284,7 +300,7 @@ endif
 # image that existed before keeps its path; an ARCH_OTA_SRCS image always stages.
 STAGE_SUFFIX := $(if $(ARCH_OTA_SRCS),,$(if $(filter 1,$(OTA_STAGE)),$(if $(filter 1,$(ETH)),,-stage),$(if $(and $(filter 1,$(ETH)),$(OTA_STORE)),-nostage,)))
 
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(STAGE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The toolchain binaries and the flags that name a machine, an optimisation

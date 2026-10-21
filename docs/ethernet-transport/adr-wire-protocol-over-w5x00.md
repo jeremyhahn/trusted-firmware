@@ -208,6 +208,73 @@ The Ethernet link accepts exactly these commands:
     does not change.
   - **A static address stays valid** after DHCP arrives. It also lets an
     operator pin the device's address in the control plane's allow-list.
+  - **Amended 2026-10-20 (#55): the client is in the tree, off by default.**
+    `make ETH=1 DHCP=1` links `src/net/dhcp.c`, an RFC 2131 client with RFC
+    2132's options; every other Ethernet image links `src/net/dhcp_none.c`,
+    which refuses a block that asks for DHCP, so the link stays down rather
+    than connecting from addresses nobody gave it. Flags bit 0
+    (`TFW_NETCFG_DHCP`) is the reserved bit above; the layout is unchanged and
+    the other bits stay reserved.
+    - It runs on the controller's socket 1 in UDP mode, beside the TCP
+      connection on socket 0. Its socket's buffers are the controller's, so
+      the MCU's RAM is the client's own state: 38 bytes, 4 of them the lease
+      length that renewal added. The driver keeps nothing for socket 1.
+    - It implements INIT, SELECTING, REQUESTING and BOUND: the 1–10 s first
+      wait (§4.4.1), the BROADCAST flag, the 4 s doubling to 64 s ±1 s
+      retransmission (§4.1), Table 5's fields, the discards §4.1 and §4.3.1
+      require, DHCPNAK back to INIT, and the lease counted from the first
+      DHCPREQUEST (§4.4.1).
+    - **Amended 2026-10-20 (slice 2): the ARP probe and DHCPDECLINE.** Before
+      it takes an acknowledged address the client checks that no host holds
+      it (§2.2, §4.4.1). It sends one datagram to the address, port 9, while
+      the controller's own address is still 0.0.0.0. The controller sends a
+      unicast only once its ARP request for the address is answered. That
+      request is the ARP check §4.4.1 suggests, sent from a client that
+      claims no address yet. If the datagram is sent, a host answered: the
+      address is in use. The client
+      broadcasts DHCPDECLINE (Table 5: ciaddr 0, requested IP and server
+      id, no parameter list) and starts again from INIT after 10 s (§3.1
+      step 5). If the controller reports an ARP timeout, the address is
+      free and the client binds. This adds no RAM. The controller's ARP
+      timeout is about 1.8 s at its reset retry values; the client gives up
+      after 4 s.
+    - **Amended 2026-10-20 (slice 2): RENEWING and REBINDING, beside the
+      connection.** At T1 the client opens socket 1 again, beside the live
+      connection on socket 0. It sends DHCPREQUEST to the server that
+      granted the lease: unicast, ciaddr set, no requested IP or server id
+      (§4.3.2). At T2 it broadcasts the same request, and any server may
+      answer. Between requests it waits half the time left to T2 or to the
+      end of the lease, at least 60 s (§4.4.5). A DHCPACK for the same
+      address binds again. The new lease counts from T1, or from T2 when
+      rebound: never later than the request that earned it, as §4.4.5
+      requires, at no extra RAM. A DHCPNAK, or the lease running out, drops
+      the connection, and the next attempt asks again from INIT. If the
+      connection drops while renewing, the client renews again as soon as
+      the link is back up. The link checks `tfw_dhcp_due()` each time it is
+      polled while up; the check is a compare, plus one register read while
+      a request is out.
+      - **Why socket 1 and not socket 0.** The other shape keeps one socket
+        and drops the connection at T1 to renew. That leaves the device
+        unreachable for a renewal round trip every half lease. It also turns
+        a server that is slow at T1 into a lost connection that §4.4.5 did
+        not ask for. Both controllers have four hardware sockets with their
+        own buffers. Socket 1 costs no MCU RAM, and the driver's state for
+        socket 0 is untouched, so the connection carries frames while the
+        lease is renewed. WIZnet's own ioLibrary DHCP client takes the same
+        shape: its own socket, beside the application's.
+      - **Open owner question (Q-DHCP-1).** Is renewing on socket 1, beside
+        the connection, the shape the owner wants? Or should a lease end the
+        connection at T1, accepting the gap, and leave all four sockets but
+        one free? Nothing else in the image uses sockets 1 to 3 today.
+    - Deviation from §4.4.5: T1 and T2 are always the defaults, half and
+      seven eighths of the lease. The server's options 58 and 59 are not
+      read, because holding them would cost 8 more bytes of RAM on a Mega
+      that has about 15 free. A server that sets T1 or T2 sees the client
+      renew at the RFC's default times instead.
+    - Not here: DHCPRELEASE, and option overload, whose messages are
+      discarded.
+    - Its flash and RAM on the Mega are not measured yet: the 3 KB above stays
+      an estimate until `make firmware` runs with `DHCP=1`.
 
 ### 4. Drivers
 
@@ -398,7 +465,11 @@ so the image can be measured, and its default image is unchanged.
   entry for whichever Ethernet images ship; the ruling does not make it.
 - The Nano's shield, which could not be probed. A W5100 is expected.
 - The sticker MAC of each shield, which replaces the derived one when supplied.
-- DHCP, when the boot node serves the bench network (see Addressing).
+- DHCP, when the boot node serves the bench network (see Addressing): the
+  client is in (`DHCP=1`, amended 2026-10-20), with the ARP probe and renewal
+  at T1/T2 (slice 2). Left: its size on the Mega, the owner's Q-DHCP-1
+  (renewal on socket 1), and whether `DHCP=1` joins the Mega's default image,
+  which is the owner's.
 - go-trusted-platform's `device-endpoint-tcp` row (above).
 - A hardware run on both boards, under the physical end-to-end issue, as the
   [test matrix](test-matrix.md) lays out.

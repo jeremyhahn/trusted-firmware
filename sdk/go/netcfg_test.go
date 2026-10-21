@@ -189,9 +189,108 @@ func TestNetConfigDecodesThePinnedBlock(t *testing.T) {
 		t.Fatalf("UnmarshalBinary: %v", err)
 	}
 	want := testNetConfig()
-	if !bytes.Equal(c.MAC, want.MAC) || c.IP != want.IP || c.Mask != want.Mask ||
+	if c.DHCP || !bytes.Equal(c.MAC, want.MAC) || c.IP != want.IP || c.Mask != want.Mask ||
 		c.Gateway != want.Gateway || c.Endpoint != want.Endpoint {
 		t.Fatalf("decoded %+v, want %+v", c, want)
+	}
+}
+
+// The pinned block with flags bit 0 set and the three leased fields zero,
+// literal, its CRC computed apart from this package: the block a host writes
+// for a device that leases its address. test/unit/test_link_eth.c sets the
+// same bit on its own block.
+var netcfgDHCPVector = []byte{
+	'T', 'F', 'N', 'C', 0x01, 0x01,
+	0x02, 0x00, 0x00, 0x00, 0x00, 0x01,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 192, 0, 2, 20,
+	0x1B, 0x6C,
+	0xC9, 0xBE,
+}
+
+func testDHCPConfig() NetConfig {
+	c := testNetConfig()
+	c.DHCP = true
+	c.IP, c.Mask, c.Gateway = netip.Addr{}, netip.Addr{}, netip.Addr{}
+	return c
+}
+
+func TestNetConfigWithDHCPMarshalsFlagsBit0AndNoAddress(t *testing.T) {
+	got, err := testDHCPConfig().MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary: %v", err)
+	}
+	if !bytes.Equal(got, netcfgDHCPVector) {
+		t.Fatalf("block = % x\nwant    % x", got, netcfgDHCPVector)
+	}
+}
+
+// Addresses given beside DHCP are written as given: the device ignores them,
+// and a host that later clears DHCP has them already in place.
+func TestNetConfigWithDHCPKeepsTheAddressesItIsGiven(t *testing.T) {
+	c := testNetConfig()
+	c.DHCP = true
+	got, err := c.MarshalBinary()
+	if err != nil {
+		t.Fatalf("MarshalBinary: %v", err)
+	}
+	want, _ := testNetConfig().MarshalBinary()
+	if got[netcfgOffFlags] != netcfgFlagDHCP ||
+		!bytes.Equal(got[netcfgOffMAC:netcfgOffCRC], want[netcfgOffMAC:netcfgOffCRC]) {
+		t.Fatalf("block = % x", got)
+	}
+}
+
+// DHCP leases the device's own addresses, never the endpoint's, and an
+// address given beside it must still be IPv4.
+func TestNetConfigWithDHCPStillRefusesWhatItCannotEncode(t *testing.T) {
+	for name, edit := range map[string]func(*NetConfig){
+		"unset endpoint": func(c *NetConfig) { c.Endpoint = netip.AddrPort{} },
+		"zero endpoint port": func(c *NetConfig) {
+			c.Endpoint = netip.AddrPortFrom(c.Endpoint.Addr(), 0)
+		},
+		"IPv6 device address": func(c *NetConfig) { c.IP = netip.MustParseAddr("2001:db8::1") },
+		"short MAC":           func(c *NetConfig) { c.MAC = c.MAC[:5] },
+	} {
+		c := testDHCPConfig()
+		edit(&c)
+		var nerr *NetConfigError
+		if _, err := c.MarshalBinary(); !errors.As(err, &nerr) {
+			t.Errorf("%s: err = %v, want a *NetConfigError", name, err)
+		}
+	}
+}
+
+func TestNetConfigDecodesFlagsBit0AsDHCP(t *testing.T) {
+	var c NetConfig
+	if err := c.UnmarshalBinary(netcfgDHCPVector); err != nil {
+		t.Fatalf("UnmarshalBinary: %v", err)
+	}
+	zero := netip.AddrFrom4([4]byte{})
+	if !c.DHCP || c.IP != zero || c.Mask != zero || c.Gateway != zero ||
+		c.Endpoint != testNetConfig().Endpoint {
+		t.Fatalf("decoded %+v", c)
+	}
+	// What it decodes, it writes back byte for byte.
+	again, err := c.MarshalBinary()
+	if err != nil || !bytes.Equal(again, netcfgDHCPVector) {
+		t.Fatalf("re-marshalled % x, %v", again, err)
+	}
+}
+
+// The other flag bits are reserved: the device ignores them, so the host
+// reads past them too, and only bit 0 decides DHCP.
+func TestNetConfigIgnoresTheReservedFlagBits(t *testing.T) {
+	for _, flags := range []byte{0xFE, 0xFF} {
+		b := append([]byte(nil), netcfgVector...)
+		b[netcfgOffFlags] = flags
+		binary.LittleEndian.PutUint16(b[netcfgOffCRC:], CRC16(b[:netcfgOffCRC]))
+		var c NetConfig
+		if err := c.UnmarshalBinary(b); err != nil {
+			t.Fatalf("flags %#02x: %v", flags, err)
+		}
+		if c.DHCP != (flags&1 != 0) {
+			t.Fatalf("flags %#02x: DHCP = %v", flags, c.DHCP)
+		}
 	}
 }
 

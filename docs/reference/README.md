@@ -33,6 +33,8 @@ RFC 9334) and through hardware (ECDSA P-256 in the ATECC608) are not ours.
 | [`rfc5758.txt`](rfc5758.txt) | Internet X.509 PKI: Additional Algorithms and Identifiers for DSA and ECDSA | RFC 5758 | `ecdsa-with-SHA256` AlgorithmIdentifier (§3.2): `src/caps/alias.c`, `src/caps/csr.c` |
 | [`rfc2986.txt`](rfc2986.txt) | PKCS #10: Certification Request Syntax | RFC 2986 | `CertificationRequestInfo` (§4.1) of the possession CSR: `src/caps/csr.c` |
 | [`rfc4043.txt`](rfc4043.txt) | Internet X.509 PKI Permanent Identifier | RFC 4043 | `id-on-permanentIdentifier` subjectAltName: `src/caps/csr.c` |
+| [`rfc2131.txt`](rfc2131.txt) | Dynamic Host Configuration Protocol | RFC 2131 | The client's INIT, SELECTING, REQUESTING, BOUND, RENEWING and REBINDING, the ARP probe and DHCPDECLINE (no DHCPRELEASE; T1 and T2 always the §4.4.5 defaults): `src/net/dhcp.c` |
+| [`rfc2132.txt`](rfc2132.txt) | DHCP Options and BOOTP Vendor Extensions | RFC 2132 | Options 1, 3, 50, 51, 53, 54, 55 and the pad and end options; 52 is recognised only to discard the message: `src/net/dhcp.c` |
 | [`draft-ietf-suit-manifest-37.txt`](draft-ietf-suit-manifest-37.txt) | A Concise Binary Object Representation (CBOR)-based Serialization Format for the Software Updates for Internet of Things (SUIT) Manifest | draft, **pinned -37**; this copy omits the one example private key in Appendix B, which the repository's secret scan rejects | The subset in `docs/ota/adr-ota-image-format-and-trust.md`: `src/core/suit.c`, `tools/suit-emit/` |
 | [`draft-ietf-suit-mti-23.txt`](draft-ietf-suit-mti-23.txt) | Mandatory-to-Implement Algorithms for Authors and Recipients of SUIT Manifests | draft, **pinned -23** | Authentication half of `suit-sha256-es256-ecdh-a128ctr`: `src/core/suit.c` |
 

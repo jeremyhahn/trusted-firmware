@@ -15,12 +15,18 @@
  *
  * Each part is fed the other's framing exactly as the silicon would take it, so
  * the identity checks are exercised against what the wrong shield really
- * answers. Only socket 0 in TCP mode is modelled, with the reset-default 2 KB
- * buffers. Register offsets are written out here from the datasheets rather
+ * answers. Sockets 0 and 1 are modelled, with the reset-default 2 KB buffers. Register offsets are written out here from the datasheets rather
  * than taken from src/net/w5x00.h: a model that shared the driver's constants
  * would agree with any mistake in them.
  *
- * Not modelled: the other sockets, UDP and MACRAW, interrupts on a pin, PHY
+ * UDP is modelled as far as the DHCP client uses it: OPEN in UDP mode reads
+ * SOCK_UDP and SEND puts the queued bytes on the wire as one datagram, whose
+ * destination the test reads from DIPR and DPORT. A test hands a datagram up
+ * with w5x_model_peer_send() behind the 8-byte header the chip would prepend.
+ * A unicast is answered at ARP unless it goes to the one silent address, when
+ * it raises TIMEOUT and never reaches the wire.
+ *
+ * Not modelled: sockets 2 and up, MACRAW, interrupts on a pin, PHY
  * configuration, retransmission timing. The TCP peer is the test.
  */
 
@@ -46,6 +52,7 @@
 #define S_CR       0x01u
 #define S_IR       0x02u
 #define S_SR       0x03u
+#define S_DIPR     0x0Cu
 #define S_TX_FSR   0x20u
 #define S_TX_RD    0x22u
 #define S_TX_WR    0x24u
@@ -58,14 +65,21 @@
 #define SPACE_TX0    2u
 #define SPACE_RX0    3u
 #define SPACE_NONE   0xFFu
+#define SOCKETS      2u            /* space >> 2 is the socket, as in a block select */
+
+typedef struct {
+    uint8_t  sock[0x30];
+    uint8_t  txbuf[BUF_SIZE];
+    uint8_t  rxbuf[BUF_SIZE];
+    uint16_t rx_wr;               /* where the next byte from the peer lands */
+    uint16_t rsr;                 /* received size, updated on arrival and RECV */
+} sock_t;
 
 static uint8_t  chip;
 static uint8_t  common[0x40];
-static uint8_t  sock[0x30];
-static uint8_t  txbuf[BUF_SIZE];
-static uint8_t  rxbuf[BUF_SIZE];
-static uint16_t rx_wr;            /* where the next byte from the peer lands */
-static uint16_t rsr;              /* received size, updated on arrival and RECV */
+static sock_t   socks[SOCKETS];
+static uint8_t  peer_sn;          /* the socket the test's peer calls act on */
+static uint8_t  arp_silent[4];    /* the one address no host answers ARP for */
 static uint8_t  wire[4096];       /* what SEND put on the wire, not yet read */
 static uint16_t wire_n;
 static uint8_t  sends;
@@ -99,8 +113,14 @@ static void put16(uint8_t *r, uint8_t off, uint16_t v)
 
 static void chip_reset(void)
 {
+    uint8_t n;
+
     memset(common, 0, sizeof common);
-    memset(sock, 0, sizeof sock);
+    for (n = 0u; n < SOCKETS; n++) {
+        memset(socks[n].sock, 0, sizeof socks[n].sock);
+        socks[n].rx_wr = 0u;
+        socks[n].rsr   = 0u;
+    }
     if (chip == W5X_MODEL_W5100) {
         put16(common, C_RTR_5100, rtr_reset);
         common[C_RCR_5100] = rcr_reset;
@@ -111,15 +131,14 @@ static void chip_reset(void)
         common[C_RCR_5500] = rcr_reset;
         common[C_VERSIONR] = 0x04u;
     }
-    rx_wr = 0u;
-    rsr   = 0u;
 }
 
 void w5x_model_reset(uint8_t which)
 {
     chip     = which;
-    memset(txbuf, 0, sizeof txbuf);
-    memset(rxbuf, 0, sizeof rxbuf);
+    memset(socks, 0, sizeof socks);
+    memset(arp_silent, 0, sizeof arp_silent);
+    peer_sn  = 0u;
     memset(pins, 0, sizeof pins);
     wire_n   = 0u;
     sends    = 0u;
@@ -141,64 +160,88 @@ void w5x_model_reset(uint8_t which)
 
 /* ------------------------------------------------------------ the socket */
 
-static void command(uint8_t cr)
+static void command(sock_t *s, uint8_t cr)
 {
     uint16_t p;
+    uint8_t  noarp;
 
     switch (cr) {
     case 0x01u:                               /* OPEN */
-        if ((sock[S_MR] & 0x0Fu) == 0x01u) {
-            sock[S_SR] = 0x13u;               /* INIT */
-            put16(sock, S_TX_RD, seed);
-            put16(sock, S_TX_WR, seed);
-            put16(sock, S_RX_RD, seed);
-            put16(sock, S_RX_WR, seed);
-            rx_wr = seed;
-            rsr   = 0u;
+        if ((s->sock[S_MR] & 0x0Fu) == 0x01u || (s->sock[S_MR] & 0x0Fu) == 0x02u) {
+            /* TCP opens to INIT, UDP to SOCK_UDP */
+            s->sock[S_SR] = (s->sock[S_MR] & 0x0Fu) == 0x01u ? 0x13u : 0x22u;
+            put16(s->sock, S_TX_RD, seed);
+            put16(s->sock, S_TX_WR, seed);
+            put16(s->sock, S_RX_RD, seed);
+            put16(s->sock, S_RX_WR, seed);
+            s->rx_wr = seed;
+            s->rsr   = 0u;
         }
         break;
     case 0x04u:                               /* CONNECT */
-        if (sock[S_SR] == 0x13u) {
-            sock[S_SR] = 0x15u;               /* SYNSENT */
+        if (s->sock[S_SR] == 0x13u) {
+            s->sock[S_SR] = 0x15u;               /* SYNSENT */
         }
         break;
     case 0x08u:                               /* DISCON */
     case 0x10u:                               /* CLOSE */
-        sock[S_SR] = 0x00u;
+        s->sock[S_SR] = 0x00u;
         break;
     case 0x20u:                               /* SEND */
-        if (sock[S_SR] == 0x17u || sock[S_SR] == 0x1Cu) {
-            for (p = get16(sock, S_TX_RD); p != get16(sock, S_TX_WR); p++) {
-                if (wire_n < sizeof wire) {
-                    wire[wire_n++] = txbuf[p & BUF_MASK];
+        if (s->sock[S_SR] == 0x17u || s->sock[S_SR] == 0x1Cu || s->sock[S_SR] == 0x22u) {
+            /* A UDP unicast goes only once its address answers ARP; the
+             * silent one never does, and the chip drops the datagram. */
+            noarp = (uint8_t)(s->sock[S_SR] == 0x22u && arp_silent[0] != 0u &&
+                              memcmp(&s->sock[S_DIPR], arp_silent, 4u) == 0);
+            for (p = get16(s->sock, S_TX_RD); p != get16(s->sock, S_TX_WR); p++) {
+                if (!noarp && wire_n < sizeof wire) {
+                    wire[wire_n++] = s->txbuf[p & BUF_MASK];
                 }
             }
-            put16(sock, S_TX_RD, p);
-            sock[S_IR] |= 0x10u;              /* SEND_OK */
+            put16(s->sock, S_TX_RD, p);
+            s->sock[S_IR] |= noarp ? 0x08u : 0x10u; /* TIMEOUT : SEND_OK */
             sends++;
         }
         break;
     case 0x40u:                               /* RECV */
-        rsr = (uint16_t)(rx_wr - get16(sock, S_RX_RD));
+        s->rsr = (uint16_t)(s->rx_wr - get16(s->sock, S_RX_RD));
         break;
     default:
         break;
     }
 }
 
+/* The socket a space belongs to, with the space folded onto socket 0's
+ * numbers; a space no socket has folds to SPACE_NONE. */
+static sock_t *fold(uint8_t *space)
+{
+    uint8_t n = (uint8_t)(*space >> 2);
+
+    if (*space == SPACE_COMMON) {
+        return &socks[0];
+    }
+    if (n >= SOCKETS || (*space & 3u) == 0u) {
+        *space = SPACE_NONE;
+        return &socks[0];
+    }
+    *space = (uint8_t)(*space & 3u);
+    return &socks[n];
+}
+
 static uint8_t reg_read(uint8_t space, uint16_t off)
 {
+    sock_t  *s = fold(&space);
     uint16_t v;
 
     switch (space) {
     case SPACE_COMMON:
         return off < sizeof common ? common[off] : 0u;
     case SPACE_SOCK0:
-        if (off >= sizeof sock) {
+        if (off >= sizeof s->sock) {
             return 0u;
         }
         if (off == S_TX_FSR || off == S_TX_FSR + 1u) {
-            v = (uint16_t)(BUF_SIZE - (uint16_t)(get16(sock, S_TX_WR) - get16(sock, S_TX_RD)));
+            v = (uint16_t)(BUF_SIZE - (uint16_t)(get16(s->sock, S_TX_WR) - get16(s->sock, S_TX_RD)));
             if (v > tx_cap) {
                 v = tx_cap;
             }
@@ -209,18 +252,18 @@ static uint8_t reg_read(uint8_t space, uint16_t off)
             return off == S_TX_FSR ? (uint8_t)(v >> 8) : (uint8_t)v;
         }
         if (off == S_RX_RSR || off == S_RX_RSR + 1u) {
-            v = rsr_forced ? rsr_forced : rsr;
+            v = rsr_forced ? rsr_forced : s->rsr;
             if (unstable) {
                 flip = (uint8_t)(flip + (off == S_RX_RSR));
                 v = (uint16_t)(v ^ (flip & 1u));
             }
             return off == S_RX_RSR ? (uint8_t)(v >> 8) : (uint8_t)v;
         }
-        return sock[off];
+        return s->sock[off];
     case SPACE_TX0:
-        return txbuf[off & BUF_MASK];
+        return s->txbuf[off & BUF_MASK];
     case SPACE_RX0:
-        return rxbuf[off & BUF_MASK];
+        return s->rxbuf[off & BUF_MASK];
     default:
         return 0u;
     }
@@ -228,6 +271,8 @@ static uint8_t reg_read(uint8_t space, uint16_t off)
 
 static void reg_write(uint8_t space, uint16_t off, uint8_t v)
 {
+    sock_t *s = fold(&space);
+
     switch (space) {
     case SPACE_COMMON:
         if (off == C_MR && (v & 0x80u)) {
@@ -241,23 +286,23 @@ static void reg_write(uint8_t space, uint16_t off, uint8_t v)
     case SPACE_SOCK0:
         if (off == S_CR) {
             if (cr_stuck || (cr_stuck_on != 0u && v == cr_stuck_on)) {
-                sock[S_CR] = v;
+                s->sock[S_CR] = v;
             } else {
-                command(v);
+                command(s, v);
             }
         } else if (off == S_IR) {
-            sock[S_IR] = (uint8_t)(sock[S_IR] & (uint8_t)~v);
+            s->sock[S_IR] = (uint8_t)(s->sock[S_IR] & (uint8_t)~v);
         } else if (off == S_SR || off == S_TX_FSR || off == S_TX_FSR + 1u ||
                    off == S_TX_RD || off == S_TX_RD + 1u ||
                    off == S_RX_RSR || off == S_RX_RSR + 1u ||
-                   off == S_RX_WR || off == S_RX_WR + 1u || off >= sizeof sock) {
+                   off == S_RX_WR || off == S_RX_WR + 1u || off >= sizeof s->sock) {
             return;                           /* read-only */
         } else {
-            sock[off] = v;
+            s->sock[off] = v;
         }
         break;
     case SPACE_TX0:
-        txbuf[off & BUF_MASK] = v;
+        s->txbuf[off & BUF_MASK] = v;
         break;
     default:
         return;                               /* RX is the chip's to write */
@@ -289,6 +334,12 @@ static void w5100_frame(const uint8_t *wr, uint8_t *rd, uint8_t len)
         space = SPACE_TX0;    off = (uint16_t)(addr - 0x4000u);
     } else if (addr >= 0x6000u && addr < 0x6800u) {
         space = SPACE_RX0;    off = (uint16_t)(addr - 0x6000u);
+    } else if (addr >= 0x0500u && addr < 0x0600u) {
+        space = SPACE_SOCK0 + 4u; off = (uint16_t)(addr - 0x0500u);
+    } else if (addr >= 0x4800u && addr < 0x5000u) {
+        space = SPACE_TX0 + 4u;   off = (uint16_t)(addr - 0x4800u);
+    } else if (addr >= 0x6800u && addr < 0x7000u) {
+        space = SPACE_RX0 + 4u;   off = (uint16_t)(addr - 0x6800u);
     }
     if (op == 0xF0u) {
         reg_write(space, off, data);
@@ -316,7 +367,7 @@ static void w5500_frame(const uint8_t *wr, uint8_t *rd, uint8_t len)
         n = fdm[om];
     }
     for (i = 0u; i < n; i++, off++) {
-        uint8_t space = bsb <= SPACE_RX0 ? bsb : SPACE_NONE;
+        uint8_t space = bsb;                  /* reg_read and reg_write fold it */
 
         if (write) {
             reg_write(space, off, wr[3u + i]);
@@ -406,28 +457,33 @@ tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
 
 void w5x_model_peer_accept(void)
 {
-    if (sock[S_SR] == 0x15u) {
-        sock[S_SR] = 0x17u;                   /* ESTABLISHED */
+    sock_t *s = &socks[peer_sn];
+
+    if (s->sock[S_SR] == 0x15u) {
+        s->sock[S_SR] = 0x17u;                   /* ESTABLISHED */
     }
 }
 
 void w5x_model_peer_close(void)
 {
-    if (sock[S_SR] == 0x17u) {
-        sock[S_SR] = 0x1Cu;                   /* CLOSE_WAIT */
+    sock_t *s = &socks[peer_sn];
+
+    if (s->sock[S_SR] == 0x17u) {
+        s->sock[S_SR] = 0x1Cu;                   /* CLOSE_WAIT */
     }
 }
 
 void w5x_model_peer_send(const uint8_t *b, uint16_t n)
 {
+    sock_t  *s = &socks[peer_sn];
     uint16_t i;
 
     for (i = 0u; i < n; i++) {
-        rxbuf[rx_wr & BUF_MASK] = b[i];
-        rx_wr++;
+        s->rxbuf[s->rx_wr & BUF_MASK] = b[i];
+        s->rx_wr++;
     }
-    put16(sock, S_RX_WR, rx_wr);
-    rsr = (uint16_t)(rsr + n);
+    put16(s->sock, S_RX_WR, s->rx_wr);
+    s->rsr = (uint16_t)(s->rsr + n);
 }
 
 uint16_t w5x_model_peer_recv(uint8_t *out, uint16_t cap)
@@ -441,7 +497,7 @@ uint16_t w5x_model_peer_recv(uint8_t *out, uint16_t cap)
 }
 
 uint8_t  w5x_model_sends(void)                 { return sends; }
-void     w5x_model_set_sr(uint8_t sr)          { sock[S_SR] = sr; }
+void     w5x_model_set_sr(uint8_t sr)          { socks[peer_sn].sock[S_SR] = sr; }
 void     w5x_model_cr_stuck(uint8_t on)        { cr_stuck = on; }
 void     w5x_model_cr_stuck_on(uint8_t cr)     { cr_stuck_on = cr; }
 void     w5x_model_size_unstable(uint8_t on)   { unstable = on; }
@@ -450,8 +506,10 @@ void     w5x_model_rsr_reads(uint16_t v)       { rsr_forced = v; }
 void     w5x_model_seed_pointers(uint16_t p)   { seed = p; }
 void     w5x_model_retry_reset(uint16_t rtr, uint8_t rcr) { rtr_reset = rtr; rcr_reset = rcr; }
 uint8_t  w5x_model_common(uint16_t off)        { return off < sizeof common ? common[off] : 0u; }
-uint8_t  w5x_model_sock(uint16_t off)          { return off < sizeof sock ? sock[off] : 0u; }
-uint16_t w5x_model_sock16(uint16_t off)        { return get16(sock, (uint8_t)off); }
+uint8_t  w5x_model_sock(uint16_t off)          { return off < sizeof socks[0].sock ? socks[peer_sn].sock[off] : 0u; }
+uint16_t w5x_model_sock16(uint16_t off)        { return get16(socks[peer_sn].sock, (uint8_t)off); }
+void     w5x_model_socket(uint8_t n)           { peer_sn = n < SOCKETS ? n : 0u; }
+void     w5x_model_arp_silent(const uint8_t *ip) { memcpy(arp_silent, ip, 4u); }
 uint32_t w5x_model_writes(void)                { return writes; }
 uint16_t w5x_model_last_cs_port(void)          { return cs_port; }
 uint8_t  w5x_model_last_cs_bit(void)           { return cs_bit; }

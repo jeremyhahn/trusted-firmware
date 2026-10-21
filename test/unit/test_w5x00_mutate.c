@@ -74,7 +74,8 @@ static const tfw_netcfg_t cfg = {
     { 255u, 255u, 255u, 0u },
     { 192u, 0u, 2u, 1u },
     { 192u, 0u, 2u, 20u },
-    7020u
+    7020u,
+    0u                                         /* static addresses */
 };
 
 static uint32_t rng;

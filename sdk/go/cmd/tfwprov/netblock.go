@@ -15,6 +15,7 @@ import (
 
 // netblockFlags are the --bake-netblock flags as typed.
 type netblockFlags struct {
+	dhcp     bool // lease ip, mask and gateway: none of the three is given
 	mac      string
 	ip       string // a.b.c.d, or a.b.c.d/prefix in place of --mask
 	mask     string
@@ -25,13 +26,16 @@ type netblockFlags struct {
 // any reports whether one of the flags was given, so a mode that does not
 // take them can refuse them rather than ignore them.
 func (f netblockFlags) any() bool {
-	return f.mac != "" || f.ip != "" || f.mask != "" || f.gateway != "" || f.endpoint != ""
+	return f.dhcp || f.mac != "" || f.ip != "" || f.mask != "" || f.gateway != "" || f.endpoint != ""
 }
 
 // netConfig parses the flags into the SDK's NetConfig. The encoding itself is
 // NetConfig.MarshalBinary's, and so are the field checks it makes (unicast
 // MAC, IPv4 only, a non-zero endpoint): this only turns text into addresses.
 func (f netblockFlags) netConfig() (tfw.NetConfig, error) {
+	if f.dhcp {
+		return f.dhcpConfig()
+	}
 	var c tfw.NetConfig
 	for _, r := range []struct{ name, value string }{
 		{"mac", f.mac}, {"ip", f.ip}, {"gateway", f.gateway}, {"endpoint", f.endpoint},
@@ -85,6 +89,32 @@ func (f netblockFlags) netConfig() (tfw.NetConfig, error) {
 	if c.Gateway, err = netip.ParseAddr(f.gateway); err != nil {
 		return c, fmt.Errorf("tfwprov: --gateway: %w", err)
 	}
+	if c.Endpoint, err = netip.ParseAddrPort(f.endpoint); err != nil {
+		return c, fmt.Errorf("tfwprov: --endpoint: %w", err)
+	}
+	return c, nil
+}
+
+// dhcpConfig is the block for --dhcp: the MAC and the endpoint, and no
+// address of its own, which the device leases.
+func (f netblockFlags) dhcpConfig() (tfw.NetConfig, error) {
+	c := tfw.NetConfig{DHCP: true}
+	if f.ip != "" || f.mask != "" || f.gateway != "" {
+		return c, errors.New("tfwprov: --dhcp leases the address, mask and gateway; --ip, --mask and --gateway go without it")
+	}
+	for _, r := range []struct{ name, value string }{{"mac", f.mac}, {"endpoint", f.endpoint}} {
+		if r.value == "" {
+			return c, fmt.Errorf("tfwprov: --bake-netblock requires --%s", r.name)
+		}
+	}
+	mac, err := net.ParseMAC(f.mac)
+	if err != nil {
+		return c, fmt.Errorf("tfwprov: --mac: %w", err)
+	}
+	if len(mac) != 6 {
+		return c, fmt.Errorf("tfwprov: --mac: %d bytes, want 6", len(mac))
+	}
+	c.MAC = mac
 	if c.Endpoint, err = netip.ParseAddrPort(f.endpoint); err != nil {
 		return c, fmt.Errorf("tfwprov: --endpoint: %w", err)
 	}

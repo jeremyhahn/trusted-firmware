@@ -62,6 +62,9 @@ commands
   netcfg set --mac <mac> --ip <addr> --mask <addr> --gateway <addr> --endpoint <addr:port>
                      write the network block an Ethernet build dials with;
                      the SDK refuses a block the device would not use
+  netcfg set --mac <mac> --dhcp --endpoint <addr:port>
+                     the same, with the address, mask and gateway leased by
+                     DHCP (a DHCP=1 build; any other refuses the block)
   netcfg get         read the network block back
   ports              list the serial ports this host can see
 

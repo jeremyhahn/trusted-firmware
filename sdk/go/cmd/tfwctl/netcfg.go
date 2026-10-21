@@ -14,7 +14,7 @@ import (
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
 
-const netcfgUsage = "usage: netcfg set --mac <mac> --ip <addr> --mask <addr> --gateway <addr> --endpoint <addr:port> | netcfg get"
+const netcfgUsage = "usage: netcfg set --mac <mac> (--ip <addr> --mask <addr> --gateway <addr> | --dhcp) --endpoint <addr:port> | netcfg get"
 
 // runNetcfg is `netcfg set` and `netcfg get`: the network block an Ethernet
 // build reads at boot, written and read back over this link.
@@ -59,6 +59,7 @@ func parseNetcfgFlags(args []string) (tfw.NetConfig, error) {
 	mask := fs.String("mask", "", "the subnet mask")
 	gateway := fs.String("gateway", "", "the default gateway")
 	endpoint := fs.String("endpoint", "", "the host:port the device dials")
+	dhcp := fs.Bool("dhcp", false, "lease the address, mask and gateway by DHCP")
 	if err := fs.Parse(args); err != nil {
 		return tfw.NetConfig{}, fmt.Errorf("%s: %v", netcfgUsage, err)
 	}
@@ -67,6 +68,14 @@ func parseNetcfgFlags(args []string) (tfw.NetConfig, error) {
 	}
 
 	var c tfw.NetConfig
+	if *dhcp {
+		if *ip != "" || *mask != "" || *gateway != "" {
+			return tfw.NetConfig{}, fmt.Errorf("--dhcp leases the address, mask and gateway; --ip, --mask and --gateway go without it")
+		}
+		// The block carries no address of its own: 0.0.0.0, as it reads back.
+		z := netip.IPv4Unspecified()
+		c = tfw.NetConfig{DHCP: true, IP: z, Mask: z, Gateway: z}
+	}
 	var err error
 	if *mac != "" {
 		if c.MAC, err = net.ParseMAC(*mac); err != nil {
@@ -99,10 +108,10 @@ func parseNetcfgFlags(args []string) (tfw.NetConfig, error) {
 
 func emitNetcfg(out io.Writer, asJSON bool, c tfw.NetConfig, note string) error {
 	return emit(out, asJSON, map[string]any{
-		"mac": c.MAC.String(), "ip": c.IP.String(), "mask": c.Mask.String(),
+		"dhcp": c.DHCP, "mac": c.MAC.String(), "ip": c.IP.String(), "mask": c.Mask.String(),
 		"gateway": c.Gateway.String(), "endpoint": c.Endpoint.String(),
 	}, func() string {
-		return fmt.Sprintf("%smac      %s\nip       %s\nmask     %s\ngateway  %s\nendpoint %s\n",
-			note, c.MAC, c.IP, c.Mask, c.Gateway, c.Endpoint)
+		return fmt.Sprintf("%sdhcp     %t\nmac      %s\nip       %s\nmask     %s\ngateway  %s\nendpoint %s\n",
+			note, c.DHCP, c.MAC, c.IP, c.Mask, c.Gateway, c.Endpoint)
 	})
 }

@@ -25,6 +25,7 @@ tfw_status_t tfw_netcfg_decode(const uint8_t *raw, tfw_netcfg_t *out)
         (raw[24] | raw[25] | raw[26] | raw[27]) == 0u) {
         return TFW_ERR_NOT_PROVISIONED;
     }
+    out->flags = raw[5];
     for (i = 0u; i < 6u; i++) {
         out->mac[i] = raw[6u + i];
     }

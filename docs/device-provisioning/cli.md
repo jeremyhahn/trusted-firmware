@@ -17,6 +17,7 @@ tfwprov [flags] <port>                                  # --dry-run / --verify /
 tfwprov --bake-eeprom --serial <hex> --out <file> [flags]  # no port, no element
 tfwprov --bake-netblock --mac <mac> --ip <a.b.c.d/n> --gateway <a.b.c.d> \
         --endpoint <a.b.c.d:port> --out <file>             # no port, no element
+tfwprov --bake-netblock --mac <mac> --dhcp --endpoint <a.b.c.d:port> --out <file>
 ```
 
 Exactly one of `--dry-run`, `--verify`, `--commit`, or the bake modes
@@ -46,9 +47,10 @@ exactly one positional argument, the serial port; the bake modes take none.
 | `--mask` | `""` | `--bake-netblock`: the netmask, `a.b.c.d`, contiguous. Refused together with a `/prefix` on `--ip` |
 | `--gateway` | `""` | `--bake-netblock`: the gateway, required; `0.0.0.0` for none |
 | `--endpoint` | `""` | `--bake-netblock`: the host the device connects to, `a.b.c.d:port`; not `0.0.0.0`, not port 0 |
+| `--dhcp` | `false` | `--bake-netblock`: set flags bit 0, so a `DHCP=1` build leases the address, mask and gateway; bytes 12–23 are written zero. Refused beside `--ip`, `--mask` or `--gateway`; `--mac` and `--endpoint` are still required |
 
 A flag of one bake mode given without that mode is refused, never ignored:
-`--serial` without `--bake-eeprom`, or `--mac` without `--bake-netblock`.
+`--serial` without `--bake-eeprom`, or `--mac` or `--dhcp` without `--bake-netblock`.
 
 Every invocation of `--dry-run`/`--verify`/`--commit` first calls `ProvInfo`
 and prints the element's revision, serial, and lock state. This is the same

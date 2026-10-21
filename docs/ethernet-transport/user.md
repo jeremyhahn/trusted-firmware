@@ -47,7 +47,16 @@ tfwctl /dev/ttyACM0 netcfg get
 
 `netcfg get` reads the block back. Every flag is required; a missing or
 malformed value is refused by the SDK with the field it names, and nothing is
-written. The same from Go, using `sdk/go`:
+written. On an image built with `DHCP=1`, `--dhcp` takes the place of `--ip`,
+`--mask` and `--gateway`, and the device leases them; `--dhcp` beside any of
+the three is refused:
+
+```
+tfwctl /dev/ttyACM0 netcfg set --mac 02:00:00:00:00:01 --dhcp \
+    --endpoint 192.0.2.20:7020
+```
+
+The same from Go, using `sdk/go`:
 
 ```go
 err := dev.WriteNetConfig(ctx, tfw.NetConfig{

@@ -38,7 +38,7 @@ Multi-byte values are big-endian (network order) except where noted.
 |---|---|---|
 | 0 | 4 | Magic, the ASCII bytes `TFNC` |
 | 4 | 1 | Version, `1` |
-| 5 | 1 | Flags, `0` (reserved) |
+| 5 | 1 | Flags. Bit 0 (`TFW_NETCFG_DHCP`): take the IP, mask and gateway from a DHCP lease instead of bytes 12–23; an image built without `DHCP=1` keeps the link down. Bits 1–7 reserved, `0`. `sdk/go`'s `NetConfig.DHCP` is bit 0; it writes the reserved bits `0` and ignores them on read |
 | 6 | 6 | MAC address |
 | 12 | 4 | Device IPv4 address |
 | 16 | 4 | Subnet mask |
@@ -73,6 +73,7 @@ func (d *TCPDevice) Close() error
 
 // NetConfig is the device's network block.
 type NetConfig struct {
+    DHCP     bool             // flags bit 0: lease the IP, mask and gateway
     MAC      net.HardwareAddr
     IP       netip.Addr
     Mask     netip.Addr
@@ -114,7 +115,16 @@ func (d *Device) ReadNetConfig(ctx context.Context) (NetConfig, error)
 ```
 
 `tfwctl netcfg set` and `tfwctl netcfg get` are these two calls from the
-command line ([tfwctl reference](../host-sdk/cli.md)).
+command line ([tfwctl reference](../host-sdk/cli.md)). `tfwprov --bake-netblock`
+writes the same block into an `.eep` file
+([tfwprov reference](../device-provisioning/cli.md)).
+
+Both take `--dhcp` in place of `--ip`, `--mask` and `--gateway`. It sets
+`NetConfig.DHCP` (flags bit 0) and writes bytes 12–23 as zero. Either tool
+refuses `--dhcp` with any of `--ip`, `--mask` or `--gateway` beside it, and
+writes nothing; `--mac` and `--endpoint` are still required. `netcfg set` and
+`netcfg get` print the flag as `dhcp`; with `--json` it is the boolean key
+`dhcp`.
 
 `Option`s given to `Listen` apply to every accepted `Device`. The BOOT wait is
 always off for a `TCPDevice`.

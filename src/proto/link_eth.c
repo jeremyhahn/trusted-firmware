@@ -17,6 +17,9 @@
  *              a failure, doubling to 64 s, back to 1 s once connected. A blank
  *              network block, an absent controller or the wrong one keeps the
  *              Ethernet side down and leaves serial exactly as it was.
+ *   Address.   The block's own, or a DHCP lease where its flags ask for one
+ *              (tfw_dhcp_poll, src/net/dhcp.c). Asking keeps the link down;
+ *              a lease that runs out drops the connection and asks again.
  *
  * docs/ethernet-transport/ has the reasons.
  */
@@ -57,14 +60,34 @@ void tfw_link_poll(void)
         if ((int32_t)(now - next_ms) < 0) {
             return;
         }
+        if (tfw_netcfg_load(&cfg) != TFW_OK) {
+            retry_later(now);
+            return;
+        }
+        /* The address: the block's own, or a lease still being asked for,
+         * which keeps the link down and is polled again on the next pass. */
+        st = (uint8_t)tfw_dhcp_poll(&cfg);
+        if (st == TFW_ERR_BUSY) {
+            return;
+        }
         /* A fresh source port each attempt, so the endpoint's TCP never takes
          * a reconnect for the connection it replaces. */
-        if (tfw_netcfg_load(&cfg) == TFW_OK &&
+        if (st == TFW_OK &&
             tfw_eth_start(&cfg, (uint16_t)(PORT_EPHEMERAL + (now & 0x3FFFu))) == TFW_OK) {
             phase = TFW_ETH_BUSY;
         } else {
             retry_later(now);
         }
+        return;
+    }
+
+    /* A lease is renewed beside the connection when it falls due; once it is
+     * lost, drop the connection and ask again now. */
+    if (tfw_dhcp_due() &&
+        (tfw_netcfg_load(&cfg) != TFW_OK || tfw_dhcp_renew(&cfg) != TFW_OK)) {
+        tfw_eth_close();
+        phase   = TFW_ETH_DOWN;
+        next_ms = now;
         return;
     }
 

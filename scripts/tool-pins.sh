@@ -73,6 +73,6 @@ HELD_GOVULNCHECK="the fleet template's pin (ci-template v1.18); the next one com
 
 # trivy: a release archive, checked against these digests (upstream's
 # trivy_<version>_checksums.txt) before it is unpacked.
-TRIVY_VERSION=v0.76.0
-TRIVY_SHA256_LINUX_AMD64=e24b1c51293c1b15e4ba8d45bbc7891ba053f90278ec2698f3562c993e145fe7
-TRIVY_SHA256_LINUX_ARM64=aab21e677a7b7071fc79f1711480840754c18a1b9d9cefa7ccd06af63a0e8f4c
+TRIVY_VERSION=v0.76.1
+TRIVY_SHA256_LINUX_AMD64=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+TRIVY_SHA256_LINUX_ARM64=e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f

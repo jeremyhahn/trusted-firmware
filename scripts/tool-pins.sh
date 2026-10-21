@@ -19,14 +19,17 @@
 # community AVR image. Pinned by the digest of the
 # multi-architecture index; the tag is recorded beside it for a reader.
 BASE_IMAGE=debian:trixie-slim
-BASE_DIGEST=sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+BASE_DIGEST=sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 
-# Go, for sdk/go, xkms/ and test/integration/esp32. 1.27.2 because xkms/
-# requires go-xkms, whose go.mod says `go 1.27.1`; GOTOOLCHAIN=local in the
-# image means it never fetches a newer one.
-GO_VERSION=1.27.2
-GO_SHA256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
-HELD_GO="the CI jobs run in the Infra-built image trusted-firmware-ci:2026-10-16, which ships go 1.27.2; GO_VERSION, GO_SHA256 and GO_IMAGE move together with the next image refresh"
+# Go, for sdk/go, xkms/ and test/integration/esp32. At least 1.27.1 because
+# xkms/ requires go-xkms, whose go.mod says `go 1.27.1`; 1.27.3 because
+# crypto/x509 before it is GO-2026-6809, which govulncheck finds in xkms/.
+# GOTOOLCHAIN=local in the image means it never fetches a newer one, so this
+# pin is the Go every CI stage runs: the image job builds the toolchain image
+# from build/docker/devcontainer/Dockerfile at the PR's commit.
+GO_VERSION=1.27.3
+GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+HELD_GO="GO_VERSION, GO_SHA256 and GO_IMAGE name one Go and move together in one commit; CI builds its toolchain image from these pins at the PR's commit, so a bump is tested by the PR that makes it"
 
 # --- the AVR toolchain: Debian trixie's packages -----------------------------
 # Installed from docker/packages.txt at the base digest above, so the version
@@ -48,7 +51,7 @@ HELD_ESP_IDF="6.x is a major-version port of the ESP32-P4 work (#48, the #16 ADR
 # (go-quicraft 0cf97cd): the tools are static (CGO_ENABLED=0) and copied into
 # the Debian toolchain stage. GO_VERSION above and this tag must name the same
 # Go. Pinned by index digest.
-GO_IMAGE=golang:1.27.2-alpine3.24@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
+GO_IMAGE=golang:1.27.3-alpine3.24@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd
 
 # --- CI tools (devops.md §8) -------------------------------------------------
 # The fleet template's pins (ci-template v1.18, go-quicraft 0cf97cd), built

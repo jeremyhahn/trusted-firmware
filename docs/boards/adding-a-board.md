@@ -245,6 +245,7 @@ make firmware BOARD=<board>                  # size budget + the address asserts
 make firmware BOARD=<board> CRYPTO=atecc608a # if BOARD_TIERS has it: a different image
 make firmware-matrix                         # every board at every tier ITS PROFILE claims
 make board-sweep                             # every board, each against its own profile
+make scripts-test                            # board-check: files, id, registry, budgets, pins
 make reproducible-check BOARD=<board>        # two builds, byte-identical
 ```
 

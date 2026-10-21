@@ -3,12 +3,12 @@
 /*
  * Pulse timing by polling the pin against esp_timer's microsecond count.
  *
- * Polling, as the AVR's implementation does, rather than the RMT peripheral:
- * the contract is "measure one pulse" and "capture these edges", both bounded
- * by a timeout the caller supplies, and a busy poll at the idle priority is
- * preempted by every ESP-IDF task -- so an interval can read long by the
- * length of a preemption. RMT capture is the follow-up that removes that, and
- * the contract does not change for it.
+ * Polling, as the AVR's implementation does: the contract is "measure one
+ * pulse" and "capture these edges", both bounded by a timeout the caller
+ * supplies, and a busy poll at the idle priority is preempted by every ESP-IDF
+ * task -- so an interval can read long by the length of a preemption. A board
+ * that names ESP_PULSE := rmt links hal_pulse_rmt.c instead, which times the
+ * edges on the RMT receiver; this file is the default and the QEMU board's.
  */
 
 #include "driver/gpio.h"

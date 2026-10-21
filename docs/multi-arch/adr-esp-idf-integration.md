@@ -272,8 +272,16 @@ is on; two builds of one commit gave the same image digest.
    `TFWV_SYSINFO_PANIC_REPLY` in `testdata/vectors.h` and its Go mirror.
 7. **Boot geometry beyond 16-bit pages** (#11 follow-on). The OTA page and its
    counters were sized for 256-byte AVR pages; a 4 KB sector and multi-megabyte
-   slots want wider fields before the OTA session is ported.
-8. **Pulse capture with RMT** instead of polling `esp_timer`.
+   slots want wider fields before the OTA session is ported. **Done (#48):**
+   `esp_ota` owns the slot writes, so the AVR page and counter widths never
+   reach the P4's flash, and the wire's `OTA_BEGIN` size and `OTA_DATA` offset
+   are u32, which addresses a 6 MB slot with no wire change
+   ([`esp32-p4-design.md`](esp32-p4-design.md) §2.3, "Geometry").
+8. **Pulse capture with RMT** instead of polling `esp_timer`. **Done (#48):**
+   `src/hal/esp32/hal_pulse_rmt.c` on ESP-IDF's RMT RX driver, chosen by
+   `ESP_PULSE := rmt` in the P4 board's `profile.mk`; the QEMU board keeps
+   `hal_pulse.c`'s poll. Unit test `test_esp_pulse_rmt`; on silicon, the bench
+   ([`esp32-p4-design.md`](esp32-p4-design.md) §3, slice 6a).
 9. **A static address from the board configuration**, for networks without
    DHCP. **Done (#48):** `CONFIG_TFW_ETH_STATIC_IP` and its address, mask and
    gateway in `mk/arch/esp32/main/Kconfig.projbuild`, applied in

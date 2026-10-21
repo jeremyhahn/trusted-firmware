@@ -154,6 +154,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_provision_uds.c \
+                            test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
+                            test/unit/test_esp_hal_eeprom.c \
                             test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
@@ -722,7 +724,43 @@ $(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_STAGE_LIB_SRCS) \
                            $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0 -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
+# The ESP32 pulse timing on the RMT receiver (#48, ADR follow-up 8):
+# src/hal/esp32/hal_pulse_rmt.c over a mock RMT driver and clock
+# (test/mock/esp_rmt_mock.c). src/hal/esp32 goes first so tfw/hal.h takes that
+# port's pin type, not the host's.
+$(HOST_DIR)/test_esp_pulse_rmt: test/unit/test_esp_pulse_rmt.c src/hal/esp32/hal_pulse_rmt.c \
+                                test/mock/esp_rmt_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 hmac-p256 provider (#48, row esp32-p4): src/hal/esp32/
+# crypto_hmac_p256.c over the suite's HMAC peripheral, eFuse purpose lookup and
+# RNG (headers in test/mock/esp32/), with the real handoff layer 0 feeds, and
+# the DeviceID and signature pinned to test_deviceid_p256's literals.
+$(HOST_DIR)/test_esp_crypto_hmac_p256: test/unit/test_esp_crypto_hmac_p256.c \
+                                       src/hal/esp32/crypto_hmac_p256.c src/crypto/deviceid_p256.c \
+                                       src/crypto/sha256.c src/core/handoff.c src/core/handoff_seed_none.c \
+                                       src/core/secure_zero.c boot/boot_handoff.c \
+                                       src/proto/crc16.c src/proto/crc16_update.c \
+                                       $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The P4's C6 hold (#48, row esp32-p4): src/hal/esp32/hal_board.c over the
+# suite's gpio driver (test/mock/esp32/driver/gpio.h). boards/esp32p4-poe goes
+# first so config.h takes that board's profile, the one naming the C6 enable,
+# not the host board's.
+$(HOST_DIR)/test_esp_board: test/unit/test_esp_board.c src/hal/esp32/hal_board.c \
+                            $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/esp32p4-poe -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 EEPROM capability and platform block (#48, row esp32-p4):
+# src/hal/esp32/hal_eeprom.c over the suite's NOR flash partitions
+# (test/mock/esp32/esp_partition.h), against the esp32p4-poe profile's
+# TFW_EEPROM_SIZE.
+$(HOST_DIR)/test_esp_hal_eeprom: test/unit/test_esp_hal_eeprom.c src/hal/esp32/hal_eeprom.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/esp32p4-poe -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \

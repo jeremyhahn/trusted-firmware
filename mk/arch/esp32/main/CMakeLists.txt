@@ -15,7 +15,7 @@
 #   TFW_DEFS       the feature -D flags FW_CFLAGS carries (mk/firmware.mk)
 
 set(tfw_requires
-    app_update bootloader_support driver efuse esp_adc esp_eth esp_event esp_hw_support
+    app_update bootloader_support driver efuse esp_adc esp_driver_rmt esp_eth esp_event esp_hw_support
     esp_netif esp_partition esp_security esp_system esp_timer freertos log
     lwip mbedtls)
 

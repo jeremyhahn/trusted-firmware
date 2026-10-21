@@ -21,6 +21,9 @@ CRYPTO       ?= hmac-p256
 # not fit the P4 bootloader's iram_loader_seg.
 ESP_L0_VERIFY := p256-rom
 
+# Pulse timing on the RMT receiver, not the poll (mk/arch/esp32.mk).
+ESP_PULSE := rmt
+
 # The factory state, read 2026-10-17 before the project's first write
 # (docs/development/bench/esp32-p4.md); `make board-restore` writes it back.
 FACTORY_FLASH_BYTES  := 33554432

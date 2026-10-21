@@ -95,6 +95,18 @@ ARCH_CRYPTO_SRCS_hmac-p256  := src/crypto/sha256.c src/crypto/deviceid_p256.c \
 ARCH_HAL_OPTIONAL           := src/hal/esp32/crypto_hmac_p256.c src/hal/esp32/prov_uds.c \
                                $(ARCH_OTA_SRCS)
 
+# Pulse timing (PULSE_IN, PULSE_CAPTURE), one file of two, named by the board:
+# `rmt` times edges on the RMT receiver (src/hal/esp32/hal_pulse_rmt.c, ADR
+# follow-up 8), `poll` reads the pin against esp_timer (hal_pulse.c). The RMT
+# file receives in partial mode, which needs RX ping-pong: the classic esp32
+# has none. The QEMU board keeps the poll its suite already runs; the RMT
+# file's own test is the host's (test/unit/test_esp_pulse_rmt.c).
+ESP_PULSE ?= poll
+ARCH_PULSE_SRCS_poll := src/hal/esp32/hal_pulse.c
+ARCH_PULSE_SRCS_rmt  := src/hal/esp32/hal_pulse_rmt.c
+ARCH_HAL_OPTIONAL    += $(ARCH_PULSE_SRCS_poll) $(ARCH_PULSE_SRCS_rmt)
+ARCH_EXTRA_SRCS      += $(ARCH_PULSE_SRCS_$(ESP_PULSE))
+
 # Its PROVISION=1 jig image: the wire of src/caps/provision.c over the eFuse
 # UDS backend, which draws the UDS from the part's noise source and burns it
 # into the HMAC_UP key block (docs/multi-arch/esp32-p4-design.md section 2.4).

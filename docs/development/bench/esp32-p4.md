@@ -347,6 +347,61 @@ host's own network namespace, where its `ip -br addr`, `ip route` and
 neighbour table show the board's network and the board, or the board's
 address and the bench network's netmask handed to the lane.
 
+**2026-10-21, steps 1 to 5: positive; the board is restored.**
+`ESP_PORT=/dev/ttyACM1`, esptool / espefuse v5.6.0 (pip, in a venv outside the
+repository), on branch `test/p4-hil0-net` at `7868ca31`. Writes were the one
+erase region and the four images of step 3, then the restore; no `espefuse`
+command other than `summary` was run, and no eFuse was written. The static-address
+overlay held the board's address on the bench's own network block (a /24 with
+no gateway); this page writes the documentation address `192.0.2.24` in its
+place. The lane ran
+in a container on the bench host's default bridge, whose outbound TCP and ICMP
+to that block is forwarded (Infrastructure, #171). The outputs are kept in the
+bench host's record directory for the run, not in this tree.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `esptool --port $ESP_PORT chip-id` | `Chip type: ESP32-P4 (revision v3.2)`; byte-identical to 2026-10-18's, `6eea01f4be669e42ab8d3a0ef40a7babd73b225f1fc6aa007d54d27987226324` |
+| 1 | `esptool --port $ESP_PORT flash-id` | `Manufacturer: c8`, `Device: 4019`, `Detected flash size: 32MB`; byte-identical, `4c4b0c1416a28bbfcb7b2723ec7c0204ecec96ecdbbc33f4f3cafd3ddc84b805` |
+| 1 | `espefuse --port $ESP_PORT summary` | byte-identical to 2026-10-18's, `279d40b49e4969fabe75b9ce01c34f1771b36099ec3bbf8c73affc4f9a62831d`, so every row of "Security eFuses" is unchanged |
+| 1 | `esptool --port $ESP_PORT -b 921600 read-flash 0 ALL p4-flash-before.bin` | `Read 33554432 bytes from 0x00000000 in 504.9 seconds (531.6 kbit/s)` |
+| 1 | `sha256sum p4-flash-before.bin` | `c2d4ac0f25246b053d4d25f62580578a5f2b2a37002f7cda7a9d3a548702fde0`, equal to the record's; kept as the restore image |
+| 2 | ESP-IDF `v5.5.5` from Espressif's tag, `install.sh esp32p4`, then `idf_tools.py install cmake ninja` | `idf.py --version`: `ESP-IDF v5.5.5`; `cmake version 3.30.2`, ninja `1.12.1`. The lane image's Python has no `ensurepip`, so `python3 -m venv` fails, for the esptool venv and for `install.sh`'s own; each was made `--without-pip` and given pip with `python3 -m pip --python <venv>/bin/python install pip`, after which `install.sh` completed |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA="boards/esp32p4-poe/sdkconfig.hil0 $HOME/p4-static.defaults"` | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y`, `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y`, `CONFIG_TFW_ETH_STATIC_IP=y`, `CONFIG_TFW_ETH_IP_ADDR="192.0.2.24"`, `CONFIG_TFW_ETH_NETMASK="255.255.255.0"`, `CONFIG_TFW_ETH_GATEWAY` the Kconfig default `"192.0.2.1"` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT erase-region 0x12000 0x5000` | `Flash memory region erased successfully in 0.1 seconds.` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT write-flash 0x2000 … 0x10000 … 0x11000 tfw_plat.bin 0x20000 trusted-firmware.bin` | `Wrote 33168 bytes … at 0x00002000`, `Wrote 3072 bytes … at 0x00010000`, `Wrote 192 bytes … at 0x00011000`, `Wrote 532480 bytes … at 0x00020000`; `Hash of data verified.` after each |
+| 4 | console, UART0 at 115200 for 40 s after one reset | `boot: ESP-IDF v5.5.5 2nd stage bootloader`, `chip revision: v3.2`, `SPI Flash Size : 32MB`, the seven-partition table from `0x11000`; `tfw-l0: app at 0x20000 verified, measurement 99398ff53f7f97b845ebfa2921adb2e36f7bb8a02d32a6bdb031082f5a34cba3`; `tfw-l0: no HMAC_UP key in eFuse: this part has no UDS`; `boot: Loaded app from partition at offset 0x20000`; `App version: 7868ca31`; `eth ip: 192.0.2.24, mask: 255.255.255.0, gw: 192.0.2.1`; `tfw-eth: link up, address 192.0.2.24, wire on tcp/21574`, the overlay's address, so PHY address 1 is confirmed |
+| 4 | `ping -c 3 192.0.2.24` | the lane image has no `ping`; the same three ICMP echoes were sent from the container through an unprivileged ICMP socket (`ping_group_range` admits the lane's group): `3 packets transmitted, 3 received`, 1.61, 0.68 and 0.47 ms |
+| 4 | `build/esp32/wirecheck -addr 192.0.2.24:21574 -board 0x80 -tier 0` | `ping echoed over tcp`; `caps proto 2.0 fw 0.1.0 board 0x80 pins 17 tier 0 features 0x000007ff`; `sysinfo uptime 55.284s free-ram 538172 reset-cause 1`; `none tier: no P-256 in CAPS, ATTEST refused (unsupported)`; `wirecheck: ok`, exit 0 |
+| 5 | `make board-restore BOARD=esp32p4-poe ESP_PORT=$ESP_PORT BOARD_RESTORE_IMAGE=<record dir>/p4-flash-before.bin` | `Wrote 33554432 bytes (5135340 compressed) at 0x00000000 in 517.4 seconds`, `Hash of data verified.`; `board-restore: esp32p4-poe has its factory flash image back, SHA-256 c2d4ac0f…fde0` |
+| 5 | `esptool --port $ESP_PORT -b 921600 read-flash 0 ALL p4-flash-after.bin` | `Read 33554432 bytes from 0x00000000 in 506.7 seconds (529.7 kbit/s)` |
+| 5 | `sha256sum p4-flash-after.bin` | `c2d4ac0f25246b053d4d25f62580578a5f2b2a37002f7cda7a9d3a548702fde0`, equal to the record's |
+| 5 | `espefuse --port $ESP_PORT summary` | `279d40b49e4969fabe75b9ce01c34f1771b36099ec3bbf8c73affc4f9a62831d`, byte-identical to step 1's and to the record's: no eFuse moved |
+
+The build's artefacts, as written in step 3. The keys are generated per build
+directory and never committed, so these differ from 2026-10-19's for all but
+the partition table, and the static-address overlay moves the app too.
+
+| Artefact | Bytes | SHA-256 |
+|---|---|---|
+| `idf/bootloader/bootloader.bin` | 33 168 | `2855d8b9d794cb95c73b1edeee892d4d8c183f017b6c9396c977da15c445e038` |
+| `idf/partition_table/partition-table.bin` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `tfw_plat.bin` | 192 | `fe843dc8d4442695591264bbad42f13f4ad42b41a6ab9713bcf3525839ef426b` |
+| `trusted-firmware.bin` (sealed) | 532 480 | `b30e1c47258cc8c7f7bac0fd90ea91ac09aecb45dbd2d8b79faddc2cf8e93cd2` |
+| `idf/trusted-firmware.bin` (no trailer, not written) | 528 384 | `1992ae0b739366dcf9997979fbb466c62ad9fd1a8bbe0e956cb50158b8436f11` |
+
+The restore:
+
+| | SHA-256 |
+|---|---|
+| The record (`FACTORY_FLASH_SHA256`) | `c2d4ac0f25246b053d4d25f62580578a5f2b2a37002f7cda7a9d3a548702fde0` |
+| `p4-flash-before.bin`, the image restored | `c2d4ac0f25246b053d4d25f62580578a5f2b2a37002f7cda7a9d3a548702fde0` |
+| `p4-flash-after.bin` | `c2d4ac0f25246b053d4d25f62580578a5f2b2a37002f7cda7a9d3a548702fde0` |
+| `espefuse summary`, step 1 and step 5 | `279d40b49e4969fabe75b9ce01c34f1771b36099ec3bbf8c73affc4f9a62831d` |
+
+Nothing blocked a step. Not checked by these five steps: the C6 held in
+reset, which step 4 does not observe.
+
 ## Restore
 
 ```sh

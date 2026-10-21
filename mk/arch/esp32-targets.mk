@@ -54,6 +54,10 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 	   echo "esp32-build: $(BOARD) runs on $(ESP_TARGETS), not ESP_TARGET=$(ESP_TARGET)"; exit 1; fi
 	@case "$(ESP_L0_VERIFY)" in p256-rom|p256-soft) ;; \
 	   *) echo "esp32-build: $(BOARD) sets ESP_L0_VERIFY '$(ESP_L0_VERIFY)', not p256-rom or p256-soft"; exit 1;; esac
+	@case "$(ESP_PULSE)" in poll|rmt) ;; \
+	   *) echo "esp32-build: $(BOARD) sets ESP_PULSE '$(ESP_PULSE)', not poll or rmt"; exit 1;; esac
+	@if [ "$(ESP_PULSE)" = rmt ] && [ "$(ESP_TARGET)" = esp32 ]; then \
+	   echo "esp32-build: ESP_PULSE=rmt needs RX ping-pong, which the esp32 has not; it polls"; exit 1; fi
 	@if [ -n "$(ESP_ANTI_ROLLBACK)" ] && [ "$(ESP_IMAGE_VERSION)" -gt $(ESP_SEC_VER_MAX) ]; then \
 	   echo "esp32-build: ESP_IMAGE_VERSION $(ESP_IMAGE_VERSION) is past the $(ESP_TARGET)'s $(ESP_SEC_VER_MAX)-bit secure-version eFuse"; exit 1; fi
 	@if [ "$(PROVISION)" = 1 ] && [ -z "$(ARCH_PROV_SRCS_$(CRYPTO))" ]; then \

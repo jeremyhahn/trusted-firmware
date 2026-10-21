@@ -1,6 +1,6 @@
 # Reference: the standards this repository implements
 
-> **Status: REFERENCE** · Scope: `docs/reference/` · Last verified: 2026-10-18
+> **Status: REFERENCE** · Scope: `docs/reference/` · Last verified: 2026-10-20
 > One entry per standard the code implements, with the copy it is implemented against.
 
 Handbook `software/conventions/documentation.md` §9: where a standard exists,
@@ -61,3 +61,22 @@ by title and URL, because none publishes a licence that allows a copy.
 |---|---|---|---|
 | Waveshare, *ESP32-P4-WIFI6-POE-ETH Schematic* (3 pages; SHA-256 `885b8f038881c6656486fea143bcf749f17c6a1ec9006cc693dcdb298018380b`) | 2026-10-18 | <https://files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf> | Every pin and the flash part of `boards/esp32p4-poe/`: [`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md), "Pins" |
 | Waveshare, *ESP32-P4-NANO Schematic* | 2026-10-18 | <https://files.waveshare.com/wiki/ESP32-P4-NANO/ESP32-P4-NANO-schematic.pdf> | Ruled out as the bench board: its flash is 16 MB |
+
+## Cortex-M sources
+
+Not standards: the vendor documents the Cortex-M ADRs (#14, #15) are checked
+against. Listed by title, revision and URL, not copied: no licence review has
+cleared a copy into this repository. A revision is a release tag or a full commit.
+
+| Document | Revision | URL | Checked against it |
+|---|---|---|---|
+| Trusted Firmware-M, *TF-M builtin keys* | v2.3.1 | <https://trustedfirmware-m.readthedocs.io/en/tf-mv2.3.1/design_docs/tfm_builtin_keys.html> | The HUK as a derivation key, "Multi-partition key derivation": [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md), "Where the DICE root lives, per part" |
+| Nordic, nRF Connect SDK, *KMU and CRACEN overview* (`doc/nrf/app_dev/device_guides/kmu_guides/kmu_cracen_overview.rst`) | sdk-nrf `94c7193d404ccb023e4b2f09a595149de681028e` | <https://github.com/nrfconnect/sdk-nrf/blob/94c7193d404ccb023e4b2f09a595149de681028e/doc/nrf/app_dev/device_guides/kmu_guides/kmu_cracen_overview.rst> | The nRF54L15 seed, the IKG and its identity key, "CRACEN Isolated Key Generator": the same section of #15 |
+| Nordic, nRF Connect SDK, *nRF54L memory protection* (`doc/nrf/app_dev/bootloaders_dfu/mcuboot_nsib/bootloader_nrf54l_memory_protection.rst`) | sdk-nrf `94c7193d404ccb023e4b2f09a595149de681028e` | <https://github.com/nrfconnect/sdk-nrf/blob/94c7193d404ccb023e4b2f09a595149de681028e/doc/nrf/app_dev/bootloaders_dfu/mcuboot_nsib/bootloader_nrf54l_memory_protection.rst> | The immutable boot region, "At reset (before bootloader software runs)" and "At NSIB hand-off": the same section of #15 |
+| ST, STM32CubeH5, *ROT_Provisioning STiROT* (`Projects/STM32H573I-DK/ROT_Provisioning/STiROT/README.md`) | `bac48badf93cb496f6445afba956082490d3f543` | <https://github.com/STMicroelectronics/STM32CubeH5/blob/bac48badf93cb496f6445afba956082490d3f543/Projects/STM32H573I-DK/ROT_Provisioning/STiROT/README.md> | STiRoT's two services: the same section of #15 |
+| ST, STM32CubeH5, *OEMiROT_Boot* (`Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Boot/README.md`) | `bac48badf93cb496f6445afba956082490d3f543` | <https://github.com/STMicroelectronics/STM32CubeH5/blob/bac48badf93cb496f6445afba956082490d3f543/Projects/STM32H573I-DK/Applications/ROT/OEMiROT_Boot/README.md> | OEMiRoT on MCUboot, keys in OBKeys: the same section of #15 |
+| QEMU, `hw/arm/mps2-tz.c` | v10.0.0 | <https://gitlab.com/qemu-project/qemu/-/blob/v10.0.0/hw/arm/mps2-tz.c> | `mps2-an505` has no key store or one-time memory: the same section of #15; the CI target, #14 decision 3 |
+
+ST's RM0481, the STM32H563/H573 reference manual, could not be retrieved on
+2026-10-20, so every H573 fact that needs it is marked "to confirm" (#15 question
+13; [`../multi-arch/adr-stm32h573i-dk-onboarding.md`](../multi-arch/adr-stm32h573i-dk-onboarding.md)).

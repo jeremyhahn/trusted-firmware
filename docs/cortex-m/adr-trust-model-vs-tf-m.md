@@ -4,18 +4,27 @@
 > Cortex-M secure world and boot chain); go-xkms and go-quicbaas (what they must
 > accept, seam only) · Related: #14,
 > [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) ·
-> Last verified: 2026-10-18
+> Last verified: 2026-10-20
 >
 > Nothing here is implemented, and nothing is decided until the owner accepts it.
 > This ADR changes no code, no wire vector and no SPEC row.
+
+## Changes on 2026-10-20
+
+| Part of this ADR | What changed |
+|---|---|
+| The parts in view, the Recommendation | corrected with #14 decision 1. The 2026-10-18 revision made the Cortex-M33 the reference part and the i.MX 95 M7 a board of the port. CA m623 does not say that, and the SPEC row `cortex-m` still names the M7 as the reference part and the STM32H5 as the second target. The M33 recommendation, (b1), is unchanged; only the order of the parts is restored. Which part is the reference is #14's open question 1 |
+| Where the DICE root lives, per part | new: the UDS, the layer-0 engine, the lock before hand-off and the DeviceID key on each part, cited to the vendor document and section that was read, with what is still open |
+| Open questions | new: 13, the DICE root on the two M33 bench boards |
 
 ## Changes on 2026-10-18 (owner, CA m623)
 
 The owner ruled on 2026-10-18 (CA m623, 12:35Z) that #14 and this ADR are no
 longer gated, and that both are decided against the Cortex-M parts on the bench
 host: the STM32H573I-DK and the nRF54L15-DK, both Cortex-M33 with TrustZone-M.
-The i.MX 95 M7 is a board of the port (#49), not its reference part, and the CI
-target is QEMU `mps2-an505`. #14 carries the same ruling.
+The CI target is QEMU `mps2-an505`. #14 carries the same ruling. This revision
+also made the i.MX 95 M7 a board of the port rather than its reference part,
+which the ruling does not say; that is corrected above (2026-10-20).
 
 | Part of this ADR | What changed |
 |---|---|
@@ -25,7 +34,7 @@ target is QEMU `mps2-an505`. #14 carries the same ruling.
 | PSA interfaces | new: Attestation, Crypto and Firmware Update are implemented where they are the standard, and nothing is designed in their place (L2). The Firmware Update API is cited as the title page has it, 1.0 issue 1 |
 | Recommendation | the M33 first, in #14's new order; the M7 second |
 | Open questions | reordered: the M33 questions first, two new (3 and 11), the i.MX 95 M7 last (12) |
-| F1 | TF-M v2.3.1 has no platform for `mps2-an505`; the footprint is measured on the reference board's build |
+| F1 | TF-M v2.3.1 has no platform for `mps2-an505`; the footprint is measured on the STM32H573I-DK's build |
 
 ## The question
 
@@ -81,9 +90,12 @@ L2 say.
   in either is reported, not worked around.
 - **The parts in view** (SPEC rows, and #14,
   [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md),
-  after CA m623).
-  - The reference part is the Cortex-M33 with TrustZone-M. The STM32H573I-DK is
-    the reference board and the nRF54L15-DK the second (#14 decision 1).
+  after CA m623, corrected 2026-10-20).
+  - The reference part is the i.MX 95's Cortex-M7, as the SPEC row `cortex-m`
+    has it. The core HAL is checked against the two Cortex-M33 bench boards, the
+    STM32H573I-DK (row `stm32h5`, the second target) and the nRF54L15-DK (#14
+    decision 1). Making the M33 the reference part instead is #14's open
+    question 1 (b).
   - The CI target is QEMU `mps2-an505`, a Cortex-M33 with TrustZone-M, and its
     image runs in the Secure state alone until this ADR is accepted (#14
     decision 3 and its question 2).
@@ -185,15 +197,47 @@ checked against those pinned pages.
 
 | Board | Core | Secure world | Where it sits | What is ours |
 |---|---|---|---|---|
-| STM32H573I-DK (reference board) | M33, TrustZone-M | ST's Secure Manager, or upstream TF-M (open question 2) | the Secure state of the same core | an Application RoT partition and the non-secure firmware |
-| nRF54L15-DK (second board) | M33, TrustZone-M | Nordic's TF-M from its SDK; keys in the KMU | the Secure state of the same core | the same partition and non-secure firmware |
+| STM32H573I-DK (second target, row `stm32h5`) | M33, TrustZone-M | ST's Secure Manager, or upstream TF-M (open question 2) | the Secure state of the same core | an Application RoT partition and the non-secure firmware |
+| nRF54L15-DK (bench board) | M33, TrustZone-M | Nordic's TF-M from its SDK; keys in the KMU | the Secure state of the same core | the same partition and non-secure firmware |
 | QEMU `mps2-an505` (CI) | M33, TrustZone-M | none until this ADR is accepted; TF-M v2.3.1 has no platform for it (open question 11) | the whole image runs Secure (#14 question 2) | the whole image |
-| i.MX 95 M7 (board of the port, #49) | M7, no TrustZone | none on the core; the ELE holds the keys, AHAB verifies, the System Manager on the M33 sets domain access | off the core: the ELE and the M33, both NXP's, configured by trusted-imx95 | the privileged layer, the SVC gate and the unprivileged firmware (option (c)) |
+| i.MX 95 M7 (reference part, #49) | M7, no TrustZone | none on the core; the ELE holds the keys, AHAB verifies, the System Manager on the M33 sets domain access | off the core: the ELE and the M33, both NXP's, configured by trusted-imx95 | the privileged layer, the SVC gate and the unprivileged firmware (option (c)) |
 
 On both bench boards the secure world is on the same core as our firmware, one
 state boundary away, so the question is who writes the Secure image. On the
 i.MX 95 there is no Secure state on the M7 at all, and the root of trust is on
 other silicon that NXP owns.
+
+## Where the DICE root lives, per part
+
+The DICE root is three things: a Unique Device Secret (UDS) that only the DICE
+engine can read, an immutable engine that derives the layer-0 CDI from it and a
+measurement of the next layer, and a lock that hides the UDS before that layer
+runs (*TCG Hardware Requirements for a DICE*, Revision 78, §5; listed, not
+copied, in [`../reference/README.md`](../reference/README.md)). On AVR the CDI is
+form (2) of §5, HMAC(UDS, H(code)), in `boot/tier/cdi_soft.c` and
+`boot/tier/cdi_atecc.c`. Each Cortex-M part below keeps that form or names what
+replaces it. The vendor documents are listed by title, revision and URL in
+[`../reference/README.md`](../reference/README.md), "Cortex-M sources".
+
+| Part | UDS | Layer-0 engine | Lock before hand-off | DeviceID key | Open |
+|---|---|---|---|---|---|
+| i.MX 95 M7 (reference part) | inside the ELE; no M7 code reads it. The ELE holds the keys and AHAB verifies the M7 image (RM00284 Rev. 4.5, as in question 12) | the Boot ROM and the ELE, NXP's. tfw-boot does not run (#14 decision 8) | the ELE boundary: the secret never leaves the enclave, so no lock is ours | an ELE key, or a key derived in the ELE from the measured M7 image | whether the ELE derives a key bound to the M7's measurement (a CDI) is in IMX95SRM, not read: question 12 |
+| STM32H573I-DK (row `stm32h5`) | not named in any ST document read. STiRoT and OEMiRoT keep their keys in the OBKeys area (STM32CubeH5, `OEMiROT_Boot/README.md`, directory contents, `keys_map.c`). Whether the part has a hardware unique key that only Secure code before HDP can use is in RM0481, not retrieved | STiRoT, ST's immutable root, which offers secure boot and secure firmware update (STM32CubeH5, `ROT_Provisioning/STiROT/README.md`, description); or an OEMiRoT of ours on MCUboot and mbed-crypto, full Secure (`OEMiROT_Boot/README.md`, description). Neither readme names DICE | HDP, the hide-protection area, and the TrustZone boundary: RM0481, to confirm | the Secure Manager's attestation key, a key in our partition ((b1)), or a key in our own secure world ((a)) | which of these is the UDS and the engine: the STM32H573I-DK onboarding ADR's questions 2 and 3, and question 13 here |
+| nRF54L15-DK | a 384-bit seed in the KMU, provisioned or generated at first boot by the CRACEN RNG. Only the KMU can push it to CRACEN's seed register, and the CPU and software never see it (sdk-nrf, `kmu_cracen_overview.rst`, "CRACEN Isolated Key Generator") | the immutable boot region: UICR BOOTCONF makes the RRAM controller apply it before any code runs, and writes to it are blocked except by a full chip erase (sdk-nrf, `bootloader_nrf54l_memory_protection.rst`, "At reset (before bootloader software runs)"). The NSIB, or a layer 0 of ours, sits in it | the region can be made no longer readable, writable or executable at NSIB hand-off (same document, "At NSIB hand-off"). The IKG keys are not retained and are regenerated at each CRACEN power cycle ("CRACEN Isolated Key Generator") | the IKG derives three keys from the seed, used through PSA Crypto builtin key ids; under TF-M the identity key is the Initial Attestation Key ("CRACEN Isolated Key Generator") | whether the IKG identity key is the DeviceID, or a CDI over the seed and the next layer's measurement is: question 13 |
+| QEMU `mps2-an505` (CI) | none: the machine is RAM only, with no key store and no one-time memory (QEMU 10.0.0, `hw/arm/mps2-tz.c`) | none; the whole image runs Secure (#14 decision 3) | none | none until this ADR is accepted; a soft root for tests only, never a DeviceID | whether CI carries a TF-M build at all: question 11 |
+
+On every M33 part the HUK, if TF-M owns the secure world, is a builtin key for
+derivation "by any secure partition or NS caller that requires keys that are
+bound to a particular context", and no partition may derive another's key (TF-M
+v2.3.1, *TF-M builtin keys*, "Multi-partition key derivation"). That is the (b1)
+DeviceID's derivation above, not a UDS: the HUK stays usable by every secure
+partition after boot (the same section), so a CDI over it is not TCG DICE layer 0 unless an immutable
+layer derives it first.
+
+What does not change on any part: the device signs only the three fixed
+structures, the alias certificate carries `tcg-dice-UCCS-evidence` (*TCG DICE
+Attestation Architecture*, Revision 23, §6.1.4), and the certificate profile and
+its verification are go-xkms's.
 
 ## What TF-M owns, and what this project owns
 
@@ -504,8 +548,12 @@ commands. Until then the M7 image runs the `none` and `soft` crypto tiers.
 
 ## Recommendation
 
-In #14's order after CA m623: the Cortex-M33 with TrustZone-M first, on the
-reference board; the i.MX 95's M7 as a board of the port.
+One model per core, whichever part #14's open question 1 makes the reference:
+the Cortex-M33 with TrustZone-M on the two bench boards, and the i.MX 95's M7,
+the reference part in the SPEC row `cortex-m`. The M33 comes first below because
+both bench boards are M33s and its questions are the ones the next slice meets
+(corrected 2026-10-20; the 2026-10-18 revision ordered them as reference and
+board of the port).
 
 - **Cortex-M33: (b1), TF-M Profile Medium with our attestation code as an
   Application RoT secure partition**, on the STM32H573I-DK and the nRF54L15-DK.
@@ -672,12 +720,22 @@ extends without renumbering:
         secondary-offset fuse, whether software can force a one-time secondary
         boot, and whether the ROM boots the enabled eMMC partition;
       - from IMX95RM: whether the M7 can reach an ELE messaging unit.
+13. **The DICE root on the M33 parts** ("Where the DICE root lives, per part").
+    - nRF54L15-DK: is the DeviceID the CRACEN IKG identity key, which TF-M
+      already uses as the Initial Attestation Key, or is a layer-0 CDI derived in
+      the immutable boot region from the KMU seed and the next layer's
+      measurement, with the region closed at hand-off? The first is Nordic's
+      design; the second is TCG DICE form (2), as on AVR.
+    - STM32H573I-DK: which secret is the UDS, and is the engine STiRoT or an
+      OEMiRoT of ours under HDP? RM0481 was not retrieved; a lane that can fetch
+      it answers the facts, the owner the choice (the onboarding ADR's questions
+      2 and 3 are the same question).
 
 ## Follow-ups
 
 - **F1.** Measure the footprint of TF-M v2.3.1 at Profile Medium with BL2, and
-  of a stub partition, from a build for the STM32H573I-DK, the reference board
-  and an upstream TF-M platform; the linker map needs no board. TF-M v2.3.1 has
+  of a stub partition, from a build for the STM32H573I-DK, the `stm32h5` row's
+  board and an upstream TF-M platform; the linker map needs no board. TF-M v2.3.1 has
   no platform for QEMU `mps2-an505`
   (<https://www.qemu.org/docs/master/system/arm/mps2.html>), so the emulator
   carries the measurement only if open question 11 is answered yes. Measure the

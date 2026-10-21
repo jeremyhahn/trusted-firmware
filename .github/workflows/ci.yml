@@ -519,19 +519,32 @@ jobs:
       # (`make -s it-image`, v1.23) and builds only when the daemon lacks it,
       # with the toolchain image as its cache, so only its source layers build.
       # The legs start on `built`, set once all three images are on hand.
+      # CUSTOMIZE (trusted-firmware, DS-3166): a docs-only PR runs `make lint`
+      # alone here, which needs only the toolchain image (cppcheck), so it
+      # builds no esp32 or integration image and never writes `built`: the
+      # four legs skip, and the gate reads them as `docs`. A failed `changes`
+      # job leaves DOCS_ONLY empty, which reads as not docs-only.
       - name: Build the devcontainer images
         id: images
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: |
           ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
             for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
               if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
             done )
-          make docker-images MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          make docker-build-it MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_IMAGE="$IT_IMAGE"
+          if [ "$DOCS_ONLY" = true ]; then # CUSTOMIZE (trusted-firmware, DS-3166)
+            make docker-image-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          else
+            make docker-images MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+            make docker-build-it MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_IMAGE="$IT_IMAGE"
+          fi
           rm -f "$RUNNER_TEMP/gomodauth.env"
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV" # CUSTOMIZE: the esp32 stages
-          echo "built=true" >> "$GITHUB_OUTPUT" # CUSTOMIZE: the legs' start
+          if [ "$DOCS_ONLY" != true ]; then # CUSTOMIZE (trusted-firmware, DS-3166)
+            echo "built=true" >> "$GITHUB_OUTPUT" # CUSTOMIZE: the legs' start
+          fi
 
       # v1.23: a lease on the integration image (from a Codex review). A
       # reused image can be older than REAP_IMAGE_MIN_AGE, so its age alone
@@ -540,7 +553,11 @@ jobs:
       # because `docker image rm` refuses an image a container uses. Tear down
       # removes the lease; one a dead job leaves behind is a stale container,
       # which the reap step removes after the job timeout like any other.
+      # CUSTOMIZE (trusted-firmware, DS-3166): a docs-only PR builds no
+      # integration image, so it takes no lease; Tear down's `docker rm` is
+      # then a no-op on the empty IT_LEASE.
       - name: Lease the integration image
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: |
           if docker image inspect "$IT_IMAGE" >/dev/null 2>&1; then
             lease="${CI_STACK_PREFIX}lease-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
@@ -599,7 +616,7 @@ jobs:
       # run in the test stage and the integration job. The network fetches the
       # modules the image's cache does not carry.
       - name: Build and vet every Go module
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         env:
           IN_IMAGE_NETWORK: bridge
           MODULES_SCRIPT: |
@@ -636,7 +653,7 @@ jobs:
       # left out: its dependencies go-xkms (argon2, 386) and go-qrdb
       # (pkg/discovery, windows) do not build there, which is theirs to fix.
       - name: Cross-architecture build and vet
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         env:
           IN_IMAGE_NETWORK: bridge
           CROSS_ARCH_SCRIPT: |
@@ -671,17 +688,17 @@ jobs:
       # then the suite that boots both: a signed image answers across a reset,
       # a tampered one and another key's stay silent.
       - name: make firmware BOARD=mps2-an505 (toolchain image)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=mps2-an505 CRYPTO=soft
 
       - name: make bootloader BOARD=mps2-an505 (toolchain image)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: >-
           scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make bootloader BOARD=mps2-an505
           BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
 
       - name: make integration-test-cortex-m (toolchain image)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make integration-test-cortex-m
 
       # CUSTOMIZE (trusted-firmware, owner m751 (d)): the test stage, sdk/go

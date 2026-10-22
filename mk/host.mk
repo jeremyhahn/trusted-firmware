@@ -1397,8 +1397,8 @@ $(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optig
 
 # The OPTIGA Trust M command layer (row optiga-trust-m): optiga_cmd.c alone,
 # the transport faked in the suite at the APDU, so each command's bytes are
-# the manual's table. No firmware tier links it. It stays in TEST_SRCS; this
-# explicit rule takes the place of the pattern rule.
+# the manual's table. CRYPTO=optiga links it (mk/firmware.mk). It stays in
+# TEST_SRCS; this explicit rule takes the place of the pattern rule.
 $(HOST_DIR)/test_optiga_cmd: test/unit/test_optiga_cmd.c src/crypto/optiga/optiga_cmd.c \
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
@@ -1409,6 +1409,16 @@ $(HOST_DIR)/test_optiga_cmd: test/unit/test_optiga_cmd.c src/crypto/optiga/optig
 $(HOST_DIR)/test_optiga_cmd_i2c: test/unit/test_optiga_cmd_i2c.c src/crypto/optiga/optiga_cmd.c \
                                  src/crypto/optiga/optiga_i2c.c \
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The crypto tier on the real command layer, the transport faked in the suite.
+# CRYPTO=optiga links it, a tier only the 2560's measurement rows build
+# (mk/firmware.mk); there is no tfwsim for it, the mock HAL's bus answering no
+# OPTIGA. It stays in TEST_SRCS; this explicit rule takes the place of the
+# pattern rule.
+$(HOST_DIR)/test_optiga_crypto: test/unit/test_optiga_crypto.c src/crypto/optiga/optiga_crypto.c \
+                                src/crypto/optiga/optiga_cmd.c src/crypto/sha256.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
 
 # I2C_XFER on a build whose object list carries the OPTIGA transport: bus.c

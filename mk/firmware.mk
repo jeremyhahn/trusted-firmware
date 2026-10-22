@@ -263,6 +263,36 @@ else
 AUTH_SRCS   := src/core/auth_session.c $(if $(filter auto,$(CRYPTO)),src/core/auth_session_auto.c)
 AUTH_DEFS   := -DTFW_FEATURE_AUTH_SESSION=1
 endif
+else ifeq ($(CRYPTO),optiga)
+# THE OPTIGA TRUST M TIER (row optiga-trust-m,
+# docs/multi-arch/adr-optiga-trust-m-onboarding.md): the I2C transport, the
+# read-only command layer and the provider over them, with the shared software
+# SHA-256. No board's BOARD_TIERS names it -- which boards it fits is the ADR's
+# open question 5 -- so only a measurement row in a profile's BOARD_ROWS builds
+# it. One provider is linked, so nothing is renamed: CRYPTO_RENAME is auto's.
+CRYPTO_SRCS := src/crypto/sha256.c src/crypto/optiga/optiga_i2c.c src/crypto/optiga/optiga_cmd.c \
+               src/crypto/optiga/optiga_crypto.c
+# No alias certificate: its builder names the element's public key, which this
+# provider cannot read (pubkey is TFW_ERR_UNSUPPORTED; the key is in the factory
+# certificate, and X.509 is go-xkms's). The auth session is the element tier's,
+# with the same profile knob: it needs only random, SHA-256 and verify_operator,
+# which is VerifySign here, and the operator key from the platform block.
+ALIAS_SRCS  :=
+ALIAS_DEFS  :=
+ifeq ($(call feature_off,AUTH_SESSION),1)
+AUTH_SRCS   := src/core/auth_session_none.c
+AUTH_DEFS   :=
+else
+AUTH_SRCS   := src/core/auth_session.c
+AUTH_DEFS   := -DTFW_FEATURE_AUTH_SESSION=1
+endif
+# No provisioning image: every PROV_* backend writes the element, and the ADR's
+# onboarding rule 6 forbids any write to it until the owner rules (question 4).
+# OTA_INFO's floor is the platform block's (ota_floor_eeprom.c, as on soft):
+# the element's monotonic counters are read, never incremented, on this tier.
+ifeq ($(PROVISION),1)
+$(error PROVISION=1 has no backend on CRYPTO=optiga -- provisioning writes the element, which the OPTIGA ADR forbids until the owner rules)
+endif
 else ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_TIERS)),)
 # A tier the ARCHITECTURE provides, because its provider drives that
 # architecture's own key hardware -- the ESP32's HMAC peripheral, say.
@@ -275,7 +305,7 @@ ALIAS_DEFS  :=
 AUTH_SRCS   := src/core/auth_session_none.c
 AUTH_DEFS   :=
 else
-$(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft, atecc608a or auto$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
+$(error unknown CRYPTO tier "$(CRYPTO)" -- expected none, soft, atecc608a, auto or optiga$(if $(ARCH_CRYPTO_TIERS), or $(ARCH_CRYPTO_TIERS) on $(ARCH)))
 endif
 
 # The SUIT manifest reader and activation gate (issue #78), by FILE SELECTION:
@@ -427,6 +457,8 @@ endif
 #   CRYPTO=atecc608a the element holds the UDS and signs; DICE-HW
 #   CRYPTO=auto      both, the element when one answers at init, else soft:
 #                    one branch per entry in src/crypto/auto/provider.c
+#   CRYPTO=optiga    the OPTIGA Trust M signs, counts and verifies; a
+#                    measurement row only, no board's tier (ADR question 5)
 FW_SRCS := $(sort \
   src/main.c \
   src/proto/crc16.c src/proto/frame.c src/proto/transport.c $(LINK_SRCS) \

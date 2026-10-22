@@ -3,7 +3,7 @@
 /*
  * The OPTIGA Trust M command layer over the real IFX I2C transport (row
  * optiga-trust-m): the Infineon device certificate, data object 0xE0E0
- * (Solution Reference Manual Rev 3.60, Table 68), read as the bus carries it.
+ * (Solution Reference Manual Rev 3.70, Table 68), read as the bus carries it.
  *
  * tfw_hal_i2c_xfer is faked as in test_optiga_i2c.c, with room for a frame of
  * the full 64-byte DATA register. The frames are literals, worked out apart

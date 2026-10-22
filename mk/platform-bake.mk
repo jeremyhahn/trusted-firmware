@@ -108,7 +108,9 @@ platform-bake-srcs:
 # bake image's own list must hold what the check looks for -- a pattern that
 # matched nothing anywhere would pass and have checked nothing. And no source an
 # application compiles may name the bake image's symbols. A board's extra rows
-# (BOARD_ROWS) vary only ETH, which this sweep covers on every tier already.
+# (BOARD_ROWS) are checked as they are built, with their own settings: most
+# vary only ETH, but the 2560's optiga rows are a tier no board names, and that
+# tier has no PROVISION=1 image to check.
 platform-bake-no-link-check:
 	@own=$$($(MAKE) -s --no-print-directory platform-bake-srcs BOARD=atmega328p); \
 	 for p in $(PLATBAKE_SRC_DIR)/main.c $(PLATBAKE_SRC_DIR)/bake.c gen/block.c; do \
@@ -117,9 +119,10 @@ platform-bake-no-link-check:
 	 done; \
 	 fail=0; n=0; \
 	 while read -r b t x; do \
-	   [ -z "$$x" ] || continue; \
 	   chip=$$($(MAKE) -s --no-print-directory board-eth-chip BOARD=$$b); \
-	   for v in "PROVISION=0 ETH=0" "PROVISION=1 ETH=0" $${chip:+"PROVISION=0 ETH=1" "PROVISION=1 ETH=1"}; do \
+	   vs=("PROVISION=0 ETH=0" "PROVISION=1 ETH=0" $${chip:+"PROVISION=0 ETH=1" "PROVISION=1 ETH=1"}); \
+	   [ -z "$$x" ] || vs=("$$x"); \
+	   for v in "$${vs[@]}"; do \
 	     srcs=$$($(MAKE) -s --no-print-directory firmware-srcs BOARD=$$b CRYPTO=$$t $$v) || { \
 	       echo "platform-bake-no-link-check: could not list $$b $$t $$v"; fail=1; continue; }; \
 	     [ -n "$$srcs" ] || { echo "platform-bake-no-link-check: $$b $$t $$v listed nothing"; fail=1; continue; }; \

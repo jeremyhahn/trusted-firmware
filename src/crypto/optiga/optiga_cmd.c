@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * OPTIGA Trust M command layer: OpenApplication, CloseApplication,
- * GetDataObject and GetRandom, and nothing that writes. Section and table
- * numbers are the Solution Reference Manual's, Revision 3.60; see
+ * GetDataObject, GetRandom, CalcSign and VerifySign, and nothing that writes. Section and table
+ * numbers are the Solution Reference Manual's, Revision 3.70; see
  * optiga_cmd.h.
  */
 #include "optiga_cmd.h"
@@ -11,8 +11,9 @@
 #include <string.h>
 #include "optiga_i2c.h"
 
-/* The response buffer: the header and the largest OutData asked for. */
-static uint8_t rsp[TFW_OPTIGA_APDU_HEADER + TFW_OPTIGA_READ_CHUNK];
+/* The response buffer: the header and the largest OutData asked for, a DER
+ * signature (TFW_OPTIGA_SIG_DER_MAX, more than TFW_OPTIGA_READ_CHUNK). */
+static uint8_t rsp[TFW_OPTIGA_APDU_HEADER + TFW_OPTIGA_SIG_DER_MAX];
 
 /*
  * The last error code read (Table 73, "Last error code"): GetDataObject of
@@ -112,6 +113,8 @@ tfw_status_t tfw_optiga_error_status(uint8_t code)
         return TFW_ERR_BAD_STATE;
     case 0x2Fu:  /* Authorization failure */
         return TFW_ERR_AUTH_REQUIRED;
+    case 0x2Cu:  /* Signature verification failure: what verify_operator promises */
+        return TFW_ERR_CRYPTO;
     default:     /* 0x06 Internal process error, the rest, and unlisted codes */
         return TFW_ERR_CRYPTO;
     }
@@ -314,4 +317,159 @@ tfw_status_t tfw_optiga_get_random(uint8_t *out, uint8_t n)
     }
     memcpy(out, &rsp[TFW_OPTIGA_APDU_HEADER], n);
     return TFW_OK;
+}
+
+/* One DER INTEGER at der[*at]: tag 0x02, a short-form length of 1 to 33, and
+ * a minimal non-negative value, right-aligned into out[32]. */
+static tfw_status_t der_integer(const uint8_t *der, uint16_t len, uint16_t *at,
+                                uint8_t out[TFW_OPTIGA_ECC_P256_LEN])
+{
+    const uint16_t i = *at;
+    uint8_t        n;
+    const uint8_t *v;
+
+    if ((uint16_t)(len - i) < 2u || der[i] != 0x02u) {
+        return TFW_ERR_FRAMING;
+    }
+    n = der[i + 1u];
+    if (n == 0u || n > TFW_OPTIGA_ECC_P256_LEN + 1u || n > (uint16_t)(len - i - 2u)) {
+        return TFW_ERR_FRAMING;
+    }
+    v = &der[i + 2u];
+    if (v[0] & 0x80u) {
+        return TFW_ERR_FRAMING;  /* negative */
+    }
+    if (n > 1u && v[0] == 0x00u && !(v[1] & 0x80u)) {
+        return TFW_ERR_FRAMING;  /* a zero byte the value does not need */
+    }
+    if (n == TFW_OPTIGA_ECC_P256_LEN + 1u) {
+        if (v[0] != 0x00u) {
+            return TFW_ERR_FRAMING;  /* wider than 32 bytes */
+        }
+        v++;                     /* the sign byte of a value with its top bit set */
+        n--;
+    }
+    memset(out, 0, TFW_OPTIGA_ECC_P256_LEN - n);
+    memcpy(&out[TFW_OPTIGA_ECC_P256_LEN - n], v, n);
+    *at = (uint16_t)(v - der + n);
+    return TFW_OK;
+}
+
+tfw_status_t tfw_optiga_ecdsa_der_to_raw(const uint8_t *der, uint16_t len,
+                                         uint8_t sig[64])
+{
+    uint8_t      rs[2u * TFW_OPTIGA_ECC_P256_LEN];
+    uint16_t     at = 0u;
+    tfw_status_t st = der_integer(der, len, &at, rs);
+
+    if (st == TFW_OK) {
+        st = der_integer(der, len, &at, &rs[TFW_OPTIGA_ECC_P256_LEN]);
+    }
+    if (st == TFW_OK && at != len) {
+        st = TFW_ERR_FRAMING;    /* bytes after s */
+    }
+    if (st == TFW_OK) {
+        memcpy(sig, rs, sizeof rs);
+    }
+    return st;
+}
+
+tfw_status_t tfw_optiga_calc_sign(const uint8_t digest[TFW_OPTIGA_DIGEST_LEN],
+                                  uint8_t sig[64])
+{
+    uint8_t      q[TFW_OPTIGA_APDU_HEADER + 3u + TFW_OPTIGA_DIGEST_LEN + 5u];
+    uint8_t     *d = &q[TFW_OPTIGA_APDU_HEADER];
+    uint16_t     olen = 0u;
+    tfw_status_t st;
+
+    q[0] = TFW_OPTIGA_CMD_CALC_SIGN | TFW_OPTIGA_CMD_FLUSH;
+    q[1] = TFW_OPTIGA_SIGN_ECDSA;
+    put16(&q[2], (uint16_t)(sizeof q - TFW_OPTIGA_APDU_HEADER));
+    d[0] = TFW_OPTIGA_TAG_DIGEST;
+    put16(&d[1], TFW_OPTIGA_DIGEST_LEN);
+    memcpy(&d[3], digest, TFW_OPTIGA_DIGEST_LEN);
+    d += 3u + TFW_OPTIGA_DIGEST_LEN;
+    d[0] = TFW_OPTIGA_TAG_KEY_OID;
+    put16(&d[1], 2u);
+    put16(&d[3], TFW_OPTIGA_OID_DEVICE_KEY);
+    st = command(q, (uint16_t)sizeof q, &olen);
+    if (st != TFW_OK) {
+        return st;
+    }
+    return tfw_optiga_ecdsa_der_to_raw(&rsp[TFW_OPTIGA_APDU_HEADER], olen, sig);
+}
+
+/* The 32-byte big-endian value `v` as one DER INTEGER at `d`, minimally
+ * encoded and non-negative (X.690 §8.3; §6.2.3's note): its leading zero
+ * bytes dropped, but one kept for zero, and a 0x00 put in front of a first
+ * byte above 0x7F. Returns the length written, 3 to 35. */
+static uint8_t der_put_integer(uint8_t *d, const uint8_t v[TFW_OPTIGA_ECC_P256_LEN])
+{
+    uint8_t i = 0u;
+    uint8_t n;
+    uint8_t lead;
+
+    while (i < TFW_OPTIGA_ECC_P256_LEN - 1u && v[i] == 0x00u) {
+        i++;
+    }
+    n    = (uint8_t)(TFW_OPTIGA_ECC_P256_LEN - i);
+    lead = (uint8_t)((v[i] & 0x80u) ? 1u : 0u);
+    d[0] = 0x02u;
+    d[1] = (uint8_t)(n + lead);
+    d[2] = 0x00u;
+    memcpy(&d[2u + lead], &v[i], n);
+    return (uint8_t)(2u + lead + n);
+}
+
+tfw_status_t tfw_optiga_verify_sign(const uint8_t digest[TFW_OPTIGA_DIGEST_LEN],
+                                    const uint8_t sig[64],
+                                    const uint8_t pubkey[64])
+{
+    /* On the CALLER's stack, not file-static, for the reason
+     * tfw_atecc_verify_external stages its 136-byte command there (atecc.h,
+     * TFW_ATECC_MAX_DATA): a static request costs every optiga image 187 bytes
+     * of the RAM the size gate counts, for the one command only the auth
+     * session's gate calls, and on the element tier that permanent cost blew
+     * the ATmega2560's RAM budget by itself. On the stack it is paid only
+     * while this call runs, 51 bytes deeper than the element tier's own
+     * Verify on the same path; the transport below it frames out of its own
+     * static buffer, so nothing larger stacks on top. */
+    uint8_t      q[TFW_OPTIGA_APDU_HEADER + 3u + TFW_OPTIGA_DIGEST_LEN
+                   + 3u + TFW_OPTIGA_SIG_DER_MAX + 4u + 3u + TFW_OPTIGA_PUBKEY_DER_LEN];
+    uint8_t     *d = &q[TFW_OPTIGA_APDU_HEADER];
+    uint8_t      n;
+    uint16_t     qlen;
+    uint16_t     olen = 0u;
+    tfw_status_t st;
+
+    q[0] = TFW_OPTIGA_CMD_VERIFY_SIGN | TFW_OPTIGA_CMD_FLUSH;
+    q[1] = TFW_OPTIGA_SIGN_ECDSA;
+    d[0] = TFW_OPTIGA_TAG_DIGEST;
+    put16(&d[1], TFW_OPTIGA_DIGEST_LEN);
+    memcpy(&d[3], digest, TFW_OPTIGA_DIGEST_LEN);
+    d += 3u + TFW_OPTIGA_DIGEST_LEN;
+    d[0] = TFW_OPTIGA_TAG_SIGNATURE;
+    n = der_put_integer(&d[3], sig);
+    n = (uint8_t)(n + der_put_integer(&d[3u + n], &sig[TFW_OPTIGA_ECC_P256_LEN]));
+    put16(&d[1], n);
+    d += 3u + n;
+    d[0] = TFW_OPTIGA_TAG_ALGORITHM;
+    put16(&d[1], 1u);
+    d[3] = TFW_OPTIGA_ALG_ECC_P256;
+    d += 4u;
+    d[0] = TFW_OPTIGA_TAG_PUBKEY;
+    put16(&d[1], TFW_OPTIGA_PUBKEY_DER_LEN);
+    d[3] = 0x03u;                                   /* BIT STRING */
+    d[4] = (uint8_t)(TFW_OPTIGA_PUBKEY_DER_LEN - 2u);
+    d[5] = 0x00u;                                   /* no unused bits */
+    d[6] = 0x04u;                                   /* uncompressed point */
+    memcpy(&d[7], pubkey, 2u * TFW_OPTIGA_ECC_P256_LEN);
+    d += 3u + TFW_OPTIGA_PUBKEY_DER_LEN;
+    qlen = (uint16_t)(d - q);
+    put16(&q[2], (uint16_t)(qlen - TFW_OPTIGA_APDU_HEADER));
+    st = command(q, qlen, &olen);
+    if (st == TFW_OK && olen != 0u) {
+        return TFW_ERR_FRAMING;  /* OutLen 0x0000, OutData absent (Table 52) */
+    }
+    return st;
 }

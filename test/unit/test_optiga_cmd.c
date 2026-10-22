@@ -7,15 +7,16 @@
  * tfw_optiga_transceive is faked here: each exchange the suite scripts holds
  * the command APDU the layer must send, byte for byte, and the response the
  * element gives. The command bytes are the Solution Reference Manual's tables
- * (Revision 3.60; §4.4.1.1 Table 40, §4.4.1.2 Table 41, §4.4.1.3 Table 42,
- * §4.4.1.6 Table 45), the identifier its Table 78 and the error codes its
- * Table 39. The manual's one worked example, §6.1 Figure 35 (5 bytes of the
+ * (Revision 3.70; §4.4.1.1 Table 40, §4.4.1.2 Table 41, §4.4.1.3 Table 42,
+ * §4.4.1.6 Table 45, §4.4.1.12 Table 51 and §4.4.1.13 Table 52 with Table
+ * 62's ECDSA and Table 57's P-256), the
+ * identifier its Table 78 and the error codes its Table 39. The manual's one worked example, §6.1 Figure 35 (5 bytes of the
  * coprocessor UID from offset 2), is a figure with no text in the pinned PDF,
  * so its request is written here from Table 42 as the figure's caption
  * describes it.
  *
- * Every Cmd the layer sends, in every test, is checked against the four
- * read-only commands: the fake fails the test on any other code, so no path
+ * Every Cmd the layer sends, in every test, is checked against the six
+ * commands that write no object: the fake fails the test on any other code, so no path
  * the suite drives emits SetDataObject (0x02), SetObjectProtected (0x03) or
  * any key, counter, lifecycle or binding command.
  */
@@ -53,6 +54,8 @@ static const uint8_t allowed[][2] = {
     { 0x81u, 0x01u },  /* GetDataObject, metadata */
     { 0x01u, 0x00u },  /* GetDataObject of the last error code, no flush */
     { 0x8Cu, 0x00u },  /* GetRandom, TRNG */
+    { 0xB1u, 0x11u },  /* CalcSign, ECDSA */
+    { 0xB2u, 0x11u },  /* VerifySign, ECDSA */
 };
 
 tfw_status_t tfw_optiga_transceive(const uint8_t *apdu, uint16_t alen,
@@ -358,7 +361,7 @@ static void test_an_over_long_response(void)
         0x20,
     };
     static const uint8_t open1[] = { 0x00, 0x00, 0x00, 0x01, 0x00 };
-    static uint8_t       huge[4u + 65u];
+    static uint8_t       huge[4u + 71u];  /* past the 70-byte DER signature */
     static const exchange_t s1[] = { EX(Q_UID, extra) };
     static const exchange_t s2[] = { EX(Q_UID, six) };
     static const exchange_t s3[] = { EX(Q_RANDOM, rnd33) };
@@ -617,11 +620,349 @@ static void test_read_object_stops_at_the_first_failure(void)
     TEST_ASSERT_EQUAL_UINT16(0xFFFFu, len);
 }
 
+/* CalcSign, Table 51: ECDSA (Table 62, 0x11) over a 32-byte digest (tag
+ * 0x01) with the key at 0xE0F0 (tag 0x03); the signature comes back as two
+ * DER INTEGERs, r then s, with no SEQUENCE around them (note 64). */
+static const uint8_t DIGEST[32] = {
+    0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+    0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+};
+static const uint8_t Q_SIGN[] = {
+    0xB1, 0x11, 0x00, 0x28,
+    0x01, 0x00, 0x20,
+    0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+    0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+    0x03, 0x00, 0x02, 0xE0, 0xF0,
+};
+static uint8_t a_sig[4u + 72u];
+
+/* One DER INTEGER of n value bytes counting up from first, behind a sign
+ * byte 0x00 when lead is set. */
+static uint16_t der_int(uint8_t *a, uint8_t n, int lead, uint8_t first)
+{
+    uint16_t i = 2u;
+    uint8_t  k;
+
+    a[0] = 0x02u;
+    a[1] = (uint8_t)(n + (lead ? 1u : 0u));
+    if (lead) {
+        a[i++] = 0x00u;
+    }
+    for (k = 0u; k < n; k++) {
+        a[i++] = (uint8_t)(first + k);
+    }
+    return i;
+}
+
+/* A CalcSign response in a_sig holding r then s; returns its length. */
+static uint16_t sig_rsp(uint8_t rn, int rlead, uint8_t rfirst, uint8_t sn, int slead, uint8_t sfirst)
+{
+    uint16_t n = 4u;
+
+    n = (uint16_t)(n + der_int(&a_sig[n], rn, rlead, rfirst));
+    n = (uint16_t)(n + der_int(&a_sig[n], sn, slead, sfirst));
+    a_sig[0] = 0x00u;
+    a_sig[1] = 0x00u;
+    a_sig[2] = 0x00u;
+    a_sig[3] = (uint8_t)(n - 4u);
+    return n;
+}
+
+static void sign_through(uint16_t n, tfw_status_t want)
+{
+    const exchange_t s[] = { { Q_SIGN, (uint16_t)sizeof Q_SIGN, a_sig, n, TFW_OK } };
+
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(want, tfw_optiga_calc_sign(DIGEST, out));
+    played();
+}
+
+static void test_calc_sign_sends_table_51_with_the_device_key(void)
+{
+    uint8_t i;
+
+    sign_through(sig_rsp(32u, 0, 0x01u, 32u, 0, 0x21u), TFW_OK);
+    TEST_ASSERT_EQUAL_HEX8(0x44u, a_sig[3]);
+    for (i = 0u; i < 64u; i++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0x01u + i), out[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, out[64]);
+}
+
+static void test_calc_sign_drops_the_sign_byte_of_r_and_s(void)
+{
+    uint8_t i;
+
+    /* 70 bytes, the longest signature: both values have their top bit set. */
+    sign_through(sig_rsp(32u, 1, 0x80u, 32u, 1, 0xC0u), TFW_OK);
+    TEST_ASSERT_EQUAL_HEX8(0x46u, a_sig[3]);
+    for (i = 0u; i < 32u; i++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0x80u + i), out[i]);
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xC0u + i), out[32u + i]);
+    }
+}
+
+static void test_calc_sign_pads_short_r_and_s_on_the_left(void)
+{
+    static const uint8_t r80[] = { 0x02, 0x02, 0x00, 0x80, 0x02, 0x01, 0x01 };
+    uint8_t              i;
+
+    sign_through(sig_rsp(31u, 0, 0x60u, 1u, 0, 0x05u), TFW_OK);
+    TEST_ASSERT_EQUAL_HEX8(0x00u, out[0]);
+    for (i = 0u; i < 31u; i++) {
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0x60u + i), out[1u + i]);
+    }
+    for (i = 32u; i < 63u; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00u, out[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX8(0x05u, out[63]);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_optiga_ecdsa_der_to_raw(r80, sizeof r80, out));
+    TEST_ASSERT_EQUAL_HEX8(0x00u, out[30]);
+    TEST_ASSERT_EQUAL_HEX8(0x80u, out[31]);
+    TEST_ASSERT_EQUAL_HEX8(0x01u, out[63]);
+}
+
+static void test_der_signature_that_is_not_two_p256_integers_is_framing(void)
+{
+    static const uint8_t tag[]   = { 0x03, 0x01, 0x05, 0x02, 0x01, 0x06 };
+    static const uint8_t stag[]  = { 0x02, 0x01, 0x05, 0x30, 0x01, 0x06 };
+    static const uint8_t zero[]  = { 0x02, 0x00, 0x02, 0x01, 0x06 };
+    static const uint8_t neg[]   = { 0x02, 0x01, 0x80, 0x02, 0x01, 0x06 };
+    static const uint8_t pad[]   = { 0x02, 0x02, 0x00, 0x05, 0x02, 0x01, 0x06 };
+    static const uint8_t past[]  = { 0x02, 0x05, 0x05, 0x02, 0x01, 0x06 };
+    static const uint8_t trail[] = { 0x02, 0x01, 0x05, 0x02, 0x01, 0x06, 0x00 };
+    static const uint8_t no_s[]  = { 0x02, 0x01, 0x05 };
+    static const uint8_t no_l[]  = { 0x02, 0x01, 0x05, 0x02 };
+    static uint8_t       wide[4u + 72u];
+    uint16_t             n;
+
+    memset(out, 0xA5, sizeof out);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(tag, sizeof tag, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(stag, sizeof stag, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(zero, sizeof zero, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(neg, sizeof neg, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(pad, sizeof pad, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(past, sizeof past, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(trail, sizeof trail, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(no_s, sizeof no_s, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(no_l, sizeof no_l, out));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(no_s, 0u, out));
+    /* 33 bytes whose first is not the sign byte, then 34: wider than P-256. */
+    n = der_int(wide, 33u, 0, 0x01u);
+    n = (uint16_t)(n + der_int(&wide[n], 1u, 0, 0x06u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(wide, n, out));
+    n = der_int(wide, 33u, 1, 0x80u);
+    n = (uint16_t)(n + der_int(&wide[n], 1u, 0, 0x06u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_ecdsa_der_to_raw(wide, n, out));
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, out[63]);
+}
+
+/* Each DER length byte, and OutLen, one up or one down, fails. */
+static void test_calc_sign_any_length_off_by_one_fails(void)
+{
+    static const uint8_t pos[] = { 3u, 5u, 39u };  /* OutLen, r's length, s's length */
+    uint16_t             n;
+    unsigned             i;
+    int                  d;
+
+    for (i = 0u; i < sizeof pos; i++) {
+        for (d = -1; d <= 1; d += 2) {
+            n = sig_rsp(32u, 0, 0x01u, 32u, 0, 0x21u);
+            a_sig[pos[i]] = (uint8_t)(a_sig[pos[i]] + d);
+            sign_through(n, TFW_ERR_FRAMING);
+        }
+    }
+    for (i = 0u; i < 2u; i++) {
+        for (d = -1; d <= 1; d += 2) {
+            n = sig_rsp(32u, 1, 0x80u, 32u, 1, 0xC0u);
+            a_sig[i == 0u ? 5u : 40u] = (uint8_t)(a_sig[i == 0u ? 5u : 40u] + d);
+            sign_through(n, TFW_ERR_FRAMING);
+        }
+    }
+}
+
+static void test_calc_sign_errors(void)
+{
+    static const uint8_t    e7[]   = { 0x00, 0x00, 0x00, 0x01, 0x07 };
+    static const uint8_t    hdr3[] = { 0x00, 0x00, 0x00 };
+    static const uint8_t    sta1[] = { 0x01, 0x00, 0x00, 0x00 };
+    static const exchange_t s1[]   = { EX(Q_SIGN, A_FAIL), EX(Q_LASTERR, e7) };
+    static const exchange_t s2[]   = { EX(Q_SIGN, hdr3) };
+    static const exchange_t s3[]   = { EX(Q_SIGN, sta1) };
+    static const exchange_t s4[]   = { EX(Q_SIGN, A_EMPTY) };
+    static const exchange_t s5[]   = { EX_ST(Q_SIGN, TFW_ERR_TIMEOUT) };
+    uint16_t                n;
+
+    PLAY(s1);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION, tfw_optiga_calc_sign(DIGEST, out));
+    played();
+    PLAY(s2);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_calc_sign(DIGEST, out));
+    played();
+    PLAY(s3);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_calc_sign(DIGEST, out));
+    played();
+    PLAY(s4);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_calc_sign(DIGEST, out));
+    played();
+    PLAY(s5);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_optiga_calc_sign(DIGEST, out));
+    played();
+    /* Short: one byte cut off the end. Over-long: one byte past OutLen, and
+     * 71 bytes of signature, more than the response buffer holds. */
+    n = sig_rsp(32u, 0, 0x01u, 32u, 0, 0x21u);
+    sign_through((uint16_t)(n - 1u), TFW_ERR_FRAMING);
+    a_sig[n] = 0x00u;
+    sign_through((uint16_t)(n + 1u), TFW_ERR_FRAMING);
+    n = sig_rsp(32u, 1, 0x80u, 33u, 1, 0xC0u);
+    TEST_ASSERT_EQUAL_UINT16(4u + 71u, n);
+    sign_through(n, TFW_ERR_TOO_LONG);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, out[0]);
+}
+
+/* VerifySign (§4.4.1.13, Table 52) over DIGEST, with the key in the command:
+ * tag 0x05 Table 57's 0x03 (NIST P-256), tag 0x06 the key as a DER BIT
+ * STRING (note 70), X = 0x40.., Y = 0x60... The signature is two DER
+ * INTEGERs (note 68). In Q_VERIFY r = 0x80..0x9F needs the sign byte of
+ * §6.2.3's note and s = 0x01..0x20 does not. */
+static const uint8_t PUB[64] = {
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F,
+    0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,
+    0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
+};
+static const uint8_t SIG[64] = {
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F,
+    0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F,
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
+};
+static const uint8_t Q_VERIFY[] = {
+    0xB2, 0x11, 0x00, 0xB6,
+    0x01, 0x00, 0x20,
+    0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+    0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+    0x02, 0x00, 0x45,
+    0x02, 0x21, 0x00, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C,
+    0x8D, 0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C,
+    0x9D, 0x9E, 0x9F,
+    0x02, 0x20, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+    0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E,
+    0x1F, 0x20,
+    0x05, 0x00, 0x01, 0x03,
+    0x06, 0x00, 0x44, 0x03, 0x42, 0x00, 0x04,
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F,
+    0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,
+    0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
+};
+
+static void test_verify_sign_sends_table_52_with_the_key_in_the_command(void)
+{
+    static const exchange_t s[] = { EX(Q_VERIFY, A_EMPTY) };
+
+    TEST_ASSERT_EQUAL_UINT(186u, sizeof Q_VERIFY);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_optiga_verify_sign(DIGEST, SIG, PUB));
+    played();
+}
+
+/* r = 00 7F 02..1F loses its zero byte and needs no sign byte; s = 31 zero
+ * bytes then 0x80 loses all 31 and takes a sign byte back (X.690 §8.3.2). */
+static void test_verify_sign_encodes_short_r_and_s_minimally(void)
+{
+    static const uint8_t q[] = {
+        0xB2, 0x11, 0x00, 0x96,
+        0x01, 0x00, 0x20,
+        0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
+        0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xED, 0xEE, 0xEF,
+        0x02, 0x00, 0x25,
+        0x02, 0x1F, 0x7F, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+        0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E,
+        0x1F,
+        0x02, 0x02, 0x00, 0x80,
+        0x05, 0x00, 0x01, 0x03,
+        0x06, 0x00, 0x44, 0x03, 0x42, 0x00, 0x04,
+        0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+        0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F,
+        0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,
+        0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
+    };
+    static const exchange_t s[] = { EX(q, A_EMPTY) };
+    uint8_t                 sig[64];
+    uint8_t                 i;
+
+    memset(sig, 0, sizeof sig);
+    sig[1] = 0x7Fu;
+    for (i = 2u; i < 32u; i++) {
+        sig[i] = i;
+    }
+    sig[63] = 0x80u;
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_optiga_verify_sign(DIGEST, sig, PUB));
+    played();
+}
+
+/* A zero value keeps one zero byte: 02 01 00 (X.690 §8.3.2). The element
+ * refuses such a signature; the request is still well formed. */
+static void test_verify_sign_encodes_a_zero_value_as_one_byte(void)
+{
+    static uint8_t          q[sizeof Q_VERIFY];
+    static const uint8_t    e2c[] = { 0x00, 0x00, 0x00, 0x01, 0x2C };
+    uint8_t                 sig[64];
+    const exchange_t        s[] = {
+        { q, (uint16_t)(sizeof Q_VERIFY - 32u), A_FAIL, (uint16_t)sizeof A_FAIL, TFW_OK },
+        EX(Q_LASTERR, e2c),
+    };
+
+    /* Q_VERIFY with r = 02 01 00 in place of its 35 bytes. */
+    memcpy(q, Q_VERIFY, 4u + 35u + 3u);
+    q[3]  = (uint8_t)(0xB6u - 32u);
+    q[41] = (uint8_t)(0x45u - 32u);
+    q[42] = 0x02u;
+    q[43] = 0x01u;
+    q[44] = 0x00u;
+    memcpy(&q[45], &Q_VERIFY[77], sizeof Q_VERIFY - 77u);
+    memset(sig, 0, 32u);
+    memcpy(&sig[32], &SIG[32], 32u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_optiga_verify_sign(DIGEST, sig, PUB));
+    played();
+}
+
+static void test_verify_sign_errors(void)
+{
+    static const uint8_t    e2c[]  = { 0x00, 0x00, 0x00, 0x01, 0x2C };
+    static const uint8_t    e05[]  = { 0x00, 0x00, 0x00, 0x01, 0x05 };
+    static const uint8_t    data[] = { 0x00, 0x00, 0x00, 0x01, 0x00 };
+    static const exchange_t s1[]   = { EX(Q_VERIFY, A_FAIL), EX(Q_LASTERR, e2c) };
+    static const exchange_t s2[]   = { EX(Q_VERIFY, A_FAIL), EX(Q_LASTERR, e05) };
+    static const exchange_t s3[]   = { EX(Q_VERIFY, data) };
+    static const exchange_t s4[]   = { EX_ST(Q_VERIFY, TFW_ERR_TIMEOUT) };
+
+    /* Table 39 0x2C, Signature verification failure. */
+    PLAY(s1);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_optiga_verify_sign(DIGEST, SIG, PUB));
+    played();
+    /* 0x05, Invalid parameter in data field: a key not on the curve. */
+    PLAY(s2);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_optiga_verify_sign(DIGEST, SIG, PUB));
+    played();
+    /* OutData is absent (Table 52). */
+    PLAY(s3);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_verify_sign(DIGEST, SIG, PUB));
+    played();
+    PLAY(s4);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_optiga_verify_sign(DIGEST, SIG, PUB));
+    played();
+}
+
 /* Runs last: every allowed (Cmd, Param) pair was sent by some test above, and
  * the fake refused every other one in all of them. */
 static void test_only_the_read_only_commands_were_ever_sent(void)
 {
-    TEST_ASSERT_EQUAL_HEX(0x3Fu, cmds_seen);
+    TEST_ASSERT_EQUAL_HEX(0xFFu, cmds_seen);
 }
 
 int main(void)
@@ -652,6 +993,16 @@ int main(void)
     RUN_TEST(test_read_object_fills_a_buffer_of_exactly_its_size);
     RUN_TEST(test_read_object_a_piece_short_of_the_metadata_is_framing);
     RUN_TEST(test_read_object_stops_at_the_first_failure);
+    RUN_TEST(test_calc_sign_sends_table_51_with_the_device_key);
+    RUN_TEST(test_calc_sign_drops_the_sign_byte_of_r_and_s);
+    RUN_TEST(test_calc_sign_pads_short_r_and_s_on_the_left);
+    RUN_TEST(test_der_signature_that_is_not_two_p256_integers_is_framing);
+    RUN_TEST(test_calc_sign_any_length_off_by_one_fails);
+    RUN_TEST(test_calc_sign_errors);
+    RUN_TEST(test_verify_sign_sends_table_52_with_the_key_in_the_command);
+    RUN_TEST(test_verify_sign_encodes_short_r_and_s_minimally);
+    RUN_TEST(test_verify_sign_encodes_a_zero_value_as_one_byte);
+    RUN_TEST(test_verify_sign_errors);
     RUN_TEST(test_only_the_read_only_commands_were_ever_sent);
     return UNITY_END();
 }

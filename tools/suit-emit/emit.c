@@ -70,18 +70,15 @@ static void suit_digest(buf_t *b, const uint8_t d[32])
     bstr(b, d, 32u);
 }
 
-size_t tfw_suit_emit_manifest(uint8_t *out, size_t cap,
-                              const uint8_t image_digest[32], uint32_t image_size,
-                              uint32_t seq, const uint8_t vendor[16],
-                              const uint8_t class_id[16])
+/* suit-common: one component and the shared sequence's four parameters. 0 on
+ * an overflow of the shared sequence. */
+static size_t common(buf_t *c, const uint8_t image_digest[32], uint32_t image_size,
+                   const uint8_t vendor[16], const uint8_t class_id[16])
 {
     static const uint8_t component[1] = { 0x00u };
-    uint8_t dg[36], shared[128], common[160], man[200];
+    uint8_t dg[36], shared[128];
     buf_t   d = { dg, 0u, sizeof dg };
     buf_t   s = { shared, 0u, sizeof shared };
-    buf_t   c = { common, 0u, sizeof common };
-    buf_t   m = { man, 0u, sizeof man };
-    buf_t   o = { out, 0u, cap };
 
     suit_digest(&d, image_digest);
 
@@ -93,19 +90,77 @@ size_t tfw_suit_emit_manifest(uint8_t *out, size_t cap,
     head(&s, 0u, 3u);  bstr(&s, dg, d.n);
     head(&s, 0u, 14u); head(&s, 0u, image_size);
 
-    head(&c, 5u, 2u);
-    head(&c, 0u, 2u);
-    head(&c, 4u, 1u);
-    head(&c, 4u, 1u);
-    bstr(&c, component, sizeof component);
-    head(&c, 0u, 4u);  bstr(&c, shared, s.n);
+    head(c, 5u, 2u);
+    head(c, 0u, 2u);
+    head(c, 4u, 1u);
+    head(c, 4u, 1u);
+    bstr(c, component, sizeof component);
+    if (done(&s) == 0u) {
+        return 0u;
+    }
+    head(c, 0u, 4u);  bstr(c, shared, s.n);
+    return done(c);
+}
+
+size_t tfw_suit_emit_manifest(uint8_t *out, size_t cap,
+                              const uint8_t image_digest[32], uint32_t image_size,
+                              uint32_t seq, const uint8_t vendor[16],
+                              const uint8_t class_id[16])
+{
+    uint8_t common_b[160], man[200];
+    buf_t   c = { common_b, 0u, sizeof common_b };
+    buf_t   m = { man, 0u, sizeof man };
+    buf_t   o = { out, 0u, cap };
+
+    if (common(&c, image_digest, image_size, vendor, class_id) == 0u) {
+        return 0u;
+    }
 
     head(&m, 5u, 3u);
     head(&m, 0u, 1u);  head(&m, 0u, 1u);
     head(&m, 0u, 2u);  head(&m, 0u, seq);
-    head(&m, 0u, 3u);  bstr(&m, common, c.n);
+    head(&m, 0u, 3u);  bstr(&m, common_b, c.n);
 
-    if (done(&s) == 0u || done(&c) == 0u || done(&m) == 0u) {
+    if (done(&c) == 0u || done(&m) == 0u) {
+        return 0u;
+    }
+    bstr(&o, man, m.n);
+    return done(&o);
+}
+
+size_t tfw_suit_emit_manifest_integrated(uint8_t *out, size_t cap,
+                                         const uint8_t payload_digest[32],
+                                         uint32_t payload_size, uint32_t seq,
+                                         const uint8_t vendor[16],
+                                         const uint8_t class_id[16], const char *uri)
+{
+    size_t  un = strlen(uri);
+    uint8_t common_b[160], inst[64], man[260];
+    buf_t   c = { common_b, 0u, sizeof common_b };
+    buf_t   i = { inst, 0u, sizeof inst };
+    buf_t   m = { man, 0u, sizeof man };
+    buf_t   o = { out, 0u, cap };
+
+    if (common(&c, payload_digest, payload_size, vendor, class_id) == 0u) {
+        return 0u;
+    }
+
+    head(&i, 4u, 6u);
+    head(&i, 0u, 20u);                 /* override-parameters */
+    head(&i, 5u, 1u);
+    head(&i, 0u, 21u);                 /* uri */
+    head(&i, 3u, (uint32_t)un);
+    put(&i, (const uint8_t *)uri, un);
+    head(&i, 0u, 21u);  head(&i, 0u, 15u);   /* fetch, report all */
+    head(&i, 0u, 3u);   head(&i, 0u, 15u);   /* image match, report all */
+
+    head(&m, 5u, 4u);
+    head(&m, 0u, 1u);  head(&m, 0u, 1u);
+    head(&m, 0u, 2u);  head(&m, 0u, seq);
+    head(&m, 0u, 3u);  bstr(&m, common_b, c.n);
+    head(&m, 0u, 20u); bstr(&m, inst, i.n);  /* suit-install */
+
+    if (done(&c) == 0u || done(&i) == 0u || done(&m) == 0u) {
         return 0u;
     }
     bstr(&o, man, m.n);
@@ -149,16 +204,16 @@ size_t tfw_suit_emit_tbs(uint8_t *out, size_t cap,
     return done(&o);
 }
 
-size_t tfw_suit_emit_envelope(uint8_t *out, size_t cap,
-                              const uint8_t *manifest, size_t manifest_len,
-                              const uint8_t sig[64])
+/* The authentication wrapper: the manifest digest and one detached
+ * COSE_Sign1 around a 64-byte r||s signature. 0 on an overflow. */
+static size_t auth(uint8_t out[128], const uint8_t *manifest, size_t manifest_len,
+                   const uint8_t sig[64])
 {
     static const uint8_t es256[3] = { 0xA1u, 0x01u, 0x26u };
-    uint8_t pl[36], cose[80], auth[128];
+    uint8_t pl[36], cose[80];
     size_t  pn = payload(pl, manifest, manifest_len);
     buf_t   k  = { cose, 0u, sizeof cose };
-    buf_t   a  = { auth, 0u, sizeof auth };
-    buf_t   o  = { out, 0u, cap };
+    buf_t   a  = { out, 0u, 128u };
 
     if (pn == 0u) {
         return 0u;
@@ -174,14 +229,50 @@ size_t tfw_suit_emit_envelope(uint8_t *out, size_t cap,
     bstr(&a, pl, pn);
     bstr(&a, cose, k.n);
 
-    if (done(&k) == 0u || done(&a) == 0u) {
+    return done(&k) == 0u ? 0u : done(&a);
+}
+
+size_t tfw_suit_emit_envelope(uint8_t *out, size_t cap,
+                              const uint8_t *manifest, size_t manifest_len,
+                              const uint8_t sig[64])
+{
+    uint8_t a[128];
+    size_t  an = auth(a, manifest, manifest_len, sig);
+    buf_t   o  = { out, 0u, cap };
+
+    if (an == 0u) {
         return 0u;
     }
     head(&o, 6u, 107u);                /* SUIT_Envelope_Tagged */
     head(&o, 5u, 2u);
     head(&o, 0u, 2u);
-    bstr(&o, auth, a.n);
+    bstr(&o, a, an);
     head(&o, 0u, 3u);
     put(&o, manifest, manifest_len);
+    return done(&o);
+}
+
+size_t tfw_suit_emit_envelope_integrated(uint8_t *out, size_t cap,
+                                         const uint8_t *manifest, size_t manifest_len,
+                                         const uint8_t sig[64], const char *uri,
+                                         const uint8_t *body, size_t body_len)
+{
+    uint8_t a[128];
+    size_t  an = auth(a, manifest, manifest_len, sig);
+    size_t  un = strlen(uri);
+    buf_t   o  = { out, 0u, cap };
+
+    if (an == 0u) {
+        return 0u;
+    }
+    head(&o, 6u, 107u);                /* SUIT_Envelope_Tagged */
+    head(&o, 5u, 3u);
+    head(&o, 0u, 2u);
+    bstr(&o, a, an);
+    head(&o, 0u, 3u);
+    put(&o, manifest, manifest_len);
+    head(&o, 3u, (uint32_t)un);        /* the payload, under its URI */
+    put(&o, (const uint8_t *)uri, un);
+    bstr(&o, body, body_len);
     return done(&o);
 }

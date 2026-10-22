@@ -149,7 +149,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \
                            test/unit/test_link_dhcp.c \
-                            test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c \
+                            test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c test/unit/test_suit_integrated.c \
+                            test/unit/test_suit_integrated_mutate.c test/unit/test_suit_integrated_unbound.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
@@ -288,6 +289,31 @@ $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_mutate: $(HOST_DIR)/%: test/unit/%.c
                        src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                        $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(SUIT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The integrated-payload reader (docs/hsm-self-defence/ row 1), the same link
+# plus its own file: the caller's key goes through the element tier's
+# tfw_crypto_verify_operator, against the software element.
+#   test_suit_integrated_mutate  mutated envelopes, every refusal path killed
+#   test_suit_integrated_unbound the ATtiny85's profile: no policy or script
+#                                class (all zero), so nothing is read
+SUIT_UNBOUND_CFLAGS := $(filter-out -DTFW_FEATURE_ATTEST=% -DTFW_FEATURE_ALIAS_CERT=%,\
+                         $(subst -Iboards/$(HOST_BOARD) ,-Iboards/attiny85 ,$(HOST_CFLAGS)))
+$(HOST_DIR)/test_suit_integrated_unbound: CFLAGS_SUIT = $(SUIT_UNBOUND_CFLAGS)
+$(HOST_DIR)/test_suit_integrated: CFLAGS_SUIT = $(SUIT_TEST_CFLAGS)
+# The mutation test signs its cases with the build's emitter.
+$(HOST_DIR)/test_suit_integrated_mutate: CFLAGS_SUIT = $(SUIT_TEST_CFLAGS) -Itools/suit-emit
+$(HOST_DIR)/test_suit_integrated_mutate: tools/suit-emit/emit.c
+$(HOST_DIR)/test_suit_integrated $(HOST_DIR)/test_suit_integrated_mutate \
+$(HOST_DIR)/test_suit_integrated_unbound: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
+                       src/core/suit.c src/core/suit_integrated.c \
+                       boot/boot_trial.c boot/boot_image.c boot/boot_platform.c \
+                       src/crypto/atecc608a/atecc.c \
+                       src/crypto/atecc608a/provider.c \
+                       src/crypto/sha256.c \
+                       src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                       $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(CFLAGS_SUIT) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The build's SUIT emitter (tools/suit-emit/, mk/suit.mk) against the same
@@ -771,6 +797,9 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_dhcp_w5100 $(HOST_DIR)/test_dhcp_w5500 $(HOST_DIR)/test_link_dhcp \
                     $(HOST_DIR)/test_w5100_mutate $(HOST_DIR)/test_w5500_mutate \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
+                    $(HOST_DIR)/test_suit_integrated \
+                    $(HOST_DIR)/test_suit_integrated_mutate \
+                    $(HOST_DIR)/test_suit_integrated_unbound \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small \
                     $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \

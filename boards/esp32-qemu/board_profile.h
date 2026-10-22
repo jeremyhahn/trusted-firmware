@@ -25,6 +25,14 @@
  * this board names (issue #78). 1023e2f4-fdd0-5f12-9902-c62181fa5681. */
 #define TFW_SUIT_CLASS_ID { 0x10u, 0x23u, 0xe2u, 0xf4u, 0xfdu, 0xd0u, 0x5fu, 0x12u, \
                             0x99u, 0x02u, 0xc6u, 0x21u, 0x81u, 0xfau, 0x56u, 0x81u }
+/* The policy-set and script class ids, UUIDv5(TFW_SUIT_VENDOR_ID,
+ * "esp32-qemu/policy") and (..., "esp32-qemu/script")
+ * (docs/hsm-self-defence/adr-response-policy-format.md D2).
+ * d14d34cc-9f71-50f4-8f9b-8b0ad4b37715, 45074df9-7e44-5aa0-ace4-2222abc5f7c3. */
+#define TFW_SUIT_POLICY_CLASS_ID { 0xd1u, 0x4du, 0x34u, 0xccu, 0x9fu, 0x71u, 0x50u, 0xf4u, \
+                                   0x8fu, 0x9bu, 0x8bu, 0x0au, 0xd4u, 0xb3u, 0x77u, 0x15u }
+#define TFW_SUIT_SCRIPT_CLASS_ID { 0x45u, 0x07u, 0x4du, 0xf9u, 0x7eu, 0x44u, 0x5au, 0xa0u, \
+                                   0xacu, 0xe4u, 0x22u, 0x22u, 0xabu, 0xc5u, 0xf7u, 0xc3u }
 
 #define TFW_PIN_COUNT  5u
 #define TFW_PORT_COUNT 1u          /* GPIO 0..31 */

@@ -47,6 +47,14 @@
 /* The largest envelope read. The profile's envelope is about 230 bytes with a
  * key id; anything past this is refused before a byte of it is parsed. */
 #define TFW_SUIT_ENVELOPE_MAX 320u
+/* The largest envelope with an integrated payload, payload included: the
+ * policy set's buffer. Slice 2 of docs/hsm-self-defence/ fixes it against
+ * the M7's memory map. */
+#define TFW_SUIT_INTEGRATED_MAX 1024u
+/* The longest fragment-only URI naming an integrated payload. */
+#define TFW_SUIT_URI_MAX      32u
+/* An ES256 public key, x || y. */
+#define TFW_SUIT_KEY_LEN      64u
 
 typedef struct {
     uint32_t seq;                              /* the security version */
@@ -64,6 +72,48 @@ typedef struct {
  *   TFW_ERR_UNSUPPORTED  a member, type, tag or algorithm the profile lacks
  *   TFW_ERR_CRYPTO       the manifest digest or the signature does not hold */
 tfw_status_t tfw_suit_read(const uint8_t *env, uint16_t len, tfw_suit_manifest_t *out);
+
+/* The same reader for an envelope whose payload is integrated
+ * (draft-ietf-suit-manifest-37 §5.5, §7.5), verified under `key` and never
+ * the board's image key: the policy set and the script of
+ * docs/hsm-self-defence/adr-response-policy-format.md D1, D3. In
+ * src/core/suit_integrated.c, which no image reader links. Accepted, in this
+ * order and nothing else:
+ *
+ *   107({ 2: the authentication wrapper above,
+ *         3: bstr .cbor { 1: 1, 2: uint32, 3: the common above,
+ *                         20: bstr .cbor [ 20, { 21: tstr },   ; install: uri
+ *                                          21, uint,           ; fetch
+ *                                          3, uint ] },        ; image match
+ *         tstr: bstr })                                         ; the payload
+ *
+ * The URI is fragment-only ("#..."), the payload's envelope key is that URI,
+ * and the payload's size and SHA-256 are the manifest's image size and image
+ * digest. The checks run in ADR D7's order, the payload's after the
+ * signature's; `out` and `*payload` (image_size bytes inside `env`) are
+ * written only on TFW_OK, with `*kind`.
+ *
+ * The class id is held (ADR D2): the vendor must be the board's, and the class
+ * must be this board's policy class (TFW_SUIT_POLICY_CLASS_ID) or script
+ * class (TFW_SUIT_SCRIPT_CLASS_ID), one the caller names in `expect`. The
+ * class says which kind the envelope claims; the payload's top-level type
+ * says which it carries (D5 a map, D6 an array), and the two must agree. A
+ * board whose class id is all zero has no such class and reads no envelope.
+ *
+ *   TFW_ERR_RANGE        truncated, a length past what is there or allowed,
+ *                        no payload under the manifest's URI, or its size
+ *   TFW_ERR_UNSUPPORTED  a member, type, tag or algorithm the profile lacks,
+ *                        a tier with no external-key verify, another vendor,
+ *                        a class not this board's or not in `expect`, or a
+ *                        payload of the other kind than its class claims
+ *   TFW_ERR_CRYPTO       the manifest digest, the signature under `key`, or
+ *                        the payload's digest does not hold */
+#define TFW_SUIT_KIND_POLICY  0x01u
+#define TFW_SUIT_KIND_SCRIPT  0x02u
+tfw_status_t tfw_suit_read_integrated(const uint8_t *env, uint16_t len,
+                                      const uint8_t key[TFW_SUIT_KEY_LEN], uint8_t expect,
+                                      tfw_suit_manifest_t *out, const uint8_t **payload,
+                                      uint8_t *kind);
 
 /* The gate before activation. Reads `env`, then holds the manifest against the
  * staged image and its trailer:

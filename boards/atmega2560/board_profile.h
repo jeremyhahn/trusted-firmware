@@ -22,6 +22,14 @@
  * this board names (issue #78). dc97b9d0-38d6-58e0-bb18-98bb2414d131. */
 #define TFW_SUIT_CLASS_ID { 0xdcu, 0x97u, 0xb9u, 0xd0u, 0x38u, 0xd6u, 0x58u, 0xe0u, \
                             0xbbu, 0x18u, 0x98u, 0xbbu, 0x24u, 0x14u, 0xd1u, 0x31u }
+/* The policy-set and script class ids, UUIDv5(TFW_SUIT_VENDOR_ID,
+ * "atmega2560/policy") and (..., "atmega2560/script")
+ * (docs/hsm-self-defence/adr-response-policy-format.md D2).
+ * d37d83b8-9bb6-5235-99ae-46e179d51199, be167fb7-9e99-500c-9188-293bce9c095d. */
+#define TFW_SUIT_POLICY_CLASS_ID { 0xd3u, 0x7du, 0x83u, 0xb8u, 0x9bu, 0xb6u, 0x52u, 0x35u, \
+                                   0x99u, 0xaeu, 0x46u, 0xe1u, 0x79u, 0xd5u, 0x11u, 0x99u }
+#define TFW_SUIT_SCRIPT_CLASS_ID { 0xbeu, 0x16u, 0x7fu, 0xb7u, 0x9eu, 0x99u, 0x50u, 0x0cu, \
+                                   0x91u, 0x88u, 0x29u, 0x3bu, 0xceu, 0x9cu, 0x09u, 0x5du }
 
 /* D0..D53 are 0..53 and A0..A15 are 54..69 -- the numbers printed on the board,
  * because that is the number the person holding it can see. Unlike the 328P

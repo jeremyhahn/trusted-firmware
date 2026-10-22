@@ -103,9 +103,65 @@ static void test_a_manifest_over_64k_is_refused(void)
                                                         &SUIT_ENVELOPE[SIG_OFFSET]));
 }
 
+/* The integrated-payload envelope: the policy class is not a board's, so it is
+ * spelled here; UUIDv5(vendor, "atmega2560/policy"). */
+static const uint8_t policy_class[16] = {
+    0xd3, 0x7d, 0x83, 0xb8, 0x9b, 0xb6, 0x52, 0x35,
+    0x99, 0xae, 0x46, 0xe1, 0x79, 0xd5, 0x11, 0x99,
+};
+
+static void test_the_integrated_manifest_is_the_vectors(void)
+{
+    uint8_t out[256];
+    size_t  n = tfw_suit_emit_manifest_integrated(out, sizeof out, SUIT_POLICY_DIGEST,
+                                                  sizeof SUIT_POLICY_BODY, 3u, vendor,
+                                                  policy_class, "#policy");
+
+    TEST_ASSERT_EQUAL_size_t(sizeof SUIT_POLICY_MANIFEST, n);
+    TEST_ASSERT_EQUAL_MEMORY(SUIT_POLICY_MANIFEST, out, sizeof SUIT_POLICY_MANIFEST);
+    n = tfw_suit_emit_tbs(out, sizeof out, SUIT_POLICY_MANIFEST, sizeof SUIT_POLICY_MANIFEST);
+    TEST_ASSERT_EQUAL_size_t(sizeof SUIT_POLICY_TBS, n);
+    TEST_ASSERT_EQUAL_MEMORY(SUIT_POLICY_TBS, out, sizeof SUIT_POLICY_TBS);
+}
+
+static void test_the_integrated_envelopes_are_the_vectors(void)
+{
+    uint8_t out[320];
+    size_t  n = tfw_suit_emit_envelope_integrated(out, sizeof out, SUIT_POLICY_MANIFEST,
+                                                  sizeof SUIT_POLICY_MANIFEST,
+                                                  &SUIT_POLICY_ENVELOPE[SIG_OFFSET], "#policy",
+                                                  SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY);
+
+    TEST_ASSERT_EQUAL_size_t(sizeof SUIT_POLICY_ENVELOPE, n);
+    TEST_ASSERT_EQUAL_MEMORY(SUIT_POLICY_ENVELOPE, out, sizeof SUIT_POLICY_ENVELOPE);
+    n = tfw_suit_emit_envelope(out, sizeof out, SUIT_POLICY_MANIFEST, sizeof SUIT_POLICY_MANIFEST,
+                               &SUIT_POLICY_ENVELOPE[SIG_OFFSET]);
+    TEST_ASSERT_EQUAL_size_t(sizeof SUIT_POLICY_ENVELOPE_DETACHED, n);
+    TEST_ASSERT_EQUAL_MEMORY(SUIT_POLICY_ENVELOPE_DETACHED, out,
+                             sizeof SUIT_POLICY_ENVELOPE_DETACHED);
+}
+
+static void test_an_integrated_buffer_too_small_writes_nothing_it_claims(void)
+{
+    uint8_t out[sizeof SUIT_POLICY_ENVELOPE];
+
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_manifest_integrated(
+                                     out, sizeof SUIT_POLICY_MANIFEST - 1u, SUIT_POLICY_DIGEST,
+                                     sizeof SUIT_POLICY_BODY, 3u, vendor, policy_class,
+                                     "#policy"));
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_envelope_integrated(
+                                     out, sizeof SUIT_POLICY_ENVELOPE - 1u, SUIT_POLICY_MANIFEST,
+                                     sizeof SUIT_POLICY_MANIFEST,
+                                     &SUIT_POLICY_ENVELOPE[SIG_OFFSET], "#policy",
+                                     SUIT_POLICY_BODY, sizeof SUIT_POLICY_BODY));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_the_integrated_manifest_is_the_vectors);
+    RUN_TEST(test_the_integrated_envelopes_are_the_vectors);
+    RUN_TEST(test_an_integrated_buffer_too_small_writes_nothing_it_claims);
     RUN_TEST(test_the_manifest_is_the_vectors);
     RUN_TEST(test_the_tbs_is_the_vectors);
     RUN_TEST(test_the_envelope_is_the_vectors);

@@ -12,28 +12,29 @@
 #include <string.h>
 
 #include "suit.h"
+#include "suit_cbor.h"
 #include "tfw/config.h"
 #include "tfw/crypto.h"
 #include "tfw/progmem.h"
 
-#define MT_UINT   0u
-#define MT_NINT   1u
-#define MT_BSTR   2u
-#define MT_ARRAY  4u
-#define MT_MAP    5u
-#define MT_TAG    6u
-#define MT_SIMPLE 7u
+#define MT_UINT   TFW_SUIT_MT_UINT
+#define MT_NINT   TFW_SUIT_MT_NINT
+#define MT_BSTR   TFW_SUIT_MT_BSTR
+#define MT_ARRAY  TFW_SUIT_MT_ARRAY
+#define MT_MAP    TFW_SUIT_MT_MAP
+#define MT_TAG    TFW_SUIT_MT_TAG
+#define MT_SIMPLE TFW_SUIT_MT_SIMPLE
 
-#define TAG_SUIT_ENVELOPE   107u
+#define TAG_SUIT_ENVELOPE   TFW_SUIT_TAG_ENVELOPE
 #define TAG_COSE_SIGN1      18u
 #define COSE_ALG_SHA256     15u   /* -16, as a negative integer's argument */
 #define SIMPLE_NIL          22u
 
-#define ENV_AUTH            2u
-#define ENV_MANIFEST        3u
-#define MAN_VERSION         1u
-#define MAN_SEQUENCE        2u
-#define MAN_COMMON          3u
+#define ENV_AUTH            TFW_SUIT_ENV_AUTH
+#define ENV_MANIFEST        TFW_SUIT_ENV_MANIFEST
+#define MAN_VERSION         TFW_SUIT_MAN_VERSION
+#define MAN_SEQUENCE        TFW_SUIT_MAN_SEQUENCE
+#define MAN_COMMON          TFW_SUIT_MAN_COMMON
 #define COMMON_COMPONENTS   2u
 #define COMMON_SHARED_SEQ   4u
 #define DIR_OVERRIDE_PARAMS 20u
@@ -47,15 +48,12 @@
 #define COMPONENT_PART_MAX  16u
 #define KID_MAX             32u
 
-typedef struct {
-    const uint8_t *p;
-    uint16_t       n;
-} cur_t;
+typedef tfw_suit_cur_t cur_t;
 
 /* One CBOR head: major type and argument. 8-byte arguments are out of range
  * for every member here; indefinite lengths and reserved values are not in the
  * profile. */
-static tfw_status_t head(cur_t *c, uint8_t *major, uint32_t *val)
+tfw_status_t tfw_suit_head(cur_t *c, uint8_t *major, uint32_t *val)
 {
     uint8_t b;
     uint8_t ai;
@@ -91,11 +89,11 @@ static tfw_status_t head(cur_t *c, uint8_t *major, uint32_t *val)
 }
 
 /* Exactly this head, or the input is not the profile. */
-static tfw_status_t expect(cur_t *c, uint8_t major, uint32_t val)
+tfw_status_t tfw_suit_expect(cur_t *c, uint8_t major, uint32_t val)
 {
     uint8_t      m;
     uint32_t     v;
-    tfw_status_t st = head(c, &m, &v);
+    tfw_status_t st = tfw_suit_head(c, &m, &v);
 
     if (st != TFW_OK) {
         return st;
@@ -103,10 +101,10 @@ static tfw_status_t expect(cur_t *c, uint8_t major, uint32_t val)
     return (m == major && v == val) ? TFW_OK : TFW_ERR_UNSUPPORTED;
 }
 
-static tfw_status_t uint32_member(cur_t *c, uint32_t *out)
+tfw_status_t tfw_suit_uint32(cur_t *c, uint32_t *out)
 {
     uint8_t      m;
-    tfw_status_t st = head(c, &m, out);
+    tfw_status_t st = tfw_suit_head(c, &m, out);
 
     if (st != TFW_OK) {
         return st;
@@ -114,18 +112,19 @@ static tfw_status_t uint32_member(cur_t *c, uint32_t *out)
     return m == MT_UINT ? TFW_OK : TFW_ERR_UNSUPPORTED;
 }
 
-/* A byte string of at most `max` bytes: `sub` spans its content and `c` moves
- * past it. A length past what remains, or past `max`, is a range refusal. */
-static tfw_status_t bstr(cur_t *c, uint16_t max, cur_t *sub)
+/* A byte or text string of at most `max` bytes: `sub` spans its content and
+ * `c` moves past it. A length past what remains, or past `max`, is a range
+ * refusal. */
+tfw_status_t tfw_suit_string(cur_t *c, uint8_t major, uint16_t max, cur_t *sub)
 {
     uint8_t      m;
     uint32_t     v;
-    tfw_status_t st = head(c, &m, &v);
+    tfw_status_t st = tfw_suit_head(c, &m, &v);
 
     if (st != TFW_OK) {
         return st;
     }
-    if (m != MT_BSTR) {
+    if (m != major) {
         return TFW_ERR_UNSUPPORTED;
     }
     if (v > max || v > c->n) {
@@ -136,6 +135,11 @@ static tfw_status_t bstr(cur_t *c, uint16_t max, cur_t *sub)
     c->p  += v;
     c->n   = (uint16_t)(c->n - v);
     return TFW_OK;
+}
+
+static tfw_status_t bstr(cur_t *c, uint16_t max, cur_t *sub)
+{
+    return tfw_suit_string(c, MT_BSTR, max, sub);
 }
 
 /* A byte string of exactly `len` bytes, copied out. */
@@ -156,7 +160,7 @@ static tfw_status_t bstr_fixed(cur_t *c, uint8_t *out, uint16_t len)
 
 /* Every container is read to its end: a byte left over is a member the
  * profile does not list. */
-static tfw_status_t done(const cur_t *c)
+tfw_status_t tfw_suit_done(const cur_t *c)
 {
     return c->n == 0u ? TFW_OK : TFW_ERR_UNSUPPORTED;
 }
@@ -164,11 +168,11 @@ static tfw_status_t done(const cur_t *c)
 /* SUIT_Digest: [-16, bstr(32)], filling the whole of `c`. */
 static tfw_status_t suit_digest(cur_t c, uint8_t out[TFW_SUIT_DIGEST_LEN])
 {
-    tfw_status_t st = expect(&c, MT_ARRAY, 2u);
+    tfw_status_t st = tfw_suit_expect(&c, MT_ARRAY, 2u);
 
-    if (st == TFW_OK) st = expect(&c, MT_NINT, COSE_ALG_SHA256);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_NINT, COSE_ALG_SHA256);
     if (st == TFW_OK) st = bstr_fixed(&c, out, TFW_SUIT_DIGEST_LEN);
-    if (st == TFW_OK) st = done(&c);
+    if (st == TFW_OK) st = tfw_suit_done(&c);
     return st;
 }
 
@@ -194,36 +198,35 @@ static tfw_status_t cose_sign1(cur_t c, uint8_t sig[TFW_SIG_LEN])
     cur_t        s;
     uint8_t      m;
     uint32_t     v;
-    tfw_status_t st = expect(&c, MT_TAG, TAG_COSE_SIGN1);
+    tfw_status_t st = tfw_suit_expect(&c, MT_TAG, TAG_COSE_SIGN1);
 
-    if (st == TFW_OK) st = expect(&c, MT_ARRAY, 4u);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_ARRAY, 4u);
     if (st == TFW_OK) st = bstr(&c, sizeof es256, &s);
     if (st == TFW_OK && (s.n != sizeof es256 || pgm_differs(s.p, es256, sizeof es256) != 0u)) {
         st = TFW_ERR_UNSUPPORTED;
     }
-    if (st == TFW_OK) st = head(&c, &m, &v);
+    if (st == TFW_OK) st = tfw_suit_head(&c, &m, &v);
     if (st == TFW_OK && (m != MT_MAP || v > 1u)) {
         st = TFW_ERR_UNSUPPORTED;
     }
     if (st == TFW_OK && v == 1u) {
-        st = expect(&c, MT_UINT, 4u);
+        st = tfw_suit_expect(&c, MT_UINT, 4u);
         if (st == TFW_OK) st = bstr(&c, KID_MAX, &s);
     }
-    if (st == TFW_OK) st = expect(&c, MT_SIMPLE, SIMPLE_NIL);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_SIMPLE, SIMPLE_NIL);
     if (st == TFW_OK) st = bstr_fixed(&c, sig, TFW_SIG_LEN);
-    if (st == TFW_OK) st = done(&c);
+    if (st == TFW_OK) st = tfw_suit_done(&c);
     return st;
 }
 
 /* ES256 over Sig_structure ["Signature1", h'A10126', h'', payload]. */
-static tfw_status_t verify_sig(const cur_t *payload, const uint8_t sig[TFW_SIG_LEN])
+static tfw_status_t tbs_hash(const cur_t *payload, uint8_t h[TFW_SHA256_LEN])
 {
     static const uint8_t prefix[17] = {
         0x84u, 0x6Au, 'S', 'i', 'g', 'n', 'a', 't', 'u', 'r', 'e', '1',
         0x43u, 0xA1u, 0x01u, 0x26u, 0x40u
     };
     uint8_t  tbs[sizeof prefix + 2u + SUIT_DIGEST_MAX];
-    uint8_t  h[TFW_SHA256_LEN];
     uint16_t n = sizeof prefix;
 
     memcpy(tbs, prefix, sizeof prefix);
@@ -236,72 +239,98 @@ static tfw_status_t verify_sig(const cur_t *payload, const uint8_t sig[TFW_SIG_L
     memcpy(&tbs[n], payload->p, payload->n);
     n = (uint16_t)(n + payload->n);
 
-    if (tfw_crypto_sha256(tbs, n, h) != TFW_OK) {
+    return tfw_crypto_sha256(tbs, n, h) == TFW_OK ? TFW_OK : TFW_ERR_CRYPTO;
+}
+
+/* The authentication wrapper: the manifest digest, then one signature. The
+ * digest is checked here; the signature is the caller's, under its key. */
+tfw_status_t tfw_suit_auth(cur_t auth, const cur_t *wrapped,
+                           uint8_t tbs_h[TFW_SHA256_LEN], uint8_t sig[TFW_SIG_LEN])
+{
+    cur_t        dg;
+    cur_t        cose;
+    uint8_t      want[TFW_SUIT_DIGEST_LEN];
+    uint8_t      have[TFW_SHA256_LEN];
+    tfw_status_t st = tfw_suit_expect(&auth, MT_ARRAY, 2u);
+
+    if (st == TFW_OK) st = bstr(&auth, SUIT_DIGEST_MAX, &dg);
+    if (st == TFW_OK) st = suit_digest(dg, want);
+    if (st == TFW_OK) st = bstr(&auth, TFW_SUIT_ENVELOPE_MAX, &cose);
+    if (st == TFW_OK) st = cose_sign1(cose, sig);
+    if (st == TFW_OK) st = tfw_suit_done(&auth);
+    if (st != TFW_OK) {
+        return st;
+    }
+
+    /* Authenticate before the manifest is read at all: the signature binds
+     * the digest, and the digest binds the manifest's bytes, header included. */
+    if (tfw_crypto_sha256(wrapped->p, wrapped->n, have) != TFW_OK
+        || memcmp(have, want, TFW_SUIT_DIGEST_LEN) != 0) {
         return TFW_ERR_CRYPTO;
     }
-    return tfw_crypto_verify_image(h, sig);
+    return tbs_hash(&dg, tbs_h);
 }
 
 /* The shared sequence: one override-parameters directive, four parameters. */
 static tfw_status_t shared_seq(cur_t c, tfw_suit_manifest_t *m)
 {
     cur_t        s;
-    tfw_status_t st = expect(&c, MT_ARRAY, 2u);
+    tfw_status_t st = tfw_suit_expect(&c, MT_ARRAY, 2u);
 
-    if (st == TFW_OK) st = expect(&c, MT_UINT, DIR_OVERRIDE_PARAMS);
-    if (st == TFW_OK) st = expect(&c, MT_MAP, 4u);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, PARAM_VENDOR_ID);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, DIR_OVERRIDE_PARAMS);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_MAP, 4u);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, PARAM_VENDOR_ID);
     if (st == TFW_OK) st = bstr_fixed(&c, m->vendor, TFW_SUIT_ID_LEN);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, PARAM_CLASS_ID);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, PARAM_CLASS_ID);
     if (st == TFW_OK) st = bstr_fixed(&c, m->class_id, TFW_SUIT_ID_LEN);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, PARAM_IMAGE_DIGEST);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, PARAM_IMAGE_DIGEST);
     if (st == TFW_OK) st = bstr(&c, SUIT_DIGEST_MAX, &s);
     if (st == TFW_OK) st = suit_digest(s, m->image_digest);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, PARAM_IMAGE_SIZE);
-    if (st == TFW_OK) st = uint32_member(&c, &m->image_size);
-    if (st == TFW_OK) st = done(&c);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, PARAM_IMAGE_SIZE);
+    if (st == TFW_OK) st = tfw_suit_uint32(&c, &m->image_size);
+    if (st == TFW_OK) st = tfw_suit_done(&c);
     return st;
 }
 
 /* suit-common: one component, whose identifier is skipped -- this profile
  * has one image, so there is nothing for it to select -- and the shared
  * sequence. */
-static tfw_status_t common(cur_t c, tfw_suit_manifest_t *m)
+tfw_status_t tfw_suit_common(cur_t c, tfw_suit_manifest_t *m)
 {
     cur_t        s;
     uint8_t      t;
     uint32_t     parts;
-    tfw_status_t st = expect(&c, MT_MAP, 2u);
+    tfw_status_t st = tfw_suit_expect(&c, MT_MAP, 2u);
 
-    if (st == TFW_OK) st = expect(&c, MT_UINT, COMMON_COMPONENTS);
-    if (st == TFW_OK) st = expect(&c, MT_ARRAY, 1u);
-    if (st == TFW_OK) st = head(&c, &t, &parts);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, COMMON_COMPONENTS);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_ARRAY, 1u);
+    if (st == TFW_OK) st = tfw_suit_head(&c, &t, &parts);
     if (st == TFW_OK && (t != MT_ARRAY || parts == 0u || parts > COMPONENT_PARTS_MAX)) {
         st = TFW_ERR_UNSUPPORTED;
     }
     while (st == TFW_OK && parts-- != 0u) {
         st = bstr(&c, COMPONENT_PART_MAX, &s);
     }
-    if (st == TFW_OK) st = expect(&c, MT_UINT, COMMON_SHARED_SEQ);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, COMMON_SHARED_SEQ);
     if (st == TFW_OK) st = bstr(&c, TFW_SUIT_ENVELOPE_MAX, &s);
     if (st == TFW_OK) st = shared_seq(s, m);
-    if (st == TFW_OK) st = done(&c);
+    if (st == TFW_OK) st = tfw_suit_done(&c);
     return st;
 }
 
 static tfw_status_t manifest(cur_t c, tfw_suit_manifest_t *m)
 {
     cur_t        s;
-    tfw_status_t st = expect(&c, MT_MAP, 3u);
+    tfw_status_t st = tfw_suit_expect(&c, MT_MAP, 3u);
 
-    if (st == TFW_OK) st = expect(&c, MT_UINT, MAN_VERSION);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, 1u);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, MAN_SEQUENCE);
-    if (st == TFW_OK) st = uint32_member(&c, &m->seq);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, MAN_COMMON);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, MAN_VERSION);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, 1u);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, MAN_SEQUENCE);
+    if (st == TFW_OK) st = tfw_suit_uint32(&c, &m->seq);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, MAN_COMMON);
     if (st == TFW_OK) st = bstr(&c, TFW_SUIT_ENVELOPE_MAX, &s);
-    if (st == TFW_OK) st = common(s, m);
-    if (st == TFW_OK) st = done(&c);
+    if (st == TFW_OK) st = tfw_suit_common(s, m);
+    if (st == TFW_OK) st = tfw_suit_done(&c);
     return st;
 }
 
@@ -312,10 +341,7 @@ tfw_status_t tfw_suit_read(const uint8_t *env, uint16_t len, tfw_suit_manifest_t
     cur_t               auth;
     cur_t               man;
     cur_t               wrapped;
-    cur_t               dg;
-    cur_t               cose;
-    uint8_t             want[TFW_SUIT_DIGEST_LEN];
-    uint8_t             have[TFW_SHA256_LEN];
+    uint8_t             h[TFW_SHA256_LEN];
     uint8_t             sig[TFW_SIG_LEN];
     tfw_status_t        st;
 
@@ -325,34 +351,17 @@ tfw_status_t tfw_suit_read(const uint8_t *env, uint16_t len, tfw_suit_manifest_t
     c.p = env;
     c.n = len;
 
-    st = expect(&c, MT_TAG, TAG_SUIT_ENVELOPE);
-    if (st == TFW_OK) st = expect(&c, MT_MAP, 2u);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, ENV_AUTH);
+    st = tfw_suit_expect(&c, MT_TAG, TAG_SUIT_ENVELOPE);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_MAP, 2u);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, ENV_AUTH);
     if (st == TFW_OK) st = bstr(&c, TFW_SUIT_ENVELOPE_MAX, &auth);
-    if (st == TFW_OK) st = expect(&c, MT_UINT, ENV_MANIFEST);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, MT_UINT, ENV_MANIFEST);
     wrapped.p = c.p;
     if (st == TFW_OK) st = bstr(&c, TFW_SUIT_ENVELOPE_MAX, &man);
     wrapped.n = (uint16_t)(c.p - wrapped.p);
-    if (st == TFW_OK) st = done(&c);
-
-    /* The authentication wrapper: the manifest digest, then one signature. */
-    if (st == TFW_OK) st = expect(&auth, MT_ARRAY, 2u);
-    if (st == TFW_OK) st = bstr(&auth, SUIT_DIGEST_MAX, &dg);
-    if (st == TFW_OK) st = suit_digest(dg, want);
-    if (st == TFW_OK) st = bstr(&auth, TFW_SUIT_ENVELOPE_MAX, &cose);
-    if (st == TFW_OK) st = cose_sign1(cose, sig);
-    if (st == TFW_OK) st = done(&auth);
-    if (st != TFW_OK) {
-        return st;
-    }
-
-    /* Authenticate before the manifest is read at all: the signature binds
-     * the digest, and the digest binds the manifest's bytes, header included. */
-    if (tfw_crypto_sha256(wrapped.p, wrapped.n, have) != TFW_OK
-        || memcmp(have, want, TFW_SUIT_DIGEST_LEN) != 0) {
-        return TFW_ERR_CRYPTO;
-    }
-    st = verify_sig(&dg, sig);
+    if (st == TFW_OK) st = tfw_suit_done(&c);
+    if (st == TFW_OK) st = tfw_suit_auth(auth, &wrapped, h, sig);
+    if (st == TFW_OK) st = tfw_crypto_verify_image(h, sig);
     if (st != TFW_OK) {
         return st;
     }

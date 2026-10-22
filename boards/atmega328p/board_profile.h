@@ -18,6 +18,14 @@
  * this board names (issue #78). 7a83e13f-8c4f-51bb-80ab-e1b82735410e. */
 #define TFW_SUIT_CLASS_ID { 0x7au, 0x83u, 0xe1u, 0x3fu, 0x8cu, 0x4fu, 0x51u, 0xbbu, \
                             0x80u, 0xabu, 0xe1u, 0xb8u, 0x27u, 0x35u, 0x41u, 0x0eu }
+/* The policy-set and script class ids, UUIDv5(TFW_SUIT_VENDOR_ID,
+ * "atmega328p/policy") and (..., "atmega328p/script")
+ * (docs/hsm-self-defence/adr-response-policy-format.md D2).
+ * d0a23e68-55d5-51e3-bab3-4ed329509d68, 6dd28d7d-05df-5353-a696-3f057d92a347. */
+#define TFW_SUIT_POLICY_CLASS_ID { 0xd0u, 0xa2u, 0x3eu, 0x68u, 0x55u, 0xd5u, 0x51u, 0xe3u, \
+                                   0xbau, 0xb3u, 0x4eu, 0xd3u, 0x29u, 0x50u, 0x9du, 0x68u }
+#define TFW_SUIT_SCRIPT_CLASS_ID { 0x6du, 0xd2u, 0x8du, 0x7du, 0x05u, 0xdfu, 0x53u, 0x53u, \
+                                   0xa6u, 0x96u, 0x3fu, 0x05u, 0x7du, 0x92u, 0xa3u, 0x47u }
 
 /* D0..D13 are 0..13; A0..A5 are 14..19; A6 and A7 are 20 and 21 and exist only
  * on the TQFP package the Nano uses. These are the numbers printed on the

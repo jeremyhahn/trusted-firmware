@@ -23,6 +23,14 @@
  * this board names (issue #78). dd66c967-8557-5e77-b407-8668fd409931. */
 #define TFW_SUIT_CLASS_ID { 0xddu, 0x66u, 0xc9u, 0x67u, 0x85u, 0x57u, 0x5eu, 0x77u, \
                             0xb4u, 0x07u, 0x86u, 0x68u, 0xfdu, 0x40u, 0x99u, 0x31u }
+/* The policy-set and script class ids, UUIDv5(TFW_SUIT_VENDOR_ID,
+ * "atmega32u4/policy") and (..., "atmega32u4/script")
+ * (docs/hsm-self-defence/adr-response-policy-format.md D2).
+ * c36ca611-4d68-58f2-84d1-03389dc8f566, 3f559c11-4657-5be1-ad8e-c5b336d052eb. */
+#define TFW_SUIT_POLICY_CLASS_ID { 0xc3u, 0x6cu, 0xa6u, 0x11u, 0x4du, 0x68u, 0x58u, 0xf2u, \
+                                   0x84u, 0xd1u, 0x03u, 0x38u, 0x9du, 0xc8u, 0xf5u, 0x66u }
+#define TFW_SUIT_SCRIPT_CLASS_ID { 0x3fu, 0x55u, 0x9cu, 0x11u, 0x46u, 0x57u, 0x5bu, 0xe1u, \
+                                   0xadu, 0x8eu, 0xc5u, 0xb3u, 0x36u, 0xd0u, 0x52u, 0xebu }
 
 /*
  * Pin numbering: the Leonardo/Micro core's map, 0..23, with no holes.

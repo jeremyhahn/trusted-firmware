@@ -26,6 +26,14 @@
  * this board names (issue #78). b7535d26-c463-598f-a55f-ecc936e674e1. */
 #define TFW_SUIT_CLASS_ID { 0xb7u, 0x53u, 0x5du, 0x26u, 0xc4u, 0x63u, 0x59u, 0x8fu, \
                             0xa5u, 0x5fu, 0xecu, 0xc9u, 0x36u, 0xe6u, 0x74u, 0xe1u }
+/* The policy-set and script class ids, UUIDv5(TFW_SUIT_VENDOR_ID,
+ * "esp32p4-poe/policy") and (..., "esp32p4-poe/script")
+ * (docs/hsm-self-defence/adr-response-policy-format.md D2).
+ * 0a28ee07-1174-5eb2-b530-c12feded9e97, dcf85048-f2ff-5beb-82a5-a46b51a363d8. */
+#define TFW_SUIT_POLICY_CLASS_ID { 0x0au, 0x28u, 0xeeu, 0x07u, 0x11u, 0x74u, 0x5eu, 0xb2u, \
+                                   0xb5u, 0x30u, 0xc1u, 0x2fu, 0xedu, 0xedu, 0x9eu, 0x97u }
+#define TFW_SUIT_SCRIPT_CLASS_ID { 0xdcu, 0xf8u, 0x50u, 0x48u, 0xf2u, 0xffu, 0x5bu, 0xebu, \
+                                   0x82u, 0xa5u, 0xa4u, 0x6bu, 0x51u, 0xa3u, 0x63u, 0xd8u }
 
 #define TFW_PIN_COUNT  17u
 #define TFW_PORT_COUNT 2u          /* GPIO 0..31 and 32..54 */

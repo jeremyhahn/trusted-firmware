@@ -36,4 +36,21 @@ size_t tfw_suit_emit_envelope(uint8_t *out, size_t cap,
                               const uint8_t *manifest, size_t manifest_len,
                               const uint8_t sig[64]);
 
+/* The integrated-payload form (src/core/suit.h, tfw_suit_read_integrated):
+ * the manifest names the payload by the fragment-only `uri` and holds its
+ * SHA-256 and size; suit-install sets the URI, fetches and matches. The TBS
+ * is tfw_suit_emit_tbs over this manifest, signed with the artefact's own key
+ * (a policy set's or script's, never the board's image key). */
+size_t tfw_suit_emit_manifest_integrated(uint8_t *out, size_t cap,
+                                         const uint8_t payload_digest[32],
+                                         uint32_t payload_size, uint32_t seq,
+                                         const uint8_t vendor[16],
+                                         const uint8_t class_id[16], const char *uri);
+
+/* 107({2: auth, 3: manifest, uri: bstr(body)}). */
+size_t tfw_suit_emit_envelope_integrated(uint8_t *out, size_t cap,
+                                         const uint8_t *manifest, size_t manifest_len,
+                                         const uint8_t sig[64], const char *uri,
+                                         const uint8_t *body, size_t body_len);
+
 #endif

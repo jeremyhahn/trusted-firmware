@@ -23,6 +23,7 @@ RFC 9334) and through hardware (ECDSA P-256 in the ATECC608) are not ours.
 | [`NIST.FIPS.180-4.pdf`](NIST.FIPS.180-4.pdf) | Secure Hash Standard (SHA-256) | FIPS 180-4, August 2015 | `src/crypto/sha256.c` |
 | [`rfc2104.txt`](rfc2104.txt) | HMAC: Keyed-Hashing for Message Authentication | RFC 2104 | `src/crypto/sha256.c` (HMAC-SHA256); `boot/tier/cdi_soft.c` |
 | [`rfc8032.txt`](rfc8032.txt) | Edwards-Curve Digital Signature Algorithm (EdDSA) | RFC 8032 | Ed25519 verify only: `boot/verify/verify_ed25519_donna.c` over the vendored `src/third_party/ed25519-donna/` |
+| [`rfc8610.txt`](rfc8610.txt) | Concise Data Definition Language (CDDL): A Notational Convention to Express CBOR and JSON Data Structures | RFC 8610 | No code yet: the notation of the policy-set and script payloads, [`../hsm-self-defence/adr-response-policy-format.md`](../hsm-self-defence/adr-response-policy-format.md) D5, which the row's payload reader will implement |
 | [`rfc8949.txt`](rfc8949.txt) | Concise Binary Object Representation (CBOR) | RFC 8949 | `src/caps/uccs.c` (deterministic encoding, §4.2.1); `src/core/suit.c` (reader); `tools/suit-emit/` |
 | [`rfc9711.txt`](rfc9711.txt) | The Entity Attestation Token (EAT) | RFC 9711 | Claims set only (`eat_nonce`, `ueid`, `measurements`): `src/caps/uccs.c`; `ueid` (§4.2.1, type `0x01`) in `tfwprov --record`'s provisioning record: `sdk/go/cmd/tfwprov/record.go` |
 | [`rfc7517.txt`](rfc7517.txt) | JSON Web Key (JWK) | RFC 7517 | The DeviceID public key in `tfwprov --record`'s provisioning record: `sdk/go/cmd/tfwprov/record.go` |

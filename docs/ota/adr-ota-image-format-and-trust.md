@@ -172,6 +172,16 @@ travels with the image in the trailer: v1 plus `board_id`, with no trailer v2.
     vendor id, the class id (binding), the image digest and the image size.
   - **No** directives beyond the common sequence, no dependencies, no
     severable members, no text. A device refuses any member it does not know.
+  - **Integrated payload** (row `hsm-self-defence`,
+    [its ADR](../hsm-self-defence/adr-response-policy-format.md) D1, D3, D7),
+    read only by `tfw_suit_read_integrated` (`src/core/suit_integrated.c`),
+    under a key the caller names, never the board's image key. The envelope
+    adds one member: the payload as a bstr under a fragment-only URI
+    (draft-ietf-suit-manifest §7.5). The manifest adds `suit-install`:
+    override-parameters with that URI, fetch, and condition-image-match. The
+    image profile above and its reader are unchanged. The two class ids per
+    board (ADR D2), `TFW_SUIT_POLICY_CLASS_ID` and `TFW_SUIT_SCRIPT_CLASS_ID`,
+    sit in the board profiles beside `TFW_SUIT_CLASS_ID`.
 - **ES256 everywhere.** The ATECC608C verifies only P-256, and software Ed25519
   fits no AVR boot section (decision 5). One algorithm keeps one key type per
   board in go-xkms. EdDSA was weighed and rejected (see Rejected alternatives).

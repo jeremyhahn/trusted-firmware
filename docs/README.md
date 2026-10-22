@@ -1,6 +1,6 @@
 # Documentation
 
-> **Status: INFORMATIVE** · Scope: `docs/` · Last verified: 2026-10-16
+> **Status: INFORMATIVE** · Scope: `docs/` · Last verified: 2026-10-20
 > The map of this repository's documentation: which folder holds what.
 
 trusted-firmware is AVR firmware plus a Layer 0 Go SDK. It is a drop-in
@@ -28,6 +28,7 @@ with the code is a defect to fix in the document first.
 | [`application-sdk/`](application-sdk/architecture.md) | the C interface a `trusted-firmware-<application>` repository links into the image: descriptor, hooks, configuration, build |
 | [`ethernet-transport/`](ethernet-transport/architecture.md) | the wire protocol over TCP through a WIZnet W5100 or W5500 (draft, #55) |
 | [`ota/`](ota/architecture.md) | signed over-the-air updates: the image format, trial boot, confirm and rollback (#52) |
+| [`hsm-self-defence/`](hsm-self-defence/README.md) | the i.MX 95 M7's tamper response under a tenant-signed policy: requirements, policy format, test plan (design only, #50) |
 
 Cross-cutting material that belongs to no single feature:
 
@@ -75,6 +76,10 @@ it will read them.
   **ACCEPTED** for the decisions it marks so, **PROPOSED** for the rest
   (issue #52): the trailer per arch class, the floor per tier,
   A/B where a part has room, and what AVR gets.
+- **How a tamper-response policy is signed and checked on the i.MX 95 M7** —
+  [`hsm-self-defence/adr-response-policy-format.md`](hsm-self-defence/adr-response-policy-format.md).
+  **PROPOSED** (issue #50): SUIT envelopes with the payload integrated, the
+  tenant's ES256 key in the M7 image, and the owner's open questions.
 - **Why there is no `delay()`** — `device-capabilities/architecture.md`.
 - **Why the pin timer stays in firmware** — `device-capabilities/engineering.md`.
   A pin told to hold a level for ten minutes must revert in ten minutes whether

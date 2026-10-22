@@ -34,8 +34,8 @@ and section in this repository.
   as decided in `5857be4` on `docs/cortex-m-adr-decisions` (#14, "ref ADR");
   [`adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md) at the
   same commit (#15, "trust ADR"); [`../ota/adr-ota-image-format-and-trust.md`](../ota/adr-ota-image-format-and-trust.md)
-  decision 12 and its rejected alternatives ("OTA ADR d12"); the #50 design on
-  `docs/50-hsm-self-defence-design` (`hsm-self-defence-design.md`, unmerged);
+  decision 12 and its rejected alternatives ("OTA ADR d12"); the #50 design,
+  now [`../hsm-self-defence/architecture.md`](../hsm-self-defence/architecture.md);
   `include/tfw/hal.h`, `include/tfw/crypto.h`, `include/tfw/types.h`,
   `boot/boot_hal.h`.
 - **Not read:** issue #161 itself (no forge route from the lane; its branch

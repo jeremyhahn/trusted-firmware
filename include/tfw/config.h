@@ -241,6 +241,17 @@
 #ifndef TFW_SUIT_CLASS_ID
 #define TFW_SUIT_CLASS_ID  { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
 #endif
+/* The policy-set and script class ids of the signed response policy
+ * (docs/hsm-self-defence/adr-response-policy-format.md D2):
+ * UUIDv5(vendor id, "<board>/policy") and (..., "<board>/script"), stated by
+ * the profile beside TFW_SUIT_CLASS_ID. All zero binds no class, and
+ * tfw_suit_read_integrated refuses every envelope of that kind. */
+#ifndef TFW_SUIT_POLICY_CLASS_ID
+#define TFW_SUIT_POLICY_CLASS_ID  { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
+#endif
+#ifndef TFW_SUIT_SCRIPT_CLASS_ID
+#define TFW_SUIT_SCRIPT_CLASS_ID  { 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u }
+#endif
 #ifndef TFW_PIN_COUNT
 #define TFW_PIN_COUNT  0u
 #endif

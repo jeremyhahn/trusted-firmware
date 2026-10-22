@@ -1395,6 +1395,22 @@ $(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optig
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The OPTIGA Trust M command layer (row optiga-trust-m): optiga_cmd.c alone,
+# the transport faked in the suite at the APDU, so each command's bytes are
+# the manual's table. No firmware tier links it. It stays in TEST_SRCS; this
+# explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_optiga_cmd: test/unit/test_optiga_cmd.c src/crypto/optiga/optiga_cmd.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The command layer on the real transport, the bus faked in the suite: the
+# 0xE0E0 certificate read as frames. It stays in TEST_SRCS; this explicit
+# rule takes the place of the pattern rule.
+$(HOST_DIR)/test_optiga_cmd_i2c: test/unit/test_optiga_cmd_i2c.c src/crypto/optiga/optiga_cmd.c \
+                                 src/crypto/optiga/optiga_i2c.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
+
 # I2C_XFER on a build whose object list carries the OPTIGA transport: bus.c
 # with optiga_i2c.c in place of bus_held_none.c, the bus faked in the suite.
 # It stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.

@@ -6,7 +6,7 @@
 > [`architecture.md`](architecture.md) §6,
 > [`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md) (#14),
 > [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md) (#15) ·
-> Last verified: 2026-10-20
+> Last verified: 2026-10-22
 >
 > Documentation only. Owner ruling 2026-10-17 05:51Z, queue item 26: each
 > arrived board gets one docs-only onboarding ADR, written now; the port itself
@@ -14,9 +14,11 @@
 > `mk/` file, no board profile and no wire vector, and decides nothing the owner
 > has not ruled: every choice is an open question below.
 >
-> No vendor document was readable in this lane. Every Infineon fact below is
-> cited by document title only and marked *to confirm*; no section number is
-> given for any of them.
+> Written when no vendor document was readable. Since then the *Solution
+> Reference Manual*, Revision 3.60, is pinned in
+> [`../reference/README.md`](../reference/README.md), and the §2 items it
+> settles carry its section (2026-10-22). The datasheet is still unread, so
+> the supply item stays *to confirm*.
 
 ## The question
 
@@ -48,40 +50,43 @@ without changing it?
 
 ## 2. Root of trust
 
-### What the element holds (*to confirm* against the vendor documents)
+### What the element holds
 
-Vendor documents, by title only (neither was readable in this lane; revision
-and every section *to confirm*):
+Vendor documents:
 
-- Infineon, *OPTIGA™ Trust M (SLS32AIA) Datasheet*, the V3 revision.
-- Infineon, *OPTIGA™ Trust M Solution Reference Manual*, the V3 revision.
+- Infineon, *OPTIGA™ Trust M (SLS32AIA) Datasheet*, the V3 revision: not yet
+  read; revision and sections *to confirm*.
+- Infineon, *OPTIGA™ Trust M Solution Reference Manual*, Revision 3.60
+  (2023-12-04), pinned by SHA-256 in
+  [`../reference/README.md`](../reference/README.md). Sections below are its own.
 
-From those documents, *to confirm* item by item before any driver is written:
+Item by item:
 
 | Item | What it is expected to be | Status |
 |---|---|---|
-| Factory key | An ECC NIST P-256 private key generated and locked at Infineon's personalisation, in a key object (`0xE0F0`, "device private key 1") | *to confirm* |
-| Factory certificate | An X.509 certificate for that key, issued by an Infineon CA, in a data object (`0xE0E0`) | *to confirm* |
-| Key object slots | Further ECC key objects (`0xE0F1`-`0xE0F3`) and RSA key objects, generated on chip; the private key never leaves | *to confirm* |
-| Data object slots | General data objects, monotonic counters (`0xE120`-`0xE123`), and objects that can hold a secret for HMAC or a platform binding secret (`0xE140`) | *to confirm* |
-| Lifecycle state | Each object carries a lifecycle state (LcsO: creation, initialisation, operational, termination) and access conditions in its metadata; the state only moves forward | *to confirm* |
-| Shielded connection | The I2C link can be protected by a session derived from the platform binding secret shared between host and element, so the bus carries no plaintext command or response | *to confirm* |
-| Supply | The voltage range the element and the shield accept, which decides whether a 5 V AVR host needs a level shifter | *to confirm* |
+| Factory key | An ECC NIST P-256 private key generated and locked at Infineon's personalisation, in a key object (`0xE0F0`, "device private key 1") | Confirmed in part, Rev 3.60 §5.4 Table 69: `0xE0F0` is "Device private ECC key 1", read NEV, and GetDataObject and SetDataObject are refused on its data part whatever its metadata says. The curve is not given there; P-256 *to confirm* from its metadata on the bench (algorithm tag, Table 71) |
+| Factory certificate | An X.509 certificate for that key, issued by an Infineon CA, in a data object (`0xE0E0`) | Confirmed, Rev 3.60 §5.4 Table 68: `0xE0E0` is "Public key certificate 1, issued by Infineon", read ALW, change NEV, data type "device identity", at most 1728 bytes (Table 73). Read by `tfw_optiga_read_object` |
+| Key object slots | Further ECC key objects (`0xE0F1`-`0xE0F3`) and RSA key objects, generated on chip; the private key never leaves | Confirmed, Rev 3.60 §5.4 Table 69: `0xE0F1`-`0xE0F3` ECC and `0xE0FC`-`0xE0FD` RSA key objects, read NEV |
+| Data object slots | General data objects, monotonic counters (`0xE120`-`0xE123`), and objects that can hold a secret for HMAC or a platform binding secret (`0xE140`) | Confirmed, Rev 3.60 §5.4 Tables 68 and 70: counters `0xE120`-`0xE123`, the platform binding secret `0xE140`, and the arbitrary data objects `0xF1D0`-`0xF1DB` and `0xF1E0`-`0xF1E1` |
+| Lifecycle state | Each object carries a lifecycle state (LcsO: creation, initialisation, operational, termination) and access conditions in its metadata; the state only moves forward | Confirmed, Rev 3.60 §5.3 and §5.5 Table 71 (tag `0xC0`, LcsO): cr, in, op, te, forward only; an absent access condition reads as NEV |
+| Shielded connection | The I2C link can be protected by a session derived from the platform binding secret shared between host and element, so the bus carries no plaintext command or response | Confirmed, Rev 3.60 §2.3 and §6.6: the session is keyed by the platform binding secret (`0xE140`), and a `Conf` access condition makes an object readable or writable only through it. Not written here (question 4) |
+| Supply | The voltage range the element and the shield accept, which decides whether a 5 V AVR host needs a level shifter | *to confirm* (datasheet) |
 
-Object ids are given so the factory record (§4) knows what to read; none is
-used in code until the solution reference manual confirms it.
+The read-only command layer (`src/crypto/optiga/optiga_cmd.c`) names only the
+objects it reads: `0xE0C2`, `0xE0C6`, `0xE0E0` and the last error code
+`0xF1C2`.
 
 ### How it compares with the ATECC608C element tier
 
 | | ATECC608C (AVR rows today) | OPTIGA Trust M V3 (this row) |
 |---|---|---|
-| Bus | I2C | I2C, with an optional shielded connection (*to confirm*) |
-| DeviceID key | hardware-resident P-256, not derived from the CDI | hardware-resident P-256 factory key (*to confirm*) |
-| Factory certificate | provisioned per the TrustFLEX slot map (`docs/device-provisioning/adr-trustflex-608c-slot-map.md`) | Infineon-issued, in a data object (*to confirm*) |
+| Bus | I2C | I2C, with an optional shielded connection (Rev 3.60 §6.6) |
+| DeviceID key | hardware-resident P-256, not derived from the CDI | hardware-resident ECC factory key, `0xE0F0` (Rev 3.60 Table 69; P-256 *to confirm*) |
+| Factory certificate | provisioned per the TrustFLEX slot map (`docs/device-provisioning/adr-trustflex-608c-slot-map.md`) | Infineon-issued, in data object `0xE0E0` (Rev 3.60 Table 68) |
 | CDI source | `boot/tier/cdi_atecc.c`: HMAC(UDS, H(code)) with the UDS in the element | not decided (open question 3) |
 | Bus protection | none on the AVR rows | shielded connection, if the owner rules it in (open question 4) |
 | Anti-rollback | the element's monotonic counter (`docs/ota/adr-ota-image-format-and-trust.md`) | the element's monotonic counter object, as the ATECC608C (same table) |
-| Locking | per-slot and zone locks | per-object lifecycle state (*to confirm*) |
+| Locking | per-slot and zone locks | per-object lifecycle state (Rev 3.60 §5.3) |
 
 ### Mapping onto TCG DICE
 
@@ -131,9 +136,9 @@ record and restore the one condition. For an element that is "write nothing":
 2. **One device per lane.** A lane that touches the shield touches nothing else
    on the bench.
 3. **The factory record, read-only.** Read, once, only for the record:
-   - the factory certificate (the `0xE0E0` data object, *to confirm*);
+   - the factory certificate (the `0xE0E0` data object, Rev 3.60 Table 68);
    - the metadata of every key and data object: its lifecycle state, its access
-     conditions, its type (*to confirm* which objects exist).
+     conditions, its type (the objects Rev 3.60 §5.4, Tables 68 to 70, lists).
    The record is kept off the repository, where the bench records are kept;
    which tool reads it is open question 2.
 4. **Restore** is "nothing to restore": the record is proof the element was not
@@ -176,12 +181,16 @@ None is decided here.
    (L2), subject to its licence?
 9. **The vendor documents.** Which revisions of the datasheet and the solution
    reference manual are authoritative for the V3 shield, so every *to confirm*
-   above can be confirmed with a section?
+   above can be confirmed with a section? The command layer follows Revision
+   3.60 of the manual, the one in Infineon's `optiga-trust-m` repository beside
+   the IFX I2C specification; a newer one (3.70) is published in Infineon's
+   overview repository. Which governs is still the owner's.
 
 ## Follow-ups (not in this ADR)
 
-- Confirm every *to confirm* item against the vendor documents, with the
-  revision and section.
+- Confirm what is still *to confirm*: the supply range against the datasheet,
+  and the factory key's curve from its metadata on the bench. The other §2
+  items are confirmed against the Solution Reference Manual Rev 3.60.
 - The driver and its mock, after #7 and the SE052F and STM32H5, per SPEC order.
   Its first part is written: the I2C transport, `src/crypto/optiga/optiga_i2c.c`,
   to Infineon's *IFX I2C Protocol, Protocol Specification* v2.03
@@ -191,3 +200,16 @@ None is decided here.
   choose the library. It refuses the shielded connection (question 4). Bench
   facts it takes from the host library and marks to confirm: the address 0x30,
   the FCS byte order, and the timing values.
+- Its second part is written: the read-only command layer,
+  `src/crypto/optiga/optiga_cmd.c`, to the Solution Reference Manual Rev 3.60:
+  OpenApplication, CloseApplication, GetDataObject (data and metadata) and
+  GetRandom (§4.4.1, Tables 40-42 and 45), with Table 39's error codes mapped
+  onto existing status codes. No write command is reachable, which
+  `test/unit/test_optiga_cmd.c` proves; `test/unit/test_optiga_cmd_i2c.c`
+  reads the `0xE0E0` certificate across transport frames. It is the read
+  side §4 step 3's factory record needs (question 2). Its command wait, 200 ms,
+  is ours: Table 64 (§4.4.3) gives no time for these commands; to confirm on
+  the bench.
+- Left in the row: the provider (signing with `0xE0F0`, which needs no write),
+  a board and config gate for the element tier, its flash cost per board
+  (question 5), and the bench factory record.

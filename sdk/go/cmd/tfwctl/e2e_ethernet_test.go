@@ -51,7 +51,8 @@ const deviceWait = 30 * time.Second
 // the TCP connection tfwctl accepted, which carries only the allow-list.
 type ethPeer struct {
 	serialPeer
-	eth *tfw.Device
+	eth      *tfw.Device
+	endpoint netip.AddrPort // what the device's network block dials
 }
 
 // startEthernet listens where the seam says, starts the device through the
@@ -70,14 +71,18 @@ func startEthernet(t *testing.T) ethPeer {
 	l, err := net.ListenTCP("tcp", a)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })
+	// The endpoint, not the listener: behind a published port the board
+	// dials an address this host does not hold.
+	endpoint, err := target.Endpoint(l.Addr().(*net.TCPAddr).AddrPort())
+	require.NoError(t, err)
 
 	// Listening comes first: a board dials as soon as Start has reset it.
-	conn := peer.Start(t, simproc.Element, simEthernetArgs(t, l.Addr().(*net.TCPAddr).AddrPort())...)
+	conn := peer.Start(t, simproc.Element, simEthernetArgs(t, endpoint)...)
 	serial := tfw.New(conn, tfw.WithTimeout(10*time.Second))
 	td, err := acceptDevice(l, deviceWait, tfw.WithTimeout(10*time.Second))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = td.Close() })
-	return ethPeer{serialPeer: serialPeer{serial: serial, board: target.Hardware()}, eth: td.Device}
+	return ethPeer{serialPeer: serialPeer{serial: serial, board: target.Hardware()}, eth: td.Device, endpoint: endpoint}
 }
 
 // simEthernetArgs are the simulator's flags: the element tier, provisioned,
@@ -287,5 +292,8 @@ func TestEthernetNetworkBlockReadsBackOverSerial(t *testing.T) {
 	assert.Equal(t, []byte("TFNC"), got[:4], "block magic")
 	assert.NotZero(t, int(got[28])<<8|int(got[29]), "block carries no endpoint port")
 	assert.Equal(t, tfw.CRC16(got[:30]), uint16(got[30])|uint16(got[31])<<8, "block CRC")
+	var cfg tfw.NetConfig
+	require.NoError(t, cfg.UnmarshalBinary(got))
+	assert.Equal(t, p.endpoint, cfg.Endpoint, "the block dials somewhere other than the endpoint the row names")
 	cliCaps(t, p.eth)
 }

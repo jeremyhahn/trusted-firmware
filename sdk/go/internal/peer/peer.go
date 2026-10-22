@@ -35,10 +35,14 @@ const (
 	PortEnv = "TFW_HW_PORT"
 	// BoardEnv names the board on PortEnv, as boards/<board>/ does.
 	BoardEnv = "TFW_HW_BOARD"
-	// EthEnv names the ip:port this host listens on for the board's Ethernet
-	// link: the endpoint the board's network block dials. A board run that
-	// leaves it unset runs no Ethernet row.
+	// EthEnv names the ip:port the board's network block dials for its
+	// Ethernet link. A board run that leaves it unset runs no Ethernet row.
 	EthEnv = "TFW_HW_ETH"
+	// EthListenEnv names the ip:port this host listens on for that link, when
+	// it is not EthEnv's: a suite behind a NAT or a published port listens on
+	// its own address, a wildcard included, while the board dials the bench
+	// host's. Unset, the suite listens on EthEnv's.
+	EthListenEnv = "TFW_HW_ETH_LISTEN"
 	// SimListen is where the simulator's Ethernet link is listened for: a
 	// loopback port the kernel picks, which the test writes into the
 	// simulator's network block.
@@ -57,34 +61,64 @@ var ErrSilent = errors.New("the board sent nothing after its port opened -- is t
 
 // Target is the peer the suite talks to.
 type Target struct {
-	Port  string // empty for the simulator
-	Board string
-	Eth   string // where the board dials; empty for the simulator and a serial-only run
+	Port      string // empty for the simulator
+	Board     string
+	Eth       string // where the board dials; empty for the simulator and a serial-only run
+	EthListen string // where the suite listens for it, when not Eth; empty for Eth
 }
 
 // Hardware reports whether the target is a real board.
 func (t Target) Hardware() bool { return t.Port != "" }
 
 // Listen returns the address the Ethernet rows listen on for the device to
-// dial: SimListen for the simulator, EthEnv's for a board. A board's network
-// block names a fixed endpoint, so its address must be an ip:port with a port;
-// a board run that names none fails the row instead of listening where no
-// board will ever dial.
+// dial: SimListen for the simulator; for a board, EthListenEnv's, or EthEnv's
+// when that is unset. A board run that names no endpoint fails the row instead
+// of listening where no board will ever dial. The listen address may be a
+// wildcard, but not port 0: the board dials a fixed port, which the suite (or
+// the port published to it) must be listening on.
 func (t Target) Listen() (string, error) {
 	if !t.Hardware() {
 		return SimListen, nil
 	}
+	if _, err := t.Endpoint(netip.AddrPort{}); err != nil {
+		return "", err
+	}
+	if t.EthListen == "" {
+		return t.Eth, nil
+	}
+	ap, err := netip.ParseAddrPort(t.EthListen)
+	if err != nil {
+		return "", fmt.Errorf("%s=%s: %w", EthListenEnv, t.EthListen, err)
+	}
+	if ap.Port() == 0 {
+		return "", fmt.Errorf("%s=%s: the board dials a fixed port, so the suite cannot listen on port 0", EthListenEnv, t.EthListen)
+	}
+	return t.EthListen, nil
+}
+
+// Endpoint returns the endpoint the device's network block names: bound, the
+// address the simulator's listener was given, for the simulator; EthEnv's for
+// a board, which is what its provisioned block dials whatever the suite
+// listens on. A board's endpoint must be an address it can dial: a port, and
+// not a wildcard, which belongs in EthListenEnv.
+func (t Target) Endpoint(bound netip.AddrPort) (netip.AddrPort, error) {
+	if !t.Hardware() {
+		return bound, nil
+	}
 	if t.Eth == "" {
-		return "", fmt.Errorf("%s=%s: the Ethernet rows need the ip:port the board dials, and %s names none", PortEnv, t.Port, EthEnv)
+		return netip.AddrPort{}, fmt.Errorf("%s=%s: the Ethernet rows need the ip:port the board dials, and %s names none", PortEnv, t.Port, EthEnv)
 	}
 	ap, err := netip.ParseAddrPort(t.Eth)
 	if err != nil {
-		return "", fmt.Errorf("%s=%s: %w", EthEnv, t.Eth, err)
+		return netip.AddrPort{}, fmt.Errorf("%s=%s: %w", EthEnv, t.Eth, err)
 	}
 	if ap.Port() == 0 {
-		return "", fmt.Errorf("%s=%s: the board dials a fixed port, so it cannot be 0", EthEnv, t.Eth)
+		return netip.AddrPort{}, fmt.Errorf("%s=%s: the board dials a fixed port, so it cannot be 0", EthEnv, t.Eth)
 	}
-	return t.Eth, nil
+	if ap.Addr().IsUnspecified() {
+		return netip.AddrPort{}, fmt.Errorf("%s=%s: the board cannot dial a wildcard; name the address it dials, and put the wildcard in %s", EthEnv, t.Eth, EthListenEnv)
+	}
+	return ap, nil
 }
 
 // FromEnv reads the target from PortEnv and BoardEnv. A port without a board,
@@ -92,10 +126,14 @@ func (t Target) Listen() (string, error) {
 // what the suite expects of the pins, and a board named with no port would
 // otherwise run the simulator under a hardware label.
 func FromEnv() (Target, error) {
-	port, board, eth := os.Getenv(PortEnv), os.Getenv(BoardEnv), os.Getenv(EthEnv)
+	port, board, eth, listen := os.Getenv(PortEnv), os.Getenv(BoardEnv), os.Getenv(EthEnv), os.Getenv(EthListenEnv)
 	switch {
 	case port == "" && eth != "":
 		return Target{}, fmt.Errorf("%s=%s names a board's Ethernet link but %s names no port: every Ethernet row starts the board through its serial port", EthEnv, eth, PortEnv)
+	case port == "" && listen != "":
+		return Target{}, fmt.Errorf("%s=%s names where to listen for a board but %s names no port: the simulator is always listened for on %s", EthListenEnv, listen, PortEnv, SimListen)
+	case eth == "" && listen != "":
+		return Target{}, fmt.Errorf("%s=%s names where to listen but %s names no endpoint for the board to dial", EthListenEnv, listen, EthEnv)
 	case port == "" && board == "":
 		return Target{Board: SimBoard}, nil
 	case port == "":
@@ -103,7 +141,7 @@ func FromEnv() (Target, error) {
 	case board == "":
 		return Target{}, fmt.Errorf("%s=%s names a port but %s names no board", PortEnv, port, BoardEnv)
 	}
-	return Target{Port: port, Board: board, Eth: eth}, nil
+	return Target{Port: port, Board: board, Eth: eth, EthListen: listen}, nil
 }
 
 // Start connects to the target FromEnv names: sim, run with args, when it is

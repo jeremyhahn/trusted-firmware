@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net/netip"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,6 +18,7 @@ func TestFromEnvDefaultsToTheSimulatorsBoard(t *testing.T) {
 	t.Setenv(PortEnv, "")
 	t.Setenv(BoardEnv, "")
 	t.Setenv(EthEnv, "")
+	t.Setenv(EthListenEnv, "")
 	got, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -29,6 +32,7 @@ func TestFromEnvNamesTheBoardOnThePort(t *testing.T) {
 	t.Setenv(PortEnv, "/dev/ttyACM0")
 	t.Setenv(BoardEnv, "atmega2560")
 	t.Setenv(EthEnv, "")
+	t.Setenv(EthListenEnv, "")
 	got, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -48,6 +52,7 @@ func TestFromEnvRefusesHalfATarget(t *testing.T) {
 		t.Setenv(PortEnv, c.port)
 		t.Setenv(BoardEnv, c.board)
 		t.Setenv(EthEnv, c.eth)
+		t.Setenv(EthListenEnv, "")
 		if got, err := FromEnv(); err == nil {
 			t.Errorf("port %q board %q eth %q: target = %+v, want an error", c.port, c.board, c.eth, got)
 		}
@@ -58,12 +63,43 @@ func TestFromEnvNamesTheBoardsEthernetAddress(t *testing.T) {
 	t.Setenv(PortEnv, "/dev/ttyACM0")
 	t.Setenv(BoardEnv, "atmega2560")
 	t.Setenv(EthEnv, "192.0.2.1:5000")
+	t.Setenv(EthListenEnv, "")
 	got, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != (Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: "192.0.2.1:5000"}) {
 		t.Fatalf("target = %+v, want atmega2560 on /dev/ttyACM0 dialing 192.0.2.1:5000", got)
+	}
+}
+
+func TestFromEnvNamesTheListenAddressApart(t *testing.T) {
+	t.Setenv(PortEnv, "/dev/ttyACM0")
+	t.Setenv(BoardEnv, "atmega2560")
+	t.Setenv(EthEnv, "192.0.2.1:7020")
+	t.Setenv(EthListenEnv, "0.0.0.0:7020")
+	got, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != (Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: "192.0.2.1:7020", EthListen: "0.0.0.0:7020"}) {
+		t.Fatalf("target = %+v, want 192.0.2.1:7020 dialed and 0.0.0.0:7020 listened on", got)
+	}
+}
+
+func TestFromEnvRefusesAListenAddressWithNothingToListenFor(t *testing.T) {
+	for _, c := range []struct{ port, board, eth string }{
+		{"", "", ""},
+		{"", "", "192.0.2.1:7020"},
+		{"/dev/ttyACM0", "atmega2560", ""},
+	} {
+		t.Setenv(PortEnv, c.port)
+		t.Setenv(BoardEnv, c.board)
+		t.Setenv(EthEnv, c.eth)
+		t.Setenv(EthListenEnv, "0.0.0.0:7020")
+		if got, err := FromEnv(); err == nil {
+			t.Errorf("port %q board %q eth %q: target = %+v, want an error", c.port, c.board, c.eth, got)
+		}
 	}
 }
 
@@ -75,8 +111,8 @@ func TestListenIsALoopbackPortForTheSimulator(t *testing.T) {
 	}
 }
 
-func TestListenIsTheAddressTheBoardDials(t *testing.T) {
-	for _, eth := range []string{"192.0.2.1:5000", "0.0.0.0:5000", "[2001:db8::1]:5000"} {
+func TestListenDefaultsToTheAddressTheBoardDials(t *testing.T) {
+	for _, eth := range []string{"192.0.2.1:5000", "[2001:db8::1]:5000"} {
 		got, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: eth}.Listen()
 		if err != nil || got != eth {
 			t.Errorf("Listen = %q, %v; want %q", got, err, eth)
@@ -84,12 +120,59 @@ func TestListenIsTheAddressTheBoardDials(t *testing.T) {
 	}
 }
 
+func TestListenIsTheListenAddressWhenOneIsNamed(t *testing.T) {
+	// Behind a published port: the board dials the bench host's address, the
+	// suite listens on a wildcard or on its container's own address.
+	for _, listen := range []string{"0.0.0.0:7020", "198.51.100.2:7020", "[::]:7020"} {
+		got, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: "192.0.2.1:7020", EthListen: listen}.Listen()
+		if err != nil || got != listen {
+			t.Errorf("Listen = %q, %v; want %q", got, err, listen)
+		}
+	}
+}
+
 func TestListenRefusesABoardWithNoUsableAddress(t *testing.T) {
-	for _, eth := range []string{"", "192.0.2.1", "192.0.2.1:0", "board.invalid:5000", "192.0.2.1:http"} {
+	for _, eth := range []string{"", "192.0.2.1", "192.0.2.1:0", "board.invalid:5000", "192.0.2.1:http", "0.0.0.0:5000"} {
 		got, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: eth}.Listen()
 		if err == nil {
 			t.Errorf("eth %q: Listen = %q, want an error", eth, got)
 		}
+	}
+}
+
+func TestListenRefusesAnUnusableListenAddress(t *testing.T) {
+	for _, listen := range []string{"0.0.0.0", "0.0.0.0:0", "198.51.100.2:0", "suite.invalid:7020", "0.0.0.0:http"} {
+		got, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: "192.0.2.1:7020", EthListen: listen}.Listen()
+		if err == nil || !strings.Contains(err.Error(), EthListenEnv) {
+			t.Errorf("listen %q: Listen = %q, %v; want an error naming %s", listen, got, err, EthListenEnv)
+		}
+	}
+}
+
+func TestEndpointIsTheAddressTheBoardDials(t *testing.T) {
+	want := netip.MustParseAddrPort("192.0.2.1:7020")
+	for _, listen := range []string{"", "0.0.0.0:7020"} {
+		got, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: "192.0.2.1:7020", EthListen: listen}.Endpoint(netip.MustParseAddrPort("[::]:7020"))
+		if err != nil || got != want {
+			t.Errorf("listen %q: Endpoint = %s, %v; want %s", listen, got, err, want)
+		}
+	}
+}
+
+func TestEndpointIsTheBoundAddressForTheSimulator(t *testing.T) {
+	bound := netip.MustParseAddrPort("127.0.0.1:41000")
+	got, err := Target{Board: SimBoard}.Endpoint(bound)
+	if err != nil || got != bound {
+		t.Fatalf("Endpoint = %s, %v; want %s", got, err, bound)
+	}
+}
+
+func TestEndpointRefusesAWildcardAndNamesTheListenVariable(t *testing.T) {
+	// The defect of #171: TFW_HW_ETH=0.0.0.0:7020 wrote [::]:7020 into the
+	// network block, which a board cannot dial.
+	_, err := Target{Port: "/dev/ttyACM0", Board: "atmega2560", Eth: "0.0.0.0:7020"}.Endpoint(netip.AddrPort{})
+	if err == nil || !strings.Contains(err.Error(), EthListenEnv) {
+		t.Fatalf("err = %v, want a refusal naming %s", err, EthListenEnv)
 	}
 }
 

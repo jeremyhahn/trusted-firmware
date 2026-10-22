@@ -911,3 +911,69 @@ and the two share the name.
 compiles `ATTEST_CERT` out as the soft image does and the row expects
 `TFW_ERR_UNKNOWN_CMD`. B in 1b17bbd: `hw-test` takes the endpoint as `HW_ETH`,
 which no board profile sets.
+
+## The Mega over TCP on the bench network block, 2026-10-21 (#171)
+
+The bench Mega with its Ethernet shield (W5100), over serial on `/dev/ttyACM0`
+only, after Infra turned on forwarding for the bench network block (#171). The
+bench host has an address on that block. A lane container's outbound traffic to
+the block leaves masqueraded as that address. Inbound traffic reaches a
+container only on TCP port 7020, and only when the port is published to it. This
+lane's container was started without a published port. The run used the
+bench's own block. Below, `192.0.2.22` stands for the board's address on it and
+`192.0.2.25` for the bench host's (RFC 5737). The toolchain is
+[the probe's](../development/wiznet-probe.md#toolchain), unpacked under the
+lane's home directory. Nothing went over ISP. No fuse, lock or boot-section
+byte was read or written, and no chip erase was sent. Both flashes went through
+the stock bootloader with `-D`. Still no SPI NOR part on D8. 16:23Z to 16:37Z.
+
+```
+make firmware BOARD=atmega2560 CRYPTO=soft ETH=1
+```
+
+| Image | Flash / RAM | SHA-256 |
+|---|---|---|
+| The line above on main 5122402 (`build/atmega2560/soft-eth-w5100`, W5100), the `.hex` | 25742 / 1165 bytes, against the 65536 / 2048-byte gates | `b21d53339a3ba2244fa126eaf991fbae4530c5f019fee6abf2ea61e550543009` |
+| Its binary, 25742 bytes | | `708fef5d25045b03817c20ab3dcfc67542d533ba94228786629c9fd96c94e287` |
+| The restore: the record's flash from `0x0000` to `0x6500`, 25856 bytes, its 19374-byte image and `0xFF` past it to cover the larger image | | `67c23d5104f16845e168bc97a586d41f9e3aefee63806920f7a4395714a5a560` |
+
+It is 6368 bytes larger than [0cae6a2's](#the-mega-on-main-0cae6a2-2026-10-20)
+19374, and 264 bytes more RAM. `caps` now names `ecdsa-p256-sha256`, where
+0cae6a2's named `hmac-sha256`.
+
+| # | What ran | Result |
+|---|---|---|
+| 1 | The record, read only: `tfwctl` `ping`, `caps` and `netcfg get`; the flash and EEPROM through the stock bootloader (`avrdude -c wiring -p atmega2560 -P /dev/ttyACM0 -b 115200 -D -n -U flash:r:flash.bin:r -U eeprom:r:eeprom-bl.bin:r`); `0x000`–`0x0FF` through the application, 32 `tfwctl eeprom-read <addr> 8` runs | **Pass**: the board held what [the 0cae6a2 pass](#the-mega-on-main-0cae6a2-2026-10-20) left on it. Its used 19374 bytes are that pass's binary, byte for byte. The boot section, the bootloader's EEPROM read and the application's `0x000`–`0x0FF` read are [the bench record's](../development/bench/mega2560.md#bench-record-2026-10-18). `ping`: pong. `caps`: board `0x02`, protocol 2.0, root of trust `software`. `netcfg get`: a static block, every field set. Hashes below |
+| 2 | `make firmware BOARD=atmega2560 CRYPTO=soft ETH=1`, then `make flash BOARD=atmega2560 CRYPTO=soft ETH=1 AVRDUDE_PORT=/dev/ttyACM0` (`-D`) | **Pass**. avrdude wrote and verified 25742 bytes. `ping`: pong. `caps`: board `0x02`, protocol 2.0, root of trust `software`, algorithms `ecdsa-p256-sha256` |
+| 3 | `tfwctl netcfg set` over serial: the recorded MAC, `--ip 192.0.2.22`, `--mask 255.255.255.0`, `--gateway 0.0.0.0`, `--endpoint 192.0.2.25:7020`; `tfwctl reset soft`; `netcfg get` | **Pass**. The block read back as written, before and after the reset |
+| 4 | From the container: `ip route get 192.0.2.22`; `ping -c 3 192.0.2.22`, then `ping -c 5` | **Fail**. The route goes out through the Docker bridge's gateway. Every echo came back as `Destination Host Unreachable` from `192.0.2.25`, the bench host's address on the block: the host found no answer to its ARP for the board on that block. `ping 192.0.2.25` answered (0.09 ms average), so the masqueraded path to the host works. The W5100 had the address from boot (item 3), and it answers ARP whether or not its socket is connected |
+| 5a | `make hw-test BOARD=atmega2560 PORT=/dev/ttyACM0 HW_ETH=0.0.0.0:7020`, 16:26Z to 16:27Z | **Fail**. The 45 `TestFirmware*` rows: 19 pass and 26 fail, each for what this board lacks. 17 need a secure-element-tier peer and 7 the operator key. `AppReportsItsApplication` gets `unknown command`: no application image is flashed. `OTAAuthLetsTheCommandPastTheGate` gets `external store did not answer`: there is no NOR part. The 11 `TestEthernet*` rows all failed in 0 s on `tfw: network block: Endpoint must be an IPv4 address`, before listening: defect C |
+| 5b | The same with `HW_ETH=<the container's own address>:7020 HW_TEST_RUN='^TestEthernet'`, 16:28Z to 16:34Z | **Fail**. All 11 rows listened and each timed out: `no device connected to <it>:7020 within 30s`. No connection arrived |
+| 6 | `make hw-enroll DEVICE=0.0.0.0:7020 CONNECT_WAIT=60s` | **Not reached**. The board has no DeviceID to name: `tfwctl attest` answers `device has no provisioned identity`, because no `tfw-boot` hands off a soft UDS. The target did not build either: `xkms` needs go-xkms v0.57.0-alpha, and the lane's module cache is read-only, holds v0.56.0-alpha alone and has `GOPROXY=off`. No run record was written. Item 5b had already shown that no connection arrives |
+| 7 | The restore: `netcfg set` back to the recorded block; the restore image above written through the bootloader (`avrdude -v -pm2560 -cwiring -P/dev/ttyACM0 -b115200 -D -Uflash:w:restore.bin:r`); then every read of item 1 again | **Pass**: every hash is item 1's, byte for byte, and `caps` and `netcfg get` read back as in item 1. The EEPROM was not written through the bootloader. Its read [is not the EEPROM](../development/bench/mega2560.md#bench-record-2026-10-18), so writing it back would have changed bytes. After the block went back, the application's `0x000`–`0x0FF` read was already item 1's |
+
+| Read | Item 1 | Item 7 |
+|---|---|---|
+| Flash, all 262144 bytes | `a38690c6bdff50af13cf712d3b8326d6d0ce7b54991ffcd263f294451607171e` | the same |
+| Boot section, `0x3E000`–`0x3FFFF` | `fdef04c5b772b0b4cc6e8919f90036ae88217cf3f0c17c399ef09fa8742db711` | the same |
+| Application region, all 253952 bytes | `3cc34b1d3265db83731e94c15a27fb153fb8bb35055c60a0e23028c255326c3e` | the same |
+| Application, its used 19374 bytes | `58bea52e7a46f7e0bab3bbcb8df0d28165b539c2bb6900173f67b7a446766079` | the same |
+| EEPROM through the stock bootloader, 4096 bytes | `aee3b31a1749121b3fda80e00a274042d03f434c36d8964dd8b483dec5734d83` | the same |
+| EEPROM `0x000`–`0x0FF` through the application, 256 bytes | `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4` | the same |
+
+The board was left as item 1 found it, on 0cae6a2's image.
+
+What blocked each item that did not pass:
+
+- Item 4: the board does not answer ARP on the bench host's interface for the block. The shield is not on that segment, or its link is down.
+- Item 5: no connection reaches the container. Its port 7020 is not published, and item 4 means the board's SYN could not reach the host in any case.
+- Item 5a: defect C, below.
+- Item 6: no DeviceID on a soft board without `tfw-boot`, and go-xkms v0.57.0-alpha is not in the lane's module cache.
+
+**Defect C.** On a board, the `TestEthernet*` rows build a simulator network
+block from the address they listen on (`sdk/go/cmd/tfwctl/e2e_ethernet_test.go:75`,
+`simEthernetArgs` at `:96`). A board ignores the simulator's arguments and dials
+its own block, but the block is built anyway, and `tfw.NetConfig` refuses the
+unspecified address. So `HW_ETH=0.0.0.0:<port>` fails every row before it
+listens. On a forwarded path the board dials one address and the harness
+listens on another, and `HW_ETH` must then be a concrete local address.

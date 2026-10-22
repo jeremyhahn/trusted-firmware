@@ -165,6 +165,14 @@ make hw-enroll DEVICE=192.0.2.1:7000 ACME_DIRECTORY=https://<control plane>/acme
 (RFC 5737 documentation range); take the real one from the bench. A port that
 cannot be bound, or no device connecting within `CONNECT_WAIT`, fails the run.
 
+`hw-enroll` only listens on `DEVICE` and writes no network block, so behind a
+published port `DEVICE` is the listen address, a wildcard included:
+`make hw-enroll DEVICE=0.0.0.0:7000` while the board dials `192.0.2.1:7000`.
+`make hw-test` both listens and builds a block, so it takes the two apart:
+`HW_ETH` is the endpoint the board dials and `HW_ETH_LISTEN`, which defaults
+to it, is where the suite listens, as in
+`make hw-test BOARD=atmega2560 PORT=<dev> HW_ETH=192.0.2.1:7020 HW_ETH_LISTEN=0.0.0.0:7020`.
+
 On a run with no `TFW_HW_DEVICE` the TCP target is `tfwsim.StartElementEthernet`: the
 simulator boots with a network block whose endpoint is a loopback listener,
 dials it, and is enrolled over that connection. Its record says `tcp`.

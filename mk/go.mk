@@ -69,7 +69,7 @@ sdk-coverage:
 	    echo "sdk/go coverage is below the floor"; exit 1; \
 	  fi
 
-## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=, HW_ETH=)
+## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=, HW_ETH=, HW_ETH_LISTEN=)
 # The same tfwctl TestFirmware* scenarios sdk-test runs against tfwsim, pointed
 # at the board on PORT through their one transport seam, sdk/go/internal/peer.
 # BOARD tells the scenarios which board's pins to expect, and CAPS must report
@@ -90,7 +90,10 @@ sdk-coverage:
 # block dials, which the rows listen on. It has no default: the address is the
 # bench's, and none is written here. It is not ETH, which is the firmware
 # build's switch and which a board profile may set (the 2560's says ETH ?= 1):
-# shared, that 1 reached the rows as an endpoint. The identity rows also take the board's
+# shared, that 1 reached the rows as an endpoint. HW_ETH_LISTEN, unset for
+# HW_ETH, is where the rows listen when that is another address: a suite behind
+# a published port listens on its own, e.g. HW_ETH=192.0.2.1:7020
+# HW_ETH_LISTEN=0.0.0.0:7020. The identity rows also take the board's
 # DeviceID key, DEVICEID (the hex X||Y, as hw-enroll takes it), and
 # CRI_DIGEST, the hex SHA-256 of the CertificationRequestInfo the board signs
 # for the CSR rows, which go-xkms reproduces and tfwctl does not. The auth and
@@ -98,9 +101,9 @@ sdk-coverage:
 # provisioned to trust.
 HW_TEST_RUN ?= ^TestFirmware$(if $(HW_ETH),|^TestEthernet)
 hw-test:
-	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials>]"; exit 1; fi
+	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' ./cmd/tfwctl
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' ./cmd/tfwctl
 
 ## sdk-lint: gofmt and vet the Go SDK
 # vet compiles the tests, so it downloads their modules. That download goes

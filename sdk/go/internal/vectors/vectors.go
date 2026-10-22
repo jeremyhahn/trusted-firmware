@@ -153,4 +153,34 @@ const (
 	FrameOTAConfirmReq = "\xa5\x02\x06\x6e\x32\x85"
 	// FrameOTAConfirmResp is its response, status OK, no payload.
 	FrameOTAConfirmResp = "\xa5\x03\x06\xee\x00\x01\x9e"
+
+	// The HSM self-defence channel. Each reply that is not a refusal is the
+	// engine's state, [flags:1][selected:1][refused:4 LE].
+
+	// FrameHSMHeartbeatReq is TFW_CMD_HSM_HEARTBEAT (0x76), seq 1, no payload.
+	FrameHSMHeartbeatReq = "\xa5\x02\x01\x76\x9c\x8f"
+	// FrameHSMHeartbeatResp is its response, status OK: flags 0x01 (a set is
+	// held), policy 0, 258 envelopes refused (0x00000102, little-endian).
+	FrameHSMHeartbeatResp = "\xa5\x09\x01\xf6\x00\x01\x00\x02\x01\x00\x00\xaa\x7d"
+	// FrameHSMReportReq is TFW_CMD_HSM_REPORT (0x77), seq 2, signal 4 (S4).
+	FrameHSMReportReq = "\xa5\x03\x02\x77\x04\x36\xa0"
+	// FrameHSMReportResp is its response, status OK: flags 0x03 (set held,
+	// locked), policy 0, none refused.
+	FrameHSMReportResp = "\xa5\x09\x02\xf7\x00\x03\x00\x00\x00\x00\x00\x25\x46"
+	// FrameHSMReportRangeResp is its refusal of a signal the A55 may not
+	// report, status TFW_ERR_RANGE (11), no payload.
+	FrameHSMReportRangeResp = "\xa5\x03\x02\xf7\x0b\x41\x4a"
+	// FrameHSMVerdictReq is TFW_CMD_HSM_VERDICT (0x78), seq 3, verdict 1.
+	FrameHSMVerdictReq = "\xa5\x03\x03\x78\x01\x9d\xd7"
+	// FrameHSMSelectReq is TFW_CMD_HSM_SELECT (0x79), seq 4, policy 0.
+	FrameHSMSelectReq = "\xa5\x03\x04\x79\x00\x1d\x71"
+	// FrameHSMSelectResp is its response, status OK: flags 0x01, policy 0,
+	// none refused.
+	FrameHSMSelectResp = "\xa5\x09\x04\xf9\x00\x01\x00\x00\x00\x00\x00\xfc\x09"
+	// FrameHSMLoadReq is TFW_CMD_HSM_LOAD (0x7A), seq 5: total 270, offset 0,
+	// then the envelope's first four bytes, d8 6b a3 02.
+	FrameHSMLoadReq = "\xa5\x0a\x05\x7a\x0e\x01\x00\x00\xd8\x6b\xa3\x02\x44\x58"
+	// FrameHSMLoadRangeResp is its refusal of an envelope larger than the
+	// buffer, status TFW_ERR_RANGE (11), no payload.
+	FrameHSMLoadRangeResp = "\xa5\x03\x05\xfa\x0b\x8d\xb9"
 )

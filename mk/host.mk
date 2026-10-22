@@ -151,6 +151,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                            test/unit/test_link_dhcp.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c test/unit/test_suit_integrated.c \
                             test/unit/test_suit_integrated_mutate.c test/unit/test_suit_integrated_unbound.c \
+                            test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
@@ -314,6 +315,28 @@ $(HOST_DIR)/test_suit_integrated_unbound: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT
                        src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                        $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(CFLAGS_SUIT) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The tamper-response engine (docs/hsm-self-defence/ slice 2), in no object
+# list yet (architecture.md question 16): the same link as the reader above.
+#   test_hsm_payload  the policy set and script reader, on literal payloads
+#   test_hsm_engine   the decision engine behind a recording mock port, its
+#                     envelopes signed by the build's emitter
+$(HOST_DIR)/test_hsm_payload: src/core/hsm_payload.c
+$(HOST_DIR)/test_hsm_engine: src/core/hsm_payload.c src/core/hsm_engine.c tools/suit-emit/emit.c
+# test_hsm_cmd  the channel's commands (slice 4) over the real engine, as the
+#               dispatcher calls them, on the literal envelope
+$(HOST_DIR)/test_hsm_cmd: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
+                          src/core/reader.c src/core/writer.c
+$(HOST_DIR)/test_hsm_payload $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd: $(HOST_DIR)/%: test/unit/%.c \
+                       $(ELEMENT_MODEL) src/core/suit.c src/core/suit_integrated.c \
+                       boot/boot_trial.c boot/boot_image.c boot/boot_platform.c \
+                       src/crypto/atecc608a/atecc.c \
+                       src/crypto/atecc608a/provider.c \
+                       src/crypto/sha256.c \
+                       src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                       $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(SUIT_TEST_CFLAGS) -Itools/suit-emit $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The build's SUIT emitter (tools/suit-emit/, mk/suit.mk) against the same
@@ -800,6 +823,8 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_suit_integrated \
                     $(HOST_DIR)/test_suit_integrated_mutate \
                     $(HOST_DIR)/test_suit_integrated_unbound \
+                    $(HOST_DIR)/test_hsm_payload \
+                    $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd \
                     $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small \
                     $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
@@ -1205,12 +1230,22 @@ $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFW
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
+# The HSM self-defence channel (docs/hsm-self-defence/ slice 4) is in this
+# simulator alone: the envelope's signature is verified through the element
+# tier, and the soft tier has none. The engine, its SUIT reader and the
+# channel's handlers, behind tools/tfwsim/hsm_port.c, whose key is the literal
+# tenant key the vectors are signed with. Not in TFWSIM_ELEMENT_SRCS, so the
+# jig and auto simulators answer HSM_* with TFW_ERR_UNKNOWN_CMD as before.
+TFWSIM_HSM_SRCS := src/core/suit.c src/core/suit_integrated.c src/core/hsm_payload.c \
+                   src/core/hsm_engine.c src/core/hsm_cmd.c tools/tfwsim/hsm_port.c
+TFWSIM_HSM_DEFS := -DTFW_FEATURE_HSM=1
+
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) \
+$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # The element tier as a provisioning JIG image (issue #53): tfwsim-atecc608a's

@@ -170,6 +170,11 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x73 | `PROV_GENKEY` | `TFW_FEATURE_PROVISION` (jig only) | `[slot:1]` (must be the DeviceID slot) | `bytes[64]`, the public point; private key never leaves the element |
 | 0x74 | `PROV_PUBKEY` | `TFW_FEATURE_PROVISION` (jig only) | `[slot:1]` | `bytes[64]`, the public point recomputed, not regenerated |
 | 0x75 | `PROV_SEED_UDS` | `TFW_FEATURE_PROVISION` (jig only) | `[slot:1]` (must be the UDS slot) | none; UDS crosses the element's internal bus only, never the serial link |
+| 0x76 | `HSM_HEARTBEAT` | `TFW_FEATURE_HSM` (tfwsim-atecc608a only today) | `[]` | the state `[flags:1][selected:1][refused:4]`; restarts the one-second S6 period. `flags` bit 0 a verified policy set is held, bit 1 locked down, bit 2 wiped. Every HSM_* handler applies the time first, so a late heartbeat is S6 at the next message ([hsm-self-defence](../hsm-self-defence/architecture.md)) |
+| 0x77 | `HSM_REPORT` | `TFW_FEATURE_HSM` | `[signal:1]`, S4 (4, IMA) or S5 (5, hotplug) only | the state; any other signal, the M7's own S1-S3 and S6 included, is `TFW_ERR_RANGE` |
+| 0x78 | `HSM_VERDICT` | `TFW_FEATURE_HSM` | `[verdict:1]`, 0 clear or 1 compromised | the state; any other value is `TFW_ERR_RANGE`, never read as clear |
+| 0x79 | `HSM_SELECT` | `TFW_FEATURE_HSM` | `[index:1]` | the state; an index past the held set, or any index with no set held, is `TFW_ERR_RANGE` |
+| 0x7A | `HSM_LOAD` | `TFW_FEATURE_HSM` | `[total:2][offset:2]bytes[0..60]`, chunks in order into the 1024-byte envelope buffer | the state; offset 0 begins an envelope, and a total of 0 or past the buffer is `TFW_ERR_RANGE` and counted in `refused`; a chunk out of sequence drops the envelope (`TFW_ERR_RANGE`). The last chunk verifies the SUIT envelope under the image's tenant key, never one from the channel: a bad signature is `TFW_ERR_CRYPTO`, counted, and the held set is kept |
 
 Every peripheral the HAL exports an init for is initialised at boot with a
 sane default — `TFW_I2C_DEFAULT_HZ` (100 kHz), `TFW_SPI_DEFAULT_MODE`/`CLKDIV`/

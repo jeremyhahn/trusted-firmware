@@ -169,6 +169,22 @@
 #define TFW_FEATURE_APP         0
 #endif
 
+/* The HSM self-defence channel (docs/hsm-self-defence/): HSM_HEARTBEAT,
+ * HSM_REPORT, HSM_VERDICT, HSM_SELECT and HSM_LOAD, wired to the response
+ * engine by src/core/hsm_cmd.c. The envelope's signature is verified through
+ * the element tier, so a board sets this only where an element is linked.
+ * Off by default and not in the CAPS bitmap, for APP's reason: a host learns
+ * whether the channel is present by asking, and TFW_ERR_UNKNOWN_CMD answers. */
+#ifndef TFW_FEATURE_HSM
+#define TFW_FEATURE_HSM         0
+#endif
+
+/* The anti-rollback floor the engine starts from (ADR D4). The image's own
+ * minimum; the floor only rises from here, and only in RAM. */
+#ifndef TFW_HSM_FLOOR_MIN
+#define TFW_HSM_FLOOR_MIN       0u
+#endif
+
 /* The bit each feature occupies in the CAPS Features field. These are the wire:
  * they extend and never renumber. Named so an application can say which
  * capabilities it needs (include/tfw/app.h) without a copy of this table. */

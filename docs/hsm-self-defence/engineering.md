@@ -1,11 +1,11 @@
 # HSM self-defence: engineering
 
 > **Status: PROPOSED** · SPEC row: `hsm-self-defence` (future) · Scope:
-> trusted-firmware · Last verified: 2026-10-21
+> trusted-firmware · Last verified: 2026-10-22
 >
-> The implementation contract and the test plan. No code implements the row
-> yet; nothing here names an identifier that does not exist, except where it is
-> marked proposed.
+> The implementation contract and the test plan. Slices 1, 2 and 4 are built
+> and their tables met (marked **Met**); nothing here names an identifier that
+> does not exist, except where it is marked proposed.
 
 Design: [architecture.md](architecture.md). Policy format and check:
 [adr-response-policy-format.md](adr-response-policy-format.md) ("ADR").
@@ -47,8 +47,10 @@ Design: [architecture.md](architecture.md). Policy format and check:
 
 ADR D7 maps each step of the check to `TFW_ERR_RANGE`, `TFW_ERR_UNSUPPORTED`,
 `TFW_ERR_CRYPTO` or `TFW_ERR_PROTECTED_REGION` (`include/tfw/status.h`), the
-same mapping `tfw_suit_gate` uses for images. When the channel commands land
-(slice 4) they return these codes on the wire.
+same mapping `tfw_suit_gate` uses for images. The channel commands (slice 4)
+return these codes on the wire unchanged, and `TFW_ERR_RANGE` for a signal the
+A55 may not report, a verdict past compromised, a selection past the set and a
+load chunk out of sequence ([wire-protocol api](../wire-protocol/api.md)).
 
 ## Persistence
 
@@ -72,17 +74,17 @@ never recomputed by the code they pin.
 
 | Case | Expect |
 |---|---|
-| A policy set signed with the tenant key | `TFW_OK`; set, floor and selection replaced |
-| The same set, verified with the image key | `TFW_ERR_CRYPTO` |
+| A policy set signed with the tenant key | `TFW_OK`; set, floor and selection replaced. **Met:** `test_a_set_signed_with_the_tenant_key_replaces_set_floor_and_selection` (slice 2) |
+| The same set, verified with the image key | `TFW_ERR_CRYPTO`. **Met:** `test_the_same_set_with_the_image_key_is_crypto` (slice 2) |
 | An image manifest presented as a policy set; another board's policy class; another vendor; a class of all zero | `TFW_ERR_UNSUPPORTED` (class id). **Met** |
 | A script presented as a policy set, and the reverse: a kind the caller does not expect, and a class that claims one kind while its payload carries the other | `TFW_ERR_UNSUPPORTED`. **Met** |
 | A board with no policy or script class (all zero) | Every envelope `TFW_ERR_UNSUPPORTED`. **Met:** `test_suit_integrated_unbound` (the ATtiny85's profile) |
-| One flipped bit in the signature, the manifest, the payload | `TFW_ERR_CRYPTO` |
-| The integrated payload missing, or its size wrong | `TFW_ERR_RANGE` |
-| Truncated at every byte; larger than the buffer | `TFW_ERR_RANGE` |
-| Sequence below the floor | `TFW_ERR_PROTECTED_REGION` |
-| Sequence equal to the floor, same digest; different digest | `TFW_OK`; `TFW_ERR_PROTECTED_REGION` |
-| Every existing image vector | Unchanged results |
+| One flipped bit in the signature, the manifest, the payload | `TFW_ERR_CRYPTO`. **Met:** `test_a_flipped_bit_or_a_truncation_is_refused` (slice 2) |
+| The integrated payload missing, or its size wrong | `TFW_ERR_RANGE`. **Met:** `test/unit/test_suit_integrated_mutate.c` (slice 1) |
+| Truncated at every byte; larger than the buffer | `TFW_ERR_RANGE`. **Met:** truncation by `test_a_flipped_bit_or_a_truncation_is_refused` (slice 2); larger than the buffer by `test_hsm_cmd`'s `test_an_envelope_larger_than_the_buffer_is_refused` (slice 4), where HSM_LOAD's first chunk names a total past the 1024-byte buffer |
+| Sequence below the floor | `TFW_ERR_PROTECTED_REGION`. **Met:** `test_a_sequence_below_the_floor_is_protected_region` (slice 2) |
+| Sequence equal to the floor, same digest; different digest | `TFW_OK`; `TFW_ERR_PROTECTED_REGION`. **Met:** `test_a_sequence_equal_to_the_floor_needs_the_same_digest` (slice 2); the digest is SHA-256 of the bstr-wrapped manifest, `tfw_suit_integrated_digest` |
+| Every existing image vector | Unchanged results. **Met:** slice 2 changes no vector and no existing test, and all pass |
 
 A mutation test (`test/unit/test_suit_mutate.c` is the pattern) checks that
 removing any single comparison in the check fails a case. **Met:**
@@ -103,17 +105,78 @@ The sequence floor (the two rows above) is the engine's, in slice 2.
 
 | Case | Expect |
 |---|---|
-| Every row of architecture.md §5's table | That row's response |
-| R1–R7, each on its own | The rule's response |
-| An unknown map key, signal or action; a non-deterministic encoding | `TFW_ERR_UNSUPPORTED`, set unchanged |
-| Each bound (policies, rules, actions) at its limit and one past it | Accepted; `TFW_ERR_RANGE` |
-| A selection out of range | Refused, selection unchanged |
-| A script named by a digest the set does not hold | Lockdown |
-| A wipe with *V* outside *W*; with *V* not "compromised"; on S6 | No wipe |
-| Lockdown, then any input | Still locked down |
+| Every row of architecture.md §5's table | That row's response. **Met:** `test_row_*`, one per row |
+| R1–R7, each on its own | The rule's response. **Met:** `test_r1_*` to `test_r7_*`, three for R3 |
+| An unknown map key, signal or action; a non-deterministic encoding | `TFW_ERR_UNSUPPORTED`, set unchanged. **Met:** `test/unit/test_hsm_payload.c`; through the engine, `test_r7_a_refused_envelope_leaves_the_previous_policy` |
+| Each bound (policies, rules, actions) at its limit and one past it | Accepted; `TFW_ERR_RANGE`. **Met:** `test_each_bound_at_its_limit_and_one_past`, with the expected values (8 keys, 64 bytes) and a period past 32 bits |
+| A selection out of range | Refused, selection unchanged. **Met** |
+| A script named by a digest the set does not hold | Lockdown. **Met:** `test_a_script_the_engine_does_not_hold_locks_down` |
+| A wipe with *V* outside *W*; with *V* not "compromised"; on S6 | No wipe. **Met:** `test_r3_a_wipe_needs_a_compromised_verdict_inside_w`, `test_row_heartbeat_loss_locks_down_and_never_wipes` |
+| Lockdown, then any input | Still locked down. **Met:** `test_r6_lockdown_then_any_input_is_still_locked_down` |
 
 The actions are recorded by the mock in order, so a test asserts the exact
 sequence, not just the last action.
+
+**Met** (slice 2): the reader is `src/core/hsm_payload.c`, the engine
+`src/core/hsm_engine.c`, both portable C behind `src/core/hsm.h` and the port
+header `src/core/hsm_port.h` (architecture.md question 16), with no dynamic
+allocation. Every input is literal CBOR, wrapped by `tools/suit-emit/` and
+signed at run time with the throwaway tenant key. Of 81 source mutants of the
+two files (each comparison flipped or moved by one, each conjunct dropped, each
+assignment deleted), the suites kill 78. The three left are equivalent:
+dropping `h->set.n == 0u` from R1 (an empty set names no signal, so R2 locks
+down the same), dropping `r->n == 0u` where a script is matched by digest (an
+action list never equals a SHA-256), and dropping `c->n != 0u` before the
+response's type byte (an empty input is refused as a bstr with the same status).
+
+How the engine reads the rows where architecture.md leaves a choice:
+
+- The floor starts at the built-in minimum, and a set at that sequence is
+  accepted while no set has been verified (ADR D4).
+- A script loads only while the current set names its digest
+  (`TFW_ERR_UNSUPPORTED` otherwise); eight are held (`TFW_ERR_NO_SLOT` past
+  that); a new set drops those it no longer names.
+- A decision is taken at a signal only; a verdict alone acts on nothing (R4).
+  A verdict other than "compromised" counts as not compromised.
+- S6 locks down whatever *P* says, and never wipes (R5). After lockdown a
+  signal still runs *P*'s actions, but the latch never clears and the
+  heartbeat timer stops.
+- A script-ref of 31 bytes is not the CDDL (`TFW_ERR_UNSUPPORTED`); one of 33
+  is past the bound (`TFW_ERR_RANGE`).
+
+Open: R3's deterministic signal is implicit, as the reader admits S1–S6 only,
+and *D* (the signals seen within *W*) is not kept, as no row reads it yet.
+
+**The channel commands** (slice 4): HSM_HEARTBEAT `0x76`, HSM_REPORT `0x77`,
+HSM_VERDICT `0x78`, HSM_SELECT `0x79` and HSM_LOAD `0x7A`
+([wire-protocol api](../wire-protocol/api.md)), handled in `src/core/hsm_cmd.c`
+over the engine, gated by `TFW_FEATURE_HSM` in `src/core/commands.def`. Every
+reply that is not a refusal is the state `[flags][selected][refused u32]`.
+Each handler ticks the engine first, so a late heartbeat is S6 at the next
+message, and takes the tenant key from `hsm_port.h`, never from the channel.
+LOAD reassembles `[total:2][offset:2][≤60 bytes]` chunks in the 1024-byte
+envelope buffer and verifies the whole envelope at the last.
+
+| Case | Expect |
+|---|---|
+| The envelope in chunks of every size, an empty first chunk, a chunk out of sequence, offset 0 again | Held once whole; a chunk out of sequence drops the envelope, `TFW_ERR_RANGE`. **Met:** `test/unit/test_hsm_cmd.c` |
+| A total of 0 or past the buffer; an envelope that fills it | `TFW_ERR_RANGE`, counted; read. **Met** |
+| One flipped signature byte | `TFW_ERR_CRYPTO`, counted, the held set kept. **Met** |
+| SELECT with no set, in the set, past it | `TFW_ERR_RANGE`; the state; `TFW_ERR_RANGE`. **Met** |
+| REPORT of S1–S3, S6 or an unknown signal; S4 or S5 with no set; S4 under a set naming S1 alone | `TFW_ERR_RANGE`; lockdown (R1); lockdown (R2). **Met** |
+| VERDICT clear, compromised, past them | The state; the state; `TFW_ERR_RANGE`. **Met** |
+| HEARTBEAT in time; late; any message late | No action; S6 lockdown at that message. **Met** |
+| The wire vectors of the five commands | The literal frames in `testdata/vectors.h` and `sdk/go/internal/vectors`. **Met:** `test/unit/test_frame.c`, `sdk/go/codec_test.go` |
+
+Against `tfwsim-atecc608a`, the one simulator built with `TFW_FEATURE_HSM`
+(`sdk/go/hsm_tfwsim_test.go`, `make sdk-test`), on the literal
+`SUIT_POLICY_ENVELOPE_CLASS_328P` (tfwsim is built for the 328P's profile):
+the load holds the set; byte 57 flipped is `TFW_ERR_CRYPTO`; a total past the
+buffer is `TFW_ERR_RANGE`; select 0 succeeds and 1 is `TFW_ERR_RANGE`; a
+verdict, a heartbeat and a report of S4 lock down. The heartbeat period is one
+second of the host's clock and nothing waits it out: a case asserts the
+set-held flag, which S6 never clears, and the lockdown flag only after S4.
+**Met.**
 
 ### 2. QEMU: the loop (slice 3)
 
@@ -159,9 +222,9 @@ wait on row `imx95` (#49) and trusted-imx95's M7 logical machine.
 |---|---|---|---|---|
 | 0 | **This folder.** | `docs/hsm-self-defence/`, `docs/reference/rfc8610.txt` | `make releasability` | — |
 | 1 | **The SUIT reader takes a key and an integrated payload.** | `src/core/suit.c`, `suit.h`; `tools/suit-emit/`; `test/unit/` SUIT tests; literal vectors in `testdata/`; the OTA ADR subset table | Host, level 1 verifier table | #7; `make ci` |
-| 2 | **The payload reader and the decision engine.** | The engine's `.c` files and port header (where they live: architecture.md question 16); `test/unit/` | Host, level 1 engine table | #7; `make ci` |
+| 2 | **The payload reader and the decision engine.** Done: the level 1 engine table met | `src/core/hsm_payload.c`, `hsm_engine.c`, `hsm.h`, `hsm_port.h` (architecture.md question 16); `test/unit/test_hsm_payload.c`, `test_hsm_engine.c` | Host, level 1 engine table | #7; `make ci` |
 | 3 | **The loop on QEMU.** | The loop; the `mps2` board port; the harness | Level 2 | #7, #161 |
-| 4 | **Channel commands.** | `include/tfw/protocol.h` (ids extend), `sdk/go`, literal vectors in `testdata/` and the Go mirror; `docs/wire-protocol/` | Host unit and `tfwsim`: heartbeat, report, verdict, select, load | #7 |
+| 4 | **Channel commands.** Done: `0x76`–`0x7A`, the level 1 channel table met | `include/tfw/protocol.h` (ids extend), `src/core/hsm_cmd.c`, `tools/tfwsim/hsm_port.c`, `sdk/go/hsm.go`, literal vectors in `testdata/` and the Go mirror; `docs/wire-protocol/` | Host unit (`test_hsm_cmd`) and `tfwsim` (`hsm_tfwsim_test.go`): heartbeat, report, verdict, select, load | #7 |
 | 5 | **SCMI actions A1, A2, A5.** | `src/hal/cortex-m/imx95/`; the mock; `docs/reference/README.md` (Arm SCMI, DEN0056, not redistributable) | Host against recorded SCMI messages; then the board | #49; architecture.md questions 7, 10 |
 | 6 | **Enclave: S3, A3, A4.** | `src/hal/cortex-m/imx95/` | Host against a model of the messaging unit; the board, throwaway keys | #49; questions 3–5, 17 |
 | 7 | **Silicon signals S1, S2, S5.** | `src/hal/cortex-m/imx95/`, `boards/frdm-imx95-m7/` | The board | #49; questions 1, 2, 6, 11 |

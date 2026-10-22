@@ -28,6 +28,16 @@ var frameVectors = map[string]string{
 	"OTA_ACTIVATE bad state": vectors.FrameOTAActivateBadStateResp,
 	"OTA_CONFIRM req":        vectors.FrameOTAConfirmReq,
 	"OTA_CONFIRM resp":       vectors.FrameOTAConfirmResp,
+	"HSM_HEARTBEAT req":      vectors.FrameHSMHeartbeatReq,
+	"HSM_HEARTBEAT resp":     vectors.FrameHSMHeartbeatResp,
+	"HSM_REPORT req":         vectors.FrameHSMReportReq,
+	"HSM_REPORT resp":        vectors.FrameHSMReportResp,
+	"HSM_REPORT range":       vectors.FrameHSMReportRangeResp,
+	"HSM_VERDICT req":        vectors.FrameHSMVerdictReq,
+	"HSM_SELECT req":         vectors.FrameHSMSelectReq,
+	"HSM_SELECT resp":        vectors.FrameHSMSelectResp,
+	"HSM_LOAD req":           vectors.FrameHSMLoadReq,
+	"HSM_LOAD range":         vectors.FrameHSMLoadRangeResp,
 }
 
 // isFrameErr reports whether err is one of the errors Decode documents.

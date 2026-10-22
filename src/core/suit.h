@@ -115,6 +115,13 @@ tfw_status_t tfw_suit_read_integrated(const uint8_t *env, uint16_t len,
                                       tfw_suit_manifest_t *out, const uint8_t **payload,
                                       uint8_t *kind);
 
+/* The manifest digest of an envelope tfw_suit_read_integrated accepted: the
+ * SHA-256 of its bstr-wrapped manifest, header included, as its
+ * authentication wrapper carries it. The policy floor tells a re-send from
+ * another set at the same sequence number by it (ADR D4). */
+tfw_status_t tfw_suit_integrated_digest(const uint8_t *env, uint16_t len,
+                                        uint8_t digest[TFW_SUIT_DIGEST_LEN]);
+
 /* The gate before activation. Reads `env`, then holds the manifest against the
  * staged image and its trailer:
  *

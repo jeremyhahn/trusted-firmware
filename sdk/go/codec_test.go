@@ -91,6 +91,24 @@ func TestOTAControlFramesMatchVectors(t *testing.T) {
 		{"OTA_ACTIVATE BAD_STATE", enc(func() ([]byte, error) { return EncodeResponse(5, CmdOTAActivate, StatusErrBadState, nil) }), vectors.FrameOTAActivateBadStateResp},
 		{"OTA_CONFIRM req", enc(func() ([]byte, error) { return EncodeRequest(6, CmdOTAConfirm, nil) }), vectors.FrameOTAConfirmReq},
 		{"OTA_CONFIRM resp", enc(func() ([]byte, error) { return EncodeResponse(6, CmdOTAConfirm, StatusOK, nil) }), vectors.FrameOTAConfirmResp},
+		{"HSM_HEARTBEAT req", enc(func() ([]byte, error) { return EncodeRequest(1, CmdHSMHeartbeat, nil) }), vectors.FrameHSMHeartbeatReq},
+		{"HSM_HEARTBEAT resp", enc(func() ([]byte, error) {
+			return EncodeResponse(1, CmdHSMHeartbeat, StatusOK, []byte{0x01, 0x00, 0x02, 0x01, 0x00, 0x00})
+		}), vectors.FrameHSMHeartbeatResp},
+		{"HSM_REPORT req", enc(func() ([]byte, error) { return EncodeRequest(2, CmdHSMReport, []byte{0x04}) }), vectors.FrameHSMReportReq},
+		{"HSM_REPORT resp", enc(func() ([]byte, error) {
+			return EncodeResponse(2, CmdHSMReport, StatusOK, []byte{0x03, 0x00, 0x00, 0x00, 0x00, 0x00})
+		}), vectors.FrameHSMReportResp},
+		{"HSM_REPORT RANGE", enc(func() ([]byte, error) { return EncodeResponse(2, CmdHSMReport, StatusErrRange, nil) }), vectors.FrameHSMReportRangeResp},
+		{"HSM_VERDICT req", enc(func() ([]byte, error) { return EncodeRequest(3, CmdHSMVerdict, []byte{0x01}) }), vectors.FrameHSMVerdictReq},
+		{"HSM_SELECT req", enc(func() ([]byte, error) { return EncodeRequest(4, CmdHSMSelect, []byte{0x00}) }), vectors.FrameHSMSelectReq},
+		{"HSM_SELECT resp", enc(func() ([]byte, error) {
+			return EncodeResponse(4, CmdHSMSelect, StatusOK, []byte{0x01, 0x00, 0x00, 0x00, 0x00, 0x00})
+		}), vectors.FrameHSMSelectResp},
+		{"HSM_LOAD req", enc(func() ([]byte, error) {
+			return EncodeRequest(5, CmdHSMLoad, []byte{0x0e, 0x01, 0x00, 0x00, 0xd8, 0x6b, 0xa3, 0x02})
+		}), vectors.FrameHSMLoadReq},
+		{"HSM_LOAD RANGE", enc(func() ([]byte, error) { return EncodeResponse(5, CmdHSMLoad, StatusErrRange, nil) }), vectors.FrameHSMLoadRangeResp},
 	} {
 		if !bytes.Equal(c.got, []byte(c.want)) {
 			t.Errorf("%s frame = % x, want % x", c.name, c.got, c.want)

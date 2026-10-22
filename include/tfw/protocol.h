@@ -199,6 +199,24 @@
 #define TFW_CMD_PROV_PUBKEY       0x74u  /* read back the public point */
 #define TFW_CMD_PROV_SEED_UDS     0x75u  /* UDS from the element's own TRNG */
 
+/* ------------------------------------------------ HSM self-defence channel */
+/* The A55's half of the channel to the M7's response engine
+ * (docs/hsm-self-defence/). Every reply that is not a refusal carries the
+ * engine's state: [flags:1][selected:1][refused:4 LE]. Present only where
+ * TFW_FEATURE_HSM is built; elsewhere the answer is TFW_ERR_UNKNOWN_CMD. */
+#define TFW_CMD_HSM_HEARTBEAT     0x76u  /* S6's input: the A55 is alive */
+#define TFW_CMD_HSM_REPORT        0x77u  /* [signal:1], S4 or S5 only */
+#define TFW_CMD_HSM_VERDICT       0x78u  /* [verdict:1], V from the verifier */
+#define TFW_CMD_HSM_SELECT        0x79u  /* [index:1], a policy of the set */
+#define TFW_CMD_HSM_LOAD          0x7Au  /* [total:2][offset:2][bytes] of P/F */
+
+/* State flags in the reply. */
+#define TFW_HSM_STATE_SET         0x01u  /* a verified policy set is held */
+#define TFW_HSM_STATE_LOCKED      0x02u  /* the device keys are locked */
+#define TFW_HSM_STATE_WIPED       0x04u  /* the device keys are wiped */
+#define TFW_HSM_STATE_LEN         6u
+#define TFW_HSM_LOAD_HDR          4u     /* total + offset */
+
 /* ------------------------------------------------------ signature algorithms */
 /* Carried in the AlgID byte of an attestation frame. Both ECDSA P-256 (r||s)
  * and Ed25519 (R||S) are exactly 64 raw bytes, so the frame layout does not

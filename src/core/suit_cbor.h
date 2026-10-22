@@ -2,8 +2,9 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The SUIT reader's primitives, shared by the image reader (suit.c) and the
- * integrated-payload reader (suit_integrated.c). Internal to src/core: nothing
- * outside the two readers includes this.
+ * integrated-payload reader (suit_integrated.c), and the head under the policy
+ * payload reader (hsm_payload.c). Internal to src/core: nothing outside the
+ * three readers includes this.
  *
  * Every primitive reads one member at a cursor and moves the cursor past it,
  * checking each length against what remains before reading past it.

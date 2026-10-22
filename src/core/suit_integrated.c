@@ -192,3 +192,26 @@ tfw_status_t tfw_suit_read_integrated(const uint8_t *env, uint16_t len,
     *kind    = claim;
     return TFW_OK;
 }
+
+tfw_status_t tfw_suit_integrated_digest(const uint8_t *env, uint16_t len,
+                                        uint8_t digest[TFW_SUIT_DIGEST_LEN])
+{
+    tfw_suit_cur_t c;
+    tfw_suit_cur_t sub;
+    const uint8_t *wrapped;
+    uint8_t        major;
+    uint32_t       members;
+    tfw_status_t   st;
+
+    c.p = env;
+    c.n = len;
+    st  = tfw_suit_expect(&c, TFW_SUIT_MT_TAG, TFW_SUIT_TAG_ENVELOPE);
+    if (st == TFW_OK) st = tfw_suit_head(&c, &major, &members);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, TFW_SUIT_MT_UINT, TFW_SUIT_ENV_AUTH);
+    if (st == TFW_OK) st = tfw_suit_string(&c, TFW_SUIT_MT_BSTR, TFW_SUIT_ENVELOPE_MAX, &sub);
+    if (st == TFW_OK) st = tfw_suit_expect(&c, TFW_SUIT_MT_UINT, TFW_SUIT_ENV_MANIFEST);
+    wrapped = c.p;
+    if (st == TFW_OK) st = tfw_suit_string(&c, TFW_SUIT_MT_BSTR, TFW_SUIT_ENVELOPE_MAX, &sub);
+    if (st == TFW_OK) st = tfw_crypto_sha256(wrapped, (uint16_t)(c.p - wrapped), digest);
+    return st;
+}

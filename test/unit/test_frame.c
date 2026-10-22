@@ -113,6 +113,51 @@ static void test_ota_control_frames_match_the_vectors(void)
           tfw_frame_encode_response(wire, sizeof wire, 6u, TFW_CMD_OTA_CONFIRM, TFW_OK, 0, 0u), wire);
 }
 
+/* The HSM channel's frames. The state payloads are written here from the
+ * design, not taken from hsm_cmd.c. */
+static void test_hsm_channel_frames_match_the_vectors(void)
+{
+    static const uint8_t hb_req[]       = TFWV_FRAME_HSM_HEARTBEAT_REQ;
+    static const uint8_t hb_resp[]      = TFWV_FRAME_HSM_HEARTBEAT_RESP;
+    static const uint8_t rep_req[]      = TFWV_FRAME_HSM_REPORT_REQ;
+    static const uint8_t rep_resp[]     = TFWV_FRAME_HSM_REPORT_RESP;
+    static const uint8_t rep_range[]    = TFWV_FRAME_HSM_REPORT_RANGE_RESP;
+    static const uint8_t ver_req[]      = TFWV_FRAME_HSM_VERDICT_REQ;
+    static const uint8_t sel_req[]      = TFWV_FRAME_HSM_SELECT_REQ;
+    static const uint8_t sel_resp[]     = TFWV_FRAME_HSM_SELECT_RESP;
+    static const uint8_t load_req[]     = TFWV_FRAME_HSM_LOAD_REQ;
+    static const uint8_t load_range[]   = TFWV_FRAME_HSM_LOAD_RANGE_RESP;
+    static const uint8_t state_hb[6]    = { 0x01u, 0u, 0x02u, 0x01u, 0u, 0u };
+    static const uint8_t state_lock[6]  = { 0x03u, 0u, 0u, 0u, 0u, 0u };
+    static const uint8_t state_set[6]   = { 0x01u, 0u, 0u, 0u, 0u, 0u };
+    static const uint8_t chunk[8]       = { 0x0Eu, 0x01u, 0u, 0u, 0xD8u, 0x6Bu, 0xA3u, 0x02u };
+    uint8_t              s4             = 4u;
+    uint8_t              compromised    = 1u;
+    uint8_t              policy         = 0u;
+    uint8_t              wire[TFW_MAX_FRAME];
+
+    check(hb_req, sizeof hb_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_HSM_HEARTBEAT, 0, 0u), wire);
+    check(hb_resp, sizeof hb_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 1u, TFW_CMD_HSM_HEARTBEAT, TFW_OK, state_hb, 6u), wire);
+    check(rep_req, sizeof rep_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_HSM_REPORT, &s4, 1u), wire);
+    check(rep_resp, sizeof rep_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 2u, TFW_CMD_HSM_REPORT, TFW_OK, state_lock, 6u), wire);
+    check(rep_range, sizeof rep_range - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 2u, TFW_CMD_HSM_REPORT, TFW_ERR_RANGE, 0, 0u), wire);
+    check(ver_req, sizeof ver_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 3u, TFW_CMD_HSM_VERDICT, &compromised, 1u), wire);
+    check(sel_req, sizeof sel_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 4u, TFW_CMD_HSM_SELECT, &policy, 1u), wire);
+    check(sel_resp, sizeof sel_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 4u, TFW_CMD_HSM_SELECT, TFW_OK, state_set, 6u), wire);
+    check(load_req, sizeof load_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_HSM_LOAD, chunk, sizeof chunk), wire);
+    check(load_range, sizeof load_range - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 5u, TFW_CMD_HSM_LOAD, TFW_ERR_RANGE, 0, 0u), wire);
+}
+
 static void test_event_uses_the_reserved_op_and_no_sequence(void)
 {
     uint8_t  wire[TFW_MAX_FRAME];
@@ -326,6 +371,7 @@ int main(void)
     RUN_TEST(test_bad_state_response_matches_the_vector);
     RUN_TEST(test_no_store_response_matches_the_vector);
     RUN_TEST(test_ota_control_frames_match_the_vectors);
+    RUN_TEST(test_hsm_channel_frames_match_the_vectors);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);
     RUN_TEST(test_maximum_payload_is_a_valid_frame);

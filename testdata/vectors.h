@@ -259,6 +259,43 @@
 /* Its response, status OK, no payload. */
 #define TFWV_FRAME_OTA_CONFIRM_RESP "\xa5\x03\x06\xee\x00\x01\x9e"
 
+/* The HSM self-defence channel (docs/hsm-self-defence/ architecture.md
+ * question 20). Each reply that is not a refusal is the engine's state,
+ * [flags:1][selected:1][refused:4 LE]. */
+
+/* TFW_CMD_HSM_HEARTBEAT (0x76), seq 0x01, no payload. */
+#define TFWV_FRAME_HSM_HEARTBEAT_REQ "\xa5\x02\x01\x76\x9c\x8f"
+
+/* Its response, status OK: flags 0x01 (a set is held), policy 0, 258 envelopes
+ * refused (0x00000102, little-endian). */
+#define TFWV_FRAME_HSM_HEARTBEAT_RESP "\xa5\x09\x01\xf6\x00\x01\x00\x02\x01\x00\x00\xaa\x7d"
+
+/* TFW_CMD_HSM_REPORT (0x77), seq 0x02, signal 4 (S4, IMA violation). */
+#define TFWV_FRAME_HSM_REPORT_REQ "\xa5\x03\x02\x77\x04\x36\xa0"
+
+/* Its response, status OK: flags 0x03 (set held, locked), policy 0, none
+ * refused. */
+#define TFWV_FRAME_HSM_REPORT_RESP "\xa5\x09\x02\xf7\x00\x03\x00\x00\x00\x00\x00\x25\x46"
+
+/* Its refusal of a signal the A55 may not report: TFW_ERR_RANGE (11). */
+#define TFWV_FRAME_HSM_REPORT_RANGE_RESP "\xa5\x03\x02\xf7\x0b\x41\x4a"
+
+/* TFW_CMD_HSM_VERDICT (0x78), seq 0x03, verdict 1 (compromised). */
+#define TFWV_FRAME_HSM_VERDICT_REQ "\xa5\x03\x03\x78\x01\x9d\xd7"
+
+/* TFW_CMD_HSM_SELECT (0x79), seq 0x04, policy 0. */
+#define TFWV_FRAME_HSM_SELECT_REQ "\xa5\x03\x04\x79\x00\x1d\x71"
+
+/* Its response, status OK: flags 0x01, policy 0, none refused. */
+#define TFWV_FRAME_HSM_SELECT_RESP "\xa5\x09\x04\xf9\x00\x01\x00\x00\x00\x00\x00\xfc\x09"
+
+/* TFW_CMD_HSM_LOAD (0x7A), seq 0x05: total 270 (0x010E), offset 0, then the
+ * envelope's first four bytes, d8 6b a3 02. */
+#define TFWV_FRAME_HSM_LOAD_REQ "\xa5\x0a\x05\x7a\x0e\x01\x00\x00\xd8\x6b\xa3\x02\x44\x58"
+
+/* Its refusal of an envelope larger than the buffer: TFW_ERR_RANGE (11). */
+#define TFWV_FRAME_HSM_LOAD_RANGE_RESP "\xa5\x03\x05\xfa\x0b\x8d\xb9"
+
 /* --------------------------------------------- application evidence (#51) */
 /* The claims set ATTEST_CERT and ATTEST_CSR carry, with and without an
  * application's evidence: the inputs of testdata/uccs_vectors.h, and as claim

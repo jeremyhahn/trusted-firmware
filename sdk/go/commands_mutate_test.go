@@ -41,6 +41,7 @@ func sentBy(seq Seq, payload []byte, call func(d *Device) error) ([][]byte, erro
 func TestRequestBuildersMatchTheWireVectors(t *testing.T) {
 	ctx := context.Background()
 	otaInfo := framePayload(t, vectors.FrameOTAInfoResp)
+	hsmState := framePayload(t, vectors.FrameHSMHeartbeatResp)
 	for _, c := range []struct {
 		name    string
 		want    string
@@ -54,6 +55,10 @@ func TestRequestBuildersMatchTheWireVectors(t *testing.T) {
 		{"OTAInfo(1)", vectors.FrameOTAInfoReq, otaInfo, func(d *Device) error { _, err := d.OTAInfo(ctx, 1); return err }},
 		{"OTAActivate(1)", vectors.FrameOTAActivateReq, nil, func(d *Device) error { return d.OTAActivate(ctx, 1) }},
 		{"OTAConfirm", vectors.FrameOTAConfirmReq, nil, func(d *Device) error { return d.OTAConfirm(ctx) }},
+		{"HSMHeartbeat", vectors.FrameHSMHeartbeatReq, hsmState, func(d *Device) error { _, err := d.HSMHeartbeat(ctx); return err }},
+		{"HSMReport(4)", vectors.FrameHSMReportReq, hsmState, func(d *Device) error { _, err := d.HSMReport(ctx, 4); return err }},
+		{"HSMVerdict(1)", vectors.FrameHSMVerdictReq, hsmState, func(d *Device) error { _, err := d.HSMVerdict(ctx, 1); return err }},
+		{"HSMSelect(0)", vectors.FrameHSMSelectReq, hsmState, func(d *Device) error { _, err := d.HSMSelect(ctx, 0); return err }},
 	} {
 		want := []byte(c.want)
 		sent, err := sentBy(Seq(want[2]), c.payload, c.call)

@@ -3,9 +3,12 @@
 > **Status: PROPOSED** · Issue: [#50](../../../../issues/50) · SPEC row:
 > `hsm-self-defence` (future) · Scope: trusted-firmware (the M7 enforcement
 > and the signature check); go-xkms, go-trusted-platform, trusted-imx95 and
-> NXP (seams only) · Last verified: 2026-10-20
+> NXP (seams only) · Last verified: 2026-10-22
 >
-> Design only: no code implements this row yet. Every requirement and its
+> No M7 code implements this row yet; slices 1 and 2 (the SUIT reader's
+> tenant key, the payload reader and the decision engine) run on the host
+> only, under `make host-test`. Slice 4 (the channel commands `0x76`–`0x7A`)
+> runs there and in tfwsim-atecc608a, under `make sdk-test`. Every requirement and its
 > state is in section 1a. The policy format is decided in
 > [`adr-response-policy-format.md`](adr-response-policy-format.md), the tests
 > are in [`engineering.md`](engineering.md).
@@ -89,8 +92,9 @@ ADR's open question 7; without it nothing on this page holds (question 8).
 
 The row split into its requirements, in its own order. **Met** means code on
 `main` does it, **unmet** that this project owes it, **outside** that another
-owner does. No requirement is met yet: the row is future, and the only code it
-reuses is the SUIT reader.
+owner does. No requirement is met yet, as none runs on the M7. "Host" marks a
+requirement whose logic is portable C in `src/core/` (question 16), tested by
+`make host-test` (engineering.md, level 1) and not yet linked on any target.
 
 | # | Requirement (row) | Component | Signal source | Action path | State |
 |---|---|---|---|---|---|
@@ -106,11 +110,11 @@ reuses is the SUIT reader.
 | H10 | Acts on PHYs | Action dispatch, A1 | — | A PHY reset line or power domain, through the System Manager | Unmet (questions 7, 10) |
 | H11 | Acts on keys: lock and zeroise | Action dispatch, A3, A4 | — | The EdgeLock enclave | Unmet (questions 3–5); the keys are go-xkms's (H18) |
 | H12 | Acts by shutdown | Action dispatch, A5 | — | SCMI system power, through the System Manager | Unmet (question 7) |
-| H13 | A tenant-signed policy decides which action follows which signal | The policy verifier and the decision engine (§5) | Channel: the policy set | — | Unmet; format decided in the ADR (D1–D5, D7). The reader exists: `src/core/suit.c`, image key only |
-| H14 | A custom response script is a signed artefact | The verifier, script class (ADR D2, D6) | Channel: the script | The actions it lists | Unmet |
-| H15 | Only a policy or script whose tenant signature verifies is accepted | The verifier (ADR D3, D7) | — | — | Unmet |
-| H16 | The NPU model selects among the signed policies and never acts on its own | Selection by index into the verified set (ADR D4; §5 R4) | Channel: selection and verdict *V*; the model is outside | — | Unmet; the model outside |
-| H17 | The default response is lockdown; keys are wiped only when a deterministic signal corroborates the model's verdict | The decision engine, R1, R3, R5, R6 | S1–S6 with *V* | Lockdown (A1, A2, A3, A6); wipe (A4) | Unmet |
+| H13 | A tenant-signed policy decides which action follows which signal | The policy verifier and the decision engine (§5) | Channel: the policy set | — | Unmet on the M7. Host: the verifier (`src/core/suit_integrated.c`, slice 1), the payload reader (`src/core/hsm_payload.c`, D5) and the engine (`src/core/hsm_engine.c`, §5), slice 2 |
+| H14 | A custom response script is a signed artefact | The verifier, script class (ADR D2, D6) | Channel: the script | The actions it lists | Unmet on the M7. Host: D6's reader, and the engine holds a script only while the set names it (slice 2) |
+| H15 | Only a policy or script whose tenant signature verifies is accepted | The verifier (ADR D3, D7) | — | — | Unmet on the M7. Host: slices 1 and 2 |
+| H16 | The NPU model selects among the signed policies and never acts on its own | Selection by index into the verified set (ADR D4; §5 R4) | Channel: selection and verdict *V*; the model is outside | — | Unmet on the M7; host: `tfw_hsm_select`, R4 (slice 2); the model outside |
+| H17 | The default response is lockdown; keys are wiped only when a deterministic signal corroborates the model's verdict | The decision engine, R1, R3, R5, R6 | S1–S6 with *V* | Lockdown (A1, A2, A3, A6); wipe (A4) | Unmet on the M7. Host: R1, R3, R5, R6 (slice 2) |
 | H18 | Seam to go-xkms: the keys locked or wiped are go-xkms's, which runs on the board as the HSM appliance | §6 | — | A3, A4 on go-xkms's key store | Outside: go-xkms (question 19) |
 | H19 | Seam to go-trusted-platform: policies and scripts arrive through its control plane, which provisions and attests the device (`hsm-device-lifecycle`) | §6 | Channel, from go-trusted-platform's agent on the A55 | — | Outside: go-trusted-platform (ADR questions 1, 5) |
 | H20 | This row owns the M7 enforcement and the signature check | H1, H13–H17 | — | — | Unmet |
@@ -149,7 +153,10 @@ Both are A55-reported, on the same channel.
 **The channel carries the wire protocol.** Messages from the A55 are commands
 of this project's wire protocol (`docs/wire-protocol/`), framed as on every
 other transport, with new command ids that extend and never renumber. No
-second protocol is designed for one link (L1). The ids are allocated in slice 4.
+second protocol is designed for one link (L1). Slice 4 allocated them:
+`HSM_HEARTBEAT` `0x76`, `HSM_REPORT` `0x77`, `HSM_VERDICT` `0x78`,
+`HSM_SELECT` `0x79` and `HSM_LOAD` `0x7A`, each replying with the engine's
+state ([`../wire-protocol/api.md`](../wire-protocol/api.md)).
 
 ## 3. Actions out
 
@@ -171,7 +178,8 @@ and the only mapping of the enclave's interface (trust ADR option (c)); the
 SCMI and enclave clients are the board's HAL under `src/hal/cortex-m/imx95/`
 (ref ADR decision 2). The actions are reached through one port header,
 implemented once per SoC and by the mock at link time, never through a vtable
-(CLAUDE.md).
+(CLAUDE.md). The payload reader and the decision engine are portable C in
+`src/core/` (question 16); `src/core/hsm_port.h` is that port header.
 
 ## 4. The signed policy and the signed script
 
@@ -283,7 +291,9 @@ are in the ADR; 13 and 14 here are its questions 1 and 5.
    M7 or its TCM.** IMX95RM (TRDC chapter), the System Manager interface
    document, trusted-imx95 (trust ADR open question 7).
 9. **The A55–M7 channel:** which messaging unit and shared memory, and who
-   assigns them. IMX95RM (MU chapter), trusted-imx95.
+   assigns them. IMX95RM (MU chapter), trusted-imx95. What it carries is
+   settled (slice 4, §2): the wire-protocol commands `0x76`–`0x7A`; only the
+   transport is open.
 10. **How the Ethernet PHYs are held off.** UM12527 (not read here), IMX95RM.
 11. **Which hotplug events the M7 can see without Linux.** UM12527, IMX95RM.
 12. **Durable storage for the lockdown latch, the policy floor and the record**,
@@ -298,7 +308,13 @@ are in the ADR; 13 and 14 here are its questions 1 and 5.
 16. **Where the enforcement lives:** here, as the row says, or in a
     `trusted-firmware-<application>` repository on the application hooks, as
     `docs/application-sdk/architecture.md` ("Problem") says of application
-    logic. The owner.
+    logic. **Decided (ruling 109, slice 2):** here, in `src/core/` beside the
+    SUIT reader it consumes: `hsm_payload.c`, `hsm_engine.c` and `hsm.h`,
+    with the actions behind one port header, `src/core/hsm_port.h`, that the
+    M7 implements later. The engine is portable C with no HAL call, so
+    nothing in it is the application's, and the row owns the enforcement and
+    the signature check (H20). Only its tests build it until slice 3 links it
+    on QEMU.
 17. **The expected values S3 compares, and whether device attestation is
     callable from the M7.** RM00284 §3.12, §3.13 (via OTA ADR d12, to confirm); IMX95RM.
 18. **The trusted-imx95 references themselves:** UM12527, RM00284 and the CST

@@ -22,6 +22,7 @@
 #include "ota_stage.h"
 #include "ota_ctl.h"
 #include "ota_auth.h"
+#include "hsm_cmd.h"
 
 typedef struct {
     uint8_t          id;

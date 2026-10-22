@@ -211,9 +211,10 @@ is on; two builds of one commit gave the same image digest.
   instruction of `tfw_hal_init` (`TFW_ESP_COPROC_EN_GPIO`, latched with
   `gpio_hold_en`), so no firmware runs on it and its radio never starts.
 - **CI covers the port in its own job, not in `make ci`.** The `make ci` image
-  (`docker/Dockerfile.ci`) has no ESP-IDF, and a gate that cannot run would be
-  a failure, not a skip. So the `esp32` job in `.github/workflows/ci.yml`
-  builds `docker/Dockerfile.esp32` instead: Espressif's `espressif/idf:v5.5.5`
+  (the `toolchain` stage of `build/docker/devcontainer/Dockerfile`) has no
+  ESP-IDF, and a gate that cannot run would be a failure, not a skip. So the
+  devcontainer image job in `.github/workflows/ci.yml` also builds that
+  Dockerfile's `esp32` stage: Espressif's `espressif/idf:v5.5.5`
   image pinned by digest, Espressif QEMU `esp_develop_9.2.2_20260417`
   (`qemu-riscv32`, `qemu-xtensa`), CMake, Ninja and Go. In that image it runs `make esp32-build BOARD=esp32p4-poe`, the only
   place the P4 image is built, since no emulator exists for it, and then
@@ -230,7 +231,8 @@ is on; two builds of one commit gave the same image digest.
    flash encryption in release mode burned for real, the IP101 link, and the
    QEMU suite's checks repeated on hardware.
 2. **A CI runner image with ESP-IDF v5.5.5 and Espressif QEMU.** Done by
-   PR #68: the `esp32` CI job, built from `docker/Dockerfile.esp32`.
+   PR #68: the `esp32` CI image, now the `esp32` stage of
+   `build/docker/devcontainer/Dockerfile`.
 3. **An RSA DeviceID on the wire, and its profile in go-xkms** (closed by
    owner ruling 2026-10-17, CA m499, #48: there is no RSA DeviceID, the DICE
    DeviceID is ECDSA P-256 on every board), or the owner's

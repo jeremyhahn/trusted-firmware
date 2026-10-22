@@ -86,7 +86,8 @@ challenge time is already proven.** Two things are missing:
    "Today" is the element-tier image (`make firmware BOARD=<board>
    CRYPTO=atecc608a`, which runs `size-check`), measured on 2026-10-09 at the
    commit this amendment starts from. The compiler was gcc-avr 14.2.0 from
-   Debian trixie, the CI image's toolchain (`docker/Dockerfile.ci`).
+   Debian trixie, the CI image's toolchain (the `toolchain` stage of
+   `build/docker/devcontainer/Dockerfile`).
 
 4. **Ownership:**
    - go-xkms owns the standards and profiles: DICE, EAT/UCCS, draft-acme-device-attest, RFC 9334, and the certificate and CSR profiles.

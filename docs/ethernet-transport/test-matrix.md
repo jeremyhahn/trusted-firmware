@@ -99,19 +99,31 @@ which item 7's evidence needs
 ([the ISP route](../development/isp-route.md#the-mega-2026-10-16)). Nothing
 was written to the Mega.
 
+**Correction, 2026-10-16 (owner, CA m311):** this Mega is a different board
+from the one in [the Mega run](#the-mega-run-2026-10-15). It is a stock
+factory Arduino Mega 2560. The owner replaced the board that carries the W5100
+shield, because the shield blocks the ICSP header the USBasp needs. The
+2026-10-15 serial runs and the W5100 probe were on the shield board. The
+2026-10-16 ISP runs, the re-provisioning and the reflash below were on the
+stock board. The erased application and EEPROM, the stock bootloader and the
+factory fuses are that board as shipped, not an erase, and the m233 finding
+in the table is withdrawn. The W5100 path is not on the stock board. The
+results stand as measured.
+
 | What ran | Result |
 |---|---|
 | Signature and fuses over ISP | `0x1E9801`; fuses `0xFF` (low), `0xD8` (high), `0xFD` (extended); lock `0xCF`. The same before and after the run |
-| The EEPROM, read out over ISP | All `0xFF`. The platform block and network block of the second pass above are gone, and so is the application. The STK500v2 bootloader is intact. They were erased between that pass and this run, by something this run did not see |
+| The EEPROM, read out over ISP | All `0xFF`. The platform block and network block of the second pass above are gone, and so is the application. The STK500v2 bootloader is intact. They were erased between that pass and this run, by something this run did not see. *Correction, 2026-10-16: not erased; the stock board as shipped, see above* |
 | `make boot-flash BOARD=atmega2560 ISP_PROG=usbasp ISP_PORT=usb` | **Did not build.** The default row (soft, ed25519-donna) does not fit the 8 KB boot section, and avrdude never ran. Since item 79 (owner ruling 2026-10-17) the default is the 2560 soft row, `p256-soft` with no OTA: the verifier is P-256 on every row. The supported element row builds, but needs the ATECC608C and a provisioned EEPROM |
 | `make hw-test`, the identity and the `tfw-boot` evidence | **Not run.** There is no application on the part and no `tfw-boot` |
-| Re-provisioning over ISP, later that day (Company Agent m233: the erase was an Arduino IDE "Burn Bootloader") | **Pass.** The platform block came from `tfwprov --bake-eeprom --serial 54465700000000000000000000002560` (the same `.eep` as the second pass). The network block came from `NetConfig.MarshalBinary` with the second pass's values. Both were written with `avrdude -c usbasp -p m2560 -D -U eeprom:w:…:i`: no erase, no fuse, no lock. Read back over ISP, `0x000`–`0x0FF` equals the second pass's dump byte for byte |
-| The second pass's application, through the stock bootloader | **Pass.** `make flash BOARD=atmega2560 CRYPTO=soft ETH=1` wrote the same `.hex` (`92364618…`). `CAPS` answers atmega2560 on the software tier, and `tfwctl eeprom-read` reads `0x000`–`0x0DF` equal to the image, the serial and the MAC included. `make hw-test` and `ATTEST` were not run ([the record](../development/isp-route.md#the-mega-re-provisioned-over-isp-2026-10-16)) |
+| Re-provisioning over ISP, later that day (Company Agent m233: the erase was an Arduino IDE "Burn Bootloader"; *correction, 2026-10-16: withdrawn, there was no erase, this is the stock board*) | **Pass**, on the stock board. The platform block came from `tfwprov --bake-eeprom --serial 54465700000000000000000000002560` (the same `.eep` as the second pass). The network block came from `NetConfig.MarshalBinary` with the second pass's values. Both were written with `avrdude -c usbasp -p m2560 -D -U eeprom:w:…:i`: no erase, no fuse, no lock. Read back over ISP, `0x000`–`0x0FF` equals the second pass's dump byte for byte |
+| The second pass's application, through the stock bootloader | **Pass**, on the stock board, which has no W5100. `make flash BOARD=atmega2560 CRYPTO=soft ETH=1` wrote the same `.hex` (`92364618…`). `CAPS` answers atmega2560 on the software tier, and `tfwctl eeprom-read` reads `0x000`–`0x0DF` equal to the image, the serial and the MAC included. `make hw-test` and `ATTEST` were not run ([the record](../development/isp-route.md#the-mega-re-provisioned-over-isp-2026-10-16)) |
 
 ## The boot-flash EESAVE guard on the Mega, 2026-10-16
 
 The same Mega, after the re-provisioning above, through a USBasp on ISP
-(`-c usbasp -P usb`), with avrdude 7.1.
+(`-c usbasp -P usb`), with avrdude 7.1. That is the stock board
+(correction, 2026-10-16, [above](#the-mega-over-isp-2026-10-16)).
 The run was read-only. A wrapper named `avrdude`, first on `PATH`, passed a
 command to the real avrdude only when every `-U` was a read (`:r:`) and there
 was no `-e`, `-t`, `-T` or `-x`. It logged and refused anything else. Before

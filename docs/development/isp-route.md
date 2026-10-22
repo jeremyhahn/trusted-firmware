@@ -102,6 +102,16 @@ page](bench/nano.md#the-bench-change-2026-10-18).
 
 ### The Mega, 2026-10-16
 
+**Correction, 2026-10-16 (owner, CA m311):** the Mega on the ICSP header in
+this run is a different board from the one in the 2026-10-15 runs. It is a
+stock factory Arduino Mega 2560. The owner replaced the board that carries the
+Ethernet shield, because the shield blocks the ICSP header the USBasp needs.
+The 2026-10-15 serial runs, the ArduinoISP check and
+[the W5100 probe](wiznet-probe.md) were on the shield board. This run, the
+re-provisioning and the reflash below were on the stock board, which has no
+W5100. The readings below stand as measured; what they show is a factory
+board, not an erase (see step 1).
+
 The USBasp is on the Mega's ICSP header, and the Mega is on USB as
 `/dev/ttyACM0`. Nothing was written to the Mega. The run stopped at
 `make boot-flash`, which does not build (step 3).
@@ -164,6 +174,11 @@ EEPROM were erased, and the bootloader and the fuses were left as they were. A
 chip erase followed by a bootloader write would leave exactly that. This run
 did not see what did it. The platform and network blocks now exist only in the
 2026-10-15 dump, also in `$HOME/isp/`.
+
+**Correction, 2026-10-16:** nothing was erased. The 2026-10-15 dump came from
+the shield board, and this read-out from a stock factory board: an empty
+application and EEPROM, the stock bootloader and the factory fuses are how
+that board ships. The paragraph above compares two boards.
 
 `make boot-flash` writes no fuse (step 2), so it does not set `EESAVE`. The
 read-out is kept regardless.
@@ -270,6 +285,14 @@ Bootloader" over the USBasp. That is a chip erase with `EESAVE` unprogrammed,
 then the stock bootloader. The Mega was treated as a blank stock board, and
 its two blocks were written back over ISP with the values of the 2026-10-15
 dump. No chip erase, no fuse, no lock bit, and no flash write over ISP.
+
+**Correction, 2026-10-16 (owner, CA m311):** m233 is withdrawn. The part was
+not erased: this is the stock factory board that replaced the shield board on
+the ICSP header ([the correction above](#the-mega-2026-10-16)). The
+re-provisioning and the reflash below were on the stock board. They wrote the
+shield board's 2026-10-15 values to it, so the stock board now holds the same
+serial and MAC as the shield board's last dump. The W5100 path is not on the
+stock board: the reflash put the W5100 image on a board with no shield.
 
 **The image.** The two blocks are built by the project's encoders. No byte was
 set by hand.

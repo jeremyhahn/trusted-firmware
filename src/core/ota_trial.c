@@ -26,10 +26,19 @@ void tfw_ota_trial_start(void)
 
 void tfw_ota_trial_after_init(void)
 {
-    /* Decision 9: a refusal ends the trial at once, as failed. tfw-boot finds
+    tfw_app_state_t app;
+
+    if (armed == 0u) {
+        return;
+    }
+    /* Decision 9: the image reports only if init and after_update both return
+     * TFW_OK. A failed init, or a descriptor that failed its checks so init
+     * never ran, ends the trial at once as a refusal does: tfw-boot finds
      * TRIAL with no confirm request and rolls back. TFW_OK confirms nothing;
      * the deadline runs on for the control plane's OTA_CONFIRM. */
-    if (armed != 0u && tfw_app_runner_after_update() != TFW_OK) {
+    app = tfw_app_runner_state();
+    if (app == TFW_APP_STATE_FAILED || app == TFW_APP_STATE_UNSUPPORTED ||
+        tfw_app_runner_after_update() != TFW_OK) {
         tfw_hal_reset();
     }
 }

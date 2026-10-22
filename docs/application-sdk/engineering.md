@@ -1,6 +1,6 @@
 # Application SDK — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-19
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 ## Exported surface
@@ -246,8 +246,11 @@ already says `TRIAL`.
 - Anything else ends the trial at once, as failed: the firmware resets into
   `tfw-boot`, which finds `TRIAL` with no confirm request and rolls back to
   the previous image. Recovery is another OTA round.
-- Not called on any boot that is not a trial, nor when `init` refused, nor on
-  a board without the trial: there `src/core/ota_trial_none.c` is linked and
+- Not called on any boot that is not a trial, nor on a board without the
+  trial. When `init` refused, or the descriptor failed its checks, the trial
+  ends at once without asking it, by the same reset (open question 1, decided
+  A). On a boot that is not a trial a failed `init` resets nothing and the
+  firmware serves on. On a board without the trial: there `src/core/ota_trial_none.c` is linked and
   asks nothing. Today the trial is linked on the ATmega2560 only (`BOOT_AB`,
   `mk/firmware.mk:316`).
 
@@ -318,6 +321,8 @@ Nothing secret goes in the region. Any host with wire access can read it.
 | `test_ota_stage` (`RESET` after mode 0) | a `RESET` mode 0 after `OTA_ACTIVATE` mode 0 calls `before_update` then `shutdown`; with nothing marked, or ended and not activated, only `shutdown`; a later `OTA_BEGIN`, a failed stage and a failed second activation clear it |
 | `make app-sdk-check` | the example copied to a temporary directory outside the tree builds `tfwsim` with `APP_DIR` and runs it |
 | `make app-firmware-check` | the same copy builds a firmware image for `BOARD`, through the size gate |
+| `make app-header-check`, run by `host-test` | every header in `include/tfw/` compiles as the whole of a translation unit, included twice, against every board under `boards/`, with an application's flags and warning set and no `src/` on the path; a header that needs another included first fails, and `src/core/app_runner.h` cannot be reached |
+| `make app-header-check-selftest`, in the `security` stage | the gate fails on a planted header that needs `<stddef.h>` from its includer, and names it |
 | `make tfwsim`, `make verify-vectors`, the SDK suite | the default image is unchanged on the wire, and the APP_INFO vectors agree in C and Go |
 | `make sdk-test` | `Device.AppInfo` decodes what `tfwsim-app-heartbeat` sends, and the default `tfwsim` answers `TFW_ERR_UNKNOWN_CMD` |
 | `test_app`, `test_app_none`, `test_app_example` (evidence) | a running application's evidence comes back through a copy; a failed, stopped or refused one is never asked; the empty runner supplies none; the example supplies `0xE0..0xFF` |
@@ -341,16 +346,16 @@ say what this table says.
 | Requirement | Status | Implemented at | Pinned by |
 |---|---|---|---|
 | Descriptor: name, version, device profile, required capabilities, OTA slots, configuration length | shipped | `include/tfw/app.h:52`; checked before `init` at `src/core/app_runner.c:31` | `test_app.c:140` and the descriptor checks after it; `test_app_example.c:39` |
-| Hook `init` | shipped | `src/core/app_runner.c:65`, from `startup()` | `test_app.c:65` |
+| Hook `init` | shipped | `src/core/app_runner.c:65`, from `startup()`; in `TRIAL` a refused `init`, or a descriptor that failed its checks, ends the trial at once (`src/core/ota_trial.c:39`, open question 1, decided A) | `test_app.c:65`, `test_ota_trial.c:187`, `test_ota_trial.c:192`, `test_ota_trial.c:225` |
 | Hook `run` | shipped | `src/core/app_runner.c:75`, every superloop pass, overruns counted | `test_app.c:65` and the overrun tests |
 | Hook `shutdown` | shipped | `src/core/app_runner.c:92`, from `tfw_sys_poll()` at `src/caps/sys.c:227` | `test_app.c:82` |
 | Hook `before_update` | shipped | `src/core/app_runner.c:92`, before `shutdown`, on `RESET` mode 1, on `OTA_ACTIVATE` mode 1 (`src/core/ota_activate.c:33`, through `tfw_sys_reset_soon()` at `src/caps/sys.c:61`), and on a `RESET` mode 0 after `OTA_ACTIVATE` mode 0 of the same session (`src/caps/sys.c:237`, asking `tfw_stage_install_pending()` at `src/core/ota_stage.c:243`: the session's state and the MARK's magic, no new RAM) | `test_app.c:93`, `test_app.c:103`, `test_ota_stage.c:347`, `test_ota_stage.c:398`, `test_ota_stage.c:407`, `test_ota_stage.c:429`, `test_none_variants.c:78` |
-| Hook `after_update` | shipped | declared at `include/tfw/app.h:106`; asked once in `TRIAL` by `tfw_ota_trial_after_init()` at `src/core/ota_trial.c:33`, from `startup()` at `src/main.c:95`, through `tfw_app_runner_after_update()` at `src/core/app_runner.c:128` (RUNNING only); a refusal resets into `tfw-boot` (`src/core/ota_trial.c:38`), `TFW_OK` leaves the trial to `OTA_CONFIRM`; the trial's `armed` flag, no new RAM | `test_ota_trial.c:116`, `test_ota_trial.c:135`, `test_ota_trial.c:159`, `test_app.c:441`, `test_app.c:449`, `test_app.c:459`, `test_app_none.c:53`, `test_none_standins.c:21` |
+| Hook `after_update` | shipped | declared at `include/tfw/app.h:106`; asked once in `TRIAL` by `tfw_ota_trial_after_init()` at `src/core/ota_trial.c:27`, from `startup()` at `src/main.c:95`, through `tfw_app_runner_after_update()` at `src/core/app_runner.c:128` (RUNNING only); a refusal resets into `tfw-boot` (`src/core/ota_trial.c:42`), `TFW_OK` leaves the trial to `OTA_CONFIRM`; the trial's `armed` flag, no new RAM | `test_ota_trial.c:116`, `test_ota_trial.c:135`, `test_ota_trial.c:159`, `test_ota_trial.c:199`, `test_app.c:441`, `test_app.c:449`, `test_app.c:459`, `test_app_none.c:53`, `test_none_standins.c:21` |
 | Configuration region | shipped | `TFW_APP_CONFIG_BASE` at `include/tfw/app.h:50`; `src/core/app_runner.c:186` and `:196` | `test_app.c:275`, `test_app.c:287` and the region tests after them |
 | Evidence claims, 32 bytes in claim 273 | shipped | `src/core/app_runner.c:115`; `src/caps/attest.c:76`; claim 273 at `src/caps/uccs.c:76`; `ATTEST_CSR` keeps the mint's at `src/caps/csr.c:232`; Go decoder at `sdk/go/appevidence.go:69` | `TFWV_APPEV_WITH_UCCS` and `TFWV_APPEV_WITHOUT_UCCS` (`testdata/vectors.h:274`, `:275`) in `test_uccs.c:64`, `test_uccs.c:74`, `test_alias.c:720`, `test_csr.c:541`, `sdk/go/appevidence_test.go:117`; `test_app.c:368`; `sdk/go/cmd/tfwctl/e2e_dice_test.go:74` |
 | OTA slots the images use | shipped | `ota_slots`, `TFW_APP_OTA_*` at `include/tfw/app.h:41`; checked against the board at `src/core/app_runner.c:31` and at compile time by `TFW_APP_STATIC_CHECK` (`include/tfw/app.h:131`) | `test_app.c:192` and the test after it |
 | One application per image, no dynamic loading | shipped | one `APP_DIR` in `mk/app.mk:62`; the hooks are strong symbols | the link itself: every unit link carries `test/mock/app_mock.c`, and a suite that adds a second application fails to link |
-| Builds against a released SDK version | shipped | the interface is in `v0.4.0-alpha` (`CHANGELOG.md:33`); `abi` is checked at boot | `make app-sdk-check` (`mk/app.mk:86`), the example built from outside the tree |
+| Builds against a released SDK version | shipped | the interface is in `v0.4.0-alpha` (`CHANGELOG.md:33`); `abi` is checked at boot | `make app-sdk-check` (`mk/app.mk:86`), the example built from outside the tree; `make app-header-check` (`mk/app.mk:129`), each public header on its own against every board |
 | Board as data at build time | shipped | `make firmware APP_DIR=<path> BOARD=<b>`, `mk/app.mk` | `make app-firmware-check` (`mk/app.mk:107`) |
 | No-application default: no application logic in the firmware | shipped | `src/core/app_runner_none.c`, selected at `mk/app.mk:73` | `test_app_none.c:28`, `test_app_none.c:78` |
 | APP_INFO (0x06) | shipped | `src/core/app_runner.c:153`, in the table at `src/core/commands.def:34` when an application is linked | `test_app.c:325`, `test_app_example.c:99` (`TFWV_APPINFO_HEARTBEAT_REPLY`), `sdk/go/appinfo_test.go:17`, `sdk/go/tfwsim_test.go:187` |
@@ -364,12 +369,23 @@ What is open, and whose it is:
   that an application and a host do not drive the same pin, and
   application-defined wire commands
   ([architecture.md](architecture.md#what-it-does-not-do)). Each would change
-  the wire, with vectors.
-- **With the owner:** open question 1 below.
+  the wire, with vectors. The wire commands are proposed in
+  [adr-application-wire-commands.md](adr-application-wire-commands.md): one
+  id, `APP_CMD` `0x07`, with the application's own sub-op byte. No code
+  changes until the owner rules on its five open questions.
+- **With the owner:** the ADR's open questions. Open question 1 below is
+  decided.
 
 ## Open questions
 
 ### 1. Does a failed `init` in `TRIAL` end the trial at once?
+
+**Decided A** (ruling 109, by the conventions, reported to Software): it is
+the reading of decision 9's "if both return `TFW_OK`", on the one reset path
+the trial already has. `tfw_ota_trial_after_init()` resets when `armed` and
+the application is FAILED or UNSUPPORTED (`src/core/ota_trial.c:39`), pinned
+by `test_ota_trial.c:187`, `:192` and `:225`. The record below is kept as it
+was put to the owner.
 
 Decision 9 of [the OTA ADR](../ota/adr-ota-image-format-and-trust.md) says
 the new image "runs `init` and `tfw_app_after_update`. If both return
@@ -379,7 +395,7 @@ the new image "runs `init` and `tfw_app_after_update`. If both return
 arrows). It names no arrow for a failed `init`: it does not say the trial ends
 at once, and it does not say the trial runs to its deadline.
 
-What the code does today: `tfw_app_runner_start()` marks the application
+What the code did before the decision: `tfw_app_runner_start()` marks the application
 FAILED (`src/core/app_runner.c:72`), and `tfw_app_runner_after_update()`
 answers `TFW_OK` for any state but RUNNING (`src/core/app_runner.c:131`), so
 `tfw_ota_trial_after_init()` does not reset. The firmware serves on without
@@ -415,4 +431,3 @@ return `TFW_OK`", it takes the one reset path the trial already has, and it
 costs no RAM, wire or vector. The diagnostic window B and C keep is worth
 little on a trial that cannot be confirmed: `tfw-boot` keeps the failed
 image's measurement in the `FAILED` record (`docs/ota/architecture.md:137`).
-No code changes until the owner rules.

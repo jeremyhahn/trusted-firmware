@@ -1,6 +1,6 @@
 # Application SDK — API
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-18
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 The C interface between the firmware and an application, and the build
@@ -153,6 +153,7 @@ them.
 | `make tfwsim CRYPTO=atecc608a APP_DIR=<path>` | `build/host/tfwsim-atecc608a-app-<name>` |
 | `make app-sdk-check` | builds and runs the example from outside the tree |
 | `make app-firmware-check` | builds the example's firmware image for `BOARD` |
+| `make app-header-check` | compiles each `include/tfw/` header alone against every board, with an application's flags |
 
 `APP_DIR` may be absolute or relative to this repository. Make runs here, in
 the trusted-firmware checkout, with `-C` from anywhere else.
@@ -204,3 +205,8 @@ Not declared, so no application defines them yet:
   the `submods` claim, which changes the evidence layout, so it is declared
   with that change. `tfw_app_evidence` covers the fixed-width case today and
   stays when it lands.
+- `tfw_status_t tfw_app_command(uint8_t op, tfw_reader_t *r, tfw_writer_t *w)`,
+  the application's own wire commands under `APP_CMD`, and
+  `tfw_app_session_ok()`. Both are proposed in
+  [adr-application-wire-commands.md](adr-application-wire-commands.md) and
+  are declared only when the owner rules on it.

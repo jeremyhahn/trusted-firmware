@@ -1006,8 +1006,9 @@ reference value. A gap there is filed against go-xkms.
 - The one trial: the watchdog arm in `tfw-boot`, and the deadline and the
   `tfw_app_after_update` call in the application SDK. Done: the arm is
   `tfw_boot_watchdog_arm` (`boot/boot_main.c`); the deadline and the call are
-  in `src/core/ota_trial.c`, from `startup()` in `src/main.c` (#51). What
-  remains: whether a failed `init` in `TRIAL` ends the trial at once, which
-  decision 9 does not say (open question 1 of
-  [the application SDK's engineering.md](../application-sdk/engineering.md#open-questions)).
+  in `src/core/ota_trial.c`, from `startup()` in `src/main.c` (#51). A failed `init` in `TRIAL`, which
+  decision 9 does not name, ends the trial at once by the same reset (open
+  question 1 of
+  [the application SDK's engineering.md](../application-sdk/engineering.md#open-questions),
+  decided A).
 - `engineering.md`, `api.md` and `user.md` in this folder, with the code.

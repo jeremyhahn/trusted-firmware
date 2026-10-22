@@ -75,7 +75,7 @@ not with a programmer.
 | A separately built and loaded application image | No MMU, no MPU and no position-independent code on classic AVR. Two images would need two measurements, two update paths and a loader inside the trusted computing base. One image keeps one `FWHash` and the update path that exists. |
 | `#if TFW_APP` in `main.c` | Forbidden outside the four permitted places. It would also mean the image with an application and the image without one are different code paths that are never both tested. |
 | Threads or an RTOS task per application | Classic AVR has neither the RAM for a second stack nor an RTOS. The firmware is a cooperative superloop, and the application is one more cooperative step in it. A later architecture with an RTOS keeps this interface: `run` becomes the body of a task loop. |
-| Application-defined wire commands | Command ids are one global namespace that extends and never renumbers. Giving applications a range is a wire-protocol design of its own, with vectors, and is proposed as a follow-up rather than guessed at here. |
+| Application-defined wire commands | Command ids are one global namespace that extends and never renumbers. Giving applications a range is a wire-protocol design of its own, with vectors, and is proposed as a follow-up rather than guessed at here: [adr-application-wire-commands.md](adr-application-wire-commands.md), awaiting the owner. |
 | Enforcing the run budget by preemption | Needs a timer interrupt that can abandon a call. C cannot unwind it safely, and the only blunt tool, a watchdog reset, turns a slow application into a reset loop. The runner measures and counts overruns instead. |
 
 ## Boundaries
@@ -119,7 +119,8 @@ reset
        └─ tfw_app_runner_poll()      ─► tfw_app_run(now_ms)
 
 trial boot of a new image (boot_state TRIAL, OTA ADR decision 9)
-  └─ startup(), after init returned OK: tfw_ota_trial_after_init()
+  └─ startup(), after the runner's start: tfw_ota_trial_after_init()
+        ├─ init refused, or descriptor failed: reset now; tfw-boot rolls back
         └─ tfw_app_runner_after_update() ─► tfw_app_after_update()
               ├─ TFW_OK:   the trial runs on; OTA_CONFIRM confirms
               └─ refusal:  reset now; tfw-boot rolls back
@@ -165,7 +166,8 @@ with `tfw_app_config_read`. Nothing new crosses the wire.
   that drive the same pin conflict. A follow-up proposes one.
 - It does not let an application add wire commands, or add evidence claims
   beyond its 32 bytes in claim 273. Each is a proposed follow-up, and each is
-  a wire or evidence change with vectors. The firmware itself reports the application's state and descriptor
+  a wire or evidence change with vectors. The wire commands are proposed in
+  [adr-application-wire-commands.md](adr-application-wire-commands.md). The firmware itself reports the application's state and descriptor
   with APP_INFO ([api.md](api.md#app_info)); the application adds nothing to
   that reply.
 - It does not confirm an image. `after_update` answering `TFW_OK` lets the

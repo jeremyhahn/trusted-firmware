@@ -109,4 +109,68 @@ app-firmware-check:
 	cp -a test/app/example/. "$$t/" && \
 	$(MAKE) --no-print-directory firmware APP_DIR="$$t" BOARD=$(BOARD)
 
-.PHONY: app-sdk-check app-firmware-check tfwsim-app-example
+## app-header-check: every public header compiles on its own, with an application's flags, against every board
+# An application repository sees include/tfw/, its board's board_profile.h and
+# the HAL's types, and nothing of src/. Each header is compiled as the whole of
+# a translation unit, included twice so its guard is exercised too, against
+# each board directory, with the warning set an application is held to: a
+# header that leans on one included before it, or on src/, fails here rather
+# than in an application's repository. The host's HAL types
+# (test/mock/hal_types.h) stand in for the architecture's; an architecture's
+# own are compiled when the example builds as firmware (app-firmware-check).
+#
+# Two plants first, so the gate is seen to fail: a header that names uint8_t
+# without <stdint.h>, and a unit that includes src/core/app_runner.h, which an
+# application must not. An empty header or board list is a failure, not a pass.
+# Run by host-test.
+APP_HEADER_ROOT   ?= .
+APP_HEADER_CFLAGS  = -std=c11 $(APP_WARN_CFLAGS) -Iinclude -Itest/mock \
+                     -DTFW_BOARD_HEADER='"board_profile.h"' -fsyntax-only
+app-header-check:
+	@cd $(APP_HEADER_ROOT) && t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	hdrs=$$(ls include/tfw/*.h 2>/dev/null); boards=$$(ls -d boards/*/ 2>/dev/null); \
+	[ -n "$$hdrs" ] && [ -n "$$boards" ] || \
+	  { echo "app-header-check: no include/tfw/*.h or no boards/*/ under $(APP_HEADER_ROOT)"; exit 1; }; \
+	b0=$$(printf '%s\n' $$boards | head -n 1); \
+	mkdir -p "$$t/plant/tfw" && \
+	printf '#ifndef TFW_PLANT_H\n#define TFW_PLANT_H\nuint8_t tfw_plant(void);\n#endif\n' > "$$t/plant/tfw/plant.h" && \
+	printf '#include "tfw/plant.h"\n' > "$$t/plant.c" && \
+	if $(CC) $(APP_HEADER_CFLAGS) -I"$$t/plant" -I"$$b0" "$$t/plant.c" > /dev/null 2>&1; then \
+	  echo "app-header-check: a header that needs <stdint.h> included before it was accepted"; exit 1; fi; \
+	for inc in core/app_runner.h src/core/app_runner.h; do \
+	  printf '#include "%s"\n' "$$inc" > "$$t/internal.c"; \
+	  if $(CC) $(APP_HEADER_CFLAGS) -I"$$b0" "$$t/internal.c" > /dev/null 2>&1; then \
+	    echo "app-header-check: an application reached $$inc"; exit 1; fi; \
+	done; \
+	fail=0; n=0; \
+	for b in $$boards; do for h in $$hdrs; do \
+	  i=$${h#include/}; n=$$((n + 1)); \
+	  printf '#include "%s"\n#include "%s"\n' "$$i" "$$i" > "$$t/h.c"; \
+	  $(CC) $(APP_HEADER_CFLAGS) -I"$$b" "$$t/h.c" > "$$t/h.log" 2>&1 || \
+	    { echo "app-header-check: $$i does not compile on its own against $$b"; head -n 5 "$$t/h.log"; fail=1; }; \
+	done; done; \
+	[ $$fail -eq 0 ] || exit 1; \
+	echo "app-header-check: $$(printf '%s\n' $$hdrs | wc -l) headers compile on their own against $$(printf '%s\n' $$boards | wc -l) boards ($$n units)"
+
+## app-header-check-selftest: the header gate rejects a header that is not self-contained, and names it
+# A copy of include/ and one board with a planted header that needs <stddef.h>
+# from whoever includes it: the gate must fail and print the header's name. The
+# copy unplanted must pass. Run by the security stage, beside the other gates'
+# selftests.
+app-header-check-selftest:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	mkdir -p "$$t/boards" "$$t/test" && cp -a include "$$t/" && cp -a test/mock "$$t/test/" && \
+	cp -a boards/$(HOST_BOARD) "$$t/boards/" && \
+	$(MAKE) --no-print-directory app-header-check APP_HEADER_ROOT="$$t" > /dev/null || \
+	  { echo "selftest: the unplanted copy was rejected"; exit 1; }; \
+	printf '#ifndef TFW_LEAN_H\n#define TFW_LEAN_H\nsize_t tfw_lean(void);\n#endif\n' > "$$t/include/tfw/lean.h" && \
+	if out=$$($(MAKE) --no-print-directory app-header-check APP_HEADER_ROOT="$$t" 2>&1); then \
+	  echo "selftest: the gate passed tfw/lean.h, which needs <stddef.h>"; exit 1; fi; \
+	case "$$out" in *'tfw/lean.h does not compile on its own'*) ;; \
+	  *) echo "selftest: the failure did not name tfw/lean.h"; printf '%s\n' "$$out"; exit 1 ;; esac; \
+	echo "app-header-check rejects a header that is not self-contained and names it"
+
+host-test: app-header-check
+security: app-header-check-selftest
+
+.PHONY: app-sdk-check app-firmware-check tfwsim-app-example app-header-check app-header-check-selftest

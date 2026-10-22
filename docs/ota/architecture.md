@@ -149,6 +149,8 @@ boot:        PENDING: verify the store copy, copy it into the secondary slot,
                ─refused─► swap back, FAILED, evaluate and boot the previous image
 application: init OK, tfw_app_after_update OK ─► connect, attest, wait
              tfw_app_after_update refused ─► reset at once (a failed trial)
+             init refused, or the descriptor failed its checks ─► reset at
+             once (a failed trial; tfw_app_after_update is not asked)
              ─OTA_CONFIRM─► CONFIRMED, signature recorded; the deadline
              still runs (deadline expired ─► reset, confirmed or not)
 boot:        TRIAL at reset ─► swap back, FAILED, flags: fell back

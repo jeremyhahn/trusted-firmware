@@ -170,6 +170,66 @@ static void test_outside_a_trial_after_update_is_not_asked(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_fake_runner_after_update_calls());
 }
 
+/* Open question 1, option A: an application that cannot start ends the trial
+ * at once, by the refusal's reset, and after_update is never asked. */
+static void check_cannot_start_ends_the_trial(tfw_app_state_t app)
+{
+    tfw_mock_reset();
+    tfw_fake_runner_reset();
+    tfw_fake_runner_set_state(app);
+    provision(TFW_BOOT_STATE_TRIAL);
+    tfw_ota_trial_start();
+    tfw_ota_trial_after_init();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_fake_runner_after_update_calls());
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+}
+
+static void test_a_failed_init_ends_the_trial_at_once(void)
+{
+    check_cannot_start_ends_the_trial(TFW_APP_STATE_FAILED);
+}
+
+static void test_an_unsupported_descriptor_ends_the_trial_at_once(void)
+{
+    check_cannot_start_ends_the_trial(TFW_APP_STATE_UNSUPPORTED);
+}
+
+/* No application (app_runner_none.c reports IDLE) is not a failed init: the
+ * trial runs on to OTA_CONFIRM or its deadline. */
+static void test_no_application_leaves_the_trial_running(void)
+{
+    tfw_fake_runner_set_state(TFW_APP_STATE_IDLE);
+    provision(TFW_BOOT_STATE_TRIAL);
+    tfw_ota_trial_start();
+    tfw_ota_trial_after_init();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_fake_runner_after_update_calls());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+}
+
+/* Outside a trial a failed init resets nothing: the firmware serves on, and
+ * nothing the trial polls resets it later. */
+static void check_failed_init_serves_on(uint8_t boot_state)
+{
+    tfw_mock_reset();
+    tfw_fake_runner_reset();
+    tfw_fake_runner_set_state(TFW_APP_STATE_FAILED);
+    provision(boot_state);
+    tfw_ota_trial_start();
+    tfw_ota_trial_after_init();
+    tfw_mock_advance(DEADLINE_MS);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_fake_runner_after_update_calls());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+}
+
+static void test_outside_a_trial_a_failed_init_serves_on(void)
+{
+    check_failed_init_serves_on(TFW_BOOT_STATE_EMPTY);
+    check_failed_init_serves_on(TFW_BOOT_STATE_STAGED);
+    check_failed_init_serves_on(TFW_BOOT_STATE_GOOD);
+    check_failed_init_serves_on(TFW_BOOT_STATE_CONFIRMED);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -181,5 +241,9 @@ int main(void)
     RUN_TEST(test_an_accepted_after_update_leaves_the_trial_running);
     RUN_TEST(test_a_refused_after_update_ends_the_trial_at_once);
     RUN_TEST(test_outside_a_trial_after_update_is_not_asked);
+    RUN_TEST(test_a_failed_init_ends_the_trial_at_once);
+    RUN_TEST(test_an_unsupported_descriptor_ends_the_trial_at_once);
+    RUN_TEST(test_no_application_leaves_the_trial_running);
+    RUN_TEST(test_outside_a_trial_a_failed_init_serves_on);
     return UNITY_END();
 }

@@ -59,6 +59,17 @@ static void test_the_five_reserved_ids_have_no_handler(void)
     }
 }
 
+/* A request OP is 7 bits, and 0x7F's response OP would be 0xFF, the event
+ * marker. No entry may sit at or above it, or its answer reads as an event. */
+static void test_no_command_id_reaches_the_event_marker(void)
+{
+    unsigned id;
+    for (id = 0x7Fu; id <= 0xFFu; id++) {
+        TEST_ASSERT_FALSE(tfw_dispatch_knows((uint8_t)id));
+    }
+    TEST_ASSERT_EQUAL_HEX8(TFW_OP_EVENT, (uint8_t)(0x7Fu | TFW_OP_RESPONSE_BIT));
+}
+
 /* This binary is the soft-tier host build (HOST_EXTRA_DEFS does not set
  * TFW_FEATURE_AUTH_SESSION): AUTH_CHALLENGE/AUTH_RESPONSE must be absent here
  * exactly like any other feature this tier does not carry, not merely
@@ -374,6 +385,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_an_unknown_command_is_refused);
     RUN_TEST(test_the_five_reserved_ids_have_no_handler);
+    RUN_TEST(test_no_command_id_reaches_the_event_marker);
     RUN_TEST(test_auth_commands_are_absent_from_a_soft_tier_build);
     RUN_TEST(test_attest_csr_is_absent_from_a_328p_build_and_caps_says_so);
     RUN_TEST(test_the_system_commands_are_all_present);

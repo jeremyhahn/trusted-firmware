@@ -69,7 +69,11 @@
 
 /* ------------------------------------------------------------- command ids */
 /* Grouped by subsystem with gaps, so a later addition lands beside its
- * relatives instead of at the end. Ids extend and never renumber. */
+ * relatives instead of at the end. Ids extend and never renumber.
+ *
+ * 0x7F is never assigned: its response OP would be 0x7F | 0x80, which is
+ * TFW_OP_EVENT, so a host would read the answer as an event. test_dispatch pins
+ * that no table entry reaches it. */
 
 /* system */
 #define TFW_CMD_CAPS              0x00u

@@ -188,6 +188,11 @@ answered only by `tfw-boot`; an application build must answer
 any current build** — reserved, and refused as `TFW_ERR_UNKNOWN_CMD`
 everywhere today; see `include/tfw/protocol.h` for the one-line note against
 each.
+`0x7F` is never assigned: its response OP would be `0xFF`, the event marker.
+Today a `0x7F` request is answered `TFW_ERR_UNKNOWN_CMD` in a frame whose OP
+is `0xFF`, which a host reads as an event; whether the device should answer it
+at all is open question 4 of
+[adr-application-wire-commands.md](../application-sdk/adr-application-wire-commands.md).
 
 `APP_INFO` (issue #51) is in the table only of an image built with an
 application (`TFW_FEATURE_APP`, set by `APP_DIR`). Every other image answers

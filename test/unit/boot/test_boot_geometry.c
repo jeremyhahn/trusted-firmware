@@ -84,6 +84,17 @@ static void test_the_boot_region_is_the_board_profile_one(void)
     TEST_ASSERT_EQUAL_UINT32(g->boot_size, (uint32_t)TFW_BOOT_REGION_SIZE);
 }
 
+/* TCG DICE HW Req 6.4, the part of the MPU clause a host build can reach. BLB1
+ * mode 3 guards the boot section, the top TFW_BOOT_REGION_SIZE bytes of flash,
+ * against the application; it does not stop tfw-boot writing over itself, so
+ * the highest address tfw-boot programs must end below it. Whether the lock
+ * byte is set, and what LPM from the application then reads, is silicon's. */
+static void test_tfw_boot_writes_nothing_in_the_boot_section(void)
+{
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)TFW_FLASH_TOTAL, TFW_BOOT_START + (uint32_t)TFW_BOOT_REGION_SIZE);
+    TEST_ASSERT_TRUE((uint32_t)TFW_APP_WRITE_END <= TFW_BOOT_START);
+}
+
 static void test_the_ota_page_buffer_is_the_board_profile_one(void)
 {
     const geometry_t *g = this_board();
@@ -129,6 +140,7 @@ int main(void)
     RUN_TEST(test_the_board_has_a_geometry_row);
     RUN_TEST(test_the_application_region_is_the_board_profile_one);
     RUN_TEST(test_the_boot_region_is_the_board_profile_one);
+    RUN_TEST(test_tfw_boot_writes_nothing_in_the_boot_section);
     RUN_TEST(test_the_ota_page_buffer_is_the_board_profile_one);
     RUN_TEST(test_ota_accepts_the_part_page_within_the_buffer);
     RUN_TEST(test_the_session_tick_is_one_empty_poll);

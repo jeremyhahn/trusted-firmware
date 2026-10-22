@@ -642,13 +642,29 @@ $(BOOT_TEST_DIR)/boot_main_ho.o: boot/boot_main.c | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/avr $(EXTRA_CFLAGS) -c -o $@ $<
 	@objcopy --redefine-sym main=tfw_boot_main_not_linked $@
 
+# Both hand-over tests wrap the derive so they read the stack the moment it
+# returns: the calls the hand-over makes after it, at the same depth, overwrite
+# its frame, and a scan after the jump finds the UDS's copy gone whether or not
+# the derive cleared it.
+DERIVE_WRAP := -Wl,--wrap=tfw_boot_cdi_derive
+
 $(BOOT_TEST_DIR)/test_boot_hand_over_clear: test/unit/boot/test_boot_hand_over_clear.c \
         $(BOOT_TEST_DIR)/boot_main_ho.o $(BOOT_TEST_DIR)/cdi_soft_uds.o \
         src/crypto/sha256_small.c test/mock/cdi_residue.c \
         boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c \
         boot/boot_stage_none.c src/proto/frame.c \
         $(filter-out src/crypto/sha256.c,$(BOOT_LOGIC_SRCS)) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
+
+# The same hand-over on an unprovisioned device: cdi_soft.c as it ships, its
+# UDS slot erased.
+$(BOOT_TEST_DIR)/test_boot_hand_over_erased: test/unit/boot/test_boot_hand_over_erased.c \
+        $(BOOT_TEST_DIR)/boot_main_ho.o boot/tier/cdi_soft.c \
+        src/crypto/sha256_small.c test/mock/cdi_residue.c \
+        boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c \
+        boot/boot_stage_none.c src/proto/frame.c \
+        $(filter-out src/crypto/sha256.c,$(BOOT_LOGIC_SRCS)) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
 
 # The session loop with tfw_boot_evaluate and tfw_boot_hand_over supplied by the
 # test, so boot_policy.c and the signature backend stay out of this link.
@@ -687,6 +703,37 @@ BOOT_TEST_2560_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/atmega2560,\
 
 $(BOOT_TEST_DIR)/test_boot_stage_2560: $(BOOT_STAGE_TEST_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The geometry suite under the 2560's profile, the pattern rule's link: its
+# boot section, and the write end the A/B secondary sets, are that profile's.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_geometry_2560
+$(BOOT_TEST_DIR)/test_boot_geometry_2560: test/unit/boot/test_boot_geometry.c $(BOOT_LOGIC_SRCS) \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The unprovisioned hand-over under the 2560's profile, the soft row's: the
+# link above, with boot_main.c compiled against that profile too.
+$(BOOT_TEST_DIR)/boot_main_ho_2560.o: boot/boot_main.c | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) -Iboot/hal/avr $(EXTRA_CFLAGS) -c -o $@ $<
+	@objcopy --redefine-sym main=tfw_boot_main_not_linked $@
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_hand_over_erased_2560
+$(BOOT_TEST_DIR)/test_boot_hand_over_erased_2560: test/unit/boot/test_boot_hand_over_erased.c \
+        $(BOOT_TEST_DIR)/boot_main_ho_2560.o boot/tier/cdi_soft.c \
+        src/crypto/sha256_small.c test/mock/cdi_residue.c \
+        boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c \
+        boot/boot_stage_none.c src/proto/frame.c \
+        $(filter-out src/crypto/sha256.c,$(BOOT_LOGIC_SRCS)) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ -Wl,-z,now $(DERIVE_WRAP) $(EXTRA_LDFLAGS)
+
+# And under the 32U4's, the third tfw-boot row in BOOT_SUPPORTED.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_geometry_32u4
+BOOT_TEST_32U4_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/atmega32u4,\
+                          $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+
+$(BOOT_TEST_DIR)/test_boot_geometry_32u4: test/unit/boot/test_boot_geometry.c $(BOOT_LOGIC_SRCS) \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_32U4_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \

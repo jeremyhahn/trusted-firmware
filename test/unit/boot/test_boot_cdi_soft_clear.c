@@ -99,6 +99,13 @@ static void test_every_secret_the_derive_held_was_cleared(void)
 
     measurement(m);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_cdi_derive(m, cdi));
+    /* Four compressions (two blocks each for the inner and the outer hash),
+     * the HMAC's state, then the UDS copy last. The HMAC's clear holds the UDS
+     * too, so only the order tells the copy's own clear from it. In the
+     * sanitizer build the derive's frames lie outside the window the stack
+     * scan reads, and without the copy's clear only this half fails. */
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(6u, tfw_residue_zero_calls(), "clears");
+    TEST_ASSERT_TRUE_MESSAGE(tfw_residue_last_cleared(0u, 32u, kUds, 32u), "the UDS copy, last");
     TEST_ASSERT_TRUE_MESSAGE(tfw_residue_cleared(kUds, 32u), "UDS");
     TEST_ASSERT_TRUE_MESSAGE(tfw_residue_cleared(kOpadUds, sizeof kOpadUds), "outer pad");
     TEST_ASSERT_TRUE_MESSAGE(tfw_residue_cleared(kCdiWords, sizeof kCdiWords), "CDI state words");

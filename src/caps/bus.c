@@ -76,6 +76,11 @@ tfw_status_t tfw_i2c_cmd_xfer(tfw_reader_t *r, tfw_writer_t *w)
     if (addr == TFW_I2C_RESERVED_ADDR || addr == TFW_ELEMENT_I2C_ADDR) {
         return TFW_ERR_PROTECTED_REGION;
     }
+    /* And an address a driver in this build holds -- the OPTIGA Trust M's,
+     * when its transport is in the object list (bus.h). */
+    if (tfw_bus_i2c_held(addr)) {
+        return TFW_ERR_PROTECTED_REGION;
+    }
     if (rlen > TFW_BUS_MAX) {
         return TFW_ERR_RANGE;
     }

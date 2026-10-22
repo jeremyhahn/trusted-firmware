@@ -94,6 +94,11 @@ BUS_OFF  := $(and $(call feature_off,I2C),$(call feature_off,SPI),$(call feature
 # a no-op -- provides the same symbol when BUS_OFF, so exactly one is always
 # linked. Mirrors how CRYPTO_SRCS gives every tier its own tfw_crypto_init().
 BUS_SRCS := $(if $(BUS_OFF),src/caps/bus_none.c,src/caps/bus.c $(call hal_src,hal_bus.c))
+# bus.c asks tfw_bus_i2c_held() which addresses a linked driver holds
+# (src/caps/bus.h). The OPTIGA Trust M transport answers for its own when the
+# crypto tier carries it; bus_held_none.c answers for every other build. Exactly
+# one is linked. Recursive, because CRYPTO_SRCS is set further down.
+BUS_HELD_SRCS = $(if $(BUS_OFF),,$(if $(filter src/crypto/optiga/optiga_i2c.c,$(CRYPTO_SRCS)),,src/caps/bus_held_none.c))
 
 # The byte link. A part with no USART needs a software one, and the two
 # implementations define the same four functions -- so exactly one is linked and
@@ -430,7 +435,7 @@ FW_SRCS := $(sort \
   $(APP_RUNNER_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c $(STORAGE_SRCS) src/caps/attest.c \
-  $(PULSE_SRCS) $(PWM_SRCS) $(BUS_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
+  $(PULSE_SRCS) $(PWM_SRCS) $(BUS_SRCS) $(BUS_HELD_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
   $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) $(ARCH_FW_SRCS) \
   $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/*.c))))

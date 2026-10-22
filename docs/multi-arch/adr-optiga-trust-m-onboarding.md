@@ -6,7 +6,7 @@
 > [`architecture.md`](architecture.md) §6,
 > [`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md) (#14),
 > [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md) (#15) ·
-> Last verified: 2026-10-17
+> Last verified: 2026-10-20
 >
 > Documentation only. Owner ruling 2026-10-17 05:51Z, queue item 26: each
 > arrived board gets one docs-only onboarding ADR, written now; the port itself
@@ -183,3 +183,11 @@ None is decided here.
 - Confirm every *to confirm* item against the vendor documents, with the
   revision and section.
 - The driver and its mock, after #7 and the SE052F and STM32H5, per SPEC order.
+  Its first part is written: the I2C transport, `src/crypto/optiga/optiga_i2c.c`,
+  to Infineon's *IFX I2C Protocol, Protocol Specification* v2.03
+  ([`../reference/README.md`](../reference/README.md)), tested against recorded
+  frames in `test/unit/test_optiga_i2c.c`. It is written here, not taken from
+  Infineon's host library, which keeps question 8 open: the owner may still
+  choose the library. It refuses the shielded connection (question 4). Bench
+  facts it takes from the host library and marks to confirm: the address 0x30,
+  the FCS byte order, and the timing values.

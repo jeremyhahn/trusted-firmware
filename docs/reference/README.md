@@ -54,8 +54,10 @@ override-parameters 20, vendor id 1, image size 14) were checked against -37's C
 | TCG Hardware Requirements for a Device Identifier Composition Engine | Revision 78 | <https://trustedcomputinggroup.org/resource/hardware-requirements-for-a-device-identifier-composition-engine/> | Layer 0 CDI = HMAC(UDS, H(code)), form (2) of §5: `boot/boot_cdi.h`, `boot/tier/cdi_soft.c`, `boot/tier/cdi_atecc.c` |
 | TCG DICE Attestation Architecture | Revision 23 | <https://trustedcomputinggroup.org/resource/dice-attestation-architecture/> | `tcg-dice-UCCS-evidence` (2.23.133.5.4.6, §6.1.4) in the alias certificate: `src/caps/alias.c`, `src/caps/uccs.c` |
 | TCG DICE Symmetric Identity Based Device Attestation | revision not cited in code | <https://trustedcomputinggroup.org/resource/dice-symmetric-identity-based-device-attestation/> | The HMAC-SHA256 identity (`TFW_ALG_HMAC_SHA256`): `include/tfw/protocol.h`, `xkms/avr/algorithms.go` |
+| Infineon, *IFX I2C Protocol, Protocol Specification* | Revision 2.03, 2020-09-22 (SHA-256 `04288206e14412cd6dc6bbbdbc45fc469a28a1cc260b2e42e022d8f33397774d`) | <https://raw.githubusercontent.com/Infineon/optiga-trust-m/develop/documents/Infineon_I2C_Protocol_v2.03.pdf> | Layers 1 to 4 (§2 to §5), one master, window size 1; not the presentation layer (§6): `src/crypto/optiga/optiga_i2c.c`. The FCS goes high byte first, as Infineon's host library sends it, not as §3.3's text reads |
 
-Each is a TCG specification; its licence does not allow a copy here.
+The TCG specifications' licence does not allow a copy here; Infineon's
+document carries a copyright and no licence to redistribute.
 
 ## Board sources
 

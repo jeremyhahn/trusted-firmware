@@ -148,7 +148,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x34 | `PULSE_CAPTURE` | `TFW_FEATURE_PULSE` | `[pin:1][start_high:1][max_edges:1][timeout_us:4]` | `[count:1][interval_us:2]*count` |
 | 0x40 | `EEPROM_READ` | `TFW_FEATURE_EEPROM` | `[addr:2][len:1]` | `bytes[len]`; any byte below `EEPROMReservedEnd` (0xC0) additionally requires an authenticated session on a tier that enforces one (`TFW_FEATURE_AUTH_SESSION`) — `TFW_ERR_AUTH_REQUIRED` otherwise, unconditional on other tiers |
 | 0x41 | `EEPROM_WRITE` | `TFW_FEATURE_EEPROM` | `[addr:2]bytes[1..8]` (chunk-limited) | none; any byte below `EEPROMReservedEnd` (0xC0) is `TFW_ERR_PROTECTED_REGION`, unconditionally on every tier |
-| 0x50 | `I2C_XFER` | `TFW_FEATURE_I2C` | `[addr7:1][read_len:1]bytes[write...]` | `bytes[read_len]`; `addr7 == 0x60` (`TFW_I2C_RESERVED_ADDR`) or the board profile's element address (`0x36` on the Nano and Mega) is `TFW_ERR_PROTECTED_REGION` |
+| 0x50 | `I2C_XFER` | `TFW_FEATURE_I2C` | `[addr7:1][read_len:1]bytes[write...]` | `bytes[read_len]`; `addr7 == 0x60` (`TFW_I2C_RESERVED_ADDR`) or the board profile's element address (`0x36` on the Nano and Mega), or `0x30` on a build that links the OPTIGA Trust M transport, is `TFW_ERR_PROTECTED_REGION` |
 | 0x51 | `SPI_XFER` | `TFW_FEATURE_SPI` | `[cs:1]bytes[write...]` | `bytes[len(write)]`, full duplex, CS held throughout |
 | 0x52 | `ONEWIRE_RESET` | `TFW_FEATURE_ONEWIRE` | `[pin:1]` | `[presence:1]` |
 | 0x53 | `ONEWIRE_WRITE` | `TFW_FEATURE_ONEWIRE` | `[pin:1]bytes[data...]` | none |

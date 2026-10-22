@@ -153,7 +153,9 @@ SPI_CONFIG      req  mode:u8(0-3)  clkdiv:u8(0-3)  lsb_first:u8(0|1)  resp  (non
 
 `addr7 == TFW_I2C_RESERVED_ADDR` (`0x60` by default) is refused unconditionally,
 and so is the board profile's element address, `TFW_ELEMENT_I2C_ADDR` (`0x36`
-on the Nano and Mega, for the ATECC608C (MIKROE-6774 Click board)).
+on the Nano and Mega, for the ATECC608C (MIKROE-6774 Click board)). A build
+that links the OPTIGA Trust M transport refuses its address too, `0x30`
+(`tfw_bus_i2c_held`, `src/caps/bus.h`); every other build passes it through.
 `cs_pin` flagged `TFW_PIN_RESERVED`/`TFW_PIN_IN_USE` (a TPM's chip-select, or the
 UART pins) is refused the same way. SPI is full duplex: the reply is always
 the same length as the write. Transfer length on all three buses is bounded

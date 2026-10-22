@@ -177,6 +177,7 @@ HOST_LIB_SRCS := src/proto/crc16.c \
                  src/caps/tone.c \
                  src/caps/pulse.c \
                  src/caps/bus.c \
+                 src/caps/bus_held_none.c \
                  src/caps/storage.c \
                  src/crypto/sha256.c \
                  src/crypto/soft/provider.c \
@@ -351,7 +352,7 @@ $(HOST_DIR)/test_csr_alg: test/unit/test_csr_alg.c \
 # functions, which bus.c's other handlers reference as one translation unit.
 $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
                                $(ELEMENT_MODEL) \
-                               src/caps/bus.c \
+                               src/caps/bus.c src/caps/bus_held_none.c \
                                src/core/reader.c src/core/writer.c \
                                src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
                                src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -1357,6 +1358,23 @@ $(HOST_DIR)/test_atecc_mutate: test/unit/test_atecc_mutate.c src/crypto/atecc608
                                src/core/secure_zero.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The OPTIGA Trust M transport against recorded frames (row optiga-trust-m):
+# optiga_i2c.c alone, with the bus faked in the suite. It stays in TEST_SRCS;
+# this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optiga_i2c.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
+
+# I2C_XFER on a build whose object list carries the OPTIGA transport: bus.c
+# with optiga_i2c.c in place of bus_held_none.c, the bus faked in the suite.
+# It stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_bus_optiga: test/unit/test_bus_optiga.c src/caps/bus.c \
+                             src/crypto/optiga/optiga_i2c.c \
+                             src/core/reader.c src/core/writer.c \
+                             src/core/board_lookup.c boards/$(HOST_BOARD)/board.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
 
 # A trial whose platform block leaves TRIAL before its deadline (#163), on
 # test_ota_trial's link. It stays in TEST_SRCS; this explicit rule takes the

@@ -78,6 +78,19 @@ static void test_the_click_boards_element_address_is_refused(void)
         run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x36u, 0u, 0x01u }, 3u));
 }
 
+/* This build links bus_held_none.c, not the OPTIGA transport: its address is
+ * an ordinary device's (test_bus_optiga.c is the build that refuses it). */
+static void test_the_optiga_address_reaches_the_bus_without_its_transport(void)
+{
+    const uint8_t resp[1] = { 0x5Au };
+    tfw_mock_set_bus_response(resp, 1u);
+
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_bus_i2c_held(0x30u));
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x30u, 1u, 0x00u }, 3u));
+    TEST_ASSERT_EQUAL_UINT8(0x30u, tfw_mock_last_i2c_addr());
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, outbuf[0]);
+}
+
 static void test_an_address_beyond_seven_bits_is_refused(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
@@ -255,6 +268,7 @@ int main(void)
     RUN_TEST(test_the_secure_elements_address_is_refused);
     RUN_TEST(test_the_reserved_address_is_refused_even_with_no_element_present);
     RUN_TEST(test_the_click_boards_element_address_is_refused);
+    RUN_TEST(test_the_optiga_address_reaches_the_bus_without_its_transport);
     RUN_TEST(test_an_address_beyond_seven_bits_is_refused);
     RUN_TEST(test_a_read_longer_than_a_reply_can_carry_is_refused);
     RUN_TEST(test_an_spi_transfer_is_full_duplex);

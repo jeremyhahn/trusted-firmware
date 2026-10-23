@@ -39,12 +39,23 @@ static uint32_t refuse_at   = 0xFFFFFFFFu;   /* the slot base the gate refuses *
  * match by accident. */
 static void seed(void)
 {
-    uint32_t i;
+    /* The two images computed once and copied in at every setUp: the torn-
+     * write cases call setUp once per write, byte and value (#163). A case
+     * that changes img_a or img_b gets them back from these at the next. */
+    static uint8_t pat_a[SLOT];
+    static uint8_t pat_b[SLOT];
+    static uint8_t made;
+    uint32_t       i;
 
-    for (i = 0u; i < SLOT; i++) {
-        img_a[i] = (uint8_t)((i * 7u) ^ (i >> 8));
-        img_b[i] = (uint8_t)~img_a[i];
+    if (made == 0u) {
+        for (i = 0u; i < SLOT; i++) {
+            pat_a[i] = (uint8_t)((i * 7u) ^ (i >> 8));
+            pat_b[i] = (uint8_t)~pat_a[i];
+        }
+        made = 1u;
     }
+    memcpy(img_a, pat_a, SLOT);
+    memcpy(img_b, pat_b, SLOT);
     memcpy(&tfw_boot_mock_flash()[PRI], img_a, SLOT);
     memcpy(&tfw_boot_mock_flash()[SEC], img_b, SLOT);
 }

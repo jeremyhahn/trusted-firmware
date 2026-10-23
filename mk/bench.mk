@@ -18,7 +18,12 @@
 # The budget itself lives in test/bench/targets.h -- one table, each row with
 # the project plan's reasoning beside it.
 
-BENCH_DIR    := $(BUILD_DIR)/bench/$(BOARD)/$(CRYPTO)
+# The image's row, not only its tier: the benchmark compiles FW_SRCS with
+# FW_CFLAGS, so every flag that names the firmware's directory changes these
+# objects too (#161). FW_ROW is the bare tier on every row bench-check runs
+# (ETH=0), so those keep their paths; the 2560's Ethernet image, which shared
+# auto/ with its serial one, is auto-eth-w5100/.
+BENCH_DIR    := $(BUILD_DIR)/bench/$(BOARD)/$(FW_ROW)
 BENCH_TARGET := $(BENCH_DIR)/agbench
 
 # The firmware's own object list with ONE file exchanged. Not a subset, not a
@@ -98,4 +103,8 @@ bench-check:
 	if [ $$fail -ne 0 ]; then echo "bench-check: FAILED"; else echo "bench-check: green"; fi; \
 	exit $$fail
 
-.PHONY: bench-run bench-check
+## bench-dir: print the directory `bench-run` builds the benchmark in, for the flags given (used by scripts/test_build_dirs.py)
+bench-dir:
+	@echo $(BENCH_DIR)
+
+.PHONY: bench-run bench-check bench-dir

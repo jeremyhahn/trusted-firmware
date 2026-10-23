@@ -190,7 +190,12 @@ BOOT_STORE_SRCS += $(BOOT_SWAP_SRC)
 # software hash are different images with different measurements; sharing one
 # directory meant the second build silently reused the first one's objects and
 # reported its size, which is a measurement that cannot be wrong and is.
-BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(BOOT_STORE)
+# UECC_OPT and BOOT_OPT_EXTRA (below) change the objects too, and name the path
+# only where they are set: micro-ecc's level where p256-soft links it, and a
+# checksum of BOOT_OPT_EXTRA, whose options can hold any character a path cannot.
+BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(BOOT_STORE)$(if \
+                $(and $(filter p256-soft,$(BOOT_SIG)),$(filter-out 0,$(UECC_OPT))),-uecc$(UECC_OPT))$(if \
+                $(strip $(BOOT_OPT_EXTRA)),-x$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(BOOT_OPT_EXTRA)))' | cksum)))
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
 BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 
@@ -783,13 +788,24 @@ $(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 ## boot-test: run the bootloader's host unit tests
-boot-test: $(BOOT_TEST_BINS)
-	@fail=0; for t in $(BOOT_TEST_BINS); do \
-	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
+# Each binary its own target, as host-test's are (mk/host.mk), so -j runs them
+# side by side.
+boot-test: $(BOOT_TEST_BINS) $(addsuffix .run,$(BOOT_TEST_BINS))
+	@$(call test-verdict,$(BOOT_TEST_BINS))
 
 ## bootloader: build tfw-boot for BOARD and enforce the boot-section budget
 bootloader: $(BOOT_TARGET).hex boot-size-check
 	@echo "built $(BOOT_TARGET).hex"
+
+## boot-dir: print the directory `bootloader` builds tfw-boot in, for the flags given (used by scripts/test_build_dirs.py)
+boot-dir:
+	@echo $(BOOT_DIR_OUT)
+
+## boot-integration-dir: print the directory `integration-test-boot` builds its harness in, for the flags given (used by scripts/test_build_dirs.py)
+boot-integration-dir:
+	@echo $(BOOT_INT_DIR)
+
+.PHONY: boot-dir boot-integration-dir
 
 ## boot-size-check: fail when tfw-boot does not fit in the boot section
 # A GATE, exactly as size-check is for the application, and a prerequisite of
@@ -943,6 +959,11 @@ boot-flash: $(BOOT_TARGET).hex
 # The real tfw-boot image, the real application image and a modelled ATECC608A on
 # the emulated TWI bus. Part of `make ci`.
 #
+# The image_flags the harness's signer stamps into the trailer
+# (include/tfw/boot.h): 0x00 a release image, 0x01 a development one. A build
+# setting, like the board id, which the signer takes from the board profile.
+IMAGE_FLAGS ?= 0x00
+
 # Its own variable rather than mk/integration.mk's INT_DIR: that file is
 # included AFTER this one, so INT_DIR is still empty here and the rule target
 # would expand to "/boot_harness" -- a path at the filesystem root, and a "no
@@ -952,7 +973,10 @@ boot-flash: $(BOOT_TARGET).hex
 # 2560 harness and a 328P harness are different programs, and a shared path
 # means the second build reuses the first one's binary and reports its result --
 # the same defect mk/firmware.mk's output path exists to prevent.
-BOOT_INT_DIR := $(BUILD_DIR)/integration/$(BOARD)
+# IMAGE_FLAGS (above) is compiled into the harness and UECC_OPT into its uECC.o,
+# so each names the path where it is not its default (#161), as on tfw-boot's.
+BOOT_INT_DIR := $(BUILD_DIR)/integration/$(BOARD)$(if $(filter-out 0,$(UECC_OPT)),-uecc$(UECC_OPT))$(if \
+                $(filter-out 0x00,$(IMAGE_FLAGS)),-flags$(IMAGE_FLAGS))
 
 # WHICH ROW OF BOOT_SUPPORTED THIS RUNS, and it is not the default board.
 #
@@ -966,11 +990,6 @@ BOOT_INT_DIR := $(BUILD_DIR)/integration/$(BOARD)
 BOOT_INT_BOARD := atmega2560
 BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1 \
                   BOOT_STORE=0
-
-# The image_flags the harness's signer stamps into the trailer
-# (include/tfw/boot.h): 0x00 a release image, 0x01 a development one. A build
-# setting, like the board id, which the signer takes from the board profile.
-IMAGE_FLAGS ?= 0x00
 
 # The harness's half that names the store's PREV (#52): only a board whose
 # profile has one links it; the 2560, which falls back to its secondary slot,

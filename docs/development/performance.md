@@ -161,7 +161,8 @@ all three are properties of the whole running system: an ISR is entered by
 hardware, and a round trip goes through the USART, the ring, the framer, the
 dispatcher and back out.
 
-`build/bench/<board>/soft/agbench.elf` — the same objects with `src/main.c`
+`build/bench/<board>/<row>/agbench.elf` (`<row>` the firmware directory's last
+component, `make bench-dir` prints it) — the same objects with `src/main.c`
 exchanged for `test/bench/bench_main.c`, same `FW_CFLAGS`, same `-Os -flto`,
 same board profile. The per-byte and per-sweep costs are measured on it because
 `-flto` inlines `tfw_framer_push` and `tfw_sched_poll` bodily into `main()` in the

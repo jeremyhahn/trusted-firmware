@@ -48,4 +48,4 @@ OTA_STORE      := spi_nor
 # The soft root's identity (mk/firmware.mk SOFT_ID): the HMAC signer for now.
 # Whether the P-256 DeviceID fits beside the DFU bootloader is measured before
 # this changes; hmac is the reversible choice.
-SOFT_ID        ?= hmac
+BOARD_SOFT_ID  := hmac

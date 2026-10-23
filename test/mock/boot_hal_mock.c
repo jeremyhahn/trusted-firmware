@@ -136,10 +136,13 @@ size_t tfw_boot_mock_drain_tx(uint8_t *out, size_t cap)
 
 void tfw_boot_flash_read(uint32_t addr, uint8_t *buf, uint8_t len)
 {
-    for (uint8_t i = 0u; i < len; i++) {
-        uint32_t a = addr + i;
-        buf[i] = (a < sizeof flash) ? flash[a] : 0xFFu;
-    }
+    /* The part inside the mock flash in one copy, erased bytes past its end:
+     * the swap suites read every unit of both slots on every cut (#163). */
+    size_t in = (addr >= sizeof flash) ? 0u
+              : (sizeof flash - addr < len) ? sizeof flash - addr : len;
+
+    memcpy(buf, &flash[addr < sizeof flash ? addr : 0u], in);
+    memset(&buf[in], 0xFF, len - in);
 }
 
 /* ---------------------------------------------------------------- store */

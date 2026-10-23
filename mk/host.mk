@@ -9,7 +9,6 @@
 # anything.
 
 BUILD_DIR   := build
-HOST_DIR    := $(BUILD_DIR)/host
 UNITY_DIR   := test/third_party/unity
 
 # The host tests assert against a REAL board descriptor, so the host build is
@@ -23,7 +22,8 @@ UNITY_DIR   := test/third_party/unity
 # definition below it would expand to nothing and drop the board's include
 # directory -- which is exactly what happened, and surfaced three steps later as
 # a macro redefinition rather than as a missing path.
-HOST_BOARD ?= atmega328p
+HOST_BOARD_DEFAULT := atmega328p
+HOST_BOARD ?= $(HOST_BOARD_DEFAULT)
 
 # The host build enables attestation so the evidence path is exercised. A real
 # device secret is NOT baked in: the provider refuses to sign while the UDS is
@@ -46,7 +46,16 @@ HOST_BOARD ?= atmega328p
 # test_dispatch pins that. A -D here would also be a macro redefinition of the
 # profile's 0. tfw_csr_cmd itself is tested by test_csr, and served by
 # tfwsim-atecc608a through its overlay profile.
-HOST_EXTRA_DEFS ?= -DTFW_FEATURE_ATTEST=1 -DTFW_FEATURE_ALIAS_CERT=1
+HOST_EXTRA_DEFS_DEFAULT := -DTFW_FEATURE_ATTEST=1 -DTFW_FEATURE_ALIAS_CERT=1
+HOST_EXTRA_DEFS ?= $(HOST_EXTRA_DEFS_DEFAULT)
+
+# HOST_BOARD and HOST_EXTRA_DEFS reach every host object, and make does not
+# track a flag (#161): each names the path where it is not its default, so the
+# default build keeps build/host -- the path tfwsim's users name. The defines
+# are a checksum, as tfw-boot's BOOT_OPT_EXTRA is (mk/boot.mk). EXTRA_CFLAGS is
+# not here: coverage and test-asan clean the tree before they set it.
+HOST_DIR    := $(BUILD_DIR)/host$(if $(filter-out $(HOST_BOARD_DEFAULT),$(HOST_BOARD)),-$(HOST_BOARD))$(if \
+               $(filter-out $(HOST_EXTRA_DEFS_DEFAULT),$(HOST_EXTRA_DEFS))$(filter-out $(HOST_EXTRA_DEFS),$(HOST_EXTRA_DEFS_DEFAULT)),-x$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(HOST_EXTRA_DEFS)))' | cksum)))
 
 # APP_INFO's entry, for every link that carries the real runner -- which is
 # where its handler is, as mk/app.mk pairs APP_DEFS with app_runner.c. Not in
@@ -836,28 +845,49 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
 # board sweep, coverage and the sanitizers.
-host-test: $(TEST_BINS) $(HOST_EXTRA_BINS)
-	@fail=0; for t in $(TEST_BINS) $(HOST_EXTRA_BINS); do \
-	  echo "--- $$t"; ./$$t || fail=1; done; exit $$fail
+#
+# Each binary runs as its own target, <binary>.run, so `make -j` runs the
+# suites side by side rather than one after another (#163). A run never fails
+# its own target: it keeps the binary's output in <binary>.out and its exit
+# status in <binary>.rc, and prints the output in one piece under the binary's
+# name, so parallel suites do not interleave. host-test and boot-test then read
+# the statuses and fail naming every binary that failed -- one failure does not
+# stop the rest, as it did not in the serial loop. No .run file is ever
+# written, so every run runs; a binary named by both host-test and boot-test
+# runs once when one make is asked for both. The binaries themselves stay
+# prerequisites, or make would take those only a pattern rule names for
+# intermediates and delete them after the run.
+HOST_TEST_BINS := $(sort $(TEST_BINS) $(HOST_EXTRA_BINS))
+
+$(HOST_DIR)/%.run: $(HOST_DIR)/%
+	@./$< > $<.out 2>&1; echo $$? > $<.rc; printf -- '--- %s\n%s\n' '$<' "$$(< $<.out)"
+
+# $(call test-verdict,<binaries>): fail naming each binary whose run failed.
+test-verdict = fail=0; for t in $(1); do read -r rc < $$t.rc; \
+                 if [ "$$rc" != 0 ]; then echo "FAILED: $$t (exit $$rc)"; fail=1; fi; \
+               done; exit $$fail
+
+host-test: $(HOST_TEST_BINS) $(addsuffix .run,$(HOST_TEST_BINS))
+	@$(call test-verdict,$(HOST_TEST_BINS))
 
 ## test-asan: run the host and boot unit tests under AddressSanitizer and UBSan
 # The codec is pointer-heavy parser code reached from untrusted bytes. This is
 # where a memory bug will be, so it gets its own gate rather than riding along.
 test-asan:
 	@$(MAKE) --no-print-directory clean-host
-	@$(MAKE) --no-print-directory host-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
 	@# The boot suites too, the way coverage runs them: the bootloader parses an
 	@# untrusted image and verifies its signature, and none of that ran under
-	@# the sanitizers while only host-test did.
-	@$(MAKE) --no-print-directory boot-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
+	@# the sanitizers while only host-test did. One make for both, after
+	@# clean-host has returned, so -j runs every suite side by side.
+	@$(MAKE) --no-print-directory host-test boot-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
 
 ## coverage: run the host tests with coverage and enforce the floor
 coverage:
 	@$(MAKE) --no-print-directory clean-host
-	@$(MAKE) --no-print-directory host-test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
 	@# The boot suites too, or boot/'s lines are counted and never executed --
-	@# which reads as a coverage collapse caused by adding tests.
-	@$(MAKE) --no-print-directory boot-test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
+	@# which reads as a coverage collapse caused by adding tests. One make for
+	@# both, as test-asan runs them.
+	@$(MAKE) --no-print-directory host-test boot-test EXTRA_CFLAGS="$(COV_FLAGS)" EXTRA_LDFLAGS="$(COV_FLAGS)"
 	@mkdir -p coverage
 	@# boot/ is measured on the same terms as src/: the LOGIC is in, the
 	@# register-poking is out. boot/hal/avr is excluded for the reason
@@ -1310,12 +1340,16 @@ $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc60
 clean-host:
 	@rm -rf $(HOST_DIR)
 
+## host-dir: print the directory the host build writes to, for the flags given (used by scripts/test_build_dirs.py)
+host-dir:
+	@echo $(HOST_DIR)
+
 # The .d files mk/ccdeps.sh wrote. After every rule in the file so nothing here
 # becomes the default goal; mk/boot.mk's land in $(HOST_DIR)/boot and are read
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: host-test test-asan coverage clean-host tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto lint \
+.PHONY: host-test test-asan coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep

@@ -52,4 +52,4 @@ OTA_STORE      := spi_nor
 # The soft root's identity (mk/firmware.mk SOFT_ID): the HMAC signer, which links
 # no P-256 code. The P-256 DeviceID on this part's soft row is the owner's call
 # (item 79); until it is made, this row does not change.
-SOFT_ID        ?= hmac
+BOARD_SOFT_ID  := hmac

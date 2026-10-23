@@ -63,9 +63,22 @@ static void h_finish(const uECC_HashContext *c, uint8_t *out)
 /* ES256 over a digest, r || s big-endian, deterministic so a run is a run. */
 static void sign(const uint8_t key[32], const uint8_t h[32], uint8_t sig[64])
 {
+    /* RFC 6979 makes a signature a function of the key and the hash, so one
+     * made once is the one every later case would make: setUp signs the same
+     * trailer and manifest before every case, and on the boot's 8-bit word
+     * path each signature costs seconds under the sanitizers (#163). */
+    static struct { uint8_t key[32]; uint8_t h[32]; uint8_t sig[64]; } memo[16];
+    static unsigned memo_n;
     uint8_t    tmp[32 + 32 + 64];
     hash_ctx_t hc;
+    unsigned   i;
 
+    for (i = 0u; i < memo_n; i++) {
+        if (memcmp(memo[i].key, key, 32u) == 0 && memcmp(memo[i].h, h, 32u) == 0) {
+            memcpy(sig, memo[i].sig, 64u);
+            return;
+        }
+    }
     memset(&hc, 0, sizeof hc);
     hc.uecc.init_hash   = h_init;
     hc.uecc.update_hash = h_update;
@@ -75,6 +88,12 @@ static void sign(const uint8_t key[32], const uint8_t h[32], uint8_t sig[64])
     hc.uecc.tmp         = tmp;
     TEST_ASSERT_EQUAL_INT(1, uECC_sign_deterministic(key, h, 32u, &hc.uecc, sig,
                                                      uECC_secp256r1()));
+    if (memo_n < sizeof memo / sizeof memo[0]) {
+        memcpy(memo[memo_n].key, key, 32u);
+        memcpy(memo[memo_n].h, h, 32u);
+        memcpy(memo[memo_n].sig, sig, 64u);
+        memo_n++;
+    }
 }
 
 /* A trailer at base + ESP_LEN, signed with `key`. */
@@ -141,9 +160,25 @@ static void pin(const uint8_t hash[32])
 /* The slot's key, and its hash pinned in the platform block. */
 static void install_key(const uint8_t key[32])
 {
-    uint8_t hash[32];
+    /* The public key derived once per private key, as sign() keeps its
+     * signatures: setUp installs the same key before every case. */
+    static struct { uint8_t key[32]; uint8_t pub[64]; } memo[4];
+    static unsigned memo_n;
+    uint8_t  hash[32];
+    unsigned i;
 
-    TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(key, tfw_boot_p256_key, uECC_secp256r1()));
+    for (i = 0u; i < memo_n && memcmp(memo[i].key, key, 32u) != 0; i++) {
+    }
+    if (i < memo_n) {
+        memcpy(tfw_boot_p256_key, memo[i].pub, 64u);
+    } else {
+        TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(key, tfw_boot_p256_key, uECC_secp256r1()));
+        if (memo_n < sizeof memo / sizeof memo[0]) {
+            memcpy(memo[memo_n].key, key, 32u);
+            memcpy(memo[memo_n].pub, tfw_boot_p256_key, 64u);
+            memo_n++;
+        }
+    }
     tfw_sha256(tfw_boot_p256_key, 64u, hash);
     pin(hash);
 }

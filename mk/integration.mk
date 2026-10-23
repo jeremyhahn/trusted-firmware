@@ -9,7 +9,10 @@
 # catch what a host build cannot: a wrong baud divisor, an ISR that never fires,
 # a peripheral configured in the wrong order.
 
-INT_DIR := $(BUILD_DIR)/integration
+# The harness compiles the board profile in, so another board's harness is
+# another program (#161): the board names a directory of its own, beside
+# mk/boot.mk's boot_harness, except the default board's, which keeps its path.
+INT_DIR := $(BUILD_DIR)/integration$(if $(filter-out $(BOARD_DEFAULT),$(BOARD)),/$(BOARD))
 
 ## integration-test-simavr: run the firmware image under simavr
 # One part of the `integration-test` stage (mk/stages.mk).
@@ -23,4 +26,8 @@ $(INT_DIR)/harness: test/integration/simavr/harness.c src/proto/crc16.c src/prot
 	   -o $@ $^ -lsimavr -lelf
 	@echo "built $@"
 
-.PHONY: integration-test-simavr
+## integration-dir: print the directory `integration-test-simavr` builds its harness in, for the flags given (used by scripts/test_build_dirs.py)
+integration-dir:
+	@echo $(INT_DIR)
+
+.PHONY: integration-test-simavr integration-dir

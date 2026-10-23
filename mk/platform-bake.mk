@@ -26,7 +26,9 @@
 # platform-bake-no-link-check -- in `make ci` -- is the gate that says so.
 
 PLATBAKE_SRC_DIR := tools/platform-bake
-PLATBAKE_DIR     := $(BUILD_DIR)/platform-bake/$(BOARD)
+# The row is in the path where a row flag is given (FW_ROW_SUFFIX, #161): the
+# objects take FW_CFLAGS, which carries every row flag's defines.
+PLATBAKE_DIR     := $(BUILD_DIR)/platform-bake/$(BOARD)$(FW_ROW_SUFFIX)
 PLATBAKE_TARGET  := $(PLATBAKE_DIR)/platform-bake
 PLATBAKE_GEN     := $(PLATBAKE_DIR)/gen
 TFWPROV_BIN      := $(BUILD_DIR)/tools/tfwprov
@@ -96,6 +98,10 @@ platform-bake: $(PLATBAKE_TARGET).hex
 ## platform-bake-flash: write the bake image through the board's stock bootloader
 platform-bake-flash: $(PLATBAKE_TARGET).hex
 	$(ARCH_FLASH)
+
+## platform-bake-dir: print the directory `platform-bake` builds in, for the flags given (used by scripts/test_build_dirs.py)
+platform-bake-dir:
+	@echo $(PLATBAKE_DIR)
 
 ## platform-bake-srcs: print the bake image's object list (used by platform-bake-no-link-check)
 platform-bake-srcs:
@@ -167,4 +173,4 @@ platform-bake-build-check:
 
 FORCE:
 
-.PHONY: platform-bake platform-bake-flash platform-bake-srcs platform-bake-no-link-check platform-bake-build-check FORCE
+.PHONY: platform-bake platform-bake-flash platform-bake-dir platform-bake-srcs platform-bake-no-link-check platform-bake-build-check FORCE

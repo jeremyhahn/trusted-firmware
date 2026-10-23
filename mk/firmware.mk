@@ -10,7 +10,8 @@
 # toolchain is ARCH_CC, and a second architecture is a directory, not an edit
 # here.
 
-BOARD      ?= atmega328p
+BOARD_DEFAULT := atmega328p
+BOARD      ?= $(BOARD_DEFAULT)
 BOARD_DIR  := boards/$(BOARD)
 -include $(BOARD_DIR)/profile.mk
 
@@ -180,8 +181,10 @@ CRYPTO ?= soft
 # and signed with the vendored micro-ecc; `hmac` is the HMAC signer the soft
 # root had before, kept for a board whose profile says the P-256 code does not
 # fit (the ATmega328P, and the ATmega32U4 until its fit is measured). Chosen by
-# file selection, as CRYPTO is.
-SOFT_ID           ?= p256
+# file selection, as CRYPTO is. The board's default is BOARD_SOFT_ID in its
+# profile.mk, so FW_DIR can tell a command-line SOFT_ID from the board's own.
+SOFT_ID_DEFAULT   := $(or $(BOARD_SOFT_ID),p256)
+SOFT_ID           ?= $(SOFT_ID_DEFAULT)
 SOFT_ID_SRCS_p256 := src/crypto/soft/id_p256.c src/crypto/deviceid_p256.c \
                      src/third_party/micro-ecc/uECC.c
 SOFT_ID_SRCS_hmac := src/crypto/soft/id_hmac.c
@@ -364,9 +367,25 @@ endif
 # The output path says so only where the choice is not ETH's default, so every
 # image that existed before keeps its path; an ARCH_OTA_SRCS image always stages.
 STAGE_SUFFIX := $(if $(ARCH_OTA_SRCS),,$(if $(filter 1,$(OTA_STAGE)),$(if $(filter 1,$(ETH)),,-stage),$(if $(and $(filter 1,$(ETH)),$(OTA_STORE)),-nostage,)))
+# The soft root's identity and micro-ecc's optimisation level (mk/boot.mk
+# UECC_OPT) change a soft or auto image's objects but not its tier. Make does not
+# track a flag, so two rows in one directory would link each other's objects:
+# the path names each where the tier links it and it is not the default.
+ID_SUFFIX := $(if $(filter $(SOFT_ID_SRCS),$(CRYPTO_SRCS)),$(if $(filter-out $(SOFT_ID_DEFAULT),$(SOFT_ID)),-$(SOFT_ID)))$(if $(and $(filter src/third_party/micro-ecc/uECC.c,$(CRYPTO_SRCS)),$(filter-out 0,$(UECC_OPT))),-uecc$(UECC_OPT))
 
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)
+# Every make variable that changes the image's objects names the directory, and
+# only where it differs from its default, so every default image keeps its path.
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
+
+# The row, for the bench images that compile with FW_CFLAGS in a directory of
+# their own (mk/bench.mk, mk/platform-bake.mk, mk/wiznet-probe.mk): FW_CFLAGS
+# carries every row flag's defines, so a row flag reaches their objects too.
+# FW_ROW_SUFFIX names the row only where a row flag is given rather than taken
+# from the makefiles, so a bench image built with no flags keeps its path.
+FW_ROW        := $(notdir $(FW_DIR))
+FW_ROW_FLAGS  := CRYPTO PROVISION ETH ETH_CHIP DHCP OTA_STAGE MEASURE_SOFT_CSR SOFT_ID UECC_OPT APP_DIR
+FW_ROW_SUFFIX := $(if $(filter command environment override,$(foreach v,$(FW_ROW_FLAGS),$(firstword $(origin $(v))))),-$(FW_ROW))
 
 # The toolchain binaries and the flags that name a machine, an optimisation
 # policy and a link placement are the ARCHITECTURE'S (mk/arch/$(ARCH).mk). What
@@ -600,6 +619,10 @@ board-tiers:
 feature-defs:
 	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS)
 
+## firmware-dir: print the directory `firmware` builds BOARD's image in, for the flags given (used by scripts/test_build_dirs.py)
+firmware-dir:
+	@echo $(FW_DIR)
+
 ## board-eth-chip: print the Ethernet controller BOARD names, or nothing (used by platform-bake-no-link-check)
 board-eth-chip:
 	@echo $(ETH_CHIP)
@@ -623,7 +646,7 @@ firmware-matrix-list:
 	  done; \
 	done
 
-.PHONY: board-tiers board-rows board-eth-chip feature-defs firmware-srcs firmware-matrix-list
+.PHONY: board-tiers board-rows board-eth-chip feature-defs firmware-dir firmware-srcs firmware-matrix-list
 
 firmware-matrix:
 	@fail=0; n=0; \

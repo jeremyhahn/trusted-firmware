@@ -15,7 +15,9 @@
 # image the driver will ship in.
 
 WIZPROBE_SRC_DIR := test/hw/wiznet-probe
-WIZPROBE_DIR     := $(BUILD_DIR)/wiznet-probe/$(BOARD)
+# The row is in the path where a row flag is given (FW_ROW_SUFFIX, #161), as
+# for the bake image: these objects take FW_CFLAGS too.
+WIZPROBE_DIR     := $(BUILD_DIR)/wiznet-probe/$(BOARD)$(FW_ROW_SUFFIX)
 WIZPROBE_TARGET  := $(WIZPROBE_DIR)/wiznet-probe
 
 WIZPROBE_SRCS := $(WIZPROBE_SRC_DIR)/main.c $(WIZPROBE_SRC_DIR)/wizprobe.c \
@@ -43,4 +45,8 @@ wiznet-probe: $(WIZPROBE_TARGET).hex
 wiznet-probe-flash: $(WIZPROBE_TARGET).hex
 	$(ARCH_FLASH)
 
-.PHONY: wiznet-probe wiznet-probe-flash
+## wiznet-probe-dir: print the directory `wiznet-probe` builds in, for the flags given (used by scripts/test_build_dirs.py)
+wiznet-probe-dir:
+	@echo $(WIZPROBE_DIR)
+
+.PHONY: wiznet-probe wiznet-probe-flash wiznet-probe-dir

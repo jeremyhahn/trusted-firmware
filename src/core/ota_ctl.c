@@ -11,8 +11,11 @@
  *                the MARK names a whole image (version and measurement from its
  *                trailer), the block's ota_state otherwise. Slot 0's version and
  *                measurement are zero: the running image's are attestation's.
- *                flags bit 0: ota_state FAILED (the last boot fell back); bit 2:
- *                TRIAL. Bit 1 (refused at evaluation) is not told apart here.
+ *                flags bit 0: ota_state FAILED (the last boot fell back); bit 1:
+ *                beside it, the block's TFW_BOOT_EE_FLAG_REFUSED (the fall-back
+ *                followed a refusal at evaluation; only the 328P's and 32U4's
+ *                fall-back writes it, and neither image links this file yet,
+ *                so on the 2560 it stays clear); bit 2: TRIAL.
  *   OTA_CONFIRM  In TRIAL only: the confirm request record (include/tfw/boot.h)
  *                bound to the running image. The trial's deadline keeps running
  *                (#137): the trial ends in a reset on every row, and tfw-boot
@@ -48,6 +51,7 @@
 #include "../caps/sys.h"
 
 #define INFO_FLAG_FELL_BACK 0x01u
+#define INFO_FLAG_REFUSED   0x02u
 #define INFO_FLAG_TRIAL     0x04u
 
 static tfw_status_t load(uint8_t raw[TFW_BOOT_EE_LEN], tfw_boot_platform_t *p)
@@ -80,6 +84,9 @@ tfw_status_t tfw_otactl_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
     }
     if (plat.ota_state == TFW_BOOT_OTA_FAILED) {
         flags |= INFO_FLAG_FELL_BACK;
+        if ((raw[TFW_BOOT_EE_O_FLAGS] & TFW_BOOT_EE_FLAG_REFUSED) != 0u) {
+            flags |= INFO_FLAG_REFUSED;
+        }
     }
     if (plat.boot_state == TFW_BOOT_STATE_TRIAL) {
         flags |= INFO_FLAG_TRIAL;

@@ -76,6 +76,7 @@
 #include "boot_platform.h"
 #include "boot_request.h"
 #include "boot_harness_ab.h"
+#include "boot_harness_io.h"
 #include "sha256.h"
 #include "crc16.h"
 #include "spi_nor_model.h"
@@ -244,11 +245,9 @@ static int wait_for(int (*done)(void), long budget, const char *what)
 /* One frame in, one frame out, at 115 200 on a polled USART. */
 #define BUDGET_EXCHANGE   800000L
 
-/* USART0's status register by data-space address -- the same on the 328P and
- * the 2560 -- and its RXC0 bit: up while a received byte waits in UDR0, down
- * once the firmware has read it. */
-#define R_UCSR0A    0x00C0u
-#define BIT_RXC0    0x80u
+/* The application's USART's status register, UCSRnA, by data-space address,
+ * and its RXC bit: up while a received byte waits in UDRn, down once the
+ * firmware has read it. n is the profile's TFW_UART_N (boot_harness_io.h). */
 #define BUDGET_BYTE 20000L
 
 static int rx_held;
@@ -257,7 +256,7 @@ static int rx_held;
  * has gone down again. */
 static int byte_consumed(void)
 {
-    if (avr->data[R_UCSR0A] & BIT_RXC0) { rx_held = 1; return 0; }
+    if (avr->data[HARNESS_UCSRA] & HARNESS_RXC) { rx_held = 1; return 0; }
     return rx_held;
 }
 
@@ -1221,9 +1220,9 @@ static void install(elf_firmware_t *boot, uint32_t counter)
     avr_irq_register_notify(
         avr_io_getirq(avr, AVR_IOCTL_TWI_GETIRQ(0), TWI_IRQ_STATUS), on_twi_status, NULL);
 
-    uart_in = avr_io_getirq(avr, AVR_IOCTL_UART_GETIRQ('0'), UART_IRQ_INPUT);
+    uart_in = avr_io_getirq(avr, AVR_IOCTL_UART_GETIRQ(HARNESS_UART), UART_IRQ_INPUT);
     avr_irq_register_notify(
-        avr_io_getirq(avr, AVR_IOCTL_UART_GETIRQ('0'), UART_IRQ_OUTPUT),
+        avr_io_getirq(avr, AVR_IOCTL_UART_GETIRQ(HARNESS_UART), UART_IRQ_OUTPUT),
         on_device_tx, NULL);
 
     from_device_n = 0;
@@ -1966,16 +1965,14 @@ static void test_valid_frame_drip_hits_the_ceiling(elf_firmware_t *boot, elf_fir
  *
  * The select is read from the port and its direction both: tfw_boot_store_close
  * floats it, and a floating select is not a low one. simavr raises the pin's
- * IRQ on every PORTH and DDRH write, after the register holds the new value,
- * so that IRQ is the select's edge. The addresses are the
- * ATmega2560's register summary; the store row exists on that board alone. */
+ * IRQ on every PORTx and DDRx write, after the register holds the new value,
+ * so that IRQ is the select's edge. The port letter and the bit are the board
+ * profile's TFW_OTA_STORE_CS_IO (boot_harness_io.h), and simavr reads the
+ * registers for us, so no part's register summary is copied here. */
 #define NOR_OP_READ    0x03u
 #define NOR_OP_STATUS  0x05u
 #define NOR_OP_JEDEC   0x9Fu
 #define NOR_HEAD       4u                  /* the opcode and a 24-bit address */
-#define M2560_DDRH     0x101u
-#define M2560_PORTH    0x102u
-#define STORE_CS_BIT   5u                  /* D8 = PH5, TFW_OTA_STORE_CS_IO */
 
 static uint8_t  nor_tx[TFW_NOR_MODEL_XFER_MAX];
 static uint16_t nor_n;
@@ -1984,9 +1981,14 @@ static int      nor_overrun;
 
 static int nor_select_low(void)
 {
-    uint8_t bit = (uint8_t)(1u << STORE_CS_BIT);
+    avr_ioport_state_t st;
+    unsigned bit = 1u << STORE_CS_BIT;
 
-    return (avr->data[M2560_DDRH] & bit) != 0 && (avr->data[M2560_PORTH] & bit) == 0;
+    if (avr_ioctl(avr, (uint32_t)AVR_IOCTL_IOPORT_GETSTATE(STORE_CS_PORT), &st) != 0) {
+        fprintf(stderr, "no port %c on %s for the store's select\n", STORE_CS_PORT, TFW_SIMAVR_MCU);
+        exit(2);
+    }
+    return (st.ddr & bit) != 0 && (st.port & bit) == 0;
 }
 
 static int nor_replayed(uint8_t op)
@@ -2066,7 +2068,7 @@ static void nor_select_changed(void)
     nor_selected = low;
 }
 
-static void on_porth(struct avr_irq_t *irq, uint32_t value, void *param)
+static void on_store_cs(struct avr_irq_t *irq, uint32_t value, void *param)
 {
     (void)irq; (void)value; (void)param;
     nor_select_changed();
@@ -2109,8 +2111,9 @@ static void attach_store(void)
     nor_attached = 1;
     avr_irq_register_notify(avr_io_getirq(avr, AVR_IOCTL_SPI_GETIRQ(0), SPI_IRQ_OUTPUT),
                             on_store_spi, NULL);
-    avr_irq_register_notify(avr_io_getirq(avr, AVR_IOCTL_IOPORT_GETIRQ('H'), STORE_CS_BIT),
-                            on_porth, NULL);
+    avr_irq_register_notify(avr_io_getirq(avr, (uint32_t)AVR_IOCTL_IOPORT_GETIRQ(STORE_CS_PORT),
+                                          STORE_CS_BIT),
+                            on_store_cs, NULL);
 }
 
 static int store_untouched(void)

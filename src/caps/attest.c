@@ -91,6 +91,9 @@ static tfw_status_t build(const uint8_t *nonce)
     uint32_t    boot = 0u;
     tfw_status_t st;
 
+    /* Evidence is live only after a complete build: a build that fails
+     * below must leave nothing for a page request to serve. */
+    have_evidence = 0u;
     memset(evidence, 0, sizeof evidence);
     evidence[OFF_VERSION] = TFW_ATTEST_VERSION;
     memcpy(&evidence[OFF_NONCE], nonce, TFW_ATTEST_NONCE_LEN);

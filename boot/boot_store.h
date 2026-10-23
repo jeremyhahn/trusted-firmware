@@ -10,6 +10,9 @@
 
 void     tfw_boot_platform_load(tfw_boot_platform_t *p, tfw_status_t *st);
 void     tfw_boot_platform_store(const tfw_boot_platform_t *p);
+/* As tfw_boot_platform_store, with the block's flags byte (TFW_BOOT_EE_FLAG_*),
+ * which the structure does not model, set to `flags` in the same write. */
+void     tfw_boot_platform_store_flags(const tfw_boot_platform_t *p, uint8_t flags);
 
 /* The floor, from whichever authority this build has: the element's monotonic
  * counter where there is one, because it is the only copy that cannot be made

@@ -94,6 +94,13 @@ void tfw_boot_platform_store(const tfw_boot_platform_t *p)
     stores++;
 }
 
+/* The flags byte is outside the modelled span: stored as the block is. */
+void tfw_boot_platform_store_flags(const tfw_boot_platform_t *p, uint8_t flags)
+{
+    (void)flags;
+    tfw_boot_platform_store(p);
+}
+
 static uint32_t next(void)
 {
     rng ^= rng << 13;

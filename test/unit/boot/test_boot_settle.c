@@ -369,6 +369,29 @@ void test_a_refused_eeprom_floor_keeps_confirmed(void)
     TEST_ASSERT_EQUAL(TFW_BOOT_RESET_SETTLE, tfw_boot_trial_at_reset(&plat));
 }
 
+/* The flags byte the structure does not model (TFW_BOOT_EE_FLAG_*): written
+ * with the block under its CRC, kept by a later plain store, and replaced by
+ * the next flags store. */
+void test_the_flags_byte_is_stored_with_the_block_and_kept(void)
+{
+    uint8_t raw[TFW_BOOT_EE_LEN];
+
+    reset_with(TFW_BOOT_STATE_TRIAL, 3u);
+    plat.boot_state = TFW_BOOT_STATE_GOOD;
+    tfw_boot_platform_store_flags(&plat, TFW_BOOT_EE_FLAG_REFUSED);
+    memcpy(raw, tfw_boot_mock_nvm(), sizeof raw);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_EE_FLAG_REFUSED, raw[TFW_BOOT_EE_O_FLAGS]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(raw, &plat));
+    TEST_ASSERT_EQUAL(TFW_BOOT_STATE_GOOD, plat.boot_state);
+
+    tfw_boot_platform_store(&plat);
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_EE_FLAG_REFUSED, tfw_boot_mock_nvm()[TFW_BOOT_EE_O_FLAGS]);
+    tfw_boot_platform_store_flags(&plat, 0u);
+    memcpy(raw, tfw_boot_mock_nvm(), sizeof raw);
+    TEST_ASSERT_EQUAL_UINT8(0u, raw[TFW_BOOT_EE_O_FLAGS]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(raw, &plat));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -386,5 +409,6 @@ int main(void)
     RUN_TEST(test_a_block_that_will_not_read_is_never_written);
     RUN_TEST(test_a_floor_store_over_a_block_that_will_not_read_is_not_ok);
     RUN_TEST(test_a_refused_eeprom_floor_keeps_confirmed);
+    RUN_TEST(test_the_flags_byte_is_stored_with_the_block_and_kept);
     return UNITY_END();
 }

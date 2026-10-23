@@ -166,6 +166,22 @@ static void test_a_sequence_that_is_not_the_trailers_version_is_refused(void)
     assert_refused_before_activation();
 }
 
+static void test_a_sequence_below_the_floor_is_refused(void)
+{
+    plat.rollback_floor = 8u;
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, gate(env, sizeof SUIT_ENVELOPE,
+                                                     SUIT_IMAGE_DIGEST, sizeof SUIT_IMAGE));
+    assert_refused_before_activation();
+}
+
+static void test_a_sequence_at_the_floor_passes(void)
+{
+    plat.rollback_floor = 7u;
+    TEST_ASSERT_EQUAL(TFW_OK, gate(env, sizeof SUIT_ENVELOPE,
+                                   SUIT_IMAGE_DIGEST, sizeof SUIT_IMAGE));
+    TEST_ASSERT_EQUAL(TFW_BOOT_OTA_VERIFIED, plat.ota_state);
+}
+
 static void test_an_unknown_member_is_refused(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
@@ -460,6 +476,8 @@ int main(void)
     RUN_TEST(test_a_wrong_class_id_is_refused);
     RUN_TEST(test_a_trailer_for_another_board_is_refused);
     RUN_TEST(test_a_sequence_that_is_not_the_trailers_version_is_refused);
+    RUN_TEST(test_a_sequence_below_the_floor_is_refused);
+    RUN_TEST(test_a_sequence_at_the_floor_passes);
     RUN_TEST(test_an_unknown_member_is_refused);
     RUN_TEST(test_a_trailing_byte_is_refused);
     RUN_TEST(test_a_truncated_envelope_is_refused);

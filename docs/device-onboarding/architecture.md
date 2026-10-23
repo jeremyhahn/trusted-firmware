@@ -257,7 +257,7 @@ around one.
   device seam.
 - **R5 — go-xkms#1441: the verifier and the CSR builder.** The registry-anchored
   DICE verifier, the possession-CSR profile and its builder, pinned to
-  `TFWV_CSR_CRI`. The e2e above runs them at go-xkms v0.53.0-alpha.
+  `TFWV_CSR_CRI`. The e2e above runs them at go-xkms v0.57.0-alpha, the version `xkms/go.mod` pins.
 
 ## This repository's own open items
 

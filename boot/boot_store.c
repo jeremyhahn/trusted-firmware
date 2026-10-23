@@ -49,6 +49,12 @@ void tfw_boot_platform_store(const tfw_boot_platform_t *p)
     (void)platform_write(p);
 }
 
+void tfw_boot_platform_store_flags(const tfw_boot_platform_t *p, uint8_t flags)
+{
+    ee[TFW_BOOT_EE_O_FLAGS] = flags;   /* inside the CRC: serialise covers it */
+    (void)platform_write(p);
+}
+
 /*
  * The floor, from whichever authority this build has.
  *

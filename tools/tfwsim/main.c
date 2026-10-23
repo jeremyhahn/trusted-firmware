@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,10 +48,15 @@
 #include "sched.h"
 #include "bus.h"
 #include "app_runner.h"
+#include "ota_trial.h"
+#include "sim_boot.h"
 #include "tier.h"
 #include "eth_socket.h"
 
 static tfw_transport_t t;
+static jmp_buf         reboot;
+
+_Noreturn void tfwsim_reboot(void) { longjmp(reboot, 1); }
 
 /* One pass: hand the bytes to the device, let it run, take back what it said.
  * Polled several times because a single poll handles at most one EVENT --
@@ -83,6 +89,7 @@ static void pump(const uint8_t *in, size_t n, int out_fd)
         tfw_sched_poll();
         tfw_sys_poll();
         tfw_app_runner_poll();
+        tfw_ota_trial_poll();
         got = tfw_mock_drain_tx(out, sizeof out);
         if (got) {
             ssize_t w = write(out_fd, out, got);
@@ -176,7 +183,9 @@ static void boot(void)
     tfw_sched_init();
     tfw_auth_session_init();
     tfw_transport_init(&t);
+    tfw_ota_trial_start();
     tfw_app_runner_start();
+    tfw_ota_trial_after_init();
     (void)tfw_transport_send_event(&t, TFW_EVENT_BOOT);
 }
 
@@ -184,10 +193,33 @@ static int run(int in_fd, int out_fd, int eth)
 {
     uint8_t  buf[512];
     unsigned resets;
+    int      rc;
 
     tfw_mock_reset();
     tfwsim_tier_seed();
     preset_mock();
+    rc = tfwsim_boot_power_on();
+    if (rc != 0) {
+        return rc;
+    }
+    /* A reset the firmware asks for comes back here, through the bootloader
+     * when there is one (sim_boot.h), and starts the firmware again. */
+    if (setjmp(reboot) != 0) {
+        rc = tfwsim_boot_reset();
+        if (rc != 0) {
+            /* Recovery answers nothing, as on the part, until the peer goes:
+             * leaving at once would close the pty before the reply that
+             * asked for the reset had drained. */
+            for (;;) {
+                ssize_t n = read(in_fd, buf, sizeof buf);
+
+                if (n == 0 || (n < 0 && errno != EINTR)) {
+                    return rc;
+                }
+            }
+        }
+        preset_mock();
+    }
     boot();
     pump(0, 0u, out_fd);
     resets = tfw_mock_reset_count();
@@ -257,11 +289,14 @@ int main(int argc, char **argv)
             i++;
             continue;
         }
-        used = tfwsim_tier_option(argc - i, &argv[i]);
+        used = tfwsim_boot_option(argc - i, &argv[i]);
+        if (used == 0) {
+            used = tfwsim_tier_option(argc - i, &argv[i]);
+        }
         if (used <= 0) {
             if (used == 0) {
-                fprintf(stderr, "tfwsim: unknown option %s\nusage: %s [--pty] [--eth]%s\n",
-                        argv[i], argv[0], tfwsim_tier_usage());
+                fprintf(stderr, "tfwsim: unknown option %s\nusage: %s [--pty] [--eth]%s%s\n",
+                        argv[i], argv[0], tfwsim_tier_usage(), tfwsim_boot_usage());
             }
             return 2;
         }

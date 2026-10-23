@@ -60,7 +60,7 @@ None planned.
 
 ## Dependencies
 
-- go-xkms tags the backend registry hook — done; pinned go-xkms v0.56.0-alpha in `xkms/go.mod`.
+- go-xkms tags the backend registry hook — done; pinned go-xkms v0.57.0-alpha in `xkms/go.mod`.
 - Here: [#28](../../issues/28) phases B and C, tagged `xkms/v0.2.0-alpha`.
 - go-quicbaas registers the adapter in its composition — [go-trusted-platform#771](../../../go-trusted-platform/issues/771), [go-xkms#1440](../../../go-xkms/issues/1440).
 - go-xkms removes its AVR backend — [go-xkms#1439](../../../go-xkms/issues/1439).

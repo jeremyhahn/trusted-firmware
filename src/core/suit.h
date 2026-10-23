@@ -130,6 +130,7 @@ tfw_status_t tfw_suit_integrated_digest(const uint8_t *env, uint16_t len,
  *   image digest vs staged image, trailer   TFW_ERR_CRYPTO
  *   image size vs staged length, trailer    TFW_ERR_RANGE
  *   sequence vs trailer image_version       TFW_ERR_PROTECTED_REGION
+ *   sequence below the platform's floor     TFW_ERR_PROTECTED_REGION
  *
  * Sets p->ota_state to VERIFIED on TFW_OK and to FAILED on any refusal, so
  * tfw_boot_trial_activate refuses a refused image and no boot request is

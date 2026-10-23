@@ -143,7 +143,7 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # provider.c instead -- linking both would be two definitions of
 # tfw_crypto_init and everything else in include/tfw/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test/unit/test_atecc_cdi_clear.c test/unit/test_crypto_auto.c \
-                            test/unit/test_provision.c test/unit/test_provision_mutate.c test/unit/test_auth_mutate.c test/unit/test_alias.c \
+                            test/unit/test_provision.c test/unit/test_provision_mutate.c test/unit/test_auth_mutate.c test/unit/test_auth_robust.c test/unit/test_alias.c \
                             test/unit/test_csr.c test/unit/test_csr_alg.c \
                             test/unit/test_model_p256.c \
                             test/unit/test_bus_element.c \
@@ -157,11 +157,12 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
                              test/unit/test_w5x00_mutate.c test/unit/test_link_eth_mutate.c test/unit/test_dhcp.c \
+                            test/unit/test_dhcp_robust.c test/unit/test_w5x00_robust.c \
                            test/unit/test_link_dhcp.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c test/unit/test_suit_integrated.c \
                             test/unit/test_suit_integrated_mutate.c test/unit/test_suit_integrated_unbound.c \
                             test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c \
-                           test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c \
+                           test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_manifest.c \
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_provision_uds.c \
@@ -482,7 +483,7 @@ $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
                         $(filter-out src/core/handoff.c src/core/handoff_seed.c src/core/platform_id.c,$(HOST_STAGE_LIB_SRCS)) \
                         src/core/handoff_none.c src/core/platform_id_none.c \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
@@ -525,7 +526,7 @@ $(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-ba
 # handful of other HAL calls storage.c's and sys.c's non-auth handlers still
 # reference even though this suite never calls them (RESET's own poll, CAPS,
 # PING, SYS_INFO) -- the same reason test_alias.c defines tfw_hal_millis.
-$(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
+$(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_robust: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                                 src/core/auth_session.c src/caps/storage.c src/caps/sys.c \
                                 src/core/reader.c src/core/writer.c \
                                 src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -639,6 +640,33 @@ $(HOST_DIR)/test_w5500_mutate: $(W5X_MUT_SRCS) src/net/w5500.c $(HOST_DIR)/unity
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
 	   -Wl,--wrap=tfw_hal_spi_xfer -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The DHCP client against hostile replies, judged by the suite's own reading of
+# RFC 2131 and the row: linked exactly as test_dhcp is.
+DHCP_ROBUST_SRCS := test/unit/test_dhcp_robust.c test/model/w5x00_model.c src/net/w5x00.c src/net/dhcp.c \
+                    src/core/board_lookup.c boards/$(HOST_BOARD)/board.c
+
+$(HOST_DIR)/test_dhcp_robust_w5100: $(DHCP_ROBUST_SRCS) src/net/w5100.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=1 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_dhcp_robust_w5500: $(DHCP_ROBUST_SRCS) src/net/w5500.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The drivers' receive path into the framer, on the same model: frames split,
+# wrapped, oversized, hung up on and flipped.
+W5X_ROBUST_SRCS := test/unit/test_w5x00_robust.c test/model/w5x00_model.c src/net/w5x00.c \
+                   src/proto/frame.c src/proto/crc16.c src/proto/crc16_update.c \
+                   src/core/board_lookup.c boards/$(HOST_BOARD)/board.c
+
+$(HOST_DIR)/test_w5100_robust: $(W5X_ROBUST_SRCS) src/net/w5100.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=1 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_w5500_robust: $(W5X_ROBUST_SRCS) src/net/w5500.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The Ethernet image's link: the whole host library with link_eth.c where
 # link_serial.c would be -- what mk/firmware.mk links for ETH=1 -- and the TCP
 # socket faked in the suite itself at include/tfw/eth.h. test_netcfg_mutate
@@ -662,7 +690,7 @@ $(HOST_DIR)/test_link_eth_mutate: test/unit/test_link_eth_mutate.c \
 # test_appstate_mutate mutates the handoff and platform block on the same link.
 $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
@@ -670,7 +698,7 @@ $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate
 # tfw_stage_marked's refusals, called directly, with test_ota_stage's link.
 $(HOST_DIR)/test_stage_marked: test/unit/test_stage_marked.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
@@ -679,7 +707,7 @@ $(HOST_DIR)/test_stage_marked: test/unit/test_stage_marked.c $(HOST_STAGE_LIB_SR
 # OTA_ACTIVATE, without ota_ctl.c -- the shape mk/firmware.mk links there.
 $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_activate.c src/core/ota_auth.c \
+                        src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -690,7 +718,7 @@ $(HOST_DIR)/test_ota_hold_link: test/unit/test_ota_hold_link.c \
                         $(filter-out src/proto/link_serial.c,$(HOST_STAGE_LIB_SRCS)) \
                         src/proto/link_eth.c src/net/netcfg.c src/net/dhcp_none.c \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_activate.c src/core/ota_auth.c \
+                        src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_ETHERNET=1 -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -699,10 +727,26 @@ $(HOST_DIR)/test_ota_hold_link: test/unit/test_ota_hold_link.c \
 # tfw_hal_i2c_xfer overrides the mock's weak one as tfwsim-atecc608a's does.
 $(HOST_DIR)/test_ota_info_atecc: test/unit/test_ota_info_atecc.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
+                        src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_atecc.c src/crypto/atecc608a/atecc.c $(ELEMENT_MODEL) \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) $(MODEL_INC) -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# OTA_ACTIVATE's manifest check (ruling 121), linked as a 2560 element stager
+# links it: the stager, ota_manifest.c and the SUIT reader, the element
+# provider against the software element holding the vectors' image key, under
+# SUIT_TEST_CFLAGS for the 2560's class id. No dispatcher: the test calls
+# OTA_AUTH and OTA_ACTIVATE's handlers and supplies tfw_dispatch_last,
+# tfw_dispatch_last_ok and tfw_sys_reset_soon.
+$(HOST_DIR)/test_ota_manifest: test/unit/test_ota_manifest.c $(ELEMENT_MODEL) \
+                        src/core/ota_stage.c src/core/ota_prev_none.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_activate.c src/core/ota_manifest.c src/core/ota_auth.c src/core/auth_session_none.c \
+                        src/core/suit.c boot/boot_image.c boot/boot_platform.c \
+                        src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c src/crypto/sha256.c \
+                        src/core/reader.c src/core/writer.c test/mock/hal_mock.c src/core/board_lookup.c boards/atmega2560/board.c \
+                        src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(SUIT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # EEPROM under the ATmega2560's profile, whose bootloader keeps its swap-move
 # journal above the platform block (issue #75), so the range EEPROM_WRITE
@@ -819,9 +863,9 @@ $(HOST_DIR)/test_esp_hal_eeprom: test/unit/test_esp_hal_eeprom.c src/hal/esp32/h
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/esp32p4-poe -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
-                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_pin_coord \
+                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
@@ -841,6 +885,8 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
                     $(HOST_DIR)/boot/test_boot_l0_esp32_sha \
                     $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire
+HOST_EXTRA_BINS += $(HOST_DIR)/test_dhcp_robust_w5100 $(HOST_DIR)/test_dhcp_robust_w5500 \
+                   $(HOST_DIR)/test_w5100_robust $(HOST_DIR)/test_w5500_robust
 
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
@@ -923,11 +969,19 @@ coverage:
 	@# emitter, tools/suit-emit/emit.c (test_suit_emit), and the bench bake's
 	@# decision, tools/platform-bake/bake.c (test_platform_bake). Their main.c
 	@# files are out, as no host test links one.
+	@# boot_cose.c, OTA_AUTH's COSE_Sign1 check, is in (the boot suites that
+	@# link it). So are the address providers, dhcp.c (test_dhcp_w5100,
+	@# test_dhcp_w5500, test_link_dhcp) and dhcp_none.c (test_link_eth), the
+	@# soft root's identities, id_p256.c (test_soft_id_p256) and id_hmac.c
+	@# (test_dice_evidence), and the OPTIGA Trust M driver, optiga_i2c.c,
+	@# optiga_cmd.c and optiga_crypto.c, on the software part (test_optiga_*).
+	@# src/third_party/ is out: vendored code, measured by its own upstream.
 	@gcovr --root . --filter 'src/(proto|core|caps)/' --filter 'boards/' \
-	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage|stage_none|swap|swap_none|trial|store|handoff)\.c' \
+	       --filter 'boot/boot_(image|measure|ota|platform|policy|session|request|entry|stage|stage_none|swap|swap_none|trial|store|handoff|cose)\.c' \
 	       --filter 'boot/recovery/recovery_ota\.c' \
-	       --filter 'src/crypto/(sha256|deviceid_p256|soft/provider|soft/uds_flash|none/provider|atecc608a/atecc|atecc608a/provider|auto/provider)\.c' \
-	       --filter 'src/net/(netcfg|w5100|w5500|w5x00)\.c' \
+	       --filter 'src/crypto/(sha256|deviceid_p256|soft/provider|soft/uds_flash|soft/id_p256|soft/id_hmac|none/provider|atecc608a/atecc|atecc608a/provider|auto/provider)\.c' \
+	       --filter 'src/net/(netcfg|w5100|w5500|w5x00|dhcp|dhcp_none)\.c' \
+	       --filter 'src/crypto/optiga/optiga_(i2c|cmd|crypto)\.c' \
 	       --filter 'src/store/spi_nor\.c' \
 	       --filter 'boot/measure/measure_(soft|atecc608a)\.c' \
 	       --filter 'boot/tier/cdi_(soft|atecc)\.c' \
@@ -1167,7 +1221,7 @@ lint-arch-leak-selftest:
 #
 # `make tfwsim CRYPTO=atecc608a` is `make tfwsim-atecc608a`, so the tier is named
 # the way it is for `make firmware`.
-TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h
+TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h tools/tfwsim/sim_boot.h
 
 # Both simulators carry the Ethernet image's link, with a host TCP socket as
 # the controller (tools/tfwsim/eth_socket.c), off until `--eth`; without it the
@@ -1181,12 +1235,13 @@ TFWSIM_LINK_SRCS := src/proto/link_eth.c src/net/netcfg.c src/net/dhcp_none.c to
 # tfw_hal_spi_xfer overrides the mock's weak one and hands every other select
 # back to it.
 TFWSIM_STAGE_SRCS := src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
-                     src/core/ota_activate.c src/core/ota_auth.c
+                     src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c
 TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -Itest/model
 # And decision 8's OTA_INFO, OTA_ACTIVATE and OTA_CONFIRM (#77), as a 2560
-# stage image links them. The platform block is the mock's EEPROM; there is no
-# tfw-boot behind it, so the trial deadline is the stub's and nothing resets
-# into a copy or a rollback -- that leg is simavr's (make integration-test-boot).
+# stage image links them. The platform block is the mock's EEPROM. Only the
+# soft simulator puts tfw-boot behind it, and only given --boot-key (below);
+# the element, prov and auto simulators keep the trial stub, and nothing
+# resets into a copy or a rollback -- that leg is simavr's (make integration-test-boot).
 TFWSIM_STAGE_SRCS += src/core/ota_ctl.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                      src/core/ota_floor_eeprom.c
 TFWSIM_STAGE_DEFS += -DTFW_FEATURE_OTA_CTL=1
@@ -1227,10 +1282,31 @@ TFWSIM_ELEMENT_SRCS := $(filter-out src/crypto/soft/provider.c test/mock/uds_moc
 # and the soft simulator must answer what the soft image does. HOST_CFLAGS'
 # define comes off its compile and its application's, and the files off its link.
 TFWSIM_SOFT_OFF  := -DTFW_FEATURE_ALIAS_CERT=1
-TFWSIM_SOFT_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c \
+TFWSIM_SOFT_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c src/core/ota_trial_none.c \
                                  src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c src/caps/csr.c, \
                                  $(TFWSIM_LIB_SRCS)) \
-                    $(APP_RUNNER_SRCS)
+                    $(APP_RUNNER_SRCS) src/core/ota_trial.c src/core/ota_trial_block.c
+
+# tfw-boot itself in front of the soft simulator (#52), as a 328P stage image's
+# tfw-boot is built (mk/boot.mk: store on, OTA over the UART off, the soft tier,
+# P-256 in software) with boot/hal/host for its HAL and tools/tfwsim/boot_host.c
+# to run it -- at power on and at every tfw_hal_reset, which the link wraps. The
+# key slot is boot_host.c's, filled from --boot-key; p256_key_slot.c is not
+# linked. sha256.c is the firmware's, the same API and digest as the boot's
+# sha256_small.c. boot_main.c is its own object, its main() renamed, so the one
+# cc command keeps one main. The element and auto simulators have no bootloader
+# (tools/tfwsim/boot_none.c) and keep the trial stub.
+TFWSIM_BOOT_SRCS := tools/tfwsim/boot_host.c boot/hal/host/boot_hal_host.c \
+                    boot/boot_store.c boot/boot_entry.c boot/boot_policy.c boot/boot_stage.c \
+                    boot/boot_cose.c boot/boot_swap_none.c boot/tier/cdi_soft.c \
+                    boot/measure/measure_soft.c boot/verify/verify_p256_soft.c
+TFWSIM_SOFT_SRCS += $(TFWSIM_BOOT_SRCS)
+TFWSIM_BOOT_MAIN := $(HOST_DIR)/tfwsim-boot/boot_main.o
+TFWSIM_BOOT_DEFS := -Iboot/hal/host -I$(UECC_DIR)
+$(TFWSIM_BOOT_MAIN): boot/boot_main.c | $(HOST_DIR)
+	@mkdir -p $(dir $@)
+	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_BOOT_DEFS) \
+	   -Dmain=tfwsim_boot_main -c -o $@ $<
 
 # An application's objects, one directory per tier: the element tier's overlay
 # profile is a different config.h, and an application's TFW_APP_STATIC_CHECK is
@@ -1255,9 +1331,11 @@ endif
 
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(APP_HOST_OBJS) $(EXTRA_LDFLAGS)
+$(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(TFWSIM_BOOT_MAIN) \
+        $(APP_HOST_OBJS) | $(HOST_DIR)
+	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_BOOT_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(TFWSIM_BOOT_MAIN) \
+	   $(APP_HOST_OBJS) -Wl,--wrap=tfw_hal_reset $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # The HSM self-defence channel (docs/hsm-self-defence/ slice 4) is in this
@@ -1275,7 +1353,7 @@ tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # The element tier as a provisioning JIG image (issue #53): tfwsim-atecc608a's
@@ -1296,7 +1374,7 @@ tfwsim-prov: $(HOST_DIR)/tfwsim-prov$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_PROV_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # CRYPTO=auto (issue #130), the Mega's default tier: the element when one
@@ -1334,7 +1412,7 @@ tfwsim-auto: $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 clean-host:

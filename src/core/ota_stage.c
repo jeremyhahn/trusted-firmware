@@ -240,6 +240,16 @@ tfw_status_t tfw_stage_activate(void)
     return mark(hash);
 }
 
+tfw_status_t tfw_stage_session(uint32_t *len, uint8_t hash[TFW_BOOT_MEASURE_LEN])
+{
+    if (state != TFW_STAGE_COMPLETE) {
+        return TFW_ERR_BAD_STATE;
+    }
+    *len = total;
+    memcpy(hash, verified, TFW_BOOT_MEASURE_LEN);
+    return TFW_OK;
+}
+
 uint8_t tfw_stage_install_pending(void)
 {
     uint8_t rec[4];

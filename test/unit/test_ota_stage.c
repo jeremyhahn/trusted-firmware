@@ -256,17 +256,24 @@ static void test_init_parks_selects_before_any_transfer(void)
 
 /* ---- OTA_INFO, OTA_CONFIRM, OTA_ACTIVATE (#77, ADR decision 8) ---- */
 
-static void put_block(uint8_t boot_state, uint8_t ota_state)
+static void put_block_flags(uint8_t boot_state, uint8_t ota_state, uint8_t flags)
 {
     uint8_t             raw[TFW_BOOT_EE_LEN];
     tfw_boot_platform_t p;
 
+    memset(raw, 0, sizeof raw);
     memset(&p, 0, sizeof p);
     p.rollback_floor = 7u;
     p.boot_state     = boot_state;
     p.ota_state      = ota_state;
+    raw[TFW_BOOT_EE_O_FLAGS] = flags;
     tfw_boot_platform_serialise(&p, raw);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+}
+
+static void put_block(uint8_t boot_state, uint8_t ota_state)
+{
+    put_block_flags(boot_state, ota_state, 0u);
 }
 
 static void get_block(uint8_t raw[TFW_BOOT_EE_LEN])
@@ -316,6 +323,24 @@ static void test_info_reports_the_block_and_the_marked_image(void)
     TEST_ASSERT_EQUAL_UINT8(0x00u, out[2]);
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_PENDING, out[7]);
     TEST_ASSERT_EQUAL_MEMORY(meas, &out[12], TFW_BOOT_MEASURE_LEN);
+}
+
+/* ADR decision 8: flags bit 1 tells a fall-back after a refusal at evaluation
+ * from a trial that ended unconfirmed, from the block's REFUSED flag (written
+ * by boot/boot_prev.c), and only beside FAILED. */
+static void test_info_tells_a_refusal_from_a_fall_back(void)
+{
+    uint8_t s0 = 0u, out[44], n;
+
+    put_block_flags(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_FAILED, TFW_BOOT_EE_FLAG_REFUSED);
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0x03u, out[2]);
+    put_block_flags(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_FAILED, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0x01u, out[2]);
+    put_block_flags(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE, TFW_BOOT_EE_FLAG_REFUSED);
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_info, &s0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, out[2]);   /* stale: no fall-back to qualify */
 }
 
 static void test_activate_takes_a_verified_image_and_resets_on_mode_1(void)
@@ -1029,6 +1054,7 @@ int main(void)
     RUN_TEST(test_hash_mismatch_fails_without_a_mark);
     RUN_TEST(test_init_parks_selects_before_any_transfer);
     RUN_TEST(test_info_reports_the_block_and_the_marked_image);
+    RUN_TEST(test_info_tells_a_refusal_from_a_fall_back);
     RUN_TEST(test_activate_takes_a_verified_image_and_resets_on_mode_1);
     RUN_TEST(test_activate_tells_the_application_of_the_update_it_resets_into);
     RUN_TEST(test_a_reset_after_activate_mode_0_is_an_update);

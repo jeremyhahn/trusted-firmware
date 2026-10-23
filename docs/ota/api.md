@@ -102,6 +102,7 @@ tfw-boot does not yet verify it
 | `OTA_ACTIVATE` | `TFW_ERR_RANGE` (11) | `mode` is above 1 |
 | `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | on the element tier, outside an operator auth session; on every tier (#137, slice 2), when no `OTA_AUTH` immediately precedes it |
 | `OTA_ACTIVATE` | `TFW_ERR_BAD_STATE` (19) | a trial is running or confirmed and not yet settled; no image is complete; or the staged image no longer hashes to the one `OTA_END` verified |
+| `OTA_ACTIVATE` | `TFW_ERR_RANGE`, `TFW_ERR_UNSUPPORTED`, `TFW_ERR_CRYPTO`, `TFW_ERR_PROTECTED_REGION` | on a board that links the manifest reader (the ATmega2560's element tier), the SUIT-subset manifest does not hold, nothing written: [architecture.md](architecture.md)'s refusal table; `TFW_ERR_PROTECTED_REGION` when its sequence is not the trailer's version or is below the platform block's rollback floor |
 | `OTA_CONFIRM` | `TFW_ERR_BAD_STATE` (19) | no trial is running, or no running image was handed off by tfw-boot |
 | any | `TFW_ERR_BAD_ARGC` (5) | the payload length is wrong for the command |
 

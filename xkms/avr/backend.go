@@ -135,9 +135,9 @@ func NewBackend(ctx context.Context, config *Config, device *tfw.Device) (*Backe
 		// mismatch the frames themselves may not parse the same way.
 		return nil, deviceError(err)
 	}
-	if caps == nil {
-		return nil, deviceError(tfw.StatusErrInternal)
-	}
+	// No nil check follows: Device.Caps returns a Caps on every path that
+	// returns no error, and *tfw.Device is concrete, so a nil here could not
+	// be reached by any test or any device.
 
 	logger := config.Logger.With("component", "avr_backend")
 	b := &Backend{
@@ -211,6 +211,20 @@ func (b *Backend) initAttestation() error {
 	if err != nil {
 		return &errs.Joined{Lead: ErrTrustStoreInit, Cause: err}
 	}
+	return b.anchorRoots(store)
+}
+
+// rootSource is the part of truststore.TrustStore that anchorRoots reads.
+// The interface lets a store fail on both calls, and go-xkms's in-memory store
+// does once it is closed, which nothing here does. Taking only these two
+// methods is what lets a test hand in a store that fails.
+type rootSource interface {
+	CertPool() (*x509.CertPool, error)
+	Count() (int, error)
+}
+
+// anchorRoots takes the attestation roots from store.
+func (b *Backend) anchorRoots(store rootSource) error {
 	roots, err := store.CertPool()
 	if err != nil {
 		return &errs.Joined{Lead: ErrTrustStoreInit, Detail: "cert pool", Cause: err}
@@ -269,7 +283,7 @@ func (b *Backend) Capabilities() types.Capabilities {
 		Export:              false,
 		KeyAgreement:        false,
 		ECIES:               false,
-		Attestation:         true,
+		Attestation:         b.canAttest(),
 		QuantumSigning:      false,
 		KeyEncapsulation:    false,
 		SecurityLevel:       trust.security,
@@ -491,6 +505,26 @@ func (b *Backend) hasDeviceKey() bool {
 		return false
 	}
 	return trust.level != types.AttestLevelUnattested
+}
+
+// canAttest reports whether the device's CAPS reply says it can mint the alias
+// certificate AttestKey accepts, so Capabilities never claims an attestation
+// the part will refuse.
+//
+// All four are needed. FeatureAttest says the firmware was built with
+// attestation at all. FeatureAliasCert says ATTEST_CERT is compiled in, and
+// the firmware compiles it in only beside an asymmetric key -- it is not
+// FeatureAttest, the evidence frame, which an HMAC signer serves too. The P-256
+// bit says the provider can sign the certificate in the one algorithm
+// checkAliasCertificate accepts. A key says there is an identity to certify. A
+// firmware older than the algorithm bitmap claims no algorithm, and so claims
+// no attestation: the safe direction. AttestKey gates on this same answer, so
+// the flag and the call never disagree.
+func (b *Backend) canAttest() bool {
+	return b.caps.Has(tfw.FeatureAttest) &&
+		b.caps.Has(tfw.FeatureAliasCert) &&
+		b.caps.Algorithms.Can(tfw.AlgECDSAP256SHA256) &&
+		b.hasDeviceKey()
 }
 
 func protocolString(c tfw.Caps) string {

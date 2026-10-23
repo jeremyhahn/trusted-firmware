@@ -52,6 +52,21 @@ tfw_status_t tfw_stage_marked(uint8_t *hash /* [32] */, uint32_t *version,
  * and nothing written unless the session is complete and the bytes verify. */
 tfw_status_t tfw_stage_activate(void);
 
+/* The session OTA_END verified (ruling 121): the stream's length into *len and
+ * the measurement it verified into `hash`, for OTA_ACTIVATE's manifest check.
+ * TFW_ERR_BAD_STATE and nothing written unless the session is complete. */
+tfw_status_t tfw_stage_session(uint32_t *len, uint8_t hash[TFW_BOOT_MEASURE_LEN]);
+
+/* OTA_ACTIVATE's manifest check (ruling 121): the SUIT-subset envelope the
+ * stream carries after the image -- a little-endian u16 length, then the
+ * envelope, in the padding before the trailer -- read from the store and held
+ * to the staged trailer by src/core/suit.c's tfw_suit_gate, the one reader the
+ * ESP32's layer 0 calls. TFW_ERR_RANGE when no envelope fits there (erased
+ * padding reads as 0xFFFF), otherwise the gate's status. src/core/ota_manifest.c
+ * on a board that links the reader (OTA_MANIFEST := 1, element tier);
+ * src/core/ota_manifest_none.c, which answers TFW_OK, everywhere else. */
+tfw_status_t tfw_ota_manifest(tfw_boot_platform_t *p);
+
 /* Whether the next reset hands tfw-boot an image to take (#51): this
  * session's OTA_ACTIVATE wrote the MARK, and no OTA_BEGIN has erased it since.
  * Nothing new in RAM: the session's state and the MARK's magic in the store.

@@ -60,6 +60,12 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
         || plat.boot_state == TFW_BOOT_STATE_CONFIRMED) {
         return TFW_ERR_BAD_STATE;
     }
+    /* The SUIT subset's checks (ruling 121) before anything is written: a
+     * refused manifest leaves the store as OTA_END left it. */
+    st = tfw_ota_manifest(&plat);
+    if (st != TFW_OK) {
+        return st;
+    }
     /* The signature before the MARK's magic, so tfw-boot never sees a MARK
      * without the authorization it verifies. */
     st = tfw_stage_authorize(sig, mode);

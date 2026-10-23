@@ -3,7 +3,7 @@
 > **Status: ACCEPTED for the decisions marked ACCEPTED; the parts marked
 > PROPOSED still need a choice** · Issue: #52 · Scope: trusted-firmware (image
 > format, device side, `sdk/go` upload helper); go-trusted-platform,
-> go-quicbaas, go-xkms and qrdb (seams only) · Last verified: 2026-10-16
+> go-quicbaas, go-xkms and qrdb (seams only) · Last verified: 2026-10-22
 >
 > Design and measurement. The code is the follow-ups at the end; the trailer
 > board id, trial boot, confirm, rollback and the floor at settle are
@@ -158,6 +158,27 @@ travels with the image in the trailer: v1 plus `board_id`, with no trailer v2.
 `tfw-boot` verifies it before activation on every board. The 4 KB parts
 (ATmega328P and ATmega32U4) do trailer-only verification.
 
+**Where it is checked (owner ruling 121, the split gate, CA m957,
+2026-10-21).** Ruling 121 amends ruling 3: the manifest is checked by the
+application, at `OTA_ACTIVATE`, on the rows where `tfw-boot` cannot fit it;
+`tfw-boot` keeps the P-256 verify over the image and the trailer on every row,
+and the soft tier keeps the full trailer gate in `tfw-boot`. On AVR the
+ATmega2560's element-tier application checks it (`src/core/ota_manifest.c`),
+before it writes the authorization or the `MARK`.
+
+**Layout in the stream (ruling 109, decided 2026-10-22).** The envelope
+travels in the same `OTA_DATA` stream, after the image and in the padding
+before the trailer: a little-endian u16 length, then the envelope. `OTA_BEGIN`'s
+total counts it; there is no new command id. It is the layout the ESP32's layer
+0 reads after its trailer, so one reader, `tfw_suit_gate`, serves both. A length
+of zero, past the padding or the erased 0xFFFF is refused with `TFW_ERR_RANGE`.
+The envelope is capped at `TFW_SUIT_ENVELOPE_MAX`, the most the device reads.
+`make image-seal` writes it from `make suit-envelope`'s output on a board that
+checks the manifest and refuses to run without one; the region `tfw-boot` reads
+is unchanged (`tools/image-seal/`, `test/unit/test_image_seal.c`). Decided under
+ruling 109 (nothing waits on the owner): it adds no command and no trailer
+version, and it is the open question 5 proposal below, now settled.
+
 - **Profile: a subset of the SUIT manifest** (draft-ietf-suit-manifest, in the
   RFC Editor queue, with its IANA registry). It is the authentication half of the
   constrained MTI profile `suit-sha256-es256-ecdh-a128ctr` of
@@ -189,8 +210,9 @@ travels with the image in the trailer: v1 plus `board_id`, with no trailer v2.
 
 | Board | Manifest | Trailer | Where |
 |---|---|---|---|
-| ATmega2560 | yes | yes | both in `tfw-boot`: the manifest before activation (ruling 3, CA m499), the trailer every boot |
-| ATmega328P, ATmega32U4 | no: trailer-only (ruling 3, CA m499) | yes | trailer in `tfw-boot`, every boot |
+| ATmega2560, element tier | yes | yes | the manifest in the application at `OTA_ACTIVATE` (ruling 121), the trailer in `tfw-boot` every boot |
+| ATmega2560, soft tier | no: no stored key verifies its ES256 (ruling 121) | yes | the full trailer gate in `tfw-boot`, every boot |
+| ATmega328P, ATmega32U4 | no: trailer-only (ruling 3, CA m499); the reader and check, about 3 086 B (est.), do not fit the application | yes | trailer in `tfw-boot`, every boot |
 | ATtiny85 | no | no | no secure boot (decision 6) |
 | ESP32-P4 | yes | yes, beside the vendor's signature | decision 11 |
 | Cortex-M33 under TF-M | proposed: in the non-secure application before PSA FWU install | MCUboot's TLVs | open question 9 |
@@ -200,8 +222,10 @@ travels with the image in the trailer: v1 plus `board_id`, with no trailer v2.
   activation** (ruling 3: owner ruling 2026-10-17, CA m499, #78). `tfw-boot`
   verifies the manifest, carried in the trailer, before activation on every
   board, and the trailer on every boot. The 4 KB parts (ATmega328P and
-  ATmega32U4) do trailer-only verification. On AVR the manifest reader measured
-  about 2 900 bytes (decision 6). The manifest adds the
+  ATmega32U4) do trailer-only verification. Ruling 121 (CA m957, 2026-10-21)
+  moves the manifest check to the application at `OTA_ACTIVATE` where
+  `tfw-boot` cannot fit it (Where it is checked, above). On AVR the manifest
+  reader measured about 2 900 bytes (decision 6). The manifest adds the
   binding by class id and an independently encoded copy of the four facts. It
   does not move the trust boundary.
 - **The encoder and the signer.** This project's image build emits the
@@ -211,7 +235,9 @@ travels with the image in the trailer: v1 plus `board_id`, with no trailer v2.
   Carriage, above). Proposed before it: The signed envelope travels in the same `OTA_DATA`
   stream, after the image: `OTA_BEGIN`'s total counts both, and the application
   stores the envelope after the image in the external store. No new command id.
-  Open question 5.
+  Open question 5, settled by ruling 109 on 2026-10-22 (Layout in the stream,
+  above): the envelope is carried this way, inside the stream's padding before
+  the trailer, with a u16 length first.
 - **PROPOSED — one key for both.** One P-256 key per board id signs the
   trailer's span and the manifest's `Sig_structure`. The two to-be-signed formats
   cannot be confused: the trailer's begins with the magic `TFIM`, the
@@ -958,8 +984,11 @@ reference value. A gap there is filed against go-xkms.
    verified update. Is it the one board without OTA?
 4. **One key per board id for both the trailer and the manifest, or two?** One
    is proposed (decision 3).
-5. **Manifest carriage.** The signed envelope appended to the `OTA_DATA` stream,
-   counted in `OTA_BEGIN`'s total, with no new command (decision 3).
+5. **Manifest carriage.** Settled (ruling 109, 2026-10-22): the signed
+   envelope rides in the `OTA_DATA` stream after the image, in the padding
+   before the trailer, a little-endian u16 length then the envelope, counted in
+   `OTA_BEGIN`'s total, with no new command (decision 3, "Layout in the
+   stream").
 6. **The trial timeout.** Settled: `TFW_OTA_TRIAL_TIMEOUT_S`, 60 s on each
    AVR board with a boot section (decision 9, "Where the timeout is configured").
 7. **The 2560's slot size.** 64 KB slots matching the image budget (proposed:
@@ -994,15 +1023,22 @@ reference value. A gap there is filed against go-xkms.
 - Manifest verification: the SUIT subset reader in the application, and the
   build's manifest emitter. Done in #78 for the 2560 on the element tier
   (`src/core/suit.c`, `tools/suit-emit/`, [architecture.md](architecture.md)).
+  The envelope after the image in the stream (open question 5, settled by
+  ruling 109) and the check at `OTA_ACTIVATE` (ruling 121) are done for the 2560
+  on the element tier (`tools/image-seal/`, `src/core/ota_manifest.c`).
   What remains:
-  - the stager that carries the envelope after the image (open question 5) and
-    calls the gate before `OTA_ACTIVATE`;
+  - the 2560 application's measured size with the check (`size-check` before
+    and after, on the CI image; ≤ 200 B is an estimate);
   - the 328P and 32U4 gate, if their region budget ever holds it;
+  - the soft tier's manifest check, which needs a stored key to verify ES256;
   - go-xkms signing the emitted Sig_structure with the board id's key, and
     returning raw `r||s`.
 - The board id in the trailer on AVR: `tfw-boot`'s check is done in #76
-  (`tfw_boot_binding_permit`, `boot/boot_image.c`). What remains is the build
-  writing byte 6 and the bench reflash of every board.
+  (`tfw_boot_binding_permit`, `boot/boot_image.c`). The build writes byte 6:
+  `make image-tbs` emits the signed span with the board's id and
+  `make image-seal` wraps go-xkms's signature into the stream and region
+  images (`tools/image-seal/`). What remains is the bench reflash of every
+  board.
 - Transport selection per image: link files per board where only one transport
   fits (none today).
 - The new status code `TFW_ERR_BAD_STATE`, with its wire vector and the Go

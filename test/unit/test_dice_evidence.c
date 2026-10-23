@@ -208,6 +208,28 @@ static void test_another_cdi_changes_only_the_mac(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(&kEvidence[106], &whole[106], TFW_ATTEST_LEN - 106u);
 }
 
+/* The 328P soft row advertises HMAC-SHA256 alone (bit 2), never ES256: a host
+ * that read ES256 here would ask for a signature this image cannot make. */
+static void test_the_soft_root_advertises_hmac_only(void)
+{
+    boot_soft_root();
+    TEST_ASSERT_EQUAL_HEX16(0x0004u, tfw_crypto_algorithms());
+}
+
+/* A symmetric identity has no public half: the request is refused and the
+ * caller's buffer is left as it was, not zeroed into a plausible key. */
+static void test_the_soft_root_refuses_a_public_key(void)
+{
+    uint8_t out[64];
+    uint8_t want[64];
+
+    boot_soft_root();
+    memset(out, 0xA5, sizeof out);
+    memset(want, 0xA5, sizeof want);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_pubkey(out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, out, sizeof out);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -216,5 +238,7 @@ int main(void)
     RUN_TEST(test_the_soft_root_evidence_frame_matches_the_literal);
     RUN_TEST(test_the_soft_root_names_hmac_sha256);
     RUN_TEST(test_another_cdi_changes_only_the_mac);
+    RUN_TEST(test_the_soft_root_advertises_hmac_only);
+    RUN_TEST(test_the_soft_root_refuses_a_public_key);
     return UNITY_END();
 }

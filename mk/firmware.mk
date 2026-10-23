@@ -359,6 +359,9 @@ endif
 # OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
 # single-slot board without it could never install what it staged.
 STAGE_SRCS += src/core/ota_activate.c src/core/ota_auth.c
+# Its manifest check (ruling 121) where the board links the SUIT reader; the
+# stub where it does not, which leaves the image to tfw-boot's signature.
+STAGE_SRCS += $(if $(MANIFEST_SRCS),src/core/ota_manifest.c boot/boot_image.c,src/core/ota_manifest_none.c)
 STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1
 else
 STAGE_SRCS := src/core/ota_stage_none.c

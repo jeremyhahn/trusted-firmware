@@ -253,6 +253,57 @@ func TestCapabilitiesDoNotClaimKeyGenerationOrSigning(t *testing.T) {
 	assert.True(t, caps.HardwareBacked)
 }
 
+// Capabilities claims attestation only where the device's CAPS says it can mint
+// the alias certificate AttestKey accepts, and asks the device nothing to say
+// so. go-xkms hands the flag to its clients as it stands.
+func TestCapabilitiesClaimAttestationOnlyWhereCAPSSaysTheDeviceCan(t *testing.T) {
+	const aliasCert = tfw.FeatureAttest | tfw.FeatureAliasCert
+	tests := []struct {
+		name   string
+		caps   []byte
+		attest bool
+	}{
+		{"secure element",
+			capsPayload(tfw.CryptoSecureElement, aliasCert, tfw.AlgECDSAP256SHA256), true},
+		{"tpm2",
+			capsPayload(tfw.CryptoTPM2, aliasCert, tfw.AlgECDSAP256SHA256), true},
+		{"software root with a P-256 DeviceID",
+			capsPayload(tfw.CryptoSoftware, aliasCert, tfw.AlgECDSAP256SHA256), true},
+		{"software root with an HMAC signer",
+			capsPayload(tfw.CryptoSoftware, tfw.FeatureAttest, tfw.AlgHMACSHA256), false},
+		{"attestation command compiled out",
+			capsPayload(tfw.CryptoSecureElement, tfw.FeatureAliasCert, tfw.AlgECDSAP256SHA256), false},
+		{"alias certificate compiled out",
+			capsPayload(tfw.CryptoSecureElement, tfw.FeatureAttest, tfw.AlgECDSAP256SHA256), false},
+		{"no P-256 signer",
+			capsPayload(tfw.CryptoSecureElement, aliasCert, tfw.AlgEd25519|tfw.AlgHMACSHA256), false},
+		{"firmware older than the algorithm bitmap",
+			capsPayload(tfw.CryptoSecureElement, aliasCert, 0)[:14], false},
+		{"no crypto provider",
+			capsPayload(tfw.CryptoNone, aliasCert, tfw.AlgECDSAP256SHA256), false},
+		{"unknown tier",
+			capsPayload(tfw.CryptoTier(9), aliasCert, tfw.AlgECDSAP256SHA256), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			link := newFakeLink().answer(tfw.CmdCaps, tt.caps)
+			b := newTestBackend(t, link)
+			before := len(link.requests)
+
+			assert.Equal(t, tt.attest, b.Capabilities().Attestation)
+			assert.Len(t, link.requests, before, "Capabilities answers from the cached CAPS")
+		})
+	}
+}
+
+func TestCapabilitiesDoNotAllocate(t *testing.T) {
+	b := newTestBackend(t, secureElementLink())
+
+	allocs := testing.AllocsPerRun(100, func() { _ = b.Capabilities() })
+	assert.Zero(t, allocs)
+}
+
 // ------------------------------------------------------------------- key access
 
 func TestGetKeyReadsThePublicPointFromTheElement(t *testing.T) {

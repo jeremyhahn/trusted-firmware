@@ -27,6 +27,28 @@
   element tier, padded to whole 256-byte pages with its trailer last. This
   project does not sign images; the key is go-xkms's.
 
+## Seal the image
+
+The build writes the trailer, and go-xkms signs it. `IMAGE_FLAGS` defaults to
+`0x00`; `0x01` marks a development image.
+
+```sh
+make image-tbs BOARD=atmega2560 CRYPTO=<tier> IMAGE_VERSION=<n>
+# build/release/atmega2560-<tier>.tbs: the 48-byte signed span, this
+# board's id in byte 6. go-xkms signs it with ES256 and returns the raw
+# 64-byte r||s signature.
+make image-seal BOARD=atmega2560 CRYPTO=<tier> IMAGE_SIG=<sig.bin>
+# build/release/atmega2560-<tier>.stream  what ota-stage sends
+# build/release/atmega2560-<tier>.region  the application region, for
+#                                         tfw-boot's serial session
+```
+
+Both refuse what tfw-boot would refuse: an empty image or one that reaches the
+trailer, version 0, a flag trailer v1 does not define, a board with no
+tfw-boot row, and a span for another image. The signature is not checked
+until the device checks it. `IMAGE_VERSION` must not be below the board's
+floor, or tfw-boot refuses the image.
+
 ## Stage the image
 
 From a shell, over serial ([cli.md](../host-sdk/cli.md)):

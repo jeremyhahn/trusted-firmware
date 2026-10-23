@@ -40,6 +40,11 @@ tfw_status_t tfw_auth_cmd_challenge(tfw_reader_t *r, tfw_writer_t *w)
 {
     (void)r;
 
+    /* A fresh challenge drops any session already granted. Asking for one is
+     * the host declaring it wants to re-prove itself, and an old grant must
+     * not survive that untouched -- whatever the element answers next. */
+    authenticated = 0u;
+
     /* Nonces from the provider's RNG -- the element's real TRNG on this
      * tier, never anything this file invents. TFW_ERR_CRYPTO (not a nonce that
      * merely looks random) if the element will not answer. */
@@ -48,11 +53,6 @@ tfw_status_t tfw_auth_cmd_challenge(tfw_reader_t *r, tfw_writer_t *w)
         return TFW_ERR_CRYPTO;
     }
     challenge_pending = 1u;
-
-    /* A fresh challenge drops any session already granted. Asking for one is
-     * the host declaring it wants to re-prove itself, and an old grant must
-     * not survive that untouched. */
-    authenticated = 0u;
 
     tfw_write_blob(w, nonce, TFW_AUTH_NONCE_LEN);
     return TFW_OK;

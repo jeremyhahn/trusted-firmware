@@ -303,7 +303,7 @@ func newTestBackend(t *testing.T, link *fakeLink) *Backend {
 func secureElementLink() *fakeLink {
 	return newFakeLink().answer(tfw.CmdCaps, capsPayload(
 		tfw.CryptoSecureElement,
-		tfw.FeatureGPIO|tfw.FeatureAttest,
+		tfw.FeatureGPIO|tfw.FeatureAttest|tfw.FeatureAliasCert,
 		tfw.AlgECDSAP256SHA256|tfw.AlgHMACSHA256,
 	))
 }

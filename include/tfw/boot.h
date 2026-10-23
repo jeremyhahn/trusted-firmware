@@ -150,7 +150,7 @@ typedef struct {
  *   off  size  field
  *     0     4  magic           TFW_BOOT_EE_MAGIC
  *     4     1  layout_version  TFW_BOOT_EE_VERSION
- *     5     1  flags
+ *     5     1  flags           TFW_BOOT_EE_FLAG_*; tfw-boot writes them
  *     6     2  reserved
  *     8    32  pubkey_hash     SHA-256 of the 32-byte Ed25519 public key
  *    40     4  rollback_floor  software tier only; the element tier uses its
@@ -213,6 +213,13 @@ typedef struct {
 #define TFW_BOOT_EE_O_MAGIC           0u
 #define TFW_BOOT_EE_O_LAYOUT          4u
 #define TFW_BOOT_EE_O_FLAGS           5u
+
+/* The flags byte. Only the bits named here are defined; a provisioned block
+ * has none set. REFUSED: the last fall-back followed a refusal at evaluation,
+ * clear when the trial ended unconfirmed (OTA_INFO flags bit 1, ADR decision
+ * 8). Written by the 328P's and 32U4's fall-back (boot/boot_prev.c) at each
+ * fall-back; meaningful only beside ota_state FAILED. */
+#define TFW_BOOT_EE_FLAG_REFUSED      0x01u
 #define TFW_BOOT_EE_O_PUBKEY_HASH     8u
 #define TFW_BOOT_EE_O_ROLLBACK_FLOOR  40u
 #define TFW_BOOT_EE_O_BOOT_COUNT      44u

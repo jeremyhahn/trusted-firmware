@@ -26,12 +26,19 @@ static uint8_t             prev[TFW_BOOT_APP_SIZE];
 static tfw_boot_platform_t plat;
 static unsigned            stores;
 static tfw_boot_platform_t stored;
+static int                 stored_flags;   /* -1: the flags byte not written */
 
 /* The block's write, the test's: boot_store.c stays out of the link. */
 void tfw_boot_platform_store(const tfw_boot_platform_t *p)
 {
     stored = *p;
     stores++;
+}
+
+void tfw_boot_platform_store_flags(const tfw_boot_platform_t *p, uint8_t flags)
+{
+    tfw_boot_platform_store(p);
+    stored_flags = flags;
 }
 
 /* The image before the round, laid out in PREV as the region: its bytes,
@@ -73,6 +80,7 @@ void setUp(void)
     plat.boot_state = TFW_BOOT_STATE_GOOD;
     plat.ota_state  = TFW_BOOT_OTA_PENDING;
     stores = 0u;
+    stored_flags = -1;
     lay_prev();
 }
 
@@ -84,12 +92,16 @@ static void test_a_trial_found_at_reset_restores_prev_and_boots(void)
     TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT,
                       tfw_boot_swap_at_reset(&plat, tfw_boot_trial_at_reset(&plat)));
     assert_restored();
+    /* The trial ended unconfirmed: fell back, not refused (ADR decision 8,
+     * OTA_INFO flags bit 1 clear), whatever an earlier round left. */
+    TEST_ASSERT_EQUAL_INT(0, stored_flags);
 }
 
 static void test_a_refused_pending_image_restores_prev(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_fall_back(&plat));
     assert_restored();
+    TEST_ASSERT_EQUAL_INT(TFW_BOOT_EE_FLAG_REFUSED, stored_flags);
 }
 
 /* Nothing on trial and nothing pending: a confirmed image settling, an

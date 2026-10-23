@@ -111,8 +111,8 @@ network input.
 | Board | Boot | Application | Transports in the shipped image |
 |---|---|---|---|
 | ATmega2560 | serial session, swap-move, trial: 7 954 of 8 192; or store read, swap-move, trial: 6 492 of 8 192 (verify-measured, with the confirm request). Both together were 8 916 before the confirm request, which does not fit (element tier, measured with `ARCH_BOOT_OPT_CFLAGS`; 9 110 with `-mcall-prologues` alone, 9 616 before) | `ETH=1`, stager, manifest reader: about 24 445 of 65 536 | both |
-| ATmega328P | verify-and-copy, trial: 3 924 of 4 096 | `ETH=1`, stager: about 19 267, and about 22 153 with the manifest reader | both, under the 28 672 region budget (proposed); none under the 16 384 policy line |
-| ATmega32U4 | as the 328P, unmeasured | no Ethernet controller wired yet | follow-up |
+| ATmega328P | verify-and-copy, trial: 3 924 of 4 096; with the restore from `PREV`, row `atmega328p:atecc608a:atecc608a:atecc608a:0:1`: candidate, unmeasured (`make bootloader-candidate BOOT_CANDIDATE=atmega328p:atecc608a:atecc608a:atecc608a:0:1`) | `ETH=1`, stager: about 19 267, and about 22 153 with the manifest reader | both, under the 28 672 region budget (proposed); none under the 16 384 policy line |
+| ATmega32U4 | as the 328P, unmeasured; with the restore, row `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`: candidate, unmeasured (`make bootloader-candidate BOOT_CANDIDATE=atmega32u4:atecc608a:atecc608a:atecc608a:0:1`) | no Ethernet controller wired yet | follow-up |
 
 ## Device state machine
 
@@ -347,7 +347,7 @@ is written. Existing status codes only:
 | the vendor id, the class id against the board id, an unbound class id, the trailer's `board_id` | `TFW_ERR_UNSUPPORTED` |
 | the image digest against the staged image or the trailer's measurement | `TFW_ERR_CRYPTO` |
 | the size against the staged length or the trailer's `image_len` | `TFW_ERR_RANGE` |
-| the sequence number against the trailer's `image_version` | `TFW_ERR_PROTECTED_REGION` (16) |
+| the sequence number against the trailer's `image_version`, or below the platform's rollback floor | `TFW_ERR_PROTECTED_REGION` (16) |
 
 The vendor id is UUIDv5(URL, `https://github.com/jeremyhahn/trusted-firmware`)
 in `include/tfw/config.h`; each class id is UUIDv5(vendor, board name) in the
@@ -361,14 +361,26 @@ in its `profile.mk`; `mk/firmware.mk` adds `src/core/suit.c` to the object
 list). The 328P and 32U4 keep the trailer alone under their 16 384-byte line,
 and the software tier has no stored key to verify against.
 
-On AVR nothing calls the gate yet: the stager (below) does not, and
-`OTA_ACTIVATE` (`src/core/ota_activate.c`) checks the authorization and the
-`MARK`, not an envelope, so `--gc-sections` drops it and no image grows.
-Ruling 3 (CA m499) puts it in `tfw-boot` before activation; that is not done.
-The ESP32's layer 0 calls it, after the trailer, at the trial boot
-(`boot/hal/esp32/l0_gate.c`). Carriage, the
-envelope after the image in the same `OTA_DATA` stream and counted in
-`OTA_BEGIN`'s total, is open question 5 and is not wired.
+On AVR the application calls the gate at `OTA_ACTIVATE`
+(`src/core/ota_activate.c`, through `tfw_ota_manifest` in
+`src/core/ota_manifest.c`), after the state checks and before the
+authorization or the `MARK` is written, so a refused manifest leaves the store
+as `OTA_END` left it (owner ruling 121, the split gate, CA m957, 2026-10-21; it
+amends ruling 3, CA m499, which put the check in `tfw-boot`, where the 4 KB
+parts cannot fit it). `tfw-boot` keeps the P-256 verify over the image and the
+trailer on every row. A board that does not link the reader links
+`src/core/ota_manifest_none.c`, which answers `TFW_OK`, so `--gc-sections`
+drops the gate and its image does not grow. The ESP32's layer 0 calls the same
+gate, after the trailer, at the trial boot (`boot/hal/esp32/l0_gate.c`).
+
+Carriage (ruling 109, 2026-10-22; ADR decision 3, open question 5 settled): the
+stream carries the envelope after the image, in the padding before the
+trailer, as a little-endian u16 length then the envelope, and `OTA_BEGIN`'s
+total counts it. Erased padding reads as length 0xFFFF and is refused with
+`TFW_ERR_RANGE`, as is a length of zero or one past the padding. `make
+image-seal` writes it there from `make suit-envelope`'s `.suit` on a board that
+checks, and refuses to run without one; the region `tfw-boot` reads is
+unchanged. No new command id.
 
 ### The application stager (#75)
 
@@ -391,9 +403,11 @@ having no Ethernet, builds without it unless `OTA_STAGE=1`.
   session is `FAILED`. A match writes the `MARK` record,
   `[magic 'TFSG'][total_len:4][measurement:32]`, with the magic programmed
   last, so a record cut short by a reset reads as no record.
-- These are the stager's checks only. Signature, version floor and manifest
-  are tfw-boot's gate, which reads `MARK` and verifies `STAGE` again before it
-  copies anything. The store is outside the trust boundary.
+- These are the stager's checks only. Signature and version floor are
+  tfw-boot's gate, which reads `MARK` and verifies `STAGE` again before it
+  copies anything. On a board that links the reader, `OTA_ACTIVATE` checks the
+  manifest first, its sequence against the floor included (above), and a
+  refusal there writes nothing. The store is outside the trust boundary.
 
 The chip select is D8 on every AVR board. It is the proposal from open
 question 2, not a ruling, and is a single line in each `board_profile.h`. An
@@ -684,11 +698,16 @@ yet.
   cut short and redone, and a store that does not answer.
 - **Not a row yet.** Neither part's `BOOT_STORE=1` row is in `BOOT_SUPPORTED`:
   their 4 096-byte sections had 3 758 and 3 828 bytes used before the copy
-  path (above), and the row's size with the restore is not measured. Until it
-  is, the 328P and 32U4 link `ota_trial_none.c` (below), and
+  path (above), and the row's size with the restore is not measured. Each is a
+  candidate, measured on CI's image by
+  `make bootloader-candidate BOOT_CANDIDATE=<row>` (`mk/boot.mk`), which builds the row without adding it
+  and prints its size against the section, or ld's overflow. A row joins
+  `BOOT_SUPPORTED` only once it fits and `bootloader-check` passes it. Until
+  then, the 328P and 32U4 link `ota_trial_none.c` (below), and
   `test/integration/simavr/boot_harness.c`'s `prev` row (an unconfirmed trial
   restores `PREV`; a refused pending image restores it; a corrupt `PREV`
-  halts; each `GOOD`, `FAILED`) is written and not run.
+  halts; each `GOOD`, `FAILED`) is not yet run: `make integration-test-boot-prev`
+  runs it, outside `integration-test-boot` and CI.
 
 ### The OTA round under simavr (#75, #77)
 
@@ -714,7 +733,7 @@ deadline on the emulated part, with no reset from the harness.
 | the trial deadline: nothing confirms, the application's `ota_trial.c` takes a watchdog reset at `TFW_OTA_TRIAL_TIMEOUT_S` (the board value, 60 s), WDRF in MCUSR at the reset edge and `TFW_RESET_WATCHDOG` in `SYS_INFO`, within one 8 s watchdog period of the deadline (`tfw_hal_reset` disarms the 8 s watchdog before its 15 ms one, which simavr would otherwise not apply); tfw-boot copies `PREV` back, `GOOD` `FAILED` | yes, `test_an_unconfirmed_store_image_rolls_back_at_the_deadline`, about 1.05 billion emulated cycles | `test_ota_trial`, `test_boot_trial` |
 | a staged byte that fails the hash, an image below the floor: no page written, the primary boots | yes, `test_a_bad_store_image_copies_nothing` | `test_boot_stage_2560` |
 | the store is only read by tfw-boot | yes: no erase, no program and no malformed transaction reach the model on any boot | — |
-| 328P: a trial not confirmed or a pending image refused copies `PREV` back, `GOOD` `FAILED`; a corrupt `PREV` halts | no: the `prev` row is written, not run, until the 328P's `BOOT_STORE=1` row is measured and in `BOOT_SUPPORTED`; two of its three cases meet the re-take gap below | `test_boot_prev` |
+| 328P: a trial not confirmed or a pending image refused copies `PREV` back, `GOOD` `FAILED`; a corrupt `PREV` halts | no: the `prev` row (`make integration-test-boot-prev`) is not yet run and stays out of CI until the 328P's `BOOT_STORE=1` row is measured and in `BOOT_SUPPORTED`; two of its three cases meet the re-take gap below | `test_boot_prev` |
 
 The bench repeats the round with the W5x00, the NOR part and the element on a
 2560; it is the only place the network leg meets a real controller, a real
@@ -724,8 +743,9 @@ The application's refusal of the failed image at `OTA_ACTIVATE`
 the command itself is on the wire at `0x6D`, serial only.
 
 Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
-the envelope carried with the image and the manifest gate called before
-activation on AVR (ruling 3 puts it in `tfw-boot`);
+the manifest gate at `OTA_ACTIVATE` under simavr or over `tfwsim` (it is
+host-tested, `test_ota_manifest` and `test_suit`, and `tfwsim` links
+`src/core/ota_manifest_none.c`);
 and `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP (serial only for now: none of
 the control commands is on the Ethernet allow-list, and
 `TestE2EOTAControlIsSerialOnly` pins each one's `TFW_ERR_UNKNOWN_CMD` over TCP
@@ -740,13 +760,37 @@ each state tfw-boot leaves: `OTA_INFO`'s `TRIAL` and fell-back flags,
 `OTA_ACTIVATE` refused in `TRIAL` and `CONFIRMED`, and
 `TFW_ERR_AUTH_REQUIRED` for either sent without `OTA_AUTH`.
 
-A gap in the 328P/32U4 restore, recorded and not designed here:
+The round through the real tfw-boot over `tfwsim`'s pty (#52). Given
+`--boot-key FILE` (a 64-byte P-256 public key), and optionally `--app-image
+FILE` and `--boot-floor N`, the software-tier `tfwsim` runs tfw-boot, built as
+a 328P stage image's boot is (store on, the boot's own OTA session off, P-256
+in software, one slot, `boot/hal/host` for its HAL), at power on and at every
+`tfw_hal_reset`, keeping the EEPROM, the store and the handoff across it
+(`tools/tfwsim/boot_host.c`). The element and auto simulators link
+`tools/tfwsim/boot_none.c` and have no bootloader. `TestE2EOTARound*`
+(`sdk/go/cmd/tfwctl/e2e_ota_round_test.go`) signs with a fresh key per test
+and gives `tfwsim` only the public half: an activated image boots on trial
+with the floor unmoved; an unconfirmed trial ends at the next reset in
+recovery, `TFW_ERR_BAD_STATE`, as this row has no `PREV`; an image below the
+floor is not taken and its `MARK` stays; an activation signed for another
+measurement is refused at the take and its `MARK` forgotten.
 
-- **The fallback flags.** The diagram's `flags: refused` and
-  `flags: fell back` (lines 159 and 161) are not written. The platform block
-  has a `flags` byte (`TFW_BOOT_EE_O_FLAGS`, `include/tfw/boot.h`), but no bit
-  for either is defined, and a refusal and a fallback both store `GOOD` with
-  `FAILED`, which `OTA_INFO` cannot tell apart.
+The fallback flags. The diagram's `flags: refused` and `flags: fell back`
+are the platform block's `flags` byte (`TFW_BOOT_EE_O_FLAGS`, inside the CRC)
+and `ota_state` `FAILED`. The one bit defined is `TFW_BOOT_EE_FLAG_REFUSED`
+(`include/tfw/boot.h`): the 328P's and 32U4's fall-back (`boot/boot_prev.c`)
+sets it when the restore followed a refusal at evaluation and clears it when
+it followed a trial left unconfirmed, in the same block write that stores
+`GOOD` with `FAILED` (`tfw_boot_platform_store_flags`, `boot/boot_store.c`).
+`OTA_INFO` reports it as flags bit 1 beside bit 0 (`src/core/ota_ctl.c`,
+`SlotRefused` in `sdk/go`), as decision 8 defines them; with `ota_state` not
+`FAILED` the bit is not reported. `test_boot_prev` pins both writes,
+`test_boot_settle` that the byte survives the block's CRC and a later store,
+and `test_ota_stage` the three answers. Two halves are still apart: `OTA_INFO`
+is linked only into a `BOOT_AB` image with the stager (`mk/firmware.mk`), the
+2560's, whose swap-back does not set the bit, so there bit 1 stays clear after
+a refusal too; and a 328P or 32U4 image, whose tfw-boot writes it, serves no
+`OTA_INFO`. Until one of them moves, only `tfwsim` reports bit 1.
 
 What runs of the trial's two layers: `tfw-boot` arms the watchdog at its
 longest period (8 s on AVR, `tfw_boot_watchdog_arm`) after `TRIAL` is written

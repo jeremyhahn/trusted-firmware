@@ -1,6 +1,6 @@
 # AVR Device Backend — Engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28) · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Moved from go-xkms `v0.51.0-alpha` (trusted-firmware#28) · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 Module: `github.com/jeremyhahn/trusted-firmware/xkms`, in `xkms/`, tagged
@@ -9,9 +9,10 @@ Module: `github.com/jeremyhahn/trusted-firmware/xkms`, in `xkms/`, tagged
 registers the backend with go-xkms and re-exports the `avr` surface (see below).
 
 The module sits above both of its dependencies. It imports go-xkms (Layer 3),
-pinned in `xkms/go.mod` to `github.com/jeremyhahn/go-xkms v0.55.0-alpha`, and
+pinned in `xkms/go.mod` to `github.com/jeremyhahn/go-xkms v0.57.0-alpha`, and
 `github.com/jeremyhahn/trusted-firmware/sdk/go` (Layer 0), required at
-`v0.3.0-alpha`. There is no `replace`. `sdk/go` is a separate module on purpose:
+`v0.4.0-alpha`. Neither is replaced; the file's one `replace` pins the
+third-party `github.com/armon/go-metrics`. `sdk/go` is a separate module on purpose:
 go-xkms and go-trusted-platform import it, so it cannot depend on this one.
 `make sdk-verify` keeps it free of in-house dependencies.
 
@@ -28,11 +29,11 @@ Raising the go-xkms requirement is likewise an edit to `xkms/go.mod`.
 | `Backend.Type() types.BackendType` | `"tfw"` (`avr.BackendType`), the type `xkms/register.go` registers through go-xkms's `RegisterExternalBackend`. Its keys' store type is `tfw` too, so their Key IDs read `tfw:...`. |
 | `NewKeyProvider(map[string]interface{}) (types.KeyProvider, error)` | The factory the registry calls. Reads `ConfigKeyDevice` (required `*tfw.Device`) and `ConfigKeyConfig` (optional `*Config`) from the map; a wrong type is `ErrInvalidFactoryConfig`. |
 | `Backend.PossessionSigner(*Attestation) (crypto.Signer, error)` | The signer that proves possession of the attested key during finalize. It asks the device for `Device.AttestCSR` and returns only a signature that verifies over the digest it was asked to sign, under the attested key; anything else is `ErrPossessionMismatch`. |
-| `Backend.Capabilities() types.Capabilities` | Answers from the cached `CAPS`. No I/O, no allocation. |
+| `Backend.Capabilities() types.Capabilities` | Answers from the cached `CAPS`. No I/O, no allocation. `Attestation` is true only when `CAPS` sets `FeatureAttest`, `FeatureAliasCert` and the ECDSA P-256 bit on a tier with a key. |
 | `Backend.Caps() tfw.Caps` | The device's `CAPS` reply verbatim. |
 | `Backend.AttestLevel() (types.AttestLevel, error)` | Derived from `Caps.CryptoTier` and nothing else. |
 | `Backend.Algorithms() Algorithms` | Derived from `Caps.Algorithms` and nothing else. |
-| `Backend.AttestKey(ctx, attrs, nonce) (interface{}, error)` | `*Attestation`. The nonce is 32 bytes from `deviceattest01.DICENonce`. |
+| `Backend.AttestKey(ctx, attrs, nonce) (interface{}, error)` | `*Attestation`. The nonce is 32 bytes from `deviceattest01.DICENonce`. Gates on the cached `CAPS` before any frame, agreeing with `Capabilities().Attestation`: no `FeatureAttest` is `ErrCommandUnavailable`; `FeatureAttest` without `FeatureAliasCert` and the P-256 bit is `ErrUnsupportedByDevice`. A full `CAPS` goes to the wire, and the device's refusal maps as for any command. |
 | `Backend.Identity(ctx) (*Identity, error)` | `PROV_INFO`: element serial, die revision, both zone lock states. Provisioning images only. |
 | `Backend.Health(ctx) (*Health, error)` | `SYS_INFO`: uptime, free RAM, reset cause. Not a clock. |
 | `Backend.GetKey(ctx, attrs) (crypto.PrivateKey, error)` | `*DeviceKey` carrying the element's public point. |

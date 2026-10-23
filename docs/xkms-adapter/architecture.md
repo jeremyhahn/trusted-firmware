@@ -1,6 +1,6 @@
 # AVR Device Backend — Architecture
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 ## The problem
@@ -104,6 +104,19 @@ onto it would fail at the moment it mattered most.
 Callers that want to know what the device can perform call `Backend.Algorithms`,
 which answers from the device's own capability bitmap.
 
+## Why `Capabilities.Attestation` reads `CAPS`
+
+go-xkms hands `Attestation` to its clients as it stands, so a `true` the part
+cannot honour is the same late failure as `Keys`. It is true only when four
+things in the `CAPS` reply agree: `FeatureAttest`, the firmware built with
+attestation at all; `FeatureAliasCert`, because `ATTEST_CERT` is compiled in
+only beside an asymmetric key; the ECDSA P-256 bit, the one alias signature
+algorithm `AttestKey` accepts; and a tier with a key. `FeatureAttest` alone does
+not count: it is the evidence frame, which an HMAC signer serves too. A firmware
+older than the algorithm bitmap claims no algorithm and so no attestation.
+`AttestKey` gates on the same answer (see
+[`AttestKey` gates on `CAPS`](#attestkey-gates-on-caps)).
+
 ## Attestation
 
 `AttestKey` asks the device to mint an alias certificate for a challenge —
@@ -193,3 +206,21 @@ no promise. An unknown tier reports `AttestLevelUnattested` and an error.
 host.** That would take a fleet down on a host upgrade alone. A newer minor is
 tolerated; an unknown tier attaches and degrades. Only a protocol **major**
 mismatch refuses, because past that the frames themselves may not parse.
+
+## `AttestKey` gates on `CAPS`
+
+Decided by the coordinator under ruling 109 and reported to Software. `AttestKey`
+answers from the cached `CAPS` before it builds a frame, so it agrees with
+`Capabilities().Attestation` and keeps the invariant that
+[a refusal costs no round trip](engineering.md#invariants). `CAPS` still says
+which refusal applies. With no `FeatureAttest` the firmware was built without
+the command: `ErrCommandUnavailable`, a build to change. With `FeatureAttest`
+but no `FeatureAliasCert`, P-256 bit or tier with a key: `ErrUnsupportedByDevice`,
+a part or tier to change. With a full `CAPS` the request goes to the wire and the
+device's own refusal maps as before, because `CAPS` is stale only across a
+reflash and a new backend reads it again. The tier with no key is still refused
+first (`ErrNoDeviceKey`). In `xkms/avr/attestation_test.go`,
+`TestAttestKeyRefusesWhereCAPSSaysTheDeviceCannotAttest` pins both pre-frame
+refusals with no request sent,
+`TestAttestKeyMapsTheDeviceRefusalWhereCAPSSaysItCan` pins the reflash case, and
+`TestAttestKeyRefusesWhenTheDeviceHasNoProvider` pins the no-key refusal.

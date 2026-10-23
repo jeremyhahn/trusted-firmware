@@ -339,7 +339,8 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 # The supported set, and it is short because the boot section is small. Each row
 # is a configuration that fits on that board; anything not listed is not
 # supported, and `make bootloader` and `make boot-flash` refuse it before they
-# build anything (below). `make bootloader-budget` measures any configuration.
+# build anything (below). `make bootloader-budget` measures any configuration;
+# `make bootloader-candidate` builds and sizes a row before it joins (below).
 #
 #   328P / 32U4  4 KB section  element hash + element verify, no OTA in boot
 #   2560         8 KB section  the same, plus OTA in boot or the external store
@@ -777,11 +778,52 @@ $(BOOT_TEST_DIR)/test_boot_prev_mutate: test/unit/boot/test_boot_prev_mutate.c b
                                         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The simavr harness's store select and UART, from each store board's profile:
+# the host board's (the 328P's), then the 2560's and the 32U4's. Each build is
+# told the answer from its part's data sheet: D8's port and bit, the USART the
+# application speaks on and its UCSRnA. The harness itself needs simavr and
+# runs only on CI's image.
+BOOT_HARNESS_IO_SRCS := test/unit/boot/test_boot_harness_io.c $(HOST_DIR)/unity.o
+BOOT_HARNESS_IO_CFLAGS = $(BOOT_TEST_CFLAGS) -Itest/integration/simavr
+BOOT_TEST_32U4_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/atmega32u4,\
+                          $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+
+$(BOOT_TEST_DIR)/test_boot_harness_io: $(BOOT_HARNESS_IO_SRCS) | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_HARNESS_IO_CFLAGS) -DEXPECT_STORE_CS_PORT="'B'" -DEXPECT_STORE_CS_BIT=0u \
+	   -DEXPECT_UART="'0'" -DEXPECT_UCSRA=0xC0u $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_harness_io_2560
+$(BOOT_TEST_DIR)/test_boot_harness_io_2560: $(BOOT_HARNESS_IO_SRCS) | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) -Itest/integration/simavr \
+	   -DEXPECT_STORE_CS_PORT="'H'" -DEXPECT_STORE_CS_BIT=5u \
+	   -DEXPECT_UART="'0'" -DEXPECT_UCSRA=0xC0u $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_harness_io_32u4
+$(BOOT_TEST_DIR)/test_boot_harness_io_32u4: $(BOOT_HARNESS_IO_SRCS) | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_32U4_CFLAGS) -Itest/integration/simavr \
+	   -DEXPECT_STORE_CS_PORT="'B'" -DEXPECT_STORE_CS_BIT=4u \
+	   -DEXPECT_UART="'1'" -DEXPECT_UCSRA=0xC8u $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The rows with no staging and no swap: the two stand-ins alone.
 $(BOOT_TEST_DIR)/test_boot_none_rows: test/unit/boot/test_boot_none_rows.c \
                                       boot/boot_stage_none.c boot/boot_swap_none.c \
                                       $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# tfw-boot's own main() on the host board's in-place row (#77), renamed here so
+# the suite's main() can call it: the order of the trial's writes, the
+# watchdog and the jump is tested in the file the device links, and nothing is
+# added to tfw-boot for it. Recovery and the CDI tier are the test's.
+$(BOOT_TEST_DIR)/test_boot_main: test/unit/boot/test_boot_main.c boot/boot_main.c \
+                                 boot/boot_policy.c boot/boot_store.c \
+                                 boot/boot_stage_none.c boot/boot_swap_none.c \
+                                 src/core/secure_zero.c test/mock/boot_verify_mock.c \
+                                 $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/avr $(EXTRA_CFLAGS) -c -Dmain=tfw_boot_main \
+	   -o $(BOOT_TEST_DIR)/boot_main_host.o boot/boot_main.c
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
+	   $(filter-out boot/boot_main.c,$(filter %.c %.o,$^)) $(BOOT_TEST_DIR)/boot_main_host.o \
+	   $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/%: test/unit/boot/%.c $(BOOT_LOGIC_SRCS) \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
@@ -871,9 +913,10 @@ bootloader-budget:
 	   $(BOOT_MEAS_DIR)/sig.su 2>/dev/null || true
 
 ## boot-core-size: tfw-boot WITHOUT a signature backend, linked and measured
-# NOT A BOOTLOADER AND NOT FLASHABLE. tfw_boot_verify and tfw_boot_pubkey are
-# resolved to address zero by --defsym, so this image would jump into the reset
-# vector instead of verifying anything. It exists to answer one question
+# NOT A BOOTLOADER AND NOT FLASHABLE. tfw_boot_verify, tfw_boot_pubkey and
+# tfw_boot_cose_alg (which the store row's boot_cose.c reads) are resolved to
+# address zero by --defsym, so this image would jump into the reset vector
+# instead of verifying anything. It exists to answer one question
 # precisely: how much of the boot section everything EXCEPT the signature
 # primitive occupies, and therefore how much budget a primitive has to fit in.
 #
@@ -896,6 +939,7 @@ boot-core-size:
 	@$(ARCH_CC) $(ARCH_LDFLAGS) $(ARCH_BOOT_START_LDFLAGS) $(BOOT_OPT_EXTRA) \
 	   $(if $(ARCH_BOOT_STACK_TOP),-Wl$(BOOT_COMMA)--defsym=__stack=$(ARCH_BOOT_STACK_TOP)) \
 	   -Wl,--defsym=tfw_boot_verify=0 -Wl,--defsym=tfw_boot_pubkey=0 \
+	   -Wl,--defsym=tfw_boot_cose_alg=0 \
 	   -o $(BOOT_MEAS_DIR)/core.elf $(BOOT_MEAS_DIR)/lto_*.o
 	@flash=$$($(ARCH_SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$1+$$2}'); \
 	 ram=$$($(ARCH_SIZE) --format=berkeley $(BOOT_MEAS_DIR)/core.elf | awk 'NR==2{print $$2+$$3}'); \
@@ -926,8 +970,8 @@ bootloader-reproducible:
 # name the board's supported row (above); a row named by hand that is not one
 # is refused here rather than stopping at the link.
 # The targets that measure a configuration rather than ship it --
-# bootloader-budget, boot-core-size -- are not refused: they exist for the rows
-# that do not fit.
+# bootloader-budget, boot-core-size, bootloader-candidate -- are not refused:
+# they exist for the rows that do not fit.
 BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA):$(BOOT_STORE)
 BOOT_FITS := $(filter $(BOARD):%,$(BOOT_SUPPORTED))
 # A literal comma, which $(if) would otherwise read as its argument separator.
@@ -938,6 +982,50 @@ ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
 $(error $(BOOT_GATED_GOAL): $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows$(BOOT_COMMA) which fit$(BOOT_COMMA) are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
 endif
 endif
+
+## bootloader-candidate: measure a row that is not in BOOT_SUPPORTED yet
+# BOOT_CANDIDATE=<board>:<tier>:<measure>:<sig>:<ota>:<store>, the six fields of
+# a BOOT_SUPPORTED row. Builds tfw-boot for it, as boot-size-check does, and
+# prints its size against the board's boot section; an image that does not fit
+# stops at the link with ld's own "overflowed by N bytes" and boot-core-size.
+# It adds no row: a row joins BOOT_SUPPORTED by hand, once this has measured it
+# on CI's image and bootloader-check passes it. Exit 0 is "fits", 1 "does not".
+#
+# The rows it exists for (#52, docs/ota/architecture.md): the 328P's and the
+# 32U4's restore from PREV in the store,
+#   make bootloader-candidate BOOT_CANDIDATE=atmega328p:atecc608a:atecc608a:atecc608a:0:1
+#   make bootloader-candidate BOOT_CANDIDATE=atmega32u4:atecc608a:atecc608a:atecc608a:0:1
+#
+# The candidate is checked before anything is built: six fields, a board with
+# a profile, and not a row already (bootloader-check builds those).
+BOOT_CANDIDATE ?=
+BOOT_CAND_FIELDS := $(subst :, ,$(BOOT_CANDIDATE))
+BOOT_CAND_BOARD  := $(word 1,$(BOOT_CAND_FIELDS))
+ifneq ($(filter bootloader-candidate,$(MAKECMDGOALS)),)
+ifneq ($(words $(BOOT_CAND_FIELDS)),6)
+$(error bootloader-candidate: BOOT_CANDIDATE="$(BOOT_CANDIDATE)" is not a row. Name six fields, BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE, e.g. BOOT_CANDIDATE=atmega328p:atecc608a:atecc608a:atecc608a:0:1)
+endif
+ifeq ($(wildcard boards/$(BOOT_CAND_BOARD)/profile.mk),)
+$(error bootloader-candidate: no such board "$(BOOT_CAND_BOARD)" -- expected boards/$(BOOT_CAND_BOARD)/profile.mk, one of: $(notdir $(wildcard boards/*)))
+endif
+ifneq ($(filter $(BOOT_CANDIDATE),$(BOOT_SUPPORTED)),)
+$(error bootloader-candidate: $(BOOT_CANDIDATE) is already in BOOT_SUPPORTED; make bootloader-check builds it)
+endif
+endif
+BOOT_CAND_VARS = BOARD=$(BOOT_CAND_BOARD) BOOT_TIER=$(word 2,$(BOOT_CAND_FIELDS)) \
+                 BOOT_MEASURE=$(word 3,$(BOOT_CAND_FIELDS)) BOOT_SIG=$(word 4,$(BOOT_CAND_FIELDS)) \
+                 BOOT_OTA=$(word 5,$(BOOT_CAND_FIELDS)) BOOT_STORE=$(word 6,$(BOOT_CAND_FIELDS))
+
+bootloader-candidate:
+	@if $(MAKE) --no-print-directory boot-size-check $(BOOT_CAND_VARS) && \
+	    $(MAKE) --no-print-directory boot-load-end-check $(BOOT_CAND_VARS); then \
+	   echo "CANDIDATE FITS: $(BOOT_CANDIDATE) -- not a row until it is in BOOT_SUPPORTED"; \
+	 else \
+	   echo "CANDIDATE DOES NOT FIT: $(BOOT_CANDIDATE)"; exit 1; \
+	 fi
+
+.PHONY: bootloader-candidate
+
 ifneq ($(filter boot-flash,$(MAKECMDGOALS)),)
 ifeq ($(and $(BOOT_EESAVE_FUSE),$(BOOT_EESAVE_BIT)),)
 $(error boot-flash: boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so boot-flash cannot check that the chip erase keeps the EEPROM)
@@ -992,10 +1080,13 @@ BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a 
                   BOOT_STORE=0
 
 # The harness's half that names the store's PREV (#52): only a board whose
-# profile has one links it; the 2560, which falls back to its secondary slot,
-# links the stub, and the harness's prev row fails there.
+# profile has one links it, the board that tfw-boot's store row gives
+# boot_prev.c above: an OTA_STORE and one slot (no BOOT_AB). A two-slot board,
+# which falls back to its secondary, links the stub, and the harness's prev row
+# fails there.
+BOOT_INT_HAS_PREV := $(if $(OTA_STORE),$(if $(filter 1,$(BOOT_AB)),,1))
 BOOT_INT_PREV_SRC := test/integration/simavr/boot_harness_prev_none.c
-ifneq ($(filter atmega328p atmega32u4,$(BOARD)),)
+ifeq ($(BOOT_INT_HAS_PREV),1)
 BOOT_INT_PREV_SRC := test/integration/simavr/boot_harness_prev.c
 endif
 
@@ -1084,6 +1175,25 @@ integration-test-boot:
 	@$(MAKE) --no-print-directory boot-harness-run \
 	   BOARD=$(BOOT_INT_BOARD) $(BOOT_INT_SOFT_ROW) ETH=0 BOOT_HARNESS_MODE=soft
 
+## integration-test-boot-prev: BOARD's BOOT_STORE=1 restore from PREV under simavr (#52)
+# The harness's prev row: an unconfirmed trial and a refused pending image each
+# copy PREV back, GOOD FAILED, and a corrupt PREV halts. Not in
+# integration-test-boot, so not in CI: the row is not in BOOT_SUPPORTED until
+# its size is measured, and boot-harness-run builds it without that gate.
+#
+# For the board the caller names, a one-slot board with a store (the 328P, the
+# 32U4). Nothing here names one: the profile supplies the store's select
+# (TFW_OTA_STORE_CS_IO), the UART (TFW_UART_N) and the simavr core (MCU), and a
+# board without PREV is refused before anything is built.
+ifneq ($(filter integration-test-boot-prev,$(MAKECMDGOALS)),)
+ifneq ($(BOOT_INT_HAS_PREV),1)
+$(error integration-test-boot-prev: $(BOARD) has no PREV in a store (boards/$(BOARD)/profile.mk: $(if $(OTA_STORE),BOOT_AB=1$(BOOT_COMMA) it falls back to its secondary slot,no OTA_STORE)). Name a one-slot board with a store: BOARD=<board>)
+endif
+endif
+integration-test-boot-prev:
+	@$(MAKE) --no-print-directory boot-harness-run \
+	   BOARD=$(BOARD) $(BOOT_INT_STORE_ROW) ETH=0 BOOT_HARNESS_MODE=prev
+
 # The same store row from the host (#75): the application built with the stager
 # (OTA_STAGE=1, mk/firmware.mk), the harness in its bridge mode, and the Go SDK
 # staging into it over the emulated UART. The test starts the harness itself.
@@ -1098,7 +1208,7 @@ boot-bridge-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
 boot-harness-run: $(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf
 	@./$(BOOT_INT_DIR)/boot_harness $(BOOT_TARGET).elf $(TARGET).elf $(BOOT_HARNESS_MODE)
 
-.PHONY: integration-test-boot boot-harness-run boot-bridge-run
+.PHONY: integration-test-boot integration-test-boot-prev boot-harness-run boot-bridge-run
 
 # tfw_boot_measure through the boot HAL flash on the ESP32 measure (#163).
 $(BOOT_TEST_DIR)/test_boot_measure_esp32_flash: test/unit/boot/test_boot_measure_esp32_flash.c $(ESP_SHA_HOST) \

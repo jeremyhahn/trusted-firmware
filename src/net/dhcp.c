@@ -334,19 +334,34 @@ static uint8_t fixed(uint16_t i, uint8_t b, const tfw_netcfg_t *cfg, reply_t *r)
 /* Where an option's value goes, and the bit its length earns, or NULL. */
 static uint8_t *slot(reply_t *r, uint8_t code, uint8_t len, uint8_t *bit)
 {
+    /* An option of the wrong length (RFC 2132 3.3, 3.5, 9.2, 9.7: 4 octets,
+     * the router list a multiple of 4) is ignored whole: no slot, so nothing
+     * is stored and an earlier good copy keeps its value and its got-bit. */
     *bit = 0u;
     switch (code) {
     case OPT_SERVER:
-        *bit = (len == 4u) ? GOT_SERVER : 0u;
+        if (len != 4u) {
+            return 0;
+        }
+        *bit = GOT_SERVER;
         return r->server;
     case OPT_LEASE:
-        *bit = (len == 4u) ? GOT_LEASE : 0u;
+        if (len != 4u) {
+            return 0;
+        }
+        *bit = GOT_LEASE;
         return r->lease;
     case OPT_MASK:
-        *bit = (len == 4u) ? GOT_MASK : 0u;
+        if (len != 4u) {
+            return 0;
+        }
+        *bit = GOT_MASK;
         return r->mask;
     case OPT_ROUTER:                                       /* the first router */
-        *bit = (len >= 4u && (len & 3u) == 0u) ? GOT_ROUTER : 0u;
+        if (len < 4u || (len & 3u) != 0u) {
+            return 0;
+        }
+        *bit = GOT_ROUTER;
         return r->router;
     case OPT_TYPE:
         return &r->type;

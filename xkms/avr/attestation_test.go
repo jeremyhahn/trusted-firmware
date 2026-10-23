@@ -344,6 +344,59 @@ func TestInitAttestationRefusesATrustStoreItCannotLoad(t *testing.T) {
 	assert.ErrorIs(t, err, ErrTrustStoreInit)
 }
 
+// failingRoots is a store whose reads fail as go-xkms's does once closed.
+type failingRoots struct {
+	poolErr  error
+	countErr error
+}
+
+func (f failingRoots) CertPool() (*x509.CertPool, error) {
+	if f.poolErr != nil {
+		return nil, f.poolErr
+	}
+	return x509.NewCertPool(), nil
+}
+
+func (f failingRoots) Count() (int, error) { return 0, f.countErr }
+
+// anchoringBackend is a Backend as initAttestation leaves it just before it
+// reads the roots.
+func anchoringBackend() *Backend {
+	cfg := testConfig()
+	cfg.Attestation = &AttestationConfig{TrustStore: &truststore.Config{}}
+	return &Backend{config: cfg, logger: cfg.Logger}
+}
+
+func TestAnchorRootsRefusesAStoreThatCannotBeRead(t *testing.T) {
+	closed := truststore.ErrStoreClosed
+	for _, tc := range []struct {
+		name      string
+		store     failingRoots
+		wantRoots bool
+	}{
+		{"cert pool fails", failingRoots{poolErr: closed}, false},
+		{"count fails", failingRoots{countErr: closed}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := anchoringBackend()
+
+			err := b.anchorRoots(tc.store)
+
+			require.ErrorIs(t, err, ErrTrustStoreInit)
+			assert.ErrorIs(t, err, closed, "the store's own error stays reachable")
+			assert.Equal(t, tc.wantRoots, b.roots != nil)
+		})
+	}
+}
+
+func TestAnchorRootsTakesThePoolTheStoreReturns(t *testing.T) {
+	b := anchoringBackend()
+
+	require.NoError(t, b.anchorRoots(failingRoots{}))
+
+	assert.NotNil(t, b.roots)
+}
+
 func TestInitAttestationRefusesAnUnparseableIntermediate(t *testing.T) {
 	cfg := testConfig()
 	cfg.Attestation = &AttestationConfig{Intermediates: [][]byte{[]byte("not a certificate")}}
@@ -356,31 +409,73 @@ func TestInitAttestationRefusesAnUnparseableIntermediate(t *testing.T) {
 
 // ------------------------------------------------------------- the device refuses
 
-// A software-tier device knows exactly what a certificate is and has no public
-// half to certify, so it answers "unsupported" -- which is a DIFFERENT fact
-// from "unknown command", and the difference tells an operator whether to
-// change the build or change the part.
-func TestAttestKeySurfacesASoftwareTierDeviceAsUnsupported(t *testing.T) {
-	link := newFakeLink().answer(tfw.CmdCaps,
-		capsPayload(tfw.CryptoSoftware, tfw.FeatureAttest, tfw.AlgECDSAP256SHA256))
-	link.refuse(tfw.CmdAttestCert, tfw.StatusErrUnsupported)
-	b := newTestBackend(t, link)
+// AttestKey answers from the cached CAPS before it builds a frame, so it agrees
+// with Capabilities().Attestation and costs no round trip. The two refusals
+// stay distinct because CAPS already says which applies: no attestation
+// command is a build to change, the command without an alias certificate is a
+// part or tier to change.
+func TestAttestKeyRefusesWhereCAPSSaysTheDeviceCannotAttest(t *testing.T) {
+	tests := []struct {
+		name    string
+		caps    []byte
+		want    error
+		notWant error
+	}{
+		{"firmware without the command",
+			capsPayload(tfw.CryptoSecureElement, tfw.FeatureAliasCert, tfw.AlgECDSAP256SHA256),
+			ErrCommandUnavailable, ErrUnsupportedByDevice},
+		{"software tier without the alias certificate",
+			capsPayload(tfw.CryptoSoftware, tfw.FeatureAttest, tfw.AlgECDSAP256SHA256),
+			ErrUnsupportedByDevice, ErrCommandUnavailable},
+		{"no P-256 signer",
+			capsPayload(tfw.CryptoSoftware, tfw.FeatureAttest|tfw.FeatureAliasCert, tfw.AlgHMACSHA256),
+			ErrUnsupportedByDevice, ErrCommandUnavailable},
+	}
 
-	_, err := b.AttestKey(context.Background(),
-		&types.KeyAttributes{CN: DefaultKeyCN}, make([]byte, tfw.AliasNonceLen))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			link := newFakeLink().answer(tfw.CmdCaps, tt.caps)
+			b := newTestBackend(t, link)
+			before := len(link.requests)
 
-	require.ErrorIs(t, err, ErrUnsupportedByDevice)
-	assert.NotErrorIs(t, err, ErrCommandUnavailable)
+			_, err := b.AttestKey(context.Background(),
+				&types.KeyAttributes{CN: DefaultKeyCN}, make([]byte, tfw.AliasNonceLen))
+
+			require.ErrorIs(t, err, tt.want)
+			assert.NotErrorIs(t, err, tt.notWant)
+			assert.False(t, b.Capabilities().Attestation, "the gate and the flag agree")
+			assert.Len(t, link.requests, before, "a refusal CAPS predicts costs no round trip")
+		})
+	}
 }
 
-func TestAttestKeyReportsAFirmwareWithoutTheCommand(t *testing.T) {
-	link := secureElementLink() // no ATTEST_CERT entry: answered ErrUnknownCmd
-	b := newTestBackend(t, link)
+// CAPS can be stale only across a reflash. A device whose CAPS says it can
+// attest still goes to the wire, and its own refusal maps as it always has.
+func TestAttestKeyMapsTheDeviceRefusalWhereCAPSSaysItCan(t *testing.T) {
+	tests := []struct {
+		name   string
+		status tfw.Status
+		want   error
+	}{
+		{"unsupported", tfw.StatusErrUnsupported, ErrUnsupportedByDevice},
+		{"unknown command", tfw.StatusErrUnknownCmd, ErrCommandUnavailable},
+	}
 
-	_, err := b.AttestKey(context.Background(),
-		&types.KeyAttributes{CN: DefaultKeyCN}, make([]byte, tfw.AliasNonceLen))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			link := secureElementLink().refuse(tfw.CmdAttestCert, tt.status)
+			b := newTestBackend(t, link)
+			require.True(t, b.Capabilities().Attestation)
+			before := len(link.requests)
 
-	assert.ErrorIs(t, err, ErrCommandUnavailable)
+			_, err := b.AttestKey(context.Background(),
+				&types.KeyAttributes{CN: DefaultKeyCN}, make([]byte, tfw.AliasNonceLen))
+
+			require.ErrorIs(t, err, tt.want)
+			assert.Greater(t, len(link.requests), before, "a full CAPS reaches the wire")
+			assert.Equal(t, tfw.CmdAttestCert, link.requests[len(link.requests)-1].Cmd())
+		})
+	}
 }
 
 func TestAttestKeyReportsAnUnprovisionedDevice(t *testing.T) {

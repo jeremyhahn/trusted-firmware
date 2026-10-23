@@ -94,3 +94,38 @@ func TestMainExitCodes(t *testing.T) {
 		})
 	}
 }
+
+// --bake-netblock --dhcp leases the address, mask and gateway, so the binary
+// refuses each of them beside it, exits 1 and writes no image.
+func TestMainBakeNetblockDHCPRefusesAStaticAddress(t *testing.T) {
+	const refusal = "--dhcp leases the address, mask and gateway; --ip, --mask and --gateway go without it"
+	for _, extra := range [][]string{
+		{"--ip", "198.51.100.22/24"},
+		{"--mask", "255.255.255.0"},
+		{"--gateway", "198.51.100.1"},
+	} {
+		t.Run(extra[0], func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "net.eep")
+			args := append([]string{"--bake-netblock", "--dhcp", "--mac", "02:00:00:00:00:16",
+				"--endpoint", "198.51.100.1:7020", "--out", out}, extra...)
+			code, first := runMain(t, args...)
+			if code != 1 {
+				t.Errorf("exit code = %d, want 1", code)
+			}
+			if !strings.HasPrefix(first, "tfwprov: ") || !strings.Contains(first, refusal) {
+				t.Errorf("stderr first line = %q, want the refusal %q", first, refusal)
+			}
+			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s: stat err %v, want no image written", out, err)
+			}
+		})
+	}
+	out := filepath.Join(t.TempDir(), "net.eep")
+	if code, first := runMain(t, "--bake-netblock", "--dhcp", "--mac", "02:00:00:00:00:16",
+		"--endpoint", "198.51.100.1:7020", "--out", out); code != 0 {
+		t.Fatalf("--bake-netblock --dhcp alone: exit %d, stderr %q", code, first)
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatalf("--bake-netblock --dhcp alone wrote no image: %v", err)
+	}
+}

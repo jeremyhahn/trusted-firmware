@@ -39,7 +39,8 @@
  * (erased flash among them) is TFW_ERR_RANGE, and the rest is tfw_suit_gate's
  * -- signature or digest TFW_ERR_CRYPTO, vendor, class or board
  * TFW_ERR_UNSUPPORTED, size TFW_ERR_RANGE, a sequence that is not the
- * trailer's version TFW_ERR_PROTECTED_REGION. A trailer that does not fit the
+ * trailer's version or is below the platform block's rollback floor
+ * TFW_ERR_PROTECTED_REGION. A trailer that does not fit the
  * slot is TFW_ERR_RANGE before anything is read. TFW_OK fills *out; a refusal
  * may have filled it too, and the caller boots nothing on one.
  */

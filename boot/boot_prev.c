@@ -10,7 +10,8 @@
  * boot_swap_none.c on a board without BOOT_AB whose row reads the store
  * (mk/boot.mk). An ended trial at reset, and a pending image the gate
  * refuses, copy PREV back and end the round GOOD with FAILED, as the 2560's
- * swap back does (tfw_boot_trial_fall_back). Nothing is ever swapped in:
+ * swap back does (tfw_boot_trial_fall_back), the refusal with the block's
+ * TFW_BOOT_EE_FLAG_REFUSED set and the ended trial with it clear. Nothing is ever swapped in:
  * boot_stage.c's copy already put the staged image in the region.
  *
  * PREV is laid out as the region itself, its trailer at the end, so the
@@ -32,7 +33,10 @@
 
 #define PREV ((uint32_t)TFW_OTA_STORE_PREV_ADDR)
 
-tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
+/* `flags` says which fall-back this is (TFW_BOOT_EE_FLAG_REFUSED or 0),
+ * written with the block, so OTA_INFO tells a refusal from a trial that
+ * ended unconfirmed (ADR decision 8). */
+static tfw_status_t fall_back(tfw_boot_platform_t *p, uint8_t flags)
 {
     /* In RAM only, until PREV is back: a copy that fails stores nothing, and
      * main() then halts with the block as it was found. */
@@ -42,15 +46,22 @@ tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
         st = tfw_boot_stage_copy(PREV, TFW_BOOT_MAX_IMAGE_LEN);
     }
     if (st == TFW_OK) {
-        tfw_boot_platform_store(p);
+        tfw_boot_platform_store_flags(p, flags);
     }
     return st;
+}
+
+/* main() and the recovery session call this after the gate refused the
+ * image in the region: a refusal. */
+tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
+{
+    return fall_back(p, TFW_BOOT_EE_FLAG_REFUSED);
 }
 
 tfw_boot_reset_action_t tfw_boot_swap_at_reset(tfw_boot_platform_t *p,
                                                tfw_boot_reset_action_t act)
 {
-    if (act == TFW_BOOT_RESET_FAIL && tfw_boot_swap_fall_back(p) == TFW_OK) {
+    if (act == TFW_BOOT_RESET_FAIL && fall_back(p, 0u) == TFW_OK) {
         act = TFW_BOOT_RESET_BOOT;
     }
     return act;

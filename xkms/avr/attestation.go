@@ -149,6 +149,22 @@ func (b *Backend) AttestKey(ctx context.Context, attrs *types.KeyAttributes, non
 	if !b.hasDeviceKey() {
 		return nil, ErrNoDeviceKey
 	}
+	// The cached CAPS answers before a frame does, so AttestKey agrees with
+	// Capabilities().Attestation and sends nothing it knows will be refused.
+	// It keeps the distinction the device's own answer would give: no
+	// attestation command is a build to change, the command without an alias
+	// certificate on a P-256 signer is a part or tier to change. CAPS can be
+	// stale only across a reflash, and then the device's refusal still maps
+	// below.
+	if !b.caps.Has(tfw.FeatureAttest) {
+		return nil, &errs.Detail{Err: ErrCommandUnavailable, Detail: "CAPS reports no attestation command"}
+	}
+	if !b.canAttest() {
+		return nil, &errs.Detail{
+			Err:    ErrUnsupportedByDevice,
+			Detail: "CAPS reports no alias certificate on an ECDSA P-256 signer",
+		}
+	}
 
 	// Held across the WHOLE of AttestCert, which is several Do calls: the
 	// device regenerates its pages for each nonce and keeps no copy, so a

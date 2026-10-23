@@ -411,6 +411,11 @@ tfw_status_t tfw_suit_gate(tfw_boot_platform_t *p, const tfw_boot_trailer_t *tr,
     if (st == TFW_OK) {
         st = hold(&m, tr, staged_digest, staged_len);
     }
+    /* Refused before activation, not first at the next reset: a sequence
+     * below the platform's floor is a rollback whatever the trailer says. */
+    if (st == TFW_OK && m.seq < p->rollback_floor) {
+        st = TFW_ERR_PROTECTED_REGION;
+    }
     p->ota_state = (st == TFW_OK) ? TFW_BOOT_OTA_VERIFIED : TFW_BOOT_OTA_FAILED;
     return st;
 }

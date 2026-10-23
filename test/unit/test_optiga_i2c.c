@@ -84,6 +84,11 @@
 #define CTL_SEQ3  0xE0, 0x00, 0x00, 0x09, 0xA1
 #define D_EMPTY   0x00, 0x00, 0x00, 0x00, 0x00
 #define D_RESYNC  0x40, 0x00, 0x01, 0x00, 0x0F, 0x6F
+/* The response as frame 0 carrying a NAK of frame 0 (SEQ 01), not an ACK. */
+#define A0_NAK0   0x20, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x02, 0xCA, 0xFE, 0xAC, 0x28
+/* Inside the chain MA0 began: a MID short of full, and a LAST of PCTR alone. */
+#define MA1_SHORT 0x04, 0x00, 0x03, 0x02, 0xCA, 0xFE, 0xA9, 0xF2
+#define MA1_BARE  0x04, 0x00, 0x01, 0x04, 0x2D, 0x10
 
 static const uint8_t apdu[] = { 0x01, 0x00, 0x00, 0x02, 0xE0, 0xE0 };
 static const uint8_t reply[] = { 0x00, 0x00, 0x00, 0x02, 0xCA, 0xFE };
@@ -108,6 +113,7 @@ static uint8_t       reg;          /* the register address last written; 0 after
 static uint16_t      reg_len;      /* what the element reads back from DATA_REG_LEN */
 static uint16_t      asked;        /* what the host wrote to DATA_REG_LEN */
 static unsigned      nacks;        /* accesses to refuse before answering */
+static unsigned      lost_at;      /* the access, from 1, from which all are refused */
 static unsigned      xfers;
 static unsigned      idle_polls;   /* I2C_STATE reads with nothing ready */
 static uint32_t      init_hz;
@@ -125,6 +131,9 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
     TEST_ASSERT_EQUAL_HEX8(0x30u, addr7);
     TEST_ASSERT_TRUE_MESSAGE(wlen == 0u || rlen == 0u, "a repeated start");
     xfers++;
+    if (lost_at && xfers >= lost_at) {
+        return TFW_ERR_NACK;
+    }
     if (at < steps && script[at].dir == 'X') {
         return TFW_ERR_NACK;
     }
@@ -256,6 +265,7 @@ void setUp(void)
     reg_len    = 64u;
     asked      = 0u;
     nacks      = 0u;
+    lost_at    = 0u;
     xfers      = 0u;
     idle_polls = 0u;
     init_hz    = 0u;
@@ -638,6 +648,81 @@ static void test_a_lost_bus_returns_its_status_at_every_access(void)
     }
 }
 
+static void test_open_lost_after_the_length_write_stays_closed(void)
+{
+    /* Access 1 writes DATA_REG_LEN; 2 and 3 read it back; 4 sends the resync. */
+    static const unsigned lost[] = { 2u, 3u, 4u };
+
+    for (unsigned i = 0u; i < sizeof lost / sizeof lost[0]; i++) {
+        setUp();
+        reg_len = 64u;
+        lost_at = lost[i];
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_NACK, tfw_optiga_open());
+        TEST_ASSERT_EQUAL_UINT16(64u, asked);
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, exchange(sizeof rsp));
+    }
+}
+
+static void test_ready_with_no_length_is_polled_again(void)
+{
+    static const step_t s[] = { W(Q0), S(0u), R(ACK0), R(A0), W(ACK0) };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, exchange(sizeof rsp));
+    played();
+    got_reply();
+}
+
+static void test_acks_for_no_frame_in_flight_repeat_the_frame(void)
+{
+    /* ACK of frame 1 while frame 0 is in flight is discarded (Table 3-3);
+     * four in a row exhaust the waits and the frame goes again unchanged. */
+    static const step_t s[] = {
+        W(Q0), R(ACK1), R(ACK1), R(ACK1), R(ACK1),
+        W(Q0), R(ACK0), R(A0), W(ACK0),
+    };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, exchange(sizeof rsp));
+    played();
+    got_reply();
+}
+
+static void test_an_answer_that_naks_the_question_is_refused(void)
+{
+    static const step_t s[] = { W(Q0), R(A0_NAK0), W(ACK0), W(RESYNC) };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, exchange(sizeof rsp));
+    played();
+}
+
+static void test_a_short_middle_or_an_empty_last_is_refused(void)
+{
+    static const step_t mid[] = {
+        W(Q0), R(ACK0), R(MA0), W(ACK0), R(MA1_SHORT), W(ACK1),
+        W(Q1_CERR1), R(ACK1), W(RESYNC),
+    };
+    static const step_t last[] = {
+        W(Q0), R(ACK0), R(MA0), W(ACK0), R(MA1_BARE), W(ACK1),
+        W(Q1_CERR1), R(ACK1), W(RESYNC),
+    };
+
+    open_at(16u);
+    PLAY(mid);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, exchange(sizeof rsp));
+    played();
+
+    setUp();
+    open_at(16u);
+    PLAY(last);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, exchange(sizeof rsp));
+    played();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -667,5 +752,10 @@ int main(void)
     RUN_TEST(test_an_answer_that_acknowledges_no_question_is_refused);
     RUN_TEST(test_an_answer_before_the_request_is_whole_is_refused);
     RUN_TEST(test_a_lost_bus_returns_its_status_at_every_access);
+    RUN_TEST(test_open_lost_after_the_length_write_stays_closed);
+    RUN_TEST(test_ready_with_no_length_is_polled_again);
+    RUN_TEST(test_acks_for_no_frame_in_flight_repeat_the_frame);
+    RUN_TEST(test_an_answer_that_naks_the_question_is_refused);
+    RUN_TEST(test_a_short_middle_or_an_empty_last_is_refused);
     return UNITY_END();
 }

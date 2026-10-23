@@ -286,6 +286,18 @@ static void test_a_block_asking_for_dhcp_stays_down_without_the_client(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_frame_status(&rxf));
 }
 
+/* Without the client no lease ever falls due, and a renewal of the block's own
+ * addresses succeeds: link_eth.c drops a live connection on a failed renewal,
+ * so anything else here would take a static link down. */
+static void test_without_the_client_nothing_falls_due_and_renewal_keeps_the_link(void)
+{
+    tfw_netcfg_t c;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_decode(NETCFG, &c));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&c));
+}
+
 static void test_the_block_from_eeprom_is_what_the_controller_is_given(void)
 {
     provision();
@@ -294,6 +306,50 @@ static void test_the_block_from_eeprom_is_what_the_controller_is_given(void)
     TEST_ASSERT_EQUAL_UINT16(7020u, eth.cfg.port);
     TEST_ASSERT_EQUAL_UINT8(20u, eth.cfg.peer[3]);
     TEST_ASSERT_TRUE(eth.port >= 49152u);
+}
+
+/* Address, MAC and endpoint are configuration, never a literal in src/: a
+ * second block, different from NETCFG in every field, reaches the controller
+ * whole, and the next block written replaces it whole. */
+static void test_every_field_the_controller_is_given_comes_from_the_block(void)
+{
+    static const uint8_t mac[6] = { 0x06u, 0x11u, 0x22u, 0x33u, 0x44u, 0x55u };
+    static const uint8_t ip[4] = { 198u, 51u, 100u, 7u }, mask[4] = { 255u, 255u, 0u, 0u };
+    static const uint8_t gw[4] = { 198u, 51u, 100u, 254u }, peer[4] = { 203u, 0u, 113u, 9u };
+    uint8_t  b[TFW_NETCFG_LEN];
+    uint16_t crc;
+
+    memcpy(b, NETCFG, sizeof b);
+    memcpy(&b[6], mac, 6u);
+    memcpy(&b[12], ip, 4u);
+    memcpy(&b[16], mask, 4u);
+    memcpy(&b[20], gw, 4u);
+    memcpy(&b[24], peer, 4u);
+    b[28] = 0x9Cu; b[29] = 0x41u;                                  /* port 40001 */
+    crc = tfw_crc16(b, 30u); b[30] = (uint8_t)crc; b[31] = (uint8_t)(crc >> 8);
+    memcpy(&tfw_mock_eeprom()[TFW_NETCFG_ADDR], b, sizeof b);
+
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mac, eth.cfg.mac, 6u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ip, eth.cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(mask, eth.cfg.mask, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(gw, eth.cfg.gateway, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(peer, eth.cfg.peer, 4u);
+    TEST_ASSERT_EQUAL_UINT16(40001u, eth.cfg.port);
+
+    eth.state = TFW_ETH_DOWN;                                      /* the attempt fails */
+    tfw_link_poll();
+    provision();
+    tfw_mock_advance(LONGEST_BACKOFF_MS + 1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(2u, eth.starts);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&NETCFG[6], eth.cfg.mac, 6u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&NETCFG[12], eth.cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&NETCFG[16], eth.cfg.mask, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&NETCFG[20], eth.cfg.gateway, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&NETCFG[24], eth.cfg.peer, 4u);
+    TEST_ASSERT_EQUAL_UINT16(7020u, eth.cfg.port);
 }
 
 /* A provisioned block behind an EEPROM that refuses the read is no block:
@@ -564,6 +620,35 @@ static void test_an_update_command_past_0x6b_is_answered_unknown_over_ethernet(v
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&rxf));
 }
 
+/* Every id off the allow-list, not a sample: each is answered over Ethernet
+ * with TFW_ERR_UNKNOWN_CMD and no payload, and the connection stays up. */
+static void test_every_id_off_the_list_is_answered_unknown_over_ethernet(void)
+{
+    static const uint8_t admitted[] = { 0x00u, 0x06u, 0x60u, 0x63u, 0x64u,
+                                        0x68u, 0x69u, 0x6Au, 0x6Bu };
+    unsigned id, i, on, refused = 0u;
+
+    connect_up();
+    for (id = 0u; id <= 0x7Fu; id++) {
+        on = 0u;
+        for (i = 0u; i < sizeof admitted; i++) {
+            on |= (unsigned)(admitted[i] == id);
+        }
+        if (on) {
+            continue;
+        }
+        TEST_ASSERT_EQUAL_UINT16(eth.in_len, eth.in_pos);      /* the last frame was read */
+        eth.in_len = 0u;                                       /* reuse the mock's buffer */
+        eth.in_pos = 0u;
+        TEST_ASSERT_TRUE_MESSAGE(over_eth((uint8_t)(id + 1u), (uint8_t)id, 0, 0u), "no answer");
+        TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_UNKNOWN_CMD, tfw_frame_status(&rxf), "refused id answered otherwise");
+        TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&rxf));
+        refused++;
+    }
+    TEST_ASSERT_EQUAL_UINT(0x80u - sizeof admitted, refused);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(NETCFG, &tfw_mock_eeprom()[TFW_NETCFG_ADDR], TFW_NETCFG_LEN);
+}
+
 /* ATTEST over Ethernet reaches the attestation module: whatever it answers,
  * it is not "unknown command". */
 static void test_attest_over_ethernet_reaches_the_attestation_module(void)
@@ -584,7 +669,9 @@ int main(void)
     RUN_TEST(test_a_damaged_or_incomplete_block_is_not_provisioned);
     RUN_TEST(test_a_blank_block_never_starts_the_controller_and_serial_still_answers);
     RUN_TEST(test_a_block_asking_for_dhcp_stays_down_without_the_client);
+    RUN_TEST(test_without_the_client_nothing_falls_due_and_renewal_keeps_the_link);
     RUN_TEST(test_the_block_from_eeprom_is_what_the_controller_is_given);
+    RUN_TEST(test_every_field_the_controller_is_given_comes_from_the_block);
     RUN_TEST(test_a_refused_eeprom_read_reads_as_unprovisioned);
     RUN_TEST(test_a_block_written_over_serial_is_used_at_the_next_attempt);
     RUN_TEST(test_reconnect_backs_off_from_1_s_to_64_s_and_resets_once_up);
@@ -599,6 +686,7 @@ int main(void)
     RUN_TEST(test_serial_admits_every_command);
     RUN_TEST(test_a_command_off_the_list_is_answered_unknown_and_does_not_run);
     RUN_TEST(test_an_update_command_past_0x6b_is_answered_unknown_over_ethernet);
+    RUN_TEST(test_every_id_off_the_list_is_answered_unknown_over_ethernet);
     RUN_TEST(test_attest_over_ethernet_reaches_the_attestation_module);
     return UNITY_END();
 }

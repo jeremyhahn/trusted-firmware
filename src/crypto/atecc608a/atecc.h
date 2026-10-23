@@ -163,6 +163,13 @@ _Static_assert(TFW_ATECC_I2C_HZ <= 100000uL,
  * not a permanent one every other caller here also pays. */
 #define TFW_ATECC_MAX_DATA 68u
 
+/* The largest `rlen` tfw_atecc_exec accepts. Its response is read into the
+ * same buffer the command was sent from, which holds the largest command: 8
+ * bytes of framing plus TFW_ATECC_MAX_DATA. A response carries 3 (count byte,
+ * two CRC bytes), so 5 more data bytes fit than a command can carry. The
+ * largest any caller asks for today is 64. */
+#define TFW_ATECC_MAX_RESP (TFW_ATECC_MAX_DATA + 5u)
+
 /* Wakes the element and confirms it answered. Safe to call repeatedly. */
 tfw_status_t tfw_atecc_wake(void);
 
@@ -179,6 +186,9 @@ tfw_status_t tfw_atecc_sleep(void);
  * error rather than a partial result. An error status from the element -- which
  * arrives as a four-byte response -- is translated and returned, never handed
  * back as data.
+ *
+ * A `dlen` over TFW_ATECC_MAX_DATA, or an `rlen` over TFW_ATECC_MAX_RESP, is
+ * TFW_ERR_RANGE: nothing is sent and `resp` is not written.
  *
  * `exec_ms` is the command's maximum execution time from the datasheet. The
  * element NACKs while it is busy, so this bounds the polling rather than

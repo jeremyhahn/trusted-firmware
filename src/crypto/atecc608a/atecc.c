@@ -194,6 +194,12 @@ tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
     if (dlen > TFW_ATECC_MAX_DATA) {
         return TFW_ERR_RANGE;
     }
+    /* answer() reads the response into buf: its count byte, the data and two
+     * CRC bytes. A response that cannot fit is refused here, before buf is
+     * built or the bus is touched, rather than read past buf's end. */
+    if (rlen > sizeof buf - 3u) {
+        return TFW_ERR_RANGE;
+    }
     /* count covers itself, opcode, both parameters, the data and the CRC. */
     count = (uint8_t)(7u + dlen);
 
@@ -214,18 +220,18 @@ tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
     buf[7u + dlen] = (uint8_t)(crc >> 8);
 
     st = tfw_hal_i2c_xfer(TFW_ATECC_ADDR, buf, (uint8_t)(count + 1u), 0, 0u);
-    if (st != TFW_OK) {
-        return st;
+    if (st == TFW_OK) {
+        st = answer(buf, resp, rlen, exec_ms);
     }
-
-    st = answer(buf, resp, rlen, exec_ms);
     /* A data response may be a secret: the CDI the provider's init asks for
-     * (HMAC over the UDS slot) is one. TCG DICE HW Req 6.4 wants it cleared
-     * once no longer needed, and the caller's copy is the only one that is
-     * still needed, so this file-static copy goes now, through
-     * tfw_secure_zero (src/core/secure_zero.h) rather than memset. Every
-     * path past the command's send is cleared, the refused ones and the
-     * timeout included: one call site, whatever answer() returned. */
+     * (HMAC over the UDS slot) is one. So may the command itself, which buf
+     * still holds with the caller's data in it (a Write payload, a MAC). TCG
+     * DICE HW Req 6.4 wants both cleared once no longer needed, and the
+     * caller's copy is the only one that is still needed, so this file-static
+     * copy goes now, through tfw_secure_zero (src/core/secure_zero.h) rather
+     * than memset. Every path past the packet build is cleared: the failed
+     * send, the refused answers and the timeout included, one call site,
+     * whatever the HAL or answer() returned. */
     tfw_secure_zero(buf, sizeof buf);
     return st;
 }

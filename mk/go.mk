@@ -155,6 +155,15 @@ xkms-test: tfwsim tfwsim-atecc608a
 	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
 	  $$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS)) ./... | grep -v '/e2e$$')
 
+## xkms-e2e-soft: enrol the no-element CRYPTO=auto image through device-attest-01 on its soft root (#130)
+# Separate from xkms-test because xkms/e2e is TestHardwareEnrollment's package,
+# which stays out of it (#163 decision 2). This one test in it needs no board:
+# it starts tfwsim-auto with no element on the bus, so it is named alone here
+# and runs in integration-test-host.
+xkms-e2e-soft: tfwsim-auto
+	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
+	  -run '^TestSoftRootEnrollsThroughDeviceAttest01$$' ./e2e
+
 ## xkms-coverage: xkms adapter unit-test statement coverage, failing if it or any package is under the floor
 # Unit tests only (#163), as sdk-coverage is: xkms/e2e, the one package that
 # starts a simulator, is left out of the package list, so no simulator is built
@@ -213,5 +222,5 @@ go-tags-bridge-prereqs:
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test sdk-coverage hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-coverage hw-enroll \
+.PHONY: sdk-build sdk-test sdk-coverage hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-e2e-soft xkms-coverage hw-enroll \
         go-tags-selftest go-tags-bridge-prereqs

@@ -169,6 +169,9 @@ func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.Att
 type verdictRecorder struct {
 	*deviceattest01.TrustAnchorVerifier
 	refusal atomic.Pointer[error]
+	// verified is what the last accepted "dice" evidence established, kept
+	// so a test reads what go-xkms recorded about the device (its RootType).
+	verified atomic.Pointer[deviceattest01.VerifiedAttestation]
 }
 
 func (r *verdictRecorder) VerifyAttestationObject(obj *deviceattest01.AttestationObject, expectedChallenge []byte) error {
@@ -181,6 +184,9 @@ func (r *verdictRecorder) VerifyAKCertificateChain(certs [][]byte) error {
 
 func (r *verdictRecorder) VerifyRegisteredDevice(ctx context.Context, leaf *x509.Certificate, keyAuthorization string) (*deviceattest01.VerifiedAttestation, error) {
 	verified, err := r.TrustAnchorVerifier.VerifyRegisteredDevice(ctx, leaf, keyAuthorization)
+	if err == nil {
+		r.verified.Store(verified)
+	}
 	return verified, r.record(err)
 }
 
@@ -201,6 +207,11 @@ func (r *verdictRecorder) Refusal() error {
 		return *refusal
 	}
 	return nil
+}
+
+// Verified returns what the last accepted "dice" evidence established, or nil.
+func (r *verdictRecorder) Verified() *deviceattest01.VerifiedAttestation {
+	return r.verified.Load()
 }
 
 // diceEnrollment is a device-attest-01 ACME server anchored the way a

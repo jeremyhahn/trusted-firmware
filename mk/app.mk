@@ -83,9 +83,17 @@ APP_WARN_CFLAGS := -Wall -Wextra -Werror -Wconversion -Wshadow \
 ## app-sdk-check: build the example application from outside the tree and run it on tfwsim
 # From a copy in a temporary directory, so the example can only be finding what
 # any application repository finds: include/tfw and the build hook.
+#
+# The objects and their dependency files are named after the application, not
+# its directory, and each run's copy is a new directory: a .d left by the last
+# run names a source that is gone, and an object from it would be linked in
+# place of this copy's. So the application's object directories are emptied
+# before the build and again on exit (app-obj-dirs prints them).
 app-sdk-check:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	cp -a test/app/example/. "$$t/" && \
+	d=$$($(MAKE) --no-print-directory -s app-obj-dirs APP_DIR="$$t") && \
+	rm -rf $$d && trap 'rm -rf "$$t" '"$$d" EXIT && \
 	$(MAKE) --no-print-directory tfwsim APP_DIR="$$t" > "$$t.log" 2>&1 || \
 	  { cat "$$t.log"; rm -f "$$t.log"; echo "app-sdk-check: the example did not build from $$t"; exit 1; }; \
 	rm -f "$$t.log"; \
@@ -104,10 +112,19 @@ tfwsim-app-example:
 	@$(MAKE) --no-print-directory tfwsim-atecc608a APP_DIR=test/app/example
 
 ## app-firmware-check: build the example application's firmware image for BOARD from outside the tree
+# Its object directory is emptied before and after, as app-sdk-check's are.
 app-firmware-check:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	cp -a test/app/example/. "$$t/" && \
+	d=$$($(MAKE) --no-print-directory -s app-obj-dirs APP_DIR="$$t" BOARD=$(BOARD)) && \
+	rm -rf $$d && trap 'rm -rf "$$t" '"$$d" EXIT && \
 	$(MAKE) --no-print-directory firmware APP_DIR="$$t" BOARD=$(BOARD)
+
+# The directories an application's objects are built in, for the two checks
+# above. Expanded when it runs, after mk/firmware.mk and mk/host.mk have set them.
+app-obj-dirs:
+	@$(if $(and $(FW_DIR),$(HOST_DIR),$(APP_NAME)),,$(error app-obj-dirs: FW_DIR, HOST_DIR or APP_NAME is empty))
+	@echo $(FW_DIR)/app $(APP_HOST_DIR) $(APP_HOST_ELEMENT_DIR)
 
 ## app-header-check: every public header compiles on its own, with an application's flags, against every board
 # An application repository sees include/tfw/, its board's board_profile.h and
@@ -173,4 +190,4 @@ app-header-check-selftest:
 host-test: app-header-check
 security: app-header-check-selftest
 
-.PHONY: app-sdk-check app-firmware-check tfwsim-app-example app-header-check app-header-check-selftest
+.PHONY: app-sdk-check app-firmware-check app-obj-dirs tfwsim-app-example app-header-check app-header-check-selftest

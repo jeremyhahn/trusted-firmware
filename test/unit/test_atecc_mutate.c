@@ -40,6 +40,10 @@ static uint32_t     init_hz;
 static unsigned     inits;
 static uint32_t     delayed_us;
 
+/* Where the last write was sent from: tfw_atecc_exec's file-static buf, which
+ * outlives the call, so a test can read back what was left in it. */
+static const uint8_t *wr_from;
+
 tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 {
     init_hz = hz;
@@ -55,6 +59,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
         wr_addr[writes] = addr7;
         wr_len[writes]  = wlen;
         memcpy(wr_buf[writes], wr, wlen);
+        wr_from = wr;
         writes++;
         /* The wake pulse goes to 0x00 and is NACKed on a real bus. */
         return addr7 == 0x00u ? TFW_ERR_NACK : cmd_status;
@@ -267,6 +272,63 @@ static void test_a_refused_command_write_is_returned_and_never_polled(void)
                                                     out, 32u, 23u));
         TEST_ASSERT_EQUAL_UINT(0u, reads);
         TEST_ASSERT_EACH_EQUAL_HEX8(SENTINEL, out, sizeof out);
+    }
+}
+
+static void test_a_response_longer_than_the_buffer_is_refused_and_nothing_is_sent(void)
+{
+    static uint8_t out[256];
+    const uint8_t *b;
+    unsigned       rlen, runs = 0u;
+
+    /* The edge: the largest response fills the buffer and is the data. */
+    setUp();
+    good_answer(TFW_ATECC_MAX_RESP);
+    memset(out, SENTINEL, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_exec(TFW_ATECC_OP_READ, 0u, 0u, 0, 0u,
+                                             out, TFW_ATECC_MAX_RESP, 5u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ATECC_MAX_RESP + 3u, read_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&answer[1], out, TFW_ATECC_MAX_RESP);
+    TEST_ASSERT_EACH_EQUAL_HEX8(SENTINEL, &out[TFW_ATECC_MAX_RESP],
+                                sizeof out - TFW_ATECC_MAX_RESP);
+    b = wr_from;
+
+    /* One past it and beyond: refused before the packet is built. buf was
+     * cleared by the call above, and a build would put the word address in
+     * its first byte. */
+    for (rlen = TFW_ATECC_MAX_RESP + 1u; rlen <= 255u; rlen++) {
+        setUp();
+        memset(out, SENTINEL, sizeof out);
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_atecc_exec(TFW_ATECC_OP_READ, 0u, 0u, 0, 0u,
+                                                        out, (uint8_t)rlen, 5u));
+        TEST_ASSERT_EQUAL_UINT(0u, writes);
+        TEST_ASSERT_EQUAL_UINT(0u, reads);
+        TEST_ASSERT_EACH_EQUAL_HEX8(SENTINEL, out, sizeof out);
+        TEST_ASSERT_EACH_EQUAL_HEX8(0x00u, b, 8u);
+        runs++;
+    }
+    TEST_ASSERT_EQUAL_UINT(255u - TFW_ATECC_MAX_RESP, runs);
+}
+
+static void test_a_failed_command_write_leaves_the_shared_buffer_cleared(void)
+{
+    static const tfw_status_t FAULTS[] = { TFW_ERR_NACK, TFW_ERR_TIMEOUT, TFW_ERR_BUSY };
+    uint8_t  data[32];
+    unsigned i;
+
+    for (i = 0u; i < sizeof data; i++) {
+        data[i] = (uint8_t)(0xA5u ^ i);
+    }
+    for (i = 0u; i < sizeof FAULTS / sizeof FAULTS[0]; i++) {
+        setUp();
+        cmd_status = FAULTS[i];
+        TEST_ASSERT_EQUAL(FAULTS[i], tfw_atecc_exec(TFW_ATECC_OP_WRITE, 0u, 0u,
+                                                    data, sizeof data, 0, 0u, 45u));
+        TEST_ASSERT_EQUAL_UINT(1u, writes);
+        TEST_ASSERT_EQUAL_UINT(0u, reads);
+        /* The packet carried the payload, and nothing of it is left behind. */
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &wr_buf[0][6], sizeof data);
+        TEST_ASSERT_EACH_EQUAL_HEX8(0x00u, wr_from, wr_len[0]);
     }
 }
 
@@ -611,6 +673,8 @@ int main(void)
     RUN_TEST(test_every_payload_length_is_framed);
     RUN_TEST(test_every_oversized_payload_is_refused_before_the_bus);
     RUN_TEST(test_a_refused_command_write_is_returned_and_never_polled);
+    RUN_TEST(test_a_response_longer_than_the_buffer_is_refused_and_nothing_is_sent);
+    RUN_TEST(test_a_failed_command_write_leaves_the_shared_buffer_cleared);
     RUN_TEST(test_every_status_byte_with_no_data_expected);
     RUN_TEST(test_every_status_byte_where_data_was_expected_is_a_refusal);
     RUN_TEST(test_every_count_byte_under_a_resealed_crc);

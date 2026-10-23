@@ -163,7 +163,8 @@ with `tfw_app_config_read`. Nothing new crosses the wire.
 
 - It does not isolate the application from the firmware, or from the pins the
   host commands. There is no pin reservation yet: an application and a host
-  that drive the same pin conflict. A follow-up proposes one.
+  that drive the same pin conflict. A follow-up proposes one:
+  [adr-application-pin-reservation.md](adr-application-pin-reservation.md).
 - It does not let an application add wire commands, or add evidence claims
   beyond its 32 bytes in claim 273. Each is a proposed follow-up, and each is
   a wire or evidence change with vectors. The wire commands are proposed in

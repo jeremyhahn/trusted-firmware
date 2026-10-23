@@ -372,7 +372,12 @@ What is open, and whose it is:
   the wire, with vectors. The wire commands are proposed in
   [adr-application-wire-commands.md](adr-application-wire-commands.md): one
   id, `APP_CMD` `0x07`, with the application's own sub-op byte. No code
-  changes until the owner rules on its five open questions.
+  changes until the owner rules on its five open questions. The pin
+  reservation is proposed in
+  [adr-application-pin-reservation.md](adr-application-pin-reservation.md):
+  a `const` pin list the application links, refused with the existing
+  `TFW_ERR_RESERVED_PIN` and reported as `IN_USE` in the pin page. No code
+  changes until the owner rules on its seven open questions.
 - **With the owner:** the ADR's open questions. Open question 1 below is
   decided.
 

@@ -26,6 +26,7 @@
 #   ARCH_UECC_CFLAGS                   micro-ecc's word size and platform in tfw-boot
 #   ARCH_FLASH, ARCH_BOOT_FLASH        recipes that write the image to a part
 #   ARCH_BOARD_RESTORE                 the recipe that puts the factory state back
+#   ARCH_LOCK_CHECK                    the recipe that reads the lock bits back
 
 ARCH_CC      := avr-gcc
 ARCH_OBJCOPY := avr-objcopy
@@ -173,25 +174,91 @@ ARCH_ISP = avrdude -p$(AVRDUDE_PART) -c$(ISP_PROG) -P$(ISP_PORT)
 # bit is programmed when it reads 0.
 #
 #   EESAVE programmed      flash as before; the erase keeps the EEPROM.
-#   not, by default        refuse, and print the two ways on: the exact hfuse
+#   not, by default        refuse, and print the three ways on: the exact hfuse
 #                          write that programs EESAVE and nothing else, worked
-#                          out from the byte just read, or the opt-in below.
+#                          out from the byte just read, or one of the opt-ins
+#                          below.
+#   BOOT_FIRST_FLASH=1     the board's first boot flash (SPEC device-provisioning,
+#                          owner ruling 2026-10-17 item 25): write the factory
+#                          record, then program EESAVE, read the fuse back, and
+#                          flash only if it now reads programmed. See
+#                          ARCH_BOOT_FIRST_FLASH below.
 #   BOOT_EEPROM_RESTORE=1  read the EEPROM to a timestamped file under
 #                          $(BUILD_DIR)/, erase and flash, write it back with -D,
 #                          read it back and compare. A mismatch fails and the
 #                          saved file stays where it is.
 #
-# No fuse is ever written here. A fuse write is an operator's decision, made with
-# the command in front of them.
+# No fuse is written here unless the operator asks for the first boot flash, and
+# then only the EESAVE bit: a fuse write is an operator's decision, made with the
+# command in front of them.
 BOOT_EEPROM_RESTORE ?= 0
+BOOT_FIRST_FLASH    ?= 0
+
+# The bytes a factory record holds: every fuse byte and the lock byte of a
+# classic AVR, by avrdude's memory names. The values are the part's, read here.
+ARCH_FACTORY_BYTES := lfuse hfuse efuse lock
+
+# The first boot flash. Entered only with EESAVE read as not programmed ($$fuse,
+# the byte just read). In order, and nothing written to the part before step 3:
+#
+#   1. read every byte of ARCH_FACTORY_BYTES, the EEPROM and the flash;
+#   2. write the factory record, $(BUILD_DIR)/factory-<board>-<UTC>.mk: the
+#      FACTORY_* lines of boards/<board>/profile.mk, the bytes as read, beside
+#      the raw EEPROM and flash reads and their SHA-256 (R8);
+#   3. program EESAVE: the EESAVE byte with that bit cleared and no other bit
+#      changed, worked out from the byte read in 1 (R7);
+#   4. read the byte back. Anything but the value written refuses, before the
+#      erase: the bench Mega's 2026-10-16 write of EESAVE did not hold;
+#   5. flash, the erase keeping the EEPROM.
+ARCH_BOOT_FIRST_FLASH = \
+    rec=$(BUILD_DIR)/factory-$(BOARD)-$$(date -u +%Y%m%dT%H%M%SZ); \
+    echo "$@: first boot flash: EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse); writing the factory record first"; \
+    lines=""; \
+    for f in $(ARCH_FACTORY_BYTES); do \
+      v=$$($(ARCH_ISP) -q -q -U $$f:r:-:h) || exit 1; \
+      case "$$v" in 0x[0-9a-fA-F]*) ;; \
+        *) echo "$@: could not read $$f: avrdude printed '$$v'; nothing was written to the part" >&2; exit 1;; esac; \
+      lines="$$lines$$(printf 'FACTORY_%-5s := %s' $$(echo $$f | tr a-z A-Z) $$v)\n"; \
+    done; \
+    mkdir -p $(BUILD_DIR) && \
+    $(ARCH_ISP) -U eeprom:r:$$rec.eeprom.bin:r -U flash:r:$$rec.flash.bin:r || \
+      { echo "$@: FAILED reading the EEPROM and flash for the factory record; nothing was written to the part" >&2; exit 1; }; \
+    { echo "\# The factory record of $(BOARD) ($(AVRDUDE_PART)), read by boot-flash"; \
+      echo "\# before its first write, $$(date -u +%Y-%m-%dT%H:%M:%SZ). The FACTORY_* lines go"; \
+      echo "\# in boards/$(BOARD)/profile.mk (make board-restore reads them)."; \
+      printf "$$lines"; \
+      echo "\# EEPROM $$(basename $$rec).eeprom.bin sha256 $$(sha256sum < $$rec.eeprom.bin | cut -d' ' -f1)"; \
+      echo "\# flash  $$(basename $$rec).flash.bin sha256 $$(sha256sum < $$rec.flash.bin | cut -d' ' -f1)"; \
+    } > $$rec.mk || { echo "$@: FAILED writing $$rec.mk; nothing was written to the part" >&2; exit 1; }; \
+    echo "$@: the factory record is $$rec.mk"; \
+    fix=$$(printf '0x%02x' $$(( fuse & ~(1 << $(BOOT_EESAVE_BIT)) & 0xff ))); \
+    echo "$@: programming EESAVE: $(BOOT_EESAVE_FUSE) $$fuse -> $$fix (bit $(BOOT_EESAVE_BIT), nothing else)"; \
+    $(ARCH_ISP) -U $(BOOT_EESAVE_FUSE):w:$$fix:m || \
+      { echo "$@: FAILED writing $(BOOT_EESAVE_FUSE); nothing was flashed. The factory record is $$rec.mk" >&2; exit 1; }; \
+    now=$$($(ARCH_ISP) -q -q -U $(BOOT_EESAVE_FUSE):r:-:h) || exit 1; \
+    case "$$now" in 0x[0-9a-fA-F]*) ;; \
+      *) echo "$@: could not read $(BOOT_EESAVE_FUSE) back: avrdude printed '$$now'; nothing was flashed" >&2; exit 1;; esac; \
+    if [ $$(( now )) -ne $$(( fix )) ]; then \
+      echo "$@: REFUSED. $(BOOT_EESAVE_FUSE) reads $$now after writing $$fix: EESAVE did not hold, and the" >&2; \
+      echo "  chip erase would take the EEPROM. Nothing was flashed. The factory record is $$rec.mk" >&2; \
+      exit 1; \
+    fi; \
+    echo "$@: EESAVE is programmed ($(BOOT_EESAVE_FUSE)=$$now): the chip erase keeps the EEPROM"; \
+    $(ARCH_ISP) -v -Uflash:w:$<:i
 
 ARCH_BOOT_FLASH = \
+  if [ "$(BOOT_FIRST_FLASH)" = 1 ] && [ "$(BOOT_EEPROM_RESTORE)" = 1 ]; then \
+    echo "$@: REFUSED. BOOT_FIRST_FLASH=1 programs EESAVE and BOOT_EEPROM_RESTORE=1 flashes without it: pick one" >&2; \
+    exit 1; \
+  fi; \
   fuse=$$($(ARCH_ISP) -q -q -U $(BOOT_EESAVE_FUSE):r:-:h) || exit 1; \
   case "$$fuse" in 0x[0-9a-fA-F]*) ;; \
     *) echo "$@: could not read $(BOOT_EESAVE_FUSE): avrdude printed '$$fuse'" >&2; exit 1;; esac; \
   if [ $$(( (fuse >> $(BOOT_EESAVE_BIT)) & 1 )) -eq 0 ]; then \
     echo "$@: EESAVE is programmed ($(BOOT_EESAVE_FUSE)=$$fuse): the chip erase keeps the EEPROM"; \
     $(ARCH_ISP) -v -Uflash:w:$<:i; \
+  elif [ "$(BOOT_FIRST_FLASH)" = 1 ]; then \
+    $(ARCH_BOOT_FIRST_FLASH); \
   elif [ "$(BOOT_EEPROM_RESTORE)" = 1 ]; then \
     save=$(BUILD_DIR)/eeprom-$(BOARD)-$$(date -u +%Y%m%dT%H%M%SZ).hex; \
     echo "$@: EESAVE is not programmed ($(BOOT_EESAVE_FUSE)=$$fuse); saving the EEPROM to $$save"; \
@@ -215,10 +282,40 @@ ARCH_BOOT_FLASH = \
     echo "  -- the platform block, and the device's identity -- with it. Either:" >&2; \
     echo "  program EESAVE first (this clears bit $(BOOT_EESAVE_BIT) and changes nothing else):" >&2; \
     echo "    $(ARCH_ISP) -U $(BOOT_EESAVE_FUSE):w:$$fix:m" >&2; \
+    if [ "$@" = boot-flash ]; then \
+      echo "  or, on the board's first boot flash, have $@ write the factory record and program it:" >&2; \
+      echo "    make $@ BOARD=$(BOARD) $(ISP_RERUN) BOOT_FIRST_FLASH=1" >&2; \
+    fi; \
     echo "  or have $@ save the EEPROM, flash, write it back and compare:" >&2; \
     echo "    make $@ BOARD=$(BOARD) $(ISP_RERUN) BOOT_EEPROM_RESTORE=1" >&2; \
     exit 1; \
   fi
+
+# `make lock-check`: the lock bits over the soft root's UDS, read back after the
+# operator's last avrdude step (SPEC device-provisioning R6). Read only: setting
+# them cannot be undone without a chip erase, so it stays the operator's write
+# (docs/device-provisioning/user.md). The bits that must read programmed (0)
+# are the board's BOOT_LOCK_PROGRAMMED, bit:name; more bits programmed pass. Any
+# of them reading 1 refuses, and each one is named. mk/boot.mk refuses a board
+# whose profile names none before this runs.
+ARCH_LOCK_CHECK = \
+  lock=$$($(ARCH_ISP) -q -q -U lock:r:-:h) || exit 1; \
+  case "$$lock" in 0x[0-9a-fA-F]*) ;; \
+    *) echo "$@: could not read the lock byte: avrdude printed '$$lock'" >&2; exit 1;; esac; \
+  want=0; short=""; \
+  for pair in $(BOOT_LOCK_PROGRAMMED); do \
+    bit=$${pair%%:*}; name=$${pair\#*:}; \
+    want=$$(( want | (1 << bit) )); \
+    if [ $$(( (lock >> bit) & 1 )) -ne 0 ]; then short="$$short $$name (bit $$bit)"; fi; \
+  done; \
+  mask=$$(printf '0x%02x' $$(( want ))); \
+  if [ -n "$$short" ]; then \
+    echo "$@: REFUSED. $(BOARD) is not provisioned: the lock byte reads $$lock, and these" >&2; \
+    echo "  bits of $$mask must read programmed (0) but read 1:$$short." >&2; \
+    echo "  The soft root's UDS is not locked. See docs/device-provisioning/user.md, step 7." >&2; \
+    exit 1; \
+  fi; \
+  echo "$@: $(BOARD) lock byte $$lock: every bit of $$mask is programmed ($(BOOT_LOCK_PROGRAMMED)); the UDS is locked"
 
 # `make board-restore` (mk/board-restore.mk): the board as it left the factory,
 # its stock bootloader and the FACTORY_* fuse and lock bytes of its profile.mk,

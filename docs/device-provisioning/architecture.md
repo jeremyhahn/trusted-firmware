@@ -46,7 +46,10 @@ tfwprov --commit    -- writes config blocks, locks config zone,
                        locks data zone            (--yes-i-mean-it required)
 tfwprov --verify    -- reads the part back, compares against the template
    |
-avrdude: lock bits (BLB0/BLB1/LB mode 3), only now
+avrdude: lock bits (BLB1/LB mode 3, BLB0 unprogrammed), only now
+   |
+make lock-check     -- reads the lock byte back; refuses unless the profile's
+                       BOOT_LOCK_PROGRAMMED bits read programmed
 ```
 
 `tfwprov`'s three modes are described in full in [`cli.md`](cli.md); the exact

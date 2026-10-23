@@ -192,31 +192,47 @@ func main() {
 	// way out changes nothing written to the device.
 	defer func() { _ = link.Close() }()
 
-	dev := tfw.New(link, tfw.WithTimeout(*timeout))
-	ctx := context.Background()
+	mode := "--dry-run"
+	switch {
+	case *verify:
+		mode = "--verify"
+	case *commit:
+		mode = "--commit"
+	}
+	if err := provision(context.Background(), tfw.New(link, tfw.WithTimeout(*timeout)), tmpl, mode, *recordPath); err != nil {
+		fail(err)
+	}
+}
 
+// provision is everything a wire mode sends: ProvInfo, then the mode's steps.
+// It is the whole of tfwprov's traffic to a device, so a test that drives it
+// sees every frame the tool can send.
+func provision(ctx context.Context, dev *tfw.Device, tmpl *template, mode, recordPath string) error {
 	info, err := dev.ProvInfo(ctx)
 	if err != nil {
 		// The most common cause by far, and worth saying rather than making
 		// someone infer it from "unknown command".
-		fail(fmt.Errorf("%w (is this device running a PROVISION=1 image?)", err))
+		return fmt.Errorf("%w (is this device running a PROVISION=1 image?)", err)
 	}
 	report(info)
 
-	switch {
-	case *dryRun:
+	switch mode {
+	case "--dry-run":
 		plan(tmpl, info)
-	case *verify:
-		if err := verifyRecorded(ctx, dev, tmpl, info, *recordPath); err != nil {
-			fail(err)
+	case "--verify":
+		if err := verifyRecorded(ctx, dev, tmpl, info, recordPath); err != nil {
+			return err
 		}
 		fmt.Println("verify: the part matches the template")
-	case *commit:
-		if err := commitRecorded(ctx, dev, tmpl, info, *recordPath); err != nil {
-			fail(err)
+	case "--commit":
+		if err := commitRecorded(ctx, dev, tmpl, info, recordPath); err != nil {
+			return err
 		}
 		fmt.Println("commit: done. Run --verify before locking anything else.")
+	default:
+		return fmt.Errorf("unknown mode %q", mode)
 	}
+	return nil
 }
 
 func report(i *tfw.ElementInfo) {

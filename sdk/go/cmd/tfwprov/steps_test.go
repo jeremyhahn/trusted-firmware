@@ -21,6 +21,8 @@ type element struct {
 	refuseNth    int
 	refuseStatus tfw.Status
 	pub          []byte
+	// lock is ProvInfo's data and config lock bytes; 0x55 is unlocked.
+	lock [2]byte
 
 	mu   sync.Mutex
 	seen []tfw.Cmd
@@ -43,6 +45,8 @@ func (e *element) answer(f tfw.Frame) (tfw.Status, []byte) {
 		}
 	}
 	switch cmd {
+	case tfw.CmdProvInfo:
+		return tfw.StatusOK, append(make([]byte, 4+32), e.lock[:]...)
 	case tfw.CmdProvGenKey, tfw.CmdProvPubKey:
 		return tfw.StatusOK, e.pub
 	case tfw.CmdProvWriteConfig, tfw.CmdProvLock, tfw.CmdProvSeedUDS:
@@ -191,7 +195,7 @@ func TestRunVerifyNamesEveryProblem(t *testing.T) {
 		want []string
 	}{
 		{"an unlocked, unkeyed part", &element{pub: make([]byte, 64)}, tfw.ElementInfo{},
-			[]string{"config zone is not locked", "data zone is not locked", "config blocks 2..3 are not read back", "DeviceID slot holds no key"}},
+			[]string{"config zone is not locked", "data zone is not locked", "DeviceID slot holds no key"}},
 		{"an unreadable key", &element{refuseCmd: tfw.CmdProvPubKey, refuseNth: 1, refuseStatus: tfw.StatusErrUnknownCmd},
 			tfw.ElementInfo{ConfigLocked: true, DataLocked: true},
 			[]string{"DeviceID public key unreadable: "}},
@@ -220,6 +224,37 @@ func TestRunVerifyPassesAKeyedLockedPartWithNoBlocks(t *testing.T) {
 	e := &element{pub: bytes.Repeat([]byte{0x11}, 64)}
 	if _, err := runVerify(context.Background(), startElement(t, e), tm, &tfw.ElementInfo{ConfigLocked: true, DataLocked: true}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// --verify end to end on a template loadTemplate accepts: one that writes
+// config blocks, as every template must. A locked, keyed part passes, with
+// the unread config blocks said in the output rather than counted as a
+// mismatch (cli.md, "--verify"); an unlocked or unkeyed part fails.
+func TestVerifyModePassesAMatchingPartOfALoadedTemplate(t *testing.T) {
+	tmpl, err := loadTemplate(writeTemplate(t, goodTemplate+block32+"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		e    *element
+		pass bool
+	}{
+		{"a locked, keyed part", &element{pub: bytes.Repeat([]byte{0x11}, 64)}, true},
+		{"an unlocked config zone", &element{pub: bytes.Repeat([]byte{0x11}, 64), lock: [2]byte{0x00, 0x55}}, false},
+		{"an unlocked data zone", &element{pub: bytes.Repeat([]byte{0x11}, 64), lock: [2]byte{0x55, 0x00}}, false},
+		{"an empty DeviceID slot", &element{pub: make([]byte, 64)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := provision(context.Background(), startElement(t, tc.e), tmpl, "--verify", "")
+			if tc.pass && err != nil {
+				t.Fatalf("--verify of a matching part: %v", err)
+			}
+			if !tc.pass && err == nil {
+				t.Fatal("--verify of a mismatched part passed")
+			}
+		})
 	}
 }
 

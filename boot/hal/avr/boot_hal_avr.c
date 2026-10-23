@@ -67,11 +67,12 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
     }
     /*
      * THE BOOT SECTION IS NOT WRITABLE FROM HERE, and this check is the reason
-     * rather than BLB0 alone.
+     * rather than the lock bits alone.
      *
-     * BLB0 mode 3 stops the APPLICATION writing the boot section; it does not
-     * stop the boot section writing itself, and SPM from the boot section is
-     * exactly what is executing. So an OTA image one page too long would
+     * BLB1 mode 2 or 3 forbids SPM writing the boot section (BLB0 guards the
+     * application section; data sheet, Boot Loader Lock Bits, Table 29-3 on
+     * the 2560), but the lock bits are the operator's last provisioning step:
+     * a part before it, or one never locked, has no such barrier. So an OTA image one page too long would
      * overwrite the bootloader with application code, and the device would
      * never run anything again. One comparison prevents it.
      */

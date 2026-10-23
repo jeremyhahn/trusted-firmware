@@ -1,7 +1,7 @@
 # Fuses and lock bits
 
 > **Status: NORMATIVE** · Scope: provisioning, `docs/device-provisioning/user.md`
-> · Last verified: 2026-09-22
+> · Last verified: 2026-10-21
 >
 > Several settings on this page are **irreversible**. Read the whole page before
 > running anything on a part you care about.
@@ -27,14 +27,63 @@ voids the BLB read barrier from the inside.
 | Setting | Value | Why |
 |---|---|---|
 | `BOOTRST` | programmed | the part enters the bootloader on reset, which is what lets `tfw-boot` measure before the application runs |
-| `BOOTSZ` | 2048 words (4 KB) | enough for Ed25519 verify plus the anti-rollback check |
-| `BLB1` mode | **3** | the application cannot read or write the boot section; this is the barrier the software-tier UDS sits behind |
-| `BLB0` mode | 3 | the boot section cannot be rewritten by the application |
-| `LB` mode | 3 | no external read of flash or EEPROM |
+| `BOOTSZ` | the part's largest: 2048 words (4 KB) on the 328P and 32U4, 4096 words (8 KB) on the 2560 | enough for Ed25519 verify plus the anti-rollback check |
+| `BLB1` mode | **3** | guards the boot section: SPM may not write it, and (E)LPM executing from the application may not read it. This is the barrier the software-tier UDS sits behind |
+| `BLB0` mode | **1** (unprogrammed) | guards the application section. Any other mode breaks the update path; see below |
+| `LB` mode | 3 | no external read or write of flash or EEPROM; the boot lock bits and fuses are locked too |
 | `BODLEVEL` | enabled, 2.7 V (or the part's nearest) | **not optional** — see below |
 | `DWEN` | unprogrammed | debugWIRE reads SRAM and defeats everything above |
 | `OCDEN` | unprogrammed | same, for parts with on-chip debug |
 | `EESAVE` | programmed | a chip erase then preserves the EEPROM, including the device serial |
+
+## The lock byte, per board
+
+The three AVR parts share one lock byte layout and one meaning for each boot lock
+mode. Each data sheet is listed in
+[`../reference/README.md`](../reference/README.md), "Board sources"; the
+section numbers are theirs.
+
+| Bits | Name | Guards |
+|---|---|---|
+| 7:6 | unused | read 1 |
+| 5:4 | `BLB12` `BLB11` (`BLB1`) | the **boot loader** section |
+| 3:2 | `BLB02` `BLB01` (`BLB0`) | the **application** section |
+| 1:0 | `LB2` `LB1` (`LB`) | external programming and verification |
+
+| Mode | `BLB0` (application section) | `BLB1` (boot loader section) |
+|---|---|---|
+| 1 (11) | no restriction | no restriction |
+| 2 (10) | SPM may not write it | SPM may not write it |
+| 3 (00) | SPM may not write it, and (E)LPM from the boot section may not read it | SPM may not write it, and (E)LPM from the application may not read it |
+| 4 (01) | (E)LPM from the boot section may not read it | (E)LPM from the application may not read it |
+
+| Board | Data sheet | Lock byte table | Boot lock modes | Profile asks (`BOOT_LOCK_PROGRAMMED`) | Operator writes |
+|---|---|---|---|---|---|
+| `atmega2560` | Atmel-2549Q | §30.1, Table 30-1 | §29.4, Tables 29-2, 29-3 | `LB1 LB2 BLB11 BLB12` (mask `0x33`) | `0x0C` |
+| `atmega328p` | DS40002061B | §28.1, Table 28-1 | §27.5, Tables 27-2, 27-3 | `LB1 LB2 BLB11 BLB12` (mask `0x33`) | `0x0C` |
+| `atmega32u4` | Atmel-7766J | §28.1, Table 28-1 | §27.4, Tables 27-2, 27-3 | `LB1 LB2 BLB11 BLB12` (mask `0x33`) | `0x0C` |
+
+`make lock-check BOARD=<board>` reads the byte back and refuses the part unless
+every bit the profile names reads programmed (`docs/device-provisioning/user.md`).
+On the 328P and the 32U4 no soft-root `tfw-boot` fits the 4 KB boot section today
+(`mk/boot.mk` `BOOT_SUPPORTED` has the element row only), so no UDS sits behind
+`BLB1` there yet; the expected value follows the data sheet all the same.
+
+### Why `BLB0` stays unprogrammed
+
+`BLB0` is the application section's lock, not the boot section's. `tfw-boot`
+runs from the boot section and needs both things `BLB0` can take away:
+
+- **Verify.** It reads the application image with (E)LPM to hash it before it
+  runs it. Mode 3 or 4 forbids (E)LPM from the boot section reading the
+  application section, so the verify could not read the image.
+- **OTA.** Installing an update writes the application section with SPM, which
+  only executes from the boot section. Mode 2 or 3 forbids SPM writing the
+  application section, so no update could be installed.
+
+So `0x0C`: `BLB1` and `LB` mode 3, `BLB0` mode 1. The boot section is protected
+by `BLB1`; nothing is lost by leaving `BLB0` open, because the application
+section holds nothing the application itself may not read.
 
 ## Brown-out detection is a security setting here, not a reliability one
 

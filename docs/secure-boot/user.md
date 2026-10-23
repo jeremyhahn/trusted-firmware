@@ -33,7 +33,10 @@ the board. The 328P and the 32U4 have one row, with `BOOT_OTA=0`, so recovery fr
 image needs a programmer. The `atmega2560` takes `BOOT_OTA=1`
 (`BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=1`),
 which keeps the device reachable over UART instead. The ATtiny85 has no boot
-section and no `tfw-boot`.
+section and no `tfw-boot`. A board's first boot flash adds `BOOT_FIRST_FLASH=1`,
+which takes the factory record; step 7 of
+[../device-provisioning/user.md](../device-provisioning/user.md) says what the
+record holds.
 
 Order matters, because `boot-flash` chip-erases the part (see [cli.md](cli.md)):
 

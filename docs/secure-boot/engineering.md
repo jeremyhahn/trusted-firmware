@@ -190,8 +190,8 @@ typedef enum { TFW_BOOT_SESSION_CONTINUE, TFW_BOOT_SESSION_COMMIT, TFW_BOOT_SESS
   BLS-callable entry point would void the BLB mode 3 read barrier that keeps
   the UDS out of the application's reach from the inside. The same block
   also carries the reset cause tfw-boot's `.init3` observed before clearing
-  `MCUSR`, already decoded to `tfw_reset_cause_t` by the HAL (handoff version 3,
-  issues #18 and #10) — the one record of the reset cause that
+  `MCUSR`, already decoded to `tfw_reset_cause_t` by the HAL (handoff version 4,
+  issues #18, #10 and #173) — the one record of the reset cause that
   survives a bootloader running at all.
 - **`.init3` runs before any C runtime work, in both images, from one shared
   file** (`src/hal/avr/hal_early.c`). It reads and clears `MCUSR` and disarms
@@ -205,9 +205,11 @@ typedef enum { TFW_BOOT_SESSION_CONTINUE, TFW_BOOT_SESSION_COMMIT, TFW_BOOT_SESS
   could exhaust the whole budget in one update and leave the floor stuck with
   no way back.
 - **`tfw_boot_flash_write_page` refuses any page whose end reaches
-  `TFW_BOOT_APP_END`.** BLB0 mode 3 stops the *application* writing the boot
-  section; it does not stop the boot section writing itself, since SPM
-  executes from the boot section. The range check is the only thing that
+  `TFW_BOOT_APP_END`.** BLB1 mode 2 or 3 forbids SPM writing the boot
+  section (BLB0 guards the application section;
+  [`../security/fuses-and-lockbits.md`](../security/fuses-and-lockbits.md)),
+  but the lock bits are the operator's last provisioning step, so a part before
+  it, or one never locked, has no such barrier. The range check is what
   stops an over-long OTA image from overwriting the bootloader.
 - **The rollback comparison and the floor arithmetic never subtract unsigned
   values to detect a downgrade.** `tfw_boot_rollback_permit` compares

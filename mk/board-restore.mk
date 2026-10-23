@@ -37,6 +37,9 @@ endif
 ifeq ($(and $(BOOT_EESAVE_FUSE),$(BOOT_EESAVE_BIT)),)
 $(error board-restore: boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so board-restore cannot check that the chip erase keeps the EEPROM)
 endif
+ifeq ($(BOOT_FIRST_FLASH),1)
+$(error board-restore: BOOT_FIRST_FLASH=1 belongs to boot-flash; board-restore puts the factory fuses back and programs no EESAVE)
+endif
 ifeq ($(BOARD_RESTORE_HEX),)
 $(error board-restore: BOARD_RESTORE_HEX is not set. It is the stock bootloader .hex with SHA-256 $(FACTORY_BOOT_HEX_SHA256); the board's page in docs/development/bench/ says where it comes from)
 endif

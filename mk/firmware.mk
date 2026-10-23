@@ -162,6 +162,10 @@ HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_p
 # the architecture names one for the tier (ARCH_PROV_SRCS_<tier>, e.g. the
 # ESP32's eFuse UDS). Recursive, because CRYPTO is settled below.
 PROVISION ?= 0
+# A tier with no provisioning backend says so here (PROV_BACKEND := none) beside
+# the $(error) that refuses its PROVISION=1; provision-backend prints it, so
+# prov-absent-check plans no jig image the build would refuse.
+PROV_BACKEND :=
 ifeq ($(PROVISION),1)
 PROV_SRCS   = src/caps/provision.c $(or $(ARCH_PROV_SRCS_$(CRYPTO)),src/caps/provision_atecc.c)
 PROV_DEFS  := -DTFW_FEATURE_PROVISION=1
@@ -293,6 +297,7 @@ endif
 # onboarding rule 6 forbids any write to it until the owner rules (question 4).
 # OTA_INFO's floor is the platform block's (ota_floor_eeprom.c, as on soft):
 # the element's monotonic counters are read, never incremented, on this tier.
+PROV_BACKEND := none
 ifeq ($(PROVISION),1)
 $(error PROVISION=1 has no backend on CRYPTO=optiga -- provisioning writes the element, which the OPTIGA ADR forbids until the owner rules)
 endif
@@ -634,6 +639,10 @@ board-eth-chip:
 firmware-srcs:
 	@echo $(FW_SRCS) $(APP_SRCS)
 
+## provision-backend: print "none" when BOARD/CRYPTO has no provisioning backend, else "yes" (used by prov-absent-check)
+provision-backend:
+	@echo $(or $(PROV_BACKEND),yes)
+
 ## board-rows: print BOARD's extra "tier:VAR=value" rows (used by firmware-matrix-list)
 board-rows:
 	@echo $(BOARD_ROWS)
@@ -649,7 +658,7 @@ firmware-matrix-list:
 	  done; \
 	done
 
-.PHONY: board-tiers board-rows board-eth-chip feature-defs firmware-dir firmware-srcs firmware-matrix-list
+.PHONY: board-tiers board-rows board-eth-chip feature-defs firmware-dir firmware-srcs firmware-matrix-list provision-backend
 
 firmware-matrix:
 	@fail=0; n=0; \

@@ -101,6 +101,7 @@ make boot-flash BOARD=atmega328p BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a \
 | `BOOT_TIER`, `BOOT_MEASURE`, `BOOT_SIG`, `BOOT_OTA` | a supported row for `BOARD`, below | the board's supported row: `atecc608a`, `atecc608a`, `atecc608a`, `0` on a 4 KB section; `soft`, `soft`, `p256-soft`, `0` on the 2560 (item 79, owner ruling 2026-10-17) | no |
 | `ISP_PROG` | any `avrdude -c` programmer id | `usbasp` | no |
 | `ISP_PORT` | any `avrdude -P` port | `usb` | no |
+| `BOOT_FIRST_FLASH` | `0`, `1` | `0` | no: the board's first boot flash, below |
 | `BOOT_EEPROM_RESTORE` | `0`, `1` | `0` | no: only when `EESAVE` is not programmed, below |
 
 **Not** the `arduino` bootloader programmer — that one talks *to* a
@@ -156,19 +157,32 @@ fuse that holds `EESAVE` first:
 | `atmega328p`, `atmega32u4`, `atmega2560` | high fuse (`hfuse`) bit 3; programmed when it reads 0 | `BOOT_EESAVE_FUSE`, `BOOT_EESAVE_BIT` in `boards/<board>/profile.mk` |
 
 - **`EESAVE` programmed:** it flashes, and the erase keeps the EEPROM.
-- **`EESAVE` not programmed:** it refuses and exits non-zero, printing the two
-  ways on:
+- **`EESAVE` not programmed:** it refuses and exits non-zero, printing the
+  three ways on:
   - program `EESAVE` first, with the exact command for this board worked out
     from the fuse byte it just read (bit 3 cleared, nothing else changed), e.g.
     for a Mega reading `0xd8`:
     `avrdude -pm2560 -cusbasp -Pusb -U hfuse:w:0xd0:m`;
+  - or, on the board's first boot flash, run it again with
+    `BOOT_FIRST_FLASH=1` (SPEC `device-provisioning`, owner ruling 2026-10-17
+    item 25). Before it writes anything it reads every fuse byte, the lock
+    byte, the EEPROM and the flash, and writes the factory record,
+    `build/factory-<board>-<UTC timestamp>.mk` (the `FACTORY_*` lines of the
+    board's `profile.mk`) beside the two raw reads. Then it writes that same
+    fuse byte with the `EESAVE` bit cleared and nothing else changed, reads it
+    back, and refuses before the erase unless it reads the value written. On
+    a part whose `EESAVE` is already programmed it flashes as usual and
+    writes no record. It does not combine with `BOOT_EEPROM_RESTORE=1`;
   - or run it again with `BOOT_EEPROM_RESTORE=1`. It reads the EEPROM to
     `build/eeprom-<board>-<UTC timestamp>.hex`, erases and flashes, writes the
     EEPROM back with `-D`, reads it back and compares. A failure or a mismatch
     exits non-zero and leaves the saved file in place, with the command that
     writes it back. On success the saved copy is kept.
 
-`boot-flash` writes no fuse itself. A board with no `BOOT_EESAVE_*` in its
+`boot-flash` writes no fuse except that one bit under `BOOT_FIRST_FLASH=1`.
+`scripts/test_boot_flash_eesave.py` (`make scripts-test`) runs each case
+against a stand-in `avrdude`, on every board whose profile names `EESAVE`.
+A board with no `BOOT_EESAVE_*` in its
 profile is refused at parse time. How the application then gets onto the board
 is in [user.md](user.md).
 
@@ -210,12 +224,19 @@ acknowledges, then resets. With `BOOTRST` programmed the next reset always
 runs `tfw-boot` first — this verb does not select the bootloader over the
 application, it only causes the reset that `tfw-boot` then evaluates.
 
-## What has no CLI verb
+## The OTA verbs
 
-**No verb sends `TFW_CMD_OTA_BEGIN`/`OTA_DATA`/`OTA_END`/`OTA_STATUS`.**
-`sdk/go/commands.go` and `sdk/go/cmd/tfwctl` implement the application's
-command set only; the OTA session `tfw-boot` answers
-(see [api.md](api.md)) has no Go SDK binding and no `tfwctl` subcommand today.
-Driving an update currently means writing a host program directly against
-`sdk/go`'s frame codec (`sdk/go/codec.go`) — a real gap, not an omission from
-this page.
+The OTA session both `tfw-boot` and the application answer
+(see [api.md](api.md) and [../ota/api.md](../ota/api.md)) has Go SDK bindings
+(`sdk/go/ota.go`) and `tfwctl` subcommands:
+
+- `ota-stage [--activate[=now]] <image>` sends `OTA_BEGIN`/`OTA_DATA`…/`OTA_END`
+  (then, with `--activate`, `OTA_ACTIVATE` on the same connection);
+- `ota-status` sends `OTA_STATUS`;
+- `ota-info <slot>` sends `OTA_INFO` for the running (0) or staged (1) slot;
+- `ota-activate [now]` and `ota-confirm` send `OTA_ACTIVATE` and `OTA_CONFIRM`,
+  each preceded by `OTA_AUTH` with the row key's signature (`--sig`/`--sig-file`);
+- the row key's authorization rides `OTA_AUTH` (0x6F) in front of the command it
+  authorises.
+
+There is no CLI verb left for the session.

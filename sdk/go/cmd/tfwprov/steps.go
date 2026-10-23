@@ -68,10 +68,11 @@ func runVerify(ctx context.Context, dev *tfw.Device, t *template, info *tfw.Elem
 	// The config blocks the template writes are blocks 2 and 3, which
 	// ProvInfo does not return -- it reads block 0, where the serial and the
 	// lock bytes live. Comparing what we can and saying plainly what we cannot
-	// is better than a green result that checked less than it implies.
+	// is better than a green result that checked less than it implies. It is
+	// said, not counted: no part can pass a check nothing can read, and every
+	// template writes blocks (cli.md, "--verify").
 	if len(t.Blocks) > 0 {
-		problems = append(problems,
-			"config blocks 2..3 are not read back: the element does not return a locked config zone")
+		fmt.Println("unchecked config blocks 2..3 are not read back: the element does not return a locked config zone")
 	}
 
 	pub, err := dev.ProvPubKey(ctx, tfw.SlotDeviceID)

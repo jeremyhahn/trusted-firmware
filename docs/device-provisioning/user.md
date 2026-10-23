@@ -72,11 +72,14 @@ care about — several steps below cannot be undone.
    over serial (`tfwctl netcfg set`, or `WriteNetConfig` from Go); see
    [../ethernet-transport/user.md](../ethernet-transport/user.md).
 
-2. **Set fuses.** `EESAVE` programmed: `make boot-flash` chip-erases the
-   part, and refuses to while the erase would take this EEPROM with it
-   ([../secure-boot/cli.md](../secure-boot/cli.md)). `BOOTRST` and `BOOTSZ` programmed, `BODLEVEL` enabled,
-   `DWEN` unprogrammed. Do this before flashing anything else — see "Why
-   these fuses" below for `BODLEVEL` in particular.
+2. **Set fuses.** `EESAVE` programmed, so the chip erase `make boot-flash`
+   does in step 7 keeps this EEPROM ([../secure-boot/cli.md](../secure-boot/cli.md)).
+   The stock bootloader stays in place until then: step 3 flashes through it.
+
+   Then `BOOTRST` and `BOOTSZ` programmed, `BODLEVEL` enabled, `DWEN`
+   unprogrammed, with an `hfuse` value that keeps `EESAVE` programmed. Do this
+   before flashing anything else — see "Why these fuses" below for `BODLEVEL`
+   in particular.
 
    ```sh
    avrdude -c <prog> -p <part> -U lfuse:w:...:m -U hfuse:w:...:m -U efuse:w:...:m
@@ -119,12 +122,42 @@ care about — several steps below cannot be undone.
    tfwprov --verify --config sdk/go/templates/atecc608a-dice.conf /dev/ttyUSB0
    ```
 
-7. **Lock bits, only now.** Locking before step 6 passes means a bad
+7. **Install `tfw-boot`, now that the element is provisioned.** Follow the
+   order in [../secure-boot/user.md](../secure-boot/user.md) ("Build and flash
+   a bootloader", then "Install the application under tfw-boot"). The part's
+   first boot flash also takes the factory record: it reads the fuse and lock
+   bytes, the EEPROM and the flash into `build/factory-<board>-<UTC>.mk` and
+   its two `.bin` files first, then clears the `EESAVE` bit alone, reads the
+   fuse back, and only then erases and flashes. Keep the record with the
+   part's paperwork; its `FACTORY_*` lines are what `make board-restore` puts
+   back.
+
+   ```sh
+   make boot-flash BOARD=atmega328p BOOT_TIER=atecc608a \
+        BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a BOOT_OTA=0 \
+        ISP_PROG=usbasp ISP_PORT=usb BOOT_FIRST_FLASH=1
+   ```
+
+   The `BOOT_*` row for another board is in
+   [../secure-boot/cli.md](../secure-boot/cli.md)'s table.
+
+8. **Lock bits, only now.** Locking before step 6 passes means a bad
    provisioning attempt is now also undiagnosable — lock bits block the ISP
    reads `--verify`'s equivalent debugging would need.
 
    ```sh
    avrdude -c <prog> -p <part> -U lock:w:0x0C:m
+   ```
+
+   Then read them back. `make lock-check` reads the lock byte over ISP and
+   refuses to call the part provisioned unless every bit the board's profile
+   names (`BOOT_LOCK_PROGRAMMED`) reads programmed, naming each that does not.
+   It writes nothing. Until it passes the part is not provisioned: its UDS is
+   not locked. A board whose profile names no bit — today the ATmega328P and
+   the ATmega32U4 — is refused, never passed.
+
+   ```sh
+   make lock-check BOARD=<board>
    ```
 
 8. **Reflash the production image** before the part leaves the bench. The

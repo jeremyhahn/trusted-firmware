@@ -13,7 +13,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"math/big"
 	"path/filepath"
 	"testing"
@@ -134,18 +133,11 @@ func TestE2ERecordJoinsTheBakedSerialToTheElementsPoint(t *testing.T) {
 		t.Fatal("the evidence does not verify under the record's cnf.jwk")
 	}
 
-	// --verify says it cannot read the locked config blocks back and joins
-	// nothing; with no blocks to compare it finds the same point and leaves
-	// the record as it is. A second --commit onto it is refused, and a bake of
-	// another serial onto it exits 1.
+	// --verify says it cannot read the locked config blocks back, finds the
+	// same point and leaves the record as it is. A second --commit onto it is
+	// refused, and a bake of another serial onto it exits 1.
 	committed := readFile(t, rec)
-	var ve *verifyError
-	if err := verifyRecorded(ctx, dev, tmpl, provInfo(ctx, t, dev), rec); !errors.As(err, &ve) || len(ve.problems) != 1 {
-		t.Fatalf("--verify --record of a template with config blocks: %v", err)
-	}
-	bare := *tmpl
-	bare.Blocks = nil
-	if err := verifyRecorded(ctx, dev, &bare, provInfo(ctx, t, dev), rec); err != nil {
+	if err := verifyRecorded(ctx, dev, tmpl, provInfo(ctx, t, dev), rec); err != nil {
 		t.Fatalf("--verify --record after --commit: %v", err)
 	}
 	if err := commitRecorded(ctx, dev, tmpl, provInfo(ctx, t, dev), rec); err == nil {

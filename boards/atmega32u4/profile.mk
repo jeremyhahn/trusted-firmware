@@ -39,6 +39,19 @@ RAM_END        := 0x0AFF
 BOOT_EESAVE_FUSE := hfuse
 BOOT_EESAVE_BIT  := 3
 
+# The lock bits that must read programmed (0) before the part is called
+# provisioned: `make lock-check` reads the lock byte back and refuses
+# otherwise (mk/arch/avr.mk, SPEC device-provisioning R6). bit:name, from the
+# ATmega32U4 data sheet (Atmel-7766J, docs/reference/README.md), §28.1 Table
+# 28-1 for the bit positions and §27.4 Tables 27-2 and 27-3 for the modes: BLB1
+# mode 3, so the application cannot read the boot section, and LB mode 3, so
+# ISP cannot read flash or EEPROM. BLB0 stays unprogrammed: it guards the
+# application section, and mode 3 would stop tfw-boot reading the image it
+# verifies. The same 0x0C as the Mega. Today no soft tfw-boot fits this part's
+# 4 KB section (mk/boot.mk BOOT_SUPPORTED has the element row only), so no UDS
+# sits behind these bits yet; the value follows the data sheet regardless.
+BOOT_LOCK_PROGRAMMED := 0:LB1 1:LB2 4:BLB11 5:BLB12
+
 # The external store the OTA stager writes into (issue #75, docs/ota/): its
 # driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.
 # The part and its chip select are ADR open question 2; the select is board

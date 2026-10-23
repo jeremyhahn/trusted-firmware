@@ -45,6 +45,7 @@ ARCH_BOOT_START_SRC :=
 ARCH_BOOT_START_LDFLAGS :=
 ARCH_FLASH      = $(ARCH_ESP_REFUSE)
 ARCH_BOOT_FLASH = $(ARCH_ESP_REFUSE)
+ARCH_LOCK_CHECK = $(ARCH_ESP_REFUSE)
 
 # `make board-restore` (mk/board-restore.mk): the whole flash written back from
 # the image read before the project's first write, recorded on the board's page

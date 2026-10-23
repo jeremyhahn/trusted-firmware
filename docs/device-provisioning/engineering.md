@@ -1,11 +1,30 @@
 # Device provisioning — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-21
 > Conflicts with this document are defects. Fix them here first.
 
 See [`architecture.md`](architecture.md) for component boundaries and trust
 model, [`cli.md`](cli.md) for `tfwprov` usage, [`api.md`](api.md) for the wire
 commands.
+
+## The row's requirements on `main`
+
+Row `device-provisioning` in [`../SPEC.md`](../SPEC.md), one requirement a
+line, as `main` stands. A requirement on an open PR is unmet here until it
+merges.
+
+| # | Requirement | On `main` | Met by, or what is missing |
+|---|---|---|---|
+| R1 | A part is provisioned once: no tool redoes a step it completed | met | `sdk/go/cmd/tfwprov/steps.go` (`runCommit` refuses a locked data zone and skips a locked config zone); `tools/platform-bake/bake.c` (`already`, `refused`); the element's locks are irreversible |
+| R2 | On a bench, never over the network | met | `src/proto/link_eth.c` (`tfw_link_admits` admits none of `0x70`–`0x75` over Ethernet), pinned id by id in `test/unit/test_link_eth.c`; a jig image takes the commands over serial only |
+| R3 | Provisioning commands are absent from every production image | met | file selection: `mk/firmware.mk` (`PROV_SRCS` only for `PROVISION=1`) and `src/core/commands.def` (the entries only under `TFW_FEATURE_PROVISION`), held by `scripts/prov-absent-check.py` over every image's object list, run by `make scripts-test` ([below](#the-production-image-check-scriptsprov-absent-checkpy)) |
+| R4 | Fuses and lock bits, the secure element and the serial are set by independent tools | met | the ISP programmer (`avrdude`, the operator's; `boot-flash` writes no fuse but the `EESAVE` bit, and that only under `BOOT_FIRST_FLASH=1` (R7), `mk/arch/avr.mk`), `tfwprov --commit` (the element), `tfwprov --bake-eeprom` and `make platform-bake` (the serial); [`architecture.md`](architecture.md), component boundaries |
+| R5 | None of those tools can undo another's step | met | each refuses to redo its own (R1). `tfwprov` sends no EEPROM write in any mode: `sdk/go/cmd/tfwprov/noeeprom_test.go` (`TestTfwprovNeverSendsAnEEPROMWrite`, ids from `src/core/commands.def`), and the application's `EEPROM_WRITE` refuses the platform block anyway (`src/caps/storage.c`, `sdk/go/commands.go`). The bake image links no element, crypto-provider, bus or provisioning unit: `scripts/prov-absent-check.py` over every board's `platform-bake-srcs`, under `make scripts-test`. No code on the part sets a fuse or lock bit, and `boot-flash` refuses a chip erase without EESAVE (R7) |
+| R6 | The soft root's UDS sits in EEPROM or flash under lock bits | partly | the lock bits are the operator's last `avrdude` step ([`architecture.md`](architecture.md), data flow), and no tool sets them: the write cannot be undone without a chip erase. `make lock-check` (`mk/boot.mk`, `ARCH_LOCK_CHECK` in `mk/arch/avr.mk`) reads the lock byte back and refuses to call the part provisioned unless every bit of the profile's `BOOT_LOCK_PROGRAMMED` reads programmed, naming each that does not; a board whose profile names none is refused. `scripts/test_lock_check.py` (`make scripts-test`), literal lock bytes on the ATmega2560: `0x0C` and `0x00` pass, `0xFF` and the factory `0xCF` refused with the bits named, `0x1C` refused naming `BLB11 (bit 4)` alone, the ATtiny85 (no boot section, no expected value) refused before `avrdude` runs; the ATmega328P and ATmega32U4 by literal too, `0x0C` passing, `0xFF` refused, one bit short refused naming it. Every ATmega profile names `LB1 LB2 BLB11 BLB12` (`0x33`) from its data sheet's Lock Bit Byte table and Boot Loader Lock Bits section ([`../reference/README.md`](../reference/README.md), "Board sources"; [`../security/fuses-and-lockbits.md`](../security/fuses-and-lockbits.md), "The lock byte, per board"); `BLB0` stays unprogrammed because it guards the application section, which `tfw-boot` must read to verify and write to install an update. Still partly: where the soft root's UDS is placed is with Software as an architecture question — `tfw_crypto_soft_uds` (`src/crypto/soft/uds_flash.c`) returns no UDS until `tfw-boot` writes one into the boot section, and on the ATmega328P and ATmega32U4 no soft-root `tfw-boot` fits the 4 KB boot section (`mk/boot.mk` `BOOT_SUPPORTED`), so `BLB1` guards no UDS there yet |
+| R7 | EESAVE is programmed at the first boot flash | met | `make boot-flash BOOT_FIRST_FLASH=1` (`mk/arch/avr.mk`, `ARCH_BOOT_FIRST_FLASH`): it writes the profile's `BOOT_EESAVE_FUSE` with `BOOT_EESAVE_BIT` cleared and no other bit changed, worked out from the byte it read, reads it back, and refuses before the chip erase unless it holds. Without `BOOT_FIRST_FLASH=1` it refuses the erase while `EESAVE` is unprogrammed. `scripts/test_boot_flash_eesave.py` (`make scripts-test`), against a stand-in `avrdude` on every board whose profile names `EESAVE`: refused and nothing written; the one bit written, then the flash; a write that does not hold refused before the flash; an already programmed part flashed with no fuse write |
+| R8 | The factory record is written together with it | met | the factory record is the board's state before its first write, the `FACTORY_*` lines `make board-restore` reads, not `tfwprov --record` (the provisioning record: the UEID and the DeviceID key, written at bake and commit). The same `BOOT_FIRST_FLASH=1` step reads every fuse byte, the lock byte, the EEPROM and the flash, and writes `build/factory-<board>-<UTC>.mk` with the two raw reads, before its one fuse write. `scripts/test_boot_flash_eesave.py` (`test_first_flash_writes_the_record_then_eesave_then_flashes`: every read before the fuse write, each byte in the record as read; `test_first_flash_refuses_when_eesave_does_not_hold`: the record stays) |
+
+The "factory record" of owner ruling item 25 (2026-10-17) is the board's pre-write state, R8's record above: the bench rule, record before any write and restore after, is what item 25 names.
 
 ## Exported surface
 
@@ -177,6 +196,48 @@ application's `EEPROM_WRITE` refusal of the region does not change.
 
 CLI: `sdk/go/cmd/tfwprov` (binary `tfwprov`) — see [`cli.md`](cli.md).
 
+### The production-image check (`scripts/prov-absent-check.py`)
+
+R3 is a file-selection rule, and this check holds the build to it. It
+compiles nothing and needs no toolchain. It asks make for the object list
+each image links (`firmware-srcs`), the feature defines it compiles with
+(`feature-defs`) and the boot image's list (`BOOT_SRCS`, read through
+`--eval`).
+
+It asks for every board under `boards/` and every tier the board builds,
+first as the board defaults it. A board that names an Ethernet controller is
+also asked with `ETH=0` and with `ETH=1`. Then come every extra row of
+`firmware-matrix-list` and the example application (`test/app/example`) on
+each board's first tier. Each of these is asked with `PROVISION=0` and with
+`PROVISION=1`.
+
+- A production image (`PROVISION=0`) links no provisioning unit:
+  `src/caps/provision.c`, any `src/caps/provision_*.c` and any
+  `src/hal/*/prov_*.c`. The match is by pattern, so a new backend is caught
+  the day it is added. Nor does it compile with any `TFW_FEATURE_PROVISION`
+  define.
+- A jig image (`PROVISION=1`) of the same row links `src/caps/provision.c`
+  and defines `TFW_FEATURE_PROVISION=1`. Otherwise the patterns no longer name
+  what a jig links, and a pass would have checked nothing.
+- No boot image links a provisioning unit, jig or not. Its list must hold
+  `boot/boot_main.c`, or the probe read the wrong variable.
+
+`scripts/test_prov_absent_check.py` runs the sweep on the tree under `make
+scripts-test`, and so in `make test` and `make ci`. It also tests each rule on
+literal lists, and it forces a production image to link the wire on make's
+command line, to show that the sweep reads make and not a copy of it. Run it
+alone with `python3 scripts/prov-absent-check.py`. `tfwsim` is not a
+production image, and the check does not ask for it.
+
+The bench bake image is not a production image either, and the same script
+holds it to R5. It asks make for every board's bake list
+(`platform-bake-srcs`) and fails if one links a provisioning unit or any of
+`src/crypto/*/*.c`, `src/crypto/deviceid_*.c`, `src/hal/*/crypto_*.c`,
+`src/*/*atecc*.c` and `src/hal/*/hal_bus.c`: a crypto tier's provider or the
+element's driver, an architecture's own provider, other element code, and the
+bus the element sits on. Each list must hold `tools/platform-bake/bake.c`, or
+the probe read nothing.
+
 ## Invariants
 
 - **`ProvLock` refuses a zero summary CRC.** The element's own no-CRC lock form
@@ -325,6 +386,11 @@ proposed answer are in [the slot-map ADR](adr-trustflex-608c-slot-map.md).
 | Go unit | `sdk/go/platform_test.go` | `BuildPlatformBlock`'s layout, CRC coverage and tamper detection |
 | Firmware unit (cross-language) | `test/unit/boot/test_boot_platform.c`'s `test_a_baked_eeprom_image_is_decoded_correctly` | a LITERAL byte-for-byte capture of what `tfwprov --bake-eeprom` actually wrote, decoded by `tfw_boot_platform_parse` — the two implementations of one layout checked against each other's output, not just against themselves |
 | Firmware unit (bake image) | `test/unit/test_platform_bake.c`, linked against the mock HAL | the bench bake image's decision on a LITERAL `tfwprov --bake-eeprom` block — blank and torn regions baked with exactly 192 bytes and nothing past them, an equal block `already` with nothing written, a different valid block `refused` and left alone, a stuck cell `readback-failed`, an invalid carried block never written, the exact result line |
+| Build (object lists) | `scripts/test_prov_absent_check.py`, under `make scripts-test` | no production image of any board, tier, Ethernet variant, matrix row or the example application links a provisioning unit or defines `TFW_FEATURE_PROVISION`; every jig image does; no boot image links one; each rule on literal lists, and a production image forced on make's command line to link the wire fails |
+| Build (object lists) | the same script, `check_bake` | no board's bench bake image links a provisioning, element, crypto-provider or element-bus unit (R5); a bake list forced on make's command line to link the element's driver fails |
+| Go unit (wire) | `sdk/go/cmd/tfwprov/noeeprom_test.go` | every `tfwprov` wire mode (`provision`: `--dry-run`, `--verify`, `--commit` on a blank, config-locked and locked part, `--commit` refused at each step) sends no frame whose id `src/core/commands.def` gates on `TFW_FEATURE_EEPROM` other than a read (R5); the same recorder, sent an `EEPROM_WRITE`, flags it |
+| Build (ISP recipe) | `scripts/test_boot_flash_eesave.py`, under `make scripts-test` | `make boot-flash` run for real against a stand-in `avrdude` that holds a part's fuse bytes, with the EESAVE fuse, bit and part asked of each board's profile: the refusal, the first boot flash (factory record, then the one bit, then the flash, R7 and R8), a fuse write that does not hold, an already programmed part, and `BOOT_FIRST_FLASH=1` with `BOOT_EEPROM_RESTORE=1` refused |
+| Build (lock read-back) | `scripts/test_lock_check.py`, under `make scripts-test` | `make lock-check` run for real against the same stand-in `avrdude`, with literal lock bytes against the ATmega2560's `BOOT_LOCK_PROGRAMMED`: the operator's `0x0C` and `0x00` pass; `0xFF`, the factory `0xCF` and one bit short (`0x1C`) refused with each unprogrammed bit named; an unreadable lock byte refused; a board whose profile names no bit (the ATtiny85) refused before `avrdude` runs; no call writes. The ATmega328P and ATmega32U4 by literal against their own profiles: `0x0C` passes, `0xFF` refused, one bit short (`0x2C`, `0x0D`) refused naming that bit (R6) |
 | Simulator / tfwsim | `sdk/go/cmd/tfwctl/e2e_firmware_test.go` (`TestFirmwareEEPROM`) | wire-level EEPROM reserved-region enforcement (`tfwctl eeprom-write` at `0x000`, `0x0BF`, `0x100`) exercised against the real firmware build, not a model |
 | Integration (simavr) | `test/integration/simavr/boot_harness.c`'s `test_signed_image_boots` | a serial baked into the emulated EEPROM reaches `ATTEST`'s `DeviceID` over the real wire, through `tfw_platform_id_init`, on the real compiled application — end to end, not mocked |
 

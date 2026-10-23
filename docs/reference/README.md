@@ -1,6 +1,6 @@
 # Reference: the standards this repository implements
 
-> **Status: REFERENCE** · Scope: `docs/reference/` · Last verified: 2026-10-20
+> **Status: REFERENCE** · Scope: `docs/reference/` · Last verified: 2026-10-21
 > One entry per standard the code implements, with the copy it is implemented against.
 
 Handbook `software/conventions/documentation.md` §9: where a standard exists,
@@ -70,6 +70,9 @@ by title and URL, because none publishes a licence that allows a copy.
 |---|---|---|---|
 | Waveshare, *ESP32-P4-WIFI6-POE-ETH Schematic* (3 pages; SHA-256 `885b8f038881c6656486fea143bcf749f17c6a1ec9006cc693dcdb298018380b`) | 2026-10-18 | <https://files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf> | Every pin and the flash part of `boards/esp32p4-poe/`: [`../development/bench/esp32-p4.md`](../development/bench/esp32-p4.md), "Pins" |
 | Waveshare, *ESP32-P4-NANO Schematic* | 2026-10-18 | <https://files.waveshare.com/wiki/ESP32-P4-NANO/ESP32-P4-NANO-schematic.pdf> | Ruled out as the bench board: its flash is 16 MB |
+| Atmel, *ATmega640/V-1280/V-1281/V-2560/V-2561/V Datasheet*, Atmel-2549Q-AVR-02/2014 | 2026-10-21 | <https://ww1.microchip.com/downloads/en/devicedoc/atmel-2549-8-bit-avr-microcontroller-atmega640-1280-1281-2560-2561_datasheet.pdf> | `BOOT_LOCK_PROGRAMMED` in `boards/atmega2560/profile.mk`: §30.1 Table 30-1 (lock bit byte), §29.4 Tables 29-2 and 29-3 (boot lock modes); [`../security/fuses-and-lockbits.md`](../security/fuses-and-lockbits.md) |
+| Microchip, *ATmega48A/PA/88A/PA/168A/PA/328/P Data Sheet Complete*, DS40002061B (2020) | 2026-10-21 | <https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf> | `BOOT_LOCK_PROGRAMMED` in `boards/atmega328p/profile.mk`: §28.1 Table 28-1, §27.5 Tables 27-2 and 27-3; the same page |
+| Atmel, *ATmega16U4/32U4 Datasheet*, Atmel-7766J-USB-ATmega16U4/32U4-Datasheet_04/2016 | 2026-10-21 | <https://ww1.microchip.com/downloads/en/devicedoc/atmel-7766-8-bit-avr-atmega16u4-32u4_datasheet.pdf> | `BOOT_LOCK_PROGRAMMED` in `boards/atmega32u4/profile.mk`: §28.1 Table 28-1, §27.4 Tables 27-2 and 27-3; the same page |
 
 ## Cortex-M sources
 

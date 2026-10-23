@@ -29,6 +29,19 @@ RAM_END        := 0x08FF
 BOOT_EESAVE_FUSE := hfuse
 BOOT_EESAVE_BIT  := 3
 
+# The lock bits that must read programmed (0) before the part is called
+# provisioned: `make lock-check` reads the lock byte back and refuses
+# otherwise (mk/arch/avr.mk, SPEC device-provisioning R6). bit:name, from the
+# ATmega328P data sheet (DS40002061B, docs/reference/README.md), §28.1 Table
+# 28-1 for the bit positions and §27.5 Tables 27-2 and 27-3 for the modes: BLB1
+# mode 3, so the application cannot read the boot section, and LB mode 3, so
+# ISP cannot read flash or EEPROM. BLB0 stays unprogrammed: it guards the
+# application section, and mode 3 would stop tfw-boot reading the image it
+# verifies. The same 0x0C as the Mega. Today no soft tfw-boot fits this part's
+# 4 KB section (mk/boot.mk BOOT_SUPPORTED has the element row only), so no UDS
+# sits behind these bits yet; the value follows the data sheet regardless.
+BOOT_LOCK_PROGRAMMED := 0:LB1 1:LB2 4:BLB11 5:BLB12
+
 # The Ethernet controller an ETH=1 image drives (docs/ethernet-transport/): the
 # Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
 # The chip file checks the part's identity, so the wrong shield stays down.

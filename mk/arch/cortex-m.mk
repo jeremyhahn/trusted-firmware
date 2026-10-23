@@ -118,3 +118,4 @@ ARCH_CM_NOFLASH = echo "$@: $(BOARD) is an emulated board: QEMU loads the image 
 ARCH_FLASH         = $(ARCH_CM_NOFLASH)
 ARCH_BOOT_FLASH    = $(ARCH_CM_NOFLASH)
 ARCH_BOARD_RESTORE = echo "$@: $(BOARD) is an emulated board: it has no factory state" >&2; exit 1
+ARCH_LOCK_CHECK    = echo "$@: $(BOARD) is an emulated board: it has no lock bits" >&2; exit 1

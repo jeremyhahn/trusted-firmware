@@ -539,9 +539,10 @@ where only one fits, its image links one link file, chosen by its profile, as
   nothing verified.
 - `OTA_INFO`'s `state` is the slot state of
   [architecture.md](architecture.md#device-state-machine). Its `flags`:
-  - bit 0: the last boot fell back;
-  - bit 1: the fallback followed a refusal at evaluation (clear: the trial
-    ended unconfirmed);
+  - bit 0: the last trial ended (`src/core/ota_ctl.c`'s `OTA_STATE` is `FAILED`),
+    whether by a refusal at evaluation or an unconfirmed trial — those two are
+    not told apart here;
+  - bit 1: reserved, never set;
   - bit 2: the device is in `TRIAL`.
 - **A new status code:** `TFW_ERR_BAD_STATE`, "the
   command is not valid in the current OTA state", value 19
@@ -654,8 +655,12 @@ The machine is drawn in
   - On AVR the watchdog's longest period is 8 s, which is why the deadline
     itself is the application's.
 - **What a failed trial reports.** The rolled-back image sets `OTA_INFO`'s
-  `flags`: bit 0, and bit 1 if the evaluation refused. `state` is `FAILED`, and
-  `image_version` and `measurement` are the failed image's. Its evidence carries
+  `flags`: bit 0, set because the `OTA_STATE` it clears to is `FAILED`; a refusal
+  at evaluation and an unconfirmed trial are not told apart, so bit 1 — the
+  "refused at evaluation" bit the earlier draft of this ADR named — is never set.
+  `state` is `FAILED`, and slot 1's `image_version` and `measurement` are zero, the
+  failed image's having been neither kept nor reported (`MARK` cleared at the
+  fallback); its evidence carries
   the old `FWHash`. The control plane learns all of this on the device's next
   connection: it reads `OTA_INFO` before anything else, and attestation shows the
   image it did not send. The failed measurement is not kept in the platform

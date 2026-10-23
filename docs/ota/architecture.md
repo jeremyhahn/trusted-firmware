@@ -134,7 +134,7 @@ renumbered (ADR; open question 10 is closed by item 56, owner ruling
 | `TRIAL` | running once, not confirmed; the trial deadline and the watchdog are armed | `OTA_CONFIRM` → `CONFIRMED`; **any** reset → boot rolls back → `FAILED` |
 | `CONFIRMED` | confirmed by the control plane; the floor not yet advanced | boot, next reset: floor := version → `GOOD`; `OTA_BEGIN` is refused until then |
 | `GOOD` | the image the device boots | replaced when another image confirms |
-| `FAILED` | refused, or the trial ended unconfirmed; its measurement is kept | overwritten by the next `OTA_BEGIN` |
+| `FAILED` | refused, or the trial ended unconfirmed; the failed measurement is not kept in the platform block | overwritten by the next `OTA_BEGIN` |
 
 ### ATmega2560: A/B by swap-move
 

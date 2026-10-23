@@ -1040,7 +1040,22 @@ boot-flash: ISP_RERUN = BOOT_TIER=$(BOOT_TIER) BOOT_MEASURE=$(BOOT_MEASURE) BOOT
 boot-flash: $(BOOT_TARGET).hex
 	@$(ARCH_BOOT_FLASH)
 
-.PHONY: boot-test bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible boot-flash
+## lock-check: read the lock bits back over ISP; refuse unless they lock the UDS
+# The provisioning flow's last step (SPEC device-provisioning R6): after the
+# operator's avrdude lock write, the lock byte is read and every bit the board's
+# BOOT_LOCK_PROGRAMMED names must read programmed. Writes nothing. A board whose
+# profile names no bit is refused here, never passed. See ARCH_LOCK_CHECK in
+# mk/arch/$(ARCH).mk.
+ifneq ($(filter lock-check,$(MAKECMDGOALS)),)
+ifeq ($(BOOT_LOCK_PROGRAMMED),)
+$(error lock-check: REFUSED. boards/$(BOARD)/profile.mk names no BOOT_LOCK_PROGRAMMED, so nothing says which lock bits protect the UDS on this part; the profile names the data sheet they come from)
+endif
+endif
+
+lock-check:
+	@$(ARCH_LOCK_CHECK)
+
+.PHONY: boot-test bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible boot-flash lock-check
 
 # ------------------------------------------------------- simavr integration
 #

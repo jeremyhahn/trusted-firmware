@@ -30,6 +30,18 @@ RAM_END        := 0x21FF
 BOOT_EESAVE_FUSE := hfuse
 BOOT_EESAVE_BIT  := 3
 
+# The lock bits that must read programmed (0) before the part is called
+# provisioned: `make lock-check` reads the lock byte back and refuses
+# otherwise (mk/arch/avr.mk, SPEC device-provisioning R6). bit:name, from the
+# ATmega2560 data sheet (Atmel-2549Q, docs/reference/README.md), §30.1 Table
+# 30-1 for the bit positions (BLB1 bits 5:4, BLB0 bits 3:2, LB bits 1:0) and
+# §29.4 Tables 29-2 and 29-3 for the modes: BLB1 mode 3, so the application
+# cannot read the boot section where the soft root's UDS sits, and LB mode 3,
+# so ISP cannot read flash or EEPROM. BLB0 stays unprogrammed: it guards the
+# application section, and mode 3 would stop tfw-boot reading the image it
+# verifies and stop OTA staging one (docs/security/fuses-and-lockbits.md). The operator's write, docs/device-provisioning/user.md step 7, is 0x0C.
+BOOT_LOCK_PROGRAMMED := 0:LB1 1:LB2 4:BLB11 5:BLB12
+
 # The factory state `make board-restore` puts back (mk/board-restore.mk): the
 # bench Mega's fuse and lock bytes read over ISP before the project's first
 # write to it, and the SHA-256 of Arduino's stk500boot_v2_mega2560.hex, the

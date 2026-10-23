@@ -1,10 +1,11 @@
 # i.MX 95 Cortex-M7 board: the design of row `imx95`
 
 > **Status: PROPOSED** · Issue: [#49](../../../../issues/49) · SPEC row: `imx95`
-> (future) · Scope: trusted-firmware (docs only) · Last verified: 2026-10-18
+> (in progress) · Scope: trusted-firmware · Last verified: 2026-10-21
 >
-> #49's first deliverable: the row's design. It changes no code, no build file
-> and no SPEC row. SPEC rows change at merge (CA m623).
+> #49's first deliverable was the row's design, sections 1 to 8. Section 9 is
+> the board as built, and section 10 the row's requirements one by one. SPEC
+> rows change at merge (CA m623).
 
 ## Sources and how they are cited
 
@@ -294,7 +295,9 @@ Each names the document that answers it; none is guessed here.
    flags and the MPU? IMX95RM, the Arm core chapter.
 3. **A route from the M7 to the enclave.** Does the M7 have a messaging unit to
    the ELE, under which domain ID, and may it open a session and call
-   `hsm_dev_attest`? IMX95RM (MU chapter), IMX95SRM.
+   `hsm_dev_attest`? IMX95RM (MU chapter), IMX95SRM. The message layer is
+   built against the ELE MU's registers as Linux gives them (section 9.7);
+   that the M7 can reach such an MU at all is what stays open.
 4. **Where the M7's key store lives.** RM00284 §2.4.2 exports it to "external
    NVM"; on Linux that is a file system. For an M7 running without Linux, what
    holds it across reset? IMX95SRM, the System Manager interface document.
@@ -335,3 +338,669 @@ Each names the document that answers it; none is guessed here.
     the M7 logical machine only. IMX95RM, the System Manager interface document.
 18. **The budgets.** 128 KiB code and 32 KiB RAM against the TCM the System
     Manager configuration gives the M7. trusted-imx95; IMX95RM.
+19. **The boot choice: tfw-boot on the M7, or AHAB alone.** The owner's. This
+    is a proposal with the facts for each side; neither is built.
+    - *AHAB alone* (section 2.2, ref ADR decision 8). The ROM and the ELE
+      authenticate the container that holds the M7 image, and the System
+      Manager starts the M7, so no code of ours runs below the application.
+      The application would get tfw-boot's 32 KiB of ITCM (question 18). The
+      M7 starts with no Linux, as the ref ADR requires. Against it: the
+      signature verify m453 requires on every row would be AHAB's, not ours
+      (question 12). The CDI would have to come from the enclave (question 5),
+      not from tfw-boot's soft path as on every other board. And OTA's trial
+      boot would be the ROM's (question 10), not tfw-boot's.
+    - *tfw-boot on the M7*. Slice 1 already reserves its 32 KiB at the ITCM
+      base, where the profile assumes the M7's reset vector points (TO
+      CONFIRM). The profile and `board_profile.h` also lay out its handoff
+      block in the DTCM and its soft UDS in its region, so section 2.3's "no
+      tfw-boot slot, no handoff block" no longer matches the build. tfw-boot
+      would verify trailer v1 and the SUIT manifest with the ES256 code every
+      other board uses, and would derive the soft DeviceID as it does there
+      (#48, #130, #173). Against it: the TCM is RAM, so a loader writes
+      tfw-boot in again at every power-on, and its integrity is still AHAB's,
+      or nobody's when Linux loads it. A UDS carried in a loaded image is as
+      secret as that image's storage.
+    - *The loader*. The board carries the remoteproc resource table
+      (section 9.2, met in section 10) so that Linux can load and start
+      the M7. The ref ADR
+      says the M7 is started "by the ROM and the SM, never by Linux
+      `remoteproc`". The kernel's ELF loader checks the table's form, not a
+      signature. Is remoteproc a supported loader, a development-only one, or
+      none? Under AHAB alone, an image Linux loads is verified by nothing.
+20. **The board id.** `boards/frdm-imx95-m7/board_profile.h` keeps `0x41`,
+    provisional. Four row branches now claim `0x41`: stm32h5, nrf54l15, rp2350
+    and imx95. The owner allocates board ids (ref ADR Q3); each branch takes
+    its id from that allocation before it merges.
+21. **The M7 agent's SCMI channel.** The SCMI client (section 9.6) names no
+    instance, because no document held here gives one. It needs: the MU
+    instance and its base on the M7's map; the doorbell (the GCR bit); the
+    shared memory area's address and length; the agent id; the SCMI clock id
+    of LPUART3's root; and the power, reset and logical-machine ids the M7 may
+    use (question 15). So the console's clock is not enabled through SCMI yet.
+    The System Manager configuration (trusted-imx95) and the System Manager
+    interface document answer the ids. IMX95RM, the MU chapter, answers the
+    GCR's offset, `0x114` in `scmi_mu.h`. It is unconfirmed: no document
+    this project holds gives it. Linux v6.12 `drivers/mailbox/imx-mailbox.c`
+    agrees, as a secondary source. There `fsl,imx95-mu` is an MU v2 whose
+    control registers are `{ 0x8, 0x110, 0x114, 0x120, 0x128 }`, and the
+    third is the GCR.
+
+## 9. The board as built (frdm-imx95-m7)
+
+The i.MX 95's Cortex-M7 is the `cortex-m` port's second board, after the QEMU
+board `mps2-an505`. `boards/frdm-imx95-m7/` takes the next Cortex-M id,
+`0x41`, provisional as `0x40` is (`../boards/board-id-registry.md`). The board
+is in NXP UM12527, "FRDM-IMX95-PRO Board User Manual", Rev. 1.0. Its SoC is in
+NXP IMX95RM, the "i.MX 95 Applications Processor Reference Manual", which this
+project does not hold. Every address here is therefore to be confirmed against
+IMX95RM (`boards/frdm-imx95-m7/profile.mk`). The A55 addresses are those in
+Linux's `drivers/remoteproc/imx_rproc.c`.
+
+### 9.1 Memory map
+
+| Region | M7 base | A55 base | Size | Holds |
+|---|---|---|---|---|
+| ITCM | `0x00000000` | `0x203C0000` | 32 KiB | reserved for tfw-boot, which has no row for this board yet |
+| ITCM | `0x00008000` | `0x203C8000` | 192 KiB slot | the application |
+| ITCM top | `0x0003F000` | `0x203FF000` | 4 KiB | the platform block |
+| DTCM | `0x20000000` | `0x20400000` | 256 KiB | `.data`, `.bss`, the stack, the reset marker, the handoff block |
+
+The image is linked at the M7's addresses. Two loaders can write it into the
+TCM from the A55 side: the boot container (AHAB) or Linux's remoteproc.
+`mk/arch/cortex-m/imx95.ld` takes `mps2-tz.ld`'s layout as it is. TCM is RAM,
+so nothing survives a power cycle.
+
+### 9.2 The remoteproc resource table
+
+For remoteproc, the application carries a resource table in the format of the
+kernel's *Remote Processor Framework*, "Binary Firmware Structure"
+([`../reference/README.md`](../reference/README.md)). The kernel's ELF loader
+finds the table by its section name, `.resource_table`, accepts version 1 only,
+and copies the table back to the section's address after loading.
+
+- `src/hal/cortex-m/imx95/rsc_table.c` holds the 16-byte header: `ver` 1,
+  `num` 0, both reserved words zero.
+- The table has no entry. The image runs from the TCM, which the i.MX driver
+  maps itself, so it needs no carveout or devmem. It writes no log, so it has
+  no trace buffer. It speaks no rpmsg, so it has no vdev.
+- `mps2-tz.ld` places the section after `.ARM.exidx`, in the code region and
+  before `.data`'s initial values, and drops the empty section on mps2-tz.
+  Placed from `imx95.ld`, after the shared script's last section, GNU ld would
+  warn "dot moved backwards" on every link.
+- `imx95.ld` asserts the table's length and alignment.
+- `test/unit/test_imx95_rsc_table.c` checks the bytes against literals written
+  out from the format.
+- tfw-boot does not link the file, so its image has no table.
+
+The table does not settle who starts the M7; the ref ADR says Linux never does
+(section 8, question 19).
+
+### 9.3 The SoC directory
+
+`src/hal/cortex-m/imx95/` drives three blocks:
+
+- LPUART3, on interrupt 64, as the byte link;
+- the RGPIO banks GPIO1 to GPIO5;
+- WDOG5, as the watchdog both images share.
+
+It sets no pin mux, clock or power: NXP's System Manager on the M33 owns those.
+The divisor search and the bank table are `soc_calc.c`, which has no register
+access, so `test/unit/test_imx95_soc_calc.c` tests on the host the same file
+the image links. The vector table carries 80 external interrupts for LPUART3,
+so the code region needs a 512-byte alignment, and `imx95.ld` asserts it.
+
+### 9.4 SoC facts, checked 2026-10-20
+
+Slice 1's SoC facts, checked against UM12527 and RM00284 as far as
+`docs/reference/` holds them. It holds neither, and RM00284 is the EdgeLock
+Enclave's API reference, which does not describe these blocks. So no fact
+could be shown wrong and none was changed. Each stays marked "TO CONFIRM" in
+the file that states it.
+
+| Fact | Where | Value | Result |
+|---|---|---|---|
+| The M7's UART | `board_profile.h`, `soc_regs.h` | LPUART3 at `0x42570000`, interrupt 64 | unverifiable. UM12527 §2.19 says J22's channel-to-core mapping is not fixed (question 13) |
+| The watchdog | `soc_regs.h`, `hal_soc.c` | WDOG5 at `0x424B0000`, WDOG32 on the 32 kHz LPO | unverifiable (question 17) |
+| The start address | `profile.mk` | ITCM at M7 `0x00000000` = A55 `0x203C0000`, application at `0x00008000` | unverifiable. SPSDK loads `cortex_m7_app` at `0x303C0000` (d12); whether that is the other alias of the same TCM is open |
+| The clock | `board_profile.h` | the M7 at 800 MHz, the LPUART root at 24 MHz | unverifiable. 800 MHz agrees with IMX95CEC Table 1 as section 2.1 cites it, a datasheet `docs/reference/` does not hold |
+| The pins | `board.c`, `soc_calc.c` | GPIO2_IO00 and GPIO2_IO01; GPIO1 to GPIO5 at `0x47400000`, `0x43810000`, `0x43820000`, `0x43840000`, `0x43850000` | unverifiable |
+
+Matched: none. Corrected: none. Unverifiable: all five.
+
+### 9.5 What the board does not do yet
+
+`firmware-matrix` builds it, but nothing runs it, because QEMU has no i.MX 95.
+Its UART, pins and watchdog run on the host against a register model
+(`test/model/imx95_model.c`, through `test/unit/test_imx95_hal.c`): the model
+pins the register layouts soc_regs.h states, so it proves the code agrees with
+them, not that they are the silicon's (section 9.4).
+It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
+message layer and one command (section 9.7), and no key store, session or
+attestation over it.
+
+### 9.6 The SCMI client
+
+The M7 asks NXP's System Manager for clocks, power and resets in Arm DEN0056's
+SCMI ([`../reference/README.md`](../reference/README.md)).
+
+- `src/hal/cortex-m/imx95/scmi.c` is pure: it has no register access.
+  - It encodes the header: message id, type, protocol id, token.
+  - It encodes the Base protocol's PROTOCOL_VERSION and PROTOCOL_ATTRIBUTES,
+    the Clock protocol's CLOCK_CONFIG_SET and CLOCK_RATE_GET, the Power domain
+    protocol's POWER_STATE_SET and the Reset domain protocol's RESET.
+  - It refuses a reply whose header is not the command's.
+  - It returns the status code as the specification numbers it.
+  - CLOCK_CONFIG_SET carries `extended_config_val` only from Clock
+    protocol version 3.0, so the caller passes the version that
+    PROTOCOL_VERSION returned.
+  - The seventh working slice of the row (its own numbering, not section 7's
+    slice 7) checked every value against DEN0056E (version 3.2, issue E).
+    - All of them match: the header and protocol ids (§4.1.2, Tables 2 and
+      3), PROTOCOL_VERSION and PROTOCOL_ATTRIBUTES (§4.1.3, Table 4), the
+      status codes (§4.1.4, Table 5), the Base attributes (§4.2.2.3),
+      POWER_STATE_SET and its states (§4.3.2.6, §4.3.1 Table 6), the clock
+      commands (§4.6.2.8, §4.6.2.9 Table 16), RESET and its cold state
+      (§4.8.2.6, §4.8.1 Tables 20 and 21), and the transport (§5.1.1, §5.1.2
+      Tables 25 and 26).
+    - One name was corrected: the third word was called `oem_config_val`,
+      and DEN0056E §4.6.2.9 names it `extended_config_val`. The bytes do not
+      change.
+    - The layout before Clock version 3.0 (bit 0 alone, two words) is the
+      earlier revisions', whose text is not held, so it is not checked.
+- `src/hal/cortex-m/imx95/scmi_mu.c` is the transport: the shared memory area's
+  layout with an MU general-purpose interrupt as the doorbell.
+  - It polls, reading the channel status at most 100000 times before and
+    after the send.
+  - It never asks for the completion interrupt, and nothing sleeps.
+  - It refuses a message, sent or received, that is longer than the area
+    or the buffer.
+- The channel (MU, doorbell, area) is the caller's data, and nothing calls the
+  client yet (question 21).
+- `test/unit/test_imx95_scmi.c` pins the bytes as literals.
+- `test/unit/test_imx95_scmi_mu.c` runs the channel against the register
+  model's MU and shared memory, with a System Manager written in the test.
+
+### 9.7 The enclave's message layer
+
+The first piece of section 7's slice 5: the M7's half of the EdgeLock
+Enclave's messaging, and one command. It lives beside the SCMI transport in
+`src/hal/cortex-m/imx95/ele_mu.c`, because it is the MU's; the provider in
+`src/crypto/ele/` will call it.
+
+- **What RM00284 confirmed.** Nothing on the wire. RM00284 Rev. 4.5 is the
+  library's API: it names no header, status word, command id or MU
+  register. §1 names the reference implementation, nxp-imx/imx-secure-enclave;
+  §3.13.2.2 the lifecycle field; §3.13.3.1 `hsm_dev_getinfo` and §3.19.3.1
+  `hsm_get_info` are the library calls over the message built here.
+- **Where the values come from** ([`../reference/README.md`](../reference/README.md)):
+  - The header word is version, size in words, command and tag, a byte each
+    from bit 0: imx-secure-enclave d7e1180b `sab_msg_def.h` struct
+    sab_mu_hdr, and U-Boot ece349ad `ele_api.h` struct ele_msg.
+    - The version is 0x06 in both.
+    - The tags (command 0x17, response 0xE1) are U-Boot's alone.
+  - The status word is the status in bits 7 to 0 (0xD6 success, 0x29
+    failure) and the rating in bits 15 to 8.
+  - GET_INFO is command 0xDA.
+    - The request is four words: the buffer's address, high word first, and
+      its length, 256.
+    - The response is two words, the header and the status.
+    - The enclave writes `struct dev_info` and `struct dev_addn_info` into
+      the buffer (`sab_dev_getinfo.h`; U-Boot `ele_api.c` ele_get_info).
+  - The MU registers (PAR +0x004, TSR +0x124, RSR +0x12C, TR +0x200, RR
+    +0x280) and the word order (word k through register k modulo the count
+    PAR gives) are Linux v6.12 `imx-mailbox.c`'s for `fsl,imx95-mu-ele` and
+    U-Boot's `ele_mu.c`. They are unconfirmed against IMX95RM.
+- **Why GET_INFO.** It is the one command the enclave answers with no key or
+  session open: its message carries no session handle, and U-Boot sends it
+  before any.
+  - The ping (0x01) is also session-free, but no source held gives its
+    sizes.
+- **What was built.** `tfw_ele_call` sends one request and reads one
+  response.
+  - It polls each status register at most 100000 times per word, and
+    nothing sleeps.
+  - It refuses the response with its own result for each of: a wrong
+    version, a wrong tag, another command, a wrong size (before the rest is
+    read) and a status other than success.
+  - It also refuses an MU with no transmit or receive register and a
+    request longer than eight words.
+  - `tfw_ele_get_info_parse` reads the identity, lifecycle, firmware hash
+    and state bytes out of the buffer.
+- **What it does not settle.**
+  - Which MU, if any, the M7 has to the enclave (question 3), so the
+    channel is the caller's data, as with SCMI.
+  - The buffer's address as the enclave sees it, and the M7's cache over
+    it.
+- `test/unit/test_imx95_ele_mu.c` runs it against the register model's ELE
+  MU with an enclave written in the test, every word a literal.
+
+### 9.8 The enclave's session
+
+The second piece of section 7's slice 5: a session opened and closed over
+section 9.7's message layer, the step before the key store.
+
+- **What RM00284 holds.** §3.1 is `hsm_open_session` and
+  `hsm_close_session`, the library calls over these two messages, with at
+  most 8 sessions (section 4's table). It gives no ids or sizes.
+- **Where the values come from** (imx-secure-enclave d7e1180b):
+  - SESSION_OPEN is 0x10 and SESSION_CLOSE 0x11
+    (`src/common/include/sab_msg_def.h` lines 26 and 27).
+  - The structures are `src/common/sab_msg/include/sab_session.h` lines 11
+    to 44. The ELE build defines `PSA_COMPLIANT` (`src/plat/ele/ele.mk` line
+    39), which picks their layout:
+    - the open request is three words: the header; a reserved byte, the MU's
+      interrupt index and a reserved half-word; the priority and the
+      operating mode, which `sab_session.c` never sets and so sends as zero;
+    - the open response is three words: the header, the status and the
+      session handle;
+    - the close request is two words, the header and the handle, and its
+      response two, the header and the status.
+  - The header, tags and status word are section 9.7's.
+- **What was built.** `tfw_ele_session_open` returns the handle to its
+  caller, which keeps it; the HAL holds no session state.
+  `tfw_ele_session_close` sends that handle back.
+  - Every refusal is `tfw_ele_call`'s, and a refused open leaves the
+    caller's handle as it was.
+  - A close the enclave answers with failure is `TFW_ELE_E_HANDLE` (9), a
+    result of its own beside the eight of section 9.7, with the status word
+    for its rating.
+- **What it does not settle.**
+  - The interrupt index the M7's MU would name, which needs that MU
+    (question 3).
+  - Whether the M7's domain may open a session at all (questions 3 and 4).
+  - No key store, key, attestation or tier: those are the next pieces.
+
+### 9.9 The enclave's key store
+
+The third piece of section 7's slice 5: a key store opened and closed in
+section 9.8's session, the step before a key the enclave holds.
+
+- **What RM00284 holds.** §3.22 is `hsm_open_key_store_service` and
+  `hsm_close_key_store_service`, the library calls over these two messages;
+  §3.22.1 says the enclave knows a caller by its domain ID and messaging
+  unit, and §3.22.3.5 that a STRICT create completes only once the store is
+  in NVM. It gives no ids or sizes.
+- **Where the values come from** (imx-secure-enclave d7e1180b):
+  - KEY_STORE_OPEN is 0x30 and KEY_STORE_CLOSE 0x31
+    (`src/common/include/sab_msg_def.h` lines 42 and 43).
+  - The structures are `src/common/sab_msg/include/sab_key_store.h` lines 11
+    to 50, in the `PSA_COMPLIANT` layout section 9.8 names:
+    - the open request is six words: the header; the session handle; the key
+      store id; the nonce (`password` in the structure,
+      `authentication_nonce` in `include/common/key_store.h` line 23); a word
+      whose third byte is the flags and whose others are reserved; a CRC;
+    - the CRC is the XOR of the five words before it: a request longer than
+      four words carries one (`sab_msg_def.h` line 146,
+      `src/common/sab_msg/sab_process_msg.c` lines 235 to 246,
+      `src/plat/ele/ele_utils.c` lines 228 to 250);
+    - the open response is three words: the header, the status and the key
+      store handle (`src/common/sab_msg/sab_key_store.c` line 57);
+    - the close request is two words, the header and that handle, and its
+      response two, the header and the status.
+  - An unknown handle is rated 0x07 (`include/common/err.h` line 25).
+- **The flags chosen.** `include/hsm/internal/hsm_key_store.h` lines 35 to 67
+  define LOAD (0x00), CREATE (0x01), SHARED, SET_MAC_LEN, KEY_STORE_STATUS,
+  MONOTONIC and STRICT_OPERATION. This client sends CREATE when its caller
+  asks to create and LOAD when not, and nothing else:
+  - not STRICT, nor MONOTONIC, which needs STRICT: a store reaches NVM
+    only through the storage messages the enclave sends its host (0xE0 to
+    0xE9, `sab_msg_def.h` lines 148 to 156), which this firmware does not
+    serve, and the M7 has no store of its own to give it (question 4). A STRICT create would wait on a write nothing makes. A created store
+    lives until reset;
+  - not KEY_STORE_STATUS: with it the response's last word is a status, not
+    a handle (`sab_key_store.h` lines 33 to 38);
+  - not SHARED or SET_MAC_LEN: the first shares a store across domains
+    before question 3 has said which domain the M7 is, and the second sets a
+    MAC length for a MAC this firmware does not compute.
+- **What was built.** `tfw_ele_key_store_open` takes the session handle its
+  caller keeps and returns the key store handle to it; the HAL holds no
+  state. `tfw_ele_key_store_close` sends that handle back.
+  - Session handle 0 is `TFW_ELE_E_SESSION` (10), unsent, as the library
+    refuses it (`src/common/hsm_api/hsm_key_store.c` line 54); so is the
+    enclave's failure rated 0x07, an open on a session it has closed.
+  - Any other failure is `TFW_ELE_E_STATUS` with the status word; a refused
+    close is `TFW_ELE_E_HANDLE`, as for the session; every other refusal is
+    `tfw_ele_call`'s, and a refused open leaves the caller's handle as it
+    was.
+- **What it does not settle.**
+  - The key store id and nonce the M7 would use, and whether its domain may
+    hold a store beside go-xkms's on the A55 (question 3).
+  - Where a created store persists across reset, if anywhere (question 4).
+  - No key, signature, attestation or tier: the next piece is the key
+    management service (KEY_MANAGEMENT_OPEN, 0x40, `sab_msg_def.h` line 47).
+
+### 9.10 The enclave's key management service
+
+The fourth piece of section 7's slice 5: the key management service opened
+and closed on section 9.9's key store, the step before a key is generated or
+used.
+
+- **What RM00284 holds.** §3.2.6.5 and §3.2.6.6 are
+  `hsm_open_key_management_service` and `hsm_close_key_management_service`,
+  the library calls over these two messages: a caller opens the service to
+  generate, update or delete the store's keys. §3.2.2.6 and §3.2.4.7 give its
+  argument a flags bitmap and define no bit. It gives no ids or sizes.
+- **Where the values come from** (imx-secure-enclave d7e1180b):
+  - KEY_MANAGEMENT_OPEN is 0x40 and KEY_MANAGEMENT_CLOSE 0x41
+    (`src/common/include/sab_msg_def.h` lines 47 and 48).
+  - The structures are `src/common/sab_msg/include/sab_key_management.h`
+    lines 11 to 35:
+    - the open request is six words: the header; the key store handle; the
+      input and output address extensions; a word whose first byte is the
+      flags and whose others are reserved; the CRC word of section 9.9;
+    - the open response is three words: the header, the status and the key
+      management handle (`src/common/sab_msg/sab_key_management.c` line 48);
+    - the close request is two words, the header and that handle, and its
+      response two, the header and the status.
+- **What is sent as zero.** The library zeroes its message buffer
+  (`src/common/sab_msg/sab_process_msg.c` line 174) and
+  `sab_key_management.c` lines 26 and 27 set only the handle and the flags.
+  The address extensions are therefore always zero, and no flag is defined
+  (`include/hsm/internal/hsm_key_management.h` line 20, a bare `uint8_t`) and
+  its own tests open with the flags cleared (`test/common/test_asymmetric_crypto.c`
+  line 423). This client sends all three as zero.
+- **What was built.** `tfw_ele_key_mgmt_open` takes the key store handle its
+  caller keeps and returns the key management handle to it; the HAL holds no
+  state. `tfw_ele_key_mgmt_close` sends that handle back. The CRC word is now
+  one helper shared with the key store open.
+  - Key store handle 0 is `TFW_ELE_E_KEY_STORE` (11), unsent, as the library
+    refuses it (`src/common/hsm_api/hsm_key_management.c` line 28); so is the
+    enclave's failure rated 0x07, an open on a store it has closed. It is
+    appended after `TFW_ELE_E_SESSION`, which names a session and so does not
+    fit a store.
+  - Any other failure is `TFW_ELE_E_STATUS` with the status word; a refused
+    close is `TFW_ELE_E_HANDLE`; every other refusal is `tfw_ele_call`'s, and
+    a refused open leaves the caller's handle as it was.
+- **What it does not settle.**
+  - Questions 3 and 4, as for section 9.9.
+  - No key, signature, attestation or tier: the next piece is key generation
+    (KEY_GENERATE, 0x42, `sab_msg_def.h` line 49).
+
+### 9.11 Generating a NIST P-256 key
+
+The fifth piece of section 7's slice 5: one NIST P-256 key generated inside
+section 9.10's key management service, its public half written out. It is
+not yet used: no signature, attestation or deletion.
+
+- **What RM00284 holds.** `hsm_generate_key`, in section 3.2's key
+  management group, is the library call over this message. The subsection
+  number and its text were not checked in this slice: the PDF was not to hand
+  in the lane, so every value below is from the library.
+- **Where the values come from** (imx-secure-enclave d7e1180b):
+  - KEY_GENERATE is 0x42 (`src/common/include/sab_msg_def.h` line 49).
+  - The structures are `src/common/sab_msg/include/sab_key_generate.h`
+    lines 13 to 52, in the PSA_COMPLIANT layout:
+    - the request is twelve words: the header; the key management handle;
+      the key id; the public key size and, above it, the key group; the key
+      type and, above it, the size in bits; the lifetime; the usage; the
+      permitted algorithm; the key lifecycle; a word holding the flags, a
+      reserved byte and the private key size; the public key's address; the
+      CRC word of section 9.9;
+    - the response is four words: the header, the status, the key id, and the
+      public and private key sizes the enclave expected.
+  - NIST P-256 is type 0x7112 (`include/hsm/internal/hsm_key.h` line 112) at
+    256 bits (line 173). Its public key is 64 bytes, x then y
+    (`test/common/test_key_generate.c` line 57).
+  - Sign-hash and verify-hash usage are bits 12 and 13 (`hsm_key.h` lines 50
+    and 54); ECDSA with SHA-256 is 0x06000609
+    (`include/hsm/internal/hsm_common_def.h` line 35). The caller chooses
+    both. The tests use them.
+- **What is sent as zero.** `src/common/sab_msg/sab_key_generate.c` fills
+  every field from the caller's arguments and leaves the CRC to the message
+  layer. This client sends the key lifecycle as zero, the current one. It
+  sends the flags, the reserved byte and the private key size as zero too:
+  no STRICT operation and no plaintext export
+  (`include/hsm/internal/hsm_key_generate.h` lines 45 to 48).
+- **What a persistent key needs.** The lifetimes are VOLATILE 0x0,
+  PERSISTENT 0x1 and PERSISTENT_PERMANENT 0xFF (`hsm_key.h` lines 80 to 82).
+  - A persistent key lives in the external NVM, and its group is written there
+    at the next STRICT operation (`hsm_key.h` lines 304 and 305). The STRICT
+    operation is flag 0x80, "completed only when the key is written in the
+    NVM" (`hsm_key_generate.h` line 48).
+  - The library's own persistent vectors set that flag
+    (`test/common/test_vectors/psa/test_vectors_set0_kgen_persistent_ap.tv`).
+    Their lifetime comment reads 0x00000101, not the header's 0x1.
+  - The write goes through the storage messages 0xE0 to 0xE9, which this
+    firmware does not serve (section 9.9).
+  - This client therefore generates volatile keys only. A volatile key lives
+    until reset, with its store. Any other lifetime is refused unsent; the
+    tests refuse both 0x1 and 0x101.
+- **What was built.** `tfw_ele_key_generate` takes the key management handle
+  its caller keeps, a `struct tfw_ele_key_gen` (id, type, lifetime, usage,
+  algorithm, group, buffer size and address), and returns the key id. The
+  enclave writes the public key into the caller's buffer, as GET_INFO's
+  buffer is written. The HAL holds no state. `TFW_ELE_MSG_WORDS` grows from
+  8 to 12.
+  - Three result codes are appended after 11:
+    - `TFW_ELE_E_KEY_MGMT` (12) for handle 0, refused unsent as the library
+      refuses it (`src/common/hsm_api/hsm_key_generate.c` line 36), or the
+      enclave's failure rated 0x07;
+    - `TFW_ELE_E_KEY_TYPE` (13) for a type other than P-256 or a lifetime
+      other than volatile, unsent;
+    - `TFW_ELE_E_BUFFER` (14) for a buffer under 64 bytes, unsent.
+
+    No existing code names a service, a key or a buffer.
+  - Any other failure is `TFW_ELE_E_STATUS` with the status word. Every other
+    refusal is `tfw_ele_call`'s. A refused generate leaves the caller's key id
+    as it was.
+  - The response's expected sizes are not checked; the buffer is checked
+    before the send.
+- **What it does not settle.**
+  - Questions 3 and 4, as for section 9.9. A persistent key waits on
+    question 4 and on a host serving the storage messages.
+  - No signature, attestation, deletion or tier. The next piece is the
+    signature generation service (SIGN_GENERATE) over this key.
+
+### 9.12 Signing with the P-256 key
+
+The sixth piece of section 7's slice 5: the signature generation service
+opened on section 9.9's key store, and one ECDSA signature over a SHA-256
+digest with section 9.11's key. It is the first command that uses an enclave
+key. No application code calls it yet.
+
+- **What RM00284 holds.** `hsm_open_signature_generation_service`,
+  `hsm_close_signature_generation_service` and `hsm_generate_signature`, in
+  section 3.2's signature generation group, are the library calls over these
+  messages. The subsection numbers and their text were not checked in this
+  slice: the PDF was not to hand in the lane, so every value below is from the
+  library.
+- **Where the values come from** (imx-secure-enclave d7e1180b):
+  - SIGNATURE_GENERATION_OPEN is 0x70, CLOSE 0x71 and SIGNATURE_GENERATE 0x72
+    (`src/common/include/sab_msg_def.h` lines 75 to 77).
+  - The structures are `src/common/sab_msg/include/sab_sign_gen.h` lines 11 to
+    76, in the PSA_COMPLIANT layout:
+    - the open request is six words: the header; the key store handle; the
+      input and output address extensions; the flags and three reserved
+      bytes; the CRC word of section 9.9. Its response is three: the header,
+      the status and the signature generation handle;
+    - the close request is the header and that handle, its response the
+      header and the status;
+    - the signature request is fourteen words: the header; the signature
+      generation handle; the key id; the input's address; the signature
+      buffer's address; the input's size; the buffer's size, the flags and a
+      reserved byte; the scheme id; the salt length and the key type; the
+      private key size and the key security size; the SM2 public key's and
+      identity's addresses; their sizes; the CRC word. Its response is three
+      words: the header, the status, and the signature size the enclave
+      expected.
+  - ECDSA with SHA-256 is scheme 0x06000609
+    (`include/hsm/internal/hsm_sign_gen.h` line 108), the value section 9.11's
+    key permits. The signature is r then s, 64 bytes for P-256; the Ry byte
+    follows only with the compressed-point flag (lines 169 to 173), which this
+    client does not set.
+  - The library refuses a key store handle of 0 at the open and a service
+    handle of 0 at the signature, unsent
+    (`src/common/hsm_api/hsm_sign_gen.c` lines 31 and 129).
+- **Digest, not message.** Flag bit 0 chooses the input: clear for a digest,
+  set for the message (`hsm_sign_gen.h` lines 71 and 76). This client sends
+  the 32-byte SHA-256 digest, flags zero:
+  - section 9.11's key carries the sign-hash usage, not sign-message;
+  - every row of this project signs a SHA-256 digest it computed itself;
+  - a digest keeps the request one size, whatever the caller signs.
+- **What is sent as zero.** `src/common/sab_msg/sab_sign_gen.c` lines 82 to
+  154 fill the signature request from the caller's arguments. The PSA_COMPLIANT
+  open leaves its flags zero (lines 23 to 30). This client sends as zero the
+  salt length (no RSA-PSS) and the key type, private key size and security
+  size, which are read only with the plaintext-key flag (`hsm_sign_gen.h` lines
+  186 to 197). It sends the SM2 fields as zero too.
+- **What was built.** `tfw_ele_sign_gen_open` takes the key store handle its
+  caller keeps and returns the service's handle; `tfw_ele_sign_gen_close`
+  sends it back. `tfw_ele_sign_generate` takes that handle and a
+  `struct tfw_ele_sign`: the key id, the key's type and size as the caller
+  generated it, the scheme, the digest's address, and the signature buffer's
+  address and size. The enclave writes r||s into the caller's buffer, as
+  section 9.11's public key is written. The HAL holds no state.
+  `TFW_ELE_MSG_WORDS` grows from 12 to 14.
+  - A key id alone does not say the key's type. The caller passes the type and
+    size it generated the key with. A type other than NIST, a size other than
+    256 or a scheme other than ECDSA with SHA-256 is `TFW_ELE_E_KEY_TYPE` (13),
+    unsent. The code now reads "a key or scheme this client does not use".
+  - A buffer under 64 bytes is `TFW_ELE_E_BUFFER` (14), unsent.
+  - One result code is appended after 14: `TFW_ELE_E_SIGN_GEN` (15), for
+    service handle 0, unsent, or the enclave's failure rated 0x07. No existing
+    code names this service.
+  - At the open, store handle 0 or a failure rated 0x07 is
+    `TFW_ELE_E_KEY_STORE` (11), as for section 9.10.
+  - Any other failure is `TFW_ELE_E_STATUS` with the status word. A refused
+    close is `TFW_ELE_E_HANDLE`. Every other refusal is `tfw_ele_call`'s. A
+    refused open leaves the caller's handle as it was.
+  - The response's expected size is not checked; the buffer is checked before
+    the send.
+- **What it does not settle.**
+  - Questions 3 and 4, as for section 9.9.
+  - No signature verification, attestation, deletion or tier. The next piece
+    is the public key's export or the enclave's attestation over this key,
+    once question 3 says which the application calls.
+
+### 9.13 Exporting the public key and verifying a signature
+
+The seventh piece of section 7's slice 5: section 9.11's public key exported
+from the key store by its id, and the signature verification service opened
+on the session, verifying one ECDSA P-256 signature over a SHA-256 digest
+against that key. With section 9.12 it closes the loop: a key generated,
+used to sign, exported and checked. No application code calls it yet.
+
+- **What RM00284 holds.** `hsm_pub_key_recovery`, in the public key recovery
+  group, and `hsm_open_signature_verification_service`,
+  `hsm_close_signature_verification_service` and `hsm_verify_signature`, in
+  section 3.2's signature verification group, are the library calls over
+  these messages. The subsection numbers and their text were not checked in
+  this slice: the PDF was not to hand in the lane, so every value below is
+  from the library.
+- **Where the values come from** (imx-secure-enclave d7e1180b):
+  - PUB_KEY_RECOVERY is 0x32 (`src/common/include/sab_msg_def.h` line 44).
+    "Public Key Recovery is now also known as Public Key Exportation"
+    (`include/hsm/internal/hsm_key_recovery.h` lines 16 to 18); this
+    client calls it export.
+  - Its structures are `src/common/sab_msg/include/sab_key_recovery.h` lines
+    13 to 36, in the PSA_COMPLIANT layout. The request is seven words: the
+    header; the key store handle; the key id; the output address extension;
+    the output address; the output size and two reserved bytes; the CRC word
+    of section 9.9. The response is three words: the header, the status, and
+    the size written. The key is X||Y, 64 bytes, as the library's own test
+    reads it (`test/common/test_key_recovery.c` line 14). The library refuses
+    store handle 0, unsent (`src/common/hsm_api/hsm_key_recovery.c` line 31).
+  - SIGNATURE_VERIFICATION_OPEN is 0x80, CLOSE 0x81 and SIGNATURE_VERIFY 0x82
+    (`sab_msg_def.h` lines 81 to 83). The structures are
+    `src/common/sab_msg/include/sab_verify_sign.h` lines 11 to 74:
+    - the open request is six words: the header; the session handle; the
+      input and output address extensions; the flags and three reserved
+      bytes; the CRC word. Its response is three: the header, the status and
+      the verification handle;
+    - the close request is the header and that handle, its response the
+      header and the status;
+    - the verify request is fourteen words: the header; the verification
+      handle; the key's, the input's and the signature's addresses; the
+      input's size; the signature's and the key's sizes; the key security
+      size and the key type; the flags and three reserved bytes; the scheme;
+      the salt length; the SM2 identity's address; its size; the CRC word.
+      Its response is three words: the header, the status, and the
+      verification status.
+  - The open is on the session, not the key store: the library passes a
+    session handle (`src/common/hsm_api/hsm_verify_sign.c` lines 37 to 48),
+    and refuses handle 0 at the open and at the verify, unsent (lines 32 and
+    134).
+  - The verification status is 0x5A3CC3A5 for a signature that holds and
+    0x2B4DD4B2 for one that does not (`include/hsm/internal/hsm_verify_sign.h`
+    lines 204 and 209). The library reads any word other than the first as
+    invalid (`hsm_verify_sign.c` lines 173 to 177).
+  - The key travels as plaintext: flags zero is a digest input and a plaintext
+    key (`hsm_verify_sign.h` lines 165 and 191; the opaque-key flag is line
+    197). Its type is the public one, HSM_PUBKEY_TYPE_ECC_NIST 0x4112
+    (`include/hsm/internal/hsm_key.h` line 91), not the key pair's 0x7112
+    (line 112), at 256 bits (line 173). The library's own test verifies so,
+    with a 64-byte key (`test/common/sign_verify_test.c` lines 108 to 122).
+- **What is sent as zero.** `src/common/sab_msg/sab_verify_sign.c` lines 86
+  to 156 fill the verify request; the open fills only the session handle
+  (lines 16 to 40). This client sends as zero the address extensions, the
+  open's flags, the salt length (no RSA-PSS) and the SM2 fields. The export
+  sends its address extension as zero (`sab_key_recovery.c` lines 14 to 51).
+- **What was built.** `tfw_ele_pub_key_export` takes the key store handle and
+  a `struct tfw_ele_key_export`: the key id, the type and size the caller
+  generated it with, and the caller's buffer's address and size. The enclave
+  writes X||Y there. `tfw_ele_sign_ver_open` takes the session handle and
+  returns the service's; `tfw_ele_sign_ver_close` sends it back.
+  `tfw_ele_sign_verify` takes that handle and a `struct tfw_ele_verify`: the
+  key's type and size, the scheme, and the key's, the digest's and the
+  signature's addresses, with the key's and signature's sizes. The HAL holds
+  no state and owns no buffer. `TFW_ELE_MSG_WORDS` stays 14.
+  - The export carries no key type, so the caller says it. A type other than
+    NIST or a size other than 256 is `TFW_ELE_E_KEY_TYPE` (13), unsent; so is
+    a verify with another scheme. A buffer, key or signature under 64 bytes
+    is `TFW_ELE_E_BUFFER` (14), unsent.
+  - Two result codes are appended after 15: `TFW_ELE_E_SIGN_VER` (16), for
+    verification handle 0, unsent, or the enclave's failure rated 0x07; and
+    `TFW_ELE_E_SIG_BAD` (17), for a verify the enclave carried out whose
+    verdict is not 0x5A3CC3A5. A signature that does not hold is thus told
+    apart from a transport or status error; the verdict word is returned
+    either way.
+  - At the export, store handle 0 or a failure rated 0x07 is
+    `TFW_ELE_E_KEY_STORE` (11). At the verification open, session 0 or a
+    failure rated 0x07 is `TFW_ELE_E_SESSION`.
+  - Any other failure is `TFW_ELE_E_STATUS` with the status word. A refused
+    close is `TFW_ELE_E_HANDLE`. Every other refusal is `tfw_ele_call`'s. A
+    refused open leaves the caller's handle as it was.
+  - The export response's size is not checked; the buffer is checked before
+    the send.
+- **What it does not settle.**
+  - Questions 3 and 4, as for section 9.9.
+  - No opaque-key verification, attestation, deletion or tier. Whether the
+    application verifies on the enclave or in software is question 3's.
+
+## 10. Requirements
+
+One row per requirement of the `imx95` row. "Built" means `firmware-matrix`
+links it in CI on Arm's toolchain; nothing runs on the board yet.
+
+| Requirement | State | File | Test |
+|---|---|---|---|
+| The board as data, id `0x41` (provisional, question 20), in the Cortex-M range | done | `boards/frdm-imx95-m7/` | `test/unit/test_board_frdm-imx95-m7.c` |
+| The TCM map at the M7's addresses, the 512-byte vector alignment | built | `mk/arch/cortex-m/imx95.ld`, `boards/frdm-imx95-m7/profile.mk` | `firmware-matrix` (CI); `imx95.ld`'s asserts |
+| The LPUART divisor search and the RGPIO bank table | done | `src/hal/cortex-m/imx95/soc_calc.c` | `test/unit/test_imx95_soc_calc.c` |
+| LPUART3, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
+| The remoteproc resource table | met | `src/hal/cortex-m/imx95/rsc_table.c`, `mk/arch/cortex-m/mps2-tz.ld` | `test/unit/test_imx95_rsc_table.c`; as Linux's loader parses it: `test_linux_takes_the_images_table`, `test_the_parser_reads_a_carveout_and_a_vdev`, the mutation `test_a_corrupted_field_is_refused` |
+| The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has only `mps2-tz/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |
+| The board in the board sweeps: its part, its registry row, its Go name | done | `scripts/board-check.py` (`mimx9596-m7`), `../boards/board-id-registry.md`, `sdk/go/boardid.go` | `scripts/test_board_check.py`, `sdk/go/boardid_test.go`, `make board-sweep` |
+| The boot: tfw-boot on the M7, or AHAB alone | open, the owner's (question 19) | — | — |
+| The SCMI client (slice 2 of section 7) | met (host, register model); not called until question 21 is answered | `src/hal/cortex-m/imx95/scmi.c`, `scmi_mu.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_scmi.c` (each command's bytes, every status, `test_a_wrong_token_is_refused`, `test_a_wrong_protocol_is_refused`); `test/unit/test_imx95_scmi_mu.c` (`test_a_channel_left_busy_after_the_send_times_out`, `test_a_reply_longer_than_the_channel_is_refused`) |
+| Tier value 5 (slice 4) | not started | `include/tfw/types.h`, `testdata/vectors.h`, the Go mirror | the literal vector |
+| The enclave's message layer and GET_INFO (the first piece of slice 5, section 9.7) | met (host, register model); not called until question 3 is answered | `src/hal/cortex-m/imx95/ele_mu.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_ele_mu.c` (`test_get_info_is_four_words_through_tr0_to_tr3`, `test_a_wrong_tag_is_refused`, `test_a_wrong_version_is_refused`, `test_a_wrong_size_is_refused_unread`, `test_a_failure_status_is_refused_with_its_word`, `test_a_response_that_never_comes_times_out`, `test_the_information_buffer_parses`) |
+| The enclave session, open and close (the second piece of slice 5, section 9.8) | met (host, register model); not called until question 3 is answered | `src/hal/cortex-m/imx95/ele_mu.c` | `test/unit/test_imx95_ele_mu.c` (`test_a_good_open_returns_the_handle`, `test_a_good_close_sends_the_handle`, `test_the_handle_the_open_returns_is_the_one_closed`, `test_a_refused_open_leaves_the_handle`, `test_a_close_the_enclave_refuses_is_a_handle_error`, `test_an_open_answered_short_is_refused_unread`, `test_a_close_answered_long_is_refused_unread`, `test_an_open_answered_as_a_close_is_refused`, `test_a_close_answered_as_an_open_is_refused`, `test_an_open_never_answered_times_out`, `test_a_close_never_answered_times_out`) |
+| The enclave key store, open and close (the third piece of slice 5, section 9.9) | met (host, register model); not called until questions 3 and 4 are answered | `src/hal/cortex-m/imx95/ele_mu.c` | `test/unit/test_imx95_ele_mu.c` (`test_a_good_key_store_create_returns_the_handle`, `test_a_key_store_load_sends_no_flag`, `test_a_good_key_store_close_sends_the_handle`, `test_the_handles_flow_session_to_key_store_and_back`, `test_a_refused_key_store_open_leaves_the_handle`, `test_a_key_store_open_on_a_closed_session_is_a_session_error`, `test_a_key_store_open_with_no_session_is_not_sent`, `test_a_key_store_close_the_enclave_refuses_is_a_handle_error`, `test_a_key_store_open_answered_short_is_refused_unread`, `test_a_key_store_close_answered_long_is_refused_unread`, `test_a_key_store_open_answered_as_a_close_is_refused`, `test_a_key_store_close_answered_as_a_session_close_is_refused`, `test_a_key_store_open_never_answered_times_out`, `test_a_key_store_close_never_answered_times_out`) |
+| One volatile NIST P-256 key generated (the fifth piece of slice 5, section 9.11) | met (host, register model); not called until questions 3 and 4 are answered | `src/hal/cortex-m/imx95/ele_mu.c` | `test/unit/test_imx95_ele_mu.c` (`test_a_good_key_generate_returns_the_id_and_the_public_key`, `test_a_refused_key_generate_leaves_the_id`, `test_a_key_generate_on_a_closed_service_is_a_key_management_error`, `test_a_key_generate_with_no_service_is_not_sent`, `test_a_key_generate_into_a_buffer_too_small_is_not_sent`, `test_a_key_type_other_than_p256_is_not_sent`, `test_a_persistent_key_is_not_sent`, `test_a_key_generate_answered_short_is_refused_unread`, `test_a_key_generate_answered_as_a_key_management_open_is_refused`, `test_a_key_generate_never_answered_times_out`, `test_the_handles_flow_session_to_a_generated_key_and_back`) |
+| The signature generation service and one ECDSA P-256 signature over a SHA-256 digest (the sixth piece of slice 5, section 9.12) | met (host, register model); not called until questions 3 and 4 are answered | `src/hal/cortex-m/imx95/ele_mu.c` | `test/unit/test_imx95_ele_mu.c` (`test_a_good_signature_open_returns_the_handle`, `test_a_signature_open_on_a_closed_store_is_a_key_store_error`, `test_a_good_signature_close_sends_the_handle`, `test_a_signature_close_on_a_closed_handle_is_a_handle_error`, `test_a_good_sign_returns_r_and_s_in_the_callers_buffer`, `test_a_refused_sign_is_a_status_error`, `test_a_sign_on_a_closed_service_is_a_signature_service_error`, `test_a_sign_with_no_service_is_not_sent`, `test_a_sign_with_a_key_type_other_than_nist_is_not_sent`, `test_a_sign_with_a_key_other_than_p256_is_not_sent`, `test_a_sign_into_a_buffer_too_small_is_not_sent`, `test_a_sign_with_another_scheme_is_not_sent`, `test_a_sign_answered_short_is_refused_unread`, `test_a_sign_answered_as_a_key_generate_is_refused`, `test_a_sign_never_answered_times_out`, `test_the_handles_flow_session_to_a_signature_and_back`) |
+| The public key's export and the signature verification service, one ECDSA P-256 verify over a SHA-256 digest (the seventh piece of slice 5, section 9.13) | met (host, register model); not called until questions 3 and 4 are answered | `src/hal/cortex-m/imx95/ele_mu.c` | `test/unit/test_imx95_ele_mu.c` (`test_a_good_export_returns_x_and_y_in_the_callers_buffer`, `test_a_refused_export_is_a_status_error`, `test_an_export_on_a_closed_store_is_a_key_store_error`, `test_an_export_with_no_store_is_not_sent`, `test_an_export_of_a_key_type_other_than_nist_is_not_sent`, `test_an_export_of_a_key_other_than_p256_is_not_sent`, `test_an_export_into_a_buffer_too_small_is_not_sent`, `test_an_export_answered_short_is_refused_unread`, `test_an_export_answered_as_a_key_generate_is_refused`, `test_an_export_never_answered_times_out`, `test_a_good_verification_open_returns_the_handle`, `test_a_verification_open_on_a_closed_session_is_a_session_error`, `test_a_verification_open_with_no_session_is_not_sent`, `test_a_good_verification_close_sends_the_handle`, `test_a_verification_close_on_a_closed_handle_is_a_handle_error`, `test_a_good_verify_passes`, `test_a_verify_that_fails_is_a_bad_signature_not_a_transport_error`, `test_a_verify_status_neither_passed_nor_failed_is_a_bad_signature`, `test_a_refused_verify_is_a_status_error`, `test_a_verify_on_a_closed_service_is_a_verification_service_error`, `test_a_verify_with_no_service_is_not_sent`, `test_a_verify_with_another_scheme_is_not_sent`, `test_a_verify_with_a_key_other_than_p256_is_not_sent`, `test_a_verify_with_a_short_key_is_not_sent`, `test_a_verify_with_a_short_signature_is_not_sent`, `test_a_verify_answered_short_is_refused_unread`, `test_a_verify_answered_as_a_sign_is_refused`, `test_a_verify_never_answered_times_out`, `test_a_generated_key_signs_exports_and_verifies`) |
+| The enclave provider (slice 5): session, key store, signing | not started | `src/crypto/ele/` | host unit against a messaging-unit model (questions 3, 4, 6, 16) |
+| Our OTA gate on the M7 (slice 6) | not started | the receive path | host unit (questions 8 to 12, 19) |
+| Ethernet (slice 7) | not started | behind `include/tfw/eth.h` | question 14 |
+| The bench (slice 8) | not started | the board page | end to end on the bench host |
+
+**What question 19 changes.** Neither answer touches the board's data, the
+SoC directory, the resource table or the sweeps. *AHAB alone*: the 32 KiB
+reserved for tfw-boot at the ITCM's base, `BOOT_*` in `profile.mk`, the
+`TFW_BOOT_REGION_*` defines and `board-check`'s `boot_end` for `mimx9596-m7`
+go, the application moves to the ITCM's base, the handoff block leaves the
+DTCM, and the OTA gate is slice 6's install-time check. *tfw-boot on the M7*:
+the board gets a `mk/boot.mk` row in the reserved region, as `mps2-an505` has,
+and tfw-boot's trailer, SUIT and soft-root code runs on it unchanged. If
+remoteproc is ruled out as a loader, the resource table and its `.ld` lines go.

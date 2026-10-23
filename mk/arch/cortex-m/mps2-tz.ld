@@ -41,6 +41,14 @@ SECTIONS
         *(.ARM.exidx* .gnu.linkonce.armexidx.*)
     }
 
+    /* A remoteproc resource table, for a SoC whose images Linux loads
+     * (imx95.ld says why it is here). Nothing on mps2-tz defines the input
+     * section, so ld drops the empty output section from its images. */
+    .resource_table : ALIGN(4)
+    {
+        KEEP(*(.resource_table))
+    }
+
     . = ALIGN(4);
     __data_load_start = .;
 

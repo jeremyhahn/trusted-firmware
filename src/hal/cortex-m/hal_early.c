@@ -74,11 +74,23 @@ TFW_CM_WEAK(tfw_cm_irq36) TFW_CM_WEAK(tfw_cm_irq37) TFW_CM_WEAK(tfw_cm_irq38)
 TFW_CM_WEAK(tfw_cm_irq39) TFW_CM_WEAK(tfw_cm_irq40) TFW_CM_WEAK(tfw_cm_irq41)
 TFW_CM_WEAK(tfw_cm_irq42) TFW_CM_WEAK(tfw_cm_irq43) TFW_CM_WEAK(tfw_cm_irq44)
 TFW_CM_WEAK(tfw_cm_irq45) TFW_CM_WEAK(tfw_cm_irq46) TFW_CM_WEAK(tfw_cm_irq47)
+TFW_CM_WEAK(tfw_cm_irq48) TFW_CM_WEAK(tfw_cm_irq49) TFW_CM_WEAK(tfw_cm_irq50)
+TFW_CM_WEAK(tfw_cm_irq51) TFW_CM_WEAK(tfw_cm_irq52) TFW_CM_WEAK(tfw_cm_irq53)
+TFW_CM_WEAK(tfw_cm_irq54) TFW_CM_WEAK(tfw_cm_irq55) TFW_CM_WEAK(tfw_cm_irq56)
+TFW_CM_WEAK(tfw_cm_irq57) TFW_CM_WEAK(tfw_cm_irq58) TFW_CM_WEAK(tfw_cm_irq59)
+TFW_CM_WEAK(tfw_cm_irq60) TFW_CM_WEAK(tfw_cm_irq61) TFW_CM_WEAK(tfw_cm_irq62)
+TFW_CM_WEAK(tfw_cm_irq63) TFW_CM_WEAK(tfw_cm_irq64) TFW_CM_WEAK(tfw_cm_irq65)
+TFW_CM_WEAK(tfw_cm_irq66) TFW_CM_WEAK(tfw_cm_irq67) TFW_CM_WEAK(tfw_cm_irq68)
+TFW_CM_WEAK(tfw_cm_irq69) TFW_CM_WEAK(tfw_cm_irq70) TFW_CM_WEAK(tfw_cm_irq71)
+TFW_CM_WEAK(tfw_cm_irq72) TFW_CM_WEAK(tfw_cm_irq73) TFW_CM_WEAK(tfw_cm_irq74)
+TFW_CM_WEAK(tfw_cm_irq75) TFW_CM_WEAK(tfw_cm_irq76) TFW_CM_WEAK(tfw_cm_irq77)
+TFW_CM_WEAK(tfw_cm_irq78) TFW_CM_WEAK(tfw_cm_irq79)
 
-/* Sixteen core exceptions and the first 48 external interrupts: every source
- * a SoC this port supports uses (mps2-tz's UART0 is 32 and 33). 64 words, so
- * the table's 256-byte alignment for VTOR is the region base's. */
-#define TFW_CM_IRQ_COUNT 48u
+/* Sixteen core exceptions and the first 80 external interrupts: every source
+ * a SoC this port supports uses (mps2-tz's UART0 is 32 and 33, the i.MX 95
+ * M7's LPUART3 64). 96 words, so the table's 512-byte alignment for VTOR is
+ * the region base's. */
+#define TFW_CM_IRQ_COUNT 80u
 typedef void (*tfw_cm_vector_t)(void);
 
 const tfw_cm_vector_t tfw_cm_vectors[16u + TFW_CM_IRQ_COUNT]
@@ -106,6 +118,14 @@ const tfw_cm_vector_t tfw_cm_vectors[16u + TFW_CM_IRQ_COUNT]
     tfw_cm_irq36, tfw_cm_irq37, tfw_cm_irq38, tfw_cm_irq39,
     tfw_cm_irq40, tfw_cm_irq41, tfw_cm_irq42, tfw_cm_irq43,
     tfw_cm_irq44, tfw_cm_irq45, tfw_cm_irq46, tfw_cm_irq47,
+    tfw_cm_irq48, tfw_cm_irq49, tfw_cm_irq50, tfw_cm_irq51,
+    tfw_cm_irq52, tfw_cm_irq53, tfw_cm_irq54, tfw_cm_irq55,
+    tfw_cm_irq56, tfw_cm_irq57, tfw_cm_irq58, tfw_cm_irq59,
+    tfw_cm_irq60, tfw_cm_irq61, tfw_cm_irq62, tfw_cm_irq63,
+    tfw_cm_irq64, tfw_cm_irq65, tfw_cm_irq66, tfw_cm_irq67,
+    tfw_cm_irq68, tfw_cm_irq69, tfw_cm_irq70, tfw_cm_irq71,
+    tfw_cm_irq72, tfw_cm_irq73, tfw_cm_irq74, tfw_cm_irq75,
+    tfw_cm_irq76, tfw_cm_irq77, tfw_cm_irq78, tfw_cm_irq79,
 };
 
 static tfw_reset_cause_t decode(uint32_t mark)

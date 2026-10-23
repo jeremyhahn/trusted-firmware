@@ -152,6 +152,9 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
                             test/unit/test_pin_coord.c \
+                            test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
+                            test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
+                            test/unit/test_imx95_ele_mu.c \
                             test/unit/test_platform_bake.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
@@ -508,6 +511,54 @@ $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the
+# SoC directory's one file with no register access, linked alone, as the M7
+# image links it.
+$(HOST_DIR)/test_imx95_soc_calc: test/unit/test_imx95_soc_calc.c \
+                        src/hal/cortex-m/imx95/soc_calc.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/imx95 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The resource table the M7 image carries for Linux's remoteproc, linked alone
+# as soc_calc.c is: its bytes on x86 are the image's, both little-endian.
+$(HOST_DIR)/test_imx95_rsc_table: test/unit/test_imx95_rsc_table.c \
+                        src/hal/cortex-m/imx95/rsc_table.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/imx95 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The i.MX 95 M7 board's HAL -- its UART, pins and watchdog -- against a
+# register model (test/model/imx95_model.c), since QEMU has no i.MX 95. The
+# SoC files are the image's, unchanged: test/model/cortex-m/ goes ahead of
+# src/hal/cortex-m/ so its cm_regs.h, which sends TFW_CM_REG to the model, is
+# the one soc_regs.h finds. The board's profile replaces the host board's, and
+# src/hal/cortex-m/ ahead of test/mock gives the port's own hal_types.h.
+HOST_IMX95_CFLAGS = -Itest/model/cortex-m -Itest/model -Isrc/hal/cortex-m/imx95 -Isrc/hal/cortex-m \
+                    -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_imx95_hal: test/unit/test_imx95_hal.c test/model/imx95_model.c \
+                        test/model/cortex-m/imx95_entry.c \
+                        src/hal/cortex-m/imx95/hal_uart.c src/hal/cortex-m/imx95/hal_gpio.c \
+                        src/hal/cortex-m/imx95/hal_soc.c src/hal/cortex-m/imx95/soc_calc.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The SCMI messages the M7 sends the System Manager: scmi.c has no register
+# access and is linked alone, as soc_calc.c is.
+$(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/scmi.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/imx95 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The SCMI channel over the MU doorbell, against the register model's MU and
+# shared memory, compiled as test_imx95_hal's SoC files are.
+$(HOST_DIR)/test_imx95_scmi_mu: test/unit/test_imx95_scmi_mu.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/scmi_mu.c src/hal/cortex-m/imx95/scmi.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_imx95_ele_mu: test/unit/test_imx95_ele_mu.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/ele_mu.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The bench bake image's decision (mk/platform-bake.mk), through the mock HAL.
 # Its own link because tools/platform-bake/ is in no other object list -- not
@@ -866,6 +917,9 @@ $(HOST_DIR)/test_esp_hal_eeprom: test/unit/test_esp_hal_eeprom.c src/hal/esp32/h
 HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
+                    $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
+                    $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
+                    $(HOST_DIR)/test_imx95_ele_mu \
                     $(HOST_DIR)/test_platform_bake \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
@@ -1145,7 +1199,9 @@ lint-grep-selftest:
 # CMSIS headers and names a port might reach for (core_cm*.h, cmsis_*.h, SCB,
 # NVIC, SysTick, __DSB, __WFI, __disable_irq), and an Arm system instruction in
 # an asm string. The board's own constants, TFW_CM_PLATFORM_BASE among them,
-# are board data and not matched.
+# are board data and not matched. The host register model under
+# test/model/cortex-m/ is exempt too, because it is the register header's
+# substitute on the host; no test, harness or product file outside it is.
 #
 # Only code is matched: each file goes through the preprocessor in
 # -fpreprocessed -dD mode first, which removes comments exactly (it knows a
@@ -1165,7 +1221,7 @@ lint-arch-leak:
 	  hits=; \
 	  case $$f in src/hal/avr/*|boot/hal/avr/*) ;; \
 	    *) hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_PAT)' || true) ;; esac; \
-	  case $$f in src/hal/cortex-m/*|boot/hal/cortex-m/*) ;; \
+	  case $$f in src/hal/cortex-m/*|boot/hal/cortex-m/*|test/model/cortex-m/*) ;; \
 	    *) hits="$$hits$$(printf '\n'; printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_CM_PAT)' || true)" ;; esac; \
 	  hits=$$(printf '%s\n' "$$hits" | grep -v '^$$' || true); \
 	  if [ -n "$$hits" ]; then \
@@ -1184,10 +1240,12 @@ lint-arch-leak:
 # gate; prose in a comment and the exempt directories must not.
 lint-arch-leak-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
-	mkdir -p $(addprefix $$t/,$(ARCH_LEAK_DIRS)) $$t/src/crypto $$t/src/hal/avr $$t/src/hal/cortex-m && \
+	mkdir -p $(addprefix $$t/,$(ARCH_LEAK_DIRS)) $$t/src/crypto $$t/src/hal/avr $$t/src/hal/cortex-m \
+	  $$t/test/model/cortex-m $$t/test/unit && \
 	printf '/* MCUSR is already clear; F_CPU, <avr/io.h>, PROGMEM, tfw_cm_dsb, SysTick, "wfi" */\n// MCUSR\nint ok;\nconst int k TFW_PROGMEM = 0;\nconst char *s = "msrp";\n' > $$t/src/crypto/ok.c && \
 	printf '#include <avr/io.h>\nint f_cpu;\n' > $$t/src/hal/avr/exempt.h && \
 	printf '#include "cm_regs.h"\nvoid f(void) { tfw_cm_dsb(); __asm__ volatile ("wfi"); }\n' > $$t/src/hal/cortex-m/exempt.c && \
+	printf '#define TFW_CM_REG(a) (*(volatile unsigned *)(a))\nint x = TFW_CM_REG(0);\n' > $$t/test/model/cortex-m/cm_regs.h && \
 	$(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
 	for leak in '#include <avr/io.h>' 'int x = F_CPU;' 'int x = MCUSR;' 'const int x PROGMEM = 0;' \
@@ -1200,6 +1258,11 @@ lint-arch-leak-selftest:
 	  case $$out in *"$$leak"*) echo "selftest: gate printed the matched text: $$leak"; exit 1 ;; esac; \
 	  case $$out in *'src/crypto/plant.c:1: arch-leak'*) ;; *) echo "selftest: gate did not print path:line: $$leak"; exit 1 ;; esac; \
 	done; \
+	rm -f $$t/src/crypto/plant.c; \
+	cp $$t/test/model/cortex-m/cm_regs.h $$t/test/unit/plant.c; \
+	if $(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null 2>&1; then \
+	  echo "selftest: the model's exemption reached test/unit/"; exit 1; \
+	fi; \
 	echo "arch-leak gate rejects every plant"
 
 # ----------------------------------------------------------------- tfwsim

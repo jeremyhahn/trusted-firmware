@@ -41,7 +41,10 @@ the two images. `firmware-matrix` builds `mps2-an505` with the rest of the
 boards. The Arm toolchain and QEMU are in `docker/packages.txt`.
 
 QEMU has no i.MX 95, so this proves the core, tfw-boot and the wire on a
-32-bit core, never a vendor SoC.
+32-bit core, never a vendor SoC. The i.MX 95's Cortex-M7 is the board
+`frdm-imx95-m7` (SPEC row `imx95`). `firmware-matrix` builds it, but nothing
+runs it. Its map and SoC directory are in
+[`../multi-arch/imx95-design.md`](../multi-arch/imx95-design.md#9-the-board-as-built-frdm-imx95-m7).
 
 ## Bench boards
 

@@ -36,7 +36,7 @@ document and section.
   Security Reference Manual (IMX95SRM), both under NDA; the System Manager
   interface document; the tamper pin and fuse map. Every fact the design needs
   from one of them is an open question.
-- **Not in `docs/reference/`, not fetched:** Arm SCMI (DEN0056), the protocol
+- **Listed in `docs/reference/` (not copied; checked against DEN0056E):** Arm SCMI (DEN0056), the protocol
   the M7 speaks to the System Manager (ref ADR decision 4, `tfw_hal_init` row).
   Slice 5 lists it under "Not redistributable".
 

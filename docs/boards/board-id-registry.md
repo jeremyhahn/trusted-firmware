@@ -30,6 +30,7 @@ alone, before it knows the board.
 | `0x03` | ATmega32U4 | `boards/atmega32u4` |
 | `0x04` | ATtiny85 | `boards/attiny85` |
 | `0x40` | Arm AN505 (Cortex-M33) as QEMU's `mps2-an505` models it | `boards/mps2-an505` |
+| `0x41` | NXP i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO (provisional: [`../multi-arch/imx95-design.md`](../multi-arch/imx95-design.md) question 20) | `boards/frdm-imx95-m7` |
 | `0x80` | ESP32-P4 on a PoE Ethernet board | `boards/esp32p4-poe` |
 | `0x81` | Espressif QEMU, `esp32c3` and `esp32` machines | `boards/esp32-qemu` |
 
@@ -41,7 +42,7 @@ alone, before it knows the board.
 - A new board takes the next free id in its family's range and, in the same
   change, is added to this table and to `sdk/go/boardid.go`.
 - A host given an id it does not know shows the family and the raw id
-  (`BoardID.String()`: `unknown cortex-m board 0x41`) and does not fail. A newer
+  (`BoardID.String()`: `unknown cortex-m board 0x7f`) and does not fail. A newer
   device on an older host is the normal case.
 - A family that outgrows its range is a wire change: it is decided in an issue,
   not by borrowing from the neighbouring range.

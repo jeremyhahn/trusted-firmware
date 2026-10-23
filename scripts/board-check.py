@@ -58,6 +58,13 @@ PARTS = {
     "mps2-an505": dict(flash=4194304, flash_start=0x38000000, sram=32768,
                        sram_start=0x30000000, eeprom=0, boot=True,
                        boot_end=0x10008000),
+    # NXP i.MX 95's Cortex-M7 (MIMX9596, UM12527 §1.2 Table 1): its 512 KiB of
+    # TCM (IMX95CEC Table 1) as 256 KiB ITCM at M7 0x00000000, the code span,
+    # and 256 KiB DTCM at 0x20000000 (TO CONFIRM against IMX95RM; design
+    # docs/multi-arch/imx95-design.md question 1); no EEPROM. tfw-boot's
+    # reserved 32 KiB is at the ITCM's base, so boot_end is where it ends.
+    "mimx9596-m7": dict(flash=262144, sram=262144, sram_start=0x20000000,
+                        eeprom=0, boot=True, boot_end=0x00008000),
 }
 
 # A port is one I/O register, so a pin's bit is below that register's width.

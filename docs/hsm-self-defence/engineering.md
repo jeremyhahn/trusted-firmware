@@ -159,7 +159,7 @@ envelope buffer and verifies the whole envelope at the last.
 
 | Case | Expect |
 |---|---|
-| The envelope in chunks of every size, an empty first chunk, a chunk out of sequence, offset 0 again | Held once whole; a chunk out of sequence drops the envelope, `TFW_ERR_RANGE`. **Met:** `test/unit/test_hsm_cmd.c` |
+| The envelope in chunks of every size, an empty first chunk, a chunk out of sequence, offset 0 again | Held once whole; a chunk out of sequence, or one longer than is left, drops the envelope, `TFW_ERR_RANGE`, and is not counted (only an envelope that fails verification, or is below the floor, counts: R7). **Met:** `test/unit/test_hsm_cmd.c` |
 | A total of 0 or past the buffer; an envelope that fills it | `TFW_ERR_RANGE`, counted; read. **Met** |
 | One flipped signature byte | `TFW_ERR_CRYPTO`, counted, the held set kept. **Met** |
 | SELECT with no set, in the set, past it | `TFW_ERR_RANGE`; the state; `TFW_ERR_RANGE`. **Met** |

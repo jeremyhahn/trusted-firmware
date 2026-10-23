@@ -64,9 +64,10 @@ GOLANGCI_VERSION=v2.14.0
 HELD_GOLANGCI="the fleet template's pin (ci-template v1.20 checks v2.14.0 outside the CUSTOMIZE blocks); the next one comes from the Company Agent's versions.conf (devops.md §9)"
 # The workflow linter, for .github/workflows.
 ACTIONLINT_VERSION=v1.7.12
-GOSEC_VERSION=v2.29.0
-# gosec is built against this x/tools: the v0.49.0 its go.mod names cannot read
+GOSEC_VERSION=v2.30.0
+# gosec is built against this x/tools: an x/tools older than v0.52.0 cannot read
 # the export data (version 5) Go 1.27 writes, so every import fails to type-check.
+# gosec v2.30.0's go.mod names v0.52.0 itself; the pin keeps the floor explicit.
 XTOOLS_VERSION=v0.52.0
 GOVULNCHECK_VERSION=v1.8.0
 HELD_GOVULNCHECK="the fleet template's pin (ci-template v1.18); the next one comes from the Company Agent's versions.conf (devops.md §9)"

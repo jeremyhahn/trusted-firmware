@@ -259,9 +259,28 @@ func TestVerifyModePassesAMatchingPartOfALoadedTemplate(t *testing.T) {
 }
 
 func TestPlanAndReportPrintWithoutTouchingTheDevice(t *testing.T) {
-	report(&tfw.ElementInfo{})
-	plan(testTemplate(), &tfw.ElementInfo{})
-	plan(testTemplate(), &tfw.ElementInfo{ConfigLocked: true, DataLocked: true})
+	// Neither takes a device: they print from the ElementInfo already read.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = w
+	report(&tfw.ElementInfo{ConfigLocked: true})
+	os.Stdout = stdout
+	_ = w.Close()
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "zones     config LOCKED  data open\n") {
+		t.Fatalf("report printed %q, want the zone lock states", got)
+	}
+	for _, info := range []tfw.ElementInfo{{}, {ConfigLocked: true, DataLocked: true}} {
+		if out := planOutput(t, &info); !strings.Contains(out, "DRY RUN, nothing will be written") {
+			t.Fatalf("plan printed %q, want the dry-run banner", out)
+		}
+	}
 }
 
 func equalCmds(a, b []tfw.Cmd) bool {

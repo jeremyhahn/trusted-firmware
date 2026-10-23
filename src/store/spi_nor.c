@@ -14,6 +14,12 @@
  * on a bus that echoes or floats low, so an erase and a program "succeed"
  * there (#167). The probe is what OTA_BEGIN asks before it erases anything.
  *
+ * A busy part answers READ STATUS and ignores everything else, and a failed
+ * status poll after a program or erase leaves it busy for the next caller. So
+ * every command but READ STATUS and JEDEC ID polls WIP clear first: WREN (and
+ * through it PROGRAM and ERASE) and READ. The probe does not: on a bus that
+ * floats high WIP never clears, and the probe must answer TFW_ERR_NO_STORE.
+ *
  * Each transaction is one tfw_hal_spi_xfer: the HAL holds the select for the
  * whole transfer, so the command, the address and the data share one buffer on
  * the stack. There is no page buffer -- NOR programs a partial page, and a
@@ -97,8 +103,12 @@ static tfw_status_t wait_ready(void)
 
 static tfw_status_t write_enable(void)
 {
-    uint8_t b = NOR_WREN;
+    uint8_t      b  = NOR_WREN;
+    tfw_status_t st = wait_ready();
 
+    if (st != TFW_OK) {
+        return st;
+    }
     bus();
     return tfw_hal_spi_xfer(&cs, &b, &b, 1u);
 }
@@ -175,6 +185,10 @@ tfw_status_t tfw_store_read(uint32_t addr, uint8_t *buf, uint8_t len)
 
     if (len > TFW_STORE_CHUNK) {
         return TFW_ERR_RANGE;
+    }
+    st = wait_ready();
+    if (st != TFW_OK) {
+        return st;
     }
     head(b, NOR_READ, addr);
     memset(&b[NOR_HEAD], 0, len);

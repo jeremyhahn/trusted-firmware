@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"testing"
@@ -50,7 +51,12 @@ func TestFirmwareAppReportsItsApplication(t *testing.T) {
 // tfwctl hands that status back rather than printing an empty application.
 func TestFirmwareAppIsAnUnknownCommandWithoutAnApplication(t *testing.T) {
 	d := startPeer(t, simproc.Software).serial
-	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, d, "app"))
+	var out bytes.Buffer
+	err := run(context.Background(), d, "app", nil, false, &out)
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "app: %v, want a device status", err)
+	assert.Equal(t, tfw.StatusErrUnknownCmd, st)
+	assert.Zero(t, out.Len(), "app printed %q for an image with no application", out.String())
 }
 
 // simproc.Start runs the simulator, the device answers on it, and Close ends

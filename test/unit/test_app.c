@@ -79,7 +79,7 @@ static void test_run_is_given_the_time_of_the_pass(void)
     TEST_ASSERT_EQUAL_UINT32(12345u, tfw_mock_app_last_now());
 }
 
-static void test_reset_stops_the_application_before_the_device_resets(void)
+static void test_reset_stops_the_application_and_resets_the_device(void)
 {
     tfw_app_runner_start();
     tfw_app_runner_poll();
@@ -477,7 +477,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_start_calls_init_and_poll_calls_run);
     RUN_TEST(test_run_is_given_the_time_of_the_pass);
-    RUN_TEST(test_reset_stops_the_application_before_the_device_resets);
+    RUN_TEST(test_reset_stops_the_application_and_resets_the_device);
     RUN_TEST(test_reset_to_bootloader_calls_before_update_then_shutdown);
     RUN_TEST(test_an_install_reset_calls_before_update_then_shutdown);
     RUN_TEST(test_a_stopped_application_is_not_run_or_stopped_again);

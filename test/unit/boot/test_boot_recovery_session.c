@@ -205,6 +205,7 @@ static void test_an_idle_session_returns_after_the_bound(void)
     open_session(IDLE, 0u, 0u, 0u);
 
     TEST_ASSERT_EQUAL_UINT(IDLE, tfw_boot_mock_rx_empty_polls());
+    TEST_ASSERT_EQUAL_UINT(0u, evaluates);
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
     TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_did_reset());
     TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_jumped());
@@ -283,7 +284,8 @@ static void test_a_continuous_junk_stream_ends_the_session_after_the_byte_budget
 /* Back-to-back PINGs are valid frames and answered, but are not progress. */
 static void test_a_ping_flood_ends_the_session_after_the_byte_budget(void)
 {
-    unsigned i;
+    unsigned     i;
+    tx_summary_t s;
 
     for (i = 0u; i < 100u; i++) {
         feed_frame((uint8_t)i, TFW_CMD_PING, 0, 0u);      /* 6 bytes each */
@@ -292,6 +294,8 @@ static void test_a_ping_flood_ends_the_session_after_the_byte_budget(void)
 
     TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_rx_empty_polls());
     TEST_ASSERT_EQUAL_UINT(BYTES, tfw_boot_mock_rx_consumed());
+    s = summarise_tx();
+    TEST_ASSERT_EQUAL_UINT(BYTES / 6u, s.responses);
 }
 
 static void feed_junk_burst(void)
@@ -506,6 +510,8 @@ static void test_recovery_is_unbounded_and_takes_more_than_one_attempt(void)
     TEST_ASSERT_FALSE(returned);
     TEST_ASSERT_EQUAL_UINT(sizeof junk + 10u + 42u + 6u + 10u,
                            tfw_boot_mock_rx_consumed());
+    /* The second attempt is taken, not only read. */
+    TEST_ASSERT_EQUAL_INT(TFW_OK, summarise_tx().last_status);
 }
 
 /* ------------------------------------------------------- how it can end */
@@ -616,8 +622,10 @@ static void test_a_refused_update_does_not_arm_the_watchdog(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_watchdog_at());
 }
 
-/* STAGED reaches EEPROM before the first page, so a transfer that stops short
- * of OTA_END -- here a whole image, never committed -- cannot boot untried. */
+/* A transfer that stops short of OTA_END -- here a whole image, never
+ * committed -- leaves STAGED in EEPROM, so it cannot boot untried. The order,
+ * STAGED before the first page, is not pinned here: the mock stamps no page
+ * write. */
 static void test_a_transfer_left_unfinished_is_stored_as_staged(void)
 {
     load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
@@ -743,7 +751,8 @@ static void test_a_block_that_did_not_load_is_never_overwritten(void)
 }
 
 /* The session grants nothing: an image that does not verify is not handed
- * over, is recorded as failed, and the session carries on until it times out. */
+ * over, is recorded as failed, and the session ends there, its one attempt
+ * spent, without waiting out the idle bound. */
 static void test_an_unverified_update_is_never_handed_over(void)
 {
     tx_summary_t s;
@@ -758,6 +767,7 @@ static void test_an_unverified_update_is_never_handed_over(void)
     TEST_ASSERT_EQUAL_UINT(1u, evaluates);
     TEST_ASSERT_EQUAL_UINT(0u, hand_overs);
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, plat.ota_state);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_rx_empty_polls());
     s = summarise_tx();
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, s.last_status);
 }

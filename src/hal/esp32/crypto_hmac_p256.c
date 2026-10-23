@@ -98,7 +98,11 @@ static void deviceid_init(void)
         tfw_secure_zero(seed, sizeof seed);
         return;
     }
-    tfw_deviceid_p256_public(seed, deviceid_pub);
+    if (!tfw_deviceid_p256_public(seed, deviceid_pub)) {
+        ESP_LOGE(TAG, "deviceid: micro-ecc refused the DeviceID scalar");
+        tfw_secure_zero(seed, sizeof seed);
+        return;
+    }
     tfw_secure_zero(seed, sizeof seed);
     have_uds = 1u;
     tfw_sha256(deviceid_pub, (uint16_t)sizeof deviceid_pub, fp);
@@ -185,7 +189,10 @@ tfw_status_t tfw_crypto_sign(const uint8_t digest[32], uint8_t sig[64], uint8_t 
         tfw_secure_zero(seed, sizeof seed);
         return TFW_ERR_CRYPTO;
     }
-    tfw_deviceid_p256_sign(seed, digest, sig);
+    if (!tfw_deviceid_p256_sign(seed, digest, sig)) {
+        tfw_secure_zero(seed, sizeof seed);
+        return TFW_ERR_CRYPTO;
+    }
     tfw_secure_zero(seed, sizeof seed);
     *alg_id = TFW_ALG_ECDSA_P256_SHA256;
     return TFW_OK;

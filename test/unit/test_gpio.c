@@ -104,6 +104,9 @@ static void test_a_pin_beyond_the_board_is_refused(void)
 static void test_an_adc_only_pin_cannot_be_driven(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, run(TFW_CMD_DIGITAL_WRITE, (const uint8_t[]){ 20u, 1u }, 2u));
+    for (uint8_t bit = 0u; bit <= 7u; bit++) {
+        TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_pin_level(TFW_ADDR_PINB, bit));
+    }
 }
 
 /* The UART pins are the line the command arrived on. Driving pin 1 would cut
@@ -112,13 +115,17 @@ static void test_the_uart_pins_cannot_be_driven(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN, run(TFW_CMD_DIGITAL_WRITE, (const uint8_t[]){ 1u, 1u }, 2u));
     TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN, run(TFW_CMD_PIN_MODE,      (const uint8_t[]){ 0u, 1u }, 2u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_pin_level(TFW_ADDR_PIND, 1u));
+    TEST_ASSERT_FALSE(tfw_mock_pin_is_output(TFW_ADDR_PIND, 0u));
 }
 
 /* Reading them IS allowed: observing the line is harmless, and refusing it
  * would make diagnosing a wiring problem harder than it needs to be. */
 static void test_a_reserved_pin_may_still_be_read(void)
 {
+    tfw_mock_set_input_level(TFW_ADDR_PIND, 1u, 1u);
     TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_DIGITAL_READ, (const uint8_t[]){ 1u }, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, outbuf[0]);
 }
 
 static void test_an_out_of_range_level_or_mode_is_refused(void)

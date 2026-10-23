@@ -143,19 +143,23 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # provider.c instead -- linking both would be two definitions of
 # tfw_crypto_init and everything else in include/tfw/crypto.h.
 TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test/unit/test_atecc_cdi_clear.c test/unit/test_crypto_auto.c \
-                            test/unit/test_provision.c test/unit/test_provision_mutate.c test/unit/test_auth_mutate.c test/unit/test_auth_robust.c test/unit/test_alias.c \
-                            test/unit/test_csr.c test/unit/test_csr_alg.c \
+                            test/unit/test_provision.c test/unit/test_provision_mutate.c test/unit/test_auth_mutate.c test/unit/test_auth_session_mutate.c test/unit/test_auth_robust.c test/unit/test_alias.c test/unit/test_alias_mutate.c \
+                            test/unit/test_csr.c test/unit/test_csr_mutate.c test/unit/test_csr_alg.c \
                             test/unit/test_model_p256.c \
+                            test/unit/test_tier_atecc608a_mutate.c \
+                            test/unit/test_tfwsim_main_mutate.c \
+                           test/unit/test_suit_emit_main_mutate.c \
                             test/unit/test_bus_element.c \
-                            test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
+                            test/unit/test_crypto_none.c test/unit/test_uds_flash.c test/unit/test_uds_flash_mutate.c \
                             test/unit/test_sys_noboot.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
+                            test/unit/test_none_mutate.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
                             test/unit/test_pin_coord.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_ele_mu.c \
-                            test/unit/test_platform_bake.c \
+                            test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
@@ -164,16 +168,25 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                            test/unit/test_link_dhcp.c \
                             test/unit/test_suit.c test/unit/test_suit_emit.c test/unit/test_suit_mutate.c test/unit/test_suit_integrated.c \
                             test/unit/test_suit_integrated_mutate.c test/unit/test_suit_integrated_unbound.c \
+                            test/unit/test_suit_emit_mutate.c test/unit/test_tier_soft_mutate.c \
+                            test/unit/test_eth_socket_mutate.c \
+                           test/unit/test_ota_stage.c test/unit/test_ota_stage_mutate.c test/unit/test_ota_ctl_mutate.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_ota_activate_mutate.c test/unit/test_ota_prev_mutate.c test/unit/test_ota_floor_eeprom_mutate.c test/unit/test_spi_nor.c test/unit/test_spi_nor_mutate.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_single_mutate.c test/unit/test_ota_manifest.c \
                             test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c \
-                           test/unit/test_ota_stage.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_spi_nor.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_manifest.c \
                             test/unit/test_stage_marked.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
-                            test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_sha256_small.c \
-                            test/unit/test_deviceid_p256.c test/unit/test_provision_uds.c \
+                            test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_otactl_floor_mutate.c test/unit/test_sha256_small.c \
+                            test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
                             test/unit/test_esp_hal_eeprom.c \
                             test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
+# The crypto tiers' mutation suites (#163) have their own links below.
+CRYPTO_MUTATE_BINS := $(HOST_DIR)/test_crypto_auto_mutate
+CRYPTO_MUTATE_BINS += $(HOST_DIR)/test_crypto_none_mutate
+CRYPTO_MUTATE_BINS += $(HOST_DIR)/test_atecc_mutate
+CRYPTO_MUTATE_BINS += $(HOST_DIR)/test_atecc_bus_mutate
+CRYPTO_MUTATE_BINS += $(HOST_DIR)/test_atecc_provider_mutate
+TEST_BINS   := $(filter-out $(CRYPTO_MUTATE_BINS),$(TEST_BINS))
 
 # Production sources reachable from the host build. Grows as layers land.
 HOST_LIB_SRCS := src/proto/crc16.c \
@@ -278,11 +291,35 @@ $(HOST_DIR)/test_crypto_auto: test/unit/test_crypto_auto.c $(ELEMENT_MODEL) \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
+# Its mutation suite (#163), on the same link.
+$(HOST_DIR)/test_crypto_auto_mutate: test/unit/test_crypto_auto_mutate.c $(ELEMENT_MODEL) \
+                              src/crypto/atecc608a/atecc.c src/crypto/auto/provider.c \
+                              $(HOST_DIR)/crypto_auto_soft.o $(HOST_DIR)/crypto_auto_element.o $(SOFT_ID_SRCS) \
+                              src/core/ota_floor_auto.c $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
+                              src/core/auth_session_auto.c \
+                              src/crypto/sha256.c test/mock/uds_mock.c \
+                              src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# auth_session_auto.c alone (#163): its three seams are the suite's own.
+$(HOST_DIR)/test_auth_session_auto_mutate: test/unit/test_auth_session_auto_mutate.c \
+                                           src/core/auth_session_auto.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 
 # OTA_INFO's rollback floor, each tier's reader by its renamed name, against
 # the software element -- the same floor objects test_crypto_auto links.
 $(HOST_DIR)/test_otactl_floor: test/unit/test_otactl_floor.c $(ELEMENT_MODEL) \
                                src/crypto/atecc608a/atecc.c src/crypto/sha256.c src/core/secure_zero.c \
+                               $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_otactl_floor's link under seeded mutation (#163).
+$(HOST_DIR)/test_otactl_floor_mutate: test/unit/test_otactl_floor_mutate.c $(ELEMENT_MODEL) \
+                               src/crypto/atecc608a/atecc.c src/core/secure_zero.c src/crypto/sha256.c \
                                $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
@@ -357,6 +394,25 @@ $(HOST_DIR)/test_hsm_payload $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cm
 $(HOST_DIR)/test_suit_emit: test/unit/test_suit_emit.c tools/suit-emit/emit.c src/crypto/sha256.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(SUIT_TEST_CFLAGS) -Itools/suit-emit $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# test_suit_emit_mutate kills the emitter's mutants (#163), on the same link.
+$(HOST_DIR)/test_suit_emit_mutate: test/unit/test_suit_emit_mutate.c tools/suit-emit/emit.c src/crypto/sha256.c \
+                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(SUIT_TEST_CFLAGS) -Itools/suit-emit $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ATtiny85's own profile states its features; the host build's -D's would
+# redefine them.
+SUIT_UNBOUND_CFLAGS := $(filter-out -DTFW_FEATURE_%,$(subst -Iboards/$(HOST_BOARD) ,-Iboards/attiny85 ,$(HOST_CFLAGS)))
+# The emitter's command line (tools/suit-emit/main.c), included by the test
+# with its main() renamed, killing its mutants (#163). Built twice: for the
+# 2560, which states a class id, and for the ATtiny85, which states none.
+$(HOST_DIR)/test_suit_emit_main_mutate: test/unit/test_suit_emit_main_mutate.c tools/suit-emit/main.c \
+                                        tools/suit-emit/emit.c src/crypto/sha256.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(SUIT_TEST_CFLAGS) -Itools/suit-emit $(EXTRA_CFLAGS) -o $@ \
+	   test/unit/test_suit_emit_main_mutate.c tools/suit-emit/emit.c src/crypto/sha256.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_suit_emit_main_unbound: test/unit/test_suit_emit_main_mutate.c tools/suit-emit/main.c \
+                                         tools/suit-emit/emit.c src/crypto/sha256.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(SUIT_UNBOUND_CFLAGS) -Itools/suit-emit $(EXTRA_CFLAGS) -o $@ \
+	   test/unit/test_suit_emit_main_mutate.c tools/suit-emit/emit.c src/crypto/sha256.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # Provisioning, same arrangement and the same reason: it drives the element, so
 # the software element is its I2C HAL.
@@ -368,11 +424,19 @@ $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate: $(HOST_DIR)/%: tes
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -DTFW_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_provision_atecc_mutate calls the element half directly, no command layer (#163).
+$(HOST_DIR)/test_provision_atecc_mutate: test/unit/test_provision_atecc_mutate.c $(ELEMENT_MODEL) \
+                            src/caps/provision_atecc.c \
+                            src/crypto/atecc608a/atecc.c src/core/secure_zero.c src/crypto/sha256.c \
+                            $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -DTFW_FEATURE_PROVISION=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The alias certificate, driven by the element that signs it. Its DER and CBOR
 # vectors need no provider at all, but the command path does, and pinning the
 # bytes in the same binary that exercises the command is what stops the two
-# drifting apart.
-$(HOST_DIR)/test_alias: test/unit/test_alias.c $(ELEMENT_MODEL) \
+# drifting apart. test_alias_mutate mutates the command's requests on the same link.
+$(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                         src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
                         src/core/reader.c src/core/writer.c \
                         src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -384,8 +448,9 @@ $(HOST_DIR)/test_alias: test/unit/test_alias.c $(ELEMENT_MODEL) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # ATTEST_CSR, the same arrangement as test_alias: its CertificationRequestInfo
-# vector needs no provider, the command it pins does.
-$(HOST_DIR)/test_csr: test/unit/test_csr.c $(ELEMENT_MODEL) \
+# vector needs no provider, the command it pins does. test_csr_mutate mutates
+# the command's request on the same link.
+$(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                       src/caps/csr.c src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
                       src/core/reader.c src/core/writer.c \
                       src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -435,11 +500,20 @@ $(HOST_DIR)/test_crypto_none: test/unit/test_crypto_none.c \
                         test/mock/hal_mock.c test/mock/uds_mock.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# Its mutation suite (#163), without src/core/secure_zero.c: the suite's own
+# tfw_secure_zero records what it is handed.
+$(HOST_DIR)/test_crypto_none_mutate: test/unit/test_crypto_none_mutate.c \
+                        src/crypto/none/provider.c \
+                        src/core/handoff.c src/core/handoff_seed.c \
+                        boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        test/mock/hal_mock.c test/mock/uds_mock.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The image's UDS source, src/crypto/soft/uds_flash.c, in place of
 # test/mock/uds_mock.c, under the software provider -- HOST_LIB_SRCS carries
 # the mock, so this suite has its own link line too.
-$(HOST_DIR)/test_uds_flash: test/unit/test_uds_flash.c \
+$(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate: $(HOST_DIR)/%: test/unit/%.c \
                         src/crypto/soft/uds_flash.c src/crypto/soft/provider.c src/crypto/sha256.c \
                         $(SOFT_ID_SRCS) $(HOST_DIR)/uECC.o \
                         src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
@@ -472,6 +546,16 @@ $(HOST_DIR)/test_none_standins: test/unit/test_none_standins.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 
+# All eight stand-ins together under a seeded call order (#163): still no host
+# library and no HAL mock, so a stand-in that reached either would not link.
+$(HOST_DIR)/test_none_mutate: test/unit/test_none_mutate.c \
+                        src/core/handoff_none.c src/core/platform_id_none.c \
+                        src/core/app_runner_none.c src/core/auth_session_none.c \
+                        src/core/ota_stage_none.c src/core/ota_prev_none.c \
+                        src/core/ota_trial_none.c src/core/update_request_none.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same stand-ins on the wire (#130): the whole host library with them where
 # handoff.c and platform_id.c would be, so ATTEST answers as a no-boot board's.
 $(HOST_DIR)/test_noboot_wire: test/unit/test_noboot_wire.c \
@@ -497,6 +581,14 @@ $(HOST_DIR)/test_noboot_ota: test/unit/test_noboot_ota.c \
 # test_ota_trial_mutate mutates that block on the same link.
 $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate: $(HOST_DIR)/%: test/unit/%.c src/core/ota_trial.c src/core/ota_trial_block.c \
                         test/mock/runner_fake.c \
+                        boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c src/core/handoff_seed.c \
+                        src/core/secure_zero.c boot/boot_handoff.c \
+                        src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_ota_trial_block_mutate pins tfw_ota_trial_on on its own (#163).
+$(HOST_DIR)/test_ota_trial_block_mutate: test/unit/test_ota_trial_block_mutate.c src/core/ota_trial_block.c \
                         boot/boot_platform.c test/mock/hal_mock.c src/core/handoff.c src/core/handoff_seed.c \
                         src/core/secure_zero.c boot/boot_handoff.c \
                         src/proto/crc16.c src/proto/crc16_update.c \
@@ -571,13 +663,22 @@ $(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-ba
 	@$(HOST_CC) $(HOST_CFLAGS) -Itools/platform-bake $(EXTRA_CFLAGS) -o $@ \
 	   $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
+# The same decision against the test's own nvm read, EEPROM write and UART
+# byte, not the mock: a failed write, a failed read-back and a busy UART are
+# paths the mock cannot take (issue #163).
+$(HOST_DIR)/test_platform_bake_mutate: test/unit/test_platform_bake_mutate.c tools/platform-bake/bake.c \
+                        boot/boot_platform.c src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o tools/platform-bake/bake.h | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) -Itools/platform-bake $(EXTRA_CFLAGS) -o $@ \
+	   $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The operator-signature auth session, driven against the software element --
 # issue #4. Same arrangement as test_alias: the model IS the I2C HAL, so no
 # hal_mock.c, and the test file supplies its own tiny stand-ins for the
 # handful of other HAL calls storage.c's and sys.c's non-auth handlers still
 # reference even though this suite never calls them (RESET's own poll, CAPS,
 # PING, SYS_INFO) -- the same reason test_alias.c defines tfw_hal_millis.
-$(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_robust: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
+$(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT_MODEL) \
                                 src/core/auth_session.c src/caps/storage.c src/caps/sys.c \
                                 src/core/reader.c src/core/writer.c \
                                 src/crypto/atecc608a/atecc.c src/crypto/atecc608a/provider.c \
@@ -691,6 +792,15 @@ $(HOST_DIR)/test_w5500_mutate: $(W5X_MUT_SRCS) src/net/w5500.c $(HOST_DIR)/unity
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -DW5X_TEST_CHIP=2 \
 	   -Wl,--wrap=tfw_hal_spi_xfer -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Each chip file alone, its frames pinned to the datasheet's literals: the
+# suite stands in for w5x00.c's bus (w5x_bus_init, w5x_xfer). They stay in
+# TEST_SRCS; these explicit rules take the place of the pattern rule.
+$(HOST_DIR)/test_w5500_spi_mutate: test/unit/test_w5500_spi_mutate.c src/net/w5500.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_w5100_spi_mutate: test/unit/test_w5100_spi_mutate.c src/net/w5100.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The DHCP client against hostile replies, judged by the suite's own reading of
 # RFC 2131 and the row: linked exactly as test_dhcp is.
 DHCP_ROBUST_SRCS := test/unit/test_dhcp_robust.c test/model/w5x00_model.c src/net/w5x00.c src/net/dhcp.c \
@@ -738,8 +848,11 @@ $(HOST_DIR)/test_link_eth_mutate: test/unit/test_link_eth_mutate.c \
 
 # The OTA stager (issue #75) as an OTA_STAGE=1 image links it, with the software
 # NOR part as the SPI bus -- its tfw_hal_spi_xfer overrides the mock's weak one.
-# test_appstate_mutate mutates the handoff and platform block on the same link.
-$(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_STAGE_LIB_SRCS) \
+# test_appstate_mutate mutates the handoff and platform block on the same link,
+# test_ota_activate_mutate OTA_ACTIVATE's states, block and staged image,
+# test_ota_prev_mutate the PREV backup, clean and torn at every transfer,
+# test_ota_floor_eeprom_mutate OTA_INFO's EEPROM floor, mutated and torn.
+$(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate: $(HOST_DIR)/%: test/unit/%.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_ctl.c src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                         src/core/ota_floor_eeprom.c \
@@ -757,6 +870,12 @@ $(HOST_DIR)/test_stage_marked: test/unit/test_stage_marked.c $(HOST_STAGE_LIB_SR
 # A single-slot stager (the 328P, the 32U4; #77): the stager, PREV and
 # OTA_ACTIVATE, without ota_ctl.c -- the shape mk/firmware.mk links there.
 $(HOST_DIR)/test_ota_single: test/unit/test_ota_single.c $(HOST_STAGE_LIB_SRCS) \
+                        src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -Isrc/crypto -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_ota_single_mutate: test/unit/test_ota_single_mutate.c $(HOST_STAGE_LIB_SRCS) \
                         src/core/ota_stage.c src/core/ota_prev.c src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
                         src/core/ota_activate.c src/core/ota_manifest_none.c src/core/ota_auth.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -818,6 +937,12 @@ $(HOST_DIR)/test_spi_nor: test/unit/test_spi_nor.c $(HOST_LIB_SRCS) \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_spi_nor's link under seeded mutation (#163).
+$(HOST_DIR)/test_spi_nor_mutate: test/unit/test_spi_nor_mutate.c $(HOST_LIB_SRCS) \
+                        src/store/spi_nor.c test/model/spi_nor_model.c test/model/spi_nor_hal.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The soft tfw-boot's size-first SHA-256, in place of sha256.c: both define
 # the API of sha256.h, so it links alone.
 $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_small.c src/core/secure_zero.c \
@@ -827,9 +952,24 @@ $(HOST_DIR)/test_sha256_small: test/unit/test_sha256_small.c src/crypto/sha256_s
 # The P-256 DeviceID from a UDS (issue #48) on micro-ecc, without
 # src/core/secure_zero.c: the suite's own tfw_secure_zero records what it is
 # handed, which is how it sees the scalar zeroed.
-$(HOST_DIR)/test_deviceid_p256: test/unit/test_deviceid_p256.c src/crypto/deviceid_p256.c \
+$(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_deviceid_p256_mutate: $(HOST_DIR)/%: test/unit/%.c src/crypto/deviceid_p256.c \
                                 src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ATECC608A transport alone: the test file is the I2C HAL, no model.
+$(HOST_DIR)/test_atecc_bus_mutate: test/unit/test_atecc_bus_mutate.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_atecc's link minus src/core/secure_zero.c: the test's own records.
+$(HOST_DIR)/test_atecc_provider_mutate: test/unit/test_atecc_provider_mutate.c $(ELEMENT_MODEL) \
+                        src/crypto/atecc608a/atecc.c \
+                        src/crypto/atecc608a/provider.c \
+                        src/crypto/sha256.c \
+                        src/core/handoff.c src/core/handoff_seed.c boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The soft root's identity as that DeviceID (#48, #130), src/crypto/soft/id_p256.c,
 # the same way: the suite's own tfw_secure_zero sees the seed and scalar zeroed,
@@ -847,7 +987,7 @@ $(HOST_DIR)/test_dice_evidence: test/unit/test_dice_evidence.c $(HOST_HMAC_LIB_S
 
 # The eFuse-UDS provisioning backend (issue #48) under the shared wire
 # handlers, over a mock part in place of src/hal/esp32/prov_uds.c.
-$(HOST_DIR)/test_provision_uds: test/unit/test_provision_uds.c src/caps/provision.c \
+$(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate: $(HOST_DIR)/%: test/unit/%.c src/caps/provision.c \
                                 src/caps/provision_uds.c test/mock/prov_uds_mock.c \
                                 src/core/reader.c src/core/writer.c src/core/secure_zero.c \
                                 src/crypto/deviceid_p256.c src/crypto/sha256.c \
@@ -868,6 +1008,12 @@ $(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_STAGE_LIB_SRCS) \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same session at the edges a fault moves (#163).
+$(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_STAGE_LIB_SRCS) \
+                          src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
+                          test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The ESP32 wire (#48) under the same session: src/hal/esp32/hal_uart.c over a
 # mock lwIP (test/mock/lwip_mock.c) in place of hal_mock.c's weak byte link, so
 # a request goes socket, transport, dispatch, hal_ota.c, esp_ota as on the part.
@@ -877,6 +1023,12 @@ $(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_STAGE_LIB_SRCS) \
                            test/mock/lwip_mock.c test/mock/esp_ota_mock.c \
                            $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The SHA-256 mutation suite against sha256_small.c (#163); the generic rule
+# builds the same file against sha256.c as test_sha256_mutate.
+$(HOST_DIR)/test_sha256_small_mutate: test/unit/test_sha256_mutate.c src/crypto/sha256_small.c src/core/secure_zero.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The ESP32 pulse timing on the RMT receiver (#48, ADR follow-up 8):
 # src/hal/esp32/hal_pulse_rmt.c over a mock RMT driver and clock
@@ -914,31 +1066,270 @@ $(HOST_DIR)/test_esp_hal_eeprom: test/unit/test_esp_hal_eeprom.c src/hal/esp32/h
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/esp32p4-poe -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_alias $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_alg \
-                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
-                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg \
+                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate \
+                    $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_ele_mu \
-                    $(HOST_DIR)/test_platform_bake \
+                    $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
+                    $(HOST_DIR)/test_tier_atecc608a_mutate \
+                    $(HOST_DIR)/test_tfwsim_main_mutate \
+                    $(HOST_DIR)/test_suit_emit_main_mutate $(HOST_DIR)/test_suit_emit_main_unbound \
                     $(HOST_DIR)/test_app_none $(HOST_DIR)/test_app_example \
                     $(HOST_DIR)/test_w5100 $(HOST_DIR)/test_w5500 \
                     $(HOST_DIR)/test_w5100_nocs $(HOST_DIR)/test_w5500_nocs \
                     $(HOST_DIR)/test_dhcp_w5100 $(HOST_DIR)/test_dhcp_w5500 $(HOST_DIR)/test_link_dhcp \
                     $(HOST_DIR)/test_w5100_mutate $(HOST_DIR)/test_w5500_mutate \
                     $(HOST_DIR)/test_suit $(HOST_DIR)/test_suit_emit $(HOST_DIR)/test_suit_mutate \
+                    $(HOST_DIR)/test_suit_emit_mutate $(HOST_DIR)/test_tier_soft_mutate \
+                    $(HOST_DIR)/test_eth_socket_mutate \
+                    $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small $(HOST_DIR)/test_sha256_small_mutate \
+                    $(HOST_DIR)/test_board_lookup_mutate \
+                    $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_deviceid_p256_mutate $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence \
+                    $(HOST_DIR)/test_ota_trial_block_mutate $(HOST_DIR)/test_provision_atecc_mutate \
                     $(HOST_DIR)/test_suit_integrated \
                     $(HOST_DIR)/test_suit_integrated_mutate \
                     $(HOST_DIR)/test_suit_integrated_unbound \
                     $(HOST_DIR)/test_hsm_payload \
                     $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd \
-                    $(HOST_DIR)/test_storage_2560 $(HOST_DIR)/test_sha256_small \
-                    $(HOST_DIR)/test_deviceid_p256 $(HOST_DIR)/test_soft_id_p256 $(HOST_DIR)/test_dice_evidence \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
                     $(HOST_DIR)/boot/test_boot_p256_rom $(HOST_DIR)/boot/test_boot_flash_span \
                     $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
                     $(HOST_DIR)/boot/test_boot_l0_esp32_sha \
                     $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire
+HOST_EXTRA_BINS += $(HOST_DIR)/test_main
+$(HOST_DIR)/test_main.o: src/main.c | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Dmain=tfw_app_main_ut -c -o $@ $<
+$(HOST_DIR)/test_main: test/unit/main/test_main.c $(HOST_DIR)/test_main.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_none_mutate
+HOST_EXTRA_BINS += $(CRYPTO_MUTATE_BINS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_ota_mutate
+
+# The handoff block over a stand-in RTC-retained block sized as sdkconfig sizes it (#163).
+$(HOST_DIR)/test_esp_handoff_mutate: test/unit/test_esp_handoff_mutate.c src/hal/esp32/hal_handoff.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32/handoff -Itest/mock/esp32 -DCONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=0x70 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_handoff_mutate
+
+# The EEPROM and platform block over stand-in NOR partitions (#163).
+$(HOST_DIR)/test_esp_eeprom_mutate: test/unit/test_esp_eeprom_mutate.c src/hal/esp32/hal_eeprom.c \
+                                    $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32/eeprom -Itest/mock/esp32 -Isrc/hal/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_eeprom_mutate
+
+# The byte link alone, over a socket layer in the test itself (#163).
+$(HOST_DIR)/test_esp_uart_mutate: test/unit/test_esp_uart_mutate.c src/hal/esp32/hal_uart.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/hal/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_uart_mutate
+
+# The system block over stand-in ESP-IDF calls (#163), once per arm of its one
+# CONFIG_ conditional: the ESP32's system reset, the later chips' esp_restart().
+$(HOST_DIR)/test_esp_sys_mutate: test/unit/test_esp_sys_mutate.c src/hal/esp32/hal_sys.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32/sys -Itest/mock/esp32 -Isrc/hal/esp32 -DCONFIG_IDF_TARGET_ESP32=1 -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_esp_sys_mutate_c3: test/unit/test_esp_sys_mutate.c src/hal/esp32/hal_sys.c \
+                                    $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32/sys -Itest/mock/esp32 -Isrc/hal/esp32 -DCONFIG_IDF_TARGET_ESP32=0 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_sys_mutate $(HOST_DIR)/test_esp_sys_mutate_c3
+
+# The Ethernet link over stand-in ESP-IDF calls (#163), once per arm a board
+# picks: QEMU's OpenETH with DHCP, and the P4's EMAC over RMII at a static address.
+TEST_ESP_ETH_PINS := -DTFW_ESP_ETH_PHY_ADDR=1 -DTFW_ESP_ETH_PHY_RST_GPIO=51 \
+    -DTFW_ESP_ETH_MDC_GPIO=31 -DTFW_ESP_ETH_MDIO_GPIO=52 -DTFW_ESP_ETH_RMII_CLK_GPIO=50 \
+    -DTFW_ESP_ETH_RMII_TX_EN_GPIO=49 -DTFW_ESP_ETH_RMII_TXD0_GPIO=34 \
+    -DTFW_ESP_ETH_RMII_TXD1_GPIO=35 -DTFW_ESP_ETH_RMII_CRS_DV_GPIO=28 \
+    -DTFW_ESP_ETH_RMII_RXD0_GPIO=29 -DTFW_ESP_ETH_RMII_RXD1_GPIO=30 \
+    '-DCONFIG_TFW_ETH_IP_ADDR="192.0.2.10"' '-DCONFIG_TFW_ETH_NETMASK="255.255.255.0"' \
+    '-DCONFIG_TFW_ETH_GATEWAY="192.0.2.1"'
+$(HOST_DIR)/test_esp_eth_mutate: test/unit/test_esp_eth_mutate.c src/hal/esp32/hal_eth.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32/eth -Itest/mock/esp32 -Isrc/hal/esp32 $(TEST_ESP_ETH_PINS) -DCONFIG_ETH_USE_ESP32_EMAC=0 -DCONFIG_TFW_ETH_STATIC_IP=0 -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_esp_eth_mutate_p4: test/unit/test_esp_eth_mutate.c src/hal/esp32/hal_eth.c \
+                                    $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/mock/esp32/eth -Itest/mock/esp32 -Isrc/hal/esp32 $(TEST_ESP_ETH_PINS) -DCONFIG_ETH_USE_ESP32_EMAC=1 -DCONFIG_TFW_ETH_STATIC_IP=1 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_eth_mutate $(HOST_DIR)/test_esp_eth_mutate_p4
+
+# The GPIO block over a stand-in gpio driver (#163). -iquote puts the ESP32
+# hal_types.h, whose pin is a GPIO number, ahead of test/mock's.
+$(HOST_DIR)/test_esp_gpio_mutate: test/unit/test_esp_gpio_mutate.c src/hal/esp32/hal_gpio.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/gpio -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_gpio_mutate
+
+# The analog read over a stand-in oneshot ADC driver (#163), once per outcome
+# of the unit's bring-up, whose state is static.
+$(HOST_DIR)/test_esp_adc_mutate: test/unit/test_esp_adc_mutate.c src/hal/esp32/hal_adc.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/adc -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_esp_adc_nounit_mutate: test/unit/test_esp_adc_nounit_mutate.c src/hal/esp32/hal_adc.c \
+                                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/adc -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_adc_mutate $(HOST_DIR)/test_esp_adc_nounit_mutate
+
+# The PWM output over a stand-in LEDC driver (#163).
+$(HOST_DIR)/test_esp_pwm_mutate: test/unit/test_esp_pwm_mutate.c src/hal/esp32/hal_pwm.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/pwm -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_pwm_mutate
+
+# The tone over a stand-in LEDC driver (#163).
+$(HOST_DIR)/test_esp_tone_mutate: test/unit/test_esp_tone_mutate.c src/hal/esp32/hal_tone.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/tone -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_tone_mutate
+
+# The pulse timing over a stand-in gpio driver and esp_timer playing a
+# scripted waveform (#163).
+$(HOST_DIR)/test_esp_pulse_mutate: test/unit/test_esp_pulse_mutate.c src/hal/esp32/hal_pulse.c \
+                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/pulse -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_pulse_mutate
+
+# I2C, SPI and 1-Wire over stand-in gpio, I2C master, SPI master and FreeRTOS
+# headers; the pins are the profile's -D values, distinct here (#163).
+$(HOST_DIR)/test_esp_bus_mutate: test/unit/test_esp_bus_mutate.c src/hal/esp32/hal_bus.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/bus \
+	    -DTFW_ESP_I2C_SDA_GPIO=21 -DTFW_ESP_I2C_SCL_GPIO=22 -DTFW_ESP_SPI_MOSI_GPIO=23 \
+	    -DTFW_ESP_SPI_MISO_GPIO=19 -DTFW_ESP_SPI_SCK_GPIO=18 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_bus_mutate
+
+# The board bring-up over a stand-in gpio driver, built with the PoE board's
+# co-processor enable line and without one (#163).
+$(HOST_DIR)/test_esp_board_mutate: test/unit/test_esp_board_mutate.c src/hal/esp32/hal_board.c \
+                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/board \
+	    -Itest/mock/esp32 -DTFW_ESP_COPROC_EN_GPIO=54 -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_esp_board_nocoproc_mutate: test/unit/test_esp_board_nocoproc_mutate.c \
+                                            src/hal/esp32/hal_board.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/board \
+	    -Itest/mock/esp32 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_board_mutate $(HOST_DIR)/test_esp_board_nocoproc_mutate
+
+# The HMAC/P-256 crypto tier on the real SHA-256, DeviceID derivation and
+# micro-ecc, over stand-in eFuse, HMAC, RNG and log headers; the handoff and
+# tfw_secure_zero are the suite's own (#163).
+$(HOST_DIR)/test_esp_hmac_p256_mutate: test/unit/test_esp_hmac_p256_mutate.c \
+                                       src/hal/esp32/crypto_hmac_p256.c src/crypto/deviceid_p256.c \
+                                       src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/hmac \
+	    -Itest/mock/esp32 -I$(UECC_DIR) -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_hmac_p256_mutate
+
+# src/hal/avr one unit at a time (#163): register-level over test/mock/avr_regs's
+# <avr/...> and <util/...> stand-ins, which each suite implements, with
+# src/hal/avr's hal_types.h ahead of the mock HAL's.
+AVR_HAL_TEST_CFLAGS = -Isrc/hal/avr -Itest/mock/avr_regs $(HOST_CFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_crc16_mutate
+$(HOST_DIR)/test_avr_crc16_mutate: test/unit/hal/test_avr_crc16_mutate.c src/hal/avr/hal_crc16.c \
+                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_eeprom.c twice: a 32 KB part's FLASHEND (the near flash copy), then a
+# 256 KB part's (the far one). The near copy casts a 16-bit address to a
+# pointer, which is the AVR's pointer width and narrower than the host's.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_eeprom_mutate $(HOST_DIR)/test_avr_eeprom_mutate_2560
+$(HOST_DIR)/test_avr_eeprom_mutate: test/unit/hal/test_avr_eeprom_mutate.c src/hal/avr/hal_eeprom.c \
+                                    $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-int-to-pointer-cast -DFLASHEND=0x7FFFul $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_avr_eeprom_mutate_2560: test/unit/hal/test_avr_eeprom_mutate.c src/hal/avr/hal_eeprom.c \
+                                         $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-int-to-pointer-cast -DFLASHEND=0x3FFFFul $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_uart.c on the 328P's USART0, then on the 32U4's USART1.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_uart_mutate $(HOST_DIR)/test_avr_uart_mutate_32u4
+$(HOST_DIR)/test_avr_uart_mutate: test/unit/hal/test_avr_uart_mutate.c src/hal/avr/hal_uart.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -DF_CPU=16000000UL $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_avr_uart_mutate_32u4: test/unit/hal/test_avr_uart_mutate.c src/hal/avr/hal_uart.c \
+                                       $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/avr -Itest/mock/avr_regs -Iboards/atmega32u4 \
+	    $(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS)) -DF_CPU=16000000UL $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_uart_soft.c on the ATtiny85, the one board with no USART. -Wno-conversion
+# because the host's unsigned long is 64 bits: the tick count, a uint32_t from
+# an unsigned long expression, narrows here and not on the AVR's 32-bit long.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_uart_soft_mutate
+$(HOST_DIR)/test_avr_uart_soft_mutate: test/unit/hal/test_avr_uart_soft_mutate.c src/hal/avr/hal_uart_soft.c \
+                                       $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/avr -Itest/mock/avr_regs -Iboards/attiny85 \
+	    $(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS)) -Wno-conversion -DF_CPU=8000000UL $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_gpio_mutate
+$(HOST_DIR)/test_avr_gpio_mutate: test/unit/hal/test_avr_gpio_mutate.c src/hal/avr/hal_gpio.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_adc.c once per ADC shape, the part's REFS2 or MUX5 given as avr-libc
+# would define it: the 328P, the 2560 (MUX5, ADCSRB bit 3), the ATtiny85
+# (REFS2, ADMUX bit 4).
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_adc_mutate $(HOST_DIR)/test_avr_adc_mutate_2560 \
+                   $(HOST_DIR)/test_avr_adc_mutate_t85
+$(HOST_DIR)/test_avr_adc_mutate: test/unit/hal/test_avr_adc_mutate.c src/hal/avr/hal_adc.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -DTFW_TEST_ADC_PART=0 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_avr_adc_mutate_2560: test/unit/hal/test_avr_adc_mutate.c src/hal/avr/hal_adc.c \
+                                      $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/avr -Itest/mock/avr_regs -Iboards/atmega2560 \
+	    $(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS)) -DMUX5=3 -DTFW_TEST_ADC_PART=1 \
+	    $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_avr_adc_mutate_t85: test/unit/hal/test_avr_adc_mutate.c src/hal/avr/hal_adc.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/avr -Itest/mock/avr_regs -Iboards/attiny85 \
+	    $(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS)) -DREFS2=4 -DTFW_TEST_ADC_PART=2 \
+	    $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_pwm_mutate
+$(HOST_DIR)/test_avr_pwm_mutate: test/unit/hal/test_avr_pwm_mutate.c src/hal/avr/hal_pwm.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_tone.c with -Wno-conversion, as hal_uart_soft.c: the compare value, a
+# uint32_t from an unsigned long F_CPU expression, narrows on the host only.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_tone_mutate
+$(HOST_DIR)/test_avr_tone_mutate: test/unit/hal/test_avr_tone_mutate.c src/hal/avr/hal_tone.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-conversion -DF_CPU=16000000UL $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_pulse.c over a model clock: <util/delay.h>'s stand-in advances it.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_pulse_mutate
+$(HOST_DIR)/test_avr_pulse_mutate: test/unit/hal/test_avr_pulse_mutate.c src/hal/avr/hal_pulse.c \
+                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_bus.c's divisor is computed from F_CPU, an unsigned long.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_bus_mutate
+$(HOST_DIR)/test_avr_bus_mutate: test/unit/hal/test_avr_bus_mutate.c src/hal/avr/hal_bus.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-conversion -DF_CPU=16000000UL $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_sys.c casts addresses to int, AVR's 16 bits; the host's are 64.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_sys_mutate
+$(HOST_DIR)/test_avr_sys_mutate: test/unit/hal/test_avr_sys_mutate.c src/hal/avr/hal_sys.c \
+                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-pointer-to-int-cast $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The host compiler cannot see that ATOMIC_BLOCK's stand-in loop runs once.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_tick_mutate
+$(HOST_DIR)/test_avr_tick_mutate: test/unit/hal/test_avr_tick_mutate.c src/hal/avr/hal_tick.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-maybe-uninitialized -DF_CPU=16000000UL $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The suite finds the block's section in its own ELF headers.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_handoff_mutate
+$(HOST_DIR)/test_avr_handoff_mutate: test/unit/hal/test_avr_handoff_mutate.c src/hal/avr/hal_handoff.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# A naked function has no return on the host, and the suite calls it.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_early_mutate
+$(HOST_DIR)/test_avr_early_mutate: test/unit/hal/test_avr_early_mutate.c src/hal/avr/hal_early.c \
+                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Dnaked= $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 HOST_EXTRA_BINS += $(HOST_DIR)/test_dhcp_robust_w5100 $(HOST_DIR)/test_dhcp_robust_w5500 \
                    $(HOST_DIR)/test_w5100_robust $(HOST_DIR)/test_w5500_robust
 
@@ -1190,7 +1581,9 @@ lint-grep-selftest:
 # is the neutral spelling and is not matched -- the pattern wants a non-identifier
 # character on each side of the word). Exempt, and nothing else: src/hal/avr/,
 # boot/hal/avr/, boards/ and mk/arch/avr.mk (neither of which is swept) and
-# include/tfw/progmem.h, the one toolchain shim. A real leak is moved behind the
+# include/tfw/progmem.h, the one toolchain shim, and test/mock/avr_regs/, the
+# host's stand-in for avr-libc, which sits only on the -I of the suites that test
+# src/hal/avr and boot/hal/avr and must spell the names those units use. A real leak is moved behind the
 # HAL or progmem.h, never added to this list.
 #
 # The Cortex-M core (#161) the same way, outside src/hal/cortex-m/ and
@@ -1215,7 +1608,7 @@ ARCH_LEAK_CM_PAT := cm_regs\.h|<(core_cm[0-9a-z]*|cmsis_[0-9a-z_]*)\.h>|(^|[^A-Z
 lint-arch-leak:
 	@cd $(ARCH_LEAK_ROOT) && fail=0; \
 	for f in $$(find $(ARCH_LEAK_DIRS) -type f \( -name '*.c' -o -name '*.h' \) \
-	            -not -path 'include/tfw/progmem.h' | sort); do \
+	            -not -path 'include/tfw/progmem.h' -not -path 'test/mock/avr_regs/*' | sort); do \
 	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
 	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
 	  hits=; \
@@ -1240,11 +1633,12 @@ lint-arch-leak:
 # gate; prose in a comment and the exempt directories must not.
 lint-arch-leak-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
-	mkdir -p $(addprefix $$t/,$(ARCH_LEAK_DIRS)) $$t/src/crypto $$t/src/hal/avr $$t/src/hal/cortex-m \
+	mkdir -p $(addprefix $$t/,$(ARCH_LEAK_DIRS)) $$t/src/crypto $$t/src/hal/avr $$t/src/hal/cortex-m $$t/test/mock/avr_regs/avr \
 	  $$t/test/model/cortex-m $$t/test/unit && \
 	printf '/* MCUSR is already clear; F_CPU, <avr/io.h>, PROGMEM, tfw_cm_dsb, SysTick, "wfi" */\n// MCUSR\nint ok;\nconst int k TFW_PROGMEM = 0;\nconst char *s = "msrp";\n' > $$t/src/crypto/ok.c && \
 	printf '#include <avr/io.h>\nint f_cpu;\n' > $$t/src/hal/avr/exempt.h && \
 	printf '#include "cm_regs.h"\nvoid f(void) { tfw_cm_dsb(); __asm__ volatile ("wfi"); }\n' > $$t/src/hal/cortex-m/exempt.c && \
+	printf '#include <avr/io.h>\nint x = MCUSR;\n' > $$t/test/mock/avr_regs/avr/stand_in.h && \
 	printf '#define TFW_CM_REG(a) (*(volatile unsigned *)(a))\nint x = TFW_CM_REG(0);\n' > $$t/test/model/cortex-m/cm_regs.h && \
 	$(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
@@ -1259,6 +1653,12 @@ lint-arch-leak-selftest:
 	  case $$out in *'src/crypto/plant.c:1: arch-leak'*) ;; *) echo "selftest: gate did not print path:line: $$leak"; exit 1 ;; esac; \
 	done; \
 	rm -f $$t/src/crypto/plant.c; \
+	printf '#include <avr/io.h>\nint x = MCUSR;\n' > $$t/test/unit/stand_in.h; \
+	if out=$$($(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t 2>&1); then \
+	  echo "selftest: gate passed the avr_regs plant under test/unit/"; exit 1; \
+	fi; \
+	case $$out in *'test/unit/stand_in.h:1: arch-leak'*) ;; *) echo "selftest: gate did not print path:line under test/unit/"; exit 1 ;; esac; \
+	rm -f $$t/test/unit/stand_in.h; \
 	cp $$t/test/model/cortex-m/cm_regs.h $$t/test/unit/plant.c; \
 	if $(MAKE) --no-print-directory lint-arch-leak ARCH_LEAK_ROOT=$$t > /dev/null 2>&1; then \
 	  echo "selftest: the model's exemption reached test/unit/"; exit 1; \
@@ -1392,6 +1792,19 @@ $(APP_HOST_ELEMENT_OBJS): $(APP_HOST_ELEMENT_DIR)/%.o: $(APP_ABS)/%.c
 -include $(APP_HOST_OBJS:.o=.d) $(APP_HOST_ELEMENT_OBJS:.o=.d)
 endif
 
+# The software tier's seam (tools/tfwsim/tier_soft.c) against the mock HAL it
+# seeds, killing its mutants (#163). Out of TEST_SRCS: the pattern rule there
+# would not link the tier.
+$(HOST_DIR)/test_tier_soft_mutate: test/unit/test_tier_soft_mutate.c tools/tfwsim/tier_soft.c \
+                                   $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ $^ $(EXTRA_LDFLAGS)
+
+# tfwsim's Ethernet stand-in (tools/tfwsim/eth_socket.c) against a loopback
+# peer the test opens on a port the kernel picks, killing its mutants (#163).
+$(HOST_DIR)/test_eth_socket_mutate: test/unit/test_eth_socket_mutate.c tools/tfwsim/eth_socket.c \
+                                    $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ $^ $(EXTRA_LDFLAGS)
+
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
 tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(TFWSIM_BOOT_MAIN) \
@@ -1477,6 +1890,28 @@ $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc60
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
+
+# The element tier's seam (tools/tfwsim/tier_atecc608a.c) against the element
+# model and the mock HAL it seeds, killing its mutants (#163). Out of
+# TEST_SRCS: the pattern rule there would link neither the tier nor the model.
+$(HOST_DIR)/test_tier_atecc608a_mutate: test/unit/test_tier_atecc608a_mutate.c tools/tfwsim/tier_atecc608a.c \
+                                        $(ELEMENT_MODEL) src/crypto/atecc608a/atecc.c test/mock/hal_mock.c \
+                                        boot/boot_handoff.c src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
+                                        src/proto/crc16.c src/proto/crc16_update.c \
+                                        src/crypto/sha256.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim $(MODEL_INC) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# tfwsim's shared loop (tools/tfwsim/main.c), included by the test with its
+# main() renamed and the tier seam stubbed, over the sources `make tfwsim`
+# links with no application, killing its mutants (#163). No tfw-boot behind
+# it: the bootloader seam is tools/tfwsim/boot_none.c, as the element
+# simulators link it.
+TFWSIM_MAIN_TEST_SRCS := $(filter-out src/core/app_runner.c test/mock/app_mock.c,$(TFWSIM_LIB_SRCS)) \
+                         src/core/app_runner_none.c tools/tfwsim/boot_none.c
+$(HOST_DIR)/test_tfwsim_main_mutate: test/unit/test_tfwsim_main_mutate.c $(TFWSIM_COMMON) \
+                                     $(TFWSIM_MAIN_TEST_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -pthread -o $@ \
+	   test/unit/test_tfwsim_main_mutate.c $(TFWSIM_MAIN_TEST_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 clean-host:
 	@rm -rf $(HOST_DIR)
@@ -1590,6 +2025,23 @@ header-deps-check:
 $(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The no-bus stand-in, src/caps/bus_none.c (#163), against the mock HAL alone:
+# HOST_LIB_SRCS carries bus.c, a second tfw_bus_init. It stays in TEST_SRCS;
+# this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_caps_none_stubs_mutate: test/unit/test_caps_none_stubs_mutate.c src/caps/bus_none.c \
+                        test/mock/hal_mock.c src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
+                        boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# pwm's RESERVED term (#163) on a host-only pin table whose D3 has a compare
+# unit and is RESERVED, linked in place of the board's: no shipped board has
+# such a pin. It stays in TEST_SRCS; this explicit rule takes the place of the
+# pattern rule.
+CAPS_RESERVED_SRCS := $(filter-out boards/$(HOST_BOARD)/board.c,$(HOST_LIB_SRCS)) test/mock/board_reserved.c
+$(HOST_DIR)/test_caps_reserved: test/unit/test_caps_reserved.c $(CAPS_RESERVED_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The ATECC608A driver's I2C transactions mutated (#163): atecc.c alone, with the
 # bus faked in the suite, so no mock HAL and no software element. It stays in
 # TEST_SRCS; this explicit rule takes the place of the pattern rule.
@@ -1650,6 +2102,23 @@ $(HOST_DIR)/test_ota_trial_leave: test/unit/test_ota_trial_leave.c src/core/ota_
                         src/core/secure_zero.c boot/boot_handoff.c \
                         src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# OTA_AUTH's hold alone (#163): src/core/ota_auth.c over the reader and writer,
+# with the dispatcher's record of the last command supplied by the test.
+$(HOST_DIR)/test_ota_auth_mutate: test/unit/test_ota_auth_mutate.c src/core/ota_auth.c \
+                                  src/core/reader.c src/core/writer.c \
+                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The two OTA floors alone (#163): the element's over the suite's own driver,
+# CRYPTO=auto's dispatch over the suite's handoff tier and both floors.
+$(HOST_DIR)/test_ota_floor_atecc_mutate: test/unit/test_ota_floor_atecc_mutate.c src/core/ota_floor_atecc.c \
+                                         $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_ota_floor_auto_mutate: test/unit/test_ota_floor_auto_mutate.c src/core/ota_floor_auto.c \
+                                        $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The link a DHCP=1 image runs: link_eth.c over the DHCP client, not its stand-in,

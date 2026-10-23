@@ -230,6 +230,10 @@ static void test_a_hostile_block_never_lowers_the_floor_or_retries_a_failed_imag
             continue;
         }
         taken++;
+        /* A block taken passed its magic, layout and CRC. */
+        TEST_ASSERT_EQUAL_HEX32(TFW_BOOT_EE_MAGIC, tfw_boot_rd_u32(&raw[TFW_BOOT_EE_O_MAGIC]));
+        TEST_ASSERT_EQUAL_HEX8(TFW_BOOT_EE_VERSION, raw[TFW_BOOT_EE_O_LAYOUT]);
+        TEST_ASSERT_EQUAL_HEX16(tfw_boot_platform_crc(raw), tfw_boot_rd_u16(&raw[TFW_BOOT_EE_O_CRC]));
         TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_load(&plat, &floor0));
         floor = floor0;
 

@@ -64,6 +64,7 @@ static void test_the_reserved_address_is_refused_even_with_no_element_present(vo
 {
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION,
         run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x60u, 0u, 0x01u }, 3u));
+    TEST_ASSERT_NOT_EQUAL(0x60u, tfw_mock_last_i2c_addr());
 }
 
 /* The ATECC608C-TFLXTLS on the MIKROE-6774 Click answers at 0x36 as shipped
@@ -76,6 +77,7 @@ static void test_the_click_boards_element_address_is_refused(void)
     TEST_ASSERT_NOT_EQUAL(0x36u, tfw_mock_last_i2c_addr());
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION,
         run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x36u, 0u, 0x01u }, 3u));
+    TEST_ASSERT_NOT_EQUAL(0x36u, tfw_mock_last_i2c_addr());
 }
 
 /* This build links bus_held_none.c, not the OPTIGA transport: its address is
@@ -103,7 +105,7 @@ static void test_a_read_longer_than_a_reply_can_carry_is_refused(void)
         run(TFW_CMD_I2C_XFER, (const uint8_t[]){ 0x48u, 200u, 0x00u }, 3u));
 }
 
-static void test_an_spi_transfer_is_full_duplex(void)
+static void test_an_spi_transfer_returns_the_bytes_clocked_in(void)
 {
     const uint8_t resp[2] = { 0x12, 0x34 };
     tfw_mock_set_bus_response(resp, 2u);
@@ -207,12 +209,14 @@ static void test_i2c_config_refuses_a_clock_above_the_ceiling(void)
     /* 2 MHz: 0x001E8480, past TFW_I2C_HZ_MAX (400 kHz) */
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
         run(TFW_CMD_I2C_CONFIG, (const uint8_t[]){ 0x80u, 0x84u, 0x1Eu, 0x00u }, 4u));
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFuL, tfw_mock_last_i2c_hz());
 }
 
 static void test_i2c_config_rejects_the_wrong_argument_count(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC,
         run(TFW_CMD_I2C_CONFIG, (const uint8_t[]){ 0x80u, 0x1Au, 0x06u }, 3u));
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFuL, tfw_mock_last_i2c_hz());
 }
 
 /* SPI_CONFIG: mode, clkdiv and bit order all reach tfw_hal_spi_init() intact,
@@ -230,30 +234,36 @@ static void test_spi_config_refuses_a_mode_past_three(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
         run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 4u, 0u, 0u }, 3u));
+    TEST_ASSERT_EQUAL_UINT8(0xFFu, tfw_mock_last_spi_mode());
 }
 
 static void test_spi_config_refuses_a_clkdiv_past_three(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
         run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 0u, 4u, 0u }, 3u));
+    TEST_ASSERT_EQUAL_UINT8(0xFFu, tfw_mock_last_spi_mode());
 }
 
 static void test_spi_config_refuses_a_bit_order_past_one(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
         run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 0u, 0u, 2u }, 3u));
+    TEST_ASSERT_EQUAL_UINT8(0xFFu, tfw_mock_last_spi_mode());
 }
 
 static void test_spi_config_rejects_the_wrong_argument_count(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC,
         run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 0u, 0u }, 2u));
+    TEST_ASSERT_EQUAL_UINT8(0xFFu, tfw_mock_last_spi_mode());
 }
 
 static void test_bus_init_applies_the_config_defaults(void)
 {
-    (void)run(TFW_CMD_I2C_CONFIG, (const uint8_t[]){ 0x00u, 0x06u, 0x1Au, 0x80u }, 4u);
-    (void)run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 3u, 2u, 1u }, 3u);
+    TEST_ASSERT_EQUAL(TFW_OK,
+        run(TFW_CMD_I2C_CONFIG, (const uint8_t[]){ 0x80u, 0x1Au, 0x06u, 0x00u }, 4u));
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_SPI_CONFIG, (const uint8_t[]){ 3u, 2u, 1u }, 3u));
+    TEST_ASSERT_EQUAL_UINT32(400000uL, tfw_mock_last_i2c_hz());
     tfw_bus_init();
     TEST_ASSERT_EQUAL_UINT32(TFW_I2C_DEFAULT_HZ, tfw_mock_last_i2c_hz());
     TEST_ASSERT_EQUAL_UINT8(TFW_SPI_DEFAULT_MODE, tfw_mock_last_spi_mode());
@@ -271,7 +281,7 @@ int main(void)
     RUN_TEST(test_the_optiga_address_reaches_the_bus_without_its_transport);
     RUN_TEST(test_an_address_beyond_seven_bits_is_refused);
     RUN_TEST(test_a_read_longer_than_a_reply_can_carry_is_refused);
-    RUN_TEST(test_an_spi_transfer_is_full_duplex);
+    RUN_TEST(test_an_spi_transfer_returns_the_bytes_clocked_in);
     RUN_TEST(test_a_reserved_chip_select_is_refused);
     RUN_TEST(test_a_onewire_reset_reports_presence);
     RUN_TEST(test_a_onewire_sensor_exchange_needs_no_sensor_code_in_firmware);

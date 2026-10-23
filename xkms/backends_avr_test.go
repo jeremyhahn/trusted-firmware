@@ -17,6 +17,7 @@ import (
 	"context"
 	"testing"
 
+	deviceattest01 "github.com/jeremyhahn/go-xkms/pkg/acme/challenges/device-attest-01"
 	"github.com/jeremyhahn/go-xkms/pkg/types"
 	xkms "github.com/jeremyhahn/trusted-firmware/xkms"
 	"github.com/jeremyhahn/trusted-firmware/xkms/avr"
@@ -127,5 +128,6 @@ func TestRegisterAVRBackendIsRefusedASecondTime(t *testing.T) {
 // Two names for one format is how a caller routing on it ends up with a branch
 // that never runs.
 func TestAVRFormatMatchesTheChallengeFormat(t *testing.T) {
+	assert.Equal(t, deviceattest01.FormatDICE.String(), xkms.AVRFormatDICE)
 	assert.Equal(t, "dice", xkms.AVRFormatDICE)
 }

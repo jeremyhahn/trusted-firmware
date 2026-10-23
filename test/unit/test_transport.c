@@ -118,6 +118,8 @@ static void test_a_frame_arriving_one_byte_at_a_time_decodes_the_same(void)
         if (tfw_framer_push(&rxf, back[i]) == TFW_FRAME_READY) { saw = 1u; }
     }
     TEST_ASSERT_TRUE(saw);
+    TEST_ASSERT_EQUAL_HEX8(7u, tfw_frame_seq(&rxf));
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_SYS_INFO | TFW_OP_RESPONSE_BIT, tfw_frame_op(&rxf));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_frame_status(&rxf));
 }
 
@@ -178,6 +180,8 @@ static void test_a_stalled_partial_frame_is_abandoned_after_the_idle_window(void
         if (tfw_framer_push(&rxf, back[i]) == TFW_FRAME_READY) { saw = 1u; }
     }
     TEST_ASSERT_TRUE(saw);
+    TEST_ASSERT_EQUAL_HEX8(4u, tfw_frame_seq(&rxf));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_frame_status(&rxf));
 }
 
 /* A malformed frame and the good frame that follows it are TWO events, not
@@ -206,6 +210,8 @@ static void test_a_bad_format_event_and_the_good_frame_after_it_are_two_polls(vo
 
     tfw_transport_poll(&t);
     TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_tx_pending());
+    tfw_transport_poll(&t);
+    TEST_ASSERT_NOT_EQUAL(0u, tfw_mock_tx_pending());
 
     for (i = 0; i < 8u; i++) { tfw_transport_poll(&t); }
 

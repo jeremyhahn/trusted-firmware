@@ -108,6 +108,7 @@ static void test_a_frequency_below_the_reachable_range_is_refused(void)
 {
     const uint8_t low[3] = { TFW_TONE_PIN, 100u, 0u };      /* 100 Hz */
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(TFW_CMD_TONE, low, 3u));
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_mock_tone_hz());
 }
 
 /*

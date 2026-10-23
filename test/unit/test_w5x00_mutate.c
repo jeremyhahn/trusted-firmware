@@ -265,7 +265,8 @@ static void connect(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
 }
 
-/* A size at the ring's edges, or anywhere up to it. Never above: see the top. */
+/* A size at the ring's edges -- RING + 1 and 0xFFFF above it among them, see
+ * the top -- or anywhere up to it. */
 static uint16_t size_edge(void)
 {
     static const uint16_t edge[] = { 0u, 1u, 2u, RING - 1u, RING, RING + 1u, 0xFFFFu };

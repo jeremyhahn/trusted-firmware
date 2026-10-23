@@ -11,10 +11,13 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
 )
 
@@ -126,14 +129,20 @@ func TestAuthOpensTheSessionAndRunsTheChainedVerb(t *testing.T) {
 	t.Run("chained", func(t *testing.T) {
 		dev := tfwsim.StartElementWithOperator(t, pub)
 		var buf bytes.Buffer
-		args := []string{serial, keyPath, "--", "1wire-reset", "4"}
+		// The reserved region is refused outside a session, so reading it
+		// shows the session open.
+		if err := runPeripheral(ctx, dev, "eeprom-read", []string{"0", "4"}, false, io.Discard); !errors.Is(err, tfw.StatusErrAuthRequired) {
+			t.Fatalf("eeprom-read 0 4 before auth: err = %v, want %v", err, tfw.StatusErrAuthRequired)
+		}
+		args := []string{serial, keyPath, "--", "eeprom-read", "0", "4"}
 		if err := runPeripheral(ctx, dev, "auth", args, false, &buf); err != nil {
 			t.Fatal(err)
 		}
 		// The chained verb's output only: auth prints nothing of its own
-		// when it hands the connection on.
-		if got := buf.String(); got != "no device\n" {
-			t.Fatalf("auth -- 1wire-reset printed %q, want \"no device\\n\"", got)
+		// when it hands the connection on. 54465052 is the platform
+		// block's magic.
+		if got := buf.String(); got != "54465052\n" {
+			t.Fatalf("auth -- eeprom-read 0 4 printed %q, want \"54465052\\n\"", got)
 		}
 	})
 }

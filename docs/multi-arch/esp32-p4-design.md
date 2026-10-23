@@ -41,7 +41,7 @@ either; both are marked where used.
 | `src/hal/esp32/hal_eeprom.c` | The EEPROM capability on the `tfw_eeprom` partition, sector read-modify-write (ADR decision 6). |
 | `src/hal/esp32/hal_handoff.c` | `tfw_hal_handoff_block`: the RTC-retained handoff to `src/core/handoff.c`. |
 | `src/hal/esp32/hal_board.c`, `hal_esp32.h`, `hal_types.h` | Board glue; partition names; the C6 enable held low (ADR, Consequences). |
-| `src/hal/esp32/crypto_hmac_p256.c` | The `hmac-p256` provider. `tfw_crypto_init` (`:109-137`) takes the CDI from the handoff (tier `SECURE_ELEMENT`) and derives the DeviceID: the HMAC peripheral computes `HMAC-SHA256(UDS, "tfw-deviceid-v1")` on the `HMAC_UP` key block (`deviceid_seed`, `:76-80`; `deviceid_init`, `:84-107`), and `src/crypto/deviceid_p256.c` (`:93`, `:101`) turns it into a P-256 scalar and point; the scalar is never stored. `tfw_crypto_algorithms` (`:142-146`) reports ECDSA P-256 once a UDS is found; `tfw_crypto_sign` (`:177-192`) signs ES256 with RFC 6979 nonces (`deviceid_p256.c:149`) and `tfw_crypto_pubkey` (`:195-202`) returns the 64-byte point; `tfw_crypto_verify_image` refuses (`:220-224`); `tfw_crypto_random` is `esp_fill_random` (`:149-152`). No DS, no `id_record.h`; `tfw_id` is reserved and not read (`:28-29`). |
+| `src/hal/esp32/crypto_hmac_p256.c` | The `hmac-p256` provider. `tfw_crypto_init` (`:113-141`) takes the CDI from the handoff (tier `SECURE_ELEMENT`) and derives the DeviceID: the HMAC peripheral computes `HMAC-SHA256(UDS, "tfw-deviceid-v1")` on the `HMAC_UP` key block (`deviceid_seed`, `:76-80`; `deviceid_init`, `:84-111`), and `src/crypto/deviceid_p256.c` (`:125`, `:132`) turns it into a P-256 scalar and point; the scalar is never stored. `tfw_crypto_algorithms` (`:146-150`) reports ECDSA P-256 once a UDS is found; `tfw_crypto_sign` (`:181-199`) signs ES256 with RFC 6979 nonces (`deviceid_p256.c:191`) and `tfw_crypto_pubkey` (`:202-209`) returns the 64-byte point; `tfw_crypto_verify_image` refuses (`:227-231`); `tfw_crypto_random` is `esp_fill_random` (`:153-156`). No DS, no `id_record.h`; `tfw_id` is reserved and not read (`:28-29`). |
 | `src/hal/esp32/hal_ota.c` | The OTA session on `esp_ota`, chosen by the object list (`ARCH_OTA_SRCS`): `OTA_BEGIN`/`DATA`/`END`/`STATUS` write the inactive slot (`:112-187`), `esp_ota_end` verifying the whole image at `OTA_END` (`:178`); `OTA_ACTIVATE` (`:290`) after an `OTA_AUTH` writes the authorization to `tfw_auth` (`:254-274`); `OTA_CONFIRM` and `OTA_INFO` (`:327`, `:363`). |
 | `src/hal/esp32/prov_uds.c` | The part HAL of `src/caps/provision_uds.c` in the `PROVISION=1` image: the UDS from the noise source (`:46`), its burn as the read- and write-protected `HMAC_UP` key (`:58`), and the HMAC over it (`:88`). |
 | `boards/esp32p4-poe/` | `board_profile.h`, `board.c`, `profile.mk` (`ESP_TARGET := esp32p4`, `BOARD_TIERS := hmac-p256` at `profile.mk:13`, the factory flash size and SHA-256), `partitions.csv` (`tfw_plat` `0x11000`, `tfw_id` `0x12000`, `tfw_eeprom` `0x13000`, `otadata` `0x14000`, `tfw_auth` `0x16000`, `ota_0` `0x20000` and `ota_1` `0x620000`, 6 MB each), `sdkconfig.defaults` (EMAC and IP101, 32 MB flash since slice 7, flash encryption in release mode). |
@@ -61,7 +61,7 @@ machine with keys generated at test time:
   RSA-PSS); layer 0's measurement equals the image's own SHA-256;
 - on `esp32c3`, the CDI fingerprint equals `HMAC-SHA256(UDS, measurement)`
   computed on the host, the DeviceID fingerprint the provider logs
-  (`crypto_hmac_p256.c:106`) is that of the P-256 point the host derives from
+  (`crypto_hmac_p256.c:110`) is that of the P-256 point the host derives from
   the UDS (`qemu_test.py:237`, pinned at `:142`), and `ATTEST` verifies as
   ES256 under that point (`qemu_test.py:563`, `wirecheck -deviceid`);
 - all three survive a soft reset and a cold start, and an EEPROM mark written
@@ -96,7 +96,7 @@ but runs nowhere (slice 7).
 - **The DeviceID was RSA in DS** (ADR decision 4), against the owner ruling
   of 2026-10-17 (CA m499, m522): ECDSA P-256 on every board, ES256 only.
   Closed by slice 1: the DeviceID is P-256, derived from the UDS through the
-  HMAC peripheral (`src/hal/esp32/crypto_hmac_p256.c:84-107`). Section 2.1.
+  HMAC peripheral (`src/hal/esp32/crypto_hmac_p256.c:84-111`). Section 2.1.
 - **The SPEC row `esp32-p4`** said "the DeviceID key is held by the DS
   peripheral" and, in the same sentence, quoted the ruling that there is no RSA
   DeviceID (`docs/SPEC.md` row `esp32-p4`). DS is an RSA engine, so the row

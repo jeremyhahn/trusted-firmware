@@ -173,6 +173,10 @@ static void test_mutated_trailers_parse_inside_their_contract(void)
             TEST_ASSERT_EQUAL_UINT32(tr.image_len, tr2.image_len);
             TEST_ASSERT_EQUAL_UINT8(tr.board_id, tr2.board_id);
             TEST_ASSERT_EQUAL_UINT8(tr.image_flags, tr2.image_flags);
+            TEST_ASSERT_EQUAL_HEX8_ARRAY(tr.measurement, tr2.measurement,
+                                         TFW_BOOT_MEASURE_LEN);
+            TEST_ASSERT_EQUAL_HEX8_ARRAY(tr.signature, tr2.signature,
+                                         TFW_BOOT_SIG_LEN);
         }
         free(raw);
     }

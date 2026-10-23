@@ -172,12 +172,12 @@ static void assert_outside_unchanged(const uint8_t *was, size_t n)
             i = SEC + SLOT;
         }
         if (i < n && was[i] != flash[i]) {
-            TEST_FAIL_MESSAGE("flash outside the two slots changed");
+            TEST_FAIL_MESSAGE("flash outside the swap's area changed");
         }
     }
 }
 
-static void test_a_hostile_journal_never_moves_flash_outside_the_slots(void)
+static void test_a_hostile_journal_never_moves_flash_outside_the_swap_area(void)
 {
     size_t   n      = tfw_boot_mock_flash_size();
     uint32_t i;
@@ -228,7 +228,7 @@ static void test_an_erased_journal_after_the_hostile_runs_swaps_whole(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_a_hostile_journal_never_moves_flash_outside_the_slots);
+    RUN_TEST(test_a_hostile_journal_never_moves_flash_outside_the_swap_area);
     RUN_TEST(test_an_erased_journal_after_the_hostile_runs_swaps_whole);
     return UNITY_END();
 }

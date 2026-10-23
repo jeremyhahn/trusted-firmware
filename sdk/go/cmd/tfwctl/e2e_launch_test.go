@@ -169,9 +169,19 @@ func TestE2EElementAcceptsAWellFormedHexFile(t *testing.T) {
 // The software tier has no element options, and must say so rather than
 // starting a device that never saw the file.
 func TestE2ESoftwareTierRefusesTheIdentityOptions(t *testing.T) {
-	code, stderr := runSim(t, simproc.Software, "--eeprom", "x.eep")
-	assert.Equal(t, 2, code, "exit code")
-	assert.Contains(t, stderr, "unknown option --eeprom")
+	for _, args := range [][]string{
+		{"--eeprom", "x.eep"},
+		{"--eeprom-bin", "x.bin"},
+		{"--image-hash", strings.Repeat("ab", 32)},
+		{"--provision-element"},
+		{"--no-element"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			code, stderr := runSim(t, simproc.Software, args...)
+			assert.Equal(t, 2, code, "exit code")
+			assert.Contains(t, stderr, "unknown option "+args[0])
+		})
+	}
 }
 
 // Its one option, --uds, takes exactly 32 bytes of hex and refuses anything

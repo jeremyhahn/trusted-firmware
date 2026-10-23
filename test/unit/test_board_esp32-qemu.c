@@ -6,7 +6,7 @@
  * One table for two emulated machines, so the property that matters is that
  * every pin exists on BOTH and is spent on neither's flash or console: the
  * original ESP32 gives GPIO 6..11 to its flash and 1/3 to UART0, the C3 has
- * no GPIO above 21 and gives 20/21 to UART0.
+ * no GPIO above 21, gives 12..17 to its flash and 20/21 to UART0.
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */
@@ -49,6 +49,7 @@ static void test_every_pin_exists_on_both_machines_and_is_free_on_both(void)
         uint8_t g = gpio(i);
 
         TEST_ASSERT_LESS_OR_EQUAL_UINT8(19u, g);       /* the C3 ends at 21; 20/21 are its UART0 */
+        TEST_ASSERT_FALSE(g >= 12u && g <= 17u);       /* the C3's flash */
         TEST_ASSERT_FALSE(g >= 6u && g <= 11u);        /* the ESP32's flash */
         TEST_ASSERT_FALSE(g == 1u || g == 3u);         /* the ESP32's UART0 */
     }

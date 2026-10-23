@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/big"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,11 +137,12 @@ func TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// The software tier builds ATTEST_CSR in beside ATTEST_CERT and refuses it the
-// same way -- it has no asymmetric key to sign with -- so caps says yes and the
-// command itself says unsupported.
+// The software tier has no asymmetric key to sign with, so its caps does not
+// name attest-csr and the request is answered unsupported.
 func TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne(t *testing.T) {
-	_, err := cliCSR(t, startPeer(t, simproc.Software).serial, aliasNonce(0x50))
+	d := startPeer(t, simproc.Software).serial
+	require.False(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR), "caps on the software tier names attest-csr")
+	_, err := cliCSR(t, d, aliasNonce(0x50))
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "got %v", err)
 	assert.Equal(t, tfw.StatusErrUnsupported, st)
@@ -189,7 +191,11 @@ func (m *meddler) Read(p []byte) (int, error) {
 // being asked: the same element, with the bit cleared on the way back.
 func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 	const featuresOff, bit15 = 10, 0x80 // byte 1 of the little-endian bitmap
+	var asked atomic.Bool
 	m := &meddler{reply: func(f tfw.Frame) []byte {
+		if f.Cmd() == tfw.CmdAttestCSR {
+			asked.Store(true)
+		}
 		if f.Cmd() != tfw.CmdCaps {
 			return nil
 		}
@@ -205,6 +211,7 @@ func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "got %v", err)
 	assert.Equal(t, tfw.StatusErrUnsupported, st)
+	assert.False(t, asked.Load(), "the host sent ATTEST_CSR to a device whose caps does not offer it")
 }
 
 // caps names the feature, so a person can see before asking whether the

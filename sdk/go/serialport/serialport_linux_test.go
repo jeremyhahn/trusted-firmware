@@ -294,6 +294,9 @@ func TestOpenRefusesAPathThatIsNotATTY(t *testing.T) {
 	assert.Nil(t, p)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "serialport: opening "+path)
+	var perr *serial.PortError
+	require.ErrorAs(t, err, &perr)
+	assert.Equal(t, serial.InvalidSerialPort, perr.Code(), "refused as not a serial port")
 }
 
 // List only enumerates; it opens nothing, so it is safe on any host.

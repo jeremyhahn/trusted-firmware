@@ -56,6 +56,9 @@ _Static_assert((uint32_t)SPM_PAGESIZE <= (uint32_t)TFW_OTA_PAGE_MAX,
 _Static_assert((TFW_BOOT_APP_BASE % (uint32_t)SPM_PAGESIZE) == 0u
                && (TFW_BOOT_APP_END % (uint32_t)SPM_PAGESIZE) == 0u,
                "the application region is not page-aligned");
+/* The protected-region check subtracts a page from the write end. */
+_Static_assert((uint32_t)TFW_APP_WRITE_END >= (uint32_t)SPM_PAGESIZE,
+               "the application write end is below one flash page");
 
 tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 {
@@ -74,9 +77,11 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
      * the 2560), but the lock bits are the operator's last provisioning step:
      * a part before it, or one never locked, has no such barrier. So an OTA image one page too long would
      * overwrite the bootloader with application code, and the device would
-     * never run anything again. One comparison prevents it.
+     * never run anything again. One comparison prevents it, written so that
+     * it cannot wrap: addr + SPM_PAGESIZE overflows for an address in the
+     * top page of the 32-bit space and would pass.
      */
-    if (addr + (uint32_t)SPM_PAGESIZE > (uint32_t)TFW_APP_WRITE_END) {
+    if (addr > (uint32_t)TFW_APP_WRITE_END - (uint32_t)SPM_PAGESIZE) {
         return TFW_ERR_PROTECTED_REGION;
     }
 

@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
@@ -45,8 +46,8 @@ func TestStartElementWithOperatorRefusesAnUnusableKey(t *testing.T) {
 			tfwsim.StartElementWithOperator(f, key)
 		}()
 		<-done
-		if f.msg == "" {
-			t.Errorf("%s operator key was accepted", name)
+		if !strings.Contains(f.msg, "must be a P-256 public key") {
+			t.Errorf("%s operator key: failed with %q, want the P-256 refusal", name, f.msg)
 		}
 	}
 }

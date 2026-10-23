@@ -116,6 +116,11 @@ static void test_a_short_capture_returns_what_it_got(void)
     tfw_mock_set_capture(few, 3u);
     TEST_ASSERT_EQUAL(TFW_OK, capture(9u, 1u, 20u, 50000u));
     TEST_ASSERT_EQUAL_UINT8(3u, outbuf[0]);
+    for (uint8_t i = 0u; i < 3u; i++) {
+        uint16_t us = (uint16_t)((uint16_t)outbuf[1u + i * 2u]
+                                 | ((uint16_t)outbuf[2u + i * 2u] << 8));
+        TEST_ASSERT_EQUAL_UINT16(few[i], us);
+    }
 }
 
 static void test_a_capture_with_no_edges_times_out(void)

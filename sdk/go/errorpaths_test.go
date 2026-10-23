@@ -351,7 +351,7 @@ func TestWriteNetConfigRefusals(t *testing.T) {
 	require.NoError(t, New(&cannedLink{}).WriteNetConfig(ctx, testNetConfig()))
 }
 
-func TestTCPDialAndReadErrors(t *testing.T) {
+func TestTCPListenAcceptAndReadErrors(t *testing.T) {
 	_, err := Listen("256.0.0.1:0")
 	require.Error(t, err)
 

@@ -34,6 +34,8 @@ static uint8_t  ee_read_fails;           /* every read refused */
 static uint8_t  handoff[TFW_BOOT_HANDOFF_LEN];
 static uint16_t adc_value[8];
 static uint8_t  adc_ref;
+static unsigned adc_ref_calls;           /* how often tfw_hal_adc_set_ref was called */
+static tfw_status_t gpio_mode_fail;      /* the next tfw_hal_gpio_mode's status; TFW_OK = none */
 static uint8_t  adc_read_fails;          /* every conversion refused */
 static uint16_t tone_hz;
 static uint32_t pulse_in_us;
@@ -144,6 +146,8 @@ void tfw_mock_reset(void)
     memset(handoff, 0, sizeof handoff);    /* zeroed: reads as "no handoff" */
     memset(adc_value, 0, sizeof adc_value);
     adc_ref = 0u;
+    adc_ref_calls = 0u;
+    gpio_mode_fail = TFW_OK;
     adc_read_fails = 0u;
     tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
     bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u; ow_reads = 0u;
@@ -193,6 +197,9 @@ void tfw_mock_set_adc(uint8_t channel, uint16_t raw)
 }
 
 void tfw_mock_adc_read_fails(uint8_t on) { adc_read_fails = on; }
+uint8_t  tfw_mock_adc_ref(void)       { return adc_ref; }
+unsigned tfw_mock_adc_ref_calls(void) { return adc_ref_calls; }
+void tfw_mock_gpio_mode_fails_once(tfw_status_t st) { gpio_mode_fail = st; }
 
 uint8_t *tfw_mock_eeprom(void) { return eeprom; }
 size_t   tfw_mock_eeprom_size(void) { return sizeof eeprom; }
@@ -353,6 +360,11 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
     mock_port_t *s = port_find(p->port, 1u);
     uint32_t mask = pin_mask(p->bit);
 
+    if (gpio_mode_fail != TFW_OK) {
+        tfw_status_t st = gpio_mode_fail;
+        gpio_mode_fail = TFW_OK;
+        return st;
+    }
     switch (mode) {
     case TFW_PIN_OUTPUT:
         s->dir |= mask;
@@ -396,6 +408,7 @@ tfw_status_t tfw_hal_adc_init(void) { return TFW_OK; }
 
 tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
 {
+    adc_ref_calls++;
     if ((uint8_t)ref > (uint8_t)TFW_ADC_REF_INTERNAL) { return TFW_ERR_RANGE; }
     adc_ref = (uint8_t)ref;
     return TFW_OK;

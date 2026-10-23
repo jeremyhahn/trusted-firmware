@@ -75,6 +75,12 @@ static void test_port_c_carries_only_pins_5_and_13(void)
 {
     expect_pin(5u,  TFW_ADDR_PINC, 6u);
     expect_pin(13u, TFW_ADDR_PINC, 7u);
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        tfw_pinref_t r;
+        if (i == 5u || i == 13u) { continue; }
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(i, &r));
+        TEST_ASSERT_NOT_EQUAL(TFW_ADDR_PINC, r.port);
+    }
 }
 
 /* Port E contributes exactly one pin: D7 is PE6. A port with one usable bit is
@@ -82,6 +88,12 @@ static void test_port_c_carries_only_pins_5_and_13(void)
 static void test_port_e_carries_only_pin_7(void)
 {
     expect_pin(7u, TFW_ADDR_PINE, 6u);
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        tfw_pinref_t r;
+        if (i == 7u) { continue; }
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(i, &r));
+        TEST_ASSERT_NOT_EQUAL(TFW_ADDR_PINE, r.port);
+    }
 }
 
 /* D8..D11 are PB4..PB7, and D14..D17 are the SPI pins MISO, SCK, MOSI, SS --

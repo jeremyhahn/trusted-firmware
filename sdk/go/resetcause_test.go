@@ -58,9 +58,10 @@ func TestSysInfoReadsTheAppendedResetCauses(t *testing.T) {
 	}
 }
 
-// A value a newer firmware defines and this SDK does not is read as
-// unrecognised, never as a different known cause.
-func TestAnUnknownResetCauseIsReadAsUnrecognised(t *testing.T) {
+// A value a newer firmware defines and this SDK does not is never read as a
+// different known cause. It prints "unknown" -- the same string as
+// ResetUnknown, so String() alone cannot tell the two apart.
+func TestAnUnrecognisedResetCauseReadsAsUnknown(t *testing.T) {
 	assert.Equal(t, "unknown", ResetCause(7).String())
 	assert.Equal(t, "unknown", ResetCause(200).String())
 }

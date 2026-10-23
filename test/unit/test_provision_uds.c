@@ -16,6 +16,7 @@
 #include "tfw/protocol.h"
 #include "crypto/sha256.h"
 #include "crypto/deviceid_p256.h"
+#include "uECC.h"
 
 static uint8_t      inbuf[64];
 static uint8_t      outbuf[128];
@@ -23,7 +24,7 @@ static tfw_reader_t r;
 static tfw_writer_t w;
 
 void setUp(void)    { tfw_mock_prov_uds_reset(0x00u); }
-void tearDown(void) {}
+void tearDown(void) { uECC_set_rng(0); }
 
 static void prep(const uint8_t *p, uint8_t n)
 {
@@ -52,7 +53,7 @@ static void host_point(const uint8_t uds[32], uint8_t pub[64])
 
     tfw_hmac_sha256(uds, 32u, (const uint8_t *)TFW_DEVICEID_LABEL,
                     (uint16_t)TFW_DEVICEID_LABEL_LEN, seed);
-    tfw_deviceid_p256_public(seed, pub);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(seed, pub));
 }
 
 /* 1 when any 8-byte run of the UDS appears anywhere in the reply. */
@@ -223,6 +224,27 @@ static void test_a_refused_hmac_after_the_burn_is_a_status_and_pubkey_recovers(v
     TEST_ASSERT_EQUAL_MEMORY(UDS_00_1F_PUB, outbuf, 64u);
 }
 
+static int failing_rng(uint8_t *dest, unsigned size)
+{
+    (void)dest;
+    (void)size;
+    return 0;
+}
+
+/* micro-ecc refusing the DeviceID scalar -- here through a blinding RNG that
+ * fails -- is TFW_ERR_CRYPTO with an empty reply, never a stale point. */
+static void test_a_refused_deviceid_is_a_status_and_no_point_is_sent(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, genkey(0u));
+    memset(outbuf, 0xA5, sizeof outbuf);
+    uECC_set_rng(failing_rng);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, pubkey(0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    uECC_set_rng(0);
+    TEST_ASSERT_EQUAL(TFW_OK, pubkey(0u));
+    TEST_ASSERT_EQUAL_MEMORY(UDS_00_1F_PUB, outbuf, 64u);
+}
+
 static void test_any_other_slot_is_refused_and_draws_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, genkey(1u));
@@ -246,6 +268,7 @@ int main(void)
     RUN_TEST(test_no_free_key_block_is_its_own_status);
     RUN_TEST(test_a_draw_that_cannot_start_the_noise_source_burns_nothing);
     RUN_TEST(test_a_refused_hmac_after_the_burn_is_a_status_and_pubkey_recovers);
+    RUN_TEST(test_a_refused_deviceid_is_a_status_and_no_point_is_sent);
     RUN_TEST(test_any_other_slot_is_refused_and_draws_nothing);
     return UNITY_END();
 }

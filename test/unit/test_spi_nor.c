@@ -53,14 +53,34 @@ static void test_write_across_a_page_is_split_there(void)
     TEST_ASSERT_EQUAL_MEMORY(src, back, sizeof src);
 }
 
-/* Each write is WREN, PROGRAM, then STATUS polls; an erase the same with ERASE. */
-static void test_a_bus_error_in_write_enable_is_passed_on(void)
+/* Each write is a STATUS poll, WREN, PROGRAM, then STATUS polls; an erase the
+ * same with ERASE; a read a STATUS poll, then READ. */
+static void test_a_bus_error_in_the_ready_check_is_passed_on(void)
 {
     uint8_t b = 0u;
 
     tfw_nor_shim_fail(1u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(0u, &b, 1u));
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());
+    tfw_nor_shim_reset();
+    tfw_nor_shim_fail(1u, BUS_ERR);
+    TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_erase(0u));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());
+    tfw_nor_shim_reset();
+    tfw_nor_shim_fail(1u, BUS_ERR);
+    TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_read(0u, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+}
+
+static void test_a_bus_error_in_write_enable_is_passed_on(void)
+{
+    uint8_t b = 0u;
+
+    tfw_nor_shim_fail(2u, BUS_ERR);
+    TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(0u, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT32(2u, tfw_nor_shim_xfers());
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
 }
 
@@ -68,9 +88,9 @@ static void test_a_bus_error_in_program_is_passed_on(void)
 {
     uint8_t b = 0u;
 
-    tfw_nor_shim_fail(2u, BUS_ERR);
+    tfw_nor_shim_fail(3u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(0u, &b, 1u));
-    TEST_ASSERT_EQUAL_UINT32(2u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(3u, tfw_nor_shim_xfers());
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
 }
 
@@ -78,18 +98,46 @@ static void test_a_bus_error_in_wait_ready_is_passed_on(void)
 {
     uint8_t b = 0u;
 
-    tfw_nor_shim_fail(3u, BUS_ERR);
+    tfw_nor_shim_fail(4u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(0u, &b, 1u));
-    TEST_ASSERT_EQUAL_UINT32(3u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(4u, tfw_nor_shim_xfers());
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_model_programs());
 }
 
 static void test_a_bus_error_in_erase_is_passed_on(void)
 {
-    tfw_nor_shim_fail(2u, BUS_ERR);
+    tfw_nor_shim_fail(3u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_erase(0u));
-    TEST_ASSERT_EQUAL_UINT32(2u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(3u, tfw_nor_shim_xfers());
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+}
+
+/* A program or erase torn at its last STATUS poll leaves the part busy; the
+ * next read waits for it rather than sending READ to a part that ignores it. */
+static void test_a_read_after_a_torn_program_waits_for_the_part(void)
+{
+    uint8_t b = 0x3Cu, back = 0u;
+
+    tfw_nor_shim_fail(4u, BUS_ERR);
+    TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(16u, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_model_programs());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_read(16u, &back, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, back);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
+static void test_a_read_after_a_torn_erase_waits_for_the_part(void)
+{
+    uint8_t b = 0x00u, back = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_write(32u, &b, 1u));
+    tfw_nor_shim_reset();
+    tfw_nor_shim_fail(4u, BUS_ERR);
+    TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_erase(0u));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_read(32u, &back, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, back);
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
 }
 
 static void test_a_bus_error_in_read_is_passed_on(void)
@@ -97,9 +145,9 @@ static void test_a_bus_error_in_read_is_passed_on(void)
     uint8_t buf[4];
 
     memset(buf, 0x5A, sizeof buf);
-    tfw_nor_shim_fail(1u, BUS_ERR);
+    tfw_nor_shim_fail(2u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_read(0u, buf, (uint8_t)sizeof buf));
-    TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(2u, tfw_nor_shim_xfers());
     TEST_ASSERT_EACH_EQUAL_UINT8(0x5Au, buf, sizeof buf);   /* the caller's buffer is untouched */
 }
 
@@ -150,10 +198,13 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_read_and_write_longer_than_a_chunk_are_refused);
     RUN_TEST(test_write_across_a_page_is_split_there);
+    RUN_TEST(test_a_bus_error_in_the_ready_check_is_passed_on);
     RUN_TEST(test_a_bus_error_in_write_enable_is_passed_on);
     RUN_TEST(test_a_bus_error_in_program_is_passed_on);
     RUN_TEST(test_a_bus_error_in_wait_ready_is_passed_on);
     RUN_TEST(test_a_bus_error_in_erase_is_passed_on);
+    RUN_TEST(test_a_read_after_a_torn_program_waits_for_the_part);
+    RUN_TEST(test_a_read_after_a_torn_erase_waits_for_the_part);
     RUN_TEST(test_a_bus_error_in_read_is_passed_on);
     RUN_TEST(test_the_probe_refuses_an_empty_select);
     RUN_TEST(test_the_probe_accepts_any_manufacturer);

@@ -473,8 +473,58 @@ $(BOOT_TEST_DIR)/test_boot_element: test/unit/boot/test_boot_element.c \
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The element-backed measure against seeded mutants (#163): the reader's walk,
+# a refusal midway and the element asleep after every path.
+$(BOOT_TEST_DIR)/test_boot_element_measure_mutate: test/unit/boot/test_boot_element_measure_mutate.c \
+        boot/measure/measure_atecc608a.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c src/crypto/sha256.c \
+        src/proto/crc16.c src/proto/crc16_update.c \
+        $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_measure_atecc608a_mutate drives the element measurement on its own (#163).
+$(BOOT_TEST_DIR)/test_measure_atecc608a_mutate: test/unit/boot/test_measure_atecc608a_mutate.c \
+        boot/measure/measure_atecc608a.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c src/crypto/sha256.c \
+        $(ELEMENT_MODEL) test/mock/boot_hal_mock.c boot/boot_handoff.c \
+        src/proto/crc16.c src/proto/crc16_update.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# verify_atecc608a.c under mutation (#163): the same element, the software
+# hash, so the Nonce and the Verify are the only commands the part sees.
+$(BOOT_TEST_DIR)/test_boot_verify_atecc_mutate: test/unit/boot/test_boot_verify_atecc_mutate.c \
+        boot/verify/verify_atecc608a.c boot/measure/measure_soft.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c \
+        src/crypto/sha256.c $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(BOOT_TEST_DIR)/test_boot_ed25519: test/unit/boot/test_boot_ed25519.c \
         boot/verify/verify_ed25519_donna.c $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same backend under seeded faults and RFC 8032 TEST 1024 (#163): linked as above.
+$(BOOT_TEST_DIR)/test_boot_ed25519_mutate: test/unit/boot/test_boot_ed25519_mutate.c \
+        boot/verify/verify_ed25519_donna.c $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same backend with its key slot patched after compilation, as the jig
+# patches it (#163): RFC 8032 TEST 1's public key, so the read-out path runs.
+# The same arrangement as cdi_soft_uds.o below; objcopy fails if the section
+# is not there.
+ED25519_TEST_SLOT := \327\132\230\001\202\261\012\267\325\113\376\323\311\144\007\072\016\341\162\363\332\246\043\045\257\002\032\150\367\007\121\032
+
+$(BOOT_TEST_DIR)/verify_ed25519_slot.o: boot/verify/verify_ed25519_donna.c | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -fdata-sections -c -o $@ $<
+	@printf '$(ED25519_TEST_SLOT)' > $@.slot
+	@objcopy --update-section .rodata.pubkey_slot=$@.slot $@
+
+$(BOOT_TEST_DIR)/test_boot_ed25519_slot: test/unit/boot/test_boot_ed25519_slot.c \
+        $(BOOT_TEST_DIR)/verify_ed25519_slot.o $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -483,11 +533,28 @@ $(BOOT_TEST_DIR)/test_boot_policy: test/unit/boot/test_boot_policy.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same policy under mutation (#163), with a recording stand-in for verify.
+$(BOOT_TEST_DIR)/test_boot_policy_mutate: test/unit/boot/test_boot_policy_mutate.c \
+        boot/boot_policy.c $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The application's SHA-256 suite, against the boot's size-first object: the
 # same vectors, so sha256.c and sha256_small.c cannot disagree (#130).
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_sha256_small
 $(BOOT_TEST_DIR)/test_sha256_small: test/unit/test_sha256.c src/crypto/sha256_small.c src/core/secure_zero.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same object against seeded mutants: the padding edges hashed every way,
+# the length field's high word, the HMAC key lengths either side of a block.
+$(BOOT_TEST_DIR)/test_sha256_small_mutate: test/unit/boot/test_sha256_small_mutate.c \
+        src/crypto/sha256_small.c src/core/secure_zero.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The faults that suite let through, planted in sha256_small.c (#163): the
+# HMAC key's 64-byte bound and the length's high word. sha256_small.c alone.
+$(BOOT_TEST_DIR)/test_boot_sha256_small_mutate: test/unit/boot/test_boot_sha256_small_mutate.c \
+        src/crypto/sha256_small.c src/core/secure_zero.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # micro-ecc for BOOT_SIG=p256-soft (#130), with the boot's UECC_DEFS. UECC_WORD
@@ -516,6 +583,29 @@ $(BOOT_TEST_DIR)/test_boot_p256_slot: test/unit/boot/test_boot_p256_slot.c \
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Both against seeded mutants (#163): a bit flipped in the signature, the message
+# or the key refuses under a key made fresh in the test; the shipped slot is
+# erased in every byte.
+$(BOOT_TEST_DIR)/test_boot_p256_soft_mutate: test/unit/boot/test_boot_p256_soft_mutate.c \
+        boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
+        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(BOOT_TEST_DIR)/test_boot_p256_slot_mutate: test/unit/boot/test_boot_p256_slot_mutate.c \
+        boot/verify/verify_p256_soft.c boot/verify/p256_key_slot.c \
+        boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
+        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The slot's own mutants (#163): the suite compiles p256_key_slot.c into its
+# unit, so the slot's size is in view; the unit is data, with no line to cover.
+$(BOOT_TEST_DIR)/test_boot_p256_key_slot_mutate: test/unit/boot/test_boot_p256_key_slot_mutate.c \
+        boot/verify/p256_key_slot.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter-out boot/verify/p256_key_slot.c,$^) \
+	   $(EXTRA_LDFLAGS)
+
 # The ESP32 layer 0's ES256 gate (#48): trailer v1 and the SUIT manifest after
 # an ESP-IDF image, against the mock HAL, with p256-soft and the shared policy
 # primitives the bootloader links (boot/hal/esp32/bootloader_components/main/
@@ -534,6 +624,15 @@ $(BOOT_TEST_DIR)/test_boot_l0_esp32: test/unit/boot/test_boot_l0_esp32.c \
 	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same gate, seeded: linked exactly as above.
+$(BOOT_TEST_DIR)/test_boot_l0_gate_mutate: test/unit/boot/test_boot_l0_gate_mutate.c \
+        boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
+        src/proto/crc16.c src/proto/crc16_update.c boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
+        $(L0_SUIT_HOST) boot/hal/esp32/verify_digest_soft.c \
+        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The P4's backend, the ROM's ECDSA (boot/hal/esp32/verify_p256_rom.c), against
 # a host ROM over micro-ecc that takes the key and signature little-endian as
 # ESP-IDF documents (test/mock/esp_rom_ecdsa_mock.c): every Wycheproof vector,
@@ -541,6 +640,20 @@ $(BOOT_TEST_DIR)/test_boot_l0_esp32: test/unit/boot/test_boot_l0_esp32.c \
 ESP_ROM_HOST := boot/hal/esp32/verify_p256_rom.c test/mock/esp_rom_ecdsa_mock.c
 $(BOOT_TEST_DIR)/test_boot_p256_rom: test/unit/boot/test_boot_p256_rom.c $(ESP_ROM_HOST) \
         boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
+        $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same backend, seeded: linked exactly as above.
+$(BOOT_TEST_DIR)/test_boot_p256_rom_mutate: test/unit/boot/test_boot_p256_rom_mutate.c $(ESP_ROM_HOST) \
+        boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
+        $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
+	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The p256-soft row's digest verify, seeded: boot/hal/esp32/verify_digest_soft.c alone.
+$(BOOT_TEST_DIR)/test_boot_verify_digest_soft_mutate: test/unit/boot/test_boot_verify_digest_soft_mutate.c \
+        boot/hal/esp32/verify_digest_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
         $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -557,6 +670,35 @@ $(BOOT_TEST_DIR)/test_boot_l0_esp32_rom: test/unit/boot/test_boot_l0_esp32.c \
 # boot_hal_esp32.c reads every piece through, because bootloader_flash_read
 # refuses an unaligned source, length or destination.
 $(BOOT_TEST_DIR)/test_boot_flash_span: test/unit/boot/test_boot_flash_span.c \
+        boot/hal/esp32/flash_span.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/esp32 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 boot HAL itself (#48, #163), boot/hal/esp32/boot_hal_esp32.c, over
+# stand-ins for the ESP-IDF bootloader calls it makes, which live beside its
+# test (test/unit/boot/boot_hal_esp32/). The real flash_span.c and the layer 0
+# gate are linked beside it, as the bootloader links them; the gate reads
+# through this HAL, so there is no mock HAL in the link. Once with the C3's
+# reset names and once with the P4's.
+BOOT_HAL_ESP32_HOST := boot/hal/esp32/boot_hal_esp32.c boot/hal/esp32/flash_span.c \
+        boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
+        src/proto/crc16.c src/proto/crc16_update.c boot/verify/verify_p256_soft.c boot/verify/p256_key_slot.c \
+        boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c $(L0_SUIT_HOST) boot/hal/esp32/verify_digest_soft.c \
+        $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o
+$(BOOT_TEST_DIR)/test_boot_hal_esp32_mutate: test/unit/boot/test_boot_hal_esp32_mutate.c \
+        $(BOOT_HAL_ESP32_HOST) | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Itest/unit/boot/boot_hal_esp32 -Iboot/hal/esp32 \
+	   -Itools/suit-emit -Isrc/third_party/micro-ecc -DCONFIG_IDF_TARGET_ESP32P4=0 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_hal_esp32_mutate_p4
+$(BOOT_TEST_DIR)/test_boot_hal_esp32_mutate_p4: test/unit/boot/test_boot_hal_esp32_mutate.c \
+        $(BOOT_HAL_ESP32_HOST) | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Itest/unit/boot/boot_hal_esp32 -Iboot/hal/esp32 \
+	   -Itools/suit-emit -Isrc/third_party/micro-ecc -DCONFIG_IDF_TARGET_ESP32P4=1 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same windows at the clamp's edges and over seeded random inputs.
+$(BOOT_TEST_DIR)/test_boot_flash_span_mutate: test/unit/boot/test_boot_flash_span_mutate.c \
         boot/hal/esp32/flash_span.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/esp32 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -578,6 +720,18 @@ $(BOOT_TEST_DIR)/test_boot_measure_esp32_classic: test/unit/boot/test_boot_measu
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=1 \
 	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same hash, seeded, on both paths: linked exactly as the two above.
+$(BOOT_TEST_DIR)/test_boot_measure_esp32_mutate: test/unit/boot/test_boot_measure_esp32_mutate.c $(ESP_SHA_HOST) \
+        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_measure_esp32_mutate_classic
+$(BOOT_TEST_DIR)/test_boot_measure_esp32_mutate_classic: test/unit/boot/test_boot_measure_esp32_mutate.c $(ESP_SHA_HOST) \
+        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=1 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_l0_esp32_sha
 $(BOOT_TEST_DIR)/test_boot_l0_esp32_sha: test/unit/boot/test_boot_l0_esp32.c \
         boot/hal/esp32/l0_gate.c boot/boot_cose.c boot/boot_policy.c boot/boot_image.c boot/boot_platform.c \
@@ -587,6 +741,50 @@ $(BOOT_TEST_DIR)/test_boot_l0_esp32_sha: test/unit/boot/test_boot_l0_esp32.c \
 	@$(HOST_CC) $(L0_TEST_CFLAGS) $(UECC_HOST_DEFS) -Iboot/hal/esp32 -Itools/suit-emit \
 	   -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
 	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# l0_crypto.c alone (#163): over measure_soft.c's hash, then over
+# measure_esp32.c's, the hash the C3 and the P4 link.
+$(BOOT_TEST_DIR)/test_boot_l0_crypto_mutate: test/unit/boot/test_boot_l0_crypto_mutate.c \
+        boot/hal/esp32/l0_crypto.c boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
+        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_l0_crypto_mutate_sha
+$(BOOT_TEST_DIR)/test_boot_l0_crypto_mutate_sha: test/unit/boot/test_boot_l0_crypto_mutate.c \
+        boot/hal/esp32/l0_crypto.c $(ESP_SHA_HOST) test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# boot_ota_store_avr.c alone (#163): register-level over test/mock/avr_regs's
+# <avr/io.h>, under the host board's pins, then under the 2560's.
+$(BOOT_TEST_DIR)/test_boot_ota_store_avr_mutate: test/unit/boot/test_boot_ota_store_avr_mutate.c \
+        boot/hal/avr/boot_ota_store_avr.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/avr_regs $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_ota_store_avr_mutate_2560
+$(BOOT_TEST_DIR)/test_boot_ota_store_avr_mutate_2560: test/unit/boot/test_boot_ota_store_avr_mutate.c \
+        boot/hal/avr/boot_ota_store_avr.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) -Itest/mock/avr_regs $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# recovery_halt.c alone (#163): cli and power-down over test/mock/avr_regs.
+$(BOOT_TEST_DIR)/test_boot_recovery_halt_avr_mutate: test/unit/boot/test_boot_recovery_halt_avr_mutate.c \
+        boot/hal/avr/recovery_halt.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/avr_regs $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# boot_hal_avr.c alone (#163): the part's FLASHEND, SPM_PAGESIZE and, on the
+# 2560, EIND come from -D, as avr-libc brings them from the part's header. The
+# EEPROM address is a 16-bit pointer on the part, narrower than the host's.
+BOOT_HAL_AVR_TEST_CFLAGS = -Itest/mock/avr_regs -Isrc/hal/avr -Wno-int-to-pointer-cast
+$(BOOT_TEST_DIR)/test_boot_hal_avr_mutate: test/unit/boot/test_boot_hal_avr_mutate.c \
+        boot/hal/avr/boot_hal_avr.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(BOOT_HAL_AVR_TEST_CFLAGS) -DFLASHEND=0x7FFFul -DSPM_PAGESIZE=128 \
+	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_hal_avr_mutate_2560
+$(BOOT_TEST_DIR)/test_boot_hal_avr_mutate_2560: test/unit/boot/test_boot_hal_avr_mutate.c \
+        boot/hal/avr/boot_hal_avr.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(BOOT_HAL_AVR_TEST_CFLAGS) -DFLASHEND=0x3FFFFul -DSPM_PAGESIZE=256 \
+	   '-DEIND=(*tfw_avr_reg(TFW_AVR_EIND))' $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The two DICE layer 0 tiers (BOOT_TIER_SRCS above). test_boot_cdi_soft links
 # cdi_soft.c as built, its UDS slot the erased placeholder. test_boot_cdi_soft_uds
@@ -612,12 +810,38 @@ $(BOOT_TEST_DIR)/test_boot_cdi_soft_uds: test/unit/boot/test_boot_cdi_soft_uds.c
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_boot_cdi_soft_uds's link with uds_slot made global, so the mutation
+# test can flip the patched slot's bits in place (#163).
+$(BOOT_TEST_DIR)/cdi_soft_mut.o: $(BOOT_TEST_DIR)/cdi_soft_uds.o
+	@objcopy --globalize-symbol=uds_slot $< $@
+
+$(BOOT_TEST_DIR)/test_boot_cdi_soft_mutate: test/unit/boot/test_boot_cdi_soft_mutate.c \
+        $(BOOT_TEST_DIR)/cdi_soft_mut.o src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(BOOT_TEST_DIR)/test_boot_cdi_atecc: test/unit/boot/test_boot_cdi_atecc.c \
         boot/tier/cdi_atecc.c src/crypto/atecc608a/atecc.c src/crypto/sha256.c \
         src/core/secure_zero.c src/proto/crc16.c src/proto/crc16_update.c \
         $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The element tier's mutation tests (#163): the test file is the driver's wake,
+# exec and sleep and the I2C init, so the driver and the model stay out.
+$(BOOT_TEST_DIR)/test_boot_cdi_atecc_mutate: test/unit/boot/test_boot_cdi_atecc_mutate.c \
+        boot/tier/cdi_atecc.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ESP32 layer 0's own unit, boot_l0.c, driven through call_start_cpu0
+# (#163). ESP-IDF is the stand-ins in the test's directory, searched first; the
+# test file is the gate and the handoff, so l0_gate.c and boot_hal_mock.c stay
+# out of the link.
+$(BOOT_TEST_DIR)/test_boot_l0_esp32_mutate: test/unit/boot/test_boot_l0_esp32_mutate.c \
+        boot/hal/esp32/boot_l0.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) -Itest/unit/boot/boot_l0_esp32 $(L0_TEST_CFLAGS) -Iboot/hal/esp32 $(EXTRA_CFLAGS) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 # HW Req 6.4: no copy of the CDI left once a tier has handed it over. These
@@ -679,6 +903,13 @@ $(BOOT_TEST_DIR)/test_boot_recovery_session: test/unit/boot/test_boot_recovery_s
         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The faults the session suite let through, planted in recovery_ota.c (#163):
+# linked exactly as above.
+$(BOOT_TEST_DIR)/test_boot_recovery_ota_mutate: test/unit/boot/test_boot_recovery_ota_mutate.c \
+        boot/recovery/recovery_ota.c boot/boot_store.c boot/boot_swap_none.c src/proto/frame.c \
+        $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The settle against the floor's authority: the real boot_store.c over the mock
 # EEPROM, with the element's counter supplied by the test.
 $(BOOT_TEST_DIR)/test_boot_settle: test/unit/boot/test_boot_settle.c \
@@ -687,6 +918,12 @@ $(BOOT_TEST_DIR)/test_boot_settle: test/unit/boot/test_boot_settle.c \
 
 # The same link under a block and a request rewritten at random (#77).
 $(BOOT_TEST_DIR)/test_boot_state_mutate: test/unit/boot/test_boot_state_mutate.c \
+        boot/boot_store.c $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# boot_store.c's settle under a refused block write, a part-way counter and
+# seeded floors (#163): the same link again.
+$(BOOT_TEST_DIR)/test_boot_store_mutate: test/unit/boot/test_boot_store_mutate.c \
         boot/boot_store.c $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -747,6 +984,12 @@ $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The OTA_ACTIVATE Sig_structure against literal bytes (#163): boot_cose.c
+# alone, the algorithm byte the test's.
+$(BOOT_TEST_DIR)/test_boot_cose_mutate: test/unit/boot/test_boot_cose_mutate.c boot/boot_cose.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The swap-move is the 2560's alone: its geometry is in that profile only.
 # With the serial session, so a session's image is seen landing in the
 # secondary and swapped in; tfw_boot_evaluate and the floor are the test's.
@@ -760,6 +1003,12 @@ $(BOOT_TEST_DIR)/test_boot_swap: test/unit/boot/test_boot_swap.c boot/boot_swap.
 
 # The same link under a journal and a confirm request rewritten at random (#77).
 $(BOOT_TEST_DIR)/test_boot_swap_mutate: test/unit/boot/test_boot_swap_mutate.c boot/boot_swap.c \
+                                        boot/recovery/recovery_ota.c src/proto/frame.c \
+                                        boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
+                                        $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_2560_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(BOOT_TEST_DIR)/test_boot_recovery_ota_swap_mutate: test/unit/boot/test_boot_recovery_ota_swap_mutate.c boot/boot_swap.c \
                                         boot/recovery/recovery_ota.c src/proto/frame.c \
                                         boot/boot_stage.c boot/boot_cose.c test/model/spi_nor_model.c test/mock/boot_verify_mock.c \
                                         $(BOOT_LOGIC_SRCS) $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
@@ -809,6 +1058,24 @@ $(BOOT_TEST_DIR)/test_boot_none_rows: test/unit/boot/test_boot_none_rows.c \
                                       boot/boot_stage_none.c boot/boot_swap_none.c \
                                       $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The same two stand-ins under a seeded hostile block (#163): linked as above.
+$(BOOT_TEST_DIR)/test_boot_none_mutate: test/unit/boot/test_boot_none_mutate.c \
+                                        boot/boot_stage_none.c boot/boot_swap_none.c \
+                                        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# boot_main.c's main() as tfw_boot_main_ut, against the test's own stand-ins
+# for every unit it calls (#163): the sequence, not the callees. Named
+# test_boot_main_seq: test_boot_main is the in-place row's suite (#77) below.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_main_seq
+$(BOOT_TEST_DIR)/test_boot_main_seq.o: boot/boot_main.c | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -Iboot/hal/avr -Dmain=tfw_boot_main_ut -c -o $@ $<
+
+$(BOOT_TEST_DIR)/test_boot_main_seq: test/unit/boot/boot_main/test_boot_main.c \
+                                     $(BOOT_TEST_DIR)/test_boot_main_seq.o \
+                                     $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -Iboot/hal/avr -o $@ $^ $(EXTRA_LDFLAGS)
 
 # tfw-boot's own main() on the host board's in-place row (#77), renamed here so
 # the suite's main() can call it: the order of the trial's writes, the

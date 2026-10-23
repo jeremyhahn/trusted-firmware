@@ -9,9 +9,11 @@
  * Built with the ATmega2560's profile (mk/host.mk): the 2560 is the board that
  * links the reader, and the vectors carry its class id.
  *
- * Every refusal is held to the same three facts: the gate's status, an OTA
- * state of FAILED, and tfw_boot_trial_activate then refusing, so nothing is
- * PENDING and no boot request has been written.
+ * Every refusal by the gate is held to the same three facts: its status, an
+ * OTA state of FAILED, and tfw_boot_trial_activate then refusing, so nothing
+ * is PENDING and no boot request has been written. A refusal by the reader
+ * alone (tfw_suit_read) is held to its status, and assert_field_refused's to
+ * an untouched *out as well.
  */
 #include <string.h>
 #include "unity.h"

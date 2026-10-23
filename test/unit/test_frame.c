@@ -228,7 +228,8 @@ static void test_a_corrupted_length_byte_is_caught(void)
         tfw_frame_event_t r = tfw_framer_push(&f, wire[i]);
         if (r != TFW_FRAME_NONE) { e = r; }
     }
-    TEST_ASSERT_NOT_EQUAL(TFW_FRAME_READY, e);
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_CRC, e);
+    TEST_ASSERT_EQUAL_UINT16(1u, f.err_crc);
 }
 
 static void test_a_length_below_the_minimum_is_refused(void)

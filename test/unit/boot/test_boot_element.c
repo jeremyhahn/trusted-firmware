@@ -68,10 +68,11 @@ static void test_a_measurement_matches_the_software_hash(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
 }
 
-/* An image that is an exact multiple of the block size has no tail, which is
- * the off-by-one the loop above is most likely to get wrong in the other
- * direction. */
-static void test_a_measurement_of_whole_blocks_has_no_tail(void)
+/* An image that is an exact multiple of the block size: the last whole block
+ * is the End's data, never an Update followed by an empty End -- the
+ * off-by-one the loop above is most likely to get wrong in the other
+ * direction. 128 bytes is Start, one Update, and an End carrying 64. */
+static void test_a_measurement_of_whole_blocks_ends_with_a_full_block(void)
 {
     uint8_t image[128];
     uint8_t want[32];
@@ -84,6 +85,11 @@ static void test_a_measurement_of_whole_blocks_has_no_tail(void)
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_measure((uint32_t)sizeof image, got));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
+    TEST_ASSERT_EQUAL_UINT8(3u, tfw_model_log_count());
+    TEST_ASSERT_EQUAL_HEX8(0x01u, tfw_model_log(1u)->p1);
+    TEST_ASSERT_EQUAL_HEX8(0x02u, tfw_model_log(2u)->p1);
+    TEST_ASSERT_EQUAL_UINT8(64u, tfw_model_log(2u)->dlen);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&image[64], tfw_model_log(2u)->data, 64);
 }
 
 /*
@@ -344,7 +350,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_the_element_computes_the_published_digest);
     RUN_TEST(test_a_measurement_matches_the_software_hash);
-    RUN_TEST(test_a_measurement_of_whole_blocks_has_no_tail);
+    RUN_TEST(test_a_measurement_of_whole_blocks_ends_with_a_full_block);
     RUN_TEST(test_an_absent_element_refuses_to_measure);
     RUN_TEST(test_a_measurement_of_nothing_is_refused);
     RUN_TEST(test_a_hash_over_two_blocks_matches_the_software_hash);

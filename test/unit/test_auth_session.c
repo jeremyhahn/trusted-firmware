@@ -187,6 +187,7 @@ static void test_challenge_returns_a_nonce_of_the_wire_width(void)
 {
     uint8_t nonce[TFW_AUTH_NONCE_LEN];
     TEST_ASSERT_EQUAL(TFW_OK, challenge(nonce));
+    TEST_ASSERT_EQUAL_UINT8(TFW_AUTH_NONCE_LEN, tfw_writer_len(&w));
 }
 
 /* auth_session.c:47-48: the element will not give a nonce, so no challenge is

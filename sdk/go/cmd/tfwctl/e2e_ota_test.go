@@ -94,16 +94,18 @@ func TestFirmwareOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
 	d := startPeer(t, simproc.Software).serial
 	cliStage(t, d, stageImage(512, 200))
 
-	// No tfw-boot handed off a running trial here.
+	// Past OTA_AUTH, this unprovisioned simulator refuses both commands as
+	// not provisioned, so the no-trial and MARK legs are test_ota_stage.c's.
 	err := run(t.Context(), d, "ota-confirm", []string{heldSig}, false, io.Discard)
-	require.Error(t, err)
 	assert.NotErrorIs(t, err, tfw.StatusErrAuthRequired, "confirm, authorized")
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "confirm: %v", err)
+	assert.Equal(t, tfw.StatusErrNotProvisioned, st, "confirm")
 
-	// This unprovisioned device's auth gate refuses next, so the MARK leg
-	// is test_ota_stage.c's.
 	err = run(t.Context(), d, "ota-activate", []string{heldSig}, false, io.Discard)
-	require.Error(t, err)
 	assert.NotErrorIs(t, err, tfw.StatusErrAuthRequired, "activate, authorized")
+	require.True(t, errorsAsStatus(err, &st), "activate: %v", err)
+	assert.Equal(t, tfw.StatusErrNotProvisioned, st, "activate")
 }
 
 // The element tier, because it is the tfwsim tier with a platform block: the

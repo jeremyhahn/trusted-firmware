@@ -93,16 +93,14 @@ func TestE2EAutoWithNoElementReportsNoFloorForAnElementBoot(t *testing.T) {
 var softBoot = []string{"--no-element", "--boot-tier", "soft"}
 
 // With no element and a soft tfw-boot, the default image attests on the soft
-// root (owner ruling 2026-10-17, #130), and the evidence names its root: the
-// algorithm is HMAC-SHA256 under the CDI the soft tfw-boot derived, never the
-// element's ES256. The soft root has no asymmetric key, so it has no alias
-// certificate to issue.
+// root (owner ruling 2026-10-17, #130): ES256 under the P-256 DeviceID, never
+// the element's key nor an HMAC under the CDI.
 func TestE2EAutoWithNoElementAttestsOnTheSoftRoot(t *testing.T) {
-	// The auto image's soft root signs ES256 under its P-256 DeviceID, which
-	// it derives from the UDS (SOFT_ID=p256, #48, #130), never from the boot's
-	// CDI. The auto simulator has no UDS, as a part tfw-boot has not yet
-	// provisioned has none, so it reports ES256 and refuses to sign until it
-	// is provisioned rather than falling back to HMAC.
+	// The soft root's P-256 DeviceID comes from the seed tfw-boot derives from
+	// the UDS and hands on (SOFT_ID=p256, #48, #130, #173); the application
+	// never holds the UDS. The auto simulator has no UDS, as a part tfw-boot
+	// has not yet provisioned has none, so its handoff carries no seed: it
+	// reports ES256 and refuses to attest until it is provisioned.
 	d := startAuto(t, softBoot...)
 	c := cliCaps(t, d)
 	assert.Equal(t, tfw.CryptoSoftware, c.CryptoTier)

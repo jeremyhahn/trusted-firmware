@@ -37,8 +37,8 @@ static tfw_status_t deviceid(uint8_t pub[64])
 
     st = tfw_prov_uds_hmac((const uint8_t *)TFW_DEVICEID_LABEL,
                            TFW_DEVICEID_LABEL_LEN, seed);
-    if (st == TFW_OK) {
-        tfw_deviceid_p256_public(seed, pub);
+    if (st == TFW_OK && !tfw_deviceid_p256_public(seed, pub)) {
+        st = TFW_ERR_CRYPTO;
     }
     tfw_secure_zero(seed, sizeof seed);
     return st;

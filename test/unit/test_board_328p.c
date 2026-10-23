@@ -108,6 +108,8 @@ static void test_the_tick_timers_pins_are_reserved_not_merely_absent(void)
 {
     TEST_ASSERT_FALSE(tfw_board_pin_flags(5u) & TFW_PIN_PWM);
     TEST_ASSERT_FALSE(tfw_board_pin_flags(6u) & TFW_PIN_PWM);
+    TEST_ASSERT_EQUAL_UINT8(2u, tfw_board_pin_pwm_state(5u));
+    TEST_ASSERT_EQUAL_UINT8(2u, tfw_board_pin_pwm_state(6u));
     /* while the four genuine PWM pins are advertised */
     TEST_ASSERT_TRUE(tfw_board_pin_flags(3u)  & TFW_PIN_PWM);
     TEST_ASSERT_TRUE(tfw_board_pin_flags(9u)  & TFW_PIN_PWM);

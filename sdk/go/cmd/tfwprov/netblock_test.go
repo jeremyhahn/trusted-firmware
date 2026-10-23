@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -149,24 +150,40 @@ func TestBakeBothIsOneContiguousImage(t *testing.T) {
 }
 
 func TestNetblockFlagsRefuseWhatTheyCannotEncode(t *testing.T) {
-	for name, edit := range map[string]func(*netblockFlags){
-		"no mac":            func(f *netblockFlags) { f.mac = "" },
-		"no mask":           func(f *netblockFlags) { f.ip = "198.51.100.22" },
-		"mask twice":        func(f *netblockFlags) { f.mask = "255.255.255.0" },
-		"holed mask":        func(f *netblockFlags) { f.ip, f.mask = "198.51.100.22", "255.0.255.0" },
-		"multicast mac":     func(f *netblockFlags) { f.mac = "01:00:5e:00:00:01" },
-		"ipv6 ip":           func(f *netblockFlags) { f.ip = "2001:db8::1/64" },
-		"no gateway":        func(f *netblockFlags) { f.gateway = "" },
-		"endpoint no port":  func(f *netblockFlags) { f.endpoint = "198.51.100.1" },
-		"endpoint port 0":   func(f *netblockFlags) { f.endpoint = "198.51.100.1:0" },
-		"endpoint 0.0.0.0":  func(f *netblockFlags) { f.endpoint = "0.0.0.0:7020" },
-		"endpoint hostname": func(f *netblockFlags) { f.endpoint = "bench.example:7020" },
+	// want is the refusal each row names; field, where set, is the
+	// tfw.NetConfigError the SDK's encoder returns for a value the flags parse.
+	for name, c := range map[string]struct {
+		edit        func(*netblockFlags)
+		want, field string
+	}{
+		"no mac":            {edit: func(f *netblockFlags) { f.mac = "" }, want: "requires --mac"},
+		"no mask":           {edit: func(f *netblockFlags) { f.ip = "198.51.100.22" }, want: "requires the netmask"},
+		"mask twice":        {edit: func(f *netblockFlags) { f.mask = "255.255.255.0" }, want: "give the netmask once"},
+		"holed mask":        {edit: func(f *netblockFlags) { f.ip, f.mask = "198.51.100.22", "255.0.255.0" }, want: "not a contiguous netmask"},
+		"multicast mac":     {edit: func(f *netblockFlags) { f.mac = "01:00:5e:00:00:01" }, field: "MAC"},
+		"ipv6 ip":           {edit: func(f *netblockFlags) { f.ip = "2001:db8::1/64" }, want: "--ip: must be an IPv4 address"},
+		"no gateway":        {edit: func(f *netblockFlags) { f.gateway = "" }, want: "requires --gateway"},
+		"endpoint no port":  {edit: func(f *netblockFlags) { f.endpoint = "198.51.100.1" }, want: "--endpoint"},
+		"endpoint port 0":   {edit: func(f *netblockFlags) { f.endpoint = "198.51.100.1:0" }, field: "Endpoint"},
+		"endpoint 0.0.0.0":  {edit: func(f *netblockFlags) { f.endpoint = "0.0.0.0:7020" }, field: "Endpoint"},
+		"endpoint hostname": {edit: func(f *netblockFlags) { f.endpoint = "bench.example:7020" }, want: "--endpoint"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := benchFlags()
-			edit(&f)
-			if b, err := netblockFromFlags(f); err == nil {
+			c.edit(&f)
+			b, err := netblockFromFlags(f)
+			if err == nil {
 				t.Fatalf("accepted; block % x", b)
+			}
+			if c.field != "" {
+				var ne *tfw.NetConfigError
+				if !errors.As(err, &ne) || ne.Field != c.field {
+					t.Fatalf("err = %v, want a tfw.NetConfigError on %s", err, c.field)
+				}
+				return
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error %q does not name %q", err, c.want)
 			}
 		})
 	}

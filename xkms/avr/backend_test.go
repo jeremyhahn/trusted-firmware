@@ -126,8 +126,8 @@ func TestNewBackendRefusesAnUnsupportedProtocolMajor(t *testing.T) {
 	}
 }
 
-// A protocol MINOR ahead of this host is tolerated in both directions. That is
-// what lets a fleet run mixed firmware without a flag day.
+// A protocol MINOR ahead of this host is tolerated. That is what lets a fleet
+// run mixed firmware without a flag day.
 func TestNewBackendAcceptsANewerProtocolMinor(t *testing.T) {
 	link := newFakeLink().answer(tfw.CmdCaps, capsPayloadWithProtocol(2, 9))
 
@@ -478,7 +478,7 @@ func TestHealthReportsRuntimeStateAndNotATimestamp(t *testing.T) {
 	assert.Equal(t, tfw.ResetWatchdog, health.ResetCause)
 }
 
-func TestHealthReportsADeviceThatWillNotAnswer(t *testing.T) {
+func TestHealthPassesADeviceRefusalThrough(t *testing.T) {
 	link := secureElementLink().refuse(tfw.CmdSysInfo, tfw.StatusErrInternal)
 	b := newTestBackend(t, link)
 
@@ -528,6 +528,15 @@ func TestEveryOperationRefusesAfterClose(t *testing.T) {
 	assert.ErrorIs(t, err, ErrBackendClosed)
 
 	_, err = b.Health(ctx)
+	assert.ErrorIs(t, err, ErrBackendClosed)
+
+	_, err = b.Identity(ctx)
+	assert.ErrorIs(t, err, ErrBackendClosed)
+
+	_, err = b.AttestKey(ctx, attrs, make([]byte, tfw.AliasNonceLen))
+	assert.ErrorIs(t, err, ErrBackendClosed)
+
+	_, err = b.PossessionSigner(nil)
 	assert.ErrorIs(t, err, ErrBackendClosed)
 
 	assert.ErrorIs(t, b.DeleteKey(ctx, attrs), ErrBackendClosed)

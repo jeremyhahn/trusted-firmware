@@ -78,6 +78,8 @@ static void test_the_reserved_region_cannot_be_written(void)
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x030u, evil, 4u)); /* boot counter */
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x044u, evil, 4u)); /* operator pubkey, issue #4 */
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0BFu, evil, 1u)); /* last byte of it */
+    /* and nothing was written: the region keeps the erased part's bytes */
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, tfw_mock_eeprom(), 0x0C0u);
 }
 
 /* A write beginning below the boundary and running past it must be refused
@@ -87,9 +89,8 @@ static void test_a_write_straddling_the_boundary_is_refused_entirely(void)
 {
     const uint8_t data[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0BFu, data, 8u));
-    /* and nothing was written */
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0BF]);
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0C0]);
+    /* and nothing was written, on either side of the boundary */
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, &tfw_mock_eeprom()[0x0BF], 8u);
 }
 
 static void test_the_first_byte_above_the_boundary_is_writable(void)
@@ -137,6 +138,9 @@ static void test_a_length_running_past_the_end_is_refused(void)
     const uint8_t data[8] = { 0 };
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(1020u, data, 8u));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_read(1020u, 8u));
+    /* addr + len past 0xFFFF, which a check summing them would wrap to 4 */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(0xFFFCu, data, 8u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_read(0xFFFCu, 8u));
 }
 
 /* Chunked so a bulk write cannot hold the main loop. A byte takes ~3.4 ms, so

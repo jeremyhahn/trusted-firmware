@@ -171,6 +171,13 @@ void test_load_with_an_element_is_the_counter(void)
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_load(&plat, &floor));
     TEST_ASSERT_EQUAL_UINT32(3u, floor);
+
+    /* and the other way round: the counter above the EEPROM copy */
+    el_counter = 9u;
+    reset_with(TFW_BOOT_STATE_GOOD, 3u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_load(&plat, &floor));
+    TEST_ASSERT_EQUAL_UINT32(9u, floor);
 }
 
 /* No element: TFW_ERR_UNSUPPORTED from the tier, and the soft tier reads EEPROM. */

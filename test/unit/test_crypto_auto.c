@@ -135,6 +135,12 @@ void test_the_choice_never_changes_until_reset(void)
     tfw_model_set_absent(1u);
     TEST_ASSERT_EQUAL(TFW_CRYPTO_SECURE_ELEMENT, tfw_crypto_tier());
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_sign(digest, sig, &alg));
+
+    /* The reset: tfw-boot hands the soft DeviceID seed on (#173), and init
+     * probes again and finds no element. */
+    soft_boot();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    assert_soft_identity();
 }
 
 /* A bus that will not start is no element: src/crypto/auto/provider.c's
@@ -304,12 +310,13 @@ void test_a_soft_boot_reports_the_eeprom_floor(void)
  * the EEPROM copy. */
 void test_an_element_boot_with_an_unreadable_counter_fails(void)
 {
-    uint32_t floor = 0u;
+    uint32_t floor = 0xA5A5A5A5u;
 
     tfw_model_provision();
     boot_on((uint8_t)TFW_CRYPTO_SECURE_ELEMENT);
     tfw_model_set_absent(1u);
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor(&plat, &floor));
+    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, floor);
 }
 
 /* No handoff from tfw-boot: no boot chain is running, so no floor is in force

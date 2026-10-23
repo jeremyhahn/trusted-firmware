@@ -960,7 +960,7 @@ static void measure_crc_identity(void)
     c_bench = call_fn(&bench, a_crc_update_bench);
 
     printf("  %-62s %s\n",
-           "the benchmark image compiles tfw_crc16_update as the firmware does",
+           "tfw_crc16_update costs the same cycles in both images",
            c_prod == c_bench ? "ok" : "FAIL");
     if (c_prod != c_bench) {
         printf("    firmware %" PRI_avr_cycle_count " cycles, benchmark image %"

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -105,6 +106,9 @@ func TestCloseEndsTheProcess(t *testing.T) {
 	if len(rest) != 0 {
 		t.Fatalf("read %q after Close, want nothing", rest)
 	}
+	if err := c.cmd.Process.Signal(syscall.Signal(0)); !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("signalling the process after Close: %v, want os.ErrProcessDone", err)
+	}
 }
 
 // A read deadline ends a Read on a process that has stopped answering, as on
@@ -163,7 +167,7 @@ func TestStartFailsOnABinaryThatCannotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(DirEnv, dir)
-	if msg := startFatal(t, Auto); msg == "" {
-		t.Fatal("Start accepted a binary it could not run")
+	if msg := startFatal(t, Auto); !strings.Contains(msg, Auto.Name) {
+		t.Fatalf("Start failed with %q, want it to name %q", msg, Auto.Name)
 	}
 }

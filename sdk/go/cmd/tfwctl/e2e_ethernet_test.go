@@ -108,6 +108,23 @@ func simEthernetArgs(t *testing.T, endpoint netip.AddrPort) []string {
 // simulator's to boot from, so it runs only against tfwsim.
 func startEthernetWith(t *testing.T, platform []byte) (serial, eth *tfw.Device) {
 	t.Helper()
+	return startEthernetOn(t, platform, nil)
+}
+
+// startEthernetOperator is startEthernetWith over the test platform block with
+// operator, the X || Y of a P-256 point, baked in; all zero is no operator.
+func startEthernetOperator(t *testing.T, operator [tfw.OperatorPubkeyLen]byte,
+	start func(args []string) *tfw.Device) (serial, eth *tfw.Device) {
+	t.Helper()
+	platform := tfw.BuildPlatformBlock(tfwsim.TestSerial, [tfw.PubkeyHashLen]byte{}, operator)
+	return startEthernetOn(t, platform[:], start)
+}
+
+// startEthernetOn is startEthernetWith with start, when not nil, running the
+// simulator with the given arguments in place of the element image.
+func startEthernetOn(t *testing.T, platform []byte,
+	start func(args []string) *tfw.Device) (serial, eth *tfw.Device) {
+	t.Helper()
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })
@@ -123,7 +140,10 @@ func startEthernetWith(t *testing.T, platform []byte) (serial, eth *tfw.Device) 
 	require.NoError(t, err)
 	eep := writeFile(t, "eeprom.bin", append(platform[:len(platform):len(platform)], block...))
 
-	serial = tfwsim.StartElementWith(t, []string{"--eth", "--eeprom-bin", eep,
+	if start == nil {
+		start = func(args []string) *tfw.Device { return tfwsim.StartElementWith(t, args) }
+	}
+	serial = start([]string{"--eth", "--eeprom-bin", eep,
 		"--provision-element", "--image-hash", hex.EncodeToString(tfwsim.TestFWHash[:])})
 	td, err := acceptDevice(l, deviceWait, tfw.WithTimeout(10*time.Second))
 	require.NoError(t, err)
@@ -292,8 +312,19 @@ func TestEthernetNetworkBlockReadsBackOverSerial(t *testing.T) {
 	assert.Equal(t, []byte("TFNC"), got[:4], "block magic")
 	assert.NotZero(t, int(got[28])<<8|int(got[29]), "block carries no endpoint port")
 	assert.Equal(t, tfw.CRC16(got[:30]), uint16(got[30])|uint16(got[31])<<8, "block CRC")
+
+	// The block decoded by the SDK from what the device read; on the simulator
+	// it is simEthernetArgs's configuration. On either, it dials the endpoint
+	// the row names, not the address the suite listens on.
 	var cfg tfw.NetConfig
-	require.NoError(t, cfg.UnmarshalBinary(got))
+	require.NoError(t, cfg.UnmarshalBinary(got), "the SDK refuses the block the device read back")
 	assert.Equal(t, p.endpoint, cfg.Endpoint, "the block dials somewhere other than the endpoint the row names")
+	if !p.board {
+		assert.Equal(t, net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}, cfg.MAC, "MAC")
+		assert.Equal(t, netip.MustParseAddr("192.0.2.10"), cfg.IP, "IP")
+		assert.Equal(t, netip.MustParseAddr("255.255.255.0"), cfg.Mask, "mask")
+		assert.Equal(t, netip.MustParseAddr("192.0.2.1"), cfg.Gateway, "gateway")
+		assert.Equal(t, netip.MustParseAddr("127.0.0.1"), cfg.Endpoint.Addr(), "endpoint address")
+	}
 	cliCaps(t, p.eth)
 }

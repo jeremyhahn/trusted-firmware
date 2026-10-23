@@ -411,6 +411,6 @@ func TestFirmwareOneWireAndPulseIn(t *testing.T) {
 	cliJSON(t, dev, &reset, "1wire-reset", "9")
 	// No signal on a simulated pin, so a timeout is the correct answer -- the
 	// point is that the command round-trips and is bounded.
-	assert.Error(t, run(context.Background(), dev, "pulse-in", []string{"9", "1", "10ms"}, false, &strings.Builder{}),
-		"expected a timeout on a silent line")
+	assert.ErrorIs(t, run(context.Background(), dev, "pulse-in", []string{"9", "1", "10ms"}, false, &strings.Builder{}),
+		tfw.StatusErrTimeout, "silent line: want TFW_ERR_TIMEOUT")
 }

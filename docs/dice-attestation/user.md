@@ -17,8 +17,11 @@ tfwctl /dev/ttyACM0 caps
 Read `root of trust` (`TFW_CRYPTO_NONE`/`SOFTWARE`/`SECURE_ELEMENT`) and
 `algorithms`. A `SOFTWARE`-tier ATmega2560 (soft or auto image, no element
 answering) signs ES256 only, under a P-256 DeviceID it derives from its UDS:
-its evidence, and its certificate where the image builds one, verify under its public key for anyone who holds it,
-but the key lives in the application's memory, not in an element. A
+its evidence verifies under its public key for anyone who holds it. Only the
+auto image builds the alias certificate, so only it, falling back to the soft
+root, certifies that key; a soft image answers `ATTEST_CERT` with
+`TFW_ERR_UNKNOWN_CMD`. Either way the key lives in the application's memory,
+not in an element. A
 `SOFTWARE`-tier ATmega328P or ATmega32U4 signs with HMAC-SHA256 only, and the
 verifier holds that key — it proves identity to a gateway it already trusts,
 never to a stranger, and produces no certificate.

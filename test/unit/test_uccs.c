@@ -249,6 +249,7 @@ static void test_a_buffer_far_too_small_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_TOO_LONG,
                       tfw_uccs_encode(&tiny, NONCE, TFW_ALIAS_NONCE_LEN,
                                      UEID, FWHASH));
+    TEST_ASSERT_FALSE(tfw_writer_ok(&tiny));
 }
 
 /* The exact size is enough, and the byte past it is untouched -- the bound is

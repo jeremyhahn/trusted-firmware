@@ -431,7 +431,9 @@ static void test_a_failed_pin_read_is_passed_on_and_nothing_is_verified(void)
 
 /* ------------------------------------------------------- the comparison */
 
-static void test_equal_is_constant_time_and_correct(void)
+/* Correctness only: a host test cannot observe timing, so nothing here pins
+ * that tfw_boot_equal is constant time. */
+static void test_equal_refuses_a_difference_in_the_first_or_last_byte(void)
 {
     uint8_t a[32], b[32];
 
@@ -470,6 +472,6 @@ int main(void)
     RUN_TEST(test_a_failing_key_seam_is_passed_on_and_nothing_is_verified);
     RUN_TEST(test_a_key_the_backend_keeps_is_verified_with_no_key);
     RUN_TEST(test_a_failed_pin_read_is_passed_on_and_nothing_is_verified);
-    RUN_TEST(test_equal_is_constant_time_and_correct);
+    RUN_TEST(test_equal_refuses_a_difference_in_the_first_or_last_byte);
     return UNITY_END();
 }

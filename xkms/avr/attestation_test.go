@@ -191,6 +191,7 @@ func TestAttestKeyReassemblesAPagedCertificate(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Len(t, result.(*Attestation).CertificateDER, 472)
+	assert.Equal(t, der, result.(*Attestation).CertificateDER, "the pages reassemble byte for byte")
 	attestRequests := 0
 	for _, req := range link.requests {
 		if req.Cmd() == tfw.CmdAttestCert {
@@ -267,9 +268,9 @@ func TestAttestKeyRefusesAReplayedCertificate(t *testing.T) {
 	assert.ErrorIs(t, err, dice.ErrNonceMismatch)
 }
 
-// A device that put its challenge somewhere other than the eat_nonce claim of
-// tcg-dice-UCCS-evidence does not verify on that account. There is no fallback
-// to another field.
+// A certificate that carries no tcg-dice-UCCS-evidence extension, and so no
+// eat_nonce claim, does not verify on that account. There is no fallback to
+// another field for the challenge.
 func TestAttestKeyRefusesACertificateWithNoEvidenceExtension(t *testing.T) {
 	device := newAliasDevice(t)
 	nonce := make([]byte, tfw.AliasNonceLen)
@@ -284,6 +285,9 @@ func TestAttestKeyRefusesACertificateWithNoEvidenceExtension(t *testing.T) {
 
 // -------------------------------------------------------------- device residency
 
+// Bytes that do not parse as X.509 are refused as a malformed certificate,
+// before any DICE check runs.
+//
 // Device residency is enforced by dice.Verify and tested there. What this
 // package still owes is proof that the constraint survives the WHOLE path --
 // paged off a device, parsed, and refused -- which is
@@ -715,6 +719,8 @@ func TestInitAttestationLoadsIntermediatesWithoutATrustStore(t *testing.T) {
 	b, err := NewBackend(context.Background(), cfg, newTestDevice(secureElementLink()))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, b.Close()) })
+	require.Len(t, b.intermediateCerts, 1, "the intermediate is parsed at construction")
+	assert.Equal(t, device.deviceIDDER, b.intermediateCerts[0].Raw)
 
 	// No roots, so nothing anchors -- and Anchored says so rather than the
 	// intermediates standing in for an anchor.

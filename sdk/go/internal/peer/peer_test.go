@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"io/fs"
 	"net/netip"
 	"path/filepath"
 	"strings"
@@ -43,18 +44,21 @@ func TestFromEnvNamesTheBoardOnThePort(t *testing.T) {
 }
 
 func TestFromEnvRefusesHalfATarget(t *testing.T) {
-	for _, c := range []struct{ port, board, eth string }{
-		{"/dev/ttyACM0", "", ""},
-		{"", "atmega2560", ""},
-		{"", "", "192.0.2.1:5000"},
-		{"", "atmega2560", "192.0.2.1:5000"},
+	for _, c := range []struct{ port, board, eth, want string }{
+		{"/dev/ttyACM0", "", "", BoardEnv + " names no board"},
+		{"", "atmega2560", "", PortEnv + " names no port"},
+		{"", "", "192.0.2.1:5000", PortEnv + " names no port"},
+		{"", "atmega2560", "192.0.2.1:5000", PortEnv + " names no port"},
 	} {
 		t.Setenv(PortEnv, c.port)
 		t.Setenv(BoardEnv, c.board)
 		t.Setenv(EthEnv, c.eth)
 		t.Setenv(EthListenEnv, "")
-		if got, err := FromEnv(); err == nil {
+		got, err := FromEnv()
+		if err == nil {
 			t.Errorf("port %q board %q eth %q: target = %+v, want an error", c.port, c.board, c.eth, got)
+		} else if !strings.Contains(err.Error(), c.want) {
+			t.Errorf("port %q board %q eth %q: err = %v, want it to say %q", c.port, c.board, c.eth, err, c.want)
 		}
 	}
 }
@@ -178,9 +182,13 @@ func TestEndpointRefusesAWildcardAndNamesTheListenVariable(t *testing.T) {
 
 func TestOpenFailsOnAMissingPort(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "ttyNONE")
-	if c, err := Open(missing, time.Second); err == nil {
+	c, err := Open(missing, time.Second)
+	if err == nil {
 		_ = c.Close()
 		t.Fatal("a port that does not exist was opened")
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("err = %v, want fs.ErrNotExist", err)
 	}
 }
 
@@ -341,8 +349,9 @@ func (b *bootAfterPurge) ResetInputBuffer() error {
 }
 
 func TestStartFailsOnAPortThatCannotReset(t *testing.T) {
-	if _, err := start(&fakePort{data: []byte{0xA5}}, time.Second); err == nil {
-		t.Fatal("a port with no DTR control was accepted")
+	_, err := start(&fakePort{data: []byte{0xA5}}, time.Second)
+	if err == nil || !strings.Contains(err.Error(), "cannot drive DTR") {
+		t.Fatalf("err = %v, want the no-DTR refusal", err)
 	}
 }
 

@@ -86,6 +86,11 @@ func TestFirmwareEachAuthTakesAFreshChallenge(t *testing.T) {
 		require.NoError(t, run(context.Background(), p.serial, "auth", []string{serial, key}, false, io.Discard),
 			"auth %d", i+1)
 	}
+	a, err := p.serial.AuthChallenge(context.Background())
+	require.NoError(t, err)
+	b, err := p.serial.AuthChallenge(context.Background())
+	require.NoError(t, err)
+	assert.NotEqual(t, a, b, "two AUTH_CHALLENGEs returned the same nonce")
 }
 
 func TestE2ETheDefaultElementHasNoOperatorToAuthenticate(t *testing.T) {

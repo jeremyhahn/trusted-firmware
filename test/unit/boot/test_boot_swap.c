@@ -144,7 +144,7 @@ static void test_a_cut_in_the_rollback_still_restores_a(void)
 }
 
 /* The images above fill the slot; this pins its ends: the trailer's last byte
- * at the slot's top, and the byte after the slot left alone in both. */
+ * at the slot's top, and the byte after the secondary left alone. */
 static void test_an_image_filling_the_slot_moves_its_last_byte(void)
 {
     uint8_t *f = tfw_boot_mock_flash();
@@ -225,6 +225,7 @@ static void test_a_boot_resumes_a_swap_cut_in_each_phase(void)
 {
     static const unsigned at[] = { 0u, 3u, 511u, 512u, 513u, 514u, 515u, 517u, 1535u };
     unsigned n;
+    unsigned writes;
 
     for (n = 0u; n < sizeof at / sizeof at[0]; n++) {
         setUp();
@@ -233,8 +234,10 @@ static void test_a_boot_resumes_a_swap_cut_in_each_phase(void)
         tfw_boot_mock_cut_after(at[n]);
         TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
         TEST_ASSERT_EQUAL(TFW_BOOT_RESET_TRY, reset());
-        TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));   /* swapped: nothing */
         assert_slots(img_b, img_a);
+        writes = tfw_boot_mock_page_writes();
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));   /* swapped: nothing */
+        TEST_ASSERT_EQUAL_UINT(writes, tfw_boot_mock_page_writes());
     }
 }
 
@@ -463,6 +466,8 @@ static void test_a_session_image_refused_in_the_secondary_writes_no_swap_page(vo
 
 static void test_a_boot_after_a_session_cut_in_its_swap_enters_the_trial(void)
 {
+    unsigned writes;
+
     stores_left = 1u;   /* PENDING at OTA_END, then the power goes */
     tfw_boot_mock_cut_after(PAGES + WRITES / 2u);
     session(1u);
@@ -473,8 +478,10 @@ static void test_a_boot_after_a_session_cut_in_its_swap_enters_the_trial(void)
 
     stores_left = UINT_MAX;
     TEST_ASSERT_EQUAL(TFW_BOOT_RESET_TRY, reset());
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));   /* swapped: nothing */
     assert_slots(img_n, img_a);
+    writes = tfw_boot_mock_page_writes();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));   /* swapped: nothing */
+    TEST_ASSERT_EQUAL_UINT(writes, tfw_boot_mock_page_writes());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_arm(&plat));
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, plat.boot_state);
 }

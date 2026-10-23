@@ -1612,7 +1612,8 @@ static void test_tampered_image_refuses(elf_firmware_t *boot, elf_firmware_t *ap
      * image must cost the element a full hash and no Verify at all -- if Verify
      * ran, the ordering in tfw_boot_evaluate has changed and the expensive check
      * is now happening on images that never needed it. */
-    check(el.sha_blocks > 0, "the element was asked to measure the image");
+    check(el.sha_blocks >= ((image_len - 1u) / 64u) + 1u,
+          "the element was asked to measure every block of the image");
     check(el.verify == 0,
           "and was never asked to verify: the measurement caught it first");
 
@@ -1798,7 +1799,8 @@ static void test_requested_update_session(elf_firmware_t *boot, elf_firmware_t *
     check(elapsed <= nominal * 12u / 10u + BUDGET_BOOT,
           "nor later than 120% of it plus the verify");
     send_and_wait(0x45, TFW_CMD_CAPS, NULL, 0u);
-    check(response_status_is(0x45, TFW_OK), "CAPS answers: the same image, verified, is running");
+    check(response_status_is(0x45, TFW_OK) && primary_version() == 3u,
+          "CAPS answers: the same image is running");
 
     /* A RESET command inside the session ends it at once. */
     send_and_wait(0x46, TFW_CMD_RESET, to_boot, 1u);
@@ -2980,7 +2982,10 @@ static void net_stage(elf_firmware_t *boot, elf_firmware_t *app, uint8_t *seqp)
     }
     check(st == TFW_OK, "every OTA_DATA over TCP is taken, in order");
     check(net_exchange(++seq, TFW_CMD_OTA_END, NULL, 0u, boot_store_budget()) == TFW_OK,
-          "OTA_END over TCP checks the stream; it writes no MARK");
+          "OTA_END over TCP checks the stream");
+    /* The MARK's magic, 'TFSG' as 0x47534654 LE, is the field that makes it one. */
+    check(memcmp(&tfw_nor_model_mem()[TFW_OTA_STORE_MARK_ADDR], "TFSG", 4u) != 0,
+          "and it writes no MARK");
     *seqp = seq;
 }
 
@@ -3051,7 +3056,9 @@ static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
     printf("store row, over the network: an image staged through the W5100 to its trial:\n");
     net_stage(boot, app, &seq);
     check(net_activate(&seq, &status) && status == TFW_OK,
-          "OTA_ACTIVATE over serial re-verifies the store and writes the MARK");
+          "OTA_ACTIVATE over serial is taken");
+    check(memcmp(&tfw_nor_model_mem()[TFW_OTA_STORE_MARK_ADDR], "TFSG", 4u) == 0,
+          "and it writes the MARK");
 
     printf("  reset\n");
     carry();
@@ -3088,7 +3095,7 @@ static void test_a_network_staged_image_runs_its_trial(elf_firmware_t *boot,
     check(el.counter == 2u, "the trial leaves the floor where it was");
     check(tfw_nor_model_violations() == 0u && nor_overrun == 0,
           "every store access, the stager's and tfw-boot's, was well formed");
-    check(eth_overrun == 0, "every W5100 frame was four bytes under its select");
+    check(eth_overrun == 0, "no W5100 frame ran past four bytes under its select");
 }
 
 /* The soft row's refusal. It has no OTA in the boot, so a refused image is the

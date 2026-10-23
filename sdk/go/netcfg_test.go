@@ -343,8 +343,10 @@ func TestReadNetConfigReturnsTheBlockWriteNetConfigWrote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadNetConfig: %v", err)
 	}
-	if got.Endpoint != testNetConfig().Endpoint || got.IP != testNetConfig().IP {
-		t.Fatalf("read %+v, want %+v", got, testNetConfig())
+	want := testNetConfig()
+	if !bytes.Equal(got.MAC, want.MAC) || got.IP != want.IP || got.Mask != want.Mask ||
+		got.Gateway != want.Gateway || got.Endpoint != want.Endpoint {
+		t.Fatalf("read %+v, want %+v", got, want)
 	}
 }
 
@@ -355,7 +357,12 @@ func (deadLink) Read([]byte) (int, error)  { return 0, errors.New("link down") }
 
 func TestReadNetConfigReturnsTheLinkError(t *testing.T) {
 	d := New(deadLink{}, WithBootWait(0))
-	if _, err := d.ReadNetConfig(context.Background()); err == nil {
+	_, err := d.ReadNetConfig(context.Background())
+	if err == nil {
 		t.Fatal("ReadNetConfig succeeded on a dead link")
+	}
+	var linkErr *LinkError
+	if !errors.As(err, &linkErr) {
+		t.Fatalf("ReadNetConfig returned %v (%T), want a *LinkError", err, err)
 	}
 }

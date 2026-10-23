@@ -83,6 +83,8 @@ func TestProvInfoRefusesATruncatedReply(t *testing.T) {
 		link := &cannedLink{payload: make([]byte, n)}
 		_, err := New(link).ProvInfo(context.Background())
 		require.Error(t, err, "a %d-byte reply was accepted", n)
+		var short *ShortReplyError
+		assert.ErrorAs(t, err, &short, "a %d-byte reply", n)
 	}
 }
 
@@ -93,6 +95,7 @@ func TestProvInfoSurfacesAProductionImage(t *testing.T) {
 	link := &cannedLink{status: StatusErrUnknownCmd}
 	_, err := New(link).ProvInfo(context.Background())
 	require.Error(t, err)
+	assert.ErrorIs(t, err, StatusErrUnknownCmd)
 }
 
 func TestProvLockRefusesASuppressedSummaryCRC(t *testing.T) {

@@ -207,14 +207,14 @@ static void test_a_failing_flash_fails_the_session(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_OTA_FAILED, tfw_ota_state(&o));
 }
 
-/* A short final page pads with 0xFF -- erased flash -- so the bytes the device
- * measures are the bytes an offline verifier measures. Padding with zero would
- * make every image whose length is not a page multiple hash differently on the
- * device than in the signing tool. */
-static void test_a_short_final_page_pads_with_erased_flash(void)
+/* An image of exactly two pages, sent in chunks smaller than a page after an
+ * explicit init, reaches flash as exactly two page writes: the chunks are
+ * gathered into whole pages, never written one by one. No padding is pinned
+ * here; tfw_ota_begin admits whole pages only (see the next test). */
+static void test_a_two_page_image_lands_as_exactly_two_page_writes(void)
 {
     tfw_ota_t o;
-    uint8_t  chunk[PAGE + 16u];
+    uint8_t  chunk[64];
 
     fresh(&o);
     memset(chunk, 0x11, sizeof chunk);
@@ -278,7 +278,7 @@ int main(void)
     RUN_TEST(test_an_empty_chunk_is_refused);
     RUN_TEST(test_a_truncated_transfer_is_refused_at_end);
     RUN_TEST(test_a_failing_flash_fails_the_session);
-    RUN_TEST(test_a_short_final_page_pads_with_erased_flash);
+    RUN_TEST(test_a_two_page_image_lands_as_exactly_two_page_writes);
     RUN_TEST(test_end_writes_nothing_after_the_last_whole_page);
     RUN_TEST(test_abort_returns_to_idle_and_keeps_no_progress);
     return UNITY_END();

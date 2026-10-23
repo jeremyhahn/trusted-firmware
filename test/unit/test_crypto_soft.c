@@ -240,10 +240,16 @@ static void test_a_mismatched_tier_handoff_refuses_even_with_a_local_uds(void)
 static void test_a_mismatched_tier_cdi_is_drained(void)
 {
     uint8_t taken[32];
+    uint8_t out[32];
 
+    tfw_mock_set_uds(TEST_UDS);
     hand_off(TFW_CRYPTO_SECURE_ELEMENT, TEST_CDI);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_handoff_take_cdi(taken));
+    TEST_ASSERT_NOT_NULL(tfw_boot_handoff_tier());
+    TEST_ASSERT_EQUAL_UINT8(TFW_CRYPTO_SECURE_ELEMENT, *tfw_boot_handoff_tier());
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_hmac(0u, ABC, sizeof ABC, out));
 }
 
 static void test_a_software_handoff_with_the_zero_sentinel_refuses_even_with_a_local_uds(void)

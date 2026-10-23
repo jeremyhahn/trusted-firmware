@@ -63,7 +63,7 @@ func TestValidateRefusesASlotThatIsNotTheIdentity(t *testing.T) {
 	}
 }
 
-func TestValidateRefusesANegativeTimeout(t *testing.T) {
+func TestValidateReplacesANegativeTimeoutWithTheDefault(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RequestTimeout = -1
 

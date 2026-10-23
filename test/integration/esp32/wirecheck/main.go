@@ -132,7 +132,7 @@ func main() {
 	if *expect != "" {
 		n := len(*expect)
 		if n > math.MaxUint8 {
-			fail("eeprom read", fmt.Errorf("-expect is %d bytes; one read carries at most %d", n, math.MaxUint8))
+			fail("eeprom read", fmt.Errorf("-expect-mark is %d bytes; one read carries at most %d", n, math.MaxUint8))
 			return // fail exits; the return is for a reader who cannot see that
 		}
 		got, err := d.EEPROMRead(ctx, markAddr, uint8(n))

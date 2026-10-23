@@ -198,6 +198,8 @@ static void test_the_tick_timers_pins_are_reserved_not_merely_absent(void)
      * so because the table holds TFW_PWM_RSVD rather than TFW_PWM_NONE. */
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(4u,  &r));
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(13u, &r));
+    TEST_ASSERT_EQUAL_UINT8(2u, tfw_board_pin_pwm_state(4u));
+    TEST_ASSERT_EQUAL_UINT8(2u, tfw_board_pin_pwm_state(13u));
 }
 
 /* The thirteen genuine PWM pins, listed rather than derived: 2, 3 and 5..12 in

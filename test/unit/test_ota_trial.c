@@ -2,10 +2,10 @@
 /*
  * The application's half of the one trial (src/core/ota_trial.c), on the mock
  * HAL's clock: in TRIAL the watchdog is re-armed and petted, the deadline
- * resets, the stop ends the count, and any other state arms nothing. After the
- * runner's start, the trial asks after_update once (ADR decision 9): a refusal
- * resets at once, TFW_OK leaves the deadline running, and outside TRIAL nothing
- * is asked.
+ * resets, a confirm request stops nothing, and any other state arms nothing.
+ * After the runner's start, the trial asks after_update once (ADR decision 9):
+ * a refusal resets at once, TFW_OK leaves the deadline running, and outside
+ * TRIAL nothing is asked.
  */
 
 #include <stdint.h>
@@ -16,6 +16,7 @@
 #include "tfw/boot.h"
 #include "tfw/config.h"
 #include "boot_platform.h"
+#include "crc16.h"
 #include "ota_trial.h"
 #include "runner_fake.h"
 
@@ -66,10 +67,21 @@ static void test_the_deadline_resets_and_not_before(void)
 
 /* OTA_CONFIRM writes its request and leaves the count alone (#137): there is
  * no call that stops it, so a confirmed trial is petted up to the deadline and
- * reset there like any other, and tfw-boot settles it from the request. */
+ * reset there like any other, the request left in place for tfw-boot to
+ * settle it from. */
 static void test_a_confirmed_trial_still_resets_at_the_deadline(void)
 {
+    uint8_t *rec = &tfw_mock_eeprom()[TFW_BOOT_CONFIRM_ADDR];
+    uint8_t  want[TFW_BOOT_CONFIRM_LEN];
+    uint16_t crc;
+
     provision(TFW_BOOT_STATE_TRIAL);
+    rec[0] = TFW_BOOT_CONFIRM_MAGIC;
+    memset(&rec[TFW_BOOT_CONFIRM_O_MEAS], 0x3Cu, TFW_BOOT_CONFIRM_MEAS_LEN);
+    crc = tfw_crc16(rec, TFW_BOOT_CONFIRM_O_CRC);
+    rec[TFW_BOOT_CONFIRM_O_CRC]      = (uint8_t)crc;
+    rec[TFW_BOOT_CONFIRM_O_CRC + 1u] = (uint8_t)(crc >> 8);
+    memcpy(want, rec, sizeof want);
     tfw_ota_trial_start();
 
     tfw_mock_advance(DEADLINE_MS / 2u);
@@ -79,6 +91,7 @@ static void test_a_confirmed_trial_still_resets_at_the_deadline(void)
     tfw_ota_trial_poll();
     TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
     TEST_ASSERT_EQUAL_UINT(2u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, rec, TFW_BOOT_CONFIRM_LEN);   /* left for tfw-boot */
 }
 
 static void check_arms_nothing(uint8_t boot_state)

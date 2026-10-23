@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The bootloader's four commands.
+ * The bootloader's six commands.
  *
- * Arity is checked per command rather than by a table -- with four commands a
+ * Arity is checked per command rather than by a table -- with six commands a
  * table would be larger than the checks -- which means each check is a separate
- * line that can be separately wrong. So each command is tested twice: that it
- * works, and that a wrong payload length is refused rather than read past.
+ * line that can be separately wrong. So each command with an arity is tested
+ * twice: that it works, and that a wrong payload length is refused rather than
+ * read past. PING has none: it echoes a payload of any length.
  */
 
 #include <string.h>

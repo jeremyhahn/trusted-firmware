@@ -49,6 +49,15 @@ void tfw_mock_set_adc(uint8_t channel, uint16_t raw);
 /* every conversion fails with TFW_ERR_TIMEOUT while set; tfw_mock_reset
  * turns it off again. */
 void tfw_mock_adc_read_fails(uint8_t on);
+/* The reference tfw_hal_adc_set_ref last accepted (0 after tfw_mock_reset),
+ * and how often it was called at all, refused calls included: a refusal the
+ * caller should have made itself shows as a call. */
+uint8_t  tfw_mock_adc_ref(void);
+unsigned tfw_mock_adc_ref_calls(void);
+
+/* gpio: the next tfw_hal_gpio_mode answers st and leaves the pin as it was;
+ * the one after behaves again. tfw_mock_reset disarms it. */
+void tfw_mock_gpio_mode_fails_once(tfw_status_t st);
 
 /* eeprom: a flat array the test can inspect directly */
 uint8_t *tfw_mock_eeprom(void);

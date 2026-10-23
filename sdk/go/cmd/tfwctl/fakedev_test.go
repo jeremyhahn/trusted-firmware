@@ -463,7 +463,9 @@ func callMain(t *testing.T, args ...string) (stdout, stderr string) {
 }
 
 // ports lists what the host can see and returns; it opens nothing.
-func TestMainListsPorts(t *testing.T) {
+// What it prints depends on the host's ports, so only the clean exit is
+// checked.
+func TestMainPortsWritesNothingToStderr(t *testing.T) {
 	if _, stderr := callMain(t, "ports"); stderr != "" {
 		t.Fatalf("ports wrote %q to stderr", stderr)
 	}

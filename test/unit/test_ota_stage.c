@@ -51,7 +51,7 @@ static void authorize(void)
     tfw_writer_init(&w, out, sizeof out);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
 }
-void tearDown(void) { }
+void tearDown(void) { TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations()); }
 
 static void put32(uint8_t *p, uint32_t v)
 {
@@ -242,7 +242,9 @@ static void test_init_parks_selects_before_any_transfer(void)
     uint8_t      i;
 
     tfw_mock_reset();
+    tfw_nor_shim_reset();
     tfw_stage_init();
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_shim_xfers());
     for (i = 0u; i < (uint8_t)(sizeof sel / sizeof sel[0]); i++) {
         TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(sel[i], &ref));
         TEST_ASSERT_EQUAL_UINT8(1u, tfw_mock_pin_is_output(ref.port, ref.bit));
@@ -457,6 +459,7 @@ static void test_a_superseded_or_failed_stage_clears_the_install(void)
 
     activate_0();
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    TEST_ASSERT_FALSE(marked());
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
     stream(0u, 256u);
     TEST_ASSERT_EQUAL(TFW_ERR_FRAMING, end());
@@ -496,12 +499,22 @@ static void test_activate_fails_closed_on_an_unverifiable_block(void)
 
     /* Mid-stream: no MARK, refused the same way. */
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    get_block(before);
     authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    get_block(after);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
     /* In TRIAL: the running trial is confirmed or failed first. */
     put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_IDLE);
+    get_block(before);
     authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    get_block(after);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
 }
 
 /* Body and trailer replaced together after OTA_END: the new image verifies on

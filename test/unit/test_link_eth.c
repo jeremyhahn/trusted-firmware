@@ -300,11 +300,18 @@ static void test_without_the_client_nothing_falls_due_and_renewal_keeps_the_link
 
 static void test_the_block_from_eeprom_is_what_the_controller_is_given(void)
 {
+    tfw_netcfg_t want;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_netcfg_decode(NETCFG, &want));
     provision();
     tfw_link_poll();
     TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.mac, eth.cfg.mac, 6u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.ip, eth.cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.mask, eth.cfg.mask, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.gateway, eth.cfg.gateway, 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want.peer, eth.cfg.peer, 4u);
     TEST_ASSERT_EQUAL_UINT16(7020u, eth.cfg.port);
-    TEST_ASSERT_EQUAL_UINT8(20u, eth.cfg.peer[3]);
     TEST_ASSERT_TRUE(eth.port >= 49152u);
 }
 

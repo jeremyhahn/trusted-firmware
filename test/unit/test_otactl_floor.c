@@ -54,10 +54,15 @@ void test_soft_reports_the_top_floor(void)
 }
 
 /* The soft tier's floor is a field of the platform block already in RAM: it
- * has no failed read. Even with the element gone it answers TFW_OK
+ * has no failed read. With the element present it sends the part no command
+ * and leaves it asleep; with the element gone it still answers TFW_OK
  * (src/core/ota_floor_eeprom.c:10). */
 void test_soft_does_not_touch_the_element(void)
 {
+    soft_reports(3u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
+
     tfw_model_set_absent(1u);
     soft_reports(3u);
 }
@@ -129,6 +134,10 @@ void test_element_sleeps_after_the_read(void)
 
     tfw_model_set_counter(1u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_otactl_floor_element(&plat, &out));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
+
+    tfw_model_force_status(0x0Fu);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor_element(&plat, &out));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
 }
 

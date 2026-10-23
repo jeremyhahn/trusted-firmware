@@ -179,7 +179,9 @@ static void test_a_page_request_with_no_evidence_is_refused(void)
 static void test_a_wrong_sized_argument_is_refused(void)
 {
     const uint8_t short_nonce[8] = { 0 };
+    const uint8_t long_nonce[TFW_ATTEST_NONCE_LEN + 1u] = { 0 };
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(short_nonce, 8u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(long_nonce, (uint8_t)sizeof long_nonce));
 }
 
 /* The evidence layout is a wire contract with the platform. Asserting the
@@ -308,8 +310,9 @@ static void test_the_software_tier_mints_an_alias_certificate_for_its_deviceid(v
                       run_cmd(TFW_CMD_ATTEST_CERT, CHALLENGE, TFW_ALIAS_NONCE_LEN));
 }
 
-/* Refused before provisioning too, and for the earlier reason: there is no
- * identity at all. Either way nothing is issued. */
+/* Refused before provisioning too, and for the same reason: the tier check
+ * answers before any identity is looked at, so this is TFW_ERR_UNSUPPORTED and
+ * not TFW_ERR_NOT_PROVISIONED. Either way nothing is issued. */
 static void test_an_unprovisioned_device_refuses_an_alias_certificate(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED,

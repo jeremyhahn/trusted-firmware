@@ -84,7 +84,7 @@ static void test_a_failed_conversion_returns_its_status_and_writes_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 }
 
-static void test_the_reference_can_be_selected_and_is_range_checked(void)
+static void test_each_reference_is_accepted_and_one_out_of_range_is_refused(void)
 {
     for (uint8_t ref = 0u; ref <= 2u; ref++) {
         TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_ADC_REF, &ref, 1u));
@@ -102,6 +102,6 @@ int main(void)
     RUN_TEST(test_a_digital_only_pin_has_no_analog_reading);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_a_failed_conversion_returns_its_status_and_writes_nothing);
-    RUN_TEST(test_the_reference_can_be_selected_and_is_range_checked);
+    RUN_TEST(test_each_reference_is_accepted_and_one_out_of_range_is_refused);
     return UNITY_END();
 }

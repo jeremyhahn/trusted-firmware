@@ -263,24 +263,13 @@ func TestFirmwareBlankElementRefusesToAttest(t *testing.T) {
 	assert.Equal(t, tfw.StatusErrNotProvisioned, st)
 }
 
-func TestFirmwareSoftwareTierStillCannotIssueACertificate(t *testing.T) {
-	// The reason the element tier exists: the software tier has no asymmetric key,
-	// so a CRYPTO=soft image compiles ATTEST_CERT out and has no table entry for it
-	// (docs/dice-attestation/engineering.md, "Error semantics").
-	_, err := cliHex(t, startPeer(t, simproc.Software).serial, "attest-cert", "certificate", aliasNonce(1))
+func TestE2EUnprovisionedNoElementFallsBackToASoftRootThatCannotIssueACertificate(t *testing.T) {
+	// The auto tier with no element answering falls back to the soft root, but
+	// tfwsim-auto hands off no device seed, so that root has no DeviceID to put
+	// in a certificate (#48, #130, #173).
+	_, err := cliHex(t, startAuto(t, "--no-element"), "attest-cert", "certificate", aliasNonce(1))
 	var st tfw.Status
-	require.True(t, errorsAsStatus(err, &st), "attest-cert on the software tier: %v", err)
-	assert.Equal(t, tfw.StatusErrUnknownCmd, st)
-}
-
-func TestE2EAutoNoElementWithoutASeedCannotIssueACertificate(t *testing.T) {
-	// The CRYPTO=auto image on a board with no element falls back to the soft
-	// root, whose DeviceID comes from the seed tfw-boot hands off. With no
-	// handoff it has no DeviceID to put in a certificate (#48, #130).
-	d := tfw.New(simproc.Start(t, simproc.Auto, "--no-element"), tfw.WithTimeout(5*time.Second))
-	_, err := cliHex(t, d, "attest-cert", "certificate", aliasNonce(1))
-	var st tfw.Status
-	require.True(t, errorsAsStatus(err, &st), "attest-cert on the auto image's fallback with no seed: %v", err)
+	require.True(t, errorsAsStatus(err, &st), "attest-cert on the unprovisioned soft fallback: %v", err)
 	assert.Equal(t, tfw.StatusErrNotProvisioned, st)
 }
 
@@ -298,6 +287,16 @@ func TestE2EAutoNoElementCertificateVerifiesES256UnderItsDeviceID(t *testing.T) 
 	ev := cliAttest(t, d, attestNonce(0x61))
 	assert.EqualValues(t, algECDSA, ev[offAlg], "algorithm is ECDSA P-256")
 	assert.True(t, verifyFrame(subject, ev), "the evidence signature does not verify under the certificate's key")
+}
+
+func TestFirmwareSoftwareTierStillCannotIssueACertificate(t *testing.T) {
+	// The reason the element tier exists: the software tier has no asymmetric key,
+	// so a CRYPTO=soft image compiles ATTEST_CERT out and has no table entry for it
+	// (docs/dice-attestation/engineering.md, "Error semantics").
+	_, err := cliHex(t, startPeer(t, simproc.Software).serial, "attest-cert", "certificate", aliasNonce(1))
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "attest-cert on the software tier: %v", err)
+	assert.Equal(t, tfw.StatusErrUnknownCmd, st)
 }
 
 // The two nonce widths are not interchangeable: the CLI refuses a swapped one

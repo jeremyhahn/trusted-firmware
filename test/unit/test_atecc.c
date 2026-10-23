@@ -634,7 +634,7 @@ static void test_sign_with_nothing_in_tempkey_is_an_execution_error(void)
 
     tfw_model_provision();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
-    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_atecc_exec(TFW_ATECC_OP_SIGN, TFW_ATECC_SIGN_EXTERNAL,
                                                TFW_ATECC_SLOT_DEVICEID, 0, 0u, sig, 64u,
                                                TFW_ATECC_T_SIGN));
 }

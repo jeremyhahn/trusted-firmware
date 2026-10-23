@@ -19,10 +19,10 @@ const testSerialHex = "000102030405060708090a0b0c0d0e0f"
 
 func TestPlatformBlockFromFlagsRefusesBadKeys(t *testing.T) {
 	for name, c := range map[string]struct{ hash, opKey, want string }{
-		"short pubkey hash":      {hash: "abcd"},
-		"non-hex pubkey hash":    {hash: strings.Repeat("zz", 32)},
-		"short operator key":     {opKey: "04"},
-		"non-hex operator key":   {opKey: strings.Repeat("zz", 64)},
+		"short pubkey hash":      {hash: "abcd", want: "--pubkey-hash is 2 bytes, want 32"},
+		"non-hex pubkey hash":    {hash: strings.Repeat("zz", 32), want: "--pubkey-hash"},
+		"short operator key":     {opKey: "04", want: "--operator-pubkey is 1 bytes, want 64"},
+		"non-hex operator key":   {opKey: strings.Repeat("zz", 64), want: "--operator-pubkey"},
 		"operator key off curve": {opKey: p256GeneratorHex[:126] + "f6", want: "--operator-pubkey"},
 		"operator key all zero":  {opKey: strings.Repeat("00", 64), want: "--operator-pubkey"},
 	} {
@@ -54,8 +54,9 @@ func TestPlatformBlockFromFlagsTakesARealOperatorKey(t *testing.T) {
 
 func TestRunBakeStopsOnABadPlatformFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "both.eep")
-	if err := runBake(out, true, strings.Repeat("00", 16), "", "", true, benchFlags(), ""); err == nil {
-		t.Fatal("accepted an all-zero serial")
+	err := runBake(out, true, strings.Repeat("00", 16), "", "", true, benchFlags(), "")
+	if err == nil || !strings.Contains(err.Error(), "--serial is all zero") {
+		t.Fatalf("err = %v, want the all-zero serial refusal", err)
 	}
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("an image was written after a refused flag: %v", err)
@@ -101,8 +102,8 @@ func TestWriteBakedImageRefusesNothing(t *testing.T) {
 
 func TestWriteBakedImageReportsACreateFailure(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "no-such-dir", "net.eep")
-	if err := writeBakedImage(out, nil, []byte{0x01}); err == nil {
-		t.Fatal("wrote into a directory that does not exist")
+	if err := writeBakedImage(out, nil, []byte{0x01}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("err = %v, want the create's os.ErrNotExist", err)
 	}
 }
 
@@ -164,8 +165,9 @@ func TestRunBakeStopsOnABadNetblockFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "net.eep")
 	f := benchFlags()
 	f.gateway = ""
-	if err := runBake(out, false, "", "", "", true, f, ""); err == nil {
-		t.Fatal("accepted a netblock with no gateway")
+	err := runBake(out, false, "", "", "", true, f, "")
+	if err == nil || !strings.Contains(err.Error(), "requires --gateway") {
+		t.Fatalf("err = %v, want the missing --gateway refusal", err)
 	}
 	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("an image was written after a refused flag: %v", err)

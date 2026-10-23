@@ -288,7 +288,7 @@ int main(int argc, char **argv)
     {
         int ok = exchange(0x22, TFW_CMD_CAPS, NULL, 0, &status, out, &outlen);
         check(ok && status == TFW_OK, "CAPS answers");
-        check(ok && out[0] == TFW_PROTO_VERSION_MAJOR, "CAPS reports protocol major 2");
+        check(ok && out[0] == 2u, "CAPS reports protocol major 2");
         check(ok && out[6] == 22, "CAPS reports the 328P's 22 pins");
     }
 

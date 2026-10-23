@@ -32,8 +32,8 @@ import (
 // a single conversation over one link. These tests are the seam between the
 // two.
 
-// TestConcurrentCallsDoNotConsumeEachOthersReplies drives every command the
-// backend issues from several goroutines at once.
+// TestConcurrentCallsDoNotConsumeEachOthersReplies drives SYS_INFO, PROV_INFO,
+// PROV_PUBKEY and the paged ATTEST_CERT from several goroutines at once.
 //
 // tfw.Device is a strict request/response client: Do takes the next
 // sequence number, writes, and reads until a frame with that sequence arrives,

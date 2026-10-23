@@ -57,7 +57,7 @@ void setUp(void)
     memset(zero_before, 0, sizeof zero_before);
     memset(zero_after_ok, 0, sizeof zero_after_ok);
 }
-void tearDown(void) {}
+void tearDown(void) { uECC_set_rng(0); }
 
 /* ------------------------------------------------------------ the vectors */
 
@@ -160,6 +160,41 @@ static int verifies(const uint8_t pub[64], const uint8_t digest[32], const uint8
 
 /* ------------------------------------------------------------------ RFC 6979 */
 
+/* The seeds 1 and n-1: micro-ecc refuses them as scalars, so each is hashed
+ * once. SHA-256 of the seed, and its point, from the same pure-Python P-256. */
+static const uint8_t ONE_D[32] = {
+    0xEC,0x49,0x16,0xDD,0x28,0xFC,0x4C,0x10,0xD7,0x8E,0x28,0x7C,0xA5,0xD9,0xCC,0x51,
+    0xEE,0x1A,0xE7,0x3C,0xBF,0xDE,0x08,0xC6,0xB3,0x73,0x24,0xCB,0xFA,0xAC,0x8B,0xC5
+};
+static const uint8_t ONE_PUB[64] = {
+    0xA6,0x6B,0x24,0x55,0x3C,0x20,0xCF,0xBD,0x6D,0x3B,0x03,0x4C,0xF7,0x9E,0xF9,0x16,
+    0x96,0x97,0x31,0xA9,0x1C,0x06,0x98,0x65,0xE4,0x19,0x49,0x31,0x2A,0xBB,0x08,0xDB,
+    0x7B,0xE4,0xD9,0x32,0x66,0xDE,0x73,0x0E,0x7F,0xFD,0x74,0x74,0xA6,0x1D,0xC0,0xD1,
+    0xF6,0x66,0x8F,0xF3,0xE8,0xFC,0x19,0xD8,0xBF,0xD0,0x63,0xFA,0x86,0x78,0x8B,0x72
+};
+static const uint8_t NM1_D[32] = {
+    0xBB,0x15,0x40,0xE8,0x6D,0xAF,0x7D,0x3D,0xBA,0x46,0xD1,0x21,0xA9,0x00,0x9D,0x62,
+    0x26,0xC7,0x7A,0x1D,0xC2,0xC3,0xE7,0x7D,0x7C,0xB2,0x98,0xF6,0x1A,0x5C,0xF7,0x51
+};
+static const uint8_t NM1_PUB[64] = {
+    0xF3,0xF7,0x54,0x02,0x44,0xF3,0xD7,0x0A,0x05,0xBE,0x62,0x16,0xD6,0xDC,0xBE,0x29,
+    0xFA,0xC0,0x44,0x12,0x9C,0x07,0x00,0x07,0x2A,0xC1,0x8A,0x64,0x33,0x0C,0xB9,0x68,
+    0xB8,0x0A,0xE7,0x30,0x1E,0x18,0xA2,0xFF,0x2A,0xBB,0x02,0xCA,0x4A,0x63,0x95,0xB6,
+    0xAC,0x4E,0xD5,0x70,0x0C,0x2C,0x21,0xD3,0x53,0xEF,0x11,0x0B,0x8A,0x55,0xF6,0x31
+};
+
+static void one(uint8_t s[32])
+{
+    memset(s, 0x00, 32u);
+    s[31] = 0x01u;
+}
+
+static void n_minus_one(uint8_t s[32])
+{
+    memcpy(s, P256_N, 32u);
+    s[31] = (uint8_t)(s[31] - 1u);
+}
+
 static void test_signing_reproduces_rfc_6979_a_2_5(void)
 {
     uint8_t h[32], sig[64];
@@ -204,9 +239,9 @@ static void check_retry(const uint8_t seed[32], const uint8_t want_d[32],
 {
     uint8_t d[32], pub[64];
 
-    tfw_deviceid_p256_scalar(seed, d);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_scalar(seed, d));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want_d, d, 32);
-    tfw_deviceid_p256_public(seed, pub);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_public(seed, pub));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want_pub, pub, 64);
     TEST_ASSERT_TRUE(uECC_valid_public_key(pub, uECC_secp256r1()));
 }
@@ -232,19 +267,80 @@ static void test_a_seed_of_exactly_n_is_hashed_again(void)
     check_retry(P256_N, N_D, N_PUB);
 }
 
-static void test_the_range_ends_one_and_n_minus_one_are_kept(void)
+static void test_micro_ecc_refuses_the_scalars_one_and_n_minus_one(void)
 {
-    uint8_t s[32], d[32];
+    uint8_t s[32], pub[64];
 
-    memset(s, 0x00, sizeof s);
-    s[31] = 0x01u;
-    tfw_deviceid_p256_scalar(s, d);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(s, d, 32);
+    one(s);
+    TEST_ASSERT_FALSE(uECC_compute_public_key(s, pub, uECC_secp256r1()));
+    n_minus_one(s);
+    TEST_ASSERT_FALSE(uECC_compute_public_key(s, pub, uECC_secp256r1()));
+}
 
-    memcpy(s, P256_N, sizeof s);
-    s[31] = (uint8_t)(s[31] - 1u);
-    tfw_deviceid_p256_scalar(s, d);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(s, d, 32);
+/* The design's rule: hash again until uECC_compute_public_key accepts. */
+static void test_the_seeds_one_and_n_minus_one_are_hashed_again(void)
+{
+    uint8_t s[32], sig[64];
+
+    one(s);
+    check_retry(s, ONE_D, ONE_PUB);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(s, DIGEST, sig));
+    TEST_ASSERT_TRUE(verifies(ONE_PUB, DIGEST, sig));
+    n_minus_one(s);
+    check_retry(s, NM1_D, NM1_PUB);
+    TEST_ASSERT_TRUE(tfw_deviceid_p256_sign(s, DIGEST, sig));
+    TEST_ASSERT_TRUE(verifies(NM1_PUB, DIGEST, sig));
+}
+
+/* ------------------------------------------------------------------ refusal */
+
+static int failing_rng(uint8_t *dest, unsigned size)
+{
+    (void)dest;
+    (void)size;
+    return 0;
+}
+
+static int all_zero(const uint8_t *v, size_t n)
+{
+    uint8_t acc = 0u;
+
+    while (n--) { acc = (uint8_t)(acc | v[n]); }
+    return acc == 0u;
+}
+
+/* A blinding RNG that fails makes micro-ecc refuse every scalar: each call
+ * returns the refusal, never loops, and leaves no stale bytes. */
+static void test_a_refusal_that_persists_is_returned_with_the_output_zeroed(void)
+{
+    uint8_t d[32], pub[64], sig[64];
+
+    uECC_set_rng(failing_rng);
+    memset(d, 0xA5, sizeof d);
+    TEST_ASSERT_FALSE(tfw_deviceid_p256_scalar(SEED, d));
+    TEST_ASSERT_TRUE(all_zero(d, sizeof d));
+    memset(pub, 0xA5, sizeof pub);
+    TEST_ASSERT_FALSE(tfw_deviceid_p256_public(SEED, pub));
+    TEST_ASSERT_TRUE(all_zero(pub, sizeof pub));
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_FALSE(tfw_deviceid_p256_sign(SEED, DIGEST, sig));
+    TEST_ASSERT_TRUE(all_zero(sig, sizeof sig));
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_FALSE(tfw_p256_sign_rfc6979(RFC_PRIV, DIGEST, sig));
+    TEST_ASSERT_TRUE(all_zero(sig, sizeof sig));
+}
+
+static void test_the_signer_refuses_a_scalar_outside_the_range(void)
+{
+    uint8_t zero[32], sig[64];
+
+    memset(zero, 0x00, sizeof zero);
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_FALSE(tfw_p256_sign_rfc6979(zero, DIGEST, sig));
+    TEST_ASSERT_TRUE(all_zero(sig, sizeof sig));
+    memset(sig, 0xA5, sizeof sig);
+    TEST_ASSERT_FALSE(tfw_p256_sign_rfc6979(P256_N, DIGEST, sig));
+    TEST_ASSERT_TRUE(all_zero(sig, sizeof sig));
 }
 
 /* ------------------------------------------------------------------- signing */
@@ -334,7 +430,10 @@ int main(void)
     RUN_TEST(test_a_seed_of_zero_is_hashed_again);
     RUN_TEST(test_a_seed_above_n_is_hashed_again);
     RUN_TEST(test_a_seed_of_exactly_n_is_hashed_again);
-    RUN_TEST(test_the_range_ends_one_and_n_minus_one_are_kept);
+    RUN_TEST(test_micro_ecc_refuses_the_scalars_one_and_n_minus_one);
+    RUN_TEST(test_the_seeds_one_and_n_minus_one_are_hashed_again);
+    RUN_TEST(test_a_refusal_that_persists_is_returned_with_the_output_zeroed);
+    RUN_TEST(test_the_signer_refuses_a_scalar_outside_the_range);
     RUN_TEST(test_the_seed_signs_the_pinned_es256_signature_and_it_verifies);
     RUN_TEST(test_a_digest_above_n_signs_as_the_rfc_reduces_it);
     RUN_TEST(test_a_signature_does_not_verify_for_another_digest_or_key);

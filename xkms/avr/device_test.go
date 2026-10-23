@@ -47,7 +47,12 @@ func TestDeviceErrorMapsEveryNamedStatus(t *testing.T) {
 		{tfw.StatusErrTimeout, ErrDeviceUnreachable},
 		{tfw.StatusErrCRC, ErrDeviceProtocol},
 		{tfw.StatusErrFraming, ErrDeviceProtocol},
+		{tfw.StatusErrUnsupported, ErrUnsupportedByDevice},
+		{tfw.StatusErrNACK, ErrElementUnreachable},
+		{tfw.StatusErrRange, ErrInvalidArgument},
+		{tfw.StatusErrBadArgc, ErrInvalidArgument},
 	}
+	require.Len(t, tests, len(statusErrors), "a named status has no row here")
 
 	for _, tt := range tests {
 		t.Run(tt.status.String(), func(t *testing.T) {

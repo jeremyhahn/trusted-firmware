@@ -148,6 +148,9 @@ func TestEveryPeripheralVerbIsDispatched(t *testing.T) {
 			if err != nil && !errorsAsStatus(err, &st) {
 				t.Fatalf("%s: %v", tc.verb, err)
 			}
+			if tc.verb == "auth" && st != tfw.StatusErrUnknownCmd {
+				t.Fatalf("auth on the soft tier: err = %v, want %v", err, tfw.StatusErrUnknownCmd)
+			}
 			if err == nil && buf.Len() == 0 {
 				t.Fatalf("%s succeeded and printed nothing", tc.verb)
 			}
@@ -204,8 +207,9 @@ func TestPeripheralVerbsReportWhatTheDeviceSaid(t *testing.T) {
 		}
 		// Pin 2 has no ADC channel. The refusal is the board descriptor doing
 		// its job, and it must reach the caller rather than reading as zero.
-		if err := runPeripheral(context.Background(), dev, "analog", []string{"2"}, false, io.Discard); err == nil {
-			t.Fatal("a digital-only pin was accepted for a conversion")
+		var st tfw.Status
+		if err := runPeripheral(context.Background(), dev, "analog", []string{"2"}, false, io.Discard); !errorsAsStatus(err, &st) {
+			t.Fatalf("a digital-only pin: err = %v, want the device's refusal", err)
 		}
 	})
 
@@ -219,13 +223,14 @@ func TestPeripheralVerbsReportWhatTheDeviceSaid(t *testing.T) {
 		}
 		// Any other pin is refused rather than answered OK: a host whose
 		// speaker is on the wrong leg has no other way to find out.
-		if err := runPeripheral(ctx, dev, "tone", []string{"3", "1000"}, false, io.Discard); err == nil {
-			t.Fatal("a pin the timer does not drive was accepted")
+		var st tfw.Status
+		if err := runPeripheral(ctx, dev, "tone", []string{"3", "1000"}, false, io.Discard); !errorsAsStatus(err, &st) {
+			t.Fatalf("a pin the timer does not drive: err = %v, want the device's refusal", err)
 		}
 		// Below the prescaler's floor the device refuses rather than playing
 		// something else.
-		if err := runPeripheral(ctx, dev, "tone", []string{"11", "440"}, false, io.Discard); err == nil {
-			t.Fatal("a frequency below the floor was accepted")
+		if err := runPeripheral(ctx, dev, "tone", []string{"11", "440"}, false, io.Discard); !errorsAsStatus(err, &st) {
+			t.Fatalf("a frequency below the floor: err = %v, want the device's refusal", err)
 		}
 	})
 
@@ -301,6 +306,21 @@ func TestRunCoreVerbsAgainstTfwsim(t *testing.T) {
 		if tc.verb == "timer" || tc.verb == "timer-cancel" {
 			continue // one-shot on the device; the JSON form is checked below
 		}
+		if err := run(ctx, dev, tc.verb, tc.args, true, &js); err != nil {
+			t.Fatalf("%s %v --json: %v", tc.verb, tc.args, err)
+		}
+		if !json.Valid(js.Bytes()) {
+			t.Errorf("%s %v --json printed %q, not JSON", tc.verb, tc.args, js.String())
+		}
+	}
+	for _, tc := range []struct {
+		verb string
+		args []string
+	}{
+		{"timer", []string{"13", "1", "5s"}},
+		{"timer-cancel", []string{"13"}},
+	} {
+		var js bytes.Buffer
 		if err := run(ctx, dev, tc.verb, tc.args, true, &js); err != nil {
 			t.Fatalf("%s %v --json: %v", tc.verb, tc.args, err)
 		}

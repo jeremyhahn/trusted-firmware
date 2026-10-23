@@ -69,17 +69,18 @@ void setUp(void)
 
 void tearDown(void) {}
 
+static uint8_t csr_out[TFW_MAX_PAYLOAD];
+
 static tfw_status_t run(uint8_t *len)
 {
     static uint8_t in[TFW_ALIAS_NONCE_LEN];
-    static uint8_t out[TFW_MAX_PAYLOAD];
     tfw_reader_t   r;
     tfw_writer_t   w;
     tfw_status_t   st;
 
     memcpy(in, NONCE, sizeof in);
     tfw_reader_init(&r, in, sizeof in);
-    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    tfw_writer_init(&w, csr_out, TFW_MAX_PAYLOAD);
     st = tfw_csr_cmd(&r, &w);
     *len = tfw_writer_len(&w);
     return st;
@@ -90,7 +91,9 @@ static void test_an_es256_signature_is_returned(void)
     uint8_t len = 0u;
 
     TEST_ASSERT_EQUAL(TFW_OK, run(&len));
+    TEST_ASSERT_EQUAL_UINT8(1u, signs);
     TEST_ASSERT_EQUAL_UINT8(TFW_SIG_LEN, len);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0x55u, csr_out, TFW_SIG_LEN);   /* the provider's signature */
 }
 
 static void test_a_signature_under_another_algorithm_is_refused_and_writes_nothing(void)

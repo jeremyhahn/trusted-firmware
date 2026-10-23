@@ -148,6 +148,8 @@ func TestAttestCertRefusesTheWrongNonceWidth(t *testing.T) {
 	for _, n := range []int{0, AttestNonceLen, 31, 33} {
 		_, err := d.AttestCert(context.Background(), make([]byte, n))
 		require.Error(t, err, "a %d-byte nonce was accepted", n)
+		var rangeErr *ArgRangeError
+		assert.ErrorAs(t, err, &rangeErr, "a %d-byte nonce", n)
 	}
 	assert.Empty(t, link.requests)
 }
@@ -158,6 +160,8 @@ func TestAttestCertRefusesAZeroTotal(t *testing.T) {
 	link := &cannedLink{payload: []byte{0, 0, 0}}
 	_, err := New(link).AttestCert(context.Background(), make([]byte, AliasNonceLen))
 	require.Error(t, err)
+	var short *ShortReplyError
+	assert.ErrorAs(t, err, &short)
 }
 
 func TestAttestCertRefusesAReplyWithNoHeader(t *testing.T) {
@@ -175,4 +179,5 @@ func TestAttestCertSurfacesAnUnsupportedDevice(t *testing.T) {
 	link := &cannedLink{status: StatusErrUnsupported}
 	_, err := New(link).AttestCert(context.Background(), make([]byte, AliasNonceLen))
 	require.Error(t, err)
+	assert.ErrorIs(t, err, StatusErrUnsupported)
 }

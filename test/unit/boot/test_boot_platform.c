@@ -172,11 +172,20 @@ static void test_the_crc_covers_everything_below_it(void)
     uint8_t raw[TFW_BOOT_EE_LEN];
     tfw_boot_platform_t p;
     uint16_t before;
+    uint16_t i;
 
     build(raw, &p);
     before = tfw_boot_platform_crc(raw);
-    raw[125] ^= 0xFFu;                     /* the last byte the CRC covers */
-    TEST_ASSERT_NOT_EQUAL(before, tfw_boot_platform_crc(raw));
+    for (i = 0u; i < TFW_BOOT_EE_O_CRC; i++) {      /* every byte below the CRC */
+        raw[i] ^= 0xFFu;
+        TEST_ASSERT_NOT_EQUAL(before, tfw_boot_platform_crc(raw));
+        raw[i] ^= 0xFFu;
+    }
+    for (i = TFW_BOOT_EE_O_CRC; i < TFW_BOOT_EE_LEN; i++) {   /* and not itself */
+        raw[i] ^= 0xFFu;
+        TEST_ASSERT_EQUAL_HEX16(before, tfw_boot_platform_crc(raw));
+        raw[i] ^= 0xFFu;
+    }
 }
 
 /*

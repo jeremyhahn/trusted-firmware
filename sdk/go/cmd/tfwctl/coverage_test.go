@@ -9,6 +9,8 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"io"
 	"os"
@@ -159,7 +161,8 @@ func TestAuthRefusesAFileOpensslCannotLoad(t *testing.T) {
 }
 
 func TestExternalKeySignerSignsWithTheOperatorKey(t *testing.T) {
-	signer, err := externalECKeySigner(writeTestECKey(t))
+	path := writeTestECKey(t)
+	signer, err := externalECKeySigner(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,11 +171,21 @@ func TestExternalKeySignerSignsWithTheOperatorKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("signing through openssl: %v", err)
 	}
-	if pub, ok := signer.Public().(*ecdsa.PublicKey); ok {
-		if !ecdsa.VerifyASN1(pub, digest[:], sig) {
-			t.Fatal("the signature does not verify under the signer's own public key")
-		}
-	} else if len(sig) == 0 {
-		t.Fatal("openssl returned an empty signature")
+	// The signer's Public() is nil (AuthResponse never calls it), so the
+	// operator's public key is taken from the key file itself.
+	pemBytes, err := os.ReadFile(path) // #nosec G304 -- the test's own temp file
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		t.Fatal("the test key file holds no PEM block")
+	}
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ecdsa.VerifyASN1(&key.PublicKey, digest[:], sig) {
+		t.Fatal("the signature does not verify under the operator key's public half")
 	}
 }

@@ -18,19 +18,25 @@
 #define TFW_DEVICEID_LABEL     "tfw-deviceid-v1"
 #define TFW_DEVICEID_LABEL_LEN 15u
 
-/* The scalar d in [1, n-1] from the seed, big-endian. The caller zeroes it. */
-void tfw_deviceid_p256_scalar(const uint8_t seed[32], uint8_t d[32]);
+/* Each returns 1, or 0 when micro-ecc refuses: then the output is zeroed and
+ * must not be used. The derivation hashes a scalar micro-ecc refuses again, so
+ * only a blinding RNG that keeps failing (uECC_set_rng) makes them refuse. */
+
+/* The scalar d from the seed, big-endian: one uECC_compute_public_key accepts,
+ * so in [1, n-1] and neither 1 nor n-1. The caller zeroes it. */
+int tfw_deviceid_p256_scalar(const uint8_t seed[32], uint8_t d[32]);
 
 /* The DeviceID's public point d.G, X || Y big-endian: the wire's PUBKEY. */
-void tfw_deviceid_p256_public(const uint8_t seed[32], uint8_t pub[64]);
+int tfw_deviceid_p256_public(const uint8_t seed[32], uint8_t pub[64]);
 
 /* ES256 over a SHA-256 digest with the DeviceID: r || s, big-endian. */
-void tfw_deviceid_p256_sign(const uint8_t seed[32], const uint8_t digest[32],
-                            uint8_t sig[64]);
+int tfw_deviceid_p256_sign(const uint8_t seed[32], const uint8_t digest[32],
+                           uint8_t sig[64]);
 
 /* ECDSA P-256 with k from RFC 6979 section 3.2 (HMAC-SHA256), for any scalar
- * in [1, n-1]. The sign above is this with the derived scalar. */
-void tfw_p256_sign_rfc6979(const uint8_t d[32], const uint8_t digest[32],
-                           uint8_t sig[64]);
+ * in [1, n-1]; it refuses one outside. The sign above is this with the derived
+ * scalar. */
+int tfw_p256_sign_rfc6979(const uint8_t d[32], const uint8_t digest[32],
+                          uint8_t sig[64]);
 
 #endif /* TFW_DEVICEID_P256_H */

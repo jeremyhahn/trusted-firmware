@@ -119,8 +119,8 @@ func TestNewWaitsForBootEventThenFirstRequestSucceeds(t *testing.T) {
 
 // (b) An adapter that does not reset the board -- DTR wired off, or a board
 // that was already running -- never sends BOOT at all. New must still fall
-// through once its bound elapses, paying the bound and nothing more, and the
-// device must still work afterwards.
+// through once its bound elapses -- never before it -- and the device must
+// still work afterwards.
 func TestNewFallsThroughWhenNoBootEventArrives(t *testing.T) {
 	link := newAutoResetLink(0) // never sends BOOT
 	bound := 30 * time.Millisecond
@@ -272,7 +272,13 @@ func TestNewNeverCallsResetInputBufferOnAConnThatLacksIt(t *testing.T) {
 	// autoResetLink has no ResetInputBuffer method; if New required one via
 	// an unchecked type assertion instead of the optional-interface pattern,
 	// this would panic rather than simply proceed without it.
-	New(link, WithBootWait(2*time.Second))
+	d := New(link, WithBootWait(2*time.Second))
+	if !link.bootSent {
+		t.Fatal("New returned before the boot event; it did not proceed through the wait")
+	}
+	if _, err := d.Do(context.Background(), CmdPing, nil); err != nil {
+		t.Fatalf("ping after New: %v", err)
+	}
 }
 
 // failedPurgeLink offers ResetInputBuffer, and it always fails -- a conn
@@ -339,6 +345,9 @@ func TestWithBootWaitZeroOrNegativeDisablesTheWait(t *testing.T) {
 			if link.resetCalls != 0 {
 				t.Fatalf("New purged the conn %d time(s) with the boot wait disabled, want zero", link.resetCalls)
 			}
+			if link.reads != 0 {
+				t.Fatalf("New read the conn %d time(s) with the boot wait disabled, want zero", link.reads)
+			}
 
 			// The link's own genuine BOOT event lands on the first read, Do's:
 			// with the wait disabled, nothing consumed it on the way in, and
@@ -349,11 +358,13 @@ func TestWithBootWaitZeroOrNegativeDisablesTheWait(t *testing.T) {
 				t.Fatalf("ping: %v", err)
 			}
 			events := d.Events()
-			if len(events) == 0 {
-				t.Fatal("no boot event was observed; disabling the wait must not also discard it")
+			if len(events) != 2 {
+				t.Fatalf("observed %d event(s), want the stale and the genuine boot event; disabling the wait must not discard either", len(events))
 			}
-			if !events[0].IsEvent() || events[0].Payload[0] != EventBoot {
-				t.Fatalf("first event = %+v, want a boot event", events[0])
+			for i, ev := range events {
+				if !ev.IsEvent() || ev.Payload[0] != EventBoot {
+					t.Fatalf("event %d = %+v, want a boot event", i, ev)
+				}
 			}
 		})
 	}

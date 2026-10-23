@@ -223,6 +223,8 @@ static tfw_status_t feed(uint8_t cmd, const uint8_t *payload, unsigned n)
     const uint8_t was_authed = authed;
     const int     was_marked = marked();
     const uint8_t confirm_before = tfw_mock_eeprom()[TFW_BOOT_CONFIRM_ADDR];
+    uint8_t       mark_before[40];   /* the MARK's header and hash */
+    uint8_t       confirm_rec[TFW_BOOT_CONFIRM_LEN];
     tfw_reader_t  r;
     tfw_writer_t  w;
     tfw_status_t  st;
@@ -234,6 +236,8 @@ static tfw_status_t feed(uint8_t cmd, const uint8_t *payload, unsigned n)
     TEST_ASSERT_NOT_NULL(in);
     TEST_ASSERT_NOT_NULL(out);
     if (n) { memcpy(in, payload, n); }
+    memcpy(mark_before, tfw_nor_model_mem() + TFW_OTA_STORE_MARK_ADDR, sizeof mark_before);
+    memcpy(confirm_rec, tfw_mock_eeprom() + TFW_BOOT_CONFIRM_ADDR, sizeof confirm_rec);
     tfw_reader_init(&r, in, (uint8_t)n);
     tfw_writer_init(&w, out, (uint8_t)TFW_MAX_PAYLOAD);
 
@@ -254,6 +258,11 @@ static tfw_status_t feed(uint8_t cmd, const uint8_t *payload, unsigned n)
     } else if ((cmd == TFW_CMD_OTA_ACTIVATE || cmd == TFW_CMD_OTA_CONFIRM) && !was_authed
                && st == TFW_OK) {
         broke = "a gated command succeeded without OTA_AUTH";
+    } else if ((cmd == TFW_CMD_OTA_ACTIVATE || cmd == TFW_CMD_OTA_CONFIRM) && !was_authed
+               && (marked() != was_marked
+                   || memcmp(mark_before, tfw_nor_model_mem() + TFW_OTA_STORE_MARK_ADDR, sizeof mark_before) != 0
+                   || memcmp(confirm_rec, tfw_mock_eeprom() + TFW_BOOT_CONFIRM_ADDR, sizeof confirm_rec) != 0)) {
+        broke = "a gated command without OTA_AUTH touched the MARK or the confirm request";
     } else if (cmd != TFW_CMD_OTA_ACTIVATE && !was_marked && marked()) {
         broke = "something other than OTA_ACTIVATE wrote the MARK";
     } else if (cmd != TFW_CMD_OTA_CONFIRM

@@ -4,12 +4,15 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
 
 func TestRunBakeEEPROMRejectsAnAllZeroSerial(t *testing.T) {
@@ -36,11 +39,11 @@ func TestRunBakeEEPROMWritesARealSerial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading %s: %v", out, err)
 	}
-	if len(data) == 0 {
-		t.Fatal("wrote an empty file")
-	}
-	if !strings.HasPrefix(string(data), ":") {
-		t.Fatalf("first byte is not an Intel HEX record start: %q", data[:1])
+	image := readIHEX(t, string(data))
+	want := tfw.BuildPlatformBlock([tfw.SerialLen]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+		[tfw.PubkeyHashLen]byte{}, [tfw.OperatorPubkeyLen]byte{})
+	if !bytes.Equal(image, want[:]) {
+		t.Fatalf("image = % x\nwant    % x", image, want)
 	}
 }
 

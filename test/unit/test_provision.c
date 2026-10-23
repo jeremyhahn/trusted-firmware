@@ -81,7 +81,7 @@ static void test_a_silent_bus_is_reported_as_a_bus_fault(void)
 {
     tfw_model_set_busy(255u);
     prep(0, 0u);
-    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_info(&r, &w));
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_prov_cmd_info(&r, &w));
 }
 
 /* ------------------------------------------------------- WRITE_CONFIG */
@@ -192,12 +192,18 @@ static void test_genkey_into_any_other_slot_is_refused(void)
  * on it: a verify that could regenerate the key would destroy what it checked. */
 static void test_pubkey_reads_and_does_not_generate(void)
 {
-    const uint8_t p[1] = { TFW_ATECC_SLOT_DEVICEID };
+    const uint8_t          p[1] = { TFW_ATECC_SLOT_DEVICEID };
+    const tfw_model_cmd_t *last;
 
     tfw_model_provision();
     prep(p, 1u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_pubkey(&r, &w));
     TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));
+    /* the GenKey that ran was the public-key mode, never the generating one */
+    TEST_ASSERT_TRUE(tfw_model_log_count() > 0u);
+    last = tfw_model_log((uint8_t)(tfw_model_log_count() - 1u));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_GENKEY, last->opcode);
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_GENKEY_PUBLIC, last->p1);
 }
 
 static void test_pubkey_on_an_empty_slot_fails(void)

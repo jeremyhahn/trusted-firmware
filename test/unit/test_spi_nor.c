@@ -84,7 +84,7 @@ static void test_a_bus_error_in_write_enable_is_passed_on(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
 }
 
-static void test_a_bus_error_in_program_is_passed_on(void)
+static void test_a_bus_error_in_the_write_enable_check_is_passed_on(void)
 {
     uint8_t b = 0u;
 
@@ -94,21 +94,31 @@ static void test_a_bus_error_in_program_is_passed_on(void)
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
 }
 
-static void test_a_bus_error_in_wait_ready_is_passed_on(void)
+static void test_a_bus_error_in_program_is_passed_on(void)
 {
     uint8_t b = 0u;
 
     tfw_nor_shim_fail(4u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(0u, &b, 1u));
     TEST_ASSERT_EQUAL_UINT32(4u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+}
+
+static void test_a_bus_error_in_wait_ready_is_passed_on(void)
+{
+    uint8_t b = 0u;
+
+    tfw_nor_shim_fail(5u, BUS_ERR);
+    TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(0u, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT32(5u, tfw_nor_shim_xfers());
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_model_programs());
 }
 
 static void test_a_bus_error_in_erase_is_passed_on(void)
 {
-    tfw_nor_shim_fail(3u, BUS_ERR);
+    tfw_nor_shim_fail(4u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_erase(0u));
-    TEST_ASSERT_EQUAL_UINT32(3u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL_UINT32(4u, tfw_nor_shim_xfers());
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
 }
 
@@ -118,7 +128,7 @@ static void test_a_read_after_a_torn_program_waits_for_the_part(void)
 {
     uint8_t b = 0x3Cu, back = 0u;
 
-    tfw_nor_shim_fail(4u, BUS_ERR);
+    tfw_nor_shim_fail(5u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_write(16u, &b, 1u));
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_model_programs());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_store_read(16u, &back, 1u));
@@ -132,7 +142,7 @@ static void test_a_read_after_a_torn_erase_waits_for_the_part(void)
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_store_write(32u, &b, 1u));
     tfw_nor_shim_reset();
-    tfw_nor_shim_fail(4u, BUS_ERR);
+    tfw_nor_shim_fail(5u, BUS_ERR);
     TEST_ASSERT_EQUAL(BUS_ERR, tfw_store_erase(0u));
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_model_erases());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_store_read(32u, &back, 1u));
@@ -193,6 +203,42 @@ static void test_a_bus_error_in_the_probe_is_passed_on(void)
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_nor_shim_xfers());
 }
 
+/* #234: a part whose WREN did not latch ignores the PROGRAM or ERASE after it,
+ * and WIP then reads clear as though the write were done. */
+static void test_a_program_after_a_write_enable_that_did_not_latch_is_refused(void)
+{
+    uint8_t b = 0x5Au;
+
+    tfw_nor_model_set_wel_stuck(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_STORE, tfw_store_write(0u, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_programs());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());   /* nothing sent unlatched */
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_nor_model_mem()[0]);
+}
+
+static void test_an_erase_after_a_write_enable_that_did_not_latch_is_refused(void)
+{
+    tfw_nor_model_set_wel_stuck(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_STORE, tfw_store_erase(0u));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_model_violations());
+}
+
+/* The command carries a 24-bit address: one at or past 2^24 would wrap to the
+ * bottom of the part, not reach the byte asked for. */
+static void test_an_address_or_span_past_2_24_is_refused(void)
+{
+    uint8_t b[2] = { 0u, 0u };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_store_write(0x01000000ul, b, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_store_write(0x00FFFFFFul, b, 2u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_store_read(0x01000000ul, b, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_store_read(0x00FFFFFFul, b, 2u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_store_erase(0x01000000ul));
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_nor_shim_xfers());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_store_read(0x00FFFFFFul, b, 1u));   /* the last byte */
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -200,6 +246,7 @@ int main(void)
     RUN_TEST(test_write_across_a_page_is_split_there);
     RUN_TEST(test_a_bus_error_in_the_ready_check_is_passed_on);
     RUN_TEST(test_a_bus_error_in_write_enable_is_passed_on);
+    RUN_TEST(test_a_bus_error_in_the_write_enable_check_is_passed_on);
     RUN_TEST(test_a_bus_error_in_program_is_passed_on);
     RUN_TEST(test_a_bus_error_in_wait_ready_is_passed_on);
     RUN_TEST(test_a_bus_error_in_erase_is_passed_on);
@@ -209,5 +256,8 @@ int main(void)
     RUN_TEST(test_the_probe_refuses_an_empty_select);
     RUN_TEST(test_the_probe_accepts_any_manufacturer);
     RUN_TEST(test_a_bus_error_in_the_probe_is_passed_on);
+    RUN_TEST(test_a_program_after_a_write_enable_that_did_not_latch_is_refused);
+    RUN_TEST(test_an_erase_after_a_write_enable_that_did_not_latch_is_refused);
+    RUN_TEST(test_an_address_or_span_past_2_24_is_refused);
     return UNITY_END();
 }

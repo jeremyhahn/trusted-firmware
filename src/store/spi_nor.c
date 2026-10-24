@@ -41,8 +41,10 @@
 #define NOR_STATUS     0x05u
 #define NOR_JEDEC_ID   0x9Fu   /* answers the JEP106 manufacturer byte first */
 #define NOR_WIP        0x01u   /* status bit 0: a program or erase is running */
+#define NOR_WEL        0x02u   /* status bit 1: WREN latched; the part will write */
 #define NOR_PAGE       256u
 #define NOR_HEAD       4u      /* the opcode and a 24-bit address */
+#define NOR_REACH      0x1000000ul   /* 2^24: the first byte a 24-bit address misses */
 
 #define NOR_SPI_MODE   0u
 #define NOR_SPI_CLKDIV 0u
@@ -77,22 +79,31 @@ static void head(uint8_t *b, uint8_t op, uint32_t addr)
     b[3] = (uint8_t)addr;
 }
 
+static tfw_status_t status(uint8_t *sr)
+{
+    uint8_t      b[2];
+    tfw_status_t st;
+
+    b[0] = NOR_STATUS;
+    b[1] = 0u;
+    bus();
+    st = tfw_hal_spi_xfer(&cs, b, b, 2u);
+    *sr = b[1];
+    return st;
+}
+
 static tfw_status_t wait_ready(void)
 {
     tfw_ms_t     start = tfw_hal_millis();
-    uint8_t      b[2];
+    uint8_t      sr;
 
     for (;;) {
-        tfw_status_t st;
+        tfw_status_t st = status(&sr);
 
-        b[0] = NOR_STATUS;
-        b[1] = 0u;
-        bus();
-        st = tfw_hal_spi_xfer(&cs, b, b, 2u);
         if (st != TFW_OK) {
             return st;
         }
-        if ((b[1] & NOR_WIP) == 0u) {
+        if ((sr & NOR_WIP) == 0u) {
             return TFW_OK;
         }
         if ((tfw_ms_t)(tfw_hal_millis() - start) >= (tfw_ms_t)NOR_BUSY_MS) {
@@ -101,6 +112,9 @@ static tfw_status_t wait_ready(void)
     }
 }
 
+/* A part whose WREN did not latch ignores the PROGRAM or ERASE after it, and
+ * WIP then reads clear as though the write were done (#234). So WEL is read
+ * back, and a part that will not write answers as one that is not there. */
 static tfw_status_t write_enable(void)
 {
     uint8_t      b  = NOR_WREN;
@@ -110,7 +124,22 @@ static tfw_status_t write_enable(void)
         return st;
     }
     bus();
-    return tfw_hal_spi_xfer(&cs, &b, &b, 1u);
+    st = tfw_hal_spi_xfer(&cs, &b, &b, 1u);
+    if (st != TFW_OK) {
+        return st;
+    }
+    st = status(&b);
+    if (st != TFW_OK) {
+        return st;
+    }
+    return ((b & NOR_WEL) != 0u) ? TFW_OK : TFW_ERR_NO_STORE;
+}
+
+/* The command carries 24 address bits: a byte at or past 2^24 would wrap to
+ * the bottom of the part, not reach the one asked for (#234). */
+static int beyond(uint32_t addr, uint8_t len)
+{
+    return addr >= NOR_REACH || (uint32_t)len > NOR_REACH - addr;
 }
 
 static tfw_status_t program(uint32_t addr, const uint8_t *src, uint8_t len)
@@ -164,8 +193,12 @@ tfw_status_t tfw_store_probe(void)
 tfw_status_t tfw_store_erase(uint32_t addr)
 {
     uint8_t      b[NOR_HEAD];
-    tfw_status_t st = write_enable();
+    tfw_status_t st;
 
+    if (beyond(addr, 1u)) {
+        return TFW_ERR_RANGE;
+    }
+    st = write_enable();
     if (st != TFW_OK) {
         return st;
     }
@@ -183,7 +216,7 @@ tfw_status_t tfw_store_read(uint32_t addr, uint8_t *buf, uint8_t len)
     uint8_t      b[NOR_HEAD + TFW_STORE_CHUNK];
     tfw_status_t st;
 
-    if (len > TFW_STORE_CHUNK) {
+    if (len > TFW_STORE_CHUNK || beyond(addr, len)) {
         return TFW_ERR_RANGE;
     }
     st = wait_ready();
@@ -203,7 +236,7 @@ tfw_status_t tfw_store_read(uint32_t addr, uint8_t *buf, uint8_t len)
 
 tfw_status_t tfw_store_write(uint32_t addr, const uint8_t *src, uint8_t len)
 {
-    if (len > TFW_STORE_CHUNK) {
+    if (len > TFW_STORE_CHUNK || beyond(addr, len)) {
         return TFW_ERR_RANGE;
     }
     while (len > 0u) {

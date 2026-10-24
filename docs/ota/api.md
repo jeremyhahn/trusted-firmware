@@ -33,6 +33,7 @@ Status codes (`include/tfw/status.h`) the stager returns:
 |---|---|---|
 | `OTA_BEGIN` | `TFW_ERR_RANGE` (11) | `total_len` is not above the trailer's length, is above the store's `STAGE` area, or is not a whole number of `TFW_OTA_PAGE_MAX` (256) pages |
 | `OTA_BEGIN` | `TFW_ERR_NO_STORE` (20) | no part answers READ JEDEC ID (0x9F) on the store's select: the manufacturer byte reads 0x00 or 0xFF |
+| `OTA_BEGIN`, `OTA_DATA` | `TFW_ERR_NO_STORE` (20) | the part's status register reads WEL clear after WREN, so it would ignore the erase or program; nothing is sent (#234) |
 | `OTA_DATA` | `TFW_ERR_BUSY` (8) | no transfer is receiving |
 | `OTA_DATA` | `TFW_ERR_RANGE` (11) | `offset` is not the received count, or the bytes run past `total_len` |
 | `OTA_END` | `TFW_ERR_BUSY` (8) | no transfer is receiving |

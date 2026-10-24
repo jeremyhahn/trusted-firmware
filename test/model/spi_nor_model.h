@@ -51,6 +51,10 @@ tfw_nor_model_bus_t tfw_nor_model_bus(void);
  * of TFW_NOR_MODEL_JEDEC0: any part, not only the one the model is. Reset
  * restores JEDEC0. */
 void           tfw_nor_model_set_maker(uint8_t m);
+/* Non-zero: WREN does not latch, so WEL reads clear and the part ignores the
+ * next PROGRAM or ERASE, as one whose WREN was lost on the bus. Reset clears
+ * it. */
+void           tfw_nor_model_set_wel_stuck(uint8_t on);
 /* The lowest and highest byte programmed or erased since the last clear (or
  * reset). Before any, lo is 0xFFFFFFFF and hi 0. */
 void           tfw_nor_model_clear_spans(void);

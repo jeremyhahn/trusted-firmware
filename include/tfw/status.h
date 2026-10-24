@@ -51,7 +51,7 @@ typedef enum {
 
     TFW_ERR_INTERNAL         = 18, /* a condition the firmware believes impossible */
     TFW_ERR_BAD_STATE        = 19, /* the command is not valid in the current OTA state */
-    TFW_ERR_NO_STORE         = 20  /* the external store did not answer its JEDEC ID */
+    TFW_ERR_NO_STORE         = 20  /* the external store did not answer its JEDEC ID, or latch WEL */
 } tfw_status_t;
 
 /*

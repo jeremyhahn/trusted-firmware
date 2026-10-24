@@ -70,6 +70,13 @@ static uint32_t pick_addr(void)
     }
 }
 
+/* A 24-bit address reaches 2^24 bytes; the driver refuses a span past them
+ * rather than wrap it (#234). */
+static int past(uint32_t addr, uint8_t len)
+{
+    return addr >= 0x01000000ul || (uint32_t)len > 0x01000000ul - addr;
+}
+
 static uint8_t pick_len(void)
 {
     switch (next() % 7u) {
@@ -149,7 +156,7 @@ static void do_read(uint32_t addr, uint8_t len, uint8_t faulted)
     memset(buf, 0xA5, sizeof buf);
     st = tfw_store_read(addr, buf, len);
     failed += (st != TFW_OK);
-    if (len > TFW_STORE_CHUNK) {
+    if (len > TFW_STORE_CHUNK || past(addr, len)) {
         TEST_ASSERT_EQUAL(TFW_ERR_RANGE, st);
         TEST_ASSERT_EACH_EQUAL_UINT8(0xA5u, buf, sizeof buf);
         return;
@@ -208,15 +215,17 @@ static void do_write(uint32_t addr, uint8_t len, uint8_t faulted)
     }
     st = tfw_store_write(addr, src, len);
     failed += (st != TFW_OK);
-    if (len > TFW_STORE_CHUNK) {
+    if (len > TFW_STORE_CHUNK || past(addr, len)) {
         TEST_ASSERT_EQUAL(TFW_ERR_RANGE, st);
         TEST_ASSERT_EQUAL_UINT32(before, tfw_nor_model_programs());
         check_all();                                /* a refused call changes nothing */
         return;
     }
     if (bus != TFW_NOR_MODEL_PRESENT) {
-        /* No part: floating high never reads ready; an echo reads ready. */
-        TEST_ASSERT_EQUAL((len != 0u && bus == TFW_NOR_MODEL_ABSENT_HIGH) ? TFW_ERR_TIMEOUT : TFW_OK, st);
+        /* No part: floating high never reads ready; an echo reads ready but
+         * WEL clear after WREN (#234). */
+        TEST_ASSERT_EQUAL((len == 0u) ? TFW_OK
+                          : (bus == TFW_NOR_MODEL_ABSENT_HIGH) ? TFW_ERR_TIMEOUT : TFW_ERR_NO_STORE, st);
         check_all();
         return;
     }
@@ -242,8 +251,14 @@ static void do_erase(uint32_t addr, uint8_t faulted)
 
     st = tfw_store_erase(addr);
     failed += (st != TFW_OK);
+    if (past(addr, 1u)) {
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, st);
+        TEST_ASSERT_EQUAL_UINT32(before, tfw_nor_model_erases());
+        check_all();
+        return;
+    }
     if (bus != TFW_NOR_MODEL_PRESENT) {
-        TEST_ASSERT_EQUAL((bus == TFW_NOR_MODEL_ABSENT_HIGH) ? TFW_ERR_TIMEOUT : TFW_OK, st);
+        TEST_ASSERT_EQUAL((bus == TFW_NOR_MODEL_ABSENT_HIGH) ? TFW_ERR_TIMEOUT : TFW_ERR_NO_STORE, st);
         check_all();
         return;
     }

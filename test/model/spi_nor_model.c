@@ -24,6 +24,7 @@
 
 static uint8_t  mem[TFW_NOR_MODEL_SIZE];
 static uint8_t  wel;
+static uint8_t  wel_stuck;
 static uint8_t  busy;
 static uint8_t  busy_polls = 1u;
 static uint8_t  ready;   /* a part leaves the factory erased; tfwsim never resets */
@@ -56,7 +57,7 @@ void tfw_nor_model_reset(void)
 {
     ready = 1u;
     memset(mem, 0xFF, sizeof mem);
-    wel = busy = 0u;
+    wel = busy = wel_stuck = 0u;
     busy_polls = 1u;
     erases = programs = violations = 0u;
     bus_mode = TFW_NOR_MODEL_PRESENT;
@@ -67,6 +68,8 @@ void tfw_nor_model_reset(void)
 }
 
 void tfw_nor_model_set_maker(uint8_t m) { maker = m; }
+
+void tfw_nor_model_set_wel_stuck(uint8_t on) { wel_stuck = on; }
 
 void tfw_nor_model_fail_xfer(uint8_t nth)    { fail_at = nth; }
 void tfw_nor_model_set_xfer_ms(uint16_t ms)  { xfer_ms = ms; }
@@ -133,7 +136,7 @@ static void nor(const uint8_t *wr, uint8_t *rd, uint16_t len)
             busy--;
         }
         break;
-    case OP_WREN: wel = 1u; break;
+    case OP_WREN: wel = (uint8_t)(wel_stuck == 0u); break;
     case OP_WRDI: wel = 0u; break;
     case OP_READ:
         if (len < HEAD) { violations++; break; }

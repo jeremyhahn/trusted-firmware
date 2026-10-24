@@ -298,7 +298,7 @@ One byte, carried in every response and event.
 | 17 | `TFW_ERR_AUTH_REQUIRED` | command needs an authenticated session |
 | 18 | `TFW_ERR_INTERNAL` | a condition the firmware believes impossible |
 | 19 | `TFW_ERR_BAD_STATE` | the command is not valid in the current OTA state |
-| 20 | `TFW_ERR_NO_STORE` | the external store did not answer its JEDEC ID |
+| 20 | `TFW_ERR_NO_STORE` | the external store did not answer its JEDEC ID, or did not latch WEL after WREN before a write |
 
 `TFW_STATUS_MAX` = 0xFE; values extend upward and never renumber.
 

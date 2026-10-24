@@ -13,6 +13,7 @@
 #include "spi_nor_model.h"
 #include "atecc608a_model.h"
 #include "ota_ctl.h"
+#include "ota_floor.h"
 #include "boot_platform.h"
 #include "tfw/hal.h"
 
@@ -72,10 +73,41 @@ static void test_info_fails_when_the_counter_cannot_be_read(void)
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, info(out));
 }
 
+/* An element that does not wake is CRYPTO before any command reaches it, and
+ * the caller's floor is not written. */
+static void test_a_floor_read_with_no_element_awake_is_refused_and_the_floor_stays(void)
+{
+    uint32_t floor = 0xA5A5A5A5u;
+
+    tfw_model_set_counter(9u);
+    tfw_model_fail_wakes_after(0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor(NULL, &floor));
+    TEST_ASSERT_EQUAL_UINT32(0xA5A5A5A5u, floor);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+/* The element wakes and refuses the counter read: CRYPTO, the floor is not
+ * written, the element is put back to sleep and its counter has not moved. */
+static void test_a_refused_counter_read_leaves_the_floor_and_the_counter(void)
+{
+    uint32_t floor = 0xA5A5A5A5u;
+
+    tfw_model_set_counter(9u);
+    tfw_model_force_status(0x0Fu);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor(NULL, &floor));
+    TEST_ASSERT_EQUAL_UINT32(0xA5A5A5A5u, floor);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
+    tfw_model_force_status(0u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_otactl_floor(NULL, &floor));
+    TEST_ASSERT_EQUAL_UINT32(9u, floor);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_info_reports_the_counter_past_the_block);
     RUN_TEST(test_info_fails_when_the_counter_cannot_be_read);
+    RUN_TEST(test_a_floor_read_with_no_element_awake_is_refused_and_the_floor_stays);
+    RUN_TEST(test_a_refused_counter_read_leaves_the_floor_and_the_counter);
     return UNITY_END();
 }

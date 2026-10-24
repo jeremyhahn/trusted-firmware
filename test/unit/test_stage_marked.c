@@ -191,6 +191,115 @@ static void test_refused_on_a_stream_flipped_after_end(void)
     expect_refused(1u);
 }
 
+/* Each store read the query makes is one transfer to the part: the MARK, then
+ * the trailer's measurement, then its image version. A read that fails is a
+ * refusal, never an answer from what was left in the buffer. */
+static void test_refused_when_the_mark_cannot_be_read(void)
+{
+    good_round(512u, 200u);
+    tfw_nor_model_fail_xfer(1u);
+    expect_refused(0u);
+}
+
+static void test_refused_when_the_trailer_measurement_cannot_be_read(void)
+{
+    good_round(512u, 200u);
+    tfw_nor_model_fail_xfer(2u);
+    expect_refused(0u);
+}
+
+static void test_refused_when_the_image_version_cannot_be_read(void)
+{
+    good_round(512u, 200u);
+    tfw_nor_model_fail_xfer(3u);
+    expect_refused(0u);
+}
+
+static void test_a_full_check_refuses_a_mark_hash_unlike_the_stream(void)
+{
+    good_round(512u, 200u);
+    tfw_nor_model_corrupt(MARK + 8u);
+    expect_refused(1u);
+}
+
+static void test_activate_before_an_end_is_refused_and_writes_no_mark(void)
+{
+    uint32_t progs;
+
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 240u);
+    progs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_stage_activate());
+    TEST_ASSERT_EQUAL_UINT32(progs, tfw_nor_model_programs());
+    expect_refused(0u);
+}
+
+static void test_an_end_short_of_the_length_fails_the_stage_and_takes_no_more_data(void)
+{
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 240u);
+    TEST_ASSERT_EQUAL(TFW_ERR_FRAMING, end());
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, data(240u, CHUNK));
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, end());
+}
+
+static void test_a_session_before_an_end_is_refused_and_leaves_its_outputs(void)
+{
+    uint8_t  h[TFW_BOOT_MEASURE_LEN];
+    uint8_t  was[TFW_BOOT_MEASURE_LEN];
+    uint32_t len = NOT_SET;
+
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    memset(h, 0x5A, sizeof h);
+    memset(was, 0x5A, sizeof was);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_stage_session(&len, h));
+    TEST_ASSERT_EQUAL_UINT32(NOT_SET, len);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(was, h, sizeof h);
+}
+
+static void test_authorize_before_an_end_is_refused_and_erases_nothing(void)
+{
+    uint8_t  sig[TFW_OTA_AUTH_SIG_LEN];
+    uint32_t erases;
+    uint32_t progs;
+
+    memset(sig, 0x11, sizeof sig);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    erases = tfw_nor_model_erases();
+    progs  = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_stage_authorize(sig, 1u));
+    TEST_ASSERT_EQUAL_UINT32(erases, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(progs, tfw_nor_model_programs());
+}
+
+static void test_authorize_returns_a_mark_erase_failure_and_programs_nothing(void)
+{
+    uint8_t  sig[TFW_OTA_AUTH_SIG_LEN];
+    uint32_t progs;
+
+    memset(sig, 0x11, sizeof sig);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    progs = tfw_nor_model_programs();
+    tfw_nor_model_fail_erases(1u, TFW_ERR_TIMEOUT);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_stage_authorize(sig, 1u));
+    TEST_ASSERT_EQUAL_UINT32(progs, tfw_nor_model_programs());
+}
+
+static void test_no_install_is_pending_when_the_mark_cannot_be_read(void)
+{
+    good_round(512u, 200u);
+    tfw_nor_model_fail_xfer(1u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -203,5 +312,15 @@ int main(void)
     RUN_TEST(test_refused_on_a_length_off_the_page);
     RUN_TEST(test_refused_on_a_mark_hash_unlike_the_trailer);
     RUN_TEST(test_refused_on_a_stream_flipped_after_end);
+    RUN_TEST(test_refused_when_the_mark_cannot_be_read);
+    RUN_TEST(test_refused_when_the_trailer_measurement_cannot_be_read);
+    RUN_TEST(test_refused_when_the_image_version_cannot_be_read);
+    RUN_TEST(test_a_full_check_refuses_a_mark_hash_unlike_the_stream);
+    RUN_TEST(test_activate_before_an_end_is_refused_and_writes_no_mark);
+    RUN_TEST(test_an_end_short_of_the_length_fails_the_stage_and_takes_no_more_data);
+    RUN_TEST(test_a_session_before_an_end_is_refused_and_leaves_its_outputs);
+    RUN_TEST(test_authorize_before_an_end_is_refused_and_erases_nothing);
+    RUN_TEST(test_authorize_returns_a_mark_erase_failure_and_programs_nothing);
+    RUN_TEST(test_no_install_is_pending_when_the_mark_cannot_be_read);
     return UNITY_END();
 }

@@ -198,9 +198,168 @@ static void test_mutated_frames_never_overrun_or_misreport(void)
     TEST_ASSERT_GREATER_THAN_UINT32(0u, bad);
 }
 
+/* ---- each refusal on its own: the event, the counter, nothing past it ---- */
+
+static tfw_frame_event_t push_all(const uint8_t *b, uint16_t n)
+{
+    tfw_frame_event_t e = TFW_FRAME_NONE;
+    for (uint16_t i = 0; i < n; i++) {
+        e = tfw_framer_push(&f, b[i]);
+    }
+    return e;
+}
+
+static void test_a_length_above_the_maximum_counts_one_format_error_and_waits_for_sof(void)
+{
+    (void)tfw_framer_push(&f, TFW_SOF);
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, (uint8_t)(TFW_MAX_LEN + 1u)));
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
+    TEST_ASSERT_EQUAL_UINT8(0u, f.want);
+    TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_crc);
+}
+
+static void test_a_length_below_the_minimum_takes_no_length_and_waits_for_sof(void)
+{
+    (void)tfw_framer_push(&f, TFW_SOF);
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, (uint8_t)(TFW_LEN_MIN - 1u)));
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
+    TEST_ASSERT_EQUAL_UINT8(0u, f.want);
+    TEST_ASSERT_EQUAL_UINT8(0u, f.got);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_crc);
+}
+
+static void test_a_crc_mismatch_counts_one_crc_error_and_ends_the_frame(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_PING, 0, 0u);
+
+    wire[n - 2u] ^= 0x01u;                     /* CRC low byte */
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_CRC, push_all(wire, n));
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
+    TEST_ASSERT_EQUAL_UINT16(1u, f.err_crc);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_format);
+    wire[n - 2u] ^= 0x01u;
+    TEST_ASSERT_EQUAL(TFW_FRAME_READY, push_all(wire, n));
+}
+
+static void test_a_response_with_no_room_for_its_status_counts_a_format_error_not_a_crc_error(void)
+{
+    uint8_t  wire[6];
+    uint16_t crc;
+
+    wire[0] = TFW_SOF;
+    wire[1] = 2u;
+    wire[2] = 0x01u;
+    wire[3] = TFW_CMD_PING | TFW_OP_RESPONSE_BIT;
+    crc     = tfw_crc16(&wire[1], 3u);
+    wire[4] = (uint8_t)(crc & 0xFFu);
+    wire[5] = (uint8_t)(crc >> 8);
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, push_all(wire, sizeof wire));
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
+    TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_crc);
+}
+
+static void test_the_crc_error_counter_saturates_rather_than_wrapping(void)
+{
+    uint8_t  wire[TFW_MAX_FRAME];
+    uint16_t n = tfw_frame_encode_request(wire, sizeof wire, 2u, TFW_CMD_PING, 0, 0u);
+
+    wire[n - 1u] ^= 0x80u;
+    f.err_crc = 0xFFFFu;
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_CRC, push_all(wire, n));
+    TEST_ASSERT_EQUAL_UINT16(0xFFFFu, f.err_crc);
+}
+
+static void test_the_format_error_counter_saturates_rather_than_wrapping(void)
+{
+    f.err_format = 0xFFFFu;
+    (void)tfw_framer_push(&f, TFW_SOF);
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, 0u));
+    TEST_ASSERT_EQUAL_UINT16(0xFFFFu, f.err_format);
+}
+
+static void test_a_corrupted_state_counts_no_error(void)
+{
+    f.state = 0xFFu;
+    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, TFW_SOF));
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_format);
+    TEST_ASSERT_EQUAL_UINT16(0u, f.err_crc);
+}
+
+static void test_a_request_buffer_one_byte_short_is_refused_and_untouched(void)
+{
+    uint8_t wire[TFW_FRAME_OVERHEAD + 2u + 1u];
+    uint8_t want[sizeof wire];
+    uint8_t pay = 0x5Au;
+
+    memset(wire, 0xEEu, sizeof wire);
+    memcpy(want, wire, sizeof want);
+    TEST_ASSERT_EQUAL_UINT16(0u,
+        tfw_frame_encode_request(wire, (uint16_t)(sizeof wire - 1u), 1u, TFW_CMD_PING, &pay, 1u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, sizeof wire);
+}
+
+/* A response's STATUS byte counts against the buffer: room for a request of
+ * the same payload is one byte short of room for the response. */
+static void test_a_response_buffer_with_no_room_for_the_status_is_refused_and_untouched(void)
+{
+    uint8_t wire[TFW_FRAME_OVERHEAD + 3u];
+    uint8_t want[sizeof wire];
+
+    memset(wire, 0xEEu, sizeof wire);
+    memcpy(want, wire, sizeof want);
+    TEST_ASSERT_EQUAL_UINT16(0u,
+        tfw_frame_encode_response(wire, (uint16_t)(sizeof wire - 1u), 1u, TFW_CMD_PING, TFW_OK, 0, 0u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, sizeof wire);
+    TEST_ASSERT_EQUAL_UINT16(sizeof wire,
+        tfw_frame_encode_response(wire, (uint16_t)sizeof wire, 1u, TFW_CMD_PING, TFW_OK, 0, 0u));
+}
+
+static void test_an_oversize_response_payload_is_refused_and_untouched(void)
+{
+    uint8_t pay[TFW_MAX_PAYLOAD + 1u];
+    uint8_t wire[TFW_MAX_FRAME + 8u];
+    uint8_t want[sizeof wire];
+
+    memset(pay, 0x11u, sizeof pay);
+    memset(wire, 0xEEu, sizeof wire);
+    memcpy(want, wire, sizeof want);
+    TEST_ASSERT_EQUAL_UINT16(0u,
+        tfw_frame_encode_response(wire, sizeof wire, 1u, TFW_CMD_PING, TFW_OK, pay, (uint8_t)sizeof pay));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, sizeof wire);
+}
+
+static void test_an_oversize_event_payload_is_refused_and_untouched(void)
+{
+    uint8_t pay[TFW_MAX_PAYLOAD + 1u];
+    uint8_t wire[TFW_MAX_FRAME + 8u];
+    uint8_t want[sizeof wire];
+
+    memset(pay, 0x22u, sizeof pay);
+    memset(wire, 0xEEu, sizeof wire);
+    memcpy(want, wire, sizeof want);
+    TEST_ASSERT_EQUAL_UINT16(0u,
+        tfw_frame_encode_event(wire, sizeof wire, TFW_OK, pay, (uint8_t)sizeof pay));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, wire, sizeof wire);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_mutated_frames_never_overrun_or_misreport);
+    RUN_TEST(test_a_length_above_the_maximum_counts_one_format_error_and_waits_for_sof);
+    RUN_TEST(test_a_length_below_the_minimum_takes_no_length_and_waits_for_sof);
+    RUN_TEST(test_a_crc_mismatch_counts_one_crc_error_and_ends_the_frame);
+    RUN_TEST(test_a_response_with_no_room_for_its_status_counts_a_format_error_not_a_crc_error);
+    RUN_TEST(test_the_crc_error_counter_saturates_rather_than_wrapping);
+    RUN_TEST(test_the_format_error_counter_saturates_rather_than_wrapping);
+    RUN_TEST(test_a_corrupted_state_counts_no_error);
+    RUN_TEST(test_a_request_buffer_one_byte_short_is_refused_and_untouched);
+    RUN_TEST(test_a_response_buffer_with_no_room_for_the_status_is_refused_and_untouched);
+    RUN_TEST(test_an_oversize_response_payload_is_refused_and_untouched);
+    RUN_TEST(test_an_oversize_event_payload_is_refused_and_untouched);
     return UNITY_END();
 }

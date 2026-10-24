@@ -400,6 +400,37 @@ static void test_random_short_of_the_length_asked_is_framing(void)
     played();
 }
 
+/* A random stream of any length but the one asked is refused before a byte
+ * of it reaches the caller. */
+static void test_a_random_of_the_wrong_length_writes_nothing(void)
+{
+    static const uint8_t    a[] = { 0x00, 0x00, 0x00, 0x09, 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+    static const exchange_t s[] = { EX(Q_RANDOM, a) };
+    unsigned                i;
+
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_get_random(out, 32u));
+    played();
+    for (i = 0u; i < 33u; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, out[i]);
+    }
+}
+
+/* Metadata that is not tag 0x20 is refused unread: neither the buffer nor
+ * the length is touched. */
+static void test_metadata_of_the_wrong_tag_writes_nothing(void)
+{
+    static const uint8_t    a21[] = { 0x00, 0x00, 0x00, 0x02, 0x21, 0x00 };
+    static const exchange_t s[]   = { EX(Q_MD_CERT, a21) };
+
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_get_metadata(0xE0E0u, out, sizeof out, &len));
+    played();
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, out[1]);
+    TEST_ASSERT_EQUAL_UINT16(0xFFFFu, len);
+}
+
 static void test_metadata_that_is_not_tag_20_or_overflows_the_caller(void)
 {
     static const uint8_t    a21[] = { 0x00, 0x00, 0x00, 0x02, 0x21, 0x00 };
@@ -982,6 +1013,8 @@ int main(void)
     RUN_TEST(test_a_short_response_is_framing);
     RUN_TEST(test_an_over_long_response);
     RUN_TEST(test_random_short_of_the_length_asked_is_framing);
+    RUN_TEST(test_a_random_of_the_wrong_length_writes_nothing);
+    RUN_TEST(test_metadata_of_the_wrong_tag_writes_nothing);
     RUN_TEST(test_metadata_that_is_not_tag_20_or_overflows_the_caller);
     RUN_TEST(test_arguments_out_of_range_send_nothing);
     RUN_TEST(test_the_edges_of_the_ranges_are_sent);

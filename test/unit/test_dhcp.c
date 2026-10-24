@@ -681,6 +681,66 @@ static void test_a_probe_the_chip_will_not_send_gives_the_socket_back(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));   /* INIT again */
 }
 
+/* dhcp.c poll: send_msg() refused for want of room. Nothing goes on the wire,
+ * the socket is given back and no address is taken. */
+static void test_a_discover_the_chip_has_no_room_for_gives_the_socket_back(void)
+{
+    w5x_model_tx_cap(0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, run(11000u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.mask, 4u);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.gateway, 4u);
+}
+
+/* probed(): the address answered the probe, and the DHCPDECLINE does not fit.
+ * The lease is not taken, and the client starts again from INIT. */
+static void test_a_decline_the_chip_has_no_room_for_gives_the_socket_back(void)
+{
+    reply_t r = reply(5u);
+    uint8_t buf[8], sends;
+
+    w5x_model_arp_silent(none);                             /* a host has it */
+    offer_and_request();
+    hand_up(&r);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT16(1u, w5x_model_peer_recv(buf, sizeof buf));
+    sends = w5x_model_sends();
+    w5x_model_tx_cap(10u);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8(sends, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT16(0u, w5x_model_peer_recv(buf, sizeof buf));
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.mask, 4u);
+    w5x_model_tx_cap(0xFFFFu);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));   /* INIT again */
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));
+}
+
+/* probed(): the controller takes the probe's SEND but never says how it went
+ * (no SEND_OK, no TIMEOUT). After 4 s the client gives up without the lease. */
+static void test_a_probe_the_chip_never_finishes_is_given_up_after_4_s(void)
+{
+    reply_t r = reply(5u);
+
+    offer_and_request();
+    hand_up(&r);
+    w5x_model_set_sr(0x00u);                                /* SEND raises nothing */
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    now_ms += 4000u - 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.ip, 4u);
+    now_ms += 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.ip, 4u);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.mask, 4u);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(none, cfg.gateway, 4u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_dhcp_poll(&cfg));   /* INIT again */
+    TEST_ASSERT_EQUAL_UINT8(0x22u, w5x_model_sock(S_SR));
+}
+
 static void test_at_t1_the_lease_is_renewed_beside_the_connection(void)
 {
     tfw_ms_t asked = bind();
@@ -822,6 +882,59 @@ static void test_a_connection_lost_while_renewing_renews_again_once_up(void)
     TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());
 }
 
+/* tfw_dhcp_renew(): at T1 the second socket will not open. The lease still
+ * runs, so nothing is sent, the connection keeps its address, and the next
+ * try is due half the time to the lease's end on (900 s). */
+static void test_a_renewal_socket_the_chip_will_not_open_keeps_the_lease_and_tries_later(void)
+{
+    tfw_ms_t asked = bind();
+    tfw_ms_t t1    = asked + T1_MS;
+    uint8_t  sends;
+
+    connect_link();
+    now_ms = t1;
+    sends  = w5x_model_sends();
+    w5x_model_cr_stuck_on(0x01u);                           /* OPEN */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    w5x_model_cr_stuck_on(0u);
+    TEST_ASSERT_EQUAL_UINT8(sends, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
+    TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());
+    TEST_ASSERT_EQUAL_UINT8(offered[3], w5x_model_common(0x12u));  /* SIPR kept */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    now_ms = t1 + 900000u - 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_poll(&cfg));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(offered, cfg.ip, 4u);
+    now_ms = t1 + 900000u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_dhcp_due());
+}
+
+/* tfw_dhcp_renew(): the renewal does not fit the socket. The answer is still
+ * OK -- the lease runs -- nothing is sent, and the next request goes at its
+ * usual time, half the way to T2 (675 s). */
+static void test_a_renewal_the_chip_has_no_room_for_keeps_the_lease_and_goes_next_time(void)
+{
+    tfw_ms_t asked = bind();
+    tfw_ms_t t1    = asked + T1_MS;
+    uint8_t  sends;
+
+    connect_link();
+    now_ms = t1;
+    sends  = w5x_model_sends();
+    w5x_model_tx_cap(0u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dhcp_renew(&cfg));
+    w5x_model_tx_cap(0xFFFFu);
+    TEST_ASSERT_EQUAL_UINT8(sends, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT8(0x17u, link_sr());
+    TEST_ASSERT_EQUAL_UINT8(offered[3], w5x_model_common(0x12u));  /* SIPR kept */
+    now_ms = t1 + 675000u - 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_dhcp_due());
+    now_ms = t1 + 675000u;
+    renewal_sent();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -850,11 +963,16 @@ int main(void)
     RUN_TEST(test_an_ack_probes_the_address_from_no_address_before_taking_it);
     RUN_TEST(test_an_address_in_use_is_declined_and_asked_for_again_after_10_s);
     RUN_TEST(test_a_probe_the_chip_will_not_send_gives_the_socket_back);
+    RUN_TEST(test_a_discover_the_chip_has_no_room_for_gives_the_socket_back);
+    RUN_TEST(test_a_decline_the_chip_has_no_room_for_gives_the_socket_back);
+    RUN_TEST(test_a_probe_the_chip_never_finishes_is_given_up_after_4_s);
     RUN_TEST(test_at_t1_the_lease_is_renewed_beside_the_connection);
     RUN_TEST(test_a_renewal_waits_half_the_time_to_t2_but_at_least_60_s);
     RUN_TEST(test_at_t2_any_server_may_rebind_the_lease);
     RUN_TEST(test_a_short_lease_is_asked_for_60_s_apart_and_lost_at_its_end);
     RUN_TEST(test_a_nak_to_a_renewal_loses_the_lease);
     RUN_TEST(test_a_connection_lost_while_renewing_renews_again_once_up);
+    RUN_TEST(test_a_renewal_socket_the_chip_will_not_open_keeps_the_lease_and_tries_later);
+    RUN_TEST(test_a_renewal_the_chip_has_no_room_for_keeps_the_lease_and_goes_next_time);
     return UNITY_END();
 }

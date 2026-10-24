@@ -568,6 +568,185 @@ static void test_the_clean_requests_afterwards(void)
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_mock_tone_hz());
 }
 
+/* The error return of each branch, one test each. The handlers are called
+ * directly, past the dispatcher's arity check, so each request reaches the
+ * branch it names. The pins are the ATmega328P's. */
+#define TX_PIN        1u    /* D1: TFW_PIN_IN_USE, the link's TX */
+#define PLAIN_PIN     2u    /* D2: digital, no ADC channel, no compare unit */
+#define TICK_PIN      5u    /* D5: OC0B, the tick timer's: TFW_PWM_RSVD */
+#define ADC_ONLY_PIN  20u   /* A6: an ADC channel and no digital port */
+#define ANALOG_PIN    14u   /* A0: ADC channel 0 */
+
+typedef tfw_status_t (*handler_t)(tfw_reader_t *r, tfw_writer_t *w);
+
+/* The handler answers want, and the refusal wrote nothing into the reply. */
+static void refused(handler_t fn, const uint8_t *p, uint8_t n, tfw_status_t want)
+{
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    unsigned     i;
+
+    memset(out, GUARD_BYTE, sizeof out);
+    tfw_reader_init(&r, p, n);
+    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    TEST_ASSERT_EQUAL(want, fn(&r, &w));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_writer_len(&w));
+    for (i = 0u; i < sizeof out; i++) {
+        TEST_ASSERT_EQUAL_HEX8(GUARD_BYTE, out[i]);
+    }
+}
+
+static void test_an_analog_read_of_a_pin_past_the_board_is_refused_and_writes_nothing(void)
+{
+    const uint8_t p[1] = { TFW_PIN_COUNT };
+    refused(tfw_analog_cmd_read, p, 1u, TFW_ERR_BAD_PIN);
+}
+
+static void test_an_analog_read_of_a_pin_with_no_adc_channel_is_unsupported_and_writes_nothing(void)
+{
+    const uint8_t p[1] = { PLAIN_PIN };
+    refused(tfw_analog_cmd_read, p, 1u, TFW_ERR_UNSUPPORTED);
+}
+
+static void test_a_conversion_that_fails_is_passed_up_and_writes_nothing(void)
+{
+    const uint8_t p[1] = { ANALOG_PIN };
+    tfw_mock_adc_read_fails(1u);
+    refused(tfw_analog_cmd_read, p, 1u, TFW_ERR_TIMEOUT);
+}
+
+static void test_an_adc_reference_one_past_internal_is_out_of_range_and_writes_nothing(void)
+{
+    const uint8_t p[1] = { (uint8_t)TFW_ADC_REF_INTERNAL + 1u };
+    refused(tfw_analog_cmd_set_ref, p, 1u, TFW_ERR_RANGE);
+}
+
+/* A refused PWM_WRITE must not have made its pin an output on the way. */
+static void pwm_refused(uint8_t pin, tfw_status_t want)
+{
+    const uint8_t p[2] = { pin, 128u };
+    tfw_pinref_t  ref;
+
+    refused(tfw_pwm_cmd_write, p, 2u, want);
+    if (tfw_board_pin(pin, &ref) == TFW_OK) {
+        TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_pin_is_output(ref.port, ref.bit));
+    }
+}
+
+static void test_a_pwm_write_to_a_pin_in_use_is_refused_and_leaves_the_pin_an_input(void)
+{
+    pwm_refused(TX_PIN, TFW_ERR_RESERVED_PIN);
+}
+
+static void test_a_pwm_write_to_a_pin_past_the_board_is_refused(void)
+{
+    pwm_refused(TFW_PIN_COUNT, TFW_ERR_BAD_PIN);
+}
+
+static void test_a_pwm_write_to_a_pin_with_no_compare_unit_is_unsupported_and_leaves_the_pin_an_input(void)
+{
+    pwm_refused(PLAIN_PIN, TFW_ERR_UNSUPPORTED);
+}
+
+static void test_a_pwm_write_to_a_tick_timer_pin_is_unsupported_and_leaves_the_pin_an_input(void)
+{
+    pwm_refused(TICK_PIN, TFW_ERR_UNSUPPORTED);
+}
+
+static void pulse_in_refused(uint8_t pin, uint8_t level, uint32_t timeout, tfw_status_t want)
+{
+    uint8_t p[6];
+
+    p[0] = pin;
+    p[1] = level;
+    put_u32(&p[2], timeout);
+    refused(tfw_pulse_cmd_in, p, 6u, want);
+}
+
+static void capture_refused(uint8_t pin, uint8_t level, uint8_t count, uint32_t timeout,
+                            tfw_status_t want)
+{
+    uint8_t p[7];
+
+    p[0] = pin;
+    p[1] = level;
+    p[2] = count;
+    put_u32(&p[3], timeout);
+    refused(tfw_pulse_cmd_capture, p, 7u, want);
+}
+
+static void test_a_pulse_on_a_pin_past_the_board_is_refused_and_writes_nothing(void)
+{
+    pulse_in_refused(TFW_PIN_COUNT, 1u, TFW_PULSE_MAX_US, TFW_ERR_BAD_PIN);
+}
+
+static void test_a_pulse_on_a_pin_with_no_digital_port_is_unsupported_and_writes_nothing(void)
+{
+    pulse_in_refused(ADC_ONLY_PIN, 1u, TFW_PULSE_MAX_US, TFW_ERR_UNSUPPORTED);
+}
+
+static void test_a_pulse_of_level_two_is_out_of_range_and_writes_nothing(void)
+{
+    pulse_in_refused(PLAIN_PIN, 2u, TFW_PULSE_MAX_US, TFW_ERR_RANGE);
+}
+
+static void test_a_pulse_with_a_zero_timeout_is_out_of_range_and_writes_nothing(void)
+{
+    pulse_in_refused(PLAIN_PIN, 1u, 0u, TFW_ERR_RANGE);
+}
+
+static void test_a_pulse_with_a_timeout_past_the_cap_is_out_of_range_and_writes_nothing(void)
+{
+    pulse_in_refused(PLAIN_PIN, 1u, TFW_PULSE_MAX_US + 1u, TFW_ERR_RANGE);
+}
+
+static void test_a_pulse_longer_than_its_timeout_times_out_and_writes_nothing(void)
+{
+    pulse_in_refused(PLAIN_PIN, 1u, PULSE_US - 1u, TFW_ERR_TIMEOUT);
+}
+
+static void test_a_capture_on_a_pin_past_the_board_is_refused_and_writes_nothing(void)
+{
+    capture_refused(TFW_PIN_COUNT, 1u, 8u, TFW_PULSE_MAX_US, TFW_ERR_BAD_PIN);
+}
+
+static void test_a_capture_on_a_pin_with_no_digital_port_is_unsupported_and_writes_nothing(void)
+{
+    capture_refused(ADC_ONLY_PIN, 1u, 8u, TFW_PULSE_MAX_US, TFW_ERR_UNSUPPORTED);
+}
+
+static void test_a_capture_starting_at_level_two_is_out_of_range_and_writes_nothing(void)
+{
+    capture_refused(PLAIN_PIN, 2u, 8u, TFW_PULSE_MAX_US, TFW_ERR_RANGE);
+}
+
+static void test_a_capture_of_zero_edges_is_out_of_range_and_writes_nothing(void)
+{
+    capture_refused(PLAIN_PIN, 1u, 0u, TFW_PULSE_MAX_US, TFW_ERR_RANGE);
+}
+
+static void test_a_capture_of_one_edge_past_the_reply_is_out_of_range_and_writes_nothing(void)
+{
+    capture_refused(PLAIN_PIN, 1u, (uint8_t)(CAPTURE_MAX + 1u), TFW_PULSE_MAX_US, TFW_ERR_RANGE);
+}
+
+static void test_a_capture_with_a_zero_timeout_is_out_of_range_and_writes_nothing(void)
+{
+    capture_refused(PLAIN_PIN, 1u, 8u, 0u, TFW_ERR_RANGE);
+}
+
+static void test_a_capture_with_a_timeout_past_the_cap_is_out_of_range_and_writes_nothing(void)
+{
+    capture_refused(PLAIN_PIN, 1u, 8u, TFW_PULSE_MAX_US + 1u, TFW_ERR_RANGE);
+}
+
+static void test_a_capture_that_sees_no_edge_times_out_and_writes_nothing(void)
+{
+    tfw_mock_set_capture(edges, 0u);
+    capture_refused(PLAIN_PIN, 1u, 8u, TFW_PULSE_MAX_US, TFW_ERR_TIMEOUT);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -577,5 +756,27 @@ int main(void)
     RUN_TEST(test_every_pin_level_count_and_timeout_of_a_capture);
     RUN_TEST(test_mutated_pin_requests);
     RUN_TEST(test_the_clean_requests_afterwards);
+    RUN_TEST(test_an_analog_read_of_a_pin_past_the_board_is_refused_and_writes_nothing);
+    RUN_TEST(test_an_analog_read_of_a_pin_with_no_adc_channel_is_unsupported_and_writes_nothing);
+    RUN_TEST(test_a_conversion_that_fails_is_passed_up_and_writes_nothing);
+    RUN_TEST(test_an_adc_reference_one_past_internal_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_pwm_write_to_a_pin_in_use_is_refused_and_leaves_the_pin_an_input);
+    RUN_TEST(test_a_pwm_write_to_a_pin_past_the_board_is_refused);
+    RUN_TEST(test_a_pwm_write_to_a_pin_with_no_compare_unit_is_unsupported_and_leaves_the_pin_an_input);
+    RUN_TEST(test_a_pwm_write_to_a_tick_timer_pin_is_unsupported_and_leaves_the_pin_an_input);
+    RUN_TEST(test_a_pulse_on_a_pin_past_the_board_is_refused_and_writes_nothing);
+    RUN_TEST(test_a_pulse_on_a_pin_with_no_digital_port_is_unsupported_and_writes_nothing);
+    RUN_TEST(test_a_pulse_of_level_two_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_pulse_with_a_zero_timeout_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_pulse_with_a_timeout_past_the_cap_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_pulse_longer_than_its_timeout_times_out_and_writes_nothing);
+    RUN_TEST(test_a_capture_on_a_pin_past_the_board_is_refused_and_writes_nothing);
+    RUN_TEST(test_a_capture_on_a_pin_with_no_digital_port_is_unsupported_and_writes_nothing);
+    RUN_TEST(test_a_capture_starting_at_level_two_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_capture_of_zero_edges_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_capture_of_one_edge_past_the_reply_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_capture_with_a_zero_timeout_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_capture_with_a_timeout_past_the_cap_is_out_of_range_and_writes_nothing);
+    RUN_TEST(test_a_capture_that_sees_no_edge_times_out_and_writes_nothing);
     return UNITY_END();
 }

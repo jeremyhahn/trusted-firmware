@@ -48,6 +48,14 @@ static void test_handoff_take_cdi_returns_zero_and_leaves_out_untouched(void)
     TEST_ASSERT_EACH_EQUAL_UINT8(0xA5u, cdi, sizeof cdi);
 }
 
+static void test_handoff_device_seed_returns_zero_and_leaves_out_untouched(void)
+{
+    uint8_t seed[TFW_BOOT_SEED_LEN];
+    memset(seed, 0xA5, sizeof seed);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_handoff_device_seed(seed));
+    TEST_ASSERT_EACH_EQUAL_UINT8(0xA5u, seed, sizeof seed);
+}
+
 static void test_platform_serial_is_all_zero(void)
 {
     const uint8_t *serial;
@@ -93,6 +101,7 @@ int main(void)
     RUN_TEST(test_handoff_reset_cause_returns_zero_and_leaves_out_untouched);
     RUN_TEST(test_handoff_tier_is_null);
     RUN_TEST(test_handoff_take_cdi_returns_zero_and_leaves_out_untouched);
+    RUN_TEST(test_handoff_device_seed_returns_zero_and_leaves_out_untouched);
     RUN_TEST(test_platform_serial_is_all_zero);
     RUN_TEST(test_platform_operator_pubkey_is_all_zero_and_no_wider);
     RUN_TEST(test_stage_init_is_safe_to_call_twice);

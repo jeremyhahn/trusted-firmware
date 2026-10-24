@@ -33,6 +33,17 @@ static void test_secure_zero_of_one_byte(void)                               { a
 static void test_secure_zero_of_seven_bytes(void)                            { assert_zeroed_exactly(7u); }
 static void test_secure_zero_of_thirty_two_bytes(void)                       { assert_zeroed_exactly(32u); }
 
+/* Zero bytes at a null pointer is a no-op: the loop never dereferences it. */
+static void test_secure_zero_of_zero_bytes_at_null_writes_nothing(void)
+{
+    size_t i;
+
+    tfw_secure_zero(NULL, 0u);
+    for (i = 0u; i < sizeof buf; i++) {
+        TEST_ASSERT_EQUAL_HEX8(GUARD, buf[i]);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -40,5 +51,6 @@ int main(void)
     RUN_TEST(test_secure_zero_of_one_byte);
     RUN_TEST(test_secure_zero_of_seven_bytes);
     RUN_TEST(test_secure_zero_of_thirty_two_bytes);
+    RUN_TEST(test_secure_zero_of_zero_bytes_at_null_writes_nothing);
     return UNITY_END();
 }

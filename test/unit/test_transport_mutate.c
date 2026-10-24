@@ -33,6 +33,7 @@
 #include "transport.h"
 #include "sys.h"
 #include "crc16.h"
+#include "dispatch.h"
 #include "hal_mock.h"
 #include "tfw/hal.h"
 #include "tfw/protocol.h"
@@ -469,6 +470,144 @@ static void test_random_stacks_of_edits(void)
     TEST_ASSERT_EQUAL_UINT(STACK_RUNS, runs);
 }
 
+/* ---- each refusal on its own: the reply it owes, and nothing past it ---- */
+
+/* Decodes every frame the device sent; the last one stays in *rx. */
+static unsigned replies_in(tfw_framer_t *rx)
+{
+    uint8_t  back[TFW_MAX_FRAME * 4u];
+    size_t   got = tfw_mock_drain_tx(back, sizeof back);
+    unsigned n = 0u;
+    size_t   i;
+
+    tfw_framer_init(rx);
+    for (i = 0u; i < got; i++) {
+        if (tfw_framer_push(rx, back[i]) == TFW_FRAME_READY) { n++; }
+    }
+    return n;
+}
+
+/* A CRC failure is answered with ERR_CRC and no payload, the op recorded as
+ * refused, and nothing left owing. */
+static void test_a_crc_failure_is_answered_with_no_payload_and_recorded_as_refused(void)
+{
+    const uint8_t pay[3] = { 1u, 2u, 3u };
+    uint8_t       wire[TFW_MAX_FRAME];
+    uint16_t      n;
+    tfw_framer_t  rx;
+
+    fresh();
+    n = tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_PING, 0, 0u);
+    tfw_mock_feed_rx(wire, n);
+    poll_n(4u);
+    TEST_ASSERT_EQUAL_UINT(1u, replies_in(&rx));
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING, tfw_dispatch_last());
+
+    n = tfw_frame_encode_request(wire, sizeof wire, 6u, TFW_CMD_CAPS, pay, sizeof pay);
+    wire[n - 1u] ^= 0xFFu;
+    tfw_mock_feed_rx(wire, n);
+    poll_n(1u);
+    TEST_ASSERT_EQUAL_UINT(1u, replies_in(&rx));
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC, tfw_frame_status(&rx));
+    TEST_ASSERT_EQUAL_HEX8(6u, tfw_frame_seq(&rx));
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_CAPS | TFW_OP_RESPONSE_BIT, tfw_frame_op(&rx));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&rx));
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_CAPS, tfw_dispatch_last());
+    TEST_ASSERT_EQUAL_UINT16(0u, g.t.out_len);
+    TEST_ASSERT_FALSE(g.t.in_frame);
+}
+
+/* A malformed length sends nothing, dispatches nothing, and leaves no frame
+ * open for the idle timer to find. */
+static void test_a_bad_format_byte_sends_nothing_and_leaves_no_frame_open(void)
+{
+    const uint8_t bad[2] = { TFW_SOF, (uint8_t)(TFW_MAX_LEN + 1u) };
+    uint8_t       wire[TFW_MAX_FRAME];
+    uint16_t      n;
+    tfw_framer_t  rx;
+
+    fresh();
+    n = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, 0, 0u);
+    tfw_mock_feed_rx(wire, n);
+    poll_n(4u);
+    TEST_ASSERT_EQUAL_UINT(1u, replies_in(&rx));
+
+    tfw_mock_feed_rx(bad, sizeof bad);
+    poll_n(1u);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_tx_pending());
+    TEST_ASSERT_EQUAL_UINT16(0u, g.t.out_len);
+    TEST_ASSERT_FALSE(g.t.in_frame);
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, g.t.framer.state);
+    TEST_ASSERT_EQUAL_UINT16(1u, g.t.framer.err_format);
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING, tfw_dispatch_last());
+}
+
+/* While a reply is still owed, poll reads no new byte: the next request waits
+ * in the ring, the framer untouched, until the reply is out. */
+static void test_an_unfinished_reply_holds_back_the_next_request(void)
+{
+    uint8_t      pay[32];
+    uint8_t      a[TFW_MAX_FRAME];
+    uint8_t      b[TFW_MAX_FRAME];
+    uint16_t     na, nb, pos;
+    tfw_framer_t rx;
+
+    fresh();
+    memset(pay, 0x33u, sizeof pay);
+    na = tfw_frame_encode_request(a, sizeof a, 1u, TFW_CMD_PING, pay, (uint8_t)sizeof pay);
+    nb = tfw_frame_encode_request(b, sizeof b, 2u, TFW_CMD_CAPS, 0, 0u);
+    tfw_mock_set_tx_capacity(2u);
+    tfw_mock_feed_rx(a, na);
+    poll_n(1u);
+    TEST_ASSERT_NOT_EQUAL(0u, g.t.out_len);
+    pos = g.t.out_pos;
+
+    tfw_mock_feed_rx(b, nb);
+    poll_n(1u);
+    TEST_ASSERT_EQUAL_UINT16(pos, g.t.out_pos);
+    TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, g.t.framer.state);
+    TEST_ASSERT_FALSE(g.t.in_frame);
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING, tfw_dispatch_last());
+
+    tfw_mock_set_tx_capacity(0u);
+    poll_n(4u);
+    TEST_ASSERT_EQUAL_UINT(2u, replies_in(&rx));
+    TEST_ASSERT_EQUAL_HEX8(2u, tfw_frame_seq(&rx));
+}
+
+/* An event refused while a reply is owed changes nothing: the reply goes out
+ * whole, and no event follows it. */
+static void test_an_event_refused_while_a_reply_is_owed_leaves_the_reply_intact(void)
+{
+    uint8_t      pay[32];
+    uint8_t      wire[TFW_MAX_FRAME];
+    uint8_t      before[sizeof g.t.out];
+    uint16_t     n, len, pos;
+    tfw_framer_t rx;
+
+    fresh();
+    memset(pay, 0x44u, sizeof pay);
+    n = tfw_frame_encode_request(wire, sizeof wire, 9u, TFW_CMD_PING, pay, (uint8_t)sizeof pay);
+    tfw_mock_set_tx_capacity(2u);
+    tfw_mock_feed_rx(wire, n);
+    poll_n(1u);
+    len = g.t.out_len;
+    pos = g.t.out_pos;
+    memcpy(before, g.t.out, sizeof before);
+
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_transport_send_event(&g.t, TFW_EVENT_DEADMAN));
+    TEST_ASSERT_EQUAL_UINT16(len, g.t.out_len);
+    TEST_ASSERT_EQUAL_UINT16(pos, g.t.out_pos);
+    TEST_ASSERT_FALSE(g.t.out_event);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, g.t.out, sizeof before);
+
+    tfw_mock_set_tx_capacity(0u);
+    poll_n(2u);
+    TEST_ASSERT_EQUAL_UINT(1u, replies_in(&rx));
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING | TFW_OP_RESPONSE_BIT, tfw_frame_op(&rx));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(pay, tfw_frame_payload(&rx), sizeof pay);
+}
+
 void setUp(void) { build_seeds(); }
 void tearDown(void) { }
 
@@ -485,6 +624,10 @@ int main(void)
     RUN_TEST(test_an_event_op_with_no_room_for_a_status);
     RUN_TEST(test_random_bytes);
     RUN_TEST(test_random_stacks_of_edits);
+    RUN_TEST(test_a_crc_failure_is_answered_with_no_payload_and_recorded_as_refused);
+    RUN_TEST(test_a_bad_format_byte_sends_nothing_and_leaves_no_frame_open);
+    RUN_TEST(test_an_unfinished_reply_holds_back_the_next_request);
+    RUN_TEST(test_an_event_refused_while_a_reply_is_owed_leaves_the_reply_intact);
     RUN_TEST(test_the_clean_frames_are_answered_as_test_transport_pins);
     return UNITY_END();
 }

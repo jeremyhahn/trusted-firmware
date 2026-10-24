@@ -116,6 +116,14 @@ static void test_crc16_update_honours_the_seed_it_is_given(void)
                           tfw_crc16_update(0x0000u,       0x00u));
 }
 
+/* Zero bytes fold nothing: tfw_crc16_from hands back the seed it was given,
+ * whatever it is, and never reads the buffer (NULL here, so ASan would see it). */
+static void test_crc16_from_of_zero_bytes_returns_the_seed_unread(void)
+{
+    TEST_ASSERT_EQUAL_HEX16(0x1234u, tfw_crc16_from(0x1234u, NULL, 0));
+    TEST_ASSERT_EQUAL_HEX16(0x0000u, tfw_crc16_from(0x0000u, NULL, 0));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -128,5 +136,6 @@ int main(void)
     RUN_TEST(test_crc16_detects_every_single_bit_flip_in_a_frame_sized_buffer);
     RUN_TEST(test_crc16_update_incrementally_equals_bulk);
     RUN_TEST(test_crc16_update_honours_the_seed_it_is_given);
+    RUN_TEST(test_crc16_from_of_zero_bytes_returns_the_seed_unread);
     return UNITY_END();
 }

@@ -522,13 +522,45 @@ static void test_a_script_the_engine_does_not_hold_locks_down(void)
 
 /* Scripts load only while named, once each, up to TFW_HSM_SCRIPTS_MAX; a new
  * set drops the ones it does not name. */
-static void test_scripts_are_held_while_named_and_bounded(void)
+#define NINE_LEN (4u + 1u + 1u + 9u * 37u + 10u)
+
+/* Script i of nine: [2, a, b], distinct for every i. */
+static void nth_body(uint8_t i, uint8_t body[3])
 {
-    static uint8_t set[4u + 1u + 1u + 9u * 37u + 10u];
+    body[0] = 0x82u;
+    body[1] = (uint8_t)(1u + i % 6u);
+    body[2] = (uint8_t)(1u + i / 6u);
+}
+
+/* One policy whose nine S1 rules each name one of nine scripts. */
+static void nine_named(uint8_t set[NINE_LEN])
+{
     static const uint8_t tail[] = { 0x03u, 0xA0u, 0x04u, 0x19u, 0x03u, 0xE8u,
                                     0x05u, 0x19u, 0x01u, 0xF4u };
     uint8_t  body[3];
-    uint16_t at = 0u;
+    uint16_t at;
+
+    memcpy(set, (const uint8_t[]){ 0xA5u, 0x01u, 0x01u, 0x02u, 0x81u, 0x89u }, 6u);
+    at = 6u;
+    for (uint8_t i = 0u; i < 9u; i++) {
+        nth_body(i, body);
+        set[at++] = 0x83u;
+        set[at++] = 0x01u;
+        set[at++] = 0x58u;
+        set[at++] = 0x20u;
+        tfw_sha256(body, sizeof body, &set[at]);
+        at = (uint16_t)(at + 32u);
+        set[at++] = 0xF4u;
+    }
+    memcpy(&set[at], tail, sizeof tail);
+    at = (uint16_t)(at + sizeof tail);
+    TEST_ASSERT_EQUAL_UINT16(NINE_LEN, at);
+}
+
+static void test_scripts_are_held_while_named_and_bounded(void)
+{
+    static uint8_t set[NINE_LEN];
+    uint8_t        body[3];
 
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, script(SCRIPT_A, sizeof SCRIPT_A));
     TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
@@ -546,28 +578,10 @@ static void test_scripts_are_held_while_named_and_bounded(void)
 
     /* Nine scripts [2, a, b], each named by an S1 rule of one policy: eight
      * are held, the ninth finds no slot. */
-    memcpy(set, (const uint8_t[]){ 0xA5u, 0x01u, 0x01u, 0x02u, 0x81u, 0x89u }, 6u);
-    at = 6u;
-    for (uint8_t i = 0u; i < 9u; i++) {
-        body[0] = 0x82u;
-        body[1] = (uint8_t)(1u + i % 6u);
-        body[2] = (uint8_t)(1u + i / 6u);
-        set[at++] = 0x83u;
-        set[at++] = 0x01u;
-        set[at++] = 0x58u;
-        set[at++] = 0x20u;
-        tfw_sha256(body, sizeof body, &set[at]);
-        at = (uint16_t)(at + 32u);
-        set[at++] = 0xF4u;
-    }
-    memcpy(&set[at], tail, sizeof tail);
-    at = (uint16_t)(at + sizeof tail);
-    TEST_ASSERT_EQUAL_UINT16(sizeof set, at);
+    nine_named(set);
     TEST_ASSERT_EQUAL(TFW_OK, set_at(set, sizeof set, 4u, 0u));
     for (uint8_t i = 0u; i < 9u; i++) {
-        body[0] = 0x82u;
-        body[1] = (uint8_t)(1u + i % 6u);
-        body[2] = (uint8_t)(1u + i / 6u);
+        nth_body(i, body);
         TEST_ASSERT_EQUAL(i < TFW_HSM_SCRIPTS_MAX ? TFW_OK : TFW_ERR_NO_SLOT,
                           script(body, sizeof body));
     }
@@ -576,6 +590,27 @@ static void test_scripts_are_held_while_named_and_bounded(void)
     /* S1's first rule names the first script: [phy-off, phy-off]. */
     tfw_hsm_signal(&h, S1, 0u);
     ACTS(TFW_HSM_ACT_PHY_OFF, TFW_HSM_ACT_PHY_OFF);
+}
+
+/* load_script's TFW_ERR_NO_SLOT: a named, readable script past the last slot
+ * is refused and counted, and the scripts held, the set and the floor stay. */
+static void test_a_script_past_the_last_slot_is_refused_and_the_held_stay(void)
+{
+    static uint8_t   set[NINE_LEN];
+    static tfw_hsm_t before;
+    uint8_t          body[3];
+
+    nine_named(set);
+    TEST_ASSERT_EQUAL(TFW_OK, set_at(set, sizeof set, 4u, 0u));
+    for (uint8_t i = 0u; i < TFW_HSM_SCRIPTS_MAX; i++) {
+        nth_body(i, body);
+        TEST_ASSERT_EQUAL(TFW_OK, script(body, sizeof body));
+    }
+    memcpy(&before, &h, sizeof before);
+    nth_body(TFW_HSM_SCRIPTS_MAX, body);
+    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT, script(body, sizeof body));
+    TEST_ASSERT_EQUAL_UINT32(before.refused + 1u, h.refused);
+    unchanged_since(&before);
 }
 
 /* A named script whose payload is not D6's CDDL is refused and not held. */
@@ -720,6 +755,7 @@ int main(void)
     RUN_TEST(test_a_selection_out_of_range_is_refused_and_unchanged);
     RUN_TEST(test_a_script_the_engine_does_not_hold_locks_down);
     RUN_TEST(test_scripts_are_held_while_named_and_bounded);
+    RUN_TEST(test_a_script_past_the_last_slot_is_refused_and_the_held_stay);
     RUN_TEST(test_a_named_script_that_does_not_read_is_refused);
     RUN_TEST(test_a_set_signed_with_the_tenant_key_replaces_set_floor_and_selection);
     RUN_TEST(test_the_policy_vector_loads);

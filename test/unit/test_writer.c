@@ -133,6 +133,77 @@ static void test_writer_zero_length_blob_is_a_no_op(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 }
 
+/* The bound refusal in give() for a one-byte write: at capacity the cursor
+ * stays at capacity and nothing lands past the buffer. */
+static void test_a_u8_past_capacity_is_refused_and_the_cursor_stays(void)
+{
+    uint8_t      area[3];
+    tfw_writer_t s;
+
+    memset(area, 0xEE, sizeof area);
+    tfw_writer_init(&s, area, 2u);
+    tfw_write_u16(&s, 0x2211u);
+
+    tfw_write_u8(&s, 0x5Au);
+    TEST_ASSERT_FALSE(tfw_writer_ok(&s));
+    TEST_ASSERT_EQUAL_UINT8(2u, tfw_writer_len(&s));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_remaining(&s));
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, area[2]);
+}
+
+/* The bound refusal for a u16 with one byte of room mid-buffer: the one byte
+ * is not half-filled and the cursor does not move. */
+static void test_a_u16_with_one_byte_of_room_is_refused_and_writes_nothing(void)
+{
+    uint8_t      area[2];
+    tfw_writer_t s;
+
+    memset(area, 0xEE, sizeof area);
+    tfw_writer_init(&s, area, (uint8_t)sizeof area);
+    tfw_write_u8(&s, 0x11u);
+
+    tfw_write_u16(&s, 0x3322u);
+    TEST_ASSERT_FALSE(tfw_writer_ok(&s));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_writer_len(&s));
+    TEST_ASSERT_EQUAL_HEX8(0x11u, area[0]);
+    TEST_ASSERT_EQUAL_HEX8(0xEEu, area[1]);
+}
+
+/* The bound refusal for a u32 with three bytes of room mid-buffer. */
+static void test_a_u32_with_three_bytes_of_room_is_refused_and_writes_nothing(void)
+{
+    uint8_t      i;
+
+    for (i = 0u; i < CAP - 3u; i++) {
+        tfw_write_u8(&w, i);
+    }
+    tfw_write_u32(&w, 0x77665544u);
+    TEST_ASSERT_FALSE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(CAP - 3u, tfw_writer_len(&w));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEEu, &buf[CAP - 3u], 3u);
+}
+
+/* The sticky refusal in give(): after an overflow every write is refused,
+ * a zero-length blob included, and none of them moves the cursor or stores. */
+static void test_every_write_after_an_overflow_is_refused_and_writes_nothing(void)
+{
+    static const uint8_t big[CAP + 1u] = { 0 };
+    const uint8_t        one = 0x5Au;
+
+    tfw_write_blob(&w, big, CAP + 1u);
+    TEST_ASSERT_FALSE(tfw_writer_ok(&w));
+
+    tfw_write_u8(&w, 0x5Au);
+    tfw_write_u16(&w, 0x3322u);
+    tfw_write_u32(&w, 0x77665544u);
+    tfw_write_blob(&w, &one, 1u);
+    tfw_write_blob(&w, &one, 0u);
+    TEST_ASSERT_FALSE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(CAP, tfw_writer_remaining(&w));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xEEu, buf, CAP);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -145,5 +216,9 @@ int main(void)
     RUN_TEST(test_writer_overflow_is_sticky);
     RUN_TEST(test_writer_refuses_a_length_that_would_wrap_the_cursor);
     RUN_TEST(test_writer_zero_length_blob_is_a_no_op);
+    RUN_TEST(test_a_u8_past_capacity_is_refused_and_the_cursor_stays);
+    RUN_TEST(test_a_u16_with_one_byte_of_room_is_refused_and_writes_nothing);
+    RUN_TEST(test_a_u32_with_three_bytes_of_room_is_refused_and_writes_nothing);
+    RUN_TEST(test_every_write_after_an_overflow_is_refused_and_writes_nothing);
     return UNITY_END();
 }

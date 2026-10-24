@@ -149,6 +149,7 @@ static void test_a_write_larger_than_the_chunk_is_refused(void)
 {
     const uint8_t data[16] = { 0 };
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(0x100u, data, 16u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(0x100u, data, 9u));   /* one past */
 }
 
 static void test_a_zero_length_write_is_refused(void)

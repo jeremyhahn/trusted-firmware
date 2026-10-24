@@ -123,6 +123,57 @@ static void test_a_payload_longer_than_the_maximum_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(TFW_CMD_SYS_INFO, two, 2u)); /* takes 0 */
 }
 
+static void test_an_unknown_command_writes_nothing_and_is_recorded_as_refused(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_PING, 0, 0u));
+    TEST_ASSERT_TRUE(tfw_dispatch_last_ok());
+    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, run(0x7Eu, 0, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(0x7Eu, tfw_dispatch_last());
+    TEST_ASSERT_FALSE(tfw_dispatch_last_ok());
+}
+
+static void test_a_payload_outside_the_arity_never_reaches_the_handler(void)
+{
+    const uint8_t two[2] = { 1u, 1u };
+    /* RESET takes exactly one byte; mode 1 would arm a bootloader request. */
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, run(TFW_CMD_RESET, two, 2u));
+    TEST_ASSERT_FALSE(tfw_sys_reset_pending());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(TFW_CMD_RESET, tfw_dispatch_last());
+    TEST_ASSERT_FALSE(tfw_dispatch_last_ok());
+}
+
+static void test_a_handler_refusal_is_returned_unchanged_and_recorded(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(TFW_CMD_RESET, (const uint8_t *)"\x09", 1u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EQUAL_UINT8(TFW_CMD_RESET, tfw_dispatch_last());
+    TEST_ASSERT_FALSE(tfw_dispatch_last_ok());
+}
+
+static void test_a_reply_that_overflows_the_writer_is_refused_as_too_long(void)
+{
+    const uint8_t msg[4] = { 'p', 'i', 'n', 'g' };
+    memcpy(inbuf, msg, sizeof msg);
+    tfw_reader_init(&r, inbuf, (uint8_t)sizeof msg);
+    tfw_writer_init(&w, outbuf, 3u);
+    TEST_ASSERT_EQUAL(TFW_ERR_TOO_LONG, tfw_dispatch(TFW_CMD_PING, &r, &w));
+    TEST_ASSERT_FALSE(tfw_writer_ok(&w));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0u, outbuf, sizeof outbuf);
+    TEST_ASSERT_EQUAL_UINT8(TFW_CMD_PING, tfw_dispatch_last());
+    TEST_ASSERT_FALSE(tfw_dispatch_last_ok());
+}
+
+static void test_a_refusal_before_dispatch_is_recorded_as_not_ok(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_PING, 0, 0u));
+    tfw_dispatch_refused(TFW_CMD_SYS_INFO);
+    TEST_ASSERT_EQUAL_UINT8(TFW_CMD_SYS_INFO, tfw_dispatch_last());
+    TEST_ASSERT_FALSE(tfw_dispatch_last_ok());
+}
+
 static void test_ping_echoes_its_payload(void)
 {
     const uint8_t msg[5] = { 'h', 'e', 'l', 'l', 'o' };
@@ -391,6 +442,11 @@ int main(void)
     RUN_TEST(test_the_system_commands_are_all_present);
     RUN_TEST(test_a_payload_shorter_than_the_minimum_is_refused);
     RUN_TEST(test_a_payload_longer_than_the_maximum_is_refused);
+    RUN_TEST(test_an_unknown_command_writes_nothing_and_is_recorded_as_refused);
+    RUN_TEST(test_a_payload_outside_the_arity_never_reaches_the_handler);
+    RUN_TEST(test_a_handler_refusal_is_returned_unchanged_and_recorded);
+    RUN_TEST(test_a_reply_that_overflows_the_writer_is_refused_as_too_long);
+    RUN_TEST(test_a_refusal_before_dispatch_is_recorded_as_not_ok);
     RUN_TEST(test_ping_echoes_its_payload);
     RUN_TEST(test_ping_with_no_payload_replies_with_no_payload);
     RUN_TEST(test_caps_reports_the_protocol_version_and_feature_bitmap);

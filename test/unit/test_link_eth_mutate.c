@@ -266,9 +266,113 @@ static void test_a_hostile_socket_never_wedges_the_link_and_caps_answers_after(v
     TEST_ASSERT_EQUAL_UINT(1u, eth.sends);
 }
 
+/* The link with one byte taken off an UP connection, so the reply wire is
+ * Ethernet; the connection is then dropped, or left opening, by the caller. */
+static void reply_owed_over_eth(void)
+{
+    uint8_t b = 0u;
+
+    connect_up();
+    eth.in[0] = 0x5Au;
+    eth.in_len = 1u;
+    eth.in_pos = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+    eth.in_len = eth.in_pos = 0u;
+}
+
+static void drop_then_reopen(void)
+{
+    eth.state = TFW_ETH_DOWN;
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.closes);
+    tfw_mock_advance(LONGEST_BACKOFF_MS + 1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(2u, eth.starts);
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_BUSY, eth.state);
+}
+
+static void test_a_byte_waiting_on_a_connection_still_opening_is_not_read(void)
+{
+    uint8_t b = 0xA5u;
+
+    memcpy(&tfw_mock_eeprom()[TFW_NETCFG_ADDR], NETCFG, sizeof NETCFG);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    eth.in[0] = 0x5Au;
+    eth.in_len = 1u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_link_rx(&b, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, b);
+    TEST_ASSERT_EQUAL_UINT16(0u, eth.in_pos);
+}
+
+static void test_a_connection_still_opening_is_neither_closed_nor_redialled(void)
+{
+    unsigned p;
+
+    memcpy(&tfw_mock_eeprom()[TFW_NETCFG_ADDR], NETCFG, sizeof NETCFG);
+    tfw_link_poll();
+    for (p = 0u; p < 8u; p++) {
+        tfw_mock_advance(LONGEST_BACKOFF_MS + 1u);
+        tfw_link_poll();
+    }
+    TEST_ASSERT_EQUAL_UINT(1u, eth.starts);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.closes);
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_BUSY, eth.state);
+}
+
+static void test_a_held_ethernet_frame_does_not_read_serial_once_the_connection_drops(void)
+{
+    static const uint8_t s = 0x3Cu;
+    uint8_t b = 0xA5u;
+
+    reply_owed_over_eth();
+    eth.state = TFW_ETH_DOWN;
+    tfw_link_poll();
+    tfw_mock_feed_rx(&s, 1u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_link_rx(&b, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, b);
+    /* The serial byte is still there for the next frame. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_link_rx(&b, 0u));
+    TEST_ASSERT_EQUAL_HEX8(0x3Cu, b);
+}
+
+static void test_a_reply_byte_to_a_connection_still_opening_is_dropped_and_queues_nothing(void)
+{
+    reply_owed_over_eth();
+    drop_then_reopen();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_link_tx_try(0xAAu, 0u));
+    TEST_ASSERT_EQUAL_UINT16(0u, eth.q_len);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_tx_pending());
+}
+
+static void test_the_end_of_a_reply_to_a_connection_still_opening_sends_nothing(void)
+{
+    reply_owed_over_eth();
+    drop_then_reopen();
+    tfw_link_tx_done(0u);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.sends);
+}
+
+static void test_the_end_of_a_serial_reply_never_sends_on_ethernet(void)
+{
+    reply_owed_over_eth();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_link_tx_try(0xAAu, 1u));
+    TEST_ASSERT_EQUAL_UINT16(0u, eth.q_len);
+    tfw_link_tx_done(1u);
+    TEST_ASSERT_EQUAL_UINT(0u, eth.sends);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_hostile_socket_never_wedges_the_link_and_caps_answers_after);
+    RUN_TEST(test_a_byte_waiting_on_a_connection_still_opening_is_not_read);
+    RUN_TEST(test_a_connection_still_opening_is_neither_closed_nor_redialled);
+    RUN_TEST(test_a_held_ethernet_frame_does_not_read_serial_once_the_connection_drops);
+    RUN_TEST(test_a_reply_byte_to_a_connection_still_opening_is_dropped_and_queues_nothing);
+    RUN_TEST(test_the_end_of_a_reply_to_a_connection_still_opening_sends_nothing);
+    RUN_TEST(test_the_end_of_a_serial_reply_never_sends_on_ethernet);
     return UNITY_END();
 }

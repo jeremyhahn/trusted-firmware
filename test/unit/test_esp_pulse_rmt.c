@@ -206,6 +206,88 @@ static void test_driver_errors(void)
     TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.deleted);
 }
 
+static void test_a_held_channel_is_busy_and_nothing_is_claimed_or_written(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 30, 0, 80), SYM(1, 70, 1, 0) };
+
+    mock_rmt_chunk(f, 2u, 1u);
+    mock_rmt.open = 1u;                 /* another caller holds the one channel */
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_hal_pulse_capture(&pin, 0u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    TEST_ASSERT_EQUAL_UINT16(0xA5A5u, iv[0]);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.created);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.deleted);
+    TEST_ASSERT_EQUAL_UINT8(1u, mock_rmt.open);
+    mock_rmt.open = 0u;                 /* the other caller gives it back */
+}
+
+static void test_a_part_with_no_rmt_receiver_is_unsupported_at_channel_creation(void)
+{
+    mock_rmt.new_err = ESP_ERR_NOT_SUPPORTED;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_pulse_capture(&pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    TEST_ASSERT_EQUAL_UINT16(0xA5A5u, iv[0]);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.deleted);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.misuse);
+}
+
+static void test_a_refused_callback_registration_never_enables_or_writes(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 30, 0, 80), SYM(1, 70, 1, 0) };
+
+    mock_rmt_chunk(f, 2u, 1u);
+    mock_rmt.cb_err = ESP_ERR_INVALID_STATE;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_pulse_capture(&pin, 0u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    TEST_ASSERT_EQUAL_UINT16(0xA5A5u, iv[0]);
+    TEST_ASSERT_EQUAL_UINT8(0u, mock_rmt.enabled);
+    TEST_ASSERT_EQUAL_UINT8(0u, mock_rmt.armed);
+    TEST_ASSERT_EQUAL_UINT8(0u, mock_rmt.open);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.delivered);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.misuse);
+}
+
+static void test_a_refused_enable_never_arms_and_releases_the_channel(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 30, 0, 80), SYM(1, 70, 1, 0) };
+
+    mock_rmt_chunk(f, 2u, 1u);
+    mock_rmt.enable_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_pulse_capture(&pin, 0u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    TEST_ASSERT_EQUAL_UINT16(0xA5A5u, iv[0]);
+    TEST_ASSERT_EQUAL_UINT8(0u, mock_rmt.armed);
+    TEST_ASSERT_EQUAL_UINT8(0u, mock_rmt.open);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.delivered);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.misuse);
+}
+
+static void test_a_refused_receive_is_internal_disables_and_writes_nothing(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 30, 0, 80), SYM(1, 70, 1, 0) };
+
+    mock_rmt_chunk(f, 2u, 1u);
+    mock_rmt.receive_err = ESP_FAIL;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_pulse_capture(&pin, 0u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    TEST_ASSERT_EQUAL_UINT16(0xA5A5u, iv[0]);
+    TEST_ASSERT_EQUAL_UINT8(0u, mock_rmt.enabled);
+    TEST_ASSERT_EQUAL_UINT8(0u, mock_rmt.open);
+    TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.deleted);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.delivered);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.misuse);
+}
+
+static void test_a_refused_pulse_in_keeps_the_callers_width(void)
+{
+    uint32_t us = 0xDEADBEEFu;
+
+    mock_rmt.open = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_hal_pulse_in(&pin, 1u, 2000u, &us));
+    TEST_ASSERT_EQUAL_UINT32(0xDEADBEEFu, us);
+    mock_rmt.open = 0u;
+}
+
 /* Back to back: the channel one call claimed is free for the next. */
 static void test_channel_reused(void)
 {
@@ -258,6 +340,12 @@ int main(void)
     RUN_TEST(test_idle_clamped);
     RUN_TEST(test_no_edges_asked);
     RUN_TEST(test_driver_errors);
+    RUN_TEST(test_a_held_channel_is_busy_and_nothing_is_claimed_or_written);
+    RUN_TEST(test_a_part_with_no_rmt_receiver_is_unsupported_at_channel_creation);
+    RUN_TEST(test_a_refused_callback_registration_never_enables_or_writes);
+    RUN_TEST(test_a_refused_enable_never_arms_and_releases_the_channel);
+    RUN_TEST(test_a_refused_receive_is_internal_disables_and_writes_nothing);
+    RUN_TEST(test_a_refused_pulse_in_keeps_the_callers_width);
     RUN_TEST(test_channel_reused);
     RUN_TEST(test_pulse_in);
     RUN_TEST(test_pulse_in_unfinished);

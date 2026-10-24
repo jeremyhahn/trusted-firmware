@@ -265,6 +265,79 @@ static void test_pin_page_refuses_a_pin_past_the_table_and_writes_nothing(void)
     TEST_ASSERT_EQUAL_MEMORY(clean, page, sizeof page);
 }
 
+/* The refusals of tfw_board_pin and tfw_board_pwm return before the resolve,
+ * so the caller's reference must come back byte for byte as it went in. */
+static void test_pin_refused_past_the_table_leaves_the_ref_untouched(void)
+{
+    tfw_pinref_t ref, clean;
+
+    memset(&ref, 0xA5, sizeof ref);
+    memset(&clean, 0xA5, sizeof clean);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_board_pin((tfw_pin_t)TFW_PIN_COUNT, &ref));
+    TEST_ASSERT_EQUAL_MEMORY(&clean, &ref, sizeof ref);
+}
+
+static void test_pin_refused_without_a_digital_port_leaves_the_ref_untouched(void)
+{
+    tfw_pinref_t ref, clean;
+    tfw_pin_t    p;
+    uint8_t      found = 0u;
+
+    memset(&clean, 0xA5, sizeof clean);
+    for (p = 0; p < TFW_PIN_COUNT; p++) {
+        if (port_of(p) != TFW_PORT_NONE) { continue; }
+        memset(&ref, 0xA5, sizeof ref);
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_board_pin(p, &ref));
+        TEST_ASSERT_EQUAL_MEMORY(&clean, &ref, sizeof ref);
+        found++;
+    }
+    TEST_ASSERT_TRUE(found > 0u);
+}
+
+static void test_pwm_refused_past_the_table_leaves_the_ref_untouched(void)
+{
+    tfw_pwmref_t ref, clean;
+
+    memset(&ref, 0xA5, sizeof ref);
+    memset(&clean, 0xA5, sizeof clean);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_board_pwm((tfw_pin_t)TFW_PIN_COUNT, &ref));
+    TEST_ASSERT_EQUAL_MEMORY(&clean, &ref, sizeof ref);
+}
+
+static void test_pwm_refused_with_no_compare_unit_leaves_the_ref_untouched(void)
+{
+    tfw_pwmref_t ref, clean;
+    tfw_pin_t    p;
+    uint8_t      found = 0u;
+
+    memset(&clean, 0xA5, sizeof clean);
+    for (p = 0; p < TFW_PIN_COUNT; p++) {
+        if (desc(p)->pwm_idx != TFW_PWM_NONE) { continue; }
+        memset(&ref, 0xA5, sizeof ref);
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_board_pwm(p, &ref));
+        TEST_ASSERT_EQUAL_MEMORY(&clean, &ref, sizeof ref);
+        found++;
+    }
+    TEST_ASSERT_TRUE(found > 0u);
+}
+
+static void test_pwm_refused_on_a_reserved_timer_leaves_the_ref_untouched(void)
+{
+    tfw_pwmref_t ref, clean;
+    tfw_pin_t    p;
+    uint8_t      found = 0u;
+
+    memset(&clean, 0xA5, sizeof clean);
+    for (p = 0; p < TFW_PIN_COUNT; p++) {
+        if (desc(p)->pwm_idx != TFW_PWM_RSVD) { continue; }
+        memset(&ref, 0xA5, sizeof ref);
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_board_pwm(p, &ref));
+        TEST_ASSERT_EQUAL_MEMORY(&clean, &ref, sizeof ref);
+        found++;
+    }
+    TEST_ASSERT_TRUE(found > 0u);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -288,5 +361,10 @@ int main(void)
     RUN_TEST(test_pin_page_of_a_portless_pin_is_ok_with_wire_none);
     RUN_TEST(test_pin_page_last_entry);
     RUN_TEST(test_pin_page_refuses_a_pin_past_the_table_and_writes_nothing);
+    RUN_TEST(test_pin_refused_past_the_table_leaves_the_ref_untouched);
+    RUN_TEST(test_pin_refused_without_a_digital_port_leaves_the_ref_untouched);
+    RUN_TEST(test_pwm_refused_past_the_table_leaves_the_ref_untouched);
+    RUN_TEST(test_pwm_refused_with_no_compare_unit_leaves_the_ref_untouched);
+    RUN_TEST(test_pwm_refused_on_a_reserved_timer_leaves_the_ref_untouched);
     return UNITY_END();
 }

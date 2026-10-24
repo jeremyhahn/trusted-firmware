@@ -308,6 +308,23 @@ static void test_random_out_of_range_or_failing(void)
     TEST_ASSERT_EQUAL_HEX8(0xA5u, out[0]);
 }
 
+/* A GetRandom that fails hands back nothing and still clears what it put
+ * on the stack. */
+static void test_a_failing_random_writes_nothing_and_clears_its_copy(void)
+{
+    static const exchange_t s[] = { EX_ST(Q_RANDOM_32, TFW_ERR_TIMEOUT) };
+
+    present();
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_crypto_random(out, 32u));
+    played();
+    for (unsigned i = 0u; i < 33u; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xA5u, out[i]);
+    }
+    TEST_ASSERT_EQUAL_UINT(1u, zero_calls);
+    TEST_ASSERT_EQUAL_size_t(32u, zero_len[0]);
+}
+
 static void test_sha256_is_software(void)
 {
     /* FIPS 180-4's "abc". */
@@ -584,6 +601,7 @@ int main(void)
     RUN_TEST(test_random_is_get_random);
     RUN_TEST(test_random_under_eight_asks_eight_and_hands_back_what_was_asked);
     RUN_TEST(test_random_out_of_range_or_failing);
+    RUN_TEST(test_a_failing_random_writes_nothing_and_clears_its_copy);
     RUN_TEST(test_sha256_is_software);
     RUN_TEST(test_sign_is_calc_sign_with_the_factory_key);
     RUN_TEST(test_sign_failures_leave_the_algorithm_unset);

@@ -131,6 +131,51 @@ static void test_an_erased_block_mid_trial_disarms(void)
     TEST_ASSERT_EQUAL_UINT(0u, run_trial(raw));
 }
 
+/* The refusal in tfw_ota_trial_start: a start that finds no trial clears the
+ * arm left by an earlier one, so polls pet nothing and the deadline resets
+ * nothing. */
+static void test_a_start_outside_a_trial_disarms_an_earlier_trial(void)
+{
+    uint8_t raw[TFW_BOOT_EE_LEN];
+
+    block(TFW_BOOT_STATE_TRIAL, raw);
+    write_block(raw);
+    tfw_ota_trial_start();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_arms());
+
+    block(TFW_BOOT_STATE_CONFIRMED, raw);
+    write_block(raw);
+    tfw_ota_trial_start();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_arms());
+
+    tfw_mock_advance(DEADLINE_MS);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+}
+
+/* The deadline check in tfw_ota_trial_poll across a wrap of the millisecond
+ * clock: one millisecond short of the deadline pets and does not reset, the
+ * deadline resets. */
+static void test_the_deadline_across_a_millis_wrap_resets_and_not_before(void)
+{
+    uint8_t raw[TFW_BOOT_EE_LEN];
+
+    tfw_mock_set_millis((tfw_ms_t)(0u - DEADLINE_MS / 2u));
+    block(TFW_BOOT_STATE_TRIAL, raw);
+    write_block(raw);
+    tfw_ota_trial_start();
+
+    tfw_mock_advance(DEADLINE_MS - 1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_pets());
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
+
+    tfw_mock_advance(1u);
+    tfw_ota_trial_poll();
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -138,5 +183,7 @@ int main(void)
     RUN_TEST(test_a_confirm_mid_trial_disarms_at_the_deadline);
     RUN_TEST(test_every_bit_flip_of_the_block_mid_trial);
     RUN_TEST(test_an_erased_block_mid_trial_disarms);
+    RUN_TEST(test_a_start_outside_a_trial_disarms_an_earlier_trial);
+    RUN_TEST(test_the_deadline_across_a_millis_wrap_resets_and_not_before);
     return UNITY_END();
 }

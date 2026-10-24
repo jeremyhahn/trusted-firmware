@@ -391,6 +391,69 @@ static void test_the_payload_refusals(void)
     }
 }
 
+/* tfw_suit_integrated_digest: SUIT_POLICY_ENVELOPE with byte `at` set to
+ * `to`, read over its first n bytes. A refusal leaves the digest as it was. */
+static void digest_refused(tfw_status_t want, uint16_t at, uint8_t to, uint16_t n)
+{
+    uint8_t d[TFW_SUIT_DIGEST_LEN];
+    uint8_t before[TFW_SUIT_DIGEST_LEN];
+
+    memcpy(buf, SUIT_POLICY_ENVELOPE, sizeof SUIT_POLICY_ENVELOPE);
+    buf[at] = to;
+    memset(d, 0xA5, sizeof d);
+    memset(before, 0xA5, sizeof before);
+    TEST_ASSERT_EQUAL(want, tfw_suit_integrated_digest(buf, n, d));
+    TEST_ASSERT_EQUAL_MEMORY(before, d, sizeof d);
+}
+
+static void test_the_integrated_digest_is_the_hash_of_the_wrapped_manifest(void)
+{
+    uint8_t d[TFW_SUIT_DIGEST_LEN];
+    uint8_t want[TFW_SHA256_LEN];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256(&SUIT_POLICY_ENVELOPE[ENV_MAN_KEY + 1u],
+                                                (uint16_t)(ENV_NAME - ENV_MAN_KEY - 1u), want));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_suit_integrated_digest(SUIT_POLICY_ENVELOPE,
+                                                         sizeof SUIT_POLICY_ENVELOPE, d));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, d, sizeof d);
+}
+
+static void test_an_integrated_digest_under_another_tag_is_refused(void)
+{
+    digest_refused(TFW_ERR_UNSUPPORTED, 1u, 0x6Cu, sizeof SUIT_POLICY_ENVELOPE);   /* tag 108 */
+}
+
+static void test_an_integrated_digest_with_another_first_key_is_refused(void)
+{
+    digest_refused(TFW_ERR_UNSUPPORTED, 3u, 0x04u, sizeof SUIT_POLICY_ENVELOPE);
+}
+
+static void test_an_integrated_digest_with_an_authentication_text_string_is_refused(void)
+{
+    digest_refused(TFW_ERR_UNSUPPORTED, 4u, 0x78u, sizeof SUIT_POLICY_ENVELOPE);
+}
+
+static void test_an_integrated_digest_with_another_second_key_is_refused(void)
+{
+    digest_refused(TFW_ERR_UNSUPPORTED, ENV_MAN_KEY, 0x04u, sizeof SUIT_POLICY_ENVELOPE);
+}
+
+static void test_an_integrated_digest_with_a_manifest_text_string_is_refused(void)
+{
+    digest_refused(TFW_ERR_UNSUPPORTED, ENV_MAN_KEY + 1u, 0x78u, sizeof SUIT_POLICY_ENVELOPE);
+}
+
+/* Every length that ends before the wrapped manifest does: the tag, the
+ * map's head, either key or either string cut short. */
+static void test_an_integrated_digest_of_a_truncated_envelope_is_refused(void)
+{
+    uint16_t n;
+
+    for (n = 0u; n < ENV_NAME; n++) {
+        digest_refused(TFW_ERR_RANGE, 0u, SUIT_POLICY_ENVELOPE[0], n);
+    }
+}
+
 typedef struct {
     const uint8_t *bytes;
     uint16_t       len;
@@ -520,6 +583,13 @@ int main(void)
     RUN_TEST(test_the_manifest_refusals);
     RUN_TEST(test_the_binding_refusals);
     RUN_TEST(test_the_payload_refusals);
+    RUN_TEST(test_the_integrated_digest_is_the_hash_of_the_wrapped_manifest);
+    RUN_TEST(test_an_integrated_digest_under_another_tag_is_refused);
+    RUN_TEST(test_an_integrated_digest_with_another_first_key_is_refused);
+    RUN_TEST(test_an_integrated_digest_with_an_authentication_text_string_is_refused);
+    RUN_TEST(test_an_integrated_digest_with_another_second_key_is_refused);
+    RUN_TEST(test_an_integrated_digest_with_a_manifest_text_string_is_refused);
+    RUN_TEST(test_an_integrated_digest_of_a_truncated_envelope_is_refused);
     RUN_TEST(test_mutated_envelopes_read_inside_their_contract);
     return UNITY_END();
 }

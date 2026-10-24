@@ -1354,6 +1354,38 @@ $(HOST_DIR)/test_esp_adc: test/unit/test_esp_adc.c src/hal/esp32/hal_adc.c \
 
 HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_adc
 
+# The ESP32 system HAL (#163): src/hal/esp32/hal_sys.c's reset cause, decode,
+# clock, reset, delay and free RAM over the ESP-IDF system calls in
+# test/mock/esp_sys_mock.c, the handoff stubbed there. src/hal/esp32 goes first
+# so tfw/hal.h takes that port's pin type. The RTC reserve is sized as every
+# tfw ESP-IDF build sizes it, to the handoff block.
+$(HOST_DIR)/test_esp_sys: test/unit/test_esp_sys.c src/hal/esp32/hal_sys.c \
+                          test/mock/esp_sys_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DCONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=112 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_sys
+
+# The ESP32 handoff block (#163): src/hal/esp32/hal_handoff.c over the
+# bootloader's RTC-retained block in test/mock/esp_sys_mock.c, its reserve
+# sized to the handoff block as every tfw ESP-IDF build sizes it.
+$(HOST_DIR)/test_esp_handoff: test/unit/test_esp_handoff.c src/hal/esp32/hal_handoff.c \
+                              test/mock/esp_sys_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DCONFIG_BOOTLOADER_CUSTOM_RESERVE_RTC_SIZE=112 -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_handoff
+
+# test_stubs_none: the feature-off stubs no other suite links, with the HAL
+# mock and the handoff it reads the reset cause from, so what the mock saw is
+# all a stub could have done.
+$(HOST_DIR)/test_stubs_none: test/unit/test_stubs_none.c \
+                        src/caps/bus_none.c src/core/handoff_seed_none.c \
+                        src/core/ota_manifest_none.c src/core/ota_prev_none.c \
+                        src/core/ota_stage_none.c src/core/ota_trial_none.c \
+                        src/core/handoff.c src/core/secure_zero.c boot/boot_handoff.c \
+                        src/proto/crc16.c src/proto/crc16_update.c \
+                        test/mock/hal_mock.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
+
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
 # board sweep, coverage and the sanitizers.

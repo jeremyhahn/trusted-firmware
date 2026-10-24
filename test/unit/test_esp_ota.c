@@ -729,6 +729,87 @@ static void test_a_refused_set_boot_is_bad_state_and_no_reset(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
 }
 
+/* check_staged's walk of what ESP-IDF reports: each refusal below is a slot
+ * changed after END, as flash wear or a second writer would leave it. */
+static void test_an_image_that_ends_inside_its_digest_is_refused(void)
+{
+    stage_signed(2u);
+    put32(&mock_esp.flash[1][MOCK_ESP_O_END], TFW_BOOT_MEASURE_LEN);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
+static void test_an_image_that_ends_past_the_slot_is_refused(void)
+{
+    stage_signed(2u);
+    put32(&mock_esp.flash[1][MOCK_ESP_O_END], (uint32_t)mock_esp_slot(1u)->size + 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
+static void test_an_image_with_no_room_for_its_trailer_is_refused(void)
+{
+    stage_signed(2u);
+    put32(&mock_esp.flash[1][MOCK_ESP_O_END],
+          (uint32_t)mock_esp_slot(1u)->size - TFW_BOOT_TRAILER_LEN + 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, authorized_activate(0u));
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
+static void test_a_slot_whose_digest_cannot_be_read_is_internal(void)
+{
+    stage_signed(2u);
+    /* In range with room for a trailer, but past what was written. */
+    put32(&mock_esp.flash[1][MOCK_ESP_O_END],
+          (uint32_t)mock_esp_slot(1u)->size - TFW_BOOT_TRAILER_LEN);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, authorized_activate(0u));
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
+static void test_a_slot_with_no_app_description_is_internal(void)
+{
+    stage_signed(2u);
+    mock_esp.flash[1][0x20] ^= 0x01u;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, authorized_activate(0u));
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
+static void test_stage_activate_with_no_ended_image_sets_no_boot_slot(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, tfw_stage_activate());
+    expect_nothing_activated();
+    expect_status(TFW_STAGE_IDLE, 0u);
+}
+
+static void test_info_on_a_running_slot_with_no_digest_is_internal(void)
+{
+    uint8_t out[INFO_LEN];
+
+    /* A description to read, but too little image for a digest; the running
+     * slot's flash itself is left as tearDown expects it. */
+    mock_esp.len[0] = TFW_BOOT_MEASURE_LEN;
+    memset(out, 0xEE, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, info(0u, out));
+    TEST_ASSERT_EACH_EQUAL_UINT8(0xEEu, out, INFO_LEN);
+}
+
+static void test_info_on_an_ended_session_with_no_description_is_internal(void)
+{
+    uint8_t out[INFO_LEN];
+
+    stage_signed(2u);
+    mock_esp.flash[1][0x20] ^= 0x01u;
+    memset(out, 0xEE, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, info(1u, out));
+    TEST_ASSERT_EACH_EQUAL_UINT8(0xEEu, out, INFO_LEN);
+    expect_status(TFW_STAGE_COMPLETE, APP_LEN + TFW_BOOT_TRAILER_LEN);
+}
+
 /* ------------------------------------------------- OTA_CONFIRM and the trial */
 
 static void test_confirm_ends_the_trial(void)
@@ -865,6 +946,14 @@ int main(void)
     RUN_TEST(test_activate_refuses_an_image_esp_idf_cannot_walk);
     RUN_TEST(test_a_failed_record_write_sets_no_boot_slot);
     RUN_TEST(test_a_refused_set_boot_is_bad_state_and_no_reset);
+    RUN_TEST(test_an_image_that_ends_inside_its_digest_is_refused);
+    RUN_TEST(test_an_image_that_ends_past_the_slot_is_refused);
+    RUN_TEST(test_an_image_with_no_room_for_its_trailer_is_refused);
+    RUN_TEST(test_a_slot_whose_digest_cannot_be_read_is_internal);
+    RUN_TEST(test_a_slot_with_no_app_description_is_internal);
+    RUN_TEST(test_stage_activate_with_no_ended_image_sets_no_boot_slot);
+    RUN_TEST(test_info_on_a_running_slot_with_no_digest_is_internal);
+    RUN_TEST(test_info_on_an_ended_session_with_no_description_is_internal);
     RUN_TEST(test_confirm_ends_the_trial);
     RUN_TEST(test_confirm_needs_an_ota_auth_just_before);
     RUN_TEST(test_confirm_off_trial_is_bad_state);

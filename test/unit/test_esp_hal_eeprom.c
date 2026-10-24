@@ -393,6 +393,17 @@ static void test_the_platform_block_reads_its_own_partition(void)
     TEST_ASSERT_EQUAL(ST_OK, tfw_hal_nvm_read(0u, out, 1u));
 }
 
+static void test_a_missing_platform_partition_is_unsupported_and_the_buffer_stays(void)
+{
+    uint8_t out[4] = { 0xaa, 0x55, 0xaa, 0x55 };
+
+    present[1] = false; /* the EEPROM's is still there */
+    TEST_ASSERT_EQUAL(ST_UNSUPPORTED, tfw_hal_nvm_read(0u, out, sizeof out));
+    TEST_ASSERT_EQUAL_UINT(0u, n_reads + n_erases + n_writes);
+    TEST_ASSERT_EQUAL_HEX8(0xaa, out[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x55, out[3]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -413,5 +424,6 @@ int main(void)
     RUN_TEST(test_a_refused_write_is_internal);
     RUN_TEST(test_a_refusal_in_the_second_sector_stops_there);
     RUN_TEST(test_the_platform_block_reads_its_own_partition);
+    RUN_TEST(test_a_missing_platform_partition_is_unsupported_and_the_buffer_stays);
     return UNITY_END();
 }

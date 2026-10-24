@@ -25,6 +25,7 @@
 #define S_DIPR   0x0Cu
 #define S_DPORT  0x10u
 #define S_RX_RD  0x28u
+#define S_TX_WR  0x24u
 
 static const tfw_netcfg_t cfg = {
     { 0x02u, 0x00u, 0x00u, 0x00u, 0x00u, 0x01u },
@@ -313,6 +314,129 @@ static void test_close_closes_the_socket(void)
     TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));
 }
 
+static void test_receive_with_nothing_waiting_reads_nothing(void)
+{
+    uint8_t got = 0xEEu;
+
+    connect();
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_eth_rx(&got));
+    TEST_ASSERT_EQUAL_UINT8(0xEEu, got);
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
+}
+
+/* Socket 1, the UDP socket the DHCP client asks for. */
+static void udp_up(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_eth_udp_open(&cfg, 68u));
+    w5x_model_socket(1u);
+    TEST_ASSERT_EQUAL_HEX8(0x22u, w5x_model_sock(S_SR));             /* SOCK_UDP */
+}
+
+static void test_a_udp_open_on_the_other_chip_is_refused_and_never_writes(void)
+{
+    w5x_model_reset(OTHER);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_eth_udp_open(&cfg, 68u));
+    TEST_ASSERT_EQUAL_UINT32(0u, w5x_model_writes());
+}
+
+static void test_a_udp_open_the_chip_never_takes_is_refused_and_the_socket_stays_closed(void)
+{
+    w5x_model_cr_stuck_on(0x01u);                    /* OPEN */
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_eth_udp_open(&cfg, 68u));
+    w5x_model_socket(1u);
+    TEST_ASSERT_EQUAL_HEX8(0x00u, w5x_model_sock(S_SR));
+}
+
+static void test_a_udp_socket_the_chip_never_opens_beside_the_connection_leaves_it_up(void)
+{
+    connect();
+    w5x_model_cr_stuck_on(0x01u);                    /* OPEN */
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_eth_udp_beside(68u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_UP, tfw_eth_state());
+    w5x_model_socket(1u);
+    TEST_ASSERT_EQUAL_HEX8(0x00u, w5x_model_sock(S_SR));
+}
+
+static void test_a_datagram_larger_than_the_free_space_is_refused_and_nothing_is_written(void)
+{
+    static const uint8_t ip[4] = { 192u, 0u, 2u, 1u };
+    uint16_t wr;
+    uint8_t  i;
+
+    udp_up();
+    wr = w5x_model_sock16(S_TX_WR);
+    w5x_model_tx_cap(10u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_eth_udp_send(11u, ip, 67u));
+    TEST_ASSERT_EQUAL_UINT16(wr, w5x_model_sock16(S_TX_WR));
+    for (i = 0u; i < 4u; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00u, w5x_model_sock((uint16_t)(S_DIPR + i)));
+    }
+    TEST_ASSERT_EQUAL_UINT16(0u, w5x_model_sock16(S_DPORT));
+    TEST_ASSERT_EQUAL_UINT8(0u, w5x_model_sends());
+}
+
+static void test_a_datagram_over_a_free_space_that_never_settles_is_refused(void)
+{
+    static const uint8_t ip[4] = { 192u, 0u, 2u, 1u };
+    uint16_t wr;
+
+    udp_up();
+    wr = w5x_model_sock16(S_TX_WR);
+    w5x_model_size_unstable(1u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_eth_udp_send(1u, ip, 67u));
+    TEST_ASSERT_EQUAL_UINT16(wr, w5x_model_sock16(S_TX_WR));
+    TEST_ASSERT_EQUAL_UINT8(0u, w5x_model_sends());
+}
+
+static void test_a_datagram_send_the_chip_never_takes_is_reported_unsent(void)
+{
+    static const uint8_t ip[4] = { 192u, 0u, 2u, 1u };
+
+    udp_up();
+    w5x_model_cr_stuck_on(0x20u);                    /* SEND */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_eth_udp_send(1u, ip, 67u));
+    TEST_ASSERT_EQUAL_UINT8(0u, w5x_model_sends());
+}
+
+static void test_a_datagram_not_yet_sent_reads_wait(void)
+{
+    udp_up();
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_SENT_WAIT, tfw_eth_udp_sent());
+}
+
+static void test_a_datagram_to_an_address_that_never_answers_arp_reads_noarp(void)
+{
+    static const uint8_t ip[4] = { 192u, 0u, 2u, 9u };
+    uint8_t wire[4];
+
+    udp_up();
+    w5x_model_arp_silent(ip);
+    tfw_eth_udp_put(0u, 0x55u);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_eth_udp_send(1u, ip, 67u));
+    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_SENT_NOARP, tfw_eth_udp_sent());
+    TEST_ASSERT_EQUAL_UINT8(1u, w5x_model_sends());
+    TEST_ASSERT_EQUAL_UINT16(0u, w5x_model_peer_recv(wire, sizeof wire));
+}
+
+static void test_a_udp_size_above_the_ring_closes_the_udp_socket_and_reads_nothing(void)
+{
+    udp_up();
+    w5x_model_rsr_reads(0x0801u);
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_eth_udp_avail());
+    TEST_ASSERT_EQUAL_HEX8(0x00u, w5x_model_sock(S_SR));
+}
+
+static void test_a_udp_size_that_never_settles_reads_as_nothing_and_the_socket_stays(void)
+{
+    static const uint8_t b[4] = { 1u, 2u, 3u, 4u };
+
+    udp_up();
+    w5x_model_peer_send(b, 4u);
+    w5x_model_size_unstable(1u);
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_eth_udp_avail());
+    TEST_ASSERT_EQUAL_HEX8(0x22u, w5x_model_sock(S_SR));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -337,5 +461,16 @@ int main(void)
     RUN_TEST(test_a_received_size_of_0x0801_closes_the_socket);
     RUN_TEST(test_a_received_size_of_0xffff_closes_the_socket);
     RUN_TEST(test_close_closes_the_socket);
+    RUN_TEST(test_receive_with_nothing_waiting_reads_nothing);
+    RUN_TEST(test_a_udp_open_on_the_other_chip_is_refused_and_never_writes);
+    RUN_TEST(test_a_udp_open_the_chip_never_takes_is_refused_and_the_socket_stays_closed);
+    RUN_TEST(test_a_udp_socket_the_chip_never_opens_beside_the_connection_leaves_it_up);
+    RUN_TEST(test_a_datagram_larger_than_the_free_space_is_refused_and_nothing_is_written);
+    RUN_TEST(test_a_datagram_over_a_free_space_that_never_settles_is_refused);
+    RUN_TEST(test_a_datagram_send_the_chip_never_takes_is_reported_unsent);
+    RUN_TEST(test_a_datagram_not_yet_sent_reads_wait);
+    RUN_TEST(test_a_datagram_to_an_address_that_never_answers_arp_reads_noarp);
+    RUN_TEST(test_a_udp_size_above_the_ring_closes_the_udp_socket_and_reads_nothing);
+    RUN_TEST(test_a_udp_size_that_never_settles_reads_as_nothing_and_the_socket_stays);
     return UNITY_END();
 }

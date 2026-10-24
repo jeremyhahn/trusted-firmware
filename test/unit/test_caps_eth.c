@@ -47,6 +47,30 @@ static void test_tone_on_the_shields_mosi_is_refused_and_drives_nothing(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_writer_len(&w));
 }
 
+/* The pin check comes before the reservation check: the shield's SCK is not
+ * the tone pin on any build, so it is unsupported, not reserved. */
+static void test_tone_on_the_shields_sck_is_unsupported_and_drives_nothing(void)
+{
+    const uint8_t on[3] = { 13u, 0x10u, 0x27u };             /* D13, 10000 Hz */
+
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, run(TFW_CMD_TONE, on, 3u));
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_mock_tone_hz());
+    TEST_ASSERT_FALSE(tfw_mock_pin_is_output(TFW_ADDR_PINB, 5u));   /* D13 = PB5 */
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_writer_len(&w));
+}
+
+/* The reservation is checked before the frequency reaches the timer: a pitch
+ * below the reachable range on the shield's MOSI is reserved, not out of range. */
+static void test_a_low_tone_on_the_shields_mosi_is_reserved_not_out_of_range(void)
+{
+    const uint8_t low[3] = { TFW_TONE_PIN, 100u, 0u };       /* 100 Hz */
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN, run(TFW_CMD_TONE, low, 3u));
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_mock_tone_hz());
+    TEST_ASSERT_FALSE(tfw_mock_pin_is_output(TFW_ADDR_PINB, 3u));   /* D11 = PB3 */
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_writer_len(&w));
+}
+
 static void test_pwm_on_the_shields_pins_is_refused_and_drives_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_RESERVED_PIN, run(TFW_CMD_PWM_WRITE, (const uint8_t[]){ 10u, 64u }, 2u));
@@ -61,6 +85,8 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_the_build_reserves_the_tone_pin_for_the_shield);
     RUN_TEST(test_tone_on_the_shields_mosi_is_refused_and_drives_nothing);
+    RUN_TEST(test_tone_on_the_shields_sck_is_unsupported_and_drives_nothing);
+    RUN_TEST(test_a_low_tone_on_the_shields_mosi_is_reserved_not_out_of_range);
     RUN_TEST(test_pwm_on_the_shields_pins_is_refused_and_drives_nothing);
     return UNITY_END();
 }

@@ -287,6 +287,80 @@ static void test_clean_requests_afterwards(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, run(TFW_CMD_PIN_MODE, (const uint8_t[]){ 2u, 9u }, 2u));
 }
 
+/* One refusal, named: the exact status, nothing in the reply, no pin moved,
+ * from a board with every pin driven high so a stray write low would show. */
+static void expect_refusal(uint8_t cmd, const uint8_t *p, uint8_t n, tfw_status_t want)
+{
+    uint8_t  was[SNAP_LEN], now[SNAP_LEN];
+    unsigned i;
+
+    tfw_mock_reset();
+    drive_all_high();
+    snapshot(was);
+    memset(outbuf, 0xEE, sizeof outbuf);
+    TEST_ASSERT_EQUAL(want, run(cmd, p, n));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    for (i = 0u; i < sizeof outbuf; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xEEu, outbuf[i]);
+    }
+    snapshot(now);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(was, now, SNAP_LEN);
+}
+
+static void test_pin_mode_on_a_reserved_pin_is_refused_and_no_pin_moves(void)
+{
+    expect_refusal(TFW_CMD_PIN_MODE, (const uint8_t[]){ 1u, (uint8_t)TFW_PIN_INPUT }, 2u,
+                   TFW_ERR_RESERVED_PIN);
+}
+
+static void test_pin_mode_on_an_unmapped_pin_is_unsupported_and_no_pin_moves(void)
+{
+    expect_refusal(TFW_CMD_PIN_MODE, (const uint8_t[]){ 20u, (uint8_t)TFW_PIN_OUTPUT }, 2u,
+                   TFW_ERR_UNSUPPORTED);
+}
+
+static void test_pin_mode_past_the_last_pin_is_a_bad_pin_and_no_pin_moves(void)
+{
+    expect_refusal(TFW_CMD_PIN_MODE,
+                   (const uint8_t[]){ (uint8_t)TFW_PIN_COUNT, (uint8_t)TFW_PIN_OUTPUT }, 2u,
+                   TFW_ERR_BAD_PIN);
+}
+
+static void test_pin_mode_one_past_input_pullup_is_a_range_error_and_the_pin_stays(void)
+{
+    expect_refusal(TFW_CMD_PIN_MODE,
+                   (const uint8_t[]){ 2u, (uint8_t)((uint8_t)TFW_PIN_INPUT_PULLUP + 1u) }, 2u,
+                   TFW_ERR_RANGE);
+}
+
+static void test_digital_write_of_level_two_is_a_range_error_and_the_pin_stays(void)
+{
+    expect_refusal(TFW_CMD_DIGITAL_WRITE, (const uint8_t[]){ 13u, 2u }, 2u, TFW_ERR_RANGE);
+}
+
+static void test_digital_write_on_a_reserved_pin_is_refused_and_no_pin_moves(void)
+{
+    expect_refusal(TFW_CMD_DIGITAL_WRITE, (const uint8_t[]){ 1u, 0u }, 2u,
+                   TFW_ERR_RESERVED_PIN);
+}
+
+static void test_digital_write_on_an_unmapped_pin_is_unsupported_and_no_pin_moves(void)
+{
+    expect_refusal(TFW_CMD_DIGITAL_WRITE, (const uint8_t[]){ 20u, 0u }, 2u,
+                   TFW_ERR_UNSUPPORTED);
+}
+
+static void test_digital_read_of_an_unmapped_pin_is_unsupported_and_replies_nothing(void)
+{
+    expect_refusal(TFW_CMD_DIGITAL_READ, (const uint8_t[]){ 20u }, 1u, TFW_ERR_UNSUPPORTED);
+}
+
+static void test_digital_read_past_the_last_pin_is_a_bad_pin_and_replies_nothing(void)
+{
+    expect_refusal(TFW_CMD_DIGITAL_READ, (const uint8_t[]){ (uint8_t)TFW_PIN_COUNT }, 1u,
+                   TFW_ERR_BAD_PIN);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -296,5 +370,14 @@ int main(void)
     RUN_TEST(test_named_pin_edges);
     RUN_TEST(test_random_requests);
     RUN_TEST(test_clean_requests_afterwards);
+    RUN_TEST(test_pin_mode_on_a_reserved_pin_is_refused_and_no_pin_moves);
+    RUN_TEST(test_pin_mode_on_an_unmapped_pin_is_unsupported_and_no_pin_moves);
+    RUN_TEST(test_pin_mode_past_the_last_pin_is_a_bad_pin_and_no_pin_moves);
+    RUN_TEST(test_pin_mode_one_past_input_pullup_is_a_range_error_and_the_pin_stays);
+    RUN_TEST(test_digital_write_of_level_two_is_a_range_error_and_the_pin_stays);
+    RUN_TEST(test_digital_write_on_a_reserved_pin_is_refused_and_no_pin_moves);
+    RUN_TEST(test_digital_write_on_an_unmapped_pin_is_unsupported_and_no_pin_moves);
+    RUN_TEST(test_digital_read_of_an_unmapped_pin_is_unsupported_and_replies_nothing);
+    RUN_TEST(test_digital_read_past_the_last_pin_is_a_bad_pin_and_replies_nothing);
     return UNITY_END();
 }

@@ -185,6 +185,38 @@ static void test_hmac_sha256_rfc4231_case_2(void)
         "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843", got);
 }
 
+/* 55 bytes leave exactly room for the 0x80 and the length: the padding must
+ * not spill into a second block. Digest from coreutils sha256sum. */
+static void test_sha256_of_55_bytes_keeps_the_length_in_one_block(void)
+{
+    uint8_t m[55];
+
+    memset(m, 'a', sizeof m);
+    expect(m, (uint16_t)sizeof m,
+           "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318");
+}
+
+/* A key of exactly 64 bytes is used as it is, zero-padded like any short key,
+ * and not hashed first: so it agrees with its own first 63 bytes when the last
+ * is zero, and differs from the HMAC under its hash. */
+static void test_hmac_takes_a_64_byte_key_as_it_is(void)
+{
+    uint8_t key[64];
+    uint8_t hashed_key[32];
+    uint8_t a[32], b[32], c[32];
+
+    for (uint8_t i = 0u; i < sizeof key; i++) { key[i] = (uint8_t)(i + 1u); }
+    key[63] = 0u;
+    tfw_sha256(key, sizeof key, hashed_key);
+
+    tfw_hmac_sha256(key,        64u, (const uint8_t *)"x", 1u, a);
+    tfw_hmac_sha256(key,        63u, (const uint8_t *)"x", 1u, b);
+    tfw_hmac_sha256(hashed_key, 32u, (const uint8_t *)"x", 1u, c);
+
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(b, a, 32);
+    TEST_ASSERT_TRUE(memcmp(a, c, 32) != 0);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -199,5 +231,7 @@ int main(void)
     RUN_TEST(test_sha256_of_the_896_bit_two_block_message);
     RUN_TEST(test_sha256_of_a_million_a);
     RUN_TEST(test_hmac_sha256_rfc4231_case_2);
+    RUN_TEST(test_sha256_of_55_bytes_keeps_the_length_in_one_block);
+    RUN_TEST(test_hmac_takes_a_64_byte_key_as_it_is);
     return UNITY_END();
 }

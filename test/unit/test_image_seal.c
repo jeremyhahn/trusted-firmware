@@ -279,6 +279,107 @@ static void test_a_signature_over_another_span_does_not_boot(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, boot_region(7u));
 }
 
+/* A span tfw_seal_tbs refuses leaves the caller's span as it was. */
+static void refused_span(tfw_status_t want, uint32_t len, uint32_t version, uint8_t flags)
+{
+    uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN];
+
+    memset(tbs, 0xA5, sizeof tbs);
+    TEST_ASSERT_EQUAL_INT(want, tfw_seal_tbs(image, len, version, flags, tbs));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5u, tbs, sizeof tbs);
+}
+
+static void test_an_empty_image_is_not_spanned_and_the_span_is_untouched(void)
+{
+    refused_span(TFW_ERR_RANGE, 0u, 7u, 0u);
+}
+
+static void test_an_image_past_the_bound_is_not_spanned_and_the_span_is_untouched(void)
+{
+    refused_span(TFW_ERR_RANGE, TFW_BOOT_MAX_IMAGE_LEN + 1u, 7u, 0u);
+}
+
+static void test_version_zero_is_not_spanned_and_the_span_is_untouched(void)
+{
+    refused_span(TFW_ERR_CRYPTO, IMAGE_LEN, 0u, 0u);
+}
+
+static void test_an_unknown_image_flag_is_not_spanned_and_the_span_is_untouched(void)
+{
+    refused_span(TFW_ERR_UNSUPPORTED, IMAGE_LEN, 7u, 0x02u);
+}
+
+/* A good span with one field changed, handed to tfw_seal_trailer: the
+ * status is the refusal's and the trailer is not written. */
+static void refused_trailer(tfw_status_t want, uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN])
+{
+    uint8_t sig[TFW_BOOT_SIG_LEN], trailer[TFW_BOOT_TRAILER_LEN];
+
+    memset(trailer, 0xA5, sizeof trailer);
+    sign_span(tbs, sig);
+    TEST_ASSERT_EQUAL_INT(want, tfw_seal_trailer(image, IMAGE_LEN, tbs, sig, trailer));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5u, trailer, sizeof trailer);
+}
+
+static void good_span(uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN])
+{
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_seal_tbs(image, IMAGE_LEN, 7u, 0u, tbs));
+}
+
+static void test_a_span_of_another_trailer_version_is_not_sealed(void)
+{
+    uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN];
+
+    good_span(tbs);
+    tbs[TFW_BOOT_TR_VERSION] ^= 0x01u;
+    refused_trailer(TFW_ERR_UNSUPPORTED, tbs);
+}
+
+static void test_a_span_of_version_zero_is_not_sealed(void)
+{
+    uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN];
+
+    good_span(tbs);
+    memset(&tbs[TFW_BOOT_TR_IMAGE_VERSION], 0, 4u);
+    refused_trailer(TFW_ERR_CRYPTO, tbs);
+}
+
+static void test_a_span_of_an_empty_image_is_not_sealed(void)
+{
+    uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN];
+
+    good_span(tbs);
+    memset(&tbs[TFW_BOOT_TR_IMAGE_LEN], 0, 4u);
+    refused_trailer(TFW_ERR_RANGE, tbs);
+}
+
+static void test_a_span_of_an_image_past_the_bound_is_not_sealed(void)
+{
+    uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN];
+
+    good_span(tbs);
+    memset(&tbs[TFW_BOOT_TR_IMAGE_LEN], 0xFF, 4u);
+    refused_trailer(TFW_ERR_RANGE, tbs);
+}
+
+static void test_a_span_bound_to_board_zero_is_not_sealed(void)
+{
+    uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN];
+
+    good_span(tbs);
+    tbs[TFW_BOOT_TR_BOARD_ID] = 0u;
+    refused_trailer(TFW_ERR_UNSUPPORTED, tbs);
+}
+
+static void test_a_span_with_an_unknown_image_flag_is_not_sealed(void)
+{
+    uint8_t tbs[TFW_BOOT_TR_SIGNED_LEN];
+
+    good_span(tbs);
+    tbs[TFW_BOOT_TR_IMAGE_FLAGS] = 0x02u;
+    refused_trailer(TFW_ERR_UNSUPPORTED, tbs);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -294,5 +395,15 @@ int main(void)
     RUN_TEST(test_what_tfw_boot_refuses_is_never_spanned);
     RUN_TEST(test_a_span_for_another_image_is_refused);
     RUN_TEST(test_a_signature_over_another_span_does_not_boot);
+    RUN_TEST(test_an_empty_image_is_not_spanned_and_the_span_is_untouched);
+    RUN_TEST(test_an_image_past_the_bound_is_not_spanned_and_the_span_is_untouched);
+    RUN_TEST(test_version_zero_is_not_spanned_and_the_span_is_untouched);
+    RUN_TEST(test_an_unknown_image_flag_is_not_spanned_and_the_span_is_untouched);
+    RUN_TEST(test_a_span_of_another_trailer_version_is_not_sealed);
+    RUN_TEST(test_a_span_of_version_zero_is_not_sealed);
+    RUN_TEST(test_a_span_of_an_empty_image_is_not_sealed);
+    RUN_TEST(test_a_span_of_an_image_past_the_bound_is_not_sealed);
+    RUN_TEST(test_a_span_bound_to_board_zero_is_not_sealed);
+    RUN_TEST(test_a_span_with_an_unknown_image_flag_is_not_sealed);
     return UNITY_END();
 }

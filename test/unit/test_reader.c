@@ -123,6 +123,60 @@ static void test_reader_zero_length_blob_is_a_no_op(void)
     TEST_ASSERT_EQUAL_UINT8(sizeof PAYLOAD, tfw_reader_remaining(&r));
 }
 
+/* The bound refusal in take() for a one-byte read: at the end of the payload
+ * a u8 yields 0 and the cursor stays at the end. */
+static void test_a_u8_past_the_end_is_refused_and_the_cursor_stays(void)
+{
+    TEST_ASSERT_NOT_NULL(tfw_read_blob(&r, (uint8_t)sizeof PAYLOAD));
+
+    TEST_ASSERT_EQUAL_HEX8(0u, tfw_read_u8(&r));
+    TEST_ASSERT_FALSE(tfw_reader_ok(&r));
+    TEST_ASSERT_EQUAL_UINT8(sizeof PAYLOAD, r.pos);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_reader_remaining(&r));
+}
+
+/* The bound refusal for a u16 with one byte left mid-payload: the one byte
+ * is not consumed, and the value is 0 rather than half a field. */
+static void test_a_u16_with_one_byte_left_is_refused_and_the_cursor_stays(void)
+{
+    tfw_reader_t s;
+    tfw_reader_init(&s, PAYLOAD, 2u);
+
+    TEST_ASSERT_EQUAL_HEX8(0x11u, tfw_read_u8(&s));
+    TEST_ASSERT_EQUAL_HEX16(0u, tfw_read_u16(&s));
+    TEST_ASSERT_FALSE(tfw_reader_ok(&s));
+    TEST_ASSERT_EQUAL_UINT8(1u, s.pos);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_reader_remaining(&s));
+}
+
+/* The bound refusal for a blob part-way through the payload: NULL, and the
+ * bytes before the refusal stay consumed and no more. */
+static void test_a_blob_past_the_end_mid_payload_is_refused_and_the_cursor_stays(void)
+{
+    (void)tfw_read_u8(&r);
+
+    TEST_ASSERT_NULL(tfw_read_blob(&r, (uint8_t)sizeof PAYLOAD));
+    TEST_ASSERT_FALSE(tfw_reader_ok(&r));
+    TEST_ASSERT_EQUAL_UINT8(1u, r.pos);
+    TEST_ASSERT_EQUAL_UINT8(sizeof PAYLOAD - 1u, tfw_reader_remaining(&r));
+}
+
+/* The sticky refusal in take(): after an underflow every read is refused,
+ * a zero-length blob included, and none of them moves the cursor. */
+static void test_every_read_after_an_underflow_is_refused_and_the_cursor_stays(void)
+{
+    TEST_ASSERT_NULL(tfw_read_blob(&r, (uint8_t)(sizeof PAYLOAD + 1u)));
+    TEST_ASSERT_FALSE(tfw_reader_ok(&r));
+
+    TEST_ASSERT_EQUAL_HEX8(0u, tfw_read_u8(&r));
+    TEST_ASSERT_EQUAL_HEX16(0u, tfw_read_u16(&r));
+    TEST_ASSERT_EQUAL_HEX32(0u, tfw_read_u32(&r));
+    TEST_ASSERT_NULL(tfw_read_blob(&r, 0u));
+    TEST_ASSERT_FALSE(tfw_reader_ok(&r));
+    TEST_ASSERT_EQUAL_UINT8(0u, r.pos);
+    TEST_ASSERT_EQUAL_UINT8(sizeof PAYLOAD, tfw_reader_remaining(&r));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -136,5 +190,9 @@ int main(void)
     RUN_TEST(test_reader_zero_return_is_not_a_success_signal);
     RUN_TEST(test_reader_refuses_a_length_that_would_wrap_the_cursor);
     RUN_TEST(test_reader_zero_length_blob_is_a_no_op);
+    RUN_TEST(test_a_u8_past_the_end_is_refused_and_the_cursor_stays);
+    RUN_TEST(test_a_u16_with_one_byte_left_is_refused_and_the_cursor_stays);
+    RUN_TEST(test_a_blob_past_the_end_mid_payload_is_refused_and_the_cursor_stays);
+    RUN_TEST(test_every_read_after_an_underflow_is_refused_and_the_cursor_stays);
     return UNITY_END();
 }

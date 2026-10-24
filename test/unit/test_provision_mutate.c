@@ -375,9 +375,234 @@ static void test_the_procedure_still_succeeds_after_the_run(void)
     TEST_ASSERT_TRUE(tfw_model_data_locked());
 }
 
+/* ------------------------------------------------------------ error paths
+ *
+ * One refusal per test, through the handler, with what it must leave alone:
+ * the reply stays empty, and the element's config zone lock, DeviceID key and
+ * UDS slot are what they were. */
+
+static uint8_t uds_before[32];
+
+static tfw_status_t call(handler_t fn, const uint8_t *in, uint8_t n, unsigned *len)
+{
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_status_t st;
+
+    tfw_reader_init(&r, in, n);
+    tfw_writer_init(&w, out, (uint8_t)TFW_MAX_PAYLOAD);
+    st   = fn(&r, &w);
+    *len = tfw_writer_len(&w);
+    return st;
+}
+
+static void info_refused(tfw_status_t want)
+{
+    unsigned len = 99u;
+
+    TEST_ASSERT_EQUAL(want, call(tfw_prov_cmd_info, NULL, 0u, &len));
+    TEST_ASSERT_EQUAL_UINT(0u, len);
+}
+
+static void test_info_with_no_element_awake_is_nack_and_answers_nothing(void)
+{
+    tfw_model_fail_wakes_after(0u);
+    info_refused(TFW_ERR_NACK);
+}
+
+static void test_info_whose_revision_read_is_refused_answers_nothing(void)
+{
+    tfw_model_force_status(0x0Fu);
+    info_refused(TFW_ERR_UNSUPPORTED);
+}
+
+static void test_info_whose_config_block_read_is_dropped_answers_nothing(void)
+{
+    tfw_model_fail_commands_after(1u);
+    info_refused(TFW_ERR_NACK);
+}
+
+static void test_info_whose_lock_block_read_is_dropped_answers_nothing(void)
+{
+    tfw_model_fail_commands_after(2u);
+    info_refused(TFW_ERR_NACK);
+}
+
+static void write_config_refused(uint8_t block, uint8_t n, tfw_status_t want)
+{
+    uint8_t  req[33];
+    unsigned len = 99u;
+
+    memset(req, 0x5Au, sizeof req);
+    req[0] = block;
+    TEST_ASSERT_EQUAL(want, call(tfw_prov_cmd_write_config, req, n, &len));
+    TEST_ASSERT_EQUAL_UINT(0u, len);
+}
+
+static void test_a_config_write_short_of_its_block_is_bad_argc_and_sends_nothing(void)
+{
+    write_config_refused(2u, 32u, TFW_ERR_BAD_ARGC);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+static void test_a_config_write_past_the_zone_is_range_and_sends_nothing(void)
+{
+    write_config_refused(4u, 33u, TFW_ERR_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+static void test_a_config_write_with_no_element_awake_is_nack(void)
+{
+    tfw_model_fail_wakes_after(0u);
+    write_config_refused(2u, 33u, TFW_ERR_NACK);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+static void test_a_config_write_the_element_refuses_is_its_status(void)
+{
+    tfw_model_force_status(0x0Fu);
+    write_config_refused(2u, 33u, TFW_ERR_UNSUPPORTED);
+}
+
+static void lock_refused(uint8_t zone, tfw_status_t want)
+{
+    const uint8_t req[3] = { zone, 0x34u, 0x12u };
+    unsigned      len    = 99u;
+
+    TEST_ASSERT_EQUAL(want, call(tfw_prov_cmd_lock, req, 3u, &len));
+    TEST_ASSERT_EQUAL_UINT(0u, len);
+    TEST_ASSERT_FALSE(tfw_model_config_locked());
+    TEST_ASSERT_FALSE(tfw_model_data_locked());
+}
+
+static void test_a_lock_of_a_zone_the_part_lacks_is_range_and_sends_nothing(void)
+{
+    lock_refused(0x02u, TFW_ERR_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+static void test_a_lock_with_no_element_awake_is_nack_and_locks_nothing(void)
+{
+    tfw_model_fail_wakes_after(0u);
+    lock_refused(TFW_ATECC_LOCK_CONFIG, TFW_ERR_NACK);
+}
+
+static void test_a_lock_the_element_refuses_is_its_status_and_locks_nothing(void)
+{
+    tfw_model_force_status(0x0Fu);
+    lock_refused(TFW_ATECC_LOCK_CONFIG, TFW_ERR_UNSUPPORTED);
+}
+
+static void key_refused(handler_t fn, uint8_t slot, tfw_status_t want)
+{
+    const uint8_t req[1] = { slot };
+    unsigned      len    = 99u;
+
+    TEST_ASSERT_EQUAL(want, call(fn, req, 1u, &len));
+    TEST_ASSERT_EQUAL_UINT(0u, len);
+    TEST_ASSERT_NULL(tfw_model_deviceid_public());
+}
+
+static void test_a_genkey_with_no_element_awake_is_nack_and_makes_no_key(void)
+{
+    tfw_model_fail_wakes_after(0u);
+    key_refused(tfw_prov_cmd_genkey, TFW_ATECC_SLOT_DEVICEID, TFW_ERR_NACK);
+}
+
+static void test_a_genkey_the_element_refuses_answers_no_point_and_makes_no_key(void)
+{
+    tfw_model_force_status(0x0Fu);
+    key_refused(tfw_prov_cmd_genkey, TFW_ATECC_SLOT_DEVICEID, TFW_ERR_UNSUPPORTED);
+}
+
+static void test_a_pubkey_of_another_slot_is_range_and_sends_nothing(void)
+{
+    key_refused(tfw_prov_cmd_pubkey, (uint8_t)(TFW_ATECC_SLOT_DEVICEID + 1u), TFW_ERR_RANGE);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+static void test_a_pubkey_with_no_element_awake_is_nack(void)
+{
+    tfw_model_fail_wakes_after(0u);
+    key_refused(tfw_prov_cmd_pubkey, TFW_ATECC_SLOT_DEVICEID, TFW_ERR_NACK);
+}
+
+static void test_a_pubkey_the_element_refuses_answers_no_point(void)
+{
+    tfw_model_force_status(0x0Fu);
+    key_refused(tfw_prov_cmd_pubkey, TFW_ATECC_SLOT_DEVICEID, TFW_ERR_UNSUPPORTED);
+}
+
+static void seed_refused(tfw_status_t want)
+{
+    const uint8_t req[1] = { TFW_ATECC_SLOT_UDS };
+    unsigned      len    = 99u;
+
+    TEST_ASSERT_EQUAL(want, call(tfw_prov_cmd_seed_uds, req, 1u, &len));
+    TEST_ASSERT_EQUAL_UINT(0u, len);
+    TEST_ASSERT_EQUAL_MEMORY(uds_before, tfw_model_slot(TFW_ATECC_SLOT_UDS), sizeof uds_before);
+}
+
+static void snapshot_uds(void)
+{
+    TEST_ASSERT_NOT_NULL(tfw_model_slot(TFW_ATECC_SLOT_UDS));
+    memcpy(uds_before, tfw_model_slot(TFW_ATECC_SLOT_UDS), sizeof uds_before);
+}
+
+static void test_a_uds_seed_with_no_element_awake_is_nack_and_the_slot_stays(void)
+{
+    snapshot_uds();
+    tfw_model_fail_wakes_after(0u);
+    seed_refused(TFW_ERR_NACK);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+}
+
+static void test_a_uds_seed_whose_random_is_dropped_leaves_the_slot(void)
+{
+    snapshot_uds();
+    tfw_model_fail_commands_after(0u);
+    seed_refused(TFW_ERR_NACK);
+}
+
+static void test_a_uds_seed_whose_nonce_is_dropped_leaves_the_slot(void)
+{
+    snapshot_uds();
+    tfw_model_fail_commands_after(1u);
+    seed_refused(TFW_ERR_NACK);
+}
+
+static void test_a_uds_seed_whose_write_is_dropped_leaves_the_slot(void)
+{
+    snapshot_uds();
+    tfw_model_fail_commands_after(2u);
+    seed_refused(TFW_ERR_NACK);
+    TEST_ASSERT_EQUAL_UINT8(2u, tfw_model_log_count());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_info_with_no_element_awake_is_nack_and_answers_nothing);
+    RUN_TEST(test_info_whose_revision_read_is_refused_answers_nothing);
+    RUN_TEST(test_info_whose_config_block_read_is_dropped_answers_nothing);
+    RUN_TEST(test_info_whose_lock_block_read_is_dropped_answers_nothing);
+    RUN_TEST(test_a_config_write_short_of_its_block_is_bad_argc_and_sends_nothing);
+    RUN_TEST(test_a_config_write_past_the_zone_is_range_and_sends_nothing);
+    RUN_TEST(test_a_config_write_with_no_element_awake_is_nack);
+    RUN_TEST(test_a_config_write_the_element_refuses_is_its_status);
+    RUN_TEST(test_a_lock_of_a_zone_the_part_lacks_is_range_and_sends_nothing);
+    RUN_TEST(test_a_lock_with_no_element_awake_is_nack_and_locks_nothing);
+    RUN_TEST(test_a_lock_the_element_refuses_is_its_status_and_locks_nothing);
+    RUN_TEST(test_a_genkey_with_no_element_awake_is_nack_and_makes_no_key);
+    RUN_TEST(test_a_genkey_the_element_refuses_answers_no_point_and_makes_no_key);
+    RUN_TEST(test_a_pubkey_of_another_slot_is_range_and_sends_nothing);
+    RUN_TEST(test_a_pubkey_with_no_element_awake_is_nack);
+    RUN_TEST(test_a_pubkey_the_element_refuses_answers_no_point);
+    RUN_TEST(test_a_uds_seed_with_no_element_awake_is_nack_and_the_slot_stays);
+    RUN_TEST(test_a_uds_seed_whose_random_is_dropped_leaves_the_slot);
+    RUN_TEST(test_a_uds_seed_whose_nonce_is_dropped_leaves_the_slot);
+    RUN_TEST(test_a_uds_seed_whose_write_is_dropped_leaves_the_slot);
     RUN_TEST(test_mutated_requests_keep_the_contracts);
     RUN_TEST(test_the_procedure_in_any_order_keeps_the_contracts);
     RUN_TEST(test_the_procedure_still_succeeds_after_the_run);

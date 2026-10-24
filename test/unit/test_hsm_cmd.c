@@ -374,6 +374,68 @@ static void test_reset_clears_the_engine_and_the_pending_envelope(void)
     state_is(0u, 0u, 0u);
 }
 
+/* Lockdown is latched at the channel: no message the A55 may send lowers it
+ * (R6). */
+static void test_lockdown_is_latched_over_the_channel(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, LOAD_POLICY());
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_IMA_VIOLATION));
+    ACTS(LOCK);
+    state_is(SET | LOCKED, 0u, 0u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_verdict, TFW_HSM_VERDICT_CLEAR));
+    state_is(SET | LOCKED, 0u, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_select, 0u));
+    state_is(SET | LOCKED, 0u, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
+    state_is(SET | LOCKED, 0u, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, LOAD_POLICY());
+    state_is(SET | LOCKED, 0u, 0u);
+    NO_ACTS();
+}
+
+/* A compromised verdict with no set held is taken, and the signal after it
+ * locks down and never wipes (R1). */
+static void test_a_compromised_verdict_with_no_set_never_wipes(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_verdict, TFW_HSM_VERDICT_COMPROMISED));
+    state_is(0u, 0u, 0u);
+    NO_ACTS();
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_HOTPLUG));
+    ACTS(LOCK);
+    state_is(LOCKED, 0u, 0u);
+}
+
+/* What the A55 may not send is refused with no set held too, and a refused
+ * message is not a refused envelope: nothing is counted. */
+static void test_a_refused_message_with_no_set_is_not_counted(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_TAMPER_PIN));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_HEARTBEAT_LOSS));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_verdict, TFW_HSM_VERDICT_COMPROMISED + 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_select, 0u));
+    NO_ACTS();
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
+    state_is(0u, 0u, 0u);
+}
+
+/* A chunk past the next offset drops the envelope; the chunk that would have
+ * followed is refused, and a whole envelope after it is held. */
+static void test_a_dropped_envelope_does_not_resume(void)
+{
+    const uint16_t total = sizeof SUIT_POLICY_ENVELOPE;
+    const uint8_t *e     = SUIT_POLICY_ENVELOPE;
+
+    TEST_ASSERT_EQUAL(TFW_OK, chunk(total, 0u, e, 60u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 120u, &e[120], 60u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 60u, &e[60], 60u));
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
+    state_is(0u, 0u, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, LOAD_POLICY());
+    state_is(SET, 0u, 0u);
+    NO_ACTS();
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -396,5 +458,9 @@ int main(void)
     RUN_TEST(test_a_late_heartbeat_is_s6_at_the_next_message);
     RUN_TEST(test_any_message_applies_the_time_first);
     RUN_TEST(test_reset_clears_the_engine_and_the_pending_envelope);
+    RUN_TEST(test_lockdown_is_latched_over_the_channel);
+    RUN_TEST(test_a_compromised_verdict_with_no_set_never_wipes);
+    RUN_TEST(test_a_refused_message_with_no_set_is_not_counted);
+    RUN_TEST(test_a_dropped_envelope_does_not_resume);
     return UNITY_END();
 }

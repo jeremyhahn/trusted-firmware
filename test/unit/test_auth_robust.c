@@ -616,11 +616,121 @@ static void test_failed_challenge_drops_the_session(void)
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
 
+/* ---- each refusal, called directly: the status, and nothing past it ---- */
+
+static tfw_status_t direct_challenge(uint8_t out[TFW_AUTH_NONCE_LEN], unsigned *written)
+{
+    uint8_t      buf[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_status_t st;
+
+    memset(buf, 0xEEu, sizeof buf);
+    tfw_reader_init(&r, buf, 0u);
+    tfw_writer_init(&w, buf, (uint8_t)sizeof buf);
+    st = tfw_auth_cmd_challenge(&r, &w);
+    *written = tfw_writer_len(&w);
+    if (out) { memcpy(out, buf, TFW_AUTH_NONCE_LEN); }
+    return st;
+}
+
+static tfw_status_t direct_response(const uint8_t *sig, uint8_t n, unsigned *written)
+{
+    uint8_t      in[TFW_AUTH_SIG_LEN];
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_status_t st;
+
+    memset(in, 0, sizeof in);
+    memcpy(in, sig, n);
+    tfw_reader_init(&r, in, n);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    st = tfw_auth_cmd_response(&r, &w);
+    *written = tfw_writer_len(&w);
+    return st;
+}
+
+/* A challenge the element will not answer writes no nonce: a host must never
+ * be handed bytes that merely look like one. */
+static void test_a_challenge_the_element_refuses_writes_no_nonce(void)
+{
+    unsigned written = 99u;
+
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, direct_challenge(NULL, &written));
+    tfw_model_set_absent(0u);
+    TEST_ASSERT_EQUAL_UINT(0u, written);
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+}
+
+/* A response too short for a signature is refused before it touches the
+ * challenge: the outstanding nonce stays answerable, and nothing is written. */
+static void test_a_short_response_is_refused_and_the_challenge_stays_outstanding(void)
+{
+    uint8_t  n[TFW_AUTH_NONCE_LEN];
+    uint8_t  sig[TFW_AUTH_SIG_LEN];
+    unsigned written = 99u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, direct_challenge(n, &written));
+    sign(OPERATOR_PRIV, n, sig);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, direct_response(sig, TFW_AUTH_SIG_LEN - 1u, &written));
+    TEST_ASSERT_EQUAL_UINT(0u, written);
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+    TEST_ASSERT_EQUAL(TFW_OK, direct_response(sig, TFW_AUTH_SIG_LEN, &written));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
+}
+
+/* A signature the element rejects is refused, writes nothing, and spends the
+ * challenge: the genuine signature over the same nonce opens nothing after. */
+static void test_a_rejected_signature_writes_nothing_and_spends_the_challenge(void)
+{
+    uint8_t  n[TFW_AUTH_NONCE_LEN];
+    uint8_t  bad[TFW_AUTH_SIG_LEN];
+    uint8_t  good[TFW_AUTH_SIG_LEN];
+    unsigned written = 99u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, direct_challenge(n, &written));
+    sign(STRANGER_PRIV, n, bad);
+    sign(OPERATOR_PRIV, n, good);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, direct_response(bad, TFW_AUTH_SIG_LEN, &written));
+    TEST_ASSERT_EQUAL_UINT(0u, written);
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, direct_response(good, TFW_AUTH_SIG_LEN, &written));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+}
+
+/* An element that stops answering between challenge and response fails the
+ * verify: the status is the element's, the gate stays shut, and the challenge
+ * is spent all the same. */
+static void test_an_element_lost_before_the_verify_refuses_and_spends_the_challenge(void)
+{
+    uint8_t      n[TFW_AUTH_NONCE_LEN];
+    uint8_t      sig[TFW_AUTH_SIG_LEN];
+    unsigned     written = 99u;
+    tfw_status_t st;
+
+    TEST_ASSERT_EQUAL(TFW_OK, direct_challenge(n, &written));
+    sign(OPERATOR_PRIV, n, sig);
+    tfw_model_set_absent(1u);
+    st = direct_response(sig, TFW_AUTH_SIG_LEN, &written);
+    tfw_model_set_absent(0u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, st);
+    TEST_ASSERT_EQUAL_UINT(0u, written);
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, direct_response(sig, TFW_AUTH_SIG_LEN, &written));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_named_hostile_sequences);
     RUN_TEST(test_failed_challenge_drops_the_session);
     RUN_TEST(test_hostile_session_sequences_keep_the_gate);
+    RUN_TEST(test_a_challenge_the_element_refuses_writes_no_nonce);
+    RUN_TEST(test_a_short_response_is_refused_and_the_challenge_stays_outstanding);
+    RUN_TEST(test_a_rejected_signature_writes_nothing_and_spends_the_challenge);
+    RUN_TEST(test_an_element_lost_before_the_verify_refuses_and_spends_the_challenge);
     return UNITY_END();
 }

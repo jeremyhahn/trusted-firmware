@@ -9,6 +9,8 @@
 #include <string.h>
 #include "unity.h"
 #include "transport.h"
+#include "crc16.h"
+#include "dispatch.h"
 #include "sys.h"
 #include "hal_mock.h"
 #include "tfw/hal.h"
@@ -288,6 +290,157 @@ static void test_a_long_session_is_answered_past_four_kib_from_the_host(void)
     }
 }
 
+/* One reply as the host decodes it, an event with TFW_OK skipped (api.md
+ * "Events"); the 0x7F refusal shares the event OP but not its status. */
+typedef struct {
+    uint8_t seq, op, status, len;
+    uint8_t pay[8];
+} reply_t;
+
+static size_t feed_and_collect(const uint8_t *in, size_t n, reply_t *out, size_t max)
+{
+    uint8_t back[TFW_MAX_FRAME * 2u];
+    size_t  got, i, j, k = 0u;
+
+    tfw_mock_feed_rx(in, n);
+    for (i = 0; i < 512u; i++) {
+        tfw_transport_poll(&t);
+        got = tfw_mock_drain_tx(back, sizeof back);
+        for (j = 0; j < got; j++) {
+            if (tfw_framer_push(&rxf, back[j]) != TFW_FRAME_READY) { continue; }
+            if (tfw_frame_op(&rxf) == TFW_OP_EVENT && tfw_frame_status(&rxf) == TFW_OK) { continue; }
+            TEST_ASSERT_TRUE_MESSAGE(k < max, "more replies than requests");
+            out[k].seq    = tfw_frame_seq(&rxf);
+            out[k].op     = tfw_frame_op(&rxf);
+            out[k].status = (uint8_t)tfw_frame_status(&rxf);
+            out[k].len    = tfw_frame_payload_len(&rxf);
+            memcpy(out[k].pay, tfw_frame_payload(&rxf),
+                   out[k].len < sizeof out[k].pay ? out[k].len : sizeof out[k].pay);
+            k++;
+        }
+    }
+    return k;
+}
+
+static uint16_t ping(uint8_t *wire, uint8_t seq, const char *msg)
+{
+    uint16_t n = tfw_frame_encode_request(wire, TFW_MAX_FRAME, seq, TFW_CMD_PING,
+                                          (const uint8_t *)msg, (uint8_t)strlen(msg));
+    TEST_ASSERT_NOT_EQUAL(0u, n);
+    return n;
+}
+
+static void assert_pong(const reply_t *r, uint8_t seq, const char *msg)
+{
+    TEST_ASSERT_EQUAL_HEX8(seq, r->seq);
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING | TFW_OP_RESPONSE_BIT, r->op);
+    TEST_ASSERT_EQUAL(TFW_OK, r->status);
+    TEST_ASSERT_EQUAL_UINT8(strlen(msg), r->len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(msg, r->pay, strlen(msg));
+}
+
+/* Every request id 0x00..0x7F with an empty payload is answered once, its SEQ
+ * echoed and OP = id|0x80: TFW_ERR_UNKNOWN_CMD exactly for an id the table
+ * does not have, and a refusal carries no payload. 0x7F is refused in a frame
+ * whose OP is 0xFF. */
+static void test_every_request_id_is_answered_under_its_seq_and_op(void)
+{
+    unsigned id;
+    reply_t  r[2];
+    uint8_t  wire[TFW_MAX_FRAME];
+
+    for (id = 0x00u; id <= 0x7Fu; id++) {
+        uint16_t n = tfw_frame_encode_request(wire, sizeof wire, (uint8_t)(id + 1u), (uint8_t)id, 0, 0u);
+        TEST_ASSERT_NOT_EQUAL(0u, n);
+        TEST_ASSERT_EQUAL_UINT(1u, feed_and_collect(wire, n, r, 2u));
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(id + 1u), r[0].seq);
+        TEST_ASSERT_EQUAL_HEX8((uint8_t)(id | TFW_OP_RESPONSE_BIT), r[0].op);
+        if (tfw_dispatch_knows((uint8_t)id)) {
+            TEST_ASSERT_NOT_EQUAL(TFW_ERR_UNKNOWN_CMD, r[0].status);
+        } else {
+            TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, r[0].status);
+        }
+        if (r[0].status != TFW_OK) {
+            TEST_ASSERT_EQUAL_UINT8(0u, r[0].len);
+        }
+    }
+    TEST_ASSERT_EQUAL_HEX8(TFW_OP_EVENT, r[0].op);
+}
+
+/* A corrupted frame is answered TFW_ERR_CRC under its own SEQ with no payload;
+ * a LEN above TFW_MAX_LEN or below TFW_LEN_MIN is dropped unanswered, and the
+ * byte that failed as LEN is tried again as a start byte; garbage between
+ * frames is dropped. Each time the next good frame is the next one answered,
+ * and the framer's counters, which SYS_INFO reports, say what happened. */
+static void test_the_link_resynchronises_and_counts_what_it_refused(void)
+{
+    static const uint8_t junk[5] = { 0x00u, 0xFFu, 0x5Au, 0x81u, 0x13u };
+    uint8_t  in[TFW_MAX_FRAME * 2u + 200u];
+    reply_t  r[3];
+    uint16_t n;
+    unsigned i;
+
+    n = ping(in, 0x31u, "abc");
+    in[5] ^= 0x01u;                                  /* a payload byte */
+    TEST_ASSERT_EQUAL_UINT(1u, feed_and_collect(in, n, r, 3u));
+    TEST_ASSERT_EQUAL_HEX8(0x31u, r[0].seq);
+    TEST_ASSERT_EQUAL_HEX8(TFW_CMD_PING | TFW_OP_RESPONSE_BIT, r[0].op);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC, r[0].status);
+    TEST_ASSERT_EQUAL_UINT8(0u, r[0].len);
+
+    /* A lone start byte: the real SOF is read as an over-length LEN, refused,
+     * and reprocessed as the frame's start. */
+    in[0] = TFW_SOF;
+    n = ping(&in[1], 0x32u, "over");
+    TEST_ASSERT_EQUAL_UINT(1u, feed_and_collect(in, n + 1u, r, 3u));
+    assert_pong(&r[0], 0x32u, "over");
+
+    /* LEN 1, below the minimum, then the frame. */
+    in[0] = TFW_SOF;
+    in[1] = 0x01u;
+    n = ping(&in[2], 0x33u, "under");
+    TEST_ASSERT_EQUAL_UINT(1u, feed_and_collect(in, n + 2u, r, 3u));
+    assert_pong(&r[0], 0x33u, "under");
+
+    /* Garbage with no start byte in it, between two frames. */
+    n = ping(in, 0x34u, "one");
+    for (i = 0; i < 200u; i++) { in[n + i] = junk[i % sizeof junk]; }
+    n = (uint16_t)(n + 200u);
+    n = (uint16_t)(n + ping(&in[n], 0x35u, "two"));
+    TEST_ASSERT_EQUAL_UINT(2u, feed_and_collect(in, n, r, 3u));
+    assert_pong(&r[0], 0x34u, "one");
+    assert_pong(&r[1], 0x35u, "two");
+
+    TEST_ASSERT_EQUAL_UINT16(1u, t.framer.err_crc);
+    TEST_ASSERT_EQUAL_UINT16(2u, t.framer.err_format);
+}
+
+/* The largest frame either side may send has LEN = TFW_MAX_LEN; one built by
+ * hand with a payload byte more is dropped as over-length, not answered, and
+ * not counted as a CRC error; the frame after it is answered. */
+static void test_an_over_length_frame_is_dropped_and_the_next_answered(void)
+{
+    uint8_t  in[TFW_MAX_FRAME * 2u + 8u];
+    reply_t  r[2];
+    uint16_t crc, n = 0u;
+    unsigned i;
+
+    in[n++] = TFW_SOF;
+    in[n++] = (uint8_t)(TFW_MAX_LEN + 1u);
+    in[n++] = 0x42u;
+    in[n++] = TFW_CMD_PING;
+    for (i = 0; i < TFW_MAX_PAYLOAD + 1u; i++) { in[n++] = 0x00u; }
+    crc = tfw_crc16(&in[1], (uint16_t)(n - 1u));
+    in[n++] = (uint8_t)(crc & 0xFFu);
+    in[n++] = (uint8_t)(crc >> 8);
+    n = (uint16_t)(n + ping(&in[n], 0x43u, "after"));
+
+    TEST_ASSERT_EQUAL_UINT(1u, feed_and_collect(in, n, r, 2u));
+    assert_pong(&r[0], 0x43u, "after");
+    TEST_ASSERT_EQUAL_UINT16(1u, t.framer.err_format);
+    TEST_ASSERT_EQUAL_UINT16(0u, t.framer.err_crc);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -303,5 +456,8 @@ int main(void)
     RUN_TEST(test_an_event_is_emitted_when_nothing_is_in_flight);
     RUN_TEST(test_an_event_is_refused_while_a_response_is_pending);
     RUN_TEST(test_a_long_session_is_answered_past_four_kib_from_the_host);
+    RUN_TEST(test_every_request_id_is_answered_under_its_seq_and_op);
+    RUN_TEST(test_the_link_resynchronises_and_counts_what_it_refused);
+    RUN_TEST(test_an_over_length_frame_is_dropped_and_the_next_answered);
     return UNITY_END();
 }

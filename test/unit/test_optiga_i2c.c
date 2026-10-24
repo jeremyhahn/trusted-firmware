@@ -723,6 +723,75 @@ static void test_a_short_middle_or_an_empty_last_is_refused(void)
     played();
 }
 
+/* The bus lost on the host's own control frame: the frame it answers is
+ * never taken, and the loss is the status, not the frame's. */
+static void test_a_lost_ack_of_the_response_fails_and_nothing_is_taken(void)
+{
+    static const step_t s[] = { W(Q0), R(ACK0), R(A0), X };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_NACK, exchange(sizeof rsp));
+    TEST_ASSERT_EQUAL_UINT(3u, at);
+    TEST_ASSERT_EQUAL_UINT16(0u, rlen);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rsp[0]);
+}
+
+static void test_a_lost_nak_of_a_length_out_of_range_fails_unread(void)
+{
+    static const step_t s[] = { W(Q0), S(4u), X };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_NACK, exchange(sizeof rsp));
+    TEST_ASSERT_EQUAL_UINT(2u, at);
+    TEST_ASSERT_EQUAL_UINT16(0u, rlen);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rsp[0]);
+}
+
+static void test_a_lost_nak_of_a_bad_fcs_fails_and_nothing_is_taken(void)
+{
+    static const step_t s[] = { W(Q0), R(ACK0), R(A0_BAD), X };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_NACK, exchange(sizeof rsp));
+    TEST_ASSERT_EQUAL_UINT(3u, at);
+    TEST_ASSERT_EQUAL_UINT16(0u, rlen);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rsp[0]);
+}
+
+static void test_a_lost_ack_of_a_frame_already_taken_fails(void)
+{
+    static const step_t s[] = { W(Q0), R(ACK0), R(A3_OLD), X };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_NACK, exchange(sizeof rsp));
+    TEST_ASSERT_EQUAL_UINT(3u, at);
+    TEST_ASSERT_EQUAL_UINT16(0u, rlen);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rsp[0]);
+}
+
+/* After the acknowledge, four responses that never pass their FCS exhaust
+ * the waits: the exchange fails with the last refusal, not a timeout. */
+static void test_a_response_that_never_passes_its_fcs_fails_as_crc(void)
+{
+    static const step_t s[] = {
+        W(Q0), R(ACK0),
+        R(A0_BAD), W(NAK0), R(A0_BAD), W(NAK0),
+        R(A0_BAD), W(NAK0), R(A0_BAD), W(NAK0),
+        W(RESYNC),
+    };
+
+    open_at(64u);
+    PLAY(s);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, exchange(sizeof rsp));
+    played();
+    TEST_ASSERT_EQUAL_UINT16(0u, rlen);
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, rsp[0]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -757,5 +826,10 @@ int main(void)
     RUN_TEST(test_acks_for_no_frame_in_flight_repeat_the_frame);
     RUN_TEST(test_an_answer_that_naks_the_question_is_refused);
     RUN_TEST(test_a_short_middle_or_an_empty_last_is_refused);
+    RUN_TEST(test_a_lost_ack_of_the_response_fails_and_nothing_is_taken);
+    RUN_TEST(test_a_lost_nak_of_a_length_out_of_range_fails_unread);
+    RUN_TEST(test_a_lost_nak_of_a_bad_fcs_fails_and_nothing_is_taken);
+    RUN_TEST(test_a_lost_ack_of_a_frame_already_taken_fails);
+    RUN_TEST(test_a_response_that_never_passes_its_fcs_fails_as_crc);
     return UNITY_END();
 }

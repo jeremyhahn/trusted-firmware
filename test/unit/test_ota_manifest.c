@@ -243,6 +243,90 @@ static void test_a_refusal_does_not_wedge_the_session(void)
     TEST_ASSERT_TRUE(marked());
 }
 
+/* The checks below call tfw_ota_manifest directly: OTA_ACTIVATE's own
+ * refusals come first there and would mask the ones under test. */
+static tfw_status_t manifest(void)
+{
+    tfw_boot_platform_t p;
+
+    memset(&p, 0, sizeof p);
+    p.boot_state = TFW_BOOT_STATE_GOOD;
+    p.ota_state  = TFW_BOOT_OTA_IDLE;
+    return tfw_ota_manifest(&p);
+}
+
+/* A stage begun but never ended has no session for the check to read. */
+static void test_a_stage_that_never_ended_is_refused_before_the_store_is_read(void)
+{
+    uint8_t in[4];
+
+    put32(in, TOTAL);
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_stage_cmd_begin, in, 4u));
+    tfw_nor_model_fail_xfer(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, manifest());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_nor_model_take_fault());   /* still armed: nothing read */
+    TEST_ASSERT_FALSE(marked());
+}
+
+/* The trailer OTA_END checked, flipped in the store behind the driver's
+ * back before OTA_ACTIVATE reads it again. */
+static void test_a_trailer_changed_after_ota_end_is_refused(void)
+{
+    uint32_t programs;
+
+    build(SUIT_IMAGE, sizeof SUIT_IMAGE, SUIT_IMAGE_DIGEST,
+          SUIT_ENVELOPE, sizeof SUIT_ENVELOPE, 7u);
+    stage();
+    tfw_nor_model_corrupt(TFW_OTA_STORE_STAGE_ADDR + TOTAL - TRAILER);
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, manifest());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    TEST_ASSERT_FALSE(marked());
+}
+
+/* An image that leaves one byte of padding before the trailer has no room
+ * for even the envelope's length. */
+static void test_an_image_that_leaves_no_room_for_the_length_is_refused(void)
+{
+    static uint8_t image[TOTAL - TRAILER - 1u];
+    uint8_t        digest[TFW_SHA256_LEN];
+    uint32_t       programs;
+
+    memset(image, 0x5A, sizeof image);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256(image, (uint16_t)sizeof image, digest));
+    build(image, sizeof image, digest, NULL, 0u, 7u);
+    stage();
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, manifest());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    TEST_ASSERT_FALSE(marked());
+}
+
+/* Every store transfer the check makes -- the trailer, the envelope's
+ * length, the envelope -- failed in turn: each failure is the status
+ * returned, and none marks. The first n past the last transfer passes. */
+static void test_every_failed_store_read_is_returned_and_marks_nothing(void)
+{
+    tfw_status_t st;
+    uint8_t      n;
+
+    build(SUIT_IMAGE, sizeof SUIT_IMAGE, SUIT_IMAGE_DIGEST,
+          SUIT_ENVELOPE, sizeof SUIT_ENVELOPE, 7u);
+    stage();
+    for (n = 1u; n < 255u; n++) {
+        tfw_nor_model_fail_xfer(n);
+        st = manifest();
+        tfw_nor_model_fail_xfer(0u);
+        if (st == TFW_OK) {
+            break;
+        }
+        TEST_ASSERT_EQUAL(TFW_ERR_BUSY, st);
+        TEST_ASSERT_FALSE(marked());
+    }
+    TEST_ASSERT_EQUAL(TFW_OK, st);
+    TEST_ASSERT_GREATER_THAN_UINT8(3u, n);   /* trailer, length, envelope */
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -256,5 +340,9 @@ int main(void)
     RUN_TEST(test_a_sequence_below_the_floor_is_refused);
     RUN_TEST(test_a_sequence_at_the_floor_activates);
     RUN_TEST(test_a_refusal_does_not_wedge_the_session);
+    RUN_TEST(test_a_stage_that_never_ended_is_refused_before_the_store_is_read);
+    RUN_TEST(test_a_trailer_changed_after_ota_end_is_refused);
+    RUN_TEST(test_an_image_that_leaves_no_room_for_the_length_is_refused);
+    RUN_TEST(test_every_failed_store_read_is_returned_and_marks_nothing);
     return UNITY_END();
 }

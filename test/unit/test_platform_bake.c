@@ -170,6 +170,22 @@ static void test_an_invalid_carried_block_is_refused_before_any_write(void)
     assert_nothing_written();
 }
 
+/* A block in a layout this build does not know is no identity the firmware
+ * would accept, so baking over it loses nothing: it is written, not refused. */
+static void test_a_region_in_an_unknown_layout_is_baked(void)
+{
+    uint8_t            *ee = tfw_mock_eeprom();
+    tfw_boot_platform_t p;
+
+    memcpy(ee, WANT, TFW_BOOT_EE_LEN);
+    ee[TFW_BOOT_EE_O_LAYOUT] = (uint8_t)(TFW_BOOT_EE_VERSION + 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_platform_parse(ee, &p));
+
+    TEST_ASSERT_EQUAL(TFW_BAKE_BAKED, tfw_bake_run(WANT));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, ee, TFW_BOOT_EE_LEN);
+    assert_outside_untouched();
+}
+
 static void test_the_result_line(void)
 {
     static const char want_line[] =
@@ -205,6 +221,7 @@ int main(void)
     RUN_TEST(test_a_readback_that_disagrees_is_reported);
     RUN_TEST(test_an_unreadable_region_is_refused_and_not_written);
     RUN_TEST(test_an_invalid_carried_block_is_refused_before_any_write);
+    RUN_TEST(test_a_region_in_an_unknown_layout_is_baked);
     RUN_TEST(test_the_result_line);
     RUN_TEST(test_every_result_has_its_name);
     return UNITY_END();

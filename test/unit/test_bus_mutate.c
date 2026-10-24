@@ -537,6 +537,190 @@ static void test_the_clean_requests_afterwards(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(scratchpad, out, 2u);
 }
 
+/* --- every error return the sweeps above reach without pinning (#163) ------
+ *
+ * The sweeps prove a refusal is clean; these name the status. Each request is
+ * one the dispatcher would hand on, or -- where its arity table already turns
+ * the length away -- a direct call, which is the handler's own guard. */
+
+#define NO_PORT_PIN 20u  /* ATmega328P A6: an index on the table, no digital port */
+#define OFF_TABLE   200u /* no board has this many pins */
+
+typedef tfw_status_t (*handler_t)(tfw_reader_t *r, tfw_writer_t *w);
+
+/* Call a handler directly; *wrote is how far it advanced the writer. */
+static tfw_status_t call(handler_t h, const uint8_t *p, uint8_t n, uint8_t *wrote)
+{
+    uint8_t      out[TFW_MAX_PAYLOAD];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_status_t st;
+
+    tfw_reader_init(&r, p, n);
+    tfw_writer_init(&w, out, TFW_MAX_PAYLOAD);
+    st     = h(&r, &w);
+    *wrote = tfw_writer_len(&w);
+    return st;
+}
+
+/* The pin-table refusals come after the reserved-pin check, so neither pin may
+ * be reserved or in use for the refusal under test to be the one that answers.
+ * A6 is ADC-only, which is why it has a table entry and no port. */
+static void assert_unflagged_pins(void)
+{
+    const uint8_t claimed = TFW_PIN_RESERVED | TFW_PIN_IN_USE;
+
+    TEST_ASSERT_TRUE(OFF_TABLE >= TFW_PIN_COUNT);
+    TEST_ASSERT_TRUE(NO_PORT_PIN < TFW_PIN_COUNT);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_board_pin_flags(OFF_TABLE) & claimed);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_board_pin_flags(NO_PORT_PIN) & claimed);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_board_pin_flags(NO_PORT_PIN) & TFW_PIN_DIGITAL);
+}
+
+static void test_an_i2c_nack_is_returned_and_nothing_is_answered(void)
+{
+    uint8_t wrote;
+
+    tfw_mock_set_bus_response((const uint8_t[]){ 0xAA }, 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK,
+        call(tfw_i2c_cmd_xfer, (const uint8_t[]){ 0x48u, 3u }, 2u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0x48u, tfw_mock_last_i2c_addr());
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_an_spi_transfer_with_no_bytes_is_refused_when_called_directly(void)
+{
+    uint8_t wrote;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+        call(tfw_spi_cmd_xfer, (const uint8_t[]){ 10u }, 1u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_an_spi_transfer_past_the_bus_maximum_is_refused_when_called_directly(void)
+{
+    uint8_t req[1u + BUS_MAX + 1u];
+    uint8_t wrote;
+
+    memset(req, 0x5A, sizeof req);
+    req[0] = 10u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+        call(tfw_spi_cmd_xfer, req, (uint8_t)sizeof req, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_an_spi_chip_select_off_the_pin_table_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN,
+        call(tfw_spi_cmd_xfer, (const uint8_t[]){ OFF_TABLE, 0x01u }, 2u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_an_spi_chip_select_with_no_digital_port_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+        call(tfw_spi_cmd_xfer, (const uint8_t[]){ NO_PORT_PIN, 0x01u }, 2u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_a_onewire_reset_off_the_pin_table_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN,
+        call(tfw_ow_cmd_reset, (const uint8_t[]){ OFF_TABLE }, 1u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_a_onewire_reset_with_no_digital_port_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+        call(tfw_ow_cmd_reset, (const uint8_t[]){ NO_PORT_PIN }, 1u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_a_onewire_write_with_no_bytes_is_refused_when_called_directly(void)
+{
+    uint8_t wrote;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+        call(tfw_ow_cmd_write, (const uint8_t[]){ 9u }, 1u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_a_onewire_write_past_the_bus_maximum_is_refused_when_called_directly(void)
+{
+    uint8_t req[1u + BUS_MAX + 1u];
+    uint8_t wrote;
+
+    memset(req, 0xCC, sizeof req);
+    req[0] = 9u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+        call(tfw_ow_cmd_write, req, (uint8_t)sizeof req, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_a_onewire_write_off_the_pin_table_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN,
+        call(tfw_ow_cmd_write, (const uint8_t[]){ OFF_TABLE, 0xCCu }, 2u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_a_onewire_write_with_no_digital_port_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+        call(tfw_ow_cmd_write, (const uint8_t[]){ NO_PORT_PIN, 0xCCu }, 2u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+}
+
+static void test_a_onewire_read_past_the_bus_maximum_is_refused(void)
+{
+    uint8_t out[TFW_MAX_PAYLOAD];
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
+        run(TFW_CMD_ONEWIRE_READ, (const uint8_t[]){ 9u, BUS_MAX + 1u }, 2u, out));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_ow_read_count());
+}
+
+static void test_a_onewire_read_off_the_pin_table_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN,
+        call(tfw_ow_cmd_read, (const uint8_t[]){ OFF_TABLE, 2u }, 2u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_ow_read_count());
+}
+
+static void test_a_onewire_read_with_no_digital_port_is_refused(void)
+{
+    uint8_t wrote;
+
+    assert_unflagged_pins();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
+        call(tfw_ow_cmd_read, (const uint8_t[]){ NO_PORT_PIN, 2u }, 2u, &wrote));
+    TEST_ASSERT_EQUAL_UINT8(0u, wrote);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_ow_read_count());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -547,5 +731,19 @@ int main(void)
     RUN_TEST(test_every_onewire_pin_against_every_length);
     RUN_TEST(test_mutated_bus_requests);
     RUN_TEST(test_the_clean_requests_afterwards);
+    RUN_TEST(test_an_i2c_nack_is_returned_and_nothing_is_answered);
+    RUN_TEST(test_an_spi_transfer_with_no_bytes_is_refused_when_called_directly);
+    RUN_TEST(test_an_spi_transfer_past_the_bus_maximum_is_refused_when_called_directly);
+    RUN_TEST(test_an_spi_chip_select_off_the_pin_table_is_refused);
+    RUN_TEST(test_an_spi_chip_select_with_no_digital_port_is_refused);
+    RUN_TEST(test_a_onewire_reset_off_the_pin_table_is_refused);
+    RUN_TEST(test_a_onewire_reset_with_no_digital_port_is_refused);
+    RUN_TEST(test_a_onewire_write_with_no_bytes_is_refused_when_called_directly);
+    RUN_TEST(test_a_onewire_write_past_the_bus_maximum_is_refused_when_called_directly);
+    RUN_TEST(test_a_onewire_write_off_the_pin_table_is_refused);
+    RUN_TEST(test_a_onewire_write_with_no_digital_port_is_refused);
+    RUN_TEST(test_a_onewire_read_past_the_bus_maximum_is_refused);
+    RUN_TEST(test_a_onewire_read_off_the_pin_table_is_refused);
+    RUN_TEST(test_a_onewire_read_with_no_digital_port_is_refused);
     return UNITY_END();
 }

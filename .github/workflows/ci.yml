@@ -1,4 +1,11 @@
-# ci-template: v1.25 (customized)
+# ci-template: v1.25.1 (customized)
+# v1.25.1 (Software DS-3465, 2026-10-24): main has one concurrency group per
+# event and commit, `main-{event}-{sha}`, so a push to main never cancels a main
+# run in progress and no merge lands without a completed main run. This
+# reverses v1.25 and restores v1.23's form (ruling 109). cancel-in-progress
+# stays a literal `true`: Gitea 1.27.1 never released a main run once it was an
+# expression. A PR ref is one group, so its newer run still cancels the older.
+# Only the group changes.
 # v1.25 (Company Agent m857, 2026-10-20): main has one concurrency group per
 # event, so a newer push to main cancels the older in-progress main push run.
 # At 20:00Z go-qrdb had three main-push runs in progress on three commits and
@@ -326,15 +333,15 @@ on:
   schedule:
     - cron: '0 4 * * *'
 
-# v1.25: on main the group is the workflow and the event, so a push to main
-# cancels the in-progress main push run of an older commit, and a schedule or
-# workflow_dispatch run cancels only an older run of its own event (Company
-# Agent m857, m774 option (i)). Every other ref is one group, so a PR's newer
-# run cancels the older. No expression reaches cancel-in-progress: Gitea
-# 1.27.1 never released go-qrdb main run 57063, the first run after v1.22.1
-# set it to an expression (Company Agent m695).
+# v1.25.1: on main the group is the workflow, the event and the commit, so no
+# main run ever cancels another and every merge keeps a run that completes
+# (Software DS-3465). Every other ref is one group, so a PR's newer run cancels
+# the older. No expression reaches cancel-in-progress: Gitea 1.27.1 never
+# released a main run once it was an expression (Company Agent m695), so it
+# stays a literal `true` and the group alone keeps main runs apart (v1.23's
+# form, ruling 109).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && format('main-{0}', github.event_name) || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && format('main-{0}-{1}', github.event_name, github.sha) || github.ref }}
   cancel-in-progress: true
 
 permissions:

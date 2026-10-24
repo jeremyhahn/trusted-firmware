@@ -151,9 +151,12 @@ XKMS_SIM_DIR        ?= $(abspath build/host)
 # talk to the REAL firmware compiled for the host, never a downloaded binary.
 # ./e2e is left out: it is TestHardwareEnrollment's package, which hw-enroll runs
 # against a board (#163 decision 2). Out of the list, not skipped inside it.
+# Every xkms test that starts a simulator carries the tfwsim build tag, as the
+# sdk's do (xkms/avr's field-link tests), so this is the one xkms target that
+# compiles them in; xkms-coverage leaves them out.
 xkms-test: tfwsim tfwsim-atecc608a
-	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
-	  $$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS)) ./... | grep -v '/e2e$$')
+	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS) tfwsim) \
+	  $$($(GO) list$(call go-tags,-tags,$(XKMS_TAGS) tfwsim) ./... | grep -v '/e2e$$')
 
 ## xkms-e2e-soft: enrol the no-element CRYPTO=auto image through device-attest-01 on its soft root (#130)
 # Separate from xkms-test because xkms/e2e is TestHardwareEnrollment's package,

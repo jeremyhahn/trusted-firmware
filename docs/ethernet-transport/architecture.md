@@ -5,6 +5,10 @@
 > [adr-wire-protocol-over-w5x00.md](adr-wire-protocol-over-w5x00.md). This page
 > describes the shape they produce.
 
+In this folder: [`api.md`](api.md), [`user.md`](user.md),
+[`cli.md`](cli.md) (`tfwctl netcfg set|get` and the `tcp://` device address),
+[`engineering.md`](engineering.md) and [`test-matrix.md`](test-matrix.md).
+
 ## Ownership boundary
 
 This repo owns the device side: the W5100 and W5500 drivers, the Ethernet link

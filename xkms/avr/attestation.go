@@ -14,6 +14,7 @@
 package avr
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"strconv"
@@ -70,11 +71,24 @@ type Attestation struct {
 	// the signature is over the original.
 	CertificateDER []byte
 
+	// Chain is the alias chain dice.Verify checked, leaf first, as DER: the
+	// device's bytes (CertificateDER) followed by the configured
+	// AttestationConfig.Intermediates in their order -- the DeviceID
+	// certificate first, where there is one. It is the x5c of a
+	// device-attest-01 "dice" statement, in the form go-xkms's
+	// VerifyAKCertificateChain reads it. With no intermediates configured it
+	// is the leaf alone, the chain a device that keeps no certificate of its
+	// own presents. Each entry is a copy, so a caller that edits it cannot
+	// alter what the next attestation hands over.
+	Chain [][]byte
+
 	// Claims is the decoded CWT claims set from the leaf's
 	// tcg-dice-UCCS-evidence extension. Its Nonce is the challenge that was
 	// matched; Other carries every claim this profile does not model -- the
-	// ueid at key 256 and the firmware measurement at key 273 -- as the raw
-	// CBOR the device encoded, so a caller reads exactly what the device said.
+	// ueid at key 256 and the measurement at key 273, the application's
+	// evidence or, where no application supplies any, the firmware's own
+	// measurement -- as the raw CBOR the device encoded, so a caller reads
+	// exactly what the device said. go-xkms reads 273 itself, at finalize.
 	Claims *dice.ClaimsSet
 
 	// Ueid is the device's unique identifier, type byte included, read by
@@ -246,6 +260,7 @@ func (b *Backend) checkAliasCertificate(der, nonce []byte) (*Attestation, error)
 		Format:         FormatDICE,
 		Certificate:    leaf,
 		CertificateDER: der,
+		Chain:          chainDER(der, b.intermediateCerts),
 		Claims:         evidence.Claims,
 		Ueid:           evidence.Ueid,
 		Nonce:          echoed,
@@ -256,4 +271,17 @@ func (b *Backend) checkAliasCertificate(der, nonce []byte) (*Attestation, error)
 		// not reported here with Anchored false.
 		Anchored: b.roots != nil,
 	}, nil
+}
+
+// chainDER returns the chain dice.Verify was given, leaf first, as DER copies.
+// An intermediate's Raw is the DER it was configured with: crypto/x509 keeps the
+// parsed bytes verbatim, so this hands over what the operator supplied, never a
+// re-encoding.
+func chainDER(leaf []byte, intermediates []*x509.Certificate) [][]byte {
+	chain := make([][]byte, 0, 1+len(intermediates))
+	chain = append(chain, bytes.Clone(leaf))
+	for _, cert := range intermediates {
+		chain = append(chain, bytes.Clone(cert.Raw))
+	}
+	return chain
 }

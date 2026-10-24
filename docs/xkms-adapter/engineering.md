@@ -34,9 +34,9 @@ Raising the go-xkms requirement is likewise an edit to `xkms/go.mod`.
 | `Backend.AttestLevel() (types.AttestLevel, error)` | Derived from `Caps.CryptoTier` and nothing else. |
 | `Backend.Algorithms() Algorithms` | Derived from `Caps.Algorithms` and nothing else. |
 | `Backend.AttestKey(ctx, attrs, nonce) (interface{}, error)` | `*Attestation`. The nonce is 32 bytes from `deviceattest01.DICENonce`. Gates on the cached `CAPS` before any frame, agreeing with `Capabilities().Attestation`: no `FeatureAttest` is `ErrCommandUnavailable`; `FeatureAttest` without `FeatureAliasCert` and the P-256 bit is `ErrUnsupportedByDevice`. A full `CAPS` goes to the wire, and the device's refusal maps as for any command. |
-| `Backend.Identity(ctx) (*Identity, error)` | `PROV_INFO`: element serial, die revision, both zone lock states. Provisioning images only. |
-| `Backend.Health(ctx) (*Health, error)` | `SYS_INFO`: uptime, free RAM, reset cause. Not a clock. |
-| `Backend.GetKey(ctx, attrs) (crypto.PrivateKey, error)` | `*DeviceKey` carrying the element's public point. |
+| `Backend.Identity(ctx) (*Identity, error)` | `PROV_INFO`: element serial, die revision, both zone lock states. Provisioning images, serial only. |
+| `Backend.Health(ctx) (*Health, error)` | `SYS_INFO`: uptime, free RAM, reset cause. Not a clock. Serial only: the Ethernet allow-list refuses `SYS_INFO` (`ErrCommandUnavailable`). |
+| `Backend.GetKey(ctx, attrs) (crypto.PrivateKey, error)` | `*DeviceKey` carrying the element's public point, read with `PROV_PUBKEY`: provisioning images, serial only. A fielded device's key is the alias certificate's (`AttestKey`). |
 | `Backend.ListKeys(ctx)` | The one key the device holds, or none. No I/O. |
 | `DeviceKey` | `Public()`, `Slot()`, `CN()`, `Equal()`. Deliberately not a `crypto.Signer`. |
 | `Algorithms` | `Can`, `Named`, `Unnamed`, `Empty`, `Set`, `String`. |
@@ -193,6 +193,15 @@ Run `make ci xkms-test xkms-coverage` where go-xkms is reachable.
 `xkms/e2e` drives a `device-attest-01` DICE enrolment against the real firmware
 compiled for the host (`tfwsim`, `tfwsim-atecc608a`). `xkms/registration` tests
 the registry hook.
+
+`avr/fieldlink_test.go` builds the backend through the registry's factory over
+the Ethernet link of the same firmware (`tfwsim.StartElementEthernet`), with its
+serial link open beside it. It pins what the field link carries: `CAPS`,
+`AttestKey` and `PossessionSigner` work; `Identity`, `Health` and `GetKey` answer
+`ErrCommandUnavailable` and leave the connection in step; re-attesting makes the
+earlier attestation's possession signer answer `ErrInvalidArgument`, because the
+device keeps its latest certificate's nonce only; and `Close` leaves the
+connection usable for the next backend.
 
 There is no hardware and CI has none, so the tests drive a **fake link and the
 real codec**: every byte a test sends is framed by the SDK's own

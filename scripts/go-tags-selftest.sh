@@ -13,9 +13,10 @@
 #     below, the command lines from before the template's tags were read. They
 #     are literals on purpose: computed from the Makefile, they would move with it.
 #     The tfwsim tag on sdk-test, sdk-lint and go-golangci is sdk/go's own
-#     (#163), so it stays when GO_BUILD_TAGS is empty. sdk-coverage and
-#     xkms-coverage open a { } group, which keeps their log for the
-#     per-package floor (#163); their tag arguments are as before.
+#     (#163), and on xkms-test the xkms adapter's own, so it stays when
+#     GO_BUILD_TAGS is empty. sdk-coverage and xkms-coverage open a { }
+#     group, which keeps their log for the per-package floor (#163); their
+#     tag arguments are as before.
 #
 # Run through `make go-tags-selftest`, which hands in the boot bridge's row
 # (GO_TAGS_BRIDGE) and its prerequisites (GO_TAGS_BRIDGE_PREREQS): the bridge
@@ -106,7 +107,7 @@ build/tools/tfwprov	cd sdk/go && go build -o build/tools/tfwprov ./cmd/tfwprov
 sdk-coverage	cd sdk/go && { go test -count=1 -coverprofile=../../coverage/sdk.out ./... \
 xkms-coverage	{ go test -count=1 -tags codec_json -coverprofile=../coverage/xkms.out $pkgs \
 sdk-test	cd sdk/go && go test -count=1 -tags tfwsim ./...
-xkms-test	cd xkms && TFWSIM_DIR=build/host go test -count=1 -tags codec_json \
+xkms-test	cd xkms && TFWSIM_DIR=build/host go test -count=1 -tags codec_json,tfwsim \
 boot-bridge-run	go test -count=1 -tags simavr -run '^TestOTAStageThroughTfwBoot$' ./cmd/tfwctl/
 sdk-lint	cd sdk/go && go vet ./...
 sdk-lint	cd sdk/go && go vet -tags tfwsim ./...

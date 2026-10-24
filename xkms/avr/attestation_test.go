@@ -122,6 +122,7 @@ func TestAttestKeyVerifiesTheCertificateARealDeviceEmits(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, FormatDICE, att.Format)
 	assert.Equal(t, der, att.CertificateDER, "a gateway forwards the device's bytes verbatim")
+	assert.Equal(t, [][]byte{der}, att.Chain, "no intermediates configured: the chain is the leaf alone")
 	assert.Equal(t, nonce, att.Claims.Nonce)
 	assert.Equal(t, types.AttestLevelHardware, att.AttestLevel)
 	assert.Equal(t, tfw.CryptoSecureElement, att.CryptoTier)
@@ -317,6 +318,58 @@ func TestAttestKeyAnchorsAgainstConfiguredRoots(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, result.(*Attestation).Anchored)
+}
+
+// The alias chain leaves the adapter as the x5c of a device-attest-01 "dice"
+// statement: the device's leaf, then the DeviceID certificate the operator
+// configured, in the form go-xkms's own chain check reads (row
+// device-onboarding). Leaf alone would leave a verifier that anchors in the
+// DICE roots nothing to anchor with.
+func TestAttestKeyHandsOverTheChainItVerified(t *testing.T) {
+	device := newAliasDevice(t)
+	nonce := make([]byte, tfw.AliasNonceLen)
+	nonce[0] = 0x5C
+
+	leaf := device.mint(t, nonce)
+	link := secureElementLink().answerAttestCert(leaf)
+	b := newAnchoredBackend(t, link, device)
+
+	result, err := b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
+	require.NoError(t, err)
+	att := result.(*Attestation)
+
+	require.Equal(t, [][]byte{leaf, device.deviceIDDER}, att.Chain,
+		"leaf first, then the configured intermediates in their order")
+
+	root, err := x509.ParseCertificate(device.rootDER)
+	require.NoError(t, err)
+	verifier, err := deviceattest01.NewTrustAnchorVerifier(deviceattest01.TrustAnchors{
+		DICERoots: []*x509.Certificate{root},
+	})
+	require.NoError(t, err)
+	require.NoError(t, verifier.VerifyAKCertificateChain(att.Chain),
+		"go-xkms's x5c check anchors the chain as handed over")
+	require.Error(t, verifier.VerifyAKCertificateChain([][]byte{att.Chain[0]}),
+		"and the leaf alone does not reach the root, so the intermediate is what anchors it")
+}
+
+// Chain is the caller's to keep: editing it reaches neither the backend's
+// configured intermediates nor the certificate bytes the device sent.
+func TestChainDERCopiesEveryLink(t *testing.T) {
+	device := newAliasDevice(t)
+	leaf := device.mint(t, make([]byte, tfw.AliasNonceLen))
+	leafCopy := bytes.Clone(leaf)
+	rawCopy := bytes.Clone(device.deviceIDCert.Raw)
+
+	chain := chainDER(leaf, []*x509.Certificate{device.deviceIDCert})
+	require.Equal(t, [][]byte{leaf, device.deviceIDDER}, chain)
+
+	chain[0][0] ^= 0xFF
+	chain[1][0] ^= 0xFF
+	assert.Equal(t, leafCopy, leaf, "the device's bytes are untouched")
+	assert.Equal(t, rawCopy, device.deviceIDCert.Raw, "the configured intermediate is untouched")
+
+	assert.Equal(t, [][]byte{leafCopy}, chainDER(leafCopy, nil), "no intermediates: the leaf alone")
 }
 
 // A certificate from a device the operator never enrolled is refused, not

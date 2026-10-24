@@ -2,12 +2,17 @@
 
 > **Status: DRAFT** · Scope: trusted-firmware (device side, `sdk/go`, the `xkms`
 > adapter), seam only for go-xkms, go-quicbaas and go-trusted-platform ·
-> Issue: #53 · SPEC row: `device-onboarding` (future) · Last verified: 2026-10-18
+> Issue: #53 · SPEC row: `device-onboarding` (future) · Last verified: 2026-10-20
 >
 > This page traces a device from first power-on to enrolled and marks, for every
 > step, which repository owns it. It adds no command, call or vector. What it
 > finds missing is written as a requirement on the repository that owns it
 > ("Requirements on other repositories", below), never as a workaround here.
+
+In this folder: [`api.md`](api.md) (what the device presents: the record, the
+alias certificate, the possession signature), [`user.md`](user.md) (the
+operator's path) and [`engineering.md`](engineering.md) (the tests that pin the
+seam, the gaps and their owners).
 
 See also: [`../device-provisioning/`](../device-provisioning/architecture.md)
 (the bench steps), [`../ethernet-transport/`](../ethernet-transport/architecture.md)
@@ -32,6 +37,26 @@ verification.
 | go-quicbaas | composing go-xkms's verification with this repo's adapter as one hardware implementation; it has no firmware dependency |
 | go-trusted-platform | the device-facing endpoint, running the ACME order, the device registry and the resolver go-xkms consults, matching the device to its profile, the enrolment record and fleet policy |
 | operator | the bench: fuses, lock bits, the element, the addresses written into the network block |
+
+## The row's requirements on `main`
+
+The `device-onboarding` row of [`../SPEC.md`](../SPEC.md), clause by clause, as
+met or unmet on `main`, with the file that meets it. A clause another
+repository owns is named as theirs, not marked unmet here.
+
+| # | Requirement (SPEC row) | Owner | On `main` | Met by |
+|---|---|---|---|---|
+| 1 | A DICE-only device (no TPM) presents its DICE evidence | this | met, element tier; the soft root has no alias certificate, its P-256 DeviceID is on open PR #173 | `src/caps/alias.c`, `ATTEST_CERT` (`0x63`), `sdk/go/attest.go` (`Device.AttestCert`) |
+| 2 | … the alias chain | this | met | `xkms/avr/attestation.go`: `Attestation.Chain`, the chain `dice.Verify` checked, leaf first, the `x5c` go-xkms's `VerifyAKCertificateChain` reads; `xkms/e2e/device_attest_dice_e2e_test.go` posts it |
+| 3 | … and UCCS claims: nonce (10), ueid (256), measurements (273) | this | met | `src/caps/uccs.c`; `sdk/go/appevidence.go` (`AliasUCCS`); `xkms/avr/attestation.go` (`Attestation.Claims`) |
+| 4 | … including the application measurement | this | met | `tfw_app_evidence` (`include/tfw/app.h`) through `src/core/app_runner.c` into claim 273; `sdk/go/appevidence.go` (`ApplicationEvidence`) |
+| 5 | … including the firmware measurement | this, with go-xkms | **unmet** where an application runs: 273 holds the firmware's measurement only where no application supplies evidence, and otherwise the firmware's travels only in `ATTEST`'s `FWHash` (`src/caps/attest.c`), outside the DICE evidence. Blocked on go-xkms (owner question 3) | `src/caps/uccs.c` (no application) |
+| 6 | go-quicbaas composes go-xkms's generic DICE verification with this project's adapter as one hardware implementation | go-quicbaas; the adapter is this | met, the adapter's half | `xkms/register.go`, `xkms/backends_avr.go` (type `tfw`); composition is R3 |
+| 7 | That verification checks the evidence | go-xkms | theirs | the adapter calls `dice.Verify` before it hands anything over (`xkms/avr/attestation.go`); go-xkms#1441 (R5) |
+| 8 | go-trusted-platform reaches the device through go-quicbaas and never imports the adapter | go-trusted-platform | theirs; this project keeps the graph importable | `make sdk-verify` (`sdk/go` has no in-house dependency) |
+| 9 | go-trusted-platform matches the device to its profile and records it | go-trusted-platform | theirs | R1, R2 |
+| 10 | This project owns no enrollment, registry, profile or verification | this | met | none ships; the registry in `xkms/e2e` is a test stand-in |
+| 11 | The registry is anchored in a provisioning record (onboarding step 4) | this, T1 | on open PR #173 (`tfwprov --record`) | not on `main` |
 
 ## The sequence
 
@@ -132,7 +157,9 @@ the commands that do it are absent from a production image
     with the 32-byte `b`. The device mints an alias certificate whose
     `tcg-dice-UCCS-evidence` extension carries `nonce` (10) = `b`, `ueid` (256)
     and `measurements` (273). The adapter checks the nonce in constant time
-    before it returns anything. The ACME client posts the DER verbatim as `dice`
+    before it returns anything, and hands over `Attestation.Chain`: the chain
+    `dice.Verify` checked, leaf first, the device's DER verbatim, then the
+    configured intermediates. The ACME client posts it as the `x5c` of `dice`
     evidence. This repo.
 12. **Verification.** go-xkms's registry-anchored DICE verifier resolves the
     claimed UEID through go-trusted-platform's resolver. It requires the leaf's
@@ -208,7 +235,8 @@ directly. go-quicbaas does not need to (R3).
   `*tfw.Device` (a `*TCPDevice`'s embedded `Device`). `AVRConfigKeyConfig`
   (`"config"`) may hold a `*avr.Config`. Anything else is refused.
 - **Surface.** The backend is a `types.KeyProvider` and a
-  `types.AttestingKeyProvider`. `AttestKey` (step 11), `PossessionSigner`
+  `types.AttestingKeyProvider`. `AttestKey` (step 11, returning the alias
+  chain as `Attestation.Chain` and the claims as `Attestation.Claims`), `PossessionSigner`
   (step 13), `AttestLevel` from the crypto tier, and `Algorithms` from the
   device's bitmap. It never owns the link: closing the backend leaves the
   connection to whoever accepted it.
@@ -287,10 +315,14 @@ around one.
   `tfw_app_evidence` hook supplies, or the firmware hash `tfw-boot` verified
   where none runs or supplies any
   ([dice-attestation/api.md](../dice-attestation/api.md)).
-  The firmware's own measurement stays in `ATTEST`'s `FWHash`. Matching the
-  profile from 273 is go-trusted-platform's; carrying the firmware's
-  measurement beside the application's in one certificate (submodules) is a
-  follow-up ([application-sdk](../application-sdk/architecture.md)).
+  The firmware's own measurement stays in `ATTEST`'s `FWHash`, outside the DICE
+  evidence, so requirement 5 above is unmet. Matching the profile from 273 is
+  go-trusted-platform's. Carrying the firmware's measurement beside the
+  application's waits on go-xkms (question 3): its possession profile accepts
+  273 only as the one-entry application-evidence shape, and any second entry
+  changes the fixed claims and certificate templates and so the `TFWV_UCCS` and
+  `TFWV_ALIAS_CERT` vectors
+  ([application-sdk](../application-sdk/architecture.md)).
 
 ## Open questions for the owner
 
@@ -302,8 +334,19 @@ around one.
 2. **R4's home.** Confirm that the DICE device seam for the ACME client is
    go-xkms's. It is generic, but the only implementation today is this repo's
    test glue.
-3. **The SPEC row's Detail column** still names `docs/xkms-adapter/`. Should it
-   name this folder? Not changed here; the row is `future`.
+3. **go-xkms: the firmware measurement beside the application's.** The SPEC
+   row has the DICE evidence carry both. go-xkms's possession profile refuses
+   a claim 273 that is not the one-entry application-evidence shape
+   (`ErrPossessionMeasurementsShape`), and its DICE verifier reads firmware
+   measurements from `DiceTcbInfo` FWIDs, which the alias certificate does not
+   carry. Which encoding does go-xkms consume: a `DiceTcbInfo` extension with
+   the firmware hash as an FWID, a second CoSWID file in 273, or a submodule
+   (266)? The firmware follows with new templates and new vectors; nothing here
+   changes until go-xkms rules.
+4. **An `sdk/go` tag.** `xkms` pins `sdk/go` v0.4.0-alpha, which predates
+   `AliasUCCS` and `ApplicationEvidence` (`sdk/go/appevidence.go`). Cutting the
+   next `sdk/go` tag lets the adapter call them instead of reading the claims
+   from go-xkms alone.
 
 ## Trust boundaries
 

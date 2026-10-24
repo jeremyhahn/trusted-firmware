@@ -145,7 +145,7 @@ func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.Att
 	}
 	statement, err := deviceattest01.EncodeAttestationRequest(&deviceattest01.AttestationObject{
 		Format:       deviceattest01.FormatDICE.String(),
-		AttStatement: deviceattest01.AttestationStatement{X5c: []interface{}{att.CertificateDER}},
+		AttStatement: deviceattest01.AttestationStatement{X5c: x5c(att.Chain)},
 	})
 	if err != nil {
 		return nil, err
@@ -155,6 +155,16 @@ func (e *diceElement) CreateAttestedKey(_, keyAuthorization string) (*client.Att
 		return nil, err
 	}
 	return &client.AttestedKey{Statement: statement, Signer: signer, Format: deviceattest01.FormatDICE}, nil
+}
+
+// x5c is the alias chain the adapter handed over, leaf first, in the untyped
+// slice the attestation statement's CBOR field takes.
+func x5c(chain [][]byte) []interface{} {
+	out := make([]interface{}, len(chain))
+	for i, der := range chain {
+		out[i] = der
+	}
+	return out
 }
 
 // verdictRecorder wraps the production verifier and remembers why it last

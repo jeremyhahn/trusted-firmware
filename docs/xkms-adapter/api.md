@@ -1,6 +1,6 @@
 # AVR Device Backend — API
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 ## Transports
@@ -15,7 +15,7 @@
 | SDK (`sdk/go`) | no — `sdk/go` is Layer 0 and carries no AVR backend symbols; the wire client is `tfw.Device` |
 | Go module `github.com/jeremyhahn/trusted-firmware/xkms` | **yes** — `avr.NewBackend`, `avr.NewKeyProvider`, and the `AVR`-prefixed re-exports in package `xkms` |
 | go-xkms backend registry | **yes** — registered as type `tfw` by `xkms/register.go` |
-| ACME `device-attest-01` | indirectly — the caller forwards `Attestation.CertificateDER` as `dice`-format evidence |
+| ACME `device-attest-01` | indirectly — the caller forwards `Attestation.Chain` (leaf first, the device's `CertificateDER` verbatim) as the `x5c` of `dice`-format evidence |
 
 The backend is not served over a network transport by this repository. It
 registers with go-xkms, so a daemon that links package `xkms` and puts an attached
@@ -94,9 +94,10 @@ if err != nil {
 att := result.(*avr.Attestation)
 
 att.CertificateDER        // forward these bytes verbatim; never re-encode them
+att.Chain                 // x5c, leaf first: CertificateDER, then the configured Intermediates
 att.Claims.Nonce          // the challenge, already matched in constant time
 att.Claims.Other[256]     // the ueid, as the raw CBOR the device encoded
-att.Claims.Other[273]     // the firmware measurement, likewise
+att.Claims.Other[273]     // the measurement (application evidence, else the firmware's), likewise
 att.AttestLevel           // from the device's crypto tier
 att.Anchored              // false means no roots were configured -- not that anchoring failed
 ```

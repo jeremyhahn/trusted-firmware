@@ -1,6 +1,6 @@
 # AVR Device Backend — User Guide
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-15
+> **Status: NORMATIVE** · Scope: trusted-firmware · Feature: `xkms-adapter` · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 ## What this is for
@@ -20,13 +20,14 @@ device says about its own root of trust.
   element's own capability bitmap claims. A typical ATECC608A says ECDSA P-256
   and HMAC-SHA256, and — correctly — not Ed25519: the part has no hardware for
   it.
-- **Read the device's public identity.** `GetKey` returns a handle carrying the
-  P-256 public point, validated against the curve.
+- **Read the device's public identity, on a bench.** `GetKey` returns a handle
+  carrying the P-256 public point, validated against the curve. In the field
+  the same key is the one `AttestKey`'s certificate certifies.
 - **Ask it to prove it is that device, right now.** `AttestKey` hands it a
   challenge and gets back a certificate the device minted and signed for that
   challenge alone. The challenge is `deviceattest01.DICENonce(keyAuthorization)`
   — hash it with that function, never by hand.
-- **Check on the device.** `Health` gives uptime, free RAM and why the part last
+- **Check on the device, over serial.** `Health` gives uptime, free RAM and why the part last
   restarted. A board that keeps reporting a watchdog reset is a board to look
   at.
 - **Read the element's serial number, on a bench.** `Identity` also reports
@@ -47,7 +48,21 @@ device says about its own root of trust.
 - **Read the element serial from a fielded device.** Those commands are
   compiled out of a production image on purpose. `Identity` works on a
   provisioning image; a device record is keyed on the identity public key
-  instead, which a fielded device will answer for.
+  instead, which a fielded device answers for through `AttestKey`: the alias
+  certificate certifies it. `GetKey` reads the same key with `PROV_PUBKEY`,
+  which is a provisioning command too.
+- **Use the bench calls over Ethernet.** The Ethernet link admits `CAPS`,
+  `APP_INFO`, `ATTEST`, `ATTEST_CERT`, `ATTEST_CSR` and the OTA staging
+  commands, nothing else. Over it `Identity`, `Health` and `GetKey` answer
+  `ErrCommandUnavailable`, and the connection stays usable: the next
+  `AttestKey` succeeds. Building the backend (`CAPS`), `AttestKey` and
+  `PossessionSigner` work on it as on serial
+  (`xkms/avr/fieldlink_test.go`, against the real firmware's Ethernet link).
+- **Finalize after another attestation.** The device keeps its latest
+  certificate's nonce only, so a possession signer for an earlier attestation
+  is refused (`ErrInvalidArgument`) once the device has attested to a new
+  nonce, over either link. Finalize an enrolment before re-attesting the
+  device.
 
 ## Reading an error
 

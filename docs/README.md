@@ -26,7 +26,7 @@ with the code is a defect to fix in the document first.
 | [`host-sdk/`](host-sdk/architecture.md) | `sdk/go`, `tfwctl`, `tfwprov` and `tfwsim` — one host implementation |
 | [`xkms-adapter/`](xkms-adapter/architecture.md) | the AVR backend for go-xkms, registered through go-xkms's backend registry hook |
 | [`application-sdk/`](application-sdk/architecture.md) | the C interface a `trusted-firmware-<application>` repository links into the image: descriptor, hooks, configuration, build |
-| [`ethernet-transport/`](ethernet-transport/architecture.md) | the wire protocol over TCP through a WIZnet W5100 or W5500 (draft, #55) |
+| [`ethernet-transport/`](ethernet-transport/architecture.md) | the wire protocol over TCP through a WIZnet W5100 or W5500 (draft, #55); [`cli.md`](ethernet-transport/cli.md): `tfwctl netcfg` and the `tcp://` device address |
 | [`ota/`](ota/architecture.md) | signed over-the-air updates: the image format, trial boot, confirm and rollback (#52) |
 | [`hsm-self-defence/`](hsm-self-defence/README.md) | the i.MX 95 M7's tamper response under a tenant-signed policy: requirements, policy format, test plan (design only, #50) |
 
@@ -34,7 +34,7 @@ Cross-cutting material that belongs to no single feature:
 
 | | |
 |---|---|
-| [`device-onboarding/architecture.md`](device-onboarding/architecture.md) | first power-on to enrolled: each step, its owning repository, what this repo provides at the seam, and the requirements on the others (draft, #53) |
+| [`device-onboarding/architecture.md`](device-onboarding/architecture.md) | first power-on to enrolled: each step, its owning repository, what this repo provides at the seam, and the requirements on the others (draft, #53); with [`api.md`](device-onboarding/api.md), [`user.md`](device-onboarding/user.md) and [`engineering.md`](device-onboarding/engineering.md) |
 | [`security/threat-model.md`](security/threat-model.md) | attacker classes, what each profile defends against, the named residual gaps |
 | [`security/fuses-and-lockbits.md`](security/fuses-and-lockbits.md) | the fuse and lock-bit reference the provisioning procedure applies |
 | [`attestation/cryptoauthlib-evaluation.md`](attestation/cryptoauthlib-evaluation.md) | why not Microchip's own library, with the licence clause and the measured size |

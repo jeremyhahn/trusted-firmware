@@ -210,6 +210,7 @@ func TestDoReportsAnUnansweredCommandAsATimeout(t *testing.T) {
 	// silentLink never produces an error, so the connect-time boot wait would
 	// otherwise pay its own bound before Do even runs; disabled because this
 	// test is about Do's timeout, not New's.
+	useTestClock(t)
 	d := New(&silentLink{}, WithTimeout(20*time.Millisecond), WithBootWait(0))
 	_, err := d.Do(context.Background(), CmdPing, nil)
 	require.Error(t, err)

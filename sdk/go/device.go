@@ -535,7 +535,7 @@ func (d *Device) awaitBoot(bound time.Duration) {
 		// in the buffer.
 		return
 	}
-	deadline := time.Now().Add(bound)
+	deadline := now().Add(bound)
 	for {
 		for {
 			f, ok := d.decodeNext()
@@ -552,7 +552,7 @@ func (d *Device) awaitBoot(bound time.Duration) {
 			// has asked for -- nothing has been sent yet -- so it is dropped,
 			// the same call Do makes about a reply that outlived its request.
 		}
-		if time.Now().After(deadline) {
+		if now().After(deadline) {
 			return
 		}
 		if err := d.fill(deadline); err != nil {
@@ -649,7 +649,7 @@ func (d *Device) Do(ctx context.Context, cmd Cmd, payload []byte) (Frame, error)
 		return Frame{}, &LinkError{Op: "write", Err: err}
 	}
 
-	start := time.Now()
+	start := now()
 	deadline := start.Add(d.timeout)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -680,11 +680,11 @@ func (d *Device) Do(ctx context.Context, cmd Cmd, payload []byte) (Frame, error)
 				return f, f.Status.AsError()
 			}
 		}
-		if time.Now().After(deadline) {
+		if now().After(deadline) {
 			// The waiting actually done, not the deadline that was set: a read
 			// that blocked past it is the interesting case, and the two
 			// numbers differ exactly when something is wrong underneath.
-			return Frame{}, &TimeoutError{Cmd: cmd, Elapsed: time.Since(start)}
+			return Frame{}, &TimeoutError{Cmd: cmd, Elapsed: now().Sub(start)}
 		}
 		if err := d.fill(deadline); err != nil {
 			return Frame{}, err
@@ -713,6 +713,11 @@ func (d *Device) fill(deadline time.Time) error {
 	}
 	return nil
 }
+
+// now is the clock Do and awaitBoot read their bounds from. Only a test
+// replaces it, so a fake port's deadline can expire without anyone waiting
+// on the wall clock for it.
+var now = time.Now
 
 // decodeNext pops one complete frame off the front of d.rx. ok is false when
 // the buffer holds no complete frame yet, which asks the caller to read more --

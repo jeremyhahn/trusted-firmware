@@ -406,6 +406,20 @@ func TestOTAVerbsReturnTheDevicesRefusal(t *testing.T) {
 	}
 }
 
+func TestAuthRefusedResponseRunsNoChainedVerb(t *testing.T) {
+	key := writeTestECKey(t)
+	b := &benchDevice{refuse: map[tfw.Cmd]tfw.Status{tfw.CmdAuthResponse: tfw.StatusErrCrypto}}
+	// The chained read would print "1\n": a refused response must stop
+	// before it, so the gated verb never runs without a session.
+	got, err := runVerb(t, b, false, "auth", nonce16, key, "--", "read", "3")
+	if !errors.Is(err, tfw.StatusErrCrypto) {
+		t.Fatalf("auth with AUTH_RESPONSE refused: err = %v, want the refusal", err)
+	}
+	if got != "" {
+		t.Fatalf("auth printed %q after a refused response", got)
+	}
+}
+
 // A signature file holds the 64 raw bytes or their hex, and is given once.
 func TestTakeOTASigReadsAFileOfEitherForm(t *testing.T) {
 	raw := fill(tfw.OTAAuthSigLen, 0xEE)
@@ -488,8 +502,10 @@ func freePort(t *testing.T) string {
 // Over tcp:// main listens, and the device that dials in answers the verb. A
 // boot event during the exchange is reported, since what the caller knew
 // about the device is stale.
-func TestMainRunsAVerbOnTheDeviceThatDialsIn(t *testing.T) {
-	addr := freePort(t)
+// dialDevice plays a device that dials in to addr and answers with answer,
+// boot event first. The channel carries the dial's result.
+func dialDevice(t *testing.T, addr string, answer answerFunc) <-chan error {
+	t.Helper()
 	dialed := make(chan error, 1)
 	go func() {
 		// main has not necessarily started listening: dial until it has, or
@@ -499,7 +515,7 @@ func TestMainRunsAVerbOnTheDeviceThatDialsIn(t *testing.T) {
 			c, err := net.DialTimeout("tcp", addr, time.Second)
 			if err == nil {
 				dialed <- nil
-				serveFrames(t, c, c, (&benchDevice{}).answer, bootEvent(t))
+				serveFrames(t, c, c, answer, bootEvent(t))
 				_ = c.Close()
 				return
 			}
@@ -509,6 +525,12 @@ func TestMainRunsAVerbOnTheDeviceThatDialsIn(t *testing.T) {
 			}
 		}
 	}()
+	return dialed
+}
+
+func TestMainRunsAVerbOnTheDeviceThatDialsIn(t *testing.T) {
+	addr := freePort(t)
+	dialed := dialDevice(t, addr, (&benchDevice{}).answer)
 	stdout, stderr := callMain(t, "-timeout=10s", "tcp://"+addr, "ping", "hi")
 	if err := <-dialed; err != nil {
 		t.Fatalf("the device never reached main: %v", err)
@@ -518,5 +540,21 @@ func TestMainRunsAVerbOnTheDeviceThatDialsIn(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "boot event") {
 		t.Fatalf("stderr %q, want the boot event noted", stderr)
+	}
+}
+
+func TestMainExitsOneWithTheDevicesRefusal(t *testing.T) {
+	addr := freePort(t)
+	b := &benchDevice{refuse: map[tfw.Cmd]tfw.Status{tfw.CmdPing: tfw.StatusErrRange}}
+	dialed := dialDevice(t, addr, b.answer)
+	code, first := runMain(t, "-timeout=10s", "tcp://"+addr, "ping", "hi")
+	if err := <-dialed; err != nil {
+		t.Fatalf("the device never reached main: %v", err)
+	}
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.HasPrefix(first, "tfwctl: ") || !strings.Contains(first, tfw.StatusErrRange.String()) {
+		t.Fatalf("stderr first line = %q, want tfwctl: and the status %q", first, tfw.StatusErrRange)
 	}
 }

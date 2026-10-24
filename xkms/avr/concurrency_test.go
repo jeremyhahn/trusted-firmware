@@ -142,6 +142,7 @@ func TestRequestTimeoutExcludesQueueing(t *testing.T) {
 		callers        = 16
 		requestTimeout = 250 * time.Millisecond
 	)
+	clock := useTestClock(t)
 
 	link := newGatedLink(secureElementLink().
 		answer(tfw.CmdSysInfo, sysInfoPayload(90*time.Second, 512, tfw.ResetPowerOn)))
@@ -166,18 +167,95 @@ func TestRequestTimeoutExcludesQueueing(t *testing.T) {
 		t.Fatalf("the first caller never reached the wire: %v", err)
 	}
 	errs := make(chan error, callers-1)
+	queued := make(chan struct{}, callers-1)
 	for i := 1; i < callers; i++ {
-		go health(errs)
+		go func() {
+			queued <- struct{}{}
+			health(errs)
+		}()
 	}
-	// The queue's age is the quantity under test: twice RequestTimeout, so a
-	// deadline started before Lock has expired for every queued caller.
-	<-time.After(2 * requestTimeout)
+	for i := 1; i < callers; i++ {
+		<-queued
+	}
+	// The queue's age is the quantity under test: twice RequestTimeout on the
+	// test clock, so a deadline started before Lock has expired for every
+	// queued caller.
+	clock.advance(2 * requestTimeout)
 	close(link.release)
 
 	// The holder's own exchange did overrun, and RequestTimeout bounds that.
 	require.ErrorIs(t, <-holder, context.DeadlineExceeded)
 	for i := 1; i < callers; i++ {
 		require.NoError(t, <-errs, "queueing behind other callers must not count against RequestTimeout")
+	}
+}
+
+// testClock stands in for the wall clock behind withTimeout: a deadline it
+// hands out expires only when advance moves the clock past it.
+type testClock struct {
+	mu      sync.Mutex
+	now     time.Time
+	pending []*testDeadline
+}
+
+// useTestClock installs a testClock as withTimeout for the calling test.
+func useTestClock(t *testing.T) *testClock {
+	t.Helper()
+	c := &testClock{now: time.Unix(1<<30, 0)}
+	withTimeout = c.withTimeout
+	t.Cleanup(func() { withTimeout = context.WithTimeout })
+	return c
+}
+
+func (c *testClock) withTimeout(parent context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	td := &testDeadline{Context: parent, at: c.now.Add(d), done: make(chan struct{})}
+	c.pending = append(c.pending, td)
+	return td, func() { td.end(context.Canceled) }
+}
+
+// advance moves the clock on by d and expires every deadline it passed.
+func (c *testClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+	live := c.pending[:0]
+	for _, td := range c.pending {
+		if td.at.After(c.now) {
+			live = append(live, td)
+			continue
+		}
+		td.end(context.DeadlineExceeded)
+	}
+	c.pending = live
+}
+
+// testDeadline is the context a testClock hands out: its parent's values,
+// its own deadline, and an Err set only by the clock or its cancel.
+type testDeadline struct {
+	context.Context
+	at   time.Time
+	done chan struct{}
+	mu   sync.Mutex
+	err  error
+}
+
+func (td *testDeadline) Deadline() (time.Time, bool) { return td.at, true }
+func (td *testDeadline) Done() <-chan struct{}       { return td.done }
+
+func (td *testDeadline) Err() error {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	return td.err
+}
+
+func (td *testDeadline) end(err error) {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	if td.err == nil {
+		td.err = err
+		close(td.done)
 	}
 }
 

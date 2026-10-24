@@ -197,6 +197,58 @@ func TestOTAStageArgumentErrorsAreUsageErrors(t *testing.T) {
 	}
 }
 
+func TestOTAStageRefusesAMalformedAuthorizationBeforeTheWire(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"a short signature", []string{"--activate", "--sig=00", "a.bin"}, "the authorization is"},
+		{"two signatures", []string{"--activate", testSig, testSig, "a.bin"}, "give the authorization once"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// A nil device: the signature is read before anything is sent.
+			err := run(context.Background(), nil, "ota-stage", tc.args, false, io.Discard)
+			if err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want one starting %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestOTAStageActivateRefusalsStopTheExchange(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cmd    tfw.Cmd
+		status tfw.Status
+	}{
+		{"at OTA_AUTH", tfw.CmdOTAAuth, tfw.StatusErrCrypto},
+		{"at OTA_ACTIVATE", tfw.CmdOTAActivate, tfw.StatusErrAuthRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := &otaDevice{refuseCmd: tc.cmd, refuseStatus: tc.status}
+			dev := startOTADevice(t, o)
+			var buf bytes.Buffer
+			err := run(context.Background(), dev, "ota-stage",
+				[]string{"--activate", testSig, writeImage(t, patterned(tfw.OTAChunk))}, false, &buf)
+			if !errors.Is(err, tc.status) {
+				t.Fatalf("err = %v, want %v", err, tc.status)
+			}
+			// The refused command is the last one sent: no OTA_ACTIVATE after
+			// a refused authorization, no OTA_STATUS after a refused activation.
+			if n := len(o.cmds); n == 0 || o.cmds[n-1] != tc.cmd {
+				t.Fatalf("the device saw %v; want it to end at the refused %v", o.cmds, tc.cmd)
+			}
+			if o.ends != 1 || len(o.modes) != 0 {
+				t.Fatalf("the device saw %d ENDs and activations %v; want 1 END and none", o.ends, o.modes)
+			}
+			if buf.Len() != 0 {
+				t.Fatalf("a refused activation printed %q", buf.String())
+			}
+		})
+	}
+}
+
 func TestOTAStatusPrintsEachState(t *testing.T) {
 	for _, st := range []tfw.OTAState{tfw.OTAIdle, tfw.OTAReceiving, tfw.OTAComplete, tfw.OTAFailed} {
 		t.Run(st.String(), func(t *testing.T) {

@@ -65,6 +65,7 @@ func TestMainExitCodes(t *testing.T) {
 		{"a port with no command is a usage error", []string{"/dev/ttyACM0"}, 2, "tfwctl -- talk to an trusted-firmware device"},
 		{"an unknown flag is a usage error", []string{"--bogus", "p", "ping"}, 2, "flag provided but not defined: -bogus"},
 		{"a port that cannot be opened is a failure", []string{missing, "ping"}, 1, "tfwctl: "},
+		{"a tcp:// endpoint with no port is a failure", []string{"tcp://localhost", "ping"}, 1, `tfwctl: device address "tcp://localhost"`},
 		{"a tcp:// endpoint no device dials is a failure", []string{"-timeout=50ms", "tcp://" + freePort(t), "ping"}, 1, "tfwctl: no device connected"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -338,7 +338,7 @@ func (b *Backend) Identity(ctx context.Context) (*Identity, error) {
 	// concurrent callers would make every one but the first fail on a device
 	// that answered every request it received.
 	b.wire.Lock()
-	ctx, cancel := context.WithTimeout(ctx, b.config.RequestTimeout)
+	ctx, cancel := withTimeout(ctx, b.config.RequestTimeout)
 	info, err := b.device.ProvInfo(ctx)
 	cancel()
 	b.wire.Unlock()
@@ -362,7 +362,7 @@ func (b *Backend) Health(ctx context.Context) (*Health, error) {
 	// not before, so queueing behind other concurrent callers is not charged
 	// against this call's own timeout.
 	b.wire.Lock()
-	ctx, cancel := context.WithTimeout(ctx, b.config.RequestTimeout)
+	ctx, cancel := withTimeout(ctx, b.config.RequestTimeout)
 	info, err := b.device.SysInfo(ctx)
 	cancel()
 	b.wire.Unlock()
@@ -375,6 +375,11 @@ func (b *Backend) Health(ctx context.Context) (*Health, error) {
 		ResetCause: info.ResetCause,
 	}, nil
 }
+
+// withTimeout starts the RequestTimeout bound once the wire is held. Only a
+// test replaces it, so a queue can be aged past that bound without anyone
+// waiting on the wall clock for it.
+var withTimeout = context.WithTimeout
 
 // GenerateKey is refused.
 //
@@ -418,7 +423,7 @@ func (b *Backend) GetKey(ctx context.Context, attrs *types.KeyAttributes) (crypt
 	// not before, so queueing behind other concurrent callers is not charged
 	// against this call's own timeout.
 	b.wire.Lock()
-	ctx, cancel := context.WithTimeout(ctx, b.config.RequestTimeout)
+	ctx, cancel := withTimeout(ctx, b.config.RequestTimeout)
 	point, err := b.device.ProvPubKey(ctx, b.config.Slot)
 	cancel()
 	b.wire.Unlock()

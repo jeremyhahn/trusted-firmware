@@ -15,8 +15,24 @@ import (
 // portDeadline is a real port's read deadline, which fill sets on every read:
 // a Read with nothing to hand back, and nothing coming, blocks until that
 // deadline and reports it expired. Returning at once would spin the SDK's
-// read loop for its whole bound.
+// read loop for its whole bound, so expire moves the test clock past the
+// deadline instead: the loop sees it expired, and nothing waits for it.
 type portDeadline struct{ at time.Time }
+
+// testClock is the SDK's clock while a test drives a fake port. It stands
+// still until a port deadline expires, then steps just past it, the way a
+// real port's read returns at or after its deadline and never before.
+var testClock *time.Time
+
+// useTestClock gives the calling test the clock a fake port moves. A
+// portDeadline used without it panics rather than wait on the wall clock.
+func useTestClock(t *testing.T) {
+	t.Helper()
+	at := time.Unix(1<<30, 0)
+	testClock = &at
+	now = func() time.Time { return *testClock }
+	t.Cleanup(func() { now, testClock = time.Now, nil })
+}
 
 func (d *portDeadline) SetReadDeadline(at time.Time) error {
 	d.at = at
@@ -24,8 +40,15 @@ func (d *portDeadline) SetReadDeadline(at time.Time) error {
 }
 
 func (d *portDeadline) expire() (int, error) {
-	if !d.at.IsZero() {
-		<-time.After(time.Until(d.at))
+	if testClock == nil {
+		panic("portDeadline without useTestClock: a fake port must not wait on the wall clock")
+	}
+	if d.at.IsZero() {
+		// A real port with no deadline blocks here for ever.
+		panic("portDeadline: Read with nothing to return and no read deadline set")
+	}
+	if !testClock.After(d.at) {
+		*testClock = d.at.Add(time.Nanosecond)
 	}
 	return 0, os.ErrDeadlineExceeded
 }
@@ -98,10 +121,11 @@ func (l *autoResetLink) Read(p []byte) (int, error) {
 // without the caller doing anything about the reset, and the consumed event
 // must not resurface as an unexpected one.
 func TestNewWaitsForBootEventThenFirstRequestSucceeds(t *testing.T) {
+	useTestClock(t)
 	link := newAutoResetLink(3)
-	before := time.Now()
+	before := now()
 	d := New(link, WithBootWait(2*time.Second))
-	if waited := time.Since(before); waited >= 2*time.Second {
+	if waited := now().Sub(before); waited >= 2*time.Second {
 		t.Fatalf("New waited the full bound (%s); it should have returned as soon as BOOT arrived", waited)
 	}
 
@@ -122,11 +146,12 @@ func TestNewWaitsForBootEventThenFirstRequestSucceeds(t *testing.T) {
 // through once its bound elapses -- never before it -- and the device must
 // still work afterwards.
 func TestNewFallsThroughWhenNoBootEventArrives(t *testing.T) {
+	useTestClock(t)
 	link := newAutoResetLink(0) // never sends BOOT
 	bound := 30 * time.Millisecond
-	before := time.Now()
+	before := now()
 	d := New(link, WithBootWait(bound))
-	if waited := time.Since(before); waited < bound {
+	if waited := now().Sub(before); waited < bound {
 		t.Fatalf("New returned after %s, want at least the %s bound", waited, bound)
 	}
 
@@ -216,6 +241,7 @@ func (l *staleBacklogLink) Read(p []byte) (int, error) {
 // this wrong is precisely what sent a request into the bootloader's window
 // on the session that reported it.
 func TestNewFlushesAStaleBootEventThenWaitsForTheGenuineOne(t *testing.T) {
+	useTestClock(t)
 	link := newStaleBacklogLink(3)
 	d := New(link, WithBootWait(2*time.Second))
 	if link.resetCalls == 0 {
@@ -241,6 +267,7 @@ func TestNewFlushesAStaleBootEventThenWaitsForTheGenuineOne(t *testing.T) {
 // a long time ago, and will not reset again for this open. New must still
 // fall through cleanly rather than mistaking the stale event for readiness.
 func TestNewFlushesAStaleBootEventThenFallsThroughWithNoGenuineOne(t *testing.T) {
+	useTestClock(t)
 	link := newStaleBacklogLink(0)
 	bound := 30 * time.Millisecond
 	d := New(link, WithBootWait(bound))
@@ -268,6 +295,7 @@ func TestNewFlushesAStaleBootEventThenFallsThroughWithNoGenuineOne(t *testing.T)
 // already exercised implicitly by every test above that uses it; asserted
 // explicitly here for the boundary itself.
 func TestNewNeverCallsResetInputBufferOnAConnThatLacksIt(t *testing.T) {
+	useTestClock(t)
 	link := newAutoResetLink(3)
 	// autoResetLink has no ResetInputBuffer method; if New required one via
 	// an unchecked type assertion instead of the optional-interface pattern,
@@ -299,10 +327,11 @@ func (l *failedPurgeLink) ResetInputBuffer() error {
 // accepted or a genuine one being missed. Whatever was queued -- stale,
 // genuine, or both -- is left for Do to observe normally afterward.
 func TestNewFallsThroughImmediatelyWhenThePurgeFails(t *testing.T) {
+	useTestClock(t)
 	link := &failedPurgeLink{staleBacklogLink: newStaleBacklogLink(1)}
-	before := time.Now()
+	before := now()
 	d := New(link, WithBootWait(2*time.Second))
-	if waited := time.Since(before); waited >= 2*time.Second {
+	if waited := now().Sub(before); waited >= 2*time.Second {
 		t.Fatalf("New waited the full bound (%s); a failed purge should fall through immediately", waited)
 	}
 	if link.resetCalls == 0 {
@@ -337,6 +366,7 @@ func TestWithBootWaitZeroOrNegativeDisablesTheWait(t *testing.T) {
 		{"negative", -time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			useTestClock(t)
 			link := newStaleBacklogLink(1)
 			d := New(link, WithBootWait(tc.bound))
 			// Facts, not a wall-clock guess: disabled means New never touched
@@ -409,6 +439,7 @@ func (l *eventBeforeBootLink) Read(p []byte) (int, error) {
 }
 
 func TestAwaitBootRecordsAnyOtherEventSeenWhileWaiting(t *testing.T) {
+	useTestClock(t)
 	link := &eventBeforeBootLink{}
 	d := New(link, WithBootWait(20*time.Millisecond))
 
@@ -513,6 +544,7 @@ func (l *bootThenSilentLink) Read(p []byte) (int, error) {
 // bound rather than wedge forever, or be satisfied by an event that was never
 // an answer to what it asked.
 func TestDoTimesOutRatherThanWedgingOnABootEventWithNoReply(t *testing.T) {
+	useTestClock(t)
 	link := &bootThenSilentLink{}
 	d := New(link, WithBootWait(0), WithTimeout(20*time.Millisecond))
 

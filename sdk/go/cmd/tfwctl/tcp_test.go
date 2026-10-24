@@ -69,6 +69,19 @@ func TestAcceptDeviceGivesUpWhenNoDeviceConnects(t *testing.T) {
 	assert.Contains(t, err.Error(), "no device connected to "+l.Addr().String())
 }
 
+func TestAcceptDeviceRefusesAClosedListener(t *testing.T) {
+	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	require.NoError(t, l.Close())
+
+	// The deadline cannot be set on a closed listener: that error is
+	// returned as it is, before any accept is tried.
+	d, err := acceptDevice(l, time.Second)
+	assert.Nil(t, d)
+	require.ErrorIs(t, err, net.ErrClosed)
+	assert.NotContains(t, err.Error(), "no device connected")
+}
+
 func TestListenForDeviceRefusesAnAddressItCannotBind(t *testing.T) {
 	_, err := listenForDevice("no-such-host.invalid:1", time.Second)
 	assert.Error(t, err)

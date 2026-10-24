@@ -75,7 +75,9 @@ int gpio_get_level(gpio_num_t gpio_num)
 
 void setUp(void)
 {
-    mock_gpio_valid_mask = (1ULL << 0) | (1ULL << 5) | (1ULL << 33) | (1ULL << 54);
+    /* Bit 63 lies past GPIO_NUM_MAX: only the range check refuses pin 63. */
+    mock_gpio_valid_mask = (1ULL << 0) | (1ULL << 5) | (1ULL << 33) | (1ULL << 54)
+                         | (1ULL << 63);
     ncalls    = 0u;
     reset_err = dir_err = pull_err = set_err = ESP_OK;
     level_in  = 0;
@@ -162,9 +164,7 @@ static void test_a_mode_it_does_not_know_is_out_of_range(void)
 
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_gpio_mode(&p, (tfw_pin_mode_t)3));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_gpio_mode(&p, (tfw_pin_mode_t)99));
-    TEST_ASSERT_EQUAL_UINT(2u, ncalls);   /* the resets, no direction */
-    TEST_ASSERT_EQUAL_CHAR(RESET, calls[0].fn);
-    TEST_ASSERT_EQUAL_CHAR(RESET, calls[1].fn);
+    TEST_ASSERT_EQUAL_UINT(0u, ncalls);   /* a refusal touches nothing */
 }
 
 static void test_a_write_is_0_or_1(void)

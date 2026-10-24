@@ -1333,6 +1333,27 @@ $(HOST_DIR)/test_avr_early_mutate: test/unit/hal/test_avr_early_mutate.c src/hal
 HOST_EXTRA_BINS += $(HOST_DIR)/test_dhcp_robust_w5100 $(HOST_DIR)/test_dhcp_robust_w5500 \
                    $(HOST_DIR)/test_w5100_robust $(HOST_DIR)/test_w5500_robust
 
+# The ESP32 pin HALs (#163): src/hal/esp32/hal_gpio.c, hal_pulse.c, hal_pwm.c,
+# hal_tone.c and hal_adc.c against the gpio, LEDC and oneshot ADC drivers and
+# clock in test/mock/esp_pins_mock.c. src/hal/esp32 goes
+# first so tfw/hal.h takes that port's pin type. It stays in TEST_SRCS; this
+# explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_esp_pins: test/unit/test_esp_pins.c src/hal/esp32/hal_gpio.c src/hal/esp32/hal_pulse.c \
+                           src/hal/esp32/hal_pwm.c src/hal/esp32/hal_tone.c src/hal/esp32/hal_adc.c \
+                           test/mock/esp_pins_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_pins
+
+# hal_adc.c with its unit failing to come up (#163): the failure is kept for
+# the life of the program, so it is a program of its own. It stays in
+# TEST_SRCS; this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_esp_adc: test/unit/test_esp_adc.c src/hal/esp32/hal_adc.c \
+                          test/mock/esp_pins_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_adc
+
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
 # board sweep, coverage and the sanitizers.

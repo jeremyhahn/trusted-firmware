@@ -17,6 +17,10 @@ typedef int gpio_num_t;
 
 extern uint64_t mock_gpio_valid_mask;
 
+#define SOC_GPIO_PIN_COUNT 55
+/* The last member of ESP-IDF's gpio_num_t: one past the part's last pin. */
+#define GPIO_NUM_MAX       SOC_GPIO_PIN_COUNT
+
 #define GPIO_IS_VALID_GPIO(gpio_num)                  \
     ((gpio_num) >= 0 && (gpio_num) < 64 &&            \
      ((1ULL << (gpio_num)) & mock_gpio_valid_mask) != 0)

@@ -1,6 +1,6 @@
 # tfw-boot — CLI
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-16
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 `tfw-boot` is a bare-metal image with no shell of its own; its CLI is the
@@ -86,7 +86,44 @@ make bootloader-reproducible BOARD=atmega328p BOOT_TIER=atecc608a
 
 Builds twice in two separate copies of the tree and `cmp`s the resulting
 `.hex`. Exits non-zero and prints `tfw-boot NOT REPRODUCIBLE` on any
-difference.
+difference. The copies carry the tree's `build/`, so an image already built
+there can satisfy both; the clean-tree check is the next section's.
+
+## The expected firmware hash, from source
+
+```sh
+SOURCE_DATE_EPOCH=1700000000 make firmware BOARD=atmega2560 CRYPTO=soft
+python3 scripts/fwhash.py [--image-len N] [--base ADDR] [--size N] [--write-image FILE] build/atmega2560/soft/trusted-firmware.hex
+```
+
+| Flag | Values | Default | Required |
+|---|---|---|---|
+| `--image-len` | the trailer's `image_len`, decimal or `0x` hex | one past the last byte the HEX names, less `--base` | no |
+| `--base` | the application region's first address, `TFW_APP_REGION_BASE` | `0`, where AVR's application starts | no |
+| `--size` | the application region's length in bytes | 16 MiB | no |
+| `--write-image` | a file to write the measured bytes, `[base, base + image_len)`, to | none | no |
+
+Prints `<measurement>  <image_len>  <file>`: SHA-256 over `[base, base + image_len)`,
+the value `tfw_boot_measure` (`boot/measure/measure_soft.c`) computes on every
+reset from `TFW_BOOT_APP_BASE`, the trailer carries and the device attests. A byte the HEX does not name
+is erased flash, `0xFF`, as the part reads it (`objcopy -O binary` would fill
+it with `0x00`). `make provenance` takes its `fwhash_sha256` and `image_len`
+with this tool, with `--base $(FWHASH_BASE) --size $(FWHASH_SIZE)` from the
+board's profile (default `0` and `FLASH_TOTAL`; `mps2-an505`'s slot is
+`0x38000000` and 128 KiB, as `boot/hal/cortex-m` reads it), so the manifest names the hash the device attests, and writes
+the release `.bin` (which `make suit-tbs` reads) with `--write-image`. Exits 1 on a malformed HEX: a
+bad checksum, a truncated file, two records naming one byte, an unknown record
+type, a record outside `[base, base + size)`, or an empty image. One fixed image and its measurement are pinned as
+literals in `scripts/test_fwhash.py` and, measured by `tfw_boot_measure` itself,
+in `test/unit/boot/test_boot_measure.c`.
+
+`scripts/test_reproducible.py`, run by `make scripts-test`, builds the
+application and tfw-boot of the `atmega2560` soft base row twice, from two
+copies of the tree without `build/` or `.git` in two different directories,
+with `SOURCE_DATE_EPOCH` set and `TZ` different, and fails unless both HEX files
+and their measurements are identical. It needs avr-gcc and fails without it
+(run it in the toolchain image, `scripts/in-toolchain-image.sh`); it never
+skips.
 
 ## `make boot-flash` — write tfw-boot over ISP
 

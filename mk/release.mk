@@ -63,34 +63,47 @@ provenance:
 # target exists for. Still refuses rather than defaulting if neither is there.
 SOURCE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || cat /etc/ci-source-commit 2>/dev/null)
 
+# The measurement tool: the one scripts/test_fwhash.py and test_boot_measure.c
+# pin to the same literal, so the manifest and tfw-boot cannot drift apart.
+FWHASH ?= python3 -B scripts/fwhash.py
+
+# The region tfw-boot measures, the board's TFW_APP_REGION_BASE and its length:
+# the application starts at flash 0 on AVR, so that is the default, bounded by
+# the part's flash. A board whose application slot sits elsewhere (mps2-an505)
+# sets both in its profile.mk, so fwhash.py measures from the slot's base and
+# refuses a record outside it, with no board named here or in the script.
+FWHASH_BASE ?= 0
+FWHASH_SIZE ?= $(FLASH_TOTAL)
+
 provenance-one: $(TARGET).elf $(TARGET).hex
 	@mkdir -p $(REL_DIR)
 	@if [ -z "$(SOURCE_COMMIT)" ]; then 	  echo "provenance: SOURCE_COMMIT is empty and no .git is reachable."; 	  echo "  A manifest that cannot name its source cannot be rebuilt from, which is"; 	  echo "  the only thing it is for. Pass it: make provenance SOURCE_COMMIT=\$$(git rev-parse HEAD)"; 	  exit 1; 	fi
 	@# THE MEASUREMENT, which is the field a verifier actually needs.
-	@# Taken over the contiguous application binary, which is exactly the span
-	@# [0, image_len) that tfw_boot_measure walks and that a signing tool writes
-	@# into the trailer. Emitting only file hashes -- and a note saying a
-	@# verifier wants a different number -- documented the omission instead of
-	@# closing it.
+	@# Taken by scripts/fwhash.py over the HEX a programmer flashes: SHA-256
+	@# over [FWHASH_BASE, FWHASH_BASE + image_len), a byte the HEX does not name read as erased
+	@# flash (0xFF) -- exactly the span tfw_boot_measure walks, as the part
+	@# reads it. This used to hash `objcopy -O binary`'s file, which fills a gap
+	@# with 0x00: equal while the image had no gap, and past one a hash no
+	@# device would ever attest. One measurement, one implementation: the
+	@# release .bin, which `make suit-tbs` reads, is the bytes fwhash.py
+	@# measured, so it hashes to fwhash_sha256 too.
 	@#
-	@# -R .eeprom only, not -R .handoff too: mk/handoff.ld (linked into
-	@# $(TARGET).elf already) makes the CDI handoff's SRAM section genuinely
-	@# NOLOAD, so it carries no bytes here to exclude -- verified below rather
-	@# than assumed, because this .bin IS the FWHash a verifier recomputes, and
-	@# a device's own measurement covers application flash only.
-	@$(ARCH_OBJCOPY) -O binary -R .eeprom $(TARGET).elf $(REL_DIR)/$(BOARD)-$(CRYPTO).bin
-	@img_len_check=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \
-	 if [ "$$img_len_check" -gt "$(FLASH_TOTAL)" ]; then \
-	   echo "provenance: $(BOARD)-$(CRYPTO).bin is $$img_len_check bytes,"; \
-	   echo "  past this part's $(FLASH_TOTAL)-byte flash -- a non-application"; \
+	@# The HEX is written with -R .eeprom, and mk/handoff.ld makes the CDI
+	@# handoff's SRAM section NOLOAD, so neither carries bytes here; fwhash.py
+	@# refuses a record outside [FWHASH_BASE, FWHASH_BASE + FWHASH_SIZE), and
+	@# the check below holds image_len to that region, because a device's
+	@# measurement covers application flash only.
+	@meas=$$($(FWHASH) --base $(FWHASH_BASE) --size $(FWHASH_SIZE) --write-image $(REL_DIR)/$(BOARD)-$(CRYPTO).bin $(TARGET).hex) || exit 1; \
+	 set -- $$meas; fwhash=$$1; img_len=$$2; \
+	 if [ "$$img_len" -gt "$(FWHASH_SIZE)" ]; then \
+	   echo "provenance: $(TARGET).hex measures $$img_len bytes,"; \
+	   echo "  past this board's $(FWHASH_SIZE)-byte application region -- a non-application"; \
 	   echo "  section (SRAM, EEPROM) rode into the measured image. This must"; \
 	   echo "  cover application flash only; it is what a verifier recomputes"; \
 	   echo "  FWHash from."; \
 	   exit 1; \
-	 fi
-	@sha_elf=$$(sha256sum $(TARGET).elf | cut -d' ' -f1); \
-	 fwhash=$$(sha256sum $(REL_DIR)/$(BOARD)-$(CRYPTO).bin | cut -d' ' -f1); \
-	 img_len=$$(stat -c %s $(REL_DIR)/$(BOARD)-$(CRYPTO).bin); \
+	 fi; \
+	 sha_elf=$$(sha256sum $(TARGET).elf | cut -d' ' -f1); \
 	 sha_hex=$$(sha256sum $(TARGET).hex | cut -d' ' -f1); \
 	 flash=$$($(ARCH_SIZE) --format=berkeley $(TARGET).elf | awk 'NR==2{print $$1+$$2}'); \
 	 ram=$$($(call ARCH_RAM_USED,$(TARGET).elf)); \
@@ -111,7 +124,7 @@ provenance-one: $(TARGET).elf $(TARGET).hex
 	 printf '  "reproducible": true,\n'                  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "image_len": %s,\n'         "$$img_len"  >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '  "fwhash_sha256": "%s",\n'   "$$fwhash"   >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
-	 printf '  "note": "fwhash_sha256 is SHA-256 over [0, image_len) of the application binary -- the value a device attests and a verifier compares, and the value a signing tool writes into the image trailer. elf_sha256 and hex_sha256 identify the ARTEFACT and are different numbers; comparing one of those against device evidence would report a good device as tampered with."\n' >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
+	 printf '  "note": "fwhash_sha256 is the measurement tfw-boot takes: SHA-256 over [base, base + image_len) of the application flash image, base the first address of the application region ($(FWHASH_BASE) on this board), a gap in the hex read as 0xFF as the erased flash reads -- the value a device attests and a verifier compares, and the value a signing tool writes into the image trailer. elf_sha256 and hex_sha256 identify the ARTEFACT and are different numbers; comparing one of those against device evidence would report a good device as tampered with."\n' >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json; \
 	 printf '}\n'                                        >> $(REL_DIR)/$(BOARD)-$(CRYPTO).json
 	@echo "  $(REL_DIR)/$(BOARD)-$(CRYPTO).json"
 

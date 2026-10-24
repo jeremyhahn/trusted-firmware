@@ -1215,17 +1215,22 @@ boot-core-size:
 	 printf '  a signature backend has %s bytes of flash and %s bytes of SRAM to fit in\n' \
 	   "$$(($(BOOT_BUDGET)-flash))" "$$(($(RAM_TOTAL)-ram))"
 
-## bootloader-reproducible: two tfw-boot builds in different directories, diffed
+## bootloader-reproducible: two tfw-boot builds from clean copies of HEAD, diffed
+# Each copy is `git archive HEAD` (scripts/repro_build.py): no build/, no
+# untracked file, and SOURCE_DATE_EPOCH is the commit time. Every BOOT_* that
+# names the configuration is passed, so the copies build this row's image.
 bootloader-reproducible:
-	@rm -rf /tmp/agboot-a /tmp/agboot-b
-	@cp -a . /tmp/agboot-a && cp -a . /tmp/agboot-b
-	@$(MAKE) -C /tmp/agboot-a --no-print-directory BOARD=$(BOARD) BOOT_TIER=$(BOOT_TIER) $(BOOT_TARGET).hex >/dev/null
-	@$(MAKE) -C /tmp/agboot-b --no-print-directory BOARD=$(BOARD) BOOT_TIER=$(BOOT_TIER) $(BOOT_TARGET).hex >/dev/null
-	@if cmp -s /tmp/agboot-a/$(BOOT_TARGET).hex /tmp/agboot-b/$(BOOT_TARGET).hex; then \
-	   echo "tfw-boot reproducible: two builds in different directories are byte-identical"; \
-	 else \
-	   echo "tfw-boot NOT REPRODUCIBLE"; exit 1; \
-	 fi
+	@python3 scripts/repro_build.py --make "$(MAKE)" --image $(BOOT_TARGET).hex \
+	   --dir /tmp/agboot-a --dir /tmp/agboot-b -- \
+	   BOARD=$(BOARD) BOOT_TIER=$(BOOT_TIER) BOOT_MEASURE=$(BOOT_MEASURE) \
+	   BOOT_SIG=$(BOOT_SIG) BOOT_OTA=$(BOOT_OTA) BOOT_STORE=$(BOOT_STORE) \
+	   $(BOOT_TARGET).hex
+
+## bootloader-reproducible-check: bootloader-reproducible on the 2560 soft base row
+# The row scripts/test_reproducible.py builds (docs/secure-boot/engineering.md).
+bootloader-reproducible-check:
+	@$(MAKE) --no-print-directory bootloader-reproducible BOARD=atmega2560 \
+	   BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
 
 ## boot-flash: write tfw-boot to a connected board over ISP
 # NOT the application's programmer. That one talks TO a bootloader, and the boot
@@ -1322,7 +1327,7 @@ endif
 lock-check:
 	@$(ARCH_LOCK_CHECK)
 
-.PHONY: boot-test bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible boot-flash lock-check
+.PHONY: boot-test bootloader boot-size-check bootloader-budget boot-core-size bootloader-reproducible bootloader-reproducible-check boot-flash lock-check
 
 # ------------------------------------------------------- simavr integration
 #

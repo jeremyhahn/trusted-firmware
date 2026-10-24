@@ -47,7 +47,7 @@ endef
 # gets built: a header edit rebuilding what includes it. CI runs firmware-matrix
 # itself, in the image-toolchain job, so there is no workflow matrix to keep in step.
 build: build-tools firmware-matrix bootloader-check sdk-build tfwsim tfwsim-atecc608a \
-       tfwsim-app-example reproducible-check provenance app-firmware-check \
+       tfwsim-app-example reproducible-check bootloader-reproducible-check provenance app-firmware-check \
        platform-bake-no-link-check platform-bake-build-check header-deps-check
 	@echo "stage build: green"
 

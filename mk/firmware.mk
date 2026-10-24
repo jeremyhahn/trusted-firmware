@@ -691,21 +691,18 @@ size-check: $(TARGET).elf
 	 if [ "$$ram"   -gt "$(RAM_BUDGET)"   ]; then echo "RAM BUDGET EXCEEDED for $(BOARD)";   fail=1; fi; \
 	 exit $$fail
 
-## reproducible-check: build twice in different directories and diff the image
+## reproducible-check: build twice from clean copies of HEAD and diff the image
 # Without this the platform's attestation verdict can never be better than
 # "trust whatever hash the device reported", because nobody can compute the
 # expected hash from source.
+#
+# Each copy is `git archive HEAD` (scripts/repro_build.py): no build/, no
+# untracked file, so an image a previous build left cannot satisfy it, and
+# SOURCE_DATE_EPOCH is the commit time.
 reproducible-check:
-	@rm -rf /tmp/agrepro-a /tmp/agrepro-b
-	@cp -a . /tmp/agrepro-a && cp -a . /tmp/agrepro-b
-	@$(MAKE) -C /tmp/agrepro-a --no-print-directory BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex >/dev/null
-	@$(MAKE) -C /tmp/agrepro-b --no-print-directory BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex >/dev/null
-	@if cmp -s /tmp/agrepro-a/$(TARGET).hex /tmp/agrepro-b/$(TARGET).hex; then \
-	   echo "reproducible: two builds in different directories are byte-identical"; \
-	 else \
-	   echo "NOT REPRODUCIBLE: the same source produced different images"; \
-	   cmp /tmp/agrepro-a/$(TARGET).hex /tmp/agrepro-b/$(TARGET).hex || true; exit 1; \
-	 fi
+	@python3 scripts/repro_build.py --make "$(MAKE)" --image $(TARGET).hex \
+	   --dir /tmp/agrepro-a --dir /tmp/agrepro-b -- \
+	   BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex
 
 ## flash: write the firmware to a connected board
 # The programmer is the architecture's: ARCH_FLASH is a recipe from

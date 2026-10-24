@@ -1,0 +1,4 @@
+### Fixed
+
+- **`make provenance`'s `fwhash_sha256` is the device's measurement when the image has a gap** (row `secure-boot`): it is taken by `scripts/fwhash.py` (gap = `0xFF`), not over `objcopy -O binary`'s `0x00`-filled file; `scripts/test_provenance.py` proves it.
+- **`make provenance` measures the board's application region, not flash from address 0** (row `secure-boot`): `scripts/fwhash.py --base --size` takes `[base, base + image_len)` and refuses a record outside `[base, base + size)`; the board's `FWHASH_BASE` and `FWHASH_SIZE` (default `0` and `FLASH_TOTAL`, so every AVR measurement is unchanged) carry it, and `mps2-an505` sets its slot, `0x38000000` and 128 KiB, so its provenance no longer refuses the image. Its profile now names `F_CPU`, which the manifest's `f_cpu_hz` needs to be JSON.

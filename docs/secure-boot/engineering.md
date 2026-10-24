@@ -1,6 +1,6 @@
 # tfw-boot — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 See [architecture.md](architecture.md) for component boundaries and data
@@ -325,16 +325,56 @@ machine rather than through a seam. It asserts things no status byte carries:
 that a tampered image cost a full measurement and no `Verify` command, and
 that a downgrade was refused before the element was asked to hash anything.
 
-Reproducibility (`make bootloader-reproducible`, `make reproducible-check`):
-two builds in different directories, byte-identical — stronger a requirement
-here than for the application, because the bootloader is what a verifier must
-be able to identify.
+Reproducibility (`scripts/test_reproducible.py`, run by `make scripts-test`):
+the application and tfw-boot of the `atmega2560` soft base row, each built
+twice from two copies of the tree without `build/` or `.git`, in different
+directories, with `SOURCE_DATE_EPOCH` set and `TZ` changed between them;
+the HEX files and their measurements must be byte-identical. It is stronger a
+requirement here than for the application, because the bootloader is what a
+verifier must be able to identify. It needs avr-gcc and fails without it.
+`make reproducible-check` and `make bootloader-reproducible` build the image
+twice through `scripts/repro_build.py`: each copy is `git archive HEAD`, so no
+`build/`, untracked file or uncommitted edit reaches it, and `SOURCE_DATE_EPOCH`
+is the commit time. `scripts/test_repro_build.py` (`make scripts-test`, no
+toolchain needed) runs the script on a throwaway repository with a stale
+`build/` and an untracked file, and checks that neither reaches the copy and
+that the build sees the commit time. Both targets are in `make build`, which
+CI runs: `make bootloader-reproducible-check` is `make bootloader-reproducible`
+on the `atmega2560` soft base row.
+
+The expected measurement from source (`scripts/fwhash.py`, [cli.md](cli.md)):
+SHA-256 over `[base, base + image_len)` of the built HEX, `base` the board's
+application region (`FWHASH_BASE`: `0` on AVR, the slot at `0x38000000` on
+`mps2-an505`, which `boot/hal/cortex-m` reads by address), a gap read as erased
+flash (`0xFF`), a record outside the region refused. One fixed image with a gap is pinned to the same literal in
+`scripts/test_fwhash.py` and, through `tfw_boot_measure` itself, in
+`test_boot_measure.c`'s `test_the_fixed_image_measures_to_the_literal_fwhash_pins`,
+so the tool and the bootloader cannot drift apart unnoticed.
 
 Size gate (`make boot-size-check`, a prerequisite of `make bootloader`; `make
 bootloader-budget` and `make boot-core-size` for the breakdown): every
 `BOOT_SUPPORTED` row is built and measured by `make bootloader-check`, part
 of `make ci`, so a row that stops fitting is a CI failure rather than a
 surprise at flash time.
+
+## Row requirements on `main`
+
+The `secure-boot` row of `docs/SPEC.md`, requirement by requirement, as met or
+unmet on `main`, with the file that meets it and the test that proves it.
+
+| Requirement | State | File | Test |
+|---|---|---|---|
+| Measure the application, SHA-256 over `[0, image_len)`, before it runs | met | `boot/measure/measure_soft.c`, `measure_atecc608a.c`; `boot/boot_policy.c` `tfw_boot_evaluate` | `test_boot_measure.c`; `test_boot_policy.c` `test_the_verdict_carries_the_fwhash_a_verifier_would_compute`; `boot_harness.c` `test_signed_image_boots` |
+| Verify the signature, P-256, on every row (soft included; never `BOOT_SIG=none`) | met | `boot/verify/verify_p256_soft.c`, `verify_atecc608a.c`; `mk/boot.mk` `BOOT_SUPPORTED` | `test_boot_p256_soft.c` (Wycheproof); `test_boot_policy.c` `test_a_tampered_signature_is_refused`, `test_a_tampered_image_is_refused`; `test_boot_element.c`; `boot_harness.c` `test_tampered_image_refuses`; `make bootloader-check` |
+| Refuse a downgrade (anti-rollback floor) | met | `boot/boot_image.c` `tfw_boot_rollback_permit` | `test_boot_policy.c` `test_a_downgrade_is_refused`, `test_a_relabelled_version_is_refused`; `boot_harness.c` `test_downgrade_refuses` |
+| Derive the CDI from the measurement; the seed stays in tfw-boot | met | `boot/tier/cdi_soft.c`, `cdi_atecc.c` | `test_boot_cdi_soft_uds.c` `test_a_provisioned_uds_derives_the_hmac`, `test_another_measurement_derives_another_cdi`; `test_boot_cdi_atecc.c`; `boot_harness.c` "the CDI was derived inside the element" |
+| A refused image never runs; refusal goes to recovery | met | `boot/boot_main.c`, `boot/recovery_halt.c`, `boot/recovery_ota.c` | `test_boot_recovery_session.c` `test_an_unverified_update_is_never_handed_over`; `boot_harness.c` `test_a_refused_pending_image_never_boots`, `test_another_boards_image_refuses` |
+| ATmega2560 soft base row fits and boots | met | `mk/boot.mk` `BOOT_SUPPORTED` (`atmega2560:soft:soft:p256-soft:0:0`) | `boot_harness.c` `test_the_soft_base_row`; `make bootloader-check` |
+| ATmega2560 store/OTA soft rows shed OTA, never verification | met | absent from `BOOT_SUPPORTED`; [cli.md](cli.md) row table | `make bootloader-check` |
+| Reproducible build: two clean builds byte-identical | met (needs avr-gcc) | `scripts/test_reproducible.py` | `make scripts-test` in the toolchain image |
+| Expected firmware hash computable from source, as tfw-boot measures | met | `scripts/fwhash.py` | `scripts/test_fwhash.py`; `test_boot_measure.c` `test_the_fixed_image_measures_to_the_literal_fwhash_pins` |
+| `make provenance`'s `fwhash_sha256` equals the device's measurement | met | `mk/release.mk` `provenance-one`, through `scripts/fwhash.py` | `scripts/test_provenance.py` `test_a_gap_is_measured_as_the_device_measures_it`, `test_an_image_without_a_gap_keeps_its_manifest_hash`; `SlotBoard` (`mps2-an505`'s slot) |
+| `make reproducible-check` / `make bootloader-reproducible` build from a clean tree | met (the builds need avr-gcc) | `scripts/repro_build.py`; `mk/firmware.mk` `reproducible-check`; `mk/boot.mk` `bootloader-reproducible`, `bootloader-reproducible-check` (2560 soft base row, in `make build`) | `scripts/test_repro_build.py`; `make build` in the toolchain image |
 
 ## Observability
 

@@ -47,6 +47,27 @@ static void test_a_length_that_is_not_a_whole_chunk_hashes_correctly(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
 }
 
+/* The expected firmware hash is computable from source: scripts/fwhash.py
+ * computes it from the built Intel HEX. This image and this literal are
+ * scripts/test_fwhash.py's FIXED_HEX and FIXED_MEASUREMENT, so the host tool
+ * and the bootloader are pinned to one number. The gap is never written:
+ * erased flash, 0xFF, which is what the tool fills a gap with. */
+static void test_the_fixed_image_measures_to_the_literal_fwhash_pins(void)
+{
+    static const uint8_t want[32] = {
+        0x12,0x1f,0x2e,0xcd,0xba,0x08,0xaf,0x29,0x28,0x14,0xf0,0xc4,0xdc,0x75,0x38,0x86,
+        0x23,0x0f,0x35,0x66,0x4a,0x3e,0x14,0x73,0x17,0xb7,0x80,0x5c,0x9a,0x0d,0xa3,0x30,
+    };
+    uint8_t *flash = tfw_boot_mock_flash();
+    uint8_t  got[32];
+
+    for (uint16_t i = 0u; i < 0x10u; i++) { flash[i] = (uint8_t)i; }
+    for (uint16_t i = 0u; i < 0x20u; i++) { flash[0x100u + i] = (uint8_t)(i ^ 0x5Au); }
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_measure(0x120u, got));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
+}
+
 static void test_one_changed_byte_changes_the_measurement(void)
 {
     uint8_t *flash = tfw_boot_mock_flash();
@@ -300,6 +321,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_measures_the_same_digest_as_a_direct_hash);
     RUN_TEST(test_a_length_that_is_not_a_whole_chunk_hashes_correctly);
+    RUN_TEST(test_the_fixed_image_measures_to_the_literal_fwhash_pins);
     RUN_TEST(test_one_changed_byte_changes_the_measurement);
     RUN_TEST(test_a_zero_length_measurement_is_refused);
     RUN_TEST(test_a_length_past_the_trailer_is_refused);

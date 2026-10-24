@@ -16,6 +16,10 @@ SOC            := mps2-tz
 # The machine integration-test-cortex-m starts (mk/arch/cortex-m-targets.mk).
 QEMU_MACHINE   := mps2-an505
 
+# The core clock, TFW_CM_CPU_HZ in board_profile.h. The build does not read it
+# (the clock is the header's); the provenance manifest's f_cpu_hz does.
+F_CPU          := 20000000
+
 # The memory map, every address the Secure alias, which is what the core sees
 # with the SAU off (QEMU, hw/arm/mps2-tz.c and hw/arm/armsse.c):
 #
@@ -38,6 +42,12 @@ RAM_TOTAL      := 32768
 APP_BASE       := 0x38000000
 RAM_BASE       := 0x30000000
 RAM_END        := 0x30007FFF
+
+# The region tfw-boot measures (mk/release.mk's provenance): the application
+# slot, TFW_APP_REGION_BASE and TFW_APP_REGION_SIZE in board_profile.h, which
+# boot/hal/cortex-m reads by address. Not flash 0, which this map leaves empty.
+FWHASH_BASE    := $(APP_BASE)
+FWHASH_SIZE    := $(FLASH_BUDGET)
 
 # tfw-boot's geometry. BOOT_BASE is where it links; mk/arch/cortex-m.mk checks
 # its load end against BOOT_BASE + BOOT_SECTION.

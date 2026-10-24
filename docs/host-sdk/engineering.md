@@ -1,10 +1,36 @@
 # Host SDK — engineering reference
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · SPEC row: `host-sdk` · Last verified: 2026-10-20
 > Conflicts with this document are defects. Fix them here first.
 
 Design rationale lives in `architecture.md`. This is the surface: names, as
 grepped from `sdk/go`, and what a caller must know to use them correctly.
+
+## The row's requirements on `main`
+
+The `host-sdk` row of [`../SPEC.md`](../SPEC.md), clause by clause, with the
+clauses SPEC's "What it owns" and the `ethernet-transport` row give `sdk/go`,
+and the test standard (CA m655, the handbook's `integration-testing.md`), as
+met or unmet on `main`, with the file that meets each. A clause another
+repository owns is named as theirs, not marked unmet here.
+
+| # | Requirement | Source | On `main` | Met by |
+|---|---|---|---|---|
+| 1 | `sdk/go` is the Layer 0 host implementation: the codec | row | met | `sdk/go/codec.go` (`EncodeRequest`, `EncodeResponse`, `Decode`), `sdk/go/crc.go` (`CRC16`), `sdk/go/cbor.go` (the claims the evidence carries) |
+| 2 | … framing | row | met | `sdk/go/codec.go` (`Frame`, `SOF`, resynchronisation past a bad frame); `sdk/go/device.go` (`Device.Do`: one request at a time, `Seq` matched, events queued) |
+| 3 | … transport | row | met | `sdk/go/device.go` (`New` over any `io.ReadWriter`); `sdk/go/serialport/` (serial); `sdk/go/tcp.go` (TCP) |
+| 4 | … provisioning calls | row | met | `sdk/go/provision.go` (`Prov*`); `sdk/go/platform.go` (`BuildPlatformBlock`); `sdk/go/netcfg.go` (`NetConfig`, `ReadNetConfig`, `WriteNetConfig`) |
+| 5 | … attestation calls | row | met | `sdk/go/attest.go` (`Attest`, `AttestCert`); `sdk/go/attestcsr.go` (`AttestCSR`); `sdk/go/appevidence.go` (`AliasUCCS`, `ApplicationEvidence`) |
+| 6 | … with zero in-house dependencies | row | met | `sdk/go/go.mod` (testify and `go.bug.st/serial`, nothing in-house); `make sdk-verify` (`mk/go.mk`) fails on one |
+| 7 | `sdk/go` holds no private key | What it owns | met | `sdk/go/auth.go` (`AuthResponse` takes a `crypto.Signer`); `sdk/go/provision.go` (`ProvSeedUDS` takes no seed: the element's TRNG fills the slot); `sdk/go/cmd/tfwctl/peripherals.go` (`externalECKeySigner`: `tfwctl auth` signs through `openssl` and never reads the key into the process) |
+| 8 | `tfwctl` is a command in that module | row | met | `sdk/go/cmd/tfwctl/` |
+| 9 | `tfwprov` is a command in that module | row | met | `sdk/go/cmd/tfwprov/` |
+| 10 | `tfwsim` is the real firmware built for the host | row | met | `tools/tfwsim/main.c`; `mk/host.mk` (`tfwsim`, `tfwsim-atecc608a`, `tfwsim-auto`): the firmware's own `src/` over the mock HAL |
+| 11 | … and the SDK is tested against it | row | met | `sdk/go/internal/simproc/simproc.go` (the one launcher, `NotBuiltError` when a binary is missing); `sdk/go/tfwsim/tfwsim.go` (the public harness); `sdk/go/cmd/tfwctl/e2e_*_test.go` (each `tfwctl` verb against the C firmware); `make sdk-test` fails, never skips |
+| 12 | Consumed by go-trusted-platform at `v0.3.0-alpha` | What it owns | met, this repository's half: the tag `sdk/go/v0.3.0-alpha` is cut; the import is go-trusted-platform's | `ROADMAP.md` (`host-sdk`) |
+| 13 | A TCP transport beside serial: the device dials, the host listens | `ethernet-transport` | met | `sdk/go/tcp.go` (`Listen`, `NewListener`, `Listener.Accept`, `TCPDevice`) |
+| 14 | 90 % unit statement coverage in every package | CA m655 | met | `make sdk-coverage` (`mk/go.mk`, `go-cover-floor`) fails a package under 90 %, unit tests only, no simulator |
+| 15 | Integration through the CLI: every verb on every link the device serves | CA m655; `integration-testing.md` §1, §9 | on open PR #180 (`row/163`): one case table per command family, run on serial and on TCP. On `main` the verbs run on serial, and on TCP only the Ethernet allow-list (`e2e_ethernet_test.go`) | not on `main` |
 
 ## Exported surface
 
@@ -16,7 +42,15 @@ Package `tfw`, module `github.com/jeremyhahn/trusted-firmware/sdk/go`.
 `DefaultBootWait` (2s), `(*Device) Do(ctx, cmd, payload) (Frame, error)`,
 `(*Device) Events() []Frame`.
 
-**Discovery and system** — `Caps`, `PinInfo`, `SysInfo`, `Reset`.
+**TCP** (issue #55; the device dials, the host listens) —
+`Listen(addr string, opts ...Option) (*Listener, error)`,
+`NewListener(l net.Listener, opts ...Option) *Listener`, `(*Listener) Accept()
+(*TCPDevice, error)`, `(*Listener) Addr()`, `(*Listener) Close()`; `TCPDevice`
+embeds `*Device` and adds `Close()` and `RemoteAddr()`. Over Ethernet the device
+answers only its allow-list (`docs/ethernet-transport/api.md`).
+
+**Discovery and system** — `Ping`, `Caps`, `PinInfo`, `SysInfo`, `AppInfo`,
+`Reset`.
 
 **GPIO and timers** — `SetPinMode`, `DigitalWrite`, `DigitalRead`, `TimerSet`,
 `TimerCancel`, `TimerQuery`.
@@ -24,11 +58,14 @@ Package `tfw`, module `github.com/jeremyhahn/trusted-firmware/sdk/go`.
 **Analog, PWM, tone, pulse** — `AnalogRead`, `SetADCReference`, `PWMWrite`,
 `Tone`, `NoTone`, `PulseIn`, `PulseCapture`.
 
-**EEPROM, buses** — `EEPROMRead`, `EEPROMWrite`, `I2CTransfer`, `SPITransfer`,
-`OneWireReset`, `OneWireWrite`, `OneWireRead`.
+**EEPROM, buses** — `EEPROMRead`, `EEPROMWrite`, `I2CTransfer`, `SetI2CClock`,
+`SPITransfer`, `ConfigureSPI`, `OneWireReset`, `OneWireWrite`, `OneWireRead`.
 
 **Attestation** — `Attest(ctx, nonce []byte) ([]byte, error)`,
-`AttestCert(ctx, nonce []byte) ([]byte, error)`.
+`AttestCert(ctx, nonce []byte) ([]byte, error)`,
+`AttestCSR(ctx, b [AliasNonceLen]byte) ([CSRSigLen]byte, error)`; the pure
+readers `AliasUCCS(der []byte) ([]byte, error)` and
+`ApplicationEvidence(uccs []byte) ([ApplicationEvidenceLen]byte, error)`.
 
 **Auth session** (issue #4, element tier only) —
 `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer,
@@ -40,26 +77,49 @@ whatever ASN.1 DER `crypto.Signer` returns, the universal convention for an
 `*ecdsa.PrivateKey`.
 
 **Provisioning** (only against a jig image; see `provision.go`) — `ProvInfo`,
-`ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`.
+`ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`; the
+pure `BuildPlatformBlock(serial, pubkeyHash, operatorPubkey)
+[PlatformBlockLen]byte`.
+
+**Network block** (`docs/ethernet-transport/api.md`) — `ReadNetConfig`,
+`WriteNetConfig`, `NetConfig` (`MarshalBinary`, `UnmarshalBinary`), and the pure
+`DerivedMAC(id []byte) net.HardwareAddr`.
+
+**OTA** (`docs/ota/api.md`) — `OTABegin`, `OTAData`, `OTAEnd`, `OTAStatus`,
+`StageImage` (the whole session), `OTAAuth`, `OTAInfo`, `OTAActivate`,
+`OTAConfirm`.
 
 **Codec, pure functions** — `EncodeRequest`, `EncodeResponse`, `Decode`,
 `CRC16`, `CRC16Update`.
 
 **Value types** — `Frame`, `Cmd`, `Seq`, `Status`, `Caps`, `PinInfo`, `SysInfo`,
-`ElementInfo`, `TimerState`, `CryptoTier`, `AlgorithmSet`, `PinFlags`,
-`PWMSupport`, `ResetCause`, `ResetMode`, `PinMode`, `ADCReference`.
+`AppInfo`, `AppState`, `ElementInfo`, `TimerState`, `CryptoTier`,
+`AlgorithmSet`, `PinFlags`, `PWMSupport`, `ResetCause`, `ResetMode`, `PinMode`,
+`ADCReference`, `SPIMode`, `SPIClockDiv`, `BoardID` (`String`, `Family`),
+`NetConfig`, `OTAState`, `SlotInfo`.
 
 **Constants** — `Cmd*` (protocol command ids), `Event*` (unsolicited event
 ids), `Feature*` (capability bitmap bits), `Alg*` (algorithm-set bits),
-`Status*` (wire status codes), `SOF`, `MaxPayload` (64), `EEPROMChunk` (8),
-`EEPROMReservedEnd` (0xC0), `I2CReservedAddr` (0x60), `AttestNonceLen` (16),
-`AliasNonceLen` (32), `AuthNonceLen` (16), `EvidenceLen` (164),
-`ProtoVersionMajor`, `ProtoVersionMinor`, `SlotDeviceID`, `SlotUDS`,
-`ZoneConfig`, `ZoneData`, `PlatformBlockLen`, `SerialLen`, `PubkeyHashLen`,
-`OperatorPubkeyLen`.
+`Status*` (wire status codes), `Board*` (the board id `CAPS` reports, `docs/boards/board-id-registry.md`), `App*`, `OTA*`
+(`OTAIdle` … `OTAFailed`, `OTAActivateAtReset`, `OTAActivateResetNow`),
+`Slot*` (`SlotDeviceID`, `SlotUDS`; the slot flags `SlotFellBack`,
+`SlotRefused`, `SlotTrial`), `SOF`, `SeqNone`, `MaxPayload` (64),
+`EEPROMChunk` (8), `EEPROMReservedEnd` (0xC0), `I2CReservedAddr` (0x60),
+`I2CClockMin`, `I2CClockMax`, `AttestNonceLen` (16), `AliasNonceLen` (32),
+`AuthNonceLen` (16), `EvidenceLen` (164), `CSRSigLen`,
+`ApplicationEvidenceLen` (32), `OTAChunk` (60), `OTAInfoLen` (44),
+`OTAAuthSigLen`, `NetConfigAddr`, `NetConfigLen`, `ProtoVersionMajor`,
+`ProtoVersionMinor`, `ZoneConfig`, `ZoneData`, `PlatformBlockLen`,
+`SerialLen`, `PubkeyHashLen`, `OperatorPubkeyLen`.
 
 Package `serialport` — `Open(path string, baud int) (io.ReadWriteCloser, error)`,
 `List() ([]string, error)`, `DefaultBaud` (115200).
+
+Package `tfwsim` — the test harness that starts the simulators for a Go test
+(`api.md`): `Start`, `StartElement`, `StartBlankElement`, `StartElementWith`,
+`StartElementWithOperator`, `StartElementApp`, `StartElementVia`,
+`StartElementEthernet`, `TestDeviceIDPublicKey`, `TestSerial`, `TestImage`,
+`TestFWHash`, `DirEnv`.
 
 ## Invariants
 
@@ -115,6 +175,10 @@ what to do next (`sdk/go/errors.go`):
 | `*ArgRangeError` | *(none)* | the argument cannot be expressed on the wire; refused locally |
 | `*TimeoutError` | `ErrTimeout` | carries the command; the deadline generous for `Attest` is absurd for `Ping` |
 | `*LinkError` | wraps the transport error | reach it with `errors.Is(err, io.EOF)` etc. |
+| `*EvidenceError` | `ErrBadFormat` | a certificate or claims set not in the shape the device writes; `AliasUCCS`, `ApplicationEvidence` |
+| `*AuthSignError` | wraps the signer's error | the caller's `crypto.Signer` failed, or its output is not an ECDSA signature `AuthResponse` can make R‖S of |
+| `*NetConfigError` | *(none)* | a `NetConfig` field `MarshalBinary` cannot encode; refused locally |
+| `Status` (not `StatusOK`) | itself: `errors.Is(err, tfw.StatusErrBusy)` | the device answered and refused; `Status.AsError` is how a reply becomes one |
 
 `ErrShortFrame` is a bare sentinel, not a type: on a stream it means "need more
 bytes" and `Device.Do`'s read loop tests for exactly it to keep reading.
@@ -169,7 +233,8 @@ constructor option or a CLI flag (see `cli.md`):
 | Make target | What it runs |
 |---|---|
 | `sdk-build` | `go build ./...` in `sdk/go` |
-| `sdk-test` | `go test -count=1 ./...`; depends on `tfwsim` and `tfwsim-atecc608a` |
+| `sdk-test` | `go test -count=1 ./...` with the `tfwsim` build tag, the cross-implementation suite; depends on `tfwsim`, `tfwsim-atecc608a`, `tfwsim-auto` and `tfwsim-app-example` |
+| `sdk-coverage` | the unit tests alone (no `tfwsim` tag, no simulator), failing if any package is under 90 % (CA m655) |
 | `sdk-lint` | `go fmt` (fails if it rewrites anything) + `go vet` |
 | `sdk-verify` | `go mod verify` + the Layer 0 dependency grep |
 | `verify-vectors` | asserts `internal/vectors` and `testdata/vectors.h` agree |

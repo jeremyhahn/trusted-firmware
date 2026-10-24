@@ -24,8 +24,10 @@ type EvidenceError struct {
 	Reason string
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *EvidenceError) Error() string { return "tfw: malformed evidence: " + e.Reason }
 
+// Is reports whether target is ErrBadFormat, the category an EvidenceError belongs to.
 func (e *EvidenceError) Is(target error) bool { return target == ErrBadFormat }
 
 func evidenceErr(reason string) error { return &EvidenceError{Reason: reason} }

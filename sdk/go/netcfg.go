@@ -65,6 +65,7 @@ type NetConfigError struct {
 	Reason string
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *NetConfigError) Error() string {
 	return fmt.Sprintf("tfw: network block: %s %s", e.Field, e.Reason)
 }

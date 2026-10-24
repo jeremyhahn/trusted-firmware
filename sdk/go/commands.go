@@ -317,7 +317,7 @@ func (d *Device) DigitalRead(ctx context.Context, pin uint8) (bool, error) {
 	return f.Payload[0] != 0, nil
 }
 
-// TimerSet drives a pin to a level and has the DEVICE drive it back after d.
+// TimerSet drives a pin to a level and has the DEVICE drive it back after dur.
 //
 // The deadline is owned by the device, deliberately. A host that crashes with a
 // pump running must not leave the pump running, and the only way to guarantee
@@ -667,6 +667,7 @@ func (d *Device) SetI2CClock(ctx context.Context, hz uint32) error {
 // datasheet does: 0 through 3.
 type SPIMode uint8
 
+// The four SPI modes, numbered as the datasheet numbers them.
 const (
 	SPIMode0 SPIMode = 0
 	SPIMode1 SPIMode = 1
@@ -681,8 +682,10 @@ type SPIClockDiv uint8
 
 const (
 	// SPIClockDiv4 is the fastest this HAL can ask the peripheral for.
-	SPIClockDiv4  SPIClockDiv = 0
+	SPIClockDiv4 SPIClockDiv = 0
+	// SPIClockDiv16 is the divider code one step slower than SPIClockDiv4.
 	SPIClockDiv16 SPIClockDiv = 1
+	// SPIClockDiv64 is the divider code one step faster than SPIClockDiv128.
 	SPIClockDiv64 SPIClockDiv = 2
 	// SPIClockDiv128 is the slowest, and what tfw_bus_init() sets at boot.
 	SPIClockDiv128 SPIClockDiv = 3

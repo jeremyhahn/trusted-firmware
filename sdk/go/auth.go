@@ -124,10 +124,12 @@ type AuthSignError struct {
 	Err error
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *AuthSignError) Error() string {
 	return "tfw: auth: " + e.Op + ": " + e.Err.Error()
 }
 
+// Unwrap returns the underlying error, so errors.Is and errors.As see through it.
 func (e *AuthSignError) Unwrap() error { return e.Err }
 
 var _ error = (*AuthSignError)(nil)

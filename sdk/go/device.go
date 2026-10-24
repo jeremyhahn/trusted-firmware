@@ -55,6 +55,7 @@ const (
 // this from CAPS before trusting anything the device says.
 type CryptoTier uint8
 
+// The crypto tiers, numbered as TFW_CRYPTO_* in include/tfw/types.h.
 const (
 	CryptoNone          CryptoTier = 0
 	CryptoSoftware      CryptoTier = 1
@@ -62,6 +63,7 @@ const (
 	CryptoTPM2          CryptoTier = 3
 )
 
+// String names the tier, or says it is unrecognised with its number.
 func (c CryptoTier) String() string {
 	switch c {
 	case CryptoNone:
@@ -139,6 +141,8 @@ var algorithmNames = []struct {
 // demands several tests them together, and either reads the same.
 func (s AlgorithmSet) Can(want AlgorithmSet) bool { return s&want == want }
 
+// String names each algorithm in the set, space-separated, with any bits this
+// build has no name for printed as a number; "(none)" for the empty set.
 func (s AlgorithmSet) String() string {
 	if s == 0 {
 		return "(none)"
@@ -225,6 +229,8 @@ var pinFlagNames = []struct {
 	{PinLED, "led"},
 }
 
+// String names each flag set, space-separated, with any bits this build has no
+// name for printed as a number; "(none)" when no flag is set.
 func (f PinFlags) String() string {
 	if f == 0 {
 		return "(none)"
@@ -264,6 +270,7 @@ const (
 	PWMSystemTick PWMSupport = 2
 )
 
+// String names the PWM state, or says it is unrecognised with its number.
 func (p PWMSupport) String() string {
 	switch p {
 	case PWMNone:
@@ -318,6 +325,7 @@ type SysInfo struct {
 // commanded reboot and a device that is failing.
 type ResetCause uint8
 
+// The reset causes SYS_INFO reports. The numbering is wire.
 const (
 	ResetUnknown  ResetCause = 0
 	ResetPowerOn  ResetCause = 1
@@ -328,6 +336,7 @@ const (
 	ResetPanic    ResetCause = 6
 )
 
+// String names the cause; ResetUnknown and any unrecognised value are "unknown".
 func (r ResetCause) String() string {
 	switch r {
 	case ResetPowerOn:
@@ -374,6 +383,7 @@ type AppInfo struct {
 // AppState is the application runner's state.
 type AppState uint8
 
+// The runner states APP_INFO reports. The numbering is wire.
 const (
 	AppIdle        AppState = 0
 	AppRunning     AppState = 1
@@ -382,6 +392,7 @@ const (
 	AppStopped     AppState = 4
 )
 
+// String names the state; an unrecognised value is "unknown".
 func (s AppState) String() string {
 	switch s {
 	case AppIdle:

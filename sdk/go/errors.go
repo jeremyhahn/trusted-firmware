@@ -69,8 +69,10 @@ type FrameError struct {
 	Reason string
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *FrameError) Error() string { return "tfw: malformed frame: " + e.Reason }
 
+// Is reports whether target is ErrBadFormat, the category a FrameError belongs to.
 func (e *FrameError) Is(target error) bool { return target == ErrBadFormat }
 
 // CRCError reports a checksum that disagrees with the bytes it covers, and
@@ -81,11 +83,13 @@ type CRCError struct {
 	Computed, Claimed uint16
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *CRCError) Error() string {
 	return fmt.Sprintf("tfw: frame CRC mismatch: computed %04x, frame claims %04x",
 		e.Computed, e.Claimed)
 }
 
+// Is reports whether target is ErrBadCRC, the category a CRCError belongs to.
 func (e *CRCError) Is(target error) bool { return target == ErrBadCRC }
 
 // PayloadSizeError reports a payload the framing cannot express. It carries
@@ -96,11 +100,13 @@ type PayloadSizeError struct {
 	Size, Limit int
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *PayloadSizeError) Error() string {
 	return fmt.Sprintf("tfw: payload of %d bytes exceeds the protocol maximum of %d",
 		e.Size, e.Limit)
 }
 
+// Is reports whether target is ErrPayloadTooLarge, the category a PayloadSizeError belongs to.
 func (e *PayloadSizeError) Is(target error) bool { return target == ErrPayloadTooLarge }
 
 // ShortReplyError reports a well-formed frame whose payload is smaller than
@@ -117,6 +123,7 @@ type ShortReplyError struct {
 	Need int
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *ShortReplyError) Error() string {
 	return fmt.Sprintf("tfw: command 0x%02x reply is %d bytes, needs at least %d",
 		byte(e.Cmd), e.Got, e.Need)
@@ -132,6 +139,7 @@ type ProtocolVersionError struct {
 	HostMajor, HostMinor     uint8
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *ProtocolVersionError) Error() string {
 	return fmt.Sprintf("tfw: device speaks protocol %d.%d, this host speaks %d.%d",
 		e.DeviceMajor, e.DeviceMinor, e.HostMajor, e.HostMinor)
@@ -154,6 +162,7 @@ type ArgRangeError struct {
 	Unit     string // what Value counts: "ms", "bytes"
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *ArgRangeError) Error() string {
 	return fmt.Sprintf("tfw: command 0x%02x: %s is %d %s, outside %d..%d",
 		byte(e.Cmd), e.Arg, e.Value, e.Unit, e.Min, e.Max)
@@ -168,10 +177,12 @@ type TimeoutError struct {
 	Elapsed time.Duration
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *TimeoutError) Error() string {
 	return fmt.Sprintf("tfw: command 0x%02x did not respond after %s", byte(e.Cmd), e.Elapsed)
 }
 
+// Is reports whether target is ErrTimeout, the category a TimeoutError belongs to.
 func (e *TimeoutError) Is(target error) bool { return target == ErrTimeout }
 
 // LinkError reports a failure of the byte stream underneath the protocol,
@@ -187,6 +198,8 @@ type LinkError struct {
 	Err error
 }
 
+// Error implements error. The text is for a log line: match with errors.As.
 func (e *LinkError) Error() string { return fmt.Sprintf("tfw: %s: %v", e.Op, e.Err) }
 
+// Unwrap returns the underlying error, so errors.Is and errors.As see through it.
 func (e *LinkError) Unwrap() error { return e.Err }

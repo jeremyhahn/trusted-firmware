@@ -13,6 +13,8 @@ import "fmt"
 // never a misclassification.
 type Status uint8
 
+// The status codes, numbered as include/tfw/status.h numbers them. They extend
+// and never renumber.
 const (
 	StatusOK                 Status = 0
 	StatusErrCRC             Status = 1
@@ -61,6 +63,7 @@ var statusNames = map[Status]string{
 	StatusErrNoStore:         "external store did not answer",
 }
 
+// String names the status, or says it is unrecognised with its number.
 func (s Status) String() string {
 	if n, ok := statusNames[s]; ok {
 		return n

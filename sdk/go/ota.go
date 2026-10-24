@@ -127,6 +127,7 @@ const OTAChunk = 60
 // OTAState is OTA_STATUS's state byte. The numbering is wire.
 type OTAState uint8
 
+// The OTA_STATUS states.
 const (
 	OTAIdle      OTAState = 0
 	OTAReceiving OTAState = 1
@@ -134,6 +135,7 @@ const (
 	OTAFailed    OTAState = 3
 )
 
+// String names the state, or prints an unrecognised one as OTAState(n).
 func (s OTAState) String() string {
 	switch s {
 	case OTAIdle:

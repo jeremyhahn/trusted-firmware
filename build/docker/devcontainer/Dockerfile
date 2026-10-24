@@ -122,7 +122,14 @@ COPY docker/packages.txt /etc/tfw/packages.txt
 # The compiler and runtime: every packages.txt line not tagged [toolchain].
 # The upgrade takes the base digest's packages to the current Debian security
 # fixes, which the integration image's `trivy image` gate would otherwise flag.
-RUN apt-get update \
+# DEBIAN_REFRESH exists only to rebuild this layer for Debian security fixes:
+# the image tags hash this file and nothing else here changes when Debian
+# ships a fix, so CI would reuse the image (and BuildKit this layer) built
+# before it. Move the date to take a fix the base digest predates.
+# 2026-10-24: libbrotli1 1.1.0-2+deb13u1, CVE-2026-111497 (DS-3479).
+ARG DEBIAN_REFRESH=2026-10-24
+RUN echo "==> Debian security refresh ${DEBIAN_REFRESH}" \
+    && apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
       $(grep -v '#[[:space:]]*\[toolchain\]' /etc/tfw/packages.txt | sed 's/#.*//' | tr '\n' ' ') \

@@ -74,7 +74,7 @@ static void make_input(uint8_t raw[TFW_BOOT_TRAILER_LEN])
     }
     memset(raw, 0, TFW_BOOT_TRAILER_LEN);
     memcpy(raw, spans[rnd() % SPAN_COUNT], TFWV_TRAILER_SPAN_LEN);
-    for (uint32_t i = TFW_BOOT_TR_SIGNATURE; i < TFW_BOOT_TRAILER_LEN; i++) {
+    for (uint32_t i = TFW_BOOT_TR_SIGNATURE; i < TFW_BOOT_TR_RESERVED; i++) {
         raw[i] = (uint8_t)rnd();
     }
     while (ops-- > 0u) {

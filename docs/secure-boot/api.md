@@ -134,7 +134,7 @@ The last `TFW_BOOT_TRAILER_LEN` (128) bytes of the application region, at
 | 16 | 32 | `measurement` | SHA-256 over `[0, image_len)` — this is `FWHash` |
 | — | — | *signed span ends here* | bytes `[0, 48)`, `TFW_BOOT_TR_SIGNED_LEN` |
 | 48 | 64 | `signature` | ECDSA over P-256 and SHA-256 (ES256), `r`‖`s`, over the signed span — every row verifies it, the soft tier with the vendored micro-ecc (`verify_p256_soft.c`), the element tier in the ATECC608A |
-| 112 | 16 | reserved | |
+| 112 | 16 | reserved | `TFW_BOOT_TR_RESERVED`; zero, and a trailer with any of them set is refused `TFW_ERR_UNSUPPORTED` before the signature is checked: they are outside the signed span |
 
 Parsed by `tfw_boot_trailer_parse`, serialised by `tfw_boot_trailer_serialise`
 (`boot/boot_image.c`); `tfw_boot_binding_permit` beside them decides the

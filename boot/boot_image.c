@@ -30,6 +30,18 @@ tfw_status_t tfw_boot_trailer_parse(const uint8_t *raw, tfw_boot_trailer_t *out)
     if (ver != TFW_BOOT_TRAILER_VERSION) {
         return TFW_ERR_UNSUPPORTED;
     }
+    /* The reserved bytes are outside the signed span, so anyone can set them;
+     * a set one is a trailer this build does not know, not one to ignore. */
+    {
+        uint8_t set = 0u;
+
+        for (uint8_t i = TFW_BOOT_TR_RESERVED; i < TFW_BOOT_TRAILER_LEN; i++) {
+            set |= raw[i];
+        }
+        if (set != 0u) {
+            return TFW_ERR_UNSUPPORTED;
+        }
+    }
 
     /* Checked in locals, so a refused trailer writes nothing to *out. */
     uint32_t image_version = tfw_boot_rd_u32(&raw[TFW_BOOT_TR_IMAGE_VERSION]);

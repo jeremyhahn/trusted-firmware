@@ -58,7 +58,15 @@
  *    16    32  measurement      SHA-256 over those bytes -- this is FWHash
  *   ----------  the signed span ends here: bytes [0, 48)
  *    48    64  signature        Ed25519 over the signed span
- *   112    16  reserved
+ *   112    16  reserved         zero; a trailer with any of them set is
+ *                               refused (TFW_ERR_UNSUPPORTED) before the
+ *                               signature is checked
+ *
+ * THE RESERVED BYTES MUST BE ZERO because they lie outside the signed span:
+ * anyone may change them on a signed image. Ignored, they would make the
+ * trailer malleable, and a later revision that gave them a meaning would be
+ * accepted by every older bootloader that cannot read it. Refused, a set byte
+ * is a trailer this build does not know.
  *
  * THE SIGNATURE COVERS THE VERSION, and that is not incidental. A signature
  * over the bare measurement would leave image_version unauthenticated, so an
@@ -94,6 +102,7 @@
 #define TFW_BOOT_TR_MEASUREMENT   16u
 #define TFW_BOOT_TR_SIGNED_LEN    48u   /* the span the signature covers */
 #define TFW_BOOT_TR_SIGNATURE     48u
+#define TFW_BOOT_TR_RESERVED      112u  /* to the end of the trailer, all zero */
 
 #define TFW_BOOT_MEASURE_LEN      32u
 

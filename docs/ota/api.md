@@ -73,8 +73,12 @@ without one answers `TFW_ERR_UNKNOWN_CMD` (4).
 
 `OTA_INFO`'s `slots` is the number of slots it reports, always 2 (0 the
 running image, 1 the staged one), and `active` the slot that runs, always 0
-(`src/core/ota_ctl.c`, ADR decision 8). Its `flags`: `0x01` the last trial fell back, `0x04` a trial is
-running. `floor` is the rollback floor, the element's where there is one. For
+(`src/core/ota_ctl.c`, ADR decision 8). Its `flags`: `0x01` the last trial fell back (`src/core/ota_ctl.c:85-86`);
+`0x02`, only beside `0x01`, the fall-back followed a refusal at evaluation
+rather than an unconfirmed trial (`INFO_FLAG_REFUSED`, `src/core/ota_ctl.c:54`
+and `:87-88`, from the platform block's `TFW_BOOT_EE_FLAG_REFUSED`,
+`include/tfw/boot.h:231`, which `boot/boot_prev.c:58` writes; `SlotRefused` in
+`sdk/go`), so a refusal reads `0x03`; `0x04` a trial is running. `floor` is the rollback floor, the element's where there is one. For
 slot 0, `state` is the platform block's boot state (0 empty, 1 staged, 2 good,
 3 trial, 4 confirmed) and `image_version` and `measurement` are zero. For slot 1 it is
 4, pending, with the staged image's version and measurement when the store

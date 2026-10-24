@@ -314,6 +314,43 @@ static void test_a_signed_image_with_a_reserved_flag_is_refused(void)
     TEST_ASSERT_EQUAL_HEX8(TFW_BOOT_IMAGE_FLAG_DEV, v.trailer.image_flags);
 }
 
+/* Every reserved flag bit is refused, and before the signature is checked:
+ * image_flags is signed, but a bit this build cannot read is not judged by
+ * whether someone signed it. */
+static void test_each_reserved_flag_is_refused_before_the_signature(void)
+{
+    tfw_boot_verdict_t v;
+
+    for (uint8_t bit = 1u; bit < 8u; bit++) {
+        install_bound_image(3u, 0x5Au, (uint8_t)TFW_BOARD_ID, (uint8_t)(1u << bit));
+        g_verify_calls = 0u;
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_evaluate(0u, &v));
+        TEST_ASSERT_EQUAL_UINT(0u, g_verify_calls);
+    }
+}
+
+/* The reserved bytes lie outside the signed span, so a set one on a genuine
+ * image would otherwise boot: the trailer would be malleable. The first, a
+ * middle and the last byte are each refused before the signature is checked,
+ * and the same image with them zero still boots. */
+static void test_a_set_reserved_byte_is_refused_before_the_signature(void)
+{
+    static const uint8_t at[] = { 0u, 7u, TFW_BOOT_TRAILER_LEN - TFW_BOOT_TR_RESERVED - 1u };
+    uint8_t *flash = tfw_boot_mock_flash();
+    tfw_boot_verdict_t v;
+
+    for (uint8_t i = 0u; i < sizeof at; i++) {
+        install_bound_image(3u, 0x5Au, (uint8_t)TFW_BOARD_ID, 0u);
+        flash[TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_RESERVED + at[i]] = 0x01u;
+        g_verify_calls = 0u;
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_evaluate(0u, &v));
+        TEST_ASSERT_EQUAL_UINT(0u, g_verify_calls);
+    }
+
+    install_bound_image(3u, 0x5Au, (uint8_t)TFW_BOARD_ID, 0u);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_evaluate(0u, &v));
+}
+
 /* The binding is checked before the floor: an image for another board below
  * the floor names the board, not the version. */
 static void test_the_board_is_checked_before_the_floor(void)
@@ -465,6 +502,8 @@ int main(void)
     RUN_TEST(test_a_signed_image_for_another_board_is_refused);
     RUN_TEST(test_a_signed_unbound_image_is_refused);
     RUN_TEST(test_a_signed_image_with_a_reserved_flag_is_refused);
+    RUN_TEST(test_each_reserved_flag_is_refused_before_the_signature);
+    RUN_TEST(test_a_set_reserved_byte_is_refused_before_the_signature);
     RUN_TEST(test_the_board_is_checked_before_the_floor);
     RUN_TEST(test_a_relabelled_board_id_is_refused);
     RUN_TEST(test_a_public_key_the_device_does_not_pin_is_refused);

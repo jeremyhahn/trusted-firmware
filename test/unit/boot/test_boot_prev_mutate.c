@@ -170,6 +170,11 @@ static int bootable(const uint8_t *img, uint32_t floor)
         || memcmp(&t[TFW_BOOT_TR_SIGNATURE], sig_ok, TFW_BOOT_SIG_LEN) != 0) {
         return 0;
     }
+    for (uint32_t i = TFW_BOOT_TR_RESERVED; i < TFW_BOOT_TRAILER_LEN; i++) {
+        if (t[i] != 0u) {
+            return 0;
+        }
+    }
     tfw_sha256(img, (uint16_t)len, m);
     return memcmp(m, &t[TFW_BOOT_TR_MEASUREMENT], sizeof m) == 0;
 }

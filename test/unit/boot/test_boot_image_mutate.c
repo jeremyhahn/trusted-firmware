@@ -99,7 +99,12 @@ static void base(uint32_t b, uint8_t raw[TFW_BOOT_TRAILER_LEN])
 static int expect_ok(const uint8_t *raw)
 {
     uint32_t len = rd32(&raw[TFW_BOOT_TR_IMAGE_LEN]);
-    return rd32(&raw[TFW_BOOT_TR_MAGIC]) == TFW_BOOT_TRAILER_MAGIC &&
+    uint8_t  reserved = 0u;
+
+    for (uint32_t i = TFW_BOOT_TR_RESERVED; i < TFW_BOOT_TRAILER_LEN; i++) {
+        reserved |= raw[i];
+    }
+    return reserved == 0u && rd32(&raw[TFW_BOOT_TR_MAGIC]) == TFW_BOOT_TRAILER_MAGIC &&
            ((uint32_t)raw[TFW_BOOT_TR_VERSION] | ((uint32_t)raw[TFW_BOOT_TR_VERSION + 1u] << 8)) ==
                TFW_BOOT_TRAILER_VERSION &&
            rd32(&raw[TFW_BOOT_TR_IMAGE_VERSION]) != 0u &&

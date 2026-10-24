@@ -163,8 +163,8 @@ static void test_the_valid_trailer_reaches_the_signature(void)
 }
 
 /* All 1024 single-bit flips. Each is refused by the check that owns its field,
- * or reaches the signature with a changed signed span or signature -- except
- * the 128 in the reserved tail, which change nothing the gate reads. */
+ * or reaches the signature with a changed signed span or signature; the 128 in
+ * the reserved tail are refused at the parse. */
 static void test_every_single_bit_flip_is_refused_or_changes_the_signed_tuple(void)
 {
     unsigned long to_signature = 0u, expected_to_signature = 0u, inert = 0u;
@@ -216,21 +216,12 @@ static void test_every_single_bit_flip_is_refused_or_changes_the_signed_tuple(vo
             TEST_ASSERT_EQUAL(AT_SIGNATURE, at);
             expected_to_signature++;
         } else {                                             /* reserved */
-            /* Bytes [112, 128) are neither signed nor checked (include/tfw/
-             * boot.h: "reserved"), so a flip there passes with the original's
-             * tuple. What is asserted is that they are inert: the trailer the
-             * gate parses is the original's, field for field. */
-            tfw_boot_trailer_t orig;
-
-            TEST_ASSERT_EQUAL(AT_SIGNATURE, at);
-            TEST_ASSERT_TRUE(same_tuple(raw, &tr));
-            TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trailer_parse(good, &orig));
-            TEST_ASSERT_EQUAL_UINT32(orig.image_version, tr.image_version);
-            TEST_ASSERT_EQUAL_UINT32(orig.image_len, tr.image_len);
-            TEST_ASSERT_EQUAL_UINT8(orig.board_id, tr.board_id);
-            TEST_ASSERT_EQUAL_UINT8(orig.image_flags, tr.image_flags);
-            TEST_ASSERT_EQUAL_MEMORY(orig.measurement, tr.measurement, TFW_BOOT_MEASURE_LEN);
-            TEST_ASSERT_EQUAL_MEMORY(orig.signature, tr.signature, TFW_BOOT_SIG_LEN);
+            /* Bytes [112, 128) are not signed, so the parse refuses a trailer
+             * with any of them set (include/tfw/boot.h: TFW_BOOT_TR_RESERVED)
+             * before anything is read or the signature is reached. */
+            TEST_ASSERT_EQUAL(AT_PARSE, at);
+            TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, st);
+            TEST_ASSERT_EQUAL_UINT32(0u, reads);
             inert++;
             free(raw);
             continue;

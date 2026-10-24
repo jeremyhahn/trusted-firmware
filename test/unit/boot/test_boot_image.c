@@ -140,6 +140,29 @@ static void test_an_image_may_not_reach_its_own_trailer(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_boot_trailer_parse(raw, &tr));
 }
 
+/* The reserved bytes are outside the signed span; a set one is a trailer this
+ * build does not know, refused at the parse and leaving *out as it was. Each
+ * byte, first to last, one at a time and each bit of it. */
+static void test_a_set_reserved_byte_is_refused(void)
+{
+    uint8_t raw[TFW_BOOT_TRAILER_LEN];
+    tfw_boot_trailer_t tr, sentinel;
+
+    memset(&sentinel, 0xA5, sizeof sentinel);
+    for (uint8_t i = TFW_BOOT_TR_RESERVED; i < TFW_BOOT_TRAILER_LEN; i++) {
+        for (uint8_t bit = 0u; bit < 8u; bit++) {
+            good(raw, 1u, 512u);
+            raw[i] = (uint8_t)(1u << bit);
+            memcpy(&tr, &sentinel, sizeof tr);
+            TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_trailer_parse(raw, &tr));
+            TEST_ASSERT_EQUAL_MEMORY(&sentinel, &tr, sizeof tr);
+        }
+    }
+
+    good(raw, 1u, 512u);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_trailer_parse(raw, &tr));
+}
+
 /* ------------------------------------------------------------- binding */
 
 /* A vector's signed span in a whole trailer, signature and tail zeroed: the
@@ -352,6 +375,7 @@ int main(void)
     RUN_TEST(test_version_zero_is_refused);
     RUN_TEST(test_a_zero_length_image_is_refused);
     RUN_TEST(test_an_image_may_not_reach_its_own_trailer);
+    RUN_TEST(test_a_set_reserved_byte_is_refused);
     RUN_TEST(test_each_boards_trailer_binds_to_that_board_alone);
     RUN_TEST(test_an_image_for_another_board_is_refused);
     RUN_TEST(test_an_unbound_image_is_refused_everywhere);

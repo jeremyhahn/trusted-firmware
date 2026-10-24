@@ -698,8 +698,17 @@ yet.
   cut short and redone, and a store that does not answer.
 - **Not a row yet.** Neither part's `BOOT_STORE=1` row is in `BOOT_SUPPORTED`:
   their 4 096-byte sections had 3 758 and 3 828 bytes used before the copy
-  path (above), and the row's size with the restore is not measured. Each is a
-  candidate, measured on CI's image by
+  path (above), and with the restore neither fits. Measured on 2026-10-23 on
+  CI's image (avr-gcc 14.2.0), the core links at 5 966 bytes of flash against
+  the 4 096-byte section on the 32U4, 1 870 bytes over (ld: 1 696 over `text`),
+  with 1 921 bytes of SRAM left (639 / 2 560 used), for
+  `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`; and at 5 982 bytes on the
+  328P, 1 886 bytes over (ld: 1 706 over `text`), with 1 409 bytes of SRAM left
+  (639 / 2 048 used), for `atmega328p:atecc608a:atecc608a:atecc608a:0:1`.
+  BOOTSZ 4096 is already the largest setting on both parts, so there is nothing
+  to raise. Neither row joins `BOOT_SUPPORTED`; the next step, shrinking the
+  core or a different store design for these parts, is the owner's decision on
+  #52. Each is a candidate, measured on CI's image by
   `make bootloader-candidate BOOT_CANDIDATE=<row>` (`mk/boot.mk`), which builds the row without adding it
   and prints its size against the section, or ld's overflow. A row joins
   `BOOT_SUPPORTED` only once it fits and `bootloader-check` passes it. Until

@@ -37,8 +37,11 @@ returning it would answer the wrong caller. See `sdk/go/device.go:Do`.
 
 The codec (`sdk/go/codec.go`) is pure: `EncodeRequest`/`EncodeResponse`/`Decode`
 touch no I/O; the cross-implementation scenarios
-(`sdk/go/cmd/tfwctl/e2e_firmware_test.go`) drive them against the firmware. `Decode` resynchronises on the next `SOF` rather
-than discarding a whole buffer — a genuine frame may start inside garbage.
+(`sdk/go/cmd/tfwctl/e2e_firmware_test.go`) drive them against the firmware. `Decode` does not
+skip ahead: bytes that cannot be a frame return a `*FrameError`. The resync is
+`Device.decodeNext`'s (`sdk/go/device.go`): on that error it drops to the next
+`SOF` rather than discarding the whole buffer — a genuine frame may start inside
+garbage — and drops the buffer only when no later `SOF` is in it.
 
 ## Trust boundaries
 

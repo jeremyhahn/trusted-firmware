@@ -108,6 +108,16 @@ uint8_t  tfw_mock_last_spi_mode(void);
 uint8_t  tfw_mock_last_spi_clkdiv(void);
 uint8_t  tfw_mock_last_spi_lsb(void);
 
+/* buses: while st is not TFW_OK, every I2C, SPI and 1-Wire transfer answers st
+ * and fills nothing -- a bus that timed out or a device that never answered.
+ * tfw_mock_reset turns it off again. */
+void tfw_mock_bus_fails(tfw_status_t st);
+
+/* gpio: while st is not TFW_OK, every tfw_hal_gpio_write and tfw_hal_gpio_read
+ * answers st and leaves the pin as it was. The AVR HAL cannot fail either; the
+ * ESP32's gpio_set_level can. tfw_mock_reset turns it off again. */
+void tfw_mock_gpio_io_fails(tfw_status_t st);
+
 /* system */
 void   tfw_mock_set_reset_cause(tfw_reset_cause_t c);
 void   tfw_mock_set_free_ram(uint32_t n);

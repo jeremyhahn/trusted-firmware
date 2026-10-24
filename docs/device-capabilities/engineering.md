@@ -1,6 +1,6 @@
 # Device capabilities: engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-20
 >
 > Conflicts with this document are defects. Fix them here first.
 
@@ -131,6 +131,12 @@ framer respectively.
 | `TFW_ERR_NACK` | I2C address or data NACK |
 | `TFW_ERR_BUSY` | peripheral already in use |
 
+A HAL error is returned as the HAL gave it, with no reply bytes. `TIMER_SET`
+that cannot drive its pin arms nothing, and a re-arm that cannot keeps the
+running timer's deadline. `TIMER_CANCEL` with `apply_final` that cannot drive
+the final level returns that error and leaves the timer armed, so the pin
+still reverts at its deadline (`test/unit/test_caps_faults.c`).
+
 ## Configuration
 
 All defaults live once in `include/tfw/config.h`, each wrapped in `#ifndef` so
@@ -154,10 +160,40 @@ file.
 | `TFW_ADC_COUNT` | 8 | HAL's ADC channel range check, per board |
 | `TFW_FEATURE_GPIO/SCHED/ANALOG/PWM/TONE/PULSE/EEPROM/I2C/SPI/ONEWIRE` | 1 | file-selection gates; 0 drops the translation unit, not a branch |
 
+## Requirements on main
+
+The `device-capabilities` row of `../SPEC.md`, one requirement per line, with
+the file that meets it and the host test that holds it.
+
+| requirement | state | file | test |
+|---|---|---|---|
+| GPIO as wire commands | met | `src/caps/gpio.c` | `test_gpio.c` `test_writing_a_pin_sets_the_right_bit_of_the_right_port`, `test_the_uart_pins_cannot_be_driven` |
+| the pin scheduler as wire commands | met | `src/caps/sched.c` | `test_sched.c` `test_a_deadline_across_the_millisecond_wrap_is_honoured`, `test_a_reserved_pin_cannot_be_scheduled` |
+| analog read | met | `src/caps/analog.c` | `test_analog.c` `test_reading_an_analog_pin_uses_the_right_channel` |
+| PWM | met | `src/caps/pwm.c` | `test_pwm.c` `test_a_duty_of_zero_disconnects_rather_than_holding_low` |
+| tone | met | `src/caps/tone.c` | `test_pwm.c` `test_tone_starts_and_stops` |
+| pulse | met | `src/caps/pulse.c` | `test_pulse.c` `test_pulse_in_returns_the_measured_width`, `test_capture_returns_the_intervals_a_host_turns_into_bits` |
+| EEPROM | met | `src/caps/storage.c` | `test_storage.c` `test_a_round_trip_through_the_user_area` |
+| I²C, SPI and 1-Wire | met | `src/caps/bus.c` | `test_bus.c` `test_an_i2c_transfer_reaches_the_addressed_device`, `test_an_spi_transfer_is_full_duplex`, `test_a_onewire_sensor_exchange_needs_no_sensor_code_in_firmware` |
+| every command refuses a payload outside its bounds, and a HAL or bus error reaches the host with no reply bytes | met | `src/core/dispatch.c`, `src/caps/*.c` | `test_caps_faults.c` `test_every_capability_refuses_a_payload_outside_its_bounds` and its bus, EEPROM and gpio fault tests |
+| the HAL is substituted at link time, never through a vtable | met by construction | `include/tfw/hal.h`; `mk/host.mk` links `test/mock/hal_mock.c` in place of `src/hal/<arch>/` | no test: the link is the check, and a `hal.h` function the mock lacks fails `make host-test` |
+| a held pin reverts on time whether or not the host is present | met | `src/caps/sched.c` `tfw_sched_poll` | `test_sched.c` `test_a_timed_pin_reverts_without_the_host`; `test_caps_faults.c` `test_a_cancel_that_cannot_apply_the_final_level_keeps_the_timer`, `test_a_failed_rearm_keeps_the_first_deadline` |
+| there is no `delay()` | met, not enforced | `src/` has only `tfw_hal_delay_us`, for bus bit-banging | none: no lint target refuses a `delay` call |
+
+Unit coverage of the handlers above and the scheduler was measured as
+`make coverage` builds it (`--coverage`, the `src/(proto|core|caps)/`
+filter) with `gcov` on the host build, because the image has no `gcovr`.
+Every line is reached. The branches no test takes are defensive checks that
+`tfw_dispatch`'s arity check or an earlier pin lookup already settles: the
+bus `!wr` and length re-checks, the EEPROM `!data` check, the scheduler's and
+PWM's second `tfw_board_pin`, and the dispatcher's `tfw_reader_ok` after a
+handler.
+
 ## Test strategy
 
 Unit tests (`test/unit/test_gpio.c`, `test_sched.c`, `test_analog.c`,
-`test_pwm.c`, `test_pulse.c`, `test_storage.c`, `test_bus.c`) run on the host
+`test_pwm.c`, `test_pulse.c`, `test_storage.c`, `test_bus.c`,
+`test_caps_faults.c`) run on the host
 against `test/mock/hal_mock.c` and drive commands through `tfw_dispatch()`
 exactly as the framer would — no serial, no board. Time-dependent behaviour
 (the scheduler's 49.7-day wrap) is asserted by setting the mock clock
@@ -166,7 +202,9 @@ state is inspected through `tfw_mock_pin_level`, `tfw_mock_pin_is_output`,
 `tfw_mock_pwm_duty`, `tfw_mock_pwm_connected`, `tfw_mock_last_i2c_addr`,
 `tfw_mock_last_i2c_hz`, `tfw_mock_last_spi_mode`/`_clkdiv`/`_lsb`, and the raw
 EEPROM array — each a seam that exists so a test can assert the *effect* on
-hardware, not just the return status. The mock cannot model `ADEN`/`SPE` --
+hardware, not just the return status. `tfw_mock_bus_fails`,
+`tfw_mock_gpio_io_fails` and `tfw_mock_eeprom_read_fails` make the HAL answer
+an error, so the fault paths are driven through `tfw_dispatch()` too. The mock cannot model `ADEN`/`SPE` --
 it answers a fixed value regardless of whether a peripheral was ever
 initialised -- which is exactly why issues #16 and #19 shipped past it; the
 simavr suite below is what actually exercises those bits.

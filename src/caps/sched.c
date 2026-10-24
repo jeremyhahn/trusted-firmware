@@ -140,10 +140,16 @@ tfw_status_t tfw_sched_cmd_cancel(tfw_reader_t *r, tfw_writer_t *w)
     if (!s) {
         return TFW_ERR_NO_SLOT;
     }
+    /* A final level that could not be driven leaves the timer armed and says
+     * so: dropping the slot would leave the pin held with nothing left to
+     * revert it. */
     if (apply_final) {
         tfw_pinref_t ref;
         if (tfw_board_pin(pin, &ref) == TFW_OK) {
-            (void)tfw_hal_gpio_write(&ref, (uint8_t)((s->flags & SLOT_FINAL_LEVEL) ? 1u : 0u));
+            tfw_status_t st = tfw_hal_gpio_write(&ref, (uint8_t)((s->flags & SLOT_FINAL_LEVEL) ? 1u : 0u));
+            if (st != TFW_OK) {
+                return st;
+            }
         }
     }
     s->flags = 0u;

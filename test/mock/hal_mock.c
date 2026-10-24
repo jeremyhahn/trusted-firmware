@@ -48,6 +48,8 @@ static uint8_t  ow_present;
 static unsigned ow_reads;                /* calls tfw_hal_ow_read took */
 static uint32_t last_i2c_hz;
 static uint8_t  last_spi_mode, last_spi_clkdiv, last_spi_lsb;
+static tfw_status_t bus_fail;            /* every bus transfer's status; TFW_OK = none */
+static tfw_status_t gpio_io_fail;        /* every gpio read/write's status; TFW_OK = none */
 
 /* Pin and PWM state, kept per OPAQUE KEY and not in a register file.
  *
@@ -152,6 +154,7 @@ void tfw_mock_reset(void)
     tone_hz = 0u; pulse_in_us = 0u; capture_n = 0u;
     bus_resp_n = 0u; last_i2c_addr = 0xFFu; ow_present = 0u; ow_reads = 0u;
     last_i2c_hz = 0xFFFFFFFFuL; last_spi_mode = last_spi_clkdiv = last_spi_lsb = 0xFFu;
+    bus_fail = TFW_OK; gpio_io_fail = TFW_OK;
 }
 
 void tfw_mock_set_bus_response(const uint8_t *b, uint8_t n)
@@ -169,6 +172,8 @@ uint32_t tfw_mock_last_i2c_hz(void)      { return last_i2c_hz; }
 uint8_t  tfw_mock_last_spi_mode(void)    { return last_spi_mode; }
 uint8_t  tfw_mock_last_spi_clkdiv(void)  { return last_spi_clkdiv; }
 uint8_t  tfw_mock_last_spi_lsb(void)     { return last_spi_lsb; }
+void     tfw_mock_bus_fails(tfw_status_t st)     { bus_fail = st; }
+void     tfw_mock_gpio_io_fails(tfw_status_t st) { gpio_io_fail = st; }
 
 uint8_t tfw_mock_pwm_duty(uint16_t duty_key)
 {
@@ -387,6 +392,7 @@ tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
     mock_port_t *s = port_find(p->port, 1u);
     uint32_t mask = pin_mask(p->bit);
 
+    if (gpio_io_fail != TFW_OK) { return gpio_io_fail; }
     if (level) { s->latch |= mask; }
     else       { s->latch = s->latch & ~mask; }
     return TFW_OK;
@@ -400,6 +406,7 @@ tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
      * make read-after-write on an output fail here and work on hardware,
      * which is the worst direction for a mock to be wrong in -- it sends you
      * hunting for a firmware bug that does not exist. */
+    if (gpio_io_fail != TFW_OK) { return gpio_io_fail; }
     *out = tfw_mock_pin_level(p->port, p->bit);
     return TFW_OK;
 }
@@ -539,6 +546,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 {
     (void)wr; (void)wlen;
     last_i2c_addr = addr7;
+    if (bus_fail != TFW_OK) { return bus_fail; }
     if (rlen > bus_resp_n) { return TFW_ERR_NACK; }
     for (uint8_t i = 0u; i < rlen; i++) { rd[i] = bus_resp[i]; }
     return TFW_OK;
@@ -551,6 +559,7 @@ tfw_status_t tfw_mock_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
                                uint8_t *rd, uint8_t len)
 {
     (void)cs; (void)wr;
+    if (bus_fail != TFW_OK) { return bus_fail; }
     for (uint8_t i = 0u; i < len; i++) { rd[i] = i < bus_resp_n ? bus_resp[i] : 0u; }
     return TFW_OK;
 }
@@ -565,15 +574,21 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
 }
 
 tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
-{ (void)p; *out_presence = ow_present; return TFW_OK; }
+{
+    (void)p;
+    if (bus_fail != TFW_OK) { return bus_fail; }
+    *out_presence = ow_present;
+    return TFW_OK;
+}
 
 tfw_status_t tfw_hal_ow_write(const tfw_pinref_t *p, const uint8_t *buf, uint8_t len)
-{ (void)p; (void)buf; (void)len; return TFW_OK; }
+{ (void)p; (void)buf; (void)len; return bus_fail; }
 
 tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
 {
     (void)p;
     ow_reads++;
+    if (bus_fail != TFW_OK) { return bus_fail; }
     for (uint8_t i = 0u; i < len; i++) { buf[i] = i < bus_resp_n ? bus_resp[i] : 0u; }
     return TFW_OK;
 }

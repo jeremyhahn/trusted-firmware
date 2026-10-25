@@ -94,6 +94,10 @@ type NetConfigError struct {
     Field, Reason string
 }
 
+// NetConfigAddr is the address firmware before #231 reads the block at
+// (#231 moves it to 0x140). tfwsim.StartElementEthernet does not use it: it
+// asks the simulator binary, `tfwsim --netcfg-addr`, where its build reads
+// the block.
 const (
     NetConfigAddr = 0x0C0
     NetConfigLen  = 32

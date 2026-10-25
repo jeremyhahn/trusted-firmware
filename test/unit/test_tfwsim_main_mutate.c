@@ -624,9 +624,37 @@ static void test_main_refuses_an_unknown_option_with_the_usage(void)
 
     TEST_ASSERT_EQUAL_INT(2, main_args(2, argv));
     TEST_ASSERT_NOT_NULL(strstr(errbuf, "tfwsim: unknown option --nope\n"));
-    TEST_ASSERT_NOT_NULL(strstr(errbuf, "usage: tfwsim-x [--pty] [--eth] [--two V]\n"));
+    TEST_ASSERT_NOT_NULL(strstr(errbuf, "usage: tfwsim-x [--pty] [--eth] [--netcfg-addr] [--two V]\n"));
     TEST_ASSERT_EQUAL_INT(1, tier_calls);
     TEST_ASSERT_EQUAL_INT(1, tier_argc[0]);
+}
+
+/* --netcfg-addr is the harness's question "where do you read the network
+ * settings?" (sdk/go/tfwsim): the answer is this build's TFW_NETCFG_ADDR, one
+ * line on stdout and nothing else -- no BOOT event, no tier, no device. */
+static void test_main_netcfg_addr_prints_where_the_build_reads_the_block(void)
+{
+    char *argv[] = { "tfwsim", "--netcfg-addr", NULL };
+    char  want[16];
+    int   out_p[2];
+    pid_t pid;
+
+    TEST_ASSERT_EQUAL_INT(0, pipe(out_p));
+    fflush(stdout);
+    pid = fork();
+    TEST_ASSERT_TRUE(pid >= 0);
+    if (pid == 0) {
+        dup2(out_p[1], STDOUT_FILENO);
+        close(out_p[0]); close(out_p[1]);
+        exit(tfwsim_main(2, argv) + (tier_calls != 0 ? 10 : 0));
+    }
+    close(out_p[1]);
+    slurp(out_p[0]);
+    close(out_p[0]);
+    TEST_ASSERT_EQUAL_INT(0, child_status(pid));
+    snprintf(want, sizeof want, "0x%04X\n", (unsigned)TFW_NETCFG_ADDR);
+    TEST_ASSERT_EQUAL_UINT(strlen(want), outlen);
+    TEST_ASSERT_EQUAL_MEMORY(want, outbuf, outlen);
 }
 
 static void test_main_exits_2_quietly_when_the_tier_has_reported(void)
@@ -866,6 +894,7 @@ int main(void)
     RUN_TEST(test_run_with_eth_still_ends_0_when_input_closes);
     RUN_TEST(test_main_without_eth_leaves_the_controller_off);
     RUN_TEST(test_main_refuses_an_unknown_option_with_the_usage);
+    RUN_TEST(test_main_netcfg_addr_prints_where_the_build_reads_the_block);
     RUN_TEST(test_main_exits_2_quietly_when_the_tier_has_reported);
     RUN_TEST(test_main_skips_what_the_tier_consumed);
     RUN_TEST(test_main_keeps_pty_and_eth_from_the_tier);

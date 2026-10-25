@@ -193,7 +193,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.FeatureGPIO`, `tfw.FeatureSched`, `tfw.FeatureAnalog`, `tfw.FeaturePWM`, `tfw.FeatureTone`, `tfw.FeaturePulse`, `tfw.FeatureEEPROM`, `tfw.FeatureI2C`, `tfw.FeatureSPI`, `tfw.FeatureOneWire`, `tfw.FeatureAttest`, `tfw.FeatureDeadman`, `tfw.FeatureProvision`, `tfw.FeatureAliasCert` | `const FeatureGPIO uint32 = 1 << iota`, … | Feature bits, mirroring TFW_FEATURE_BITMAP. |
 | `tfw.FeatureAuthSession` | `const FeatureAuthSession` (bit 14) | Issue #4's AUTH_CHALLENGE/AUTH_RESPONSE session -- element tier only. |
 | `tfw.FeatureAttestCSR` | `const FeatureAttestCSR` (bit 15) | Issue #30's ATTEST_CSR -- the possession signature over a device-templated CertificationRequestInfo. |
-| `tfw.NetConfigAddr`, `tfw.NetConfigLen` | `const NetConfigAddr = 0x0C0`, `const NetConfigLen = 32` | The network block, [0x0C0, 0x0E0) on the device, mirroring include/tfw/eth.h's TFW_NETCFG_*. |
+| `tfw.NetConfigAddr`, `tfw.NetConfigLen` | `const NetConfigAddr = 0x0C0`, `const NetConfigLen = 32` | The network block, [0x0C0, 0x0E0) on firmware before #231, mirroring include/tfw/eth.h's TFW_NETCFG_*; #231 moves it to 0x140. The tfwsim harness asks the binary (`tfwsim --netcfg-addr`) instead of using `NetConfigAddr`. |
 | `tfw.OTAActivateAtReset` | `const OTAActivateAtReset byte = 0` | OTA_ACTIVATE mode: tried at the next reset. |
 | `tfw.OTAActivateResetNow` | `const OTAActivateResetNow byte = 1` | OTA_ACTIVATE mode: the device resets once the reply is out. |
 | `tfw.SlotFellBack` | `const SlotFellBack uint8 = 1 << 0` | SlotInfo flag: the last boot fell back. |

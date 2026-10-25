@@ -52,6 +52,7 @@
 #include "sim_boot.h"
 #include "tier.h"
 #include "eth_socket.h"
+#include "tfw/eth.h"
 
 static tfw_transport_t t;
 static jmp_buf         reboot;
@@ -283,6 +284,12 @@ int main(int argc, char **argv)
             i++;
             continue;
         }
+        if (strcmp(argv[i], "--netcfg-addr") == 0) {
+            /* Where this build reads its network settings, so the Go harness
+             * (sdk/go/tfwsim) writes them there and assumes no address. */
+            printf("0x%04X\n", (unsigned)TFW_NETCFG_ADDR);
+            return 0;
+        }
         if (strcmp(argv[i], "--eth") == 0) {
             eth = 1;
             tfwsim_eth_enable();
@@ -295,7 +302,7 @@ int main(int argc, char **argv)
         }
         if (used <= 0) {
             if (used == 0) {
-                fprintf(stderr, "tfwsim: unknown option %s\nusage: %s [--pty] [--eth]%s%s\n",
+                fprintf(stderr, "tfwsim: unknown option %s\nusage: %s [--pty] [--eth] [--netcfg-addr]%s%s\n",
                         argv[i], argv[0], tfwsim_tier_usage(), tfwsim_boot_usage());
             }
             return 2;

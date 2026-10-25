@@ -21,6 +21,11 @@ import (
 //
 // The Ethernet link reads it each time it opens a connection, so a block
 // written while the device runs is used at the next attempt, no reset needed.
+//
+// NetConfigAddr is the address firmware before #231 reads the block at; #231
+// moves it to 0x140. The tfwsim harness does not use it: StartElementEthernet
+// asks the simulator binary (tfwsim --netcfg-addr) where its build reads the
+// block.
 const (
 	NetConfigAddr = 0x0C0
 	NetConfigLen  = 32

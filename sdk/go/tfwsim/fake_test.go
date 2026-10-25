@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,6 +37,19 @@ const recordEnv = "TFWSIM_FAKE_RECORD"
 // noDialEnv makes the fake an Ethernet device that never dials.
 const noDialEnv = "TFWSIM_FAKE_NO_DIAL"
 
+// netcfgAddrEnv is what the fake prints for --netcfg-addr, the address its
+// network block is read at. Unset, it reports 0x00C0, as the firmware before
+// #231 does.
+const netcfgAddrEnv = "TFWSIM_FAKE_NETCFG_ADDR"
+
+// fakeNetcfgAddr is the fake's answer to --netcfg-addr.
+func fakeNetcfgAddr() string {
+	if s := os.Getenv(netcfgAddrEnv); s != "" {
+		return s
+	}
+	return "0x00C0"
+}
+
 func TestMain(m *testing.M) {
 	if record := os.Getenv(recordEnv); record != "" {
 		if err := fakeSimulator(record, os.Args); err != nil {
@@ -48,6 +62,10 @@ func TestMain(m *testing.M) {
 }
 
 func fakeSimulator(record string, argv []string) error {
+	if slices.Equal(argv[1:], []string{"--netcfg-addr"}) {
+		_, err := fmt.Println(fakeNetcfgAddr())
+		return err
+	}
 	line := append([]string{filepath.Base(argv[0])}, argv[1:]...)
 	if err := os.WriteFile(record, []byte(strings.Join(line, "\n")), 0o600); err != nil {
 		return err
@@ -82,10 +100,14 @@ func dialEndpoint(argv []string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(image) < tfw.NetConfigAddr+tfw.NetConfigLen {
-		return nil, fmt.Errorf("EEPROM image of %d bytes has no network block", len(image))
+	addr, err := strconv.ParseUint(fakeNetcfgAddr(), 0, 16)
+	if err != nil {
+		return nil, err
 	}
-	block := image[tfw.NetConfigAddr:]
+	if uint64(len(image)) < addr+tfw.NetConfigLen {
+		return nil, fmt.Errorf("EEPROM image of %d bytes has no network block at %#x", len(image), addr)
+	}
+	block := image[addr:]
 	peer := netip.AddrFrom4([4]byte(block[24:28]))
 	port := binary.BigEndian.Uint16(block[28:30])
 	return net.Dial("tcp", netip.AddrPortFrom(peer, port).String())
@@ -305,6 +327,59 @@ func TestStartElementEthernetFailsWhenTheDeviceNeverConnects(t *testing.T) {
 	<-done
 	if !strings.Contains(f.msg, "never connected") {
 		t.Fatalf("StartElementEthernet failed with %q, want it to say the device never connected", f.msg)
+	}
+}
+
+// The firmware, not the SDK, owns where its network block lives (#231 moves
+// it from 0x0C0 to 0x140), so the harness writes the block where the
+// simulator says it reads it, erased bytes between, and the device dials.
+func TestStartElementEthernetWritesTheBlockAtTheAddressTheSimulatorReports(t *testing.T) {
+	const at = 0x140
+	record := fake(t)
+	t.Setenv(netcfgAddrEnv, "0x0140")
+	_, eth := tfwsim.StartElementEthernet(t)
+
+	image := eeprom(t, commandLine(t, record))
+	if len(image) != at+tfw.NetConfigLen {
+		t.Fatalf("EEPROM image is %d bytes, want the network block to end it at %#x (%d)",
+			len(image), at, at+tfw.NetConfigLen)
+	}
+	for i := tfw.PlatformBlockLen; i < at; i++ {
+		if image[i] != 0xFF {
+			t.Fatalf("EEPROM byte %#x is %#02x, want it erased (0xFF)", i, image[i])
+		}
+	}
+	var cfg tfw.NetConfig
+	if err := cfg.UnmarshalBinary(image[at:]); err != nil {
+		t.Fatalf("the block at %#x: %v", at, err)
+	}
+	// The fake dialled the endpoint it read at 0x140, so the link is up.
+	if eth == nil || !cfg.Endpoint.Addr().IsLoopback() {
+		t.Fatalf("link %v, endpoint %v in the block at %#x, want a link to a loopback endpoint", eth, cfg.Endpoint, at)
+	}
+}
+
+// A simulator that cannot say where its block lives -- one built before it
+// could, or one that answers an address inside the platform block -- fails
+// the test before any simulator is started, and says to rebuild it.
+func TestStartElementEthernetFailsWhenTheSimulatorReportsNoUsableAddress(t *testing.T) {
+	for _, answer := range []string{"usage: tfwsim", "0x0010", "0xFFFF"} {
+		record := fake(t)
+		t.Setenv(netcfgAddrEnv, answer)
+		f := &fatalTB{TB: t}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			tfwsim.StartElementEthernet(f)
+		}()
+		<-done
+		if !strings.Contains(f.msg, "--netcfg-addr") || !strings.Contains(f.msg, "make tfwsim") {
+			t.Errorf("answer %q: StartElementEthernet failed with %q, want it to name --netcfg-addr and make tfwsim",
+				answer, f.msg)
+		}
+		if _, err := os.Stat(record); !os.IsNotExist(err) {
+			t.Errorf("answer %q: a simulator was started (stat %v)", answer, err)
+		}
 	}
 }
 

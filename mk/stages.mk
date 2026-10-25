@@ -75,6 +75,35 @@ test: test-tools
 	@for g in $(TEST_GATES); do $(MAKE) --no-print-directory $$g || exit 1; done
 	@echo "stage test: green"
 
+## test-shard-N: one CI Unit shard of TEST_GATES, every gate run, PASS/FAIL each
+# CI runs the test stage as one Unit job per shard (ci.yml, the unit job's
+# matrix lists TEST_SHARDS), balanced by the gates' durations in CI: test-asan,
+# the long pole, alone. Each gate is in exactly one shard, so the shards are
+# `make test`; scripts/test_unit_shards.py holds the lists to TEST_GATES and to
+# the matrix. A shard runs every gate even after one fails (make -k), prints
+# one PASS or FAIL line per gate with its seconds, and fails if any gate did.
+# Each job has its own workspace, so coverage and test-asan's clean-host
+# deletes nothing another shard is building.
+TEST_SHARD_1 := host-test boot-test board-sweep
+TEST_SHARD_2 := coverage verify-vectors xkms-coverage sdk-coverage scripts-test
+TEST_SHARD_3 := test-asan
+TEST_SHARDS  := 1 2 3
+
+test-shard-%: test-tools
+	@gates='$(TEST_SHARD_$*)'; \
+	 if [ -z "$$gates" ]; then echo "$@: no such shard; the shards are $(TEST_SHARDS)"; exit 1; fi; \
+	 fail=0; for g in $$gates; do start=$$(date +%s); \
+	   if $(MAKE) --no-print-directory $$g; then r=PASS; else r=FAIL; fail=1; fi; \
+	   echo "$@: $$r $$g $$(( $$(date +%s) - start ))s"; \
+	 done; \
+	 if [ $$fail != 0 ]; then echo "$@: failed"; exit 1; fi; \
+	 echo "$@: green"
+
+# test-shards-list: TEST_GATES and each shard's list, one per line, for the test.
+test-shards-list:
+	@echo 'TEST_GATES $(TEST_GATES)'
+	@$(foreach n,$(TEST_SHARDS),echo 'TEST_SHARD_$(n) $(TEST_SHARD_$(n))';)
+
 test-tools:
 	$(call require-tools,gcc gcovr python3)
 
@@ -227,4 +256,5 @@ deps-check-tools:
 
 .PHONY: build build-tools test test-tools integration-test integration-test-host integration-test-tools \
         security security-tools go-vet go-mod-verify go-gosec go-govulncheck go-golangci \
-        secrets-scan trivy-image xkms-security deps-check xkms-deps-check deps-check-tools scripts-test
+        secrets-scan trivy-image xkms-security deps-check xkms-deps-check deps-check-tools scripts-test \
+        test-shards-list

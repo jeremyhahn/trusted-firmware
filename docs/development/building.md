@@ -47,6 +47,15 @@ wired as the fleet template wires them:
 | `make security` | `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-govulncheck`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan` |
 | `make deps-check` | `scripts/deps-check.py`: every pin in `scripts/tool-pins.sh` and every Go require, `xkms/` included, against its latest release |
 
+CI runs `make test` as three Unit jobs, `unit-shard-1` to `unit-shard-3`, each
+`make test-shard-N` over one shard of its gates, balanced by duration
+(`TEST_SHARD_N` in `mk/stages.mk`): the host and boot suites with the board
+sweep; `coverage` with the vectors, the Go coverage floors and `scripts-test`;
+and `test-asan`, the longest, alone. A shard runs every gate in it even after
+one fails, prints one `PASS` or `FAIL` line per gate with its seconds, and fails
+if any gate did. `scripts/test_unit_shards.py` holds each gate to exactly one
+shard and each shard to its job, and the CI Gate requires all three.
+
 The two coverage floors in `make test` measure unit tests alone (#163). No
 simulator is built or started for them. `sdk-coverage` compiles `sdk/go`
 without the `tfwsim` tag. `xkms-coverage` tests every `xkms/` package except
@@ -76,8 +85,8 @@ in the module cache, elsewhere it needs the forge credentials.
 
 CI (`.github/workflows/ci.yml`, the fleet template) runs the Go jobs (lint,
 security, build, test, modules, cross-arch) on the runner; in the
-devcontainer, three image jobs that start at once, `image-toolchain` (build,
-test), `image-security` (security, deps-check, trivy image) and `image-esp32`
+devcontainer, three image jobs that start at once, `image-toolchain` (build;
+test runs in the three Unit shards above), `image-security` (security, deps-check, trivy image) and `image-esp32`
 (ESP32 build and QEMU test); and `integration` (full tier: push, dispatch or the `ci:full`
 label, which takes effect on the next push, update-branch or
 workflow_dispatch) under compose. `CI Gate` is the one required check.

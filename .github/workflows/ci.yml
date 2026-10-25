@@ -749,16 +749,39 @@ jobs:
   # image job trims), and none starts a compose stack: in-toolchain-image.sh
   # removes its own stage container. Each budget: the image, ~10 min for a
   # pull (seconds for a hit), plus the stage as run 245908 timed it.
-  unit:
-    # CUSTOMIZE (trusted-firmware): the test stage alone, the longest of the
-    # PR tier's stages, so it no longer waits on the others.
-    name: Unit [make test]
+  # CUSTOMIZE (trusted-firmware): the test stage, the longest of the PR tier's
+  # stages, alone so it no longer waits on the others, and in three jobs, one
+  # per shard of it (mk/stages.mk TEST_SHARD_N), balanced by the gates'
+  # durations, so its nine gates no longer run one after another in one job.
+  # Each job runs `make test-shard-N`: every gate in its shard even after one
+  # fails (make -k), one PASS or FAIL line each; the three together run every
+  # gate of `make test` once (scripts/test_unit_shards.py holds the shard
+  # lists to TEST_GATES and these jobs to the shards).
+  #
+  # Each timeout-minutes is about twice the shard's minutes with the runner's
+  # CI slice at its quota, read from the gates' log timestamps on 2026-10-25
+  # (green run 65191; at quota, run 65330), with 4.5 min of setup a job green
+  # and 7 at quota.
+  #
+  # The make test step, in all three: make coverage runs the whole unit suite
+  # with -race (make test's flags), the PR tier's unit test and race checks in
+  # one run (v1.23), and fails when total coverage is below COVERAGE_THRESHOLD
+  # (testing-guidelines.md), so the suite runs once. Tags matter here too:
+  # without them tag-gated packages are neither tested nor counted. The
+  # integration stage is its own job below. CUSTOMIZE (trusted-firmware): this
+  # repo's `make coverage` is the C firmware's floor alone; `make test`
+  # (mk/stages.mk TEST_GATES) runs it with the host C suites, the boot suites,
+  # the board sweep, test-asan (ASan and UBSan over the host and boot suites),
+  # verify-vectors, xkms-coverage, sdk-coverage (sdk/go's unit tests alone,
+  # floor 90; the cross-implementation suite is the sdk-race leg's) and
+  # scripts-test, so it is the test stage.
+  unit-shard-1:
+    name: Unit [make test-shard-1]
     needs: image
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    # CUSTOMIZE: make test took 63 to 68 min on 2026-10-25 with the runner's CI
-    # slice at its quota (the unit suite three times, plain, under the
-    # sanitizers and for coverage). 10 + 68, plus margin for a slice at quota.
+    # CUSTOMIZE: host-test, boot-test, board-sweep: 20 min green, 27.5 at quota.
+    # Kept at the 110 that #248 set for the unsharded job (the larger value).
     timeout-minutes: 110
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -792,21 +815,111 @@ jobs:
           rm -f "$RUNNER_TEMP/gomodauth.env"
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
-      # The test stage (m601 (c)): make coverage runs the whole unit suite with
-      # -race (make test's flags), the PR tier's unit test and race checks in
-      # one run (v1.23), and fails when total coverage is below
-      # COVERAGE_THRESHOLD (testing-guidelines.md), so the suite runs once.
-      # Tags matter here too: without them tag-gated packages are neither
-      # tested nor counted. The integration stage is its own job below.
-      - name: make test (unit suites, sanitizers, coverage floors) # CUSTOMIZE: below
-        # CUSTOMIZE (trusted-firmware): this repo's `make coverage` is the C
-        # firmware's floor alone; `make test` (mk/stages.mk TEST_GATES) runs it
-        # with the host C suites, the boot suites, the board sweep, test-asan
-        # (ASan and UBSan over the host and boot suites), verify-vectors,
-        # xkms-coverage, sdk-coverage (sdk/go's unit tests alone, floor 90; the
-        # cross-implementation suite is the sdk-race leg's) and scripts-test, so
-        # it is the test stage.
-        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test GO_BUILD_TAGS='$GO_BUILD_TAGS'"
+      # The test stage (m601 (c)), shard 1: see above the job.
+      - name: make test-shard-1 (host and boot suites, board sweep) # CUSTOMIZE
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-1 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
+
+  unit-shard-2:
+    name: Unit [make test-shard-2]
+    needs: image
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE: coverage, verify-vectors, xkms-coverage, sdk-coverage,
+    # scripts-test: 21.5 min green, about 30 at quota (the last four were not
+    # reached at quota; scaled as the others were, by about 1.35).
+    timeout-minutes: 60
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the toolchain image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
+
+      # The test stage (m601 (c)), shard 2: see above unit-shard-1.
+      - name: make test-shard-2 (coverage floors, wire vectors, scripts) # CUSTOMIZE
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-2 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
+
+  unit-shard-3:
+    name: Unit [make test-shard-3]
+    needs: image
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE: test-asan, the long pole, alone: 30.5 min green; at quota it
+    # had run more than 36 min, unfinished, when the 75-minute job was killed,
+    # so about 47 (36 scaled by about 1.3, 7 of setup).
+    timeout-minutes: 95
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the toolchain image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-toolchain MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
+
+      # The test stage (m601 (c)), shard 3: see above unit-shard-1.
+      - name: make test-shard-3 (sanitizers) # CUSTOMIZE
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-3 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
       - name: Tear down
         if: always()
@@ -1242,7 +1355,7 @@ jobs:
     if: always()
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [changes, image, unit, sdk-race, security, esp32, integration, soak, arch-gates]
+    needs: [changes, image, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32, integration, soak, arch-gates]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -1282,7 +1395,9 @@ jobs:
           # gates alone (v1.24), and any other PR fails if the leg skips.
           check changes     "${{ needs.changes.result }}" pr
           check image       "${{ needs.image.result }}" pr
-          check unit        "${{ needs.unit.result }}" docs
+          check unit-shard-1 "${{ needs.unit-shard-1.result }}" docs
+          check unit-shard-2 "${{ needs.unit-shard-2.result }}" docs
+          check unit-shard-3 "${{ needs.unit-shard-3.result }}" docs
           check sdk-race    "${{ needs.sdk-race.result }}" docs
           check security    "${{ needs.security.result }}" docs
           check esp32       "${{ needs.esp32.result }}" docs

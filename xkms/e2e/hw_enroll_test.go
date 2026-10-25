@@ -37,6 +37,7 @@ import (
 
 	deviceattest01 "github.com/jeremyhahn/go-xkms/pkg/acme/challenges/device-attest-01"
 	"github.com/jeremyhahn/go-xkms/pkg/acme/client"
+	"github.com/jeremyhahn/go-xkms/pkg/attestation/dice"
 )
 
 // The hardware enrollment run (#7): one device-attest-01 enrollment, through
@@ -210,7 +211,7 @@ func newRunEnrollment(t *testing.T, target enrollTarget, identity string) *enrol
 		}
 	}
 
-	local := newDiceEnrollment(t, provisioningRecord(t, identity, target.deviceID(t)))
+	local := newDiceEnrollment(t, provisioningRecord(t, identity, target.deviceID(t)), dice.OperationalFlags{})
 	return &enrollment{
 		client: local.client,
 		verdict: func(t *testing.T) string {
@@ -249,7 +250,7 @@ type runRecord struct {
 // TestDeviceAttestDICEEnrollsTheRealFirmware and checks what it was issued.
 func enrollOnce(t *testing.T, target enrollTarget) *runRecord {
 	t.Helper()
-	element := newDiceElementOn(t, target.open(t))
+	element := newDiceElementOn(t, target.open(t), dice.OperationalFlags{})
 	acme := newRunEnrollment(t, target, element.identity)
 
 	cert, err := deviceAttest(acme.client, element)

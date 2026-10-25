@@ -11,7 +11,7 @@
  * The emit sink: one pass hashes, the other windows, and a document is
  * described once for both.
  *
- * A signed document here is 365 to 473 bytes and an element-backed 328P image
+ * A signed document here is 365 to 490 bytes and an element-backed 328P image
  * has 239 bytes of its RAM budget left, so none is ever held whole. The bytes
  * are generated afresh for every window -- once to be signed, once per page to
  * be sent -- which costs time on a device that is idle between frames anyway,

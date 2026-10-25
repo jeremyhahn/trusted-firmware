@@ -281,7 +281,7 @@
  * integrity protects UCCS contents". So the answer to a challenge is a whole
  * X.509 certificate, minted on demand and signed by the DeviceID key.
  *
- * It is 471 to 473 bytes -- the spread is the DER encoding of the ECDSA
+ * It is 488 to 490 bytes -- the spread is the DER encoding of the ECDSA
  * signature, whose two INTEGERs vary between 32 and 33 bytes each -- which is
  * seven times a frame payload and longer than a byte can count. So it is paged
  * like the evidence, with a TWO-byte total:

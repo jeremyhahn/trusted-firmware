@@ -127,8 +127,8 @@ func TestAttestRefusesTheWrongNonceWidth(t *testing.T) {
 }
 
 func TestAttestCertPagesTheCertificate(t *testing.T) {
-	// 472 bytes is what the firmware reports for a real alias certificate.
-	want := make([]byte, 472)
+	// 489 bytes is what the firmware reports for a real alias certificate.
+	want := make([]byte, 489)
 	for i := range want {
 		want[i] = byte(i * 3)
 	}
@@ -137,8 +137,8 @@ func TestAttestCertPagesTheCertificate(t *testing.T) {
 	got, err := New(link).AttestCert(context.Background(), make([]byte, AliasNonceLen))
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
-	// ceil(472/60) = 8 pages.
-	assert.Len(t, link.requests, 8)
+	// ceil(489/60) = 9 pages.
+	assert.Len(t, link.requests, 9)
 }
 
 func TestAttestCertRefusesTheWrongNonceWidth(t *testing.T) {

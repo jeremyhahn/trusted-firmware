@@ -76,7 +76,7 @@ request 2: ATTEST_CERT(page[1])     return a later page
 response:  [page:1][total:2 little-endian][bytes:0..60]
 ```
 
-`total` is 471–473 (the DER encoding of the ECDSA signature varies by 1–2
+`total` is 488–490 (the DER encoding of the ECDSA signature varies by 1–2
 bytes per INTEGER). Pages are regenerated per request, never cached — a 328P
 does not have the RAM to hold the certificate whole. A page at or past the
 end is `TFW_ERR_RANGE`.
@@ -92,12 +92,12 @@ end is `TFW_ERR_RANGE`.
 | validity | `20200101000000Z` .. `99991231235959Z` — RFC 5280 §4.1.2.5's "no well-defined expiration"; carries no information, no board here has a clock |
 | subject | `CN=tfw Alias` |
 | subjectPublicKeyInfo | `id-ecPublicKey` / `prime256v1`; **the element's DeviceID point** — there is no separate Alias key (`architecture.md`) |
-| extensions | one: `tcg-dice-UCCS-evidence`, **critical** |
+| extensions | two: `DiceTcbInfo` (`2.23.133.5.4.1`), non-critical, `flags` only (#130); then `tcg-dice-UCCS-evidence`, **critical** |
 
-`TBSCertificate` is a 232-byte PROGMEM template (`TBS_PREFIX`) with two holes
+`TBSCertificate` is a 249-byte PROGMEM template (`TBS_PREFIX`) with two holes
 patched in place (serial number, SPKI) plus the 151-byte claims set appended
-as the tail — `_Static_assert(TBS_PREFIX_LEN == 232)`,
-`_Static_assert(TBS_LEN == 383)`.
+as the tail — `_Static_assert(TBS_PREFIX_LEN == 249)`,
+`_Static_assert(TBS_LEN == 400)`.
 
 ### The UCCS claims set — `tcg-dice-UCCS-evidence`, OID `2.23.133.5.4.6`
 

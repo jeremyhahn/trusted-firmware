@@ -158,7 +158,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x60 | `ATTEST` | `TFW_FEATURE_ATTEST` | `[nonce:16]` (mint) or `[page:1]` | `[page:1][total:1][bytes:0..48]` — evidence is 164 bytes total, paged |
 | 0x61 | `AUTH_CHALLENGE` | `TFW_FEATURE_AUTH_SESSION` (element tier only) | `[]` | `[nonce:16]`, single-use |
 | 0x62 | `AUTH_RESPONSE` | `TFW_FEATURE_AUTH_SESSION` (element tier only) | `[sig:64]` — P-256 over `domain\|\|device_serial\|\|nonce` under the operator public key | none; grants a session lasting until reset |
-| 0x63 | `ATTEST_CERT` | `TFW_FEATURE_ALIAS_CERT` | `[nonce:32]` (mint) or `[page:1]` | `[page:1][total:2 LE][bytes:0..60]` — DER cert, 471-473 bytes total, paged |
+| 0x63 | `ATTEST_CERT` | `TFW_FEATURE_ALIAS_CERT` | `[nonce:32]` (mint) or `[page:1]` | `[page:1][total:2 LE][bytes:0..60]` — DER cert, 488-490 bytes total, paged |
 | 0x64 | `ATTEST_CSR` | `TFW_FEATURE_ATTEST_CSR` (ATmega2560 element tier only) | `[b:32]` | `[sig:64]` r‖s — the DeviceID key's P-256 signature over the 365-byte CertificationRequestInfo the device builds and the host rebuilds; nothing paged, nothing kept. Any other length is `TFW_ERR_BAD_ARGC` |
 | 0x68 | `OTA_BEGIN` | **tfw-boot only** | `[total_len:4]` | in the application: `TFW_ERR_UNKNOWN_CMD` |
 | 0x69 | `OTA_DATA` | **tfw-boot only** | `[offset:4]bytes[1..]` | in the application: `TFW_ERR_UNKNOWN_CMD` |

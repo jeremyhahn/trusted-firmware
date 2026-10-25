@@ -44,6 +44,10 @@ tfw_status_t tfw_crypto_sign(const uint8_t digest[TFW_SHA256_LEN],
     return TFW_OK;
 }
 
+/* The certificate's DiceTcbInfo flags follow the tier; this stand-in is an
+ * element, so they stay clear. */
+tfw_crypto_tier_t tfw_crypto_tier(void) { return TFW_CRYPTO_SECURE_ELEMENT; }
+
 /* ATTEST_CERT for NONCE, which ATTEST_CSR for the same nonce needs behind it. */
 static void mint(void)
 {

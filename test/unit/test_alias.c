@@ -39,6 +39,7 @@
 #include "boot_measure.h"
 #include "handoff.h"
 #include "platform_id.h"
+#include "sha256.h"
 
 /* attest.c reports uptime in the evidence frame. Nothing here reads it, but
  * the translation unit is linked for its identity accessors and the HAL under
@@ -96,7 +97,7 @@ static const uint8_t NONCE[]    = TFWV_UCCS_NONCE;
 static const uint8_t UEID[]     = TFWV_UCCS_UEID;
 static const uint8_t FWHASH[]   = TFWV_UCCS_FWHASH;
 static const uint8_t PUBKEY[]   = TFWV_ALIAS_PUBKEY;
-static const uint8_t SIG[]      = TFWV_ALIAS_SIG;
+static const uint8_t SIG[]      = TFWV_ALIAS_CERT_SIG;
 static const uint8_t SIG_PAD[]  = TFWV_ALIAS_SIG_PAD;
 static const uint8_t CERT[]     = TFWV_ALIAS_CERT;
 static const uint8_t CERT_PAD[] = TFWV_ALIAS_CERT_PAD;
@@ -141,6 +142,7 @@ static tfw_alias_parts_t pinned(void)
     p.fw_hash = FWHASH;
     p.pubkey  = PUBKEY;
     p.sig     = SIG;
+    p.tier    = TFW_CRYPTO_SECURE_ELEMENT;
     return p;
 }
 
@@ -342,6 +344,86 @@ static void test_the_emitted_certificate_is_well_formed_der(void)
     TEST_ASSERT_TRUE(der_exact(got, n));
     TEST_ASSERT_TRUE(uccs_evidence(got, n, &ev, &evlen));
     TEST_ASSERT_TRUE(der_exact(ev, evlen));
+}
+
+/*
+ * The DiceTcbInfo flags follow the root the subject key and its signature come
+ * from (TCG DICE Attestation Architecture r23, OperationalFlags). An element
+ * leaves them clear, 87 01 00; a software root sets notSecure, bit 1, which as
+ * a DER named-bit BIT STRING is 87 02 06 40. That is one byte more, so the
+ * DiceTcbInfo, its OCTET STRING, its Extension, the SEQUENCE OF, [3], the TBS
+ * and the Certificate each grow by one. Every byte either side is pinned.
+ */
+#define CERT_OFF_TBS 4u
+#define CERT_OFF_EXT (CERT_OFF_TBS + 203u)
+
+static const uint8_t TBS_HDR_ELEMENT[] = { 0x30, 0x82, 0x01, 0x8C };
+static const uint8_t TBS_HDR_SOFT[]    = { 0x30, 0x82, 0x01, 0x8D };
+
+static const uint8_t EXT_ELEMENT[] = {
+    0xA3, 0x81, 0xC2, 0x30, 0x81, 0xBF,
+    0x30, 0x0F, 0x06, 0x06, 0x67, 0x81, 0x05, 0x05, 0x04, 0x01, 0x04, 0x05,
+    0x30, 0x03, 0x87, 0x01, 0x00
+};
+static const uint8_t EXT_SOFT[] = {
+    0xA3, 0x81, 0xC3, 0x30, 0x81, 0xC0,
+    0x30, 0x10, 0x06, 0x06, 0x67, 0x81, 0x05, 0x05, 0x04, 0x01, 0x04, 0x06,
+    0x30, 0x04, 0x87, 0x02, 0x06, 0x40
+};
+
+static void test_an_element_rooted_certificate_leaves_the_flags_clear(void)
+{
+    tfw_alias_parts_t p = pinned();
+    uint8_t          got[CERT_MAX];
+    uint16_t         n = collect(&p, got);
+
+    TEST_ASSERT_EQUAL_UINT16(TFWV_ALIAS_CERT_LEN, n);
+    TEST_ASSERT_EQUAL_HEX8(0x30, got[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x82, got[1]);
+    TEST_ASSERT_EQUAL_UINT16(n - 4u, (uint16_t)((got[2] << 8) | got[3]));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(TBS_HDR_ELEMENT, &got[CERT_OFF_TBS],
+                                 sizeof TBS_HDR_ELEMENT);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(EXT_ELEMENT, &got[CERT_OFF_EXT],
+                                 sizeof EXT_ELEMENT);
+}
+
+static void test_a_software_rooted_certificate_sets_not_secure(void)
+{
+    tfw_alias_parts_t p = pinned();
+    uint8_t          got[CERT_MAX];
+    uint8_t          d[TFW_SHA256_LEN], want[TFW_SHA256_LEN];
+    const uint8_t   *ev;
+    uint16_t         evlen;
+    uint16_t         n;
+
+    p.tier = TFW_CRYPTO_SOFTWARE;
+    n = collect(&p, got);
+
+    TEST_ASSERT_EQUAL_UINT16(TFWV_ALIAS_CERT_LEN + 1u, n);
+    TEST_ASSERT_EQUAL_HEX8(0x30, got[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x82, got[1]);
+    TEST_ASSERT_EQUAL_UINT16(n - 4u, (uint16_t)((got[2] << 8) | got[3]));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(TBS_HDR_SOFT, &got[CERT_OFF_TBS],
+                                 sizeof TBS_HDR_SOFT);
+    /* Serial, algorithm, names, validity and key are the element's bytes. */
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&CERT[CERT_OFF_TBS + 4u],
+                                 &got[CERT_OFF_TBS + 4u],
+                                 CERT_OFF_EXT - CERT_OFF_TBS - 4u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(EXT_SOFT, &got[CERT_OFF_EXT], sizeof EXT_SOFT);
+    /* The evidence, the signatureAlgorithm and the signature, one byte on. */
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&CERT[CERT_OFF_EXT + sizeof EXT_ELEMENT],
+                                 &got[CERT_OFF_EXT + sizeof EXT_SOFT],
+                                 TFWV_ALIAS_CERT_LEN - CERT_OFF_EXT
+                                     - sizeof EXT_ELEMENT);
+
+    TEST_ASSERT_TRUE(der_exact(got, n));
+    TEST_ASSERT_TRUE(uccs_evidence(got, n, &ev, &evlen));
+    TEST_ASSERT_TRUE(der_exact(ev, evlen));
+
+    /* The key signs the TBS the certificate carries, not the element's. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, d));
+    tfw_sha256(&got[CERT_OFF_TBS], 4u + 0x018Du, want);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, d, TFW_SHA256_LEN);
 }
 
 /* The easy break: the TBSCertificate's length moved by one. Every X.509 parser
@@ -697,6 +779,7 @@ static void test_the_signature_is_over_the_tbs_the_device_built(void)
     p.fw_hash = tfw_attest_fw_hash();
     p.pubkey  = tfw_model_deviceid_public();
     p.sig     = expect_sig;
+    p.tier    = tfw_crypto_tier();
     TEST_ASSERT_NOT_NULL(p.pubkey);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
 
@@ -746,6 +829,7 @@ static void test_a_running_applications_evidence_is_the_claim_every_page_carries
     p.fw_hash = EV;
     p.pubkey  = tfw_model_deviceid_public();
     p.sig     = sig_;
+    p.tier    = tfw_crypto_tier();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
     TEST_ASSERT_TRUE(tfw_model_p256_sign(tfw_model_deviceid_private(), digest, sig_));
     TEST_ASSERT_EQUAL_UINT16(total, collect(&p, want));
@@ -776,6 +860,7 @@ static void test_an_application_that_supplies_none_leaves_the_firmware_measureme
     p.fw_hash = tfw_attest_fw_hash();
     p.pubkey  = tfw_model_deviceid_public();
     p.sig     = sig_;
+    p.tier    = tfw_crypto_tier();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_alias_tbs_digest(&p, digest));
     TEST_ASSERT_TRUE(tfw_model_p256_sign(tfw_model_deviceid_private(), digest, sig_));
     TEST_ASSERT_EQUAL_UINT16(total, collect(&p, want));
@@ -897,6 +982,8 @@ int main(void)
     RUN_TEST(test_the_tbs_digest_is_the_value_the_vector_pins);
     RUN_TEST(test_a_signature_needing_der_padding_changes_the_length);
     RUN_TEST(test_the_emitted_certificate_is_well_formed_der);
+    RUN_TEST(test_an_element_rooted_certificate_leaves_the_flags_clear);
+    RUN_TEST(test_a_software_rooted_certificate_sets_not_secure);
     RUN_TEST(test_the_structural_check_rejects_a_moved_outer_length);
     RUN_TEST(test_the_structural_check_rejects_evidence_broken_inside_the_extension);
     RUN_TEST(test_the_extension_carries_the_claims_set_verbatim);

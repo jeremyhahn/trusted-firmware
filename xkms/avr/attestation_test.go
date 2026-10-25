@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/hex"
 	"encoding/pem"
 	"log/slog"
@@ -178,7 +179,7 @@ func TestCheckAliasCertificate_UnknownCryptoTierFailsSafeAndLogs(t *testing.T) {
 }
 
 // The device's own certificate must page across the wire and reassemble byte
-// for byte: 472 bytes is eight pages of 60, and the last one is short.
+// for byte: 489 bytes is nine pages of 60, and the last one is short.
 func TestAttestKeyReassemblesAPagedCertificate(t *testing.T) {
 	der, err := hex.DecodeString(vecAliasCertHex)
 	require.NoError(t, err)
@@ -191,7 +192,7 @@ func TestAttestKeyReassemblesAPagedCertificate(t *testing.T) {
 	result, err := b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
 	require.NoError(t, err)
 
-	assert.Len(t, result.(*Attestation).CertificateDER, 472)
+	assert.Len(t, result.(*Attestation).CertificateDER, 489)
 	assert.Equal(t, der, result.(*Attestation).CertificateDER, "the pages reassemble byte for byte")
 	attestRequests := 0
 	for _, req := range link.requests {
@@ -199,7 +200,7 @@ func TestAttestKeyReassemblesAPagedCertificate(t *testing.T) {
 			attestRequests++
 		}
 	}
-	assert.Equal(t, 8, attestRequests, "472 bytes is eight pages of sixty")
+	assert.Equal(t, 9, attestRequests, "489 bytes is nine pages of sixty")
 }
 
 // ------------------------------------------------------------------ the nonce
@@ -318,6 +319,64 @@ func TestAttestKeyAnchorsAgainstConfiguredRoots(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, result.(*Attestation).Anchored)
+}
+
+// softRootTcbInfo is the DiceTcbInfo a software root emits, as the bytes
+// src/caps/alias.c writes: a SEQUENCE holding flags [7] with notSecure set
+// (87 02 06 40). A literal on purpose, like the wire vectors.
+var softRootTcbInfo = pkix.Extension{
+	Id:    asn1.ObjectIdentifier{2, 23, 133, 5, 4, 1},
+	Value: []byte{0x30, 0x04, 0x87, 0x02, 0x06, 0x40},
+}
+
+// softRootLink is a device whose CAPS names the software tier and which
+// answers ATTEST_CERT with an alias certificate reporting notSecure.
+func softRootLink(t *testing.T, device *aliasDevice, nonce []byte) *fakeLink {
+	t.Helper()
+	ext, err := dice.CreateUccsEvidenceExtension(&dice.ClaimsSet{Nonce: nonce})
+	require.NoError(t, err)
+	return newFakeLink().answer(tfw.CmdCaps, capsPayload(
+		tfw.CryptoSoftware,
+		tfw.FeatureAttest|tfw.FeatureAliasCert,
+		tfw.AlgECDSAP256SHA256,
+	)).answerAttestCert(device.sign(t, []pkix.Extension{ext, softRootTcbInfo}))
+}
+
+// Fleet policy is the relying party's, so the adapter decides nothing about a
+// software root: with no permitted operational states configured, go-xkms
+// refuses the notSecure the device truthfully reports.
+func TestAttestKeyRefusesASoftRootByDefault(t *testing.T) {
+	device := newAliasDevice(t)
+	nonce := make([]byte, tfw.AliasNonceLen)
+	nonce[0] = 0x51
+
+	b := newTestBackend(t, softRootLink(t, device, nonce))
+
+	_, err := b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
+
+	assert.ErrorIs(t, err, dice.ErrOperationalStateNotPermitted)
+}
+
+// A caller that permits notSecure has decided to accept a software root, and
+// the adapter passes that decision to go-xkms unchanged.
+func TestAttestKeyVerifiesASoftRootTheCallerPermits(t *testing.T) {
+	device := newAliasDevice(t)
+	nonce := make([]byte, tfw.AliasNonceLen)
+	nonce[0] = 0x52
+
+	cfg := testConfig()
+	cfg.Attestation = &AttestationConfig{PermittedFlags: dice.OperationalFlags{NotSecure: true}}
+	b, err := NewBackend(context.Background(), cfg, newTestDevice(softRootLink(t, device, nonce)))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, b.Close()) })
+
+	result, err := b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
+	require.NoError(t, err)
+
+	att := result.(*Attestation)
+	assert.Equal(t, nonce, att.Claims.Nonce)
+	assert.Equal(t, tfw.CryptoSoftware, att.CryptoTier)
+	assert.Equal(t, types.AttestLevelSoftware, att.AttestLevel)
 }
 
 // The alias chain leaves the adapter as the x5c of a device-attest-01 "dice"
@@ -592,12 +651,14 @@ func TestCapabilitiesNowClaimAttestation(t *testing.T) {
 // ------------------------------------------------------------------- test device
 
 // aliasDevice mints alias certificates the way the firmware does: a DeviceID
-// key that signs, and a leaf carrying exactly one extension --
-// tcg-dice-UCCS-evidence, critical. It emits NO DiceTcbInfo and NO
-// tcg-dice-Ueid, because the AVR profile does not: the ueid and the firmware
-// measurement travel as CWT claims inside the evidence extension, since the
-// certificate is assembled on an 8-bit part from a 230-byte template and every
-// extra extension costs flash it does not have.
+// key that signs, and a leaf carrying tcg-dice-UCCS-evidence, critical. The
+// firmware's leaf also carries a non-critical DiceTcbInfo with flags only
+// (#130, the 489-byte vector); this helper leaves it out, because r23 section
+// 6.1.4 lets UCCS stand in place of DiceTcbInfo and dice.Verify accepts
+// either. Neither emits tcg-dice-Ueid: the ueid and the firmware measurement
+// travel as CWT claims inside the evidence extension, since the certificate
+// is assembled on an 8-bit part from a 249-byte template and every extra
+// extension costs flash it does not have.
 type aliasDevice struct {
 	deviceID     *ecdsa.PrivateKey
 	deviceIDCert *x509.Certificate
@@ -809,9 +870,13 @@ func TestDiceVerifyAcceptsTheProfileTheDeviceEmits(t *testing.T) {
 	evidence, err := dice.Verify([]*x509.Certificate{leaf}, &dice.VerifyOptions{
 		ExpectedNonce: nonce,
 	})
-	require.NoError(t, err, "a UCCS-only leaf is conforming and must verify")
+	require.NoError(t, err, "the device's leaf is conforming and must verify")
 	require.NotNil(t, evidence)
-	assert.Nil(t, evidence.TcbInfo, "the AVR profile carries no DiceTcbInfo")
+	// Since #130 the leaf carries DiceTcbInfo with flags only: the element root
+	// sets no bit, and vendorInfo is absent until go-xkms's profile defines it.
+	require.NotNil(t, evidence.TcbInfo, "the AVR profile carries DiceTcbInfo")
+	assert.NotNil(t, evidence.TcbInfo.Flags, "the root is stated in flags")
+	assert.Nil(t, evidence.TcbInfo.VendorInfo, "no vendorInfo until go-xkms defines it")
 	require.NotNil(t, evidence.Claims)
 	assert.Equal(t, nonce, evidence.Claims.Nonce)
 }

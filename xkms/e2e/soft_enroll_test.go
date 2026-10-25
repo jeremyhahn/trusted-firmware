@@ -178,7 +178,7 @@ func startSoftEthernet(t *testing.T) *tfw.Device {
 // key crosses into the registry.
 func softFactoryDeviceID(t *testing.T) *ecdsa.PublicKey {
 	t.Helper()
-	att, err := newDiceElementOn(t, startSoftSerial(t)).attest(deviceattest01.DICENonce("factory"))
+	att, err := newDiceElementOn(t, startSoftSerial(t), softRootPermitted).attest(deviceattest01.DICENonce("factory"))
 	require.NoError(t, err)
 	pub, ok := att.Certificate.PublicKey.(*ecdsa.PublicKey)
 	require.True(t, ok, "the soft root certified a %T", att.Certificate.PublicKey)
@@ -186,6 +186,10 @@ func softFactoryDeviceID(t *testing.T) *ecdsa.PublicKey {
 		"the soft root's alias certificate does not verify under its DeviceID")
 	return pub
 }
+
+// softRootPermitted is the relying party's policy that accepts a software
+// root: the device reports notSecure truthfully, and the default refuses it.
+var softRootPermitted = dice.OperationalFlags{NotSecure: true}
 
 func TestSoftRootEnrollsThroughDeviceAttest01(t *testing.T) {
 	deviceID := softFactoryDeviceID(t)
@@ -202,8 +206,8 @@ func TestSoftRootEnrollsThroughDeviceAttest01(t *testing.T) {
 	} {
 		t.Run(link.name, func(t *testing.T) {
 			device := link.start(t)
-			element := newDiceElementOn(t, device)
-			local := newDiceEnrollment(t, provisioningRecord(t, element.identity, deviceID))
+			element := newDiceElementOn(t, device, softRootPermitted)
+			local := newDiceEnrollment(t, provisioningRecord(t, element.identity, deviceID), softRootPermitted)
 
 			// (a) The enrolment completes and the production verifier accepted it.
 			cert, err := deviceAttest(local.client, element)
@@ -241,9 +245,9 @@ func TestSoftRootEnrollsThroughDeviceAttest01(t *testing.T) {
 			require.Len(t, ev, tfw.EvidenceLen)
 			assert.EqualValues(t, evidenceAlgES256, ev[evidenceAlgOffset], "the evidence AlgID")
 
-			// The alias certificate carries no DiceTcbInfo, so the chain go-xkms
-			// verified declares no root type: the software tier is stated in CAPS
-			// and in nothing the issued certificate or the verdict records.
+			// The alias certificate's DiceTcbInfo sets notSecure, and the chain
+			// enrolled only because this relying party permits it; it declares
+			// no root type, so the verdict records none.
 			assert.Equal(t, dice.RootTypeUnreported, verified.RootType,
 				"the chain now declares a root type: update docs/dice-attestation/engineering.md")
 		})

@@ -28,7 +28,7 @@
  * WHY A TEMPLATE. Every field of the TBS except three is the same in every
  * certificate this firmware will ever issue -- the algorithm identifiers, the
  * names, the validity, the extension's OID and every DER length around it. A
- * template is 232 bytes of flash and a table of steps for src/caps/tmpl.c to
+ * template is 249 bytes of flash and a table of steps for src/caps/tmpl.c to
  * walk; a general DER writer is a length stack, a two-pass size computation and
  * a class of bug where the lengths and the contents disagree. The builder is
  * already the largest thing this firmware gained; a general writer is not a
@@ -37,7 +37,7 @@
  * THE THREE HOLES are the serial number, the subject public key and the claims
  * set. The first two sit inside the prefix; the claims set is the last thing in
  * the TBS, so it is appended rather than patched, which is why the template
- * stops at 232 bytes and carries no room for it.
+ * stops at 249 bytes and carries no room for it.
  *
  * WHAT THE SPEC ASKS FOR THAT THIS CANNOT GIVE. Section 6.1.4 says the issuer
  * MUST ensure that non-constant elements of the extension contributed to the
@@ -81,8 +81,8 @@
  * not carried all the way through.
  */
 static const uint8_t TBS_PREFIX[] TFW_PROGMEM = {
-    /* TBSCertificate SEQUENCE, 0x017B = 379 bytes of content */
-    0x30, 0x82, 0x01, 0x7B,
+    /* TBSCertificate SEQUENCE, 0x018C = 396 bytes of content */
+    0x30, 0x82, 0x01, 0x8C,
     /* version [0] EXPLICIT INTEGER 2 -- v3, which extensions require */
     0xA0, 0x03, 0x02, 0x01, 0x02,
     /* serialNumber INTEGER, 8 bytes. THE HOLE: see SERIAL_LEN for why the
@@ -121,7 +121,22 @@ static const uint8_t TBS_PREFIX[] TFW_PROGMEM = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    /* extensions [3] EXPLICIT SEQUENCE OF Extension, holding exactly one:
+    /* extensions [3] EXPLICIT SEQUENCE OF Extension, holding exactly two.
+     *
+     * The first is the TCG DICE Attestation Architecture r23 section 6.1.1
+     * DiceTcbInfo, non-critical, carrying only flags:
+     *   06 06 67 81 05 05 04 01   tcg-dice-TcbInfo, 2.23.133.5.4.1
+     *   04 05                     extnValue OCTET STRING, wrapping
+     *   30 03                       DiceTcbInfo ::= SEQUENCE {
+     *   87 01 00                      flags [7] IMPLICIT OperationalFlags }
+     * flags is a BIT STRING with no bit set: this template is the element
+     * root's, which does not set notSecure (bit 1). A software root sets it --
+     * 87 02 06 40 -- and SOFT_PREFIX below carries that and the six lengths it
+     * lengthens; the auto provider without an element mints one. There is
+     * no vendorInfo: its content is go-xkms's to define in its DICE profile
+     * (owner ruling 76, CA m502), so the device writes none until it does.
+     *
+     * The second is the evidence:
      *   06 06 67 81 05 05 04 06   tcg-dice-UCCS-evidence, 2.23.133.5.4.6
      *   01 01 FF                  critical
      *   04 81 9D ...              extnValue OCTET STRING, wrapping
@@ -132,7 +147,10 @@ static const uint8_t TBS_PREFIX[] TFW_PROGMEM = {
      * and must not be mistaken for one: a relying party that cannot read the
      * evidence has no business accepting the key it certifies, and a
      * non-critical extension is one a parser may silently drop. */
-    0xA3, 0x81, 0xB1, 0x30, 0x81, 0xAE, 0x30, 0x81, 0xAB, 0x06, 0x06, 0x67,
+    0xA3, 0x81, 0xC2, 0x30, 0x81, 0xBF,
+    0x30, 0x0F, 0x06, 0x06, 0x67, 0x81, 0x05, 0x05, 0x04, 0x01, 0x04, 0x05,
+    0x30, 0x03, 0x87, 0x01, 0x00,
+    0x30, 0x81, 0xAB, 0x06, 0x06, 0x67,
     0x81, 0x05, 0x05, 0x04, 0x06, 0x01, 0x01, 0xFF, 0x04, 0x81, 0x9D, 0x30,
     0x81, 0x9A, 0x04, 0x81, 0x97
 };
@@ -143,12 +161,12 @@ static const uint8_t TBS_PREFIX[] TFW_PROGMEM = {
 /* The claims set is the tail of the TBS, not a patch into it. If that ever
  * stopped being true the template would need room for it and this file would
  * need a third hole, so it is asserted rather than remembered. */
-_Static_assert(TBS_PREFIX_LEN == 232u, "the TBS template prefix changed size");
-_Static_assert(TBS_LEN == 383u, "the TBSCertificate changed size");
+_Static_assert(TBS_PREFIX_LEN == 249u, "the TBS template prefix changed size");
+_Static_assert(TBS_LEN == 400u, "the TBSCertificate changed size");
 /* The extensions field's constant part: the [3] wrapper, the SEQUENCE OF, the
- * Extension, its OID, the critical flag and the three nested length headers
- * down to the claims set. */
-#define TBS_EXT_HEADER_LEN 29u
+ * whole DiceTcbInfo Extension, then the evidence Extension, its OID, the
+ * critical flag and the three nested length headers down to the claims set. */
+#define TBS_EXT_HEADER_LEN 46u
 _Static_assert(TBS_OFF_SPKI + TFW_ALIAS_POINT_LEN
                    == TBS_PREFIX_LEN - TBS_EXT_HEADER_LEN,
                "the public key hole no longer ends where the extensions begin");
@@ -203,6 +221,56 @@ static const tfw_tmpl_step_t STEPS[] TFW_PROGMEM = {
 
 #define CERT_STEPS ((uint8_t)(sizeof STEPS / sizeof STEPS[0]))
 #define TBS_STEPS  ((uint8_t)(CERT_STEPS - 1u))
+
+/*
+ * A software root's certificate: SOFT_PREFIX, read as the own source, beside
+ * TBS_PREFIX.
+ *
+ * TCG DICE Attestation Architecture r23 has a software root set notSecure, bit
+ * 1 of OperationalFlags, and as a DER named-bit BIT STRING that is 87 02 06 40:
+ * one byte more than the element's 87 01 00. So the DiceTcbInfo, its OCTET
+ * STRING, its Extension, the SEQUENCE OF, [3] and the TBS each grow by one, and
+ * the certificate with them. Those are the only bytes that differ: the TBS
+ * header first, then the extensions down to the end of the DiceTcbInfo
+ * Extension. Everything else is TBS_PREFIX's, so the two cannot drift apart.
+ */
+static const uint8_t SOFT_PREFIX[] TFW_PROGMEM = {
+    0x30, 0x82, 0x01, 0x8D,
+    0xA3, 0x81, 0xC3, 0x30, 0x81, 0xC0,
+    0x30, 0x10, 0x06, 0x06, 0x67, 0x81, 0x05, 0x05, 0x04, 0x01, 0x04, 0x06,
+    0x30, 0x04, 0x87, 0x02, 0x06, 0x40
+};
+
+#define SOFT_TBS_HDR_LEN 4u   /* 30 82 hi lo */
+#define SOFT_TCB_EXT_LEN 24u  /* [3], SEQUENCE OF, the DiceTcbInfo Extension */
+#define SOFT_TBS_LEN     ((uint16_t)(TBS_LEN + 1u))
+_Static_assert(sizeof SOFT_PREFIX == SOFT_TBS_HDR_LEN + SOFT_TCB_EXT_LEN,
+               "the software root's template changed size");
+_Static_assert(SOFT_TBS_LEN == 401u, "the software root's TBS changed size");
+/* The element's counterpart of SOFT_TCB_EXT_LEN is the 23 bytes between the
+ * key and the evidence Extension; the software root's replaces exactly those. */
+_Static_assert(TBS_OFF_SPKI + TFW_ALIAS_POINT_LEN + SOFT_TCB_EXT_LEN - 1u
+                   == TFW_ALIAS_TBS_OFF_UCCS_EXT,
+               "the DiceTcbInfo Extension no longer ends at the evidence");
+
+#define S_OWN(k)  ((uint8_t)((k) | TFW_ALIAS_SRC_OWN))
+
+static const tfw_tmpl_step_t SOFT_STEPS[] TFW_PROGMEM = {
+    { S_OWN(TFW_TMPL_PGM), 0u, SOFT_TBS_HDR_LEN },
+    { S_TBS(TFW_TMPL_PGM), SOFT_TBS_HDR_LEN, TBS_OFF_SERIAL - SOFT_TBS_HDR_LEN },
+    { TFW_TMPL_POS | TFW_ALIAS_SRC_NONCE, 0u, 1u },
+    { TFW_TMPL_RAM | TFW_ALIAS_SRC_NONCE, 1u, SERIAL_LEN - 1u },
+    { S_TBS(TFW_TMPL_PGM), TBS_OFF_SIG_ALG, TBS_OFF_SPKI - TBS_OFF_SIG_ALG },
+    { TFW_TMPL_RAM | TFW_ALIAS_SRC_PUBKEY, 0u, TFW_ALIAS_POINT_LEN },
+    { S_OWN(TFW_TMPL_PGM), SOFT_TBS_HDR_LEN, SOFT_TCB_EXT_LEN },
+    { S_TBS(TFW_TMPL_PGM), TFW_ALIAS_TBS_OFF_UCCS_EXT, TFW_ALIAS_TBS_UCCS_EXT_LEN },
+    { TFW_TMPL_RAM | TFW_ALIAS_SRC_UCCS, 0u, TFW_UCCS_LEN },
+    /* Certificate.signatureAlgorithm */
+    { S_TBS(TFW_TMPL_PGM), TBS_OFF_SIG_ALG, SIG_ALG_LEN }
+};
+
+#define SOFT_CERT_STEPS ((uint8_t)(sizeof SOFT_STEPS / sizeof SOFT_STEPS[0]))
+#define SOFT_TBS_STEPS  ((uint8_t)(SOFT_CERT_STEPS - 1u))
 
 tfw_status_t tfw_alias_sources(const tfw_alias_parts_t *p, const uint8_t *own,
                              uint8_t uccs[TFW_UCCS_LEN],
@@ -269,6 +337,13 @@ static void put_int(tfw_emit_t *e, const uint8_t *v)
     }
 }
 
+/* Whether the certificate is SOFT_STEPS's rather than STEPS's. Only the
+ * software root sets notSecure; every other tier leaves the flags clear. */
+static uint8_t soft_root(const tfw_alias_parts_t *p)
+{
+    return (uint8_t)(p->tier == TFW_CRYPTO_SOFTWARE);
+}
+
 static tfw_status_t emit_cert(tfw_emit_t *e, const tfw_alias_parts_t *p)
 {
     /* ECDSA-Sig-Value SEQUENCE content, then the BIT STRING that wraps it with
@@ -278,12 +353,14 @@ static tfw_status_t emit_cert(tfw_emit_t *e, const tfw_alias_parts_t *p)
     uint8_t  sv   = (uint8_t)(4u + int_content_len(p->sig)
                                  + int_content_len(&p->sig[32]));
     uint8_t  bits = (uint8_t)(3u + sv);
-    uint16_t body = (uint16_t)(TBS_LEN + SIG_ALG_LEN + 2u + bits);
+    uint8_t  soft = soft_root(p);
+    uint16_t body = (uint16_t)((soft ? SOFT_TBS_LEN : TBS_LEN)
+                               + SIG_ALG_LEN + 2u + bits);
     uint8_t        uccs[TFW_UCCS_LEN];
     const uint8_t *src[TFW_ALIAS_SRC_COUNT];
     tfw_status_t   st;
 
-    st = tfw_alias_sources(p, NULL, uccs, src);
+    st = tfw_alias_sources(p, soft ? SOFT_PREFIX : NULL, uccs, src);
     if (st != TFW_OK) {
         return st;
     }
@@ -293,7 +370,8 @@ static tfw_status_t emit_cert(tfw_emit_t *e, const tfw_alias_parts_t *p)
     tfw_emit_put(e, (uint8_t)(body >> 8));
     tfw_emit_put(e, (uint8_t)body);
 
-    tfw_tmpl_emit(e, STEPS, CERT_STEPS, src);
+    tfw_tmpl_emit(e, soft ? SOFT_STEPS : STEPS,
+                  soft ? SOFT_CERT_STEPS : CERT_STEPS, src);
 
     tfw_emit_put(e, 0x03u);
     tfw_emit_put(e, bits);
@@ -308,15 +386,17 @@ static tfw_status_t emit_cert(tfw_emit_t *e, const tfw_alias_parts_t *p)
 tfw_status_t tfw_alias_tbs_digest(const tfw_alias_parts_t *p,
                                 uint8_t out[TFW_SHA256_LEN])
 {
+    uint8_t        soft = soft_root(p);
     uint8_t        uccs[TFW_UCCS_LEN];
     const uint8_t *src[TFW_ALIAS_SRC_COUNT];
     tfw_status_t   st;
 
-    st = tfw_alias_sources(p, NULL, uccs, src);
+    st = tfw_alias_sources(p, soft ? SOFT_PREFIX : NULL, uccs, src);
     if (st != TFW_OK) {
         return st;
     }
-    tfw_tmpl_digest(STEPS, TBS_STEPS, src, out);
+    tfw_tmpl_digest(soft ? SOFT_STEPS : STEPS,
+                    soft ? SOFT_TBS_STEPS : TBS_STEPS, src, out);
     return TFW_OK;
 }
 
@@ -395,6 +475,7 @@ static void gather(tfw_alias_parts_t *p)
     p->fw_hash = measurement;
     p->pubkey  = pubkey;
     p->sig     = sig;
+    p->tier    = tfw_crypto_tier();
 }
 
 static tfw_status_t mint(const uint8_t *challenge)

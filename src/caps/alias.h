@@ -26,6 +26,10 @@ typedef struct {
     const uint8_t *fw_hash;  /* TFW_SHA256_LEN, 273's value: tfw_attest_measurement */
     const uint8_t *pubkey;   /* TFW_ALIAS_POINT_LEN, X||Y */
     const uint8_t *sig;      /* TFW_SIG_LEN, raw r||s     */
+    /* The root the subject key and the signature come from: tfw_crypto_tier()
+     * at the mint. TFW_CRYPTO_SOFTWARE sets notSecure in the DiceTcbInfo flags;
+     * every other tier leaves them clear. */
+    tfw_crypto_tier_t tier;
 } tfw_alias_parts_t;
 
 /*
@@ -36,7 +40,8 @@ typedef struct {
  * gathered twice is a value that can be gathered two different ways.
  */
 #define TFW_ALIAS_SRC_TBS    0u  /* the TBS template, flash */
-#define TFW_ALIAS_SRC_OWN    1u  /* another document's own template, flash */
+#define TFW_ALIAS_SRC_OWN    1u  /* another document's own template, or the
+                                  * software root's, flash */
 #define TFW_ALIAS_SRC_NONCE  2u
 #define TFW_ALIAS_SRC_PUBKEY 3u
 #define TFW_ALIAS_SRC_UCCS   4u  /* the encoded claims set, the UEID inside it */
@@ -46,7 +51,7 @@ typedef struct {
  * holes beside them in alias.c, and asserted there against the template. */
 #define TFW_ALIAS_TBS_OFF_SPKI_HDR 112u  /* SubjectPublicKeyInfo up to the point */
 #define TFW_ALIAS_TBS_SPKI_HDR_LEN  27u
-#define TFW_ALIAS_TBS_OFF_UCCS_EXT 209u  /* the evidence Extension up to the claims */
+#define TFW_ALIAS_TBS_OFF_UCCS_EXT 226u  /* the evidence Extension up to the claims */
 #define TFW_ALIAS_TBS_UCCS_EXT_LEN  23u
 
 /*

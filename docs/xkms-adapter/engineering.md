@@ -229,7 +229,7 @@ until the read deadline, as a serial port does, and measures the wait: a
 ## Test vectors
 
 `vectors_test.go` mirrors `trusted-firmware`'s `testdata/uccs_vectors.h`: the
-471-byte alias certificate a real device emits, frozen as a literal, with a real
+489-byte alias certificate a real device emits, frozen as a literal, with a real
 ECDSA signature over its own TBS and a real point on P-256.
 `TestAttestKeyVerifiesTheCertificateARealDeviceEmits` drives it through the
 whole path.

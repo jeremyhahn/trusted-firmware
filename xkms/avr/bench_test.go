@@ -120,7 +120,7 @@ func benchBackend(b *testing.B) *Backend {
 
 // The attestation path against a device that answers instantly. The link is
 // not the measurement -- a real part spends milliseconds per page -- so what
-// this watches is the cost of the checks: parsing 472 bytes of DER, walking
+// this watches is the cost of the checks: parsing 489 bytes of DER, walking
 // the extension, decoding the claims set and comparing the nonce.
 func BenchmarkCheckAliasCertificate(b *testing.B) {
 	der, err := hex.DecodeString(vecAliasCertHex)

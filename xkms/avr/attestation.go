@@ -54,6 +54,13 @@ type AttestationConfig struct {
 	// device does not send them -- it has nowhere to keep them -- so an
 	// operator supplies them here.
 	Intermediates [][]byte `yaml:"intermediates" json:"intermediates"`
+
+	// PermittedFlags are the operational states the verify tolerates, passed
+	// to dice.VerifyOptions.PermittedFlags unchanged. The zero value permits
+	// none, so a software root, which reports notSecure, is refused unless
+	// the caller permits it. Fleet policy belongs to the relying party: this
+	// adapter adds no default and no switch on the crypto tier.
+	PermittedFlags dice.OperationalFlags `yaml:"permitted_flags" json:"permitted_flags"`
 }
 
 // Attestation is what the device answered and what this host made of it.
@@ -235,6 +242,9 @@ func (b *Backend) checkAliasCertificate(der, nonce []byte) (*Attestation, error)
 		// backend whose documentation promises the one algorithm the element
 		// emits.
 		RequireDeviceSignedLeaf: true,
+	}
+	if b.config != nil && b.config.Attestation != nil {
+		opts.PermittedFlags = b.config.Attestation.PermittedFlags
 	}
 	evidence, err := dice.Verify(chain, &opts)
 	if err != nil {

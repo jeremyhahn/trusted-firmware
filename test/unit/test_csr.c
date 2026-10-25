@@ -76,7 +76,7 @@ static const uint8_t NONCE[]  = TFWV_UCCS_NONCE;
 static const uint8_t UEID[]   = TFWV_UCCS_UEID;
 static const uint8_t FWHASH[] = TFWV_UCCS_FWHASH;
 static const uint8_t PUBKEY[] = TFWV_ALIAS_PUBKEY;
-static const uint8_t SIG[]    = TFWV_ALIAS_SIG;
+static const uint8_t SIG[]    = TFWV_ALIAS_CERT_SIG;
 static const uint8_t CRI[]    = TFWV_CSR_CRI;
 static const uint8_t CRIDIG[] = TFWV_CSR_CRI_DIGEST;
 static uint8_t       CERTBUF[512];   /* a certificate mint() pages in */
@@ -115,6 +115,7 @@ static tfw_alias_parts_t pinned(void)
     p.fw_hash = FWHASH;
     p.pubkey  = PUBKEY;
     p.sig     = NULL;
+    p.tier    = TFW_CRYPTO_SECURE_ELEMENT;
     return p;
 }
 
@@ -390,7 +391,7 @@ static void test_the_request_info_parses_as_nothing_else(void)
     /* and by the headers a reader keys on: neither the frame's version byte nor
      * the alias TBS's opening */
     TEST_ASSERT_NOT_EQUAL(TFW_ATTEST_VERSION, CRI[0]);
-    TEST_ASSERT_FALSE(memcmp(CRI, "\x30\x82\x01\x7B\xA0\x03", 6u) == 0);
+    TEST_ASSERT_FALSE(memcmp(CRI, "\x30\x82\x01\x8C\xA0\x03", 6u) == 0);
 }
 
 /* The alias TBS reads as one, and as neither of the others. It is the
@@ -400,7 +401,7 @@ static void test_the_alias_tbs_parses_as_nothing_else(void)
     const uint8_t *tbs = &CERT[4];
     uint16_t       n   = (uint16_t)(4u + (((uint32_t)tbs[2] << 8) | (uint32_t)tbs[3]));
 
-    TEST_ASSERT_EQUAL_HEX8_ARRAY("\x30\x82\x01\x7B\xA0\x03", tbs, 6u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY("\x30\x82\x01\x8C\xA0\x03", tbs, 6u);
     TEST_ASSERT_TRUE(reads_as_tbs(tbs, n));
     TEST_ASSERT_FALSE(reads_as_cri(tbs, n));
     TEST_ASSERT_FALSE(reads_as_evidence(tbs, n));

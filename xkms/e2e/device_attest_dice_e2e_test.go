@@ -36,6 +36,7 @@ import (
 
 	deviceattest01 "github.com/jeremyhahn/go-xkms/pkg/acme/challenges/device-attest-01"
 	"github.com/jeremyhahn/go-xkms/pkg/acme/client"
+	"github.com/jeremyhahn/go-xkms/pkg/attestation/dice"
 	"github.com/jeremyhahn/go-xkms/pkg/ca"
 	"github.com/jeremyhahn/go-xkms/pkg/types"
 )
@@ -101,10 +102,14 @@ type diceElement struct {
 // newDiceElementOn is the element on a device the caller opened: the
 // simulator, or a board on the bench (hw_enroll_test.go). Everything after the
 // link is the same flow whichever it is.
-func newDiceElementOn(t *testing.T, device *tfw.Device) *diceElement {
+//
+// permitted is the operational states the adapter's own verify tolerates: the
+// caller's policy, as it is in production, so a soft root needs notSecure.
+func newDiceElementOn(t *testing.T, device *tfw.Device, permitted dice.OperationalFlags) *diceElement {
 	t.Helper()
 	cfg := avr.DefaultConfig()
 	cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg.Attestation = &avr.AttestationConfig{PermittedFlags: permitted}
 	backend, err := avr.NewBackend(context.Background(), cfg, device)
 	require.NoError(t, err)
 
@@ -236,11 +241,11 @@ type diceEnrollment struct {
 // newDiceEnrollment serves device-attest-01 with "dice" evidence anchored in
 // devices. RequireDeviceSignedLeaf is the AVR profile the xkmsd configuration
 // sets: the alias certificate's issuer is the element's own DeviceID key.
-func newDiceEnrollment(t *testing.T, devices deviceattest01.DeviceResolver) *diceEnrollment {
+func newDiceEnrollment(t *testing.T, devices deviceattest01.DeviceResolver, permitted dice.OperationalFlags) *diceEnrollment {
 	t.Helper()
 	verifier, err := deviceattest01.NewTrustAnchorVerifier(deviceattest01.TrustAnchors{
 		Devices: devices,
-		DICE:    deviceattest01.DICEPolicy{RequireDeviceSignedLeaf: true},
+		DICE:    deviceattest01.DICEPolicy{RequireDeviceSignedLeaf: true, PermittedFlags: permitted},
 	})
 	require.NoError(t, err)
 

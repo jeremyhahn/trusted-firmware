@@ -172,7 +172,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_eth_socket_mutate.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_stage_mutate.c test/unit/test_ota_ctl_mutate.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_ota_activate_mutate.c test/unit/test_ota_prev_mutate.c test/unit/test_ota_floor_eeprom_mutate.c test/unit/test_spi_nor.c test/unit/test_spi_nor_mutate.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_single_mutate.c test/unit/test_ota_manifest.c \
                             test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c \
-                            test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c \
+                            test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c test/unit/test_esp_prov_uds_mutate.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_otactl_floor_mutate.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
@@ -1343,6 +1343,15 @@ $(HOST_DIR)/test_avr_early_mutate: test/unit/hal/test_avr_early_mutate.c src/hal
 HOST_EXTRA_BINS += $(HOST_DIR)/test_dhcp_robust_w5100 $(HOST_DIR)/test_dhcp_robust_w5500 \
                    $(HOST_DIR)/test_w5100_robust $(HOST_DIR)/test_w5500_robust
 
+# The ESP32 UDS provisioning unit (src/hal/esp32/prov_uds.c) over stand-in
+# eFuse, HMAC, RNG, entropy, ADC lock and log headers, which the suite
+# implements (test/mock/esp32/prov/).
+$(HOST_DIR)/test_esp_prov_uds_mutate: test/unit/test_esp_prov_uds_mutate.c src/hal/esp32/prov_uds.c \
+                                      $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -iquote src/hal/esp32 -Itest/mock/esp32/prov \
+	    -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/test_esp_prov_uds_mutate
+
 # The ESP32 pin HALs (#163): src/hal/esp32/hal_gpio.c, hal_pulse.c, hal_pwm.c,
 # hal_tone.c and hal_adc.c against the gpio, LEDC and oneshot ADC drivers and
 # clock in test/mock/esp_pins_mock.c. src/hal/esp32 goes
@@ -1659,6 +1668,16 @@ lint-grep-selftest:
 # test/model/cortex-m/ is exempt too, because it is the register header's
 # substitute on the host; no test, harness or product file outside it is.
 #
+# ESP-IDF (#16) the same way, outside src/hal/esp32/, boot/hal/esp32/ and the
+# boards whose profile.mk says ARCH := esp32: an include of an ESP-IDF header,
+# by the prefixes the port includes them by (esp_, driver/, freertos/, lwip/,
+# bootloader_, soc/, rom/, hal/, sdkconfig.h), and the ESP-IDF names no portable
+# file has a reason to spell (esp_err_t, ESP_OK, IRAM_ATTR, portMAX_DELAY, ...),
+# matched with string literals blanked. Its sweep is src, boot, include, tools
+# and every other board, bar src/third_party/; the test tree holds the HAL's
+# ESP-IDF stand-ins and is not swept. scripts/test_esp32_port.py
+# (EspIdfStaysBehindTheHal) plants a leak of each kind and runs this target.
+#
 # Only code is matched: each file goes through the preprocessor in
 # -fpreprocessed -dD mode first, which removes comments exactly (it knows a
 # "//" inside a string from one outside) and expands nothing, so prose such as
@@ -1668,6 +1687,9 @@ ARCH_LEAK_ROOT ?= .
 ARCH_LEAK_DIRS := src boot tools include test
 ARCH_LEAK_PAT  := <avr/|(^|[^A-Za-z0-9_])(F_CPU|MCUSR|PROGMEM)([^A-Za-z0-9_]|$$)
 ARCH_LEAK_CM_PAT := cm_regs\.h|<(core_cm[0-9a-z]*|cmsis_[0-9a-z_]*)\.h>|(^|[^A-Za-z0-9_])(tfw_cm_[a-z_]+|TFW_CM_(REG|VTOR|AIRCR[A-Z_]*|SYST_[A-Z_]+|NVIC_[A-Z]+)|SCB|NVIC|SysTick(_[A-Za-z]+)?|__(DSB|ISB|DMB|WFI|WFE)|__(disable|enable)_irq)([^A-Za-z0-9_]|$$)|"(dsb|isb|dmb|wfi|wfe|cpsi[de]|msr|mrs)[ \\"]
+ARCH_LEAK_ESP_DIRS := src boot include tools boards
+ARCH_LEAK_ESP_INC  := ^[[:space:]]*\#[[:space:]]*include[[:space:]]*[<"](esp_|driver/|freertos/|lwip/|bootloader_|soc/|rom/|hal/|sdkconfig\.h)
+ARCH_LEAK_ESP_PAT  := (^|[^A-Za-z0-9_])(esp_err_t|ESP_OK|ESP_FAIL|ESP_ERR_[A-Za-z0-9_]+|IRAM_ATTR|DRAM_ATTR|RTC_NOINIT_ATTR|EXT_RAM_ATTR|CONFIG_IDF_[A-Za-z0-9_]+|portMAX_DELAY|xTaskCreate[A-Za-z0-9_]*|vTaskDelay[A-Za-z0-9_]*)([^A-Za-z0-9_]|$$)
 lint-arch-leak:
 	@cd $(ARCH_LEAK_ROOT) && fail=0; \
 	for f in $$(find $(ARCH_LEAK_DIRS) -type f \( -name '*.c' -o -name '*.h' \) \
@@ -1682,6 +1704,19 @@ lint-arch-leak:
 	  hits=$$(printf '%s\n' "$$hits" | grep -v '^$$' || true); \
 	  if [ -n "$$hits" ]; then \
 	    printf '%s\n' "$$hits" | while IFS=: read -r n _; do echo "$$f:$$n: arch-leak"; done; fail=1; \
+	  fi; \
+	done; \
+	for f in $$(find $(ARCH_LEAK_ESP_DIRS) -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null | sort); do \
+	  case $$f in src/hal/esp32/*|boot/hal/esp32/*|src/third_party/*) continue ;; \
+	    boards/*/*) b=$${f#boards/}; b=$${b%%/*}; \
+	      if grep -Eqs '^ARCH[[:space:]]*:?=[[:space:]]*esp32[[:space:]]*$$' boards/$$b/profile.mk; then continue; fi ;; esac; \
+	  code=$$($(CC) -w -fpreprocessed -dD -E -P "$$f") || { \
+	    echo "arch-leak gate: cannot strip comments from $$f"; exit 1; }; \
+	  hits=$$(printf '%s\n' "$$code" | grep -En '$(ARCH_LEAK_ESP_INC)' || true); \
+	  hits="$$hits$$(printf '\n'; printf '%s\n' "$$code" | sed -E 's/"([^"\\]|\\.)*"/""/g' | grep -En '$(ARCH_LEAK_ESP_PAT)' || true)"; \
+	  hits=$$(printf '%s\n' "$$hits" | grep -v '^$$' || true); \
+	  if [ -n "$$hits" ]; then \
+	    printf '%s\n' "$$hits" | while IFS=: read -r n _; do echo "$$f:$$n: arch-leak (ESP-IDF)"; done; fail=1; \
 	  fi; \
 	done; \
 	if [ $$fail -ne 0 ]; then \

@@ -354,25 +354,25 @@ func eepromHex(want string) func(t *testing.T, out []byte) {
 func TestE2ELinksEEPROM(t *testing.T) {
 	linkSuite{
 		cases: []linkCase{
-			{name: "erased", verb: "eeprom-read", args: []string{"0x100", "4"}, check: eepromHex("ffffffff")},
-			{name: "write", verb: "eeprom-write", args: []string{"0x100", "a1b2"}, check: func(t *testing.T, out []byte) {
+			{name: "erased", verb: "eeprom-read", args: []string{"0x180", "4"}, check: eepromHex("ffffffff")},
+			{name: "write", verb: "eeprom-write", args: []string{"0x180", "a1b2"}, check: func(t *testing.T, out []byte) {
 				var r struct {
 					Addr  int `json:"addr"`
 					Bytes int `json:"bytes"`
 				}
 				jsonInto(t, out, &r)
-				assert.Equal(t, 0x100, r.Addr)
+				assert.Equal(t, 0x180, r.Addr)
 				assert.Equal(t, 2, r.Bytes)
 			}},
-			{name: "read back", verb: "eeprom-read", args: []string{"0x100", "2"}, check: eepromHex("a1b2")},
+			{name: "read back", verb: "eeprom-read", args: []string{"0x180", "2"}, check: eepromHex("a1b2")},
 			{name: "platform block without a session", verb: "eeprom-read", args: []string{"0", "4"},
 				refused: tfw.StatusErrAuthRequired},
 			{name: "platform block write", verb: "eeprom-write", args: []string{"0", "00"},
 				refused: tfw.StatusErrProtectedRegion},
 			{name: "read past the end", verb: "eeprom-read", args: []string{"0xffff", "4"}, refused: tfw.StatusErrRange},
 			{name: "write past the end", verb: "eeprom-write", args: []string{"0xfffe", "0102"}, refused: tfw.StatusErrRange},
-			{name: "read longer than a chunk", verb: "eeprom-read", args: []string{"0x100", "200"}, usage: "outside 1..8"},
-			{name: "write not hex", verb: "eeprom-write", args: []string{"0x100", "zz"}, usage: `hex "zz"`},
+			{name: "read longer than a chunk", verb: "eeprom-read", args: []string{"0x180", "200"}, usage: "outside 1..8"},
+			{name: "write not hex", verb: "eeprom-write", args: []string{"0x180", "zz"}, usage: `hex "zz"`},
 		},
 		settled: func(t *testing.T, l link, serial *tfw.Device) {
 			if l.name == "serial" {
@@ -381,7 +381,7 @@ func TestE2ELinksEEPROM(t *testing.T) {
 			var r struct {
 				Hex string `json:"hex"`
 			}
-			cliJSON(t, serial, &r, "eeprom-read", "0x100", "2")
+			cliJSON(t, serial, &r, "eeprom-read", "0x180", "2")
 			assert.Equal(t, "ffff", r.Hex, "a write refused over TCP reached the EEPROM")
 		},
 	}.run(t)

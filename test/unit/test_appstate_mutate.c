@@ -211,7 +211,7 @@ static void platform_valid(uint8_t *raw)
     unsigned            i;
 
     memset(&p, 0, sizeof p);
-    memset(raw, 0, TFW_BOOT_EE_LEN);
+    memset(raw, 0, TFW_BOOT_EE_BLOCK_LEN);
     for (i = 0u; i < TFW_BOOT_SERIAL_LEN; i++) { raw[TFW_BOOT_EE_O_SERIAL + i] = (uint8_t)(0x10u + i); }
     for (i = 0u; i < TFW_BOOT_OPERATOR_PUBKEY_LEN; i++) { raw[TFW_BOOT_EE_O_OPERATOR_PUBKEY + i] = (uint8_t)(0x80u + i); }
     p.rollback_floor = 7u;
@@ -229,7 +229,7 @@ static void platform_check(const uint8_t *raw)
                                 && tfw_boot_platform_crc(raw) == tfw_boot_rd_u16(&raw[TFW_BOOT_EE_O_CRC]);
     const char         *broke = NULL;
 
-    memcpy(tfw_mock_eeprom() + TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN);
+    memcpy(tfw_mock_eeprom() + TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_platform_id_init();
     tfw_platform_id_operator_pubkey(key);
 
@@ -254,7 +254,7 @@ static void platform_check(const uint8_t *raw)
         broke = "an accepted block's boot state is not its byte";
     }
     if (broke) {
-        dump("platform", raw, TFW_BOOT_EE_LEN);
+        dump("platform", raw, TFW_BOOT_EE_BLOCK_LEN);
         TEST_FAIL_MESSAGE(broke);
     }
     ran++;
@@ -263,7 +263,7 @@ static void platform_check(const uint8_t *raw)
 static void test_mutated_platform_blocks_give_zero_or_exactly_their_bytes(void)
 {
     static const uint32_t floors[] = { 0u, 1u, 6u, 7u, 8u, 0x7FFFFFFFu, 0x80000000u, 0xFFFFFFFEu, 0xFFFFFFFFu };
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned i, v;
     clock_t  t0 = clock();
 
@@ -330,7 +330,7 @@ static void test_the_request_armed_over_any_block_is_a_request(void)
 static void test_clean_records_still_give_what_the_existing_tests_pin(void)
 {
     uint8_t  b[TFW_BOOT_HANDOFF_LEN];
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t  cdi[TFW_BOOT_MEASURE_LEN];
     uint8_t  rc = 0u;
     uint32_t floor = 0u;

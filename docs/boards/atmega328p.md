@@ -161,7 +161,7 @@ this page does not copy them.
 
 - The platform block, `0x000`–`0x0BF`:
   [`../secure-boot/api.md`](../secure-boot/api.md#reserved-eeprom).
-- The network block, 32 bytes at `0x0C0`:
+- The network block, 32 bytes at `0x140` (`TFW_NETCFG_ADDR`):
   [`../ethernet-transport/api.md`](../ethernet-transport/api.md).
 
 ## Flashing on the bench

@@ -542,14 +542,14 @@ static void test_a_verified_update_hands_over(void)
  * so tfw_boot_platform_store persists what the session decides. */
 static void load_platform(uint8_t boot_state, uint8_t ota_state)
 {
-    uint8_t      ee[TFW_BOOT_EE_LEN];
+    uint8_t      ee[TFW_BOOT_EE_BLOCK_LEN];
     tfw_status_t st;
 
     memset(ee, 0xFF, sizeof ee);
     plat.boot_state = boot_state;
     plat.ota_state  = ota_state;
     tfw_boot_platform_serialise(&plat, ee);
-    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_BLOCK_LEN);
     memset(&plat, 0, sizeof plat);
     tfw_boot_platform_load(&plat, &st);
     TEST_ASSERT_EQUAL(TFW_OK, st);
@@ -733,12 +733,12 @@ static void test_a_failed_trial_takes_another_round(void)
  * and is never overwritten with them. */
 static void test_a_block_that_did_not_load_is_never_overwritten(void)
 {
-    uint8_t      before[TFW_BOOT_EE_LEN];
+    uint8_t      before[TFW_BOOT_EE_BLOCK_LEN];
     tfw_status_t st;
 
     load_platform(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
-    tfw_boot_mock_nvm()[TFW_BOOT_EE_LEN - 1u] ^= 0x01u;   /* break the CRC */
-    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    tfw_boot_mock_nvm()[TFW_BOOT_EE_BLOCK_LEN - 1u] ^= 0x01u;   /* break the CRC */
+    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
     tfw_boot_platform_load(&plat, &st);
     TEST_ASSERT_NOT_EQUAL(TFW_OK, st);
     memset(&plat, 0, sizeof plat);
@@ -747,7 +747,7 @@ static void test_a_block_that_did_not_load_is_never_overwritten(void)
     feed_ota_image(256u);
     open_session(IDLE, 0u, 0u, 0u);
 
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
 }
 
 /* The session grants nothing: an image that does not verify is not handed

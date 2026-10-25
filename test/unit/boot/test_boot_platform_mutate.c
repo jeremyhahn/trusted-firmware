@@ -12,7 +12,7 @@
  * field values. An accepted block hands back each field from its offset in
  * include/tfw/boot.h, and serialising it into the same bytes changes nothing.
  *
- * Each block is parsed from a heap buffer of exactly TFW_BOOT_EE_LEN bytes, so
+ * Each block is parsed from a heap buffer of exactly TFW_BOOT_EE_BLOCK_LEN bytes, so
  * under `make test-asan` a read past it is a fault. The seed is a literal and
  * every failure prints it.
  */
@@ -59,11 +59,11 @@ static void seal(uint8_t *raw)
 
 /* The block test_boot_platform builds, with the reserved bytes patterned so
  * a serialiser that rebuilt them would show. */
-static void build(uint8_t raw[TFW_BOOT_EE_LEN])
+static void build(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN])
 {
     tfw_boot_platform_t p;
 
-    for (uint32_t i = 0; i < TFW_BOOT_EE_LEN; i++) { raw[i] = (uint8_t)(0xC3u ^ i); }
+    for (uint32_t i = 0; i < TFW_BOOT_EE_BLOCK_LEN; i++) { raw[i] = (uint8_t)(0xC3u ^ i); }
     memset(&p, 0, sizeof p);
     memset(p.pubkey_hash, 0x11, sizeof p.pubkey_hash);
     memset(p.serial, 0x22, sizeof p.serial);
@@ -89,11 +89,11 @@ static tfw_status_t expected(const uint8_t *raw)
  * reading. Returns the status. */
 static tfw_status_t check(const uint8_t *src)
 {
-    uint8_t *raw = malloc(TFW_BOOT_EE_LEN);
+    uint8_t *raw = malloc(TFW_BOOT_EE_BLOCK_LEN);
     tfw_boot_platform_t out, before;
 
     TEST_ASSERT_NOT_NULL(raw);
-    memcpy(raw, src, TFW_BOOT_EE_LEN);
+    memcpy(raw, src, TFW_BOOT_EE_BLOCK_LEN);
     memset(&out, 0xA5, sizeof out);
     memcpy(&before, &out, sizeof out);
 
@@ -119,11 +119,11 @@ static tfw_status_t check(const uint8_t *src)
 
     /* Written back into its own bytes, an accepted block is unchanged: the
      * flags and the reserved span survive, and the CRC is the one it had. */
-    uint8_t *again = malloc(TFW_BOOT_EE_LEN);
+    uint8_t *again = malloc(TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_NOT_NULL(again);
-    memcpy(again, raw, TFW_BOOT_EE_LEN);
+    memcpy(again, raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_boot_platform_serialise(&out, again);
-    TEST_ASSERT_EQUAL_MEMORY_MESSAGE(raw, again, TFW_BOOT_EE_LEN, why);
+    TEST_ASSERT_EQUAL_MEMORY_MESSAGE(raw, again, TFW_BOOT_EE_BLOCK_LEN, why);
     free(again);
     free(raw);
     return rc;
@@ -131,11 +131,11 @@ static tfw_status_t check(const uint8_t *src)
 
 static void test_every_byte_set_to_every_value(void)
 {
-    uint8_t good[TFW_BOOT_EE_LEN], raw[TFW_BOOT_EE_LEN];
+    uint8_t good[TFW_BOOT_EE_BLOCK_LEN], raw[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t seen[4] = { 0 };
 
     build(good);
-    for (uint32_t at = 0; at < TFW_BOOT_EE_LEN; at++) {
+    for (uint32_t at = 0; at < TFW_BOOT_EE_BLOCK_LEN; at++) {
         for (uint32_t v = 0; v < 256u; v++) {
             memcpy(raw, good, sizeof raw);
             raw[at] = (uint8_t)v;
@@ -156,7 +156,7 @@ static void test_every_byte_set_to_every_value(void)
 
 static void test_every_layout_under_a_matching_crc(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
     for (uint32_t v = 0; v < 256u; v++) {
         build(raw);
@@ -170,7 +170,7 @@ static void test_every_layout_under_a_matching_crc(void)
 
 static void test_a_blank_or_zeroed_block_reads_not_provisioned(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
     for (uint32_t fill = 0; fill < 256u; fill++) {
         memset(raw, (int)fill, sizeof raw);
@@ -181,7 +181,7 @@ static void test_a_blank_or_zeroed_block_reads_not_provisioned(void)
 
 static void test_seeded_multi_byte_mutations(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t accepted = 0;
 
     for (uint32_t c = 0; c < CASES; c++) {
@@ -189,11 +189,11 @@ static void test_seeded_multi_byte_mutations(void)
         if (rng == 0u) { rng = SEED; }
         build(raw);
         for (uint32_t k = 1u + next() % 8u; k > 0u; k--) {
-            uint32_t at = next() % TFW_BOOT_EE_LEN;
+            uint32_t at = next() % TFW_BOOT_EE_BLOCK_LEN;
             switch (next() % 3u) {
             case 0:  raw[at] = (uint8_t)next(); break;
             case 1:  raw[at] ^= (uint8_t)(1u << (next() % 8u)); break;
-            default: memset(&raw[at], 0xFF, TFW_BOOT_EE_LEN - at); break;
+            default: memset(&raw[at], 0xFF, TFW_BOOT_EE_BLOCK_LEN - at); break;
             }
         }
         if (next() % 2u == 0u) {

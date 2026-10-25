@@ -7,6 +7,8 @@
 const uint8_t tfw_boot_cose_alg = 0x26u;
 
 static const uint8_t *want;
+static const uint8_t *want_msg;
+static uint16_t       want_msg_len;
 static uint8_t        last[128];
 static uint16_t       last_len;
 static uint8_t        last_keyless;
@@ -15,6 +17,12 @@ static tfw_status_t   pubkey_st = TFW_OK;
 void tfw_boot_verify_mock_want(const uint8_t *sig)
 {
     want = sig;
+}
+
+void tfw_boot_verify_mock_want_msg(const uint8_t *msg, uint16_t len)
+{
+    want_msg     = msg;
+    want_msg_len = len;
 }
 
 const uint8_t *tfw_boot_verify_mock_msg(uint16_t *len)
@@ -50,6 +58,10 @@ tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
         last_len = msglen;
     }
     if (want != NULL && memcmp(sig, want, TFW_BOOT_SIG_LEN) != 0) {
+        return TFW_ERR_CRYPTO;
+    }
+    if (want_msg != NULL
+        && (msglen != want_msg_len || memcmp(msg, want_msg, msglen) != 0)) {
         return TFW_ERR_CRYPTO;
     }
     return TFW_OK;

@@ -85,7 +85,7 @@ static void reload(void)
  * loads it, as a reset does. */
 static void reset_with(uint8_t boot_state, uint32_t ee_floor)
 {
-    uint8_t ee[TFW_BOOT_EE_LEN];
+    uint8_t ee[TFW_BOOT_EE_BLOCK_LEN];
 
     memset(ee, 0xFF, sizeof ee);
     memset(&plat, 0, sizeof plat);
@@ -93,7 +93,7 @@ static void reset_with(uint8_t boot_state, uint32_t ee_floor)
     plat.ota_state      = TFW_BOOT_OTA_IDLE;
     plat.rollback_floor = ee_floor;
     tfw_boot_platform_serialise(&plat, ee);
-    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_BLOCK_LEN);
     reload();
 }
 
@@ -101,32 +101,32 @@ static void reset_with(uint8_t boot_state, uint32_t ee_floor)
 
 void test_store_reports_an_element_error_and_writes_no_eeprom(void)
 {
-    uint8_t before[TFW_BOOT_EE_LEN];
+    uint8_t before[TFW_BOOT_EE_BLOCK_LEN];
 
     el_present = 1;
     el_counter = 3u;
     el_fail    = 1;
     reset_with(TFW_BOOT_STATE_GOOD, 0u);
-    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
 
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_boot_floor_store(&plat, 7u));
     TEST_ASSERT_EQUAL_UINT32(3u, el_counter);
     TEST_ASSERT_EQUAL_UINT32(0u, plat.rollback_floor);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
 }
 
 void test_store_to_the_element_leaves_eeprom_alone(void)
 {
-    uint8_t before[TFW_BOOT_EE_LEN];
+    uint8_t before[TFW_BOOT_EE_BLOCK_LEN];
 
     el_present = 1;
     el_counter = 3u;
     reset_with(TFW_BOOT_STATE_GOOD, 0u);
-    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_store(&plat, 7u));
     TEST_ASSERT_EQUAL_UINT32(7u, el_counter);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
 }
 
 /* No element: EEPROM is the authority, and holding the value there is TFW_OK. */
@@ -215,21 +215,21 @@ void test_settle_advances_the_counter_then_writes_good(void)
  * the counter and writes GOOD. */
 void test_a_refused_counter_write_keeps_confirmed_and_the_next_reset_retries(void)
 {
-    uint8_t  before[TFW_BOOT_EE_LEN];
+    uint8_t  before[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t floor;
 
     el_present = 1;
     el_counter = 3u;
     el_fail    = 1;
     reset_with(TFW_BOOT_STATE_CONFIRMED, 0u);
-    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    memcpy(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_load(&plat, &floor));
 
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_boot_settle(&plat, 7u, &floor));
     TEST_ASSERT_EQUAL_UINT32(3u, floor);                 /* not advanced */
     TEST_ASSERT_EQUAL_UINT32(3u, el_counter);
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_CONFIRMED, plat.boot_state);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
 
     /* the next reset */
     reload();
@@ -311,7 +311,7 @@ void test_the_soft_tier_settles_to_good_in_one_boot(void)
  * loaded, so nothing is written over it, and the bytes stay for a programmer. */
 void test_a_block_that_will_not_read_is_never_written(void)
 {
-    uint8_t      before[TFW_BOOT_EE_LEN];
+    uint8_t      before[TFW_BOOT_EE_BLOCK_LEN];
     tfw_status_t st;
 
     reset_with(TFW_BOOT_STATE_GOOD, 3u);
@@ -354,7 +354,7 @@ void test_a_floor_store_over_a_block_that_will_not_read_is_not_ok(void)
  * CONFIRMED at the old floor, nothing is written, and the next reset retries. */
 void test_a_refused_eeprom_floor_keeps_confirmed(void)
 {
-    uint8_t      before[TFW_BOOT_EE_LEN];
+    uint8_t      before[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t     floor = 3u;
     tfw_status_t st;
 
@@ -381,7 +381,7 @@ void test_a_refused_eeprom_floor_keeps_confirmed(void)
  * the next flags store. */
 void test_the_flags_byte_is_stored_with_the_block_and_kept(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
     reset_with(TFW_BOOT_STATE_TRIAL, 3u);
     plat.boot_state = TFW_BOOT_STATE_GOOD;

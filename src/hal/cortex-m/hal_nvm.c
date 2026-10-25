@@ -19,7 +19,7 @@
 #include "tfw/config.h"
 #include "tfw/boot.h"
 
-_Static_assert(TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN <= TFW_CM_PLATFORM_SIZE,
+_Static_assert(TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN <= TFW_CM_PLATFORM_SIZE,
                "the platform block does not fit the board's NVM window");
 
 tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)

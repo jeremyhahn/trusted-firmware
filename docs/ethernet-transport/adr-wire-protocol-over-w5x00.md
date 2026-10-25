@@ -143,12 +143,12 @@ The Ethernet link accepts exactly these commands:
 ### 3. Addressing
 
 - **Static, provisioned, in EEPROM.** The MAC, IP, mask, gateway, endpoint IP and
-  endpoint port are a 32-byte network block at EEPROM `0x0C0`, the first byte
-  after the 192-byte platform block. It carries a magic, a version and a CRC-16
+  endpoint port are a 32-byte network block at EEPROM `0x140`, moved with #231 from
+  `0x0C0`, the first byte after the 192-byte platform block. It carries a magic, a version and a CRC-16
   (the frame CRC). A blank or corrupt block keeps the Ethernet link down; serial
   is unaffected. The block is read at each connection attempt and never held in
   RAM.
-- **Board-independent address.** `0x0C0` is the same on every board, so a host
+- **Board-independent address.** `0x140` is the same on every board, so a host
   needs no per-board table. The platform block is not touched, so no
   provisioning vector moves.
 - **Written over serial with `EEPROM_WRITE`**, which already permits that range

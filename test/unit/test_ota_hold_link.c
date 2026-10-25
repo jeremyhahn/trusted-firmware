@@ -176,7 +176,7 @@ static tfw_status_t call(tfw_status_t (*fn)(tfw_reader_t *, tfw_writer_t *),
 static void stage(void)
 {
     uint8_t             in[4u + CHUNK];
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
     uint32_t            off;
     uint8_t             n;
@@ -186,7 +186,7 @@ static void stage(void)
     p.boot_state     = TFW_BOOT_STATE_GOOD;
     p.ota_state      = TFW_BOOT_OTA_IDLE;
     tfw_boot_platform_serialise(&p, raw);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 
     build(512u, 200u);
     put32(in, 512u);

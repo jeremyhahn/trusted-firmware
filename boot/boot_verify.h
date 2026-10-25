@@ -98,4 +98,17 @@ extern const uint8_t tfw_boot_cose_alg;
 uint8_t tfw_boot_cose_activate(uint8_t *b, const uint8_t hash[TFW_BOOT_MEASURE_LEN],
                                uint32_t version, uint8_t mode);
 
+/* The longest Sig_structure tfw_boot_cose_confirm builds. */
+#define TFW_BOOT_COSE_CONFIRM_MAX 75u
+
+/*
+ * The Sig_structure of OTA_CONFIRM's authorization (#137, #231,
+ * docs/ota/api.md): ["Signature1", h'A101xx', h'', bstr .cbor
+ * ["tfw-ota-confirm", measurement, version]], the payload detached and rebuilt
+ * from the running image's trailer. Writes it into `b`, at most
+ * TFW_BOOT_COSE_CONFIRM_MAX bytes, and returns its length.
+ */
+uint8_t tfw_boot_cose_confirm(uint8_t *b, const uint8_t hash[TFW_BOOT_MEASURE_LEN],
+                              uint32_t version);
+
 #endif /* TFW_BOOT_VERIFY_H */

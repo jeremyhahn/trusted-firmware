@@ -223,9 +223,9 @@ static void test_the_literal_block_decodes_to_its_fields(void)
     TEST_ASSERT_EQUAL_HEX8(0x00u, c.flags);                /* static addresses */
 }
 
-static void test_the_block_lives_at_0x0c0_for_32_bytes(void)
+static void test_the_block_lives_at_0x140_for_32_bytes(void)
 {
-    TEST_ASSERT_EQUAL_HEX16(0x00C0u, TFW_NETCFG_ADDR);
+    TEST_ASSERT_EQUAL_HEX16(0x0140u, TFW_NETCFG_ADDR);   /* the reserved end, #125 */
     TEST_ASSERT_EQUAL_UINT(32u, TFW_NETCFG_LEN);
 }
 
@@ -672,7 +672,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_literal_block_decodes_to_its_fields);
-    RUN_TEST(test_the_block_lives_at_0x0c0_for_32_bytes);
+    RUN_TEST(test_the_block_lives_at_0x140_for_32_bytes);
     RUN_TEST(test_a_damaged_or_incomplete_block_is_not_provisioned);
     RUN_TEST(test_a_blank_block_never_starts_the_controller_and_serial_still_answers);
     RUN_TEST(test_a_block_asking_for_dhcp_stays_down_without_the_client);

@@ -110,14 +110,14 @@ static tfw_status_t run(const uint8_t *p, uint8_t n)
 static void boot_soft_root(void)
 {
     tfw_boot_platform_t plat;
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t             block[TFW_BOOT_HANDOFF_LEN];
 
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, kSerial, sizeof plat.serial);
     memset(raw, 0, sizeof raw);
     tfw_boot_platform_serialise(&plat, raw);
-    memcpy(tfw_mock_eeprom(), raw, TFW_BOOT_EE_LEN);
+    memcpy(tfw_mock_eeprom(), raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_platform_id_init();
 
     tfw_boot_handoff_build(block, TFW_CRYPTO_SOFTWARE, kCdi, kFwHash, 1u, 0u);

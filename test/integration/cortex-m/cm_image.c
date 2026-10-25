@@ -200,7 +200,7 @@ int main(int argc, char **argv)
     uint8_t             priv[32], pub[64], other_priv[32], other_pub[64];
     uint8_t             op_priv[32], op_pub[64], uds[UDS_LEN];
     uint8_t             seed[32], deviceid[64];
-    uint8_t             ee[TFW_BOOT_EE_LEN];
+    uint8_t             ee[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t plat;
     char                env[384];
     size_t              n;

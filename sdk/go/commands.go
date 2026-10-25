@@ -426,10 +426,11 @@ func (d *Device) SetADCReference(ctx context.Context, ref ADCReference) error {
 // deadline. The host does the chunking; the device stays responsive.
 const EEPROMChunk = 8
 
-// EEPROMReservedEnd is the first address past the platform block,
-// [0x000, 0x0C0) on every board. A board's bootloader may keep EEPROM above
-// it too, which the device refuses the same way: the ATmega2560's swap
-// journal at 0x0E0-0x0E9 (boards/atmega2560/board_profile.h).
+// EEPROMReservedEnd is the first address past the bootloader's EEPROM,
+// [0x000, 0x140) on every board (include/tfw/boot.h's TFW_BOOT_EE_LEN): the
+// platform block [0x000, 0x0C0), then on the ATmega2560 the swap journal
+// 0x0E0-0x0E9 and OTA_CONFIRM's signed request 0x0EA-0x134
+// (boards/atmega2560/board_profile.h). The network block follows at 0x140.
 //
 // Below it live the bootloader's public-key hash, the device serial, the boot
 // counter, the OTA state and -- element tier only, since issue #4 -- the
@@ -442,13 +443,16 @@ const EEPROMChunk = 8
 // Grew from 0x80 to 0xC0 when the operator public key was added: an address a
 // pre-#4 host could once write now falls inside the refused region if it
 // happens to land in [0x80, 0xC0). That is a real, deliberate narrowing --
-// see docs/wire-protocol/api.md.
-const EEPROMReservedEnd = 0xC0
+// see docs/wire-protocol/api.md. Grew again from 0xC0 to 0x140 when the confirm
+// request took its 64-byte signature (#125, #231): a pre-#125 host writing in
+// [0xC0, 0x140), the old network block among it, reads StatusErrProtectedRegion,
+// a status it already knows, and the network block it looks for at 0xC0 is
+// at NetConfigAddr.
+const EEPROMReservedEnd = 0x140
 
 // EEPROMRead reads up to EEPROMChunk bytes.
 //
-// A read is read-gated when it starts below EEPROMReservedEnd or, on the
-// ATmega2560 only, overlaps the swap-journal record at 0x0E0-0x0E9. The gate
+// A read is read-gated when it starts below EEPROMReservedEnd. The gate
 // is enforced only by an image built with CRYPTO=atecc608a (the element tier,
 // `make firmware-attested`) for a board whose profile leaves the auth session
 // on: the ATmega2560 and the ATmega32U4. There a gated read without an

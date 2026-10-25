@@ -14,10 +14,10 @@
 
 uint8_t tfw_ota_trial_on(void)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t plat;
 
-    return (uint8_t)(tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN) == TFW_OK
+    return (uint8_t)(tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_BLOCK_LEN) == TFW_OK
                      && tfw_boot_platform_parse(raw, &plat) == TFW_OK
                      && plat.boot_state == TFW_BOOT_STATE_TRIAL);
 }

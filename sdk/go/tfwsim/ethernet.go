@@ -56,6 +56,7 @@ func StartElementEthernet(tb testing.TB, opts ...tfw.Option) (serial *tfw.Device
 	// the platform block: the firmware owns that address, not this harness.
 	at := netcfgAddr(tb, simproc.Element)
 	platform := tfw.BuildPlatformBlock(TestSerial, [tfw.PubkeyHashLen]byte{}, [tfw.OperatorPubkeyLen]byte{})
+	// The bootloader's span between the two blocks (#125) is left erased.
 	image := bytes.Repeat([]byte{0xFF}, at+len(block))
 	copy(image, platform[:])
 	copy(image[at:], block)
@@ -88,7 +89,7 @@ func StartElementEthernet(tb testing.TB, opts ...tfw.Option) (serial *tfw.Device
 const eepromSize = 4096
 
 // netcfgAddr asks the simulator binary where it reads its network settings
-// (`tfwsim --netcfg-addr`, one line such as "0x00C0"). A binary built before
+// (`tfwsim --netcfg-addr`, one line such as "0x0140"). A binary built before
 // it could answer, or an answer inside the platform block or past the
 // EEPROM, fails the test: a block written anywhere else is never read.
 func netcfgAddr(tb testing.TB, b simproc.Binary) int {

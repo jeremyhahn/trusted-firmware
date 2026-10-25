@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
@@ -105,7 +106,7 @@ func startOperator(t *testing.T) (serialPeer, string) {
 // elementArgs are the element simulator's flags for the test identity: a
 // platform block with the test serial and operator (none when nil) and then
 // extra, the element provisioned, and the test FWHash handed off.
-func elementArgs(t *testing.T, operator *ecdsa.PublicKey, extra []byte) []string {
+func elementArgs(t *testing.T, operator *ecdsa.PublicKey, netblock []byte) []string {
 	t.Helper()
 	var point [tfw.OperatorPubkeyLen]byte
 	if operator != nil {
@@ -116,8 +117,20 @@ func elementArgs(t *testing.T, operator *ecdsa.PublicKey, extra []byte) []string
 	}
 	platform := tfw.BuildPlatformBlock(tfwsim.TestSerial, [tfw.PubkeyHashLen]byte{}, point)
 	eep := filepath.Join(t.TempDir(), "eeprom.bin")
-	require.NoError(t, os.WriteFile(eep, append(platform[:], extra...), 0o600))
+	require.NoError(t, os.WriteFile(eep, eepromImage(platform[:], netblock), 0o600))
 	return []string{"--eeprom-bin", eep, "--provision-element", "--image-hash", hex.EncodeToString(tfwsim.TestFWHash[:])}
+}
+
+// eepromImage is the simulator's EEPROM file: the platform block at 0x000 and,
+// when there is one, the network block at tfw.NetConfigAddr, the bootloader's
+// span between them left erased (#125).
+func eepromImage(platform, netblock []byte) []byte {
+	if netblock == nil {
+		return append([]byte(nil), platform...)
+	}
+	image := bytes.Repeat([]byte{0xFF}, tfw.NetConfigAddr)
+	copy(image, platform)
+	return append(image, netblock...)
 }
 
 // The identity the rows expect the device to answer as. The simulator's is the

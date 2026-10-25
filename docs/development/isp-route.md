@@ -641,6 +641,6 @@ Recorded here so the next run can check it before it starts:
 - **`make boot-flash` erases the Mega's EEPROM.** It writes flash without
   `-D`, so avrdude erases the chip first, and the Mega's stock high fuse
   (`0xD8`) leaves EESAVE unprogrammed. The platform block at `0x000` and the
-  network block at `0x0C0` would be lost. Read the EEPROM out over ISP before
+  network block at `0x140` would be lost. Read the EEPROM out over ISP before
   the flash and write it back after, or program EESAVE first: a fuse decision
   for that run.

@@ -36,7 +36,7 @@ uint8_t     tfw_hal_uart_tx_idle(void)        { return 1u; }
 void        tfw_hal_reset(void)               {}
 
 /* Sized to the whole part, not just the reserved region: the "a read above
- * the boundary is never gated" case reads past TFW_BOOT_EE_LEN on purpose. */
+ * the boundary is never gated" case reads past TFW_BOOT_EE_BLOCK_LEN on purpose. */
 static uint8_t test_eeprom[TFW_EEPROM_SIZE];
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 

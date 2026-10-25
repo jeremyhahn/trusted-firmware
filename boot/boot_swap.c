@@ -24,9 +24,11 @@
 
 #include "tfw/boot.h"
 #include "boot_hal.h"
+#include "boot_platform.h"
 #include "boot_policy.h"
 #include "boot_store.h"
 #include "boot_swap.h"
+#include "boot_verify.h"
 #include "crc16.h"
 
 #define UNIT  ((uint16_t)TFW_OTA_PAGE_MAX)
@@ -214,16 +216,38 @@ tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
  * before the image runs. */
 static uint8_t confirm_requested(void)
 {
-    uint8_t c[TFW_BOOT_CONFIRM_LEN];
-    uint8_t m[TFW_BOOT_CONFIRM_MEAS_LEN];
+    uint8_t        c[TFW_BOOT_CONFIRM_LEN];
+    uint8_t        key[TFW_BOOT_PUBKEY_LEN];
+    const uint8_t *k = key;
+    uint8_t        len;
+    tfw_status_t   st;
 
     (void)tfw_boot_nvm_read(TFW_BOOT_CONFIRM_ADDR, c, TFW_BOOT_CONFIRM_LEN);
-    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_MEASUREMENT, m, sizeof m);
-    return (uint8_t)(c[0] == TFW_BOOT_CONFIRM_MAGIC
-                     && tfw_crc16(c, TFW_BOOT_CONFIRM_O_CRC)
-                            == (uint16_t)(c[TFW_BOOT_CONFIRM_O_CRC]
-                                          | ((uint16_t)c[TFW_BOOT_CONFIRM_O_CRC + 1u] << 8))
-                     && memcmp(&c[TFW_BOOT_CONFIRM_O_MEAS], m, sizeof m) == 0);
+    /* unit is free: the swap is done with it. The trailer's signed span, then
+     * the Sig_structure built from it. */
+    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR, unit, TFW_BOOT_TR_SIGNED_LEN);
+    if (c[0] != TFW_BOOT_CONFIRM_MAGIC
+        || tfw_crc16(c, TFW_BOOT_CONFIRM_O_CRC)
+               != (uint16_t)(c[TFW_BOOT_CONFIRM_O_CRC]
+                             | ((uint16_t)c[TFW_BOOT_CONFIRM_O_CRC + 1u] << 8))
+        || memcmp(&c[TFW_BOOT_CONFIRM_O_MEAS], &unit[TFW_BOOT_TR_MEASUREMENT],
+                  TFW_BOOT_CONFIRM_MEAS_LEN) != 0) {
+        return 0u;
+    }
+    /* The row key's signature over OTA_CONFIRM's Sig_structure (#137, #231,
+     * docs/ota/api.md): the running image's measurement and image_version,
+     * with the key and verifier that check the image. The element keeps its
+     * key, as boot_stage.c's authorized() finds. */
+    st = tfw_boot_pubkey(key);
+    if (st == TFW_ERR_UNSUPPORTED) {
+        k = 0;
+    } else if (st != TFW_OK) {
+        return 0u;
+    }
+    len = tfw_boot_cose_confirm(&unit[TFW_BOOT_TR_SIGNED_LEN], &unit[TFW_BOOT_TR_MEASUREMENT],
+                                tfw_boot_rd_u32(&unit[TFW_BOOT_TR_IMAGE_VERSION]));
+    return (uint8_t)(tfw_boot_verify(&unit[TFW_BOOT_TR_SIGNED_LEN], len,
+                                     &c[TFW_BOOT_CONFIRM_O_SIG], k) == TFW_OK);
 }
 
 /* Cleared once a trial has ended, either way, so no request outlives its trial;

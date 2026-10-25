@@ -12,7 +12,7 @@ import (
 	"net/netip"
 )
 
-// The network block, [0x0C0, 0x0E0) on the device -- include/tfw/eth.h's
+// The network block, [0x140, 0x160) on the device -- include/tfw/eth.h's -- include/tfw/eth.h's
 // TFW_NETCFG_* is the wire contract this mirrors, and src/net/netcfg.c's
 // tfw_netcfg_decode is the same layout on the firmware's side of it. It sits
 // at the first host-writable address, so it is written with EEPROM_WRITE over
@@ -22,12 +22,12 @@ import (
 // The Ethernet link reads it each time it opens a connection, so a block
 // written while the device runs is used at the next attempt, no reset needed.
 //
-// NetConfigAddr is the address firmware before #231 reads the block at; #231
-// moves it to 0x140. The tfwsim harness does not use it: StartElementEthernet
+// NetConfigAddr is EEPROMReservedEnd, 0x140: the block starts where the
+// bootloader's reserved span ends (#231). The tfwsim harness does not use it: StartElementEthernet
 // asks the simulator binary (tfwsim --netcfg-addr) where its build reads the
 // block.
 const (
-	NetConfigAddr = 0x0C0
+	NetConfigAddr = EEPROMReservedEnd // 0x140; 0x0C0 before #125
 	NetConfigLen  = 32
 
 	netcfgVersion = 1

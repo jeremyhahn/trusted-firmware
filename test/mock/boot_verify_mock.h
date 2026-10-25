@@ -9,6 +9,11 @@
  * predate #137; once named, only that signature does. */
 void tfw_boot_verify_mock_want(const uint8_t *sig);
 
+/* The message that signature was made over, `len` bytes, NULL for any: once
+ * named, a verify of any other message fails, as a real signature for
+ * another payload does (#231). */
+void tfw_boot_verify_mock_want_msg(const uint8_t *msg, uint16_t len);
+
 /* What tfw_boot_pubkey answers, TFW_OK until set: TFW_ERR_UNSUPPORTED is a
  * tier whose element keeps its key. And 1 when the last verify was given no
  * key. */

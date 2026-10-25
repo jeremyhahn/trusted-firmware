@@ -104,6 +104,6 @@ other command answers "unknown command"; use serial for those.
 ## If the device does not connect
 
 - Check that the network block was written: read it back over serial with
-  `EEPROM_READ` at `0x0C0`.
+  `EEPROM_READ` at `0x140`.
 - Check `ETH_CHIP` against the shield.
 - The device retries on a backoff that grows to a minute. It never stops trying.

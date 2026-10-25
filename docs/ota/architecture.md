@@ -187,10 +187,11 @@ boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
   map follow-up #125). tfw-boot rebuilds the payload from the trailer and the
   floor; a `MARK` whose signature fails is cleared and reported `FAILED`, as a
   refused image is, and a confirm request whose signature fails is no confirm,
-  so the trial rolls back. Until #125 the confirm request has no room for the
-  signature: `OTA_CONFIRM` takes it from `OTA_AUTH` and drops it
-  (`src/core/ota_ctl.c`), and tfw-boot settles a confirm request on its magic,
-  CRC and measurement alone (`boot/boot_swap.c`, `confirm_requested`).
+  so the trial rolls back. `OTA_CONFIRM` stores the signature `OTA_AUTH` held in
+the 75-byte confirm request (`src/core/ota_ctl.c`, #231), and tfw-boot settles
+the request only when its magic, CRC and measurement match and that signature
+verifies over the Sig_structure it rebuilds from the primary's trailer, with
+the image path's key and verifier (`boot/boot_swap.c`, `confirm_requested`).
 - **The confirm keeps the trial deadline** (PR #139 review, P1). An
   application that cannot verify the confirm signature itself must not end the
   trial on it: `OTA_AUTH` takes any 64 bytes, so a confirm that stopped the
@@ -491,13 +492,11 @@ reads idle: nothing is moved on a guess. The gate judges the primary as it
 stands, and a half-moved primary is refused into recovery, where a new image
 swaps in whole.
 
-The journal makes the 2560's bootloader-owned EEPROM reach past the wire's
-`EEPROMReservedEnd` (`0xC0`). The rows `0x0E0`–`0x0E9` are the board profile's
-`TFW_BOOT_EE_EXTRA_BASE` and `TFW_BOOT_EE_EXTRA_LEN`, and the firmware refuses
-host writes there: `EEPROM_WRITE` answers `TFW_ERR_PROTECTED_REGION`, and
-`EEPROM_READ` takes the same auth gate as the platform block
-(`src/caps/storage.c`). Raising the bound to cover the journal is with the
-owner (the ADR's open question 12).
+The journal (`0x0E0`–`0x0E9`) and the confirm request (`0x0EA`–`0x134`) lie
+inside tfw-boot's EEPROM, which ends at the wire's `EEPROMReservedEnd`
+(`0x140`) on every board (#125). The firmware refuses host writes there:
+`EEPROM_WRITE` answers `TFW_ERR_PROTECTED_REGION`, and `EEPROM_READ` takes the
+same auth gate as the platform block (`src/caps/storage.c`).
 
 `main()` makes three calls around the trial. Each changes nothing on a board
 without the slots, where `boot_swap_none.c` is linked.

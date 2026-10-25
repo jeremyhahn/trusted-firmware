@@ -45,7 +45,7 @@
 
 static uint8_t *store;    /* TFW_NOR_MODEL_SIZE: the part as loaded */
 static uint8_t *app;      /* TFW_BOOT_APP_SIZE: the running image */
-static uint8_t  ee[TFW_BOOT_EE_LEN];
+static uint8_t  ee[TFW_BOOT_EE_BLOCK_LEN];
 static char     why[96];
 static uint32_t rng;
 
@@ -89,7 +89,7 @@ static void load(void)
     p.rollback_floor = 7u;
     p.boot_state     = TFW_BOOT_STATE_GOOD;
     tfw_boot_platform_serialise(&p, ee);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, ee, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, ee, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
     tfw_nor_model_clear_spans();
 }
 
@@ -208,7 +208,7 @@ static void never_acted_on(void)
     TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_STATE, call(tfw_otactl_cmd_activate, &m1, 1u, out), why);
     TEST_ASSERT_FALSE_MESSAGE(marked(), why);
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(0u, tfw_sys_reset_pending(), why);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(ee, tfw_mock_eeprom() + TFW_BOOT_EE_BASE, TFW_BOOT_EE_LEN, why);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(ee, tfw_mock_eeprom() + TFW_BOOT_EE_BASE, TFW_BOOT_EE_BLOCK_LEN, why);
 }
 
 /* Seeded running images over seeded stale PREVs: the copy is exact. */
@@ -292,7 +292,7 @@ static void test_a_torn_backup_behind_begin_is_never_acted_on(void)
         tfw_nor_model_reset();
         tfw_nor_model_load(0u, store, TFW_NOR_MODEL_SIZE);
         tfw_nor_model_clear_spans();
-        tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, ee, (uint8_t)TFW_BOOT_EE_LEN);
+        tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, ee, (uint8_t)TFW_BOOT_EE_BLOCK_LEN);
         tfw_nor_shim_fail(nth, FAULT);
         tfw_stage_init();   /* a boot: a spent OTA_BEGIN budget would refuse before the cut (#232) */
         TEST_ASSERT_NOT_EQUAL_MESSAGE(TFW_OK, begin(), why);

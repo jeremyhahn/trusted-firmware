@@ -16,7 +16,7 @@
 #include "boot_platform.h"
 #include "bake.h"
 
-static const uint8_t WANT[TFW_BOOT_EE_LEN] = {
+static const uint8_t WANT[TFW_BOOT_EE_BLOCK_LEN] = {
     0x54, 0x46, 0x50, 0x52, 0x02,
     [52] = 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
            0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10,
@@ -25,7 +25,7 @@ static const uint8_t WANT[TFW_BOOT_EE_LEN] = {
 
 /* ------------------------------------------------- the three HAL functions */
 
-static uint8_t        ee[TFW_BOOT_EE_LEN];
+static uint8_t        ee[TFW_BOOT_EE_BLOCK_LEN];
 static unsigned       reads;
 static unsigned       read_fails_at;      /* the 1-based read that fails; 0 none */
 static uint16_t       first_read_addr;
@@ -97,11 +97,11 @@ void setUp(void)
 void tearDown(void) {}
 
 /* WANT with a different serial and a CRC to match. */
-static void other_valid_block(uint8_t out[TFW_BOOT_EE_LEN])
+static void other_valid_block(uint8_t out[TFW_BOOT_EE_BLOCK_LEN])
 {
     tfw_boot_platform_t p;
 
-    memcpy(out, WANT, TFW_BOOT_EE_LEN);
+    memcpy(out, WANT, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(out, &p));
     p.serial[0] ^= 0x5Au;
     tfw_boot_platform_serialise(&p, out);
@@ -116,11 +116,11 @@ static void test_a_blank_region_is_read_written_and_read_back_whole(void)
     TEST_ASSERT_EQUAL_UINT(2u, reads);
     TEST_ASSERT_EQUAL_UINT16(TFW_BOOT_EE_BASE, first_read_addr);
     TEST_ASSERT_EQUAL_UINT16(TFW_BOOT_EE_BASE, read_addr);
-    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_LEN, read_len);
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_BLOCK_LEN, read_len);
     TEST_ASSERT_EQUAL_UINT(1u, writes);
     TEST_ASSERT_EQUAL_UINT16(TFW_BOOT_EE_BASE, write_addr);
-    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_LEN, write_len);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, ee, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_BLOCK_LEN, write_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, ee, TFW_BOOT_EE_BLOCK_LEN);
 }
 
 /* A write the part reports failed is not "baked", even if the cells took it --
@@ -148,7 +148,7 @@ static void test_a_readback_that_cannot_be_read_is_readback_failed(void)
  * comparison can tell; the parse alone would call it baked. */
 static void test_a_readback_of_another_valid_block_is_readback_failed(void)
 {
-    uint8_t other[TFW_BOOT_EE_LEN];
+    uint8_t other[TFW_BOOT_EE_BLOCK_LEN];
 
     other_valid_block(other);
     write_lands = other;
@@ -169,9 +169,9 @@ static void test_an_unreadable_region_is_refused_after_one_read(void)
 /* An invalid carried block is refused before the region is even read. */
 static void test_an_invalid_carried_block_is_refused_before_any_read(void)
 {
-    uint8_t bad[TFW_BOOT_EE_LEN];
+    uint8_t bad[TFW_BOOT_EE_BLOCK_LEN];
 
-    memcpy(bad, WANT, TFW_BOOT_EE_LEN);
+    memcpy(bad, WANT, TFW_BOOT_EE_BLOCK_LEN);
     bad[TFW_BOOT_EE_O_MAGIC] ^= 0x01u;
 
     TEST_ASSERT_EQUAL(TFW_BAKE_REFUSED, tfw_bake_run(bad));
@@ -181,7 +181,7 @@ static void test_an_invalid_carried_block_is_refused_before_any_read(void)
 
 static void test_its_own_block_is_already_after_one_read(void)
 {
-    memcpy(ee, WANT, TFW_BOOT_EE_LEN);
+    memcpy(ee, WANT, TFW_BOOT_EE_BLOCK_LEN);
 
     TEST_ASSERT_EQUAL(TFW_BAKE_ALREADY, tfw_bake_run(WANT));
     TEST_ASSERT_EQUAL_UINT(1u, reads);
@@ -225,7 +225,7 @@ static void test_the_serial_is_every_byte_in_lowercase_hex(void)
         0x00, 0xFF, 0x10, 0xF0, 0xA5, 0x5A, 0x0F, 0x01,
         0xE1, 0xD2, 0xC3, 0xB4, 0x96, 0x87, 0x78, 0xFF,
     };
-    uint8_t block[TFW_BOOT_EE_LEN];
+    uint8_t block[TFW_BOOT_EE_BLOCK_LEN];
 
     memset(block, 0xEE, sizeof block);
     memcpy(&block[TFW_BOOT_EE_O_SERIAL], serial, sizeof serial);

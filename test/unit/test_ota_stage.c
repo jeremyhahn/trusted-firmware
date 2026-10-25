@@ -262,7 +262,7 @@ static void test_init_parks_selects_before_any_transfer(void)
 
 static void put_block_flags(uint8_t boot_state, uint8_t ota_state, uint8_t flags)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
 
     memset(raw, 0, sizeof raw);
@@ -272,7 +272,7 @@ static void put_block_flags(uint8_t boot_state, uint8_t ota_state, uint8_t flags
     p.ota_state      = ota_state;
     raw[TFW_BOOT_EE_O_FLAGS] = flags;
     tfw_boot_platform_serialise(&p, raw);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 }
 
 static void put_block(uint8_t boot_state, uint8_t ota_state)
@@ -280,9 +280,9 @@ static void put_block(uint8_t boot_state, uint8_t ota_state)
     put_block_flags(boot_state, ota_state, 0u);
 }
 
-static void get_block(uint8_t raw[TFW_BOOT_EE_LEN])
+static void get_block(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN])
 {
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 }
 
 static tfw_status_t ctl(tfw_status_t (*fn)(tfw_reader_t *, tfw_writer_t *),
@@ -604,7 +604,7 @@ static void test_activate_mode_1_still_marks_and_resets(void)
 
 static void test_activate_fails_closed_on_an_unverifiable_block(void)
 {
-    uint8_t m1 = 1u, out[44], n, before[TFW_BOOT_EE_LEN], after[TFW_BOOT_EE_LEN];
+    uint8_t m1 = 1u, out[44], n, before[TFW_BOOT_EE_BLOCK_LEN], after[TFW_BOOT_EE_BLOCK_LEN];
 
     put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     build(512u, 200u);
@@ -616,7 +616,7 @@ static void test_activate_fails_closed_on_an_unverifiable_block(void)
     authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     get_block(after);
-    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_FALSE(marked());
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
     expect_status(TFW_STAGE_FAILED, 512u);
@@ -627,7 +627,7 @@ static void test_activate_fails_closed_on_an_unverifiable_block(void)
     authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     get_block(after);
-    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_FALSE(marked());
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
     /* In TRIAL: the running trial is confirmed or failed first. */
@@ -636,7 +636,7 @@ static void test_activate_fails_closed_on_an_unverifiable_block(void)
     authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     get_block(after);
-    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_FALSE(marked());
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
 }
@@ -645,7 +645,7 @@ static void test_activate_fails_closed_on_an_unverifiable_block(void)
  * its own, but it is not the measurement END checked, so ACTIVATE refuses. */
 static void test_activate_takes_only_the_image_end_verified(void)
 {
-    uint8_t  m0 = 0u, out[44], n, before[TFW_BOOT_EE_LEN], after[TFW_BOOT_EE_LEN];
+    uint8_t  m0 = 0u, out[44], n, before[TFW_BOOT_EE_BLOCK_LEN], after[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t off;
 
     put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
@@ -662,7 +662,7 @@ static void test_activate_takes_only_the_image_end_verified(void)
     authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
     get_block(after);
-    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_MEMORY(before, after, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_FALSE(marked());
 }
 
@@ -670,7 +670,7 @@ static void test_activate_takes_only_the_image_end_verified(void)
  * (include/tfw/hal.h: tfw-boot is its one writer). */
 static void test_confirm_writes_its_request_and_never_the_block(void)
 {
-    uint8_t   out[44], n, raw[TFW_BOOT_EE_LEN], before[TFW_BOOT_EE_LEN];
+    uint8_t   out[44], n, raw[TFW_BOOT_EE_BLOCK_LEN], before[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t   block[TFW_BOOT_HANDOFF_LEN], cdi[32] = { 0 }, m[32];
     uint8_t  *rec = tfw_mock_eeprom() + TFW_BOOT_CONFIRM_ADDR;
     uint16_t  crc;
@@ -693,12 +693,70 @@ static void test_confirm_writes_its_request_and_never_the_block(void)
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(0u, n);
     get_block(raw);
-    TEST_ASSERT_EQUAL_MEMORY(before, raw, TFW_BOOT_EE_LEN);   /* still TRIAL */
+    TEST_ASSERT_EQUAL_MEMORY(before, raw, TFW_BOOT_EE_BLOCK_LEN);   /* still TRIAL */
     TEST_ASSERT_EQUAL_HEX8(TFW_BOOT_CONFIRM_MAGIC, rec[0]);
     TEST_ASSERT_EQUAL_MEMORY(m, &rec[TFW_BOOT_CONFIRM_O_MEAS], TFW_BOOT_CONFIRM_MEAS_LEN);
     crc = tfw_crc16(rec, TFW_BOOT_CONFIRM_O_CRC);
     TEST_ASSERT_EQUAL_HEX8((uint8_t)crc, rec[TFW_BOOT_CONFIRM_O_CRC]);
     TEST_ASSERT_EQUAL_HEX8((uint8_t)(crc >> 8), rec[TFW_BOOT_CONFIRM_O_CRC + 1u]);
+}
+
+/* A trial image tfw-boot handed off, measuring 0x3C..., for CONFIRM to bind. */
+static void hand_off_trial(void)
+{
+    uint8_t block[TFW_BOOT_HANDOFF_LEN], cdi[32] = { 0 }, m[32];
+
+    memset(m, 0x3Cu, sizeof m);
+    put_block(TFW_BOOT_STATE_TRIAL, TFW_BOOT_OTA_IDLE);
+    tfw_boot_handoff_build(block, 0u, cdi, m, 3u, 0u);
+    memcpy(tfw_mock_handoff(), block, sizeof block);
+    tfw_boot_handoff_init();
+}
+
+/* #231: the request carries the signature OTA_AUTH held, after the
+ * measurement, for tfw-boot to verify, and its CRC covers all 73 bytes before
+ * it. The record is the 75 bytes at TFW_BOOT_CONFIRM_ADDR, inside the span
+ * EEPROM_WRITE refuses, and the byte after it is left alone. */
+static void test_confirm_stores_the_held_signature_in_its_request(void)
+{
+    uint8_t      sig[TFW_OTA_AUTH_SIG_LEN], out[44], n, i, m[TFW_BOOT_CONFIRM_MEAS_LEN];
+    uint8_t     *rec = tfw_mock_eeprom() + TFW_BOOT_CONFIRM_ADDR;
+    uint16_t     crc;
+    tfw_reader_t r;
+    tfw_writer_t w;
+
+    TEST_ASSERT_EQUAL_UINT(75u, TFW_BOOT_CONFIRM_LEN);
+    TEST_ASSERT_TRUE(TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN <= TFW_BOOT_EE_LEN);
+    for (i = 0u; i < sizeof sig; i++) {
+        sig[i] = (uint8_t)(i * 7u + 1u);
+    }
+    memset(m, 0x3Cu, sizeof m);
+    hand_off_trial();
+    rec[TFW_BOOT_CONFIRM_LEN] = 0x5Au;
+    tfw_reader_init(&r, sig, (uint8_t)sizeof sig);
+    tfw_writer_init(&w, out, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
+
+    TEST_ASSERT_EQUAL_HEX8(TFW_BOOT_CONFIRM_MAGIC, rec[0]);
+    TEST_ASSERT_EQUAL_MEMORY(m, &rec[TFW_BOOT_CONFIRM_O_MEAS], TFW_BOOT_CONFIRM_MEAS_LEN);
+    TEST_ASSERT_EQUAL_MEMORY(sig, &rec[TFW_BOOT_CONFIRM_O_SIG], TFW_BOOT_CONFIRM_SIG_LEN);
+    crc = tfw_crc16(rec, 73u);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)crc, rec[73]);
+    TEST_ASSERT_EQUAL_HEX8((uint8_t)(crc >> 8), rec[74]);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, rec[TFW_BOOT_CONFIRM_LEN]);
+}
+
+/* #231: a confirm with no signature held writes nothing at all -- not the
+ * record, not the block, not a byte of the reserved EEPROM. */
+static void test_confirm_without_a_held_signature_writes_nothing(void)
+{
+    uint8_t out[44], n, before[TFW_BOOT_EE_LEN];
+
+    hand_off_trial();
+    memcpy(before, tfw_mock_eeprom(), sizeof before);
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_confirm, NULL, 0u, out, &n));
+    TEST_ASSERT_EQUAL_MEMORY(before, tfw_mock_eeprom(), sizeof before);
 }
 
 /* On a one-slot board (#52), OTA_BEGIN copies the running image -- the whole
@@ -780,7 +838,7 @@ static void test_activate_refuses_a_corrupted_platform_block(void)
 
     put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     authorize();
-    tfw_mock_eeprom()[TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN / 2u] ^= 0xFFu;
+    tfw_mock_eeprom()[TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN / 2u] ^= 0xFFu;
     TEST_ASSERT_EQUAL(TFW_ERR_CRC, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
     TEST_ASSERT_FALSE(marked());
 }
@@ -1209,6 +1267,8 @@ int main(void)
     RUN_TEST(test_activate_fails_closed_on_an_unverifiable_block);
     RUN_TEST(test_activate_takes_only_the_image_end_verified);
     RUN_TEST(test_confirm_writes_its_request_and_never_the_block);
+    RUN_TEST(test_confirm_stores_the_held_signature_in_its_request);
+    RUN_TEST(test_confirm_without_a_held_signature_writes_nothing);
     RUN_TEST(test_begin_backs_the_running_image_up_to_prev);
     RUN_TEST(test_activate_and_confirm_need_ota_auth);
     RUN_TEST(test_activate_refuses_a_corrupted_platform_block);

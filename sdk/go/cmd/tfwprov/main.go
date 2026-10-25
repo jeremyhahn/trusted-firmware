@@ -63,7 +63,7 @@ a separate mode, taking no port and no --config:
                 --endpoint <a.b.c.d:port> --out <file.eep>   write a network-block .eep image
                 [--mask <a.b.c.d> in place of the /prefix]
                 [--dhcp in place of --ip/--mask/--gateway: leased by a DHCP=1 build]
-  both together write one image of both blocks, EEPROM [0x000, 0x0E0)
+  both together write one image of both blocks, EEPROM [0x000, 0x0C0) and [0x140, 0x160)
 
 the provisioning record, a JSON claims set (RFC 9711 ueid, RFC 7800 cnf.jwk):
 
@@ -94,7 +94,7 @@ func main() {
 		hashHex    = flag.String("pubkey-hash", "", "--bake-eeprom: 32-byte SHA-256 of the bootloader's Ed25519 pubkey, hex (element tier: omit)")
 		opKeyHex   = flag.String("operator-pubkey", "", "--bake-eeprom: 64-byte P-256 operator public key (X||Y), hex -- the AUTH_CHALLENGE/AUTH_RESPONSE trust anchor, element tier only")
 		outPath    = flag.String("out", "", "--bake-eeprom/--bake-netblock: the .eep file to write")
-		bakeNet    = flag.Bool("bake-netblock", false, "write a network-block .eep image at 0x0C0; touches no device (with --bake-eeprom: one image of both)")
+		bakeNet    = flag.Bool("bake-netblock", false, "write a network-block .eep image at 0x140; touches no device (with --bake-eeprom: one image of both)")
 		recordPath = flag.String("record", "", "--bake-eeprom: start a provisioning record (JSON: EAT ueid); --commit/--verify: join the DeviceID point to it (cnf.jwk)")
 		nf         netblockFlags
 	)

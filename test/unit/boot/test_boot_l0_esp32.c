@@ -311,7 +311,7 @@ static void test_an_unprovisioned_pin_is_refused(void)
     tfw_boot_trailer_t out;
 
     /* An erased tfw_plat: no block, so no pin. */
-    memset(&tfw_boot_mock_nvm()[TFW_BOOT_EE_BASE], 0xFF, TFW_BOOT_EE_LEN);
+    memset(&tfw_boot_mock_nvm()[TFW_BOOT_EE_BASE], 0xFF, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, gate(0u, &out));
 }
 

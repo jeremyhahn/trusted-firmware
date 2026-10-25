@@ -57,7 +57,7 @@ tfw_status_t tfw_l0_gate(uint32_t base, uint32_t slot_size, uint32_t esp_len,
                          uint32_t floor, tfw_boot_trailer_t *out)
 {
     uint8_t      raw[TFW_BOOT_TRAILER_LEN];
-    uint8_t      ee[TFW_BOOT_EE_LEN];
+    uint8_t      ee[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t plat;
     uint8_t      held[TFW_BOOT_MEASURE_LEN];
     tfw_status_t st;
@@ -102,7 +102,7 @@ tfw_status_t tfw_l0_gate(uint32_t base, uint32_t slot_size, uint32_t esp_len,
      * what stops a rewritten bootloader from bringing its own key.
      * NOT_PROVISIONED for the reason that function gives: the pairing is
      * wrong, not the image. */
-    st = tfw_boot_nvm_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    st = tfw_boot_nvm_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_BLOCK_LEN);
     if (st == TFW_OK) {
         st = tfw_boot_platform_parse(ee, &plat);
     }

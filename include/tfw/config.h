@@ -274,12 +274,13 @@
 #ifndef TFW_EEPROM_SIZE
 #define TFW_EEPROM_SIZE 1024u
 #endif
-/* EEPROM the bootloader keeps ABOVE the platform block (include/tfw/boot.h's
+/* EEPROM a bootloader keeps ABOVE the reserved end (include/tfw/boot.h's
  * TFW_BOOT_EE_LEN, the wire's EEPROMReservedEnd), which EEPROM_WRITE refuses
- * as it refuses the block itself and EEPROM_READ gates the same way. A board
- * whose bootloader keeps state there names the range -- the ATmega2560's
- * swap-move journal. Every other board says nothing and gets an empty range at
- * the block's end, which the block's own check already covers, so the test
+ * as it refuses the reserved span itself and EEPROM_READ gates the same way. A
+ * board whose bootloader keeps state there names the range. None does since
+ * the end moved to 0x140 (#125): the ATmega2560's swap journal and confirm
+ * request now lie below it. Every board says nothing and gets an empty range at
+ * the reserved end, which the block's own check already covers, so the test
  * folds away; an empty range at 0 would be a comparison against zero that
  * -Wtype-limits rejects. Read only where include/tfw/boot.h is in scope. */
 #ifndef TFW_BOOT_EE_EXTRA_BASE

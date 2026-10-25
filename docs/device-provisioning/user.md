@@ -55,8 +55,8 @@ care about — several steps below cannot be undone.
    omit it on a soft-tier or `CRYPTO=none` build, where nothing ever reads
    the field. See [`cli.md`](cli.md).
 
-   An Ethernet board (`ETH=1`) also needs its network block at `0x0C0`, right
-   after the platform block. `--bake-netblock` encodes it with the SDK's
+   An Ethernet board (`ETH=1`) also needs its network block at `0x140`
+   (`TFW_NETCFG_ADDR`), right after tfw-boot's reserved EEPROM. `--bake-netblock` encodes it with the SDK's
    `NetConfig` encoder, and given with `--bake-eeprom` it writes both blocks as
    one image, the 224 bytes `[0x000, 0x0E0)`:
 
@@ -67,7 +67,7 @@ care about — several steps below cannot be undone.
    avrdude -c <isp-prog> -p <part> -D -U eeprom:w:platform.eep:i
    ```
 
-   `--bake-netblock` alone writes only `[0x0C0, 0x0E0)`, for a part whose
+   `--bake-netblock` alone writes only `[0x140, 0x160)`, for a part whose
    platform block is already right. A running device can also take the block
    over serial (`tfwctl netcfg set`, or `WriteNetConfig` from Go); see
    [../ethernet-transport/user.md](../ethernet-transport/user.md).

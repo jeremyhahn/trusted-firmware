@@ -31,7 +31,7 @@ stager ([OTA API](../ota/api.md)).
 
 ## Network block
 
-32 bytes at EEPROM address `0x0C0`, written over serial with `EEPROM_WRITE`.
+32 bytes at EEPROM address `0x140` (`TFW_NETCFG_ADDR`), written over serial with `EEPROM_WRITE`.
 A write that overlaps the block calls `tfw_auth_gate` first (#233). On the
 element tier, outside an operator auth session, it answers
 `TFW_ERR_AUTH_REQUIRED` (17) and writes nothing
@@ -98,12 +98,12 @@ type NetConfigError struct {
     Field, Reason string
 }
 
-// NetConfigAddr is the address firmware before #231 reads the block at
-// (#231 moves it to 0x140). tfwsim.StartElementEthernet does not use it: it
+// NetConfigAddr is EEPROMReservedEnd, 0x140: the block starts where the
+// bootloader's reserved span ends (#231). tfwsim.StartElementEthernet does not use it: it
 // asks the simulator binary, `tfwsim --netcfg-addr`, where its build reads
 // the block.
 const (
-    NetConfigAddr = 0x0C0
+    NetConfigAddr = EEPROMReservedEnd // 0x140
     NetConfigLen  = 32
 )
 

@@ -86,7 +86,7 @@ static tfw_status_t reload(void)
 
 static void reset_with(uint8_t boot_state, uint32_t ee_floor)
 {
-    uint8_t ee[TFW_BOOT_EE_LEN];
+    uint8_t ee[TFW_BOOT_EE_BLOCK_LEN];
 
     memset(ee, 0xFF, sizeof ee);
     memset(&plat, 0, sizeof plat);
@@ -94,7 +94,7 @@ static void reset_with(uint8_t boot_state, uint32_t ee_floor)
     plat.ota_state      = TFW_BOOT_OTA_IDLE;
     plat.rollback_floor = ee_floor;
     tfw_boot_platform_serialise(&plat, ee);
-    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL(TFW_OK, reload());
 }
 
@@ -165,7 +165,7 @@ void test_the_widest_step_moves_the_floor_and_one_past_it_does_not(void)
 /* Mutant: platform_write returns TFW_OK whatever tfw_boot_nvm_write said. */
 void test_a_refused_eeprom_write_is_not_a_stored_floor(void)
 {
-    uint8_t  before[TFW_BOOT_EE_LEN];
+    uint8_t  before[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t floor;
 
     reset_with(TFW_BOOT_STATE_GOOD, 3u);
@@ -235,7 +235,7 @@ void test_seeded_settles_store_the_floor_the_authority_holds(void)
 
     rng = 0x243F6A88uL;
     for (uint32_t i = 0u; i < ITERS; i++) {
-        uint8_t      before[TFW_BOOT_EE_LEN];
+        uint8_t      before[TFW_BOOT_EE_BLOCK_LEN];
         uint32_t     f_ee, f, floor, v, want;
         unsigned     fault;
         int          bites;

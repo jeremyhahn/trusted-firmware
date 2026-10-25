@@ -21,7 +21,7 @@
 #include "boot_platform.h"
 #include "bake.h"
 
-static const uint8_t WANT[TFW_BOOT_EE_LEN] = {
+static const uint8_t WANT[TFW_BOOT_EE_BLOCK_LEN] = {
     0x54, 0x46, 0x50, 0x52, 0x02,
     [52] = 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
            0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10,
@@ -34,8 +34,8 @@ static const uint8_t WANT[TFW_BOOT_EE_LEN] = {
 void setUp(void)
 {
     tfw_mock_reset();
-    memset(tfw_mock_eeprom() + TFW_BOOT_EE_LEN, SENTINEL,
-           tfw_mock_eeprom_size() - TFW_BOOT_EE_LEN);
+    memset(tfw_mock_eeprom() + TFW_BOOT_EE_BLOCK_LEN, SENTINEL,
+           tfw_mock_eeprom_size() - TFW_BOOT_EE_BLOCK_LEN);
 }
 void tearDown(void) {}
 
@@ -44,7 +44,7 @@ static void assert_outside_untouched(void)
     const uint8_t *ee = tfw_mock_eeprom();
     size_t         i;
 
-    for (i = TFW_BOOT_EE_LEN; i < tfw_mock_eeprom_size(); i++) {
+    for (i = TFW_BOOT_EE_BLOCK_LEN; i < tfw_mock_eeprom_size(); i++) {
         TEST_ASSERT_EQUAL_HEX8(SENTINEL, ee[i]);
     }
 }
@@ -59,11 +59,11 @@ static void assert_nothing_written(void)
 
 /* WANT with a different serial and a CRC to match: a real identity, not
  * this one. */
-static void other_valid_block(uint8_t out[TFW_BOOT_EE_LEN])
+static void other_valid_block(uint8_t out[TFW_BOOT_EE_BLOCK_LEN])
 {
     tfw_boot_platform_t p;
 
-    memcpy(out, WANT, TFW_BOOT_EE_LEN);
+    memcpy(out, WANT, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(out, &p));
     p.serial[TFW_BOOT_SERIAL_LEN - 1u] ^= 0xFFu;
     tfw_boot_platform_serialise(&p, out);
@@ -86,11 +86,11 @@ static void test_a_blank_region_is_baked_with_exactly_192_bytes(void)
     uint16_t hi;
 
     TEST_ASSERT_EQUAL(TFW_BAKE_BAKED, tfw_bake_run(WANT));
-    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_LEN, tfw_mock_eeprom_written(&lo, &hi));
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_BLOCK_LEN, tfw_mock_eeprom_written(&lo, &hi));
     TEST_ASSERT_EQUAL_UINT16(TFW_BOOT_EE_BASE, lo);
-    TEST_ASSERT_EQUAL_UINT16(TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN, hi);
+    TEST_ASSERT_EQUAL_UINT16(TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN, hi);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, tfw_mock_eeprom() + TFW_BOOT_EE_BASE,
-                                 TFW_BOOT_EE_LEN);
+                                 TFW_BOOT_EE_BLOCK_LEN);
     assert_outside_untouched();
 }
 
@@ -108,8 +108,8 @@ static void test_a_torn_region_is_baked(void)
     TEST_ASSERT_EQUAL(TFW_ERR_CRC, tfw_boot_platform_parse(ee, &p));
 
     TEST_ASSERT_EQUAL(TFW_BAKE_BAKED, tfw_bake_run(WANT));
-    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_LEN, tfw_mock_eeprom_written(&lo, &hi));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, ee, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_BLOCK_LEN, tfw_mock_eeprom_written(&lo, &hi));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, ee, TFW_BOOT_EE_BLOCK_LEN);
     assert_outside_untouched();
 }
 
@@ -117,25 +117,25 @@ static void test_a_torn_region_is_baked(void)
  * own block and writes nothing: no wear, no window for a torn write. */
 static void test_an_equal_block_is_already_and_writes_nothing(void)
 {
-    memcpy(tfw_mock_eeprom(), WANT, TFW_BOOT_EE_LEN);
+    memcpy(tfw_mock_eeprom(), WANT, TFW_BOOT_EE_BLOCK_LEN);
 
     TEST_ASSERT_EQUAL(TFW_BAKE_ALREADY, tfw_bake_run(WANT));
     assert_nothing_written();
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, tfw_mock_eeprom(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, tfw_mock_eeprom(), TFW_BOOT_EE_BLOCK_LEN);
     assert_outside_untouched();
 }
 
 /* A device that already has a different identity keeps it. */
 static void test_a_different_valid_block_is_refused_and_left_alone(void)
 {
-    uint8_t other[TFW_BOOT_EE_LEN];
+    uint8_t other[TFW_BOOT_EE_BLOCK_LEN];
 
     other_valid_block(other);
-    memcpy(tfw_mock_eeprom(), other, TFW_BOOT_EE_LEN);
+    memcpy(tfw_mock_eeprom(), other, TFW_BOOT_EE_BLOCK_LEN);
 
     TEST_ASSERT_EQUAL(TFW_BAKE_REFUSED, tfw_bake_run(WANT));
     assert_nothing_written();
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(other, tfw_mock_eeprom(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(other, tfw_mock_eeprom(), TFW_BOOT_EE_BLOCK_LEN);
     assert_outside_untouched();
 }
 
@@ -161,9 +161,9 @@ static void test_an_unreadable_region_is_refused_and_not_written(void)
 /* A carried block the bootloader would reject is never written. */
 static void test_an_invalid_carried_block_is_refused_before_any_write(void)
 {
-    uint8_t bad[TFW_BOOT_EE_LEN];
+    uint8_t bad[TFW_BOOT_EE_BLOCK_LEN];
 
-    memcpy(bad, WANT, TFW_BOOT_EE_LEN);
+    memcpy(bad, WANT, TFW_BOOT_EE_BLOCK_LEN);
     bad[TFW_BOOT_EE_O_CRC] ^= 0x01u;
 
     TEST_ASSERT_EQUAL(TFW_BAKE_REFUSED, tfw_bake_run(bad));
@@ -177,12 +177,12 @@ static void test_a_region_in_an_unknown_layout_is_baked(void)
     uint8_t            *ee = tfw_mock_eeprom();
     tfw_boot_platform_t p;
 
-    memcpy(ee, WANT, TFW_BOOT_EE_LEN);
+    memcpy(ee, WANT, TFW_BOOT_EE_BLOCK_LEN);
     ee[TFW_BOOT_EE_O_LAYOUT] = (uint8_t)(TFW_BOOT_EE_VERSION + 1u);
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_platform_parse(ee, &p));
 
     TEST_ASSERT_EQUAL(TFW_BAKE_BAKED, tfw_bake_run(WANT));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, ee, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(WANT, ee, TFW_BOOT_EE_BLOCK_LEN);
     assert_outside_untouched();
 }
 

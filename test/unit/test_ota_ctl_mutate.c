@@ -80,7 +80,7 @@ static void build(void)
 
 static void put_block(uint8_t boot_state)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
 
     memset(&p, 0, sizeof p);
@@ -88,7 +88,7 @@ static void put_block(uint8_t boot_state)
     p.boot_state     = boot_state;
     p.ota_state      = TFW_BOOT_OTA_IDLE;
     tfw_boot_platform_serialise(&p, raw);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 }
 
 static void reset_all(void)
@@ -568,7 +568,7 @@ static void test_every_order_of_the_control_steps_answers_as_the_model(void)
     uint32_t count;
     uint32_t code;
     unsigned activated;
-    uint8_t  before[TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN];
+    uint8_t  before[TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN];
 
     memcpy(before, tfw_mock_eeprom(), sizeof before);
     activated  = all("", MAX_STEPS);
@@ -584,7 +584,7 @@ static void test_every_order_of_the_control_steps_answers_as_the_model(void)
         }
     }
     TEST_ASSERT_TRUE(activated > 0u);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(before, tfw_mock_eeprom(), TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(before, tfw_mock_eeprom(), TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN);
 }
 
 int main(void)

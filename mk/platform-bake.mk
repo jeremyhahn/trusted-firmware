@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: commercial
 #
 # The bench bake image (#7): writes one platform identity block into
-# [TFW_BOOT_EE_BASE, TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN) on a part that still
+# [TFW_BOOT_EE_BASE, TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN) on a part that still
 # runs a stock serial bootloader, prints one line, halts. See
 # docs/device-provisioning/engineering.md.
 #
@@ -72,8 +72,8 @@ $(PLATBAKE_GEN)/block.c: $(TFWPROV_BIN) FORCE
 	   echo 'const uint8_t tfw_bake_block[] = {'; \
 	   od -An -v -tx1 $(PLATBAKE_GEN)/block.bin | sed 's/[0-9a-f][0-9a-f]/0x&,/g'; \
 	   echo '};'; \
-	   echo '_Static_assert(sizeof tfw_bake_block == TFW_BOOT_EE_LEN,'; \
-	   echo '               "tfwprov wrote a block that is not TFW_BOOT_EE_LEN bytes");'; \
+	   echo '_Static_assert(sizeof tfw_bake_block == TFW_BOOT_EE_BLOCK_LEN,'; \
+	   echo '               "tfwprov wrote a block that is not TFW_BOOT_EE_BLOCK_LEN bytes");'; \
 	 } > $@.tmp
 	@if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
 

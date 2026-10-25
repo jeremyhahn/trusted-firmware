@@ -10,7 +10,7 @@
  *
  * Deterministic: random records come from xorshift32 seeded with a literal,
  * and a failure prints the seed and the case. Every record is a heap buffer of
- * exactly TFW_BOOT_EE_LEN.
+ * exactly TFW_BOOT_EE_BLOCK_LEN.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,7 +51,7 @@ static void make_record(uint8_t *raw, uint8_t fill)
     unsigned            i;
 
     memset(&p, 0, sizeof p);
-    memset(raw, 0, TFW_BOOT_EE_LEN);
+    memset(raw, 0, TFW_BOOT_EE_BLOCK_LEN);
     for (i = 0u; i < TFW_BOOT_SERIAL_LEN; i++) { p.serial[i] = (uint8_t)(fill + i); }
     for (i = 0u; i < TFW_BOOT_OPERATOR_PUBKEY_LEN; i++) { p.operator_pubkey[i] = (uint8_t)(fill ^ (0x80u + i)); }
     p.rollback_floor = 3u;
@@ -61,7 +61,7 @@ static void make_record(uint8_t *raw, uint8_t fill)
 
 static void load(const uint8_t *raw)
 {
-    memcpy(tfw_mock_eeprom() + TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN);
+    memcpy(tfw_mock_eeprom() + TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_platform_id_init();
 }
 
@@ -96,9 +96,9 @@ static void expect_whole(const uint8_t *raw, const char *what, unsigned a)
 void setUp(void)
 {
     tfw_mock_reset();
-    rec_a = (uint8_t *)malloc(TFW_BOOT_EE_LEN);
-    rec_b = (uint8_t *)malloc(TFW_BOOT_EE_LEN);
-    mix   = (uint8_t *)malloc(TFW_BOOT_EE_LEN);
+    rec_a = (uint8_t *)malloc(TFW_BOOT_EE_BLOCK_LEN);
+    rec_b = (uint8_t *)malloc(TFW_BOOT_EE_BLOCK_LEN);
+    mix   = (uint8_t *)malloc(TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_NOT_NULL(rec_a);
     TEST_ASSERT_NOT_NULL(rec_b);
     TEST_ASSERT_NOT_NULL(mix);
@@ -120,8 +120,8 @@ static void test_platform_id_mutate_every_bit_flip_after_a_good_read_clears_the_
     uint8_t  key[TFW_BOOT_OPERATOR_PUBKEY_LEN];
     unsigned bit;
 
-    for (bit = 0u; bit < TFW_BOOT_EE_LEN * 8u; bit++) {
-        memcpy(mix, rec_b, TFW_BOOT_EE_LEN);
+    for (bit = 0u; bit < TFW_BOOT_EE_BLOCK_LEN * 8u; bit++) {
+        memcpy(mix, rec_b, TFW_BOOT_EE_BLOCK_LEN);
         mix[bit / 8u] ^= (uint8_t)(1u << (bit % 8u));
         if (!read_after_good(mix, key)) {
             /* A flip outside the CRC's span and the checked header still
@@ -139,11 +139,11 @@ static void test_platform_id_mutate_a_torn_or_cut_record_is_one_whole_record_or_
     uint8_t  key[TFW_BOOT_OPERATOR_PUBKEY_LEN];
     unsigned k, t;
 
-    for (k = 0u; k <= TFW_BOOT_EE_LEN; k++) {
+    for (k = 0u; k <= TFW_BOOT_EE_BLOCK_LEN; k++) {
         memcpy(mix, rec_b, k);
-        memcpy(&mix[k], &rec_a[k], TFW_BOOT_EE_LEN - k);
+        memcpy(&mix[k], &rec_a[k], TFW_BOOT_EE_BLOCK_LEN - k);
         expect_whole(mix, "torn", k);
-        if (memcmp(mix, rec_a, TFW_BOOT_EE_LEN) != 0 && memcmp(mix, rec_b, TFW_BOOT_EE_LEN) != 0) {
+        if (memcmp(mix, rec_a, TFW_BOOT_EE_BLOCK_LEN) != 0 && memcmp(mix, rec_b, TFW_BOOT_EE_BLOCK_LEN) != 0) {
             if (!read_after_good(mix, key)) {
                 printf("seed 0x%08lx: torn %u read as a record\n", (unsigned long)SEED, k);
                 TEST_FAIL_MESSAGE("a record torn between two writes was read");
@@ -151,8 +151,8 @@ static void test_platform_id_mutate_a_torn_or_cut_record_is_one_whole_record_or_
         }
         for (t = 0u; t < 2u; t++) {
             memcpy(mix, rec_b, k);
-            memset(&mix[k], tails[t], TFW_BOOT_EE_LEN - k);
-            if (k < TFW_BOOT_EE_LEN && !read_after_good(mix, key)) {
+            memset(&mix[k], tails[t], TFW_BOOT_EE_BLOCK_LEN - k);
+            if (k < TFW_BOOT_EE_BLOCK_LEN && !read_after_good(mix, key)) {
                 printf("seed 0x%08lx: cut %u tail 0x%02x read as a record\n", (unsigned long)SEED, k,
                        tails[t]);
                 TEST_FAIL_MESSAGE("a cut record was read");
@@ -186,7 +186,7 @@ static void test_platform_id_mutate_random_records_read_whole_or_not_at_all(void
 
     rng = SEED;
     for (run = 0u; run < RANDOM_RUNS; run++) {
-        for (i = 0u; i < TFW_BOOT_EE_LEN; i++) {
+        for (i = 0u; i < TFW_BOOT_EE_BLOCK_LEN; i++) {
             mix[i] = (uint8_t)rnd();
         }
         if (run & 1u) {

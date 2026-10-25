@@ -138,7 +138,7 @@ func startEthernetOn(t *testing.T, platform []byte,
 	}
 	block, err := cfg.MarshalBinary()
 	require.NoError(t, err)
-	eep := writeFile(t, "eeprom.bin", append(platform[:len(platform):len(platform)], block...))
+	eep := writeFile(t, "eeprom.bin", eepromImage(platform, block))
 
 	if start == nil {
 		start = func(args []string) *tfw.Device { return tfwsim.StartElementWith(t, args) }
@@ -228,12 +228,12 @@ func TestEthernetDeviceRefusesWhatIsNotOnTheAllowList(t *testing.T) {
 	p := startEthernet(t)
 
 	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, p.eth, "ping", "hello"), "ping over TCP")
-	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, p.eth, "eeprom-write", "0x100", "01020304"), "eeprom-write over TCP")
+	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, p.eth, "eeprom-write", "0x180", "01020304"), "eeprom-write over TCP")
 
 	var got struct {
 		Hex string `json:"hex"`
 	}
-	cliJSON(t, p.serial, &got, "eeprom-read", "0x100", "4")
+	cliJSON(t, p.serial, &got, "eeprom-read", "0x180", "4")
 	assert.NotEqual(t, "01020304", got.Hex, "a write refused over TCP reached the EEPROM")
 
 	var echo struct {

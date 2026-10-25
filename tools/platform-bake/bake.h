@@ -3,7 +3,7 @@
 /*
  * The bench bake image (#7): writes the platform identity block tfwprov
  * --bake-eeprom produced into [TFW_BOOT_EE_BASE, TFW_BOOT_EE_BASE +
- * TFW_BOOT_EE_LEN) on a part that still runs a stock serial bootloader, and says
+ * TFW_BOOT_EE_BLOCK_LEN) on a part that still runs a stock serial bootloader, and says
  * on the UART what it did. See docs/device-provisioning/engineering.md.
  *
  * NOT part of any application image. The application refuses EEPROM_WRITE over
@@ -28,7 +28,7 @@ typedef enum {
 /* The block, as tfwprov --bake-eeprom wrote it. Generated into the build
  * directory by mk/platform-bake.mk from tfwprov's own output; never encoded
  * here, so there is one encoder of the block and it is tfwprov. */
-extern const uint8_t tfw_bake_block[TFW_BOOT_EE_LEN];
+extern const uint8_t tfw_bake_block[TFW_BOOT_EE_BLOCK_LEN];
 
 /*
  * Bakes `want` into the region, once.
@@ -44,7 +44,7 @@ extern const uint8_t tfw_bake_block[TFW_BOOT_EE_LEN];
  * the image never writes a block the bootloader would reject. Nothing outside
  * the region is ever written.
  */
-tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_LEN]);
+tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_BLOCK_LEN]);
 
 /* "already", "refused", "baked", "readback-failed"; "unknown" otherwise. */
 const char *tfw_bake_result_name(tfw_bake_result_t r);
@@ -56,6 +56,6 @@ const char *tfw_bake_result_name(tfw_bake_result_t r);
  * The serial is want's, so the line names what the image carries whatever the
  * outcome. Returns once every byte is queued. */
 void tfw_bake_report(const char *board, tfw_bake_result_t r,
-                     const uint8_t want[TFW_BOOT_EE_LEN]);
+                     const uint8_t want[TFW_BOOT_EE_BLOCK_LEN]);
 
 #endif /* TFW_PLATFORM_BAKE_H */

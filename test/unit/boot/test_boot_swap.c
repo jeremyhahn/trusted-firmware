@@ -13,12 +13,15 @@
 #include "boot_hal.h"
 #include "boot_hal_mock.h"
 #include "boot_measure.h"
+#include "boot_platform.h"
 #include "boot_policy.h"
 #include "boot_recovery.h"
 #include "boot_stage.h"
 #include "boot_store.h"
 #include "boot_swap.h"
 #include "boot_trial.h"
+#include "boot_verify.h"
+#include "boot_verify_mock.h"
 #include "crc16.h"
 #include "frame.h"
 #include "../../model/spi_nor_model.h"
@@ -34,6 +37,7 @@ static uint8_t img_a[TFW_SWAP_SLOT_LEN];
 static uint8_t img_b[TFW_SWAP_SLOT_LEN];
 static unsigned stores_left = UINT_MAX;   /* platform stores until the power goes */
 static uint32_t refuse_at   = 0xFFFFFFFFu;   /* the slot base the gate refuses */
+static uint8_t  req_sig[TFW_BOOT_SIG_LEN];   /* the signature a confirm request carries */
 
 /* Two images that differ in every byte, with no period a shifted copy could
  * match by accident. */
@@ -73,6 +77,10 @@ void setUp(void)
     seed();
     stores_left = UINT_MAX;
     refuse_at   = 0xFFFFFFFFu;
+    memset(req_sig, 0x3C, sizeof req_sig);
+    tfw_boot_verify_mock_want(NULL);
+    tfw_boot_verify_mock_want_msg(NULL, 0u);
+    tfw_boot_verify_mock_pubkey(TFW_OK);
 }
 
 void tearDown(void) {}
@@ -866,6 +874,7 @@ static void build_request(uint8_t c[TFW_BOOT_CONFIRM_LEN], uint8_t magic, uint8_
     tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_MEASUREMENT,
                         &c[TFW_BOOT_CONFIRM_O_MEAS], TFW_BOOT_CONFIRM_MEAS_LEN);
     c[TFW_BOOT_CONFIRM_O_MEAS] ^= flip;
+    memcpy(&c[TFW_BOOT_CONFIRM_O_SIG], req_sig, TFW_BOOT_CONFIRM_SIG_LEN);
     crc = tfw_crc16(c, TFW_BOOT_CONFIRM_O_CRC);
     c[TFW_BOOT_CONFIRM_O_CRC]      = (uint8_t)crc;
     c[TFW_BOOT_CONFIRM_O_CRC + 1u] = (uint8_t)(crc >> 8);
@@ -946,6 +955,115 @@ static void test_a_torn_confirm_request_confirms_nothing(void)
     expect_failed_trial();
 }
 
+/* ---- OTA_CONFIRM's signature (#231, docs/ota/api.md) ---------------------- */
+
+static uint8_t signer_sig[TFW_BOOT_SIG_LEN];
+static uint8_t signer_msg[TFW_BOOT_COSE_CONFIRM_MAX];
+static uint8_t signer_len;
+
+/* The row key signs a confirm of the primary's image: the Sig_structure over
+ * its trailer's measurement and image_version -- or, with `flip`, over a
+ * measurement that differs in its last byte, past the 8 the record holds. The
+ * mock then passes that signature over that message only. */
+static void signer(uint8_t flip)
+{
+    uint8_t tr[TFW_BOOT_TR_SIGNED_LEN];
+
+    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR, tr, sizeof tr);
+    tr[TFW_BOOT_TR_MEASUREMENT + TFW_BOOT_MEASURE_LEN - 1u] ^= flip;
+    signer_len = tfw_boot_cose_confirm(signer_msg, &tr[TFW_BOOT_TR_MEASUREMENT],
+                              tfw_boot_rd_u32(&tr[TFW_BOOT_TR_IMAGE_VERSION]));
+    memset(signer_sig, 0x3C, sizeof signer_sig);
+    tfw_boot_verify_mock_want(signer_sig);
+    tfw_boot_verify_mock_want_msg(signer_msg, signer_len);
+}
+
+static void test_a_signed_confirm_request_settles_the_trial(void)
+{
+    const uint8_t *m;
+    uint16_t       len;
+
+    on_trial();
+    signer(0u);
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_SETTLE, reset());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_CONFIRMED, stored.boot_state);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, conf()[0]);
+    assert_slots(img_b, img_a);
+    /* Verified with the row key, over the Sig_structure the signer signed. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_verify_mock_keyless());
+    m = tfw_boot_verify_mock_msg(&len);
+    TEST_ASSERT_EQUAL_UINT16(signer_len, len);
+    TEST_ASSERT_EQUAL_MEMORY(signer_msg, m, len);
+}
+
+static void test_a_confirm_request_with_a_wrong_signature_fails_the_trial(void)
+{
+    on_trial();
+    signer(0u);
+    req_sig[17] ^= 0x01u;
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    expect_failed_trial();
+}
+
+/* The first 8 bytes of the measurement agree, so only the signature tells. */
+static void test_a_confirm_signed_for_another_measurement_fails_the_trial(void)
+{
+    on_trial();
+    signer(0x01u);
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    expect_failed_trial();
+}
+
+static void test_a_confirm_request_with_a_zeroed_signature_fails_the_trial(void)
+{
+    on_trial();
+    signer(0u);
+    memset(req_sig, 0x00, sizeof req_sig);
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    expect_failed_trial();
+}
+
+/* A good CRC over an erased signature: the record of a writer that held none. */
+static void test_a_confirm_request_with_no_signature_fails_the_trial(void)
+{
+    on_trial();
+    signer(0u);
+    memset(req_sig, 0xFF, sizeof req_sig);
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    expect_failed_trial();
+}
+
+/* The 11-byte record an application built before #231 writes: its CRC sits
+ * where the signature now starts, so the record is truncated, and no confirm. */
+static void test_a_confirm_request_in_the_old_layout_fails_the_trial(void)
+{
+    uint8_t  c[TFW_BOOT_CONFIRM_LEN];
+    uint16_t crc;
+
+    on_trial();
+    signer(0u);
+    memset(c, 0xFF, sizeof c);
+    c[0] = TFW_BOOT_CONFIRM_MAGIC;
+    tfw_boot_flash_read(TFW_BOOT_TRAILER_ADDR + TFW_BOOT_TR_MEASUREMENT,
+                        &c[TFW_BOOT_CONFIRM_O_MEAS], TFW_BOOT_CONFIRM_MEAS_LEN);
+    crc = tfw_crc16(c, TFW_BOOT_CONFIRM_O_SIG);
+    c[TFW_BOOT_CONFIRM_O_SIG]      = (uint8_t)crc;
+    c[TFW_BOOT_CONFIRM_O_SIG + 1u] = (uint8_t)(crc >> 8);
+    memcpy(conf(), c, sizeof c);
+    expect_failed_trial();
+}
+
+/* A key slot still erased verifies nothing: no confirm. */
+static void test_a_confirm_request_without_a_provisioned_key_fails_the_trial(void)
+{
+    on_trial();
+    signer(0u);
+    tfw_boot_verify_mock_pubkey(TFW_ERR_NOT_PROVISIONED);
+    request(TFW_BOOT_CONFIRM_MAGIC, 0u);
+    expect_failed_trial();
+}
+
 /* main()'s reset as boot_main.c runs it: the trial's verdict, the swap's, and
  * the MARK decided on the first. Returns whether the MARK's magic survived. */
 static int st_reset_keeps_mark(tfw_boot_reset_action_t want)
@@ -1016,6 +1134,13 @@ int main(void)
     RUN_TEST(test_a_corrupt_confirm_request_fails_the_trial);
     RUN_TEST(test_a_trial_with_no_confirm_request_fails);
     RUN_TEST(test_a_torn_confirm_request_confirms_nothing);
+    RUN_TEST(test_a_signed_confirm_request_settles_the_trial);
+    RUN_TEST(test_a_confirm_request_with_a_wrong_signature_fails_the_trial);
+    RUN_TEST(test_a_confirm_signed_for_another_measurement_fails_the_trial);
+    RUN_TEST(test_a_confirm_request_with_a_zeroed_signature_fails_the_trial);
+    RUN_TEST(test_a_confirm_request_with_no_signature_fails_the_trial);
+    RUN_TEST(test_a_confirm_request_in_the_old_layout_fails_the_trial);
+    RUN_TEST(test_a_confirm_request_without_a_provisioned_key_fails_the_trial);
     RUN_TEST(test_a_failed_trial_that_falls_back_forgets_its_mark);
     RUN_TEST(test_a_confirmed_store_trial_keeps_its_mark);
     RUN_TEST(test_a_store_image_below_the_floor_never_reaches_a_slot);

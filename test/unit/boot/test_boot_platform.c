@@ -16,9 +16,9 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-static void build(uint8_t raw[TFW_BOOT_EE_LEN], tfw_boot_platform_t *p)
+static void build(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN], tfw_boot_platform_t *p)
 {
-    memset(raw, 0xFF, TFW_BOOT_EE_LEN);
+    memset(raw, 0xFF, TFW_BOOT_EE_BLOCK_LEN);
     memset(p, 0, sizeof *p);
     memset(p->pubkey_hash, 0x11, sizeof p->pubkey_hash);
     memset(p->serial, 0x22, sizeof p->serial);
@@ -48,7 +48,7 @@ static tfw_status_t parse_untouched(const uint8_t *raw, tfw_boot_platform_t *out
 
 static void test_round_trips_every_field(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t in, out;
 
     build(raw, &in);
@@ -69,7 +69,7 @@ static void test_round_trips_every_field(void)
  * reported both the same way would send a field failure back to the factory. */
 static void test_a_blank_region_reports_not_provisioned(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t out;
 
     memset(raw, 0xFF, sizeof raw);
@@ -78,7 +78,7 @@ static void test_a_blank_region_reports_not_provisioned(void)
 
 static void test_a_zeroed_region_reports_not_provisioned(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t out;
 
     memset(raw, 0x00, sizeof raw);
@@ -87,7 +87,7 @@ static void test_a_zeroed_region_reports_not_provisioned(void)
 
 static void test_an_unknown_layout_version_is_refused(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t in, out;
 
     build(raw, &in);
@@ -99,7 +99,7 @@ static void test_an_unknown_layout_version_is_refused(void)
  * This is how the bootloader NOTICES when BODLEVEL was not set. */
 static void test_a_corrupted_byte_is_caught_by_the_crc(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t in, out;
 
     build(raw, &in);
@@ -109,7 +109,7 @@ static void test_a_corrupted_byte_is_caught_by_the_crc(void)
 
 static void test_a_corrupted_pubkey_hash_is_caught(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t in, out;
 
     build(raw, &in);
@@ -124,7 +124,7 @@ static void test_a_corrupted_pubkey_hash_is_caught(void)
  */
 static void test_serialising_preserves_bytes_the_struct_does_not_model(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
 
     build(raw, &p);
@@ -147,7 +147,7 @@ static void test_multi_byte_fields_are_little_endian_at_their_offsets(void)
     static const uint8_t floor[4] = { 0x04u, 0x03u, 0x02u, 0x01u };
     static const uint8_t count[4] = { 0x0Du, 0x0Cu, 0x0Bu, 0x0Au };
     static const uint8_t fails[2] = { 0x06u, 0x05u };
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
 
     build(raw, &p);
@@ -169,7 +169,7 @@ static void test_multi_byte_fields_are_little_endian_at_their_offsets(void)
 
 static void test_the_crc_covers_everything_below_it(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
     uint16_t before;
     uint16_t i;
@@ -181,7 +181,7 @@ static void test_the_crc_covers_everything_below_it(void)
         TEST_ASSERT_NOT_EQUAL(before, tfw_boot_platform_crc(raw));
         raw[i] ^= 0xFFu;
     }
-    for (i = TFW_BOOT_EE_O_CRC; i < TFW_BOOT_EE_LEN; i++) {   /* and not itself */
+    for (i = TFW_BOOT_EE_O_CRC; i < TFW_BOOT_EE_BLOCK_LEN; i++) {   /* and not itself */
         raw[i] ^= 0xFFu;
         TEST_ASSERT_EQUAL_HEX16(before, tfw_boot_platform_crc(raw));
         raw[i] ^= 0xFFu;
@@ -206,7 +206,7 @@ static void test_the_crc_covers_everything_below_it(void)
  */
 static void test_a_baked_eeprom_image_is_decoded_correctly(void)
 {
-    static const uint8_t raw[TFW_BOOT_EE_LEN] = {
+    static const uint8_t raw[TFW_BOOT_EE_BLOCK_LEN] = {
         0x54u,0x46u,0x50u,0x52u,0x02u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,
         0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,0x00u,

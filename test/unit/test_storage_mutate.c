@@ -252,12 +252,12 @@ static void random_fill(uint8_t *p, unsigned n)
 }
 
 /* The seeds are the requests test_storage sends. */
-static const uint8_t read_seed[3]  = { 0x00u, 0x01u, 4u };                           /* 0x100, 4 */
-static const uint8_t write_seed[6] = { 0x00u, 0x01u, 0xDEu, 0xADu, 0xBEu, 0xEFu };   /* 0x100 */
+static const uint8_t read_seed[3]  = { 0x80u, 0x01u, 4u };                           /* 0x180, 4 */
+static const uint8_t write_seed[6] = { 0x80u, 0x01u, 0xDEu, 0xADu, 0xBEu, 0xEFu };   /* 0x180 */
 
 /* Addresses around every edge the handler checks. */
 static const unsigned addrs[] = {
-    0u, 1u, TFW_BOOT_EE_LEN - 8u, TFW_BOOT_EE_LEN - 1u, TFW_BOOT_EE_LEN, TFW_BOOT_EE_LEN + 1u,
+    0u, 1u, TFW_BOOT_EE_BLOCK_LEN - 8u, TFW_BOOT_EE_BLOCK_LEN - 1u, TFW_BOOT_EE_BLOCK_LEN, TFW_BOOT_EE_BLOCK_LEN + 1u,
     0x100u, TFW_EEPROM_SIZE - CHUNK - 1u, TFW_EEPROM_SIZE - CHUNK, TFW_EEPROM_SIZE - 1u,
     TFW_EEPROM_SIZE, TFW_EEPROM_SIZE + 1u, 0x7FFFu, 0x8000u, 0xFFF8u, 0xFFFFu,
 };
@@ -404,11 +404,11 @@ static void test_the_clean_requests_afterwards(void)
     TEST_ASSERT_EQUAL_UINT8(4u, tfw_writer_len(&w));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(data, out, 4u);
 
-    tfw_reader_init(&r, (const uint8_t[]){ 0xBFu, 0x00u, 1, 2, 3, 4, 5, 6, 7, 8 }, 10u);
+    tfw_reader_init(&r, (const uint8_t[]){ 0x3Fu, 0x01u, 1, 2, 3, 4, 5, 6, 7, 8 }, 10u);
     tfw_writer_init(&w, out, (uint8_t)sizeof out);
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, tfw_dispatch(TFW_CMD_EEPROM_WRITE, &r, &w));
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0BF]);
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0C0]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x13F]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x140]);
 }
 
 int main(void)

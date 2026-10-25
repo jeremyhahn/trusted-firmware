@@ -259,6 +259,24 @@
 /* Its response, status OK, no payload. */
 #define TFWV_FRAME_OTA_CONFIRM_RESP "\xa5\x03\x06\xee\x00\x01\x9e"
 
+/* The bootloader's EEPROM ends at 0x140 on every board (#125): the platform
+ * block, then the ATmega2560's swap journal and signed confirm request. The
+ * network block follows at 0x140; it sat at 0x0C0 before. */
+#define TFWV_EEPROM_RESERVED_END 0x0140u
+
+/* TFW_CMD_EEPROM_WRITE (0x41), seq 0x07: "TFNC" at 0x0C0, where an older host
+ * put the network block. */
+#define TFWV_FRAME_EEPROM_WRITE_OLD_NETCFG_REQ "\xa5\x08\x07\x41\xc0\x00\x54\x46\x4e\x43\x8b\x6b"
+
+/* Its response: TFW_ERR_PROTECTED_REGION (16), a status the older host knows. */
+#define TFWV_FRAME_EEPROM_WRITE_PROTECTED_RESP "\xa5\x03\x07\xc1\x10\xd8\xad"
+
+/* TFW_CMD_EEPROM_WRITE, seq 0x08: "TFNC" at 0x140, the network block's address. */
+#define TFWV_FRAME_EEPROM_WRITE_NETCFG_REQ "\xa5\x08\x08\x41\x40\x01\x54\x46\x4e\x43\x38\xcc"
+
+/* Its response, status OK, no payload. */
+#define TFWV_FRAME_EEPROM_WRITE_NETCFG_RESP "\xa5\x03\x08\xc1\x00\xd8\x93"
+
 /* The HSM self-defence channel (docs/hsm-self-defence/ architecture.md
  * question 20). Each reply that is not a refusal is the engine's state,
  * [flags:1][selected:1][refused:4 LE]. */

@@ -17,10 +17,12 @@
 
 #include <stdint.h>
 #include "tfw/status.h"
+#include "tfw/boot.h"
 
 /* The network block: 32 bytes at a fixed EEPROM address, the first after the
- * platform block, so it is the same on every board and moves no provisioning
- * vector. Written over serial with EEPROM_WRITE. Layout, multi-byte fields
+ * bootloader's reserved span (TFW_BOOT_EE_LEN, 0x140), so it is the same on
+ * every board. It sat at 0x0C0, the platform block's end, until the reserved
+ * end grew past the signed confirm request (#125, #231). Written over serial with EEPROM_WRITE. Layout, multi-byte fields
  * big-endian except the CRC:
  *
  *   0  magic "TFNC"     4  version (1)     5  flags
@@ -31,7 +33,7 @@
  * Flags bit 0 (TFW_NETCFG_DHCP) takes the IP, mask and gateway from a DHCP
  * lease instead of bytes 12..23; the other bits are reserved and ignored.
  */
-#define TFW_NETCFG_ADDR     0x00C0u
+#define TFW_NETCFG_ADDR     TFW_BOOT_EE_LEN
 #define TFW_NETCFG_LEN      32u
 #define TFW_NETCFG_VERSION  1u
 #define TFW_NETCFG_DHCP     0x01u

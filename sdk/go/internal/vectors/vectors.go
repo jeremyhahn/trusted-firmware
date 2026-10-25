@@ -154,6 +154,19 @@ const (
 	// FrameOTAConfirmResp is its response, status OK, no payload.
 	FrameOTAConfirmResp = "\xa5\x03\x06\xee\x00\x01\x9e"
 
+	// EEPROMReservedEnd is where the bootloader's EEPROM ends on every board,
+	// and the network block's address, since #125; both were 0x0C0 before.
+	EEPROMReservedEnd = 0x0140
+	// FrameEEPROMWriteOldNetcfgReq is TFW_CMD_EEPROM_WRITE (0x41), seq 7:
+	// "TFNC" at 0x0C0, where an older host put the network block.
+	FrameEEPROMWriteOldNetcfgReq = "\xa5\x08\x07\x41\xc0\x00\x54\x46\x4e\x43\x8b\x6b"
+	// FrameEEPROMWriteProtectedResp is its response, StatusProtectedRegion (16).
+	FrameEEPROMWriteProtectedResp = "\xa5\x03\x07\xc1\x10\xd8\xad"
+	// FrameEEPROMWriteNetcfgReq is TFW_CMD_EEPROM_WRITE, seq 8: "TFNC" at 0x140.
+	FrameEEPROMWriteNetcfgReq = "\xa5\x08\x08\x41\x40\x01\x54\x46\x4e\x43\x38\xcc"
+	// FrameEEPROMWriteNetcfgResp is its response, status OK, no payload.
+	FrameEEPROMWriteNetcfgResp = "\xa5\x03\x08\xc1\x00\xd8\x93"
+
 	// The HSM self-defence channel. Each reply that is not a refusal is the
 	// engine's state, [flags:1][selected:1][refused:4 LE].
 

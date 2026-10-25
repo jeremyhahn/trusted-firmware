@@ -113,6 +113,27 @@ static void test_ota_control_frames_match_the_vectors(void)
           tfw_frame_encode_response(wire, sizeof wire, 6u, TFW_CMD_OTA_CONFIRM, TFW_OK, 0, 0u), wire);
 }
 
+/* EEPROM_WRITE at the network block's old address and its new one (#125). */
+static void test_eeprom_write_frames_match_the_vectors(void)
+{
+    static const uint8_t old_req[] = TFWV_FRAME_EEPROM_WRITE_OLD_NETCFG_REQ;
+    static const uint8_t refused[] = TFWV_FRAME_EEPROM_WRITE_PROTECTED_RESP;
+    static const uint8_t new_req[] = TFWV_FRAME_EEPROM_WRITE_NETCFG_REQ;
+    static const uint8_t ok[]      = TFWV_FRAME_EEPROM_WRITE_NETCFG_RESP;
+    const uint8_t at_old[6] = { 0xC0u, 0x00u, 'T', 'F', 'N', 'C' };
+    const uint8_t at_new[6] = { 0x40u, 0x01u, 'T', 'F', 'N', 'C' };
+    uint8_t wire[TFW_MAX_FRAME];
+
+    check(old_req, sizeof old_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 7u, TFW_CMD_EEPROM_WRITE, at_old, 6u), wire);
+    check(refused, sizeof refused - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 7u, TFW_CMD_EEPROM_WRITE, TFW_ERR_PROTECTED_REGION, 0, 0u), wire);
+    check(new_req, sizeof new_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 8u, TFW_CMD_EEPROM_WRITE, at_new, 6u), wire);
+    check(ok, sizeof ok - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 8u, TFW_CMD_EEPROM_WRITE, TFW_OK, 0, 0u), wire);
+}
+
 /* The HSM channel's frames. The state payloads are written here from the
  * design, not taken from hsm_cmd.c. */
 static void test_hsm_channel_frames_match_the_vectors(void)
@@ -372,6 +393,7 @@ int main(void)
     RUN_TEST(test_bad_state_response_matches_the_vector);
     RUN_TEST(test_no_store_response_matches_the_vector);
     RUN_TEST(test_ota_control_frames_match_the_vectors);
+    RUN_TEST(test_eeprom_write_frames_match_the_vectors);
     RUN_TEST(test_hsm_channel_frames_match_the_vectors);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);

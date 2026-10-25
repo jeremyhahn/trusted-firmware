@@ -89,11 +89,11 @@ static uint8_t any_state(void)
 
 /* A valid block, its fields chosen from the edges, serialised as
  * test_boot_platform builds one. */
-static void valid(uint8_t raw[TFW_BOOT_EE_LEN], uint8_t hostile)
+static void valid(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN], uint8_t hostile)
 {
     tfw_boot_platform_t p;
 
-    memset(raw, 0xFF, TFW_BOOT_EE_LEN);
+    memset(raw, 0xFF, TFW_BOOT_EE_BLOCK_LEN);
     memset(&p, 0, sizeof p);
     memset(p.pubkey_hash, 0x11, sizeof p.pubkey_hash);
     memset(p.serial, 0x22, sizeof p.serial);
@@ -113,9 +113,9 @@ static void valid(uint8_t raw[TFW_BOOT_EE_LEN], uint8_t hostile)
     tfw_boot_platform_serialise(&p, raw);
 }
 
-static void hostile_block(uint8_t raw[TFW_BOOT_EE_LEN])
+static void hostile_block(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN])
 {
-    uint8_t  other[TFW_BOOT_EE_LEN];
+    uint8_t  other[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t i;
     uint32_t n;
 
@@ -126,24 +126,24 @@ static void hostile_block(uint8_t raw[TFW_BOOT_EE_LEN])
     case 1:
         valid(raw, next() & 1u);
         for (n = 1u + next() % 4u; n > 0u; n--) {
-            raw[next() % TFW_BOOT_EE_LEN] ^= (uint8_t)(1u << (next() % 8u));
+            raw[next() % TFW_BOOT_EE_BLOCK_LEN] ^= (uint8_t)(1u << (next() % 8u));
         }
         break;
     case 2:
-        memset(raw, 0x00, TFW_BOOT_EE_LEN);
+        memset(raw, 0x00, TFW_BOOT_EE_BLOCK_LEN);
         break;
     case 3:
-        memset(raw, 0xFF, TFW_BOOT_EE_LEN);
+        memset(raw, 0xFF, TFW_BOOT_EE_BLOCK_LEN);
         break;
     case 4:
-        for (i = 0u; i < TFW_BOOT_EE_LEN; i++) {
+        for (i = 0u; i < TFW_BOOT_EE_BLOCK_LEN; i++) {
             raw[i] = (uint8_t)next();
         }
         break;
     case 5:   /* torn: a write of another block stopped part way */
         valid(raw, 0u);
         valid(other, 1u);
-        memcpy(raw, other, next() % TFW_BOOT_EE_LEN);
+        memcpy(raw, other, next() % TFW_BOOT_EE_BLOCK_LEN);
         break;
     default:
         valid(raw, 0u);
@@ -182,7 +182,7 @@ static void step(uint32_t *floor, const uint8_t *meas)
     case 5: (void)tfw_boot_trial_begin_permit(&plat); break;
     default:
         if ((next() % 4u) == 0u) {
-            tfw_boot_mock_tear_nvm(next() % 3u, (uint8_t)(next() % TFW_BOOT_EE_LEN), (uint8_t)next());
+            tfw_boot_mock_tear_nvm(next() % 3u, (uint8_t)(next() % TFW_BOOT_EE_BLOCK_LEN), (uint8_t)next());
         }
         (void)tfw_boot_settle(&plat, edge32(), floor);
         break;
@@ -202,7 +202,7 @@ void tearDown(void) {}
 
 static void test_a_hostile_block_never_lowers_the_floor_or_retries_a_failed_image(void)
 {
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t  meas[TFW_BOOT_MEASURE_LEN];
     uint32_t i;
     unsigned taken   = 0u;
@@ -220,7 +220,7 @@ static void test_a_hostile_block_never_lowers_the_floor_or_retries_a_failed_imag
         el_present = (int)(next() & 1u);
         el_counter = edge32();
         hostile_block(raw);
-        memcpy(tfw_boot_mock_nvm(), raw, TFW_BOOT_EE_LEN);
+        memcpy(tfw_boot_mock_nvm(), raw, TFW_BOOT_EE_BLOCK_LEN);
 
         st = reload();
         if (st != TFW_OK) {
@@ -311,7 +311,7 @@ static void test_a_hostile_request_is_honoured_only_as_encoded(void)
  * test_boot_settle's soft row pins it. */
 static void test_a_clean_block_after_the_hostile_runs_settles_and_boots(void)
 {
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t floor;
 
     tfw_boot_mock_reset();
@@ -321,7 +321,7 @@ static void test_a_clean_block_after_the_hostile_runs_settles_and_boots(void)
     plat.ota_state      = TFW_BOOT_OTA_IDLE;
     plat.rollback_floor = 3u;
     tfw_boot_platform_serialise(&plat, raw);
-    memcpy(tfw_boot_mock_nvm(), raw, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), raw, TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL(TFW_OK, reload());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_floor_load(&plat, &floor));
     TEST_ASSERT_EQUAL_UINT32(3u, floor);

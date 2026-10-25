@@ -98,7 +98,7 @@ static void install_bound_image(uint32_t version, uint8_t body_fill,
 {
     uint8_t *flash = tfw_boot_mock_flash();
     uint8_t  raw[TFW_BOOT_TRAILER_LEN];
-    uint8_t  ee[TFW_BOOT_EE_LEN];
+    uint8_t  ee[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_trailer_t  tr;
     tfw_boot_platform_t plat;
 
@@ -130,7 +130,7 @@ static void install_bound_image(uint32_t version, uint8_t body_fill,
     tfw_boot_hash(g_public, TFW_BOOT_PUBKEY_LEN, plat.pubkey_hash);
     plat.boot_state = TFW_BOOT_STATE_GOOD;
     tfw_boot_platform_serialise(&plat, ee);
-    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_BLOCK_LEN);
 }
 
 /* An image built for this board: the board profile's id, no flags. */
@@ -284,12 +284,12 @@ static void test_a_relabelled_version_is_refused(void)
 static void test_a_signed_image_for_another_board_is_refused(void)
 {
     tfw_boot_verdict_t v;
-    uint8_t            ee[TFW_BOOT_EE_LEN];
+    uint8_t            ee[TFW_BOOT_EE_BLOCK_LEN];
 
     install_bound_image(3u, 0x5Au, (uint8_t)(TFW_BOARD_ID + 1u), 0u);
-    memcpy(ee, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    memcpy(ee, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_evaluate(0u, &v));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(ee, tfw_boot_mock_nvm(), TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ee, tfw_boot_mock_nvm(), TFW_BOOT_EE_BLOCK_LEN);
 }
 
 /* board_id 0, signed: every image from before the field. Rebuilt, not booted. */
@@ -391,10 +391,10 @@ static void test_a_public_key_the_device_does_not_pin_is_refused(void)
 {
     tfw_boot_verdict_t v;
     uint8_t *ee = tfw_boot_mock_nvm();
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
 
     install_signed_image(3u, 0x5Au);
-    memcpy(raw, ee, TFW_BOOT_EE_LEN);
+    memcpy(raw, ee, TFW_BOOT_EE_BLOCK_LEN);
     raw[TFW_BOOT_EE_O_PUBKEY_HASH] ^= 0x01u;
     /* Rewrite the CRC, so this tests the PIN and not the corruption check. */
     {
@@ -404,7 +404,7 @@ static void test_a_public_key_the_device_does_not_pin_is_refused(void)
         p.pubkey_hash[0] ^= 0x01u;
         tfw_boot_platform_serialise(&p, raw);
     }
-    memcpy(ee, raw, TFW_BOOT_EE_LEN);
+    memcpy(ee, raw, TFW_BOOT_EE_BLOCK_LEN);
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, tfw_boot_evaluate(0u, &v));
 }

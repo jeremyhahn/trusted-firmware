@@ -101,10 +101,15 @@ new activation attempt, and it and any other mode answer `TFW_ERR_BAD_STATE`
 (m1100 (3), m1117 (1)). `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
 running image, bound to its measurement, and leaves the trial deadline
 running (#137), so the trial ends in a reset either way and tfw-boot settles it
-at that reset. Until the EEPROM map follow-up #125 the confirm request has no
-room for the held confirm signature: `OTA_CONFIRM` takes it and drops it, and
-tfw-boot does not yet verify it
-([architecture.md](architecture.md), "The confirm keeps the trial deadline").
+at that reset. `OTA_CONFIRM` stores the held confirm signature in the
+75-byte confirm request at EEPROM `0x0EA`–`0x134`, and tfw-boot verifies it
+with the image path's key before it settles the trial; a wrong or missing
+signature rolls the trial back (#231,
+[architecture.md](architecture.md), "The confirm keeps the trial deadline").
+That record moved the end of tfw-boot's EEPROM to `0x140` on every board
+(#125), and the network block with it: a device upgraded from the old layout
+no longer reads its network block at `0x0C0`. It reads `0x140`, finds no valid
+block, and is re-provisioned (`tfwctl netcfg set`).
 
 | Command | Status | When |
 |---|---|---|

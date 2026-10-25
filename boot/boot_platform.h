@@ -15,7 +15,7 @@
 #include "tfw/boot.h"
 #include "tfw/status.h"
 
-/* Parses TFW_BOOT_EE_LEN bytes.
+/* Parses TFW_BOOT_EE_BLOCK_LEN bytes.
  *
  *   TFW_ERR_NOT_PROVISIONED  the magic is absent -- a blank or foreign region
  *   TFW_ERR_UNSUPPORTED      a layout version this build does not know
@@ -30,7 +30,7 @@
  */
 tfw_status_t tfw_boot_platform_parse(const uint8_t *raw, tfw_boot_platform_t *out);
 
-/* Serialises, computing the CRC. Writes exactly TFW_BOOT_EE_LEN bytes.
+/* Serialises, computing the CRC. Writes exactly TFW_BOOT_EE_BLOCK_LEN bytes.
  *
  * `raw` is read as well as written: the reserved bytes and the device serial
  * are preserved from what is already there rather than zeroed, so the

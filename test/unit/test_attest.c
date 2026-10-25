@@ -422,14 +422,14 @@ static void test_device_id_is_zero_with_no_platform_block(void)
 static void test_a_baked_serial_reaches_device_id(void)
 {
     tfw_boot_platform_t plat;
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t             whole[TFW_ATTEST_LEN];
 
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, TEST_SERIAL, sizeof plat.serial);
     memset(raw, 0, sizeof raw);
     tfw_boot_platform_serialise(&plat, raw);
-    memcpy(tfw_mock_eeprom(), raw, TFW_BOOT_EE_LEN);
+    memcpy(tfw_mock_eeprom(), raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_platform_id_init();
 
     provision();
@@ -453,7 +453,7 @@ static void test_a_baked_serial_reaches_device_id(void)
 static void test_a_corrupted_platform_block_leaves_device_id_zero(void)
 {
     tfw_boot_platform_t plat;
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t             whole[TFW_ATTEST_LEN];
 
     memset(&plat, 0, sizeof plat);
@@ -461,7 +461,7 @@ static void test_a_corrupted_platform_block_leaves_device_id_zero(void)
     memset(raw, 0, sizeof raw);
     tfw_boot_platform_serialise(&plat, raw);
     raw[TFW_BOOT_EE_O_SERIAL] ^= 0xFFu;      /* CRC now wrong */
-    memcpy(tfw_mock_eeprom(), raw, TFW_BOOT_EE_LEN);
+    memcpy(tfw_mock_eeprom(), raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_platform_id_init();
 
     provision();

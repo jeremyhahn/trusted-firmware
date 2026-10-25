@@ -304,20 +304,22 @@ func TestFirmwareTimer(t *testing.T) {
 }
 
 // EEPROMReservedEnd grew from 0x80 to 0xC0 when issue #4 added the operator
-// public key to the reserved region.
+// public key to the reserved region, and to 0x140 when the confirm request
+// took its signature (#125).
 func TestFirmwareEEPROM(t *testing.T) {
 	dev := startFirmware(t)
-	cliRefused(t, dev, "eeprom-write", "0", "00000000") // over the bootloader pubkey hash
+	cliRefused(t, dev, "eeprom-write", "0", "00000000")   // over the bootloader pubkey hash
+	cliRefused(t, dev, "eeprom-write", "192", "00000000") // 0x0C0, the old end: reserved since #125
 	// A write starting below the boundary and running through it is refused
 	// whole, not partially applied.
 	cliRefused(t, dev, "eeprom-write", strconv.Itoa(tfw.EEPROMReservedEnd-1), "0102030405060708")
 
 	// And the user area still works.
-	require.NoError(t, run(context.Background(), dev, "eeprom-write", []string{"0x100", "dead"}, false, &strings.Builder{}))
+	require.NoError(t, run(context.Background(), dev, "eeprom-write", []string{"0x180", "dead"}, false, &strings.Builder{}))
 	var got struct {
 		Hex string `json:"hex"`
 	}
-	cliJSON(t, dev, &got, "eeprom-read", "0x100", "2")
+	cliJSON(t, dev, &got, "eeprom-read", "0x180", "2")
 	assert.Equal(t, "dead", got.Hex, "read back")
 
 	// docs/device-provisioning/engineering.md:110: the software tier reads the

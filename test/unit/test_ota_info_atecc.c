@@ -22,7 +22,7 @@ void tearDown(void) { tfw_model_set_absent(0u); tfw_model_force_status(0u); }
 
 static void put_block(uint32_t floor_in_block)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
 
     memset(&p, 0, sizeof p);
@@ -30,7 +30,7 @@ static void put_block(uint32_t floor_in_block)
     p.boot_state     = TFW_BOOT_STATE_GOOD;
     p.ota_state      = TFW_BOOT_OTA_IDLE;
     tfw_boot_platform_serialise(&p, raw);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 }
 
 static tfw_status_t info(uint8_t out[44])

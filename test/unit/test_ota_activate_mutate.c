@@ -179,7 +179,7 @@ static int marked(void)
 
 static void put_block(uint8_t boot_state, uint8_t ota_state)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
 
     memset(&p, 0, sizeof p);
@@ -187,7 +187,7 @@ static void put_block(uint8_t boot_state, uint8_t ota_state)
     p.boot_state     = boot_state;
     p.ota_state      = ota_state;
     tfw_boot_platform_serialise(&p, raw);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 }
 
 /* The stage's one sector rewritten from src, behind the session's back. */
@@ -395,7 +395,7 @@ static void test_every_byte_of_the_block_at_every_other_value(void)
 
     stage_ended();
     put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
-    for (i = 0u; i < TFW_BOOT_EE_LEN; i++) {
+    for (i = 0u; i < TFW_BOOT_EE_BLOCK_LEN; i++) {
         for (x = 1u; x < 256u; x++) {
             tfw_status_t st;
 

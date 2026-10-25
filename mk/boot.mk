@@ -172,10 +172,14 @@ endif
 # On a board with one slot and PREV in its store (the 328P and 32U4, #52), the
 # store row links boot_prev.c in the same place: the fallback copies PREV back
 # instead of swapping.
+#
+# boot_swap.c verifies OTA_CONFIRM's signature (#231) with the Sig_structure
+# boot_cose.c builds, so it brings boot_cose.c along on the serial row too; the
+# store row already links it, and BOOT_SRCS's sort drops the second name.
 BOOT_SWAP_SRC := boot/boot_swap_none.c
 ifeq ($(BOOT_AB),1)
 ifneq ($(BOOT_OTA)$(BOOT_STORE),00)
-BOOT_SWAP_SRC := boot/boot_swap.c
+BOOT_SWAP_SRC := boot/boot_swap.c boot/boot_cose.c
 endif
 else ifeq ($(BOOT_STORE),1)
 BOOT_SWAP_SRC := boot/boot_prev.c

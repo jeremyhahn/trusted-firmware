@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,31 @@ func platformBlock() []byte {
 	return block[:]
 }
 
+// autoEEPROMSize is the simulator's EEPROM, the mock HAL's: a network block
+// that would end past it is an answer no build gives.
+const autoEEPROMSize = 4096
+
+// autoNetcfgAddr asks the auto image where its build reads the network block
+// (`tfwsim-auto --netcfg-addr`), as sdk/go/tfwsim does for the element image.
+// The firmware owns that address, and this module's pinned SDK may predate a
+// move of it (0x0C0 to 0x140, #125): a block written anywhere else is never
+// read and the image never dials.
+func autoNetcfgAddr(t *testing.T) int {
+	t.Helper()
+	path := autoSimPath(t)
+	out, err := exec.Command(path, "--netcfg-addr").Output() // #nosec G204 -- the simulator this repo's make target built, with a literal flag; no shell
+	if err == nil {
+		var addr uint64
+		addr, err = strconv.ParseUint(strings.TrimSpace(string(out)), 0, 16)
+		if err == nil && addr >= tfw.PlatformBlockLen && addr+tfw.NetConfigLen <= autoEEPROMSize {
+			return int(addr)
+		}
+	}
+	t.Fatalf("%s --netcfg-addr answered %q (%v), not an address in [%#x, %#x); run `%s`",
+		path, out, err, tfw.PlatformBlockLen, autoEEPROMSize-tfw.NetConfigLen+1, autoSimMake)
+	return 0
+}
+
 func startSoftSerial(t *testing.T) *tfw.Device {
 	t.Helper()
 	return tfw.New(startAutoNoElement(t, platformBlock()), tfw.WithTimeout(5*time.Second))
@@ -164,7 +190,13 @@ func startSoftEthernet(t *testing.T) *tfw.Device {
 	}
 	block, err := cfg.MarshalBinary()
 	require.NoError(t, err)
-	startAutoNoElement(t, append(platformBlock(), block...), "--eth")
+	// The network block goes where the image reads it, past the platform
+	// block; the bootloader's span between the two (#125) is left erased.
+	at := autoNetcfgAddr(t)
+	image := bytes.Repeat([]byte{0xFF}, at+len(block))
+	copy(image, platformBlock())
+	copy(image[at:], block)
+	startAutoNoElement(t, image, "--eth")
 
 	require.NoError(t, raw.(*net.TCPListener).SetDeadline(time.Now().Add(5*time.Second)))
 	eth, err := ln.Accept()

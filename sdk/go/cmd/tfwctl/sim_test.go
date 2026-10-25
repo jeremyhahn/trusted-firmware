@@ -165,7 +165,7 @@ func TestPeripheralVerbsReportWhatTheDeviceSaid(t *testing.T) {
 
 	t.Run("an unwritten EEPROM byte reads as erased", func(t *testing.T) {
 		var buf bytes.Buffer
-		if err := runPeripheral(context.Background(), dev, "eeprom-read", []string{"0x100", "4"}, false, &buf); err != nil {
+		if err := runPeripheral(context.Background(), dev, "eeprom-read", []string{"0x180", "4"}, false, &buf); err != nil {
 			t.Fatal(err)
 		}
 		if got := strings.TrimSpace(buf.String()); got != "ffffffff" {
@@ -175,11 +175,11 @@ func TestPeripheralVerbsReportWhatTheDeviceSaid(t *testing.T) {
 
 	t.Run("a write is read back", func(t *testing.T) {
 		ctx := context.Background()
-		if err := runPeripheral(ctx, dev, "eeprom-write", []string{"0x120", "a1b2c3"}, false, io.Discard); err != nil {
+		if err := runPeripheral(ctx, dev, "eeprom-write", []string{"0x1A0", "a1b2c3"}, false, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 		var buf bytes.Buffer
-		if err := runPeripheral(ctx, dev, "eeprom-read", []string{"0x120", "3"}, false, &buf); err != nil {
+		if err := runPeripheral(ctx, dev, "eeprom-read", []string{"0x1A0", "3"}, false, &buf); err != nil {
 			t.Fatal(err)
 		}
 		if got := strings.TrimSpace(buf.String()); got != "a1b2c3" {
@@ -236,7 +236,7 @@ func TestPeripheralVerbsReportWhatTheDeviceSaid(t *testing.T) {
 
 	t.Run("json carries the same answer as text", func(t *testing.T) {
 		var buf bytes.Buffer
-		if err := runPeripheral(context.Background(), dev, "eeprom-read", []string{"0x100", "2"}, true, &buf); err != nil {
+		if err := runPeripheral(context.Background(), dev, "eeprom-read", []string{"0x180", "2"}, true, &buf); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(buf.String(), `"hex": "ffff"`) {

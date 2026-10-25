@@ -244,7 +244,7 @@ static tfw_status_t feed(unsigned k, const uint8_t *payload, unsigned n)
             broke = "a session was granted for a signature the operator did not make";
         }
     } else if (k == K_READ && !was_session && n >= 3u
-               && ((unsigned)payload[0] | ((unsigned)payload[1] << 8)) < (unsigned)TFW_BOOT_EE_LEN
+               && ((unsigned)payload[0] | ((unsigned)payload[1] << 8)) < (unsigned)TFW_BOOT_EE_BLOCK_LEN
                && st == TFW_OK) {
         broke = "a reserved-region read succeeded without a session";
     } else if (k == K_RESET && n >= 1u && payload[0] == 1u && !was_session
@@ -446,8 +446,8 @@ static void mutate_gated(unsigned k, uint8_t with_session)
     /* the reserved region's edge, read across */
     if (k == K_READ) {
         for (j = 0u; j < 8u; j++) {
-            buf[0] = (uint8_t)(TFW_BOOT_EE_LEN - 4u + j);
-            buf[1] = (uint8_t)((TFW_BOOT_EE_LEN - 4u + j) >> 8);
+            buf[0] = (uint8_t)(TFW_BOOT_EE_BLOCK_LEN - 4u + j);
+            buf[1] = (uint8_t)((TFW_BOOT_EE_BLOCK_LEN - 4u + j) >> 8);
             buf[2] = 4u;
             feed(k, buf, 3u);
         }
@@ -529,7 +529,7 @@ static void test_auth_in_any_order_keeps_the_gate(void)
                 break;
             case 5u:
             case 6u: {                                      /* a read either side of the edge */
-                const uint16_t a = (uint16_t)(rnd() % (2u * TFW_BOOT_EE_LEN));
+                const uint16_t a = (uint16_t)(rnd() % (2u * TFW_BOOT_EE_BLOCK_LEN));
                 p[0] = (uint8_t)a; p[1] = (uint8_t)(a >> 8); p[2] = (uint8_t)(1u + rnd() % 8u);
                 feed(K_READ, p, 3u);
                 break;

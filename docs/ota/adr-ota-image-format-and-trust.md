@@ -589,19 +589,28 @@ where only one fits, its image links one link file, chosen by its profile, as
 - **The confirm request record.** `OTA_CONFIRM` does not write the platform
   block, whose only writer is tfw-boot (`include/tfw/hal.h`). It leaves a
   request that tfw-boot applies at the next reset:
-  - layout, 11 bytes (`TFW_BOOT_CONFIRM_*`, `include/tfw/boot.h`):
-    `[magic 0xC9:1][measurement:8][crc:2]`. The measurement is the first 8 bytes
-    of the running image's, from `tfw_boot_handoff_measurement()`. The CRC is
-    CRC-16/CCITT-FALSE over the first 9 bytes, little-endian;
-  - where: `TFW_BOOT_CONFIRM_ADDR`, EEPROM `0x0EA`–`0x0F4` on the 2560, after the
-    swap journal (`0x0E0`–`0x0E9`). It is inside the span host `EEPROM_WRITE`
-    refuses (`TFW_BOOT_EE_EXTRA_LEN`, 21 bytes), so only the application's
-    handler writes it;
+  - layout, 75 bytes (`TFW_BOOT_CONFIRM_*`, `include/tfw/boot.h`, #231):
+    `[magic 0xC9:1][measurement:8][signature:64][crc:2]`. The measurement is
+    the first 8 bytes of the running image's, from
+    `tfw_boot_handoff_measurement()`. The signature is the 64-byte ES256 `r||s`
+    `OTA_AUTH` held, the row key's over the confirm Sig_structure
+    ([api.md](api.md), "Authorization by the row key"). The CRC is
+    CRC-16/CCITT-FALSE over the first 73 bytes, little-endian;
+  - where: `TFW_BOOT_CONFIRM_ADDR`, EEPROM `0x0EA`–`0x134` on the 2560, after the
+    swap journal (`0x0E0`–`0x0E9`). It is inside `[0x000, 0x140)`, the span
+    host `EEPROM_WRITE` refuses on every board (`TFW_BOOT_EE_LEN`, #125), so
+    only the application's handler writes it;
+  - how tfw-boot reads it (`boot/boot_swap.c`, `confirm_requested`): magic,
+    CRC and measurement first, then it rebuilds the Sig_structure from the
+    primary's trailer, its measurement and `image_version`
+    (`tfw_boot_cose_confirm`), and verifies the signature with the key and
+    verifier that check the image (`tfw_boot_pubkey`, `tfw_boot_verify`). A
+    wrong, zeroed, erased or truncated signature is no confirm;
   - why outside the block: the block keeps a single writer, and a torn request
     is just an invalid one. A torn write of the block could lose its state;
   - who clears it, and when: tfw-boot, at the reset that ends the trial, either
-    way. With a valid request bound to the primary's trailer measurement it
-    confirms and settles: `CONFIRMED`, then `GOOD`, and the floor advances. A
+    way. With a valid request bound to the primary's trailer measurement and
+    a signature that verifies it confirms and settles: `CONFIRMED`, then `GOOD`, and the floor advances. A
     stale, corrupt or absent request fails the trial. The magic is written
     `0xFF` only when it is set, so an ordinary boot wears nothing. The handler
     also stops the trial deadline (`tfw_ota_trial_stop`). The settling reset is

@@ -54,16 +54,16 @@
 #define INFO_FLAG_REFUSED   0x02u
 #define INFO_FLAG_TRIAL     0x04u
 
-static tfw_status_t load(uint8_t raw[TFW_BOOT_EE_LEN], tfw_boot_platform_t *p)
+static tfw_status_t load(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN], tfw_boot_platform_t *p)
 {
-    tfw_status_t st = tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN);
+    tfw_status_t st = tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_BLOCK_LEN);
 
     return (st == TFW_OK) ? tfw_boot_platform_parse(raw, p) : st;
 }
 
 tfw_status_t tfw_otactl_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t plat;
     uint8_t             slot = tfw_read_u8(r);
     uint8_t             flags = 0u;
@@ -112,9 +112,10 @@ tfw_status_t tfw_otactl_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
 
 tfw_status_t tfw_otactl_cmd_confirm(tfw_reader_t *r, tfw_writer_t *w)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t plat;
     const uint8_t      *meas = tfw_boot_handoff_measurement();
+    const uint8_t      *sig;
     uint16_t            crc;
     tfw_status_t        st;
 
@@ -122,10 +123,10 @@ tfw_status_t tfw_otactl_cmd_confirm(tfw_reader_t *r, tfw_writer_t *w)
     (void)w;
     /* The row key's authorization first (#137): a confirm without one writes
      * no request. Nor does one with it stop the trial deadline: a confirm the
-     * application cannot check would otherwise end the trial. The signature is not
-     * stored: the confirm request at TFW_BOOT_CONFIRM_ADDR (include/tfw/config.h)
-     * sits in the 2560's EXTRA span, which has no 64 bytes for it until #125. */
-    if (tfw_ota_auth_take() == NULL) {
+     * application cannot check would otherwise end the trial. The signature goes
+     * into the request, and tfw-boot verifies it before it settles the trial (#231). */
+    sig = tfw_ota_auth_take();
+    if (sig == NULL) {
         return TFW_ERR_AUTH_REQUIRED;
     }
     st = tfw_auth_gate();
@@ -146,6 +147,7 @@ tfw_status_t tfw_otactl_cmd_confirm(tfw_reader_t *r, tfw_writer_t *w)
      * fails its CRC and the trial fails at reset, as an unconfirmed one does. */
     raw[0] = TFW_BOOT_CONFIRM_MAGIC;
     memcpy(&raw[TFW_BOOT_CONFIRM_O_MEAS], meas, TFW_BOOT_CONFIRM_MEAS_LEN);
+    memcpy(&raw[TFW_BOOT_CONFIRM_O_SIG], sig, TFW_BOOT_CONFIRM_SIG_LEN);
     crc = tfw_crc16(raw, TFW_BOOT_CONFIRM_O_CRC);
     raw[TFW_BOOT_CONFIRM_O_CRC]      = (uint8_t)crc;
     raw[TFW_BOOT_CONFIRM_O_CRC + 1u] = (uint8_t)(crc >> 8);

@@ -117,7 +117,7 @@ the commands that do it are absent from a production image
    passes. The production image carries no `PROV_*` handler. An Ethernet image is
    `make ETH=1` ([build selection](../ethernet-transport/architecture.md#build-selection)).
 6. **The network block.** `Device.WriteNetConfig` encodes `tfw.NetConfig` and
-   writes the 32-byte block at EEPROM `0x0C0` with `EEPROM_WRITE` (`0x41`) over
+   writes the 32-byte block at EEPROM `0x140` (`TFW_NETCFG_ADDR`) with `EEPROM_WRITE` (`0x41`) over
    serial; `tfwctl netcfg set` does it from the command line, and
    `tfwctl netcfg get` reads it back through `Device.ReadNetConfig`. It holds the MAC, the device's address, mask, gateway, and the
    endpoint's address and port. Until a shield's assigned MAC is supplied, the

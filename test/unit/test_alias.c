@@ -72,7 +72,7 @@ tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
  * zero-rather-than-fabricated case, so a test that never calls the setters
  * below gets that answer, not a shortcut.
  */
-static uint8_t test_eeprom[TFW_BOOT_EE_LEN];
+static uint8_t test_eeprom[TFW_BOOT_EE_BLOCK_LEN];
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 
 tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
@@ -689,7 +689,7 @@ static void test_a_certificate_minted_before_attest_still_carries_the_real_ident
         0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB,0xAB
     };
     tfw_boot_platform_t plat;
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t  block[TFW_BOOT_HANDOFF_LEN];
     uint8_t  cdi[32], measurement[32];
     uint8_t  out[TFW_MAX_PAYLOAD];

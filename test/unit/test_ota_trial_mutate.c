@@ -62,7 +62,7 @@ static void clean(uint8_t *raw, uint8_t boot_state)
     uint16_t            i;
 
     memset(&p, 0, sizeof p);
-    memset(raw, 0, TFW_BOOT_EE_LEN);
+    memset(raw, 0, TFW_BOOT_EE_BLOCK_LEN);
     p.boot_state = boot_state;
     tfw_boot_platform_serialise(&p, raw);
     for (i = TFW_BOOT_EE_O_PUBKEY_HASH; i < TFW_BOOT_EE_O_BOOT_STATE; i++) {
@@ -85,12 +85,12 @@ static int arms(const uint8_t *raw)
 
 static void run(const uint8_t *raw)
 {
-    uint8_t  before[TFW_BOOT_EE_LEN];
+    uint8_t  before[TFW_BOOT_EE_BLOCK_LEN];
     uint16_t lo, hi;
     int      want = arms(raw);
 
     tfw_mock_reset();
-    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_LEN);
+    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_BLOCK_LEN);
     memcpy(before, raw, sizeof before);
 
     tfw_ota_trial_start();
@@ -106,7 +106,7 @@ static void run(const uint8_t *raw)
     TEST_ASSERT_EQUAL_UINT(want ? 1u : 0u, tfw_mock_reset_count());
     /* Never written back: no confirm, no fail count, no state. */
     TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_eeprom_written(&lo, &hi));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, &tfw_mock_eeprom()[TFW_BOOT_EE_BASE], TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, &tfw_mock_eeprom()[TFW_BOOT_EE_BASE], TFW_BOOT_EE_BLOCK_LEN);
     if (want) {
         armed_runs++;
     } else {
@@ -116,24 +116,24 @@ static void run(const uint8_t *raw)
 
 static void test_every_bit_flip_arms_nothing(void)
 {
-    uint8_t  base[TFW_BOOT_EE_LEN], raw[TFW_BOOT_EE_LEN];
+    uint8_t  base[TFW_BOOT_EE_BLOCK_LEN], raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned bit, n = 0u;
 
     clean(base, TFW_BOOT_STATE_TRIAL);
     TEST_ASSERT_TRUE(arms(base));
-    for (bit = 0u; bit < TFW_BOOT_EE_LEN * 8u; bit++) {
+    for (bit = 0u; bit < TFW_BOOT_EE_BLOCK_LEN * 8u; bit++) {
         memcpy(raw, base, sizeof raw);
         raw[bit / 8u] ^= (uint8_t)(1u << (bit % 8u));
         run(raw);
         n++;
     }
-    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_LEN * 8u, n);
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_BLOCK_LEN * 8u, n);
     TEST_ASSERT_EQUAL_UINT(0u, armed_runs);
 }
 
 static void test_every_bit_flip_under_a_resealed_crc(void)
 {
-    uint8_t  base[TFW_BOOT_EE_LEN], raw[TFW_BOOT_EE_LEN];
+    uint8_t  base[TFW_BOOT_EE_BLOCK_LEN], raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned bit, n = 0u;
 
     clean(base, TFW_BOOT_STATE_TRIAL);
@@ -149,7 +149,7 @@ static void test_every_bit_flip_under_a_resealed_crc(void)
 
 static void test_erased_and_zeroed_records_arm_nothing(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
     memset(raw, 0x00, sizeof raw);
     run(raw);
@@ -164,11 +164,11 @@ static void test_erased_and_zeroed_records_arm_nothing(void)
 
 static void test_random_records(void)
 {
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned i, j;
 
     for (i = 0u; i < RANDOM_RUNS; i++) {
-        for (j = 0u; j < TFW_BOOT_EE_LEN; j++) {
+        for (j = 0u; j < TFW_BOOT_EE_BLOCK_LEN; j++) {
             raw[j] = (uint8_t)xorshift32();
         }
         run(raw);
@@ -180,7 +180,7 @@ static void test_random_records(void)
  * and boot_state TRIAL half the time. */
 static void test_hostile_fields_under_a_valid_crc(void)
 {
-    uint8_t  base[TFW_BOOT_EE_LEN], raw[TFW_BOOT_EE_LEN];
+    uint8_t  base[TFW_BOOT_EE_BLOCK_LEN], raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned i, j;
 
     clean(base, TFW_BOOT_STATE_TRIAL);
@@ -204,7 +204,7 @@ static void test_hostile_fields_under_a_valid_crc(void)
 static void test_every_layout_state_and_fail_count(void)
 {
     static const uint8_t fails[] = { 0x00u, 0x01u, 0x7Fu, 0x80u, 0xFEu, 0xFFu };
-    uint8_t  base[TFW_BOOT_EE_LEN], raw[TFW_BOOT_EE_LEN];
+    uint8_t  base[TFW_BOOT_EE_BLOCK_LEN], raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned v, f, n = 0u;
 
     clean(base, TFW_BOOT_STATE_TRIAL);
@@ -233,10 +233,10 @@ static void test_every_layout_state_and_fail_count(void)
 
 static void test_a_refused_read_of_a_trial_record_arms_nothing(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
     clean(raw, TFW_BOOT_STATE_TRIAL);
-    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_LEN);
+    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_mock_eeprom_read_fails(1u);
     tfw_ota_trial_start();
     tfw_mock_advance(DEADLINE_MS);
@@ -252,13 +252,13 @@ static void test_clean_records_afterwards(void)
     static const uint8_t others[] = {
         TFW_BOOT_STATE_EMPTY, TFW_BOOT_STATE_STAGED, TFW_BOOT_STATE_GOOD, TFW_BOOT_STATE_CONFIRMED,
     };
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned i;
 
     tfw_mock_reset();
     tfw_mock_set_millis(500u);
     clean(raw, TFW_BOOT_STATE_TRIAL);
-    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_LEN);
+    memcpy(&tfw_mock_eeprom()[TFW_BOOT_EE_BASE], raw, TFW_BOOT_EE_BLOCK_LEN);
     tfw_ota_trial_start();
     TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_watchdog_arms());
     tfw_ota_trial_poll();

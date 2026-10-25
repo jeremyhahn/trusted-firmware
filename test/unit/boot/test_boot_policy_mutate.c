@@ -83,7 +83,7 @@ static void install_at(uint32_t base, uint32_t version, uint8_t board_id)
 {
     uint8_t *flash = tfw_boot_mock_flash();
     uint8_t  raw[TFW_BOOT_TRAILER_LEN];
-    uint8_t  ee[TFW_BOOT_EE_LEN];
+    uint8_t  ee[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_trailer_t  tr;
     tfw_boot_platform_t plat;
 
@@ -105,7 +105,7 @@ static void install_at(uint32_t base, uint32_t version, uint8_t board_id)
     tfw_boot_hash(g_pub, TFW_BOOT_PUBKEY_LEN, plat.pubkey_hash);
     plat.boot_state = TFW_BOOT_STATE_GOOD;
     tfw_boot_platform_serialise(&plat, ee);
-    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_BLOCK_LEN);
 }
 
 static void install(uint32_t version)

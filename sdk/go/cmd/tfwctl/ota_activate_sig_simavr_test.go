@@ -28,7 +28,23 @@ func simavrActivateSig(img []byte) [tfw.OTAAuthSigLen]byte {
 	tr := img[len(img)-128:]
 	var m [32]byte
 	copy(m[:], tr[16:48])
-	d := sha256.Sum256(activateSigStructure(m, binary.LittleEndian.Uint32(tr[8:12]), 0))
+	return simavrSign(activateSigStructure(m, binary.LittleEndian.Uint32(tr[8:12]), 0))
+}
+
+// simavrConfirmSig is the row key's OTA_CONFIRM authorization for the image
+// running on trial, the staged one: its trailer's measurement and version in
+// the confirm Sig_structure, which tfw-boot verifies before it settles the
+// trial (boot/boot_swap.c, docs/ota/api.md). The activate's never confirms.
+func simavrConfirmSig(img []byte) [tfw.OTAAuthSigLen]byte {
+	tr := img[len(img)-128:]
+	var m [32]byte
+	copy(m[:], tr[16:48])
+	return simavrSign(confirmSigStructure(m, binary.LittleEndian.Uint32(tr[8:12])))
+}
+
+// simavrSign is element_sign's construction over a structure's SHA-256.
+func simavrSign(structure []byte) [tfw.OTAAuthSigLen]byte {
+	d := sha256.Sum256(structure)
 	var sig [tfw.OTAAuthSigLen]byte
 	a := sha256.Sum256(append(append([]byte{}, simavrElementKey[:]...), d[:]...))
 	b := sha256.Sum256(append(append([]byte{}, d[:]...), simavrElementKey[:]...))

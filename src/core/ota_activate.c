@@ -27,9 +27,9 @@
  * tfw_stage_install_pending() holds, which only this handler's success sets. */
 static uint8_t activated;
 
-static tfw_status_t load(uint8_t raw[TFW_BOOT_EE_LEN], tfw_boot_platform_t *p)
+static tfw_status_t load(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN], tfw_boot_platform_t *p)
 {
-    tfw_status_t st = tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN);
+    tfw_status_t st = tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_BLOCK_LEN);
 
     return (st == TFW_OK) ? tfw_boot_platform_parse(raw, p) : st;
 }
@@ -56,7 +56,7 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
     }
     st = tfw_auth_gate();
     if (st == TFW_OK) {
-        uint8_t raw[TFW_BOOT_EE_LEN];
+        uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
         st = load(raw, &plat);
     }

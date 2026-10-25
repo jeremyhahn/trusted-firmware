@@ -124,7 +124,7 @@ static void install(uint32_t version, const uint8_t *sig)
 /* The platform block, the mock verifier's all-zero key pinned. */
 static void block(uint8_t boot_state, uint8_t ota_state, uint32_t floor)
 {
-    uint8_t ee[TFW_BOOT_EE_LEN];
+    uint8_t ee[TFW_BOOT_EE_BLOCK_LEN];
     uint8_t key[TFW_BOOT_PUBKEY_LEN];
     tfw_boot_platform_t p;
 
@@ -135,7 +135,7 @@ static void block(uint8_t boot_state, uint8_t ota_state, uint32_t floor)
     p.ota_state      = ota_state;
     p.rollback_floor = floor;
     tfw_boot_platform_serialise(&p, ee);
-    memcpy(tfw_boot_mock_nvm() + TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm() + TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_BLOCK_LEN);
 }
 
 static tfw_boot_platform_t loaded(void)
@@ -176,7 +176,7 @@ void tearDown(void)
 
 void test_a_good_image_boots_and_writes_no_block(void)
 {
-    uint8_t before[TFW_BOOT_EE_LEN];
+    uint8_t before[TFW_BOOT_EE_BLOCK_LEN];
 
     install(1u, GOOD_SIG);
     block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE, 1u);
@@ -185,7 +185,7 @@ void test_a_good_image_boots_and_writes_no_block(void)
     TEST_ASSERT_EQUAL(BOOTED, boot());
     assert_ran_the_image();
     TEST_ASSERT_EQUAL_UINT8_ARRAY(before, tfw_boot_mock_nvm() + TFW_BOOT_EE_BASE,
-                                  TFW_BOOT_EE_LEN);
+                                  TFW_BOOT_EE_BLOCK_LEN);
     TEST_ASSERT_EQUAL_UINT(0u, tfw_boot_mock_watchdog_at());
 }
 
@@ -348,7 +348,7 @@ void test_a_cut_before_the_settle_settles_at_the_next_reset(void)
  * block is not written over. */
 void test_a_block_torn_mid_write_is_recovery_and_is_not_written_over(void)
 {
-    uint8_t torn[TFW_BOOT_EE_LEN];
+    uint8_t torn[TFW_BOOT_EE_BLOCK_LEN];
 
     install(2u, GOOD_SIG);
     block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_PENDING, 1u);
@@ -360,7 +360,7 @@ void test_a_block_torn_mid_write_is_recovery_and_is_not_written_over(void)
     TEST_ASSERT_EQUAL(RECOVERED, boot());
     TEST_ASSERT_NOT_EQUAL(TFW_OK, recovered);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(torn, tfw_boot_mock_nvm() + TFW_BOOT_EE_BASE,
-                                  TFW_BOOT_EE_LEN);
+                                  TFW_BOOT_EE_BLOCK_LEN);
 }
 
 int main(void)

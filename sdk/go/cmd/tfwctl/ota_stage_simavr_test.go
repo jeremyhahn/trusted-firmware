@@ -135,10 +135,11 @@ func TestOTAStageThroughTfwBoot(t *testing.T) {
 	}
 	// OTA_CONFIRM (api.md:64) answers TFW_OK (0); BAD_STATE (19, api.md:90)
 	// would mean no trial or no handoff.
-	// OTA_CONFIRM is authorized the same way; tfw-boot does not re-check
-	// the confirm's signature (docs/SPEC.md, the ota row), so the
-	// activate's serves.
-	if err := dev.OTAAuth(context.Background(), sig); err != nil {
+	// OTA_CONFIRM is authorized by the row key over its own Sig_structure:
+	// the firmware stores the signature in the confirm request and tfw-boot
+	// verifies it before it settles the trial (docs/ota/api.md, #231). The
+	// activate's would roll the trial back.
+	if err := dev.OTAAuth(context.Background(), simavrConfirmSig(img)); err != nil {
 		t.Fatalf("OTA_AUTH before OTA_CONFIRM: %v", err)
 	}
 	if err := dev.OTAConfirm(context.Background()); err != nil {

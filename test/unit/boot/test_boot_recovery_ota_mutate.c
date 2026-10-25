@@ -205,7 +205,7 @@ static tx_t drain(void)
 
 static void load_platform(uint8_t boot_state, uint8_t ota_state, uint32_t floor)
 {
-    uint8_t      ee[TFW_BOOT_EE_LEN];
+    uint8_t      ee[TFW_BOOT_EE_BLOCK_LEN];
     tfw_status_t st;
 
     memset(ee, 0xFF, sizeof ee);
@@ -213,7 +213,7 @@ static void load_platform(uint8_t boot_state, uint8_t ota_state, uint32_t floor)
     plat.ota_state      = ota_state;
     plat.rollback_floor = floor;
     tfw_boot_platform_serialise(&plat, ee);
-    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_LEN);
+    memcpy(tfw_boot_mock_nvm(), ee, TFW_BOOT_EE_BLOCK_LEN);
     memset(&plat, 0, sizeof plat);
     tfw_boot_platform_load(&plat, &st);
     TEST_ASSERT_EQUAL(TFW_OK, st);

@@ -15,12 +15,12 @@
 #include "boot_cdi.h"
 #include "boot_trial.h"
 
-static uint8_t ee[TFW_BOOT_EE_LEN];
+static uint8_t ee[TFW_BOOT_EE_BLOCK_LEN];
 static uint8_t loaded;
 
 void tfw_boot_platform_load(tfw_boot_platform_t *p, tfw_status_t *st)
 {
-    *st = tfw_boot_nvm_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    *st = tfw_boot_nvm_read(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_BLOCK_LEN);
     if (*st == TFW_OK) {
         *st = tfw_boot_platform_parse(ee, p);
     }
@@ -41,7 +41,7 @@ static tfw_status_t platform_write(const tfw_boot_platform_t *p)
         return TFW_ERR_BAD_STATE;
     }
     tfw_boot_platform_serialise(p, ee);
-    return tfw_boot_nvm_write(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_LEN);
+    return tfw_boot_nvm_write(TFW_BOOT_EE_BASE, ee, TFW_BOOT_EE_BLOCK_LEN);
 }
 
 void tfw_boot_platform_store(const tfw_boot_platform_t *p)

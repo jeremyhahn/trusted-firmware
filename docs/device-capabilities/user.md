@@ -96,9 +96,13 @@ DHT22 distinguishes a 0-bit from a 1-bit by whether a pulse ran 26 or
 ## Store small amounts of data on the device
 
 ```go
-err := dev.EEPROMWrite(ctx, 0x100, []byte{1, 2, 3, 4})
-data, err := dev.EEPROMRead(ctx, 0x100, 4)
+err := dev.EEPROMWrite(ctx, 0x180, []byte{1, 2, 3, 4})
+data, err := dev.EEPROMRead(ctx, 0x180, 4)
 ```
+
+`[0x000, 0x140)` is tfw-boot's on every board (`EEPROMReservedEnd`, #125) and
+`EEPROM_WRITE` refuses it; an Ethernet board keeps its network block at
+`0x140`–`0x15F`, so a free address starts at `0x160`.
 
 Writes and reads are capped at 8 bytes per call — chunk larger payloads
 yourself. Addresses `0x000`-`0x0BF` belong to the platform (bootloader hash,

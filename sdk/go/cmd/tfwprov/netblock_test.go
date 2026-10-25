@@ -34,9 +34,10 @@ var benchNetblock = []byte{
 	0x3E, 0x07, // CRC-16/CCITT-FALSE over [0, 30), little-endian
 }
 
-// benchNetblockHex is that block as the .eep file --bake-netblock writes.
-const benchNetblockHex = ":1000C00054464E4301005AED0910BF59C633641619\n" +
-	":1000D000FFFFFF0000000000C63364011B6C3E07F9\n" +
+// benchNetblockHex is that block as the .eep file --bake-netblock writes, at
+// 0x140 since #125 (0x0C0 before it).
+const benchNetblockHex = ":1001400054464E4301005AED0910BF59C633641698\n" +
+	":10015000FFFFFF0000000000C63364011B6C3E0778\n" +
 	":00000001FF\n"
 
 func benchFlags() netblockFlags {
@@ -122,9 +123,10 @@ func TestBakeNetblockWritesTheBenchFile(t *testing.T) {
 	}
 }
 
-// One command line, one image: the platform block and the network block as
-// the single contiguous 224-byte run [0x000, 0x0E0) the bench wrote.
-func TestBakeBothIsOneContiguousImage(t *testing.T) {
+// One command line, one image: the platform block [0x000, 0x0C0) and the
+// network block [0x140, 0x160), two runs. The gap is the bootloader's swap
+// journal and confirm request (#125), which the file must not touch.
+func TestBakeBothIsOneImageOfTwoRuns(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "both.eep")
 	if err := runBake(out, true, "000102030405060708090a0b0c0d0e0f", "", "", true, benchFlags(), ""); err != nil {
 		t.Fatalf("runBake: %v", err)
@@ -133,19 +135,20 @@ func TestBakeBothIsOneContiguousImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	image := readIHEX(t, string(data))
-	if len(image) != 224 {
-		t.Fatalf("image is %d bytes, want 224", len(image))
+	runs := readIHEXRuns(t, string(data))
+	if len(runs) != 2 || runs[0].base != 0x000 || runs[1].base != 0x140 {
+		t.Fatalf("runs = %d, want [0x000, 0x0C0) and [0x140, 0x160)", len(runs))
 	}
+	image, net := runs[0].data, runs[1].data
 	// Placement, not encoding: the platform block's bytes are pinned where
 	// the platform block is defined.
 	want := tfw.BuildPlatformBlock([tfw.SerialLen]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 		[tfw.PubkeyHashLen]byte{}, [tfw.OperatorPubkeyLen]byte{})
-	if !bytes.Equal(image[:0xC0], want[:]) {
+	if !bytes.Equal(image, want[:]) {
 		t.Fatalf("[0x000, 0x0C0) is not the platform block")
 	}
-	if !bytes.Equal(image[0xC0:], benchNetblock) {
-		t.Fatalf("[0x0C0, 0x0E0) = % x\nwant              % x", image[0xC0:], benchNetblock)
+	if !bytes.Equal(net, benchNetblock) {
+		t.Fatalf("[0x140, 0x160) = % x\nwant              % x", net, benchNetblock)
 	}
 }
 
@@ -193,7 +196,17 @@ func TestNetblockFlagsRefuseWhatTheyCannotEncode(t *testing.T) {
 // failing on a gap: the image must be a single run from address zero.
 func readIHEX(t *testing.T, s string) []byte {
 	t.Helper()
-	var image []byte
+	runs := readIHEXRuns(t, s)
+	if len(runs) != 1 || runs[0].base != 0 {
+		t.Fatalf("the image is %d runs, want one at 0x0000", len(runs))
+	}
+	return runs[0].data
+}
+
+// readIHEXRuns decodes a file into its runs of contiguous records, in order.
+func readIHEXRuns(t *testing.T, s string) []ihexSegment {
+	t.Helper()
+	var runs []ihexSegment
 	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
 		raw, err := hex.DecodeString(strings.TrimPrefix(line, ":"))
 		if err != nil || len(raw) < 5 {
@@ -210,10 +223,14 @@ func readIHEX(t *testing.T, s string) []byte {
 			break
 		}
 		addr, _ := strconv.ParseUint(hex.EncodeToString(raw[1:3]), 16, 16)
-		if int(addr) != len(image) {
-			t.Fatalf("record at 0x%04X, want 0x%04X: the image is not one run", addr, len(image))
+		if n := len(runs); n == 0 || int(addr) != int(runs[n-1].base)+len(runs[n-1].data) {
+			if n > 0 && int(addr) < int(runs[n-1].base)+len(runs[n-1].data) {
+				t.Fatalf("record at 0x%04X overlaps or precedes the run before it", addr)
+			}
+			runs = append(runs, ihexSegment{base: uint16(addr)})
 		}
-		image = append(image, raw[4:4+int(raw[0])]...)
+		last := &runs[len(runs)-1]
+		last.data = append(last.data, raw[4:4+int(raw[0])]...)
 	}
-	return image
+	return runs
 }

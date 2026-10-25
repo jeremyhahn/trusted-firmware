@@ -136,11 +136,20 @@ not copy them.
 
 - The platform block, `0x000`–`0x0BF`:
   [`../secure-boot/api.md`](../secure-boot/api.md#reserved-eeprom).
-- The network block, 32 bytes at `0x0C0`:
-  [`../ethernet-transport/api.md`](../ethernet-transport/api.md).
-- The swap journal, ten bytes at `0x0E0`–`0x0E9`, past the wire's
-  `EEPROMReservedEnd` and refused to `EEPROM_WRITE` all the same
+- The swap journal, ten bytes at `0x0E0`–`0x0E9`
   (`board_profile.h:117`–`123`). This one is the Mega's alone.
+- `OTA_CONFIRM`'s request, 75 bytes at `0x0EA`–`0x134`: magic, the first 8
+  bytes of the running image's measurement, the row key's 64-byte confirm
+  signature, and a CRC over the 73 bytes before it
+  ([the OTA ADR](../ota/adr-ota-image-format-and-trust.md), decision 8,
+  "The confirm request record").
+- `0x135`–`0x13F` spare. All of `[0x000, 0x140)` is tfw-boot's, the wire's
+  `EEPROMReservedEnd` on every board (#125), and `EEPROM_WRITE` refuses it.
+- The network block, 32 bytes at `0x140`–`0x15F`:
+  [`../ethernet-transport/api.md`](../ethernet-transport/api.md). Until #125
+  it was at `0x0C0`; a device upgraded from that layout no longer reads its
+  network block there, and is provisioned again (`tfwctl netcfg set`) after
+  the upgrade.
 
 ## Flashing on the bench
 

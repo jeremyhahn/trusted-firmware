@@ -908,7 +908,7 @@ static int find_response(uint8_t seq, uint8_t *status, uint8_t *payload, uint8_t
  * TFW_OTA_STAGE_DEST and swapped into the primary by tfw-boot. On a board with
  * one slot the two ends are the same address. */
 static uint8_t image[TFW_APP_WRITE_END];
-static uint8_t eeprom_image[TFW_BOOT_EE_LEN];
+static uint8_t eeprom_image[TFW_BOOT_EE_BLOCK_LEN];
 static uint32_t image_len;
 
 /* What one run left in the part, for a test that resets it without
@@ -1115,13 +1115,13 @@ static void build_eeprom(void)
 static tfw_status_t stored_platform(tfw_boot_platform_t *p)
 {
     avr_eeprom_desc_t d = { .ee = NULL, .offset = TFW_BOOT_EE_BASE,
-                            .size = TFW_BOOT_EE_LEN };
+                            .size = TFW_BOOT_EE_BLOCK_LEN };
 
     (void)avr_ioctl(avr, AVR_IOCTL_EEPROM_GET, &d);
     if (d.ee == NULL) {
         return TFW_ERR_INTERNAL;
     }
-    memcpy(eeprom_image, d.ee, TFW_BOOT_EE_LEN);
+    memcpy(eeprom_image, d.ee, TFW_BOOT_EE_BLOCK_LEN);
     return tfw_boot_platform_parse(eeprom_image, p);
 }
 
@@ -1205,7 +1205,7 @@ static void install(elf_firmware_t *boot, uint32_t counter)
     }
     {
         avr_eeprom_desc_t d = { .ee = eeprom_image, .offset = TFW_BOOT_EE_BASE,
-                                .size = TFW_BOOT_EE_LEN };
+                                .size = TFW_BOOT_EE_BLOCK_LEN };
         avr_ioctl(avr, AVR_IOCTL_EEPROM_SET, &d);
     }
 
@@ -2166,21 +2166,9 @@ long boot_harness_prev_addr(void);
  * row's key as every image in this suite is (sign_digest). The header names
  * ES256 (-7, 0x26): both simavr rows, the element and the soft root, are P-256. Its digest is SHA-256 of the
  * structure, which is what verify_atecc608a.c loads into TempKey. */
-static void sign_activate(const uint8_t hash[32], uint32_t version, uint8_t mode,
-                          uint8_t sig[TFW_OTA_AUTH_SIG_LEN])
+static unsigned put_version(uint8_t *b, unsigned n, uint32_t version)
 {
-    static const uint8_t head[] = {
-        0x84, 0x6A, 'S','i','g','n','a','t','u','r','e','1', 0x43, 0xA1, 0x01, 0x26,
-        0x40, 0x58, 0x00,
-        0x84, 0x70, 't','f','w','-','o','t','a','-','a','c','t','i','v','a','t','e',
-        0x58, 0x20
-    };
-    uint8_t  b[sizeof head + 32u + 5u + 1u], digest[32];
-    unsigned n = sizeof head;
-
-    memcpy(b, head, n);
-    memcpy(&b[n], hash, 32u);
-    n += 32u;
+    /* CBOR's shortest unsigned integer (RFC 8949 §4.2.1). */
     if (version < 24u) {
         b[n++] = (uint8_t)version;
     } else if (version <= 0xFFu) {
@@ -2197,9 +2185,50 @@ static void sign_activate(const uint8_t hash[32], uint32_t version, uint8_t mode
         b[n++] = (uint8_t)(version >> 8);
         b[n++] = (uint8_t)version;
     }
+    return n;
+}
+
+static void sign_activate(const uint8_t hash[32], uint32_t version, uint8_t mode,
+                          uint8_t sig[TFW_OTA_AUTH_SIG_LEN])
+{
+    static const uint8_t head[] = {
+        0x84, 0x6A, 'S','i','g','n','a','t','u','r','e','1', 0x43, 0xA1, 0x01, 0x26,
+        0x40, 0x58, 0x00,
+        0x84, 0x70, 't','f','w','-','o','t','a','-','a','c','t','i','v','a','t','e',
+        0x58, 0x20
+    };
+    uint8_t  b[sizeof head + 32u + 5u + 1u], digest[32];
+    unsigned n = sizeof head;
+
+    memcpy(b, head, n);
+    memcpy(&b[n], hash, 32u);
+    n = put_version(b, n + 32u, version);
     b[n++] = mode;
     b[18] = (uint8_t)(n - 19u);    /* the payload's length, after the 0x58 */
     tfw_sha256(b, (uint16_t)n, digest);    /* n <= sizeof b, 77 */
+    sign_digest(digest, sig);
+}
+
+/* The same for a confirm (#231): ["tfw-ota-confirm", measurement, version],
+ * as boot_cose.c's tfw_boot_cose_confirm builds it and boot_swap.c verifies
+ * it. boot_harness_ab.c lays it in the confirm request. */
+void harness_sign_confirm(const uint8_t hash[32], uint32_t version,
+                          uint8_t sig[TFW_BOOT_CONFIRM_SIG_LEN])
+{
+    static const uint8_t head[] = {
+        0x84, 0x6A, 'S','i','g','n','a','t','u','r','e','1', 0x43, 0xA1, 0x01, 0x26,
+        0x40, 0x58, 0x00,
+        0x83, 0x6F, 't','f','w','-','o','t','a','-','c','o','n','f','i','r','m',
+        0x58, 0x20
+    };
+    uint8_t  b[sizeof head + 32u + 5u], digest[32];
+    unsigned n = sizeof head;
+
+    memcpy(b, head, n);
+    memcpy(&b[n], hash, 32u);
+    n = put_version(b, n + 32u, version);
+    b[18] = (uint8_t)(n - 19u);    /* the payload's length, after the 0x58 */
+    tfw_sha256(b, (uint16_t)n, digest);    /* n <= sizeof b, 75 */
     sign_digest(digest, sig);
 }
 

@@ -12,6 +12,8 @@
 #include "hal_mock.h"
 #include "tfw/protocol.h"
 #include "tfw/config.h"
+#include "tfw/eth.h"
+#include "vectors.h"
 
 static uint8_t     inbuf[TFW_MAX_PAYLOAD];
 static uint8_t     outbuf[TFW_MAX_PAYLOAD];
@@ -54,15 +56,15 @@ static void test_a_round_trip_through_the_user_area(void)
 {
     const uint8_t data[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
 
-    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x100u, data, 4u));
-    TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x100u, 4u));
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x180u, data, 4u));
+    TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x180u, 4u));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(data, outbuf, 4u);
 }
 
 /*
  * THE SECURITY BOUNDARY.
  *
- * The low TFW_BOOT_EE_LEN bytes (0xC0, since issue #4 added the operator
+ * The low TFW_BOOT_EE_BLOCK_LEN bytes (0xC0, since issue #4 added the operator
  * public key at 0x80-0xBF) hold the bootloader's public-key hash, the device
  * serial and -- element tier only -- that operator key. Without this check,
  * the generic EEPROM primitive would let anyone on the serial line overwrite
@@ -78,36 +80,55 @@ static void test_the_reserved_region_cannot_be_written(void)
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x030u, evil, 4u)); /* boot counter */
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x044u, evil, 4u)); /* operator pubkey, issue #4 */
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0BFu, evil, 1u)); /* last byte of it */
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0C0u, evil, 4u)); /* the old end, #125 */
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x13Fu, evil, 1u)); /* last reserved byte */
     /* and nothing was written: the region keeps the erased part's bytes */
-    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, tfw_mock_eeprom(), 0x0C0u);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, tfw_mock_eeprom(), 0x140u);
 }
 
 /* A write beginning below the boundary and running past it must be refused
- * whole. Checking only the starting address would let a write at 0xBF running
- * eight bytes reach 0xC6 -- through the boundary, having passed the check. */
+ * whole. Checking only the starting address would let a write at 0x13F running
+ * eight bytes reach 0x146 -- through the boundary, having passed the check. */
 static void test_a_write_straddling_the_boundary_is_refused_entirely(void)
 {
     const uint8_t data[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
-    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0BFu, data, 8u));
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x13Fu, data, 8u));
     /* and nothing was written, on either side of the boundary */
-    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, &tfw_mock_eeprom()[0x0BF], 8u);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, &tfw_mock_eeprom()[0x13F], 8u);
 }
 
 static void test_the_first_byte_above_the_boundary_is_writable(void)
 {
     const uint8_t one[1] = { 0x5A };
-    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0C0u, one, 1u));
-    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0C0]);
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x140u, one, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x140]);
 }
 
-/* The ATmega2560's bootloader keeps its swap journal at 0x0E0-0x0E9, above the
- * platform block, and its build refuses it (test_storage_2560.c). This board
- * declares no such range, so the same address is the application's. */
-static void test_a_board_without_the_range_accepts_0x0E0(void)
+/* The reserved end is 0x140 on every board (#125), so the span the ATmega2560's
+ * bootloader keeps its swap journal and confirm request in, 0x0E0-0x134, is
+ * refused here too, where no bootloader uses it. */
+/* The frames testdata/vectors.h pins for the move (#125), as the device answers
+ * them: the payload after [A5 LEN SEQ CMD], the status the response carries. */
+static void test_the_vector_writes_get_the_vector_statuses(void)
+{
+    static const uint8_t old_req[] = TFWV_FRAME_EEPROM_WRITE_OLD_NETCFG_REQ;
+    static const uint8_t refused[] = TFWV_FRAME_EEPROM_WRITE_PROTECTED_RESP;
+    static const uint8_t new_req[] = TFWV_FRAME_EEPROM_WRITE_NETCFG_REQ;
+    static const uint8_t ok[]      = TFWV_FRAME_EEPROM_WRITE_NETCFG_RESP;
+
+    TEST_ASSERT_EQUAL_HEX16(TFWV_EEPROM_RESERVED_END, TFW_BOOT_EE_LEN);
+    TEST_ASSERT_EQUAL_HEX16(TFWV_EEPROM_RESERVED_END, TFW_NETCFG_ADDR);
+    TEST_ASSERT_EQUAL(refused[4], run(TFW_CMD_EEPROM_WRITE, &old_req[4], 6u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFFu, &tfw_mock_eeprom()[0x0C0], 4u);
+    TEST_ASSERT_EQUAL(ok[4], run(TFW_CMD_EEPROM_WRITE, &new_req[4], 6u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&new_req[6], &tfw_mock_eeprom()[TFW_NETCFG_ADDR], 4u);
+}
+
+static void test_a_board_without_the_journal_refuses_0x0E0(void)
 {
     const uint8_t one[1] = { 0x5A };
-    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0E0u, one, 1u));
-    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0E0]);
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0E0u, one, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0E0]);
 }
 
 /* Reading the reserved region on THIS (soft-tier) build is still permitted
@@ -148,8 +169,8 @@ static void test_a_length_running_past_the_end_is_refused(void)
 static void test_a_write_larger_than_the_chunk_is_refused(void)
 {
     const uint8_t data[16] = { 0 };
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(0x100u, data, 16u));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(0x100u, data, 9u));   /* one past */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(0x180u, data, 16u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, ee_write(0x180u, data, 9u));   /* one past */
 }
 
 static void test_a_zero_length_write_is_refused(void)
@@ -164,7 +185,8 @@ int main(void)
     RUN_TEST(test_the_reserved_region_cannot_be_written);
     RUN_TEST(test_a_write_straddling_the_boundary_is_refused_entirely);
     RUN_TEST(test_the_first_byte_above_the_boundary_is_writable);
-    RUN_TEST(test_a_board_without_the_range_accepts_0x0E0);
+    RUN_TEST(test_the_vector_writes_get_the_vector_statuses);
+    RUN_TEST(test_a_board_without_the_journal_refuses_0x0E0);
     RUN_TEST(test_the_reserved_region_can_be_read);
     RUN_TEST(test_an_address_past_the_part_is_refused);
     RUN_TEST(test_a_length_running_past_the_end_is_refused);

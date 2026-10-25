@@ -44,7 +44,7 @@
  * device family, so there is nothing on those tiers left to gate with. See
  * docs/security/threat-model.md.
  */
-#define TFW_EEPROM_RESERVED_END TFW_BOOT_EE_LEN   /* [0x000, TFW_BOOT_EE_LEN) is platform-owned */
+#define TFW_EEPROM_RESERVED_END TFW_BOOT_EE_LEN   /* [0x000, TFW_BOOT_EE_LEN) is bootloader-owned */
 
 /* Chunked deliberately. A byte takes about 3.4 ms, so 64 bytes would hold the
  * main loop for 220 ms -- long enough to miss a scheduled deadline and, once a

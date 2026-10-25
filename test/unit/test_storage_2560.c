@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * EEPROM on the ATmega2560's profile, whose bootloader keeps the swap-move
- * journal at 0x0E0-0x0E9 -- above TFW_BOOT_EE_LEN, the bound the wire states
+ * journal at 0x0E0-0x0E9 -- above TFW_BOOT_EE_BLOCK_LEN, the bound the wire states
  * as EEPROMReservedEnd. The generic write must refuse every byte of it, with
  * the status the platform block's refusal already returns, and a read of it
  * takes the block's gate. test_storage.c pins a board without the range.
@@ -66,10 +66,12 @@ static tfw_status_t ee_read(uint16_t addr, uint8_t n)
 /* The journal sits past the wire's bound, or this suite tests nothing. */
 static void test_the_journal_lies_past_the_platform_block(void)
 {
-    TEST_ASSERT_EQUAL_HEX16(0x0C0u, TFW_BOOT_EE_LEN);
-    TEST_ASSERT_EQUAL_HEX16(0x0E0u, TFW_BOOT_EE_EXTRA_BASE);
-    TEST_ASSERT_EQUAL_UINT(21u, TFW_BOOT_EE_EXTRA_LEN);   /* the journal, then OTA_CONFIRM's request */
+    TEST_ASSERT_EQUAL_HEX16(0x0C0u, TFW_BOOT_EE_BLOCK_LEN);
+    TEST_ASSERT_EQUAL_HEX16(0x140u, TFW_BOOT_EE_LEN);     /* the reserved end, #125 */
+    TEST_ASSERT_EQUAL_HEX16(0x0E0u, TFW_SWAP_RECORD_ADDR);
     TEST_ASSERT_EQUAL_HEX16(0x0EAu, TFW_BOOT_CONFIRM_ADDR);
+    /* both below the reserved end, so the board names no extra range */
+    TEST_ASSERT_EQUAL_UINT(0u, TFW_BOOT_EE_EXTRA_LEN);
 }
 
 static void test_each_end_of_the_journal_is_refused(void)
@@ -78,39 +80,38 @@ static void test_each_end_of_the_journal_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0E9u, 1u));
     TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0E0]);
     TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0E9]);
-    /* OTA_CONFIRM's request record (#77) is tfw-boot's to take, never the host's. */
+    /* OTA_CONFIRM's request record (#77, #231) is tfw-boot's to take, never the host's. */
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0EAu, 1u));
-    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0F4u, 1u));
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0F4]);
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x134u, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x134]);
 }
 
 /* Refused whole: a write is checked over every byte it reaches, not its start. */
 static void test_a_write_over_either_edge_is_refused(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0DFu, 2u));
-    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x0E9u, 2u));
-    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write((uint16_t)(0x0E1u - CHUNK), CHUNK));
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x13Fu, 2u));
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write((uint16_t)(0x141u - CHUNK), CHUNK));
     TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0DF]);
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0EA]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x140]);
 }
 
 static void test_the_bytes_either_side_are_writable(void)
 {
-    gate_says = TFW_OK;   /* 0x0DF is the network block's last byte (#233) */
-    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0DFu, 1u));
-    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0F5u, 1u));
-    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0DF]);
-    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0F5]);
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x0E0]);
+    gate_says = TFW_OK;   /* 0x140 is the network block's first byte (#233) */
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(0x13Fu, 1u));
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x140u, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x140]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[0x13F]);
 }
 
-/* A read of the journal takes the platform block's gate; one beside it does not. */
+/* A read of the journal takes the platform block's gate; one past the reserved
+ * end does not. */
 static void test_a_read_of_the_journal_takes_the_gate(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_read(0x0E9u, 2u));
     TEST_ASSERT_EQUAL_UINT(1u, gate_calls);
-    TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x0F5u, 1u));
-    TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x0DFu, 1u));
+    TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x140u, 1u));
     TEST_ASSERT_EQUAL_UINT(1u, gate_calls);
 }
 
@@ -146,8 +147,11 @@ static void test_a_write_beside_the_network_block_takes_no_gate(void)
 {
     gate_says = TFW_ERR_AUTH_REQUIRED;
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write((uint16_t)(TFW_NETCFG_ADDR - 1u), 1u));
-    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(NET_END, 1u));
+    /* Past the block lies ordinary EEPROM, the bootloader's end being below it
+     * at 0x140 (m1100): written, and still without the gate. */
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(NET_END, 1u));
     TEST_ASSERT_EQUAL_UINT(0u, gate_calls);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[NET_END]);
 }
 
 /* A read wider than one chunk is refused before the gate is asked or a byte
@@ -172,7 +176,7 @@ static void test_a_read_of_the_platform_block_is_refused_by_the_gate(void)
 static void test_a_failed_part_read_is_passed_up_and_nothing_is_returned(void)
 {
     tfw_mock_eeprom_read_fails(1u);
-    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, ee_read(0x100u, 4u));
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, ee_read(0x140u, 4u));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
     tfw_mock_eeprom_read_fails(0u);
 }

@@ -192,9 +192,10 @@ func platformBlockFromFlags(dst *bakedPlatform, serialHex, pubkeyHashHex, operat
 
 // writeBakedImage writes the platform block, the network block, or both, as
 // one Intel HEX file holding only their addresses. Either may be nil, not
-// both. The two are contiguous on the part -- the network block starts where
-// the platform block ends -- so the combined file is the one 224-byte run
-// [0x000, 0x0E0) a bench writes with a single `-U eeprom:w:`.
+// both. The combined file is two runs, [0x000, 0x0C0) and [0x140, 0x160), a
+// bench writes with a single `-U eeprom:w:`. The gap between them is the
+// bootloader's swap journal and confirm request (#125), which the file leaves
+// as the part holds them.
 func writeBakedImage(outPath string, p *bakedPlatform, netblock []byte) error {
 	var segs []ihexSegment
 	if p != nil {
@@ -257,7 +258,7 @@ func writeBakedImage(outPath string, p *bakedPlatform, netblock []byte) error {
 const ihexRecordLen = 16
 
 // writeIHEXSegments writes each segment's data (bounded by a uint16 address;
-// this tool's blocks end at 0x0E0) as Intel HEX data records starting at its
+// this tool's blocks end at 0x160) as Intel HEX data records starting at its
 // base, followed by one EOF record.
 //
 // PARTIAL ON PURPOSE. avrdude's `-U eeprom:w:file:i` writes only the

@@ -56,7 +56,7 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
 /* The platform block: TFW_CM_PLATFORM_SIZE bytes at TFW_CM_PLATFORM_BASE
  * (board_profile.h), which the application reads through
  * src/hal/cortex-m/hal_nvm.c. */
-_Static_assert((uint32_t)TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN <= TFW_CM_PLATFORM_SIZE,
+_Static_assert((uint32_t)TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN <= TFW_CM_PLATFORM_SIZE,
                "the platform block must fit in TFW_CM_PLATFORM_SIZE");
 
 tfw_status_t tfw_boot_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)

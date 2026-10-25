@@ -38,8 +38,8 @@ const recordEnv = "TFWSIM_FAKE_RECORD"
 const noDialEnv = "TFWSIM_FAKE_NO_DIAL"
 
 // netcfgAddrEnv is what the fake prints for --netcfg-addr, the address its
-// network block is read at. Unset, it reports 0x00C0, as the firmware before
-// #231 does.
+// network block is read at. Unset, it reports 0x0140, tfw.NetConfigAddr, as
+// the firmware does (#231).
 const netcfgAddrEnv = "TFWSIM_FAKE_NETCFG_ADDR"
 
 // fakeNetcfgAddr is the fake's answer to --netcfg-addr.
@@ -47,7 +47,7 @@ func fakeNetcfgAddr() string {
 	if s := os.Getenv(netcfgAddrEnv); s != "" {
 		return s
 	}
-	return "0x00C0"
+	return "0x0140"
 }
 
 func TestMain(m *testing.M) {
@@ -330,13 +330,15 @@ func TestStartElementEthernetFailsWhenTheDeviceNeverConnects(t *testing.T) {
 	}
 }
 
-// The firmware, not the SDK, owns where its network block lives (#231 moves
+// The firmware, not the SDK, owns where its network block lives (#231 moved
 // it from 0x0C0 to 0x140), so the harness writes the block where the
-// simulator says it reads it, erased bytes between, and the device dials.
+// simulator says it reads it, erased bytes between, and the device dials. The
+// simulator here answers 0x0C0, not tfw.NetConfigAddr, so a harness that wrote
+// at the constant would fail.
 func TestStartElementEthernetWritesTheBlockAtTheAddressTheSimulatorReports(t *testing.T) {
-	const at = 0x140
+	const at = 0x0C0
 	record := fake(t)
-	t.Setenv(netcfgAddrEnv, "0x0140")
+	t.Setenv(netcfgAddrEnv, "0x00C0")
 	_, eth := tfwsim.StartElementEthernet(t)
 
 	image := eeprom(t, commandLine(t, record))
@@ -353,7 +355,7 @@ func TestStartElementEthernetWritesTheBlockAtTheAddressTheSimulatorReports(t *te
 	if err := cfg.UnmarshalBinary(image[at:]); err != nil {
 		t.Fatalf("the block at %#x: %v", at, err)
 	}
-	// The fake dialled the endpoint it read at 0x140, so the link is up.
+	// The fake dialled the endpoint it read at 0x0C0, so the link is up.
 	if eth == nil || !cfg.Endpoint.Addr().IsLoopback() {
 		t.Fatalf("link %v, endpoint %v in the block at %#x, want a link to a loopback endpoint", eth, cfg.Endpoint, at)
 	}

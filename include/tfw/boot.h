@@ -217,7 +217,14 @@ typedef struct {
 #define TFW_BOOT_EE_MAGIC     0x52504654uL   /* 'T','F','P','R' little-endian */
 #define TFW_BOOT_EE_VERSION   2u
 #define TFW_BOOT_EE_BASE      0x000u
-#define TFW_BOOT_EE_LEN       192u
+#define TFW_BOOT_EE_BLOCK_LEN 192u
+/* The end of the bootloader's EEPROM, the wire's EEPROMReservedEnd: the block
+ * above, then on the ATmega2560 the swap journal (0x0E0-0x0E9) and the signed
+ * confirm request (0x0EA-0x134), all below it (#125, owner item 149 (a)).
+ * EEPROM_WRITE refuses [TFW_BOOT_EE_BASE, TFW_BOOT_EE_LEN) on every board.
+ * Grew from 0x0C0, the block's own end, when the confirm request took its
+ * signature (#231). */
+#define TFW_BOOT_EE_LEN       0x140u
 
 #define TFW_BOOT_EE_O_MAGIC           0u
 #define TFW_BOOT_EE_O_LAYOUT          4u
@@ -273,17 +280,22 @@ typedef struct {
 
 /* OTA_CONFIRM's request (issue #77). The platform block has one writer,
  * tfw-boot, so the application never writes CONFIRMED: it leaves this record
- * at TFW_BOOT_CONFIRM_ADDR, past the block in the board's TFW_BOOT_EE_EXTRA_*
- * span that EEPROM_WRITE refuses, and tfw-boot takes it at the next reset.
- * [magic][first 8 bytes of the trial image's measurement][CRC16 LE of the 9
- * before]. The measurement binds it to the one image: a stale record never
- * matches a later trial's, and the CRC rejects a torn write. tfw-boot clears it
- * (the magic to 0xFF) whenever it ends a trial, either way. */
+ * at TFW_BOOT_CONFIRM_ADDR, below TFW_BOOT_EE_LEN where EEPROM_WRITE refuses it,
+ * and tfw-boot takes it at the next reset.
+ * [magic][first 8 bytes of the trial image's measurement][the row key's 64-byte
+ * ES256 signature over the confirm Sig_structure (tfw_boot_cose_confirm)][CRC16
+ * LE of the 73 before] (ADR docs/ota/adr-ota-image-format-and-trust.md, #231).
+ * The measurement binds it to the one image: a stale record never matches a
+ * later trial's, and the CRC rejects a torn write. tfw-boot settles the trial
+ * only if the signature verifies against the trailer's measurement and version;
+ * it clears the record (the magic to 0xFF) whenever it ends a trial, either way. */
 #define TFW_BOOT_CONFIRM_MAGIC    0xC9u
 #define TFW_BOOT_CONFIRM_O_MEAS   1u
 #define TFW_BOOT_CONFIRM_MEAS_LEN 8u
-#define TFW_BOOT_CONFIRM_O_CRC    9u
-#define TFW_BOOT_CONFIRM_LEN      11u
+#define TFW_BOOT_CONFIRM_O_SIG    9u
+#define TFW_BOOT_CONFIRM_SIG_LEN  64u
+#define TFW_BOOT_CONFIRM_O_CRC    73u
+#define TFW_BOOT_CONFIRM_LEN      75u
 
 /* The parsed region. */
 typedef struct {

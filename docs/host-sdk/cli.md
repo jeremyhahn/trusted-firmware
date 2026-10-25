@@ -107,7 +107,7 @@ Argument parsing is literal comparisons, not a flag library.
 |---|---|
 | `tfwsim` | speaks the protocol on stdin/stdout |
 | `tfwsim --pty` | the same, on a pty whose path is printed to stderr — lets a serial client open it like a real device |
-| `tfwsim --netcfg-addr` | prints the EEPROM address this build reads the network block at (`TFW_NETCFG_ADDR`, e.g. `0x00C0`) and exits 0; `tfwsim.StartElementEthernet` asks it before writing the block |
+| `tfwsim --netcfg-addr` | prints the EEPROM address this build reads the network block at (`TFW_NETCFG_ADDR`, e.g. `0x0140`) and exits 0; `tfwsim.StartElementEthernet` asks it before writing the block |
 
 ```sh
 make tfwsim

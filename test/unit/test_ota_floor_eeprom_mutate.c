@@ -53,7 +53,7 @@ static uint32_t rnd(void)
 }
 
 /* A good block: the floor, the states drawn, the rest zero. */
-static void block(uint8_t raw[TFW_BOOT_EE_LEN], uint32_t floor, uint8_t boot, uint8_t ota)
+static void block(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN], uint32_t floor, uint8_t boot, uint8_t ota)
 {
     tfw_boot_platform_t p;
 
@@ -66,7 +66,7 @@ static void block(uint8_t raw[TFW_BOOT_EE_LEN], uint32_t floor, uint8_t boot, ui
 
 static void put(const uint8_t *raw)
 {
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 }
 
 /* OTA_INFO for the running slot, its input a heap byte. On OK *floor is the
@@ -113,7 +113,7 @@ static void test_any_floor_in_a_good_block_is_reported_as_written(void)
         0u, 1u, 0x7Fu, 0x80u, 0xFFu, 0x100u, 0xFFFFu, 0x10000u, 0x7FFFFFFFu,
         0x80000000u, 0xFFFFFFFEu, 0xFFFFFFFFu
     };
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
     uint32_t            k, f, got;
 
@@ -138,7 +138,7 @@ static void test_any_floor_in_a_good_block_is_reported_as_written(void)
  * block as left (OTA_INFO writes nothing back). */
 static void test_every_one_bit_flip_is_refused(void)
 {
-    uint8_t  good[TFW_BOOT_EE_LEN], *raw = malloc(TFW_BOOT_EE_LEN);
+    uint8_t  good[TFW_BOOT_EE_BLOCK_LEN], *raw = malloc(TFW_BOOT_EE_BLOCK_LEN);
     uint32_t pair, bit, f, got;
 
     TEST_ASSERT_NOT_NULL(raw);
@@ -146,18 +146,18 @@ static void test_every_one_bit_flip_is_refused(void)
     for (pair = 0u; pair < 4u; pair++) {
         f = (pair == 0u) ? 0u : rnd();
         block(good, f, states[pair % 3u], TFW_BOOT_OTA_IDLE);
-        for (bit = 0u; bit < 8u * TFW_BOOT_EE_LEN; bit++) {
+        for (bit = 0u; bit < 8u * TFW_BOOT_EE_BLOCK_LEN; bit++) {
             snprintf(why, sizeof why, "seed 0x%08X floor 0x%08lX byte %lu bit %lu",
                      (unsigned)(SEED ^ 0xB1u), (unsigned long)f, (unsigned long)(bit / 8u),
                      (unsigned long)(bit % 8u));
-            memcpy(raw, good, TFW_BOOT_EE_LEN);
+            memcpy(raw, good, TFW_BOOT_EE_BLOCK_LEN);
             raw[bit / 8u] ^= (uint8_t)(1u << (bit % 8u));
             put(raw);
             got = 0xA5A5A5A5u;
             TEST_ASSERT_NOT_EQUAL_MESSAGE(TFW_OK, info(&got), why);
             TEST_ASSERT_EQUAL_HEX32_MESSAGE(0xA5A5A5A5u, got, why);
             TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(raw, tfw_mock_eeprom() + TFW_BOOT_EE_BASE,
-                                                  TFW_BOOT_EE_LEN, why);
+                                                  TFW_BOOT_EE_BLOCK_LEN, why);
         }
     }
     free(raw);
@@ -168,7 +168,7 @@ static void test_every_one_bit_flip_is_refused(void)
  * the old, never a value no one wrote; the whole write gives the new. */
 static void test_a_raise_torn_after_every_byte(void)
 {
-    uint8_t      before[TFW_BOOT_EE_LEN], after[TFW_BOOT_EE_LEN], *raw = malloc(TFW_BOOT_EE_LEN);
+    uint8_t      before[TFW_BOOT_EE_BLOCK_LEN], after[TFW_BOOT_EE_BLOCK_LEN], *raw = malloc(TFW_BOOT_EE_BLOCK_LEN);
     uint32_t     pair, n, lo, hi, got;
     tfw_status_t st;
 
@@ -182,19 +182,19 @@ static void test_a_raise_torn_after_every_byte(void)
         }
         block(before, lo, TFW_BOOT_STATE_CONFIRMED, TFW_BOOT_OTA_IDLE);
         block(after, hi, TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
-        for (n = 0u; n <= TFW_BOOT_EE_LEN; n++) {
+        for (n = 0u; n <= TFW_BOOT_EE_BLOCK_LEN; n++) {
             snprintf(why, sizeof why, "seed 0x%08X pair %lu 0x%08lX->0x%08lX torn after %lu",
                      (unsigned)(SEED ^ 0x7Eu), (unsigned long)pair, (unsigned long)lo,
                      (unsigned long)hi, (unsigned long)n);
             memcpy(raw, after, n);
-            memcpy(&raw[n], &before[n], TFW_BOOT_EE_LEN - n);
+            memcpy(&raw[n], &before[n], TFW_BOOT_EE_BLOCK_LEN - n);
             put(raw);
             got = 0xA5A5A5A5u;
             st = info(&got);
             if (n == 0u) {
                 TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, st, why);
                 TEST_ASSERT_EQUAL_HEX32_MESSAGE(lo, got, why);
-            } else if (n == TFW_BOOT_EE_LEN) {
+            } else if (n == TFW_BOOT_EE_BLOCK_LEN) {
                 TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, st, why);
                 TEST_ASSERT_EQUAL_HEX32_MESSAGE(hi, got, why);
             } else if (st == TFW_OK) {
@@ -209,7 +209,7 @@ static void test_a_raise_torn_after_every_byte(void)
  * damage happened to leave the block's bytes as they were, the floor written. */
 static void test_seeded_damage_is_refused(void)
 {
-    uint8_t  good[TFW_BOOT_EE_LEN], *raw = malloc(TFW_BOOT_EE_LEN);
+    uint8_t  good[TFW_BOOT_EE_BLOCK_LEN], *raw = malloc(TFW_BOOT_EE_BLOCK_LEN);
     uint32_t k, f, got, hits, i;
 
     TEST_ASSERT_NOT_NULL(raw);
@@ -217,16 +217,16 @@ static void test_seeded_damage_is_refused(void)
     for (k = 0u; k < SAMPLES; k++) {
         f = rnd();
         block(good, f, states[k % 3u], TFW_BOOT_OTA_IDLE);
-        memcpy(raw, good, TFW_BOOT_EE_LEN);
+        memcpy(raw, good, TFW_BOOT_EE_BLOCK_LEN);
         hits = 2u + rnd() % 6u;
         for (i = 0u; i < hits; i++) {
-            raw[rnd() % TFW_BOOT_EE_LEN] ^= (uint8_t)(1u + rnd() % 255u);
+            raw[rnd() % TFW_BOOT_EE_BLOCK_LEN] ^= (uint8_t)(1u + rnd() % 255u);
         }
         snprintf(why, sizeof why, "seed 0x%08X case %lu floor 0x%08lX", (unsigned)(SEED ^ 0xD4u),
                  (unsigned long)k, (unsigned long)f);
         put(raw);
         got = 0xA5A5A5A5u;
-        if (memcmp(raw, good, TFW_BOOT_EE_LEN) == 0) {
+        if (memcmp(raw, good, TFW_BOOT_EE_BLOCK_LEN) == 0) {
             TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, info(&got), why);
             TEST_ASSERT_EQUAL_HEX32_MESSAGE(f, got, why);
         } else {
@@ -239,7 +239,7 @@ static void test_seeded_damage_is_refused(void)
 /* Never provisioned (erased 0xFF) and all zero: refused. */
 static void test_erased_and_zeroed_blocks_are_refused(void)
 {
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     uint32_t got = 0u;
 
     snprintf(why, sizeof why, "erased");

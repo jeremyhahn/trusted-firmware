@@ -70,6 +70,13 @@ func TestNoStoreResponseMatchesVector(t *testing.T) {
 }
 
 // ADR decision 8's control commands (#77), each frame against its literal.
+// The reserved end and the network block both moved to 0x140 (#125).
+func TestTheEEPROMMapMatchesTheVector(t *testing.T) {
+	if EEPROMReservedEnd != vectors.EEPROMReservedEnd || NetConfigAddr != vectors.EEPROMReservedEnd {
+		t.Fatalf("EEPROMReservedEnd 0x%X, NetConfigAddr 0x%X, want 0x%X", EEPROMReservedEnd, NetConfigAddr, vectors.EEPROMReservedEnd)
+	}
+}
+
 func TestOTAControlFramesMatchVectors(t *testing.T) {
 	info := append([]byte{2, 0, 0x05, 7, 0, 0, 0, 4, 0x2A, 0, 0, 0}, bytes.Repeat([]byte{0xAB}, 32)...)
 	enc := func(f func() ([]byte, error)) []byte {
@@ -91,6 +98,14 @@ func TestOTAControlFramesMatchVectors(t *testing.T) {
 		{"OTA_ACTIVATE BAD_STATE", enc(func() ([]byte, error) { return EncodeResponse(5, CmdOTAActivate, StatusErrBadState, nil) }), vectors.FrameOTAActivateBadStateResp},
 		{"OTA_CONFIRM req", enc(func() ([]byte, error) { return EncodeRequest(6, CmdOTAConfirm, nil) }), vectors.FrameOTAConfirmReq},
 		{"OTA_CONFIRM resp", enc(func() ([]byte, error) { return EncodeResponse(6, CmdOTAConfirm, StatusOK, nil) }), vectors.FrameOTAConfirmResp},
+		{"EEPROM_WRITE old netcfg req", enc(func() ([]byte, error) {
+			return EncodeRequest(7, CmdEEPROMWrite, []byte{0xC0, 0x00, 'T', 'F', 'N', 'C'})
+		}), vectors.FrameEEPROMWriteOldNetcfgReq},
+		{"EEPROM_WRITE protected resp", enc(func() ([]byte, error) { return EncodeResponse(7, CmdEEPROMWrite, StatusErrProtectedRegion, nil) }), vectors.FrameEEPROMWriteProtectedResp},
+		{"EEPROM_WRITE netcfg req", enc(func() ([]byte, error) {
+			return EncodeRequest(8, CmdEEPROMWrite, []byte{byte(NetConfigAddr & 0xFF), byte(NetConfigAddr >> 8), 'T', 'F', 'N', 'C'})
+		}), vectors.FrameEEPROMWriteNetcfgReq},
+		{"EEPROM_WRITE netcfg resp", enc(func() ([]byte, error) { return EncodeResponse(8, CmdEEPROMWrite, StatusOK, nil) }), vectors.FrameEEPROMWriteNetcfgResp},
 		{"HSM_HEARTBEAT req", enc(func() ([]byte, error) { return EncodeRequest(1, CmdHSMHeartbeat, nil) }), vectors.FrameHSMHeartbeatReq},
 		{"HSM_HEARTBEAT resp", enc(func() ([]byte, error) {
 			return EncodeResponse(1, CmdHSMHeartbeat, StatusOK, []byte{0x01, 0x00, 0x02, 0x01, 0x00, 0x00})

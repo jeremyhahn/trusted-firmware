@@ -46,7 +46,7 @@
 #define TFW_APP_CAP(bit)     ((uint32_t)1u << (bit))
 
 /* The application's run-time configuration starts at the first EEPROM byte
- * above the platform block, which EEPROM_WRITE already refuses to touch. */
+ * above the bootloader's, which EEPROM_WRITE already refuses to touch. */
 #define TFW_APP_CONFIG_BASE  TFW_BOOT_EE_LEN
 
 typedef struct {

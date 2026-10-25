@@ -43,9 +43,10 @@ import (
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
 
-// markAddr is past the platform-reserved block, [0x000, 0x0C0) on every board
-// (include/tfw/boot.h), which the wire refuses to write.
-const markAddr = 0x100
+// markAddr is past the bootloader's reserved span, [0x000, 0x140) on every
+// board (include/tfw/boot.h's TFW_BOOT_EE_LEN), which the wire refuses to
+// write, and past the network block at its end, [0x140, 0x160).
+const markAddr = 0x180
 
 // The evidence fields ATTEST signs (src/caps/attest.c): the signature covers
 // SHA-256 of every byte before the algorithm id.

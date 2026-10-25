@@ -19,9 +19,9 @@
 
 /* The region as read. Static rather than on the stack: 192 bytes is a tenth of
  * a 328P's SRAM, and this image has no other use for it. */
-static uint8_t have[TFW_BOOT_EE_LEN];
+static uint8_t have[TFW_BOOT_EE_BLOCK_LEN];
 
-tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_LEN])
+tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_BLOCK_LEN])
 {
     tfw_boot_platform_t parsed;
 
@@ -32,7 +32,7 @@ tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_LEN])
 
     /* A region that cannot even be read is not known to be blank, so it is
      * not written. */
-    if (tfw_hal_nvm_read(TFW_BOOT_EE_BASE, have, TFW_BOOT_EE_LEN) != TFW_OK) {
+    if (tfw_hal_nvm_read(TFW_BOOT_EE_BASE, have, TFW_BOOT_EE_BLOCK_LEN) != TFW_OK) {
         return TFW_BAKE_REFUSED;
     }
 
@@ -40,18 +40,18 @@ tfw_bake_result_t tfw_bake_run(const uint8_t want[TFW_BOOT_EE_LEN])
      * different one is a device that already has an identity, and replacing it
      * is not a bench decision -- see include/tfw/boot.h on re-baking. */
     if (tfw_boot_platform_parse(have, &parsed) == TFW_OK) {
-        return memcmp(have, want, TFW_BOOT_EE_LEN) == 0 ? TFW_BAKE_ALREADY
+        return memcmp(have, want, TFW_BOOT_EE_BLOCK_LEN) == 0 ? TFW_BAKE_ALREADY
                                                          : TFW_BAKE_REFUSED;
     }
 
     /* Blank, torn, a bad CRC or a layout this build does not know: none of
      * them is an identity the firmware would accept, so none is lost. */
-    if (tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, want, TFW_BOOT_EE_LEN) != TFW_OK) {
+    if (tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, want, TFW_BOOT_EE_BLOCK_LEN) != TFW_OK) {
         return TFW_BAKE_READBACK_FAILED;
     }
-    if (tfw_hal_nvm_read(TFW_BOOT_EE_BASE, have, TFW_BOOT_EE_LEN) != TFW_OK
+    if (tfw_hal_nvm_read(TFW_BOOT_EE_BASE, have, TFW_BOOT_EE_BLOCK_LEN) != TFW_OK
         || tfw_boot_platform_parse(have, &parsed) != TFW_OK
-        || memcmp(have, want, TFW_BOOT_EE_LEN) != 0) {
+        || memcmp(have, want, TFW_BOOT_EE_BLOCK_LEN) != 0) {
         return TFW_BAKE_READBACK_FAILED;
     }
     return TFW_BAKE_BAKED;
@@ -90,7 +90,7 @@ static void put_hex(uint8_t b)
 }
 
 void tfw_bake_report(const char *board, tfw_bake_result_t r,
-                     const uint8_t want[TFW_BOOT_EE_LEN])
+                     const uint8_t want[TFW_BOOT_EE_BLOCK_LEN])
 {
     uint8_t i;
 

@@ -25,13 +25,13 @@
 static void provision(uint8_t boot_state)
 {
     tfw_boot_platform_t p;
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
 
     memset(&p, 0, sizeof p);
     memset(raw, 0, sizeof raw);
     p.boot_state = boot_state;
     tfw_boot_platform_serialise(&p, raw);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_BLOCK_LEN));
 }
 
 void setUp(void)    { tfw_mock_reset(); tfw_fake_runner_reset(); }

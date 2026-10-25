@@ -129,7 +129,7 @@ static void build(void)
 
 static void put_block(uint8_t boot_state)
 {
-    uint8_t             raw[TFW_BOOT_EE_LEN];
+    uint8_t             raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
 
     memset(&p, 0, sizeof p);
@@ -137,7 +137,7 @@ static void put_block(uint8_t boot_state)
     p.boot_state     = boot_state;
     p.ota_state      = TFW_BOOT_OTA_IDLE;
     tfw_boot_platform_serialise(&p, raw);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, (uint8_t)TFW_BOOT_EE_BLOCK_LEN));
 }
 
 static void reset_all(void)

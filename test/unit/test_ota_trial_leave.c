@@ -27,14 +27,14 @@ static void block(uint8_t boot_state, uint8_t *raw)
     tfw_boot_platform_t p;
 
     memset(&p, 0, sizeof p);
-    memset(raw, 0, TFW_BOOT_EE_LEN);
+    memset(raw, 0, TFW_BOOT_EE_BLOCK_LEN);
     p.boot_state = boot_state;
     tfw_boot_platform_serialise(&p, raw);
 }
 
 static void write_block(const uint8_t *raw)
 {
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_BLOCK_LEN));
 }
 
 void setUp(void)    { tfw_mock_reset(); tfw_fake_runner_reset(); }
@@ -44,7 +44,7 @@ void tearDown(void) { }
  * and polls twice more. Returns the resets seen. */
 static unsigned run_trial(const uint8_t *raw)
 {
-    uint8_t trial[TFW_BOOT_EE_LEN];
+    uint8_t trial[TFW_BOOT_EE_BLOCK_LEN];
 
     setUp();
     block(TFW_BOOT_STATE_TRIAL, trial);
@@ -79,7 +79,7 @@ static unsigned run_trial(const uint8_t *raw)
 
 static void test_every_boot_state_written_mid_trial(void)
 {
-    uint8_t  raw[TFW_BOOT_EE_LEN];
+    uint8_t  raw[TFW_BOOT_EE_BLOCK_LEN];
     unsigned state, resets = 0u;
 
     for (state = 0u; state <= 0xFFu; state++) {
@@ -94,7 +94,7 @@ static void test_every_boot_state_written_mid_trial(void)
 
 static void test_a_confirm_mid_trial_disarms_at_the_deadline(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
     block(TFW_BOOT_STATE_CONFIRMED, raw);
     TEST_ASSERT_EQUAL_UINT(0u, run_trial(raw));
@@ -102,12 +102,12 @@ static void test_a_confirm_mid_trial_disarms_at_the_deadline(void)
 
 static void test_every_bit_flip_of_the_block_mid_trial(void)
 {
-    uint8_t  trial[TFW_BOOT_EE_LEN], raw[TFW_BOOT_EE_LEN];
+    uint8_t  trial[TFW_BOOT_EE_BLOCK_LEN], raw[TFW_BOOT_EE_BLOCK_LEN];
     tfw_boot_platform_t p;
     unsigned bit, runs = 0u;
 
     block(TFW_BOOT_STATE_TRIAL, trial);
-    for (bit = 0u; bit < TFW_BOOT_EE_LEN * 8u; bit++) {
+    for (bit = 0u; bit < TFW_BOOT_EE_BLOCK_LEN * 8u; bit++) {
         unsigned want;
 
         memcpy(raw, trial, sizeof raw);
@@ -118,12 +118,12 @@ static void test_every_bit_flip_of_the_block_mid_trial(void)
         TEST_ASSERT_EQUAL_UINT(want, run_trial(raw));
         runs++;
     }
-    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_LEN * 8u, runs);
+    TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_BLOCK_LEN * 8u, runs);
 }
 
 static void test_an_erased_block_mid_trial_disarms(void)
 {
-    uint8_t raw[TFW_BOOT_EE_LEN];
+    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
 
     memset(raw, 0xFF, sizeof raw);
     TEST_ASSERT_EQUAL_UINT(0u, run_trial(raw));

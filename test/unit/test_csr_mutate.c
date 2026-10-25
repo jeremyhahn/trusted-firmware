@@ -49,7 +49,7 @@ tfw_status_t tfw_app_runner_evidence(uint8_t out[TFW_APP_EVIDENCE_LEN])
     return TFW_ERR_UNSUPPORTED;
 }
 
-static uint8_t test_eeprom[TFW_BOOT_EE_LEN];
+static uint8_t test_eeprom[TFW_BOOT_EE_BLOCK_LEN];
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 
 tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)

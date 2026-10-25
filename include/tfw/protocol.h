@@ -229,6 +229,13 @@
  * a verifier holding the key can forge the response, so this tier is for local
  * attestation behind an attested gateway, never for public admission. */
 #define TFW_ALG_HMAC_SHA256       0x10u
+/* ECDSA P-256 over SHA-256, the same 64-byte r||s as 0x01, signed by the
+ * software DICE root (issue #130). The 0x1_ values are the software root's:
+ * the evidence names its root by its AlgID, and where the soft root signs
+ * ES256 as the element does, the algorithm alone would not. Written only into
+ * an ATTEST frame (src/caps/attest.c); the provider contract's alg_id stays
+ * 0x01, so the alias certificate and the CSR still sign ecdsa-with-SHA256. */
+#define TFW_ALG_ECDSA_P256_SHA256_SOFT 0x11u
 
 /*
  * The algorithm BITMAP, which CAPS reports and which is not the same thing as

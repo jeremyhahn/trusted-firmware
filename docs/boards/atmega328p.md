@@ -1,6 +1,6 @@
 # ATmega328P (Arduino Nano)
 
-> **Status: INFORMATIVE** · Scope: `boards/atmega328p/` · Last verified: 2026-10-16
+> **Status: INFORMATIVE** · Scope: `boards/atmega328p/` · Last verified: 2026-10-22
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is [`adding-a-board.md`](adding-a-board.md);
@@ -36,22 +36,29 @@ confirmed against it.
 
 ### Build rows
 
-`make firmware-matrix` builds and size-checks each row (owner ruling, issue
-#55 item 48):
+The ATmega328P is supported only with a secure element (owner ruling
+2026-10-17 (m522), item 79). `make firmware-matrix` builds and size-checks its
+one row:
 
 | Row | Settings | Source |
 |---|---|---|
-| Software tier, serial (the default) | `CRYPTO=soft` | `BOARD_TIERS`, `mk/firmware.mk` |
-| Element tier, serial | `CRYPTO=atecc608a` | the same |
-| Soft-crypto Ethernet node | `CRYPTO=soft ETH=1 OTA_STAGE=0` | `profile.mk:37`–`44` |
+| Element tier, serial (the default) | `CRYPTO=atecc608a` | `BOARD_TIERS`, `CRYPTO ?=`, `boards/atmega328p/profile.mk` |
 
-The Ethernet node has no OTA stager: one update path per image, and the 328P's
-boot is copy-only and trailer-only, so it cannot take an image from the external
-store. It is updated over serial. With the stager linked it measured 17 144 /
-16 384 bytes of flash. The element tier over Ethernet is not a row: it is over
-the flash budget ([the options](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)).
-The ATECC608C is never required: the software tier, with the soft DICE root, is
-the default.
+`CRYPTO=soft` is refused at parse time, before anything builds:
+`BOARD_REFUSED_TIERS := soft` in the profile, and the `$(error ...)` in
+`mk/firmware.mk` that reads it. `scripts/test_board_rows.py` (`make
+scripts-test`) holds the board to that, and to the one row. The ruling withdraws
+the two soft rows the profile carried, the software tier over serial and the
+soft-crypto Ethernet node (`CRYPTO=soft ETH=1 OTA_STAGE=0`, issue #55 item 48).
+The element tier over Ethernet is not a row either: it is over the flash budget
+([the options](../ethernet-transport/adr-wire-protocol-over-w5x00.md#the-328p-budget)),
+so no 328P row builds Ethernet today.
+
+With no element answering at init the image still runs: `CAPS` reports no
+crypto tier and `ATTEST` answers `TFW_ERR_NOT_PROVISIONED`
+(`src/crypto/atecc608a/provider.c`; `test/unit/test_atecc.c`, the tfwctl E2E
+`TestE2EElementImageWithNoElementRunsAndIsNotProvisioned`, and the simavr
+harness, which runs this image with nothing on the TWI).
 
 The budget is the tightest of the element boards, and two things do not fit
 in it. Each answers `TFW_ERR_UNKNOWN_CMD` with its `CAPS` bit clear:
@@ -64,15 +71,17 @@ in it. Each answers `TFW_ERR_UNKNOWN_CMD` with its `CAPS` bit clear:
 
 ### Soft root, Ethernet and ATTEST_CSR together (issue #53 T3)
 
-The 328P is element-only by the owner's ruling (m522). This is a measurement
-for the owner's T3/T4 decision on #53, not a change to that ruling. Measured by
-CI's `size-check`, each from a clean tree. `MEASURE_SOFT_CSR=1`
-(`mk/firmware.mk`) links the alias builder and `ATTEST_CSR` into a soft image
-for this measurement only. It is never a row. A negative margin is over budget.
+A dated record: measured before owner ruling 2026-10-17 (m522), which made the
+328P element-only, for the owner's T3/T4 decision on #53. Measured by CI's
+`size-check`, each from a clean tree. Rows A to C cannot be rebuilt now:
+`CRYPTO=soft` and `MEASURE_SOFT_CSR=1` are both refused on this board, and the
+measurement points at the ATmega2560's soft row instead (`mk/firmware.mk`,
+`MEASURE_SOFT_CSR_BOARD`; `scripts/test_board_rows.py`). A negative margin is
+over budget.
 
 | Row | Settings | Flash | Budget | Margin | RAM | Budget | Margin |
 |---|---|---|---|---|---|---|---|
-| A | `CRYPTO=soft ETH=1 OTA_STAGE=0` (as it ships) | 14 964 | 16 384 | 1 420 | 737 | 1 024 | 287 |
+| A | `CRYPTO=soft ETH=1 OTA_STAGE=0` (the withdrawn row) | 14 964 | 16 384 | 1 420 | 737 | 1 024 | 287 |
 | B | A + `MEASURE_SOFT_CSR=1` | 17 198 | 16 384 | −814 | 930 | 1 024 | 94 |
 | C | B without `OTA_STAGE=0` (stager back on) | 20 156 | 16 384 | −3 772 | 1 041 | 1 024 | −17 |
 | D | `CRYPTO=atecc608a` (element default) | 16 086 | 16 384 | 298 | 955 | 1 024 | 69 |

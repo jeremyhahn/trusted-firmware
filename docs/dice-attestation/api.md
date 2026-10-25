@@ -46,7 +46,8 @@ off  size  field
  33   32   FWHash      SHA-256 of the measured firmware; zero, same reason
  65    4   BootCount   little-endian; 0 if the provider has no counter
  69    4   UptimeMs    little-endian; elapsed time since boot, NOT a timestamp
- 73    1   AlgID       0x00 none, 0x01 ECDSA-P256-SHA256, 0x02 Ed25519, 0x10 HMAC-SHA256
+ 73    1   AlgID       0x00 none, 0x01 ECDSA-P256-SHA256, 0x02 Ed25519, 0x10 HMAC-SHA256,
+                       0x11 ECDSA-P256-SHA256 signed by the software root
  74   64   Signature   raw r‖s (ECDSA) or R‖S (Ed25519), or a 32-byte HMAC padded with 32 zero bytes
 138   26   Reserved    zero
 ```
@@ -55,6 +56,17 @@ off  size  field
 before `AlgID`. That includes the nonce, and the inclusion is what binds this
 evidence to this challenge. `AlgID` lets a verifier interpret `Signature`
 without knowing the device's tier out of band; it is not itself signed.
+
+`AlgID` also names the root that signed (#130). The
+`0x1_` values are the software DICE root's: `0x10` its HMAC identity, `0x11`
+its P-256 DeviceID, whose `Signature` is the same raw r‖s as `0x01`'s. `0x01`
+comes only from a tier that is not software: the element, or the ESP32-P4's
+eFuse HMAC key. On a `CRYPTO=auto` Mega 2560 an element that answers at init
+gives `0x01`, and with no element the soft root gives `0x11`. A verifier that
+does not know `0x11` reads it as unrecognised, never as `0x01`. Because `AlgID`
+is outside the signed span, it names the root a verifier then appraises the
+signature under; the signature binds the key, not the label, and the key's
+root is what the verifier recorded at enrolment (`CAPS` byte 9).
 `test/unit/test_dice_evidence.c` pins a whole soft-root frame against a literal
 computed outside this code.
 

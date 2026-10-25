@@ -424,7 +424,8 @@ static void test_the_clean_requests_afterwards(void)
 
     read_evidence();
     /* The host links the soft root's P-256 DeviceID (mk/host.mk SOFT_ID_SRCS). */
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, evidence[73]);   /* OFF_ALG */
+    /* ES256 under the soft root, so the AlgID is 0x11 (#130). */
+    TEST_ASSERT_EQUAL_HEX8(0x11u, evidence[73]);   /* OFF_ALG */
 }
 
 int main(void)

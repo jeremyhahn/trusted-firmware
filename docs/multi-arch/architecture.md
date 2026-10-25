@@ -83,7 +83,7 @@ Each choice is an ADR before any code.
 
 | Architecture | Board | Crypto tier | Status |
 |---|---|---|---|
-| AVR | ATmega328P | none, soft, ATECC608A | supported |
+| AVR | ATmega328P | ATECC608A only: `CRYPTO=soft` is refused (owner ruling 2026-10-17 (m522); `boards/atmega328p/profile.mk`) | supported |
 | AVR | ATmega2560 | none, soft, ATECC608A | supported |
 | AVR | ATmega32U4 | none, soft, ATECC608A | supported |
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |

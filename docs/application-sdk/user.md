@@ -116,14 +116,17 @@ From the trusted-firmware checkout:
 
 ```sh
 make tfwsim APP_DIR=../trusted-firmware-heartbeat
-make firmware APP_DIR=../trusted-firmware-heartbeat BOARD=atmega328p
+make firmware APP_DIR=../trusted-firmware-heartbeat BOARD=atmega2560
 ```
 
 The first builds `build/host/tfwsim-app-heartbeat`, the firmware with your
 application against the mock HAL. It speaks the wire protocol on stdin and
 stdout, so the Go SDK and its tests talk to it as to a device. The second
-builds `build/atmega328p/soft-app-heartbeat/trusted-firmware.hex` and fails if
-the image is over the board's budget.
+builds the Mega's image under `build/atmega2560/`, in a directory named for its
+tier and options and ending `-app-heartbeat`, and fails if the image is over the
+board's budget. The ATmega328P has no soft tier since owner ruling 2026-10-17
+(m522), and its element image has no room for an application
+([engineering](engineering.md)).
 
 Include only `tfw/*.h`. The build gives your files no path into the
 firmware's `src/`, so an internal header fails to compile. That is on purpose:

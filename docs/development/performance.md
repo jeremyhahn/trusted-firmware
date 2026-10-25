@@ -57,6 +57,10 @@ beside each row.
 
 ATmega328P and ATmega2560, 16 MHz, `CRYPTO=soft`, avr-gcc as pinned in
 the devcontainer (`build/docker/devcontainer/Dockerfile`, `scripts/tool-pins.sh`).
+The 328P column is a dated record, measured before owner ruling 2026-10-17
+(m522), which made the 328P element-only and refuses `CRYPTO=soft` on it.
+`make bench-check` builds each board's default tier, so it now times the 328P's
+`CRYPTO=atecc608a` image.
 
 | | plan's target | 328P | 2560 | verdict |
 |---|---|---|---|---|

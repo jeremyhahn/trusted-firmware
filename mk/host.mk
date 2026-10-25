@@ -177,7 +177,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
                             test/unit/test_esp_hal_eeprom.c \
-                            test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c, \
+                            test/unit/test_soft_id_p256.c test/unit/test_dice_evidence.c \
+                            test/unit/test_attest_root.c, \
                             $(wildcard test/unit/test_*.c))
 TEST_BINS   := $(patsubst test/unit/%.c,$(HOST_DIR)/%,$(TEST_SRCS))
 # The crypto tiers' mutation suites (#163) have their own links below.
@@ -468,6 +469,14 @@ $(HOST_DIR)/test_csr_alg: test/unit/test_csr_alg.c \
                           src/caps/csr.c src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c \
                           src/core/reader.c src/core/writer.c src/crypto/sha256.c \
                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The ATTEST frame's AlgID names the root that signed it (#130): attest.c over
+# a stand-in provider whose tier and algorithm each test sets.
+$(HOST_DIR)/test_attest_root: test/unit/test_attest_root.c src/caps/attest.c \
+                              src/core/reader.c src/core/writer.c src/crypto/sha256.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -1075,7 +1084,7 @@ $(HOST_DIR)/test_esp_hal_eeprom: test/unit/test_esp_hal_eeprom.c src/hal/esp32/h
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/esp32p4-poe -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
@@ -1781,7 +1790,10 @@ lint-arch-leak-selftest:
 #                      over the wire.
 #
 # `make tfwsim CRYPTO=atecc608a` is `make tfwsim-atecc608a`, so the tier is named
-# the way it is for `make firmware`.
+# the way it is for `make firmware`. Only a CRYPTO the command line names picks
+# it: the 328P's profile defaults CRYPTO to the element tier (owner ruling
+# 2026-10-17, m522), and a bare `make tfwsim` stays the soft simulator CI and
+# the cross-implementation suite build.
 TFWSIM_COMMON := tools/tfwsim/main.c tools/tfwsim/tier.h tools/tfwsim/sim_boot.h
 
 # Both simulators carry the Ethernet image's link, with a host TCP socket as
@@ -1904,7 +1916,7 @@ $(HOST_DIR)/test_eth_socket_mutate: test/unit/test_eth_socket_mutate.c tools/tfw
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ $^ $(EXTRA_LDFLAGS)
 
 ## tfwsim: build the firmware as a host binary speaking the protocol on stdio
-tfwsim: $(HOST_DIR)/tfwsim$(if $(filter atecc608a,$(CRYPTO)),-atecc608a)$(APP_SUFFIX)
+tfwsim: $(HOST_DIR)/tfwsim$(if $(and $(filter command line,$(origin CRYPTO)),$(filter atecc608a,$(CRYPTO))),-atecc608a)$(APP_SUFFIX)
 $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(TFWSIM_BOOT_MAIN) \
         $(APP_HOST_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_BOOT_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \

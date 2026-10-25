@@ -47,14 +47,15 @@ BOOT_LOCK_PROGRAMMED := 0:LB1 1:LB2 4:BLB11 5:BLB12
 # The chip file checks the part's identity, so the wrong shield stays down.
 ETH_CHIP       ?= w5100
 
-# The soft-crypto Ethernet node is a supported row of its own (owner ruling,
-# issue #55 item 48), budgeted by firmware-matrix like the tiers. The default
-# stays serial only; the element tier over Ethernet is not a row. The row has no
-# stager (OTA_STAGE=0): one update path per image (item 20), and the 328P's boot
-# is copy-only and trailer-only (items 19, 57), so it cannot take an image from
-# the external store. Its update path is serial. With the stager it measured
-# 17 144 / 16 384 flash.
-BOARD_ROWS     := soft:ETH=1,OTA_STAGE=0
+# The ATmega328P is supported only with a secure element (owner ruling
+# 2026-10-17, m522, item 79): its one tier and its default are the element's,
+# and CRYPTO=soft is refused here (mk/firmware.mk, BOARD_REFUSED_TIERS) rather
+# than built. That withdraws the soft-crypto Ethernet node the profile once
+# carried as BOARD_ROWS (issue #55 item 48). Without an element answering at
+# init the image still runs, and ATTEST answers TFW_ERR_NOT_PROVISIONED.
+CRYPTO         ?= atecc608a
+BOARD_TIERS    := atecc608a
+BOARD_REFUSED_TIERS := soft
 
 # The external store the OTA stager writes into (issue #75, docs/ota/): its
 # driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.

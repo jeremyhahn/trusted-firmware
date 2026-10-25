@@ -427,13 +427,19 @@ Its RAM fits. The options for the owner are:
   at 14 850 bytes and fits. Cost: no element, so no `ATTEST_CERT` or `ATTEST_CSR`;
   its `ATTEST` evidence is an HMAC under a shared secret, which a verifier can
   only check by holding that secret. It cannot enrol through device-attest-01.
+  **Withdrawn** by owner ruling 2026-10-17 (m522): the 328P is supported only
+  with a secure element and `CRYPTO=soft` is refused on it at build time, so
+  this image no longer builds.
 
 Whichever is chosen, the 328P cannot enrol through device-attest-01 until it
 also carries `ATTEST_CSR`, which the owner excluded on flash grounds. Option (a)
 is the only one that also fits that.
 
 No option is applied. Nothing is dropped: the 328P's profile names its controller
-so the image can be measured, and its default image is unchanged.
+so the image can be measured, and its default image is unchanged. Since owner
+ruling 2026-10-17 (m522) no 328P row builds Ethernet: the element tier is the
+328P's only tier, and with `ETH=1` it is 1 652 bytes over the flash budget
+(table above).
 
 ## Rejected alternatives
 

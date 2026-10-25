@@ -44,7 +44,7 @@ def boot(*flags):
 class TestDefaultsUnchanged(unittest.TestCase):
     def test_firmware_defaults(self):
         for flags, want in (
-                ((), "build/atmega328p/soft"),
+                ((), "build/atmega328p/atecc608a"),
                 (("CRYPTO=atecc608a",), "build/atmega328p/atecc608a"),
                 (("BOARD=atmega2560",), "build/atmega2560/auto-eth-w5100"),
                 (("BOARD=atmega2560", "CRYPTO=soft", "ETH=0"), "build/atmega2560/soft"),
@@ -66,10 +66,15 @@ class TestDefaultsUnchanged(unittest.TestCase):
 
 class TestFirmwareFlags(unittest.TestCase):
     def test_soft_id(self):
-        # The 328P's soft root defaults to hmac, the 2560's to p256.
-        self.assertEqual("build/atmega328p/soft-p256", fw("SOFT_ID=p256"))
+        # The 32U4's soft root defaults to hmac, the 2560's to p256.
+        self.assertEqual("build/atmega32u4/soft-p256", fw("BOARD=atmega32u4", "SOFT_ID=p256"))
         self.assertEqual("build/atmega2560/soft-hmac", fw("BOARD=atmega2560", "CRYPTO=soft", "ETH=0", "SOFT_ID=hmac"))
         self.assertEqual("build/atmega2560/auto-eth-w5100-hmac", fw("BOARD=atmega2560", "SOFT_ID=hmac"))
+
+    def test_the_328p_refuses_the_soft_tier(self):
+        # The 328P is element-only (m522).
+        with self.assertRaisesRegex(AssertionError, "CRYPTO=soft is refused on atmega328p"):
+            fw("CRYPTO=soft")
 
     def test_soft_id_where_the_tier_does_not_link_it(self):
         self.assertEqual(fw("CRYPTO=atecc608a"), fw("CRYPTO=atecc608a", "SOFT_ID=p256"))
@@ -80,7 +85,7 @@ class TestFirmwareFlags(unittest.TestCase):
         self.assertNotEqual(fw(*base, "UECC_OPT=1"), fw(*base, "UECC_OPT=2"))
 
     def test_uecc_opt_where_the_image_links_no_micro_ecc(self):
-        # The 328P's hmac soft root and the element tier carry no micro-ecc.
+        # The 328P's element tier carries no micro-ecc.
         self.assertEqual(fw(), fw("UECC_OPT=1"))
         self.assertEqual(fw("CRYPTO=atecc608a"), fw("CRYPTO=atecc608a", "UECC_OPT=1"))
 
@@ -128,9 +133,9 @@ OTHER_DIRS = ("bench-dir", "platform-bake-dir", "wiznet-probe-dir", "integration
 class TestOtherDefaultsUnchanged(unittest.TestCase):
     def test_defaults(self):
         for target, flags, want in (
-                ("bench-dir", (), "build/bench/atmega328p/soft"),
+                ("bench-dir", (), "build/bench/atmega328p/atecc608a"),
                 # bench-check's rows: the serial image on every board.
-                ("bench-dir", ("ETH=0",), "build/bench/atmega328p/soft"),
+                ("bench-dir", ("ETH=0",), "build/bench/atmega328p/atecc608a"),
                 ("bench-dir", ("BOARD=atmega2560", "ETH=0"), "build/bench/atmega2560/auto"),
                 ("platform-bake-dir", (), "build/platform-bake/atmega328p"),
                 ("platform-bake-dir", ("BOARD=atmega2560",), "build/platform-bake/atmega2560"),

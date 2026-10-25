@@ -72,8 +72,9 @@ ATTEST_CSR.
 
 Algorithm bitmap: `0x0001` ECDSA P-256/SHA-256, `0x0002` Ed25519, `0x0004`
 HMAC-SHA256. **Not** the same numbering as the `AlgID` byte inside an
-attestation frame (`0x01`, `0x02`, `0x10` — sparse, to leave room below
-`0x10` for future asymmetric algorithms).
+attestation frame (`0x01`, `0x02`, `0x10`, `0x11` — sparse, to leave room below
+`0x10` for future asymmetric algorithms; the `0x1_` values are the software
+DICE root's, `0x11` its ES256, #130).
 
 **Pin descriptor** response (request carries a one-byte pin index), 6 bytes
 (#12; was 5, with port and bit packed into one byte as two nibbles):
@@ -312,7 +313,8 @@ off  size  field
 33   32    FWHash
 65    4    BootCount
 69    4    UptimeMs
-73    1    AlgID       0x01 ECDSA P-256/SHA-256, 0x02 Ed25519, 0x10 HMAC-SHA256
+73    1    AlgID       0x01 ECDSA P-256/SHA-256, 0x02 Ed25519, 0x10 HMAC-SHA256,
+                       0x11 ECDSA P-256/SHA-256 signed by the software root (#130)
 74   64    Signature
 138  26    Reserved
 ```

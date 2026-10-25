@@ -62,11 +62,12 @@ const (
 // factory boot and the enrolment boot derive one DeviceID.
 var softUDS = strings.Repeat("c3", 32)
 
-// evidenceAlgOffset and evidenceAlgES256 are the ATTEST frame's AlgID byte
-// and TFW_ALG_ECDSA_P256_SHA256, per include/tfw/protocol.h.
+// evidenceAlgOffset and evidenceAlgES256Soft are the ATTEST frame's AlgID byte
+// and TFW_ALG_ECDSA_P256_SHA256_SOFT, per include/tfw/protocol.h: ES256 signed
+// by the soft root, which the element's 0x01 does not share (#130).
 const (
-	evidenceAlgOffset = 73
-	evidenceAlgES256  = 0x01
+	evidenceAlgOffset    = 73
+	evidenceAlgES256Soft = 0x11
 )
 
 // simConn is a running simulator: its stdin and stdout, with the read
@@ -231,7 +232,7 @@ func TestSoftRootEnrollsThroughDeviceAttest01(t *testing.T) {
 			assert.Equal(t, spki, verified.AttestedSPKI, "go-xkms vouched for a key other than the provisioned DeviceID")
 
 			// (c) What the wire says about the tier. CAPS names the software
-			// tier and ES256 alone; the ATTEST frame's AlgID names ES256; the
+			// tier and ES256 alone; the ATTEST frame's AlgID names the soft root; the
 			// adapter stamps the software attest level from CAPS.
 			caps := element.backend.Caps()
 			assert.Equal(t, tfw.CryptoSoftware, caps.CryptoTier)
@@ -243,7 +244,7 @@ func TestSoftRootEnrollsThroughDeviceAttest01(t *testing.T) {
 			ev, err := device.Attest(context.Background(), bytes.Repeat([]byte{0x5a}, tfw.AttestNonceLen))
 			require.NoError(t, err)
 			require.Len(t, ev, tfw.EvidenceLen)
-			assert.EqualValues(t, evidenceAlgES256, ev[evidenceAlgOffset], "the evidence AlgID")
+			assert.EqualValues(t, evidenceAlgES256Soft, ev[evidenceAlgOffset], "the evidence AlgID")
 
 			// The alias certificate's DiceTcbInfo sets notSecure, and the chain
 			// enrolled only because this relying party permits it; it declares

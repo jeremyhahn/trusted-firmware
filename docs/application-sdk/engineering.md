@@ -72,6 +72,14 @@ Measured with avr-gcc 14.2.0 (Debian 13, binutils-avr 2.43.50, avr-libc 2.2.1),
 | atmega2560 | soft | 13290 flash / 765 RAM | 13290 flash / 765 RAM | 14016 flash / 776 RAM |
 | atmega2560 | atecc608a | 18366 flash / 989 RAM | 18366 flash / 989 RAM | 19088 flash / 1000 RAM |
 
+The `atmega328p` `soft` row was measured before owner ruling 2026-10-17 (m522),
+which made the 328P element-only; `CRYPTO=soft` is refused on it now, and the
+row stays as a dated record.
+On the 328P's element-tier default the example application measures 16872 flash
+against the 16384 limit, so it does not fit the element row the ruling left the
+328P; `make build` (and so `make ci`) runs `app-firmware-check` with
+`BOARD=atmega2560`.
+
 The no-application images at `9ed0af2` and at `main` are byte-for-byte the same
 size in flash and RAM on every board and tier: the "same size" claim holds. The
 example application costs 722 to 726 bytes of flash and 11 of RAM.
@@ -320,7 +328,7 @@ Nothing secret goes in the region. Any host with wire access can read it.
 | `test_ota_stage` (`before_update`) | `OTA_ACTIVATE` mode 1 on a staged image calls `before_update` then `shutdown` once its reply drains, and mode 0 stops nothing |
 | `test_ota_stage` (`RESET` after mode 0) | a `RESET` mode 0 after `OTA_ACTIVATE` mode 0 calls `before_update` then `shutdown`; with nothing marked, or ended and not activated, only `shutdown`; a later `OTA_BEGIN`, a failed stage and a failed second activation clear it |
 | `make app-sdk-check` | the example copied to a temporary directory outside the tree builds `tfwsim` with `APP_DIR` and runs it |
-| `make app-firmware-check` | the same copy builds a firmware image for `BOARD`, through the size gate |
+| `make app-firmware-check` | a copy at a fixed path under `build/`, refreshed on every run, builds a firmware image for `BOARD`, through the size gate |
 | `make app-header-check`, run by `host-test` | every header in `include/tfw/` compiles as the whole of a translation unit, included twice, against every board under `boards/`, with an application's flags and warning set and no `src/` on the path; a header that needs another included first fails, and `src/core/app_runner.h` cannot be reached |
 | `make app-header-check-selftest`, in the `security` stage | the gate fails on a planted header that needs `<stddef.h>` from its includer, and names it |
 | `make tfwsim`, `make verify-vectors`, the SDK suite | the default image is unchanged on the wire, and the APP_INFO vectors agree in C and Go |
@@ -356,7 +364,7 @@ say what this table says.
 | OTA slots the images use | shipped | `ota_slots`, `TFW_APP_OTA_*` at `include/tfw/app.h:41`; checked against the board at `src/core/app_runner.c:31` and at compile time by `TFW_APP_STATIC_CHECK` (`include/tfw/app.h:131`) | `test_app.c:192` and the test after it |
 | One application per image, no dynamic loading | shipped | one `APP_DIR` in `mk/app.mk:62`; the hooks are strong symbols | the link itself: every unit link carries `test/mock/app_mock.c`, and a suite that adds a second application fails to link |
 | Builds against a released SDK version | shipped | the interface is in `v0.4.0-alpha` (`CHANGELOG.md:33`); `abi` is checked at boot | `make app-sdk-check` (`mk/app.mk:86`), the example built from outside the tree; `make app-header-check` (`mk/app.mk:129`), each public header on its own against every board |
-| Board as data at build time | shipped | `make firmware APP_DIR=<path> BOARD=<b>`, `mk/app.mk` | `make app-firmware-check` (`mk/app.mk:107`) |
+| Board as data at build time | shipped | `make firmware APP_DIR=<path> BOARD=<b>`, `mk/app.mk` | `make app-firmware-check` (`mk/app.mk:111`) |
 | No-application default: no application logic in the firmware | shipped | `src/core/app_runner_none.c`, selected at `mk/app.mk:73` | `test_app_none.c:28`, `test_app_none.c:78` |
 | APP_INFO (0x06) | shipped | `src/core/app_runner.c:153`, in the table at `src/core/commands.def:34` when an application is linked | `test_app.c:325`, `test_app_example.c:99` (`TFWV_APPINFO_HEARTBEAT_REPLY`), `sdk/go/appinfo_test.go:17`, `sdk/go/tfwsim_test.go:187` |
 

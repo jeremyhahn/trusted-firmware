@@ -54,6 +54,9 @@ const (
 	offAlg   = 73
 	offSig   = 74
 	algES256 = 0x01 // TFW_ALG_ECDSA_P256_SHA256, include/tfw/protocol.h
+	// TFW_ALG_ECDSA_P256_SHA256_SOFT, include/tfw/protocol.h: the same ES256,
+	// written when the software DICE root signs so the evidence names its root.
+	algES256Soft = 0x11
 )
 
 func main() {
@@ -248,8 +251,14 @@ func checkAttest(ctx context.Context, d *tfw.Device, caps *tfw.Caps, pub *ecdsa.
 	if !bytes.Equal(ev[offNonce:offNonce+tfw.AttestNonceLen], nonce) {
 		fail("attest", errors.New("the evidence does not carry the nonce sent"))
 	}
-	if ev[offAlg] != algES256 {
-		fail("attest", fmt.Errorf("algorithm id 0x%02x, want 0x%02x (ES256)", ev[offAlg], algES256))
+	// The AlgID names the root that signed: the software tier writes 0x11, an
+	// element 0x01. Only the value for the tier CAPS reports passes.
+	wantAlg := byte(algES256)
+	if caps.CryptoTier == tfw.CryptoSoftware {
+		wantAlg = algES256Soft
+	}
+	if ev[offAlg] != wantAlg {
+		fail("attest", fmt.Errorf("tier %s: algorithm id 0x%02x, want 0x%02x (ES256)", caps.CryptoTier, ev[offAlg], wantAlg))
 	}
 	if !es256Verifies(pub, ev) {
 		fail("attest", errors.New("the evidence signature does not verify as ES256 under the DeviceID"))

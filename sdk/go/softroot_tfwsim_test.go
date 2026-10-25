@@ -93,7 +93,8 @@ func TestSoftRootSignatureVerifiesES256UnderTheDeviceID(t *testing.T) {
 	ev, err := d.Attest(context.Background(), bytes.Repeat([]byte{0x44}, AttestNonceLen))
 	require.NoError(t, err)
 	require.Len(t, ev, EvidenceLen)
-	assert.EqualValues(t, 0x01, ev[softEvidenceAlg], "alg id, want TFW_ALG_ECDSA_P256_SHA256")
+	// ES256 as the element signs, so the AlgID names the root instead (#130).
+	assert.EqualValues(t, 0x11, ev[softEvidenceAlg], "alg id, want TFW_ALG_ECDSA_P256_SHA256_SOFT")
 
 	// Raw R||S over the SHA-256 of everything before the algorithm byte.
 	digest := sha256.Sum256(ev[:softEvidenceAlg])

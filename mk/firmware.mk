@@ -180,6 +180,29 @@ endif
 # unbuildable combination can still be asked for and still fails honestly.
 CRYPTO ?= soft
 
+# A tier a board's profile refuses (BOARD_REFUSED_TIERS) is not built, not even
+# on request: the ATmega328P is supported only with a secure element (owner
+# ruling 2026-10-17, m522, item 79), so CRYPTO=soft there is an image nobody
+# supports. Asked for anyway, it fails here, as an unknown tier does below.
+ifneq ($(filter $(CRYPTO),$(BOARD_REFUSED_TIERS)),)
+$(error CRYPTO=$(CRYPTO) is refused on $(BOARD) -- the board is supported only with its $(BOARD_TIERS) tier (owner ruling 2026-10-17, m522))
+endif
+
+# MEASURE_SOFT_CSR=1 (the soft tier, below) measures the one soft AVR row left,
+# the ATmega2560's (issue #53 T3). The 328P's soft rows went with owner ruling
+# 2026-10-17 (m522), so asked for anywhere else, or on another tier, it fails
+# here rather than build an image nobody supports or quietly measure nothing.
+MEASURE_SOFT_CSR       ?= 0
+MEASURE_SOFT_CSR_BOARD := atmega2560
+ifeq ($(MEASURE_SOFT_CSR),1)
+ifneq ($(BOARD),$(MEASURE_SOFT_CSR_BOARD))
+$(error MEASURE_SOFT_CSR=1 is refused on $(BOARD) -- it measures the $(MEASURE_SOFT_CSR_BOARD) soft row only (owner ruling 2026-10-17, m522))
+endif
+ifneq ($(CRYPTO),soft)
+$(error MEASURE_SOFT_CSR=1 measures CRYPTO=soft, not CRYPTO=$(CRYPTO))
+endif
+endif
+
 # The soft root's identity (#48, #130), linked by the soft and auto tiers:
 # `p256` is the ES256 DeviceID, derived from the UDS (src/crypto/deviceid_p256.c)
 # and signed with the vendored micro-ecc; `hmac` is the HMAC signer the soft
@@ -200,10 +223,10 @@ ALIAS_SRCS  :=
 ALIAS_DEFS  :=
 # MEASURE_SOFT_CSR=1 is a MEASUREMENT, never a row (issue #53 T3): it links the
 # alias builder and ATTEST_CSR into a soft image only to read what they cost on
-# a board's budget. With SOFT_ID=p256 the figure includes the P-256 DeviceID's
-# signer; with SOFT_ID=hmac the provider has no public half and the image can
-# only refuse the command. No profile, row or CI target sets it.
-MEASURE_SOFT_CSR ?= 0
+# the ATmega2560's budget (MEASURE_SOFT_CSR_BOARD above). With SOFT_ID=p256 the
+# figure includes the P-256 DeviceID's signer; with SOFT_ID=hmac the provider has
+# no public half and the image can only refuse the command. No profile, row or CI
+# target sets it.
 ifeq ($(MEASURE_SOFT_CSR),1)
 ALIAS_SRCS  := src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c src/caps/csr.c
 ALIAS_DEFS  := -DTFW_FEATURE_ALIAS_CERT=1 -DTFW_FEATURE_ATTEST_CSR=1
@@ -605,8 +628,9 @@ BOARD_TIERS     ?= soft atecc608a
 # Rows a board builds besides its tiers at their defaults: "tier:VAR=value",
 # more than one setting comma-separated ("soft:ETH=1,OTA_STAGE=0"), each a
 # named configuration with the same size-check as the default rows. The
-# 2560's ETH=0 rows (the shieldless bench Mega) and the 328P's soft-tier
-# Ethernet node are here (issue #55 item 48).
+# 2560's ETH=0 rows (the shieldless bench Mega) are here (issue #55 item 48);
+# the 328P's soft-tier Ethernet node was, until the owner withdrew it
+# (2026-10-17, m522).
 BOARD_ROWS      ?=
 # A board whose profile.mk sets IMAGE_TARGET is built by that target and not by
 # `make firmware` -- an ESP-IDF board is built by ESP-IDF's own toolchain, which

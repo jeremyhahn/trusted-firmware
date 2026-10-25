@@ -83,12 +83,10 @@
  * finalize. A host asking for ATTEST_CSR gets TFW_ERR_UNKNOWN_CMD and CAPS
  * reports bit 15 clear. Only the ATmega2560's element tier carries it.
  *
- * The guard lets mk/firmware.mk's MEASURE_SOFT_CSR=1 measurement (#53 T3) say
- * 1 on its command line; no row passes it, and the Makefile's grep still reads
- * this 0, so every shipping image is unchanged. */
-#ifndef TFW_FEATURE_ATTEST_CSR
+ * mk/firmware.mk's MEASURE_SOFT_CSR=1 measurement (#53 T3) once built a soft
+ * image of this part with it on; it measures the ATmega2560's soft row now and
+ * is refused here, as CRYPTO=soft is (owner ruling 2026-10-17, m522). */
 #define TFW_FEATURE_ATTEST_CSR 0
-#endif
 
 /* Half the part, each. The budget is a gate, not an estimate: `make size-check`
  * fails the build when an image exceeds it, so flash creep is caught on the

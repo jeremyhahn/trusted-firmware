@@ -254,7 +254,12 @@ tfw_status_t tfw_crypto_sign(const uint8_t digest[32], uint8_t sig[64],
     tfw_status_t st;
 
     if (!present) {
-        return TFW_ERR_CRYPTO;
+        /* No element answered at init, so this device has no identity at all:
+         * the element-only ATmega328P's image (owner ruling 2026-10-17, m522)
+         * runs on without one, and ATTEST says so as an unprovisioned device
+         * does. An element that answered and has since gone quiet is a bus
+         * fault, TFW_ERR_CRYPTO below. */
+        return TFW_ERR_NOT_PROVISIONED;
     }
     if (!have_cdi) {
         /* An element with no UDS has no identity to sign with, whatever keys

@@ -112,9 +112,13 @@ tfwsim-app-example:
 	@$(MAKE) --no-print-directory tfwsim-atecc608a APP_DIR=test/app/example
 
 ## app-firmware-check: build the example application's firmware image for BOARD from outside the tree
+# From a copy at a fixed path, refreshed on every run, not a temporary one: the
+# application's objects are in a build directory that does not name APP_DIR,
+# and the dependency file an earlier run left there names its source by path.
+# A path that changes with each run is one that no longer exists on the next.
 # Its object directory is emptied before and after, as app-sdk-check's are.
 app-firmware-check:
-	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	@t=$(abspath $(BUILD_DIR))/app-firmware-check/$(BOARD) && rm -rf "$$t" && mkdir -p "$$t" && \
 	cp -a test/app/example/. "$$t/" && \
 	d=$$($(MAKE) --no-print-directory -s app-obj-dirs APP_DIR="$$t" BOARD=$(BOARD)) && \
 	rm -rf $$d && trap 'rm -rf "$$t" '"$$d" EXIT && \

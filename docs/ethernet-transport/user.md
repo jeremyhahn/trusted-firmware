@@ -9,10 +9,10 @@
 - A WIZnet W5100 shield (Arduino Ethernet Shield Rev3 or compatible) or a W5500
   shield (Arduino Ethernet Shield 2).
 - The ATECC608C (MIKROE-6774 Click board) for the element tier: signed attestation, the alias
-  certificate and enrolment. Without it, build the software tier
-  (`CRYPTO=soft`). On the Mega 2560 it signs `ATTEST` evidence ES256 under a
-  P-256 DeviceID derived from its UDS; on the Nano and Uno the evidence is an
-  HMAC. Neither enrols.
+  certificate and enrolment. Without it, the Mega 2560 runs the software tier
+  (`CRYPTO=soft`), which signs `ATTEST` evidence ES256 under a P-256 DeviceID
+  derived from its UDS. The Nano and Uno have no software tier (owner ruling
+  2026-10-17 (m522)): `CRYPTO=soft` is refused on the 328P.
 - A serial connection for provisioning and for writing the network settings.
 
 The shield uses D10 for the controller's chip select, D4 for its SD card, and
@@ -21,8 +21,9 @@ reserves those pins, so GPIO, PWM, the scheduler and `SPI_XFER` refuse them.
 Tone is refused in an Ethernet image on both boards: its pin is D11, the SPI
 data line, on the 328P and D10, the chip select, on the Mega.
 
-The 328P's element-tier Ethernet image does not yet fit the board's flash budget
-and does not build; see the ADR. The Mega's does.
+No 328P row builds Ethernet now: the element tier, the 328P's only one since
+owner ruling 2026-10-17 (m522), is 1 652 bytes over the board's flash budget
+with `ETH=1`; see the ADR. The Mega's Ethernet image builds.
 
 ## Build
 

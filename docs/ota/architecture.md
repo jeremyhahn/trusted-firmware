@@ -218,7 +218,7 @@ boot:        TRIAL at reset ─► copy PREV back, FAILED, flags: fell back,
   |---|---|---|---|
   | 2560 soft base (UECC_OPT 0) | about 250 B: the Sig_structure prefix, the payload encoding, one SHA-256 and verify call, the signature read | only once item 79's soft base is engineered to fit 8192 B; it does not link today (`docs/development/isp-route.md:195`) | one more P-256 verify, about 303 s more, so about 606 s at the activation boot and 303 s more at the confirm-settling boot; every other boot unchanged |
   | 2560 element tier | about 200 B; the verify is the element's | 8192 B: yes on the supported row (`docs/development/isp-route.md:216`, 7832 B) | tens of ms |
-  | 328P and 32U4, 4 KB boot (trailer-only) | about 250 B | not established; the 328P soft row is on owner hold (m467) | as the 2560 at the same UECC_OPT |
+  | 328P and 32U4, 4 KB boot (trailer-only) | about 250 B | not established; the 328P has no soft row (owner ruling 2026-10-17 (m522)) | as the 2560 at the same UECC_OPT |
 - **One trial.** The trial state is written before the jump, so any reset in
   it, whether the deadline, the watchdog, a crash or a power cut, rolls back.
   There is no attempt counter. The same image is not activated again: at a

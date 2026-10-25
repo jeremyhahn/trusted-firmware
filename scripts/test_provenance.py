@@ -58,9 +58,15 @@ echo 0.0.0-fake
 """
 
 
+# The tier each measured board ships, which names the manifest. The 328P is
+# element-only and refuses CRYPTO=soft (owner ruling 2026-10-17, m522).
+TIERS = {"atmega328p": "atecc608a", "mps2-an505": "soft"}
+
+
 def build_manifest(hex_text, board="atmega328p"):
     """Run mk/release.mk's provenance-one over hex_text, with board's real
-    profile.mk: (manifest, release .bin)."""
+    profile.mk at the tier it ships: (manifest, release .bin)."""
+    tier = TIERS[board]
     with tempfile.TemporaryDirectory() as tmp:
         target = os.path.join(tmp, "fw")
         with open(target + ".hex", "w", encoding="ascii") as f:
@@ -77,7 +83,7 @@ def build_manifest(hex_text, board="atmega328p"):
         run = subprocess.run(
             ["make", "-s", "--no-print-directory", "-C", _ROOT,
              "-o", target + ".elf", "-o", target + ".hex",
-             "provenance-one", f"BOARD={board}", "CRYPTO=soft",
+             "provenance-one", f"BOARD={board}", f"CRYPTO={tier}",
              f"TARGET={target}", f"REL_DIR={rel}", "SOURCE_COMMIT=0000000",
              f"ARCH_SIZE={tools['size']}", f"ARCH_CC={tools['cc']}",
              "ARCH_RAM_USED=echo 7"],
@@ -85,9 +91,9 @@ def build_manifest(hex_text, board="atmega328p"):
         if run.returncode != 0:
             raise AssertionError(f"make provenance-one: rc={run.returncode}\n"
                                  f"{run.stdout}{run.stderr}")
-        with open(os.path.join(rel, f"{board}-soft.json"), encoding="utf-8") as f:
+        with open(os.path.join(rel, f"{board}-{tier}.json"), encoding="utf-8") as f:
             manifest = json.load(f)
-        with open(os.path.join(rel, f"{board}-soft.bin"), "rb") as f:
+        with open(os.path.join(rel, f"{board}-{tier}.bin"), "rb") as f:
             return manifest, f.read()
 
 

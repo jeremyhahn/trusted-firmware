@@ -263,6 +263,18 @@ func TestFirmwareBlankElementRefusesToAttest(t *testing.T) {
 	assert.Equal(t, tfw.StatusErrNotProvisioned, st)
 }
 
+func TestE2EElementImageWithNoElementRunsAndIsNotProvisioned(t *testing.T) {
+	// The ATmega328P is element-only (owner ruling 2026-10-17, m522): its
+	// image with no element answering at init has no root, no soft fallback.
+	// It still answers, and ATTEST says not provisioned.
+	d := tfw.New(simproc.Start(t, simproc.Element, "--no-element"), tfw.WithTimeout(5*time.Second))
+	assert.Equal(t, tfw.CryptoNone, cliCaps(t, d).CryptoTier)
+	var st tfw.Status
+	_, err := cliHex(t, d, "attest", "evidence", attestNonce(1))
+	require.True(t, errorsAsStatus(err, &st), "attest with no element: %v", err)
+	assert.Equal(t, tfw.StatusErrNotProvisioned, st)
+}
+
 func TestE2EUnprovisionedNoElementFallsBackToASoftRootThatCannotIssueACertificate(t *testing.T) {
 	// The auto tier with no element answering falls back to the soft root, but
 	// tfwsim-auto hands off no device seed, so that root has no DeviceID to put
@@ -285,7 +297,8 @@ func TestE2EAutoNoElementCertificateVerifiesES256UnderItsDeviceID(t *testing.T) 
 	require.NoError(t, cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature))
 
 	ev := cliAttest(t, d, attestNonce(0x61))
-	assert.EqualValues(t, algECDSA, ev[offAlg], "algorithm is ECDSA P-256")
+	// ES256 as the element signs, so the AlgID names the soft root (#130).
+	assert.EqualValues(t, 0x11, ev[offAlg], "alg id, want TFW_ALG_ECDSA_P256_SHA256_SOFT")
 	assert.True(t, verifyFrame(subject, ev), "the evidence signature does not verify under the certificate's key")
 }
 

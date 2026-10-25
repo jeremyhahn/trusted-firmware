@@ -34,7 +34,10 @@ the stack, which nothing measures and which `avr-size` does not count.
 
 Measured by turning the gate back on and rebuilding. Where a gate cannot be
 turned on here — because the code does not compile for this part at all — the
-figure is from the ATmega328P and is labelled as such. Cross-part figures are
+figure is from the ATmega328P and is labelled as such. Those 328P figures are
+from its `CRYPTO=soft` image, measured before owner ruling 2026-10-17 (m522)
+made the 328P element-only; that image is refused now and they are a dated
+record. Cross-part figures are
 indicative only: `avr25` and `avr5` are different instruction sets, and the
 tiny's code is typically a few percent larger for the same source.
 

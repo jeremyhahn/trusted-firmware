@@ -151,8 +151,8 @@ All sentinels, all prefixed `avr backend:`. Grouped by what a caller should do:
   `ErrElementUnreachable`, `ErrInvalidArgument`.
 
 `ErrUnsupportedByDevice` and `ErrCommandUnavailable` are deliberately separate.
-A software-tier device built with the HMAC signer (the ATmega328P and
-ATmega32U4) asked to mint an alias certificate answers the first: it knows what
+A software-tier device built with the HMAC signer (the ATmega32U4; the
+ATmega328P has no software tier since owner ruling 2026-10-17 (m522)) asked to mint an alias certificate answers the first: it knows what
 a certificate is and has no public half to certify. The ATmega2560's soft root
 has one, a P-256 DeviceID (#48, #130), and mints the certificate. The second says
 the feature was compiled out. One is a part to change and the other is a build

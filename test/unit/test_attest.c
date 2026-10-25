@@ -234,7 +234,8 @@ static void test_the_evidence_is_retrievable_in_pages(void)
         got = (uint8_t)(got + (tfw_writer_len(&w) - 2u));
     }
     TEST_ASSERT_EQUAL_UINT8(TFW_ATTEST_LEN, got);
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, whole[73]);   /* OFF_ALG */
+    /* The soft root's ES256 names its root: 0x11, a wire literal (#130). */
+    TEST_ASSERT_EQUAL_HEX8(0x11u, whole[73]);   /* OFF_ALG */
 }
 
 /*

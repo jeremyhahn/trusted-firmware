@@ -168,7 +168,7 @@ Measured with `make bootloader-check` (avr-gcc 14.2.0, tfw-boot built with
 | `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `0` | 8 190 | — | yes: 2 bytes spare (lane-verify, 935494f) |
 | `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `0`, `BOOT_STORE=1` | 2 680 over | — | no: not a row; it sheds OTA, never verification |
 | `atmega2560` | 8 192 B | `soft` `soft` `p256-soft` | `1` | 3 836 over | — | no: not a row; it sheds OTA, never verification |
-| `atmega328p` | 4 096 B | `soft` `soft` `p256-soft` | `0` | 4 030 over | — | no: not a row |
+| `atmega328p` | 4 096 B | `soft` `soft` `p256-soft` | `0` | 4 030 over | — | no: not a row; the 328P is element-only (owner ruling 2026-10-17 (m522)) |
 | `atmega32u4` | 4 096 B | `soft` `soft` `p256-soft` | `0` | — | — | no: not a row |
 | `attiny85` | none | — | — | — | — | no: the part has no boot section |
 

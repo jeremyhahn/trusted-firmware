@@ -123,7 +123,8 @@ static void test_a_good_attest_after_a_failed_one_pages_normally(void)
     }
     TEST_ASSERT_EQUAL_UINT8(TFW_ATTEST_LEN, got);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(NONCE_C, &whole[1], TFW_ATTEST_NONCE_LEN);
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_ECDSA_P256_SHA256, whole[73]);   /* OFF_ALG */
+    /* The soft root's ES256 names its root: 0x11, a wire literal (#130). */
+    TEST_ASSERT_EQUAL_HEX8(0x11u, whole[73]);   /* OFF_ALG */
 }
 
 int main(void)

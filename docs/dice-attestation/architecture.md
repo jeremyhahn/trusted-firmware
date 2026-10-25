@@ -406,7 +406,14 @@ chosen provider's too, so a soft-rooted Mega advertises ECDSA-P256-SHA256 only
 and signs with `TFW_ALG_ECDSA_P256_SHA256` under its soft P-256 DeviceID
 (`src/crypto/soft/id_p256.c`). Its `tfw_crypto_pubkey` returns that DeviceID,
 never an element key, so an alias certificate minted for it names the soft
-key.
+key. The `ATTEST` frame names the root as well (#130): `src/caps/attest.c`
+writes `AlgID` `0x11` when the signature is ES256 and the tier is
+`TFW_CRYPTO_SOFTWARE`, so a soft-rooted Mega's evidence says `0x11` and an
+element-rooted one's `0x01`, though both are the same r‖s over the same
+digest. Only the frame's byte changes; the provider still reports `0x01`, so
+the certificate and CSR stay `ecdsa-with-SHA256`. `AlgID` is outside the
+signed span: it tells the verifier which root to appraise under, and the key
+the signature verifies against is what binds it.
 
 **The element path is whole.** An `auto` image links everything the
 `atecc608a` image links (`mk/firmware.mk`, the `atecc608a auto` branch): the

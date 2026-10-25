@@ -46,9 +46,13 @@ endef
 # image's flash ceiling. header-deps-check is here because it is about what
 # gets built: a header edit rebuilding what includes it. CI runs firmware-matrix
 # itself, in the image-toolchain job, so there is no workflow matrix to keep in step.
+# app-firmware-check builds for the ATmega2560 whatever BOARD is: the example
+# application does not fit the 328P, element-only since owner ruling 2026-10-17
+# (m522), and applications target boards with room.
 build: build-tools firmware-matrix bootloader-check sdk-build tfwsim tfwsim-atecc608a \
-       tfwsim-app-example reproducible-check bootloader-reproducible-check provenance app-firmware-check \
+       tfwsim-app-example reproducible-check bootloader-reproducible-check provenance \
        platform-bake-no-link-check platform-bake-build-check header-deps-check
+	@$(MAKE) --no-print-directory app-firmware-check BOARD=atmega2560
 	@echo "stage build: green"
 
 build-tools:

@@ -68,11 +68,16 @@ default image, after the link refactor in this work.
 | ATmega328P, `CRYPTO=atecc608a` | 16 064 / 16 384 | 923 | passes |
 | ATmega328P, `CRYPTO=atecc608a ETH=1` (W5100) | 18 036 / 16 384 | 943 | **over by 1 652** |
 | ATmega328P, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 18 080 / 16 384 | 943 | **over by 1 696** |
-| ATmega328P, `CRYPTO=soft` | 12 886 / 16 384 | 717 | passes |
-| ATmega328P, `CRYPTO=soft ETH=1` (W5100) | 14 850 / 16 384 | 737 | passes |
+| ATmega328P, `CRYPTO=soft` | 12 886 / 16 384 | 717 | passed; refused since m522 |
+| ATmega328P, `CRYPTO=soft ETH=1` (W5100) | 14 850 / 16 384 | 737 | passed; refused since m522 |
 | ATmega2560, `CRYPTO=atecc608a` | 18 356 / 65 536 | 989 | passes |
 | ATmega2560, `CRYPTO=atecc608a ETH=1` (W5100) | 20 328 / 65 536 | 1 009 | passes |
 | ATmega2560, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 20 372 / 65 536 | 1 009 | passes |
+
+The two `CRYPTO=soft` rows were measured before owner ruling 2026-10-17 (m522),
+which made the 328P element-only and refuses `CRYPTO=soft` on it at build time.
+No 328P row builds Ethernet now: its one tier, the element, is 1 652 bytes over
+the flash budget with `ETH=1`.
 
 Ethernet costs about 2 KB of flash and 20 bytes of RAM on either board. The
 link refactor costs serial-only images 12 bytes of flash and 1 byte of RAM. The

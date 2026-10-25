@@ -138,6 +138,13 @@ static tfw_status_t build(const uint8_t *nonce)
     if (st != TFW_OK) {
         return st;
     }
+    /* The AlgID names the root that signed (#130). The soft root's HMAC is
+     * already its own; its ES256 is the element's algorithm, so it says
+     * 0x11 here. tfw_crypto_tier() is the provider that just signed, the one
+     * an auto image chose at init. */
+    if (alg == TFW_ALG_ECDSA_P256_SHA256 && tfw_crypto_tier() == TFW_CRYPTO_SOFTWARE) {
+        alg = TFW_ALG_ECDSA_P256_SHA256_SOFT;
+    }
     evidence[OFF_ALG] = alg;
 
     have_evidence = 1u;

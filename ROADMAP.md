@@ -23,7 +23,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 
 ## Now
 
-- **ethernet-transport** — the wire protocol over a W5100 or W5500 on the Nano and the Mega 2560, the 328P only with a secure element (item 79); closes AVR — [#55](../../issues/55) — open
+- **ethernet-transport** — the wire protocol over a W5100 or W5500 on the Nano and the Mega 2560, the 328P only with a secure element (owner ruling 2026-10-17 (m522), item 79; its soft-crypto Ethernet node is withdrawn); closes AVR — [#55](../../issues/55) — open
 - **xkms-adapter** — AVR backend registered through go-xkms's hook, finalize through `Device.AttestCSR` — [#28](../../issues/28) — open
 - **xkms-adapter** — AVR enrollment into go-trusted-platform, through the adapter — [#20](../../issues/20) — open
 - **xkms-adapter** — downstream migration to the adapter — [#19](../../issues/19) — open

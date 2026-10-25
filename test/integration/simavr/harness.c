@@ -236,7 +236,7 @@ int main(int argc, char **argv)
 {
     elf_firmware_t f;
     memset(&f, 0, sizeof f);
-    const char    *elf = argc > 1 ? argv[1] : "build/atmega328p/soft/trusted-firmware.elf";
+    const char    *elf = argc > 1 ? argv[1] : "build/atmega328p/atecc608a/trusted-firmware.elf";
     uint8_t        status, out[64], outlen;
 
     if (elf_read_firmware(elf, &f) != 0) {

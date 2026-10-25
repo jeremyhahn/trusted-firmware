@@ -1,6 +1,6 @@
 # DICE attestation — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-21
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-22
 > Conflicts with this document are defects. Fix them here first.
 
 See `architecture.md` for design and boundaries; not restated here.
@@ -28,12 +28,12 @@ Symmetric Identity Based Device Attestation*.
 | The device-templated PKCS#10 for ACME finalize, with no signing oracle | met on the 2560 element image | `src/caps/csr.c` | `test/unit/test_csr.c`, `TFWV_CSR_CRI` in `testdata/vectors.h` | — (RFC 2986) |
 | `CRYPTO=auto` on the 2560: the element when one answers, else the soft root | met | `src/crypto/auto/provider.c`, `boards/atmega2560/profile.mk` | `test/unit/test_crypto_auto.c`, `sdk/go/cmd/tfwctl/e2e_auto_test.go`, `xkms/e2e/soft_enroll_test.go` | — |
 | Behind a stock bootloader `ATTEST` says not provisioned | met | `src/crypto/soft/uds_flash.c` | `test/unit/test_uds_flash.c`, `test/unit/test_attest.c` | — |
-| The algorithm names the root: HMAC-SHA256 soft, ES256 element | partial: met where the soft root keeps the HMAC identity (`SOFT_ID=hmac`, the 328P and 32U4); the 2560's soft root signs ES256 (`SOFT_ID=p256`, the row below), as the element does, so there the algorithm no longer tells the roots apart (an open decision against owner ruling 2026-10-17, #130) | `src/crypto/soft/provider.c`, `src/crypto/soft/id_hmac.c`, `src/crypto/atecc608a/provider.c` | `test/unit/test_dice_evidence.c` (built with `id_hmac.c`, `mk/host.mk`), `test/unit/test_crypto_auto.c`, `sdk/go/cmd/tfwctl/e2e_auto_test.go`, `xkms/e2e/soft_enroll_test.go` | Sym ID |
-| Nano default `CRYPTO=soft` | met | `mk/firmware.mk` (`CRYPTO ?= soft`; the 328P profile sets none) | none | — |
-| 328P only with an element (item 79) | unmet: held for the owner (m467) | — | — | — |
+| The evidence names the root that signed it, in `AlgID` (owner ruling 2026-10-17, #130): `0x10` (HMAC-SHA256) and `0x11` (ES256) the soft root, `0x01` (ES256) the element | met on every board: the soft HMAC identity (`SOFT_ID=hmac`, the 32U4; the 328P has no soft row, m522) is `0x10` from the provider; the 2560's soft root signs ES256 (`SOFT_ID=p256`) as the element does, so `ATTEST` writes `0x11` when the signing provider's tier is `TFW_CRYPTO_SOFTWARE`. The provider contract keeps `0x01`, so the alias certificate and CSR still sign `ecdsa-with-SHA256`. `AlgID` is outside the signed span (`api.md`) | `src/caps/attest.c` (`build`), `src/crypto/soft/provider.c`, `src/crypto/soft/id_hmac.c`, `src/crypto/atecc608a/provider.c` | `test/unit/test_attest_root.c` (every tier and algorithm pair against wire literals; the signed digest the same under either root, an independent literal), `test/unit/test_attest.c`, `test/unit/test_dice_evidence.c`, `sdk/go/softroot_tfwsim_test.go`, `sdk/go/cmd/tfwctl/e2e_dice_test.go` (the auto image with no element: `0x11`), `sdk/go/cmd/tfwctl/e2e_auto_test.go` (with the element: `0x01`) | Sym ID |
+| The 328P only with an element (owner ruling 2026-10-17 (m522), item 79): its default and only row is `CRYPTO=atecc608a`, `CRYPTO=soft` is refused at build time | met | `boards/atmega328p/profile.mk` (`CRYPTO ?= atecc608a`, `BOARD_TIERS`, `BOARD_REFUSED_TIERS`), `mk/firmware.mk` (the `$(error ...)`) | `scripts/test_board_rows.py` | — |
+| With no element answering, the 328P image stays functional and `ATTEST` says not provisioned (m522) | met | `src/crypto/atecc608a/provider.c` (`tfw_crypto_sign`: `TFW_ERR_NOT_PROVISIONED` when absent at init) | `test/unit/test_atecc.c`, `sdk/go/cmd/tfwctl/e2e_dice_test.go` (`--no-element`), `test/integration/simavr/harness.c` | — |
 | P-256 DeviceID on every board, soft root included, no RSA (#48) | met on the 2560's soft root (`SOFT_ID=p256`, the `mk/firmware.mk` default: it signs ES256 with the DeviceID whose seed tfw-boot derives and hands over in handoff v4, #173) and on the ESP32-P4 (`src/hal/esp32/crypto_hmac_p256.c`); unmet on the ATmega328P and ATmega32U4, whose profiles keep `SOFT_ID=hmac` (the 328P: item 79; the 32U4: until its fit is measured) | `src/crypto/soft/id_p256.c`, `src/crypto/deviceid_p256.c`; `boot/tier/cdi_soft.c` (`tfw_boot_cdi_device_seed`), `boot/boot_main.c` | `test/unit/test_soft_id_p256.c` (the pinned point and ES256 signature, independent of the CDI, the seed and scalar zeroed), `test/unit/test_deviceid_p256.c`; `test/unit/boot/test_boot_hand_over_clear.c` (the seed cleared), `test/unit/boot/test_boot_hand_over_erased.c` (the zero seed of an erased slot); `xkms/e2e/soft_enroll_test.go` (the soft DeviceID enrolled through device-attest-01) | — (ES256: RFC 6979, SEC 2) |
-| The chain carries the root type (go-xkms item 76) | unmet: the soft root has an alias certificate (`ATTEST_CERT` on a no-element `CRYPTO=auto` image certifies its soft P-256 DeviceID) and enrols with it through device-attest-01, but the certificate carries no `DiceTcbInfo`, so go-xkms's verdict records `RootTypeUnreported`. The tier is stated only in `CAPS` (software tier, ES256 alone) and in the `ATTEST` frame's AlgID (ES256), which the element's evidence shares | — | `xkms/e2e/soft_enroll_test.go` (`TestSoftRootEnrollsThroughDeviceAttest01`, serial and Ethernet) | Attest Arch §6.1, an evidence extension; the encoding is go-xkms's |
-| `DiceTcbInfo` / `vendorInfo` fields | unmet: the vendorInfo seam is blocked (m496) | — | — | Attest Arch §6.1, `tcg-dice-TcbInfo` |
+| The chain carries the root type (go-xkms item 76) | unmet: the soft root has an alias certificate (`ATTEST_CERT` on a no-element `CRYPTO=auto` image certifies its soft P-256 DeviceID) and enrols with it through device-attest-01 where the relying party permits a software root; its `DiceTcbInfo` sets `notSecure` (#213), but the chain declares no root type, so go-xkms's verdict records `RootTypeUnreported`. The tier is also stated in `CAPS` (software tier, ES256 alone) and in the `ATTEST` frame's AlgID (`0x11`) | — | `xkms/e2e/soft_enroll_test.go` (`TestSoftRootEnrollsThroughDeviceAttest01`, serial and Ethernet) | Attest Arch §6.1, an evidence extension; the encoding is go-xkms's |
+| `DiceTcbInfo` / `vendorInfo` fields | partial: the alias certificate carries `DiceTcbInfo`, non-critical, its `flags` stating the root (#213); `vendorInfo` is absent until go-xkms's DICE profile defines it (m496, owner ruling 76) | `src/caps/alias.c` | `test/unit/test_alias.c`, `testdata/uccs_vectors.h` | Attest Arch §6.1, `tcg-dice-TcbInfo` |
 
 ## Exported surface
 
@@ -75,7 +75,8 @@ Symmetric Identity Based Device Attestation*.
 `TFW_ATTEST_NONCE_LEN` 16, `TFW_ATTEST_ID_LEN` 16, `TFW_ATTEST_LEN` 164,
 `TFW_ATTEST_PAGE` 48 · `TFW_ALIAS_NONCE_LEN` 32, `TFW_ALIAS_PAGE` 60 ·
 `TFW_ALG_NONE` 0x00, `TFW_ALG_ECDSA_P256_SHA256` 0x01, `TFW_ALG_ED25519` 0x02,
-`TFW_ALG_HMAC_SHA256` 0x10 · `TFW_UCCS_LEN` 151, `TFW_UCCS_COSWID_LEN` 84
+`TFW_ALG_HMAC_SHA256` 0x10, `TFW_ALG_ECDSA_P256_SHA256_SOFT` 0x11 (`ATTEST` only) ·
+`TFW_UCCS_LEN` 151, `TFW_UCCS_COSWID_LEN` 84
 · `TFW_UCCS_OFF_UEID` 40, `TFW_UCCS_UEID_LEN` 17 (`src/caps/uccs.h`) ·
 `TFW_CSR_CRI_LEN` 365 (`src/caps/csr.h`).
 

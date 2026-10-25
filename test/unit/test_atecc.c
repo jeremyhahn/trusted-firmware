@@ -325,7 +325,23 @@ static void test_an_absent_element_reports_no_tier_and_refuses_everything(void)
     TEST_ASSERT_EQUAL(TFW_CRYPTO_NONE, tfw_crypto_tier());
     TEST_ASSERT_EQUAL(0u, tfw_crypto_algorithms());
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_random(out, 8u));
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_sign(out, sig, &alg));
+    /* Not provisioned, the status ATTEST carries: a 328P image with no
+     * element is a device with no identity, not one with a broken bus
+     * (owner ruling 2026-10-17, m522). */
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_sign(out, sig, &alg));
+}
+
+static void test_an_element_absent_at_init_is_an_unprovisioned_device(void)
+{
+    uint8_t d[32] = {0};
+    uint8_t sig[64];
+    uint8_t alg = 0xEEu;
+
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_CRYPTO_NONE, tfw_crypto_tier());
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_sign(d, sig, &alg));
+    TEST_ASSERT_EQUAL_UINT8(0xEEu, alg);
 }
 
 static void test_a_present_element_reports_the_secure_element_tier(void)
@@ -786,6 +802,7 @@ int main(void)
     RUN_TEST(test_a_busy_element_is_polled_until_it_answers);
     RUN_TEST(test_an_element_that_never_answers_times_out);
     RUN_TEST(test_an_absent_element_reports_no_tier_and_refuses_everything);
+    RUN_TEST(test_an_element_absent_at_init_is_an_unprovisioned_device);
     RUN_TEST(test_a_present_element_reports_the_secure_element_tier);
     RUN_TEST(test_the_element_does_not_claim_ed25519);
     RUN_TEST(test_an_unprovisioned_element_refuses_to_sign);

@@ -221,7 +221,7 @@ wait on row `imx95` (#49) and trusted-imx95's M7 logical machine.
 | # | Slice | Files | Test | Gate |
 |---|---|---|---|---|
 | 0 | **This folder.** | `docs/hsm-self-defence/`, `docs/reference/rfc8610.txt` | `make releasability` | — |
-| 1 | **The SUIT reader takes a key and an integrated payload.** | `src/core/suit.c`, `suit.h`; `tools/suit-emit/`; `test/unit/` SUIT tests; literal vectors in `testdata/`; the OTA ADR subset table | Host, level 1 verifier table | #7; `make ci` |
+| 1 | **The SUIT reader takes a key and an integrated payload.** Done: `tfw_suit_read_integrated` and `tfw_suit_integrated_digest` (`src/core/suit.h`), the level 1 verifier table met | `src/core/suit.c`, `suit.h`; `tools/suit-emit/`; `test/unit/` SUIT tests; literal vectors in `testdata/`; the OTA ADR subset table | Host, level 1 verifier table | #7; `make ci` |
 | 2 | **The payload reader and the decision engine.** Done: the level 1 engine table met | `src/core/hsm_payload.c`, `hsm_engine.c`, `hsm.h`, `hsm_port.h` (architecture.md question 16); `test/unit/test_hsm_payload.c`, `test_hsm_engine.c` | Host, level 1 engine table | #7; `make ci` |
 | 3 | **The loop on QEMU.** | The loop; the `mps2` board port; the harness | Level 2 | #7, #161 |
 | 4 | **Channel commands.** Done: `0x76`–`0x7A`, the level 1 channel table met | `include/tfw/protocol.h` (ids extend), `src/core/hsm_cmd.c`, `tools/tfwsim/hsm_port.c`, `sdk/go/hsm.go`, literal vectors in `testdata/` and the Go mirror; `docs/wire-protocol/` | Host unit (`test_hsm_cmd`) and `tfwsim` (`hsm_tfwsim_test.go`): heartbeat, report, verdict, select, load | #7 |

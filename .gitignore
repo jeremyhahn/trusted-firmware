@@ -24,6 +24,10 @@ lcov.info
 # go
 sdk/go/bin/
 
+# python
+__pycache__/
+*.pyc
+
 # editors / os
 *.swp
 *~

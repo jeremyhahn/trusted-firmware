@@ -39,20 +39,15 @@ here.
 | The ESP32-P4 first | in progress | row `esp32-p4`, #23, implemented by #48 | that row's tests; `test_board_esp32p4-poe.c` |
 | An ADR for the integration boundary and transport, accepted | shipped | [adr-esp-idf-integration.md](../multi-arch/adr-esp-idf-integration.md) (#16), `Status: ACCEPTED` | — (a document) |
 | Per-architecture code only behind the HAL, the boot HAL and the board profiles | shipped | ESP-IDF headers and names only in `src/hal/esp32/`, `boot/hal/esp32/`, `mk/arch/esp32/` and the ESP32 board directories | `make lint-arch-leak` (`mk/host.mk:1004`): no ESP-IDF include or name in `src/` (bar `src/third_party/`), `boot/`, `include/`, `tools/` or any other board, the file named; `scripts/test_esp32_port.py:264` (`EspIdfStaysBehindTheHal`: the target passes this tree and fails a planted leak of each header prefix and each name, naming the file); `make lint-conditionals` (`mk/host.mk:895`) |
-| The HAL's own host tests | partial: `prov_uds.c` here, the other files in PR #180 | `src/hal/esp32/prov_uds.c` | `test_esp_prov_uds_mutate.c` over `test/mock/esp32/prov/`: presence by the HMAC_UP block; the draw under ADC unit 1's lock with the entropy source on, busy refused; the burn, confirmation and each refusal; the HMAC key id |
+| The HAL's own host tests | shipped | every `src/hal/esp32/*.c` (#180) | per file, wired in `mk/host.mk`: `test_esp_adc.c`, `test_esp_adc_mutate.c`, `test_esp_adc_nounit_mutate.c`, `test_esp_board.c`, `test_esp_board_mutate.c`, `test_esp_board_nocoproc_mutate.c`, `test_esp_bus_mutate.c`, `test_esp_crypto_hmac_p256.c`, `test_esp_hmac_p256_mutate.c`, `test_esp_eeprom_mutate.c`, `test_esp_hal_eeprom.c`, `test_esp_eth_mutate.c`, `test_esp_gpio_mutate.c`, `test_esp_pins.c`, `test_esp_handoff.c`, `test_esp_handoff_mutate.c`, `test_esp_ota.c`, `test_esp_ota_mutate.c`, `test_esp_wire.c`, `test_esp_pulse_mutate.c`, `test_esp_pulse_rmt.c`, `test_esp_pwm_mutate.c`, `test_esp_sys.c`, `test_esp_sys_mutate.c`, `test_esp_tone_mutate.c`, `test_esp_uart_mutate.c`; and `test_esp_prov_uds_mutate.c` over `test/mock/esp32/prov/`: presence by the HMAC_UP block; the draw under ADC unit 1's lock with the entropy source on, busy refused; the burn, confirmation and each refusal; the HMAC key id |
 | Boards are data | shipped | `boards/esp32-qemu/`, `boards/esp32p4-poe/`: `board.c`, `board_profile.h`, `profile.mk`; ids in the ESP32 range (0x80–0xBF), `esp32-qemu` 0x81 | `test_board_esp32-qemu.c`, `test_board_esp32p4-poe.c`; `make board-sweep` (`mk/host.mk:1277`) |
 | The other ESP32 parts start only after the AVR gate (#7) | not yet, by rule | — | — |
 
-Counts: 5 shipped, 3 partial, 1 in progress, 1 not yet by rule. Test paths are
+Counts: 6 shipped, 2 partial, 1 in progress, 1 not yet by rule. Test paths are
 under `test/unit/` unless named.
 
 What is open, and in what order:
 
-- **The HAL's own host tests.** The ESP32 HAL compiles in `make ci` only
-  against mocks, file by file; the link of a whole image is checked by
-  `ImageObjectList`'s call graph, and by a real compiler only in CI's `esp32`
-  job. `prov_uds.c` has its suite here; the mutation tests of the other HAL
-  files land with PR #180.
 - **The ESP32-P4**, row `esp32-p4` (#48).
 - **The other parts** (Xtensa and RISC-V boards beyond QEMU) once AVR has every
   primitive and a proven physical end-to-end run (#7).

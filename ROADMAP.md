@@ -34,6 +34,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 - **esp32** — ADR: ESP-IDF integration boundary and transport — [#16](../../issues/16) — done
 - **ota** — signed whole-image updates with rollback, from go-trusted-platform's control plane — [#52](../../issues/52) — open
 - **ota** — network and serial OTA on the AVR boards — [#75](../../issues/75) — open
+- **imx95** — i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO, the cortex-m reference part; landed, host and CI build only: the board as data (id `0x41`, provisional) and its TCM map (slice 1), the SCMI client (slice 2), LPUART3, RGPIO and WDOG5 on a register model (slice 3), and the enclave's message layer, session, key store, P-256 key, sign, export and verify (part of slice 5); waits: the run on the board, tier value 5 (slice 4), the enclave provider (slice 5), the OTA gate (slice 6), Ethernet (slice 7) and the owner's questions 3, 4, 19 to 21 ([imx95-design.md](docs/multi-arch/imx95-design.md), Row status) — [#49](../../issues/49) — open
 
 ## Next
 
@@ -46,7 +47,6 @@ None planned.
 ## Future
 
 - **secure-element-se05x** — the SE052F element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — blocked: AVR gate (#7), which waits on the soft DICE root ([#130](../../issues/130)) and go-xkms's signing key, not on the element
-- **imx95** — i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO, the cortex-m reference part — [#49](../../issues/49) — blocked: AVR gate (#7)
 - **hsm-self-defence** — i.MX 95 M7 tamper-response enforcement under tenant-signed policies — [#50](../../issues/50) — blocked: AVR gate (#7)
 - **stm32h5** — STM32H5, the second Cortex-M target, with the SE052F as the reference trusted device — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#126](../../issues/126); port: after [#79](../../issues/79), the P4's composed vendor-boot proof (ruling 269)
 - **optiga-trust-m** — the OPTIGA Trust M element tier — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: the provider (signing, the element tier's board and config) on the read-only command layer in `src/crypto/optiga/`; port blocked: AVR gate (#7), which waits on [#130](../../issues/130) and go-xkms's signing key, not on the element

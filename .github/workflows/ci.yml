@@ -756,10 +756,10 @@ jobs:
     needs: image
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' }}
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    # CUSTOMIZE: make test took 45 min on run 245908 (19:05 to 19:50: the unit
-    # suite three times, plain, under the sanitizers and for coverage). 10 + 45,
-    # plus margin.
-    timeout-minutes: 75
+    # CUSTOMIZE: make test took 63 to 68 min on 2026-10-25 with the runner's CI
+    # slice at its quota (the unit suite three times, plain, under the
+    # sanitizers and for coverage). 10 + 68, plus margin for a slice at quota.
+    timeout-minutes: 110
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}

@@ -312,6 +312,7 @@ static void test_end_and_activate_cut_at_every_transfer(void)
     good_round();   /* rec */
     for (n = 1u; n < 256u; n++) {
         tfw_nor_model_reset();
+        tfw_stage_init();   /* a boot: the OTA_BEGIN budget is per boot (#232) */
         build();
         TEST_ASSERT_EQUAL(TFW_OK, begin());
         stream();

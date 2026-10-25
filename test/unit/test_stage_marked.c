@@ -136,6 +136,7 @@ static void test_good_round_answers_both_ways(void)
 static void test_refused_while_receiving(void)
 {
     good_round(512u, 200u);
+    tfw_stage_init();   /* the reset its MARK waits for: BEGIN refuses before it (#232) */
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
     stream(0u, 240u);
     expect_refused(0u);
@@ -282,6 +283,7 @@ static void test_authorize_returns_a_mark_erase_failure_and_programs_nothing(voi
     uint32_t progs;
 
     memset(sig, 0x11, sizeof sig);
+    tfw_stage_init();   /* the reset its MARK waits for: BEGIN refuses before it (#232) */
     build(512u, 200u);
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
     stream(0u, 512u);
@@ -294,6 +296,7 @@ static void test_authorize_returns_a_mark_erase_failure_and_programs_nothing(voi
 
 static void test_no_install_is_pending_when_the_mark_cannot_be_read(void)
 {
+    tfw_stage_init();   /* the reset its MARK waits for: BEGIN refuses before it (#232) */
     good_round(512u, 200u);
     tfw_nor_model_fail_xfer(1u);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());

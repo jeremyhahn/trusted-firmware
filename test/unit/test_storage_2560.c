@@ -15,6 +15,7 @@
 #include "tfw/protocol.h"
 #include "tfw/config.h"
 #include "tfw/boot.h"
+#include "tfw/eth.h"
 #include "../core/auth_session.h"
 
 static uint8_t      inbuf[TFW_MAX_PAYLOAD];
@@ -22,18 +23,21 @@ static uint8_t      outbuf[TFW_MAX_PAYLOAD];
 static tfw_reader_t r;
 static tfw_writer_t w;
 static unsigned     gate_calls;
+static tfw_status_t gate_says;
 
 #define CHUNK 8u   /* src/caps/storage.c's TFW_EEPROM_CHUNK, the most one write takes */
+#define NET_END ((uint16_t)(TFW_NETCFG_ADDR + TFW_NETCFG_LEN))
 
-/* The reserved region's read gate, supplied here in place of either
- * auth_session file so the suite sees which reads take it. */
+/* The reserved region's read gate and the network block's write gate (#233),
+ * supplied here in place of either auth_session file so the suite sees which
+ * requests take it, and answers as gate_says. */
 tfw_status_t tfw_auth_gate(void)
 {
     gate_calls++;
-    return TFW_ERR_PROTECTED_REGION;
+    return gate_says;
 }
 
-void setUp(void)    { tfw_mock_reset(); gate_calls = 0u; }
+void setUp(void)    { tfw_mock_reset(); gate_calls = 0u; gate_says = TFW_ERR_PROTECTED_REGION; }
 void tearDown(void) {}
 
 static tfw_status_t ee_write(uint16_t addr, uint8_t n)
@@ -92,6 +96,7 @@ static void test_a_write_over_either_edge_is_refused(void)
 
 static void test_the_bytes_either_side_are_writable(void)
 {
+    gate_says = TFW_OK;   /* 0x0DF is the network block's last byte (#233) */
     TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0DFu, 1u));
     TEST_ASSERT_EQUAL(TFW_OK, ee_write(0x0F5u, 1u));
     TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[0x0DF]);
@@ -107,6 +112,42 @@ static void test_a_read_of_the_journal_takes_the_gate(void)
     TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x0F5u, 1u));
     TEST_ASSERT_EQUAL(TFW_OK, ee_read(0x0DFu, 1u));
     TEST_ASSERT_EQUAL_UINT(1u, gate_calls);
+}
+
+/* #233: a write reaching any byte of the network block takes the session
+ * first, and without one is refused whole. */
+static void test_a_network_block_write_without_a_session_is_refused(void)
+{
+    gate_says = TFW_ERR_AUTH_REQUIRED;
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ee_write(TFW_NETCFG_ADDR, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ee_write((uint16_t)(NET_END - 1u), 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ee_write((uint16_t)(NET_END - 4u), CHUNK / 2u));
+    TEST_ASSERT_EQUAL_UINT(3u, gate_calls);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[TFW_NETCFG_ADDR]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[NET_END - 4u]);
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_eeprom()[NET_END - 1u]);
+}
+
+static void test_a_network_block_write_with_a_session_is_written(void)
+{
+    gate_says = TFW_OK;
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write(TFW_NETCFG_ADDR, CHUNK));
+    TEST_ASSERT_EQUAL(TFW_OK, ee_write((uint16_t)(NET_END - 1u), 1u));
+    TEST_ASSERT_EQUAL_UINT(2u, gate_calls);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[TFW_NETCFG_ADDR]);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[TFW_NETCFG_ADDR + CHUNK - 1u]);
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, tfw_mock_eeprom()[NET_END - 1u]);
+}
+
+/* A write beside the block, not reaching it, never asks: on this profile both
+ * neighbours keep the boot-owned refusal they had (the ADR's test list), and
+ * test_storage.c's board writes the byte past the block. */
+static void test_a_write_beside_the_network_block_takes_no_gate(void)
+{
+    gate_says = TFW_ERR_AUTH_REQUIRED;
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write((uint16_t)(TFW_NETCFG_ADDR - 1u), 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, ee_write(NET_END, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, gate_calls);
 }
 
 /* A read wider than one chunk is refused before the gate is asked or a byte
@@ -185,6 +226,9 @@ int main(void)
     RUN_TEST(test_a_write_over_either_edge_is_refused);
     RUN_TEST(test_the_bytes_either_side_are_writable);
     RUN_TEST(test_a_read_of_the_journal_takes_the_gate);
+    RUN_TEST(test_a_network_block_write_without_a_session_is_refused);
+    RUN_TEST(test_a_network_block_write_with_a_session_is_written);
+    RUN_TEST(test_a_write_beside_the_network_block_takes_no_gate);
     RUN_TEST(test_a_read_longer_than_a_chunk_is_refused_and_nothing_is_returned);
     RUN_TEST(test_a_read_of_the_platform_block_is_refused_by_the_gate);
     RUN_TEST(test_a_failed_part_read_is_passed_up_and_nothing_is_returned);

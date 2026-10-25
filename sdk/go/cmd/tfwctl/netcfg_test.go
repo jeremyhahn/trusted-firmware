@@ -208,6 +208,9 @@ func TestNetcfgRefusesWhatItCannotParse(t *testing.T) {
 		{"netcfg", "set", "--mask", "mask"},
 		{"netcfg", "set", "--gateway", "gw"},
 		{"netcfg", "set", "--endpoint", "198.51.100.20"},
+		// The auth session needs both inputs or neither.
+		{"netcfg", "set", "--mac", "02:00:00:00:00:01", "--serial", "00"},
+		{"netcfg", "set", "--mac", "02:00:00:00:00:01", "--operator-key", "key.pem"},
 	} {
 		if _, err := runNetcfgVerb(t, &eepromDevice{}, false, args...); err == nil {
 			t.Errorf("%v: accepted", args)

@@ -124,6 +124,7 @@ static void platform(uint32_t floor)
 void setUp(void)
 {
     tfw_nor_model_reset();
+    tfw_stage_init();   /* each case a boot: the OTA_BEGIN budget is per boot (#232) */
     tfw_model_reset();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     tfw_model_set_stored_pubkey(TFW_ATECC_SLOT_IMAGE, SUIT_PUB);

@@ -112,6 +112,7 @@ void setUp(void)
     tfw_mock_reset();
     tfw_sys_reset_state();
     tfw_nor_model_reset();
+    tfw_stage_init();   /* each case a boot: the OTA_BEGIN budget is per boot (#232) */
     tfw_transport_init(&t);
     tfw_framer_init(&rxf);
 

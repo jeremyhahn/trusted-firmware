@@ -5,6 +5,7 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 #include "tfw/boot.h"
+#include "tfw/eth.h"
 #include "../core/auth_session.h"
 
 /*
@@ -113,6 +114,18 @@ tfw_status_t tfw_storage_cmd_write(tfw_reader_t *r, tfw_writer_t *w)
      * (the ATmega2560's journal at 0x0E0-0x0E9). */
     if (boot_owned(addr, len)) {
         return TFW_ERR_PROTECTED_REGION;
+    }
+    /* The network block takes the session (#233, the peer-binding ADR's
+     * decision 2 B): the link reloads it at every connection attempt, so a
+     * write is a redirect that outlasts the serial cable. Overlap, not start,
+     * for boot_owned's reason. A no-op on the soft tier, as the read gate is. */
+    if (addr < (uint16_t)(TFW_NETCFG_ADDR + TFW_NETCFG_LEN)
+        && (uint16_t)(addr + len) > TFW_NETCFG_ADDR) {
+        tfw_status_t st = tfw_auth_gate();
+
+        if (st != TFW_OK) {
+            return st;
+        }
     }
     data = tfw_read_blob(r, len);
     if (!data) {

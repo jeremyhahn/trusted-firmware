@@ -402,6 +402,7 @@ static void test_a_failing_esp_ota_end_maps_its_code(void)
     for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
         mock_esp.end_err = ESP_OK;
         mock_esp_image(img, 300u, 1u);
+        tfw_stage_init();   /* each case a boot: the OTA_BEGIN budget is per boot (#232) */
         TEST_ASSERT_EQUAL(TFW_OK, begin(300u));
         stream(0u, 300u);
         mock_esp.end_err = cases[i].err;
@@ -550,6 +551,104 @@ static void test_install_pending_follows_activate(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
 }
 
+/* #232: a BEGIN must not wipe an activation waiting for its reset, since
+ * esp_ota_begin erases the very slot set_boot named. */
+static void test_begin_is_refused_while_an_activation_is_pending(void)
+{
+    static uint8_t staged[MOCK_ESP_SLOT_LEN];
+    unsigned       begins, writes, aborts;
+    uint32_t       len;
+
+    stage_signed(2u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    memcpy(staged, mock_esp.flash[1], sizeof staged);
+    len    = mock_esp.len[1];
+    begins = mock_esp.begins;
+    writes = mock_esp.writes;
+    aborts = mock_esp.aborts;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, begin(1500u));
+    TEST_ASSERT_EQUAL_UINT(begins, mock_esp.begins);
+    TEST_ASSERT_EQUAL_UINT(writes, mock_esp.writes);
+    TEST_ASSERT_EQUAL_UINT(aborts, mock_esp.aborts);
+    TEST_ASSERT_EQUAL_MEMORY(staged, mock_esp.flash[1], sizeof staged);
+    TEST_ASSERT_EQUAL_UINT32(len, mock_esp.len[1]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
+    expect_status(TFW_STAGE_COMPLETE, len);
+}
+
+static void test_begin_over_a_complete_image_not_activated_starts_over(void)
+{
+    unsigned begins;
+
+    stage_signed(2u);
+    begins = mock_esp.begins;
+    TEST_ASSERT_EQUAL(TFW_OK, begin(1500u));
+    TEST_ASSERT_EQUAL_UINT(begins + 1u, mock_esp.begins);
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+    tfw_stage_init();   /* give the handle back before setUp drops the mock's */
+}
+
+static void test_begin_works_again_after_the_reset(void)
+{
+    unsigned begins;
+
+    stage_signed(2u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, begin(1500u));
+    tfw_stage_init();
+    tfw_sys_reset_state();
+    begins = mock_esp.begins;
+    TEST_ASSERT_EQUAL(TFW_OK, begin(1500u));
+    TEST_ASSERT_EQUAL_UINT(begins + 1u, mock_esp.begins);
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+    tfw_stage_init();   /* give the handle back before setUp drops the mock's */
+}
+
+/* #232 (B): TFW_OTA_BEGIN_BUDGET stages a boot, then BAD_STATE before
+ * esp_ota_begin erases; the session in flight is kept and a reset refills. */
+static void test_begin_past_the_budget_is_refused_until_reset(void)
+{
+    unsigned begins, aborts, i;
+
+    TEST_ASSERT_EQUAL_UINT(4u, TFW_OTA_BEGIN_BUDGET);
+    for (i = 0u; i < (unsigned)TFW_OTA_BEGIN_BUDGET; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, begin(1500u));
+    }
+    begins = mock_esp.begins;
+    aborts = mock_esp.aborts;
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, begin(1500u));
+    TEST_ASSERT_EQUAL_UINT(begins, mock_esp.begins);
+    TEST_ASSERT_EQUAL_UINT(aborts, mock_esp.aborts);
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+    tfw_stage_init();
+    TEST_ASSERT_EQUAL(TFW_OK, begin(1500u));
+    TEST_ASSERT_EQUAL_UINT(begins + 1u, mock_esp.begins);
+    tfw_stage_init();   /* give the handle back before setUp drops the mock's */
+}
+
+/* m1100 (3), m1117 (1): while an activation is pending, the same exchange
+ * again, with no OTA_AUTH since and the same mode byte, is a retry that
+ * answers success and changes nothing; one after a new OTA_AUTH, whatever
+ * its signature, is a new attempt and is refused, as is another mode. */
+static void test_a_second_activate_while_pending_is_a_retry_or_refused(void)
+{
+    unsigned writes, boots;
+
+    stage_signed(2u);
+    TEST_ASSERT_EQUAL(TFW_OK, authorized_activate(0u));
+    writes = mock_esp.auth_writes;
+    boots  = mock_esp.set_boots;
+    TEST_ASSERT_EQUAL(TFW_OK, activate(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, activate(1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, authorized_activate(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, activate(0u));   /* the OTA_AUTH arrived */
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, authorized_activate(1u));
+    TEST_ASSERT_EQUAL_UINT(writes, mock_esp.auth_writes);
+    TEST_ASSERT_EQUAL_UINT(boots, mock_esp.set_boots);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
+}
+
 static void test_activate_mode_1_resets_once_the_reply_is_out(void)
 {
     stage_signed(2u);
@@ -561,8 +660,9 @@ static void test_activate_mode_1_resets_once_the_reply_is_out(void)
 
 static void test_activate_from_slot_1_names_slot_0(void)
 {
-    mock_esp.running = 1u;
-    mock_esp.len[1]  = 1024u;
+    mock_esp.running   = 1u;
+    mock_esp.boot_slot = 1u;   /* booted from slot 1: slot 0 is not yet activated */
+    mock_esp.len[1]    = 1024u;
     mock_esp_image(mock_esp.flash[1], 1024u, 1u);
     mock_esp.state[1] = ESP_OTA_IMG_VALID;
     mock_esp.state[0] = ESP_OTA_IMG_UNDEFINED;
@@ -932,6 +1032,11 @@ int main(void)
     RUN_TEST(test_info_refuses_a_third_slot_and_an_unreadable_one);
     RUN_TEST(test_activate_writes_the_record_then_sets_the_boot_slot);
     RUN_TEST(test_install_pending_follows_activate);
+    RUN_TEST(test_begin_is_refused_while_an_activation_is_pending);
+    RUN_TEST(test_begin_over_a_complete_image_not_activated_starts_over);
+    RUN_TEST(test_begin_works_again_after_the_reset);
+    RUN_TEST(test_begin_past_the_budget_is_refused_until_reset);
+    RUN_TEST(test_a_second_activate_while_pending_is_a_retry_or_refused);
     RUN_TEST(test_activate_mode_1_resets_once_the_reply_is_out);
     RUN_TEST(test_activate_from_slot_1_names_slot_0);
     RUN_TEST(test_activate_at_the_floor_passes);

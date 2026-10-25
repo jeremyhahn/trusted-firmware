@@ -425,14 +425,6 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 		if len(args) < 2 {
 			return fmt.Errorf("usage: auth <device serial, %d hex bytes> <operator key, PEM EC private key file> [-- <verb> <args...>]", tfw.SerialLen)
 		}
-		serial, err := parseNonce(args[0], tfw.SerialLen)
-		if err != nil {
-			return err
-		}
-		signer, err := externalECKeySigner(args[1])
-		if err != nil {
-			return err
-		}
 		var then []string
 		if len(args) > 2 {
 			if args[2] != "--" {
@@ -440,11 +432,7 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 			}
 			then = args[3:]
 		}
-		nonce, err := dev.AuthChallenge(ctx)
-		if err != nil {
-			return err
-		}
-		if err := dev.AuthResponse(ctx, signer, nonce, serial); err != nil {
+		if err := openAuthSession(ctx, dev, args[0], args[1]); err != nil {
 			return err
 		}
 		if len(then) == 0 {
@@ -458,6 +446,27 @@ func runPeripheral(ctx context.Context, dev *tfw.Device, cmd string, args []stri
 		return run(ctx, dev, then[0], then[1:], asJSON, out)
 	}
 	return fmt.Errorf("unknown command %q", cmd)
+}
+
+// openAuthSession opens the element tier's operator auth session: a fresh
+// challenge, answered with the operator key at keyPath over the device serial
+// serialHex. It is the one exchange tfwctl makes, for `auth` and for
+// `netcfg set` before its EEPROM_WRITE (the network peer-binding ADR, option
+// B, owner ruling 130).
+func openAuthSession(ctx context.Context, dev *tfw.Device, serialHex, keyPath string) error {
+	serial, err := parseNonce(serialHex, tfw.SerialLen)
+	if err != nil {
+		return err
+	}
+	signer, err := externalECKeySigner(keyPath)
+	if err != nil {
+		return err
+	}
+	nonce, err := dev.AuthChallenge(ctx)
+	if err != nil {
+		return err
+	}
+	return dev.AuthResponse(ctx, signer, nonce, serial)
 }
 
 func parseU8(s, what string) (uint8, error) {

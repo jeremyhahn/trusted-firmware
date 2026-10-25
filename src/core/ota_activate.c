@@ -23,6 +23,10 @@
 #include "ota_auth.h"
 #include "../caps/sys.h"
 
+/* The request, [mode:1], of the activation now pending: read only while
+ * tfw_stage_install_pending() holds, which only this handler's success sets. */
+static uint8_t activated;
+
 static tfw_status_t load(uint8_t raw[TFW_BOOT_EE_LEN], tfw_boot_platform_t *p)
 {
     tfw_status_t st = tfw_hal_nvm_read(TFW_BOOT_EE_BASE, raw, TFW_BOOT_EE_LEN);
@@ -35,6 +39,7 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
     tfw_boot_platform_t plat;
     uint8_t             mode = tfw_read_u8(r);
     const uint8_t      *sig;
+    uint8_t             pending;
     tfw_status_t        st;
 
     (void)w;
@@ -42,9 +47,11 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
         return TFW_ERR_RANGE;
     }
     /* The row key's authorization on every tier (#137), and the element
-     * tier's session as well: a session alone no longer activates. */
+     * tier's session as well: a session alone no longer activates. The retry
+     * of a pending activation carries none; it changes nothing (below). */
     sig = tfw_ota_auth_take();
-    if (sig == NULL) {
+    pending = tfw_stage_install_pending();
+    if (sig == NULL && pending == 0u) {
         return TFW_ERR_AUTH_REQUIRED;
     }
     st = tfw_auth_gate();
@@ -59,6 +66,16 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
     if (plat.boot_state == TFW_BOOT_STATE_TRIAL
         || plat.boot_state == TFW_BOOT_STATE_CONFIRMED) {
         return TFW_ERR_BAD_STATE;
+    }
+    /* A second activate while one is pending (m1100 (3), m1117 (1), the OTA
+     * ADR's "anything else answers BAD_STATE"): the same exchange again, its
+     * mode byte unchanged and no OTA_AUTH since the pending activation, is a
+     * retry whose reply was lost and gets the same success, changing
+     * nothing; one after a new OTA_AUTH, whatever its signature, is a new
+     * attempt and is refused. Before anything is written. */
+    if (pending != 0u) {
+        return (sig == NULL && tfw_ota_auth_arrived() == 0u && mode == activated)
+                   ? TFW_OK : TFW_ERR_BAD_STATE;
     }
     /* The SUIT subset's checks (ruling 121) before anything is written: a
      * refused manifest leaves the store as OTA_END left it. */
@@ -75,6 +92,8 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
     if (tfw_stage_activate() != TFW_OK) {
         return TFW_ERR_BAD_STATE;
     }
+    activated = mode;
+    tfw_ota_auth_settle();
     if (mode == 1u) {
         tfw_sys_reset_soon();
     }

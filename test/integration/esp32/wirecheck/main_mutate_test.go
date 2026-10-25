@@ -188,13 +188,21 @@ func equalInts(a, b []int) bool {
 }
 
 // authDevice refuses OTA_ACTIVATE and OTA_CONFIRM unless an OTA_AUTH whose
-// signature verifies over msg came just before; reuse keeps the grant.
+// signature verifies over msg came just before. While an activation is
+// pending, the same OTA_ACTIVATE again with no OTA_AUTH since is a retry and
+// is taken; any other answers BAD_STATE (docs/ota/api.md, m1117 (1)).
+// oneShot is the device before that rule, which never takes a retry; lax
+// takes one after a new OTA_AUTH too.
 type authDevice struct {
 	mu       sync.Mutex
 	pub      *ecdsa.PublicKey
 	msg      func(cmd tfw.Cmd, p []byte) []byte
-	reuse    bool
+	oneShot  bool
+	lax      bool
 	grant    bool
+	arrived  bool
+	pending  bool
+	mode     byte
 	sig      []byte
 	activate []byte
 	confirms int
@@ -205,7 +213,7 @@ func (a *authDevice) handle(cmd tfw.Cmd, p []byte) (tfw.Status, []byte) {
 	defer a.mu.Unlock()
 	switch cmd {
 	case tfw.CmdOTAAuth:
-		a.sig, a.grant = bytes.Clone(p), true
+		a.sig, a.grant, a.arrived = bytes.Clone(p), true, true
 		return tfw.StatusOK, nil
 	case tfw.CmdOTAActivate, tfw.CmdOTAConfirm:
 		if cmd == tfw.CmdOTAActivate {
@@ -213,10 +221,20 @@ func (a *authDevice) handle(cmd tfw.Cmd, p []byte) (tfw.Status, []byte) {
 		} else {
 			a.confirms++
 		}
+		if cmd == tfw.CmdOTAActivate && a.pending && !a.oneShot {
+			a.grant = false
+			if (a.lax || !a.arrived) && p[0] == a.mode {
+				return tfw.StatusOK, nil
+			}
+			return tfw.StatusErrBadState, nil
+		}
 		if !a.grant || !verifies(a.pub, a.msg(cmd, p), a.sig) {
 			return tfw.StatusErrAuthRequired, nil
 		}
-		a.grant = a.reuse
+		a.grant = false
+		if cmd == tfw.CmdOTAActivate {
+			a.pending, a.mode, a.arrived = true, p[0], false
+		}
 	}
 	return tfw.StatusOK, nil
 }
@@ -240,7 +258,7 @@ func testSigner(t *testing.T) *signer {
 
 func TestActivateCheckSignsTheModeItSends(t *testing.T) {
 	for mode, want := range map[int][]byte{
-		0: {tfw.OTAActivateAtReset, tfw.OTAActivateAtReset, tfw.OTAActivateAtReset},
+		0: {tfw.OTAActivateAtReset, tfw.OTAActivateAtReset, tfw.OTAActivateAtReset, tfw.OTAActivateAtReset},
 		1: {tfw.OTAActivateResetNow, tfw.OTAActivateResetNow},
 	} {
 		s := testSigner(t)
@@ -545,9 +563,15 @@ var children = map[string]func(){
 		d, _ := fake(func(tfw.Cmd, []byte) (tfw.Status, []byte) { return tfw.StatusOK, nil })
 		activateCheck(context.Background(), d, childSigner(), 1)
 	},
-	"activate twice on one auth": func() {
+	"activate retry refused": func() {
 		s := childSigner()
-		a := &authDevice{pub: &s.key.PublicKey, reuse: true, msg: func(_ tfw.Cmd, p []byte) []byte { return s.activateMessage(p[0]) }}
+		a := &authDevice{pub: &s.key.PublicKey, oneShot: true, msg: func(_ tfw.Cmd, p []byte) []byte { return s.activateMessage(p[0]) }}
+		d, _ := fake(a.handle)
+		activateCheck(context.Background(), d, s, 0)
+	},
+	"activate retry after auth taken": func() {
+		s := childSigner()
+		a := &authDevice{pub: &s.key.PublicKey, lax: true, msg: func(_ tfw.Cmd, p []byte) []byte { return s.activateMessage(p[0]) }}
 		d, _ := fake(a.handle)
 		activateCheck(context.Background(), d, s, 0)
 	},
@@ -710,32 +734,33 @@ func runChild(t *testing.T, name string) string {
 
 func TestChecksRefuse(t *testing.T) {
 	for name, want := range map[string]string{
-		"activate bad mode":           "wirecheck: ota activate: -activate 2",
-		"activate unauthed accepted":  "wirecheck: ota activate: with no OTA_AUTH",
-		"activate twice on one auth":  "wirecheck: ota activate: a second time",
-		"activate auth refused":       "wirecheck: ota auth: ",
-		"activate refused after auth": "wirecheck: ota activate: command requires",
-		"confirm unauthed accepted":   "wirecheck: ota confirm: with no OTA_AUTH",
-		"confirm refused after auth":  "wirecheck: ota confirm: command requires",
-		"sig structure too long":      "wirecheck: auth: a 256-byte payload",
-		"authorizer no key":           "wirecheck: auth: -activate and -confirm need",
-		"authorizer no image":         "wirecheck: auth: -activate and -confirm need",
-		"ota end refused":             "wirecheck: ota end: ",
-		"ota not complete":            "wirecheck: ota status: state 3 received 10, want 2 10",
-		"ota not failed":              "wirecheck: ota status: state 2, want 3",
-		"ota status short":            "wirecheck: ota status: tfw: command 0x6b reply is 4 bytes, needs at least 5",
-		"ota end other status":        "wirecheck: ota end: got command not valid in the current OTA state, want status 17",
-		"ota slot 1 idle":             "wirecheck: ota info: slot 1 state 0, want 2",
-		"ota activate other refusal":  "wirecheck: ota activate: got command not valid",
-		"activate other refusal":      "wirecheck: ota activate: with no OTA_AUTH: got command not valid",
-		"confirm other refusal":       "wirecheck: ota confirm: with no OTA_AUTH: got command not valid",
-		"attest no algorithm":         "wirecheck: caps: tier software: features 0x",
-		"ota missing file":            "wirecheck: ota: ",
-		"attest none tier signs":      "wirecheck: caps: none tier reports",
-		"attest none tier accepted":   "wirecheck: attest: none tier answered",
-		"attest no deviceid":          "wirecheck: attest: tier software signs ATTEST",
-		"attest no feature":           "wirecheck: caps: tier software",
-		"main bad deviceid":           "wirecheck: deviceid: -deviceid is not a P-256 point",
+		"activate bad mode":               "wirecheck: ota activate: -activate 2",
+		"activate unauthed accepted":      "wirecheck: ota activate: with no OTA_AUTH",
+		"activate retry refused":          "wirecheck: ota activate: the same exchange again: got command requires",
+		"activate retry after auth taken": "wirecheck: ota activate: again after a new OTA_AUTH: got <nil>, want command not valid",
+		"activate auth refused":           "wirecheck: ota auth: ",
+		"activate refused after auth":     "wirecheck: ota activate: command requires",
+		"confirm unauthed accepted":       "wirecheck: ota confirm: with no OTA_AUTH",
+		"confirm refused after auth":      "wirecheck: ota confirm: command requires",
+		"sig structure too long":          "wirecheck: auth: a 256-byte payload",
+		"authorizer no key":               "wirecheck: auth: -activate and -confirm need",
+		"authorizer no image":             "wirecheck: auth: -activate and -confirm need",
+		"ota end refused":                 "wirecheck: ota end: ",
+		"ota not complete":                "wirecheck: ota status: state 3 received 10, want 2 10",
+		"ota not failed":                  "wirecheck: ota status: state 2, want 3",
+		"ota status short":                "wirecheck: ota status: tfw: command 0x6b reply is 4 bytes, needs at least 5",
+		"ota end other status":            "wirecheck: ota end: got command not valid in the current OTA state, want status 17",
+		"ota slot 1 idle":                 "wirecheck: ota info: slot 1 state 0, want 2",
+		"ota activate other refusal":      "wirecheck: ota activate: got command not valid",
+		"activate other refusal":          "wirecheck: ota activate: with no OTA_AUTH: got command not valid",
+		"confirm other refusal":           "wirecheck: ota confirm: with no OTA_AUTH: got command not valid",
+		"attest no algorithm":             "wirecheck: caps: tier software: features 0x",
+		"ota missing file":                "wirecheck: ota: ",
+		"attest none tier signs":          "wirecheck: caps: none tier reports",
+		"attest none tier accepted":       "wirecheck: attest: none tier answered",
+		"attest no deviceid":              "wirecheck: attest: tier software signs ATTEST",
+		"attest no feature":               "wirecheck: caps: tier software",
+		"main bad deviceid":               "wirecheck: deviceid: -deviceid is not a P-256 point",
 	} {
 		if got := runChild(t, name); !strings.Contains(got, want) {
 			t.Errorf("%s: stderr %q, want %q", name, got, want)

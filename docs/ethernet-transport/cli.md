@@ -29,7 +29,15 @@ walkthrough, the `DHCP=1` form among it, is [`user.md`](user.md#configure-the-ne
 Both verbs go over serial. On the Ethernet link `EEPROM_WRITE` and
 `EEPROM_READ` are not on the allow-list, so over a `tcp://` address the device
 answers unknown command
-([allow-list](adr-wire-protocol-over-w5x00.md#2-allow-list)).
+([allow-list](adr-wire-protocol-over-w5x00.md#2-allow-list)). Over serial,
+on an element-tier device, `netcfg set`'s `EEPROM_WRITE` needs an operator
+auth session; outside one the device answers `TFW_ERR_AUTH_REQUIRED` (17)
+and writes nothing (#233). On the element tier the operator key is
+provisioned first, and `netcfg set --serial <device serial hex>
+--operator-key <key.pem>` opens that session with the exchange `tfwctl auth`
+makes before it writes; without the two flags a 17 is reported naming
+`--operator-key` (the network peer-binding ADR, `adr-network-peer-binding.md`,
+option B, owner ruling 130).
 
 ## The TCP device address
 

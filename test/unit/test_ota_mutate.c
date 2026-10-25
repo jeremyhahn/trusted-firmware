@@ -222,6 +222,10 @@ static tfw_status_t feed(uint8_t cmd, const uint8_t *payload, unsigned n)
     uint8_t      *out = (uint8_t *)malloc(TFW_MAX_PAYLOAD);
     const uint8_t was_authed = authed;
     const int     was_marked = marked();
+    /* While an activation is pending, an OTA_ACTIVATE without OTA_AUTH is the
+     * retry of that exchange or a refused new attempt (m1117 (1)): it answers
+     * OK or BAD_STATE, and moves nothing either way. */
+    const int     retry = cmd == TFW_CMD_OTA_ACTIVATE && tfw_stage_install_pending() != 0u;
     const uint8_t confirm_before = tfw_mock_eeprom()[TFW_BOOT_CONFIRM_ADDR];
     uint8_t       mark_before[40];   /* the MARK's header and hash */
     uint8_t       confirm_rec[TFW_BOOT_CONFIRM_LEN];
@@ -253,10 +257,13 @@ static tfw_status_t feed(uint8_t cmd, const uint8_t *payload, unsigned n)
     } else if ((cmd == TFW_CMD_OTA_ACTIVATE || cmd == TFW_CMD_OTA_CONFIRM) && !was_authed
                && n == (cmd == TFW_CMD_OTA_ACTIVATE ? 1u : 0u)
                && !(cmd == TFW_CMD_OTA_ACTIVATE && payload[0] > 1u)
-               && st != TFW_ERR_AUTH_REQUIRED) {
+               && !retry && st != TFW_ERR_AUTH_REQUIRED) {
         broke = "a gated command without OTA_AUTH was not refused AUTH_REQUIRED";
+    } else if (retry && st != TFW_OK && st != TFW_ERR_BAD_STATE && st != TFW_ERR_RANGE
+               && st != TFW_ERR_BAD_ARGC) {
+        broke = "an OTA_ACTIVATE while one was pending was neither its retry nor refused";
     } else if ((cmd == TFW_CMD_OTA_ACTIVATE || cmd == TFW_CMD_OTA_CONFIRM) && !was_authed
-               && st == TFW_OK) {
+               && !retry && st == TFW_OK) {
         broke = "a gated command succeeded without OTA_AUTH";
     } else if ((cmd == TFW_CMD_OTA_ACTIVATE || cmd == TFW_CMD_OTA_CONFIRM) && !was_authed
                && (marked() != was_marked

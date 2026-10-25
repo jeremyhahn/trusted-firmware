@@ -210,6 +210,14 @@ static void stage_ended(void)
     TEST_ASSERT_FALSE(marked());
 }
 
+/* A reset and the image staged and ended again: a pending activation takes
+ * no other request (m1100 (3)), and the OTA_BEGIN budget is per boot (#232). */
+static void next_boot(void)
+{
+    tfw_stage_init();
+    stage_ended();
+}
+
 static void snap(snap_t *s)
 {
     uint8_t out[44], n;
@@ -263,10 +271,10 @@ static void test_every_boot_and_ota_state_with_an_ended_image(void)
     static const uint8_t ota[] = { 0u, 1u, 2u, 3u, 4u, 5u, 0x80u, 0xFFu };
     unsigned             bs, o, taken = 0u, refused = 0u;
 
-    stage_ended();
     for (bs = 0u; bs < 256u; bs++) {
         for (o = 0u; o < sizeof ota; o++) {
             snprintf(why, sizeof why, "boot_state %u ota_state %u", bs, ota[o]);
+            next_boot();   /* a pending activation takes no new attempt (m1117 (1)) */
             put_block((uint8_t)bs, ota[o]);
             authorize();
             snap(&before);
@@ -282,9 +290,12 @@ static void test_every_boot_and_ota_state_with_an_ended_image(void)
                 TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(before.stage, after.stage, sizeof before.stage, why);
                 taken++;
             }
-            /* One signature, one command, either way. */
+            /* One signature, one command, either way: without another OTA_AUTH
+             * nothing moves, the retry of a pending activation answering its
+             * success (m1117 (1)). */
             snap(&before);
-            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_AUTH_REQUIRED, activate(0u), why);
+            TEST_ASSERT_EQUAL_MESSAGE(refuses((uint8_t)bs) ? TFW_ERR_AUTH_REQUIRED : TFW_OK,
+                                      activate(0u), why);
             unchanged(1);
         }
     }
@@ -357,10 +368,10 @@ static void test_every_mode_byte(void)
 {
     unsigned mode;
 
-    stage_ended();
-    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     for (mode = 0u; mode < 256u; mode++) {
         snprintf(why, sizeof why, "mode %u", mode);
+        next_boot();   /* a pending activation takes no other mode (m1100 (3)) */
+        put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
         authorize();
         snap(&before);
         if (mode > 1u) {
@@ -423,6 +434,7 @@ static int measured(uint32_t off)
 
 static void refused_after_end(const uint8_t *mut, uint8_t mode)
 {
+    next_boot();   /* the last case's activation is pending */
     write_stage(mut);
     put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
     authorize();
@@ -479,6 +491,7 @@ static void test_seeded_cases_activate_only_the_ended_image(void)
 
         snprintf(why, sizeof why, "seed 0x%08X iteration %lu", (unsigned)(SEED ^ 0x5EEDu),
                  (unsigned long)it);
+        next_boot();
         if ((r & 3u) == 0u && (it & 1u)) {
             bs = (uint8_t)((r & 4u) ? TFW_BOOT_STATE_TRIAL : TFW_BOOT_STATE_CONFIRMED);
         }
@@ -517,6 +530,7 @@ static void test_seeded_cases_activate_only_the_ended_image(void)
     TEST_ASSERT_GREATER_THAN_UINT32(0u, taken);
     TEST_ASSERT_GREATER_THAN_UINT32(0u, refused);
     snprintf(why, sizeof why, "after the seeded run");
+    next_boot();
     original_activates();
     free(mut);
 }

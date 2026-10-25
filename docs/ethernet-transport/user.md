@@ -47,7 +47,13 @@ tfwctl /dev/ttyACM0 netcfg set --mac 02:00:00:00:00:01 --ip 192.0.2.10 \
 tfwctl /dev/ttyACM0 netcfg get
 ```
 
-`netcfg get` reads the block back. Every flag is required; a missing or
+On an element-tier device the operator key is provisioned first, and
+`netcfg set` takes `--serial <device serial hex> --operator-key <key.pem>` to
+open the operator auth session it writes in; without them the device answers
+`TFW_ERR_AUTH_REQUIRED` (17) and writes nothing (the network peer-binding ADR,
+`adr-network-peer-binding.md`, option B, owner ruling 130).
+
+`netcfg get` reads the block back. Every other flag is required; a missing or
 malformed value is refused by the SDK with the field it names, and nothing is
 written. On an image built with `DHCP=1`, `--dhcp` takes the place of `--ip`,
 `--mask` and `--gateway`, and the device leases them; `--dhcp` beside any of

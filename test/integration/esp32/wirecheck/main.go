@@ -606,7 +606,8 @@ func activateCheck(ctx context.Context, d *tfw.Device, s *signer, mode int) {
 	if err := d.OTAActivate(ctx, m); !errors.As(err, &st) || st != tfw.StatusErrAuthRequired {
 		fail("ota activate", fmt.Errorf("with no OTA_AUTH: got %v, want %v", err, tfw.StatusErrAuthRequired))
 	}
-	if err := d.OTAAuth(ctx, s.sign(s.activateMessage(m))); err != nil {
+	sig := s.sign(s.activateMessage(m))
+	if err := d.OTAAuth(ctx, sig); err != nil {
 		fail("ota auth", err)
 	}
 	if err := d.OTAActivate(ctx, m); err != nil {
@@ -614,9 +615,19 @@ func activateCheck(ctx context.Context, d *tfw.Device, s *signer, mode int) {
 	}
 	fmt.Printf("wirecheck: ota activate mode %d taken after OTA_AUTH, version %d measurement %x\n",
 		m, s.version, s.measurement)
+	// While it is pending (docs/ota/api.md, m1117 (1)): the same exchange
+	// again, no OTA_AUTH since, is a retry and gets the same success; after a
+	// new OTA_AUTH, even one carrying the same signature, it is a new attempt
+	// and gets BAD_STATE. Mode 1 has reset by now.
 	if m == tfw.OTAActivateAtReset {
-		if err := d.OTAActivate(ctx, m); !errors.As(err, &st) || st != tfw.StatusErrAuthRequired {
-			fail("ota activate", fmt.Errorf("a second time on one OTA_AUTH: got %v, want %v", err, tfw.StatusErrAuthRequired))
+		if err := d.OTAActivate(ctx, m); err != nil {
+			fail("ota activate", fmt.Errorf("the same exchange again: got %v, want success", err))
+		}
+		if err := d.OTAAuth(ctx, sig); err != nil {
+			fail("ota auth", err)
+		}
+		if err := d.OTAActivate(ctx, m); !errors.As(err, &st) || st != tfw.StatusErrBadState {
+			fail("ota activate", fmt.Errorf("again after a new OTA_AUTH: got %v, want %v", err, tfw.StatusErrBadState))
 		}
 	}
 }

@@ -30,7 +30,8 @@
 /* Parks the store's select high, with the shared bus's other selects, before
  * anything talks on the bus. A NOR whose select floats low answers the
  * transport's SPI traffic. main.c calls it on every image; one without the
- * stager links src/core/ota_stage_none.c, which does nothing. */
+ * stager links src/core/ota_stage_none.c, which does nothing. The session
+ * starts IDLE, as after a reset, so a pending activation ends here too. */
 void tfw_stage_init(void);
 
 tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w);
@@ -68,8 +69,9 @@ tfw_status_t tfw_stage_session(uint32_t *len, uint8_t hash[TFW_BOOT_MEASURE_LEN]
 tfw_status_t tfw_ota_manifest(tfw_boot_platform_t *p);
 
 /* Whether the next reset hands tfw-boot an image to take (#51): this
- * session's OTA_ACTIVATE wrote the MARK, and no OTA_BEGIN has erased it since.
- * Nothing new in RAM: the session's state and the MARK's magic in the store.
+ * session's OTA_ACTIVATE wrote the MARK, and no failed re-activate has erased it
+ * since. Nothing new in RAM: the session's state and the MARK's magic in the
+ * store. OTA_BEGIN answers TFW_ERR_BAD_STATE while it holds (#232).
  * A MARK from an earlier boot is the image already installed, or one tfw-boot
  * refused, and answers 0 -- so does every image without the stager. */
 uint8_t      tfw_stage_install_pending(void);

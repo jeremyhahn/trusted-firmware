@@ -37,7 +37,7 @@
 static uint8_t img[TFW_OTA_STORE_STAGE_LEN];
 static uint8_t meas[32];
 
-void setUp(void)    { tfw_nor_model_reset(); }
+void setUp(void)    { tfw_nor_model_reset(); tfw_stage_init(); }
 
 /* OTA_AUTH through the dispatcher (#137), so the next command finds it held. */
 static void authorize(void)
@@ -202,7 +202,9 @@ static void test_interrupted_stream_then_fresh_begin(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_stage_activate());
     TEST_ASSERT_TRUE(marked());
 
-    /* A new session withdraws the old record before a byte of STAGE moves. */
+    /* After the reset that MARK waits for (BEGIN refuses before it, #232), a
+     * new session withdraws the old record before a byte of STAGE moves. */
+    tfw_stage_init();
     build(1024u, 700u);
     TEST_ASSERT_EQUAL(TFW_OK, begin(1024u));
     TEST_ASSERT_FALSE(marked());
@@ -363,6 +365,12 @@ static void test_activate_takes_a_verified_image_and_resets_on_mode_1(void)
     TEST_ASSERT_TRUE(marked());           /* ACTIVATE is the MARK's one writer */
     expect_staged(512u);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+    /* Mode 1 from the next boot: while mode 0 is pending, a different
+     * activate is refused (m1100 (3)). */
+    tfw_stage_init();
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
     authorize();
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_sys_reset_pending());
@@ -386,6 +394,14 @@ static void test_activate_tells_the_application_of_the_update_it_resets_into(voi
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
     tfw_sys_poll();
     TEST_ASSERT_EQUAL_STRING("i", tfw_mock_app_log());
+    /* Mode 1 from the next boot: while mode 0 is pending, a different
+     * activate is refused (m1100 (3)). */
+    tfw_mock_app_reset();
+    tfw_app_runner_start();
+    tfw_stage_init();
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
     authorize();
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
     tfw_sys_poll();
@@ -453,22 +469,20 @@ static void test_a_reset_with_nothing_marked_only_shuts_down(void)
 
 /* An OTA_BEGIN after the activation erases its MARK, and the stage it opens
  * failing leaves none; a second activation that fails has erased it too. */
-static void test_a_superseded_or_failed_stage_clears_the_install(void)
+static void test_a_failed_activate_clears_the_install(void)
 {
     uint8_t m0 = 0u, out[44], n;
 
-    activate_0();
+    /* A stage changed after OTA_END: the activate erases the MARK before it
+     * re-verifies, so its refusal leaves nothing to install. (While an
+     * activation is pending, a second one never reaches the erase: m1100 (3).) */
+    tfw_mock_app_reset();
+    tfw_app_runner_start();
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
     TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
-    TEST_ASSERT_FALSE(marked());
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
-    stream(0u, 256u);
-    TEST_ASSERT_EQUAL(TFW_ERR_FRAMING, end());
-    expect_status(TFW_STAGE_FAILED, 256u);
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
-    reset_0();
-    TEST_ASSERT_EQUAL_STRING("is", tfw_mock_app_log());
-
-    activate_0();
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
     tfw_nor_model_corrupt(TFW_OTA_STORE_STAGE_ADDR + 17u);
     authorize();
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
@@ -476,6 +490,116 @@ static void test_a_superseded_or_failed_stage_clears_the_install(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
     reset_0();
     TEST_ASSERT_EQUAL_STRING("is", tfw_mock_app_log());
+}
+
+/* #232: the OTA ADR's state table answers begin while an image is pending
+ * with TFW_ERR_BAD_STATE. The MARK erase and the PREV backup would undo the
+ * activation, so nothing in the store moves. */
+static void test_begin_while_an_activation_is_pending_is_refused(void)
+{
+    uint32_t erases, programs;
+
+    activate_0();
+    erases   = tfw_nor_model_erases();
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, begin(512u));
+    TEST_ASSERT_EQUAL_UINT32(erases, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    TEST_ASSERT_TRUE(marked());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
+    expect_status(TFW_STAGE_COMPLETE, 512u);
+    reset_0();
+    TEST_ASSERT_EQUAL_STRING("ibs", tfw_mock_app_log());   /* still an update */
+}
+
+/* #232 (B): TFW_OTA_BEGIN_BUDGET stages a boot, then BAD_STATE before any
+ * erase; the next boot refills it. */
+static void test_begin_past_the_budget_is_refused_until_reset(void)
+{
+    uint32_t erases, programs;
+    uint8_t  i;
+
+    TEST_ASSERT_EQUAL_UINT(4u, TFW_OTA_BEGIN_BUDGET);
+    build(512u, 200u);
+    for (i = 0u; i < (uint8_t)TFW_OTA_BEGIN_BUDGET; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    }
+    stream(0u, 256u);
+    erases   = tfw_nor_model_erases();
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, begin(512u));
+    TEST_ASSERT_EQUAL_UINT32(erases, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    expect_status(TFW_STAGE_RECEIVING, 256u);   /* the upload it refused to drop */
+    stream(256u, 512u);                         /* a resume spends no begin */
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    tfw_stage_init();
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+}
+
+/* m1100 (3), m1117 (1): while an activation is pending, the same request
+ * again with no OTA_AUTH since is a retry that answers success and changes
+ * nothing; one after a new OTA_AUTH, or in another mode, is refused. */
+static void test_a_second_activate_while_pending_is_a_retry_or_refused(void)
+{
+    uint8_t  m0 = 0u, m1 = 1u, out[44], n;
+    uint32_t erases, programs;
+
+    activate_0();
+    erases   = tfw_nor_model_erases();
+    programs = tfw_nor_model_programs();
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, n);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT32(erases, tfw_nor_model_erases());
+    TEST_ASSERT_EQUAL_UINT32(programs, tfw_nor_model_programs());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_stage_install_pending());
+    expect_staged(512u);
+    reset_0();
+    TEST_ASSERT_EQUAL_STRING("ibs", tfw_mock_app_log());
+}
+
+static void test_begin_after_an_end_without_activate_restarts(void)
+{
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+}
+
+static void test_begin_after_the_reset_that_ends_a_pending_activation_runs(void)
+{
+    activate_0();
+    reset_0();
+    tfw_stage_init();   /* the stager's half of the reset */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_stage_install_pending());
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    TEST_ASSERT_FALSE(marked());
+    expect_status(TFW_STAGE_RECEIVING, 0u);
+}
+
+static void test_activate_mode_1_still_marks_and_resets(void)
+{
+    uint8_t m1 = 1u, out[44], n;
+
+    put_block(TFW_BOOT_STATE_GOOD, TFW_BOOT_OTA_IDLE);
+    build(512u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, begin(512u));
+    stream(0u, 512u);
+    TEST_ASSERT_EQUAL(TFW_OK, end());
+    authorize();
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m1, 1u, out, &n));
+    TEST_ASSERT_TRUE(marked());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sys_reset_pending());
+    tfw_sys_reset_state();
 }
 
 static void test_activate_fails_closed_on_an_unverifiable_block(void)
@@ -639,10 +763,13 @@ static void test_activate_and_confirm_need_ota_auth(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_dispatch(TFW_CMD_OTA_AUTH, &r, &w));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
     TEST_ASSERT_FALSE(marked());
-    /* One signature, one command. */
+    /* One signature, one command: the request again is the pending
+     * activation's retry, which changes nothing (m1117 (1)). */
     authorize();
     TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
-    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_TRUE(marked());
+    TEST_ASSERT_EQUAL(TFW_OK, ctl(tfw_otactl_cmd_activate, &m0, 1u, out, &n));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sys_reset_pending());
 }
 
 /* ota_activate.c:57: an authorized ACTIVATE over a corrupted platform block
@@ -1072,7 +1199,13 @@ int main(void)
     RUN_TEST(test_activate_tells_the_application_of_the_update_it_resets_into);
     RUN_TEST(test_a_reset_after_activate_mode_0_is_an_update);
     RUN_TEST(test_a_reset_with_nothing_marked_only_shuts_down);
-    RUN_TEST(test_a_superseded_or_failed_stage_clears_the_install);
+    RUN_TEST(test_a_failed_activate_clears_the_install);
+    RUN_TEST(test_begin_while_an_activation_is_pending_is_refused);
+    RUN_TEST(test_begin_past_the_budget_is_refused_until_reset);
+    RUN_TEST(test_a_second_activate_while_pending_is_a_retry_or_refused);
+    RUN_TEST(test_begin_after_an_end_without_activate_restarts);
+    RUN_TEST(test_begin_after_the_reset_that_ends_a_pending_activation_runs);
+    RUN_TEST(test_activate_mode_1_still_marks_and_resets);
     RUN_TEST(test_activate_fails_closed_on_an_unverifiable_block);
     RUN_TEST(test_activate_takes_only_the_image_end_verified);
     RUN_TEST(test_confirm_writes_its_request_and_never_the_block);

@@ -32,6 +32,10 @@ stager ([OTA API](../ota/api.md)).
 ## Network block
 
 32 bytes at EEPROM address `0x0C0`, written over serial with `EEPROM_WRITE`.
+A write that overlaps the block calls `tfw_auth_gate` first (#233). On the
+element tier, outside an operator auth session, it answers
+`TFW_ERR_AUTH_REQUIRED` (17) and writes nothing
+([OTA API](../ota/api.md#eeprom_write-on-the-network-block-233)).
 Multi-byte values are big-endian (network order) except where noted.
 
 | Offset | Size | Field |

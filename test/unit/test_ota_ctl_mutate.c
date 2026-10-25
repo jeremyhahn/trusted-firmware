@@ -194,9 +194,10 @@ static void test_every_signature_byte_at_every_value_is_carried_verbatim(void)
     unsigned v;
 
     reference_sig(ref);
-    ended();
     for (i = 0u; i < SIG; i++) {
         for (v = 0u; v < 256u; v++) {
+            reset_all();   /* a pending activation takes no other (m1100 (3)) */
+            ended();
             memcpy(sig, ref, SIG);
             sig[i] = (uint8_t)v;
             snprintf(why, sizeof why, "signature byte %u = 0x%02X", i, v);
@@ -213,20 +214,84 @@ static void test_every_mode_byte(void)
     unsigned v;
 
     reference_sig(ref);
-    ended();
     for (v = 0u; v < 256u; v++) {
+        reset_all();   /* a pending activation takes no other (m1100 (3)) */
+        ended();
         snprintf(why, sizeof why, "mode 0x%02X", v);
         TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, auth(ref), why);
         if (v > 1u) {
             TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_RANGE, activate((uint8_t)v), why);
             /* The refused request was the last one: the hold is gone. */
             TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_AUTH_REQUIRED, activate(0u), why);
-            assert_mark(ref, 1u);   /* mode 1's MARK, untouched */
+            TEST_ASSERT_FALSE_MESSAGE(marked(), why);   /* nothing written */
         } else {
             TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, activate((uint8_t)v), why);
             assert_mark(ref, (uint8_t)v);
         }
     }
+}
+
+/* m1117 (1): "byte-identical" is the whole authenticated exchange. While an
+ * activation is pending, the OTA_ACTIVATE again with no OTA_AUTH since and
+ * the same mode byte is the retry, answering OK; one after a new OTA_AUTH,
+ * whatever its signature, is a new attempt and answers BAD_STATE. The pending
+ * mark is the first one throughout. */
+static void test_a_plain_retry_answers_ok_and_keeps_the_pending_mark(void)
+{
+    uint8_t ref[SIG];
+
+    reference_sig(ref);
+    ended();
+    snprintf(why, sizeof why, "plain retry");
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, auth(ref), why);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, activate(0u), why);
+    assert_mark(ref, 0u);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, activate(0u), why);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, activate(0u), why);
+    assert_mark(ref, 0u);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_STATE, activate(1u), why);
+    TEST_ASSERT_FALSE_MESSAGE(tfw_sys_reset_pending(), why);
+    assert_mark(ref, 0u);
+}
+
+static void test_a_retry_under_another_signature_is_a_new_attempt(void)
+{
+    uint8_t ref[SIG];
+    uint8_t other[SIG];
+
+    reference_sig(ref);
+    memcpy(other, ref, SIG);
+    other[0] ^= 0x01u;
+    ended();
+    snprintf(why, sizeof why, "another signature");
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, auth(ref), why);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, activate(0u), why);
+    assert_mark(ref, 0u);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, auth(other), why);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_STATE, activate(0u), why);
+    assert_mark(ref, 0u);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, auth(other), why);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_STATE, activate(1u), why);
+    assert_mark(ref, 0u);
+    /* The OTA_AUTH is not forgotten by the refusal: no plain retry after it. */
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_STATE, activate(0u), why);
+    assert_mark(ref, 0u);
+}
+
+static void test_a_retry_under_the_same_signature_is_a_new_attempt(void)
+{
+    uint8_t ref[SIG];
+
+    reference_sig(ref);
+    ended();
+    snprintf(why, sizeof why, "same signature");
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, auth(ref), why);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, activate(0u), why);
+    assert_mark(ref, 0u);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_OK, auth(ref), why);
+    TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_STATE, activate(0u), why);
+    TEST_ASSERT_FALSE_MESSAGE(tfw_sys_reset_pending(), why);
+    assert_mark(ref, 0u);
 }
 
 static void test_every_auth_length_but_64_is_refused_and_drops_the_hold(void)
@@ -261,17 +326,25 @@ static void test_a_replayed_authorization_activates_once(void)
     TEST_ASSERT_EQUAL(TFW_OK, auth(ref));
     TEST_ASSERT_EQUAL(TFW_OK, activate(0u));
     assert_mark(ref, 0u);
-    /* The same ACTIVATE again, its OTA_AUTH spent. */
-    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, activate(0u));
-    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, activate(1u));
+    /* The same ACTIVATE again, its OTA_AUTH spent: the retry of the pending
+     * exchange, which changes nothing, or another mode, refused (m1117 (1)). */
+    TEST_ASSERT_EQUAL(TFW_OK, activate(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, activate(1u));
     TEST_ASSERT_FALSE(tfw_sys_reset_pending());
     assert_mark(ref, 0u);
-    /* An OTA_AUTH spent on a refused CONFIRM is spent too. */
+    /* An OTA_AUTH spent on a refused CONFIRM is spent too, and still arrived:
+     * the ACTIVATE after it is a new attempt. */
     TEST_ASSERT_EQUAL(TFW_OK, auth(ref));
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, feed(TFW_CMD_OTA_CONFIRM, NULL, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, activate(0u));
+    /* With nothing pending, an ACTIVATE with no OTA_AUTH is unauthorized. */
+    tfw_stage_init();
+    ended();
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, activate(0u));
     /* A new round, the old authorization replayed: the application holds it
-     * and writes it as sent; tfw-boot verifies it against this image. */
+     * and writes it as sent; tfw-boot verifies it against this image. The
+     * round starts after a reset: BEGIN refuses while one is pending (#232). */
+    tfw_stage_init();
     ended();
     TEST_ASSERT_FALSE(marked());
     TEST_ASSERT_EQUAL(TFW_OK, auth(ref));
@@ -321,6 +394,7 @@ typedef struct {
     uint32_t received;
     uint8_t  marked;
     uint8_t  authed;   /* the last request was an OTA_AUTH that took */
+    uint8_t  since;    /* an OTA_AUTH arrived since the mark (m1117 (1)) */
 } model_t;
 
 static const char steps[] = "BDEAVCS";
@@ -373,14 +447,18 @@ static void step(model_t *m, char s)
         want = TFW_OK;
         got  = auth(ref);
         took_auth = 1u;
+        m->since  = 1u;
         break;
     case 'V':
-        if (!m->authed) {
+        if (m->marked && m->state == ST_COMPLETE) {
+            /* pending: the retry of its exchange only with no OTA_AUTH since */
+            want = m->since ? TFW_ERR_BAD_STATE : TFW_OK;
+        } else if (!m->authed) {
             want = TFW_ERR_AUTH_REQUIRED;
         } else if (m->state != ST_COMPLETE) {
             want = TFW_ERR_BAD_STATE;
         } else {
-            want = TFW_OK; m->marked = 1u;
+            want = TFW_OK; m->marked = 1u; m->since = 0u;
         }
         got = activate(0u);
         break;
@@ -424,6 +502,7 @@ static void power_on(void)
     memset(erased, 0xFF, sizeof erased);
     tfw_nor_model_load(MARK, erased, sizeof erased);
     tfw_sys_reset_state();
+    tfw_stage_init();   /* a boot: the OTA_BEGIN budget is per boot (#232) */
     tfw_nor_model_set_bus(TFW_NOR_MODEL_ABSENT_HIGH);
     TEST_ASSERT_NOT_EQUAL(TFW_OK, begin());
     tfw_nor_model_set_bus(TFW_NOR_MODEL_PRESENT);
@@ -513,6 +592,9 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_every_signature_byte_at_every_value_is_carried_verbatim);
     RUN_TEST(test_every_mode_byte);
+    RUN_TEST(test_a_plain_retry_answers_ok_and_keeps_the_pending_mark);
+    RUN_TEST(test_a_retry_under_another_signature_is_a_new_attempt);
+    RUN_TEST(test_a_retry_under_the_same_signature_is_a_new_attempt);
     RUN_TEST(test_every_auth_length_but_64_is_refused_and_drops_the_hold);
     RUN_TEST(test_a_replayed_authorization_activates_once);
     RUN_TEST(test_no_activate_on_a_trial_or_confirmed_image);

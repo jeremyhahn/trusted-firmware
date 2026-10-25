@@ -572,11 +572,16 @@ func netcfgIP(ip string) func(t *testing.T, out []byte) {
 // EEPROM_WRITE, neither on the Ethernet allow-list: the block is set over
 // serial, and a set refused over TCP leaves it as it was.
 func TestE2ELinksNetcfg(t *testing.T) {
+	// The element tier writes the network block only in an operator auth
+	// session (the network peer-binding ADR), so the operator is provisioned.
+	pub, key := writeOperatorKey(t)
 	linkSuite{
+		operator: pub,
 		cases: []linkCase{
 			{name: "get", verb: "netcfg", args: []string{"get"}, check: netcfgIP("192.0.2.10")},
 			{name: "set", verb: "netcfg", args: []string{"set", "--mac", "02:00:00:00:00:01", "--ip", "192.0.2.20",
-				"--mask", "255.255.255.0", "--gateway", "192.0.2.1", "--endpoint", "192.0.2.1:9"},
+				"--mask", "255.255.255.0", "--gateway", "192.0.2.1", "--endpoint", "192.0.2.1:9",
+				"--serial", testSerialHex, "--operator-key", key},
 				check: netcfgIP("192.0.2.20")},
 			{name: "get after set", verb: "netcfg", args: []string{"get"}, check: netcfgIP("192.0.2.20")},
 			{name: "no subcommand", verb: "netcfg", usage: "usage: netcfg"},

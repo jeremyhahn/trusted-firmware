@@ -22,4 +22,12 @@ tfw_status_t tfw_ota_auth_cmd(tfw_reader_t *r, tfw_writer_t *w);
  * NULL otherwise. Either way nothing is held afterwards. */
 const uint8_t *tfw_ota_auth_take(void);
 
+/* Whether an OTA_AUTH, of any length or signature, has arrived since the last
+ * tfw_ota_auth_settle. While an activation is pending, an OTA_ACTIVATE is the
+ * retry of that exchange only when none has (m1117 (1)). */
+uint8_t tfw_ota_auth_arrived(void);
+
+/* Called by the OTA_ACTIVATE whose activation becomes pending. */
+void tfw_ota_auth_settle(void);
+
 #endif

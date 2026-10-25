@@ -34,6 +34,8 @@ Status codes (`include/tfw/status.h`) the stager returns:
 | `OTA_BEGIN` | `TFW_ERR_RANGE` (11) | `total_len` is not above the trailer's length, is above the store's `STAGE` area, or is not a whole number of `TFW_OTA_PAGE_MAX` (256) pages |
 | `OTA_BEGIN` | `TFW_ERR_NO_STORE` (20) | no part answers READ JEDEC ID (0x9F) on the store's select: the manufacturer byte reads 0x00 or 0xFF |
 | `OTA_BEGIN`, `OTA_DATA` | `TFW_ERR_NO_STORE` (20) | the part's status register reads WEL clear after WREN, so it would ignore the erase or program; nothing is sent (#234) |
+| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | an image is pending: this boot's `OTA_ACTIVATE` wrote the MARK and the device has not reset since (`src/core/ota_stage.c:157`). Nothing is erased or written, and `OTA_STATUS` still reads `complete` |
+| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | `TFW_OTA_BEGIN_BUDGET` begins have been taken since the last reset or successful `OTA_ACTIVATE` (`src/core/ota_stage.c:163`; the peer-binding ADR's decision 1 B, #232). The default is 4 (`include/tfw/config.h:358`), and a board's `board_profile.h` may set another. The count is in RAM only (`src/core/ota_stage.c:180`). A reset clears it (`:139`), and so does a successful `OTA_ACTIVATE` (`:266`). Nothing is erased, and a transfer that is receiving goes on at its count: resuming it with `OTA_DATA` spends no begin |
 | `OTA_DATA` | `TFW_ERR_BUSY` (8) | no transfer is receiving |
 | `OTA_DATA` | `TFW_ERR_RANGE` (11) | `offset` is not the received count, or the bytes run past `total_len` |
 | `OTA_END` | `TFW_ERR_BUSY` (8) | no transfer is receiving |
@@ -46,11 +48,11 @@ Status codes (`include/tfw/status.h`) the stager returns:
 `OTA_BEGIN` while a transfer is receiving refuses a bad `total_len` with
 `TFW_ERR_RANGE` before it touches the session, so the running upload goes on at
 its received count; a valid `total_len` starts a new session with nothing
-received.
+received, while this boot's `OTA_BEGIN` budget lasts.
 
 A store failure during `OTA_BEGIN`, `OTA_DATA` or `OTA_END` returns the store
 driver's status. Every failure after `OTA_BEGIN` has been accepted leaves the
-state `failed`; a new `OTA_BEGIN` starts over. `OTA_BEGIN` reads the store's
+state `failed`; a new `OTA_BEGIN` starts over, if the budget has one left. `OTA_BEGIN` reads the store's
 JEDEC ID before it erases anything: a refusal there, or a bus error on that one
 transaction, erases nothing and leaves the state `idle`. `OTA_BEGIN` then erases
 `MARK` first, so a staged image is never half-replaced.
@@ -91,7 +93,12 @@ holds a `MARK`; otherwise the OTA state (0 idle, 1 receiving, 2 verified,
 reply, with the application stopped for an update (`tfw_app_before_update`,
 then `tfw_app_shutdown`) and no update request armed; mode 0 resets nothing,
 and the `RESET` mode 0 that later installs the image stops the application
-the same way (`tfw_stage_install_pending`). `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
+the same way (`tfw_stage_install_pending`). While that activation is pending,
+an `OTA_ACTIVATE` with the same `[mode:1]` and no `OTA_AUTH` since the
+pending activation is a retry: it re-verifies and writes nothing and answers
+success. One after a new `OTA_AUTH`, with the same signature or another, is a
+new activation attempt, and it and any other mode answer `TFW_ERR_BAD_STATE`
+(m1100 (3), m1117 (1)). `OTA_CONFIRM` (`src/core/ota_ctl.c`) writes the confirm request for the
 running image, bound to its measurement, and leaves the trial deadline
 running (#137), so the trial ends in a reset either way and tfw-boot settles it
 at that reset. Until the EEPROM map follow-up #125 the confirm request has no
@@ -105,13 +112,26 @@ tfw-boot does not yet verify it
 | `OTA_INFO` | `TFW_ERR_CRYPTO` (14) | the floor in force cannot be read: on an element image (`CRYPTO=atecc608a`), the element does not wake or its boot counter cannot be read; on a `CRYPTO=auto` image, the handoff's tier is neither the element nor software, or it is the element and the element does not wake or its counter cannot be read. An image with any other `CRYPTO` reports the platform block's floor and never answers it |
 | `OTA_INFO` | `TFW_ERR_BAD_STATE` (19) | on a `CRYPTO=auto` image, no running image was handed off by tfw-boot |
 | `OTA_ACTIVATE` | `TFW_ERR_RANGE` (11) | `mode` is above 1 |
-| `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | on the element tier, outside an operator auth session; on every tier (#137, slice 2), when no `OTA_AUTH` immediately precedes it |
+| `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | on the element tier, outside an operator auth session; on every tier (#137, slice 2), when no `OTA_AUTH` immediately precedes it and, for `OTA_ACTIVATE`, no activation is pending (the two rows below) |
 | `OTA_ACTIVATE` | `TFW_ERR_BAD_STATE` (19) | a trial is running or confirmed and not yet settled; no image is complete; or the staged image no longer hashes to the one `OTA_END` verified |
+| `OTA_ACTIVATE` | `TFW_OK` (0) | an activation is pending, no `OTA_AUTH` has arrived since it, and this request's `[mode:1]` is its mode: the same authenticated exchange again, whose reply was lost (m1117 (1)). The mode is held in RAM (`src/core/ota_activate.c:28`, set at `:95`); that an `OTA_AUTH` arrived is held in RAM too (`src/core/ota_auth.c:17`, set by every `OTA_AUTH` at `:25`, cleared by the activation at `src/core/ota_activate.c:96`); both are checked at `src/core/ota_activate.c:77`, after the gate and trial checks above. On the element tier the operator auth session is still required. It is an idempotent retry: nothing is re-verified or written, and mode 1 schedules no second reset |
+| `OTA_ACTIVATE` | `TFW_ERR_BAD_STATE` (19) | an activation is pending and an `OTA_AUTH` has arrived since it, whether its signature is the pending one's or another: a new activation attempt (m1117 (1)); or `mode` is not its mode (`src/core/ota_activate.c:77`). Nothing is written, and the pending `MARK` keeps the first signature |
 | `OTA_ACTIVATE` | `TFW_ERR_RANGE`, `TFW_ERR_UNSUPPORTED`, `TFW_ERR_CRYPTO`, `TFW_ERR_PROTECTED_REGION` | on a board that links the manifest reader (the ATmega2560's element tier), the SUIT-subset manifest does not hold, nothing written: [architecture.md](architecture.md)'s refusal table; `TFW_ERR_PROTECTED_REGION` when its sequence is not the trailer's version or is below the platform block's rollback floor |
 | `OTA_CONFIRM` | `TFW_ERR_BAD_STATE` (19) | no trial is running, or no running image was handed off by tfw-boot |
 | any | `TFW_ERR_BAD_ARGC` (5) | the payload length is wrong for the command |
 
 A store or EEPROM failure returns the driver's status.
+
+### EEPROM_WRITE on the network block (#233)
+
+The peer-binding ADR's decision 2 B. An `EEPROM_WRITE` whose range overlaps
+the network block, `[TFW_NETCFG_ADDR, TFW_NETCFG_ADDR + TFW_NETCFG_LEN)`,
+calls `tfw_auth_gate` before it writes. A write that only touches the bytes
+either side does not.
+
+| Command | Status | When |
+|---|---|---|
+| `EEPROM_WRITE` | `TFW_ERR_AUTH_REQUIRED` (17) | the range overlaps the network block and the gate refuses (`src/caps/storage.c:122`): on the element tier, outside an operator auth session. Nothing is written. The soft tier's and `CRYPTO=none`'s gate admits every write |
 
 ### Authorization by the row key (#137, design; code in slice 2)
 
@@ -214,7 +234,8 @@ page rule. Where the statuses differ from the table above:
 
 | Command | Status | When |
 |---|---|---|
-| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | the running image is a trial (`ESP_OTA_IMG_PENDING_VERIFY`), as tfw-boot refuses a session during one |
+| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | the running image is a trial (`ESP_OTA_IMG_PENDING_VERIFY`), as tfw-boot refuses a session during one; or an `OTA_ACTIVATE` is waiting for the reset (`tfw_stage_install_pending`), whose slot `esp_ota_begin` would erase |
+| `OTA_BEGIN` | `TFW_ERR_BAD_STATE` (19) | the per-boot budget is spent, as above (`src/hal/esp32/hal_ota.c:140`). It is counted in RAM, with no NVS key (`:143`), cleared by a reset and by a successful activate (`:301`), and refused before `esp_ota_begin` erases. The session that is receiving is kept |
 | `OTA_BEGIN` | `TFW_ERR_RANGE` (11) | `total_len` is not above the trailer's length, or is above the slot |
 | `OTA_BEGIN` | `TFW_ERR_UNSUPPORTED` (7) | the partition table has no slot to update |
 | `OTA_DATA` | `TFW_ERR_CRYPTO` (14) | the first byte is not the ESP image magic (`ESP_ERR_OTA_VALIDATE_FAILED`) |
@@ -260,8 +281,10 @@ decision; no board's eFuses are burned until it is made.
 | Command | Status | When |
 |---|---|---|
 | `OTA_ACTIVATE` | `TFW_ERR_RANGE` (11) | `mode` is above 1; or the slot's image is not one ESP-IDF can describe, has no appended SHA-256, or leaves no room for the trailer |
-| `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | no `OTA_AUTH` immediately precedes it |
+| `OTA_ACTIVATE`, `OTA_CONFIRM` | `TFW_ERR_AUTH_REQUIRED` (17) | no `OTA_AUTH` immediately precedes it and, for `OTA_ACTIVATE`, no activation is pending |
 | `OTA_ACTIVATE` | `TFW_ERR_BAD_STATE` (19) | the session is not complete, the running image is a trial, or ESP-IDF refuses the boot partition |
+| `OTA_ACTIVATE` | `TFW_OK` (0) | an activation is pending (the boot partition is the completed slot), no `OTA_AUTH` has arrived since it, and `mode` is the pending one's: a retry, as above (m1117 (1)). The mode is held in RAM (`src/hal/esp32/hal_ota.c:74`, set at `:350`, the `OTA_AUTH` cleared at `:351`) and both are checked at `:340`, before the slot is re-checked. Nothing is written to `tfw_auth` and the boot partition is not set again |
+| `OTA_ACTIVATE` | `TFW_ERR_BAD_STATE` (19) | an activation is pending and an `OTA_AUTH`, with any signature, has arrived since it, or `mode` is not its mode (`src/hal/esp32/hal_ota.c:340`) |
 | `OTA_ACTIVATE` | `TFW_ERR_UNSUPPORTED` (7) | the trailer's magic or version is wrong, or its board id is not this board's |
 | `OTA_ACTIVATE` | `TFW_ERR_PROTECTED_REGION` (16) | the trailer's version is below the eFuse floor; under anti-rollback, also when it is not the app's `secure_version` |
 | `OTA_ACTIVATE` | `TFW_ERR_CRYPTO` (14) | the trailer's image length or measurement is not the slot's |

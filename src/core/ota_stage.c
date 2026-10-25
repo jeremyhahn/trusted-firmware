@@ -38,6 +38,9 @@
 static uint8_t  state;
 static uint32_t total;
 static uint32_t received;
+/* OTA_BEGINs admitted since reset or the last OTA_ACTIVATE (#232): RAM only,
+ * so a reset is what refills it. */
+static uint8_t  begins;
 /* The measurement OTA_END verified: OTA_ACTIVATE takes that image only. */
 static uint8_t  verified[TFW_BOOT_MEASURE_LEN];
 
@@ -128,6 +131,12 @@ static tfw_status_t mark(const uint8_t hash[TFW_BOOT_MEASURE_LEN])
 
 void tfw_stage_init(void)
 {
+    /* The session a reset gives back: zero already at boot, so the host tests'
+     * stand-in for a reset ends a pending activation as the real one does. */
+    state    = TFW_STAGE_IDLE;
+    total    = 0u;
+    received = 0u;
+    begins   = 0u;
     (void)tfw_store_init();
 }
 
@@ -140,6 +149,19 @@ tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w)
     if (len <= (uint32_t)TFW_BOOT_TRAILER_LEN || len > ((uint32_t)TFW_OTA_STORE_STAGE_LEN) ||
         (len % (uint32_t)TFW_OTA_PAGE_MAX) != 0u) {
         return TFW_ERR_RANGE;
+    }
+    /* Begin while an image is pending answers BAD_STATE (the OTA ADR's state
+     * table, #232): the MARK erase and the PREV backup below would undo an
+     * OTA_ACTIVATE that waits for its reset. Before anything is written, and
+     * the session is left as ACTIVATE left it. */
+    if (tfw_stage_install_pending() != 0u) {
+        return TFW_ERR_BAD_STATE;
+    }
+    /* The per-boot budget (the peer-binding ADR's decision 1 B): a peer that
+     * loops OTA_BEGIN wears the store by TFW_OTA_BEGIN_BUDGET a boot, no more.
+     * Refused before anything is erased, the session left as it was. */
+    if (begins >= (uint8_t)TFW_OTA_BEGIN_BUDGET) {
+        return TFW_ERR_BAD_STATE;
     }
     state    = TFW_STAGE_IDLE;
     total    = len;
@@ -155,6 +177,7 @@ tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w)
     if (st != TFW_OK) {
         return st;
     }
+    begins++;   /* spent by the erase below, whether or not it succeeds */
     st = tfw_store_erase(((uint32_t)TFW_OTA_STORE_MARK_ADDR));
     if (st == TFW_OK) {
         st = tfw_ota_prev_backup();   /* after the mark: no boot takes a stale image */
@@ -229,7 +252,8 @@ tfw_status_t tfw_stage_cmd_end(tfw_reader_t *r, tfw_writer_t *w)
  * anything but a complete session whose bytes still verify. */
 tfw_status_t tfw_stage_activate(void)
 {
-    uint8_t hash[TFW_BOOT_MEASURE_LEN];
+    uint8_t      hash[TFW_BOOT_MEASURE_LEN];
+    tfw_status_t st;
 
     /* The image OTA_END verified, not whatever verifies now: a body and
      * trailer replaced together after END hash to a different measurement. */
@@ -237,7 +261,11 @@ tfw_status_t tfw_stage_activate(void)
         || memcmp(hash, verified, TFW_BOOT_MEASURE_LEN) != 0) {
         return TFW_ERR_BAD_STATE;
     }
-    return mark(hash);
+    st = mark(hash);
+    if (st == TFW_OK) {
+        begins = 0u;   /* an activation refills the OTA_BEGIN budget (#232) */
+    }
+    return st;
 }
 
 tfw_status_t tfw_stage_session(uint32_t *len, uint8_t hash[TFW_BOOT_MEASURE_LEN])
@@ -254,8 +282,9 @@ uint8_t tfw_stage_install_pending(void)
 {
     uint8_t rec[4];
 
-    /* COMPLETE survives OTA_ACTIVATE; any later OTA_BEGIN leaves it and erases
-     * the MARK, and a failed authorize erased it before writing. */
+    /* COMPLETE survives OTA_ACTIVATE and OTA_BEGIN refuses while this holds,
+     * so only a reset (tfw_stage_init) or a failed authorize, which erased the
+     * MARK before writing, ends it. */
     return (uint8_t)(state == TFW_STAGE_COMPLETE
                      && tfw_store_read(((uint32_t)TFW_OTA_STORE_MARK_ADDR), rec, 4u) == TFW_OK
                      && rd32(rec) == TFW_STAGE_MARK_MAGIC);

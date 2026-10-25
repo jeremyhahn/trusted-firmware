@@ -294,6 +294,7 @@ static void test_a_torn_backup_behind_begin_is_never_acted_on(void)
         tfw_nor_model_clear_spans();
         tfw_hal_eeprom_write(TFW_BOOT_EE_BASE, ee, (uint8_t)TFW_BOOT_EE_LEN);
         tfw_nor_shim_fail(nth, FAULT);
+        tfw_stage_init();   /* a boot: a spent OTA_BEGIN budget would refuse before the cut (#232) */
         TEST_ASSERT_NOT_EQUAL_MESSAGE(TFW_OK, begin(), why);
         no_violations();
         never_acted_on();
@@ -304,6 +305,7 @@ static void test_a_torn_backup_behind_begin_is_never_acted_on(void)
     snprintf(why, sizeof why, "seed 0x%08X clean begin", (unsigned)(SEED ^ 0xB6u));
     tfw_nor_shim_reset();
     tfw_nor_model_clear_spans();
+    tfw_stage_init();
     TEST_ASSERT_EQUAL(TFW_OK, begin());
     TEST_ASSERT_EQUAL_UINT8(TFW_STAGE_RECEIVING, stage_state());
     prev_is_the_image();

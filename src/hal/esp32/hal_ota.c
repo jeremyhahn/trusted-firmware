@@ -67,6 +67,11 @@ static uint32_t               total;
 static uint32_t               received;
 static esp_ota_handle_t       handle;
 static const esp_partition_t *slot;
+/* OTA_BEGINs since reset; a successful activate refills them (the
+ * peer-binding ADR's decision 1 B). RAM only: no NVS key. */
+static uint8_t                begins;
+/* The [mode:1] request of the pending activation (m1100 (3)). */
+static uint8_t                activated;
 
 static tfw_status_t from_esp(esp_err_t err)
 {
@@ -107,6 +112,7 @@ void tfw_stage_init(void)
     total    = 0u;
     received = 0u;
     slot     = NULL;
+    begins   = 0u;
 }
 
 tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w)
@@ -119,6 +125,9 @@ tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w)
     if (in_state(esp_ota_get_running_partition(), ESP_OTA_IMG_PENDING_VERIFY)) {
         return TFW_ERR_BAD_STATE;
     }
+    if (tfw_stage_install_pending()) {
+        return TFW_ERR_BAD_STATE;   /* esp_ota_begin would erase the activated slot */
+    }
     next = esp_ota_get_next_update_partition(NULL);
     if (next == NULL) {
         return TFW_ERR_UNSUPPORTED;
@@ -126,6 +135,12 @@ tfw_status_t tfw_stage_cmd_begin(tfw_reader_t *r, tfw_writer_t *w)
     if (len <= (uint32_t)TFW_BOOT_TRAILER_LEN || len > next->size) {
         return TFW_ERR_RANGE;
     }
+    /* The per-boot budget, as the core stager's: refused before
+     * esp_ota_begin erases, and the upload under way is left as it was. */
+    if (begins >= (uint8_t)TFW_OTA_BEGIN_BUDGET) {
+        return TFW_ERR_BAD_STATE;
+    }
+    begins++;   /* spent by the erase below, whether or not it succeeds */
     if (state == TFW_STAGE_RECEIVING) {
         (void)esp_ota_abort(handle);   /* a new BEGIN starts over */
     }
@@ -283,6 +298,7 @@ tfw_status_t tfw_stage_activate(void)
     if (state != TFW_STAGE_COMPLETE || esp_ota_set_boot_partition(slot) != ESP_OK) {
         return TFW_ERR_BAD_STATE;
     }
+    begins = 0u;   /* a successful activate refills the budget */
     return TFW_OK;
 }
 
@@ -301,6 +317,7 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint8_t        mode = tfw_read_u8(r);
     const uint8_t *sig;
+    uint8_t        pending;
     tfw_status_t   st;
 
     (void)w;
@@ -308,19 +325,30 @@ tfw_status_t tfw_otactl_cmd_activate(tfw_reader_t *r, tfw_writer_t *w)
         return TFW_ERR_RANGE;
     }
     sig = tfw_ota_auth_take();
-    if (sig == NULL) {
+    pending = tfw_stage_install_pending();
+    if (sig == NULL && pending == 0u) {
         return TFW_ERR_AUTH_REQUIRED;
     }
     st = tfw_auth_gate();
-    if (st == TFW_OK) {
-        st = tfw_stage_authorize(sig, mode);
+    if (st != TFW_OK) {
+        return st;
     }
+    /* While an activation is pending, the same exchange again, its mode byte
+     * unchanged and no OTA_AUTH since (m1117 (1)), is a retry that answers
+     * its success and changes nothing; any other is refused. */
+    if (pending != 0u) {
+        return (sig == NULL && tfw_ota_auth_arrived() == 0u && mode == activated)
+                   ? TFW_OK : TFW_ERR_BAD_STATE;
+    }
+    st = tfw_stage_authorize(sig, mode);
     if (st != TFW_OK) {
         return st;
     }
     if (tfw_stage_activate() != TFW_OK) {
         return TFW_ERR_BAD_STATE;
     }
+    activated = mode;
+    tfw_ota_auth_settle();
     if (mode == 1u) {
         tfw_sys_reset_soon();
     }

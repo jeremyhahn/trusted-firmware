@@ -377,7 +377,7 @@ func FuzzParseNetcfgFlags(f *testing.F) {
 	f.Add("02:00:00:00:00:01:02:03", "::1", "0.0.0.0", "1.2.3.4x", "[::1]:1")
 	f.Add(overLong, overLong, overLong, overLong, overLong)
 	f.Fuzz(func(t *testing.T, mac, ip, mask, gw, ep string) {
-		_, _ = parseNetcfgFlags([]string{"--mac", mac, "--ip", ip, "--mask", mask, "--gateway", gw, "--endpoint", ep})
+		_, _, _ = parseNetcfgFlags([]string{"--mac", mac, "--ip", ip, "--mask", mask, "--gateway", gw, "--endpoint", ep})
 	})
 }
 

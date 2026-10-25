@@ -201,6 +201,9 @@ static tfw_status_t feed(const req_t *q)
     const uint8_t was_held   = held;
     const int     was_marked = marked();
     const int     gated      = q->cmd == TFW_CMD_OTA_ACTIVATE && q->n == 1u && q->p[0] <= 1u;
+    /* While an activation is pending, an OTA_ACTIVATE without OTA_AUTH is the
+     * retry of that exchange or a refused new attempt (m1117 (1)). */
+    const int     retry      = gated && !was_held && tfw_stage_install_pending() != 0u;
     tfw_reader_t  r;
     tfw_writer_t  w;
     tfw_status_t  st;
@@ -224,9 +227,11 @@ static tfw_status_t feed(const req_t *q)
         broke = "a status status.h does not name, or a known command reported unknown";
     } else if (q->n > TFW_MAX_PAYLOAD && st != TFW_ERR_BAD_ARGC) {
         broke = "an oversize request was not refused BAD_ARGC";
-    } else if (gated && !was_held && st != TFW_ERR_AUTH_REQUIRED) {
+    } else if (retry && st != TFW_OK && st != TFW_ERR_BAD_STATE) {
+        broke = "OTA_ACTIVATE while one was pending was neither its retry nor refused";
+    } else if (gated && !was_held && !retry && st != TFW_ERR_AUTH_REQUIRED) {
         broke = "OTA_ACTIVATE without OTA_AUTH was not refused AUTH_REQUIRED";
-    } else if (q->cmd == TFW_CMD_OTA_ACTIVATE && st == TFW_OK && !was_held) {
+    } else if (q->cmd == TFW_CMD_OTA_ACTIVATE && st == TFW_OK && !was_held && !retry) {
         broke = "OTA_ACTIVATE succeeded without OTA_AUTH";
     }
     if (!broke && tfw_writer_len(&w) > TFW_MAX_PAYLOAD) {
@@ -364,6 +369,7 @@ static void clean_sequence_activates(void)
     uint32_t before = activated;
 
     tfw_nor_model_reset();
+    tfw_stage_init();   /* a boot: the requests before may have spent the OTA_BEGIN budget (#232) */
     put_good_block();
     TEST_ASSERT_FALSE(marked());
     n = valid_stream(s);
@@ -455,6 +461,7 @@ static void test_a_mutated_stream_never_activates_another_image(void)
         n = mutate(s, n);
         if (rnd() % 4u == 0u) { n = mutate(s, n); }
         tfw_nor_model_reset();
+        tfw_stage_init();   /* each stream a boot: the OTA_BEGIN budget is per boot (#232) */
         put_good_block();
         for (k = 0u; k < n; k++) { (void)feed(&s[k]); }
         if (activated != before) { streams_activated++; } else { streams_refused++; }

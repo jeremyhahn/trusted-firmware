@@ -347,6 +347,17 @@
 #define TFW_OTA_PAGE_MAX 256u
 #endif
 
+/* How many OTA_BEGINs the stager admits between resets (#232, the peer-binding
+ * ADR's decision 1 B). Each one erases the MARK sector and, where the PREV
+ * backup is linked, an application-sized span of the store, and the network
+ * peer can send it unauthenticated: past this, OTA_BEGIN answers
+ * TFW_ERR_BAD_STATE before anything is erased. A resumed transfer spends none,
+ * so a control plane needs one per image. Counted in RAM only, 1 to 255; a
+ * reset or a successful OTA_ACTIVATE refills it. */
+#ifndef TFW_OTA_BEGIN_BUDGET
+#define TFW_OTA_BEGIN_BUDGET 4u
+#endif
+
 /*
  * How long tfw-boot keeps an application-requested update session open without
  * seeing the transfer make progress, before it gives up and boots the image.

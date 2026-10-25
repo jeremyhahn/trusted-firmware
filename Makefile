@@ -117,7 +117,7 @@ ci:
 	@$(MAKE) --no-print-directory security
 	@echo "CI gate: green"
 
-.PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test
+.PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test release-alpha
 
 ## releasability: no private-fleet value in any file that would be published
 # The pattern list is scripts/releasability.patterns, the one place the fleet's
@@ -130,6 +130,13 @@ releasability:
 # Plants go into throwaway repositories, never into this tree. No skip guard.
 releasability-test:
 	@scripts/releasability-test.sh
+
+## release-alpha: cut and push the next -alpha tag (vX.Y.Z-alpha and sdk/go/vX.Y.Z-alpha) to dev; DRY_RUN=1 prints them
+# Refuses unless on a clean main equal to dev/main; PATCH only; signed with
+# git's configured key; never forced. docs/development/releasing.md.
+DRY_RUN ?=
+release-alpha:
+	@python3 -B scripts/release_alpha.py $(if $(filter 1,$(DRY_RUN)),--dry-run)
 
 ## firmware-attested: build the DICE-HW image, which is a different image
 # Different provider, different size. The default build would never exercise

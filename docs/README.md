@@ -39,7 +39,7 @@ Cross-cutting material that belongs to no single feature:
 | [`security/fuses-and-lockbits.md`](security/fuses-and-lockbits.md) | the fuse and lock-bit reference the provisioning procedure applies |
 | [`attestation/cryptoauthlib-evaluation.md`](attestation/cryptoauthlib-evaluation.md) | why not Microchip's own library, with the licence clause and the measured size |
 | [`boards/`](boards/adding-a-board.md) | what a board is, the [board-id registry](boards/board-id-registry.md), the dev-complete [`atmega2560.md`](boards/atmega2560.md) and [`atmega328p.md`](boards/atmega328p.md), and [`attiny85.md`](boards/attiny85.md), the part that broke five assumptions; profiles of the Cortex-M boards on the bench, with no port yet: [`stm32h573i-dk.md`](boards/stm32h573i-dk.md), [`rp2350-pico2w.md`](boards/rp2350-pico2w.md), [`nrf54l15-dk.md`](boards/nrf54l15-dk.md); the ESP32 row, built on ESP-IDF and not in `make ci`: [`esp32-qemu.md`](boards/esp32-qemu.md), the emulated test target, and [`esp32p4-poe.md`](boards/esp32p4-poe.md), the PoE board on the bench |
-| [`development/`](development/building.md) | building, testing, coverage, flashing, reproducible builds, [public releasability](development/releasability.md) |
+| [`development/`](development/building.md) | building, testing, coverage, flashing, reproducible builds, [releasing](development/releasing.md) (`make release-alpha`), [public releasability](development/releasability.md) |
 
 ## Where the hard decisions are written down
 

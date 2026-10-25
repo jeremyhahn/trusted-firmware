@@ -60,7 +60,8 @@ echo 0.0.0-fake
 
 # The tier each measured board ships, which names the manifest. The 328P is
 # element-only and refuses CRYPTO=soft (owner ruling 2026-10-17, m522).
-TIERS = {"atmega328p": "atecc608a", "mps2-an505": "soft"}
+TIERS = {"atmega328p": "atecc608a", "mps2-an505": "soft",
+         "frdm-imx95-m7": "soft"}
 
 
 def build_manifest(hex_text, board="atmega328p"):
@@ -160,6 +161,40 @@ class SlotBoard(unittest.TestCase):
     def test_an_avr_board_refuses_a_slot_image(self):
         with self.assertRaises(AssertionError):
             build_manifest(_pinned.SLOT_HEX)
+
+
+# The fixture at frdm-imx95-m7's application slot, 0x00008000: GAP_HEX with each
+# record's address moved up by 0x8000, so the same bytes from the slot's base.
+ITCM_SLOT_HEX = """\
+:10800000000102030405060708090A0B0C0D0E0FF8
+:108100005A5B58595E5F5C5D5253505156575455F7
+:108110004A4B48494E4F4C4D4243404146474445E7
+:00000001FF
+"""
+# tfw-boot's region at the ITCM's base, below the slot.
+ITCM_BOOT_REGION_HEX = ":01000000AA55\n:00000001FF\n"
+# The first byte past the 192 KiB slot, 0x00038000 (the platform block's side).
+ITCM_PAST_SLOT_HEX = ":020000040003F7\n:01800000AAD5\n:00000001FF\n"
+
+
+class ItcmSlotBoard(unittest.TestCase):
+    """frdm-imx95-m7: the application slot at 0x00008000 in the M7's ITCM,
+    tfw-boot's region below it. Its profile.mk sets FWHASH_BASE, FWHASH_SIZE
+    and F_CPU as board_profile.h's TFW_APP_REGION_BASE, TFW_APP_REGION_SIZE
+    and TFW_CM_CPU_HZ (#49)."""
+
+    def test_a_slot_image_measures_from_the_slot_base(self):
+        m, image = build_manifest(ITCM_SLOT_HEX, "frdm-imx95-m7")
+        self.assertEqual(m["fwhash_sha256"], GAP_MEASUREMENT)
+        self.assertEqual(m["image_len"], 0x120)
+        self.assertEqual(hashlib.sha256(image).hexdigest(), GAP_MEASUREMENT)
+        self.assertIn("(0x00008000 on this board)", m["note"])
+        self.assertEqual((m["arch"], m["f_cpu_hz"]), ("cortex-m", 800000000))
+
+    def test_a_record_outside_the_slot_writes_no_manifest(self):
+        for text in (ITCM_BOOT_REGION_HEX, ITCM_PAST_SLOT_HEX, GAP_HEX):
+            with self.subTest(text=text), self.assertRaises(AssertionError):
+                build_manifest(text, "frdm-imx95-m7")
 
 
 if __name__ == "__main__":

@@ -27,6 +27,11 @@ SOC            := imx95
 # build does not read it.
 MCU            := mimx9596-m7
 
+# The core clock, TFW_CM_CPU_HZ in board_profile.h (TO CONFIRM there). The build
+# does not read it (the clock is the header's); the provenance manifest's
+# f_cpu_hz does.
+F_CPU          := 800000000
+
 # The memory map, as the M7 sees it (IMX95RM, the Cortex-M7 memory map; TO
 # CONFIRM). The A55 sees the same TCM at another address, and a loader on the
 # A55 side writes the image there; the ELF is linked at the M7's addresses and
@@ -58,6 +63,12 @@ RAM_TOTAL      := 262144
 APP_BASE       := 0x00008000
 RAM_BASE       := 0x20000000
 RAM_END        := 0x2003FFFF
+
+# The region tfw-boot measures (mk/release.mk's provenance): the application
+# slot, TFW_APP_REGION_BASE and TFW_APP_REGION_SIZE in board_profile.h. Not
+# ITCM 0, which is tfw-boot's region.
+FWHASH_BASE    := $(APP_BASE)
+FWHASH_SIZE    := $(FLASH_BUDGET)
 
 # tfw-boot's geometry, reserved for its port; mk/arch/cortex-m.mk computes the
 # load limit from it.

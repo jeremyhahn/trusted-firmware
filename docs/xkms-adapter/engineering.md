@@ -11,7 +11,7 @@ registers the backend with go-xkms and re-exports the `avr` surface (see below).
 The module sits above both of its dependencies. It imports go-xkms (Layer 3),
 pinned in `xkms/go.mod` to `github.com/jeremyhahn/go-xkms v0.57.0-alpha`, and
 `github.com/jeremyhahn/trusted-firmware/sdk/go` (Layer 0), required at
-`v0.4.0-alpha`. Neither is replaced; the file's one `replace` pins the
+`v0.4.1-alpha`. Neither is replaced; the file's one `replace` pins the
 third-party `github.com/armon/go-metrics`. `sdk/go` is a separate module on purpose:
 go-xkms and go-trusted-platform import it, so it cannot depend on this one.
 `make sdk-verify` keeps it free of in-house dependencies.

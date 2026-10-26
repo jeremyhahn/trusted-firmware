@@ -58,6 +58,12 @@ PARTS = {
     "mps2-an505": dict(flash=4194304, flash_start=0x38000000, sram=32768,
                        sram_start=0x30000000, eeprom=0, boot=True,
                        boot_end=0x10008000),
+    # Arm AN500 as QEMU models it (hw/arm/mps2.c): the code is ZBT SSRAM1 at
+    # 0x00000000, the SRAM is ZBT SSRAM2 and 3 at 0x20000000; no EEPROM.
+    # tfw-boot is at the base of SSRAM1, where the core's VTOR points at reset,
+    # not at its top, so boot_end is where its region ends.
+    "mps2-an500": dict(flash=4194304, sram=4194304, sram_start=0x20000000,
+                       eeprom=0, boot=True, boot_end=0x00008000),
     # NXP i.MX 95's Cortex-M7 (MIMX9596, UM12527 §1.2 Table 1): its 512 KiB of
     # TCM (IMX95CEC Table 1) as 256 KiB ITCM at M7 0x00000000, the code span,
     # and 256 KiB DTCM at 0x20000000 (TO CONFIRM against IMX95RM; design

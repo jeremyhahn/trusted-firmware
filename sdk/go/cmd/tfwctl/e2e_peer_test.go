@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
@@ -18,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
@@ -32,7 +34,9 @@ import (
 // what was flashed and provisioned, and ignores them. The tier is checked on
 // both, so a board flashed with the other tier's image fails the row up front
 // and says which it needs, rather than failing an assertion for the wrong
-// reason.
+// reason. A row about one feature instead (startServing) asks a board's CAPS,
+// so one image runs every such row and the bits it lacks end theirs with the
+// board's refusal checked.
 
 const (
 	// deviceIDEnv is the board's DeviceID key, the hex X||Y tfwprov --commit
@@ -64,43 +68,103 @@ func startPeer(t *testing.T, sim simproc.Binary, args ...string) serialPeer {
 // nil, before tfwctl's device sits on it.
 func startPeerVia(t *testing.T, wrap func(io.ReadWriter) io.ReadWriter, sim simproc.Binary, args ...string) serialPeer {
 	t.Helper()
+	p := openPeer(t, wrap, sim, args...)
+	requireTier(t, p, sim)
+	return p
+}
+
+// openPeer is startPeerVia without the tier check.
+func openPeer(t *testing.T, wrap func(io.ReadWriter) io.ReadWriter, sim simproc.Binary, args ...string) serialPeer {
+	t.Helper()
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
 	var conn io.ReadWriter = peer.Start(t, sim, args...)
 	if wrap != nil {
 		conn = wrap(conn)
 	}
-	p := serialPeer{serial: tfw.New(conn, tfw.WithTimeout(10*time.Second)), board: target.Hardware()}
+	return serialPeer{serial: tfw.New(conn, tfw.WithTimeout(10*time.Second)), board: target.Hardware()}
+}
+
+// requireTier fails the row unless the peer reports sim's tier.
+func requireTier(t *testing.T, p serialPeer, sim simproc.Binary) {
+	t.Helper()
 	want := tfw.CryptoSoftware
 	if sim == simproc.Element {
 		want = tfw.CryptoSecureElement
 	}
 	require.Equal(t, want, cliCaps(t, p.serial).CryptoTier, "this row needs a %s-tier peer", want)
-	return p
 }
 
-// startProvisioned is the element tier holding the test identity, with no
-// operator key; on a board, the element-tier board as tfwprov provisioned it.
-func startProvisioned(t *testing.T) serialPeer {
+// startServing starts the peer a row about one CAPS feature needs, and reports
+// whether the device serves it. The simulator is sim with args, on sim's tier
+// and with the feature, or the row fails. A board runs the one image it was
+// given, whatever its tier, so its CAPS decides: with the feature's bit clear
+// the device must not know cmd -- sent on the wire with payload, past anything
+// tfwctl checks first -- and the row ends there. docs/cortex-m/README.md tables
+// the rows each QEMU board's CAPS leaves out.
+func startServing(t *testing.T, feature uint32, cmd tfw.Cmd, payload []byte, sim simproc.Binary, args ...string) (serialPeer, bool) {
 	t.Helper()
-	return startPeer(t, simproc.Element, elementArgs(t, nil, nil)...)
+	p := openPeer(t, nil, sim, args...)
+	has := cliCaps(t, p.serial).Has(feature)
+	if !p.board {
+		requireTier(t, p, sim)
+		require.True(t, has, "the simulator's CAPS lacks feature %#x", feature)
+	}
+	if has {
+		return p, true
+	}
+	_, err := p.serial.Do(context.Background(), cmd, payload)
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "command 0x%02x: %v, want a device status", byte(cmd), err)
+	assert.Equal(t, tfw.StatusErrUnknownCmd, st,
+		"command 0x%02x: CAPS does not report feature %#x, so the board must not know the command", byte(cmd), feature)
+	return p, false
 }
 
-// startOperator is startProvisioned with an operator key the row can sign
-// with, and the PEM file of its private half. The simulator's is a fresh key
-// baked into its platform block, as tfwprov bakes one; a board's is the file
-// TFW_HW_OPERATOR_KEY names.
-func startOperator(t *testing.T) (serialPeer, string) {
+// certServing, evidenceServing and csrServing are startServing for the
+// provisioned element (startProvisioned) and the row's feature: the alias
+// certificate (bit 13), the evidence frame (bit 10) and ATTEST_CSR (bit 15).
+func certServing(t *testing.T) (serialPeer, bool) {
+	t.Helper()
+	return startServing(t, tfw.FeatureAliasCert, tfw.CmdAttestCert, make([]byte, tfw.AliasNonceLen),
+		simproc.Element, elementArgs(t, nil, nil)...)
+}
+
+func evidenceServing(t *testing.T) (serialPeer, bool) {
+	t.Helper()
+	return startServing(t, tfw.FeatureAttest, tfw.CmdAttest, make([]byte, tfw.AttestNonceLen),
+		simproc.Element, elementArgs(t, nil, nil)...)
+}
+
+func csrServing(t *testing.T) (serialPeer, bool) {
+	t.Helper()
+	return startServing(t, tfw.FeatureAttestCSR, tfw.CmdAttestCSR, make([]byte, tfw.AliasNonceLen),
+		simproc.Element, elementArgs(t, nil, nil)...)
+}
+
+// operatorServing is the element tier holding the test identity with an
+// operator key the row can sign with, and the PEM file of its private half.
+// The simulator's is a fresh key baked into its platform block, as tfwprov
+// bakes one; a board's is the file TFW_HW_OPERATOR_KEY names. As startServing,
+// it reports whether the board has the session (bit 14): on a board the key is
+// asked for only once CAPS says the session is there, and a board without it
+// has been checked to refuse AUTH_CHALLENGE.
+func operatorServing(t *testing.T) (serialPeer, string, bool) {
 	t.Helper()
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
-	if target.Hardware() {
-		key := os.Getenv(operatorKeyEnv)
-		require.NotEmpty(t, key, "this row needs the operator key the board trusts: set %s to its PEM file", operatorKeyEnv)
-		return startPeer(t, simproc.Element), key
+	if !target.Hardware() {
+		pub, key := writeOperatorKey(t)
+		p, ok := startServing(t, tfw.FeatureAuthSession, tfw.CmdAuthChallenge, nil, simproc.Element, elementArgs(t, pub, nil)...)
+		return p, key, ok
 	}
-	pub, key := writeOperatorKey(t)
-	return startPeer(t, simproc.Element, elementArgs(t, pub, nil)...), key
+	p, ok := startServing(t, tfw.FeatureAuthSession, tfw.CmdAuthChallenge, nil, simproc.Element)
+	if !ok {
+		return p, "", false
+	}
+	key := os.Getenv(operatorKeyEnv)
+	require.NotEmpty(t, key, "this row needs the operator key the board trusts: set %s to its PEM file", operatorKeyEnv)
+	return p, key, true
 }
 
 // elementArgs are the element simulator's flags for the test identity: a
@@ -148,9 +212,18 @@ func (p serialPeer) tier(t *testing.T) tfw.CryptoTier {
 	return cliCaps(t, p.serial).CryptoTier
 }
 
-// claims are the ueid and FWHash of the board's alias certificate.
+// claims are the ueid and FWHash the board reports: its alias certificate's,
+// or, on a board whose CAPS has no certificate (bit 13 clear: a soft-tier
+// image), its evidence frame's. The rows that compare a frame with them also
+// verify its signature under the DeviceID key the operator recorded.
 func (p serialPeer) claims(t *testing.T) (ueid, fwHash []byte) {
 	t.Helper()
+	if !cliCaps(t, p.serial).Has(tfw.FeatureAliasCert) {
+		ev := cliAttest(t, p.serial, attestNonce(0x01))
+		require.Len(t, ev, tfw.EvidenceLen, "the evidence frame the board reports over serial")
+		ueid = append([]byte{0x01}, ev[offDevice:offDevice+tfw.SerialLen]...)
+		return ueid, ev[offFWHash : offFWHash+sha256.Size]
+	}
 	_, ueid, fwHash = claimsOf(t, uccsOf(t, parseCert(t, cliAttestCert(t, p.serial, aliasNonce(0x01)))))
 	return ueid, fwHash
 }

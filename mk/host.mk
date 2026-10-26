@@ -137,7 +137,10 @@ $(HOST_DIR)/uECC.o: $(UECC_DIR)/uECC.c | $(HOST_DIR)
 # tfw_crypto_sign beside the soft provider in HOST_LIB_SRCS.
 # test_bus_element joins that list for the same reason: it links the software
 # element as the I2C HAL and its own guard stubs for the SPI/1-Wire HAL
-# functions, either of which the mock also defines.
+# functions, either of which the mock also defines. test_mps2_bus too: it links
+# the MPS2 bus driver itself, over a simulated SBCon, and test_mps2_spi_row links
+# it with bus.c over a modelled PL022, on the MPS2 board table.
+# test_cm_hal_eeprom links the Cortex-M EEPROM and NVM HAL in the mock's place.
 # test_crypto_none is excluded for a different reason: HOST_LIB_SRCS already
 # links src/crypto/soft/provider.c, and its suite needs src/crypto/none/
 # provider.c instead -- linking both would be two definitions of
@@ -149,7 +152,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_tier_atecc608a_mutate.c \
                             test/unit/test_tfwsim_main_mutate.c \
                            test/unit/test_suit_emit_main_mutate.c \
-                            test/unit/test_bus_element.c \
+                            test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c test/unit/test_uds_flash_mutate.c \
                             test/unit/test_sys_noboot.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -498,6 +501,26 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MPS2 I2C master (#161): src/hal/cortex-m/mps2/hal_bus.c with the suite's
+# simulated SBCon bus and delay in place of sbcon.c and hal_tick.c, so it
+# links no mock HAL, which defines the same bus entry points.
+$(HOST_DIR)/test_mps2_bus: test/unit/test_mps2_bus.c src/hal/cortex-m/mps2/hal_bus.c \
+                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MPS2 SPI=1 row (#161): mps2-an505's profile and board table with
+# TFW_CM_SPI, as its profile.mk's SPI=1 builds them, and SPI_XFER from
+# src/caps/bus.c through hal_bus.c to the suite's modelled PL022. Its board
+# directory comes ahead of HOST_CFLAGS' so board_profile.h is the MPS2 one.
+$(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/caps/bus_held_none.c \
+                               src/hal/cortex-m/mps2/hal_bus.c \
+                               src/core/reader.c src/core/writer.c \
+                               src/core/board_lookup.c boards/mps2-an505/board.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -DTFW_CM_SPI=1 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule
 # names: HOST_LIB_SRCS carries the software provider, and this suite is
@@ -1084,8 +1107,16 @@ $(HOST_DIR)/test_esp_hal_eeprom: test/unit/test_esp_hal_eeprom.c src/hal/esp32/h
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/esp32p4-poe -Isrc/hal/esp32 -Itest/mock/esp32 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
-                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate \
+# The Cortex-M EEPROM (#231, #203) on mps2-an505's layout: OTA_CONFIRM's
+# 75-byte request lands whole inside tfw-boot's span, nothing else below its
+# end does. The suite maps the platform window at the profile's own address.
+$(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/hal_eeprom.c src/hal/cortex-m/hal_nvm.c \
+                                src/proto/crc16.c src/proto/crc16_update.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
+                    $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
@@ -2057,6 +2088,12 @@ host-dir:
 # FW_CFLAGS carry. Without them every tier-selected gate reads config.h's 0, and
 # a board test asserting where ATTEST_CSR (#30) is present could not pass, nor
 # one asserting where it is absent mean anything.
+#
+# A board that names an image store (OTA_STORE in profile.mk) has its stager's
+# sources preprocessed as the OTA_STAGE=1 image compiles them, with the
+# firmware's include path (make firmware-includes) and not the host's wider
+# one: the MPS2 staging image once failed in QEMU on a header only -Isrc/core
+# found. The HAL's are left out; they include the part's own headers.
 BOARDS := $(notdir $(wildcard boards/*))
 
 SWEEP_DIR := $(BUILD_DIR)/sweep
@@ -2079,6 +2116,19 @@ board-sweep:
 	     -o $(SWEEP_DIR)/$$b "$$src" src/core/board_lookup.c boards/$$b/board.c \
 	     $(UNITY_DIR)/unity.c || { echo "BUILD FAILED: $$b"; fail=1; continue; }; \
 	  echo "--- $$b ($$tier:$${defs:- no tier features})"; ./$(SWEEP_DIR)/$$b || fail=1; ran=$$((ran+1)); \
+	  store=$$($(MAKE) -s --no-print-directory board-ota-store BOARD=$$b); \
+	  [ -n "$$store" ] || continue; \
+	  incs=$$($(MAKE) -s --no-print-directory firmware-includes BOARD=$$b); \
+	  sdefs=$$($(MAKE) -s --no-print-directory feature-defs BOARD=$$b CRYPTO=$$tier OTA_STAGE=1); \
+	  srcs=$$($(MAKE) -s --no-print-directory stage-srcs BOARD=$$b CRYPTO=$$tier OTA_STAGE=1) || \
+	    { echo "NO STAGER SOURCES: $$b $$tier"; fail=1; continue; }; \
+	  sfail=0; \
+	  for s in $$srcs; do \
+	    case "$$s" in src/hal/*) continue;; esac; \
+	    $(CC) -std=c11 -E $$incs -DTFW_BOARD_HEADER='"board_profile.h"' $$sdefs -o /dev/null "$$s" || \
+	      { echo "STAGER INCLUDES: $$b $$s does not preprocess with the firmware's include path"; sfail=1; fail=1; }; \
+	  done; \
+	  [ "$$sfail" = 0 ] && echo "    $$b OTA_STAGE=1 ($$store): stager sources preprocess with the firmware's include path"; \
 	done; \
 	echo "board-sweep: $$ran board(s)"; \
 	[ "$$ran" -gt 0 ] || { echo "board-sweep swept nothing"; exit 1; }; \
@@ -2134,6 +2184,13 @@ header-deps-check:
 # stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
 $(HOST_DIR)/test_caps_eth: test/unit/test_caps_eth.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -DTFW_FEATURE_ETHERNET=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The Cortex-M reset marker's decode and fault record (row cortex-m), each
+# reached through its host accessor in test/model/cortex-m/, the pattern rule's
+# link otherwise. They stay in TEST_SRCS; this explicit rule takes the place of
+# the pattern rule.
+$(HOST_DIR)/test_cm_reset_cause $(HOST_DIR)/test_cm_fault_frame: $(HOST_DIR)/%: test/unit/%.c $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/model/cortex-m -o $@ $< $(HOST_LIB_SRCS) $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The no-bus stand-in, src/caps/bus_none.c (#163), against the mock HAL alone:
 # HOST_LIB_SRCS carries bus.c, a second tfw_bus_init. It stays in TEST_SRCS;

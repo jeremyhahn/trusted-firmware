@@ -20,6 +20,7 @@ const (
 	BoardATtiny85    BoardID = 0x04
 	BoardMPS2AN505   BoardID = 0x40
 	BoardFRDMIMX95M7 BoardID = 0x41
+	BoardMPS2AN500   BoardID = 0x42
 	BoardESP32P4PoE  BoardID = 0x80
 	BoardESP32QEMU   BoardID = 0x81
 	boardAVRFirst    BoardID = 0x01
@@ -37,6 +38,7 @@ var boardNames = map[BoardID]string{
 	BoardATtiny85:    "attiny85",
 	BoardMPS2AN505:   "mps2-an505",
 	BoardFRDMIMX95M7: "frdm-imx95-m7",
+	BoardMPS2AN500:   "mps2-an500",
 	BoardESP32P4PoE:  "esp32p4-poe",
 	BoardESP32QEMU:   "esp32-qemu",
 }

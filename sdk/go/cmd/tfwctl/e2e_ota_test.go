@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -66,6 +67,91 @@ func cliStage(t *testing.T, dev *tfw.Device, img []byte, args ...string) otaStat
 	var s otaStatus
 	cliJSON(t, dev, &s, "ota-stage", append(args, writeFile(t, "img.bin", img))...)
 	return s
+}
+
+// otaCmds is every OTA command an image's stager brings (commands.def): an
+// image without one knows none of them.
+var otaCmds = []tfw.Cmd{tfw.CmdOTABegin, tfw.CmdOTAData, tfw.CmdOTAEnd, tfw.CmdOTAStatus,
+	tfw.CmdOTAInfo, tfw.CmdOTAActivate, tfw.CmdOTAConfirm, tfw.CmdOTAAuth}
+
+// otaServing reports whether p's image carries the OTA stager. CAPS has no
+// bit for it, so the row asks OTA_STATUS, which reads and changes nothing.
+// Every simulator a row starts stages. A board whose image has no stager
+// (the MPS2 boards, which have no OTA store: docs/cortex-m/README.md) must
+// refuse every OTA command as unknown, and the row checks that instead.
+// The probes carry no payload, and the loop runs only on an image that
+// refused OTA_STATUS: an unknown command is refused before its length is
+// checked (src/core/dispatch.c), so none of them stages or settles anything.
+func otaServing(t *testing.T, p serialPeer) bool {
+	t.Helper()
+	_, err := p.serial.Do(context.Background(), tfw.CmdOTAStatus, nil)
+	var st tfw.Status
+	if !errorsAsStatus(err, &st) || st != tfw.StatusErrUnknownCmd {
+		return true
+	}
+	require.True(t, p.board, "the simulator does not know OTA_STATUS")
+	for _, cmd := range otaCmds {
+		_, err := p.serial.Do(context.Background(), cmd, nil)
+		require.True(t, errorsAsStatus(err, &st), "command 0x%02x: %v, want a device status", byte(cmd), err)
+		assert.Equal(t, tfw.StatusErrUnknownCmd, st,
+			"command 0x%02x: OTA_STATUS is unknown, so the image has no stager and must not know it", byte(cmd))
+	}
+	return false
+}
+
+// otaCtlServing reports whether p's image has OTA_INFO and OTA_CONFIRM, which
+// src/core/ota_ctl.c serves where tfw-boot runs the trial (BOOT_AB) and
+// nowhere else: a single-slot stager has OTA_ACTIVATE alone. CAPS has no bit
+// for them either, so the row asks OTA_INFO for slot 0, which reads and
+// changes nothing. An image without it must refuse OTA_CONFIRM as unknown
+// too, and the row checks that instead; that refusal comes before OTA_AUTH
+// is asked for, as an unknown command is refused before its handler runs.
+func otaCtlServing(t *testing.T, p serialPeer) bool {
+	t.Helper()
+	_, err := p.serial.Do(context.Background(), tfw.CmdOTAInfo, []byte{0})
+	var st tfw.Status
+	if !errorsAsStatus(err, &st) || st != tfw.StatusErrUnknownCmd {
+		return true
+	}
+	require.True(t, p.board, "the simulator does not know OTA_INFO")
+	_, err = p.serial.Do(context.Background(), tfw.CmdOTAConfirm, nil)
+	require.True(t, errorsAsStatus(err, &st), "OTA_CONFIRM: %v, want a device status", err)
+	assert.Equal(t, tfw.StatusErrUnknownCmd, st, "OTA_INFO is unknown, so OTA_CONFIRM must be too")
+	return false
+}
+
+// otaRefusedWithoutASession is an OTA control row on a board that cannot open
+// the operator session (CAPS bit 14 clear, which operatorServing has checked
+// the board refuses). The verb is still refused: by the auth gate where the
+// image has the command, and as unknown on an image without the stager
+// (otaServing) or without that command. The soft tier has no session to gate
+// on -- its gate is open (src/core/auth_session_none.c) -- so there the
+// refusal checked is the row key's: the command sent with no OTA_AUTH before
+// it is AUTH_REQUIRED on every tier (#137).
+func otaRefusedWithoutASession(t *testing.T, p serialPeer, verb string, args ...string) {
+	t.Helper()
+	if !otaServing(t, p) {
+		return
+	}
+	var st tfw.Status
+	if cliCaps(t, p.serial).CryptoTier == tfw.CryptoSoftware {
+		var err error
+		switch verb {
+		case "ota-activate":
+			err = p.serial.OTAActivate(context.Background(), tfw.OTAActivateAtReset)
+		case "ota-confirm":
+			err = p.serial.OTAConfirm(context.Background())
+		default:
+			require.FailNow(t, "no OTA command for "+verb)
+		}
+		require.True(t, errorsAsStatus(err, &st), "%s with no OTA_AUTH: %v, want a device status", verb, err)
+	} else {
+		st = cliStatus(t, p.serial, verb, args...)
+	}
+	if p.board && st == tfw.StatusErrUnknownCmd {
+		return
+	}
+	assert.Equal(t, tfw.StatusErrAuthRequired, st, "%s with no operator session", verb)
 }
 
 // A whole session over serial, then over TCP, then a tampered image the
@@ -144,21 +230,44 @@ func TestEthernetStagingLoopIsRefusedAfterTheBudget(t *testing.T) {
 
 // OTA_AUTH on the soft tier (#137): the firmware, not a fake. The simulator
 // does not verify the signature -- tfw-boot does, at reset -- so any 64 bytes
-// pass here, and each command gets past the gate to its own checks.
+// pass here, and each command gets past the gate to its own checks. On a
+// board the image is staged under the board id CAPS reports, which the
+// stager requires of the trailer.
 func TestFirmwareOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
-	d := startPeer(t, simproc.Software).serial
-	cliStage(t, d, stageImage(512, 200))
+	p := startPeer(t, simproc.Software)
+	if !otaServing(t, p) {
+		return
+	}
+	d := p.serial
+	caps, err := d.Caps(t.Context())
+	require.NoError(t, err)
+	cliStage(t, d, stageImageFor(512, 200, caps.BoardID))
 
-	// Past OTA_AUTH, this unprovisioned simulator refuses both commands as
-	// not provisioned, so the no-trial and MARK legs are test_ota_stage.c's.
-	err := run(t.Context(), d, "ota-confirm", []string{heldSig}, false, io.Discard)
+	// No tfw-boot handed off a running trial here. A single-slot image has
+	// no OTA_CONFIRM at all (ota_ctl.c is linked with BOOT_AB alone), and
+	// the refusal is by status code: CAPS has no bit for it. Past OTA_AUTH,
+	// this unprovisioned simulator refuses both commands as not provisioned,
+	// so the no-trial and MARK legs are test_ota_stage.c's.
+	err = run(t.Context(), d, "ota-confirm", []string{heldSig}, false, io.Discard)
 	assert.NotErrorIs(t, err, tfw.StatusErrAuthRequired, "confirm, authorized")
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "confirm: %v", err)
-	assert.Equal(t, tfw.StatusErrNotProvisioned, st, "confirm")
+	switch {
+	case !otaCtlServing(t, p):
+		assert.Equal(t, tfw.StatusErrUnknownCmd, st, "confirm on a single-slot image")
+	case !p.board:
+		assert.Equal(t, tfw.StatusErrNotProvisioned, st, "confirm")
+	}
 
+	// A board's platform block is provisioned and GOOD, and the soft tier's
+	// gate is open (src/core/auth_session_none.c), so there the activate may
+	// write the MARK: tfw-boot refuses heldSig at the next reset and forgets
+	// the MARK (boot/boot_stage.c).
 	err = run(t.Context(), d, "ota-activate", []string{heldSig}, false, io.Discard)
 	assert.NotErrorIs(t, err, tfw.StatusErrAuthRequired, "activate, authorized")
+	if p.board {
+		return
+	}
 	require.True(t, errorsAsStatus(err, &st), "activate: %v", err)
 	assert.Equal(t, tfw.StatusErrNotProvisioned, st, "activate")
 }
@@ -168,7 +277,16 @@ func TestFirmwareOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
 // load's no-identity status. Values against the ADR's decision 8 (the wire
 // row of docs/ota/adr-ota-image-format-and-trust.md).
 func TestFirmwareOTAInfo(t *testing.T) {
-	d := startProvisioned(t).serial
+	// The stager first: an image without one is refused whatever its tier.
+	// Then OTA_INFO itself: a single-slot image (the MPS2 boards' store row)
+	// stages without it and refuses it and OTA_CONFIRM by status code, on
+	// every tier, so the tier below is asked of an image that has them.
+	p := openPeer(t, nil, simproc.Element, elementArgs(t, nil, nil)...)
+	if !otaServing(t, p) || !otaCtlServing(t, p) {
+		return
+	}
+	requireTier(t, p, simproc.Element)
+	d := p.serial
 
 	// slots 2 and active 0 are the AVR's fixed answer (one primary, the
 	// store); flags 0, the block neither fell back nor is in TRIAL; floor 0,
@@ -184,7 +302,11 @@ func TestFirmwareOTAInfo(t *testing.T) {
 }
 
 func TestFirmwareOTAActivate(t *testing.T) {
-	p, keyPath := startOperator(t)
+	p, keyPath, ok := operatorServing(t)
+	if !ok {
+		otaRefusedWithoutASession(t, p, "ota-activate", heldSig)
+		return
+	}
 	d, serial := p.serial, p.serialHex(t)
 
 	for _, args := range [][]string{{heldSig}, {"now", heldSig}} {
@@ -205,7 +327,11 @@ func TestFirmwareOTAActivate(t *testing.T) {
 }
 
 func TestFirmwareOTAConfirm(t *testing.T) {
-	p, keyPath := startOperator(t)
+	p, keyPath, ok := operatorServing(t)
+	if !ok {
+		otaRefusedWithoutASession(t, p, "ota-confirm", heldSig)
+		return
+	}
 	d, serial := p.serial, p.serialHex(t)
 
 	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "ota-confirm", heldSig), "unauthenticated")

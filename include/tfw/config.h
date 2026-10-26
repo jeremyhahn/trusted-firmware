@@ -348,6 +348,14 @@
 #define TFW_OTA_PAGE_MAX 256u
 #endif
 
+/* The unit boot/boot_swap.c moves a slot in, and so a RAM buffer in tfw-boot:
+ * a whole number of the part's pages, and at most 256 of them to a slot, since
+ * the swap record's step is one byte. One OTA page by default (the 2560's 64 KiB
+ * slot is 256 units); a board with a larger slot names a larger unit. */
+#ifndef TFW_SWAP_UNIT
+#define TFW_SWAP_UNIT TFW_OTA_PAGE_MAX
+#endif
+
 /* How many OTA_BEGINs the stager admits between resets (#232, the peer-binding
  * ADR's decision 1 B). Each one erases the MARK sector and, where the PREV
  * backup is linked, an application-sized span of the store, and the network

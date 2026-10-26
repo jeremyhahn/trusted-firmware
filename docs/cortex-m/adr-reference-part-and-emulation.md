@@ -179,9 +179,9 @@ Why the core HAL is still checked on the M33:
 - **The core HAL carries over between the two.** SysTick, NVIC, SCB, the MPU and
   the vector table are architecturally the same in Armv7-M and in each security
   state of Armv8-M Mainline (Armv7-M Architecture Reference Manual, DDI 0403,
-  chapter B3 "System Address Map"; Armv8-M Architecture Reference Manual, DDI
-  0553, its system address map chapter; neither could be fetched, so this is to
-  confirm). Only the per-CPU flags and the SoC files differ.
+  chapter B3 "System Address Map", not fetched, so this half is to confirm;
+  Armv8-M Architecture Reference Manual, DDI 0553 issue B.z, its system address
+  map chapter, listed in [`../reference/README.md`](../reference/README.md#cortex-m-sources)). Only the per-CPU flags and the SoC files differ.
 
 What it costs:
 
@@ -227,7 +227,8 @@ generic port runs on `mps2-an505` in CI, so that text is superseded.
 
 The CI target is **QEMU `mps2-an505`**: the Arm MPS2 board with the AN505 FPGA
 image, a single Cortex-M33 with the Security Extension, on Arm's IoT Kit
-subsystem (Arm Application Note AN505, DAI 0505, not fetched). It is what TF-M
+subsystem (Arm Application Note AN505, DAI 0505, issue B, listed in
+[`../reference/README.md`](../reference/README.md#cortex-m-sources)). It is what TF-M
 and Zephyr test the M33 against.
 
 The facts below are read from QEMU `hw/arm/mps2-tz.c` at v10.0.0
@@ -251,11 +252,21 @@ memory protection controllers (MPCs) and the peripheral protection controllers
 **Clocks.** SYSCLK is 20 MHz.
 
 **Interrupts.** The IoT Kit takes the first 32 interrupt lines, and the board
-adds 92 more from 32 up.
+adds 92 more from 32 up. Every interrupt number in this section is an **NVIC
+line**: the M33's external interrupt input IRQ[n], enabled through
+`NVIC_ISER[n / 32]`, exception number 16 + n. It is not a number local to the
+expansion. AN505 (DAI 0505B, chapter 7 "Interrupt Map", Table 7-1 "FPGA
+Expansion Interrupt Map") numbers the expansion's interrupts as M33 inputs:
+IRQ[0]–IRQ[12] are the IoT Kit's, IRQ[31:13] are reserved, and UART0's RX and
+TX are IRQ[32] and IRQ[33]. Its §7.1 "UARTs Interrupts" says each UART
+interrupt "drive[s] a single interrupt input of the M33 CPU". That agrees with
+`boards/mps2-an505/board_profile.h`, whose `TFW_MPS2_UART0_IRQ_A` and `_B`,
+read by `src/hal/cortex-m/mps2/soc_regs.h`, are external interrupts 32 and 33
+([`../reference/README.md`](../reference/README.md#cortex-m-sources)).
 
 **Peripherals** (Non-secure addresses).
 
-| Peripheral | Address | Interrupt | Notes |
+| Peripheral | Address | Interrupt (NVIC line, AN505 Table 7-1) | Notes |
 |---|---|---|---|
 | CMSDK APB UART ×5 | `0x40200000`–`0x40204000` | UART0: RX on 32, TX on 33 | UART0 is the first `-serial` |
 | PL022 SPI ×5 | `0x40205000`, `0x40206000`, `0x40209000`, `0x4020a000`, `0x4020b000` | 51–55 | |
@@ -454,6 +465,9 @@ The versions are from the Debian sources API for trixie
   as on AVR.
 - `ARCH_LDFLAGS := -mcpu=$(CPU) -mthumb -specs=nano.specs -specs=nosys.specs -nostartfiles -Wl,--gc-sections`.
   The vector table and reset handler are ours, in `src/hal/cortex-m/`.
+  The stack top is 8-byte aligned, as the AAPCS requires at a public
+  interface (IHI 0042, 2025Q4, "The Stack" › "Stack constraints at a public
+  interface"; copied in [`../reference/aapcs32-2025Q4.rst`](../reference/aapcs32-2025Q4.rst)).
 - `ARCH_FW_PLACEMENT_LDFLAGS` and `ARCH_BOOT_PLACEMENT_LDFLAGS`:
   - a per-SoC linker script from `mk/arch/cortex-m/<soc>.ld`;
   - the same `RAM_END - 111` formula for `.handoff` as `avr.mk`, without AVR's

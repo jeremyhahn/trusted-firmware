@@ -103,7 +103,17 @@ const (
 	offAlg     = 73
 	offSig     = 74
 	algECDSA   = 0x01 // TFW_ALG_ECDSA_P256_SHA256
+	algECDSASW = 0x11 // TFW_ALG_ECDSA_P256_SHA256_SOFT
 )
+
+// evidenceAlg is the ATTEST AlgID include/tfw/protocol.h gives an ES256 frame
+// from a root of the tier: 0x11 from the software root, 0x01 from the element.
+func evidenceAlg(tier tfw.CryptoTier) byte {
+	if tier == tfw.CryptoSoftware {
+		return algECDSASW
+	}
+	return algECDSA
+}
 
 // tcg-dice-UCCS-evidence, 2.23.133.5.4.6.
 var oidUCCS = asn1.ObjectIdentifier{2, 23, 133, 5, 4, 6}

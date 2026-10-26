@@ -70,6 +70,10 @@ RAM_END        := 0x2003FFFF
 FWHASH_BASE    := $(APP_BASE)
 FWHASH_SIZE    := $(FLASH_BUDGET)
 
+# The core clock, TFW_CM_CPU_HZ in board_profile.h, TO CONFIRM there against the
+# System Manager configuration. The build does not read it (the clock is the
+# header's); the provenance manifest's f_cpu_hz does.
+
 # tfw-boot's geometry, reserved for its port; mk/arch/cortex-m.mk computes the
 # load limit from it.
 BOOT_SECTION   := 32768

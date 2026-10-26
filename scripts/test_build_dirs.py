@@ -20,8 +20,8 @@ REPO = os.path.dirname(HERE)
 # them may reach the child from the caller's environment.
 SCRUB = ("MAKEFLAGS", "MAKELEVEL", "MFLAGS", "MAKEOVERRIDES", "BOARD", "CRYPTO", "ETH", "DHCP",
          "PROVISION", "OTA_STAGE", "MEASURE_SOFT_CSR", "SOFT_ID", "UECC_OPT", "BOOT_OPT_EXTRA",
-         "BOOT_TIER", "BOOT_SIG", "BOOT_MEASURE", "BOOT_OTA", "BOOT_STORE", "APP_DIR", "ETH_CHIP",
-         "IMAGE_FLAGS", "HOST_BOARD", "HOST_EXTRA_DEFS")
+         "BOOT_TIER", "BOOT_SIG", "BOOT_MEASURE", "BOOT_OTA", "BOOT_STORE", "APP_DIR", "BOOT_AB",
+         "I2C", "SPI", "ETH_CHIP", "IMAGE_FLAGS", "HOST_BOARD", "HOST_EXTRA_DEFS")
 
 
 def make(target, *flags):
@@ -88,6 +88,14 @@ class TestFirmwareFlags(unittest.TestCase):
         # The 328P's element tier carries no micro-ecc.
         self.assertEqual(fw(), fw("UECC_OPT=1"))
         self.assertEqual(fw("CRYPTO=atecc608a"), fw("CRYPTO=atecc608a", "UECC_OPT=1"))
+
+    def test_row_buses_and_ab(self):
+        # The MPS2 boards turn I2C, SPI and two slots on per row (profile.mk).
+        self.assertEqual("build/mps2-an505/soft-i2c", fw("BOARD=mps2-an505", "I2C=1"))
+        self.assertEqual("build/mps2-an500/soft-spi", fw("BOARD=mps2-an500", "SPI=1"))
+        self.assertEqual("build/mps2-an505/soft-ab", fw("BOARD=mps2-an505", "BOOT_AB=1"))
+        # The 2560 always has two slots and keeps its path.
+        self.assertEqual(fw("BOARD=atmega2560"), fw("BOARD=atmega2560", "BOOT_AB=1"))
 
     def test_every_matrix_row_has_its_own_directory(self):
         rows = make("firmware-matrix-list").splitlines()

@@ -14,7 +14,11 @@
 # The one row it runs: the board's only tier, with tfw-boot verifying a P-256
 # signature in software and halting on a refusal (no OTA, no store). Never
 # BOOT_SIG=none: every tfw-boot row verifies (m453).
-CM_QEMU_BOARD := mps2-an505
+#
+# Every Cortex-M board QEMU models, so every change to the core boots on both
+# cores: the ARMv8-M Cortex-M33 (mps2-an505, #161) and the ARMv7-M Cortex-M7
+# (mps2-an500). Each runs the same three cases.
+CM_QEMU_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_TIER  := soft
 CM_QEMU_ROW   := BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
 
@@ -25,58 +29,211 @@ CM_QEMU_ROW   := BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 
 # under the point cm_image derives from the UDS it provisions.
 CM_QEMU_SOFT_ID := p256
 
-# What CAPS must report, as literals on purpose: the board's id
-# (boards/mps2-an505/board_profile.h, provisional) and the soft tier's wire
-# value. A number read back from the build would agree with whatever the build
-# got wrong.
-CM_QEMU_BOARD_ID := 0x40
+# What CAPS must report, as literals on purpose: each board's id
+# (docs/boards/board-id-registry.md) and the soft tier's wire value. A number
+# read back from the build would agree with whatever the build got wrong.
+CM_QEMU_BOARD_ID.mps2-an505 := 0x40
+CM_QEMU_BOARD_ID.mps2-an500 := 0x42
 CM_QEMU_TIER_ID  := 1
 
 # Under the board's integration directory, beside mk/boot.mk's harness, whose
 # host micro-ecc object the signer links.
 CM_QEMU_DIR := $(BOOT_INT_DIR)/qemu
 
-## integration-test-cortex-m: QEMU mps2-an505: tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent
+# The store row the wire run also boots (mk/boot.mk BOOT_SUPPORTED): tfw-boot
+# takes an image the application staged into the board's memory store
+# (OTA_STORE := mem), with no A/B. Every board here carries it; a board that
+# did not would leave this list and run the base rows alone. Its application
+# is built with the stager (OTA_STAGE=1) and its images go in a directory of
+# their own, so the base run's are never overwritten.
+CM_QEMU_STORE_BOARDS := mps2-an505 mps2-an500
+CM_QEMU_STORE_ROW    := BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=1
+CM_QEMU_STORE_DIR    := $(BOOT_INT_DIR)/qemu-store
+
+# The A/B row (mk/boot.mk BOOT_SUPPORTED's :ab rows): the store row with two
+# slots, the board's profile at BOOT_AB=1. QEMU loads the application and the
+# platform block at their factory copies and tfw-boot copies each home, so a
+# system_reset keeps what the last boot left in the slots and the block
+# (docs/cortex-m/README.md, two slots). Its images go in a directory of their
+# own, as the store row's do.
+CM_QEMU_AB_BOARDS := mps2-an505 mps2-an500
+CM_QEMU_AB_ROW    := BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=1 BOOT_AB=1
+CM_QEMU_AB_DIR    := $(BOOT_INT_DIR)/qemu-ab
+
+# The SPI row (profile.mk's soft:SPI=1): the base row's image built with SPI=1,
+# so SPI_XFER reaches the shield 0 PL022, which QEMU models with nothing on its
+# bus (sdk/go/cmd/tfwctl/spi_qemu_test.go). FW_DIR names SPI=1 (-spi), so no
+# object compiled without the SPI gate is linked into it; the row still builds
+# under a BUILD_DIR of its own, so its tfw-boot and its run's files are its own.
+CM_QEMU_SPI_BOARDS := mps2-an505 mps2-an500
+CM_QEMU_SPI_BUILD  := $(BUILD_DIR)/qemu-spi
+
+# The I2C row, the same way: the base row's image built with I2C=1, so
+# I2C_XFER reaches the shield 0 SBCon, which QEMU models with nothing on its
+# bus (sdk/go/cmd/tfwctl/i2c_qemu_test.go). Each board's soft:I2C=1 is this
+# image, so size-check measures what the row runs; mps2-an505's other I2C row,
+# atecc608a:I2C=1, is the element tier's, which QEMU cannot boot. Its own
+# BUILD_DIR for the same reason.
+CM_QEMU_I2C_BOARDS := mps2-an505 mps2-an500
+CM_QEMU_I2C_BUILD  := $(BUILD_DIR)/qemu-i2c
+
+## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent
+#
+# One board after the other, not in parallel: a red board names itself, and
+# the two QEMUs never compete for the host. integration-test-cortex-m-<board>
+# runs one.
 integration-test-cortex-m:
-	@$(MAKE) --no-print-directory firmware BOARD=$(CM_QEMU_BOARD) CRYPTO=$(CM_QEMU_TIER) SOFT_ID=$(CM_QEMU_SOFT_ID)
-	@$(MAKE) --no-print-directory bootloader BOARD=$(CM_QEMU_BOARD) $(CM_QEMU_ROW)
-	@$(MAKE) --no-print-directory cortex-m-qemu-run BOARD=$(CM_QEMU_BOARD) CRYPTO=$(CM_QEMU_TIER) \
-	   SOFT_ID=$(CM_QEMU_SOFT_ID) $(CM_QEMU_ROW)
+	@$(foreach b,$(CM_QEMU_BOARDS),$(MAKE) --no-print-directory integration-test-cortex-m-$(b) &&) true
 	@echo "integration-test-cortex-m: green"
 
-# The run itself, recursive so BOARD is the Cortex-M board's and every path
-# below (TARGET, BOOT_TARGET, the toolchain) is that board's.
+$(addprefix integration-test-cortex-m-,$(CM_QEMU_BOARDS)): integration-test-cortex-m-%:
+	@$(MAKE) --no-print-directory firmware BOARD=$* CRYPTO=$(CM_QEMU_TIER) SOFT_ID=$(CM_QEMU_SOFT_ID)
+	@$(MAKE) --no-print-directory bootloader BOARD=$* $(CM_QEMU_ROW)
+	@$(MAKE) --no-print-directory cortex-m-qemu-run BOARD=$* CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) $(CM_QEMU_ROW)
+	@echo "$@: green"
+
+## integration-test-cortex-m-wire: the tfwctl wire suite (hw-test) on QEMU mps2-an505 and mps2-an500, through a pty and a QMP reset
+#
+# The same signed image as integration-test-cortex-m, booted once per board
+# with its UART on a pty; the suite reaches it through internal/peer as it
+# would a board on a serial port, and resets it with QMP system_reset
+# (HW_RESET=qmp:<socket>) where a board's DTR line would.
+# test/integration/cortex-m/qemu_wire_test.sh runs it.
+integration-test-cortex-m-wire:
+	@$(foreach b,$(CM_QEMU_BOARDS),$(MAKE) --no-print-directory integration-test-cortex-m-wire-$(b) &&) true
+	@echo "integration-test-cortex-m-wire: green"
+
+$(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS)): integration-test-cortex-m-wire-%:
+	@$(MAKE) --no-print-directory firmware BOARD=$* CRYPTO=$(CM_QEMU_TIER) SOFT_ID=$(CM_QEMU_SOFT_ID)
+	@$(MAKE) --no-print-directory bootloader BOARD=$* $(CM_QEMU_ROW)
+	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$* CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) $(CM_QEMU_ROW)
+	@$(if $(filter $*,$(CM_QEMU_STORE_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-store-wire BOARD=$*,true)
+	@$(if $(filter $*,$(CM_QEMU_AB_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-ab-wire BOARD=$*,true)
+	@$(if $(filter $*,$(CM_QEMU_SPI_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-spi-wire BOARD=$*,true)
+	@$(if $(filter $*,$(CM_QEMU_I2C_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-i2c-wire BOARD=$*,true)
+	@echo "$@: green"
+
+# The store row's run, after the base row's, whose application it stages.
+# This make's TARGET is that base image (no OTA_STAGE here), so it names the
+# image the cycle installs; the sub-makes build and boot the stager.
+cortex-m-qemu-store-wire:
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) OTA_STAGE=1
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_STORE_ROW)
+	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) OTA_STAGE=1 $(CM_QEMU_STORE_ROW) \
+	   CM_QEMU_DIR=$(CM_QEMU_STORE_DIR) CM_QEMU_STAGED=$(TARGET)
+
+# The A/B row's run, after the store row's. Its application is the A/B build
+# with the stager, and that same image, tagged, is what its tests stage
+# (cm_image.c), so CM_QEMU_AB names no other build.
+cortex-m-qemu-ab-wire:
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) OTA_STAGE=1 BOOT_AB=1
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_AB_ROW)
+	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) OTA_STAGE=1 $(CM_QEMU_AB_ROW) \
+	   CM_QEMU_DIR=$(CM_QEMU_AB_DIR) CM_QEMU_AB=1
+
+# The SPI row's run, after the A/B row's: the base row's tfw-boot and the
+# SPI=1 application, every path under CM_QEMU_SPI_BUILD.
+cortex-m-qemu-spi-wire:
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) SPI=1 BUILD_DIR=$(CM_QEMU_SPI_BUILD)
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_SPI_BUILD)
+	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) SPI=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_SPI_BUILD) CM_QEMU_SPI=1
+
+# The I2C row's run, after the SPI row's: the base row's tfw-boot and the I2C=1
+# application, every path under CM_QEMU_I2C_BUILD.
+cortex-m-qemu-i2c-wire:
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) I2C=1 BUILD_DIR=$(CM_QEMU_I2C_BUILD)
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_I2C_BUILD)
+	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) I2C=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_I2C_BUILD) CM_QEMU_I2C=1
+
+# One OTA test against a boot qemu_wire_test.sh started for it, as it starts
+# hw-test: PORT and HW_RESET are that boot's pty and QMP socket, STAGED the
+# directory cm_image wrote the staged images and their authorizations into.
+# CYCLE_TEST names the test: the store row's TestQEMUOTACycle
+# (sdk/go/cmd/tfwctl/ota_cycle_qemu_test.go), or one of the A/B row's
+# TestQEMUAB* (ota_ab_qemu_test.go), or the SPI row's TestQEMUSPIXfer
+# (spi_qemu_test.go), or the I2C row's TestQEMUI2CXfer (i2c_qemu_test.go), or
+# the base row's TestQEMUResetCause (reset_qemu_test.go) or TestQEMUFaultPanic
+# (fault_qemu_test.go), which reads the fault record at TFW_QEMU_FAULTFRAME.
+CYCLE_TEST ?= TestQEMUOTACycle
+cortex-m-qemu-cycle:
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_RESET='$(HW_RESET)' \
+	   TFW_QEMU_STAGED=$(abspath $(STAGED)) TFW_QEMU_FAULTFRAME=$(CM_FAULTFRAME_AT) \
+	   $(GO) test -count=1$(call go-tags,-tags,qemu) -p 1 -run '^$(CYCLE_TEST)$$' ./cmd/tfwctl
+
+# The runs themselves, recursive so BOARD is the Cortex-M board's and every
+# path below (TARGET, BOOT_TARGET, the toolchain) is that board's.
+cortex-m-qemu-run: cortex-m-qemu-image
+	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(CM_QEMU_DIR))/wirecheck ./wirecheck
+	@test/integration/cortex-m/qemu_test.sh $(CM_QEMU_DIR) $(QEMU_MACHINE) $(CM_QEMU_BOARD_ID.$(BOARD)) $(CM_QEMU_TIER_ID)
+
+# hw-test is a sub-make the script starts, with the board's BOARD, once it
+# knows the pty; MAKE is passed so it is this make. A failed row's dump
+# (qmp_regs.py) reads QEMU_RAM, the board's RAM base and budget; QEMU_UART,
+# its UART0's registers (profile.mk); and the firmware's ring and framer by
+# symbol from QEMU_ELF, the image the guest runs.
+cortex-m-qemu-wire-run: cortex-m-qemu-image
+	@command -v python3 >/dev/null || { \
+	   echo "$@: python3 is not on PATH: qmp_pty.py reads the pty's path over QMP"; exit 1; }
+	@MAKE='$(MAKE)' QEMU_RAM='$(RAM_BASE) $(RAM_BUDGET)' QEMU_UART='$(QEMU_UART)' \
+	   QEMU_ELF='$(abspath $(TARGET).elf)' test/integration/cortex-m/qemu_wire_test.sh $(CM_QEMU_DIR) $(QEMU_MACHINE) $(BOARD) \
+	   $(if $(filter 1,$(CM_QEMU_AB)),ab,$(if $(CM_QEMU_STAGED),store,$(if $(filter 1,$(CM_QEMU_SPI)),spi,$(if $(filter 1,$(CM_QEMU_I2C)),i2c))))
+
+# The signed image both runs boot. On the store row (CM_QEMU_STAGED, the
+# application's path without its extension), cm_image also signs the image
+# the OTA cycle stages and its activate and confirm authorizations. On the A/B
+# row (CM_QEMU_AB=1) the image staged is the application itself, and cm_image
+# signs it twice, tagged: at version 2 and, for the floor, at version 1.
 #
 # QEMU loads raw blobs, not the ELF files: the ELF would place the images
 # where the link put them, but the signer has to edit both (the key and UDS
 # slots in tfw-boot, the trailer after the application), and a raw image is
 # what a part's flash holds. The nm listing is how cm_image finds the slots.
-cortex-m-qemu-run: $(CM_QEMU_DIR)/cm_image
+cortex-m-qemu-image: $(CM_QEMU_DIR)/cm_image
 	@if [ "$(ARCH)" != cortex-m ]; then \
 	   echo "$@: $(BOARD) is ARCH $(ARCH); run make integration-test-cortex-m"; exit 1; fi
+	@if [ -z "$(CM_QEMU_BOARD_ID.$(BOARD))" ]; then \
+	   echo "$@: $(BOARD) has no CM_QEMU_BOARD_ID.$(BOARD) literal in mk/arch/cortex-m-targets.mk"; exit 1; fi
 	@command -v qemu-system-arm >/dev/null || { \
 	   echo "$@: qemu-system-arm is not on PATH: install the Debian package qemu-system-arm"; \
 	   echo "  (docker/packages.txt; the CI image has it)"; exit 1; }
 	@$(ARCH_OBJCOPY) -O binary $(BOOT_TARGET).elf $(CM_QEMU_DIR)/tfw-boot.bin
 	@$(ARCH_NM) $(BOOT_TARGET).elf > $(CM_QEMU_DIR)/tfw-boot.nm
 	@$(ARCH_OBJCOPY) -O binary $(TARGET).elf $(CM_QEMU_DIR)/trusted-firmware.bin
+	@$(if $(cm-qemu-staged),$(ARCH_OBJCOPY) -O binary $(cm-qemu-staged).elf $(CM_QEMU_DIR)/staged-app.bin,true)
 	@$(CM_QEMU_DIR)/cm_image $(CM_QEMU_DIR)/tfw-boot.bin $(CM_QEMU_DIR)/tfw-boot.nm \
-	   $(CM_QEMU_DIR)/trusted-firmware.bin $(CM_QEMU_DIR)
-	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(CM_QEMU_DIR))/wirecheck ./wirecheck
-	@test/integration/cortex-m/qemu_test.sh $(CM_QEMU_DIR) $(QEMU_MACHINE) $(CM_QEMU_BOARD_ID) $(CM_QEMU_TIER_ID)
+	   $(CM_QEMU_DIR)/trusted-firmware.bin $(CM_QEMU_DIR) \
+	   $(if $(cm-qemu-staged),$(CM_QEMU_DIR)/staged-app.bin) $(if $(filter 1,$(CM_QEMU_AB)),ab)
+
+# The application cortex-m-qemu-image signs for staging, if any.
+cm-qemu-staged = $(if $(filter 1,$(CM_QEMU_AB)),$(TARGET),$(CM_QEMU_STAGED))
 
 # The signer and jig, for the host, with the board's profile compiled in: the
 # addresses it signs for and writes into addrs.env are the board's. It links
 # the firmware's src/crypto/deviceid_p256.c to derive the DeviceID point it
 # writes there, so the point wirecheck checks is the one the image's code gives.
-$(CM_QEMU_DIR)/cm_image: test/integration/cortex-m/cm_image.c boot/boot_image.c boot/boot_platform.c \
+$(CM_QEMU_DIR)/cm_image: test/integration/cortex-m/cm_image.c boot/boot_image.c boot/boot_platform.c boot/boot_cose.c \
         src/crypto/sha256.c src/crypto/deviceid_p256.c src/core/secure_zero.c \
         src/proto/crc16.c src/proto/crc16_update.c $(BOOT_INT_DIR)/uECC.o
 	@mkdir -p $(CM_QEMU_DIR)
 	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -Isrc/third_party/micro-ecc $(UECC_DEFS) \
-	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' \
+	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' $(BOARD_DEFS) \
 	   -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' -o $@ $^
 	@echo "built $@"
 
-.PHONY: integration-test-cortex-m cortex-m-qemu-run
+.PHONY: integration-test-cortex-m cortex-m-qemu-run cortex-m-qemu-image \
+        integration-test-cortex-m-wire cortex-m-qemu-wire-run cortex-m-qemu-store-wire cortex-m-qemu-ab-wire \
+        cortex-m-qemu-spi-wire cortex-m-qemu-i2c-wire \
+        cortex-m-qemu-cycle \
+        $(addprefix integration-test-cortex-m-,$(CM_QEMU_BOARDS)) \
+        $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS))

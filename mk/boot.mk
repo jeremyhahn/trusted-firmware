@@ -197,7 +197,7 @@ BOOT_STORE_SRCS += $(BOOT_SWAP_SRC)
 # UECC_OPT and BOOT_OPT_EXTRA (below) change the objects too, and name the path
 # only where they are set: micro-ecc's level where p256-soft links it, and a
 # checksum of BOOT_OPT_EXTRA, whose options can hold any character a path cannot.
-BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(BOOT_STORE)$(if \
+BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(BOOT_STORE)$(AB_SUFFIX)$(if \
                 $(and $(filter p256-soft,$(BOOT_SIG)),$(filter-out 0,$(UECC_OPT))),-uecc$(UECC_OPT))$(if \
                 $(strip $(BOOT_OPT_EXTRA)),-x$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(BOOT_OPT_EXTRA)))' | cksum)))
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
@@ -207,7 +207,7 @@ BOOT_SRCS := $(sort \
   boot/boot_main.c boot/boot_image.c boot/boot_handoff.c boot/boot_store.c \
   boot/boot_request.c boot/boot_entry.c \
   boot/boot_platform.c boot/boot_policy.c boot/boot_trial.c \
-  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) \
+  $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) \
   src/proto/crc16.c src/proto/crc16_update.c \
   $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
@@ -227,7 +227,7 @@ BOOT_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
                -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Isrc/crypto/atecc608a \
                -I$(HAL_DIR) -Isrc/third_party/ed25519-donna -Isrc/third_party/micro-ecc \
                -Iboot -Iboot/verify -I$(BOOT_HAL_DIR) -I$(BOARD_DIR) \
-               -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS) \
+               -DTFW_BOARD_HEADER='"board_profile.h"' $(BOOT_OTA_DEFS) $(BOARD_DEFS) \
                $(ARCH_BOOT_OPT_CFLAGS) $(BOOT_SIG_OPT_CFLAGS) $(BOOT_OPT_EXTRA)
 
 # The vendored tree, built WITHOUT -Werror and without our warning set.
@@ -349,7 +349,23 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 #   328P / 32U4  4 KB section  element hash + element verify, no OTA in boot
 #   2560         8 KB section  the same, plus OTA in boot or the external store
 #   mps2-an505   32 KB region  soft hash + P-256 in software, no OTA, no store
-#                              (#161, QEMU's Cortex-M33; mk/arch/cortex-m.mk)
+#                              (#161, QEMU's Cortex-M33; mk/arch/cortex-m.mk);
+#                              the same with OTA in boot, single-slot, and
+#                              the same with the memory store (OTA_STORE :=
+#                              mem, the copy and PREV of boot_prev.c), which
+#                              the QEMU wire run boots under the OTA_STAGE=1
+#                              image and the OTA cycle row
+#   mps2-an500   32 KB region  the base row and the store row on QEMU's
+#                              Cortex-M7, at address 0, both booted as on
+#                              mps2-an505
+#   both MPS2    A/B           the store row with two slots (a trailing :ab,
+#                              BOOT_AB=1): swap-move, the one trial, confirm
+#                              and rollback as on the 2560 (boot_swap.c), the
+#                              slots in board_profile.h, which the QEMU wire
+#                              run boots under the A/B OTA_STAGE=1 image
+#
+# The MPS2 OTA, store and A/B rows are not yet measured: no lane that added
+# them had an Arm toolchain, so their bytes used are this target's first run.
 #
 # Flash used, avr-gcc 14.2.0 with ARCH_BOOT_OPT_CFLAGS (issue #75): 328P 3 746,
 # 32U4 3 816, 2560 3 906; 2560 with OTA (session, swap-move, trial) 7 666, was
@@ -388,21 +404,30 @@ BOOT_SUPPORTED := \
   atmega2560:atecc608a:atecc608a:atecc608a:1:0 \
   atmega2560:atecc608a:atecc608a:atecc608a:0:1 \
   atmega2560:soft:soft:p256-soft:0:0 \
-  mps2-an505:soft:soft:p256-soft:0:0
+  mps2-an505:soft:soft:p256-soft:0:0 \
+  mps2-an505:soft:soft:p256-soft:1:0 \
+  mps2-an505:soft:soft:p256-soft:0:1 \
+  mps2-an505:soft:soft:p256-soft:0:1:ab \
+  mps2-an500:soft:soft:p256-soft:0:0 \
+  mps2-an500:soft:soft:p256-soft:0:1 \
+  mps2-an500:soft:soft:p256-soft:0:1:ab
 
+# A row's optional seventh field, ab, is BOOT_AB=1; a row without it leaves
+# BOOT_AB to the board's profile.mk (1 on the 2560, 0 on the MPS2 boards).
 bootloader-check:
 	@fail=0; \
 	for row in $(BOOT_SUPPORTED); do \
 	  b=$${row%%:*}; r=$${row#*:}; \
 	  t=$${r%%:*}; r=$${r#*:}; m=$${r%%:*}; r=$${r#*:}; \
-	  g=$${r%%:*}; r=$${r#*:}; o=$${r%%:*}; s=$${r#*:}; \
+	  g=$${r%%:*}; r=$${r#*:}; o=$${r%%:*}; r=$${r#*:}; s=$${r%%:*}; \
+	  ab=; case $$r in *:ab) ab=BOOT_AB=1;; esac; \
 	  if ! $(MAKE) --no-print-directory bootloader BOARD=$$b \
 	        BOOT_TIER=$$t BOOT_MEASURE=$$m BOOT_SIG=$$g BOOT_OTA=$$o \
-	        BOOT_STORE=$$s; then \
+	        BOOT_STORE=$$s $$ab; then \
 	    echo "SUPPORTED CONFIGURATION NO LONGER FITS: $$row"; fail=1; \
 	  elif ! $(MAKE) --no-print-directory boot-load-end-check BOARD=$$b \
 	        BOOT_TIER=$$t BOOT_MEASURE=$$m BOOT_SIG=$$g BOOT_OTA=$$o \
-	        BOOT_STORE=$$s; then \
+	        BOOT_STORE=$$s $$ab; then \
 	    echo "SUPPORTED CONFIGURATION RUNS PAST FLASH: $$row"; fail=1; \
 	  fi; \
 	done; \
@@ -988,6 +1013,14 @@ $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The MPS2 boards' memory image store, the application's driver and tfw-boot's
+# together over one host array: the model header is forced into every unit,
+# so both address the array as they address the board's RAM.
+$(BOOT_TEST_DIR)/test_store_mem: test/unit/boot/test_store_mem.c src/store/mem.c \
+        boot/hal/cortex-m/boot_ota_store_cortex-m.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model -Isrc/core \
+	   -include test/model/store_mem_model.h -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The OTA_ACTIVATE Sig_structure against literal bytes (#163): boot_cose.c
 # alone, the algorithm byte the test's.
 $(BOOT_TEST_DIR)/test_boot_cose_mutate: test/unit/boot/test_boot_cose_mutate.c boot/boot_cose.c \
@@ -1248,14 +1281,14 @@ bootloader-reproducible-check:
 # The targets that measure a configuration rather than ship it --
 # bootloader-budget, boot-core-size, bootloader-candidate -- are not refused:
 # they exist for the rows that do not fit.
-BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA):$(BOOT_STORE)
+BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA):$(BOOT_STORE)$(if $(AB_SUFFIX),:ab)
 BOOT_FITS := $(filter $(BOARD):%,$(BOOT_SUPPORTED))
 # A literal comma, which $(if) would otherwise read as its argument separator.
 BOOT_COMMA := ,
 BOOT_GATED_GOAL := $(firstword $(filter bootloader boot-flash,$(MAKECMDGOALS)))
 ifneq ($(BOOT_GATED_GOAL),)
 ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
-$(error $(BOOT_GATED_GOAL): $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration. $(if $(BOOT_FITS),For $(BOARD) the supported rows$(BOOT_COMMA) which fit$(BOOT_COMMA) are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
+$(error $(BOOT_GATED_GOAL): $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration$(if $(BOOT_AB_OPTIONAL), (a trailing :ab is BOOT_AB=1)). $(if $(BOOT_FITS),For $(BOARD) the supported rows$(BOOT_COMMA) which fit$(BOOT_COMMA) are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
 endif
 endif
 

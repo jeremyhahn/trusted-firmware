@@ -154,7 +154,14 @@ func startEthernetOn(t *testing.T, platform []byte,
 // stageImage builds a total-byte image whose last 128 bytes are a trailer
 // declaring a body-byte image, version 3, with its SHA-256, per
 // docs/ota/adr-ota-image-format-and-trust.md; between them is erased flash.
+// Its board id is the simulator's, the ATmega328P's.
 func stageImage(total, body int) []byte {
+	return stageImageFor(total, body, tfw.BoardATmega328P)
+}
+
+// stageImageFor is stageImage for the board CAPS names: the stager refuses a
+// trailer whose board id is not its own (src/core/ota_stage.c).
+func stageImageFor(total, body int, board tfw.BoardID) []byte {
 	img := bytes.Repeat([]byte{0xFF}, total)
 	for i := 0; i < body; i++ {
 		img[i] = byte(i*7 + 3)
@@ -163,7 +170,7 @@ func stageImage(total, body int) []byte {
 	clear(tr)
 	copy(tr, "TFIM")
 	binary.LittleEndian.PutUint16(tr[4:], 1)
-	tr[6] = 0x01
+	tr[6] = byte(board)
 	binary.LittleEndian.PutUint32(tr[8:], 3)
 	binary.LittleEndian.PutUint32(tr[12:], uint32(body))
 	sum := sha256.Sum256(img[:body])

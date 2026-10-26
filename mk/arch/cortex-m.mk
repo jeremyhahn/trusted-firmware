@@ -5,9 +5,10 @@
 # one linker script per SoC under mk/arch/cortex-m/ (#161).
 #
 # Included by mk/firmware.mk after the board's profile.mk says ARCH := cortex-m,
-# with CPU (the -mcpu core, cortex-m33 on the first board) and SOC (the
-# directory under src/hal/cortex-m/ and boot/hal/cortex-m/ that holds the
-# part's peripherals, mps2-tz on QEMU's mps2-an505). The core's code is
+# with CPU (the -mcpu core: cortex-m33 on mps2-an505, cortex-m7 on
+# mps2-an500) and SOC (the directory under src/hal/cortex-m/ and
+# boot/hal/cortex-m/ that holds the part's peripherals, mps2 on both, which
+# read their addresses from the board profile). The core's code is
 # src/hal/cortex-m/; mk/firmware.mk's HAL_SOC_DIR and mk/boot.mk's
 # BOOT_SOC_SRCS add the SoC's. The contract every name below fills is the one
 # mk/arch/avr.mk lists. The ADR: docs/cortex-m/adr-reference-part-and-emulation.md.
@@ -67,18 +68,22 @@ ARCH_UECC_CFLAGS := -DuECC_PLATFORM=uECC_arch_other -DuECC_WORD_SIZE=4
 # also states. The handoff block, the reset marker and the stack top follow
 # mk/arch/avr.mk's one formula from RAM_END, with no 0x800000 offset: the two
 # images land on the same addresses because both compute them from the same
-# line. The stack top is 8-aligned, as the AAPCS requires at a call.
+# line. The fault record (src/hal/cortex-m/hal_fault_frame.h) is the 12 bytes
+# below the marker, and the stack top below both is 8-aligned, as the AAPCS
+# requires at a call.
 CM_LDSCRIPT := mk/arch/cortex-m/$(SOC).ld
 ifneq ($(RAM_END),)
 CM_HANDOFF_AT  := $(shell printf '0x%x' $$(( $(RAM_END) - 111 )))
 CM_RESETMARK_AT := $(shell printf '0x%x' $$(( $(RAM_END) - 115 )))
-CM_STACK_TOP   := $(shell printf '0x%x' $$(( ($(RAM_END) - 115) & ~7 )))
+CM_FAULTFRAME_AT := $(shell printf '0x%x' $$(( $(RAM_END) - 127 )))
+CM_STACK_TOP   := $(shell printf '0x%x' $$(( ($(RAM_END) - 127) & ~7 )))
 endif
 CM_PLACEMENT = -Wl,-T,$(CM_LDSCRIPT) \
                -Wl,--defsym=__tfw_text_base=$(1) -Wl,--defsym=__tfw_text_size=$(2) \
                -Wl,--defsym=__tfw_ram_base=$(RAM_BASE) \
                -Wl,--defsym=__tfw_handoff=$(CM_HANDOFF_AT) \
                -Wl,--defsym=__tfw_resetmark=$(CM_RESETMARK_AT) \
+               -Wl,--defsym=__tfw_faultframe=$(CM_FAULTFRAME_AT) \
                -Wl,--defsym=__stack=$(CM_STACK_TOP)
 
 # The application in its slot, tfw-boot in its region. The slot's length for
@@ -87,8 +92,9 @@ CM_PLACEMENT = -Wl,-T,$(CM_LDSCRIPT) \
 ARCH_FW_PLACEMENT_LDFLAGS   = $(call CM_PLACEMENT,$(APP_BASE),$(FLASH_BUDGET))
 ARCH_BOOT_PLACEMENT_LDFLAGS = $(call CM_PLACEMENT,$(BOOT_BASE),$(BOOT_SECTION))
 
-# The boot region does not start at address zero, so mk/boot.mk's load-end
-# check is against the region's end address rather than FLASH_TOTAL.
+# The boot region is not at the top of flash (mps2-an505's is at 0x10000000,
+# mps2-an500's at 0), so mk/boot.mk's load-end check is against the region's
+# end address rather than FLASH_TOTAL.
 ifneq ($(BOOT_SECTION),)
 ARCH_BOOT_LOAD_LIMIT := $(shell printf '0x%x' $$(( $(BOOT_BASE) + $(BOOT_SECTION) )))
 ARCH_BOOT_STACK_TOP  := $(CM_STACK_TOP)
@@ -99,6 +105,11 @@ endif
 ARCH_BOOT_START_SRC :=
 ARCH_BOOT_START_LDFLAGS := -nostartfiles
 
+# tfw-boot's factory copies on a two-slot board (BOOT_AB=1, the MPS2 A/B rows
+# in mk/boot.mk), an empty call on one slot: boot/hal/cortex-m/boot_factory.c
+# says why QEMU needs them. mk/boot.mk adds the file to tfw-boot's objects.
+ARCH_BOOT_SRCS = $(BOOT_HAL_DIR)/boot_factory$(if $(filter 1,$(BOOT_AB)),,_none).c
+
 # The identity sources and the update request link as on AVR: the handoff
 # block is a fixed SRAM address both images name (RAM_END above).
 
@@ -108,6 +119,12 @@ ARCH_BOOT_START_LDFLAGS := -nostartfiles
 # object list. Optional in the contract: an architecture whose HAL carries the
 # CRC leaves it empty.
 ARCH_FW_SRCS := src/proto/crc16_update.c
+
+# The SBCon's and the PL022's register access, linked beside the SoC's
+# hal_bus.c when a bus is on (mk/firmware.mk BUS_SRCS) and kept out of the HAL
+# wildcard otherwise. Recursive: HAL_SOC_DIR is set after this file is included.
+ARCH_BUS_SRCS      = $(if $(HAL_SOC_DIR),$(wildcard $(HAL_SOC_DIR)/sbcon.c $(HAL_SOC_DIR)/pl022.c))
+ARCH_HAL_OPTIONAL  = $(ARCH_BUS_SRCS)
 
 # ----------------------------------------------------------------- writing
 #

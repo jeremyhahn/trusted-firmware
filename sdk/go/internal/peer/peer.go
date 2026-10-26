@@ -6,7 +6,8 @@
 //
 // By default the peer is tfwsim, the firmware compiled for the host, launched
 // through simproc. When PortEnv names a serial port the peer is a real board on
-// that port instead (`make hw-test`), and BoardEnv says which board it is. The
+// that port instead (`make hw-test`), BoardEnv says which board it is, and
+// ResetEnv how it is reset: DTR by default, QMP for a board QEMU emulates. The
 // suite itself is the same either way: it gets an io.ReadWriteCloser and does
 // not know which one it has. An Ethernet row also listens where
 // Target.Listen says, and the device -- the simulator, or the board EthEnv
@@ -18,11 +19,14 @@
 package peer
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +47,12 @@ const (
 	// its own address, a wildcard included, while the board dials the bench
 	// host's. Unset, the suite listens on EthEnv's.
 	EthListenEnv = "TFW_HW_ETH_LISTEN"
+	// ResetEnv names how the board on PortEnv is reset before each test.
+	// Unset, by pulsing DTR, as avrdude does: every AVR board. "qmp:<socket>"
+	// sends QMP system_reset to the QEMU whose monitor listens on that Unix
+	// socket, for an emulated board whose port is a pty, which has no modem
+	// lines (`make integration-test-cortex-m-wire`).
+	ResetEnv = "TFW_HW_RESET"
 	// SimListen is where the simulator's Ethernet link is listened for: a
 	// loopback port the kernel picks, which the test writes into the
 	// simulator's network block.
@@ -65,6 +75,7 @@ type Target struct {
 	Board     string
 	Eth       string // where the board dials; empty for the simulator and a serial-only run
 	EthListen string // where the suite listens for it, when not Eth; empty for Eth
+	QMP       string // the QMP socket that resets the board; empty resets it by DTR
 }
 
 // Hardware reports whether the target is a real board.
@@ -127,7 +138,10 @@ func (t Target) Endpoint(bound netip.AddrPort) (netip.AddrPort, error) {
 // otherwise run the simulator under a hardware label.
 func FromEnv() (Target, error) {
 	port, board, eth, listen := os.Getenv(PortEnv), os.Getenv(BoardEnv), os.Getenv(EthEnv), os.Getenv(EthListenEnv)
+	reset := os.Getenv(ResetEnv)
 	switch {
+	case port == "" && reset != "":
+		return Target{}, fmt.Errorf("%s=%s names how to reset a board but %s names no port", ResetEnv, reset, PortEnv)
 	case port == "" && eth != "":
 		return Target{}, fmt.Errorf("%s=%s names a board's Ethernet link but %s names no port: every Ethernet row starts the board through its serial port", EthEnv, eth, PortEnv)
 	case port == "" && listen != "":
@@ -141,7 +155,25 @@ func FromEnv() (Target, error) {
 	case board == "":
 		return Target{}, fmt.Errorf("%s=%s names a port but %s names no board", PortEnv, port, BoardEnv)
 	}
-	return Target{Port: port, Board: board, Eth: eth, EthListen: listen}, nil
+	qmp, err := parseReset(reset)
+	if err != nil {
+		return Target{}, err
+	}
+	return Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp}, nil
+}
+
+// parseReset reads ResetEnv: empty for DTR, or the socket of "qmp:<socket>".
+// Anything else is refused rather than read as DTR, which would reset nothing
+// on the board the value was meant for.
+func parseReset(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	sock, ok := strings.CutPrefix(v, "qmp:")
+	if !ok || sock == "" {
+		return "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, or unset to reset by DTR", ResetEnv, v)
+	}
+	return sock, nil
 }
 
 // Start connects to the target FromEnv names: sim, run with args, when it is
@@ -158,7 +190,13 @@ func Start(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWriteCloser
 	if !t.Hardware() {
 		return simproc.Start(tb, sim, args...)
 	}
-	c, err := Open(t.Port, StartBound)
+	open := Open
+	if t.QMP != "" {
+		open = func(port string, bound time.Duration) (io.ReadWriteCloser, error) {
+			return OpenQMP(port, t.QMP, bound)
+		}
+	}
+	c, err := open(t.Port, StartBound)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -186,6 +224,114 @@ func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 		return nil, fmt.Errorf("%s: %w", port, err)
 	}
 	return c, nil
+}
+
+// OpenQMP opens port, resets the board through the QEMU monitor on socket
+// (qmpReset) and waits up to bound for it to transmit, as Open does after its
+// DTR pulse. It never touches a modem line: port is QEMU's -serial pty, and a
+// pseudo-terminal has none.
+func OpenQMP(port, socket string, bound time.Duration) (io.ReadWriteCloser, error) {
+	p, err := openPort(port, 0)
+	if err != nil {
+		return nil, err
+	}
+	c, err := startQMP(p, socket, bound)
+	if err != nil {
+		_ = p.Close()
+		return nil, fmt.Errorf("%s: %w", port, err)
+	}
+	return c, nil
+}
+
+// purgeable is a port whose receive buffer can be emptied.
+type purgeable interface {
+	io.ReadWriteCloser
+	ResetInputBuffer() error
+}
+
+// startQMP is OpenQMP after the open: drop what the old application sent,
+// reset by QMP, then the same first-transmission wait as start.
+func startQMP(p io.ReadWriteCloser, socket string, bound time.Duration) (io.ReadWriteCloser, error) {
+	r, ok := p.(purgeable)
+	if !ok {
+		return nil, errors.New("the port cannot purge its receive buffer")
+	}
+	// Before the reset, not after as start does: qmpReset returns on QEMU's
+	// RESET event, and from then on every byte is the new application's.
+	// What is purged is the old one's, such as the BOOT event it sent when
+	// QEMU started it.
+	if err := r.ResetInputBuffer(); err != nil {
+		return nil, fmt.Errorf("purging the receive buffer: %w", err)
+	}
+	if err := qmpReset(socket, bound); err != nil {
+		return nil, err
+	}
+	return awaitStart(r, bound)
+}
+
+// qmpMessage is one QMP server message: a command's return or error, or an
+// asynchronous event (QEMU's docs/interop/qmp-spec.rst).
+type qmpMessage struct {
+	Return json.RawMessage `json:"return"`
+	Error  *struct {
+		Class string `json:"class"`
+		Desc  string `json:"desc"`
+	} `json:"error"`
+	Event string `json:"event"`
+}
+
+// qmpReset resets the guest of the QEMU whose QMP monitor listens on socket:
+// it reads the greeting, leaves capabilities negotiation with
+// qmp_capabilities, sends system_reset and waits for the RESET event that
+// says the reset happened -- system_reset only requests one. The whole
+// exchange is bounded by bound.
+func qmpReset(socket string, bound time.Duration) error {
+	conn, err := net.DialTimeout("unix", socket, bound)
+	if err != nil {
+		return fmt.Errorf("%s=qmp:%s: %w", ResetEnv, socket, err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.SetDeadline(time.Now().Add(bound)); err != nil {
+		return fmt.Errorf("qmp: %w", err)
+	}
+	dec := json.NewDecoder(conn)
+	var greeting struct {
+		QMP json.RawMessage `json:"QMP"`
+	}
+	if err := dec.Decode(&greeting); err != nil {
+		return fmt.Errorf("qmp: reading the greeting: %w", err)
+	}
+	if greeting.QMP == nil {
+		return fmt.Errorf("%s=qmp:%s: the socket's first message is not a QMP greeting", ResetEnv, socket)
+	}
+	reset := false
+	for _, cmd := range []string{"qmp_capabilities", "system_reset"} {
+		if _, err := fmt.Fprintf(conn, "{\"execute\":%q}\n", cmd); err != nil {
+			return fmt.Errorf("qmp %s: %w", cmd, err)
+		}
+		for answered := false; !answered; {
+			var m qmpMessage
+			if err := dec.Decode(&m); err != nil {
+				return fmt.Errorf("qmp %s: %w", cmd, err)
+			}
+			switch {
+			case m.Error != nil:
+				return fmt.Errorf("qmp %s: %s: %s", cmd, m.Error.Class, m.Error.Desc)
+			case m.Return != nil:
+				answered = true
+			case m.Event == "RESET" && cmd == "system_reset":
+				reset = true // QEMU may emit it before the return
+			}
+		}
+	}
+	for !reset {
+		var m qmpMessage
+		if err := dec.Decode(&m); err != nil {
+			return fmt.Errorf("qmp: waiting for the RESET event: %w", err)
+		}
+		reset = m.Event == "RESET"
+	}
+	return nil
 }
 
 // ResetPulse is how long DTR is held off before it is asserted again.

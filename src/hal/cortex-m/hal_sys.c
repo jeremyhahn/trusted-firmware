@@ -11,7 +11,7 @@
 
 extern uint32_t __heap_start;
 
-/* The clocks are the SoC's at reset on the first part: QEMU's mps2-tz runs
+/* The clocks are the SoC's at reset on the first part: QEMU's mps2 runs
  * the core and the APB at TFW_CM_CPU_HZ with nothing to program. A part with
  * a clock tree sets it up in its SoC file before this returns. */
 tfw_status_t tfw_hal_init(void)

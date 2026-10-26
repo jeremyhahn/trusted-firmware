@@ -11,10 +11,13 @@
 # outside CI is built for it.
 ARCH           := cortex-m
 CPU            := cortex-m33
-SOC            := mps2-tz
+SOC            := mps2
 
 # The machine integration-test-cortex-m starts (mk/arch/cortex-m-targets.mk).
 QEMU_MACHINE   := mps2-an505
+# UART0's base, TFW_MPS2_UART0_BASE in board_profile.h: a failed wire row's
+# dump reads its STATE, CTRL and INTSTATUS (qmp_regs.py).
+QEMU_UART      := 0x40200000
 
 # The core clock, TFW_CM_CPU_HZ in board_profile.h. The build does not read it
 # (the clock is the header's); the provenance manifest's f_cpu_hz does.
@@ -26,20 +29,30 @@ F_CPU          := 20000000
 #   0x10000000  SSRAM-0, 4 MiB   tfw-boot's 32 KiB region at its base, where
 #                                the IoT Kit's INITSVTOR0 points the reset
 #   0x38000000  SSRAM-1 and -2,  the application slot at the base, 128 KiB of
-#               4 MiB together   code; the platform block in the last 4 KiB
+#               4 MiB together   code; the image store; the platform block in
+#                                the last 4 KiB. Two slots (BOOT_AB=1): the
+#                                table in board_profile.h
 #   0x30000000  internal SRAM,   .data, .bss, the stack, the reset marker and
 #               32 KiB           the handoff block at the top (RAM_END)
 #
 # The code regions are RAM that QEMU loads from the ELF files, so a write
 # "to flash" is a store. QEMU copies the loaded images in again on every system
-# reset, so only a store outside them (the platform block) survives a reset,
-# and none survives a new QEMU.
+# reset, so only a store outside them (the platform block, the image store)
+# survives a reset, and none survives a new QEMU.
 FLASH_BUDGET   := 131072
 RAM_BUDGET     := 16384
 FLASH_TOTAL    := 4194304
 RAM_TOTAL      := 32768
 
-APP_BASE       := 0x38000000
+
+# One application slot, or two by swap-move (BOOT_AB=1), as on the 2560:
+# mk/boot.mk's A/B rows. The slots are board data in board_profile.h, chosen by
+# TFW_CM_AB; the application links at the slot it runs from, the primary.
+BOOT_AB          ?= 0
+BOOT_AB_OPTIONAL := 1
+BOARD_DEFS        = $(if $(filter 1,$(BOOT_AB)),-DTFW_CM_AB=1) $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
+                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1)
+APP_BASE         := $(if $(filter 1,$(BOOT_AB)),0x38040000,0x38000000)
 RAM_BASE       := 0x30000000
 RAM_END        := 0x30007FFF
 
@@ -58,3 +71,25 @@ BOOT_BUDGET    := 32768
 # The soft root only: no element on this board, and P-256 in software for the
 # image signature (mk/boot.mk's BOOT_SUPPORTED row).
 BOARD_TIERS    := soft
+
+# I2C over the shield 0 SBCon (src/hal/cortex-m/mps2/hal_bus.c), off by
+# default: QEMU puts no device on the bus. I2C=1 turns TFW_FEATURE_I2C on
+# (TFW_CM_I2C in board_profile.h) and links the bus; the row builds the element
+# tier with it, measured by size-check as every row is. Not a supported tier:
+# no element has been on this board's bus. QEMU has no element either, so the
+# QEMU I2C wire row boots the soft tier with I2C=1: soft:I2C=1 builds that
+# image, so size-check measures the image the wire row runs.
+#
+# SPI over the shield 0 PL022 (the same hal_bus.c), off by default for the same
+# reason. SPI=1 turns TFW_FEATURE_SPI on (TFW_CM_SPI in board_profile.h) and
+# links the bus; SPI_XFER's select is pin 2, the FPGA I/O block's MISC bit 8
+# (board.c). The soft:SPI=1 row builds it and size-check measures it.
+I2C               ?= 0
+SPI               ?= 0
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI)
+BOARD_ROWS        := atecc608a:I2C=1 soft:I2C=1 soft:SPI=1
+
+# The image store: memory in the code bank that the reset leaves alone, the
+# span in board_profile.h (src/store/mem.c). The stager is linked where an image
+# asks for it (OTA_STAGE=1); tfw-boot reads the store in its BOOT_STORE row.
+OTA_STORE      := mem

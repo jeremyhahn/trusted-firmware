@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * tfw-boot's UART on mps2-tz: UART0, the CMSDK APB UART the application drives
- * (src/hal/cortex-m/mps2-tz/hal_uart.c), polled. boot/boot_hal.h says why the
+ * tfw-boot's UART on mps2: UART0, the CMSDK APB UART the application drives
+ * (src/hal/cortex-m/mps2/hal_uart.c), polled. boot/boot_hal.h says why the
  * bootloader polls; here it also means tfw-boot enables no interrupt at all,
  * so its vector table holds no live entry the application could inherit.
  */
@@ -12,7 +12,7 @@
 #include "tfw/config.h"
 #include "../../../boot_hal.h"
 #include "../boot_soc.h"
-#include "mps2-tz/soc_regs.h"
+#include "mps2/soc_regs.h"
 
 void tfw_boot_uart_init(uint32_t baud)
 {

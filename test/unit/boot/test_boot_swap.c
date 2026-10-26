@@ -210,6 +210,18 @@ void tfw_boot_platform_store(const tfw_boot_platform_t *p)
     stores++;
 }
 
+/* The block's flags byte as boot_store.c keeps it: a plain store leaves it,
+ * store_flags writes it in the same block write. */
+static uint8_t stored_flags;
+
+void tfw_boot_platform_store_flags(const tfw_boot_platform_t *p, uint8_t flags)
+{
+    if (stores_left != 0u) {
+        stored_flags = flags;
+    }
+    tfw_boot_platform_store(p);
+}
+
 /* The stage has copied B into the secondary and left it PENDING. */
 static void pending(void)
 {
@@ -276,6 +288,23 @@ static void test_a_failed_trial_swaps_back_and_boots_a(void)
     TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, stored.ota_state);
     assert_slots(img_a, img_b);
     TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());   /* and stays */
+    assert_slots(img_a, img_b);
+}
+
+/* The unconfirmed trial's fall-back clears the block's REFUSED in the write
+ * that stores FAILED, whatever the byte held before: OTA_INFO then reads fell
+ * back alone, not refused (docs/ota/api.md, ADR decision 8). #203's QEMU
+ * rollback read 0x03 off a block whose byte was left erased. */
+static void test_a_failed_trial_clears_refused_in_its_fall_back(void)
+{
+    pending();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_swap_take(&plat, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_arm(&plat));
+    tfw_boot_platform_store(&plat);
+    stored_flags = 0xFFu;
+    TEST_ASSERT_EQUAL(TFW_BOOT_RESET_BOOT, reset());
+    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_OTA_FAILED, stored.ota_state);
+    TEST_ASSERT_EQUAL_HEX8(0u, stored_flags);
     assert_slots(img_a, img_b);
 }
 
@@ -1114,6 +1143,7 @@ int main(void)
     RUN_TEST(test_a_boot_resumes_a_swap_cut_in_each_phase);
     RUN_TEST(test_a_confirmed_trial_keeps_the_swap);
     RUN_TEST(test_a_failed_trial_swaps_back_and_boots_a);
+    RUN_TEST(test_a_failed_trial_clears_refused_in_its_fall_back);
     RUN_TEST(test_a_fall_back_cut_short_is_finished_at_the_next_boot);
     RUN_TEST(test_an_image_refused_after_the_swap_swaps_back);
     RUN_TEST(test_no_fall_back_without_a_swap);

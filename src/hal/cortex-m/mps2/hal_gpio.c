@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * Digital pins on mps2-tz: the FPGA I/O block's LED register, port index 0
- * in the board's table (boards/mps2-an505/board.c), bit n user LED n.
+ * Digital pins on mps2: the FPGA I/O block's LED register, port index 0
+ * in the board's table (boards/mps2-an505/board.c, boards/mps2-an500/board.c),
+ * bit n user LED n.
  *
  * The LEDs are outputs and nothing else, so an input mode is refused with
  * TFW_ERR_UNSUPPORTED rather than accepted and ignored, and a read returns

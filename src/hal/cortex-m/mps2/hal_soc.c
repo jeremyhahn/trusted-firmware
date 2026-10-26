@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The mps2-tz SoC's half of what both images share (src/hal/cortex-m/
- * hal_early.h): the Secure CMSDK watchdog. tfw-boot links this file as well
+ * The mps2 SoC's half of what both images share (src/hal/cortex-m/
+ * hal_early.h): the CMSDK watchdog (the IoT Kit's Secure one on the AN505,
+ * the APB one on the AN500). tfw-boot links this file as well
  * (mk/boot.mk), so disarm, arm and pet exist once.
  *
  * The watchdog counts LOAD down at the APB clock. At zero it raises its

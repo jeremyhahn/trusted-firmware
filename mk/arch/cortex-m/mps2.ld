@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The mps2-tz SoC's images, application and tfw-boot alike (#161).
+ * The mps2 SoC's images, application and tfw-boot alike, on the AN505
+ * (Cortex-M33, #161) and the AN500 (Cortex-M7). Nothing here is TrustZone's:
+ * the script places sections at the addresses it is given, so the two images'
+ * different memory maps are their profiles' alone.
  *
  * No MEMORY block and no address: mk/arch/cortex-m.mk passes every one as a
  * symbol from the board's profile.mk, so this file cannot disagree with it.
@@ -9,6 +12,7 @@
  *   __tfw_text_base, __tfw_text_size  the image's code region: the app slot,
  *                                     or tfw-boot's region
  *   __tfw_ram_base                    the SRAM bank .data and .bss start in
+ *   __tfw_faultframe                  the 12-byte fault record, below
  *   __tfw_resetmark                   the reset marker, 4 bytes below
  *   __tfw_handoff                     the 112-byte CDI handoff block, at
  *                                     RAM_END - 111 in both images
@@ -88,6 +92,11 @@ SECTIONS
     .resetmark __tfw_resetmark (NOLOAD) :
     {
         KEEP(*(.resetmark))
+    }
+
+    .faultframe __tfw_faultframe (NOLOAD) :
+    {
+        KEEP(*(.faultframe))
     }
 
     .handoff __tfw_handoff (NOLOAD) :

@@ -96,8 +96,12 @@ void tfw_boot_handoff_read(uint8_t *buf, uint8_t len)
 
 /* ------------------------------------------------------------- control */
 
+/* The first boot-HAL call main() makes, before the platform block is read:
+ * on a two-slot board the factory copies go in here while their homes are
+ * blank (boot_factory.c); elsewhere the call is empty and LTO drops it. */
 tfw_reset_cause_t tfw_boot_reset_cause(void)
 {
+    tfw_cm_boot_factory();
     return tfw_hal_early_reset_cause();
 }
 
@@ -129,7 +133,7 @@ void tfw_boot_reset(void)
 }
 
 /* The SoC's watchdog, at the period src/hal/cortex-m/<soc>/hal_soc.c states:
- * on mps2-tz the reset lands 8 s after the last pet, AVR's longest period. */
+ * on mps2 the reset lands 8 s after the last pet, AVR's longest period. */
 void tfw_boot_watchdog_arm(void)
 {
     tfw_cm_soc_watchdog_arm();

@@ -689,10 +689,11 @@ jobs:
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "$CROSS_ARCH_SCRIPT"
 
       # CUSTOMIZE (trusted-firmware): the Cortex-M port (#161) on QEMU's
-      # mps2-an505, in the toolchain image, which carries the Arm toolchain and
-      # QEMU (docker/packages.txt). The application, then tfw-boot's one row on
-      # that board -- P-256 verified in software, never BOOT_SIG=none (m453) --
-      # then the suite that boots both: a signed image answers across a reset,
+      # mps2-an505 (Cortex-M33) and mps2-an500 (Cortex-M7), in the toolchain
+      # image, which carries the Arm toolchain and QEMU (docker/packages.txt).
+      # Per board the application, then tfw-boot's one row on that board --
+      # P-256 verified in software, never BOOT_SIG=none (m453) -- then the
+      # suite that boots both on each: a signed image answers across a reset,
       # a tampered one and another key's stay silent.
       - name: make firmware BOARD=mps2-an505 (toolchain image)
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
@@ -704,9 +705,26 @@ jobs:
           scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make bootloader BOARD=mps2-an505
           BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
 
+      - name: make firmware BOARD=mps2-an500 (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=mps2-an500 CRYPTO=soft
+
+      - name: make bootloader BOARD=mps2-an500 (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: >-
+          scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make bootloader BOARD=mps2-an500
+          BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
+
       - name: make integration-test-cortex-m (toolchain image)
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make integration-test-cortex-m
+
+      # The tfwctl wire suite on both QEMU boards, through a pty and a QMP
+      # reset (#163); its own step so a red wire row names itself apart from
+      # a red boot.
+      - name: make integration-test-cortex-m-wire (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make integration-test-cortex-m-wire
 
       # CUSTOMIZE (trusted-firmware, owner m751 (d)): the test stage, sdk/go
       # under -race, make security with deps-check, and the ESP32 stages are

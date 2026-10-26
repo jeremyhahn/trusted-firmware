@@ -28,22 +28,33 @@
 #include "tfw/types.h"
 #include "cm_regs.h"
 #include "hal_early.h"
+#include "hal_fault_frame.h"
 
-extern uint32_t __stack;
+extern uint32_t __stack, __tfw_ram_base;
 extern uint32_t __data_load_start, __data_start, __data_end;
 extern uint32_t __bss_start, __bss_end;
 
 int main(void);
 _Noreturn void tfw_cm_reset(void);
+_Noreturn void tfw_cm_fault_save(uintptr_t sp);
+static _Noreturn void reset_marked(uint32_t mark);
 
 /* Pinned to __tfw_resetmark by the linker script, and in a NOLOAD section of
  * its own, so neither image's .bss clear nor its .data copy touches it. */
 volatile uint32_t tfw_cm_reset_mark __attribute__((section(".resetmark")));
 
+/* The fault record (hal_fault_frame.h), pinned to __tfw_faultframe the same
+ * way. The reset handler leaves it alone: it outlives the fault's reset for
+ * a debugger to read. */
+volatile uint32_t tfw_cm_fault_frame[TFW_CM_FAULT_WORDS]
+    __attribute__((section(".faultframe")));
+
 static tfw_reset_cause_t latched;
 
-/* An exception or interrupt nothing handles parks the core here. A watchdog,
- * if one is armed, then resets it, and the marker says so. */
+/* An exception or interrupt nothing handles parks the core here; a fault
+ * does not (tfw_cm_fault). A watchdog, if one is armed, then resets it, and
+ * the marker says so: the NMI is the watchdog's first expiry, and parking in
+ * it leaves the second expiry to reset the core with the watchdog's marker. */
 void tfw_cm_unhandled(void);
 void tfw_cm_unhandled(void)
 {
@@ -54,7 +65,7 @@ void tfw_cm_unhandled(void)
  * table needs no knowledge of which files are linked: SysTick_Handler is
  * hal_tick.c's in the application and absent from tfw-boot, which polls.
  * tfw_cm_irq<n> is external interrupt n, defined by the SoC's file that drives
- * it (src/hal/cortex-m/mps2-tz/hal_uart.c defines the UART's). */
+ * it (src/hal/cortex-m/mps2/hal_uart.c defines the UART's). */
 #define TFW_CM_WEAK(name) void name(void) __attribute__((weak, alias("tfw_cm_unhandled")));
 
 TFW_CM_WEAK(SysTick_Handler)
@@ -87,9 +98,9 @@ TFW_CM_WEAK(tfw_cm_irq75) TFW_CM_WEAK(tfw_cm_irq76) TFW_CM_WEAK(tfw_cm_irq77)
 TFW_CM_WEAK(tfw_cm_irq78) TFW_CM_WEAK(tfw_cm_irq79)
 
 /* Sixteen core exceptions and the first 80 external interrupts: every source
- * a SoC this port supports uses (mps2-tz's UART0 is 32 and 33, the i.MX 95
- * M7's LPUART3 64). 96 words, so the table's 512-byte alignment for VTOR is
- * the region base's. */
+ * a SoC this port supports uses (the AN505's UART0 is 32 and 33, the AN500's 0
+ * and 1, the i.MX 95 M7's LPUART3 64). 96 words, so the table's 512-byte
+ * alignment for VTOR is the region base's. */
 #define TFW_CM_IRQ_COUNT 80u
 typedef void (*tfw_cm_vector_t)(void);
 
@@ -98,8 +109,11 @@ const tfw_cm_vector_t tfw_cm_vectors[16u + TFW_CM_IRQ_COUNT]
     (tfw_cm_vector_t)(uintptr_t)&__stack,   /* 0: the initial stack pointer */
     tfw_cm_reset,                           /* 1: reset */
     tfw_cm_unhandled,                       /* 2: NMI (the watchdog's first expiry) */
-    tfw_cm_unhandled,                       /* 3: HardFault */
-    tfw_cm_unhandled, tfw_cm_unhandled, tfw_cm_unhandled, tfw_cm_unhandled,
+    tfw_cm_fault,                           /* 3: HardFault */
+    tfw_cm_fault,                           /* 4: MemManage */
+    tfw_cm_fault,                           /* 5: BusFault */
+    tfw_cm_fault,                           /* 6: UsageFault */
+    tfw_cm_unhandled,                       /* 7: SecureFault (ARMv8-M) */
     0, 0, 0,                                /* 8-10: reserved */
     tfw_cm_unhandled,                       /* 11: SVCall */
     tfw_cm_unhandled,                       /* 12: DebugMonitor */
@@ -128,15 +142,6 @@ const tfw_cm_vector_t tfw_cm_vectors[16u + TFW_CM_IRQ_COUNT]
     tfw_cm_irq76, tfw_cm_irq77, tfw_cm_irq78, tfw_cm_irq79,
 };
 
-static tfw_reset_cause_t decode(uint32_t mark)
-{
-    switch (mark) {
-    case TFW_CM_MARK_WATCHDOG: return TFW_RESET_WATCHDOG;
-    case TFW_CM_MARK_RESETREQ: return TFW_RESET_UNKNOWN;
-    default:                   return TFW_RESET_POWER_ON;
-    }
-}
-
 _Noreturn void tfw_cm_reset(void)
 {
     uint32_t  mark = tfw_cm_reset_mark;
@@ -160,7 +165,7 @@ _Noreturn void tfw_cm_reset(void)
         *dst++ = 0u;
     }
 
-    latched = decode(mark);
+    latched = tfw_cm_reset_decode(mark);
     (void)main();
     for (;;) { }
 }
@@ -172,8 +177,46 @@ tfw_reset_cause_t tfw_hal_early_reset_cause(void)
 
 _Noreturn void tfw_cm_system_reset(void)
 {
+    reset_marked(TFW_CM_MARK_RESETREQ);
+}
+
+/*/* A fault is the image's fatal error. MemManage, BusFault and UsageFault
+ * escalate to HardFault while SHCSR leaves them disabled, as both images do,
+ * and their vectors come here too for the image that enables one. The core
+ * is reset at once with the panic marker, rather than parked: SYS_INFO then
+ * says TFW_RESET_PANIC, and a trial image that faults ends its trial at the
+ * reset instead of at the watchdog's bite. A reset from handler mode is
+ * allowed: AIRCR takes a privileged write at any priority (ARMv7-M ARM DDI
+ * 0403E, B3.2.6).
+ *
+ * Naked, so the stack pointer it hands on is the one the core stacked the
+ * faulting frame on, untouched by a prologue: EXC_RETURN in LR says which,
+ * bit 2 (SPSEL) clear for the main stack and set for the process stack
+ * (DDI 0403E, B1.5.8). Basic asm only, as GCC requires in a naked function. */
+__attribute__((naked)) void tfw_cm_fault(void)
+{
+    __asm__ volatile (
+        "tst lr, #4\n\t"
+        "ite eq\n\t"
+        "mrseq r0, msp\n\t"
+        "mrsne r0, psp\n\t"
+        "b tfw_cm_fault_save\n\t");
+}
+
+/* Keeps the faulting frame's PC, LR and xPSR in the record (hal_fault_frame.h)
+ * and resets with the panic marker. Named only from tfw_cm_fault's asm, which
+ * LTO cannot see: used and externally_visible keep it, and its name. */
+__attribute__((used, externally_visible)) _Noreturn void tfw_cm_fault_save(uintptr_t sp)
+{
+    tfw_cm_fault_keep(tfw_cm_fault_frame, sp, (uintptr_t)&__tfw_ram_base,
+                      (uintptr_t)&__stack);
+    reset_marked(TFW_CM_MARK_PANIC);
+}
+
+static _Noreturn void reset_marked(uint32_t mark)
+{
     tfw_cm_irq_off();
-    tfw_cm_reset_mark = TFW_CM_MARK_RESETREQ;
+    tfw_cm_reset_mark = mark;
     tfw_cm_dsb();
     TFW_CM_AIRCR = TFW_CM_AIRCR_VECTKEY | TFW_CM_AIRCR_SYSRESETREQ;
     tfw_cm_dsb();

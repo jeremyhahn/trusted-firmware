@@ -4,7 +4,7 @@
  * The i.MX 95's ADC is not this port's yet: the board has no channel
  * (TFW_ADC_COUNT 0) and every read is out of range. main() calls
  * tfw_hal_adc_init on every board, so it exists and succeeds, as on
- * mps2-tz (src/hal/cortex-m/mps2-tz/hal_adc.c).
+ * mps2-tz (src/hal/cortex-m/mps2/hal_adc.c).
  */
 
 #include <stdint.h>

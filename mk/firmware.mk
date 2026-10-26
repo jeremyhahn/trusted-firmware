@@ -33,7 +33,7 @@ HAL_DIR := src/hal/$(ARCH)
 
 # An architecture that spans more than one family of parts keeps its core in
 # HAL_DIR and each SoC's peripherals in a directory under it, named by the
-# profile's SOC (src/hal/cortex-m/mps2-tz/). Its files join the same wildcard
+# profile's SOC (src/hal/cortex-m/mps2/). Its files join the same wildcard
 # and the same optional list, so a SoC file is selected exactly as a core one
 # is. hal_src names the SoC's copy of a module when it has one, else the
 # core's. Empty on a board that names no SOC: nothing changes there.
@@ -63,7 +63,11 @@ hal_src = $(or $(if $(HAL_SOC_DIR),$(wildcard $(HAL_SOC_DIR)/$(1))),$(HAL_DIR)/$
 # anchors the value so TFW_FEATURE_I2C 0 cannot be read out of something longer.
 profile_says = $(shell grep -Eq '^[[:space:]]*#[[:space:]]*define[[:space:]]+$(1)[[:space:]]+$(2)[[:space:]]*(/\*.*)?$$' \
                        $(BOARD_DIR)/board_profile.h && echo 1)
-feature_off  = $(call profile_says,TFW_FEATURE_$(1),0)
+#
+# A board whose profile turns a feature on only for a named row (mps2-an505's
+# I2C=1) lists it in BOARD_FEATURES_ON from profile.mk, beside the -D that
+# board_profile.h tests; its #else still says 0, which the grep would read.
+feature_off  = $(if $(filter $(1),$(BOARD_FEATURES_ON)),,$(call profile_says,TFW_FEATURE_$(1),0))
 
 TONE_SRCS := $(if $(call feature_off,TONE),,src/caps/tone.c $(call hal_src,hal_tone.c))
 
@@ -94,7 +98,10 @@ BUS_OFF  := $(and $(call feature_off,I2C),$(call feature_off,SPI),$(call feature
 # as everywhere else): bus.c provides it when any bus is on, and bus_none.c --
 # a no-op -- provides the same symbol when BUS_OFF, so exactly one is always
 # linked. Mirrors how CRYPTO_SRCS gives every tier its own tfw_crypto_init().
-BUS_SRCS := $(if $(BUS_OFF),src/caps/bus_none.c,src/caps/bus.c $(call hal_src,hal_bus.c))
+# An architecture whose bus driver sits over a register file of its own names it
+# in ARCH_BUS_SRCS (the MPS2 SBCon, mk/arch/cortex-m.mk), and lists it in
+# ARCH_HAL_OPTIONAL so it goes with hal_bus.c.
+BUS_SRCS := $(if $(BUS_OFF),src/caps/bus_none.c,src/caps/bus.c $(call hal_src,hal_bus.c) $(ARCH_BUS_SRCS))
 # bus.c asks tfw_bus_i2c_held() which addresses a linked driver holds
 # (src/caps/bus.h). The OPTIGA Trust M transport answers for its own when the
 # crypto tier carries it; bus_held_none.c answers for every other build. Exactly
@@ -376,13 +383,21 @@ endif
 ifeq ($(wildcard src/store/$(OTA_STORE).c),)
 $(error unknown OTA_STORE "$(OTA_STORE)" -- expected one of: $(basename $(notdir $(wildcard src/store/*.c))))
 endif
-STAGE_SRCS := src/core/ota_stage.c src/store/$(OTA_STORE).c src/crypto/sha256.c $(HAL_DIR)/hal_bus.c
+STAGE_SRCS := src/core/ota_stage.c src/store/$(OTA_STORE).c src/crypto/sha256.c
+# A store on a bus needs the bus; the memory store (OTA_STORE := mem, the MPS2
+# boards) has none, and its architecture no hal_bus.c to link.
+ifneq ($(OTA_STORE),mem)
+STAGE_SRCS += $(HAL_DIR)/hal_bus.c
+endif
 # OTA_BEGIN backs the running image up to PREV where the fallback is the store
-# (the 328P and 32U4, #52); the 2560 falls back to its other slot.
+# (the 328P, the 32U4 and the MPS2 boards, #52); the 2560 falls back to its
+# other slot, as an MPS2 board built with BOOT_AB=1 does. The MPS2 boards have
+# no EEPROM: their platform block is tfw-boot's, in the code bank, and their
+# hal_eeprom.c writes only past it (OTA_CONFIRM's request).
 ifeq ($(BOOT_AB),1)
 STAGE_SRCS += src/core/ota_prev_none.c
 else
-STAGE_SRCS += src/core/ota_prev.c $(HAL_DIR)/hal_eeprom.c
+STAGE_SRCS += src/core/ota_prev.c $(wildcard $(HAL_DIR)/hal_eeprom.c)
 endif
 # OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
 # single-slot board without it could never install what it staged.
@@ -404,9 +419,18 @@ STAGE_SUFFIX := $(if $(ARCH_OTA_SRCS),,$(if $(filter 1,$(OTA_STAGE)),$(if $(filt
 # the path names each where the tier links it and it is not the default.
 ID_SUFFIX := $(if $(filter $(SOFT_ID_SRCS),$(CRYPTO_SRCS)),$(if $(filter-out $(SOFT_ID_DEFAULT),$(SOFT_ID)),-$(SOFT_ID)))$(if $(and $(filter src/third_party/micro-ecc/uECC.c,$(CRYPTO_SRCS)),$(filter-out 0,$(UECC_OPT))),-uecc$(UECC_OPT))
 
+# Likewise -ab, only on a board where two slots are a choice (BOOT_AB_OPTIONAL
+# in profile.mk, the MPS2 boards); the 2560 always has two and keeps its paths.
+# mk/boot.mk names tfw-boot's directory with it too.
+AB_SUFFIX := $(if $(BOOT_AB_OPTIONAL),$(if $(filter 1,$(BOOT_AB)),-ab))
+# And a bus a board turns on only for a named row (BOARD_FEATURES_ON in
+# profile.mk: the MPS2 boards' soft:I2C=1 and soft:SPI=1), as -i2c and -spi.
+ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),$(foreach f,$(shell printf '%s' \
+                      '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z),-$(f)))
+
 # Every make variable that changes the image's objects names the directory, and
 # only where it differs from its default, so every default image keeps its path.
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(AB_SUFFIX)$(ROW_FEATURE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The row, for the bench images that compile with FW_CFLAGS in a directory of
@@ -423,6 +447,11 @@ FW_ROW_SUFFIX := $(if $(filter command environment override,$(foreach v,$(FW_ROW
 # is the project's, and the same on every architecture, is the warning set and
 # the reproducibility flags below.
 #
+# The include path is named once, because board-sweep preprocesses the
+# stager's sources with it: a file that finds its header only under a host
+# build's wider path (src/store/mem.c and -Isrc/core) fails there, not in QEMU.
+FW_INCLUDES := -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(HAL_DIR) -I$(BOARD_DIR)
+
 # The reproducibility flags are NOT optional. FWHash is signed evidence, so a
 # verifier needs a golden measurement computable from source -- which requires
 # that the same source produce the same bytes on any machine. -ffile-prefix-map
@@ -432,9 +461,9 @@ FW_CFLAGS := -std=c11 $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
              -Wall -Wextra -Werror -Wconversion -Wshadow \
              -Wpointer-arith -Wcast-qual -Wstrict-prototypes \
              -ffile-prefix-map=$(CURDIR)=. \
-             -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -I$(HAL_DIR) -I$(BOARD_DIR) \
+             $(FW_INCLUDES) \
              -DTFW_BOARD_HEADER='"board_profile.h"' $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) \
-             $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS)
+             $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS) $(BOARD_DEFS)
 
 # The CDI handoff block's placement is the architecture's: see
 # ARCH_FW_PLACEMENT_LDFLAGS, which is empty on a board with no RAM_END.
@@ -463,7 +492,8 @@ endif
 # its OTA is wired to the wire) takes no request either, so RESET(1) is
 # refused rather than quietly behaving as a soft reset.
 # The one trial's application half (#77), only on a board whose tfw-boot can
-# write TRIAL: the A/B part (BOOT_AB in profile.mk, the 2560). The 328P and
+# write TRIAL: the A/B part (BOOT_AB in profile.mk, the 2560, and an MPS2
+# board built with BOOT_AB=1). The 328P and
 # 32U4 boots have no OTA and no restore yet, so there it would be dead code
 # over their flash budget; they and every other board link the stub. An
 # architecture whose update path is its own (ARCH_OTA_SRCS, ESP-IDF's) runs
@@ -663,6 +693,18 @@ board-eth-chip:
 firmware-srcs:
 	@echo $(FW_SRCS) $(APP_SRCS)
 
+## firmware-includes: print the include path every firmware object compiles with (used by board-sweep)
+firmware-includes:
+	@echo $(FW_INCLUDES)
+
+## board-ota-store: print the image store BOARD names, or nothing (used by board-sweep)
+board-ota-store:
+	@echo $(OTA_STORE)
+
+## stage-srcs: print the stager's sources for BOARD/CRYPTO/OTA_STAGE (used by board-sweep)
+stage-srcs:
+	@echo $(STAGE_SRCS)
+
 ## provision-backend: print "none" when BOARD/CRYPTO has no provisioning backend, else "yes" (used by prov-absent-check)
 provision-backend:
 	@echo $(or $(PROV_BACKEND),yes)
@@ -682,7 +724,8 @@ firmware-matrix-list:
 	  done; \
 	done
 
-.PHONY: board-tiers board-rows board-eth-chip feature-defs firmware-dir firmware-srcs firmware-matrix-list provision-backend
+.PHONY: board-tiers board-rows board-eth-chip board-ota-store feature-defs firmware-dir \
+        firmware-srcs firmware-includes stage-srcs firmware-matrix-list provision-backend
 
 firmware-matrix:
 	@fail=0; n=0; \

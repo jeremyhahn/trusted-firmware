@@ -13,15 +13,16 @@ bring-up and for `make hw-test` (below), never for a gate.
 |---|---|---|---|
 | 1 — unit | `make host-test` | x86-64, mock HAL | logic: framing, dispatch, bounds, the scheduler's rollover |
 | 2 — emulated | `make integration-test-simavr` | the real `.elf` under simavr | register-level behaviour: baud divisor, interrupt vectors, peripheral bring-up order, tick rate |
-| 2 — emulated, Cortex-M | `make integration-test-cortex-m` | the real tfw-boot and application images under QEMU `mps2-an505` | the Cortex-M port's vector table, reset and handoff; tfw-boot's P-256 verify refusing a tampered image and a foreign key on a 32-bit core (#161) |
+| 2 — emulated, Cortex-M | `make integration-test-cortex-m`, `make integration-test-cortex-m-wire` | the real tfw-boot and application images under QEMU `mps2-an505` and `mps2-an500` | the Cortex-M port's vector table, reset and handoff; tfw-boot's P-256 verify refusing a tampered image and a foreign key on a 32-bit core (#161) |
 | 3 — integrity | `make lint size-check reproducible-check` | the build itself | drift: flash/SRAM budgets, byte-for-byte reproducibility, out-of-whitelist `#if` |
 | 4 — cost (not a gate) | `make bench-check` | the real `.elf` under simavr | drift in TIME: cycles per decoded byte, per scheduler sweep, per tick interrupt, and the round-trip latency |
 
 `make ci` runs tiers 1 to 3 plus the sanitizers and the Go SDK suite. **Tier 4
 is run deliberately and gates nothing** — see `performance.md` for why, and for
-the numbers. The Cortex-M row of tier 2 is not in `make ci`. CI's image job runs
-it as its own step, `make integration-test-cortex-m (toolchain image)`, after
-building the two images it boots (`building.md`, Cortex-M).
+the numbers. The Cortex-M rows of tier 2 are not in `make ci`. CI's image job runs
+them as their own steps, `make integration-test-cortex-m (toolchain image)` and
+`make integration-test-cortex-m-wire (toolchain image)`, after building each
+board's two images (`building.md`, Cortex-M).
 
 ## The five CI stages
 
@@ -133,6 +134,38 @@ has no answer yet.
 | `test/integration/simavr/harness.c`, the tick check | 1 s of emulated clock | the millisecond tick ISR's count across exactly one second is the measurement |
 | `test/integration/simavr/bench_harness.c`, the scheduler's firing sweep | 10 ms of emulated clock | the firmware's own tick must carry the millisecond counter past the deadline |
 | `sdk/go/internal/peer/peer.go`, `ResetPulse` | 100 ms of DTR held off | the pulse length is what resets the board; there is no condition to watch |
+
+## Tier 2, Cortex-M — the real images under QEMU
+
+Two commands run the rows, each on `mps2-an505` and then `mps2-an500`:
+
+```sh
+make integration-test-cortex-m
+make integration-test-cortex-m-wire
+```
+
+The first signs the application three ways with
+`test/integration/cortex-m/cm_image.c` and runs
+`test/integration/cortex-m/qemu_test.sh`, which boots each image in its own
+`qemu-system-arm`, with the UART on a Unix socket, and checks it with
+`wirecheck` (`test/integration/esp32/wirecheck`) (#161):
+
+| Row | Image | What must hold |
+|---|---|---|
+| genuine | signed with the provisioned key | CAPS reports the board's id and tier 1, across a soft reset; QEMU is still up |
+| tampered | one bit flipped after signing | tfw-boot refuses it: no PING is answered for the whole window, and QEMU is still up |
+| otherkey | signed with another key | the same as tampered |
+
+The second boots the signed image with its UART on a pty and runs the tfwctl
+wire suite (`make hw-test`) against it, resetting the guest with QMP
+`system_reset` where a board's DTR line would
+(`test/integration/cortex-m/qemu_wire_test.sh`), then the store, two-slot, SPI
+and I2C rows. `docs/cortex-m/README.md` lists every row per board.
+
+No row sleeps: every wait is a bounded one (`CM_WAIT`, default 60 s, for an
+answer; `CM_SILENT`, default 10 s, for a refused image's silence). A missing
+`qemu-system-arm` fails the target with its Debian package's name, and a
+missing Arm toolchain fails the build of the images; nothing skips.
 
 ## Tier 3 — build integrity
 

@@ -20,6 +20,7 @@ func TestBoardIDsAreThePublishedValues(t *testing.T) {
 	assert.Equal(t, BoardID(0x81), BoardESP32QEMU)
 	assert.Equal(t, BoardID(0x40), BoardMPS2AN505)
 	assert.Equal(t, BoardID(0x41), BoardFRDMIMX95M7)
+	assert.Equal(t, BoardID(0x42), BoardMPS2AN500)
 }
 
 func TestBoardIDStringNamesKnownBoards(t *testing.T) {
@@ -33,6 +34,8 @@ func TestBoardIDStringNamesKnownBoards(t *testing.T) {
 	assert.Equal(t, "cortex-m", BoardMPS2AN505.Family())
 	assert.Equal(t, "frdm-imx95-m7", BoardFRDMIMX95M7.String())
 	assert.Equal(t, "cortex-m", BoardFRDMIMX95M7.Family())
+	assert.Equal(t, "mps2-an500", BoardMPS2AN500.String())
+	assert.Equal(t, "cortex-m", BoardMPS2AN500.Family())
 	assert.Equal(t, "esp32/other", BoardESP32P4PoE.Family())
 	assert.Equal(t, "esp32/other", BoardESP32QEMU.Family())
 }

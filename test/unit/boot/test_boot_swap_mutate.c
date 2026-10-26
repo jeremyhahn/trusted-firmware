@@ -56,6 +56,12 @@ void tfw_boot_platform_store(const tfw_boot_platform_t *p)
     (void)p;
 }
 
+void tfw_boot_platform_store_flags(const tfw_boot_platform_t *p, uint8_t flags)
+{
+    (void)flags;   /* the flags byte is test_boot_swap's */
+    tfw_boot_platform_store(p);
+}
+
 tfw_status_t tfw_boot_evaluate_at(uint32_t base, uint32_t floor, tfw_boot_verdict_t *out)
 {
     (void)base;

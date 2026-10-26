@@ -10,8 +10,9 @@
  * copy at primary[i + 1] (b). Every write's source is intact until the step
  * after it, so redoing the step the record names is always safe.
  *
- * A unit is TFW_OTA_PAGE_MAX bytes, one SPM page on the 2560, so a 64 KB slot
- * is 256 units and a step fits one byte. The record is a phase byte and a
+ * A unit is TFW_SWAP_UNIT bytes, one SPM page on the 2560, so a 64 KB slot
+ * is 256 units and a step fits one byte (512 bytes on an MPS2 board's 128 KiB
+ * slot, include/tfw/config.h). The record is a phase byte and a
  * step byte, and every advance rewrites exactly one of them: a reset that
  * tears an EEPROM write leaves the old position or the new one, never a
  * third. That is why sub-steps a and b alternate between two phase values by
@@ -31,7 +32,7 @@
 #include "boot_verify.h"
 #include "crc16.h"
 
-#define UNIT  ((uint16_t)TFW_OTA_PAGE_MAX)
+#define UNIT  ((uint16_t)TFW_SWAP_UNIT)
 #define UNITS ((uint16_t)(TFW_SWAP_SLOT_LEN / UNIT))
 #define PRI   ((uint32_t)TFW_SWAP_PRIMARY_BASE)
 #define SEC   ((uint32_t)TFW_SWAP_SECONDARY_BASE)
@@ -45,13 +46,18 @@
 #define PH_IDLE 0xFFu
 
 _Static_assert(UNITS >= 1u && UNITS <= 256u, "a step must fit the record's byte");
-_Static_assert(SEC >= PRI + TFW_SWAP_SLOT_LEN + TFW_OTA_PAGE_MAX,
+_Static_assert(SEC >= PRI + TFW_SWAP_SLOT_LEN + TFW_SWAP_UNIT,
                "the primary must hold the slot and the move unit");
+_Static_assert(TFW_SWAP_UNIT % 128u == 0u && TFW_SWAP_SLOT_LEN % TFW_SWAP_UNIT == 0u,
+               "a unit is whole 128-byte reads, and a slot whole units");
+/* Below the boot section on the AVR; on an MPS2 board tfw-boot's region is
+ * below both slots, in another bank (boards/mps2-an505/board_profile.h). */
 _Static_assert(SEC + TFW_SWAP_SLOT_LEN <= TFW_APP_WRITE_END
-               && TFW_APP_WRITE_END <= TFW_BOOT_REGION_BASE,
-               "the secondary must be writable, and below the boot section");
+               && (TFW_APP_WRITE_END <= TFW_BOOT_REGION_BASE
+                   || PRI >= TFW_BOOT_REGION_BASE + TFW_BOOT_REGION_SIZE),
+               "the secondary must be writable, and clear of the boot section");
 
-static uint8_t unit[TFW_OTA_PAGE_MAX];
+static uint8_t unit[TFW_SWAP_UNIT];
 
 /*
  * Progress is a journal of two copies at REC, each {phase, step, sequence,
@@ -193,7 +199,10 @@ tfw_status_t tfw_boot_swap(void)
     return st;
 }
 
-tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
+/* `unconfirmed`: the fall-back from a trial left unconfirmed, whose block write
+ * clears TFW_BOOT_EE_FLAG_REFUSED (docs/ota/architecture.md "The fallback
+ * flags"), so OTA_INFO reads fell back alone. A refusal's leaves the byte. */
+static tfw_status_t fall_back(tfw_boot_platform_t *p, uint8_t unconfirmed)
 {
     tfw_status_t st = TFW_ERR_BAD_STATE;
 
@@ -205,10 +214,19 @@ tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
         st = tfw_boot_trial_fall_back(p);
     }
     if (st == TFW_OK) {
-        tfw_boot_platform_store(p);
+        if (unconfirmed != 0u) {
+            tfw_boot_platform_store_flags(p, 0u);
+        } else {
+            tfw_boot_platform_store(p);
+        }
         st = tfw_boot_swap();
     }
     return st;
+}
+
+tfw_status_t tfw_boot_swap_fall_back(tfw_boot_platform_t *p)
+{
+    return fall_back(p, 0u);
 }
 
 /* OTA_CONFIRM's request (include/tfw/boot.h): whole, and naming the image the
@@ -291,7 +309,7 @@ tfw_boot_reset_action_t tfw_boot_swap_at_reset(tfw_boot_platform_t *p,
             act = TFW_BOOT_RESET_BOOT;
         }
     } else if (act == TFW_BOOT_RESET_FAIL) {
-        if (tfw_boot_swap_fall_back(p) == TFW_OK) {
+        if (fall_back(p, 1u) == TFW_OK) {
             act = TFW_BOOT_RESET_BOOT;
         }
     } else if (act == TFW_BOOT_RESET_BOOT) {

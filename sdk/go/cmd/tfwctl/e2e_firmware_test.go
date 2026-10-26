@@ -47,6 +47,9 @@ type peerBoard struct {
 	adcOnly    int            // how many pins are ADC inputs with no digital port
 	tickPin    uint8          // a compare-unit pin whose timer is the millisecond tick
 	noPWMPin   uint8          // a digital pin with no compare unit at all
+	ledPin     uint8          // the pin the board's table flags as its LED
+	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
+	timerPin   uint8          // a digital output the timer scenario drives and reads back
 }
 
 var peerBoards = map[string]peerBoard{
@@ -57,6 +60,7 @@ var peerBoards = map[string]peerBoard{
 		adcPin: 20, adcChannel: 6, adcPort: false, // A6
 		adcOnly: 2,               // A6 and A7
 		tickPin: 5, noPWMPin: 13, // OC0B
+		ledPin: 13, txPin: 1, timerPin: 2,
 	},
 	"atmega2560": {
 		resetCause: tfw.ResetUnknown,
@@ -65,6 +69,26 @@ var peerBoards = map[string]peerBoard{
 		adcPin: 54, adcChannel: 0, adcPort: true,
 		adcOnly: 0,               // every ADC input on the Mega is also a digital pin
 		tickPin: 4, noPWMPin: 22, // OC0B; PA0
+		ledPin: 13, txPin: 1, timerPin: 2,
+	},
+	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
+	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
+	// 1 on the FPGA I/O block's port 0, outputs only, and pin 2 the shield 0
+	// SPI select (MISC, port 1 bit 8), no flags; no ADC, no PWM, and the
+	// UART outside the pin table. QEMU's system_reset leaves no reset mark
+	// behind, so the HAL reads power-on (src/hal/cortex-m/hal_early.c). The
+	// analog, PWM, EEPROM, bus and pulse rows find their families absent from
+	// CAPS and check the board refuses them (cliAbsent); their pin fields
+	// here are never read.
+	"mps2-an505": {
+		resetCause: tfw.ResetPowerOn,
+		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
+		ledPin: 0, txPin: -1, timerPin: 1, // LED1
+	},
+	"mps2-an500": {
+		resetCause: tfw.ResetPowerOn,
+		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
+		ledPin: 0, txPin: -1, timerPin: 1, // LED1
 	},
 }
 
@@ -99,6 +123,21 @@ func cliTier(t *testing.T, dev *tfw.Device) string {
 func cliRefused(t *testing.T, dev *tfw.Device, verb string, args ...string) {
 	t.Helper()
 	_ = cliStatus(t, dev, verb, args...)
+}
+
+// cliAbsent reports whether the board's CAPS lacks feature. When it does, it
+// first checks the board answers verb as an unknown command: the family is
+// compiled out of this image (src/core/commands.def), not present and
+// broken. A row for that family then has nothing more to ask this board,
+// and has still tested it; it is not a skip.
+func cliAbsent(t *testing.T, dev *tfw.Device, feature uint32, verb string, args ...string) bool {
+	t.Helper()
+	if cliCaps(t, dev).Has(feature) {
+		return false
+	}
+	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, dev, verb, args...),
+		"%s: CAPS does not report the family, so the board must not know the command", verb)
+	return true
 }
 
 func cliPin(t *testing.T, dev *tfw.Device, pin uint8) tfw.PinInfo {
@@ -217,37 +256,44 @@ func TestFirmwareSys(t *testing.T) {
 func TestFirmwarePin(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
+	caps := cliCaps(t, dev)
 
-	led := cliPin(t, dev, 13)
-	assert.EqualValues(t, 13, led.Pin, "descriptor echoed the pin")
-	assert.True(t, led.Flags.Has(tfw.PinDigital|tfw.PinLED), "pin 13 flags = %s, want digital and led", led.Flags)
-	assert.True(t, led.HasPort, "pin 13 has a port")
-	assert.Equal(t, b.ledPort, led.Port, "pin 13 port")
-	assert.Equal(t, b.ledBit, led.Bit, "pin 13 bit")
-	assert.False(t, led.HasADC, "pin 13 has no analog channel")
+	led := cliPin(t, dev, b.ledPin)
+	assert.EqualValues(t, b.ledPin, led.Pin, "descriptor echoed the pin")
+	assert.True(t, led.Flags.Has(tfw.PinDigital|tfw.PinLED), "pin %d flags = %s, want digital and led", b.ledPin, led.Flags)
+	assert.True(t, led.HasPort, "pin %d has a port", b.ledPin)
+	assert.Equal(t, b.ledPort, led.Port, "pin %d port", b.ledPin)
+	assert.Equal(t, b.ledBit, led.Bit, "pin %d bit", b.ledPin)
+	assert.False(t, led.HasADC, "pin %d has no analog channel", b.ledPin)
 	// None on the 328P, which has no compare unit there; on the Mega it is
 	// OC0A, spent on the tick.
-	assert.Equal(t, b.ledPWM, led.PWM, "pin 13 pwm")
+	assert.Equal(t, b.ledPWM, led.PWM, "pin %d pwm", b.ledPin)
 
 	// Pin 9 is OC1A on the 328P and OC2B on the Mega; neither timer is the tick.
-	pwm := cliPin(t, dev, 9)
-	assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin 9 pwm")
-	assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin 9 flags = %s, want pwm", pwm.Flags)
+	if caps.Has(tfw.FeaturePWM) {
+		pwm := cliPin(t, dev, 9)
+		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin 9 pwm")
+		assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin 9 flags = %s, want pwm", pwm.Flags)
+	}
 
 	// The 328P's A6 exists as an analog input and has no digital port at all,
 	// which the descriptor must say rather than report port 0 bit 0 -- a pin
 	// that can be read and never written. The Mega's A0 has both.
-	adc := cliPin(t, dev, b.adcPin)
-	assert.Equal(t, b.adcPort, adc.HasPort, "pin %d digital port present", b.adcPin)
-	assert.True(t, adc.HasADC, "pin %d has an adc channel", b.adcPin)
-	assert.Equal(t, b.adcChannel, adc.ADCChannel, "pin %d adc channel", b.adcPin)
-	assert.True(t, adc.Flags.Has(tfw.PinADC), "pin %d flags = %s, want adc", b.adcPin, adc.Flags)
-	assert.Equal(t, b.adcPort, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
+	if caps.Has(tfw.FeatureAnalog) {
+		adc := cliPin(t, dev, b.adcPin)
+		assert.Equal(t, b.adcPort, adc.HasPort, "pin %d digital port present", b.adcPin)
+		assert.True(t, adc.HasADC, "pin %d has an adc channel", b.adcPin)
+		assert.Equal(t, b.adcChannel, adc.ADCChannel, "pin %d adc channel", b.adcPin)
+		assert.True(t, adc.Flags.Has(tfw.PinADC), "pin %d flags = %s, want adc", b.adcPin, adc.Flags)
+		assert.Equal(t, b.adcPort, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
+	}
 
 	// The UART pins are in use by this build; a host must be able to see that
 	// before it drives one and cuts the line it is talking over.
-	tx := cliPin(t, dev, 1)
-	assert.True(t, tx.Flags.Has(tfw.PinInUse), "pin 1 flags = %s, want in-use", tx.Flags)
+	if b.txPin >= 0 {
+		tx := cliPin(t, dev, uint8(b.txPin))
+		assert.True(t, tx.Flags.Has(tfw.PinInUse), "pin %d flags = %s, want in-use", b.txPin, tx.Flags)
+	}
 
 	assert.Equal(t, tfw.StatusErrBadPin, cliStatus(t, dev, "pin", "200"), "a pin off the end of the board")
 }
@@ -255,8 +301,10 @@ func TestFirmwarePin(t *testing.T) {
 func TestFirmwareWrite(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
-	// Pin 1 is the transmit line this conversation is happening over.
-	cliRefused(t, dev, "write", "1", "1")
+	// The transmit line this conversation is happening over.
+	if b.txPin >= 0 {
+		cliRefused(t, dev, "write", strconv.Itoa(b.txPin), "1")
+	}
 
 	// Every pin the device describes as an ADC input with no digital port
 	// (the 328P's A6 and A7) must refuse to be driven. The count is the
@@ -277,29 +325,31 @@ func TestFirmwareWrite(t *testing.T) {
 // The device, not the host, reverts a held pin: armed, then queried, then left
 // to expire with the host doing nothing but asking.
 func TestFirmwareTimer(t *testing.T) {
+	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
 	var st tfw.TimerState
+	pin := strconv.Itoa(int(b.timerPin))
 
-	require.NoError(t, run(context.Background(), dev, "timer", []string{"2", "1", "5s"}, false, &strings.Builder{}))
+	require.NoError(t, run(context.Background(), dev, "timer", []string{pin, "1", "5s"}, false, &strings.Builder{}))
 	var level struct {
 		High bool `json:"high"`
 	}
-	cliJSON(t, dev, &level, "read", "2")
+	cliJSON(t, dev, &level, "read", pin)
 	require.True(t, level.High, "pin did not go high when the timer was armed")
-	cliJSON(t, dev, &st, "timer-query", "2")
+	cliJSON(t, dev, &st, "timer-query", pin)
 	require.True(t, st.Active && st.HeldLevel, "timer state = %+v, want active and held high", st)
 	require.True(t, st.Remaining > 0 && st.Remaining <= 5*time.Second, "remaining = %s, want 0 < r <= 5s", st.Remaining)
 
-	require.NoError(t, run(context.Background(), dev, "timer", []string{"2", "1", "20ms"}, false, &strings.Builder{}))
+	require.NoError(t, run(context.Background(), dev, "timer", []string{pin, "1", "20ms"}, false, &strings.Builder{}))
 	// A wait on the condition, bounded by exchanges: each timer-query is one
 	// round trip, and five hundred of them outlast 20 ms on every link.
 	const bound = 500
 	queries := 0
 	for st.Active = true; st.Active && queries < bound; queries++ {
-		cliJSON(t, dev, &st, "timer-query", "2")
+		cliJSON(t, dev, &st, "timer-query", pin)
 	}
-	require.False(t, st.Active, "wait: the device reverts pin 2's 20ms timer, within %d timer-query exchanges", bound)
-	cliJSON(t, dev, &level, "read", "2")
+	require.False(t, st.Active, "wait: the device reverts pin %s's 20ms timer, within %d timer-query exchanges", pin, bound)
+	cliJSON(t, dev, &level, "read", pin)
 	assert.False(t, level.High, "pin high after the timer expired")
 }
 
@@ -308,6 +358,9 @@ func TestFirmwareTimer(t *testing.T) {
 // took its signature (#125).
 func TestFirmwareEEPROM(t *testing.T) {
 	dev := startFirmware(t)
+	if cliAbsent(t, dev, tfw.FeatureEEPROM, "eeprom-read", "0x100", "2") {
+		return
+	}
 	cliRefused(t, dev, "eeprom-write", "0", "00000000")   // over the bootloader pubkey hash
 	cliRefused(t, dev, "eeprom-write", "192", "00000000") // 0x0C0, the old end: reserved since #125
 	// A write starting below the boundary and running through it is refused
@@ -346,6 +399,9 @@ func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
 func TestFirmwareAnalog(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
+	if cliAbsent(t, dev, tfw.FeatureAnalog, "analog", strconv.Itoa(int(b.ledPin))) {
+		return
+	}
 	// The mock reports zero until told otherwise; the point is that the
 	// command round-trips and the pin maps to a channel at all.
 	var got struct {
@@ -358,6 +414,9 @@ func TestFirmwareAnalog(t *testing.T) {
 func TestFirmwarePWM(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
+	if cliAbsent(t, dev, tfw.FeaturePWM, "pwm", "9", "128") {
+		return
+	}
 	require.NoError(t, run(context.Background(), dev, "pwm", []string{"9", "128"}, false, &strings.Builder{}),
 		"pin 9 has a free compare unit and should accept a duty")
 	// Timer0 is the millisecond tick, so its compare pins have units that are
@@ -370,6 +429,9 @@ func TestFirmwarePWM(t *testing.T) {
 
 func TestFirmwareI2C(t *testing.T) {
 	dev := startFirmware(t)
+	if cliAbsent(t, dev, tfw.FeatureI2C, "i2c", strconv.Itoa(tfw.I2CReservedAddr), "00", "1") {
+		return
+	}
 	assert.Equal(t, tfw.StatusErrProtectedRegion,
 		cliStatus(t, dev, "i2c", strconv.Itoa(tfw.I2CReservedAddr), "00", "1"),
 		"the secure element's I2C address was reachable")
@@ -377,6 +439,9 @@ func TestFirmwareI2C(t *testing.T) {
 
 func TestFirmwareI2CConfig(t *testing.T) {
 	dev := startFirmware(t)
+	if cliAbsent(t, dev, tfw.FeatureI2C, "i2c-config", "400000") {
+		return
+	}
 	ctx := context.Background()
 	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI
 	// peripheral on an element build; the software tier applies the clock.
@@ -398,6 +463,9 @@ func TestFirmwareSPIConfig(t *testing.T) {
 	dev := startFirmware(t)
 	ctx := context.Background()
 	mode3, div16 := fmt.Sprint(uint8(tfw.SPIMode3)), fmt.Sprint(uint8(tfw.SPIClockDiv16))
+	if cliAbsent(t, dev, tfw.FeatureSPI, "spi-config", mode3, div16, "lsb") {
+		return
+	}
 	require.NoError(t, run(ctx, dev, "spi-config", []string{mode3, div16, "lsb"}, false, &strings.Builder{}),
 		"a valid configuration should be accepted")
 	var ae *tfw.ArgRangeError
@@ -407,6 +475,11 @@ func TestFirmwareSPIConfig(t *testing.T) {
 
 func TestFirmwareOneWireAndPulseIn(t *testing.T) {
 	dev := startFirmware(t)
+	noWire := cliAbsent(t, dev, tfw.FeatureOneWire, "1wire-reset", "9")
+	if noPulse := cliAbsent(t, dev, tfw.FeaturePulse, "pulse-in", "9", "1", "10ms"); noWire || noPulse {
+		assert.Equal(t, noWire, noPulse, "CAPS reports one of 1-Wire and pulse-in without the other")
+		return
+	}
 	var reset struct {
 		Present bool `json:"present"`
 	}

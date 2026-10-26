@@ -129,6 +129,8 @@ the simulator. A missing `DEVICEID`, a port that does not open, a refusal or a
 certificate that does not match the attested key or the ueid also fail the
 run. None of these is a skip.
 
+`TFW_HW_RESET` (`make hw-test HW_RESET=`) is how `hw-test`'s seam, `sdk/go/internal/peer`, resets the board: unset, by DTR; `qmp:<socket>`, by QMP `system_reset` to a QEMU board (`integration-test-cortex-m-wire`); anything else fails naming the variable. `hw-enroll` does not read it.
+
 Take the control plane's address and the board's addresses from the bench,
 never from this tree. `make releasability` refuses them.
 

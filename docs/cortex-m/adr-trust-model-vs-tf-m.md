@@ -3,8 +3,11 @@
 > **Status: PROPOSED** · Issue: #15 · Scope: trusted-firmware (the
 > Cortex-M secure world and boot chain); go-xkms and go-quicbaas (what they must
 > accept, seam only) · Related: #14,
-> [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) ·
-> Last verified: 2026-10-20
+> [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md);
+> the Security Extension (TrustZone-M) is the Armv8-M Architecture Reference
+> Manual's (DDI 0553), and the CI machine's board is AN505's (DAI 0505), both
+> listed in [`../reference/README.md`](../reference/README.md#cortex-m-sources) ·
+> Last verified: 2026-10-22
 >
 > Nothing here is implemented, and nothing is decided until the owner accepts it.
 > This ADR changes no code, no wire vector and no SPEC row.

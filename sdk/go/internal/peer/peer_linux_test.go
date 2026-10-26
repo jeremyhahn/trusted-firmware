@@ -4,13 +4,17 @@
 package peer
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/jeremyhahn/trusted-firmware/sdk/go/internal/simproc"
 )
 
 // Linux ioctls the standard library does not name.
@@ -40,6 +44,14 @@ func ioctl(t *testing.T, f *os.File, req uintptr, arg unsafe.Pointer) {
 // stands in for a board's port. No real port is touched.
 func openPTY(t *testing.T) string {
 	t.Helper()
+	_, path := openPTYPair(t)
+	return path
+}
+
+// openPTYPair is openPTY with the master side, which plays QEMU's end of a
+// -serial pty.
+func openPTYPair(t *testing.T) (*os.File, string) {
+	t.Helper()
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +61,7 @@ func openPTY(t *testing.T) string {
 	ioctl(t, master, tiocsptlck, unsafe.Pointer(&unlock))
 	var n uint32
 	ioctl(t, master, tiocgptn, unsafe.Pointer(&n))
-	return fmt.Sprintf("/dev/pts/%d", n)
+	return master, fmt.Sprintf("/dev/pts/%d", n)
 }
 
 // A port that opens but has no modem lines -- a pty has none -- cannot reset
@@ -69,5 +81,34 @@ func TestOpenFailsOnAPortThatCannotDriveDTR(t *testing.T) {
 	// fail with EBUSY.
 	if _, err := Open(path, time.Second); err == nil || !strings.Contains(err.Error(), "DTR") {
 		t.Fatalf("reopening: err = %v, want the same DTR failure, not a busy port", err)
+	}
+}
+
+// The emulated board's whole path: a pty, which has no modem lines, reset
+// through a QMP monitor that answers system_reset as QEMU does, after which
+// the guest's BOOT event reaches the test as its first read.
+func TestStartResetsAnEmulatedBoardOverQMP(t *testing.T) {
+	master, path := openPTYPair(t)
+	sock := fakeQMP(t, func(c net.Conn, dec *json.Decoder) {
+		_, _ = c.Write([]byte(qmpGreeting))
+		expect(dec)
+		_, _ = c.Write([]byte(`{"return": {}}` + "\n"))
+		if expect(dec) != "system_reset" {
+			return
+		}
+		_, _ = c.Write([]byte(`{"return": {}}` + "\n"))
+		_, _ = c.Write([]byte(`{"event": "RESET"}` + "\n"))
+		_, _ = master.Write([]byte{0xA5, 0x01})
+	})
+	t.Setenv(PortEnv, path)
+	t.Setenv(BoardEnv, "mps2-an505")
+	t.Setenv(EthEnv, "")
+	t.Setenv(ResetEnv, "qmp:"+sock)
+
+	c := Start(t, simproc.Software)
+	got := make([]byte, 8)
+	n, err := c.Read(got)
+	if err != nil || string(got[:n]) != "\xa5\x01" {
+		t.Fatalf("first read = %x, %v; want the BOOT event a501", got[:n], err)
 	}
 }

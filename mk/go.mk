@@ -69,7 +69,7 @@ sdk-coverage:
 	    echo "sdk/go coverage is below the floor"; exit 1; \
 	  fi
 
-## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=, HW_ETH=, HW_ETH_LISTEN=)
+## hw-test: run the cross-implementation suite against a real board (BOARD=, PORT=, HW_ETH=, HW_ETH_LISTEN=, HW_RESET=)
 # The same tfwctl TestFirmware* scenarios sdk-test runs against tfwsim, pointed
 # at the board on PORT through their one transport seam, sdk/go/internal/peer.
 # BOARD tells the scenarios which board's pins to expect, and CAPS must report
@@ -83,7 +83,9 @@ sdk-coverage:
 # and e2e_app test files, which carry the tfwsim build tag; e2e_peer_test.go is
 # the seam. Each row checks the tier it needs and names it when the board's
 # differs, so one command runs them all and a row for another image fails, not
-# skips: docs/development/testing.md tables which board each row needs.
+# skips: docs/development/testing.md tables which board each row needs. A dice,
+# auth or attestcsr row asks CAPS for its feature instead, and checks that the
+# board refuses the command when the bit is clear.
 #
 # HW_ETH adds the TestEthernet* rows (e2e_ethernet_test.go, and the staging rows
 # in e2e_ota_test.go): the ip:port on the bench host that the board's network
@@ -99,11 +101,16 @@ sdk-coverage:
 # for the CSR rows, which go-xkms reproduces and tfwctl does not. The auth and
 # OTA rows take OPERATOR_KEY, the PEM file of the operator key the board was
 # provisioned to trust.
+#
+# HW_RESET is how the seam resets the board between rows (TFW_HW_RESET): unset,
+# it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
+# system_reset, which is how integration-test-cortex-m-wire runs the rows on a
+# QEMU board (mk/arch/cortex-m-targets.mk).
 HW_TEST_RUN ?= ^TestFirmware$(if $(HW_ETH),|^TestEthernet)
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' ./cmd/tfwctl
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' ./cmd/tfwctl
 
 ## sdk-lint: gofmt and vet the Go SDK
 # vet compiles the tests, so it downloads their modules. That download goes

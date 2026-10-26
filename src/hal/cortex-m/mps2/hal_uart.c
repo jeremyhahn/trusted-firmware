@@ -14,21 +14,27 @@
  * is in flight and an interrupt will follow. That start is the only critical
  * section here: it and the interrupt both read tx_busy and the ring.
  *
- * The UART has two interrupt lines, one per direction, wired to external
- * interrupts 32 and 33. Both run the same service routine, which reads the
- * UART's own status to see which direction is due, so the routine does not
- * depend on which line is which.
+ * The UART has two interrupt lines, one per direction, wired to the external
+ * interrupts the board profile names (32 and 33 on the AN505, 0 and 1 on the
+ * AN500). Both run the same service routine, which reads the UART's own
+ * status to see which direction is due, so the routine does not depend on
+ * which line is which.
  */
 
 #include <stdint.h>
 
 #include "tfw/hal.h"
 #include "tfw/config.h"
+#include "tfw/protocol.h"
 #include "soc_regs.h"
 
-#define TFW_UART_RX_RING 64u
-#define TFW_UART_TX_RING 64u
-
+/* The ring sizes are board data (board_profile.h). The receive ring must hold
+ * a whole frame at the longest payload: QEMU's UART paces nothing, so a request
+ * arrives as fast as this ISR reads DATA, and a ring that fills drops the tail
+ * of the frame -- the framer then waits out TFW_FRAME_IDLE_MS and the host
+ * times out. The ring holds one byte less than its size. */
+_Static_assert(TFW_UART_RX_RING - 1u >= TFW_MAX_FRAME,
+               "TFW_UART_RX_RING must hold a whole frame at TFW_MAX_PAYLOAD");
 _Static_assert((TFW_UART_RX_RING & (TFW_UART_RX_RING - 1u)) == 0u,
                "TFW_UART_RX_RING must be a power of two: the index wraps by masking");
 _Static_assert((TFW_UART_TX_RING & (TFW_UART_TX_RING - 1u)) == 0u,
@@ -36,11 +42,13 @@ _Static_assert((TFW_UART_TX_RING & (TFW_UART_TX_RING - 1u)) == 0u,
 _Static_assert(TFW_UART_RX_RING <= 256u && TFW_UART_TX_RING <= 256u,
                "ring indices must fit in a uint8_t");
 
-void tfw_cm_irq32(void);
-void tfw_cm_irq33(void);
+void TFW_MPS2_IRQ_HANDLER(TFW_MPS2_UART0_IRQ_A)(void);
+void TFW_MPS2_IRQ_HANDLER(TFW_MPS2_UART0_IRQ_B)(void);
 
 static volatile uint8_t rx_buf[TFW_UART_RX_RING];
 static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writes. */
+static volatile uint8_t rx_dropped;         /* bytes the full ring refused; saturates. Read by
+                                               the QEMU row's failure dump (qmp_regs.py). */
 
 static volatile uint8_t tx_buf[TFW_UART_TX_RING];
 static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: ISR and the start. */
@@ -65,8 +73,8 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     tx_busy = 0u;
     TFW_MPS2_UART_CTRL = TFW_MPS2_UART_CTRL_TXEN | TFW_MPS2_UART_CTRL_RXEN |
                          TFW_MPS2_UART_CTRL_TXINT | TFW_MPS2_UART_CTRL_RXINT;
-    tfw_cm_nvic_enable(TFW_MPS2_UART0_IRQ_A);
-    tfw_cm_nvic_enable(TFW_MPS2_UART0_IRQ_B);
+    tfw_cm_nvic_enable((uint32_t)TFW_MPS2_UART0_IRQ_A);
+    tfw_cm_nvic_enable((uint32_t)TFW_MPS2_UART0_IRQ_B);
     return TFW_OK;
 }
 
@@ -86,6 +94,8 @@ static void uart0_service(void)
         if (next != rx_tail) {
             rx_buf[rx_head] = d;
             rx_head         = next;
+        } else if (rx_dropped != 0xFFu) {
+            rx_dropped++;
         }
     }
     TFW_MPS2_UART_STATE = TFW_MPS2_UART_STATE_RXOVR;
@@ -100,12 +110,12 @@ static void uart0_service(void)
     }
 }
 
-void tfw_cm_irq32(void)
+void TFW_MPS2_IRQ_HANDLER(TFW_MPS2_UART0_IRQ_A)(void)
 {
     uart0_service();
 }
 
-void tfw_cm_irq33(void)
+void TFW_MPS2_IRQ_HANDLER(TFW_MPS2_UART0_IRQ_B)(void)
 {
     uart0_service();
 }

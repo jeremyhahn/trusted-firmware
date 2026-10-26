@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * mps2-tz has no converter QEMU models, so the board has no channel
+ * mps2 has no converter QEMU models, so the board has no channel
  * (TFW_ADC_COUNT 0) and every read is out of range. main() calls
  * tfw_hal_adc_init on every board, so it exists and succeeds, as on
  * Espressif's QEMU (src/hal/esp32/hal_adc.c); there is no reference to

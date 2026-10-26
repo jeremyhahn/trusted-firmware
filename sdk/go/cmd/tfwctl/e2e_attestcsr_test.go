@@ -75,7 +75,11 @@ func csrVerifiesUnder(t *testing.T, pub *ecdsa.PublicKey, sig []byte, digestHex 
 }
 
 func TestFirmwareAttestCSRPrintsTheSignatureAsHex(t *testing.T) {
-	d := startProvisioned(t).serial
+	p, ok := csrServing(t)
+	if !ok {
+		return
+	}
+	d := p.serial
 	b, err := hex.DecodeString(csrNonceHex)
 	require.NoError(t, err)
 	cliAttestCert(t, d, b)
@@ -95,7 +99,10 @@ func TestFirmwareAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
 	for i := range b {
 		b[i] = byte(i)
 	}
-	p := startProvisioned(t)
+	p, ok := csrServing(t)
+	if !ok {
+		return
+	}
 	cliAttestCert(t, p.serial, b)
 	sig, err := cliCSR(t, p.serial, b)
 	require.NoError(t, err)
@@ -105,7 +112,10 @@ func TestFirmwareAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
 }
 
 func TestFirmwareAttestCSRSignatureIsOverTheNonce(t *testing.T) {
-	p := startProvisioned(t)
+	p, ok := csrServing(t)
+	if !ok {
+		return
+	}
 	cliAttestCert(t, p.serial, aliasNonce(0x10))
 	a, err := cliCSR(t, p.serial, aliasNonce(0x10))
 	require.NoError(t, err)
@@ -121,7 +131,11 @@ func TestFirmwareAttestCSRSignatureIsOverTheNonce(t *testing.T) {
 // page request with no certificate behind it is: before any attest-cert, and
 // after one for another nonce. Nothing is printed.
 func TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
-	d := startProvisioned(t).serial
+	p, ok := csrServing(t)
+	if !ok {
+		return
+	}
+	d := p.serial
 	var st tfw.Status
 
 	_, err := cliCSR(t, d, aliasNonce(0x60))
@@ -203,8 +217,13 @@ func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 		p[featuresOff+1] &^= bit15
 		return p
 	}}
-	d := startPeerVia(t, func(c io.ReadWriter) io.ReadWriter { m.conn = c; return m },
-		simproc.Element, elementArgs(t, nil, nil)...).serial
+	// Any board: the host refuses on the CAPS it reads, whatever the tier.
+	p := openPeer(t, func(c io.ReadWriter) io.ReadWriter { m.conn = c; return m },
+		simproc.Element, elementArgs(t, nil, nil)...)
+	if !p.board {
+		requireTier(t, p, simproc.Element)
+	}
+	d := p.serial
 
 	require.False(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR), "the rewrite did not clear the bit")
 	_, err := cliCSR(t, d, aliasNonce(0x50))
@@ -217,7 +236,11 @@ func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 // caps names the feature, so a person can see before asking whether the
 // device will answer.
 func TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt(t *testing.T) {
-	d := startProvisioned(t).serial
+	p, ok := csrServing(t)
+	if !ok {
+		return
+	}
+	d := p.serial
 	assert.True(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR))
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), d, "caps", nil, false, &out))

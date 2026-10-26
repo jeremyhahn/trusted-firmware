@@ -30,9 +30,19 @@ func startSimproc(t *testing.T, b simproc.Binary) (*simproc.Conn, *tfw.Device) {
 // tfwsim-app-heartbeat is the one simulator with an application linked, so
 // the one that answers APP_INFO: the heartbeat example, as its app.mk names it.
 // Through the peer seam (e2e_peer_test.go), so on a board this row needs the
-// heartbeat image flashed.
+// heartbeat image flashed. CAPS has no bit for an application, so on a board
+// whose image links none (the MPS2 boards' wire run, docs/cortex-m/README.md)
+// the row checks APP_INFO's refusal as unknown, the answer of the row below.
 func TestFirmwareAppReportsItsApplication(t *testing.T) {
-	d := startPeer(t, simproc.App).serial
+	p := startPeer(t, simproc.App)
+	d := p.serial
+	// Any other answer, and every answer from the simulator, goes on to the
+	// application's report.
+	_, err := d.Do(context.Background(), tfw.CmdAppInfo, nil)
+	var st tfw.Status
+	if p.board && errorsAsStatus(err, &st) && st == tfw.StatusErrUnknownCmd {
+		return
+	}
 	var ai tfw.AppInfo
 	cliJSON(t, d, &ai, "app")
 	// How many polls ran past their budget is the host's scheduling, not the

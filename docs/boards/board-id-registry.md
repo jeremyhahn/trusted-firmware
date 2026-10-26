@@ -31,6 +31,7 @@ alone, before it knows the board.
 | `0x04` | ATtiny85 | `boards/attiny85` |
 | `0x40` | Arm AN505 (Cortex-M33) as QEMU's `mps2-an505` models it | `boards/mps2-an505` |
 | `0x41` | NXP i.MX 95 Cortex-M7 on the FRDM-IMX95-PRO (provisional: [`../multi-arch/imx95-design.md`](../multi-arch/imx95-design.md) question 20) | `boards/frdm-imx95-m7` |
+| `0x42` | Arm AN500 (Cortex-M7) as QEMU's `mps2-an500` models it | `boards/mps2-an500` |
 | `0x80` | ESP32-P4 on a PoE Ethernet board | `boards/esp32p4-poe` |
 | `0x81` | Espressif QEMU, `esp32c3` and `esp32` machines | `boards/esp32-qemu` |
 

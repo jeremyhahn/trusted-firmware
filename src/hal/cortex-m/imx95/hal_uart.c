@@ -3,7 +3,7 @@
 /*
  * The byte link on LPUART3 (soc_regs.h; TO CONFIRM against NXP IMX95RM, the
  * LPUART chapter): interrupt-driven, with the two single-producer/single-
- * consumer rings src/hal/cortex-m/mps2-tz/hal_uart.c has and for its reasons.
+ * consumer rings src/hal/cortex-m/mps2/hal_uart.c has and for its reasons.
  *
  * Unlike the CMSDK UART, the LPUART raises its transmit interrupt while its
  * data register is EMPTY (STAT.TDRE with CTRL.TIE), so a transmission starts

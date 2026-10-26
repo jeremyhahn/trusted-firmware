@@ -60,13 +60,14 @@ echo 0.0.0-fake
 
 # The tier each measured board ships, which names the manifest. The 328P is
 # element-only and refuses CRYPTO=soft (owner ruling 2026-10-17, m522).
-TIERS = {"atmega328p": "atecc608a", "mps2-an505": "soft",
+TIERS = {"atmega328p": "atecc608a", "mps2-an505": "soft", "mps2-an500": "soft",
          "frdm-imx95-m7": "soft"}
 
 
-def build_manifest(hex_text, board="atmega328p"):
+def build_manifest(hex_text, board="atmega328p", *make_vars):
     """Run mk/release.mk's provenance-one over hex_text, with board's real
-    profile.mk at the tier it ships: (manifest, release .bin)."""
+    profile.mk at the tier it ships and any make_vars (BOOT_AB=1):
+    (manifest, release .bin)."""
     tier = TIERS[board]
     with tempfile.TemporaryDirectory() as tmp:
         target = os.path.join(tmp, "fw")
@@ -87,7 +88,7 @@ def build_manifest(hex_text, board="atmega328p"):
              "provenance-one", f"BOARD={board}", f"CRYPTO={tier}",
              f"TARGET={target}", f"REL_DIR={rel}", "SOURCE_COMMIT=0000000",
              f"ARCH_SIZE={tools['size']}", f"ARCH_CC={tools['cc']}",
-             "ARCH_RAM_USED=echo 7"],
+             "ARCH_RAM_USED=echo 7", *make_vars],
             capture_output=True, text=True, check=False)
         if run.returncode != 0:
             raise AssertionError(f"make provenance-one: rc={run.returncode}\n"
@@ -161,6 +162,56 @@ class SlotBoard(unittest.TestCase):
     def test_an_avr_board_refuses_a_slot_image(self):
         with self.assertRaises(AssertionError):
             build_manifest(_pinned.SLOT_HEX)
+
+
+class _SlotAfterBoot:
+    """A board with tfw-boot's 32 KiB at flash 0 and the application slot
+    after it at 0x8000 (TFW_APP_REGION_BASE in its board_profile.h). Measured
+    from flash 0 the manifest is not the device's measurement, and without
+    F_CPU it is not JSON. A subclass names BOARD, F_CPU (TFW_CM_CPU_HZ) and
+    the record one byte past its slot."""
+
+    # FIXED_HEX at 0x8000, through an extended segment address record (0x0800).
+    SLOT_HEX = ":020000020800F4\n" + GAP_HEX
+
+    def test_a_slot_image_measures_from_the_slot_base(self):
+        m, image = build_manifest(self.SLOT_HEX, self.BOARD)
+        self.assertEqual(m["fwhash_sha256"], GAP_MEASUREMENT)
+        self.assertEqual(m["image_len"], 0x120)
+        self.assertEqual(hashlib.sha256(image).hexdigest(), GAP_MEASUREMENT)
+        self.assertIn("(0x00008000 on this board)", m["note"])
+        self.assertEqual((m["arch"], m["f_cpu_hz"]), ("cortex-m", self.F_CPU))
+
+    def test_a_record_outside_the_slot_writes_no_manifest(self):
+        # GAP_HEX is tfw-boot's region at flash 0.
+        for text in (GAP_HEX, self.PAST_SLOT_HEX):
+            with self.subTest(text=text), self.assertRaises(AssertionError):
+                build_manifest(text, self.BOARD)
+
+
+class SlotBoardAN500(_SlotAfterBoot, unittest.TestCase):
+    """mps2-an500: the slot at 0x8000, or 0x40000 with BOOT_AB=1."""
+
+    BOARD = "mps2-an500"
+    F_CPU = 25000000
+    # One byte at 0x28000, the first past the 128 KiB slot.
+    PAST_SLOT_HEX = ":020000022800D4\n:01000000AA55\n:00000001FF\n"
+    # FIXED_HEX at 0x40000, the primary slot with BOOT_AB=1.
+    AB_SLOT_HEX = ":020000040004F6\n" + GAP_HEX
+
+    def test_the_ab_primary_slot_measures_from_its_base(self):
+        m, _ = build_manifest(self.AB_SLOT_HEX, self.BOARD, "BOOT_AB=1")
+        self.assertEqual(m["fwhash_sha256"], GAP_MEASUREMENT)
+        self.assertIn("(0x00040000 on this board)", m["note"])
+
+
+class SlotBoardIMX95(_SlotAfterBoot, unittest.TestCase):
+    """frdm-imx95-m7: the slot at 0x8000 in the ITCM, 192 KiB."""
+
+    BOARD = "frdm-imx95-m7"
+    F_CPU = 800000000
+    # One byte at 0x38000, the first past the 192 KiB slot.
+    PAST_SLOT_HEX = ":020000023800C4\n:01000000AA55\n:00000001FF\n"
 
 
 # The fixture at frdm-imx95-m7's application slot, 0x00008000: GAP_HEX with each

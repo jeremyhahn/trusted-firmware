@@ -28,6 +28,7 @@ with the code is a defect to fix in the document first.
 | [`application-sdk/`](application-sdk/architecture.md) | the C interface a `trusted-firmware-<application>` repository links into the image: descriptor, hooks, configuration, build |
 | [`ethernet-transport/`](ethernet-transport/architecture.md) | the wire protocol over TCP through a WIZnet W5100 or W5500 (draft, #55); [`cli.md`](ethernet-transport/cli.md): `tfwctl netcfg` and the `tcp://` device address |
 | [`ota/`](ota/architecture.md) | signed over-the-air updates: the image format, trial boot, confirm and rollback (#52) |
+| [`cortex-m/`](cortex-m/architecture.md) | the Cortex-M port: the generic core HAL, tfw-boot's hardware layer, and its boards, QEMU `mps2-an505` and `mps2-an500` (draft, #161) |
 | [`hsm-self-defence/`](hsm-self-defence/README.md) | the i.MX 95 M7's tamper response under a tenant-signed policy: requirements, policy format, test plan (design only, #50) |
 
 Cross-cutting material that belongs to no single feature:

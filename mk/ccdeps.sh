@@ -29,6 +29,13 @@ while [ "$n" -gt 0 ]; do
 		skip=0
 	elif [ "$a" = -o ]; then
 		skip=1
+	elif [ "$a" = -include ] || [ "$a" = -imacros ]; then
+		# A header named by an option is the option's argument, not a
+		# prerequisite $^ carried in: kept, or the option takes the next
+		# source as its file and that source is compiled twice.
+		set -- "$@" "$a" "$1"
+		shift
+		n=$((n - 1))
 	else
 		# The .d files make headers prerequisites, so $^ carries them into
 		# this command; they are dependencies, not inputs.

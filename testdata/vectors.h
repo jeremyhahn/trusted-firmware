@@ -277,6 +277,21 @@
 /* Its response, status OK, no payload. */
 #define TFWV_FRAME_EEPROM_WRITE_NETCFG_RESP "\xa5\x03\x08\xc1\x00\xd8\x93"
 
+/* The peer-binding ADR's two refusals (docs/ethernet-transport/
+ * adr-network-peer-binding.md section 3). Existing statuses from existing
+ * commands: no wire byte moves, an older host already decodes both. */
+
+/* The same netcfg write on the element tier without a session: status
+ * TFW_ERR_AUTH_REQUIRED (17), no payload. */
+#define TFWV_FRAME_EEPROM_WRITE_NETCFG_AUTH_REQUIRED_RESP "\xa5\x03\x08\xc1\x11\xc8\x91"
+
+/* TFW_CMD_OTA_BEGIN (0x68), seq 0x09, payload total=1024 (0x00000400 LE). */
+#define TFWV_FRAME_OTA_BEGIN_REQ "\xa5\x06\x09\x68\x00\x04\x00\x00\x38\xdf"
+
+/* Its refusal past the staging budget since reset: status TFW_ERR_BAD_STATE
+ * (19), no payload, nothing erased. */
+#define TFWV_FRAME_OTA_BEGIN_OVER_BUDGET_RESP "\xa5\x03\x09\xe8\x13\xc4\x3a"
+
 /* The HSM self-defence channel (docs/hsm-self-defence/ architecture.md
  * question 20). Each reply that is not a refusal is the engine's state,
  * [flags:1][selected:1][refused:4 LE]. */

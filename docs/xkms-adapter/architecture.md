@@ -163,11 +163,12 @@ signature algorithm on. Without it an alias signed with ECDSA-SHA384 would pass 
 backend documented to accept the one algorithm the element emits.
 
 This was not always one call. `dice.Verify` once demanded a `DiceTcbInfo`
-extension that the AVR alias profile does not emit (it carries only the critical
-`tcg-dice-UCCS-evidence`, because the certificate is assembled on an 8-bit part
-from a 230-byte PROGMEM template). That was the verifier being wrong: §6.1.4
+extension that the AVR alias profile then did not emit (it carried only the
+critical `tcg-dice-UCCS-evidence`). That was the verifier being wrong: §6.1.4
 permits UCCS "in place of" `DiceTcbInfo`. It was fixed in go-xkms's `dice`, and
-the open-coded sequence here was removed.
+the open-coded sequence here was removed. Since #213 the alias certificate
+carries a non-critical `DiceTcbInfo` (`flags` only) as well; `dice.Verify` with
+`RequireDeviceSignedLeaf` is still the one check.
 
 ### Possession and finalize
 

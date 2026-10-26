@@ -167,6 +167,18 @@ const (
 	// FrameEEPROMWriteNetcfgResp is its response, status OK, no payload.
 	FrameEEPROMWriteNetcfgResp = "\xa5\x03\x08\xc1\x00\xd8\x93"
 
+	// The peer-binding ADR's two refusals: existing statuses from existing
+	// commands, so no wire byte moves.
+
+	// FrameEEPROMWriteNetcfgAuthRequiredResp is the netcfg write's answer on
+	// the element tier without a session, StatusErrAuthRequired (17).
+	FrameEEPROMWriteNetcfgAuthRequiredResp = "\xa5\x03\x08\xc1\x11\xc8\x91"
+	// FrameOTABeginReq is TFW_CMD_OTA_BEGIN (0x68), seq 9, total 1024.
+	FrameOTABeginReq = "\xa5\x06\x09\x68\x00\x04\x00\x00\x38\xdf"
+	// FrameOTABeginOverBudgetResp is its refusal past the staging budget
+	// since reset, StatusErrBadState (19), no payload, nothing erased.
+	FrameOTABeginOverBudgetResp = "\xa5\x03\x09\xe8\x13\xc4\x3a"
+
 	// The HSM self-defence channel. Each reply that is not a refusal is the
 	// engine's state, [flags:1][selected:1][refused:4 LE].
 

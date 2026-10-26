@@ -222,11 +222,13 @@ func (b *Backend) checkAliasCertificate(der, nonce []byte) (*Attestation, error)
 	// chain, the nonce in constant time, the operational flags and the UEID.
 	//
 	// This used to be an open-coded sequence here, because dice.Verify demanded
-	// a DiceTcbInfo extension and the AVR alias certificate carries only
+	// a DiceTcbInfo extension and the AVR alias certificate then carried only
 	// tcg-dice-UCCS-evidence. That was the verifier being wrong rather than the
 	// device: r23 section 6.1.4 says UCCS "MAY be used in addition to or in
 	// place of DiceTcbInfoSeq or DiceTcbInfo". Fixed there, so the long way
 	// round is gone and there is one implementation of what DICE evidence means.
+	// The alias certificate now carries a TCG DiceTcbInfo beside the UCCS
+	// evidence (#213).
 	chain := append([]*x509.Certificate{leaf}, b.intermediateCerts...)
 	opts := dice.VerifyOptions{
 		ExpectedNonce: nonce,

@@ -134,6 +134,22 @@ static void test_eeprom_write_frames_match_the_vectors(void)
           tfw_frame_encode_response(wire, sizeof wire, 8u, TFW_CMD_EEPROM_WRITE, TFW_OK, 0, 0u), wire);
 }
 
+static void test_peer_binding_refusals_match_the_vectors(void)
+{
+    static const uint8_t auth[]  = TFWV_FRAME_EEPROM_WRITE_NETCFG_AUTH_REQUIRED_RESP;
+    static const uint8_t begin[] = TFWV_FRAME_OTA_BEGIN_REQ;
+    static const uint8_t over[]  = TFWV_FRAME_OTA_BEGIN_OVER_BUDGET_RESP;
+    const uint8_t total[4] = { 0x00u, 0x04u, 0x00u, 0x00u };
+    uint8_t wire[TFW_MAX_FRAME];
+
+    check(auth, sizeof auth - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 8u, TFW_CMD_EEPROM_WRITE, TFW_ERR_AUTH_REQUIRED, 0, 0u), wire);
+    check(begin, sizeof begin - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 9u, TFW_CMD_OTA_BEGIN, total, 4u), wire);
+    check(over, sizeof over - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 9u, TFW_CMD_OTA_BEGIN, TFW_ERR_BAD_STATE, 0, 0u), wire);
+}
+
 /* The HSM channel's frames. The state payloads are written here from the
  * design, not taken from hsm_cmd.c. */
 static void test_hsm_channel_frames_match_the_vectors(void)
@@ -394,6 +410,7 @@ int main(void)
     RUN_TEST(test_no_store_response_matches_the_vector);
     RUN_TEST(test_ota_control_frames_match_the_vectors);
     RUN_TEST(test_eeprom_write_frames_match_the_vectors);
+    RUN_TEST(test_peer_binding_refusals_match_the_vectors);
     RUN_TEST(test_hsm_channel_frames_match_the_vectors);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);

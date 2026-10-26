@@ -250,7 +250,9 @@ Both blockers reported against `v0.2.0-alpha` are fixed in `v0.3.0-alpha`:
 `Attest`/`AttestCert` exist with internal paging and exported nonce widths.
 
 The disagreement over `dice.Verify` requiring a `DiceTcbInfo` the alias profile
-does not emit was resolved in go-xkms's `dice` rather than worked around here:
-§6.1.4 permits UCCS "in place of" `DiceTcbInfo`. `checkAliasCertificate` now
+then did not emit was resolved in go-xkms's `dice` rather than worked around
+here: §6.1.4 permits UCCS "in place of" `DiceTcbInfo`. Since #213 the alias
+certificate carries a non-critical `DiceTcbInfo` (`flags` only) before the
+critical `tcg-dice-UCCS-evidence`. `checkAliasCertificate` now
 makes the one `dice.Verify` call, with `RequireDeviceSignedLeaf`. See
 `architecture.md`.

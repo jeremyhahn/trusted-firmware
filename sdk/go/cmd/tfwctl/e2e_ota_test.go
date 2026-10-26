@@ -10,6 +10,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"io"
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -85,6 +88,58 @@ func TestEthernetStagesAnImage(t *testing.T) {
 func TestEthernetStagerRefusesALengthNotWholePages(t *testing.T) {
 	p := startEthernet(t)
 	assert.Equal(t, tfw.StatusErrRange, cliStatus(t, p.serial, "ota-stage", writeFile(t, "odd.bin", make([]byte, 1000))))
+}
+
+// configH is where the firmware's default OTA_BEGIN budget is defined; no
+// board profile overrides it, and the test reads it rather than repeat it.
+const configH = "../../../../include/tfw/config.h"
+
+// otaBeginBudget reads TFW_OTA_BEGIN_BUDGET from configH.
+func otaBeginBudget(t *testing.T) int {
+	t.Helper()
+	src, err := os.ReadFile(configH)
+	require.NoError(t, err)
+	m := regexp.MustCompile(`(?m)^#define\s+TFW_OTA_BEGIN_BUDGET\s+(\d+)u?\s*$`).FindSubmatch(src)
+	require.NotNil(t, m, "%s defines no TFW_OTA_BEGIN_BUDGET", configH)
+	n, err := strconv.Atoi(string(m[1]))
+	require.NoError(t, err)
+	require.Positive(t, n)
+	return n
+}
+
+// The peer-binding ADR's decision 1 B over Ethernet: a peer looping OTA_BEGIN
+// is refused StatusErrBadState once the budget since reset is spent, on both
+// links, and the refused BEGIN erases nothing. The last budgeted session is
+// left part-way; after the refusal it carries on at the next offset and
+// OTA_END, which reads the whole image back from the store, verifies it. A
+// BEGIN that had run would have reset the session and erased the MARK.
+// OTA_ACTIVATE's refill is test_ota_stage.c's: on the wire, mode 0 leaves an
+// install pending that BEGIN refuses on its own, and mode 1 resets.
+func TestEthernetStagingLoopIsRefusedAfterTheBudget(t *testing.T) {
+	p := startEthernet(t)
+	serial, eth := p.serial, p.eth
+	ctx := t.Context()
+	budget := otaBeginBudget(t)
+	img := stageImage(1024, 700)
+
+	for i := 1; i < budget; i++ {
+		assert.Equal(t, otaStatus{tfw.OTAComplete.String(), 1024}, cliStage(t, eth, img), "BEGIN %d of %d", i, budget)
+	}
+	require.NoError(t, eth.OTABegin(ctx, uint32(len(img))), "BEGIN %d of %d", budget, budget)
+	require.NoError(t, eth.OTAData(ctx, 0, img[:tfw.OTAChunk]))
+	part := otaStatus{tfw.OTAReceiving.String(), tfw.OTAChunk}
+	require.Equal(t, part, cliOTAStatus(t, eth))
+
+	assert.ErrorIs(t, eth.OTABegin(ctx, uint32(len(img))), tfw.StatusErrBadState, "BEGIN %d over TCP", budget+1)
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, eth, "ota-stage", writeFile(t, "img.bin", img)), "ota-stage over TCP")
+	assert.Equal(t, tfw.StatusErrBadState, cliStatus(t, serial, "ota-stage", writeFile(t, "img.bin", img)), "the budget is the device's, not the link's")
+	assert.Equal(t, part, cliOTAStatus(t, eth), "the refused BEGINs left the session as it was")
+
+	for off := tfw.OTAChunk; off < len(img); off += tfw.OTAChunk {
+		require.NoError(t, eth.OTAData(ctx, uint32(off), img[off:min(off+tfw.OTAChunk, len(img))]), "DATA at %d", off)
+	}
+	require.NoError(t, eth.OTAEnd(ctx), "the image reads back whole: nothing was erased")
+	assert.Equal(t, otaStatus{tfw.OTAComplete.String(), 1024}, cliOTAStatus(t, eth))
 }
 
 // OTA_AUTH on the soft tier (#137): the firmware, not a fake. The simulator

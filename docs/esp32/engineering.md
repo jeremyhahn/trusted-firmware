@@ -1,6 +1,6 @@
 # ESP32 port — engineering
 
-> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-21
+> **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-10-25
 > Conflicts with this document are defects. Fix them here first.
 
 The design is in [multi-arch/](../multi-arch/): the integration ADR

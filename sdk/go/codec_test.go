@@ -106,6 +106,11 @@ func TestOTAControlFramesMatchVectors(t *testing.T) {
 			return EncodeRequest(8, CmdEEPROMWrite, []byte{byte(NetConfigAddr & 0xFF), byte(NetConfigAddr >> 8), 'T', 'F', 'N', 'C'})
 		}), vectors.FrameEEPROMWriteNetcfgReq},
 		{"EEPROM_WRITE netcfg resp", enc(func() ([]byte, error) { return EncodeResponse(8, CmdEEPROMWrite, StatusOK, nil) }), vectors.FrameEEPROMWriteNetcfgResp},
+		{"EEPROM_WRITE netcfg auth required", enc(func() ([]byte, error) {
+			return EncodeResponse(8, CmdEEPROMWrite, StatusErrAuthRequired, nil)
+		}), vectors.FrameEEPROMWriteNetcfgAuthRequiredResp},
+		{"OTA_BEGIN req", enc(func() ([]byte, error) { return EncodeRequest(9, CmdOTABegin, []byte{0x00, 0x04, 0x00, 0x00}) }), vectors.FrameOTABeginReq},
+		{"OTA_BEGIN over budget resp", enc(func() ([]byte, error) { return EncodeResponse(9, CmdOTABegin, StatusErrBadState, nil) }), vectors.FrameOTABeginOverBudgetResp},
 		{"HSM_HEARTBEAT req", enc(func() ([]byte, error) { return EncodeRequest(1, CmdHSMHeartbeat, nil) }), vectors.FrameHSMHeartbeatReq},
 		{"HSM_HEARTBEAT resp", enc(func() ([]byte, error) {
 			return EncodeResponse(1, CmdHSMHeartbeat, StatusOK, []byte{0x01, 0x00, 0x02, 0x01, 0x00, 0x00})

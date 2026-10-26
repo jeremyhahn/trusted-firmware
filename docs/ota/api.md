@@ -207,7 +207,7 @@ next free id; no request format changes:
 
 | Id | Command | Request | Reply |
 |---|---|---|---|
-| `0x6F` | `OTA_AUTH` (proposed) | `[sig:64]`, ES256 `r\|\|s` | none |
+| `0x6F` | `OTA_AUTH` | `[sig:64]`, ES256 `r\|\|s` | none |
 
 `OTA_AUTH` holds the signature in RAM for the next command only; any command
 consumes or discards it. `OTA_ACTIVATE` with `[mode:1]` and `OTA_CONFIRM` with

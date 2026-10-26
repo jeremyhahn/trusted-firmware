@@ -94,7 +94,7 @@ The `RESET` itself needs the operator auth session on the element tier.
   data in `.noinit` SRAM, written once and read once, precisely because a
   trampoline into the boot section would void the BLB mode 3 read barrier
   from the inside — see [engineering.md](engineering.md) for the invariant.
-- **Reserved EEPROM `0x000`–`0x0BF` is a trust boundary the application-facing
+- **Reserved EEPROM `0x000`–`0x13F` is a trust boundary the application-facing
   storage API refuses to cross.** `src/caps/storage.c` rejects writes to it;
   the pubkey hash, rollback floor and — element tier only, since issue #4 —
   the `AUTH_CHALLENGE`/`AUTH_RESPONSE` operator public key living there is

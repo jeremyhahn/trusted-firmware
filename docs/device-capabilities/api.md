@@ -119,9 +119,9 @@ EEPROM_WRITE  req  addr:u16  data:blob                         resp  (none)
 ```
 
 `len`/`len(data)` is bounded by `TFW_EEPROM_CHUNK` (8). A write any byte of
-which falls in `0x000`-`0x0BF` (`TFW_BOOT_EE_LEN`, 192 bytes) is refused
-(`TFW_ERR_PROTECTED_REGION`); on the ATmega2560 so is one touching the swap
-journal at `0x0E0`-`0x0E9`. A read of those bytes passes `tfw_auth_gate`: it
+which falls in `0x000`-`0x13F` (`TFW_BOOT_EE_LEN`, 320 bytes; on the ATmega2560
+it takes in the swap journal at `0x0E0`-`0x0E9`) is refused
+(`TFW_ERR_PROTECTED_REGION`). A read of those bytes passes `tfw_auth_gate`: it
 needs an authenticated session on a build that has one
 (`TFW_ERR_AUTH_REQUIRED` otherwise).
 

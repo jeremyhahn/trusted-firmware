@@ -58,12 +58,12 @@ Go SDK (`sdk/go/commands.go`) mirrors this 1:1 as `(*Device)` methods —
 - **`TONE` is refused on every pin except `TFW_TONE_PIN`.** One timer, one
   output-compare pin; there is no bit-banged fallback.
 - **An EEPROM write must clear the reserved region for its *entire* span,
-  not just its start address.** The region is `0x000`-`0x0BF`, plus
-  `0x0E0`-`0x0E9` on the ATmega2560. A write beginning at `0x0BF` for 8 bytes
-  is refused whole, and so is one at `0x0DF` for 2 bytes on the ATmega2560,
-  though `0x0DF` alone would pass a start-only check.
+  not just its start address.** The region is `0x000`-`0x13F`, which on the
+  ATmega2560 takes in the swap journal at `0x0E0`-`0x0E9`. A write beginning at
+  `0x13C` for 8 bytes is refused whole, not written in part.
   *Corrected 2026-10-16: the example used `0x7F`, from a bound of `0x080` the
-  firmware does not have; the bound is `TFW_BOOT_EE_LEN` (192).*
+  firmware does not have. Corrected 2026-10-26: the region ended at `0x0BF`;
+  the bound is `TFW_BOOT_EE_LEN` (`0x140`, 320 bytes, #231).*
 - **EEPROM writes are chunked to `TFW_EEPROM_CHUNK` (8) bytes**; a byte commit
   is ~3.4 ms, so a 64-byte write would hold the main loop 220 ms — long
   enough to miss a scheduled deadline.
@@ -123,7 +123,7 @@ framer respectively.
 | `TFW_ERR_BAD_PIN` | pin index does not exist on this board |
 | `TFW_ERR_UNSUPPORTED` | pin exists but lacks the capability (no ADC channel, no compare unit, tone on the wrong pin), or the feature was compiled out |
 | `TFW_ERR_RESERVED_PIN` | pin is `/RESET` or claimed by this build (UART, soft-UART bit clock) |
-| `TFW_ERR_PROTECTED_REGION` | target is platform-reserved: EEPROM `0x000`-`0x0BF` (and `0x0E0`-`0x0E9` on the ATmega2560; corrected 2026-10-16 from `<0x080`), the I2C element address, a reserved SPI chip-select |
+| `TFW_ERR_PROTECTED_REGION` | target is platform-reserved: EEPROM `0x000`-`0x13F` (`TFW_BOOT_EE_LEN`; corrected 2026-10-16 from `<0x080`, and 2026-10-26 from `0x0BF`), the I2C element address, a reserved SPI chip-select |
 | `TFW_ERR_RANGE` | value outside the permitted interval — mode/level out of range, duration outside `[1, TFW_SCHED_MAX_MS]`, EEPROM span outside the part or over `TFW_EEPROM_CHUNK` |
 | `TFW_ERR_NO_SLOT` | scheduler table full, or `TIMER_CANCEL` on a pin with no timer |
 | `TFW_ERR_BAD_ARGC` | a variable-length payload's declared length does not match what arrived |

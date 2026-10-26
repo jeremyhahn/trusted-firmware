@@ -90,8 +90,9 @@ section holds nothing the application itself may not read.
 `BODLEVEL` must be enabled and verified at provisioning.
 
 An EEPROM write on a sagging supply does not fail cleanly — it corrupts. This
-EEPROM holds platform-reserved material in `0x000`–`0x0BF` (corrected
-2026-10-16 from `0x07F`: the bound is `TFW_BOOT_EE_LEN`, 192 bytes), including the
+EEPROM holds platform-reserved material in `0x000`–`0x13F` (corrected
+2026-10-16 from `0x07F`, and 2026-10-26 from `0x0BF`: the bound is
+`TFW_BOOT_EE_LEN`, 320 bytes), including the
 bootloader's public key hash and the anti-rollback floor. A corrupted floor is a
 downgrade attack that arrives by accident, and a corrupted key hash is a device
 that will never accept another update.

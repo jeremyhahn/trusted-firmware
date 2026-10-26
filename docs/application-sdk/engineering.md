@@ -271,8 +271,8 @@ override them.
 
 **Run time** is a region of EEPROM:
 `[TFW_APP_CONFIG_BASE, TFW_APP_CONFIG_BASE + config_len)`.
-`TFW_APP_CONFIG_BASE` is `TFW_BOOT_EE_LEN` (192), the first byte above the
-platform block that `EEPROM_WRITE` already refuses to touch. A host writes the
+`TFW_APP_CONFIG_BASE` is `TFW_BOOT_EE_LEN` (`0x140`, 320), the first byte above
+the refused region that `EEPROM_WRITE` already refuses to touch. A host writes the
 region with `EEPROM_WRITE`, at the absolute addresses, so no command is new.
 The region is the application's by declaration only. A host that keeps other
 data in EEPROM keeps it outside the region.

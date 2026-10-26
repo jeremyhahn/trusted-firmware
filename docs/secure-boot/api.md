@@ -144,7 +144,7 @@ from the board profile and `image_flags` from the build (`IMAGE_FLAGS`).
 
 ### Reserved EEPROM
 
-`TFW_BOOT_EE_BASE` (`0x000`) through `0x0BF`, `TFW_BOOT_EE_LEN` (192) bytes,
+`TFW_BOOT_EE_BASE` (`0x000`) through `0x13F`, `TFW_BOOT_EE_LEN` (`0x140`, 320) bytes,
 refused for application writes by `src/caps/storage.c`:
 
 | Offset | Size | Field | Notes |

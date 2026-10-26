@@ -385,6 +385,21 @@ func TestStartElementEthernetFailsWhenTheSimulatorReportsNoUsableAddress(t *test
 	}
 }
 
+func TestStartElementEthernetFailsWhenTheSimulatorIsNotBuilt(t *testing.T) {
+	t.Setenv(tfwsim.DirEnv, t.TempDir())
+	f := &fatalTB{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tfwsim.StartElementEthernet(f)
+	}()
+	<-done
+	if !strings.Contains(f.msg, "not built") || !strings.Contains(f.msg, tfwsim.DirEnv) {
+		t.Errorf("StartElementEthernet failed with %q, want it to say the simulator is not built and name %s",
+			f.msg, tfwsim.DirEnv)
+	}
+}
+
 // goneTempDirTB hands out a temporary directory that does not exist, so the
 // EEPROM image cannot be written.
 type goneTempDirTB struct {

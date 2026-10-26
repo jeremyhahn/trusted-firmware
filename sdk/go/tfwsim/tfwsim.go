@@ -162,13 +162,15 @@ func StartElementVia(tb testing.TB, wrap func(io.ReadWriter) io.ReadWriter, opts
 func StartElementWithOperator(tb testing.TB, operator *ecdsa.PublicKey, opts ...tfw.Option) *tfw.Device {
 	tb.Helper()
 
-	if operator == nil || operator.Curve != elliptic.P256() {
-		tb.Fatal("tfwsim: the operator key must be a P-256 public key")
+	// Bytes is the uncompressed SEC 1 point, 0x04 || X || Y. It can fail only
+	// for a key built through the deprecated X and Y fields, which the curve
+	// check leaves as the one refusal.
+	var sec1 []byte
+	if operator != nil && operator.Curve == elliptic.P256() {
+		sec1, _ = operator.Bytes()
 	}
-	// Bytes is the uncompressed SEC 1 point, 0x04 || X || Y.
-	sec1, err := operator.Bytes()
-	if err != nil || len(sec1) != 1+tfw.OperatorPubkeyLen {
-		tb.Fatalf("tfwsim: the operator key is not a valid P-256 point: %v", err)
+	if len(sec1) != 1+tfw.OperatorPubkeyLen {
+		tb.Fatal("tfwsim: the operator key must be a P-256 public key")
 	}
 	var point [tfw.OperatorPubkeyLen]byte
 	copy(point[:], sec1[1:])

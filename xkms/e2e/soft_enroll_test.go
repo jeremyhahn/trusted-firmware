@@ -211,13 +211,7 @@ func startSoftEthernet(t *testing.T) *tfw.Device {
 // key crosses into the registry.
 func softFactoryDeviceID(t *testing.T) *ecdsa.PublicKey {
 	t.Helper()
-	att, err := newDiceElementOn(t, startSoftSerial(t), softRootPermitted).attest(deviceattest01.DICENonce("factory"))
-	require.NoError(t, err)
-	pub, ok := att.Certificate.PublicKey.(*ecdsa.PublicKey)
-	require.True(t, ok, "the soft root certified a %T", att.Certificate.PublicKey)
-	require.NoError(t, att.Certificate.CheckSignature(x509.ECDSAWithSHA256, att.Certificate.RawTBSCertificate, att.Certificate.Signature),
-		"the soft root's alias certificate does not verify under its DeviceID")
-	return pub
+	return deviceIDFromAttestation(t, newDiceElementOn(t, startSoftSerial(t), softRootPermitted))
 }
 
 // softRootPermitted is the relying party's policy that accepts a software

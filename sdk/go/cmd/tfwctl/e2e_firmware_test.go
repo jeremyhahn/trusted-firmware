@@ -367,11 +367,22 @@ func TestFirmwareEEPROM(t *testing.T) {
 	// whole, not partially applied.
 	cliRefused(t, dev, "eeprom-write", strconv.Itoa(tfw.EEPROMReservedEnd-1), "0102030405060708")
 
-	// And the user area still works.
-	require.NoError(t, run(context.Background(), dev, "eeprom-write", []string{"0x180", "dead"}, false, &strings.Builder{}))
-	var got struct {
+	// And the user area still works. The bytes it overwrites go back when the
+	// test ends, so a run on a board leaves the board on its record (m655).
+	var got, old struct {
 		Hex string `json:"hex"`
 	}
+	cliJSON(t, dev, &old, "eeprom-read", "0x180", "2")
+	t.Cleanup(func() {
+		require.NoError(t, run(context.Background(), dev, "eeprom-write", []string{"0x180", old.Hex}, false, &strings.Builder{}),
+			"put back EEPROM 0x180")
+		var back struct {
+			Hex string `json:"hex"`
+		}
+		cliJSON(t, dev, &back, "eeprom-read", "0x180", "2")
+		assert.Equal(t, old.Hex, back.Hex, "EEPROM 0x180 put back")
+	})
+	require.NoError(t, run(context.Background(), dev, "eeprom-write", []string{"0x180", "dead"}, false, &strings.Builder{}))
 	cliJSON(t, dev, &got, "eeprom-read", "0x180", "2")
 	assert.Equal(t, "dead", got.Hex, "read back")
 

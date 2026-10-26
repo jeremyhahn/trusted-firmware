@@ -49,13 +49,15 @@ element holds a DeviceID key and a UDS. That is a separate, one-time,
 irreversible procedure — run it on a spare part first:
 
 ```
-tfwprov --dry-run  --config board.yaml /dev/ttyACM0   # see the plan, write nothing
-tfwprov --commit --yes-i-mean-it --config board.yaml /dev/ttyACM0
-tfwprov --verify   --config board.yaml /dev/ttyACM0   # confirm afterward
+tfwprov --dry-run  --config sdk/go/templates/atecc608a-dice.conf /dev/ttyACM0   # see the plan, write nothing
+tfwprov --commit --yes-i-mean-it --config sdk/go/templates/atecc608a-dice.conf /dev/ttyACM0
+tfwprov --verify   --config sdk/go/templates/atecc608a-dice.conf /dev/ttyACM0   # confirm afterward
 ```
 
-Full procedure and failure modes: `docs/device-provisioning/user.md`. There is
-the verb is `tfwctl attest` — see `cli.md`.
+`--config` takes a `key = value` template (`sdk/go/templates/`), not YAML.
+Full procedure and failure modes: `docs/device-provisioning/user.md`.
+Provisioning is `tfwprov`'s (`sdk/go/cmd/tfwprov/`), not a `tfwctl` verb; the
+evidence verbs are `tfwctl attest`, `attest-cert` and `attest-csr` — see `cli.md`.
 
 ## Produce real DICE evidence with no hardware
 

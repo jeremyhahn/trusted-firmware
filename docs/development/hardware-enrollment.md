@@ -120,6 +120,7 @@ make hw-enroll DEVICE=/dev/ttyACM0 ACME_DIRECTORY=https://<control plane>/acme/d
 | `DEVICEID` | the in-process server only. The 64-byte X‖Y DeviceID key, in hex |
 | `ACME_DIRECTORY` | an external ACME directory URL. Unset, the in-process server |
 | `ACME_ROOTS` | a PEM file of the roots the directory's TLS chains to |
+| `SOFT_ROOT` | `1` admits a soft root (#7): the relying party permits `notSecure`, which a soft root's alias certificate sets, and with no `DEVICEID` the in-process registry takes the DeviceID the device attests on the run's connection, trust on first use, since a soft root has no `tfwprov` provisioning. Unset, a soft root is refused. Any other value fails the run |
 | `BOOT_WAIT` | serial only. How long to wait for the board's BOOT event after the port opens (Go duration). Raise it for a `BOOT_MEASURE=atecc608a` boot |
 | `CONNECT_WAIT` | TCP only. How long to wait for the board to connect (Go duration). Default `1m` |
 | `HW_ENROLL_RECORDS` | where the record goes. Default `docs/development/enrollment-runs` |

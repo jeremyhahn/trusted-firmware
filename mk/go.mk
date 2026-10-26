@@ -167,12 +167,13 @@ xkms-test: tfwsim tfwsim-atecc608a
 
 ## xkms-e2e-soft: enrol the no-element CRYPTO=auto image through device-attest-01 on its soft root (#130)
 # Separate from xkms-test because xkms/e2e is TestHardwareEnrollment's package,
-# which stays out of it (#163 decision 2). This one test in it needs no board:
-# it starts tfwsim-auto with no element on the bus, so it is named alone here
-# and runs in integration-test-host.
+# which stays out of it (#163 decision 2). These tests in it need no board:
+# two start tfwsim-auto with no element on the bus, the second through
+# hw-enroll's own harness with SOFT_ROOT=1 (#7), and the third reads DEVICE and
+# SOFT_ROOT only, so they are named here and run in integration-test-host.
 xkms-e2e-soft: tfwsim-auto
 	@cd $(XKMS_DIR) && TFWSIM_DIR=$(XKMS_SIM_DIR) $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) \
-	  -run '^TestSoftRootEnrollsThroughDeviceAttest01$$' ./e2e
+	  -run '^(TestSoftRootEnrollsThroughDeviceAttest01|TestHardwareEnrollmentAdmitsASoftRootWhenAsked|TestEnrollTargetsTransportFromDevice)$$' ./e2e
 
 ## xkms-coverage: xkms adapter unit-test statement coverage, failing if it or any package is under the floor
 # Unit tests only (#163), as sdk-coverage is: xkms/e2e, the one package that
@@ -202,7 +203,10 @@ xkms-coverage:
 # board to dial (CONNECT_WAIT bounds the wait); anything else is a serial port.
 # DEVICEID is the hex X||Y tfwprov --commit printed, for the in-process ACME
 # server; ACME_DIRECTORY names a control plane instead, ACME_ROOTS the PEM its
-# TLS chains to. Procedure: docs/development/hardware-enrollment.md.
+# TLS chains to. SOFT_ROOT=1 admits a soft root (#7): the relying party permits
+# notSecure, and with no DEVICEID the registry takes the DeviceID the device
+# attests, as a soft root has no tfwprov provisioning; unset, it is refused.
+# Procedure: docs/development/hardware-enrollment.md.
 HW_ENROLL_RECORDS ?= docs/development/enrollment-runs
 hw-enroll:
 	@if [ -z "$(DEVICE)" ]; then \
@@ -213,7 +217,7 @@ hw-enroll:
 	@mkdir -p $(HW_ENROLL_RECORDS)
 	@cd $(XKMS_DIR) && TFW_HW_DEVICE='$(DEVICE)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_BOOT_WAIT='$(BOOT_WAIT)' TFW_HW_CONNECT_WAIT='$(CONNECT_WAIT)' \
 	  TFW_HW_ACME_DIRECTORY='$(ACME_DIRECTORY)' TFW_HW_ACME_ROOTS='$(if $(ACME_ROOTS),$(abspath $(ACME_ROOTS)))' \
-	  TFW_HW_RECORD_DIR=$(abspath $(HW_ENROLL_RECORDS)) \
+	  TFW_HW_SOFT_ROOT='$(SOFT_ROOT)' TFW_HW_RECORD_DIR=$(abspath $(HW_ENROLL_RECORDS)) \
 	  $(GO) test -count=1$(call go-tags,-tags,$(XKMS_TAGS)) -run '^TestHardwareEnrollment$$' -v ./e2e/
 
 ## go-tags-selftest: every Go invocation the CI stages reach carries GO_BUILD_TAGS; empty changes none

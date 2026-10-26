@@ -66,6 +66,10 @@ const (
 	// envRecordDir is where the run record is written. Unset, a temporary
 	// directory the test reads it back from.
 	envRecordDir = "TFW_HW_RECORD_DIR"
+	// envSoftRoot, set to 1, admits a soft root: the relying party permits
+	// notSecure, and with no DeviceID given the registry takes the device's
+	// own (deviceIDFromAttestation). Unset, a soft root is refused.
+	envSoftRoot = "TFW_HW_SOFT_ROOT"
 )
 
 // defaultConnectWait covers a board's boot, its link coming up and its first
@@ -77,8 +81,12 @@ type enrollTarget struct {
 	name      string
 	transport string
 	open      func(t *testing.T) *tfw.Device
-	// deviceID is the provisioned DeviceID key the in-process registry holds.
-	deviceID func(t *testing.T) *ecdsa.PublicKey
+	// deviceID is the DeviceID key the in-process registry holds: the
+	// provisioned one, or for a soft root with none the device's own.
+	deviceID func(t *testing.T, element *diceElement) *ecdsa.PublicKey
+	// permitted is the relying party's policy: none by default, notSecure
+	// when the run is asked to admit a soft root.
+	permitted dice.OperationalFlags
 }
 
 // enrollTargets is the operator's board when one is named, else the
@@ -89,13 +97,38 @@ type enrollTarget struct {
 // a serial port path.
 func enrollTargets(t *testing.T) []enrollTarget {
 	t.Helper()
+	soft := softRootAsked(t)
+	var permitted dice.OperationalFlags
+	operatorID := operatorDeviceID
+	if soft {
+		permitted = softRootPermitted
+		if os.Getenv(envDeviceID) == "" {
+			operatorID = deviceIDFromAttestation
+		}
+	}
 	spec := os.Getenv(envDevice)
+	if spec == "" && soft {
+		return []enrollTarget{{
+			name:      "tfwsim-auto-serial",
+			transport: "serial",
+			open:      startSoftSerial,
+			deviceID:  deviceIDFromAttestation,
+			permitted: permitted,
+		}, {
+			name:      "tfwsim-auto-tcp",
+			transport: "tcp",
+			open:      startSoftEthernet,
+			deviceID:  deviceIDFromAttestation,
+			permitted: permitted,
+		}}
+	}
 	if spec == "" {
+		simID := func(*testing.T, *diceElement) *ecdsa.PublicKey { return tfwsim.TestDeviceIDPublicKey() }
 		return []enrollTarget{{
 			name:      "tfwsim-serial",
 			transport: "serial",
 			open:      func(t *testing.T) *tfw.Device { return tfwsim.StartElement(t) },
-			deviceID:  func(*testing.T) *ecdsa.PublicKey { return tfwsim.TestDeviceIDPublicKey() },
+			deviceID:  simID,
 		}, {
 			name:      "tfwsim-tcp",
 			transport: "tcp",
@@ -103,7 +136,7 @@ func enrollTargets(t *testing.T) []enrollTarget {
 				_, eth := tfwsim.StartElementEthernet(t)
 				return eth.Device
 			},
-			deviceID: func(*testing.T) *ecdsa.PublicKey { return tfwsim.TestDeviceIDPublicKey() },
+			deviceID: simID,
 		}}
 	}
 	if _, _, err := net.SplitHostPort(spec); err == nil {
@@ -111,15 +144,32 @@ func enrollTargets(t *testing.T) []enrollTarget {
 			name:      "operator-tcp",
 			transport: "tcp",
 			open:      func(t *testing.T) *tfw.Device { return acceptTCPBoard(t, spec) },
-			deviceID:  operatorDeviceID,
+			deviceID:  operatorID,
+			permitted: permitted,
 		}}
 	}
 	return []enrollTarget{{
 		name:      "operator-serial",
 		transport: "serial",
 		open:      func(t *testing.T) *tfw.Device { return openSerialBoard(t, spec) },
-		deviceID:  operatorDeviceID,
+		deviceID:  operatorID,
+		permitted: permitted,
 	}}
+}
+
+// softRootAsked reads envSoftRoot: 1 admits a soft root, unset refuses it, and
+// anything else is a mistyped run, not a default.
+func softRootAsked(t *testing.T) bool {
+	t.Helper()
+	switch v := os.Getenv(envSoftRoot); v {
+	case "":
+		return false
+	case "1":
+		return true
+	default:
+		t.Fatalf("%s is 1 or unset, not %q", envSoftRoot, v)
+		return false
+	}
 }
 
 func openSerialBoard(t *testing.T, path string) *tfw.Device {
@@ -159,14 +209,31 @@ func acceptTCPBoard(t *testing.T, addr string) *tfw.Device {
 	return eth.Device
 }
 
-func operatorDeviceID(t *testing.T) *ecdsa.PublicKey {
+func operatorDeviceID(t *testing.T, _ *diceElement) *ecdsa.PublicKey {
 	t.Helper()
 	s := os.Getenv(envDeviceID)
 	if s == "" {
 		t.Fatalf("the in-process ACME server needs the board's provisioned DeviceID key: set %s to "+
-			"the hex X||Y tfwprov --commit printed, or name a control plane with %s", envDeviceID, envACMEDirectory)
+			"the hex X||Y tfwprov --commit printed, set %s=1 for a soft root with none, or name a "+
+			"control plane with %s", envDeviceID, envSoftRoot, envACMEDirectory)
 	}
 	return parseDeviceID(t, s)
+}
+
+// deviceIDFromAttestation is the DeviceID of a soft root no tfwprov run
+// provisioned: the key the device's own alias certificate verifies under, read
+// on the run's connection before it enrolls. It is trust on first use, the
+// factory reading softFactoryDeviceID takes, so only a run that admits a soft
+// root uses it.
+func deviceIDFromAttestation(t *testing.T, element *diceElement) *ecdsa.PublicKey {
+	t.Helper()
+	att, err := element.attest(deviceattest01.DICENonce("factory"))
+	require.NoError(t, err)
+	pub, ok := att.Certificate.PublicKey.(*ecdsa.PublicKey)
+	require.True(t, ok, "the soft root certified a %T", att.Certificate.PublicKey)
+	require.NoError(t, att.Certificate.CheckSignature(x509.ECDSAWithSHA256, att.Certificate.RawTBSCertificate, att.Certificate.Signature),
+		"the soft root's alias certificate does not verify under its DeviceID")
+	return pub
 }
 
 // parseDeviceID reads the 64-byte X||Y point tfwprov prints.
@@ -193,7 +260,7 @@ type enrollment struct {
 	confirm func(t *testing.T, cert *x509.Certificate)
 }
 
-func newRunEnrollment(t *testing.T, target enrollTarget, identity string) *enrollment {
+func newRunEnrollment(t *testing.T, target enrollTarget, element *diceElement) *enrollment {
 	t.Helper()
 	if directory := os.Getenv(envACMEDirectory); directory != "" {
 		var roots []string
@@ -211,12 +278,19 @@ func newRunEnrollment(t *testing.T, target enrollTarget, identity string) *enrol
 		}
 	}
 
-	local := newDiceEnrollment(t, provisioningRecord(t, identity, target.deviceID(t)), dice.OperationalFlags{})
+	local := newDiceEnrollment(t, provisioningRecord(t, element.identity, target.deviceID(t, element)), target.permitted)
+	how := "provisioned DeviceID"
+	if target.permitted.NotSecure {
+		how = "soft root: notSecure permitted, DeviceID read from the device"
+		if os.Getenv(envDeviceID) != "" {
+			how = "soft root: notSecure permitted, provisioned DeviceID"
+		}
+	}
 	return &enrollment{
 		client: local.client,
 		verdict: func(t *testing.T) string {
 			require.NoError(t, local.verifier.Refusal())
-			return "accepted by go-xkms deviceattest01.TrustAnchorVerifier (DICE, device-signed leaf, provisioned DeviceID)"
+			return "accepted by go-xkms deviceattest01.TrustAnchorVerifier (DICE, device-signed leaf, " + how + ")"
 		},
 		issuer: local.issuer,
 		confirm: func(t *testing.T, cert *x509.Certificate) {
@@ -250,8 +324,8 @@ type runRecord struct {
 // TestDeviceAttestDICEEnrollsTheRealFirmware and checks what it was issued.
 func enrollOnce(t *testing.T, target enrollTarget) *runRecord {
 	t.Helper()
-	element := newDiceElementOn(t, target.open(t), dice.OperationalFlags{})
-	acme := newRunEnrollment(t, target, element.identity)
+	element := newDiceElementOn(t, target.open(t), target.permitted)
+	acme := newRunEnrollment(t, target, element)
 
 	cert, err := deviceAttest(acme.client, element)
 	require.NoError(t, err)
@@ -325,9 +399,34 @@ func (r *runRecord) FileName() string {
 // TestHardwareEnrollment is the run `make hw-enroll` makes. With no board
 // named it enrolls the simulator, and reads back the record it wrote.
 func TestHardwareEnrollment(t *testing.T) {
+	runHardwareEnrollment(t)
+}
+
+// TestHardwareEnrollmentAdmitsASoftRootWhenAsked is `make hw-enroll
+// SOFT_ROOT=1` with no board: the no-element CRYPTO=auto simulator, which has
+// a soft root and no tfwprov provisioning, enrolls on its own DeviceID.
+func TestHardwareEnrollmentAdmitsASoftRootWhenAsked(t *testing.T) {
+	t.Setenv(envDevice, "")
+	t.Setenv(envDeviceID, "")
+	t.Setenv(envACMEDirectory, "")
+	t.Setenv(envRecordDir, "")
+	t.Setenv(envSoftRoot, "1")
+	records := runHardwareEnrollment(t)
+	require.Len(t, records, 2)
+	for _, record := range records {
+		assert.Contains(t, record.Verdict, "soft root: notSecure permitted, DeviceID read from the device")
+	}
+}
+
+// runHardwareEnrollment enrolls each target once, writes its record and reads
+// it back, and returns the records.
+func runHardwareEnrollment(t *testing.T) []*runRecord {
+	t.Helper()
+	var records []*runRecord
 	for _, target := range enrollTargets(t) {
 		t.Run(target.name, func(t *testing.T) {
 			record := enrollOnce(t, target)
+			records = append(records, record)
 
 			dir := os.Getenv(envRecordDir)
 			if dir == "" {
@@ -356,6 +455,7 @@ func TestHardwareEnrollment(t *testing.T) {
 			assert.Contains(t, string(written), "| Evidence verdict | accepted ")
 		})
 	}
+	return records
 }
 
 // TestEnrollTargetsTransportFromDevice pins the rule `make hw-enroll` documents:
@@ -364,19 +464,26 @@ func TestHardwareEnrollment(t *testing.T) {
 func TestEnrollTargetsTransportFromDevice(t *testing.T) {
 	for _, tc := range []struct {
 		device string
+		soft   string
 		want   []string
 	}{
-		{"", []string{"tfwsim-serial/serial", "tfwsim-tcp/tcp"}},
-		{"/dev/ttyACM0", []string{"operator-serial/serial"}},
-		{"192.0.2.1:7000", []string{"operator-tcp/tcp"}},
-		{"0.0.0.0:7000", []string{"operator-tcp/tcp"}},
-		{"[2001:db8::1]:7000", []string{"operator-tcp/tcp"}},
+		{"", "", []string{"tfwsim-serial/serial", "tfwsim-tcp/tcp"}},
+		{"/dev/ttyACM0", "", []string{"operator-serial/serial"}},
+		{"192.0.2.1:7000", "", []string{"operator-tcp/tcp"}},
+		{"0.0.0.0:7000", "", []string{"operator-tcp/tcp"}},
+		{"[2001:db8::1]:7000", "", []string{"operator-tcp/tcp"}},
+		{"", "1", []string{"tfwsim-auto-serial/serial", "tfwsim-auto-tcp/tcp"}},
+		{"/dev/ttyACM0", "1", []string{"operator-serial/serial"}},
+		{"192.0.2.1:7000", "1", []string{"operator-tcp/tcp"}},
 	} {
-		t.Run(tc.device, func(t *testing.T) {
+		t.Run(tc.device+"/soft="+tc.soft, func(t *testing.T) {
 			t.Setenv(envDevice, tc.device)
+			t.Setenv(envSoftRoot, tc.soft)
 			var got []string
 			for _, target := range enrollTargets(t) {
 				got = append(got, target.name+"/"+target.transport)
+				assert.Equal(t, tc.soft == "1", target.permitted.NotSecure,
+					"only a run asked to admit a soft root permits notSecure")
 			}
 			assert.Equal(t, tc.want, got)
 		})

@@ -85,7 +85,7 @@ tfwprov [flags] <port>
 | `--verify` | read the part back and compare against `--config`; safe to run on a locked part |
 | `--commit` | run the irreversible sequence; requires `--yes-i-mean-it` |
 | `--yes-i-mean-it` | required by `--commit` |
-| `--config PATH` | the provisioning template (YAML); required in every mode |
+| `--config PATH` | the provisioning template, a `key = value` file (`sdk/go/templates/*.conf`), not YAML; required in each of these three modes |
 | `--baud N` | serial baud rate |
 | `--timeout D` | reply timeout |
 | `--force` | refused outright — not accepted as a synonym for `--yes-i-mean-it` |
@@ -96,9 +96,9 @@ Exactly one of `--dry-run` / `--verify` / `--commit` is required.
 Examples:
 
 ```
-tfwprov --dry-run --config board.yaml /dev/ttyACM0
-tfwprov --commit --yes-i-mean-it --config board.yaml /dev/ttyACM0
-tfwprov --verify --config board.yaml /dev/ttyACM0
+tfwprov --dry-run --config sdk/go/templates/atecc608a-dice.conf /dev/ttyACM0
+tfwprov --commit --yes-i-mean-it --config sdk/go/templates/atecc608a-dice.conf /dev/ttyACM0
+tfwprov --verify --config sdk/go/templates/atecc608a-dice.conf /dev/ttyACM0
 ```
 
 `--commit` runs, in the one order the element allows: write config blocks,

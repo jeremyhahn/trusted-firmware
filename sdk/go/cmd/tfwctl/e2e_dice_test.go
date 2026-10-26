@@ -339,13 +339,21 @@ func TestE2EAutoNoElementCertificateVerifiesES256UnderItsDeviceID(t *testing.T) 
 }
 
 func TestFirmwareSoftwareTierStillCannotIssueACertificate(t *testing.T) {
-	// The reason the element tier exists: the software tier has no asymmetric key,
-	// so a CRYPTO=soft image compiles ATTEST_CERT out and has no table entry for it
-	// (docs/dice-attestation/engineering.md, "Error semantics").
-	_, err := cliHex(t, startPeer(t, simproc.Software).serial, "attest-cert", "certificate", aliasNonce(1))
+	// The reason the element tier exists: the software tier issues no
+	// certificate. A CRYPTO=soft image compiles ATTEST_CERT out and has no table
+	// entry for it (docs/dice-attestation/engineering.md, "Error semantics"). A
+	// CRYPTO=auto image that fell back to the soft root links it and reports it
+	// in caps, and the soft root refuses it, having no identity without a UDS
+	// from tfw-boot (#7). Which of the two this device is, its caps say.
+	d := startPeer(t, simproc.Software).serial
+	want := tfw.StatusErrUnknownCmd
+	if cliCaps(t, d).Has(tfw.FeatureAliasCert) {
+		want = tfw.StatusErrNotProvisioned
+	}
+	_, err := cliHex(t, d, "attest-cert", "certificate", aliasNonce(1))
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "attest-cert on the software tier: %v", err)
-	assert.Equal(t, tfw.StatusErrUnknownCmd, st)
+	assert.Equal(t, want, st)
 }
 
 // The two nonce widths are not interchangeable: the CLI refuses a swapped one

@@ -154,12 +154,19 @@ func TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
 // The software tier has no asymmetric key to sign with, so its caps does not
 // name attest-csr and the request is answered unsupported.
 func TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne(t *testing.T) {
+	// A CRYPTO=soft image has no ATTEST_CSR and says so in caps, so tfwctl
+	// refuses it before sending. A CRYPTO=auto image on the soft root reports
+	// it, and the device refuses it at the subject key: no identity without a
+	// UDS from tfw-boot (#7). Either way the software tier signs nothing.
 	d := startPeer(t, simproc.Software).serial
-	require.False(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR), "caps on the software tier names attest-csr")
+	want := tfw.StatusErrUnsupported
+	if cliCaps(t, d).Has(tfw.FeatureAttestCSR) {
+		want = tfw.StatusErrNotProvisioned
+	}
 	_, err := cliCSR(t, d, aliasNonce(0x50))
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "got %v", err)
-	assert.Equal(t, tfw.StatusErrUnsupported, st)
+	assert.Equal(t, want, st)
 }
 
 // meddler sits between the host and the simulator and lets a test rewrite one

@@ -71,7 +71,9 @@ no trailer is `TFW_ERR_UNSUPPORTED`, a wrong measurement or signature
 `TFW_ERR_CRYPTO`. `make firmware` writes no trailer, and this tree holds no
 signing key and no tool that stamps one: the image key is go-xkms's
 ([../ota/architecture.md](../ota/architecture.md)). A signed image comes from
-there.
+there. The one exception is the bench Mega's soft tier, which is
+development only: there `make bench-sign` signs with a bench key kept outside
+the tree ([its bench page](../development/bench/mega2560.md#the-soft-roots-key-and-uds-development-only)).
 
 There are two routes for a signed image:
 

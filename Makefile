@@ -34,6 +34,9 @@ include mk/release.mk
 # After mk/release.mk: the SUIT manifest's to-be-signed bytes (#78) are emitted
 # beside the image provenance-one writes.
 include mk/suit.mk
+# After mk/boot.mk and mk/suit.mk, for BOOT_TARGET and SUIT_OUT: the bench
+# Mega's development-only signing key, kept outside the tree (#7).
+include mk/boot-bench.mk
 # After mk/firmware.mk, for FW_CFLAGS, HAL_DIR and the board profile. A bench
 # image only: nothing in `ci` depends on it.
 include mk/wiznet-probe.mk

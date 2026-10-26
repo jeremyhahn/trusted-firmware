@@ -1285,7 +1285,7 @@ BOOT_ROW  := $(BOARD):$(BOOT_TIER):$(BOOT_MEASURE):$(BOOT_SIG):$(BOOT_OTA):$(BOO
 BOOT_FITS := $(filter $(BOARD):%,$(BOOT_SUPPORTED))
 # A literal comma, which $(if) would otherwise read as its argument separator.
 BOOT_COMMA := ,
-BOOT_GATED_GOAL := $(firstword $(filter bootloader boot-flash,$(MAKECMDGOALS)))
+BOOT_GATED_GOAL := $(firstword $(filter bootloader boot-flash boot-bench boot-flash-uds,$(MAKECMDGOALS)))
 ifneq ($(BOOT_GATED_GOAL),)
 ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
 $(error $(BOOT_GATED_GOAL): $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration$(if $(BOOT_AB_OPTIONAL), (a trailing :ab is BOOT_AB=1)). $(if $(BOOT_FITS),For $(BOARD) the supported rows$(BOOT_COMMA) which fit$(BOOT_COMMA) are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
@@ -1335,9 +1335,9 @@ bootloader-candidate:
 
 .PHONY: bootloader-candidate
 
-ifneq ($(filter boot-flash,$(MAKECMDGOALS)),)
+ifneq ($(filter boot-flash boot-flash-uds,$(MAKECMDGOALS)),)
 ifeq ($(and $(BOOT_EESAVE_FUSE),$(BOOT_EESAVE_BIT)),)
-$(error boot-flash: boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so boot-flash cannot check that the chip erase keeps the EEPROM)
+$(error $(firstword $(filter boot-flash boot-flash-uds,$(MAKECMDGOALS))): boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so boot-flash cannot check that the chip erase keeps the EEPROM)
 endif
 endif
 
@@ -1346,7 +1346,10 @@ endif
 # that refusal tells the operator to run again, BOOT_EEPROM_RESTORE=1 added.
 boot-flash: ISP_RERUN = BOOT_TIER=$(BOOT_TIER) BOOT_MEASURE=$(BOOT_MEASURE) BOOT_SIG=$(BOOT_SIG) \
                         BOOT_OTA=$(BOOT_OTA) BOOT_STORE=$(BOOT_STORE)
-boot-flash: $(BOOT_TARGET).hex
+# BOOT_FLASH_HEX is the image it writes: the build's, unless mk/boot-bench.mk's
+# boot-flash-uds names its temporary copy with the UDS in it.
+BOOT_FLASH_HEX ?= $(BOOT_TARGET).hex
+boot-flash: $(BOOT_FLASH_HEX)
 	@$(ARCH_BOOT_FLASH)
 
 ## lock-check: read the lock bits back over ISP; refuse unless they lock the UDS

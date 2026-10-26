@@ -14,7 +14,7 @@
 # fetched from the source the board's page gives, and the recipe refuses one
 # whose SHA-256 is not the profile's. See ARCH_BOARD_RESTORE in mk/arch/$(ARCH).mk.
 
-## board-restore: put the board's factory state back (AVR: ISP; ESP32: the flash image)
+## board-restore: put the board's factory state back (AVR: ISP; ESP32: the flash image; Cortex-M: a board-record record through the debug probe)
 BOARD_RESTORE_HEX ?=
 # An ESP32 board is restored from the whole-flash image read before the first
 # write: FACTORY_FLASH_BYTES and FACTORY_FLASH_SHA256 in its profile.mk, the
@@ -23,7 +23,13 @@ BOARD_RESTORE_HEX ?=
 BOARD_RESTORE_IMAGE ?=
 
 ifneq ($(filter board-restore,$(MAKECMDGOALS)),)
-ifeq ($(ARCH),esp32)
+ifeq ($(ARCH),cortex-m)
+ifneq ($(CM_FLASH_TOOL),)
+ifeq ($(BOARD_RESTORE_IMAGE),)
+$(error board-restore: set BOARD_RESTORE_IMAGE, the record `make board-record` took of this board ($(CM_RECORD_DIR)/$(BOARD)-<CM_PROBE_SERIAL>-<time>.flash.bin), and CM_PROBE_SERIAL, its probe)
+endif
+endif
+else ifeq ($(ARCH),esp32)
 ifeq ($(and $(FACTORY_FLASH_BYTES),$(FACTORY_FLASH_SHA256)),)
 $(error board-restore: boards/$(BOARD)/profile.mk records no factory flash image (FACTORY_FLASH_*); a board's is recorded before its first write, see docs/development/bench/)
 endif
@@ -52,4 +58,11 @@ board-restore: ISP_RERUN = BOARD_RESTORE_HEX=$(BOARD_RESTORE_HEX)
 board-restore: $(BOARD_RESTORE_HEX) $(BOARD_RESTORE_IMAGE)
 	@$(ARCH_BOARD_RESTORE)
 
-.PHONY: board-restore
+## board-record: read the board's factory state to a timestamped record before its first write (Cortex-M: the debug probe)
+# AVR and ESP32 boards are recorded by hand, on their pages under
+# docs/development/bench/; an architecture with a recipe names it in
+# ARCH_BOARD_RECORD (mk/arch/cortex-m.mk).
+board-record:
+	@$(if $(ARCH_BOARD_RECORD),$(ARCH_BOARD_RECORD),echo "$@: $(ARCH) has no board-record recipe: record $(BOARD) by hand, see docs/development/bench/" >&2; exit 1)
+
+.PHONY: board-restore board-record

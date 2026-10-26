@@ -99,8 +99,10 @@ TFW_CM_WEAK(tfw_cm_irq78) TFW_CM_WEAK(tfw_cm_irq79)
 
 /* Sixteen core exceptions and the first 80 external interrupts: every source
  * a SoC this port supports uses (the AN505's UART0 is 32 and 33, the AN500's 0
- * and 1, the i.MX 95 M7's LPUART3 64). 96 words, so the table's 512-byte
- * alignment for VTOR is the region base's. */
+ * and 1, the STM32H5's USART1 is 58, the i.MX 95 M7's LPUART3 64). 96 words,
+ * so VTOR needs the table at a 512-byte boundary, the next power of two; the
+ * linker script puts it at the region base, and every board's region bases
+ * are 512-byte aligned. */
 #define TFW_CM_IRQ_COUNT 80u
 typedef void (*tfw_cm_vector_t)(void);
 
@@ -142,6 +144,11 @@ const tfw_cm_vector_t tfw_cm_vectors[16u + TFW_CM_IRQ_COUNT]
     tfw_cm_irq76, tfw_cm_irq77, tfw_cm_irq78, tfw_cm_irq79,
 };
 
+tfw_reset_cause_t tfw_cm_mark_decode(uint32_t mark)
+{
+    return tfw_cm_reset_decode(mark);
+}
+
 _Noreturn void tfw_cm_reset(void)
 {
     uint32_t  mark = tfw_cm_reset_mark;
@@ -165,7 +172,7 @@ _Noreturn void tfw_cm_reset(void)
         *dst++ = 0u;
     }
 
-    latched = tfw_cm_reset_decode(mark);
+    latched = tfw_cm_soc_reset_cause(mark);
     (void)main();
     for (;;) { }
 }

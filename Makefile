@@ -61,9 +61,11 @@ version:
 	@echo $(VERSION)
 
 ## clean: remove every build artefact
-# build/docker/ is the devcontainer's source, not output, so it survives.
+# build/docker/ is the devcontainer's source, not output, so it survives;
+# build/records/ holds factory records (mk/arch/cortex-m.mk), which are not
+# output either and cannot be made again once a board is written.
 clean:
-	@[ ! -d $(BUILD_DIR) ] || find $(BUILD_DIR) -mindepth 1 -maxdepth 1 ! -path $(BUILD_DIR)/docker -exec rm -rf {} +
+	@[ ! -d $(BUILD_DIR) ] || find $(BUILD_DIR) -mindepth 1 -maxdepth 1 ! -path $(BUILD_DIR)/docker ! -path $(BUILD_DIR)/records -exec rm -rf {} +
 	@rm -rf coverage
 	@echo "cleaned"
 

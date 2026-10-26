@@ -15,7 +15,9 @@ import (
 func TestBoardIDEveryValue(t *testing.T) {
 	known := map[uint8]string{
 		0x01: "atmega328p", 0x02: "atmega2560", 0x03: "atmega32u4",
-		0x04: "attiny85", 0x40: "mps2-an505", 0x41: "frdm-imx95-m7", 0x42: "mps2-an500", 0x80: "esp32p4-poe", 0x81: "esp32-qemu",
+		0x04: "attiny85", 0x40: "mps2-an505", 0x41: "frdm-imx95-m7", 0x42: "mps2-an500",
+		0x43: "stm32h573i-dk", 0x44: "rp2350-pico2w",
+		0x45: "nrf54l15-dk", 0x46: "frdm-mcxn947", 0x80: "esp32p4-poe", 0x81: "esp32-qemu",
 	}
 	seen := map[string]uint8{}
 	for v := range 256 {

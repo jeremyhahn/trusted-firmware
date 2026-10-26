@@ -141,5 +141,10 @@ void tfw_imx95_model_watchdog_arm(void);
 void tfw_imx95_model_watchdog_pet(void);
 uint32_t tfw_imx95_model_reset_mark(void);
 void tfw_imx95_model_reset_mark_clear(void);
+/* tfw_cm_soc_reset_cause; the host's stand-in for hal_early.c's
+ * tfw_cm_mark_decode records the mark it was given and answers
+ * TFW_RESET_SOFTWARE. */
+int      tfw_imx95_model_reset_cause(uint32_t mark);
+uint32_t tfw_imx95_model_decoded_mark(void);
 
 #endif /* TFW_TEST_IMX95_MODEL_H */

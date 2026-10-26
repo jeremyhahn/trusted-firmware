@@ -70,4 +70,11 @@ static inline void tfw_cm_irq_restore(uint32_t primask)
     __asm__ volatile ("msr primask, %0" :: "r" (primask) : "memory");
 }
 
+/* A function that runs from SRAM while the flash it would otherwise run from
+ * is unreadable: in its own .ramfunc section, which the SoC's linker script
+ * copies with .data; noipa, so no inlining or cloning moves a byte of it back
+ * into flash; long_call, since SRAM is out of a BL's reach of the flash that
+ * calls it. */
+#define TFW_CM_RAMFUNC(name) __attribute__((noipa, long_call, section(".ramfunc." name)))
+
 #endif /* TFW_CM_REGS_H */

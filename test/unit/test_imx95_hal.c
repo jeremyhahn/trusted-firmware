@@ -339,6 +339,18 @@ static void test_a_locked_watchdog_does_not_park_the_core(void)
     TEST_ASSERT_EQUAL_HEX32(0x00001234u, m->wdog.toval);
 }
 
+/* ---------------------------------------------------------------- reset cause */
+
+/* The tree reads no M7 reset-status register: the SoC hands the marker to
+ * hal_early.c's decoder unchanged and returns what it decodes. */
+static void test_reset_cause_is_the_marker_decoded(void)
+{
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_imx95_model_reset_cause(0x57444F47u));
+    TEST_ASSERT_EQUAL_HEX32(0x57444F47u, tfw_imx95_model_decoded_mark());
+    TEST_ASSERT_EQUAL(TFW_RESET_SOFTWARE, tfw_imx95_model_reset_cause(0u));
+    TEST_ASSERT_EQUAL_HEX32(0u, tfw_imx95_model_decoded_mark());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -363,5 +375,6 @@ int main(void)
     RUN_TEST(test_a_second_configuration_still_takes);
     RUN_TEST(test_pet_is_one_refresh_key);
     RUN_TEST(test_a_locked_watchdog_does_not_park_the_core);
+    RUN_TEST(test_reset_cause_is_the_marker_decoded);
     return UNITY_END();
 }

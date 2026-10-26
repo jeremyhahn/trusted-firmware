@@ -53,3 +53,9 @@ void tfw_cm_soc_watchdog_pet(void)
     TFW_MPS2_WDOG_INTCLR = 1u;
     TFW_MPS2_WDOG_LOCK   = 0u;
 }
+
+/* QEMU's mps2-tz models no reset-status register: the marker is the cause. */
+tfw_reset_cause_t tfw_cm_soc_reset_cause(uint32_t mark)
+{
+    return tfw_cm_mark_decode(mark);
+}

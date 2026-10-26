@@ -18,10 +18,14 @@
  *   anything else         nothing asked: power-on
  *
  * The reset handler reads it and clears it, so a value outlives one reset
- * only, and decodes it in hal_reset_decode.h: the request reads
- * TFW_RESET_SOFTWARE and the fault TFW_RESET_PANIC. The NMI, the watchdog's
- * first expiry, still parks the core in tfw_cm_unhandled, so the watchdog's
- * second expiry resets it and its marker stands.
+ * only, and hands it to the SoC's tfw_cm_soc_reset_cause. A SoC with no
+ * reset-status register decodes the marker alone (tfw_cm_mark_decode, which is
+ * hal_reset_decode.h's decode): the request reads TFW_RESET_SOFTWARE and the
+ * fault TFW_RESET_PANIC. A SoC with one reads its register and takes the
+ * marker only where the register cannot tell who asked (nrf54l's
+ * soc_reset.c). The NMI, the watchdog's first expiry, still parks the core in
+ * tfw_cm_unhandled, so the watchdog's second expiry resets it and its marker
+ * stands.
  */
 #ifndef TFW_CM_HAL_EARLY_H
 #define TFW_CM_HAL_EARLY_H
@@ -32,8 +36,11 @@
 
 extern volatile uint32_t tfw_cm_reset_mark;
 
-/* Why this image's reset handler was entered, as it read the marker. */
+/* Why this image's reset handler was entered, as the SoC decoded it. */
 tfw_reset_cause_t tfw_hal_early_reset_cause(void);
+
+/* The marker's cause, for a SoC with no reset-status register. */
+tfw_reset_cause_t tfw_cm_mark_decode(uint32_t mark);
 
 /* Writes TFW_CM_MARK_RESETREQ and asks the core for a system reset
  * (AIRCR.SYSRESETREQ). Does not return. */
@@ -56,5 +63,10 @@ void tfw_cm_soc_early(void);
  * TFW_CM_MARK_WATCHDOG written first. */
 void tfw_cm_soc_watchdog_arm(void);
 void tfw_cm_soc_watchdog_pet(void);
+
+/* Called once by the reset handler, after .data and .bss exist, with the
+ * marker it read: why the part reset. A SoC with a reset-status register
+ * reads and clears it here, so the next reset is not reported as this one. */
+tfw_reset_cause_t tfw_cm_soc_reset_cause(uint32_t mark);
 
 #endif /* TFW_CM_HAL_EARLY_H */

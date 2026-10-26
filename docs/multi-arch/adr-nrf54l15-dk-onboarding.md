@@ -167,3 +167,17 @@ None is decided here.
    mapping above rests on the sections the AVR code already cites. The KMU and
    RRAM lock sections of [PS] also need a revision pinned before a port relies
    on them.
+
+## Follow-up
+
+The port has started under #17, from the vendor's MDK only. Its state and what
+is left are on the board page, [`../boards/nrf54l15-dk.md`](../boards/nrf54l15-dk.md):
+
+- Slice 1: the application on the generic Cortex-M port, soft tier.
+- Slice 2: tfw-boot, with a polled UARTE console and RRAM writes.
+- Slice 3: the reset cause from `RESETREAS` in place of the reset marker
+  alone.
+- Left, in order: the KMU, TrustZone with the immutable boot region lock, and
+  CRACEN, each stopped on [PS] not being in `docs/reference/`; then the bench
+  run on the DK, which needs the board. Open questions 2-4 above still decide
+  what the KMU and boot-region slices build.

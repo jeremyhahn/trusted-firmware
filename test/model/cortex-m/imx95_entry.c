@@ -16,6 +16,16 @@ void tfw_cm_irq64(void);
 /* hal_early.c's, which the host link leaves out: it is the reset handler. */
 volatile uint32_t tfw_cm_reset_mark;
 
+static uint32_t decoded_mark;
+
+/* hal_early.c's too: a stand-in that records the mark, so the test sees what
+ * the SoC passed without a second copy of the decode. */
+tfw_reset_cause_t tfw_cm_mark_decode(uint32_t mark)
+{
+    decoded_mark = mark;
+    return TFW_RESET_SOFTWARE;
+}
+
 void tfw_imx95_model_uart_interrupt(void)
 {
     tfw_cm_irq64();
@@ -44,4 +54,14 @@ uint32_t tfw_imx95_model_reset_mark(void)
 void tfw_imx95_model_reset_mark_clear(void)
 {
     tfw_cm_reset_mark = 0u;
+}
+
+int tfw_imx95_model_reset_cause(uint32_t mark)
+{
+    return (int)tfw_cm_soc_reset_cause(mark);
+}
+
+uint32_t tfw_imx95_model_decoded_mark(void)
+{
+    return decoded_mark;
 }

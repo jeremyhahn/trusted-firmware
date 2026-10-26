@@ -1,39 +1,35 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The mps2 SoC's images, application and tfw-boot alike, on the AN505
- * (Cortex-M33, #161) and the AN500 (Cortex-M7). Nothing here is TrustZone's:
- * the script places sections at the addresses it is given, so the two images'
- * different memory maps are their profiles' alone.
+ * The RP2350 SoC's images, application and tfw-boot alike (row rp2350).
  *
- * No MEMORY block and no address: mk/arch/cortex-m.mk passes every one as a
- * symbol from the board's profile.mk, so this file cannot disagree with it.
+ * mps2-tz.ld's layout and its symbols (mk/arch/cortex-m.mk passes every
+ * address from the board's profile.mk), with one addition: the boot ROM's
+ * IMAGE_DEF block right after the vector table. The ROM boots an image only
+ * if it finds a valid block within the first 4 KiB of flash ([RP-DS], boot
+ * ROM chapter, "Blocks"; release 8 §5.1.12 and §5.9.1), and it takes the initial stack pointer and the
+ * entry point from the vector table at the image's start. tfw-boot is the
+ * image at the flash's base; the application, in its slot after it, carries
+ * the block too, so either image is bootable from that base.
  *
- *   __tfw_text_base, __tfw_text_size  the image's code region: the app slot,
- *                                     or tfw-boot's region
- *   __tfw_ram_base                    the SRAM bank .data and .bss start in
- *   __tfw_faultframe                  the 12-byte fault record, below
- *   __tfw_resetmark                   the reset marker, 4 bytes below
- *   __tfw_handoff                     the 112-byte CDI handoff block, at
- *                                     RAM_END - 111 in both images
- *   __stack                           the initial stack pointer, below both
- *
- * The code region is RAM on this SoC (QEMU's SSRAM banks), but the image is
- * laid out as for flash: .data's initial values follow the code and the
- * reset handler copies them, so a board whose code region is flash takes the
- * same script.
+ * The code region is the XIP window over the QSPI flash, so .data's initial
+ * values follow the code and the reset handler copies them. XIP at
+ * 0x10000000 and SRAM0-7 at 0x20000000-0x2007FFFF: [RP-DS] release 8 §2.2,
+ * tables 10-11 (the board's profile.mk passes both).
  */
 
 ENTRY(tfw_cm_reset)
 
 SECTIONS
 {
-    /* The vector table first: VTOR and the reset fetch read word 0 (the
-     * initial stack pointer) and word 1 (the reset handler) from the region's
-     * base. */
+    /* The vector table first: the ROM and VTOR read word 0 (the initial stack
+     * pointer) and word 1 (the reset handler) from the region's base. */
     .text __tfw_text_base :
     {
         KEEP(*(.vectors))
+        __tfw_image_def = .;
+        KEEP(*(.image_def))
+        __tfw_image_def_end = .;
         *(.text .text.*)
         *(.rodata .rodata.*)
         *(.glue_7 .glue_7t .vfp11_veneer .v4_bx)
@@ -45,14 +41,6 @@ SECTIONS
         *(.ARM.exidx* .gnu.linkonce.armexidx.*)
     }
 
-    /* A remoteproc resource table, for a SoC whose images Linux loads
-     * (imx95.ld says why it is here). Nothing on mps2-tz defines the input
-     * section, so ld drops the empty output section from its images. */
-    .resource_table : ALIGN(4)
-    {
-        KEEP(*(.resource_table))
-    }
-
     . = ALIGN(4);
     __data_load_start = .;
 
@@ -60,6 +48,10 @@ SECTIONS
     {
         __data_start = .;
         *(.data .data.*)
+        /* Code that runs while XIP is off (boot/hal/cortex-m/rp2350/
+         * rp_flash_rom.c): the reset handler copies it to SRAM with .data. */
+        . = ALIGN(4);
+        *(.ramfunc .ramfunc.*)
         . = ALIGN(4);
         __data_end = .;
     }
@@ -104,6 +96,10 @@ SECTIONS
         KEEP(*(.handoff))
     }
 
+    ASSERT(__tfw_image_def_end - __tfw_image_def == 20,
+           "the IMAGE_DEF block is missing or not the 5 words soc_calc.h encodes")
+    ASSERT(__tfw_image_def_end <= __tfw_text_base + 0x1000,
+           "the boot ROM looks for the IMAGE_DEF block in the first 4 KiB only")
     ASSERT(__data_load_end <= __tfw_text_base + __tfw_text_size,
            "the image runs past its code region")
     ASSERT(__heap_start <= __stack,

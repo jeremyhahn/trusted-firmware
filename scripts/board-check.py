@@ -64,6 +64,34 @@ PARTS = {
     # not at its top, so boot_end is where its region ends.
     "mps2-an500": dict(flash=4194304, sram=4194304, sram_start=0x20000000,
                        eeprom=0, boot=True, boot_end=0x00008000),
+    # STM32H573IIK3Q (STM32H573I-DK), ST's cmsis-device-h5 stm32h573xx.h: 2 MiB
+    # of flash at 0x08000000, so TFW_FLASH_TOTAL is an address, the end of bank
+    # 2; the SRAM is SRAM1's 256 KiB at 0x20000000, the one region the port
+    # links; no EEPROM. tfw-boot is the first 32 KiB of flash, not its top.
+    "stm32h573iik3q": dict(flash=2097152, flash_start=0x08000000, sram=262144,
+                           sram_start=0x20000000, eeprom=0, boot=True,
+                           boot_end=0x08008000),
+    # RP2350 on the Raspberry Pi Pico 2 W (RP-008373-DS, "Address map"; the
+    # board datasheet RP-008304-DS for the flash): the part has no flash of its
+    # own, so the flash is the board's 4 MiB QSPI part behind the XIP window at
+    # 0x10000000; the SRAM is SRAM0-7, SRAM8-9 left to the boot ROM; no EEPROM.
+    # tfw-boot is the first 32 KiB of the window, where the boot ROM looks.
+    "rp2350": dict(flash=4194304, flash_start=0x10000000, sram=524288,
+                   sram_start=0x20000000, eeprom=0, boot=True,
+                   boot_end=0x10008000),
+    # Nordic nRF54L15 application core (nrfx MDK
+    # nrf54l15_xxaa_application_memory.h): 1524 KiB of RRAM from address 0,
+    # 256 KiB of RAM at 0x20000000, no EEPROM. tfw-boot is the first 32 KiB of
+    # RRAM, where the core fetches its reset vector, so boot_end is 0x8000.
+    "nrf54l15": dict(flash=1560576, sram=262144, sram_start=0x20000000,
+                     eeprom=0, boot=True, boot_end=0x00008000),
+    # NXP MCXN947, core 0's Secure alias (the SDK's MCXN947_cm33_core0.h and
+    # its flash linker script, docs/reference/README.md): 2 MiB of flash at
+    # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off, no EEPROM.
+    # tfw-boot is the first 32 KiB of flash, so boot_end is where it ends.
+    "mcxn947": dict(flash=2097152, flash_start=0x10000000, sram=319488,
+                    sram_start=0x30000000, eeprom=0, boot=True,
+                    boot_end=0x10008000),
     # NXP i.MX 95's Cortex-M7 (MIMX9596, UM12527 §1.2 Table 1): its 512 KiB of
     # TCM (IMX95CEC Table 1) as 256 KiB ITCM at M7 0x00000000, the code span,
     # and 256 KiB DTCM at 0x20000000 (TO CONFIRM against IMX95RM; design

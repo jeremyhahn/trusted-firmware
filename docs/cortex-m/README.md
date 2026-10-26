@@ -33,7 +33,7 @@ and both boards are soft tier only. The architecture's make file is
 SoC directory, because their peripherals are the same CMSDK blocks at
 different addresses:
 
-- the linker script `mk/arch/cortex-m/mps2.ld`;
+- the linker script `mk/arch/cortex-m/image.ld`, which every SoC uses;
 - the drivers in `src/hal/cortex-m/mps2/` and `boot/hal/cortex-m/mps2/`.
 
 Each `board_profile.h` states its block's base addresses and UART interrupt
@@ -473,6 +473,38 @@ QEMU has no i.MX 95, so this proves the core, tfw-boot and the wire on a
 runs it. Its map and SoC directory are in
 [`../multi-arch/imx95-design.md`](../multi-arch/imx95-design.md#9-the-board-as-built-frdm-imx95-m7).
 
+## The second board (#17)
+
+`boards/nrf54l15-dk`, board id `0x45`: the nRF54L15's Secure
+state on the generic port, application only, soft tier. The SoC is
+`src/hal/cortex-m/nrf54l/` with the linker script
+`mk/arch/cortex-m/nrf54l.ld`: the vendor's reset-time setup, the 128 MHz
+clock, WDT30 and the console on UARTE20 (P1.4/P1.5, the console of Zephyr's
+board files for the DK). `firmware-matrix` builds it, and CI's image job builds it
+again in the toolchain image. It has not run: no board is attached, and the
+image is linked at `0x8000` behind a tfw-boot that has no nRF54L row yet.
+[`../boards/nrf54l15-dk.md`](../boards/nrf54l15-dk.md) lists what is left.
+
+## The FRDM-MCXN947 (SPEC row `mcxn947`)
+
+`boards/frdm-mcxn947` is NXP's MCXN947, a Cortex-M33, as data, with its SoC
+half in `src/hal/cortex-m/mcxn94x/`: the FRO12M clock, the pin banks, WWDT0,
+the LPUART4 byte link on LP_FLEXCOMM4 and the RGPIO pins. It is soft tier only,
+board id `0x46` (allocated in
+[`board-id-registry.md`](../boards/board-id-registry.md)). The application builds
+(`make firmware BOARD=frdm-mcxn947 CRYPTO=soft`), in `firmware-matrix` and in
+its own CI step. tfw-boot builds for it too, as the row
+`frdm-mcxn947:soft:soft:p256-soft:0:0` in `bootloader-check`: P-256 verify, a
+polled LPUART4 and a flash writer through the boot ROM's flash driver in
+`boot/hal/cortex-m/mcxn94x/`. Its fit in the 32 KB region is not yet measured.
+pyOCD writes either image (below). QEMU models no MCX part, so no test runs
+either image, and no board has run one. The host tests cover the board table
+(`board-sweep`), the LPUART's baud arithmetic (`test_mcxn_lpuart`), and the
+boot's LPUART and flash writer against a register model and a ROM model
+(`test_mcxn_uart`, `test_mcxn_flash`, in `boot-test`). The board page, with its sources and every value still to
+confirm against the reference manual, is
+[`../boards/frdm-mcxn947.md`](../boards/frdm-mcxn947.md).
+
 ## Slices
 
 The row's slices, from `git log` on its branches (`row/cortex-m-s<n>`, tip
@@ -501,12 +533,53 @@ unnumbered branches.
 
 ## Bench boards
 
-The Cortex-M boards on the bench have profile pages, with vendor citations and
-no port: [`stm32h573i-dk.md`](../boards/stm32h573i-dk.md),
-[`rp2350-pico2w.md`](../boards/rp2350-pico2w.md) and
-[`nrf54l15-dk.md`](../boards/nrf54l15-dk.md). None has a board id. The vendor
-documents the ADRs cite are listed in
+The Cortex-M boards on the bench have profile pages, with vendor citations.
+The STM32H573I-DK ([`stm32h573i-dk.md`](../boards/stm32h573i-dk.md)) is a
+board of this port: `boards/stm32h573i-dk/` on the `stm32h5` SoC, board
+id `0x43`, built in CI and not yet run on the board (#14). So are the
+Pico 2 W ([`rp2350-pico2w.md`](../boards/rp2350-pico2w.md), `rp2350`, `0x44`)
+and the nRF54L15 DK ([`nrf54l15-dk.md`](../boards/nrf54l15-dk.md), `nrf54l`,
+`0x45`, #17). The
+vendor documents the ADRs cite are listed in
 [`../reference/README.md`](../reference/README.md), "Cortex-M sources".
+
+## Writing a silicon board: record first
+
+Each silicon board names one debug-probe tool in its `profile.mk`
+(`CM_FLASH_TOOL`, with `CM_PROBE_TARGET` and the flash base), and
+`mk/arch/cortex-m.mk` holds the recipes. No board has been written with them
+yet.
+
+| Board | Tool | Reads besides the flash |
+|---|---|---|
+| `stm32h573i-dk` | STM32CubeProgrammer CLI, `STM32_Programmer_CLI` (ST UM2237) over the on-board STLINK-V3EC | option bytes, displayed (`-ob displ`) |
+| `rp2350-pico2w` | `picotool` 2.0.0 or later, the board in BOOTSEL | OTP, dumped (`otp dump`) |
+| `nrf54l15-dk` | SEGGER J-Link Commander, `JLinkExe`, over the DK's on-board J-Link, device `NRF54L15_M33` | UICR, 4 KB at `0x00FFD000` (the address is still to confirm) |
+| `frdm-mcxn947` | `pyocd` with the `mcxn947vdf` pack, over the on-board MCU-Link | none yet: the protected-flash region is not cited |
+
+The order on the bench is always the same, with the probe's serial number
+given on the command line and never written into the repository:
+
+1. `make board-record BOARD=<board> CM_PROBE_SERIAL=<serial>` reads the whole
+   flash to `build/records/<board>-<serial>-<UTC time>.flash.bin`, with the
+   extra read beside it and a `.sha256`. A read shorter than the board's flash
+   is kept as `.short` and fails. `make clean` keeps `build/records/`; copy the
+   records to the bench host's record directory as well.
+2. `make flash` and `make boot-flash`, with the same `BOARD` and
+   `CM_PROBE_SERIAL`, refuse to write while no whole record of that board and
+   probe exists. Each converts the image to binary, writes it and reads it back
+   to compare.
+3. `make board-restore BOARD=<board> CM_PROBE_SERIAL=<serial>
+   BOARD_RESTORE_IMAGE=build/records/<record>.flash.bin` checks the record's
+   length and hash, writes it at the flash base and reads it back to compare.
+
+The recipes never erase or write option bytes, never change protection, a
+lock or RDP, and never write OTP or a fuse. `CM_PROBE_ARGS` or
+`CM_PROBE_TARGET` words that name such an operation are refused, and so is a
+serial that is not letters, digits, `-` or `_`. A missing tool fails with its
+name and how to install it. `mps2-an505` keeps its refusals: QEMU is not
+written. `scripts/test_cortex_m_flash.py` (`make scripts-test`) pins the
+`make -n` lines and runs each cycle against a fake tool on `PATH`.
 
 The multi-architecture plan
 these ports belong to is [`../multi-arch/architecture.md`](../multi-arch/architecture.md).

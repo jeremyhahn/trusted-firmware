@@ -41,7 +41,8 @@ No flags. Iterates `mk/boot.mk`'s `BOOT_SUPPORTED` rows (currently
 `atmega328p`, `atmega32u4` and `atmega2560` with `BOOT_TIER=BOOT_MEASURE=
 BOOT_SIG=atecc608a`, the 2560 built with OTA, without it, and without it but
 with the external store, `BOOT_STORE=1`; and the `atmega2560` soft base row,
-`BOOT_TIER=BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0`) and
+`BOOT_TIER=BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0`,
+with the same soft row on the Cortex-M boards `mps2-an505` and `nrf54l15-dk`) and
 fails if any row stops fitting its boot section or its load end
 (`__data_load_end`) runs past the part's flash. Part of `make ci`.
 

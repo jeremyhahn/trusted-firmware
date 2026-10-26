@@ -769,6 +769,19 @@ jobs:
           scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make bootloader BOARD=mps2-an500
           BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
 
+      # CUSTOMIZE (trusted-firmware): the STM32H573I-DK (#14), built as
+      # mps2-an505 is and with its one tfw-boot row. QEMU models no STM32H5, so
+      # no suite boots it; the host tests check its tables and arithmetic.
+      - name: make firmware BOARD=stm32h573i-dk (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=stm32h573i-dk CRYPTO=soft
+
+      - name: make bootloader BOARD=stm32h573i-dk (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: >-
+          scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make bootloader BOARD=stm32h573i-dk
+          BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
+
       - name: make integration-test-cortex-m (toolchain image)
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make integration-test-cortex-m
@@ -779,6 +792,28 @@ jobs:
       - name: make integration-test-cortex-m-wire (toolchain image)
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make integration-test-cortex-m-wire
+
+      # CUSTOMIZE (trusted-firmware): the RP2350 board of the same port (row
+      # rp2350), built and size-checked as mps2-an505's application is. No
+      # emulator runs it; its tfw-boot row is in mk/boot.mk's BOOT_SUPPORTED.
+      - name: make firmware BOARD=rp2350-pico2w (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=rp2350-pico2w CRYPTO=soft
+
+      # CUSTOMIZE (trusted-firmware): the nRF54L15 DK on the same port (#17),
+      # the application only: tfw-boot on that part (RRAM writes, the KMU) is
+      # a later slice, and no board is attached to CI, so nothing boots it.
+      - name: make firmware BOARD=nrf54l15-dk (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=nrf54l15-dk CRYPTO=soft
+
+      # CUSTOMIZE (trusted-firmware): the second Cortex-M SoC, the MCXN947 on
+      # the FRDM-MCXN947 (SPEC row mcxn947). The application only: QEMU models
+      # no MCX part, and tfw-boot has no mcxn94x directory yet. Its own step,
+      # so a red MCXN build names itself.
+      - name: make firmware BOARD=frdm-mcxn947 (toolchain image)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=frdm-mcxn947 CRYPTO=soft
 
       # CUSTOMIZE (trusted-firmware, owner m751 (d)): the test stage, sdk/go
       # under -race, make security with deps-check, and the ESP32 stages are

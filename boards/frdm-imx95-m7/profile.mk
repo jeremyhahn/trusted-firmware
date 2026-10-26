@@ -26,6 +26,8 @@ SOC            := imx95
 # PARTS): the M7 of the board's MIMX9596 (UM12527 §1.2 Table 1). The Cortex-M
 # build does not read it.
 MCU            := mimx9596-m7
+# The generic script with the resource table's checks (mk/arch/cortex-m.mk).
+CM_LDSCRIPT    := mk/arch/cortex-m/imx95.ld
 
 # The core clock, TFW_CM_CPU_HZ in board_profile.h (TO CONFIRM there). The build
 # does not read it (the clock is the header's); the provenance manifest's

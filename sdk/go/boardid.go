@@ -14,33 +14,41 @@ type BoardID uint8
 // The ids allocated so far. A board added to boards/ takes the next free id in
 // its family's range and is added here and in the registry in the same change.
 const (
-	BoardATmega328P  BoardID = 0x01
-	BoardATmega2560  BoardID = 0x02
-	BoardATmega32U4  BoardID = 0x03
-	BoardATtiny85    BoardID = 0x04
-	BoardMPS2AN505   BoardID = 0x40
-	BoardFRDMIMX95M7 BoardID = 0x41
-	BoardMPS2AN500   BoardID = 0x42
-	BoardESP32P4PoE  BoardID = 0x80
-	BoardESP32QEMU   BoardID = 0x81
-	boardAVRFirst    BoardID = 0x01
-	boardAVRLast     BoardID = 0x3F
-	boardCortexFirst BoardID = 0x40
-	boardCortexLast  BoardID = 0x7F
-	boardOtherFirst  BoardID = 0x80
-	boardOtherLast   BoardID = 0xBF
+	BoardATmega328P   BoardID = 0x01
+	BoardATmega2560   BoardID = 0x02
+	BoardATmega32U4   BoardID = 0x03
+	BoardATtiny85     BoardID = 0x04
+	BoardMPS2AN505    BoardID = 0x40
+	BoardFRDMIMX95M7  BoardID = 0x41
+	BoardMPS2AN500    BoardID = 0x42
+	BoardSTM32H573IDK BoardID = 0x43
+	BoardRP2350Pico2W BoardID = 0x44
+	BoardNRF54L15DK   BoardID = 0x45
+	BoardFRDMMCXN947  BoardID = 0x46
+	BoardESP32P4PoE   BoardID = 0x80
+	BoardESP32QEMU    BoardID = 0x81
+	boardAVRFirst     BoardID = 0x01
+	boardAVRLast      BoardID = 0x3F
+	boardCortexFirst  BoardID = 0x40
+	boardCortexLast   BoardID = 0x7F
+	boardOtherFirst   BoardID = 0x80
+	boardOtherLast    BoardID = 0xBF
 )
 
 var boardNames = map[BoardID]string{
-	BoardATmega328P:  "atmega328p",
-	BoardATmega2560:  "atmega2560",
-	BoardATmega32U4:  "atmega32u4",
-	BoardATtiny85:    "attiny85",
-	BoardMPS2AN505:   "mps2-an505",
-	BoardFRDMIMX95M7: "frdm-imx95-m7",
-	BoardMPS2AN500:   "mps2-an500",
-	BoardESP32P4PoE:  "esp32p4-poe",
-	BoardESP32QEMU:   "esp32-qemu",
+	BoardATmega328P:   "atmega328p",
+	BoardATmega2560:   "atmega2560",
+	BoardATmega32U4:   "atmega32u4",
+	BoardATtiny85:     "attiny85",
+	BoardMPS2AN505:    "mps2-an505",
+	BoardFRDMIMX95M7:  "frdm-imx95-m7",
+	BoardMPS2AN500:    "mps2-an500",
+	BoardSTM32H573IDK: "stm32h573i-dk",
+	BoardRP2350Pico2W: "rp2350-pico2w",
+	BoardNRF54L15DK:   "nrf54l15-dk",
+	BoardFRDMMCXN947:  "frdm-mcxn947",
+	BoardESP32P4PoE:   "esp32p4-poe",
+	BoardESP32QEMU:    "esp32-qemu",
 }
 
 // Family names the architecture family whose range the id falls in, or

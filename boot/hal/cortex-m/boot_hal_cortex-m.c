@@ -8,8 +8,9 @@
  *
  * On the first board (mps2-an505 under QEMU) the code regions are SRAM that
  * QEMU loads the images into, so a flash page is written by a copy. A part
- * with a flash controller puts its erase-and-program sequence in its SoC
- * directory and this file calls it; the range checks stay here.
+ * with a flash controller (stm32h5, rp2350 through its boot ROM, nrf54l's
+ * RRAM) has its program sequence in its SoC directory. Either way this file
+ * calls tfw_cm_boot_flash_write (boot_soc.h); the range checks stay here.
  */
 
 #include <stdint.h>
@@ -46,9 +47,7 @@ tfw_status_t tfw_boot_flash_write_page(uint32_t addr, const uint8_t *data)
         addr + (uint32_t)TFW_OTA_PAGE_MAX > (uint32_t)TFW_APP_WRITE_END) {
         return TFW_ERR_PROTECTED_REGION;
     }
-    memcpy((void *)(uintptr_t)addr, data, TFW_OTA_PAGE_MAX);
-    tfw_cm_dsb();
-    return TFW_OK;
+    return tfw_cm_boot_flash_write(addr, data, (uint32_t)TFW_OTA_PAGE_MAX);
 }
 
 /* ----------------------------------------------------------------- nvm */
@@ -73,9 +72,7 @@ tfw_status_t tfw_boot_nvm_write(uint16_t addr, const uint8_t *buf, uint8_t len)
     if ((uint32_t)addr + len > (uint32_t)TFW_CM_PLATFORM_SIZE) {
         return TFW_ERR_RANGE;
     }
-    memcpy((void *)(uintptr_t)(TFW_CM_PLATFORM_BASE + addr), buf, len);
-    tfw_cm_dsb();
-    return TFW_OK;
+    return tfw_cm_boot_flash_write((uint32_t)TFW_CM_PLATFORM_BASE + addr, buf, len);
 }
 
 /* ------------------------------------------------------------- handoff */

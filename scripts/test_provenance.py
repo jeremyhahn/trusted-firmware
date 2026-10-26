@@ -61,7 +61,8 @@ echo 0.0.0-fake
 # The tier each measured board ships, which names the manifest. The 328P is
 # element-only and refuses CRYPTO=soft (owner ruling 2026-10-17, m522).
 TIERS = {"atmega328p": "atecc608a", "mps2-an505": "soft", "mps2-an500": "soft",
-         "frdm-imx95-m7": "soft"}
+         "frdm-imx95-m7": "soft", "stm32h573i-dk": "soft",
+         "rp2350-pico2w": "soft", "nrf54l15-dk": "soft", "frdm-mcxn947": "soft"}
 
 
 def build_manifest(hex_text, board="atmega328p", *make_vars):
@@ -214,14 +215,61 @@ class SlotBoardIMX95(_SlotAfterBoot, unittest.TestCase):
     PAST_SLOT_HEX = ":020000023800C4\n:01000000AA55\n:00000001FF\n"
 
 
-# The fixture at frdm-imx95-m7's application slot, 0x00008000: GAP_HEX with each
-# record's address moved up by 0x8000, so the same bytes from the slot's base.
-ITCM_SLOT_HEX = """\
+# FIXED_HEX's records at offset 0x8000 of a 64 KiB segment: the same bytes at
+# a slot that follows a 32 KiB tfw-boot region, so the same measurement.
+SLOT_8000_HEX = """\
 :10800000000102030405060708090A0B0C0D0E0FF8
 :108100005A5B58595E5F5C5D5253505156575455F7
 :108110004A4B48494E4F4C4D4243404146474445E7
 :00000001FF
 """
+
+
+class LowSlotBoards(unittest.TestCase):
+    """The Cortex-M boards of #206: tfw-boot holds the first 32 KiB of flash and
+    the 128 KiB application slot follows it, TFW_APP_REGION_BASE and
+    TFW_APP_REGION_SIZE in each board_profile.h. Each profile.mk names that
+    region (FWHASH_BASE, FWHASH_SIZE), so the manifest measures from the slot's
+    base as tfw-boot does, not from flash 0."""
+
+    # board, the slot base the note names, TFW_CM_CPU_HZ, FIXED_HEX's bytes at
+    # that base, a byte in tfw-boot's region below it, the first byte past the
+    # slot.
+    BOARDS = (
+        ("stm32h573i-dk", "0x08008000", 64000000, ":020000040800F2\n" + SLOT_8000_HEX,
+         ":020000040800F2\n:01000000AA55\n:00000001FF\n",
+         ":020000040802F0\n:01800000AAD5\n:00000001FF\n"),
+        ("rp2350-pico2w", "0x10008000", 12000000, ":020000041000EA\n" + SLOT_8000_HEX,
+         _pinned.BOOT_REGION_HEX,
+         ":020000041002E8\n:01800000AAD5\n:00000001FF\n"),
+        ("nrf54l15-dk", "0x00008000", 128000000, ":020000040000FA\n" + SLOT_8000_HEX,
+         ":020000040000FA\n:01000000AA55\n:00000001FF\n",
+         ":020000040002F8\n:01800000AAD5\n:00000001FF\n"),
+        ("frdm-mcxn947", "0x10008000", 12000000, ":020000041000EA\n" + SLOT_8000_HEX,
+         _pinned.BOOT_REGION_HEX,
+         ":020000041002E8\n:01800000AAD5\n:00000001FF\n"),
+    )
+
+    def test_a_slot_image_measures_from_the_slot_base(self):
+        for board, base, hz, slot_hex, _, _ in self.BOARDS:
+            with self.subTest(board=board):
+                m, image = build_manifest(slot_hex, board)
+                self.assertEqual(m["fwhash_sha256"], GAP_MEASUREMENT)
+                self.assertEqual(m["image_len"], 0x120)
+                self.assertEqual(hashlib.sha256(image).hexdigest(), GAP_MEASUREMENT)
+                self.assertIn(f"({base} on this board)", m["note"])
+                self.assertEqual((m["arch"], m["f_cpu_hz"]), ("cortex-m", hz))
+
+    def test_a_record_outside_the_slot_writes_no_manifest(self):
+        for board, _, _, _, boot_hex, past_hex in self.BOARDS:
+            for text in (boot_hex, past_hex):
+                with self.subTest(board=board, text=text), self.assertRaises(AssertionError):
+                    build_manifest(text, board)
+
+
+# The fixture at frdm-imx95-m7's application slot, 0x00008000: GAP_HEX with each
+# record's address moved up by 0x8000, so the same bytes from the slot's base.
+ITCM_SLOT_HEX = SLOT_8000_HEX
 # tfw-boot's region at the ITCM's base, below the slot.
 ITCM_BOOT_REGION_HEX = ":01000000AA55\n:00000001FF\n"
 # The first byte past the 192 KiB slot, 0x00038000 (the platform block's side).

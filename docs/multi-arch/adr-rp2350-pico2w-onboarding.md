@@ -160,6 +160,13 @@ None of these is decided here.
 7. **CI stand-in.** Is QEMU `mps2-an505` enough for this board, or is an RP2350
    emulator wanted?
 8. **Board id.** Which id in `0x40`-`0x7F`, allocated when the port starts?
+   The port's first slice took `0x41` provisionally, and so did the `stm32h5`
+   and `nrf54l15` rows on their branches; the image trailer carries the id so
+   that an image built for one board is refused on another, so at most one
+   board could keep it. **Answered:** the Cortex-M ids are assigned in
+   [`../boards/board-id-registry.md`](../boards/board-id-registry.md) in the
+   order `imx95` `0x41`, `mps2-an500` `0x42`, `stm32h5` `0x43`, `rp2350` `0x44`,
+   `nrf54l15` `0x45`, `mcxn947` `0x46`; this board takes `0x44`.
 9. **The TCG DICE text is not in `docs/reference/`.** [DICE-HW] and [DICE-AA] are
    listed by title and URL only, because their licence forbids a copy. Is that
    enough for the port, or does the owner want another arrangement?

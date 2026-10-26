@@ -32,10 +32,17 @@ BOOT_HAL_DIR := boot/hal/$(ARCH)
 
 # The SoC's half of the bootloader's HAL, on an architecture that splits its
 # HAL by SoC as mk/firmware.mk's HAL_SOC_DIR does: every .c under
-# boot/hal/<arch>/<soc>/, and the SoC file both images share for what
-# $(HAL_DIR)/hal_early.c asks of the part (the watchdog, on Cortex-M). Empty on
-# a board that names no SOC.
-BOOT_SOC_SRCS := $(if $(SOC),$(wildcard $(BOOT_HAL_DIR)/$(SOC)/*.c $(HAL_DIR)/$(SOC)/hal_soc.c))
+# boot/hal/<arch>/<soc>/, the SoC file both images share for what
+# $(HAL_DIR)/hal_early.c asks of the part (the watchdog and the reset cause, on
+# Cortex-M), the SoC's register-free tables where it has them (nrf54l's
+# soc_tables.c: the baud table, the PSEL encoding, the revision and the RRAM's
+# bounds), and its reset-cause decode where it has a register for one (nrf54l's
+# soc_reset.c), and its LPUART divisor search where it has one (mcxn94x's
+# lpuart_baud.c, the arithmetic both images' UARTs share). Empty on a board
+# that names no SOC.
+BOOT_SOC_SRCS := $(if $(SOC),$(wildcard $(BOOT_HAL_DIR)/$(SOC)/*.c $(HAL_DIR)/$(SOC)/hal_soc.c \
+                                        $(HAL_DIR)/$(SOC)/soc_tables.c $(HAL_DIR)/$(SOC)/soc_reset.c \
+                                        $(HAL_DIR)/$(SOC)/lpuart_baud.c))
 
 
 # The tier, chosen at LINK time exactly as CRYPTO is for the application.
@@ -311,7 +318,7 @@ $(BOOT_TARGET).elf: $(BOOT_OBJS)
 	@$(ARCH_CC) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS) 2>$(BOOT_DIR_OUT)/link.err || { \
 	  echo "tfw-boot does not link for $(BOARD): it does not fit in the boot section."; \
 	  echo; \
-	  sed 's/^/  ld: /' $(BOOT_DIR_OUT)/link.err | grep -E 'overflow|will not fit|overlaps' || true; \
+	  sed 's/^/  ld: /' $(BOOT_DIR_OUT)/link.err | grep -E 'overflow|will not fit|overlaps|undefined reference' || true; \
 	  echo; \
 	  $(MAKE) --no-print-directory boot-core-size || true; \
 	  echo; \
@@ -363,6 +370,17 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 #                              and rollback as on the 2560 (boot_swap.c), the
 #                              slots in board_profile.h, which the QEMU wire
 #                              run boots under the A/B OTA_STAGE=1 image
+#   stm32h573i-dk 32 KB region mps2-an505's base row (#14); its writes to the slot and the
+#                              platform block go through the flash interface
+#                              (boot/hal/cortex-m/stm32h5/h5_flash.c)
+#   rp2350-pico2w 32 KB region the same; platform writes through the boot ROM
+#                              (row rp2350, boot/hal/cortex-m/rp2350/)
+#   nrf54l15-dk  32 KB region  the same on the nRF54L15's Cortex-M33 (#17); its
+#                              platform-block writes go through the RRAM
+#                              controller (boot/hal/cortex-m/nrf54l/boot_rram.c)
+#   frdm-mcxn947 32 KB region  the same on the MCXN947's core 0 (row mcxn947);
+#                              its writes go through the boot ROM's flash
+#                              driver (boot/hal/cortex-m/mcxn94x/mcxn_flash.c)
 #
 # The MPS2 OTA, store and A/B rows are not yet measured: no lane that added
 # them had an Arm toolchain, so their bytes used are this target's first run.
@@ -410,7 +428,11 @@ BOOT_SUPPORTED := \
   mps2-an505:soft:soft:p256-soft:0:1:ab \
   mps2-an500:soft:soft:p256-soft:0:0 \
   mps2-an500:soft:soft:p256-soft:0:1 \
-  mps2-an500:soft:soft:p256-soft:0:1:ab
+  mps2-an500:soft:soft:p256-soft:0:1:ab \
+  stm32h573i-dk:soft:soft:p256-soft:0:0 \
+  rp2350-pico2w:soft:soft:p256-soft:0:0 \
+  nrf54l15-dk:soft:soft:p256-soft:0:0 \
+  frdm-mcxn947:soft:soft:p256-soft:0:0
 
 # A row's optional seventh field, ab, is BOOT_AB=1; a row without it leaves
 # BOOT_AB to the board's profile.mk (1 on the 2560, 0 on the MPS2 boards).
@@ -701,6 +723,64 @@ $(BOOT_TEST_DIR)/test_boot_l0_esp32_rom: test/unit/boot/test_boot_l0_esp32.c \
 $(BOOT_TEST_DIR)/test_boot_flash_span: test/unit/boot/test_boot_flash_span.c \
         boot/hal/esp32/flash_span.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/esp32 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# tfw-boot's STM32H5 flash driver (#14), boot/hal/cortex-m/stm32h5/h5_flash.c,
+# on a flash interface and a flash of the test's own: the test is the hardware,
+# acting at the wait the part's boot_flash.c polls, so boot_flash.c is not here.
+$(BOOT_TEST_DIR)/test_boot_stm32h5_flash: test/unit/boot/test_boot_stm32h5_flash.c \
+        boot/hal/cortex-m/stm32h5/h5_flash.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The RP2350's sector read-modify-write (row rp2350): the arithmetic every
+# tfw-boot flash write goes through, over a RAM flash the test supplies in
+# place of rp_flash_rom.c's boot ROM calls.
+$(BOOT_TEST_DIR)/test_boot_rp2350_flash: test/unit/boot/test_boot_rp2350_flash.c \
+        boot/hal/cortex-m/rp2350/rp_flash.c src/core/secure_zero.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The MCXN947's flash writes (row mcxn947), boot/hal/cortex-m/mcxn94x/
+# mcxn_flash.c, over a model of the boot ROM's flash driver in place of the
+# ROM's: the test is the driver, so boot_flash.c, which finds the ROM's, is
+# not here. The suites sit beside the SoC's sources, not under
+# test/unit/boot/, because they name the SoC's registers.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_mcxn_flash $(BOOT_TEST_DIR)/test_mcxn_uart
+$(BOOT_TEST_DIR)/test_mcxn_flash: boot/hal/cortex-m/mcxn94x/test/test_mcxn_flash.c \
+        boot/hal/cortex-m/mcxn94x/mcxn_flash.c src/core/secure_zero.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/mcxn94x $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# Its polled LPUART, boot/hal/cortex-m/mcxn94x/mcxn_uart.c, over a register
+# model of the LP_FLEXCOMM unit; boot_uart.c, which hands it LP_FLEXCOMM4 and
+# sets the clock and the pins, is not here.
+$(BOOT_TEST_DIR)/test_mcxn_uart: boot/hal/cortex-m/mcxn94x/test/test_mcxn_uart.c \
+        boot/hal/cortex-m/mcxn94x/mcxn_uart.c src/hal/cortex-m/mcxn94x/lpuart_baud.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The Pico 2 W's flash map by literal, under its own profile: the regions
+# tfw-boot writes, and the 4 MiB flash they must fit (pico-sdk's pico2_w.h).
+BOOT_TEST_RP2350_CFLAGS = $(subst -Iboards/$(HOST_BOARD),-Iboards/rp2350-pico2w,\
+                            $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+$(BOOT_TEST_DIR)/test_boot_rp2350_map: test/unit/boot/test_boot_rp2350_map.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# tfw-boot's RP2350 UART over a register model. The test and its cm_regs.h live
+# in boot/hal/cortex-m/rp2350/test/: they name the Cortex-M register layer, which
+# lint-arch-leak allows only under the Cortex-M HAL directories, and the SoC's
+# *.c wildcard does not descend into a subdirectory, so no image links them.
+# That cm_regs.h comes ahead of the real one, so every TFW_CM_REG lands in the
+# test's table.
+RP2350_BOOT_TEST_DIR := boot/hal/cortex-m/rp2350/test
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_rp2350_uart
+$(BOOT_TEST_DIR)/test_boot_rp2350_uart: $(RP2350_BOOT_TEST_DIR)/test_boot_rp2350_uart.c \
+        boot/hal/cortex-m/rp2350/boot_uart.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Isrc/hal/cortex-m $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# Its sector erase and program through the boot ROM, the same way: rp_flash_rom.c
+# whole, over the test's ROM table model in place of rp_rom_lookup.c and its
+# interrupt mask in place of cm_regs.h's.
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_rp2350_rom
+$(BOOT_TEST_DIR)/test_boot_rp2350_rom: $(RP2350_BOOT_TEST_DIR)/test_boot_rp2350_rom.c \
+        boot/hal/cortex-m/rp2350/rp_flash_rom.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The ESP32 boot HAL itself (#48, #163), boot/hal/esp32/boot_hal_esp32.c, over
 # stand-ins for the ESP-IDF bootloader calls it makes, which live beside its
@@ -1269,8 +1349,8 @@ bootloader-reproducible-check:
 	@$(MAKE) --no-print-directory bootloader-reproducible BOARD=atmega2560 \
 	   BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
 
-## boot-flash: write tfw-boot to a connected board over ISP
-# NOT the application's programmer. That one talks TO a bootloader, and the boot
+## boot-flash: write tfw-boot to a connected board (AVR: ISP; Cortex-M: the debug probe, after board-record)
+# On AVR, NOT the application's programmer. That one talks TO a bootloader, and the boot
 # section is the one place a bootloader cannot write. This needs an ISP -- see
 # ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk.
 #
@@ -1336,12 +1416,14 @@ bootloader-candidate:
 .PHONY: bootloader-candidate
 
 ifneq ($(filter boot-flash boot-flash-uds,$(MAKECMDGOALS)),)
+ifeq ($(ARCH),avr)
 ifeq ($(and $(BOOT_EESAVE_FUSE),$(BOOT_EESAVE_BIT)),)
 $(error $(firstword $(filter boot-flash boot-flash-uds,$(MAKECMDGOALS))): boards/$(BOARD)/profile.mk names no BOOT_EESAVE_FUSE/BOOT_EESAVE_BIT, so boot-flash cannot check that the chip erase keeps the EEPROM)
 endif
 endif
+endif
 
-# The recipe reads EESAVE before the chip erase and refuses an erase that would
+# On AVR the recipe reads EESAVE before the chip erase and refuses an erase that would
 # take the EEPROM; see ARCH_BOOT_FLASH in mk/arch/$(ARCH).mk. ISP_RERUN is what
 # that refusal tells the operator to run again, BOOT_EEPROM_RESTORE=1 added.
 boot-flash: ISP_RERUN = BOOT_TIER=$(BOOT_TIER) BOOT_MEASURE=$(BOOT_MEASURE) BOOT_SIG=$(BOOT_SIG) \

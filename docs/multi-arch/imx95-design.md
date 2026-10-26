@@ -407,7 +407,7 @@ Linux's `drivers/remoteproc/imx_rproc.c`.
 
 The image is linked at the M7's addresses. Two loaders can write it into the
 TCM from the A55 side: the boot container (AHAB) or Linux's remoteproc.
-`mk/arch/cortex-m/imx95.ld` takes `mps2.ld`'s layout as it is. TCM is RAM,
+`mk/arch/cortex-m/imx95.ld` takes `image.ld`'s layout as it is. TCM is RAM,
 so nothing survives a power cycle.
 
 ### 9.2 The remoteproc resource table
@@ -423,8 +423,8 @@ and copies the table back to the section's address after loading.
 - The table has no entry. The image runs from the TCM, which the i.MX driver
   maps itself, so it needs no carveout or devmem. It writes no log, so it has
   no trace buffer. It speaks no rpmsg, so it has no vdev.
-- `mps2.ld` places the section after `.ARM.exidx`, in the code region and
-  before `.data`'s initial values, and drops the empty section on mps2-tz.
+- `image.ld` places the section after `.ARM.exidx`, in the code region and
+  before `.data`'s initial values, and drops the empty section on the other SoCs.
   Placed from `imx95.ld`, after the shared script's last section, GNU ld would
   warn "dot moved backwards" on every link.
 - `imx95.ld` asserts the table's length and alignment.
@@ -978,8 +978,8 @@ links it in CI on Arm's toolchain; nothing runs on the board yet.
 | The TCM map at the M7's addresses, the 512-byte vector alignment | built | `mk/arch/cortex-m/imx95.ld`, `boards/frdm-imx95-m7/profile.mk` | `firmware-matrix` (CI); `imx95.ld`'s asserts |
 | The LPUART divisor search and the RGPIO bank table | done | `src/hal/cortex-m/imx95/soc_calc.c` | `test/unit/test_imx95_soc_calc.c` |
 | LPUART3, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
-| The remoteproc resource table | met | `src/hal/cortex-m/imx95/rsc_table.c`, `mk/arch/cortex-m/mps2.ld` | `test/unit/test_imx95_rsc_table.c`; as Linux's loader parses it: `test_linux_takes_the_images_table`, `test_the_parser_reads_a_carveout_and_a_vdev`, the mutation `test_a_corrupted_field_is_refused` |
-| The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has only `mps2/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |
+| The remoteproc resource table | met | `src/hal/cortex-m/imx95/rsc_table.c`, `mk/arch/cortex-m/image.ld` | `test/unit/test_imx95_rsc_table.c`; as Linux's loader parses it: `test_linux_takes_the_images_table`, `test_the_parser_reads_a_carveout_and_a_vdev`, the mutation `test_a_corrupted_field_is_refused` |
+| The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has no `imx95/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |
 | The board in the board sweeps: its part, its registry row, its Go name | done | `scripts/board-check.py` (`mimx9596-m7`), `../boards/board-id-registry.md`, `sdk/go/boardid.go` | `scripts/test_board_check.py`, `sdk/go/boardid_test.go`, `make board-sweep` |
 | The boot: tfw-boot on the M7, or AHAB alone | open, the owner's (question 19) | — | — |
 | The SCMI client (slice 2 of section 7) | met (host, register model); not called until question 21 is answered | `src/hal/cortex-m/imx95/scmi.c`, `scmi_mu.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_scmi.c` (each command's bytes, every status, `test_a_wrong_token_is_refused`, `test_a_wrong_protocol_is_refused`); `test/unit/test_imx95_scmi_mu.c` (`test_a_channel_left_busy_after_the_send_times_out`, `test_a_reply_longer_than_the_channel_is_refused`) |

@@ -6,10 +6,10 @@
  * and for its reason -- tfw-boot starts no timer, so SysTick is in its reset
  * state when the application's tfw_hal_tick_init takes it.
  *
- * NOT MEASURED. The one supported row (mps2-an505, mk/boot.mk) sheds OTA, so
- * no session is ever opened and nothing counts these ticks yet. A row that
- * turns BOOT_OTA on measures the pass under QEMU first, as the simavr suite
- * does on AVR, and replaces the figure here.
+ * NOT MEASURED. The supported rows (mps2-an505 and rp2350-pico2w, mk/boot.mk)
+ * shed OTA, so no session is ever opened and nothing counts these ticks yet.
+ * A row that turns BOOT_OTA on measures the pass first (under QEMU, or on the
+ * board), as the simavr suite does on AVR, and replaces the figure here.
  */
 #ifndef TFW_BOOT_TICK_H
 #define TFW_BOOT_TICK_H

@@ -158,7 +158,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
                             test/unit/test_none_mutate.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
-                            test/unit/test_pin_coord.c \
+                            test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_ele_mu.c \
@@ -635,6 +635,12 @@ $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
                         boot/boot_handoff.c src/proto/crc16.c src/proto/crc16_update.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MCXN94x LPUART's BAUD arithmetic, the one part of that SoC's HAL that is
+# not a register access: its own file, linked alone, with no Cortex-M header.
+$(HOST_DIR)/test_mcxn_lpuart: test/unit/test_mcxn_lpuart.c src/hal/cortex-m/mcxn94x/lpuart_baud.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the
 # SoC directory's one file with no register access, linked alone, as the M7
@@ -1118,6 +1124,7 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
 HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
+                    $(HOST_DIR)/test_mcxn_lpuart \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_ele_mu \
@@ -1144,6 +1151,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
                     $(HOST_DIR)/boot/test_boot_p256_rom $(HOST_DIR)/boot/test_boot_flash_span \
+                    $(HOST_DIR)/boot/test_boot_rp2350_flash \
                     $(HOST_DIR)/boot/test_boot_measure_esp32 $(HOST_DIR)/boot/test_boot_measure_esp32_classic \
                     $(HOST_DIR)/boot/test_boot_l0_esp32_sha \
                     $(HOST_DIR)/test_esp_ota $(HOST_DIR)/test_esp_wire
@@ -1568,8 +1576,10 @@ COVERAGE_FLOOR ?= 90
 # 328P's: under the 328P's header the Cortex-M application region sits at 0,
 # and cppcheck rightly reports a null vector table and a bounds check that can
 # never fail -- findings about a build that does not exist. Each LINT_ARCH_RUNS
-# row is `hal-dir:board-dir`; its HAL, boot HAL and board are excluded from the
-# AVR run and analysed in a run of their own.
+# row is `hal-dir:board-dir:soc`; its HAL, boot HAL and board are excluded from
+# the AVR run and analysed in a run of their own. Rows that share a HAL each
+# leave out the others' SoC directories, so a SoC is analysed only under its
+# own board's header (stm32h5 asserts a clock mps2-an505's header does not set).
 LINT_CPPCHECK = cppcheck --enable=warning,style,performance,portability \
 	          --check-level=exhaustive \
 	          --error-exitcode=1 --inline-suppr --quiet \
@@ -1577,17 +1587,19 @@ LINT_CPPCHECK = cppcheck --enable=warning,style,performance,portability \
 	          --suppress=unusedFunction \
 	          -DTFW_BOARD_HEADER='"board_profile.h"' -DTFW_PROGMEM= \
 	          -Iinclude -Isrc
-LINT_ARCH_RUNS := cortex-m:mps2-an505
+LINT_ARCH_RUNS := cortex-m:mps2-an505:mps2 cortex-m:stm32h573i-dk:stm32h5 cortex-m:rp2350-pico2w:rp2350 cortex-m:nrf54l15-dk:nrf54l cortex-m:frdm-mcxn947:mcxn94x
 lint-arch-dirs = src/hal/$(1) boot/hal/$(1) boards/$(2)
+lint-field = $(word $(2),$(subst :, ,$(1)))
+lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter $(call lint-field,$(1),1),$(call lint-field,$(o),1)),-i src/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3) -i boot/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3)))
 
 lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
 	@$(LINT_CPPCHECK) -Isrc/hal/avr -Iboards/atmega328p -Iboot \
 	          -i src/third_party \
-	          $(foreach r,$(LINT_ARCH_RUNS),$(addprefix -i ,$(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))))) \
+	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
 	          src/ boards/ boot/
 	@$(foreach r,$(LINT_ARCH_RUNS),$(LINT_CPPCHECK) \
 	          -Isrc/hal/$(word 1,$(subst :, ,$(r))) -Iboot/hal/$(word 1,$(subst :, ,$(r))) \
-	          -Iboards/$(word 2,$(subst :, ,$(r))) -Iboot \
+	          -Iboards/$(word 2,$(subst :, ,$(r))) -Iboot $(call lint-other-socs,$(r)) \
 	          $(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))) &&) true
 	@echo "cppcheck clean"
 
@@ -2216,6 +2228,33 @@ $(HOST_DIR)/test_atecc_mutate: test/unit/test_atecc_mutate.c src/crypto/atecc608
                                src/core/secure_zero.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/atecc608a -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The nrf54l SoC's data (#17): soc_tables.c alone, the one file of that SoC's
+# HAL that touches no register, so it runs on the host as it does on the part.
+# It stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_nrf54l_soc_tables: test/unit/test_nrf54l_soc_tables.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                                    $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
+
+# Its reset cause (#17): soc_reset.c reads RESETREAS through a pointer the
+# caller names, so the test hands it a fake word.
+$(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nrf54l/soc_reset.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The reset causes of the stm32h5, rp2350 and mcxn94x SoCs, the same way:
+# each soc_reset.c reads its registers through pointers the caller names.
+$(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/stm32h5/soc_reset.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/stm32h5 -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/rp2350 -o $@ $^ $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The OPTIGA Trust M transport against recorded frames (row optiga-trust-m):
 # optiga_i2c.c alone, with the bus faked in the suite. It stays in TEST_SRCS;

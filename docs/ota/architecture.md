@@ -744,6 +744,22 @@ yet.
   restores `PREV`; a refused pending image restores it; a corrupt `PREV`
   halts; each `GOOD`, `FAILED`) is not yet run: `make integration-test-boot-prev`
   runs it, outside `integration-test-boot` and CI.
+- **The Q1 recommendation (a) does not close the gap.** Software's
+  recommendation on #257, pending the Company Agent's ruling, ships the 328P
+  and 32U4 OTA with the trailer signature check and the restore from `PREV`,
+  without the manifest check. Neither boot loses a byte by it: no AVR row of
+  tfw-boot links a manifest check (the manifest is checked by the application
+  at `OTA_ACTIVATE`, `src/core/ota_manifest.c`), and both parts' applications
+  already link `ota_manifest_none.c`, since only the 2560's `profile.mk` sets
+  `OTA_MANIFEST`. What the store row adds to the boot is the store's copy
+  (`boot_stage.c`), the activate authorization's Sig_structure and verify
+  (`boot_cose.c`, `authorized()`), the store's bus and `boot_prev.c`. Confirm
+  is not on this row either: `boot_prev.c`'s `tfw_boot_swap_at_reset` fails
+  every `TRIAL` without reading a confirm request (only `boot_swap.c` reads
+  one), and neither part's application links `OTA_CONFIRM`. Each of these
+  adds bytes, not removes them. Which of them a 4 KB part goes without, or a
+  different store design, is open question 1 for the owner; nothing here is
+  dropped without that ruling.
 
 ### The OTA round under simavr (#75, #77)
 

@@ -139,10 +139,10 @@ requirements on each repo are in the ADR, "Seams".
 One PR per row (m751). Items 3, 7, 8 and 11 are done on main, each with where;
 every other item is unmet on main ([engineering.md](engineering.md)).
 
-1. The ATmega328P restore from `PREV` fits its boot section and runs under simavr, confirm included (after question 1).
+1. The ATmega328P restore from `PREV` fits its boot section and runs under simavr, confirm included (after question 1). On the Q1 recommendation (a) (Software, #257), pending the Company Agent's ruling, the 328P ships OTA with the trailer signature check and the restore from `PREV` and without the manifest check. That recommendation does not make the restore fit: tfw-boot links no manifest check on any AVR row, and the 328P application already links `ota_manifest_none.c` (`OTA_MANIFEST` is set only in the 2560's `profile.mk`). The boot stays 1 886 B over, and it reads no confirm request on this row ([architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)).
 2. The ATmega32U4: the same, with an Ethernet controller wired and the stager measured.
 3. The ATmega2560 application's size with the manifest check, measured before and after on the CI image. Done: measured at f2e8d4e3 ("Measurements" below; [engineering.md](engineering.md), "The row on main").
-4. The manifest check on the 328P and 32U4, if their budget ruling holds it.
+4. The manifest check on the 328P and 32U4, if their budget ruling holds it. On the Q1 recommendation (a), pending the Company Agent's ruling: not on these parts.
 5. The manifest check on the soft tier, with a home for its verification key (question 5).
 6. `OTA_AUTH`, `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP, the authorization ending with its connection (question 4). The scope's docs and host tests are done (`test/unit/test_ota_hold_link.c`, `TestE2EOTAAuthSessionEndsWithItsConnection`); admitting the three over TCP is still with the owner (item 48).
 7. The ATmega2560 row with both OTA in boot and the store, or link files that pick one update path per image (question 6). Done: one update path per image, decided 2026-10-26, and `make bootloader` refuses a 2560 build with both ([architecture.md](architecture.md), "The 2560 with OTA and the store").

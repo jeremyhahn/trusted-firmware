@@ -219,7 +219,9 @@ runs and the three values are ignored. They are declared in
 stops the build at configure time. With a static address no DHCP client runs.
 
 Neither target is in `make ci`, and the toolchain image carries no ESP-IDF; CI's
-`image-esp32` job runs them in the devcontainer's `esp32` stage, which has it. Both refuse any toolchain but the pins in
+`esp32-build` and `esp32-qemu-test` jobs run them in the devcontainer's `esp32`
+stage, which has it. `esp32-qemu-test` runs on a push to main and nightly, never
+on a pull request (ruling 220(j)). Both refuse any toolchain but the pins in
 [`adr-esp-idf-integration.md`](../multi-arch/adr-esp-idf-integration.md#toolchain-pins)
 (`mk/arch/esp32.mk`). The install goes outside the clone, under `$HOME`. These
 are the steps that worked on Debian 13 without root:

@@ -1,7 +1,7 @@
 # OTA
 
 > **Status: DRAFT** · SPEC row: `ota` (in progress) · Issue:
-> [#52](../../../../issues/52) · Last verified: 2026-10-26
+> [#52](../../../../issues/52) · Last verified: 2026-10-27
 
 Signed over-the-air updates of the whole image, firmware and application
 together: A/B where the flash holds two slots, one internal slot with its backup
@@ -55,7 +55,7 @@ decision 7.
 | ATmega2560 | 256 KB, 8 KB boot | A/B by swap-move: 64 KB primary at `0x00000`, secondary at `0x10100` (`TFW_SWAP_SLOT_LEN`), progress journalled at EEPROM `0x0E0`–`0x0E9` | runs on the `BOOT_OTA=1` and `BOOT_STORE=1` rows ([architecture.md](architecture.md#atmega2560-ab-by-swap-move)) |
 | ESP32-P4, esp32-qemu | 16 MB | ESP-IDF's `ota_0`/`ota_1`, `otadata` and app rollback, composed | runs (#48) |
 | Cortex-M33 under TF-M | per part | MCUboot's primary and secondary, written through PSA Firmware Update, composed | not started (ADR open question 9) |
-| Cortex-M on tfw-boot (mps2-an505) | per part | A/B: the part's bank swap, swap-move otherwise; geometry is boot-HAL data | not started |
+| Cortex-M on tfw-boot (mps2-an505) | per part | A/B: the part's bank swap, swap-move otherwise; geometry is boot-HAL data | runs under QEMU (`sdk/go/cmd/tfwctl/ota_ab_qemu_test.go`, CI) |
 | i.MX 95 M7 (frdm-imx95-m7) | 256 KiB ITCM | AHAB, pending #15 (ADR decision 12) | not started |
 
 ## The update sequence
@@ -136,19 +136,20 @@ requirements on each repo are in the ADR, "Seams".
 
 ## Requirements for the row's later slices
 
-One PR per row (m751). Each is unmet on main ([engineering.md](engineering.md)).
+One PR per row (m751). Items 3, 7, 8 and 11 are done on main, each with where;
+every other item is unmet on main ([engineering.md](engineering.md)).
 
 1. The ATmega328P restore from `PREV` fits its boot section and runs under simavr, confirm included (after question 1).
 2. The ATmega32U4: the same, with an Ethernet controller wired and the stager measured.
-3. The ATmega2560 application's size with the manifest check, measured before and after on the CI image.
+3. The ATmega2560 application's size with the manifest check, measured before and after on the CI image. Done: measured at f2e8d4e3 ("Measurements" below; [engineering.md](engineering.md), "The row on main").
 4. The manifest check on the 328P and 32U4, if their budget ruling holds it.
 5. The manifest check on the soft tier, with a home for its verification key (question 5).
 6. `OTA_AUTH`, `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP, the authorization ending with its connection (question 4). The scope's docs and host tests are done (`test/unit/test_ota_hold_link.c`, `TestE2EOTAAuthSessionEndsWithItsConnection`); admitting the three over TCP is still with the owner (item 48).
-7. The ATmega2560 row with both OTA in boot and the store, or link files that pick one update path per image (question 6).
-8. The stale `MARK` after a UART update, closed before any row links both a boot session and the store (question 7). Closed by one update path per image (question 6): no row links both. A future row that does takes option 3, the boot taking a staged image only when the platform block says the application staged one.
+7. The ATmega2560 row with both OTA in boot and the store, or link files that pick one update path per image (question 6). Done: one update path per image, decided 2026-10-26, and `make bootloader` refuses a 2560 build with both ([architecture.md](architecture.md), "The 2560 with OTA and the store").
+8. The stale `MARK` after a UART update, closed before any row links both a boot session and the store (question 7). Done: closed by one update path per image (question 6): no row links both. A future row that does takes option 3, the boot taking a staged image only when the platform block says the application staged one.
 9. Every bench board reflashed with an image whose trailer carries its board id.
 10. The provisioning seam: `tfwprov` writes go-xkms's exported key into the element's slot, and the SPEC mirrors go-xkms's row.
-11. The tfw-boot A/B on the generic Cortex-M port (mps2-an505), its slot geometry as boot-HAL data.
+11. The tfw-boot A/B on the generic Cortex-M port (mps2-an505), its slot geometry as boot-HAL data. Done: `boot/boot_swap.c` under QEMU, the geometry in `boot/hal/cortex-m/boot_slots.h` ([engineering.md](engineering.md), "The row on main").
 12. The Cortex-M33 under TF-M: `0x68`–`0x6E` mapped onto PSA Firmware Update in the non-secure application (question 8).
 13. The i.MX 95 M7 under AHAB (with #15).
 14. The ESP32-P4 eFuse anti-rollback on the board (question 9).

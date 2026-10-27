@@ -50,7 +50,7 @@ either; both are marked where used.
 | `test/unit/test_board_esp32p4-poe.c`, `test_board_esp32-qemu.c` | Host unit tests of the two board profiles, in `make test`. |
 | `test/unit/test_esp_crypto_hmac_p256.c` | The `hmac-p256` provider on the host, over the mock HMAC peripheral, eFuse purpose lookup and RNG in `test/mock/esp32/`: the DeviceID point and ES256 signature pinned to `test_deviceid_p256`'s literals. The row's requirements, met or partial: [`esp32-p4-engineering.md`](esp32-p4-engineering.md). |
 | `test/unit/test_esp_board.c` | `hal_board.c` against the P4's own profile, over the mock gpio driver in `test/mock/esp32/driver/`: the C6 enable is driven low before it is an output, pulled down and held, never driven high, and a refused step stops the init. |
-| `docker/Dockerfile.esp32`, the `esp32` CI job | ESP-IDF v5.5.5 and Espressif QEMU; runs `make esp32-build BOARD=esp32p4-poe` and `make esp32-qemu-test` (ADR, Consequences, last bullet). |
+| `docker/Dockerfile.esp32`, the `esp32-build` and `esp32-qemu-test` CI jobs | ESP-IDF v5.5.5 and Espressif QEMU; `esp32-build` runs `make esp32-build BOARD=esp32p4-poe`, `esp32-qemu-test` runs `make esp32-qemu-test` on a push to main and nightly only (ruling 220(j); ADR, Consequences, last bullet). |
 
 ### 1.2 What `make esp32-qemu-test` proves today
 

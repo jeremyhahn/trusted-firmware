@@ -96,6 +96,8 @@ restore procedure, written before the project's first write to it (owner,
 CA m346): [the Mega 2560](bench/mega2560.md) and [the Nano](bench/nano.md). The ESP32-P4 board is not an ISP board; its
 factory flash image and eFuse state are on [its page](bench/esp32-p4.md).
 The NXP EdgeLock SE052F board is recorded, unprobed, on [its page](bench/se052f.md).
+What the bench holds, is using, has ordered and still lacks is on [the bench
+inventory](bench/inventory.md).
 The Mega's page also records that this USBasp cannot address the
 ATmega2560's low 128 KB. The bench as the owner changed it on 2026-10-18,
 with each board named, is in the table on [the Nano's

@@ -438,7 +438,9 @@ jobs:
       # the critical path of #256's 122-minute run) runs on a PR only when the
       # PR changes a file the ESP32 build or its QEMU test reads, and otherwise
       # on a push to main (ruling 219(5)) and in the nightly tier (schedule,
-      # workflow_dispatch). ESP32_PATHS is what
+      # workflow_dispatch). Ruling 220(j) split it: this output gates the
+      # esp32-build job alone, and the esp32-qemu-test job runs on no PR.
+      # ESP32_PATHS is what
       # mk/arch/esp32-targets.mk's esp32-build and esp32-qemu-test read: FW_SRCS
       # (src/, src/hal/esp32), layer 0's component (boot/, boot/hal/esp32),
       # include/, the ESP32 boards, the make files and the IDF project
@@ -1238,10 +1240,15 @@ jobs:
           rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
-  esp32:
+  esp32-build:
     # CUSTOMIZE (trusted-firmware): the ESP32 stages need the esp32 image
     # alone and are the run's longest, so they run beside everything else.
-    name: ESP32 [esp32-build, esp32-qemu-test]
+    # CUSTOMIZE (trusted-firmware, ruling 220(j)): the ESP32 build and its
+    # QEMU test are two jobs. In run 68240 the one job took 37 min, above the
+    # 30-minute PR tier alone: esp32-build 2 min 39 s, esp32-qemu-test
+    # 33 min 59 s. This job keeps the build on the PR tier; the esp32-qemu-test
+    # job below runs on push and nightly only.
+    name: ESP32 Build [esp32-build]
     # CUSTOMIZE (trusted-firmware, ruling 218(9)): on a PR only when the
     # changes job saw an ESP32 path change; otherwise the nightly tier
     # (schedule, workflow_dispatch) runs it. Ruling 219(5): a push to main
@@ -1250,11 +1257,68 @@ jobs:
     needs: [changes, image]
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.esp32 == 'true')) }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE (ruling 220(j)): the 10 min before the stages that the
+    # esp32-qemu-test job's sum below counts, then esp32-build (2 min 39 s in
+    # run 68240): 10 + 3 = 13, plus margin.
+    timeout-minutes: 30
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the esp32 image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-esp32 MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
+
+      # The ESP32-P4 firmware, built in the esp32 image.
+      - name: make esp32-build (esp32 image)
+        run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-build BOARD=esp32p4-poe
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
+
+  esp32-qemu-test:
+    # CUSTOMIZE (trusted-firmware, ruling 220(j)): the QEMU test, 33 min 59 s
+    # of run 68240's 37-minute ESP32 job, leaves the PR tier: it runs on a
+    # push to main (ruling 219(5)) and in the nightly tier (schedule,
+    # workflow_dispatch), never on a pull_request. It needs no output of the
+    # esp32-build job: make esp32-qemu-test builds its own esp32-qemu images.
+    name: ESP32 QEMU Test [esp32-qemu-test]
+    needs: [image]
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
     # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
     # esp32 run, where one OTA stream takes ~12, was 24 min in at the kill
     # (boot 4's second stream) with three rounds of ~13 to go: ~68. 10 + 2 + 108
-    # = 120, plus margin.
+    # = 120, plus margin. Ruling 220(j): esp32-build left this job; the
+    # timeout stays.
     timeout-minutes: 150
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -1288,13 +1352,9 @@ jobs:
           rm -f "$RUNNER_TEMP/gomodauth.env"
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
 
-      # The ESP32-P4 firmware, built in the esp32 image and run under
+      # The esp32-qemu firmware, built in the esp32 image and run under
       # Espressif's QEMU.
-      - name: make esp32-build (esp32 image)
-        run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-build BOARD=esp32p4-poe
-
       - name: make esp32-qemu-test (esp32 image)
-        if: ${{ !cancelled() }}
         run: scripts/in-toolchain-image.sh "$ESP32_IMAGE" make esp32-qemu-test
 
       - name: Tear down
@@ -1691,7 +1751,7 @@ jobs:
     if: always()
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [changes, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32, integration, soak, arch-gates]
+    needs: [changes, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, integration, soak, arch-gates]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -1707,10 +1767,12 @@ jobs:
           # a docs-only PR (v1.24, the `changes` job) may skip it; any other
           # event or PR may not. A failed `changes` job reads as not docs-only.
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }} # CUSTOMIZE
-          # CUSTOMIZE (trusted-firmware, ruling 218(9), 219(5)): an `esp32` job
-          # may skip only on a PR that changed no ESP32 path (the `changes`
-          # job's esp32 output). On a push, schedule or workflow_dispatch it
-          # must run, and a skipped or failed one fails the gate.
+          # CUSTOMIZE (trusted-firmware, ruling 218(9), 219(5)): the
+          # `esp32-build` job may skip only on a PR that changed no ESP32 path
+          # (the `changes` job's esp32 output). Ruling 220(j): the
+          # `esp32-qemu-test` job may skip only on a PR, any PR. On a push,
+          # schedule or workflow_dispatch both must run, and a skipped or
+          # failed one fails the gate.
           ESP32_CHANGED: ${{ needs.changes.outputs.esp32 }} # CUSTOMIZE
           ESP32_PR: ${{ github.event_name == 'pull_request' }} # CUSTOMIZE: ruling 219(5)
         run: |
@@ -1732,6 +1794,8 @@ jobs:
                   echo "SKIP $1 (docs-only PR)" # CUSTOMIZE
                 elif [ "$3" = esp32 ] && [ "${ESP32_PR}" = true ] && [ "${ESP32_CHANGED}" != true ]; then # CUSTOMIZE: ruling 218(9), 219(5)
                   echo "SKIP $1 (PR changed no ESP32 path; push and nightly run it)" # CUSTOMIZE
+                elif [ "$3" = esp32-qemu ] && [ "${ESP32_PR}" = true ]; then # CUSTOMIZE: ruling 220(j)
+                  echo "SKIP $1 (off the PR tier; push and nightly run it)" # CUSTOMIZE
                 else
                   echo "FAIL $1 (skipped)"; BAD=1
                 fi;;
@@ -1751,7 +1815,8 @@ jobs:
           check unit-shard-3 "${{ needs.unit-shard-3.result }}" docs
           check sdk-race    "${{ needs.sdk-race.result }}" docs
           check security    "${{ needs.security.result }}" docs
-          check esp32       "${{ needs.esp32.result }}" esp32 # CUSTOMIZE: ruling 218(9)
+          check esp32-build "${{ needs.esp32-build.result }}" esp32 # CUSTOMIZE: ruling 218(9), 220(j)
+          check esp32-qemu-test "${{ needs.esp32-qemu-test.result }}" esp32-qemu # CUSTOMIZE: ruling 220(j)
           check integration "${{ needs.integration.result }}" full
           check soak        "${{ needs.soak.result }}" nightly
           check arch-gates  "${{ needs.arch-gates.result }}" pr

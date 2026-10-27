@@ -17,6 +17,7 @@ tfw_status_t tfw_prov_cmd_lock(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_genkey(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_pubkey(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_seed_uds(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_prov_cmd_write_pubkey(tfw_reader_t *r, tfw_writer_t *w);
 
 /*
  * The backend under those handlers: one per identity root, chosen by the
@@ -32,5 +33,9 @@ tfw_status_t tfw_prov_lock(uint8_t zone, uint16_t crc);
 tfw_status_t tfw_prov_genkey(uint8_t slot, uint8_t pub[64]);
 tfw_status_t tfw_prov_pubkey(uint8_t slot, uint8_t pub[64]);
 tfw_status_t tfw_prov_seed_uds(uint8_t slot);
+/* Writes one coordinate of a P-256 public key (half 0 = X, 1 = Y) into a data
+ * slot, then reads the slot's whole X||Y back into back. */
+tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coord[32],
+                                   uint8_t back[64]);
 
 #endif /* TFW_PROVISION_H */

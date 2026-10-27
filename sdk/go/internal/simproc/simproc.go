@@ -45,6 +45,9 @@ var (
 	// Prov is the element tier as a provisioning jig image: the PROV_*
 	// commands linked, its element blank unless --provision-element.
 	Prov = Binary{Name: "tfwsim-prov", Make: "make tfwsim-prov"}
+	// OTABoot is the software tier as a 2560 image without the stager, whose
+	// update path is a session in tfw-boot (#52).
+	OTABoot = Binary{Name: "tfwsim-otaboot", Make: "make tfwsim-otaboot"}
 	// App is the software-tier simulator with test/app/example linked, the
 	// only image that answers APP_INFO.
 	App = Binary{Name: "tfwsim-app-heartbeat", Make: "make tfwsim-app-example"}

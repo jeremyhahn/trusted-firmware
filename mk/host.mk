@@ -154,7 +154,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                            test/unit/test_suit_emit_main_mutate.c \
                             test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c test/unit/test_uds_flash_mutate.c \
-                            test/unit/test_sys_noboot.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
+                            test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
                             test/unit/test_none_mutate.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
@@ -562,6 +562,16 @@ $(HOST_DIR)/test_sys_noboot: test/unit/test_sys_noboot.c \
                         src/core/update_request_none.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_sys_store is the 2560 stage image's side (#52, one update path per
+# image): the whole host library with update_request_store.c where
+# update_request.c would be, which is exactly what mk/firmware.mk links where
+# BOOT_AB and OTA_STAGE=1.
+$(HOST_DIR)/test_sys_store: test/unit/test_sys_store.c \
+                        $(filter-out src/core/update_request.c,$(HOST_LIB_SRCS)) \
+                        src/core/update_request_store.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The no-boot stand-ins (#130): the four files a build without tfw-boot links
 # where the handoff, the platform block, the stager and PREV would be. No host
@@ -1121,7 +1131,7 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart \
@@ -1831,6 +1841,8 @@ lint-arch-leak-selftest:
 #   tfwsim-prov         element tier as a provisioning jig image: the same, plus
 #                      the PROV_* commands, so tfwprov provisions its element
 #                      over the wire.
+#   tfwsim-otaboot      software tier as a 2560 image without the stager (#52):
+#                      RESET(1) accepted, the store's commands unknown.
 #
 # `make tfwsim CRYPTO=atecc608a` is `make tfwsim-atecc608a`, so the tier is named
 # the way it is for `make firmware`. Only a CRYPTO the command line names picks
@@ -1861,7 +1873,12 @@ TFWSIM_STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_ACTIVATE=1 -Ite
 TFWSIM_STAGE_SRCS += src/core/ota_ctl.c boot/boot_trial.c boot/boot_image.c src/core/ota_trial_none.c \
                      src/core/ota_floor_eeprom.c
 TFWSIM_STAGE_DEFS += -DTFW_FEATURE_OTA_CTL=1
-TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c,$(HOST_STAGE_LIB_SRCS)) $(TFWSIM_LINK_SRCS) \
+# A stage image on the 2560 takes the store as its one update path (#52), so
+# the simulators link the request module mk/firmware.mk links into it:
+# update_request_store.c, which answers RESET(1) TFW_ERR_UNSUPPORTED.
+# tfwsim-otaboot (below) is the other path's image.
+TFWSIM_LIB_SRCS  := $(filter-out src/proto/link_serial.c src/core/update_request.c,$(HOST_STAGE_LIB_SRCS)) \
+                    src/core/update_request_store.c $(TFWSIM_LINK_SRCS) \
                     $(TFWSIM_STAGE_SRCS)
 
 # The element tier swaps the software provider (and its UDS mock) for the ATECC608A
@@ -1965,6 +1982,24 @@ $(HOST_DIR)/tfwsim$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c $(TFW
 	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_BOOT_DEFS) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c $(TFWSIM_SOFT_SRCS) $(TFWSIM_BOOT_MAIN) \
 	   $(APP_HOST_OBJS) -Wl,--wrap=tfw_hal_reset $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
+# The 2560's other update path (#52): an image built OTA_STAGE=0, whose
+# tfw-boot opens a session over the UART (BOOT_OTA=1). The host library as it
+# is, with update_request.c, so RESET(1) is accepted, and ota_stage_none.c with
+# none of TFWSIM_STAGE_SRCS or their defines, so the store's commands answer
+# TFW_ERR_UNKNOWN_CMD as that image's do. The soft tier, no application, and
+# tools/tfwsim/boot_none.c: the session itself is simavr's leg.
+TFWSIM_OTABOOT_SRCS := $(filter-out src/proto/link_serial.c src/core/app_runner.c test/mock/app_mock.c \
+                                    src/caps/alias.c src/caps/tmpl.c src/caps/uccs.c src/caps/csr.c, \
+                                    $(HOST_LIB_SRCS)) \
+                       $(TFWSIM_LINK_SRCS) src/core/app_runner_none.c src/core/ota_trial_none.c
+
+## tfwsim-otaboot: build the soft simulator of a 2560 image without the stager (OTA in tfw-boot)
+tfwsim-otaboot: $(HOST_DIR)/tfwsim-otaboot
+$(HOST_DIR)/tfwsim-otaboot: $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c tools/tfwsim/boot_none.c $(TFWSIM_OTABOOT_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c tools/tfwsim/boot_none.c $(TFWSIM_OTABOOT_SRCS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # The HSM self-defence channel (docs/hsm-self-defence/ slice 4) is in this
@@ -2078,7 +2113,7 @@ host-dir:
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: host-test test-asan coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto lint \
+.PHONY: host-test test-asan coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep

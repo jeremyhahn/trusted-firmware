@@ -14,4 +14,9 @@ uint8_t tfw_update_request_supported(void)
     return 0u;
 }
 
+uint8_t tfw_update_request_session(void)
+{
+    return 0u;
+}
+
 void tfw_update_request_arm(void) {}

@@ -290,6 +290,136 @@ static void test_a_locked_config_zone_refuses_writes(void)
     TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_prov_cmd_write_config(&r, &w));
 }
 
+/* The key the PROV_WRITE_PUBKEY tests write: X = 0x10.., Y = 0x80.. */
+static void test_key(uint8_t key[64])
+{
+    uint8_t i;
+
+    for (i = 0u; i < 64u; i++) {
+        key[i] = (uint8_t)((i < 32u ? 0x10u : 0x60u) + i);
+    }
+}
+
+/* One PROV_WRITE_PUBKEY request: [slot][half][the half's coordinate]. */
+static tfw_status_t write_half(uint8_t slot, uint8_t half, const uint8_t key[64], uint8_t n)
+{
+    uint8_t req[34];
+
+    req[0] = slot;
+    req[1] = half;
+    memcpy(&req[2], &key[half * 32u], 32u);
+    prep(req, n);
+    return tfw_prov_cmd_write_pubkey(&r, &w);
+}
+
+static void lock_config(void)
+{
+    const uint8_t cfg[3] = { TFW_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+
+    prep(cfg, 3u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+}
+
+static void test_a_public_key_is_written_and_read_back(void)
+{
+    static const uint8_t slots_ok[2] = { 2u, 15u };
+    uint8_t              key[64];
+    const uint8_t       *s;
+    uint8_t              k;
+
+    test_key(key);
+    lock_config();
+    for (k = 0u; k < 2u; k++) {
+        /* Each reply is the slot as read back: after X, X and an empty Y. */
+        TEST_ASSERT_EQUAL(TFW_OK, write_half(slots_ok[k], 0u, key, 34u));
+        TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(key, outbuf, 32u);
+        TEST_ASSERT_EACH_EQUAL_HEX8(0u, &outbuf[32], 32u);
+        TEST_ASSERT_EQUAL(TFW_OK, write_half(slots_ok[k], 1u, key, 34u));
+        TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(key, outbuf, 64u);
+        /* The slot holds the stored form Verify reads: pad4|X|pad4|Y. */
+        s = tfw_model_clear_slot(slots_ok[k]);
+        TEST_ASSERT_EACH_EQUAL_HEX8(0u, s, 4u);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(key, &s[4], 32u);
+        TEST_ASSERT_EACH_EQUAL_HEX8(0u, &s[36], 4u);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(&key[32], &s[40], 32u);
+    }
+}
+
+static void test_a_public_key_needs_the_config_zone_locked(void)
+{
+    uint8_t key[64];
+
+    test_key(key);
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_STATE, write_half(15u, 0u, key, 34u));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+}
+
+static void test_a_slot_locked_slot_is_refused(void)
+{
+    uint8_t blk[33] = { 2u };
+    uint8_t key[64];
+
+    /* SlotLocked is config bytes 88-89, block 2 offsets 24-25; clear slot
+     * 15's bit, then lock the config. */
+    blk[1u + 24u] = 0xFFu;
+    blk[1u + 25u] = 0x7Fu;
+    prep(blk, 33u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_write_config(&r, &w));
+    lock_config();
+    test_key(key);
+    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, write_half(15u, 0u, key, 34u));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0u, tfw_model_clear_slot(15u), 72u);
+}
+
+static void test_a_public_key_of_the_wrong_length_is_refused(void)
+{
+    uint8_t key[64];
+
+    test_key(key);
+    lock_config();
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, write_half(15u, 0u, key, 33u));
+}
+
+static void test_a_public_key_into_any_other_slot_or_half_is_refused(void)
+{
+    static const uint8_t bad[4] = { 0u, 3u, 14u, 16u };
+    uint8_t              key[64];
+    uint8_t              k;
+
+    test_key(key);
+    lock_config();
+    for (k = 0u; k < 4u; k++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, write_half(bad[k], 0u, key, 34u));
+    }
+    key[0] = 15u;
+    key[1] = 2u;
+    prep(key, 34u);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_write_pubkey(&r, &w));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0u, tfw_model_clear_slot(15u), 72u);
+}
+
+static void test_a_public_key_write_reports_the_element_failing(void)
+{
+    uint8_t key[64];
+    uint8_t after;
+
+    test_key(key);
+    /* After the config read (1), and after the nine writes (10): each failure
+     * is returned, and no reply is written. */
+    for (after = 1u; after <= 10u; after = (uint8_t)(after + 9u)) {
+        tfw_model_reset();
+        lock_config();
+        tfw_model_fail_commands_after(after);
+        TEST_ASSERT_NOT_EQUAL(TFW_OK, write_half(15u, 0u, key, 34u));
+        TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    }
+    tfw_model_reset();
+    tfw_model_set_busy(255u);
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, write_half(15u, 0u, key, 34u));
+}
+
 static void test_seeding_any_other_slot_is_refused(void)
 {
     const uint8_t p[1] = { 3u };
@@ -360,5 +490,11 @@ int main(void)
     RUN_TEST(test_seeding_any_other_slot_is_refused);
     RUN_TEST(test_locking_out_of_order_is_refused_by_the_element);
     RUN_TEST(test_a_locked_config_zone_refuses_writes);
+    RUN_TEST(test_a_public_key_is_written_and_read_back);
+    RUN_TEST(test_a_public_key_needs_the_config_zone_locked);
+    RUN_TEST(test_a_slot_locked_slot_is_refused);
+    RUN_TEST(test_a_public_key_of_the_wrong_length_is_refused);
+    RUN_TEST(test_a_public_key_into_any_other_slot_or_half_is_refused);
+    RUN_TEST(test_a_public_key_write_reports_the_element_failing);
     return UNITY_END();
 }

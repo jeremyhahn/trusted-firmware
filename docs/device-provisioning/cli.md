@@ -18,11 +18,13 @@ tfwprov --bake-eeprom --serial <hex> --out <file> [--record <file>] [flags]  # n
 tfwprov --bake-netblock --mac <mac> --ip <a.b.c.d/n> --gateway <a.b.c.d> \
         --endpoint <a.b.c.d:port> --out <file>             # no port, no element
 tfwprov --bake-netblock --mac <mac> --dhcp --endpoint <a.b.c.d:port> --out <file>
+tfwprov --write-pubkey <file> --slot <n> [--baud <n>] [--timeout <d>] <port>   # one slot, no template
 ```
 
-Exactly one of `--dry-run`, `--verify`, `--commit`, or the bake modes
-(`--bake-eeprom`, `--bake-netblock`, or both) is required. The first three take
-exactly one positional argument, the serial port; the bake modes take none.
+Exactly one of `--dry-run`, `--verify`, `--commit`, `--write-pubkey`, or the
+bake modes (`--bake-eeprom`, `--bake-netblock`, or both) is required. The first
+four take exactly one positional argument, the serial port; the bake modes take
+none.
 
 ## Flags
 
@@ -50,8 +52,18 @@ exactly one positional argument, the serial port; the bake modes take none.
 | `--endpoint` | `""` | `--bake-netblock`: the host the device connects to, `a.b.c.d:port`; not `0.0.0.0`, not port 0 |
 | `--dhcp` | `false` | `--bake-netblock`: set flags bit 0, so a `DHCP=1` build leases the address, mask and gateway; bytes 12–23 are written zero. Refused beside `--ip`, `--mask` or `--gateway`; `--mac` and `--endpoint` are still required |
 
+| `--write-pubkey` | `""` | write a P-256 public key into an element slot through `PROV_WRITE_PUBKEY` ([api](api.md#prov_write_pubkey)). The file is the raw 64-byte X‖Y or a PEM `PUBLIC KEY` (a SubjectPublicKeyInfo, RFC 5480) holding a P-256 key; anything else — a private key, another PEM type, another algorithm or curve, a point off P-256, a second block — is refused naming why, before the port opens. Sends X, then Y, and exits 1 unless the slot reads back as the key. Its own mode: takes `--slot`, `--baud` and `--timeout` and refuses every other flag by name |
+| `--slot` | none | `--write-pubkey`: the slot, 0–15; the element takes `2` (the boot image-signing key) and `15` (the TrustFLEX secure-boot key) and answers `RANGE` for any other |
+
 A flag of one bake mode given without that mode is refused, never ignored:
 `--serial` without `--bake-eeprom`, or `--mac` or `--dhcp` without `--bake-netblock`.
+`--slot` without `--write-pubkey` is refused the same way.
+
+`--write-pubkey` needs a part whose config zone is locked: the element takes no
+data-zone write before it (`BAD_STATE`), and none into a slot whose SlotLocked
+bit is clear (`PROTECTED_REGION`). The slot stays writable until it is
+slot-locked, so a second `--write-pubkey` replaces the first. It sends no
+`PROV_INFO` and reads no template.
 
 Every invocation of `--dry-run`/`--verify`/`--commit` first calls `ProvInfo`
 and prints the element's revision, serial, and lock state. This is the same

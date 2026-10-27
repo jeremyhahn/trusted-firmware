@@ -60,6 +60,9 @@ uint8_t  tfw_model_data_locked(void);
  * ELEMENT produced rather than anything the host sent. Returns NULL for a slot
  * the part does not have. */
 const uint8_t *tfw_model_slot(uint8_t n);
+/* The 72 bytes a clear Write put in slot n (PROV_WRITE_PUBKEY's path, every
+ * slot but the UDS's), or NULL for a slot the part does not have. */
+const uint8_t *tfw_model_clear_slot(uint8_t n);
 
 /* Whether the element's Verify answers "valid" in STORED mode (the
  * bootloader's image check, whose key sits in a locked slot the model does not

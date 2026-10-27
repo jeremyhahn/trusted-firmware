@@ -523,6 +523,20 @@ ifeq ($(ARCH_UPDATE_REQUEST),none)
 IDENTITY_SRCS := $(filter-out src/core/update_request.c boot/boot_request.c,$(IDENTITY_SRCS)) \
                  src/core/update_request_none.c
 endif
+# One update path per image on the A/B part (#52, question 6, decided
+# 2026-10-26), by FILE SELECTION. An image with the stager is the store's: its
+# tfw-boot is the BOOT_STORE=1 row, which opens no session, so RESET(1) answers
+# TFW_ERR_UNSUPPORTED (update_request_store.c). An image without it is OTA in
+# tfw-boot's, the BOOT_OTA=1 row: RESET(1) opens the session, and OTA_BEGIN,
+# OTA_DATA, OTA_END, OTA_STATUS, OTA_ACTIVATE, OTA_AUTH, OTA_INFO and
+# OTA_CONFIRM have no entry and answer TFW_ERR_UNKNOWN_CMD. mk/boot.mk refuses
+# a tfw-boot with both.
+ifeq ($(BOOT_AB)$(OTA_STAGE),11)
+ifneq ($(filter src/core/update_request.c,$(IDENTITY_SRCS)),)
+IDENTITY_SRCS := $(filter-out src/core/update_request.c,$(IDENTITY_SRCS)) \
+                 src/core/update_request_store.c
+endif
+endif
 
 # Sorted, not wildcard-ordered. Link order affects the output image, and a
 # wildcard's order depends on the filesystem -- which would make the

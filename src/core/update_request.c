@@ -10,6 +10,11 @@ uint8_t tfw_update_request_supported(void)
     return 1u;
 }
 
+uint8_t tfw_update_request_session(void)
+{
+    return 1u;
+}
+
 void tfw_update_request_arm(void)
 {
     tfw_boot_request_encode(tfw_hal_handoff_block());

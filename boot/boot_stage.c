@@ -15,6 +15,7 @@
 #include "boot_hal.h"
 #include "boot_image.h"
 #include "boot_measure.h"
+#include "boot_slots.h"     /* TFW_OTA_STAGE_DEST on an A/B board */
 #include "boot_stage.h"
 #include "boot_store.h"
 #include "boot_trial.h"

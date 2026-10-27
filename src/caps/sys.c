@@ -179,7 +179,9 @@ tfw_status_t tfw_sys_cmd_reset(tfw_reader_t *r, tfw_writer_t *w)
      * operator auth session (issue #4) exactly as a reserved-EEPROM read does.
      * Checked BEFORE anything else about mode 1, including whether this board
      * has a bootloader at all: an unauthenticated peer learns nothing from the
-     * answer. Mode 0 never reaches here, and on the soft and CRYPTO=none tiers
+     * answer. Whether there is a session to reset into is the image's: none
+     * on a board with no boot section, none on a 2560 image whose update path
+     * is the store (src/core/update_request_store.c). Mode 0 never reaches here, and on the soft and CRYPTO=none tiers
      * tfw_auth_gate() is permissive (auth_session_none.c), so those builds are
      * unaffected -- the same accepted gap storage.c documents.
      */
@@ -188,7 +190,7 @@ tfw_status_t tfw_sys_cmd_reset(tfw_reader_t *r, tfw_writer_t *w)
         if (gate != TFW_OK) {
             return gate;
         }
-        if (!tfw_update_request_supported()) {
+        if (!tfw_update_request_session()) {
             return TFW_ERR_UNSUPPORTED;
         }
     }

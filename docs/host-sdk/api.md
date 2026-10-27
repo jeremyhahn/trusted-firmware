@@ -109,7 +109,7 @@ reaches for by task.
 | buses | `I2CTransfer`, `SetI2CClock`, `SPITransfer`, `ConfigureSPI`, `OneWireReset/Write/Read` |
 | attestation | `Attest(ctx, nonce []byte) ([]byte, error)`, `AttestCert(ctx, nonce []byte) ([]byte, error)`, `AttestCSR(ctx, b [32]byte) ([64]byte, error)` |
 | auth session (element tier only) | `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer, nonce, serial []byte) error` |
-| provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS` |
+| provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`, `ProvWritePubKey` |
 | network block | `ReadNetConfig`, `WriteNetConfig`, `tfw.DerivedMAC` ([ethernet-transport](../ethernet-transport/api.md)) |
 | OTA | `StageImage`, or `OTABegin`/`OTAData`/`OTAEnd`/`OTAStatus`; `OTAAuth`, `OTAInfo`, `OTAActivate`, `OTAConfirm` ([ota](../ota/api.md)) |
 | accept Ethernet devices | `tfw.Listen(addr, opts...) (*Listener, error)`, `(*Listener) Accept() (*TCPDevice, error)`; a `*TCPDevice` is a `*Device` |
@@ -202,6 +202,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.PlatformBlockLen`, `tfw.SerialLen`, `tfw.PubkeyHashLen`, `tfw.OperatorPubkeyLen` | `const` 192, 16, 32, 64 | The platform-reserved EEPROM block, [0x000, 0x0C0) on the device, mirroring include/tfw/boot.h. |
 | `tfw.ZoneConfig`, `tfw.ZoneData` | `const uint8` 0x00, 0x01 | Element zones, for Lock. |
 | `tfw.SlotDeviceID`, `tfw.SlotUDS` | `const uint8` 0, 1 | Slot assignments, mirroring TFW_ATECC_SLOT_* in src/crypto/atecc608a/atecc.h. |
+| `tfw.SlotImageSigning`, `tfw.SlotSecureBootKey` | `const uint8` 2, 15 | The slots ProvWritePubKey writes: the boot image-signing public key and the TrustFLEX part's secure-boot public key (DS40002515B table 3-16). |
 | `tfw.ApplicationEvidenceLen` | `const ApplicationEvidenceLen = 32` | The width of the value in the measurements claim (273): one sha-256 hash-entry. |
 | `tfw.AuthNonceLen` | `const AuthNonceLen = 16` | The challenge's width. |
 | `tfw.CSRSigLen` | `const CSRSigLen = 64` | The length of the ATTEST_CSR response: a P-256 signature as raw r\|\|s (TFW_SIG_LEN). |
@@ -269,6 +270,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.CmdOTAConfirm` | `const CmdOTAConfirm Cmd = 0x6E` | The rest of ADR decision 8 (#77), answered by an image whose tfw-boot runs the trial; any other answers StatusErrUnknownCmd. |
 | `tfw.CmdOTAAuth` | `const CmdOTAAuth Cmd = 0x6F` | Holds the row key's ES256 authorization (r\|\|s) for the next OTA_ACTIVATE or OTA_CONFIRM (#137). |
 | `tfw.CmdProvInfo`, `tfw.CmdProvWriteConfig`, `tfw.CmdProvLock`, `tfw.CmdProvGenKey`, `tfw.CmdProvPubKey`, `tfw.CmdProvSeedUDS` | `const Cmd` 0x70…0x75 | Provisioning commands. |
+| `tfw.CmdProvWritePubKey` | `const Cmd` 0x7B | Provisioning: a P-256 public key into slot 2 or 15 (`Device.ProvWritePubKey`). |
 | `tfw.CmdHSMHeartbeat`, `tfw.CmdHSMReport`, `tfw.CmdHSMVerdict`, `tfw.CmdHSMSelect`, `tfw.CmdHSMLoad` | `const Cmd` 0x76…0x7A | The HSM self-defence channel -- docs/hsm-self-defence/; answered only by an image built with the channel, any other answers StatusErrUnknownCmd. |
 | `tfw.CryptoTier` | `type CryptoTier uint8` | How strong the device's root of trust is. |
 | `tfw.CryptoNone`, `tfw.CryptoSoftware`, `tfw.CryptoSecureElement`, `tfw.CryptoTPM2` | `const CryptoTier` 0…3 | The crypto tiers, numbered as TFW_CRYPTO_* in include/tfw/types.h. |
@@ -316,6 +318,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.ProvPubKey` | `func (d *Device) ProvPubKey(ctx context.Context, slot uint8) ([]byte, error)` | Recomputes the public point from the private key already in the slot. |
 | `tfw.Device.ProvSeedUDS` | `func (d *Device) ProvSeedUDS(ctx context.Context, slot uint8) error` | Fills the UDS slot from the element's own TRNG. |
 | `tfw.Device.ProvWriteConfig` | `func (d *Device) ProvWriteConfig(ctx context.Context, block uint8, data []byte) error` | Writes one 32-byte block of the element's config zone. |
+| `tfw.Device.ProvWritePubKey` | `func (d *Device) ProvWritePubKey(ctx context.Context, slot uint8, key []byte) error` | Writes an uncompressed P-256 public key, X\|\|Y, into a data slot and checks the slot's read-back; a mismatch is a *ReadBackError. |
 | `tfw.Device.PulseCapture` | `func (d *Device) PulseCapture(ctx context.Context, pin uint8, startHigh bool, maxEdges uint8, timeout time.Duration) ([]uint16, error)` | Records edge-to-edge intervals and returns them in microseconds. |
 | `tfw.Device.PulseIn` | `func (d *Device) PulseIn(ctx context.Context, pin uint8, high bool, timeout time.Duration) (time.Duration, error)` | Measures one pulse of the given level. |
 | `tfw.Device.ReadNetConfig` | `func (d *Device) ReadNetConfig(ctx context.Context) (NetConfig, error)` | Reads the network block back with EEPROM_READ, in EEPROMChunk pieces, and decodes it. |
@@ -374,6 +377,8 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.PinInput`, `tfw.PinOutput`, `tfw.PinInputPullup` | `const PinMode` 0, 1, 2 | A plain input, pull-up off; drives the pin; an input with the internal pull-up enabled. |
 | `tfw.ProtocolVersionError` | `type ProtocolVersionError struct` | A device whose protocol MAJOR differs from this host's: nothing beyond CAPS can be trusted to mean what it appears to. |
 | `tfw.ProtocolVersionError.Error` | `func (e *ProtocolVersionError) Error() string` | Implements error. |
+| `tfw.ReadBackError` | `type ReadBackError struct` | A slot that, read back after a write the element accepted, does not hold what was written. |
+| `tfw.ReadBackError.Error` | `func (e *ReadBackError) Error() string` | Implements error; the text is for a log line, match with errors.As. |
 | `tfw.ResetCause` | `type ResetCause uint8` | Why the part last restarted -- the difference between a commanded reboot and a device that is failing. |
 | `tfw.ResetUnknown`, `tfw.ResetPowerOn`, `tfw.ResetExternal`, `tfw.ResetBrownout`, `tfw.ResetWatchdog`, `tfw.ResetSoftware`, `tfw.ResetPanic` | `const ResetCause` 0…6 | The reset causes SYS_INFO reports. |
 | `tfw.ResetCause.String` | `func (r ResetCause) String() string` | Names the cause; ResetUnknown and any unrecognised value are "unknown". |

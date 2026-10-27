@@ -20,7 +20,7 @@ slot map Microchip ships, and the ways to reconcile the two.
 |---|---|---|---|
 | DeviceID private key | slot 0 (`TFW_ATECC_SLOT_DEVICEID`, `src/crypto/atecc608a/atecc.h`) | `Nonce` pass-through, then `Sign` external (`tfw_crypto_sign`); `GenKey` public mode for the point (`tfw_crypto_pubkey`) | The DICE ECA key. It never leaves the part. The alias certificate's subject key is the same point. There is no separate Alias private key ([architecture](../dice-attestation/architecture.md#the-deviceidalias-split)) |
 | UDS | slot 1 (`TFW_ATECC_SLOT_UDS`) | `SHA` in HMAC mode, keyed by the slot | tfw-boot derives CDI = HMAC(UDS, H(fw)) (`boot/tier/cdi_atecc.c`). The application recomputes an HMAC on slot 1 and then zeroizes it. A success sets `have_cdi`, and `tfw_crypto_sign` refuses to sign without it (`src/crypto/atecc608a/provider.c`). On this tier the application uses the UDS only as the gate that says "this part went through our ceremony" |
-| Boot image-signing public key | slot 2 (`SLOT_IMAGE_SIGNING`, `boot/verify/verify_atecc608a.c`) | `Verify`, stored mode, P-256 | The build system's signing key. It never enters the boot section as a value ([secure boot](../secure-boot/architecture.md#trust-boundaries)). No provisioning command writes it today, and no document says how it reaches slot 2 |
+| Boot image-signing public key | slot 2 (`SLOT_IMAGE_SIGNING`, `boot/verify/verify_atecc608a.c`) | `Verify`, stored mode, P-256 | The build system's signing key. It never enters the boot section as a value ([secure boot](../secure-boot/architecture.md#trust-boundaries)). `PROV_WRITE_PUBKEY` (`0x7B`, `tfwprov --write-pubkey <file> --slot 2`) writes it once the config zone is locked and while the slot's SlotLocked bit is set, and answers the slot read back ([api](api.md#prov_write_pubkey)) |
 | Boot counter | counter 0 (`TFW_ATECC_COUNTER_BOOT`) | `Counter` read and increment | The monotonic anti-rollback floor. `tfw_crypto_counter` also reads counters 0 and 1 |
 | Operator key | none | `Nonce` pass-through, then `Verify` external | The public key arrives in the packet (`AUTH_RESPONSE`, #4) |
 | Image measurement | none | `SHA` | `boot/measure/measure_atecc608a.c` |
@@ -330,6 +330,11 @@ Fallbacks:
    wanted.
 5. Do the new command ids and SDK constants of (a) fit the provisioning image on
    the 328P?
+
+Datasheet note for `PROV_WRITE_PUBKEY`, which accepts slots 2 and 15 until the
+slot is ratified: DS40002515B tables 3-3 to 3-16 give no slot's byte size
+(table 3-1 gives only the 1,208-byte data zone in 16 slots), and table 3-5
+lists slot 2 on this part as a P-256 private key, not a public-key slot.
 
 Bench questions. Each is a read, or runs before any lock:
 

@@ -53,6 +53,7 @@ static entry_t table[] = {
     { TFW_CMD_PROV_GENKEY,       tfw_prov_cmd_genkey,        1u, 0u, 0u, 0u, 0u },
     { TFW_CMD_PROV_PUBKEY,       tfw_prov_cmd_pubkey,        1u, 0u, 0u, 0u, 0u },
     { TFW_CMD_PROV_SEED_UDS,     tfw_prov_cmd_seed_uds,      1u, 0u, 0u, 0u, 0u },
+    { TFW_CMD_PROV_WRITE_PUBKEY, tfw_prov_cmd_write_pubkey, 34u, 0u, 0u, 0u, 0u },
 };
 #define NCMDS (sizeof table / sizeof table[0])
 
@@ -144,6 +145,14 @@ static tfw_status_t feed(unsigned k, const uint8_t *payload, unsigned n)
         case TFW_CMD_PROV_PUBKEY:
             if (n < 1u || len != 64u) { broke = "PUBKEY succeeded without a 64-byte point"; }
             break;
+        case TFW_CMD_PROV_WRITE_PUBKEY:
+            if ((payload[0] != TFW_ATECC_SLOT_IMAGE && payload[0] != 15u) || payload[1] > 1u
+                || len != 64u) {
+                broke = "WRITE_PUBKEY succeeded off its slots or without a 64-byte read-back";
+            } else if (!cfg_locked) {
+                broke = "WRITE_PUBKEY succeeded on an unlocked config zone";
+            }
+            break;
         default:
             if (n < 1u || payload[0] != TFW_ATECC_SLOT_UDS || len != 0u) {
                 broke = "SEED_UDS succeeded off its slot or answered key material";
@@ -162,6 +171,10 @@ static tfw_status_t feed(unsigned k, const uint8_t *payload, unsigned n)
     } else if ((e->cmd == TFW_CMD_PROV_GENKEY && payload[0] != TFW_ATECC_SLOT_DEVICEID)
                || (e->cmd == TFW_CMD_PROV_SEED_UDS && payload[0] != TFW_ATECC_SLOT_UDS)) {
         if (st != TFW_ERR_RANGE) { broke = "a request for another slot was not refused RANGE"; }
+    } else if (e->cmd == TFW_CMD_PROV_WRITE_PUBKEY
+               && ((payload[0] != TFW_ATECC_SLOT_IMAGE && payload[0] != 15u) || payload[1] > 1u)
+               && st != TFW_ERR_RANGE) {
+        broke = "a public key for another slot or half was not refused RANGE";
     }
     if (broke) {
         printf("status %u, writer %u, config locked %u\n", (unsigned)st, len, (unsigned)cfg_locked);
@@ -186,6 +199,7 @@ static unsigned seed_for(unsigned k, uint8_t *p)
     case TFW_CMD_PROV_LOCK:         p[0] = TFW_ATECC_LOCK_CONFIG; p[1] = 0x34u; p[2] = 0x12u; return 3u;
     case TFW_CMD_PROV_GENKEY:       p[0] = TFW_ATECC_SLOT_DEVICEID; return 1u;
     case TFW_CMD_PROV_PUBKEY:       p[0] = TFW_ATECC_SLOT_DEVICEID; return 1u;
+    case TFW_CMD_PROV_WRITE_PUBKEY: memset(p, 0x5Au, 34u); p[0] = 15u; p[1] = 0u; return 34u;
     default:                        p[0] = TFW_ATECC_SLOT_UDS; return 1u;
     }
 }
@@ -194,6 +208,17 @@ static void fresh_for(unsigned k)
 {
     tfw_model_reset();
     if (table[k].cmd == TFW_CMD_PROV_PUBKEY) { tfw_model_provision(); }
+    if (table[k].cmd == TFW_CMD_PROV_WRITE_PUBKEY) {
+        /* the slots are written only once the config zone is locked */
+        const uint8_t cfg[3] = { TFW_ATECC_LOCK_CONFIG, 0x34u, 0x12u };
+        uint8_t       out[1];
+        tfw_reader_t  r;
+        tfw_writer_t  w;
+
+        tfw_reader_init(&r, cfg, 3u);
+        tfw_writer_init(&w, out, 1u);
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
+    }
     if (rnd() % 16u == 0u) { tfw_model_set_absent(1u); }   /* a silent bus */
 }
 

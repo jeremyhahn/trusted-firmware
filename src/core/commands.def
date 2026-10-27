@@ -165,6 +165,7 @@ TFW_CMD_ENTRY(TFW_CMD_PROV_LOCK,         PROV_LOCK,         tfw_prov_cmd_lock,  
 TFW_CMD_ENTRY(TFW_CMD_PROV_GENKEY,       PROV_GENKEY,       tfw_prov_cmd_genkey,        1u,  1u)
 TFW_CMD_ENTRY(TFW_CMD_PROV_PUBKEY,       PROV_PUBKEY,       tfw_prov_cmd_pubkey,        1u,  1u)
 TFW_CMD_ENTRY(TFW_CMD_PROV_SEED_UDS,     PROV_SEED_UDS,     tfw_prov_cmd_seed_uds,      1u,  1u)
+TFW_CMD_ENTRY(TFW_CMD_PROV_WRITE_PUBKEY, PROV_WRITE_PUBKEY, tfw_prov_cmd_write_pubkey, 34u, 34u)
 #endif
 
 /* ---- HSM self-defence channel: the A55's messages to the response engine ---- */

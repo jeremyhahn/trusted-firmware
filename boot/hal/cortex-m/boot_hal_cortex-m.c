@@ -19,6 +19,7 @@
 #include "tfw/boot.h"
 #include "tfw/config.h"
 #include "../../boot_hal.h"
+#include "boot_slots.h"     /* TFW_APP_WRITE_END on the A/B rows */
 #include "boot_soc.h"
 #include "cm_regs.h"
 #include "hal_early.h"   /* the latch, the reset and the watchdog: shared with the application */

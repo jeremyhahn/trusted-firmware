@@ -129,6 +129,21 @@ func TestOTAControlFramesMatchVectors(t *testing.T) {
 			return EncodeRequest(5, CmdHSMLoad, []byte{0x0e, 0x01, 0x00, 0x00, 0xd8, 0x6b, 0xa3, 0x02})
 		}), vectors.FrameHSMLoadReq},
 		{"HSM_LOAD RANGE", enc(func() ([]byte, error) { return EncodeResponse(5, CmdHSMLoad, StatusErrRange, nil) }), vectors.FrameHSMLoadRangeResp},
+		{"PROV_WRITE_PUBKEY X", enc(func() ([]byte, error) {
+			return EncodeRequest(7, CmdProvWritePubKey, append([]byte{15, 0}, testPubKey()[:32]...))
+		}), vectors.FrameProvWritePubKeyXReq},
+		{"PROV_WRITE_PUBKEY Y", enc(func() ([]byte, error) {
+			return EncodeRequest(8, CmdProvWritePubKey, append([]byte{15, 1}, testPubKey()[32:]...))
+		}), vectors.FrameProvWritePubKeyYReq},
+		{"PROV_WRITE_PUBKEY OK", enc(func() ([]byte, error) {
+			return EncodeResponse(8, CmdProvWritePubKey, StatusOK, testPubKey())
+		}), vectors.FrameProvWritePubKeyResp},
+		{"PROV_WRITE_PUBKEY RANGE", enc(func() ([]byte, error) {
+			return EncodeResponse(7, CmdProvWritePubKey, StatusErrRange, nil)
+		}), vectors.FrameProvWritePubKeyRangeResp},
+		{"PROV_WRITE_PUBKEY PROTECTED", enc(func() ([]byte, error) {
+			return EncodeResponse(7, CmdProvWritePubKey, StatusErrProtectedRegion, nil)
+		}), vectors.FrameProvWritePubKeyProtectedResp},
 	} {
 		if !bytes.Equal(c.got, []byte(c.want)) {
 			t.Errorf("%s frame = % x, want % x", c.name, c.got, c.want)

@@ -173,6 +173,13 @@ static void test_no_reply_carries_the_uds(void)
     prep(&slot, 1u);
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_prov_cmd_seed_uds(&r, &w));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    {
+        uint8_t req[34] = { 15u };
+
+        prep(req, 34u);
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_prov_cmd_write_pubkey(&r, &w));
+        TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
+    }
 
     /* The check itself sees a run when one is there. */
     prep(0, 0u);

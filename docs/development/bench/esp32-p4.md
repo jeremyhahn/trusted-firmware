@@ -402,6 +402,77 @@ The restore:
 Nothing blocked a step. Not checked by these five steps: the C6 held in
 reset, which step 4 does not observe.
 
+### Reflashed with 2cfeb877's image, 2026-10-26 (#52 item 9)
+
+The #52 requirement "Every bench board reflashed with an image whose trailer
+carries its board id" (`docs/ota/README.md`), as the
+[Mega's](mega2560.md#the-mega-reflashed-with-main-a0f9902as-image-2026-10-26-52-item-9)
+was. `ESP_PORT=/dev/ttyACM1` only, esptool / espefuse v5.6.0 (pip, in a venv
+outside the repository), ESP-IDF `v5.5.5` from Espressif's tag
+(`install.sh esp32p4`, then `idf_tools.py install cmake ninja`), on branch
+`test/52-p4id` at `2cfeb877`. Steps 1 to 3 of [HIL-0](#hil-0), and step 4's
+console check; step 5 was not run, so **the board was left on this image**.
+Writes were the one erase region and the four images of step 3. No eFuse was
+written, and no `espefuse` command other than `summary` was run. The outputs
+are kept in the bench host's record directory for the run, not in this tree.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `esptool --port $ESP_PORT chip-id`, `flash-id` | byte-identical to 2026-10-18's, `6eea01f4…6324` and `4c4b0c14…b805` |
+| 1 | `espefuse --port $ESP_PORT summary` | byte-identical to 2026-10-18's, `279d40b49e4969fabe75b9ce01c34f1771b36099ec3bbf8c73affc4f9a62831d`, so every row of "Security eFuses" is unchanged |
+| 1 | `esptool --port $ESP_PORT -b 921600 read-flash 0 ALL p4-flash-before.bin`, `sha256sum` | `Read 33554432 bytes … in 509.5 seconds`; `c2d4ac0f25246b053d4d25f62580578a5f2b2a37002f7cda7a9d3a548702fde0`, equal to the record's: the 2026-10-21 restore held |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0` (no static-address overlay: none was handed to the lane) | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y`, `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y`, `# CONFIG_TFW_ETH_STATIC_IP is not set` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT erase-region 0x12000 0x5000` | `Flash memory region erased successfully in 0.1 seconds.` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT write-flash 0x2000 … 0x10000 … 0x11000 tfw_plat.bin 0x20000 trusted-firmware.bin` | exit 0, `Hash of data verified.`; `Wrote 532480 bytes … at 0x00020000` |
+| 3 | `esptool --port $ESP_PORT -b 921600 read-flash 0x20000 0x82000 app-after.bin` | SHA-256 equal to the sealed `trusted-firmware.bin`'s; trailer below |
+| 4 | console, UART0 at 115200 after one reset, 45 s and again 120 s | `boot: ESP-IDF v5.5.5 2nd stage bootloader`, `chip revision: v3.2`, `SPI Flash Size : 32MB`, the seven-partition table from `0x11000`; `tfw-l0: app at 0x20000 verified, measurement a616370d492b3da721c5c9c3a6b8056d28173101e7089e29d4449769bd5b50c2`; `tfw-l0: no HMAC_UP key in eFuse: this part has no UDS`; `boot: Loaded app from partition at offset 0x20000`; `App version: 2cfeb877`; `ethernet attached to netif`, then no address and no link-up line in either window |
+| 4 | `build/esp32/wirecheck … -board 0x80 -tier 0` | **not run**: the build has no static address, the board took no DHCP lease, so it has no address to reach (below) |
+| — | `espefuse --port $ESP_PORT summary`, after the write | `279d40b49e4969fabe75b9ce01c34f1771b36099ec3bbf8c73affc4f9a62831d`, byte-identical to step 1's: no eFuse moved |
+
+The before state of each region step 3 overwrites, cut from
+`p4-flash-before.bin`:
+
+| Region | Bytes | SHA-256 before |
+|---|---|---|
+| `0x002000`–`0x00AFFF`, the bootloader's sectors | 36 864 | `3b89bc6737c18af1b7f2e18d0fb9a8ee0ca58a2c6c133408677e5b63cdb6788e` |
+| `0x010000`–`0x010FFF`, the partition table | 4 096 | `f47a8ec3e9aff2318d896942282ad4fe37d6391c82914f54a5da8a37de1300c6` |
+| `0x011000`–`0x011FFF`, `tfw_plat` | 4 096 | `f47a8ec3e9aff2318d896942282ad4fe37d6391c82914f54a5da8a37de1300c6` |
+| `0x012000`–`0x016FFF`, the erase region | 20 480 | `1f55ffcddc1fce4d4ab43d09da1f8e58730a19bf3aadd78331c3eaaa8b9b4410` |
+| `0x020000`–`0x0A1FFF`, the sealed app's sectors | 532 480 | `8b9310f480ab4306227e3273365e343fd446f9f12e1a0aab68b30e9a3313e326` |
+
+The build's artefacts, as written in step 3. The keys are generated per build
+directory and never committed, so another build has other hashes for all but
+the partition table.
+
+| Artefact | Bytes | SHA-256 |
+|---|---|---|
+| `idf/bootloader/bootloader.bin` | 33 264 | `837b066c6304d645c6413e7857781e17c88aa1ebcc32bc60c1ec62d223a76b16` |
+| `idf/partition_table/partition-table.bin` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `tfw_plat.bin` | 192 | `c19fd7984a99dbb2f2f48912910cb73fda806058f8674132f60248ea86676ae7` |
+| `trusted-firmware.bin` (sealed) | 532 480 | `6e99896aa05777fce0a7b04a0a6780bff4a75a88c0bf299e441ae9d2e10ddd07` |
+| `idf/trusted-firmware.bin` (no trailer, not written) | 528 384 | `004f483cbdb0fe8db8c08962db6604185ee396135dd2df35c470427f4c9ac7cc` |
+
+The trailer's first 16 bytes, read back from the board at app offset
+`0x80010` (flash `0xA0010`), the `<IHBBII` head `l0_seal.py trailer` packs:
+
+```
+54 46 49 4d 01 00 80 00 01 00 00 00 f0 ff 07 00
+```
+
+Magic `TFIM`, trailer version 1, **board id `0x80`**: the ESP32-P4's id in the
+[board-id registry](../../boards/board-id-registry.md), the profile's
+`TFW_BOARD_ID`. Image version 1, `image_len` `0x7fff0` (524272). Layer 0
+checked its ES256 signature at boot (the `verified` line above), and the
+measurement it printed is the 32 bytes `l0_seal.py` placed before the trailer.
+
+**Not checked: CAPS on the wire.** The lane was handed no static-address
+overlay, so the build fell back to DHCP, and in 165 s of console after two
+resets the board took no lease: the bench network has no DHCP server. A CAPS
+read over Ethernet needs the board's address on the bench network, in a
+`$HOME/p4-static.defaults` overlay as step 2 describes, then a rebuild, the
+step 3 writes, and step 4's `wirecheck`. The board otherwise matches step 4 as
+2026-10-21 ran it, up to the network.
+
 ## Restore
 
 ```sh

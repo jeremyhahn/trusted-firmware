@@ -3,7 +3,7 @@
 > **Status: NORMATIVE** · Scope: trusted-firmware · Last verified: 2026-09-23
 > Conflicts with this document are defects. Fix them here first.
 
-Six command ids, `0x70`–`0x75`, reserved permanently on the wire (see
+Seven command ids, `0x70`–`0x75` and `0x7B`, reserved permanently on the wire (see
 `docs/wire-protocol/architecture.md` for the frame format). Every one of them is
 answered `TFW_ERR_UNKNOWN_CMD` by a production image — see
 [`architecture.md`](architecture.md) for why the gate is file selection, not a
@@ -19,6 +19,7 @@ runtime check.
 | `0x73` | `PROV_GENKEY` | 1 byte: `slot[1]` | 64 bytes: `public_point[64]` (X‖Y) |
 | `0x74` | `PROV_PUBKEY` | 1 byte: `slot[1]` | 64 bytes: `public_point[64]` (X‖Y) |
 | `0x75` | `PROV_SEED_UDS` | 1 byte: `slot[1]` | none |
+| `0x7B` | `PROV_WRITE_PUBKEY` | 34 bytes: `slot[1]` + `half[1]` + `coordinate[32]` | 64 bytes: the slot's `X‖Y` as read back |
 
 `TFW_CMD_ENTRY` in `src/core/commands.def` fixes both the min and max payload
 size per command (e.g. `PROV_WRITE_CONFIG` is exactly 33 bytes both ways); a
@@ -73,13 +74,28 @@ material — the request payload is the slot id only. Internally: `Random` into
 `TempKey`, then `Write` from `TempKey` into the slot, entirely inside the
 element; the host never observes the value on the wire.
 
+### `PROV_WRITE_PUBKEY`
+
+Writes one coordinate of a P-256 public key into `slot`, `2` (the boot
+image-signing key) or `15` (the TrustFLEX secure-boot key): `half` `0` is X and
+`1` is Y, so a key is two requests, X then Y, and each stays within the 64-byte
+payload. The element stores the key as `pad4‖X‖pad4‖Y`. Each reply is the
+slot's `X‖Y` read back after the write, so the reply to Y is the whole key for
+the host to compare; `Device.ProvWritePubKey` does, and `tfwprov --write-pubkey`
+fails unless it matches ([cli](cli.md)). The config zone must be locked
+(`TFW_ERR_BAD_STATE` otherwise) and the slot's SlotLocked bit set
+(`TFW_ERR_PROTECTED_REGION` otherwise); any other slot or half is
+`TFW_ERR_RANGE`. Element tier only: the UDS backend answers
+`TFW_ERR_UNSUPPORTED`.
+
 ## Status codes specific to this surface
 
 See [`engineering.md`](engineering.md) for the full table mapping each status
 to the command(s) that raise it. In summary: `TFW_ERR_NACK` (element did not
 wake), `TFW_ERR_RANGE` (bad block/zone/slot), `TFW_ERR_BAD_ARGC` (wrong length or
-zero CRC), `TFW_ERR_PROTECTED_REGION` (write to block 0/1), `TFW_ERR_UNKNOWN_CMD`
-(production image).
+zero CRC), `TFW_ERR_PROTECTED_REGION` (write to block 0/1, or `PROV_WRITE_PUBKEY`
+into a slot-locked slot), `TFW_ERR_BAD_STATE` (`PROV_WRITE_PUBKEY` before the
+config lock), `TFW_ERR_UNKNOWN_CMD` (production image).
 
 ## The provisioning template
 

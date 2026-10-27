@@ -10,9 +10,9 @@
  * copy at primary[i + 1] (b). Every write's source is intact until the step
  * after it, so redoing the step the record names is always safe.
  *
- * A unit is TFW_SWAP_UNIT bytes, one SPM page on the 2560, so a 64 KB slot
- * is 256 units and a step fits one byte (512 bytes on an MPS2 board's 128 KiB
- * slot, include/tfw/config.h). The record is a phase byte and a
+ * The slots are the boot HAL's (boot_slots.h). A unit is TFW_BOOT_SLOT_UNIT
+ * bytes, one SPM page on the 2560, so a 64 KB slot is 256 units and a step
+ * fits one byte (512 bytes on an MPS2 board's 128 KiB slot). The record is a phase byte and a
  * step byte, and every advance rewrites exactly one of them: a reset that
  * tears an EEPROM write leaves the old position or the new one, never a
  * third. That is why sub-steps a and b alternate between two phase values by
@@ -27,15 +27,16 @@
 #include "boot_hal.h"
 #include "boot_platform.h"
 #include "boot_policy.h"
+#include "boot_slots.h"
 #include "boot_store.h"
 #include "boot_swap.h"
 #include "boot_verify.h"
 #include "crc16.h"
 
-#define UNIT  ((uint16_t)TFW_SWAP_UNIT)
-#define UNITS ((uint16_t)(TFW_SWAP_SLOT_LEN / UNIT))
-#define PRI   ((uint32_t)TFW_SWAP_PRIMARY_BASE)
-#define SEC   ((uint32_t)TFW_SWAP_SECONDARY_BASE)
+#define UNIT  ((uint16_t)TFW_BOOT_SLOT_UNIT)
+#define UNITS ((uint16_t)(TFW_BOOT_SLOT_LEN / UNIT))
+#define PRI   ((uint32_t)TFW_BOOT_SLOT_PRIMARY)
+#define SEC   ((uint32_t)TFW_BOOT_SLOT_SECONDARY)
 #define REC   ((uint16_t)TFW_SWAP_RECORD_ADDR)
 
 #define PH_MOVE 0x4Du
@@ -46,18 +47,18 @@
 #define PH_IDLE 0xFFu
 
 _Static_assert(UNITS >= 1u && UNITS <= 256u, "a step must fit the record's byte");
-_Static_assert(SEC >= PRI + TFW_SWAP_SLOT_LEN + TFW_SWAP_UNIT,
+_Static_assert(SEC >= PRI + TFW_BOOT_SLOT_LEN + TFW_BOOT_SLOT_UNIT,
                "the primary must hold the slot and the move unit");
-_Static_assert(TFW_SWAP_UNIT % 128u == 0u && TFW_SWAP_SLOT_LEN % TFW_SWAP_UNIT == 0u,
+_Static_assert(TFW_BOOT_SLOT_UNIT % 128u == 0u && TFW_BOOT_SLOT_LEN % TFW_BOOT_SLOT_UNIT == 0u,
                "a unit is whole 128-byte reads, and a slot whole units");
 /* Below the boot section on the AVR; on an MPS2 board tfw-boot's region is
  * below both slots, in another bank (boards/mps2-an505/board_profile.h). */
-_Static_assert(SEC + TFW_SWAP_SLOT_LEN <= TFW_APP_WRITE_END
+_Static_assert(SEC + TFW_BOOT_SLOT_LEN <= TFW_APP_WRITE_END
                && (TFW_APP_WRITE_END <= TFW_BOOT_REGION_BASE
                    || PRI >= TFW_BOOT_REGION_BASE + TFW_BOOT_REGION_SIZE),
                "the secondary must be writable, and clear of the boot section");
 
-static uint8_t unit[TFW_SWAP_UNIT];
+static uint8_t unit[TFW_BOOT_SLOT_UNIT];
 
 /*
  * Progress is a journal of two copies at REC, each {phase, step, sequence,

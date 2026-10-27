@@ -278,6 +278,19 @@ static void authorize(uint8_t seq)
     TEST_ASSERT_EQUAL(TFW_OK, serial(seq, TFW_CMD_OTA_AUTH, sig, (uint8_t)sizeof sig, 0u));
 }
 
+/* The peer goes and comes back: the link sees the socket down, closes it,
+ * backs off and dials a new connection. */
+static void reconnect(void)
+{
+    eth.state = TFW_ETH_DOWN;
+    tfw_link_poll();
+    tfw_mock_advance(LONGEST_BACKOFF_MS + 1u);
+    tfw_link_poll();
+    TEST_ASSERT_EQUAL_UINT(2u, eth.starts);
+    eth.state = TFW_ETH_UP;
+    tfw_link_poll();
+}
+
 static const uint8_t M0 = 0u;      /* OTA_ACTIVATE's mode byte */
 
 /* ------------------------------------------------------------------- tests */
@@ -313,6 +326,37 @@ static void test_ota_activate_off_the_ethernet_list_does_not_take_the_hold(void)
     TEST_ASSERT_FALSE(marked());
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, serial(0x33u, TFW_CMD_OTA_ACTIVATE, &M0, 1u, 0u));
     TEST_ASSERT_FALSE(marked());
+}
+
+/* The ADR's open question 8, decided (ruling 109, Software 2026-10-26, #257):
+ * an authorization ends with its connection, as well as at reset. OTA_AUTH is
+ * off the Ethernet list (owner item 48), so a connection opens none, and the
+ * next connection after the peer goes finds nothing held for it. */
+static void test_an_ota_auth_over_ethernet_holds_nothing_past_its_connection(void)
+{
+    uint8_t sig[TFW_OTA_AUTH_SIG_LEN];
+
+    memset(sig, 0xA5, sizeof sig);
+    connect_up();
+    stage();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, over_eth(0x71u, TFW_CMD_OTA_AUTH, sig, (uint8_t)sizeof sig, 0u));
+    reconnect();
+    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, over_eth(0x72u, TFW_CMD_OTA_ACTIVATE, &M0, 1u, 0u));
+    TEST_ASSERT_FALSE(marked());
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, serial(0x73u, TFW_CMD_OTA_ACTIVATE, &M0, 1u, 0u));
+    TEST_ASSERT_FALSE(marked());
+}
+
+/* The serial link's authorization is its own: a TCP connection closing between
+ * OTA_AUTH and OTA_ACTIVATE on serial dispatches nothing and drops nothing. */
+static void test_a_tcp_connection_closing_leaves_the_serial_hold(void)
+{
+    connect_up();
+    stage();
+    authorize(0x81u);
+    reconnect();
+    TEST_ASSERT_EQUAL(TFW_OK, serial(0x82u, TFW_CMD_OTA_ACTIVATE, &M0, 1u, 0u));
+    TEST_ASSERT_TRUE(marked());
 }
 
 static void test_a_bad_crc_frame_over_serial_drops_the_hold(void)
@@ -355,6 +399,8 @@ int main(void)
     RUN_TEST(test_ota_auth_then_activate_through_the_transport_marks_the_image);
     RUN_TEST(test_a_request_off_the_ethernet_list_drops_the_hold);
     RUN_TEST(test_ota_activate_off_the_ethernet_list_does_not_take_the_hold);
+    RUN_TEST(test_an_ota_auth_over_ethernet_holds_nothing_past_its_connection);
+    RUN_TEST(test_a_tcp_connection_closing_leaves_the_serial_hold);
     RUN_TEST(test_a_bad_crc_frame_over_serial_drops_the_hold);
     RUN_TEST(test_a_bad_crc_frame_over_ethernet_drops_the_hold);
     RUN_TEST(test_a_bad_crc_ota_auth_holds_nothing);

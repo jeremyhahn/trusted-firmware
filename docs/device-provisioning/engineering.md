@@ -39,6 +39,7 @@ tfw_status_t tfw_prov_cmd_lock(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_genkey(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_pubkey(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_prov_cmd_seed_uds(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_prov_cmd_write_pubkey(tfw_reader_t *r, tfw_writer_t *w);
 
 /* The backend the handlers call, one file per part. */
 tfw_status_t tfw_prov_info(uint8_t rev[4], uint8_t cfg[32], uint8_t lock[2]);
@@ -47,6 +48,8 @@ tfw_status_t tfw_prov_lock(uint8_t zone, uint16_t crc);
 tfw_status_t tfw_prov_genkey(uint8_t slot, uint8_t pub[64]);
 tfw_status_t tfw_prov_pubkey(uint8_t slot, uint8_t pub[64]);
 tfw_status_t tfw_prov_seed_uds(uint8_t slot);
+tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coord[32],
+                                   uint8_t back[64]);
 ```
 
 Go SDK (`sdk/go/provision.go`, package `tfw`):
@@ -58,6 +61,7 @@ func (d *Device) ProvLock(ctx context.Context, zone uint8, summaryCRC uint16) er
 func (d *Device) ProvGenKey(ctx context.Context, slot uint8) ([]byte, error)
 func (d *Device) ProvPubKey(ctx context.Context, slot uint8) ([]byte, error)
 func (d *Device) ProvSeedUDS(ctx context.Context, slot uint8) error
+func (d *Device) ProvWritePubKey(ctx context.Context, slot uint8, key []byte) error
 
 type ElementInfo struct {
 	Revision     [4]byte
@@ -72,6 +76,8 @@ const (
 	ZoneData   uint8 = 0x01
 	SlotDeviceID uint8 = 0
 	SlotUDS      uint8 = 1
+	SlotImageSigning  uint8 = 2
+	SlotSecureBootKey uint8 = 15
 )
 ```
 
@@ -306,10 +312,12 @@ step doing both keeps `tfwprov`'s pre-flash sequence a single operation.
 | Status | Meaning here | Raised by |
 |---|---|---|
 | `TFW_ERR_NACK` (10) | the element did not answer the wake | every `tfw_prov_cmd_*` on `tfw_atecc_wake()` failure — not reported as "no element," since a miswired or overclocked bus is indistinguishable from an absent part |
-| `TFW_ERR_RANGE` (11) | a block index, zone id, or slot id outside the permitted set | `tfw_prov_cmd_write_config` (block ≥ 4), `tfw_prov_cmd_lock` (unknown zone), `tfw_prov_cmd_genkey`/`_pubkey` (slot ≠ `SlotDeviceID`), `tfw_prov_cmd_seed_uds` (slot ≠ `SlotUDS`) |
-| `TFW_ERR_BAD_ARGC` (5) | wrong payload length, or a zero summary CRC | `tfw_prov_cmd_write_config` (no data), `tfw_prov_cmd_lock` (CRC == 0) |
-| `TFW_ERR_PROTECTED_REGION` (16) | write targets config block 0 or 1 | `tfw_prov_cmd_write_config` |
-| `TFW_ERR_UNKNOWN_CMD` (4) | production image — no provisioning handler compiled in | any `0x70`–`0x75` command against a device built with `TFW_FEATURE_PROVISION=0` |
+| `TFW_ERR_RANGE` (11) | a block index, zone id, or slot id outside the permitted set | `tfw_prov_cmd_write_config` (block ≥ 4), `tfw_prov_cmd_lock` (unknown zone), `tfw_prov_cmd_genkey`/`_pubkey` (slot ≠ `SlotDeviceID`), `tfw_prov_cmd_seed_uds` (slot ≠ `SlotUDS`), `tfw_prov_cmd_write_pubkey` (slot not 2 or 15, half > 1) |
+| `TFW_ERR_BAD_ARGC` (5) | wrong payload length, or a zero summary CRC | `tfw_prov_cmd_write_config` (no data), `tfw_prov_cmd_lock` (CRC == 0), `tfw_prov_cmd_write_pubkey` (not 34 bytes) |
+| `TFW_ERR_BAD_STATE` (19) | a data-zone write before the config zone is locked | `tfw_prov_cmd_write_pubkey` |
+| `TFW_ERR_PROTECTED_REGION` (16) | write targets config block 0 or 1, or a slot whose SlotLocked bit is clear | `tfw_prov_cmd_write_config`, `tfw_prov_cmd_write_pubkey` |
+| `TFW_ERR_UNSUPPORTED` (7) | a public-key slot write on the UDS backend, which has no element | `tfw_prov_cmd_write_pubkey` |
+| `TFW_ERR_UNKNOWN_CMD` (4) | production image — no provisioning handler compiled in | any `0x70`–`0x75` or `0x7B` command against a device built with `TFW_FEATURE_PROVISION=0` |
 | `TFW_ERR_NOT_PROVISIONED` (15) | attestation attempted on an element with no UDS | not raised by this package; raised by the attestation path when steps 4–5 of `--commit` never completed — see `docs/security/threat-model.md` |
 
 On the Go side, a short or malformed reply is `*ShortReplyError` (e.g.
@@ -383,6 +391,8 @@ proposed answer are in [the slot-map ADR](adr-trustflex-608c-slot-map.md).
 |---|---|---|
 | Firmware unit | `test/unit/test_provision.c`, linked against `test/model/atecc608a.c` | every handler against a software model of the element — block refusal, CRC-required lock, slot range checks, out-of-order lock, seeding never exposing key material |
 | Go unit | `sdk/go/provision_test.go` | `ProvInfo` payload decoding (both lock-byte polarities, truncated/missing-lock-byte replies, a production image's `ErrUnknownCommand`), `ProvLock`'s zero-CRC refusal, `ProvWriteConfig`'s size check |
+| Go unit | `sdk/go/cmd/tfwprov/writepubkey_test.go` | `--write-pubkey`'s key file: raw X‖Y and PEM `PUBLIC KEY` taken, and each other content refused by name (short, off-curve, private key, other PEM type, two keys, bad DER, Ed25519, P-384); every other mode's flag refused before the port opens; X then Y sent, a read-back that differs and an element refusal reported |
+| Simulator / tfwsim | `sdk/go/cmd/tfwprov/e2e_writepubkey_test.go` | `--write-pubkey`'s path against `tfwsim-prov`: `BAD_STATE` with the config open; after the config lock a PEM then a raw key read back as written into slot 2; a slot-locked slot 15 `PROTECTED_REGION`; the DeviceID slot `RANGE` |
 | Go unit | `sdk/go/platform_test.go` | `BuildPlatformBlock`'s layout, CRC coverage and tamper detection |
 | Firmware unit (cross-language) | `test/unit/boot/test_boot_platform.c`'s `test_a_baked_eeprom_image_is_decoded_correctly` | a LITERAL byte-for-byte capture of what `tfwprov --bake-eeprom` actually wrote, decoded by `tfw_boot_platform_parse` — the two implementations of one layout checked against each other's output, not just against themselves |
 | Firmware unit (bake image) | `test/unit/test_platform_bake.c`, linked against the mock HAL | the bench bake image's decision on a LITERAL `tfwprov --bake-eeprom` block — blank and torn regions baked with exactly 192 bytes and nothing past them, an equal block `already` with nothing written, a different valid block `refused` and left alone, a stuck cell `readback-failed`, an invalid carried block never written, the exact result line |

@@ -26,16 +26,18 @@ the file that meets each. The AVR rows first; the composed platforms after.
 | The serial stage path end to end under simavr | met | `test/integration/simavr/boot_harness.c`, `sdk/go/cmd/tfwctl/ota_stage_simavr_test.go` |
 | The network leg (W5100) end to end under simavr | met | `src/proto/link_eth.c`, `test/integration/simavr/boot_harness.c` |
 | The 2560's A/B slots by swap-move | met | `boot/boot_swap.c` |
+| The A/B on the generic Cortex-M port (`mps2-an505`, `mps2-an500`), the same swap-move | met | `boot/boot_swap.c`, `boot/hal/cortex-m/boot_factory.c`; under QEMU in `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go` (CI) |
+| Its slot geometry as boot-HAL data (ADR, "Cortex-M `tfw-boot` ports") | met | `boot/hal/cortex-m/boot_slots.h` derives the secondary and the write end from the primary, the application's link base (`APP_BASE` in `profile.mk`, `TFW_BOOT_APP_BASE`); `boot/hal/avr/boot_slots.h` names the 2560's values unchanged. `boot/boot_swap.c` and `boot_factory.c` read the slots only there; pinned by `test/unit/boot/test_boot_slots_mps2.c`, every `tfw-boot.hex` byte-identical |
 | The store MARK cleared at fallback (item 56) | met | `boot/boot_stage.c` |
 | The ATmega328P and ATmega32U4 restore from the store, on a board or under simavr | unmet | written, not run: see "What the simavr harness lacks for the 328P and 32U4" below |
-| The SUIT-subset manifest checked before activation (ruling 3, amended by ruling 121): the ATmega2560 application, element tier | met | `src/core/ota_manifest.c` at `OTA_ACTIVATE`, before the authorization is written, through `tfw_suit_gate` (`src/core/suit.c`); `test/unit/test_ota_manifest.c`. About 2 886 B for the reader (rec., ADR 6.2) and ≤ 200 B for the check (est.): app about 24 645 of 65 536 |
+| The SUIT-subset manifest checked before activation (ruling 3, amended by ruling 121): the ATmega2560 application, element tier | met | `src/core/ota_manifest.c` at `OTA_ACTIVATE`, before the authorization is written, through `tfw_suit_gate` (`src/core/suit.c`); `test/unit/test_ota_manifest.c`. The reader and the check cost 3 772 B (rec., against the ADR's 3 086 B estimate): app 28 802 of 65 536 with the check, 25 030 without ([README.md](README.md), "Measurements") |
 | The build writes the envelope where `OTA_ACTIVATE` reads it: after the image, a u16 length then the envelope (ruling 109, 2026-10-22) | met | `tools/image-seal/` (`make image-seal` takes `make suit-envelope`'s `.suit` and refuses to run without it on a board that checks); `test/unit/test_image_seal.c` |
-| The same, ATmega328P | unmet | the reader and the check, about 3 086 B est., put the app at about 22 353 against the 16 384 policy line, about 5 969 over (rec. 22 153 with the reader, ADR 6.3); the 328P stays trailer-only (ruling 3) |
-| The same, ATmega32U4 | unmet | as the 328P: about 3 086 B est. against a 14 336 budget the stager alone has not been measured under (no Ethernet controller wired) |
-| The same, soft tier (every board) | unmet | no stored key verifies the manifest's ES256 on the soft tier; it keeps the full trailer gate in tfw-boot (ruling 121). The reader and the check would add about 3 086 B est. besides a key home |
-| `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP | unmet | serial only; not on the Ethernet allow-list. Open question below |
-| tfw-boot checks the `OTA_CONFIRM` authorization at reset | unmet | waits on an EEPROM home (#125) |
-| Every board reflashed with an image that carries its board id | unmet | bench work |
+| The same, ATmega328P | unmet | the reader and the check cost 3 772 B on the ATmega2560 (rec., README.md "Measurements"; the ADR estimated 3 086 B); the reader alone puts the app at 22 153 against the 16 384 policy line (rec., ADR 6.3); the 328P stays trailer-only (ruling 3) |
+| The same, ATmega32U4 | unmet | as the 328P: 3 772 B as measured on the ATmega2560 against a 14 336 budget the stager alone has not been measured under (no Ethernet controller wired) |
+| The same, soft tier (every board) | unmet | no stored key verifies the manifest's ES256 on the soft tier; it keeps the full trailer gate in tfw-boot (ruling 121). The reader and the check would add about 3 772 B (rec. on the ATmega2560 element tier, README.md "Measurements") besides a key home |
+| `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP | unmet | serial only; not on the Ethernet allow-list until a ruling admits them (owner item 48). The session scope is decided: a TCP session's authorization ends with its connection (ADR open question 8, settled under ruling 109, 2026-10-26), pinned by `test/unit/test_ota_hold_link.c` and `TestE2EOTAAuthSessionEndsWithItsConnection`. Open question below |
+| tfw-boot checks the `OTA_CONFIRM` authorization at reset | met on the 2560 | `boot/boot_cose.c`, `boot/boot_request.c`: the 75-byte confirm request at EEPROM `0x0EA`–`0x134` (#231) |
+| Every board reflashed with an image that carries its board id | unmet | unmet until all three are done. The ATmega2560: done, reflashed with a board-id trailer image ([`docs/development/bench/mega2560.md`](../development/bench/mega2560.md); the record is on a sibling branch in the same train). The ESP32-P4: flashed, trailer `TFIM` v1 with board id `0x80` verified by layer 0, no eFuse burned; the wire check (`caps`) waits on the board's bench address (the record is on a sibling branch in the same train). The Nano: not reflashed; no factory record and no answering serial bootloader ([`docs/development/bench/nano.md`](../development/bench/nano.md)), and the ISP read waits on the owner's cabling question ([`docs/development/isp-route.md`](../development/isp-route.md)) |
 | ESP32: session, activate authorization at the trial boot, rollback at 60 s | met | `src/hal/esp32/hal_ota.c`, `boot/hal/esp32/boot_l0.c` |
 
 ### Open question: `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP
@@ -54,9 +56,12 @@ Nothing is built for this until a ruling admits it.
   - `tfw_link_admits` gains three cases: `OTA_AUTH`, `OTA_ACTIVATE` and
     `OTA_CONFIRM`. Either both `OTA_AUTH` ids are admitted, or the authorization
     travels inside the activate and confirm frames, which is a wire change.
-  - A TCP session's authorization would have to end when its connection closes
-    (the ADR's open question 8, still `PROPOSED`). Otherwise a token taken on one
-    connection could be spent on another.
+  - A TCP session's authorization ends when its connection closes (the ADR's
+    open question 8, settled under ruling 109 on 2026-10-26). Otherwise a token
+    taken on one connection could be spent on another. No auth state opens on
+    a TCP connection today, so a close has nothing to clear;
+    `test/unit/test_ota_hold_link.c` and
+    `TestE2EOTAAuthSessionEndsWithItsConnection` pin that.
   - `TestE2EOTAControlIsSerialOnly` flips, and the harness's network leg could
     activate over TCP instead of the UART. New cases are needed: an activate
     over TCP refused without a session, and a session lost at connection
@@ -65,8 +70,8 @@ Nothing is built for this until a ruling admits it.
     it reads the same request record whichever link wrote it.
   - The ADR's requirement that every board update over the network (it names
     the 328P) is then met over Ethernet with no serial step.
-- **Recommendation.** Admit all three, and gate it on closing open question 8
-  with a session bound to its connection. Until then, a fleet update over
+- **Recommendation.** Admit all three, with a session bound to its connection
+  (open question 8, now settled). Until then, a fleet update over
   Ethernet still needs a serial step on every device, and the network leg
   exists only to stage.
 

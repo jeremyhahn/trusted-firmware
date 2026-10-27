@@ -111,3 +111,13 @@ tfw_status_t tfw_prov_seed_uds(uint8_t slot)
     (void)slot;
     return TFW_ERR_UNSUPPORTED;
 }
+
+tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coord[32],
+                                   uint8_t back[64])
+{
+    (void)slot;
+    (void)half;
+    (void)coord;
+    (void)back;
+    return TFW_ERR_UNSUPPORTED;
+}

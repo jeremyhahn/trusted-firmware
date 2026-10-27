@@ -98,6 +98,13 @@ static uint8_t        last_rd_len;
  * that decides whether a real part survives the procedure. */
 static uint8_t  config[128];
 static uint8_t  slots[16][32];
+/* The clear-written slots, PROV_WRITE_PUBKEY's: the packet's bytes land here,
+ * not TempKey, in a 72-byte store (pad4|X|pad4|Y fills it). The model gives
+ * every such slot 72 bytes; the part's per-slot sizes are not modelled. */
+static uint8_t  clear_slots[16][72];
+/* Slots a clear Read answers: 2 (tfw-boot's image key), 8 and 10-15, which the
+ * TFLXTLS ships clear-readable. Every other slot refuses, as before. */
+#define CLEAR_READ_SLOTS 0xFD04u
 static uint8_t  config_locked;
 static uint8_t  data_locked;
 
@@ -295,6 +302,7 @@ void tfw_model_reset(void)
     memset(rsp, 0, sizeof rsp);
     memset(config, 0, sizeof config);
     memset(slots, 0, sizeof slots);
+    memset(clear_slots, 0, sizeof clear_slots);
     config_locked = 0u; data_locked = 0u;
     sha_active = 0u; verify_should_pass = 0u; verify_seen = 0u; absent = 0u;
     i2c_init_fails = 0u;
@@ -314,6 +322,10 @@ void tfw_model_reset(void)
      * is what the reply has to reach. */
     config[86] = 0x55u;
     config[87] = 0x55u;
+    /* SlotLocked, bytes 88-89: a set bit is a slot not yet slot-locked, and a
+     * blank part has every bit set. */
+    config[88] = 0xFFu;
+    config[89] = 0xFFu;
 }
 
 void tfw_model_provision(void)
@@ -332,6 +344,7 @@ void tfw_model_provision(void)
 uint8_t tfw_model_config_locked(void) { return config_locked; }
 uint8_t tfw_model_data_locked(void)   { return data_locked; }
 const uint8_t *tfw_model_slot(uint8_t n) { return n < 16u ? slots[n] : 0; }
+const uint8_t *tfw_model_clear_slot(uint8_t n) { return n < 16u ? clear_slots[n] : 0; }
 void tfw_model_set_verify_result(uint8_t pass) { verify_should_pass = pass; }
 void tfw_model_set_stored_pubkey(uint8_t slot, const uint8_t pub[64])
 {
@@ -560,6 +573,20 @@ static void handle_command(const uint8_t *p, uint8_t n)
         /* param1 carries the zone and the 32-vs-4-byte bit; param2 is a word
          * address, and a 32-byte read is eight words. */
         uint16_t off = (uint16_t)(param2 * 4u);
+        if ((param1 & 0x03u) == TFW_ATECC_ZONE_DATA) {
+            /* Data-zone address: block in bits 8+, slot in 3-6, word in 0-2.
+             * A 4-byte read is a word; the slot's last block needs it. */
+            uint8_t  s   = (uint8_t)((param2 >> 3) & 0x0Fu);
+            uint8_t  len = (param1 & TFW_ATECC_ZONE_32) ? 32u : 4u;
+            uint16_t at  = (uint16_t)((param2 >> 8) * 32u + (param2 & 7u) * 4u);
+
+            if (((CLEAR_READ_SLOTS >> s) & 1u) != 0u) {
+                if (at + len > sizeof clear_slots[0]) { respond_status(0x03u); return; }
+                memcpy(body, &clear_slots[s][at], len);
+                respond(body, len);
+                return;
+            }
+        }
         if ((param1 & TFW_ATECC_ZONE_32) == 0u) { respond_status(0x03u); return; }
         if ((param1 & 0x03u) == TFW_ATECC_ZONE_CONFIG) {
             if (off + 32u > sizeof config) { respond_status(0x03u); return; }
@@ -576,6 +603,25 @@ static void handle_command(const uint8_t *p, uint8_t n)
 
     case TFW_ATECC_OP_WRITE: {
         uint16_t off = (uint16_t)(param2 * 4u);
+        if ((param1 & 0x03u) == TFW_ATECC_ZONE_DATA &&
+            ((param2 >> 3) & 0x0Fu) != TFW_ATECC_SLOT_UDS) {
+            /* A clear write: the packet's bytes land, a block or a word at a
+             * time. The part takes none before its config is locked, and none
+             * into a slot whose SlotLocked bit (config 88-89) is clear. */
+            uint8_t  s   = (uint8_t)((param2 >> 3) & 0x0Fu);
+            uint8_t  len = (param1 & TFW_ATECC_ZONE_32) ? 32u : 4u;
+            uint16_t at  = (uint16_t)((param2 >> 8) * 32u + (param2 & 7u) * 4u);
+            uint32_t writable = (uint32_t)config[88] | ((uint32_t)config[89] << 8);
+
+            if (!config_locked || ((writable >> s) & 1u) == 0u) { respond_status(0x0Fu); return; }
+            if (n < 6u + len + 2u || at + len > sizeof clear_slots[0]) {
+                respond_status(0x03u);
+                return;
+            }
+            memcpy(&clear_slots[s][at], &p[6], len);
+            respond_status(0x00u);
+            return;
+        }
         if ((param1 & TFW_ATECC_ZONE_32) == 0u) { respond_status(0x03u); return; }
         if ((param1 & 0x03u) == TFW_ATECC_ZONE_CONFIG) {
             if (config_locked)               { respond_status(0x0Fu); return; }

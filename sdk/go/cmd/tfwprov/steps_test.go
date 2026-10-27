@@ -23,6 +23,11 @@ type element struct {
 	pub          []byte
 	// lock is ProvInfo's data and config lock bytes; 0x55 is unlocked.
 	lock [2]byte
+	// slot is the X||Y PROV_WRITE_PUBKEY writes and answers; a set
+	// misread flips a bit of each answer, as a slot that did not take
+	// the write would read back.
+	slot    [64]byte
+	misread bool
 
 	mu   sync.Mutex
 	seen []tfw.Cmd
@@ -51,6 +56,13 @@ func (e *element) answer(f tfw.Frame) (tfw.Status, []byte) {
 		return tfw.StatusOK, e.pub
 	case tfw.CmdProvWriteConfig, tfw.CmdProvLock, tfw.CmdProvSeedUDS:
 		return tfw.StatusOK, nil
+	case tfw.CmdProvWritePubKey:
+		copy(e.slot[int(f.Payload[1])*32:], f.Payload[2:])
+		back := append([]byte(nil), e.slot[:]...)
+		if e.misread {
+			back[63] ^= 1
+		}
+		return tfw.StatusOK, back
 	}
 	return tfw.StatusErrUnknownCmd, nil
 }

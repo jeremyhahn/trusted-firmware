@@ -4,8 +4,10 @@
 package tfw
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 )
 
 // Provisioning commands.
@@ -28,6 +30,7 @@ const (
 	CmdProvGenKey      Cmd = 0x73
 	CmdProvPubKey      Cmd = 0x74
 	CmdProvSeedUDS     Cmd = 0x75
+	CmdProvWritePubKey Cmd = 0x7B // [slot:1][half:1][coordinate:32] -> X||Y read back
 )
 
 // Element zones, for Lock. Locking is irreversible on the part; see
@@ -44,6 +47,14 @@ const (
 const (
 	SlotDeviceID uint8 = 0
 	SlotUDS      uint8 = 1
+)
+
+// The slots ProvWritePubKey writes: the boot image-signing public key
+// (docs/device-provisioning/adr-trustflex-608c-slot-map.md) and the
+// TrustFLEX part's secure-boot public key (DS40002515B table 3-16).
+const (
+	SlotImageSigning  uint8 = 2
+	SlotSecureBootKey uint8 = 15
 )
 
 // ElementInfo is what a provisioning jig can learn about the part before it
@@ -181,4 +192,51 @@ func (d *Device) provKey(ctx context.Context, cmd Cmd, slot uint8) ([]byte, erro
 func (d *Device) ProvSeedUDS(ctx context.Context, slot uint8) error {
 	_, err := d.Do(ctx, CmdProvSeedUDS, []byte{slot})
 	return err
+}
+
+// ProvWritePubKey writes an uncompressed P-256 public key, X||Y, into a data
+// slot and checks it there.
+//
+// A request carries one coordinate, so the key goes as two: X, then Y. Each
+// reply is the slot as the element reads it back, and the second must be the
+// key written; anything else is a *ReadBackError, and the slot holds what Got
+// says. The firmware refuses a slot other than SlotImageSigning or
+// SlotSecureBootKey with StatusErrRange, a config zone not yet locked with
+// StatusErrBadState, and a slot already locked with StatusErrProtectedRegion.
+func (d *Device) ProvWritePubKey(ctx context.Context, slot uint8, key []byte) error {
+	const need = 64 // an uncompressed P-256 point, X||Y
+	if len(key) != need {
+		return &ArgRangeError{Cmd: CmdProvWritePubKey, Arg: "key", Value: int64(len(key)),
+			Min: need, Max: need, Unit: "bytes"}
+	}
+	var back []byte
+	for half := 0; half < 2; half++ {
+		p := make([]byte, 0, 2+need/2)
+		p = append(p, slot, byte(half))
+		p = append(p, key[half*need/2:(half+1)*need/2]...)
+		f, err := d.Do(ctx, CmdProvWritePubKey, p)
+		if err != nil {
+			return err
+		}
+		if len(f.Payload) < need {
+			return &ShortReplyError{Cmd: CmdProvWritePubKey, Got: len(f.Payload), Need: need}
+		}
+		back = f.Payload[:need]
+	}
+	if !bytes.Equal(back, key) {
+		return &ReadBackError{Slot: slot, Want: append([]byte(nil), key...), Got: append([]byte(nil), back...)}
+	}
+	return nil
+}
+
+// ReadBackError reports a slot that, read back after a write the element
+// accepted, does not hold what was written.
+type ReadBackError struct {
+	Slot      uint8
+	Want, Got []byte
+}
+
+// Error implements error. The text is for a log line: match with errors.As.
+func (e *ReadBackError) Error() string {
+	return fmt.Sprintf("tfw: slot %d reads back %x, wrote %x", e.Slot, e.Got, e.Want)
 }

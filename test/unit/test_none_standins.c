@@ -45,6 +45,7 @@ static void test_update_request_arm_leaves_unsupported(void)
 {
     tfw_update_request_arm();
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_update_request_supported());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_update_request_session());
 }
 
 int main(void)

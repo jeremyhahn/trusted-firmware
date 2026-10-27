@@ -195,6 +195,40 @@ static void test_hsm_channel_frames_match_the_vectors(void)
           tfw_frame_encode_response(wire, sizeof wire, 5u, TFW_CMD_HSM_LOAD, TFW_ERR_RANGE, 0, 0u), wire);
 }
 
+static void test_prov_write_pubkey_frames_match_the_vectors(void)
+{
+    static const uint8_t x_req[]     = TFWV_FRAME_PROV_WRITE_PUBKEY_X_REQ;
+    static const uint8_t y_req[]     = TFWV_FRAME_PROV_WRITE_PUBKEY_Y_REQ;
+    static const uint8_t resp[]      = TFWV_FRAME_PROV_WRITE_PUBKEY_RESP;
+    static const uint8_t range[]     = TFWV_FRAME_PROV_WRITE_PUBKEY_RANGE_RESP;
+    static const uint8_t protected[] = TFWV_FRAME_PROV_WRITE_PUBKEY_PROTECTED_RESP;
+    uint8_t              req[34];
+    uint8_t              key[64];
+    uint8_t              wire[TFW_MAX_FRAME];
+    uint8_t              i;
+
+    for (i = 0u; i < 32u; i++) {
+        key[i]       = (uint8_t)(0x10u + i);
+        key[32u + i] = (uint8_t)(0x80u + i);
+    }
+    req[0] = 15u;
+    req[1] = 0u;
+    memcpy(&req[2], key, 32u);
+    check(x_req, sizeof x_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 7u, TFW_CMD_PROV_WRITE_PUBKEY, req, 34u), wire);
+    req[1] = 1u;
+    memcpy(&req[2], &key[32], 32u);
+    check(y_req, sizeof y_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 8u, TFW_CMD_PROV_WRITE_PUBKEY, req, 34u), wire);
+    check(resp, sizeof resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 8u, TFW_CMD_PROV_WRITE_PUBKEY, TFW_OK, key, 64u), wire);
+    check(range, sizeof range - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 7u, TFW_CMD_PROV_WRITE_PUBKEY, TFW_ERR_RANGE, 0, 0u), wire);
+    check(protected, sizeof protected - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 7u, TFW_CMD_PROV_WRITE_PUBKEY,
+                                    TFW_ERR_PROTECTED_REGION, 0, 0u), wire);
+}
+
 static void test_event_uses_the_reserved_op_and_no_sequence(void)
 {
     uint8_t  wire[TFW_MAX_FRAME];
@@ -412,6 +446,7 @@ int main(void)
     RUN_TEST(test_eeprom_write_frames_match_the_vectors);
     RUN_TEST(test_peer_binding_refusals_match_the_vectors);
     RUN_TEST(test_hsm_channel_frames_match_the_vectors);
+    RUN_TEST(test_prov_write_pubkey_frames_match_the_vectors);
     RUN_TEST(test_event_uses_the_reserved_op_and_no_sequence);
     RUN_TEST(test_empty_payload_is_a_valid_frame);
     RUN_TEST(test_maximum_payload_is_a_valid_frame);

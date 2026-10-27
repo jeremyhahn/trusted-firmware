@@ -1096,7 +1096,7 @@ jobs:
           SDK_RACE_SCRIPT: |
             set -eu
             export GOWORK=off
-            make tfwsim tfwsim-atecc608a tfwsim-app-example tfwsim-auto tfwsim-prov
+            make tfwsim tfwsim-atecc608a tfwsim-app-example tfwsim-auto tfwsim-prov tfwsim-otaboot
             cd sdk/go
             go test -race -count=1 -timeout=900s -tags tfwsim -coverprofile=../../coverage.out ./...
             total=$(go tool cover -func=../../coverage.out | tail -n 1 | tr -s ' \t' ' ' | cut -d' ' -f3 | tr -d '%')

@@ -22,10 +22,11 @@
 
 #include "tfw/boot.h"
 #include "tfw/config.h"
+#include "boot_slots.h"
 #include "boot_soc.h"
 #include "cm_regs.h"
 
-_Static_assert(TFW_CM_LOAD_APP_AT + TFW_SWAP_SLOT_LEN <= TFW_SWAP_PRIMARY_BASE
+_Static_assert(TFW_CM_LOAD_APP_AT + TFW_BOOT_SLOT_LEN <= TFW_BOOT_SLOT_PRIMARY
                || TFW_CM_LOAD_APP_AT >= TFW_APP_WRITE_END,
                "the factory application must be clear of both slots");
 _Static_assert(TFW_CM_LOAD_PLATFORM_AT + TFW_CM_PLATFORM_SIZE <= TFW_CM_PLATFORM_BASE
@@ -46,7 +47,7 @@ static uint8_t blank(const uint8_t *p, uint32_t len)
 
 void tfw_cm_boot_factory(void)
 {
-    uint8_t       *slot = (uint8_t *)(uintptr_t)TFW_SWAP_PRIMARY_BASE;
+    uint8_t       *slot = (uint8_t *)(uintptr_t)TFW_BOOT_SLOT_PRIMARY;
     uint8_t       *plat = (uint8_t *)(uintptr_t)(TFW_CM_PLATFORM_BASE + TFW_BOOT_EE_BASE);
     const uint8_t *fapp = (const uint8_t *)(uintptr_t)TFW_CM_LOAD_APP_AT;
     const uint8_t *fplt = (const uint8_t *)(uintptr_t)(TFW_CM_LOAD_PLATFORM_AT + TFW_BOOT_EE_BASE);
@@ -54,7 +55,7 @@ void tfw_cm_boot_factory(void)
     /* The vector table's first word, the stack top, is never zero in an
      * image; the platform block is blank only when every byte is. */
     if (blank(slot, 4u) != 0u) {
-        memcpy(slot, fapp, TFW_SWAP_SLOT_LEN);
+        memcpy(slot, fapp, TFW_BOOT_SLOT_LEN);
     }
     if (blank(plat, TFW_BOOT_EE_LEN) != 0u) {
         memcpy(plat, fplt, TFW_BOOT_EE_LEN);

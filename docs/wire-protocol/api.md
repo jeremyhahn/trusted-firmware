@@ -176,6 +176,7 @@ runs; where request shape has two forms (mint vs. page) both are listed.
 | 0x78 | `HSM_VERDICT` | `TFW_FEATURE_HSM` | `[verdict:1]`, 0 clear or 1 compromised | the state; any other value is `TFW_ERR_RANGE`, never read as clear |
 | 0x79 | `HSM_SELECT` | `TFW_FEATURE_HSM` | `[index:1]` | the state; an index past the held set, or any index with no set held, is `TFW_ERR_RANGE` |
 | 0x7A | `HSM_LOAD` | `TFW_FEATURE_HSM` | `[total:2][offset:2]bytes[0..60]`, chunks in order into the 1024-byte envelope buffer | the state; offset 0 begins an envelope, and a total of 0 or past the buffer is `TFW_ERR_RANGE` and counted in `refused`; a chunk out of sequence drops the envelope (`TFW_ERR_RANGE`). The last chunk verifies the SUIT envelope under the image's tenant key, never one from the channel: a bad signature is `TFW_ERR_CRYPTO`, counted, and the held set is kept |
+| 0x7B | `PROV_WRITE_PUBKEY` | `TFW_FEATURE_PROVISION` (jig only) | `[slot:1][half:1][coordinate:32]`, 34 bytes, sent once for X (half 0) and once for Y (half 1); slot 2 or 15 | `bytes[64]`, the slot's X‖Y as read back. Any other slot or half is `TFW_ERR_RANGE`; a config zone not yet locked is `TFW_ERR_BAD_STATE`; a slot-locked slot is `TFW_ERR_PROTECTED_REGION`; the UDS backend answers `TFW_ERR_UNSUPPORTED` |
 
 Every peripheral the HAL exports an init for is initialised at boot with a
 sane default — `TFW_I2C_DEFAULT_HZ` (100 kHz), `TFW_SPI_DEFAULT_MODE`/`CLKDIV`/

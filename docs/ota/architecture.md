@@ -582,6 +582,9 @@ once in the secondary and once in the primary.
   `board_profile.h`. Options:
   - rule D8 as proposed;
   - move it per board, which is a one-line change each.
+
+  Decided under ruling 109 (#52 comment 152690, 2026-10-26): D8 on every AVR
+  board, as proposed.
 - **A stale mark after a UART update.** The boot never writes the store, so a
   mark stays until the application's next `OTA_BEGIN` erases it. Suppose an
   image is installed over the boot's own session (UART) and the old staged
@@ -600,6 +603,13 @@ once in the secondary and once in the primary.
     the `BOOT_OTA=1` row has a session and no store, so nothing reads `MARK`,
     and the store row has no session in the boot. It comes back with any row
     that has both, and OTA plus the store does not fit (below).
+
+  Decided under ruling 109 (#52 comment 152690, 2026-10-26): no current row has
+  both a boot session and a store, and each image takes one update path
+  (question 6), so nothing changes now. A future row with both takes the third
+  option: the boot takes a staged image only when the platform block says the
+  application staged one. That needs no store write in the boot and fails
+  closed.
 - **The store on the 4 KB parts.** It does not fit next to the element tier.
   Options:
   - The application copies before the reset. Code outside the boot section
@@ -630,10 +640,28 @@ once in the secondary and once in the primary.
   it, at c319f07: element tier 9 616, 1 424 bytes over; soft tier 98 204,
   90 012 bytes over. Neither fits within 8 192 either way.
 
-  Options:
-  - take 724 bytes off the element-tier image and add the row;
-  - choose one update path per image, as the application does with its
-    transport.
+  Each image takes one update path (question 6, decided 2026-10-26), as the
+  application takes one transport, and the build says so by file selection:
+  - `make bootloader` and `make boot-flash` refuse `BOOT_OTA=1 BOOT_STORE=1`
+    at parse time (`mk/boot.mk`) with a message that names the two choices:
+    `BOOT_OTA=1 BOOT_STORE=0`, OTA in tfw-boot, for an application built
+    `OTA_STAGE=0`; or `BOOT_OTA=0 BOOT_STORE=1`, the external store, for an
+    application built `OTA_STAGE=1`. `make bootloader-candidate` still
+    measures the pair.
+  - An application built `OTA_STAGE=1`, the Ethernet image's default, links
+    `src/core/update_request_store.c` in place of `update_request.c`
+    (`mk/firmware.mk`): it stages with `OTA_BEGIN`/`OTA_DATA`/`OTA_END` and
+    answers `RESET(1)` with the existing `TFW_ERR_UNSUPPORTED`.
+  - An application built `OTA_STAGE=0` links `update_request.c` and
+    `ota_stage_none.c` and none of the store's files, so `RESET(1)` reaches
+    the session and the store's commands answer `TFW_ERR_UNKNOWN_CMD`.
+
+  `scripts/test_boot_onepath.py` pins the refusal and both object lists;
+  `tfwsim` (the stage image) and `tfwsim-otaboot` (the image without the
+  stager) answer each other's commands through `tfwctl`
+  (`sdk/go/cmd/tfwctl/e2e_onepath_test.go`). The defaults do not pair: the
+  2560's default tfw-boot is the `BOOT_OTA=1` row and its default application
+  is the stage image, so build the two for the same path.
 
   **The store-copy boot and the trial, 2026-10-16.** What a `BOOT_STORE=1`
   boot does with a staged image, on main at b1c71f4. The tests are in

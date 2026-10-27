@@ -65,6 +65,12 @@ a separate mode, taking no port and no --config:
                 [--dhcp in place of --ip/--mask/--gateway: leased by a DHCP=1 build]
   both together write one image of both blocks, EEPROM [0x000, 0x0C0) and [0x140, 0x160)
 
+a separate mode, taking a port and no --config:
+
+  --write-pubkey <file> --slot <n> <port>   write a P-256 public key into slot n
+                (2: image signing, 15: secure boot) and check its read-back;
+                the file is the raw 64-byte X||Y or a PEM PUBLIC KEY
+
 the provisioning record, a JSON claims set (RFC 9711 ueid, RFC 7800 cnf.jwk):
 
   --bake-eeprom ... --record <file.json>   start it with the device's UEID
@@ -96,6 +102,8 @@ func main() {
 		outPath    = flag.String("out", "", "--bake-eeprom/--bake-netblock: the .eep file to write")
 		bakeNet    = flag.Bool("bake-netblock", false, "write a network-block .eep image at 0x140; touches no device (with --bake-eeprom: one image of both)")
 		recordPath = flag.String("record", "", "--bake-eeprom: start a provisioning record (JSON: EAT ueid); --commit/--verify: join the DeviceID point to it (cnf.jwk)")
+		writeKey   = flag.String("write-pubkey", "", "write a P-256 public key into an element slot: a file of the raw 64-byte X||Y or a PEM PUBLIC KEY; with --slot")
+		slot       = flag.Int("slot", -1, "--write-pubkey: the slot to write (2: image signing, 15: secure boot)")
 		nf         netblockFlags
 	)
 	flag.StringVar(&nf.mac, "mac", "", "--bake-netblock: the device's MAC, aa:bb:cc:dd:ee:ff (unicast)")
@@ -112,6 +120,17 @@ func main() {
 		// someone types from muscle memory, which is exactly the reflex this
 		// tool exists to interrupt.
 		fail(errors.New("--force is not accepted; --commit requires --yes-i-mean-it"))
+	}
+
+	// --write-pubkey is its own mode: a key file, a slot and a port, and no
+	// element template, since it writes one slot and checks only that slot.
+	if *writeKey != "" || *slot != -1 {
+		var set []string
+		flag.Visit(func(f *flag.Flag) { set = append(set, f.Name) })
+		if err := runWritePubKey(set, flag.Args(), *writeKey, *slot, *baud, *timeout); err != nil {
+			fail(err)
+		}
+		return
 	}
 
 	// --bake-eeprom is its own mode: it opens no serial port and needs no

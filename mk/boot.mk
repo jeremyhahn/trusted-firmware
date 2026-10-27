@@ -391,7 +391,8 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 #
 # The last field is BOOT_STORE. The 2560 with both OTA and the store does not
 # fit (8 916 / 8 192 on the element tier with ARCH_BOOT_OPT_CFLAGS; 9 616 at
-# c319f07 without), so it is not a row.
+# c319f07 without), so it is not a row, and each image takes one update path
+# (#52): the gate below refuses the pair by name.
 #
 # The soft tier (#130) has no row without a signature check: every image is
 # verified on every row (CA m453, owner item 79). An unverified OTA image is
@@ -1087,6 +1088,20 @@ $(BOOT_TEST_DIR)/test_boot_geometry_32u4: test/unit/boot/test_boot_geometry.c $(
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_32U4_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The MPS2 A/B slot geometry, boot/hal/cortex-m/boot_slots.h, under each MPS2
+# profile with TFW_CM_AB as its A/B rows build. The Cortex-M HAL directory comes
+# first, so its boot_slots.h is the one found and not test/mock's. It has no
+# host build: the wildcard's test_boot_slots_mps2 would take the 2560's profile.
+BOOT_TEST_MPS2_BINS := $(BOOT_TEST_DIR)/test_boot_slots_mps2-an505 $(BOOT_TEST_DIR)/test_boot_slots_mps2-an500
+BOOT_TEST_BINS := $(filter-out $(BOOT_TEST_DIR)/test_boot_slots_mps2,$(BOOT_TEST_BINS)) $(BOOT_TEST_MPS2_BINS)
+BOOT_TEST_MPS2_CFLAGS = -Iboot/hal/cortex-m $(subst -Iboards/$(HOST_BOARD),-Iboards/$(1),\
+                          $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS))) -DTFW_CM_AB=1
+
+# A static pattern, so the binaries' .run targets are not taken for a board.
+$(BOOT_TEST_MPS2_BINS): $(BOOT_TEST_DIR)/test_boot_slots_mps2-%: test/unit/boot/test_boot_slots_mps2.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(call BOOT_TEST_MPS2_CFLAGS,mps2-$*) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The same take over a store rewritten at random (#75): test_boot_stage's link.
 $(BOOT_TEST_DIR)/test_boot_stage_mutate: test/unit/boot/test_boot_stage_mutate.c boot/boot_stage.c boot/boot_cose.c \
         test/model/spi_nor_model.c test/mock/boot_verify_mock.c $(BOOT_LOGIC_SRCS) \
@@ -1107,7 +1122,8 @@ $(BOOT_TEST_DIR)/test_boot_cose_mutate: test/unit/boot/test_boot_cose_mutate.c b
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The swap-move is the 2560's alone: its geometry is in that profile only.
+# The swap-move under the 2560's geometry (boot/hal/avr/boot_slots.h; the MPS2
+# boards' is pinned by test_boot_slots_mps2 and runs under QEMU in CI).
 # With the serial session, so a session's image is seen landing in the
 # secondary and swapped in; tfw_boot_evaluate and the floor are the test's.
 # And with the store's copy over the software NOR part, so the store row's
@@ -1367,6 +1383,13 @@ BOOT_FITS := $(filter $(BOARD):%,$(BOOT_SUPPORTED))
 BOOT_COMMA := ,
 BOOT_GATED_GOAL := $(firstword $(filter bootloader boot-flash boot-bench boot-flash-uds,$(MAKECMDGOALS)))
 ifneq ($(BOOT_GATED_GOAL),)
+# One update path per image (#52, question 6, decided 2026-10-26): tfw-boot
+# opens a session over the UART or installs what the application staged in the
+# external store, never both. Named before the row check, so the refusal says
+# which two choices there are rather than only that the row is not one.
+ifeq ($(BOOT_OTA)$(BOOT_STORE),11)
+$(error $(BOOT_GATED_GOAL): BOOT_OTA=1 BOOT_STORE=1 is two update paths, and an image takes one. Choose BOOT_OTA=1 BOOT_STORE=0, OTA in tfw-boot, for an application built OTA_STAGE=0; or BOOT_OTA=0 BOOT_STORE=1, the external store, for an application built OTA_STAGE=1. See docs/ota/architecture.md$(BOOT_COMMA) "The 2560 with OTA and the store")
+endif
 ifeq ($(filter $(BOOT_ROW),$(BOOT_SUPPORTED)),)
 $(error $(BOOT_GATED_GOAL): $(BOOT_ROW) (BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE) is not a supported configuration$(if $(BOOT_AB_OPTIONAL), (a trailing :ab is BOOT_AB=1)). $(if $(BOOT_FITS),For $(BOARD) the supported rows$(BOOT_COMMA) which fit$(BOOT_COMMA) are: $(BOOT_FITS),No tfw-boot configuration fits $(BOARD)). See BOOT_SUPPORTED in mk/boot.mk and docs/secure-boot/cli.md)
 endif

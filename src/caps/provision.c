@@ -94,3 +94,24 @@ tfw_status_t tfw_prov_cmd_seed_uds(tfw_reader_t *r, tfw_writer_t *w)
     (void)w;
     return tfw_prov_seed_uds(tfw_read_u8(r));
 }
+
+tfw_status_t tfw_prov_cmd_write_pubkey(tfw_reader_t *r, tfw_writer_t *w)
+{
+    uint8_t        slot  = tfw_read_u8(r);
+    uint8_t        half  = tfw_read_u8(r);
+    const uint8_t *coord = tfw_read_blob(r, 32u);
+    uint8_t        back[64];
+    tfw_status_t   st;
+
+    if (!coord) {
+        return TFW_ERR_BAD_ARGC;
+    }
+    /* The reply is what the slot holds after the write, not an echo of the
+     * request: the host compares the two, so a write the element dropped or
+     * mangled shows there and not later as a boot that will not verify. */
+    st = tfw_prov_write_pubkey(slot, half, coord, back);
+    if (st == TFW_OK) {
+        tfw_write_blob(w, back, 64u);
+    }
+    return st;
+}

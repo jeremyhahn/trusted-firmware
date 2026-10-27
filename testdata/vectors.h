@@ -329,6 +329,28 @@
 /* Its refusal of an envelope larger than the buffer: TFW_ERR_RANGE (11). */
 #define TFWV_FRAME_HSM_LOAD_RANGE_RESP "\xa5\x03\x05\xfa\x0b\x8d\xb9"
 
+/* PROV_WRITE_PUBKEY (#52), produced by an independent CRC-16/CCITT-FALSE that
+ * first reproduced TFWV_FRAME_HSM_HEARTBEAT_REQ and _HSM_LOAD_RANGE_RESP, then
+ * frozen. Pins 0x7B, the [slot][half][coordinate:32] request and the 64-byte
+ * X||Y read-back. The key is X = 10 11 .. 2F, Y = 80 81 .. 9F, into slot 15. */
+
+/* TFW_CMD_PROV_WRITE_PUBKEY (0x7B), seq 0x07: slot 15, half 0, X. */
+#define TFWV_FRAME_PROV_WRITE_PUBKEY_X_REQ "\xa5\x24\x07\x7b\x0f\x00\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f\x51\x1d"
+
+/* Seq 0x08: slot 15, half 1, Y. */
+#define TFWV_FRAME_PROV_WRITE_PUBKEY_Y_REQ "\xa5\x24\x08\x7b\x0f\x01\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\x90\xfa"
+
+/* Its response, status OK: the slot read back after both halves, X||Y. */
+#define TFWV_FRAME_PROV_WRITE_PUBKEY_RESP "\xa5\x43\x08\xfb\x00\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\x95\xdc"
+
+/* The X request's refusal of a slot or half it does not write: TFW_ERR_RANGE
+ * (11), no payload. */
+#define TFWV_FRAME_PROV_WRITE_PUBKEY_RANGE_RESP "\xa5\x03\x07\xfb\x0b\xdc\xe4"
+
+/* Its refusal of a slot whose SlotLocked bit is clear: TFW_ERR_PROTECTED_REGION
+ * (16), no payload. */
+#define TFWV_FRAME_PROV_WRITE_PUBKEY_PROTECTED_RESP "\xa5\x03\x07\xfb\x10\x86\x47"
+
 /* --------------------------------------------- application evidence (#51) */
 /* The claims set ATTEST_CERT and ATTEST_CSR carry, with and without an
  * application's evidence: the inputs of testdata/uccs_vectors.h, and as claim

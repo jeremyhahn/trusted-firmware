@@ -210,6 +210,12 @@
 #define TFW_CMD_HSM_SELECT        0x79u  /* [index:1], a policy of the set */
 #define TFW_CMD_HSM_LOAD          0x7Au  /* [total:2][offset:2][bytes] of P/F */
 
+/* Provisioning again, after the HSM ids: [slot:1][half:1][coordinate:32], half
+ * 0 for X and 1 for Y, since X||Y and the slot do not fit one payload. Each
+ * success is answered with the slot's X||Y as read back, 64 bytes. Present
+ * where TFW_FEATURE_PROVISION is. */
+#define TFW_CMD_PROV_WRITE_PUBKEY 0x7Bu  /* a P-256 public key into a data slot */
+
 /* State flags in the reply. */
 #define TFW_HSM_STATE_SET         0x01u  /* a verified policy set is held */
 #define TFW_HSM_STATE_LOCKED      0x02u  /* the device keys are locked */

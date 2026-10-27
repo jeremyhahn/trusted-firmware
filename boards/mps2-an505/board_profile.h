@@ -129,11 +129,11 @@
  *   0x383FF000  platform block, 4 KiB          swap record, confirm request
  */
 #if defined(TFW_CM_AB)
-#define TFW_APP_REGION_BASE       TFW_SWAP_PRIMARY_BASE
-#define TFW_SWAP_PRIMARY_BASE     0x38040000uL
-#define TFW_SWAP_SECONDARY_BASE   0x38060200uL
-#define TFW_SWAP_UNIT             512u   /* 256 units to a 128 KiB slot */
-#define TFW_SWAP_SLOT_LEN         TFW_APP_REGION_SIZE
+/* The primary slot, profile.mk's APP_BASE: the application links there. The
+ * secondary, the move unit and the write end are tfw-boot's, derived from it
+ * (boot/hal/cortex-m/boot_slots.h); the two below name them, so only a unit
+ * that includes that header expands them, and every tfw-boot unit that does. */
+#define TFW_APP_REGION_BASE       0x38040000uL
 /* The 2560's offsets in the platform window (boards/atmega2560/
  * board_profile.h): the swap record, then OTA_CONFIRM's request, past the
  * platform block and refused to the application's EEPROM_WRITE as it is. */
@@ -141,8 +141,8 @@
 #define TFW_BOOT_CONFIRM_ADDR     0x0EAu
 #define TFW_BOOT_EE_EXTRA_BASE    TFW_SWAP_RECORD_ADDR
 #define TFW_BOOT_EE_EXTRA_LEN     21u
-#define TFW_APP_WRITE_END         (TFW_SWAP_SECONDARY_BASE + TFW_SWAP_SLOT_LEN)
-#define TFW_OTA_STAGE_DEST        TFW_SWAP_SECONDARY_BASE
+#define TFW_APP_WRITE_END         TFW_BOOT_SLOT_END
+#define TFW_OTA_STAGE_DEST        TFW_BOOT_SLOT_SECONDARY
 #define TFW_CM_LOAD_APP_AT        0x38000000uL
 #define TFW_CM_LOAD_PLATFORM_AT   0x383FE000uL
 /* The one trial's deadline (decision 9, src/core/ota_trial.c), 60 s as on

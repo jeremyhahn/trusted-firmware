@@ -212,7 +212,7 @@ version, and it is the open question 5 proposal below, now settled.
 |---|---|---|---|
 | ATmega2560, element tier | yes | yes | the manifest in the application at `OTA_ACTIVATE` (ruling 121), the trailer in `tfw-boot` every boot |
 | ATmega2560, soft tier | no: no stored key verifies its ES256 (ruling 121) | yes | the full trailer gate in `tfw-boot`, every boot |
-| ATmega328P, ATmega32U4 | no: trailer-only (ruling 3, CA m499); the reader and check, about 3 086 B (est.), do not fit the application | yes | trailer in `tfw-boot`, every boot |
+| ATmega328P, ATmega32U4 | no: trailer-only (ruling 3, CA m499); the reader and check, 3 772 B as measured on the ATmega2560 ([README.md](README.md), "Measurements"; estimated here at 3 086 B), do not fit the application | yes | trailer in `tfw-boot`, every boot |
 | ATtiny85 | no | no | no secure boot (decision 6) |
 | ESP32-P4 | yes | yes, beside the vendor's signature | decision 11 |
 | Cortex-M33 under TF-M | proposed: in the non-secure application before PSA FWU install | MCUboot's TLVs | open question 9 |
@@ -573,9 +573,9 @@ where only one fits, its image links one link file, chosen by its profile, as
   add `0x68`–`0x6B` and no more: the owner's ruling on issue #55 (item 48,
   2026-10-17) narrowed the proposed `0x61`, `0x62` and `0x68`–`0x6E` to the four
   staging commands, so the session, `OTA_INFO`, `OTA_ACTIVATE` and
-  `OTA_CONFIRM` stay on serial. **PROPOSED:** a session opened on a
-  connection ends when that connection closes, as well as at reset, so a
-  reconnecting peer starts unauthenticated (open question 8).
+  `OTA_CONFIRM` stay on serial. **Settled** (ruling 109, 2026-10-26, #257): a
+  session opened on a connection ends when that connection closes, as well as
+  at reset, so a reconnecting peer starts unauthenticated (open question 8).
 - **`OTA_END`, then `OTA_ACTIVATE`.** `OTA_END` verifies the stream and leaves
   the image `VERIFIED` in RAM; it writes no MARK, so a reset after it takes
   nothing. `OTA_ACTIVATE` alone makes an image `PENDING`: it requires
@@ -1005,9 +1005,12 @@ reference value. A gap there is filed against go-xkms.
    the Ethernet ADR's option (a). The manifest on the 328P follows from it.
 2. **The external store.** A SPI NOR of at least 512 Kbit on its own chip
    select, or the shield's microSD socket on D4, whose raw-block code is
-   unmeasured. Which part, and which pin per board?
-3. **The ATtiny85.** With no boot section it can have neither secure boot nor a
-   verified update. Is it the one board without OTA?
+   unmeasured. Which part, and which pin per board? The select is decided
+   under ruling 109 (#52 comment 152690, 2026-10-26): D8 on every AVR board
+   ([architecture.md](architecture.md), "The selects").
+3. **The ATtiny85.** Decided under ruling 109 (#52 comment 152690,
+   2026-10-26): with no boot section it can have neither secure boot nor a
+   verified update, so it is the one board without OTA.
 4. **One key per board id for both the trailer and the manifest, or two?** One
    is proposed (decision 3).
 5. **Manifest carriage.** Settled (ruling 109, 2026-10-22): the signed
@@ -1017,27 +1020,34 @@ reference value. A gap there is filed against go-xkms.
    stream").
 6. **The trial timeout.** Settled: `TFW_OTA_TRIAL_TIMEOUT_S`, 60 s on each
    AVR board with a boot section (decision 9, "Where the timeout is configured").
-7. **The 2560's slot size.** 64 KB slots matching the image budget (proposed:
-   the shortest swap, and the running image under the 64 KB near-read boundary),
-   or the largest pair the region holds (495 and 496 pages).
-8. **The auth session's scope on TCP.** Ending with its connection as well as
-   at reset (decision 8).
+7. **The 2560's slot size.** Settled (ruling 109, Software 2026-10-26, #257):
+   64 KB slots matching the image budget, as proposed (the shortest swap, and
+   the running image under the 64 KB near-read boundary), not the largest pair
+   the region holds (495 and 496 pages).
+8. **The auth session's scope on TCP.** Settled (ruling 109, Software
+   2026-10-26, #257): the session ends when its connection closes, as well as
+   at reset (decision 8). It changes no wire, and it does nothing until a
+   ruling admits `OTA_AUTH` over TCP, which is still serial only (owner item
+   48): no auth state opens on a TCP connection today, so a close has nothing
+   to clear. `test/unit/test_ota_hold_link.c` and
+   `TestE2EOTAAuthSessionEndsWithItsConnection` pin it.
 9. **The Cortex-M33 path**, with the trust-model ADR's open questions 1 and 6:
    - the RP2350 under TF-M and MCUboot, or its boot ROM's own A/B;
    - the non-secure application serving `0x68`–`0x6E` over PSA FWU as the device
      side of `device-ota`;
    - whether `tfw.ParseImage` also reads MCUboot's header.
-10. **New EEPROM records.** The swap record at `0x0E0`, the `TRIAL`,
-    `CONFIRMED` and `PENDING` values, and the failed measurement in the platform
-    block's reserved range. On the ATmega2560 the bootloader-owned EEPROM
-    extends past `EEPROMReservedEnd` (`0xC0`): the swap journal's two copies
+10. **New EEPROM records.** Settled under ruling 109 (#52 comment 152690,
+    2026-10-26), as #125 shipped them under owner ruling m1100: the swap record
+    at `0x0E0`, the `TRIAL`, `CONFIRMED` and `PENDING` values, and the failed
+    measurement in the platform block's reserved range, all inside the
+    bootloader-owned EEPROM that ends at `0x140`. The swap journal's two copies
     sit at `0x0E0`–`0x0E9`. The firmware refuses host writes there
     (`EEPROM_WRITE` answers `TFW_ERR_PROTECTED_REGION`) and gates host reads
     there as it gates the platform block.
 11. **The i.MX 95 M7**, with #15 (decision 12).
-12. **The ATmega2560's EEPROM bound.** The proper fix is raising
-    `EEPROMReservedEnd` and `TFW_BOOT_EE_LEN` to cover the swap journal; that is
-    with the owner.
+12. **The ATmega2560's EEPROM bound.** Settled at `0x140` by #125 (#52
+    comment 152690, 2026-10-26): `EEPROMReservedEnd` and `TFW_BOOT_EE_LEN` both
+    cover the swap journal.
 
 ## Follow-ups (listed, not filed)
 
@@ -1052,9 +1062,9 @@ reference value. A gap there is filed against go-xkms.
   The envelope after the image in the stream (open question 5, settled by
   ruling 109) and the check at `OTA_ACTIVATE` (ruling 121) are done for the 2560
   on the element tier (`tools/image-seal/`, `src/core/ota_manifest.c`).
+  The 2560 application's size with the check is measured: 28 802 B, 3 772 B
+  more than without it ([README.md](README.md), "Measurements").
   What remains:
-  - the 2560 application's measured size with the check (`size-check` before
-    and after, on the CI image; ≤ 200 B is an estimate);
   - the 328P and 32U4 gate, if their region budget ever holds it;
   - the soft tier's manifest check, which needs a stored key to verify ES256;
   - go-xkms signing the emitted Sig_structure with the board id's key, and

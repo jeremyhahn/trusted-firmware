@@ -17,6 +17,7 @@ void tearDown(void) {}
 static void test_update_request_is_supported(void)
 {
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_update_request_supported());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_update_request_session());
 }
 
 static void test_handoff_block_is_not_a_boot_request_before_arm(void)

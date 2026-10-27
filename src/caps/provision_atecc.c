@@ -235,3 +235,90 @@ tfw_status_t tfw_prov_seed_uds(uint8_t slot)
     (void)tfw_atecc_sleep();
     return st;
 }
+
+/* The data slots PROV_WRITE_PUBKEY writes: the image-signing key's slot as
+ * tfw-boot reads it today, and slot 15, the TFLXTLS's secure-boot public key,
+ * where the slot-map ADR's option (a) moves it. That ADR is PROPOSED, so the
+ * set is one table and ratifying a slot changes one line. */
+static const uint8_t kPubkeySlots[] = { TFW_ATECC_SLOT_IMAGE, 15u };
+
+/* A stored P-256 public key is 72 bytes, pad4|X|pad4|Y, the form Verify's
+ * stored mode reads. It is read back as two 32-byte blocks and then two 4-byte
+ * words, because the slot's third block holds only eight bytes. */
+#define PUBKEY_STORED_LEN 72u
+
+/* Data-zone address of word `word` of a slot: block in bits 8+, slot in bits
+ * 3-6, word within the block in bits 0-2. */
+static uint16_t data_addr(uint8_t slot, uint8_t word)
+{
+    return (uint16_t)(((uint16_t)(word / 8u) << 8) | ((uint16_t)slot << 3) | (uint16_t)(word % 8u));
+}
+
+static tfw_status_t pubkey_read(uint8_t slot, uint8_t stored[PUBKEY_STORED_LEN])
+{
+    tfw_status_t st  = TFW_OK;
+    uint8_t      off = 0u;
+
+    while (st == TFW_OK && off < PUBKEY_STORED_LEN) {
+        uint8_t  len  = (off < 64u) ? 32u : 4u;
+        uint8_t  p1   = (uint8_t)(TFW_ATECC_ZONE_DATA | (len == 32u ? TFW_ATECC_ZONE_32 : 0u));
+
+        st = tfw_atecc_exec(TFW_ATECC_OP_READ, p1, data_addr(slot, (uint8_t)(off / 4u)),
+                           0, 0u, &stored[off], len, TFW_ATECC_T_READ);
+        off = (uint8_t)(off + len);
+    }
+    return st;
+}
+
+tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coord[32],
+                                   uint8_t back[64])
+{
+    uint8_t      blk2[32];
+    uint8_t      stored[PUBKEY_STORED_LEN];
+    uint8_t      i;
+    tfw_status_t st;
+
+    for (i = 0u; i < sizeof kPubkeySlots && kPubkeySlots[i] != slot; i++) {
+    }
+    if (i == sizeof kPubkeySlots || half > 1u) {
+        return TFW_ERR_RANGE;
+    }
+    if (tfw_atecc_wake() != TFW_OK) {
+        return TFW_ERR_NACK;
+    }
+    /* Config block 2 holds LockConfig (byte 87) and SlotLocked (88-89). The
+     * element takes no data-zone write before its config is locked, and none
+     * into a slot whose SlotLocked bit is clear; asking first gives the host a
+     * status that names the cause instead of the element's execution error. */
+    st = tfw_atecc_exec(TFW_ATECC_OP_READ,
+                       (uint8_t)(TFW_ATECC_ZONE_CONFIG | TFW_ATECC_ZONE_32),
+                       (uint16_t)(2u * BLOCK_WORDS), 0, 0u, blk2, 32u, TFW_ATECC_T_READ);
+    if (st == TFW_OK && blk2[87u - 64u] == 0x55u) {
+        st = TFW_ERR_BAD_STATE;
+    }
+    if (st == TFW_OK) {
+        uint32_t writable = (uint32_t)blk2[88u - 64u] | ((uint32_t)blk2[89u - 64u] << 8);
+
+        if (((writable >> slot) & 1u) == 0u) {
+            st = TFW_ERR_PROTECTED_REGION;
+        }
+    }
+    /* Half 0 is pad4|X, words 0-8 of the stored form; half 1 is pad4|Y, words
+     * 9-17. A half straddles a block, so it goes as nine 4-byte words. */
+    memset(stored, 0, 4u);
+    memcpy(&stored[4], coord, 32u);
+    for (i = 0u; st == TFW_OK && i < 9u; i++) {
+        st = tfw_atecc_exec(TFW_ATECC_OP_WRITE, TFW_ATECC_ZONE_DATA,
+                           data_addr(slot, (uint8_t)(half * 9u + i)), &stored[i * 4u], 4u,
+                           0, 0u, TFW_ATECC_T_WRITE);
+    }
+    if (st == TFW_OK) {
+        st = pubkey_read(slot, stored);
+    }
+    if (st == TFW_OK) {
+        memcpy(back, &stored[4], 32u);
+        memcpy(&back[32], &stored[40], 32u);
+    }
+    (void)tfw_atecc_sleep();
+    return st;
+}

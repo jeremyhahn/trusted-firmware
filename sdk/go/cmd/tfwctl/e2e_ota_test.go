@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -471,4 +472,34 @@ func TestE2EOTAControlIsSerialOnly(t *testing.T) {
 	trial := slotInfo{Slots: 2, Flags: int(tfw.SlotTrial), State: bootTrial, Measurement: strings.Repeat("00", 32)}
 	assert.Equal(t, trial, cliOTAInfo(t, serialDev, "0"))
 	require.NoError(t, run(ctx, serialDev, "ota-confirm", []string{heldSig}, false, io.Discard))
+}
+
+// The ADR's open question 8, decided (ruling 109, Software 2026-10-26, #257):
+// an auth session ends when its connection closes, as well as at reset. Over
+// TCP none opens (owner item 48 keeps the session, OTA_AUTH, OTA_ACTIVATE and
+// OTA_CONFIRM on serial), so the board's next connection starts with nothing.
+func TestE2EOTAAuthSessionEndsWithItsConnection(t *testing.T) {
+	block, keyPath := operatorBlock(t, bootTrial, otaIdle)
+	serialDev, first, l := startEthernetListen(t, block, nil)
+	serial := hex.EncodeToString(tfwsim.TestSerial[:])
+	ctx := t.Context()
+
+	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, first.Device, "auth", serial, keyPath, "--", "ota-confirm", heldSig), "tcp: the session")
+	assert.ErrorIs(t, first.OTAAuth(ctx, [tfw.OTAAuthSigLen]byte{}), tfw.StatusErrUnknownCmd, "tcp: OTA_AUTH")
+	require.NoError(t, first.Close())
+
+	// The board reads the peer's FIN, closes its socket and dials again.
+	next, err := acceptDevice(l, deviceWait, tfw.WithTimeout(10*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = next.Close() })
+
+	assert.ErrorIs(t, next.OTAConfirm(ctx), tfw.StatusErrUnknownCmd, "tcp: OTA_CONFIRM on the next connection")
+	assert.ErrorIs(t, next.OTAActivate(ctx, tfw.OTAActivateAtReset), tfw.StatusErrUnknownCmd, "tcp: OTA_ACTIVATE on the next connection")
+	_, _, err = next.OTAStatus(ctx)
+	require.NoError(t, err, "tcp: the next connection still stages")
+
+	// Nothing the closed connection sent authorizes serial, and the trial stands.
+	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, serialDev, "ota-confirm", heldSig), "serial: no session")
+	trial := slotInfo{Slots: 2, Flags: int(tfw.SlotTrial), State: bootTrial, Measurement: strings.Repeat("00", 32)}
+	assert.Equal(t, trial, cliOTAInfo(t, serialDev, "0"))
 }

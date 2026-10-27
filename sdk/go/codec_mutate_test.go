@@ -45,6 +45,11 @@ var frameVectors = map[string]string{
 	"HSM_SELECT resp":        vectors.FrameHSMSelectResp,
 	"HSM_LOAD req":           vectors.FrameHSMLoadReq,
 	"HSM_LOAD range":         vectors.FrameHSMLoadRangeResp,
+	"PROV_WRITE_PUBKEY x":    vectors.FrameProvWritePubKeyXReq,
+	"PROV_WRITE_PUBKEY y":    vectors.FrameProvWritePubKeyYReq,
+	"PROV_WRITE_PUBKEY ok":   vectors.FrameProvWritePubKeyResp,
+	"PROV_WRITE_PUBKEY rng":  vectors.FrameProvWritePubKeyRangeResp,
+	"PROV_WRITE_PUBKEY prot": vectors.FrameProvWritePubKeyProtectedResp,
 }
 
 // isFrameErr reports whether err is one of the errors Decode documents.

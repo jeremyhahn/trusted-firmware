@@ -1,4 +1,12 @@
-# ci-template: v1.27.0 (customized)
+# ci-template: v1.28.0 (customized)
+# v1.28.0 (Company Agent ruling 219(3), 2026-10-26; adopted here under ruling
+# 220(3)): `make deps-check` joins the PR tier as a lint-class gate. Its step
+# runs on every event, as `make lint` does, so a module behind its dependency
+# floor fails the PR, not main after the merge. The step keeps
+# IN_IMAGE_NETWORK=bridge for the module proxy and runs in seconds; it stays
+# on the full tier too. The image job is already `pr` in CI Gate, so no needs
+# or results line changes. A repository adopts v1.28 as a CI-file PR; none
+# hand-patches its ci.yml ahead of it.
 # v1.27.0 (Company Agent m1192 (6), item 27; adopted here under ruling 211):
 # a new `lint-gates` job runs a repository's `make -k lint-gates` in parallel
 # with the image job's `make lint`. It runs only when the Makefile or a tracked
@@ -44,7 +52,8 @@
 # two tiers. A pull request runs the PR tier only: lint (with
 # assert-build-tags and arch-gates), build, and the unit suite under -race
 # (`make coverage`, so unit test and race are one step). Integration, Soak,
-# security, deps-check and trivy image do not run on a PR. The full tier runs
+# security, deps-check and trivy image do not run on a PR (v1.28 puts
+# deps-check on the PR tier). The full tier runs
 # on main after every merge (push), nightly (a new `schedule:` trigger), on
 # workflow_dispatch, and on a PR labelled ci:full (kept as the opt-in). A new
 # `soak` job loops the integration suite in the integration image for
@@ -477,8 +486,10 @@ jobs:
   # bridge) for the vulnerability databases and the module proxy.
   #
   # v1.23: lint, assert-build-tags, build and coverage are the PR tier and run
-  # on every event. security, deps-check and trivy image are full tier only
+  # on every event. security and trivy image are full tier only
   # (env.CI_FULL_TIER): main after every merge, nightly, dispatch, ci:full.
+  # v1.28: deps-check is a lint-class gate on the PR tier and runs on every
+  # event (ruling 219(3)).
   #
   # v1.22: every stage mounts the build and golangci-lint cache volumes, and a
   # bridge stage the module cache volume, from the runner's Docker host
@@ -679,6 +690,20 @@ jobs:
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make lint GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
+      # Fails when a library, first-party or third-party, is behind its latest
+      # release without devops.md §9's documented reason (ci-standard.md §1).
+      # v1.28: a lint-class gate of seconds on the PR tier, every event, a
+      # docs-only PR included (ruling 219(3)); it was full tier only from v1.23.
+      # CUSTOMIZE (trusted-firmware, ruling 220(3)): it ran in the Security
+      # job until v1.28, which skips a docs-only PR; it moves here beside
+      # `make lint` so a docs-only PR runs it too, and leaves that job so it
+      # does not run twice.
+      - name: make deps-check
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        env:
+          IN_IMAGE_NETWORK: bridge
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make deps-check
+
       # v1.26.1: a docs-only PR skips `make security`, which runs the
       # releasability gate on every other PR, so it runs here: a private
       # value in README.md or docs/ fails the PR, not the main push after it.
@@ -852,7 +877,7 @@ jobs:
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=frdm-mcxn947 CRYPTO=soft
 
       # CUSTOMIZE (trusted-firmware, owner m751 (d)): the test stage, sdk/go
-      # under -race, make security with deps-check, and the ESP32 stages are
+      # under -race, make security, and the ESP32 stages are
       # the legs below. trivy image stays here, beside the integration image's
       # build, and so do the Cortex-M steps above: they run in the toolchain
       # image this job built.
@@ -1155,14 +1180,15 @@ jobs:
           rm -rf "$RUNNER_TEMP/docker-config"
 
   security:
-    # CUSTOMIZE (trusted-firmware): make security and deps-check need the
-    # network and the toolchain image alone, so they leave the image job.
-    name: Security [make security, deps-check]
+    # CUSTOMIZE (trusted-firmware): make security needs the network and the
+    # toolchain image alone, so it leaves the image job. deps-check runs in
+    # the image job beside `make lint` from v1.28 (ruling 220(3)).
+    name: Security [make security]
     needs: image
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908) and
-    # deps-check under 1. 10 + 12, plus margin.
+    # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908).
+    # 10 + 11, plus margin.
     timeout-minutes: 35
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -1205,14 +1231,6 @@ jobs:
         env:
           IN_IMAGE_NETWORK: bridge
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make security GO_BUILD_TAGS='$GO_BUILD_TAGS'"
-
-      # Fails when a library, first-party or third-party, is behind its latest
-      # release without devops.md §9's documented reason (ci-standard.md §1).
-      - name: make deps-check
-        if: ${{ !cancelled() }}
-        env:
-          IN_IMAGE_NETWORK: bridge
-        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make deps-check
 
       - name: Tear down
         if: always()

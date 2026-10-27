@@ -88,10 +88,12 @@ in the module cache, elsewhere it needs the forge credentials.
 CI (`.github/workflows/ci.yml`, the fleet template) runs the Go jobs (lint,
 security, build, test, modules, cross-arch) on the runner; in the
 devcontainer, three image jobs that start at once, `image-toolchain` (build;
-test runs in the three Unit shards above), `image-security` (security, deps-check, trivy image) and `image-esp32`
+test runs in the three Unit shards above), `image-security` (security, trivy image) and `image-esp32`
 (ESP32 build and QEMU test); and `integration` (full tier: push, dispatch or the `ci:full`
 label, which takes effect on the next push, update-branch or
-workflow_dispatch) under compose. `CI Gate` is the one required check.
+workflow_dispatch) under compose. `make deps-check` runs beside `make lint`
+on every event, a docs-only PR included (ci-template v1.28). `CI Gate` is the
+one required check.
 
 `make help` lists every target.
 

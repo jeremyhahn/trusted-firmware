@@ -116,9 +116,9 @@ platform-bake-srcs:
 # application compiles may name the bake image's symbols. A board's extra rows
 # (BOARD_ROWS) are checked as they are built, with their own settings: most
 # vary only ETH, which this sweep covers on every tier already, or turn on a
-# bus (mps2-an505's I2C=1), which links no bake object; but the 2560's optiga
-# rows are a tier no board names, and that tier has no PROVISION=1 image to
-# check.
+# bus (mps2-an505's I2C=1), which links no bake object; but the optiga rows (the
+# 2560's two, mps2-an505's one) are a tier no board names, and that tier has no
+# PROVISION=1 image to check.
 platform-bake-no-link-check:
 	@own=$$($(MAKE) -s --no-print-directory platform-bake-srcs BOARD=atmega328p); \
 	 for p in $(PLATBAKE_SRC_DIR)/main.c $(PLATBAKE_SRC_DIR)/bake.c gen/block.c; do \

@@ -89,6 +89,9 @@ class TestFirmwareFlags(unittest.TestCase):
         self.assertEqual(fw(), fw("UECC_OPT=1"))
         self.assertEqual(fw("CRYPTO=atecc608a"), fw("CRYPTO=atecc608a", "UECC_OPT=1"))
 
+    def test_spi(self):
+        self.assertEqual("build/mps2-an505/soft-spi", fw("BOARD=mps2-an505", "CRYPTO=soft", "SPI=1"))
+
     def test_row_buses_and_ab(self):
         # The MPS2 boards turn I2C, SPI and two slots on per row (profile.mk).
         self.assertEqual("build/mps2-an505/soft-i2c", fw("BOARD=mps2-an505", "I2C=1"))

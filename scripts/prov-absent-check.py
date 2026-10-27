@@ -161,9 +161,11 @@ def plan(boards, matrix_rows, unprovisioned=frozenset()):
 
 def unprovisioned_pairs(pairs, root=ROOT):
     """The (board, tier) pairs among pairs whose build has no provisioning
-    backend, asked of make's provision-backend rather than listed here."""
-    return frozenset(p for p in sorted(set(pairs))
-                     if make(["provision-backend", f"BOARD={p[0]}", f"CRYPTO={p[1]}"], root).strip() == "none")
+    backend, asked of make's provision-backend rather than listed here. A
+    matrix row's pair carries its variables after the tier, so a tier its board
+    builds only with a row flag (mps2-an505's optiga, I2C=1) is asked with it."""
+    return frozenset(p[:2] for p in sorted(set(pairs))
+                     if make(["provision-backend", f"BOARD={p[0]}", f"CRYPTO={p[1]}", *p[2:]], root).strip() == "none")
 
 
 def make_env():
@@ -202,7 +204,7 @@ def sweep(root=ROOT):
         chip = make(["board-eth-chip", f"BOARD={board}"], root).strip()
         boards[board] = (tiers, chip)
     rows = [line.split() for line in make(["firmware-matrix-list"], root).splitlines() if line.strip()]
-    pairs = [(b, t) for b in boards for t in boards[b][0]] + [(r[0], r[1]) for r in rows if len(r) > 1]
+    pairs = [(b, t) for b in boards for t in boards[b][0]] + [tuple(r) for r in rows if len(r) > 1]
     none = unprovisioned_pairs(pairs, root)
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         return list(pool.map(lambda v: ask(v, root), plan(boards, rows, none)))

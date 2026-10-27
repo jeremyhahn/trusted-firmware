@@ -172,8 +172,9 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
    lifecycle decision the onboarding steps forbid until the owner rules.
 5. **Which boards the tier fits.** The ATmega2560, ATmega32U4 and Cortex-M as
    the SE052F, or also the ATmega328P? The ATmega2560's measurement rows
-   (follow-ups, the fifth part) measure the tier's cost there; nothing else
-   is measured yet.
+   (follow-ups, the fifth part) and mps2-an505's (the sixth part) measure the
+   tier's cost; the sixth part's fit table lays it out and proposes an answer,
+   which the coordinator takes under ruling 109.
 6. **#15's element tier.** Is the OPTIGA Trust M an element-tier option for an
    M7 or M33 without an enclave, beside the ATECC608C and SE052F?
 7. **The DICE texts.** The TCG DICE specifications are not in
@@ -278,9 +279,60 @@ Question 9 is decided, by ruling 109; none of the others is decided here.
     auth session's gate runs, 51 bytes deeper than the element tier's own
     Verify on the same path, and the transport below it frames from its own
     static buffer.
+- Its sixth part is written: the tier on a Cortex-M. The MPS2 I2C master
+  (`src/hal/cortex-m/mps2/hal_bus.c`, over the shield 0 SBCon) now gives the
+  Cortex-M HAL the bus the fifth part lacked. The transport needs only
+  `tfw_hal_i2c_init`, `tfw_hal_i2c_xfer` and `tfw_hal_delay_us`, which it
+  already has, so `include/tfw/hal.h` gains nothing. mps2-an505's `BOARD_ROWS`
+  gain `optiga:I2C=1`, a measurement row like the ATmega2560's, and
+  `BOARD_TIERS` still does not name the tier. `mk/firmware.mk` refuses
+  `CRYPTO=optiga` on a build with the bus off: the element answers on I2C
+  only, and the refusal says so where the link would only name missing
+  symbols. `test/unit/test_mps2_optiga.c` runs the transport on the MPS2
+  master over a simulated SBCon. It pins what goes over the wire:
+  - every write is one transaction, and every read is a register write then
+    a read of its own, never a repeated start, each after the guard time;
+  - a late acknowledge is repeated and given up as `TFW_ERR_NACK` after 200;
+  - a refused frame byte is resent whole, and a stuck bus is `TFW_ERR_TIMEOUT`;
+  - a frame of 64 each way at the largest register, and chains at the
+    smallest, 16;
+  - a register read back outside 16..64 is refused.
+
+  The fit table, for question 5. "Without" is the board's default image, the
+  first tier `BOARD_TIERS` names, on the same row settings; "with" is the
+  optiga row. Each size is text+data and data+bss, as `make firmware-matrix`
+  prints and checks against the budget. No size is measured here: the lane
+  image has neither avr-gcc nor an Arm toolchain, and s6's figures are not
+  recorded in the tree. The cells read "measured in verify" until the
+  coordinator's verify fills them from `make firmware-matrix`.
+
+  | Board, row | Flash budget / part | RAM budget / part | Without the tier | With the tier |
+  |---|---|---|---|---|
+  | atmega2560, `ETH=0` | 65536 / 262144 | 2048 / 8192 | soft: measured in verify | `optiga:ETH=0`: measured in verify |
+  | atmega2560, `ETH=1` (W5100) | 65536 / 262144 | 2048 / 8192 | soft: measured in verify | `optiga:ETH=1`: measured in verify |
+  | mps2-an505, `I2C=1` | 131072 / 4194304 | 16384 / 32768 | soft: measured in verify | `optiga:I2C=1`: measured in verify |
+  | mps2-an500 | 131072 | 16384 | soft: measured in verify | not built: no row turns its bus on |
+  | atmega32u4 | — | — | not measured | not built: no row |
+  | atmega328p | — | — | not measured | not built: question 5 asks about it |
+
+  The proposal for question 5. This is not an architecture decision, so the
+  coordinator takes it under ruling 109:
+  - The ATmega2560 carries the tier as an option. Its two rows already pass
+    the matrix's budget gate in s6's verify.
+  - mps2-an505 carries it as an option. Its gates are twice the 2560's flash
+    and eight times its RAM, and the tier is the same code.
+  - On both, the tier joins `BOARD_TIERS` after soft, not in its place. That
+    happens once the bench confirms the transport's to-confirm facts: the
+    address 0x30, the FCS byte order and the timings. Until then it stays a
+    measurement row, and no default image changes.
+  - The ATmega328P does not carry it, as the SE052F row says that tier does
+    not. Its 2048 bytes of SRAM are the 2560's whole RAM gate, and the 2560's
+    rows are the tier's cost on an AVR.
+  - mps2-an500 and the ATmega32U4 are not proposed until a row builds the
+    tier there.
 - Left in the row:
-  - Which boards the tier fits, from the rows' measured cost (question 5).
-  - A Cortex-M measurement, once a Cortex-M board has an I2C driver.
+  - The fit table's measured cells, from verify's `make firmware-matrix`,
+    and the coordinator's answer to question 5.
   - The bench factory record.
   - On the bench: the counter value's byte order and the factory key's curve.
 - Not in the row: pubkey from the factory certificate `0xE0E0`. Taking the

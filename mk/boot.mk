@@ -206,7 +206,7 @@ BOOT_STORE_SRCS += $(BOOT_SWAP_SRC)
 # checksum of BOOT_OPT_EXTRA, whose options can hold any character a path cannot.
 BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(BOOT_STORE)$(AB_SUFFIX)$(if \
                 $(and $(filter p256-soft,$(BOOT_SIG)),$(filter-out 0,$(UECC_OPT))),-uecc$(UECC_OPT))$(if \
-                $(strip $(BOOT_OPT_EXTRA)),-x$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(BOOT_OPT_EXTRA)))' | cksum)))
+                $(strip $(BOOT_OPT_EXTRA)),-x$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(BOOT_OPT_EXTRA)))' | cksum)))$(AB_SUFFIX)
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
 BOOT_TARGET  := $(BOOT_DIR_OUT)/tfw-boot
 

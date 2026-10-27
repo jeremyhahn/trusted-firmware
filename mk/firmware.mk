@@ -306,7 +306,7 @@ else ifeq ($(CRYPTO),optiga)
 # read-only command layer and the provider over them, with the shared software
 # SHA-256. No board's BOARD_TIERS names it -- which boards it fits is the ADR's
 # open question 5 -- so only a measurement row in a profile's BOARD_ROWS builds
-# it. One provider is linked, so nothing is renamed: CRYPTO_RENAME is auto's.
+# it: the 2560's two, and mps2-an505's over the SBCon (I2C=1). One provider is linked, so nothing is renamed: CRYPTO_RENAME is auto's.
 CRYPTO_SRCS := src/crypto/sha256.c src/crypto/optiga/optiga_i2c.c src/crypto/optiga/optiga_cmd.c \
                src/crypto/optiga/optiga_crypto.c
 # No alias certificate: its builder names the element's public key, which this
@@ -327,6 +327,13 @@ endif
 # onboarding rule 6 forbids any write to it until the owner rules (question 4).
 # OTA_INFO's floor is the platform block's (ota_floor_eeprom.c, as on soft):
 # the element's monotonic counters are read, never incremented, on this tier.
+# The element answers on I2C and nowhere else (the Solution Reference Manual's
+# host interface), so a build whose board has the bus off is refused here rather
+# than at the link, where the missing tfw_hal_i2c_* names would not say why.
+# mps2-an505 turns the bus on for its row with I2C=1.
+ifeq ($(call feature_off,I2C),1)
+$(error CRYPTO=optiga needs the I2C bus -- $(BOARD) has it off (a board that turns it on per row, as mps2-an505 does, takes I2C=1))
+endif
 PROV_BACKEND := none
 ifeq ($(PROVISION),1)
 $(error PROVISION=1 has no backend on CRYPTO=optiga -- provisioning writes the element, which the OPTIGA ADR forbids until the owner rules)
@@ -439,7 +446,7 @@ TARGET     := $(FW_DIR)/trusted-firmware
 # FW_ROW_SUFFIX names the row only where a row flag is given rather than taken
 # from the makefiles, so a bench image built with no flags keeps its path.
 FW_ROW        := $(notdir $(FW_DIR))
-FW_ROW_FLAGS  := CRYPTO PROVISION ETH ETH_CHIP DHCP OTA_STAGE MEASURE_SOFT_CSR SOFT_ID UECC_OPT APP_DIR
+FW_ROW_FLAGS  := CRYPTO PROVISION ETH ETH_CHIP DHCP OTA_STAGE MEASURE_SOFT_CSR SOFT_ID UECC_OPT APP_DIR SPI
 FW_ROW_SUFFIX := $(if $(filter command environment override,$(foreach v,$(FW_ROW_FLAGS),$(firstword $(origin $(v))))),-$(FW_ROW))
 
 # The toolchain binaries and the flags that name a machine, an optimisation

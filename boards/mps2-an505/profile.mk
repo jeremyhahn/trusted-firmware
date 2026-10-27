@@ -87,7 +87,11 @@ BOARD_TIERS    := soft
 I2C               ?= 0
 SPI               ?= 0
 BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI)
-BOARD_ROWS        := atecc608a:I2C=1 soft:I2C=1 soft:SPI=1
+BOARD_ROWS        := atecc608a:I2C=1 soft:I2C=1 soft:SPI=1 optiga:I2C=1
+# The optiga row is a MEASUREMENT, as on the 2560 (row optiga-trust-m): the
+# OPTIGA Trust M provider over the same SBCon, built and size-checked so its
+# Cortex-M cost is a number. Whether the tier is the board's is the OPTIGA ADR's
+# open question 5; until it is answered BOARD_TIERS does not name it.
 
 # The image store: memory in the code bank that the reset leaves alone, the
 # span in board_profile.h (src/store/mem.c). The stager is linked where an image

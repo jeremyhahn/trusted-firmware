@@ -2346,6 +2346,16 @@ $(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optig
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same transport on the Cortex-M bus, as mps2-an505's optiga:I2C=1 row links
+# it: optiga_i2c.c over the MPS2 I2C master, the SBCon simulated in the suite with
+# an OPTIGA on it. It stays in TEST_SRCS; this explicit rule takes the place of
+# the pattern rule.
+$(HOST_DIR)/test_mps2_optiga: test/unit/test_mps2_optiga.c src/crypto/optiga/optiga_i2c.c \
+                              src/hal/cortex-m/mps2/hal_bus.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The OPTIGA Trust M command layer (row optiga-trust-m): optiga_cmd.c alone,
 # the transport faked in the suite at the APDU, so each command's bytes are
 # the manual's table. CRYPTO=optiga links it (mk/firmware.mk). It stays in

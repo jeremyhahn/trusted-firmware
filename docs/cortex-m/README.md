@@ -101,13 +101,12 @@ default and 1 with `SPI=1` (`TFW_CM_SPI` in the board profile, `SPI` in
 `TestQEMUSPIXfer` on both boards: every byte reads back `0x00`, and pin 0 is
 refused as `TFW_ERR_BAD_PIN`.
 
-Open: the OPTIGA Trust M tier's Cortex-M cost. `CRYPTO=optiga` (row
-`optiga-trust-m`) is not on this branch's base yet, so nothing measures it
-here. When it is, mps2-an505 adds `optiga:I2C=1` to `BOARD_ROWS` beside
-`atecc608a:I2C=1`, as the ATmega2560 carries `optiga:ETH=1` and
-`optiga:ETH=0`. `make firmware-matrix` then size-checks the row against
-`FLASH_BUDGET` and `RAM_BUDGET`, and its flash and RAM against the soft
-image's are the tier's cost on a Cortex-M. The tier stays out of
+The OPTIGA Trust M tier's Cortex-M cost: mps2-an505 carries `optiga:I2C=1` in
+`BOARD_ROWS` beside `atecc608a:I2C=1`, as the ATmega2560 carries
+`optiga:ETH=1` and `optiga:ETH=0`. `make firmware-matrix` size-checks the row
+against `FLASH_BUDGET` and `RAM_BUDGET`, and its flash and RAM against the soft
+image's are the tier's cost on a Cortex-M. `test/unit/test_mps2_optiga.c` runs
+the OPTIGA transport on this I2C master over a simulated SBCon. The tier stays out of
 `BOARD_TIERS`: which boards it fits is open question 5 of
 [`adr-optiga-trust-m-onboarding.md`](../multi-arch/adr-optiga-trust-m-onboarding.md).
 

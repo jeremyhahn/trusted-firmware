@@ -1502,6 +1502,18 @@ test-asan:
 	@# clean-host has returned, so -j runs every suite side by side.
 	@$(MAKE) --no-print-directory host-test boot-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
 
+## test-asan-host: test-asan's host suites alone (TEST_GATES, a CI Unit shard)
+# test-asan in two gates, so CI runs its halves in different shards
+# (mk/stages.mk); together they run what test-asan runs.
+test-asan-host:
+	@$(MAKE) --no-print-directory clean-host
+	@$(MAKE) --no-print-directory host-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
+
+## test-asan-boot: test-asan's boot suites alone (TEST_GATES, a CI Unit shard)
+test-asan-boot:
+	@$(MAKE) --no-print-directory clean-host
+	@$(MAKE) --no-print-directory boot-test EXTRA_CFLAGS="$(SAN_FLAGS)" EXTRA_LDFLAGS="$(SAN_FLAGS)"
+
 ## coverage: run the host tests with coverage and enforce the floor
 coverage:
 	@$(MAKE) --no-print-directory clean-host
@@ -2113,7 +2125,7 @@ host-dir:
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: host-test test-asan coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
+.PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep

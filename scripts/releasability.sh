@@ -50,7 +50,9 @@ while IFS=$'\t' read -r class re _; do
         text=${rest#*:}
         prev=
         if [ "$n" -gt 1 ]; then prev=$(sed -n "$((n - 1))p" "$path"); fi
-        if printf '%s\n%s\n' "$prev" "$text" | grep -Eq "$waiver"; then continue; fi
+        # Not `printf | grep -q` under pipefail: grep -q exits on a waived $prev
+        # before printf writes $text, and the SIGPIPE read as "not waived".
+        if [[ $prev =~ $waiver || $text =~ $waiver ]]; then continue; fi
         printf '%s:%s: %s\n' "$path" "$n" "$class"
       done >> "$hits"
 done < "$patterns"

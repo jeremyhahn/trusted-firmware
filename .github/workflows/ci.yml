@@ -396,11 +396,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
+      esp32: ${{ steps.esp32.outputs.esp32 }}   # CUSTOMIZE: ruling 218(9), below
     # v1.26: a draft PR runs no CI; the image job needs this one and skips with it.
     if: ${{ !github.event.pull_request.draft }}
     steps:
+      # CUSTOMIZE (trusted-firmware, ruling 218(9)): every PR checks out, a
+      # ci:full one too, because the ESP32 step below diffs every PR.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        if: ${{ github.event_name == 'pull_request' && env.CI_FULL_TIER != 'true' }}
+        if: ${{ github.event_name == 'pull_request' }}
         with:
           fetch-depth: 0
       - name: Is every changed file docs or markdown?
@@ -421,6 +424,39 @@ jobs:
           fi
           echo "docs only: $docs_only"
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
+      # CUSTOMIZE (trusted-firmware, ruling 218(9)): the ESP32 job (43 min on
+      # the critical path of #256's 122-minute run) runs on a PR only when the
+      # PR changes a file the ESP32 build or its QEMU test reads, and otherwise
+      # on a push to main (ruling 219(5)) and in the nightly tier (schedule,
+      # workflow_dispatch). ESP32_PATHS is what
+      # mk/arch/esp32-targets.mk's esp32-build and esp32-qemu-test read: FW_SRCS
+      # (src/, src/hal/esp32), layer 0's component (boot/, boot/hal/esp32),
+      # include/, the ESP32 boards, the make files and the IDF project
+      # (mk/arch/esp32), tfwprov (sdk/go), suit-emit (tools/suit-emit), the
+      # QEMU harness and wirecheck (test/integration/esp32), the esp32 image's
+      # inputs (mk/docker.mk ESP32_INPUTS) and the scripts and workflow the job
+      # runs. ESP32_PATHS_EXCLUDE takes out the other arches' HALs and make
+      # files, which no ESP32 build reads, and markdown. A failed diff fails
+      # this job, and the CI Gate with it.
+      - name: Does any changed file feed the ESP32 build?
+        id: esp32
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT: ${{ github.event_name }}
+          ESP32_PATHS: '^(src/|boot/|include/|boards/esp32|mk/|Makefile$|sdk/go/|tools/suit-emit/|test/integration/esp32/|xkms/go\.(mod|sum)$|build/docker/devcontainer/|scripts/(tool-pins|in-toolchain-image|ci-registry-login|ensure-image)\.sh$|\.github/workflows/ci\.yml$)'
+          ESP32_PATHS_EXCLUDE: '^(src/hal/(avr|cortex-m)/|boot/hal/(avr|cortex-m|host)/|mk/arch/(avr|cortex-m))|\.md$'
+        run: |
+          esp32=false
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --no-renames "$BASE...$HEAD")
+            if printf '%s\n' "$files" | grep -vE "$ESP32_PATHS_EXCLUDE" | grep -qE "$ESP32_PATHS"; then
+              esp32=true
+            fi
+          fi
+          echo "ESP32 paths changed: $esp32"
+          echo "esp32=$esp32" >> "$GITHUB_OUTPUT"
 
   # v1.21: every stage runs in the project's own devcontainer image and no
   # other (ci-standard.md §2, devcontainer.md §7). One image job (Company Agent
@@ -894,8 +930,9 @@ jobs:
     needs: image
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    # CUSTOMIZE: host-test, boot-test, board-sweep: 20 min green, 27.5 at quota.
-    # Kept at the 110 that #248 set for the unsharded job (the larger value).
+    # CUSTOMIZE (ruling 218(9), the shard rebalance): host-test, board-sweep,
+    # test-asan-boot: about 23 min green, 30 at quota (estimate, see
+    # mk/stages.mk). Kept at the 110 that #248 set for the unsharded job.
     timeout-minutes: 110
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -930,7 +967,7 @@ jobs:
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # The test stage (m601 (c)), shard 1: see above the job.
-      - name: make test-shard-1 (host and boot suites, board sweep) # CUSTOMIZE
+      - name: make test-shard-1 (host suites, board sweep, boot suites sanitized) # CUSTOMIZE: ruling 218(9)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-1 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
       - name: Tear down
@@ -944,10 +981,11 @@ jobs:
     needs: image
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    # CUSTOMIZE: coverage, verify-vectors, xkms-coverage, sdk-coverage,
-    # scripts-test: 21.5 min green, about 30 at quota (the last four were not
-    # reached at quota; scaled as the others were, by about 1.35).
-    timeout-minutes: 60
+    # CUSTOMIZE (ruling 218(9), the shard rebalance): boot-test, coverage,
+    # verify-vectors, xkms-coverage, sdk-coverage, scripts-test: about 25.5
+    # min green (21.5 before, plus boot-test's ~4), about 35 at quota (scaled
+    # by about 1.35).
+    timeout-minutes: 75
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -981,7 +1019,7 @@ jobs:
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # The test stage (m601 (c)), shard 2: see above unit-shard-1.
-      - name: make test-shard-2 (coverage floors, wire vectors, scripts) # CUSTOMIZE
+      - name: make test-shard-2 (boot suites, coverage floors, wire vectors, scripts) # CUSTOMIZE: ruling 218(9)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-2 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
       - name: Tear down
@@ -995,10 +1033,11 @@ jobs:
     needs: image
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    # CUSTOMIZE: test-asan, the long pole, alone: 30.5 min green; at quota it
-    # had run more than 36 min, unfinished, when the 75-minute job was killed,
-    # so about 47 (36 scaled by about 1.3, 7 of setup).
-    timeout-minutes: 95
+    # CUSTOMIZE (ruling 218(9), the shard rebalance): test-asan-host alone.
+    # test-asan whole was 30.5 min green, about 47 at quota (38 in #256's
+    # run); its host half, 242 of its 338 binaries, is about 23 green and 32
+    # at quota (estimate, see mk/stages.mk).
+    timeout-minutes: 75
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1032,7 +1071,7 @@ jobs:
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # The test stage (m601 (c)), shard 3: see above unit-shard-1.
-      - name: make test-shard-3 (sanitizers) # CUSTOMIZE
+      - name: make test-shard-3 (host suites sanitized) # CUSTOMIZE: ruling 218(9)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-3 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
       - name: Tear down
@@ -1185,8 +1224,13 @@ jobs:
     # CUSTOMIZE (trusted-firmware): the ESP32 stages need the esp32 image
     # alone and are the run's longest, so they run beside everything else.
     name: ESP32 [esp32-build, esp32-qemu-test]
-    needs: image
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
+    # CUSTOMIZE (trusted-firmware, ruling 218(9)): on a PR only when the
+    # changes job saw an ESP32 path change; otherwise the nightly tier
+    # (schedule, workflow_dispatch) runs it. Ruling 219(5): a push to main
+    # runs it too, the full tier proving what the PR tier skipped, so a red
+    # main is found at the merge, not the next night.
+    needs: [changes, image]
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.esp32 == 'true')) }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
     # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
@@ -1645,6 +1689,12 @@ jobs:
           # a docs-only PR (v1.24, the `changes` job) may skip it; any other
           # event or PR may not. A failed `changes` job reads as not docs-only.
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }} # CUSTOMIZE
+          # CUSTOMIZE (trusted-firmware, ruling 218(9), 219(5)): an `esp32` job
+          # may skip only on a PR that changed no ESP32 path (the `changes`
+          # job's esp32 output). On a push, schedule or workflow_dispatch it
+          # must run, and a skipped or failed one fails the gate.
+          ESP32_CHANGED: ${{ needs.changes.outputs.esp32 }} # CUSTOMIZE
+          ESP32_PR: ${{ github.event_name == 'pull_request' }} # CUSTOMIZE: ruling 219(5)
         run: |
           if [ "${DRAFT}" = true ]; then
             echo "FAIL draft pull request: no CI runs on a draft. Mark it ready, then push an empty commit to start its run."
@@ -1662,6 +1712,8 @@ jobs:
                   echo "SKIP $1 (nightly and dispatch only)"
                 elif [ "$3" = docs ] && [ "${DOCS_ONLY}" = true ]; then # CUSTOMIZE
                   echo "SKIP $1 (docs-only PR)" # CUSTOMIZE
+                elif [ "$3" = esp32 ] && [ "${ESP32_PR}" = true ] && [ "${ESP32_CHANGED}" != true ]; then # CUSTOMIZE: ruling 218(9), 219(5)
+                  echo "SKIP $1 (PR changed no ESP32 path; push and nightly run it)" # CUSTOMIZE
                 else
                   echo "FAIL $1 (skipped)"; BAD=1
                 fi;;
@@ -1681,7 +1733,7 @@ jobs:
           check unit-shard-3 "${{ needs.unit-shard-3.result }}" docs
           check sdk-race    "${{ needs.sdk-race.result }}" docs
           check security    "${{ needs.security.result }}" docs
-          check esp32       "${{ needs.esp32.result }}" docs
+          check esp32       "${{ needs.esp32.result }}" esp32 # CUSTOMIZE: ruling 218(9)
           check integration "${{ needs.integration.result }}" full
           check soak        "${{ needs.soak.result }}" nightly
           check arch-gates  "${{ needs.arch-gates.result }}" pr

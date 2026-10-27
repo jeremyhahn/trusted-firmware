@@ -65,11 +65,13 @@ build-tools:
 # sdk-coverage hold the two Go modules' statement-coverage floors, as coverage
 # holds the firmware's.
 #
-# The gates run one after another, in a sub-make each: coverage and test-asan
-# start with clean-host, which deletes $(HOST_DIR) while host-test, boot-test
-# or board-sweep could be building into it under `make -j`. Serial here, so
-# `make -j8 ci` and `make ci` run the same thing; each sub-make still uses -j.
-TEST_GATES := host-test boot-test board-sweep coverage test-asan verify-vectors xkms-coverage sdk-coverage scripts-test
+# The gates run one after another, in a sub-make each: coverage and the
+# test-asan halves start with clean-host, which deletes $(HOST_DIR) while
+# host-test, boot-test or board-sweep could be building into it under `make -j`.
+# Serial here, so `make -j8 ci` and `make ci` run the same thing; each sub-make
+# still uses -j. test-asan is here as its two halves, test-asan-host and
+# test-asan-boot, so CI can run them in different shards (ruling 218(9)).
+TEST_GATES := host-test boot-test board-sweep coverage test-asan-host test-asan-boot verify-vectors xkms-coverage sdk-coverage scripts-test
 
 test: test-tools
 	@for g in $(TEST_GATES); do $(MAKE) --no-print-directory $$g || exit 1; done
@@ -77,16 +79,21 @@ test: test-tools
 
 ## test-shard-N: one CI Unit shard of TEST_GATES, every gate run, PASS/FAIL each
 # CI runs the test stage as one Unit job per shard (ci.yml, the unit job's
-# matrix lists TEST_SHARDS), balanced by the gates' durations in CI: test-asan,
-# the long pole, alone. Each gate is in exactly one shard, so the shards are
-# `make test`; scripts/test_unit_shards.py holds the lists to TEST_GATES and to
-# the matrix. A shard runs every gate even after one fails (make -k), prints
-# one PASS or FAIL line per gate with its seconds, and fails if any gate did.
-# Each job has its own workspace, so coverage and test-asan's clean-host
-# deletes nothing another shard is building.
-TEST_SHARD_1 := host-test boot-test board-sweep
-TEST_SHARD_2 := coverage verify-vectors xkms-coverage sdk-coverage scripts-test
-TEST_SHARD_3 := test-asan
+# matrix lists TEST_SHARDS), balanced by the gates' durations in CI (ruling
+# 218(9)): test-asan, the long pole at 30.5 min green alone in shard 3, is split
+# by suite, its host half (242 of its 338 binaries) alone in shard 3 and its
+# boot half (96) in shard 1, and boot-test moves to shard 2 to make room. Each
+# gate is in exactly one shard, so the shards are `make test`;
+# scripts/test_unit_shards.py holds the lists to TEST_GATES and to the matrix.
+# A shard runs every gate even after one fails (make -k), prints one PASS or
+# FAIL line per gate with its seconds, and fails if any gate did. Each job has
+# its own workspace, so a clean-host deletes nothing another shard is
+# building; within a shard a gate that starts with clean-host (coverage,
+# test-asan-*) comes after the plain builds, which would otherwise run its
+# instrumented binaries as up to date.
+TEST_SHARD_1 := host-test board-sweep test-asan-boot
+TEST_SHARD_2 := boot-test coverage verify-vectors xkms-coverage sdk-coverage scripts-test
+TEST_SHARD_3 := test-asan-host
 TEST_SHARDS  := 1 2 3
 
 test-shard-%: test-tools

@@ -107,18 +107,18 @@ class ShardLists(unittest.TestCase):
                               "fix: add a `check %s` line to the CI Gate" % job)
 
     def test_a_gate_in_two_shards_is_named_with_its_fix(self):
-        gates, shards = shard_lists("TEST_SHARD_3=test-asan coverage")
+        gates, shards = shard_lists("TEST_SHARD_3=test-asan-host coverage")
         self.assertIn("runs coverage in shard 2 and again in shard 3; fix: delete it "
                       "from shard 3", shard_errors(gates, shards))
 
     def test_a_gate_in_no_shard_is_named_with_its_fix(self):
         gates, shards = shard_lists("TEST_SHARD_3=")
-        self.assertIn("test-asan is in TEST_GATES and in no shard, so CI never runs it; "
+        self.assertIn("test-asan-host is in TEST_GATES and in no shard, so CI never runs it; "
                       "fix: add it to one TEST_SHARD_N in mk/stages.mk",
                       shard_errors(gates, shards))
 
     def test_an_unknown_gate_is_named_with_its_fix(self):
-        gates, shards = shard_lists("TEST_SHARD_3=test-asan no-such-gate")
+        gates, shards = shard_lists("TEST_SHARD_3=test-asan-host no-such-gate")
         self.assertIn("shard 3 runs no-such-gate, which is not in TEST_GATES; fix: delete "
                       "it from shard 3, or add it to TEST_GATES if it is a new gate",
                       shard_errors(gates, shards))

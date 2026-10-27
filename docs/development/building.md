@@ -49,9 +49,11 @@ wired as the fleet template wires them:
 
 CI runs `make test` as three Unit jobs, `unit-shard-1` to `unit-shard-3`, each
 `make test-shard-N` over one shard of its gates, balanced by duration
-(`TEST_SHARD_N` in `mk/stages.mk`): the host and boot suites with the board
-sweep; `coverage` with the vectors, the Go coverage floors and `scripts-test`;
-and `test-asan`, the longest, alone. A shard runs every gate in it even after
+(`TEST_SHARD_N` in `mk/stages.mk`): the host suites with the board sweep and
+`test-asan-boot` (the sanitizers over the boot suites); the boot suites with
+`coverage`, the vectors, the Go coverage floors and `scripts-test`; and
+`test-asan-host`, the sanitizers over the host suites, alone. `test-asan` runs
+both halves in one make. A shard runs every gate in it even after
 one fails, prints one `PASS` or `FAIL` line per gate with its seconds, and fails
 if any gate did. `scripts/test_unit_shards.py` holds each gate to exactly one
 shard and each shard to its job, and the CI Gate requires all three.

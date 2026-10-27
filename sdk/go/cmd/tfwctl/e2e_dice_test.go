@@ -46,10 +46,7 @@ import (
 // offsets, the CBOR reader and verifyFrame are in e2e_helpers_test.go.
 
 func TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce(t *testing.T) {
-	p, ok := certServing(t)
-	if !ok {
-		return
-	}
+	p := certServing(t)
 	nonce := aliasNonce(0x40)
 	cert := parseCert(t, cliAttestCert(t, p.serial, nonce))
 	gotNonce, ueid, fwHash := claimsOf(t, uccsOf(t, cert))
@@ -111,10 +108,7 @@ func TestE2EAttestCertCarriesTheApplicationsEvidence(t *testing.T) {
 // possession template has no place for a claims set without it, and the
 // firmware never fabricates the application's bytes.
 func TestFirmwareAttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement(t *testing.T) {
-	p, ok := certServing(t)
-	if !ok {
-		return
-	}
+	p := certServing(t)
 	cert, ev := cliAttestCertJSON(t, p.serial, aliasNonce(0x52))
 	assert.Equal(t, p.fwHash(t), ev, "app_evidence")
 	_, _, measured := claimsOf(t, uccsOf(t, cert))
@@ -124,10 +118,7 @@ func TestFirmwareAttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement(t *
 // THE POINT OF THE REAL CURVE: the alias certificate's signature verifies, under
 // the DeviceID public key, with the standard library.
 func TestFirmwareAttestCertSignatureVerifiesUnderTheDeviceIDKey(t *testing.T) {
-	p, ok := certServing(t)
-	if !ok {
-		return
-	}
+	p := certServing(t)
 	cert := parseCert(t, cliAttestCert(t, p.serial, aliasNonce(0x40)))
 	deviceID := p.deviceID(t)
 
@@ -147,10 +138,7 @@ func TestFirmwareAttestCertSignatureVerifiesUnderTheDeviceIDKey(t *testing.T) {
 }
 
 func TestFirmwareAttestCertSignatureRejectsTamperingAndOtherKeys(t *testing.T) {
-	p, ok := certServing(t)
-	if !ok {
-		return
-	}
+	p := certServing(t)
 	cert := parseCert(t, cliAttestCert(t, p.serial, aliasNonce(0x40)))
 
 	// One flipped bit anywhere in the signed bytes.
@@ -168,10 +156,7 @@ func TestFirmwareAttestCertSignatureRejectsTamperingAndOtherKeys(t *testing.T) {
 }
 
 func TestFirmwareAttestCertDiffersWithTheNonce(t *testing.T) {
-	p, ok := certServing(t)
-	if !ok {
-		return
-	}
+	p := certServing(t)
 	d := p.serial
 	a := cliAttestCert(t, d, aliasNonce(0x10))
 	b := cliAttestCert(t, d, aliasNonce(0x11))
@@ -201,10 +186,7 @@ func TestE2EAttestCertSameNonceIsReproducible(t *testing.T) {
 }
 
 func TestFirmwareAttestEvidenceFrame(t *testing.T) {
-	p, ok := evidenceServing(t)
-	if !ok {
-		return
-	}
+	p := evidenceServing(t)
 	d := p.serial
 	nonce := attestNonce(0x5a)
 
@@ -224,10 +206,7 @@ func TestFirmwareAttestEvidenceFrame(t *testing.T) {
 }
 
 func TestFirmwareEvidenceFrameRejectsTamperingAndOtherKeys(t *testing.T) {
-	p, ok := evidenceServing(t)
-	if !ok {
-		return
-	}
+	p := evidenceServing(t)
 	ev := cliAttest(t, p.serial, attestNonce(0x5a))
 	pub := p.deviceID(t)
 	require.True(t, verifyFrame(pub, ev), "the untouched frame does not verify")
@@ -255,10 +234,7 @@ func TestFirmwareEvidenceFrameRejectsTamperingAndOtherKeys(t *testing.T) {
 // certificate names it as its subject, so one public key checks the frame and
 // the certificate alike. A peer pinning one key per device needs exactly this.
 func TestFirmwareEvidenceAndCertificateShareOneKey(t *testing.T) {
-	p, ok := certServing(t)
-	if !ok {
-		return
-	}
+	p := certServing(t)
 	d := p.serial
 	ev := cliAttest(t, d, attestNonce(0x33))
 	subject, ok := parseCert(t, cliAttestCert(t, d, aliasNonce(0x33))).PublicKey.(*ecdsa.PublicKey)
@@ -268,10 +244,7 @@ func TestFirmwareEvidenceAndCertificateShareOneKey(t *testing.T) {
 
 func TestFirmwareElementReportsItsRootOfTrust(t *testing.T) {
 	// A board without the alias certificate is not on the element tier.
-	p, ok := certServing(t)
-	if !ok {
-		return
-	}
+	p := certServing(t)
 	c := cliCaps(t, p.serial)
 	assert.Equal(t, tfw.CryptoSecureElement, c.CryptoTier)
 	assert.True(t, c.Algorithms.Can(tfw.AlgECDSAP256SHA256), "algorithms = %v, want ECDSA P-256", c.Algorithms)
@@ -280,11 +253,9 @@ func TestFirmwareElementReportsItsRootOfTrust(t *testing.T) {
 
 func TestFirmwareBlankElementRefusesToAttest(t *testing.T) {
 	// No flags: the simulator's element holds no identity, as a board's does
-	// before tfwprov. A board without the alias certificate has no element.
-	p, ok := startServing(t, tfw.FeatureAliasCert, tfw.CmdAttestCert, make([]byte, tfw.AliasNonceLen), simproc.Element)
-	if !ok {
-		return
-	}
+	// before tfwprov. A board without the alias certificate has no element, and
+	// fails the row.
+	p := startServing(t, tfw.FeatureAliasCert, simproc.Element)
 	d := p.serial
 
 	// The element is present, so the tier is honest about it...

@@ -49,6 +49,13 @@ tfw_status_t tfw_hsm_port_act(uint8_t action)
     return TFW_OK;
 }
 
+/* S3 is the engine's test's (test_hsm_engine.c); here nothing measures. */
+tfw_status_t tfw_hsm_port_measure(const tfw_hsm_set_t *set)
+{
+    (void)set;
+    return TFW_ERR_UNSUPPORTED;
+}
+
 const uint8_t *tfw_hsm_port_key(void) { return SUIT_TENANT_PUB; }
 
 #define ACTS(...)                                                         \

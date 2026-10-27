@@ -49,6 +49,10 @@ include mk/platform-bake.mk
 # ESP-IDF) and the emulator suites (mk/arch/cortex-m-targets.mk: QEMU). Never
 # in `ci`; CI runs each as its own step.
 include $(wildcard mk/arch/*-targets.mk)
+# OP-TEE on QEMU virt for go-enclave's arm-trustzone backend (#253): the
+# upstream release pin and the targets that fetch, build and boot it, under a
+# cache outside the checkout. Never in `ci`; CI runs it as its own job.
+include mk/optee.mk
 # Last: the five CI stages are made of the targets every file above defines.
 include mk/stages.mk
 

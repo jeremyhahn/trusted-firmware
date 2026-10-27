@@ -77,6 +77,26 @@ void tfw_scmi_reset(struct tfw_scmi_msg *m, uint32_t token, uint32_t domain_id,
     put32(m, reset_state);
 }
 
+void tfw_scmi_system_power_state_set(struct tfw_scmi_msg *m, uint32_t token, uint32_t flags,
+                                     uint32_t system_state)
+{
+    start(m, TFW_SCMI_PROTO_SYSTEM, TFW_SCMI_SYSTEM_POWER_STATE_SET, token);
+    put32(m, flags & TFW_SCMI_SYSTEM_GRACEFUL);   /* bits 31 to 1 reserved, zero */
+    put32(m, system_state);
+}
+
+tfw_status_t tfw_scmi_lmm_shutdown(struct tfw_scmi_msg *m, uint32_t token, uint32_t lm_id,
+                                   uint32_t flags)
+{
+    if (lm_id == 0u) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    start(m, TFW_SCMI_PROTO_LMM, TFW_SCMI_LMM_SHUTDOWN, token);
+    put32(m, lm_id);
+    put32(m, flags & TFW_SCMI_LMM_GRACEFUL);   /* bits 31 to 1 reserved, zero */
+    return TFW_OK;
+}
+
 int32_t tfw_scmi_word(const struct tfw_scmi_msg *rsp, uint32_t idx, uint32_t *out)
 {
     const uint8_t *p;
@@ -131,4 +151,28 @@ int32_t tfw_scmi_clock_rate(const struct tfw_scmi_msg *rsp, uint64_t *hz)
 int tfw_scmi_status_known(int32_t status)
 {
     return status <= TFW_SCMI_SUCCESS && status >= TFW_SCMI_IN_USE;
+}
+
+tfw_status_t tfw_scmi_system_power_status(int32_t status)
+{
+    switch (status) {
+    case TFW_SCMI_SUCCESS:            return TFW_OK;
+    case TFW_SCMI_INVALID_PARAMETERS: return TFW_ERR_RANGE;
+    case TFW_SCMI_NOT_SUPPORTED:      return TFW_ERR_UNSUPPORTED;
+    case TFW_SCMI_DENIED:             return TFW_ERR_PROTECTED_REGION;
+    case TFW_SCMI_E_TIMEOUT:          return TFW_ERR_TIMEOUT;
+    default:                          return TFW_ERR_INTERNAL;
+    }
+}
+
+tfw_status_t tfw_scmi_lmm_status(int32_t status)
+{
+    switch (status) {
+    case TFW_SCMI_SUCCESS:            return TFW_OK;
+    case TFW_SCMI_NOT_FOUND:          return TFW_ERR_UNSUPPORTED;
+    case TFW_SCMI_INVALID_PARAMETERS: return TFW_ERR_RANGE;
+    case TFW_SCMI_DENIED:             return TFW_ERR_PROTECTED_REGION;
+    case TFW_SCMI_E_TIMEOUT:          return TFW_ERR_TIMEOUT;
+    default:                          return TFW_ERR_INTERNAL;
+    }
 }

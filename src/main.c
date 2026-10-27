@@ -23,6 +23,7 @@
 #include "core/platform_id.h"
 #include "core/auth_session.h"
 #include "core/app_runner.h"
+#include "core/hsm_loop.h"
 #include "core/ota_trial.h"
 #include "core/ota_stage.h"
 
@@ -113,6 +114,7 @@ int main(void)
         tfw_sched_poll();
         tfw_sys_poll();
         tfw_app_runner_poll();
+        tfw_hsm_loop_poll();
         tfw_ota_trial_poll();
     }
 }

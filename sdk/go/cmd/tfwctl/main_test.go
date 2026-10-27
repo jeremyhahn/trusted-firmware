@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -29,6 +30,11 @@ func TestMain(m *testing.M) {
 		flag.CommandLine = flag.NewFlagSet("tfwctl", flag.ExitOnError)
 		main()
 		os.Exit(0)
+	}
+	// hw-test with no HW_TEST_RUN: the board's rows, by name (e2e_rows_test.go).
+	if err := selectBoardRows(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	os.Exit(m.Run())
 }

@@ -36,13 +36,9 @@ func startSimproc(t *testing.T, b simproc.Binary) (*simproc.Conn, *tfw.Device) {
 func TestFirmwareAppReportsItsApplication(t *testing.T) {
 	p := startPeer(t, simproc.App)
 	d := p.serial
-	// Any other answer, and every answer from the simulator, goes on to the
-	// application's report.
-	_, err := d.Do(context.Background(), tfw.CmdAppInfo, nil)
-	var st tfw.Status
-	if p.board && errorsAsStatus(err, &st) && st == tfw.StatusErrUnknownCmd {
-		return
-	}
+	// An image without an application does not know APP_INFO, and fails the
+	// row: CAPS has no bit for it.
+	requireKnown(t, d, tfw.CmdAppInfo, nil, "an application (APP_INFO)")
 	var ai tfw.AppInfo
 	cliJSON(t, d, &ai, "app")
 	// How many polls ran past their budget is the host's scheduling, not the

@@ -7,14 +7,17 @@ The tamper response of the i.MX 95 HSM appliance, enforced by our firmware on
 the SoC's Cortex-M7 so that a compromised Linux on the A55 cannot suppress it.
 Deterministic tamper signals come in; the M7 acts through NXP's System Manager
 and the EdgeLock enclave; a tenant-signed policy decides which action follows
-which signal. Implemented: slice 1, the SUIT reader for an integrated payload
-under the caller's key ([engineering.md](engineering.md), slices). The rest is
-not implemented yet.
+which signal. Implemented on the host only: slice 1, the SUIT reader for an
+integrated payload under the caller's key; slice 2, the payload reader and the
+decision engine; slice 4, the channel commands `0x76`–`0x7A`
+([engineering.md](engineering.md), slices). Nothing runs on the M7 yet; the
+slices from 3 on are in [m7-design.md](m7-design.md).
 
 | Document | What it holds |
 |---|---|
 | [`architecture.md`](architecture.md) | Every requirement of the row with its component, signal source, action path and state; the signals, the actions, the decision table, the seams and the open questions |
 | [`adr-response-policy-format.md`](adr-response-policy-format.md) | **PROPOSED**: the signed policy set and script as SUIT envelopes with an integrated payload, ES256 under the tenant's key, the floor, the payload CDDL, the check in order, and the owner's questions |
+| [`m7-design.md`](m7-design.md) | **PROPOSED**: the design laid on what row `imx95` (#49) put on main: what the row lacks, the standard for each part, who executes each response, the report, the seams, slices 3 and 5–12, and the owner's questions |
 | [`engineering.md`](engineering.md) | The invariants, the error mapping, and the test plan: host tests of the verifier and the engine, the QEMU loop, then the board; the slices |
 
 This repository owns the M7 enforcement and the signature check. The keys are

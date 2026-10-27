@@ -75,10 +75,7 @@ func csrVerifiesUnder(t *testing.T, pub *ecdsa.PublicKey, sig []byte, digestHex 
 }
 
 func TestFirmwareAttestCSRPrintsTheSignatureAsHex(t *testing.T) {
-	p, ok := csrServing(t)
-	if !ok {
-		return
-	}
+	p := csrServing(t)
 	d := p.serial
 	b, err := hex.DecodeString(csrNonceHex)
 	require.NoError(t, err)
@@ -99,10 +96,7 @@ func TestFirmwareAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
 	for i := range b {
 		b[i] = byte(i)
 	}
-	p, ok := csrServing(t)
-	if !ok {
-		return
-	}
+	p := csrServing(t)
 	cliAttestCert(t, p.serial, b)
 	sig, err := cliCSR(t, p.serial, b)
 	require.NoError(t, err)
@@ -112,10 +106,7 @@ func TestFirmwareAttestCSRSignatureVerifiesOverTheKnownDigest(t *testing.T) {
 }
 
 func TestFirmwareAttestCSRSignatureIsOverTheNonce(t *testing.T) {
-	p, ok := csrServing(t)
-	if !ok {
-		return
-	}
+	p := csrServing(t)
 	cliAttestCert(t, p.serial, aliasNonce(0x10))
 	a, err := cliCSR(t, p.serial, aliasNonce(0x10))
 	require.NoError(t, err)
@@ -131,10 +122,7 @@ func TestFirmwareAttestCSRSignatureIsOverTheNonce(t *testing.T) {
 // page request with no certificate behind it is: before any attest-cert, and
 // after one for another nonce. Nothing is printed.
 func TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt(t *testing.T) {
-	p, ok := csrServing(t)
-	if !ok {
-		return
-	}
+	p := csrServing(t)
 	d := p.serial
 	var st tfw.Status
 
@@ -243,10 +231,7 @@ func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 // caps names the feature, so a person can see before asking whether the
 // device will answer.
 func TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt(t *testing.T) {
-	p, ok := csrServing(t)
-	if !ok {
-		return
-	}
+	p := csrServing(t)
 	d := p.serial
 	assert.True(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR))
 	var out bytes.Buffer

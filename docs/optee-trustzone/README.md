@@ -4,7 +4,22 @@
 > `optee-trustzone` (future) · Scope: trusted-firmware; go-enclave (seam only,
 > [go-enclave#206](../../../../../go-enclave/issues/206)) · Last verified: 2026-10-26
 >
-> Nothing here is implemented. This page is the row's first deliverable: what is
+> Slice 2 is proven: the pin (OP-TEE 4.11.0) and `make optee-tools`,
+> `optee-qemu` and `optee-run` are in `mk/optee.mk`. On 2026-10-26, from an
+> empty `OPTEE_CACHE` on a 24-thread host, `make optee-qemu` fetched the release
+> and its toolchains and built the stack in 1154 s (19 min 14 s). `make optee-run
+> OPTEE_GUEST_CMD='xtest -l 0'` booted TF-A v2.14.0, U-Boot 2025.07, Linux and
+> OP-TEE OS on QEMU `virt` and ran `xtest -l 0` in 320 s: 149 test cases and
+> 43508 subtests, 0 failed, 0 skipped, guest status 0. `make optee-tools` names
+> every missing host package before it fetches anything.
+>
+> Slice 3 is written, proven on the host and not yet in the guest: the TA
+> (`optee/ta/`, `GET_INFO` and `GET_RANDOM`), `tfw-ta-check` (`optee/check/`),
+> `optee/testdata/vectors.h` and `make integration-test-optee`. The TA's
+> dispatch and the check pass `test_optee_ta` on the host; the guest run is not yet done.
+> The CI job (slice 4) is not written.
+>
+> This page is the row's first deliverable: what is
 > composed, what this project adds, the trusted application's interface, the
 > test split and the slices. SPEC rows change at merge.
 
@@ -34,8 +49,9 @@ composes. It is not this repository.
 ## Standards first
 
 Each standard is implemented as written; nothing is designed in its place.
-None is on file in [`../reference/`](../reference/README.md) yet (see "To file").
-
+Each is on file in [`../reference/`](../reference/README.md): RFC 9562 is copied
+there, and the GlobalPlatform specifications are listed by title, revision and
+URL. The pinned release declares Internal Core API v1.3.1.\n
 | Standard | Used for | Licence and file |
 |---|---|---|
 | GlobalPlatform, *TEE Client API Specification* v1.0 (GPD_SPE_007) | The normal-world API the test client and go-enclave's backend call: `TEEC_InitializeContext`, `TEEC_OpenSession`, `TEEC_InvokeCommand`, the `TEEC_Operation` parameter types, `TEEC_UUID`. OP-TEE's `libteec` implements it | GP licence forbids a copy: title and URL <https://globalplatform.org/specs-library/tee-client-api-specification/> |
@@ -60,12 +76,21 @@ The pin is one OP-TEE release tag, recorded in `mk/optee.mk` with the
 manifest's commit, and the GP Internal Core API version that release declares.
 Slice 2 sets it to the newest release on the day it lands; this page is updated
 in the same PR. A newer release is a PR of its own that re-runs every test
-below. Sources are fetched by the target into `build/optee/`; nothing is
+below. Sources are fetched by the target into `OPTEE_CACHE`, outside the
+checkout (default `$(HOME)/.cache/trusted-firmware/optee`, one directory per
+release), so a clean of this repository never refetches the multi-gigabyte
+stack and CI can cache it; a cache inside the checkout is refused. Nothing is
 vendored and no upstream file is patched.
 
+**The pin, as slice 2 set it on 2026-10-26:** release `4.11.0` (the newest tag
+on the manifest), manifest commit `b95d496b47c6548e3e196adad75e78bde115a18c`,
+every repository at the revision `qemu_v8.xml` names; GP Internal Core API
+v1.3.1; Google's `repo` tool at `v2.70`
+(`46e9866ca0f161604bd45a0c3b7c7887c9415dcb`). Each commit is checked after the
+fetch, and a mismatch fails it.
+
 Upstream sources are listed in `docs/reference/README.md`, "Not
-redistributable" style (title, revision, URL), when slice 2 pins them. optee_os
-and optee_client are BSD-2-Clause; they are fetched, not copied.
+redistributable" style (title, revision, URL). optee_os\nand optee_client are BSD-2-Clause; they are fetched, not copied.
 
 ## What this project contributes
 
@@ -86,9 +111,15 @@ and optee_client are BSD-2-Clause; they are fetched, not copied.
 | `make optee-run` | Boots QEMU `virt` with the stack, headless. `OPTEE_SHARE=<dir>` mounts a host directory in the guest over virtio-9p; `OPTEE_GUEST_CMD=<cmd>` runs a command there after `tee-supplicant` starts, and the target exits with that command's status |
 | `make integration-test-optee` | `optee-run` with `xtest` (upstream's smoke subset) and then `tfw-ta-check`. Fails on any failure of either |
 
-How the TA reaches the guest (Buildroot rootfs overlay, or an early TA linked
-into optee_os) is chosen in slice 3 from what the pinned `build` supports
-without a patch.
+The TA reaches the guest through a second Buildroot rootfs overlay, chosen in
+slice 3 because the pinned `build` supports it without a patch: `qemu_v8.mk`
+sets `BR2_ROOTFS_OVERLAY` with a plain `=` and `common.mk` hands every `BR2_*`
+variable to Buildroot, so `mk/optee.mk` passes upstream's overlay and then
+`$(OPTEE_CACHE)/<release>/tfw/overlay`. `make optee-qemu` runs upstream's `all`
+twice: the first pass exports the TA dev kit and stages `libteec`; the TA and
+`tfw-ta-check` build against those into the overlay (`/lib/optee_armtz/<uuid>.ta`,
+`/usr/bin/tfw-ta-check`); the second pass puts the overlay in the root
+filesystem. An early TA would need `optee_os` rebuilt for every TA change.
 
 ## The trusted application
 
@@ -146,6 +177,7 @@ go-enclave's choice; the TA only sees GP calls.
 |---|---|---|
 | `xtest` smoke subset: the composed stack works | upstream OP-TEE; we only run it | here, `make integration-test-optee` |
 | `tfw-ta-check`: each command against the literal vectors, including unknown id and bad parameters | this project | here, `make integration-test-optee` |
+| `test_optee_ta`: the TA's entry points and dispatch against the vectors, and `tfw-ta-check` against the TA and every broken answer, over host doubles of the GP headers (`test/mock/gp/`, `test/mock/gp_bridge.c`) | this project | here, `make host-test` and `make coverage` |
 | `backendtest` on `arm-trustzone`: the enclave contract | go-enclave | go-enclave's CI, calling `make optee-run` at a trusted-firmware tag (open question 4) |
 
 This project runs no go-enclave code in its own gate, and go-enclave writes no
@@ -170,9 +202,9 @@ install step, and the job fails. A test that cannot run is a failure.
 
 | go-enclave needs | This project provides | Where |
 |---|---|---|
-| A TA to call | the TA, UUID and command table above | slice 3 |
+| A TA to call | the TA, UUID and command table above | slice 3, written: `optee/ta/`; tests `test_optee_ta` (host) and `tfw-ta-check` in `make integration-test-optee` (guest, not yet run) |
 | A secure world on QEMU `virt` | `make optee-run`, with `OPTEE_SHARE` and `OPTEE_GUEST_CMD` | slices 2 and 3 |
-| A stable contract | the UUID and literal vectors; ids extend, never renumber | slice 3 |
+| A stable contract | the UUID and literal vectors; ids extend, never renumber | slice 3, written: `optee/testdata/vectors.h`, pinned by `test_optee_ta` and `scripts/test_optee_mk.py` (`OpteeTa`) |
 | A version to pin | a trusted-firmware tag that carries the target | slice 4 |
 
 Before slice 3 starts, go-enclave#206 confirms the command set, or names what

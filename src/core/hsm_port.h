@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "tfw/status.h"
+#include "hsm.h"
 
 /* Perform action A1-A6 (hsm.h, TFW_HSM_ACT_*). TFW_OK once it is done; for
  * keys-wipe, only once the enclave's strict operation is acknowledged (A4).
@@ -24,5 +25,20 @@ tfw_status_t tfw_hsm_port_act(uint8_t action);
  * taken from the channel, so the A55 cannot name the key its own policy is
  * checked under. */
 const uint8_t *tfw_hsm_port_key(void);
+
+/* The signals the SoC senses itself, read by the loop (hsm_loop.c) on every
+ * pass: bit (n - 1) set while signal n's line is asserted (hsm.h,
+ * TFW_HSM_SIG_*). The loop raises a signal on its rising edge only, so a line
+ * held asserted is one event. A port with no line of its own returns 0. */
+uint8_t tfw_hsm_port_sense(void);
+
+/* S3, measurement failure (architecture.md section 2): compare what the SoC's
+ * root of trust attests about this boot with the expected values `set`
+ * carries (policy-set key 3), called when a set carrying any is loaded.
+ * TFW_OK when every one matches. TFW_ERR_UNSUPPORTED when the SoC cannot
+ * measure yet: nothing is raised. Anything else is a mismatch, an expected
+ * value the port cannot compare, or a measurement that failed, and the
+ * engine raises S3. */
+tfw_status_t tfw_hsm_port_measure(const tfw_hsm_set_t *set);
 
 #endif

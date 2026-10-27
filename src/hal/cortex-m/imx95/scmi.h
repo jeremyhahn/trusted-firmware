@@ -18,6 +18,8 @@
 
 #include <stdint.h>
 
+#include "tfw/status.h"
+
 /* The message header (section 4.1.2, Table 3): message_id in bits 7 to 0,
  * message_type in 9 to 8, protocol_id in 17 to 10, token in 27 to 18; bits
  * 31 to 28 are reserved and zero. A response carries its command's header. */
@@ -34,6 +36,7 @@
 /* Protocol identifiers (section 4.1.2, Table 2). */
 #define TFW_SCMI_PROTO_BASE  0x10u
 #define TFW_SCMI_PROTO_POWER 0x11u
+#define TFW_SCMI_PROTO_SYSTEM 0x12u
 #define TFW_SCMI_PROTO_CLOCK 0x14u
 #define TFW_SCMI_PROTO_RESET 0x16u
 
@@ -45,6 +48,29 @@
 #define TFW_SCMI_CLOCK_RATE_GET      0x6u   /* section 4.6.2.8 */
 #define TFW_SCMI_CLOCK_CONFIG_SET    0x7u   /* section 4.6.2.9 */
 #define TFW_SCMI_RESET               0x4u   /* section 4.8.2.6 */
+#define TFW_SCMI_SYSTEM_POWER_STATE_SET 0x3u   /* section 4.4.2.5 */
+
+/* SYSTEM_POWER_STATE_SET's flags, bit 0: 1 a graceful request, 0 a forceful
+ * one; bits 31 to 1 are reserved and zero. Its system_state: 0 shutdown, 1 cold
+ * reset, 2 warm reset, 3 power up, 4 suspend; 5 to 0x7FFFFFFF reserved,
+ * 0x80000000 and above the vendor's (section 4.4.2.5). */
+#define TFW_SCMI_SYSTEM_FORCEFUL    0x0u
+#define TFW_SCMI_SYSTEM_GRACEFUL    0x1u
+#define TFW_SCMI_SYSTEM_SHUTDOWN    0x0u
+#define TFW_SCMI_SYSTEM_COLD_RESET  0x1u
+#define TFW_SCMI_SYSTEM_WARM_RESET  0x2u
+#define TFW_SCMI_SYSTEM_POWER_UP    0x3u
+#define TFW_SCMI_SYSTEM_SUSPEND     0x4u
+
+/* NXP's Logical Machine Management protocol, a vendor protocol of the System
+ * Manager: imx-sm rel_imx_sm_2026q3, sm/rpc/scmi/proto.md ("Lmm: LMM_SHUTDOWN")
+ * and components/scmi/scmi_lmm.h (SCMI_LmmShutdown), on file in
+ * docs/reference/imx-sm/. LMM_SHUTDOWN powers an LM off; its flags, bit 0: 1 a
+ * graceful request, 0 a forceful one; bits 31 to 1 reserved and zero. */
+#define TFW_SCMI_PROTO_LMM         0x80u
+#define TFW_SCMI_LMM_SHUTDOWN      0x6u
+#define TFW_SCMI_LMM_FORCEFUL      0x0u
+#define TFW_SCMI_LMM_GRACEFUL      0x1u
 
 /* POWER_STATE_SET's power_state: the generic ON and OFF states (section
  * 4.3.1, Table 6: bit 30 the state type, 0 on). */
@@ -110,6 +136,15 @@ void tfw_scmi_power_state_set(struct tfw_scmi_msg *m, uint32_t token, uint32_t d
                               uint32_t power_state);
 void tfw_scmi_reset(struct tfw_scmi_msg *m, uint32_t token, uint32_t domain_id,
                     uint32_t flags, uint32_t reset_state);
+/* `flags` and `system_state` as the specification numbers them; reserved
+ * flag bits are cleared, as they must be zero. */
+void tfw_scmi_system_power_state_set(struct tfw_scmi_msg *m, uint32_t token, uint32_t flags,
+                                     uint32_t system_state);
+/* LMM_SHUTDOWN of `lm_id`, reserved flag bits cleared. An lm_id of zero is
+ * the build's "no id" (as the board profile's ids are): TFW_ERR_UNSUPPORTED,
+ * and `m` is left as it was. Else TFW_OK with the message built. */
+tfw_status_t tfw_scmi_lmm_shutdown(struct tfw_scmi_msg *m, uint32_t token, uint32_t lm_id,
+                                   uint32_t flags);
 
 /* The status of `rsp` as the reply to `cmd`: TFW_SCMI_E_HEADER unless its
  * header is the command's, TFW_SCMI_E_SHORT without a status word, else the
@@ -130,5 +165,24 @@ int32_t tfw_scmi_clock_rate(const struct tfw_scmi_msg *rsp, uint64_t *hz);
 /* 1 for a status this version of the specification numbers, else 0: a later
  * one reads as unrecognised, never as another. */
 int tfw_scmi_status_known(int32_t status);
+
+/* SYSTEM_POWER_STATE_SET's result as this firmware's status. The statuses the
+ * specification lists for the command (section 4.4.2.5), with SUCCESS (section
+ * 4.1.4): SUCCESS TFW_OK, INVALID_PARAMETERS (a state not valid) TFW_ERR_RANGE,
+ * NOT_SUPPORTED (a state not supported for the caller) TFW_ERR_UNSUPPORTED,
+ * DENIED (suspend while another application processor runs or idles)
+ * TFW_ERR_PROTECTED_REGION.
+ * The client's TFW_SCMI_E_TIMEOUT is TFW_ERR_TIMEOUT. Anything else, a status
+ * the command does not list or one no version numbers, is unrecognised:
+ * TFW_ERR_INTERNAL, never one of the four. */
+tfw_status_t tfw_scmi_system_power_status(int32_t status);
+
+/* LMM_SHUTDOWN's result as this firmware's status. The statuses imx-sm lists
+ * for the command (scmi_lmm.h, SCMI_LmmShutdown): SUCCESS TFW_OK, NOT_FOUND
+ * (no such LM) TFW_ERR_UNSUPPORTED, INVALID_PARAMETERS (the LM is the
+ * caller's own) TFW_ERR_RANGE, DENIED (an agent not permitted to manage it)
+ * TFW_ERR_PROTECTED_REGION. The client's TFW_SCMI_E_TIMEOUT is
+ * TFW_ERR_TIMEOUT. Anything else is unrecognised: TFW_ERR_INTERNAL. */
+tfw_status_t tfw_scmi_lmm_status(int32_t status);
 
 #endif /* TFW_CM_IMX95_SCMI_H */

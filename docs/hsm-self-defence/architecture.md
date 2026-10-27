@@ -23,15 +23,20 @@ document and section.
   (#14, "ref ADR" below); [`adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md)
   (#15, "trust ADR"); [`../ota/adr-ota-image-format-and-trust.md`](../ota/adr-ota-image-format-and-trust.md)
   decision 12 ("OTA ADR d12"); `docs/reference/`.
-- **NXP, in trusted-imx95's `docs/references/`: not reached.** No copy was
-  available to the lanes that wrote this page, so UM12527, RM00284, AN14471 and
-  the CST were not read for it, and every vendor fact here is marked "to
-  confirm". Facts from UM12527 Rev. 1.0 and RM00284
-  Rev. 4.5 are cited **via OTA ADR d12**, where they were checked under #52.
-  OTA ADR d12 records that AN14471 covers the i.MX RT1170, not the i.MX 95, so
-  nothing is cited from it; the CST signs AHAB containers, which are
-  trusted-imx95's. What this page would have read is listed against each open
-  question (section 8).
+- **NXP, what section 8 was answered from:** RM00284 Rev. 4.5 (questions 4,
+  5, 6, 12 and 17) and UM12527 Rev. 1.0 (questions 1, 10 and 11), both read
+  under #50 and listed in the next bullet; a row in sections 1a, 2 and 3 that
+  is still open names the section 8 question that holds it. Facts checked
+  under #52 are cited **via OTA ADR d12**, and question 18 records their
+  re-check against RM00284. AN14471 was not read: OTA ADR d12 records that it
+  covers the i.MX RT1170, not the i.MX 95, so nothing is cited from it. The
+  CST was not read either (question 18); it signs AHAB containers, which are
+  trusted-imx95's.
+- **NXP, read for section 8 under #50 (not copied):** *EdgeLock Enclave
+  Hardware Security Module API*, RM00284 Rev. 4.5,
+  <https://www.nxp.com/docs/en/reference-manual/RM00284.pdf>;
+  *FRDM-IMX95-PRO Board User Manual*, UM12527 Rev. 1.0,
+  <https://www.nxp.com/docs/en/user-manual/UM12527.pdf>.
 - **Missing and not guessed:** the i.MX 95 Reference Manual (IMX95RM) and
   Security Reference Manual (IMX95SRM), both under NDA; the System Manager
   interface document; the tamper pin and fuse map. Every fact the design needs
@@ -141,7 +146,7 @@ suppress it.
 |---|---|---|---|---|
 | S1 | EdgeLock tamper pins | The SoC's tamper logic | **Open:** an interrupt routed to the M7, a System Manager notification over SCMI, or an enclave event (questions 1, 2) | M7-observed, if routed to the M7 or the System Manager |
 | S2 | AHAB failure | The ROM and the enclave, authenticating a container | A failure of the M7's own container means the M7 never runs, and the response is the ROM's. For a container loaded later for the A55, the result goes to the core that asked: **open** whether and how the M7 hears of it (question 6) | M7-observed only if the enclave or the System Manager tells the M7 |
-| S3 | Measurement failure | The M7 itself, at boot: the enclave's device attestation reports the lifecycle, the firmware hash and the OEM SRK revocation status (RM00284 §3.12, §3.13, via OTA ADR d12, to confirm), compared against the expected values in the policy | A call over the M7's messaging unit to the enclave, **if the M7 has one** (question 3; OTA ADR d12, "needed from IMX95RM") | M7-observed |
+| S3 | Measurement failure | The M7 itself, at boot: the enclave's device attestation reports the lifecycle, the enclave firmware's hash, the OEM SRK hash and the committed SRK revocation bits (RM00284 Rev. 4.5 §3.12, p67–69; §3.13, p69–71), compared against the expected values in the policy. **Open:** the signing key, its certificate chain and the report layout; no field hashes the A55's image (question 17) | A call over the M7's messaging unit to the enclave, **if the M7 has one** (question 3; OTA ADR d12, "needed from IMX95RM"). Any open session may call it, with no domain or messaging-unit restriction stated (RM00284 Rev. 4.5 §3.12.4.1, p69) | M7-observed |
 | S4 | IMA violation | The A55 detector, from the IMA log (outside the project) | A message on the inter-core channel | A55-reported |
 | S5 | Hotplug | A USB, SD-card or PCIe event | Through Linux: a message on the channel. Directly: a pin the System Manager assigns to the M7, **if one exists** (question 11) | A55-reported, or M7-observed per event |
 | S6 | Heartbeat loss | The M7's own timer | No heartbeat message within the policy's period (section 5) | M7-observed. A compromised A55 can force it (which only locks down) but can also keep beating: a heartbeat proves liveness, not integrity |
@@ -164,8 +169,8 @@ state ([`../wire-protocol/api.md`](../wire-protocol/api.md)).
 |---|---|---|---|
 | A1 | PHYs off: the network is cut | A PHY reset line or power domain, through the System Manager | **Open:** which line or domain holds the board's Ethernet PHYs off (question 10), and whether the M7's agent may drive it (question 7) |
 | A2 | Power domains off: the A55 stops | SCMI power-domain management or the System Manager's logical-machine stop, as an SCMI agent (Arm DEN0056; `imx-sm`) | **Open:** which protocol and which permission the System Manager configuration gives the M7 (question 7) |
-| A3 | Keys locked | The enclave | **Open.** The enclave identifies a caller by its domain ID and messaging unit (RM00284 §3.22.1, via OTA ADR d12, to confirm), and go-xkms opens its key store from the A55. Whether the M7's domain can disable or close it is question 4. Until it is answered, A3 is A2: with the A55 off, no session uses the keys |
-| A4 | Key zeroisation | The enclave's key or key-group deletion | **Open:** the call (question 5). Cited: the enclave writes the key store to NVM only after a strict operation (RM00284 §2.4, via OTA ADR d12, to confirm), so a wipe that is not committed by a strict operation could come back from NVM at the next boot. The wipe is defined as complete only once the strict operation is acknowledged |
+| A3 | Keys locked | The enclave | **Open; partly settled (question 4).** A key store is bound to the domain ID and messaging unit that created it (RM00284 Rev. 4.5 §3.22.1, p98), and go-xkms opens its key store from the A55. Deleting or managing keys needs a handle that only the key store's opener obtains (§3.2, p12; §3.2.6.7, p22); RM00284's only "lock" is key-group cache lockdown (§3.2.3.12, p17); and no call closes another caller's key store (§3.22.5.2, p100). So no documented call lets the M7's domain lock or close it. **Open:** whether a cross-domain open is refused outright, and what the shared key-store flag permits (§3.22.3.2, p99). Until it is answered, A3 is A2: with the A55 off, no session uses the keys |
+| A4 | Key zeroisation | The enclave's key or key-group deletion | **Settled for keys** (question 5): `hsm_delete_key` with its strict-operation flag, bit 7 (RM00284 Rev. 4.5 §3.2.6.1, p20; §3.2.3.1, p15). An update is durable only once the enclave acknowledges a strict operation, and anything else is lost at reset (§2.4.2, p4), so a wipe that is not committed by a strict operation could come back from NVM at the next boot. The wipe is defined as complete only once the strict operation is acknowledged. **Open:** how to request a key-group delete (§3.2.6.7, p22), and the format of the signed reprovisioning message that wipes a whole store (§3.22.5.3, p100) (question 5); and whether the M7 can reach the A55's key store at all (A3, question 4) |
 | A5 | Shutdown | SCMI system power, through the System Manager | **Open:** permission for the M7's agent (question 7) |
 | A6 | Record | The M7 keeps what it saw and did, for go-trusted-platform to read after recovery | **Open:** the M7 has no non-volatile store of its own (ref ADR open question 4; question 12) |
 
@@ -272,20 +277,53 @@ Each names the document that answers it. The policy format's own questions
 are in the ADR; 13 and 14 here are its questions 1 and 5.
 
 1. **Tamper pins:** how many, which pins on the board, how they are armed,
-   whether arming burns fuses. IMX95SRM (tamper chapter), the fuse map;
-   UM12527 (not read here).
+   whether arming burns fuses. **Board part answered** (UM12527 Rev. 1.0
+   §2.20, Table 16, p23): two pins, J6 pins 1 and 2, which ship as I2C4
+   (reserved for the LCD panel) and become tamper inputs only after a
+   resistor rework (R625 and R626 removed, R623 and R624 fitted). UM12527
+   names no SoC tamper pad, polarity, active or passive mode or arming, and
+   does not say what the rework costs I2C4's other user, the U17 expander
+   (Table 9, p13). **Open:** the pads, arming and fuses. IMX95SRM (tamper
+   chapter), the fuse map, the board schematic.
 2. **How a tamper event reaches the M7:** interrupt, SCMI notification or
    enclave event. IMX95RM (interrupt map), the System Manager interface
    document, IMX95SRM.
 3. **Whether the M7 has a messaging unit to the enclave.** IMX95RM (open since
    OTA ADR d12).
 4. **Whether the M7's domain can lock or delete keys in a key store go-xkms
-   opened from the A55.** RM00284 (key store and key management chapters; not
-   read here), IMX95SRM.
+   opened from the A55.** **Partly answered** (RM00284 Rev. 4.5): a key store
+   is bound to the domain ID and messaging unit that created it, plus an
+   optional nonce (§3.22.1, p98; §3.22.2.1, p98); deleting a key or managing
+   a key group needs a key-management handle, which only a key-store handle
+   yields (§3.2, p12; §3.2.6.7, p22); and one key-store service at a time
+   may be open on a key store (§3.22.5.1, p100). A caller on another domain
+   or messaging unit, such as the M7's, should therefore fail key-store
+   authentication (`HSM_KEY_STORE_AUTH`, §3.41, p141) and never reach a
+   delete. "Lock" in RM00284 means only key-group cache lockdown (§3.2.3.12,
+   p17), and no call closes another caller's key store (§3.22.5.2, p100).
+   **Not documented, so open:** that a cross-domain open is refused
+   outright; what `HSM_SVC_KEY_STORE_FLAGS_SHARED` permits and to whom
+   (§3.22.3.2, p99); how the per-store session count (§3.22.2.3, p98) fits
+   one service per store; whether a second opener is refused while the A55
+   holds the service. IMX95SRM.
 5. **The deletion call, and the strict operation that makes a wipe durable.**
-   RM00284 (key management; §2.4 cited via OTA ADR d12, to confirm).
+   **Answered for keys** (RM00284 Rev. 4.5): `hsm_delete_key` with flag bit 7,
+   `HSM_OP_DEL_KEY_FLAGS_STRICT_OPERATION` (§3.2.6.1, p20; §3.2.3.1, p15).
+   An update is durable only once the enclave acknowledges a strict
+   operation, and anything else is lost at reset (§2.4.2, p4); closing the
+   key-store service drops whatever was not written (§3.22.5.2, p100).
+   **Not documented, so open:** how to request a key-group delete:
+   `hsm_manage_key_group` lists deletion (§3.2.6.7, p22) but none of its
+   flags selects it, and its strict flag has no description (§3.2 macro
+   list, p8–9). Wiping a whole store needs a signed reprovisioning message
+   (§3.22.1, p98; §3.22.5.3, p100) whose format RM00284 does not give.
 6. **How the M7 hears of an AHAB failure of a container loaded for the A55.**
-   RM00284 (not read here), IMX95RM (AHAB chapter).
+   RM00284 Rev. 4.5 does not mention AHAB. The nearest mechanism is
+   `hsm_get_event` (§3.30, p110–111): the enclave logs up to eight events
+   since power-on, each tagged with the command and the messaging unit (RTD
+   or APPS) it concerns, and any session can poll the log. RM00284 does not
+   say an AHAB failure is logged, lists no event codes and offers no push
+   notification. **Open:** IMX95RM (AHAB chapter).
 7. **Which SCMI protocols and resources the M7's agent may use**: A55 power
    domains or logical machine, PHY lines, system shutdown. The System Manager
    interface document; trusted-imx95's configuration.
@@ -295,12 +333,28 @@ are in the ADR; 13 and 14 here are its questions 1 and 5.
 9. **The A55–M7 channel:** which messaging unit and shared memory, and who
    assigns them. IMX95RM (MU chapter), trusted-imx95. What it carries is
    settled (slice 4, §2): the wire-protocol commands `0x76`–`0x7A`; only the
-   transport is open.
-10. **How the Ethernet PHYs are held off.** UM12527 (not read here), IMX95RM.
-11. **Which hotplug events the M7 can see without Linux.** UM12527, IMX95RM.
+   transport is open. With the owner: needs IMX95RM and IMX95SRM (#257).
+10. **How the Ethernet PHYs are held off.** **What UM12527 gives** (Rev. 1.0):
+    the two PHYs (U54, U56) run from the VDD_3V3 rail, which comes up with
+    every other rail at power-on (§2.2, Table 6, p11; §2.2.1, p11), and share
+    ENET2's MDIO (§2.18, p21). It names no PHY reset line, power switch or
+    hold-off pin, and gives no expander pin assignments (§2.5, Table 9,
+    p12–13). **Open:** the board schematic, IMX95RM.
+11. **Which hotplug events the M7 can see without Linux.** **What UM12527
+    gives** (Rev. 1.0): no SoC GPIO, interrupt or presence signal for the
+    microSD slot (no card detect, §2.10, p14), for USB (VBUS is managed by
+    the PTN5110 and power switches on I2C3, whose alert pin is not described;
+    §2.14, Table 14, p18; Table 9, p13) or for M.2 (sideband signals are
+    module-dependent; §2.11, p14; §2.12, p15). J17 pins 9 and 10 are spare
+    expansion GPIOs (§2.20, Table 17, p24). It says nothing on which domain
+    owns any pin. **Open:** the board schematic, IMX95RM.
 12. **Durable storage for the lockdown latch, the policy floor and the record**,
-    on an M7 with no NVM of its own. IMX95SRM, IMX95RM; RM00284 §3.8 rules out
-    enclave data storage for the floor.
+    on an M7 with no NVM of its own. IMX95SRM, IMX95RM. RM00284 Rev. 4.5 §3.8
+    (p52–55) defines enclave data storage but mentions no core, and RM00284
+    never names the M7, so it rules nothing out for the M7; the nearest text
+    tracks storage status per messaging unit (§3.22.5.5, p101). Data storage
+    is unfit for the floor because it claims no roll-back protection (OTA
+    ADR d12). With the owner: needs IMX95RM and IMX95SRM (#257).
 13. **The payload CDDL, and whether a script is a list of actions or code.**
     go-trusted-platform's `hsm-device-lifecycle` row; the owner.
 14. **In-band rotation of the tenant key.** go-trusted-platform's
@@ -318,8 +372,20 @@ are in the ADR; 13 and 14 here are its questions 1 and 5.
     the signature check (H20). Only its tests build it until slice 3 links it
     on QEMU.
 17. **The expected values S3 compares, and whether device attestation is
-    callable from the M7.** RM00284 §3.12, §3.13 (via OTA ADR d12, to confirm); IMX95RM.
-18. **The trusted-imx95 references themselves:** UM12527, RM00284 and the CST
-    were not read for this page (no route to the forge). The next slice that
-    reaches them re-checks every "via OTA ADR d12" citation here.
+    callable from the M7.** **Partly answered** (RM00284 Rev. 4.5): the
+    signed attestation, over a caller nonce of 4 or 16 bytes, reports the
+    lifecycle (LMDA), the ROM-patch hash, the first 256 bits of the installed
+    enclave firmware's hash, the OEM SRK hash and the committed SRK
+    revocation bits (§3.12, p67–69); `hsm_dev_getinfo` returns the same
+    fields unsigned and without a nonce (§3.13, p69–71). Any caller with an
+    open session may call it, and no domain, messaging-unit or key-store
+    restriction is stated (§3.12.4.1, p69), so the M7 can if it has a
+    messaging unit (question 3). **Open:** the signing key, its certificate
+    chain and the `info_buf` layout; nothing in it hashes the OEM or A55
+    image, and "installed FW" is not defined further. IMX95RM.
+18. **The trusted-imx95 references themselves:** the CST was not read for
+    this page. The "via OTA ADR d12" citations were re-checked under #50
+    against RM00284 Rev. 4.5: §2.4 (fuller in §2.4.2), §3.12, §3.13 and
+    §3.22.1 (p98) are confirmed; §3.8 did not support the claim cited for it
+    and question 12 is corrected.
 19. **The name of go-xkms's seam row for this one.** go-xkms's SPEC.

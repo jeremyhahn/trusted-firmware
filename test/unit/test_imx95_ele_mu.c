@@ -1923,6 +1923,107 @@ static void test_a_generated_key_signs_exports_and_verifies(void)
     TEST_ASSERT_EQUAL_HEX32(0x17110206u, m->ele.req[0]);
 }
 
+/* A delete-key layout for the tests only: no source this project holds gives
+ * the real one (board_profile.h), so the id and words here pin nothing of
+ * the enclave's, only that the client places each field where it is told. */
+static const struct tfw_ele_del_layout del5 = { 0x99u, 5u, 2u, 1u, 2u, 3u, 0u };
+
+static void del_reply(void)
+{
+    reply[0] = 0xE1990206u;
+    reply[1] = 0x000000D6u;
+    reply_n  = 2u;
+}
+
+static void test_a_good_delete_is_strict_and_acknowledged(void)
+{
+    uint32_t status = 0u;
+
+    del_reply();
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_key_delete(&chan, &del5, 0x4B3D0001u, 0x00000007u, &status));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(5u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_HEX32(0x17990506u, m->ele.req[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x4B3D0001u, m->ele.req[1]);   /* key management handle */
+    TEST_ASSERT_EQUAL_HEX32(0x00000007u, m->ele.req[2]);   /* key id */
+    TEST_ASSERT_EQUAL_HEX32(0x00000080u, m->ele.req[3]);   /* strict operation, bit 7 */
+    TEST_ASSERT_EQUAL_HEX32(0x17990506u ^ 0x4B3D0001u ^ 0x00000007u ^ 0x00000080u, m->ele.req[4]);
+    TEST_ASSERT_EQUAL_HEX32(0x000000D6u, status);
+}
+
+static void test_a_delete_places_the_strict_flag_where_the_layout_says(void)
+{
+    static const struct tfw_ele_del_layout l = { 0x99u, 4u, 2u, 2u, 1u, 3u, 16u };
+
+    del_reply();
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_key_delete(&chan, &l, 0x4B3D0001u, 0x00000007u, NULL));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(4u, m->ele.req_len);           /* four words: no CRC */
+    TEST_ASSERT_EQUAL_HEX32(0x00000007u, m->ele.req[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x4B3D0001u, m->ele.req[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x00800000u, m->ele.req[3]);
+}
+
+static void test_a_refused_delete_is_a_status_error(void)
+{
+    uint32_t status = 0u;
+
+    del_reply();
+    reply[1] = 0x00000029u;
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_STATUS,
+                            tfw_ele_key_delete(&chan, &del5, 0x4B3D0001u, 7u, &status));
+    TEST_ASSERT_EQUAL_HEX32(0x00000029u, status);
+}
+
+static void test_a_delete_on_a_closed_service_is_a_key_management_error(void)
+{
+    del_reply();
+    reply[1] = 0x00000729u;
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_KEY_MGMT,
+                            tfw_ele_key_delete(&chan, &del5, 0x4B3D0001u, 7u, NULL));
+}
+
+static void test_a_delete_never_answered_times_out(void)
+{
+    m->ele.enclave = NULL;
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_TIMEOUT,
+                            tfw_ele_key_delete(&chan, &del5, 0x4B3D0001u, 7u, NULL));
+    TEST_ASSERT_EQUAL_UINT32(5u, m->ele.req_len);   /* sent in full */
+}
+
+static void test_a_delete_with_no_service_is_not_sent(void)
+{
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_KEY_MGMT, tfw_ele_key_delete(&chan, &del5, 0u, 7u, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
+static void test_a_delete_with_no_layout_is_not_sent(void)
+{
+    static const struct tfw_ele_del_layout bad[] = {
+        { 0x00u, 5u, 2u, 1u, 2u, 3u, 0u },    /* no id: the board's today */
+        { 0x99u, 1u, 2u, 1u, 1u, 1u, 0u },    /* request under two words */
+        { 0x99u, 15u, 2u, 1u, 2u, 3u, 0u },   /* request past the client's */
+        { 0x99u, 5u, 1u, 1u, 2u, 3u, 0u },    /* response under two words */
+        { 0x99u, 5u, 15u, 1u, 2u, 3u, 0u },   /* response past the client's */
+        { 0x99u, 5u, 2u, 1u, 2u, 3u, 25u },   /* flags shifted out of the word */
+        { 0x99u, 5u, 2u, 0u, 2u, 3u, 0u },    /* handle in the header */
+        { 0x99u, 5u, 2u, 4u, 2u, 3u, 0u },    /* handle in the CRC word */
+        { 0x99u, 5u, 2u, 1u, 0u, 3u, 0u },    /* key id in the header */
+        { 0x99u, 4u, 2u, 1u, 4u, 3u, 0u },    /* key id past the request */
+        { 0x99u, 5u, 2u, 1u, 2u, 0u, 0u },    /* flags in the header */
+        { 0x99u, 5u, 2u, 1u, 2u, 4u, 0u },    /* flags in the CRC word */
+    };
+    struct tfw_ele_msg cmd;
+    uint32_t i;
+
+    for (i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LAYOUT, tfw_ele_key_delete_cmd(&cmd, &bad[i], 1u, 7u));
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LAYOUT,
+                                tfw_ele_key_delete(&chan, &bad[i], 0x4B3D0001u, 7u, NULL));
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -2043,5 +2144,12 @@ int main(void)
     RUN_TEST(test_a_verify_answered_as_a_sign_is_refused);
     RUN_TEST(test_a_verify_never_answered_times_out);
     RUN_TEST(test_a_generated_key_signs_exports_and_verifies);
+    RUN_TEST(test_a_good_delete_is_strict_and_acknowledged);
+    RUN_TEST(test_a_delete_places_the_strict_flag_where_the_layout_says);
+    RUN_TEST(test_a_refused_delete_is_a_status_error);
+    RUN_TEST(test_a_delete_on_a_closed_service_is_a_key_management_error);
+    RUN_TEST(test_a_delete_never_answered_times_out);
+    RUN_TEST(test_a_delete_with_no_service_is_not_sent);
+    RUN_TEST(test_a_delete_with_no_layout_is_not_sent);
     return UNITY_END();
 }

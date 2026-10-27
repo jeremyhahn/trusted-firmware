@@ -142,9 +142,10 @@ opens the pty without asking for modem lines, which a pseudo-terminal does not
 have. The start wait after the reset is the same. `peerBoards` in
 `e2e_firmware_test.go` has a row for each MPS2 board (two LEDs, outputs only,
 and the SPI select as pin 2).
-A row whose family the board lacks finds it absent from CAPS and checks that
-the board refuses the command. That covers ADC, PWM, EEPROM, I2C, SPI, 1-Wire
-and pulse, and the alias certificate, operator session and CSR. Every wait is
+A row whose family the board lacks would fail, naming it (#7), so the script
+leaves it out of the board's run by name. That covers ADC, PWM, EEPROM, I2C,
+SPI, 1-Wire and pulse, and the alias certificate, operator session and CSR,
+and the OTA and app rows the image has no stager or application for. Every wait is
 bounded, and the script's trap kills QEMU on every exit.
 
 A row that fails leaves its guest's state at the end of the boot's
@@ -270,31 +271,35 @@ after the reset and requires the PC to be `0xE0000000`.
 `test/unit/test_cm_fault_frame.c` pins the save on the host.
 
 Every suite row on each board. **Runs** means the row exercises the command.
-**CAPS lacks bit N** means the row runs, finds bit N clear and checks the
-board's refusal. **Refused** means the row finds that the image lacks what
-CAPS cannot report, and checks the refusal's status code. The CAPS bits are
-the same on both boards, because they boot the same tier.
+**Left out** means the board's image cannot serve the row: CAPS lacks bit N,
+or the image lacks what CAPS cannot report (a stager, OTA_INFO, an
+application). Such a row fails, naming what is missing and the board, rather
+than passing having tested nothing (#7), so `qemu_wire_test.sh` leaves it out
+of the board's run by name. The CAPS bits are the same on both boards,
+because they boot the same tier.
 
 | Row (`TestFirmware…`) | mps2-an505 (0x40) | mps2-an500 (0x42) |
 |---|---|---|
 | `Ping`, `PingDeliversTheBootEventWithNoBootWait`, `PingAfterAMalformedBurst`, `Caps`, `Sys`, `Pin`, `Write`, `Timer` | runs | runs |
-| `Analog` | CAPS lacks bit 2 (Analog) | CAPS lacks bit 2 (Analog) |
-| `PWM` | CAPS lacks bit 3 (PWM) | CAPS lacks bit 3 (PWM) |
-| `EEPROM` | CAPS lacks bit 6 (EEPROM) | CAPS lacks bit 6 (EEPROM) |
-| `I2C`, `I2CConfig` | CAPS lacks bit 7 (I2C) | CAPS lacks bit 7 (I2C) |
-| `SPIConfig` | CAPS lacks bit 8 (SPI) | CAPS lacks bit 8 (SPI) |
-| `OneWireAndPulseIn` | CAPS lacks bits 9 (OneWire) and 5 (Pulse) | CAPS lacks bits 9 (OneWire) and 5 (Pulse) |
+| `Analog` | left out: CAPS lacks bit 2 (Analog) | left out: CAPS lacks bit 2 (Analog) |
+| `PWM` | left out: CAPS lacks bit 3 (PWM) | left out: CAPS lacks bit 3 (PWM) |
+| `EEPROM` | left out: CAPS lacks bit 6 (EEPROM) | left out: CAPS lacks bit 6 (EEPROM) |
+| `I2C`, `I2CConfig` | left out: CAPS lacks bit 7 (I2C) | left out: CAPS lacks bit 7 (I2C) |
+| `SPIConfig` | left out: CAPS lacks bit 8 (SPI) | left out: CAPS lacks bit 8 (SPI) |
+| `OneWireAndPulseIn` | left out: CAPS lacks bits 9 (OneWire) and 5 (Pulse) | left out: CAPS lacks bits 9 (OneWire) and 5 (Pulse) |
 | `AttestRefusedUnprovisioned` | runs, on `boot-unprovisioned.bin` | runs, on `boot-unprovisioned.bin` |
 | `AttestEvidenceFrame`, `EvidenceFrameRejectsTamperingAndOtherKeys` | runs (bit 10, Attest) | runs (bit 10, Attest) |
 | `SoftwareTierStillCannotIssueACertificate` | runs | runs |
-| `AttestCertIsDICEEvidenceBoundToTheCallersNonce`, `AttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement`, `AttestCertSignatureVerifiesUnderTheDeviceIDKey`, `AttestCertSignatureRejectsTamperingAndOtherKeys`, `AttestCertDiffersWithTheNonce`, `EvidenceAndCertificateShareOneKey`, `ElementReportsItsRootOfTrust`, `BlankElementRefusesToAttest` | CAPS lacks bit 13 (AliasCert) | CAPS lacks bit 13 (AliasCert) |
-| `AuthSessionIsAdvertisedByTheElementTier`, `AnOperatorSignatureOpensTheSession`, `ASignatureFromAnotherKeyDoesNotOpenTheSession`, `ASignatureBoundToAnotherDevicesSerialIsRefused`, `EachAuthTakesAFreshChallenge` | CAPS lacks bit 14 (AuthSession) | CAPS lacks bit 14 (AuthSession) |
-| `AttestCSRPrintsTheSignatureAsHex`, `AttestCSRSignatureVerifiesOverTheKnownDigest`, `AttestCSRSignatureIsOverTheNonce`, `AttestCSRRefusesBWithNoCertificateMintedForIt`, `CapsNamesAttestCSROnADeviceThatOffersIt` | CAPS lacks bit 15 (AttestCSR) | CAPS lacks bit 15 (AttestCSR) |
+| `AttestCertIsDICEEvidenceBoundToTheCallersNonce`, `AttestCertWithoutAnApplicationCarriesTheFirmwareMeasurement`, `AttestCertSignatureVerifiesUnderTheDeviceIDKey`, `AttestCertSignatureRejectsTamperingAndOtherKeys`, `AttestCertDiffersWithTheNonce`, `EvidenceAndCertificateShareOneKey`, `ElementReportsItsRootOfTrust`, `BlankElementRefusesToAttest` | left out: CAPS lacks bit 13 (AliasCert) | left out: CAPS lacks bit 13 (AliasCert) |
+| `AuthSessionIsAdvertisedByTheElementTier`, `AnOperatorSignatureOpensTheSession`, `ASignatureFromAnotherKeyDoesNotOpenTheSession`, `ASignatureBoundToAnotherDevicesSerialIsRefused`, `EachAuthTakesAFreshChallenge` | left out: CAPS lacks bit 14 (AuthSession) | left out: CAPS lacks bit 14 (AuthSession) |
+| `AttestCSRPrintsTheSignatureAsHex`, `AttestCSRSignatureVerifiesOverTheKnownDigest`, `AttestCSRSignatureIsOverTheNonce`, `AttestCSRRefusesBWithNoCertificateMintedForIt`, `CapsNamesAttestCSROnADeviceThatOffersIt` | left out: CAPS lacks bit 15 (AttestCSR) | left out: CAPS lacks bit 15 (AttestCSR) |
 | `AttestCSRReportsADeviceThatCannotIssueOne`, `ElementWithoutTheCapsBitIsRefusedAsUnsupported` | runs (tfwctl refuses on CAPS) | runs (tfwctl refuses on CAPS) |
-| `OTAAuthLetsTheCommandPastTheGate`, `OTAInfo` | base image: refused, no stager, every OTA command `ERR_UNKNOWN_CMD` | the same |
-| `OTAActivate`, `OTAConfirm` | base image: CAPS lacks bit 14 (AuthSession); then refused, no stager, every OTA command `ERR_UNKNOWN_CMD` | the same |
-| `AppReportsItsApplication` | refused: no application, APP_INFO `ERR_UNKNOWN_CMD` | refused: same |
+| `OTAAuthLetsTheCommandPastTheGate`, `OTAInfo` | base image: left out, no stager (OTA_STATUS `ERR_UNKNOWN_CMD`) | the same |
+| `OTAActivate`, `OTAConfirm` | base image: left out: CAPS lacks bit 14 (AuthSession), and no stager | the same |
+| `AppReportsItsApplication` | left out: no application (APP_INFO `ERR_UNKNOWN_CMD`) | left out: same |
 | `AppIsAnUnknownCommandWithoutAnApplication` | runs | runs |
+| `Refuses{Analog,PWM,Pulse,EEPROM,I2C,SPI,OneWire,TheAuthSession,AttestCSR}ItsCapsLacks` | runs: each family's command `ERR_UNKNOWN_CMD` | runs |
+| `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` | staging image: runs (`ERR_AUTH_REQUIRED`) | the same |
 
 **The staging image's OTA rows.** On both boards the wire run boots a
 second image: the application built with `OTA_STAGE=1`, under tfw-boot's
@@ -304,9 +309,9 @@ The firmware and app rows match the table above. The OTA rows differ:
 | Row (`TestFirmware…`) | mps2-an505 (0x40) | mps2-an500 (0x42) |
 |---|---|---|
 | `OTAAuthLetsTheCommandPastTheGate` | runs: stages under the CAPS board id; OTA_CONFIRM is `ERR_UNKNOWN_CMD`; OTA_ACTIVATE gets past the gate | the same |
-| `OTAInfo` | refused: OTA_INFO and OTA_CONFIRM `ERR_UNKNOWN_CMD` (single slot, no `BOOT_AB`) | the same |
-| `OTAActivate` | CAPS lacks bit 14 (AuthSession); soft tier, so OTA_ACTIVATE sent with no OTA_AUTH is checked for `ERR_AUTH_REQUIRED` | the same |
-| `OTAConfirm` | CAPS lacks bit 14 (AuthSession); OTA_CONFIRM `ERR_UNKNOWN_CMD` | the same |
+| `OTAInfo` | left out: single slot, no `BOOT_AB` (OTA_INFO `ERR_UNKNOWN_CMD`) | the same |
+| `OTAActivate` | left out: CAPS lacks bit 14 (AuthSession) | the same |
+| `OTAConfirm` | left out: CAPS lacks bit 14 (AuthSession) | the same |
 
 **The OTA cycle.** A third boot, on a QEMU of its own, runs
 `TestQEMUOTACycle` (`sdk/go/cmd/tfwctl/ota_cycle_qemu_test.go`, build tag

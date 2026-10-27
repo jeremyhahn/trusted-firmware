@@ -38,19 +38,13 @@ import (
 const platformMagic = "54465052"
 
 func TestFirmwareAuthSessionIsAdvertisedByTheElementTier(t *testing.T) {
-	p, _, ok := operatorServing(t)
-	if !ok {
-		return
-	}
+	p, _ := operatorServing(t)
 	c := cliCaps(t, p.serial)
 	assert.True(t, c.Has(tfw.FeatureAuthSession), "features %#x lack the auth session", c.Features)
 }
 
 func TestFirmwareAnOperatorSignatureOpensTheSession(t *testing.T) {
-	p, key, ok := operatorServing(t)
-	if !ok {
-		return
-	}
+	p, key := operatorServing(t)
 	d, serial := p.serial, p.serialHex(t)
 
 	// Closed before: the reserved region is the operator's.
@@ -64,10 +58,7 @@ func TestFirmwareAnOperatorSignatureOpensTheSession(t *testing.T) {
 }
 
 func TestFirmwareASignatureFromAnotherKeyDoesNotOpenTheSession(t *testing.T) {
-	p, _, ok := operatorServing(t)
-	if !ok {
-		return
-	}
+	p, _ := operatorServing(t)
 	_, otherKey := writeOperatorKey(t)
 	d := p.serial
 
@@ -80,10 +71,7 @@ func TestFirmwareASignatureFromAnotherKeyDoesNotOpenTheSession(t *testing.T) {
 // The signed message binds the serial, so a signature the operator made for
 // another device is refused by this one.
 func TestFirmwareASignatureBoundToAnotherDevicesSerialIsRefused(t *testing.T) {
-	p, key, ok := operatorServing(t)
-	if !ok {
-		return
-	}
+	p, key := operatorServing(t)
 
 	other := hex.EncodeToString(bytes.Repeat([]byte{0x77}, tfw.SerialLen))
 	assert.Equal(t, tfw.StatusErrCrypto, cliStatus(t, p.serial, "auth", other, key), "auth bound to another serial")
@@ -92,10 +80,7 @@ func TestFirmwareASignatureBoundToAnotherDevicesSerialIsRefused(t *testing.T) {
 // Every auth takes a fresh challenge, so the same operator opens the session
 // twice running; a replayed nonce would have been refused the second time.
 func TestFirmwareEachAuthTakesAFreshChallenge(t *testing.T) {
-	p, key, ok := operatorServing(t)
-	if !ok {
-		return
-	}
+	p, key := operatorServing(t)
 	serial := p.serialHex(t)
 	for i := 0; i < 2; i++ {
 		require.NoError(t, run(context.Background(), p.serial, "auth", []string{serial, key}, false, io.Discard),

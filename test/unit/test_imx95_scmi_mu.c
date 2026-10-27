@@ -124,6 +124,37 @@ static void test_a_status_reaches_the_caller(void)
     TEST_ASSERT_EQUAL_INT32(-3, tfw_scmi_xfer(&chan, &cmd, &rsp));
 }
 
+/* SYSTEM_POWER_STATE_SET in the model's shared memory (DEN0056E section 4.4;
+ * the area's layout section 5.1.2, Table 25). */
+static void test_a_system_power_state_set_is_laid_out(void)
+{
+    tfw_scmi_system_power_state_set(&cmd, 6u, TFW_SCMI_SYSTEM_FORCEFUL, TFW_SCMI_SYSTEM_COLD_RESET);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_scmi_xfer(&chan, &cmd, &rsp));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, seen[0]);   /* flags: polled */
+    TEST_ASSERT_EQUAL_HEX32(0x0000000Cu, seen[1]);   /* length: header + 8 */
+    TEST_ASSERT_EQUAL_HEX32(0x00184803u, seen[2]);   /* header: token 6, 0x12, 0x3 */
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, seen[3]);   /* flags: forceful */
+    TEST_ASSERT_EQUAL_HEX32(0x00000001u, seen[4]);   /* system_state: cold reset */
+    TEST_ASSERT_EQUAL_UINT32(1u, m->scmi.rings);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->unmodelled);
+}
+
+/* Each status the platform may answer reaches the caller as this firmware's. */
+static void test_a_system_power_status_reaches_the_caller(void)
+{
+    static const uint32_t words[5]    = { 0x00000000u, 0xFFFFFFFEu, 0xFFFFFFFFu, 0xFFFFFFFDu, 0xFFFFFFF4u };
+    static const tfw_status_t want[5] = { TFW_OK, TFW_ERR_RANGE, TFW_ERR_UNSUPPORTED,
+                                          TFW_ERR_PROTECTED_REGION, TFW_ERR_INTERNAL };
+    uint32_t i;
+
+    for (i = 0u; i < 5u; i++) {
+        tfw_scmi_system_power_state_set(&cmd, i, TFW_SCMI_SYSTEM_GRACEFUL, TFW_SCMI_SYSTEM_SHUTDOWN);
+        reply_words[0] = words[i];
+        TEST_ASSERT_EQUAL_INT(want[i], tfw_scmi_system_power_status(tfw_scmi_xfer(&chan, &cmd, &rsp)));
+    }
+}
+
 static void test_a_wrong_token_is_refused(void)
 {
     tfw_scmi_reset(&cmd, 3u, 1u, TFW_SCMI_RESET_AUTONOMOUS, TFW_SCMI_RESET_COLD);
@@ -211,6 +242,8 @@ int main(void)
     RUN_TEST(test_the_agent_marks_the_channel_busy_before_ringing);
     RUN_TEST(test_a_rate_comes_back);
     RUN_TEST(test_a_status_reaches_the_caller);
+    RUN_TEST(test_a_system_power_state_set_is_laid_out);
+    RUN_TEST(test_a_system_power_status_reaches_the_caller);
     RUN_TEST(test_a_wrong_token_is_refused);
     RUN_TEST(test_a_wrong_protocol_is_refused);
     RUN_TEST(test_a_channel_busy_before_the_send_times_out_unrung);

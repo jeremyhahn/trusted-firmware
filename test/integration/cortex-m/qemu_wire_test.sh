@@ -18,15 +18,17 @@
 # Two boots, each a QEMU of its own:
 #
 #   boot.bin, the image cm_image provisions with a UDS, runs the suite's
-#   soft-tier rows (e2e_firmware_test.go) and every dice, auth and attestcsr
-#   row with DEVICEID from addrs.env. Each of those rows asks CAPS for the
-#   one feature it needs: the soft image offers ATTEST (bit 10), so the
-#   evidence-frame rows run; it has no alias certificate (bit 13), no
-#   operator session (bit 14) and no CSR (bit 15), so those rows check the
-#   board's refusal of the command instead. The OTA and app rows run on it
-#   too: the image has no OTA stager (it is built without OTA_STAGE) and no
-#   application, which CAPS cannot say, so those rows find OTA_STATUS and
-#   APP_INFO unknown and check every OTA command is refused as unknown.
+#   soft-tier rows (e2e_firmware_test.go) and the dice and attestcsr rows
+#   this image serves, with DEVICEID from addrs.env. A row whose peer lacks
+#   the feature it needs fails, naming it (#7), so the lists below leave out
+#   by name every row this image cannot serve: the analog, PWM, EEPROM, bus
+#   and pulse rows (CAPS bits 2, 3, 5-9 clear); the alias certificate (bit
+#   13), operator session (bit 14) and CSR (bit 15) rows; and the OTA and app
+#   rows that need a stager or an application (it is built without
+#   OTA_STAGE and has none), which CAPS cannot say. The soft image offers
+#   ATTEST (bit 10), so the evidence-frame rows run. The refusal rows run
+#   instead of what it lacks: each of those families' commands is refused
+#   as unknown (e2e_refusal_test.go, e2e_refusal_board_test.go).
 #   docs/cortex-m/README.md tables every row per board.
 #
 #   boot-unprovisioned.bin, the same boot with its UDS slot left erased,
@@ -52,8 +54,10 @@
 # application with the stager (OTA_STAGE=1). Two boots again:
 #
 #   staging runs the firmware, OTA and app rows on it. The image stages, so
-#   the OTA rows run their stager legs; OTA_INFO and OTA_CONFIRM, which only
-#   an A/B image serves, are refused as unknown.
+#   the OTA gate row runs its stager legs, OTA_CONFIRM refused as unknown;
+#   the OTA_INFO row (an A/B image's) and the OTA_ACTIVATE and OTA_CONFIRM
+#   rows (the operator session's) are left out. The refusal rows run, with
+#   the soft tier's OTA_ACTIVATE with no OTA_AUTH, AUTH_REQUIRED.
 #
 #   cycle runs TestQEMUOTACycle (`make cortex-m-qemu-cycle`) on a boot of its
 #   own, so no MARK another row left is in the store: it stages the
@@ -218,15 +222,15 @@ cycle() {
     alive
 }
 
-firmware='Ping|PingDeliversTheBootEventWithNoBootWait|PingAfterAMalformedBurst|Caps|Sys|Pin|Write|Timer|EEPROM|Analog|PWM|I2C|I2CConfig|SPIConfig|OneWireAndPulseIn'
-dice='AttestCert[A-Za-z]+|AttestEvidenceFrame|EvidenceFrameRejectsTamperingAndOtherKeys|EvidenceAndCertificateShareOneKey|ElementReportsItsRootOfTrust|BlankElementRefusesToAttest|SoftwareTierStillCannotIssueACertificate'
-auth='AuthSessionIsAdvertisedByTheElementTier|AnOperatorSignatureOpensTheSession|ASignatureFromAnotherKeyDoesNotOpenTheSession|ASignatureBoundToAnotherDevicesSerialIsRefused|EachAuthTakesAFreshChallenge'
-csr='AttestCSR[A-Za-z]+|ElementWithoutTheCapsBitIsRefusedAsUnsupported|CapsNamesAttestCSROnADeviceThatOffersIt'
-ota='OTAAuthLetsTheCommandPastTheGate|OTAInfo|OTAActivate|OTAConfirm'
-app='AppReportsItsApplication|AppIsAnUnknownCommandWithoutAnApplication'
+firmware='Ping|PingDeliversTheBootEventWithNoBootWait|PingAfterAMalformedBurst|Caps|Sys|Pin|Write|Timer'
+refuse='RefusesAnalogItsCapsLacks|RefusesPWMItsCapsLacks|RefusesPulseItsCapsLacks|RefusesEEPROMItsCapsLacks|RefusesI2CItsCapsLacks|RefusesSPIItsCapsLacks|RefusesOneWireItsCapsLacks|RefusesTheAuthSessionItsCapsLacks|RefusesAttestCSRItsCapsLacks'
+dice='AttestEvidenceFrame|EvidenceFrameRejectsTamperingAndOtherKeys|SoftwareTierStillCannotIssueACertificate'
+csr='AttestCSRReportsADeviceThatCannotIssueOne|ElementWithoutTheCapsBitIsRefusedAsUnsupported'
+ota='OTAAuthLetsTheCommandPastTheGate'
+app='AppIsAnUnknownCommandWithoutAnApplication'
 
 if [ "$row" = store ]; then
-    wire staging boot.bin "^TestFirmware($firmware|$ota|$app)\$"
+    wire staging boot.bin "^TestFirmware($firmware|$refuse|$ota|SoftTierOTAActivateWithoutOTAAuthIsAuthRequired|$app)\$"
     cycle cycle TestQEMUOTACycle
 elif [ "$row" = ab ]; then
     for outcome in Info Confirm Rollback Floor Watchdog; do
@@ -237,7 +241,7 @@ elif [ "$row" = spi ]; then
 elif [ "$row" = i2c ]; then
     cycle i2c TestQEMUI2CXfer
 else
-    wire provisioned boot.bin "^TestFirmware($firmware|$dice|$auth|$csr|$ota|$app)\$"
+    wire provisioned boot.bin "^TestFirmware($firmware|$refuse|$dice|$csr|$app)\$"
     wire unprovisioned boot-unprovisioned.bin '^TestFirmwareAttestRefusedUnprovisioned$'
     cycle reset TestQEMUResetCause
     cycle fault TestQEMUFaultPanic

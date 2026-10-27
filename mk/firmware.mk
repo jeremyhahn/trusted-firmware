@@ -159,7 +159,7 @@ endif
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c \
-                  $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c) $(ARCH_HAL_OPTIONAL)
+                  $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c) $(ARCH_HAL_OPTIONAL)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -537,6 +537,30 @@ IDENTITY_SRCS := $(filter-out src/core/update_request.c,$(IDENTITY_SRCS)) \
                  src/core/update_request_store.c
 endif
 endif
+# The tamper-response engine (#50, docs/hsm-self-defence/m7-design.md slice 3),
+# by FILE SELECTION: a board whose profile.mk says HSM := 1 links the engine,
+# its SUIT reader, the channel's commands (HSM_* in commands.def) and the loop
+# main.c polls, behind the SoC's hsm_port.c (in HAL_SOC_DIR, HAL_OPTIONAL so it
+# is linked here and nowhere else). Every other image links hsm_loop_none.c's
+# no-op. The policy set is verified under the tenant key
+# in software here: the soft provider's tfw_crypto_verify_operator refuses
+# (issue #4), so on an HSM image alone it is renamed away and
+# src/crypto/soft/verify_p256.c answers, with micro-ecc linked for it. The
+# soft tier only: an element image has the element's verify and no board
+# asks for HSM with one yet.
+ifeq ($(HSM)$(CRYPTO),1soft)
+HSM_SRCS := src/core/suit.c src/core/suit_integrated.c src/core/hsm_payload.c \
+            src/core/hsm_engine.c src/core/hsm_cmd.c src/core/hsm_loop.c \
+            src/crypto/soft/verify_p256.c src/third_party/micro-ecc/uECC.c \
+            $(wildcard $(HAL_SOC_DIR)/hsm_port.c)
+HSM_DEFS := -DTFW_FEATURE_HSM=1
+$(FW_DIR)/src/crypto/soft/provider.o: FW_CFLAGS += -Dtfw_crypto_verify_operator=tfw_crypto_soft_verify_refused
+$(FW_DIR)/src/crypto/soft/verify_p256.o: FW_CFLAGS += -Isrc/third_party/micro-ecc
+else
+HSM_SRCS := src/core/hsm_loop_none.c
+HSM_DEFS :=
+endif
+FW_CFLAGS += $(HSM_DEFS)
 
 # Sorted, not wildcard-ordered. Link order affects the output image, and a
 # wildcard's order depends on the filesystem -- which would make the
@@ -562,7 +586,7 @@ FW_SRCS := $(sort \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
   src/caps/analog.c $(STORAGE_SRCS) src/caps/attest.c \
   $(PULSE_SRCS) $(PWM_SRCS) $(BUS_SRCS) $(BUS_HELD_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
-  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) \
+  $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) $(HSM_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) $(ARCH_FW_SRCS) \
   $(filter-out $(HAL_OPTIONAL),$(wildcard $(HAL_DIR)/*.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/*.c))))
 
@@ -693,7 +717,7 @@ board-tiers:
 # the gates the image was built with -- not config.h's defaults, which say 0 to
 # every tier-selected feature on every board.
 feature-defs:
-	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS)
+	@echo $(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(LINK_DEFS) $(STAGE_DEFS) $(APP_DEFS) $(HSM_DEFS)
 
 ## firmware-dir: print the directory `firmware` builds BOARD's image in, for the flags given (used by scripts/test_build_dirs.py)
 firmware-dir:

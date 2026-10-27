@@ -107,6 +107,7 @@ func bootEvent(t testing.TB) []byte {
 // answers with a status instead.
 type benchDevice struct {
 	noFeatures bool
+	features   uint32 // CAPS feature bits when not zero; every bit otherwise
 	refuse     map[tfw.Cmd]tfw.Status
 	cert       []byte // ATTEST_CERT's certificate; nil serves benchAliasCert
 }
@@ -162,6 +163,9 @@ func (b *benchDevice) answer(f tfw.Frame) (tfw.Status, []byte) {
 			return tfw.StatusOK, []byte{p[0], 0, 2, 5, 0xFF, 1}
 		}
 		features := uint32(0xFFFFFFFF)
+		if b.features != 0 {
+			features = b.features
+		}
 		if b.noFeatures {
 			features = 0
 		}

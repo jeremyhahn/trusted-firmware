@@ -553,3 +553,48 @@ void tfw_ele_get_info_parse(const uint8_t buf[TFW_ELE_GET_INFO_LEN], struct tfw_
     out->csal_state = buf[157];
     out->imem_state = buf[158];
 }
+
+int32_t tfw_ele_key_delete_cmd(struct tfw_ele_msg *m, const struct tfw_ele_del_layout *l,
+                               uint32_t mgmt, uint32_t key_id)
+{
+    /* The last word a field may take: the CRC word is not one. */
+    uint32_t last = (l->cmd_words > TFW_ELE_WORDS_WITHOUT_CRC) ? l->cmd_words - 2u
+                                                                : l->cmd_words - 1u;
+
+    if (l->command == 0u || l->cmd_words < 2u || l->cmd_words > TFW_ELE_MSG_WORDS
+        || l->rsp_words < 2u || l->rsp_words > TFW_ELE_MSG_WORDS || l->flags_shift > 24u
+        || l->w_handle == 0u || l->w_handle > last || l->w_key == 0u || l->w_key > last
+        || l->w_flags == 0u || l->w_flags > last) {
+        return TFW_ELE_E_LAYOUT;
+    }
+    msg_start(m, l->command, l->cmd_words);
+    m->w[l->w_handle] = mgmt;
+    m->w[l->w_key]    = key_id;
+    m->w[l->w_flags] |= (uint32_t)TFW_ELE_DEL_KEY_STRICT << l->flags_shift;
+    if (l->cmd_words > TFW_ELE_WORDS_WITHOUT_CRC) {
+        msg_crc(m, l->cmd_words);
+    }
+    return 0;
+}
+
+int32_t tfw_ele_key_delete(const struct tfw_ele_chan *c, const struct tfw_ele_del_layout *l,
+                           uint32_t mgmt, uint32_t key_id, uint32_t *status)
+{
+    struct tfw_ele_msg cmd, rsp;
+    uint32_t word = 0u;
+    uint32_t *const sp = (status != NULL) ? status : &word;
+    int32_t rc;
+
+    if (mgmt == 0u) {
+        return TFW_ELE_E_KEY_MGMT;
+    }
+    rc = tfw_ele_key_delete_cmd(&cmd, l, mgmt, key_id);
+    if (rc != 0) {
+        return rc;
+    }
+    rc = tfw_ele_call(c, &cmd, l->rsp_words, &rsp, sp);
+    if (rc == TFW_ELE_E_STATUS && TFW_ELE_RATING(*sp) == TFW_ELE_RATING_UNKNOWN_HANDLE) {
+        rc = TFW_ELE_E_KEY_MGMT;
+    }
+    return rc;
+}

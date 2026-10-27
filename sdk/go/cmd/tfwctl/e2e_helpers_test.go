@@ -36,7 +36,7 @@ import (
 var testSerialHex = hex.EncodeToString(tfwsim.TestSerial[:])
 
 // cliCaps runs `caps --json` and decodes it back into the SDK's structure.
-func cliCaps(t *testing.T, dev *tfw.Device) tfw.Caps {
+func cliCaps(t testing.TB, dev *tfw.Device) tfw.Caps {
 	t.Helper()
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), dev, "caps", nil, true, &out))

@@ -18,6 +18,16 @@
 #define TFW_BOARD_NAME "mps2-an505"
 #define TFW_BOARD_ID   0x40u   /* docs/boards/board-id-registry.md */
 
+/* The policy-set and script class ids, UUIDv5(TFW_SUIT_VENDOR_ID,
+ * "mps2-an505/policy") and (..., "mps2-an505/script")
+ * (docs/hsm-self-defence/adr-response-policy-format.md D2): the image links
+ * the tamper-response engine (profile.mk HSM).
+ * b46b3e2f-0849-56df-9556-e94d0d85c91f, 6847ff2a-0362-5538-a231-fc5af3c40c4b. */
+#define TFW_SUIT_POLICY_CLASS_ID { 0xb4u, 0x6bu, 0x3eu, 0x2fu, 0x08u, 0x49u, 0x56u, 0xdfu, \
+                                   0x95u, 0x56u, 0xe9u, 0x4du, 0x0du, 0x85u, 0xc9u, 0x1fu }
+#define TFW_SUIT_SCRIPT_CLASS_ID { 0x68u, 0x47u, 0xffu, 0x2au, 0x03u, 0x62u, 0x55u, 0x38u, \
+                                   0xa2u, 0x31u, 0xfcu, 0x5au, 0xf3u, 0xc4u, 0x0cu, 0x4bu }
+
 #define TFW_PIN_COUNT  3u
 #define TFW_PORT_COUNT 2u      /* the FPGA I/O block's LED and MISC registers */
 #define TFW_PWM_COUNT  0u

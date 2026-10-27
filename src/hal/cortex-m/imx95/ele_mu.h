@@ -544,4 +544,64 @@ struct tfw_ele_info {
 
 void tfw_ele_get_info_parse(const uint8_t buf[TFW_ELE_GET_INFO_LEN], struct tfw_ele_info *out);
 
+/* Where the fields the device attestation reports sit in the information
+ * buffer (RM00284 section 3.12 lists them; section 3.13 returns them
+ * unsigned): byte offset and length, the ones tfw_ele_get_info_parse reads
+ * in the struct dev_info and struct dev_addn_info layout. The ROM patch hash,
+ * the OEM SRK hash and the committed SRK revocation bits are not here: no
+ * source this project cites places them in the buffer (board_profile.h). */
+#define TFW_ELE_INFO_LMDA_OFF       8u
+#define TFW_ELE_INFO_LMDA_LEN       2u
+#define TFW_ELE_INFO_SHA_FW_OFF     60u
+#define TFW_ELE_INFO_SHA_FW_LEN     32u
+
+/* hsm_delete_key's strict-operation flag, bit 7 (RM00284 section 3.2.6.1,
+ * HSM_OP_DEL_KEY_FLAGS_STRICT_OPERATION; section 3.2.3.1): the enclave
+ * writes the key store to NVM before it acknowledges, so the delete survives
+ * a reset (section 2.4.2). */
+#define TFW_ELE_DEL_KEY_STRICT 0x80u
+
+/* The client's refusal of a message no source this project holds lays out:
+ * its command id is 0, or its words do not fit. */
+#define TFW_ELE_E_LAYOUT 18
+
+/* The delete-key message's id and layout. RM00284 gives the call and its
+ * flag, not the message: no document this project holds names the id or
+ * where the handle, the key id and the flags sit, so the caller passes them
+ * (board_profile.h, all zero until a source names them). Words are indices
+ * into the request, the header being word 0; the flags are shifted left by
+ * `flags_shift` within their word. A request longer than four words ends in
+ * the CRC word, as every other. */
+struct tfw_ele_del_layout {
+    uint32_t command;      /* the message id; 0 is unknown */
+    uint8_t  cmd_words;    /* the request's size in words, the header counted */
+    uint8_t  rsp_words;    /* the response's */
+    uint8_t  w_handle;     /* the key management handle's word */
+    uint8_t  w_key;        /* the key id's word */
+    uint8_t  w_flags;      /* the flags' word */
+    uint8_t  flags_shift;  /* the flags' bit offset in it */
+};
+
+/* The delete-key request `l` lays out: on the key management service `mgmt`,
+ * the key `key_id`, the strict-operation flag always set. 0, or
+ * TFW_ELE_E_LAYOUT, unbuilt, when the layout's id is 0, its sizes exceed
+ * TFW_ELE_MSG_WORDS or are under two words, or a field's word is the header
+ * or past the request (or the CRC word). */
+int32_t tfw_ele_key_delete_cmd(struct tfw_ele_msg *m, const struct tfw_ele_del_layout *l,
+                               uint32_t mgmt, uint32_t key_id);
+
+/* Delete the key `key_id` on the key management service `mgmt`, a strict
+ * operation. 0 only once the enclave acknowledges it with success: only
+ * then is the delete committed to NVM. Refused unsent: handle 0,
+ * TFW_ELE_E_KEY_MGMT; a layout tfw_ele_key_delete_cmd refuses,
+ * TFW_ELE_E_LAYOUT. The enclave's failure with the unknown-handle rating is
+ * TFW_ELE_E_KEY_MGMT; every other refusal, a timeout among them, is
+ * tfw_ele_call's.
+ *
+ * Keys only. Deleting a key group is not offered: RM00284 does not say how to
+ * request it (docs/hsm-self-defence/engineering.md slice 6; architecture
+ * question 5). */
+int32_t tfw_ele_key_delete(const struct tfw_ele_chan *c, const struct tfw_ele_del_layout *l,
+                           uint32_t mgmt, uint32_t key_id, uint32_t *status);
+
 #endif /* TFW_CM_IMX95_ELE_MU_H */

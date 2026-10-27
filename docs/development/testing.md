@@ -239,13 +239,24 @@ make hw-test BOARD=<board> PORT=<serial port> [HW_ETH=<ip:port>] \
   DEVICEID=<hex X||Y> CRI_DIGEST=<hex> OPERATOR_KEY=<operator key PEM>
 ```
 
-That one command runs every row below. Each reaches its device through
+That one command runs the rows below that the board's image serves. Each reaches its device through
 `sdk/go/cmd/tfwctl/e2e_peer_test.go`, the serial rows' side of the seam. The
 rows need different images, so no single board passes them all. Each row checks
 the crypto tier its image needs before anything else, and a board flashed with
-the other tier fails the row with the tier named. It is never skipped. To run
-only the rows one image serves, narrow the run with `HW_TEST_RUN`, for example
-`HW_TEST_RUN='^TestFirmwareOTA'`.
+the other tier fails the row with the tier named. A row about one feature
+fails the same way, naming the feature and the board, when the image lacks it:
+a CAPS bit that is clear, or the OTA stager, OTA_INFO or an application, which
+CAPS has no bit for (#7). It is never skipped, and never ends early as a pass.
+So which rows run is chosen by name. On an AVR board the command runs the rows
+its default image serves, chosen from the board's entry in `boardImages` and
+each row's needs in `firmwareRowNeeds`
+(`sdk/go/cmd/tfwctl/e2e_rows_test.go`). A row in no list fails the run, and so
+does a board with no list. `HW_TEST_RUN`, when given, is the run instead, for
+example `HW_TEST_RUN='^TestFirmwareOTA'`; `test/integration/cortex-m/qemu_wire_test.sh`
+names the rows of each QEMU image that way. The refusal rows run where the
+image lacks a family. Each asserts that the family's command is refused as
+unknown, and that the soft tier answers OTA_ACTIVATE with no OTA_AUTH with
+`AUTH_REQUIRED`.
 
 | File | Rows (`TestFirmware*`) | The board they need | Values they take |
 |---|---|---|---|
@@ -260,6 +271,9 @@ only the rows one image serves, narrow the run with `HW_TEST_RUN`, for example
 | `e2e_ota_test.go` | `OTAInfo`, `OTAActivate`, `OTAConfirm` | element tier with the OTA stager, provisioned with an operator key, OTA state fresh | `OPERATOR_KEY` |
 | `e2e_app_test.go` | `AppReportsItsApplication` | the heartbeat application image | — |
 | `e2e_app_test.go` | `AppIsAnUnknownCommandWithoutAnApplication` | soft tier, no application | — |
+| `e2e_refusal_test.go` | `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` | CAPS bit 14, or bit 15, clear | — |
+| `e2e_refusal_test.go` | `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` | soft tier with the OTA stager, nothing staged | — |
+| `e2e_refusal_board_test.go` (`hwtest` tag, hw-test only) | `Refuses{Analog,PWM,Pulse,EEPROM,I2C,SPI,OneWire}ItsCapsLacks` | that family's CAPS bit clear | — |
 
 On a board, a row checks the identity the board reports over `PORT`: its serial
 number and FWHash. It checks the DeviceID key against `DEVICEID` and the CSR

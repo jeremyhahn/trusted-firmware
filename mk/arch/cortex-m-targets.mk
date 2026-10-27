@@ -77,7 +77,7 @@ CM_QEMU_SPI_BUILD  := $(BUILD_DIR)/qemu-spi
 CM_QEMU_I2C_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_I2C_BUILD  := $(BUILD_DIR)/qemu-i2c
 
-## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent
+## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent; on mps2-an505 the tamper-response loop decides as its sets require
 #
 # One board after the other, not in parallel: a red board names itself, and
 # the two QEMUs never compete for the host. integration-test-cortex-m-<board>
@@ -171,10 +171,15 @@ cortex-m-qemu-cycle:
 	   $(GO) test -count=1$(call go-tags,-tags,qemu) -p 1 -run '^$(CYCLE_TEST)$$' ./cmd/tfwctl
 
 # The runs themselves, recursive so BOARD is the Cortex-M board's and every
-# path below (TARGET, BOOT_TARGET, the toolchain) is that board's.
-cortex-m-qemu-run: cortex-m-qemu-image
+# path below (TARGET, BOOT_TARGET, the toolchain) is that board's. On an image
+# that links the tamper-response engine (mk/firmware.mk HSM_SRCS: HSM := 1 on
+# the soft tier, mps2-an505), the run also writes the engine's policy sets and
+# qemu_test.sh runs its hsm-* cases.
+cm-qemu-hsm = $(if $(filter 1soft,$(HSM)$(CRYPTO)),hsm)
+cortex-m-qemu-run: cortex-m-qemu-image $(if $(cm-qemu-hsm),$(CM_QEMU_DIR)/hsm_sets)
+	@$(if $(cm-qemu-hsm),$(CM_QEMU_DIR)/hsm_sets $(CM_QEMU_DIR),true)
 	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(CM_QEMU_DIR))/wirecheck ./wirecheck
-	@test/integration/cortex-m/qemu_test.sh $(CM_QEMU_DIR) $(QEMU_MACHINE) $(CM_QEMU_BOARD_ID.$(BOARD)) $(CM_QEMU_TIER_ID)
+	@test/integration/cortex-m/qemu_test.sh $(CM_QEMU_DIR) $(QEMU_MACHINE) $(CM_QEMU_BOARD_ID.$(BOARD)) $(CM_QEMU_TIER_ID) $(cm-qemu-hsm)
 
 # hw-test is a sub-make the script starts, with the board's BOARD, once it
 # knows the pty; MAKE is passed so it is this make. A failed row's dump
@@ -229,6 +234,16 @@ $(CM_QEMU_DIR)/cm_image: test/integration/cortex-m/cm_image.c boot/boot_image.c 
 	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -Isrc/third_party/micro-ecc $(UECC_DEFS) \
 	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' $(BOARD_DEFS) \
 	   -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' -o $@ $^
+	@echo "built $@"
+
+# The tamper-response cases' policy sets (test/integration/cortex-m/hsm_sets.c),
+# signed by the build's SUIT emitter with the same host micro-ecc object.
+$(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/emit.c \
+        src/crypto/sha256.c $(BOOT_INT_DIR)/uECC.o
+	@mkdir -p $(CM_QEMU_DIR)
+	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
+	   -Iinclude -Isrc -Isrc/crypto -Itools/suit-emit -Isrc/third_party/micro-ecc $(UECC_DEFS) \
+	   -o $@ $^
 	@echo "built $@"
 
 .PHONY: integration-test-cortex-m cortex-m-qemu-run cortex-m-qemu-image \

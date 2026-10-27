@@ -84,9 +84,18 @@ sdk-coverage:
 # and e2e_app test files, which carry the tfwsim build tag; e2e_peer_test.go is
 # the seam. Each row checks the tier it needs and names it when the board's
 # differs, so one command runs them all and a row for another image fails, not
-# skips: docs/development/testing.md tables which board each row needs. A dice,
-# auth or attestcsr row asks CAPS for its feature instead, and checks that the
-# board refuses the command when the bit is clear.
+# skips: docs/development/testing.md tables which board each row needs. A row
+# about one feature (analog, a bus, dice, auth, attestcsr) asks CAPS for it,
+# and one about what CAPS has no bit for (the OTA stager, an application) asks
+# the command; either fails, naming it and the board, when the image lacks it
+# (#7). Which rows run is chosen by name, never by a row returning early: an
+# AVR board runs the rows its default image serves, refusal rows included,
+# from its entry in boardImages and each row's in firmwareRowNeeds
+# (cmd/tfwctl/e2e_rows_test.go; TestMain asks for it through TFW_HW_ROWS). A
+# row in no list fails the run, as does a board with no list. HW_TEST_RUN,
+# when given, is the run instead: the QEMU wire script names each image's rows
+# that way. The hwtest tag adds the refusal rows of families every simulator
+# has (e2e_refusal_board_test.go).
 #
 # HW_ETH adds the TestEthernet* rows (e2e_ethernet_test.go, and the staging rows
 # in e2e_ota_test.go): the ip:port on the bench host that the board's network
@@ -107,11 +116,11 @@ sdk-coverage:
 # it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
 # system_reset, which is how integration-test-cortex-m-wire runs the rows on a
 # QEMU board (mk/arch/cortex-m-targets.mk).
-HW_TEST_RUN ?= ^TestFirmware$(if $(HW_ETH),|^TestEthernet)
+HW_TEST_RUN ?=
 hw-test:
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' $(GO) test -count=1$(call go-tags,-tags,tfwsim) -p 1 -run '$(HW_TEST_RUN)' ./cmd/tfwctl
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
 ## sdk-lint: gofmt and vet the Go SDK
 # vet compiles the tests, so it downloads their modules. That download goes

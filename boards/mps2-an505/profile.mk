@@ -93,3 +93,8 @@ BOARD_ROWS        := atecc608a:I2C=1 soft:I2C=1 soft:SPI=1
 # span in board_profile.h (src/store/mem.c). The stager is linked where an image
 # asks for it (OTA_STAGE=1); tfw-boot reads the store in its BOOT_STORE row.
 OTA_STORE      := mem
+
+# The tamper-response engine and its loop (#50, docs/hsm-self-defence/
+# m7-design.md slice 3), behind src/hal/cortex-m/mps2/hsm_port.c: the
+# M7's response loop exercised on QEMU before the part (mk/firmware.mk HSM_SRCS).
+HSM            := 1

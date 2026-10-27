@@ -65,6 +65,73 @@
 #define TFW_CM_PLATFORM_BASE  0x0003F000uL
 #define TFW_CM_PLATFORM_SIZE  0x00001000uL
 
+/* The M7 agent's SCMI channel to the System Manager and the domains the
+ * tamper-response engine's A1 and A2 switch through it (src/hal/cortex-m/imx95/
+ * hsm_port.c; docs/hsm-self-defence/m7-design.md section 7, slice 5). Every
+ * value is the System Manager configuration's (trusted-imx95's), and no
+ * document this project holds gives one: OPEN, docs/multi-arch/imx95-design.md
+ * question 21 (and, for the PHYs' domain, hsm-self-defence architecture Q10).
+ * Zero means unsupported: an action whose id is zero, or any action while the
+ * channel is zero, answers TFW_ERR_UNSUPPORTED and sends nothing. */
+#define TFW_IMX95_SCMI_MU_BASE   0x00000000uL   /* the MU's base */
+#define TFW_IMX95_SCMI_SHM_BASE  0x00000000uL   /* the shared memory area's base */
+#define TFW_IMX95_SCMI_SHM_LEN   0u             /* its length in bytes */
+#define TFW_IMX95_SCMI_DOORBELL  0u             /* the MU GCR bit */
+#define TFW_IMX95_HSM_PHY_RESET  0u             /* A1: the PHYs' reset domain */
+#define TFW_IMX95_HSM_PHY_POWER  0u             /* A1: the PHYs' power domain */
+#define TFW_IMX95_HSM_A55_POWER  0u             /* A2: the A55's power domain */
+/* A5 names no domain: SYSTEM_POWER_STATE_SET (DEN0056E section 4.4.2.5, in
+ * scmi.c) acts on the whole system. What is open is whether the M7's agent may
+ * send it (hsm-self-defence architecture question 7); 1 once it may. */
+#define TFW_IMX95_HSM_SHUTDOWN   0u
+
+/* The enclave's side of the engine, S3 and A4 (hsm_port.c; hsm-self-defence
+ * engineering.md slice 6). Every value here is a PLACEHOLDER: no document
+ * this project holds gives it, and none is invented. Zero means unsupported,
+ * as above: while the MU is zero, S3 measures nothing and raises nothing and
+ * A4 answers TFW_ERR_UNSUPPORTED, so the engine locks down (R3) having wiped
+ * nothing; while the delete's id or every key id is zero, A4 does the same.
+ *
+ * The M7's MU to the enclave, and its interrupt index in SESSION_OPEN: OPEN,
+ * docs/multi-arch/imx95-design.md question 3. */
+#define TFW_IMX95_ELE_MU_BASE    0x00000000uL
+#define TFW_IMX95_ELE_MU_IRQ     0u
+/* The key store A4 opens and the keys it deletes are go-xkms's (architecture
+ * H18, question 19), and the enclave binds a store to the domain and MU that
+ * created it (question 4), so the M7 may be refused it. */
+#define TFW_IMX95_HSM_KEY_STORE  0u             /* the store's id */
+#define TFW_IMX95_HSM_KEY_NONCE  0u             /* its nonce */
+#define TFW_IMX95_HSM_WIPE_KEYS  0u             /* the key ids, at most four */
+/* The delete-key message (ele_mu.h struct tfw_ele_del_layout): RM00284 gives
+ * the call and its strict flag, not the message's id or words. */
+#define TFW_IMX95_ELE_DEL_CMD          0u       /* the message id */
+#define TFW_IMX95_ELE_DEL_CMD_WORDS    0u       /* request words, header counted */
+#define TFW_IMX95_ELE_DEL_RSP_WORDS    0u       /* response words */
+#define TFW_IMX95_ELE_DEL_W_HANDLE     0u       /* the key management handle's word */
+#define TFW_IMX95_ELE_DEL_W_KEY        0u       /* the key id's word */
+#define TFW_IMX95_ELE_DEL_W_FLAGS      0u       /* the flags' word */
+#define TFW_IMX95_ELE_DEL_FLAGS_SHIFT  0u       /* the flags' bit offset in it */
+/* S3's expected-value keys in the policy set (adr-response-policy-format.md
+ * question 9), one per field the attestation reports; 0 is no key, and an
+ * expected value under a key the port does not know is a mismatch. */
+#define TFW_IMX95_S3_KEY_LMDA        0u         /* the lifecycle */
+#define TFW_IMX95_S3_KEY_ROM_PATCH   0u         /* the ROM patch hash */
+#define TFW_IMX95_S3_KEY_SHA_FW      0u         /* the enclave firmware's hash */
+#define TFW_IMX95_S3_KEY_OEM_SRKH    0u         /* the OEM SRK hash */
+#define TFW_IMX95_S3_KEY_SRK_REVOKE  0u         /* the committed SRK revocation bits */
+/* Where GET_INFO's buffer holds the ROM patch hash and the OEM SRK hash.
+ * RM00284 section 3.13 names both fields, but no source this project holds
+ * gives their byte offset or length in the response. Length 0: the port
+ * cannot read them, so a policy that expects either is a mismatch. */
+#define TFW_IMX95_ELE_INFO_ROM_PATCH_OFF  0u
+#define TFW_IMX95_ELE_INFO_ROM_PATCH_LEN  0u
+#define TFW_IMX95_ELE_INFO_OEM_SRKH_OFF   0u
+#define TFW_IMX95_ELE_INFO_OEM_SRKH_LEN   0u
+/* Where GET_INFO's buffer holds the SRK revocation bits: length 0, the port
+ * cannot read them, so a policy that expects them is a mismatch. */
+#define TFW_IMX95_ELE_INFO_SRK_REVOKE_OFF  0u
+#define TFW_IMX95_ELE_INFO_SRK_REVOKE_LEN  0u
+
 /* Board sizing deviations from config.h: none. */
 
 #endif /* TFW_BOARD_FRDM_IMX95_M7_H */

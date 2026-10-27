@@ -39,7 +39,7 @@ void tfw_hsm_cmd_reset(void)
 }
 
 /* The engine, with the time applied: R5 is checked before the message is. */
-static tfw_hsm_t *engine(uint32_t now)
+tfw_hsm_t *tfw_hsm_cmd_engine(uint32_t now)
 {
     if (g_ready == 0u) {
         tfw_hsm_cmd_reset();
@@ -70,7 +70,7 @@ static tfw_status_t state(const tfw_hsm_t *h, tfw_writer_t *w)
 tfw_status_t tfw_hsm_cmd_heartbeat(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint32_t   now = tfw_hal_millis();
-    tfw_hsm_t *h   = engine(now);
+    tfw_hsm_t *h   = tfw_hsm_cmd_engine(now);
 
     (void)r;
     tfw_hsm_heartbeat(h, now);
@@ -83,7 +83,7 @@ tfw_status_t tfw_hsm_cmd_heartbeat(tfw_reader_t *r, tfw_writer_t *w)
 tfw_status_t tfw_hsm_cmd_report(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint32_t   now    = tfw_hal_millis();
-    tfw_hsm_t *h      = engine(now);
+    tfw_hsm_t *h      = tfw_hsm_cmd_engine(now);
     uint8_t    signal = tfw_read_u8(r);
 
     if (signal != TFW_HSM_SIG_IMA_VIOLATION && signal != TFW_HSM_SIG_HOTPLUG) {
@@ -98,7 +98,7 @@ tfw_status_t tfw_hsm_cmd_report(tfw_reader_t *r, tfw_writer_t *w)
 tfw_status_t tfw_hsm_cmd_verdict(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint32_t   now     = tfw_hal_millis();
-    tfw_hsm_t *h       = engine(now);
+    tfw_hsm_t *h       = tfw_hsm_cmd_engine(now);
     uint8_t    verdict = tfw_read_u8(r);
 
     if (verdict > TFW_HSM_VERDICT_COMPROMISED) {
@@ -110,7 +110,7 @@ tfw_status_t tfw_hsm_cmd_verdict(tfw_reader_t *r, tfw_writer_t *w)
 
 tfw_status_t tfw_hsm_cmd_select(tfw_reader_t *r, tfw_writer_t *w)
 {
-    tfw_hsm_t   *h  = engine(tfw_hal_millis());
+    tfw_hsm_t   *h  = tfw_hsm_cmd_engine(tfw_hal_millis());
     tfw_status_t st = tfw_hsm_select(h, tfw_read_u8(r));
 
     return (st == TFW_OK) ? state(h, w) : st;
@@ -130,7 +130,7 @@ static tfw_status_t drop(tfw_status_t st)
 tfw_status_t tfw_hsm_cmd_load(tfw_reader_t *r, tfw_writer_t *w)
 {
     uint32_t       now    = tfw_hal_millis();
-    tfw_hsm_t     *h      = engine(now);
+    tfw_hsm_t     *h      = tfw_hsm_cmd_engine(now);
     uint16_t       total  = tfw_read_u16(r);
     uint16_t       offset = tfw_read_u16(r);
     uint8_t        n      = tfw_reader_remaining(r);

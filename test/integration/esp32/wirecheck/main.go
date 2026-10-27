@@ -80,6 +80,8 @@ func main() {
 	timeout := flag.Duration("timeout", 10*time.Second, "how long one command may take")
 	network := flag.String("network", "tcp", "tcp, or unix for a socket path in -addr")
 	silent := flag.Duration("silent", 0, "pass only if nothing answers a PING for this long")
+	hsm := flag.String("hsm", "", "run this tamper-response case (hsm.go) and nothing else")
+	hsmDir := flag.String("hsm-dir", "", "the directory hsm_sets wrote the -hsm cases' sets to")
 	flag.Parse()
 
 	if *silent > 0 {
@@ -107,6 +109,12 @@ func main() {
 	}
 	defer func() { _ = conn.Close() }() // every check has printed or failed by here
 	ctx := context.Background()
+
+	if *hsm != "" {
+		hsmCheck(ctx, d, *hsm, *hsmDir, *wait)
+		fmt.Println("wirecheck: ok")
+		return
+	}
 
 	caps, err := d.Caps(ctx)
 	if err != nil {

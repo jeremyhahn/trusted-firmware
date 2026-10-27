@@ -78,8 +78,8 @@ var peerBoards = map[string]peerBoard{
 	// UART outside the pin table. QEMU's system_reset leaves no reset mark
 	// behind, so the HAL reads power-on (src/hal/cortex-m/hal_early.c). The
 	// analog, PWM, EEPROM, bus and pulse rows find their families absent from
-	// CAPS and check the board refuses them (cliAbsent); their pin fields
-	// here are never read.
+	// CAPS and fail (requireFeature), so the QEMU run leaves them out; their
+	// pin fields here are never read.
 	"mps2-an505": {
 		resetCause: tfw.ResetPowerOn,
 		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
@@ -123,21 +123,6 @@ func cliTier(t *testing.T, dev *tfw.Device) string {
 func cliRefused(t *testing.T, dev *tfw.Device, verb string, args ...string) {
 	t.Helper()
 	_ = cliStatus(t, dev, verb, args...)
-}
-
-// cliAbsent reports whether the board's CAPS lacks feature. When it does, it
-// first checks the board answers verb as an unknown command: the family is
-// compiled out of this image (src/core/commands.def), not present and
-// broken. A row for that family then has nothing more to ask this board,
-// and has still tested it; it is not a skip.
-func cliAbsent(t *testing.T, dev *tfw.Device, feature uint32, verb string, args ...string) bool {
-	t.Helper()
-	if cliCaps(t, dev).Has(feature) {
-		return false
-	}
-	assert.Equal(t, tfw.StatusErrUnknownCmd, cliStatus(t, dev, verb, args...),
-		"%s: CAPS does not report the family, so the board must not know the command", verb)
-	return true
 }
 
 func cliPin(t *testing.T, dev *tfw.Device, pin uint8) tfw.PinInfo {
@@ -358,9 +343,7 @@ func TestFirmwareTimer(t *testing.T) {
 // took its signature (#125).
 func TestFirmwareEEPROM(t *testing.T) {
 	dev := startFirmware(t)
-	if cliAbsent(t, dev, tfw.FeatureEEPROM, "eeprom-read", "0x100", "2") {
-		return
-	}
+	requireFeature(t, dev, tfw.FeatureEEPROM)
 	cliRefused(t, dev, "eeprom-write", "0", "00000000")   // over the bootloader pubkey hash
 	cliRefused(t, dev, "eeprom-write", "192", "00000000") // 0x0C0, the old end: reserved since #125
 	// A write starting below the boundary and running through it is refused
@@ -410,9 +393,7 @@ func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
 func TestFirmwareAnalog(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
-	if cliAbsent(t, dev, tfw.FeatureAnalog, "analog", strconv.Itoa(int(b.ledPin))) {
-		return
-	}
+	requireFeature(t, dev, tfw.FeatureAnalog)
 	// The mock reports zero until told otherwise; the point is that the
 	// command round-trips and the pin maps to a channel at all.
 	var got struct {
@@ -425,9 +406,7 @@ func TestFirmwareAnalog(t *testing.T) {
 func TestFirmwarePWM(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
-	if cliAbsent(t, dev, tfw.FeaturePWM, "pwm", "9", "128") {
-		return
-	}
+	requireFeature(t, dev, tfw.FeaturePWM)
 	require.NoError(t, run(context.Background(), dev, "pwm", []string{"9", "128"}, false, &strings.Builder{}),
 		"pin 9 has a free compare unit and should accept a duty")
 	// Timer0 is the millisecond tick, so its compare pins have units that are
@@ -440,9 +419,7 @@ func TestFirmwarePWM(t *testing.T) {
 
 func TestFirmwareI2C(t *testing.T) {
 	dev := startFirmware(t)
-	if cliAbsent(t, dev, tfw.FeatureI2C, "i2c", strconv.Itoa(tfw.I2CReservedAddr), "00", "1") {
-		return
-	}
+	requireFeature(t, dev, tfw.FeatureI2C)
 	assert.Equal(t, tfw.StatusErrProtectedRegion,
 		cliStatus(t, dev, "i2c", strconv.Itoa(tfw.I2CReservedAddr), "00", "1"),
 		"the secure element's I2C address was reachable")
@@ -450,9 +427,7 @@ func TestFirmwareI2C(t *testing.T) {
 
 func TestFirmwareI2CConfig(t *testing.T) {
 	dev := startFirmware(t)
-	if cliAbsent(t, dev, tfw.FeatureI2C, "i2c-config", "400000") {
-		return
-	}
+	requireFeature(t, dev, tfw.FeatureI2C)
 	ctx := context.Background()
 	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI
 	// peripheral on an element build; the software tier applies the clock.
@@ -474,9 +449,7 @@ func TestFirmwareSPIConfig(t *testing.T) {
 	dev := startFirmware(t)
 	ctx := context.Background()
 	mode3, div16 := fmt.Sprint(uint8(tfw.SPIMode3)), fmt.Sprint(uint8(tfw.SPIClockDiv16))
-	if cliAbsent(t, dev, tfw.FeatureSPI, "spi-config", mode3, div16, "lsb") {
-		return
-	}
+	requireFeature(t, dev, tfw.FeatureSPI)
 	require.NoError(t, run(ctx, dev, "spi-config", []string{mode3, div16, "lsb"}, false, &strings.Builder{}),
 		"a valid configuration should be accepted")
 	var ae *tfw.ArgRangeError
@@ -486,11 +459,8 @@ func TestFirmwareSPIConfig(t *testing.T) {
 
 func TestFirmwareOneWireAndPulseIn(t *testing.T) {
 	dev := startFirmware(t)
-	noWire := cliAbsent(t, dev, tfw.FeatureOneWire, "1wire-reset", "9")
-	if noPulse := cliAbsent(t, dev, tfw.FeaturePulse, "pulse-in", "9", "1", "10ms"); noWire || noPulse {
-		assert.Equal(t, noWire, noPulse, "CAPS reports one of 1-Wire and pulse-in without the other")
-		return
-	}
+	requireFeature(t, dev, tfw.FeatureOneWire)
+	requireFeature(t, dev, tfw.FeaturePulse)
 	var reset struct {
 		Present bool `json:"present"`
 	}

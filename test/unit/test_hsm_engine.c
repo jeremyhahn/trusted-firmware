@@ -63,6 +63,20 @@ static const uint8_t SET_A[] = {
     0x81u, 0x83u, 0x05u, 0x81u, 0x06u, 0xF4u,
     0x03u, 0xA0u, 0x04u, 0x19u, 0x03u, 0xE8u, 0x05u, 0x19u, 0x01u, 0xF4u,
 };
+
+/* SET_A with one expected value for S3, {1: h'0102'}. */
+static const uint8_t SET_E[] = {
+    0xA5u, 0x01u, 0x01u, 0x02u, 0x82u,
+    0x85u,
+    0x83u, 0x01u, 0x82u, 0x03u, 0x05u, 0xF5u,
+    0x83u, 0x02u, 0x83u, 0x06u, 0x04u, 0x01u, 0xF4u,
+    0x83u, 0x03u, 0x58u, 0x20u, DIG_A, 0xF4u,
+    0x83u, 0x04u, 0x58u, 0x20u, DIG_B, 0xF5u,
+    0x83u, 0x06u, 0x81u, 0x06u, 0xF5u,
+    0x81u, 0x83u, 0x05u, 0x81u, 0x06u, 0xF4u,
+    0x03u, 0xA1u, 0x01u, 0x42u, 0x01u, 0x02u,
+    0x04u, 0x19u, 0x03u, 0xE8u, 0x05u, 0x19u, 0x01u, 0xF4u,
+};
 /* Set B, laxer: one policy, S5: [phy-off]; heartbeat 2000 ms, W 100 ms. */
 static const uint8_t SET_B[] = {
     0xA5u, 0x01u, 0x01u, 0x02u, 0x81u, 0x81u, 0x83u, 0x05u, 0x81u, 0x01u, 0xF4u,
@@ -105,6 +119,18 @@ tfw_status_t tfw_hsm_port_act(uint8_t action)
     return action == TFW_HSM_ACT_KEYS_WIPE ? wipe_st : act_st;
 }
 
+static tfw_status_t measure_st;
+static uint8_t      n_measured;
+
+tfw_status_t tfw_hsm_port_measure(const tfw_hsm_set_t *set)
+{
+    n_measured++;
+    TEST_ASSERT_EQUAL_UINT8(1u, set->n_expected);
+    TEST_ASSERT_EQUAL_UINT32(1u, set->expected[0].key);
+    TEST_ASSERT_EQUAL_UINT8(2u, set->expected[0].n);
+    return measure_st;
+}
+
 /* The mock's record is exactly these actions, in order; then it is cleared. */
 #define ACTS(...)                                                         \
     do {                                                                  \
@@ -145,6 +171,8 @@ void setUp(void)
     TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(priv, pub, uECC_secp256r1()));
     TEST_ASSERT_EQUAL_MEMORY(SUIT_TENANT_PUB, pub, sizeof pub);
     n_acted = 0u;
+    n_measured = 0u;
+    measure_st = TFW_OK;
     wipe_st = TFW_OK;
     act_st  = TFW_OK;
     tfw_hsm_init(&h, 0u);
@@ -732,6 +760,48 @@ static void test_a_sequence_equal_to_the_floor_needs_the_same_digest(void)
     TEST_ASSERT_EQUAL_UINT8(1u, h.set.n);
 }
 
+static void test_s3_a_set_without_expected_values_measures_nothing(void)
+{
+    measure_st = TFW_ERR_RANGE;
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(0u, n_measured);
+    TEST_ASSERT_EQUAL_UINT8(0u, n_acted);
+}
+
+static void test_s3_a_measurement_that_matches_raises_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_E, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    TEST_ASSERT_EQUAL_UINT8(0u, n_acted);
+    TEST_ASSERT_EQUAL_UINT8(0u, h.locked);
+}
+
+static void test_s3_a_port_that_cannot_measure_raises_nothing(void)
+{
+    measure_st = TFW_ERR_UNSUPPORTED;
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_E, 1u, 0u));
+    TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+    TEST_ASSERT_EQUAL_UINT8(0u, n_acted);
+    TEST_ASSERT_EQUAL_UINT8(0u, h.locked);
+}
+
+/* SET_E names a script it does not hold for S3, so the raised S3 locks
+ * down (R2), under the set just loaded, which stays loaded. */
+static void test_s3_a_mismatch_or_failed_measurement_raises_s3(void)
+{
+    static const tfw_status_t bad[] = { TFW_ERR_RANGE, TFW_ERR_TIMEOUT, TFW_ERR_CRYPTO };
+
+    for (uint8_t i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        setUp();
+        measure_st = bad[i];
+        TEST_ASSERT_EQUAL(TFW_OK, SET(SET_E, 1u, 0u));
+        TEST_ASSERT_EQUAL_UINT8(1u, n_measured);
+        ACTS(LOCK);
+        TEST_ASSERT_EQUAL_UINT8(1u, h.locked);
+        TEST_ASSERT_EQUAL_UINT8(1u, h.set.n_expected);
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -763,5 +833,9 @@ int main(void)
     RUN_TEST(test_a_flipped_bit_or_a_truncation_is_refused);
     RUN_TEST(test_a_sequence_below_the_floor_is_protected_region);
     RUN_TEST(test_a_sequence_equal_to_the_floor_needs_the_same_digest);
+    RUN_TEST(test_s3_a_set_without_expected_values_measures_nothing);
+    RUN_TEST(test_s3_a_measurement_that_matches_raises_nothing);
+    RUN_TEST(test_s3_a_port_that_cannot_measure_raises_nothing);
+    RUN_TEST(test_s3_a_mismatch_or_failed_measurement_raises_s3);
     return UNITY_END();
 }

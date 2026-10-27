@@ -31,6 +31,7 @@
 #include "core/platform_id.h"
 #include "core/auth_session.h"
 #include "core/app_runner.h"
+#include "core/hsm_loop.h"
 #include "core/ota_trial.h"
 #include "core/ota_stage.h"
 
@@ -43,7 +44,7 @@ enum ev {
     EV_SCHED_INIT, EV_AUTH_INIT, EV_TRANSPORT_INIT, EV_TRIAL_START,
     EV_APP_START, EV_TRIAL_AFTER_INIT, EV_IRQ_ENABLE, EV_SEND_EVENT,
     EV_TRANSPORT_POLL, EV_FRAMER_ERRORS, EV_SCHED_POLL, EV_SYS_POLL,
-    EV_APP_POLL, EV_TRIAL_POLL
+    EV_APP_POLL, EV_HSM_POLL, EV_TRIAL_POLL
 };
 
 #define MAX_EVENTS 128u
@@ -134,6 +135,8 @@ void tfw_sched_poll(void) { log_ev(EV_SCHED_POLL); }
 void tfw_sys_poll(void) { log_ev(EV_SYS_POLL); }
 void tfw_app_runner_poll(void) { log_ev(EV_APP_POLL); }
 
+void tfw_hsm_loop_poll(void) { log_ev(EV_HSM_POLL); }
+
 void tfw_ota_trial_poll(void)
 {
     log_ev(EV_TRIAL_POLL);
@@ -164,7 +167,7 @@ static const uint8_t startup_order[] = {
 
 static const uint8_t pass_order[] = {
     EV_TRANSPORT_POLL, EV_FRAMER_ERRORS, EV_SCHED_POLL, EV_SYS_POLL,
-    EV_APP_POLL, EV_TRIAL_POLL
+    EV_APP_POLL, EV_HSM_POLL, EV_TRIAL_POLL
 };
 
 #define N_STARTUP ((uint8_t)sizeof startup_order)

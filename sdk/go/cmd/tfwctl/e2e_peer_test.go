@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
@@ -34,9 +33,11 @@ import (
 // what was flashed and provisioned, and ignores them. The tier is checked on
 // both, so a board flashed with the other tier's image fails the row up front
 // and says which it needs, rather than failing an assertion for the wrong
-// reason. A row about one feature instead (startServing) asks a board's CAPS,
-// so one image runs every such row and the bits it lacks end theirs with the
-// board's refusal checked.
+// reason. A row about one feature instead (startServing) asks the peer's CAPS
+// for it, and fails, naming the feature and the peer, when the bit is clear:
+// a row that cannot run is a failure, not a pass (#7). A board's run leaves
+// out by name the rows its image cannot serve (HW_TEST_RUN, as
+// test/integration/cortex-m/qemu_wire_test.sh does for the QEMU boards).
 
 const (
 	// deviceIDEnv is the board's DeviceID key, the hex X||Y tfwprov --commit
@@ -74,7 +75,7 @@ func startPeerVia(t *testing.T, wrap func(io.ReadWriter) io.ReadWriter, sim simp
 }
 
 // openPeer is startPeerVia without the tier check.
-func openPeer(t *testing.T, wrap func(io.ReadWriter) io.ReadWriter, sim simproc.Binary, args ...string) serialPeer {
+func openPeer(t testing.TB, wrap func(io.ReadWriter) io.ReadWriter, sim simproc.Binary, args ...string) serialPeer {
 	t.Helper()
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
@@ -86,7 +87,7 @@ func openPeer(t *testing.T, wrap func(io.ReadWriter) io.ReadWriter, sim simproc.
 }
 
 // requireTier fails the row unless the peer reports sim's tier.
-func requireTier(t *testing.T, p serialPeer, sim simproc.Binary) {
+func requireTier(t testing.TB, p serialPeer, sim simproc.Binary) {
 	t.Helper()
 	want := tfw.CryptoSoftware
 	if sim == simproc.Element {
@@ -95,76 +96,93 @@ func requireTier(t *testing.T, p serialPeer, sim simproc.Binary) {
 	require.Equal(t, want, cliCaps(t, p.serial).CryptoTier, "this row needs a %s-tier peer", want)
 }
 
-// startServing starts the peer a row about one CAPS feature needs, and reports
-// whether the device serves it. The simulator is sim with args, on sim's tier
-// and with the feature, or the row fails. A board runs the one image it was
-// given, whatever its tier, so its CAPS decides: with the feature's bit clear
-// the device must not know cmd -- sent on the wire with payload, past anything
-// tfwctl checks first -- and the row ends there. docs/cortex-m/README.md tables
-// the rows each QEMU board's CAPS leaves out.
-func startServing(t *testing.T, feature uint32, cmd tfw.Cmd, payload []byte, sim simproc.Binary, args ...string) (serialPeer, bool) {
+// startServing starts the peer a row about one CAPS feature needs: the
+// simulator sim with args, on sim's tier, or the board, which runs the one
+// image it was given whatever its tier. Either way the peer's CAPS must report
+// the feature, or the row fails there and names it and the peer.
+// docs/cortex-m/README.md tables the rows each QEMU board's run leaves out.
+func startServing(t testing.TB, feature uint32, sim simproc.Binary, args ...string) serialPeer {
 	t.Helper()
 	p := openPeer(t, nil, sim, args...)
-	has := cliCaps(t, p.serial).Has(feature)
+	requireFeature(t, p.serial, feature)
 	if !p.board {
 		requireTier(t, p, sim)
-		require.True(t, has, "the simulator's CAPS lacks feature %#x", feature)
 	}
-	if has {
-		return p, true
+	return p
+}
+
+// requireFeature fails the row, naming the feature and the peer, unless the
+// peer's CAPS reports feature.
+func requireFeature(t testing.TB, dev *tfw.Device, feature uint32) {
+	t.Helper()
+	if !cliCaps(t, dev).Has(feature) {
+		t.Fatalf("this row needs CAPS feature %s (%#x), which %s does not report",
+			featureList(&tfw.Caps{Features: feature}), feature, peerName(t))
 	}
-	_, err := p.serial.Do(context.Background(), cmd, payload)
+}
+
+// requireKnown is requireFeature for what CAPS has no bit for (the OTA stager,
+// OTA_INFO, an application): the row fails, naming what and the peer, when
+// the peer answers cmd, sent with payload, as an unknown command.
+func requireKnown(t testing.TB, dev *tfw.Device, cmd tfw.Cmd, payload []byte, what string) {
+	t.Helper()
+	_, err := dev.Do(context.Background(), cmd, payload)
 	var st tfw.Status
-	require.True(t, errorsAsStatus(err, &st), "command 0x%02x: %v, want a device status", byte(cmd), err)
-	assert.Equal(t, tfw.StatusErrUnknownCmd, st,
-		"command 0x%02x: CAPS does not report feature %#x, so the board must not know the command", byte(cmd), feature)
-	return p, false
+	if errorsAsStatus(err, &st) && st == tfw.StatusErrUnknownCmd {
+		t.Fatalf("this row needs %s, and %s answers command 0x%02x as unknown", what, peerName(t), byte(cmd))
+	}
+}
+
+// peerName is the peer the rows run against, as a failure names it.
+func peerName(t testing.TB) string {
+	t.Helper()
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	switch {
+	case !target.Hardware():
+		return "the simulator"
+	case target.Board != "":
+		return "board " + target.Board
+	}
+	return "the board on " + target.Port
 }
 
 // certServing, evidenceServing and csrServing are startServing for the
 // provisioned element (startProvisioned) and the row's feature: the alias
 // certificate (bit 13), the evidence frame (bit 10) and ATTEST_CSR (bit 15).
-func certServing(t *testing.T) (serialPeer, bool) {
+func certServing(t *testing.T) serialPeer {
 	t.Helper()
-	return startServing(t, tfw.FeatureAliasCert, tfw.CmdAttestCert, make([]byte, tfw.AliasNonceLen),
-		simproc.Element, elementArgs(t, nil, nil)...)
+	return startServing(t, tfw.FeatureAliasCert, simproc.Element, elementArgs(t, nil, nil)...)
 }
 
-func evidenceServing(t *testing.T) (serialPeer, bool) {
+func evidenceServing(t *testing.T) serialPeer {
 	t.Helper()
-	return startServing(t, tfw.FeatureAttest, tfw.CmdAttest, make([]byte, tfw.AttestNonceLen),
-		simproc.Element, elementArgs(t, nil, nil)...)
+	return startServing(t, tfw.FeatureAttest, simproc.Element, elementArgs(t, nil, nil)...)
 }
 
-func csrServing(t *testing.T) (serialPeer, bool) {
+func csrServing(t *testing.T) serialPeer {
 	t.Helper()
-	return startServing(t, tfw.FeatureAttestCSR, tfw.CmdAttestCSR, make([]byte, tfw.AliasNonceLen),
-		simproc.Element, elementArgs(t, nil, nil)...)
+	return startServing(t, tfw.FeatureAttestCSR, simproc.Element, elementArgs(t, nil, nil)...)
 }
 
 // operatorServing is the element tier holding the test identity with an
 // operator key the row can sign with, and the PEM file of its private half.
 // The simulator's is a fresh key baked into its platform block, as tfwprov
 // bakes one; a board's is the file TFW_HW_OPERATOR_KEY names. As startServing,
-// it reports whether the board has the session (bit 14): on a board the key is
-// asked for only once CAPS says the session is there, and a board without it
-// has been checked to refuse AUTH_CHALLENGE.
-func operatorServing(t *testing.T) (serialPeer, string, bool) {
+// it fails the row unless the peer has the session (bit 14): on a board the
+// key is asked for only once CAPS says the session is there.
+func operatorServing(t *testing.T) (serialPeer, string) {
 	t.Helper()
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
 	if !target.Hardware() {
 		pub, key := writeOperatorKey(t)
-		p, ok := startServing(t, tfw.FeatureAuthSession, tfw.CmdAuthChallenge, nil, simproc.Element, elementArgs(t, pub, nil)...)
-		return p, key, ok
+		return startServing(t, tfw.FeatureAuthSession, simproc.Element, elementArgs(t, pub, nil)...), key
 	}
-	p, ok := startServing(t, tfw.FeatureAuthSession, tfw.CmdAuthChallenge, nil, simproc.Element)
-	if !ok {
-		return p, "", false
-	}
+	p := startServing(t, tfw.FeatureAuthSession, simproc.Element)
 	key := os.Getenv(operatorKeyEnv)
 	require.NotEmpty(t, key, "this row needs the operator key the board trusts: set %s to its PEM file", operatorKeyEnv)
-	return p, key, true
+	return p, key
 }
 
 // elementArgs are the element simulator's flags for the test identity: a

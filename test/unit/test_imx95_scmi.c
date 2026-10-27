@@ -141,6 +141,127 @@ static void test_reset_is_domain_flags_state(void)
     TEST_ASSERT_EQUAL_HEX32(0x4u, TFW_SCMI_RESET_ASYNC);
 }
 
+/* DEN0056E section 4.4.2.5, SYSTEM_POWER_STATE_SET: protocol 0x12, message 0x3,
+ * parameters flags then system_state. */
+static void test_system_power_state_set_is_flags_state(void)
+{
+    static const uint8_t want[8] = {
+        0x01, 0x00, 0x00, 0x00,   /* flags: graceful */
+        0x00, 0x00, 0x00, 0x00,   /* system_state: shutdown */
+    };
+
+    tfw_scmi_system_power_state_set(&cmd, 4u, TFW_SCMI_SYSTEM_GRACEFUL, TFW_SCMI_SYSTEM_SHUTDOWN);
+    TEST_ASSERT_EQUAL_HEX32(0x00104803u, cmd.header);
+    TEST_ASSERT_EQUAL_UINT32(8u, cmd.len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, cmd.payload, 8);
+}
+
+static void test_system_power_state_set_clears_reserved_flags(void)
+{
+    static const uint8_t want[8] = {
+        0x00, 0x00, 0x00, 0x00,   /* flags: forceful, bits 31 to 1 zero */
+        0x01, 0x00, 0x00, 0x80,   /* system_state: a vendor's, 0x80000001 */
+    };
+
+    tfw_scmi_system_power_state_set(&cmd, 4u, 0xFFFFFFFEu, 0x80000001u);
+    TEST_ASSERT_EQUAL_UINT32(8u, cmd.len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, cmd.payload, 8);
+}
+
+/* DEN0056E section 4.1.2, Table 2 (protocol 0x12); section 4.4.2.5 (message,
+ * flags, system_state). */
+static void test_the_system_states_are_the_specifications(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x12u, TFW_SCMI_PROTO_SYSTEM);
+    TEST_ASSERT_EQUAL_HEX32(0x3u, TFW_SCMI_SYSTEM_POWER_STATE_SET);
+    TEST_ASSERT_EQUAL_HEX32(0x0u, TFW_SCMI_SYSTEM_FORCEFUL);
+    TEST_ASSERT_EQUAL_HEX32(0x1u, TFW_SCMI_SYSTEM_GRACEFUL);
+    TEST_ASSERT_EQUAL_HEX32(0x0u, TFW_SCMI_SYSTEM_SHUTDOWN);
+    TEST_ASSERT_EQUAL_HEX32(0x1u, TFW_SCMI_SYSTEM_COLD_RESET);
+    TEST_ASSERT_EQUAL_HEX32(0x2u, TFW_SCMI_SYSTEM_WARM_RESET);
+    TEST_ASSERT_EQUAL_HEX32(0x3u, TFW_SCMI_SYSTEM_POWER_UP);
+    TEST_ASSERT_EQUAL_HEX32(0x4u, TFW_SCMI_SYSTEM_SUSPEND);
+}
+
+/* The statuses section 4.4.2.5 lists for SYSTEM_POWER_STATE_SET, then the
+ * client's timeout, then every other: unrecognised, never one of the four. */
+static void test_every_system_power_status_maps(void)
+{
+    static const int32_t others[11] = { -4, -5, -6, -7, -8, -9, -10, -11, -12, 2, 0x7FFFFFFF };
+    uint32_t i;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_scmi_system_power_status(0));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_scmi_system_power_status(-2));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_scmi_system_power_status(-1));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION, tfw_scmi_system_power_status(-3));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_scmi_system_power_status(1));
+    for (i = 0u; i < 11u; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_scmi_system_power_status(others[i]));
+    }
+}
+
+static void test_the_lmm_identifiers_are_imx_sms(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(0x80u, TFW_SCMI_PROTO_LMM);
+    TEST_ASSERT_EQUAL_HEX32(0x6u, TFW_SCMI_LMM_SHUTDOWN);
+    TEST_ASSERT_EQUAL_HEX32(0x0u, TFW_SCMI_LMM_FORCEFUL);
+    TEST_ASSERT_EQUAL_HEX32(0x1u, TFW_SCMI_LMM_GRACEFUL);
+}
+
+static void test_lmm_shutdown_is_lm_id_flags(void)
+{
+    static const uint8_t want[8] = {
+        0x01, 0x02, 0x03, 0x04,   /* lm_id */
+        0x00, 0x00, 0x00, 0x00,   /* flags: forceful */
+    };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK,
+                          tfw_scmi_lmm_shutdown(&cmd, 4u, 0x04030201u, TFW_SCMI_LMM_FORCEFUL));
+    TEST_ASSERT_EQUAL_HEX32(0x00120006u, cmd.header);
+    TEST_ASSERT_EQUAL_UINT32(8u, cmd.len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, cmd.payload, 8);
+}
+
+static void test_lmm_shutdown_clears_reserved_flags(void)
+{
+    static const uint8_t want[8] = {
+        0x02, 0x00, 0x00, 0x00,   /* lm_id */
+        0x01, 0x00, 0x00, 0x00,   /* flags: graceful, bits 31 to 1 zero */
+    };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_scmi_lmm_shutdown(&cmd, 0x3FFu, 2u, 0xFFFFFFFFu));
+    TEST_ASSERT_EQUAL_HEX32(0x0FFE0006u, cmd.header);
+    TEST_ASSERT_EQUAL_UINT32(8u, cmd.len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, cmd.payload, 8);
+}
+
+static void test_lmm_shutdown_of_lm_zero_is_unsupported(void)
+{
+    struct tfw_scmi_msg before;
+
+    memset(&cmd, 0xA5, sizeof cmd);
+    memcpy(&before, &cmd, sizeof cmd);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED,
+                          tfw_scmi_lmm_shutdown(&cmd, 4u, 0u, TFW_SCMI_LMM_FORCEFUL));
+    TEST_ASSERT_EQUAL_MEMORY(&before, &cmd, sizeof cmd);
+    memset(&cmd, 0, sizeof cmd);
+}
+
+static void test_every_lmm_status_maps(void)
+{
+    static const int32_t others[11] = { -1, -5, -6, -7, -8, -9, -10, -11, -12, 2, 0x7FFFFFFF };
+    uint32_t i;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_scmi_lmm_status(0));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_scmi_lmm_status(-4));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_scmi_lmm_status(-2));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_PROTECTED_REGION, tfw_scmi_lmm_status(-3));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_scmi_lmm_status(1));
+    for (i = 0u; i < 11u; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_scmi_lmm_status(others[i]));
+    }
+}
+
 static void test_every_status_code_reads_back_as_numbered(void)
 {
     static const int32_t codes[12] = { 0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11 };
@@ -271,6 +392,15 @@ int main(void)
     RUN_TEST(test_clock_rate_get_is_the_clock_id);
     RUN_TEST(test_power_state_set_is_flags_domain_state);
     RUN_TEST(test_reset_is_domain_flags_state);
+    RUN_TEST(test_system_power_state_set_is_flags_state);
+    RUN_TEST(test_system_power_state_set_clears_reserved_flags);
+    RUN_TEST(test_the_system_states_are_the_specifications);
+    RUN_TEST(test_every_system_power_status_maps);
+    RUN_TEST(test_the_lmm_identifiers_are_imx_sms);
+    RUN_TEST(test_lmm_shutdown_is_lm_id_flags);
+    RUN_TEST(test_lmm_shutdown_clears_reserved_flags);
+    RUN_TEST(test_lmm_shutdown_of_lm_zero_is_unsupported);
+    RUN_TEST(test_every_lmm_status_maps);
     RUN_TEST(test_every_status_code_reads_back_as_numbered);
     RUN_TEST(test_an_unnumbered_status_is_unrecognised);
     RUN_TEST(test_a_wrong_token_is_refused);

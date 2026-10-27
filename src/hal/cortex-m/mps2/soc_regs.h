@@ -63,6 +63,9 @@
 
 /* ---- FPGA I/O block */
 #define TFW_MPS2_FPGAIO_LED    TFW_CM_REG(TFW_MPS2_FPGAIO_BASE + 0x00u)
+/* The FPGA I/O block's push buttons, bit n button n, read-only. QEMU does not
+ * model them and reads zero (hw/misc/mps2-fpgaio.c, A_BUTTON). */
+#define TFW_MPS2_FPGAIO_BUTTON TFW_CM_REG(TFW_MPS2_FPGAIO_BASE + 0x08u)
 #define TFW_MPS2_LED_COUNT     2u
 /* MISC, whose bit 8 is the shield 0 SPI chip select (pl022.h; AN505 Table
  * 4-5, AN500 Table 3-6: +0x4C in both images). */

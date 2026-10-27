@@ -236,6 +236,15 @@ tfw_status_t tfw_hsm_load(tfw_hsm_t *h, const uint8_t *env, uint16_t len,
     }
     if (st != TFW_OK) {
         h->refused++;
+        return st;
     }
-    return st;
+    /* S3: the set just loaded carries what this boot should measure; a port
+     * that cannot measure yet raises nothing. */
+    if (kind == TFW_SUIT_KIND_POLICY && h->set.n_expected != 0u) {
+        tfw_status_t ms = tfw_hsm_port_measure(&h->set);
+        if (ms != TFW_OK && ms != TFW_ERR_UNSUPPORTED) {
+            tfw_hsm_signal(h, TFW_HSM_SIG_MEASUREMENT, now);
+        }
+    }
+    return TFW_OK;
 }

@@ -161,8 +161,9 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
-                            test/unit/test_imx95_ele_mu.c \
+                            test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
+                            test/unit/test_optee_ta.c \
                             test/unit/test_app_none.c \
                             test/unit/test_app_example.c \
                             test/unit/test_w5x00.c test/unit/test_w5x00_nocs.c test/unit/test_link_eth.c test/unit/test_netcfg_mutate.c test/unit/test_ota_hold_link.c \
@@ -382,7 +383,12 @@ $(HOST_DIR)/test_hsm_engine: src/core/hsm_payload.c src/core/hsm_engine.c tools/
 #               dispatcher calls them, on the literal envelope
 $(HOST_DIR)/test_hsm_cmd: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
                           src/core/reader.c src/core/writer.c
-$(HOST_DIR)/test_hsm_payload $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd: $(HOST_DIR)/%: test/unit/%.c \
+# test_hsm_loop  the superloop's pass (slice 3) over the same engine, the port's
+#                lines asserted by the test
+$(HOST_DIR)/test_hsm_loop: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
+                           src/core/hsm_loop.c src/core/reader.c src/core/writer.c
+$(HOST_DIR)/test_hsm_payload $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd \
+$(HOST_DIR)/test_hsm_loop: $(HOST_DIR)/%: test/unit/%.c \
                        $(ELEMENT_MODEL) src/core/suit.c src/core/suit_integrated.c \
                        boot/boot_trial.c boot/boot_image.c boot/boot_platform.c \
                        src/crypto/atecc608a/atecc.c \
@@ -695,6 +701,14 @@ $(HOST_DIR)/test_imx95_scmi_mu: test/unit/test_imx95_scmi_mu.c test/model/imx95_
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The response engine's port, A1 and A2 (slice 5), A4 and S3 (slice 6), over
+# the same channels and model, compiled against the board's zero ids.
+$(HOST_DIR)/test_imx95_hsm_port: test/unit/test_imx95_hsm_port.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/hsm_port.c src/hal/cortex-m/imx95/ele_mu.c \
+                        src/hal/cortex-m/imx95/scmi_mu.c src/hal/cortex-m/imx95/scmi.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_imx95_ele_mu: test/unit/test_imx95_ele_mu.c test/model/imx95_model.c \
                         src/hal/cortex-m/imx95/ele_mu.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -710,6 +724,17 @@ $(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-ba
                         $(HOST_DIR)/unity.o tools/platform-bake/bake.h | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) -Itools/platform-bake $(EXTRA_CFLAGS) -o $@ \
 	   $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
+# The OP-TEE TA and its check (#253), against the GP headers' host doubles in
+# test/mock/gp/ and the in-process TEE of test/mock/gp_bridge.c. Its own link:
+# optee/ is in no firmware object list, and only this link sees test/mock/gp/.
+$(HOST_DIR)/test_optee_ta: test/unit/test_optee_ta.c optee/ta/tfw_ta.c optee/check/check.c \
+                        test/mock/gp_bridge.c $(HOST_DIR)/unity.o \
+                        optee/ta/include/tfw_ta.h optee/check/check.h optee/testdata/vectors.h \
+                        test/mock/gp_bridge.h test/mock/gp/tee_internal_api.h \
+                        test/mock/gp/tee_client_api.h | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) -Itest/mock/gp -Ioptee/ta/include -Ioptee/check $(EXTRA_CFLAGS) \
+	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
 # The same decision against the test's own nvm read, EEPROM write and UART
 # byte, not the mock: a failed write, a failed read-back and a busy UART are
@@ -1034,6 +1059,11 @@ $(HOST_DIR)/test_atecc_provider_mutate: test/unit/test_atecc_provider_mutate.c $
 $(HOST_DIR)/test_soft_id_p256: test/unit/test_soft_id_p256.c $(SOFT_ID_SRCS) \
                                src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The tenant-key verify an HSM image links in place of the soft provider's
+# refusal (mk/firmware.mk HSM_SRCS), on the literal policy signature.
+$(HOST_DIR)/test_verify_p256: test/unit/test_verify_p256.c src/crypto/soft/verify_p256.c \
+                              src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The soft root's ATTEST frame pinned against the TCG DICE formula (row
 # dice-attestation) is the HMAC-SHA256 identity, mk/firmware.mk SOFT_ID=hmac:
@@ -1137,8 +1167,9 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_mcxn_lpuart \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
-                    $(HOST_DIR)/test_imx95_ele_mu \
+                    $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
+                    $(HOST_DIR)/test_optee_ta \
                     $(HOST_DIR)/test_tier_atecc608a_mutate \
                     $(HOST_DIR)/test_tfwsim_main_mutate \
                     $(HOST_DIR)/test_suit_emit_main_mutate $(HOST_DIR)/test_suit_emit_main_unbound \
@@ -1158,7 +1189,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_suit_integrated_mutate \
                     $(HOST_DIR)/test_suit_integrated_unbound \
                     $(HOST_DIR)/test_hsm_payload \
-                    $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd \
+                    $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd $(HOST_DIR)/test_hsm_loop $(HOST_DIR)/test_verify_p256 \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
                     $(HOST_DIR)/boot/test_boot_p256_rom $(HOST_DIR)/boot/test_boot_flash_span \
                     $(HOST_DIR)/boot/test_boot_rp2350_flash \
@@ -1556,6 +1587,8 @@ coverage:
 	@# emitter, tools/suit-emit/emit.c (test_suit_emit), and the bench bake's
 	@# decision, tools/platform-bake/bake.c (test_platform_bake). Their main.c
 	@# files are out, as no host test links one.
+	@# The OP-TEE TA's dispatch, optee/ta/tfw_ta.c, and its check,
+	@# optee/check/check.c, are in (test_optee_ta); the check's main.c is out.
 	@# boot_cose.c, OTA_AUTH's COSE_Sign1 check, is in (the boot suites that
 	@# link it). So are the address providers, dhcp.c (test_dhcp_w5100,
 	@# test_dhcp_w5500, test_link_dhcp) and dhcp_none.c (test_link_eth), the
@@ -1575,6 +1608,7 @@ coverage:
 	       --filter 'boot/verify/(verify_ed25519_donna|verify_atecc608a|donna_shim|verify_p256_soft|p256_key_slot)\.c' \
 	       --filter 'boot/boot_prev\.c' --filter 'src/crypto/sha256_small\.c' \
 	       --filter 'tools/(suit-emit/emit|platform-bake/bake)\.c' \
+	       --filter 'optee/(ta/tfw_ta|check/check)\.c' \
 	       --exclude 'src/hal/avr/' --print-summary \
 	       --html-details coverage/index.html --fail-under-line $(COVERAGE_FLOOR)
 
@@ -1644,7 +1678,8 @@ LINT_GREP_ROOT ?= .
 # src/hal/avr does and for exactly one conditional: the far-flash read, which
 # is required above 64 KB and is a fact about the silicon rather than a
 # feature anyone chose.
-# The sweep covers every .c and .h under src/, boot/ and tools/. Exempt:
+# The sweep covers every .c and .h under src/, boot/, tools/ and optee/ (the
+# TA and its check, #253). Exempt:
 # the per-architecture HAL directories (src/hal/*/, boot/hal/*/, named as
 # globs so a second architecture needs no edit here), commands.def, the
 # vendored src/third_party (cppcheck skips it for the same reason), and the
@@ -1652,7 +1687,7 @@ LINT_GREP_ROOT ?= .
 # conditional on anything. config.h, progmem.h and the board profiles live
 # under include/ and boards/, which this sweep does not enter.
 lint-conditionals:
-	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rn '^[[:space:]]*#[[:space:]]*if' src boot tools \
+	@cd $(LINT_GREP_ROOT) && hits=$$(grep -rn '^[[:space:]]*#[[:space:]]*if' src boot tools optee \
 	     --include='*.c' --include='*.h' --exclude-dir=third_party \
 	     | grep -v 'commands.def' \
 	     | grep -v '^src/hal/[^/]*/' | grep -v '^boot/hal/[^/]*/' \
@@ -1701,13 +1736,14 @@ lint-test-sleep:
 # exempt HAL directory and a sleep outside a test file must not.
 lint-grep-selftest:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
-	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/boards $$t/include $$t/sdk $$t/scripts && \
+	mkdir -p $$t/src/core $$t/src/hal/avr $$t/boot $$t/tools $$t/optee/ta $$t/boards $$t/include $$t/sdk $$t/scripts && \
 	printf '#ifndef TFW_OK_H\n#define TFW_OK_H\n#endif\n' > $$t/src/core/ok.h && \
 	printf '#if 1\n#endif\n' > $$t/src/hal/avr/exempt.c && \
 	printf 'time.Sleep(1)\n' > $$t/sdk/exempt.go && \
 	$(MAKE) --no-print-directory lint-conditionals lint-timestamps lint-test-sleep LINT_GREP_ROOT=$$t > /dev/null || \
 	  { echo "selftest: clean tree was rejected"; exit 1; }; \
 	for plant in 'conditionals:src/core/plant.c:#if TFW_PLANTED_TEXT' \
+	             'conditionals:optee/ta/plant.c:#ifdef TFW_PLANTED_TEXT' \
 	             'timestamps:src/core/plant.c:const char *d = __DATE__; /* TFW_PLANTED_TEXT */' \
 	             'test-sleep:sdk/plant_test.go:time.Sleep(1) // TFW_PLANTED_TEXT' \
 	             'test-sleep:scripts/test_plant.py:time.sleep(1)  # TFW_PLANTED_TEXT'; do \

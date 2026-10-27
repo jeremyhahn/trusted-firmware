@@ -5,10 +5,15 @@
 # The Cortex-M QEMU suite (#161): tfw-boot and the firmware on QEMU's
 # mps2-an505, run by `make integration-test-cortex-m` (mk/arch/cortex-m-targets.mk).
 #
-#   qemu_test.sh <dir> <machine> <board-id> <tier>
+#   qemu_test.sh <dir> <machine> <board-id> <tier> [hsm]
+#
+# hsm is given where the image links the tamper-response engine
+# (mk/arch/cortex-m-targets.mk cm-qemu-hsm); the hsm-* rows run then, and only
+# then, since an image without the engine has nothing to answer them.
 #
 # <dir> holds what cm_image.c wrote (boot.bin, platform.bin, the three
-# applications and addrs.env) and the wirecheck binary. Each run is its own
+# applications and addrs.env), the sets hsm_sets.c wrote, and the wirecheck
+# binary. Each run is its own
 # QEMU, every image a raw blob at the address addrs.env names, the UART on a
 # Unix socket, and QEMU daemonized: it returns once the socket is bound.
 # wirecheck verifies ATTEST under the DeviceID point cm_image derived with the
@@ -19,6 +24,16 @@
 #              verified it a second time
 #   tampered   one bit of the image flipped after signing: tfw-boot refuses
 #   otherkey   signed by a key tfw-boot does not hold: tfw-boot refuses
+#   hsm-*      the tamper-response engine and its loop (m7-design.md slice 3),
+#              on the sets hsm_sets.c wrote:
+#                noset      no set, S5 reported: lockdown, LED 0 lit
+#                forged     a set under another key: refused, counted
+#                replay     a set below the floor: refused, the held set stays
+#                silence    a 300 ms heartbeat left to lapse: the loop locks
+#                           down with no message sent, LED 0 lit, no wipe
+#                wipe       compromised verdict, then S5: wiped and locked,
+#                           LEDs 0 and 1 lit
+#                noverdict  S5 with no verdict: the rule's [record] alone
 #
 # A refusal on this row (BOOT_OTA=0) is recovery_halt.c: tfw-boot stops and
 # never answers. wirecheck -silent passes only if no PING is echoed for the
@@ -30,11 +45,15 @@
 # dial, or `timeout` around QEMU's exit.
 set -eu
 
-[ $# -eq 4 ] || { echo "usage: qemu_test.sh <dir> <machine> <board-id> <tier>" >&2; exit 2; }
+case $#:${5-} in
+    4: | 5:hsm) ;;
+    *) echo "usage: qemu_test.sh <dir> <machine> <board-id> <tier> [hsm]" >&2; exit 2 ;;
+esac
 dir=$1
 machine=$2
 board=$3
 tier=$4
+hsm=${5-}
 qemu=${QEMU:-qemu-system-arm}
 silent=${CM_SILENT:-10s}
 wait=${CM_WAIT:-60s}
@@ -104,6 +123,22 @@ for row in tampered otherkey; do
     alive "$row"
     stop
     echo "qemu_test: $row: refused, silent for $silent, QEMU still up"
+done
+
+# The tamper-response engine, driven over the channel (wirecheck -hsm, its
+# hsm.go), each case on a fresh image so no latch carries over. On an image
+# with the engine (hsm) only.
+hsm_rows=
+if [ "$hsm" = hsm ]; then
+    hsm_rows="noset forged replay silence wipe noverdict"
+fi
+for row in $hsm_rows; do
+    start "hsm-$row" app.bin
+    "$dir/wirecheck" -network unix -addr "$sock" -wait "$wait" -hsm "$row" -hsm-dir "$dir" ||
+        fail "hsm-$row" "the engine did not decide as the case requires"
+    alive "hsm-$row"
+    stop
+    echo "qemu_test: hsm-$row: decided as required"
 done
 
 echo "qemu_test: green"

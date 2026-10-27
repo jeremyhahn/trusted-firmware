@@ -8,7 +8,10 @@
 #ifndef TFW_CORE_HSM_CMD_H
 #define TFW_CORE_HSM_CMD_H
 
+#include <stdint.h>
+
 #include "tfw/status.h"
+#include "hsm.h"
 #include "reader.h"
 #include "writer.h"
 
@@ -22,5 +25,9 @@ tfw_status_t tfw_hsm_cmd_load(tfw_reader_t *r, tfw_writer_t *w);
  * buffered, the floor back at TFW_HSM_FLOOR_MIN. The first command after a
  * reset does it unasked; a test calls it between cases. */
 void tfw_hsm_cmd_reset(void);
+
+/* The one engine the commands and the loop (hsm_loop.c) share, ticked to now
+ * first, so R5's heartbeat deadline is checked before anything else is. */
+tfw_hsm_t *tfw_hsm_cmd_engine(uint32_t now);
 
 #endif

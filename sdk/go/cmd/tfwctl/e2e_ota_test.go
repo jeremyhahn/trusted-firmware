@@ -70,36 +70,6 @@ func cliStage(t *testing.T, dev *tfw.Device, img []byte, args ...string) otaStat
 	return s
 }
 
-// otaCmds is every OTA command an image's stager brings (commands.def): an
-// image without one knows none of them.
-var otaCmds = []tfw.Cmd{tfw.CmdOTABegin, tfw.CmdOTAData, tfw.CmdOTAEnd, tfw.CmdOTAStatus,
-	tfw.CmdOTAInfo, tfw.CmdOTAActivate, tfw.CmdOTAConfirm, tfw.CmdOTAAuth}
-
-// otaServing reports whether p's image carries the OTA stager. CAPS has no
-// bit for it, so the row asks OTA_STATUS, which reads and changes nothing.
-// Every simulator a row starts stages. A board whose image has no stager
-// (the MPS2 boards, which have no OTA store: docs/cortex-m/README.md) must
-// refuse every OTA command as unknown, and the row checks that instead.
-// The probes carry no payload, and the loop runs only on an image that
-// refused OTA_STATUS: an unknown command is refused before its length is
-// checked (src/core/dispatch.c), so none of them stages or settles anything.
-func otaServing(t *testing.T, p serialPeer) bool {
-	t.Helper()
-	_, err := p.serial.Do(context.Background(), tfw.CmdOTAStatus, nil)
-	var st tfw.Status
-	if !errorsAsStatus(err, &st) || st != tfw.StatusErrUnknownCmd {
-		return true
-	}
-	require.True(t, p.board, "the simulator does not know OTA_STATUS")
-	for _, cmd := range otaCmds {
-		_, err := p.serial.Do(context.Background(), cmd, nil)
-		require.True(t, errorsAsStatus(err, &st), "command 0x%02x: %v, want a device status", byte(cmd), err)
-		assert.Equal(t, tfw.StatusErrUnknownCmd, st,
-			"command 0x%02x: OTA_STATUS is unknown, so the image has no stager and must not know it", byte(cmd))
-	}
-	return false
-}
-
 // otaCtlServing reports whether p's image has OTA_INFO and OTA_CONFIRM, which
 // src/core/ota_ctl.c serves where tfw-boot runs the trial (BOOT_AB) and
 // nowhere else: a single-slot stager has OTA_ACTIVATE alone. CAPS has no bit
@@ -107,6 +77,14 @@ func otaServing(t *testing.T, p serialPeer) bool {
 // changes nothing. An image without it must refuse OTA_CONFIRM as unknown
 // too, and the row checks that instead; that refusal comes before OTA_AUTH
 // is asked for, as an unknown command is refused before its handler runs.
+// requireStager fails the row unless p's image carries the OTA stager. CAPS
+// has no bit for it, so the row asks OTA_STATUS, which an image without one
+// does not know (commands.def).
+func requireStager(t *testing.T, p serialPeer) {
+	t.Helper()
+	requireKnown(t, p.serial, tfw.CmdOTAStatus, nil, "the OTA stager (OTA_STATUS)")
+}
+
 func otaCtlServing(t *testing.T, p serialPeer) bool {
 	t.Helper()
 	_, err := p.serial.Do(context.Background(), tfw.CmdOTAInfo, []byte{0})
@@ -119,40 +97,6 @@ func otaCtlServing(t *testing.T, p serialPeer) bool {
 	require.True(t, errorsAsStatus(err, &st), "OTA_CONFIRM: %v, want a device status", err)
 	assert.Equal(t, tfw.StatusErrUnknownCmd, st, "OTA_INFO is unknown, so OTA_CONFIRM must be too")
 	return false
-}
-
-// otaRefusedWithoutASession is an OTA control row on a board that cannot open
-// the operator session (CAPS bit 14 clear, which operatorServing has checked
-// the board refuses). The verb is still refused: by the auth gate where the
-// image has the command, and as unknown on an image without the stager
-// (otaServing) or without that command. The soft tier has no session to gate
-// on -- its gate is open (src/core/auth_session_none.c) -- so there the
-// refusal checked is the row key's: the command sent with no OTA_AUTH before
-// it is AUTH_REQUIRED on every tier (#137).
-func otaRefusedWithoutASession(t *testing.T, p serialPeer, verb string, args ...string) {
-	t.Helper()
-	if !otaServing(t, p) {
-		return
-	}
-	var st tfw.Status
-	if cliCaps(t, p.serial).CryptoTier == tfw.CryptoSoftware {
-		var err error
-		switch verb {
-		case "ota-activate":
-			err = p.serial.OTAActivate(context.Background(), tfw.OTAActivateAtReset)
-		case "ota-confirm":
-			err = p.serial.OTAConfirm(context.Background())
-		default:
-			require.FailNow(t, "no OTA command for "+verb)
-		}
-		require.True(t, errorsAsStatus(err, &st), "%s with no OTA_AUTH: %v, want a device status", verb, err)
-	} else {
-		st = cliStatus(t, p.serial, verb, args...)
-	}
-	if p.board && st == tfw.StatusErrUnknownCmd {
-		return
-	}
-	assert.Equal(t, tfw.StatusErrAuthRequired, st, "%s with no operator session", verb)
 }
 
 // A whole session over serial, then over TCP, then a tampered image the
@@ -236,9 +180,7 @@ func TestEthernetStagingLoopIsRefusedAfterTheBudget(t *testing.T) {
 // stager requires of the trailer.
 func TestFirmwareOTAAuthLetsTheCommandPastTheGate(t *testing.T) {
 	p := startPeer(t, simproc.Software)
-	if !otaServing(t, p) {
-		return
-	}
+	requireStager(t, p)
 	d := p.serial
 	caps, err := d.Caps(t.Context())
 	require.NoError(t, err)
@@ -283,9 +225,8 @@ func TestFirmwareOTAInfo(t *testing.T) {
 	// stages without it and refuses it and OTA_CONFIRM by status code, on
 	// every tier, so the tier below is asked of an image that has them.
 	p := openPeer(t, nil, simproc.Element, elementArgs(t, nil, nil)...)
-	if !otaServing(t, p) || !otaCtlServing(t, p) {
-		return
-	}
+	requireStager(t, p)
+	requireKnown(t, p.serial, tfw.CmdOTAInfo, []byte{0}, "OTA_INFO, which a single-slot image lacks (BOOT_AB)")
 	requireTier(t, p, simproc.Element)
 	d := p.serial
 
@@ -303,11 +244,7 @@ func TestFirmwareOTAInfo(t *testing.T) {
 }
 
 func TestFirmwareOTAActivate(t *testing.T) {
-	p, keyPath, ok := operatorServing(t)
-	if !ok {
-		otaRefusedWithoutASession(t, p, "ota-activate", heldSig)
-		return
-	}
+	p, keyPath := operatorServing(t)
 	d, serial := p.serial, p.serialHex(t)
 
 	for _, args := range [][]string{{heldSig}, {"now", heldSig}} {
@@ -328,11 +265,7 @@ func TestFirmwareOTAActivate(t *testing.T) {
 }
 
 func TestFirmwareOTAConfirm(t *testing.T) {
-	p, keyPath, ok := operatorServing(t)
-	if !ok {
-		otaRefusedWithoutASession(t, p, "ota-confirm", heldSig)
-		return
-	}
+	p, keyPath := operatorServing(t)
 	d, serial := p.serial, p.serialHex(t)
 
 	assert.Equal(t, tfw.StatusErrAuthRequired, cliStatus(t, d, "ota-confirm", heldSig), "unauthenticated")

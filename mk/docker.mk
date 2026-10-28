@@ -48,8 +48,13 @@ IMAGE_CLASS         ?=
 IMAGE_TRUSTED_CLASS ?=
 # A build goes to <image>-$(IMAGE_BUILD_ID) and is then tagged <image>, so two
 # runs building one hash on one daemon never export to the same name at once
-# (buildkit refuses that); CI sets the run.
+# (buildkit refuses that); CI sets the run. Legs that build one hash at once
+# then race to tag the shared name, and the daemon fails all but one with
+# AlreadyExists (run 70520). The name is a hash of every input, so the
+# winner's image is the loser's: scripts/docker-tag.sh passes a lost race when
+# the name resolves to the image this leg built, and fails on anything else.
 IMAGE_BUILD_ID      ?= build
+docker_tag = DOCKER='$(DOCKER)' scripts/docker-tag.sh $(1) $(2)
 image_ref = $(IMAGE_REGISTRY)trusted-firmware-$(1):$(2)$(if $(3),-$(3))
 TOOLCHAIN_IMAGE   ?= $(call image_ref,toolchain,$(TOOLCHAIN_TAG),$(IMAGE_CLASS))
 ESP32_IMAGE       ?= $(call image_ref,esp32,$(ESP32_TAG),$(IMAGE_CLASS))
@@ -172,20 +177,20 @@ docker-image-optee:
 ## docker-build-toolchain: build the toolchain image (TOOLCHAIN_IMAGE)
 docker-build-toolchain:
 	@$(DOCKER_BUILD) --target toolchain $(TOOLCHAIN_CACHE_FROM) -t $(TOOLCHAIN_IMAGE)-$(IMAGE_BUILD_ID) .
-	@$(DOCKER) tag $(TOOLCHAIN_IMAGE)-$(IMAGE_BUILD_ID) $(TOOLCHAIN_IMAGE)
+	@$(call docker_tag,$(TOOLCHAIN_IMAGE)-$(IMAGE_BUILD_ID),$(TOOLCHAIN_IMAGE))
 	@$(DOCKER) image rm $(TOOLCHAIN_IMAGE)-$(IMAGE_BUILD_ID) >/dev/null
 	@$(DOCKER) run --rm $(TOOLCHAIN_IMAGE) cat /etc/ci-toolchain.txt
 
 ## docker-build-esp32: build the esp32 image (ESP32_IMAGE)
 docker-build-esp32:
 	@$(DOCKER_BUILD) --target esp32 $(ESP32_CACHE_FROM) -t $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) .
-	@$(DOCKER) tag $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) $(ESP32_IMAGE)
+	@$(call docker_tag,$(ESP32_IMAGE)-$(IMAGE_BUILD_ID),$(ESP32_IMAGE))
 	@$(DOCKER) image rm $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) >/dev/null
 
 ## docker-build-optee: build the optee image (OPTEE_IMAGE)
 docker-build-optee:
 	@$(DOCKER_BUILD) --target optee $(OPTEE_IMAGE_CACHE_FROM) -t $(OPTEE_IMAGE)-$(IMAGE_BUILD_ID) .
-	@$(DOCKER) tag $(OPTEE_IMAGE)-$(IMAGE_BUILD_ID) $(OPTEE_IMAGE)
+	@$(call docker_tag,$(OPTEE_IMAGE)-$(IMAGE_BUILD_ID),$(OPTEE_IMAGE))
 	@$(DOCKER) image rm $(OPTEE_IMAGE)-$(IMAGE_BUILD_ID) >/dev/null
 
 ## docker-build-it: build the integration image (IT_IMAGE), the source baked in, unless the daemon holds it

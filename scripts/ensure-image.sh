@@ -24,7 +24,11 @@
 # (IMAGE_CACHE_REF, the next build's cache-from). A failed push is reported
 # and the job goes on: the image is on the daemon, and the next run builds
 # again. Nothing here removes an image (trim-ci-images.sh bounds them).
+#
+# Legs on one daemon run this at once, so each tag goes through
+# scripts/docker-tag.sh, which passes a lost race to the same image.
 set -euo pipefail
+here=$(dirname "$0")
 
 target=${1:-}
 image=${2:-}
@@ -36,7 +40,7 @@ fi
 
 have() { docker image inspect "$1" >/dev/null 2>&1; }
 adopt() {
-  [ "$1" = "$image" ] || docker tag "$1" "$image"
+  [ "$1" = "$image" ] || "$here/docker-tag.sh" "$1" "$image"
   echo "==> $image: reused $2, not built"
 }
 
@@ -64,7 +68,7 @@ make --no-print-directory "$target"
 
 if [ "${IMAGE_PUSH:-0}" = 1 ]; then
   for ref in "$image" ${IMAGE_CACHE_REF:+"$IMAGE_CACHE_REF"}; do
-    [ "$ref" = "$image" ] || docker tag "$image" "$ref"
+    [ "$ref" = "$image" ] || "$here/docker-tag.sh" "$image" "$ref"
     if docker push -q "$ref" >/dev/null 2>&1; then
       echo "==> pushed $ref"
     else

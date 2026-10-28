@@ -155,7 +155,7 @@ class OpteeTa(unittest.TestCase):
             flags = var("OPTEE_BUILD_FLAGS", "OPTEE_CACHE=" + cache)
             root = os.path.join(cache, var("OPTEE_RELEASE"))
             # The recipe's echo reads the shell quotes that keep it one argument.
-            self.assertIn("BR2_ROOTFS_OVERLAY=$(ROOT)/build/br-ext/board/qemu/overlay "
+            self.assertIn("BR2_ROOTFS_OVERLAY=" + root + "/build/br-ext/board/qemu/overlay "
                           + root + "/tfw/overlay", flags)
             self.assertFalse(os.path.exists(cache))
 

@@ -406,6 +406,7 @@ jobs:
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
       esp32: ${{ steps.esp32.outputs.esp32 }}   # CUSTOMIZE: ruling 218(9), below
+      optee: ${{ steps.optee.outputs.optee }}   # CUSTOMIZE: #253, below
     # v1.26: a draft PR runs no CI; the image job needs this one and skips with it.
     if: ${{ !github.event.pull_request.draft }}
     steps:
@@ -468,6 +469,34 @@ jobs:
           fi
           echo "ESP32 paths changed: $esp32"
           echo "esp32=$esp32" >> "$GITHUB_OUTPUT"
+
+      # CUSTOMIZE (trusted-firmware, #253 slice 4; modelled on the ESP32 step
+      # above, rulings 218(9), 219(5)): the OP-TEE job (the pinned stack built
+      # or restored, then xtest and tfw-ta-check in the guest) runs on a PR
+      # only when the PR changes a file it tests, or the PR is labelled
+      # ci:full; otherwise a push to main and the nightly tier run it.
+      # OPTEE_PATHS: the TA and the check (optee/), the pin and the targets
+      # (mk/optee.mk), the design page (docs/optee-trustzone/), the guest
+      # runner (scripts/optee_run.py), the optee image's inputs (mk/docker.mk
+      # OPTEE_IMAGE_INPUTS) and the script and workflow the job runs. A failed
+      # diff fails this job, and the CI Gate with it.
+      - name: Does any changed file feed the OP-TEE job?
+        id: optee
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT: ${{ github.event_name }}
+          OPTEE_PATHS: '^(optee/|mk/optee\.mk$|docs/optee-trustzone/|scripts/optee_run\.py$|mk/docker\.mk$|build/docker/devcontainer/Dockerfile$|docker/packages\.txt$|scripts/(tool-pins|in-toolchain-image|ci-registry-login|ensure-image)\.sh$|\.github/workflows/ci\.yml$)'
+        run: |
+          optee=false
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --no-renames "$BASE...$HEAD")
+            if [ "$CI_FULL_TIER" = true ] || printf '%s\n' "$files" | grep -qE "$OPTEE_PATHS"; then
+              optee=true
+            fi
+          fi
+          echo "OP-TEE paths changed or ci:full: $optee"
+          echo "optee=$optee" >> "$GITHUB_OUTPUT"
 
   # v1.21: every stage runs in the project's own devcontainer image and no
   # other (ci-standard.md §2, devcontainer.md §7). One image job (Company Agent
@@ -1363,6 +1392,95 @@ jobs:
           rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
+  optee:
+    # CUSTOMIZE (trusted-firmware, #253 slice 4): the pinned OP-TEE stack on
+    # QEMU virt needs the optee image alone and, from an empty cache, is the
+    # longest job in the run, so it runs beside everything else. It builds
+    # or reuses its own image, as the ESP32 job does, and a PR that changes
+    # only docs/optee-trustzone/ still runs it.
+    name: OP-TEE [optee-qemu, integration-test-optee]
+    # CUSTOMIZE (trusted-firmware, #253; modelled on the ESP32 job, rulings
+    # 218(9), 219(5)): on a PR only when the changes job saw an OP-TEE path
+    # change or the PR is labelled ci:full; otherwise a push to main and the
+    # nightly tier (schedule, workflow_dispatch) run it. It needs and gates
+    # on the image job exactly as the ESP32 job does: a job that needed only
+    # the changes job and gated on needs.changes.result == 'success' (run
+    # 69905) or needs.changes.outputs.optee != '' (run 69954) was skipped
+    # unstarted on a PR, while every job that ran there with a needs term in
+    # its if also needed the image job and gated on its built output.
+    needs: [changes, image]
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) }}   # v1.26
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    # CUSTOMIZE: docs/optee-trustzone/README.md: from an empty OPTEE_CACHE the
+    # stack built in 19 min on 24 threads and xtest ran in 320 s. A CI slot
+    # has fewer CPUs; the first run from an empty cache sets the real figure.
+    timeout-minutes: 180
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      - name: Log in to the forge registry
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the optee image
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-optee MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "OPTEE_IMAGE=$(make -s optee-image)" >> "$GITHUB_ENV"
+
+      # CUSTOMIZE (trusted-firmware, #253, the page's open question 6 as
+      # proposed): OPTEE_CACHE, the fetched release, its toolchains and the
+      # built stack, is cached by the pin in mk/optee.mk (`make -s
+      # optee-pin`, the release tag), so a new pin misses and rebuilds.
+      - name: The OP-TEE pin
+        id: pin
+        run: echo "release=$(make -s optee-pin)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the OP-TEE stack
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/optee-cache
+          key: optee-${{ steps.pin.outputs.release }}
+
+      # One container, so the cache is copied in once and out once
+      # (IN_IMAGE_CACHE in in-toolchain-image.sh), and back only when the
+      # restore missed. optee-qemu runs every time: integration-test-optee
+      # builds only when the cache holds no build, and a restored build holds
+      # the TA of the commit that saved it, not this one's. The network is for
+      # the fetch on a miss.
+      - name: make optee-tools, optee-qemu, integration-test-optee (optee image)
+        env:
+          IN_IMAGE_NETWORK: bridge
+          IN_IMAGE_CACHE: ${{ runner.temp }}/optee-cache:/var/cache/tfw-optee
+          IN_IMAGE_CACHE_SAVE: ${{ steps.cache.outputs.cache-hit != 'true' && '1' || '0' }}
+        run: scripts/in-toolchain-image.sh "$OPTEE_IMAGE" "make optee-tools OPTEE_CACHE=/var/cache/tfw-optee && make optee-qemu OPTEE_CACHE=/var/cache/tfw-optee && make integration-test-optee OPTEE_CACHE=/var/cache/tfw-optee"
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
+
   # v1.27 (Company Agent m1192 (6), item 27; ruling 211): a repository's
   # `make lint-gates` (its own gates beside `make lint`) runs in this job, in
   # parallel with the image job's `make lint`. It runs only when the Makefile
@@ -1751,7 +1869,7 @@ jobs:
     if: always()
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [changes, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, integration, soak, arch-gates]
+    needs: [changes, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee, integration, soak, arch-gates]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -1775,6 +1893,12 @@ jobs:
           # failed one fails the gate.
           ESP32_CHANGED: ${{ needs.changes.outputs.esp32 }} # CUSTOMIZE
           ESP32_PR: ${{ github.event_name == 'pull_request' }} # CUSTOMIZE: ruling 219(5)
+          # CUSTOMIZE (trusted-firmware, #253, as for esp32): an `optee` job
+          # may skip only on a PR that changed no OP-TEE path and is not
+          # labelled ci:full (the `changes` job's optee output). On a push,
+          # schedule or workflow_dispatch it must run, and a skipped or
+          # failed one fails the gate.
+          OPTEE_CHANGED: ${{ needs.changes.outputs.optee }} # CUSTOMIZE
         run: |
           if [ "${DRAFT}" = true ]; then
             echo "FAIL draft pull request: no CI runs on a draft. Mark it ready, then push an empty commit to start its run."
@@ -1796,6 +1920,8 @@ jobs:
                   echo "SKIP $1 (PR changed no ESP32 path; push and nightly run it)" # CUSTOMIZE
                 elif [ "$3" = esp32-qemu ] && [ "${ESP32_PR}" = true ]; then # CUSTOMIZE: ruling 220(j)
                   echo "SKIP $1 (off the PR tier; push and nightly run it)" # CUSTOMIZE
+                elif [ "$3" = optee ] && [ "${ESP32_PR}" = true ] && [ "${OPTEE_CHANGED}" != true ]; then # CUSTOMIZE: #253
+                  echo "SKIP $1 (PR changed no OP-TEE path; push, nightly and ci:full run it)" # CUSTOMIZE
                 else
                   echo "FAIL $1 (skipped)"; BAD=1
                 fi;;
@@ -1817,6 +1943,7 @@ jobs:
           check security    "${{ needs.security.result }}" docs
           check esp32-build "${{ needs.esp32-build.result }}" esp32 # CUSTOMIZE: ruling 218(9), 220(j)
           check esp32-qemu-test "${{ needs.esp32-qemu-test.result }}" esp32-qemu # CUSTOMIZE: ruling 220(j)
+          check optee       "${{ needs.optee.result }}" optee # CUSTOMIZE: #253
           check integration "${{ needs.integration.result }}" full
           check soak        "${{ needs.soak.result }}" nightly
           check arch-gates  "${{ needs.arch-gates.result }}" pr

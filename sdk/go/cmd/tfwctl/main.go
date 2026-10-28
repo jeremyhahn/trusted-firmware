@@ -35,7 +35,9 @@ func usage() {
 <port> is a serial port, or tcp://host:port for an Ethernet device: tfwctl
 listens there, the device's network-block endpoint, and runs the command on
 the first device to connect within -timeout. Over Ethernet the device answers
-only CAPS, APP_INFO, the attestation commands and OTA staging.
+only CAPS, APP_INFO, the attestation commands and OTA staging. unix:<path> is
+an emulator's UART on a Unix socket (QEMU -serial unix:<path>,server=on):
+tfwctl dials it within -timeout and talks to it as to a serial port.
 
 commands
   ping [text]        echo text through the device
@@ -142,9 +144,12 @@ func main() {
 
 	var dev *tfw.Device
 	addr, isTCP, err := tcpAddr(port)
+	path, isUnix, uerr := unixPath(port)
 	switch {
 	case err != nil:
 		fail(err)
+	case uerr != nil:
+		fail(uerr)
 	case isTCP:
 		td, err := listenForDevice(addr, *timeout, tfw.WithTimeout(*timeout))
 		if err != nil {
@@ -152,6 +157,13 @@ func main() {
 		}
 		defer func() { _ = td.Close() }()
 		dev = td.Device
+	case isUnix:
+		conn, err := dialUnix(path, *timeout)
+		if err != nil {
+			fail(err)
+		}
+		defer func() { _ = conn.Close() }()
+		dev = tfw.New(conn, tfw.WithTimeout(*timeout), tfw.WithBootWait(*bootWait))
 	default:
 		conn, err := serialport.Open(port, *baud)
 		if err != nil {

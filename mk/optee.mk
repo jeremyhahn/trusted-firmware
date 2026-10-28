@@ -57,6 +57,8 @@ OPTEE_BUILT    = $(OPTEE_ROOT)/.tfw-built-ta
 OPTEE_TA_UUID := 23751b49-3a76-4e49-b63c-e5853742fa1f
 OPTEE_TFW      = $(OPTEE_ROOT)/tfw
 OPTEE_OVERLAY  = $(OPTEE_TFW)/overlay
+# Buildroot's staging tree: the guest's C library and the libteec it staged.
+OPTEE_STAGING  = $(OPTEE_ROOT)/out-br/staging
 
 OPTEE_JOBS ?= $(shell nproc 2>/dev/null || echo 1)
 
@@ -75,11 +77,12 @@ export OPTEE_SHARE OPTEE_GUEST_CMD
 # The pinned build repository's own options, nothing patched:
 #   RUST_ENABLE=n   the Rust examples need a rustup toolchain nothing here runs
 #   QEMU_VIRTFS_*   QEMU built with virtfs, and the guest's fstab mounting it
-#   BR2_ROOTFS_OVERLAY  qemu_v8.mk's own overlay, then OPTEE_OVERLAY; its make
-#                   expands $(ROOT), and quotes the value into Buildroot's config
+#   BR2_ROOTFS_OVERLAY  qemu_v8.mk's own overlay, then OPTEE_OVERLAY, both as
+#                   full paths from OPTEE_ROOT: a $(ROOT) passed through reaches
+#                   Buildroot unexpanded, where ROOT is empty (run 70157)
 OPTEE_BUILD_FLAGS = RUST_ENABLE=n QEMU_VIRTFS_ENABLE=y QEMU_VIRTFS_AUTOMOUNT=y \
                     QEMU_VIRTFS_MOUNTPOINT=$(OPTEE_MOUNT) \
-                    'BR2_ROOTFS_OVERLAY=$$(ROOT)/build/br-ext/board/qemu/overlay $(OPTEE_OVERLAY)'
+                    'BR2_ROOTFS_OVERLAY=$(OPTEE_ROOT)/build/br-ext/board/qemu/overlay $(OPTEE_OVERLAY)'
 
 # Upstream's make runs with none of this make's flags or command-line
 # variables: --no-builtin-rules, or a BOARD or ARCH given here, is not its.
@@ -96,7 +99,7 @@ OPTEE_HOST_CMDS := git:git curl:curl python3:python3 make:make gcc:build-essenti
                    bison:bison flex:flex dtc:device-tree-compiler ninja:ninja-build \
                    pkg-config:pkg-config
 OPTEE_HOST_LIBS := glib-2.0:libglib2.0-dev pixman-1:libpixman-1-dev slirp:libslirp-dev \
-                   gnutls:libgnutls28-dev
+                   gnutls:libgnutls28-dev openssl:libssl-dev
 OPTEE_HOST_PY   := cryptography:python3-cryptography elftools:python3-pyelftools
 # And QEMU's configure, which makes a venv with pip: ensurepip. pip and
 # setuptools in its place do not do (its mkvenv asks for ensurepip regardless).
@@ -107,6 +110,10 @@ define optee-cache-check
 	   echo "$@: OPTEE_CACHE=$(OPTEE_CACHE) is inside the checkout: set it outside $(CURDIR)"; \
 	   exit 1;; esac
 endef
+
+## optee-pin: print the pinned OP-TEE release tag (`make -s optee-pin`), CI's cache key for OPTEE_CACHE
+optee-pin:
+	@echo $(OPTEE_RELEASE)
 
 ## optee-tools: check the host packages OP-TEE's build needs, fetch the pinned release and its toolchains into OPTEE_CACHE
 optee-tools:
@@ -134,13 +141,13 @@ define optee-tfw-build
 	   tfw-ta-vars | tail -n 1); \
 	cc=$${vars%% *}; kit=$${vars#* }; \
 	[ -f "$$kit/mk/ta_dev_kit.mk" ] || { echo "$@: no TA dev kit at $$kit"; exit 1; }; \
-	[ -f $(OPTEE_ROOT)/out-br/staging/usr/include/tee_client_api.h ] || { \
-	   echo "$@: Buildroot staged no tee_client_api.h in $(OPTEE_ROOT)/out-br/staging/usr"; exit 1; }; \
+	[ -f $(OPTEE_STAGING)/usr/include/tee_client_api.h ] || { \
+	   echo "$@: Buildroot staged no tee_client_api.h in $(OPTEE_STAGING)/usr"; exit 1; }; \
 	env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u MAKEOVERRIDES make --no-print-directory \
 	   -C $(CURDIR)/optee/ta CROSS_COMPILE="$$cc" TA_DEV_KIT_DIR="$$kit" O=$(OPTEE_TFW)/ta; \
 	env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL -u MAKEOVERRIDES make --no-print-directory \
 	   -C $(CURDIR)/optee/check CROSS_COMPILE="$$cc" \
-	   TEEC_EXPORT=$(OPTEE_ROOT)/out-br/staging/usr O=$(OPTEE_TFW)/check; \
+	   SYSROOT=$(OPTEE_STAGING) TEEC_EXPORT=$(OPTEE_STAGING)/usr O=$(OPTEE_TFW)/check; \
 	install -D -m 0444 $(OPTEE_TFW)/ta/$(OPTEE_TA_UUID).ta \
 	   $(OPTEE_OVERLAY)/lib/optee_armtz/$(OPTEE_TA_UUID).ta; \
 	install -D -m 0755 $(OPTEE_TFW)/check/tfw-ta-check $(OPTEE_OVERLAY)/usr/bin/tfw-ta-check
@@ -232,4 +239,4 @@ $(OPTEE_TOOLS): $(OPTEE_SYNCED)
 	@$(OPTEE_MAKE) toolchains
 	@touch $@
 
-.PHONY: optee-tools optee-qemu optee-run integration-test-optee
+.PHONY: optee-pin optee-tools optee-qemu optee-run integration-test-optee

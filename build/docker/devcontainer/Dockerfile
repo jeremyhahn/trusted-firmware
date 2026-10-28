@@ -21,6 +21,8 @@
 #                (L2), and avr-gcc is Debian's; neither image can host the other
 #                without moving a pinned compiler (docs/multi-arch/
 #                adr-esp-idf-integration.md, "Toolchain pins").
+#   optee        base + the host packages the pinned OP-TEE build needs:
+#                `make optee-qemu` and `make integration-test-optee` (#253).
 #
 # Build with `make docker-build`: it passes GO_IMAGE and the base images' pins
 # from scripts/tool-pins.sh, the one pin file the RUN steps also source, and
@@ -37,7 +39,7 @@
 
 ARG GO_IMAGE
 ARG BASE_IMAGE=debian:trixie-slim
-ARG BASE_DIGEST=sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+ARG BASE_DIGEST=sha256:89c1ea91e897f0fe0a3731595330bc45b8bdef4047464a07116f891a94054b31
 # espressif/idf:v5.5.5, by the digest of its multi-architecture index. Keep the
 # version in step with ESP_IDF_VERSION in tool-pins.sh and mk/arch/esp32.mk.
 ARG ESP_IDF_IMAGE=espressif/idf:v5.5.5
@@ -307,3 +309,38 @@ RUN mkdir /src/.probe && rmdir /src/.probe \
            >/tmp/esp32-probe.log 2>&1 \
          || { tail -n 40 /tmp/esp32-probe.log; exit 1; }; } \
     && rm -rf /tmp/esp32-probe /tmp/esp32-probe.log /tmp/.cache /tmp/.gocache
+
+# --- optee --------------------------------------------------------------------
+FROM base AS optee
+
+# The host packages the pinned OP-TEE build needs (#253, docs/optee-trustzone/
+# README.md "CI"): every Debian package `make optee-tools` names
+# (OPTEE_HOST_CMDS, OPTEE_HOST_LIBS, OPTEE_HOST_PY and python3-venv in
+# mk/optee.mk), and meson and expect, which the page's CI table names. The
+# cross toolchains, QEMU and repo are not here: `make optee-tools` fetches them
+# at the pin into OPTEE_CACHE, which CI caches by the pin.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      git curl python3 make build-essential patch perl file bzip2 xz-utils \
+      unzip rsync wget cpio bc bison flex device-tree-compiler ninja-build \
+      pkg-config libglib2.0-dev libpixman-1-dev libslirp-dev libgnutls28-dev \
+      libssl-dev python3-cryptography python3-pyelftools python3-venv meson expect \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory '*'
+
+# OPTEE_CACHE in CI: on disk in the container's layer, not in the 3 GB /tmp
+# tmpfs, and the user's. scripts/in-toolchain-image.sh copies the runner's
+# cached copy in here and out again (IN_IMAGE_CACHE).
+RUN install -d -o 10001 -g 10001 /var/cache/tfw-optee
+
+RUN { echo "# trusted-firmware devcontainer (optee)"; \
+      gcc --version | head -1; \
+      python3 --version; \
+      ninja --version; \
+      meson --version; \
+    } > /etc/ci-toolchain.txt
+
+USER 10001:10001
+RUN mkdir /src/.probe /var/cache/tfw-optee/.probe \
+    && rmdir /src/.probe /var/cache/tfw-optee/.probe

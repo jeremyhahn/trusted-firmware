@@ -9,6 +9,8 @@
 # devcontainer.md §1, §6): its `toolchain` stage runs build, test, security and
 # deps-check, its `integration` stage the integration suite, its `esp32` stage
 # the ESP-IDF build and the QEMU test. `make docker-build` builds all three.
+# Its `optee` stage runs the OP-TEE stack; only CI's OP-TEE job builds it
+# (`make docker-image-optee`), and `make docker-build-optee` locally.
 # CI's image job puts the toolchain and esp32 images on the daemon with `make
 # docker-images` and runs each stage through scripts/in-toolchain-image.sh;
 # the `integration` job runs `make integration-test` (mk/stages.mk).
@@ -31,6 +33,10 @@ ESP32_INPUTS      := $(DEVCONTAINER)/Dockerfile scripts/tool-pins.sh $(MODULE_IN
 image_hash = $(shell sha256sum $(1) | sha256sum | cut -c1-16)
 TOOLCHAIN_TAG     ?= $(call image_hash,$(TOOLCHAIN_INPUTS))
 ESP32_TAG         ?= $(call image_hash,$(ESP32_INPUTS))
+# The optee stage is FROM base, so it reads what the toolchain stage reads.
+# OPTEE_IMAGE_*: OPTEE_CACHE is mk/optee.mk's source cache, not an image.
+OPTEE_IMAGE_INPUTS := $(TOOLCHAIN_INPUTS)
+OPTEE_IMAGE_TAG   ?= $(call image_hash,$(OPTEE_IMAGE_INPUTS))
 
 # Where the images live and whose they are. IMAGE_REGISTRY is a registry path
 # ending in /, empty for the daemon alone. IMAGE_CLASS is the run's trust
@@ -49,11 +55,14 @@ TOOLCHAIN_IMAGE   ?= $(call image_ref,toolchain,$(TOOLCHAIN_TAG),$(IMAGE_CLASS))
 ESP32_IMAGE       ?= $(call image_ref,esp32,$(ESP32_TAG),$(IMAGE_CLASS))
 TOOLCHAIN_TRUSTED := $(if $(IMAGE_TRUSTED_CLASS),$(call image_ref,toolchain,$(TOOLCHAIN_TAG),$(IMAGE_TRUSTED_CLASS)))
 ESP32_TRUSTED     := $(if $(IMAGE_TRUSTED_CLASS),$(call image_ref,esp32,$(ESP32_TAG),$(IMAGE_TRUSTED_CLASS)))
+OPTEE_IMAGE       ?= $(call image_ref,optee,$(OPTEE_IMAGE_TAG),$(IMAGE_CLASS))
+OPTEE_IMAGE_TRUSTED := $(if $(IMAGE_TRUSTED_CLASS),$(call image_ref,optee,$(OPTEE_IMAGE_TAG),$(IMAGE_TRUSTED_CLASS)))
 # The moving cache tags: the last pushed build of each class, the cache-from of
 # the next build once an input moves the hash.
 cache_ref = $(if $(IMAGE_REGISTRY),$(if $(2),$(IMAGE_REGISTRY)trusted-firmware-$(1):cache-$(2)))
 TOOLCHAIN_CACHE   := $(call cache_ref,toolchain,$(IMAGE_CLASS))
 ESP32_CACHE       := $(call cache_ref,esp32,$(IMAGE_CLASS))
+OPTEE_IMAGE_CACHE := $(call cache_ref,optee,$(IMAGE_CLASS))
 # The images carry their cache inline; with no registry the daemon's own
 # BuildKit cache is the only one, so no --cache-from goes out.
 cache_from_refs = $(if $(IMAGE_REGISTRY),$(foreach i,$(1),--cache-from $(i)))
@@ -62,6 +71,8 @@ TOOLCHAIN_CACHE_FROM = $(call cache_from,$(TOOLCHAIN_IMAGE) $(TOOLCHAIN_TRUSTED)
                        $(call cache_ref,toolchain,$(IMAGE_TRUSTED_CLASS)))
 ESP32_CACHE_FROM     = $(call cache_from,$(ESP32_IMAGE) $(ESP32_TRUSTED) $(ESP32_CACHE) \
                        $(call cache_ref,esp32,$(IMAGE_TRUSTED_CLASS)))
+OPTEE_IMAGE_CACHE_FROM = $(call cache_from,$(OPTEE_IMAGE) $(OPTEE_IMAGE_TRUSTED) $(OPTEE_IMAGE_CACHE) \
+                       $(call cache_ref,optee,$(IMAGE_TRUSTED_CLASS)))
 # IMAGE_PULL=1 lets scripts/ensure-image.sh pull from IMAGE_REGISTRY, and
 # IMAGE_PUSH=1 push what it built (CI sets both only once it has logged in).
 IMAGE_PULL        ?= 0
@@ -121,6 +132,10 @@ toolchain-image:
 esp32-image:
 	@echo $(ESP32_IMAGE)
 
+## optee-image: print the optee image's name (`make -s optee-image`)
+optee-image:
+	@echo $(OPTEE_IMAGE)
+
 ## it-image: print the integration image's name (`make -s it-image`)
 it-image:
 	@echo $(IT_IMAGE)
@@ -149,6 +164,11 @@ docker-image-esp32:
 	@IMAGE_PULL=$(IMAGE_PULL) IMAGE_PUSH=$(IMAGE_PUSH) IMAGE_CACHE_REF=$(ESP32_CACHE) \
 	  scripts/ensure-image.sh docker-build-esp32 $(ESP32_IMAGE) $(ESP32_TRUSTED)
 
+## docker-image-optee: reuse the optee image by hash, else build it (the CI leg that runs the OP-TEE stack)
+docker-image-optee:
+	@IMAGE_PULL=$(IMAGE_PULL) IMAGE_PUSH=$(IMAGE_PUSH) IMAGE_CACHE_REF=$(OPTEE_IMAGE_CACHE) \
+	  scripts/ensure-image.sh docker-build-optee $(OPTEE_IMAGE) $(OPTEE_IMAGE_TRUSTED)
+
 ## docker-build-toolchain: build the toolchain image (TOOLCHAIN_IMAGE)
 docker-build-toolchain:
 	@$(DOCKER_BUILD) --target toolchain $(TOOLCHAIN_CACHE_FROM) -t $(TOOLCHAIN_IMAGE)-$(IMAGE_BUILD_ID) .
@@ -161,6 +181,12 @@ docker-build-esp32:
 	@$(DOCKER_BUILD) --target esp32 $(ESP32_CACHE_FROM) -t $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) .
 	@$(DOCKER) tag $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) $(ESP32_IMAGE)
 	@$(DOCKER) image rm $(ESP32_IMAGE)-$(IMAGE_BUILD_ID) >/dev/null
+
+## docker-build-optee: build the optee image (OPTEE_IMAGE)
+docker-build-optee:
+	@$(DOCKER_BUILD) --target optee $(OPTEE_IMAGE_CACHE_FROM) -t $(OPTEE_IMAGE)-$(IMAGE_BUILD_ID) .
+	@$(DOCKER) tag $(OPTEE_IMAGE)-$(IMAGE_BUILD_ID) $(OPTEE_IMAGE)
+	@$(DOCKER) image rm $(OPTEE_IMAGE)-$(IMAGE_BUILD_ID) >/dev/null
 
 ## docker-build-it: build the integration image (IT_IMAGE), the source baked in, unless the daemon holds it
 docker-build-it:
@@ -186,4 +212,4 @@ docker-ci:
 docker-firmware:
 	@$(DOCKER) run --rm $(DOCKER_USER) $(DOCKER_ENV) -v "$(CURDIR)":/src $(TOOLCHAIN_IMAGE) make firmware BOARD=$(BOARD)
 
-.PHONY: toolchain-image esp32-image it-image toolchain-hash esp32-hash docker-build docker-images docker-image-toolchain docker-image-esp32 docker-build-toolchain docker-build-esp32 docker-build-it docker-run docker-ci docker-firmware
+.PHONY: optee-image docker-image-optee docker-build-optee toolchain-image esp32-image it-image toolchain-hash esp32-hash docker-build docker-images docker-image-toolchain docker-image-esp32 docker-build-toolchain docker-build-esp32 docker-build-it docker-run docker-ci docker-firmware

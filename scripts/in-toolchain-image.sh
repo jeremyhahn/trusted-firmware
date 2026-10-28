@@ -55,6 +55,14 @@
 # scripts/reap-stale-ci-stacks.sh reaps (default <checkout dir>-ci-, which in CI
 # is <repo>-ci-), and is removed on every exit. IN_IMAGE_UID is the non-root
 # uid the command runs as (default 10001; devcontainer.md §5: any non-root uid).
+#
+# CUSTOMIZE (trusted-firmware, #253): IN_IMAGE_CACHE=<runner dir>:<container
+# dir> carries a cache the job restores with actions/cache (the OP-TEE stack,
+# several GB, keyed by its pin) through the same copy-in: the runner dir, when
+# it exists, is streamed into the container dir (which the image creates and
+# the user owns) before the start. IN_IMAGE_CACHE_SAVE=1 streams the container
+# dir back over the runner dir after the command, whatever its status, for
+# actions/cache to save; the job sets it only when the restore missed.
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -84,6 +92,20 @@ class=${CI_CACHE_CLASS:-pr}
 case $class in
   pr | main) ;;
   *) echo "CI_CACHE_CLASS must be pr or main: $class" >&2; exit 2 ;;
+esac
+cache_host='' cache_ctr='' # CUSTOMIZE: IN_IMAGE_CACHE, above
+if [ -n "${IN_IMAGE_CACHE:-}" ]; then
+  cache_host=${IN_IMAGE_CACHE%:*}
+  cache_ctr=${IN_IMAGE_CACHE##*:}
+  case $cache_host:$cache_ctr in
+    /*:/*) ;;
+    *) echo "IN_IMAGE_CACHE must be <absolute runner dir>:<absolute container dir>: $IN_IMAGE_CACHE" >&2; exit 2 ;;
+  esac
+fi
+cache_save=${IN_IMAGE_CACHE_SAVE:-0}
+case $cache_save in
+  0 | 1) ;;
+  *) echo "IN_IMAGE_CACHE_SAVE must be 0 or 1: $cache_save" >&2; exit 2 ;;
 esac
 cpus=${IN_IMAGE_CPUS:-}
 if [ -z "$cpus" ]; then
@@ -193,4 +215,15 @@ else
   tar -C "$PWD" --owner="$uid" --group="$uid" --numeric-owner -cf - . |
     docker cp -a - "$name:/src"
 fi
-docker start -a "$name"
+if [ -n "$cache_host" ] && [ -d "$cache_host" ]; then # CUSTOMIZE: IN_IMAGE_CACHE
+  tar -C "$cache_host" --owner="$uid" --group="$uid" --numeric-owner -cf - . |
+    docker cp -a - "$name:$cache_ctr"
+fi
+rc=0
+docker start -a "$name" || rc=$?
+if [ -n "$cache_host" ] && [ "$cache_save" = 1 ]; then # CUSTOMIZE: IN_IMAGE_CACHE
+  rm -rf "$cache_host"
+  mkdir -p "$cache_host"
+  docker cp "$name:$cache_ctr" - | tar -C "$cache_host" --strip-components=1 -xf -
+fi
+(exit "$rc") # the command's status, as `docker start -a` returned it

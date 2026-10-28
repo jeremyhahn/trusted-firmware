@@ -17,7 +17,10 @@
 > (`optee/ta/`, `GET_INFO` and `GET_RANDOM`), `tfw-ta-check` (`optee/check/`),
 > `optee/testdata/vectors.h` and `make integration-test-optee`. The TA's
 > dispatch and the check pass `test_optee_ta` on the host; the guest run is not yet done.
-> The CI job (slice 4) is not written.
+> The CI job (slice 4) is written: `OP-TEE [optee-qemu, integration-test-optee]`
+> in `.github/workflows/ci.yml`, in the `optee` image, with `OPTEE_CACHE`
+> cached by the pin (open question 6 as proposed). The guest run is proven by
+> its first green CI run, not yet run.
 >
 > This page is the row's first deliverable: what is
 > composed, what this project adds, the trusted application's interface, the
@@ -191,7 +194,7 @@ The lane image has none of these; the CI job needs them all.
 |---|---|
 | `repo` (Google's tool) and `git` | fetch the pinned manifest |
 | aarch64 and arm (32-bit) GNU cross toolchains, as the pinned `build` asks (`make toolchains` there fetches them) | optee_os, TF-A, Linux, the TA and `tfw-ta-check` |
-| The host packages OP-TEE's build documents for the pinned release (among them Python 3 with `cryptography` and `pyelftools` for TA signing, `ninja`, `meson`, `glib`, `pixman` for QEMU, `expect`) | build the stack and QEMU |
+| The host packages OP-TEE's build documents for the pinned release (among them Python 3 with `cryptography` and `pyelftools` for TA signing, `ninja`, `meson`, `glib`, `pixman` for QEMU, the OpenSSL headers (`libssl-dev`) for U-Boot's host tools, `expect`) | build the stack and QEMU |
 | Several GB of disk and a build of tens of minutes, once per pin | the full stack, Linux and Buildroot included; cached by pin (open question 6) |
 
 The QEMU binary is the one the manifest builds, not a distribution package, so

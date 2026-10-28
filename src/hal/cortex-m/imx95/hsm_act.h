@@ -92,4 +92,33 @@ tfw_status_t tfw_imx95_hsm_measure(const struct tfw_ele_chan *c, uint8_t info[TF
                                    uint64_t info_addr, const tfw_hsm_set_t *set,
                                    const struct tfw_imx95_s3 *s3);
 
+/* Compare the `len` bytes of `buf` with every expected value `set` carries,
+ * as tfw_imx95_hsm_compare does GET_INFO's: a field past `len` cannot be
+ * read, and is TFW_ERR_RANGE. */
+tfw_status_t tfw_imx95_hsm_compare_buf(const uint8_t *buf, uint32_t len,
+                                       const tfw_hsm_set_t *set, const struct tfw_imx95_s3 *s3);
+
+/* S3 by the enclave's device attestation (m7-design.md slice 9): the
+ * message's layout, SESSION_OPEN's interrupt index for the session it is
+ * asked on (RM00284 section 3.12.4.1: any open session may call it), and
+ * where each field sits in the report and its key. All board_profile.h
+ * placeholders until a source lays the message and the report out. */
+struct tfw_imx95_attest {
+    uint8_t                      mu_irq;
+    struct tfw_ele_attest_layout l;
+    struct tfw_imx95_s3          s3;
+};
+
+/* Open a session, ask the enclave for its device attestation under `nonce`
+ * into `report`, `report_len` bytes at `report_addr` as the enclave sees it,
+ * cleared first, close the session, and compare the report
+ * (tfw_imx95_hsm_compare_buf over the layout's report size).
+ * TFW_ERR_UNSUPPORTED, with nothing sent, while the MU or the message's id is
+ * zero, or for a layout the client refuses. A refused session or attestation, a nonce or a buffer the client
+ * refuses, is TFW_ERR_CRYPTO, no answer TFW_ERR_TIMEOUT: S3 either way. */
+tfw_status_t tfw_imx95_hsm_attest(const struct tfw_ele_chan *c, const struct tfw_imx95_attest *a,
+                                  uint8_t *report, uint32_t report_len, uint64_t report_addr,
+                                  const uint8_t *nonce, uint32_t nonce_len,
+                                  const tfw_hsm_set_t *set);
+
 #endif /* TFW_CM_IMX95_HSM_ACT_H */

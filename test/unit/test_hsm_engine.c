@@ -439,6 +439,27 @@ static void test_r3_an_unacknowledged_wipe_is_not_counted_done(void)
     TEST_ASSERT_EQUAL_UINT8(1u, h.locked);
 }
 
+/* A4 as the i.MX 95 port reports it (hsm_act.h, tfw_imx95_hsm_wipe): a
+ * delete the enclave refuses, its strict operation not committed, is
+ * TFW_ERR_CRYPTO, and an enclave that never answers TFW_ERR_TIMEOUT. Neither
+ * is a wipe; the engine locks down all the same (R3). */
+static void test_r3_a_refused_or_silent_wipe_is_not_done_and_locks_down(void)
+{
+    static const tfw_status_t st[2] = { TFW_ERR_CRYPTO, TFW_ERR_TIMEOUT };
+    uint32_t i;
+
+    for (i = 0u; i < 2u; i++) {
+        setUp();
+        TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+        wipe_st = st[i];
+        tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 0u);
+        tfw_hsm_signal(&h, S1, 0u);
+        ACTS(TFW_HSM_ACT_KEYS_WIPE, LOCK);
+        TEST_ASSERT_EQUAL_UINT8(0u, h.wiped);
+        TEST_ASSERT_EQUAL_UINT8(1u, h.locked);
+    }
+}
+
 static void test_r4_a_verdict_alone_acts_on_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
@@ -818,6 +839,7 @@ int main(void)
     RUN_TEST(test_r3_a_wipe_needs_a_compromised_verdict_inside_w);
     RUN_TEST(test_r3_a_scripted_rule_wipes_only_by_its_flag);
     RUN_TEST(test_r3_an_unacknowledged_wipe_is_not_counted_done);
+    RUN_TEST(test_r3_a_refused_or_silent_wipe_is_not_done_and_locks_down);
     RUN_TEST(test_r4_a_verdict_alone_acts_on_nothing);
     RUN_TEST(test_r5_silence_past_the_heartbeat_period_locks_down);
     RUN_TEST(test_r6_lockdown_then_any_input_is_still_locked_down);

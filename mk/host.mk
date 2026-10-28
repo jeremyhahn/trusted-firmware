@@ -162,6 +162,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
+                            test/unit/test_imx95_hsm_intake.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
                             test/unit/test_app_none.c \
@@ -175,7 +176,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_suit_emit_mutate.c test/unit/test_tier_soft_mutate.c \
                             test/unit/test_eth_socket_mutate.c \
                            test/unit/test_ota_stage.c test/unit/test_ota_stage_mutate.c test/unit/test_ota_ctl_mutate.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_ota_activate_mutate.c test/unit/test_ota_prev_mutate.c test/unit/test_ota_floor_eeprom_mutate.c test/unit/test_spi_nor.c test/unit/test_spi_nor_mutate.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_single_mutate.c test/unit/test_ota_manifest.c \
-                            test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c \
+                            test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c test/unit/test_hsm_record.c \
                             test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c test/unit/test_esp_prov_uds_mutate.c \
                             test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_otactl_floor_mutate.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
@@ -387,6 +388,11 @@ $(HOST_DIR)/test_hsm_cmd: src/core/hsm_payload.c src/core/hsm_engine.c src/core/
 #                lines asserted by the test
 $(HOST_DIR)/test_hsm_loop: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
                            src/core/hsm_loop.c src/core/reader.c src/core/writer.c
+# test_hsm_record  A6, the record (slice 11a), over the RAM store that survives
+#                  nothing; no engine call site appends to it yet (slice 11b)
+$(HOST_DIR)/test_hsm_record: test/unit/test_hsm_record.c src/core/hsm_record.c \
+                             src/core/hsm_store_ram.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 $(HOST_DIR)/test_hsm_payload $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd \
 $(HOST_DIR)/test_hsm_loop: $(HOST_DIR)/%: test/unit/%.c \
                        $(ELEMENT_MODEL) src/core/suit.c src/core/suit_integrated.c \
@@ -705,7 +711,16 @@ $(HOST_DIR)/test_imx95_scmi_mu: test/unit/test_imx95_scmi_mu.c test/model/imx95_
 # the same channels and model, compiled against the board's zero ids.
 $(HOST_DIR)/test_imx95_hsm_port: test/unit/test_imx95_hsm_port.c test/model/imx95_model.c \
                         src/hal/cortex-m/imx95/hsm_port.c src/hal/cortex-m/imx95/ele_mu.c \
+                        src/hal/cortex-m/imx95/hsm_intake.c \
                         src/hal/cortex-m/imx95/scmi_mu.c src/hal/cortex-m/imx95/scmi.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# test_imx95_hsm_intake  slice 10's intake (S1, S2, S5) through the loop's
+# pass, the engine stubbed to record the signals it raises.
+$(HOST_DIR)/test_imx95_hsm_intake: test/unit/test_imx95_hsm_intake.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/hsm_intake.c src/hal/cortex-m/imx95/ele_mu.c \
+                        src/core/hsm_loop.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -1168,6 +1183,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
+                    $(HOST_DIR)/test_imx95_hsm_intake \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
                     $(HOST_DIR)/test_optee_ta \
                     $(HOST_DIR)/test_tier_atecc608a_mutate \
@@ -1189,7 +1205,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_suit_integrated_mutate \
                     $(HOST_DIR)/test_suit_integrated_unbound \
                     $(HOST_DIR)/test_hsm_payload \
-                    $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd $(HOST_DIR)/test_hsm_loop $(HOST_DIR)/test_verify_p256 \
+                    $(HOST_DIR)/test_hsm_engine $(HOST_DIR)/test_hsm_cmd $(HOST_DIR)/test_hsm_loop $(HOST_DIR)/test_hsm_record $(HOST_DIR)/test_verify_p256 \
                     $(HOST_DIR)/boot/test_boot_l0_esp32 $(HOST_DIR)/boot/test_boot_l0_esp32_rom \
                     $(HOST_DIR)/boot/test_boot_p256_rom $(HOST_DIR)/boot/test_boot_flash_span \
                     $(HOST_DIR)/boot/test_boot_rp2350_flash \

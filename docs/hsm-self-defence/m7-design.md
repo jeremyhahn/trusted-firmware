@@ -46,11 +46,11 @@ run on the board:
 | A1 | Which reset or power domain holds the Ethernet PHYs (architecture Q10) | 5 |
 | A5 | SCMI System power management's SYSTEM_POWER_STATE_SET, in `scmi.c` (slice 6, done) | 6 |
 | A2 by logical machine | The System Manager's logical-machine stop, imx-sm's LMM_SHUTDOWN, in `scmi.c` (slice 7, done) | 7 |
-| A3 | A lock call: the client has KEY_STORE_CLOSE, which ends our own handle, not go-xkms's session (architecture Q4) | 8 |
-| A4 | Key deletion and the strict operation that commits it, absent from `ele_mu.c` (architecture Q5) | 8 |
+| A3 | A lock call: the client has KEY_STORE_CLOSE, which ends our own handle, not go-xkms's session (architecture Q4). Until it is answered, A3 is A2 (O5), and slice 8 adds no call | 8 |
+| A4 | The key-group delete and the whole-store wipe (architecture Q5). Key deletion and the strict operation that commits it are in `ele_mu.c` (slice 8, done) | 8 |
 | S3 | Device attestation, absent from `ele_mu.c`; the expected values (ADR Q9) | 9 |
 | S1, S2, S5 | How each reaches the M7 (architecture Q1, Q2, Q6, Q11) | 10 |
-| A6, the report | A store that survives reset (architecture Q12) and a read path (§5) | 11 |
+| A6, the report | A store that survives reset (architecture Q12) and a read path (§5) | 11a, 11b |
 | H2 | The M7 started only by the ROM and the System Manager, closed to the A55 (question O1) | trusted-imx95 |
 
 ## 2. Standards and vendor interfaces
@@ -129,7 +129,7 @@ go-trusted-platform (ADR D3, Q11). Whether the enclave's SIGNATURE_VERIFY
 | Report | To | Path | State |
 |---|---|---|---|
 | The engine's state (latched, set held, selection, refusals) in every reply to `0x76`–`0x7A` | The caller on the A55: go-trusted-platform's agent and the detector | The channel | On main (slice 4) |
-| The record: each signal, decision and action, with its result | go-trusted-platform, after recovery | Read from the M7 after reset, through the channel | Slice 11; the store waits on architecture Q12 |
+| The record: each signal, decision and action, with its result | go-trusted-platform, after recovery | Read from the M7 after reset, through the channel | The record over a RAM store, slice 11a; the durable store (architecture Q12) and the read (O9), slice 11b |
 | The policy-set digest and floor as attestation evidence | The verifier go-xkms names | go-xkms's evidence, not ours | Seam to file (§6) |
 
 A compromised A55 can drop the first two in transit; only a record that
@@ -152,7 +152,7 @@ designed here.
 One PR each (m751). Each adds its host tests to `make ci`, with no skip guard;
 "host" means the unit build under the mock HAL and the register model
 `test/model/imx95_model.c`. Slices 1 to 4, 6 and 7 are done, and slice 5's
-code and tests (engineering.md). Slice 3, the loop on QEMU's `mps2-an505`, is proved on the host by `test_hsm_loop` (the
+code and tests (engineering.md), and slice 8 for A4's keys. Slice 3, the loop on QEMU's `mps2-an505`, is proved on the host by `test_hsm_loop` (the
 loop's pass: a rising line raised once, signal order, every pass keeping the
 heartbeat deadline) and `test_verify_p256` (the tenant-key verify the image
 links), and at level 2 by the `hsm-*` cases of `make
@@ -167,10 +167,11 @@ and the switch path is the host test's.
 | 5 | **The i.MX 95 port, A1 and A2.** `src/hal/cortex-m/imx95/hsm_port.c` on `tfw_scmi_power_state_set` and `tfw_scmi_reset`; the ids in `boards/frdm-imx95-m7/board_profile.h`, zero meaning unsupported; the engine in the board's object list | Host: the SCMI bytes each action puts in the model's shared memory; an id left zero returns `TFW_ERR_UNSUPPORTED` | Code and tests done: `tfw_imx95_hsm_act`, `test_imx95_hsm_port`. The ids and the channel, zero in `board_profile.h`, still wait on imx95 Q21 (the PHYs' domain also on architecture Q10). The engine in the board's object list waits on O2: `tfw_hsm_load` needs the M7's verifier |
 | 6 | **A5.** SYSTEM_POWER_STATE_SET in `scmi.c`, from DEN0056E's System power management protocol | Host: its bytes against DEN0056E's table; every status | Done: `tfw_scmi_system_power_state_set`, `tfw_scmi_system_power_status` |
 | 7 | **A2 by logical machine.** The System Manager's logical-machine stop in `scmi.c` | Host: its bytes against the imx-sm documentation | Done: `tfw_scmi_lmm_shutdown`, `tfw_scmi_lmm_status`, from imx-sm `rel_imx_sm_2026q3`; `test_imx95_scmi.c`: `test_the_lmm_identifiers_are_imx_sms`, `test_lmm_shutdown_is_lm_id_flags`, `test_lmm_shutdown_clears_reserved_flags`, `test_lmm_shutdown_of_lm_zero_is_unsupported`, `test_every_lmm_status_maps` |
-| 8 | **A3, A4.** Key deletion and the strict operation in `ele_mu.c`, from imx-secure-enclave as #49's pieces were; A4 done only on the acknowledgement | Host: the model answers, refuses, times out; a wipe the commit refuses is not done | architecture Q4, Q5 (whether the M7's domain may touch go-xkms's store) |
-| 9 | **S3.** The enclave's device attestation in `ele_mu.c`; the comparison against the policy's expected values in the engine | Host: model; a mismatch raises S3 | ADR Q9; imx95 Q3 |
-| 10 | **S1, S2, S5 on silicon.** Their intake on the i.MX 95 port | Host: an injected interrupt or notification raises the engine's signal | IMX95SRM; architecture Q1, Q2, Q6, Q11 |
-| 11 | **The record and its read.** A6 kept and read back through the channel, a new command id that extends | Host: `test_hsm_cmd`, tfwsim, literal vectors and the Go mirror | architecture Q12; go-trusted-platform's seam |
+| 8 | **A3, A4.** Key deletion and the strict operation in `ele_mu.c`, from imx-secure-enclave as #49's pieces were; A4 done only on the acknowledgement | Host: the model answers, refuses, times out; a wipe the commit refuses is not done | Done for A4's keys: `tfw_ele_key_delete` with `TFW_ELE_DEL_KEY_STRICT`, `tfw_imx95_hsm_wipe`; `test_imx95_ele_mu.c`: `test_a_good_delete_is_strict_and_acknowledged`, `test_a_refused_delete_is_a_status_error`, `test_a_delete_never_answered_times_out`; `test_imx95_hsm_port.c`: `test_a4_acknowledged_deletes_every_key_strictly_and_closes`, `test_a4_a_refused_delete_is_not_done_and_the_rest_are_tried`, `test_a4_no_answer_to_a_delete_is_a_timeout_not_done`; `test_hsm_engine.c`: `test_r3_an_unacknowledged_wipe_is_not_counted_done`, `test_r3_a_refused_or_silent_wipe_is_not_done_and_locks_down`. A3 is A2, the documented default (O5). Still waits on architecture Q4, Q5 (whether the M7's domain may touch go-xkms's store) |
+| 9 | **S3.** The enclave's device attestation in `ele_mu.c`; the comparison against the policy's expected values in the engine | Host: model; a mismatch raises S3 | Code and tests done: `tfw_ele_dev_attest` on a caller-given `struct tfw_ele_attest_layout`, `tfw_imx95_hsm_attest` (session open, attest under a nonce, close, compare), `test_imx95_ele_mu`, `test_imx95_hsm_port`; the measure falls back to GET_INFO while the id is zero. The message's id and layout, the report's layout and the S3 keys stay zero placeholders in `board_profile.h` (ADR Q9 (a)). The report's signature is not verified (architecture Q17). The M7's messaging unit and domain wait on imx95 Q3 (a) |
+| 10 | **S1, S2, S5 on silicon.** Their intake on the i.MX 95 port | Host: an injected interrupt or notification raises the engine's signal | Code and tests done: `hsm_intake.c`, `tfw_hsm_port_sense`, `test_imx95_hsm_intake`. S1 is the System Manager's SCMI notification (Q2 (b)), taken through `tfw_imx95_hsm_notify_isr`; the channel's notification receiver and the protocol's NOTIFY subscription, and S1's ids, stay open (IMX95SRM). S5 is an M7 GPIO pin interrupt, no fuse (Q1 (a)), the pin the System Manager assigns with the A55's report a hint (Q11 (c)); its pad and interrupt stay open (board schematic), no vector installed. S2 polls hsm_get_event (Q6 (a)), unconfirmed until the bench test; its message and event code stay open (IMX95RM, imx-secure-enclave) |
+| 11a | **The record behind a store.** A6 as a fixed-size append-only log of signal, decision and action entries, each action with its result, in `src/core/hsm_record.c`; full, it keeps its first entries, refuses the rest and counts them. The store is `src/core/hsm_store.h`, substituted at link time; its one implementation, `hsm_store_ram.c`, survives nothing | Host: `test_hsm_record`: an empty record, append and read-back, overflow, the dropped count's top | Done. No command id, wire vector or status code (O9); no engine call site appends yet, since slices 8 to 10 change the engine and 11b wires them in |
+| 11b | **The durable store and the read.** A store that survives reset, as another file behind `hsm_store.h`; the engine's call sites; the record read back through the channel, a new command id that extends | Host: `test_hsm_cmd`, tfwsim, literal vectors and the Go mirror | architecture Q12 (O4) for the store; O9 and go-trusted-platform's seam for the reader and the command id; slices 8 to 10 for the call sites |
 | 12 | **Bench.** End to end on the FRDM-IMX95-PRO, a stand-in detector on the A55, throwaway keys | None: this is the board level | Every slice above; trusted-imx95's M7 logical machine; question O1 |
 
 Nothing in a slice fuses the board or arms a tamper pin (engineering.md level

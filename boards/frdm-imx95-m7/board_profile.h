@@ -131,6 +131,55 @@
  * cannot read them, so a policy that expects them is a mismatch. */
 #define TFW_IMX95_ELE_INFO_SRK_REVOKE_OFF  0u
 #define TFW_IMX95_ELE_INFO_SRK_REVOKE_LEN  0u
+/* The signal intake (#50 slice 10, hsm_intake.h), zero until known: an id of
+ * 0 is never matched and nothing is sent to look for it. S1 is the System
+ * Manager's notification, its protocol and message ids open (IMX95SRM). */
+#define TFW_IMX95_HSM_S1_PROTO  0u
+#define TFW_IMX95_HSM_S1_MSG    0u
+/* S2 is polled with hsm_get_event (architecture question 6 (a), unconfirmed
+ * until the slice 10 bench test): its event code, the message's id and words
+ * (ele_mu.h struct tfw_ele_event_layout) are open (IMX95RM,
+ * imx-secure-enclave). */
+#define TFW_IMX95_HSM_S2_EVENT         0u
+#define TFW_IMX95_ELE_EVT_CMD          0u       /* the message id */
+#define TFW_IMX95_ELE_EVT_CMD_WORDS    0u       /* request words, header counted */
+#define TFW_IMX95_ELE_EVT_RSP_WORDS    0u       /* response words */
+#define TFW_IMX95_ELE_EVT_W_SESSION    0u       /* the session handle's word */
+#define TFW_IMX95_ELE_EVT_W_COUNT      0u       /* the response's event count word */
+#define TFW_IMX95_ELE_EVT_W_FIRST      0u       /* the response's first event word */
+/* S5 is an M7 GPIO pin interrupt (question 1 (a)); its pad and the interrupt
+ * the System Manager assigns it are open (board schematic, question 11 (c)).
+ * IRQ 0 is a real number, so the vector is installed only once ARMED is 1. */
+#define TFW_IMX95_HSM_S5_IRQ    0u
+#define TFW_IMX95_HSM_S5_ARMED  0u
+
+/* The device attestation message (ele_mu.h struct tfw_ele_attest_layout;
+ * m7-design.md slice 9): RM00284 section 3.12 gives the call, its nonce and
+ * the fields it reports, not the message's id or words, nor the report's
+ * size and layout (architecture question 17). While the id is zero S3 asks
+ * GET_INFO instead, as above. */
+#define TFW_IMX95_ELE_ATT_CMD          0u       /* the message id */
+#define TFW_IMX95_ELE_ATT_CMD_WORDS    0u       /* request words, header counted */
+#define TFW_IMX95_ELE_ATT_RSP_WORDS    0u       /* response words */
+#define TFW_IMX95_ELE_ATT_W_SESSION    0u       /* the session handle's word; 0, none */
+#define TFW_IMX95_ELE_ATT_W_NONCE      0u       /* the nonce's first word */
+#define TFW_IMX95_ELE_ATT_W_ADDR_HI    0u       /* the report buffer's address, high */
+#define TFW_IMX95_ELE_ATT_W_ADDR_LO    0u       /* low */
+#define TFW_IMX95_ELE_ATT_W_SIZE       0u       /* the report buffer's size */
+#define TFW_IMX95_ELE_ATT_REPORT_LEN   0u       /* the report's size in bytes */
+/* Where the report holds each field S3 compares, under the keys above.
+ * Length 0: the port cannot read it, so a policy that expects it is a
+ * mismatch. */
+#define TFW_IMX95_ELE_ATT_LMDA_OFF        0u
+#define TFW_IMX95_ELE_ATT_LMDA_LEN        0u
+#define TFW_IMX95_ELE_ATT_ROM_PATCH_OFF   0u
+#define TFW_IMX95_ELE_ATT_ROM_PATCH_LEN   0u
+#define TFW_IMX95_ELE_ATT_SHA_FW_OFF      0u
+#define TFW_IMX95_ELE_ATT_SHA_FW_LEN      0u
+#define TFW_IMX95_ELE_ATT_OEM_SRKH_OFF    0u
+#define TFW_IMX95_ELE_ATT_OEM_SRKH_LEN    0u
+#define TFW_IMX95_ELE_ATT_SRK_REVOKE_OFF  0u
+#define TFW_IMX95_ELE_ATT_SRK_REVOKE_LEN  0u
 
 /* Board sizing deviations from config.h: none. */
 

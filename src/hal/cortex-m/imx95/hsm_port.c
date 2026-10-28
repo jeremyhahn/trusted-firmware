@@ -39,6 +39,7 @@
 #include "core/hsm.h"
 #include "core/hsm_port.h"
 #include "hsm_act.h"
+#include "hsm_intake.h"
 #include "scmi.h"
 #include "tfw/config.h"
 
@@ -180,8 +181,8 @@ tfw_status_t tfw_imx95_hsm_wipe(const struct tfw_ele_chan *c, const struct tfw_i
     return ele_status(rc);
 }
 
-tfw_status_t tfw_imx95_hsm_compare(const uint8_t info[TFW_ELE_GET_INFO_LEN],
-                                   const tfw_hsm_set_t *set, const struct tfw_imx95_s3 *s3)
+tfw_status_t tfw_imx95_hsm_compare_buf(const uint8_t *buf, uint32_t len,
+                                       const tfw_hsm_set_t *set, const struct tfw_imx95_s3 *s3)
 {
     uint8_t i;
 
@@ -195,12 +196,18 @@ tfw_status_t tfw_imx95_hsm_compare(const uint8_t info[TFW_ELE_GET_INFO_LEN],
                 f = &s3->f[k];
             }
         }
-        if (f == NULL || f->len == 0u || (uint32_t)f->off + f->len > TFW_ELE_GET_INFO_LEN
-            || e->n != f->len || memcmp(&info[f->off], e->value, f->len) != 0) {
+        if (f == NULL || f->len == 0u || (uint32_t)f->off + f->len > len
+            || e->n != f->len || memcmp(&buf[f->off], e->value, f->len) != 0) {
             return TFW_ERR_RANGE;
         }
     }
     return TFW_OK;
+}
+
+tfw_status_t tfw_imx95_hsm_compare(const uint8_t info[TFW_ELE_GET_INFO_LEN],
+                                   const tfw_hsm_set_t *set, const struct tfw_imx95_s3 *s3)
+{
+    return tfw_imx95_hsm_compare_buf(info, TFW_ELE_GET_INFO_LEN, set, s3);
 }
 
 tfw_status_t tfw_imx95_hsm_measure(const struct tfw_ele_chan *c, uint8_t info[TFW_ELE_GET_INFO_LEN],
@@ -218,6 +225,30 @@ tfw_status_t tfw_imx95_hsm_measure(const struct tfw_ele_chan *c, uint8_t info[TF
         return ele_status(rc);
     }
     return tfw_imx95_hsm_compare(info, set, s3);
+}
+
+tfw_status_t tfw_imx95_hsm_attest(const struct tfw_ele_chan *c, const struct tfw_imx95_attest *a,
+                                  uint8_t *report, uint32_t report_len, uint64_t report_addr,
+                                  const uint8_t *nonce, uint32_t nonce_len,
+                                  const tfw_hsm_set_t *set)
+{
+    uint32_t session = 0u;
+    int32_t  rc;
+
+    if (c->mu == 0u || a->l.command == 0u) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    memset(report, 0, report_len);
+    rc = tfw_ele_session_open(c, a->mu_irq, &session, NULL);
+    if (rc != 0) {
+        return ele_status(rc);
+    }
+    rc = tfw_ele_dev_attest(c, &a->l, session, nonce, nonce_len, report_addr, report_len, NULL);
+    (void)tfw_ele_session_close(c, session, NULL);
+    if (rc != 0) {
+        return ele_status(rc);
+    }
+    return tfw_imx95_hsm_compare_buf(report, a->l.report_len, set, &a->s3);
 }
 
 static struct tfw_scmi_chan g_chan = {
@@ -251,6 +282,28 @@ static const struct tfw_imx95_s3 g_s3 = { {
       TFW_IMX95_ELE_INFO_SRK_REVOKE_LEN },
 } };
 
+static const struct tfw_imx95_attest g_att = {
+    TFW_IMX95_ELE_MU_IRQ,
+    { TFW_IMX95_ELE_ATT_CMD, TFW_IMX95_ELE_ATT_CMD_WORDS, TFW_IMX95_ELE_ATT_RSP_WORDS,
+      TFW_IMX95_ELE_ATT_W_SESSION, TFW_IMX95_ELE_ATT_W_NONCE, TFW_IMX95_ELE_ATT_W_ADDR_HI,
+      TFW_IMX95_ELE_ATT_W_ADDR_LO, TFW_IMX95_ELE_ATT_W_SIZE, TFW_IMX95_ELE_ATT_REPORT_LEN },
+    { {
+        { TFW_IMX95_S3_KEY_LMDA, TFW_IMX95_ELE_ATT_LMDA_OFF, TFW_IMX95_ELE_ATT_LMDA_LEN },
+        { TFW_IMX95_S3_KEY_ROM_PATCH, TFW_IMX95_ELE_ATT_ROM_PATCH_OFF,
+          TFW_IMX95_ELE_ATT_ROM_PATCH_LEN },
+        { TFW_IMX95_S3_KEY_SHA_FW, TFW_IMX95_ELE_ATT_SHA_FW_OFF, TFW_IMX95_ELE_ATT_SHA_FW_LEN },
+        { TFW_IMX95_S3_KEY_OEM_SRKH, TFW_IMX95_ELE_ATT_OEM_SRKH_OFF,
+          TFW_IMX95_ELE_ATT_OEM_SRKH_LEN },
+        { TFW_IMX95_S3_KEY_SRK_REVOKE, TFW_IMX95_ELE_ATT_SRK_REVOKE_OFF,
+          TFW_IMX95_ELE_ATT_SRK_REVOKE_LEN },
+    } }
+};
+
+/* The attestation's nonce: a count, so each report answers one request. The
+ * M7 compares the report itself and verifies no signature over it (ele_mu.h);
+ * a verifier's own nonce is go-xkms's. */
+static uint32_t g_att_count;
+
 /* GET_INFO's buffer, written by the enclave. Its address as the enclave sees
  * it is taken to be the M7's: to confirm with the MU (question 3). */
 static uint8_t g_info[TFW_ELE_GET_INFO_LEN];
@@ -265,5 +318,52 @@ tfw_status_t tfw_hsm_port_act(uint8_t action)
 
 tfw_status_t tfw_hsm_port_measure(const tfw_hsm_set_t *set)
 {
+    uint8_t nonce[TFW_ELE_ATTEST_NONCE_SHORT];
+    tfw_status_t st;
+
+    g_att_count++;
+    nonce[0] = (uint8_t)g_att_count;
+    nonce[1] = (uint8_t)(g_att_count >> 8);
+    nonce[2] = (uint8_t)(g_att_count >> 16);
+    nonce[3] = (uint8_t)(g_att_count >> 24);
+    /* The report and GET_INFO's buffer are never in use at once. */
+    st = tfw_imx95_hsm_attest(&g_ele, &g_att, g_info, sizeof g_info, (uint64_t)(uintptr_t)g_info,
+                              nonce, sizeof nonce, set);
+    if (st != TFW_ERR_UNSUPPORTED) {
+        return st;
+    }
     return tfw_imx95_hsm_measure(&g_ele, g_info, (uint64_t)(uintptr_t)g_info, set, &g_s3);
+}
+
+/* The signal intake (hsm_intake.h). No vector reaches either entry while its
+ * interrupt is open: S1's receiver does not exist yet (IMX95SRM) and S5's
+ * pin is installed only once TFW_IMX95_HSM_S5_ARMED (board_profile.h). */
+static struct tfw_imx95_hsm_intake g_intake;
+
+static const struct tfw_imx95_hsm_intake_ids g_intake_ids = {
+    TFW_IMX95_HSM_S1_PROTO, TFW_IMX95_HSM_S1_MSG, TFW_IMX95_HSM_S2_EVENT
+};
+
+static const struct tfw_ele_event_layout g_evt = {
+    TFW_IMX95_ELE_EVT_CMD, TFW_IMX95_ELE_EVT_CMD_WORDS, TFW_IMX95_ELE_EVT_RSP_WORDS,
+    TFW_IMX95_ELE_EVT_W_SESSION, TFW_IMX95_ELE_EVT_W_COUNT, TFW_IMX95_ELE_EVT_W_FIRST
+};
+
+/* S1: the channel's notification receiver calls this with each header. */
+void tfw_imx95_hsm_notify_isr(uint32_t hdr)
+{
+    tfw_imx95_hsm_notified(&g_intake, &g_intake_ids, hdr);
+}
+
+/* S5: the pin's interrupt handler. */
+void tfw_imx95_hsm_pin_isr(void)
+{
+    tfw_imx95_hsm_pin(&g_intake);
+}
+
+uint8_t tfw_hsm_port_sense(void)
+{
+    return (uint8_t)(tfw_imx95_hsm_intake_sense(&g_intake) |
+                     tfw_imx95_hsm_poll(&g_intake, &g_ele, &g_evt, &g_intake_ids,
+                                        TFW_IMX95_ELE_MU_IRQ));
 }

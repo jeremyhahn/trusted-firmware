@@ -2024,6 +2024,265 @@ static void test_a_delete_with_no_layout_is_not_sent(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
 }
 
+/* hsm_get_event (slice 10, S2): a test layout, the board's being all zero. A
+ * two-word request; a six-word response, its count in word 2, events from
+ * word 3, its CRC word 5 never an event. */
+static const struct tfw_ele_event_layout evt6 = { 0x9Au, 2u, 6u, 1u, 2u, 3u };
+
+static void evt_reply(uint32_t count)
+{
+    reply[0] = 0xE19A0606u;
+    reply[1] = 0x000000D6u;
+    reply[2] = count;
+    reply[3] = 0x00000011u;
+    reply[4] = 0x00000022u;
+    reply[5] = 0x00000033u;   /* the CRC word's place */
+    reply_n  = 6u;
+}
+
+static void test_a_get_event_names_its_session_and_returns_the_events(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 9u, status = 0u;
+
+    evt_reply(2u);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt6, 0x5E550001u, ev,
+                                                 TFW_ELE_EVENTS_MAX, &n, &status));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(2u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_HEX32(0x179A0206u, m->ele.req[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x5E550001u, m->ele.req[1]);
+    TEST_ASSERT_EQUAL_UINT32(2u, n);
+    TEST_ASSERT_EQUAL_HEX32(0x00000011u, ev[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000022u, ev[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x000000D6u, status);
+}
+
+static void test_a_get_event_count_never_reads_past_the_response(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 0u;
+
+    evt_reply(7u);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt6, 1u, ev, TFW_ELE_EVENTS_MAX,
+                                                 &n, NULL));
+    TEST_ASSERT_EQUAL_UINT32(2u, n);   /* the CRC word is not an event */
+}
+
+static void test_a_get_event_never_writes_past_the_callers_room(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 0u;
+
+    evt_reply(2u);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt6, 1u, ev, 1u, &n, NULL));
+    TEST_ASSERT_EQUAL_UINT32(1u, n);
+    TEST_ASSERT_EQUAL_HEX32(0u, ev[1]);
+}
+
+static void test_a_get_event_with_none_pending_returns_none(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 9u;
+
+    evt_reply(0u);
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_get_event(&chan, &evt6, 1u, ev, 8u, &n, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, n);
+}
+
+static void test_a_refused_get_event_returns_no_events(void)
+{
+    uint32_t ev[TFW_ELE_EVENTS_MAX] = { 0u };
+    uint32_t n = 9u, status = 0u;
+
+    evt_reply(2u);
+    reply[1] = 0x00000029u;
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_STATUS,
+                            tfw_ele_get_event(&chan, &evt6, 1u, ev, 8u, &n, &status));
+    TEST_ASSERT_EQUAL_UINT32(0u, n);
+    TEST_ASSERT_EQUAL_HEX32(0x00000029u, status);
+}
+
+static void test_a_get_event_with_no_session_or_layout_is_not_sent(void)
+{
+    static const struct tfw_ele_event_layout bad[] = {
+        { 0x00u, 2u, 6u, 1u, 2u, 3u },    /* no id: the board's today */
+        { 0x9Au, 1u, 6u, 1u, 2u, 3u },    /* request under two words */
+        { 0x9Au, 15u, 6u, 1u, 2u, 3u },   /* request past the client's */
+        { 0x9Au, 2u, 2u, 1u, 2u, 3u },    /* response with no room for an event */
+        { 0x9Au, 2u, 15u, 1u, 2u, 3u },   /* response past the client's */
+        { 0x9Au, 2u, 6u, 0u, 2u, 3u },    /* session in the header */
+        { 0x9Au, 2u, 6u, 2u, 2u, 3u },    /* session past the request */
+        { 0x9Au, 2u, 6u, 1u, 1u, 3u },    /* count on the status word */
+        { 0x9Au, 2u, 6u, 1u, 5u, 3u },    /* count in the CRC word */
+        { 0x9Au, 2u, 6u, 1u, 2u, 2u },    /* first event on the count */
+        { 0x9Au, 2u, 6u, 1u, 2u, 5u },    /* first event in the CRC word */
+    };
+    struct tfw_ele_msg cmd;
+    uint32_t ev[TFW_ELE_EVENTS_MAX];
+    uint32_t i, n = 9u;
+
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_SESSION,
+                            tfw_ele_get_event(&chan, &evt6, 0u, ev, 8u, &n, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, n);
+    for (i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LAYOUT, tfw_ele_get_event_cmd(&cmd, &bad[i], 1u));
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LAYOUT,
+                                tfw_ele_get_event(&chan, &bad[i], 1u, ev, 8u, &n, NULL));
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
+/* A device attestation layout of this test's own: no source names the
+ * enclave's (board_profile.h). The session in word 1, the nonce from word 2,
+ * the report buffer in words 6 to 8, the CRC word last. */
+static const struct tfw_ele_attest_layout att10 = { 0x9Au, 10u, 2u, 1u, 2u, 6u, 7u, 8u, 256u };
+
+static const uint8_t nonce16[TFW_ELE_ATTEST_NONCE_LONG] = {
+    0x00u, 0x01u, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u,
+    0x08u, 0x09u, 0x0Au, 0x0Bu, 0x0Cu, 0x0Du, 0x0Eu, 0x0Fu,
+};
+
+static void att_reply(void)
+{
+    reply[0] = 0xE19A0206u;
+    reply[1] = 0x000000D6u;
+    reply_n  = 2u;
+}
+
+static uint32_t req_crc(uint32_t words)
+{
+    uint32_t crc = 0u, k;
+
+    for (k = 0u; k + 1u < words; k++) {
+        crc ^= m->ele.req[k];
+    }
+    return crc;
+}
+
+static void test_a_good_attestation_places_the_session_nonce_and_buffer(void)
+{
+    uint32_t status = 0u;
+
+    att_reply();
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_dev_attest(&chan, &att10, 0x5E550001u, nonce16, 16u,
+                                                  0x0000000120002000uLL, 256u, &status));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(10u, m->ele.req_len);
+    TEST_ASSERT_EQUAL_HEX32(0x179A0A06u, m->ele.req[0]);
+    TEST_ASSERT_EQUAL_HEX32(0x5E550001u, m->ele.req[1]);   /* session */
+    TEST_ASSERT_EQUAL_HEX32(0x03020100u, m->ele.req[2]);   /* nonce, byte 0 low */
+    TEST_ASSERT_EQUAL_HEX32(0x07060504u, m->ele.req[3]);
+    TEST_ASSERT_EQUAL_HEX32(0x0B0A0908u, m->ele.req[4]);
+    TEST_ASSERT_EQUAL_HEX32(0x0F0E0D0Cu, m->ele.req[5]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000001u, m->ele.req[6]);   /* address, high */
+    TEST_ASSERT_EQUAL_HEX32(0x20002000u, m->ele.req[7]);   /* address, low */
+    TEST_ASSERT_EQUAL_HEX32(0x00000100u, m->ele.req[8]);   /* the report's size */
+    TEST_ASSERT_EQUAL_HEX32(req_crc(10u), m->ele.req[9]);
+    TEST_ASSERT_EQUAL_HEX32(0x000000D6u, status);
+}
+
+static void test_a_short_nonce_takes_one_word_and_no_session_word_carries_none(void)
+{
+    static const uint8_t nonce4[TFW_ELE_ATTEST_NONCE_SHORT] = { 0xDEu, 0xADu, 0xBEu, 0xEFu };
+    struct tfw_ele_attest_layout l = att10;
+
+    l.w_session = 0u;
+    att_reply();
+    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_dev_attest(&chan, &l, 0u, nonce4, 4u, 0x2000u, 256u, NULL));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, m->ele.req[1]);
+    TEST_ASSERT_EQUAL_HEX32(0xEFBEADDEu, m->ele.req[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, m->ele.req[3]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, m->ele.req[5]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000000u, m->ele.req[6]);
+    TEST_ASSERT_EQUAL_HEX32(0x00002000u, m->ele.req[7]);
+    TEST_ASSERT_EQUAL_HEX32(req_crc(10u), m->ele.req[9]);
+}
+
+static void test_a_nonce_neither_4_nor_16_bytes_is_not_sent(void)
+{
+    static const uint32_t lens[] = { 0u, 1u, 3u, 5u, 8u, 15u, 17u, 32u };
+    struct tfw_ele_msg cmd;
+    uint32_t i;
+
+    for (i = 0u; i < sizeof lens / sizeof lens[0]; i++) {
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_NONCE,
+                                tfw_ele_dev_attest_cmd(&cmd, &att10, 1u, nonce16, lens[i], 0x2000u));
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_NONCE, tfw_ele_dev_attest(&chan, &att10, 1u, nonce16,
+                                                                    lens[i], 0x2000u, 256u, NULL));
+    }
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_NONCE,
+                            tfw_ele_dev_attest(&chan, &att10, 1u, NULL, 16u, 0x2000u, 256u, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
+static void test_a_refused_attestation_is_a_status_error(void)
+{
+    uint32_t status = 0u;
+
+    att_reply();
+    reply[1] = 0x00000029u;
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_STATUS, tfw_ele_dev_attest(&chan, &att10, 1u, nonce16, 16u,
+                                                                 0x2000u, 256u, &status));
+    TEST_ASSERT_EQUAL_HEX32(0x00000029u, status);
+}
+
+static void test_an_attestation_on_a_closed_session_is_a_session_error(void)
+{
+    att_reply();
+    reply[1] = 0x00000729u;
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_SESSION, tfw_ele_dev_attest(&chan, &att10, 1u, nonce16, 16u,
+                                                                  0x2000u, 256u, NULL));
+}
+
+static void test_an_attestation_never_answered_times_out(void)
+{
+    reply_n = 0u;
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_TIMEOUT, tfw_ele_dev_attest(&chan, &att10, 1u, nonce16, 16u,
+                                                                  0x2000u, 256u, NULL));
+}
+
+static void test_an_attestation_with_no_session_or_too_small_a_buffer_is_not_sent(void)
+{
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_SESSION, tfw_ele_dev_attest(&chan, &att10, 0u, nonce16, 16u,
+                                                                  0x2000u, 256u, NULL));
+    TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_BUFFER, tfw_ele_dev_attest(&chan, &att10, 1u, nonce16, 16u,
+                                                                 0x2000u, 255u, NULL));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
+static void test_an_attestation_with_no_layout_is_not_sent(void)
+{
+    static const struct tfw_ele_attest_layout bad[] = {
+        { 0x00u, 10u, 2u, 1u, 2u, 6u, 7u, 8u, 256u },   /* no id: the board's today */
+        { 0x9Au, 10u, 2u, 1u, 2u, 6u, 7u, 8u, 0u },     /* no report size */
+        { 0x9Au, 1u, 2u, 0u, 1u, 1u, 1u, 1u, 256u },    /* request under two words */
+        { 0x9Au, 15u, 2u, 1u, 2u, 6u, 7u, 8u, 256u },   /* request past the client's */
+        { 0x9Au, 10u, 1u, 1u, 2u, 6u, 7u, 8u, 256u },   /* response under two words */
+        { 0x9Au, 10u, 15u, 1u, 2u, 6u, 7u, 8u, 256u },  /* response past the client's */
+        { 0x9Au, 10u, 2u, 9u, 2u, 6u, 7u, 8u, 256u },   /* session in the CRC word */
+        { 0x9Au, 10u, 2u, 1u, 0u, 6u, 7u, 8u, 256u },   /* nonce in the header */
+        { 0x9Au, 10u, 2u, 1u, 6u, 2u, 3u, 4u, 256u },   /* nonce into the CRC word */
+        { 0x9Au, 10u, 2u, 1u, 2u, 0u, 7u, 8u, 256u },   /* address high in the header */
+        { 0x9Au, 10u, 2u, 1u, 2u, 9u, 7u, 8u, 256u },   /* address high in the CRC word */
+        { 0x9Au, 10u, 2u, 1u, 2u, 6u, 0u, 8u, 256u },   /* address low in the header */
+        { 0x9Au, 10u, 2u, 1u, 2u, 6u, 9u, 8u, 256u },   /* address low in the CRC word */
+        { 0x9Au, 10u, 2u, 1u, 2u, 6u, 7u, 0u, 256u },   /* size in the header */
+        { 0x9Au, 10u, 2u, 1u, 2u, 6u, 7u, 9u, 256u },   /* size in the CRC word */
+    };
+    struct tfw_ele_msg cmd;
+    uint32_t i;
+
+    for (i = 0u; i < sizeof bad / sizeof bad[0]; i++) {
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LAYOUT,
+                                tfw_ele_dev_attest_cmd(&cmd, &bad[i], 1u, nonce16, 16u, 0x2000u));
+        TEST_ASSERT_EQUAL_INT32(TFW_ELE_E_LAYOUT, tfw_ele_dev_attest(&chan, &bad[i], 1u, nonce16,
+                                                                     16u, 0x2000u, 256u, NULL));
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.req_len);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -2151,5 +2410,19 @@ int main(void)
     RUN_TEST(test_a_delete_never_answered_times_out);
     RUN_TEST(test_a_delete_with_no_service_is_not_sent);
     RUN_TEST(test_a_delete_with_no_layout_is_not_sent);
+    RUN_TEST(test_a_get_event_names_its_session_and_returns_the_events);
+    RUN_TEST(test_a_get_event_count_never_reads_past_the_response);
+    RUN_TEST(test_a_get_event_never_writes_past_the_callers_room);
+    RUN_TEST(test_a_get_event_with_none_pending_returns_none);
+    RUN_TEST(test_a_refused_get_event_returns_no_events);
+    RUN_TEST(test_a_get_event_with_no_session_or_layout_is_not_sent);
+    RUN_TEST(test_a_good_attestation_places_the_session_nonce_and_buffer);
+    RUN_TEST(test_a_short_nonce_takes_one_word_and_no_session_word_carries_none);
+    RUN_TEST(test_a_nonce_neither_4_nor_16_bytes_is_not_sent);
+    RUN_TEST(test_a_refused_attestation_is_a_status_error);
+    RUN_TEST(test_an_attestation_on_a_closed_session_is_a_session_error);
+    RUN_TEST(test_an_attestation_never_answered_times_out);
+    RUN_TEST(test_an_attestation_with_no_session_or_too_small_a_buffer_is_not_sent);
+    RUN_TEST(test_an_attestation_with_no_layout_is_not_sent);
     return UNITY_END();
 }

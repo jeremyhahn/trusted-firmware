@@ -20,6 +20,7 @@
 #include "core/hsm.h"
 #include "core/hsm_port.h"
 #include "hsm_act.h"
+#include "hsm_intake.h"
 
 #define MU   0x60000000u
 #define SHM  0x60100000u
@@ -72,6 +73,13 @@ static uint32_t ele_silent_at;
 static uint8_t  info[TFW_ELE_GET_INFO_LEN];
 static uint8_t  info_image[TFW_ELE_GET_INFO_LEN];
 
+/* The attestation's id, layout and report are the test's own: the board's
+ * stay zero placeholders (ADR Q9 (a), architecture question 17). */
+#define ATT_ID  0x9Au
+#define ATT_LEN 64u
+static uint8_t report[ATT_LEN];
+static uint8_t report_image[ATT_LEN];
+
 static uint32_t ele_rsp_words(uint32_t cmd)
 {
     switch (cmd) {
@@ -107,6 +115,9 @@ static void enclave(struct tfw_imx95_model *mm)
     mm->ele.rsp_len = n;
     if (cmd == TFW_ELE_GET_INFO && ele_n != ele_fail_at) {
         memcpy(info, info_image, sizeof info);
+    }
+    if (cmd == ATT_ID && ele_n != ele_fail_at) {
+        memcpy(report, report_image, sizeof report);
     }
 }
 
@@ -150,6 +161,10 @@ void setUp(void)
     memset(info, 0xFF, sizeof info);
     for (k = 0u; k < TFW_ELE_GET_INFO_LEN; k++) {
         info_image[k] = (uint8_t)(k ^ 0xA5u);
+    }
+    memset(report, 0xFF, sizeof report);
+    for (k = 0u; k < ATT_LEN; k++) {
+        report_image[k] = (uint8_t)(k * 7u + 3u);
     }
 }
 
@@ -407,6 +422,19 @@ static void test_the_boards_measure_is_unsupported_and_sends_nothing(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
 }
 
+/* Slice 10's intake on the board's ids: S1's and S2's are zero, so no
+ * notification is taken and nothing is polled; S5's pin needs no id. */
+static void test_the_boards_sense_takes_only_the_pin_and_sends_nothing(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hsm_port_sense());
+    tfw_imx95_hsm_notify_isr(0x00000300u);   /* a notification, protocol 0, message 0 */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hsm_port_sense());
+    tfw_imx95_hsm_pin_isr();
+    TEST_ASSERT_EQUAL_UINT8(1u << (TFW_HSM_SIG_HOTPLUG - 1u), tfw_hsm_port_sense());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hsm_port_sense());
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
+}
+
 /* ---- A4: the keys wiped by the enclave, strict ---- */
 
 static const uint32_t wipe_seq[8] = {
@@ -632,6 +660,114 @@ static void test_s3_no_mu_is_unsupported_and_sends_nothing(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
 }
 
+static const struct tfw_imx95_attest att = {
+    1u,
+    /* id, request with CRC, response, session, nonce, address hi/lo, size, report */
+    { ATT_ID, 7u, 2u, 1u, 2u, 3u, 4u, 5u, ATT_LEN },
+    { {
+        { 1u, 0u, 32u },
+        { 2u, 32u, 16u },
+        { 3u, 48u, 8u },
+        { 4u, 56u, 4u },
+        { 5u, 60u, 4u },
+    } },
+};
+
+static const uint8_t nonce4[4] = { 0x01u, 0x02u, 0x03u, 0x04u };
+
+#define REPORT_ADDR 0x0000000120003000ull
+
+static tfw_status_t attest(const struct tfw_imx95_attest *a, uint32_t len,
+                           const tfw_hsm_set_t *set)
+{
+    return tfw_imx95_hsm_attest(&ele, a, report, len, REPORT_ADDR, nonce4, sizeof nonce4, set);
+}
+
+static void test_s3_attest_opens_attests_closes_and_compares(void)
+{
+    tfw_hsm_set_t set;
+    uint32_t k;
+
+    memset(&set, 0, sizeof set);
+    for (k = 0u; k < TFW_IMX95_S3_FIELDS; k++) {
+        expect(&set, att.s3.f[k].key, &report_image[att.s3.f[k].off], att.s3.f[k].len);
+    }
+    TEST_ASSERT_EQUAL_INT(TFW_OK, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(3u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX32(ATT_ID, ele_cmd[1]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x101u, ele_req[1][1]);        /* the session opened */
+    TEST_ASSERT_EQUAL_HEX32(0x04030201u, ele_req[1][2]);   /* the nonce */
+    TEST_ASSERT_EQUAL_HEX32(0x1u, ele_req[1][3]);
+    TEST_ASSERT_EQUAL_HEX32(0x20003000u, ele_req[1][4]);
+    TEST_ASSERT_EQUAL_HEX32(0x101u, ele_req[2][1]);        /* and closed */
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(report_image, report, ATT_LEN);
+    set.expected[2].value[7] ^= 0x01u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, attest(&att, ATT_LEN, &set));
+}
+
+static void test_s3_a_refused_or_silent_enclave_is_not_a_match(void)
+{
+    static const uint8_t zero[ATT_LEN];
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 1u, report_image, 32u);
+    ele_fail_at = 2u;   /* the attestation refused: the session still closes */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(3u, ele_n);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[2]);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, report, ATT_LEN);   /* nothing stale */
+    ele_n = 0u;
+    ele_fail_at = 1u;   /* the open refused: nothing more is sent */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(1u, ele_n);
+    ele_n = 0u;
+    ele_fail_at = 0u;
+    ele_silent_at = 2u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, report, ATT_LEN);
+    m->ele.enclave = NULL;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, attest(&att, ATT_LEN, &set));
+}
+
+static void test_s3_a_report_too_short_for_a_field_is_range(void)
+{
+    struct tfw_imx95_attest bad = att;
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    expect(&set, 5u, &report_image[60], 4u);
+    bad.s3.f[4].off = 62u;   /* 62 + 4 runs past the 64-byte report */
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, attest(&bad, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(3u, ele_n);
+}
+
+static void test_s3_a_buffer_too_small_sends_no_attestation(void)
+{
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, attest(&att, ATT_LEN - 1u, &set));
+    TEST_ASSERT_EQUAL_UINT32(2u, ele_n);   /* opened and closed */
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_OPEN, ele_cmd[0]);
+    TEST_ASSERT_EQUAL_HEX32(TFW_ELE_SESSION_CLOSE, ele_cmd[1]);
+}
+
+static void test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing(void)
+{
+    struct tfw_imx95_attest bad = att;
+    tfw_hsm_set_t set;
+
+    memset(&set, 0, sizeof set);
+    bad.l.command = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, attest(&bad, ATT_LEN, &set));
+    ele.mu = 0u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, attest(&att, ATT_LEN, &set));
+    TEST_ASSERT_EQUAL_UINT32(0u, m->ele.requests);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -669,5 +805,11 @@ int main(void)
     RUN_TEST(test_s3_measure_asks_get_info_and_compares);
     RUN_TEST(test_s3_a_refused_or_silent_get_info_is_not_a_match);
     RUN_TEST(test_s3_no_mu_is_unsupported_and_sends_nothing);
+    RUN_TEST(test_the_boards_sense_takes_only_the_pin_and_sends_nothing);
+    RUN_TEST(test_s3_attest_opens_attests_closes_and_compares);
+    RUN_TEST(test_s3_a_refused_or_silent_enclave_is_not_a_match);
+    RUN_TEST(test_s3_a_report_too_short_for_a_field_is_range);
+    RUN_TEST(test_s3_a_buffer_too_small_sends_no_attestation);
+    RUN_TEST(test_s3_attest_with_no_mu_or_id_is_unsupported_and_sends_nothing);
     return UNITY_END();
 }

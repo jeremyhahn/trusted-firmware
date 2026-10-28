@@ -604,4 +604,90 @@ int32_t tfw_ele_key_delete_cmd(struct tfw_ele_msg *m, const struct tfw_ele_del_l
 int32_t tfw_ele_key_delete(const struct tfw_ele_chan *c, const struct tfw_ele_del_layout *l,
                            uint32_t mgmt, uint32_t key_id, uint32_t *status);
 
+/* hsm_get_event (#50 slice 10, S2 by polling: architecture question 6 (a),
+ * unconfirmed until the slice 10 bench test). No document this project holds
+ * gives the message's id, its words or the event codes it returns (open:
+ * IMX95RM, imx-secure-enclave), so each is the board's, zero until known, and
+ * a zero refuses the call unsent. The response holds at most
+ * TFW_ELE_EVENTS_MAX events (architecture.md question 6). */
+#define TFW_ELE_EVENTS_MAX 8u
+
+struct tfw_ele_event_layout {
+    uint32_t command;    /* the message id; 0 is unknown */
+    uint8_t  cmd_words;  /* the request's size in words, the header counted */
+    uint8_t  rsp_words;  /* the response's */
+    uint8_t  w_session;  /* the request's session handle word */
+    uint8_t  w_count;    /* the response's event count word */
+    uint8_t  w_first;    /* the response's first event word */
+};
+
+/* Build the request on session `session`. TFW_ELE_E_LAYOUT, unbuilt, for an
+ * unknown id, a size past TFW_ELE_MSG_WORDS, a word index of 0 or on the CRC
+ * word, or a response with no room for its count and one event. */
+int32_t tfw_ele_get_event_cmd(struct tfw_ele_msg *m, const struct tfw_ele_event_layout *l,
+                              uint32_t session);
+
+/* Poll the enclave's events on `session` into `ev`, at most `max` and never
+ * past TFW_ELE_EVENTS_MAX or the response's last word; *n is how many. Refused
+ * unsent: session 0, TFW_ELE_E_SESSION; a layout tfw_ele_get_event_cmd
+ * refuses, TFW_ELE_E_LAYOUT. Every other refusal is tfw_ele_call's. */
+int32_t tfw_ele_get_event(const struct tfw_ele_chan *c, const struct tfw_ele_event_layout *l,
+                          uint32_t session, uint32_t *ev, uint32_t max, uint32_t *n,
+                          uint32_t *status);
+
+/* hsm_dev_attest's nonce: 4 or 16 bytes, the caller's (RM00284 section 3.12;
+ * docs/hsm-self-defence/architecture.md question 17). */
+#define TFW_ELE_ATTEST_NONCE_SHORT 4u
+#define TFW_ELE_ATTEST_NONCE_LONG  16u
+
+/* The client's refusal of a nonce of any other length. */
+#define TFW_ELE_E_NONCE 19
+
+/* The device attestation message's id and layout. RM00284 section 3.12 gives
+ * the call, its nonce and the fields it reports, not the message: no
+ * document this project holds names the id, where the session, the nonce and
+ * the report buffer sit, or the report's size and layout (architecture
+ * question 17), so the caller passes them (board_profile.h, all zero until a
+ * source names them). Words are indices into the request, the header being
+ * word 0. The nonce takes its words from `w_nonce` on, byte 0 in bits 7:0 of
+ * the first, the order the M7's memory holds it; that order is open with the
+ * rest of the layout. `w_session` 0 is a message that carries no session. A
+ * request longer than four words ends in the CRC word, as every other. */
+struct tfw_ele_attest_layout {
+    uint32_t command;      /* the message id; 0 is unknown */
+    uint8_t  cmd_words;    /* the request's size in words, the header counted */
+    uint8_t  rsp_words;    /* the response's */
+    uint8_t  w_session;    /* the session handle's word; 0, none */
+    uint8_t  w_nonce;      /* the nonce's first word */
+    uint8_t  w_addr_hi;    /* the report buffer's address, bits 63:32 */
+    uint8_t  w_addr_lo;    /* bits 31:0 */
+    uint8_t  w_size;       /* the report buffer's size in bytes */
+    uint16_t report_len;   /* the report's size in bytes; 0 is unknown */
+};
+
+/* The device attestation request `l` lays out: on the session `session`,
+ * under the nonce `nonce` of `nonce_len` bytes, the report written to the
+ * buffer at `buf_addr`, `l->report_len` bytes. 0; TFW_ELE_E_NONCE, unbuilt,
+ * for a nonce other than 4 or 16 bytes; TFW_ELE_E_LAYOUT, unbuilt, when the
+ * layout's id or report size is 0, its sizes exceed TFW_ELE_MSG_WORDS or are
+ * under two words, or a field's word is the header or past the request (or
+ * the CRC word). */
+int32_t tfw_ele_dev_attest_cmd(struct tfw_ele_msg *m, const struct tfw_ele_attest_layout *l,
+                               uint32_t session, const uint8_t *nonce, uint32_t nonce_len,
+                               uint64_t buf_addr);
+
+/* Ask the enclave for its device attestation into the buffer at `buf_addr`,
+ * as the enclave sees it, of `buf_len` bytes. Refused unsent: a layout that
+ * carries the session with session 0, TFW_ELE_E_SESSION, as the library
+ * refuses it; a buffer shorter than `l->report_len`, TFW_ELE_E_BUFFER; what
+ * tfw_ele_dev_attest_cmd refuses. The enclave's failure with the
+ * unknown-handle rating is TFW_ELE_E_SESSION; every other refusal, a timeout
+ * among them, is tfw_ele_call's.
+ *
+ * The report is not verified here: its signing key and certificate chain are
+ * open (architecture question 17), and appraising it is go-xkms's. */
+int32_t tfw_ele_dev_attest(const struct tfw_ele_chan *c, const struct tfw_ele_attest_layout *l,
+                           uint32_t session, const uint8_t *nonce, uint32_t nonce_len,
+                           uint64_t buf_addr, uint32_t buf_len, uint32_t *status);
+
 #endif /* TFW_CM_IMX95_ELE_MU_H */

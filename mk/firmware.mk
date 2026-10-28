@@ -159,7 +159,8 @@ endif
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c \
-                  $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c) $(ARCH_HAL_OPTIONAL)
+                  $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
+                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -559,7 +560,7 @@ ifeq ($(HSM)$(CRYPTO),1soft)
 HSM_SRCS := src/core/suit.c src/core/suit_integrated.c src/core/hsm_payload.c \
             src/core/hsm_engine.c src/core/hsm_cmd.c src/core/hsm_loop.c \
             src/crypto/soft/verify_p256.c src/third_party/micro-ecc/uECC.c \
-            $(wildcard $(HAL_SOC_DIR)/hsm_port.c)
+            $(wildcard $(HAL_SOC_DIR)/hsm_port.c) $(wildcard $(HAL_SOC_DIR)/hsm_intake.c)
 HSM_DEFS := -DTFW_FEATURE_HSM=1
 $(FW_DIR)/src/crypto/soft/provider.o: FW_CFLAGS += -Dtfw_crypto_verify_operator=tfw_crypto_soft_verify_refused
 $(FW_DIR)/src/crypto/soft/verify_p256.o: FW_CFLAGS += -Isrc/third_party/micro-ecc

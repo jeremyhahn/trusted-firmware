@@ -598,3 +598,139 @@ int32_t tfw_ele_key_delete(const struct tfw_ele_chan *c, const struct tfw_ele_de
     }
     return rc;
 }
+
+/* The last word a field may take in a message of `words`: the CRC word is not
+ * one. */
+static uint32_t last_field(uint32_t words)
+{
+    return (words > TFW_ELE_WORDS_WITHOUT_CRC) ? words - 2u : words - 1u;
+}
+
+int32_t tfw_ele_get_event_cmd(struct tfw_ele_msg *m, const struct tfw_ele_event_layout *l,
+                              uint32_t session)
+{
+    if (l->command == 0u || l->cmd_words < 2u || l->cmd_words > TFW_ELE_MSG_WORDS
+        || l->rsp_words < 3u || l->rsp_words > TFW_ELE_MSG_WORDS
+        || l->w_session == 0u || l->w_session > last_field(l->cmd_words)
+        || l->w_count < 2u || l->w_first < 2u || l->w_first == l->w_count
+        || l->w_count > last_field(l->rsp_words) || l->w_first > last_field(l->rsp_words)) {
+        return TFW_ELE_E_LAYOUT;
+    }
+    msg_start(m, l->command, l->cmd_words);
+    m->w[l->w_session] = session;
+    if (l->cmd_words > TFW_ELE_WORDS_WITHOUT_CRC) {
+        msg_crc(m, l->cmd_words);
+    }
+    return 0;
+}
+
+int32_t tfw_ele_get_event(const struct tfw_ele_chan *c, const struct tfw_ele_event_layout *l,
+                          uint32_t session, uint32_t *ev, uint32_t max, uint32_t *n,
+                          uint32_t *status)
+{
+    struct tfw_ele_msg cmd, rsp;
+    uint32_t word = 0u;
+    uint32_t *const sp = (status != NULL) ? status : &word;
+    uint32_t count, room, k;
+    int32_t rc;
+
+    *n = 0u;
+    if (session == 0u) {
+        return TFW_ELE_E_SESSION;
+    }
+    rc = tfw_ele_get_event_cmd(&cmd, l, session);
+    if (rc != 0) {
+        return rc;
+    }
+    rc = tfw_ele_call(c, &cmd, l->rsp_words, &rsp, sp);
+    if (rc == TFW_ELE_E_STATUS && TFW_ELE_RATING(*sp) == TFW_ELE_RATING_UNKNOWN_HANDLE) {
+        return TFW_ELE_E_SESSION;
+    }
+    if (rc != 0) {
+        return rc;
+    }
+    /* A count past the response, the cap or the caller's room is cut to them,
+     * never read past: the count word and the CRC word are not events. */
+    count = rsp.w[l->w_count];
+    room  = last_field(l->rsp_words) + 1u - l->w_first;
+    if (l->w_count > l->w_first && (uint32_t)l->w_count - l->w_first < room) {
+        room = (uint32_t)l->w_count - l->w_first;
+    }
+    if (count > room) {
+        count = room;
+    }
+    if (count > TFW_ELE_EVENTS_MAX) {
+        count = TFW_ELE_EVENTS_MAX;
+    }
+    if (count > max) {
+        count = max;
+    }
+    for (k = 0u; k < count; k++) {
+        ev[k] = rsp.w[l->w_first + k];
+    }
+    *n = count;
+    return 0;
+}
+
+int32_t tfw_ele_dev_attest_cmd(struct tfw_ele_msg *m, const struct tfw_ele_attest_layout *l,
+                               uint32_t session, const uint8_t *nonce, uint32_t nonce_len,
+                               uint64_t buf_addr)
+{
+    /* The last word a field may take: the CRC word is not one. */
+    uint32_t last = (l->cmd_words > TFW_ELE_WORDS_WITHOUT_CRC) ? l->cmd_words - 2u
+                                                                : l->cmd_words - 1u;
+    uint32_t nonce_last = (uint32_t)l->w_nonce + (nonce_len + 3u) / 4u - 1u;
+    uint32_t i;
+
+    if (nonce == NULL
+        || (nonce_len != TFW_ELE_ATTEST_NONCE_SHORT && nonce_len != TFW_ELE_ATTEST_NONCE_LONG)) {
+        return TFW_ELE_E_NONCE;
+    }
+    if (l->command == 0u || l->report_len == 0u || l->cmd_words < 2u
+        || l->cmd_words > TFW_ELE_MSG_WORDS || l->rsp_words < 2u
+        || l->rsp_words > TFW_ELE_MSG_WORDS || l->w_session > last || l->w_nonce == 0u
+        || nonce_last > last || l->w_addr_hi == 0u || l->w_addr_hi > last
+        || l->w_addr_lo == 0u || l->w_addr_lo > last || l->w_size == 0u || l->w_size > last) {
+        return TFW_ELE_E_LAYOUT;
+    }
+    msg_start(m, l->command, l->cmd_words);
+    if (l->w_session != 0u) {
+        m->w[l->w_session] = session;
+    }
+    for (i = 0u; i < nonce_len; i++) {
+        m->w[l->w_nonce + i / 4u] |= (uint32_t)nonce[i] << (8u * (i % 4u));
+    }
+    m->w[l->w_addr_hi] = (uint32_t)(buf_addr >> 32);
+    m->w[l->w_addr_lo] = (uint32_t)(buf_addr & 0xFFFFFFFFu);
+    m->w[l->w_size]    = l->report_len;
+    if (l->cmd_words > TFW_ELE_WORDS_WITHOUT_CRC) {
+        msg_crc(m, l->cmd_words);
+    }
+    return 0;
+}
+
+int32_t tfw_ele_dev_attest(const struct tfw_ele_chan *c, const struct tfw_ele_attest_layout *l,
+                           uint32_t session, const uint8_t *nonce, uint32_t nonce_len,
+                           uint64_t buf_addr, uint32_t buf_len, uint32_t *status)
+{
+    struct tfw_ele_msg cmd, rsp;
+    uint32_t word = 0u;
+    uint32_t *const sp = (status != NULL) ? status : &word;
+    int32_t rc;
+
+    if (l->w_session != 0u && session == 0u) {
+        return TFW_ELE_E_SESSION;
+    }
+    rc = tfw_ele_dev_attest_cmd(&cmd, l, session, nonce, nonce_len, buf_addr);
+    if (rc != 0) {
+        return rc;
+    }
+    if (buf_len < l->report_len) {
+        return TFW_ELE_E_BUFFER;
+    }
+    rc = tfw_ele_call(c, &cmd, l->rsp_words, &rsp, sp);
+    if (rc == TFW_ELE_E_STATUS && TFW_ELE_RATING(*sp) == TFW_ELE_RATING_UNKNOWN_HANDLE) {
+        rc = TFW_ELE_E_SESSION;
+    }
+    return rc;
+}

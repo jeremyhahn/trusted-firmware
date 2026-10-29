@@ -19,7 +19,7 @@
 # community AVR image. Pinned by the digest of the
 # multi-architecture index; the tag is recorded beside it for a reader.
 BASE_IMAGE=debian:trixie-slim
-BASE_DIGEST=sha256:89c1ea91e897f0fe0a3731595330bc45b8bdef4047464a07116f891a94054b31
+BASE_DIGEST=sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
 
 # Go, for sdk/go, xkms/ and test/integration/esp32. At least 1.27.1 because
 # xkms/ requires go-xkms, whose go.mod says `go 1.27.1`; 1.27.3 because

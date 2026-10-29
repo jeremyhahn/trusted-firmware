@@ -127,8 +127,8 @@ require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
-	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect; held: v0.3.24 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
+	github.com/googleapis/gax-go/v2 v2.26.2 // indirect; held: v2.27.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect
 	github.com/gtank/ristretto255 v0.2.0 // indirect

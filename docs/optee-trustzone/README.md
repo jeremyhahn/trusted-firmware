@@ -17,9 +17,13 @@
 > (`optee/ta/`, `GET_INFO` and `GET_RANDOM`), `tfw-ta-check` (`optee/check/`),
 > `optee/testdata/vectors.h` and `make integration-test-optee`. The TA's
 > dispatch and the check pass `test_optee_ta` on the host; the guest run is not yet done.
-> The CI job (slice 4) is written: `OP-TEE [optee-qemu, integration-test-optee]`
-> in `.github/workflows/ci.yml`, in the `optee` image, with `OPTEE_CACHE`
-> cached by the pin (open question 6 as proposed). The guest run is proven by
+> The CI jobs (slice 4) are written in `.github/workflows/ci.yml`, in the
+> `optee` image, with `OPTEE_CACHE` cached by the pin (open question 6 as
+> proposed): `OP-TEE stack [optee-tools, optee-qemu]` builds and saves the
+> stack when the cache misses, and `OP-TEE [optee-qemu, integration-test-optee]`,
+> after it, only restores the stack and runs the tests. Both OP-TEE jobs run on
+> the `go-warm` runner label, because each runner keeps its own cache, so the
+> test job runs where the stack job saved it. The guest run is proven by
 > its first green CI run, not yet run.
 >
 > This page is the row's first deliverable: what is

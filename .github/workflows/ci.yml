@@ -471,10 +471,11 @@ jobs:
           echo "esp32=$esp32" >> "$GITHUB_OUTPUT"
 
       # CUSTOMIZE (trusted-firmware, #253 slice 4; modelled on the ESP32 step
-      # above, rulings 218(9), 219(5)): the OP-TEE job (the pinned stack built
-      # or restored, then xtest and tfw-ta-check in the guest) runs on a PR
-      # only when the PR changes a file it tests, or the PR is labelled
-      # ci:full; otherwise a push to main and the nightly tier run it.
+      # above, rulings 218(9), 219(5)): the OP-TEE jobs (optee-stack builds or
+      # finds the pinned stack, then optee runs xtest and tfw-ta-check in the
+      # guest) run on a PR only when the PR changes a file they test, or the
+      # PR is labelled ci:full; otherwise a push to main and the nightly tier
+      # run them.
       # OPTEE_PATHS: the TA and the check (optee/), the pin and the targets
       # (mk/optee.mk), the design page (docs/optee-trustzone/), the guest
       # runner (scripts/optee_run.py), the optee image's inputs (mk/docker.mk
@@ -1392,28 +1393,27 @@ jobs:
           rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
-  optee:
-    # CUSTOMIZE (trusted-firmware, #253 slice 4): the pinned OP-TEE stack on
-    # QEMU virt needs the optee image alone and, from an empty cache, is the
-    # longest job in the run, so it runs beside everything else. It builds
-    # or reuses its own image, as the ESP32 job does, and a PR that changes
-    # only docs/optee-trustzone/ still runs it.
-    name: OP-TEE [optee-qemu, integration-test-optee]
-    # CUSTOMIZE (trusted-firmware, #253; modelled on the ESP32 job, rulings
-    # 218(9), 219(5)): on a PR only when the changes job saw an OP-TEE path
-    # change or the PR is labelled ci:full; otherwise a push to main and the
-    # nightly tier (schedule, workflow_dispatch) run it. It needs and gates
-    # on the image job exactly as the ESP32 job does: a job that needed only
-    # the changes job and gated on needs.changes.result == 'success' (run
-    # 69905) or needs.changes.outputs.optee != '' (run 69954) was skipped
-    # unstarted on a PR, while every job that ran there with a needs term in
-    # its if also needed the image job and gated on its built output.
+  optee-stack:
+    # CUSTOMIZE (trusted-firmware, #253, ruling 250 (a); modelled on the
+    # esp32-build job ahead of esp32-qemu-test): the OP-TEE stack (the
+    # fetched release, its toolchains and the built stack) is built and
+    # cached here, ahead of the optee job, so the test job always starts
+    # from a warm cache. On a hit this job only looks the key up and passes
+    # in minutes; on a miss it builds the stack cold and actions/cache's post
+    # step saves it. It runs under the optee job's own needs and if.
+    name: OP-TEE stack [optee-tools, optee-qemu]
     needs: [changes, image]
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    # CUSTOMIZE: docs/optee-trustzone/README.md: from an empty OPTEE_CACHE the
-    # stack built in 19 min on 24 threads and xtest ran in 320 s. A CI slot
-    # has fewer CPUs; the first run from an empty cache sets the real figure.
+    # CUSTOMIZE (trusted-firmware, run 71052): the stack job saved `optee-4.11.0`
+    # on a runner labelled `go-warm`, and the optee job, on a `bigdisk` runner
+    # without it, failed `Failed to restore cache entry`. Each runner has its
+    # own cache server, so both jobs run on `go-warm`.
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'go-warm' }}
+    # CUSTOMIZE: run 70765, the one job built cold: setup, image and restore
+    # miss 2 min, optee-tools 5, optee-qemu 133, the copy out of the
+    # container 13 and the actions/cache save over 2: 2 + 5 + 133 + 13 + 2 =
+    # 155. Its tests (26 more) now run in the optee job, so the cold build
+    # fits under 180, the runner's own 3-hour job limit (ruling 250 (a)).
     timeout-minutes: 180
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -1434,6 +1434,125 @@ jobs:
             case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
           done
 
+      # CUSTOMIZE (trusted-firmware, #253, the page's open question 6 as
+      # proposed): OPTEE_CACHE, the fetched release, its toolchains and the
+      # built stack, is cached by the pin in mk/optee.mk (`make -s
+      # optee-pin`, the release tag), so a new pin misses and rebuilds.
+      - name: The OP-TEE pin
+        id: pin
+        run: echo "release=$(make -s optee-pin)" >> "$GITHUB_OUTPUT"
+
+      # lookup-only: a hit downloads nothing, since the optee job restores
+      # the stack itself; a miss leaves the post step to save the build.
+      - name: Look up the OP-TEE stack
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/optee-cache
+          key: optee-${{ steps.pin.outputs.release }}
+          lookup-only: true
+
+      - name: Log in to the forge registry
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        run: scripts/ci-registry-login.sh
+
+      - name: Reuse the optee image
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        run: |
+          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
+            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
+            done )
+          make docker-image-optee MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          echo "OPTEE_IMAGE=$(make -s optee-image)" >> "$GITHUB_ENV"
+
+      # On a miss only: one container builds the stack into an empty cache
+      # dir, which IN_IMAGE_CACHE_SAVE copies back out (in-toolchain-image.sh)
+      # for the post step to save. The network is for the fetch.
+      - name: make optee-tools, optee-qemu (optee image)
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        env:
+          IN_IMAGE_NETWORK: bridge
+          IN_IMAGE_CACHE: ${{ runner.temp }}/optee-cache:/var/cache/tfw-optee
+          IN_IMAGE_CACHE_SAVE: '1'
+        run: scripts/in-toolchain-image.sh "$OPTEE_IMAGE" "make optee-tools OPTEE_CACHE=/var/cache/tfw-optee && make optee-qemu OPTEE_CACHE=/var/cache/tfw-optee"
+
+      - name: Tear down
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/gomodauth.env"
+          rm -rf "$RUNNER_TEMP/docker-config"
+
+  optee:
+    # CUSTOMIZE (trusted-firmware, #253 slice 4): the pinned OP-TEE stack on
+    # QEMU virt needs the optee image alone, so it runs beside everything
+    # else. It builds or reuses its own image, as the ESP32 job does, and a
+    # PR that changes only docs/optee-trustzone/ still runs it. Ruling 250
+    # (a): the optee-stack job ahead of it builds and caches the stack; this
+    # job only restores it and never builds it cold.
+    name: OP-TEE [optee-qemu, integration-test-optee]
+    # CUSTOMIZE (trusted-firmware, #253; modelled on the ESP32 job, rulings
+    # 218(9), 219(5)): on a PR only when the changes job saw an OP-TEE path
+    # change or the PR is labelled ci:full; otherwise a push to main and the
+    # nightly tier (schedule, workflow_dispatch) run it. It needs and gates
+    # on the image job exactly as the ESP32 job does: a job that needed only
+    # the changes job and gated on needs.changes.result == 'success' (run
+    # 69905) or needs.changes.outputs.optee != '' (run 69954) was skipped
+    # unstarted on a PR, while every job that ran there with a needs term in
+    # its if also needed the image job and gated on its built output.
+    # Ruling 250 (a): it also needs optee-stack, which saves the cache it
+    # restores.
+    needs: [changes, image, optee-stack]
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) }}   # v1.26
+    # CUSTOMIZE (trusted-firmware, run 71052): the stack job saved `optee-4.11.0`
+    # on a runner labelled `go-warm`, and this job, on a `bigdisk` runner
+    # without it, failed `Failed to restore cache entry`. Each runner has its
+    # own cache server, so both jobs run on `go-warm`.
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'go-warm' }}
+    # CUSTOMIZE: run 70765 on a cold cache: setup and image 2 min,
+    # integration-test-optee 26. Warm, the restore and the copy into the
+    # container add about what the save (over 2) and the copy out (13) took,
+    # and optee-qemu rebuilds only the TA: 2 + 2 + 13 + 26 = 43 warm, so
+    # about twice that, 90.
+    timeout-minutes: 90
+    env:
+      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
+      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
+      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
+      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # v1.21.1: the image job's masking step, first, as in every job.
+      - name: Mask the forge credentials
+        run: |
+          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
+            val=${!v:-}
+            [ -n "$val" ] || continue
+            echo "::add-mask::$val"
+            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
+          done
+
+      # CUSTOMIZE (trusted-firmware, #253, the page's open question 6 as
+      # proposed): OPTEE_CACHE is cached by the pin in mk/optee.mk (`make -s
+      # optee-pin`, the release tag); the optee-stack job saves it.
+      - name: The OP-TEE pin
+        id: pin
+        run: echo "release=$(make -s optee-pin)" >> "$GITHUB_OUTPUT"
+
+      # Ruling 250 (a): restore only, never save, and never build the stack
+      # cold here. A miss means optee-stack did not save the key; the step
+      # fails at once and its message names the key.
+      - name: Restore the OP-TEE stack
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/optee-cache
+          key: optee-${{ steps.pin.outputs.release }}
+          fail-on-cache-miss: true
+
       - name: Log in to the forge registry
         run: scripts/ci-registry-login.sh
 
@@ -1447,33 +1566,18 @@ jobs:
           rm -f "$RUNNER_TEMP/gomodauth.env"
           echo "OPTEE_IMAGE=$(make -s optee-image)" >> "$GITHUB_ENV"
 
-      # CUSTOMIZE (trusted-firmware, #253, the page's open question 6 as
-      # proposed): OPTEE_CACHE, the fetched release, its toolchains and the
-      # built stack, is cached by the pin in mk/optee.mk (`make -s
-      # optee-pin`, the release tag), so a new pin misses and rebuilds.
-      - name: The OP-TEE pin
-        id: pin
-        run: echo "release=$(make -s optee-pin)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the OP-TEE stack
-        id: cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/optee-cache
-          key: optee-${{ steps.pin.outputs.release }}
-
-      # One container, so the cache is copied in once and out once
-      # (IN_IMAGE_CACHE in in-toolchain-image.sh), and back only when the
-      # restore missed. optee-qemu runs every time: integration-test-optee
-      # builds only when the cache holds no build, and a restored build holds
-      # the TA of the commit that saved it, not this one's. The network is for
-      # the fetch on a miss.
-      - name: make optee-tools, optee-qemu, integration-test-optee (optee image)
+      # One container, so the cache is copied in once (IN_IMAGE_CACHE in
+      # in-toolchain-image.sh) and never back out. optee-qemu runs every time:
+      # integration-test-optee builds only when the cache holds no build, and
+      # a restored build holds the TA of the commit that saved it, not this
+      # one's. The network is kept for any fetch optee-qemu's prerequisites
+      # make.
+      - name: make optee-qemu, integration-test-optee (optee image)
         env:
           IN_IMAGE_NETWORK: bridge
           IN_IMAGE_CACHE: ${{ runner.temp }}/optee-cache:/var/cache/tfw-optee
-          IN_IMAGE_CACHE_SAVE: ${{ steps.cache.outputs.cache-hit != 'true' && '1' || '0' }}
-        run: scripts/in-toolchain-image.sh "$OPTEE_IMAGE" "make optee-tools OPTEE_CACHE=/var/cache/tfw-optee && make optee-qemu OPTEE_CACHE=/var/cache/tfw-optee && make integration-test-optee OPTEE_CACHE=/var/cache/tfw-optee"
+          IN_IMAGE_CACHE_SAVE: '0'
+        run: scripts/in-toolchain-image.sh "$OPTEE_IMAGE" "make optee-qemu OPTEE_CACHE=/var/cache/tfw-optee && make integration-test-optee OPTEE_CACHE=/var/cache/tfw-optee"
 
       - name: Tear down
         if: always()
@@ -1869,7 +1973,7 @@ jobs:
     if: always()
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [changes, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee, integration, soak, arch-gates]
+    needs: [changes, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee-stack, optee, integration, soak, arch-gates]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -1894,7 +1998,7 @@ jobs:
           ESP32_CHANGED: ${{ needs.changes.outputs.esp32 }} # CUSTOMIZE
           ESP32_PR: ${{ github.event_name == 'pull_request' }} # CUSTOMIZE: ruling 219(5)
           # CUSTOMIZE (trusted-firmware, #253, as for esp32): an `optee` job
-          # may skip only on a PR that changed no OP-TEE path and is not
+          # (optee-stack and optee, under one if since ruling 250 (a)) may skip only on a PR that changed no OP-TEE path and is not
           # labelled ci:full (the `changes` job's optee output). On a push,
           # schedule or workflow_dispatch it must run, and a skipped or
           # failed one fails the gate.
@@ -1943,6 +2047,7 @@ jobs:
           check security    "${{ needs.security.result }}" docs
           check esp32-build "${{ needs.esp32-build.result }}" esp32 # CUSTOMIZE: ruling 218(9), 220(j)
           check esp32-qemu-test "${{ needs.esp32-qemu-test.result }}" esp32-qemu # CUSTOMIZE: ruling 220(j)
+          check optee-stack "${{ needs.optee-stack.result }}" optee # CUSTOMIZE: #253, ruling 250 (a)
           check optee       "${{ needs.optee.result }}" optee # CUSTOMIZE: #253
           check integration "${{ needs.integration.result }}" full
           check soak        "${{ needs.soak.result }}" nightly

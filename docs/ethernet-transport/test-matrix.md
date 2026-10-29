@@ -838,6 +838,34 @@ It is 72 bytes larger than [efa1bac's](#the-bench-mega-with-its-ethernet-shield-
 | `AnalogReadReturnsRawCounts`, `PWM`, `SecureElementAddressIsRefused`, `OneWireAndPulseAreReachable`, `CapsReportsTheAlgorithmsItCanPerform` | Pass |
 | `PinInfo`, `PinInfoRefusesAPinTheBoardLacks`, `I2CConfigAppliesAClockWithinRange`, `SPIConfigAppliesModeClkdivAndBitOrder` | Pass |
 
+The record's files, as kept beside the bench run: 23 files, each with its size in bytes and its SHA-256. The binaries themselves are not in the repository.
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `factory/app-used.bin` | 19208 | `2783b1c6abbc26d1fe05635415df423a5c3278b00fcaf5932ae665065a3ec94e` |
+| `factory/avrdude-read.log` | 298 | `9cb0b7657b3bd3f884a8eaac9c8ce5c476aba6c5cd378bb51cfb25d3d75bc19c` |
+| `factory/eeprom-000-0ff.bin` | 256 | `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4` |
+| `factory/flash.bin` | 262144 | `de2df314b01137a1c8d973104374f42f8f198f26422e5326eaccfefff0f234ca` |
+| `hwtest/hw-test.log` | 3352 | `362c92d9f89d678cff400b9aa73309dedfcca9c6909467d9066405e201bc50f0` |
+| `image/caps.txt` | 231 | `11e4667ba2c499e9ad1f7cdb08009d9491f45c9894e7c3f6e9368f5f88f397e0` |
+| `image/eeprom-after-flash.bin` | 256 | `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4` |
+| `image/flash.log` | 3465 | `e186e13781a73f6e2a5330704abb1144047e8216189c844af2bbfb36e6adae0f` |
+| `image/image.bin` | 19280 | `ae59be49624e0ea571979de83e3a18265a53cbb89c8046f175831cb123c0e584` |
+| `image/trusted-firmware.elf` | 55404 | `7a07c45cac75ef8a6dad270e8e60002249b83f7a1c857e569bb2cb44c18e049a` |
+| `image/trusted-firmware.hex` | 54238 | `5d0b27be491663a043eb9bd3cf890fb12afc04154e7a6a8d03ed3499a96ab7e7` |
+| `ota/padded.bin` | 19456 | `8d00de325301140ba140e93bfa62f87363fcb57c53975a0b1fc7da3f6a75f95a` |
+| `protected/eeprom-after-rows.bin` | 256 | `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4` |
+| `protected/rows.txt` | 541 | `0937053173fcc161b2b6c26ab1002a9f9aea5a63d7b49d3ed0c51ad77715c90b` |
+| `restore2/app-padded.bin` | 19456 | `05106be13c268d0a4700be341784c3d5656c6d0c5cc84d339592614c618f33ed` |
+| `restore2/eeprom-after-restore.bin` | 256 | `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4` |
+| `restore2/flash-after.bin` | 262144 | `de2df314b01137a1c8d973104374f42f8f198f26422e5326eaccfefff0f234ca` |
+| `restore2/read.log` | 304 | `41def68c1c82293f45a0f36bf24b099f5f1e8c12411f9d33b2d29ad9b46fc3f0` |
+| `restore2/write.log` | 3267 | `f8298296ce46d9eb3379923076ea13066269b30934c1e17f6958f11aace031be` |
+| `restore/eeprom-after-restore.bin` | 256 | `ada8b459a9b2e815ee599450ae4e31c54d08c8c99133196c5bcc8a1d580897e4` |
+| `restore/flash-after.bin` | 262144 | `8ed9ad5b497a8a3572c1f9eb291f611bf6d306184a1d4dda17dfac91394b33b9` |
+| `restore/read.log` | 304 | `a16f40a0fde1ee9b3b3e58e7fe54245c57b41c25223ae069591a482dcb164920` |
+| `restore/write.log` | 3287 | `9dd42e87e48b73b44e1eaca3dc96f806b354a9cefa4019355a69008c76cbc531` |
+
 ## The Mega on main 0cae6a2, 2026-10-20
 
 The bench Mega with its Ethernet shield (W5100), over serial on `/dev/ttyACM0`

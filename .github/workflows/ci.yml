@@ -1,4 +1,21 @@
-# ci-template: v1.28.0 (customized)
+# ci-template: v1.29.3 (customized)
+# v1.29.2 (Company Agent ruling 239(8), 2026-10-28): comments only; no job,
+# gate or tier changes. A CUSTOMIZE job gated on a changes output (a path-gated
+# suite) needs the image job too and tests an output of the image job in its
+# `if:`. A repository needs no adoption PR.
+# v1.29.1 (Company Agent ruling 226(15), 108 repair, 2026-10-27): the
+# lint-gates job runs `make lint-gates` without `-k`, so the first failing gate
+# ends the step and reports at once; the gates after it run on the next push.
+# v1.29.0 (Company Agent ruling 220(5) and 221(4), 2026-10-27; handbook #474):
+# the Alpine package index checksum joins the integration image's tag hash,
+# through a "Read the Alpine package index" step (scripts/apk-index-sum.sh)
+# before "Name the integration image". NOT ADOPTED HERE (CUSTOMIZE): this
+# repository's `integration` stage is `FROM base`, a Debian image, so there is
+# no Alpine index in the integration image to hash, and the script has no
+# global ARG default for the GO_IMAGE of the tools and modules stages (it
+# would fail the step and need APK_BASE_IMAGES, which is a value to decide).
+# The step, the script, the Makefile's APK_INDEX_SUM and the Dockerfile's ARG
+# and `apk upgrade --no-cache` are left out together until the owner rules.
 # v1.28.0 (Company Agent ruling 219(3), 2026-10-26; adopted here under ruling
 # 220(3)): `make deps-check` joins the PR tier as a lint-class gate. Its step
 # runs on every event, as `make lint` does, so a module behind its dependency
@@ -349,6 +366,9 @@ on:
                                         # created (see v1.3 correction above)
   # v1.23: main's full tier nightly as well as after every merge. Scheduled
   # runs are on the default branch. CUSTOMIZE: the hour, off nightly.yml's.
+  # v1.29.3: one schedule run per repository (the concurrency group below),
+  # and its bigdisk jobs skip while a main push run is in flight (the
+  # schedule-guard job).
   schedule:
     - cron: '0 4 * * *'
 
@@ -361,7 +381,7 @@ on:
 # reaches cancel-in-progress: Gitea 1.27.1 never released a main run once it
 # was an expression (Company Agent m695).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && format('main-{0}-{1}', github.event_name, github.sha) || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && format('schedule-{0}', github.repository) || github.ref == 'refs/heads/main' && format('main-{0}-{1}', github.event_name, github.sha) || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -499,6 +519,81 @@ jobs:
           echo "OP-TEE paths changed or ci:full: $optee"
           echo "optee=$optee" >> "$GITHUB_OUTPUT"
 
+  # v1.29.3 (Company Agent ruling 255(10)/(11)(c)): one nightly per
+  # repository, and none while main is busy. On a schedule run only, this job
+  # asks the API whether this workflow has a push run on main in progress or
+  # waiting, and sets `verdict`: `run` (none, or not a schedule run), `busy`
+  # (one is) or `unreadable` (no count came back). On a schedule run every
+  # bigdisk job runs only on `run`; CI Gate skips on `busy` and fails on
+  # `unreadable`. The job runs on every event, not on schedule alone, so no
+  # bigdisk job's `needs` meets a skipped job off schedule; off schedule it
+  # makes no call. It checks nothing out, so no repository code runs beside
+  # the tokens.
+  schedule-guard:
+    name: Schedule guard
+    runs-on: ubuntu-latest
+    # v1.26: a draft PR runs no CI (as the changes job).
+    if: ${{ !github.event.pull_request.draft }}
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      verdict: ${{ steps.guard.outputs.verdict }}
+    steps:
+      - name: Is a main push run of this workflow in flight?
+        id: guard
+        env:
+          EVENT: ${{ github.event_name }}
+          SERVER: ${{ github.server_url }}
+          # This workflow's own file: the route counts its runs only.
+          RUNS_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}/actions/workflows/ci.yml/runs
+          JOB_TOKEN: ${{ github.token }}
+          BOT: ${{ github.event_name == 'schedule' && secrets.AGENT_TOKEN || '' }}
+        run: |
+          set -uo pipefail
+          # runs <token>: sets N to the number of this workflow's push runs
+          # on main in progress or waiting. It returns 1, with the answer in
+          # CODE, when a reply is not 200 with a count. The token reaches
+          # curl as a header from a file descriptor, never on its command line.
+          # waiting is read before in_progress: a run only moves waiting, then
+          # in_progress, then done, so one waiting at the first query is
+          # still waiting, in progress or done at the second, and counted or
+          # finished. The other order lets a run start between the two
+          # queries and be counted by neither.
+          runs() {
+            local st n
+            N=0
+            for st in waiting in_progress; do
+              CODE=$(curl -sS --max-time 30 -o "$RUNNER_TEMP/runs.json" -w '%{http_code}' \
+                -H @<(printf 'Authorization: token %s\n' "$1") \
+                "$RUNS_API?event=push&branch=main&status=$st&limit=1") || CODE="curl exit $?"
+              [ "$CODE" = 200 ] || return 1
+              n=$(jq -er '.total_count | numbers' "$RUNNER_TEMP/runs.json") || { CODE="200 with no count"; return 1; }
+              echo "$st: $n"
+              N=$((N + n))
+            done
+          }
+          verdict=run N=0
+          if [ "$EVENT" != schedule ]; then
+            echo "not a schedule run: no check"
+          elif [ "$SERVER" = https://github.com ]; then
+            echo "the github.com mirror has no bigdisk runner: no check"
+          elif [ -n "$JOB_TOKEN" ] && runs "$JOB_TOKEN"; then
+            echo "read with the job token"
+          elif job="${CODE:-no job token}"; [ -n "$BOT" ] && runs "$BOT"; then
+            echo "read with AGENT_TOKEN; the job token got: $job"
+          else
+            bot="not set"; [ -z "$BOT" ] || bot="$CODE"
+            verdict=unreadable
+            echo "::error::the Actions API gave no count (job token: $job; AGENT_TOKEN: $bot), so every bigdisk job skips and CI Gate fails"
+          fi
+          if [ "$verdict" = run ] && [ "$N" -gt 0 ]; then
+            verdict=busy
+            echo "::notice::$N push run(s) of this workflow on main in flight: this schedule run skips its bigdisk jobs, and CI Gate posts skipped"
+          fi
+          echo "verdict: $verdict"
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+
   # v1.21: every stage runs in the project's own devcontainer image and no
   # other (ci-standard.md §2, devcontainer.md §7). One image job (Company Agent
   # m601 (a)) builds the images once from build/docker/devcontainer/Dockerfile
@@ -545,8 +640,9 @@ jobs:
     # stages are the legs below, each `needs: image`, run side by side.
     name: Devcontainer image [lint, build, trivy image]
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    needs: changes             # v1.24 (CA m749, m751 (a))
-    if: ${{ !github.event.pull_request.draft }}   # v1.26
+    needs: [changes, schedule-guard]   # v1.24 (CA m749, m751 (a)); v1.29.3
+    # v1.29.3: on a schedule run, only on the schedule guard's `run`.
+    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     # CUSTOMIZE: give the stages honest headroom. A cold BuildKit cache builds
     # the three images in 55 min (run 55218); a warm one reuses them. Then lint
     # and build ~2, the module and cross-arch loops ~6 and trivy image ~5 (run
@@ -984,8 +1080,8 @@ jobs:
   # scripts-test, so it is the test stage.
   unit-shard-1:
     name: Unit [make test-shard-1]
-    needs: image
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
+    needs: [image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE (ruling 218(9), the shard rebalance): host-test, board-sweep,
     # test-asan-boot: about 23 min green, 30 at quota (estimate, see
@@ -1035,8 +1131,8 @@ jobs:
 
   unit-shard-2:
     name: Unit [make test-shard-2]
-    needs: image
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
+    needs: [image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE (ruling 218(9), the shard rebalance): boot-test, coverage,
     # verify-vectors, xkms-coverage, sdk-coverage, scripts-test: about 25.5
@@ -1087,8 +1183,8 @@ jobs:
 
   unit-shard-3:
     name: Unit [make test-shard-3]
-    needs: image
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
+    needs: [image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE (ruling 218(9), the shard rebalance): test-asan-host alone.
     # test-asan whole was 30.5 min green, about 47 at quota (38 in #256's
@@ -1141,8 +1237,8 @@ jobs:
     # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race against tfwsim,
     # the PR tier's only simulator run, beside the unit leg.
     name: sdk/go under -race [cross-implementation suite]
-    needs: image
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
+    needs: [image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE: 5 min on run 245908 (19:50 to 19:55); the suite's own bound
     # is 15 (-timeout=900s), and the tfwsim builds ~3. 10 + 18, plus margin.
@@ -1216,8 +1312,8 @@ jobs:
     # toolchain image alone, so it leaves the image job. deps-check runs in
     # the image job beside `make lint` from v1.28 (ruling 220(3)).
     name: Security [make security]
-    needs: image
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft }}   # v1.26
+    needs: [image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908).
     # 10 + 11, plus margin.
@@ -1284,8 +1380,8 @@ jobs:
     # (schedule, workflow_dispatch) runs it. Ruling 219(5): a push to main
     # runs it too, the full tier proving what the PR tier skipped, so a red
     # main is found at the merge, not the next night.
-    needs: [changes, image]
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.esp32 == 'true')) }}   # v1.26
+    needs: [changes, image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.esp32 == 'true')) && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE (ruling 220(j)): the 10 min before the stages that the
     # esp32-qemu-test job's sum below counts, then esp32-build (2 min 39 s in
@@ -1340,8 +1436,8 @@ jobs:
     # workflow_dispatch), never on a pull_request. It needs no output of the
     # esp32-build job: make esp32-qemu-test builds its own esp32-qemu images.
     name: ESP32 QEMU Test [esp32-qemu-test]
-    needs: [image]
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') }}
+    needs: [image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
     # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
@@ -1402,8 +1498,8 @@ jobs:
     # in minutes; on a miss it builds the stack cold and actions/cache's post
     # step saves it. It runs under the optee job's own needs and if.
     name: OP-TEE stack [optee-tools, optee-qemu]
-    needs: [changes, image]
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) }}   # v1.26
+    needs: [changes, image, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saved `optee-4.11.0`
     # on a runner labelled `go-warm`, and the optee job, on a `bigdisk` runner
     # without it, failed `Failed to restore cache entry`. Each runner has its
@@ -1503,8 +1599,8 @@ jobs:
     # its if also needed the image job and gated on its built output.
     # Ruling 250 (a): it also needs optee-stack, which saves the cache it
     # restores.
-    needs: [changes, image, optee-stack]
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) }}   # v1.26
+    needs: [changes, image, optee-stack, schedule-guard]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saved `optee-4.11.0`
     # on a runner labelled `go-warm`, and this job, on a `bigdisk` runner
     # without it, failed `Failed to restore cache entry`. Each runner has its
@@ -1597,7 +1693,10 @@ jobs:
   lint-gates:
     name: Lint Gates [toolchain image]
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
-    if: ${{ !github.event.pull_request.draft }}   # v1.26
+    needs: schedule-guard     # v1.29.3
+    # v1.26: never on a draft. v1.29.3: on a schedule run, only on the
+    # schedule guard's `run`.
+    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
     timeout-minutes: 45
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -1649,12 +1748,12 @@ jobs:
         if: ${{ !cancelled() && steps.probe.outputs.has_target == 'true' && env.TOOLCHAIN_IMAGE != '' }}
         run: scripts/trim-ci-caches.sh "$CI_STACK_PREFIX" "$TOOLCHAIN_IMAGE"
 
-      # -k reports every failing gate in one pass.
+      # v1.29.1: no -k; the first failing gate ends the step.
       - name: make lint-gates
         if: ${{ !cancelled() && steps.probe.outputs.has_target == 'true' && env.TOOLCHAIN_IMAGE != '' }}
         env:
           IN_IMAGE_NETWORK: none   # CUSTOMIZE: bridge when a gate needs the module proxy or a network
-        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make -k lint-gates GO_BUILD_TAGS='$GO_BUILD_TAGS'"
+        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make lint-gates GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
       - name: Tear down
         if: always()
@@ -1667,8 +1766,10 @@ jobs:
   # v1.23: full tier only (CI_FULL_TIER's expression); never on a plain PR.
   integration:
     name: Integration [integration image]
-    # v1.26: never on a draft PR, ci:full or not.
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')) && !github.event.pull_request.draft }}
+    # v1.26: never on a draft PR, ci:full or not. v1.29.3: on a schedule run,
+    # only on the schedule guard's `run`.
+    needs: schedule-guard
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')) && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     # CUSTOMIZE: trusted-firmware: full tier (#293; handbook sdlc.md §5a). The suite is
     # `make integration-test-host`: the real AVR images under simavr, and
@@ -1797,7 +1898,9 @@ jobs:
   # it `nightly`. It replaces nothing in batch.yml, whose soak stays a dispatch.
   soak:
     name: Soak [integration image]
-    if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !github.event.pull_request.draft }}   # v1.26
+    # v1.29.3: on a schedule run, only on the schedule guard's `run`.
+    needs: schedule-guard
+    if: ${{ ((github.event_name == 'schedule' && needs.schedule-guard.outputs.verdict == 'run') || github.event_name == 'workflow_dispatch') && !github.event.pull_request.draft }}   # v1.26
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     timeout-minutes: 90       # CUSTOMIZE: SOAK_MINUTES plus one iteration
     env:
@@ -1970,10 +2073,14 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'ci-gate' }}
-    if: always()
+    # v1.29.3: on a schedule run the schedule guard decides. `busy` skips the
+    # gate, so `CI / CI Gate (schedule)` posts `skipped` (Gitea 1.27.1 posts a
+    # skipped job as `skipped`, not `success`), never a green nightly. Every
+    # other verdict, an empty one included, runs it.
+    if: ${{ always() && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict != 'busy') }}
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [changes, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee-stack, optee, integration, soak, arch-gates]
+    needs: [changes, schedule-guard, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee-stack, optee, integration, soak, arch-gates]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -1985,6 +2092,9 @@ jobs:
           NIGHTLY: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
           # v1.26: a draft PR runs no CI, so its gate fails rather than pass on skips.
           DRAFT: ${{ github.event.pull_request.draft == true }}
+          # v1.29.3: the schedule guard's verdict on a schedule run.
+          SCHEDULE: ${{ github.event_name == 'schedule' }}
+          SCHEDULE_GUARD: ${{ needs.schedule-guard.outputs.verdict }}
           # CUSTOMIZE (trusted-firmware): a `docs` job builds or tests code, so
           # a docs-only PR (v1.24, the `changes` job) may skip it; any other
           # event or PR may not. A failed `changes` job reads as not docs-only.
@@ -2032,12 +2142,19 @@ jobs:
               *) echo "FAIL $1 ($2)"; BAD=1;;
             esac
           }
+          # v1.29.3: a schedule run reaches this step on any verdict but
+          # `busy`. Any verdict but `run` means its bigdisk jobs skipped
+          # because the guard had no count: fail closed.
+          if [ "${SCHEDULE}" = true ] && [ "${SCHEDULE_GUARD}" != run ]; then
+            echo "FAIL schedule-guard (verdict '${SCHEDULE_GUARD:-none}': the bigdisk jobs skipped because the guard could not read the API; see its log)"; BAD=1
+          fi
           # CUSTOMIZE: one line per job in needs above. A job gated to the
           # full tier by its `if:` is marked full, one gated to schedule and
           # workflow_dispatch is nightly; every other job is pr. A leg that
           # builds or tests code is docs: a docs-only PR runs lint and the arch
           # gates alone (v1.24), and any other PR fails if the leg skips.
           check changes     "${{ needs.changes.result }}" pr
+          check schedule-guard "${{ needs.schedule-guard.result }}" pr
           check image       "${{ needs.image.result }}" pr
           check lint-gates  "${{ needs.lint-gates.result }}" pr
           check unit-shard-1 "${{ needs.unit-shard-1.result }}" docs

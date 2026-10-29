@@ -34,7 +34,7 @@ require (
 	cloud.google.com/go/kms v1.35.0 // indirect
 	cloud.google.com/go/longrunning v1.3.0 // indirect
 	cloud.google.com/go/monitoring v1.31.0 // indirect
-	cloud.google.com/go/storage v1.69.0 // indirect
+	cloud.google.com/go/storage v1.69.0 // indirect; held: v1.70.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	filippo.io/bigmod v0.1.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/azure-pipeline-go v0.2.3 // indirect

@@ -4,7 +4,7 @@
 #   usage: scripts/in-toolchain-image.sh <image> <command...>
 #   e.g.   scripts/in-toolchain-image.sh go-enclave-toolchain:abc make build
 #
-# in-toolchain-template: v3 (ci-template v1.22.2). Ships beside ci.yml; copy it to
+# in-toolchain-template: v4 (ci-template v1.29.5). Ships beside ci.yml; copy it to
 # scripts/ with the workflow. From go-quicraft's scripts/in-toolchain-image.sh
 # (a141c3c), with the container prefix and uid taken from the environment.
 #
@@ -63,6 +63,15 @@
 # the user owns) before the start. IN_IMAGE_CACHE_SAVE=1 streams the container
 # dir back over the runner dir after the command, whatever its status, for
 # actions/cache to save; the job sets it only when the restore missed.
+# v4 (ci-template v1.29.4 and v1.29.5, Company Agent rulings 261(c) and
+# 262(a)): the stage takes the job slot's memory bound
+# (--memory and an equal --memory-swap from the job container's cgroup
+# memory.max, 8g with no limit, IN_IMAGE_MEMORY overrides), and GOTMPDIR
+# joins TMPDIR on /var/tmp in the container's layer (CUSTOMIZE below). A scratch directory that is missing or not writable fails
+# the stage by name. A bridge stage's GOPROXY puts DEVCACHE_GOPROXY (Athens)
+# first when the runner sets it: <DEVCACHE_GOPROXY>|https://proxy.golang.org|direct,
+# so any error falls through to the public proxy; GOPRIVATE travels with it.
+#
 set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -119,6 +128,19 @@ fi
 case $cpus in
   "" | 0 | *[!0-9]*) echo "IN_IMAGE_CPUS must be a positive integer: $cpus" >&2; exit 2 ;;
 esac
+memory=${IN_IMAGE_MEMORY:-}
+if [ -z "$memory" ]; then
+  limit=max
+  if [ -r /sys/fs/cgroup/memory.max ]; then read -r limit < /sys/fs/cgroup/memory.max; fi
+  case $limit in
+    max | "" | *[!0-9]*) memory=8g ;;
+    *) memory=$limit ;;
+  esac
+fi
+if ! [[ $memory =~ ^[1-9][0-9]*[mg]?$ ]]; then
+  echo "IN_IMAGE_MEMORY must be a size in bytes, m or g, e.g. 16g: $memory" >&2
+  exit 2
+fi
 args=(
   --name "$name"
   --cpus "$cpus"
@@ -128,6 +150,8 @@ args=(
   --cap-drop ALL
   --security-opt no-new-privileges:true
   --pids-limit 4096
+  --memory "$memory"
+  --memory-swap "$memory"
   --ulimit memlock=67108864:67108864
   --ulimit core=1048576:1048576
   --ulimit nofile=65536:65536
@@ -145,6 +169,7 @@ args=(
   # removes them. The Go caches are in v2's volumes below.
   --env TRIVY_CACHE_DIR=/var/tmp/trivy
   --env TMPDIR=/var/tmp
+  --env GOTMPDIR=/var/tmp
 )
 modcache=/var/tmp/gomodcache # CUSTOMIZE: /var/tmp, above
 if [ "$cache" = on ]; then
@@ -169,7 +194,7 @@ fi
 if [ "$network" = bridge ]; then
   # The baked module cache is read-only to the run's user and holds only the
   # root module's build list; the nested modules deps-check walks fetch more.
-  args+=(--env "GOPROXY=https://proxy.golang.org,direct" --env "GOMODCACHE=$modcache")
+  args+=(--env "GOPROXY=${DEVCACHE_GOPROXY:+$DEVCACHE_GOPROXY|}https://proxy.golang.org|direct" --env "GOMODCACHE=$modcache")
   for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
     if [ -n "${!v:-}" ]; then args+=(--env "$v"); fi
   done
@@ -182,7 +207,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker create "${args[@]}" "$image" sh -c "$*" >/dev/null
+# The scratch directory is checked in the container first (v4), so a missing
+# or unwritable one fails the stage here by name, not later as ENOSPC or EACCES.
+# shellcheck disable=SC2016 # expands in the container, not here
+guard='[ -d "$TMPDIR" ] && [ -w "$TMPDIR" ] || { echo "in-toolchain-image: scratch directory $TMPDIR is missing or not writable" >&2; exit 2; }'
+docker create "${args[@]}" "$image" sh -c "$guard; $*" >/dev/null
 if [ -f .git ]; then
   # CUSTOMIZE (trusted-firmware): a git worktree, where this repo's work
   # happens: `.git` is a file pointing at a git dir outside the checkout,

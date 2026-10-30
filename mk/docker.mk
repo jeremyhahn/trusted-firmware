@@ -108,13 +108,15 @@ IT_CMD            ?= make integration-test-host
 MODULE_ENV_FILE   ?=
 
 # The pins, from the one pin file (devcontainer.md §2): FROM cannot read a file,
-# so they go in as build args. The RUN steps source the file.
+# so they go in as build args. The RUN steps source the file. GO_BUILD_PROXY is
+# passed only when the caller sets it, and quoted, because CI's value uses the
+# | separator (handbook devcontainer.md section 4, ci-template v1.29.5).
 pin = $(shell . scripts/tool-pins.sh && echo "$$$(1)")
 DOCKER_BUILD = DOCKER_BUILDKIT=1 $(DOCKER) build -f $(DEVCONTAINER)/Dockerfile \
                --build-arg GO_IMAGE=$(call pin,GO_IMAGE) \
                --build-arg BASE_IMAGE=$(call pin,BASE_IMAGE) \
                --build-arg BASE_DIGEST=$(call pin,BASE_DIGEST) \
-               $(if $(GO_BUILD_PROXY),--build-arg GO_BUILD_PROXY=$(GO_BUILD_PROXY)) \
+               $(if $(GO_BUILD_PROXY),--build-arg "GO_BUILD_PROXY=$(GO_BUILD_PROXY)") \
                $(if $(MODULE_ENV_FILE),--secret id=gomodauth$(comma)src=$(MODULE_ENV_FILE))
 comma := ,
 

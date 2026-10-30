@@ -29,7 +29,7 @@ the file that meets each. The AVR rows first; the composed platforms after.
 | The A/B on the generic Cortex-M port (`mps2-an505`, `mps2-an500`), the same swap-move | met | `boot/boot_swap.c`, `boot/hal/cortex-m/boot_factory.c`; under QEMU in `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go` (CI) |
 | Its slot geometry as boot-HAL data (ADR, "Cortex-M `tfw-boot` ports") | met | `boot/hal/cortex-m/boot_slots.h` derives the secondary and the write end from the primary, the application's link base (`APP_BASE` in `profile.mk`, `TFW_BOOT_APP_BASE`); `boot/hal/avr/boot_slots.h` names the 2560's values unchanged. `boot/boot_swap.c` and `boot_factory.c` read the slots only there; pinned by `test/unit/boot/test_boot_slots_mps2.c`, every `tfw-boot.hex` byte-identical |
 | The store MARK cleared at fallback (item 56) | met | `boot/boot_stage.c` |
-| The ATmega328P and ATmega32U4 restore from the store, on a board or under simavr | unmet | written, not run: see "What the simavr harness lacks for the 328P and 32U4" below |
+| The ATmega32U4 restore from the store, on a board or under simavr (the ATmega328P has none: owner queue 176, option (a), no boot-time rollback, a failed activation is recovered by reflash) | unmet | written, not run: see "What the simavr harness lacks for the 328P and 32U4" below |
 | The SUIT-subset manifest checked before activation (ruling 3, amended by ruling 121): the ATmega2560 application, element tier | met | `src/core/ota_manifest.c` at `OTA_ACTIVATE`, before the authorization is written, through `tfw_suit_gate` (`src/core/suit.c`); `test/unit/test_ota_manifest.c`. The reader and the check cost 3 772 B (rec., against the ADR's 3 086 B estimate): app 28 802 of 65 536 with the check, 25 030 without ([README.md](README.md), "Measurements") |
 | The build writes the envelope where `OTA_ACTIVATE` reads it: after the image, a u16 length then the envelope (ruling 109, 2026-10-22) | met | `tools/image-seal/` (`make image-seal` takes `make suit-envelope`'s `.suit` and refuses to run without it on a board that checks); `test/unit/test_image_seal.c` |
 | The same, ATmega328P | unmet | the reader and the check cost 3 772 B on the ATmega2560 (rec., README.md "Measurements"; the ADR estimated 3 086 B); the reader alone puts the app at 22 153 against the 16 384 policy line (rec., ADR 6.3); the 328P stays trailer-only (ruling 3) |
@@ -83,7 +83,8 @@ takes from the board profile it is built with what used to be fixed to the 2560:
 
 - **The run.** `make integration-test-boot-prev BOARD=<board>` runs the `prev`
   row for the board named. It refuses, before building, a board with no `PREV`
-  in a store (`BOOT_AB=1`, or no `OTA_STORE`). It is not in `ci`.
+  in a store (`BOOT_AB=1`, no `OTA_STORE`, or `BOOT_PREV=0`, which is the 328P's
+  by owner queue 176, option (a): no boot-time rollback there). It is not in `ci`.
   `scripts/test_boot_prev_target.py` pins it.
 - **The store's chip select.** `attach_store` listens on `TFW_OTA_STORE_CS_IO`
   (`boot_harness_io.h`): PH5 on the 2560, PB0 on the 328P, PB4 on the 32U4.
@@ -93,15 +94,19 @@ takes from the board profile it is built with what used to be fixed to the 2560:
 `test/unit/boot/test_boot_harness_io.c`, built under each of the three profiles,
 pins the select and the UART.
 
-One thing is left, on both parts:
+One thing is left, on the 32U4 (the 328P keeps no restore, so its row has no
+`prev` run; its store row, without the restore, is not in `BOOT_SUPPORTED`:
+at `cb104cf4`, `make bootloader-check` (avr-gcc 14.2.0) found it overflows its
+4096-byte boot section (the part's largest `BOOTSZ`) by 1498 bytes, while the
+base row fits at 3712 / 4096; activation on the 328P goes back to the owner
+(#52)):
 
-1. **No tfw-boot to load.** Neither part's `BOOT_STORE=1` row is in
+1. **No tfw-boot to load.** The 32U4's `BOOT_STORE=1` row is not in
    `BOOT_SUPPORTED`, because its size with the restore has not been measured
-   ([architecture.md](architecture.md)). The CI image measures each candidate
-   row, without adding it, with
+   to fit ([architecture.md](architecture.md)). The CI image measures a
+   candidate row, without adding it, with
 
    ```sh
-   make bootloader-candidate BOOT_CANDIDATE=atmega328p:atecc608a:atecc608a:atecc608a:0:1
    make bootloader-candidate BOOT_CANDIDATE=atmega32u4:atecc608a:atecc608a:atecc608a:0:1
    ```
 
@@ -155,14 +160,16 @@ the table gives every est. figure exactly on the CI image.
 | `atmega2560:atecc608a:atecc608a:atecc608a:0:1` | 6 492 / 8 192, rec. (`architecture.md`, lane-verify) | ≤ 200, est., two call sites | ≥ 6 292, est. | ≤ 1 900, est. | ≤ 100, est.; app as above | full, fits |
 | `atmega2560:soft:soft:p256-soft:0:0` | 8 064 / 8 192, rec. (`mk/boot.mk`) | ≤ 100, est. | not built: the soft row keeps the full gate | 128 with the full gate, rec. | n/a | full, by ruling 121 |
 | `mps2-an505:soft:soft:p256-soft:0:0` | 32 KB region, not measured here | not measured | not built: soft row | not measured | n/a | full, by ruling 121 |
-| `atmega328p:atecc608a:atecc608a:atecc608a:0:1` (candidate) | 5 814 / 4 096: 1 718 over, rec. (`make bootloader-candidate` on the CI image, slice 6) | ≤ 200, est., two call sites | ≥ 5 614, est. | ≥ 1 518 over, est. | ≤ 100, est.; app about 19 267 with `ETH=1` and the stager, already over the 16 384 policy line, rec. (`architecture.md`) | does not fit either way |
+| `atmega328p:atecc608a:atecc608a:atecc608a:0:1` (with the `PREV` restore, now dropped: the row links no restore, is not in `BOOT_SUPPORTED`, and measured 1498 bytes over without it) | 5 814 / 4 096: 1 718 over, rec. (`make bootloader-candidate` on the CI image, slice 6) | ≤ 200, est., two call sites | ≥ 5 614, est. | ≥ 1 518 over, est. | ≤ 100, est.; app about 19 267 with `ETH=1` and the stager, already over the 16 384 policy line, rec. (`architecture.md`) | does not fit either way |
 | `atmega32u4:atecc608a:atecc608a:atecc608a:0:1` (candidate) | 5 804 / 4 096: 1 708 over, rec. (as above) | ≤ 200, est. | ≥ 5 604, est. | ≥ 1 508 over, est. | ≤ 100, est.; app not measured (no Ethernet controller wired), budget 14 336 | does not fit either way |
 
 **The result.** No row needs the split:
 
 - Every `BOOT_SUPPORTED` row already fits with the full gate.
-- The two rows that do not fit, the 328P and 32U4 store rows, are 1 718 and
-  1 708 bytes over. Moving the field checks out recovers about 200 bytes at
+- The two rows that do not fit, the 328P and 32U4 store rows with the restore,
+  are 1 718 and 1 708 bytes over (the 328P's restore is dropped since, owner
+  queue 176, option (a)), and the 328P store row without it measured 1498 bytes
+  over at `cb104cf4`. Moving the field checks out recovers about 200 bytes at
   most, so both stay about 1 500 bytes over.
 
 So no row splits, and no code was written for the split. Ruling 121's split

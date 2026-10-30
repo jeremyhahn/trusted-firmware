@@ -50,8 +50,8 @@ decision 7.
 | Board | Flash | Layout | State on main |
 |---|---|---|---|
 | ATtiny85 | 8 KB, no boot section | none: no secure boot, so no verified update | proposed (ADR open question 3) |
-| ATmega328P | 32 KB, 4 KB boot, 16 384 B application budget | one internal slot; the previous image (`PREV`) is backed up to the external store and restored by tfw-boot, which evaluates it again before it runs | written, not run: the restore overflows the boot section by 1 886 B ([architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)) |
-| ATmega32U4 | 32 KB, 4 KB boot, 14 336 B budget | as the 328P | written, not run: 1 870 B over; no Ethernet controller wired |
+| ATmega328P | 32 KB, 4 KB boot, 16 384 B application budget | one internal slot; no boot-time rollback (owner queue 176, option (a)): tfw-boot verifies and copies the staged image, and a failed activation is recovered by reflash | the store row, without the `PREV` restore, is not in `BOOT_SUPPORTED`: measured 1498 bytes over its 4096-byte boot section ([architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)) |
+| ATmega32U4 | 32 KB, 4 KB boot, 14 336 B budget | one internal slot; the previous image (`PREV`) is backed up to the external store and restored by tfw-boot, which evaluates it again before it runs | written, not run: 1 870 B over; no Ethernet controller wired |
 | ATmega2560 | 256 KB, 8 KB boot | A/B by swap-move: 64 KB primary at `0x00000`, secondary at `0x10100` (`TFW_SWAP_SLOT_LEN`), progress journalled at EEPROM `0x0E0`–`0x0E9` | runs on the `BOOT_OTA=1` and `BOOT_STORE=1` rows ([architecture.md](architecture.md#atmega2560-ab-by-swap-move)) |
 | ESP32-P4, esp32-qemu | 16 MB | ESP-IDF's `ota_0`/`ota_1`, `otadata` and app rollback, composed | runs (#48) |
 | Cortex-M33 under TF-M | per part | MCUboot's primary and secondary, written through PSA Firmware Update, composed | not started (ADR open question 9) |
@@ -139,10 +139,10 @@ requirements on each repo are in the ADR, "Seams".
 One PR per row (m751). Items 3, 7, 8 and 11 are done on main, each with where;
 every other item is unmet on main ([engineering.md](engineering.md)).
 
-1. The ATmega328P restore from `PREV` fits its boot section and runs under simavr, confirm included (after question 1). On the Q1 recommendation (a) (Software, #257), pending the Company Agent's ruling, the 328P ships OTA with the trailer signature check and the restore from `PREV` and without the manifest check. That recommendation does not make the restore fit: tfw-boot links no manifest check on any AVR row, and the 328P application already links `ota_manifest_none.c` (`OTA_MANIFEST` is set only in the 2560's `profile.mk`). The boot stays 1 886 B over, and it reads no confirm request on this row ([architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)).
+1. The ATmega328P store row does not fit its boot section. Question 1 is ruled, option (a) (owner queue 176, 2026-10-30; Company Agent, OD-4): the 328P's tfw-boot keeps signature verification and activation and drops the `PREV` restore and the confirm. There is no boot-time rollback on the 328P row; a failed activation is recovered by reflash; rollback stays on the 2560 and 32U4 rows where it fits. The row links `boot_swap_none.c` in place of `boot_prev.c` (`BOOT_PREV` in the 328P's `profile.mk`). tfw-boot links no manifest check on any AVR row, and the 328P application already links `ota_manifest_none.c` (`OTA_MANIFEST` is set only in the 2560's `profile.mk`). At `cb104cf4`, `make bootloader-check` (avr-gcc 14.2.0) found the 328P store row with the restore dropped overflows its 4096-byte boot section (the part's largest `BOOTSZ`) by 1498 bytes, while the base row fits at 3712 / 4096. The 328P store row is therefore not in `BOOT_SUPPORTED`, and activation on the 328P goes back to the owner (#52) ([architecture.md](architecture.md#the-328p-and-32u4-fallback-from-prev-52)).
 2. The ATmega32U4: the same, with an Ethernet controller wired and the stager measured.
 3. The ATmega2560 application's size with the manifest check, measured before and after on the CI image. Done: measured at f2e8d4e3 ("Measurements" below; [engineering.md](engineering.md), "The row on main").
-4. The manifest check on the 328P and 32U4, if their budget ruling holds it. On the Q1 recommendation (a), pending the Company Agent's ruling: not on these parts.
+4. The manifest check on the 328P and 32U4, if their budget ruling holds it. On the ruled Q1 option (a): not on these parts.
 5. The manifest check on the soft tier, with a home for its verification key (question 5).
 6. `OTA_AUTH`, `OTA_ACTIVATE` and `OTA_CONFIRM` over TCP, the authorization ending with its connection (question 4). The scope's docs and host tests are done (`test/unit/test_ota_hold_link.c`, `TestE2EOTAAuthSessionEndsWithItsConnection`); admitting the three over TCP is still with the owner (item 48).
 7. The ATmega2560 row with both OTA in boot and the store, or link files that pick one update path per image (question 6). Done: one update path per image, decided 2026-10-26, and `make bootloader` refuses a 2560 build with both ([architecture.md](architecture.md), "The 2560 with OTA and the store").
@@ -176,7 +176,7 @@ stubs, plus up to 200 for the check.
 
 Each is already open in the docs named. This page only gathers them.
 
-1. The 328P and 32U4 application budget, 28 672 against the 16 384 policy line, and how their restore fits a 4 KB boot section (ADR open question 1; [architecture.md](architecture.md), "The store on the 4 KB parts").
+1. The 328P and 32U4 application budget, 28 672 against the 16 384 policy line, and how the 32U4's restore fits a 4 KB boot section (ADR open question 1, ruled for the 328P: option (a), no restore; [architecture.md](architecture.md), "The store on the 4 KB parts").
 2. The external store's select: decided 2026-10-26 under ruling 109 (#52 comment 152690), D8 on every AVR board (ADR open question 2; architecture.md, "The selects").
 3. The ATtiny85: decided 2026-10-26 under ruling 109 (#52 comment 152690), the one board without OTA (ADR open question 3).
 4. The authorization's scope on TCP: decided 2026-10-26 under ruling 109 (Software, #257), it ends with its connection as well as at reset; docs and host tests done. Whether the ATmega2560's activate and confirm move to TCP is still with the owner (item 48) (ADR open question 8; [engineering.md](engineering.md), the TCP open question).

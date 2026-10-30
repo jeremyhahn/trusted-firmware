@@ -63,6 +63,12 @@ BOARD_REFUSED_TIERS := soft
 # data in board_profile.h (TFW_OTA_STORE_CS_PIN).
 OTA_STORE      := spi_nor
 
+# No boot-time rollback on this part (owner queue 176, option (a); docs/SPEC.md):
+# tfw-boot's store row keeps the signature check and the activation, and drops
+# the restore from PREV and the confirm. A failed activation is recovered by
+# reflash. mk/boot.mk links boot_swap_none.c in place of boot_prev.c.
+BOOT_PREV      ?= 0
+
 # The soft root's identity (mk/firmware.mk SOFT_ID): the HMAC signer, which links
 # no P-256 code. The P-256 DeviceID on this part's soft row is the owner's call
 # (item 79); until it is made, this row does not change.

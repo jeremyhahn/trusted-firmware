@@ -111,7 +111,7 @@ network input.
 | Board | Boot | Application | Transports in the shipped image |
 |---|---|---|---|
 | ATmega2560 | serial session, swap-move, trial: 7 954 of 8 192; or store read, swap-move, trial: 6 492 of 8 192 (verify-measured, with the confirm request). Both together were 8 916 before the confirm request, which does not fit (element tier, measured with `ARCH_BOOT_OPT_CFLAGS`; 9 110 with `-mcall-prologues` alone, 9 616 before) | `ETH=1`, stager, manifest reader: about 24 445 of 65 536 | both |
-| ATmega328P | verify-and-copy, trial: 3 924 of 4 096; with the restore from `PREV`, row `atmega328p:atecc608a:atecc608a:atecc608a:0:1`: candidate, unmeasured (`make bootloader-candidate BOOT_CANDIDATE=atmega328p:atecc608a:atecc608a:atecc608a:0:1`) | `ETH=1`, stager: about 19 267, and about 22 153 with the manifest reader | both, under the 28 672 region budget (proposed); none under the 16 384 policy line |
+| ATmega328P | verify-and-copy, trial: 3 924 of 4 096; the store row `atmega328p:atecc608a:atecc608a:atecc608a:0:1`, without the `PREV` restore (owner queue 176, option (a)): at `cb104cf4`, `make bootloader-check` (avr-gcc 14.2.0) found it overflows its 4096-byte boot section (the part's largest `BOOTSZ`) by 1498 bytes, while the base row fits at 3712 / 4096; it is not in `BOOT_SUPPORTED`, and activation on the 328P goes back to the owner (#52); with the restore it was 5 982, over | `ETH=1`, stager: about 19 267, and about 22 153 with the manifest reader | both, under the 28 672 region budget (proposed); none under the 16 384 policy line |
 | ATmega32U4 | as the 328P, unmeasured; with the restore, row `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`: candidate, unmeasured (`make bootloader-candidate BOOT_CANDIDATE=atmega32u4:atecc608a:atecc608a:atecc608a:0:1`) | no Ethernet controller wired yet | follow-up |
 
 ## Device state machine
@@ -712,7 +712,8 @@ yet.
   `PREV` is laid out as the region itself, its trailer at the end.
   `test/unit/test_ota_stage.c` and `tfwsim` link the real backup; the
   slot-sized test counts `PREV`'s sector erases.
-- **The restore, in tfw-boot.** A `BOOT_STORE=1` row without `BOOT_AB` links
+- **The restore, in tfw-boot.** A `BOOT_STORE=1` row without `BOOT_AB` and
+  with `BOOT_PREV=1` (every such board but the 328P, below) links
   `boot/boot_prev.c` in place of `boot_swap_none.c` (`mk/boot.mk`). A `TRIAL`
   found at reset, and a pending image the gate refuses after the copy, both
   copy `PREV` back whole with the store's own copy loop
@@ -720,46 +721,62 @@ yet.
   (`tfw_boot_trial_fall_back`). The block is written after the copy, so a reset
   mid-copy finds `TRIAL` or `PENDING` and copies again. `main()` evaluates the
   restored image as every boot; refused, it halts in `recovery_halt.c`, for the
-  programmer. `test/unit/boot/test_boot_prev.c` (328P profile) covers a trial
+  programmer. `test/unit/boot/test_boot_prev.c` (the host board's profile, which is the 328P's) covers a trial
   found at reset, a refused pending image, nothing to fall back from, a restore
   cut short and redone, and a store that does not answer.
-- **Not a row yet.** Neither part's `BOOT_STORE=1` row is in `BOOT_SUPPORTED`:
-  their 4 096-byte sections had 3 758 and 3 828 bytes used before the copy
-  path (above), and with the restore neither fits. Measured on 2026-10-23 on
-  CI's image (avr-gcc 14.2.0), the core links at 5 966 bytes of flash against
-  the 4 096-byte section on the 32U4, 1 870 bytes over (ld: 1 696 over `text`),
-  with 1 921 bytes of SRAM left (639 / 2 560 used), for
-  `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`; and at 5 982 bytes on the
-  328P, 1 886 bytes over (ld: 1 706 over `text`), with 1 409 bytes of SRAM left
-  (639 / 2 048 used), for `atmega328p:atecc608a:atecc608a:atecc608a:0:1`.
-  BOOTSZ 4096 is already the largest setting on both parts, so there is nothing
-  to raise. Neither row joins `BOOT_SUPPORTED`; the next step, shrinking the
-  core or a different store design for these parts, is the owner's decision on
-  #52. Each is a candidate, measured on CI's image by
-  `make bootloader-candidate BOOT_CANDIDATE=<row>` (`mk/boot.mk`), which builds the row without adding it
-  and prints its size against the section, or ld's overflow. A row joins
-  `BOOT_SUPPORTED` only once it fits and `bootloader-check` passes it. Until
-  then, the 328P and 32U4 link `ota_trial_none.c` (below), and
+- **Neither the 32U4's row nor the 328P's store row is a row.** The
+  32U4's `BOOT_STORE=1` row is not in `BOOT_SUPPORTED`: its 4 096-byte section
+  had 3 828 bytes used before the copy path (above), and with the restore it
+  does not fit. Measured on 2026-10-23 on CI's image (avr-gcc 14.2.0), the core
+  links at 5 966 bytes of flash against the 4 096-byte section on the 32U4,
+  1 870 bytes over (ld: 1 696 over `text`), with 1 921 bytes of SRAM left
+  (639 / 2 560 used), for `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`. The
+  same measurement of the 328P with the restore was 5 982 bytes, 1 886 bytes
+  over (ld: 1 706 over `text`), with 1 409 bytes of SRAM left (639 / 2 048
+  used); that is the row the ruling below drops. At `cb104cf4`,
+  `make bootloader-check` (avr-gcc 14.2.0) found the 328P store row with the
+  restore dropped overflows its 4096-byte boot section (the part's largest
+  `BOOTSZ`) by 1498 bytes, while the base row fits at 3712 / 4096. BOOTSZ 4096 is already the largest setting on
+  both parts, so there is nothing to raise. A row joins `BOOT_SUPPORTED` only
+  once it fits and `bootloader-check` passes it; a candidate is measured on
+  CI's image by `make bootloader-candidate BOOT_CANDIDATE=<row>`
+  (`mk/boot.mk`), which builds the row without adding it and prints its size
+  against the section, or ld's overflow. The 328P store row is therefore not in
+  `BOOT_SUPPORTED`, and activation on the 328P goes back to the owner (#52). The 328P and 32U4 link `ota_trial_none.c` (below).
   `test/integration/simavr/boot_harness.c`'s `prev` row (an unconfirmed trial
   restores `PREV`; a refused pending image restores it; a corrupt `PREV`
-  halts; each `GOOD`, `FAILED`) is not yet run: `make integration-test-boot-prev`
+  halts; each `GOOD`, `FAILED`) is not yet run, and the 328P no longer has it
+  (`make integration-test-boot-prev` refuses the board): `BOARD=atmega32u4`
   runs it, outside `integration-test-boot` and CI.
-- **The Q1 recommendation (a) does not close the gap.** Software's
-  recommendation on #257, pending the Company Agent's ruling, ships the 328P
-  and 32U4 OTA with the trailer signature check and the restore from `PREV`,
-  without the manifest check. Neither boot loses a byte by it: no AVR row of
-  tfw-boot links a manifest check (the manifest is checked by the application
-  at `OTA_ACTIVATE`, `src/core/ota_manifest.c`), and both parts' applications
-  already link `ota_manifest_none.c`, since only the 2560's `profile.mk` sets
+- **Q1 is ruled: option (a) (owner queue 176, 2026-10-30).** The Company
+  Agent's ruling (OD-4), verbatim: "The 328P tfw-boot keeps signature
+  verification and activation and drops the PREV restore and confirm; no
+  boot-time rollback on the 328P row, a failed activation is recovered by
+  reflash; rollback stays on the 2560 and 32U4 rows where it fits; recorded as
+  a row limit in docs/SPEC.md." No AVR row of tfw-boot links a manifest check
+  (the manifest is checked by the application at `OTA_ACTIVATE`,
+  `src/core/ota_manifest.c`), and both parts' applications already link
+  `ota_manifest_none.c`, since only the 2560's `profile.mk` sets
   `OTA_MANIFEST`. What the store row adds to the boot is the store's copy
   (`boot_stage.c`), the activate authorization's Sig_structure and verify
-  (`boot_cose.c`, `authorized()`), the store's bus and `boot_prev.c`. Confirm
-  is not on this row either: `boot_prev.c`'s `tfw_boot_swap_at_reset` fails
-  every `TRIAL` without reading a confirm request (only `boot_swap.c` reads
-  one), and neither part's application links `OTA_CONFIRM`. Each of these
-  adds bytes, not removes them. Which of them a 4 KB part goes without, or a
-  different store design, is open question 1 for the owner; nothing here is
-  dropped without that ruling.
+  (`boot_cose.c`, `authorized()`) and the store's bus; the 328P row no longer
+  adds `boot_prev.c`. Confirm was never on this row: `boot_prev.c`'s
+  `tfw_boot_swap_at_reset` fails every `TRIAL` without reading a confirm
+  request (only `boot_swap.c` reads one), and neither part's application links
+  `OTA_CONFIRM`.
+- **What the 328P store row links.** `boards/atmega328p/profile.mk` sets
+  `BOOT_PREV ?= 0`, and the store row (`atmega328p:atecc608a:atecc608a:atecc608a:0:1`)
+  links `boot_swap_none.c` in place of `boot_prev.c` (`mk/boot.mk`), with
+  `boot_stage.c`, `boot_cose.c` and the store's bus unchanged. A `TRIAL` found
+  at reset, and a pending image the gate refuses after the copy, have nothing
+  to fall back to: `main()` ends the trial (`TRIAL` or `PENDING` to `FAILED`)
+  and the part stops in `recovery_halt.c`; it is recovered by reflash. The row
+  is not in `BOOT_SUPPORTED`: it measured 1498 bytes over its 4096-byte boot
+  section (above). The 32U4 and the single-slot MPS2 rows keep
+  `boot_prev.c`, the 2560 its swap-move. The 328P application still links
+  `src/core/ota_prev.c` and backs the running image up in `OTA_BEGIN`; with no
+  restore on this part that backup is not read by tfw-boot, and dropping it
+  from the 328P application is a follow-up (`mk/firmware.mk`).
 
 ### The OTA round under simavr (#75, #77)
 
@@ -785,7 +802,7 @@ deadline on the emulated part, with no reset from the harness.
 | the trial deadline: nothing confirms, the application's `ota_trial.c` takes a watchdog reset at `TFW_OTA_TRIAL_TIMEOUT_S` (the board value, 60 s), WDRF in MCUSR at the reset edge and `TFW_RESET_WATCHDOG` in `SYS_INFO`, within one 8 s watchdog period of the deadline (`tfw_hal_reset` disarms the 8 s watchdog before its 15 ms one, which simavr would otherwise not apply); tfw-boot copies `PREV` back, `GOOD` `FAILED` | yes, `test_an_unconfirmed_store_image_rolls_back_at_the_deadline`, about 1.05 billion emulated cycles | `test_ota_trial`, `test_boot_trial` |
 | a staged byte that fails the hash, an image below the floor: no page written, the primary boots | yes, `test_a_bad_store_image_copies_nothing` | `test_boot_stage_2560` |
 | the store is only read by tfw-boot | yes: no erase, no program and no malformed transaction reach the model on any boot | — |
-| 328P: a trial not confirmed or a pending image refused copies `PREV` back, `GOOD` `FAILED`; a corrupt `PREV` halts | no: the `prev` row (`make integration-test-boot-prev`) is not yet run and stays out of CI until the 328P's `BOOT_STORE=1` row is measured and in `BOOT_SUPPORTED`; two of its three cases meet the re-take gap below | `test_boot_prev` |
+| 32U4 (not the 328P, which has no restore): a trial not confirmed or a pending image refused copies `PREV` back, `GOOD` `FAILED`; a corrupt `PREV` halts | no: the `prev` row (`make integration-test-boot-prev`) is not yet run and stays out of CI until the 32U4's `BOOT_STORE=1` row is measured and in `BOOT_SUPPORTED`; two of its three cases meet the re-take gap below | `test_boot_prev` |
 
 The bench repeats the round with the W5x00, the NOR part and the element on a
 2560; it is the only place the network leg meets a real controller, a real
@@ -794,7 +811,8 @@ The application's refusal of the failed image at `OTA_ACTIVATE`
 (`tfw_boot_trial_activate`, `TFW_ERR_BAD_STATE`) is pinned by `test_boot_trial`;
 the command itself is on the wire at `0x6D`, serial only.
 
-Not yet: the 328P/32U4 `PREV` restore on a board or under simavr (above);
+Not yet: the 32U4 `PREV` restore on a board or under simavr (above; the 328P
+has none, by the ruling);
 the manifest gate at `OTA_ACTIVATE` under simavr or over `tfwsim` (it is
 host-tested, `test_ota_manifest` and `test_suit`, and `tfwsim` links
 `src/core/ota_manifest_none.c`);
@@ -830,7 +848,8 @@ measurement is refused at the take and its `MARK` forgotten.
 The fallback flags. The diagram's `flags: refused` and `flags: fell back`
 are the platform block's `flags` byte (`TFW_BOOT_EE_O_FLAGS`, inside the CRC)
 and `ota_state` `FAILED`. The one bit defined is `TFW_BOOT_EE_FLAG_REFUSED`
-(`include/tfw/boot.h`): the 328P's and 32U4's fall-back (`boot/boot_prev.c`)
+(`include/tfw/boot.h`): the 32U4's fall-back (`boot/boot_prev.c`; the 328P
+row links no restore)
 sets it when the restore followed a refusal at evaluation and clears it when
 it followed a trial left unconfirmed, in the same block write that stores
 `GOOD` with `FAILED` (`tfw_boot_platform_store_flags`, `boot/boot_store.c`).
@@ -870,8 +889,9 @@ write `TRIAL` and restore `PREV`, is in `BOOT_SUPPORTED`.
   is evaluated again before it runs.
 - **The external store is outside the boundary.** The boot copies from it and
   then evaluates the internal copy; it never executes from it. A compromised
-  application can corrupt `PREV`. On the 328P that leaves no runnable image, and
-  recovery needs a programmer; on the 2560 the fallback is the other internal
+  application can corrupt `PREV`. On the 32U4 that leaves no runnable image, and
+  recovery needs a programmer (the 328P row keeps no `PREV` to restore; a
+  failed activation there is recovered by reflash); on the 2560 the fallback is the other internal
   slot, which the application cannot write.
 - **The bootloader is never updated over the wire.** The trailer format a
   deployed `tfw-boot` accepts is fixed for that device's life. Adding the

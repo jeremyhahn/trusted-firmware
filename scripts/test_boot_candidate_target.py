@@ -16,7 +16,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
 CANDIDATES = (
-    "atmega328p:atecc608a:atecc608a:atecc608a:0:1",
     "atmega32u4:atecc608a:atecc608a:atecc608a:0:1",
 )
 
@@ -66,11 +65,13 @@ class BootCandidateTarget(unittest.TestCase):
                 self.assertNotIn("boot-size-check", out)
 
     def test_a_supported_row_is_refused(self):
-        row = "atmega2560:atecc608a:atecc608a:atecc608a:0:1"
-        rc, out = make("bootloader-candidate", "BOOT_CANDIDATE=" + row, "MAKE=echo")
-        self.assertNotEqual(rc, 0, out)
-        self.assertIn(row + " is already in BOOT_SUPPORTED", out)
-        self.assertNotIn("boot-size-check", out)
+        # The 2560's store row is one; the 328P's does not fit its boot section.
+        for row in ("atmega2560:atecc608a:atecc608a:atecc608a:0:1",):
+            with self.subTest(row=row):
+                rc, out = make("bootloader-candidate", "BOOT_CANDIDATE=" + row, "MAKE=echo")
+                self.assertNotEqual(rc, 0, out)
+                self.assertIn(row + " is already in BOOT_SUPPORTED", out)
+                self.assertNotIn("boot-size-check", out)
 
 
 if __name__ == "__main__":

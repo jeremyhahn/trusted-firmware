@@ -176,9 +176,14 @@ endif
 # session's (TFW_OTA_STAGE_DEST). A row with neither has nothing to swap in,
 # and links the stub, as does every other board.
 #
-# On a board with one slot and PREV in its store (the 328P and 32U4, #52), the
-# store row links boot_prev.c in the same place: the fallback copies PREV back
-# instead of swapping.
+# On a board with one slot and PREV in its store (the 32U4 and the MPS2 boards,
+# #52), the store row links boot_prev.c in the same place: the fallback copies
+# PREV back instead of swapping. The 328P's profile sets BOOT_PREV ?= 0 (owner
+# queue 176, option (a)): its store row keeps the signature check and the
+# copy but links the stub, so a trial that does not confirm and a pending image
+# the gate refuses have no boot-time rollback; they end in recovery_halt.c and
+# the part is recovered by reflash (docs/SPEC.md, the 328P row).
+BOOT_PREV ?= 1
 #
 # boot_swap.c verifies OTA_CONFIRM's signature (#231) with the Sig_structure
 # boot_cose.c builds, so it brings boot_cose.c along on the serial row too; the
@@ -189,7 +194,9 @@ ifneq ($(BOOT_OTA)$(BOOT_STORE),00)
 BOOT_SWAP_SRC := boot/boot_swap.c boot/boot_cose.c
 endif
 else ifeq ($(BOOT_STORE),1)
+ifeq ($(BOOT_PREV),1)
 BOOT_SWAP_SRC := boot/boot_prev.c
+endif
 endif
 BOOT_STORE_SRCS += $(BOOT_SWAP_SRC)
 
@@ -205,6 +212,7 @@ BOOT_STORE_SRCS += $(BOOT_SWAP_SRC)
 # only where they are set: micro-ecc's level where p256-soft links it, and a
 # checksum of BOOT_OPT_EXTRA, whose options can hold any character a path cannot.
 BOOT_CFG     := $(BOOT_TIER)-$(BOOT_MEASURE)-$(BOOT_SIG)-ota$(BOOT_OTA)-store$(BOOT_STORE)$(AB_SUFFIX)$(if \
+                $(and $(filter 1,$(BOOT_STORE)),$(if $(filter 1,$(BOOT_AB)),,1),$(if $(filter 1,$(BOOT_PREV)),,1)),-noprev)$(if \
                 $(and $(filter p256-soft,$(BOOT_SIG)),$(filter-out 0,$(UECC_OPT))),-uecc$(UECC_OPT))$(if \
                 $(strip $(BOOT_OPT_EXTRA)),-x$(firstword $(shell printf '%s' '$(subst ','\'',$(strip $(BOOT_OPT_EXTRA)))' | cksum)))$(AB_SUFFIX)
 BOOT_DIR_OUT := $(BUILD_DIR)/$(BOARD)/boot/$(BOOT_CFG)
@@ -354,6 +362,10 @@ $(BOOT_TARGET).hex: $(BOOT_TARGET).elf
 # `make bootloader-candidate` builds and sizes a row before it joins (below).
 #
 #   328P / 32U4  4 KB section  element hash + element verify, no OTA in boot
+#   328P         4 KB section  the same plus the store: the copy and the
+#                              activation's signature check, no PREV restore and
+#                              no confirm (BOOT_PREV=0, owner queue 176 (a));
+#                              measured 1498 bytes over: not a supported row
 #   2560         8 KB section  the same, plus OTA in boot or the external store
 #   mps2-an505   32 KB region  soft hash + P-256 in software, no OTA, no store
 #                              (#161, QEMU's Cortex-M33; mk/arch/cortex-m.mk);
@@ -1403,10 +1415,11 @@ endif
 # It adds no row: a row joins BOOT_SUPPORTED by hand, once this has measured it
 # on CI's image and bootloader-check passes it. Exit 0 is "fits", 1 "does not".
 #
-# The rows it exists for (#52, docs/ota/architecture.md): the 328P's and the
-# 32U4's restore from PREV in the store,
-#   make bootloader-candidate BOOT_CANDIDATE=atmega328p:atecc608a:atecc608a:atecc608a:0:1
+# The row it exists for (#52, docs/ota/architecture.md): the 32U4's restore from
+# PREV in the store,
 #   make bootloader-candidate BOOT_CANDIDATE=atmega32u4:atecc608a:atecc608a:atecc608a:0:1
+# The 328P's store row, without the restore, overflowed its boot section by
+# 1498 bytes (avr-gcc 14.2.0), so it is not in BOOT_SUPPORTED (#52).
 #
 # The candidate is checked before anything is built: six fields, a board with
 # a profile, and not a row already (bootloader-check builds those).
@@ -1415,7 +1428,7 @@ BOOT_CAND_FIELDS := $(subst :, ,$(BOOT_CANDIDATE))
 BOOT_CAND_BOARD  := $(word 1,$(BOOT_CAND_FIELDS))
 ifneq ($(filter bootloader-candidate,$(MAKECMDGOALS)),)
 ifneq ($(words $(BOOT_CAND_FIELDS)),6)
-$(error bootloader-candidate: BOOT_CANDIDATE="$(BOOT_CANDIDATE)" is not a row. Name six fields, BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE, e.g. BOOT_CANDIDATE=atmega328p:atecc608a:atecc608a:atecc608a:0:1)
+$(error bootloader-candidate: BOOT_CANDIDATE="$(BOOT_CANDIDATE)" is not a row. Name six fields, BOARD:BOOT_TIER:BOOT_MEASURE:BOOT_SIG:BOOT_OTA:BOOT_STORE, e.g. BOOT_CANDIDATE=atmega32u4:atecc608a:atecc608a:atecc608a:0:1)
 endif
 ifeq ($(wildcard boards/$(BOOT_CAND_BOARD)/profile.mk),)
 $(error bootloader-candidate: no such board "$(BOOT_CAND_BOARD)" -- expected boards/$(BOOT_CAND_BOARD)/profile.mk, one of: $(notdir $(wildcard boards/*)))
@@ -1513,10 +1526,10 @@ BOOT_INT_ROW   := BOOT_TIER=atecc608a BOOT_MEASURE=atecc608a BOOT_SIG=atecc608a 
 
 # The harness's half that names the store's PREV (#52): only a board whose
 # profile has one links it, the board that tfw-boot's store row gives
-# boot_prev.c above: an OTA_STORE and one slot (no BOOT_AB). A two-slot board,
-# which falls back to its secondary, links the stub, and the harness's prev row
-# fails there.
-BOOT_INT_HAS_PREV := $(if $(OTA_STORE),$(if $(filter 1,$(BOOT_AB)),,1))
+# boot_prev.c above: an OTA_STORE, one slot (no BOOT_AB) and BOOT_PREV=1. A
+# two-slot board, which falls back to its secondary, and the 328P, which has no
+# boot-time rollback, link the stub, and the harness's prev row fails there.
+BOOT_INT_HAS_PREV := $(if $(OTA_STORE),$(if $(filter 1,$(BOOT_AB)),,$(if $(filter 1,$(BOOT_PREV)),1)))
 BOOT_INT_PREV_SRC := test/integration/simavr/boot_harness_prev_none.c
 ifeq ($(BOOT_INT_HAS_PREV),1)
 BOOT_INT_PREV_SRC := test/integration/simavr/boot_harness_prev.c
@@ -1613,13 +1626,13 @@ integration-test-boot:
 # integration-test-boot, so not in CI: the row is not in BOOT_SUPPORTED until
 # its size is measured, and boot-harness-run builds it without that gate.
 #
-# For the board the caller names, a one-slot board with a store (the 328P, the
-# 32U4). Nothing here names one: the profile supplies the store's select
+# For the board the caller names, a one-slot board with a store and a PREV (the
+# 32U4, not the 328P). Nothing here names one: the profile supplies the store's select
 # (TFW_OTA_STORE_CS_IO), the UART (TFW_UART_N) and the simavr core (MCU), and a
 # board without PREV is refused before anything is built.
 ifneq ($(filter integration-test-boot-prev,$(MAKECMDGOALS)),)
 ifneq ($(BOOT_INT_HAS_PREV),1)
-$(error integration-test-boot-prev: $(BOARD) has no PREV in a store (boards/$(BOARD)/profile.mk: $(if $(OTA_STORE),BOOT_AB=1$(BOOT_COMMA) it falls back to its secondary slot,no OTA_STORE)). Name a one-slot board with a store: BOARD=<board>)
+$(error integration-test-boot-prev: $(BOARD) has no PREV in a store (boards/$(BOARD)/profile.mk: $(if $(OTA_STORE),$(if $(filter 1,$(BOOT_AB)),BOOT_AB=1$(BOOT_COMMA) it falls back to its secondary slot,BOOT_PREV=0$(BOOT_COMMA) it has no boot-time rollback),no OTA_STORE)). Name a one-slot board with a store: BOARD=<board>)
 endif
 endif
 integration-test-boot-prev:

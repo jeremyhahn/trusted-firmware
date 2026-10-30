@@ -454,6 +454,61 @@ static void test_a_counter_the_part_does_not_have_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_crypto_counter(9u, &v));
 }
 
+static void test_the_two_counters_are_independent(void)
+{
+    uint8_t  v[4];
+    uint32_t a, b;
+
+    tfw_model_provision();
+    tfw_model_set_counter_n(0u, 10u);
+    tfw_model_set_counter_n(1u, 200u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_COUNTER, TFW_ATECC_COUNTER_INCR, 1u,
+                      0, 0u, v, 4u, TFW_ATECC_T_COUNTER));
+    TEST_ASSERT_EQUAL_UINT8(201u, v[0]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_counter(0u, &a));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_counter(1u, &b));
+    TEST_ASSERT_EQUAL_UINT32(10u, a);
+    TEST_ASSERT_EQUAL_UINT32(201u, b);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_COUNTER, TFW_ATECC_COUNTER_INCR, 0u,
+                      0, 0u, v, 4u, TFW_ATECC_T_COUNTER));
+    TEST_ASSERT_EQUAL_UINT8(11u, v[0]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_counter(0u, &a));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_counter(1u, &b));
+    TEST_ASSERT_EQUAL_UINT32(11u, a);
+    TEST_ASSERT_EQUAL_UINT32(201u, b);
+}
+
+static void test_a_counter_keyid_above_one_is_refused_by_the_part(void)
+{
+    uint8_t v[4];
+
+    tfw_model_provision();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_NOT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_COUNTER, TFW_ATECC_COUNTER_READ, 2u,
+                      0, 0u, v, 4u, TFW_ATECC_T_COUNTER));
+}
+
+static void test_set_counter_sets_counter_zero(void)
+{
+    uint32_t a, b;
+
+    tfw_model_provision();
+    tfw_model_set_counter_n(1u, 5u);
+    tfw_model_set_counter(77u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_counter(0u, &a));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_counter(1u, &b));
+    TEST_ASSERT_EQUAL_UINT32(77u, a);
+    TEST_ASSERT_EQUAL_UINT32(5u, b);
+}
+
 /* A part with its config locked and every slot's SlotLocked bit still set (the
  * model's blank state), which is what a data-zone Write needs. */
 static void lock_config_for_data_writes(void)
@@ -981,6 +1036,9 @@ int main(void)
     RUN_TEST(test_random_refuses_a_length_it_cannot_fill);
     RUN_TEST(test_the_boot_counter_is_read_from_the_element);
     RUN_TEST(test_a_counter_the_part_does_not_have_is_refused);
+    RUN_TEST(test_the_two_counters_are_independent);
+    RUN_TEST(test_a_counter_keyid_above_one_is_refused_by_the_part);
+    RUN_TEST(test_set_counter_sets_counter_zero);
     RUN_TEST(test_a_32_byte_data_write_reads_back_whole);
     RUN_TEST(test_a_4_byte_data_read_returns_one_word);
     RUN_TEST(test_the_data_zone_address_is_block_slot_word);

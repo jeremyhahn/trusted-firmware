@@ -29,7 +29,8 @@ void     tfw_model_force_status(uint8_t status);
 void     tfw_model_corrupt_next_read(uint8_t idx, uint8_t mask);
 /* NACK the next command write, as a part that dropped off the bus would. */
 void     tfw_model_nack_next_command(void);
-void     tfw_model_set_counter(uint32_t v);
+void     tfw_model_set_counter(uint32_t v);          /* counter 0 */
+void     tfw_model_set_counter_n(uint8_t id, uint32_t v); /* counter 0 or 1 */
 uint8_t  tfw_model_last_opcode(void);
 /* The 7-bit address the last non-wake transfer went to, answered or not. */
 uint8_t  tfw_model_last_addr(void);

@@ -114,7 +114,7 @@ static void read_floor(void)
 static void request_floor(void)
 {
     uint8_t      p1 = (next() % 4u) ? TFW_ATECC_COUNTER_INCR : (uint8_t)next();
-    uint16_t     p2 = (next() % 4u) ? (uint16_t)TFW_ATECC_COUNTER_BOOT : (uint16_t)next();
+    uint16_t     p2 = (next() % 4u) ? (uint16_t)TFW_ATECC_COUNTER_BOOT : (uint16_t)(next() % 4u);
     uint8_t      v[4];
     uint32_t     got;
     tfw_status_t st;
@@ -130,6 +130,10 @@ static void request_floor(void)
             hi++;                           /* it may have counted before the answer broke */
         }
         writes_refused++;
+        return;
+    }
+    if (p2 != TFW_ATECC_COUNTER_BOOT) {
+        writes_ok++;                        /* the part's other counter: not the floor */
         return;
     }
     got = (uint32_t)v[0] | ((uint32_t)v[1] << 8) | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);

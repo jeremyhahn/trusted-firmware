@@ -78,7 +78,8 @@ static uint16_t exec_ms[256];    /* per opcode: busy this long on each arrival *
 static uint8_t forced_status;    /* if non-zero, every command fails with this */
 static uint8_t last_opcode;
 static uint8_t last_addr;
-static uint32_t counter0;
+#define TFW_MODEL_COUNTERS 2u
+static uint32_t counters[TFW_MODEL_COUNTERS];
 static uint32_t random_calls;    /* Random's n-th answer differs from its first */
 
 /* The pending response, built when a command arrives and returned on the read
@@ -293,7 +294,7 @@ static uint8_t log_n;
 void tfw_model_reset(void)
 {
     awake = 0u; provisioned = 0u; has_key = 0u; busy_reads = 0u;
-    forced_status = 0u; last_opcode = 0u; counter0 = 0u; random_calls = 0u;
+    forced_status = 0u; last_opcode = 0u; counters[0] = 0u; counters[1] = 0u; random_calls = 0u;
     rsp_len = 0u; last_addr = 0u; log_n = 0u;
     last_rd = 0; last_rd_len = 0u;
     memset(log_cmds, 0, sizeof log_cmds);
@@ -360,7 +361,11 @@ void tfw_model_set_busy(uint8_t reads)   { busy_reads = reads; }
 void tfw_model_force_status(uint8_t st)  { forced_status = st; }
 void tfw_model_corrupt_next_read(uint8_t idx, uint8_t mask) { corrupt_idx = idx; corrupt_mask = mask; }
 void tfw_model_nack_next_command(void)   { nack_command = 1u; }
-void tfw_model_set_counter(uint32_t v)   { counter0 = v; }
+void tfw_model_set_counter(uint32_t v)   { counters[0] = v; }
+void tfw_model_set_counter_n(uint8_t id, uint32_t v)
+{
+    if (id < TFW_MODEL_COUNTERS) { counters[id] = v; }
+}
 void tfw_model_set_exec_ms(uint8_t op, uint16_t ms) { exec_ms[op] = ms; }
 uint8_t tfw_model_last_opcode(void)      { return last_opcode; }
 uint8_t tfw_model_last_addr(void)        { return last_addr; }
@@ -703,11 +708,12 @@ static void handle_command(const uint8_t *p, uint8_t n)
         return;
 
     case TFW_ATECC_OP_COUNTER:
-        if (param1 == TFW_ATECC_COUNTER_INCR) { counter0++; }
-        body[0] = (uint8_t)(counter0 & 0xFFu);
-        body[1] = (uint8_t)((counter0 >> 8) & 0xFFu);
-        body[2] = (uint8_t)((counter0 >> 16) & 0xFFu);
-        body[3] = (uint8_t)((counter0 >> 24) & 0xFFu);
+        if (param2 >= TFW_MODEL_COUNTERS) { respond_status(0x03u); return; }
+        if (param1 == TFW_ATECC_COUNTER_INCR) { counters[param2]++; }
+        body[0] = (uint8_t)(counters[param2] & 0xFFu);
+        body[1] = (uint8_t)((counters[param2] >> 8) & 0xFFu);
+        body[2] = (uint8_t)((counters[param2] >> 16) & 0xFFu);
+        body[3] = (uint8_t)((counters[param2] >> 24) & 0xFFu);
         respond(body, 4u);
         return;
 

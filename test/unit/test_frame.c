@@ -164,6 +164,12 @@ static void test_hsm_channel_frames_match_the_vectors(void)
     static const uint8_t sel_resp[]     = TFWV_FRAME_HSM_SELECT_RESP;
     static const uint8_t load_req[]     = TFWV_FRAME_HSM_LOAD_REQ;
     static const uint8_t load_range[]   = TFWV_FRAME_HSM_LOAD_RANGE_RESP;
+    static const uint8_t rec_req[]      = TFWV_FRAME_HSM_RECORD_READ_REQ;
+    static const uint8_t rec_resp[]     = TFWV_FRAME_HSM_RECORD_READ_RESP;
+    static const uint8_t rec_range[]    = TFWV_FRAME_HSM_RECORD_READ_RANGE_RESP;
+    static const uint8_t rec_index[1]   = { 0x1fu };
+    static const uint8_t rec_entry[10]  = { 0x20u, 0x02u, 0x01u, 0x04u, 0x03u,
+                                            0x02u, 0x01u, 0x03u, 0x05u, 0x0bu };
     static const uint8_t state_hb[6]    = { 0x01u, 0u, 0x02u, 0x01u, 0u, 0u };
     static const uint8_t state_lock[6]  = { 0x03u, 0u, 0u, 0u, 0u, 0u };
     static const uint8_t state_set[6]   = { 0x01u, 0u, 0u, 0u, 0u, 0u };
@@ -193,6 +199,12 @@ static void test_hsm_channel_frames_match_the_vectors(void)
           tfw_frame_encode_request(wire, sizeof wire, 5u, TFW_CMD_HSM_LOAD, chunk, sizeof chunk), wire);
     check(load_range, sizeof load_range - 1u,
           tfw_frame_encode_response(wire, sizeof wire, 5u, TFW_CMD_HSM_LOAD, TFW_ERR_RANGE, 0, 0u), wire);
+    check(rec_req, sizeof rec_req - 1u,
+          tfw_frame_encode_request(wire, sizeof wire, 6u, TFW_CMD_HSM_RECORD_READ, rec_index, sizeof rec_index), wire);
+    check(rec_resp, sizeof rec_resp - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 6u, TFW_CMD_HSM_RECORD_READ, TFW_OK, rec_entry, sizeof rec_entry), wire);
+    check(rec_range, sizeof rec_range - 1u,
+          tfw_frame_encode_response(wire, sizeof wire, 7u, TFW_CMD_HSM_RECORD_READ, TFW_ERR_RANGE, 0, 0u), wire);
 }
 
 static void test_prov_write_pubkey_frames_match_the_vectors(void)

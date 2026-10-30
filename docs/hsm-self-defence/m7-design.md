@@ -50,7 +50,7 @@ run on the board:
 | A4 | The key-group delete and the whole-store wipe (architecture Q5). Key deletion and the strict operation that commits it are in `ele_mu.c` (slice 8, done) | 8 |
 | S3 | Device attestation, absent from `ele_mu.c`; the expected values (ADR Q9) | 9 |
 | S1, S2, S5 | How each reaches the M7 (architecture Q1, Q2, Q6, Q11) | 10 |
-| A6, the report | A store that survives reset (architecture Q12) and a read path (§5) | 11a, 11b |
+| A6, the report | A store that survives reset (architecture Q12) and a read path (§5) | 11a, 11b-1 (the read, done), 11b-2 (the durable store) |
 | H2 | The M7 started only by the ROM and the System Manager, closed to the A55 (question O1) | trusted-imx95 |
 
 ## 2. Standards and vendor interfaces
@@ -106,7 +106,7 @@ below. An action whose id the profile leaves zero returns
 | A3 keys locked | The engine | The enclave, on go-xkms's key store | Open (architecture Q4). Until a call exists, A3 is A2: with the A55 off no session uses the keys |
 | A4 keys wiped | The engine, under R3 only | The enclave, on go-xkms's key store | Deletion, then the strict operation; done only when it is acknowledged (RM00284 §2.4) |
 | A5 shutdown | The engine | The System Manager | SYSTEM_POWER_STATE_SET (DEN0056E, slice 6) |
-| A6 record | The engine | The M7 | TCM today; durable store open (architecture Q12) |
+| A6 record | The engine | The M7 | TCM today, behind `hsm_store.h`; read back over the channel (11b-1, done); the durable store is open, option (c) (11b-2, O4) |
 
 Lockdown is A1, A2, A3, A6 in that order, latched (R6). A wipe is A4 then
 lockdown. The M7 never holds a go-xkms key and never computes with one: it asks
@@ -129,7 +129,7 @@ go-trusted-platform (ADR D3, Q11). Whether the enclave's SIGNATURE_VERIFY
 | Report | To | Path | State |
 |---|---|---|---|
 | The engine's state (latched, set held, selection, refusals) in every reply to `0x76`–`0x7A` | The caller on the A55: go-trusted-platform's agent and the detector | The channel | On main (slice 4) |
-| The record: each signal, decision and action, with its result | go-trusted-platform, after recovery | Read from the M7 after reset, through the channel | The record over a RAM store, slice 11a; the durable store (architecture Q12) and the read (O9), slice 11b |
+| The record: each signal, decision and action, with its result | go-trusted-platform, after recovery | Read from the M7 after reset, through the channel | The record over a RAM store, slice 11a; the read through the channel, `HSM_RECORD_READ`, slice 11b-1 (done, O9); the durable store (architecture Q12, O4) and the engine's call sites, slice 11b-2 |
 | The policy-set digest and floor as attestation evidence | The verifier go-xkms names | go-xkms's evidence, not ours | Seam to file (§6) |
 
 A compromised A55 can drop the first two in transit; only a record that
@@ -171,7 +171,8 @@ and the switch path is the host test's.
 | 9 | **S3.** The enclave's device attestation in `ele_mu.c`; the comparison against the policy's expected values in the engine | Host: model; a mismatch raises S3 | Code and tests done: `tfw_ele_dev_attest` on a caller-given `struct tfw_ele_attest_layout`, `tfw_imx95_hsm_attest` (session open, attest under a nonce, close, compare), `test_imx95_ele_mu`, `test_imx95_hsm_port`; the measure falls back to GET_INFO while the id is zero. The message's id and layout, the report's layout and the S3 keys stay zero placeholders in `board_profile.h` (ADR Q9 (a)). The report's signature is not verified (architecture Q17). The M7's messaging unit and domain wait on imx95 Q3 (a) |
 | 10 | **S1, S2, S5 on silicon.** Their intake on the i.MX 95 port | Host: an injected interrupt or notification raises the engine's signal | Code and tests done: `hsm_intake.c`, `tfw_hsm_port_sense`, `test_imx95_hsm_intake`. S1 is the System Manager's SCMI notification (Q2 (b)), taken through `tfw_imx95_hsm_notify_isr`; the channel's notification receiver and the protocol's NOTIFY subscription, and S1's ids, stay open (IMX95SRM). S5 is an M7 GPIO pin interrupt, no fuse (Q1 (a)), the pin the System Manager assigns with the A55's report a hint (Q11 (c)); its pad and interrupt stay open (board schematic), no vector installed. S2 polls hsm_get_event (Q6 (a)), unconfirmed until the bench test; its message and event code stay open (IMX95RM, imx-secure-enclave) |
 | 11a | **The record behind a store.** A6 as a fixed-size append-only log of signal, decision and action entries, each action with its result, in `src/core/hsm_record.c`; full, it keeps its first entries, refuses the rest and counts them. The store is `src/core/hsm_store.h`, substituted at link time; its one implementation, `hsm_store_ram.c`, survives nothing | Host: `test_hsm_record`: an empty record, append and read-back, overflow, the dropped count's top | Done. No command id, wire vector or status code (O9); no engine call site appends yet, since slices 8 to 10 change the engine and 11b wires them in |
-| 11b | **The durable store and the read.** A store that survives reset, as another file behind `hsm_store.h`; the engine's call sites; the record read back through the channel, a new command id that extends | Host: `test_hsm_cmd`, tfwsim, literal vectors and the Go mirror | architecture Q12 (O4) for the store; O9 and go-trusted-platform's seam for the reader and the command id; slices 8 to 10 for the call sites |
+| 11b-1 | **The read.** `HSM_RECORD_READ` (`0x7C`), one new command id that extends: `[index:1]` returns `[count:1][dropped:2][at:4][kind:1][what:1][result:1]`, an index at or past the count is `TFW_ERR_RANGE`, any other payload length `TFW_ERR_BAD_ARGC`. `tfw_hsm_cmd_record_read` in `hsm_cmd.c`; `tfw_hsm_record_erase` is reachable from no command | Host: `test_hsm_cmd`, `test_frame`, tfwsim, literal vectors and the Go mirror | Done. `test_hsm_cmd.c`: `test_an_empty_record_reads_range`, `test_one_entry_reads_back_with_every_field`, `test_the_last_index_reads_and_the_one_past_it_is_range`, `test_a_full_record_reads_with_its_dropped_count`, `test_the_read_leaves_the_engine_and_the_record_alone`, `test_the_record_read_is_one_byte_long_in_the_table`; `test_frame.c`: `test_hsm_channel_frames_match_the_vectors`; the Go SDK's `HSMRecordRead` and `HSMRecordReadAll`, `TestHSMRecordRead*` and, against tfwsim, `TestSimHSMRecordRead*`. O9 answered (item 173). The record is empty in every build until 11b-2 wires the engine's call sites |
+| 11b-2 | **The durable store and the engine's call sites.** A store that survives reset, as another file behind `hsm_store.h`; the engine's calls to `tfw_hsm_record_append` | Host: the store against its model; the engine appends what it saw, decided and did | Open. The durable store is option (c), the monotonic counter in the EdgeLock or ATECC608C, named in the ADR before this slice ships (item 172, O4); slices 8 to 10 for the call sites |
 | 12 | **Bench.** End to end on the FRDM-IMX95-PRO, a stand-in detector on the A55, throwaway keys | None: this is the board level | Every slice above; trusted-imx95's M7 logical machine; question O1 |
 
 Nothing in a slice fuses the board or arms a tamper pin (engineering.md level
@@ -221,7 +222,10 @@ PROPOSED on `main`.
 3. **O3. The board id.** `0x41` is provisional and claimed by four rows (imx95
    Q20). **[#14]**
 4. **O4. Durable state** for the latch, the floor and the record, on an M7 with
-   no NVM (architecture Q12; ADR Q8). **[#14]**
+   no NVM (architecture Q12; ADR Q8). **[#14]** Answered (CA m1656, order
+   (b)): "172: #50 slice 11 proceeds with the TCM behind an interface and the
+   durable store as option (c), the monotonic counter in the EdgeLock or
+   ATECC608C, named in the ADR before slice 11 ships." Slice 11b-2 carries it.
 5. **O5. A3 as A2.** Until the enclave offers a lock on go-xkms's store, is
    powering off the A55 an acceptable "keys locked"?
 6. **O6. May an A55-reported signal corroborate a wipe?** (architecture Q15,
@@ -231,5 +235,9 @@ PROPOSED on `main`.
 8. **O8. Gate #7.** engineering.md gates every slice on the AVR end-to-end gate
    unless lifted for this row; is it lifted for slices 3 to 11?
 9. **O9. The record's reader.** Does go-trusted-platform read A6 over the
-   channel, or does it reach the verifier only as go-xkms's evidence?
+   channel, or does it reach the verifier only as go-xkms's evidence? Answered
+   (CA m1656, ruling 251 item 4): "173 trusted-firmware #50 O9, option (b) xkms
+   evidence through the tf xkms adapter, the new command id is allowed". The
+   command id is `HSM_RECORD_READ` (`0x7C`), slice 11b-1; the evidence through
+   the adapter is not in this slice.
 10. The policy-format questions, ADR Q1–Q11, stand as written there.

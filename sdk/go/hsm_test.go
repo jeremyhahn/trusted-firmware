@@ -177,3 +177,90 @@ func TestHSMLoadRefusesAnOversizeEnvelopeBeforeTheTotalWraps(t *testing.T) {
 		assert.Empty(t, link.sent)
 	}
 }
+
+// recordLink answers HSM_RECORD_READ from a held record: the entry at the
+// index, or StatusErrRange past the end.
+type recordLink struct {
+	captureLink
+	entries [][]byte
+}
+
+func (l *recordLink) Write(p []byte) (int, error) {
+	f, _, err := Decode(p)
+	if err != nil {
+		return 0, err
+	}
+	l.status, l.payload = StatusOK, nil
+	if i := int(f.Payload[0]); i < len(l.entries) {
+		l.payload = l.entries[i]
+	} else {
+		l.status = StatusErrRange
+	}
+	return l.captureLink.Write(p)
+}
+
+// recordReply is the 10-byte reply of the wire vector: count 32, dropped 258,
+// at 0x01020304, kind 3, what 5, result 0x0b.
+func recordReply() []byte {
+	return []byte{0x20, 0x02, 0x01, 0x04, 0x03, 0x02, 0x01, 0x03, 0x05, 0x0b}
+}
+
+func TestHSMRecordReadSendsTheIndexAndDecodesTheEntry(t *testing.T) {
+	link := &captureLink{cannedLink: cannedLink{payload: recordReply()}}
+	e, err := New(link).HSMRecordRead(context.Background(), 31)
+	require.NoError(t, err)
+	require.Len(t, link.sent, 1)
+	assert.Equal(t, CmdHSMRecordRead, link.sent[0].Cmd())
+	assert.Equal(t, []byte{31}, link.sent[0].Payload)
+	assert.Equal(t, HSMRecordEntry{
+		Count: 32, Dropped: 258, At: 0x01020304,
+		Kind: HSMRecordAction, What: 5, Result: 0x0b,
+	}, *e)
+}
+
+func TestHSMRecordReadRejectsAShortReply(t *testing.T) {
+	link := &captureLink{cannedLink: cannedLink{payload: recordReply()[:9]}}
+	_, err := New(link).HSMRecordRead(context.Background(), 0)
+	var se *ShortReplyError
+	require.True(t, errors.As(err, &se), "%v", err)
+	assert.Equal(t, CmdHSMRecordRead, se.Cmd)
+	assert.Equal(t, 9, se.Got)
+	assert.Equal(t, HSMRecordLen, se.Need)
+}
+
+func TestHSMRecordReadReturnsRangeForAnIndexPastTheEnd(t *testing.T) {
+	link := &captureLink{cannedLink: cannedLink{status: StatusErrRange}}
+	_, err := New(link).HSMRecordRead(context.Background(), 0)
+	require.ErrorIs(t, err, StatusErrRange)
+}
+
+func TestHSMRecordReadAllOfAnEmptyRecordIsNoEntriesAndNoError(t *testing.T) {
+	link := &recordLink{}
+	got, err := New(link).HSMRecordReadAll(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	require.Len(t, link.sent, 1)
+}
+
+func TestHSMRecordReadAllStopsAtTheEndOfTheRecord(t *testing.T) {
+	two := func(i byte) []byte {
+		return []byte{2, 0, 0, i, 0, 0, 0, 1, i, 0}
+	}
+	link := &recordLink{entries: [][]byte{two(7), two(8)}}
+	got, err := New(link).HSMRecordReadAll(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, uint32(7), got[0].At)
+	assert.Equal(t, uint32(8), got[1].At)
+	assert.Equal(t, uint8(8), got[1].What)
+}
+
+func TestHSMRecordReadAllReturnsAnotherRefusalWithTheEntriesBeforeIt(t *testing.T) {
+	link := &refuseAtLink{
+		captureLink: captureLink{cannedLink: cannedLink{payload: []byte{3, 0, 0, 1, 0, 0, 0, 1, 1, 0}}},
+		at:          2, status: StatusErrBusy,
+	}
+	got, err := New(link).HSMRecordReadAll(context.Background())
+	require.ErrorIs(t, err, StatusErrBusy)
+	assert.Len(t, got, 1)
+}

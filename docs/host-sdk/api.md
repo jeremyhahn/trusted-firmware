@@ -215,6 +215,8 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.HSMLoadChunk` | `const HSMLoadChunk = 60` | The most envelope bytes one HSM_LOAD carries: the payload less its total and offset. |
 | `tfw.HSMEnvelopeMax` | `const HSMEnvelopeMax = 1024` | The largest envelope the device takes (TFW_SUIT_INTEGRATED_MAX); a larger one is refused with StatusErrRange. |
 | `tfw.HSMSetHeld`, `tfw.HSMLocked`, `tfw.HSMWiped` | `const uint8` 1<<0, 1<<1, 1<<2 | HSM state flags: a verified policy set is held; the device keys are locked; the device keys are wiped. |
+| `tfw.HSMRecordLen` | `const HSMRecordLen = 10` | The reply of HSM_RECORD_READ: the count and the dropped count, then the entry. |
+| `tfw.HSMRecordSignal`, `tfw.HSMRecordDecision`, `tfw.HSMRecordAction` | `const byte` 1, 2, 3 | The kinds of an A6 record entry: a signal the engine saw, a decision it took, an action it ran. |
 | `tfw.I2CReservedAddr` | `const I2CReservedAddr = 0x60` | The address the device refuses. |
 | `tfw.OTAChunk` | `const OTAChunk = 60` | The most image bytes one OTA_DATA carries: the payload less the offset. |
 | `tfw.OTAInfoLen` | `const OTAInfoLen = 44` | OTA_INFO's reply length. |
@@ -272,6 +274,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.CmdProvInfo`, `tfw.CmdProvWriteConfig`, `tfw.CmdProvLock`, `tfw.CmdProvGenKey`, `tfw.CmdProvPubKey`, `tfw.CmdProvSeedUDS` | `const Cmd` 0x70…0x75 | Provisioning commands. |
 | `tfw.CmdProvWritePubKey` | `const Cmd` 0x7B | Provisioning: a P-256 public key into slot 2 or 15 (`Device.ProvWritePubKey`). |
 | `tfw.CmdHSMHeartbeat`, `tfw.CmdHSMReport`, `tfw.CmdHSMVerdict`, `tfw.CmdHSMSelect`, `tfw.CmdHSMLoad` | `const Cmd` 0x76…0x7A | The HSM self-defence channel -- docs/hsm-self-defence/; answered only by an image built with the channel, any other answers StatusErrUnknownCmd. |
+| `tfw.CmdHSMRecordRead` | `const Cmd` 0x7C | The A6 record read back, one entry per call: `[index:1]` -> `[count:1][dropped:2][at:4][kind:1][what:1][result:1]`. On the same channel, so the same image; 0x7B is PROV_WRITE_PUBKEY. |
 | `tfw.CryptoTier` | `type CryptoTier uint8` | How strong the device's root of trust is. |
 | `tfw.CryptoNone`, `tfw.CryptoSoftware`, `tfw.CryptoSecureElement`, `tfw.CryptoTPM2` | `const CryptoTier` 0…3 | The crypto tiers, numbered as TFW_CRYPTO_* in include/tfw/types.h. |
 | `tfw.CryptoTier.String` | `func (c CryptoTier) String() string` | Names the tier, or says it is unrecognised with its number. |
@@ -293,6 +296,8 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.Events` | `func (d *Device) Events() []Frame` | Returns and clears any unsolicited events seen so far. |
 | `tfw.Device.HSMHeartbeat` | `func (d *Device) HSMHeartbeat(ctx context.Context) (*HSMState, error)` | Tells the engine the A55 is alive. |
 | `tfw.Device.HSMLoad` | `func (d *Device) HSMLoad(ctx context.Context, envelope []byte) (*HSMState, error)` | Sends a signed policy set or script envelope in HSMLoadChunk pieces and returns the state after the last. |
+| `tfw.Device.HSMRecordRead` | `func (d *Device) HSMRecordRead(ctx context.Context, index byte) (*HSMRecordEntry, error)` | Reads one entry of the A6 record. An index past the end, which includes any index of an empty record, is StatusErrRange. There is no call that erases the record. |
+| `tfw.Device.HSMRecordReadAll` | `func (d *Device) HSMRecordReadAll(ctx context.Context) ([]HSMRecordEntry, error)` | Reads the A6 record from its first entry to its last, stopping at the first StatusErrRange; an empty record is no entries and no error. Any other refusal is returned with the entries read before it. |
 | `tfw.Device.HSMReport` | `func (d *Device) HSMReport(ctx context.Context, signal byte) (*HSMState, error)` | Reports S4 or S5. |
 | `tfw.Device.HSMSelect` | `func (d *Device) HSMSelect(ctx context.Context, index byte) (*HSMState, error)` | Names the policy of the held set to apply. |
 | `tfw.Device.HSMVerdict` | `func (d *Device) HSMVerdict(ctx context.Context, verdict byte) (*HSMState, error)` | Delivers the verifier's verdict. |
@@ -345,6 +350,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.FrameError` | `type FrameError struct` | Bytes that cannot be a frame at all: a wrong start byte, an impossible length, a response with no room for its status. |
 | `tfw.FrameError.Error` | `func (e *FrameError) Error() string` | Implements error. |
 | `tfw.FrameError.Is` | `func (e *FrameError) Is(target error) bool` | Reports whether target is ErrBadFormat. |
+| `tfw.HSMRecordEntry` | `type HSMRecordEntry struct` | One entry of the A6 record with the record's own totals: Count, Dropped (capped at 0xFFFF), At, Kind, What, Result. |
 | `tfw.HSMState` | `type HSMState struct` | The engine's state after a command: [flags:1][selected:1][refused:4]. |
 | `tfw.LinkError` | `type LinkError struct` | A failure of the byte stream underneath the protocol, wrapping whatever the transport said. |
 | `tfw.LinkError.Error` | `func (e *LinkError) Error() string` | Implements error. |

@@ -559,6 +559,7 @@ endif
 ifeq ($(HSM)$(CRYPTO),1soft)
 HSM_SRCS := src/core/suit.c src/core/suit_integrated.c src/core/hsm_payload.c \
             src/core/hsm_engine.c src/core/hsm_cmd.c src/core/hsm_loop.c \
+            src/core/hsm_record.c src/core/hsm_store_ram.c \
             src/crypto/soft/verify_p256.c src/third_party/micro-ecc/uECC.c \
             $(wildcard $(HAL_SOC_DIR)/hsm_port.c) $(wildcard $(HAL_SOC_DIR)/hsm_intake.c)
 HSM_DEFS := -DTFW_FEATURE_HSM=1

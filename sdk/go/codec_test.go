@@ -129,6 +129,11 @@ func TestOTAControlFramesMatchVectors(t *testing.T) {
 			return EncodeRequest(5, CmdHSMLoad, []byte{0x0e, 0x01, 0x00, 0x00, 0xd8, 0x6b, 0xa3, 0x02})
 		}), vectors.FrameHSMLoadReq},
 		{"HSM_LOAD RANGE", enc(func() ([]byte, error) { return EncodeResponse(5, CmdHSMLoad, StatusErrRange, nil) }), vectors.FrameHSMLoadRangeResp},
+		{"HSM_RECORD_READ req", enc(func() ([]byte, error) { return EncodeRequest(6, CmdHSMRecordRead, []byte{0x1f}) }), vectors.FrameHSMRecordReadReq},
+		{"HSM_RECORD_READ resp", enc(func() ([]byte, error) {
+			return EncodeResponse(6, CmdHSMRecordRead, StatusOK, []byte{0x20, 0x02, 0x01, 0x04, 0x03, 0x02, 0x01, 0x03, 0x05, 0x0b})
+		}), vectors.FrameHSMRecordReadResp},
+		{"HSM_RECORD_READ RANGE", enc(func() ([]byte, error) { return EncodeResponse(7, CmdHSMRecordRead, StatusErrRange, nil) }), vectors.FrameHSMRecordReadRangeResp},
 		{"PROV_WRITE_PUBKEY X", enc(func() ([]byte, error) {
 			return EncodeRequest(7, CmdProvWritePubKey, append([]byte{15, 0}, testPubKey()[:32]...))
 		}), vectors.FrameProvWritePubKeyXReq},

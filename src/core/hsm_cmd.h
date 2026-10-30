@@ -20,6 +20,7 @@ tfw_status_t tfw_hsm_cmd_report(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_hsm_cmd_verdict(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_hsm_cmd_select(tfw_reader_t *r, tfw_writer_t *w);
 tfw_status_t tfw_hsm_cmd_load(tfw_reader_t *r, tfw_writer_t *w);
+tfw_status_t tfw_hsm_cmd_record_read(tfw_reader_t *r, tfw_writer_t *w);
 
 /* What a reset does to the engine and the pending envelope: no P, nothing
  * buffered, the floor back at TFW_HSM_FLOOR_MIN. The first command after a

@@ -175,4 +175,5 @@ TFW_CMD_ENTRY(TFW_CMD_HSM_REPORT,        HSM_REPORT,        tfw_hsm_cmd_report, 
 TFW_CMD_ENTRY(TFW_CMD_HSM_VERDICT,       HSM_VERDICT,       tfw_hsm_cmd_verdict,        1u,  1u)
 TFW_CMD_ENTRY(TFW_CMD_HSM_SELECT,        HSM_SELECT,        tfw_hsm_cmd_select,         1u,  1u)
 TFW_CMD_ENTRY(TFW_CMD_HSM_LOAD,          HSM_LOAD,          tfw_hsm_cmd_load,           4u,  TFW_MAX_PAYLOAD)
+TFW_CMD_ENTRY(TFW_CMD_HSM_RECORD_READ,   HSM_RECORD_READ,   tfw_hsm_cmd_record_read,    1u,  1u)
 #endif

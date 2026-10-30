@@ -42,6 +42,7 @@ func TestRequestBuildersMatchTheWireVectors(t *testing.T) {
 	ctx := context.Background()
 	otaInfo := framePayload(t, vectors.FrameOTAInfoResp)
 	hsmState := framePayload(t, vectors.FrameHSMHeartbeatResp)
+	hsmRecord := framePayload(t, vectors.FrameHSMRecordReadResp)
 	for _, c := range []struct {
 		name    string
 		want    string
@@ -59,6 +60,7 @@ func TestRequestBuildersMatchTheWireVectors(t *testing.T) {
 		{"HSMReport(4)", vectors.FrameHSMReportReq, hsmState, func(d *Device) error { _, err := d.HSMReport(ctx, 4); return err }},
 		{"HSMVerdict(1)", vectors.FrameHSMVerdictReq, hsmState, func(d *Device) error { _, err := d.HSMVerdict(ctx, 1); return err }},
 		{"HSMSelect(0)", vectors.FrameHSMSelectReq, hsmState, func(d *Device) error { _, err := d.HSMSelect(ctx, 0); return err }},
+		{"HSMRecordRead(31)", vectors.FrameHSMRecordReadReq, hsmRecord, func(d *Device) error { _, err := d.HSMRecordRead(ctx, 31); return err }},
 	} {
 		want := []byte(c.want)
 		sent, err := sentBy(Seq(want[2]), c.payload, c.call)

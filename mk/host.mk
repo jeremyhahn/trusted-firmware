@@ -383,10 +383,12 @@ $(HOST_DIR)/test_hsm_engine: src/core/hsm_payload.c src/core/hsm_engine.c tools/
 # test_hsm_cmd  the channel's commands (slice 4) over the real engine, as the
 #               dispatcher calls them, on the literal envelope
 $(HOST_DIR)/test_hsm_cmd: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
+                          src/core/hsm_record.c src/core/hsm_store_ram.c \
                           src/core/reader.c src/core/writer.c
 # test_hsm_loop  the superloop's pass (slice 3) over the same engine, the port's
 #                lines asserted by the test
 $(HOST_DIR)/test_hsm_loop: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
+                           src/core/hsm_record.c src/core/hsm_store_ram.c \
                            src/core/hsm_loop.c src/core/reader.c src/core/writer.c
 # test_hsm_record  A6, the record (slice 11a), over the RAM store that survives
 #                  nothing; no engine call site appends to it yet (slice 11b)
@@ -2073,7 +2075,8 @@ $(HOST_DIR)/tfwsim-otaboot: $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c tools/tfws
 # tenant key the vectors are signed with. Not in TFWSIM_ELEMENT_SRCS, so the
 # jig and auto simulators answer HSM_* with TFW_ERR_UNKNOWN_CMD as before.
 TFWSIM_HSM_SRCS := src/core/suit.c src/core/suit_integrated.c src/core/hsm_payload.c \
-                   src/core/hsm_engine.c src/core/hsm_cmd.c tools/tfwsim/hsm_port.c
+                   src/core/hsm_engine.c src/core/hsm_cmd.c \
+                   src/core/hsm_record.c src/core/hsm_store_ram.c tools/tfwsim/hsm_port.c
 TFWSIM_HSM_DEFS := -DTFW_FEATURE_HSM=1
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)

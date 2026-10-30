@@ -216,6 +216,15 @@
  * where TFW_FEATURE_PROVISION is. */
 #define TFW_CMD_PROV_WRITE_PUBKEY 0x7Bu  /* a P-256 public key into a data slot */
 
+/* The HSM channel again: the A6 record read back (docs/hsm-self-defence/),
+ * one entry per call. Request [index:1]; reply [count:1][dropped:2 LE]
+ * [at:4 LE][kind:1][what:1][result:1], 10 bytes, the entry's `spare` byte not
+ * sent. An index at or past the count, an empty record included, is
+ * TFW_ERR_RANGE. The command only reads: no command erases the record.
+ * Present where TFW_FEATURE_HSM is. */
+#define TFW_CMD_HSM_RECORD_READ   0x7Cu  /* [index:1], one entry of the A6 record */
+#define TFW_HSM_RECORD_LEN        10u
+
 /* State flags in the reply. */
 #define TFW_HSM_STATE_SET         0x01u  /* a verified policy set is held */
 #define TFW_HSM_STATE_LOCKED      0x02u  /* the device keys are locked */

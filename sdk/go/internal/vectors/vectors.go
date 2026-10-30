@@ -208,6 +208,16 @@ const (
 	// FrameHSMLoadRangeResp is its refusal of an envelope larger than the
 	// buffer, status TFW_ERR_RANGE (11), no payload.
 	FrameHSMLoadRangeResp = "\xa5\x03\x05\xfa\x0b\x8d\xb9"
+	// FrameHSMRecordReadReq is TFW_CMD_HSM_RECORD_READ (0x7C), seq 6, index
+	// 31.
+	FrameHSMRecordReadReq = "\xa5\x03\x06\x7c\x1f\x56\x03"
+	// FrameHSMRecordReadResp is its response, status OK: a full record of 32
+	// with 258 (0x0102) dropped; the entry at 0x01020304, kind 3, what 5,
+	// result 0x0b.
+	FrameHSMRecordReadResp = "\xa5\x0d\x06\xfc\x00\x20\x02\x01\x04\x03\x02\x01\x03\x05\x0b\xa5\xe1"
+	// FrameHSMRecordReadRangeResp is its refusal of an index at or past the
+	// count, status TFW_ERR_RANGE (11), no payload, seq 7.
+	FrameHSMRecordReadRangeResp = "\xa5\x03\x07\xfc\x0b\x4b\x7d"
 
 	// FrameProvWritePubKeyXReq is TFW_CMD_PROV_WRITE_PUBKEY (0x7B), seq 7:
 	// slot 15, half 0, X = 10 11 .. 2F.

@@ -6,6 +6,7 @@ package tfw
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 )
 
 // The HSM self-defence channel -- docs/hsm-self-defence/. The A55's half of
@@ -22,6 +23,9 @@ const (
 	CmdHSMVerdict   Cmd = 0x78 // [verdict:1] -> state
 	CmdHSMSelect    Cmd = 0x79 // [index:1] -> state
 	CmdHSMLoad      Cmd = 0x7A // [total:2][offset:2][bytes] -> state
+
+	// CmdHSMRecordRead is the A6 record read back, one entry per call.
+	CmdHSMRecordRead Cmd = 0x7C // [index:1] -> [count:1][dropped:2][at:4][kind:1][what:1][result:1]
 )
 
 // The signals the A55 may report (architecture.md section 1). S1-S3 are the
@@ -137,4 +141,73 @@ func (d *Device) HSMLoad(ctx context.Context, envelope []byte) (*HSMState, error
 		st = s
 	}
 	return st, nil
+}
+
+// HSMRecordLen is the reply of HSM_RECORD_READ: the count and the dropped
+// count, then the entry.
+const HSMRecordLen = 10
+
+// The kinds of an A6 record entry.
+const (
+	HSMRecordSignal   byte = 1 // a signal the engine saw
+	HSMRecordDecision byte = 2 // a decision the engine took
+	HSMRecordAction   byte = 3 // an action the engine ran
+)
+
+// HSMRecordEntry is one entry of the A6 record, with the record's own totals.
+// Count is how many entries the record holds; Dropped how many were refused
+// because it was full (capped at 0xFFFF). At is the engine's clock when the
+// entry was made. What is the signal, the verdict V or the action by Kind;
+// Result is an action's status, and StatusOK for the other kinds.
+type HSMRecordEntry struct {
+	Count   uint8
+	Dropped uint16
+	At      uint32
+	Kind    uint8
+	What    uint8
+	Result  uint8
+}
+
+// HSMRecordRead reads one entry of the A6 record. An index past the end of the
+// record, which includes any index of an empty one, is StatusErrRange. There
+// is no call that erases the record.
+func (d *Device) HSMRecordRead(ctx context.Context, index byte) (*HSMRecordEntry, error) {
+	f, err := d.Do(ctx, CmdHSMRecordRead, []byte{index})
+	if err != nil {
+		return nil, err
+	}
+	p := f.Payload
+	if len(p) < HSMRecordLen {
+		return nil, &ShortReplyError{Cmd: CmdHSMRecordRead, Got: len(p), Need: HSMRecordLen}
+	}
+	return &HSMRecordEntry{
+		Count:   p[0],
+		Dropped: binary.LittleEndian.Uint16(p[1:3]),
+		At:      binary.LittleEndian.Uint32(p[3:7]),
+		Kind:    p[7],
+		What:    p[8],
+		Result:  p[9],
+	}, nil
+}
+
+// HSMRecordReadAll reads the A6 record from its first entry to its last. It
+// stops at the first StatusErrRange, which is the end; an empty record is no
+// entries and no error. Any other refusal is returned with the entries read
+// before it.
+func (d *Device) HSMRecordReadAll(ctx context.Context) ([]HSMRecordEntry, error) {
+	var out []HSMRecordEntry
+	for i := 0; i <= 0xFF; i++ {
+		e, err := d.HSMRecordRead(ctx, byte(i))
+		if errors.Is(err, StatusErrRange) {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+		out = append(out, *e)
+		if int(e.Count) <= i+1 {
+			return out, nil
+		}
+	}
+	return out, nil
 }

@@ -27,6 +27,7 @@
 #include "hsm.h"
 #include "hsm_cmd.h"
 #include "hsm_port.h"
+#include "hsm_record.h"
 
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
@@ -81,6 +82,8 @@ void setUp(void)
     clock_ms = 0u;
     n_acted  = 0u;
     tfw_hsm_cmd_reset();
+    /* The test's own reset of the record; no command reaches this (O9). */
+    tfw_hsm_record_erase();
 }
 
 void tearDown(void) {}
@@ -443,6 +446,117 @@ static void test_a_dropped_envelope_does_not_resume(void)
     NO_ACTS();
 }
 
+/* HSM_RECORD_READ: [count:1][dropped:2 LE][at:4 LE][kind:1][what:1][result:1].
+ * Written out byte by byte here, not built from the handler's own constants. */
+static void entry_is(uint8_t count, uint16_t dropped, uint32_t at, uint8_t kind, uint8_t what,
+                     uint8_t result)
+{
+    const uint8_t want[TFW_HSM_RECORD_LEN] = {
+        count, (uint8_t)dropped, (uint8_t)(dropped >> 8), (uint8_t)at, (uint8_t)(at >> 8),
+        (uint8_t)(at >> 16), (uint8_t)(at >> 24), kind, what, result,
+    };
+
+    TEST_ASSERT_EQUAL_UINT8(10u, out_n);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, out, sizeof want);
+}
+
+static void test_an_empty_record_reads_range(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_record_read, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_record_read, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_record_read, 0xFFu));
+    NO_ACTS();
+}
+
+static void test_one_entry_reads_back_with_every_field(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_append(TFW_HSM_REC_ACTION, 0x05u, TFW_ERR_CRYPTO,
+                                                    0x01020304u));
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_record_read, 0u));
+    entry_is(1u, 0u, 0x01020304u, TFW_HSM_REC_ACTION, 0x05u, TFW_ERR_CRYPTO);
+    /* Reading is not consuming: the same entry again, the record untouched. */
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_record_read, 0u));
+    entry_is(1u, 0u, 0x01020304u, TFW_HSM_REC_ACTION, 0x05u, TFW_ERR_CRYPTO);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hsm_record_count());
+}
+
+static void test_the_last_index_reads_and_the_one_past_it_is_range(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_append(TFW_HSM_REC_SIGNAL, TFW_HSM_SIG_HOTPLUG, TFW_OK, 10u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_append(TFW_HSM_REC_DECISION, 2u, TFW_OK, 11u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_append(TFW_HSM_REC_ACTION, 3u, TFW_OK, 12u));
+
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_record_read, 0u));
+    entry_is(3u, 0u, 10u, TFW_HSM_REC_SIGNAL, TFW_HSM_SIG_HOTPLUG, TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_record_read, 2u));
+    entry_is(3u, 0u, 12u, TFW_HSM_REC_ACTION, 3u, TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_record_read, 3u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_record_read, 0xFFu));
+}
+
+/* Full, and then more: the entries it holds are kept, the rest counted, and the
+ * count is two bytes little-endian (258 is 0x0102). */
+static void test_a_full_record_reads_with_its_dropped_count(void)
+{
+    for (uint8_t i = 0u; i < TFW_HSM_RECORD_MAX; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_append(TFW_HSM_REC_SIGNAL, i, TFW_OK, 0x100u + i));
+    }
+    for (uint16_t i = 0u; i < 258u; i++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT, tfw_hsm_record_append(TFW_HSM_REC_SIGNAL, 0xEEu, TFW_OK, 0u));
+    }
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_record_read, 0u));
+    entry_is(32u, 258u, 0x100u, TFW_HSM_REC_SIGNAL, 0u, TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_record_read, 31u));
+    entry_is(32u, 258u, 0x11Fu, TFW_HSM_REC_SIGNAL, 31u, TFW_OK);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_record_read, 32u));
+}
+
+/* The read changes nothing the engine holds, and reaches no erase (O9). */
+static void test_the_read_leaves_the_engine_and_the_record_alone(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_append(TFW_HSM_REC_SIGNAL, 1u, TFW_OK, 5u));
+    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_record_read, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, call1(tfw_hsm_cmd_record_read, 1u));
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hsm_record_count());
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_hsm_record_dropped());
+    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
+    state_is(0u, 0u, 0u);
+    NO_ACTS();
+}
+
+/* The dispatcher refuses by the table's length before the handler runs
+ * (src/core/dispatch.c); the table's row for the command is exactly one byte, so
+ * no payload and two bytes are TFW_ERR_BAD_ARGC there. The row is read from
+ * commands.def itself, built with the HSM block on. */
+typedef struct {
+    uint8_t id;
+    uint8_t lo;
+    uint8_t hi;
+} len_row_t;
+
+#undef TFW_FEATURE_HSM
+#define TFW_FEATURE_HSM 1
+#define TFW_CMD_ENTRY(id, name, handler, lo, hi) { (id), (lo), (hi) },
+static const len_row_t ROWS[] = {
+#include "commands.def"
+};
+#undef TFW_CMD_ENTRY
+
+static void test_the_record_read_is_one_byte_long_in_the_table(void)
+{
+    uint8_t found = 0u;
+
+    for (uint8_t i = 0u; i < sizeof ROWS / sizeof ROWS[0]; i++) {
+        if (ROWS[i].id == TFW_CMD_HSM_RECORD_READ) {
+            TEST_ASSERT_EQUAL_UINT8(1u, ROWS[i].lo);
+            TEST_ASSERT_EQUAL_UINT8(1u, ROWS[i].hi);
+            found++;
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT8(1u, found);
+    TEST_ASSERT_EQUAL_HEX8(0x7Cu, TFW_CMD_HSM_RECORD_READ);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -469,5 +583,11 @@ int main(void)
     RUN_TEST(test_a_compromised_verdict_with_no_set_never_wipes);
     RUN_TEST(test_a_refused_message_with_no_set_is_not_counted);
     RUN_TEST(test_a_dropped_envelope_does_not_resume);
+    RUN_TEST(test_an_empty_record_reads_range);
+    RUN_TEST(test_one_entry_reads_back_with_every_field);
+    RUN_TEST(test_the_last_index_reads_and_the_one_past_it_is_range);
+    RUN_TEST(test_a_full_record_reads_with_its_dropped_count);
+    RUN_TEST(test_the_read_leaves_the_engine_and_the_record_alone);
+    RUN_TEST(test_the_record_read_is_one_byte_long_in_the_table);
     return UNITY_END();
 }

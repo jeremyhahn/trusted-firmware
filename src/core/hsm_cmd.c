@@ -21,6 +21,7 @@
 #include "hsm.h"
 #include "hsm_cmd.h"
 #include "hsm_port.h"
+#include "hsm_record.h"
 
 static tfw_hsm_t g_hsm;
 static uint8_t   g_ready;
@@ -161,4 +162,24 @@ tfw_status_t tfw_hsm_cmd_load(tfw_reader_t *r, tfw_writer_t *w)
     st = tfw_hsm_load(h, g_env, g_total, tfw_hsm_port_key(), now);
     (void)drop(TFW_OK);
     return (st == TFW_OK) ? state(h, w) : st;
+}
+
+/* [index:1] -> [count:1][dropped:2 LE][at:4 LE][kind:1][what:1][result:1]. The
+ * record is read, never written or erased from here (O9): an index at or past
+ * the count, an empty record included, is TFW_ERR_RANGE. */
+tfw_status_t tfw_hsm_cmd_record_read(tfw_reader_t *r, tfw_writer_t *w)
+{
+    tfw_hsm_entry_t e;
+    tfw_status_t    st = tfw_hsm_record_read(tfw_read_u8(r), &e);
+
+    if (st != TFW_OK) {
+        return st;
+    }
+    tfw_write_u8(w, tfw_hsm_record_count());
+    tfw_write_u16(w, tfw_hsm_record_dropped());
+    tfw_write_u32(w, e.at);
+    tfw_write_u8(w, e.kind);
+    tfw_write_u8(w, e.what);
+    tfw_write_u8(w, e.result);
+    return TFW_OK;
 }

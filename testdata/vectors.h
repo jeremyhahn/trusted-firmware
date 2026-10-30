@@ -329,6 +329,21 @@
 /* Its refusal of an envelope larger than the buffer: TFW_ERR_RANGE (11). */
 #define TFWV_FRAME_HSM_LOAD_RANGE_RESP "\xa5\x03\x05\xfa\x0b\x8d\xb9"
 
+/* TFW_CMD_HSM_RECORD_READ (0x7C), seq 0x06, index 31. Laid out by hand from
+ * [index:1] -> [count:1][dropped:2 LE][at:4 LE][kind:1][what:1][result:1] and
+ * framed with an independent CRC-16/CCITT-FALSE that first reproduced
+ * _HSM_SELECT_REQ, _HSM_LOAD_RANGE_RESP and _HSM_SELECT_RESP, then frozen. */
+#define TFWV_FRAME_HSM_RECORD_READ_REQ "\xa5\x03\x06\x7c\x1f\x56\x03"
+
+/* Its response, status OK: a full record of 32 (0x20) with 258 (0x0102,
+ * little-endian 02 01) dropped; the entry at 0x01020304 (04 03 02 01), kind 3
+ * (an action), what 5, result 0x0b. */
+#define TFWV_FRAME_HSM_RECORD_READ_RESP "\xa5\x0d\x06\xfc\x00\x20\x02\x01\x04\x03\x02\x01\x03\x05\x0b\xa5\xe1"
+
+/* Its refusal of an index at or past the count, an empty record included:
+ * TFW_ERR_RANGE (11), no payload, seq 0x07. */
+#define TFWV_FRAME_HSM_RECORD_READ_RANGE_RESP "\xa5\x03\x07\xfc\x0b\x4b\x7d"
+
 /* PROV_WRITE_PUBKEY (#52), produced by an independent CRC-16/CCITT-FALSE that
  * first reproduced TFWV_FRAME_HSM_HEARTBEAT_REQ and _HSM_LOAD_RANGE_RESP, then
  * frozen. Pins 0x7B, the [slot][half][coordinate:32] request and the 64-byte

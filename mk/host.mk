@@ -2203,6 +2203,10 @@ host-dir:
 # a board test asserting where ATTEST_CSR (#30) is present could not pass, nor
 # one asserting where it is absent mean anything.
 #
+# A board that names an Ethernet controller (ETH_CHIP) and leaves it off by
+# default is swept a second time with ETH=1, so its descriptor test also runs
+# against the image that drives the controller.
+#
 # A board that names an image store (OTA_STORE in profile.mk) has its stager's
 # sources preprocessed as the OTA_STAGE=1 image compiles them, with the
 # firmware's include path (make firmware-includes) and not the host's wider
@@ -2224,12 +2228,22 @@ board-sweep:
 	  tiers=$$($(MAKE) -s --no-print-directory board-tiers BOARD=$$b); tier=$${tiers##* }; \
 	  defs=$$($(MAKE) -s --no-print-directory feature-defs BOARD=$$b CRYPTO=$$tier) || \
 	    { echo "NO FEATURE DEFS: $$b $$tier"; fail=1; continue; }; \
+	  variants=" $$defs"; \
+	  chip=$$($(MAKE) -s --no-print-directory board-eth-chip BOARD=$$b); \
+	  if [ -n "$$chip" ]; then \
+	    edefs=$$($(MAKE) -s --no-print-directory feature-defs BOARD=$$b CRYPTO=$$tier ETH=1) || \
+	      { echo "NO FEATURE DEFS: $$b $$tier ETH=1"; fail=1; continue; }; \
+	    [ "$$edefs" = "$$defs" ] || variants=" $$defs| $$edefs"; \
+	  fi; \
+	  oldifs=$$IFS; IFS='|'; set -- $$variants; IFS=$$oldifs; \
+	  for defs in "$$@"; do \
 	  $(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
 	     -Iinclude -Isrc -Isrc/core -Itest/mock -Iboards/$$b -I$(UNITY_DIR) \
 	     -DTFW_BOARD_HEADER='"board_profile.h"' $$defs \
 	     -o $(SWEEP_DIR)/$$b "$$src" src/core/board_lookup.c boards/$$b/board.c \
 	     $(UNITY_DIR)/unity.c || { echo "BUILD FAILED: $$b"; fail=1; continue; }; \
 	  echo "--- $$b ($$tier:$${defs:- no tier features})"; ./$(SWEEP_DIR)/$$b || fail=1; ran=$$((ran+1)); \
+	  done; \
 	  store=$$($(MAKE) -s --no-print-directory board-ota-store BOARD=$$b); \
 	  [ -n "$$store" ] || continue; \
 	  incs=$$($(MAKE) -s --no-print-directory firmware-includes BOARD=$$b); \

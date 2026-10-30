@@ -110,6 +110,55 @@ static void test_port_b_carries_the_upper_digitals_and_the_spi_pins(void)
     expect_pin(17u, TFW_ADDR_PINB, 0u);   /* SS   */
 }
 
+/* The Ethernet shield on a Leonardo or a Micro: the W5x00 select on D10 (PB6),
+ * the SD socket's on D4 (PD4), the bus on the ICSP header's pins 14..16. The
+ * pin numbers are config.h's defaults, which this profile does not override;
+ * board_profile.h's TFW_ETH_CS_IO (B, 6u) names the same bit for tfw-boot. */
+static void test_the_ethernet_shield_lines_are_where_the_profile_says(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(10u, TFW_ETH_CS_PIN);
+    TEST_ASSERT_EQUAL_UINT8(4u,  TFW_ETH_SD_CS_PIN);
+    expect_pin(TFW_ETH_CS_PIN,    TFW_ADDR_PINB, 6u);
+    expect_pin(TFW_ETH_SD_CS_PIN, TFW_ADDR_PIND, 4u);
+}
+
+/* The W5x00 driver calls tfw_hal_spi_init() before every transfer, which drives
+ * hardware SS (D17, PB0) high as an output. A host that had set it with PIN_MODE
+ * or DIGITAL_WRITE would be silently reversed, so the row carries the same
+ * reservation as the other SPI lines (MISO, SCK, MOSI): in an Ethernet image
+ * all four are IN_USE and the pin commands refuse them. */
+static void test_hardware_ss_is_reserved_with_the_other_spi_lines(void)
+{
+    uint8_t ss = tfw_board_pin_flags(17u);
+
+    expect_pin(17u, TFW_ADDR_PINB, 0u);
+    TEST_ASSERT_EQUAL_HEX8(tfw_board_pin_flags(15u), ss);
+    TEST_ASSERT_EQUAL_HEX8(tfw_board_pin_flags(14u), ss);
+    TEST_ASSERT_EQUAL_HEX8(tfw_board_pin_flags(16u), ss);
+    if (TFW_FEATURE_ETHERNET) {
+        TEST_ASSERT_TRUE(ss & TFW_PIN_IN_USE);
+    }
+}
+
+/* The shield's lines are IN_USE exactly when the image drives the controller, so
+ * a host command cannot disturb the bus; with Ethernet off they stay available.
+ * `make board-sweep` builds this suite both ways for a board that ships ETH=0. */
+static void test_the_ethernet_pins_are_in_use_only_in_an_ethernet_image(void)
+{
+    static const uint8_t pins[] = { 4u, 10u, 14u, 15u, 16u, 17u };
+    size_t i;
+
+    for (i = 0; i < sizeof pins; i++) {
+        uint8_t flags = tfw_board_pin_flags(pins[i]);
+
+        if (TFW_FEATURE_ETHERNET) {
+            TEST_ASSERT_TRUE_MESSAGE(flags & TFW_PIN_IN_USE, "pin free in an ETH=1 image");
+        } else {
+            TEST_ASSERT_FALSE_MESSAGE(flags & TFW_PIN_IN_USE, "pin reserved in an ETH=0 image");
+        }
+    }
+}
+
 /* A0..A5 are pins 18..23 and run DOWN port F from bit 7, skipping bits 3 and 2
  * which the part does not bond out. A0 is PF7, not PF0. */
 static void test_analog_0_through_5_run_down_port_f(void)
@@ -368,6 +417,9 @@ int main(void)
     RUN_TEST(test_port_c_carries_only_pins_5_and_13);
     RUN_TEST(test_port_e_carries_only_pin_7);
     RUN_TEST(test_port_b_carries_the_upper_digitals_and_the_spi_pins);
+    RUN_TEST(test_the_ethernet_shield_lines_are_where_the_profile_says);
+    RUN_TEST(test_hardware_ss_is_reserved_with_the_other_spi_lines);
+    RUN_TEST(test_the_ethernet_pins_are_in_use_only_in_an_ethernet_image);
     RUN_TEST(test_analog_0_through_5_run_down_port_f);
     RUN_TEST(test_the_builtin_led_is_pin_13_on_port_c_bit_7);
     RUN_TEST(test_analog_pins_report_their_scattered_adc_channels);

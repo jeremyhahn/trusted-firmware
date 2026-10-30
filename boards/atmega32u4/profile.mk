@@ -52,6 +52,14 @@ BOOT_EESAVE_BIT  := 3
 # sits behind these bits yet; the value follows the data sheet regardless.
 BOOT_LOCK_PROGRAMMED := 0:LB1 1:LB2 4:BLB11 5:BLB12
 
+# The Ethernet controller an ETH=1 image drives (docs/ethernet-transport/): the
+# Ethernet Shield Rev3's W5100 unless the command line says w5500 for Shield 2.
+# On a Leonardo or a Micro the shield's SPI lines come from the ICSP header (the
+# pins board_profile.h numbers 14..16); its select is D10 (TFW_ETH_CS_IO). The
+# chip file checks the part's identity, so the wrong shield stays down. ETH
+# stays 0 by default here: the image is not measured against FLASH_BUDGET.
+ETH_CHIP       ?= w5100
+
 # The external store the OTA stager writes into (issue #75, docs/ota/): its
 # driver is src/store/$(OTA_STORE).c, linked by mk/firmware.mk when OTA_STAGE=1.
 # The part and its chip select are ADR open question 2; the select is board

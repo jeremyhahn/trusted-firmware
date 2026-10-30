@@ -37,3 +37,14 @@ challenge rejected for every other board, are in
 [`../dice-attestation/adr-possession-at-acme-finalize.md`](../dice-attestation/adr-possession-at-acme-finalize.md).
 The profile turns `ATTEST_CSR` off by name, not only through `ALIAS_CERT`, so
 the exclusion survives the certificate builder ever fitting.
+
+## The Ethernet shield
+
+`profile.mk` names `ETH_CHIP ?= w5100`, the Ethernet Shield Rev3's controller
+(`ETH_CHIP=w5500` for Shield 2), so `ETH=1` links `src/net/` for this board.
+`ETH` itself stays 0 by default. `board.c` flags the shield's lines
+`TFW_PIN_ETH` so `CAPS` reports them taken in an Ethernet image: the W5x00
+select on D10 (PB6), the SD socket's select on D4 (PD4) and the SPI bus on pins
+14 to 16 (MISO PB3, SCK PB1, MOSI PB2, the ICSP header). `board_profile.h`
+holds the select for tfw-boot (`TFW_ETH_CS_IO`). The `ETH=1` image is not
+measured against the 14 336-byte budget.

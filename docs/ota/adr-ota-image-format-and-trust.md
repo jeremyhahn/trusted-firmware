@@ -474,8 +474,8 @@ Open question 2.
 
 - **ATmega32U4.** It has the same geometry as the 328P (a 4 096 boot section and
   a 28 672 region), so the 328P design applies unchanged. It is not measured,
-  and no Ethernet controller is wired: `boards/atmega32u4/profile.mk` names no
-  `ETH_CHIP`. Its 14 336 budget line is tighter than the 328P's, so it too needs
+  and the stager is not measured. The Ethernet controller is wired in the build:
+  `boards/atmega32u4/profile.mk` names `ETH_CHIP ?= w5100`. Its 14 336 budget line is tighter than the 328P's, so it too needs
   the region budget. Follow-up.
 - **ATtiny85.** It has no boot section, so it has no secure boot, no verified
   update and no Ethernet controller (8 KB, no `ETH_CHIP`). "Every

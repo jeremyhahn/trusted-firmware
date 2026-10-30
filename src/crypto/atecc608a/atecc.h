@@ -199,6 +199,22 @@ tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
                           uint8_t *resp, uint8_t rlen, uint16_t exec_ms);
 
 /*
+ * Data-zone Read and Write of one slot, for any caller (provisioning is one;
+ * a runtime reader of slot bytes is another). `word` is the 4-byte word index
+ * within the slot; a 32-byte transfer takes a block-aligned `word` (a multiple
+ * of 8). `len` is 4 or 32, the two sizes the part has a form for
+ * (TFW_ATECC_ZONE_32 selects 32); any other length is TFW_ERR_RANGE with
+ * nothing sent and `out` unwritten. An error from the bus or the element is
+ * returned as tfw_atecc_exec returns it.
+ *
+ * The part honours a Write only into a slot whose config permits it and only
+ * once its config is locked; asking is the caller's business, the element's
+ * refusal comes back as the status.
+ */
+tfw_status_t tfw_atecc_data_read(uint8_t slot, uint8_t word, uint8_t *out, uint8_t len);
+tfw_status_t tfw_atecc_data_write(uint8_t slot, uint8_t word, const uint8_t *in, uint8_t len);
+
+/*
  * Verify, External Public Key mode -- issue #4. A command of its own rather
  * than a call to tfw_atecc_exec: its 128-byte payload (a 64-byte signature
  * plus a 64-byte public key) is nearly double tfw_atecc_exec's shared

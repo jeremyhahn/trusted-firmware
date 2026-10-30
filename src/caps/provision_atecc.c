@@ -249,11 +249,6 @@ static const uint8_t kPubkeySlots[] = { TFW_ATECC_SLOT_IMAGE, 15u };
 
 /* Data-zone address of word `word` of a slot: block in bits 8+, slot in bits
  * 3-6, word within the block in bits 0-2. */
-static uint16_t data_addr(uint8_t slot, uint8_t word)
-{
-    return (uint16_t)(((uint16_t)(word / 8u) << 8) | ((uint16_t)slot << 3) | (uint16_t)(word % 8u));
-}
-
 static tfw_status_t pubkey_read(uint8_t slot, uint8_t stored[PUBKEY_STORED_LEN])
 {
     tfw_status_t st  = TFW_OK;
@@ -261,10 +256,8 @@ static tfw_status_t pubkey_read(uint8_t slot, uint8_t stored[PUBKEY_STORED_LEN])
 
     while (st == TFW_OK && off < PUBKEY_STORED_LEN) {
         uint8_t  len  = (off < 64u) ? 32u : 4u;
-        uint8_t  p1   = (uint8_t)(TFW_ATECC_ZONE_DATA | (len == 32u ? TFW_ATECC_ZONE_32 : 0u));
 
-        st = tfw_atecc_exec(TFW_ATECC_OP_READ, p1, data_addr(slot, (uint8_t)(off / 4u)),
-                           0, 0u, &stored[off], len, TFW_ATECC_T_READ);
+        st = tfw_atecc_data_read(slot, (uint8_t)(off / 4u), &stored[off], len);
         off = (uint8_t)(off + len);
     }
     return st;
@@ -308,9 +301,7 @@ tfw_status_t tfw_prov_write_pubkey(uint8_t slot, uint8_t half, const uint8_t coo
     memset(stored, 0, 4u);
     memcpy(&stored[4], coord, 32u);
     for (i = 0u; st == TFW_OK && i < 9u; i++) {
-        st = tfw_atecc_exec(TFW_ATECC_OP_WRITE, TFW_ATECC_ZONE_DATA,
-                           data_addr(slot, (uint8_t)(half * 9u + i)), &stored[i * 4u], 4u,
-                           0, 0u, TFW_ATECC_T_WRITE);
+        st = tfw_atecc_data_write(slot, (uint8_t)(half * 9u + i), &stored[i * 4u], 4u);
     }
     if (st == TFW_OK) {
         st = pubkey_read(slot, stored);

@@ -454,6 +454,164 @@ static void test_a_counter_the_part_does_not_have_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_crypto_counter(9u, &v));
 }
 
+/* A part with its config locked and every slot's SlotLocked bit still set (the
+ * model's blank state), which is what a data-zone Write needs. */
+static void lock_config_for_data_writes(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_atecc_exec(TFW_ATECC_OP_LOCK, TFW_ATECC_LOCK_CONFIG, 0x1234u,
+                      0, 0u, 0, 0u, TFW_ATECC_T_LOCK));
+}
+
+static void test_a_32_byte_data_write_reads_back_whole(void)
+{
+    uint8_t in[32], out[32];
+    uint8_t i;
+
+    for (i = 0u; i < 32u; i++) {
+        in[i] = (uint8_t)(0xA0u + i);
+    }
+    lock_config_for_data_writes();
+    memset(out, 0, sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_write(2u, 8u, in, 32u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_read(2u, 8u, out, 32u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, out, 32u);
+    /* It landed in block 1 of the slot, not block 0. */
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, &tfw_model_clear_slot(2u)[32], 32u);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0u, tfw_model_clear_slot(2u), 32u);
+}
+
+static void test_a_4_byte_data_read_returns_one_word(void)
+{
+    uint8_t in[32], out[4];
+    uint8_t i;
+
+    for (i = 0u; i < 32u; i++) {
+        in[i] = (uint8_t)(0x40u + i);
+    }
+    lock_config_for_data_writes();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_write(2u, 0u, in, 32u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_read(2u, 3u, out, 4u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(&in[12], out, 4u);
+    /* And a 4-byte write replaces just that word. */
+    in[0] = 0x01u; in[1] = 0x02u; in[2] = 0x03u; in[3] = 0x04u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_write(2u, 3u, in, 4u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_read(2u, 3u, out, 4u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, out, 4u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_read(2u, 2u, out, 4u));
+    TEST_ASSERT_EQUAL_HEX8(0x48u, out[0]);
+}
+
+static void test_the_data_zone_address_is_block_slot_word(void)
+{
+    uint8_t               buf[32] = { 0 };
+    uint8_t               n;
+    const tfw_model_cmd_t *c;
+
+    lock_config_for_data_writes();
+    n = tfw_model_log_count();
+
+    /* Literals, not data_addr computed: slot 2, word 9 is block 1, word 1 of
+     * the block: (1 << 8) | (2 << 3) | 1. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_write(2u, 9u, buf, 4u));
+    c = tfw_model_log(n);
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_WRITE, c->opcode);
+    TEST_ASSERT_EQUAL_HEX8(0x02u, c->p1);
+    TEST_ASSERT_EQUAL_HEX16(0x0111u, c->p2);
+    TEST_ASSERT_EQUAL_UINT8(4u, c->dlen);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_read(2u, 9u, buf, 4u));
+    c = tfw_model_log((uint8_t)(n + 1u));
+    TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_READ, c->opcode);
+    TEST_ASSERT_EQUAL_HEX8(0x02u, c->p1);
+    TEST_ASSERT_EQUAL_HEX16(0x0111u, c->p2);
+    TEST_ASSERT_EQUAL_UINT8(0u, c->dlen);
+
+    /* A 32-byte transfer sets the 32-byte bit in Param1: slot 15, block 1
+     * (the model's clear slots hold 72 bytes, so block 1 is the last whole one). */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_write(15u, 8u, buf, 32u));
+    c = tfw_model_log((uint8_t)(n + 2u));
+    TEST_ASSERT_EQUAL_HEX8(0x82u, c->p1);
+    TEST_ASSERT_EQUAL_HEX16(0x0178u, c->p2);
+    TEST_ASSERT_EQUAL_UINT8(32u, c->dlen);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_read(15u, 8u, buf, 32u));
+    c = tfw_model_log((uint8_t)(n + 3u));
+    TEST_ASSERT_EQUAL_HEX8(0x82u, c->p1);
+    TEST_ASSERT_EQUAL_HEX16(0x0178u, c->p2);
+}
+
+static void test_a_data_zone_length_the_part_has_no_form_for_is_refused_unsent(void)
+{
+    static const uint8_t bad[] = { 0u, 1u, 3u, 5u, 8u, 31u, 33u, 36u, 64u, 255u };
+    uint8_t              buf[64];
+    uint8_t              n, k;
+
+    lock_config_for_data_writes();
+    n = tfw_model_log_count();
+    for (k = 0u; k < sizeof bad; k++) {
+        memset(buf, 0xA5, sizeof buf);
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_atecc_data_read(2u, 0u, buf, bad[k]));
+        TEST_ASSERT_EACH_EQUAL_HEX8(0xA5u, buf, sizeof buf);   /* out unwritten */
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_atecc_data_write(2u, 0u, buf, bad[k]));
+    }
+    TEST_ASSERT_EQUAL_UINT8(n, tfw_model_log_count());          /* nothing sent */
+}
+
+static void test_a_data_zone_slot_of_16_or_more_is_refused_unsent(void)
+{
+    /* 40 is the alias that matters: slot 40, word 0 would encode as 0x0140,
+     * the address of slot 8, word 8. */
+    static const uint8_t bad[] = { 16u, 17u, 40u, 128u, 255u };
+    uint8_t              buf[32];
+    uint8_t              n, k, len;
+
+    lock_config_for_data_writes();
+    n = tfw_model_log_count();
+    for (k = 0u; k < sizeof bad; k++) {
+        for (len = 4u; len <= 32u; len = (uint8_t)(len + 28u)) {
+            memset(buf, 0xA5, sizeof buf);
+            TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_atecc_data_read(bad[k], 0u, buf, len));
+            TEST_ASSERT_EACH_EQUAL_HEX8(0xA5u, buf, sizeof buf);   /* out unwritten */
+            TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_atecc_data_write(bad[k], 0u, buf, len));
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT8(n, tfw_model_log_count());          /* nothing sent */
+
+    /* The last slot is still accepted. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_write(15u, 0u, buf, 4u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_data_read(15u, 0u, buf, 4u));
+}
+
+static void test_a_data_zone_error_is_returned_never_swallowed(void)
+{
+    uint8_t buf[32] = { 0 };
+
+    /* The config is not locked: the part refuses the Write. */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_atecc_data_write(2u, 0u, buf, 4u));
+
+    lock_config_for_data_writes();
+    /* A slot the part does not let be read in the clear. */
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_atecc_data_read(0u, 0u, buf, 32u));
+    /* An execution error from the element, on each call. */
+    tfw_model_force_status(0x0Fu);
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_atecc_data_read(2u, 0u, buf, 32u));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_atecc_data_write(2u, 0u, buf, 32u));
+    tfw_model_force_status(0u);
+    /* A corrupt response is a CRC error, not data. */
+    tfw_model_corrupt_next_read(34u, 0x01u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRC, tfw_atecc_data_read(2u, 0u, buf, 32u));
+    /* A bus fault: the part NACKs the command. */
+    tfw_model_nack_next_command();
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_atecc_data_write(2u, 0u, buf, 4u));
+    /* An element that is not there. */
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_atecc_data_read(2u, 0u, buf, 4u));
+    TEST_ASSERT_NOT_EQUAL(TFW_OK, tfw_atecc_data_write(2u, 0u, buf, 4u));
+}
+
 /*
  * The element tier never signs with the CDI -- its DeviceID key is
  * element-resident, never derived (see the file header) -- but a CDI tfw-boot
@@ -823,6 +981,12 @@ int main(void)
     RUN_TEST(test_random_refuses_a_length_it_cannot_fill);
     RUN_TEST(test_the_boot_counter_is_read_from_the_element);
     RUN_TEST(test_a_counter_the_part_does_not_have_is_refused);
+    RUN_TEST(test_a_32_byte_data_write_reads_back_whole);
+    RUN_TEST(test_a_4_byte_data_read_returns_one_word);
+    RUN_TEST(test_the_data_zone_address_is_block_slot_word);
+    RUN_TEST(test_a_data_zone_length_the_part_has_no_form_for_is_refused_unsent);
+    RUN_TEST(test_a_data_zone_slot_of_16_or_more_is_refused_unsent);
+    RUN_TEST(test_a_data_zone_error_is_returned_never_swallowed);
     RUN_TEST(test_init_drains_a_handed_off_cdi_even_though_this_tier_has_no_use_for_it);
     /* Last: these initialise the provider, and the absent-element test above
      * depends on running before anything has. */

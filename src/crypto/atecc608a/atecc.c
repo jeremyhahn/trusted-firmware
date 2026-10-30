@@ -236,6 +236,53 @@ tfw_status_t tfw_atecc_exec(uint8_t opcode, uint8_t p1, uint16_t p2,
     return st;
 }
 
+/* The data-zone address (Param2) of word `word` in slot `slot`: the block
+ * offset in the high byte, the slot in bits 3..6, the word within its block in
+ * bits 0..2. The slot field is four bits wide, so a slot of DATA_SLOTS or more
+ * would spill into the block field and name another slot's address; the entry
+ * points refuse it before this is called. */
+#define DATA_SLOTS 16u
+
+static uint16_t data_addr(uint8_t slot, uint8_t word)
+{
+    return (uint16_t)(((uint16_t)(word / 8u) << 8) | ((uint16_t)slot << 3) | (uint16_t)(word % 8u));
+}
+
+/* The Param1 of a data-zone Read or Write of `len` bytes, or 0xFF for a length
+ * the part has no form for. 0xFF is no zone byte this driver sends. */
+static uint8_t data_p1(uint8_t len)
+{
+    if (len == 32u) {
+        return (uint8_t)(TFW_ATECC_ZONE_DATA | TFW_ATECC_ZONE_32);
+    }
+    if (len == 4u) {
+        return TFW_ATECC_ZONE_DATA;
+    }
+    return 0xFFu;
+}
+
+tfw_status_t tfw_atecc_data_read(uint8_t slot, uint8_t word, uint8_t *out, uint8_t len)
+{
+    uint8_t p1 = data_p1(len);
+
+    if (p1 == 0xFFu || slot >= DATA_SLOTS) {
+        return TFW_ERR_RANGE;
+    }
+    return tfw_atecc_exec(TFW_ATECC_OP_READ, p1, data_addr(slot, word),
+                          0, 0u, out, len, TFW_ATECC_T_READ);
+}
+
+tfw_status_t tfw_atecc_data_write(uint8_t slot, uint8_t word, const uint8_t *in, uint8_t len)
+{
+    uint8_t p1 = data_p1(len);
+
+    if (p1 == 0xFFu || slot >= DATA_SLOTS) {
+        return TFW_ERR_RANGE;
+    }
+    return tfw_atecc_exec(TFW_ATECC_OP_WRITE, p1, data_addr(slot, word),
+                          in, len, 0, 0u, TFW_ATECC_T_WRITE);
+}
+
 tfw_status_t tfw_atecc_verify_external(const uint8_t sig[64], const uint8_t pubkey[64],
                                      uint16_t exec_ms)
 {

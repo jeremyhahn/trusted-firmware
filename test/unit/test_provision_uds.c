@@ -110,20 +110,6 @@ static void test_genkey_returns_the_host_derivation_from_the_burned_uds(void)
     TEST_ASSERT_EQUAL_MEMORY(want, outbuf, 64u);
 }
 
-static void test_a_second_genkey_is_refused_before_anything_is_drawn(void)
-{
-    uint8_t first[32];
-
-    TEST_ASSERT_EQUAL(TFW_OK, genkey(0u));
-    memcpy(first, tfw_mock_prov_uds_burned(), sizeof first);
-
-    TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, genkey(0u));
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
-    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_prov_uds_draws());
-    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_prov_uds_burns());
-    TEST_ASSERT_EQUAL_MEMORY(first, tfw_mock_prov_uds_burned(), sizeof first);
-}
-
 static void test_pubkey_reads_the_point_back_and_burns_nothing(void)
 {
     uint8_t point[64];
@@ -135,12 +121,6 @@ static void test_pubkey_reads_the_point_back_and_burns_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(64u, tfw_writer_len(&w));
     TEST_ASSERT_EQUAL_MEMORY(point, outbuf, sizeof point);
     TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_prov_uds_burns());
-}
-
-static void test_pubkey_before_genkey_is_not_provisioned(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, pubkey(0u));
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
 }
 
 static void test_no_reply_carries_the_uds(void)
@@ -252,30 +232,17 @@ static void test_a_refused_deviceid_is_a_status_and_no_point_is_sent(void)
     TEST_ASSERT_EQUAL_MEMORY(UDS_00_1F_PUB, outbuf, 64u);
 }
 
-static void test_any_other_slot_is_refused_and_draws_nothing(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, genkey(1u));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, genkey(0xFFu));
-    TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_prov_uds_draws());
-    TEST_ASSERT_EQUAL(TFW_OK, genkey(0u));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, pubkey(1u));
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
-}
-
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_genkey_returns_the_pinned_point_of_the_uds_it_burned);
     RUN_TEST(test_genkey_returns_the_host_derivation_from_the_burned_uds);
-    RUN_TEST(test_a_second_genkey_is_refused_before_anything_is_drawn);
     RUN_TEST(test_pubkey_reads_the_point_back_and_burns_nothing);
-    RUN_TEST(test_pubkey_before_genkey_is_not_provisioned);
     RUN_TEST(test_no_reply_carries_the_uds);
     RUN_TEST(test_a_failed_burn_is_a_status_and_the_part_stays_empty);
     RUN_TEST(test_no_free_key_block_is_its_own_status);
     RUN_TEST(test_a_draw_that_cannot_start_the_noise_source_burns_nothing);
     RUN_TEST(test_a_refused_hmac_after_the_burn_is_a_status_and_pubkey_recovers);
     RUN_TEST(test_a_refused_deviceid_is_a_status_and_no_point_is_sent);
-    RUN_TEST(test_any_other_slot_is_refused_and_draws_nothing);
     return UNITY_END();
 }

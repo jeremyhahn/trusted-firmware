@@ -36,12 +36,6 @@ static tfw_status_t run(uint8_t cmd, const uint8_t *payload, uint8_t n)
     return tfw_dispatch(cmd, &r, &w);
 }
 
-static void test_an_unknown_command_is_refused(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, run(0x7Eu, 0, 0u));
-    TEST_ASSERT_FALSE(tfw_dispatch_knows(0x7Eu));
-}
-
 /* issue #4: allocated ids with no handler in ANY build get a one-line comment
  * in protocol.h rather than silence -- this is the regression that keeps
  * them answering TFW_ERR_UNKNOWN_CMD rather than someone quietly wiring one up
@@ -131,6 +125,7 @@ static void test_an_unknown_command_writes_nothing_and_is_recorded_as_refused(vo
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
     TEST_ASSERT_EQUAL_UINT8(0x7Eu, tfw_dispatch_last());
     TEST_ASSERT_FALSE(tfw_dispatch_last_ok());
+    TEST_ASSERT_FALSE(tfw_dispatch_knows(0x7Eu));
 }
 
 static void test_a_payload_outside_the_arity_never_reaches_the_handler(void)
@@ -434,7 +429,6 @@ static void test_uptime_survives_past_sixteen_bits(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_an_unknown_command_is_refused);
     RUN_TEST(test_the_five_reserved_ids_have_no_handler);
     RUN_TEST(test_no_command_id_reaches_the_event_marker);
     RUN_TEST(test_auth_commands_are_absent_from_a_soft_tier_build);

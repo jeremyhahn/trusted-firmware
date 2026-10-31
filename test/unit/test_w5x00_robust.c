@@ -281,9 +281,12 @@ static void test_a_received_size_the_ring_cannot_hold_drops_the_link_and_it_resy
         drain();
         deliver(sent + k, (uint16_t)(sent_len - k));
         w5x_model_rsr_reads(v);
+        b = 0xEEu;
         TEST_ASSERT_EQUAL_UINT8_MESSAGE(0u, tfw_eth_rx(&b), where);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(0xEEu, b, where);    /* nothing handed up */
         TEST_ASSERT_EQUAL_UINT8_MESSAGE(0x00u, w5x_model_sock(S_SR), where);
         TEST_ASSERT_EQUAL_UINT8_MESSAGE(0u, tfw_eth_rx(&b), where);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(0xEEu, b, where);
         TEST_ASSERT_EQUAL_UINT8_MESSAGE(TFW_ETH_DOWN, tfw_eth_state(), where);
         TEST_ASSERT_EQUAL_UINT16_MESSAGE(0u, ready, where);
         w5x_model_rsr_reads(0u);

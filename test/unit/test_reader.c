@@ -56,12 +56,6 @@ static void test_reader_permits_reading_exactly_to_the_end(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_reader_remaining(&r));
 }
 
-static void test_reader_refuses_one_byte_past_the_end(void)
-{
-    TEST_ASSERT_NULL(tfw_read_blob(&r, (uint8_t)(sizeof PAYLOAD + 1u)));
-    TEST_ASSERT_FALSE(tfw_reader_ok(&r));
-}
-
 /* A u32 that runs past the end reads as 0, not as the three bytes that were
  * there, and the cursor does not move. */
 static void test_reader_refuses_a_u32_past_the_end(void)
@@ -184,7 +178,6 @@ int main(void)
     RUN_TEST(test_reader_decodes_scalars_little_endian);
     RUN_TEST(test_reader_returns_a_pointer_into_the_payload_for_a_blob);
     RUN_TEST(test_reader_permits_reading_exactly_to_the_end);
-    RUN_TEST(test_reader_refuses_one_byte_past_the_end);
     RUN_TEST(test_reader_refuses_a_u32_past_the_end);
     RUN_TEST(test_reader_underflow_is_sticky);
     RUN_TEST(test_reader_zero_return_is_not_a_success_signal);

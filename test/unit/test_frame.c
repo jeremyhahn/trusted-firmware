@@ -315,19 +315,6 @@ static void test_a_corrupted_length_byte_is_caught(void)
     TEST_ASSERT_EQUAL_UINT16(1u, f.err_crc);
 }
 
-static void test_a_length_below_the_minimum_is_refused(void)
-{
-    TEST_ASSERT_EQUAL(TFW_FRAME_NONE,       tfw_framer_push(&f, TFW_SOF));
-    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, 1u));
-    TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
-}
-
-static void test_a_length_above_the_maximum_is_refused(void)
-{
-    TEST_ASSERT_EQUAL(TFW_FRAME_NONE,       tfw_framer_push(&f, TFW_SOF));
-    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, (uint8_t)(TFW_MAX_LEN + 1u)));
-}
-
 /* THE RESYNC CASE.
  *
  * A payload byte happens to be 0xA5 and the byte after it is not a plausible
@@ -375,26 +362,6 @@ static void test_abort_recovers_from_a_truncated_frame(void)
     tfw_framer_abort(&f);
 
     TEST_ASSERT_EQUAL(TFW_FRAME_READY, feed(wire, n));
-}
-
-/* A sender can be internally consistent and still wrong: this frame's CRC is
- * correct, but its OP claims a STATUS byte that its LEN leaves no room for.
- * Rejected structurally, because the alternative is a payload length that
- * wraps to 255 and a dispatcher reading past the body. */
-static void test_a_response_too_short_for_its_status_byte_is_malformed(void)
-{
-    uint8_t  wire[8];
-    uint16_t crc;
-
-    wire[0] = TFW_SOF;
-    wire[1] = 2u;                                   /* SEQ + OP only */
-    wire[2] = 0x01u;                                /* SEQ */
-    wire[3] = TFW_CMD_PING | TFW_OP_RESPONSE_BIT;     /* claims a STATUS */
-    crc     = tfw_crc16(&wire[1], 3u);
-    wire[4] = (uint8_t)(crc & 0xFFu);
-    wire[5] = (uint8_t)(crc >> 8);
-
-    TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, feed(wire, 6u));
 }
 
 /* THE SAFETY PROPERTY, stated directly. An arbitrary byte stream may waste
@@ -466,12 +433,9 @@ int main(void)
     RUN_TEST(test_encoder_refuses_a_buffer_it_would_overrun);
     RUN_TEST(test_a_corrupted_payload_byte_is_caught_by_the_crc);
     RUN_TEST(test_a_corrupted_length_byte_is_caught);
-    RUN_TEST(test_a_length_below_the_minimum_is_refused);
-    RUN_TEST(test_a_length_above_the_maximum_is_refused);
     RUN_TEST(test_a_false_sof_does_not_swallow_the_frame_that_follows_it);
     RUN_TEST(test_leading_garbage_before_a_frame_is_discarded);
     RUN_TEST(test_abort_recovers_from_a_truncated_frame);
-    RUN_TEST(test_a_response_too_short_for_its_status_byte_is_malformed);
     RUN_TEST(test_random_bytes_never_overrun_or_wedge_the_framer);
     RUN_TEST(test_a_corrupted_state_is_recovered_not_wedged);
     return UNITY_END();

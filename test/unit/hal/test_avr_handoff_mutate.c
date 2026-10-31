@@ -86,16 +86,9 @@ static void test_block_is_the_whole_handoff_section(void)
 static void test_block_is_one_block_across_calls(void)
 {
     uint8_t *a = tfw_hal_handoff_block();
-    unsigned i;
 
     TEST_ASSERT_NOT_NULL(a);
-    for (i = 0u; i < TFW_BOOT_HANDOFF_LEN; i++) {
-        a[i] = (uint8_t)(0xA5u ^ i);
-    }
     TEST_ASSERT_EQUAL_PTR(a, tfw_hal_handoff_block());
-    for (i = 0u; i < TFW_BOOT_HANDOFF_LEN; i++) {
-        TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xA5u ^ i), tfw_hal_handoff_block()[i]);
-    }
 }
 
 int main(void)

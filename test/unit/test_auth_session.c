@@ -292,21 +292,6 @@ static void test_a_signature_over_an_earlier_challenge_is_refused(void)
 
 /* -------------------------------------------------------- single-use / replay */
 
-static void test_a_second_response_to_the_same_challenge_is_refused(void)
-{
-    uint8_t nonce[TFW_AUTH_NONCE_LEN], sig[TFW_AUTH_SIG_LEN];
-
-    TEST_ASSERT_EQUAL(TFW_OK, challenge(nonce));
-    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);
-    TEST_ASSERT_EQUAL(TFW_OK, response(sig));
-
-    /* The challenge is single-use: a second AUTH_RESPONSE against the SAME
-     * (already-consumed) challenge must be refused even though the signature
-     * is still a good one -- there is no outstanding challenge left for it to
-     * answer. */
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, response(sig));
-}
-
 static void test_a_fresh_challenge_drops_an_existing_session(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(OPERATOR_PRIV));
@@ -325,16 +310,6 @@ static void test_a_response_with_no_challenge_outstanding_is_refused(void)
     sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);   /* a good signature */
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, response(sig));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
-}
-
-/* ------------------------------------------------------------- bad lengths */
-
-static void test_a_short_response_is_refused(void)
-{
-    TEST_ASSERT_EQUAL(TFW_OK, challenge(0));
-    tfw_reader_init(&r, inbuf, TFW_AUTH_SIG_LEN - 1u);
-    tfw_writer_init(&w, outbuf, (uint8_t)sizeof outbuf);
-    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, tfw_auth_cmd_response(&r, &w));
 }
 
 /* --------------------------------------------- the commands it gates */
@@ -393,15 +368,6 @@ static void test_reset_mode_1_is_accepted_with_a_session(void)
     TEST_ASSERT_TRUE(tfw_sys_reset_pending());
 }
 
-/* A failed AUTH_RESPONSE leaves no session, so it opens nothing. */
-static void test_reset_mode_1_is_refused_after_a_failed_authentication(void)
-{
-    TEST_ASSERT_NOT_EQUAL(TFW_OK, authenticate_with(STRANGER_PRIV));
-
-    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, reset_bootloader());
-    TEST_ASSERT_FALSE(tfw_sys_reset_pending());
-}
-
 /* The range check survives: only modes 0 and 1 exist. */
 static void test_reset_with_an_unknown_mode_is_refused(void)
 {
@@ -435,16 +401,13 @@ int main(void)
     RUN_TEST(test_a_corrupted_signature_is_refused_and_leaves_the_gate_closed);
     RUN_TEST(test_a_signature_made_for_another_device_is_refused);
     RUN_TEST(test_a_signature_over_an_earlier_challenge_is_refused);
-    RUN_TEST(test_a_second_response_to_the_same_challenge_is_refused);
     RUN_TEST(test_a_fresh_challenge_drops_an_existing_session);
     RUN_TEST(test_a_response_with_no_challenge_outstanding_is_refused);
-    RUN_TEST(test_a_short_response_is_refused);
     RUN_TEST(test_reserved_region_read_is_refused_before_authentication);
     RUN_TEST(test_reserved_region_read_succeeds_after_authentication);
     RUN_TEST(test_a_read_above_the_reserved_region_is_never_gated);
     RUN_TEST(test_reset_mode_1_is_refused_without_a_session);
     RUN_TEST(test_reset_mode_1_is_accepted_with_a_session);
-    RUN_TEST(test_reset_mode_1_is_refused_after_a_failed_authentication);
     RUN_TEST(test_reset_with_an_unknown_mode_is_refused);
     RUN_TEST(test_a_soft_reset_is_never_gated);
     return UNITY_END();

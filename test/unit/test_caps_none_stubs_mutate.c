@@ -34,24 +34,10 @@ static void assert_untouched(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_mock_irq_enabled());
 }
 
-/* bus.c's init sets the I2C clock first; the stand-in must not. */
-static void test_bus_none_init_sets_no_i2c_clock(void)
-{
-    tfw_bus_init();
-    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFuL, tfw_mock_last_i2c_hz());
-}
 
-/* ...and the SPI mode, divider and bit order second; nor those. */
-static void test_bus_none_init_sets_no_spi_mode(void)
-{
-    tfw_bus_init();
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_last_spi_mode());
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_last_spi_clkdiv());
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, tfw_mock_last_spi_lsb());
-}
-
-/* Nothing else the mock records moves either, and calling it again (a warm
- * restart runs main's init sequence once more) changes nothing. */
+/* Nothing the mock records moves: not the I2C clock bus.c's init sets first,
+ * not the SPI mode, divider and bit order it sets second. Calling it again (a
+ * warm restart runs main's init sequence once more) changes nothing. */
 static void test_bus_none_init_twice_touches_nothing(void)
 {
     tfw_bus_init();
@@ -63,8 +49,6 @@ static void test_bus_none_init_twice_touches_nothing(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_bus_none_init_sets_no_i2c_clock);
-    RUN_TEST(test_bus_none_init_sets_no_spi_mode);
     RUN_TEST(test_bus_none_init_twice_touches_nothing);
     return UNITY_END();
 }

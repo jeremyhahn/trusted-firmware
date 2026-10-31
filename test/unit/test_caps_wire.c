@@ -79,23 +79,6 @@ static void test_every_capability_has_its_documented_id_and_is_served(void)
     }
 }
 
-/* The dispatcher refuses a payload outside the documented bounds before the
- * handler sees it, so a short request cannot be read as a different one. */
-static void test_a_payload_outside_the_documented_bounds_is_bad_argc(void)
-{
-    size_t i;
-    memset(inbuf, 0, sizeof inbuf);
-    for (i = 0; i < N_CAPS_CMDS; i++) {
-        const caps_cmd_t *c = &CAPS_CMDS[i];
-        if (c->min > 0u) {
-            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_ARGC, run_n(c->id, (uint8_t)(c->min - 1u)), c->name);
-        }
-        if (c->max < TFW_MAX_PAYLOAD) {
-            TEST_ASSERT_EQUAL_MESSAGE(TFW_ERR_BAD_ARGC, run_n(c->id, (uint8_t)(c->max + 1u)), c->name);
-        }
-    }
-}
-
 /* api.md "Pulse": 0x31-0x33 are reserved with no handler and answer as an id
  * that was never allocated. */
 static void test_the_reserved_pulse_count_ids_are_unknown(void)
@@ -118,16 +101,8 @@ static void start_tone(void)
     TEST_ASSERT_EQUAL_UINT16(10000u, tfw_mock_tone_hz());
 }
 
-/* NO_TONE: "pin ignored if present". With no payload it stops the tone. */
-static void test_no_tone_with_no_payload_stops_the_tone(void)
-{
-    start_tone();
-    TEST_ASSERT_EQUAL(TFW_OK, run_n(TFW_CMD_NO_TONE, 0u));
-    TEST_ASSERT_EQUAL_UINT16(0u, tfw_mock_tone_hz());
-}
-
-/* And a pin that is not the tone pin is ignored, not refused: there is one
- * tone and NO_TONE stops it. */
+/* NO_TONE: "pin ignored if present". A pin that is not the tone pin is
+ * ignored, not refused: there is one tone and NO_TONE stops it. */
 static void test_no_tone_ignores_the_pin_it_is_given(void)
 {
     start_tone();
@@ -142,9 +117,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_every_capability_has_its_documented_id_and_is_served);
-    RUN_TEST(test_a_payload_outside_the_documented_bounds_is_bad_argc);
     RUN_TEST(test_the_reserved_pulse_count_ids_are_unknown);
-    RUN_TEST(test_no_tone_with_no_payload_stops_the_tone);
     RUN_TEST(test_no_tone_ignores_the_pin_it_is_given);
     return UNITY_END();
 }

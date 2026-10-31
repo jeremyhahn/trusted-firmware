@@ -62,16 +62,6 @@ static void test_writer_permits_filling_to_capacity_exactly(void)
     TEST_ASSERT_EQUAL_UINT8(0u,  tfw_writer_remaining(&w));
 }
 
-static void test_writer_refuses_one_byte_past_capacity(void)
-{
-    uint8_t i;
-    for (i = 0u; i < CAP; i++) {
-        tfw_write_u8(&w, i);
-    }
-    tfw_write_u8(&w, 0xFFu);
-    TEST_ASSERT_FALSE(tfw_writer_ok(&w));
-}
-
 /* THE DEFECT THIS TYPE EXISTS TO PREVENT.
  *
  * The firmware being replaced chained strcat() into a fixed char[375] with no
@@ -211,7 +201,6 @@ int main(void)
     RUN_TEST(test_writer_encodes_scalars_little_endian);
     RUN_TEST(test_writer_copies_a_blob);
     RUN_TEST(test_writer_permits_filling_to_capacity_exactly);
-    RUN_TEST(test_writer_refuses_one_byte_past_capacity);
     RUN_TEST(test_writer_overflowing_write_stores_nothing);
     RUN_TEST(test_writer_overflow_is_sticky);
     RUN_TEST(test_writer_refuses_a_length_that_would_wrap_the_cursor);

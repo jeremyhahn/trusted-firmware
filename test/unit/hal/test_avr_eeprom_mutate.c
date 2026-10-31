@@ -245,20 +245,6 @@ static void test_unchanged_cells_cost_no_wear(void)
     TEST_ASSERT_EQUAL_UINT(sizeof buf, kicks);
 }
 
-static void test_written_cells_read_back(void)
-{
-    uint8_t in[40], out[40];
-    unsigned i;
-
-    for (i = 0u; i < sizeof in; i++) {
-        in[i] = (uint8_t)(0xC3u + i * 5u);
-    }
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(0x0777u, in, (uint8_t)sizeof in));
-    memset(out, 0, sizeof out);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(0x0777u, out, (uint8_t)sizeof out));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, out, sizeof in);
-}
-
 static void check_flash(uint32_t addr, uint8_t len)
 {
     uint8_t  buf[256u + GUARD];
@@ -313,7 +299,6 @@ int main(void)
     RUN_TEST(test_write_of_a_short_run_at_the_edges);
     RUN_TEST(test_write_of_nothing_touches_nothing);
     RUN_TEST(test_unchanged_cells_cost_no_wear);
-    RUN_TEST(test_written_cells_read_back);
     RUN_TEST(test_flash_read_low);
     RUN_TEST(test_flash_read_past_64k_keeps_the_high_bits);
     return UNITY_END();

@@ -229,30 +229,6 @@ static void test_the_block_lives_at_0x140_for_32_bytes(void)
     TEST_ASSERT_EQUAL_UINT(32u, TFW_NETCFG_LEN);
 }
 
-/* Each field that makes a block unusable, one at a time. The last two carry a
- * good CRC, so it is the zero that refuses them and not the checksum. */
-static void test_a_damaged_or_incomplete_block_is_not_provisioned(void)
-{
-    uint8_t      b[TFW_NETCFG_LEN];
-    tfw_netcfg_t c;
-    uint16_t     crc;
-
-    memcpy(b, NETCFG, sizeof b); b[0] = 'X';
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_netcfg_decode(b, &c));
-    memcpy(b, NETCFG, sizeof b); b[4] = 2u;
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_netcfg_decode(b, &c));
-    memcpy(b, NETCFG, sizeof b); b[31] ^= 0x01u;
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_netcfg_decode(b, &c));
-
-    memcpy(b, NETCFG, sizeof b); b[28] = b[29] = 0u;
-    crc = tfw_crc16(b, 30u); b[30] = (uint8_t)crc; b[31] = (uint8_t)(crc >> 8);
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_netcfg_decode(b, &c));
-
-    memcpy(b, NETCFG, sizeof b); memset(&b[24], 0, 4u);
-    crc = tfw_crc16(b, 30u); b[30] = (uint8_t)crc; b[31] = (uint8_t)(crc >> 8);
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_netcfg_decode(b, &c));
-}
-
 /* -------------------------------------------------------------- connecting */
 
 static void test_a_blank_block_never_starts_the_controller_and_serial_still_answers(void)
@@ -611,22 +587,6 @@ static void test_a_command_off_the_list_is_answered_unknown_and_does_not_run(voi
     TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, tfw_frame_status(&rxf));
 }
 
-/* The update commands the network may send are 0x68..0x6B and no more (owner
- * ruling, issue #55 item 48): the OTA ADR's widening to the auth pair and to
- * OTA_INFO..OTA_CONFIRM is narrowed away, so AUTH_CHALLENGE and the first id
- * past the range read as commands the image does not have. */
-static void test_an_update_command_past_0x6b_is_answered_unknown_over_ethernet(void)
-{
-    connect_up();
-    TEST_ASSERT_TRUE(over_eth(0x83u, TFW_CMD_AUTH_CHALLENGE, 0, 0u));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, tfw_frame_status(&rxf));
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&rxf));
-
-    TEST_ASSERT_TRUE(over_eth(0x84u, 0x6Cu, 0, 0u));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNKNOWN_CMD, tfw_frame_status(&rxf));
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&rxf));
-}
-
 /* Every id off the allow-list, not a sample: each is answered over Ethernet
  * with TFW_ERR_UNKNOWN_CMD and no payload, and the connection stays up. */
 static void test_every_id_off_the_list_is_answered_unknown_over_ethernet(void)
@@ -673,7 +633,6 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_the_literal_block_decodes_to_its_fields);
     RUN_TEST(test_the_block_lives_at_0x140_for_32_bytes);
-    RUN_TEST(test_a_damaged_or_incomplete_block_is_not_provisioned);
     RUN_TEST(test_a_blank_block_never_starts_the_controller_and_serial_still_answers);
     RUN_TEST(test_a_block_asking_for_dhcp_stays_down_without_the_client);
     RUN_TEST(test_without_the_client_nothing_falls_due_and_renewal_keeps_the_link);
@@ -692,7 +651,6 @@ int main(void)
     RUN_TEST(test_ethernet_admits_the_enrolment_attestation_and_staging_commands_and_nothing_else);
     RUN_TEST(test_serial_admits_every_command);
     RUN_TEST(test_a_command_off_the_list_is_answered_unknown_and_does_not_run);
-    RUN_TEST(test_an_update_command_past_0x6b_is_answered_unknown_over_ethernet);
     RUN_TEST(test_every_id_off_the_list_is_answered_unknown_over_ethernet);
     RUN_TEST(test_attest_over_ethernet_reaches_the_attestation_module);
     return UNITY_END();

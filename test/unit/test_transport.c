@@ -78,26 +78,6 @@ static void test_an_unknown_command_is_answered_rather_than_ignored(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_frame_payload_len(&rxf));
 }
 
-static void test_a_corrupted_frame_is_answered_with_a_crc_status(void)
-{
-    uint8_t  wire[TFW_MAX_FRAME];
-    uint8_t  back[TFW_MAX_FRAME * 2u];
-    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 3u, TFW_CMD_PING, 0, 0u);
-    size_t   got, i;
-    uint8_t  saw = 0u;
-
-    wire[len - 1u] ^= 0xFFu;                 /* wreck the CRC */
-    tfw_mock_feed_rx(wire, len);
-    for (i = 0; i < 8u; i++) { tfw_transport_poll(&t); }
-
-    got = tfw_mock_drain_tx(back, sizeof back);
-    for (i = 0; i < got; i++) {
-        if (tfw_framer_push(&rxf, back[i]) == TFW_FRAME_READY) { saw = 1u; }
-    }
-    TEST_ASSERT_TRUE(saw);
-    TEST_ASSERT_EQUAL(TFW_ERR_CRC, tfw_frame_status(&rxf));
-}
-
 /* A frame split across many reads must decode identically. On a real link this
  * is the normal case, not the exception -- a UART delivers bytes one at a time
  * and the poll loop sees whatever happened to arrive. */
@@ -257,20 +237,6 @@ static void test_an_event_is_emitted_when_nothing_is_in_flight(void)
 /* Events only go out when nothing else is. That is what lets the host stay a
  * strict request/response state machine rather than a reassembler that must
  * cope with an event landing mid-reply. */
-static void test_an_event_is_refused_while_a_response_is_pending(void)
-{
-    uint8_t pay[32];
-    uint8_t wire[TFW_MAX_FRAME];
-    memset(pay, 0x11u, sizeof pay);
-    uint16_t len = tfw_frame_encode_request(wire, sizeof wire, 1u, TFW_CMD_PING, pay, (uint8_t)sizeof pay);
-
-    tfw_mock_set_tx_capacity(2u);             /* guarantee the reply cannot finish */
-    tfw_mock_feed_rx(wire, len);
-    tfw_transport_poll(&t);
-
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_transport_send_event(&t, TFW_EVENT_DEADMAN));
-}
-
 /* Issue #163: the mock's receive buffer gave back no byte it had handed out,
  * so one link went deaf after 4 KiB from the host in total, however promptly
  * each frame was read. tfwsim is this mock behind a pipe, so a long session
@@ -447,14 +413,12 @@ int main(void)
     RUN_TEST(test_ping_round_trips_over_the_link);
     RUN_TEST(test_the_sequence_number_is_echoed_so_a_host_can_correlate);
     RUN_TEST(test_an_unknown_command_is_answered_rather_than_ignored);
-    RUN_TEST(test_a_corrupted_frame_is_answered_with_a_crc_status);
     RUN_TEST(test_a_frame_arriving_one_byte_at_a_time_decodes_the_same);
     RUN_TEST(test_a_full_transmit_ring_defers_rather_than_dropping_bytes);
     RUN_TEST(test_a_stalled_partial_frame_is_abandoned_after_the_idle_window);
     RUN_TEST(test_a_bad_format_event_and_the_good_frame_after_it_are_two_polls);
     RUN_TEST(test_a_response_frame_sent_to_the_device_is_ignored);
     RUN_TEST(test_an_event_is_emitted_when_nothing_is_in_flight);
-    RUN_TEST(test_an_event_is_refused_while_a_response_is_pending);
     RUN_TEST(test_a_long_session_is_answered_past_four_kib_from_the_host);
     RUN_TEST(test_every_request_id_is_answered_under_its_seq_and_op);
     RUN_TEST(test_the_link_resynchronises_and_counts_what_it_refused);

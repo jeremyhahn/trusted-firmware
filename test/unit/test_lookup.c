@@ -62,28 +62,6 @@ static void test_pin_first_and_last_entries(void)
                           tfw_board_pin(last, &ref));
 }
 
-static void test_pin_refuses_a_pin_past_the_table(void)
-{
-    tfw_pinref_t ref;
-
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_board_pin((tfw_pin_t)TFW_PIN_COUNT, &ref));
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_board_pin((tfw_pin_t)0xFFu, &ref));
-}
-
-static void test_pin_refuses_a_pin_without_a_digital_port(void)
-{
-    tfw_pinref_t ref;
-    tfw_pin_t    p;
-    uint8_t      found = 0u;
-
-    for (p = 0; p < TFW_PIN_COUNT; p++) {
-        if (port_of(p) != TFW_PORT_NONE) { continue; }
-        TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_board_pin(p, &ref));
-        found++;
-    }
-    TEST_ASSERT_TRUE(found > 0u);
-}
-
 /* tfw_board_adc_channel */
 static void test_adc_channel_returns_the_stored_channel(void)
 {
@@ -170,13 +148,6 @@ static void test_pwm_refuses_a_reserved_timer_pin_but_reports_it_as_2(void)
         found++;
     }
     TEST_ASSERT_TRUE(found > 0u);
-}
-
-static void test_pwm_refuses_a_pin_past_the_table(void)
-{
-    tfw_pwmref_t ref;
-
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_board_pwm((tfw_pin_t)TFW_PIN_COUNT, &ref));
 }
 
 /* Out of range reads as 0, the same byte as "no PWM": the state has no
@@ -275,6 +246,8 @@ static void test_pin_refused_past_the_table_leaves_the_ref_untouched(void)
     memset(&clean, 0xA5, sizeof clean);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_board_pin((tfw_pin_t)TFW_PIN_COUNT, &ref));
     TEST_ASSERT_EQUAL_MEMORY(&clean, &ref, sizeof ref);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_BAD_PIN, tfw_board_pin((tfw_pin_t)0xFFu, &ref));
+    TEST_ASSERT_EQUAL_MEMORY(&clean, &ref, sizeof ref);
 }
 
 static void test_pin_refused_without_a_digital_port_leaves_the_ref_untouched(void)
@@ -345,15 +318,12 @@ int main(void)
     RUN_TEST(test_board_name_is_the_profile_name);
     RUN_TEST(test_pin_resolves_every_pin_with_a_port);
     RUN_TEST(test_pin_first_and_last_entries);
-    RUN_TEST(test_pin_refuses_a_pin_past_the_table);
-    RUN_TEST(test_pin_refuses_a_pin_without_a_digital_port);
     RUN_TEST(test_adc_channel_returns_the_stored_channel);
     RUN_TEST(test_adc_channel_refuses_a_pin_without_one_and_leaves_out);
     RUN_TEST(test_adc_channel_refuses_a_pin_past_the_table);
     RUN_TEST(test_pwm_resolves_a_pin_with_a_usable_timer);
     RUN_TEST(test_pwm_refuses_a_pin_with_no_compare_unit);
     RUN_TEST(test_pwm_refuses_a_reserved_timer_pin_but_reports_it_as_2);
-    RUN_TEST(test_pwm_refuses_a_pin_past_the_table);
     RUN_TEST(test_pwm_state_of_a_pin_past_the_table_is_0);
     RUN_TEST(test_pin_flags_are_the_stored_flags);
     RUN_TEST(test_pin_flags_of_a_pin_past_the_table_are_0);

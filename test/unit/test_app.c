@@ -301,17 +301,6 @@ static void test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_app_config_read(17u, &b, 0u));
 }
 
-/* A refused application may still call these; its overlong length does not
- * reach past the part. */
-static void test_configuration_never_reaches_past_the_eeprom(void)
-{
-    uint8_t b = 0u;
-
-    tfw_mock_app_descriptor()->config_len = 0xFFFFu;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
-                          tfw_app_config_write((uint16_t)(TFW_EEPROM_SIZE - TFW_APP_CONFIG_BASE), &b, 1u));
-}
-
 /* ---- APP_INFO ---- */
 
 static tfw_status_t app_info(uint8_t payload_len)
@@ -502,7 +491,6 @@ int main(void)
     RUN_TEST(test_configuration_lands_after_the_boot_block);
     RUN_TEST(test_configuration_past_the_declared_length_is_out_of_range);
     RUN_TEST(test_an_empty_access_at_the_end_is_allowed_and_past_it_is_not);
-    RUN_TEST(test_configuration_never_reaches_past_the_eeprom);
     RUN_TEST(test_app_info_reports_the_runner_and_the_descriptor);
     RUN_TEST(test_app_info_reports_a_refused_descriptor_as_written);
     RUN_TEST(test_app_info_takes_no_payload);

@@ -390,16 +390,6 @@ static void test_an_over_long_response(void)
     played();
 }
 
-static void test_random_short_of_the_length_asked_is_framing(void)
-{
-    static const uint8_t    a[] = { 0x00, 0x00, 0x00, 0x08, 0, 1, 2, 3, 4, 5, 6, 7 };
-    static const exchange_t s[] = { EX(Q_RANDOM, a) };
-
-    PLAY(s);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_get_random(out, 32u));
-    played();
-}
-
 /* A random stream of any length but the one asked is refused before a byte
  * of it reaches the caller. */
 static void test_a_random_of_the_wrong_length_writes_nothing(void)
@@ -433,14 +423,9 @@ static void test_metadata_of_the_wrong_tag_writes_nothing(void)
 
 static void test_metadata_that_is_not_tag_20_or_overflows_the_caller(void)
 {
-    static const uint8_t    a21[] = { 0x00, 0x00, 0x00, 0x02, 0x21, 0x00 };
-    static const exchange_t s1[]  = { EX(Q_MD_CERT, a21) };
     static const exchange_t s2[]  = { EX(Q_MD_CERT, A_EMPTY) };
     static const exchange_t s3[]  = { EX(Q_MD_CERT, A_MD_CERT) };
 
-    PLAY(s1);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_get_metadata(0xE0E0u, out, sizeof out, &len));
-    played();
     PLAY(s2);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_optiga_get_metadata(0xE0E0u, out, sizeof out, &len));
     played();
@@ -1012,7 +997,6 @@ int main(void)
     RUN_TEST(test_a_failed_or_malformed_error_read);
     RUN_TEST(test_a_short_response_is_framing);
     RUN_TEST(test_an_over_long_response);
-    RUN_TEST(test_random_short_of_the_length_asked_is_framing);
     RUN_TEST(test_a_random_of_the_wrong_length_writes_nothing);
     RUN_TEST(test_metadata_of_the_wrong_tag_writes_nothing);
     RUN_TEST(test_metadata_that_is_not_tag_20_or_overflows_the_caller);

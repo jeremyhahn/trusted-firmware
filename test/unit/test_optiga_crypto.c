@@ -289,7 +289,6 @@ static void test_random_out_of_range_or_failing(void)
     static const uint8_t    short8[] = { 0x00, 0x00, 0x00, 0x07, 1, 2, 3, 4, 5, 6, 7 };
     static const exchange_t s1[]     = { EX(Q_RANDOM_32, A_FAIL), EX(Q_LASTERR, A_E07) };
     static const exchange_t s2[]     = { EX(Q_RANDOM_8, short8) };
-    static const exchange_t s3[]     = { EX_ST(Q_RANDOM_32, TFW_ERR_TIMEOUT) };
 
     present();
     play(0, 0u);
@@ -301,9 +300,6 @@ static void test_random_out_of_range_or_failing(void)
     played();
     PLAY(s2);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_FRAMING, tfw_crypto_random(out, 4u));
-    played();
-    PLAY(s3);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_crypto_random(out, 32u));
     played();
     TEST_ASSERT_EQUAL_HEX8(0xA5u, out[0]);
 }

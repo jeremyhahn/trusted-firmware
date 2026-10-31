@@ -278,35 +278,6 @@ static void test_a_size_that_never_settles_reads_as_nothing(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_eth_tx(0x55u));
 }
 
-/* A received size above the 2 KB ring is no genuine part's: nothing of it is
- * handed up, the socket is closed, and the link reads down so the host
- * reconnects. */
-static void rx_above_the_ring(uint16_t rsr)
-{
-    static const uint8_t b[4] = { 1u, 2u, 3u, 4u };
-    uint8_t got = 0xEEu;
-
-    connect();
-    w5x_model_peer_send(b, 4u);
-    w5x_model_rsr_reads(rsr);
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_eth_rx(&got));
-    TEST_ASSERT_EQUAL_UINT8(0xEEu, got);
-    TEST_ASSERT_EQUAL_UINT8(0x00u, w5x_model_sock(S_SR));          /* CLOSED */
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_eth_rx(&got));
-    TEST_ASSERT_EQUAL_UINT8(0xEEu, got);
-    TEST_ASSERT_EQUAL_UINT8(TFW_ETH_DOWN, tfw_eth_state());
-}
-
-static void test_a_received_size_of_0x0801_closes_the_socket(void)
-{
-    rx_above_the_ring(0x0801u);
-}
-
-static void test_a_received_size_of_0xffff_closes_the_socket(void)
-{
-    rx_above_the_ring(0xFFFFu);
-}
-
 static void test_close_closes_the_socket(void)
 {
     connect();
@@ -458,8 +429,6 @@ int main(void)
     RUN_TEST(test_a_command_the_chip_never_takes_is_given_up);
     RUN_TEST(test_a_connect_the_chip_never_takes_is_given_up);
     RUN_TEST(test_a_size_that_never_settles_reads_as_nothing);
-    RUN_TEST(test_a_received_size_of_0x0801_closes_the_socket);
-    RUN_TEST(test_a_received_size_of_0xffff_closes_the_socket);
     RUN_TEST(test_close_closes_the_socket);
     RUN_TEST(test_receive_with_nothing_waiting_reads_nothing);
     RUN_TEST(test_a_udp_open_on_the_other_chip_is_refused_and_never_writes);

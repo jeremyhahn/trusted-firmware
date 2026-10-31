@@ -222,7 +222,7 @@ static tfw_frame_event_t push_all(const uint8_t *b, uint16_t n)
 
 static void test_a_length_above_the_maximum_counts_one_format_error_and_waits_for_sof(void)
 {
-    (void)tfw_framer_push(&f, TFW_SOF);
+    TEST_ASSERT_EQUAL(TFW_FRAME_NONE, tfw_framer_push(&f, TFW_SOF));
     TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, (uint8_t)(TFW_MAX_LEN + 1u)));
     TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
     TEST_ASSERT_EQUAL_UINT8(0u, f.want);
@@ -232,11 +232,12 @@ static void test_a_length_above_the_maximum_counts_one_format_error_and_waits_fo
 
 static void test_a_length_below_the_minimum_takes_no_length_and_waits_for_sof(void)
 {
-    (void)tfw_framer_push(&f, TFW_SOF);
+    TEST_ASSERT_EQUAL(TFW_FRAME_NONE, tfw_framer_push(&f, TFW_SOF));
     TEST_ASSERT_EQUAL(TFW_FRAME_BAD_FORMAT, tfw_framer_push(&f, (uint8_t)(TFW_LEN_MIN - 1u)));
     TEST_ASSERT_EQUAL_UINT8(TFW_FRAME_WAIT_SOF, f.state);
     TEST_ASSERT_EQUAL_UINT8(0u, f.want);
     TEST_ASSERT_EQUAL_UINT8(0u, f.got);
+    TEST_ASSERT_EQUAL_UINT16(1u, f.err_format);
     TEST_ASSERT_EQUAL_UINT16(0u, f.err_crc);
 }
 

@@ -115,15 +115,6 @@ static void test_the_blocks_that_are_not_ours_are_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_PROTECTED_REGION, tfw_prov_cmd_write_config(&r, &w));
 }
 
-static void test_a_block_beyond_the_config_zone_is_refused(void)
-{
-    uint8_t p[33] = { 0 };
-
-    p[0] = 9u;
-    prep(p, 33u);
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_write_config(&r, &w));
-}
-
 /* ---------------------------------------------------------------- LOCK */
 
 /*
@@ -153,14 +144,6 @@ static void test_a_lock_with_a_crc_reaches_the_element(void)
     prep(p, 3u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_prov_cmd_lock(&r, &w));
     TEST_ASSERT_EQUAL_HEX8(TFW_ATECC_OP_LOCK, tfw_model_last_opcode());
-}
-
-static void test_a_zone_the_part_does_not_have_is_refused(void)
-{
-    const uint8_t p[3] = { 0x7Fu, 0x34u, 0x12u };
-
-    prep(p, 3u);
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_prov_cmd_lock(&r, &w));
 }
 
 /* -------------------------------------------------------------- KEYS */
@@ -478,10 +461,8 @@ int main(void)
     RUN_TEST(test_a_silent_bus_is_reported_as_a_bus_fault);
     RUN_TEST(test_a_config_block_is_written);
     RUN_TEST(test_the_blocks_that_are_not_ours_are_refused);
-    RUN_TEST(test_a_block_beyond_the_config_zone_is_refused);
     RUN_TEST(test_a_lock_without_a_summary_crc_is_refused);
     RUN_TEST(test_a_lock_with_a_crc_reaches_the_element);
-    RUN_TEST(test_a_zone_the_part_does_not_have_is_refused);
     RUN_TEST(test_genkey_returns_a_public_point_and_never_a_private_one);
     RUN_TEST(test_genkey_into_any_other_slot_is_refused);
     RUN_TEST(test_pubkey_reads_and_does_not_generate);

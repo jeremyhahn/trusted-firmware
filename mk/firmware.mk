@@ -358,8 +358,14 @@ endif
 # on the element tier, whose stored image key verifies the manifest's ES256,
 # and only on a board whose profile.mk opts in with OTA_MANIFEST := 1 -- the
 # ATmega2560 today. The 328P and 32U4 sit under the 16 384-byte policy line,
-# where the ADR's decision 6 leaves the trailer alone; they opt in only once a
-# measured image fits the region budget with the reader in it.
+# where the ADR's decision 6 leaves the trailer alone, and they do not opt in.
+# The 4 KB parts keep it off, as ruled (owner queue 176, option (a)): refused
+# here, not left to link the stub quietly.
+ifneq ($(filter $(BOARD),atmega328p atmega32u4),)
+ifeq ($(OTA_MANIFEST),1)
+$(error OTA_MANIFEST=1 is refused on $(BOARD) -- the manifest check stays off the ATmega328P and ATmega32U4 (owner queue 176, option (a)); the image is left to tfw-boot's signature. See docs/ota/README.md)
+endif
+endif
 ifneq ($(filter $(CRYPTO)$(OTA_MANIFEST),atecc608a1 auto1),)
 MANIFEST_SRCS := src/core/suit.c
 else

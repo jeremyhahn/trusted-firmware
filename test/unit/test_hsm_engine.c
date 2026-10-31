@@ -25,6 +25,7 @@
 #include "suit_vectors.h"
 #include "hsm.h"
 #include "hsm_port.h"
+#include "hsm_record.h"
 
 static uint8_t test_handoff[TFW_BOOT_HANDOFF_LEN];
 uint8_t *tfw_hal_handoff_block(void) { return test_handoff; }
@@ -175,6 +176,7 @@ void setUp(void)
     measure_st = TFW_OK;
     wipe_st = TFW_OK;
     act_st  = TFW_OK;
+    tfw_hsm_record_erase();
     tfw_hsm_init(&h, 0u);
 }
 
@@ -823,6 +825,228 @@ static void test_s3_a_mismatch_or_failed_measurement_raises_s3(void)
     }
 }
 
+/* --- A6: what the engine saw, decided and did (slice 11b-2) ------------- */
+
+/* Entry `i` of the record is exactly this. */
+static void rec_is(uint8_t i, uint8_t kind, uint8_t what, tfw_status_t result, uint32_t at)
+{
+    tfw_hsm_entry_t e;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_read(i, &e));
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(kind, e.kind, "kind");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE(what, e.what, "what");
+    TEST_ASSERT_EQUAL_UINT8_MESSAGE((uint8_t)result, e.result, "result");
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(at, e.at, "at");
+}
+
+/* The record starts empty, and a load, a verdict, a heartbeat or a quiet tick
+ * adds nothing to it. */
+static void test_a6_nothing_is_recorded_without_a_signal(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hsm_record_count());
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    tfw_hsm_heartbeat(&h, 20u);
+    tfw_hsm_tick(&h, 30u);
+    NO_ACTS();
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hsm_record_count());
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_hsm_record_dropped());
+}
+
+/* R4: V with no signal acts on nothing, and it is recorded: one decision
+ * entry, V in `what`, stamped when it arrived. A later V is another entry. */
+static void test_a6_a_verdict_with_no_signal_is_recorded_and_acts_on_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 10u);
+    tfw_hsm_heartbeat(&h, 20u);
+    tfw_hsm_tick(&h, 30u);
+    NO_ACTS();
+    TEST_ASSERT_EQUAL_UINT8(0u, h.wiped);
+    TEST_ASSERT_EQUAL_UINT8(0u, h.locked);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hsm_record_count());
+    rec_is(0u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 10u);
+    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_CLEAR, 40u);
+    NO_ACTS();
+    TEST_ASSERT_EQUAL_UINT8(2u, tfw_hsm_record_count());
+    rec_is(1u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_CLEAR, TFW_OK, 40u);
+}
+
+/* R3 with a clear V: the wipe is withheld, and the record says which V
+ * withheld it. */
+static void test_a6_r3_a_clear_verdict_records_the_decision_and_wipes_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_CLEAR, 100u);
+    tfw_hsm_signal(&h, S1, 200u);
+    ACTS(TFW_HSM_ACT_KEYS_LOCK, TFW_HSM_ACT_SHUTDOWN);
+    TEST_ASSERT_EQUAL_UINT8(0u, h.wiped);
+    TEST_ASSERT_EQUAL_UINT8(5u, tfw_hsm_record_count());
+    rec_is(0u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_CLEAR, TFW_OK, 100u);
+    rec_is(1u, TFW_HSM_REC_SIGNAL, S1, TFW_OK, 200u);
+    rec_is(2u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_CLEAR, TFW_OK, 200u);
+    rec_is(3u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_KEYS_LOCK, TFW_OK, 200u);
+    rec_is(4u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_SHUTDOWN, TFW_OK, 200u);
+}
+
+/* R3 with a V past W: the wipe is withheld, and the record carries the V
+ * consulted, the receipt entry's time showing it stale. */
+static void test_a6_r3_an_expired_verdict_records_the_decision_and_wipes_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 100u);
+    tfw_hsm_signal(&h, S1, 601u);
+    ACTS(TFW_HSM_ACT_KEYS_LOCK, TFW_HSM_ACT_SHUTDOWN);
+    TEST_ASSERT_EQUAL_UINT8(0u, h.wiped);
+    TEST_ASSERT_EQUAL_UINT8(5u, tfw_hsm_record_count());
+    rec_is(0u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 100u);
+    rec_is(1u, TFW_HSM_REC_SIGNAL, S1, TFW_OK, 601u);
+    rec_is(2u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 601u);
+    rec_is(3u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_KEYS_LOCK, TFW_OK, 601u);
+    rec_is(4u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_SHUTDOWN, TFW_OK, 601u);
+}
+
+/* R1: a signal, then the four lockdown actions, each with the port's result. */
+static void test_a6_r1_lockdown_records_the_signal_then_the_four_actions(void)
+{
+    static const tfw_status_t st[2] = { TFW_OK, TFW_ERR_UNSUPPORTED };
+
+    for (uint8_t i = 0u; i < 2u; i++) {
+        setUp();
+        act_st = st[i];
+        tfw_hsm_signal(&h, S1, 700u);
+        ACTS(LOCK);
+        TEST_ASSERT_EQUAL_UINT8(5u, tfw_hsm_record_count());
+        rec_is(0u, TFW_HSM_REC_SIGNAL, S1, TFW_OK, 700u);
+        rec_is(1u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_PHY_OFF, st[i], 700u);
+        rec_is(2u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_POWER_OFF, st[i], 700u);
+        rec_is(3u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_KEYS_LOCK, st[i], 700u);
+        rec_is(4u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_RECORD, st[i], 700u);
+        TEST_ASSERT_EQUAL_UINT16(0u, tfw_hsm_record_dropped());
+    }
+}
+
+/* R5: the timer's S6 is a signal like any other, recorded at the tick's time. */
+static void test_a6_r5_heartbeat_loss_records_s6_then_lockdown(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 100u));
+    tfw_hsm_tick(&h, 1100u);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hsm_record_count());
+    tfw_hsm_tick(&h, 1101u);
+    ACTS(LOCK);
+    TEST_ASSERT_EQUAL_UINT8(5u, tfw_hsm_record_count());
+    rec_is(0u, TFW_HSM_REC_SIGNAL, S6, TFW_OK, 1101u);
+    rec_is(1u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_PHY_OFF, TFW_OK, 1101u);
+    rec_is(4u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_RECORD, TFW_OK, 1101u);
+    /* Latched: the timer raises S6 no more, and nothing more is recorded. */
+    tfw_hsm_tick(&h, 9000u);
+    TEST_ASSERT_EQUAL_UINT8(5u, tfw_hsm_record_count());
+}
+
+/* R2: P's actions are recorded as run; S2's keys-wipe is not run, so it is
+ * not recorded, and no decision is recorded without R3. */
+static void test_a6_r2_p_actions_are_recorded_and_the_wipe_is_not(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 100u);
+    tfw_hsm_signal(&h, S2, 200u);
+    ACTS(TFW_HSM_ACT_RECORD, TFW_HSM_ACT_PHY_OFF);
+    /* The verdict's receipt, the signal and two actions: a rule with no wipe
+     * consults no V, so no decision of its own. */
+    TEST_ASSERT_EQUAL_UINT8(4u, tfw_hsm_record_count());
+    rec_is(0u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 100u);
+    rec_is(1u, TFW_HSM_REC_SIGNAL, S2, TFW_OK, 200u);
+    rec_is(2u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_RECORD, TFW_OK, 200u);
+    rec_is(3u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_PHY_OFF, TFW_OK, 200u);
+    /* A script's actions are recorded the same way, its wipe left out. */
+    tfw_hsm_init(&h, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    TEST_ASSERT_EQUAL(TFW_OK, script(SCRIPT_B, sizeof SCRIPT_B));
+    tfw_hsm_record_erase();
+    tfw_hsm_signal(&h, S4, 300u);
+    ACTS(TFW_HSM_ACT_PHY_OFF, TFW_HSM_ACT_POWER_OFF);
+    /* S4's rule is wipe-enabled, so it consults V (none received: clear). */
+    TEST_ASSERT_EQUAL_UINT8(4u, tfw_hsm_record_count());
+    rec_is(0u, TFW_HSM_REC_SIGNAL, S4, TFW_OK, 300u);
+    rec_is(1u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_CLEAR, TFW_OK, 300u);
+    rec_is(2u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_PHY_OFF, TFW_OK, 300u);
+    rec_is(3u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_POWER_OFF, TFW_OK, 300u);
+}
+
+/* R3: the signal, the verdict V it acted on, the acknowledged wipe, then the
+ * lockdown. */
+static void test_a6_r3_an_acknowledged_wipe_records_signal_decision_wipe_lockdown(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 100u);
+    tfw_hsm_signal(&h, S1, 200u);
+    ACTS(TFW_HSM_ACT_KEYS_WIPE, LOCK);
+    TEST_ASSERT_EQUAL_UINT8(1u, h.wiped);
+    TEST_ASSERT_EQUAL_UINT8(8u, tfw_hsm_record_count());
+    rec_is(0u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 100u);
+    rec_is(1u, TFW_HSM_REC_SIGNAL, S1, TFW_OK, 200u);
+    rec_is(2u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 200u);
+    rec_is(3u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_KEYS_WIPE, TFW_OK, 200u);
+    rec_is(4u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_PHY_OFF, TFW_OK, 200u);
+    rec_is(5u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_POWER_OFF, TFW_OK, 200u);
+    rec_is(6u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_KEYS_LOCK, TFW_OK, 200u);
+    rec_is(7u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_RECORD, TFW_OK, 200u);
+}
+
+/* R3 with the wipe refused or silent: the wipe's entry carries the port's
+ * status, and the lockdown after it is recorded all the same. */
+static void test_a6_r3_a_refused_wipe_records_the_ports_status(void)
+{
+    static const tfw_status_t st[2] = { TFW_ERR_CRYPTO, TFW_ERR_TIMEOUT };
+
+    for (uint8_t i = 0u; i < 2u; i++) {
+        setUp();
+        TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+        wipe_st = st[i];
+        tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 0u);
+        tfw_hsm_signal(&h, S1, 50u);
+        ACTS(TFW_HSM_ACT_KEYS_WIPE, LOCK);
+        TEST_ASSERT_EQUAL_UINT8(0u, h.wiped);
+        TEST_ASSERT_EQUAL_UINT8(8u, tfw_hsm_record_count());
+        rec_is(0u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 0u);
+        rec_is(1u, TFW_HSM_REC_SIGNAL, S1, TFW_OK, 50u);
+        rec_is(2u, TFW_HSM_REC_DECISION, TFW_HSM_VERDICT_COMPROMISED, TFW_OK, 50u);
+        rec_is(3u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_KEYS_WIPE, st[i], 50u);
+        rec_is(4u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_PHY_OFF, TFW_OK, 50u);
+        rec_is(7u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_RECORD, TFW_OK, 50u);
+    }
+}
+
+/* A full record changes nothing the engine does: it keeps its first entries,
+ * refuses the rest and counts them (A6). */
+static void test_a6_a_full_record_does_not_stop_the_engine(void)
+{
+    /* Six lockdowns of five entries fill 30 of the 32 slots; the seventh adds
+     * two and drops three. */
+    for (uint8_t i = 0u; i < 6u; i++) {
+        tfw_hsm_signal(&h, S1, 1000u + i);
+        ACTS(LOCK);
+    }
+    TEST_ASSERT_EQUAL_UINT8(30u, tfw_hsm_record_count());
+    TEST_ASSERT_EQUAL_UINT16(0u, tfw_hsm_record_dropped());
+    tfw_hsm_signal(&h, S2, 2000u);
+    ACTS(LOCK);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_RECORD_MAX, tfw_hsm_record_count());
+    TEST_ASSERT_EQUAL_UINT16(3u, tfw_hsm_record_dropped());
+    rec_is(0u, TFW_HSM_REC_SIGNAL, S1, TFW_OK, 1000u);
+    rec_is(30u, TFW_HSM_REC_SIGNAL, S2, TFW_OK, 2000u);
+    rec_is(31u, TFW_HSM_REC_ACTION, TFW_HSM_ACT_PHY_OFF, TFW_OK, 2000u);
+    /* Still acting, still counting: a wipe is run and counted done. */
+    tfw_hsm_init(&h, 0u);
+    TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
+    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 2100u);
+    tfw_hsm_signal(&h, S1, 2200u);
+    ACTS(TFW_HSM_ACT_KEYS_WIPE, LOCK);
+    TEST_ASSERT_EQUAL_UINT8(1u, h.wiped);
+    TEST_ASSERT_EQUAL_UINT8(1u, h.locked);
+    TEST_ASSERT_EQUAL_UINT8(TFW_HSM_RECORD_MAX, tfw_hsm_record_count());
+    TEST_ASSERT_EQUAL_UINT16(11u, tfw_hsm_record_dropped());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -859,5 +1083,15 @@ int main(void)
     RUN_TEST(test_s3_a_measurement_that_matches_raises_nothing);
     RUN_TEST(test_s3_a_port_that_cannot_measure_raises_nothing);
     RUN_TEST(test_s3_a_mismatch_or_failed_measurement_raises_s3);
+    RUN_TEST(test_a6_nothing_is_recorded_without_a_signal);
+    RUN_TEST(test_a6_a_verdict_with_no_signal_is_recorded_and_acts_on_nothing);
+    RUN_TEST(test_a6_r3_a_clear_verdict_records_the_decision_and_wipes_nothing);
+    RUN_TEST(test_a6_r3_an_expired_verdict_records_the_decision_and_wipes_nothing);
+    RUN_TEST(test_a6_r1_lockdown_records_the_signal_then_the_four_actions);
+    RUN_TEST(test_a6_r5_heartbeat_loss_records_s6_then_lockdown);
+    RUN_TEST(test_a6_r2_p_actions_are_recorded_and_the_wipe_is_not);
+    RUN_TEST(test_a6_r3_an_acknowledged_wipe_records_signal_decision_wipe_lockdown);
+    RUN_TEST(test_a6_r3_a_refused_wipe_records_the_ports_status);
+    RUN_TEST(test_a6_a_full_record_does_not_stop_the_engine);
     return UNITY_END();
 }

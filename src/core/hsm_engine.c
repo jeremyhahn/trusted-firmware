@@ -13,6 +13,7 @@
 
 #include "hsm.h"
 #include "hsm_port.h"
+#include "hsm_record.h"
 
 void tfw_hsm_init(tfw_hsm_t *h, uint32_t floor_min)
 {
@@ -21,25 +22,36 @@ void tfw_hsm_init(tfw_hsm_t *h, uint32_t floor_min)
     h->floor   = floor_min;
 }
 
+/* One action on the port, and its status in the A6 record. The engine never
+ * fails on the record: a full one keeps its first entries, refuses the rest
+ * and counts them, and nothing the engine does changes. */
+static tfw_status_t act_recorded(uint8_t action, uint32_t now)
+{
+    tfw_status_t st = tfw_hsm_port_act(action);
+
+    (void)tfw_hsm_record_append(TFW_HSM_REC_ACTION, action, (uint8_t)st, now);
+    return st;
+}
+
 /* Lockdown, latched (R6). An action the SoC cannot perform yet does not stop
  * the ones after it. */
-static void lockdown(tfw_hsm_t *h)
+static void lockdown(tfw_hsm_t *h, uint32_t now)
 {
     static const uint8_t seq[] = { TFW_HSM_ACT_PHY_OFF, TFW_HSM_ACT_POWER_OFF,
                                    TFW_HSM_ACT_KEYS_LOCK, TFW_HSM_ACT_RECORD };
 
     for (uint8_t i = 0u; i < sizeof seq; i++) {
-        (void)tfw_hsm_port_act(seq[i]);
+        (void)act_recorded(seq[i], now);
     }
     h->locked = 1u;
 }
 
 /* P's actions in order, the wipe excluded: R3 alone wipes. */
-static void run(const uint8_t *act, uint8_t n)
+static void run(const uint8_t *act, uint8_t n, uint32_t now)
 {
     for (uint8_t i = 0u; i < n; i++) {
         if (act[i] != TFW_HSM_ACT_KEYS_WIPE) {
-            (void)tfw_hsm_port_act(act[i]);
+            (void)act_recorded(act[i], now);
         }
     }
 }
@@ -95,42 +107,53 @@ void tfw_hsm_signal(tfw_hsm_t *h, uint8_t signal, uint32_t now)
     const tfw_hsm_rule_t   *r;
     const tfw_hsm_script_t *sc;
 
+    (void)tfw_hsm_record_append(TFW_HSM_REC_SIGNAL, signal, TFW_OK, now);
+
     /* R1: no P, the built-in default. R5: heartbeat loss, whatever P says. */
     if (h->set.n == 0u || signal == TFW_HSM_SIG_HEARTBEAT_LOSS) {
-        lockdown(h);
+        lockdown(h, now);
         return;
     }
     /* R2: a signal P does not name. P names only S1-S6 (the reader admits no
      * other), so a rule found is R3's deterministic signal. */
     r = rule_for(h, signal);
     if (r == NULL) {
-        lockdown(h);
+        lockdown(h, now);
         return;
     }
-    /* R3: the wipe, counted done only once acknowledged, then lockdown. */
-    if (r->wipe != 0u && corroborated(h, now) != 0u) {
-        if (tfw_hsm_port_act(TFW_HSM_ACT_KEYS_WIPE) == TFW_OK) {
-            h->wiped = 1u;
+    /* R3: the wipe, counted done only once acknowledged, then lockdown. The
+     * record keeps the V consulted, whether it corroborates or not, before
+     * any wipe: a withheld wipe is explained by the V that withheld it. */
+    if (r->wipe != 0u) {
+        uint8_t corroborates = corroborated(h, now);
+
+        (void)tfw_hsm_record_append(TFW_HSM_REC_DECISION, h->verdict, TFW_OK, now);
+        if (corroborates != 0u) {
+            if (act_recorded(TFW_HSM_ACT_KEYS_WIPE, now) == TFW_OK) {
+                h->wiped = 1u;
+            }
+            lockdown(h, now);
+            return;
         }
-        lockdown(h);
-        return;
     }
     /* R2: P's actions, or its script's; a script the engine does not hold
      * locks down. */
     if (r->n != 0u) {
-        run(r->body, r->n);
+        run(r->body, r->n, now);
         return;
     }
     sc = script_for(h, r->body);
     if (sc == NULL) {
-        lockdown(h);
+        lockdown(h, now);
         return;
     }
-    run(sc->act, sc->n);
+    run(sc->act, sc->n, now);
 }
 
 void tfw_hsm_verdict(tfw_hsm_t *h, uint8_t verdict, uint32_t now)
 {
+    /* R4: V with no signal acts on nothing, and it is recorded. */
+    (void)tfw_hsm_record_append(TFW_HSM_REC_DECISION, verdict, TFW_OK, now);
     h->verdict    = verdict;
     h->verdict_at = now;
 }

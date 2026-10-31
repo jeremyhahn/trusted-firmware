@@ -379,7 +379,8 @@ $(HOST_DIR)/test_suit_integrated_unbound: $(HOST_DIR)/%: test/unit/%.c $(ELEMENT
 #   test_hsm_engine   the decision engine behind a recording mock port, its
 #                     envelopes signed by the build's emitter
 $(HOST_DIR)/test_hsm_payload: src/core/hsm_payload.c
-$(HOST_DIR)/test_hsm_engine: src/core/hsm_payload.c src/core/hsm_engine.c tools/suit-emit/emit.c
+$(HOST_DIR)/test_hsm_engine: src/core/hsm_payload.c src/core/hsm_engine.c \
+                             src/core/hsm_record.c src/core/hsm_store_ram.c tools/suit-emit/emit.c
 # test_hsm_cmd  the channel's commands (slice 4) over the real engine, as the
 #               dispatcher calls them, on the literal envelope
 $(HOST_DIR)/test_hsm_cmd: src/core/hsm_payload.c src/core/hsm_engine.c src/core/hsm_cmd.c \
@@ -391,7 +392,7 @@ $(HOST_DIR)/test_hsm_loop: src/core/hsm_payload.c src/core/hsm_engine.c src/core
                            src/core/hsm_record.c src/core/hsm_store_ram.c \
                            src/core/hsm_loop.c src/core/reader.c src/core/writer.c
 # test_hsm_record  A6, the record (slice 11a), over the RAM store that survives
-#                  nothing; no engine call site appends to it yet (slice 11b)
+#                  nothing; the engine's call sites append to it (slice 11b-2)
 $(HOST_DIR)/test_hsm_record: test/unit/test_hsm_record.c src/core/hsm_record.c \
                              src/core/hsm_store_ram.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

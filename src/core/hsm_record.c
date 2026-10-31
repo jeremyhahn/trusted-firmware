@@ -24,7 +24,10 @@ tfw_status_t tfw_hsm_record_append(uint8_t kind, uint8_t what, uint8_t result, u
         kind != TFW_HSM_REC_ACTION) {
         return TFW_ERR_UNSUPPORTED;
     }
-    tfw_hsm_store_head_get(&head);
+    st = tfw_hsm_store_head_get(&head);
+    if (st != TFW_OK) {
+        return st;
+    }
     if (kept(&head) >= TFW_HSM_RECORD_MAX) {
         if (head.dropped < TFW_HSM_RECORD_DROPPED_MAX) {
             head.dropped++;
@@ -50,7 +53,9 @@ uint8_t tfw_hsm_record_count(void)
 {
     tfw_hsm_store_head_t head;
 
-    tfw_hsm_store_head_get(&head);
+    if (tfw_hsm_store_head_get(&head) != TFW_OK) {
+        return 0u;
+    }
     return kept(&head);
 }
 
@@ -58,19 +63,28 @@ uint16_t tfw_hsm_record_dropped(void)
 {
     tfw_hsm_store_head_t head;
 
-    tfw_hsm_store_head_get(&head);
+    if (tfw_hsm_store_head_get(&head) != TFW_OK) {
+        return 0u;
+    }
     return head.dropped;
 }
 
 tfw_status_t tfw_hsm_record_read(uint8_t i, tfw_hsm_entry_t *out)
 {
-    if (i >= tfw_hsm_record_count()) {
+    tfw_hsm_store_head_t head;
+    tfw_status_t         st;
+
+    st = tfw_hsm_store_head_get(&head);
+    if (st != TFW_OK) {
+        return st;
+    }
+    if (i >= kept(&head)) {
         return TFW_ERR_RANGE;
     }
     return tfw_hsm_store_get(i, out);
 }
 
-void tfw_hsm_record_erase(void)
+tfw_status_t tfw_hsm_record_erase(void)
 {
-    tfw_hsm_store_erase();
+    return tfw_hsm_store_erase();
 }

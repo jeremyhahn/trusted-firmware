@@ -46,18 +46,21 @@ typedef struct {
  *
  *   TFW_ERR_UNSUPPORTED  a kind not above, and nothing kept
  *   TFW_ERR_NO_SLOT      the record full: nothing kept, the dropped count up
- *   as the store's put */
+ *   as the store's head read, put and head put */
 tfw_status_t tfw_hsm_record_append(uint8_t kind, uint8_t what, uint8_t result, uint32_t at);
 
-/* Entries kept, oldest first, and entries refused for want of room. */
+/* Entries kept, oldest first, and entries refused for want of room. They
+ * carry no status: a store whose head cannot be read counts as zero, and
+ * tfw_hsm_record_read says why. */
 uint8_t  tfw_hsm_record_count(void);
 uint16_t tfw_hsm_record_dropped(void);
 
 /* Entry `i`, 0 the oldest. TFW_ERR_RANGE, and `out` untouched, at or past
- * the count. */
+ * the count; otherwise the store's error, from its head read or its get. */
 tfw_status_t tfw_hsm_record_read(uint8_t i, tfw_hsm_entry_t *out);
 
-/* Empties the record and its dropped count. No command reaches it (O9). */
-void tfw_hsm_record_erase(void);
+/* Empties the record and its dropped count. No command reaches it (O9).
+ * Returns the store's erase status. */
+tfw_status_t tfw_hsm_record_erase(void);
 
 #endif

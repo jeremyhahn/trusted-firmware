@@ -12,7 +12,7 @@
 
 void setUp(void)
 {
-    tfw_hsm_record_erase();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_erase());
 }
 
 void tearDown(void) {}
@@ -134,7 +134,7 @@ static void test_erase_empties_the_record_and_its_count(void)
 
     fill();
     (void)tfw_hsm_record_append(TFW_HSM_REC_SIGNAL, 1u, TFW_OK, 1u);
-    tfw_hsm_record_erase();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hsm_record_erase());
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hsm_record_count());
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_hsm_record_dropped());
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hsm_record_read(0u, &e));

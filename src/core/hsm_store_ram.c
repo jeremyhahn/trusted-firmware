@@ -12,9 +12,10 @@
 static tfw_hsm_store_head_t g_head;
 static tfw_hsm_entry_t      g_slot[TFW_HSM_RECORD_MAX];
 
-void tfw_hsm_store_head_get(tfw_hsm_store_head_t *out)
+tfw_status_t tfw_hsm_store_head_get(tfw_hsm_store_head_t *out)
 {
     *out = g_head;
+    return TFW_OK;
 }
 
 tfw_status_t tfw_hsm_store_head_put(const tfw_hsm_store_head_t *head)
@@ -41,8 +42,9 @@ tfw_status_t tfw_hsm_store_put(uint8_t slot, const tfw_hsm_entry_t *e)
     return TFW_OK;
 }
 
-void tfw_hsm_store_erase(void)
+tfw_status_t tfw_hsm_store_erase(void)
 {
     memset(&g_head, 0, sizeof g_head);
     memset(g_slot, 0, sizeof g_slot);
+    return TFW_OK;
 }

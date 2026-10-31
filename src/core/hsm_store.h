@@ -25,15 +25,17 @@ typedef struct {
     uint16_t dropped; /* entries refused for want of room */
 } tfw_hsm_store_head_t;
 
-/* The head; all zero for a store never written or just erased. */
-void tfw_hsm_store_head_get(tfw_hsm_store_head_t *out);
+/* The head; all zero for a store never written or just erased. A store that
+ * can fail returns its error and leaves `out` untouched. */
+tfw_status_t tfw_hsm_store_head_get(tfw_hsm_store_head_t *out);
 tfw_status_t tfw_hsm_store_head_put(const tfw_hsm_store_head_t *head);
 
 /* Slot `slot`, below TFW_HSM_RECORD_MAX; TFW_ERR_RANGE past it. */
 tfw_status_t tfw_hsm_store_get(uint8_t slot, tfw_hsm_entry_t *out);
 tfw_status_t tfw_hsm_store_put(uint8_t slot, const tfw_hsm_entry_t *e);
 
-/* The head and every slot back to zero. */
-void tfw_hsm_store_erase(void);
+/* The head and every slot back to zero. A store that can fail returns its
+ * error, and what it holds is then unknown. */
+tfw_status_t tfw_hsm_store_erase(void);
 
 #endif

@@ -161,6 +161,10 @@ so go-enclave can plan against them. Their blob format, algorithm and key are
 not designed here: they depend on open question 1. The set itself is confirmed
 with go-enclave#206 before slice 3 (seam, below).
 
+`SEAL` and `UNSEAL`'s vectors in `optee/testdata/vectors.h` are go-xkms's at
+`06ca5ec59`, keyed by the TA unique key (the `PTA_SYSTEM_DERIVE_TA_UNIQUE_KEY`
+output), not the HUK.
+
 Every row of this table becomes a literal in `optee/testdata/vectors.h`. A
 failure there is an interface break, not a test to update.
 

@@ -162,8 +162,7 @@ static void test_get_random_with_the_wrong_types_is_refused(void)
 static void test_every_other_id_is_not_supported(void)
 {
     static const uint32_t ids[] = {
-        TFW_TA_VEC_CMD_RESERVED, TFW_TA_VEC_CMD_SEAL, TFW_TA_VEC_CMD_UNSEAL,
-        0x00000005u, 0x80000001u, TFW_TA_VEC_CMD_LAST,
+        TFW_TA_VEC_CMD_RESERVED, 0x00000005u, 0x80000001u, TFW_TA_VEC_CMD_LAST,
     };
     TEE_Param p[4];
     size_t i;
@@ -214,11 +213,9 @@ static void test_the_check_passes_every_case_against_the_ta(void)
     assert_line("tfw-ta-check: ok get-random-over\n");
     assert_line("tfw-ta-check: ok get-random-bad-types\n");
     assert_line("tfw-ta-check: ok unknown-0x00000000\n");
-    assert_line("tfw-ta-check: ok unknown-0x00000003\n");
-    assert_line("tfw-ta-check: ok unknown-0x00000004\n");
     assert_line("tfw-ta-check: ok unknown-0xffffffff\n");
     assert_line("tfw-ta-check: ok open-bad-parameters\n");
-    assert_line("tfw-ta-check: PASS, 14 of 14 passed\n");
+    assert_line("tfw-ta-check: PASS, 12 of 12 passed\n");
     TEST_ASSERT_NULL(strstr(out_text, "FAIL"));
 }
 
@@ -242,7 +239,7 @@ static void test_a_wrong_version_fails_get_info_only(void)
     tfw_gp_mock.value_a_xor = 1u;
     TEST_ASSERT_EQUAL_INT(1, run_check());
     assert_line("tfw-ta-check: FAIL get-info\n");
-    assert_line("tfw-ta-check: FAIL, 13 of 14 passed\n");
+    assert_line("tfw-ta-check: FAIL, 11 of 12 passed\n");
 }
 
 static void test_a_stuck_generator_fails_get_random(void)
@@ -256,11 +253,11 @@ static void test_a_stuck_generator_fails_get_random(void)
 static void test_an_error_not_from_the_ta_fails(void)
 {
     tfw_gp_mock.force = 1;
-    tfw_gp_mock.force_cmd = TFW_TA_VEC_CMD_SEAL;
+    tfw_gp_mock.force_cmd = TFW_TA_VEC_CMD_LAST;
     tfw_gp_mock.force_rc = TEEC_ERROR_NOT_SUPPORTED;
     tfw_gp_mock.force_origin = TEEC_ORIGIN_TEE;
     TEST_ASSERT_EQUAL_INT(1, run_check());
-    assert_line("tfw-ta-check: FAIL unknown-0x00000003\n");
+    assert_line("tfw-ta-check: FAIL unknown-0xffffffff\n");
 }
 
 static void test_a_failed_draw_fails_get_random(void)
@@ -728,6 +725,349 @@ static void test_a_failed_ta_unique_key_leaves_no_blob_key(void)
     TEST_ASSERT_EQUAL_INT(0, tfw_tee_session_mock.live);
 }
 
+/* --- SEAL and UNSEAL through the command entry point (#288) ----------- */
+
+/* README, "The trusted application": MEMREF_INPUT, MEMREF_INPUT, MEMREF_OUTPUT, NONE. */
+#define SEAL_PT 0x00000655u
+
+/* The TA is the vector's: its appID is the vector's UUID, its PTA gives that vector's key. */
+static void be_the_vectors_ta(const uint8_t *ta_unique_key)
+{
+    const uint8_t *u = TFW_TA_VEC_SEAL_UUID;
+    TEE_UUID *id = &tfw_tee_session_mock.app_id;
+
+    id->timeLow = ((uint32_t)u[0] << 24) | ((uint32_t)u[1] << 16) | ((uint32_t)u[2] << 8) | u[3];
+    id->timeMid = (uint16_t)(((uint32_t)u[4] << 8) | u[5]);
+    id->timeHiAndVersion = (uint16_t)(((uint32_t)u[6] << 8) | u[7]);
+    memcpy(id->clockSeqAndNode, u + 8, 8u);
+    tfw_tee_session_mock.answer = ta_unique_key;
+}
+
+/* One SEAL or UNSEAL: in and out are params 0 and 2, aad_len bytes are param 1. */
+static TEE_Result run_seal_cmd(uint32_t cmd, const void *in, size_t in_len, size_t aad_len,
+                               void *out, size_t *out_len)
+{
+    static const uint8_t aad[4] = { 1, 2, 3, 4 };
+    TEE_Param p[4];
+    TEE_Result res;
+
+    memset(p, 0, sizeof(p));
+    p[0].memref.buffer = (void *)(uintptr_t)in;
+    p[0].memref.size = in_len;
+    p[1].memref.buffer = (void *)(uintptr_t)aad;
+    p[1].memref.size = aad_len;
+    p[2].memref.buffer = out;
+    p[2].memref.size = *out_len;
+    res = invoke(cmd, SEAL_PT, p);
+    *out_len = p[2].memref.size;
+    return res;
+}
+
+static void assert_nothing_left_open(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, tfw_tee_session_mock.live);
+    TEST_ASSERT_EQUAL_INT(0, tfw_tee_mock_live);
+}
+
+static void assert_command_unseals_to(const uint8_t *ta_unique_key, const uint8_t *blob,
+                                      size_t blob_len, const uint8_t *want, size_t want_len)
+{
+    uint8_t out[64];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(ta_unique_key);
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, blob, blob_len, 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_size_t(want_len, out_len);
+    if (want_len != 0u)
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(want, out, want_len);
+    assert_nothing_left_open();
+}
+
+static void test_the_seal_ids_and_shapes_are_the_vectors(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_CMD_SEAL, TFW_TA_CMD_SEAL);
+    TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_CMD_UNSEAL, TFW_TA_CMD_UNSEAL);
+    TEST_ASSERT_EQUAL_HEX32(SEAL_PT,
+                            TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_INPUT, TEE_PARAM_TYPE_MEMREF_INPUT,
+                                            TEE_PARAM_TYPE_MEMREF_OUTPUT, TEE_PARAM_TYPE_NONE));
+}
+
+static void test_unseal_of_vector_1_returns_its_plaintext(void)
+{
+    assert_command_unseals_to(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY, TFW_TA_VEC_SEAL1_BLOB,
+                              sizeof(TFW_TA_VEC_SEAL1_BLOB), TFW_TA_VEC_SEAL1_PLAINTEXT,
+                              sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT));
+}
+
+static void test_unseal_of_vector_2_returns_the_empty_plaintext(void)
+{
+    assert_command_unseals_to(TFW_TA_VEC_SEAL2_TA_UNIQUE_KEY, TFW_TA_VEC_SEAL2_BLOB,
+                              sizeof(TFW_TA_VEC_SEAL2_BLOB), NULL, 0u);
+}
+
+static void test_a_seal_then_an_unseal_returns_the_input(void)
+{
+    uint8_t blob[128];
+    size_t blob_len = sizeof(blob);
+    uint8_t out[64];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                                         sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), 0u, blob, &blob_len));
+    TEST_ASSERT_EQUAL_size_t(sizeof(TFW_TA_VEC_SEAL1_BLOB), blob_len);
+    /* §4: the nonce is a fresh draw of 12 bytes. */
+    TEST_ASSERT_EQUAL_size_t(12u, tfw_gp_mock.random_bytes);
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, blob, blob_len, 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_size_t(sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), out_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(TFW_TA_VEC_SEAL1_PLAINTEXT, out, out_len);
+    assert_nothing_left_open();
+}
+
+static void test_a_seal_of_nothing_then_an_unseal_returns_nothing(void)
+{
+    uint8_t blob[64];
+    size_t blob_len = sizeof(blob);
+    uint8_t out[8];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL2_TA_UNIQUE_KEY);
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, NULL, 0u, 0u, blob, &blob_len));
+    TEST_ASSERT_EQUAL_size_t(sizeof(TFW_TA_VEC_SEAL2_BLOB), blob_len);
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, blob, blob_len, 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_size_t(0u, out_len);
+    assert_nothing_left_open();
+}
+
+static void test_every_seal_draws_its_own_nonce(void)
+{
+    uint8_t first[128];
+    uint8_t second[128];
+    size_t first_len = sizeof(first);
+    size_t second_len = sizeof(second);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                                         sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), 0u, first,
+                                         &first_len));
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                                         sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), 0u, second,
+                                         &second_len));
+    TEST_ASSERT_EQUAL_size_t(24u, tfw_gp_mock.random_bytes);
+    /* §2: the IV is the 12 bytes at offset 15. */
+    TEST_ASSERT_NOT_EQUAL(0, memcmp(first + 15, second + 15, TFW_BLOB_NONCE_LEN));
+}
+
+static void test_a_short_seal_buffer_answers_the_size_needed(void)
+{
+    uint8_t blob[128];
+    size_t blob_len = sizeof(TFW_TA_VEC_SEAL1_BLOB) - 1u;
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    memset(blob, 0xA5, sizeof(blob));
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_SHORT_BUFFER,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                                         sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), 0u, blob, &blob_len));
+    TEST_ASSERT_EQUAL_size_t(sizeof(TFW_TA_VEC_SEAL1_BLOB), blob_len);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, blob, sizeof(blob));
+    /* An empty output asks for the size alone. */
+    blob_len = 0u;
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_SHORT_BUFFER,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                                         sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), 0u, NULL, &blob_len));
+    TEST_ASSERT_EQUAL_size_t(sizeof(TFW_TA_VEC_SEAL1_BLOB), blob_len);
+    assert_nothing_left_open();
+}
+
+static void test_a_short_unseal_buffer_answers_the_size_needed(void)
+{
+    uint8_t out[64];
+    size_t out_len = sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT) - 1u;
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    memset(out, 0xA5, sizeof(out));
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_SHORT_BUFFER,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, TFW_TA_VEC_SEAL1_BLOB,
+                                         sizeof(TFW_TA_VEC_SEAL1_BLOB), 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_size_t(sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), out_len);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof(out));
+    assert_nothing_left_open();
+}
+
+static void test_a_flipped_tag_byte_answers_mac_invalid_and_no_plaintext(void)
+{
+    uint8_t blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    uint8_t out[64];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    memcpy(blob, TFW_TA_VEC_SEAL1_BLOB, sizeof(blob));
+    blob[sizeof(blob) - 1u] ^= 0x01u;
+    memset(out, 0xA5, sizeof(out));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFF3071u,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, blob, sizeof(blob), 0u, out, &out_len));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0x00, out, sizeof(out));
+    assert_nothing_left_open();
+}
+
+static void test_a_flipped_ciphertext_byte_answers_mac_invalid(void)
+{
+    uint8_t blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    uint8_t out[64];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    memcpy(blob, TFW_TA_VEC_SEAL1_BLOB, sizeof(blob));
+    blob[29] ^= 0x80u;
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_MAC_INVALID,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, blob, sizeof(blob), 0u, out, &out_len));
+}
+
+static void test_a_blob_that_is_not_a_blob_answers_bad_format(void)
+{
+    uint8_t out[64];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_BAD_FORMAT,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, TFW_TA_VEC_SEAL1_BLOB,
+                                         sizeof(TFW_TA_VEC_SEAL1_BLOB) - 1u, 0u, out, &out_len));
+    out_len = sizeof(out);
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_BAD_FORMAT,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, TFW_TA_VEC_SEAL1_BLOB, 0u, 0u, out,
+                                         &out_len));
+    assert_nothing_left_open();
+}
+
+static void test_another_tas_blob_does_not_unseal(void)
+{
+    uint8_t out[64];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    tfw_tee_session_mock.app_id.clockSeqAndNode[7] ^= 0x01u;
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_MAC_INVALID,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, TFW_TA_VEC_SEAL1_BLOB,
+                                         sizeof(TFW_TA_VEC_SEAL1_BLOB), 0u, out, &out_len));
+    assert_nothing_left_open();
+}
+
+/* A refusal before any key: no session opened, nothing drawn, the output untouched. */
+static void assert_seal_cmd_refused(uint32_t cmd, uint32_t types, size_t aad_len)
+{
+    uint8_t in[16];
+    uint8_t out[16];
+    TEE_Param p[4];
+
+    memset(in, 0x11, sizeof(in));
+    memset(out, 0xA5, sizeof(out));
+    memset(p, 0, sizeof(p));
+    p[0].memref.buffer = in;
+    p[0].memref.size = sizeof(in);
+    p[1].memref.buffer = in;
+    p[1].memref.size = aad_len;
+    p[2].memref.buffer = out;
+    p[2].memref.size = sizeof(out);
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_BAD_PARAMETERS, invoke(cmd, types, p));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_tee_session_mock.opens);
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_tee_session_mock.app_id_reads);
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_gp_mock.random_bytes);
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(sizeof(out), p[2].memref.size);
+}
+
+static void test_seal_and_unseal_refuse_the_wrong_param_types(void)
+{
+    static const uint32_t cmds[] = { TFW_TA_CMD_SEAL, TFW_TA_CMD_UNSEAL };
+    static const uint32_t types[] = {
+        TFW_TA_VEC_PT_NONE, TFW_TA_VEC_PT_GET_RANDOM, TFW_TA_VEC_PT_GET_INFO,
+        0x00000555u, /* the output as an input */
+        0x00000656u, /* the first as an output */
+        0x00000065u, /* the output missing */
+        0x00006655u, /* a fourth parameter */
+        0x00000612u, /* values */
+        0x00000657u, /* the output in and out */
+        0x00000755u, /* a memref in and out */
+    };
+    size_t i;
+    size_t j;
+
+    for (i = 0u; i < sizeof(cmds) / sizeof(cmds[0]); i++)
+        for (j = 0u; j < sizeof(types) / sizeof(types[0]); j++)
+            assert_seal_cmd_refused(cmds[i], types[j], 0u);
+}
+
+static void test_seal_and_unseal_refuse_associated_data(void)
+{
+    /* go-xkms's format has no field for it, so data a caller thinks is bound is refused. */
+    assert_seal_cmd_refused(TFW_TA_CMD_SEAL, SEAL_PT, 1u);
+    assert_seal_cmd_refused(TFW_TA_CMD_UNSEAL, SEAL_PT, 1u);
+}
+
+static void test_seal_and_unseal_refuse_a_missing_buffer(void)
+{
+    uint8_t buf[16];
+    size_t len = sizeof(buf);
+
+    memset(buf, 0, sizeof(buf));
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_BAD_PARAMETERS,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, NULL, 5u, 0u, buf, &len));
+    len = sizeof(buf);
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_BAD_PARAMETERS,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, buf, 5u, 0u, NULL, &len));
+    len = sizeof(buf);
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_BAD_PARAMETERS,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, NULL, 0u, 0u, buf, &len));
+    len = sizeof(buf);
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_BAD_PARAMETERS,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, buf, 5u, 0u, NULL, &len));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_tee_session_mock.opens);
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_gp_mock.random_bytes);
+}
+
+static void test_a_failed_ta_unique_key_fails_both_commands_with_its_error(void)
+{
+    uint8_t out[128];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    tfw_tee_session_mock.invoke_result = TEE_ERROR_NOT_SUPPORTED;
+    memset(out, 0xA5, sizeof(out));
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_NOT_SUPPORTED,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                                         sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_NOT_SUPPORTED,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, TFW_TA_VEC_SEAL1_BLOB,
+                                         sizeof(TFW_TA_VEC_SEAL1_BLOB), 0u, out, &out_len));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof(out));
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_gp_mock.random_bytes);
+    assert_nothing_left_open();
+}
+
+static void test_a_ta_with_no_app_id_fails_both_commands_with_its_error(void)
+{
+    uint8_t out[128];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    tfw_tee_session_mock.app_id_result = TEE_ERROR_ITEM_NOT_FOUND;
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_ITEM_NOT_FOUND,
+                            run_seal_cmd(TFW_TA_CMD_SEAL, NULL, 0u, 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_ITEM_NOT_FOUND,
+                            run_seal_cmd(TFW_TA_CMD_UNSEAL, TFW_TA_VEC_SEAL2_BLOB,
+                                         sizeof(TFW_TA_VEC_SEAL2_BLOB), 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_tee_session_mock.opens);
+    TEST_ASSERT_EQUAL_size_t(0u, tfw_gp_mock.random_bytes);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -777,5 +1117,22 @@ int main(void)
     RUN_TEST(test_the_blob_key_of_the_counting_ta_key_is_seal_vector_2_key);
     RUN_TEST(test_another_tas_uuid_derives_another_key);
     RUN_TEST(test_a_failed_ta_unique_key_leaves_no_blob_key);
+    RUN_TEST(test_the_seal_ids_and_shapes_are_the_vectors);
+    RUN_TEST(test_unseal_of_vector_1_returns_its_plaintext);
+    RUN_TEST(test_unseal_of_vector_2_returns_the_empty_plaintext);
+    RUN_TEST(test_a_seal_then_an_unseal_returns_the_input);
+    RUN_TEST(test_a_seal_of_nothing_then_an_unseal_returns_nothing);
+    RUN_TEST(test_every_seal_draws_its_own_nonce);
+    RUN_TEST(test_a_short_seal_buffer_answers_the_size_needed);
+    RUN_TEST(test_a_short_unseal_buffer_answers_the_size_needed);
+    RUN_TEST(test_a_flipped_tag_byte_answers_mac_invalid_and_no_plaintext);
+    RUN_TEST(test_a_flipped_ciphertext_byte_answers_mac_invalid);
+    RUN_TEST(test_a_blob_that_is_not_a_blob_answers_bad_format);
+    RUN_TEST(test_another_tas_blob_does_not_unseal);
+    RUN_TEST(test_seal_and_unseal_refuse_the_wrong_param_types);
+    RUN_TEST(test_seal_and_unseal_refuse_associated_data);
+    RUN_TEST(test_seal_and_unseal_refuse_a_missing_buffer);
+    RUN_TEST(test_a_failed_ta_unique_key_fails_both_commands_with_its_error);
+    RUN_TEST(test_a_ta_with_no_app_id_fails_both_commands_with_its_error);
     return UNITY_END();
 }

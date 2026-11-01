@@ -20,12 +20,15 @@
       { 0xb6u, 0x3cu, 0xe5u, 0x85u, 0x37u, 0x42u, 0xfau, 0x1fu } }
 
 /*
- * The command ids. 0x00000000 is reserved and never assigned. 0x00000003
- * (SEAL) and 0x00000004 (UNSEAL) are held for open question 1 and answer
- * TEE_ERROR_NOT_SUPPORTED, as any id not below does.
+ * The command ids. 0x00000000 is reserved and never assigned. Any id not
+ * below answers TEE_ERROR_NOT_SUPPORTED.
  */
 #define TFW_TA_CMD_GET_INFO   0x00000001u /* param 0 VALUE_OUTPUT: a version, b flags */
 #define TFW_TA_CMD_GET_RANDOM 0x00000002u /* param 0 MEMREF_OUTPUT: 1 to 4096 bytes */
+/* 0: plaintext in; 1: associated data in, empty; 2: sealed blob out (#288) */
+#define TFW_TA_CMD_SEAL       0x00000003u
+/* 0: sealed blob in; 1: associated data in, empty; 2: plaintext out (#288) */
+#define TFW_TA_CMD_UNSEAL     0x00000004u
 
 /* GET_INFO's answer: the interface version in value.a, flags (reserved) in value.b. */
 #define TFW_TA_INTERFACE_VERSION 1u

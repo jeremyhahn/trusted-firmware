@@ -147,10 +147,10 @@ static int tfw_check_open_refused(TEEC_Context *ctx, const TEEC_UUID *uuid)
 int tfw_ta_check(FILE *out)
 {
     static const uint32_t unknown[] = {
-        TFW_TA_VEC_CMD_RESERVED, TFW_TA_VEC_CMD_SEAL, TFW_TA_VEC_CMD_UNSEAL, TFW_TA_VEC_CMD_LAST,
+        TFW_TA_VEC_CMD_RESERVED, TFW_TA_VEC_CMD_LAST,
     };
     static const char *const unknown_name[] = {
-        "unknown-0x00000000", "unknown-0x00000003", "unknown-0x00000004", "unknown-0xffffffff",
+        "unknown-0x00000000", "unknown-0xffffffff",
     };
     const TEEC_UUID uuid = TFW_TA_UUID;
     struct tfw_check c = { out, 0, 0 };

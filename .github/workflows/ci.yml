@@ -438,6 +438,7 @@ jobs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
       esp32: ${{ steps.esp32.outputs.esp32 }}   # CUSTOMIZE: ruling 218(9), below
       optee: ${{ steps.optee.outputs.optee }}   # CUSTOMIZE: #253, below
+      xkmsmod: ${{ steps.xkmsmod.outputs.xkmsmod }}   # CUSTOMIZE: ruling 2026-11-01 (dept-software #981), below
     # v1.26: a draft PR runs no CI; the image job needs this one and skips with it.
     if: ${{ !github.event.pull_request.draft }}
     steps:
@@ -529,6 +530,28 @@ jobs:
           fi
           echo "OP-TEE paths changed or ci:full: $optee"
           echo "optee=$optee" >> "$GITHUB_OUTPUT"
+
+      # CUSTOMIZE: ruling 2026-11-01 (dept-software #981), #311. `make
+      # deps-check` blocks on the nightly and on a PR that changes the xkms
+      # module's pins (this output); on a push to main and on every other PR
+      # it is advisory (the make deps-check step in the image job). A failed
+      # diff fails this job, and the CI Gate with it.
+      - name: Does the PR change xkms/go.mod or xkms/go.sum?
+        id: xkmsmod
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          xkmsmod=false
+          if [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --no-renames "$BASE...$HEAD")
+            if printf '%s\n' "$files" | grep -qE '^xkms/go\.(mod|sum)$'; then
+              xkmsmod=true
+            fi
+          fi
+          echo "xkms/go.mod or xkms/go.sum changed: $xkmsmod"
+          echo "xkmsmod=$xkmsmod" >> "$GITHUB_OUTPUT"
 
   # v1.29.3 (Company Agent ruling 255(10)/(11)(c)): one nightly per
   # repository, and none while main is busy. On a schedule run only, this job
@@ -844,11 +867,29 @@ jobs:
       # job until v1.28, which skips a docs-only PR; it moves here beside
       # `make lint` so a docs-only PR runs it too, and leaves that job so it
       # does not run twice.
+      # CUSTOMIZE: ruling 2026-11-01 (dept-software #981), #311. Blocking on
+      # the nightly (schedule) and on a PR whose diff touches xkms/go.mod or
+      # xkms/go.sum (the changes job's xkmsmod output). On a push to main,
+      # workflow_dispatch and every other PR it is advisory: continue-on-error
+      # keeps this job and the CI Gate green, and the BEHIND rows go to the
+      # step summary. The check's own exit status is kept either way.
       - name: make deps-check
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
+        continue-on-error: ${{ !(github.event_name == 'schedule' || (github.event_name == 'pull_request' && needs.changes.outputs.xkmsmod == 'true')) }}
         env:
           IN_IMAGE_NETWORK: bridge
-        run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make deps-check
+        run: |
+          rc=0
+          log="${RUNNER_TEMP:-/tmp}/deps-check.log"
+          scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make deps-check > "$log" 2>&1 || rc=$?
+          cat "$log"
+          {
+            echo "### make deps-check (exit $rc)"
+            echo '```'
+            if grep -q BEHIND "$log"; then grep BEHIND "$log"; else tail -n 20 "$log"; fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
       # v1.26.1: a docs-only PR skips `make security`, which runs the
       # releasability gate on every other PR, so it runs here: a private

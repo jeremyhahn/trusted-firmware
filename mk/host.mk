@@ -745,7 +745,8 @@ $(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-ba
 # test/mock/gp/ and the in-process TEE of test/mock/gp_bridge.c. Its own link:
 # optee/ is in no firmware object list, and only this link sees test/mock/gp/.
 $(HOST_DIR)/test_optee_ta: test/unit/test_optee_ta.c optee/ta/tfw_ta.c optee/ta/tfw_blob.c \
-                        optee/ta/tfw_derive.c optee/check/check.c test/mock/gp_bridge.c \
+                        optee/ta/tfw_derive.c optee/ta/tfw_kdf.c optee/check/check.c \
+                        test/mock/gp_bridge.c \
                         test/mock/gp/tee_crypto_mock.c test/mock/gp/tee_session_mock.c \
                         $(HOST_DIR)/unity.o \
                         optee/ta/include/tfw_ta.h optee/ta/include/tfw_blob.h \

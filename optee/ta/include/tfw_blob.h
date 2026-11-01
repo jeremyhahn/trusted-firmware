@@ -16,6 +16,8 @@
 #define TFW_BLOB_KEY_LEN   32u /* A256GCM, RFC 9053 §4.1 */
 #define TFW_BLOB_NONCE_LEN 12u /* the IV, §2 and §4 */
 #define TFW_BLOB_TAG_LEN   16u /* the GCM tag, last in the ciphertext */
+#define TFW_BLOB_UUID_LEN  16u /* the TA's UUID, §1's context and §3's external_aad */
+#define TFW_BLOB_INFO_LEN  45u /* §1: the 28-byte label, 0x00, the 16-byte UUID */
 
 /* §2: the protected header with its bstr head, a2 01 03 3a 00 01 00 00 01. */
 #define TFW_BLOB_PROTECTED_LEN 10u
@@ -66,5 +68,20 @@ TEE_Result tfw_blob_unseal(const uint8_t *key, size_t key_len, const uint8_t *ex
  */
 TEE_Result tfw_derive_ta_unique_key(const uint8_t *extra_data, size_t extra_data_len,
                                     uint8_t *key, size_t key_len);
+
+/*
+ * §1's HKDF-SHA-256 (RFC 5869) with no salt and L = 32 (tfw_kdf.c), built on
+ * the Internal Core API's TEE_ALG_HMAC_SHA256. okm is zeroed on failure.
+ */
+TEE_Result tfw_hkdf_sha256(const uint8_t *ikm, size_t ikm_len, const uint8_t *info,
+                           size_t info_len, uint8_t okm[TFW_BLOB_KEY_LEN]);
+
+/*
+ * The blob key of the TA whose UUID is the 16 octets (RFC 9562 §4 order): the
+ * system PTA's TA unique key, called with extra_data = §1's label and 32
+ * bytes, through tfw_hkdf_sha256 with info = label ‖ 0x00 ‖ uuid. The key is
+ * zeroed on failure; the caller zeroes it after use.
+ */
+TEE_Result tfw_blob_key(const uint8_t uuid[TFW_BLOB_UUID_LEN], uint8_t key[TFW_BLOB_KEY_LEN]);
 
 #endif /* TFW_BLOB_H */

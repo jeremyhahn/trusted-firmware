@@ -6,3 +6,4 @@ global-incdirs-y += include
 srcs-y += tfw_ta.c
 srcs-y += tfw_blob.c
 srcs-y += tfw_derive.c
+srcs-y += tfw_kdf.c

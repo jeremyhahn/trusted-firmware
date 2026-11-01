@@ -241,8 +241,12 @@ class Qemu:
                 self.proc.wait(min(0.25, max(0, deadline - time.time())))
             except subprocess.TimeoutExpired:
                 continue
-            raise Failure(f'QEMU exited ({self.proc.returncode}) waiting for {pattern!r}')
-        raise Failure(f'{timeout}s without {pattern!r} (x{count}) in {self.logpath}')
+            raise self.failure(f'QEMU exited ({self.proc.returncode}) waiting for {pattern!r}')
+        raise self.failure(f'{timeout}s without {pattern!r} (x{count}) in {self.logpath}')
+
+    def failure(self, what):
+        """A failed wait on this QEMU: what, and the end of its log."""
+        return Failure(f'{what}\n{tail(self.logpath)}')
 
     def stop(self):
         if self.proc.poll() is None:
@@ -341,12 +345,12 @@ def download_mode(machine, efuse, logpath):
                 break
             except OSError:
                 if time.time() > deadline:
-                    raise Failure('QEMU download mode never opened its serial port')
+                    raise q.failure('QEMU download mode never opened its serial port')
                 try:
                     q.proc.wait(0.2)
                 except subprocess.TimeoutExpired:
                     continue
-                raise Failure(f'QEMU exited ({q.proc.returncode}) before opening its serial port')
+                raise q.failure(f'QEMU exited ({q.proc.returncode}) before opening its serial port')
         yield ['espefuse.py', '--chip', machine, '--port', f'socket://127.0.0.1:{port}',
                '--before', 'no_reset', '--do-not-confirm']
     finally:

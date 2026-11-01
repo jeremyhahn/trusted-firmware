@@ -37,6 +37,20 @@ func TestNewKeyProviderDefaultsTheConfig(t *testing.T) {
 	assert.Equal(t, DefaultKeyCN, kp.(*Backend).config.KeyCN)
 }
 
+// A config entry that is present but nil is the same as one left out: the
+// defaults apply. A map built from optional settings carries a nil for the
+// setting nobody gave, and that is not a wrong type.
+func TestNewKeyProviderTreatsANilConfigEntryAsAbsent(t *testing.T) {
+	kp, err := NewKeyProvider(map[string]interface{}{
+		ConfigKeyDevice: newTestDevice(secureElementLink()),
+		ConfigKeyConfig: nil,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = kp.Close() })
+
+	assert.Equal(t, DefaultKeyCN, kp.(*Backend).config.KeyCN)
+}
+
 // Ignoring "key_storage" is the documented behaviour: AutoInitialize adds it
 // whenever a datastore is configured, and the device stores its own key.
 func TestNewKeyProviderIgnoresKeyStorage(t *testing.T) {

@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/jeremyhahn/go-xkms/pkg/types"
+	"github.com/jeremyhahn/trusted-firmware/xkms/avr"
+	"github.com/stretchr/testify/assert"
 )
 
 // The refusal init would meet if another module held "tfw" -- here go-xkms's
@@ -27,4 +29,12 @@ func TestARefusedRegistrationPanics(t *testing.T) {
 	}()
 	mustRegister(refused)
 	t.Fatal("mustRegister returned on a refused registration")
+}
+
+func TestAVRConfigKeysAreTheFactoryKeys(t *testing.T) {
+	assert.Equal(t, avr.ConfigKeyDevice, AVRConfigKeyDevice)
+	assert.Equal(t, avr.ConfigKeyConfig, AVRConfigKeyConfig)
+
+	assert.Equal(t, "device", AVRConfigKeyDevice)
+	assert.Equal(t, "config", AVRConfigKeyConfig)
 }

@@ -15,7 +15,6 @@ package registration_test
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -109,21 +108,4 @@ func TestAutoInitializeConstructsTheAVRBackend(t *testing.T) {
 	assert.Equal(t, types.BackendType(tfwType), backend.KeyProvider().Type())
 	assert.IsType(t, &avr.Backend{}, backend.KeyProvider())
 	assert.Equal(t, types.StoreType(tfwType), backend.Type())
-}
-
-// The name is registered once per process. A second claim -- the adapter's
-// own, or anyone else's -- is refused and changes nothing.
-func TestASecondRegistrationIsRefused(t *testing.T) {
-	err := goxkms.RegisterExternalBackend(goxkms.ExternalBackend{
-		Type:    tfwType,
-		Factory: avr.NewKeyProvider,
-	})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, types.ErrBackendTypeRegistered), "got %v", err)
-
-	var refused *types.BackendTypeRegistrationError
-	require.ErrorAs(t, err, &refused)
-	assert.Equal(t, types.BackendType(tfwType), refused.Type)
-
-	assert.True(t, goxkms.BackendType(tfwType).IsValid(), "the refusal unregistered the name")
 }

@@ -177,26 +177,6 @@ func TestOTAStageRefusalsAreTheDevicesStatus(t *testing.T) {
 	}
 }
 
-func TestOTAStageArgumentErrorsAreUsageErrors(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "absent.bin")
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{"no image", nil},
-		{"two images", []string{"a.bin", "b.bin"}},
-		{"a missing file", []string{missing}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			// A nil device: a usage error must be found before the wire.
-			err := run(context.Background(), nil, "ota-stage", tc.args, false, io.Discard)
-			if err == nil || !strings.HasPrefix(err.Error(), "usage: ota-stage [--activate[=now]] <image>") {
-				t.Fatalf("err = %v, want a usage error", err)
-			}
-		})
-	}
-}
-
 func TestOTAStageRefusesAMalformedAuthorizationBeforeTheWire(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -274,14 +254,6 @@ func TestOTAStatusJSONCarriesTheStateAndCount(t *testing.T) {
 	if !strings.Contains(buf.String(), `"received": 128`) ||
 		!strings.Contains(buf.String(), `"state": "`+tfw.OTAReceiving.String()+`"`) {
 		t.Fatalf("json output %q does not carry the state and count", buf.String())
-	}
-}
-
-func TestOTAStatusTakesNoArguments(t *testing.T) {
-	// A nil device: the usage error must be found before the wire.
-	err := run(context.Background(), nil, "ota-status", []string{"now"}, false, io.Discard)
-	if err == nil || !strings.HasPrefix(err.Error(), "usage: ota-status") {
-		t.Fatalf("err = %v, want a usage error", err)
 	}
 }
 

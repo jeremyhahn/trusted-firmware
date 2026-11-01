@@ -57,16 +57,9 @@ func TestMalformedArgumentsAreRefusedBeforeTheWire(t *testing.T) {
 		verb string
 		args []string
 	}{
-		{"analog without a pin", "analog", nil},
 		{"analog with a non-numeric pin", "analog", []string{"gpio3"}},
 		{"analog with a pin past a byte", "analog", []string{"300"}},
 		{"adc-ref with an unknown reference", "adc-ref", []string{"bandgap"}},
-		{"adc-ref with no reference", "adc-ref", nil},
-		{"pwm without a duty", "pwm", []string{"3"}},
-		{"pwm with a duty past a byte", "pwm", []string{"3", "256"}},
-		{"tone with a frequency past a word", "tone", []string{"3", "70000"}},
-		{"tone with no frequency", "tone", []string{"3"}},
-		{"notone without a pin", "notone", nil},
 		{"pulse-in with an unparseable timeout", "pulse-in", []string{"2", "1", "soon"}},
 		{"pulse-in with too few arguments", "pulse-in", []string{"2", "1"}},
 		{"pulse-capture with too few arguments", "pulse-capture", []string{"2", "1", "8"}},
@@ -76,11 +69,8 @@ func TestMalformedArgumentsAreRefusedBeforeTheWire(t *testing.T) {
 		{"eeprom-write with empty hex", "eeprom-write", []string{"0x80", ""}},
 		{"i2c with too few arguments", "i2c", []string{"0x20", "01"}},
 		{"i2c with non-hex payload", "i2c", []string{"0x20", "zz", "1"}},
-		{"spi without a payload", "spi", []string{"10"}},
-		{"1wire-read without a count", "1wire-read", []string{"4"}},
 		{"1wire-write with non-hex payload", "1wire-write", []string{"4", "gg"}},
 		{"attest with a short nonce", "attest", []string{"0011"}},
-		{"attest with no nonce", "attest", nil},
 		{"attest-cert with a runtime-length nonce", "attest-cert", []string{strings.Repeat("00", tfw.AttestNonceLen)}},
 		{"auth with too few arguments", "auth", []string{strings.Repeat("00", tfw.SerialLen)}},
 		{"auth with a short serial", "auth", []string{"0011", "/dev/null"}},

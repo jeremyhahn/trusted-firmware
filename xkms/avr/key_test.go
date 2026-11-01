@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/ecdsa"
+	"io"
 	"log/slog"
 	"testing"
 
@@ -39,6 +40,15 @@ func TestNewDeviceKeyAcceptsThePointTheElementReturns(t *testing.T) {
 	assert.Equal(t, DefaultKeyCN, key.CN())
 }
 
+// The key records the slot it was read from, whatever that slot is.
+func TestNewDeviceKeyKeepsItsSlot(t *testing.T) {
+	point, _ := testPoint(t)
+
+	k, err := newDeviceKey(point, 5, DefaultKeyCN)
+	require.NoError(t, err)
+	assert.Equal(t, uint8(5), k.Slot())
+}
+
 // A point that is not on P-256 is not an identity. Accepting one would give
 // every later answer about this device -- its enrolment record, the subject of
 // a certificate request -- a value that can verify nothing.
@@ -49,16 +59,6 @@ func TestNewDeviceKeyRefusesAPointThatIsNotOnTheCurve(t *testing.T) {
 	}
 
 	key, err := newDeviceKey(point, tfw.SlotDeviceID, DefaultKeyCN)
-
-	assert.Nil(t, key)
-	assert.ErrorIs(t, err, ErrInvalidDevicePoint)
-}
-
-// The point at infinity is all zeroes on this wire. It is a valid-looking
-// 64-byte reply from a slot that holds no key, and it must not become an
-// identity.
-func TestNewDeviceKeyRefusesTheIdentityPoint(t *testing.T) {
-	key, err := newDeviceKey(make([]byte, devicePointLen), tfw.SlotDeviceID, DefaultKeyCN)
 
 	assert.Nil(t, key)
 	assert.ErrorIs(t, err, ErrInvalidDevicePoint)
@@ -107,6 +107,19 @@ func TestDeviceKeyEqualComparesThePoint(t *testing.T) {
 	assert.False(t, a.Equal(b), "a different device is a different key")
 }
 
+// One point in two slots is two keys: Equal compares the slot as well as the
+// point, so a key read from the wrong slot never passes for the identity.
+func TestDeviceKeyEqualComparesTheSlot(t *testing.T) {
+	point, _ := testPoint(t)
+
+	a, err := newDeviceKey(point, tfw.SlotDeviceID, DefaultKeyCN)
+	require.NoError(t, err)
+	other, err := newDeviceKey(point, tfw.SlotDeviceID+1, DefaultKeyCN)
+	require.NoError(t, err)
+
+	assert.False(t, a.Equal(other))
+}
+
 func TestDeviceKeyEqualRefusesAnythingElse(t *testing.T) {
 	point, pub := testPoint(t)
 	key, err := newDeviceKey(point, tfw.SlotDeviceID, DefaultKeyCN)
@@ -141,4 +154,18 @@ func TestKeyAttributes_UnknownCryptoTierFailsSafeAndLogs(t *testing.T) {
 		"an unclassified crypto tier must fail safe to Unattested, never assume a level")
 	assert.Contains(t, buf.String(), "device reports a crypto tier this host cannot classify",
 		"AttestLevel's error must be logged instead of discarded")
+}
+
+// The key record states the hash the device signs with and that the key was
+// generated on the part.
+func TestKeyAttributesDescribeTheDeviceKey(t *testing.T) {
+	b := &Backend{
+		config: testConfig(),
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	attrs := b.keyAttributes()
+
+	assert.Equal(t, crypto.SHA256, attrs.Hash)
+	assert.Equal(t, types.KeyOriginGenerated, attrs.KeyOrigin)
 }

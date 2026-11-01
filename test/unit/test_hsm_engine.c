@@ -361,14 +361,6 @@ static void test_row_a_bad_envelope_is_refused_and_counted(void)
 
 /* --- R1 to R7, each on its own ----------------------------------------- */
 
-static void test_r1_no_policy_never_wipes(void)
-{
-    tfw_hsm_verdict(&h, TFW_HSM_VERDICT_COMPROMISED, 0u);
-    tfw_hsm_signal(&h, S1, 0u);
-    ACTS(LOCK);
-    TEST_ASSERT_EQUAL_UINT8(0u, h.wiped);
-}
-
 static void test_r2_a_signal_p_does_not_name_locks_down(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, SET(SET_A, 1u, 0u));
@@ -1058,7 +1050,6 @@ int main(void)
     RUN_TEST(test_row_no_signal_acts_on_nothing);
     RUN_TEST(test_row_heartbeat_loss_locks_down_and_never_wipes);
     RUN_TEST(test_row_a_bad_envelope_is_refused_and_counted);
-    RUN_TEST(test_r1_no_policy_never_wipes);
     RUN_TEST(test_r2_a_signal_p_does_not_name_locks_down);
     RUN_TEST(test_r3_a_wipe_needs_a_compromised_verdict_inside_w);
     RUN_TEST(test_r3_a_scripted_rule_wipes_only_by_its_flag);

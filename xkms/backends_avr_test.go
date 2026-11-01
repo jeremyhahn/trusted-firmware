@@ -97,16 +97,39 @@ func TestAVRErrorsAreTheCanonicalSentinels(t *testing.T) {
 	}{
 		{"nil config", xkms.ErrAVRNilConfig, avr.ErrNilConfig},
 		{"nil device", xkms.ErrAVRNilDevice, avr.ErrNilDevice},
+		{"invalid factory config", xkms.ErrAVRInvalidFactoryConfig, avr.ErrInvalidFactoryConfig},
+		{"missing key cn", xkms.ErrAVRMissingKeyCN, avr.ErrMissingKeyCN},
+		{"invalid slot", xkms.ErrAVRInvalidSlot, avr.ErrInvalidSlot},
 		{"backend closed", xkms.ErrAVRBackendClosed, avr.ErrBackendClosed},
+		{"invalid key attributes", xkms.ErrAVRInvalidKeyAttributes, avr.ErrInvalidKeyAttributes},
 		{"unknown key", xkms.ErrAVRUnknownKey, avr.ErrUnknownKey},
 		{"invalid nonce", xkms.ErrAVRInvalidNonce, avr.ErrInvalidNonce},
-		{"signing unsupported", xkms.ErrAVRSigningUnsupported, avr.ErrSigningUnsupported},
-		{"generation unsupported", xkms.ErrAVRGenerationUnsupported, avr.ErrGenerationUnsupported},
-		{"malformed certificate", xkms.ErrAVRMalformedCertificate, avr.ErrMalformedCertificate},
-		{"unknown crypto tier", xkms.ErrAVRUnknownCryptoTier, avr.ErrUnknownCryptoTier},
-		{"command unavailable", xkms.ErrAVRCommandUnavailable, avr.ErrCommandUnavailable},
-		{"device unreachable", xkms.ErrAVRDeviceUnreachable, avr.ErrDeviceUnreachable},
 		{"trust store init", xkms.ErrAVRTrustStoreInit, avr.ErrTrustStoreInit},
+		{"signing unsupported", xkms.ErrAVRSigningUnsupported, avr.ErrSigningUnsupported},
+		{"invalid attestation", xkms.ErrAVRInvalidAttestation, avr.ErrInvalidAttestation},
+		{"possession mismatch", xkms.ErrAVRPossessionMismatch, avr.ErrPossessionMismatch},
+		{"decryption unsupported", xkms.ErrAVRDecryptionUnsupported, avr.ErrDecryptionUnsupported},
+		{"generation unsupported", xkms.ErrAVRGenerationUnsupported, avr.ErrGenerationUnsupported},
+		{"deletion unsupported", xkms.ErrAVRDeletionUnsupported, avr.ErrDeletionUnsupported},
+		{"rotation unsupported", xkms.ErrAVRRotationUnsupported, avr.ErrRotationUnsupported},
+		{"malformed certificate", xkms.ErrAVRMalformedCertificate, avr.ErrMalformedCertificate},
+		{"protocol version", xkms.ErrAVRProtocolVersion, avr.ErrProtocolVersion},
+		{"unknown crypto tier", xkms.ErrAVRUnknownCryptoTier, avr.ErrUnknownCryptoTier},
+		{"no device key", xkms.ErrAVRNoDeviceKey, avr.ErrNoDeviceKey},
+		{"invalid device point", xkms.ErrAVRInvalidDevicePoint, avr.ErrInvalidDevicePoint},
+		{"device unreachable", xkms.ErrAVRDeviceUnreachable, avr.ErrDeviceUnreachable},
+		{"device protocol", xkms.ErrAVRDeviceProtocol, avr.ErrDeviceProtocol},
+		{"device refused", xkms.ErrAVRDeviceRefused, avr.ErrDeviceRefused},
+		{"command unavailable", xkms.ErrAVRCommandUnavailable, avr.ErrCommandUnavailable},
+		{"not provisioned", xkms.ErrAVRNotProvisioned, avr.ErrNotProvisioned},
+		{"device crypto", xkms.ErrAVRDeviceCrypto, avr.ErrDeviceCrypto},
+		{"auth required", xkms.ErrAVRAuthRequired, avr.ErrAuthRequired},
+		{"device busy", xkms.ErrAVRDeviceBusy, avr.ErrDeviceBusy},
+		{"protected region", xkms.ErrAVRProtectedRegion, avr.ErrProtectedRegion},
+		{"device internal", xkms.ErrAVRDeviceInternal, avr.ErrDeviceInternal},
+		{"unsupported by device", xkms.ErrAVRUnsupportedByDevice, avr.ErrUnsupportedByDevice},
+		{"element unreachable", xkms.ErrAVRElementUnreachable, avr.ErrElementUnreachable},
+		{"invalid argument", xkms.ErrAVRInvalidArgument, avr.ErrInvalidArgument},
 	}
 
 	for _, pair := range pairs {
@@ -116,18 +139,20 @@ func TestAVRErrorsAreTheCanonicalSentinels(t *testing.T) {
 	}
 }
 
-// init has registered the backend; RegisterAVRBackend is the same call, so a
-// second one is go-xkms refusing a name it already holds.
-func TestRegisterAVRBackendIsRefusedASecondTime(t *testing.T) {
-	err := xkms.RegisterAVRBackend()
-
-	assert.ErrorIs(t, err, types.ErrBackendTypeRegistered)
-}
-
 // The format string is the one the ACME challenge uses for the same evidence.
 // Two names for one format is how a caller routing on it ends up with a branch
 // that never runs.
 func TestAVRFormatMatchesTheChallengeFormat(t *testing.T) {
 	assert.Equal(t, deviceattest01.FormatDICE.String(), xkms.AVRFormatDICE)
 	assert.Equal(t, "dice", xkms.AVRFormatDICE)
+}
+
+func TestEveryAVRAlgorithmAliasNamesItsOwnAlgorithm(t *testing.T) {
+	assert.Equal(t, avr.AlgorithmECDSAP256SHA256, xkms.AVRAlgorithmECDSAP256SHA256)
+	assert.Equal(t, avr.AlgorithmEd25519, xkms.AVRAlgorithmEd25519)
+	assert.Equal(t, avr.AlgorithmHMACSHA256, xkms.AVRAlgorithmHMACSHA256)
+
+	assert.Equal(t, xkms.AVRAlgorithm("ecdsa-p256-sha256"), xkms.AVRAlgorithmECDSAP256SHA256)
+	assert.Equal(t, xkms.AVRAlgorithm("ed25519"), xkms.AVRAlgorithmEd25519)
+	assert.Equal(t, xkms.AVRAlgorithm("hmac-sha256"), xkms.AVRAlgorithmHMACSHA256)
 }

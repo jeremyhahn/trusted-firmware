@@ -93,9 +93,7 @@ func TestNetblockDHCPIsTheFlagAndNoAddress(t *testing.T) {
 
 func TestNetblockDHCPRefusesAStaticAddressBesideIt(t *testing.T) {
 	for name, edit := range map[string]func(*netblockFlags){
-		"ip":          func(f *netblockFlags) { f.ip = "198.51.100.22/24" },
-		"mask":        func(f *netblockFlags) { f.mask = "255.255.255.0" },
-		"gateway":     func(f *netblockFlags) { f.gateway = "198.51.100.1" },
+		// A static address beside --dhcp: TestMainBakeNetblockDHCPRefusesAStaticAddress.
 		"no mac":      func(f *netblockFlags) { f.mac = "" },
 		"no endpoint": func(f *netblockFlags) { f.endpoint = "" },
 	} {
@@ -233,4 +231,68 @@ func readIHEXRuns(t *testing.T, s string) []ihexSegment {
 		last.data = append(last.data, raw[4:4+int(raw[0])]...)
 	}
 	return runs
+}
+
+func TestEveryMutatedNetBlockIsRefused(t *testing.T) {
+	good, err := netblockFromFlags(benchFlags())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c tfw.NetConfig
+	if err := c.UnmarshalBinary(good); err != nil {
+		t.Fatalf("the good block: %v", err)
+	}
+	cases := 0
+	for i := range good {
+		for _, mask := range []byte{0x01, 0x80, 0xFF} {
+			bad := bytes.Clone(good)
+			bad[i] ^= mask
+			if err := c.UnmarshalBinary(bad); err == nil {
+				t.Fatalf("byte %d ^ %02x accepted: % x", i, mask, bad)
+			}
+			cases++
+		}
+	}
+	for n := 0; n < len(good); n++ {
+		if err := c.UnmarshalBinary(good[:n]); err == nil {
+			t.Fatalf("truncated to %d bytes accepted", n)
+		}
+		cases++
+	}
+	for _, tail := range [][]byte{{0x00}, {0xFF}, {0x00, 0x00}, bytes.Repeat([]byte{0xA5}, 32)} {
+		if err := c.UnmarshalBinary(append(bytes.Clone(good), tail...)); err == nil {
+			t.Fatalf("extended by % x accepted", tail)
+		}
+		cases++
+	}
+	t.Logf("%d net-block mutations refused", cases)
+}
+
+func FuzzNetblockFlags(f *testing.F) {
+	g := benchFlags()
+	f.Add(g.mac, g.ip, g.mask, g.gateway, g.endpoint)
+	f.Add(g.mac, "198.51.100.22", "255.255.255.0", g.gateway, g.endpoint)
+	for _, m := range netblockMutations {
+		b := benchFlags()
+		m.edit(&b)
+		f.Add(b.mac, b.ip, b.mask, b.gateway, b.endpoint)
+	}
+	f.Fuzz(func(t *testing.T, mac, ip, mask, gateway, endpoint string) {
+		nf := netblockFlags{mac: mac, ip: ip, mask: mask, gateway: gateway, endpoint: endpoint}
+		block, err := netblockFromFlags(nf)
+		if err != nil {
+			return
+		}
+		if len(block) != tfw.NetConfigLen {
+			t.Fatalf("%+v: block is %d bytes", nf, len(block))
+		}
+		var c tfw.NetConfig
+		if err := c.UnmarshalBinary(block); err != nil {
+			t.Fatalf("%+v baked a block its own reader refuses: %v", nf, err)
+		}
+		again, err := c.MarshalBinary()
+		if err != nil || !bytes.Equal(again, block) {
+			t.Fatalf("%+v: re-encoded % x (%v), baked % x", nf, again, err, block)
+		}
+	})
 }

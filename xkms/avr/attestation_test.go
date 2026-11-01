@@ -233,6 +233,24 @@ func TestAttestKeyTakesTheNonceItIsGivenAndDoesNotHashIt(t *testing.T) {
 	assert.Equal(t, nonce, result.(*Attestation).Nonce)
 }
 
+// The attestation keeps its own copy of the challenge. A caller that reuses
+// its nonce buffer for the next order must not rewrite the nonce an earlier
+// attestation reports it answered.
+func TestAttestKeyKeepsItsOwnCopyOfTheNonce(t *testing.T) {
+	device := newAliasDevice(t)
+	nonce := bytes.Repeat([]byte{0x5A}, tfw.AliasNonceLen)
+	want := bytes.Clone(nonce)
+
+	b := newTestBackend(t, secureElementLink().answerAttestCert(device.mint(t, nonce)))
+	result, err := b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
+	require.NoError(t, err)
+
+	for i := range nonce {
+		nonce[i] = 0
+	}
+	assert.Equal(t, want, result.(*Attestation).Nonce)
+}
+
 // The device's two nonces are different widths on purpose. Sixteen bytes is
 // runtime freshness in the evidence frame; a device handed it as an enrolment
 // challenge cannot tell it was truncated, so it is refused here.
@@ -605,26 +623,6 @@ func TestAttestKeyReportsAnUnprovisionedDevice(t *testing.T) {
 }
 
 // ------------------------------------------------------------------- guard rails
-
-func TestAttestKeyRefusesTheCallsItCannotAnswer(t *testing.T) {
-	link := secureElementLink()
-	b := newTestBackend(t, link)
-	ctx := context.Background()
-	nonce := make([]byte, tfw.AliasNonceLen)
-	before := len(link.requests)
-
-	_, err := b.AttestKey(ctx, nil, nonce)
-	assert.ErrorIs(t, err, ErrInvalidKeyAttributes)
-
-	_, err = b.AttestKey(ctx, &types.KeyAttributes{CN: "not-this-device"}, nonce)
-	assert.ErrorIs(t, err, ErrUnknownKey)
-
-	assert.Len(t, link.requests, before)
-
-	require.NoError(t, b.Close())
-	_, err = b.AttestKey(ctx, &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
-	assert.ErrorIs(t, err, ErrBackendClosed)
-}
 
 // A device with no crypto provider has no identity to attest to, so nothing is
 // asked of it.

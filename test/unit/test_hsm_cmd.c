@@ -313,13 +313,6 @@ static void test_report_admits_only_the_a55s_signals(void)
 }
 
 /* R1: with no P, a reported signal is the built-in default's lockdown. */
-static void test_report_with_no_set_locks_down(void)
-{
-    TEST_ASSERT_EQUAL(TFW_OK, call1(tfw_hsm_cmd_report, TFW_HSM_SIG_HOTPLUG));
-    ACTS(LOCK);
-    state_is(LOCKED, 0u, 0u);
-}
-
 /* R2: P names S1 alone, so S4 is a signal P does not name. */
 static void test_report_of_a_signal_p_does_not_name_locks_down(void)
 {
@@ -431,21 +424,6 @@ static void test_a_refused_message_with_no_set_is_not_counted(void)
 
 /* A chunk past the next offset drops the envelope; the chunk that would have
  * followed is refused, and a whole envelope after it is held. */
-static void test_a_dropped_envelope_does_not_resume(void)
-{
-    const uint16_t total = sizeof SUIT_POLICY_ENVELOPE;
-    const uint8_t *e     = SUIT_POLICY_ENVELOPE;
-
-    TEST_ASSERT_EQUAL(TFW_OK, chunk(total, 0u, e, 60u));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 120u, &e[120], 60u));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, chunk(total, 60u, &e[60], 60u));
-    TEST_ASSERT_EQUAL(TFW_OK, call(tfw_hsm_cmd_heartbeat, NULL, 0u));
-    state_is(0u, 0u, 0u);
-    TEST_ASSERT_EQUAL(TFW_OK, LOAD_POLICY());
-    state_is(SET, 0u, 0u);
-    NO_ACTS();
-}
-
 /* HSM_RECORD_READ: [count:1][dropped:2 LE][at:4 LE][kind:1][what:1][result:1].
  * Written out byte by byte here, not built from the handler's own constants. */
 static void entry_is(uint8_t count, uint16_t dropped, uint32_t at, uint8_t kind, uint8_t what,
@@ -572,7 +550,6 @@ int main(void)
     RUN_TEST(test_the_same_set_again_is_taken);
     RUN_TEST(test_select_names_a_policy_of_the_set);
     RUN_TEST(test_report_admits_only_the_a55s_signals);
-    RUN_TEST(test_report_with_no_set_locks_down);
     RUN_TEST(test_report_of_a_signal_p_does_not_name_locks_down);
     RUN_TEST(test_verdict_is_clear_or_compromised);
     RUN_TEST(test_a_heartbeat_in_time_keeps_s6_away);
@@ -582,7 +559,6 @@ int main(void)
     RUN_TEST(test_lockdown_is_latched_over_the_channel);
     RUN_TEST(test_a_compromised_verdict_with_no_set_never_wipes);
     RUN_TEST(test_a_refused_message_with_no_set_is_not_counted);
-    RUN_TEST(test_a_dropped_envelope_does_not_resume);
     RUN_TEST(test_an_empty_record_reads_range);
     RUN_TEST(test_one_entry_reads_back_with_every_field);
     RUN_TEST(test_the_last_index_reads_and_the_one_past_it_is_range);

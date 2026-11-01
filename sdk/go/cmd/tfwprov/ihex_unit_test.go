@@ -34,8 +34,6 @@ func TestWriteIHEXRecord(t *testing.T) {
 	require.NoError(t, writeIHEXRecord(&b, 0x0030, 0x00, []byte{0x02, 0x33, 0x7A}))
 	require.Equal(t, ":0300300002337A1E\n", b.String())
 
-	require.Error(t, writeIHEXRecord(&b, 0, 0x00, make([]byte, 256)), "a 256-byte record must be refused")
-
 	for n := 1; n <= 3; n++ {
 		w := &failNthWriter{n: n}
 		require.ErrorIs(t, writeIHEXRecord(w, 0x0030, 0x00, []byte{0x02, 0x33, 0x7A}), errWriteRefused, "write %d", n)

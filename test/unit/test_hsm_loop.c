@@ -116,21 +116,13 @@ static void test_a_line_with_no_set_locks_down(void)
 }
 
 /* R2: the set's actions for the signal sensed. */
-static void test_a_rising_line_raises_its_signal(void)
-{
-    load_policy();
-    lines = LINE(TFW_HSM_SIG_TAMPER_PIN);
-    tfw_hsm_loop_poll();
-    ACTS(S1_ACTS);
-    TEST_ASSERT_EQUAL_UINT8(0u, engine()->locked);
-}
-
 static void test_a_held_line_is_one_event(void)
 {
     load_policy();
     lines = LINE(TFW_HSM_SIG_TAMPER_PIN);
     tfw_hsm_loop_poll();
     ACTS(S1_ACTS);
+    TEST_ASSERT_EQUAL_UINT8(0u, engine()->locked);
     for (uint8_t i = 0u; i < 5u; i++) {
         clock_ms = (tfw_ms_t)(clock_ms + 10u);
         tfw_hsm_loop_poll();
@@ -230,7 +222,6 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_a_pass_with_no_line_does_nothing);
     RUN_TEST(test_a_line_with_no_set_locks_down);
-    RUN_TEST(test_a_rising_line_raises_its_signal);
     RUN_TEST(test_a_held_line_is_one_event);
     RUN_TEST(test_a_line_released_and_asserted_again_is_a_second_event);
     RUN_TEST(test_lines_rising_together_are_raised_in_signal_order);

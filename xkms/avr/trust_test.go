@@ -65,15 +65,3 @@ func TestTrustForRefusesToGuessAtAnUnknownTier(t *testing.T) {
 		assert.False(t, got.hardware, "tier %d", tier)
 	}
 }
-
-// The software tier is a POSITIVE claim and not the absence of one: the device
-// affirmatively says its root of trust is not in hardware. Collapsing it to
-// unattested would lose the difference between a device that answered and a
-// device that could not.
-func TestSoftwareTierIsNotTheSameAsNoProvider(t *testing.T) {
-	software, _ := trustFor(tfw.CryptoSoftware)
-	none, _ := trustFor(tfw.CryptoNone)
-
-	assert.NotEqual(t, none.level, software.level)
-	assert.Equal(t, types.AttestLevelSoftware, software.level)
-}

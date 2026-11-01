@@ -129,6 +129,8 @@ func TestPossessionSignerSignsSHA256Only(t *testing.T) {
 		"sha384":   func() ([]byte, error) { return signer.Sign(nil, make([]byte, 48), crypto.SHA384) },
 		"nil opts": func() ([]byte, error) { return signer.Sign(nil, make([]byte, 32), nil) },
 		"short":    func() ([]byte, error) { return signer.Sign(nil, make([]byte, 20), crypto.SHA256) },
+		// Another hash of the same width: only the hash, not the length, refuses it.
+		"sha512/256": func() ([]byte, error) { return signer.Sign(nil, make([]byte, 32), crypto.SHA512_256) },
 	} {
 		_, err := call()
 		assert.ErrorIs(t, err, ErrSigningUnsupported, name)
@@ -149,6 +151,7 @@ func TestPossessionSignerRefusesWhatAttestKeyDidNotProduce(t *testing.T) {
 		"not P-256":      possessionAttestation(t, p384, possessionNonce),
 		"evidence nonce": possessionAttestation(t, key, make([]byte, tfw.AttestNonceLen)),
 		"no nonce":       possessionAttestation(t, key, nil),
+		"long nonce":     possessionAttestation(t, key, make([]byte, 2*tfw.AliasNonceLen)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			signer, err := b.PossessionSigner(att)

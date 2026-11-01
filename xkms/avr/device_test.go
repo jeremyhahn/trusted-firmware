@@ -58,6 +58,7 @@ func TestDeviceErrorMapsEveryNamedStatus(t *testing.T) {
 		t.Run(tt.status.String(), func(t *testing.T) {
 			err := deviceError(tt.status)
 			assert.ErrorIs(t, err, tt.sentinel)
+			assert.NotErrorIs(t, err, ErrDeviceRefused, "a named status is never the generic refusal")
 			assert.Contains(t, err.Error(), tt.status.String(),
 				"the device's own wording is the detail, so a log says what it said")
 		})
@@ -96,6 +97,14 @@ func TestDeviceErrorClassifiesTransportAndFramingFailures(t *testing.T) {
 			assert.ErrorIs(t, deviceError(tt.err), tt.sentinel)
 		})
 	}
+}
+
+// A truncated frame is an unreadable answer, not a device that did not answer.
+func TestDeviceErrorClassifiesATruncatedFrameAsProtocol(t *testing.T) {
+	err := deviceError(tfw.ErrShortFrame)
+
+	assert.ErrorIs(t, err, ErrDeviceProtocol)
+	assert.NotErrorIs(t, err, ErrDeviceUnreachable)
 }
 
 // A closed link must stay reachable through errors.Is(err, io.EOF): that is
@@ -152,4 +161,32 @@ func TestDeviceErrorClassifiesAnArgumentItNeverSent(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrInvalidArgument)
 	assert.NotErrorIs(t, err, ErrDeviceUnreachable)
+}
+
+// The log line names each zone's own state; a part half-way through
+// provisioning must not read as the other half.
+func TestIdentityStringNamesEachZone(t *testing.T) {
+	id := Identity{Serial: "0123", ConfigLocked: true, DataLocked: false}
+
+	assert.Equal(t, "element 0123 (config locked true, data locked false)", id.String())
+}
+
+// The identity owns its bytes: a caller that reuses the SDK's ElementInfo for
+// the next read must not rewrite an identity already handed out.
+func TestNewIdentityCopiesTheElementBytes(t *testing.T) {
+	info := &tfw.ElementInfo{
+		Revision: [4]byte{0x00, 0x00, 0x60, 0x03},
+		Serial:   [9]byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xEE},
+	}
+
+	id := newIdentity(info)
+	require.Equal(t, info.Serial[:], id.SerialBytes)
+	require.Equal(t, info.Revision[:], id.Revision)
+
+	info.Serial = [9]byte{}
+	info.Revision = [4]byte{}
+
+	assert.Equal(t, []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xEE}, id.SerialBytes)
+	assert.Equal(t, []byte{0x00, 0x00, 0x60, 0x03}, id.Revision)
+	assert.Equal(t, "0123456789abcdefee", id.Serial)
 }

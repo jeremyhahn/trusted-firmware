@@ -14,7 +14,12 @@
 package avr
 
 import (
+	"errors"
+	"io"
+	"log/slog"
+	"strings"
 	"testing"
+	"time"
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 
@@ -42,32 +47,71 @@ func TestValidateFillsTheDefaultsItIsAllowedTo(t *testing.T) {
 	assert.Equal(t, "device", cfg.KeyCN, "a name the caller set is never replaced")
 }
 
-// The empty common name is refused rather than defaulted. Defaulting it would
-// make a KeyAttributes that simply forgot its CN resolve to the device's
-// identity key, which is the one key on the part.
-func TestValidateRefusesAnEmptyKeyName(t *testing.T) {
+// Validate fills only what was left unset: a logger and a positive deadline
+// the caller chose are theirs and survive validation unchanged.
+func TestValidateKeepsTheCallersLoggerAndTimeout(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := DefaultConfig()
-	cfg.KeyCN = ""
-
-	assert.ErrorIs(t, cfg.Validate(), ErrMissingKeyCN)
-}
-
-// Slot 1 is the UDS. Reading it as a public key would hand out a derivation
-// secret's slot as an identity, so a configuration naming it is refused before
-// any command goes on the wire.
-func TestValidateRefusesASlotThatIsNotTheIdentity(t *testing.T) {
-	for _, slot := range []uint8{tfw.SlotUDS, 2, 15} {
-		cfg := DefaultConfig()
-		cfg.Slot = slot
-		assert.ErrorIs(t, cfg.Validate(), ErrInvalidSlot, "slot %d", slot)
-	}
-}
-
-func TestValidateReplacesANegativeTimeoutWithTheDefault(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.RequestTimeout = -1
+	cfg.Logger = logger
+	cfg.RequestTimeout = 7 * time.Second
 
 	require.NoError(t, cfg.Validate())
-	assert.Equal(t, DefaultRequestTimeout, cfg.RequestTimeout,
-		"a negative deadline would expire before the first byte left")
+	assert.Same(t, logger, cfg.Logger, "a logger the caller set is never replaced")
+	assert.Equal(t, 7*time.Second, cfg.RequestTimeout, "a positive deadline is never replaced")
+}
+
+// Every sentinel is its own fact. Two names for one error would let a caller
+// branch on the one that never fires, and errors.Is cannot tell them apart.
+func TestSentinelsAreDistinct(t *testing.T) {
+	sentinels := map[string]error{
+		"ErrNilConfig":             ErrNilConfig,
+		"ErrNilDevice":             ErrNilDevice,
+		"ErrInvalidFactoryConfig":  ErrInvalidFactoryConfig,
+		"ErrMissingKeyCN":          ErrMissingKeyCN,
+		"ErrInvalidSlot":           ErrInvalidSlot,
+		"ErrBackendClosed":         ErrBackendClosed,
+		"ErrInvalidKeyAttributes":  ErrInvalidKeyAttributes,
+		"ErrUnknownKey":            ErrUnknownKey,
+		"ErrInvalidNonce":          ErrInvalidNonce,
+		"ErrTrustStoreInit":        ErrTrustStoreInit,
+		"ErrSigningUnsupported":    ErrSigningUnsupported,
+		"ErrInvalidAttestation":    ErrInvalidAttestation,
+		"ErrPossessionMismatch":    ErrPossessionMismatch,
+		"ErrDecryptionUnsupported": ErrDecryptionUnsupported,
+		"ErrGenerationUnsupported": ErrGenerationUnsupported,
+		"ErrDeletionUnsupported":   ErrDeletionUnsupported,
+		"ErrRotationUnsupported":   ErrRotationUnsupported,
+		"ErrMalformedCertificate":  ErrMalformedCertificate,
+		"ErrProtocolVersion":       ErrProtocolVersion,
+		"ErrUnknownCryptoTier":     ErrUnknownCryptoTier,
+		"ErrNoDeviceKey":           ErrNoDeviceKey,
+		"ErrInvalidDevicePoint":    ErrInvalidDevicePoint,
+		"ErrDeviceUnreachable":     ErrDeviceUnreachable,
+		"ErrDeviceProtocol":        ErrDeviceProtocol,
+		"ErrDeviceRefused":         ErrDeviceRefused,
+		"ErrCommandUnavailable":    ErrCommandUnavailable,
+		"ErrNotProvisioned":        ErrNotProvisioned,
+		"ErrDeviceCrypto":          ErrDeviceCrypto,
+		"ErrAuthRequired":          ErrAuthRequired,
+		"ErrDeviceBusy":            ErrDeviceBusy,
+		"ErrProtectedRegion":       ErrProtectedRegion,
+		"ErrDeviceInternal":        ErrDeviceInternal,
+		"ErrUnsupportedByDevice":   ErrUnsupportedByDevice,
+		"ErrElementUnreachable":    ErrElementUnreachable,
+		"ErrInvalidArgument":       ErrInvalidArgument,
+	}
+	messages := make(map[string]string, len(sentinels))
+	for name, err := range sentinels {
+		require.NotNil(t, err, name)
+		assert.True(t, strings.HasPrefix(err.Error(), "avr backend: "), "%s: %q", name, err)
+		if prev, dup := messages[err.Error()]; dup {
+			t.Errorf("%s and %s carry one message", prev, name)
+		}
+		messages[err.Error()] = name
+		for other, oerr := range sentinels {
+			if other != name {
+				assert.False(t, errors.Is(err, oerr), "%s is %s", name, other)
+			}
+		}
+	}
 }

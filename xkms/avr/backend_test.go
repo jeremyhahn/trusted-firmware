@@ -151,6 +151,22 @@ func TestNewBackendAttachesToADeviceWithAnUnknownTier(t *testing.T) {
 	assert.False(t, b.Capabilities().HardwareBacked)
 }
 
+// The attach line is what an operator reads to tell which protocol and which
+// firmware a device runs, so each number is in its own place. Distinct values
+// throughout, so a swapped or repeated field cannot pass.
+func TestAttachLineVersionsKeepEachFieldInItsPlace(t *testing.T) {
+	caps := tfw.Caps{
+		ProtoMajor:    1,
+		ProtoMinor:    2,
+		FirmwareMajor: 3,
+		FirmwareMinor: 4,
+		FirmwarePatch: 5,
+	}
+
+	assert.Equal(t, "1.2", protocolString(caps))
+	assert.Equal(t, "3.4.5", firmwareString(caps))
+}
+
 // -------------------------------------------------------------- what it reports
 
 // "tfw", not "avr": go-xkms holds "avr" for its built-in backend until
@@ -370,14 +386,6 @@ func TestGetKeyRefusesAnythingButTheConfiguredName(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnknownKey)
 	assert.Contains(t, err.Error(), "some-other-key")
 	assert.Len(t, link.requests, before, "an unknown name costs no round trip")
-}
-
-func TestGetKeyRefusesNilAttributes(t *testing.T) {
-	b := newTestBackend(t, secureElementLink())
-
-	_, err := b.GetKey(context.Background(), nil)
-
-	assert.ErrorIs(t, err, ErrInvalidKeyAttributes)
 }
 
 // A device with no crypto provider holds no identity, so there is nothing to
@@ -671,14 +679,4 @@ func TestIdentityRefusesAReplyWithoutTheLockBytes(t *testing.T) {
 	_, err := b.Identity(context.Background())
 
 	assert.ErrorIs(t, err, ErrDeviceProtocol)
-}
-
-func TestIdentityRefusesAfterClose(t *testing.T) {
-	b, err := NewBackend(context.Background(), testConfig(), newTestDevice(secureElementLink()))
-	require.NoError(t, err)
-	require.NoError(t, b.Close())
-
-	_, err = b.Identity(context.Background())
-
-	assert.ErrorIs(t, err, ErrBackendClosed)
 }

@@ -19,7 +19,7 @@ static const uint8_t TFW_TA_VEC_UUID[16] = {
     0xb6, 0x3c, 0xe5, 0x85, 0x37, 0x42, 0xfa, 0x1f,
 };
 
-/* Command ids. 0x0 is reserved; 0x3 and 0x4 are held, unimplemented. */
+/* Command ids. 0x0 is reserved. */
 #define TFW_TA_VEC_CMD_RESERVED   0x00000000u
 #define TFW_TA_VEC_CMD_GET_INFO   0x00000001u
 #define TFW_TA_VEC_CMD_GET_RANDOM 0x00000002u
@@ -37,6 +37,9 @@ static const uint8_t TFW_TA_VEC_UUID[16] = {
 #define TFW_TA_VEC_PT_GET_INFO   0x00000002u /* VALUE_OUTPUT, NONE, NONE, NONE */
 #define TFW_TA_VEC_PT_GET_RANDOM 0x00000006u /* MEMREF_TEMP_OUTPUT, NONE, NONE, NONE */
 #define TFW_TA_VEC_PT_VALUE_IN   0x00000001u /* VALUE_INPUT, NONE, NONE, NONE */
+/* MEMREF_TEMP_INPUT, MEMREF_TEMP_INPUT, MEMREF_TEMP_OUTPUT, NONE */
+#define TFW_TA_VEC_PT_SEAL       0x00000655u
+#define TFW_TA_VEC_PT_UNSEAL     0x00000655u
 
 /* GET_INFO's answer: interface version 1, flags 0. */
 #define TFW_TA_VEC_INFO_VERSION 1u
@@ -50,6 +53,8 @@ static const uint8_t TFW_TA_VEC_UUID[16] = {
 #define TFW_TA_VEC_SUCCESS          0x00000000u
 #define TFW_TA_VEC_BAD_PARAMETERS   0xFFFF0006u
 #define TFW_TA_VEC_NOT_SUPPORTED    0xFFFF000Au
+#define TFW_TA_VEC_SHORT_BUFFER     0xFFFF0010u
+#define TFW_TA_VEC_MAC_INVALID      0xFFFF3071u
 #define TFW_TA_VEC_ORIGIN_TRUSTED_APP 0x00000004u
 
 /* The session's login: TEEC_LOGIN_PUBLIC. */

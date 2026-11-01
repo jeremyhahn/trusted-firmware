@@ -194,7 +194,7 @@ go-enclave's choice; the TA only sees GP calls.
 | Test | Owner | Runs where |
 |---|---|---|
 | `xtest` smoke subset: the composed stack works | upstream OP-TEE; we only run it | here, `make integration-test-optee` |
-| `tfw-ta-check`: each command against the literal vectors, including unknown id and bad parameters | this project | here, `make integration-test-optee` |
+| `tfw-ta-check`: each command against the literal vectors, including unknown id and bad parameters; SEAL and UNSEAL on the device's own TA unique key: a round trip, a fresh nonce per SEAL, `TEE_ERROR_MAC_INVALID` for a flipped ciphertext byte, `TEE_ERROR_SHORT_BUFFER` with the size needed, and `TEE_ERROR_BAD_PARAMETERS` for wrong types | this project | here, `make integration-test-optee` |
 | `test_optee_ta`: the TA's entry points and dispatch against the vectors, and `tfw-ta-check` against the TA and every broken answer, over host doubles of the GP headers (`test/mock/gp/`, `test/mock/gp_bridge.c`) | this project | here, `make host-test` and `make coverage` |
 | `backendtest` on `arm-trustzone`: the enclave contract | go-enclave | go-enclave's CI, calling `make optee-run` at a trusted-firmware tag (open question 4) |
 

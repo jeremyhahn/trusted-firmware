@@ -72,6 +72,12 @@ static void test_the_gp_numbers_are_the_vectors(void)
     TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_SUCCESS, TEE_SUCCESS);
     TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_BAD_PARAMETERS, TEE_ERROR_BAD_PARAMETERS);
     TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_NOT_SUPPORTED, TEE_ERROR_NOT_SUPPORTED);
+    TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_SHORT_BUFFER, TEE_ERROR_SHORT_BUFFER);
+    TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_MAC_INVALID, TEE_ERROR_MAC_INVALID);
+    TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_PT_SEAL,
+                            TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_INPUT, TEE_PARAM_TYPE_MEMREF_INPUT,
+                                            TEE_PARAM_TYPE_MEMREF_OUTPUT, TEE_PARAM_TYPE_NONE));
+    TEST_ASSERT_EQUAL_HEX32(TFW_TA_VEC_PT_UNSEAL, TFW_TA_VEC_PT_SEAL);
 }
 
 /* --- the TA's entry points ------------------------------------------- */
@@ -212,10 +218,16 @@ static void test_the_check_passes_every_case_against_the_ta(void)
     assert_line("tfw-ta-check: ok get-random-empty\n");
     assert_line("tfw-ta-check: ok get-random-over\n");
     assert_line("tfw-ta-check: ok get-random-bad-types\n");
+    assert_line("tfw-ta-check: ok seal-unseal\n");
+    assert_line("tfw-ta-check: ok seal-fresh-nonce\n");
+    assert_line("tfw-ta-check: ok unseal-mac-invalid\n");
+    assert_line("tfw-ta-check: ok seal-short-buffer\n");
+    assert_line("tfw-ta-check: ok seal-bad-types\n");
+    assert_line("tfw-ta-check: ok unseal-bad-types\n");
     assert_line("tfw-ta-check: ok unknown-0x00000000\n");
     assert_line("tfw-ta-check: ok unknown-0xffffffff\n");
     assert_line("tfw-ta-check: ok open-bad-parameters\n");
-    assert_line("tfw-ta-check: PASS, 12 of 12 passed\n");
+    assert_line("tfw-ta-check: PASS, 18 of 18 passed\n");
     TEST_ASSERT_NULL(strstr(out_text, "FAIL"));
 }
 
@@ -239,14 +251,15 @@ static void test_a_wrong_version_fails_get_info_only(void)
     tfw_gp_mock.value_a_xor = 1u;
     TEST_ASSERT_EQUAL_INT(1, run_check());
     assert_line("tfw-ta-check: FAIL get-info\n");
-    assert_line("tfw-ta-check: FAIL, 11 of 12 passed\n");
+    assert_line("tfw-ta-check: FAIL, 17 of 18 passed\n");
 }
 
 static void test_a_stuck_generator_fails_get_random(void)
 {
     tfw_gp_mock.stuck_random = 1;
-    TEST_ASSERT_EQUAL_INT(1, run_check());
+    TEST_ASSERT_EQUAL_INT(2, run_check());
     assert_line("tfw-ta-check: FAIL get-random\n");
+    assert_line("tfw-ta-check: FAIL seal-fresh-nonce\n");
 }
 
 /* The right code from the wrong origin is not the TA's answer. */

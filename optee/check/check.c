@@ -144,6 +144,82 @@ static int tfw_check_open_refused(TEEC_Context *ctx, const TEEC_UUID *uuid)
     return tfw_check_answer(rc, origin, TFW_TA_VEC_BAD_PARAMETERS);
 }
 
+/* SEAL vector 1's first ciphertext byte: §2's 27 bytes, then the bstr head 58 37. */
+#define TFW_CHECK_CIPHERTEXT 29u
+
+/* SEAL or UNSEAL of in into out, with the associated data empty; *out_len in and out. */
+static int tfw_check_seal_cmd(TEEC_Session *s, uint32_t cmd, const void *in, size_t in_len,
+                              void *out, size_t *out_len, uint32_t want)
+{
+    TEEC_Operation op;
+    int ok;
+    tfw_check_op(&op, cmd == TFW_TA_VEC_CMD_SEAL ? TFW_TA_VEC_PT_SEAL : TFW_TA_VEC_PT_UNSEAL);
+    op.params[0].tmpref.buffer = (void *)(uintptr_t)in;
+    op.params[0].tmpref.size = in_len;
+    op.params[2].tmpref.buffer = out;
+    op.params[2].tmpref.size = *out_len;
+    ok = tfw_check_invoke(s, cmd, &op, want);
+    *out_len = op.params[2].tmpref.size;
+    return ok;
+}
+
+/*
+ * Seals vector 1's plaintext. The blob is keyed by this device's TA unique key,
+ * so only its size can match go-xkms's blob, never its bytes.
+ */
+static int tfw_check_seal(TEEC_Session *s, uint8_t blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)])
+{
+    size_t len = sizeof(TFW_TA_VEC_SEAL1_BLOB);
+    return tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                              sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), blob, &len,
+                              TFW_TA_VEC_SUCCESS) &&
+           len == sizeof(TFW_TA_VEC_SEAL1_BLOB);
+}
+
+static int tfw_check_seal_unseal(TEEC_Session *s)
+{
+    uint8_t blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    uint8_t out[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    size_t out_len = sizeof(out);
+    memset(out, 0, sizeof(out));
+    return tfw_check_seal(s, blob) &&
+           tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_UNSEAL, blob, sizeof(blob), out, &out_len,
+                              TFW_TA_VEC_SUCCESS) &&
+           out_len == sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT) &&
+           memcmp(out, TFW_TA_VEC_SEAL1_PLAINTEXT, out_len) == 0;
+}
+
+/* Two SEALs of one plaintext differ: each draws its own nonce. */
+static int tfw_check_seal_fresh(TEEC_Session *s)
+{
+    uint8_t a[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    uint8_t b[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    return tfw_check_seal(s, a) && tfw_check_seal(s, b) && memcmp(a, b, sizeof(a)) != 0;
+}
+
+static int tfw_check_unseal_tampered(TEEC_Session *s)
+{
+    uint8_t blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    uint8_t out[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    size_t out_len = sizeof(out);
+    if (!tfw_check_seal(s, blob))
+        return 0;
+    blob[TFW_CHECK_CIPHERTEXT] ^= 0x80u;
+    return tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_UNSEAL, blob, sizeof(blob), out, &out_len,
+                              TFW_TA_VEC_MAC_INVALID);
+}
+
+/* One byte short answers TEE_ERROR_SHORT_BUFFER and the size needed. */
+static int tfw_check_seal_short(TEEC_Session *s)
+{
+    uint8_t blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+    size_t len = sizeof(blob) - 1u;
+    return tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_SEAL, TFW_TA_VEC_SEAL1_PLAINTEXT,
+                              sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), blob, &len,
+                              TFW_TA_VEC_SHORT_BUFFER) &&
+           len == sizeof(TFW_TA_VEC_SEAL1_BLOB);
+}
+
 int tfw_ta_check(FILE *out)
 {
     static const uint32_t unknown[] = {
@@ -191,6 +267,16 @@ int tfw_ta_check(FILE *out)
                                      TFW_TA_VEC_BAD_PARAMETERS));
     tfw_check_verdict(&c, "get-random-bad-types",
                       tfw_check_with(&s, TFW_TA_VEC_CMD_GET_RANDOM, TFW_TA_VEC_PT_GET_INFO,
+                                     TFW_TA_VEC_BAD_PARAMETERS));
+    tfw_check_verdict(&c, "seal-unseal", tfw_check_seal_unseal(&s));
+    tfw_check_verdict(&c, "seal-fresh-nonce", tfw_check_seal_fresh(&s));
+    tfw_check_verdict(&c, "unseal-mac-invalid", tfw_check_unseal_tampered(&s));
+    tfw_check_verdict(&c, "seal-short-buffer", tfw_check_seal_short(&s));
+    tfw_check_verdict(&c, "seal-bad-types",
+                      tfw_check_with(&s, TFW_TA_VEC_CMD_SEAL, TFW_TA_VEC_PT_GET_RANDOM,
+                                     TFW_TA_VEC_BAD_PARAMETERS));
+    tfw_check_verdict(&c, "unseal-bad-types",
+                      tfw_check_with(&s, TFW_TA_VEC_CMD_UNSEAL, TFW_TA_VEC_PT_GET_RANDOM,
                                      TFW_TA_VEC_BAD_PARAMETERS));
     for (i = 0; i < sizeof(unknown) / sizeof(unknown[0]); i++) {
         tfw_check_verdict(&c, unknown_name[i],

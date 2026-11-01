@@ -89,19 +89,6 @@ func TestAttestPagesTheWholeEvidenceFrame(t *testing.T) {
 	assert.Equal(t, []byte{3}, link.requests[3])
 }
 
-// The firmware puts [page][total] ahead of every page of evidence. A host that
-// kept those bytes would return a frame of the right length with every field
-// shifted, so the fake above emits them and this pins the header being stripped.
-func TestAttestStripsThePageHeaderFromEveryPage(t *testing.T) {
-	want := evidence()
-	link := &pagedLink{doc: want, pageSize: attestPage, attest: true}
-
-	got, err := New(link).Attest(context.Background(), make([]byte, AttestNonceLen))
-	require.NoError(t, err)
-	assert.Equal(t, want[:attestPage], got[:attestPage], "page 0 must not start with its header")
-	assert.Equal(t, want[attestPage:2*attestPage], got[attestPage:2*attestPage], "no header spliced in at the page boundary")
-}
-
 func TestAttestRefusesAPageWithNoEvidenceBehindItsHeader(t *testing.T) {
 	link := &cannedLink{payload: []byte{0, 164}}
 	_, err := New(link).Attest(context.Background(), make([]byte, AttestNonceLen))

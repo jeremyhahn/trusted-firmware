@@ -251,6 +251,8 @@ func TestCBORLimits(t *testing.T) {
 		"reserved info 29":             {0x3d},
 		"reserved info 30":             {0x9e},
 		"trailing byte":                {0x00, 0x00},
+		"unsigned 1-byte head cut":     {0x18},
+		"map value truncated":          {0xa1, 0x00, 0x18},
 	}
 	for name, b := range bad {
 		if v, err := cborDecode(b); err == nil {

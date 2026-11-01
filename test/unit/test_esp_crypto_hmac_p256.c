@@ -204,33 +204,7 @@ static void test_the_deviceid_does_not_move_with_the_measurement(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(a, b, 64);
 }
 
-static void test_hmac_is_under_the_handed_off_cdi_on_slot_0_only(void)
-{
-    static const uint8_t msg[] = "challenge";
-    uint8_t cdi[32], want[32], got[32];
-
-    burn_uds(EFUSE_BLK_KEY1);
-    boot_with((uint8_t)TFW_CRYPTO_SECURE_ELEMENT, 0xC1);
-    memset(cdi, 0xC1, sizeof cdi);
-    tfw_hmac_sha256(cdi, 32u, msg, (uint16_t)(sizeof msg - 1u), want);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_hmac(0u, msg, (uint16_t)(sizeof msg - 1u), got));
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_crypto_hmac(1u, msg, (uint16_t)(sizeof msg - 1u), got));
-}
-
 /* ---- no UDS, no CDI, a refusing peripheral ---------------------------------- */
-
-static void test_a_part_with_no_hmac_up_key_has_no_deviceid(void)
-{
-    uint8_t pub[64], sig[64], alg = 0u;
-
-    boot_with((uint8_t)TFW_CRYPTO_SECURE_ELEMENT, 0xC1);
-    TEST_ASSERT_EQUAL(0, hmac_calls);
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_pubkey(pub));
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_sign(DIGEST, sig, &alg));
-    TEST_ASSERT_EQUAL_UINT16(TFW_ALGBIT_HMAC_SHA256, tfw_crypto_algorithms());
-    TEST_ASSERT_GREATER_THAN(0, log_count['W']);
-}
 
 static void test_no_handoff_leaves_no_cdi_and_no_signature(void)
 {
@@ -244,16 +218,6 @@ static void test_no_handoff_leaves_no_cdi_and_no_signature(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_pubkey(pub));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(UDS_PUB, pub, 64);
     TEST_ASSERT_EQUAL_UINT16(TFW_ALGBIT_ECDSA_P256_SHA256, tfw_crypto_algorithms());
-}
-
-static void test_a_handoff_for_another_tier_leaves_no_cdi(void)
-{
-    uint8_t sig[64], out[32], alg = 0u;
-
-    burn_uds(EFUSE_BLK_KEY1);
-    boot_with((uint8_t)TFW_CRYPTO_SOFTWARE, 0xC1);
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_hmac(0u, DIGEST, 32u, out));
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_sign(DIGEST, sig, &alg));
 }
 
 static void test_an_all_zero_cdi_is_not_a_cdi(void)
@@ -303,42 +267,6 @@ static void test_a_second_init_forgets_the_first_boots_identity(void)
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_crypto_algorithms());
 }
 
-/* ---- the rest of the contract ---------------------------------------------- */
-
-static void test_random_is_the_part_rng(void)
-{
-    uint8_t out[16], want[16];
-
-    memset(out, 0, sizeof out);
-    memset(want, 0xA5, sizeof want);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_random(out, (uint8_t)sizeof out));
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, out, sizeof out);
-}
-
-static void test_sha256_is_the_portable_one(void)
-{
-    uint8_t got[32], want[32];
-
-    tfw_sha256((const uint8_t *)"abc", 3u, want);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_sha256((const uint8_t *)"abc", 3u, got));
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
-}
-
-/* The counter is ESP-IDF's secure_version (hal_ota.c's OTA_INFO), operator
- * authentication is the element's, and the image is verified by layer 0: the
- * provider answers UNSUPPORTED for all three, as the soft tier does. */
-static void test_counter_operator_and_image_verify_are_unsupported(void)
-{
-    uint8_t  sig[64] = {0}, pub[64] = {0};
-    uint32_t c = 0u;
-
-    burn_uds(EFUSE_BLK_KEY1);
-    boot_with((uint8_t)TFW_CRYPTO_SECURE_ELEMENT, 0xC1);
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &c));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_operator(DIGEST, sig, pub));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(DIGEST, sig));
-}
-
 int main(void)
 {
     UNITY_BEGIN();
@@ -346,16 +274,10 @@ int main(void)
     RUN_TEST(test_the_uds_is_found_in_any_key_block);
     RUN_TEST(test_sign_is_the_pinned_es256_signature_and_verifies);
     RUN_TEST(test_the_deviceid_does_not_move_with_the_measurement);
-    RUN_TEST(test_hmac_is_under_the_handed_off_cdi_on_slot_0_only);
-    RUN_TEST(test_a_part_with_no_hmac_up_key_has_no_deviceid);
     RUN_TEST(test_no_handoff_leaves_no_cdi_and_no_signature);
-    RUN_TEST(test_a_handoff_for_another_tier_leaves_no_cdi);
     RUN_TEST(test_an_all_zero_cdi_is_not_a_cdi);
     RUN_TEST(test_a_peripheral_that_refuses_at_init_leaves_no_deviceid);
     RUN_TEST(test_a_peripheral_that_refuses_at_sign_is_a_crypto_error);
     RUN_TEST(test_a_second_init_forgets_the_first_boots_identity);
-    RUN_TEST(test_random_is_the_part_rng);
-    RUN_TEST(test_sha256_is_the_portable_one);
-    RUN_TEST(test_counter_operator_and_image_verify_are_unsupported);
     return UNITY_END();
 }

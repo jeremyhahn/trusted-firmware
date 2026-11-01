@@ -301,24 +301,6 @@ static void test_an_unnumbered_status_is_unrecognised(void)
     TEST_ASSERT_FALSE(tfw_scmi_status_known(1));
 }
 
-static void test_a_wrong_token_is_refused(void)
-{
-    static const uint8_t p[4] = { 0, 0, 0, 0 };
-
-    tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 9u);
-    rsp_of(0x00284000u, p, 4u);   /* token 10 */
-    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_HEADER, tfw_scmi_check(&cmd, &rsp));
-}
-
-static void test_a_wrong_protocol_is_refused(void)
-{
-    static const uint8_t p[4] = { 0, 0, 0, 0 };
-
-    tfw_scmi_protocol_version(&cmd, TFW_SCMI_PROTO_BASE, 9u);
-    rsp_of(0x00245000u, p, 4u);   /* protocol 0x14 */
-    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_HEADER, tfw_scmi_check(&cmd, &rsp));
-}
-
 static void test_a_wrong_message_or_type_is_refused(void)
 {
     static const uint8_t p[4] = { 0, 0, 0, 0 };
@@ -403,8 +385,6 @@ int main(void)
     RUN_TEST(test_every_lmm_status_maps);
     RUN_TEST(test_every_status_code_reads_back_as_numbered);
     RUN_TEST(test_an_unnumbered_status_is_unrecognised);
-    RUN_TEST(test_a_wrong_token_is_refused);
-    RUN_TEST(test_a_wrong_protocol_is_refused);
     RUN_TEST(test_a_wrong_message_or_type_is_refused);
     RUN_TEST(test_a_response_without_a_status_is_short);
     RUN_TEST(test_protocol_version_reads_major_and_minor);

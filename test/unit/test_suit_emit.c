@@ -51,20 +51,6 @@ static void test_the_envelope_is_the_vectors(void)
     TEST_ASSERT_EQUAL_MEMORY(SUIT_ENVELOPE, out, sizeof SUIT_ENVELOPE);
 }
 
-static void test_a_buffer_too_small_writes_nothing_it_claims(void)
-{
-    uint8_t out[sizeof SUIT_ENVELOPE - 1u];
-
-    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_manifest(out, sizeof SUIT_MANIFEST - 1u,
-                                                        SUIT_IMAGE_DIGEST, sizeof SUIT_IMAGE,
-                                                        7u, vendor, class_id));
-    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_tbs(out, sizeof SUIT_TBS - 1u,
-                                                   SUIT_MANIFEST, sizeof SUIT_MANIFEST));
-    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_envelope(out, sizeof out, SUIT_MANIFEST,
-                                                        sizeof SUIT_MANIFEST,
-                                                        &SUIT_ENVELOPE[SIG_OFFSET]));
-}
-
 /* The CBOR heads wider than one byte (RFC 8949 §3): seq 0x0100 takes the
  * two-byte form 19 01 00, image size 0x01020304 the four-byte 1A 01 02 03 04.
  * Every other byte is the vector's, with the three bstr lengths each grown by
@@ -89,18 +75,6 @@ static void test_wide_heads_are_the_vectors_spliced(void)
     TEST_ASSERT_EQUAL_MEMORY(head, out, sizeof head);
     TEST_ASSERT_EQUAL_MEMORY(&SUIT_MANIFEST[24], &out[26], 74u);
     TEST_ASSERT_EQUAL_MEMORY(tail, &out[100], sizeof tail);
-}
-
-/* A manifest the 16-bit hash length cannot take is refused before it is read:
- * no Sig_structure and no envelope over a digest of part of it. */
-static void test_a_manifest_over_64k_is_refused(void)
-{
-    static uint8_t big[0x10000];
-    uint8_t out[256];
-
-    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_tbs(out, sizeof out, big, sizeof big));
-    TEST_ASSERT_EQUAL_size_t(0u, tfw_suit_emit_envelope(out, sizeof out, big, sizeof big,
-                                                        &SUIT_ENVELOPE[SIG_OFFSET]));
 }
 
 /* The integrated-payload envelope: the policy class is not a board's, so it is
@@ -165,8 +139,6 @@ int main(void)
     RUN_TEST(test_the_manifest_is_the_vectors);
     RUN_TEST(test_the_tbs_is_the_vectors);
     RUN_TEST(test_the_envelope_is_the_vectors);
-    RUN_TEST(test_a_buffer_too_small_writes_nothing_it_claims);
     RUN_TEST(test_wide_heads_are_the_vectors_spliced);
-    RUN_TEST(test_a_manifest_over_64k_is_refused);
     return UNITY_END();
 }

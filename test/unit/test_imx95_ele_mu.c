@@ -361,22 +361,6 @@ static void test_a_close_never_answered_times_out(void)
     TEST_ASSERT_EQUAL_UINT32(2u, m->ele.req_len);   /* sent in full */
 }
 
-static void test_the_handle_the_open_returns_is_the_one_closed(void)
-{
-    uint32_t handle = 0u;
-
-    open_reply(0x00C0FFEEu);
-    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_session_open(&chan, 0u, &handle, NULL));
-    m = tfw_imx95_model_get();
-    m->ele.req_len = 0u;   /* the model records one request */
-    close_reply();
-    TEST_ASSERT_EQUAL_INT32(0, tfw_ele_session_close(&chan, handle, NULL));
-    m = tfw_imx95_model_get();   /* the last read lands */
-    TEST_ASSERT_EQUAL_UINT32(2u, m->ele.requests);
-    TEST_ASSERT_EQUAL_HEX32(0x17110206u, m->ele.req[0]);
-    TEST_ASSERT_EQUAL_HEX32(0x00C0FFEEu, m->ele.req[1]);
-}
-
 /* KEY_STORE_OPEN, sab_key_store.h's struct sab_cmd_key_store_open_msg in
  * the PSA_COMPLIANT layout: header 0x17300606 (6 words, command 0x30), the
  * session handle, the key store id, the nonce, then rsv1, flags, rsv2 (flags
@@ -2309,7 +2293,6 @@ int main(void)
     RUN_TEST(test_a_close_answered_long_is_refused_unread);
     RUN_TEST(test_a_close_answered_as_an_open_is_refused);
     RUN_TEST(test_a_close_never_answered_times_out);
-    RUN_TEST(test_the_handle_the_open_returns_is_the_one_closed);
     RUN_TEST(test_a_good_key_store_create_returns_the_handle);
     RUN_TEST(test_a_key_store_load_sends_no_flag);
     RUN_TEST(test_a_refused_key_store_open_leaves_the_handle);

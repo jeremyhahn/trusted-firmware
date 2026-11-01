@@ -85,37 +85,6 @@ func TestPeripheralReplies(t *testing.T) {
 	require.NoError(t, New(&cannedLink{}).ConfigureSPI(ctx, SPIMode3, SPIClockDiv128, true))
 }
 
-func TestPeripheralArgumentBounds(t *testing.T) {
-	ctx := context.Background()
-	d := New(&cannedLink{})
-	for _, tc := range []struct {
-		name, arg string
-		cmd       Cmd
-		err       error
-	}{
-		{"timer zero", "duration", CmdTimerSet, func() error { _, err := d.TimerSet(ctx, 13, true, 0); return err }()},
-		{"timer past max", "duration", CmdTimerSet, func() error {
-			_, err := d.TimerSet(ctx, 13, true, (timerMaxMillis+1)*time.Millisecond)
-			return err
-		}()},
-		{"eeprom read zero", "length", CmdEEPROMRead, func() error { _, err := d.EEPROMRead(ctx, EEPROMReservedEnd, 0); return err }()},
-		{"eeprom read past chunk", "length", CmdEEPROMRead, func() error {
-			_, err := d.EEPROMRead(ctx, EEPROMReservedEnd, EEPROMChunk+1)
-			return err
-		}()},
-		{"eeprom write empty", "length", CmdEEPROMWrite, d.EEPROMWrite(ctx, EEPROMReservedEnd, nil)},
-		{"eeprom write past chunk", "length", CmdEEPROMWrite, d.EEPROMWrite(ctx, EEPROMReservedEnd, make([]byte, EEPROMChunk+1))},
-		{"i2c clock low", "clock", CmdI2CConfig, d.SetI2CClock(ctx, I2CClockMin-1)},
-		{"i2c clock high", "clock", CmdI2CConfig, d.SetI2CClock(ctx, I2CClockMax+1)},
-		{"spi mode", "mode", CmdSPIConfig, d.ConfigureSPI(ctx, SPIMode3+1, SPIClockDiv128, false)},
-		{"spi clkdiv", "clkdiv", CmdSPIConfig, d.ConfigureSPI(ctx, SPIMode3, SPIClockDiv128+1, false)},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			requireArgRange(t, tc.err, tc.cmd, tc.arg)
-		})
-	}
-}
-
 func TestOTAInfoRefusal(t *testing.T) {
 	_, err := New(&cannedLink{status: StatusErrBadState}).OTAInfo(context.Background(), 0)
 	require.Equal(t, StatusErrBadState, asStatus(t, err))

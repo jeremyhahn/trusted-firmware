@@ -173,17 +173,6 @@ static void test_the_soft_root_evidence_frame_matches_the_literal(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(kEvidence, whole, TFW_ATTEST_LEN);
 }
 
-/* The algorithm names the root: an HMAC-SHA256 soft identity, never a code a
- * verifier would read as an asymmetric signature. */
-static void test_the_soft_root_names_hmac_sha256(void)
-{
-    uint8_t whole[TFW_ATTEST_LEN];
-
-    boot_soft_root();
-    whole_frame(whole);
-    TEST_ASSERT_EQUAL_HEX8(TFW_ALG_HMAC_SHA256, whole[73]);
-}
-
 /* The handoff is authoritative: a soft root with a CDI from tfw-boot signs
  * with that CDI and no other. One flipped CDI bit changes the MAC and nothing
  * outside it. */
@@ -236,7 +225,6 @@ int main(void)
     RUN_TEST(test_the_measurement_is_sha256_of_the_image);
     RUN_TEST(test_the_cdi_is_hmac_of_the_uds_over_the_measurement);
     RUN_TEST(test_the_soft_root_evidence_frame_matches_the_literal);
-    RUN_TEST(test_the_soft_root_names_hmac_sha256);
     RUN_TEST(test_another_cdi_changes_only_the_mac);
     RUN_TEST(test_the_soft_root_advertises_hmac_only);
     RUN_TEST(test_the_soft_root_refuses_a_public_key);

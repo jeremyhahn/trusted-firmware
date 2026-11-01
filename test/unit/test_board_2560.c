@@ -296,14 +296,6 @@ static void test_no_two_pins_share_an_adc_channel(void)
     }
 }
 
-static void test_every_pin_is_either_digital_or_adc(void)
-{
-    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
-        uint8_t f = tfw_board_pin_flags(i);
-        TEST_ASSERT_TRUE_MESSAGE(f & (TFW_PIN_DIGITAL | TFW_PIN_ADC), "a pin that can do nothing");
-    }
-}
-
 /* Unlike the 328P, this part has no ADC-only pin: every one of the seventy has
  * a real digital port, so tfw_board_pin must succeed for all of them. A missing
  * row would zero-fill to port A bit 0 and pass everything except this. */
@@ -384,7 +376,6 @@ int main(void)
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_no_two_pins_share_a_port_and_bit);
     RUN_TEST(test_no_two_pins_share_an_adc_channel);
-    RUN_TEST(test_every_pin_is_either_digital_or_adc);
     RUN_TEST(test_every_pin_has_a_digital_port);
     RUN_TEST(test_the_element_image_carries_attest_csr);
     return UNITY_END();

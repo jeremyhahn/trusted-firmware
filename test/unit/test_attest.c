@@ -102,19 +102,6 @@ static const uint8_t CHALLENGE[TFW_ALIAS_NONCE_LEN] = {
     0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
 };
 
-/*
- * THE HEADLINE REFUSAL.
- *
- * This build carries the default all-zero device secret, so it has no identity.
- * It must say TFW_ERR_NOT_PROVISIONED rather than sign with a key everyone
- * compiling this source would share -- which would be evidence that verifies
- * and proves nothing at all.
- */
-static void test_an_unprovisioned_device_refuses_to_attest(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, run(NONCE, TFW_ATTEST_NONCE_LEN));
-}
-
 /* The tier is reported honestly. A verifier learns what it is talking to
  * BEFORE it decides what the evidence is worth. */
 static void test_the_software_tier_reports_itself_as_software(void)
@@ -625,10 +612,91 @@ static void test_a_valid_handoff_with_the_unprovisioned_sentinel_cdi_refuses_eve
     TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_hmac(0u, digest, sizeof digest, sig));
 }
 
+/* A signing failure must not leave the last good frame pageable. */
+static const uint8_t NONCE_A[TFW_ATTEST_NONCE_LEN] = { 0xA0, 0x01 };
+static const uint8_t NONCE_B[TFW_ATTEST_NONCE_LEN] = { 0xB0, 0x02 };
+static const uint8_t NONCE_C[TFW_ATTEST_NONCE_LEN] = { 0xC0, 0x03 };
+
+static void unprovision(void)
+{
+    tfw_mock_reset();
+    tfw_boot_handoff_init();
+    tfw_mock_set_uds(0);
+    tfw_crypto_init();
+}
+
+static tfw_status_t page(uint8_t n)
+{
+    return run(&n, 1u);
+}
+
+/*
+ * THE DEFECT. A good ATTEST(A), then an ATTEST(B) whose signing fails: the
+ * page request must be refused, not answered OK with B's unsigned frame.
+ */
+static void test_a_failed_attest_after_a_good_one_refuses_paging(void)
+{
+    provision();
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE_A, TFW_ATTEST_NONCE_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, page(1u));
+
+    unprovision();
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, run(NONCE_B, TFW_ATTEST_NONCE_LEN));
+
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, page(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, page(1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, page(3u));
+}
+
+/*
+ * THE HEADLINE REFUSAL.
+ *
+ * This build carries the default all-zero device secret, so it has no identity.
+ * It must say TFW_ERR_NOT_PROVISIONED rather than sign with a key everyone
+ * compiling this source would share -- which would be evidence that verifies
+ * and proves nothing at all. And a failed first ATTEST, with no success before
+ * it, leaves nothing to page.
+ */
+static void test_a_failed_first_attest_refuses_paging(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, run(NONCE_B, TFW_ATTEST_NONCE_LEN));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, page(0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, page(1u));
+}
+
+/* And the refusal is not sticky: a later good ATTEST(C) pages normally, with
+ * C's nonce and a signed frame. */
+static void test_a_good_attest_after_a_failed_one_pages_normally(void)
+{
+    uint8_t whole[TFW_ATTEST_LEN];
+    uint8_t got;
+    uint8_t n;
+
+    provision();
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE_A, TFW_ATTEST_NONCE_LEN));
+    unprovision();
+    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, run(NONCE_B, TFW_ATTEST_NONCE_LEN));
+    provision();
+
+    TEST_ASSERT_EQUAL(TFW_OK, run(NONCE_C, TFW_ATTEST_NONCE_LEN));
+    memcpy(whole, &outbuf[2], (size_t)(tfw_writer_len(&w) - 2u));
+    got = (uint8_t)(tfw_writer_len(&w) - 2u);
+    for (n = 1u; got < TFW_ATTEST_LEN; n++) {
+        TEST_ASSERT_EQUAL(TFW_OK, page(n));
+        TEST_ASSERT_EQUAL_UINT8(n,              outbuf[0]);
+        TEST_ASSERT_EQUAL_UINT8(TFW_ATTEST_LEN, outbuf[1]);
+        memcpy(&whole[got], &outbuf[2], (size_t)(tfw_writer_len(&w) - 2u));
+        got = (uint8_t)(got + (tfw_writer_len(&w) - 2u));
+    }
+    TEST_ASSERT_EQUAL_UINT8(TFW_ATTEST_LEN, got);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(NONCE_C, &whole[1], TFW_ATTEST_NONCE_LEN);
+    /* The soft root's ES256 names its root: 0x11, a wire literal (#130). */
+    TEST_ASSERT_EQUAL_HEX8(0x11u, whole[73]);   /* OFF_ALG */
+}
+
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_an_unprovisioned_device_refuses_to_attest);
     RUN_TEST(test_the_software_tier_reports_itself_as_software);
     RUN_TEST(test_the_software_tier_refuses_to_invent_randomness);
     RUN_TEST(test_an_unprovisioned_soft_root_has_no_public_key);
@@ -655,5 +723,8 @@ int main(void)
     RUN_TEST(test_an_alias_page_with_no_certificate_is_refused);
     RUN_TEST(test_both_attestation_commands_are_dispatchable);
     RUN_TEST(test_each_attestation_command_refuses_the_other_s_nonce);
+    RUN_TEST(test_a_failed_attest_after_a_good_one_refuses_paging);
+    RUN_TEST(test_a_failed_first_attest_refuses_paging);
+    RUN_TEST(test_a_good_attest_after_a_failed_one_pages_normally);
     return UNITY_END();
 }

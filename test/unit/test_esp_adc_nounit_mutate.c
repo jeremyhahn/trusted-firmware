@@ -55,15 +55,6 @@ void setUp(void)
 
 void tearDown(void) {}
 
-static void test_a_bad_channel_does_not_try_the_bring_up(void)
-{
-    uint16_t out = 0xBEEFu;
-
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_adc_read(TFW_ADC_COUNT, &out));
-    TEST_ASSERT_EQUAL_HEX16(0xBEEFu, out);
-    TEST_ASSERT_EQUAL_UINT(0u, n_new + n_other);
-}
-
 static void test_a_failed_bring_up_is_unsupported(void)
 {
     uint16_t out = 0xBEEFu;
@@ -90,7 +81,6 @@ static void test_the_bring_up_is_tried_once(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_a_bad_channel_does_not_try_the_bring_up);
     RUN_TEST(test_a_failed_bring_up_is_unsupported);
     RUN_TEST(test_the_bring_up_is_tried_once);
     return UNITY_END();

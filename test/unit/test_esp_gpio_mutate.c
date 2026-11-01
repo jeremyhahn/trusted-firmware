@@ -3,7 +3,7 @@
 /*
  * Seeded mutation test for the ESP32 GPIO block, src/hal/esp32/hal_gpio.c.
  *
- * The unit had no host build; test_gpio_mutate builds the core layer
+ * The unit had no host build; the AVR GPIO test builds the core layer
  * (src/caps/gpio.c) over the mock HAL, not this. This builds it over a
  * stand-in for ESP-IDF's gpio driver (test/mock/esp32/gpio/), each call
  * logged here and able to fail, and holds:

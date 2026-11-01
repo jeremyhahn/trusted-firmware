@@ -4,6 +4,7 @@
 package tfw
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,46 +28,43 @@ func TestBoardIDsAreThePublishedValues(t *testing.T) {
 	assert.Equal(t, BoardID(0x46), BoardFRDMMCXN947)
 }
 
-func TestBoardIDStringNamesKnownBoards(t *testing.T) {
-	assert.Equal(t, "atmega328p", BoardATmega328P.String())
-	assert.Equal(t, "atmega2560", BoardATmega2560.String())
-	assert.Equal(t, "atmega32u4", BoardATmega32U4.String())
-	assert.Equal(t, "attiny85", BoardATtiny85.String())
-	assert.Equal(t, "esp32p4-poe", BoardESP32P4PoE.String())
-	assert.Equal(t, "esp32-qemu", BoardESP32QEMU.String())
-	assert.Equal(t, "mps2-an505", BoardMPS2AN505.String())
-	assert.Equal(t, "stm32h573i-dk", BoardSTM32H573IDK.String())
-	assert.Equal(t, "cortex-m", BoardSTM32H573IDK.Family())
-	assert.Equal(t, "rp2350-pico2w", BoardRP2350Pico2W.String())
-	assert.Equal(t, "cortex-m", BoardMPS2AN505.Family())
-	assert.Equal(t, "cortex-m", BoardRP2350Pico2W.Family())
-	assert.Equal(t, "nrf54l15-dk", BoardNRF54L15DK.String())
-	assert.Equal(t, "cortex-m", BoardNRF54L15DK.Family())
-	assert.Equal(t, "frdm-mcxn947", BoardFRDMMCXN947.String())
-	assert.Equal(t, "cortex-m", BoardFRDMMCXN947.Family())
-	assert.Equal(t, "frdm-imx95-m7", BoardFRDMIMX95M7.String())
-	assert.Equal(t, "cortex-m", BoardFRDMIMX95M7.Family())
-	assert.Equal(t, "mps2-an500", BoardMPS2AN500.String())
-	assert.Equal(t, "cortex-m", BoardMPS2AN500.Family())
-	assert.Equal(t, "esp32/other", BoardESP32P4PoE.Family())
-	assert.Equal(t, "esp32/other", BoardESP32QEMU.Family())
-}
-
-func TestBoardIDStringReportsTheFamilyOfAnUnknownID(t *testing.T) {
-	assert.Equal(t, "unknown avr board 0x3f", BoardID(0x3F).String())
-	assert.Equal(t, "unknown cortex-m board 0x7f", BoardID(0x7F).String())
-	assert.Equal(t, "unknown esp32/other board 0x82", BoardID(0x82).String())
-	assert.Equal(t, "unknown esp32/other board 0xbf", BoardID(0xBF).String())
-	assert.Equal(t, "unknown unallocated board 0x00", BoardID(0x00).String())
-	assert.Equal(t, "unknown unallocated board 0xc0", BoardID(0xC0).String())
-}
-
-func TestBoardIDFamilyRangesAreContiguous(t *testing.T) {
-	for id, want := range map[BoardID]string{
-		0x01: "avr", 0x3F: "avr", 0x40: "cortex-m", 0x7F: "cortex-m",
-		0x80: "esp32/other", 0xBF: "esp32/other",
-		0x00: "unallocated", 0xC0: "unallocated", 0xFF: "unallocated",
-	} {
-		assert.Equal(t, want, id.Family(), "0x%02x", uint8(id))
+// TestBoardIDEveryValue: each of the 256 board ids names its own board or
+// reads as unknown with its own value, never as another board; the family
+// is the range the id sits in: 0x01-0x3F AVR, 0x40-0x7F Cortex-M, 0x80-0xBF
+// ESP32 and other, the rest unallocated.
+func TestBoardIDEveryValue(t *testing.T) {
+	known := map[uint8]string{
+		0x01: "atmega328p", 0x02: "atmega2560", 0x03: "atmega32u4",
+		0x04: "attiny85", 0x40: "mps2-an505", 0x41: "frdm-imx95-m7", 0x42: "mps2-an500",
+		0x43: "stm32h573i-dk", 0x44: "rp2350-pico2w",
+		0x45: "nrf54l15-dk", 0x46: "frdm-mcxn947", 0x80: "esp32p4-poe", 0x81: "esp32-qemu",
+	}
+	seen := map[string]uint8{}
+	for v := range 256 {
+		id := BoardID(v)
+		family := "unallocated"
+		switch {
+		case v >= 0x01 && v <= 0x3f:
+			family = "avr"
+		case v >= 0x40 && v <= 0x7f:
+			family = "cortex-m"
+		case v >= 0x80 && v <= 0xbf:
+			family = "esp32/other"
+		}
+		if got := id.Family(); got != family {
+			t.Errorf("board %#02x: family %q, want %q", v, got, family)
+		}
+		want, ok := known[uint8(v)]
+		if !ok {
+			want = fmt.Sprintf("unknown %s board 0x%02x", family, v)
+		}
+		got := id.String()
+		if got != want {
+			t.Errorf("board %#02x: %q, want %q", v, got, want)
+		}
+		if prev, dup := seen[got]; dup {
+			t.Errorf("boards %#02x and %#02x both read %q", prev, v, got)
+		}
+		seen[got] = uint8(v)
 	}
 }

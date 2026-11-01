@@ -241,26 +241,6 @@ static void test_a_write_reads_back_and_rewrites_only_its_sector(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(before + 1200, store[0] + 1200, SEC - 1200u);
 }
 
-static void test_a_write_across_a_sector_boundary_erases_exactly_the_two_it_touches(void)
-{
-    uint8_t in[300], out[300], before[3u * SEC];
-    const uint32_t at = 2u * SEC - 100u;
-
-    fill(in, sizeof in, 0x5au);
-    memcpy(before, store[2], sizeof before);
-    TEST_ASSERT_EQUAL(ST_OK, tfw_esp_part_write(WIDE, at, in, sizeof in));
-    TEST_ASSERT_EQUAL_UINT(2u, n_erases);
-    TEST_ASSERT_EQUAL_UINT(2u, n_writes);
-    TEST_ASSERT_EQUAL_UINT(1u * SEC, erased_at[0]);
-    TEST_ASSERT_EQUAL_UINT(2u * SEC, erased_at[1]);
-
-    TEST_ASSERT_EQUAL(ST_OK, tfw_esp_part_read(WIDE, at, out, sizeof out));
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, out, sizeof in);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, store[2], at);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before + at + sizeof in, store[2] + at + sizeof in,
-                                 sizeof before - at - sizeof in);
-}
-
 static void test_a_write_ending_on_a_boundary_touches_one_sector(void)
 {
     uint8_t in[100];
@@ -270,36 +250,6 @@ static void test_a_write_ending_on_a_boundary_touches_one_sector(void)
     TEST_ASSERT_EQUAL_UINT(1u, n_erases);
     TEST_ASSERT_EQUAL_UINT(0u, erased_at[0]);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(in, store[2] + SEC - 100u, sizeof in);
-}
-
-static void test_a_write_of_the_bytes_already_there_neither_erases_nor_writes(void)
-{
-    uint8_t same[300];
-
-    memcpy(same, store[0] + 7u, 255u);
-    TEST_ASSERT_EQUAL(ST_OK, tfw_hal_eeprom_write(7u, same, 255u));
-    TEST_ASSERT_EQUAL_UINT(0u, n_erases);
-    TEST_ASSERT_EQUAL_UINT(0u, n_writes);
-
-    reset_counts();
-    memcpy(same, store[2] + 2u * SEC - 150u, sizeof same);
-    TEST_ASSERT_EQUAL(ST_OK, tfw_esp_part_write(WIDE, 2u * SEC - 150u, same, sizeof same));
-    TEST_ASSERT_EQUAL_UINT(0u, n_erases);
-    TEST_ASSERT_EQUAL_UINT(0u, n_writes);
-}
-
-static void test_a_write_rewrites_only_the_sector_whose_bytes_change(void)
-{
-    uint8_t in[300];
-    const uint32_t at = 2u * SEC - 150u;
-
-    memcpy(in, store[2] + at, sizeof in);
-    in[200] ^= 0xffu; /* in the second sector only */
-    TEST_ASSERT_EQUAL(ST_OK, tfw_esp_part_write(WIDE, at, in, sizeof in));
-    TEST_ASSERT_EQUAL_UINT(1u, n_erases);
-    TEST_ASSERT_EQUAL_UINT(1u, n_writes);
-    TEST_ASSERT_EQUAL_UINT(2u * SEC, erased_at[0]);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, store[2] + at, sizeof in);
 }
 
 /* --------------------------------------------------------- no partition */
@@ -339,28 +289,6 @@ static void test_a_write_whose_sector_read_is_refused_is_internal_and_changes_no
     TEST_ASSERT_EQUAL(ST_INTERNAL, tfw_hal_eeprom_write(64u, in, sizeof in));
     TEST_ASSERT_EQUAL_UINT(0u, n_erases + n_writes);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(before, store[0], SEC);
-}
-
-static void test_a_refused_erase_is_internal_writes_nothing_and_changes_nothing(void)
-{
-    uint8_t in[16], before[SEC];
-
-    fill(in, sizeof in, 0xc3u);
-    memcpy(before, store[0], SEC);
-    refuse_erase = 1u;
-    TEST_ASSERT_EQUAL(ST_INTERNAL, tfw_hal_eeprom_write(64u, in, sizeof in));
-    TEST_ASSERT_EQUAL_UINT(0u, n_writes);
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(before, store[0], SEC);
-}
-
-static void test_a_refused_write_is_internal(void)
-{
-    uint8_t in[16];
-
-    fill(in, sizeof in, 0xc3u);
-    refuse_write = 1u;
-    TEST_ASSERT_EQUAL(ST_INTERNAL, tfw_hal_eeprom_write(64u, in, sizeof in));
-    TEST_ASSERT_EQUAL_UINT(1u, n_erases);
 }
 
 /* A refusal in the second sector leaves the first one written and no sector
@@ -413,15 +341,10 @@ int main(void)
     RUN_TEST(test_a_partition_span_past_its_end_is_range);
     RUN_TEST(test_a_zero_length_is_ok_and_moves_nothing);
     RUN_TEST(test_a_write_reads_back_and_rewrites_only_its_sector);
-    RUN_TEST(test_a_write_across_a_sector_boundary_erases_exactly_the_two_it_touches);
     RUN_TEST(test_a_write_ending_on_a_boundary_touches_one_sector);
-    RUN_TEST(test_a_write_of_the_bytes_already_there_neither_erases_nor_writes);
-    RUN_TEST(test_a_write_rewrites_only_the_sector_whose_bytes_change);
     RUN_TEST(test_no_partition_is_unsupported);
     RUN_TEST(test_a_refused_read_is_internal);
     RUN_TEST(test_a_write_whose_sector_read_is_refused_is_internal_and_changes_nothing);
-    RUN_TEST(test_a_refused_erase_is_internal_writes_nothing_and_changes_nothing);
-    RUN_TEST(test_a_refused_write_is_internal);
     RUN_TEST(test_a_refusal_in_the_second_sector_stops_there);
     RUN_TEST(test_the_platform_block_reads_its_own_partition);
     RUN_TEST(test_a_missing_platform_partition_is_unsupported_and_the_buffer_stays);

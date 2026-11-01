@@ -152,6 +152,7 @@ func TestApplicationEvidenceRefusals(t *testing.T) {
 		{"273 two entries", build(t, ex, at("meas", func(p *parts) { p.meas = []any{p.pair, p.pair} }))},
 		{"273 no entries", build(t, ex, at("meas", func(p *parts) { p.meas = []any{} }))},
 		{"entry not a pair", build(t, ex, at("pair", func(p *parts) { p.pair = []any{p.ct, p.coswidBytes, p.ct} }))},
+		{"content type 257", build(t, ex, at("content", func(p *parts) { p.ct = uint64(257) }))},
 		{"content type 259", build(t, ex, at("content", func(p *parts) { p.ct = uint64(259) }))},
 		{"content type text", build(t, ex, at("content", func(p *parts) { p.ct = "258" }))},
 		{"content not bytes", build(t, ex, at("content", func(p *parts) { p.coswidBytes = "tag" }))},
@@ -227,7 +228,7 @@ func TestAliasUCCSRefusals(t *testing.T) {
 		{"not a certificate", []byte{0x30, 0x00}},
 		{"no extension", aliasCert(t, nil)},
 		{"not a UccsEvidence", aliasCert(t, []byte{0x04, 0x01, 0x00})},
-		{"trailing bytes", aliasCert(t, append(append([]byte{}, val...), 0x05, 0x00))},
+		{"another OID only", aliasCert(t, nil, pkix.Extension{Id: asn1.ObjectIdentifier{2, 23, 133, 5, 4, 7}, Value: val})},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -239,41 +240,59 @@ func TestAliasUCCSRefusals(t *testing.T) {
 	}
 }
 
-// One case per refusal of the decoder itself, below the claims set's shape.
-func TestCBORRefusals(t *testing.T) {
-	deep := []byte{}
-	for range cborMaxDepth + 2 {
-		deep = append(deep, 0x81)
-	}
-	deep = append(deep, 0x00)
-	cases := []struct {
-		name string
-		b    []byte
-	}{
-		{"empty", nil},
-		{"indefinite length", []byte{0x5f, 0x40, 0xff}},
-		{"reserved additional information", []byte{0x1c}},
-		{"truncated argument", []byte{0x18}},
-		{"negative integer", []byte{0x20}},
-		{"tag", []byte{0xc0, 0x00}},
-		{"simple value", []byte{0xf6}},
-		{"length past the end", []byte{0x42, 0x00}},
-		{"text not UTF-8", []byte{0x61, 0xff}},
-		{"array length past the end", []byte{0x82, 0x00}},
-		{"map length past the end", []byte{0xa2, 0x00, 0x00}},
-		{"map count past the end", []byte{0xa2}},
-		{"array truncated item", []byte{0x81, 0x18}},
-		{"map key text", []byte{0xa1, 0x61, 0x61, 0x00}},
-		{"map key truncated", []byte{0xa1, 0x18}},
-		{"map value truncated", []byte{0xa1, 0x00, 0x18}},
-		{"map key twice", []byte{0xa2, 0x00, 0x00, 0x00, 0x00}},
-		{"too deep", deep},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			_, err := cborDecode(c.b)
-			require.Error(t, err)
-		})
+// oidUCCSEvidenceLiteral is tcg-dice-UCCS-evidence spelt out, so a test does
+// not inherit a change to the package's own variable.
+var oidUCCSEvidenceLiteral = asn1.ObjectIdentifier{2, 23, 133, 5, 4, 6}
+
+func uccsEvidence(t *testing.T, uccs []byte) []byte {
+	t.Helper()
+	val, err := asn1.Marshal(struct{ UCCS []byte }{uccs})
+	require.NoError(t, err)
+	return val
+}
+
+// AliasUCCS reads the extension named 2.23.133.5.4.6 and passes over any
+// other, even one shaped like a UccsEvidence that comes first.
+func TestAliasUCCSSkipsOtherExtensions(t *testing.T) {
+	want := []byte(vectors.AppEvWithUccs)
+	der := aliasCert(t, nil,
+		pkix.Extension{Id: asn1.ObjectIdentifier{2, 23, 133, 5, 4, 5}, Value: uccsEvidence(t, []byte("decoy"))},
+		pkix.Extension{Id: oidUCCSEvidenceLiteral, Critical: true, Value: uccsEvidence(t, want)},
+	)
+	got, err := AliasUCCS(der)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+// A single trailing byte after the UccsEvidence is refused, not only two.
+func TestAliasUCCSRefusesOneTrailingByte(t *testing.T) {
+	val := append(uccsEvidence(t, []byte(vectors.AppEvWithUccs)), 0x00)
+	_, err := AliasUCCS(aliasCert(t, nil, pkix.Extension{Id: oidUCCSEvidenceLiteral, Value: val}))
+	var ee *EvidenceError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, "trailing bytes after the UccsEvidence", ee.Reason)
+}
+
+// The file hash is exactly [hash-alg-id, hash-value]: a third entry is refused.
+func TestApplicationEvidenceRefusesAThreeEntryHash(t *testing.T) {
+	ex := []byte(vectors.AppEvExample)
+	uccs := build(t, ex, func(layer string, p *parts) {
+		if layer == "file" {
+			p.file = cmap{{7, []any{uint64(1), ex, uint64(0)}}, {24, "app"}}
+		}
+	})
+	_, err := ApplicationEvidence(uccs)
+	var ee *EvidenceError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, "file hash is not a [hash-alg-id, hash-value] entry", ee.Reason)
+}
+
+// An EvidenceError is ErrBadFormat and nothing else.
+func TestEvidenceErrorMatchesOnlyErrBadFormat(t *testing.T) {
+	_, err := ApplicationEvidence([]byte{0x01})
+	require.ErrorIs(t, err, ErrBadFormat)
+	for _, other := range []error{ErrShortFrame, ErrBadCRC, ErrPayloadTooLarge, ErrTimeout, StatusErrUnsupported} {
+		require.NotErrorIs(t, err, other)
 	}
 }
 

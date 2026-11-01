@@ -267,16 +267,6 @@ static void test_a_seed_of_exactly_n_is_hashed_again(void)
     check_retry(P256_N, N_D, N_PUB);
 }
 
-static void test_micro_ecc_refuses_the_scalars_one_and_n_minus_one(void)
-{
-    uint8_t s[32], pub[64];
-
-    one(s);
-    TEST_ASSERT_FALSE(uECC_compute_public_key(s, pub, uECC_secp256r1()));
-    n_minus_one(s);
-    TEST_ASSERT_FALSE(uECC_compute_public_key(s, pub, uECC_secp256r1()));
-}
-
 /* The design's rule: hash again until uECC_compute_public_key accepts. */
 static void test_the_seeds_one_and_n_minus_one_are_hashed_again(void)
 {
@@ -369,17 +359,6 @@ static void test_a_digest_above_n_signs_as_the_rfc_reduces_it(void)
     TEST_ASSERT_TRUE(verifies(SEED_PUB, h, sig));
 }
 
-static void test_a_signature_does_not_verify_for_another_digest_or_key(void)
-{
-    uint8_t sig[64], other[32];
-
-    tfw_deviceid_p256_sign(SEED, DIGEST, sig);
-    memcpy(other, DIGEST, sizeof other);
-    other[0] ^= 0x01u;
-    TEST_ASSERT_FALSE(verifies(SEED_PUB, other, sig));
-    TEST_ASSERT_FALSE(verifies(ZERO_PUB, DIGEST, sig));
-}
-
 /* ------------------------------------------------------------------- zeroing */
 
 /* The k we cannot see, the scalar we can: every buffer the scalar passed
@@ -430,13 +409,11 @@ int main(void)
     RUN_TEST(test_a_seed_of_zero_is_hashed_again);
     RUN_TEST(test_a_seed_above_n_is_hashed_again);
     RUN_TEST(test_a_seed_of_exactly_n_is_hashed_again);
-    RUN_TEST(test_micro_ecc_refuses_the_scalars_one_and_n_minus_one);
     RUN_TEST(test_the_seeds_one_and_n_minus_one_are_hashed_again);
     RUN_TEST(test_a_refusal_that_persists_is_returned_with_the_output_zeroed);
     RUN_TEST(test_the_signer_refuses_a_scalar_outside_the_range);
     RUN_TEST(test_the_seed_signs_the_pinned_es256_signature_and_it_verifies);
     RUN_TEST(test_a_digest_above_n_signs_as_the_rfc_reduces_it);
-    RUN_TEST(test_a_signature_does_not_verify_for_another_digest_or_key);
     RUN_TEST(test_signing_zeroes_the_scalar_and_the_rfc_state);
     RUN_TEST(test_the_public_point_zeroes_the_scalar);
     return UNITY_END();

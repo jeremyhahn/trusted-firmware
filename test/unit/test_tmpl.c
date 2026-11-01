@@ -95,19 +95,6 @@ static void check_window(uint16_t from, uint8_t cap)
     TEST_ASSERT_EQUAL_HEX8(0xEEu, buf[want]);
 }
 
-static void test_window_named_edges(void)
-{
-    check_window(0u, 5u);                       /* from the first byte */
-    check_window(0u, (uint8_t)DOC_LEN);         /* exactly the document */
-    check_window(7u, 6u);                       /* across the HEX/POS seam */
-    check_window(DOC_LEN - 1u, 1u);             /* the last byte */
-    check_window(DOC_LEN - 1u, 8u);             /* the last byte, cap to spare */
-    check_window(DOC_LEN, 8u);                  /* just past the end: got 0 */
-    check_window(300u, 8u);                     /* far past the end: got 0 */
-    check_window(0u, 0u);                       /* cap 0 */
-    check_window(9u, 0u);                       /* cap 0 mid-document */
-}
-
 static void test_every_window_is_a_slice_of_the_whole(void)
 {
     uint16_t k;
@@ -118,6 +105,7 @@ static void test_every_window_is_a_slice_of_the_whole(void)
             check_window(k, n);
         }
     }
+    check_window(300u, 8u);                     /* far past the end: got 0 */
 }
 
 static void test_hash_only_is_sha256_of_the_whole(void)
@@ -343,7 +331,6 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_whole_document_into_a_large_buffer);
-    RUN_TEST(test_window_named_edges);
     RUN_TEST(test_every_window_is_a_slice_of_the_whole);
     RUN_TEST(test_hash_only_is_sha256_of_the_whole);
     RUN_TEST(test_hash_and_window_together);

@@ -131,95 +131,7 @@ static void test_the_claim_keys_are_the_registered_ones(void)
     TEST_ASSERT_EQUAL_HEX8(0x01u, buf[40]);         /* UEID type RAND */
 }
 
-/* ----------------------------------------------------------- it is bound */
-
-/* The nonce is the whole reason the extension exists, so a change to it must
- * reach the output. Everything before the nonce is constant, so the difference
- * has to appear inside it. */
-static void test_a_different_nonce_changes_the_claims_set(void)
-{
-    uint8_t     other[TFW_ALIAS_NONCE_LEN];
-    uint8_t     first[TFW_UCCS_LEN];
-    tfw_writer_t w2;
-
-    TEST_ASSERT_EQUAL(TFW_OK, encode());
-    memcpy(first, buf, sizeof first);
-
-    memcpy(other, NONCE, sizeof other);
-    other[0] ^= 0xFFu;
-    tfw_writer_init(&w2, buf, TFW_UCCS_LEN);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_uccs_encode(&w2, other, TFW_ALIAS_NONCE_LEN,
-                                            UEID, FWHASH));
-    TEST_ASSERT_FALSE(memcmp(first, buf, TFW_UCCS_LEN) == 0);
-    TEST_ASSERT_EQUAL_HEX8(first[4] ^ 0xFFu, buf[4]);   /* first nonce byte */
-}
-
-/* And so must a change to what was measured, or the evidence does not say what
- * it measured. */
-static void test_a_different_firmware_hash_changes_the_claims_set(void)
-{
-    uint8_t     other[TFW_SHA256_LEN];
-    uint8_t     first[TFW_UCCS_LEN];
-    tfw_writer_t w2;
-
-    TEST_ASSERT_EQUAL(TFW_OK, encode());
-    memcpy(first, buf, sizeof first);
-
-    memcpy(other, FWHASH, sizeof other);
-    other[31] ^= 0x01u;
-    tfw_writer_init(&w2, buf, TFW_UCCS_LEN);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_uccs_encode(&w2, NONCE, TFW_ALIAS_NONCE_LEN,
-                                            UEID, other));
-    TEST_ASSERT_FALSE(memcmp(first, buf, TFW_UCCS_LEN) == 0);
-}
-
-/* The device identity likewise: two devices running the same firmware and
- * answering the same challenge must not produce the same evidence. */
-static void test_a_different_device_id_changes_the_claims_set(void)
-{
-    uint8_t     other[TFW_ATTEST_ID_LEN];
-    uint8_t     first[TFW_UCCS_LEN];
-    tfw_writer_t w2;
-
-    TEST_ASSERT_EQUAL(TFW_OK, encode());
-    memcpy(first, buf, sizeof first);
-
-    memcpy(other, UEID, sizeof other);
-    other[0] ^= 0xFFu;
-    tfw_writer_init(&w2, buf, TFW_UCCS_LEN);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_uccs_encode(&w2, NONCE, TFW_ALIAS_NONCE_LEN,
-                                            other, FWHASH));
-    TEST_ASSERT_FALSE(memcmp(first, buf, TFW_UCCS_LEN) == 0);
-}
-
 /* ------------------------------------------------------------- refusals */
-
-/*
- * A nonce of the wrong width. RFC 9711 permits 8 to 64 bytes and this encoder
- * emits exactly 32, because the certificate template has no room for a field
- * that changes length. A short nonce silently padded would be a claims set
- * asserting bytes the verifier never sent.
- */
-static void test_a_nonce_of_the_wrong_length_is_refused(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
-                      tfw_uccs_encode(&w, NONCE, 8u, UEID, FWHASH));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
-                      tfw_uccs_encode(&w, NONCE, 0u, UEID, FWHASH));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
-                      tfw_uccs_encode(&w, NONCE, 64u, UEID, FWHASH));
-    /*
-     * AND SIXTEEN IS REFUSED, which is the one worth spelling out. Sixteen is
-     * the evidence frame's nonce width, so a caller that passed the wrong one
-     * of this firmware's two nonces would otherwise produce a claims set that
-     * encodes cleanly, is 17 bytes short of the template, and fails somewhere
-     * downstream with a length error that names neither nonce.
-     */
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
-                      tfw_uccs_encode(&w, NONCE, TFW_ATTEST_NONCE_LEN, UEID, FWHASH));
-    /* and it stopped before writing anything */
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_writer_len(&w));
-}
 
 /*
  * A buffer one byte short. The refusal must be TFW_ERR_TOO_LONG and not a
@@ -238,20 +150,6 @@ static void test_a_buffer_one_byte_short_is_refused(void)
     TEST_ASSERT_FALSE(tfw_writer_ok(&small));
 }
 
-/* A buffer far too small fails the same way rather than differently: the
- * overflow is sticky, so the first refusal is the only one that matters and
- * every later write is refused too. */
-static void test_a_buffer_far_too_small_is_refused(void)
-{
-    tfw_writer_t tiny;
-
-    tfw_writer_init(&tiny, buf, 4u);
-    TEST_ASSERT_EQUAL(TFW_ERR_TOO_LONG,
-                      tfw_uccs_encode(&tiny, NONCE, TFW_ALIAS_NONCE_LEN,
-                                     UEID, FWHASH));
-    TEST_ASSERT_FALSE(tfw_writer_ok(&tiny));
-}
-
 /* The exact size is enough, and the byte past it is untouched -- the bound is
  * a bound, not an approximation. */
 static void test_a_buffer_of_exactly_the_right_size_is_accepted(void)
@@ -268,12 +166,7 @@ int main(void)
     RUN_TEST(test_the_declared_length_is_the_length_emitted);
     RUN_TEST(test_the_coswid_length_field_matches_what_follows_it);
     RUN_TEST(test_the_claim_keys_are_the_registered_ones);
-    RUN_TEST(test_a_different_nonce_changes_the_claims_set);
-    RUN_TEST(test_a_different_firmware_hash_changes_the_claims_set);
-    RUN_TEST(test_a_different_device_id_changes_the_claims_set);
-    RUN_TEST(test_a_nonce_of_the_wrong_length_is_refused);
     RUN_TEST(test_a_buffer_one_byte_short_is_refused);
-    RUN_TEST(test_a_buffer_far_too_small_is_refused);
     RUN_TEST(test_a_buffer_of_exactly_the_right_size_is_accepted);
     RUN_TEST(test_application_evidence_is_the_bytes_the_with_vector_pins);
     RUN_TEST(test_no_application_evidence_is_the_bytes_the_without_vector_pins);

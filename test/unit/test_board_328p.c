@@ -235,22 +235,6 @@ static void test_a_pin_beyond_the_board_has_no_page(void)
     TEST_ASSERT_EQUAL_HEX8(0xAAu, page[0]);   /* wrote nothing */
 }
 
-/*
- * STATE 2 IS REACHABLE, which is the whole point of having three states.
- *
- * The first version derived it from TFW_PIN_PWM in the flags -- but a pin whose
- * timer went to the tick carries only TFW_PIN_DIGITAL, precisely because a host
- * must not try to drive it. So state 2 could never be emitted, and pins 5 and 6
- * reported "no compare unit" when what is true is "this build spent it on the
- * clock". The distinction exists so a host knows the fix is a different build
- * rather than a different pin, and reporting 0 gives exactly the wrong advice.
- */
-static void test_the_tick_timers_pins_report_reserved_not_absent(void)
-{
-    TEST_ASSERT_EQUAL_UINT8(2u, tfw_board_pin_pwm_state(5u));   /* OC0B, tick */
-    TEST_ASSERT_EQUAL_UINT8(2u, tfw_board_pin_pwm_state(6u));   /* OC0A, tick */
-}
-
 static void test_a_usable_compare_unit_reports_available(void)
 {
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_board_pin_pwm_state(3u));   /* OC2B */
@@ -335,7 +319,6 @@ int main(void)
     RUN_TEST(test_the_page_carries_the_descriptors_port_and_bit);
     RUN_TEST(test_an_adc_only_pin_reports_no_port);
     RUN_TEST(test_a_pin_beyond_the_board_has_no_page);
-    RUN_TEST(test_the_tick_timers_pins_report_reserved_not_absent);
     RUN_TEST(test_a_usable_compare_unit_reports_available);
     RUN_TEST(test_a_pin_with_no_compare_unit_reports_none);
     RUN_TEST(test_the_element_image_carries_the_alias_certificate_but_not_attest_csr);

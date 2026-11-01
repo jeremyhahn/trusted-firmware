@@ -9,10 +9,12 @@
 #
 # CI legs on one daemon that miss the cache build the same hash at once, each
 # to its own <image>-$(IMAGE_BUILD_ID), and then all tag the shared name. The
-# daemon lets one win; the others fail with AlreadyExists (run 70520). The tag
-# is a hash of every input, so the winner's image is the one this leg built:
-# a lost race is a success when <target> resolves to <source>'s id. Any other
-# error, or a <target> that holds another image, still fails. DOCKER names the
+# daemon lets one win; the others fail with AlreadyExists (run 70520). Two
+# builds of one hash still differ in id, since buildkit writes run-specific
+# metadata (run 75060), so each docker-build-* rule labels its image
+# tfw.image.inputs=<input hash>. A lost race is a success when <target>
+# resolves to <source>'s id, or when both carry the same non-empty label. Any
+# other error, or a <target> unlabelled or labelled otherwise, still fails. DOCKER names the
 # client, as in mk/docker.mk.
 set -euo pipefail
 
@@ -42,6 +44,17 @@ if [ -n "$want" ] && [ "$want" = "$have" ]; then
   echo "==> $dst: another leg tagged the same image ($want) first; kept"
   exit 0
 fi
+label() {
+  local v
+  v=$("$docker" image inspect --format '{{index .Config.Labels "tfw.image.inputs"}}' "$1" 2>/dev/null) || v=
+  [ "$v" = "<no value>" ] || echo "$v"
+}
+want_label=$(label "$src")
+have_label=$(label "$dst")
+if [ -n "$want_label" ] && [ "$want_label" = "$have_label" ]; then
+  echo "==> $dst: another leg tagged an image of the same inputs ($want_label) first; kept"
+  exit 0
+fi
 echo "$err" >&2
-echo "docker-tag: $dst resolves to '${have:-nothing}', not $src's '${want:-nothing}'" >&2
+echo "docker-tag: $dst resolves to '${have:-nothing}' labelled '${have_label:-nothing}', not $src's '${want:-nothing}' labelled '${want_label:-nothing}'" >&2
 exit 1

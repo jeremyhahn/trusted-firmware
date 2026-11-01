@@ -8,6 +8,8 @@
 #
 #   STUB_BUILT_ID   the id of the image this leg built (<image>-<build id>)
 #   STUB_TARGET_ID  the id the target name resolves to; empty, it resolves to none
+#   STUB_BUILT_LABEL  the built image's tfw.image.inputs label; empty, it has none
+#   STUB_TARGET_LABEL the target image's tfw.image.inputs label; empty, it has none
 #   STUB_TAG_ERROR  what `tag` says on stderr; the daemon's AlreadyExists by default
 #   STUB_LOG        a file each call is appended to
 set -euo pipefail
@@ -26,14 +28,17 @@ image)
   inspect)
     ref=${!#}
     case "$ref" in
-    *-"${IMAGE_BUILD_ID:-build}") id=${STUB_BUILT_ID:-} ;;
-    *) id=${STUB_TARGET_ID:-} ;;
+    *-"${IMAGE_BUILD_ID:-build}") id=${STUB_BUILT_ID:-} label=${STUB_BUILT_LABEL:-} ;;
+    *) id=${STUB_TARGET_ID:-} label=${STUB_TARGET_LABEL:-} ;;
     esac
     if [ -z "$id" ]; then
       echo "Error response from daemon: No such image: $ref" >&2
       exit 1
     fi
-    echo "$id"
+    case "$*" in
+    *tfw.image.inputs*) echo "$label" ;;
+    *) echo "$id" ;;
+    esac
     exit 0
     ;;
   esac

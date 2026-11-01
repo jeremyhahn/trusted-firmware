@@ -28,6 +28,6 @@ require (
 )
 
 require (
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect; held: v3.0.6 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off: module lookup disabled); it moves when the cache has it
 	golang.org/x/sys v0.49.0 // indirect
 )

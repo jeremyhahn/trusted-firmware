@@ -101,25 +101,40 @@ static void test_an_unknown_trailer_version_is_refused(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_trailer_parse(raw, &tr));
 }
 
+/* A trailer that passes magic and version and is then refused writes nothing:
+ * the image_version and image_len checks run before any field reaches *out. */
+static void refused_leaves_trailer(const uint8_t head[16], tfw_status_t want)
+{
+    uint8_t            raw[TFW_BOOT_TRAILER_LEN];
+    tfw_boot_trailer_t tr, sentinel;
+
+    memset(raw, 0, sizeof raw);
+    memcpy(raw, head, 16);
+    memset(&tr, 0xA5, sizeof tr);
+    memcpy(&sentinel, &tr, sizeof sentinel);
+    TEST_ASSERT_EQUAL(want, tfw_boot_trailer_parse(raw, &tr));
+    TEST_ASSERT_EQUAL_MEMORY(&sentinel, &tr, sizeof tr);
+}
+
 /* An unversioned image opts out of anti-rollback: it can never be superseded
  * and never refused. Refusing it is what stops a tool that forgot to stamp a
  * version from shipping one that quietly cannot be revoked. */
 static void test_version_zero_is_refused(void)
 {
-    uint8_t raw[TFW_BOOT_TRAILER_LEN];
-    tfw_boot_trailer_t tr;
-
-    good(raw, 0u, 512u);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_trailer_parse(raw, &tr));
+    static const uint8_t head[16] = {
+        0x54, 0x46, 0x49, 0x4D, 0x01, 0x00, 0x02, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+    };
+    refused_leaves_trailer(head, TFW_ERR_CRYPTO);
 }
 
 static void test_a_zero_length_image_is_refused(void)
 {
-    uint8_t raw[TFW_BOOT_TRAILER_LEN];
-    tfw_boot_trailer_t tr;
-
-    good(raw, 1u, 0u);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_boot_trailer_parse(raw, &tr));
+    static const uint8_t head[16] = {
+        0x54, 0x46, 0x49, 0x4D, 0x01, 0x00, 0x02, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    refused_leaves_trailer(head, TFW_ERR_RANGE);
 }
 
 /*

@@ -1,7 +1,10 @@
 /*
  * The software crypto provider, src/crypto/soft/provider.c, driven directly --
- * issue #130. Every public function and every refusal path, with the exact
- * status and, where there is output, the exact bytes.
+ * issue #130. The key, the hash, init's fallback and handoff, and signing, with
+ * the exact status and, where there is output, the exact bytes. The tier, the
+ * algorithm bitmap and the refusals of random, counter, verify, hmac and sign
+ * are test_crypto_soft_mutate.c's, which asserts each with NULL or untouched
+ * buffers.
  *
  * The expected digests and MACs are literals computed outside this code
  * (Python's hmac/hashlib), never by the provider they pin.
@@ -66,28 +69,7 @@ static void hand_off(uint8_t tier, const uint8_t cdi[32])
     tfw_boot_handoff_init();
 }
 
-/* ---- identity of the tier ------------------------------------------------ */
-
-static void test_the_tier_is_software(void)
-{
-    TEST_ASSERT_EQUAL(TFW_CRYPTO_SOFTWARE, tfw_crypto_tier());
-}
-
-static void test_the_only_algorithm_is_es256(void)
-{
-    TEST_ASSERT_EQUAL_HEX16(TFW_ALGBIT_ECDSA_P256_SHA256, tfw_crypto_algorithms());
-}
-
-/* ---- refusals ------------------------------------------------------------ */
-
-static void test_random_is_refused_and_the_buffer_untouched(void)
-{
-    uint8_t out[16];
-
-    memset(out, 0xA5, sizeof out);
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_random(out, (uint8_t)sizeof out));
-    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof out);
-}
+/* ---- the public key ------------------------------------------------------ */
 
 static void test_the_public_key_is_the_uds_deviceid_point(void)
 {
@@ -108,63 +90,6 @@ static void test_no_uds_has_no_public_key_and_the_buffer_untouched(void)
     memset(out, 0xA5, sizeof out);
     TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_pubkey(out));
     TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof out);
-}
-
-static void test_there_is_no_counter_and_the_value_untouched(void)
-{
-    uint32_t n = 0xA5A5A5A5u;
-
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &n));
-    TEST_ASSERT_EQUAL_HEX32(0xA5A5A5A5u, n);
-}
-
-/* provider.c:250-256 answers before reading anything: NULL for every argument
- * would fault if it read the digest, the signature or the key. */
-static void test_operator_verify_is_refused_without_reading_the_key(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_operator(0, 0, 0));
-}
-
-static void test_image_verify_is_refused_without_reading_its_arguments(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(0, 0));
-}
-
-static void test_hmac_refuses_any_slot_but_zero(void)
-{
-    uint8_t out[32];
-
-    tfw_mock_set_uds(TEST_UDS);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_crypto_hmac(1u, ABC, sizeof ABC, out));
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_crypto_hmac(0xFFu, ABC, sizeof ABC, out));
-}
-
-/* The slot is checked before provisioning (provider.c:187-192). */
-static void test_hmac_checks_the_slot_before_provisioning(void)
-{
-    uint8_t out[32];
-
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_crypto_hmac(1u, ABC, sizeof ABC, out));
-}
-
-static void test_hmac_without_a_uds_is_not_provisioned(void)
-{
-    uint8_t out[32];
-
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_hmac(0u, ABC, sizeof ABC, out));
-}
-
-static void test_sign_without_a_uds_is_not_provisioned_and_writes_nothing(void)
-{
-    uint8_t digest[32], sig[64];
-    uint8_t alg = 0xEEu;
-
-    memset(digest, 0x42, sizeof digest);
-    memset(sig, 0xA5, sizeof sig);
-    TEST_ASSERT_EQUAL(TFW_ERR_NOT_PROVISIONED, tfw_crypto_sign(digest, sig, &alg));
-    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, sig, sizeof sig);
-    TEST_ASSERT_EQUAL_HEX8(0xEEu, alg);
 }
 
 /* ---- sha256 -------------------------------------------------------------- */
@@ -285,18 +210,8 @@ static void test_sign_is_es256_and_verifies_under_the_public_key(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_the_tier_is_software);
-    RUN_TEST(test_the_only_algorithm_is_es256);
-    RUN_TEST(test_random_is_refused_and_the_buffer_untouched);
     RUN_TEST(test_the_public_key_is_the_uds_deviceid_point);
     RUN_TEST(test_no_uds_has_no_public_key_and_the_buffer_untouched);
-    RUN_TEST(test_there_is_no_counter_and_the_value_untouched);
-    RUN_TEST(test_operator_verify_is_refused_without_reading_the_key);
-    RUN_TEST(test_image_verify_is_refused_without_reading_its_arguments);
-    RUN_TEST(test_hmac_refuses_any_slot_but_zero);
-    RUN_TEST(test_hmac_checks_the_slot_before_provisioning);
-    RUN_TEST(test_hmac_without_a_uds_is_not_provisioned);
-    RUN_TEST(test_sign_without_a_uds_is_not_provisioned_and_writes_nothing);
     RUN_TEST(test_sha256_of_abc);
     RUN_TEST(test_sha256_needs_no_provisioning);
     RUN_TEST(test_no_handoff_derives_the_cdi_from_the_local_uds);

@@ -2,8 +2,8 @@
  * A mutation test for the EEPROM floor, src/core/ota_floor_eeprom.c (#163).
  *
  * On a tier with no element OTA_INFO's floor is the platform block's copy,
- * the one tfw-boot enforces. The rule test_otactl_floor.c pins for a good
- * block: the floor reported is the block's. Here the block is mutated, torn
+ * the one tfw-boot enforces. The rule for a good block: the floor reported
+ * is the block's. Here the block is mutated, torn
  * and pushed to the ends of its range. Every one-bit flip of a good block is
  * refused with no reply. A floor raise torn after every byte reads as the old
  * floor, the new one, or a refusal -- never a floor below the old one and

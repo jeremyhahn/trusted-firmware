@@ -6,6 +6,11 @@
  * the address each read is given, that a refusal anywhere ends the sequence
  * and is the answer, and that the part is put back to sleep on every path.
  * The element is the model; the reader is a stub over a local buffer.
+ *
+ * test_boot_element_measure_mutate's cases that no case here made are kept
+ * here: the largest image measured whole, a length of 2^32 - 1 refused, a
+ * failed wake that sends no command, and the part asleep after a hash with
+ * no element.
  */
 #include <string.h>
 #include "unity.h"
@@ -72,6 +77,7 @@ static void test_measure_takes_one_to_max_bytes(void)
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_measure_from(reader, g_base, 0u, out));
     TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
         tfw_boot_measure_from(reader, g_base, TFW_BOOT_MAX_IMAGE_LEN + 1u, out));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_boot_measure_from(reader, g_base, 0xFFFFFFFFu, out));
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
     TEST_ASSERT_EQUAL_UINT8(0u, g_reads);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
@@ -85,6 +91,31 @@ static void test_measure_takes_one_to_max_bytes(void)
     setUp();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_measure_from(reader, g_base, 1u, out));
     TEST_ASSERT_EQUAL_UINT8(1u, g_reads);
+}
+
+/* A reader over an image of any length: each byte is a function of its offset. */
+static uint8_t pattern(uint32_t a) { return (uint8_t)(a * 7u + 3u); }
+
+static tfw_status_t pattern_reader(uint32_t addr, uint8_t *buf, uint8_t len)
+{
+    uint8_t i;
+
+    for (i = 0u; i < len; i++) { buf[i] = pattern(addr + i - g_base); }
+    return TFW_OK;
+}
+
+/* Kills: a walk that stops short of, or wraps before, the largest image. */
+static void test_the_largest_image_is_measured_whole(void)
+{
+    static uint8_t img[TFW_BOOT_MAX_IMAGE_LEN];
+    uint8_t  want[32], got[32];
+    uint32_t i;
+
+    for (i = 0u; i < TFW_BOOT_MAX_IMAGE_LEN; i++) { img[i] = pattern(i); }
+    tfw_sha256(img, (uint16_t)TFW_BOOT_MAX_IMAGE_LEN, want);
+    TEST_ASSERT_EQUAL(TFW_OK,
+        tfw_boot_measure_from(pattern_reader, g_base, TFW_BOOT_MAX_IMAGE_LEN, got));
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
 }
 
 /* Kills: a measurement with no element returning a zero digest as OK. */
@@ -208,6 +239,20 @@ static void test_hash_with_no_element_is_all_zero(void)
     tfw_boot_hash(g_src, 100u, out);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, out, 32);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
+}
+
+/* A wake that fails on a part that would answer: no command is sent. */
+static void test_a_failed_wake_sends_no_command(void)
+{
+    static const uint8_t zero[32];
+    uint8_t out[32];
+
+    tfw_model_fail_wakes_after(0u);
+    memset(out, 0xAAu, sizeof out);
+    tfw_boot_hash(g_src, 3u, out);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, out, 32);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_log_count());
 }
 
 /* Kills: the hash block loop bound moved, the data not advanced, the tail
@@ -299,12 +344,14 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_measure_takes_one_to_max_bytes);
+    RUN_TEST(test_the_largest_image_is_measured_whole);
     RUN_TEST(test_measure_with_no_element_is_a_crypto_error);
     RUN_TEST(test_measure_splits_into_blocks_and_a_tail);
     RUN_TEST(test_a_failed_read_ends_the_measurement);
     RUN_TEST(test_an_element_refusal_ends_the_measurement);
     RUN_TEST(test_measure_reads_program_memory_from_the_app_base);
     RUN_TEST(test_hash_with_no_element_is_all_zero);
+    RUN_TEST(test_a_failed_wake_sends_no_command);
     RUN_TEST(test_hash_splits_into_blocks_and_a_tail);
     RUN_TEST(test_a_refused_hash_is_all_zero);
     RUN_TEST(test_every_sha_waits_its_maximum_execution_time);

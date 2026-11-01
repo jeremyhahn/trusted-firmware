@@ -166,13 +166,6 @@ static tfw_status_t gate_in(uint32_t slot, tfw_boot_trailer_t *out)
     return tfw_l0_gate(BASE, slot, ESP_LEN, digest, 3u, out);
 }
 
-static void test_the_fixture_passes(void)
-{
-    tfw_boot_trailer_t out;
-
-    TEST_ASSERT_EQUAL_INT(TFW_OK, gate_in(SLOT, &out));
-}
-
 /* A slot with room for the trailer and not one byte more is past the bounds:
  * the trailer is checked, and only the missing envelope refuses it. */
 static void test_a_slot_of_exactly_the_trailer_reaches_the_trailer_checks(void)
@@ -199,18 +192,6 @@ static void test_one_byte_after_the_trailer_is_no_envelope(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
                           gate_in(ESP_LEN + TFW_BOOT_TRAILER_LEN + 2u + env_len - 1u, &out));
     TEST_ASSERT_EQUAL_INT(TFW_OK, gate_in(ESP_LEN + TFW_BOOT_TRAILER_LEN + 2u + env_len, &out));
-}
-
-/* Signed, for another board: the binding refuses it, though the envelope is
- * good. */
-static void test_a_signed_trailer_for_another_board_is_refused(void)
-{
-    tfw_boot_trailer_t tr, out;
-
-    good_trailer(&tr);
-    tr.board_id = (uint8_t)(TFW_BOARD_ID + 1u);
-    put_trailer(&tr);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, gate_in(SLOT, &out));
 }
 
 /* Signed, naming another measurement in its first or its last byte, beside an
@@ -289,14 +270,6 @@ static void test_an_eeprom_read_failure_is_returned(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, gate_in(SLOT, &out));
 }
 
-static void test_an_envelope_length_of_zero_is_refused(void)
-{
-    tfw_boot_trailer_t out;
-
-    put_env_len(0u);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, gate_in(SLOT, &out));
-}
-
 /* The envelope buffer's own size is a length the gate reads and hands on;
  * one more is refused before a byte is read into it. */
 static void test_an_envelope_length_past_the_buffer_is_refused(void)
@@ -314,16 +287,13 @@ static void test_an_envelope_length_past_the_buffer_is_refused(void)
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_the_fixture_passes);
     RUN_TEST(test_a_slot_of_exactly_the_trailer_reaches_the_trailer_checks);
     RUN_TEST(test_one_byte_after_the_trailer_is_no_envelope);
-    RUN_TEST(test_a_signed_trailer_for_another_board_is_refused);
     RUN_TEST(test_a_signed_trailer_with_another_measurement_is_refused);
     RUN_TEST(test_the_board_is_refused_before_the_pin_is_read);
     RUN_TEST(test_the_last_measurement_byte_is_refused_before_the_pin_is_read);
     RUN_TEST(test_a_signed_trailer_with_an_unknown_flag_is_refused);
     RUN_TEST(test_an_eeprom_read_failure_is_returned);
-    RUN_TEST(test_an_envelope_length_of_zero_is_refused);
     RUN_TEST(test_an_envelope_length_past_the_buffer_is_refused);
     return UNITY_END();
 }

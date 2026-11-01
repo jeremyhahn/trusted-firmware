@@ -3,8 +3,7 @@
 /*
  * The image header, mutated exhaustively (#163).
  *
- * test_boot_trailer_mutate draws random mutations; this one leaves nothing to
- * the draw. Every byte of the trailer is set to every value, on the serialiser's
+ * Every byte of the trailer is set to every value, on the serialiser's
  * trailer and on each literal board vector, and every image_len from 0 to one
  * page past the maximum is parsed, with the powers of two either side of it.
  * Then a seeded run of multi-byte mutations.

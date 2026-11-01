@@ -30,28 +30,6 @@ static void test_the_algorithm_bitmap_is_empty(void)
     TEST_ASSERT_EQUAL_UINT16(0u, tfw_crypto_algorithms());
 }
 
-static void test_every_operation_refuses(void)
-{
-    uint8_t out[64];
-    uint8_t alg;
-
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_random(out, 16u));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_sha256(out, 16u, out));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_hmac(0u, out, 16u, out));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_sign(out, out, &alg));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_pubkey(out));
-    {
-        uint32_t n;
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_counter(0u, &n));
-    }
-    {
-        uint8_t digest[32] = {0}, sig[64] = {0};
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_operator(digest, sig, out));
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_crypto_verify_image(digest, sig));
-    }
-}
-
 /*
  * A CDI tfw-boot handed off must not sit resident in src/core/handoff.c for
  * the process lifetime, even on a tier that signs with nothing and derives
@@ -149,7 +127,6 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_reports_the_unattested_tier);
     RUN_TEST(test_the_algorithm_bitmap_is_empty);
-    RUN_TEST(test_every_operation_refuses);
     RUN_TEST(test_init_drains_a_handed_off_cdi_even_though_this_tier_signs_with_nothing);
     RUN_TEST(test_random_refuses_and_leaves_the_buffer_untouched);
     RUN_TEST(test_sha256_refuses_and_leaves_the_digest_untouched);

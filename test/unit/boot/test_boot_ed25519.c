@@ -25,15 +25,25 @@
  * 32-bit field arithmetic the AVR build compiles, rather than the uint128 path
  * an x86-64 host would otherwise take. Testing a path the device never runs
  * would be testing the wrong program.
+ *
+ * The TEST 1024 cases below run under seeded faults (#163): xorshift32 from a
+ * literal seed, a literal iteration count. Mutants they kill (each tried by
+ * hand against the two units):
+ *   verify: the length narrowed to 8 bits, shortened by one, or dropped; the
+ *     verdict inverted, or any non-zero donna answer read as good; the
+ *     refusal reported as another status; pub and sig swapped
+ *   pubkey: the erased test inverted; the clear skipped, one byte short or
+ *     one byte wide; the loop one past the slot; the unprovisioned answer OK
+ *   shim: the clear skipped, one byte short, one byte wide, or not zero
+ * The COSE alg (0x27) is asserted by test_boot_ed25519_slot, on the same
+ * source.
  */
 
+#include <stdint.h>
 #include <string.h>
 #include "unity.h"
 #include "boot_verify.h"
 #include "donna_shim.h"
-
-void setUp(void) {}
-void tearDown(void) {}
 
 static uint8_t nib(char c)
 {
@@ -65,6 +75,110 @@ static void unhex(const char *h, uint8_t *out, size_t n)
 #define RFC8032_T1_PUB "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
 #define RFC8032_T1_SIG "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555f" \
                        "b8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+
+/* RFC 8032 §7.1, -----TEST 1024: PUBLIC KEY, SIGNATURE, MESSAGE. */
+#define RFC8032_T1024_PUB \
+    "278117fc144c72340f67d0f2316e8386" \
+    "ceffbf2b2428c9c51fef7c597f1d426e"
+
+#define RFC8032_T1024_SIG \
+    "0aab4c900501b3e24d7cdf4663326a3a" \
+    "87df5e4843b2cbdb67cbf6e460fec350" \
+    "aa5371b1508f9f4528ecea23c436d94b" \
+    "5e8fcd4f681e30a6ac00a9704a188a03"
+
+#define RFC8032_T1024_MSG \
+    "08b8b2b733424243760fe426a4b54908" \
+    "632110a66c2f6591eabd3345e3e4eb98" \
+    "fa6e264bf09efe12ee50f8f54e9f77b1" \
+    "e355f6c50544e23fb1433ddf73be84d8" \
+    "79de7c0046dc4996d9e773f4bc9efe57" \
+    "38829adb26c81b37c93a1b270b20329d" \
+    "658675fc6ea534e0810a4432826bf58c" \
+    "941efb65d57a338bbd2e26640f89ffbc" \
+    "1a858efcb8550ee3a5e1998bd177e93a" \
+    "7363c344fe6b199ee5d02e82d522c4fe" \
+    "ba15452f80288a821a579116ec6dad2b" \
+    "3b310da903401aa62100ab5d1a36553e" \
+    "06203b33890cc9b832f79ef80560ccb9" \
+    "a39ce767967ed628c6ad573cb116dbef" \
+    "efd75499da96bd68a8a97b928a8bbc10" \
+    "3b6621fcde2beca1231d206be6cd9ec7" \
+    "aff6f6c94fcd7204ed3455c68c83f4a4" \
+    "1da4af2b74ef5c53f1d8ac70bdcb7ed1" \
+    "85ce81bd84359d44254d95629e9855a9" \
+    "4a7c1958d1f8ada5d0532ed8a5aa3fb2" \
+    "d17ba70eb6248e594e1a2297acbbb39d" \
+    "502f1a8c6eb6f1ce22b3de1a1f40cc24" \
+    "554119a831a9aad6079cad88425de6bd" \
+    "e1a9187ebb6092cf67bf2b13fd65f270" \
+    "88d78b7e883c8759d2c4f5c65adb7553" \
+    "878ad575f9fad878e80a0c9ba63bcbcc" \
+    "2732e69485bbc9c90bfbd62481d9089b" \
+    "eccf80cfe2df16a2cf65bd92dd597b07" \
+    "07e0917af48bbb75fed413d238f5555a" \
+    "7a569d80c3414a8d0859dc65a46128ba" \
+    "b27af87a71314f318c782b23ebfe808b" \
+    "82b0ce26401d2e22f04d83d1255dc51a" \
+    "ddd3b75a2b1ae0784504df543af8969b" \
+    "e3ea7082ff7fc9888c144da2af58429e" \
+    "c96031dbcad3dad9af0dcbaaaf268cb8" \
+    "fcffead94f3c7ca495e056a9b47acdb7" \
+    "51fb73e666c6c655ade8297297d07ad1" \
+    "ba5e43f1bca32301651339e22904cc8c" \
+    "42f58c30c04aafdb038dda0847dd988d" \
+    "cda6f3bfd15c4b4c4525004aa06eeff8" \
+    "ca61783aacec57fb3d1f92b0fe2fd1a8" \
+    "5f6724517b65e614ad6808d6f6ee34df" \
+    "f7310fdc82aebfd904b01e1dc54b2927" \
+    "094b2db68d6f903b68401adebf5a7e08" \
+    "d78ff4ef5d63653a65040cf9bfd4aca7" \
+    "984a74d37145986780fc0b16ac451649" \
+    "de6188a7dbdf191f64b5fc5e2ab47b57" \
+    "f7f7276cd419c17a3ca8e1b939ae49e4" \
+    "88acba6b965610b5480109c8b17b80e1" \
+    "b7b750dfc7598d5d5011fd2dcc5600a3" \
+    "2ef5b52a1ecc820e308aa342721aac09" \
+    "43bf6686b64b2579376504ccc493d97e" \
+    "6aed3fb0f9cd71a43dd497f01f17c0e2" \
+    "cb3797aa2a2f256656168e6c496afc5f" \
+    "b93246f6b1116398a346f1a641f3b041" \
+    "e989f7914f90cc2c7fff357876e506b5" \
+    "0d334ba77c225bc307ba537152f3f161" \
+    "0e4eafe595f6d9d90d11faa933a15ef1" \
+    "369546868a7f3a45a96768d40fd9d034" \
+    "12c091c6315cf4fde7cb68606937380d" \
+    "b2eaaa707b4c4185c32eddcdd306705e" \
+    "4dc1ffc872eeee475a64dfac86aba41c" \
+    "0618983f8741c5ef68d3a101e8a3b8ca" \
+    "c60c905c15fc910840b94c00a0b9d0"
+
+#define T1024_MSG_LEN 1023u
+#define FLIPS         48u
+#define GUARD         8u
+
+static uint8_t t1024_pub[TFW_BOOT_PUBKEY_LEN];
+static uint8_t t1024_sig[TFW_BOOT_SIG_LEN];
+static uint8_t t1024_msg[T1024_MSG_LEN];
+static uint32_t rng;
+
+static uint32_t next_rand(void)
+{
+    rng ^= rng << 13;
+    rng ^= rng >> 17;
+    rng ^= rng << 5;
+    return rng;
+}
+
+void setUp(void)
+{
+    rng = 0x8032D044u;
+    unhex(RFC8032_T1024_PUB, t1024_pub, sizeof t1024_pub);
+    unhex(RFC8032_T1024_SIG, t1024_sig, sizeof t1024_sig);
+    unhex(RFC8032_T1024_MSG, t1024_msg, sizeof t1024_msg);
+}
+
+void tearDown(void) {}
 
 static void test_rfc8032_test2_verifies(void)
 {
@@ -148,39 +262,121 @@ static void test_an_all_zero_signature_is_refused(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(msg, 1u, sig, pub));
 }
 
+/* TEST 1024's 1023-byte message is the one RFC 8032 vector longer than 255
+ * bytes, so a length narrowed to 8 bits anywhere on the way to donna is seen;
+ * verify must not write to what it reads. */
+static void test_the_inputs_are_left_as_they_were(void)
+{
+    uint8_t p[sizeof t1024_pub], s[sizeof t1024_sig], m[sizeof t1024_msg];
+
+    memcpy(p, t1024_pub, sizeof p);
+    memcpy(s, t1024_sig, sizeof s);
+    memcpy(m, t1024_msg, sizeof m);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(t1024_msg, (uint16_t)T1024_MSG_LEN,
+                                                  t1024_sig, t1024_pub));
+    TEST_ASSERT_EQUAL_MEMORY(p, t1024_pub, sizeof p);
+    TEST_ASSERT_EQUAL_MEMORY(s, t1024_sig, sizeof s);
+    TEST_ASSERT_EQUAL_MEMORY(m, t1024_msg, sizeof m);
+}
+
+/* Every length short of the signed one, 8-bit truncations of 1023 included. */
+static void test_a_shorter_length_is_refused(void)
+{
+    static const uint16_t lens[] = { 0u, 1u, 255u, 256u, 511u, 767u, 1022u };
+    size_t i;
+
+    for (i = 0; i < sizeof lens / sizeof lens[0]; i++) {
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO,
+                              tfw_boot_verify(t1024_msg, lens[i], t1024_sig, t1024_pub));
+    }
+}
+
+/* One seeded bit flipped in the message, the signature or the key, each time
+ * refused as TFW_ERR_CRYPTO and not as any other status. */
+static void test_a_flipped_bit_anywhere_is_refused(void)
+{
+    uint32_t i;
+
+    for (i = 0; i < FLIPS; i++) {
+        uint32_t r = next_rand();
+        uint8_t bit = (uint8_t)(1u << (r & 7u));
+        uint8_t *b;
+        size_t at;
+
+        switch ((r >> 3) % 3u) {
+        case 0:  b = t1024_msg; at = (r >> 5) % sizeof t1024_msg; break;
+        case 1:  b = t1024_sig; at = (r >> 5) % sizeof t1024_sig; break;
+        default: b = t1024_pub; at = (r >> 5) % sizeof t1024_pub; break;
+        }
+        b[at] ^= bit;
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(t1024_msg, (uint16_t)T1024_MSG_LEN,
+                                                              t1024_sig, t1024_pub));
+        b[at] ^= bit;
+    }
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(t1024_msg, (uint16_t)T1024_MSG_LEN,
+                                                  t1024_sig, t1024_pub));
+}
+
+/* pub and sig passed in each other's place are refused. */
+static void test_the_key_and_signature_are_not_interchangeable(void)
+{
+    uint8_t s2[TFW_BOOT_SIG_LEN];
+
+    memcpy(s2, t1024_pub, sizeof t1024_pub);
+    memcpy(s2 + sizeof t1024_pub, t1024_sig + sizeof t1024_pub,
+           sizeof t1024_sig - sizeof t1024_pub);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(t1024_msg, (uint16_t)T1024_MSG_LEN,
+                                                          s2, t1024_sig));
+}
+
 /*
  * The public key slot in a bootloader nobody has provisioned reads as erased
  * flash. It must report that rather than verifying against a constant every
  * build of this source shares -- which would be a root of trust the whole world
- * holds the other half of.
+ * holds the other half of. It clears exactly the key, not a byte either side.
  */
-static void test_an_unprovisioned_pubkey_slot_refuses(void)
+static void test_the_unprovisioned_slot_clears_exactly_the_key(void)
 {
-    uint8_t pub[32];
-    memset(pub, 0xAA, sizeof pub);
+    uint8_t buf[GUARD + TFW_BOOT_PUBKEY_LEN + GUARD];
+    uint8_t keep[sizeof buf];
+    size_t i;
+    int round;
 
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, tfw_boot_pubkey(pub));
-    for (uint8_t i = 0u; i < 32u; i++) {
-        TEST_ASSERT_EQUAL_UINT8(0u, pub[i]);   /* and it is not left as 0xFF */
+    for (round = 0; round < 2; round++) {
+        for (i = 0; i < sizeof buf; i++) {
+            buf[i] = (uint8_t)next_rand();
+        }
+        memcpy(keep, buf, sizeof buf);
+        TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, tfw_boot_pubkey(buf + GUARD));
+        TEST_ASSERT_EQUAL_MEMORY(keep, buf, GUARD);
+        for (i = 0; i < TFW_BOOT_PUBKEY_LEN; i++) {
+            TEST_ASSERT_EQUAL_HEX8(0u, buf[GUARD + i]);
+        }
+        TEST_ASSERT_EQUAL_MEMORY(keep + GUARD + TFW_BOOT_PUBKEY_LEN,
+                                 buf + GUARD + TFW_BOOT_PUBKEY_LEN, GUARD);
     }
 }
 
 /* The one integrator hook donna wants (boot/verify/donna_shim.c). Verify never
  * draws on it; only signing does, and tfw-boot never signs. It fills with
- * zeros, every byte, so a caller that one day did sign would produce an
- * obviously fixed nonce rather than one that looks random and is not. */
-static void test_the_shim_randomness_is_all_zero(void)
+ * zeros, every byte asked and not one more, so a caller that one day did sign
+ * would produce an obviously fixed nonce rather than one that looks random and
+ * is not. */
+static void test_the_shim_clears_exactly_the_length_asked(void)
 {
-    uint8_t buf[40];
-    size_t  i;
+    uint8_t buf[40u + GUARD];
+    size_t len;
+    size_t i;
 
-    memset(buf, 0xA5, sizeof buf);
-    ed25519_randombytes_unsafe(buf, 32u);
-    for (i = 0; i < 32u; i++) {
-        TEST_ASSERT_EQUAL_HEX8(0x00u, buf[i]);
-    }
-    for (; i < sizeof buf; i++) {
-        TEST_ASSERT_EQUAL_HEX8(0xA5u, buf[i]);
+    for (len = 0; len <= 40u; len++) {
+        memset(buf, 0xA5, sizeof buf);
+        ed25519_randombytes_unsafe(buf, len);
+        for (i = 0; i < len; i++) {
+            TEST_ASSERT_EQUAL_HEX8(0x00u, buf[i]);
+        }
+        for (; i < sizeof buf; i++) {
+            TEST_ASSERT_EQUAL_HEX8(0xA5u, buf[i]);
+        }
     }
 }
 
@@ -194,7 +390,11 @@ int main(void)
     RUN_TEST(test_a_tampered_signature_is_refused);
     RUN_TEST(test_the_wrong_public_key_is_refused);
     RUN_TEST(test_an_all_zero_signature_is_refused);
-    RUN_TEST(test_an_unprovisioned_pubkey_slot_refuses);
-    RUN_TEST(test_the_shim_randomness_is_all_zero);
+    RUN_TEST(test_the_inputs_are_left_as_they_were);
+    RUN_TEST(test_a_shorter_length_is_refused);
+    RUN_TEST(test_a_flipped_bit_anywhere_is_refused);
+    RUN_TEST(test_the_key_and_signature_are_not_interchangeable);
+    RUN_TEST(test_the_unprovisioned_slot_clears_exactly_the_key);
+    RUN_TEST(test_the_shim_clears_exactly_the_length_asked);
     return UNITY_END();
 }

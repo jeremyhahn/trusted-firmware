@@ -3,7 +3,7 @@
  * and the handoff record, fed hostile input from a fixed seed (row secure-boot,
  * #163).
  *
- * test_boot_trailer_mutate.c checks that a mutated trailer parses inside the
+ * test_boot_image_mutate.c checks that a mutated trailer parses inside the
  * parser's contract. This suite checks the gate the parse feeds: every single-
  * bit flip of a valid trailer over a real image, random trailers with lengths at
  * and past the slot's edge, and long walks of the floor. The PRNG is the test's

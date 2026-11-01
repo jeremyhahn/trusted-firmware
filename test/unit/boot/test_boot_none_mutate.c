@@ -4,7 +4,7 @@
  * whichever floor and action they are handed, the stand-ins return the one
  * status their header names and write nothing.
  *
- * Linked as test_boot_none_rows is, with no boot HAL: a stand-in that reached
+ * Linked with the two stand-ins alone, no boot HAL: a stand-in that reached
  * the store's bus, the flash or the platform's write would not link.
  *
  * Deterministic: xorshift32 from a literal seed, a literal iteration count.

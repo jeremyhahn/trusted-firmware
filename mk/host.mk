@@ -178,7 +178,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                            test/unit/test_ota_stage.c test/unit/test_ota_stage_mutate.c test/unit/test_ota_ctl_mutate.c test/unit/test_ota_mutate.c test/unit/test_appstate_mutate.c test/unit/test_ota_activate_mutate.c test/unit/test_ota_prev_mutate.c test/unit/test_ota_floor_eeprom_mutate.c test/unit/test_spi_nor.c test/unit/test_spi_nor_mutate.c test/unit/test_ota_info_atecc.c test/unit/test_ota_single.c test/unit/test_ota_single_mutate.c test/unit/test_ota_manifest.c \
                             test/unit/test_hsm_payload.c test/unit/test_hsm_engine.c test/unit/test_hsm_cmd.c test/unit/test_hsm_record.c test/unit/test_hsm_record_fail.c \
                             test/unit/test_stage_marked.c test/unit/test_ota_begin_budget.c test/unit/test_esp_ota.c test/unit/test_esp_wire.c test/unit/test_esp_prov_uds_mutate.c \
-                            test/unit/test_storage_2560.c test/unit/test_otactl_floor.c test/unit/test_otactl_floor_mutate.c test/unit/test_sha256_small.c \
+                            test/unit/test_storage_2560.c test/unit/test_otactl_floor_mutate.c test/unit/test_sha256_small.c \
                             test/unit/test_deviceid_p256.c test/unit/test_deviceid_p256_mutate.c test/unit/test_provision_uds.c test/unit/test_provision_uds_mutate.c \
                             test/unit/test_esp_crypto_hmac_p256.c test/unit/test_esp_board.c \
                             test/unit/test_esp_hal_eeprom.c \
@@ -315,15 +315,8 @@ $(HOST_DIR)/test_auth_session_auto_mutate: test/unit/test_auth_session_auto_muta
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/core -o $@ $^ $(EXTRA_LDFLAGS)
 
 # OTA_INFO's rollback floor, each tier's reader by its renamed name, against
-# the software element -- the same floor objects test_crypto_auto links.
-$(HOST_DIR)/test_otactl_floor: test/unit/test_otactl_floor.c $(ELEMENT_MODEL) \
-                               src/crypto/atecc608a/atecc.c src/crypto/sha256.c src/core/secure_zero.c \
-                               $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
-                               $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
-
-# test_otactl_floor's link under seeded mutation (#163).
+# the software element -- the same floor objects test_crypto_auto links --
+# exact and under seeded mutation (#163).
 $(HOST_DIR)/test_otactl_floor_mutate: test/unit/test_otactl_floor_mutate.c $(ELEMENT_MODEL) \
                                src/crypto/atecc608a/atecc.c src/core/secure_zero.c src/crypto/sha256.c \
                                $(HOST_DIR)/floor_auto_soft.o $(HOST_DIR)/floor_auto_element.o \
@@ -1184,7 +1177,7 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
+HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash $(HOST_DIR)/test_uds_flash_mutate \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart \

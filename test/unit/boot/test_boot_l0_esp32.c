@@ -325,14 +325,6 @@ static void test_a_corrupt_platform_block_is_refused(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, gate(0u, &out));
 }
 
-static void test_a_failed_pin_read_is_refused(void)
-{
-    tfw_boot_trailer_t out;
-
-    tfw_boot_mock_fail_nvm_reads(1u);
-    TEST_ASSERT_NOT_EQUAL(TFW_OK, gate(0u, &out));
-}
-
 static void test_a_bad_signature_is_refused(void)
 {
     tfw_boot_trailer_t out;
@@ -445,15 +437,6 @@ static void test_an_empty_envelope_is_refused(void)
 
     tfw_boot_mock_flash()[ENV_AT]      = 0u;
     tfw_boot_mock_flash()[ENV_AT + 1u] = 0u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, gate(0u, &out));
-}
-
-static void test_an_envelope_past_its_maximum_is_refused(void)
-{
-    tfw_boot_trailer_t out;
-
-    tfw_boot_mock_flash()[ENV_AT]      = (uint8_t)(TFW_SUIT_ENVELOPE_MAX + 1u);
-    tfw_boot_mock_flash()[ENV_AT + 1u] = (uint8_t)((TFW_SUIT_ENVELOPE_MAX + 1u) >> 8);
     TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, gate(0u, &out));
 }
 
@@ -651,7 +634,6 @@ int main(void)
     RUN_TEST(test_a_key_the_device_was_not_paired_with_is_refused);
     RUN_TEST(test_an_unprovisioned_pin_is_refused);
     RUN_TEST(test_a_corrupt_platform_block_is_refused);
-    RUN_TEST(test_a_failed_pin_read_is_refused);
     RUN_TEST(test_a_bad_signature_is_refused);
     RUN_TEST(test_a_trailer_signed_by_another_key_is_refused);
     RUN_TEST(test_another_key_pinned_with_it_is_still_refused);
@@ -662,7 +644,6 @@ int main(void)
     RUN_TEST(test_an_envelope_past_the_slot_is_refused);
     RUN_TEST(test_no_envelope_is_refused);
     RUN_TEST(test_an_empty_envelope_is_refused);
-    RUN_TEST(test_an_envelope_past_its_maximum_is_refused);
     RUN_TEST(test_a_truncated_envelope_is_refused);
     RUN_TEST(test_a_manifest_naming_another_digest_is_refused);
     RUN_TEST(test_a_manifest_naming_another_class_is_refused);

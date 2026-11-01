@@ -4,6 +4,39 @@
  * BOOT_SIG=p256-soft (#130): the vendored micro-ecc against every Wycheproof
  * P-256 / SHA-256 P1363 vector, and the shipping backend against the same key
  * slot shape and contract the element tier honours.
+ *
+ * Then the backend, boot/verify/verify_p256_soft.c, against seeded mutants
+ * (#163). A key pair is made fresh by micro-ecc in setUp (no private key is in
+ * the tree), so a signature exists over any message the test needs: a bit
+ * flipped in each byte of the signature, the message or the slot must refuse,
+ * and so must a message one byte short or long, another key's signature, a
+ * supplied key, a NULL message whose empty-message signature is valid, and an
+ * erased slot. Wycheproof's first valid vector of key 0 anchors the result to
+ * a signature this code did not make.
+ *
+ * Mutants tried, each killed by the test named:
+ *   `pub != 0` refusal dropped / inverted       -> a_supplied_key_is_refused_even_when_right
+ *   `msg == 0` refusal dropped                  -> a_null_message_is_refused
+ *   `sig == 0` refusal dropped                  -> a_null_signature_is_refused (faults)
+ *   slot read bound 64 -> 63, index i -> i + 1  -> a_fresh_key_verifies_its_own_signature,
+ *                                                  every_slot_byte_matters
+ *   `erased &= key` -> `|=`, `== 0xFF` -> `!=`   -> a_fresh_key_verifies_its_own_signature
+ *   hash over msglen - 1, digest 31 bytes to uECC
+ *                                               -> every_message_byte_matters,
+ *                                                  the_wycheproof_anchor_verifies
+ *   `ok == 1` -> `ok == 0`, always TFW_OK        -> every_signature_byte_matters
+ *   `pub` refusal returns CRYPTO               -> a_supplied_key_is_refused_even_when_right
+ *   `msg == 0 || sig == 0` -> `&&`             -> a_null_signature_is_refused
+ *   hash over a fixed 100 bytes                -> every_message_byte_matters
+ *   tfw_boot_pubkey writes, or returns TFW_OK  -> the_contract
+ *   tfw_boot_cose_alg 0x26 -> 0x27              -> the_contract
+ * Survive, and equivalent from outside (24 tried, 22 killed with the slot's):
+ *   dropping the erased-slot refusal (verify_p256_soft.c:59): micro-ecc refuses
+ *   the all-0xFF point by itself; the line stays as the refusal that does not
+ *   depend on a library's handling of an off-curve key.
+ *   `ok == 1` -> `ok != 0` (verify_p256_soft.c:66): uECC_verify returns 0 or 1.
+ *
+ * xorshift32 with a literal seed feeds micro-ecc's RNG: a failure reproduces.
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -20,7 +53,42 @@
  * test installs the key it needs; the backend only ever reads it. */
 uint8_t tfw_boot_p256_key[64];
 
-void setUp(void) {}
+#define MSG_LEN 100u
+
+static uint32_t rng_state;
+static uint8_t  k_priv[32], k_pub[64];
+static uint8_t  k_msg[MSG_LEN];
+static uint8_t  k_sig[64];
+
+static int test_rng(uint8_t *dest, unsigned size)
+{
+    while (size--) {
+        rng_state ^= rng_state << 13;
+        rng_state ^= rng_state >> 17;
+        rng_state ^= rng_state << 5;
+        *dest++ = (uint8_t)rng_state;
+    }
+    return 1;
+}
+
+static void sign(const uint8_t *m, uint16_t len, const uint8_t *key, uint8_t out[64])
+{
+    uint8_t digest[32];
+
+    tfw_sha256(m, len, digest);
+    TEST_ASSERT_EQUAL_INT(1, uECC_sign(key, digest, 32u, out, uECC_secp256r1()));
+}
+
+void setUp(void)
+{
+    rng_state = 0x0E5256A1u;
+    uECC_set_rng(test_rng);
+    TEST_ASSERT_EQUAL_INT(1, uECC_make_key(k_pub, k_priv, uECC_secp256r1()));
+    memcpy(tfw_boot_p256_key, k_pub, 64);
+    for (uint16_t i = 0u; i < MSG_LEN; i++) { k_msg[i] = (uint8_t)(i * 7u + 1u); }
+    sign(k_msg, MSG_LEN, k_priv, k_sig);
+}
+
 void tearDown(void) {}
 
 static void test_every_wycheproof_vector_gets_its_verdict(void)
@@ -63,28 +131,108 @@ static uint16_t first_valid_of_key0(void)
     return 0u;
 }
 
-static void test_the_backend_verifies_with_its_own_slot(void)
+static void test_a_fresh_key_verifies_its_own_signature(void)
 {
-    uint16_t v = first_valid_of_key0();
-    uint8_t  sig[64];
-
-    memcpy((void *)tfw_boot_p256_key, wyc_keys[0], 64);
-    memcpy(sig, wyc_vecs[v].sig, 64);
-    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(&wyc_msgs[wyc_vecs[v].off],
-                                                 wyc_vecs[v].len, sig, 0));
-    sig[63] ^= 0x01u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(&wyc_msgs[wyc_vecs[v].off],
-                                                         wyc_vecs[v].len, sig, 0));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0));
 }
 
-static void test_an_erased_slot_refuses_every_image(void)
+static void test_the_wycheproof_anchor_verifies(void)
 {
     uint16_t v = first_valid_of_key0();
 
-    memset((void *)tfw_boot_p256_key, 0xFF, 64);
+    memcpy(tfw_boot_p256_key, wyc_keys[0], 64);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(&wyc_msgs[wyc_vecs[v].off], wyc_vecs[v].len,
+                                                 wyc_vecs[v].sig, 0));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(&wyc_msgs[wyc_vecs[v].off],
-                                                         wyc_vecs[v].len,
+                                                         (uint16_t)(wyc_vecs[v].len + 1u),
                                                          wyc_vecs[v].sig, 0));
+}
+
+static void test_every_signature_byte_matters(void)
+{
+    for (uint8_t i = 0u; i < 64u; i++) {
+        k_sig[i] ^= (uint8_t)(1u << (i & 7u));
+        TEST_ASSERT_EQUAL_INT_MESSAGE(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0),
+                                      "sig byte");
+        k_sig[i] ^= (uint8_t)(1u << (i & 7u));
+    }
+    memset(k_sig, 0, sizeof k_sig);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0));
+    memset(k_sig, 0xFF, sizeof k_sig);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0));
+}
+
+static void test_every_message_byte_matters(void)
+{
+    for (uint16_t i = 0u; i < MSG_LEN; i++) {
+        k_msg[i] ^= (uint8_t)(0x80u >> (i & 7u));
+        TEST_ASSERT_EQUAL_INT_MESSAGE(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0),
+                                      "msg byte");
+        k_msg[i] ^= (uint8_t)(0x80u >> (i & 7u));
+    }
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN - 1u, k_sig, 0));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, 0u, k_sig, 0));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0));
+}
+
+static void test_every_slot_byte_matters(void)
+{
+    for (uint8_t i = 0u; i < 64u; i++) {
+        tfw_boot_p256_key[i] ^= (uint8_t)(1u << (i & 7u));
+        TEST_ASSERT_EQUAL_INT_MESSAGE(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0),
+                                      "slot byte");
+        tfw_boot_p256_key[i] ^= (uint8_t)(1u << (i & 7u));
+    }
+}
+
+static void test_another_keys_signature_is_refused(void)
+{
+    uint8_t priv2[32], pub2[64], sig2[64];
+
+    TEST_ASSERT_EQUAL_INT(1, uECC_make_key(pub2, priv2, uECC_secp256r1()));
+    sign(k_msg, MSG_LEN, priv2, sig2);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, sig2, 0));
+    memcpy(tfw_boot_p256_key, pub2, 64);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(k_msg, MSG_LEN, sig2, 0));
+}
+
+/* The element tier's contract: a supplied key is refused, even the right one. */
+static void test_a_supplied_key_is_refused_even_when_right(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_verify(k_msg, MSG_LEN, k_sig, k_pub));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_verify(0, 0u, 0, k_pub));
+}
+
+/* A NULL message is refused even where its empty-message signature is valid. */
+static void test_a_null_message_is_refused(void)
+{
+    uint8_t esig[64];
+
+    sign(k_msg, 0u, k_priv, esig);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_verify(k_msg, 0u, esig, 0));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(0, 0u, esig, 0));
+}
+
+static void test_a_null_signature_is_refused(void)
+{
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, 0, 0));
+}
+
+static void test_an_erased_slot_refuses(void)
+{
+    memset(tfw_boot_p256_key, 0xFF, 64);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(k_msg, MSG_LEN, k_sig, 0));
+}
+
+/* As the element: no key to read out, the buffer left alone, and ES256. */
+static void test_the_contract(void)
+{
+    uint8_t out[TFW_BOOT_PUBKEY_LEN];
+
+    memset(out, 0xA5, sizeof out);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_pubkey(out));
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof out);
+    TEST_ASSERT_EQUAL_HEX8(0x26u, tfw_boot_cose_alg);   /* ES256, RFC 9053 -7 */
 }
 
 /* The element tier's signing key: boot_harness.c's EL_SIGNING_KEY, the key the
@@ -170,26 +318,21 @@ static void test_an_element_tier_trailer_verifies_under_p256_soft(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, verify_trailer(raw));
 }
 
-static void test_the_contract_matches_the_element(void)
-{
-    uint8_t buf[TFW_BOOT_PUBKEY_LEN];
-    uint8_t sig[TFW_BOOT_SIG_LEN];
-
-    memset(buf, 0, sizeof buf);
-    memset(sig, 0, sizeof sig);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_pubkey(buf));
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, tfw_boot_verify(buf, 1u, sig, buf));
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(0, 0u, sig, 0));
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_verify(buf, 1u, 0, 0));
-}
-
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_every_wycheproof_vector_gets_its_verdict);
-    RUN_TEST(test_the_backend_verifies_with_its_own_slot);
-    RUN_TEST(test_an_erased_slot_refuses_every_image);
-    RUN_TEST(test_the_contract_matches_the_element);
     RUN_TEST(test_an_element_tier_trailer_verifies_under_p256_soft);
+    RUN_TEST(test_a_fresh_key_verifies_its_own_signature);
+    RUN_TEST(test_the_wycheproof_anchor_verifies);
+    RUN_TEST(test_every_signature_byte_matters);
+    RUN_TEST(test_every_message_byte_matters);
+    RUN_TEST(test_every_slot_byte_matters);
+    RUN_TEST(test_another_keys_signature_is_refused);
+    RUN_TEST(test_a_supplied_key_is_refused_even_when_right);
+    RUN_TEST(test_a_null_message_is_refused);
+    RUN_TEST(test_a_null_signature_is_refused);
+    RUN_TEST(test_an_erased_slot_refuses);
+    RUN_TEST(test_the_contract);
     return UNITY_END();
 }

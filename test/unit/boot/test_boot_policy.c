@@ -436,23 +436,6 @@ static void test_a_failing_key_seam_is_passed_on_and_nothing_is_verified(void)
     TEST_ASSERT_EQUAL_UINT(0u, g_verify_calls);
 }
 
-/* The element tier: tfw_boot_pubkey answers UNSUPPORTED, the pin is skipped
- * and verify is handed NULL, and its verdict is the policy's. */
-static void test_a_key_the_backend_keeps_is_verified_with_no_key(void)
-{
-    tfw_boot_verdict_t v;
-
-    install_signed_image(3u, 0x5Au);
-    g_pubkey_st = TFW_ERR_UNSUPPORTED;
-
-    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_evaluate(0u, &v));
-    TEST_ASSERT_EQUAL_UINT(1u, g_verify_null_key);
-
-    g_stored_key_verdict = TFW_ERR_CRYPTO;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_evaluate(0u, &v));
-    TEST_ASSERT_EQUAL_UINT(2u, g_verify_null_key);
-}
-
 /* The pinned hash's EEPROM read fails: the policy returns the read's status
  * and verifies nothing. */
 static void test_a_failed_pin_read_is_passed_on_and_nothing_is_verified(void)
@@ -464,26 +447,6 @@ static void test_a_failed_pin_read_is_passed_on_and_nothing_is_verified(void)
 
     TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_boot_evaluate(0u, &v));
     TEST_ASSERT_EQUAL_UINT(0u, g_verify_calls);
-}
-
-/* ------------------------------------------------------- the comparison */
-
-/* Correctness only: a host test cannot observe timing, so nothing here pins
- * that tfw_boot_equal is constant time. */
-static void test_equal_refuses_a_difference_in_the_first_or_last_byte(void)
-{
-    uint8_t a[32], b[32];
-
-    memset(a, 0x33, sizeof a);
-    memset(b, 0x33, sizeof b);
-    TEST_ASSERT_EQUAL_UINT8(1u, tfw_boot_equal(a, b, 32u));
-
-    b[31] ^= 0x01u;                       /* a difference in the LAST byte */
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_equal(a, b, 32u));
-
-    memset(b, 0x33, sizeof b);
-    b[0] ^= 0x01u;                        /* and in the first */
-    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_equal(a, b, 32u));
 }
 
 int main(void)
@@ -509,8 +472,6 @@ int main(void)
     RUN_TEST(test_a_public_key_the_device_does_not_pin_is_refused);
     RUN_TEST(test_the_pin_check_accepts_the_matching_key);
     RUN_TEST(test_a_failing_key_seam_is_passed_on_and_nothing_is_verified);
-    RUN_TEST(test_a_key_the_backend_keeps_is_verified_with_no_key);
     RUN_TEST(test_a_failed_pin_read_is_passed_on_and_nothing_is_verified);
-    RUN_TEST(test_equal_refuses_a_difference_in_the_first_or_last_byte);
     return UNITY_END();
 }

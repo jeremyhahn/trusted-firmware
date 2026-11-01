@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * Seeded mutation of the update request (src/core/update_request.c writes it,
- * boot/boot_request.c reads it), the bytes test_update_request arms into
+ * boot/boot_request.c reads it), the bytes tfw_update_request_arm() writes into
  * tfw_hal_handoff_block() and decodes back: every bit flip, every pair of bit
  * flips, every value of every byte, every truncation with the rest 0x00 or
  * 0xFF, and random requests, each decoded from the handoff block and from an
@@ -218,6 +218,17 @@ static void test_a_mutated_armed_block_then_a_clean_arm(void)
     arm_and_check();
 }
 
+static void test_update_request_is_supported(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_update_request_supported());
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_update_request_session());
+}
+
+static void test_handoff_block_is_not_a_boot_request_before_arm(void)
+{
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_boot_request_valid(tfw_hal_handoff_block(), TFW_RESET_WATCHDOG));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -229,6 +240,7 @@ int main(void)
     RUN_TEST(test_swapped_and_repeated_halves_are_refused);
     RUN_TEST(test_random_requests_are_refused);
     RUN_TEST(test_a_mutated_armed_block_then_a_clean_arm);
-    RUN_TEST(test_arm_writes_the_pinned_bytes_and_nothing_else);
+    RUN_TEST(test_update_request_is_supported);
+    RUN_TEST(test_handoff_block_is_not_a_boot_request_before_arm);
     return UNITY_END();
 }

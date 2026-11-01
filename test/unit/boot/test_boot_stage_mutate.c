@@ -13,8 +13,8 @@
  *   - an image is copied only when its mark, board id, floor, measurement and
  *     signature all passed on this run, and then the flash holds exactly it;
  *   - an image refused is never copied: no page is written and no state moves.
- * After the hostile runs a clean store installs the valid image as
- * test_boot_stage pins it.
+ * The clean install is test_boot_stage's
+ * test_a_valid_image_copies_and_enters_its_trial.
  *
  * Deterministic: xorshift32 from a literal seed, a fixed iteration count.
  * Linked as test_boot_stage is, with the verify mock holding the one
@@ -272,23 +272,9 @@ static void test_a_hostile_store_never_gets_an_unchecked_image_copied(void)
     TEST_ASSERT_TRUE(refused > 0u);
 }
 
-/* After the hostile runs, a clean store installs the valid image. */
-static void test_a_clean_store_after_the_hostile_runs_installs(void)
-{
-    fresh();
-    build(1000u, 1200u);
-    load();
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_stage_take(&plat, VERSION));
-    assert_was_acceptable(VERSION);
-    TEST_ASSERT_EQUAL_UINT(2u, stores);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_trial_arm(&plat));
-    TEST_ASSERT_EQUAL_UINT8(TFW_BOOT_STATE_TRIAL, plat.boot_state);
-}
-
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_hostile_store_never_gets_an_unchecked_image_copied);
-    RUN_TEST(test_a_clean_store_after_the_hostile_runs_installs);
     return UNITY_END();
 }

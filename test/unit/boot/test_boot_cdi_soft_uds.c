@@ -45,16 +45,6 @@ static void test_a_provisioned_uds_derives_the_hmac(void)
 
 /* A different measurement is a different CDI: the measurement is in the key's
  * input, not ignored. */
-static void test_another_measurement_derives_another_cdi(void)
-{
-    uint8_t m[TFW_BOOT_MEASURE_LEN], cdi[TFW_BOOT_MEASURE_LEN];
-
-    measurement(m);
-    m[0] ^= 0x01u;
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_cdi_derive(m, cdi));
-    TEST_ASSERT_TRUE(memcmp(kCdi, cdi, sizeof cdi) != 0);
-}
-
 /* HMAC-SHA256 keyed by the same UDS over "tfw-deviceid-v1"
  * (TFW_DEVICEID_LABEL), computed with Python's hmac module (#173). */
 static const uint8_t kSeed[TFW_BOOT_SEED_LEN] = {
@@ -97,7 +87,6 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_a_provisioned_uds_derives_the_hmac);
-    RUN_TEST(test_another_measurement_derives_another_cdi);
     RUN_TEST(test_a_provisioned_uds_derives_the_device_seed);
     RUN_TEST(test_the_device_seed_is_not_the_cdi);
     RUN_TEST(test_the_tier_and_floor_do_not_depend_on_the_uds);

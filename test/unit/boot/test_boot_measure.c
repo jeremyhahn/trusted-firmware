@@ -19,6 +19,9 @@
 void setUp(void) { tfw_boot_mock_reset(); }
 void tearDown(void) {}
 
+/* The chunk size must not reach the digest. SHA-256 is defined over the byte
+ * sequence, not over how it was delivered -- so 1000, which is not a multiple
+ * of the 32-byte read chunk, must hash as a plain SHA-256 does. */
 static void test_measures_the_same_digest_as_a_direct_hash(void)
 {
     uint8_t *flash = tfw_boot_mock_flash();
@@ -29,21 +32,6 @@ static void test_measures_the_same_digest_as_a_direct_hash(void)
     }
     TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_measure(1000u, got));
     tfw_sha256(flash, 1000u, want);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
-}
-
-/* The chunk size must not reach the digest. SHA-256 is defined over the byte
- * sequence, not over how it was delivered -- so a length that is not a multiple
- * of the 32-byte read chunk must hash identically to one that is. */
-static void test_a_length_that_is_not_a_whole_chunk_hashes_correctly(void)
-{
-    uint8_t *flash = tfw_boot_mock_flash();
-    uint8_t  got[32], want[32];
-
-    for (uint16_t i = 0u; i < 200u; i++) { flash[i] = (uint8_t)i; }
-
-    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_measure(201u, got));
-    tfw_sha256(flash, 201u, want);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
 }
 
@@ -320,7 +308,6 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_measures_the_same_digest_as_a_direct_hash);
-    RUN_TEST(test_a_length_that_is_not_a_whole_chunk_hashes_correctly);
     RUN_TEST(test_the_fixed_image_measures_to_the_literal_fwhash_pins);
     RUN_TEST(test_one_changed_byte_changes_the_measurement);
     RUN_TEST(test_a_zero_length_measurement_is_refused);

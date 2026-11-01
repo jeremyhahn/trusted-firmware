@@ -1,7 +1,7 @@
 /*
- * OTA_INFO's rollback floor (#163) under seeded mutation, linked as
- * test_otactl_floor is: each tier's reader by its renamed name, against the
- * software element.
+ * OTA_INFO's rollback floor (#163) under seeded mutation: each tier's reader
+ * by its renamed name, against the software element -- the same floor objects
+ * test_crypto_auto links.
  *
  * The element tier's floor is its boot counter, so a floor request is a
  * Counter Increment and the store is the part: mutated requests (another
@@ -9,7 +9,8 @@
  * dropped command, a part that stays busy, refuses or leaves the bus). The
  * test keeps the range the counter can be in from what the part accepted;
  * every floor read must land in it, never below the last one read, and a
- * read that fails leaves the caller's word alone.
+ * read that fails leaves the caller's word alone. Unmutated, the floor read
+ * is the counter exactly, and a part that is absent or refuses reports none.
  *
  * The soft tier's floor is the platform block's copy as its caller hands it
  * over; checking that block is its loader's job, outside this link.
@@ -220,10 +221,72 @@ static void test_a_mutated_platform_block_reports_its_own_floor_word(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
 }
 
+/* The element tier reports the boot counter exactly, whatever the platform
+ * block's floor says. */
+static void element_reports(uint32_t counter)
+{
+    uint32_t out = SENTINEL;
+
+    tfw_model_set_counter(counter);
+    plat.rollback_floor = 7u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_otactl_floor_element(&plat, &out));
+    TEST_ASSERT_EQUAL_HEX32(counter, out);
+}
+
+static void test_element_reports_a_zero_counter(void)
+{
+    element_reports(0u);
+}
+
+/* Three distinct non-zero bytes: one dropped or misplaced is seen. */
+static void test_element_reports_every_counter_byte(void)
+{
+    element_reports(0x00123456u);
+}
+
+/* No part on the bus: the floor is unknown, and the out word untouched. */
+static void test_element_without_a_part_reports_no_floor(void)
+{
+    uint32_t out = SENTINEL;
+
+    tfw_model_set_absent(1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor_element(&plat, &out));
+    TEST_ASSERT_EQUAL_HEX32(SENTINEL, out);
+}
+
+/* The part answers the read with an error status. */
+static void test_element_refused_read_reports_no_floor(void)
+{
+    uint32_t out = SENTINEL;
+
+    tfw_model_force_status(0x0Fu);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor_element(&plat, &out));
+    TEST_ASSERT_EQUAL_HEX32(SENTINEL, out);
+}
+
+/* The part is put back to sleep after a read, whether it answered or not. */
+static void test_element_sleeps_after_the_read(void)
+{
+    uint32_t out = 0u;
+
+    tfw_model_set_counter(1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_otactl_floor_element(&plat, &out));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
+
+    tfw_model_force_status(0x0Fu);
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_otactl_floor_element(&plat, &out));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_model_is_awake());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_mutated_requests_and_answers_never_move_the_floor_down);
     RUN_TEST(test_a_mutated_platform_block_reports_its_own_floor_word);
+    RUN_TEST(test_element_reports_a_zero_counter);
+    RUN_TEST(test_element_reports_every_counter_byte);
+    RUN_TEST(test_element_without_a_part_reports_no_floor);
+    RUN_TEST(test_element_refused_read_reports_no_floor);
+    RUN_TEST(test_element_sleeps_after_the_read);
     return UNITY_END();
 }

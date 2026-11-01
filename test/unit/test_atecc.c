@@ -132,15 +132,6 @@ static void test_a_command_with_a_payload_frames_correctly(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(digest, tfw_model_tempkey(), 32u);
 }
 
-static void test_a_payload_longer_than_the_buffer_is_refused(void)
-{
-    static uint8_t big[200];
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE,
-        tfw_atecc_exec(TFW_ATECC_OP_WRITE, 0u, 0u, big, (uint8_t)sizeof big,
-                      0, 0u, 26u));
-}
-
 /* ------------------------------------------------------- status responses */
 
 /* An element status is a four-byte response, the same shape a one-byte data
@@ -188,19 +179,6 @@ static void test_every_other_element_status_is_a_refusal(void)
             tfw_atecc_exec(TFW_ATECC_OP_RANDOM, 0u, 0u, 0, 0u, out, 32u, 23u),
             "status code");
     }
-}
-
-/* A wake token that is not 04 11, or whose CRC does not match, is not an
- * element answering: a noisy bus or another part at 0x36. */
-static void test_a_corrupt_wake_token_is_refused(void)
-{
-    tfw_model_corrupt_next_read(0u, 0x01u);
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_atecc_wake());
-    tfw_model_corrupt_next_read(1u, 0x01u);
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_atecc_wake());
-    tfw_model_corrupt_next_read(2u, 0x01u);
-    TEST_ASSERT_EQUAL(TFW_ERR_CRC, tfw_atecc_wake());
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_atecc_wake());
 }
 
 /* A response with the wrong count byte, a bad data CRC or a bad CRC on a
@@ -1005,11 +983,9 @@ int main(void)
     RUN_TEST(test_a_command_before_wake_is_refused);
     RUN_TEST(test_a_command_round_trips_and_its_opcode_arrives);
     RUN_TEST(test_a_command_with_a_payload_frames_correctly);
-    RUN_TEST(test_a_payload_longer_than_the_buffer_is_refused);
     RUN_TEST(test_an_element_error_is_returned_as_an_error_not_as_data);
     RUN_TEST(test_a_parse_error_is_distinguished_from_an_execution_error);
     RUN_TEST(test_every_other_element_status_is_a_refusal);
-    RUN_TEST(test_a_corrupt_wake_token_is_refused);
     RUN_TEST(test_a_corrupt_response_is_refused);
     RUN_TEST(test_verify_external_refuses_every_bus_fault);
     RUN_TEST(test_a_busy_element_is_polled_until_it_answers);

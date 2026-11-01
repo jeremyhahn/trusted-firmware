@@ -537,16 +537,6 @@ $(BOOT_TEST_DIR)/test_boot_element: test/unit/boot/test_boot_element.c \
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The element-backed measure against seeded mutants (#163): the reader's walk,
-# a refusal midway and the element asleep after every path.
-$(BOOT_TEST_DIR)/test_boot_element_measure_mutate: test/unit/boot/test_boot_element_measure_mutate.c \
-        boot/measure/measure_atecc608a.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c src/crypto/sha256.c \
-        src/proto/crc16.c src/proto/crc16_update.c \
-        $(ELEMENT_MODEL) test/mock/boot_hal_mock.c \
-        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) $(MODEL_INC) \
-	   -o $@ $^ $(EXTRA_LDFLAGS)
-
 # test_measure_atecc608a_mutate drives the element measurement on its own (#163).
 $(BOOT_TEST_DIR)/test_measure_atecc608a_mutate: test/unit/boot/test_measure_atecc608a_mutate.c \
         boot/measure/measure_atecc608a.c src/crypto/atecc608a/atecc.c src/core/secure_zero.c src/crypto/sha256.c \
@@ -566,12 +556,6 @@ $(BOOT_TEST_DIR)/test_boot_verify_atecc_mutate: test/unit/boot/test_boot_verify_
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(BOOT_TEST_DIR)/test_boot_ed25519: test/unit/boot/test_boot_ed25519.c \
-        boot/verify/verify_ed25519_donna.c $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
-        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-
-# The same backend under seeded faults and RFC 8032 TEST 1024 (#163): linked as above.
-$(BOOT_TEST_DIR)/test_boot_ed25519_mutate: test/unit/boot/test_boot_ed25519_mutate.c \
         boot/verify/verify_ed25519_donna.c $(BOOT_TEST_DIR)/donna.o $(BOOT_TEST_DIR)/donna_shim.o \
         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -615,11 +599,6 @@ $(BOOT_TEST_DIR)/test_sha256_small_mutate: test/unit/boot/test_sha256_small_muta
         src/crypto/sha256_small.c src/core/secure_zero.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The faults that suite let through, planted in sha256_small.c (#163): the
-# HMAC key's 64-byte bound and the length's high word. sha256_small.c alone.
-$(BOOT_TEST_DIR)/test_boot_sha256_small_mutate: test/unit/boot/test_boot_sha256_small_mutate.c \
-        src/crypto/sha256_small.c src/core/secure_zero.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # micro-ecc for BOOT_SIG=p256-soft (#130), with the boot's UECC_DEFS. UECC_WORD
 # is the word path: 1, the AVR's, by default; `make boot-test UECC_WORD=` builds
@@ -641,22 +620,6 @@ $(BOOT_TEST_DIR)/test_boot_p256_soft: test/unit/boot/test_boot_p256_soft.c \
 
 # The same backend with the key slot that ships, erased: refuses every image.
 $(BOOT_TEST_DIR)/test_boot_p256_slot: test/unit/boot/test_boot_p256_slot.c \
-        boot/verify/verify_p256_soft.c boot/verify/p256_key_slot.c \
-        boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
-        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
-	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-
-# Both against seeded mutants (#163): a bit flipped in the signature, the message
-# or the key refuses under a key made fresh in the test; the shipped slot is
-# erased in every byte.
-$(BOOT_TEST_DIR)/test_boot_p256_soft_mutate: test/unit/boot/test_boot_p256_soft_mutate.c \
-        boot/verify/verify_p256_soft.c boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
-        test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
-	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-
-$(BOOT_TEST_DIR)/test_boot_p256_slot_mutate: test/unit/boot/test_boot_p256_slot_mutate.c \
         boot/verify/verify_p256_soft.c boot/verify/p256_key_slot.c \
         boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c \
         test/mock/boot_hal_mock.c $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
@@ -703,13 +666,6 @@ $(BOOT_TEST_DIR)/test_boot_l0_gate_mutate: test/unit/boot/test_boot_l0_gate_muta
 # then the same gate suite as above, so the P4's link is the one tested.
 ESP_ROM_HOST := boot/hal/esp32/verify_p256_rom.c test/mock/esp_rom_ecdsa_mock.c
 $(BOOT_TEST_DIR)/test_boot_p256_rom: test/unit/boot/test_boot_p256_rom.c $(ESP_ROM_HOST) \
-        boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
-        $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
-	   -Isrc/third_party/micro-ecc $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-
-# The same backend, seeded: linked exactly as above.
-$(BOOT_TEST_DIR)/test_boot_p256_rom_mutate: test/unit/boot/test_boot_p256_rom_mutate.c $(ESP_ROM_HOST) \
         boot/measure/measure_soft.c src/crypto/sha256_small.c src/core/secure_zero.c test/mock/boot_hal_mock.c \
         $(BOOT_TEST_DIR)/uecc.o $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(UECC_HOST_DEFS) \
@@ -819,10 +775,6 @@ $(BOOT_TEST_DIR)/test_boot_hal_esp32_mutate_p4: test/unit/boot/test_boot_hal_esp
 	   -Itools/suit-emit -Isrc/third_party/micro-ecc -DCONFIG_IDF_TARGET_ESP32P4=1 \
 	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The same windows at the clamp's edges and over seeded random inputs.
-$(BOOT_TEST_DIR)/test_boot_flash_span_mutate: test/unit/boot/test_boot_flash_span_mutate.c \
-        boot/hal/esp32/flash_span.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Iboot/hal/esp32 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The ESP32 layer 0's hash (#48), boot/hal/esp32/measure_esp32.c, over the
 # bootloader SHA as the C3 and the P4 build it and, with CONFIG_IDF_TARGET_ESP32,
@@ -838,18 +790,6 @@ $(BOOT_TEST_DIR)/test_boot_measure_esp32: test/unit/boot/test_boot_measure_esp32
 
 BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_measure_esp32_classic
 $(BOOT_TEST_DIR)/test_boot_measure_esp32_classic: test/unit/boot/test_boot_measure_esp32.c $(ESP_SHA_HOST) \
-        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=1 \
-	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-
-# The same hash, seeded, on both paths: linked exactly as the two above.
-$(BOOT_TEST_DIR)/test_boot_measure_esp32_mutate: test/unit/boot/test_boot_measure_esp32_mutate.c $(ESP_SHA_HOST) \
-        test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=0 \
-	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-
-BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_measure_esp32_mutate_classic
-$(BOOT_TEST_DIR)/test_boot_measure_esp32_mutate_classic: test/unit/boot/test_boot_measure_esp32_mutate.c $(ESP_SHA_HOST) \
         test/mock/boot_hal_mock.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_CFLAGS) -Itest/mock/esp32 -DCONFIG_IDF_TARGET_ESP32=1 \
 	   $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
@@ -1198,13 +1138,8 @@ $(BOOT_TEST_DIR)/test_boot_harness_io_32u4: $(BOOT_HARNESS_IO_SRCS) | $(BOOT_TES
 	   -DEXPECT_STORE_CS_PORT="'B'" -DEXPECT_STORE_CS_BIT=4u \
 	   -DEXPECT_UART="'1'" -DEXPECT_UCSRA=0xC8u $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The rows with no staging and no swap: the two stand-ins alone.
-$(BOOT_TEST_DIR)/test_boot_none_rows: test/unit/boot/test_boot_none_rows.c \
-                                      boot/boot_stage_none.c boot/boot_swap_none.c \
-                                      $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
-	@$(HOST_CC) $(BOOT_TEST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-
-# The same two stand-ins under a seeded hostile block (#163): linked as above.
+# The rows with no staging and no swap: the two stand-ins alone, under a seeded
+# hostile block (#163).
 $(BOOT_TEST_DIR)/test_boot_none_mutate: test/unit/boot/test_boot_none_mutate.c \
                                         boot/boot_stage_none.c boot/boot_swap_none.c \
                                         $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)

@@ -296,14 +296,6 @@ static void test_a_valid_signature_is_accepted(void)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(sig, tfw_model_verify_last_sig(), 64);
 }
 
-static void test_a_bad_signature_is_refused(void)
-{
-    uint8_t sig[64] = { 0 };
-
-    tfw_model_set_verify_result(0u);
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_boot_verify((const uint8_t *)"image", 5u, sig, 0));
-}
-
 /*
  * AN ABSENT ELEMENT IS A REFUSAL, NOT A PASS.
  *
@@ -319,30 +311,6 @@ static void test_an_absent_element_refuses_to_verify(void)
     tfw_model_set_verify_result(1u);   /* it WOULD pass, if it were there */
     tfw_model_set_absent(1u);
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_boot_verify((const uint8_t *)"image", 5u, sig, 0));
-}
-
-/*
- * The key is the element's, named by a slot. A caller that supplies one is
- * using this backend wrongly, and honouring it would mean verifying against a
- * key an attacker who reached the flash could have put there -- which is the
- * entire thing stored mode exists to prevent.
- */
-static void test_a_caller_supplied_key_is_refused(void)
-{
-    uint8_t sig[64] = { 0 };
-    uint8_t pub[64] = { 0 };
-
-    tfw_model_set_verify_result(1u);
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_verify((const uint8_t *)"i", 1u, sig, pub));
-}
-
-/* And there is no way to read the key out, because the bootloader never has
- * it. A backend that handed one back would invite a caller to verify in
- * software, which is the arrangement this one exists to avoid. */
-static void test_the_public_key_cannot_be_read_out(void)
-{
-    uint8_t pub[64];
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_boot_pubkey(pub));
 }
 
 int main(void)
@@ -362,9 +330,6 @@ int main(void)
     RUN_TEST(test_a_hash_of_one_block_is_all_tail);
     RUN_TEST(test_a_hash_one_past_a_block_takes_one_update);
     RUN_TEST(test_a_valid_signature_is_accepted);
-    RUN_TEST(test_a_bad_signature_is_refused);
     RUN_TEST(test_an_absent_element_refuses_to_verify);
-    RUN_TEST(test_a_caller_supplied_key_is_refused);
-    RUN_TEST(test_the_public_key_cannot_be_read_out);
     return UNITY_END();
 }

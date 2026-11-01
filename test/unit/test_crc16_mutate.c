@@ -103,17 +103,6 @@ static void test_crc16_mutate_known_vectors_still_match(void)
     free(p);
 }
 
-static void test_crc16_mutate_every_single_bit_error_is_detected(void)
-{
-    unsigned a;
-
-    for (a = 0u; a < NBITS; a++) {
-        flip(g_frame, a);
-        expect_detected(a, "bit", a, a);
-        flip(g_frame, a);
-    }
-}
-
 static void test_crc16_mutate_every_two_bit_error_is_detected(void)
 {
     unsigned a, b;
@@ -147,7 +136,8 @@ static void burst(unsigned at, unsigned len, uint32_t inner)
 }
 
 /* Every burst length 1..16 at every position, with an all-ones, an all-zeros,
- * an alternating and two seeded interiors. */
+ * an alternating and two seeded interiors. Length 1 is every single-bit
+ * error. */
 static void test_crc16_mutate_every_burst_up_to_16_bits_is_detected(void)
 {
     unsigned len, at, v;
@@ -189,7 +179,6 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_crc16_mutate_known_vectors_still_match);
-    RUN_TEST(test_crc16_mutate_every_single_bit_error_is_detected);
     RUN_TEST(test_crc16_mutate_every_two_bit_error_is_detected);
     RUN_TEST(test_crc16_mutate_every_burst_up_to_16_bits_is_detected);
     RUN_TEST(test_crc16_mutate_every_burst_pattern_is_detected_at_the_edges);

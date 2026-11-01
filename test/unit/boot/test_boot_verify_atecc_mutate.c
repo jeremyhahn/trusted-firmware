@@ -157,7 +157,10 @@ static void test_the_part_sleeps_after_a_refusal(void)
 /* ---------------------------------------------------------------- refusals */
 
 /* Kills: dropping the caller-key check, or flipping it. Nothing reaches the
- * part, so a key the caller substituted cannot be half-honoured. */
+ * part, so a key the caller substituted cannot be half-honoured. The key is
+ * the element's, named by a slot: honouring a supplied one would mean
+ * verifying against a key an attacker who reached the flash could have put
+ * there -- which is the entire thing stored mode exists to prevent. */
 static void test_a_caller_key_is_unsupported_and_nothing_is_sent(void)
 {
     provision_image_key();
@@ -235,6 +238,9 @@ static void test_an_element_status_is_a_crypto_refusal(void)
 
 /* ---------------------------------------------------------------- constants */
 
+/* There is no way to read the key out, because the bootloader never has it.
+ * A backend that handed one back would invite a caller to verify in software,
+ * which is the arrangement this one exists to avoid. */
 static void test_the_key_cannot_be_read_out_and_the_buffer_is_untouched(void)
 {
     uint8_t pub[64];

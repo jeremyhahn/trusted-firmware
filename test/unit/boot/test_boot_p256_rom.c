@@ -163,6 +163,15 @@ static void test_the_contract_matches_p256_soft(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_rom_ecdsa_mock_calls());
 }
 
+/* The COSE algorithm this backend names goes into the protected header of the
+ * OTA_ACTIVATE authorization (#137), which a host signs: ES256 is COSE
+ * algorithm -7 (RFC 9053 section 2.1), CBOR's negative integer 0x26. EdDSA,
+ * -8, is 0x27, donna's. The one #163 mutant the cases above left alive. */
+static void test_the_backend_names_es256(void)
+{
+    TEST_ASSERT_EQUAL_HEX8(0x26u, tfw_boot_cose_alg);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -173,5 +182,6 @@ int main(void)
     RUN_TEST(test_only_the_roms_1_passes);
     RUN_TEST(test_an_erased_slot_refuses_without_asking_the_rom);
     RUN_TEST(test_the_contract_matches_p256_soft);
+    RUN_TEST(test_the_backend_names_es256);
     return UNITY_END();
 }

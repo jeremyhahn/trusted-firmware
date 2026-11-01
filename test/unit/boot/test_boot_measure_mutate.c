@@ -4,14 +4,22 @@
  * records every read -- so a bound off by one, a dropped length check, a read
  * at the wrong address or of the wrong size, a reader error ignored or the
  * digest left unfinished each change something this file names.
+ *
+ * The cases from test_boot_measure_soft_mutate.c that the vectors do not
+ * reach hold the digest to a plain SHA-256 over region[], read from BASE.
  */
 #include <string.h>
 #include "unity.h"
 #include "boot_measure.h"
 #include "boot_hal_mock.h"
+#include "sha256.h"
 
 #define CHUNK 32u
 #define MAX_CALLS 16u
+#define REGION 512u
+#define BASE   100u
+
+static uint8_t region[REGION];
 
 /* FIPS 180-4 example vectors: "abc" and the 448-bit two-block message. */
 static const uint8_t ABC_DIGEST[32] = {
@@ -67,7 +75,12 @@ static void serve(const void *data, uint32_t base)
 
 void setUp(void)
 {
+    uint16_t i;
+
     tfw_boot_mock_reset();
+    for (i = 0u; i < REGION; i++) {
+        region[i] = (uint8_t)(i * 13u + 5u);
+    }
     src = NULL;
     src_base = 0u;
     calls = 0u;
@@ -182,6 +195,33 @@ static void test_a_reader_error_on_the_last_read_is_returned(void)
     TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, tfw_boot_measure_from(reader, 0u, CHUNK + 5u, out));
 }
 
+static void test_a_reader_error_on_the_first_read_is_returned(void)
+{
+    uint8_t out[32];
+    fail_at = 1u;
+    fail_st = TFW_ERR_CRYPTO;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_boot_measure_from(reader, BASE, 1u, out));
+}
+
+/* 33 = one whole chunk plus one byte: a loop that stops a byte early drops it. */
+static void test_a_tail_of_one_byte_is_measured(void)
+{
+    uint8_t got[32], want[32];
+    serve(region, 0u);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_measure_from(reader, BASE, 33u, got));
+    tfw_sha256(&region[BASE], 33u, want);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
+}
+
+static void test_every_chunk_is_read_from_its_own_offset_past_the_base(void)
+{
+    uint8_t got[32], want[32];
+    serve(region, 0u);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_measure_from(reader, BASE, 200u, got));
+    tfw_sha256(&region[BASE], 200u, want);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
+}
+
 static void test_the_application_is_measured_from_its_base_in_flash(void)
 {
     uint8_t *flash = tfw_boot_mock_flash();
@@ -203,6 +243,14 @@ static void test_the_hash_is_sha256(void)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(MSG56_DIGEST, out, 32);
 }
 
+static void test_hash_is_sha256_over_every_byte(void)
+{
+    uint8_t got[32], want[32];
+    tfw_boot_hash(region, 33u, got);
+    tfw_sha256(region, 33u, want);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, got, 32);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -216,7 +264,11 @@ int main(void)
     RUN_TEST(test_the_largest_image_is_read_to_its_last_byte_and_no_further);
     RUN_TEST(test_a_reader_error_is_returned_and_stops_the_measurement);
     RUN_TEST(test_a_reader_error_on_the_last_read_is_returned);
+    RUN_TEST(test_a_reader_error_on_the_first_read_is_returned);
+    RUN_TEST(test_a_tail_of_one_byte_is_measured);
+    RUN_TEST(test_every_chunk_is_read_from_its_own_offset_past_the_base);
     RUN_TEST(test_the_application_is_measured_from_its_base_in_flash);
     RUN_TEST(test_the_hash_is_sha256);
+    RUN_TEST(test_hash_is_sha256_over_every_byte);
     return UNITY_END();
 }

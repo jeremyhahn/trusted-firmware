@@ -6,7 +6,9 @@
  * Every interesting case here is a corruption case, and none of them is
  * convenient to produce on a bench: a region that was never written, one whose
  * CRC no longer matches because the supply sagged mid-write, one from a layout
- * version this build does not know.
+ * version this build does not know. test_boot_platform_mutate.c drives every
+ * one of them, every byte at every value against a model of the parser; this
+ * file keeps the round trip and the literal layout.
  */
 
 #include <string.h>
@@ -31,21 +33,6 @@ static void build(uint8_t raw[TFW_BOOT_EE_BLOCK_LEN], tfw_boot_platform_t *p)
     tfw_boot_platform_serialise(p, raw);
 }
 
-/* Parses into a sentinel-filled *out and checks a refusal left every byte of
- * it as the caller passed it. Returns the parser's status. */
-static tfw_status_t parse_untouched(const uint8_t *raw, tfw_boot_platform_t *out)
-{
-    tfw_boot_platform_t sentinel;
-    tfw_status_t        st;
-
-    memset(out, 0xA5, sizeof *out);
-    memcpy(&sentinel, out, sizeof sentinel);
-    st = tfw_boot_platform_parse(raw, out);
-    TEST_ASSERT_NOT_EQUAL_INT(TFW_OK, st);
-    TEST_ASSERT_EQUAL_MEMORY(&sentinel, out, sizeof sentinel);
-    return st;
-}
-
 static void test_round_trips_every_field(void)
 {
     uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
@@ -61,82 +48,6 @@ static void test_round_trips_every_field(void)
     TEST_ASSERT_EQUAL_UINT32(in.boot_count, out.boot_count);
     TEST_ASSERT_EQUAL_UINT8(in.boot_state, out.boot_state);
     TEST_ASSERT_EQUAL_UINT16(in.fail_count, out.fail_count);
-}
-
-/* "Never provisioned" and "provisioned and since corrupted" call for opposite
- * responses -- one is a device that never went through the factory, the other
- * is a device whose supply sagged during an EEPROM write. A bootloader that
- * reported both the same way would send a field failure back to the factory. */
-static void test_a_blank_region_reports_not_provisioned(void)
-{
-    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
-    tfw_boot_platform_t out;
-
-    memset(raw, 0xFF, sizeof raw);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, parse_untouched(raw, &out));
-}
-
-static void test_a_zeroed_region_reports_not_provisioned(void)
-{
-    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
-    tfw_boot_platform_t out;
-
-    memset(raw, 0x00, sizeof raw);
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_NOT_PROVISIONED, parse_untouched(raw, &out));
-}
-
-static void test_an_unknown_layout_version_is_refused(void)
-{
-    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
-    tfw_boot_platform_t in, out;
-
-    build(raw, &in);
-    raw[TFW_BOOT_EE_O_LAYOUT] = TFW_BOOT_EE_VERSION + 1u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_UNSUPPORTED, parse_untouched(raw, &out));
-}
-
-/* A corrupted rollback floor is a downgrade attack that arrives by accident.
- * This is how the bootloader NOTICES when BODLEVEL was not set. */
-static void test_a_corrupted_byte_is_caught_by_the_crc(void)
-{
-    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
-    tfw_boot_platform_t in, out;
-
-    build(raw, &in);
-    raw[TFW_BOOT_EE_O_ROLLBACK_FLOOR] ^= 0x08u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, parse_untouched(raw, &out));
-}
-
-static void test_a_corrupted_pubkey_hash_is_caught(void)
-{
-    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
-    tfw_boot_platform_t in, out;
-
-    build(raw, &in);
-    raw[TFW_BOOT_EE_O_PUBKEY_HASH + 31u] ^= 0x01u;
-    TEST_ASSERT_EQUAL_INT(TFW_ERR_CRC, parse_untouched(raw, &out));
-}
-
-/*
- * The bootloader rewrites this region to record a boot count. Anything it does
- * not model -- the reserved span, and whatever a later layout puts there -- must
- * survive that, or a bootloader update silently erases what another tool owns.
- */
-static void test_serialising_preserves_bytes_the_struct_does_not_model(void)
-{
-    uint8_t raw[TFW_BOOT_EE_BLOCK_LEN];
-    tfw_boot_platform_t p;
-
-    build(raw, &p);
-    raw[150] = 0xDEu;   /* inside the reserved span since issue #4 moved it
-                         * (operator_pubkey now occupies what used to be
-                         * unmodelled bytes 68-131) */
-    raw[170] = 0xADu;
-    tfw_boot_platform_serialise(&p, raw);   /* rewritten, as a boot would */
-
-    TEST_ASSERT_EQUAL_UINT8(0xDEu, raw[150]);
-    TEST_ASSERT_EQUAL_UINT8(0xADu, raw[170]);
-    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_boot_platform_parse(raw, &p));
 }
 
 /* The block is copied whole, so the multi-byte fields are only as right as the
@@ -243,12 +154,6 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_round_trips_every_field);
-    RUN_TEST(test_a_blank_region_reports_not_provisioned);
-    RUN_TEST(test_a_zeroed_region_reports_not_provisioned);
-    RUN_TEST(test_an_unknown_layout_version_is_refused);
-    RUN_TEST(test_a_corrupted_byte_is_caught_by_the_crc);
-    RUN_TEST(test_a_corrupted_pubkey_hash_is_caught);
-    RUN_TEST(test_serialising_preserves_bytes_the_struct_does_not_model);
     RUN_TEST(test_multi_byte_fields_are_little_endian_at_their_offsets);
     RUN_TEST(test_the_crc_covers_everything_below_it);
     RUN_TEST(test_a_baked_eeprom_image_is_decoded_correctly);

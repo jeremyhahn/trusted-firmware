@@ -777,6 +777,10 @@ yet.
   `OTA_BEGIN` (#317): with no restore on this part tfw-boot never read that
   backup, so `boards/atmega328p/profile.mk` sets `OTA_NO_PREV` and
   `mk/firmware.mk` selects the stub as it does for `BOOT_AB=1`.
+On the 328P `OTA_STAGE=1` image this saves 164 bytes of flash (19826 to
+19662) and leaves RAM unchanged at 1101 bytes, measured with avr-gcc by
+`make firmware BOARD=atmega328p OTA_STAGE=1` at `314d02980` and at this
+change.
 
 ### The OTA round under simavr (#75, #77)
 

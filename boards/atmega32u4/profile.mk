@@ -57,7 +57,8 @@ BOOT_LOCK_PROGRAMMED := 0:LB1 1:LB2 4:BLB11 5:BLB12
 # On a Leonardo or a Micro the shield's SPI lines come from the ICSP header (the
 # pins board_profile.h numbers 14..16); its select is D10 (TFW_ETH_CS_IO). The
 # chip file checks the part's identity, so the wrong shield stays down. ETH
-# stays 0 by default here: the image is not measured against FLASH_BUDGET.
+# stays 0 by default here; the ETH=1 image measured over FLASH_BUDGET (issue #315),
+# so it is no BOARD_ROWS entry.
 ETH_CHIP       ?= w5100
 
 # The external store the OTA stager writes into (issue #75, docs/ota/): its

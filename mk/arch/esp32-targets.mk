@@ -127,6 +127,7 @@ esp32-qemu-test:
 	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256-prov & c3=$$!; \
 	 python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32-none esp32 $(ESP_ROOT)/wirecheck \
 	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu & esp=$$!; \
+	 trap 'kill $$c3 $$esp 2>/dev/null; wait' INT TERM HUP; \
 	 rc=0; wait $$c3 || rc=1; wait $$esp || rc=1; exit $$rc
 	@echo "esp32-qemu-test: green"
 

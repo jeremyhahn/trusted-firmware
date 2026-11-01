@@ -704,7 +704,8 @@ yet.
 
 - **The backup, in the application.** An image that links the stager on a
   board without `BOOT_AB` also links `src/core/ota_prev.c` (`mk/firmware.mk`);
-  the 2560 links `ota_prev_none.c`, since its other slot is the fallback.
+  the 2560 links `ota_prev_none.c`, since its other slot is the fallback, and
+  so does the 328P, whose tfw-boot has no restore (`OTA_NO_PREV`, below).
   `OTA_BEGIN` erases `MARK`, then erases `PREV` and copies the application
   region into it through `tfw_hal_flash_read`, before any `OTA_DATA` is taken.
   `PREV` is laid out as the region itself, its trailer at the end.
@@ -772,9 +773,10 @@ yet.
   is not in `BOOT_SUPPORTED`: it measured 1498 bytes over its 4096-byte boot
   section (above). The 32U4 and the single-slot MPS2 rows keep
   `boot_prev.c`, the 2560 its swap-move. The 328P application still links
-  `src/core/ota_prev.c` and backs the running image up in `OTA_BEGIN`; with no
-  restore on this part that backup is not read by tfw-boot, and dropping it
-  from the 328P application is a follow-up (`mk/firmware.mk`).
+  `src/core/ota_prev_none.c` and no longer backs the running image up in
+  `OTA_BEGIN` (#317): with no restore on this part tfw-boot never read that
+  backup, so `boards/atmega328p/profile.mk` sets `OTA_NO_PREV` and
+  `mk/firmware.mk` selects the stub as it does for `BOOT_AB=1`.
 
 ### The OTA round under simavr (#75, #77)
 

@@ -70,13 +70,14 @@ CRYPTO         ?= auto
 # provenance and the size gate build it, the shieldless row as well.
 BOARD_TIERS    := soft atecc608a auto
 BOARD_ROWS     := soft:ETH=0 atecc608a:ETH=0 auto:ETH=0 \
-                  optiga:ETH=1 optiga:ETH=0
+                  optiga:ETH=1 optiga:ETH=0 auto:ETH=1,DHCP=1
 # The two optiga rows are MEASUREMENTS, not a tier (row optiga-trust-m): they
 # build and size-check the OPTIGA Trust M provider on this board, the Ethernet
 # node and the shieldless Mega, so its flash cost is a number. Whether the tier
 # is the board's is the OPTIGA ADR's open question 5, the owner's; until then
 # BOARD_TIERS does not name it. ETH=1 is spelled out because a row is
-# "tier:VAR=value".
+# "tier:VAR=value". The auto:ETH=1,DHCP=1 row is the DHCP=1 measurement of #316:
+# the Ethernet node with the DHCP client, built against the budget gate.
 
 # The SUIT manifest reader and gate (issue #78; mk/firmware.mk): the element-tier
 # image carries src/core/suit.c. The 2560 has the room; ADR decision 6.

@@ -92,6 +92,7 @@ import hmac
 import os
 import re
 import shutil
+import signal
 import socket
 import struct
 import subprocess
@@ -197,6 +198,22 @@ def qemu_base(machine, flash, efuse):
     ]
 
 
+# Every QEMU not yet stopped. A `finally` does not run when the default
+# SIGTERM ends this process (the job cancelled, make killed), and a QEMU left
+# running holds the job container's cleanup, so a signal kills what is here.
+LIVE = set()
+LIVE_LOCK = threading.Lock()
+
+
+def reap(signum, _frame):
+    with LIVE_LOCK:
+        procs = list(LIVE)
+    for p in procs:
+        if p.poll() is None:
+            p.kill()
+    os._exit(128 + signum)
+
+
 class Qemu:
     """One QEMU process, its serial console appended to a log file."""
 
@@ -205,6 +222,8 @@ class Qemu:
         self.logfile = open(logpath, 'ab')
         self.proc = subprocess.Popen(args, stdin=subprocess.DEVNULL,
                                      stdout=self.logfile, stderr=subprocess.STDOUT)
+        with LIVE_LOCK:
+            LIVE.add(self.proc)
 
     def text(self):
         return Path(self.logpath).read_text(errors='replace')
@@ -233,6 +252,8 @@ class Qemu:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait()
+        with LIVE_LOCK:
+            LIVE.discard(self.proc)
         self.logfile.close()
 
 
@@ -894,6 +915,8 @@ def main():
 
 
 if __name__ == '__main__':
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, reap)
     try:
         main()
     except Failure as e:

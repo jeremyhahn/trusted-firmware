@@ -404,11 +404,13 @@ ifneq ($(OTA_STORE),mem)
 STAGE_SRCS += $(HAL_DIR)/hal_bus.c
 endif
 # OTA_BEGIN backs the running image up to PREV where the fallback is the store
-# (the 328P, the 32U4 and the MPS2 boards, #52); the 2560 falls back to its
-# other slot, as an MPS2 board built with BOOT_AB=1 does. The MPS2 boards have
+# and tfw-boot restores from it (the 32U4 and the MPS2 boards, #52); the 2560
+# falls back to its other slot, as an MPS2 board built with BOOT_AB=1 does. The
+# 328P no longer backs up to PREV: its tfw-boot has no restore, and its profile
+# sets OTA_NO_PREV (#317). The MPS2 boards have
 # no EEPROM: their platform block is tfw-boot's, in the code bank, and their
 # hal_eeprom.c writes only past it (OTA_CONFIRM's request).
-ifeq ($(BOOT_AB),1)
+ifneq ($(filter 1,$(BOOT_AB) $(OTA_NO_PREV)),)
 STAGE_SRCS += src/core/ota_prev_none.c
 else
 STAGE_SRCS += src/core/ota_prev.c $(wildcard $(HAL_DIR)/hal_eeprom.c)

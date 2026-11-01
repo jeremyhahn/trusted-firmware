@@ -83,7 +83,9 @@ Ethernet costs about 2 KB of flash and 20 bytes of RAM on either board. The
 link refactor costs serial-only images 12 bytes of flash and 1 byte of RAM. The
 Mega's Ethernet image leaves 15 bytes of its RAM budget.
 
-`DHCP=1` is not measured: no avr-gcc ran with it. Its static state is 38
+The Mega's `DHCP=1` image is a firmware-matrix row (`auto:ETH=1,DHCP=1`), so CI
+builds it against the RAM and flash budgets. CI measured it at 41322 of 65536
+bytes of flash and 1520 of 2048 bytes of RAM (PR #318). Its static state is 38
 bytes (34, plus 4 for the lease length renewal keeps; the probe and
-DHCPDECLINE add none), more than the 15 the table leaves, so the table above is out of date
-or the Mega's `DHCP=1` image is over its RAM budget; `make firmware` decides.
+DHCPDECLINE add none), more than the 15 the table leaves, so the table above is out of date,
+and the Mega's `DHCP=1` image is inside its RAM budget (1520 of 2048, PR #318).

@@ -69,6 +69,11 @@ OTA_STORE      := spi_nor
 # reflash. mk/boot.mk links boot_swap_none.c in place of boot_prev.c.
 BOOT_PREV      ?= 0
 
+# Its fallback has no PREV restore, so the application does not back up to PREV:
+# mk/firmware.mk links ota_prev_none.c in place of ota_prev.c
+# (docs/ota/architecture.md, "The 328P and 32U4 fallback from PREV").
+OTA_NO_PREV    := 1
+
 # The soft root's identity (mk/firmware.mk SOFT_ID): the HMAC signer, which links
 # no P-256 code. The P-256 DeviceID on this part's soft row is the owner's call
 # (item 79); until it is made, this row does not change.

@@ -36,6 +36,7 @@ func TestOTADataOutsideOneChunkIsRefused(t *testing.T) {
 		var re *ArgRangeError
 		require.True(t, errors.As(err, &re), "OTAData %d bytes: %v", n, err)
 		assert.Equal(t, CmdOTAData, re.Cmd)
+		assert.Equal(t, "length", re.Arg)
 		assert.Equal(t, int64(n), re.Value)
 	}
 }

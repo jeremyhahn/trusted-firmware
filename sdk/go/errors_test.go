@@ -157,6 +157,26 @@ func TestTimeoutErrorMatchesItsSentinel(t *testing.T) {
 	assert.Equal(t, time.Second, te.Elapsed)
 }
 
+// Each typed error matches its own sentinel and no other.
+func TestEachTypedErrorMatchesOnlyItsSentinel(t *testing.T) {
+	sentinels := []error{ErrShortFrame, ErrBadCRC, ErrBadFormat, ErrPayloadTooLarge, ErrTimeout}
+	cases := []struct {
+		err  error
+		want error
+	}{
+		{&FrameError{Reason: "x"}, ErrBadFormat},
+		{&CRCError{Computed: 1, Claimed: 2}, ErrBadCRC},
+		{&PayloadSizeError{Size: 65, Limit: 64}, ErrPayloadTooLarge},
+		{&TimeoutError{Cmd: CmdPing}, ErrTimeout},
+	}
+	for _, c := range cases {
+		for _, s := range sentinels {
+			assert.Equal(t, s == c.want, errors.Is(c.err, s), "%T against %q", c.err, s)
+		}
+		assert.False(t, errors.Is(c.err, StatusErrInternal), "%T matched a device status", c.err)
+	}
+}
+
 func TestLinkErrorReportsTheDirectionAndTheCause(t *testing.T) {
 	err := &LinkError{Op: "write", Err: fmt.Errorf("port not open")}
 	assert.Equal(t, "tfw: write: port not open", err.Error())

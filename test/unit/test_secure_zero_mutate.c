@@ -150,6 +150,14 @@ static void test_secure_zero_mutate_random_ranges_clear_exactly_their_range(void
     }
 }
 
+/* Zero bytes at a null pointer is a no-op: the loop never dereferences it. */
+static void test_secure_zero_mutate_zero_bytes_at_null_writes_nothing(void)
+{
+    fill();
+    tfw_secure_zero(NULL, 0u);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(orig, arena, ARENA);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -157,5 +165,6 @@ int main(void)
     RUN_TEST(test_secure_zero_mutate_an_exact_heap_buffer_is_cleared_without_an_overrun);
     RUN_TEST(test_secure_zero_mutate_clearing_twice_is_the_same_as_once);
     RUN_TEST(test_secure_zero_mutate_random_ranges_clear_exactly_their_range);
+    RUN_TEST(test_secure_zero_mutate_zero_bytes_at_null_writes_nothing);
     return UNITY_END();
 }

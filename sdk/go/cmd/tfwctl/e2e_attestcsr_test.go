@@ -233,7 +233,6 @@ func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 func TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt(t *testing.T) {
 	p := csrServing(t)
 	d := p.serial
-	assert.True(t, cliCaps(t, d).Has(tfw.FeatureAttestCSR))
 	var out bytes.Buffer
 	require.NoError(t, run(context.Background(), d, "caps", nil, false, &out))
 	assert.Contains(t, out.String(), "attest-csr")

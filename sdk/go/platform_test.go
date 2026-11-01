@@ -6,6 +6,9 @@ package tfw
 import (
 	"encoding/binary"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testSerial() [SerialLen]byte {
@@ -24,56 +27,40 @@ func testOperatorPubkey() [OperatorPubkeyLen]byte {
 	return k
 }
 
-func TestBuildPlatformBlockLayout(t *testing.T) {
-	serial := testSerial()
-	opPubkey := testOperatorPubkey()
+// The block is laid out byte for byte as the firmware reads it, and its CRC
+// covers bytes 0..189 as boot/boot_platform.c's tfw_boot_platform_crc does.
+// Offsets, magic and version are literals here, so a change to the package's
+// own constants is a failure, not a moved expectation. Every input byte is
+// non-zero, so the whole-block compare also proves every field the block takes
+// no argument for (boot and OTA state, counters, the reserved span) is zero.
+func TestBuildPlatformBlockLayoutIsPinned(t *testing.T) {
+	var serial [SerialLen]byte
 	var hash [PubkeyHashLen]byte
+	var op [OperatorPubkeyLen]byte
+	for i := range serial {
+		serial[i] = byte(0x10 + i)
+	}
 	for i := range hash {
-		hash[i] = byte(i)
+		hash[i] = byte(0x40 + i)
+	}
+	for i := range op {
+		op[i] = byte(0x80 + i)
 	}
 
-	raw := BuildPlatformBlock(serial, hash, opPubkey)
+	got := BuildPlatformBlock(serial, hash, op)
+	require.Len(t, got, 192)
 
-	if got := binary.LittleEndian.Uint32(raw[platformOffMagic:]); got != platformMagic {
-		t.Fatalf("magic = 0x%08x, want 0x%08x", got, platformMagic)
-	}
-	if raw[platformOffLayout] != platformVersion {
-		t.Fatalf("layout_version = %d, want %d", raw[platformOffLayout], platformVersion)
-	}
-	if got := raw[platformOffPubkeyHash : platformOffPubkeyHash+PubkeyHashLen]; string(got) != string(hash[:]) {
-		t.Fatalf("pubkey_hash mismatch")
-	}
-	if got := raw[platformOffSerial : platformOffSerial+SerialLen]; string(got) != string(serial[:]) {
-		t.Fatalf("device_serial mismatch")
-	}
-	if got := raw[platformOffOperatorPubkey : platformOffOperatorPubkey+OperatorPubkeyLen]; string(got) != string(opPubkey[:]) {
-		t.Fatalf("operator_pubkey mismatch")
-	}
-	// boot_state, ota_state, boot_count, rollback_floor, boot_fail_count: all
-	// zero on a factory-fresh block -- TFW_BOOT_STATE_EMPTY is zero by
-	// definition, and the counters simply have not happened yet.
-	for i := 40; i < platformOffSerial; i++ {
-		if raw[i] != 0 {
-			t.Fatalf("byte %d = 0x%02x, want 0x00 (factory-fresh)", i, raw[i])
-		}
-	}
-}
+	want := make([]byte, 192)
+	copy(want[0:4], []byte{'T', 'F', 'P', 'R'})
+	want[4] = 2
+	copy(want[8:40], hash[:])
+	copy(want[52:68], serial[:])
+	copy(want[68:132], op[:])
+	crc := CRC16(want[:190])
+	want[190] = byte(crc)
+	want[191] = byte(crc >> 8)
 
-// The CRC must be the same algorithm and cover the same span
-// boot/boot_platform.c's tfw_boot_platform_crc computes -- a Go tool baking an
-// image the firmware's own parser cannot verify would fail silently on the
-// device, not here.
-func TestBuildPlatformBlockCRCCoversThePrefix(t *testing.T) {
-	serial := testSerial()
-	var hash [PubkeyHashLen]byte
-	var opPubkey [OperatorPubkeyLen]byte
-
-	raw := BuildPlatformBlock(serial, hash, opPubkey)
-	want := CRC16(raw[:platformOffCRC])
-	got := binary.LittleEndian.Uint16(raw[platformOffCRC:])
-	if got != want {
-		t.Fatalf("crc16 = 0x%04x, want 0x%04x", got, want)
-	}
+	assert.Equal(t, want, got[:])
 }
 
 // A single flipped serial byte must change the CRC -- otherwise the field the

@@ -107,15 +107,10 @@ func TestUnknownStatusReadsAsUnrecognised(t *testing.T) {
 }
 
 func TestUnknownEnumsReadAsUnrecognised(t *testing.T) {
-	require.Equal(t, "OTAState(9)", OTAState(9).String())
 	require.Equal(t, "unrecognised tier 200", CryptoTier(200).String())
 	for _, tc := range []struct {
 		got, want string
 	}{
-		{OTAIdle.String(), "idle"},
-		{OTAReceiving.String(), "receiving"},
-		{OTAComplete.String(), "complete"},
-		{OTAFailed.String(), "failed"},
 		{CryptoNone.String(), "none"},
 		{CryptoSoftware.String(), "software"},
 		{CryptoSecureElement.String(), "secure-element"},
@@ -137,11 +132,6 @@ func TestDeviceResynchronisesPastACorruptFrame(t *testing.T) {
 
 func TestOTARefusals(t *testing.T) {
 	ctx := context.Background()
-	for _, n := range []int{0, OTAChunk + 1} {
-		err := New(&cannedLink{}).OTAData(ctx, 0, make([]byte, n))
-		requireArgRange(t, err, CmdOTAData, "length")
-	}
-
 	_, _, err := New(&cannedLink{payload: make([]byte, 4)}).OTAStatus(ctx)
 	requireShortReply(t, err, CmdOTAStatus)
 

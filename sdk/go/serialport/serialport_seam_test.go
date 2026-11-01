@@ -219,20 +219,148 @@ func TestPortReadThatCloseInterruptsReportsClosed(t *testing.T) {
 	p := openFake(t, fake)
 	c, ok := p.(*port)
 	require.True(t, ok)
-	c.p = &closingReader{fakePort: fake, close: func() { _ = c.Close() }}
+	c.p = &closeThenRead{fakePort: fake, close: func() { _ = c.Close() }, n: 1, err: errors.New("port has been closed")}
 
-	_, err := p.Read(make([]byte, 2))
+	buf := make([]byte, 4)
+	n, err := p.Read(buf)
 	require.ErrorIs(t, err, os.ErrClosed)
+	assert.Equal(t, "r", string(buf[:n]), "io.Reader: the n bytes read are reported beside the error")
 	assert.Equal(t, 1, fake.closes)
 }
 
-// closingReader is a library port whose Read is cut short by a Close.
-type closingReader struct {
-	*fakePort
-	close func()
+// A read that succeeded is not turned into a failure by a Close that lands
+// while it returns.
+func TestPortReadThatCompletesAsCloseLandsDeliversItsBytes(t *testing.T) {
+	fake := &fakePort{}
+	p := openFake(t, fake)
+	c, ok := p.(*port)
+	require.True(t, ok)
+	c.p = &closeThenRead{fakePort: fake, close: func() { _ = c.Close() }, n: 2}
+
+	buf := make([]byte, 4)
+	n, err := p.Read(buf)
+	require.NoError(t, err, "a read that succeeded is not turned into a failure by a racing Close")
+	assert.Equal(t, "rx", string(buf[:n]))
 }
 
-func (r *closingReader) Read([]byte) (int, error) {
+// closeThenRead closes the wrapper mid-read and returns what it was given.
+type closeThenRead struct {
+	*fakePort
+	close func()
+	n     int
+	err   error
+}
+
+func (r *closeThenRead) Read(b []byte) (int, error) {
 	r.close()
-	return 0, errors.New("port has been closed")
+	return copy(b, "rx"[:r.n]), r.err
+}
+
+// argPort records the arguments the wrapper passes on, which fakePort drops.
+type argPort struct {
+	*fakePort
+	mode    *serial.Mode
+	dtr     []bool
+	rts     []bool
+	brk     time.Duration
+	timeout time.Duration
+}
+
+func (a *argPort) SetMode(m *serial.Mode) error {
+	a.mode = m
+	return a.fakePort.SetMode(m)
+}
+
+func (a *argPort) SetDTR(v bool) error {
+	a.dtr = append(a.dtr, v)
+	return a.fakePort.SetDTR(v)
+}
+
+func (a *argPort) SetRTS(v bool) error {
+	a.rts = append(a.rts, v)
+	return a.fakePort.SetRTS(v)
+}
+
+func (a *argPort) Break(d time.Duration) error {
+	a.brk = d
+	return a.fakePort.Break(d)
+}
+
+func (a *argPort) SetReadTimeout(t time.Duration) error {
+	a.timeout = t
+	return a.fakePort.SetReadTimeout(t)
+}
+
+// openArgs opens through the seam onto an argPort and returns both.
+func openArgs(t *testing.T) (serial.Port, *argPort) {
+	t.Helper()
+	fake := &argPort{fakePort: &fakePort{}}
+	saved := openPort
+	t.Cleanup(func() { openPort = saved })
+	openPort = func(string, *serial.Mode) (serial.Port, error) { return fake, nil }
+	conn, err := Open("/dev/ttyFAKE0", 0)
+	require.NoError(t, err)
+	p, ok := conn.(serial.Port)
+	require.True(t, ok, "Open returns a serial.Port")
+	return p, fake
+}
+
+// Open keeps a baud of one: only zero and below mean DefaultBaud. The real
+// line's test (serialport_linux_test.go) covers the other bauds and 8N1.
+func TestOpenKeepsABaudOfOne(t *testing.T) {
+	var gotMode *serial.Mode
+	saved := openPort
+	t.Cleanup(func() { openPort = saved })
+	openPort = func(_ string, m *serial.Mode) (serial.Port, error) {
+		gotMode = m
+		return &fakePort{}, nil
+	}
+
+	p, err := Open("/dev/ttyFAKE3", 1)
+	require.NoError(t, err)
+	require.NotNil(t, gotMode)
+	assert.Equal(t, serial.Mode{
+		BaudRate: 1,
+		DataBits: 8,
+		Parity:   serial.NoParity,
+		StopBits: serial.OneStopBit,
+	}, *gotMode)
+	require.NoError(t, p.Close())
+}
+
+func TestOpenSetsTheReadFloorThenPurgesLast(t *testing.T) {
+	fake := &argPort{fakePort: &fakePort{}}
+	saved := openPort
+	t.Cleanup(func() { openPort = saved })
+	openPort = func(string, *serial.Mode) (serial.Port, error) { return fake, nil }
+
+	p, err := Open("/dev/ttyFAKE0", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 200*time.Millisecond, fake.timeout)
+	assert.Equal(t, []string{"SetReadTimeout", "ResetInputBuffer"}, fake.calls,
+		"the purge is the last thing Open does, so nothing queued before it survives")
+	assert.Zero(t, fake.closes, "a port Open returns is not closed")
+	require.NoError(t, p.Close())
+}
+
+func TestPortPassesEachArgumentThrough(t *testing.T) {
+	p, fake := openArgs(t)
+
+	mode := &serial.Mode{BaudRate: 9600, DataBits: 7, Parity: serial.EvenParity, StopBits: serial.TwoStopBits}
+	require.NoError(t, p.SetMode(mode))
+	assert.Same(t, mode, fake.mode)
+
+	require.NoError(t, p.SetDTR(true))
+	require.NoError(t, p.SetDTR(false))
+	assert.Equal(t, []bool{true, false}, fake.dtr)
+
+	require.NoError(t, p.SetRTS(true))
+	require.NoError(t, p.SetRTS(false))
+	assert.Equal(t, []bool{true, false}, fake.rts)
+
+	require.NoError(t, p.Break(37*time.Millisecond))
+	assert.Equal(t, 37*time.Millisecond, fake.brk)
+
+	require.NoError(t, p.SetReadTimeout(3*time.Second))
+	assert.Equal(t, 3*time.Second, fake.timeout)
 }

@@ -5,11 +5,13 @@ package tfwsim_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -20,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/tfwsim"
@@ -447,5 +450,90 @@ func TestDeviceIDPublicKeyIsThePinnedPoint(t *testing.T) {
 		"eda3e5021ff3ee9e48329bcc44c1061e1d5949f1fbba0742a5b6ac6799efe78a"
 	if got := hex.EncodeToString(raw); got != want {
 		t.Fatalf("TestDeviceIDPublicKey = %s, want %s", got, want)
+	}
+}
+
+// timedPing pings a fake that never answers and returns the error and how
+// long it took to come back.
+func timedPing(t *testing.T, d *tfw.Device) (time.Duration, error) {
+	t.Helper()
+	start := time.Now()
+	_, err := d.Ping(context.Background(), []byte("hi"))
+	return time.Since(start), err
+}
+
+// With no option of its own the Device's request timeout is the boot bound,
+// not the SDK's longer default: a wedged simulator costs the test only that.
+func TestStartBoundsARequestByTheBootTimeout(t *testing.T) {
+	fake(t)
+	took, err := timedPing(t, tfwsim.Start(t))
+	if !errors.Is(err, tfw.ErrTimeout) {
+		t.Fatalf("ping of a silent simulator: %v, want %v", err, tfw.ErrTimeout)
+	}
+	if took > 8*time.Second {
+		t.Fatalf("a silent simulator took %s to time out, want the 5s boot bound", took)
+	}
+}
+
+// A caller's own timeout wins over the default.
+func TestStartLetsTheCallersTimeoutWin(t *testing.T) {
+	fake(t)
+	took, err := timedPing(t, tfwsim.Start(t, tfw.WithTimeout(50*time.Millisecond)))
+	if !errors.Is(err, tfw.ErrTimeout) {
+		t.Fatalf("ping of a silent simulator: %v, want %v", err, tfw.ErrTimeout)
+	}
+	if took > 2*time.Second {
+		t.Fatalf("a 50ms timeout took %s", took)
+	}
+}
+
+// The listener and the accepted link are both closed when the test that
+// opened them ends.
+func TestStartElementEthernetClosesTheListenerAndLinkWhenItsTestEnds(t *testing.T) {
+	record := fake(t)
+	var eth *tfw.TCPDevice
+	var port uint16
+	t.Run("start", func(t *testing.T) {
+		_, eth = tfwsim.StartElementEthernet(t)
+		// The endpoint in the network block is the listener's port.
+		image := eeprom(t, commandLine(t, record))
+		port = binary.BigEndian.Uint16(image[tfw.NetConfigAddr+28 : tfw.NetConfigAddr+30])
+	})
+	if eth == nil {
+		t.Fatal("StartElementEthernet returned no link")
+	}
+	if err := eth.Close(); !errors.Is(err, net.ErrClosed) {
+		t.Errorf("closing the link after its test: %v, want it already closed", err)
+	}
+	if c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))), time.Second); err == nil {
+		_ = c.Close()
+		t.Errorf("the listener on port %d still accepts after its test", port)
+	}
+}
+
+// With no option of its own the Ethernet link's request timeout is the boot
+// bound, not the SDK's longer default.
+func TestStartElementEthernetBoundsARequestByTheBootTimeout(t *testing.T) {
+	fake(t)
+	_, eth := tfwsim.StartElementEthernet(t)
+	took, err := timedPing(t, eth.Device)
+	if !errors.Is(err, tfw.ErrTimeout) {
+		t.Fatalf("ping of a silent link: %v, want %v", err, tfw.ErrTimeout)
+	}
+	if took > 8*time.Second {
+		t.Fatalf("a silent link took %s to time out, want the 5s boot bound", took)
+	}
+}
+
+// The caller's options reach the Ethernet link too, and its timeout wins.
+func TestStartElementEthernetLetsTheCallersTimeoutWin(t *testing.T) {
+	fake(t)
+	_, eth := tfwsim.StartElementEthernet(t, tfw.WithTimeout(50*time.Millisecond))
+	took, err := timedPing(t, eth.Device)
+	if !errors.Is(err, tfw.ErrTimeout) {
+		t.Fatalf("ping of a silent link: %v, want %v", err, tfw.ErrTimeout)
+	}
+	if took > 2*time.Second {
+		t.Fatalf("a 50ms timeout took %s", took)
 	}
 }

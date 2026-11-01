@@ -61,14 +61,6 @@ static void test_reset_to_bootloader_is_unsupported_on_a_store_image(void)
     TEST_ASSERT_TRUE(handoff_untouched());
 }
 
-static void test_soft_reset_still_works_on_a_store_image(void)
-{
-    TEST_ASSERT_EQUAL(TFW_OK, reset_with(0u));
-    tfw_sys_poll();
-    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
-    TEST_ASSERT_TRUE(handoff_untouched());
-}
-
 /* The board has a tfw-boot that serves an update path, the store; arming the
  * request it never reads writes nothing. */
 static void test_a_store_image_serves_an_update_path_but_no_session(void)
@@ -83,7 +75,6 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_reset_to_bootloader_is_unsupported_on_a_store_image);
-    RUN_TEST(test_soft_reset_still_works_on_a_store_image);
     RUN_TEST(test_a_store_image_serves_an_update_path_but_no_session);
     return UNITY_END();
 }

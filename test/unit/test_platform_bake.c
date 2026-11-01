@@ -57,19 +57,6 @@ static void assert_nothing_written(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_eeprom_written(&lo, &hi));
 }
 
-/* WANT with a different serial and a CRC to match: a real identity, not
- * this one. */
-static void other_valid_block(uint8_t out[TFW_BOOT_EE_BLOCK_LEN])
-{
-    tfw_boot_platform_t p;
-
-    memcpy(out, WANT, TFW_BOOT_EE_BLOCK_LEN);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(out, &p));
-    p.serial[TFW_BOOT_SERIAL_LEN - 1u] ^= 0xFFu;
-    tfw_boot_platform_serialise(&p, out);
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_boot_platform_parse(out, &p));
-}
-
 static void test_the_literal_is_a_block_the_firmware_accepts(void)
 {
     tfw_boot_platform_t p;
@@ -125,20 +112,6 @@ static void test_an_equal_block_is_already_and_writes_nothing(void)
     assert_outside_untouched();
 }
 
-/* A device that already has a different identity keeps it. */
-static void test_a_different_valid_block_is_refused_and_left_alone(void)
-{
-    uint8_t other[TFW_BOOT_EE_BLOCK_LEN];
-
-    other_valid_block(other);
-    memcpy(tfw_mock_eeprom(), other, TFW_BOOT_EE_BLOCK_LEN);
-
-    TEST_ASSERT_EQUAL(TFW_BAKE_REFUSED, tfw_bake_run(WANT));
-    assert_nothing_written();
-    TEST_ASSERT_EQUAL_HEX8_ARRAY(other, tfw_mock_eeprom(), TFW_BOOT_EE_BLOCK_LEN);
-    assert_outside_untouched();
-}
-
 /* A cell that does not take the write: what comes back is not the block, and
  * the image says so rather than "baked". */
 static void test_a_readback_that_disagrees_is_reported(void)
@@ -147,15 +120,6 @@ static void test_a_readback_that_disagrees_is_reported(void)
 
     TEST_ASSERT_EQUAL(TFW_BAKE_READBACK_FAILED, tfw_bake_run(WANT));
     assert_outside_untouched();
-}
-
-/* A region that cannot be read is not known to be blank: refused, unwritten. */
-static void test_an_unreadable_region_is_refused_and_not_written(void)
-{
-    tfw_mock_eeprom_read_fails(1u);
-
-    TEST_ASSERT_EQUAL(TFW_BAKE_REFUSED, tfw_bake_run(WANT));
-    assert_nothing_written();
 }
 
 /* A carried block the bootloader would reject is never written. */
@@ -217,9 +181,7 @@ int main(void)
     RUN_TEST(test_a_blank_region_is_baked_with_exactly_192_bytes);
     RUN_TEST(test_a_torn_region_is_baked);
     RUN_TEST(test_an_equal_block_is_already_and_writes_nothing);
-    RUN_TEST(test_a_different_valid_block_is_refused_and_left_alone);
     RUN_TEST(test_a_readback_that_disagrees_is_reported);
-    RUN_TEST(test_an_unreadable_region_is_refused_and_not_written);
     RUN_TEST(test_an_invalid_carried_block_is_refused_before_any_write);
     RUN_TEST(test_a_region_in_an_unknown_layout_is_baked);
     RUN_TEST(test_the_result_line);

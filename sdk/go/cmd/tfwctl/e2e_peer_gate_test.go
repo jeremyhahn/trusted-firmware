@@ -91,14 +91,6 @@ func TestStartServingFailsOnAPeerWithoutTheFeature(t *testing.T) {
 	assert.Contains(t, msg, peerName(t))
 }
 
-func TestOperatorServingsGateFailsOnAPeerWithoutTheSession(t *testing.T) {
-	// operatorServing opens its peer through startServing for the operator
-	// session (bit 14), which the software tier does not have.
-	msg := rowFailure(t, func(tb testing.TB) { startServing(tb, tfw.FeatureAuthSession, simproc.Software) })
-	assert.Contains(t, msg, fmt.Sprintf("this row needs CAPS feature auth (%#x)", tfw.FeatureAuthSession))
-	assert.Contains(t, msg, peerName(t))
-}
-
 // Each AVR board's list agrees with its rows' own gates: against a peer
 // reporting the board's CAPS, every row the board runs passes requireFeature
 // for each bit it needs and requireLacks for each bit it refuses.

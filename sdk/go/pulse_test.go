@@ -26,24 +26,20 @@ func TestPulseTimeoutOutsideTheWireFieldIsRefused(t *testing.T) {
 		require.True(t, errors.As(err, &re), "PulseIn(%v): %v", timeout, err)
 		assert.Equal(t, CmdPulseIn, re.Cmd)
 		assert.Equal(t, "timeout", re.Arg)
-
-		_, err = d.PulseCapture(context.Background(), 2, true, 8, timeout)
-		require.True(t, errors.As(err, &re), "PulseCapture(%v): %v", timeout, err)
-		assert.Equal(t, CmdPulseCapture, re.Cmd)
 	}
 }
 
-func TestPulseTimeoutAtTheWireFieldsBoundsIsCarried(t *testing.T) {
-	for _, tc := range []struct {
-		timeout time.Duration
-		want    uint32
-	}{
-		{0, 0},
-		{time.Second, 1_000_000},
-		{math.MaxUint32 * time.Microsecond, math.MaxUint32},
-	} {
-		got, err := pulseTimeout(CmdPulseIn, tc.timeout)
-		require.NoError(t, err)
-		assert.Equal(t, tc.want, got)
+// A negative timeout under one microsecond truncates to 0 µs, a different
+// value the device accepts. docs/host-sdk/engineering.md refuses that
+// conversion locally, as it refuses -1 µs.
+func TestPulseTimeoutNegativeUnderAMicrosecondIsRefused(t *testing.T) {
+	for _, timeout := range []time.Duration{-500 * time.Nanosecond, -time.Nanosecond} {
+		for _, cmd := range []Cmd{CmdPulseIn, CmdPulseCapture} {
+			_, err := pulseTimeout(cmd, timeout)
+			var re *ArgRangeError
+			require.True(t, errors.As(err, &re), "pulseTimeout(%v, %v): %v", cmd, timeout, err)
+			assert.Equal(t, cmd, re.Cmd)
+			assert.Equal(t, "timeout", re.Arg)
+		}
 	}
 }

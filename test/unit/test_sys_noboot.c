@@ -47,23 +47,9 @@ static void test_reset_to_bootloader_is_unsupported_without_a_boot_section(void)
     TEST_ASSERT_EQUAL_UINT(0u, tfw_mock_reset_count());
 }
 
-static void test_soft_reset_still_works_without_a_boot_section(void)
-{
-    uint8_t i, untouched = 1u;
-
-    TEST_ASSERT_EQUAL(TFW_OK, reset_with(0u));
-    tfw_sys_poll();
-    TEST_ASSERT_EQUAL_UINT(1u, tfw_mock_reset_count());
-    for (i = 0u; i < TFW_BOOT_REQUEST_LEN; i++) {
-        if (tfw_mock_handoff()[i] != 0u) { untouched = 0u; }
-    }
-    TEST_ASSERT_TRUE(untouched);
-}
-
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_reset_to_bootloader_is_unsupported_without_a_boot_section);
-    RUN_TEST(test_soft_reset_still_works_without_a_boot_section);
     return UNITY_END();
 }

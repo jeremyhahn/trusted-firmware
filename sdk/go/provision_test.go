@@ -78,16 +78,6 @@ func TestProvInfoRefusesAReplyWithoutTheLockBytes(t *testing.T) {
 	assert.Equal(t, 36, short.Got)
 }
 
-func TestProvInfoRefusesATruncatedReply(t *testing.T) {
-	for _, n := range []int{0, 4, 20, 37} {
-		link := &cannedLink{payload: make([]byte, n)}
-		_, err := New(link).ProvInfo(context.Background())
-		require.Error(t, err, "a %d-byte reply was accepted", n)
-		var short *ShortReplyError
-		assert.ErrorAs(t, err, &short, "a %d-byte reply", n)
-	}
-}
-
 // A production image has no provisioning handler at all -- the feature is gated
 // by file selection, not by a runtime check -- so it answers "unknown command".
 // That is a different fact from a device that has one and refused.

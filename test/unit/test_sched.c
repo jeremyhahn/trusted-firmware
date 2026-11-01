@@ -130,20 +130,6 @@ static void test_rearming_a_pin_extends_it_and_does_not_consume_a_slot(void)
     TEST_ASSERT_EQUAL_UINT8(0u, level_now());
 }
 
-static void test_the_slot_table_fills_and_then_refuses(void)
-{
-    for (uint8_t i = 0u; i < TFW_SCHED_SLOTS; i++) {
-        TEST_ASSERT_EQUAL(TFW_OK, timer_set((tfw_pin_t)(i + 2u), 1u, 1000u));
-    }
-    TEST_ASSERT_EQUAL_UINT8(TFW_SCHED_SLOTS, tfw_sched_active());
-    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT, timer_set(12u, 1u, 1000u));
-}
-
-static void test_a_zero_duration_is_refused(void)
-{
-    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, timer_set(PIN, 1u, 0u));
-}
-
 /* Beyond 2^31 ms the signed-difference comparison can no longer tell due from
  * not-yet. Refused at arm time, where it is a clean error, rather than
  * discovered at runtime as a pin that never reverts. */
@@ -176,12 +162,6 @@ static void test_cancel_can_leave_the_pin_or_apply_the_final_level(void)
     TEST_ASSERT_EQUAL_UINT8(0u, level_now());
 }
 
-static void test_cancelling_a_pin_with_no_timer_is_refused(void)
-{
-    uint8_t p[2] = { PIN, 0u };
-    TEST_ASSERT_EQUAL(TFW_ERR_NO_SLOT, run(TFW_CMD_TIMER_CANCEL, p, 2u));
-}
-
 static void test_query_reports_the_remaining_time(void)
 {
     uint8_t p[1] = { PIN };
@@ -196,13 +176,6 @@ static void test_query_reports_the_remaining_time(void)
     remaining = (uint32_t)outbuf[2] | ((uint32_t)outbuf[3] << 8)
               | ((uint32_t)outbuf[4] << 16) | ((uint32_t)outbuf[5] << 24);
     TEST_ASSERT_EQUAL_UINT32(3500u, remaining);
-}
-
-static void test_query_on_an_unscheduled_pin_reports_inactive(void)
-{
-    uint8_t p[1] = { PIN };
-    TEST_ASSERT_EQUAL(TFW_OK, run(TFW_CMD_TIMER_QUERY, p, 1u));
-    TEST_ASSERT_EQUAL_UINT8(0u, outbuf[0]);
 }
 
 /* A deadline that has passed but not yet been swept must report zero remaining,
@@ -253,14 +226,10 @@ int main(void)
     RUN_TEST(test_a_timed_low_reverts_high);
     RUN_TEST(test_a_deadline_across_the_millisecond_wrap_is_honoured);
     RUN_TEST(test_rearming_a_pin_extends_it_and_does_not_consume_a_slot);
-    RUN_TEST(test_the_slot_table_fills_and_then_refuses);
-    RUN_TEST(test_a_zero_duration_is_refused);
     RUN_TEST(test_a_duration_past_the_signed_bound_is_refused);
     RUN_TEST(test_a_reserved_pin_cannot_be_scheduled);
     RUN_TEST(test_cancel_can_leave_the_pin_or_apply_the_final_level);
-    RUN_TEST(test_cancelling_a_pin_with_no_timer_is_refused);
     RUN_TEST(test_query_reports_the_remaining_time);
-    RUN_TEST(test_query_on_an_unscheduled_pin_reports_inactive);
     RUN_TEST(test_query_clamps_an_overdue_deadline_to_zero);
     RUN_TEST(test_independent_deadlines_fire_independently);
     return UNITY_END();

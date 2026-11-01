@@ -8,6 +8,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -39,6 +40,7 @@ func TestStartElementWithOperatorRefusesAnUnusableKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, key := range map[string]*ecdsa.PublicKey{"nil": nil, "P-384": &p384.PublicKey} {
+		record := fake(t)
 		f := &fatalTB{TB: t}
 		done := make(chan struct{})
 		go func() {
@@ -48,6 +50,9 @@ func TestStartElementWithOperatorRefusesAnUnusableKey(t *testing.T) {
 		<-done
 		if !strings.Contains(f.msg, "must be a P-256 public key") {
 			t.Errorf("%s operator key: failed with %q, want the P-256 refusal", name, f.msg)
+		}
+		if _, err := os.Stat(record); !os.IsNotExist(err) {
+			t.Errorf("%s operator key: a simulator was started (stat %v)", name, err)
 		}
 	}
 }

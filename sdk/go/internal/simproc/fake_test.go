@@ -89,8 +89,9 @@ func TestStartSpeaksToTheProcessOverItsStdio(t *testing.T) {
 	}
 }
 
-// Close stops the process: its stdout ends, so a reader sees EOF instead of
-// waiting on a process that is gone.
+// Close stops the process and closes both ends the parent holds: a read and a
+// write after it fail as on a closed file, not as on a pipe whose peer has
+// gone, so a reader does not wait on a process that is gone.
 func TestCloseEndsTheProcess(t *testing.T) {
 	fakeDir(t, Element)
 	c := Start(t, Element, "--provision-element")
@@ -100,11 +101,11 @@ func TestCloseEndsTheProcess(t *testing.T) {
 	var rest []byte
 	var err error
 	within(t, time.Minute, "reading after Close", func() { rest, err = io.ReadAll(c) })
-	if err != nil && !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("read after Close: %v", err)
+	if !errors.Is(err, os.ErrClosed) || len(rest) != 0 {
+		t.Fatalf("read after Close: %q, %v; want nothing and %v", rest, err, os.ErrClosed)
 	}
-	if len(rest) != 0 {
-		t.Fatalf("read %q after Close, want nothing", rest)
+	if _, err := c.Write([]byte{1}); !errors.Is(err, os.ErrClosed) {
+		t.Errorf("write after Close: %v, want %v", err, os.ErrClosed)
 	}
 	if err := c.cmd.Process.Signal(syscall.Signal(0)); !errors.Is(err, os.ErrProcessDone) {
 		t.Fatalf("signalling the process after Close: %v, want os.ErrProcessDone", err)

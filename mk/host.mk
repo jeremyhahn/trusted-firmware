@@ -744,13 +744,17 @@ $(HOST_DIR)/test_platform_bake: test/unit/test_platform_bake.c tools/platform-ba
 # The OP-TEE TA and its check (#253), against the GP headers' host doubles in
 # test/mock/gp/ and the in-process TEE of test/mock/gp_bridge.c. Its own link:
 # optee/ is in no firmware object list, and only this link sees test/mock/gp/.
-$(HOST_DIR)/test_optee_ta: test/unit/test_optee_ta.c optee/ta/tfw_ta.c optee/check/check.c \
-                        test/mock/gp_bridge.c $(HOST_DIR)/unity.o \
-                        optee/ta/include/tfw_ta.h optee/check/check.h optee/testdata/vectors.h \
+$(HOST_DIR)/test_optee_ta: test/unit/test_optee_ta.c optee/ta/tfw_ta.c optee/ta/tfw_blob.c \
+                        optee/ta/tfw_derive.c optee/check/check.c test/mock/gp_bridge.c \
+                        test/mock/gp/tee_crypto_mock.c test/mock/gp/tee_session_mock.c \
+                        $(HOST_DIR)/unity.o \
+                        optee/ta/include/tfw_ta.h optee/ta/include/tfw_blob.h \
+                        optee/check/check.h optee/testdata/vectors.h \
                         test/mock/gp_bridge.h test/mock/gp/tee_internal_api.h \
-                        test/mock/gp/tee_client_api.h | $(HOST_DIR)
+                        test/mock/gp/tee_client_api.h test/mock/gp/tee_crypto_mock.h \
+                        test/mock/gp/tee_session_mock.h | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) -Itest/mock/gp -Ioptee/ta/include -Ioptee/check $(EXTRA_CFLAGS) \
-	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+	   -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS) -lcrypto
 
 # The same decision against the test's own nvm read, EEPROM write and UART
 # byte, not the mock: a failed write, a failed read-back and a busy UART are

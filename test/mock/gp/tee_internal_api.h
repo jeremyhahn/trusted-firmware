@@ -46,6 +46,90 @@ typedef union {
 
 void TEE_GenerateRandom(void *randomBuffer, size_t randomBufferLen);
 
+/*
+ * The cryptographic operations the sealed-blob codec calls, with the
+ * Internal Core API's names, numbers and signatures. test/mock/gp/
+ * tee_crypto_mock.c backs them with the host's libcrypto: test-only code,
+ * never the TA's.
+ */
+#define TEE_ERROR_BAD_FORMAT     0xFFFF0005u
+#define TEE_ERROR_ITEM_NOT_FOUND 0xFFFF0008u
+#define TEE_ERROR_OUT_OF_MEMORY  0xFFFF000Cu
+#define TEE_ERROR_SHORT_BUFFER   0xFFFF0010u
+#define TEE_ERROR_MAC_INVALID    0xFFFF3071u
+
+#define TEE_HANDLE_NULL 0
+
+#define TEE_ALG_AES_GCM       0x40000810u
+#define TEE_TYPE_AES          0xA0000010u
+#define TEE_ATTR_SECRET_VALUE 0xC0000000u
+
+#define TEE_MODE_ENCRYPT 0u
+#define TEE_MODE_DECRYPT 1u
+
+typedef struct __TEE_OperationHandle *TEE_OperationHandle;
+typedef struct __TEE_ObjectHandle *TEE_ObjectHandle;
+
+typedef struct {
+    uint32_t attributeID;
+    union {
+        struct {
+            void *buffer;
+            size_t length;
+        } ref;
+        struct {
+            uint32_t a;
+            uint32_t b;
+        } value;
+    } content;
+} TEE_Attribute;
+
+TEE_Result TEE_AllocateOperation(TEE_OperationHandle *operation, uint32_t algorithm,
+                                 uint32_t mode, uint32_t maxKeySize);
+void TEE_FreeOperation(TEE_OperationHandle operation);
+TEE_Result TEE_AllocateTransientObject(uint32_t objectType, uint32_t maxObjectSize,
+                                       TEE_ObjectHandle *object);
+void TEE_FreeTransientObject(TEE_ObjectHandle object);
+void TEE_InitRefAttribute(TEE_Attribute *attr, uint32_t attributeID, const void *buffer,
+                          size_t length);
+TEE_Result TEE_PopulateTransientObject(TEE_ObjectHandle object, const TEE_Attribute *attrs,
+                                       uint32_t attrCount);
+TEE_Result TEE_SetOperationKey(TEE_OperationHandle operation, TEE_ObjectHandle key);
+TEE_Result TEE_AEInit(TEE_OperationHandle operation, const void *nonce, size_t nonceLen,
+                      uint32_t tagLen, size_t AADLen, size_t payloadLen);
+void TEE_AEUpdateAAD(TEE_OperationHandle operation, const void *AADdata, size_t AADdataLen);
+TEE_Result TEE_AEEncryptFinal(TEE_OperationHandle operation, const void *srcData,
+                              size_t srcLen, void *destData, size_t *destLen, void *tag,
+                              size_t *tagLen);
+TEE_Result TEE_AEDecryptFinal(TEE_OperationHandle operation, const void *srcData,
+                              size_t srcLen, void *destData, size_t *destLen, void *tag,
+                              size_t tagLen);
+
+/*
+ * The TA-to-TA session calls the key derivation makes, with the Internal
+ * Core API's names, numbers and signatures. test/mock/gp/tee_session_mock.c
+ * plays the system PTA and records each call: test-only code.
+ */
+#define TEE_NUM_PARAMS       4u
+#define TEE_TIMEOUT_INFINITE 0xFFFFFFFFu
+
+typedef struct {
+    uint32_t timeLow;
+    uint16_t timeMid;
+    uint16_t timeHiAndVersion;
+    uint8_t clockSeqAndNode[8];
+} TEE_UUID;
+
+typedef struct __TEE_TASessionHandle *TEE_TASessionHandle;
+
+TEE_Result TEE_OpenTASession(const TEE_UUID *destination, uint32_t cancellationRequestTimeout,
+                             uint32_t paramTypes, TEE_Param params[TEE_NUM_PARAMS],
+                             TEE_TASessionHandle *session, uint32_t *returnOrigin);
+void TEE_CloseTASession(TEE_TASessionHandle session);
+TEE_Result TEE_InvokeTACommand(TEE_TASessionHandle session, uint32_t cancellationRequestTimeout,
+                               uint32_t commandID, uint32_t paramTypes,
+                               TEE_Param params[TEE_NUM_PARAMS], uint32_t *returnOrigin);
+
 /* The TA's entry points, which the TA defines. */
 TEE_Result TA_CreateEntryPoint(void);
 void TA_DestroyEntryPoint(void);

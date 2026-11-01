@@ -65,8 +65,9 @@ class BootCandidateTarget(unittest.TestCase):
                 self.assertNotIn("boot-size-check", out)
 
     def test_a_supported_row_is_refused(self):
-        # The 2560's store row is one; the 328P's does not fit its boot section.
-        for row in ("atmega2560:atecc608a:atecc608a:atecc608a:0:1",):
+        # The 2560's OTA and store rows are rows; the 328P's does not fit its boot section.
+        for row in ("atmega2560:atecc608a:atecc608a:atecc608a:1:0",
+                    "atmega2560:atecc608a:atecc608a:atecc608a:0:1"):
             with self.subTest(row=row):
                 rc, out = make("bootloader-candidate", "BOOT_CANDIDATE=" + row, "MAKE=echo")
                 self.assertNotEqual(rc, 0, out)

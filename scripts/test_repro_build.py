@@ -89,6 +89,7 @@ class ReproBuild(unittest.TestCase):
         write(os.path.join(self.a, IMAGE), "STALE IMAGE\n")
         run = self.run_script()
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        self.assertIn("reproducible:", run.stdout)
         for d in (self.a, self.b):
             self.assertEqual(self.image(d)["files"], "Makefile,src/main.c")
             with open(os.path.join(d, "src", "main.c")) as f:
@@ -102,11 +103,6 @@ class ReproBuild(unittest.TestCase):
         for d in (self.a, self.b):
             self.assertEqual(self.image(d)["epoch"], COMMIT_TIME)
         self.assertIn(f"SOURCE_DATE_EPOCH={COMMIT_TIME}", run.stdout)
-
-    def test_identical_images_pass(self):
-        run = self.run_script()
-        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        self.assertIn("reproducible:", run.stdout)
 
     def test_different_images_fail(self):
         run = self.run_script("with-path")

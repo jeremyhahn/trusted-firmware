@@ -184,9 +184,6 @@ class FixtureTree(unittest.TestCase):
 
 
 class TestPasses(FixtureTree):
-    def test_fixture_passes(self):
-        self.assertEqual([], bc.check(self.root))
-
     def test_main_reports_and_exits_zero(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

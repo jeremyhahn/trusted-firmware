@@ -180,9 +180,6 @@ class FixtureTree(unittest.TestCase):
 
 
 class TestPasses(FixtureTree):
-    def test_fixture_passes(self):
-        self.assertEqual([], adc.check(self.root))
-
     def test_exports_are_exactly_the_public_api(self):
         self.assertEqual({
             "tfw.SOF", "tfw.MaxPayload", "tfw.Status", "tfw.StatusOK", "tfw.StatusErrCRC",

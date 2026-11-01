@@ -56,15 +56,6 @@ class BootOnePath(unittest.TestCase):
                     self.assertEqual(len(out.strip().splitlines()), 1, out)
                     self.assertTrue(out.startswith("mk/boot.mk:"), out)
 
-    def test_each_path_alone_is_not_refused_as_two(self):
-        for ota, store in (("1", "0"), ("0", "1")):
-            with self.subTest(ota=ota, store=store):
-                rc, out = make("bootloader-candidate",
-                               "BOOT_CANDIDATE=atmega2560:atecc608a:atecc608a:atecc608a:"
-                               + ota + ":" + store, "MAKE=echo")
-                self.assertNotIn("is two update paths", out)
-                self.assertIn("is already in BOOT_SUPPORTED", out)
-
     def test_both_paths_can_still_be_measured(self):
         rc, out = make("bootloader-candidate",
                        "BOOT_CANDIDATE=atmega2560:atecc608a:atecc608a:atecc608a:1:1", "MAKE=echo")

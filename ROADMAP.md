@@ -42,7 +42,7 @@ None queued.
 
 ## Later
 
-None planned.
+- **device-security-event-evidence** — the device's security-event record bound as a Detached Submodule Digest in the device-signed EAT evidence, carried by the xkms adapter; the format is go-xkms's row of the same name — [#283](../../issues/283), [go-xkms #1765](../../../go-xkms/issues/1765) — open
 
 ## Future
 

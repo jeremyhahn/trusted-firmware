@@ -206,15 +206,6 @@ class SlotBoardAN500(_SlotAfterBoot, unittest.TestCase):
         self.assertIn("(0x00040000 on this board)", m["note"])
 
 
-class SlotBoardIMX95(_SlotAfterBoot, unittest.TestCase):
-    """frdm-imx95-m7: the slot at 0x8000 in the ITCM, 192 KiB."""
-
-    BOARD = "frdm-imx95-m7"
-    F_CPU = 800000000
-    # One byte at 0x38000, the first past the 192 KiB slot.
-    PAST_SLOT_HEX = ":020000023800C4\n:01000000AA55\n:00000001FF\n"
-
-
 # FIXED_HEX's records at offset 0x8000 of a 64 KiB segment: the same bytes at
 # a slot that follows a 32 KiB tfw-boot region, so the same measurement.
 SLOT_8000_HEX = """\

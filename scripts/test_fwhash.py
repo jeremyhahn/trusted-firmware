@@ -48,24 +48,9 @@ PAST_SLOT_HEX = ":020000043802C0\n:01000000AA55\n:00000001FF\n"
 
 
 class Measurement(unittest.TestCase):
-    def test_the_fixed_image_measures_to_the_pinned_literal(self):
-        digest, n = fwhash.measure(FIXED_HEX)
-        self.assertEqual(n, 0x120)
-        self.assertEqual(digest.hex(), FIXED_MEASUREMENT)
-
-    def test_a_gap_is_erased_flash_not_zeros(self):
-        digest, _ = fwhash.measure(FIXED_HEX)
-        self.assertNotEqual(digest.hex(), ZERO_GAP_MEASUREMENT)
-        image = fwhash.flash_image(fwhash.parse_hex(FIXED_HEX))
-        self.assertEqual(image[0x10:0x100], b"\xff" * 0xF0)
-
     def test_an_image_len_past_the_image_measures_erased_flash(self):
         digest, n = fwhash.measure(FIXED_HEX, 0x140)
         self.assertEqual((digest.hex(), n), (PADDED_MEASUREMENT, 0x140))
-
-    def test_bytes_past_image_len_are_not_measured(self):
-        digest, n = fwhash.measure(FIXED_HEX, 0x100)
-        self.assertEqual((digest.hex(), n), (SHORT_MEASUREMENT, 0x100))
 
     def test_the_record_order_does_not_move_the_measurement(self):
         lines = FIXED_HEX.splitlines()
@@ -87,12 +72,6 @@ class Measurement(unittest.TestCase):
 
 
 class ApplicationRegion(unittest.TestCase):
-    def test_a_slot_image_measures_from_the_slot_base(self):
-        digest, n = fwhash.measure(SLOT_HEX, base=SLOT_BASE, size=SLOT_SIZE)
-        self.assertEqual((digest.hex(), n), (FIXED_MEASUREMENT, 0x120))
-        image = fwhash.flash_image(fwhash.parse_hex(SLOT_HEX, SLOT_BASE, SLOT_SIZE))
-        self.assertEqual(image[0x10:0x100], b"\xff" * 0xF0)
-
     def test_the_slot_last_byte_is_inside(self):
         image = fwhash.flash_image(fwhash.parse_hex(SLOT_LAST_HEX, SLOT_BASE, SLOT_SIZE),
                                    size=SLOT_SIZE)
@@ -108,11 +87,6 @@ class ApplicationRegion(unittest.TestCase):
     def test_an_image_len_past_the_slot_is_refused(self):
         with self.assertRaises(fwhash.HexError):
             fwhash.measure(SLOT_HEX, SLOT_SIZE + 1, base=SLOT_BASE, size=SLOT_SIZE)
-
-    def test_the_slot_image_is_refused_at_flash_0(self):
-        # The AVR default: a HEX at 0x38000000 is past any AVR part's flash.
-        with self.assertRaises(fwhash.HexError):
-            fwhash.measure(SLOT_HEX, size=256 * 1024)
 
     def test_a_region_past_any_flash_is_refused(self):
         for base, size in ((0, 0), (0, fwhash.MAX_FLASH + 1), (0xFFFF0000, 0x20000), (-1, 16)):

@@ -41,3 +41,7 @@ python3
 
 openssl          # tfwctl auth's external signer: parses/signs an operator
                  # key in its own process so the key never enters tfwctl's
+
+libssl-dev       # OpenSSL's headers and libcrypto, for one user: the OP-TEE
+                 # TA's host test, test/mock/gp/tee_crypto_mock.c (AES-256-GCM
+                 # through EVP, linked with -lcrypto)

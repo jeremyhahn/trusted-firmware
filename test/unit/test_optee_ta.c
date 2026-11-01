@@ -653,6 +653,28 @@ static void test_derive_returns_the_open_error_unchanged(void)
     TEST_ASSERT_EQUAL_INT(0, tfw_tee_session_mock.live);
 }
 
+static void assert_hkdf_gives(const uint8_t *ta_unique_key, const uint8_t *want)
+{
+    uint8_t okm[32];
+
+    memset(okm, 0xAA, sizeof(okm));
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS,
+                            tfw_hkdf_sha256(ta_unique_key, 32u, TFW_TA_VEC_SEAL_KDF_INFO,
+                                            sizeof(TFW_TA_VEC_SEAL_KDF_INFO), okm));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, okm, sizeof(okm));
+    TEST_ASSERT_EQUAL_INT(0, tfw_tee_mock_live);
+}
+
+static void test_hkdf_of_the_zero_ta_key_is_seal_vector_1_key(void)
+{
+    assert_hkdf_gives(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY, TFW_TA_VEC_SEAL1_KEY);
+}
+
+static void test_hkdf_of_the_counting_ta_key_is_seal_vector_2_key(void)
+{
+    assert_hkdf_gives(TFW_TA_VEC_SEAL2_TA_UNIQUE_KEY, TFW_TA_VEC_SEAL2_KEY);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -696,5 +718,7 @@ int main(void)
     RUN_TEST(test_derive_refuses_a_key_of_33_bytes);
     RUN_TEST(test_derive_returns_the_ptas_error_unchanged);
     RUN_TEST(test_derive_returns_the_open_error_unchanged);
+    RUN_TEST(test_hkdf_of_the_zero_ta_key_is_seal_vector_1_key);
+    RUN_TEST(test_hkdf_of_the_counting_ta_key_is_seal_vector_2_key);
     return UNITY_END();
 }

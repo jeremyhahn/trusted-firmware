@@ -2,7 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * What test/mock/gp/tee_session_mock.c saw of the TA-to-TA session calls,
- * and what it answers. Its PTA writes key byte i as 0x40 + i.
+ * and what it answers. Its PTA writes key byte i as 0x40 + i, or the test's
+ * answer if it sets one (at most 32 bytes).
  */
 #ifndef TFW_TEE_SESSION_MOCK_H
 #define TFW_TEE_SESSION_MOCK_H
@@ -28,6 +29,10 @@ struct tfw_tee_session_mock {
     uint8_t extra_data[TFW_TEE_MOCK_EXTRA_MAX];
     size_t extra_data_len;
     size_t key_len;
+    const uint8_t *answer;    /* if set, the PTA's key: the first key_len bytes of it */
+    TEE_UUID app_id;          /* what "gpd.ta.appID" answers: the TA's own UUID */
+    TEE_Result app_id_result; /* what TEE_GetPropertyAsUUID answers */
+    unsigned int app_id_reads;
 };
 
 extern struct tfw_tee_session_mock tfw_tee_session_mock;

@@ -675,6 +675,59 @@ static void test_hkdf_of_the_counting_ta_key_is_seal_vector_2_key(void)
     assert_hkdf_gives(TFW_TA_VEC_SEAL2_TA_UNIQUE_KEY, TFW_TA_VEC_SEAL2_KEY);
 }
 
+static void assert_blob_key_is(const uint8_t *ta_unique_key, const uint8_t *want)
+{
+    uint8_t key[32];
+
+    memset(key, 0xAA, sizeof(key));
+    tfw_tee_session_mock.answer = ta_unique_key;
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS, tfw_blob_key(TFW_TA_VEC_SEAL_UUID, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(want, key, sizeof(key));
+    /* The PTA is asked once, with the label alone as extra_data and 32 bytes out. */
+    TEST_ASSERT_EQUAL_UINT(1u, tfw_tee_session_mock.invokes);
+    TEST_ASSERT_EQUAL_HEX32(1u, tfw_tee_session_mock.command_id);
+    TEST_ASSERT_EQUAL_size_t(28u, tfw_tee_session_mock.extra_data_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(TFW_TA_VEC_SEAL_KDF_INFO, tfw_tee_session_mock.extra_data, 28u);
+    TEST_ASSERT_EQUAL_size_t(32u, tfw_tee_session_mock.key_len);
+    TEST_ASSERT_EQUAL_INT(0, tfw_tee_session_mock.live);
+    TEST_ASSERT_EQUAL_INT(0, tfw_tee_mock_live);
+}
+
+static void test_the_blob_key_of_the_zero_ta_key_is_seal_vector_1_key(void)
+{
+    assert_blob_key_is(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY, TFW_TA_VEC_SEAL1_KEY);
+}
+
+static void test_the_blob_key_of_the_counting_ta_key_is_seal_vector_2_key(void)
+{
+    assert_blob_key_is(TFW_TA_VEC_SEAL2_TA_UNIQUE_KEY, TFW_TA_VEC_SEAL2_KEY);
+}
+
+static void test_another_tas_uuid_derives_another_key(void)
+{
+    uint8_t other[16];
+    uint8_t key[32];
+
+    memcpy(other, TFW_TA_VEC_SEAL_UUID, sizeof(other));
+    other[15] ^= 0x01u;
+    tfw_tee_session_mock.answer = TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY;
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS, tfw_blob_key(other, key));
+    TEST_ASSERT_NOT_EQUAL(0, memcmp(key, TFW_TA_VEC_SEAL1_KEY, sizeof(key)));
+}
+
+static void test_a_failed_ta_unique_key_leaves_no_blob_key(void)
+{
+    uint8_t key[32];
+    uint8_t zero[32];
+
+    memset(key, 0xAA, sizeof(key));
+    memset(zero, 0, sizeof(zero));
+    tfw_tee_session_mock.invoke_result = TEE_ERROR_GENERIC;
+    TEST_ASSERT_EQUAL_HEX32(TEE_ERROR_GENERIC, tfw_blob_key(TFW_TA_VEC_SEAL_UUID, key));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, key, sizeof(key));
+    TEST_ASSERT_EQUAL_INT(0, tfw_tee_session_mock.live);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -720,5 +773,9 @@ int main(void)
     RUN_TEST(test_derive_returns_the_open_error_unchanged);
     RUN_TEST(test_hkdf_of_the_zero_ta_key_is_seal_vector_1_key);
     RUN_TEST(test_hkdf_of_the_counting_ta_key_is_seal_vector_2_key);
+    RUN_TEST(test_the_blob_key_of_the_zero_ta_key_is_seal_vector_1_key);
+    RUN_TEST(test_the_blob_key_of_the_counting_ta_key_is_seal_vector_2_key);
+    RUN_TEST(test_another_tas_uuid_derives_another_key);
+    RUN_TEST(test_a_failed_ta_unique_key_leaves_no_blob_key);
     return UNITY_END();
 }

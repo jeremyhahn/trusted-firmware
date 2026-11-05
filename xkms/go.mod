@@ -19,7 +19,7 @@ toolchain go1.27.3
 // with GOPROXY=off.
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/jeremyhahn/go-xkms v0.57.0-alpha
+	github.com/jeremyhahn/go-xkms v0.57.0-alpha // held: v0.64.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it, and the graph below moves with it
 	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha
 	github.com/stretchr/testify v1.12.1
 )
@@ -27,13 +27,13 @@ require (
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.1 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
+	cloud.google.com/go/auth v0.24.1 // indirect; held: v0.24.2 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
+	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect; held: v0.3.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	cloud.google.com/go/iam v1.14.0 // indirect
-	cloud.google.com/go/kms v1.35.0 // indirect
+	cloud.google.com/go/iam v1.14.0 // indirect; held: v1.15.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
+	cloud.google.com/go/kms v1.35.0 // indirect; held: v1.36.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	cloud.google.com/go/longrunning v1.3.0 // indirect
-	cloud.google.com/go/monitoring v1.31.0 // indirect
+	cloud.google.com/go/monitoring v1.31.0 // indirect; held: v1.32.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	cloud.google.com/go/storage v1.69.0 // indirect; held: v1.70.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	filippo.io/bigmod v0.1.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
@@ -43,7 +43,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage v1.8.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.5.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.5.0 // indirect; held: v1.5.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0 // indirect
 	github.com/Azure/azure-storage-blob-go v0.15.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 // indirect
@@ -74,7 +74,7 @@ require (
 	github.com/aws/smithy-go v1.28.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
-	github.com/bytedance/sonic v1.15.4 // indirect
+	github.com/bytedance/sonic v1.15.4 // indirect; held: v1.15.5 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/bytedance/sonic/loader v0.5.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -101,7 +101,7 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.6 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.6 // indirect; held: v2.10.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect
 	github.com/getsentry/sentry-go v0.50.0 // indirect
 	github.com/gin-contrib/sse v1.1.2 // indirect
@@ -116,7 +116,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.57.0-alpha (its latest, which requires v0.17.4) calls it with one in pkg/acme/challenges/device-attest-01; it moves when go-xkms does
 	github.com/go-webauthn/x v0.3.1 // indirect
-	github.com/goccy/go-json v0.11.2 // indirect
+	github.com/goccy/go-json v0.11.2 // indirect; held: v0.12.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
@@ -130,7 +130,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect; held: v0.3.24 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/googleapis/gax-go/v2 v2.26.2 // indirect; held: v2.27.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect; held: v2.33.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/gtank/ristretto255 v0.2.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -148,18 +148,18 @@ require (
 	github.com/jeremyhahn/go-codec v1.4.0 // indirect
 	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.8.0-rc.2 removes enclave.MemoryEnclave, which go-quicraft v0.22.0-alpha, go-truststrap v0.6.0-alpha and go-objstore v0.4.0-alpha (this graph's, via go-xkms v0.57.0-alpha) still call; v0.9.0-alpha is not in the factory module cache, so no build against it was tried; every one of go-xkms, go-qrdb, go-quicraft, go-truststrap and go-objstore requires v0.8.0-alpha, so it moves when they do
 	github.com/jeremyhahn/go-frost v0.3.0-alpha // indirect
-	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect
-	github.com/jeremyhahn/go-qrdb v0.50.0-alpha // indirect
-	github.com/jeremyhahn/go-qrdb/sdk/go v0.50.0-alpha // indirect
+	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect; held: v0.9.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); go-xkms v0.57.0-alpha requires this version; it moves when go-xkms does or the cache has it
+	github.com/jeremyhahn/go-qrdb v0.50.0-alpha // indirect; held: v0.58.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); go-xkms v0.57.0-alpha requires this version; it moves when go-xkms does or the cache has it
+	github.com/jeremyhahn/go-qrdb/sdk/go v0.50.0-alpha // indirect; held: v0.58.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); go-xkms v0.57.0-alpha requires this version; it moves when go-xkms does or the cache has it
 	github.com/jeremyhahn/go-quicraft v0.22.0-alpha // indirect; held: v0.23.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
-	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect
-	github.com/jeremyhahn/go-xkms/sdk/go v0.57.0-alpha // indirect
+	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect; held: v0.7.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); go-xkms v0.57.0-alpha requires this version; it moves when go-xkms does or the cache has it
+	github.com/jeremyhahn/go-xkms/sdk/go v0.57.0-alpha // indirect; held: v0.64.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves with go-xkms, when the cache has v0.64.0-alpha
 	github.com/jeroenrinzema/psql-wire v0.20.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/klauspost/cpuid/v2 v2.4.1 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.1 // indirect; held: v2.4.2 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
@@ -170,7 +170,7 @@ require (
 	github.com/lestrrat-go/iter v1.0.2 // indirect
 	github.com/lestrrat-go/jwx/v2 v2.1.7 // indirect
 	github.com/lestrrat-go/option v1.0.1 // indirect
-	github.com/lestrrat-go/strftime v1.2.0 // indirect
+	github.com/lestrrat-go/strftime v1.2.0 // indirect; held: v1.2.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/mark3labs/mcp-go v1.3.0 // indirect; held: v1.4.0 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
 	github.com/mattn/go-ieproxy v0.0.12 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -243,7 +243,7 @@ require (
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.61.0 // indirect; held: v0.62.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
@@ -256,7 +256,7 @@ require (
 	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
 	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
-	google.golang.org/grpc v1.84.0 // indirect
+	google.golang.org/grpc v1.84.0 // indirect; held: v1.85.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/src-d/go-errors.v1 v1.0.0 // indirect

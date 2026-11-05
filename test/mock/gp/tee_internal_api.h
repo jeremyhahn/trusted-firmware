@@ -114,6 +114,10 @@ TEE_Result TEE_MACComputeFinal(TEE_OperationHandle operation, const void *messag
 
 /* Memory and property calls the SEAL and UNSEAL commands make (GP 1.3.1). */
 void TEE_MemFill(void *buffer, uint8_t x, size_t size);
+void TEE_MemMove(void *dest, const void *src, size_t size);
+#define TEE_MALLOC_FILL_ZERO 0x00000000u
+void *TEE_Malloc(size_t size, uint32_t hint);
+void TEE_Free(void *buffer);
 
 /*
  * The TA-to-TA session calls the key derivation makes, with the Internal

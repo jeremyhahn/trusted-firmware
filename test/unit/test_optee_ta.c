@@ -914,7 +914,7 @@ static void test_a_short_unseal_buffer_answers_the_size_needed(void)
     assert_nothing_left_open();
 }
 
-static void test_a_flipped_tag_byte_answers_mac_invalid_and_no_plaintext(void)
+static void test_a_flipped_tag_byte_answers_mac_invalid_and_an_untouched_output(void)
 {
     uint8_t blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
     uint8_t out[64];
@@ -926,7 +926,30 @@ static void test_a_flipped_tag_byte_answers_mac_invalid_and_no_plaintext(void)
     memset(out, 0xA5, sizeof(out));
     TEST_ASSERT_EQUAL_HEX32(0xFFFF3071u,
                             run_seal_cmd(TFW_TA_CMD_UNSEAL, blob, sizeof(blob), 0u, out, &out_len));
-    TEST_ASSERT_EACH_EQUAL_HEX8(0x00, out, sizeof(out));
+    /* The output is shared memory: no plaintext reaches it before the tag verifies. */
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xA5, out, sizeof(out));
+    assert_nothing_left_open();
+}
+
+static uint8_t shared_blob[sizeof(TFW_TA_VEC_SEAL1_BLOB)];
+
+static void overwrite_the_shared_blob(void)
+{
+    memset(shared_blob, 0xFF, sizeof(shared_blob));
+}
+
+static void test_a_blob_changed_during_decryption_still_unseals_as_parsed(void)
+{
+    uint8_t out[64];
+    size_t out_len = sizeof(out);
+
+    be_the_vectors_ta(TFW_TA_VEC_SEAL1_TA_UNIQUE_KEY);
+    memcpy(shared_blob, TFW_TA_VEC_SEAL1_BLOB, sizeof(shared_blob));
+    tfw_tee_mock_on_decrypt = overwrite_the_shared_blob;
+    TEST_ASSERT_EQUAL_HEX32(TEE_SUCCESS, run_seal_cmd(TFW_TA_CMD_UNSEAL, shared_blob,
+                                                      sizeof(shared_blob), 0u, out, &out_len));
+    TEST_ASSERT_EQUAL_size_t(sizeof(TFW_TA_VEC_SEAL1_PLAINTEXT), out_len);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(TFW_TA_VEC_SEAL1_PLAINTEXT, out, out_len);
     assert_nothing_left_open();
 }
 
@@ -1138,7 +1161,8 @@ int main(void)
     RUN_TEST(test_every_seal_draws_its_own_nonce);
     RUN_TEST(test_a_short_seal_buffer_answers_the_size_needed);
     RUN_TEST(test_a_short_unseal_buffer_answers_the_size_needed);
-    RUN_TEST(test_a_flipped_tag_byte_answers_mac_invalid_and_no_plaintext);
+    RUN_TEST(test_a_flipped_tag_byte_answers_mac_invalid_and_an_untouched_output);
+    RUN_TEST(test_a_blob_changed_during_decryption_still_unseals_as_parsed);
     RUN_TEST(test_a_flipped_ciphertext_byte_answers_mac_invalid);
     RUN_TEST(test_a_blob_that_is_not_a_blob_answers_bad_format);
     RUN_TEST(test_another_tas_blob_does_not_unseal);

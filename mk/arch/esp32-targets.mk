@@ -120,15 +120,14 @@ esp32-qemu-test:
 	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32
 	@mkdir -p $(ESP_ROOT)
 	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(ESP_ROOT))/wirecheck ./wirecheck
-# The two runs write only under their own build directory and read the keys
-# and tools the builds above made, so they run side by side. Each is waited
-# on by its pid, and either failing fails the target.
-	@python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256 esp32c3 $(ESP_ROOT)/wirecheck \
-	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256-prov & c3=$$!; \
+# The two runs go one at a time, so neither QEMU starves the other of CPU on
+# a shared runner (#319). The esp32 run still goes when esp32c3 fails, so one
+# CI run reports both, and either failing fails the target.
+	@rc=0; python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256 esp32c3 $(ESP_ROOT)/wirecheck \
+	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu $(ESP_ROOT)/esp32-qemu-esp32c3-hmac-p256-prov || rc=1; \
 	 python test/integration/esp32/qemu_test.py $(ESP_ROOT)/esp32-qemu-esp32-none esp32 $(ESP_ROOT)/wirecheck \
-	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu & esp=$$!; \
-	 trap 'kill $$c3 $$esp 2>/dev/null; wait' INT TERM HUP; \
-	 rc=0; wait $$c3 || rc=1; wait $$esp || rc=1; exit $$rc
+	   $(BUILD_DIR)/tools/suit-emit-esp32-qemu || rc=1; \
+	 exit $$rc
 	@echo "esp32-qemu-test: green"
 
 ## esp32-overlay-selftest: ESP_SDKCONFIG_EXTRA's files reach SDKCONFIG_DEFAULTS in order, and a missing one stops the build

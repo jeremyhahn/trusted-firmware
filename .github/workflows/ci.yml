@@ -689,6 +689,10 @@ jobs:
     outputs:
       built: ${{ steps.images.outputs.built }}
     env:
+      # CUSTOMIZE (trusted-firmware, #323, CA m1923 (e)): bigdisk is gpu-host-d01,
+      # where the sidecar is capped at 8g so 4 jobs and 3 lanes fit (56 of 94 GiB).
+      # Empty on the github.com mirror: the script's default.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       # v1.22: the cache volumes' trust class. Only a push to main writes the
       # caches main's build reads; every other event, pull requests included,
@@ -1147,6 +1151,8 @@ jobs:
     # mk/stages.mk). Kept at the 110 that #248 set for the unsharded job.
     timeout-minutes: 110
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1206,6 +1212,8 @@ jobs:
     # by about 1.35).
     timeout-minutes: 75
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1265,6 +1273,8 @@ jobs:
     # at quota (estimate, see mk/stages.mk).
     timeout-minutes: 75
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1324,6 +1334,8 @@ jobs:
     # is 15 (-timeout=900s), and the tfwsim builds ~3. 10 + 18, plus margin.
     timeout-minutes: 35
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1406,6 +1418,8 @@ jobs:
     # 10 + 11, plus margin.
     timeout-minutes: 35
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1482,6 +1496,8 @@ jobs:
     # run 68240): 10 + 3 = 13, plus margin.
     timeout-minutes: 30
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1548,6 +1564,8 @@ jobs:
     # timeout stays.
     timeout-minutes: 150
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
       IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1821,6 +1839,8 @@ jobs:
     if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
     timeout-minutes: 45
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       # v1.22: the cache volumes' trust class (as in the image job).
       CI_CACHE_CLASS: ${{ (github.event_name == 'push' || github.event_name == 'schedule') && 'main' || 'pr' }}
@@ -1905,6 +1925,8 @@ jobs:
     # tfwsim against the Go SDK, the example application and the xkms adapter.
     timeout-minutes: 60       # CUSTOMIZE
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       IT_PROJECT: ${{ github.event.repository.name }}-ci-${{ github.run_id }}-${{ github.run_attempt }}
       # CUSTOMIZE (trusted-firmware, Company Agent m644): the image job's trust
@@ -2033,6 +2055,8 @@ jobs:
     runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
     timeout-minutes: 90       # CUSTOMIZE: SOAK_MINUTES plus one iteration
     env:
+      # #323: the sidecar's 8g on gpu-host-d01, as on the image job.
+      IN_IMAGE_MEMORY: ${{ github.server_url == 'https://github.com' && '' || '8g' }}
       SOAK_MINUTES: 30        # CUSTOMIZE
       SOAK_TARGET: integration-test   # CUSTOMIZE: a make target of the integration image
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-

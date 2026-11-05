@@ -162,24 +162,49 @@ static TEE_Result tfw_ta_unseal(uint32_t paramTypes, TEE_Param params[4])
     uint8_t uuid[TFW_BLOB_UUID_LEN];
     uint8_t key[TFW_BLOB_KEY_LEN];
     enum tfw_blob_refusal refusal;
+    uint8_t *blob = NULL;
+    uint8_t *plaintext = NULL;
+    size_t blob_len;
+    size_t scratch_len;
     size_t plaintext_len;
     TEE_Result res;
 
     if (paramTypes != TFW_TA_PT_UNSEAL || !tfw_ta_seal_params_ok(params) ||
         params[0].memref.buffer == NULL)
         return TEE_ERROR_BAD_PARAMETERS;
+    /*
+     * Both memrefs are shared with the normal world: parse a private snapshot of the blob,
+     * and decrypt into private scratch that reaches params[2] only once the tag verifies.
+     * The plaintext is shorter than its blob, so the scratch never needs more than that.
+     */
+    blob_len = params[0].memref.size;
+    scratch_len = params[2].memref.size < blob_len ? params[2].memref.size : blob_len;
     res = tfw_ta_blob_key(uuid, key);
     if (res != TEE_SUCCESS)
         goto out;
-    plaintext_len = params[2].memref.size;
+    blob = TEE_Malloc(blob_len, TEE_MALLOC_FILL_ZERO);
+    plaintext = TEE_Malloc(scratch_len, TEE_MALLOC_FILL_ZERO);
+    if (blob == NULL || plaintext == NULL) {
+        res = TEE_ERROR_OUT_OF_MEMORY;
+        goto out;
+    }
+    TEE_MemMove(blob, params[0].memref.buffer, blob_len);
+    plaintext_len = scratch_len;
     /* TEE_ERROR_MAC_INVALID is a bad tag and TEE_ERROR_BAD_FORMAT every other refusal. */
-    res = tfw_blob_unseal(key, sizeof(key), uuid, sizeof(uuid), params[0].memref.buffer,
-                          params[0].memref.size, params[2].memref.buffer, &plaintext_len,
-                          &refusal);
+    res = tfw_blob_unseal(key, sizeof(key), uuid, sizeof(uuid), blob, blob_len, plaintext,
+                          &plaintext_len, &refusal);
+    if (res == TEE_SUCCESS && plaintext_len != 0u)
+        TEE_MemMove(params[2].memref.buffer, plaintext, plaintext_len);
     if (res == TEE_SUCCESS || res == TEE_ERROR_SHORT_BUFFER)
         params[2].memref.size = plaintext_len;
 out:
     TEE_MemFill(key, 0u, sizeof(key));
+    if (plaintext != NULL)
+        TEE_MemFill(plaintext, 0u, scratch_len);
+    if (blob != NULL)
+        TEE_MemFill(blob, 0u, blob_len);
+    TEE_Free(plaintext);
+    TEE_Free(blob);
     return res;
 }
 

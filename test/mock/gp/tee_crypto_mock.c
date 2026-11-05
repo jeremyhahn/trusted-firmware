@@ -43,12 +43,14 @@ struct __TEE_OperationHandle {
 uint8_t tfw_tee_mock_aad[TFW_TEE_MOCK_AAD_MAX];
 size_t tfw_tee_mock_aad_len;
 int tfw_tee_mock_live;
+void (*tfw_tee_mock_on_decrypt)(void);
 
 void tfw_tee_crypto_mock_reset(void)
 {
     memset(tfw_tee_mock_aad, 0, sizeof(tfw_tee_mock_aad));
     tfw_tee_mock_aad_len = 0u;
     tfw_tee_mock_live = 0;
+    tfw_tee_mock_on_decrypt = NULL;
 }
 
 TEE_Result TEE_AllocateOperation(TEE_OperationHandle *operation, uint32_t algorithm,
@@ -227,6 +229,8 @@ TEE_Result TEE_AEDecryptFinal(TEE_OperationHandle operation, const void *srcData
 
     if (operation->mode != TEE_MODE_DECRYPT || tagLen != operation->tag_len)
         return TEE_ERROR_BAD_PARAMETERS;
+    if (tfw_tee_mock_on_decrypt != NULL)
+        tfw_tee_mock_on_decrypt();
     res = mock_ae_payload(operation, srcData, srcLen, destData, destLen);
     if (res != TEE_SUCCESS)
         return res;
@@ -284,4 +288,29 @@ void TEE_MemFill(void *buffer, uint8_t x, size_t size)
 
     for (i = 0u; i < size; i++)
         p[i] = x;
+}
+
+void TEE_MemMove(void *dest, const void *src, size_t size)
+{
+    memmove(dest, src, size);
+}
+
+/* GP: a zero-size request still answers a pointer, which TEE_Free accepts. */
+void *TEE_Malloc(size_t size, uint32_t hint)
+{
+    void *p;
+
+    (void)hint;
+    p = calloc(1u, size != 0u ? size : 1u);
+    if (p != NULL)
+        tfw_tee_mock_live++;
+    return p;
+}
+
+void TEE_Free(void *buffer)
+{
+    if (buffer == NULL)
+        return;
+    free(buffer);
+    tfw_tee_mock_live--;
 }

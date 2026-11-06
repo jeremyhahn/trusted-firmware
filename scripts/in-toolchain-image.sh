@@ -173,7 +173,7 @@ args=(
 )
 # CUSTOMIZE (trusted-firmware, #323, CA m1923 (e)): a sibling `docker run` is
 # charged to the daemon's cgroup, not the job's, so the runner's slice limits
-# never reach it. Where the runner sets CI_CGROUP_PARENT (gpu-host-d01's
+# never reach it. Where the runner sets CI_CGROUP_PARENT (the bigdisk CI runner's
 # ci.slice), the sidecar joins that slice.
 if [ -n "${CI_CGROUP_PARENT:-}" ]; then args+=(--cgroup-parent "$CI_CGROUP_PARENT"); fi
 modcache=/var/tmp/gomodcache # CUSTOMIZE: /var/tmp, above

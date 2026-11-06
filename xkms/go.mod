@@ -20,7 +20,7 @@ toolchain go1.27.3
 require (
 	github.com/gorilla/mux v1.8.1
 	github.com/jeremyhahn/go-xkms v0.57.0-alpha // held: v0.64.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it, and the graph below moves with it
-	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha
+	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha // held: v0.4.2-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/stretchr/testify v1.12.1
 )
 
@@ -112,7 +112,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/locales v0.14.2 // indirect
 	github.com/go-playground/universal-translator v0.18.2 // indirect
-	github.com/go-playground/validator/v10 v10.30.5 // indirect
+	github.com/go-playground/validator/v10 v10.30.5 // indirect; held: v10.30.6 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.57.0-alpha (its latest, which requires v0.17.4) calls it with one in pkg/acme/challenges/device-attest-01; it moves when go-xkms does
 	github.com/go-webauthn/x v0.3.1 // indirect

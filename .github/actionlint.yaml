@@ -42,3 +42,4 @@ self-hosted-runner:
     - code-review
     - qwen
     - ci-gate
+    - bigdisk

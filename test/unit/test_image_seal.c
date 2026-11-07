@@ -23,12 +23,21 @@
  * test_boot_p256_soft.c. */
 uint8_t tfw_boot_p256_key[64];
 
-/* boot_harness.c's EL_SIGNING_KEY, test_boot_p256_soft.c's el_signing_key: a
- * test key standing in for go-xkms's. Signed at test time; nothing pinned. */
-static const uint8_t signing_key[32] = {
-    0x9E,0x1C,0x4B,0x22,0x70,0xA5,0x33,0xF8,0x0D,0x61,0xB4,0x17,0xCA,0x2E,0x88,0x5D,
-    0x30,0x79,0xE6,0x44,0x12,0xBB,0x57,0x9A,0xC3,0x08,0x6F,0xD1,0x25,0xAE,0x73,0x40
-};
+/* A test key standing in for go-xkms's. Signed at test time; nothing pinned. */
+/* Throwaway key, made by micro-ecc on first use (no private key is in the
+ * tree) and kept for the run, so every case signs with the same key. */
+static uint8_t signing_key[32];
+
+static void make_keys(void)
+{
+    static int made;
+    uint8_t    pub[64];
+
+    if (!made) {
+        TEST_ASSERT_EQUAL_INT(1, uECC_make_key(pub, signing_key, uECC_secp256r1()));
+        made = 1;
+    }
+}
 
 typedef struct { uECC_HashContext uecc; tfw_sha256_t ctx; } hash_ctx_t;
 
@@ -72,6 +81,7 @@ void setUp(void)
 {
     uint32_t i;
 
+    make_keys();
     tfw_boot_mock_reset();
     for (i = 0u; i < sizeof image; i++) {
         image[i] = (uint8_t)(i * 7u + 3u);

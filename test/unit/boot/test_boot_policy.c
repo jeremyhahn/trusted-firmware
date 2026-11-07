@@ -9,8 +9,8 @@
  *
  * Nothing is stubbed out here except the hardware. The measurement is the real
  * SHA-256 over a real flash array; the signature is a real Ed25519 signature
- * produced by the same vendored ed25519-donna that verifies it, under a real
- * RFC 8032 key; the decision is the real tfw_boot_evaluate the device runs.
+ * produced by the same vendored ed25519-donna that verifies it, under a key
+ * made at test time; the decision is the real tfw_boot_evaluate the device runs.
  *
  * The verify seam is supplied by this file rather than linked from
  * boot/verify/verify_ed25519_donna.c, because that unit also owns the public
@@ -32,10 +32,9 @@
 #include "sha256.h"
 #include "ed25519.h"
 
-/* RFC 8032 section 7.1, TEST 2: a real keypair, so nothing here depends on a
- * key this test invented. */
-static const char SECRET_HEX[] =
-    "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
+/* An Ed25519 secret is any 32 bytes: setUp makes it as the SHA-256 of a label,
+ * so no private key is a literal in the tree and nothing is pinned to it. */
+static const char KEY_LABEL[] = "test_boot_policy signing key";
 
 static uint8_t g_secret[32];
 static uint8_t g_public[32];
@@ -74,12 +73,6 @@ tfw_status_t tfw_boot_verify(const uint8_t *msg, uint16_t msglen,
         return TFW_ERR_CRYPTO;
     }
     return TFW_OK;
-}
-
-static uint8_t nib(char c)
-{
-    if (c >= '0' && c <= '9') { return (uint8_t)(c - '0'); }
-    return (uint8_t)((c | 0x20) - 'a' + 10);
 }
 
 #define IMAGE_LEN 2048u
@@ -141,10 +134,7 @@ static void install_signed_image(uint32_t version, uint8_t body_fill)
 
 void setUp(void)
 {
-    for (size_t i = 0u; i < 32u; i++) {
-        g_secret[i] = (uint8_t)((nib(SECRET_HEX[i * 2u]) << 4)
-                                | nib(SECRET_HEX[i * 2u + 1u]));
-    }
+    tfw_sha256((const uint8_t *)KEY_LABEL, (uint16_t)(sizeof KEY_LABEL - 1u), g_secret);
     ed25519_publickey(g_secret, g_public);
     g_pubkey_st          = TFW_OK;
     g_stored_key_verdict = TFW_OK;

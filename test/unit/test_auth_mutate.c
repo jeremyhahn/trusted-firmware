@@ -82,14 +82,9 @@ static const uint8_t SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11
 };
-static const uint8_t OPERATOR_PRIV[32] = {
-    0x4F,0x0C,0x91,0x37,0xA2,0x5E,0x68,0xD3,0x1B,0x74,0xC0,0x29,0xE8,0x56,0x3D,0xAA,
-    0x02,0x9B,0x61,0xF4,0x8E,0x17,0xC5,0x73,0xDA,0x40,0x2C,0xB9,0x85,0x1E,0x6F,0x30
-};
-static const uint8_t STRANGER_PRIV[32] = {
-    0x91,0x3A,0x5C,0xE7,0x08,0xB2,0x6D,0x44,0xF1,0x27,0x9E,0x80,0x35,0xCB,0x1A,0x62,
-    0x7D,0x0F,0xA9,0x53,0xE4,0x16,0xBC,0x29,0x70,0x8A,0x3E,0xD5,0x41,0xF8,0x0B,0x96
-};
+static uint8_t operator_priv[32];
+static uint8_t stranger_priv[32];
+static uint8_t stranger_pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
 static uint8_t operator_pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
 static uint8_t pristine[TFW_EEPROM_SIZE];
 
@@ -156,7 +151,8 @@ void setUp(void)
     tfw_boot_platform_t plat;
 
     tfw_model_reset();
-    TEST_ASSERT_TRUE(tfw_model_p256_public(OPERATOR_PRIV, operator_pub));
+    tfw_model_p256_key("operator", operator_priv, operator_pub);
+    tfw_model_p256_key("stranger", stranger_priv, stranger_pub);
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, SERIAL, sizeof SERIAL);
     memcpy(plat.operator_pubkey, operator_pub, sizeof operator_pub);
@@ -181,13 +177,13 @@ static void sign(const uint8_t priv[32], const uint8_t n[TFW_AUTH_NONCE_LEN], ui
 {
     uint8_t digest[32];
 
-    if (priv == OPERATOR_PRIV && cached && memcmp(cached_nonce, n, sizeof cached_nonce) == 0) {
+    if (priv == operator_priv && cached && memcmp(cached_nonce, n, sizeof cached_nonce) == 0) {
         memcpy(sig, cached_sig, TFW_AUTH_SIG_LEN);
         return;
     }
     auth_digest(n, digest);
     TEST_ASSERT_TRUE(tfw_model_p256_sign(priv, digest, sig));
-    if (priv == OPERATOR_PRIV) {
+    if (priv == operator_priv) {
         memcpy(cached_nonce, n, sizeof cached_nonce);
         memcpy(cached_sig, sig, TFW_AUTH_SIG_LEN);
         cached = 1u;
@@ -311,7 +307,7 @@ static void genuine(uint8_t sig[TFW_AUTH_SIG_LEN])
 {
     fresh();
     challenge();
-    sign(OPERATOR_PRIV, nonce, sig);
+    sign(operator_priv, nonce, sig);
 }
 
 /* A response to the outstanding challenge; if refused, the gate stays shut. */
@@ -385,12 +381,12 @@ static void test_mutated_responses_never_open_the_gate(void)
     /* the stranger's signature over the right nonce, and the operator's over
      * the wrong one */
     genuine(sig);
-    sign(STRANGER_PRIV, nonce, buf);
+    sign(stranger_priv, nonce, buf);
     try_response(buf, TFW_AUTH_SIG_LEN);
     genuine(sig);
     memcpy(sig, nonce, sizeof nonce);
     sig[0] ^= 1u;
-    sign(OPERATOR_PRIV, sig, buf);
+    sign(operator_priv, sig, buf);
     try_response(buf, TFW_AUTH_SIG_LEN);
 
     /* pure random payloads of every length, to both AUTH commands */
@@ -427,7 +423,7 @@ static void mutate_gated(unsigned k, uint8_t with_session)
     fresh();
     if (with_session) {
         challenge();
-        sign(OPERATOR_PRIV, nonce, sig);
+        sign(operator_priv, nonce, sig);
         TEST_ASSERT_EQUAL(TFW_OK, feed(K_RESPONSE, sig, TFW_AUTH_SIG_LEN));
     }
 
@@ -507,19 +503,19 @@ static void test_auth_in_any_order_keeps_the_gate(void)
                 feed(K_CHALLENGE, NULL, 0u);
                 break;
             case 2u:                                        /* genuine, or one bit off */
-                sign(OPERATOR_PRIV, nonce, p);
+                sign(operator_priv, nonce, p);
                 if (rnd() % 3u == 0u) { p[rnd() % TFW_AUTH_SIG_LEN] ^= (uint8_t)(1u << (rnd() % 8u)); }
                 feed(K_RESPONSE, p, TFW_AUTH_SIG_LEN);
                 break;
             case 3u:                                        /* stale */
                 if (have_old) {
-                    sign(OPERATOR_PRIV, old_nonce, p);
+                    sign(operator_priv, old_nonce, p);
                     feed(K_RESPONSE, p, TFW_AUTH_SIG_LEN);
                 }
                 break;
             case 4u:                                        /* foreign, or noise */
                 if (rnd() % 4u == 0u) {
-                    sign(STRANGER_PRIV, nonce, p);
+                    sign(stranger_priv, nonce, p);
                     n = TFW_AUTH_SIG_LEN;
                 } else {
                     n = rnd() % (PAYLOAD_LIMIT + 1u);
@@ -561,7 +557,7 @@ static void test_authentication_still_opens_the_gate_after_the_run(void)
 
     gate_is_closed();
     challenge();
-    sign(OPERATOR_PRIV, nonce, sig);
+    sign(operator_priv, nonce, sig);
     TEST_ASSERT_EQUAL(TFW_OK, feed(K_RESPONSE, sig, TFW_AUTH_SIG_LEN));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
     TEST_ASSERT_EQUAL(TFW_OK, feed(K_READ, read0, 3u));

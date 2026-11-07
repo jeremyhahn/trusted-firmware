@@ -29,11 +29,8 @@
 
 #define SLOT_IMAGE_SIGNING 2u
 
-static const uint8_t OPERATOR_PRIV[32] = {
-    0x51, 0x9b, 0x42, 0x3d, 0x71, 0x5f, 0x8b, 0x58, 0x1f, 0x4f, 0xa8, 0xee,
-    0x59, 0xf4, 0x77, 0x1a, 0x5b, 0x44, 0xc8, 0x13, 0x0b, 0x4e, 0x3e, 0xac,
-    0xca, 0x54, 0xa5, 0x6d, 0xda, 0x72, 0xb4, 0x64,
-};
+/* The operator's pair, made in setUp: no private key is a literal. */
+static uint8_t g_priv[32];
 
 static const uint8_t MSG[] = "tfw-boot trailer v1, signed bytes";
 #define MSG_LEN ((uint16_t)(sizeof MSG - 1u))
@@ -46,9 +43,9 @@ void setUp(void)
 {
     tfw_model_reset();
     tfw_boot_mock_reset();
-    TEST_ASSERT_EQUAL_INT(1, tfw_model_p256_public(OPERATOR_PRIV, g_pub));
+    tfw_model_p256_key("operator", g_priv, g_pub);
     tfw_sha256(MSG, MSG_LEN, g_digest);
-    TEST_ASSERT_EQUAL_INT(1, tfw_model_p256_sign(OPERATOR_PRIV, g_digest, g_sig));
+    TEST_ASSERT_EQUAL_INT(1, tfw_model_p256_sign(g_priv, g_digest, g_sig));
 }
 void tearDown(void) {}
 

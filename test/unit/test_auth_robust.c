@@ -90,14 +90,9 @@ static const uint8_t SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11
 };
-static const uint8_t OPERATOR_PRIV[32] = {
-    0x4F,0x0C,0x91,0x37,0xA2,0x5E,0x68,0xD3,0x1B,0x74,0xC0,0x29,0xE8,0x56,0x3D,0xAA,
-    0x02,0x9B,0x61,0xF4,0x8E,0x17,0xC5,0x73,0xDA,0x40,0x2C,0xB9,0x85,0x1E,0x6F,0x30
-};
-static const uint8_t STRANGER_PRIV[32] = {
-    0x91,0x3A,0x5C,0xE7,0x08,0xB2,0x6D,0x44,0xF1,0x27,0x9E,0x80,0x35,0xCB,0x1A,0x62,
-    0x7D,0x0F,0xA9,0x53,0xE4,0x16,0xBC,0x29,0x70,0x8A,0x3E,0xD5,0x41,0xF8,0x0B,0x96
-};
+static uint8_t operator_priv[32];
+static uint8_t stranger_priv[32];
+static uint8_t stranger_pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
 static uint8_t operator_pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
 static uint8_t pristine[TFW_EEPROM_SIZE];
 
@@ -168,13 +163,13 @@ static void sign(const uint8_t priv[32], const uint8_t n[TFW_AUTH_NONCE_LEN], ui
 {
     uint8_t digest[32];
 
-    if (priv == OPERATOR_PRIV && have_genuine && memcmp(genuine_nonce, n, sizeof genuine_nonce) == 0) {
+    if (priv == operator_priv && have_genuine && memcmp(genuine_nonce, n, sizeof genuine_nonce) == 0) {
         memcpy(sig, genuine_sig, TFW_AUTH_SIG_LEN);
         return;
     }
     auth_digest(n, digest);
     TEST_ASSERT_TRUE(tfw_model_p256_sign(priv, digest, sig));
-    if (priv == OPERATOR_PRIV) {
+    if (priv == operator_priv) {
         memcpy(genuine_nonce, n, sizeof genuine_nonce);
         memcpy(genuine_sig, sig, TFW_AUTH_SIG_LEN);
         have_genuine = 1u;
@@ -273,7 +268,8 @@ void setUp(void)
     tfw_boot_platform_t plat;
 
     tfw_model_reset();
-    TEST_ASSERT_TRUE(tfw_model_p256_public(OPERATOR_PRIV, operator_pub));
+    tfw_model_p256_key("operator", operator_priv, operator_pub);
+    tfw_model_p256_key("stranger", stranger_priv, stranger_pub);
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, SERIAL, sizeof SERIAL);
     memcpy(plat.operator_pubkey, operator_pub, sizeof operator_pub);
@@ -311,7 +307,7 @@ static void response(const uint8_t sig[TFW_AUTH_SIG_LEN])
     unsigned     len;
 
     if (pending) {
-        sign(OPERATOR_PRIV, nonce, genuine);        /* the cached one, or made now */
+        sign(operator_priv, nonce, genuine);        /* the cached one, or made now */
         want_ok = (uint8_t)(memcmp(sig, genuine, TFW_AUTH_SIG_LEN) == 0);
     }
     st = request(TFW_CMD_AUTH_RESPONSE, sig, TFW_AUTH_SIG_LEN, NULL, &len);
@@ -432,12 +428,12 @@ static void step(void)
         break;
     case O_GENUINE:
     case O_SECOND:                                  /* genuine twice in a row */
-        sign(OPERATOR_PRIV, pending ? nonce : (have_old ? old_nonce : nonce), p);
+        sign(operator_priv, pending ? nonce : (have_old ? old_nonce : nonce), p);
         response(p);
         if (op == O_SECOND) { response(p); }
         break;
     case O_FLIPPED:
-        sign(OPERATOR_PRIV, nonce, p);
+        sign(operator_priv, nonce, p);
         n = rnd() % (TFW_AUTH_SIG_LEN * 8u);
         p[n / 8u] ^= (uint8_t)(1u << (n % 8u));
         response(p);
@@ -452,11 +448,11 @@ static void step(void)
         } else {
             random_fill(other, sizeof other);
         }
-        sign(OPERATOR_PRIV, other, p);
+        sign(operator_priv, other, p);
         response(p);
         break;
     case O_STRANGER:
-        sign(STRANGER_PRIV, nonce, p);
+        sign(stranger_priv, nonce, p);
         response(p);
         break;
     case O_REPLAY:
@@ -468,7 +464,7 @@ static void step(void)
         response(p);
         break;
     case O_BAD_LEN:                                 /* truncated or extended genuine */
-        sign(OPERATOR_PRIV, nonce, p);
+        sign(operator_priv, nonce, p);
         do { n = rnd() % (TFW_MAX_PAYLOAD + 1u); } while (n == TFW_AUTH_SIG_LEN);
         if (n > TFW_AUTH_SIG_LEN) { random_fill(p + TFW_AUTH_SIG_LEN, n - TFW_AUTH_SIG_LEN); }
         expect(TFW_ERR_BAD_ARGC, request(TFW_CMD_AUTH_RESPONSE, p, n, NULL, &len));
@@ -558,13 +554,13 @@ static void test_named_hostile_sequences(void)
     challenge();
     memcpy(first, nonce, sizeof first);
     challenge();
-    sign(OPERATOR_PRIV, first, p);
+    sign(operator_priv, first, p);
     response(p);                                    /* CRYPTO unless the nonces collide */
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 
     /* Granted, then a second response to the same challenge changes nothing. */
     challenge();
-    sign(OPERATOR_PRIV, nonce, p);
+    sign(operator_priv, nonce, p);
     response(p);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
     expect(TFW_ERR_CRYPTO, request(TFW_CMD_AUTH_RESPONSE, p, sizeof p, NULL, &len));
@@ -579,7 +575,7 @@ static void test_named_hostile_sequences(void)
     /* A truncated response leaves the challenge standing; the genuine one
      * then still opens the gate. */
     challenge();
-    sign(OPERATOR_PRIV, nonce, p);
+    sign(operator_priv, nonce, p);
     expect(TFW_ERR_BAD_ARGC, request(TFW_CMD_AUTH_RESPONSE, p, TFW_AUTH_SIG_LEN - 1u, NULL, &len));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
     response(p);
@@ -602,7 +598,7 @@ static void test_failed_challenge_drops_the_session(void)
 
     challenge();
     memcpy(first, nonce, sizeof first);
-    sign(OPERATOR_PRIV, first, p);
+    sign(operator_priv, first, p);
     response(p);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
 
@@ -673,7 +669,7 @@ static void test_a_short_response_is_refused_and_the_challenge_stays_outstanding
     unsigned written = 99u;
 
     TEST_ASSERT_EQUAL(TFW_OK, direct_challenge(n, &written));
-    sign(OPERATOR_PRIV, n, sig);
+    sign(operator_priv, n, sig);
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_ARGC, direct_response(sig, TFW_AUTH_SIG_LEN - 1u, &written));
     TEST_ASSERT_EQUAL_UINT(0u, written);
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
@@ -691,8 +687,8 @@ static void test_a_rejected_signature_writes_nothing_and_spends_the_challenge(vo
     unsigned written = 99u;
 
     TEST_ASSERT_EQUAL(TFW_OK, direct_challenge(n, &written));
-    sign(STRANGER_PRIV, n, bad);
-    sign(OPERATOR_PRIV, n, good);
+    sign(stranger_priv, n, bad);
+    sign(operator_priv, n, good);
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, direct_response(bad, TFW_AUTH_SIG_LEN, &written));
     TEST_ASSERT_EQUAL_UINT(0u, written);
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
@@ -711,7 +707,7 @@ static void test_an_element_lost_before_the_verify_refuses_and_spends_the_challe
     tfw_status_t st;
 
     TEST_ASSERT_EQUAL(TFW_OK, direct_challenge(n, &written));
-    sign(OPERATOR_PRIV, n, sig);
+    sign(operator_priv, n, sig);
     tfw_model_set_absent(1u);
     st = direct_response(sig, TFW_AUTH_SIG_LEN, &written);
     tfw_model_set_absent(0u);

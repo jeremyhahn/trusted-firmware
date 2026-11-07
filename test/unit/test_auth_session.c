@@ -77,18 +77,13 @@ static const uint8_t SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11
 };
-/* The operator's key pair. The private half exists only in this test, as it
+/* The operator's key pair, made in setUp. The private half exists only in this test, as it
  * only ever exists in the operator's custody; the device holds the public
  * half, baked into the platform block. */
-static const uint8_t OPERATOR_PRIV[32] = {
-    0x4F,0x0C,0x91,0x37,0xA2,0x5E,0x68,0xD3,0x1B,0x74,0xC0,0x29,0xE8,0x56,0x3D,0xAA,
-    0x02,0x9B,0x61,0xF4,0x8E,0x17,0xC5,0x73,0xDA,0x40,0x2C,0xB9,0x85,0x1E,0x6F,0x30
-};
+static uint8_t operator_priv[32];
 /* A key the device has never been told about. */
-static const uint8_t STRANGER_PRIV[32] = {
-    0x91,0x3A,0x5C,0xE7,0x08,0xB2,0x6D,0x44,0xF1,0x27,0x9E,0x80,0x35,0xCB,0x1A,0x62,
-    0x7D,0x0F,0xA9,0x53,0xE4,0x16,0xBC,0x29,0x70,0x8A,0x3E,0xD5,0x41,0xF8,0x0B,0x96
-};
+static uint8_t stranger_priv[32];
+static uint8_t stranger_pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
 static uint8_t operator_pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
 
 void setUp(void)
@@ -99,7 +94,8 @@ void setUp(void)
     tfw_model_reset();
     tfw_model_provision();
 
-    TEST_ASSERT_TRUE(tfw_model_p256_public(OPERATOR_PRIV, operator_pub));
+    tfw_model_p256_key("operator", operator_priv, operator_pub);
+    tfw_model_p256_key("stranger", stranger_priv, stranger_pub);
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, SERIAL, sizeof SERIAL);
     memcpy(plat.operator_pubkey, operator_pub, sizeof operator_pub);
@@ -221,7 +217,7 @@ static void test_an_unreadable_platform_block_gives_a_zero_operator_key(void)
 
 static void test_a_valid_signature_grants_the_session(void)
 {
-    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(OPERATOR_PRIV));
+    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(operator_priv));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
 }
 
@@ -232,7 +228,7 @@ static void test_the_response_forwards_the_signature_and_the_baked_operator_key(
     uint8_t nonce[TFW_AUTH_NONCE_LEN], sig[TFW_AUTH_SIG_LEN];
 
     TEST_ASSERT_EQUAL(TFW_OK, challenge(nonce));
-    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);
+    sign_challenge(operator_priv, SERIAL, nonce, sig);
     TEST_ASSERT_EQUAL(TFW_OK, response(sig));
     TEST_ASSERT_EQUAL_UINT8_ARRAY(sig, tfw_model_verify_last_sig(), TFW_AUTH_SIG_LEN);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(operator_pub, tfw_model_verify_last_pubkey(),
@@ -245,7 +241,7 @@ static void test_the_response_forwards_the_signature_and_the_baked_operator_key(
  * signer: the element verifies against the baked key and says no. */
 static void test_a_signature_from_another_key_is_refused(void)
 {
-    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, authenticate_with(STRANGER_PRIV));
+    TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, authenticate_with(stranger_priv));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
 
@@ -255,7 +251,7 @@ static void test_a_corrupted_signature_is_refused_and_leaves_the_gate_closed(voi
     uint8_t nonce[TFW_AUTH_NONCE_LEN], sig[TFW_AUTH_SIG_LEN];
 
     TEST_ASSERT_EQUAL(TFW_OK, challenge(nonce));
-    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);
+    sign_challenge(operator_priv, SERIAL, nonce, sig);
     sig[40] ^= 0x01u;
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, response(sig));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
@@ -271,7 +267,7 @@ static void test_a_signature_made_for_another_device_is_refused(void)
     uint8_t nonce[TFW_AUTH_NONCE_LEN], sig[TFW_AUTH_SIG_LEN];
 
     TEST_ASSERT_EQUAL(TFW_OK, challenge(nonce));
-    sign_challenge(OPERATOR_PRIV, other, nonce, sig);
+    sign_challenge(operator_priv, other, nonce, sig);
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, response(sig));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
@@ -283,7 +279,7 @@ static void test_a_signature_over_an_earlier_challenge_is_refused(void)
     uint8_t first[TFW_AUTH_NONCE_LEN], second[TFW_AUTH_NONCE_LEN], sig[TFW_AUTH_SIG_LEN];
 
     TEST_ASSERT_EQUAL(TFW_OK, challenge(first));
-    sign_challenge(OPERATOR_PRIV, SERIAL, first, sig);
+    sign_challenge(operator_priv, SERIAL, first, sig);
     TEST_ASSERT_EQUAL(TFW_OK, challenge(second));   /* the host moves on */
     /* The premise: the element's TRNG gave a different nonce. */
     TEST_ASSERT_FALSE(memcmp(first, second, TFW_AUTH_NONCE_LEN) == 0);
@@ -294,7 +290,7 @@ static void test_a_signature_over_an_earlier_challenge_is_refused(void)
 
 static void test_a_fresh_challenge_drops_an_existing_session(void)
 {
-    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(OPERATOR_PRIV));
+    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(operator_priv));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_auth_gate());
 
     TEST_ASSERT_EQUAL(TFW_OK, challenge(0));   /* asking again re-arms and revokes */
@@ -307,7 +303,7 @@ static void test_a_response_with_no_challenge_outstanding_is_refused(void)
 {
     uint8_t nonce[TFW_AUTH_NONCE_LEN] = { 0 }, sig[TFW_AUTH_SIG_LEN];
 
-    sign_challenge(OPERATOR_PRIV, SERIAL, nonce, sig);   /* a good signature */
+    sign_challenge(operator_priv, SERIAL, nonce, sig);   /* a good signature */
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, response(sig));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, tfw_auth_gate());
 }
@@ -339,7 +335,7 @@ static void test_reserved_region_read_is_refused_before_authentication(void)
 
 static void test_reserved_region_read_succeeds_after_authentication(void)
 {
-    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(OPERATOR_PRIV));
+    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(operator_priv));
 
     TEST_ASSERT_EQUAL(TFW_OK, eeprom_read(0u, 4u));
 }
@@ -362,7 +358,7 @@ static void test_reset_mode_1_is_refused_without_a_session(void)
 
 static void test_reset_mode_1_is_accepted_with_a_session(void)
 {
-    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(OPERATOR_PRIV));
+    TEST_ASSERT_EQUAL(TFW_OK, authenticate_with(operator_priv));
 
     TEST_ASSERT_EQUAL(TFW_OK, reset_bootloader());
     TEST_ASSERT_TRUE(tfw_sys_reset_pending());

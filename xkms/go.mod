@@ -145,9 +145,9 @@ require (
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jackc/pgx/v5 v5.11.0 // indirect
 	github.com/jeremyhahn/arduino-generic/sdk/go v0.7.0-alpha // indirect
-	github.com/jeremyhahn/go-codec v1.4.0 // indirect
+	github.com/jeremyhahn/go-codec v1.5.1-alpha // indirect
 	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.8.0-rc.2 removes enclave.MemoryEnclave, which go-quicraft v0.22.0-alpha, go-truststrap v0.6.0-alpha and go-objstore v0.4.0-alpha (this graph's, via go-xkms v0.57.0-alpha) still call; v0.9.0-alpha is not in the factory module cache, so no build against it was tried; every one of go-xkms, go-qrdb, go-quicraft, go-truststrap and go-objstore requires v0.8.0-alpha, so it moves when they do
-	github.com/jeremyhahn/go-frost v0.3.0-alpha // indirect
+	github.com/jeremyhahn/go-frost v0.3.1-alpha // indirect
 	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect
 	github.com/jeremyhahn/go-qrdb v0.50.0-alpha // indirect
 	github.com/jeremyhahn/go-qrdb/sdk/go v0.50.0-alpha // indirect

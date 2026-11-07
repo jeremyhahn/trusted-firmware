@@ -425,6 +425,11 @@ env:
   # v1.24 (CA m749, m751 (a)): the files a docs-only PR may touch. CUSTOMIZE: narrow it
   # in a repo that embeds or generates from docs/ (go:embed, OpenAPI, protos).
   DOCS_ONLY_PATTERN: '(\.md$|^docs/)'
+  # DS-7345 (CA m2047(5), DS-7330 option B): the LAN Go module proxy on
+  # <host>, the repository variable GO_MODULE_PROXY (a LAN address, so it is
+  # never written in the tree). Image builds and bridge stages put it first in
+  # GOPROXY; empty on the Gitea mirror, where DEVCACHE_GOPROXY still applies.
+  GO_MODULE_PROXY: ${{ vars.GO_MODULE_PROXY }}
 
 jobs:
   # v1.24 (CA m749, m751 (a)): a PR whose every changed file matches DOCS_ONLY_PATTERN
@@ -657,23 +662,26 @@ jobs:
   # (in-toolchain-image.sh v2, ci-standard.md §6), so a stage writes its
   # caches there and not into its container's layer.
   #
-  # The forge credentials reach the image build only as the gomodauth BuildKit
-  # secret, from a file outside the context that the job removes.
-  # No step and no make target prints that file, the job environment (`env`,
-  # `printenv`, `set -x`) or a matched line: `make stage-gomodauth` and the
-  # file writes run silent, and lint steps and `make check-public-literals`
+  # DS-7345: no module credential reaches the image build. The modules come
+  # from GO_MODULE_PROXY (see env above) as the GO_BUILD_PROXY build argument;
+  # the Makefile's optional gomodauth secret (MODULE_ENV_FILE) is for local
+  # builds only.
+  # No step and no make target prints the job environment (`env`,
+  # `printenv`, `set -x`) or a matched line: `make stage-gomodauth`
+  # runs silent, and lint steps and `make check-public-literals`
   # report path and line only (ci-standard.md §5, Company Agent m605 item 8).
   #
   # Runners: the image and integration jobs run on bigdisk (Docker and the disk
-  # for the image builds) and CI Gate on ci-gate; on the github.com mirror all
-  # are ubuntu-latest, which has Docker (devops.md §1: host-specific choices
-  # are guarded on github.server_url).
+  # for the image builds) and CI Gate on ci-gate; on github.com the image jobs
+  # run on a self-hosted runner, which reaches GO_MODULE_PROXY on the LAN
+  # (DS-7345), and CI Gate on ubuntu-latest (devops.md §1: host-specific
+  # choices are guarded on github.server_url).
   image:
     # CUSTOMIZE (trusted-firmware, owner m751 (d), ci-standard.md §10 (d)): this
     # job builds the run's images once and runs the short stages; the long
     # stages are the legs below, each `needs: image`, run side by side.
     name: Devcontainer image [lint, build, trivy image]
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     needs: [changes, schedule-guard]   # v1.24 (CA m749, m751 (a)); v1.29.3
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
     if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
@@ -759,24 +767,24 @@ jobs:
         env:
           DOCS_ONLY: ${{ needs.changes.outputs.docs_only }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
           if [ "$DOCS_ONLY" = true ]; then # CUSTOMIZE (trusted-firmware, DS-3166)
-            make docker-image-toolchain ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
+            make docker-image-toolchain ${bp:+"$bp"}
           else
-            make docker-images ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-            make docker-build-it ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_IMAGE="$IT_IMAGE"
+            make docker-images ${bp:+"$bp"}
+            make docker-build-it ${bp:+"$bp"} IT_IMAGE="$IT_IMAGE"
           fi
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV" # CUSTOMIZE: the esp32 stages
           if [ "$DOCS_ONLY" != true ]; then # CUSTOMIZE (trusted-firmware, DS-3166)
@@ -1092,7 +1100,7 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env" it-image.tar
+          rm -f it-image.tar
           [ -z "${IT_LEASE:-}" ] || docker rm "$IT_LEASE" >/dev/null || true
           # CUSTOMIZE (trusted-firmware, Company Agent m644): the registry
           # login. The hash-tagged images stay: other runs share them.
@@ -1141,7 +1149,7 @@ jobs:
     name: Unit [make test-shard-1]
     needs: [image, schedule-guard]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE (ruling 218(9), the shard rebalance): host-test, board-sweep,
     # test-asan-boot: about 23 min green, 30 at quota (estimate, see
     # mk/stages.mk). Kept at the 110 that #248 set for the unsharded job.
@@ -1170,19 +1178,19 @@ jobs:
 
       - name: Reuse the toolchain image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-toolchain ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # The test stage (m601 (c)), shard 1: see above the job.
@@ -1192,14 +1200,13 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   unit-shard-2:
     name: Unit [make test-shard-2]
     needs: [image, schedule-guard]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE (ruling 218(9), the shard rebalance): boot-test, coverage,
     # verify-vectors, xkms-coverage, sdk-coverage, scripts-test: about 25.5
     # min green (21.5 before, plus boot-test's ~4), about 35 at quota (scaled
@@ -1229,19 +1236,19 @@ jobs:
 
       - name: Reuse the toolchain image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-toolchain ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # The test stage (m601 (c)), shard 2: see above unit-shard-1.
@@ -1251,14 +1258,13 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   unit-shard-3:
     name: Unit [make test-shard-3]
     needs: [image, schedule-guard]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE (ruling 218(9), the shard rebalance): test-asan-host alone.
     # test-asan whole was 30.5 min green, about 47 at quota (38 in #256's
     # run); its host half, 242 of its 338 binaries, is about 23 green and 32
@@ -1288,19 +1294,19 @@ jobs:
 
       - name: Reuse the toolchain image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-toolchain ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # The test stage (m601 (c)), shard 3: see above unit-shard-1.
@@ -1310,7 +1316,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   sdk-race:
@@ -1319,7 +1324,7 @@ jobs:
     name: sdk/go under -race [cross-implementation suite]
     needs: [image, schedule-guard]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE: 5 min on run 245908 (19:50 to 19:55); the suite's own bound
     # is 15 (-timeout=900s), and the tfwsim builds ~3. 10 + 18, plus margin.
     timeout-minutes: 35
@@ -1347,19 +1352,19 @@ jobs:
 
       - name: Reuse the toolchain image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-toolchain ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race, with the
@@ -1391,7 +1396,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   security:
@@ -1401,7 +1405,7 @@ jobs:
     name: Security [make security]
     needs: [image, schedule-guard]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908).
     # 10 + 11, plus margin.
     timeout-minutes: 35
@@ -1429,19 +1433,19 @@ jobs:
 
       - name: Reuse the toolchain image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-toolchain ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # make security: gosec, govulncheck, go mod verify (devops.md §8), with
@@ -1457,7 +1461,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   esp32-build:
@@ -1476,7 +1479,7 @@ jobs:
     # main is found at the merge, not the next night.
     needs: [changes, image, schedule-guard]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.esp32 == 'true')) && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE (ruling 220(j)): the 10 min before the stages that the
     # esp32-qemu-test job's sum below counts, then esp32-build (2 min 39 s in
     # run 68240): 10 + 3 = 13, plus margin.
@@ -1505,19 +1508,19 @@ jobs:
 
       - name: Reuse the esp32 image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-esp32 ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-esp32 ${bp:+"$bp"}
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
 
       # The ESP32-P4 firmware, built in the esp32 image.
@@ -1527,7 +1530,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   esp32-qemu-test:
@@ -1539,7 +1541,7 @@ jobs:
     name: ESP32 QEMU Test [esp32-qemu-test]
     needs: [image, schedule-guard]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
     # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
     # esp32 run, where one OTA stream takes ~12, was 24 min in at the kill
@@ -1571,19 +1573,19 @@ jobs:
 
       - name: Reuse the esp32 image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-esp32 ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-esp32 ${bp:+"$bp"}
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
 
       # The esp32-qemu firmware, built in the esp32 image and run under
@@ -1594,7 +1596,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   optee-stack:
@@ -1612,7 +1613,7 @@ jobs:
     # on a runner labelled `go-warm`, and the optee job, on a `bigdisk` runner
     # without it, failed `Failed to restore cache entry`. Each runner has its
     # own cache server, so both jobs run on `go-warm`.
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'go-warm' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'go-warm' }}
     # CUSTOMIZE: run 70765, the one job built cold: setup, image and restore
     # miss 2 min, optee-tools 5, optee-qemu 133, the copy out of the
     # container 13 and the actions/cache save over 2: 2 + 5 + 133 + 13 + 2 =
@@ -1663,19 +1664,19 @@ jobs:
       - name: Reuse the optee image
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-optee ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-optee ${bp:+"$bp"}
           echo "OPTEE_IMAGE=$(make -s optee-image)" >> "$GITHUB_ENV"
 
       # On a miss only: one container builds the stack into an empty cache
@@ -1692,7 +1693,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   optee:
@@ -1720,7 +1720,7 @@ jobs:
     # on a runner labelled `go-warm`, and this job, on a `bigdisk` runner
     # without it, failed `Failed to restore cache entry`. Each runner has its
     # own cache server, so both jobs run on `go-warm`.
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'go-warm' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'go-warm' }}
     # CUSTOMIZE: run 70765 on a cold cache: setup and image 2 min,
     # integration-test-optee 26. Warm, the restore and the copy into the
     # container add about what the save (over 2) and the copy out (13) took,
@@ -1769,19 +1769,19 @@ jobs:
 
       - name: Reuse the optee image
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-optee ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-optee ${bp:+"$bp"}
           echo "OPTEE_IMAGE=$(make -s optee-image)" >> "$GITHUB_ENV"
 
       # One container, so the cache is copied in once (IN_IMAGE_CACHE in
@@ -1800,7 +1800,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config"
 
   # v1.27 (Company Agent m1192 (6), item 27; ruling 211): a repository's
@@ -1814,7 +1813,7 @@ jobs:
   # docs-only path does; this job never needs the integration image.
   lint-gates:
     name: Lint Gates [toolchain image]
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     needs: schedule-guard     # v1.29.3
     # v1.26: never on a draft. v1.29.3: on a schedule run, only on the
     # schedule guard's `run`.
@@ -1857,19 +1856,19 @@ jobs:
       - name: Build the toolchain image
         if: ${{ steps.probe.outputs.has_target == 'true' }}
         run: |
-          ( umask 077; : > "$RUNNER_TEMP/gomodauth.env"
-            for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-              if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-            done )
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
+          # DS-7345 (CA m2047(5), DS-7330 option B): on github.com the modules come
+          # from the LAN module proxy on <host>, the repository variable
+          # GO_MODULE_PROXY; no module credential reaches the build.
           bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
+          if [ -n "${GO_MODULE_PROXY:-}" ]; then
+            bp="GO_BUILD_PROXY=$GO_MODULE_PROXY|https://proxy.golang.org|direct"
+          elif [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
             bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
           fi
-          make docker-image-toolchain ${bp:+"$bp"} MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env"
-          rm -f "$RUNNER_TEMP/gomodauth.env"
+          make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # v1.22: bound this repo's cache volumes (as in the image job).
@@ -1884,9 +1883,6 @@ jobs:
           IN_IMAGE_NETWORK: none   # CUSTOMIZE: bridge when a gate needs the module proxy or a network
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make lint-gates GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
-      - name: Tear down
-        if: always()
-        run: rm -f "$RUNNER_TEMP/gomodauth.env"
 
   # Integration tests run in the integration image (ci-standard.md §2), as a
   # compose stack on the runner host started by `make integration-test`. The
@@ -1899,7 +1895,7 @@ jobs:
     # only on the schedule guard's `run`.
     needs: schedule-guard
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')) && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     # CUSTOMIZE: trusted-firmware: full tier (#293; handbook sdlc.md §5a). The suite is
     # `make integration-test-host`: the real AVR images under simavr, and
     # tfwsim against the Go SDK, the example application and the xkms adapter.
@@ -1991,14 +1987,6 @@ jobs:
       - name: Log in to the forge registry
         run: scripts/ci-registry-login.sh
 
-      - name: Write the module credential file
-        run: |
-          umask 077
-          : > "$RUNNER_TEMP/gomodauth.env"
-          for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-            if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-          done
-
       - name: make integration-test (integration image)
         run: |
           if [ -n "${IT_LEASE_ID:-}" ]; then
@@ -2008,12 +1996,11 @@ jobs:
             docker tag "$IT_LEASE_ID" "$IT_IMAGE"
             image_unlock
           fi
-          make integration-test MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_PROJECT="$IT_PROJECT" IT_IMAGE="$IT_IMAGE" GO_BUILD_TAGS="$GO_BUILD_TAGS"
+          make integration-test IT_PROJECT="$IT_PROJECT" IT_IMAGE="$IT_IMAGE" GO_BUILD_TAGS="$GO_BUILD_TAGS"
 
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           rm -rf "$RUNNER_TEMP/docker-config" # CUSTOMIZE (trusted-firmware, m644): the registry login
           # CUSTOMIZE: compose.yaml reads the image as TRUSTED_FIRMWARE_IT_IMAGE.
           TRUSTED_FIRMWARE_IT_IMAGE="$IT_IMAGE" docker compose -f build/docker/devcontainer/compose.yaml -p "$IT_PROJECT" down --volumes || true
@@ -2030,7 +2017,7 @@ jobs:
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
     needs: schedule-guard
     if: ${{ ((github.event_name == 'schedule' && needs.schedule-guard.outputs.verdict == 'run') || github.event_name == 'workflow_dispatch') && !github.event.pull_request.draft }}   # v1.26
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'bigdisk' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'self-hosted' || 'bigdisk' }}
     timeout-minutes: 90       # CUSTOMIZE: SOAK_MINUTES plus one iteration
     env:
       SOAK_MINUTES: 30        # CUSTOMIZE
@@ -2106,14 +2093,6 @@ jobs:
 
       # CUSTOMIZE: host tuning the suite needs goes here, as in the test job.
 
-      - name: Write the module credential file
-        run: |
-          umask 077
-          : > "$RUNNER_TEMP/gomodauth.env"
-          for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-            if [ -n "${!v:-}" ]; then printf '%s=%s\n' "$v" "${!v}" >> "$RUNNER_TEMP/gomodauth.env"; fi
-          done
-
       - name: Soak (integration suite, looped)
         run: |
           if [ -n "${IT_LEASE_ID:-}" ]; then
@@ -2133,7 +2112,7 @@ jobs:
               image_unlock
             fi
             rc=0
-            make "$SOAK_TARGET" MODULE_ENV_FILE="$RUNNER_TEMP/gomodauth.env" IT_PROJECT="$p" IT_IMAGE="$IT_IMAGE" GO_BUILD_TAGS="$GO_BUILD_TAGS" || rc=$?
+            make "$SOAK_TARGET" IT_PROJECT="$p" IT_IMAGE="$IT_IMAGE" GO_BUILD_TAGS="$GO_BUILD_TAGS" || rc=$?
             IT_IMAGE="$IT_IMAGE" docker compose -f build/docker/devcontainer/compose.yaml -p "$p" down --volumes || true
             if [ "$rc" -ne 0 ]; then
               echo "::error::soak iteration $i failed (exit $rc)"
@@ -2145,7 +2124,6 @@ jobs:
       - name: Tear down
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/gomodauth.env"
           if [ -s "$RUNNER_TEMP/soak-project" ]; then
             IT_IMAGE="$IT_IMAGE" docker compose -f build/docker/devcontainer/compose.yaml -p "$(cat "$RUNNER_TEMP/soak-project")" down --volumes || true
           fi

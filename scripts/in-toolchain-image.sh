@@ -194,7 +194,10 @@ fi
 if [ "$network" = bridge ]; then
   # The baked module cache is read-only to the run's user and holds only the
   # root module's build list; the nested modules deps-check walks fetch more.
-  args+=(--env "GOPROXY=${DEVCACHE_GOPROXY:+$DEVCACHE_GOPROXY|}https://proxy.golang.org|direct" --env "GOMODCACHE=$modcache")
+  # DS-7345: GO_MODULE_PROXY (the LAN module proxy, github.com runs) before
+  # DEVCACHE_GOPROXY.
+  mp=${GO_MODULE_PROXY:-${DEVCACHE_GOPROXY:-}}
+  args+=(--env "GOPROXY=${mp:+$mp|}https://proxy.golang.org|direct" --env "GOMODCACHE=$modcache")
   for v in GOPRIVATE GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
     if [ -n "${!v:-}" ]; then args+=(--env "$v"); fi
   done

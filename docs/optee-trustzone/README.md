@@ -258,8 +258,9 @@ One PR each (m751).
    secure storage, or one derived from OP-TEE's hardware unique key; signing
    keys)? On QEMU the hardware unique key is a fixed test value, so nothing
    sealed there is secret. If keys may live there, who owns them alongside
-   go-xkms, and does go-enclave or this project define the blob? Shipped for the
-   sealed blob (#288): go-xkms defines the blob, and the TA holds no stored key,
+   go-xkms, and does go-enclave or this project define the blob? Answered for
+   the sealed blob by owner item 177, option (a) (CA m1656, ruling 251), and
+   shipped in #288: go-xkms defines the blob, and the TA holds no stored key,
    only one derived on each call from the TA unique key. Still open for signing
    keys and anything stored in secure storage.
 2. **TA signing key.** OP-TEE verifies a TA's signature at load. On QEMU,

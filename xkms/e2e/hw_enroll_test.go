@@ -306,7 +306,7 @@ func newRunEnrollment(t *testing.T, target enrollTarget, element *diceElement) *
 
 // runRecord is what a run leaves behind (docs/development/hardware-enrollment.md).
 // It names no address, port or URL: a record is committed, and the bench's
-// are private-fleet values (scripts/releasability.patterns).
+// are private-fleet values (docs/development/releasability.md).
 type runRecord struct {
 	Board       string
 	Transport   string

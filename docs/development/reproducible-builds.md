@@ -26,7 +26,7 @@ So reproducibility is the difference between attestation and ceremony.
 | | why |
 |---|---|
 | `SOURCE_DATE_EPOCH` | pins anything time-derived in the toolchain |
-| `-ffile-prefix-map` | strips the build directory, so `/home/someone/src` does not end up in the image |
+| `-ffile-prefix-map` | strips the build directory, so its absolute path does not end up in the image |
 | `-frandom-seed=$(notdir $<)` | GCC's internal symbol naming is otherwise seeded per invocation |
 | `$(sort …)` over the object list | link order is deterministic, not filesystem order |
 | no `__DATE__`, no `__TIME__` | greped for in `make lint`; either one makes the image unreproducible by construction |

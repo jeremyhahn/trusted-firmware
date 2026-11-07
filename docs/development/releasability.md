@@ -1,7 +1,7 @@
 # Public releasability
 
 > **Status: NORMATIVE** · Scope: `make releasability`, `make releasability-test`,
-> `.gitattributes` · Last verified: 2026-10-15
+> `.gitattributes` · Last verified: 2026-11-07
 
 ```sh
 make releasability        # the gate, on this tree; no network
@@ -17,10 +17,10 @@ tracked file except those `.gitattributes` marks `export-ignore`.
 
 | Class | What it covers | Use instead |
 |---|---|---|
-| `lab-address` | An address on the fleet's subnets | An RFC 5737 documentation address (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) |
-| `lab-host` | A fleet hostname | The role: `bench host`, `CI runner` |
-| `owner-path` | A path under the owner's home directory | A repository-relative path |
-| `owner-account` | The owner's account name on its own | A role, or the module path |
+| `lab-address` | An address on the fleet's subnets (private list) | An RFC 5737 documentation address (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) |
+| `lab-host` | A fleet hostname (private list), or any `.internal`, `.lan` or `home.arpa` name | The role: `bench host`, `CI runner` |
+| `owner-path` | A path under anyone's home directory (`/home/...`, `/Users/...`), or an agent's `.agent-identity` | A repository-relative path <!-- lab-string-ok: names the class, not a path --> |
+| `owner-account` | The owner's account name on its own (private list) | A role, or the module path |
 
 The module path `github.com/jeremyhahn/...` and the organisation path
 `jeremyhahn/<repository>` are not `owner-account`: it is the name standing alone
@@ -32,7 +32,7 @@ Not violations:
   `192.168.1.x` and `10.0.0.x` as addresses that are never dialled. The gate does
   not look at `192.168.0.0/16` at large.
 - **Benchmark provenance.** A measurement is a property of the machine that made
-  it, so "measured on `<host>`, 2026-09-14" is the result's meaning and not a
+  it, so "measured on `core-01`, 2026-09-14" is the result's meaning and not a
   leak. Waive the line (below).
 
 Issue links in docs are relative (`../../../../issues/N` from `docs/<topic>/`,
@@ -41,15 +41,22 @@ forge URL.
 
 ## Where the values live
 
-`scripts/releasability.patterns` is the one list: the fleet's subnets,
-hostnames, path prefixes and the owner's account name, one line each, as
-`class`, `regex` and a waiver. Read them there. Docs and tests point at it and
-do not repeat them; every other tracked file uses neutral fixtures (`bench-host`,
-`198.51.100.x`).
+The gate reads two pattern lists of the same format, one line each as `class`,
+`regex` and a waiver:
 
-Only `scripts/releasability-test.sh` plants fleet values, because they are what
-the gate exists to find. A new value is one line in the pattern list and one
-plant in that test.
+- **Public**, `scripts/releasability.patterns`: generic shapes of a leak that
+  hold for any checkout, such as a path under a home directory or a
+  private-network DNS name. It names no fleet.
+- **Private**, outside the tree: the fleet's subnets, hostnames, path prefixes
+  and the owner's account name. It is `$RELEASABILITY_PRIVATE_PATTERNS` when that
+  is set, else `${XDG_CONFIG_HOME:-$HOME/.config}/trusted-firmware/releasability.patterns`,
+  mode `600`. Set to a path that is not a file, the gate exits 2; set empty, or
+  unset with no file at the default path, only the public list runs, and the
+  gate says so in its last line. Release cuts run where the private list is.
+
+No tracked file writes a fleet value: docs and fixtures use reference values,
+RFC 5737 addresses, RFC 2606 names (`example.com`, `*.test`, `*.invalid`) and
+devices named like `core-01`. A new fleet value is one line in the private list.
 
 ## The gate
 
@@ -59,9 +66,11 @@ matches a pattern. It exits 1 on any. The export-ignored files are listed as
 `file: strip-at-publish`, which is information and not a finding.
 
 `scripts/releasability-test.sh` runs it on throwaway repositories and has no skip
-guard. It proves that a hit in each class fails, that RFC 5737 addresses,
+guard. It writes a stand-in private list of reference values and never reads
+the real one. It proves that a hit from each list fails, that RFC 5737 addresses,
 `192.168.1.x`, module paths and waived lines pass, that an export-ignored file is
-not scanned, and that `git archive` of a tree carrying this repository's
+not scanned, that the private list is found at its default path, that a named
+but missing one is an error, and that `git archive` of a tree carrying this repository's
 `.gitattributes` holds none of the stripped files. It also checks the real
 index: every file below is export-ignored, and no other is.
 

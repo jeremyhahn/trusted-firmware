@@ -32,3 +32,11 @@ __pycache__/
 *.swp
 *~
 .DS_Store
+
+# agent and lane artifacts: tool state, lane records, logs, locks
+.serena/
+lane-records/
+*.lane-record
+*.log
+*.lock
+*.pid

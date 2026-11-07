@@ -32,13 +32,13 @@ require (
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.14.0 // indirect; held: v1.15.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	cloud.google.com/go/kms v1.35.0 // indirect; held: v1.36.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
-	cloud.google.com/go/longrunning v1.3.0 // indirect
+	cloud.google.com/go/longrunning v1.3.0 // indirect; held: v1.5.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	cloud.google.com/go/monitoring v1.31.0 // indirect; held: v1.32.1 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	cloud.google.com/go/storage v1.69.0 // indirect; held: v1.70.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	filippo.io/bigmod v0.1.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/azure-pipeline-go v0.2.3 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect; held: v1.24.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage v1.8.1 // indirect
@@ -104,7 +104,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.6 // indirect; held: v2.10.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect
 	github.com/getsentry/sentry-go v0.50.0 // indirect
-	github.com/gin-contrib/sse v1.1.2 // indirect
+	github.com/gin-contrib/sse v1.1.2 // indirect; held: v1.2.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/gin-gonic/gin v1.12.0 // indirect
 	github.com/go-chi/chi/v5 v5.5.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
@@ -182,7 +182,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/pandatix/go-abnf v0.5.3 // indirect
+	github.com/pandatix/go-abnf v0.5.3 // indirect; held: v0.5.5 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect

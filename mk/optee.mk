@@ -189,7 +189,7 @@ optee-run:
 
 ## integration-test-optee: optee-run with xtest and then tfw-ta-check, which calls the TA's version, rng, SEAL and UNSEAL commands; fails on any failure of either
 # The guest's status is the gate; the console, kept in the cache, must also
-# show both commands answering and every one of the check's 14 cases passing.
+# show both commands answering and every one of the check's 21 cases passing.
 OPTEE_IT_LOG = $(OPTEE_TFW)/integration-test.log
 integration-test-optee:
 	$(optee-cache-check)

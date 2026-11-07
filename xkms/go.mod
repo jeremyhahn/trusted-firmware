@@ -143,7 +143,7 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
 	github.com/hashicorp/vault/api v1.23.0 // indirect
-	github.com/jackc/pgx/v5 v5.11.0 // indirect
+	github.com/jackc/pgx/v5 v5.11.0 // indirect; held: v5.12.0 is not in the factory module cache (only its .mod), so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
 	github.com/jeremyhahn/arduino-generic/sdk/go v0.7.0-alpha // indirect
 	github.com/jeremyhahn/go-codec v1.4.0 // indirect
 	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.8.0-rc.2 removes enclave.MemoryEnclave, which go-quicraft v0.22.0-alpha, go-truststrap v0.6.0-alpha and go-objstore v0.4.0-alpha (this graph's, via go-xkms v0.57.0-alpha) still call; v0.9.0-alpha is not in the factory module cache, so no build against it was tried; every one of go-xkms, go-qrdb, go-quicraft, go-truststrap and go-objstore requires v0.8.0-alpha, so it moves when they do

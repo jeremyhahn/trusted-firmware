@@ -29,7 +29,7 @@ the file that meets each. The AVR rows first; the composed platforms after.
 | The A/B on the generic Cortex-M port (`mps2-an505`, `mps2-an500`), the same swap-move | met | `boot/boot_swap.c`, `boot/hal/cortex-m/boot_factory.c`; under QEMU in `sdk/go/cmd/tfwctl/ota_ab_qemu_test.go` (CI) |
 | Its slot geometry as boot-HAL data (ADR, "Cortex-M `tfw-boot` ports") | met | `boot/hal/cortex-m/boot_slots.h` derives the secondary and the write end from the primary, the application's link base (`APP_BASE` in `profile.mk`, `TFW_BOOT_APP_BASE`); `boot/hal/avr/boot_slots.h` names the 2560's values unchanged. `boot/boot_swap.c` and `boot_factory.c` read the slots only there; pinned by `test/unit/boot/test_boot_slots_mps2.c`, every `tfw-boot.hex` byte-identical |
 | The store MARK cleared at fallback (item 56) | met | `boot/boot_stage.c` |
-| The ATmega32U4 restore from the store, on a board or under simavr (the ATmega328P has none: owner queue 176, option (a), no boot-time rollback, a failed activation is recovered by reflash) | unmet | written, not run: see "What the simavr harness lacks for the 328P and 32U4" below |
+| The ATmega32U4 restore from the store, on a board or under simavr (the ATmega328P has none: owner queue 176, option (a), no boot-time rollback, a failed activation is recovered by reflash) | unmet | written, not run: see "What the simavr harness lacks for the 328P and 32U4" below. The row's boot image does not fit: 1 724 bytes over the 4 096-byte section, measured with `make bootloader-candidate` on the CI image, avr-gcc 14.2.0, at `0180b414f`. Whether the 32U4 keeps a restore goes to the owner (#52) |
 | The SUIT-subset manifest checked before activation (ruling 3, amended by ruling 121): the ATmega2560 application, element tier | met | `src/core/ota_manifest.c` at `OTA_ACTIVATE`, before the authorization is written, through `tfw_suit_gate` (`src/core/suit.c`); `test/unit/test_ota_manifest.c`. The reader and the check cost 3 772 B (rec., against the ADR's 3 086 B estimate): app 28 802 of 65 536 with the check, 25 030 without ([README.md](README.md), "Measurements") |
 | The build writes the envelope where `OTA_ACTIVATE` reads it: after the image, a u16 length then the envelope (ruling 109, 2026-10-22) | met | `tools/image-seal/` (`make image-seal` takes `make suit-envelope`'s `.suit` and refuses to run without it on a board that checks); `test/unit/test_image_seal.c` |
 | The same, ATmega328P | unmet | the reader and the check cost 3 772 B on the ATmega2560 (rec., README.md "Measurements"; the ADR estimated 3 086 B); the reader alone puts the app at 22 153 against the 16 384 policy line (rec., ADR 6.3); the 328P stays trailer-only (ruling 3). Ruled off, not pending (owner queue 176, option (a)): `make` refuses `OTA_MANIFEST=1` on it (`mk/firmware.mk`; `scripts/test_manifest_refused.py`) |
@@ -102,8 +102,11 @@ base row fits at 3712 / 4096; activation on the 328P goes back to the owner
 (#52)):
 
 1. **No tfw-boot to load.** The 32U4's `BOOT_STORE=1` row is not in
-   `BOOT_SUPPORTED`, because its size with the restore has not been measured
-   to fit ([architecture.md](architecture.md)). The CI image measures a
+   `BOOT_SUPPORTED`, because its boot image does not fit: it is 1 724 bytes
+   over the 4 096-byte section, measured with `make bootloader-candidate` on
+   the CI image, avr-gcc 14.2.0, at `0180b414f` ([architecture.md](architecture.md)).
+   The row stays out of `BOOT_SUPPORTED`, and `integration-test-boot-prev`
+   stays stopped at the boot budget gate. The CI image measures a
    candidate row, without adding it, with
 
    ```sh
@@ -165,7 +168,7 @@ the table gives every est. figure exactly on the CI image.
 
 - Every `BOOT_SUPPORTED` row already fits with the full gate.
 - The two rows that do not fit, the 328P and 32U4 store rows with the restore,
-  are 1 718 and 1 708 bytes over (the 328P's restore is dropped since, owner
+  are 1 718 and 1 708 bytes over (the 32U4's, 1 724 at `0180b414f`; the 328P's restore is dropped since, owner
   queue 176, option (a)), and the 328P store row without it measured 1498 bytes
   over at `cb104cf4`. Moving the field checks out recovers about 200 bytes at
   most, so both stay about 1 500 bytes over.

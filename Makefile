@@ -129,10 +129,9 @@ ci:
 .PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test release-alpha
 
 ## releasability: no private-fleet value in any file that would be published
-# Public patterns: scripts/releasability.patterns. The fleet's own values are in
-# a private list outside the tree, $RELEASABILITY_PRIVATE_PATTERNS or
-# ~/.config/trusted-firmware/releasability.patterns. No network. Rule, classes and
-# the export-ignore list: docs/development/releasability.md.
+# Generic shapes from scripts/releasability.patterns; the internal values are
+# checked in CI from the RELEASABILITY_PATTERNS secret. No network. Rule, classes
+# and the export-ignore list: docs/development/releasability.md.
 releasability:
 	@scripts/releasability.sh
 

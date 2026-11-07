@@ -1,13 +1,11 @@
-# The public half of the releasability gate's pattern list: generic shapes of a
-# leak that hold for any checkout, so the gate means something wherever it runs.
+# The releasability gate's pattern list: generic shapes of a leak that hold for
+# any checkout, so the gate means something wherever it runs.
 # Format: class <TAB> extended regex (case-insensitive) <TAB> waiver.
 #
-# The values that name a particular private fleet -- its subnets, hostnames,
-# home paths and account names -- are not written in this tree. They live in a
-# private pattern file of the same format, which scripts/releasability.sh reads
-# beside this one: $RELEASABILITY_PRIVATE_PATTERNS, else
-# ${XDG_CONFIG_HOME:-$HOME/.config}/trusted-firmware/releasability.patterns
-# (docs/development/releasability.md).
+# It names no internal host, device, address or account, not even as a pattern
+# to refuse. Those are checked by the `Releasability (private patterns)` step of
+# .github/workflows/ci.yml, from the Actions secret RELEASABILITY_PATTERNS,
+# whose source is in platform-configs (docs/development/releasability.md).
 #
 # Every line carries an inline waiver, because this file is published and
 # scanned like any other.

@@ -4,9 +4,12 @@
 > `.gitattributes` · Last verified: 2026-11-07
 
 ```sh
-make releasability        # the gate, on this tree; no network
+make releasability        # the public patterns, on this tree; no network
 make releasability-test   # the gate's own tests; both are part of `make ci`
 ```
+
+CI adds a second gate, `Releasability (private patterns)`, which checks the
+internal values themselves (below).
 
 ## The rule
 
@@ -17,10 +20,10 @@ tracked file except those `.gitattributes` marks `export-ignore`.
 
 | Class | What it covers | Use instead |
 |---|---|---|
-| `lab-address` | An address on the fleet's subnets (private list) | An RFC 5737 documentation address (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) |
-| `lab-host` | A fleet hostname (private list), or any `.internal`, `.lan` or `home.arpa` name | The role: `bench host`, `CI runner` |
+| `lab-address` | An address on the fleet's subnets (CI secret) | An RFC 5737 documentation address (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) |
+| `lab-host` | A fleet hostname or device (CI secret), or any `.internal`, `.lan` or `home.arpa` name | The role: `bench host`, `CI runner` |
 | `owner-path` | A path under anyone's home directory (`/home/...`, `/Users/...`), or an agent's `.agent-identity` | A repository-relative path <!-- lab-string-ok: names the class, not a path --> |
-| `owner-account` | The owner's account name on its own (private list) | A role, or the module path |
+| `owner-account` | The owner's account name on its own (CI secret) | A role, or the module path |
 
 The module path `github.com/jeremyhahn/...` and the organisation path
 `jeremyhahn/<repository>` are not `owner-account`: it is the name standing alone
@@ -41,22 +44,28 @@ forge URL.
 
 ## Where the values live
 
-The gate reads two pattern lists of the same format, one line each as `class`,
-`regex` and a waiver:
+Internal values stay private (the handbook's
+`software/conventions/public-hygiene.md`). Two gates check a change:
 
-- **Public**, `scripts/releasability.patterns`: generic shapes of a leak that
-  hold for any checkout, such as a path under a home directory or a
-  private-network DNS name. It names no fleet.
-- **Private**, outside the tree: the fleet's subnets, hostnames, path prefixes
-  and the owner's account name. It is `$RELEASABILITY_PRIVATE_PATTERNS` when that
-  is set, else `${XDG_CONFIG_HOME:-$HOME/.config}/trusted-firmware/releasability.patterns`,
-  mode `600`. Set to a path that is not a file, the gate exits 2; set empty, or
-  unset with no file at the default path, only the public list runs, and the
-  gate says so in its last line. Release cuts run where the private list is.
+- **Public**, `make releasability`: `scripts/releasability.sh` with
+  `scripts/releasability.patterns`, one line each as `class`, `regex` and a
+  waiver. It holds generic shapes of a leak that hold for any checkout: a path
+  under a home directory, a private-network DNS name, an agent's identity
+  directory. It names no internal host, device, address or account, not even as
+  a pattern to refuse.
+- **Private**, the `Releasability (private patterns)` step of
+  `.github/workflows/ci.yml`: the Actions secret `RELEASABILITY_PATTERNS` holds
+  the fleet's subnets, hostnames, path prefixes and account names, one fixed
+  string per line with `#` comments. Its source lives in platform-configs, not
+  in this repository and not in a dotfile. The step runs `git grep -I -i -F`
+  over the tracked tree and prints `path:line` of a match, never the value. A
+  run without the secret (a fork PR) skips with a notice; a push to `main`
+  without it fails.
 
-No tracked file writes a fleet value: docs and fixtures use reference values,
-RFC 5737 addresses, RFC 2606 names (`example.com`, `*.test`, `*.invalid`) and
-devices named like `core-01`. A new fleet value is one line in the private list.
+No tracked file writes an internal value: docs and fixtures use reference
+values, RFC 5737 addresses, RFC 2606 names (`example.com`, `*.test`,
+`*.invalid`) and devices named like `core-01`. A new internal value is one line
+in the secret's source in platform-configs.
 
 ## The gate
 
@@ -66,11 +75,11 @@ matches a pattern. It exits 1 on any. The export-ignored files are listed as
 `file: strip-at-publish`, which is information and not a finding.
 
 `scripts/releasability-test.sh` runs it on throwaway repositories and has no skip
-guard. It writes a stand-in private list of reference values and never reads
-the real one. It proves that a hit from each list fails, that RFC 5737 addresses,
-`192.168.1.x`, module paths and waived lines pass, that an export-ignored file is
-not scanned, that the private list is found at its default path, that a named
-but missing one is an error, and that `git archive` of a tree carrying this repository's
+guard. Its plants are generic shapes with reference names and no internal value.
+It proves that a hit on each public pattern fails, that RFC 5737 addresses,
+`192.168.1.x`, reference names and waived lines pass, that an export-ignored file
+is not scanned, that an unknown class is an error, that this tree passes its own
+list, and that `git archive` of a tree carrying this repository's
 `.gitattributes` holds none of the stripped files. It also checks the real
 index: every file below is export-ignored, and no other is.
 

@@ -66,6 +66,12 @@ image: the device gates it. A refusal, a transport error or an unreadable file
 prints `tfwctl: <error>` on stderr and exits 1; a wrong argument count exits 1
 with the verb's usage.
 
+`ota-stage` stages through `Upload` and prints its progress on stderr,
+`ota-stage: <sent>/<total> bytes`. When an `OTA_DATA` fails, it asks
+`OTA_STATUS` where the session stands and, while the device is still
+`receiving`, goes on from the device's count, so no accepted byte is sent
+twice. A new `ota-stage` run sends `OTA_BEGIN` and starts over from byte 0.
+
 From a program, over serial or TCP, use `sdk/go`. Over serial, wrap the port in
 any `io.ReadWriter`; over TCP, accept the device's connection on the endpoint
 port its network block names
@@ -86,7 +92,7 @@ state, received, err := dev.OTAStatus(ctx) // OTAComplete, len(image)
 `StageImage` returns the device's status when it refuses the image; the codes
 are in [api.md](api.md). A refused or interrupted transfer leaves no `MARK`, and
 the running image is untouched. Start again with `tfwctl ota-stage` or
-`StageImage`.
+`StageImage`; `Upload` is `StageImage` that resumes within the session.
 
 ## Activate the image
 

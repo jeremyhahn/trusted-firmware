@@ -151,8 +151,8 @@ listed are `TEEC_NONE`.
 | `0x00000000` | — | | | | `TEE_ERROR_NOT_SUPPORTED` | reserved, never assigned |
 | `0x00000001` | `GET_INFO` | `VALUE_OUTPUT`: `a` = interface version (1), `b` = 0 (flags, reserved) | | | `TEE_SUCCESS` | proposed, v1 |
 | `0x00000002` | `GET_RANDOM` | `MEMREF_TEMP_OUTPUT`: 1 to 4096 bytes, filled by `TEE_GenerateRandom` | | | `TEE_SUCCESS`; `TEE_ERROR_BAD_PARAMETERS` for size 0 or above 4096 | proposed, v1 |
-| `0x00000003` | `SEAL` | `MEMREF_TEMP_INPUT`: plaintext | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: sealed blob | `TEE_SUCCESS`; `TEE_ERROR_SHORT_BUFFER` (`0xFFFF0010`) with the needed size; `TEE_ERROR_BAD_PARAMETERS` | implemented (#288) |
-| `0x00000004` | `UNSEAL` | `MEMREF_TEMP_INPUT`: sealed blob | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: plaintext | `TEE_SUCCESS`; `TEE_ERROR_MAC_INVALID` (`0xFFFF3071`) for a tampered blob; `TEE_ERROR_BAD_FORMAT` (`0xFFFF0005`) for a blob that does not parse; `TEE_ERROR_SHORT_BUFFER` with the needed size; `TEE_ERROR_BAD_PARAMETERS` | implemented (#288) |
+| `0x00000003` | `SEAL` | `MEMREF_TEMP_INPUT`: plaintext, 0 to 8192 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: sealed blob, at most 8238 bytes | `TEE_SUCCESS`; `TEE_ERROR_SHORT_BUFFER` (`0xFFFF0010`) with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a plaintext above 8192 bytes | implemented (#288) |
+| `0x00000004` | `UNSEAL` | `MEMREF_TEMP_INPUT`: sealed blob, at most 8238 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: plaintext | `TEE_SUCCESS`; `TEE_ERROR_MAC_INVALID` (`0xFFFF3071`) for a tampered blob; `TEE_ERROR_BAD_FORMAT` (`0xFFFF0005`) for a blob that does not parse; `TEE_ERROR_SHORT_BUFFER` with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a blob above 8238 bytes | implemented (#288) |
 
 The parameter type names are the TEE Client API's; the TA sees the matching
 `TEE_PARAM_TYPE_*` values of the Internal Core API. `GET_INFO` and `GET_RANDOM`
@@ -166,7 +166,10 @@ Core API's `TEE_ALG_HMAC_SHA256`. The TA reads its UUID from `gpd.ta.appID`,
 draws a fresh 12-byte nonce from `TEE_GenerateRandom` on every `SEAL`, and wipes
 the key on every path. The associated data (param 1) must be empty, because
 go-xkms's format has no field for it and data a caller believes is bound would
-not be; a non-empty one answers `TEE_ERROR_BAD_PARAMETERS`. The set itself is
+not be; a non-empty one answers `TEE_ERROR_BAD_PARAMETERS`. The TA bounds
+the plaintext at 8192 bytes (`TFW_TA_SEAL_MAX`, #321), so
+that `UNSEAL`, which holds a private copy of the blob and a private plaintext
+scratch, opens every blob `SEAL` returns within the TA's 32 KiB heap. The set itself is
 confirmed with go-enclave#206 (seam, below).
 
 `SEAL` and `UNSEAL`'s vectors in `optee/testdata/vectors.h` are go-xkms's at

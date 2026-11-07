@@ -38,4 +38,14 @@
 #define TFW_TA_RANDOM_MIN 1u
 #define TFW_TA_RANDOM_MAX 4096u
 
+/* SEAL's bound on the plaintext, and so UNSEAL's on the blob, in bytes (#321). */
+#define TFW_TA_SEAL_MAX 8192u
+/*
+ * The blob of a TFW_TA_SEAL_MAX plaintext, from tfw_blob.h's lengths: the 27 bytes
+ * before the ciphertext, its 3-byte bstr head (59 xx xx, 256 to 65535 bytes), the
+ * plaintext and the tag: 8238. UNSEAL holds this blob and a plaintext scratch, about
+ * 16 KiB, in the TA's 32 KiB heap beside the AES-GCM operation.
+ */
+#define TFW_TA_SEAL_BLOB_MAX (TFW_BLOB_OVERHEAD + 3u + TFW_TA_SEAL_MAX + TFW_BLOB_TAG_LEN)
+
 #endif /* TFW_TA_H */

@@ -142,6 +142,9 @@ static TEE_Result tfw_ta_seal(uint32_t paramTypes, TEE_Param params[4])
 
     if (paramTypes != TFW_TA_PT_SEAL || !tfw_ta_seal_params_ok(params))
         return TEE_ERROR_BAD_PARAMETERS;
+    /* Nothing longer, so that every blob SEAL returns fits UNSEAL's heap (#321). */
+    if (params[0].memref.size > TFW_TA_SEAL_MAX)
+        return TEE_ERROR_BAD_PARAMETERS;
     res = tfw_ta_blob_key(uuid, key);
     if (res != TEE_SUCCESS)
         goto out;
@@ -171,6 +174,9 @@ static TEE_Result tfw_ta_unseal(uint32_t paramTypes, TEE_Param params[4])
 
     if (paramTypes != TFW_TA_PT_UNSEAL || !tfw_ta_seal_params_ok(params) ||
         params[0].memref.buffer == NULL)
+        return TEE_ERROR_BAD_PARAMETERS;
+    /* No SEAL returns a longer blob, and the two buffers below must fit the heap (#321). */
+    if (params[0].memref.size > TFW_TA_SEAL_BLOB_MAX)
         return TEE_ERROR_BAD_PARAMETERS;
     /*
      * Both memrefs are shared with the normal world: parse a private snapshot of the blob,

@@ -853,8 +853,12 @@ carries the same facts; it stays open.
 
 ### 13. The `sdk/go` upload helper — ACCEPTED (shape), PROPOSED (names)
 
-Proposed names, not implemented. Standard library only; no private key; no
-signature verification, since that is the device's.
+Proposed names. `tfw.ParseImage` and `tfw.Image` are implemented as spelled
+below (`sdk/go/image.go`), `Upload` as spelled (`sdk/go/upload.go`; it shares
+`StageImage`'s session loop, and `StageImage` stages without resuming), and
+`OTAInfo` as spelled (`sdk/go/ota.go`). Not implemented under these names:
+`Activate` and `Confirm` (`OTAActivate`, `OTAConfirm`). Standard library only; no private
+key; no signature verification, since that is the device's.
 
 | Name | Does |
 |---|---|

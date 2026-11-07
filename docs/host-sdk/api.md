@@ -111,7 +111,7 @@ reaches for by task.
 | auth session (element tier only) | `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer, nonce, serial []byte) error` |
 | provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`, `ProvWritePubKey` |
 | network block | `ReadNetConfig`, `WriteNetConfig`, `tfw.DerivedMAC` ([ethernet-transport](../ethernet-transport/api.md)) |
-| OTA | `StageImage`, or `OTABegin`/`OTAData`/`OTAEnd`/`OTAStatus`; `OTAAuth`, `OTAInfo`, `OTAActivate`, `OTAConfirm` ([ota](../ota/api.md)) |
+| OTA | `tfw.ParseImage` to check a stream's structure; `Upload` (resumes from `OTA_STATUS`), `StageImage`, or `OTABegin`/`OTAData`/`OTAEnd`/`OTAStatus`; `OTAAuth`, `OTAInfo`, `OTAActivate`, `OTAConfirm` ([ota](../ota/api.md)) |
 | accept Ethernet devices | `tfw.Listen(addr, opts...) (*Listener, error)`, `(*Listener) Accept() (*TCPDevice, error)`; a `*TCPDevice` is a `*Device` |
 | raw codec | `tfw.EncodeRequest`, `tfw.EncodeResponse`, `tfw.Decode`, `tfw.CRC16` |
 
@@ -221,6 +221,9 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.OTAChunk` | `const OTAChunk = 60` | The most image bytes one OTA_DATA carries: the payload less the offset. |
 | `tfw.OTAInfoLen` | `const OTAInfoLen = 44` | OTA_INFO's reply length. |
 | `tfw.OTAAuthSigLen` | `const OTAAuthSigLen = 64` | OTA_AUTH's payload, the ES256 r\|\|s (#137). |
+| `tfw.ImagePage`, `tfw.ImageTrailerLen`, `tfw.ImageTrailerVersion` | `const` 256, 128, 1 | The OTA stream tools/image-seal writes: whole pages of TFW_OTA_PAGE_MAX, the trailer (TFW_BOOT_TRAILER_LEN) in the last bytes, the one trailer layout ParseImage reads. |
+| `tfw.ErrImagePages`, `tfw.ErrImageMagic`, `tfw.ErrImageVersion`, `tfw.ErrImageLength`, `tfw.ErrImageBoard`, `tfw.ErrImageEnvelope` | `var error` | ParseImage's refusals, each wrapped with its numbers: not whole pages; trailer magic; trailer version not 1; image_len zero or into the trailer; board_id zero; a manifest envelope of length zero or past the padding. |
+| `tfw.ErrUploadCount` | `var ErrUploadCount error` | Upload's refusal of an OTA_STATUS count, after a failed OTA_DATA, that is neither the start nor the end of the chunk in flight, wrapped with the numbers. |
 | `tfw.ErrShortFrame` | `var ErrShortFrame error` | A buffer does not yet hold the frame its length field claims. |
 | `tfw.ErrBadCRC` | `var ErrBadCRC error` | The category of a frame whose checksum does not match. |
 | `tfw.ErrBadFormat` | `var ErrBadFormat error` | The category of a structurally impossible frame. |
@@ -235,11 +238,13 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.EncodeRequest` | `func EncodeRequest(seq Seq, cmd Cmd, payload []byte) ([]byte, error)` | Builds a request frame. |
 | `tfw.EncodeResponse` | `func EncodeResponse(seq Seq, cmd Cmd, st Status, payload []byte) ([]byte, error)` | Builds a response frame, as a device would. |
 | `tfw.Decode` | `func Decode(b []byte) (Frame, int, error)` | Parses one frame from the front of b, returning it and the number of bytes consumed. |
+| `tfw.ParseImage` | `func ParseImage(b []byte) (*Image, error)` | Checks an OTA stream's structure only (whole pages, trailer magic and version 1, image_len, board_id non-zero) and splits off an appended manifest envelope; no key, no signature check ([ADR section 13](../ota/adr-ota-image-format-and-trust.md)). |
 | `tfw.New` | `func New(conn io.ReadWriter, opts ...Option) *Device` | Wraps a byte stream. |
 | `tfw.Listen` | `func Listen(addr string, opts ...Option) (*Listener, error)` | Opens a TCP listener on addr ("host:port"; port 0 picks one) for devices to connect to. |
 | `tfw.NewListener` | `func NewListener(l net.Listener, opts ...Option) *Listener` | Wraps a listener the caller already owns -- one with TLS in front of it, say. |
 | `tfw.WithBootWait` | `func WithBootWait(d time.Duration) Option` | Overrides how long New waits for the BOOT event. |
 | `tfw.WithTimeout` | `func WithTimeout(d time.Duration) Option` | Sets how long to wait for a reply. |
+| `tfw.UploadProgress` | `func UploadProgress(fn func(sent, total uint32)) UploadOption` | Has Upload call fn after each chunk with the bytes the device holds and the stream's length. |
 | `tfw.ADCReference` | `type ADCReference uint8` | Selects what the converter measures against. |
 | `tfw.ADCRefVCC`, `tfw.ADCRefExternal`, `tfw.ADCRefInternal` | `const ADCReference` 0, 1, 2 | The supply rail, the AREF pin, the internal bandgap. |
 | `tfw.AlgorithmSet` | `type AlgorithmSet uint16` | The set of signature algorithms a device's crypto provider can actually perform, as CAPS reports it. |
@@ -333,6 +338,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.SetI2CClock` | `func (d *Device) SetI2CClock(ctx context.Context, hz uint32) error` | Reconfigures the generic I2C bus's clock. |
 | `tfw.Device.SetPinMode` | `func (d *Device) SetPinMode(ctx context.Context, pin uint8, mode PinMode) error` | Configures a pin. |
 | `tfw.Device.StageImage` | `func (d *Device) StageImage(ctx context.Context, image []byte) error` | Runs a whole session: BEGIN, the image in OTAChunk pieces, END. |
+| `tfw.Device.Upload` | `func (d *Device) Upload(ctx context.Context, img *Image, opts ...UploadOption) error` | StageImage's session for img.Stream, resumed within the session from OTA_STATUS's count after a failed OTA_DATA, so no accepted byte is sent twice; the context is checked between chunks ([ADR section 13](../ota/adr-ota-image-format-and-trust.md)). |
 | `tfw.Device.SysInfo` | `func (d *Device) SysInfo(ctx context.Context) (*SysInfo, error)` | Reads the device's runtime state. |
 | `tfw.Device.TimerCancel` | `func (d *Device) TimerCancel(ctx context.Context, pin uint8, applyFinal bool) error` | Stops a pin's timer. |
 | `tfw.Device.TimerQuery` | `func (d *Device) TimerQuery(ctx context.Context, pin uint8) (*TimerState, error)` | Reports a pin's timer. |
@@ -352,6 +358,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.FrameError.Is` | `func (e *FrameError) Is(target error) bool` | Reports whether target is ErrBadFormat. |
 | `tfw.HSMRecordEntry` | `type HSMRecordEntry struct` | One entry of the A6 record with the record's own totals: Count, Dropped (capped at 0xFFFF), At, Kind, What, Result. |
 | `tfw.HSMState` | `type HSMState struct` | The engine's state after a command: [flags:1][selected:1][refused:4]. |
+| `tfw.Image` | `type Image struct` | An OTA stream whose structure ParseImage checked: the stream, the trailer's board_id, image_flags, image_version, image_len and measurement, and the manifest envelope (nil when none). Nothing in it is authenticated. |
 | `tfw.LinkError` | `type LinkError struct` | A failure of the byte stream underneath the protocol, wrapping whatever the transport said. |
 | `tfw.LinkError.Error` | `func (e *LinkError) Error() string` | Implements error. |
 | `tfw.LinkError.Unwrap` | `func (e *LinkError) Unwrap() error` | Returns the underlying error, so errors.Is and errors.As see through it. |
@@ -411,6 +418,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.TimeoutError.Error` | `func (e *TimeoutError) Error() string` | Implements error. |
 | `tfw.TimeoutError.Is` | `func (e *TimeoutError) Is(target error) bool` | Reports whether target is ErrTimeout. |
 | `tfw.TimerState` | `type TimerState struct` | What a pin's timer is doing. |
+| `tfw.UploadOption` | `type UploadOption func(*uploadOptions)` | Tunes Upload. |
 
 ### `serialport` (`sdk/go/serialport`)
 

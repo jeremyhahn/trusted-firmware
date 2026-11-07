@@ -9,9 +9,7 @@
 // true, and this file is why sdk/go never needs to change for it.
 module github.com/jeremyhahn/trusted-firmware/xkms
 
-go 1.27.2
-
-toolchain go1.27.3
+go 1.27.3
 
 // The versions below are the module graph go-xkms v0.57.0-alpha resolved. They
 // are listed here so the graph is pruned (every module's go.mod is not needed
@@ -19,7 +17,7 @@ toolchain go1.27.3
 // with GOPROXY=off.
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/jeremyhahn/go-xkms v0.57.0-alpha
+	github.com/jeremyhahn/go-xkms v0.64.1-alpha
 	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha
 	github.com/stretchr/testify v1.12.1
 )
@@ -146,14 +144,14 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0 // indirect
 	github.com/jeremyhahn/arduino-generic/sdk/go v0.7.0-alpha // indirect
 	github.com/jeremyhahn/go-codec v1.5.1-alpha // indirect
-	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.8.0-rc.2 removes enclave.MemoryEnclave, which go-quicraft v0.22.0-alpha, go-truststrap v0.6.0-alpha and go-objstore v0.4.0-alpha (this graph's, via go-xkms v0.57.0-alpha) still call; v0.9.0-alpha is not in the factory module cache, so no build against it was tried; every one of go-xkms, go-qrdb, go-quicraft, go-truststrap and go-objstore requires v0.8.0-alpha, so it moves when they do
+	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.11.1-alpha (DS-7466) removes enclave.MemoryEnclave and NewMemoryEnclave, which go-xkms v0.64.1-alpha (pkg/pintpm2), go-quicraft v0.22.0-alpha and go-truststrap v0.6.0-alpha still call; go-xkms v0.64.1-alpha requires v0.8.0-alpha
 	github.com/jeremyhahn/go-frost v0.3.1-alpha // indirect
-	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect
-	github.com/jeremyhahn/go-qrdb v0.50.0-alpha // indirect
-	github.com/jeremyhahn/go-qrdb/sdk/go v0.50.0-alpha // indirect
-	github.com/jeremyhahn/go-quicraft v0.22.0-alpha // indirect; held: v0.23.0-alpha is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
-	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect
-	github.com/jeremyhahn/go-xkms/sdk/go v0.57.0-alpha // indirect
+	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect; held: v0.9.1-alpha (DS-7466) raises go-enclave past v0.8.0-alpha, which breaks go-quicraft v0.22.0-alpha (enclave.NewMemoryEnclave); go-xkms v0.64.1-alpha requires v0.4.0-alpha
+	github.com/jeremyhahn/go-qrdb v0.51.0-alpha // indirect; held: v0.58.1-alpha (DS-7466) removes qrdbsdk.NewMemoryStorage and NewFileStorage, which go-xkms v0.64.1-alpha (pkg/storage/qrdb) still calls; go-xkms v0.64.1-alpha requires v0.51.0-alpha
+	github.com/jeremyhahn/go-qrdb/sdk/go v0.51.0-alpha // indirect; held: v0.58.1-alpha (DS-7466) removes NewMemoryStorage and NewFileStorage, which go-xkms v0.64.1-alpha (pkg/storage/qrdb) still calls; go-xkms v0.64.1-alpha requires v0.51.0-alpha
+	github.com/jeremyhahn/go-quicraft v0.22.0-alpha // indirect; held: v0.24.3-alpha (DS-7466) requires go-enclave v0.10.0-alpha, which breaks go-truststrap v0.6.0-alpha (enclave.MemoryEnclave); go-xkms v0.64.1-alpha requires v0.22.0-alpha
+	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect; held: v0.7.1-alpha (DS-7466) raises go-enclave past v0.8.0-alpha, which breaks go-quicraft v0.22.0-alpha (enclave.NewMemoryEnclave); go-xkms v0.64.1-alpha requires v0.6.0-alpha
+	github.com/jeremyhahn/go-xkms/sdk/go v0.64.0-alpha // indirect
 	github.com/jeroenrinzema/psql-wire v0.20.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -182,6 +180,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
@@ -193,7 +192,7 @@ require (
 	github.com/prometheus/common v0.72.1 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect; held: v0.23.0 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.64.0 // indirect; held: v0.64.1 is not in the factory module cache, so no build against it was tried; it moves when the cache has it
+	github.com/quic-go/quic-go v0.64.1 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
@@ -209,6 +208,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tidwall/btree v1.8.2 // indirect
 	github.com/tinylib/msgp v1.6.5 // indirect
+	github.com/transparency-dev/merkle v0.0.2 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.2 // indirect
 	github.com/veraison/corim v1.1.2 // indirect
@@ -219,10 +219,12 @@ require (
 	github.com/viterin/vek v0.4.3 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/weppos/publicsuffix-go v0.50.3 // indirect
+	github.com/weppos/publicsuffix-go v0.50.4-0.20260821095816-b0fdb5c2d345 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
+	github.com/zmap/zcrypto v0.0.0-20260906180147-3ed30b1e9340 // indirect
+	github.com/zmap/zlint/v3 v3.7.2 // indirect
 	gitlab.com/yawning/secp256k1-voi v0.0.0-20230925100816-f2616030848b // indirect
 	go.bug.st/serial v1.8.0 // indirect
 	go.etcd.io/etcd/api/v3 v3.7.2 // indirect; held: v3.7.3 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
@@ -255,7 +257,7 @@ require (
 	google.golang.org/api v0.304.0 // indirect; held: v0.305.0 is not in the factory module cache, so no build against it was tried; it moves when the cache has it
 	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
 	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect

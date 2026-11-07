@@ -220,6 +220,46 @@ static int tfw_check_seal_short(TEEC_Session *s)
            len == sizeof(TFW_TA_VEC_SEAL1_BLOB);
 }
 
+/* SEAL's bound (#321): a plaintext and a blob one byte past the largest, and room to open. */
+static uint8_t tfw_check_seal_in[TFW_TA_VEC_SEAL_MAX + 1u];
+static uint8_t tfw_check_seal_blob[TFW_TA_VEC_SEAL_BLOB_MAX + 1u];
+static uint8_t tfw_check_seal_out[TFW_TA_VEC_SEAL_MAX];
+
+/* The largest plaintext seals to the largest blob, and that blob opens in the TA's heap. */
+static int tfw_check_seal_max(TEEC_Session *s)
+{
+    size_t blob_len = sizeof(tfw_check_seal_blob);
+    size_t out_len = sizeof(tfw_check_seal_out);
+    size_t i;
+    for (i = 0; i < TFW_TA_VEC_SEAL_MAX; i++)
+        tfw_check_seal_in[i] = (uint8_t)(i * 7u + 1u);
+    memset(tfw_check_seal_out, 0, sizeof(tfw_check_seal_out));
+    return tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_SEAL, tfw_check_seal_in, TFW_TA_VEC_SEAL_MAX,
+                              tfw_check_seal_blob, &blob_len, TFW_TA_VEC_SUCCESS) &&
+           blob_len == TFW_TA_VEC_SEAL_BLOB_MAX &&
+           tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_UNSEAL, tfw_check_seal_blob, blob_len,
+                              tfw_check_seal_out, &out_len, TFW_TA_VEC_SUCCESS) &&
+           out_len == TFW_TA_VEC_SEAL_MAX &&
+           memcmp(tfw_check_seal_out, tfw_check_seal_in, out_len) == 0;
+}
+
+/* One byte over: refused, though the output buffer would hold its blob. */
+static int tfw_check_seal_over(TEEC_Session *s)
+{
+    size_t blob_len = sizeof(tfw_check_seal_blob);
+    return tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_SEAL, tfw_check_seal_in, TFW_TA_VEC_SEAL_MAX + 1u,
+                              tfw_check_seal_blob, &blob_len, TFW_TA_VEC_BAD_PARAMETERS);
+}
+
+/* A blob one byte past the largest SEAL returns is refused before it is parsed. */
+static int tfw_check_unseal_over(TEEC_Session *s)
+{
+    size_t out_len = sizeof(tfw_check_seal_out);
+    return tfw_check_seal_cmd(s, TFW_TA_VEC_CMD_UNSEAL, tfw_check_seal_blob,
+                              TFW_TA_VEC_SEAL_BLOB_MAX + 1u, tfw_check_seal_out, &out_len,
+                              TFW_TA_VEC_BAD_PARAMETERS);
+}
+
 int tfw_ta_check(FILE *out)
 {
     static const uint32_t unknown[] = {
@@ -272,6 +312,9 @@ int tfw_ta_check(FILE *out)
     tfw_check_verdict(&c, "seal-fresh-nonce", tfw_check_seal_fresh(&s));
     tfw_check_verdict(&c, "unseal-mac-invalid", tfw_check_unseal_tampered(&s));
     tfw_check_verdict(&c, "seal-short-buffer", tfw_check_seal_short(&s));
+    tfw_check_verdict(&c, "seal-max", tfw_check_seal_max(&s));
+    tfw_check_verdict(&c, "seal-over", tfw_check_seal_over(&s));
+    tfw_check_verdict(&c, "unseal-over", tfw_check_unseal_over(&s));
     tfw_check_verdict(&c, "seal-bad-types",
                       tfw_check_with(&s, TFW_TA_VEC_CMD_SEAL, TFW_TA_VEC_PT_GET_RANDOM,
                                      TFW_TA_VEC_BAD_PARAMETERS));

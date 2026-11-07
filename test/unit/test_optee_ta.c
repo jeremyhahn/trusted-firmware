@@ -222,12 +222,15 @@ static void test_the_check_passes_every_case_against_the_ta(void)
     assert_line("tfw-ta-check: ok seal-fresh-nonce\n");
     assert_line("tfw-ta-check: ok unseal-mac-invalid\n");
     assert_line("tfw-ta-check: ok seal-short-buffer\n");
+    assert_line("tfw-ta-check: ok seal-max\n");
+    assert_line("tfw-ta-check: ok seal-over\n");
+    assert_line("tfw-ta-check: ok unseal-over\n");
     assert_line("tfw-ta-check: ok seal-bad-types\n");
     assert_line("tfw-ta-check: ok unseal-bad-types\n");
     assert_line("tfw-ta-check: ok unknown-0x00000000\n");
     assert_line("tfw-ta-check: ok unknown-0xffffffff\n");
     assert_line("tfw-ta-check: ok open-bad-parameters\n");
-    assert_line("tfw-ta-check: PASS, 18 of 18 passed\n");
+    assert_line("tfw-ta-check: PASS, 21 of 21 passed\n");
     TEST_ASSERT_NULL(strstr(out_text, "FAIL"));
 }
 
@@ -251,7 +254,7 @@ static void test_a_wrong_version_fails_get_info_only(void)
     tfw_gp_mock.value_a_xor = 1u;
     TEST_ASSERT_EQUAL_INT(1, run_check());
     assert_line("tfw-ta-check: FAIL get-info\n");
-    assert_line("tfw-ta-check: FAIL, 17 of 18 passed\n");
+    assert_line("tfw-ta-check: FAIL, 20 of 21 passed\n");
 }
 
 static void test_a_stuck_generator_fails_get_random(void)

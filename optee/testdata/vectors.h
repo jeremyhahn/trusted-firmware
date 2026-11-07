@@ -49,6 +49,10 @@ static const uint8_t TFW_TA_VEC_UUID[16] = {
 #define TFW_TA_VEC_RANDOM_MIN 1u
 #define TFW_TA_VEC_RANDOM_MAX 4096u
 
+/* SEAL's bound on the plaintext and UNSEAL's on the blob, in bytes (#321). */
+#define TFW_TA_VEC_SEAL_MAX      8192u
+#define TFW_TA_VEC_SEAL_BLOB_MAX 8238u
+
 /* Return codes and the origin, as GlobalPlatform numbers them. */
 #define TFW_TA_VEC_SUCCESS          0x00000000u
 #define TFW_TA_VEC_BAD_PARAMETERS   0xFFFF0006u

@@ -203,7 +203,8 @@ integration-test-optee:
 	@tr -d '\r' < $(OPTEE_IT_LOG) > $(OPTEE_IT_LOG).txt && \
 	for line in 'tfw-ta-check: ok get-info' 'tfw-ta-check: ok get-random' \
 	            'tfw-ta-check: ok seal-unseal' 'tfw-ta-check: ok unseal-mac-invalid' \
-	            'tfw-ta-check: PASS, 18 of 18 passed'; do \
+	            'tfw-ta-check: ok seal-max' 'tfw-ta-check: ok seal-over' \
+	            'tfw-ta-check: ok unseal-over' 'tfw-ta-check: PASS, 21 of 21 passed'; do \
 	   grep -qxF "$$line" $(OPTEE_IT_LOG).txt || { \
 	     echo "$@: the console has no line '$$line': $(OPTEE_IT_LOG)"; exit 1; }; done
 	@echo "integration-test-optee: xtest and tfw-ta-check pass on OP-TEE $(OPTEE_RELEASE)"

@@ -55,12 +55,18 @@ Internal values stay private (the handbook's
   a pattern to refuse.
 - **Private**, the `Releasability (private patterns)` step of
   `.github/workflows/ci.yml`: the Actions secret `RELEASABILITY_PATTERNS` holds
-  the fleet's subnets, hostnames, path prefixes and account names, one fixed
-  string per line with `#` comments. Its source lives in platform-configs, not
-  in this repository and not in a dotfile. The step runs `git grep -I -i -F`
-  over the tracked tree and prints `path:line` of a match, never the value. A
-  run without the secret (a fork PR) skips with a notice; a push to `main`
-  without it fails.
+  the fleet's subnets, hostnames, path prefixes and account names. Its source
+  lives in platform-configs, not in this repository and not in a dotfile. Blank
+  lines and `#` lines are skipped; every other line is `class<TAB>regex`: a
+  class of `coord-host`, `internal-email`, `lab-address`, `lab-host` or
+  `owner-path` (an `/i` suffix is allowed, as in `lab-host/i`), one tab, and a
+  POSIX extended regex, for example `lab-host<TAB>farm-host-[0-9]+` or
+  `lab-address<TAB>192\.0\.2\.[0-9]+`. A bare string with no tab, an unknown
+  class, an empty regex or a regex `grep -E` refuses fails the step, which
+  prints the line number only. The step runs `git grep -I -i -E` over the
+  tracked tree and prints `path:line` of a match, never the value. A run
+  without the secret (a fork PR) skips with a notice; a push to `main` without
+  it fails.
 
 No tracked file writes an internal value: docs and fixtures use reference
 values, RFC 5737 addresses, RFC 2606 names (`example.com`, `*.test`,

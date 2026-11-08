@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: commercial
 """Unit tests for the schedule guard and CI Gate's handling of its verdict.
 
-The `schedule-guard` job of .github/workflows/ci.yml reads the Actions API on a
+The schedule guard step (`id: guard`) of the `preflight` job of
+.github/workflows/ci.yml reads the Actions API on a
 schedule run and decides `run`, `busy` or `unreadable`; the bigdisk jobs run on
 `run` only, and CI Gate fails on any verdict but `run`. Only a schedule event on
 a forge exercises that code, so a PR or push run never would. These tests take
@@ -111,7 +112,7 @@ class Guard(unittest.TestCase):
         with open(curl, "w") as f:
             f.write(FAKE_CURL)
         os.chmod(curl, os.stat(curl).st_mode | stat.S_IXUSR)
-        self.script = step_script("schedule-guard", "guard")
+        self.script = step_script("preflight", "guard")
 
     def table_set(self, token, waiting, in_progress):
         for st, r in (("waiting", waiting), ("in_progress", in_progress)):
@@ -208,25 +209,25 @@ class Guard(unittest.TestCase):
 
 class Workflow(unittest.TestCase):
     def test_every_guarded_job_needs_a_run_verdict_on_a_schedule_run(self):
-        # The guarded jobs are the ones that need schedule-guard: since the
+        # The guarded jobs are the ones that need preflight: since the
         # hosted runners (#335) no runs-on names bigdisk to find them by.
         text = read_workflow()
         checked = 0
         for m in re.finditer(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z]|\Z)", text, re.MULTILINE | re.DOTALL):
             name, body = m.groups()
             head = body.split("    steps:")[0]
-            if not re.search(r"needs: *(\[[^]]*)?schedule-guard", head) or "if:" not in head:
+            if not re.search(r"needs: *(\[[^]]*)?preflight", head) or "if:" not in head:
                 continue
             if name == "ci-gate":
                 continue
             checked += 1
             with self.subTest(job=name):
-                self.assertIn("needs.schedule-guard.outputs.verdict == 'run'", head)
-        self.assertGreater(checked, 5, "found too few jobs that need schedule-guard: has the workflow's layout changed?")
+                self.assertIn("needs.preflight.outputs.verdict == 'run'", head)
+        self.assertGreater(checked, 5, "found too few jobs that need preflight: has the workflow's layout changed?")
 
     def test_ci_gate_is_skipped_on_busy_only(self):
         cond = re.search(r"^    if: (.*)$", job_block("ci-gate"), re.MULTILINE).group(1)
-        self.assertIn("needs.schedule-guard.outputs.verdict != 'busy'", cond)
+        self.assertIn("needs.preflight.outputs.verdict != 'busy'", cond)
         self.assertEqual(re.findall(r"verdict [!=]= '([a-z]+)'", cond), ["busy"])
         self.assertIn("always()", cond)
 

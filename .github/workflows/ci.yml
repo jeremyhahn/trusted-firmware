@@ -379,7 +379,7 @@ on:
   # runs are on the default branch. CUSTOMIZE: the hour, off nightly.yml's.
   # v1.29.3: one schedule run per repository (the concurrency group below),
   # and its bigdisk jobs skip while a main push run is in flight (the
-  # schedule-guard job).
+  # preflight job's schedule guard step).
   schedule:
     - cron: '0 4 * * 2'
 
@@ -431,16 +431,27 @@ jobs:
   # runs lint only; build and make coverage are skipped. Off pull_request, or
   # on a ci:full PR, docs_only is always false. Any doubt (a failed diff, an
   # empty list) reads as false, so the tier fails toward running the tests.
-  changes:
-    name: Changed files
+  #
+  # v1.34 (DS-7805, CA m2217 (1)): the changed-files steps, the schedule guard
+  # and the architecture gates run as this one preflight job, in that order,
+  # on one runner. Its outputs are the ones the changes and schedule-guard
+  # jobs exported, under the same names. A failed step fails the job, so every
+  # job that needs it skips and CI Gate fails closed.
+  preflight:
+    name: Preflight
     runs-on: ubuntu-latest
+    # v1.26: a draft PR runs no CI; the image job needs this one and skips with it.
+    if: ${{ !github.event.pull_request.draft }}
+    # The schedule guard's (v1.29.3): the Actions API read, and the checkouts.
+    permissions:
+      actions: read
+      contents: read
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
       esp32: ${{ steps.esp32.outputs.esp32 }}   # CUSTOMIZE: ruling 218(9), below
       optee: ${{ steps.optee.outputs.optee }}   # CUSTOMIZE: #253, below
       xkmsmod: ${{ steps.xkmsmod.outputs.xkmsmod }}   # CUSTOMIZE: ruling 2026-11-01 (dept-software #981), below
-    # v1.26: a draft PR runs no CI; the image job needs this one and skips with it.
-    if: ${{ !github.event.pull_request.draft }}
+      verdict: ${{ steps.guard.outputs.verdict }}   # v1.29.3, below
     steps:
       # CUSTOMIZE (trusted-firmware, ruling 218(9)): every PR checks out, a
       # ci:full one too, because the ESP32 step below diffs every PR.
@@ -553,27 +564,17 @@ jobs:
           echo "xkms/go.mod or xkms/go.sum changed: $xkmsmod"
           echo "xkmsmod=$xkmsmod" >> "$GITHUB_OUTPUT"
 
-  # v1.29.3 (Company Agent ruling 255(10)/(11)(c)): one nightly per
-  # repository, and none while main is busy. On a schedule run only, this job
-  # asks the API whether this workflow has a push run on main in progress or
-  # waiting, and sets `verdict`: `run` (none, or not a schedule run), `busy`
-  # (one is) or `unreadable` (no count came back). On a schedule run every
-  # bigdisk job runs only on `run`; CI Gate skips on `busy` and fails on
-  # `unreadable`. The job runs on every event, not on schedule alone, so no
-  # bigdisk job's `needs` meets a skipped job off schedule; off schedule it
-  # makes no call. It checks nothing out, so no repository code runs beside
-  # the tokens.
-  schedule-guard:
-    name: Schedule guard
-    runs-on: ubuntu-latest
-    # v1.26: a draft PR runs no CI (as the changes job).
-    if: ${{ !github.event.pull_request.draft }}
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      verdict: ${{ steps.guard.outputs.verdict }}
-    steps:
+      # v1.29.3 (Company Agent ruling 255(10)/(11)(c)): one nightly per
+      # repository, and none while main is busy. On a schedule run only, this
+      # step asks the API whether this workflow has a push run on main in
+      # progress or waiting, and sets `verdict`: `run` (none, or not a schedule
+      # run), `busy` (one is) or `unreadable` (no count came back). On a
+      # schedule run every bigdisk job runs only on `run`; CI Gate skips on
+      # `busy` and fails on `unreadable`. The step runs on every event, not on
+      # schedule alone, so no bigdisk job's `needs` meets a skipped job off
+      # schedule; off schedule it makes no call. On a schedule run nothing is
+      # checked out before it, and AGENT_TOKEN reaches this step alone, so no
+      # repository code runs beside the tokens.
       - name: Is a main push run of this workflow in flight?
         id: guard
         env:
@@ -628,6 +629,34 @@ jobs:
           echo "verdict: $verdict"
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
+      # Architecture gate (v1.20, Company Agent m270 item 9; go-xkms arch-gates).
+      # go-objstore owns every blob backend (docs/00), and a repo reaches it only
+      # through the packages that are its storage seam. Test files are exempt, and
+      # go-objstore itself passes. CUSTOMIZE: OBJSTORE_SEAMS, an extended regex of
+      # the paths that may import go-objstore (go-xkms: 'pkg/ca/|pkg/storage/');
+      # empty means none may. CUSTOMIZE: the repo's own layering rules (go-xkms:
+      # xkmsctl and xkey depend only on sdk/go) are further steps in this job.
+      # A source check with grep, not a stage: it runs on the runner's shell.
+      # v1.23: a lint-class check, so it stays on the PR tier. v1.34: the
+      # checkout the arch-gates job made, on every event.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: No direct go-objstore import outside the storage seam
+        env:
+          OBJSTORE_SEAMS: ''      # CUSTOMIZE
+        run: |
+          if [ "$(sed -n 's/^module //p' go.mod)" = github.com/jeremyhahn/go-objstore ]; then
+            echo "OK: this is go-objstore"; exit 0
+          fi
+          hits=$(grep -rln --include='*.go' '"github.com/jeremyhahn/go-objstore' . \
+                 | grep -v '_test\.go$' \
+                 | { if [ -n "$OBJSTORE_SEAMS" ]; then grep -vE "$OBJSTORE_SEAMS"; else cat; fi; } || true)
+          if [ -n "$hits" ]; then
+            echo "go-objstore may be imported only in the storage seam (OBJSTORE_SEAMS='$OBJSTORE_SEAMS'):"
+            echo "$hits"; exit 1
+          fi
+          echo "OK: no go-objstore import outside the storage seam"
+
   # v1.21: every stage runs in the project's own devcontainer image and no
   # other (ci-standard.md §2, devcontainer.md §7). One image job (Company Agent
   # m601 (a)) builds the images once from build/docker/devcontainer/Dockerfile
@@ -672,9 +701,9 @@ jobs:
     # stages are the legs below, each `needs: image`, run side by side.
     name: Devcontainer image [lint, build, trivy image]
     runs-on: ubuntu-latest
-    needs: [changes, schedule-guard]   # v1.24 (CA m749, m751 (a)); v1.29.3
+    needs: preflight   # v1.24 (CA m749, m751 (a)); v1.29.3; v1.34
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
-    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     # CUSTOMIZE: give the stages honest headroom. A cold BuildKit cache builds
     # the three images in 55 min (run 55218); a warm one reuses them. Then lint
     # and build ~2, the module and cross-arch loops ~6 and trivy image ~5 (run
@@ -750,12 +779,12 @@ jobs:
       # CUSTOMIZE (trusted-firmware, DS-3166): a docs-only PR runs `make lint`
       # alone here, which needs only the toolchain image (cppcheck), so it
       # builds no esp32 or integration image and never writes `built`: the
-      # four legs skip, and the gate reads them as `docs`. A failed `changes`
+      # four legs skip, and the gate reads them as `docs`. A failed `preflight`
       # job leaves DOCS_ONLY empty, which reads as not docs-only.
       - name: Build the devcontainer images
         id: images
         env:
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }} # CUSTOMIZE (trusted-firmware, DS-3166)
+          DOCS_ONLY: ${{ needs.preflight.outputs.docs_only }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: |
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
@@ -787,7 +816,7 @@ jobs:
       # integration image, so it takes no lease; Tear down's `docker rm` is
       # then a no-op on the empty IT_LEASE.
       - name: Lease the integration image
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ needs.preflight.outputs.docs_only != 'true' }}
         run: |
           lease="${CI_STACK_PREFIX}lease-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
           # v1.25.3: the daemon's image lock, shared with the reaper (v5) and
@@ -862,13 +891,13 @@ jobs:
       # does not run twice.
       # CUSTOMIZE: ruling 2026-11-01 (dept-software #981), #311. Blocking on
       # the nightly (schedule) and on a PR whose diff touches xkms/go.mod or
-      # xkms/go.sum (the changes job's xkmsmod output). On a push to main,
+      # xkms/go.sum (the `preflight` job's xkmsmod output). On a push to main,
       # workflow_dispatch and every other PR it is advisory: continue-on-error
       # keeps this job and the CI Gate green, and the BEHIND rows go to the
       # step summary. The check's own exit status is kept either way.
       - name: make deps-check
         if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' }}
-        continue-on-error: ${{ !(github.event_name == 'schedule' || (github.event_name == 'pull_request' && needs.changes.outputs.xkmsmod == 'true')) }}
+        continue-on-error: ${{ !(github.event_name == 'schedule' || (github.event_name == 'pull_request' && needs.preflight.outputs.xkmsmod == 'true')) }}
         env:
           IN_IMAGE_NETWORK: bridge
         run: |
@@ -888,7 +917,7 @@ jobs:
       # releasability gate on every other PR, so it runs here: a private
       # value in README.md or docs/ fails the PR, not the main push after it.
       - name: make releasability (docs-only PR)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only == 'true' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.preflight.outputs.docs_only == 'true' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make releasability"
 
       # v1.9.2, now in the image: the declared tag set must select code. Each
@@ -896,14 +925,14 @@ jobs:
       # (tests included), it is misspelled or dead. Compares files, not
       # packages, and a tag may swap files (a `!foo` stub for a `foo` body).
       - name: Assert every build tag selects code
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && env.GO_BUILD_TAGS != '' && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && env.GO_BUILD_TAGS != '' && needs.preflight.outputs.docs_only != 'true' }}
         # CUSTOMIZE: no root module; the tag is xkms/'s, so it is asserted there.
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "cd xkms && GO_BUILD_TAGS='$GO_BUILD_TAGS' sh ../scripts/assert-build-tags.sh"
 
       # CUSTOMIZE: nested modules (sdk/go, xkey) and variants (FIPS) are built
       # by `make build` itself, never by an extra step here.
       - name: make build
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }}
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.preflight.outputs.docs_only != 'true' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make build GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
       # CUSTOMIZE (trusted-firmware): no root module. sdk/go,
@@ -918,7 +947,7 @@ jobs:
       # run in the test stage and the integration job. The network fetches the
       # modules the image's cache does not carry.
       - name: Build and vet every Go module
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.preflight.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         env:
           IN_IMAGE_NETWORK: bridge
           MODULES_SCRIPT: |
@@ -955,7 +984,7 @@ jobs:
       # left out: its dependencies go-xkms (argon2, 386) and go-qrdb
       # (pkg/discovery, windows) do not build there, which is theirs to fix.
       - name: Cross-architecture build and vet
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.preflight.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         env:
           IN_IMAGE_NETWORK: bridge
           CROSS_ARCH_SCRIPT: |
@@ -991,11 +1020,11 @@ jobs:
       # suite that boots both on each: a signed image answers across a reset,
       # a tampered one and another key's stay silent.
       - name: make firmware BOARD=mps2-an505 (toolchain image)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.preflight.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make firmware BOARD=mps2-an505 CRYPTO=soft
 
       - name: make bootloader BOARD=mps2-an505 (toolchain image)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.preflight.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: >-
           scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make bootloader BOARD=mps2-an505
           BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
@@ -1024,7 +1053,7 @@ jobs:
           BOOT_TIER=soft BOOT_MEASURE=soft BOOT_SIG=p256-soft BOOT_OTA=0 BOOT_STORE=0
 
       - name: make integration-test-cortex-m (toolchain image)
-        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.changes.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
+        if: ${{ !cancelled() && env.TOOLCHAIN_IMAGE != '' && needs.preflight.outputs.docs_only != 'true' }} # CUSTOMIZE (trusted-firmware, DS-3166)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" make integration-test-cortex-m
 
       # The tfwctl wire suite on both QEMU boards, through a pty and a QMP
@@ -1212,8 +1241,8 @@ jobs:
   # scripts-test, so it is the test stage.
   unit-shard-1:
     name: Unit [make test-shard-1]
-    needs: [image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     runs-on: ubuntu-latest
     # CUSTOMIZE (ruling 218(9), the shard rebalance): host-test, board-sweep,
     # test-asan-boot: about 23 min green, 30 at quota (estimate, see
@@ -1264,8 +1293,8 @@ jobs:
 
   unit-shard-2:
     name: Unit [make test-shard-2]
-    needs: [image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     runs-on: ubuntu-latest
     # CUSTOMIZE (ruling 218(9), the shard rebalance): boot-test, coverage,
     # verify-vectors, xkms-coverage, sdk-coverage, scripts-test: about 25.5
@@ -1317,8 +1346,8 @@ jobs:
 
   unit-shard-3:
     name: Unit [make test-shard-3]
-    needs: [image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     runs-on: ubuntu-latest
     # CUSTOMIZE (ruling 218(9), the shard rebalance): test-asan-host alone.
     # test-asan whole was 30.5 min green, about 47 at quota (38 in #256's
@@ -1372,8 +1401,8 @@ jobs:
     # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race against tfwsim,
     # the PR tier's only simulator run, beside the unit leg.
     name: sdk/go under -race [cross-implementation suite]
-    needs: [image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     runs-on: ubuntu-latest
     # CUSTOMIZE: 5 min on run 245908 (19:50 to 19:55); the suite's own bound
     # is 15 (-timeout=900s), and the tfwsim builds ~3. 10 + 18, plus margin.
@@ -1448,8 +1477,8 @@ jobs:
     # toolchain image alone, so it leaves the image job. deps-check runs in
     # the image job beside `make lint` from v1.28 (ruling 220(3)).
     name: Security [make security]
-    needs: [image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     runs-on: ubuntu-latest
     # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908).
     # 10 + 11, plus margin.
@@ -1517,8 +1546,8 @@ jobs:
     # (schedule, workflow_dispatch) runs it. Ruling 219(5): a push to main
     # runs it too, the full tier proving what the PR tier skipped, so a red
     # main is found at the merge, not the next night.
-    needs: [changes, image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.esp32 == 'true')) && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.preflight.outputs.esp32 == 'true')) && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     runs-on: ubuntu-latest
     # CUSTOMIZE (ruling 220(j)): the 10 min before the stages that the
     # esp32-qemu-test job's sum below counts, then esp32-build (2 min 39 s in
@@ -1574,8 +1603,8 @@ jobs:
     # workflow_dispatch), never on a pull_request. It needs no output of the
     # esp32-build job: make esp32-qemu-test builds its own esp32-qemu images.
     name: ESP32 QEMU Test [esp32-qemu-test]
-    needs: [image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
     runs-on: ubuntu-latest
     # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
     # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
@@ -1637,8 +1666,8 @@ jobs:
     # in minutes; on a miss it builds the stack cold and actions/cache's post
     # step saves it. It runs under the optee job's own needs and if.
     name: OP-TEE stack [optee-tools, optee-qemu]
-    needs: [changes, image, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.preflight.outputs.optee == 'true')) && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saves `optee-4.11.0`
     # and the optee job restores it. On ubuntu-latest (DS-7400) both jobs share the
     # repository's Actions cache.
@@ -1728,18 +1757,18 @@ jobs:
     # job only restores it and never builds it cold.
     name: OP-TEE [optee-qemu, integration-test-optee]
     # CUSTOMIZE (trusted-firmware, #253; modelled on the ESP32 job, rulings
-    # 218(9), 219(5)): on a PR only when the changes job saw an OP-TEE path
+    # 218(9), 219(5)): on a PR only when the `preflight` job saw an OP-TEE path
     # change or the PR is labelled ci:full; otherwise a push to main and the
     # nightly tier (schedule, workflow_dispatch) run it. It needs and gates
     # on the image job exactly as the ESP32 job does: a job that needed only
-    # the changes job and gated on needs.changes.result == 'success' (run
-    # 69905) or needs.changes.outputs.optee != '' (run 69954) was skipped
+    # the changes job (now preflight) and gated on its result being success
+    # (run 69905) or its optee output not empty (run 69954) was skipped
     # unstarted on a PR, while every job that ran there with a needs term in
     # its if also needed the image job and gated on its built output.
     # Ruling 250 (a): it also needs optee-stack, which saves the cache it
     # restores.
-    needs: [changes, image, optee-stack, schedule-guard]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.changes.outputs.optee == 'true')) && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}   # v1.26
+    needs: [image, optee-stack, preflight]   # v1.29.3
+    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.preflight.outputs.optee == 'true')) && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saves `optee-4.11.0`
     # and this job restores it. On ubuntu-latest (DS-7400) both jobs share the
     # repository's Actions cache.
@@ -1832,10 +1861,10 @@ jobs:
   lint-gates:
     name: Lint Gates [toolchain image]
     runs-on: ubuntu-latest
-    needs: schedule-guard     # v1.29.3
+    needs: preflight     # v1.29.3
     # v1.26: never on a draft. v1.29.3: on a schedule run, only on the
     # schedule guard's `run`.
-    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
+    if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
     timeout-minutes: 45
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
@@ -1906,8 +1935,8 @@ jobs:
     name: Integration [integration image]
     # v1.26: never on a draft PR, ci:full or not. v1.29.3: on a schedule run,
     # only on the schedule guard's `run`.
-    needs: schedule-guard
-    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')) && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict == 'run') }}
+    needs: preflight
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')) && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
     runs-on: ubuntu-latest
     # CUSTOMIZE: trusted-firmware: full tier (#293; handbook sdlc.md §5a). The suite is
     # `make integration-test-host`: the real AVR images under simavr, and
@@ -2028,8 +2057,8 @@ jobs:
   soak:
     name: Soak [integration image]
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
-    needs: schedule-guard
-    if: ${{ ((github.event_name == 'schedule' && needs.schedule-guard.outputs.verdict == 'run') || github.event_name == 'workflow_dispatch') && !github.event.pull_request.draft }}   # v1.26
+    needs: preflight
+    if: ${{ ((github.event_name == 'schedule' && needs.preflight.outputs.verdict == 'run') || github.event_name == 'workflow_dispatch') && !github.event.pull_request.draft }}   # v1.26
     runs-on: ubuntu-latest
     timeout-minutes: 90       # CUSTOMIZE: SOAK_MINUTES plus one iteration
     env:
@@ -2151,38 +2180,6 @@ jobs:
   # integration job's `if:`, `full` in CI Gate) unless it is lint, build,
   # unit or race, which stay on the PR tier.
 
-  # Architecture gate (v1.20, Company Agent m270 item 9; go-xkms arch-gates).
-  # go-objstore owns every blob backend (docs/00), and a repo reaches it only
-  # through the packages that are its storage seam. Test files are exempt, and
-  # go-objstore itself passes. CUSTOMIZE: OBJSTORE_SEAMS, an extended regex of
-  # the paths that may import go-objstore (go-xkms: 'pkg/ca/|pkg/storage/');
-  # empty means none may. CUSTOMIZE: the repo's own layering rules (go-xkms:
-  # xkmsctl and xkey depend only on sdk/go) are further steps in this job.
-  # A source check with grep, not a stage: it runs on the runner's shell.
-  # v1.23: a lint-class check, so it stays on the PR tier.
-  arch-gates:
-    name: Architecture Gates
-    runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}   # v1.26
-    env:
-      OBJSTORE_SEAMS: ''      # CUSTOMIZE
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-
-      - name: No direct go-objstore import outside the storage seam
-        run: |
-          if [ "$(sed -n 's/^module //p' go.mod)" = github.com/jeremyhahn/go-objstore ]; then
-            echo "OK: this is go-objstore"; exit 0
-          fi
-          hits=$(grep -rln --include='*.go' '"github.com/jeremyhahn/go-objstore' . \
-                 | grep -v '_test\.go$' \
-                 | { if [ -n "$OBJSTORE_SEAMS" ]; then grep -vE "$OBJSTORE_SEAMS"; else cat; fi; } || true)
-          if [ -n "$hits" ]; then
-            echo "go-objstore may be imported only in the storage seam (OBJSTORE_SEAMS='$OBJSTORE_SEAMS'):"
-            echo "$hits"; exit 1
-          fi
-          echo "OK: no go-objstore import outside the storage seam"
-
   # The single required check (devops.md §1). Every job above must appear in
   # BOTH the needs list and the results check — a gate that can pass vacuously
   # is worse than no gate. Do not use join(needs.*.result); it evaluates empty
@@ -2197,10 +2194,10 @@ jobs:
     # gate, so `CI / CI Gate (schedule)` posts `skipped` (Gitea 1.27.1 posts a
     # skipped job as `skipped`, not `success`), never a green nightly. Every
     # other verdict, an empty one included, runs it.
-    if: ${{ always() && (github.event_name != 'schedule' || needs.schedule-guard.outputs.verdict != 'busy') }}
+    if: ${{ always() && (github.event_name != 'schedule' || needs.preflight.outputs.verdict != 'busy') }}
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [changes, schedule-guard, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee-stack, optee, integration, soak, arch-gates]
+    needs: [preflight, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee-stack, optee, integration, soak]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -2214,25 +2211,25 @@ jobs:
           DRAFT: ${{ github.event.pull_request.draft == true }}
           # v1.29.3: the schedule guard's verdict on a schedule run.
           SCHEDULE: ${{ github.event_name == 'schedule' }}
-          SCHEDULE_GUARD: ${{ needs.schedule-guard.outputs.verdict }}
+          SCHEDULE_GUARD: ${{ needs.preflight.outputs.verdict }}
           # CUSTOMIZE (trusted-firmware): a `docs` job builds or tests code, so
-          # a docs-only PR (v1.24, the `changes` job) may skip it; any other
-          # event or PR may not. A failed `changes` job reads as not docs-only.
-          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }} # CUSTOMIZE
+          # a docs-only PR (v1.24, the `preflight` job) may skip it; any other
+          # event or PR may not. A failed `preflight` job reads as not docs-only.
+          DOCS_ONLY: ${{ needs.preflight.outputs.docs_only }} # CUSTOMIZE
           # CUSTOMIZE (trusted-firmware, ruling 218(9), 219(5)): the
           # `esp32-build` job may skip only on a PR that changed no ESP32 path
-          # (the `changes` job's esp32 output). Ruling 220(j): the
+          # (the `preflight` job's esp32 output). Ruling 220(j): the
           # `esp32-qemu-test` job may skip only on a PR, any PR. On a push,
           # schedule or workflow_dispatch both must run, and a skipped or
           # failed one fails the gate.
-          ESP32_CHANGED: ${{ needs.changes.outputs.esp32 }} # CUSTOMIZE
+          ESP32_CHANGED: ${{ needs.preflight.outputs.esp32 }} # CUSTOMIZE
           ESP32_PR: ${{ github.event_name == 'pull_request' }} # CUSTOMIZE: ruling 219(5)
           # CUSTOMIZE (trusted-firmware, #253, as for esp32): an `optee` job
           # (optee-stack and optee, under one if since ruling 250 (a)) may skip only on a PR that changed no OP-TEE path and is not
-          # labelled ci:full (the `changes` job's optee output). On a push,
+          # labelled ci:full (the `preflight` job's optee output). On a push,
           # schedule or workflow_dispatch it must run, and a skipped or
           # failed one fails the gate.
-          OPTEE_CHANGED: ${{ needs.changes.outputs.optee }} # CUSTOMIZE
+          OPTEE_CHANGED: ${{ needs.preflight.outputs.optee }} # CUSTOMIZE
         run: |
           if [ "${DRAFT}" = true ]; then
             echo "FAIL draft pull request: no CI runs on a draft. Mark it ready, then push an empty commit to start its run."
@@ -2273,8 +2270,7 @@ jobs:
           # workflow_dispatch is nightly; every other job is pr. A leg that
           # builds or tests code is docs: a docs-only PR runs lint and the arch
           # gates alone (v1.24), and any other PR fails if the leg skips.
-          check changes     "${{ needs.changes.result }}" pr
-          check schedule-guard "${{ needs.schedule-guard.result }}" pr
+          check preflight   "${{ needs.preflight.result }}" pr
           check image       "${{ needs.image.result }}" pr
           check lint-gates  "${{ needs.lint-gates.result }}" pr
           check unit-shard-1 "${{ needs.unit-shard-1.result }}" docs
@@ -2288,5 +2284,4 @@ jobs:
           check optee       "${{ needs.optee.result }}" optee # CUSTOMIZE: #253
           check integration "${{ needs.integration.result }}" full
           check soak        "${{ needs.soak.result }}" nightly
-          check arch-gates  "${{ needs.arch-gates.result }}" pr
           exit $BAD

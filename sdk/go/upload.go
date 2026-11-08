@@ -31,8 +31,8 @@ func UploadProgress(fn func(sent, total uint32)) UploadOption {
 // OTA_STATUS where the session stands and, while the device is still
 // receiving, goes on from its count, so no accepted byte is sent twice. It
 // gives up with the OTA_DATA's error when the session is no longer
-// receiving, when OTA_STATUS fails, or when the same chunk fails twice
-// without progress; a count the upload did not send is ErrUploadCount. The
+// receiving, when OTA_STATUS fails, or when the same chunk fails twice and
+// OTA_STATUS after the second failure still shows no progress; a count the upload did not send is ErrUploadCount. The
 // context is checked between chunks.
 func (d *Device) Upload(ctx context.Context, img *Image, opts ...UploadOption) error {
 	o := uploadOptions{resume: true}
@@ -64,12 +64,18 @@ func (d *Device) stage(ctx context.Context, image []byte, o uploadOptions) error
 		}
 		end := min(off+OTAChunk, len(image))
 		if err := d.OTAData(ctx, uint32(off), image[off:end]); err != nil {
-			if !o.resume || retried || ctx.Err() != nil {
+			if !o.resume || ctx.Err() != nil {
 				return err
 			}
-			next, err := d.resume(ctx, off, end, err)
+			cause := err
+			next, err := d.resume(ctx, off, end, cause)
 			if err != nil {
 				return err
+			}
+			// A retry that failed may still have reached the device, so only
+			// a second failure the count shows no progress after stops here.
+			if next == off && retried {
+				return cause
 			}
 			retried = next == off
 			off = next

@@ -227,7 +227,8 @@ xkms-security:
 	$(call require-tools,$(GO) gosec govulncheck golangci-lint)
 	@cd $(XKMS_DIR) && $(GO) mod verify
 	@cd $(XKMS_DIR) && gosec -quiet$(call go-tags,-tags,$(XKMS_TAGS)) ./...
-	@cd $(XKMS_DIR) && govulncheck$(call go-tags,-tags,$(XKMS_TAGS)) ./...
+	@cd $(XKMS_DIR) && out=$$(govulncheck$(call go-tags,-tags,$(XKMS_TAGS)) -format json ./...) && \
+	  printf '%s\n' "$$out" | python3 $(CURDIR)/scripts/govulncheck-gate.py xkms
 	@cd $(XKMS_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags,$(XKMS_TAGS)) ./...
 
 # -------------------------------------------------------------- deps-check

@@ -19,8 +19,7 @@
 # community AVR image. Pinned by the digest of the
 # multi-architecture index; the tag is recorded beside it for a reader.
 BASE_IMAGE=debian:trixie-slim
-BASE_DIGEST=sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
-HELD_BASE_DIGEST="a new digest of the tag installs new Debian package builds, gcc-avr and avr-libc among them, so it changes the built firmware images; it moves in its own row with a size-budget and vector run, and the Dockerfile's ARG default with it"
+BASE_DIGEST=sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
 # Go, for sdk/go, xkms/ and test/integration/esp32. At least 1.27.1 because
 # xkms/ requires go-xkms, whose go.mod says `go 1.27.1`; 1.27.3 because
@@ -33,8 +32,10 @@ GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
 HELD_GO="GO_VERSION, GO_SHA256 and GO_IMAGE name one Go and move together in one commit; CI builds its toolchain image from these pins at the PR's commit, so a bump is tested by the PR that makes it"
 
 # --- the AVR toolchain: Debian trixie's packages -----------------------------
-# Installed from docker/packages.txt at the base digest above, so the version
-# is the one the pinned Debian release ships. deps-check reads the installed
+# Installed from docker/packages.txt by apt-get at image build time, unpinned,
+# so the version is what Debian trixie's archive ships on the build day (the
+# Dockerfile's DEBIAN_REFRESH rebuilds that layer); the base digest does not
+# choose it. deps-check reads the installed
 # version with dpkg-query and compares it with the upstream release.
 HELD_AVR_GCC="Debian trixie's gcc-avr: the toolchain comes from Debian packages for their provenance (docker/packages.txt), and a compiler change moves every size budget and the reproducible-build hash"
 HELD_AVR_LIBC="Debian trixie's avr-libc, for the reason HELD_AVR_GCC gives"

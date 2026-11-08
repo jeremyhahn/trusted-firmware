@@ -22,10 +22,20 @@
 
 uint8_t tfw_boot_p256_key[64];
 
-static const uint8_t image_key[32] = {
-    0x5A, 0x13, 0xC7, 0x2E, 0x91, 0x0B, 0x64, 0xF2, 0x38, 0xAD, 0x7E, 0x46, 0x09, 0xD5, 0x6C, 0x81,
-    0x22, 0xB9, 0x4F, 0xE0, 0x17, 0x8A, 0x3D, 0x56, 0xCB, 0x70, 0x05, 0x9E, 0x63, 0xF4, 0x28, 0xB1,
-};
+/* Throwaway keys, made by micro-ecc on first use (no private key is in the
+ * tree) and kept for the run, so every case signs with the same pair. */
+static uint8_t image_key[32];
+
+static void make_keys(void)
+{
+    static int made;
+    uint8_t    pub[64];
+
+    if (!made) {
+        TEST_ASSERT_EQUAL_INT(1, uECC_make_key(pub, image_key, uECC_secp256r1()));
+        made = 1;
+    }
+}
 
 typedef struct { uECC_HashContext uecc; tfw_sha256_t ctx; } hash_ctx_t;
 static hash_ctx_t *as_ctx(const uECC_HashContext *c) { return (hash_ctx_t *)(uintptr_t)c; }
@@ -62,6 +72,7 @@ void setUp(void)
 {
     static const uint8_t msg[] = "layer 0 digest verify";
 
+    make_keys();
     TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(image_key, tfw_boot_p256_key,
                                                      uECC_secp256r1()));
     tfw_sha256(msg, (uint16_t)(sizeof msg - 1u), digest);
@@ -97,13 +108,9 @@ static void test_the_last_key_byte_is_verified(void)
 
 static void test_another_key_refuses(void)
 {
-    static const uint8_t other_key[32] = {
-        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x0F, 0x10,
-        0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xA9, 0xBA, 0xCB, 0xDC, 0xED, 0xFE, 0x1F, 0x20,
-    };
+    uint8_t other_key[32];
 
-    TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(other_key, tfw_boot_p256_key,
-                                                     uECC_secp256r1()));
+    TEST_ASSERT_EQUAL_INT(1, uECC_make_key(tfw_boot_p256_key, other_key, uECC_secp256r1()));
     TEST_ASSERT_EQUAL_INT(TFW_ERR_CRYPTO, tfw_crypto_verify_image(digest, sig));
 }
 

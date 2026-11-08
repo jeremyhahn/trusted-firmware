@@ -389,11 +389,8 @@ static void on_twi_status(struct avr_irq_t *irq, uint32_t value, void *param)
 
 /* The element's own secrets. They exist in this process and nowhere else --
  * which is the property the tier claims and the thing the harness is standing
- * in for. */
-static const uint8_t EL_SIGNING_KEY[32] = {
-    0x9E,0x1C,0x4B,0x22,0x70,0xA5,0x33,0xF8,0x0D,0x61,0xB4,0x17,0xCA,0x2E,0x88,0x5D,
-    0x30,0x79,0xE6,0x44,0x12,0xBB,0x57,0x9A,0xC3,0x08,0x6F,0xD1,0x25,0xAE,0x73,0x40
-};
+ * in for. The signing secret is made at run time (el_key), not written here. */
+static const char EL_SIGNING_LABEL[] = "boot_harness element signing secret";
 static const uint8_t EL_UDS[32] = {
     0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xAA,0xBB,0xCC,0xDD,0xEE,0xFF,0x00,
     0x0F,0x1E,0x2D,0x3C,0x4B,0x5A,0x69,0x78,0x87,0x96,0xA5,0xB4,0xC3,0xD2,0xE1,0xF0
@@ -415,16 +412,28 @@ static const uint8_t EL_UDS[32] = {
  * differs -- not because a flag was flipped. A model that simply returned "no"
  * would prove nothing about the bootloader at all.
  */
+static const uint8_t *el_key(void)
+{
+    static uint8_t key[32];
+    static int     made;
+
+    if (!made) {
+        tfw_sha256((const uint8_t *)EL_SIGNING_LABEL, (uint16_t)(sizeof EL_SIGNING_LABEL - 1u), key);
+        made = 1;
+    }
+    return key;
+}
+
 static void element_sign(const uint8_t digest[32], uint8_t sig[64])
 {
     uint8_t buf[64];
 
-    memcpy(buf, EL_SIGNING_KEY, 32);
+    memcpy(buf, el_key(), 32);
     memcpy(&buf[32], digest, 32);
     tfw_sha256(buf, 64u, sig);
 
     memcpy(buf, digest, 32);
-    memcpy(&buf[32], EL_SIGNING_KEY, 32);
+    memcpy(&buf[32], el_key(), 32);
     tfw_sha256(buf, 64u, &sig[32]);
 }
 
@@ -1054,23 +1063,26 @@ static const uint8_t TEST_DEVICE_SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5,0xD5
 };
 
-/* The test operator key pair (issue #130): a P-256 key made for this harness
- * and never anything else, so its private half is a literal here and lives
- * only under test/. The public half is the platform block's operator_pubkey,
- * which tfw_platform_id_operator_pubkey (src/core/platform_id.c) reads for the
- * application's AUTH_RESPONSE check; tfw-boot does not read it. Public is
- * X || Y, big-endian. The private half has external linkage so an unused
- * const is not a -Werror; it is the signer's for a session leg. */
-const uint8_t TEST_OPERATOR_PRIVATE[32] = {
-    0x00, 0x47, 0xc9, 0x19, 0xaf, 0x8d, 0xee, 0x2d, 0x7d, 0x82, 0xf3, 0x8e, 0xc5, 0xeb, 0xbd, 0x42,
-    0x4e, 0x84, 0x9a, 0xd2, 0x8e, 0x7b, 0xa1, 0xab, 0x76, 0xd5, 0x19, 0x44, 0x95, 0xde, 0xd7, 0x90
-};
-static const uint8_t TEST_OPERATOR_PUBLIC[TFW_BOOT_OPERATOR_PUBKEY_LEN] = {
-    0x6c, 0x7e, 0x9a, 0xc4, 0xe6, 0xfc, 0xe8, 0xca, 0x7a, 0x63, 0x21, 0xab, 0x03, 0x16, 0x8a, 0xfc,
-    0xbd, 0xe8, 0x54, 0x8e, 0xbf, 0x7a, 0xe5, 0xef, 0x1d, 0xf1, 0x67, 0x53, 0x8d, 0x84, 0x69, 0x9c,
-    0x5d, 0x5b, 0xca, 0x65, 0x93, 0x19, 0x18, 0xec, 0x62, 0xa5, 0x42, 0xf0, 0x59, 0xb7, 0x41, 0xd0,
-    0x00, 0x24, 0xb4, 0xe9, 0x66, 0x4a, 0x10, 0xe7, 0x85, 0xd6, 0x1a, 0xee, 0x1e, 0xab, 0x65, 0xf9
-};
+/* The test operator's public key (issue #130), X || Y big-endian: the platform
+ * block's operator_pubkey, which tfw_platform_id_operator_pubkey
+ * (src/core/platform_id.c) reads for the application's AUTH_RESPONSE check;
+ * tfw-boot does not read it. The pair is made by micro-ecc on first use and
+ * kept for the run; its private half is dropped, as no leg here signs. */
+static const uint8_t *test_operator_public(void)
+{
+    static uint8_t pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
+    static int     made;
+    uint8_t        priv[32];
+
+    if (!made) {
+        if (!uECC_make_key(pub, priv, uECC_secp256r1())) {
+            fprintf(stderr, "uECC_make_key failed\n");
+            exit(2);
+        }
+        made = 1;
+    }
+    return pub;
+}
 
 static void build_eeprom_state(uint8_t boot_state, uint8_t ota_state)
 {
@@ -1097,7 +1109,7 @@ static void build_eeprom_state(uint8_t boot_state, uint8_t ota_state)
         tfw_sha256(soft_pub, sizeof soft_pub, plat.pubkey_hash);
     }
     memcpy(plat.serial, TEST_DEVICE_SERIAL, TFW_BOOT_SERIAL_LEN);
-    memcpy(plat.operator_pubkey, TEST_OPERATOR_PUBLIC, TFW_BOOT_OPERATOR_PUBKEY_LEN);
+    memcpy(plat.operator_pubkey, test_operator_public(), TFW_BOOT_OPERATOR_PUBKEY_LEN);
     tfw_boot_platform_serialise(&plat, eeprom_image);
 }
 

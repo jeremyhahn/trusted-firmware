@@ -217,6 +217,12 @@ static void h_finish(const uECC_HashContext *c, uint8_t *out)
     tfw_sha256_final(&as_ctx(c)->ctx, out);
 }
 
+void tfw_model_p256_key(const char *label, uint8_t priv[32], uint8_t pub[64])
+{
+    uECC_set_rng(blind_rng);
+    key_from_seed((const uint8_t *)label, (uint16_t)strlen(label), priv, pub);
+}
+
 int tfw_model_p256_public(const uint8_t priv[32], uint8_t pub[64])
 {
     uECC_set_rng(blind_rng);

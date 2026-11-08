@@ -5,7 +5,7 @@
 # The public-releasability gate (docs/development/releasability.md).
 #
 # Scans every file that would be published -- the tracked files minus those
-# .gitattributes marks export-ignore -- for the private-fleet values listed in
+# .gitattributes marks export-ignore -- for the generic leak shapes listed in
 # scripts/releasability.patterns, and prints `file:line: class` for each. Exits 1
 # on any. Export-ignored files are reported as `file: strip-at-publish`, which
 # is information and not a finding. Needs no network.

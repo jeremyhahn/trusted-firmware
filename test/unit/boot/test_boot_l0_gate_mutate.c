@@ -42,10 +42,20 @@ uint8_t tfw_boot_p256_key[64];
 #define ESP_LEN   (IMAGE + 32u)
 #define ENV_AT    (BASE + ESP_LEN + TFW_BOOT_TRAILER_LEN)
 
-static const uint8_t image_key[32] = {
-    0x5A, 0x13, 0xC7, 0x2E, 0x91, 0x0B, 0x64, 0xF2, 0x38, 0xAD, 0x7E, 0x46, 0x09, 0xD5, 0x6C, 0x81,
-    0x22, 0xB9, 0x4F, 0xE0, 0x17, 0x8A, 0x3D, 0x56, 0xCB, 0x70, 0x05, 0x9E, 0x63, 0xF4, 0x28, 0xB1,
-};
+/* Throwaway keys, made by micro-ecc on first use (no private key is in the
+ * tree) and kept for the run, so every case signs with the same pair. */
+static uint8_t image_key[32];
+
+static void make_keys(void)
+{
+    static int made;
+    uint8_t    pub[64];
+
+    if (!made) {
+        TEST_ASSERT_EQUAL_INT(1, uECC_make_key(pub, image_key, uECC_secp256r1()));
+        made = 1;
+    }
+}
 
 static uint8_t digest[32];
 
@@ -146,6 +156,7 @@ void setUp(void)
     uint8_t           *f;
     uint32_t           i;
 
+    make_keys();
     tfw_boot_mock_reset();
     f = tfw_boot_mock_flash();
     for (i = 0u; i < IMAGE; i++) {

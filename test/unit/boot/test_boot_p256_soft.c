@@ -235,14 +235,6 @@ static void test_the_contract(void)
     TEST_ASSERT_EQUAL_HEX8(0x26u, tfw_boot_cose_alg);   /* ES256, RFC 9053 -7 */
 }
 
-/* The element tier's signing key: boot_harness.c's EL_SIGNING_KEY, the key the
- * simavr element tier signs its trailers with. Signed here at test time, as the
- * model signs (test/model/atecc608a.c, tfw_model_p256_sign); nothing is pinned. */
-static const uint8_t el_signing_key[32] = {
-    0x9E,0x1C,0x4B,0x22,0x70,0xA5,0x33,0xF8,0x0D,0x61,0xB4,0x17,0xCA,0x2E,0x88,0x5D,
-    0x30,0x79,0xE6,0x44,0x12,0xBB,0x57,0x9A,0xC3,0x08,0x6F,0xD1,0x25,0xAE,0x73,0x40
-};
-
 /* micro-ecc's deterministic k takes the hash as a context: the model's glue. */
 typedef struct { uECC_HashContext uecc; tfw_sha256_t ctx; } hash_ctx_t;
 
@@ -258,8 +250,8 @@ static void h_finish(const uECC_HashContext *c, uint8_t *out)
 }
 
 /* A trailer v1 signed as the element tier signs it: P-256 over tfw_boot_hash of
- * the signed span, r || s at TFW_BOOT_TR_SIGNATURE. Its public key goes in the
- * slot. */
+ * the signed span, r || s at TFW_BOOT_TR_SIGNATURE, with setUp's key standing
+ * in for the element's (nothing is pinned). Its public key goes in the slot. */
 static void element_signed_trailer(uint8_t raw[TFW_BOOT_TRAILER_LEN])
 {
     tfw_boot_trailer_t tr;
@@ -285,10 +277,10 @@ static void element_signed_trailer(uint8_t raw[TFW_BOOT_TRAILER_LEN])
     hc.uecc.block_size  = 64u;
     hc.uecc.result_size = 32u;
     hc.uecc.tmp         = tmp;
-    TEST_ASSERT_EQUAL_INT(1, uECC_sign_deterministic(el_signing_key, digest, 32u, &hc.uecc,
+    TEST_ASSERT_EQUAL_INT(1, uECC_sign_deterministic(k_priv, digest, 32u, &hc.uecc,
                                                      &raw[TFW_BOOT_TR_SIGNATURE],
                                                      uECC_secp256r1()));
-    TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(el_signing_key,
+    TEST_ASSERT_EQUAL_INT(1, uECC_compute_public_key(k_priv,
                                                      (uint8_t *)tfw_boot_p256_key,
                                                      uECC_secp256r1()));
 }

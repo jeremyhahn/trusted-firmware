@@ -73,10 +73,7 @@ static const uint8_t SERIAL[TFW_BOOT_SERIAL_LEN] = {
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
     0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11
 };
-static const uint8_t OPERATOR_PRIV[32] = {
-    0x4F,0x0C,0x91,0x37,0xA2,0x5E,0x68,0xD3,0x1B,0x74,0xC0,0x29,0xE8,0x56,0x3D,0xAA,
-    0x02,0x9B,0x61,0xF4,0x8E,0x17,0xC5,0x73,0xDA,0x40,0x2C,0xB9,0x85,0x1E,0x6F,0x30
-};
+static uint8_t operator_priv[32];
 static uint8_t operator_pub[TFW_BOOT_OPERATOR_PUBKEY_LEN];
 static uint8_t pristine[TFW_EEPROM_SIZE];
 static char    why[96];
@@ -99,7 +96,7 @@ void setUp(void)
     tfw_boot_platform_t plat;
 
     tfw_model_reset();
-    TEST_ASSERT_TRUE(tfw_model_p256_public(OPERATOR_PRIV, operator_pub));
+    tfw_model_p256_key("operator", operator_priv, operator_pub);
     memset(&plat, 0, sizeof plat);
     memcpy(plat.serial, SERIAL, sizeof SERIAL);
     memcpy(plat.operator_pubkey, operator_pub, sizeof operator_pub);
@@ -119,7 +116,7 @@ static void sign(const uint8_t n[TFW_AUTH_NONCE_LEN], uint8_t sig[TFW_AUTH_SIG_L
     memcpy(msg + sizeof domain - 1u, SERIAL, TFW_BOOT_SERIAL_LEN);
     memcpy(msg + sizeof domain - 1u + TFW_BOOT_SERIAL_LEN, n, TFW_AUTH_NONCE_LEN);
     tfw_sha256(msg, (uint16_t)sizeof msg, digest);
-    TEST_ASSERT_TRUE(tfw_model_p256_sign(OPERATOR_PRIV, digest, sig));
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(operator_priv, digest, sig));
 }
 
 static void challenge(uint8_t n[TFW_AUTH_NONCE_LEN])

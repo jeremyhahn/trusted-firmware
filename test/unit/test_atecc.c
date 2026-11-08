@@ -715,19 +715,17 @@ static void test_signing_a_different_digest_gives_a_different_signature(void)
 }
 
 /* The operator's key is the host's: this plays the host, signing with a private
- * key the element never sees, and has the element verify it in External mode. */
-static const uint8_t OP_PRIV[32] = {
-    0x21,0x5B,0x8E,0x03,0xC7,0x49,0xF2,0x16,0xA0,0x6D,0x34,0xB8,0x7E,0x1F,0xD9,0x52,
-    0x4A,0xC3,0x07,0x98,0xE1,0x2B,0x65,0xFC,0x80,0x3D,0x1A,0xB6,0x59,0xEE,0x72,0x0C
-};
+ * key the element never sees, and has the element verify it in External mode.
+ * Each test makes the pair (tfw_model_p256_key). */
+static uint8_t op_priv[32];
 
 static void test_the_element_accepts_a_good_operator_signature(void)
 {
     uint8_t digest[32], sig[64], pub[64], i;
 
     for (i = 0u; i < 32u; i++) { digest[i] = (uint8_t)(0x90u ^ i); }
-    TEST_ASSERT_TRUE(tfw_model_p256_public(OP_PRIV, pub));
-    TEST_ASSERT_TRUE(tfw_model_p256_sign(OP_PRIV, digest, sig));
+    tfw_model_p256_key("operator", op_priv, pub);
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(op_priv, digest, sig));
     tfw_model_provision();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
@@ -738,8 +736,8 @@ static void test_the_element_rejects_a_bad_operator_signature(void)
 {
     uint8_t digest[32] = { 7 }, sig[64], pub[64], other[64], bad[64];
 
-    TEST_ASSERT_TRUE(tfw_model_p256_public(OP_PRIV, pub));
-    TEST_ASSERT_TRUE(tfw_model_p256_sign(OP_PRIV, digest, sig));
+    tfw_model_p256_key("operator", op_priv, pub);
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(op_priv, digest, sig));
     tfw_model_provision();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_init());
 
@@ -903,8 +901,8 @@ static void test_the_provider_survives_a_part_at_its_maximum_execution_times(voi
     uint32_t v;
 
     for (i = 0u; i < 32u; i++) { digest[i] = (uint8_t)(0x44u + i); }
-    TEST_ASSERT_TRUE(tfw_model_p256_public(OP_PRIV, opub));
-    TEST_ASSERT_TRUE(tfw_model_p256_sign(OP_PRIV, digest, opsig));
+    tfw_model_p256_key("operator", op_priv, opub);
+    TEST_ASSERT_TRUE(tfw_model_p256_sign(op_priv, digest, opsig));
     tfw_model_provision();
     tfw_model_set_exec_ms(TFW_ATECC_OP_INFO,    5u);
     tfw_model_set_exec_ms(TFW_ATECC_OP_RANDOM,  23u);

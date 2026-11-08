@@ -106,6 +106,9 @@ void           tfw_model_test_deviceid(uint8_t priv[32], uint8_t pub[64]);
  * on success and 0 otherwise. A test uses them to play the OPERATOR, whose key
  * is never in the element. */
 int            tfw_model_p256_public(const uint8_t priv[32], uint8_t pub[64]);
+/* A throwaway key pair made at test time from a label: no test carries a
+ * private key as a literal. The same label gives the same pair every run. */
+void           tfw_model_p256_key(const char *label, uint8_t priv[32], uint8_t pub[64]);
 int            tfw_model_p256_sign(const uint8_t priv[32], const uint8_t digest[32],
                                   uint8_t sig[64]);
 int            tfw_model_p256_verify(const uint8_t pub[64], const uint8_t digest[32],

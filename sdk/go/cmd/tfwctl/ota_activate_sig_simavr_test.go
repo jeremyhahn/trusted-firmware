@@ -12,12 +12,10 @@ import (
 	tfw "github.com/jeremyhahn/trusted-firmware/sdk/go"
 )
 
-// simavrElementKey is EL_SIGNING_KEY in test/integration/simavr/boot_harness.c,
-// the modelled element's key that signs every image of the simavr suite.
-var simavrElementKey = [32]byte{
-	0x9E, 0x1C, 0x4B, 0x22, 0x70, 0xA5, 0x33, 0xF8, 0x0D, 0x61, 0xB4, 0x17, 0xCA, 0x2E, 0x88, 0x5D,
-	0x30, 0x79, 0xE6, 0x44, 0x12, 0xBB, 0x57, 0x9A, 0xC3, 0x08, 0x6F, 0xD1, 0x25, 0xAE, 0x73, 0x40,
-}
+// simavrElementKey is el_key() in test/integration/simavr/boot_harness.c, the
+// modelled element's secret that signs every image of the simavr suite: the
+// SHA-256 of the harness's EL_SIGNING_LABEL, made at test time on both sides.
+var simavrElementKey = sha256.Sum256([]byte("boot_harness element signing secret"))
 
 // simavrActivateSig is the harness's sign_activate for an image as the stager
 // holds it, its 128-byte trailer last: the version (offset 8, little-endian)

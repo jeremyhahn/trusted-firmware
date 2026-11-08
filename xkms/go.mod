@@ -18,7 +18,7 @@ go 1.27.3
 require (
 	github.com/gorilla/mux v1.8.1
 	github.com/jeremyhahn/go-xkms v0.64.1-alpha
-	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha
+	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.2-alpha
 	github.com/stretchr/testify v1.12.1
 )
 

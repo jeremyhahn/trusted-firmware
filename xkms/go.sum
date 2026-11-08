@@ -363,8 +363,8 @@ github.com/jeremyhahn/go-xkms v0.64.1-alpha h1:AwcLTK1XGcEFqLQjXbeAvII5NKRnSzy9G
 github.com/jeremyhahn/go-xkms v0.64.1-alpha/go.mod h1:0yKPRwh8dxOGLTQQkGgxOt+9vddyJTMkN80bL18y87U=
 github.com/jeremyhahn/go-xkms/sdk/go v0.64.0-alpha h1:BWWSTpZ80x5uf4PhzoPH6o9Zh9P0ABXh/rfPDoRhRIQ=
 github.com/jeremyhahn/go-xkms/sdk/go v0.64.0-alpha/go.mod h1:FL4s+6xJDqIwUKMqYdNOC7XNiLybTGnvarJlMeVbjoM=
-github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha h1:KoMVGmsltrzWkmnb/dG5EPLZ31Ms5Yro0FfC5egvWhA=
-github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha/go.mod h1:YcNo9FEQ7l5JttI/gyLIduFGZhfYMDB4fNqngXbvUc4=
+github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.2-alpha h1:7XiHnVp19x6EIwFE6rIvOtPfA2sZe12i7TXNKMi07uk=
+github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.2-alpha/go.mod h1:YcNo9FEQ7l5JttI/gyLIduFGZhfYMDB4fNqngXbvUc4=
 github.com/jeroenrinzema/psql-wire v0.20.0 h1:7pW5lAaU/FaOVq+BxI3cZRTtXDsVYPrhDAiwKsXYvfQ=
 github.com/jeroenrinzema/psql-wire v0.20.0/go.mod h1:i7+aXJyIrgcXmbTkij68LdFs03w2f9kt18HIUo+eXmY=
 github.com/jmespath/go-jmespath v0.4.0 h1:BEgLn5cpjn8UN1mAw4NjwDrS35OdebyEtFe+9YPoQUg=

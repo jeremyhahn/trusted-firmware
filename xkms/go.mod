@@ -25,23 +25,23 @@ require (
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.1 // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
+	cloud.google.com/go/auth v0.24.3 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	cloud.google.com/go/iam v1.14.0 // indirect
-	cloud.google.com/go/kms v1.35.0 // indirect
-	cloud.google.com/go/longrunning v1.3.0 // indirect
-	cloud.google.com/go/monitoring v1.31.0 // indirect
-	cloud.google.com/go/storage v1.69.0 // indirect; held: v1.70.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
+	cloud.google.com/go/iam v1.15.1 // indirect
+	cloud.google.com/go/kms v1.36.1 // indirect
+	cloud.google.com/go/longrunning v1.5.0 // indirect
+	cloud.google.com/go/monitoring v1.32.1 // indirect
+	cloud.google.com/go/storage v1.70.0 // indirect
 	filippo.io/bigmod v0.1.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/azure-pipeline-go v0.2.3 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.24.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage v1.8.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys v1.5.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.5.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.5.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/internal v1.2.0 // indirect
 	github.com/Azure/azure-storage-blob-go v0.15.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 // indirect
@@ -54,25 +54,25 @@ require (
 	github.com/awnumar/memcall v0.5.0 // indirect
 	github.com/awnumar/memguard v0.23.0 // indirect
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.47.3 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.33.9 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.20.9 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/glacier v1.41.4 // indirect; held: v1.41.5 is not in the factory module cache, so no build against it was tried; it moves when the cache has it
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.21 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/kms v1.61.4 // indirect; held: v1.61.5 is not in the factory module cache, so no build against it was tried; it moves when the cache has it
-	github.com/aws/aws-sdk-go-v2/service/signin v1.10.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.38.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4 // indirect
-	github.com/aws/smithy-go v1.28.5 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.47.8 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.33.16 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.16 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.8 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.11 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.11 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/glacier v1.41.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.24 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/kms v1.62.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.12.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.39.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.51.9 // indirect
+	github.com/aws/smithy-go v1.28.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
-	github.com/bytedance/sonic v1.15.4 // indirect
+	github.com/bytedance/sonic v1.15.5 // indirect
 	github.com/bytedance/sonic/loader v0.5.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -99,22 +99,22 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/flynn/noise v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.6 // indirect
+	github.com/fxamacker/cbor/v2 v2.10.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect
 	github.com/getsentry/sentry-go v0.50.0 // indirect
-	github.com/gin-contrib/sse v1.1.2 // indirect
+	github.com/gin-contrib/sse v1.2.0 // indirect
 	github.com/gin-gonic/gin v1.12.0 // indirect
 	github.com/go-chi/chi/v5 v5.5.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.9 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-playground/locales v0.14.2 // indirect
 	github.com/go-playground/universal-translator v0.18.2 // indirect
-	github.com/go-playground/validator/v10 v10.30.5 // indirect
+	github.com/go-playground/validator/v10 v10.30.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.57.0-alpha (its latest, which requires v0.17.4) calls it with one in pkg/acme/challenges/device-attest-01; it moves when go-xkms does
+	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.64.2-alpha (its latest, which requires v0.17.4) calls it with one in pkg/acme/challenges/device-attest-01 (tpm.go); it moves when go-xkms does
 	github.com/go-webauthn/x v0.3.1 // indirect
-	github.com/goccy/go-json v0.11.2 // indirect
+	github.com/goccy/go-json v0.12.0 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
@@ -125,38 +125,38 @@ require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect; held: v0.3.24 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
-	github.com/googleapis/gax-go/v2 v2.26.2 // indirect; held: v2.27.0 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off); it moves when the cache has it
+	github.com/googleapis/enterprise-certificate-proxy v0.3.25 // indirect
+	github.com/googleapis/gax-go/v2 v2.27.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.33.0 // indirect
 	github.com/gtank/ristretto255 v0.2.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
-	github.com/hashicorp/go-rootcerts v1.0.2 // indirect; held: v1.1.0 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
+	github.com/hashicorp/go-rootcerts v1.1.0 // indirect
 	github.com/hashicorp/go-secure-stdlib/parseutil v0.2.0 // indirect
 	github.com/hashicorp/go-secure-stdlib/strutil v0.1.2 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.7 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
 	github.com/hashicorp/vault/api v1.23.0 // indirect
-	github.com/jackc/pgx/v5 v5.11.0 // indirect
+	github.com/jackc/pgx/v5 v5.12.0 // indirect
 	github.com/jeremyhahn/go-codec v1.5.1-alpha // indirect
-	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.11.1-alpha (DS-7466) removes enclave.MemoryEnclave and NewMemoryEnclave, which go-xkms v0.64.1-alpha (pkg/pintpm2), go-quicraft v0.22.0-alpha and go-truststrap v0.6.0-alpha still call; go-xkms v0.64.1-alpha requires v0.8.0-alpha
+	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.11.1-alpha (DS-7466) removes enclave.MemoryEnclave and NewMemoryEnclave, which go-xkms v0.64.2-alpha (pkg/pintpm2), go-quicraft v0.22.0-alpha and go-truststrap v0.6.0-alpha still call; go-xkms v0.64.2-alpha requires v0.8.0-alpha
 	github.com/jeremyhahn/go-frost v0.3.1-alpha // indirect
-	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect; held: v0.9.1-alpha (DS-7466) raises go-enclave past v0.8.0-alpha, which breaks go-quicraft v0.22.0-alpha (enclave.NewMemoryEnclave); go-xkms v0.64.1-alpha requires v0.4.0-alpha
-	github.com/jeremyhahn/go-qrdb v0.51.0-alpha // indirect; held: v0.58.1-alpha (DS-7466) removes qrdbsdk.NewMemoryStorage and NewFileStorage, which go-xkms v0.64.1-alpha (pkg/storage/qrdb) still calls; go-xkms v0.64.1-alpha requires v0.51.0-alpha
-	github.com/jeremyhahn/go-qrdb/sdk/go v0.51.0-alpha // indirect; held: v0.58.1-alpha (DS-7466) removes NewMemoryStorage and NewFileStorage, which go-xkms v0.64.1-alpha (pkg/storage/qrdb) still calls; go-xkms v0.64.1-alpha requires v0.51.0-alpha
-	github.com/jeremyhahn/go-quicraft v0.22.0-alpha // indirect; held: v0.24.3-alpha (DS-7466) requires go-enclave v0.10.0-alpha, which breaks go-truststrap v0.6.0-alpha (enclave.MemoryEnclave); go-xkms v0.64.1-alpha requires v0.22.0-alpha
-	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect; held: v0.7.1-alpha (DS-7466) raises go-enclave past v0.8.0-alpha, which breaks go-quicraft v0.22.0-alpha (enclave.NewMemoryEnclave); go-xkms v0.64.1-alpha requires v0.6.0-alpha
+	github.com/jeremyhahn/go-objstore v0.4.0-alpha // indirect; held: v0.9.1-alpha (DS-7466) raises go-enclave past v0.8.0-alpha, which breaks go-quicraft v0.22.0-alpha (enclave.NewMemoryEnclave); go-xkms v0.64.2-alpha requires v0.4.0-alpha
+	github.com/jeremyhahn/go-qrdb v0.51.0-alpha // indirect; held: v0.58.1-alpha (DS-7466) removes qrdbsdk.NewMemoryStorage and NewFileStorage, which go-xkms v0.64.2-alpha (pkg/storage/qrdb) still calls; go-xkms v0.64.2-alpha requires v0.51.0-alpha
+	github.com/jeremyhahn/go-qrdb/sdk/go v0.51.0-alpha // indirect; held: v0.58.1-alpha (DS-7466) removes NewMemoryStorage and NewFileStorage, which go-xkms v0.64.2-alpha (pkg/storage/qrdb) still calls; go-xkms v0.64.2-alpha requires v0.51.0-alpha
+	github.com/jeremyhahn/go-quicraft v0.22.0-alpha // indirect; held: v0.24.3-alpha (DS-7466) requires go-enclave v0.10.0-alpha, which breaks go-truststrap v0.6.0-alpha (enclave.MemoryEnclave); go-xkms v0.64.2-alpha requires v0.22.0-alpha
+	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect; held: v0.7.1-alpha (DS-7466) raises go-enclave past v0.8.0-alpha, which breaks go-quicraft v0.22.0-alpha (enclave.NewMemoryEnclave); go-xkms v0.64.2-alpha requires v0.6.0-alpha
 	github.com/jeremyhahn/go-xkms/sdk/go v0.64.2-alpha // indirect
 	github.com/jeroenrinzema/psql-wire v0.20.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/klauspost/cpuid/v2 v2.4.1 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.2 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
@@ -167,18 +167,19 @@ require (
 	github.com/lestrrat-go/iter v1.0.2 // indirect
 	github.com/lestrrat-go/jwx/v2 v2.1.7 // indirect
 	github.com/lestrrat-go/option v1.0.1 // indirect
-	github.com/lestrrat-go/strftime v1.2.0 // indirect
-	github.com/mark3labs/mcp-go v1.3.0 // indirect; held: v1.4.0 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
+	github.com/lestrrat-go/strftime v1.2.1 // indirect
+	github.com/mark3labs/mcp-go v1.5.0 // indirect
 	github.com/mattn/go-ieproxy v0.0.12 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/miekg/dns v1.1.73 // indirect
 	github.com/miekg/pkcs11 v1.1.2 // indirect
-	github.com/minio/minlz v1.2.2 // indirect; held: v1.2.3 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
+	github.com/minio/minlz v1.2.3 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.1-0.20231216201459-8508981c8b6c // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/pandatix/go-abnf v0.5.5 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
@@ -188,10 +189,10 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
-	github.com/prometheus/common v0.72.1 // indirect
-	github.com/prometheus/procfs v0.22.0 // indirect; held: v0.23.0 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
+	github.com/prometheus/common v0.73.1 // indirect
+	github.com/prometheus/procfs v0.23.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.64.1 // indirect
+	github.com/quic-go/quic-go v0.65.0 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
@@ -200,7 +201,7 @@ require (
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/pflag v1.1.0 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.9.0 // indirect
 	github.com/stretchr/objx v0.8.0 // indirect
@@ -211,24 +212,24 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.2 // indirect
 	github.com/veraison/corim v1.1.2 // indirect
-	github.com/veraison/eat v0.0.0-20210331113810-3da8a4dd42ff // indirect; held: go-xkms v0.57.0-alpha (its latest) and veraison/corim v1.1.2 require this version; v0.0.0-20261009144514-752feb05b2e9 is not in the factory module cache, so no build against it was tried; it moves when go-xkms does or the cache has it
+	github.com/veraison/eat v0.0.0-20210331113810-3da8a4dd42ff // indirect; held: v0.0.0-20261009144514-752feb05b2e9 makes eat.UEID a struct, and veraison/corim v1.1.2 (its latest, which go-xkms v0.64.2-alpha requires) still converts it to and from []byte in comid/ueid.go; it moves when corim does
 	github.com/veraison/go-cose v1.3.0 // indirect
 	github.com/veraison/swid v1.1.1-0.20230911094910-8ffdd07a22ca // indirect
 	github.com/viterin/partial v1.1.0 // indirect
 	github.com/viterin/vek v0.4.3 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/weppos/publicsuffix-go v0.50.4-0.20260821095816-b0fdb5c2d345 // indirect
+	github.com/weppos/publicsuffix-go v0.50.4-0.20261018191641-fa5685825dd4 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
-	github.com/zmap/zcrypto v0.0.0-20260906180147-3ed30b1e9340 // indirect
-	github.com/zmap/zlint/v3 v3.7.2 // indirect
+	github.com/zmap/zcrypto v0.0.0-20261025225231-4cf7949d2321 // indirect
+	github.com/zmap/zlint/v3 v3.7.3 // indirect
 	gitlab.com/yawning/secp256k1-voi v0.0.0-20230925100816-f2616030848b // indirect
 	go.bug.st/serial v1.8.0 // indirect
-	go.etcd.io/etcd/api/v3 v3.7.2 // indirect; held: v3.7.3 is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
+	go.etcd.io/etcd/api/v3 v3.7.3 // indirect
 	go.mongodb.org/mongo-driver v1.17.10 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.9.2 // indirect
+	go.mongodb.org/mongo-driver/v2 v2.10.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.47.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.72.0 // indirect
@@ -239,25 +240,25 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect; held: v3.0.6 is not in the factory module cache, so no build against it was tried (go get fails with GOPROXY=off: module lookup disabled); it moves when the cache has it
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/arch v0.32.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
+	golang.org/x/exp v0.0.0-20261106192419-47ce03d25ef0 // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/telemetry v0.0.0-20261016163328-824aa3d1d8dd // indirect; held: v0.0.0-20261020145440-7b8f85c9e50e is not in the factory worker module cache, so no lane can build against it; it moves when the cache has it
+	golang.org/x/telemetry v0.0.0-20261021172232-6cd571d43fbb // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
-	golang.org/x/tools v0.52.0 // indirect
-	google.golang.org/api v0.304.0 // indirect; held: v0.305.0 is not in the factory module cache, so no build against it was tried; it moves when the cache has it
-	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
-	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941 // indirect; held: v0.0.0-20261019180522-ce908d29299b is not in the factory module cache, so no build against it was tried; it moves when the cache has it
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
-	google.golang.org/grpc v1.84.0 // indirect
+	golang.org/x/tools v0.52.1-0.20261106145633-d407941a339a // indirect
+	google.golang.org/api v0.311.0 // indirect
+	google.golang.org/genproto v0.0.0-20261104224025-d1e00e9f33ab // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20261104224025-d1e00e9f33ab // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261104224025-d1e00e9f33ab // indirect
+	google.golang.org/grpc v1.85.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/src-d/go-errors.v1 v1.0.0 // indirect

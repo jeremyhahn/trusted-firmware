@@ -17,8 +17,8 @@ go 1.27.3
 // with GOPROXY=off.
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/jeremyhahn/go-xkms v0.64.1-alpha
-	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.1-alpha
+	github.com/jeremyhahn/go-xkms v0.64.2-alpha
+	github.com/jeremyhahn/trusted-firmware/sdk/go v0.4.2-alpha
 	github.com/stretchr/testify v1.12.1
 )
 
@@ -142,7 +142,6 @@ require (
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jackc/pgx/v5 v5.11.0 // indirect
-	github.com/jeremyhahn/arduino-generic/sdk/go v0.7.0-alpha // indirect
 	github.com/jeremyhahn/go-codec v1.5.1-alpha // indirect
 	github.com/jeremyhahn/go-enclave v0.8.0-alpha // indirect; held: v0.11.1-alpha (DS-7466) removes enclave.MemoryEnclave and NewMemoryEnclave, which go-xkms v0.64.1-alpha (pkg/pintpm2), go-quicraft v0.22.0-alpha and go-truststrap v0.6.0-alpha still call; go-xkms v0.64.1-alpha requires v0.8.0-alpha
 	github.com/jeremyhahn/go-frost v0.3.1-alpha // indirect
@@ -151,7 +150,7 @@ require (
 	github.com/jeremyhahn/go-qrdb/sdk/go v0.51.0-alpha // indirect; held: v0.58.1-alpha (DS-7466) removes NewMemoryStorage and NewFileStorage, which go-xkms v0.64.1-alpha (pkg/storage/qrdb) still calls; go-xkms v0.64.1-alpha requires v0.51.0-alpha
 	github.com/jeremyhahn/go-quicraft v0.22.0-alpha // indirect; held: v0.24.3-alpha (DS-7466) requires go-enclave v0.10.0-alpha, which breaks go-truststrap v0.6.0-alpha (enclave.MemoryEnclave); go-xkms v0.64.1-alpha requires v0.22.0-alpha
 	github.com/jeremyhahn/go-truststrap v0.6.0-alpha // indirect; held: v0.7.1-alpha (DS-7466) raises go-enclave past v0.8.0-alpha, which breaks go-quicraft v0.22.0-alpha (enclave.NewMemoryEnclave); go-xkms v0.64.1-alpha requires v0.6.0-alpha
-	github.com/jeremyhahn/go-xkms/sdk/go v0.64.0-alpha // indirect
+	github.com/jeremyhahn/go-xkms/sdk/go v0.64.2-alpha // indirect
 	github.com/jeroenrinzema/psql-wire v0.20.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

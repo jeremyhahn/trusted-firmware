@@ -22,11 +22,15 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,6 +58,26 @@ type attestingCA struct {
 	cert   *x509.Certificate
 	key    crypto.Signer
 	issued chan *x509.Certificate
+
+	mu       sync.Mutex
+	reserved map[string]time.Time // serial -> NotBefore, for its final certificate
+}
+
+// oidCTPoison is the critical precertificate poison extension (RFC 6962 §3.1).
+var oidCTPoison = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11129, 2, 4, 3}
+
+// ReserveSerial reserves the serial the ACME issuer signs its precertificate
+// and then its final certificate under (go-xkms v0.64.2-alpha). It fixes the
+// validity window with the serial, so the two tbsCertificates match.
+func (a *attestingCA) ReserveSerial(context.Context) (*big.Int, error) {
+	serial := big.NewInt(time.Now().UnixNano())
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.reserved == nil {
+		a.reserved = map[string]time.Time{}
+	}
+	a.reserved[serial.String()] = time.Now().Add(-time.Minute)
+	return serial, nil
 }
 
 // SignCSR issues a short-lived certificate for the CSR's key, signed by the
@@ -68,11 +92,26 @@ func (a *attestingCA) SignCSR(_ context.Context, csrPEM []byte, opts *ca.SignOpt
 	if err != nil {
 		return nil, err
 	}
+	serial, notBefore := big.NewInt(time.Now().UnixNano()), time.Now().Add(-time.Minute)
+	if opts != nil && opts.Serial != nil {
+		a.mu.Lock()
+		reserved, ok := a.reserved[opts.Serial.String()]
+		a.mu.Unlock()
+		if !ok {
+			return nil, fmt.Errorf("serial %s was not reserved", opts.Serial)
+		}
+		serial, notBefore = opts.Serial, reserved
+	}
 	template := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		SerialNumber: serial,
 		Subject:      csr.Subject,
-		NotBefore:    time.Now().Add(-time.Minute),
-		NotAfter:     time.Now().Add(time.Hour),
+		NotBefore:    notBefore,
+		NotAfter:     notBefore.Add(time.Hour),
+	}
+	precert := opts != nil && opts.Precertificate
+	if precert {
+		template.ExtraExtensions = append(template.ExtraExtensions,
+			pkix.Extension{Id: oidCTPoison, Critical: true, Value: asn1.NullBytes})
 	}
 	if opts != nil && len(opts.OtherNames) > 0 {
 		san, err := ca.BuildSubjectAltName(csr.Subject, nil, nil, nil, nil, opts.OtherNames, nil)
@@ -89,7 +128,9 @@ func (a *attestingCA) SignCSR(_ context.Context, csrPEM []byte, opts *ca.SignOpt
 	if err != nil {
 		return nil, err
 	}
-	a.issued <- cert
+	if !precert {
+		a.issued <- cert
+	}
 	return cert, nil
 }
 

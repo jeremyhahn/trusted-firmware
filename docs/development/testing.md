@@ -41,7 +41,8 @@ stage is in `building.md`):
 All five run in the devcontainer, `build/docker/devcontainer/Dockerfile`:
 integration-test in its `integration` stage, the other four in `toolchain`.
 A stage whose tool is missing fails and names it. It never skips. CI splits
-`make test` into three duration-balanced Unit jobs, `make test-shard-N`, which
+`make test` into three duration-balanced steps of its one Unit job, `make
+test-shard-N`, beside the sdk/go race suite, which
 together run each of its gates once (`building.md`, The gate).
 
 ## Tier 1 — host unit tests

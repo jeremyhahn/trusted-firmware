@@ -1,4 +1,4 @@
-# ci-template: v1.29.5 (customized)
+# ci-template: v1.34 (customized)
 # v1.29.4 and v1.29.5, adopted here (#300) in one CI-file PR (Company
 # Agent rulings 261(c) and 262(a); handbook f9730b11f): each image build
 # passes GO_BUILD_PROXY=<DEVCACHE_GOPROXY>|https://proxy.golang.org|direct when
@@ -1214,20 +1214,20 @@ jobs:
   # removes its own stage container. Each budget: the image, ~10 min for a
   # pull (seconds for a hit), plus the stage as run 245908 timed it.
   # CUSTOMIZE (trusted-firmware): the test stage, the longest of the PR tier's
-  # stages, alone so it no longer waits on the others, and in three jobs, one
+  # stages, alone so it no longer waits on the others, in three steps, one
   # per shard of it (mk/stages.mk TEST_SHARD_N), balanced by the gates'
-  # durations, so its nine gates no longer run one after another in one job.
-  # Each job runs `make test-shard-N`: every gate in its shard even after one
-  # fails (make -k), one PASS or FAIL line each; the three together run every
+  # durations. v1.34 (DS-7805): the three shards and the sdk/go race suite,
+  # once four jobs, are the steps of one unit job, so the image is pulled once.
+  # Each shard step runs `make test-shard-N`: every gate in its shard even after
+  # one fails (make -k), one PASS or FAIL line each; the three together run every
   # gate of `make test` once (scripts/test_unit_shards.py holds the shard
-  # lists to TEST_GATES and these jobs to the shards).
+  # lists to TEST_GATES and these steps to the shards).
   #
-  # Each timeout-minutes is about twice the shard's minutes with the runner's
-  # CI slice at its quota, read from the gates' log timestamps on 2026-10-25
+  # The shards' minutes were read from the gates' log timestamps on 2026-10-25
   # (green run 65191; at quota, run 65330), with 4.5 min of setup a job green
   # and 7 at quota.
   #
-  # The make test step, in all three: make coverage runs the whole unit suite
+  # The make test steps, all three: make coverage runs the whole unit suite
   # with -race (make test's flags), the PR tier's unit test and race checks in
   # one run (v1.23), and fails when total coverage is below COVERAGE_THRESHOLD
   # (testing-guidelines.md), so the suite runs once. Tags matter here too:
@@ -1237,17 +1237,17 @@ jobs:
   # (mk/stages.mk TEST_GATES) runs it with the host C suites, the boot suites,
   # the board sweep, test-asan (ASan and UBSan over the host and boot suites),
   # verify-vectors, xkms-coverage, sdk-coverage (sdk/go's unit tests alone,
-  # floor 90; the cross-implementation suite is the sdk-race leg's) and
+  # floor 90; the cross-implementation suite is the race step's) and
   # scripts-test, so it is the test stage.
-  unit-shard-1:
-    name: Unit [make test-shard-1]
-    needs: [image, preflight]   # v1.29.3
+  unit:
+    name: Unit and race [make test, sdk/go -race]
+    needs: [image, preflight]   # v1.29.3; v1.34
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
     runs-on: ubuntu-latest
-    # CUSTOMIZE (ruling 218(9), the shard rebalance): host-test, board-sweep,
-    # test-asan-boot: about 23 min green, 30 at quota (estimate, see
-    # mk/stages.mk). Kept at the 110 that #248 set for the unsharded job.
-    timeout-minutes: 110
+    # v1.34: the sum of the four jobs' timeouts (110, 75, 75, 35), capped at
+    # 120. Shard 1 is about 23 min green and 30 at quota, the other two less,
+    # and the race suite 5 (run 245908), so the four steps fit at quota.
+    timeout-minutes: 120
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1271,6 +1271,7 @@ jobs:
         run: scripts/ci-registry-login.sh
 
       - name: Reuse the toolchain image
+        id: toolchain
         run: |
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
@@ -1282,174 +1283,31 @@ jobs:
           make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
-      # The test stage (m601 (c)), shard 1: see above the job.
+      # The test stage (m601 (c)), one step per shard: see above the job. v1.34:
+      # a later step runs after a failed one (`!cancelled()`), once the image
+      # is there, so one run reports every shard; any failed step fails the job.
       - name: make test-shard-1 (host suites, board sweep, boot suites sanitized) # CUSTOMIZE: ruling 218(9)
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-1 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
-      - name: Tear down
-        if: always()
-        run: |
-          rm -rf "$RUNNER_TEMP/docker-config"
-
-  unit-shard-2:
-    name: Unit [make test-shard-2]
-    needs: [image, preflight]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ubuntu-latest
-    # CUSTOMIZE (ruling 218(9), the shard rebalance): boot-test, coverage,
-    # verify-vectors, xkms-coverage, sdk-coverage, scripts-test: about 25.5
-    # min green (21.5 before, plus boot-test's ~4), about 35 at quota (scaled
-    # by about 1.35).
-    timeout-minutes: 75
-    env:
-      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
-      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
-      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
-      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
-      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-
-      # v1.21.1: the image job's masking step, first, as in every job.
-      - name: Mask the forge credentials
-        run: |
-          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-            val=${!v:-}
-            [ -n "$val" ] || continue
-            echo "::add-mask::$val"
-            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
-          done
-
-      - name: Log in to the forge registry
-        run: scripts/ci-registry-login.sh
-
-      - name: Reuse the toolchain image
-        run: |
-          # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
-          # and the cache answers, `|` so any error falls through to the public
-          # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
-          bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
-          fi
-          make docker-image-toolchain ${bp:+"$bp"}
-          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
-
-      # The test stage (m601 (c)), shard 2: see above unit-shard-1.
       - name: make test-shard-2 (boot suites, coverage floors, wire vectors, scripts) # CUSTOMIZE: ruling 218(9)
+        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-2 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
 
-      - name: Tear down
-        if: always()
-        run: |
-          rm -rf "$RUNNER_TEMP/docker-config"
-
-  unit-shard-3:
-    name: Unit [make test-shard-3]
-    needs: [image, preflight]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ubuntu-latest
-    # CUSTOMIZE (ruling 218(9), the shard rebalance): test-asan-host alone.
-    # test-asan whole was 30.5 min green, about 47 at quota (38 in #256's
-    # run); its host half, 242 of its 338 binaries, is about 23 green and 32
-    # at quota (estimate, see mk/stages.mk).
-    timeout-minutes: 75
-    env:
-      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
-      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
-      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
-      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
-      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-
-      # v1.21.1: the image job's masking step, first, as in every job.
-      - name: Mask the forge credentials
-        run: |
-          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-            val=${!v:-}
-            [ -n "$val" ] || continue
-            echo "::add-mask::$val"
-            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
-          done
-
-      - name: Log in to the forge registry
-        run: scripts/ci-registry-login.sh
-
-      - name: Reuse the toolchain image
-        run: |
-          # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
-          # and the cache answers, `|` so any error falls through to the public
-          # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
-          bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
-          fi
-          make docker-image-toolchain ${bp:+"$bp"}
-          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
-
-      # The test stage (m601 (c)), shard 3: see above unit-shard-1.
       - name: make test-shard-3 (host suites sanitized) # CUSTOMIZE: ruling 218(9)
+        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         run: scripts/in-toolchain-image.sh "$TOOLCHAIN_IMAGE" "make test-shard-3 GO_BUILD_TAGS='$GO_BUILD_TAGS'"
-
-      - name: Tear down
-        if: always()
-        run: |
-          rm -rf "$RUNNER_TEMP/docker-config"
-
-  sdk-race:
-    # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race against tfwsim,
-    # the PR tier's only simulator run, beside the unit leg.
-    name: sdk/go under -race [cross-implementation suite]
-    needs: [image, preflight]   # v1.29.3
-    if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ubuntu-latest
-    # CUSTOMIZE: 5 min on run 245908 (19:50 to 19:55); the suite's own bound
-    # is 15 (-timeout=900s), and the tfwsim builds ~3. 10 + 18, plus margin.
-    timeout-minutes: 35
-    env:
-      CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
-      CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
-      IMAGE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
-      IMAGE_TRUSTED_CLASS: ${{ github.event_name != 'push' && 'main' || '' }}
-      IMAGE_BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-
-      # v1.21.1: the image job's masking step, first, as in every job.
-      - name: Mask the forge credentials
-        run: |
-          for v in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; do
-            val=${!v:-}
-            [ -n "$val" ] || continue
-            echo "::add-mask::$val"
-            case $val in *://*:*@*) t=${val#*://}; t=${t%%@*}; echo "::add-mask::${t#*:}" ;; esac
-          done
-
-      - name: Log in to the forge registry
-        run: scripts/ci-registry-login.sh
-
-      - name: Reuse the toolchain image
-        run: |
-          # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
-          # and the cache answers, `|` so any error falls through to the public
-          # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
-          bp=
-          if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
-          fi
-          make docker-image-toolchain ${bp:+"$bp"}
-          echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
 
       # CUSTOMIZE (trusted-firmware): sdk/go's suite under -race, with the
       # cross-implementation suite against tfwsim (the real firmware compiled
-      # for the host), gated at COVERAGE_THRESHOLD. The suite is compiled in by
+      # for the host), gated at COVERAGE_THRESHOLD: the PR tier's only
+      # simulator run. The suite is compiled in by
       # the tfwsim build tag (#163); untagged, this step would run the unit
       # tests alone and the PR tier no simulator test. Every tfwsim-* binary the
       # suite starts must be on the make line, or the suite fails for want of
       # it. The tests fail the step before the gate reads a profile, so a
       # broken suite is never also reported as a coverage drop.
       - name: sdk/go under -race (cross-implementation suite, COVERAGE_THRESHOLD)
+        if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
         env:
           SDK_RACE_SCRIPT: |
             set -eu
@@ -2197,7 +2055,7 @@ jobs:
     if: ${{ always() && (github.event_name != 'schedule' || needs.preflight.outputs.verdict != 'busy') }}
     # CUSTOMIZE: the repo's job list. Add every CUSTOMIZE job here AND as a
     # check line below; remove none of the template's jobs.
-    needs: [preflight, image, lint-gates, unit-shard-1, unit-shard-2, unit-shard-3, sdk-race, security, esp32-build, esp32-qemu-test, optee-stack, optee, integration, soak]
+    needs: [preflight, image, lint-gates, unit, security, esp32-build, esp32-qemu-test, optee-stack, optee, integration, soak]
     steps:
       - name: Fail closed on any non-success
         env:
@@ -2273,10 +2131,7 @@ jobs:
           check preflight   "${{ needs.preflight.result }}" pr
           check image       "${{ needs.image.result }}" pr
           check lint-gates  "${{ needs.lint-gates.result }}" pr
-          check unit-shard-1 "${{ needs.unit-shard-1.result }}" docs
-          check unit-shard-2 "${{ needs.unit-shard-2.result }}" docs
-          check unit-shard-3 "${{ needs.unit-shard-3.result }}" docs
-          check sdk-race    "${{ needs.sdk-race.result }}" docs
+          check unit        "${{ needs.unit.result }}" docs
           check security    "${{ needs.security.result }}" docs
           check esp32-build "${{ needs.esp32-build.result }}" esp32 # CUSTOMIZE: ruling 218(9), 220(j)
           check esp32-qemu-test "${{ needs.esp32-qemu-test.result }}" esp32-qemu # CUSTOMIZE: ruling 220(j)

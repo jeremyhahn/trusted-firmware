@@ -70,17 +70,18 @@ def shard_errors(gates, shards):
 
 
 def workflow_shards():
-    """ci.yml's unit-shard-N jobs: {N: the make command its test step runs},
+    """ci.yml's unit job: {N: the make commands of its test-shard-N steps},
     and the jobs the CI Gate needs and checks."""
     with open(WORKFLOW, encoding="utf-8") as f:
         text = f.read()
     jobs = {}
-    for m in re.finditer(r"^  unit-shard-([0-9]+):\n(.*?)(?=^  [a-z])", text, re.MULTILINE | re.DOTALL):
-        runs = re.findall(r'in-toolchain-image\.sh "\$TOOLCHAIN_IMAGE" "make ([a-z0-9-]+) ', m.group(2))
-        jobs[int(m.group(1))] = runs
+    m = re.search(r"^  unit:\n(.*?)(?=^  [a-z])", text, re.MULTILINE | re.DOTALL)
+    if m:
+        for run in re.findall(r'in-toolchain-image\.sh "\$TOOLCHAIN_IMAGE" "make (test-shard-([0-9]+)) ', m.group(1)):
+            jobs.setdefault(int(run[1]), []).append(run[0])
     needs = re.search(r"^  ci-gate:\n.*?^    needs: \[([^]]*)\]", text, re.MULTILINE | re.DOTALL)
     gate_needs = [n.strip() for n in needs.group(1).split(",")] if needs else []
-    checks = re.findall(r'^ +check (unit-shard-[0-9]+) +"\$\{\{ needs\.(unit-shard-[0-9]+)\.result \}\}"',
+    checks = re.findall(r'^ +check (unit) +"\$\{\{ needs\.(unit)\.result \}\}"',
                         text, re.MULTILINE)
     return jobs, gate_needs, checks
 
@@ -95,16 +96,14 @@ class ShardLists(unittest.TestCase):
         _, shards = shard_lists()
         jobs, gate_needs, checks = workflow_shards()
         self.assertEqual(sorted(jobs), sorted(shards),
-                         "ci.yml must have one unit-shard-N job per TEST_SHARD_N in "
-                         "mk/stages.mk, and no other; fix: add or delete the job")
+                         "ci.yml's unit job must have one make test-shard-N step per "
+                         "TEST_SHARD_N in mk/stages.mk, and no other; fix: add or delete the step")
         for n in sorted(jobs):
-            job = "unit-shard-%d" % n
-            with self.subTest(job=job):
+            with self.subTest(shard=n):
                 self.assertEqual(jobs[n], ["test-shard-%d" % n],
-                                 "%s must run make test-shard-%d, once" % (job, n))
-                self.assertIn(job, gate_needs, "fix: add %s to the CI Gate's needs" % job)
-                self.assertIn((job, job), checks,
-                              "fix: add a `check %s` line to the CI Gate" % job)
+                                 "the unit job must run make test-shard-%d, once" % n)
+        self.assertIn("unit", gate_needs, "fix: add unit to the CI Gate's needs")
+        self.assertIn(("unit", "unit"), checks, "fix: add a `check unit` line to the CI Gate")
 
     def test_a_gate_in_two_shards_is_named_with_its_fix(self):
         gates, shards = shard_lists("TEST_SHARD_3=test-asan-host coverage")

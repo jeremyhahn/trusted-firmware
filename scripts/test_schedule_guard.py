@@ -207,21 +207,22 @@ class Guard(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_every_bigdisk_job_needs_a_run_verdict_on_a_schedule_run(self):
+    def test_every_guarded_job_needs_a_run_verdict_on_a_schedule_run(self):
+        # The guarded jobs are the ones that need schedule-guard: since the
+        # hosted runners (#335) no runs-on names bigdisk to find them by.
         text = read_workflow()
         checked = 0
         for m in re.finditer(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z]|\Z)", text, re.MULTILINE | re.DOTALL):
             name, body = m.groups()
             head = body.split("    steps:")[0]
-            if "bigdisk" not in head or "if:" not in head:
+            if not re.search(r"needs: *(\[[^]]*)?schedule-guard", head) or "if:" not in head:
                 continue
-            if name in ("ci-gate", "schedule-guard"):
+            if name == "ci-gate":
                 continue
             checked += 1
             with self.subTest(job=name):
                 self.assertIn("needs.schedule-guard.outputs.verdict == 'run'", head)
-                self.assertRegex(head, r"needs: *(\[[^]]*)?schedule-guard")
-        self.assertGreater(checked, 5, "found too few bigdisk jobs: has the workflow's layout changed?")
+        self.assertGreater(checked, 5, "found too few jobs that need schedule-guard: has the workflow's layout changed?")
 
     def test_ci_gate_is_skipped_on_busy_only(self):
         cond = re.search(r"^    if: (.*)$", job_block("ci-gate"), re.MULTILINE).group(1)

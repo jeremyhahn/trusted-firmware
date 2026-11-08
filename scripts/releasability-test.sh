@@ -35,11 +35,29 @@ fresh() {
   git -C "$t" init -q
 }
 
-# run_gate: the gate on $t; output in $out, status in $rc.
+# run_gate gives the gate a fixture list: the public list it reads by default,
+# plus one stand-in rule per private class plant, the shape the CI secret
+# carries. The stand-ins are made-up names and an RFC 5737 address, not the
+# fleet values. The address rule names the one planted address, so the
+# RFC 5737 addresses the clean cases use stay clean.
+fixture=$tmp/fixture.patterns
+{
+  cat "$here/releasability.patterns"
+  printf '%s\t%s\n' lab-address '(^|[^0-9.])192\.0\.2\.22([^0-9]|$)'
+  printf '%s\t%s\n' lab-host 'farm-host-[0-9]+'
+  printf '%s\t%s\n' lab-host '(^|[^A-Za-z0-9-])lab-node-[0-9]+'
+  printf '%s\t%s\n' lab-host '(^|[^A-Za-z0-9-])ci-node-[0-9]+'
+  printf '%s\t%s\n' lab-host '<host>'
+  printf '%s\t%s\n' lab-host 'desk-station-[0-9]+'
+  printf '%s\t%s\n' owner-account '(^|[^A-Za-z0-9_./-])exampleowner($|[^A-Za-z0-9_/-])'
+  printf '%s\t%s\n' owner-account '(^|[^A-Za-z0-9_./-])exowner($|[^A-Za-z0-9_/-])'
+} > "$fixture"
+
+# run_gate: the gate on $t with the fixture list; output in $out, status in $rc.
 run_gate() {
   git -C "$t" add -A
   rc=0
-  out=$(RELEASABILITY_ROOT=$t "$gate" 2>&1) || rc=$?
+  out=$(RELEASABILITY_ROOT=$t RELEASABILITY_PATTERNS=$fixture "$gate" 2>&1) || rc=$?
 }
 
 # expect_hit CLASS CONTENT: a file holding CONTENT on its first line fails the
@@ -70,6 +88,15 @@ expect_hit lab-host    'share at nas.lan:445'                       # lab-string
 expect_hit owner-path  'cd /home/example/sources'                   # lab-string-ok: plant
 expect_hit owner-path  'built in /Users/someone/src'                # lab-string-ok: plant
 expect_hit owner-path  'key at ~/.agent-identity/keys/agent.key'    # lab-string-ok: plant
+expect_hit lab-address 'endpoint 192.0.2.22:7020'                   # lab-string-ok: plant
+expect_hit lab-host    'runs on farm-host-3'                        # lab-string-ok: plant
+expect_hit lab-host    'built on lab-node-1'                        # lab-string-ok: plant
+expect_hit lab-host    'built on ci-node-2'                         # lab-string-ok: plant
+expect_hit lab-host    'forge <host>'                               # lab-string-ok: plant
+expect_hit lab-host    'ssh desk-station-12'                        # lab-string-ok: plant
+expect_hit owner-account 'ask exampleowner about it'                # lab-string-ok: plant
+expect_hit owner-account 'owner `exampleowner`.'                    # lab-string-ok: plant
+expect_hit owner-account 'user exowner'                             # lab-string-ok: plant
 
 # A hit on the second line is reported on the second line.
 checks=$((checks + 1)); fresh

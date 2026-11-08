@@ -20,6 +20,7 @@
 # multi-architecture index; the tag is recorded beside it for a reader.
 BASE_IMAGE=debian:trixie-slim
 BASE_DIGEST=sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
+HELD_BASE_DIGEST="a new digest of the tag installs new Debian package builds, gcc-avr and avr-libc among them, so it changes the built firmware images; it moves in its own row with a size-budget and vector run, and the Dockerfile's ARG default with it"
 
 # Go, for sdk/go, xkms/ and test/integration/esp32. At least 1.27.1 because
 # xkms/ requires go-xkms, whose go.mod says `go 1.27.1`; 1.27.3 because

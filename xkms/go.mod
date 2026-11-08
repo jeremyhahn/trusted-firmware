@@ -112,7 +112,7 @@ require (
 	github.com/go-playground/universal-translator v0.18.2 // indirect
 	github.com/go-playground/validator/v10 v10.30.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.57.0-alpha (its latest, which requires v0.17.4) calls it with one in pkg/acme/challenges/device-attest-01; it moves when go-xkms does
+	github.com/go-webauthn/webauthn v0.17.4 // indirect; held: v0.18 makes webauthncose.HasherFromCOSEAlg return two values, and go-xkms v0.64.1-alpha (its latest, which requires v0.17.4) calls it with one in pkg/acme/challenges/device-attest-01 (tpm.go); it moves when go-xkms does
 	github.com/go-webauthn/x v0.3.1 // indirect
 	github.com/goccy/go-json v0.12.0 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect

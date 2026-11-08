@@ -178,7 +178,9 @@ class OpteeTa(unittest.TestCase):
         mk = self.read("mk", "optee.mk")
         self.assertIn("OPTEE_GUEST_CMD='xtest -l 0 && tfw-ta-check'", mk)
         for line in ("tfw-ta-check: ok get-info", "tfw-ta-check: ok get-random",
-                     "tfw-ta-check: PASS, 14 of 14 passed"):
+                     "tfw-ta-check: ok seal-max", "tfw-ta-check: ok seal-over",
+                     "tfw-ta-check: ok unseal-over",
+                     "tfw-ta-check: PASS, 21 of 21 passed"):
             self.assertIn("'" + line + "'", mk)
 
 

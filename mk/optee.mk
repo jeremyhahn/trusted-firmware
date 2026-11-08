@@ -187,9 +187,9 @@ optee-run:
 	cd $(OPTEE_ROOT)/out/bin && \
 	python3 -B $(CURDIR)/scripts/optee_run.py --mount $(OPTEE_MOUNT) --cmd "$$OPTEE_GUEST_CMD" "$$qemu"
 
-## integration-test-optee: optee-run with xtest and then tfw-ta-check, which calls the TA's version and rng commands; fails on any failure of either
+## integration-test-optee: optee-run with xtest and then tfw-ta-check, which calls the TA's version, rng, SEAL and UNSEAL commands; fails on any failure of either
 # The guest's status is the gate; the console, kept in the cache, must also
-# show both commands answering and every one of the check's 14 cases passing.
+# show both commands answering and every one of the check's 21 cases passing.
 OPTEE_IT_LOG = $(OPTEE_TFW)/integration-test.log
 integration-test-optee:
 	$(optee-cache-check)
@@ -202,7 +202,9 @@ integration-test-optee:
 	   echo "$@: the guest's xtest and tfw-ta-check exited $$rc: $(OPTEE_IT_LOG)"; exit 1; }
 	@tr -d '\r' < $(OPTEE_IT_LOG) > $(OPTEE_IT_LOG).txt && \
 	for line in 'tfw-ta-check: ok get-info' 'tfw-ta-check: ok get-random' \
-	            'tfw-ta-check: PASS, 14 of 14 passed'; do \
+	            'tfw-ta-check: ok seal-unseal' 'tfw-ta-check: ok unseal-mac-invalid' \
+	            'tfw-ta-check: ok seal-max' 'tfw-ta-check: ok seal-over' \
+	            'tfw-ta-check: ok unseal-over' 'tfw-ta-check: PASS, 21 of 21 passed'; do \
 	   grep -qxF "$$line" $(OPTEE_IT_LOG).txt || { \
 	     echo "$@: the console has no line '$$line': $(OPTEE_IT_LOG)"; exit 1; }; done
 	@echo "integration-test-optee: xtest and tfw-ta-check pass on OP-TEE $(OPTEE_RELEASE)"

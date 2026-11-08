@@ -151,15 +151,29 @@ listed are `TEEC_NONE`.
 | `0x00000000` | — | | | | `TEE_ERROR_NOT_SUPPORTED` | reserved, never assigned |
 | `0x00000001` | `GET_INFO` | `VALUE_OUTPUT`: `a` = interface version (1), `b` = 0 (flags, reserved) | | | `TEE_SUCCESS` | proposed, v1 |
 | `0x00000002` | `GET_RANDOM` | `MEMREF_TEMP_OUTPUT`: 1 to 4096 bytes, filled by `TEE_GenerateRandom` | | | `TEE_SUCCESS`; `TEE_ERROR_BAD_PARAMETERS` for size 0 or above 4096 | proposed, v1 |
-| `0x00000003` | `SEAL` | `MEMREF_TEMP_INPUT`: plaintext | `MEMREF_TEMP_INPUT`: associated data, may be empty | `MEMREF_TEMP_OUTPUT`: sealed blob | `TEE_SUCCESS`; `TEE_ERROR_SHORT_BUFFER` (`0xFFFF0010`) with the needed size | reserved: waits on open question 1 |
-| `0x00000004` | `UNSEAL` | `MEMREF_TEMP_INPUT`: sealed blob | `MEMREF_TEMP_INPUT`: associated data | `MEMREF_TEMP_OUTPUT`: plaintext | `TEE_SUCCESS`; `TEE_ERROR_MAC_INVALID` (`0xFFFF3071`) for a tampered blob; `TEE_ERROR_SHORT_BUFFER` | reserved: waits on open question 1 |
+| `0x00000003` | `SEAL` | `MEMREF_TEMP_INPUT`: plaintext, 0 to 8192 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: sealed blob, at most 8238 bytes | `TEE_SUCCESS`; `TEE_ERROR_SHORT_BUFFER` (`0xFFFF0010`) with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a plaintext above 8192 bytes | implemented (#288) |
+| `0x00000004` | `UNSEAL` | `MEMREF_TEMP_INPUT`: sealed blob, at most 8238 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: plaintext | `TEE_SUCCESS`; `TEE_ERROR_MAC_INVALID` (`0xFFFF3071`) for a tampered blob; `TEE_ERROR_BAD_FORMAT` (`0xFFFF0005`) for a blob that does not parse; `TEE_ERROR_SHORT_BUFFER` with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a blob above 8238 bytes | implemented (#288) |
 
 The parameter type names are the TEE Client API's; the TA sees the matching
-`TEE_PARAM_TYPE_*` values of the Internal Core API. v1 holds no key: `GET_INFO`
-and `GET_RANDOM` need none. `SEAL` and `UNSEAL` have their ids and shapes held
-so go-enclave can plan against them. Their blob format, algorithm and key are
-not designed here: they depend on open question 1. The set itself is confirmed
-with go-enclave#206 before slice 3 (seam, below).
+`TEE_PARAM_TYPE_*` values of the Internal Core API. `GET_INFO` and `GET_RANDOM`
+need no key. `SEAL` and `UNSEAL` implement go-xkms's sealed blob
+(`docs/optee-sealed-blob/README.md` at `06ca5ec59`) and design nothing of their
+own: the blob is a COSE_Encrypt0 under AES-256-GCM, and its key is HKDF-SHA-256
+(RFC 5869, no salt, `info` = the label `go-xkms optee-sealed-blob v1`, a zero
+byte and the TA's UUID) over the TA unique key, the
+`PTA_SYSTEM_DERIVE_TA_UNIQUE_KEY` output, not the HUK. The HMAC is the Internal
+Core API's `TEE_ALG_HMAC_SHA256`. The TA reads its UUID from `gpd.ta.appID`,
+draws a fresh 12-byte nonce from `TEE_GenerateRandom` on every `SEAL`, and wipes
+the key on every path. The associated data (param 1) must be empty, because
+go-xkms's format has no field for it and data a caller believes is bound would
+not be; a non-empty one answers `TEE_ERROR_BAD_PARAMETERS`. The TA bounds
+the plaintext at 8192 bytes (`TFW_TA_SEAL_MAX`, #321), so
+that `UNSEAL`, which holds a private copy of the blob and a private plaintext
+scratch, opens every blob `SEAL` returns within the TA's 32 KiB heap. The set itself is
+confirmed with go-enclave#206 (seam, below).
+
+`SEAL` and `UNSEAL`'s vectors in `optee/testdata/vectors.h` are go-xkms's at
+`06ca5ec59`, keyed by the TA unique key, not the HUK.
 
 Every row of this table becomes a literal in `optee/testdata/vectors.h`. A
 failure there is an interface break, not a test to update.
@@ -183,7 +197,7 @@ go-enclave's choice; the TA only sees GP calls.
 | Test | Owner | Runs where |
 |---|---|---|
 | `xtest` smoke subset: the composed stack works | upstream OP-TEE; we only run it | here, `make integration-test-optee` |
-| `tfw-ta-check`: each command against the literal vectors, including unknown id and bad parameters | this project | here, `make integration-test-optee` |
+| `tfw-ta-check`: each command against the literal vectors, including unknown id and bad parameters; SEAL and UNSEAL on the device's own TA unique key: a round trip, a fresh nonce per SEAL, `TEE_ERROR_MAC_INVALID` for a flipped ciphertext byte, `TEE_ERROR_SHORT_BUFFER` with the size needed, and `TEE_ERROR_BAD_PARAMETERS` for wrong types | this project | here, `make integration-test-optee` |
 | `test_optee_ta`: the TA's entry points and dispatch against the vectors, and `tfw-ta-check` against the TA and every broken answer, over host doubles of the GP headers (`test/mock/gp/`, `test/mock/gp_bridge.c`) | this project | here, `make host-test` and `make coverage` |
 | `backendtest` on `arm-trustzone`: the enclave contract | go-enclave | go-enclave's CI, calling `make optee-run` at a trusted-firmware tag (open question 4) |
 
@@ -235,8 +249,8 @@ One PR each (m751).
 4. **CI and the hand-off:** the CI job with the toolchain and the cached stack,
    running `make integration-test-optee`; the tag go-enclave pins; this page's
    status to the built state.
-5. **`SEAL` and `UNSEAL`**, only after open question 1 is ruled: blob format,
-   algorithm and key as ruled, with their vectors.
+5. **`SEAL` and `UNSEAL`** (#288, done): go-xkms's blob format and key
+   derivation, their vectors, and HKDF-SHA-256 over the GP HMAC.
 
 ## Open questions for the owner
 
@@ -244,8 +258,11 @@ One PR each (m751).
    secure storage, or one derived from OP-TEE's hardware unique key; signing
    keys)? On QEMU the hardware unique key is a fixed test value, so nothing
    sealed there is secret. If keys may live there, who owns them alongside
-   go-xkms, and does go-enclave or this project define the blob? Until ruled, v1
-   holds no key and ids 3 and 4 stay reserved.
+   go-xkms, and does go-enclave or this project define the blob? Answered for
+   the sealed blob by owner item 177, option (a) (CA m1656, ruling 251), and
+   shipped in #288: go-xkms defines the blob, and the TA holds no stored key,
+   only one derived on each call from the TA unique key. Still open for signing
+   keys and anything stored in secure storage.
 2. **TA signing key.** OP-TEE verifies a TA's signature at load. On QEMU,
    upstream's development key is used. For any image beyond QEMU, is the TA
    signed by go-xkms (this project holds no private key)?

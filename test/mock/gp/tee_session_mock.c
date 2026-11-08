@@ -80,6 +80,21 @@ TEE_Result TEE_InvokeTACommand(TEE_TASessionHandle session, uint32_t cancellatio
         return tfw_tee_session_mock.invoke_result;
     }
     for (i = 0u; i < params[1].memref.size; i++)
-        ((uint8_t *)params[1].memref.buffer)[i] = (uint8_t)(0x40u + i);
+        ((uint8_t *)params[1].memref.buffer)[i] =
+            tfw_tee_session_mock.answer != NULL ? tfw_tee_session_mock.answer[i]
+                                                : (uint8_t)(0x40u + i);
+    return TEE_SUCCESS;
+}
+
+TEE_Result TEE_GetPropertyAsUUID(TEE_PropSetHandle propsetOrEnumerator, const char *name,
+                                 TEE_UUID *value)
+{
+    /* The TA reads its own appID and nothing else. */
+    if (propsetOrEnumerator != TEE_PROPSET_CURRENT_TA || strcmp(name, "gpd.ta.appID") != 0)
+        abort();
+    tfw_tee_session_mock.app_id_reads++;
+    if (tfw_tee_session_mock.app_id_result != TEE_SUCCESS)
+        return tfw_tee_session_mock.app_id_result;
+    *value = tfw_tee_session_mock.app_id;
     return TEE_SUCCESS;
 }

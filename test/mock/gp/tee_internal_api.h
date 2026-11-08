@@ -60,12 +60,15 @@ void TEE_GenerateRandom(void *randomBuffer, size_t randomBufferLen);
 
 #define TEE_HANDLE_NULL 0
 
-#define TEE_ALG_AES_GCM       0x40000810u
-#define TEE_TYPE_AES          0xA0000010u
-#define TEE_ATTR_SECRET_VALUE 0xC0000000u
+#define TEE_ALG_AES_GCM          0x40000810u
+#define TEE_ALG_HMAC_SHA256      0x30000004u
+#define TEE_TYPE_AES             0xA0000010u
+#define TEE_TYPE_HMAC_SHA256     0xA0000004u
+#define TEE_ATTR_SECRET_VALUE    0xC0000000u
 
 #define TEE_MODE_ENCRYPT 0u
 #define TEE_MODE_DECRYPT 1u
+#define TEE_MODE_MAC     4u
 
 typedef struct __TEE_OperationHandle *TEE_OperationHandle;
 typedef struct __TEE_ObjectHandle *TEE_ObjectHandle;
@@ -104,6 +107,17 @@ TEE_Result TEE_AEEncryptFinal(TEE_OperationHandle operation, const void *srcData
 TEE_Result TEE_AEDecryptFinal(TEE_OperationHandle operation, const void *srcData,
                               size_t srcLen, void *destData, size_t *destLen, void *tag,
                               size_t tagLen);
+void TEE_MACInit(TEE_OperationHandle operation, const void *IV, size_t IVLen);
+void TEE_MACUpdate(TEE_OperationHandle operation, const void *chunk, size_t chunkSize);
+TEE_Result TEE_MACComputeFinal(TEE_OperationHandle operation, const void *message,
+                               size_t messageLen, void *mac, size_t *macLen);
+
+/* Memory and property calls the SEAL and UNSEAL commands make (GP 1.3.1). */
+void TEE_MemFill(void *buffer, uint8_t x, size_t size);
+void TEE_MemMove(void *dest, const void *src, size_t size);
+#define TEE_MALLOC_FILL_ZERO 0x00000000u
+void *TEE_Malloc(size_t size, uint32_t hint);
+void TEE_Free(void *buffer);
 
 /*
  * The TA-to-TA session calls the key derivation makes, with the Internal
@@ -121,6 +135,13 @@ typedef struct {
 } TEE_UUID;
 
 typedef struct __TEE_TASessionHandle *TEE_TASessionHandle;
+
+/* The calling TA's own properties: "gpd.ta.appID" is the TA's UUID. */
+typedef struct __TEE_PropSetHandle *TEE_PropSetHandle;
+#define TEE_PROPSET_CURRENT_TA ((TEE_PropSetHandle)(uintptr_t)0xFFFFFFFFu)
+
+TEE_Result TEE_GetPropertyAsUUID(TEE_PropSetHandle propsetOrEnumerator, const char *name,
+                                 TEE_UUID *value);
 
 TEE_Result TEE_OpenTASession(const TEE_UUID *destination, uint32_t cancellationRequestTimeout,
                              uint32_t paramTypes, TEE_Param params[TEE_NUM_PARAMS],

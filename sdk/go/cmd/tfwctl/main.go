@@ -443,10 +443,12 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		shown := false
 		err = dev.Upload(ctx, &tfw.Image{Stream: image}, tfw.UploadProgress(func(sent, total uint32) {
 			shown = true
-			fmt.Fprintf(stderr, "\rota-stage: %d/%d bytes", sent, total)
+			// Progress is best effort: a stderr that fails to take a line
+			// must not stop the upload.
+			_, _ = fmt.Fprintf(stderr, "\rota-stage: %d/%d bytes", sent, total)
 		}))
 		if shown {
-			fmt.Fprintln(stderr)
+			_, _ = fmt.Fprintln(stderr)
 		}
 		if err != nil {
 			return err

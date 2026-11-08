@@ -381,7 +381,8 @@ on:
   # and its bigdisk jobs skip while a main push run is in flight (the
   # schedule-guard job).
   schedule:
-    - cron: '0 4 * * *'
+    # CA m1919 (2): this project's nightly runs Monday night only (#322)
+    - cron: '0 4 * * 2'
 
 # v1.26.2: on main the group is the workflow, the event and the commit sha,
 # so each main run is its own group and a merge never cancels the main run in

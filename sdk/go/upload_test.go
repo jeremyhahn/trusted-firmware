@@ -172,6 +172,11 @@ func TestUploadResumesFromStatus(t *testing.T) {
 			s:    &otaSession{after: map[uint32]int{0: 1}, before: map[uint32]int{180: 1}},
 			want: []uint32{0, 60, 120, 180, 180},
 		},
+		{
+			name: "a chunk lost before delivery, then its retry's reply lost",
+			s:    &otaSession{before: map[uint32]int{120: 1}, after: map[uint32]int{120: 1}},
+			want: []uint32{0, 60, 120, 120, 180},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

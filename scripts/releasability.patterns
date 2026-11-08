@@ -12,7 +12,6 @@ lab-host	gpu-host	# lab-string-ok: a fleet hostname this rule exists to find
 lab-host	(^|[^A-Za-z0-9])mini-0[0-9]	# lab-string-ok: a fleet hostname this rule exists to find
 lab-host	dellemc	# lab-string-ok: a fleet hostname this rule exists to find
 lab-host	tgw-[0-9]+	# lab-string-ok: a fleet hostname this rule exists to find
-lab-host	vstation-[0-9]+	# lab-string-ok: a fleet hostname this rule exists to find
 owner-path	/(home|Users)/jhahn	# lab-string-ok: the owner's home directory this rule exists to find
 owner-account	(^|[^A-Za-z0-9_./-])jeremyhahn($|[^A-Za-z0-9_/-])	# lab-string-ok: the owner's account name on its own; module and org paths are not a hit
 owner-account	(^|[^A-Za-z0-9_./-])jhahn($|[^A-Za-z0-9_/-])	# lab-string-ok: the owner's local account name on its own

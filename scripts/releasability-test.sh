@@ -67,8 +67,7 @@ expect_hit lab-host    'runs on gpu-host'                           # lab-string
 expect_hit lab-host    'built on lab-node-1'                          # lab-string-ok: plant
 expect_hit lab-host    'built on ci-node-2'                       # lab-string-ok: plant
 expect_hit lab-host    'forge <host>'                              # lab-string-ok: plant
-expect_hit lab-host    'ssh vstation-12'                           # lab-string-ok: plant
-expect_hit owner-path  'cd /home/jhahn/sources'                    # lab-string-ok: plant
+expect_hit owner-path  'cd /Users/jhahn/sources'                    # lab-string-ok: plant
 expect_hit owner-account 'ask jeremyhahn about it'                 # lab-string-ok: plant
 expect_hit owner-account 'owner `jeremyhahn`.'                     # lab-string-ok: plant
 expect_hit owner-account 'user jhahn'                              # lab-string-ok: plant

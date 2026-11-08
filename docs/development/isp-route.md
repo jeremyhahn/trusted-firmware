@@ -3,7 +3,7 @@
 Issues #7 and #55. The bench host has no ISP programmer, and two parts need one:
 
 - The Nano has no serial bootloader that answers
-  ([the probe](wiznet-probe.md#arduino-nano-atmega328p-ch340-devttyusb0)), so
+  ([the probe](wiznet-probe.md#nano-probe)), so
   Optiboot goes in by ISP before anything can be flashed over USB.
 - `tfw-boot` can only be installed by ISP
   ([secure boot](../secure-boot/user.md#prerequisites)), and the Mega needs it

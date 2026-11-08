@@ -39,7 +39,7 @@
 
 ARG GO_IMAGE
 ARG BASE_IMAGE=debian:trixie-slim
-ARG BASE_DIGEST=sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
+ARG BASE_DIGEST=sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 # espressif/idf:v5.5.5, by the digest of its multi-architecture index. Keep the
 # version in step with ESP_IDF_VERSION in tool-pins.sh and mk/arch/esp32.mk.
 ARG ESP_IDF_IMAGE=espressif/idf:v5.5.5

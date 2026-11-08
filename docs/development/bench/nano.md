@@ -9,7 +9,7 @@ Nothing has been written to the Nano.
 | | |
 |---|---|
 | Board | Arduino Nano clone, USB through a CH340 (`1a86:7523`), `/dev/ttyUSB0` on the bench host |
-| MCU | ATmega328P, expected from the board ([the probe](../wiznet-probe.md#arduino-nano-atmega328p-ch340-devttyusb0)). Not confirmed: the signature has not been read |
+| MCU | ATmega328P, expected from the board ([the probe](../wiznet-probe.md#nano-probe)). Not confirmed: the signature has not been read |
 
 ## Factory values
 
@@ -34,7 +34,7 @@ avrdude -c stk500v2 -P /dev/ttyUSB0 -b 115200 -p m328p
 | `arduino` (ATmegaBOOT), 57600 | `not in sync: resp=0x80`, ten times |
 | `stk500v2`, 115200 | timeouts; stopped after 60 s |
 
-These are the answers [the probe](../wiznet-probe.md#arduino-nano-atmega328p-ch340-devttyusb0)
+These are the answers [the probe](../wiznet-probe.md#nano-probe)
 recorded on 2026-10-15. `0x4d` is the `M` of the resident sketch's `macByte1`
 line, and `0x80` is that 115200 output read at 57600. The sketch starts 71 ms
 after a reset, too early for any Arduino bootloader to have waited for a sync.

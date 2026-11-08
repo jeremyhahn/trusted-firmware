@@ -112,6 +112,8 @@ frame, even when the first byte is not one of its opcodes (see the W5500 and
 W5200 rows). That echo alone is a cheap presence check that a driver can make
 before it resets anything.
 
+<a id="nano-probe"></a>
+
 ### Arduino Nano (ATmega328P, CH340), `/dev/ttyUSB0`
 
 **Not probed: the board has no serial bootloader that answers**, so the probe

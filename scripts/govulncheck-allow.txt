@@ -1,0 +1,5 @@
+# govulncheck findings reviewed and allowed, read by scripts/govulncheck-gate.py.
+# One entry a line: <module dir> <OSV id> <reason>. The reason says what the
+# vulnerability is, why it cannot be fixed now, the reachable path govulncheck
+# reports and what removes the entry. The gate reports an entry nothing reaches.
+xkms GO-2026-6911 SSRF via an unchecked Location header in github.com/mark3labs/mcp-go v1.5.0, no fixed version; reachable path: avr/possession.go:53 avr.Backend.PossessionSigner calls elliptic.P256, which eventually calls transport.NewStreamableHTTP (and StreamableHTTP Close, SendNotification, SendRequest, SetRequestHandler); deleted when xkms takes go-qrdb v0.58.2-alpha through a go-xkms release built on it

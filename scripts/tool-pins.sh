@@ -19,7 +19,7 @@
 # community AVR image. Pinned by the digest of the
 # multi-architecture index; the tag is recorded beside it for a reader.
 BASE_IMAGE=debian:trixie-slim
-BASE_DIGEST=sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
+BASE_DIGEST=sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
 # Go, for sdk/go, xkms/ and test/integration/esp32. At least 1.27.1 because
 # xkms/ requires go-xkms, whose go.mod says `go 1.27.1`; 1.27.3 because
@@ -32,8 +32,10 @@ GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
 HELD_GO="GO_VERSION, GO_SHA256 and GO_IMAGE name one Go and move together in one commit; CI builds its toolchain image from these pins at the PR's commit, so a bump is tested by the PR that makes it"
 
 # --- the AVR toolchain: Debian trixie's packages -----------------------------
-# Installed from docker/packages.txt at the base digest above, so the version
-# is the one the pinned Debian release ships. deps-check reads the installed
+# Installed from docker/packages.txt by apt-get at image build time, unpinned,
+# so the version is what Debian trixie's archive ships on the build day (the
+# Dockerfile's DEBIAN_REFRESH rebuilds that layer); the base digest does not
+# choose it. deps-check reads the installed
 # version with dpkg-query and compares it with the upstream release.
 HELD_AVR_GCC="Debian trixie's gcc-avr: the toolchain comes from Debian packages for their provenance (docker/packages.txt), and a compiler change moves every size budget and the reproducible-build hash"
 HELD_AVR_LIBC="Debian trixie's avr-libc, for the reason HELD_AVR_GCC gives"
@@ -74,6 +76,6 @@ HELD_GOVULNCHECK="the fleet template's pin (ci-template v1.18); the next one com
 
 # trivy: a release archive, checked against these digests (upstream's
 # trivy_<version>_checksums.txt) before it is unpacked.
-TRIVY_VERSION=v0.76.1
-TRIVY_SHA256_LINUX_AMD64=c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
-TRIVY_SHA256_LINUX_ARM64=e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f
+TRIVY_VERSION=v0.76.2
+TRIVY_SHA256_LINUX_AMD64=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
+TRIVY_SHA256_LINUX_ARM64=ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3

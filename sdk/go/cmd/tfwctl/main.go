@@ -27,6 +27,10 @@ import (
 	"github.com/jeremyhahn/trusted-firmware/sdk/go/serialport"
 )
 
+// stderr takes what a verb reports on the way, ota-stage's progress, apart
+// from its result on stdout.
+var stderr io.Writer = os.Stderr
+
 func usage() {
 	fmt.Fprint(os.Stderr, `tfwctl -- talk to an trusted-firmware device
 
@@ -433,7 +437,20 @@ func run(ctx context.Context, dev *tfw.Device, cmd string, args []string, asJSON
 		if err != nil {
 			return fmt.Errorf("usage: ota-stage [--activate[=now]] <image>: %w", err)
 		}
-		if err := dev.StageImage(ctx, image); err != nil {
+		// Upload, not StageImage: an OTA_DATA that fails is asked after
+		// with OTA_STATUS, and the session goes on from the device's count.
+		// The Image is the stream alone, unparsed, for the same reason.
+		shown := false
+		err = dev.Upload(ctx, &tfw.Image{Stream: image}, tfw.UploadProgress(func(sent, total uint32) {
+			shown = true
+			// Progress is best effort: a stderr that fails to take a line
+			// must not stop the upload.
+			_, _ = fmt.Fprintf(stderr, "\rota-stage: %d/%d bytes", sent, total)
+		}))
+		if shown {
+			_, _ = fmt.Fprintln(stderr)
+		}
+		if err != nil {
 			return err
 		}
 		if activate {

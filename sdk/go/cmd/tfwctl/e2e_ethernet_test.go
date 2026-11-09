@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"testing"
@@ -108,7 +109,7 @@ func simEthernetArgs(t *testing.T, endpoint netip.AddrPort) []string {
 // simulator's to boot from, so it runs only against tfwsim.
 func startEthernetWith(t *testing.T, platform []byte) (serial, eth *tfw.Device) {
 	t.Helper()
-	return startEthernetOn(t, platform, nil)
+	return startEthernetOn(t, platform, nil, nil)
 }
 
 // startEthernetOperator is startEthernetWith over the test platform block with
@@ -117,22 +118,44 @@ func startEthernetOperator(t *testing.T, operator [tfw.OperatorPubkeyLen]byte,
 	start func(args []string) *tfw.Device) (serial, eth *tfw.Device) {
 	t.Helper()
 	platform := tfw.BuildPlatformBlock(tfwsim.TestSerial, [tfw.PubkeyHashLen]byte{}, operator)
-	return startEthernetOn(t, platform[:], start)
+	return startEthernetOn(t, platform[:], start, nil)
 }
 
 // startEthernetOn is startEthernetWith with start, when not nil, running the
-// simulator with the given arguments in place of the element image.
+// simulator with the given arguments in place of the element image, and wrap,
+// when not nil, standing between the accepted connection and its Device.
 func startEthernetOn(t *testing.T, platform []byte,
-	start func(args []string) *tfw.Device) (serial, eth *tfw.Device) {
+	start func(args []string) *tfw.Device, wrap func(io.ReadWriter) io.ReadWriter) (serial, eth *tfw.Device) {
 	t.Helper()
-	serial, td, _ := startEthernetListen(t, platform, start)
-	return serial, td.Device
+	if wrap == nil {
+		serial, td, _ := startEthernetListen(t, platform, start)
+		return serial, td.Device
+	}
+	serial, l := startEthernetBoot(t, platform, start)
+	require.NoError(t, l.SetDeadline(time.Now().Add(deviceWait)))
+	c, err := l.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	return serial, tfw.New(wrap(c), tfw.WithTimeout(10*time.Second), tfw.WithBootWait(0))
 }
 
 // startEthernetListen is startEthernetOn with the connection and the listener
 // the board dials, for a test that closes the one and takes the next.
 func startEthernetListen(t *testing.T, platform []byte,
 	start func(args []string) *tfw.Device) (serial *tfw.Device, eth *tfw.TCPDevice, l *net.TCPListener) {
+	t.Helper()
+	serial, l = startEthernetBoot(t, platform, start)
+	td, err := acceptDevice(l, deviceWait, tfw.WithTimeout(10*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = td.Close() })
+	return serial, td, l
+}
+
+// startEthernetBoot starts the simulator as startEthernetListen does and
+// returns its serial Device and the listener its TCP link dials, not yet
+// accepted.
+func startEthernetBoot(t *testing.T, platform []byte,
+	start func(args []string) *tfw.Device) (serial *tfw.Device, l *net.TCPListener) {
 	t.Helper()
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
@@ -154,10 +177,7 @@ func startEthernetListen(t *testing.T, platform []byte,
 	}
 	serial = start([]string{"--eth", "--eeprom-bin", eep,
 		"--provision-element", "--image-hash", hex.EncodeToString(tfwsim.TestFWHash[:])})
-	td, err := acceptDevice(l, deviceWait, tfw.WithTimeout(10*time.Second))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = td.Close() })
-	return serial, td, l
+	return serial, l
 }
 
 // stageImage builds a total-byte image whose last 128 bytes are a trailer

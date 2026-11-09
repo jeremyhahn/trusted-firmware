@@ -47,8 +47,9 @@ wired as the fleet template wires them:
 | `make security` | `lint` (cppcheck, the `#if` and `__DATE__` greps, arch-leak), `lint-arch-leak-selftest`, `verify-vendor`, `releasability`, `releasability-test`, `sdk-lint`, `sdk-verify`, `go-vet`, `go-mod-verify`, `go-gosec`, `go-govulncheck`, `go-golangci` (`.golangci.yml`), `xkms-security`, `secrets-scan` |
 | `make deps-check` | `scripts/deps-check.py`: every pin in `scripts/tool-pins.sh` and every Go require, `xkms/` included, against its latest release |
 
-CI runs `make test` as three Unit jobs, `unit-shard-1` to `unit-shard-3`, each
-`make test-shard-N` over one shard of its gates, balanced by duration
+CI runs `make test` in one Unit job, `unit`, as three steps, each
+`make test-shard-N` over one shard of its gates, then the sdk/go race suite
+as a fourth; every step runs even after one fails. The shards are balanced by duration
 (`TEST_SHARD_N` in `mk/stages.mk`): the host suites with the board sweep and
 `test-asan-boot` (the sanitizers over the boot suites); the boot suites with
 `coverage`, the vectors, the Go coverage floors and `scripts-test`; and

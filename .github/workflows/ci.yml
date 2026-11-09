@@ -5,7 +5,7 @@
 # the runner sets DEVCACHE_GOPROXY and the cache answers a 5-second probe, as
 # one quoted make argument, and the Makefile quotes it on its docker build
 # line, where an unquoted `|` is a shell pipe; the schedule guard reads
-# waiting before in_progress; scripts/in-toolchain-image.sh v4. This repository's
+# waiting before in_progress; scripts/in-toolchain-image.sh v5. This repository's
 # copy already read waiting first and keeps its scratch on the container
 # layer's /var/tmp; it takes the memory bound, GOTMPDIR and the Athens-first
 # bridge GOPROXY, and every toolchain, esp32, optee and integration image

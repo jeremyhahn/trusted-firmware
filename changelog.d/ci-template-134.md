@@ -1,3 +1,4 @@
 ### Changed
 
 - **CI follows ci-template v1.34: 17 jobs become 12.** One Preflight job runs the changed-files steps, the schedule guard and the architecture gates, with the same outputs the changes and schedule-guard jobs had; one Unit job runs `make test-shard-1` to `make test-shard-3` and the sdk/go race suite as its own steps, each named, every one run after a failure, and the image pulled once. CI Gate checks `preflight` and `unit` in place of the six jobs, on the same tiers, and still fails closed. An architecture-gate failure now fails Preflight, so the image job and every job after it skip.
+- **The image build's Go proxy chain no longer falls back to `direct` (ci-template v1.34.1).** `GO_BUILD_PROXY` in CI is `<DEVCACHE_GOPROXY>|https://proxy.golang.org`, and the devcontainer Dockerfile's default is `https://proxy.golang.org`, so no build-time module or tool download goes to an origin host past the proxies.

@@ -46,7 +46,7 @@ ARG ESP_IDF_IMAGE=espressif/idf:v5.5.5
 ARG ESP_IDF_DIGEST=sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
 # Build-time module and tool downloads go through this proxy (devcontainer.md
 # §4). The caller's environment supplies another; no tracked file does.
-ARG GO_BUILD_PROXY=https://proxy.golang.org,direct
+ARG GO_BUILD_PROXY=https://proxy.golang.org
 
 # ---------------------------------------------------------------------------
 FROM ${GO_IMAGE} AS tools

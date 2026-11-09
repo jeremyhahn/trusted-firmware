@@ -1,7 +1,7 @@
-# ci-template: v1.34 (customized)
+# ci-template: v1.34.1 (customized)
 # v1.29.4 and v1.29.5, adopted here (#300) in one CI-file PR (Company
 # Agent rulings 261(c) and 262(a); handbook f9730b11f): each image build
-# passes GO_BUILD_PROXY=<DEVCACHE_GOPROXY>|https://proxy.golang.org|direct when
+# passes GO_BUILD_PROXY=<DEVCACHE_GOPROXY>|https://proxy.golang.org when
 # the runner sets DEVCACHE_GOPROXY and the cache answers a 5-second probe, as
 # one quoted make argument, and the Makefile quotes it on its docker build
 # line, where an unquoted `|` is a shell pipe; the schedule guard reads
@@ -793,7 +793,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           if [ "$DOCS_ONLY" = true ]; then # CUSTOMIZE (trusted-firmware, DS-3166)
             make docker-image-toolchain ${bp:+"$bp"}
@@ -1280,7 +1280,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
@@ -1372,7 +1372,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"
@@ -1442,7 +1442,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           make docker-image-esp32 ${bp:+"$bp"}
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
@@ -1502,7 +1502,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           make docker-image-esp32 ${bp:+"$bp"}
           echo "ESP32_IMAGE=$(make -s esp32-image)" >> "$GITHUB_ENV"
@@ -1587,7 +1587,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           make docker-image-optee ${bp:+"$bp"}
           echo "OPTEE_IMAGE=$(make -s optee-image)" >> "$GITHUB_ENV"
@@ -1686,7 +1686,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           make docker-image-optee ${bp:+"$bp"}
           echo "OPTEE_IMAGE=$(make -s optee-image)" >> "$GITHUB_ENV"
@@ -1768,7 +1768,7 @@ jobs:
           # proxy; "$bp" is one quoted make argument and the Makefile quotes it.
           bp=
           if [ -n "${DEVCACHE_GOPROXY:-}" ] && curl -s -o /dev/null --max-time 5 "$DEVCACHE_GOPROXY/"; then
-            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org|direct"
+            bp="GO_BUILD_PROXY=$DEVCACHE_GOPROXY|https://proxy.golang.org"
           fi
           make docker-image-toolchain ${bp:+"$bp"}
           echo "TOOLCHAIN_IMAGE=$(make -s toolchain-image)" >> "$GITHUB_ENV"

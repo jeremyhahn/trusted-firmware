@@ -86,6 +86,24 @@ def workflow_shards():
     return jobs, gate_needs, checks
 
 
+def unit_job():
+    """ci.yml's unit job without comment lines: (the job's own keys, [each step's text])."""
+    with open(WORKFLOW, encoding="utf-8") as f:
+        text = f.read()
+    m = re.search(r"^  unit:\n(.*?)(?=^  [a-z])", text, re.MULTILINE | re.DOTALL)
+    if not m:
+        raise AssertionError("ci.yml has no unit job")
+    body = "\n".join(l for l in m.group(1).splitlines() if not l.lstrip().startswith("#"))
+    head, _, steps = body.partition("\n    steps:\n")
+    return head, re.split(r"(?m)^(?=      - )", steps)[1:]
+
+
+def step_if(step):
+    """A step's `if:` expression, or "" when it has none."""
+    m = re.search(r"(?m)^        if: (.*)$", step)
+    return m.group(1) if m else ""
+
+
 class ShardLists(unittest.TestCase):
     def test_every_gate_is_in_exactly_one_shard(self):
         gates, shards = shard_lists()
@@ -104,6 +122,35 @@ class ShardLists(unittest.TestCase):
                                  "the unit job must run make test-shard-%d, once" % n)
         self.assertIn("unit", gate_needs, "fix: add unit to the CI Gate's needs")
         self.assertIn(("unit", "unit"), checks, "fix: add a `check unit` line to the CI Gate")
+
+    def test_the_unit_job_runs_the_race_suite_every_shard_and_fails_on_any(self):
+        head, steps = unit_job()
+        race = [s for s in steps
+                if re.search(r"(?m)^ +cd sdk/go$", s) and "go test -race " in s
+                and "in-toolchain-image.sh" in s]
+        self.assertEqual(len(race), 1,
+                         "the unit job must have one step that runs sdk/go's suite with "
+                         "go test -race in the toolchain image, or the gate goes green "
+                         "without the simulator race suite; fix: restore the sdk/go -race step")
+        first = next((i for i, s in enumerate(steps) if "make test-shard-" in s), None)
+        self.assertIsNotNone(first, "the unit job runs no make test-shard-N step")
+        for s in steps[first + 1:]:
+            name = s.splitlines()[0].strip()
+            with self.subTest(step=name):
+                cond = step_if(s)
+                self.assertTrue("!cancelled()" in cond or "always()" in cond,
+                                "%s has `if: %s`: a failed earlier shard would skip it, so "
+                                "one run no longer reports every shard; fix: start its "
+                                "`if:` with !cancelled()" % (name, cond))
+        for where, text in [("the unit job", head)] + [(s.splitlines()[0].strip(), s) for s in steps]:
+            with self.subTest(continue_on_error=where):
+                self.assertNotIn("continue-on-error", text,
+                                 "%s sets continue-on-error, so its failure no longer fails "
+                                 "the unit job and the CI Gate; fix: delete it" % where)
+        _, gate_needs, _ = workflow_shards()
+        self.assertIn("unit", gate_needs,
+                      "the CI Gate no longer needs unit, so a red shard or race suite "
+                      "cannot fail it; fix: add unit to the CI Gate's needs")
 
     def test_a_gate_in_two_shards_is_named_with_its_fix(self):
         gates, shards = shard_lists("TEST_SHARD_3=test-asan-host coverage")

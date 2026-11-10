@@ -702,7 +702,7 @@ jobs:
     # job builds the run's images once and runs the short stages; the long
     # stages are the legs below, each `needs: image`, run side by side.
     name: Devcontainer image [lint, build, trivy image]
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     needs: preflight   # v1.24 (CA m749, m751 (a)); v1.29.3; v1.34
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
     if: ${{ !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
@@ -1245,7 +1245,7 @@ jobs:
     name: Unit and race [make test, sdk/go -race]
     needs: [image, preflight]   # v1.29.3; v1.34
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     # v1.34: the sum of the four jobs' timeouts (110, 75, 75, 35), capped at
     # 120. Shard 1 is about 23 min green and 30 at quota, the other two less,
     # and the race suite 5 (run 245908), so the four steps fit at quota.
@@ -1339,7 +1339,7 @@ jobs:
     name: Security [make security]
     needs: [image, preflight]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     # CUSTOMIZE: make security ~11 (the v1.20 job; 1 warm on run 245908).
     # 10 + 11, plus margin.
     timeout-minutes: 35
@@ -1408,7 +1408,7 @@ jobs:
     # main is found at the merge, not the next night.
     needs: [image, preflight]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && !github.event.pull_request.draft && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && needs.preflight.outputs.esp32 == 'true')) && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}   # v1.26
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     # CUSTOMIZE (ruling 220(j)): the 10 min before the stages that the
     # esp32-qemu-test job's sum below counts, then esp32-build (2 min 39 s in
     # run 68240): 10 + 3 = 13, plus margin.
@@ -1465,7 +1465,7 @@ jobs:
     name: ESP32 QEMU Test [esp32-qemu-test]
     needs: [image, preflight]   # v1.29.3
     if: ${{ !cancelled() && needs.image.outputs.built == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     # CUSTOMIZE: run 245908: esp32-build 2 min; esp32-qemu-test's three QEMU
     # builds ~6, the esp32c3 run 34 (to 20:40:58; each OTA round ~6), and the
     # esp32 run, where one OTA stream takes ~12, was 24 min in at the kill
@@ -1531,7 +1531,7 @@ jobs:
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saves `optee-4.11.0`
     # and the optee job restores it. On ubuntu-latest (DS-7400) both jobs share the
     # repository's Actions cache.
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     # CUSTOMIZE: run 70765, the one job built cold: setup, image and restore
     # miss 2 min, optee-tools 5, optee-qemu 133, the copy out of the
     # container 13 and the actions/cache save over 2: 2 + 5 + 133 + 13 + 2 =
@@ -1632,7 +1632,7 @@ jobs:
     # CUSTOMIZE (trusted-firmware, run 71052): the stack job saves `optee-4.11.0`
     # and this job restores it. On ubuntu-latest (DS-7400) both jobs share the
     # repository's Actions cache.
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     # CUSTOMIZE: run 70765 on a cold cache: setup and image 2 min,
     # integration-test-optee 26. Warm, the restore and the copy into the
     # container add about what the save (over 2) and the copy out (13) took,
@@ -1720,7 +1720,7 @@ jobs:
   # docs-only path does; this job never needs the integration image.
   lint-gates:
     name: Lint Gates [toolchain image]
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     needs: preflight     # v1.29.3
     # v1.26: never on a draft. v1.29.3: on a schedule run, only on the
     # schedule guard's `run`.
@@ -1797,7 +1797,7 @@ jobs:
     # only on the schedule guard's `run`.
     needs: preflight
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')) && !github.event.pull_request.draft && (github.event_name != 'schedule' || needs.preflight.outputs.verdict == 'run') }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     # CUSTOMIZE: trusted-firmware: full tier (#293; handbook sdlc.md §5a). The suite is
     # `make integration-test-host`: the real AVR images under simavr, and
     # tfwsim against the Go SDK, the example application and the xkms adapter.
@@ -1919,7 +1919,7 @@ jobs:
     # v1.29.3: on a schedule run, only on the schedule guard's `run`.
     needs: preflight
     if: ${{ ((github.event_name == 'schedule' && needs.preflight.outputs.verdict == 'run') || github.event_name == 'workflow_dispatch') && !github.event.pull_request.draft }}   # v1.26
-    runs-on: ubuntu-latest
+    runs-on: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","linux","x64","bigdisk-docker"]') || 'ubuntu-latest' }}
     timeout-minutes: 90       # CUSTOMIZE: SOAK_MINUTES plus one iteration
     env:
       SOAK_MINUTES: 30        # CUSTOMIZE

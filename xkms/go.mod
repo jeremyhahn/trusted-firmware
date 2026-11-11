@@ -9,7 +9,7 @@
 // true, and this file is why sdk/go never needs to change for it.
 module github.com/jeremyhahn/trusted-firmware/xkms
 
-go 1.27.3
+go 1.27.4
 
 // The versions below are the module graph go-xkms v0.57.0-alpha resolved. They
 // are listed here so the graph is pruned (every module's go.mod is not needed

@@ -19,11 +19,9 @@
 # wirecheck verifies ATTEST under the DeviceID point cm_image derived with the
 # firmware's own deviceid_p256.c (DEVICEID in addrs.env).
 #
-#   genuine    the signed application answers CAPS with <board-id> and <tier>
-#              and ATTEST under DEVICEID: the control that makes the two
-#              refusals below mean refusal. A soft reset and the boot that
-#              verifies the image again are the wire suite's
-#              (qemu_wire_test.sh, TestQEMUResetCause), on every board
+#   genuine    the signed application answers CAPS with <board-id> and <tier>,
+#              takes a soft reset, and answers again after tfw-boot has
+#              verified it a second time
 #   tampered   one bit of the image flipped after signing: tfw-boot refuses
 #   otherkey   signed by a key tfw-boot does not hold: tfw-boot refuses
 #   hsm-*      the tamper-response engine and its loop (m7-design.md slice 3),
@@ -109,11 +107,14 @@ alive() {
 
 start genuine app.bin
 "$dir/wirecheck" -network unix -addr "$sock" -wait "$wait" -board "$board" -tier "$tier" \
+    -deviceid "$DEVICEID" -reset ||
+    fail genuine "the signed image did not answer, or did not take the reset"
+"$dir/wirecheck" -network unix -addr "$sock" -wait "$wait" -board "$board" -tier "$tier" \
     -deviceid "$DEVICEID" ||
-    fail genuine "the signed image did not answer"
+    fail genuine "the signed image did not answer after the reset"
 alive genuine
 stop
-echo "qemu_test: genuine: verified and answered"
+echo "qemu_test: genuine: verified, answered, reset, verified and answered again"
 
 for row in tampered otherkey; do
     start "$row" "app-$row.bin"

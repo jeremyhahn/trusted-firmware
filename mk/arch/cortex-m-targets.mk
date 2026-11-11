@@ -77,7 +77,7 @@ CM_QEMU_SPI_BUILD  := $(BUILD_DIR)/qemu-spi
 CM_QEMU_I2C_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_I2C_BUILD  := $(BUILD_DIR)/qemu-i2c
 
-## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware (the reset is integration-test-cortex-m-wire's); a tampered image and another key's stay silent; on mps2-an505 the tamper-response loop decides as its sets require
+## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent; on mps2-an505 the tamper-response loop decides as its sets require
 #
 # One board after the other, not in parallel: a red board names itself, and
 # the two QEMUs never compete for the host. integration-test-cortex-m-<board>

@@ -14,13 +14,19 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
 };
 
 /* The RGB LED, active low (a write of 0 lights it), and the two user switches,
- * which read 0 while pressed (UM12018; the SDK's board.h). */
+ * which read 0 while pressed (UM12018; the SDK's board.h). Then the Arduino
+ * header's analog pins A2..A4; A5 is SW2's pin. adc_ch is the LPADC0 input,
+ * the channel number plus 32 for side B (src/hal/cortex-m/mcxn94x/hal_adc.c),
+ * pinned in docs/reference/README.md. A0 and A1 have no cited source. */
 const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 0  LED_RED   P0_10 */ { TFW_PB(0u, 10u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 1  LED_GREEN P0_27 */ { TFW_PB(0u, 27u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 2  LED_BLUE  P1_2  */ { TFW_PB(1u,  2u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
-/* 3  SW2       P0_23 */ { TFW_PB(0u, 23u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 3  SW2, A5   P0_23 */ { TFW_PB(0u, 23u), 15u,          TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
 /* 4  SW3       P0_6  */ { TFW_PB(0u,  6u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 5  A2        P0_14 */ { TFW_PB(0u, 14u), 32u + 14u,    TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 6  A3        P0_22 */ { TFW_PB(0u, 22u), 14u,          TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 7  A4        P0_15 */ { TFW_PB(0u, 15u), 32u + 15u,    TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
 };
 
 /* EMPTY, as on mps2-an505: this port drives no timer, and a row nothing

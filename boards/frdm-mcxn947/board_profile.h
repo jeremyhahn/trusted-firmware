@@ -5,9 +5,10 @@
  * directory mcxn94x (SPEC row mcxn947, docs/boards/frdm-mcxn947.md).
  *
  * The pins are the board's RGB LED and its two user switches (FRDM-MCXN947
- * Board User Manual UM12018, the SDK's boards/frdmmcxn947/board.h). The
- * converters, the timers and the buses are not driven by this port yet, so
- * every other capability is off by file selection. The EdgeLock subsystem is
+ * Board User Manual UM12018, the SDK's boards/frdmmcxn947/board.h) and the
+ * Arduino header's A2..A5 on LPADC0. ADC1, the timers and the buses are not
+ * driven by this port yet, so every other capability is off by file
+ * selection. The EdgeLock subsystem is
  * not driven at all: the soft root is the board's only tier.
  *
  * The board id is PROVISIONAL (boards/frdm-mcxn947/profile.mk).
@@ -18,13 +19,13 @@
 #define TFW_BOARD_NAME "frdm-mcxn947"
 #define TFW_BOARD_ID   0x46u   /* docs/boards/board-id-registry.md */
 
-#define TFW_PIN_COUNT  5u
+#define TFW_PIN_COUNT  8u
 #define TFW_PORT_COUNT 2u      /* GPIO0 and GPIO1, the banks the pins sit in */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  64u     /* LPADC0 inputs: channel 0..31, + 32 for side B */
 #define TFW_EEPROM_SIZE 0u
 
-#define TFW_FEATURE_ANALOG  0
+#define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0

@@ -63,6 +63,17 @@ BOOT_BUDGET    := 32768
 # software for the image signature (mk/boot.mk's BOOT_SUPPORTED row).
 BOARD_TIERS    := soft
 
+# I2C4 on the kit's PB8 SCL and PB9 SDA, the instance ST's BSP drives
+# (src/hal/cortex-m/stm32h5/hal_bus.c), off by default: no element is fitted.
+# I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and links the
+# bus; the soft:I2C=1 row builds that image and size-check measures it. Built
+# and host-tested against a register model (test/unit/test_stm32h5_i2c.c), not
+# run on the kit.
+I2C               ?= 0
+BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        := soft:I2C=1
+
 # Written through the kit's ST-LINK/V3E with ST's STM32CubeProgrammer CLI
 # (UM2237), which reads and writes the STM32H5's flash and prints its option
 # bytes; mk/arch/cortex-m.mk holds the recipes. The record is the whole 2 MiB

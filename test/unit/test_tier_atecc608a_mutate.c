@@ -149,7 +149,7 @@ static void test_the_blank_seed_is_a_blank_part(void)
 static void test_the_usage_names_every_option(void)
 {
     TEST_ASSERT_EQUAL_STRING(" [--eeprom FILE.eep | --eeprom-bin FILE] [--provision-element]"
-                             " [--image-hash HEX64] [--boot-tier soft|element] [--uds HEX64] [--no-element] [--image-key HEX128]",
+                             " [--image-hash HEX64] [--boot-tier soft|element] [--uds HEX64] [--no-element]",
                              tfwsim_tier_usage());
 }
 

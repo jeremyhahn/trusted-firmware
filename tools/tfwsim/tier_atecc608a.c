@@ -48,7 +48,6 @@
 #include <string.h>
 
 #include "tier.h"
-#include "atecc.h"
 #include "atecc608a_model.h"
 #include "boot_measure.h"
 #include "deviceid_p256.h"
@@ -65,8 +64,6 @@ static uint8_t  boot_tier = (uint8_t)TFW_CRYPTO_SECURE_ELEMENT;
 static uint8_t  image_hash[TFW_BOOT_MEASURE_LEN];
 static uint8_t  have_uds;
 static uint8_t  uds[32];
-static uint8_t  have_image_key;
-static uint8_t  image_key[64];          /* --image-key: the image slot's X||Y */
 
 /* ------------------------------------------------------------ parsing */
 
@@ -247,17 +244,6 @@ int tfwsim_tier_option(int argc, char **argv)
         have_uds = 1u;
         return 2;
     }
-    /* tfwsim-manifest (#52): the public key the element's image slot holds,
-     * the key OTA_ACTIVATE's manifest gate verifies the SUIT ES256 with. On
-     * a device PROV_* writes it; this image has no provisioning commands. */
-    if (strcmp(argv[0], "--image-key") == 0) {
-        if (argc < 2) { return fail(argv[0], "needs a value"); }
-        if (hex_bytes(argv[1], strlen(argv[1]), image_key, sizeof image_key) < 0) {
-            return fail("--image-key", "want 128 hex characters (a P-256 X||Y)");
-        }
-        have_image_key = 1u;
-        return 2;
-    }
     if (strcmp(argv[0], "--eeprom") == 0 || strcmp(argv[0], "--eeprom-bin") == 0 ||
         strcmp(argv[0], "--image-hash") == 0) {
         if (argc < 2) { return fail(argv[0], "needs a value"); }
@@ -277,7 +263,7 @@ const char *tfwsim_tier_usage(void)
 {
     return " [--eeprom FILE.eep | --eeprom-bin FILE] [--provision-element]"
            " [--image-hash HEX64] [--boot-tier soft|element] [--uds HEX64]"
-           " [--no-element] [--image-key HEX128]";
+           " [--no-element]";
 }
 
 /*
@@ -305,9 +291,6 @@ void tfwsim_tier_seed(void)
     tfw_model_set_absent(no_element);
     if (provision_element) {
         tfw_model_provision();
-    }
-    if (have_image_key) {
-        tfw_model_set_stored_pubkey(TFW_ATECC_SLOT_IMAGE, image_key);
     }
     if (eeprom_image) {
         memcpy(tfw_mock_eeprom(), eeprom_image, eeprom_len);

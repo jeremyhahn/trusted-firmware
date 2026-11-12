@@ -35,6 +35,7 @@ static unsigned touches;            /* every call, in or out of the block */
 static unsigned out_of_block;
 static enum cal_mode cal;
 static unsigned cal_runs;
+static int cal_at_bus_clock;        /* ADCLKSE when the calibration ran */
 static int conv_hang;
 static unsigned conversions;
 static uint16_t sample[TFW_IMX95_ADC_CHANNELS];
@@ -71,6 +72,7 @@ static void settle(void)
             msr |= TFW_IMX95_ADC_MSR_CALBUSY;
         } else {
             cal_runs++;
+            cal_at_bus_clock = (mcr & TFW_IMX95_ADC_MCR_ADCLKSE) != 0u;
             mcr &= ~TFW_IMX95_ADC_MCR_CALSTART;
             msr &= ~(TFW_IMX95_ADC_MSR_CALBUSY | TFW_IMX95_ADC_MSR_CALFAIL);
             if (cal == CAL_FAIL) {
@@ -134,6 +136,7 @@ void setUp(void)
     out_of_block = 0u;
     cal = CAL_PASS;
     cal_runs = 0u;
+    cal_at_bus_clock = 0;
     conv_hang = 0;
     conversions = 0u;
     conv_delay = 0u;
@@ -165,6 +168,9 @@ static void test_init_powers_up_and_calibrates_once(void)
     TEST_ASSERT_EQUAL_UINT(1u, cal_runs);
     TEST_ASSERT_FALSE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_PWDN);
     TEST_ASSERT_FALSE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_CALSTART);
+    /* imx93_adc.c: calibrate at bus clock / 2, then convert at the bus clock */
+    TEST_ASSERT_FALSE(cal_at_bus_clock);
+    TEST_ASSERT_TRUE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_ADCLKSE);
 }
 
 static void test_a_read_on_each_channel(void)

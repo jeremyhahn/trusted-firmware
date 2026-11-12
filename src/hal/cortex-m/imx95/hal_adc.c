@@ -42,19 +42,27 @@
 
 static tfw_status_t adc_state = TFW_ERR_UNSUPPORTED;  /* until init */
 
-static tfw_status_t adc_calibrate(void)
+/* Power down and wait for the block to say so, as imx93_adc.c does before
+ * each change of AD_CLK. */
+static tfw_status_t adc_power_down(void)
 {
     uint32_t n;
 
-    /* Power down, as imx93_adc.c does before calibrating, and wait for it. */
     ADC(TFW_IMX95_ADC_MCR) |= TFW_IMX95_ADC_MCR_PWDN;
     for (n = 0u; n < ADC_POLL_POWER; n++) {
         if ((ADC(TFW_IMX95_ADC_MSR) & TFW_IMX95_ADC_MSR_ADCSTATUS) ==
             TFW_IMX95_ADC_STATUS_POWER_DOWN) {
-            break;
+            return TFW_OK;
         }
     }
-    if (n == ADC_POLL_POWER) {
+    return TFW_ERR_TIMEOUT;
+}
+
+static tfw_status_t adc_calibrate(void)
+{
+    uint32_t n;
+
+    if (adc_power_down() != TFW_OK) {
         return TFW_ERR_TIMEOUT;
     }
     /* The block's own divider: bus clock / 2 while calibrating. */
@@ -74,6 +82,13 @@ static tfw_status_t adc_calibrate(void)
         ADC(TFW_IMX95_ADC_MCR) |= TFW_IMX95_ADC_MCR_PWDN;
         return TFW_ERR_INTERNAL;
     }
+    /* Calibrated: convert with AD_CLK at the bus clock, as imx93_adc.c's
+     * probe sets it (imx93_adc_config_ad_clk), changed powered down. */
+    if (adc_power_down() != TFW_OK) {
+        return TFW_ERR_TIMEOUT;
+    }
+    ADC(TFW_IMX95_ADC_MCR) |= TFW_IMX95_ADC_MCR_ADCLKSE;
+    ADC(TFW_IMX95_ADC_MCR) &= ~TFW_IMX95_ADC_MCR_PWDN;
     return TFW_OK;
 }
 

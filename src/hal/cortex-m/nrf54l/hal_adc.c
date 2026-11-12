@@ -4,9 +4,9 @@
  * Analog read on the nRF54L15's SAADC: one single-ended conversion per read,
  * polled, at 12 bits, on SAADC channel 0 pointed at the board channel's pin
  * (soc_tables.c, tfw_nrf54l_saadc_pin). Each read is self-contained:
- * enable, configure, START, SAMPLE, wait for END, STOP, disable and
- * disconnect the pin, so nothing is left driving or loading it between
- * reads. The registers are soc_regs.h's, from the nrfx MDK.
+ * enable, configure, START, SAMPLE, wait for END, STOP and wait for STOPPED,
+ * disable and disconnect the pin, so nothing is left driving or loading it
+ * between reads. A read that misses any of the three events is a timeout. The registers are soc_regs.h's, from the nrfx MDK.
  *
  * The reference: the part has the internal 0.9 V reference and an external
  * one (nrf54l15_types.h, SAADC_CH_CONFIG_REFSEL), no VDD-based one, so

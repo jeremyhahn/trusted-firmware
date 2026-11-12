@@ -73,6 +73,13 @@ verifies the image's ECDSA P-256 signature in software on every boot. It has
 no OTA and no store. It hands the soft DeviceID seed to the application in the
 handoff block. `make bootloader-check` builds it. Nothing has run on the board.
 
+Its size, measured by `make bootloader-check` at 48d85486 with
+arm-none-eabi-gcc 14.2.1:
+
+```
+tfw-boot nrf54l15-dk flash   8208 / 32768    ram   328 / 262144 (soft tier, p256-soft)
+```
+
 | | What tfw-boot does | Source |
 |---|---|---|
 | Core half | `boot/hal/cortex-m/boot_hal_cortex-m.c`, shared with `mps2-an505`. It range-checks every write and calls the SoC's `tfw_cm_boot_code_write` (`boot/hal/cortex-m/boot_soc.h`) to make it | |

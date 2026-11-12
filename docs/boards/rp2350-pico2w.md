@@ -100,7 +100,7 @@ The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 | `tfw_hal_watchdog_arm`, `_pet` | C `hal_sys.c` → S `hal_soc.c` | the RP2350 watchdog on 1 us ticks; reset 8 s after the last pet |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | S `hal_uart.c` | PL011 UART0 on GPIO0/1; receive interrupt-driven into a 64-byte ring on NVIC line 33; transmit into the 32-byte FIFO, `0` when it is full |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | S `hal_gpio.c` | SIO, GPIO0-29; input, output and input-pullup; the board's table lists only the header pins |
-| `tfw_hal_adc_*` | S `hal_adc.c` | as on mps2-an505: no channel |
+| `tfw_hal_adc_*` | S `hal_adc.c` | the SAR converter, one conversion per read on GPIO26-28 (ADC0-2, `adc_ch` 0-2; GPIO29/ADC3 is the radio's and the temperature sensor is not exposed); clk_adc from the 12 MHz crystal; the pad's IE cleared and OD set before a conversion; READY polled with a bound (`TFW_ERR_TIMEOUT`), CS.ERR is `TFW_ERR_INTERNAL`; 12-bit RESULT; only `TFW_ADC_REF_VCC` (ADC_AVDD). Host-tested against `test/model/rp2350_model.c` (`test_rp2350_adc.c`); built, not run on the board |
 
 The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
 of `BOOT_SUPPORTED` (`mk/boot.mk`). Like the mps2-an505 row it hashes and
@@ -197,3 +197,20 @@ is read on the bench before the first flash write.
 
 Nothing here has run on the board. The part's JEDEC id (the flash size above)
 and the console wiring stay open until a lane with the board settles them.
+
+**The converter (`hal_adc.c`).** Its registers were written from pico-sdk
+2.1.1's `hardware_regs` names (`adc.h`, `resets.h`, `clocks.h`,
+`addressmap.h`) and not yet matched against the copied [RP-DS] tables: the
+lane that wrote them had no PDF reader. Each carries `TODO(datasheet)` in
+`soc_regs.h` until a lane checks it:
+
+| Value | Where to check | Status |
+|---|---|---|
+| ADC base `0x400A0000`; CS `+0x0` (EN 0, START_ONCE 2, READY 8, ERR 9, AINSEL 15:12), RESULT `+0x4` (11:0), FCS `+0x8`, DIV `+0x10` | §2.2 table 13; §12.4 register list | TODO(datasheet) |
+| RESETS ADC bit 0 | §7.5.3 table 566 | TODO(datasheet) |
+| CLK_ADC_CTRL `+0x6C` (ENABLE 11, AUXSRC 7:5, xosc 3), CLK_ADC_DIV `+0x70` | §8.1.7 | TODO(datasheet) |
+| clk_adc at 12 MHz from the crystal | §12.4 states the converter's figures at 48 MHz; a slower clock is taken to lengthen a conversion (96 cycles, 8 us), not to break it | unsourced, kept: reversible, and the bounded READY poll answers `TFW_ERR_TIMEOUT` if the converter never finishes |
+| The pad for a conversion: OD set, IE, pulls and ISO clear, FUNCSEL NULL | §12.4 asks IE off and OD on; the pulls and ISO are this port's choice | kept |
+| CS.ERR answered as `TFW_ERR_INTERNAL` | the wire has no conversion-error status | kept |
+
+No reading has been taken on the board.

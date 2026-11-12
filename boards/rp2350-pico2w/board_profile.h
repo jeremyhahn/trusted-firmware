@@ -22,13 +22,15 @@
 #define TFW_PORT_COUNT 1u      /* SIO's one bank, bit n GPIOn */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
-#define TFW_EEPROM_SIZE 0u
+/* tfw-boot's span [0, TFW_BOOT_EE_LEN 0x140) in the platform window, then
+ * the 4 KiB user sector (TFW_CM_USER_EE_BASE): 0x140 + 0x1000. */
+#define TFW_EEPROM_SIZE 0x1140u
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_EEPROM  1
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0

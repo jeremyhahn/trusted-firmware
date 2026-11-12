@@ -5,7 +5,7 @@
 // firmware beside it was built with.
 module github.com/jeremyhahn/trusted-firmware/test/integration/esp32
 
-go 1.26.5
+go 1.27.4
 
 require github.com/jeremyhahn/trusted-firmware/sdk/go v0.0.0
 

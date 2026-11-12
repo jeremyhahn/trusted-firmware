@@ -100,6 +100,7 @@ The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 | `tfw_hal_watchdog_arm`, `_pet` | C `hal_sys.c` → S `hal_soc.c` | the RP2350 watchdog on 1 us ticks; reset 8 s after the last pet |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | S `hal_uart.c` | PL011 UART0 on GPIO0/1; receive interrupt-driven into a 64-byte ring on NVIC line 33; transmit into the 32-byte FIFO, `0` when it is full |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | S `hal_gpio.c` | SIO, GPIO0-29; input, output and input-pullup; the board's table lists only the header pins |
+| `tfw_hal_tone_start`, `_stop` | S `hal_tone.c` | `TFW_FEATURE_TONE` 1, so CAPS lists tone: the tone pin is logical 5, GP7 (`TFW_TONE_PIN`), toggled through SIO's GPIO_OUT_XOR by TIMER1 alarm 0 on NVIC line 4; the alarm steps half a period on the 1 us tick, re-armed from the previous target so a late interrupt does not drift the period; 1 Hz to 25 kHz, 0 Hz and faster refused `TFW_ERR_RANGE`; a start while playing retargets with the old pin low; stop disarms and drives the pin low. Host test: `test/unit/test_rp2350_tone.c` over `test/model/cortex-m/rp2350/` |
 | `tfw_hal_adc_*` | S `hal_adc.c` | as on mps2-an505: no channel |
 
 The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
@@ -202,3 +203,6 @@ is read on the bench before the first flash write.
 
 Nothing here has run on the board. The part's JEDEC id (the flash size above)
 and the console wiring stay open until a lane with the board settles them.
+The tone's 20 us floor on the alarm step (`TFW_RP_TONE_MIN_STEP`, tones up to
+25 kHz) is this port's own margin for the re-arming interrupt, not a
+datasheet value; the tone on GP7 is checked on the register model only.

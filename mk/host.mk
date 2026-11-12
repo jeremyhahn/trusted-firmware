@@ -2362,6 +2362,14 @@ $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nr
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its I2C master (TWIM): hal_bus.c, unchanged, against the test's TWIM model;
+# test/model/cortex-m/nrf54l/ goes ahead of src/hal/cortex-m/ so its cm_regs.h,
+# which sends TFW_CM_REG to the model, is the one soc_regs.h finds.
+$(HOST_DIR)/test_nrf54l_twim: test/unit/test_nrf54l_twim.c src/hal/cortex-m/nrf54l/hal_bus.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/nrf54l -Isrc/hal/cortex-m/nrf54l $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The reset causes of the stm32h5, rp2350 and mcxn94x SoCs, the same way:
 # each soc_reset.c reads its registers through pointers the caller names.
 $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/stm32h5/soc_reset.c \

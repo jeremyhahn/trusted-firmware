@@ -76,6 +76,7 @@ static struct {
     unsigned flushes;     /* MCR writes with RTF and RRF */
     unsigned stops;       /* STOPs the bus saw */
     unsigned unmodelled;
+    unsigned accesses;    /* every register access */
     int      stall;       /* the bus never runs a command */
     int      nack_addr;   /* the target does not answer */
     int      nack_at;     /* the data byte the target refuses, -1 none */
@@ -218,6 +219,7 @@ static enum reg decode(uintptr_t addr)
 volatile uint32_t *tfw_imx95_model_reg(uintptr_t addr)
 {
     settle();
+    md.accesses++;
     pending = decode(addr);
     if (pending == R_OTHER) {
         md.unmodelled++;
@@ -266,9 +268,189 @@ static void test_lpi2c_write_acked(void)
     TEST_ASSERT_EQUAL_UINT(0u, md.flushes);
 }
 
+static void test_lpi2c_read(void)
+{
+    static const uint8_t want[] = { 0xA1u, 0xB2u, 0xC3u };
+    uint8_t              rd[3]  = { 0 };
+
+    memcpy(md.give, want, sizeof want);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, NULL, 0u, rd, 3u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(3u, md.logn);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_START, (TARGET << 1) | 1u), md.log[0]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_RX, 2u), md.log[1]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[2]);
+    TEST_ASSERT_EQUAL_MEMORY(want, rd, 3u);
+    TEST_ASSERT_EQUAL_UINT(0u, md.rxn);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+}
+
+/* The read follows the write on a repeated START: one STOP, at the end. */
+static void test_lpi2c_write_then_read_repeated_start(void)
+{
+    static const uint8_t wr[]   = { 0x10u };
+    static const uint8_t want[] = { 0x5Au, 0xA5u };
+    uint8_t              rd[2]  = { 0 };
+
+    memcpy(md.give, want, sizeof want);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 1u, rd, 2u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(5u, md.logn);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_START, TARGET << 1), md.log[0]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_TX, 0x10u), md.log[1]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_START, (TARGET << 1) | 1u), md.log[2]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_RX, 1u), md.log[3]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[4]);
+    TEST_ASSERT_EQUAL_MEMORY(want, rd, 2u);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+}
+
+/* No target answers: NACK, nothing after the address, FIFOs flushed, STOP. */
+static void test_lpi2c_address_nack(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u };
+
+    md.nack_addr = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 2u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(2u, md.logn);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_START, TARGET << 1), md.log[0]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[1]);
+    TEST_ASSERT_EQUAL_UINT(0u, md.gotn);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+    TEST_ASSERT_EQUAL_HEX32(0u, md.msr & MSR_W1C);
+}
+
+static void test_lpi2c_read_address_nack(void)
+{
+    uint8_t rd[2] = { 0 };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_imx95_lpi2c_xfer(BASE, TARGET + 1u, NULL, 0u, rd, 2u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(2u, md.logn);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[1]);
+    TEST_ASSERT_EQUAL_UINT(0u, md.rxn);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+}
+
+/* The target refuses the second of three bytes: the third is never sent. */
+static void test_lpi2c_data_nack(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u, 0x03u };
+
+    md.nack_at = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 3u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(4u, md.logn);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_TX, 0x02u), md.log[2]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[3]);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+}
+
+/* A NACK on the last byte shows after the FIFO drained, and still counts. */
+static void test_lpi2c_data_nack_on_the_last_byte(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u };
+
+    md.nack_at = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 2u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[md.logn - 1u]);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+}
+
+/* The bus never runs a command: TIMEOUT, the FIFOs flushed, a STOP asked. */
+static void test_lpi2c_a_transfer_that_never_ends_times_out(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u };
+
+    md.stall = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 2u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_START, TARGET << 1), md.log[0]);
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[md.logn - 1u]);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_UINT(0u, md.txn);
+    TEST_ASSERT_EQUAL_UINT(0u, md.stops);
+}
+
+static void test_lpi2c_zero_length_touches_nothing(void)
+{
+    unsigned before = md.accesses;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, NULL, 0u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(before, md.accesses);
+}
+
+/* 100 kHz from a 24 MHz root: prescaler 4, a 57-count cycle split 38 low and
+ * 19 high (Linux's lpi2c_imx_config() with the filters off). */
+static void test_lpi2c_clock_at_24mhz(void)
+{
+    uint32_t c1 = 0u, c0 = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_clock(24000000uL, 100000uL, &c1, &c0));
+    TEST_ASSERT_EQUAL_UINT32(2u, c1);
+    TEST_ASSERT_EQUAL_HEX32(0x09131326u, c0);   /* DATAVD 9, SETHOLD 19, HI 19, LO 38 */
+    /* setUp's init programmed the same, then enabled the master. */
+    TEST_ASSERT_EQUAL_UINT32(2u, md.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(0x09131326u, md.mccr0);
+    TEST_ASSERT_EQUAL_HEX32(MCR_MEN, md.mcr);
+    TEST_ASSERT_EQUAL_HEX32(0u, md.mfcr);
+}
+
+/* From a 16 MHz root: prescaler 2, a 77-count cycle split 51 and 26. */
+static void test_lpi2c_clock_at_16mhz(void)
+{
+    uint32_t c1 = 0u, c0 = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_clock(16000000uL, 100000uL, &c1, &c0));
+    TEST_ASSERT_EQUAL_UINT32(1u, c1);
+    TEST_ASSERT_EQUAL_HEX32(0x0D1A1A33u, c0);
+}
+
+static void test_lpi2c_clock_refuses_a_rate_it_cannot_make(void)
+{
+    uint32_t c1 = 0xEEu, c0 = 0xEEu;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpi2c_clock(24000000uL, 0u, &c1, &c0));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpi2c_clock(1000000uL, 400000uL, &c1, &c0));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_imx95_lpi2c_clock(24000000uL, 1000uL, &c1, &c0));
+    TEST_ASSERT_EQUAL_UINT32(0xEEu, c1);
+    TEST_ASSERT_EQUAL_UINT32(0xEEu, c0);
+}
+
+/* The board's base is zero: every call refuses and no register is touched. */
+static void test_base_zero_refuses(void)
+{
+    static const uint8_t wr[] = { 0x01u };
+    uint8_t              rd[1];
+    unsigned             before = md.accesses;
+
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_i2c_init(100000uL));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_i2c_xfer(TARGET, wr, 1u, rd, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_imx95_lpi2c_init(0u, 24000000uL, 100000uL));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_imx95_lpi2c_xfer(0u, TARGET, wr, 1u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(before, md.accesses);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_lpi2c_write_acked);
+    RUN_TEST(test_lpi2c_read);
+    RUN_TEST(test_lpi2c_write_then_read_repeated_start);
+    RUN_TEST(test_lpi2c_address_nack);
+    RUN_TEST(test_lpi2c_read_address_nack);
+    RUN_TEST(test_lpi2c_data_nack);
+    RUN_TEST(test_lpi2c_data_nack_on_the_last_byte);
+    RUN_TEST(test_lpi2c_a_transfer_that_never_ends_times_out);
+    RUN_TEST(test_lpi2c_zero_length_touches_nothing);
+    RUN_TEST(test_lpi2c_clock_at_24mhz);
+    RUN_TEST(test_lpi2c_clock_at_16mhz);
+    RUN_TEST(test_lpi2c_clock_refuses_a_rate_it_cannot_make);
+    RUN_TEST(test_base_zero_refuses);
     return UNITY_END();
 }

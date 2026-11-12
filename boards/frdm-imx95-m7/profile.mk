@@ -85,3 +85,13 @@ BOOT_BUDGET    := 32768
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is
 # the enclave, and this slice does not touch it.
 BOARD_TIERS    := soft
+
+# I2C over one LPI2C as a polled master (src/hal/cortex-m/imx95/hal_bus.c), off
+# by default. I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and
+# links the bus; soft:I2C=1 builds that row. Built and host-tested, not run (QEMU
+# has no i.MX 95), and the M7's instance is open (TFW_IMX95_LPI2C_BASE is zero),
+# so the bus answers TFW_ERR_UNSUPPORTED until it is known.
+BOARD_DEFS        = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+I2C               ?= 0
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        := soft:I2C=1

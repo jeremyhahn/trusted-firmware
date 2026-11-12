@@ -59,6 +59,22 @@
 #define TFW_CM_PLATFORM_BASE  0x103FF000uL
 #define TFW_CM_PLATFORM_SIZE  0x00001000uL
 
+/* The application's own EEPROM: the one 4 KiB sector directly below the
+ * platform block, so the EEPROM family's writes never erase tfw-boot's sector
+ * (src/hal/cortex-m/rp2350/hal_eeprom.c). The sector size is the part's erase
+ * unit, [RP-DS] §5.4.8.9 (TFW_RP_FLASH_SECTOR in rp_flash.h); the base is
+ * TFW_CM_PLATFORM_BASE less one sector. Nothing else is placed there: the
+ * boot region and the application slot end at 0x10028000 (profile.mk's
+ * BOOT_SECTION and FLASH_BUDGET), and rp2350.ld places nothing past the slot. */
+#define TFW_CM_USER_EE_SIZE   0x00001000uL
+#define TFW_CM_USER_EE_BASE   (TFW_CM_PLATFORM_BASE - TFW_CM_USER_EE_SIZE)
+#ifndef __ASSEMBLER__
+_Static_assert(TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE == TFW_CM_PLATFORM_BASE,
+               "the user EEPROM sector ends where the platform block starts");
+_Static_assert(TFW_CM_USER_EE_BASE >= TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE,
+               "the user EEPROM sector starts past the application slot");
+#endif
+
 /* Board sizing deviations from config.h: none. */
 
 #endif /* TFW_BOARD_RP2350_PICO2W_H */

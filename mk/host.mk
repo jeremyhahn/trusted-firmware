@@ -2091,6 +2091,29 @@ $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_at
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
+# The element tier with OTA_ACTIVATE's manifest gate (#52; docs/ota/architecture.md,
+# "Not yet": the gate over tfwsim). mk/firmware.mk turns it on by FILE
+# SELECTION alone, with no define: on CRYPTO=atecc608a OTA_MANIFEST=1 it links
+# src/core/ota_manifest.c and src/core/suit.c where every other image links
+# src/core/ota_manifest_none.c. This binary is tfwsim-atecc608a with exactly
+# that swap -- the element tier because the gate's ES256 is
+# tfw_crypto_verify_image against the element's image slot, which the soft
+# provider answers TFW_ERR_UNSUPPORTED. The class id the gate compares is the
+# host board's profile's, so a manifest for it is emitted with
+# BOARD=$(HOST_BOARD). Every other simulator keeps ota_manifest_none.c.
+# suit.c itself is already on the link: TFWSIM_HSM_SRCS carries the reader for
+# the HSM channel's payloads, so only the gate is swapped in here.
+TFWSIM_MANIFEST_SRCS := $(filter-out src/core/ota_manifest_none.c,$(TFWSIM_ELEMENT_SRCS)) \
+                        src/core/ota_manifest.c
+
+## tfwsim-manifest: build the element-tier simulator with OTA_ACTIVATE's SUIT manifest gate (OTA_MANIFEST=1)
+tfwsim-manifest: $(HOST_DIR)/tfwsim-manifest
+$(HOST_DIR)/tfwsim-manifest: $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
+	   -Itools/tfwsim $(MODEL_INC) -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
 # The element tier as a provisioning JIG image (issue #53): tfwsim-atecc608a's
 # object list plus src/caps/provision.c, its element backend
 # src/caps/provision_atecc.c and its define, selected exactly as
@@ -2184,7 +2207,7 @@ host-dir:
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
+.PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-manifest tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep

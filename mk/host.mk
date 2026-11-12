@@ -539,13 +539,15 @@ $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/
 # as the PWM=1 row builds it (TFW_CM_PWM), included by the suite so its model
 # dual timer and pin stand in for the registers. src/hal/cortex-m/ ahead of
 # test/mock gives the port's own hal_types.h, and the board directory ahead of
-# HOST_CFLAGS' makes board_profile.h the MPS2 one.
+# HOST_CFLAGS' makes board_profile.h the MPS2 one. The link line drops
+# hal_pwm.c under any spelling (ccdeps.sh records it as the suite's
+# test/unit/../../ include) and the headers the dependency file adds.
 $(HOST_DIR)/test_mps2_pwm: test/unit/test_mps2_pwm.c src/hal/cortex-m/mps2/hal_pwm.c \
                            src/core/board_lookup.c boards/mps2-an505/board.c \
                            $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m -DTFW_CM_PWM=1 \
 	   $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
-	   -o $@ $(filter-out src/hal/cortex-m/mps2/hal_pwm.c,$^) $(EXTRA_LDFLAGS)
+	   -o $@ $(filter-out %/hal_pwm.c %.h,$^) $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule
 # names: HOST_LIB_SRCS carries the software provider, and this suite is

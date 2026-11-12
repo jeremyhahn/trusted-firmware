@@ -2,9 +2,9 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The MPS2 software PWM (src/hal/cortex-m/mps2/hal_pwm.c) against a model
- * CMSDK dual timer and a model pin. The suite stands in for cm_regs.h: its
- * guard is defined here, TFW_CM_REG goes to the model, and the NVIC calls are
- * recorded, so hal_pwm.c compiles unchanged when it is included below.
+ * CMSDK dual timer and a model pin. test/model/cortex-m/mps2_pwm_model.h
+ * stands in for the register layer, so hal_pwm.c compiles unchanged when it
+ * is included below.
  *
  * The model timer is the registers only: a test plays the timer's interrupt by
  * calling the handler with Timer1MIS set, as QEMU's hw/timer/
@@ -13,17 +13,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define TFW_CM_REGS_H
-static uint32_t s_dt[8];      /* Timer1Load .. Timer1BGLoad, offsets 0x00-0x1C */
-static uint32_t s_scratch;
-static uint32_t s_nvic_on;    /* the interrupt number enabled, or ~0 */
-static uint32_t s_nvic_off;   /* the interrupt number disabled, or ~0 */
-static volatile uint32_t *model_reg(uintptr_t addr);
-#define TFW_CM_REG(addr) (*model_reg((uintptr_t)(addr)))
-static inline void tfw_cm_nvic_enable(uint32_t irq)  { s_nvic_on = irq; }
-static inline void tfw_cm_nvic_disable(uint32_t irq) { s_nvic_off = irq; }
-static inline uint32_t tfw_cm_irq_save(void) { return 0u; }
-static inline void tfw_cm_irq_restore(uint32_t primask) { (void)primask; }
+#include "../model/cortex-m/mps2_pwm_model.h"
 
 #include "unity.h"
 #include "tfw/board.h"

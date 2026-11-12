@@ -24,6 +24,10 @@
 #include "tfw/config.h"
 #include "soc_regs.h"
 
+/* Only the PWM=1 row links this file; outside it TFW_PWM_COUNT is 0 and
+ * there is nothing to drive, so the body is that row's alone. */
+#if TFW_FEATURE_PWM
+
 #define PWM_PERIOD 256u   /* steps; the period's end, the next one's start */
 
 typedef struct {
@@ -99,7 +103,6 @@ static uint8_t any_next(void)
 void TFW_MPS2_IRQ_HANDLER(TFW_MPS2_DUALTIMER_IRQ)(void)
 {
     uint16_t from;
-    uint8_t  i;
 
     TFW_MPS2_DT1(TFW_MPS2_DT1_INTCLR) = 1u;
     if (!s_pwm.running) {
@@ -109,6 +112,8 @@ void TFW_MPS2_IRQ_HANDLER(TFW_MPS2_DUALTIMER_IRQ)(void)
         period_start();
         from = 0u;
     } else {
+        uint8_t i;
+
         from = s_pwm.at;
         for (i = 0u; i < TFW_PWM_COUNT; i++) {
             if (s_pwm.ch[i].duty == from) {
@@ -183,3 +188,5 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
     tfw_cm_irq_restore(key);
     return TFW_OK;
 }
+
+#endif /* TFW_FEATURE_PWM */

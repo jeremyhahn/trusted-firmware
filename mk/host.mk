@@ -2378,6 +2378,19 @@ $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/stm32h5 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The STM32H5 PWM (hal_pwm.c) and the PWM command over it (src/caps/pwm.c),
+# against the suite's register file: test/model/cortex-m/ ahead of
+# src/hal/cortex-m/ gives the cm_regs.h that sends TFW_CM_REG there, the
+# board's profile and tables replace the host board's. The SoC files are the
+# image's, unchanged.
+HOST_STM32H5_CFLAGS = -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m \
+                      -Iboards/stm32h573i-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_stm32h5_pwm: test/unit/test_stm32h5_pwm.c src/hal/cortex-m/stm32h5/hal_pwm.c \
+                              src/hal/cortex-m/stm32h5/hal_gpio.c src/caps/pwm.c \
+                              src/core/board_lookup.c boards/stm32h573i-dk/board.c src/core/reader.c \
+                              test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/rp2350 -o $@ $^ $(EXTRA_LDFLAGS)

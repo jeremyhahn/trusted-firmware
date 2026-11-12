@@ -54,13 +54,15 @@ static tfw_status_t wait_level(const tfw_pinref_t *p, uint8_t want, pulse_clock_
             return st;
         }
         /* Tick before the comparison, so a level seen on this read is
-         * stamped with this read's time, not the previous poll's. */
+         * stamped with this read's time, not the previous poll's; and
+         * check the deadline first, so a level first seen after it is a
+         * timeout, not a measurement. */
         clock_tick(c);
-        if ((lv ? 1u : 0u) == want) {
-            return TFW_OK;
-        }
         if (c->us > deadline) {
             return TFW_ERR_TIMEOUT;
+        }
+        if ((lv ? 1u : 0u) == want) {
+            return TFW_OK;
         }
     }
 }

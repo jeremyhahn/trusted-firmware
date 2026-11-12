@@ -267,6 +267,47 @@ static void test_capture_transitions_on_consecutive_reads(void)
     TEST_ASSERT_UINT32_WITHIN(1u, 100u, got[1]);
 }
 
+static void test_pulse_in_opening_edge_seen_after_the_deadline(void)
+{
+    /* Codex P1: reads at ~100 (low), ~200 (high), ~300 (low) us; the
+     * pulse opens before 200 but is first seen after the 150 us timeout. */
+    static const uint32_t e[] = {175u, 275u};
+    uint32_t us = 0u;
+
+    reads_take_100us();
+    wave(0u, e, 2u);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_pulse_in(&pin, 1u, 150u, &us));
+}
+
+static void test_pulse_in_closing_edge_seen_after_the_deadline(void)
+{
+    /* Reads at ~100 (low), ~200 (high), ~300 (low) us; the pulse closes at
+     * 250, inside the 250 us timeout, but is first seen at 300. */
+    static const uint32_t e[] = {150u, 250u};
+    uint32_t us = 0u;
+
+    reads_take_100us();
+    wave(0u, e, 2u);
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_pulse_in(&pin, 1u, 250u, &us));
+}
+
+static void test_capture_edge_seen_after_the_interval_timeout(void)
+{
+    /* Reads at ~100 (low: lined up), ~200 (high), ~300 (low), ~400 (low),
+     * ~500 (high) us. The third edge is at 450, inside 300 + 150, but is
+     * first seen at 500: the capture ends with the two edges before it. */
+    static const uint32_t e[] = {150u, 250u, 450u};
+    uint16_t got[8];
+    uint8_t  n = 0u;
+
+    reads_take_100us();
+    wave(0u, e, 3u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, got, 8u, 150u, &n));
+    TEST_ASSERT_EQUAL_UINT8(2u, n);
+    TEST_ASSERT_UINT32_WITHIN(1u, 100u, got[0]);
+    TEST_ASSERT_UINT32_WITHIN(1u, 100u, got[1]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -285,5 +326,8 @@ int main(void)
     RUN_TEST(test_capture_no_edge_after_the_first_level);
     RUN_TEST(test_pulse_in_edges_on_consecutive_reads);
     RUN_TEST(test_capture_transitions_on_consecutive_reads);
+    RUN_TEST(test_pulse_in_opening_edge_seen_after_the_deadline);
+    RUN_TEST(test_pulse_in_closing_edge_seen_after_the_deadline);
+    RUN_TEST(test_capture_edge_seen_after_the_interval_timeout);
     return UNITY_END();
 }

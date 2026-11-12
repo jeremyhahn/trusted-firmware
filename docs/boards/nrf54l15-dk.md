@@ -65,6 +65,20 @@ it again in the toolchain image.
 | PWM | PWM20, channel 0 on LED1 (P1.10) and channel 1 on LED3 (P1.14), the DK's LEDs on port 1. Up-counting, `PRESCALER` `DIV_16` (1 MHz), `COUNTERTOP` 1000: a 1 kHz period, the wire's 8-bit duty scaled to 1000 counts. The compare values are a four-half-word sequence in RAM (`DECODER` `LOAD` `Individual`), read by EasyDMA (`DMA.SEQ[0].PTR`, `MAXCNT` in bytes) and played by `TASKS_DMA.SEQ[0].START`; bit 15 of a value set for a pin high first. Duty 0 and 255 disconnect the channel's `PSEL.OUT` and drive the pin as a GPIO; stop disconnects it, and the last channel out triggers `TASKS_STOP`. Configured on first use (`src/hal/cortex-m/nrf54l/hal_pwm.c`, host-tested against a register model) | [MDK] `nrf54l15_types.h` (`NRF_PWM_Type`, `PWM_*`), `nrf54l15_global.h` (`NRF_PWM20_S_BASE`); [Z] `nrf54l15dk_nrf54l_05_10_15-pinctrl.dtsi` (`pwm20_default`), `nrf54l15dk_common.dtsi`, `drivers/pwm/pwm_nrfx.c` (`PWM_NRFX_CH_POLARITY_MASK`) |
 | Vectors | the core's 96 entries, then IRQs 80-198 in `.vectors.soc`; the linker script asserts the two meet and the table sits on a 1 KB boundary | `mk/arch/cortex-m/nrf54l.ld` |
 
+## Tone (the `nrf54l15` row)
+
+The wire's tone command is on (`TFW_FEATURE_TONE 1`), on pin 1, LED1 (P1.10),
+the one tone pin (`TFW_TONE_PIN`). It is built and host-tested against a
+register model (`test/unit/test_nrf54l_tone.c`); it has **not run on the
+board**.
+
+| | What `src/hal/cortex-m/nrf54l/hal_tone.c` does | Source |
+|---|---|---|
+| Peripherals | TIMER20, GPIOTE20 channel 0 and DPPIC20 channel 0: domain 20's instances, with port P1 (P1 at `0x500D8200`, GPIOTE20 at `0x500DA000`). A pin on P0 or P2 is `BAD_PIN`. The PWM peripherals are not used | [MDK] `nrf54l15_global.h` |
+| Wave | TIMER20 in timer mode, 16-bit, its 16 MHz clock divided by 2^`PRESCALER`; `CC[0]` is half the period, the `COMPARE0_CLEAR` short restarts the count, and `COMPARE0` is published on the DPPI channel that GPIOTE's `OUT[0]` (`POLARITY` Toggle, `OUTINIT` Low) subscribes to. No CPU in the loop | [MDK] `nrf54l15_types.h`, `nrf54l15_application_peripherals.h` (`TIMER20_PCLK_MHZ`) |
+| Arithmetic | the smallest `PRESCALER` (0-9) whose rounded half-period fits 16 bits (`tone_calc.h`, host-tested): 1 kHz is prescaler 0, `CC` 8000; 1 Hz is prescaler 7, `CC` 62500. Every 16-bit frequency from 1 Hz is reachable; `RANGE` is for a half-period under two ticks, above the wire's `uint16_t` | |
+| One tone | a second start stops the first and retargets; stop stops the TIMER, unpublishes, clears the DPPI channel and the subscription, drives the pin low as a GPIO output and then disables the GPIOTE channel; 0 Hz stops | |
+
 ## tfw-boot (#17, slice 2)
 
 The core boots from `0x0`, tfw-boot's region. tfw-boot has one row on this
@@ -73,6 +87,13 @@ the same as `mps2-an505`'s. It uses the soft tier and soft measurement, and
 verifies the image's ECDSA P-256 signature in software on every boot. It has
 no OTA and no store. It hands the soft DeviceID seed to the application in the
 handoff block. `make bootloader-check` builds it. Nothing has run on the board.
+
+Its size, measured by `make bootloader-check` at 48d85486 with
+arm-none-eabi-gcc 14.2.1:
+
+```
+tfw-boot nrf54l15-dk flash   8208 / 32768    ram   328 / 262144 (soft tier, p256-soft)
+```
 
 | | What tfw-boot does | Source |
 |---|---|---|
@@ -192,3 +213,15 @@ For the PWM, none of these is verified on the board, and each needs [PS],
 - that `ENABLE` may stay set after `TASKS_STOP` with every channel
   disconnected (the port never clears it, rather than clearing it before
   `EVENTS_STOPPED`).
+
+For the tone, none of these is verified ([PS] was not read):
+
+- that GPIOTE20 drives P1's pins and no other port's (taken from the
+  instance numbers and addresses above);
+- whether, with the `COMPARE0_CLEAR` short, the count runs `CC` or `CC` + 1
+  ticks between compares (the port takes `CC`);
+- whether a pin GPIOTE releases keeps the GPIO's `OUT` and `PIN_CNF` (the
+  port sets both before the release);
+- whether anything else in the image uses DPPIC20 channel 0 or GPIOTE20
+  channel 0 (nothing does today);
+- the frequency on the board, measured.

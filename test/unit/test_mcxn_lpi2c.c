@@ -7,8 +7,10 @@
  * hal_bus.c is included whole, with its two controller accessors sent to a
  * model of the LPI2C master below and every other register (the clock gates,
  * the unit's function select, the pins) to a table the tests read back. The
- * model runs each command as it is queued: START with an address answered or
- * refused by one device, transmit, receive n bytes from the device, STOP. It
+ * model queues each command in a four-deep FIFO and runs it as it is queued,
+ * or, with a lag, some MSR polls later, as the controller does while the bus
+ * clocks: START with an address answered or refused by one device, transmit,
+ * receive n bytes from the device, STOP. A refusal holds the FIFO. It
  * can hold the bus busy for another master, refuse a data byte, or stop
  * taking commands, which is a stuck SCL as the controller sees it.
  */
@@ -82,6 +84,11 @@ static struct {
     uint8_t  rx[16];         /* the receive FIFO */
     unsigned rx_head, rx_tail;
     unsigned stops;
+    uint32_t fifo[4];        /* the transmit FIFO: commands queued, not run */
+    unsigned fifo_n;
+    int      lag;            /* MSR polls a command waits at the FIFO head
+                              * before it runs; 0 runs it as it is queued */
+    int      wait;
     unsigned restarts;       /* STARTs on a bus already ours: repeated STARTs */
     unsigned resets;         /* MCR RST writes */
 } m;
@@ -93,6 +100,25 @@ void tfw_hal_delay_us(uint16_t us)
     delayed_us += us;
 }
 
+static void model_run(uint32_t v);
+
+/* Runs the command at the FIFO head once it has waited its polls. A refusal
+ * holds the FIFO until its flag is cleared. */
+static void model_step(void)
+{
+    if (m.fifo_n == 0u || (m.flags & TFW_MCXN_LPI2C_MSR_NDF)) {
+        return;
+    }
+    if (m.wait > 0) {
+        m.wait--;
+        return;
+    }
+    model_run(m.fifo[0]);
+    m.fifo_n--;
+    memmove(&m.fifo[0], &m.fifo[1], m.fifo_n * sizeof m.fifo[0]);
+    m.wait = m.lag;
+}
+
 static uint32_t model_rd(uint32_t off)
 {
     switch (off) {
@@ -102,7 +128,9 @@ static uint32_t model_rd(uint32_t off)
         if (m.bbf_other > 0) {
             m.bbf_other--;
         }
-        return m.flags | (m.accept != 0 ? TFW_MCXN_LPI2C_MSR_TDF : 0u) |
+        model_step();
+        return m.flags |
+               (m.accept != 0 && m.fifo_n < 4u ? TFW_MCXN_LPI2C_MSR_TDF : 0u) |
                (m.rx_head != m.rx_tail ? TFW_MCXN_LPI2C_MSR_RDF : 0u) |
                (m.mbf ? TFW_MCXN_LPI2C_MSR_MBF : 0u) |
                (m.mbf || other ? TFW_MCXN_LPI2C_MSR_BBF : 0u);
@@ -122,20 +150,30 @@ static uint32_t model_rd(uint32_t off)
     }
 }
 
+/* A command written to MTDR: queued, and run at once unless the model lags. */
 static void model_command(uint32_t v)
 {
-    uint32_t cmd = v >> TFW_MCXN_LPI2C_MTDR_CMD_SHIFT;
-    uint32_t data = v & 0xFFu;
-
     TEST_ASSERT_TRUE(m.accept != 0);
+    TEST_ASSERT_TRUE(m.fifo_n < sizeof m.fifo / sizeof m.fifo[0]);
     TEST_ASSERT_TRUE(m.log_n < sizeof m.log / sizeof m.log[0]);
     m.log[m.log_n++] = (uint16_t)v;
     if (m.accept > 0) {
         m.accept--;
     }
-    if (m.flags & TFW_MCXN_LPI2C_MSR_NDF) {
-        return;                       /* held until the flag is cleared */
+    if (m.fifo_n == 0u) {
+        m.wait = m.lag;
     }
+    m.fifo[m.fifo_n++] = v;
+    while (m.lag == 0 && m.fifo_n != 0u && !(m.flags & TFW_MCXN_LPI2C_MSR_NDF)) {
+        model_step();
+    }
+}
+
+static void model_run(uint32_t v)
+{
+    uint32_t cmd = v >> TFW_MCXN_LPI2C_MTDR_CMD_SHIFT;
+    uint32_t data = v & 0xFFu;
+
     switch (cmd) {
     case TFW_MCXN_LPI2C_CMD_START:
         if (m.mbf) {
@@ -181,6 +219,9 @@ static void model_wr(uint32_t off, uint32_t v)
         break;
     case TFW_MCXN_LPI2C_MCR_OFF:
         m.mcr = v & ~(TFW_MCXN_LPI2C_MCR_RTF | TFW_MCXN_LPI2C_MCR_RRF);
+        if (v & TFW_MCXN_LPI2C_MCR_RTF) {
+            m.fifo_n = 0u;
+        }
         if (v & TFW_MCXN_LPI2C_MCR_RRF) {
             m.rx_tail = m.rx_head;
         }
@@ -188,6 +229,7 @@ static void model_wr(uint32_t off, uint32_t v)
          * transfer and the timing gone, the bus let go. */
         if (v & TFW_MCXN_LPI2C_MCR_RST) {
             m.resets++;
+            m.fifo_n = 0u;
             m.mbf = 0;
             m.flags = 0u;
             m.rx_tail = m.rx_head;
@@ -400,6 +442,53 @@ static void test_a_refused_last_byte_is_nack_and_stopped(void)
     TEST_ASSERT_FALSE(m.mbf);
 }
 
+/* The controller runs the queue while the driver writes it: a refusal lands
+ * after later commands, or the STOP itself, are queued and held behind it.
+ * The driver empties the FIFO, so nothing queued after the refusal is sent,
+ * and its own STOP completes. */
+static void assert_late_refusal_stopped(void)
+{
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+    TEST_ASSERT_FALSE(m.mbf);
+    TEST_ASSERT_EQUAL_UINT(0u, m.fifo_n);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.flags);
+    TEST_ASSERT_EQUAL_HEX16(CMD(2, 0), m.log[m.log_n - 1u]);
+}
+
+static void test_an_address_refused_after_the_stop_is_queued_is_nack(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.lag = 4;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(0x35u, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_HEX16(CMD(2, 0), m.log[3]);     /* STOP queued behind it */
+    TEST_ASSERT_EQUAL_UINT(0u, m.got_n);
+    assert_late_refusal_stopped();
+}
+
+static void test_a_byte_refused_after_the_stop_is_queued_is_nack(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+
+    m.lag = 4;
+    m.nack_at = 0;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_HEX16(CMD(2, 0), m.log[3]);
+    TEST_ASSERT_EQUAL_UINT(0u, m.got_n);
+    assert_late_refusal_stopped();
+}
+
+static void test_a_read_address_refused_behind_its_receive_is_nack(void)
+{
+    uint8_t in[2];
+
+    m.lag = 4;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(0x35u, NULL, 0u, in, 2u));
+    TEST_ASSERT_EQUAL_HEX16(CMD(1, 1), m.log[1]);     /* RX queued behind it */
+    TEST_ASSERT_EQUAL_UINT(0u, m.answer_pos);
+    assert_late_refusal_stopped();
+}
+
 static void test_a_bus_that_never_comes_free_is_a_timeout_untouched(void)
 {
     static const uint8_t out[] = { 0x01 };
@@ -513,6 +602,9 @@ int main(void)
     RUN_TEST(test_an_unanswered_read_address_is_nack_and_stopped);
     RUN_TEST(test_a_refused_data_byte_is_nack_and_the_bus_is_stopped);
     RUN_TEST(test_a_refused_last_byte_is_nack_and_stopped);
+    RUN_TEST(test_an_address_refused_after_the_stop_is_queued_is_nack);
+    RUN_TEST(test_a_byte_refused_after_the_stop_is_queued_is_nack);
+    RUN_TEST(test_a_read_address_refused_behind_its_receive_is_nack);
     RUN_TEST(test_a_bus_that_never_comes_free_is_a_timeout_untouched);
     RUN_TEST(test_a_bus_that_comes_free_in_time_is_used);
     RUN_TEST(test_a_stuck_controller_is_a_timeout);

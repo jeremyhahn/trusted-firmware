@@ -1183,12 +1183,15 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # test_rp2350_eeprom links the RP2350's flash EEPROM and tfw-boot's
-# read-modify-write over the test's NOR model (the sector read and write).
+# read-modify-write and the Cortex-M millisecond clock over a NOR, TIMER0 and
+# SysTick model; the model's cm_regs.h comes ahead of src/hal/cortex-m/.
 $(HOST_DIR)/test_rp2350_eeprom: test/unit/test_rp2350_eeprom.c src/hal/cortex-m/rp2350/hal_eeprom.c \
-                                src/hal/cortex-m/hal_nvm.c boot/hal/cortex-m/rp2350/rp_flash.c \
+                                src/hal/cortex-m/hal_nvm.c src/hal/cortex-m/hal_tick.c \
+                                boot/hal/cortex-m/rp2350/rp_flash.c test/model/cortex-m/rp2350/nor_model.c \
                                 src/core/secure_zero.c src/proto/crc16.c src/proto/crc16_update.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Iboards/rp2350-pico2w -Iboot/hal/cortex-m/rp2350 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	@$(HOST_CC) -Iboards/rp2350-pico2w -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 \
+	  -Iboot/hal/cortex-m/rp2350 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 HOST_EXTRA_BINS := $(HOST_DIR)/test_rp2350_eeprom $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \

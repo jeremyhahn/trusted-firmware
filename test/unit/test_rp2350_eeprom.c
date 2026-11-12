@@ -2,69 +2,39 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The RP2350's flash EEPROM (src/hal/cortex-m/rp2350/hal_eeprom.c) over a NOR
- * flash model. The board's last two sectors, the user sector and the platform
- * block's, are mapped at their XIP addresses, so the HAL's reads through XIP
- * are the ones the image makes. tfw-boot's read-modify-write (rp_flash.c) is
- * linked as the image links it; the model stands in under it, in the place of
- * rp_flash_rom.c's one-sector read and write: the write erases the sector to
- * 0xFF and then programs it, and programming only clears bits (new = old &
- * data), as NOR does. Every erase is recorded, and a hook flips a byte after
- * the program so the read-back sees a mismatch.
+ * flash model (test/model/cortex-m/rp2350/nor_model.c). The board's last two
+ * sectors, the user sector and the platform block's, are mapped at their XIP
+ * addresses, so the HAL's reads through XIP are the ones the image makes.
+ * tfw-boot's read-modify-write (rp_flash.c) and the millisecond clock
+ * (hal_tick.c) are linked as the image links them; the model stands in under
+ * the first, in the place of rp_flash_rom.c's one-sector read and write: the
+ * write erases the sector to 0xFF and then programs it, and programming only
+ * clears bits (new = old & data), as NOR does. Every erase is recorded, a
+ * hook flips a byte after the program so the read-back sees a mismatch, and
+ * a write takes the time the test sets, TIMER0 and SysTick counting on with
+ * interrupts masked.
  */
-#define _DEFAULT_SOURCE
-
-#include <stdio.h>
 #include <string.h>
-#include <sys/mman.h>
 
 #include "unity.h"
 #include "tfw/hal.h"
 #include "tfw/config.h"
 #include "tfw/boot.h"
 #include "rp_flash.h"
+#include "nor_model.h"
 
-#define WINDOW_BASE  ((uint32_t)TFW_CM_USER_EE_BASE)
-#define WINDOW_LEN   ((uint32_t)TFW_FLASH_TOTAL - WINDOW_BASE)
 #define FLASH        ((uint8_t *)(uintptr_t)TFW_RP_XIP_BASE)
 #define USER_OFF     ((uint32_t)TFW_CM_USER_EE_BASE - TFW_RP_XIP_BASE)
 #define PLATFORM_OFF ((uint32_t)TFW_CM_PLATFORM_BASE - TFW_RP_XIP_BASE)
 #define USER_EE      (&FLASH[USER_OFF])
 #define PLATFORM     (&FLASH[PLATFORM_OFF])
-#define MAX_ERASES   8u
-
-static uint32_t erases[MAX_ERASES];
-static unsigned n_erases;
-static int      corrupt_next;   /* flip a byte after the next program */
-
-void tfw_rp_flash_sector_read(uint32_t off, uint8_t *buf)
-{
-    memcpy(buf, &FLASH[off], TFW_RP_FLASH_SECTOR);
-}
-
-tfw_status_t tfw_rp_flash_sector_write(uint32_t off, const uint8_t *buf)
-{
-    uint32_t i;
-
-    TEST_ASSERT_EQUAL_UINT32(0u, off % TFW_RP_FLASH_SECTOR);
-    TEST_ASSERT_TRUE(n_erases < MAX_ERASES);
-    erases[n_erases++] = off;
-    memset(&FLASH[off], 0xFF, TFW_RP_FLASH_SECTOR);
-    for (i = 0u; i < TFW_RP_FLASH_SECTOR; i++) {
-        FLASH[off + i] &= buf[i];
-    }
-    if (corrupt_next) {
-        corrupt_next = 0;
-        FLASH[off + TFW_RP_FLASH_SECTOR - 1u] ^= 0x01u;
-    }
-    return TFW_OK;
-}
+#define erases       rp_nor_erases
+#define n_erases     rp_nor_n_erases
+#define corrupt_next rp_nor_corrupt_next
 
 void setUp(void)
 {
-    memset(USER_EE, 0xFF, TFW_RP_FLASH_SECTOR);
-    memset(PLATFORM, 0xA5, TFW_RP_FLASH_SECTOR);
-    n_erases     = 0u;
-    corrupt_next = 0;
+    rp_nor_model_reset();
 }
 
 void tearDown(void) {}
@@ -86,8 +56,12 @@ static void test_the_model_erases_to_ones_and_programs_only_clear_bits(void)
     uint8_t buf[TFW_RP_FLASH_SECTOR];
 
     memset(USER_EE, 0x0F, TFW_RP_FLASH_SECTOR);
+    uint32_t primask;
+
     memset(buf, 0xF0, sizeof buf);
+    primask = tfw_rp_model_irq_save();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_rp_flash_sector_write(USER_OFF, buf));
+    tfw_rp_model_irq_restore(primask);
     TEST_ASSERT_EACH_EQUAL_HEX8(0xF0, USER_EE, TFW_RP_FLASH_SECTOR);
     TEST_ASSERT_EQUAL_UINT(1u, n_erases);
 }
@@ -210,21 +184,51 @@ static void test_a_read_back_mismatch_is_internal(void)
     assert_platform_untouched();
 }
 
-static int map(uint32_t base, uint32_t len)
+/* A write the flash takes 45 ms over, interrupts masked throughout, still
+ * advances the millisecond clock by 45: the one SysTick left pending plus
+ * the milliseconds TIMER0 counted. */
+static void test_a_45_ms_write_advances_the_clock_45_ms(void)
 {
-    void *w = mmap((void *)(uintptr_t)base, len, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    uint8_t data = 0x24u;
+    tfw_ms_t before = tfw_hal_millis();
+    tfw_ms_t took;
 
-    if (w != (void *)(uintptr_t)base) {
-        fprintf(stderr, "test_rp2350_eeprom: cannot map 0x%08lx\n", (unsigned long)base);
-        return 0;
+    rp_nor_write_us = 45000u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &data, 1u));
+    took = tfw_hal_millis() - before;
+    TEST_ASSERT_UINT32_WITHIN(1u, 45u, took);
+}
+
+/* The part of a millisecond each write leaves is carried: ten writes of
+ * 45.4 ms advance the clock by 454 ms, not ten times 45. */
+static void test_a_run_of_writes_does_not_drift(void)
+{
+    tfw_ms_t before = tfw_hal_millis();
+    uint8_t  i;
+
+    rp_nor_write_us = 45400u;
+    for (i = 0u; i < 10u; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &i, 1u));
     }
-    return 1;
+    TEST_ASSERT_UINT32_WITHIN(1u, 454u, tfw_hal_millis() - before);
+}
+
+/* A write of bytes the flash already holds erases nothing and leaves the
+ * clock to SysTick alone. */
+static void test_an_unchanged_write_credits_nothing(void)
+{
+    uint8_t ff = 0xFFu;
+    tfw_ms_t before = tfw_hal_millis();
+
+    rp_nor_write_us = 45000u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &ff, 1u));
+    TEST_ASSERT_EQUAL_UINT(0u, n_erases);
+    TEST_ASSERT_EQUAL_UINT32(before, tfw_hal_millis());
 }
 
 int main(void)
 {
-    if (!map(WINDOW_BASE, WINDOW_LEN)) {
+    if (!rp_nor_model_map()) {
         return 1;
     }
     UNITY_BEGIN();
@@ -236,5 +240,8 @@ int main(void)
     RUN_TEST(test_a_read_across_the_boot_areas_end_joins_both);
     RUN_TEST(test_a_write_to_the_user_sectors_end_never_erases_the_platform_sector);
     RUN_TEST(test_a_read_back_mismatch_is_internal);
+    RUN_TEST(test_a_45_ms_write_advances_the_clock_45_ms);
+    RUN_TEST(test_a_run_of_writes_does_not_drift);
+    RUN_TEST(test_an_unchanged_write_credits_nothing);
     return UNITY_END();
 }

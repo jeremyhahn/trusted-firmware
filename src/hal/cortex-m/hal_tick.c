@@ -21,6 +21,7 @@ _Static_assert(CYCLES_PER_US >= 1u, "tfw_hal_delay_us counts whole cycles per mi
 
 tfw_status_t tfw_hal_tick_init(void);
 void         SysTick_Handler(void);
+void         tfw_cm_tick_credit(tfw_ms_t ms);
 
 static volatile tfw_ms_t ticks;
 
@@ -37,6 +38,17 @@ tfw_status_t tfw_hal_tick_init(void)
 void SysTick_Handler(void)
 {
     ticks++;
+}
+
+/* Milliseconds SysTick counted but the handler could not: expirations while
+ * interrupts are masked collapse into the one interrupt pending at the
+ * unmask, so a caller that masks across a longer operation (the RP2350's
+ * flash EEPROM write) credits the rest from its own timer. Called with
+ * interrupts masked, so the handler's increment cannot fall between this
+ * load and store. */
+void tfw_cm_tick_credit(tfw_ms_t ms)
+{
+    ticks += ms;
 }
 
 /* A 32-bit load is one instruction here, so the read needs no critical

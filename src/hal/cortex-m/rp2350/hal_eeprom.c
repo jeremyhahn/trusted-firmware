@@ -31,6 +31,9 @@
 #include "tfw/config.h"
 #include "tfw/boot.h"
 #include "rp_flash.h"
+#include "soc_regs.h"
+
+void tfw_cm_tick_credit(tfw_ms_t ms);   /* hal_tick.c */
 
 #define USER_EE_LEN ((uint32_t)TFW_EEPROM_SIZE - (uint32_t)TFW_BOOT_EE_LEN)
 
@@ -70,9 +73,30 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
     return TFW_OK;
 }
 
+/* The sector erase and program run with interrupts masked (rp_flash_rom.c),
+ * tens of milliseconds, and SysTick's expirations in that time collapse into
+ * the one interrupt taken at the unmask. The write runs masked from here, and
+ * TIMER0's microsecond count across it credits hal_tick.c's clock with the
+ * whole milliseconds less that one; the part of a millisecond left over is
+ * carried to the next write, so a run of writes does not drift. */
+static uint32_t us_carry;
+
+static void credit_masked_ms(uint32_t t0)
+{
+    uint32_t us = TFW_RP_TIMER0_TIMERAWL - t0 + us_carry;
+    uint32_t ms = us / 1000u;
+
+    us_carry = us % 1000u;
+    if (ms > 1u) {
+        tfw_cm_tick_credit((tfw_ms_t)(ms - 1u));
+    }
+}
+
 tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     uint32_t at;
+    uint32_t primask;
+    uint32_t t0;
     tfw_status_t st;
 
     if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
@@ -90,9 +114,13 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     if (len == 0u) {
         return TFW_OK;
     }
-    at = (uint32_t)addr - TFW_BOOT_EE_LEN;
-    st = tfw_rp_flash_update((uint32_t)TFW_CM_USER_EE_BASE + at, buf, len,
-                             (uint32_t)TFW_FLASH_TOTAL);
+    at      = (uint32_t)addr - TFW_BOOT_EE_LEN;
+    primask = tfw_cm_irq_save();
+    t0      = TFW_RP_TIMER0_TIMERAWL;
+    st      = tfw_rp_flash_update((uint32_t)TFW_CM_USER_EE_BASE + at, buf, len,
+                                  (uint32_t)TFW_FLASH_TOTAL);
+    credit_masked_ms(t0);
+    tfw_cm_irq_restore(primask);
     if (st != TFW_OK) {
         return st;
     }

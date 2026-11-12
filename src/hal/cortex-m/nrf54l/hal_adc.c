@@ -91,8 +91,12 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
         TFW_NRF_SAADC_SAMPLE = 1u;
         ok = saadc_wait(TFW_NRF_SAADC_EV_END_A);
     }
+    /* STOP and disable run whatever came before; a converter that is not
+     * seen to stop fails the read, even with a sample in hand. */
     TFW_NRF_SAADC_STOP = 1u;
-    (void)saadc_wait(TFW_NRF_SAADC_EV_STOPPED_A);
+    if (!saadc_wait(TFW_NRF_SAADC_EV_STOPPED_A)) {
+        ok = 0u;
+    }
 
     TFW_NRF_SAADC_ENABLE      = 0u;
     TFW_NRF_SAADC_CH_PSELP(0) = TFW_NRF_SAADC_PSEL_NC;

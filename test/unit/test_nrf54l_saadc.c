@@ -29,7 +29,7 @@
 
 static uint32_t regs[M_WORDS];
 static uint32_t accesses;
-static uint8_t  stall_start, stall_end;
+static uint8_t  stall_start, stall_end, stall_stopped;
 static int16_t  next_sample;
 static char     seq[16];
 static uint32_t nseq;
@@ -73,7 +73,9 @@ static void settle(void)
     if (W(0x008u) != 0u) {                     /* TASKS_STOP */
         W(0x008u) = 0u;
         note('P');
-        W(0x114u) = 1u;                        /* EVENTS_STOPPED */
+        if (!stall_stopped) {
+            W(0x114u) = 1u;                    /* EVENTS_STOPPED */
+        }
     }
 }
 
@@ -98,6 +100,7 @@ void setUp(void)
     accesses = 0u;
     stall_start = 0u;
     stall_end = 0u;
+    stall_stopped = 0u;
     next_sample = 0;
     nseq = 0u;
     seq[0] = '\0';
@@ -212,6 +215,21 @@ static void test_a_sample_that_never_ends_times_out_stopped_and_disabled(void)
     TEST_ASSERT_EQUAL_HEX32(0u, W(0x510u));
 }
 
+static void test_a_saadc_that_never_stops_times_out_disabled_and_keeps_the_sample(void)
+{
+    uint16_t raw = 77u;
+
+    next_sample = 1234;
+    stall_stopped = 1u;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_TIMEOUT, tfw_hal_adc_read(3u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_STRING("SAP", seq);
+    TEST_ASSERT_TRUE(dma_ok);
+    TEST_ASSERT_EQUAL_UINT16(77u, raw);
+    TEST_ASSERT_EQUAL_HEX32(0u, W(0x500u));
+    TEST_ASSERT_EQUAL_HEX32(0u, W(0x510u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -224,5 +242,6 @@ int main(void)
     RUN_TEST(test_only_the_internal_reference_is_taken);
     RUN_TEST(test_a_saadc_that_never_starts_times_out_stopped_and_disabled);
     RUN_TEST(test_a_sample_that_never_ends_times_out_stopped_and_disabled);
+    RUN_TEST(test_a_saadc_that_never_stops_times_out_disabled_and_keeps_the_sample);
     return UNITY_END();
 }

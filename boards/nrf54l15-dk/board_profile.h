@@ -21,13 +21,13 @@
 #define TFW_PORT_COUNT 3u      /* GPIO P0, P1 and P2 */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
-#define TFW_EEPROM_SIZE 0u
+#define TFW_EEPROM_SIZE 4096u     /* the platform window in RRAM, TFW_CM_PLATFORM_SIZE */
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_EEPROM  1
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0

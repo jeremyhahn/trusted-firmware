@@ -2372,6 +2372,11 @@ $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/rp2350 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The rp2350 tone (row rp2350): the alarm-step arithmetic of soc_calc.h. It
+# stays in TEST_SRCS; this explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_rp2350_tone: test/unit/test_rp2350_tone.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/rp2350 -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)

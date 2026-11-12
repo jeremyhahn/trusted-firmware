@@ -2209,7 +2209,9 @@ host-dir:
 #
 # A board that names an Ethernet controller (ETH_CHIP) and leaves it off by
 # default is swept a second time with ETH=1, so its descriptor test also runs
-# against the image that drives the controller.
+# against the image that drives the controller. A board whose profile.mk adds
+# flags for I2C=1 (an I2C master that is a build row) is swept with them too,
+# so the pins the bus takes are checked in that row.
 #
 # A board that names an image store (OTA_STORE in profile.mk) has its stager's
 # sources preprocessed as the OTA_STAGE=1 image compiles them, with the
@@ -2239,6 +2241,9 @@ board-sweep:
 	      { echo "NO FEATURE DEFS: $$b $$tier ETH=1"; fail=1; continue; }; \
 	    [ "$$edefs" = "$$defs" ] || variants=" $$defs| $$edefs"; \
 	  fi; \
+	  bdefs=$$($(MAKE) -s --no-print-directory board-i2c-defs BOARD=$$b); \
+	  idefs=$$($(MAKE) -s --no-print-directory board-i2c-defs BOARD=$$b I2C=1); \
+	  [ "$$idefs" = "$$bdefs" ] || variants="$$variants| $$defs $$idefs"; \
 	  oldifs=$$IFS; IFS='|'; set -- $$variants; IFS=$$oldifs; \
 	  for defs in "$$@"; do \
 	  $(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \

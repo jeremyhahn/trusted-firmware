@@ -744,6 +744,10 @@ firmware-dir:
 board-eth-chip:
 	@echo $(ETH_CHIP)
 
+## board-i2c-defs: print the -D flags BOARD's profile.mk adds for I2C (used by board-sweep)
+board-i2c-defs:
+	@echo $(BOARD_DEFS)
+
 ## firmware-srcs: print the object list `firmware` links for BOARD/CRYPTO/PROVISION/ETH/APP (used by platform-bake-no-link-check)
 firmware-srcs:
 	@echo $(FW_SRCS) $(APP_SRCS)

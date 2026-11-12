@@ -10,7 +10,8 @@
  *     of the image ([RP-DS], boot ROM chapter, "Blocks" and "IMAGE_DEF");
  *   the XOSC start-up delay;
  *   the PL011's baud-rate divisors;
- *   a GPIO pad's value for a tfw pin mode.
+ *   a GPIO pad's value for a tfw pin mode;
+ *   the I2C master's SCL counts and spike length.
  */
 #ifndef TFW_CM_RP2350_CALC_H
 #define TFW_CM_RP2350_CALC_H
@@ -130,6 +131,73 @@ static inline uint32_t tfw_rp_pad_value(uint8_t pullup)
         v |= TFW_RP_PADV_PUE;
     }
     return v;
+}
+
+/* ---- DW_apb_i2c SCL timing
+ *
+ * The fast-mode counts (SPEED 2 covers fast and fast plus, §12.2.17 table
+ * 1109) for a bus rate, from ic_clk, which is clk_sys. All of [RP-DS]
+ * release 8 §12.2:
+ *
+ *   spike length  IC_FS_SPKLEN counts ic_clk cycles of the longest spike
+ *                 filtered; the I2C-bus limit is 50 ns in SS and FS, and the
+ *                 smallest value is 1 (§12.2.11). Rounded up: ceil(clk / 20 MHz).
+ *   low period    (LCNT + 1) cycles; LCNT must exceed SPKLEN + 7 (§12.2.14.1).
+ *   high period   (HCNT + SPKLEN + 7) cycles; HCNT must exceed SPKLEN + 5
+ *                 (§12.2.14.1, figure 94).
+ *
+ * The period is ceil(clk / hz) cycles, so the bus never runs faster than
+ * asked (the rule the MPS2 and TWI drivers keep). Low takes 3/5 of it,
+ * rounded up: that meets fast mode's 1300 ns low against 600 ns high
+ * (§12.2.14.2.1) at 400 kHz, and the same split clears standard mode and
+ * fast plus. Where a minimum count wins, the bus runs slower, never faster:
+ * from a 12 MHz clk_sys 400 kHz comes out at 12 MHz / 33, about 364 kHz. A
+ * rate of 0, above fast plus's 1 MHz (table 1109), or whose counts overflow
+ * the 16-bit registers (tables 1115-1116) is refused: returns 0. */
+#define TFW_RP_I2C_HZ_MAX   1000000u
+#define TFW_RP_I2C_CNT_MAX  0xFFFFu
+#define TFW_RP_I2C_SPK_MAX  0xFFu
+
+typedef struct {
+    uint32_t hcnt;
+    uint32_t lcnt;
+    uint32_t spklen;
+} tfw_rp_i2c_timing_t;
+
+static inline uint8_t tfw_rp_i2c_timing(uint32_t clk_hz, uint32_t hz,
+                                        tfw_rp_i2c_timing_t *t)
+{
+    uint32_t period;
+    uint32_t low;
+    uint32_t high;
+    uint32_t spk;
+
+    if (hz == 0u || hz > TFW_RP_I2C_HZ_MAX || clk_hz == 0u) {
+        return 0u;
+    }
+    period = clk_hz / hz + ((clk_hz % hz) != 0u ? 1u : 0u);
+    if (period > 2u * (TFW_RP_I2C_CNT_MAX + 1u)) {
+        return 0u;
+    }
+    low  = (period * 3u + 4u) / 5u;
+    high = period - low;
+    spk  = clk_hz / 20000000u + ((clk_hz % 20000000u) != 0u ? 1u : 0u);
+    if (spk > TFW_RP_I2C_SPK_MAX) {
+        return 0u;
+    }
+    t->spklen = spk;
+    t->lcnt   = low - 1u;
+    if (t->lcnt < spk + 8u) {
+        t->lcnt = spk + 8u;
+    }
+    t->hcnt = high > spk + 7u ? high - spk - 7u : 0u;
+    if (t->hcnt < spk + 6u) {
+        t->hcnt = spk + 6u;
+    }
+    if (t->hcnt > TFW_RP_I2C_CNT_MAX || t->lcnt > TFW_RP_I2C_CNT_MAX) {
+        return 0u;
+    }
+    return 1u;
 }
 
 #endif /* TFW_CM_RP2350_CALC_H */

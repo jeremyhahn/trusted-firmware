@@ -2372,6 +2372,16 @@ $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/rp2350 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The rp2350 I2C master (row rp2350) over a register model: the boot test
+# stand-in cm_regs.h routes TFW_CM_REG to the test's model, and the Pico 2 W
+# profile gives the clk_sys the SCL counts are worked from. A short poll bound
+# keeps the stuck-bus tests quick.
+$(HOST_DIR)/test_rp2350_i2c: test/unit/test_rp2350_i2c.c src/hal/cortex-m/rp2350/hal_bus.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(subst -Iboards/$(HOST_BOARD),-Iboards/rp2350-pico2w,$(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS))) \
+	    $(EXTRA_CFLAGS) -DTFW_RP_I2C_POLLS=2000uL -Iboot/hal/cortex-m/rp2350/test \
+	    -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)

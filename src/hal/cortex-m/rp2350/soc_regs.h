@@ -135,4 +135,70 @@
 #define TFW_RP_UART0_TX_GPIO    0u
 #define TFW_RP_UART0_RX_GPIO    1u
 
+/* ---- I2C0, a Synopsys DW_apb_i2c (hal_bus.c). Base and offsets §12.2.17
+ * table 1108; IC_CON table 1109; IC_TAR table 1110; IC_DATA_CMD table 1112;
+ * IC_FS_SCL_HCNT, _LCNT tables 1115-1116; IC_RAW_INTR_STAT table 1119;
+ * IC_CLR_INTR table 1122; IC_CLR_TX_ABRT table 1127; IC_CLR_STOP_DET table
+ * 1130; IC_ENABLE table 1133; IC_STATUS table 1134; IC_SDA_HOLD table 1137;
+ * IC_TX_ABRT_SOURCE table 1138; IC_ENABLE_STATUS table 1145; IC_FS_SPKLEN
+ * table 1146. The reset line §7.5.3 table 566; I2C0 is function F3 on GPIO4
+ * (SDA) and GPIO5 (SCL), §9.4 table 677, the pins pico-sdk 2.1.1's
+ * pico2_w.h names PICO_DEFAULT_I2C_SDA_PIN and _SCL_PIN. ic_clk is clk_sys
+ * (§12.2.11). */
+#define TFW_RP_RESET_I2C0       (1u << 4)
+#define TFW_RP_FUNC_I2C         3u
+#define TFW_RP_I2C0_SDA_GPIO    4u
+#define TFW_RP_I2C0_SCL_GPIO    5u
+
+#define TFW_RP_I2C0_BASE        0x40090000u
+#define TFW_RP_IC_CON           TFW_CM_REG(TFW_RP_I2C0_BASE + 0x000u)
+#define TFW_RP_IC_TAR           TFW_CM_REG(TFW_RP_I2C0_BASE + 0x004u)
+#define TFW_RP_IC_DATA_CMD      TFW_CM_REG(TFW_RP_I2C0_BASE + 0x010u)
+#define TFW_RP_IC_FS_SCL_HCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x01Cu)
+#define TFW_RP_IC_FS_SCL_LCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x020u)
+#define TFW_RP_IC_INTR_MASK     TFW_CM_REG(TFW_RP_I2C0_BASE + 0x030u)
+#define TFW_RP_IC_RAW_INTR_STAT TFW_CM_REG(TFW_RP_I2C0_BASE + 0x034u)
+#define TFW_RP_IC_CLR_INTR      TFW_CM_REG(TFW_RP_I2C0_BASE + 0x040u)
+#define TFW_RP_IC_CLR_TX_ABRT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x054u)
+#define TFW_RP_IC_CLR_STOP_DET  TFW_CM_REG(TFW_RP_I2C0_BASE + 0x060u)
+#define TFW_RP_IC_ENABLE        TFW_CM_REG(TFW_RP_I2C0_BASE + 0x06Cu)
+#define TFW_RP_IC_STATUS        TFW_CM_REG(TFW_RP_I2C0_BASE + 0x070u)
+#define TFW_RP_IC_SDA_HOLD      TFW_CM_REG(TFW_RP_I2C0_BASE + 0x07Cu)
+#define TFW_RP_IC_TX_ABRT_SOURCE TFW_CM_REG(TFW_RP_I2C0_BASE + 0x080u)
+#define TFW_RP_IC_ENABLE_STATUS TFW_CM_REG(TFW_RP_I2C0_BASE + 0x09Cu)
+#define TFW_RP_IC_FS_SPKLEN     TFW_CM_REG(TFW_RP_I2C0_BASE + 0x0A0u)
+
+/* IC_CON: master on, slave off (both required, §12.2.10.2.1), RESTART on,
+ * 7-bit addressing, SPEED 2 (fast or fast plus). */
+#define TFW_RP_IC_CON_MASTER_MODE   (1u << 0)
+#define TFW_RP_IC_CON_SPEED_FAST    (2u << 1)
+#define TFW_RP_IC_CON_RESTART_EN    (1u << 5)
+#define TFW_RP_IC_CON_SLAVE_DISABLE (1u << 6)
+#define TFW_RP_IC_CON_MASTER \
+    (TFW_RP_IC_CON_MASTER_MODE | TFW_RP_IC_CON_SPEED_FAST | \
+     TFW_RP_IC_CON_RESTART_EN | TFW_RP_IC_CON_SLAVE_DISABLE)
+
+#define TFW_RP_IC_DATA_CMD_CMD_READ (1u << 8)
+#define TFW_RP_IC_DATA_CMD_STOP     (1u << 9)
+#define TFW_RP_IC_DATA_CMD_RESTART  (1u << 10)
+
+#define TFW_RP_IC_ENABLE_ENABLE     (1u << 0)
+#define TFW_RP_IC_ENABLE_ABORT      (1u << 1)
+#define TFW_RP_IC_ENABLE_STATUS_EN  (1u << 0)
+
+#define TFW_RP_IC_STATUS_TFNF         (1u << 1)
+#define TFW_RP_IC_STATUS_TFE          (1u << 2)
+#define TFW_RP_IC_STATUS_RFNE         (1u << 3)
+#define TFW_RP_IC_STATUS_MST_ACTIVITY (1u << 5)
+
+#define TFW_RP_IC_INTR_TX_ABRT      (1u << 6)
+#define TFW_RP_IC_INTR_STOP_DET     (1u << 9)
+
+/* The aborts that are a NACK: 7-bit address (0), 10-bit address bytes 1
+ * and 2 (1, 2), data (3), general call (4). Bit 12 is ARB_LOST. */
+#define TFW_RP_IC_ABRT_7B_ADDR_NOACK (1u << 0)
+#define TFW_RP_IC_ABRT_TXDATA_NOACK  (1u << 3)
+#define TFW_RP_IC_ABRT_NOACK         0x1Fu
+#define TFW_RP_IC_ABRT_ARB_LOST      (1u << 12)
+
 #endif /* TFW_CM_RP2350_REGS_H */

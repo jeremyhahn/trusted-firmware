@@ -89,7 +89,8 @@ the RP2350 datasheet; slice 3 checked each against [RP-DS] release 8
 | Clocks | clk_ref, clk_sys and clk_peri from the 12 MHz crystal undivided; no PLL | `src/hal/cortex-m/rp2350/hal_soc.c` |
 | Watchdog | 1 us ticks from clk_ref, 8 s period, resets everything but the oscillators | `hal_soc.c` |
 | Pins | GPIO2-22 and GPIO26-28 through SIO; GPIO23-25 and 29 are the radio's; no LED (the board's is the CYW43439's) | `boards/rp2350-pico2w/board.c` |
-| Not driven | the converter, PWM, I2C, SPI, USB, the radio | |
+| PWM | eight header GPIOs, one per slice, each channel A: GP2, 4, 6, 8, 10, 12, 14 (slices 1-7) and GP16 (slice 0); 8-bit duty at 1 kHz | `board.c`, `board_profile.h` |
+| Not driven | the converter, I2C, SPI, USB, the radio | |
 
 The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 `src/hal/cortex-m/rp2350/`. Built in CI, never run.
@@ -101,6 +102,18 @@ The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | S `hal_uart.c` | PL011 UART0 on GPIO0/1; receive interrupt-driven into a 64-byte ring on NVIC line 33; transmit into the 32-byte FIFO, `0` when it is full |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | S `hal_gpio.c` | SIO, GPIO0-29; input, output and input-pullup; the board's table lists only the header pins |
 | `tfw_hal_adc_*` | S `hal_adc.c` | as on mps2-an505: no channel |
+| `tfw_hal_pwm_write`, `_stop` | S `hal_pwm.c` | the PWM block, set up on first use, not at boot: PWM out of reset, then per slice the divider from `tfw_rp_pwm_div` (`soc_calc.h`; 12 MHz gives INT 46, FRAC 14), TOP 255 and EN, free-running; FUNCSEL 4 (PWM) on a pin's first write. Duty 0 is CC 0, 255 is CC 256 (TOP + 1), so both are exact. A row whose slice or channel is not the GPIO's is `TFW_ERR_BAD_PIN`. Stop clears the slice's EN, which stops both its channels, and hands the pin back to SIO driven low |
+
+PWM is built, not run on the board. Its host test drives `hal_pwm.c` over a
+flat register model (`test/model/cortex-m/rp2350/`) in
+`test/unit/test_rp2350_pwm.c`: the divider maths, duty 0/128/255 compare
+values, channels A and B in CC's two halves, stop, and a bad slice refused.
+The register values (PWM base `0x400A8000`, slices `0x14` apart with CSR,
+DIV, CTR, CC and TOP at `+0x0`-`+0x10`; CSR.EN bit 0; DIV INT bits 11:4 and
+FRAC bits 3:0; CC A bits 15:0 and B bits 31:16; RESET bit 16; FUNCSEL 4) cite
+[RP-DS] release 8 §12.5 and §9.4. The lane that wrote them had no PDF tooling,
+so the table numbers have not yet been checked against the copied datasheet.
+Check them before the first run on the board.
 
 The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
 of `BOOT_SUPPORTED` (`mk/boot.mk`). Like the mps2-an505 row it hashes and

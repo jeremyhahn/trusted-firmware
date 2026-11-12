@@ -77,6 +77,10 @@ at `rel_imx_sm_2026q3`; none is built.
 | GlobalPlatform, *TEE Internal Core API Specification* (GPD_SPE_010) | v1.3.1, the version optee_os 4.11.0 declares in `TEE_CORE_API_MAJOR_VERSION`, `_MINOR_VERSION` and `_MAINTENANCE_VERSION` (`lib/libutee/include/tee_api_defines.h`); `mk/optee.mk` checks it at every fetch | <https://globalplatform.org/specs-library/tee-internal-core-api-specification/> | No code of ours yet: the trusted application's entry points, `TEE_Param` types and return codes, the same page |
 | OP-TEE, the release manifest (`qemu_v8.xml`) and every repository it pins: optee_os, optee_client, optee_test (BSD-2-Clause) and the build, TF-A, Linux, Buildroot, U-Boot and QEMU trees | release 4.11.0; manifest commit `b95d496b47c6548e3e196adad75e78bde115a18c`, each repository at the revision that manifest names | <https://github.com/OP-TEE/manifest/tree/4.11.0> | Fetched and built, never copied, by `make optee-tools`, `optee-qemu` and `optee-run`: `mk/optee.mk` (the pin), `scripts/optee_run.py` (the console) |
 | Microchip, *ATECC608C-TFLXTLS CryptoAuthentication™ Data Sheet*, DS40002515 | Revision B, 2023 (SHA-256 `8d7913b9c09de42549488b7453de297d2bfc7de1d6854a3f6a3b00aa3c06061c`), read 2026-10-26 | <https://ww1.microchip.com/downloads/aemDocuments/documents/SCBU/ProductDocuments/DataSheets/ATECC608C-TFLXTLS-CryptoAuthentication-Data-Sheet-DS40002515.pdf> | The shipped slot map, [`../device-provisioning/adr-trustflex-608c-slot-map.md`](../device-provisioning/adr-trustflex-608c-slot-map.md). The data zone (table 3-1: 1,208 bytes in 16 slots) and the slot roles of tables 3-3 to 3-16, which state no per-slot byte size; the slot set `PROV_WRITE_PUBKEY` accepts: `src/caps/provision_atecc.c` |
+| NXP, *EdgeLock SE052F* data sheet | revision **not read** (below), entered 2026-11-12 | NXP's SE052F product page, <https://www.nxp.com/products/SE052F> (plug-and-trust's `README.rst` names it as `:SE052F`); the PDF's URL not verified | No code yet: the part table of [`../development/bench/se052f.md`](../development/bench/se052f.md) and the items to confirm in [`../multi-arch/adr-se052f-onboarding.md`](../multi-arch/adr-se052f-onboarding.md) §2 |
+| NXP, *AN12413, SE05x IoT applet APDU Specification* | revision **not read** (below), entered 2026-11-12; the revision for the SE052F's applet is to confirm | NXP's SE05x documentation, nxp.com; URL not verified | No code yet: the APDU layer of the onboarding ADR, §3 |
+| NXP, *UM11225, NXP SE05x T=1 Over I2C Specification*; GlobalPlatform, *APDU Transport over SPI/I2C* (GPC_SPE_172) | neither **read** (below), entered 2026-11-12; which of the two NXP names for the SE052F is to confirm from its data sheet | nxp.com; <https://globalplatform.org/specs-library/>; URLs not verified | No code yet: the transport layer of the onboarding ADR, §3 |
+| NXP, *Plug & Trust middleware mini package* (BSD-3-Clause since v04.05.03, its `ChangeLog.md`) | tag `v04.07.01`, commit `f124d81642fa2b65cbbb484b7e49b0b8ea97cdce` (committed 2025-07-30), read 2026-11-12: `README.rst` and `ChangeLog.md` only | <https://github.com/NXP/plug-and-trust/tree/v04.07.01> | Cross-checking only: values, never code. `ChangeLog.md` gives SE052 support from v04.05.01, a T=1oI2C deep power down for the SE052 in the same release, and a reset logic chosen by applet version for the SE051 and SE052 from v04.07.00: the onboarding ADR, §3. Its sources are not read yet |
 
 Each TCG entry is a TCG specification; its licence does not allow a copy here.
 Arm's licence for DEN0056 does not grant redistribution, so it is listed, not
@@ -102,6 +106,14 @@ which NXP generates from the same register database and which the next
 section pins by hash. Where the port depends on behaviour the header cannot
 state (a reset value, a sequence, a pin function), the code says "to confirm"
 and the board page lists it.
+
+**The SE05x documents were not read.** On 2026-11-12, nxp.com answered 404 to
+the data sheet, AN12413 and UM11225 from the lane that entered them, as it did
+for the MCXNx4x manual. They are listed at no revision until one is read, and
+no fact is taken from them. The plug-and-trust tag is the newest of its
+general release line; `v04.07.04_MATTER_EAR3`, listed beside it, is a Matter
+early-access tag. Its licence allows a copy, but the driver takes values from
+it, never code, so it is listed at the commit read, not copied.
 
 ## Board sources
 

@@ -109,7 +109,12 @@ The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
 of `BOOT_SUPPORTED` (`mk/boot.mk`). Like the mps2-an505 row it hashes and
 verifies P-256 in software, holds the soft DeviceID seed, and sheds OTA and the
 external store. Slice 3 checked its values against [RP-DS] release 8, all but
-the ROM flag's, which slice 4 took from pico-sdk (below).
+the ROM flag's, which slice 4 took from pico-sdk (below). Its size, measured
+by `make bootloader-check` at 48d85486 with arm-none-eabi-gcc 14.2.1:
+
+```
+tfw-boot rp2350-pico2w flash   7536 / 32768    ram  4420 / 524288 (soft tier, p256-soft)
+```
 
 | | | Where |
 |---|---|---|

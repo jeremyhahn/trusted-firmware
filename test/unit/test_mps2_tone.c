@@ -81,7 +81,7 @@ static void test_tone_toggles_per_interrupt(void)
     TEST_ASSERT_EQUAL_UINT32(0x1u, m_led);
     for (unsigned i = 1; i <= 4u; i++) {
         M_INTSTATUS = 0xAAu;
-        tfw_cm_irq3();
+        mps2_tone_model_edge();
         TEST_ASSERT_EQUAL_UINT32(1u, M_INTSTATUS);   /* INTCLEAR written */
         TEST_ASSERT_EQUAL_UINT32((i & 1u) ? 0x3u : 0x1u, m_led);
     }
@@ -91,7 +91,7 @@ static void test_tone_toggles_per_interrupt(void)
 static void test_tone_retarget(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 1000u));
-    tfw_cm_irq3();
+    mps2_tone_model_edge();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 2000u));
     TEST_ASSERT_EQUAL_UINT32(4999u, M_RELOAD);
     TEST_ASSERT_EQUAL_UINT32(4999u, M_VALUE);
@@ -103,13 +103,13 @@ static void test_tone_retarget(void)
 static void test_tone_stop_leaves_pin_low(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 1000u));
-    tfw_cm_irq3();
+    mps2_tone_model_edge();
     TEST_ASSERT_EQUAL_UINT32(0x2u, m_led);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
     TEST_ASSERT_EQUAL_UINT32(0u, M_CTRL);
     TEST_ASSERT_EQUAL_UINT32(1uL << TFW_MPS2_TIMER0_IRQ, m_icer);
     TEST_ASSERT_EQUAL_UINT32(0u, m_led);
-    tfw_cm_irq3();   /* a late interrupt does not raise the pin */
+    mps2_tone_model_edge();   /* a late interrupt does not raise the pin */
     TEST_ASSERT_EQUAL_UINT32(0u, m_led);
 }
 

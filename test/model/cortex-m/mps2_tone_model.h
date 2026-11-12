@@ -16,4 +16,9 @@ volatile uint32_t *tfw_mps2_tone_model_reg(uintptr_t addr);
 
 #define TFW_CM_REG(addr) (*tfw_mps2_tone_model_reg((uintptr_t)(addr)))
 
+/* One TIMER0 interrupt: the driver's service routine, named here so the
+ * suite stays clear of the port's tfw_cm_* names (lint-arch-leak). */
+void tfw_cm_irq3(void);
+static inline void mps2_tone_model_edge(void) { tfw_cm_irq3(); }
+
 #endif /* TFW_TEST_MPS2_TONE_MODEL_H */

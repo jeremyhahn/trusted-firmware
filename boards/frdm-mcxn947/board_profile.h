@@ -22,13 +22,15 @@
 #define TFW_PORT_COUNT 2u      /* GPIO0 and GPIO1, the banks the pins sit in */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
-#define TFW_EEPROM_SIZE 0u
+/* The AVR's 1 KiB map: the bootloader's span from the platform window, the
+ * rest in the user sector (TFW_CM_USER_EE_BASE below). */
+#define TFW_EEPROM_SIZE 1024u
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_EEPROM  1
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0

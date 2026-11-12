@@ -21,7 +21,7 @@
 #define TFW_PIN_COUNT  5u
 #define TFW_PORT_COUNT 2u      /* GPIO0 and GPIO1, the banks the pins sit in */
 #define TFW_PWM_COUNT  0u
-#define TFW_ADC_COUNT  0u
+#define TFW_ADC_COUNT  64u     /* LPADC0 inputs: channel 0..31, + 32 for side B */
 #define TFW_EEPROM_SIZE 0u
 
 #define TFW_FEATURE_ANALOG  0

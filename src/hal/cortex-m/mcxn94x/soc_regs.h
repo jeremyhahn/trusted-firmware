@@ -94,6 +94,7 @@
 #define TFW_MCXN_ADC_GCC_RDY        (1u << 24)
 #define TFW_MCXN_ADC_GCR_RDY        (1u << 24)
 #define TFW_MCXN_ADC_CMDL_ADCH_MASK 0x1Fu      /* CTYPE 0, MODE 0: single-ended A, 12-bit */
+#define TFW_MCXN_ADC_CMDL_CTYPE_B   (1u << 5)  /* CTYPE 1: single-ended B */
 #define TFW_MCXN_ADC_CMDH_STS_SHIFT 8u         /* 7: 131.5 ADCK cycles */
 #define TFW_MCXN_ADC_RESFIFO_D      0xFFFFu
 #define TFW_MCXN_ADC_RESFIFO_VALID  (1u << 31)

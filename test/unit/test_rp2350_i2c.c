@@ -15,6 +15,7 @@
 
 #include "unity.h"
 #include "tfw/hal.h"
+#include "tfw/config.h"
 #include "soc_regs.h"
 #include "soc_calc.h"
 #include "i2c_model.h"
@@ -45,9 +46,13 @@ static tfw_status_t xfer(uint8_t a, const uint8_t *wr, uint8_t wl, uint8_t *rd, 
 
 static void test_init_programs_the_fast_mode_master_and_its_pins(void)
 {
+    /* setUp asks for 400 kHz: fast mode, from the FS counts. */
     TEST_ASSERT_EQUAL_HEX32(0x65u, rp_i2c.con);
-    TEST_ASSERT_EQUAL_UINT32(7u, rp_i2c.hcnt);
-    TEST_ASSERT_EQUAL_UINT32(17u, rp_i2c.lcnt);
+    TEST_ASSERT_EQUAL_UINT32(2u, rp_i2c_speed());
+    TEST_ASSERT_EQUAL_UINT32(7u, rp_i2c.fs_hcnt);
+    TEST_ASSERT_EQUAL_UINT32(17u, rp_i2c.fs_lcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.ss_hcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.ss_lcnt);
     TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.spklen);
     TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.mask);
     TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.enable);
@@ -57,6 +62,66 @@ static void test_init_programs_the_fast_mode_master_and_its_pins(void)
     TEST_ASSERT_EQUAL_HEX32(0x5Au, *rp_i2c_other(0x40038018u));             /* GPIO5 pad */
     TEST_ASSERT_EQUAL_HEX32(TFW_RP_RESET_I2C0, *rp_i2c_other(0x40023000u)); /* reset released */
     TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.cfg_while_enabled);
+}
+
+/* cond, as the part times it from the counts init wrote, lasts at least
+ * min_ns at clk_sys. */
+static void assert_cond_at_least(enum rp_i2c_cond cond, uint32_t min_ns)
+{
+    uint64_t cycles = rp_i2c_cond_cycles(cond);
+
+    TEST_ASSERT_TRUE(cycles * 1000000000u >= (uint64_t)min_ns * TFW_CM_CPU_HZ);
+}
+
+static void reinit(uint32_t hz)
+{
+    rp_i2c_reset();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(hz));
+}
+
+static void test_init_at_100khz_selects_standard_mode_and_its_counts(void)
+{
+    reinit(100000uL);
+    TEST_ASSERT_EQUAL_HEX32(0x63u, rp_i2c.con);
+    TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c_speed());
+    TEST_ASSERT_EQUAL_UINT32(40u, rp_i2c.ss_hcnt);
+    TEST_ASSERT_EQUAL_UINT32(71u, rp_i2c.ss_lcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.fs_hcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.fs_lcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, rp_i2c.cfg_while_enabled);
+}
+
+/* Table 1105: standard mode times tSU;STA from LCNT. Fast mode's HCNT
+ * at these counts gives 48 cycles, 4.0 us: short of 4.7 us. */
+static void test_repeated_start_setup_at_100khz_is_at_least_4_7_us(void)
+{
+    reinit(100000uL);
+    assert_cond_at_least(RP_I2C_TSU_STA, 4700u);
+}
+
+/* UM10204 table 10, standard mode. */
+static void test_every_standard_mode_minimum_holds_at_100khz(void)
+{
+    reinit(100000uL);
+    assert_cond_at_least(RP_I2C_TLOW, 4700u);
+    assert_cond_at_least(RP_I2C_THIGH, 4000u);
+    assert_cond_at_least(RP_I2C_THD_STA, 4000u);
+    assert_cond_at_least(RP_I2C_TSU_STA, 4700u);
+    assert_cond_at_least(RP_I2C_TSU_STO, 4000u);
+    assert_cond_at_least(RP_I2C_TBUF, 4700u);
+}
+
+/* Fast mode is kept above 100 kHz, tSU;STA from HCNT. */
+static void test_repeated_start_setup_at_400khz_is_at_least_0_6_us(void)
+{
+    reinit(400000uL);
+    TEST_ASSERT_EQUAL_UINT32(2u, rp_i2c_speed());
+    assert_cond_at_least(RP_I2C_TSU_STA, 600u);
+    assert_cond_at_least(RP_I2C_TLOW, 1300u);
+    assert_cond_at_least(RP_I2C_THIGH, 600u);
+    assert_cond_at_least(RP_I2C_THD_STA, 600u);
+    assert_cond_at_least(RP_I2C_TSU_STO, 600u);
+    assert_cond_at_least(RP_I2C_TBUF, 1300u);
 }
 
 static void test_init_refuses_a_rate_it_cannot_make(void)
@@ -226,6 +291,10 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_programs_the_fast_mode_master_and_its_pins);
+    RUN_TEST(test_init_at_100khz_selects_standard_mode_and_its_counts);
+    RUN_TEST(test_repeated_start_setup_at_100khz_is_at_least_4_7_us);
+    RUN_TEST(test_every_standard_mode_minimum_holds_at_100khz);
+    RUN_TEST(test_repeated_start_setup_at_400khz_is_at_least_0_6_us);
     RUN_TEST(test_init_refuses_a_rate_it_cannot_make);
     RUN_TEST(test_write);
     RUN_TEST(test_read);

@@ -16,7 +16,8 @@
 
 struct rp2350_i2c_model {
     /* I2C0 */
-    uint32_t con, tar, hcnt, lcnt, spklen, mask, enable, abrt_src, raw;
+    uint32_t con, tar, spklen, mask, enable, abrt_src, raw;
+    uint32_t ss_hcnt, ss_lcnt, fs_hcnt, fs_lcnt;   /* SCL counts per mode */
     uint8_t  in_txn, dir_read, flushed, wcount;
     uint8_t  rx[32];
     uint8_t  rx_n;
@@ -52,5 +53,20 @@ const char *rp_i2c_log(void);
 
 /* The value last written to addr outside I2C0 (GPIO, pads, resets). */
 uint32_t *rp_i2c_other(uint32_t addr);
+
+/* The bus conditions of table 1105 (§12.2.14). */
+enum rp_i2c_cond {
+    RP_I2C_TLOW, RP_I2C_THIGH, RP_I2C_THD_STA, RP_I2C_TSU_STA,
+    RP_I2C_TSU_STO, RP_I2C_TBUF
+};
+
+/* IC_CON SPEED as the part latched it: 1 standard, 2 fast or fast plus. */
+uint32_t rp_i2c_speed(void);
+
+/* The ic_clk cycles the part spends on cond, timed as table 1105 does from
+ * the selected mode's counts: from LCNT, LCNT + 1 cycles; from HCNT,
+ * HCNT + SPKLEN + 7 (§12.2.14.1). tSU;STA runs from LCNT in standard mode
+ * and from HCNT in fast mode. */
+uint32_t rp_i2c_cond_cycles(enum rp_i2c_cond cond);
 
 #endif /* RP2350_I2C_MODEL_H */

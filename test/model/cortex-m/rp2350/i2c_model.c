@@ -133,8 +133,10 @@ static uint32_t view(uint32_t a)
     case 0x000u: return rp_i2c.con;
     case 0x004u: return rp_i2c.tar;
     case 0x010u: return (rp_i2c.rx_n ? rp_i2c.rx[0] : 0u) | RD_MARK;
-    case 0x01Cu: return rp_i2c.hcnt;
-    case 0x020u: return rp_i2c.lcnt;
+    case 0x014u: return rp_i2c.ss_hcnt;
+    case 0x018u: return rp_i2c.ss_lcnt;
+    case 0x01Cu: return rp_i2c.fs_hcnt;
+    case 0x020u: return rp_i2c.fs_lcnt;
     case 0x030u: return rp_i2c.mask;
     case 0x034u: return rp_i2c.raw;
     case 0x040u: case 0x054u: case 0x060u: return RD_MARK;
@@ -193,8 +195,10 @@ static void on_write(uint32_t a, uint32_t v)
     case 0x000u: cfg(&rp_i2c.con, v); break;
     case 0x004u: cfg(&rp_i2c.tar, v); break;
     case 0x010u: command(v); break;
-    case 0x01Cu: cfg(&rp_i2c.hcnt, v); break;
-    case 0x020u: cfg(&rp_i2c.lcnt, v); break;
+    case 0x014u: cfg(&rp_i2c.ss_hcnt, v); break;
+    case 0x018u: cfg(&rp_i2c.ss_lcnt, v); break;
+    case 0x01Cu: cfg(&rp_i2c.fs_hcnt, v); break;
+    case 0x020u: cfg(&rp_i2c.fs_lcnt, v); break;
     case 0x030u: rp_i2c.mask = v; break;
     case 0x0A0u: cfg(&rp_i2c.spklen, v); break;
     case 0x06Cu:
@@ -270,4 +274,26 @@ const char *rp_i2c_log(void)
 uint32_t *rp_i2c_other(uint32_t addr)
 {
     return other(addr);
+}
+
+uint32_t rp_i2c_speed(void)
+{
+    return (rp_i2c.con & TFW_RP_IC_CON_SPEED_MASK) >> 1;
+}
+
+uint32_t rp_i2c_cond_cycles(enum rp_i2c_cond cond)
+{
+    uint8_t  std  = rp_i2c_speed() == 1u;
+    uint32_t low  = (std ? rp_i2c.ss_lcnt : rp_i2c.fs_lcnt) + 1u;
+    uint32_t high = (std ? rp_i2c.ss_hcnt : rp_i2c.fs_hcnt) + rp_i2c.spklen + 7u;
+
+    switch (cond) {
+    case RP_I2C_TLOW:
+    case RP_I2C_TBUF:
+        return low;
+    case RP_I2C_TSU_STA:
+        return std ? low : high;
+    default:
+        return high;
+    }
 }

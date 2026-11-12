@@ -20,13 +20,15 @@
 #define TFW_PORT_COUNT 2u      /* GPIOF and GPIOI, the LEDs' banks */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
-#define TFW_EEPROM_SIZE 0u
+/* tfw-boot's span (TFW_BOOT_EE_LEN, include/tfw/boot.h, 0x140) and the user
+ * sector after it, TFW_CM_USER_EE_SIZE below (hal_eeprom.c asserts the sum). */
+#define TFW_EEPROM_SIZE 0x2140u
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_EEPROM  1
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0

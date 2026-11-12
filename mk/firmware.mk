@@ -82,6 +82,19 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
 # compile under -Werror, so the board drops the whole file.
 STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
+
+# The EEPROM HAL, one file on every board, as it was when the wildcard below
+# linked the architecture's copy unconditionally: hal_src picks the SoC's copy
+# where the family is on and the SoC has one, else the architecture's.
+# OTA_CONFIRM's request reaches tfw-boot through it whether or not the board
+# has the family, so a board with it off keeps the architecture's file. A
+# SoC's copy may need tfw-boot's flash driver, named by SOC_EEPROM_SRCS_<soc>
+# and linked with it, not copied: the STM32H5's writes its own sector through
+# boot_flash.c's tfw_cm_boot_flash_write (src/hal/cortex-m/stm32h5/hal_eeprom.c).
+SOC_EEPROM_SRCS_stm32h5 := boot/hal/cortex-m/stm32h5/boot_flash.c boot/hal/cortex-m/stm32h5/h5_flash.c
+EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
+                     $(wildcard $(call hal_src,hal_eeprom.c)) \
+                     $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))
 PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c)
 
 # The three buses, gated as ONE unit because they are one translation unit.
@@ -160,7 +173,7 @@ endif
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL)
+                  $(d)/hsm_intake.c $(d)/hal_eeprom.c) $(ARCH_HAL_OPTIONAL)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -413,7 +426,7 @@ endif
 ifneq ($(filter 1,$(BOOT_AB) $(OTA_NO_PREV)),)
 STAGE_SRCS += src/core/ota_prev_none.c
 else
-STAGE_SRCS += src/core/ota_prev.c $(wildcard $(HAL_DIR)/hal_eeprom.c)
+STAGE_SRCS += src/core/ota_prev.c $(EEPROM_HAL_SRCS)
 endif
 # OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
 # single-slot board without it could never install what it staged.
@@ -601,7 +614,7 @@ FW_SRCS := $(sort \
   src/core/secure_zero.c $(IDENTITY_SRCS) \
   $(APP_RUNNER_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
-  src/caps/analog.c $(STORAGE_SRCS) src/caps/attest.c \
+  src/caps/analog.c $(STORAGE_SRCS) $(EEPROM_HAL_SRCS) src/caps/attest.c \
   $(PULSE_SRCS) $(PWM_SRCS) $(BUS_SRCS) $(BUS_HELD_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
   $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) $(HSM_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) $(ARCH_FW_SRCS) \

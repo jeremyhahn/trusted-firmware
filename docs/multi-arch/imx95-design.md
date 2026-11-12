@@ -475,10 +475,13 @@ Its UART, pins and watchdog run on the host against a register model
 pins the register layouts soc_regs.h states, so it proves the code agrees with
 them, not that they are the silicon's (section 9.4).
 Its SAR ADC, in the `soft:ADC=1` row, runs the same way against the register
-model in `test/unit/test_imx95_adc.c`; the layout is the i.MX 93 block's as
-Linux `drivers/iio/adc/imx93_adc.c` reads it, every value TO CONFIRM against
-IMX95RM, and the base is zero (unsupported) until a pinned source gives the
-M7's instance, so the firmware's analog read answers unsupported on the board.
+model in `test/unit/test_imx95_adc.c`; its register layout is NXP's i.MX 95
+device header `PERI_ADC.h`, cross-checked against Linux
+`drivers/iio/adc/imx93_adc.c` at v6.12, both pinned in
+[`../reference/README.md`](../reference/README.md) (IMX95RM is not held, so the
+header is the authority). The base is zero (unsupported) until a pinned source
+gives the M7's instance, so the firmware's analog read answers unsupported on
+the board.
 It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
 message layer and one command (section 9.7), and no key store, session or
 attestation over it.

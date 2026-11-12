@@ -20,10 +20,10 @@
 #define TFW_PIN_COUNT  8u
 #define TFW_PORT_COUNT 3u      /* GPIO P0, P1 and P2 */
 #define TFW_PWM_COUNT  0u
-#define TFW_ADC_COUNT  0u
+#define TFW_ADC_COUNT  4u      /* SAADC AIN2-AIN5 (src/hal/cortex-m/nrf54l/soc_tables.c) */
 #define TFW_EEPROM_SIZE 0u
 
-#define TFW_FEATURE_ANALOG  0
+#define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0

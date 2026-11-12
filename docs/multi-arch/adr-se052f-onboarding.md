@@ -16,14 +16,17 @@
 > status code, and decides nothing the owner has not ruled: every choice is an
 > open question below.
 >
-> Written with the standards filed but not yet read. The SE052F data sheet,
-> NXP's APDU specification (AN12413) and the T=1 over I2C specification are
-> entered in [`../reference/README.md`](../reference/README.md) at no revision:
-> nxp.com answered 404 to each on 2026-11-12. NXP's plug-and-trust middleware
-> is pinned there at `v04.07.01`, for cross-checking values only, and its
-> `README.rst` and `ChangeLog.md` are read. Every other fact below is what the
-> part is *expected* to be, marked *to confirm*, with the document it is
-> confirmed against.
+> Written against the documents pinned in
+> [`../reference/README.md`](../reference/README.md), read 2026-11-12: the
+> SE052 data sheet, Rev. 1.5 (the SE052F is its FIPS variant), and AN14277,
+> *SE052 Configuration Details*, Rev. 1.0. Not read: AN12543, the IoT applet
+> APDU specification AN14277 names for the SE052F, and UM11225, both behind
+> NXP's sign-in, and GlobalPlatform's GPC_SPE_172, behind its licence form.
+> AN12413 as published is the SE050's and is not used. NXP's plug-and-trust
+> middleware is pinned at `v04.07.01` for cross-checking values only; its
+> `README.rst` and `ChangeLog.md` are read. A fact below cites its section;
+> one the read documents do not settle stays *to confirm*, with the document
+> it is confirmed against.
 
 ## The question
 
@@ -60,33 +63,37 @@ how is it brought onto the bench without changing it?
 
 Vendor documents, all in [`../reference/README.md`](../reference/README.md):
 
-- NXP, *EdgeLock SE052F* data sheet: not read; revision and sections *to
-  confirm*.
-- NXP, *AN12413, SE05x IoT applet APDU Specification*: not read; the revision
-  that matches the SE052F's applet *to confirm*.
-- NXP, *UM11225*, or GlobalPlatform's *APDU Transport over SPI/I2C*: not read;
-  which one NXP names for the SE052F *to confirm* (open question 8).
+- NXP, *SE052* data sheet, Rev. 1.5, 3 June 2024: read. Cited below as "DS".
+- NXP, *AN14277, SE052 Configuration Details*, Rev. 1.0, 25 March 2024:
+  read. Cited below as "AN14277".
+- NXP, *AN12543*, the "EdgeLock SE05x IoT Applet APDU Specification" AN14277
+  §2.1 names: not read (NXP sign-in). AN12413 as published is the SE050's
+  APDU specification (Rev. 2.12) and is not used.
+- NXP, *UM11225*, and GlobalPlatform's *APDU Transport over SPI/I2C* v1.0
+  (GPC_SPE_172): not read. DS §15 cites both (references [2] and [3]), and DS
+  §13.3, Table 12 (`I2C_SPI_PARAMS`) configures the "GP 0.39 flavour" of
+  T=1 over I2C (open question 8).
 - NXP, plug-and-trust `v04.07.01`: `README.rst` and `ChangeLog.md` read.
 
-| Item | What it is expected to be | Status |
+| Item | What it is | Status |
 |---|---|---|
-| Host interface | An I2C target speaking T=1 over I2C | In part: plug-and-trust's `README.rst` ("Introduction") connects to the SE05x "using t1oi2c protocol". Any other interface *to confirm* (data sheet) |
-| Factory key | One or more NXP-provisioned key pairs, generated and locked at personalisation, in reserved objects whose policy decides what they may sign | *to confirm* (data sheet; AN12413). Which one is the DeviceID key is open question 2 |
-| Factory certificate | An NXP-issued X.509 certificate for that key, in a reserved data object, readable without a session | *to confirm* (data sheet; AN12413) |
-| Key and data objects | Objects created by the host, each with an access policy set at creation; a private key never leaves | *to confirm* (AN12413) |
-| Monotonic counter | A counter object the host creates and increments; whether one exists from the factory is not known | *to confirm* (AN12413). Creating one is a write (open question 3) |
-| Lifecycle and locks | Applet-wide lock and reset operations, and per-object policies; some are irreversible | *to confirm* (AN12413). None is ever run without the owner (open question 4) |
-| Bus protection | A platform SCP03 session binding host and element, keyed by secrets the host must hold | *to confirm* (AN12413; data sheet). Not used here (open question 5) |
-| Supply | The voltage range the element and the board accept, which decides whether a 5 V AVR host needs a level shifter | *to confirm* (data sheet) |
-| Reset and power | A T=1oI2C deep power down for the SE052, and a reset logic chosen by applet version | Confirmed as middleware features only: plug-and-trust `ChangeLog.md`, v04.05.01 and v04.07.00. The part's own behaviour *to confirm* (data sheet) |
+| Host interface | An I2C target up to 3.4 Mbit/s speaking T=1 over I2C, at the configured address `0x48`; an I2C controller, ISO 7816 UART and ISO 14443 contactless interfaces are also on the part | Read: DS §3.1, §9.1; DS §13.3, Table 12 (`I2C_SLAVE_ADDRESS`, `I2C_SPI_PARAMS`); AN14277 §2.1.1, Table 1. Plug-and-trust's `README.rst` ("Introduction") agrees: "using t1oi2c protocol" |
+| Factory key | Die-individual ECC256 and RSA keys provisioned by NXP: two connectivity keys (`0xF0000000`, `0xF0000002`), cloud connection keys, and the root-of-trust attestation keys `0xF0000012` (ECC256) and `0xF0000010` (RSA2048), "used to attest new generated keys". None is erasable by the customer | Read: AN14277 §2.4, Table 7. Their policies, AN14277 §2.6, Table 8: the connectivity keys grant SIGN, VERIFY and READ under authentication object `0x00000000` (Table 7: "Anybody, Read"); the attestation key READ and ATTESTATION only (Table 7: "Anybody Read and Attestation"). Which one is the DeviceID key is open question 2 |
+| Factory certificate | NXP-signed X.509v3 certificates, DER, each in a zero-padded binary file: `0xF0000001` and `0xF0000003` (connectivity), `0xF0000013` (attestation, ECC), `0xF0000011` (attestation, RSA); the chains' roots and intermediates are NXP's | Read: AN14277 §2.4, Table 7; §2.5; §2.6, Table 8 (the connectivity certificates READ under `0x00000000`); §2.7, Table 9. Certificates are erasable by the customer (Table 7, note [1]) |
+| Key and data objects | Objects with an access policy each, die-individual or type-individual, provisioned or created by the host | In part: AN14277 §2.6, Table 8 for the provisioned objects. The commands that create and read them *to confirm* (AN12543) |
+| Monotonic counter | A counter object the host creates and increments; none is in the provisioned objects | In part: AN14277 §2.6, Table 8 lists no counter object. The commands *to confirm* (AN12543). Creating one is a write (open question 3) |
+| Lifecycle and locks | Applet-wide lock and reset operations, and per-object policies; some are irreversible | *to confirm* (AN12543). None is ever run without the owner (open question 4) |
+| Bus protection | Platform SCP03. On the SE052F it is mandatory: NXP provisions `0x7FFF0207`, which cannot be modified or deleted, and the default Platform SCP keys must be updated | Read: DS §3.1; AN14277 §2.1.1, Table 1 ("x (mandatory)"); AN14277 §2.4; AN14277 §2.3. What a session without SCP03 may still do *to confirm* (AN12543); open question 5 |
+| Supply | VDD 1.62 V to 5.5 V; VIN, which supplies the SDA and SCL pads, 1.65 V to 3.6 V, those pads 3.63 V at most | Read: DS §5.1, Table 2; §11, Table 6; §12, Tables 7 and 8 |
+| Reset and power | A low on RST_N resets the part; Power-down entered on "End of APDU session" (UM11225) or "RELEASE" (GPC_SPE_172), Deep Power-down on the T=1oI2C S-block `0xDF`, both left on I2C bus activity | Read: DS §5.1, Table 2; §9.1; §10.2; §10.3. Plug-and-trust `ChangeLog.md`, v04.05.01 and v04.07.00, agrees (deep power down; a reset logic by applet version) |
 
 ### How it compares with the other element tiers
 
 | | ATECC608C (AVR rows today) | OPTIGA Trust M V3 | SE052F (this row) |
 |---|---|---|---|
-| Bus | I2C | I2C, IFX I2C protocol | I2C, T=1 over I2C (*to confirm* which specification) |
+| Bus | I2C | I2C, IFX I2C protocol | I2C, T=1 over I2C, GP flavour configured (DS §13.3, Table 12) |
 | DeviceID key | hardware-resident P-256 | factory key `0xE0F0` | an NXP-provisioned factory key, which one open question 2 |
-| Factory certificate | per the TrustFLEX slot map | Infineon-issued | NXP-issued (*to confirm* where) |
+| Factory certificate | per the TrustFLEX slot map | Infineon-issued | NXP-signed, in binary files `0xF0000001`, `0xF0000003`, `0xF0000013` (AN14277 §2.4, Table 7) |
 | Public key readable | yes | no (`TFW_ERR_UNSUPPORTED`) | expected yes, by a read of the key object (*to confirm*) |
 | Anti-rollback | the element's monotonic counter | the element's counter objects, read only | a counter object, if one exists without a write (open question 3) |
 | Locking | per-slot and zone locks | per-object lifecycle state | applet locks and object policies (open question 4) |
@@ -112,12 +119,15 @@ written; it is the shape a later slice writes to the filed standards.
    sequence numbers, the waiting-time extension the element asks for, and the
    chaining of an APDU longer than one information field, over the existing
    `tfw_hal_i2c_init`, `tfw_hal_i2c_xfer` and `tfw_hal_delay_us`, so
-   `include/tfw/hal.h` gains nothing. One master, no SCP03 (question 5). Its
-   frame layout, check sequence, maximum information field, timings and
-   address come from the T=1 over I2C specification NXP names (question 8),
+   `include/tfw/hal.h` gains nothing. One master, no SCP03 (question 5; AN14277 §2.4 makes it
+   mandatory on the SE052F). The data sheet gives the address `0x48`, a
+   block waiting time of 1000 ms, an initial IFSC of 254 bytes (`0x00FE`) and
+   a guard time of 100 µs (DS §13.3, Table 12, `I2C_SLAVE_ADDRESS`,
+   `ATR_I2C_IF_BYTES`, `CIP_I2C_SPI_IF_BYTES`); the frame layout and check
+   sequence come from the T=1 over I2C specification (question 8),
    checked against plug-and-trust's T=1oI2C stack, never copied from it.
 2. **Command layer, read-only** (as `optiga_cmd.c`): select the applet, then
-   the APDUs of AN12413 that read and do not write: get random, read an
+   the APDUs of AN12543 (not read) that read and do not write: get random, read an
    object's data and its public part, read its attributes, sign a digest with
    an existing key, verify. The status words are mapped onto the existing
    status codes; no status code is added. No create, write, delete, lock or
@@ -133,7 +143,7 @@ written; it is the shape a later slice writes to the filed standards.
      until the owner rules (question 3).
    - `tfw_crypto_pubkey`: expected readable from the key object, unlike the
      OPTIGA, which would let the alias certificate builder link on this tier
-     (*to confirm*, AN12413).
+     (*to confirm*, AN12543).
    - `tfw_crypto_counter`: a read of an existing counter object. If the part
      ships none, `TFW_ERR_UNSUPPORTED`, and OTA_INFO's rollback floor stays the
      platform block's, as on the OPTIGA tier.

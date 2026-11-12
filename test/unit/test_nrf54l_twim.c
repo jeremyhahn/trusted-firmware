@@ -67,6 +67,9 @@ typedef struct {
     int      present;
     int      dnack_at;           /* write byte refused, -1 none */
     int      dnack_stops;        /* the refusal also raises STOPPED */
+    int      dnack_late;         /* the refusal raises ERROR and STOPPED at
+                                  * the next EVENTS_STOPPED access */
+    int      late_pending;
     int      hang;               /* STOPPED never raised */
     uint32_t stop_lag;           /* microseconds a STOP takes to raise STOPPED */
     int      stop_pending;
@@ -162,6 +165,10 @@ static void bus_write(void)
     for (i = 0u; i < s_twim.txd_maxcnt; i++) {
         s_twim.sent[s_twim.nsent++] = p[i];
         if ((int)i == s_twim.dnack_at) {
+            if (s_twim.dnack_late) {
+                s_twim.late_pending = 1;
+                return;
+            }
             bus_error(ES_DNACK);
             if (s_twim.dnack_stops) {
                 bus_stop();
@@ -216,6 +223,12 @@ static void model_settle(void)
 volatile uint32_t *tfw_nrf54l_model_reg(uintptr_t addr)
 {
     model_settle();
+    if (s_twim.late_pending && addr == TWIM_BASE + O_EV_STOPPED) {
+        /* The refusal lands after the wait's ERROR read, before this one. */
+        s_twim.late_pending = 0;
+        bus_error(ES_DNACK);
+        bus_stop();
+    }
     s_last_addr = addr;
     s_have_last = 1;
     s_presented = model_view(addr);
@@ -370,6 +383,24 @@ static void test_twim_last_byte_nack_with_stopped(void)
     TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_stopped);
 }
 
+/* ERROR and STOPPED both raised between the wait's ERROR read and its
+ * STOPPED read: the error latch is read again once STOPPED is seen. */
+static void test_twim_last_byte_nack_between_reads(void)
+{
+    static const uint8_t wr[3] = { 0x01u, 0x02u, 0x03u };
+
+    s_twim.dnack_at   = 2;
+    s_twim.dnack_late = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x60u, wr, 3u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(3u, s_twim.nsent);
+    TEST_ASSERT_EQUAL_INT(0, s_twim.late_pending);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.stops);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_stopped);
+}
+
 static void test_twim_never_stopped_times_out(void)
 {
     static const uint8_t wr[1] = { 0x01u };
@@ -440,6 +471,7 @@ int main(void)
     RUN_TEST(test_twim_read_address_nack);
     RUN_TEST(test_twim_data_nack);
     RUN_TEST(test_twim_last_byte_nack_with_stopped);
+    RUN_TEST(test_twim_last_byte_nack_between_reads);
     RUN_TEST(test_twim_never_stopped_times_out);
     RUN_TEST(test_twim_read_never_stopped_disables);
     RUN_TEST(test_twim_read_stopped_late);

@@ -43,27 +43,38 @@ static void twim_clear_events(void)
 
 /* Waits for STOPPED. An ERROR stops the transfer with TASKS_STOP, and its
  * cause is kept for the status. */
+static tfw_status_t twim_error(void)
+{
+    uint32_t src;
+
+    TFW_NRF_TWIM_EV_ERROR = 0u;
+    src = TFW_NRF_TWIM_ERRORSRC;
+    TFW_NRF_TWIM_ERRORSRC = TFW_NRF_TWIM_ERRORSRC_ALL;
+    return (src & (TFW_NRF_TWIM_ERRORSRC_ANACK | TFW_NRF_TWIM_ERRORSRC_DNACK)) != 0u
+               ? TFW_ERR_NACK : TFW_ERR_INTERNAL;
+}
+
 static tfw_status_t twim_wait(void)
 {
     uint32_t     n;
-    uint32_t     src;
     tfw_status_t st = TFW_OK;
 
     for (n = 0u; n < TWIM_WAIT_US; n++) {
         /* ERROR before STOPPED: a NACK of the last byte raises both, and
          * the STOPPED alone would read as success. */
         if (st == TFW_OK && TFW_NRF_TWIM_EV_ERROR != 0u) {
-            TFW_NRF_TWIM_EV_ERROR = 0u;
-            src = TFW_NRF_TWIM_ERRORSRC;
-            TFW_NRF_TWIM_ERRORSRC = TFW_NRF_TWIM_ERRORSRC_ALL;
-            st = (src & (TFW_NRF_TWIM_ERRORSRC_ANACK | TFW_NRF_TWIM_ERRORSRC_DNACK)) != 0u
-                     ? TFW_ERR_NACK : TFW_ERR_INTERNAL;
+            st = twim_error();
             if (TFW_NRF_TWIM_EV_STOPPED == 0u) {
                 TFW_NRF_TWIM_RESUME = 1u;
                 TFW_NRF_TWIM_STOP   = 1u;
             }
         }
         if (TFW_NRF_TWIM_EV_STOPPED != 0u) {
+            /* The NACK may have raised ERROR and STOPPED between the two
+             * reads above: look at ERROR again now that the bus is idle. */
+            if (st == TFW_OK && TFW_NRF_TWIM_EV_ERROR != 0u) {
+                st = twim_error();
+            }
             break;
         }
         tfw_hal_delay_us(1u);

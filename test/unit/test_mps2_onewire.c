@@ -187,9 +187,99 @@ static void test_ow_reset_presence(void)
     TEST_ASSERT_EQUAL_UINT8(1u, level());
 }
 
+/* Nobody on the line: it floats high through the sample, presence 0, and the
+ * slot keeps its full length. */
+static void test_ow_reset_no_presence(void)
+{
+    uint8_t presence = 0xEEu;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_reset(&k_ow_pin, &presence));
+    TEST_ASSERT_EQUAL_UINT8(0u, presence);
+    TEST_ASSERT_EQUAL_UINT(2u, ow.nev);
+    TEST_ASSERT_EQUAL_UINT32(480u + 70u + 410u, ow.now - ow.ev[0].t);
+    TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+}
+
+/* 0xA5 goes out least significant bit first: 1 0 1 0 0 1 0 1. A 1 is low for
+ * 6 us then 64 us released, a 0 low for 60 us then 10 us released: 70 us a
+ * slot. Each slot is masked; between slots interrupts are taken. */
+static void test_ow_write_byte_slots(void)
+{
+    static const uint8_t bits[8] = { 1u, 0u, 1u, 0u, 0u, 1u, 0u, 1u };
+    const uint8_t b = 0xA5u;
+    unsigned i;
+
+    ow.present = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_write(&k_ow_pin, &b, 1u));
+    TEST_ASSERT_EQUAL_UINT(16u, ow.nev);
+    for (i = 0u; i < 8u; i++) {
+        const ow_ev_t *fall = &ow.ev[2u * i];
+        const ow_ev_t *rise = &ow.ev[2u * i + 1u];
+        uint32_t next = (i + 1u < 8u) ? ow.ev[2u * i + 2u].t : ow.now;
+
+        TEST_ASSERT_EQUAL_UINT8(1u, fall->out);
+        TEST_ASSERT_EQUAL_UINT8(0u, rise->out);
+        TEST_ASSERT_EQUAL_UINT8(1u, rise->level);
+        TEST_ASSERT_EQUAL_UINT32(bits[i] ? 6u : 60u, rise->t - fall->t);
+        TEST_ASSERT_EQUAL_UINT32(70u, next - fall->t);
+        TEST_ASSERT_EQUAL_UINT8(1u, fall->masked);
+        TEST_ASSERT_EQUAL_UINT8(1u, rise->masked);
+    }
+    TEST_ASSERT_EQUAL_HEX8(0xA5u, ow.rx[0]);
+    TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+}
+
+/* The slave answers 0x3C then 0x81: every read slot is a 6 us low, the line
+ * sampled 9 us after the release, inside the slave's 30 us hold for a 0. */
+static void test_ow_read_bytes_from_slave(void)
+{
+    static const uint8_t ans[2] = { 0x3Cu, 0x81u };
+    uint8_t rd[2] = { 0u, 0u };
+    unsigned i;
+
+    ow.tx = ans;
+    ow.txlen = 2u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_ow_read(&k_ow_pin, rd, 2u));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(ans, rd, 2u);
+    TEST_ASSERT_EQUAL_UINT(32u, ow.nev);
+    for (i = 0u; i < 16u; i++) {
+        TEST_ASSERT_EQUAL_UINT32(6u, ow.ev[2u * i + 1u].t - ow.ev[2u * i].t);
+        TEST_ASSERT_EQUAL_UINT8(1u, ow.ev[2u * i].masked);
+    }
+    TEST_ASSERT_EQUAL_UINT32(16u * 70u, ow.now - ow.ev[0].t);
+    TEST_ASSERT_EQUAL_UINT8(0u, ow.masked);
+}
+
+/* Any pin but GPIO block 0's 1-Wire bit is TFW_ERR_RANGE, as the AVR refuses
+ * a pin its table does not allow, and the line is never touched. */
+static void test_ow_out_of_table_pin_is_range(void)
+{
+    static const tfw_pinref_t k_bad[] = {
+        { 0u, 0u },                                    /* LED0 */
+        { 1u, 8u },                                    /* the SPI select */
+        { TFW_MPS2_PORT_GPIO0, TFW_MPS2_OW_BIT + 1u },
+        { TFW_MPS2_PORT_GPIO0 + 1u, TFW_MPS2_OW_BIT },
+    };
+    uint8_t b = 0x5Au;
+    size_t i;
+
+    for (i = 0u; i < sizeof k_bad / sizeof k_bad[0]; i++) {
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_ow_reset(&k_bad[i], &b));
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_ow_write(&k_bad[i], &b, 1u));
+        TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_ow_read(&k_bad[i], &b, 1u));
+    }
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
+    TEST_ASSERT_EQUAL_UINT(0u, ow.nev);
+    TEST_ASSERT_EQUAL_UINT32(1000u, ow.now);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_ow_reset_presence);
+    RUN_TEST(test_ow_reset_no_presence);
+    RUN_TEST(test_ow_write_byte_slots);
+    RUN_TEST(test_ow_read_bytes_from_slave);
+    RUN_TEST(test_ow_out_of_table_pin_is_range);
     return UNITY_END();
 }

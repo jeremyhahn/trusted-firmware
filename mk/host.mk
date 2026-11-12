@@ -519,6 +519,7 @@ $(HOST_DIR)/test_bus_element: test/unit/test_bus_element.c \
 # simulated SBCon bus and delay in place of sbcon.c and hal_tick.c, so it
 # links no mock HAL, which defines the same bus entry points.
 $(HOST_DIR)/test_mps2_bus: test/unit/test_mps2_bus.c src/hal/cortex-m/mps2/hal_bus.c \
+                           test/mock/mps2_gpio_line_idle.c \
                            $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
@@ -528,7 +529,7 @@ $(HOST_DIR)/test_mps2_bus: test/unit/test_mps2_bus.c src/hal/cortex-m/mps2/hal_b
 # src/caps/bus.c through hal_bus.c to the suite's modelled PL022. Its board
 # directory comes ahead of HOST_CFLAGS' so board_profile.h is the MPS2 one.
 $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/caps/bus_held_none.c \
-                               src/hal/cortex-m/mps2/hal_bus.c \
+                               src/hal/cortex-m/mps2/hal_bus.c test/mock/mps2_gpio_line_idle.c \
                                src/core/reader.c src/core/writer.c \
                                src/core/board_lookup.c boards/mps2-an505/board.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
@@ -2395,7 +2396,7 @@ $(HOST_DIR)/test_optiga_i2c: test/unit/test_optiga_i2c.c src/crypto/optiga/optig
 # an OPTIGA on it. It stays in TEST_SRCS; this explicit rule takes the place of
 # the pattern rule.
 $(HOST_DIR)/test_mps2_optiga: test/unit/test_mps2_optiga.c src/crypto/optiga/optiga_i2c.c \
-                              src/hal/cortex-m/mps2/hal_bus.c \
+                              src/hal/cortex-m/mps2/hal_bus.c test/mock/mps2_gpio_line_idle.c \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/crypto/optiga -Isrc/hal/cortex-m/mps2 \
 	   -o $@ $^ $(EXTRA_LDFLAGS)

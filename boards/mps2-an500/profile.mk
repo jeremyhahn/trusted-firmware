@@ -42,7 +42,7 @@ RAM_TOTAL      := 4194304
 BOOT_AB          ?= 0
 BOOT_AB_OPTIONAL := 1
 BOARD_DEFS        = $(if $(filter 1,$(BOOT_AB)),-DTFW_CM_AB=1) $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
-                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1)
+                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1) $(if $(filter 1,$(ONEWIRE)),-DTFW_CM_ONEWIRE=1)
 APP_BASE         := $(if $(filter 1,$(BOOT_AB)),0x00040000,0x00008000)
 RAM_BASE       := 0x20000000
 RAM_END        := 0x203FFFFF
@@ -80,5 +80,11 @@ OTA_STORE      := mem
 # mps2-an505's does.
 I2C               ?= 0
 SPI               ?= 0
-BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI)
-BOARD_ROWS        := soft:I2C=1 soft:SPI=1
+# 1-Wire bit-banged on GPIO block 0 bit 0 (the same hal_bus.c, gpio_line.h),
+# off by default for the same reason. ONEWIRE=1 turns TFW_FEATURE_ONEWIRE on
+# (TFW_CM_ONEWIRE in board_profile.h) and adds the line as pin 3 (board.c).
+# The soft:ONEWIRE=1 row builds it and size-check measures it.
+ONEWIRE           ?= 0
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) \
+                     $(if $(filter 1,$(ONEWIRE)),ONEWIRE)
+BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:ONEWIRE=1

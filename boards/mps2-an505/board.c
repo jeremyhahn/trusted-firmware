@@ -13,6 +13,9 @@
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 0u },   /* 0 */
     { 1u },   /* 1 */
+#if defined(TFW_CM_ONEWIRE)
+    { 2u },   /* 2: GPIO block 0, the ONEWIRE=1 row's (gpio_line.h) */
+#endif
 };
 
 /* The two user LEDs: outputs only. A read returns the level last written.
@@ -24,6 +27,11 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 0  LED0 */ { TFW_PB(0u, 0u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 1  LED1 */ { TFW_PB(0u, 1u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 2  nCS  */ { TFW_PB(1u, 8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+#if defined(TFW_CM_ONEWIRE)
+/* 3  1-Wire: GPIO block 0 bit 0, open drain (hal_bus.c); hal_gpio.c refuses
+ * it as it refuses the select */
+/* 3  OW   */ { TFW_PB(2u, 0u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+#endif
 };
 
 /* EMPTY, as on the ATtiny85: no pin here can do PWM, and a row nothing

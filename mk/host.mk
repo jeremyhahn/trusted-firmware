@@ -2362,6 +2362,17 @@ $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nr
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its PWM (PWM20, hal_pwm.c) against a register model
+# (test/model/nrf54l_model.c), as test_imx95_hal is: test/model/nrf54l/ goes
+# ahead of src/hal/cortex-m/ so its cm_regs.h sends TFW_CM_REG to the model,
+# and the DK's profile replaces the host board's.
+HOST_NRF54L_CFLAGS = -Itest/model/nrf54l -Itest/model -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m \
+                     -Iboards/nrf54l15-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_nrf54l_pwm: test/unit/test_nrf54l_pwm.c test/model/nrf54l_model.c \
+                             src/hal/cortex-m/nrf54l/hal_pwm.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The reset causes of the stm32h5, rp2350 and mcxn94x SoCs, the same way:
 # each soc_reset.c reads its registers through pointers the caller names.
 $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/stm32h5/soc_reset.c \

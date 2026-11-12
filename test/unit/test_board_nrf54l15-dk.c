@@ -4,7 +4,8 @@
  * The nRF54L15 DK's pin table, checked on x86.
  *
  * The table is the DK's four LEDs and four buttons on the SoC's three GPIO
- * banks, and no pin offers a converter or a compare unit yet. The pins are
+ * banks; LED1 and LED3 are PWM20's channels 0 and 1, and no pin offers a
+ * converter yet. The pins are
  * the board's (Zephyr's nrf54l15dk_common.dtsi); a slip here lights the wrong
  * LED on a board nobody is watching.
  *
@@ -57,15 +58,45 @@ static void test_no_pin_is_the_console(void)
     }
 }
 
-static void test_no_pin_offers_an_adc_or_a_pwm(void)
+static void test_no_pin_offers_an_adc(void)
 {
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         uint8_t ch;
-        tfw_pwmref_t p;
 
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
-        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & (TFW_PIN_ADC | TFW_PIN_PWM));
+        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
+    }
+}
+
+static void test_led1_and_led3_are_pwm20_channels_0_and_1(void)
+{
+    /* PWM20 reaches port 1 only: LED1 P1.10 (Zephyr's pwm20_default OUT0)
+     * and LED3 P1.14, unit 0 being PWM20. */
+    static const uint8_t pin[2] = { 1u, 3u };
+    static const uint8_t bit[2] = { 10u, 14u };
+
+    TEST_ASSERT_EQUAL_UINT8(2u, TFW_PWM_COUNT);
+    for (uint8_t i = 0u; i < 2u; i++) {
+        tfw_pwmref_t p;
+
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(pin[i], &p));
+        TEST_ASSERT_EQUAL_UINT8(0u, p.unit);
+        TEST_ASSERT_EQUAL_UINT8(i, p.channel);
+        TEST_ASSERT_EQUAL_UINT8(1u, p.port);
+        TEST_ASSERT_EQUAL_UINT8(bit[i], p.bit);
+        TEST_ASSERT_TRUE(tfw_board_pin_flags(pin[i]) & TFW_PIN_PWM);
+    }
+}
+
+static void test_no_other_pin_offers_a_pwm(void)
+{
+    static const uint8_t pin[6] = { 0u, 2u, 4u, 5u, 6u, 7u };
+
+    for (uint8_t i = 0u; i < 6u; i++) {
+        tfw_pwmref_t p;
+
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(pin[i], &p));
+        TEST_ASSERT_FALSE(tfw_board_pin_flags(pin[i]) & TFW_PIN_PWM);
     }
 }
 
@@ -82,7 +113,9 @@ int main(void)
     RUN_TEST(test_the_board_is_its_registry_id);
     RUN_TEST(test_the_pins_are_the_four_leds_then_the_four_buttons);
     RUN_TEST(test_no_pin_is_the_console);
-    RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
+    RUN_TEST(test_no_pin_offers_an_adc);
+    RUN_TEST(test_led1_and_led3_are_pwm20_channels_0_and_1);
+    RUN_TEST(test_no_other_pin_offers_a_pwm);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     return UNITY_END();
 }

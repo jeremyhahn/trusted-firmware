@@ -7,8 +7,9 @@
  * The pins are the DK's four LEDs and four buttons (Zephyr's board
  * definition, boards/nordic/nrf54l15dk/nrf54l15dk_common.dtsi). The console
  * UARTE's pins, P1.4 and P1.5, are the SoC file's
- * (src/hal/cortex-m/nrf54l/hal_uart.c) and not in the table. Every other
- * capability is off by file selection until a slice drives it.
+ * (src/hal/cortex-m/nrf54l/hal_uart.c) and not in the table. PWM is PWM20 on
+ * LED1 and LED3 (board.c says why those two). Every other capability is off
+ * by file selection until a slice drives it.
  *
  */
 #ifndef TFW_BOARD_NRF54L15_DK_H
@@ -19,12 +20,12 @@
 
 #define TFW_PIN_COUNT  8u
 #define TFW_PORT_COUNT 3u      /* GPIO P0, P1 and P2 */
-#define TFW_PWM_COUNT  0u
+#define TFW_PWM_COUNT  2u      /* PWM20 channels 0 and 1, on LED1 and LED3 */
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE 0u
 
 #define TFW_FEATURE_ANALOG  0
-#define TFW_FEATURE_PWM     0
+#define TFW_FEATURE_PWM     1   /* PWM20 (src/hal/cortex-m/nrf54l/hal_pwm.c) */
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0

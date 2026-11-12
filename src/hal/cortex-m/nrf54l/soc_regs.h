@@ -11,6 +11,7 @@
  *                domain, on the DK's console pins (P1.4 TX, P1.5 RX), which
  *                the DK's debug probe bridges to USB; interrupt 198
  *   P0, P1, P2   the three GPIO ports
+ *   PWM20        the PWM, in the same peripheral domain as UARTE20 and P1
  *   WDT30        the Secure-only watchdog: reset on expiry
  *   OSCILLATORS  the PLL that sets the CPU clock
  *   CLOCK        the high-frequency crystal's start task
@@ -77,6 +78,37 @@
 #define TFW_NRF_PIN_CNF_INPUT       0x0u          /* DIR input, input buffer connected, no pull */
 #define TFW_NRF_PIN_CNF_PULLUP      (3u << 2)     /* PULL Pullup */
 #define TFW_NRF_PIN_CNF_RESET       0x2u          /* input, input buffer disconnected (GPIO_PIN_CNF_ResetValue) */
+
+/* ---- PWM20 (nrf54l15_global.h NRF_PWM20_S_BASE; nrf54l15_types.h,
+ * NRF_PWM_Type and its PWM_* fields) */
+#define TFW_NRF_PWM_BASE            0x500D2000u
+#define TFW_NRF_PWM_CHANNELS        4u            /* PSEL.OUT[4], EVENTS_COMPAREMATCH[4] */
+#define TFW_NRF_PWM_STOP            TFW_CM_REG(TFW_NRF_PWM_BASE + 0x004u)   /* TASKS_STOP */
+#define TFW_NRF_PWM_SEQ0_START      TFW_CM_REG(TFW_NRF_PWM_BASE + 0x010u)   /* TASKS_DMA.SEQ[0].START */
+#define TFW_NRF_PWM_SHORTS          TFW_CM_REG(TFW_NRF_PWM_BASE + 0x200u)
+#define TFW_NRF_PWM_INTEN           TFW_CM_REG(TFW_NRF_PWM_BASE + 0x300u)
+#define TFW_NRF_PWM_ENABLE          TFW_CM_REG(TFW_NRF_PWM_BASE + 0x500u)
+#define TFW_NRF_PWM_MODE            TFW_CM_REG(TFW_NRF_PWM_BASE + 0x504u)
+#define TFW_NRF_PWM_COUNTERTOP      TFW_CM_REG(TFW_NRF_PWM_BASE + 0x508u)
+#define TFW_NRF_PWM_PRESCALER       TFW_CM_REG(TFW_NRF_PWM_BASE + 0x50Cu)
+#define TFW_NRF_PWM_DECODER         TFW_CM_REG(TFW_NRF_PWM_BASE + 0x510u)
+#define TFW_NRF_PWM_LOOP            TFW_CM_REG(TFW_NRF_PWM_BASE + 0x514u)
+#define TFW_NRF_PWM_SEQ0_REFRESH    TFW_CM_REG(TFW_NRF_PWM_BASE + 0x528u)   /* SEQ[0].REFRESH */
+#define TFW_NRF_PWM_SEQ0_ENDDELAY   TFW_CM_REG(TFW_NRF_PWM_BASE + 0x52Cu)   /* SEQ[0].ENDDELAY */
+#define TFW_NRF_PWM_PSEL_OUT(n)     TFW_CM_REG(TFW_NRF_PWM_BASE + 0x560u + 4u * (uint32_t)(n))
+#define TFW_NRF_PWM_SEQ0_PTR        TFW_CM_REG(TFW_NRF_PWM_BASE + 0x704u)   /* DMA.SEQ[0].PTR */
+#define TFW_NRF_PWM_SEQ0_MAXCNT     TFW_CM_REG(TFW_NRF_PWM_BASE + 0x708u)   /* DMA.SEQ[0].MAXCNT, in bytes */
+
+#define TFW_NRF_PWM_ENABLE_ON       1u            /* PWM_ENABLE_ENABLE_Enabled */
+#define TFW_NRF_PWM_MODE_UP         0u            /* PWM_MODE_UPDOWN_Up: edge-aligned */
+#define TFW_NRF_PWM_PRESCALER_DIV16 4u            /* PWM_PRESCALER_PRESCALER_DIV_16: 1 MHz */
+#define TFW_NRF_PWM_DECODER_INDIV   2u            /* PWM_DECODER_LOAD_Individual, MODE_RefreshCount (0) */
+#define TFW_NRF_PWM_COUNTERTOP_MAX  0x7FFFu       /* PWM_COUNTERTOP_COUNTERTOP_Msk */
+/* A compare value's bit 15 is its polarity, set for a pin high for the first
+ * value-many counts of the period: Zephyr's drivers/pwm/pwm_nrfx.c,
+ * PWM_NRFX_CH_POLARITY_MASK, for a channel not inverted. Not an MDK field
+ * (the sequence is RAM, not a register). */
+#define TFW_NRF_PWM_VALUE_HIGH_FIRST 0x8000u
 
 /* ---- WDT30 */
 #define TFW_NRF_WDT_BASE            0x50108000u

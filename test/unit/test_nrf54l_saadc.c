@@ -3,8 +3,9 @@
 /*
  * The nRF54L15 DK's analog read (src/hal/cortex-m/nrf54l/hal_adc.c) against
  * a register model of the SAADC, on x86. The driver is the image's,
- * unchanged: this file stands in for cm_regs.h, sending TFW_CM_REG to the
- * model, and includes hal_adc.c, so the model can see the EasyDMA buffer the
+ * unchanged: test/model/cortex-m/nrf54l_saadc_model.h stands in for the
+ * register header, sending register accesses to the model, and this file
+ * includes hal_adc.c, so the model can see the EasyDMA buffer the
  * driver points RESULT.PTR at.
  *
  * The model acts on a task at the next register access, as the i.MX 95's
@@ -18,9 +19,7 @@
 
 #include "unity.h"
 
-#define TFW_CM_REGS_H
-static volatile uint32_t *saadc_model_reg(uintptr_t addr);
-#define TFW_CM_REG(addr) (*saadc_model_reg((uintptr_t)(addr)))
+#include "nrf54l_saadc_model.h"
 
 #include "hal_adc.c"
 

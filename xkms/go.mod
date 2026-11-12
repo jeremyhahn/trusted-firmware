@@ -9,7 +9,7 @@
 // true, and this file is why sdk/go never needs to change for it.
 module github.com/jeremyhahn/trusted-firmware/xkms
 
-go 1.27.3
+go 1.27.4
 
 // The versions below are the module graph go-xkms v0.57.0-alpha resolved. They
 // are listed here so the graph is pruned (every module's go.mod is not needed
@@ -23,7 +23,7 @@ require (
 )
 
 require (
-	cel.dev/expr v0.25.3 // indirect
+	cel.dev/expr v0.26.0 // indirect
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.3 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
@@ -247,7 +247,7 @@ require (
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/telemetry v0.0.0-20261021172232-6cd571d43fbb // indirect
 	golang.org/x/term v0.47.0 // indirect

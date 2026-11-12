@@ -15,13 +15,22 @@
 #include "imx95_model.h"
 #include "board_profile.h"
 #include "tpm.h"
+#include "soc_regs.h"
+#include "tfw/board.h"
+#include "reader.h"
+#include "pwm.h"
 
 /* The model's TPM: any non-zero base will do, the HAL is handed it. */
 #define MODEL_BASE  0x10000000u
 #define MODEL_SPAN  0x88u        /* PARAM to CONF, words */
 #define MODEL_CHANS 4u           /* PARAM.CHAN the model reports */
 
+/* GPIO2, the bank the board's pins are on (soc_calc.c), for the command
+ * through src/caps/pwm.c: only its direction register is modelled. */
+#define MODEL_GPIO2 0x43810000u
+
 static uint32_t model_regs[MODEL_SPAN / 4u];
+static uint32_t model_pddr;      /* GPIO2's PDDR */
 static uint32_t model_stray;     /* any address outside the TPM */
 static unsigned model_touches;   /* every access, inside or out */
 static unsigned model_strays;
@@ -32,8 +41,21 @@ volatile uint32_t *tfw_imx95_model_reg(uintptr_t addr)
     if (addr >= MODEL_BASE && addr < MODEL_BASE + MODEL_SPAN && (addr & 3u) == 0u) {
         return &model_regs[(addr - MODEL_BASE) / 4u];
     }
+    if (addr == MODEL_GPIO2 + TFW_IMX95_GPIO_PDDR) {
+        return &model_pddr;
+    }
     model_strays++;
     return &model_stray;
+}
+
+uint32_t tfw_imx95_model_irq_save(void)
+{
+    return 0u;
+}
+
+void tfw_imx95_model_irq_restore(uint32_t primask)
+{
+    (void)primask;
 }
 
 static uint32_t reg(uint32_t off)
@@ -52,6 +74,7 @@ static const tfw_pwmref_t ch1 = { 0u, 1u, 1u, 3u };
 void setUp(void)
 {
     memset(model_regs, 0, sizeof model_regs);
+    model_pddr    = 0u;
     model_stray   = 0u;
     model_touches = 0u;
     model_strays  = 0u;
@@ -185,6 +208,33 @@ static void test_tpm_base_zero_is_unsupported(void)
     TEST_ASSERT_EQUAL_UINT(0u, model_touches);
 }
 
+/* Codex P1 (board.c:35): with the TPM unknown, PWM_WRITE on pin 2 is refused
+ * by the board table before src/caps/pwm.c makes the pin an output, so a
+ * refused request never drives what is attached to an input. Pin 3, an
+ * output already, keeps its direction too; duty 0 (stop) is refused alike. */
+static void test_pwm_write_refused_leaves_the_pin_an_input(void)
+{
+    static const uint8_t duties[2] = { 128u, 0u };
+    tfw_pinref_t pin2;
+    tfw_pinref_t pin3;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(2u, &pin2));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(3u, &pin3));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin3, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin2, TFW_PIN_INPUT));
+    TEST_ASSERT_EQUAL_HEX32(1u << 3, model_pddr);
+    for (uint8_t i = 0u; i < 2u; i++) {
+        uint8_t      req[2] = { 2u, duties[i] };
+        tfw_reader_t r;
+
+        tfw_reader_init(&r, req, (uint8_t)sizeof req);
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_pwm_cmd_write(&r, NULL));
+        TEST_ASSERT_EQUAL_HEX32(1u << 3, model_pddr);
+    }
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(2u) & TFW_PIN_PWM);
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(3u) & TFW_PIN_PWM);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -196,5 +246,6 @@ int main(void)
     RUN_TEST(test_tpm_stop_disables_the_channel_only);
     RUN_TEST(test_tpm_a_pin_with_no_channel_is_range);
     RUN_TEST(test_tpm_base_zero_is_unsupported);
+    RUN_TEST(test_pwm_write_refused_leaves_the_pin_an_input);
     return UNITY_END();
 }

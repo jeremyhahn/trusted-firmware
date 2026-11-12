@@ -16,8 +16,11 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 4u },   /* 4: GPIO5 */
 };
 
-/* Pins 2 and 3 carry the TPM's PWM channels when PWM=1 (TFW_PWM_COUNT 2). */
-#if TFW_PWM_COUNT
+/* Pins 2 and 3 carry the TPM's PWM channels when PWM=1 (TFW_PWM_COUNT 2)
+ * and the M7's TPM is known (TFW_IMX95_TPM_BASE non-zero). Until then no pin
+ * offers one: tfw_board_pwm() refuses PWM_WRITE before src/caps/pwm.c makes
+ * the pin an output for a TPM that cannot run, and CAPS advertises none. */
+#if TFW_PWM_COUNT && TFW_IMX95_TPM_BASE != 0u
 #define BOARD_PWM(n)  (n)
 #define BOARD_PIN_PWM TFW_PIN_PWM
 #else

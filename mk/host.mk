@@ -698,8 +698,13 @@ $(HOST_DIR)/test_imx95_hal: test/unit/test_imx95_hal.c test/model/imx95_model.c 
 
 # The M7's PWM on a TPM (hal_pwm.c, tpm.h) against the TPM register model in
 # the test file itself, which defines tfw_imx95_model_reg for the TPM alone
-# (imx95_model.c is not linked). Compiled with PWM=1's define, as the row is.
+# (imx95_model.c is not linked) and GPIO2's direction register. Compiled with
+# PWM=1's define, as the row is; PWM_WRITE runs through src/caps/pwm.c on the
+# board's own table, so a refusal is checked to leave the pin's direction.
 $(HOST_DIR)/test_imx95_tpm: test/unit/test_imx95_tpm.c src/hal/cortex-m/imx95/hal_pwm.c \
+                        src/hal/cortex-m/imx95/hal_gpio.c src/hal/cortex-m/imx95/soc_calc.c \
+                        src/caps/pwm.c src/core/reader.c src/core/board_lookup.c \
+                        boards/frdm-imx95-m7/board.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) -DTFW_CM_PWM=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

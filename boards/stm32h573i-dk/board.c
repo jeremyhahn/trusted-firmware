@@ -22,10 +22,10 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
  * Then the Arduino header's A0 to A5, at the pins Zephyr's board names
  * (boards/st/stm32h573i_dk/arduino_r3_connector.dtsi), each at its ADC1
  * input as hal_stm32's pin table for the part gives it
- * (dts/st/h5/stm32h573iikxq-pinctrl.dtsi, adc1_inpN_pXX); both pinned in
- * docs/reference/README.md. adc_ch is the INP number. The pins are analog
- * only: they stay in the analog mode they leave reset in, as nothing else
- * drives them. */
+ * (dts/st/h5/stm32h573iikxq-pinctrl.dtsi, adc1_inpN_pXX); both pinned, at a
+ * commit and SHA-256, in docs/reference/README.md. adc_ch is the INP number.
+ * The pins are analog only; a GPIO command can still reach them, so the ADC
+ * HAL puts a pin back to analog, no pull, before each read of it. */
 const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 0  LD1 green  PI9 */ { TFW_PB(1u, 9u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 1  LD2 orange PI8 */ { TFW_PB(1u, 8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },

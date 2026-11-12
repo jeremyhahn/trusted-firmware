@@ -66,10 +66,16 @@ pinned files do not settle.
 
 The boot row is `frdm-mcxn947:soft:soft:p256-soft:0:0` in `mk/boot.mk`
 `BOOT_SUPPORTED`: the software DICE root, the soft store, P-256 signature
-verify, the 32 KB boot region every Cortex-M row uses. Whether the image fits
-its region is measured by `make bootloader-check`, which needs the ARM
-toolchain; the lane that added the row had none, so the fit is **not yet
-measured**.
+verify, the 32 KB boot region every Cortex-M row uses. The fit is
+measured by `make bootloader` for that row (`mk/boot.mk`, `boot-size-check`):
+
+```
+tfw-boot frdm-mcxn947 flash   8492 / 32768    ram  8516 / 319488 (soft tier, p256-soft)
+```
+
+Flash is 8492 of the 32768-byte region, 24276 bytes (74%) of headroom; RAM is
+8516 of 319488 bytes, 310972 bytes of headroom. Measured at commit `48d85486`
+with arm-none-eabi-gcc 14.2.1 20241119 (Arm GNU Toolchain 14.2.Rel1).
 
 **UART.** `boot/hal/cortex-m/mcxn94x/boot_uart.c` drives LPUART4 on the
 application's pins at the same 12 MHz FRO, polled, no interrupt enabled. The

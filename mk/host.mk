@@ -2356,6 +2356,16 @@ $(HOST_DIR)/test_nrf54l_soc_tables: test/unit/test_nrf54l_soc_tables.c src/hal/c
                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its tone (the nrf54l15 row): the TIMER arithmetic in tone_calc.h, and
+# hal_tone.c, unchanged, against the register model the test file supplies
+# behind test/model/cortex-m/cm_regs.h, compiled as test_imx95_hal is.
+HOST_NRF54L_CFLAGS = -Itest/model/cortex-m -Itest/model -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m \
+                     -Iboards/nrf54l15-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_nrf54l_tone: test/unit/test_nrf54l_tone.c src/hal/cortex-m/nrf54l/hal_tone.c \
+                              src/hal/cortex-m/nrf54l/soc_tables.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # Its reset cause (#17): soc_reset.c reads RESETREAS through a pointer the
 # caller names, so the test hands it a fake word.
 $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nrf54l/soc_reset.c \

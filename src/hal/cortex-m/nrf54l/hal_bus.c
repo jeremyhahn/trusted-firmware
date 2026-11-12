@@ -22,10 +22,15 @@
 /* The longest transaction is 255 bytes out and 255 in, about 46 ms at
  * 100 kHz; the wait allows twice that, polled once a microsecond. */
 #define TWIM_WAIT_US 100000uL
+#define TWIM_STOP_US 1000uL
 
 /* The write's RAM copy: EasyDMA reads its buffer from RAM, and the caller's
  * bytes may be constants. */
 static uint8_t s_txbuf[255];
+
+/* Set when a transfer that never stopped left the TWIM disabled; the next
+ * transfer enables it again. */
+static uint8_t s_off;
 
 static void twim_clear_events(void)
 {
@@ -62,6 +67,21 @@ static tfw_status_t twim_wait(void)
     TFW_NRF_TWIM_SHORTS = 0u;
     if (n == TWIM_WAIT_US) {
         TFW_NRF_TWIM_STOP = 1u;
+        for (n = 0u; n < TWIM_STOP_US; n++) {
+            if (TFW_NRF_TWIM_EV_STOPPED != 0u) {
+                break;
+            }
+            tfw_hal_delay_us(1u);
+        }
+        if (n == TWIM_STOP_US) {
+            /* The STOP never took: disabling the TWIM is the one way left to
+             * take the EasyDMA off the caller's buffers before they go. */
+            TFW_NRF_TWIM_ENABLE    = 0u;
+            TFW_NRF_TWIM_TX_MAXCNT = 0u;
+            TFW_NRF_TWIM_RX_MAXCNT = 0u;
+            s_off = 1u;
+        }
+        twim_clear_events();
         return TFW_ERR_TIMEOUT;
     }
     TFW_NRF_TWIM_EV_STOPPED = 0u;
@@ -92,6 +112,7 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
     TFW_NRF_TWIM_INTEN     = 0u;
     TFW_NRF_TWIM_SHORTS    = 0u;
     TFW_NRF_TWIM_ENABLE    = TFW_NRF_TWIM_ENABLE_ON;
+    s_off                  = 0u;
     return TFW_OK;
 }
 
@@ -100,6 +121,10 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
 {
     if (wlen == 0u && rlen == 0u) {
         return TFW_OK;
+    }
+    if (s_off) {
+        TFW_NRF_TWIM_ENABLE = TFW_NRF_TWIM_ENABLE_ON;
+        s_off               = 0u;
     }
     twim_clear_events();
     TFW_NRF_TWIM_ADDRESS = (uint32_t)addr7;

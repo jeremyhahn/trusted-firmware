@@ -67,6 +67,8 @@ typedef struct {
     int      present;
     int      dnack_at;           /* write byte refused, -1 none */
     int      hang;               /* STOPPED never raised */
+    uint32_t stop_lag;           /* microseconds a STOP takes to raise STOPPED */
+    int      stop_pending;
     uint8_t  answer[16];
 
     /* What crossed the bus. */
@@ -112,9 +114,14 @@ static uint32_t *field(uint32_t off)
 static void bus_stop(void)
 {
     s_twim.stops++;
-    if (!s_twim.hang) {
-        s_twim.events_stopped = 1u;
+    if (s_twim.hang) {
+        return;
     }
+    if (s_twim.stop_lag > 0u) {
+        s_twim.stop_pending = 1;
+        return;
+    }
+    s_twim.events_stopped = 1u;
 }
 
 static void bus_error(uint32_t src)
@@ -215,6 +222,13 @@ volatile uint32_t *tfw_nrf54l_model_reg(uintptr_t addr)
 void tfw_hal_delay_us(uint16_t us)
 {
     s_delays += us;
+    if (s_twim.stop_pending) {
+        s_twim.stop_lag = s_twim.stop_lag > us ? s_twim.stop_lag - us : 0u;
+        if (s_twim.stop_lag == 0u) {
+            s_twim.stop_pending   = 0;
+            s_twim.events_stopped = 1u;
+        }
+    }
 }
 
 static uint8_t s_rd[16];
@@ -345,6 +359,35 @@ static void test_twim_never_stopped_times_out(void)
     TEST_ASSERT_TRUE(s_delays > 0u);
 }
 
+/* A read whose STOP never takes: the TWIM is disabled and its EasyDMA counts
+ * cleared before the caller's buffer is handed back, and the next transfer
+ * enables it again. */
+static void test_twim_read_never_stopped_disables(void)
+{
+    s_twim.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.rxd_maxcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.txd_maxcnt);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.shorts);
+
+    s_twim.hang = 0;
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+}
+
+/* A STOPPED that comes late, inside the STOP's own wait: still a timeout,
+ * but the transfer has ended and the TWIM stays enabled. */
+static void test_twim_read_stopped_late(void)
+{
+    s_twim.stop_lag = 100000u + 10u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, xfer(0x35u, NULL, 0u, 2u));
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_HEX32(6u, s_twim.regs[O_ENABLE / 4u]);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_stopped);
+}
+
 static void test_twim_empty_transaction_does_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, xfer(0x60u, NULL, 0u, 0u));
@@ -376,6 +419,8 @@ int main(void)
     RUN_TEST(test_twim_read_address_nack);
     RUN_TEST(test_twim_data_nack);
     RUN_TEST(test_twim_never_stopped_times_out);
+    RUN_TEST(test_twim_read_never_stopped_disables);
+    RUN_TEST(test_twim_read_stopped_late);
     RUN_TEST(test_twim_empty_transaction_does_nothing);
     RUN_TEST(test_spi_and_onewire_refuse);
     return UNITY_END();

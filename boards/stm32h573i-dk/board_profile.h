@@ -4,9 +4,10 @@
  * ST STM32H573I-DK Discovery kit (#14, docs/boards/stm32h573i-dk.md): the
  * generic Cortex-M port on an STM32H573IIK3Q.
  *
- * The pins are the kit's four user LEDs. The kit's converters, buses,
- * Ethernet and secure element are not driven yet, so every other capability
- * is off by file selection, as on mps2-an505.
+ * The pins are the kit's four user LEDs and the Arduino header's six analog
+ * inputs, on ADC1 (src/hal/cortex-m/stm32h5/hal_adc.c). The kit's PWM,
+ * buses, Ethernet and secure element are not driven yet, so every other
+ * capability is off by file selection, as on mps2-an505.
  *
  * The board id is PROVISIONAL (boards/stm32h573i-dk/profile.mk).
  */
@@ -16,13 +17,15 @@
 #define TFW_BOARD_NAME "stm32h573i-dk"
 #define TFW_BOARD_ID   0x43u   /* docs/boards/board-id-registry.md */
 
-#define TFW_PIN_COUNT  4u
-#define TFW_PORT_COUNT 2u      /* GPIOF and GPIOI, the LEDs' banks */
+#define TFW_PIN_COUNT  10u
+#define TFW_PORT_COUNT 4u      /* GPIOF, GPIOI, GPIOA, GPIOB */
 #define TFW_PWM_COUNT  0u
-#define TFW_ADC_COUNT  0u
+/* TFW_ADC_COUNT is the HAL's range-check bound, one past the highest ADC1
+ * input a pin uses: A3 is INP19. */
+#define TFW_ADC_COUNT  20u
 #define TFW_EEPROM_SIZE 0u
 
-#define TFW_FEATURE_ANALOG  0
+#define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0

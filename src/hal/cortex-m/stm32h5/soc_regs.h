@@ -35,6 +35,14 @@
 #define TFW_H5_RCC_CR_HSIDIVF  (0x1u << 5)    /* the divider has switched */
 #define TFW_H5_RCC_APB2ENR_USART1EN (0x1u << 14)
 
+/* The ADC's bus clock and its kernel clock (RCC_TypeDef CCIPR5 at 0xE8;
+ * RCC_AHB2ENR_ADCEN, RCC_CCIPR5_ADCDACSEL). ADCDACSEL 0 is the AHB clock,
+ * HCLK (stm32h5xx_ll_rcc.h LL_RCC_ADCDAC_CLKSOURCE_HCLK), so no PLL starts. */
+#define TFW_H5_RCC_CCIPR5      TFW_CM_REG(TFW_H5_RCC_BASE + 0xE8u)
+#define TFW_H5_RCC_AHB2ENR_ADCEN    (0x1u << 10)
+#define TFW_H5_RCC_CCIPR5_ADCDACSEL (0x7u << 0)
+#define TFW_H5_RCC_ADCDACSEL_HCLK   0x0u
+
 /* ---- FLASH interface, AHB1PERIPH_BASE_NS + 0x2000 */
 #define TFW_H5_FLASH_ACR       TFW_CM_REG(0x40022000u)
 #define TFW_H5_FLASH_ACR_LATENCY 0xFu
@@ -119,6 +127,64 @@
 #define TFW_H5_VCP_TX_PIN      9u
 #define TFW_H5_VCP_RX_PIN      10u
 #define TFW_H5_VCP_AF          7u
+
+/* ---- ADC1, AHB2PERIPH_BASE_NS + 0x8000 (ADC1_BASE_NS), and the ADC1/ADC2
+ * common block at + 0x8300 (ADC12_COMMON_BASE_NS). The offsets are
+ * ADC_TypeDef's and ADC_Common_TypeDef's (CCR at 0x300 + 0x08). */
+#define TFW_H5_ADC1_BASE       0x42028000u
+#define TFW_H5_ADC1_ISR        TFW_CM_REG(TFW_H5_ADC1_BASE + 0x00u)
+#define TFW_H5_ADC1_CR         TFW_CM_REG(TFW_H5_ADC1_BASE + 0x08u)
+#define TFW_H5_ADC1_CFGR       TFW_CM_REG(TFW_H5_ADC1_BASE + 0x0Cu)
+#define TFW_H5_ADC1_SMPR1      TFW_CM_REG(TFW_H5_ADC1_BASE + 0x14u)
+#define TFW_H5_ADC1_SMPR2      TFW_CM_REG(TFW_H5_ADC1_BASE + 0x18u)
+#define TFW_H5_ADC1_SQR1       TFW_CM_REG(TFW_H5_ADC1_BASE + 0x30u)
+#define TFW_H5_ADC1_DR         TFW_CM_REG(TFW_H5_ADC1_BASE + 0x40u)
+#define TFW_H5_ADC1_DIFSEL     TFW_CM_REG(TFW_H5_ADC1_BASE + 0xB0u)
+#define TFW_H5_ADC1_OR         TFW_CM_REG(TFW_H5_ADC1_BASE + 0xC8u)
+#define TFW_H5_ADC12_CCR       TFW_CM_REG(0x42028308u)
+
+/* ISR flags, cleared by writing 1 (ADC_ISR_*). */
+#define TFW_H5_ADC_ISR_ADRDY   (0x1u << 0)
+#define TFW_H5_ADC_ISR_EOC     (0x1u << 2)
+#define TFW_H5_ADC_ISR_EOS     (0x1u << 3)
+#define TFW_H5_ADC_ISR_OVR     (0x1u << 4)
+
+/* CR (ADC_CR_*). */
+#define TFW_H5_ADC_CR_ADEN     (0x1u << 0)
+#define TFW_H5_ADC_CR_ADDIS    (0x1u << 1)
+#define TFW_H5_ADC_CR_ADSTART  (0x1u << 2)
+#define TFW_H5_ADC_CR_ADVREGEN (0x1u << 28)
+#define TFW_H5_ADC_CR_DEEPPWD  (0x1u << 29)
+#define TFW_H5_ADC_CR_ADCALDIF (0x1u << 30)
+#define TFW_H5_ADC_CR_ADCAL    (0x1u << 31)
+
+/* CFGR (ADC_CFGR_*): RES 0 is 12 bits, ALIGN 0 right, CONT 0 single. */
+#define TFW_H5_ADC_CFGR_RES    (0x3u << 3)
+#define TFW_H5_ADC_CFGR_OVRMOD (0x1u << 12)
+#define TFW_H5_ADC_CFGR_CONT   (0x1u << 13)
+#define TFW_H5_ADC_CFGR_ALIGN  (0x1u << 15)
+
+/* SMPR1 holds channels 0-9 and SMPR2 10-19, three bits each
+ * (ADC_SMPR1_SMP0 to ADC_SMPR2_SMP19). Code 7 is 640.5 ADC clock cycles,
+ * the longest (stm32h5xx_ll_adc.h LL_ADC_SAMPLINGTIME_640CYCLES_5). */
+#define TFW_H5_ADC_SMP_640C5   0x7u
+
+/* SQR1 (ADC_SQR1_L, ADC_SQR1_SQ1): L 0 is one conversion. */
+#define TFW_H5_ADC_SQR1_L      (0xFu << 0)
+#define TFW_H5_ADC_SQR1_SQ1_POS 6u
+#define TFW_H5_ADC_SQR1_SQ1    (0x1Fu << 6)
+#define TFW_H5_ADC_DR_12BIT    0x0FFFu
+#define TFW_H5_ADC_CHANNELS    20u             /* INP0 to INP19, DIFSEL's width */
+
+/* OR OP0 connects INP0 to its pin, PA0: stm32h5xx_ll_adc.h
+ * LL_ADC_EnableChannel0_GPIO, "must be enabled when INP0 is used". */
+#define TFW_H5_ADC_OR_OP0      (0x1u << 0)
+
+/* CCR (ADC_CCR_CKMODE, ADC_CCR_PRESC): CKMODE 0 is the RCC kernel clock
+ * through PRESC; PRESC 1 divides it by 2 (LL_ADC_CLOCK_ASYNC_DIV2). */
+#define TFW_H5_ADC_CCR_CKMODE  (0x3u << 16)
+#define TFW_H5_ADC_CCR_PRESC_POS 18u
+#define TFW_H5_ADC_CCR_PRESC   (0xFu << 18)
 
 /* ---- IWDG, APB1PERIPH_BASE_NS + 0x3000 */
 #define TFW_H5_IWDG_KR         TFW_CM_REG(0x40003000u)

@@ -1,4 +1,6 @@
 # ci-template: v1.35.1 (customized)
+# ready_for_review (2026-11-12, CA m2586, handbook ci-template v1.35.3): a
+# draft PR marked ready for review now starts the PR checks.
 # v1.35.1 (2026-11-11, CA m2557, Codex findings on go-luks2 #444 and
 # xkey-android #129): the Signatures job fetches a named base that is not in
 # the clone and fails closed when it still cannot be read (it no longer falls
@@ -385,7 +387,7 @@ on:
     # included. An action outside `types` matches nothing: no run, no status.
     # The cost: adding `ci:full` waits for the PR's next push or update-branch,
     # or a workflow_dispatch.
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:                    # re-fire a whole workflow; also the
                                         # only retry when a run was never
                                         # created (see v1.3 correction above)

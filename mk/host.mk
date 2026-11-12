@@ -2378,6 +2378,7 @@ $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp
 HOST_RP2350_CFLAGS = -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m \
                      -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
 $(HOST_DIR)/test_rp2350_pwm: test/unit/test_rp2350_pwm.c src/hal/cortex-m/rp2350/hal_pwm.c \
+                             src/hal/cortex-m/rp2350/hal_gpio.c src/caps/pwm.c src/core/reader.c \
                              test/model/cortex-m/rp2350/rp2350_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

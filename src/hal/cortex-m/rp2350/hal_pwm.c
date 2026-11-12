@@ -67,9 +67,12 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 
     if (!(pin_on & ((uint32_t)1u << p->bit))) {
         TFW_CM_REG(TFW_RP_PADS_GPIO(p->bit)) = tfw_rp_pad_value(0u);
-        TFW_RP_IO_CTRL(p->bit) = TFW_RP_FUNC_PWM;
         pin_on |= (uint32_t)1u << p->bit;
     }
+    /* Every write, not only the first: PWM_WRITE sets the pin up as an SIO
+     * output before each call (src/caps/pwm.c), which moves FUNCSEL off the
+     * slice, so a cached "already routed" bit would leave it on SIO. */
+    TFW_RP_IO_CTRL(p->bit) = TFW_RP_FUNC_PWM;
     return TFW_OK;
 }
 

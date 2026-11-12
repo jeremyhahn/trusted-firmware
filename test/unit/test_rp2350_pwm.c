@@ -8,6 +8,8 @@
  */
 #include "unity.h"
 #include "tfw/hal.h"
+#include "tfw/board.h"
+#include "../../src/caps/pwm.h"
 #include "rp2350_model.h"
 #include "../../src/hal/cortex-m/rp2350/soc_regs.h"
 #include "../../src/hal/cortex-m/rp2350/soc_calc.h"
@@ -109,6 +111,63 @@ static void test_pwm_bad_slice_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_RP_PWM_CC(2u)));
 }
 
+/* The board lookups PWM_WRITE makes, for logical pin 2 = GPIO2 (slice 1,
+ * channel A). The suite supplies them so the command handler runs against
+ * the RP2350 HAL alone. */
+uint8_t tfw_board_pin_flags(tfw_pin_t pin)
+{
+    (void)pin;
+    return 0u;
+}
+
+tfw_status_t tfw_board_pwm(tfw_pin_t pin, tfw_pwmref_t *out)
+{
+    if (pin != 2u) {
+        return TFW_ERR_UNSUPPORTED;
+    }
+    *out = gp2;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
+{
+    if (pin != 2u) {
+        return TFW_ERR_BAD_PIN;
+    }
+    out->port = 0u;
+    out->bit  = 2u;
+    return TFW_OK;
+}
+
+static tfw_status_t pwm_cmd(uint8_t pin, uint8_t duty)
+{
+    uint8_t      buf[2];
+    tfw_reader_t r;
+
+    buf[0] = pin;
+    buf[1] = duty;
+    tfw_reader_init(&r, buf, 2u);
+    return tfw_pwm_cmd_write(&r, 0);
+}
+
+/* PWM_WRITE puts the pin in SIO output mode before every write, so each
+ * write must hand the pin back to the PWM slice: a second nonzero duty that
+ * left FUNCSEL at SIO would park the pin at its SIO level and report OK. */
+static void test_pwm_cmd_successive_writes_keep_pwm_function(void)
+{
+    const uintptr_t io_ctrl = 0x40028000u + 0x004u + 8u * 2u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, pwm_cmd(2u, 64u));
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FUNC_PWM, reg(io_ctrl));
+    TEST_ASSERT_EQUAL_HEX32(64u, reg(TFW_RP_PWM_CC(1u)) & 0xFFFFu);
+
+    TEST_ASSERT_EQUAL(TFW_OK, pwm_cmd(2u, 200u));
+    TEST_ASSERT_EQUAL_HEX32(TFW_RP_FUNC_PWM, reg(io_ctrl));
+    TEST_ASSERT_EQUAL_HEX32(200u, reg(TFW_RP_PWM_CC(1u)) & 0xFFFFu);
+
+    TEST_ASSERT_EQUAL(TFW_OK, pwm_cmd(2u, 0u));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -120,5 +179,6 @@ int main(void)
     RUN_TEST(test_pwm_channel_a_and_b);
     RUN_TEST(test_pwm_stop);
     RUN_TEST(test_pwm_bad_slice_refused);
+    RUN_TEST(test_pwm_cmd_successive_writes_keep_pwm_function);
     return UNITY_END();
 }

@@ -16,6 +16,7 @@
 #include "tfw/board.h"
 #include "tfw/hal.h"
 #include "soc_regs.h"
+#include "../../src/caps/pwm.h"
 
 extern volatile uint16_t tfw_nrf54l_pwm_seq[4];
 
@@ -86,6 +87,37 @@ static void test_duty_255_drives_the_pin_high_without_the_peripheral(void)
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, TFW_NRF_PWM_PSEL_OUT(0));
     TEST_ASSERT_EQUAL_HEX32(1uL << 10, TFW_NRF_GPIO_OUTSET(P1));
     TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_OUTPUT, TFW_NRF_GPIO_PIN_CNF(P1, 10u));
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_START);
+}
+
+/* The wire path: PWM_WRITE goes through src/caps/pwm.c, which routes duty
+ * zero to tfw_hal_pwm_stop(). After duty 255 set the pin high with OUTSET,
+ * duty zero must drive it low again with OUTCLR. */
+static tfw_status_t wire_pwm_write(uint8_t pin, uint8_t duty)
+{
+    uint8_t      buf[2] = { pin, duty };
+    tfw_reader_t r;
+
+    tfw_reader_init(&r, buf, (uint8_t)sizeof buf);
+    return tfw_pwm_cmd_write(&r, NULL);
+}
+
+static void test_wire_duty_0_after_255_drives_the_pin_low(void)
+{
+    uint32_t out;
+
+    /* DK pin 1 is LED1, P1.10, PWM20 channel 0. */
+    TEST_ASSERT_EQUAL(TFW_OK, wire_pwm_write(1u, 255u));
+    TEST_ASSERT_EQUAL_HEX32(1uL << 10, TFW_NRF_GPIO_OUTSET(P1));
+    out = TFW_NRF_GPIO_OUTSET(P1);
+    TFW_NRF_GPIO_OUTSET(P1) = 0u;
+    TFW_NRF_GPIO_OUTCLR(P1) = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, wire_pwm_write(1u, 0u));
+    TEST_ASSERT_EQUAL_HEX32(1uL << 10, TFW_NRF_GPIO_OUTCLR(P1));
+    out = (out | TFW_NRF_GPIO_OUTSET(P1)) & ~TFW_NRF_GPIO_OUTCLR(P1);
+    TEST_ASSERT_EQUAL_HEX32(0u, out & (1uL << 10));
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, TFW_NRF_PWM_PSEL_OUT(0));
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_START);
 }
 
@@ -161,6 +193,7 @@ int main(void)
     RUN_TEST(test_a_duty_is_scaled_to_countertop_and_played);
     RUN_TEST(test_duty_0_drives_the_pin_low_without_the_peripheral);
     RUN_TEST(test_duty_255_drives_the_pin_high_without_the_peripheral);
+    RUN_TEST(test_wire_duty_0_after_255_drives_the_pin_low);
     RUN_TEST(test_a_second_channel_plays_beside_the_first);
     RUN_TEST(test_stop_disconnects_and_stops_the_last_channel);
     RUN_TEST(test_a_ref_the_unit_has_no_channel_for_is_refused);

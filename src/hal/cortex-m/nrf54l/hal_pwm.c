@@ -127,5 +127,8 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
         return st;
     }
     release(p->channel);
+    /* Stop is the wire's duty zero (src/caps/pwm.c): the pin goes low as a
+     * GPIO output, even after a duty-255 OUTSET left it high. */
+    TFW_NRF_GPIO_OUTCLR(port_base[p->port]) = 1uL << p->bit;
     return TFW_OK;
 }

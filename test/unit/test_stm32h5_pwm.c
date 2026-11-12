@@ -11,7 +11,10 @@
 #include <string.h>
 
 #include "unity.h"
-#include "../../src/hal/cortex-m/stm32h5/h5_calc.h"
+#include "tfw/hal.h"
+#include "soc_regs.h"
+#include "h5_calc.h"
+#include "../../src/caps/pwm.h"
 
 /* TIM_TypeDef's registers this port writes (CMSIS stm32h573xx.h). */
 typedef struct {
@@ -30,6 +33,56 @@ typedef struct {
 #define EGR_UG   (0x1u << 0)   /* TIM_EGR_UG_Pos 0 */
 
 static tim_model_t tim;
+
+/* The suite's register file, TFW_CM_REG's target (test/model/cortex-m/
+ * cm_regs.h, -DTFW_CM_MODEL_REGFILE): a word for each address the SoC files
+ * touch, zero until written, as the registers this port uses reset. */
+#define REGFILE_WORDS 32u
+static struct {
+    uintptr_t addr;
+    uint32_t  val;
+} regfile[REGFILE_WORDS];
+static unsigned regfile_used;
+
+volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
+{
+    unsigned i;
+
+    for (i = 0u; i < regfile_used; i++) {
+        if (regfile[i].addr == addr) {
+            return &regfile[i].val;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(regfile_used < REGFILE_WORDS, "register file full");
+    regfile[regfile_used].addr = addr;
+    return &regfile[regfile_used++].val;
+}
+
+/* The Arduino header's D6 and D5: PH10 and PH11, TIM5 channels 1 and 2
+ * (boards/stm32h573i-dk/board.c). */
+#define D6     4u
+#define D5     5u
+#define GPIOH  tfw_h5_gpio_base(TFW_H5_GPIOA_BASE, TFW_H5_GPIO_STRIDE, 7u)
+
+/* PWM_WRITE as the wire hands it to the command: pin, duty. */
+static tfw_status_t wire_write(uint8_t pin, uint8_t duty)
+{
+    uint8_t      req[2] = { pin, duty };
+    tfw_reader_t r;
+
+    tfw_reader_init(&r, req, (uint8_t)sizeof req);
+    return tfw_pwm_cmd_write(&r, NULL);
+}
+
+static uint32_t mode_of(uint8_t bit)
+{
+    return (TFW_H5_GPIO_MODER(GPIOH) >> (2u * bit)) & 0x3u;
+}
+
+static uint32_t af_of(uint8_t bit)
+{
+    return (TFW_H5_GPIO_AFRH(GPIOH) >> (4u * (bit & 7u))) & 0xFu;
+}
 
 /* hal_pwm.c's sequence: the timer's base once, then the channel. */
 static void model_write(uint8_t channel, uint8_t duty, uint32_t timer_hz)
@@ -72,10 +125,35 @@ static uint32_t high_counts(uint8_t channel)
 void setUp(void)
 {
     memset(&tim, 0, sizeof(tim));
+    memset(regfile, 0, sizeof(regfile));
+    regfile_used = 0u;
 }
 
+/* hal_pwm.c keeps which channels are live; stop them all so each test
+ * starts from reset. */
 void tearDown(void)
 {
+    uint8_t ch;
+
+    for (ch = 1u; ch <= 4u; ch++) {
+        tfw_pwmref_t ref = { .unit = TFW_H5_PWM_UNIT, .channel = ch, .port = 7u, .bit = 10u };
+
+        (void)tfw_hal_pwm_stop(&ref);
+    }
+}
+
+/* The command makes the pin a GPIO output before each write (src/caps/
+ * pwm.c); a second write must hand it back to the timer, or PWM_WRITE
+ * answers OK with the pin a plain output. */
+void test_each_wire_write_gives_the_pin_back_to_the_timer(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, wire_write(D6, 100u));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(10u));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_PWM_AF, af_of(10u));
+    TEST_ASSERT_EQUAL(TFW_OK, wire_write(D6, 200u));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_MODE_AF, mode_of(10u));
+    TEST_ASSERT_EQUAL_UINT32(TFW_H5_PWM_AF, af_of(10u));
+    TEST_ASSERT_EQUAL_UINT32(200u, TFW_H5_TIM_CCR(1u));
 }
 
 void test_pwm_psc_1khz(void)
@@ -175,5 +253,6 @@ int main(void)
     RUN_TEST(test_channels_three_and_four_use_ccmr2);
     RUN_TEST(test_each_channels_ccer_bit);
     RUN_TEST(test_stop_clears_only_its_channel);
+    RUN_TEST(test_each_wire_write_gives_the_pin_back_to_the_timer);
     return UNITY_END();
 }

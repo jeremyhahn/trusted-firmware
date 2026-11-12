@@ -9,11 +9,11 @@
  * LEDC give: ARR 254, PSC from TFW_CM_CPU_HZ (h5_calc.h), PWM mode 1 with
  * preload, so duty 0 is never high and duty 255 always is. The timer is
  * configured on the first write, not at boot, and the pin is handed to the
- * timer (alternate function 2) on its channel's first write. Stop disables
+ * timer (alternate function 2) on every write. Stop disables
  * the channel and returns the pin to an output driven low.
  *
  * Registers and bits: soc_regs.h and h5_calc.h, each cited there. Built and
- * host-tested against a register model (test/unit/test_stm32h5_pwm.c); not
+ * host-tested, unchanged, against modeled registers (test/unit/test_stm32h5_pwm.c); not
  * yet run on the board.
  */
 #include <stdint.h>
@@ -85,9 +85,11 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
             TFW_H5_TIM_CCMR2 = tfw_h5_pwm_ccmr(TFW_H5_TIM_CCMR2, p->channel);
         }
         TFW_H5_TIM_CCER = tfw_h5_pwm_ccer(TFW_H5_TIM_CCER, p->channel, 1u);
-        pin_to_timer(p);
         pwm_live |= live;
     }
+    /* Every write: the PWM command makes the pin a GPIO output before each
+     * one (src/caps/pwm.c), so the timer gets it back each time. */
+    pin_to_timer(p);
     return TFW_OK;
 }
 

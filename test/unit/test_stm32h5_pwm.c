@@ -14,6 +14,7 @@
 #include "tfw/hal.h"
 #include "soc_regs.h"
 #include "h5_calc.h"
+#include "regfile_model.h"
 #include "../../src/caps/pwm.h"
 
 /* TIM_TypeDef's registers this port writes (CMSIS stm32h573xx.h). */
@@ -33,30 +34,6 @@ typedef struct {
 #define EGR_UG   (0x1u << 0)   /* TIM_EGR_UG_Pos 0 */
 
 static tim_model_t tim;
-
-/* The suite's register file, TFW_CM_REG's target (test/model/cortex-m/
- * cm_regs.h, -DTFW_CM_MODEL_REGFILE): a word for each address the SoC files
- * touch, zero until written, as the registers this port uses reset. */
-#define REGFILE_WORDS 32u
-static struct {
-    uintptr_t addr;
-    uint32_t  val;
-} regfile[REGFILE_WORDS];
-static unsigned regfile_used;
-
-volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
-{
-    unsigned i;
-
-    for (i = 0u; i < regfile_used; i++) {
-        if (regfile[i].addr == addr) {
-            return &regfile[i].val;
-        }
-    }
-    TEST_ASSERT_TRUE_MESSAGE(regfile_used < REGFILE_WORDS, "register file full");
-    regfile[regfile_used].addr = addr;
-    return &regfile[regfile_used++].val;
-}
 
 /* The Arduino header's D6 and D5: PH10 and PH11, TIM5 channels 1 and 2
  * (boards/stm32h573i-dk/board.c). */
@@ -125,8 +102,7 @@ static uint32_t high_counts(uint8_t channel)
 void setUp(void)
 {
     memset(&tim, 0, sizeof(tim));
-    memset(regfile, 0, sizeof(regfile));
-    regfile_used = 0u;
+    regfile_model_reset();
 }
 
 /* hal_pwm.c keeps which channels are live; stop them all so each test

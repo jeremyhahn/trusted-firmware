@@ -95,7 +95,7 @@
 #define TFW_MPS2_SPI_BASE     0x40026000u
 
 /* The CMSDK APB timer TIMER0, the tone's clock: 0x40000000 and interrupt 8
- * (AN500, Arm DAI 0500, the memory map and interrupt map). QEMU v10.0.0
+ * (AN500, Arm DAI 0500B, 3.1 Table 3-1 and the interrupt map). QEMU v10.0.0
  * hw/arm/mps2.c maps the cmsdk-apb-timer at 0x40000000 with IRQ 8. */
 #define TFW_MPS2_TIMER0_BASE  0x40000000u
 #define TFW_MPS2_TIMER0_IRQ   8

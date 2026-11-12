@@ -4,8 +4,8 @@
  * The MPS2 tone (src/hal/cortex-m/mps2/hal_tone.c) against a model: the
  * CMSDK APB timer TIMER0 (CTRL, VALUE, RELOAD, INTSTATUS/INTCLEAR), the NVIC's
  * set/clear-enable words and the FPGA I/O block's LED word, the tone's pin.
- * TFW_CM_REG is redirected to the model before the driver is included, so the
- * driver is compiled unchanged. Built for mps2-an505 (20 MHz, TIMER0 IRQ 3).
+ * test/model/cortex-m/mps2_tone_model.h, forced in by mk/host.mk, points the
+ * driver's register accesses at the model, so it compiles unchanged. Built for mps2-an505 (20 MHz, TIMER0 IRQ 3).
  */
 #include <stdint.h>
 
@@ -14,14 +14,11 @@ static uint32_t m_led;        /* FPGAIO LED */
 static uint32_t m_iser, m_icer, m_icpr;
 static uint32_t m_sink;       /* any other address */
 
-static uint32_t *tfw_model_reg(uintptr_t a);
-#define TFW_CM_REG(addr) (*(volatile uint32_t *)tfw_model_reg((uintptr_t)(addr)))
-
 #include "../../src/hal/cortex-m/mps2/hal_tone.c"
 
 #include "unity.h"
 
-static uint32_t *tfw_model_reg(uintptr_t a)
+volatile uint32_t *tfw_mps2_tone_model_reg(uintptr_t a)
 {
     if (a >= TFW_MPS2_TIMER0_BASE && a < TFW_MPS2_TIMER0_BASE + 16u)
         return &m_timer[(a - TFW_MPS2_TIMER0_BASE) / 4u];

@@ -535,12 +535,15 @@ $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/
 	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -DTFW_CM_SPI=1 \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The MPS2 TONE=1 row: hal_tone.c, included by the suite after it points
-# TFW_CM_REG at a model CMSDK timer, NVIC and FPGA I/O LED word, with
+# The MPS2 TONE=1 row: hal_tone.c, included by the suite, its registers
+# pointed at a model CMSDK timer, NVIC and FPGA I/O LED word by the forced
+# test/model/cortex-m/mps2_tone_model.h, with
 # mps2-an505's profile under TFW_CM_TONE as its profile.mk's TONE=1 builds it.
 $(HOST_DIR)/test_mps2_tone: test/unit/test_mps2_tone.c src/hal/cortex-m/mps2/hal_tone.c \
+                            test/model/cortex-m/mps2_tone_model.h \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -idirafter src/hal/cortex-m -DTFW_CM_TONE=1 \
+	   -include test/model/cortex-m/mps2_tone_model.h \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule

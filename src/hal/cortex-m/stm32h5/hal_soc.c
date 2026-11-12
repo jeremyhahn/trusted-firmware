@@ -14,8 +14,10 @@
  * wait states in VOS3, the voltage range of reset, so the wait states are
  * written first and read back, and the divider second, as the order of a
  * clock raise must be. Every bus then runs at TFW_CM_CPU_HZ: SysTick
- * (src/hal/cortex-m/hal_tick.c) and USART1, whose kernel clock at reset is
- * PCLK2 (RCC_CCIPR1 USART1SEL 0).
+ * (src/hal/cortex-m/hal_tick.c) and the board's console USART (soc_console.h):
+ * the STM32H573I-DK's USART1, whose kernel clock at reset is PCLK2 (RCC_CCIPR1
+ * USART1SEL 0), or the NUCLEO-H563ZI's USART3, whose is PCLK1 (USART3SEL 0,
+ * TO CONFIRM against RM0481).
  *
  * The watchdog. The IWDG counts the LSI, 32 kHz typical (ST's
  * stm32h5xx_hal_conf_template.h, LSI_VALUE), down from its reload and

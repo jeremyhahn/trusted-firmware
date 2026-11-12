@@ -95,13 +95,12 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
     uint32_t a   = addr;
     uint32_t end = a + len;
-    uint32_t n;
 
     if (end > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;
     }
     if (a < EE_USER_LO) {
-        n = (end < EE_USER_LO ? end : EE_USER_LO) - a;
+        uint32_t n = (end < EE_USER_LO ? end : EE_USER_LO) - a;
         memcpy(buf, ee_at((uint32_t)TFW_CM_PLATFORM_BASE + a), n);
         buf += n;
         a   += n;

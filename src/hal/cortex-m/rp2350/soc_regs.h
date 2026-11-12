@@ -18,6 +18,7 @@
  *   IO_BANK0    a GPIO's function select
  *   PADS_BANK0  a GPIO's pad: input enable, pulls, isolation
  *   SIO         the single-cycle GPIO set, clear and output-enable registers
+ *   PWM         the twelve slices' control, divider, compare and wrap registers
  *   UART0       an Arm PL011, the byte link, on GPIO0 (TX) and GPIO1 (RX)
  *
  * Every block on the APB has the atomic aliases the datasheet describes at
@@ -38,6 +39,7 @@
 #define TFW_RP_RESETS_DONE      TFW_CM_REG(TFW_RP_RESETS_BASE + 0x8u)
 #define TFW_RP_RESET_IO_BANK0   (1u << 6)
 #define TFW_RP_RESET_PADS_BANK0 (1u << 9)
+#define TFW_RP_RESET_PWM        (1u << 16)
 #define TFW_RP_RESET_UART0      (1u << 26)
 
 /* ---- XOSC: base §2.2 table 13; CTRL, STATUS, STARTUP §8.2.8 tables 630-634 */
@@ -99,6 +101,7 @@
 #define TFW_RP_PAD_PUE          (1u << 3)
 #define TFW_RP_PAD_PDE          (1u << 2)
 #define TFW_RP_FUNC_UART        2u
+#define TFW_RP_FUNC_PWM         4u
 #define TFW_RP_FUNC_SIO         5u
 #define TFW_RP_FUNC_NULL        0x1Fu           /* FUNCSEL's reset value: no function */
 
@@ -109,6 +112,20 @@
 #define TFW_RP_SIO_GPIO_OUT_CLR TFW_CM_REG(TFW_RP_SIO_BASE + 0x020u)
 #define TFW_RP_SIO_GPIO_OE_SET  TFW_CM_REG(TFW_RP_SIO_BASE + 0x038u)
 #define TFW_RP_SIO_GPIO_OE_CLR  TFW_CM_REG(TFW_RP_SIO_BASE + 0x040u)
+
+/* ---- PWM: base §2.2 table 13; slice registers CHn_CSR, CHn_DIV, CHn_CTR,
+ * CHn_CC, CHn_TOP at 0x14 per slice, §12.5.3 (PWM register list). Twelve
+ * slices; GPIO n < 32 is slice (n >> 1) & 7, channel A when n is even,
+ * §12.5.2. Addresses, so the atomic aliases apply as for RESETS. */
+#define TFW_RP_PWM_BASE         0x400A8000u
+#define TFW_RP_PWM_SLICES       12u
+#define TFW_RP_PWM_CSR(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x00u)
+#define TFW_RP_PWM_DIV(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x04u)
+#define TFW_RP_PWM_CTR(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x08u)
+#define TFW_RP_PWM_CC(n)        (TFW_RP_PWM_BASE + 0x14u * (n) + 0x0Cu)
+#define TFW_RP_PWM_TOP(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x10u)
+#define TFW_RP_PWM_CSR_EN       (1u << 0)       /* DIVMODE 0: free-running */
+#define TFW_RP_PWM_CC_B_SHIFT   16u             /* A is CC[15:0], B CC[31:16] */
 
 /* ---- UART0, PL011. Base §2.2 table 13; registers §12.1.8, tables
  * 1081-1089; the IRQ number §3.2 table 95. */

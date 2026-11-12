@@ -11,8 +11,8 @@
  * not fit the host build's port key in any case (test/mock/hal_types.h).
  *
  * A PWM row has the host's four positional fields so a board table under
- * boards/ compiles against either; no Cortex-M board drives a compare unit
- * yet, so they carry no meaning here beyond that.
+ * boards/ compiles against either. What they mean is the SoC's hal_pwm.c's
+ * (src/hal/cortex-m/rp2350/hal_pwm.c: slice, channel, port 0, GPIO).
  */
 #ifndef TFW_HAL_TYPES_H
 #define TFW_HAL_TYPES_H

@@ -66,6 +66,7 @@ typedef struct {
     /* The device. */
     int      present;
     int      dnack_at;           /* write byte refused, -1 none */
+    int      dnack_stops;        /* the refusal also raises STOPPED */
     int      hang;               /* STOPPED never raised */
     uint32_t stop_lag;           /* microseconds a STOP takes to raise STOPPED */
     int      stop_pending;
@@ -162,6 +163,9 @@ static void bus_write(void)
         s_twim.sent[s_twim.nsent++] = p[i];
         if ((int)i == s_twim.dnack_at) {
             bus_error(ES_DNACK);
+            if (s_twim.dnack_stops) {
+                bus_stop();
+            }
             return;
         }
     }
@@ -349,6 +353,23 @@ static void test_twim_data_nack(void)
     TEST_ASSERT_EQUAL_UINT32(1u, s_twim.stops);
 }
 
+/* The last byte refused, with ERROR and STOPPED both pending at the first
+ * look: a NACK, not success, and the error latch is cleared. */
+static void test_twim_last_byte_nack_with_stopped(void)
+{
+    static const uint8_t wr[3] = { 0x01u, 0x02u, 0x03u };
+
+    s_twim.dnack_at    = 2;
+    s_twim.dnack_stops = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x60u, wr, 3u, 0u));
+    TEST_ASSERT_EQUAL_UINT32(3u, s_twim.nsent);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.tasks_stop);
+    TEST_ASSERT_EQUAL_UINT32(1u, s_twim.stops);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_error);
+    TEST_ASSERT_EQUAL_HEX32(0u, s_twim.errorsrc);
+    TEST_ASSERT_EQUAL_UINT32(0u, s_twim.events_stopped);
+}
+
 static void test_twim_never_stopped_times_out(void)
 {
     static const uint8_t wr[1] = { 0x01u };
@@ -418,6 +439,7 @@ int main(void)
     RUN_TEST(test_twim_address_nack);
     RUN_TEST(test_twim_read_address_nack);
     RUN_TEST(test_twim_data_nack);
+    RUN_TEST(test_twim_last_byte_nack_with_stopped);
     RUN_TEST(test_twim_never_stopped_times_out);
     RUN_TEST(test_twim_read_never_stopped_disables);
     RUN_TEST(test_twim_read_stopped_late);

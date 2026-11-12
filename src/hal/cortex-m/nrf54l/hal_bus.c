@@ -50,17 +50,21 @@ static tfw_status_t twim_wait(void)
     tfw_status_t st = TFW_OK;
 
     for (n = 0u; n < TWIM_WAIT_US; n++) {
-        if (TFW_NRF_TWIM_EV_STOPPED != 0u) {
-            break;
-        }
+        /* ERROR before STOPPED: a NACK of the last byte raises both, and
+         * the STOPPED alone would read as success. */
         if (st == TFW_OK && TFW_NRF_TWIM_EV_ERROR != 0u) {
             TFW_NRF_TWIM_EV_ERROR = 0u;
             src = TFW_NRF_TWIM_ERRORSRC;
             TFW_NRF_TWIM_ERRORSRC = TFW_NRF_TWIM_ERRORSRC_ALL;
             st = (src & (TFW_NRF_TWIM_ERRORSRC_ANACK | TFW_NRF_TWIM_ERRORSRC_DNACK)) != 0u
                      ? TFW_ERR_NACK : TFW_ERR_INTERNAL;
-            TFW_NRF_TWIM_RESUME = 1u;
-            TFW_NRF_TWIM_STOP   = 1u;
+            if (TFW_NRF_TWIM_EV_STOPPED == 0u) {
+                TFW_NRF_TWIM_RESUME = 1u;
+                TFW_NRF_TWIM_STOP   = 1u;
+            }
+        }
+        if (TFW_NRF_TWIM_EV_STOPPED != 0u) {
+            break;
         }
         tfw_hal_delay_us(1u);
     }

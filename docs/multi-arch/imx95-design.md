@@ -133,7 +133,8 @@ has gained since (`tfw_hal_flash_read`, the watchdog).
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | the LPUART the System Manager gives the M7; on the board, one of the four CH9114F channels on J22, whose core mapping is not fixed | UM12527 §2.19; question 13 |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | RGPIO; pin mux from the System Manager | ref ADR d4 |
 | `tfw_hal_adc_init`, `_set_ref`, `_read` | — | not linked in the first slices | — |
-| `tfw_hal_pwm_write`, `_stop`; `tfw_hal_tone_start`, `_stop` | — | not linked in the first slices (TPM later) | IMX95CEC Figure 3 |
+| `tfw_hal_pwm_write`, `_stop` | — | not linked in the first slices (TPM later) | IMX95CEC Figure 3 |
+| `tfw_hal_tone_start`, `_stop` | `hal_tone.c`, `gpt.h` | built (soft:TONE=1 row), host-tested, not run: GPT output compare 1 in restart mode, its interrupt toggling the pin through `tfw_hal_gpio_write`; base zero (unsupported), 24 MHz clock and vector `tfw_cm_irq0` TO CONFIRM, question 17 | Linux `drivers/clocksource/timer-imx-gpt.c` |
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | — | not linked | — |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | ref ADR d4 |
 | `tfw_hal_nvm_read` | SoC | the platform block; where it lives is open | ref ADR Q4; question 6 |

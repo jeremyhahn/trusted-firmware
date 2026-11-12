@@ -53,7 +53,12 @@
 
 #define TFW_IMX95_GPT_PR_MAX   0xFFFu
 
+/* A host test sends the timer to its own registers, as the base. */
+#ifndef TFW_IMX95_GPT_REG
 #define TFW_IMX95_GPT_REG(off) TFW_CM_REG(TFW_IMX95_GPT_BASE + (off))
+#else
+volatile uint32_t *tfw_test_gpt_reg(uint32_t off);   /* the host test's */
+#endif
 
 /* The prescaler and compare value for a tone of `hz`: the interrupt toggles
  * the pin once per match, so a match every half period, clk/(2*hz) counts. In

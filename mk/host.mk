@@ -681,12 +681,6 @@ $(HOST_DIR)/test_imx95_rsc_table: test/unit/test_imx95_rsc_table.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/imx95 -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The i.MX 95 M7 tone's GPT arithmetic (gpt.h, #22): a header with no register
-# access the test reaches, linked alone as soc_calc.c is.
-$(HOST_DIR)/test_imx95_gpt: test/unit/test_imx95_gpt.c \
-                        $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/imx95 -o $@ $^ $(EXTRA_LDFLAGS)
-
 # The i.MX 95 M7 board's HAL -- its UART, pins and watchdog -- against a
 # register model (test/model/imx95_model.c), since QEMU has no i.MX 95. The
 # SoC files are the image's, unchanged: test/model/cortex-m/ goes ahead of
@@ -701,6 +695,17 @@ $(HOST_DIR)/test_imx95_hal: test/unit/test_imx95_hal.c test/model/imx95_model.c 
                         src/hal/cortex-m/imx95/hal_soc.c src/hal/cortex-m/imx95/soc_calc.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The i.MX 95 M7 tone (#22): gpt.h's arithmetic and hal_tone.c, its pin and
+# NVIC on the register model as test_imx95_hal's are. The model has no GPT
+# (its base is TO CONFIRM), so the timer's registers go to the test's own
+# array, at a nonzero base standing in for the unknown one.
+$(HOST_DIR)/test_imx95_gpt: test/unit/test_imx95_gpt.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/hal_tone.c src/hal/cortex-m/imx95/hal_gpio.c \
+                        src/hal/cortex-m/imx95/soc_calc.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -DTFW_IMX95_GPT_BASE=0x1000uL \
+	    '-DTFW_IMX95_GPT_REG(off)=(*tfw_test_gpt_reg(off))' -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The SCMI messages the M7 sends the System Manager: scmi.c has no register
 # access and is linked alone, as soc_calc.c is.

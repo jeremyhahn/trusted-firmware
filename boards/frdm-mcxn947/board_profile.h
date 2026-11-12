@@ -69,6 +69,22 @@
 #define TFW_CM_PLATFORM_BASE  0x101FE000uL
 #define TFW_CM_PLATFORM_SIZE  0x00002000uL
 
+/* The application's EEPROM above TFW_BOOT_EE_LEN (src/hal/cortex-m/mcxn94x/
+ * hal_eeprom.c): the 8 KiB sector directly below the platform block's, so a
+ * write erases this sector and never tfw-boot's. The size is the sector,
+ * TFW_MCXN_FLASH_SECTOR in boot/hal/cortex-m/mcxn94x/mcxn_flash.h
+ * (MCXN947_cm33_core0_features.h at the pinned mcux-sdk commit). No slot,
+ * budget or record reaches it: the application slot ends at
+ * TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE (FLASH_BUDGET in profile.mk),
+ * and there is no second slot. */
+#define TFW_CM_USER_EE_SIZE   0x00002000uL   /* one sector */
+#define TFW_CM_USER_EE_BASE   (TFW_CM_PLATFORM_BASE - TFW_CM_USER_EE_SIZE)
+
+_Static_assert(TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE == TFW_CM_PLATFORM_BASE,
+               "the user EEPROM sector does not end at the platform block");
+_Static_assert(TFW_CM_USER_EE_BASE >= TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE,
+               "the user EEPROM sector overlaps the application slot");
+
 /* Board sizing deviations from config.h: none. */
 
 #endif /* TFW_BOARD_FRDM_MCXN947_H */

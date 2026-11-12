@@ -80,6 +80,8 @@ static struct {
     int      stall;       /* the bus never runs a command */
     int      nack_addr;   /* the target does not answer */
     int      nack_at;     /* the data byte the target refuses, -1 none */
+    int      nack_late;   /* that NACK reaches MSR only with the STOP */
+    int      ndf_held;    /* a late NACK not yet in MSR */
     unsigned busy;        /* 1 between a START and its STOP */
     uint8_t  addressed;   /* the address byte of the last START */
     uint8_t  got[FIFO];   /* bytes the target received */
@@ -113,7 +115,11 @@ static void run(void)
             }
         } else if (op == CMD_TX) {
             if (md.nack_at >= 0 && (unsigned)md.nack_at == md.gotn) {
-                md.msr |= MSR_NDF;
+                if (md.nack_late) {
+                    md.ndf_held = 1;
+                } else {
+                    md.msr |= MSR_NDF;
+                }
             }
             if (md.gotn < FIFO) {
                 md.got[md.gotn++] = d;
@@ -127,6 +133,10 @@ static void run(void)
                 md.busy = 0u;
                 md.stops++;
                 md.msr |= MSR_SDF;
+                if (md.ndf_held) {
+                    md.ndf_held = 0;
+                    md.msr |= MSR_NDF;
+                }
             }
         }
     }
@@ -362,6 +372,29 @@ static void test_lpi2c_data_nack_on_the_last_byte(void)
     TEST_ASSERT_EQUAL_UINT(1u, md.stops);
 }
 
+/* The last byte's NACK arrives after TDF drained, in the MSR read that
+ * also shows SDF: the transfer reports the NACK, and the master still
+ * works for the next transfer. */
+static void test_lpi2c_late_nack_seen_with_stop(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u };
+
+    md.nack_at   = 1;
+    md.nack_late = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 2u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_HEX32(0u, md.msr & (MSR_HALT | MSR_SDF));
+
+    md.nack_at = -1;
+    md.gotn    = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 2u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(2u, md.stops);
+    TEST_ASSERT_EQUAL_MEMORY(wr, md.got, 2u);
+}
+
 /* The bus never runs a command: TIMEOUT, the FIFOs flushed, a STOP asked. */
 static void test_lpi2c_a_transfer_that_never_ends_times_out(void)
 {
@@ -446,6 +479,7 @@ int main(void)
     RUN_TEST(test_lpi2c_read_address_nack);
     RUN_TEST(test_lpi2c_data_nack);
     RUN_TEST(test_lpi2c_data_nack_on_the_last_byte);
+    RUN_TEST(test_lpi2c_late_nack_seen_with_stop);
     RUN_TEST(test_lpi2c_a_transfer_that_never_ends_times_out);
     RUN_TEST(test_lpi2c_zero_length_touches_nothing);
     RUN_TEST(test_lpi2c_clock_at_24mhz);

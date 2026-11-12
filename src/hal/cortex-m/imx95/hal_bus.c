@@ -119,6 +119,12 @@ static tfw_status_t finish(uintptr_t base, tfw_status_t st)
         uint32_t msr = REG(base, TFW_LPI2C_MSR);
 
         if (msr & TFW_LPI2C_MSR_SDF) {
+            /* A wire error can land after TDF drained, in the same
+             * snapshot as STOP: it is the transfer's status. */
+            if ((msr & TFW_LPI2C_MSR_ERR) && st == TFW_OK) {
+                st = flag_status(msr);
+                flush(base);
+            }
             REG(base, TFW_LPI2C_MSR) = TFW_LPI2C_MSR_FLAGS;
             return st;
         }

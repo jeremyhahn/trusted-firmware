@@ -111,10 +111,18 @@ section pins by hash. Where the port depends on behaviour the header cannot
 state (a reset value, a sequence, a pin function), the code says "to confirm"
 and the board page lists it.
 
-**The SE05x documents were not read.** On 2026-11-12, nxp.com answered 404 to
-the data sheet, AN12413 and UM11225 from the lane that entered them, as it did
-for the MCXNx4x manual. They are listed at no revision until one is read, and
-no fact is taken from them. The plug-and-trust tag is the newest of its
+**Three SE05x documents are read; three are not.** On 2026-11-12 the lane
+that entered them read the SE052 data sheet (Rev. 1.5) and AN14277 (Rev. 1.0)
+and recorded each at its revision, hash and reading date; the bench table and
+the onboarding ADR take their facts from these two. AN12413 (Rev. 2.12) is
+pinned the same way, but only its title page and revision history were read:
+it is the SE050's APDU specification, recorded for comparison only, not as
+the SE052F's, and no value is taken from it. The SE052F's applet APDU
+specification is AN12543 (AN14277 §2.1), and its transport is specified by
+UM11225 and GlobalPlatform GPC_SPE_172 (the data sheet, §15); none of these
+three was read: nxp.com answered 404 or asked for a sign-in, and
+GlobalPlatform asks for a licence agreement. They are listed at no revision
+until one is read, and no fact is taken from them. The plug-and-trust tag is the newest of its
 general release line; `v04.07.04_MATTER_EAR3`, listed beside it, is a Matter
 early-access tag. Its licence allows a copy, but the driver takes values from
 it, never code, so it is listed at the commit read, not copied.

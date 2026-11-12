@@ -4,9 +4,11 @@
  * The i.MX 95's LPI2C master registers, for hal_bus.c only. Kept out of
  * soc_regs.h so the PWM and ADC files do not share an edit with it.
  *
- * Each offset and bit is NXP's MCUXpresso SDK device header (MIMX9596_cm7.h,
- * the LPI2C register masks) and agrees with Linux's driver
- * (drivers/i2c/busses/i2c-imx-lpi2c.c, v6.12) wherever Linux names it; EPF and
+ * Each offset and bit is NXP's MCUXpresso SDK device header (MIMX9596_cm7.h
+ * and the periph/PERI_LPI2C.h it includes, nxp-mcuxpresso/mcux-devices-imx
+ * commit d0112c674564adbc10418148001d13b5541ed532) and agrees with Linux's
+ * driver (drivers/i2c/busses/i2c-imx-lpi2c.c, v6.12) wherever Linux names it;
+ * every value was checked against both at those revisions. EPF and
  * FEF are the SDK header's alone. Both are rows of docs/reference/README.md,
  * read for facts only. TO CONFIRM against IMX95RM, which this project does not
  * hold.

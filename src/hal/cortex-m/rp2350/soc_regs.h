@@ -154,6 +154,8 @@
 #define TFW_RP_IC_CON           TFW_CM_REG(TFW_RP_I2C0_BASE + 0x000u)
 #define TFW_RP_IC_TAR           TFW_CM_REG(TFW_RP_I2C0_BASE + 0x004u)
 #define TFW_RP_IC_DATA_CMD      TFW_CM_REG(TFW_RP_I2C0_BASE + 0x010u)
+#define TFW_RP_IC_SS_SCL_HCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x014u) /* table 1113 */
+#define TFW_RP_IC_SS_SCL_LCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x018u) /* table 1114 */
 #define TFW_RP_IC_FS_SCL_HCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x01Cu)
 #define TFW_RP_IC_FS_SCL_LCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x020u)
 #define TFW_RP_IC_INTR_MASK     TFW_CM_REG(TFW_RP_I2C0_BASE + 0x030u)
@@ -168,14 +170,17 @@
 #define TFW_RP_IC_ENABLE_STATUS TFW_CM_REG(TFW_RP_I2C0_BASE + 0x09Cu)
 #define TFW_RP_IC_FS_SPKLEN     TFW_CM_REG(TFW_RP_I2C0_BASE + 0x0A0u)
 
-/* IC_CON: master on, slave off (both required, §12.2.10.2.1), RESTART on,
- * 7-bit addressing, SPEED 2 (fast or fast plus). */
+/* IC_CON (table 1109): master on, slave off (both required, §12.2.10.2.1),
+ * RESTART on, 7-bit addressing. Init ORs in the SPEED: 1 standard mode,
+ * 2 fast or fast plus. */
 #define TFW_RP_IC_CON_MASTER_MODE   (1u << 0)
+#define TFW_RP_IC_CON_SPEED_STD     (1u << 1)
 #define TFW_RP_IC_CON_SPEED_FAST    (2u << 1)
+#define TFW_RP_IC_CON_SPEED_MASK    (3u << 1)
 #define TFW_RP_IC_CON_RESTART_EN    (1u << 5)
 #define TFW_RP_IC_CON_SLAVE_DISABLE (1u << 6)
 #define TFW_RP_IC_CON_MASTER \
-    (TFW_RP_IC_CON_MASTER_MODE | TFW_RP_IC_CON_SPEED_FAST | \
+    (TFW_RP_IC_CON_MASTER_MODE | \
      TFW_RP_IC_CON_RESTART_EN | TFW_RP_IC_CON_SLAVE_DISABLE)
 
 #define TFW_RP_IC_DATA_CMD_CMD_READ (1u << 8)

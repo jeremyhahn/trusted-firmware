@@ -127,9 +127,18 @@ tfw_status_t tfw_hal_i2c_init(uint32_t hz)
 
     /* §12.2.10.2.1: disabled while IC_CON and the counts are written. */
     TFW_RP_IC_ENABLE      = 0u;
-    TFW_RP_IC_CON         = TFW_RP_IC_CON_MASTER;
-    TFW_RP_IC_FS_SCL_HCNT = t.hcnt;
-    TFW_RP_IC_FS_SCL_LCNT = t.lcnt;
+    /* Standard mode up to 100 kHz: its tSU;STA is timed from LCNT, fast
+     * mode's from HCNT (table 1105), so a standard-mode bus driven in fast
+     * mode would get a repeated-START setup below 4.7 us. */
+    if (hz <= TFW_RP_I2C_SS_HZ_MAX) {
+        TFW_RP_IC_CON         = TFW_RP_IC_CON_MASTER | TFW_RP_IC_CON_SPEED_STD;
+        TFW_RP_IC_SS_SCL_HCNT = t.hcnt;
+        TFW_RP_IC_SS_SCL_LCNT = t.lcnt;
+    } else {
+        TFW_RP_IC_CON         = TFW_RP_IC_CON_MASTER | TFW_RP_IC_CON_SPEED_FAST;
+        TFW_RP_IC_FS_SCL_HCNT = t.hcnt;
+        TFW_RP_IC_FS_SCL_LCNT = t.lcnt;
+    }
     TFW_RP_IC_FS_SPKLEN   = t.spklen;
     TFW_RP_IC_INTR_MASK   = 0u;
     return TFW_OK;

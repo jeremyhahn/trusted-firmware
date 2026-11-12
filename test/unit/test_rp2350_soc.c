@@ -139,6 +139,20 @@ static void test_i2c_timing_standard_mode_at_12mhz(void)
     TEST_ASSERT_EQUAL_UINT32(120u, (t.lcnt + 1u) + (t.hcnt + t.spklen + 7u));
 }
 
+/* At 12.1 MHz the 3/5 split leaves a 48-cycle high, 3.97 us: below
+ * standard mode's 4.0 us tHIGH (and tHD;STA, tSU;STO on the same count), so
+ * the high is raised to 49 cycles and the bus runs slower, never faster. */
+static void test_i2c_timing_raises_a_half_to_its_mode_minimum(void)
+{
+    tfw_rp_i2c_timing_t t;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_rp_i2c_timing(12100000u, 100000u, &t));
+    TEST_ASSERT_EQUAL_UINT32(72u, t.lcnt);
+    TEST_ASSERT_EQUAL_UINT32(41u, t.hcnt);
+    TEST_ASSERT_EQUAL_UINT32(49u, t.hcnt + t.spklen + 7u);
+    TEST_ASSERT_EQUAL_UINT32(122u, (t.lcnt + 1u) + (t.hcnt + t.spklen + 7u));
+}
+
 static void test_i2c_timing_clamps_to_the_minimum_counts(void)
 {
     tfw_rp_i2c_timing_t t;
@@ -182,6 +196,7 @@ int main(void)
     RUN_TEST(test_pad_value_input_pullup);
     RUN_TEST(test_i2c_timing_fast_mode_at_12mhz);
     RUN_TEST(test_i2c_timing_standard_mode_at_12mhz);
+    RUN_TEST(test_i2c_timing_raises_a_half_to_its_mode_minimum);
     RUN_TEST(test_i2c_timing_clamps_to_the_minimum_counts);
     RUN_TEST(test_i2c_timing_spike_length_at_125mhz);
     RUN_TEST(test_i2c_timing_refuses_what_it_cannot_make);

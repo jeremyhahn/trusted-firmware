@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The stm32h5 tone HAL (src/hal/cortex-m/stm32h5/hal_tone.c) against a
- * register model: every TFW_CM_REG access goes to a slot table here, and the
+ * register model: every register macro access goes to a slot table here, and the
  * order of first and last access to each register is logged, so the start
  * sequence can be checked in order. hal_tone.c is included unchanged.
  */
@@ -11,7 +11,6 @@
 
 #include "unity.h"
 
-#define TFW_CM_REGS_H   /* the port's cm_regs.h is replaced by the model */
 
 #define MODEL_SLOTS 32u
 #define MODEL_LOG   256u
@@ -39,7 +38,7 @@ static volatile uint32_t *model_reg(uintptr_t addr)
     return &slot[n_slots++].val;
 }
 
-#define TFW_CM_REG(addr) (*model_reg((uintptr_t)(addr)))
+#include "stm32h5_reg_model.h"
 
 static uint32_t tone_tim_hz = 64000000u;
 #define TFW_H5_TONE_TIM_HZ tone_tim_hz

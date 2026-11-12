@@ -2374,7 +2374,7 @@ $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/
 $(HOST_DIR)/test_stm32h5_tone: test/unit/test_stm32h5_tone.c src/hal/cortex-m/stm32h5/hal_tone.c \
                                src/hal/cortex-m/stm32h5/soc_regs.h src/hal/cortex-m/stm32h5/h5_calc.h \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Iboards/stm32h573i-dk \
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/stm32h573i-dk \
 	  $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_stm32h5_tone.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 

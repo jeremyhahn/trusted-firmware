@@ -1,7 +1,7 @@
 # mps2-an500 (Arm AN500 under QEMU)
 
 > **Status: INFORMATIVE** · SPEC row: `cortex-m` · Scope:
-> `boards/mps2-an500/` · Last verified: 2026-10-22
+> `boards/mps2-an500/` · Last verified: 2026-11-12
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is [`adding-a-board.md`](adding-a-board.md);
@@ -56,20 +56,22 @@ the span both regions sit in (`board_profile.h:57`).
 
 | | Value | Source |
 |---|---|---|
-| Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select | `board_profile.h:20`; `board.c:23`–`31` |
-| Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
-| PWM, ADC, EEPROM, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
-| I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:31`–`46` |
+| Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select; 4 in the `ONEWIRE=1` row, pin 3 the 1-Wire line | `board_profile.h`, `TFW_PIN_COUNT`; `board.c` |
+| Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register; 3 in the `ONEWIRE=1` row, port 2 the CMSDK GPIO block 0 | `board_profile.h`, `TFW_PORT_COUNT`; `board.c` |
+| PWM, ADC, EEPROM | none: QEMU models no converter or PWM this port drives | `board_profile.h` |
+| I2C, SPI, 1-Wire | off by default, each on in its own row: see Buses | `board_profile.h` |
 
 ## Buses
 
-Both are on the shield 0 header, and QEMU v10.0.0's `hw/arm/mps2.c` attaches
-no device to either, so the default image links neither (`profile.mk:60`–`74`).
+I2C and SPI are on the shield 0 header, and QEMU v10.0.0's `hw/arm/mps2.c`
+attaches no device to either; it leaves the GPIO block 1-Wire uses
+unimplemented, so the line reads low. The default image links none of them (`profile.mk:60`–`74`).
 
 | Bus | Block and base | Row | Sources |
 |---|---|---|---|
 | I2C | the shield 0 SBCon at `0x40029000`; no select, so no pin | `I2C=1` (`soft:I2C=1`) | AN500 (Arm DAI 0500B) memory map; QEMU `hw/arm/mps2.c` (Shield0 SBCon), `hw/i2c/arm_sbcon_i2c.c`; `board_profile.h:73`–`78` |
 | SPI | the shield 0 PL022 at `0x40026000`; select pin 2, MISC bit 8 `SHIELD0_SPI_nCS` | `SPI=1` (`soft:SPI=1`) | AN500 3.1 Table 3-1, 3.7, 3.13 Table 3-6; QEMU `hw/arm/mps2.c` (Shield0 PL022), `hw/ssi/pl022.c`; `board_profile.h:80`–`88` |
+| 1-Wire | bit-banged on the CMSDK AHB GPIO block 0 at `0x40010000`, bit 0: low is output-low, high is input with the bus pull-up; pin 3. The AVR master's slot timings, each slot with interrupts masked | `ONEWIRE=1` (`soft:ONEWIRE=1`) | Arm DDI 0479 4.6 (AHB GPIO); QEMU `hw/arm/mps2.c` (unimplemented GPIO); `src/hal/cortex-m/mps2/gpio_line.h`, `hal_bus.c`; `board_profile.h`, `TFW_MPS2_GPIO0_BASE` |
 
 ## Boot
 

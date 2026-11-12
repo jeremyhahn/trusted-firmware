@@ -2382,10 +2382,10 @@ $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp
 # profile gives the clk_sys the SCL counts are worked from. A short poll bound
 # keeps the stuck-bus tests quick.
 $(HOST_DIR)/test_rp2350_i2c: test/unit/test_rp2350_i2c.c src/hal/cortex-m/rp2350/hal_bus.c \
-                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+                             test/model/cortex-m/rp2350/i2c_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(subst -Iboards/$(HOST_BOARD),-Iboards/rp2350-pico2w,$(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS))) \
 	    $(EXTRA_CFLAGS) -DTFW_RP_I2C_POLLS=2000uL -Iboot/hal/cortex-m/rp2350/test \
-	    -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m -o $@ $^ $(EXTRA_LDFLAGS)
+	    -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)

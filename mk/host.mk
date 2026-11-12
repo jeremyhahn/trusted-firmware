@@ -159,6 +159,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_none_mutate.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
                             test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c test/unit/test_mcxn_ctimer_pwm.c \
+                            test/unit/test_mcxn_pwm_cmd.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
@@ -670,6 +671,19 @@ $(HOST_DIR)/test_mcxn_lpuart: test/unit/test_mcxn_lpuart.c src/hal/cortex-m/mcxn
 $(HOST_DIR)/test_mcxn_ctimer_pwm: test/unit/test_mcxn_ctimer_pwm.c src/hal/cortex-m/mcxn94x/ctimer_pwm.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
+
+# PWM_WRITE through its handler on the FRDM-MCXN947's own pin table and the
+# SoC's HAL files, unchanged, the peripheral window mapped as host memory by
+# the test (#371). The board's profile replaces the host board's, and
+# src/hal/cortex-m/ ahead of test/mock gives the port's own hal_types.h.
+HOST_MCXN_CFLAGS = -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
+                   -Iboards/frdm-mcxn947 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_mcxn_pwm_cmd: test/unit/test_mcxn_pwm_cmd.c src/caps/pwm.c src/core/reader.c \
+                        src/core/board_lookup.c boards/frdm-mcxn947/board.c \
+                        src/hal/cortex-m/mcxn94x/hal_gpio.c src/hal/cortex-m/mcxn94x/hal_pwm.c \
+                        src/hal/cortex-m/mcxn94x/ctimer_pwm.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_MCXN_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the
 # SoC directory's one file with no register access, linked alone, as the M7
@@ -1193,6 +1207,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart \
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \
+                    $(HOST_DIR)/test_mcxn_pwm_cmd \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \

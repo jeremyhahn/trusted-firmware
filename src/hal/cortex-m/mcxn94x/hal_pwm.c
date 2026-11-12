@@ -10,7 +10,7 @@
  *
  * Nothing is set up at boot. The first write to a timer gates its clock on,
  * releases its reset, selects FRO12M at divide 1, enables its function clock
- * and starts it; the first write to a pin hands it to the timer's match output
+ * and starts it; every write to a pin hands it to the timer's match output
  * (PCR MUX TFW_MCXN_PWM_PIN_FN, the board's). A stop takes the channel out of
  * PWM mode, returns the pin to a GPIO output driven low, and stops the timer
  * when it was the last channel on it.
@@ -34,11 +34,10 @@ static const uint8_t ct_ctrl_reg[TFW_MCXN_CTIMER_COUNT] = { 1u, 1u, 1u, 2u, 2u }
 static const uint8_t ct_ctrl_bit[TFW_MCXN_CTIMER_COUNT] = { 26u, 27u, 22u, 21u, 22u };
 
 static uint8_t running;      /* bit n: CTIMER n started */
-static uint32_t pin_muxed[TFW_MCXN_PORT_COUNT]; /* bit b of port p: on the timer */
 
 static volatile uint32_t *ct_regs(uint8_t unit)
 {
-    return (volatile uint32_t *)TFW_MCXN_CTIMER_BASE(unit);
+    return (volatile uint32_t *)(uintptr_t)TFW_MCXN_CTIMER_BASE(unit);
 }
 
 static uint8_t is_ref(const tfw_pwmref_t *p)
@@ -79,11 +78,11 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     if (st != TFW_OK) {
         return st;
     }
-    if ((pin_muxed[p->port] & (1u << p->bit)) == 0u) {
-        TFW_MCXN_PORT_PCR(p->port, p->bit) =
-            (TFW_MCXN_PWM_PIN_FN << TFW_MCXN_PCR_MUX_SHIFT) | TFW_MCXN_PCR_IBE;
-        pin_muxed[p->port] |= 1u << p->bit;
-    }
+    /* Every write, not the first only: the handler makes the pin a GPIO
+     * output before each write (src/caps/pwm.c), which puts its MUX back to
+     * 0, so a pin left "already on the timer" would stay on GPIO. */
+    TFW_MCXN_PORT_PCR(p->port, p->bit) =
+        (TFW_MCXN_PWM_PIN_FN << TFW_MCXN_PCR_MUX_SHIFT) | TFW_MCXN_PCR_IBE;
     return TFW_OK;
 }
 
@@ -99,7 +98,6 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
     TFW_MCXN_GPIO_PCOR(p->port) = bit;
     TFW_MCXN_GPIO_PDDR(p->port) |= bit;
     TFW_MCXN_PORT_PCR(p->port, p->bit) = TFW_MCXN_PCR_IBE;
-    pin_muxed[p->port] &= ~bit;
     if ((running & (1u << p->unit)) != 0u &&
         mcxn_ctimer_pwm_halt(ct_regs(p->unit), p->channel) != 0u) {
         running &= (uint8_t)~(1u << p->unit);

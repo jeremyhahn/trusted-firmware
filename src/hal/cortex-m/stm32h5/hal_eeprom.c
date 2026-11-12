@@ -50,14 +50,13 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {
     uint32_t end = (uint32_t)addr + len;
     uint32_t low;
-    tfw_status_t st;
 
     if (end > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;
     }
     low = addr < TFW_BOOT_EE_LEN ? (end < TFW_BOOT_EE_LEN ? end : TFW_BOOT_EE_LEN) - addr : 0u;
     if (low != 0u) {
-        st = tfw_hal_nvm_read(addr, buf, (uint8_t)low);
+        tfw_status_t st = tfw_hal_nvm_read(addr, buf, (uint8_t)low);
         if (st != TFW_OK) {
             return st;
         }

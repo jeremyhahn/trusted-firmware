@@ -12,8 +12,14 @@
 
 #include <stdint.h>
 
-#include "../nrf54l_model.h"
+#include "../../nrf54l_model.h"
+
+volatile uint32_t *tfw_nrf54l_model_reg(uintptr_t addr);
 
 #define TFW_CM_REG(addr) (*tfw_nrf54l_model_reg((uintptr_t)(addr)))
+
+/* No barriers on the host: the model's registers are plain memory. */
+static inline void tfw_cm_dsb(void) { }
+static inline void tfw_cm_isb(void) { }
 
 #endif /* TFW_CM_REGS_H */

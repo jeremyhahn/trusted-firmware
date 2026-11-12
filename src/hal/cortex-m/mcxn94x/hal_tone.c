@@ -76,13 +76,16 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     TFW_MCXN_CT4_MR0 = mr;
     TFW_MCXN_CT4_MCR = TFW_MCXN_CT_MCR_MR0R;
     TFW_MCXN_CT4_EMR = TFW_MCXN_CT_EMR_EMC_TOGGLE << TFW_MCXN_CT_EMR_EMC0_SHIFT;
-    if (tone_port != p->port || tone_bit != p->bit) {
+    if (tone_port < TFW_MCXN_PORT_COUNT &&
+        (tone_port != p->port || tone_bit != p->bit)) {
         tone_pin_release();
-        TFW_MCXN_PORT_PCR(p->port, p->bit) =
-            ((uint32_t)TFW_MCXN_TONE_PIN_FN << TFW_MCXN_PCR_MUX_SHIFT) | TFW_MCXN_PCR_IBE;
-        tone_port = p->port;
-        tone_bit  = p->bit;
     }
+    /* The mux on every start: a GPIO mode command (or the scheduler, through
+     * tfw_hal_gpio_mode) may have taken the same pin back since the last. */
+    TFW_MCXN_PORT_PCR(p->port, p->bit) =
+        ((uint32_t)TFW_MCXN_TONE_PIN_FN << TFW_MCXN_PCR_MUX_SHIFT) | TFW_MCXN_PCR_IBE;
+    tone_port = p->port;
+    tone_bit  = p->bit;
     TFW_MCXN_CT4_TCR = TFW_MCXN_CT_TCR_CEN;
     return TFW_OK;
 }

@@ -175,7 +175,8 @@ Every exported function, type, method, constant and variable of the three
 public packages, build-tag-gated files included, in `go doc` order. A row is
 `pkg.Name`, or `pkg.Type.Method` for a method; a group of constants that share
 a type and a doc comment is one row. The contract is the first sentence of the
-doc comment, which is where to change it. `make scripts-test` fails when a
+doc comment, which is where to change it. `make sdk-lint` (through
+`make api-doc-check`) fails when a
 symbol is exported and has no row here, or a row names one that is gone.
 
 ### `tfw` (`sdk/go`)

@@ -3,9 +3,9 @@
 /*
  * The STM32H5's ADC1 driver (src/hal/cortex-m/stm32h5/hal_adc.c) against a
  * register model, as test/model/imx95_model.c models the i.MX 95: the file
- * is the image's, unchanged, with TFW_CM_REG sent to the model below
- * (this file claims cm_regs.h's guard first, so soc_regs.h finds the
- * model's TFW_CM_REG and not the bus's).
+ * is the image's, unchanged, with the register macro sent to the model
+ * (test/model/cortex-m/stm32h5_reg_model.h claims cm_regs.h's guard first,
+ * so soc_regs.h finds the model's register macro and not the bus's).
  *
  * The model applies a write when the next register access comes (or at
  * settle()), comparing the cell the driver wrote with the value it was
@@ -19,13 +19,12 @@
  * Runs under `make host-test`, against the STM32H573I-DK's board profile.
  */
 
-#define TFW_CM_REGS_H
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
 static volatile uint32_t *model_reg(uintptr_t addr);
-#define TFW_CM_REG(addr) (*model_reg((uintptr_t)(addr)))
+#include "stm32h5_reg_model.h"
 
 #include "hal_adc.c"
 

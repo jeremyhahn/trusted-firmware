@@ -2373,8 +2373,10 @@ $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/
 # replaces the host board's, for its channel count and core clock.
 $(HOST_DIR)/test_stm32h5_adc: test/unit/test_stm32h5_adc.c src/hal/cortex-m/stm32h5/hal_adc.c \
                               src/hal/cortex-m/stm32h5/soc_regs.h src/hal/cortex-m/stm32h5/h5_calc.h \
+                              test/model/cortex-m/stm32h5_reg_model.h \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Iboards/stm32h573i-dk \
+	    -Itest/model/cortex-m \
 	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	    -o $@ test/unit/test_stm32h5_adc.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 

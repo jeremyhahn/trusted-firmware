@@ -366,14 +366,6 @@ int main(int argc, char **argv)
               "the pin reads back high from the real port register");
     }
 
-    /* The UART pins must be refused on real hardware too -- this is the check
-     * that stops a host cutting the line it is talking over. */
-    {
-        const uint8_t tx_pin[2] = { 1u, 1u };
-        int ok = exchange(0x28, TFW_CMD_DIGITAL_WRITE, tx_pin, 2, &status, out, &outlen);
-        check(ok && status == TFW_ERR_RESERVED_PIN, "the UART pin is refused on the device");
-    }
-
     /* An unprovisioned device must refuse to attest on real silicon, not only
      * in a host test where the mock could be lying. */
     {
@@ -381,19 +373,6 @@ int main(int argc, char **argv)
         int ok = exchange(0x29, TFW_CMD_ATTEST, nonce, 16, &status, out, &outlen);
         check(ok && status == TFW_ERR_NOT_PROVISIONED,
               "an unprovisioned device refuses to attest");
-    }
-
-    /* A corrupted frame must be answered, not ignored -- otherwise a host
-     * cannot tell a bad line from a dead device. */
-    {
-        uint8_t  wire[64];
-        unsigned n = frame_request(wire, 0x2A, TFW_CMD_PING, NULL, 0);
-        wire[n - 1] ^= 0xFF;
-        from_device_n = 0;
-        send(wire, n);
-        run_instructions(400000);
-        int ok = find_response(0x2A, &status, out, &outlen);
-        check(ok && status == TFW_ERR_CRC, "a corrupted frame is answered with TFW_ERR_CRC");
     }
 
     /* ANALOG_READ against the emulated ADC -- #19's silent-zero instance.

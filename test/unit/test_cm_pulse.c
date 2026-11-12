@@ -15,45 +15,15 @@
 
 #include "unity.h"
 
-/* The real cm_regs.h stays out: SysTick is the model's. */
-#define TFW_CM_REGS_H
-static uint32_t model_cvr_read(void);
-static uint32_t model_csr;
-static uint32_t model_rvr;
-#define TFW_CM_SYST_CVR           (*model_cvr_ref())
-#define TFW_CM_SYST_CSR           model_csr
-#define TFW_CM_SYST_RVR           model_rvr
-#define TFW_CM_SYST_CSR_ENABLE    0x1u
-#define TFW_CM_SYST_CSR_TICKINT   0x2u
-#define TFW_CM_SYST_CSR_CLKSOURCE 0x4u
-#define TFW_CM_SYST_RVR_MAX       0x00FFFFFFu
+#include "cm_pulse_model.h"
 
-/* A read of TFW_CM_SYST_CVR steps the clock; a write lands in a scratch word. */
-static uint32_t model_cvr_value;
-static uint32_t *model_cvr_ref(void)
-{
-    model_cvr_value = model_cvr_read();
-    return &model_cvr_value;
-}
+#define CYC_PER_US  MODEL_CYC_PER_US
+#define RELOAD_SPAN MODEL_RELOAD_SPAN
 
-#include "../../src/hal/cortex-m/hal_pulse.c"
-#include "../../src/hal/cortex-m/hal_tick.c"
-
-#define CYC_PER_US TFW_CM_CYCLES_PER_US
-#define RELOAD_SPAN (TFW_CM_TICK_RELOAD + 1u)
-
-static uint64_t model_now;              /* cycles since the model started */
-static uint32_t model_step;
 static uint8_t  wave_start;
 static const uint32_t *wave_edges;      /* toggle times, microseconds, rising */
 static size_t   wave_n;
 static uint64_t wave_t0;                /* the model time the waveform starts */
-
-static uint32_t model_cvr_read(void)
-{
-    model_now += model_step;
-    return TFW_CM_TICK_RELOAD - (uint32_t)(model_now % RELOAD_SPAN);
-}
 
 tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
@@ -101,10 +71,10 @@ static void test_cycle_step_counts_across_a_reload(void)
 
     model_now  = RELOAD_SPAN - 10u;    /* 9 cycles before the reload */
     model_step = 0u;
-    last       = TFW_CM_SYST_CVR;
+    last       = model_cvr_read();
     model_step = 25u;
-    TEST_ASSERT_EQUAL_UINT32(25u, tfw_cm_cycles_since(&last));
-    TEST_ASSERT_EQUAL_UINT32(25u, tfw_cm_cycles_since(&last));
+    TEST_ASSERT_EQUAL_UINT32(25u, model_cycles_since(&last));
+    TEST_ASSERT_EQUAL_UINT32(25u, model_cycles_since(&last));
 }
 
 static void test_delay_us_spans_reloads(void)

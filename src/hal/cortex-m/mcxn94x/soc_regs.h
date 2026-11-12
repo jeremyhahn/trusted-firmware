@@ -55,6 +55,49 @@
 
 #define TFW_MCXN_PORT_COUNT         5u
 
+/* AHBCLKCTRL1 / PRESETCTRL1: ADC0 (SYSCON_AHBCLKCTRL1_ADC0_MASK,
+ * SYSCON_PRESETCTRL1_ADC0_RST_MASK). Its clock select at 0x2A4, FRO12M = 3
+ * (fsl_clock.h kFRO12M_to_ADC0), and its divider at 0x394. */
+#define TFW_MCXN_CTRL1_ADC0         (1u << 3)
+#define TFW_MCXN_ADC0CLKSEL         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x2A4u)
+#define TFW_MCXN_ADC0CLKDIV         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x394u)
+#define TFW_MCXN_ADCCLKSEL_FRO12M   3u
+
+/* ---- ADC0 (LPADC): ADC_Type. CMD[0] is command 1; FIFO 0 of two. */
+#define TFW_MCXN_ADC0_BASE          0x5010D000u
+#define TFW_MCXN_ADC_CTRL           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x010u)
+#define TFW_MCXN_ADC_STAT           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x014u)
+#define TFW_MCXN_ADC_CFG            TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x020u)
+#define TFW_MCXN_ADC_SWTRIG         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x034u)
+#define TFW_MCXN_ADC_TCTRL0         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0A0u)
+#define TFW_MCXN_ADC_GCC(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F0u + 4u * (n))
+#define TFW_MCXN_ADC_GCR(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F8u + 4u * (n))
+#define TFW_MCXN_ADC_CMDL1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x100u)
+#define TFW_MCXN_ADC_CMDH1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x104u)
+#define TFW_MCXN_ADC_RESFIFO0       TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x300u)
+
+#define TFW_MCXN_ADC_CTRL_ADCEN     (1u << 0)
+#define TFW_MCXN_ADC_CTRL_RST       (1u << 1)
+#define TFW_MCXN_ADC_CTRL_DOZEN     (1u << 2)
+#define TFW_MCXN_ADC_CTRL_CAL_REQ   (1u << 3)
+#define TFW_MCXN_ADC_CTRL_CALOFS    (1u << 4)
+#define TFW_MCXN_ADC_CTRL_RSTFIFO0  (1u << 8)
+#define TFW_MCXN_ADC_CTRL_RSTFIFO1  (1u << 9)
+#define TFW_MCXN_ADC_CTRL_CAL_AVGS_SHIFT 16u   /* 7: 128 conversions averaged */
+#define TFW_MCXN_ADC_STAT_CAL_RDY   (1u << 10)
+#define TFW_MCXN_ADC_CFG_REFSEL_SHIFT 6u       /* 0: "Option 1" */
+#define TFW_MCXN_ADC_CFG_PUDLY_SHIFT  16u
+#define TFW_MCXN_ADC_CFG_PWREN      (1u << 28)
+#define TFW_MCXN_ADC_SWTRIG_SWT0    (1u << 0)
+#define TFW_MCXN_ADC_TCTRL_TCMD_SHIFT 24u
+#define TFW_MCXN_ADC_GCC_GAIN_CAL   0xFFFFu
+#define TFW_MCXN_ADC_GCC_RDY        (1u << 24)
+#define TFW_MCXN_ADC_GCR_RDY        (1u << 24)
+#define TFW_MCXN_ADC_CMDL_ADCH_MASK 0x1Fu      /* CTYPE 0, MODE 0: single-ended A, 12-bit */
+#define TFW_MCXN_ADC_CMDH_STS_SHIFT 8u         /* 7: 131.5 ADCK cycles */
+#define TFW_MCXN_ADC_RESFIFO_D      0xFFFFu
+#define TFW_MCXN_ADC_RESFIFO_VALID  (1u << 31)
+
 /* ---- SCG0 */
 #define TFW_MCXN_SCG_BASE           0x50044000u
 #define TFW_MCXN_SCG_CSR            TFW_CM_REG(TFW_MCXN_SCG_BASE + 0x010u)

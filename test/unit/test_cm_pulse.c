@@ -27,11 +27,13 @@ static uint64_t wave_t0;                /* the model time the waveform starts */
 
 tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
 {
-    uint64_t us = (model_now - wave_t0) / CYC_PER_US;
+    uint64_t us;
     uint8_t  lv = wave_start;
     size_t   i;
 
     (void)p;
+    model_gpio_read_advance();
+    us = (model_now - wave_t0) / CYC_PER_US;
     for (i = 0; i < wave_n && wave_edges[i] <= us; i++) {
         lv ^= 1u;
     }
@@ -54,7 +56,8 @@ void setUp(void)
     memset(&pin, 0, sizeof pin);
     /* Start mid-count, so the first reload comes early in every test. */
     model_now  = 12345u;
-    model_step = 7u;
+    model_step        = 7u;
+    model_read_cycles = 0u;
     wave(0u, NULL, 0u);
 }
 
@@ -228,6 +231,42 @@ static void test_capture_no_edge_after_the_first_level(void)
     TEST_ASSERT_EQUAL_UINT8(0u, n);
 }
 
+/* Time passes on the GPIO reads, not only on SysTick's: a read every ~100 us,
+ * so each edge below is seen on the read after the one before it. */
+static void reads_take_100us(void)
+{
+    model_step        = 1u;
+    model_read_cycles = 100u * CYC_PER_US;
+}
+
+static void test_pulse_in_edges_on_consecutive_reads(void)
+{
+    /* Reads at ~100 (low), ~200 (high), ~300 (low) us. */
+    static const uint32_t e[] = {150u, 250u};
+    uint32_t us = 0u;
+
+    reads_take_100us();
+    wave(0u, e, 2u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_in(&pin, 1u, 10000u, &us));
+    TEST_ASSERT_UINT32_WITHIN(1u, 100u, us);
+}
+
+static void test_capture_transitions_on_consecutive_reads(void)
+{
+    /* Reads at ~100 (high), ~200 (low: lined up), ~300 (high), ~400 (low)
+     * us, then the line stays low until the timeout. */
+    static const uint32_t e[] = {150u, 250u, 350u};
+    uint16_t got[8];
+    uint8_t  n = 0u;
+
+    reads_take_100us();
+    wave(1u, e, 3u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 0u, got, 8u, 200u, &n));
+    TEST_ASSERT_EQUAL_UINT8(2u, n);
+    TEST_ASSERT_UINT32_WITHIN(1u, 100u, got[0]);
+    TEST_ASSERT_UINT32_WITHIN(1u, 100u, got[1]);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -244,5 +283,7 @@ int main(void)
     RUN_TEST(test_capture_stops_at_max_edges);
     RUN_TEST(test_capture_timeout_before_the_first_level);
     RUN_TEST(test_capture_no_edge_after_the_first_level);
+    RUN_TEST(test_pulse_in_edges_on_consecutive_reads);
+    RUN_TEST(test_capture_transitions_on_consecutive_reads);
     return UNITY_END();
 }

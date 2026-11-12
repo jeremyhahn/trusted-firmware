@@ -7,8 +7,10 @@
  * because it is the register header's substitute (mk/host.mk lint-arch-leak).
  *
  * The counter runs down from the reload of the board's TFW_CM_CPU_HZ and moves
- * model_step cycles on every read of its current value, which is the only
- * thing that moves model time: model_now, in cycles since the model started.
+ * model_step cycles on every read of its current value. A test's GPIO read
+ * calls model_gpio_read_advance, which moves model_read_cycles more, so time
+ * also passes on the pin reads, as it does on silicon: model_now, in cycles
+ * since the model started, moves on both.
  */
 #ifndef TFW_CM_PULSE_MODEL_H
 #define TFW_CM_PULSE_MODEL_H
@@ -20,6 +22,7 @@
 
 static uint64_t model_now;
 static uint32_t model_step;
+static uint32_t model_read_cycles;
 static uint32_t model_csr;
 static uint32_t model_rvr;
 static uint32_t model_cvr_value;
@@ -53,6 +56,12 @@ static uint32_t *model_cvr_ref(void)
 {
     model_cvr_value = model_cvr_read();
     return &model_cvr_value;
+}
+
+/* The cycles one GPIO read takes, model_read_cycles, pass. */
+static void model_gpio_read_advance(void)
+{
+    model_now += model_read_cycles;
 }
 
 /* The shared cycle step, cm_cycles.h's, under the model's name. */

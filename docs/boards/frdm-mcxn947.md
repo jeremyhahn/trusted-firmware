@@ -47,6 +47,14 @@ a calibration that does not finish leaves every read `TFW_ERR_UNSUPPORTED`.
 not driven. The steps are fsl_lpadc's; items 7 to 11 below are what the
 pinned files do not settle.
 
+**Verification.** Ran green in the lane container: `make host-test`, which
+runs `test_mcxn94x_adc`; `make board-sweep`, which runs
+`test_board_frdm-mcxn947` (host-test leaves the `test_board_*` suites to
+board-sweep by design, `mk/host.mk`); `make lint`; `make lint-arch-leak`. Did
+not run there: `make firmware-matrix` and with it `make ci`, because the lane
+container has no arm-none-eabi-gcc (nor avr-gcc or qemu-system-arm). The ARM
+build, link and size check of this board are left to CI.
+
 ## What the port does not do
 
 - Drive the EdgeLock secure subsystem, program a fuse, or start core 1.

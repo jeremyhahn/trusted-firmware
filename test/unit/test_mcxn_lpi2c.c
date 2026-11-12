@@ -82,6 +82,8 @@ static struct {
     uint8_t  rx[16];         /* the receive FIFO */
     unsigned rx_head, rx_tail;
     unsigned stops;
+    unsigned restarts;       /* STARTs on a bus already ours: repeated STARTs */
+    unsigned resets;         /* MCR RST writes */
 } m;
 
 static uint32_t delayed_us;
@@ -136,6 +138,9 @@ static void model_command(uint32_t v)
     }
     switch (cmd) {
     case TFW_MCXN_LPI2C_CMD_START:
+        if (m.mbf) {
+            m.restarts++;
+        }
         m.mbf = 1;
         m.tx_index = 0u;
         if ((data >> 1) != DEV_ADDR) {
@@ -178,6 +183,17 @@ static void model_wr(uint32_t off, uint32_t v)
         m.mcr = v & ~(TFW_MCXN_LPI2C_MCR_RTF | TFW_MCXN_LPI2C_MCR_RRF);
         if (v & TFW_MCXN_LPI2C_MCR_RRF) {
             m.rx_tail = m.rx_head;
+        }
+        /* The master logic back to its reset state, MCR alone kept: the
+         * transfer and the timing gone, the bus let go. */
+        if (v & TFW_MCXN_LPI2C_MCR_RST) {
+            m.resets++;
+            m.mbf = 0;
+            m.flags = 0u;
+            m.rx_tail = m.rx_head;
+            m.mcfgr1 = 0u;
+            m.mcfgr2 = 0u;
+            m.mccr0 = 0u;
         }
         break;
     case TFW_MCXN_LPI2C_MTDR_OFF:   model_command(v); break;
@@ -418,6 +434,50 @@ static void test_a_stuck_controller_is_a_timeout(void)
     TEST_ASSERT_TRUE(delayed_us >= I2C_WAIT_US);
 }
 
+/* A device holds SCL through a write, then lets go. The stalled transfer is a
+ * timeout that resets the controller, its timing put back; the next one
+ * starts on an idle bus with a START of its own, not a repeated START of the
+ * old transfer. */
+static void test_a_stalled_transfer_is_aborted_and_the_next_starts_clean(void)
+{
+    static const uint8_t out[] = { 0x01, 0x02 };
+    static const uint16_t want[] = {
+        CMD(4, DEV_ADDR << 1), CMD(0, 0x01), CMD(0, 0x02), CMD(2, 0)
+    };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_init(100000u));
+    m.resets = 0u;
+    m.accept = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(1u, m.resets);
+    TEST_ASSERT_FALSE(m.mbf);
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_LPI2C_MCR_MEN, m.mcr);
+    TEST_ASSERT_EQUAL_HEX32((29u << 24) | (59u << 16) | (55u << 8) | 61u, m.mccr0);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.mcfgr1);
+    TEST_ASSERT_EQUAL_HEX32(3u << 24, m.mcfgr2);
+
+    m.accept = -1;             /* the line let go */
+    m.log_n = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, out, 2u, NULL, 0u));
+    assert_log(want, 4u);
+    TEST_ASSERT_EQUAL_UINT(0u, m.restarts);
+    TEST_ASSERT_EQUAL_UINT(2u, m.got_n);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(out, m.got, 2u);
+    TEST_ASSERT_EQUAL_UINT(1u, m.stops);
+}
+
+/* This master still holding the bus is a transfer never ended, no bus to
+ * START on: a timeout with nothing queued. */
+static void test_a_bus_this_master_still_holds_is_not_started_on(void)
+{
+    static const uint8_t out[] = { 0x01 };
+
+    m.mbf = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV_ADDR, out, 1u, NULL, 0u));
+    TEST_ASSERT_EQUAL_UINT(0u, m.log_n);
+    TEST_ASSERT_EQUAL_UINT(0u, m.restarts);
+}
+
 static void test_an_empty_transfer_touches_nothing(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV_ADDR, NULL, 0u, NULL, 0u));
@@ -456,6 +516,8 @@ int main(void)
     RUN_TEST(test_a_bus_that_never_comes_free_is_a_timeout_untouched);
     RUN_TEST(test_a_bus_that_comes_free_in_time_is_used);
     RUN_TEST(test_a_stuck_controller_is_a_timeout);
+    RUN_TEST(test_a_stalled_transfer_is_aborted_and_the_next_starts_clean);
+    RUN_TEST(test_a_bus_this_master_still_holds_is_not_started_on);
     RUN_TEST(test_an_empty_transfer_touches_nothing);
     RUN_TEST(test_spi_and_onewire_are_unsupported);
     return UNITY_END();

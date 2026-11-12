@@ -106,11 +106,30 @@ static tfw_status_t pull(uint8_t *out)
     return TFW_ERR_TIMEOUT;
 }
 
+/* Ends whatever the controller still holds: the reset of the master logic
+ * drops a transfer it never finished and both FIFOs, and takes the timing
+ * with it, so that goes back in before the master is on again. */
+static void abort_master(void)
+{
+    uint32_t cfgr1 = TFW_MCXN_I2C_RD(TFW_MCXN_LPI2C_MCFGR1_OFF);
+    uint32_t cfgr2 = TFW_MCXN_I2C_RD(TFW_MCXN_LPI2C_MCFGR2_OFF);
+    uint32_t ccr0 = TFW_MCXN_I2C_RD(TFW_MCXN_LPI2C_MCCR0_OFF);
+
+    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MCR_OFF, TFW_MCXN_LPI2C_MCR_RST);
+    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MCR_OFF, 0u);
+    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MCFGR1_OFF, cfgr1);
+    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MCFGR2_OFF, cfgr2);
+    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MCCR0_OFF, ccr0);
+    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MSR_OFF, MSR_W1C);
+    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MCR_OFF, TFW_MCXN_LPI2C_MCR_MEN);
+}
+
 /* Ends a transfer that queued a START. After an error the flags are cleared
  * and the FIFOs emptied first, as the SDK does, so the STOP is the next
  * command the controller sees; a controller that already let the bus go
  * (MBF clear) needs none. Returns st, or TFW_ERR_TIMEOUT if the STOP never
- * showed. */
+ * showed. A STOP that cannot be queued or never shows leaves a transfer
+ * the controller would carry on with, so it is aborted (abort_master). */
 static tfw_status_t finish(tfw_status_t st)
 {
     uint32_t     msr;
@@ -130,6 +149,7 @@ static tfw_status_t finish(tfw_status_t st)
         if (st == TFW_OK && ps != TFW_ERR_TIMEOUT) {
             return finish(ps);
         }
+        abort_master();
         return (st != TFW_OK) ? st : TFW_ERR_TIMEOUT;
     }
     for (uint32_t us = 0u; us < I2C_WAIT_US; us++) {
@@ -148,7 +168,7 @@ static tfw_status_t finish(tfw_status_t st)
         }
         tfw_hal_delay_us(1u);
     }
-    TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MSR_OFF, MSR_W1C);
+    abort_master();
     return (st != TFW_OK) ? st : TFW_ERR_TIMEOUT;
 }
 
@@ -198,12 +218,14 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
     TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MSR_OFF, MSR_W1C);
     TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MCR_OFF, TFW_MCXN_LPI2C_MCR_MEN |
                     TFW_MCXN_LPI2C_MCR_RTF | TFW_MCXN_LPI2C_MCR_RRF);
-    /* The bus busy with nobody but us on it is another master or a stuck
-     * line: wait for it, then give up without touching it. */
+    /* The bus busy is another master, a stuck line, or this master still in
+     * a transfer it never ended: wait for it to go idle, then give up
+     * without touching it. A START on a bus this master holds would be a
+     * repeated START of the old transfer. */
     for (us = 0u; us < I2C_WAIT_US; us++) {
         uint32_t msr = TFW_MCXN_I2C_RD(TFW_MCXN_LPI2C_MSR_OFF);
 
-        if (!(msr & TFW_MCXN_LPI2C_MSR_BBF) || (msr & TFW_MCXN_LPI2C_MSR_MBF)) {
+        if (!(msr & (TFW_MCXN_LPI2C_MSR_BBF | TFW_MCXN_LPI2C_MSR_MBF))) {
             break;
         }
         tfw_hal_delay_us(1u);

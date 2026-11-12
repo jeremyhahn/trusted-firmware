@@ -132,7 +132,6 @@ static void abort_master(void)
  * the controller would carry on with, so it is aborted (abort_master). */
 static tfw_status_t finish(tfw_status_t st)
 {
-    uint32_t     msr;
     tfw_status_t ps;
 
     if (st != TFW_OK) {
@@ -153,7 +152,7 @@ static tfw_status_t finish(tfw_status_t st)
         return (st != TFW_OK) ? st : TFW_ERR_TIMEOUT;
     }
     for (uint32_t us = 0u; us < I2C_WAIT_US; us++) {
-        msr = TFW_MCXN_I2C_RD(TFW_MCXN_LPI2C_MSR_OFF);
+        uint32_t msr = TFW_MCXN_I2C_RD(TFW_MCXN_LPI2C_MSR_OFF);
         if (msr & TFW_MCXN_LPI2C_MSR_SDF) {
             TFW_MCXN_I2C_WR(TFW_MCXN_LPI2C_MSR_OFF, MSR_W1C);
             if (st == TFW_OK) {

@@ -1665,7 +1665,7 @@ LINT_CPPCHECK = cppcheck --enable=warning,style,performance,portability \
 	          --suppress=unusedFunction \
 	          -DTFW_BOARD_HEADER='"board_profile.h"' -DTFW_PROGMEM= \
 	          -Iinclude -Isrc
-LINT_ARCH_RUNS := cortex-m:mps2-an505:mps2 cortex-m:stm32h573i-dk:stm32h5 cortex-m:rp2350-pico2w:rp2350 cortex-m:nrf54l15-dk:nrf54l cortex-m:frdm-mcxn947:mcxn94x
+LINT_ARCH_RUNS := cortex-m:mps2-an505:mps2 cortex-m:stm32h573i-dk:stm32h5 cortex-m:nucleo-h563zi:stm32h5 cortex-m:rp2350-pico2w:rp2350 cortex-m:nrf54l15-dk:nrf54l cortex-m:frdm-mcxn947:mcxn94x
 lint-arch-dirs = src/hal/$(1) boot/hal/$(1) boards/$(2)
 lint-field = $(word $(2),$(subst :, ,$(1)))
 lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter $(call lint-field,$(1),1),$(call lint-field,$(o),1)),-i src/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3) -i boot/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3)))

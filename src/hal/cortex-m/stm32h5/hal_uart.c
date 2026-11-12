@@ -23,6 +23,7 @@
 
 #include "tfw/hal.h"
 #include "tfw/config.h"
+#include "soc_regs.h"
 #include "soc_console.h"
 #include "h5_calc.h"
 

@@ -4,7 +4,10 @@
  * The console USART, the byte link on the board's ST-LINK Virtual COM port,
  * as board data: which USART, its clock enable, its interrupt and its pins.
  * hal_uart.c reads only these TFW_H5_CON_* names. Include after tfw/config.h,
- * which brings the board's board_profile.h.
+ * which brings the board's board_profile.h, and after soc_regs.h, whose names
+ * the STM32H573I-DK's values and the register macros expand to. It includes
+ * neither, so a board's host test reads the USART3 values with no part
+ * headers (test/unit/test_board_nucleo-h563zi.c).
  *
  *   TFW_H5_CONSOLE_USART3 set   the NUCLEO-H563ZI: USART3 on PD8 TX, PD9 RX
  *   otherwise                   the STM32H573I-DK: USART1 on PA9 TX, PA10 RX,
@@ -15,8 +18,6 @@
  */
 #ifndef TFW_H5_SOC_CONSOLE_H
 #define TFW_H5_SOC_CONSOLE_H
-
-#include "soc_regs.h"
 
 #if defined(TFW_H5_CONSOLE_USART3) && TFW_H5_CONSOLE_USART3
 

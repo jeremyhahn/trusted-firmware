@@ -26,23 +26,25 @@ static void test_the_board_is_its_registered_id(void)
 
 static void test_the_pins_are_the_four_leds_at_their_banks(void)
 {
-    static const struct { uint8_t bank; uint8_t bit; } want[4] = {
-        { 8u, 9u },   /* LD1 PI9 */
-        { 8u, 8u },   /* LD2 PI8 */
-        { 5u, 1u },   /* LD3 PF1 */
-        { 5u, 4u },   /* LD4 PF4 */
+    static const struct { uint8_t bank; uint8_t bit; uint8_t led; } want[5] = {
+        { 8u, 9u, 1u },   /* LD1 PI9 */
+        { 8u, 8u, 1u },   /* LD2 PI8 */
+        { 5u, 1u, 1u },   /* LD3 PF1 */
+        { 5u, 4u, 1u },   /* LD4 PF4 */
+        { 1u, 5u, 0u },   /* ARD_D3 PB5, the tone's TIM3_CH2 */
     };
 
-    TEST_ASSERT_EQUAL_UINT8(4u, TFW_PIN_COUNT);
+    TEST_ASSERT_EQUAL_UINT8(5u, TFW_PIN_COUNT);
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         tfw_pinref_t r;
 
         TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(i, &r));
         TEST_ASSERT_EQUAL_UINT8(want[i].bank, r.port);
         TEST_ASSERT_EQUAL_UINT8(want[i].bit, r.bit);
-        TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_LED);
+        TEST_ASSERT_EQUAL(want[i].led != 0u, (tfw_board_pin_flags(i) & TFW_PIN_LED) != 0u);
         TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_DIGITAL);
     }
+    TEST_ASSERT_EQUAL_UINT8(4u, TFW_TONE_PIN);
 }
 
 static void test_no_pin_offers_an_adc_or_a_pwm(void)

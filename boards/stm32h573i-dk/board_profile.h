@@ -16,15 +16,19 @@
 #define TFW_BOARD_NAME "stm32h573i-dk"
 #define TFW_BOARD_ID   0x43u   /* docs/boards/board-id-registry.md */
 
-#define TFW_PIN_COUNT  4u
-#define TFW_PORT_COUNT 2u      /* GPIOF and GPIOI, the LEDs' banks */
+#define TFW_PIN_COUNT  5u
+#define TFW_PORT_COUNT 3u      /* GPIOF and GPIOI, the LEDs' banks; GPIOB, D3 */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE 0u
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
-#define TFW_FEATURE_TONE    0
+#define TFW_FEATURE_TONE    1
+/* Tone is TIM3 channel 2 toggling the Arduino header's D3, PB5
+ * (src/hal/cortex-m/stm32h5/hal_tone.c; built and host-tested, not yet run
+ * on the board). */
+#define TFW_TONE_PIN   4u
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
 #define TFW_FEATURE_I2C     0

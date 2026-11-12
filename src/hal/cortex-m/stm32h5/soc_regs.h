@@ -135,4 +135,42 @@
  * reload written while one is set is not yet the watchdog's. */
 #define TFW_H5_IWDG_SR_BUSY    0x0Fu
 
+/* ---- TIM3, APB1PERIPH_BASE_NS + 0x0400: the tone's timer (hal_tone.c), a
+ * 16-bit general-purpose timer (not in IS_TIM_32B_COUNTER_INSTANCE). Offsets
+ * are TIM_TypeDef's (CR1 0x00, EGR 0x14, CCMR1 0x18, CCER 0x20, PSC 0x28,
+ * ARR 0x2C, CCR2 0x38); its enable RCC_APB1LENR (0x9C) bit TIM3EN 1. It counts
+ * the APB1 timer clock, TFW_CM_CPU_HZ with the bus prescaler at 1. Channel 2,
+ * whose output-compare mode OC2M is CCMR1 bits 14:12 and 24 (TIM_CCMR1_OC2M,
+ * 0x1007 << 12) and enable CC2E CCER bit 4. The two modes are the LL
+ * driver's (stm32h5xx_ll_tim.h): LL_TIM_OCMODE_TOGGLE, OC1M_1 | OC1M_0 (0011,
+ * OCxREF toggles on match), and LL_TIM_OCMODE_FORCED_INACTIVE, OC1M_2 (0100,
+ * OCxREF low), each moved to channel 2's field. */
+#ifndef TFW_H5_TONE_TIM_HZ
+#define TFW_H5_TONE_TIM_HZ       TFW_CM_CPU_HZ      /* the host test models another clock */
+#endif
+#define TFW_H5_TONE_RCC_ENR      TFW_CM_REG(TFW_H5_RCC_BASE + 0x9Cu)   /* RCC_APB1LENR */
+#define TFW_H5_TONE_RCC_EN       (0x1u << 1)                          /* TIM3EN */
+#define TFW_H5_TONE_TIM_BASE     0x40000400u
+#define TFW_H5_TONE_TIM_CR1      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x00u)
+#define TFW_H5_TONE_TIM_EGR      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x14u)
+#define TFW_H5_TONE_TIM_CCMR1    TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x18u)
+#define TFW_H5_TONE_TIM_CCER     TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x20u)
+#define TFW_H5_TONE_TIM_PSC      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x28u)
+#define TFW_H5_TONE_TIM_ARR      TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x2Cu)
+#define TFW_H5_TONE_TIM_CCR2     TFW_CM_REG(TFW_H5_TONE_TIM_BASE + 0x38u)
+#define TFW_H5_TONE_CR1_CEN      (0x1u << 0)        /* TIM_CR1_CEN */
+#define TFW_H5_TONE_EGR_UG       (0x1u << 0)        /* TIM_EGR_UG */
+#define TFW_H5_TONE_CCMR1_CH2    0x0100FF00u        /* CC2S, OC2FE, OC2PE, OC2M, OC2CE, OC2M[3] */
+#define TFW_H5_TONE_OC2M_TOGGLE  (0x3u << 12)       /* LL_TIM_OCMODE_TOGGLE on channel 2 */
+#define TFW_H5_TONE_OC2M_LOW     (0x4u << 12)       /* LL_TIM_OCMODE_FORCED_INACTIVE on channel 2 */
+#define TFW_H5_TONE_CCER_CH2     (0xBu << 4)        /* CC2E, CC2P, CC2NP: on, active high */
+#define TFW_H5_TONE_CCER_CC2E    (0x1u << 4)        /* TIM_CCER_CC2E */
+/* The tone pin: the Arduino header's D3, PB5 (ST's STM32_open_pin_data board
+ * file labels PB5 ARD_D3; its GPIO modes file gives PB5 TIM3_CH2 as
+ * GPIO_AF2_TIM3, which stm32h5xx_hal_gpio_ex.h defines as 2). */
+#define TFW_H5_TONE_BANK         1u                 /* GPIOB */
+#define TFW_H5_TONE_PIN          5u
+#define TFW_H5_TONE_AF           2u                 /* GPIO_AF2_TIM3 */
+#define TFW_H5_GPIO_AFR(b, n)    TFW_CM_REG((b) + 0x20u + 4u * (uint32_t)(n))   /* AFR[n] */
+
 #endif /* TFW_CM_STM32H5_REGS_H */

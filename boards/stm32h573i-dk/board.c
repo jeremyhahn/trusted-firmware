@@ -11,6 +11,7 @@
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 5u },   /* 0  GPIOF */
     { 8u },   /* 1  GPIOI */
+    { 1u },   /* 2  GPIOB, the Arduino header's D3 */
 };
 
 /* The four user LEDs (ST's stm32h573i_discovery.h). Each lights at a LOW pin:
@@ -20,6 +21,7 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 1  LD2 orange PI8 */ { TFW_PB(1u, 8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 2  LD3 red    PF1 */ { TFW_PB(0u, 1u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 3  LD4 blue   PF4 */ { TFW_PB(0u, 4u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
+/* 4  ARD_D3     PB5 */ { TFW_PB(2u, 5u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },   /* TIM3_CH2, the tone */
 };
 
 /* EMPTY, as on mps2-an505: no pin here offers PWM yet, and a row nothing

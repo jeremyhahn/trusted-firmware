@@ -540,6 +540,7 @@ $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/
 # test/model/cortex-m/mps2_tone_model.h, with
 # mps2-an505's profile under TFW_CM_TONE as its profile.mk's TONE=1 builds it.
 $(HOST_DIR)/test_mps2_tone: test/unit/test_mps2_tone.c src/hal/cortex-m/mps2/hal_tone.c \
+                            src/hal/cortex-m/mps2/hal_gpio.c src/hal/cortex-m/cm_regs.h \
                             test/model/cortex-m/mps2_tone_model.h \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -idirafter src/hal/cortex-m -DTFW_CM_TONE=1 \

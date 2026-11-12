@@ -35,14 +35,18 @@ tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *pin, tfw_pin_mode_t mode)
 
 tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *pin, uint8_t level)
 {
-    uint32_t bit;
+    uint32_t bit, led, primask;
 
     if (!is_led(pin)) {
         return TFW_ERR_BAD_PIN;
     }
     bit = 1u << pin->bit;
-    TFW_MPS2_FPGAIO_LED = level ? (TFW_MPS2_FPGAIO_LED | bit)
-                                : (TFW_MPS2_FPGAIO_LED & ~bit);
+    /* The tone's TIMER0 handler toggles its own bit of this word: masked,
+     * so an edge cannot land between the read and the store and be undone. */
+    primask = tfw_cm_irq_save();
+    led = TFW_MPS2_FPGAIO_LED;
+    TFW_MPS2_FPGAIO_LED = level ? (led | bit) : (led & ~bit);
+    tfw_cm_irq_restore(primask);
     return TFW_OK;
 }
 

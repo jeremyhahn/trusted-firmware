@@ -21,4 +21,15 @@ volatile uint32_t *tfw_mps2_tone_model_reg(uintptr_t addr);
 void tfw_cm_irq3(void);
 static inline void mps2_tone_model_edge(void) { tfw_cm_irq3(); }
 
+/* PRIMASK, modelled: the suite's mask, and an edge held while it is set
+ * runs at the restore that clears it (test/unit/test_mps2_tone.c). */
+#define TFW_CM_IRQ_SAVE_MODEL 1
+uint32_t mps2_tone_model_irq_save(void);
+void mps2_tone_model_irq_restore(uint32_t primask);
+static inline uint32_t tfw_cm_irq_save(void) { return mps2_tone_model_irq_save(); }
+static inline void tfw_cm_irq_restore(uint32_t primask)
+{
+    mps2_tone_model_irq_restore(primask);
+}
+
 #endif /* TFW_TEST_MPS2_TONE_MODEL_H */

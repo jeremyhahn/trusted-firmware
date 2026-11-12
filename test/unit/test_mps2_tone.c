@@ -13,8 +13,13 @@ static uint32_t m_timer[4];   /* CTRL, VALUE, RELOAD, INTSTATUS/INTCLEAR */
 static uint32_t m_led;        /* FPGAIO LED */
 static uint32_t m_iser, m_icer, m_icpr;
 static uint32_t m_sink;       /* any other address */
+static uint32_t m_primask;    /* the modelled PRIMASK */
+static unsigned m_led_at;     /* fire a tone edge at this LED-word access */
+static unsigned m_led_seen;   /* LED-word accesses so far */
+static uint8_t m_edge_held;   /* an edge raised while masked */
 
 #include "../../src/hal/cortex-m/mps2/hal_tone.c"
+#include "../../src/hal/cortex-m/mps2/hal_gpio.c"
 
 #include "unity.h"
 
@@ -22,8 +27,18 @@ volatile uint32_t *tfw_mps2_tone_model_reg(uintptr_t a)
 {
     if (a >= TFW_MPS2_TIMER0_BASE && a < TFW_MPS2_TIMER0_BASE + 16u)
         return &m_timer[(a - TFW_MPS2_TIMER0_BASE) / 4u];
-    if (a == (uintptr_t)TFW_MPS2_FPGAIO_BASE + 0x00u)
+    if (a == (uintptr_t)TFW_MPS2_FPGAIO_BASE + 0x00u) {
+        /* The armed access takes TIMER0's interrupt just before it: at once
+         * when unmasked, at the unmasking restore otherwise. */
+        if (m_led_at != 0u && ++m_led_seen == m_led_at) {
+            m_led_at = 0u;
+            if (m_primask)
+                m_edge_held = 1u;
+            else
+                mps2_tone_model_edge();
+        }
         return &m_led;
+    }
     if (a == 0xE000E100u) return &m_iser;
     if (a == 0xE000E180u) return &m_icer;
     if (a == 0xE000E280u) return &m_icpr;
@@ -43,6 +58,26 @@ void setUp(void)
         m_timer[i] = 0;
     m_led = 0;
     m_iser = m_icer = m_icpr = m_sink = 0;
+    m_primask = 0;
+    m_led_at = m_led_seen = 0;
+    m_edge_held = 0;
+}
+
+uint32_t mps2_tone_model_irq_save(void)
+{
+    uint32_t was = m_primask;
+
+    m_primask = 1u;
+    return was;
+}
+
+void mps2_tone_model_irq_restore(uint32_t primask)
+{
+    m_primask = primask;
+    if (!m_primask && m_edge_held) {
+        m_edge_held = 0;
+        mps2_tone_model_edge();
+    }
 }
 
 void tearDown(void)
@@ -84,6 +119,30 @@ static void test_tone_toggles_per_interrupt(void)
         mps2_tone_model_edge();
         TEST_ASSERT_EQUAL_UINT32(1u, M_INTSTATUS);   /* INTCLEAR written */
         TEST_ASSERT_EQUAL_UINT32((i & 1u) ? 0x3u : 0x1u, m_led);
+    }
+}
+
+/* A DIGITAL_WRITE to LED0 while the tone runs on LED1, TIMER0's interrupt
+ * landing at each of the write's LED-word accesses in turn (the second is
+ * the store, between it and the read): LED1's edge stays in place, and the
+ * write ends with PRIMASK as it found it. */
+static void test_gpio_write_keeps_tone_edge(void)
+{
+    static const tfw_pinref_t LED0 = TFW_PB(0u, 0u);
+
+    for (unsigned at = 1; at <= 2u; at++) {
+        setUp();
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 1000u));
+        m_led_at = at;
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED0, 1u));
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0x3u, m_led, "LED0 set, LED1's edge kept");
+        TEST_ASSERT_EQUAL_UINT32(0u, m_primask);
+        TEST_ASSERT_EQUAL_UINT8(0u, m_edge_held);
+
+        m_led_seen = 0;
+        m_led_at = at;
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED0, 0u));
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0x0u, m_led, "LED0 clear, LED1's edge kept");
     }
 }
 
@@ -146,6 +205,7 @@ int main(void)
     RUN_TEST(test_tone_1khz_reload);
     RUN_TEST(test_tone_reload_table);
     RUN_TEST(test_tone_toggles_per_interrupt);
+    RUN_TEST(test_gpio_write_keeps_tone_edge);
     RUN_TEST(test_tone_retarget);
     RUN_TEST(test_tone_stop_leaves_pin_low);
     RUN_TEST(test_tone_zero_hz_stops);

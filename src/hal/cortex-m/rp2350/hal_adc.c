@@ -8,9 +8,10 @@
  * the temperature sensor (input 4) is not exposed, so the board offers
  * three channels (TFW_ADC_COUNT).
  *
- * Init gives the converter its clock (clk_adc from the 12 MHz crystal, the
- * only clock this port runs; the datasheet's figures are for 48 MHz, so a
- * conversion takes four times as long, docs/boards/rp2350-pico2w.md), takes
+ * Init gives the converter its clock: §12.4.3 requires a 48 MHz clk_adc set
+ * up before the ADC is enabled, so init brings PLL_USB up to 48 MHz from the
+ * 12 MHz crystal and runs clk_adc from it undivided (clk_sys stays on the
+ * crystal, hal_soc.c). It then takes
  * the block through reset, sets CS.EN and waits for CS.READY. A read hands
  * the pin's pad to the converter (digital input and output disabled, no
  * pulls, as §12.4 asks), selects the input in CS.AINSEL, starts one
@@ -31,10 +32,14 @@
 
 #include "soc_regs.h"
 
-/* A conversion is 96 clk_adc cycles; at the 12 MHz both the core and the
- * converter run, a poll costs more than one, so this bound is far past any
- * conversion and only ends a converter that never answers. */
+/* A conversion is 96 clk_adc cycles, 2 us at 48 MHz; with the core on the
+ * 12 MHz crystal a poll costs more than a microsecond, so this bound is far
+ * past any conversion and only ends a converter that never answers. */
 #define ADC_POLL_MAX 10000u
+
+/* PLL lock is microseconds to a millisecond or so; this bound, tens of
+ * milliseconds of polls at 12 MHz, only ends a PLL that never locks. */
+#define PLL_LOCK_POLL_MAX 100000u
 
 static tfw_status_t wait_ready(void)
 {
@@ -46,12 +51,63 @@ static tfw_status_t wait_ready(void)
     return TFW_ERR_TIMEOUT;
 }
 
-tfw_status_t tfw_hal_adc_init(void)
+/* PLL_USB at 48 MHz, §8.6.4's sequence: out of reset, REFDIV and FBDIV,
+ * power and VCO on, a bounded wait for CS.LOCK, then the post dividers and
+ * their power. A PLL already locked at this setting is left running, as the
+ * pico-sdk's pll_init does, so a second init does not reset it. */
+static tfw_status_t pll_usb_48mhz(void)
 {
     uint32_t i;
 
+    if ((TFW_RP_PLL_USB_CS & TFW_RP_PLL_CS_LOCK) != 0u &&
+        (TFW_RP_PLL_USB_CS & 0x3Fu) == TFW_RP_PLL_CS_REFDIV_1 &&
+        (TFW_RP_PLL_USB_FBDIV & 0xFFFu) == TFW_RP_PLL_FBDIV_48MHZ &&
+        (TFW_RP_PLL_USB_PRIM & TFW_RP_PLL_PRIM_MASK) == TFW_RP_PLL_PRIM_48MHZ) {
+        return TFW_OK;
+    }
+
+    TFW_RP_SET(TFW_RP_RESETS_RESET) = TFW_RP_RESET_PLL_USB;
+    TFW_RP_CLR(TFW_RP_RESETS_RESET) = TFW_RP_RESET_PLL_USB;
+    for (i = 0u; i < ADC_POLL_MAX; i++) {
+        if ((TFW_RP_RESETS_DONE & TFW_RP_RESET_PLL_USB) != 0u) {
+            break;
+        }
+    }
+    if (i == ADC_POLL_MAX) {
+        return TFW_ERR_TIMEOUT;
+    }
+
+    TFW_RP_PLL_USB_CS    = TFW_RP_PLL_CS_REFDIV_1;
+    TFW_RP_PLL_USB_FBDIV = TFW_RP_PLL_FBDIV_48MHZ;
+    TFW_RP_CLR(TFW_RP_PLL_USB_PWR) = TFW_RP_PLL_PWR_PD | TFW_RP_PLL_PWR_VCOPD;
+    for (i = 0u; i < PLL_LOCK_POLL_MAX; i++) {
+        if ((TFW_RP_PLL_USB_CS & TFW_RP_PLL_CS_LOCK) != 0u) {
+            break;
+        }
+    }
+    if (i == PLL_LOCK_POLL_MAX) {
+        return TFW_ERR_TIMEOUT;
+    }
+
+    TFW_RP_PLL_USB_PRIM = TFW_RP_PLL_PRIM_48MHZ;
+    TFW_RP_CLR(TFW_RP_PLL_USB_PWR) = TFW_RP_PLL_PWR_POSTDIVPD;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_adc_init(void)
+{
+    uint32_t i;
+    tfw_status_t st = pll_usb_48mhz();
+
+    if (st != TFW_OK) {
+        return st;
+    }
+
+    /* AUXSRC is not glitchless (§8.1.7 table 603): stop the generator, then
+     * select PLL_USB undivided and start it. */
+    TFW_RP_CLK_ADC_CTRL = 0u;
     TFW_RP_CLK_ADC_DIV  = TFW_RP_CLK_DIV_1;
-    TFW_RP_CLK_ADC_CTRL = TFW_RP_CLK_ADC_ENABLE | TFW_RP_CLK_ADC_XOSC;
+    TFW_RP_CLK_ADC_CTRL = TFW_RP_CLK_ADC_ENABLE | TFW_RP_CLK_ADC_PLL_USB;
 
     TFW_RP_SET(TFW_RP_RESETS_RESET) = TFW_RP_RESET_ADC;
     TFW_RP_CLR(TFW_RP_RESETS_RESET) = TFW_RP_RESET_ADC;

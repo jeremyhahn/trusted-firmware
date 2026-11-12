@@ -34,13 +34,71 @@ static void test_init_clocks_the_adc_releases_it_and_waits_for_ready(void)
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
     m = tfw_rp2350_model_get();
-    TEST_ASSERT_EQUAL_HEX32(0x860u, m->clk_adc_ctrl);    /* ENABLE, AUXSRC 3 xosc */
+    TEST_ASSERT_EQUAL_HEX32(0x800u, m->clk_adc_ctrl);    /* ENABLE, AUXSRC 0 pll_usb */
     TEST_ASSERT_EQUAL_HEX32(0x10000u, m->clk_adc_div);   /* DIV.INT 1 */
+    TEST_ASSERT_EQUAL_UINT32(48000000u, tfw_rp2350_model_clk_adc_hz());
+    TEST_ASSERT_EQUAL_UINT32(0u, m->auxsrc_while_enabled);
     TEST_ASSERT_EQUAL_HEX32(0u, m->reset & 1u);
-    TEST_ASSERT_EQUAL_HEX32(0x1FFFFFFEu, m->reset);      /* nothing else released */
+    TEST_ASSERT_EQUAL_HEX32(0x1FFF7FFEu, m->reset);      /* ADC, PLL_USB; nothing else */
     TEST_ASSERT_EQUAL_UINT8(1u, m->adc.en);
     TEST_ASSERT_EQUAL_UINT8(1u, m->adc.ready);
     TEST_ASSERT_EQUAL_UINT32(0u, m->adc.conversions);
+}
+
+static void test_init_brings_pll_usb_to_48mhz_in_the_datasheet_order(void)
+{
+    struct tfw_rp2350_model *m;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    m = tfw_rp2350_model_get();
+    TEST_ASSERT_EQUAL_UINT32(1u, m->pll.refdiv);         /* 12 MHz reference */
+    TEST_ASSERT_EQUAL_UINT32(100u, m->pll.fbdiv);        /* VCO 1200 MHz */
+    TEST_ASSERT_EQUAL_HEX32(0x55000u, m->pll.prim);      /* POSTDIV1 5, POSTDIV2 5 */
+    TEST_ASSERT_EQUAL_HEX32(0x4u, m->pll.pwr);           /* PD, VCOPD, POSTDIVPD clear */
+    TEST_ASSERT_TRUE(m->pll.lock_polls > 0u);            /* LOCK waited for */
+    TEST_ASSERT_EQUAL_UINT32(0u, m->pll.out_of_order);
+}
+
+static void test_a_second_init_leaves_the_locked_pll_running(void)
+{
+    struct tfw_rp2350_model *m;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    m = tfw_rp2350_model_get();
+    TEST_ASSERT_EQUAL_UINT32(0u, m->pll.out_of_order);
+    TEST_ASSERT_EQUAL_UINT32(0u, m->auxsrc_while_enabled);
+    TEST_ASSERT_EQUAL_UINT32(48000000u, tfw_rp2350_model_clk_adc_hz());
+}
+
+static void test_a_pll_that_never_locks_is_a_timeout_and_no_clock(void)
+{
+    struct tfw_rp2350_model *m;
+
+    tfw_rp2350_model_get()->pll.never_lock = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_init());
+    m = tfw_rp2350_model_get();
+    TEST_ASSERT_EQUAL_HEX32(0x77000u, m->pll.prim);      /* post dividers untouched */
+    TEST_ASSERT_EQUAL_HEX32(0u, m->clk_adc_ctrl & 0x800u);
+    TEST_ASSERT_EQUAL_UINT8(0u, m->adc.en);
+}
+
+/* The 12 MHz crystal is outside §12.4.3's operating condition: the model
+ * refuses to enable or convert on it. */
+static void test_the_model_refuses_a_conversion_on_the_crystal(void)
+{
+    struct tfw_rp2350_model *m;
+    uint16_t raw = 0x5555u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    m = tfw_rp2350_model_get();
+    m->clk_adc_ctrl = 0x860u;                            /* ENABLE, AUXSRC 3 xosc */
+    TEST_ASSERT_EQUAL_UINT32(12000000u, tfw_rp2350_model_clk_adc_hz());
+    m->adc.ready = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
+    m = tfw_rp2350_model_get();
+    TEST_ASSERT_EQUAL_UINT32(0u, m->adc.conversions);
+    TEST_ASSERT_TRUE(m->adc.ignored > 0u);
 }
 
 static void test_one_read_per_channel_converts_its_gpio(void)
@@ -129,6 +187,10 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_clocks_the_adc_releases_it_and_waits_for_ready);
+    RUN_TEST(test_init_brings_pll_usb_to_48mhz_in_the_datasheet_order);
+    RUN_TEST(test_a_second_init_leaves_the_locked_pll_running);
+    RUN_TEST(test_a_pll_that_never_locks_is_a_timeout_and_no_clock);
+    RUN_TEST(test_the_model_refuses_a_conversion_on_the_crystal);
     RUN_TEST(test_one_read_per_channel_converts_its_gpio);
     RUN_TEST(test_ready_never_set_is_a_timeout);
     RUN_TEST(test_init_with_no_ready_is_a_timeout);

@@ -40,6 +40,7 @@
 #define TFW_RP_RESET_ADC        (1u << 0)       /* TODO(datasheet): §7.5.3 table 566, bit 0 */
 #define TFW_RP_RESET_IO_BANK0   (1u << 6)
 #define TFW_RP_RESET_PADS_BANK0 (1u << 9)
+#define TFW_RP_RESET_PLL_USB    (1u << 15)      /* TODO(datasheet): §7.5.3 table 567, bit 15 */
 #define TFW_RP_RESET_UART0      (1u << 26)
 
 /* ---- XOSC: base §2.2 table 13; CTRL, STATUS, STARTUP §8.2.8 tables 630-634 */
@@ -50,6 +51,24 @@
 #define TFW_RP_XOSC_CTRL_1_15MHZ 0x00000AA0u   /* FREQ_RANGE */
 #define TFW_RP_XOSC_CTRL_ENABLE  0x00FAB000u   /* ENABLE: the magic 0xFAB */
 #define TFW_RP_XOSC_STATUS_STABLE 0x80000000u
+
+/* ---- PLL_USB, clk_adc's source alone (§12.4.3: the ADC requires 48 MHz).
+ * Base §2.2 table 13; CS, PWR, FBDIV_INT, PRIM §8.6.5 tables 668-672; the
+ * sequence §8.6.4. 12 MHz / REFDIV 1 * FBDIV 100 = VCO 1200 MHz, / 5 / 5 =
+ * 48 MHz: the pico-sdk's PLL USB line quoted in §8.6.4. */
+#define TFW_RP_PLL_USB_BASE     0x40058000u     /* TODO(datasheet): §2.2 table 13 */
+#define TFW_RP_PLL_USB_CS       TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x00u)
+#define TFW_RP_PLL_USB_PWR      (TFW_RP_PLL_USB_BASE + 0x04u)     /* through SET/CLR */
+#define TFW_RP_PLL_USB_FBDIV    TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x08u)
+#define TFW_RP_PLL_USB_PRIM     TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x0Cu)
+#define TFW_RP_PLL_CS_LOCK      (1u << 31)      /* TODO(datasheet): §8.6.5 table 669 */
+#define TFW_RP_PLL_CS_REFDIV_1  1u              /* TODO(datasheet): table 669, bits 5:0 */
+#define TFW_RP_PLL_FBDIV_48MHZ  100u            /* TODO(datasheet): table 671, bits 11:0 */
+#define TFW_RP_PLL_PWR_PD       (1u << 0)       /* TODO(datasheet): table 670 */
+#define TFW_RP_PLL_PWR_POSTDIVPD (1u << 3)
+#define TFW_RP_PLL_PWR_VCOPD    (1u << 5)
+#define TFW_RP_PLL_PRIM_48MHZ   ((5u << 16) | (5u << 12)) /* TODO(datasheet): table 672, POSTDIV1, POSTDIV2 */
+#define TFW_RP_PLL_PRIM_MASK    ((7u << 16) | (7u << 12))
 
 /* ---- CLOCKS: each clock is CTRL, DIV, SELECTED. Base §2.2 table 13;
  * offsets and fields §8.1.7, tables 588-596. */
@@ -64,7 +83,7 @@
 #define TFW_RP_CLK_PERI_DIV     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x4Cu)
 #define TFW_RP_CLK_ADC_CTRL     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x6Cu)   /* TODO(datasheet) */
 #define TFW_RP_CLK_ADC_DIV      TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x70u)   /* TODO(datasheet) */
-#define TFW_RP_CLK_ADC_XOSC     (3u << 5)       /* TODO(datasheet): AUXSRC 3, xosc_clksrc */
+#define TFW_RP_CLK_ADC_PLL_USB  (0u << 5)       /* TODO(datasheet): §8.1.7 table 603, AUXSRC 0, clksrc_pll_usb */
 #define TFW_RP_CLK_ADC_ENABLE   (1u << 11)      /* TODO(datasheet): CTRL.ENABLE */
 #define TFW_RP_CLK_DIV_1        (1u << 16)      /* DIV.INT = 1, FRAC = 0 */
 #define TFW_RP_CLK_REF_SRC_XOSC 2u              /* CTRL.SRC; SELECTED is one-hot */

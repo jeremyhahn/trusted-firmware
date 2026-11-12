@@ -726,10 +726,11 @@ yet.
 - **Neither the 32U4's row nor the 328P's store row is a row.** The
   32U4's `BOOT_STORE=1` row is not in `BOOT_SUPPORTED`: its 4 096-byte section
   had 3 828 bytes used before the copy path (above), and with the restore it
-  does not fit. Measured on 2026-10-23 on CI's image (avr-gcc 14.2.0), the core
-  links at 5 966 bytes of flash against the 4 096-byte section on the 32U4,
-  1 870 bytes over (ld: 1 696 over `text`), with 1 921 bytes of SRAM left
-  (639 / 2 560 used), for `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`. The
+  does not fit. Measured with `make bootloader-candidate` on CI's image
+  (avr-gcc 14.2.0) at `9a338a82`, `atmega32u4:atecc608a:atecc608a:atecc608a:0:1`
+  is 1 724 bytes over the 4 096-byte section ([engineering.md](engineering.md));
+  the first measurement, on 2026-10-23, linked the core at 5 966 bytes of
+  flash with 1 921 bytes of SRAM left (639 / 2 560 used). That day's
   same measurement of the 328P with the restore was 5 982 bytes, 1 886 bytes
   over (ld: 1 706 over `text`), with 1 409 bytes of SRAM left (639 / 2 048
   used); that is the row the ruling below drops. At `cb104cf4`,

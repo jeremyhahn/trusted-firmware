@@ -21,11 +21,9 @@
 
 static uint32_t          model_rd(uint32_t off);
 static void              model_wr(uint32_t off, uint32_t v);
-static volatile uint32_t *cm_slot(uintptr_t addr);
-
-/* Keep the target's cm_regs.h out: soc_regs.h's registers go to cm_slot. */
-#define TFW_CM_REGS_H
-#define TFW_CM_REG(addr)         (*cm_slot((uintptr_t)(addr)))
+/* The register model keeps the target's cm_regs.h out: soc_regs.h's
+ * registers go to cm_slot. */
+#include "mcxn_reg_model.h"
 #define TFW_MCXN_I2C_RD(off)     model_rd(off)
 #define TFW_MCXN_I2C_WR(off, v)  model_wr((off), (v))
 

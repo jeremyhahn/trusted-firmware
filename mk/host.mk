@@ -669,12 +669,13 @@ $(HOST_DIR)/test_mcxn_lpuart: test/unit/test_mcxn_lpuart.c src/hal/cortex-m/mcxn
 # with the controller's accessors sent to its LPI2C model and every other
 # register to a table, and links the clock arithmetic beside it.
 # src/hal/cortex-m is only where soc_regs.h finds cm_regs.h, which the test
-# keeps out by its guard; it goes after HOST_CFLAGS so the host's hal_types.h
-# still wins.
+# keeps out by the guard test/model/cortex-m/mcxn_reg_model.h claims; it goes
+# after HOST_CFLAGS so the host's hal_types.h still wins.
 $(HOST_DIR)/test_mcxn_lpi2c: test/unit/test_mcxn_lpi2c.c src/hal/cortex-m/mcxn94x/lpi2c_timing.c \
                         src/hal/cortex-m/mcxn94x/hal_bus.c src/hal/cortex-m/mcxn94x/soc_regs.h \
+                        test/model/cortex-m/mcxn_reg_model.h \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model/cortex-m -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
 	   -o $@ $(filter %.c %.o,$(filter-out src/hal/cortex-m/mcxn94x/hal_bus.c,$^)) $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the

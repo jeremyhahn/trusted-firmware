@@ -230,12 +230,20 @@ None is decided here.
    SE052F, with which supply, and does a Linux I2C bus with NXP's own tooling
    read the factory record before our driver exists?
 8. **The transport specification.** Which T=1 over I2C does the SE052F speak:
-   NXP's UM11225 or GlobalPlatform's? Settled by the data sheet when it is
-   read.
-9. **The vendor documents.** nxp.com refused every SE05x document to a lane.
-   Does the owner supply them (data sheet, AN12413, the transport
-   specification) at the revision to be governing, as ruling 109 settled the
-   OPTIGA's?
+   NXP's UM11225 or GlobalPlatform's GPC_SPE_172? The data sheet, read,
+   settles part of it: it cites both (DS §15, references [2] and [3]; §10.2
+   names each one's power-down request), and its configuration selects the
+   GlobalPlatform flavour (DS §13.3, Table 12, `I2C_SPI_PARAMS`: "GP 0.39
+   flavour"). It does not give the frame layout or the check sequence, and
+   it does not say which GPC_SPE_172 revision "GP 0.39" is: both wait for
+   the specification itself (question 9).
+9. **The vendor documents.** The data sheet and AN14277 are read and pinned
+   (`../reference/README.md`); AN12413 is the SE050's and is not needed.
+   nxp.com refused AN12543 and UM11225 to a lane, and GlobalPlatform asks
+   for a licence agreement before GPC_SPE_172. Does the owner supply AN12543
+   (the SE052F's applet APDU specification, AN14277 §2.1) and the transport
+   specification of question 8 at the revision to be governing, as ruling
+   109 settled the OPTIGA's?
 
 ## Follow-ups (not in this ADR)
 

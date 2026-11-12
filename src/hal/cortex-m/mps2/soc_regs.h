@@ -26,6 +26,10 @@
  *                                             hal_bus.c clocks (sbcon.c)
  *   TFW_MPS2_SPI_BASE                         the shield 0 PL022, the SPI bus
  *                                             hal_bus.c drives (pl022.c)
+ *   TFW_MPS2_TIMER0_BASE                      the CMSDK APB timer TIMER0, the
+ *                                             tone's clock (hal_tone.c)
+ *   TFW_MPS2_TIMER0_IRQ                       its interrupt, a bare decimal
+ *                                             literal as the UART's are
  *
  * The SBCon is not a CMSDK block: it is the serial bus interface of Arm's
  * baseboards (DUI 0224I, 4.19), which the MPS2 images carry unchanged. Nor is
@@ -90,5 +94,38 @@
 /* ---- the shield 0 SPI, a PL022 (pl022.h; Arm DDI 0194H, Table 3-1): one
  * register at an offset pl022.h names. */
 #define TFW_MPS2_SSP(off)      TFW_CM_REG(TFW_MPS2_SPI_BASE + (off))
+
+/* The CMSDK APB timer (Arm DDI 0479C, Cortex-M System Design Kit TRM, 4.4,
+ * "APB timer"; QEMU hw/timer/cmsdk-apb-timer.c at v10.0.0): a 32-bit down
+ * counter that loads RELOAD when it reaches 0 and, with INTEN, raises its
+ * interrupt then. INTSTATUS reads the pending bit; a 1 written to the same
+ * offset, INTCLEAR, clears it. */
+#if defined(TFW_MPS2_TIMER0_BASE)
+#define TFW_MPS2_TIMER(off)        TFW_CM_REG(TFW_MPS2_TIMER0_BASE + (off))
+#define TFW_MPS2_TIMER_CTRL        TFW_MPS2_TIMER(0x00u)
+#define TFW_MPS2_TIMER_VALUE       TFW_MPS2_TIMER(0x04u)
+#define TFW_MPS2_TIMER_RELOAD      TFW_MPS2_TIMER(0x08u)
+#define TFW_MPS2_TIMER_INTCLEAR    TFW_MPS2_TIMER(0x0Cu)
+#endif
+#define TFW_MPS2_TIMER_CTRL_EN     0x1u   /* count */
+#define TFW_MPS2_TIMER_CTRL_INTEN  0x8u   /* interrupt at 0 */
+
+/* The fewest timer cycles between two tone edges: at 500 the toggle's
+ * interrupt costs a small share of the core, and the highest tone is
+ * TFW_CM_CPU_HZ / 1000 (20 kHz on AN505, 25 kHz on AN500). */
+#define TFW_MPS2_TONE_HALF_MIN     500u
+
+/* The tone's reload: half its period in core cycles, less one, since the
+ * timer counts RELOAD down to 0 inclusive. 0 for a frequency it cannot hit:
+ * 0 Hz, or one above the TFW_MPS2_TONE_HALF_MIN bound. */
+static inline uint32_t tfw_mps2_tone_reload(uint32_t cpu_hz, uint16_t hz)
+{
+    if (hz == 0u)
+        return 0u;
+    uint32_t half = cpu_hz / (2u * (uint32_t)hz);
+    if (half < TFW_MPS2_TONE_HALF_MIN)
+        return 0u;
+    return half - 1u;
+}
 
 #endif /* TFW_CM_MPS2_REGS_H */

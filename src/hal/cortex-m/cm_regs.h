@@ -15,7 +15,10 @@
 
 #include <stdint.h>
 
+/* A host suite may define its own, pointing the registers at a model. */
+#ifndef TFW_CM_REG
 #define TFW_CM_REG(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
+#endif
 
 /* System Control Block. */
 #define TFW_CM_VTOR  TFW_CM_REG(0xE000ED08u)

@@ -58,10 +58,10 @@ static uint8_t wait_disabled(void)
 static uint32_t wait_intr(uint32_t mask)
 {
     uint32_t n;
-    uint32_t raw;
 
     for (n = 0u; n < TFW_RP_I2C_POLLS; n++) {
-        raw = TFW_RP_IC_RAW_INTR_STAT & mask;
+        uint32_t raw = TFW_RP_IC_RAW_INTR_STAT & mask;
+
         if (raw != 0u) {
             return raw;
         }
@@ -90,9 +90,9 @@ static uint8_t wait_cmd(uint32_t want)
  * ABORT (a STOP and a FIFO flush, §12.2.10.4), then disable the block. */
 static tfw_status_t abandon(void)
 {
-    uint32_t n;
-
     if ((TFW_RP_IC_ENABLE & TFW_RP_IC_ENABLE_ENABLE) != 0u) {
+        uint32_t n;
+
         TFW_RP_IC_ENABLE = TFW_RP_IC_ENABLE_ENABLE | TFW_RP_IC_ENABLE_ABORT;
         for (n = 0u; n < TFW_RP_I2C_POLLS; n++) {
             if ((TFW_RP_IC_ENABLE & TFW_RP_IC_ENABLE_ABORT) == 0u) {
@@ -151,7 +151,6 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
     uint16_t     i;
     uint32_t     cmd;
     uint32_t     raw;
-    uint8_t      w;
     tfw_status_t st = TFW_OK;
 
     if (total == 0u) {
@@ -168,6 +167,8 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
     (void)TFW_RP_IC_CLR_INTR;
 
     for (i = 0u; i < total; i++) {
+        uint8_t w;
+
         if (i < wlen) {
             cmd = wr[i];
         } else {

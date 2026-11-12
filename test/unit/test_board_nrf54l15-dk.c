@@ -70,20 +70,17 @@ static void test_no_pin_offers_an_adc(void)
 
 static void test_led1_and_led3_are_pwm20_channels_0_and_1(void)
 {
-    /* PWM20 reaches port 1 only: LED1 P1.10 (Zephyr's pwm20_default OUT0)
-     * and LED3 P1.14, unit 0 being PWM20. */
+    /* LED1 and LED3 are the board's two PWM pins. The board sweep builds
+     * this test against the mock HAL types, where the ref is opaque, so
+     * the PWM20 fields (unit 0, channels 0 and 1, P1.10 and P1.14) are
+     * checked in test_nrf54l_pwm.c, which builds with the Cortex-M types. */
     static const uint8_t pin[2] = { 1u, 3u };
-    static const uint8_t bit[2] = { 10u, 14u };
 
     TEST_ASSERT_EQUAL_UINT8(2u, TFW_PWM_COUNT);
     for (uint8_t i = 0u; i < 2u; i++) {
         tfw_pwmref_t p;
 
         TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(pin[i], &p));
-        TEST_ASSERT_EQUAL_UINT8(0u, p.unit);
-        TEST_ASSERT_EQUAL_UINT8(i, p.channel);
-        TEST_ASSERT_EQUAL_UINT8(1u, p.port);
-        TEST_ASSERT_EQUAL_UINT8(bit[i], p.bit);
         TEST_ASSERT_TRUE(tfw_board_pin_flags(pin[i]) & TFW_PIN_PWM);
     }
 }

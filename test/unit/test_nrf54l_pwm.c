@@ -13,6 +13,7 @@
  */
 
 #include "unity.h"
+#include "tfw/board.h"
 #include "tfw/hal.h"
 #include "soc_regs.h"
 
@@ -133,6 +134,25 @@ static void test_a_ref_the_unit_has_no_channel_for_is_refused(void)
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_START);
 }
 
+static void test_the_board_resolves_led1_and_led3_to_pwm20_channels_0_and_1(void)
+{
+    /* The nRF54L15-DK's tfw_board_pwms rows, through tfw_board_pwm():
+     * PWM20 (unit 0) reaches port 1 only, LED1 P1.10 on channel 0 and
+     * LED3 P1.14 on channel 1. */
+    static const uint8_t pin[2] = { 1u, 3u };
+    static const uint8_t bit[2] = { 10u, 14u };
+
+    for (uint8_t i = 0u; i < 2u; i++) {
+        tfw_pwmref_t p;
+
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(pin[i], &p));
+        TEST_ASSERT_EQUAL_UINT8(0u, p.unit);
+        TEST_ASSERT_EQUAL_UINT8(i, p.channel);
+        TEST_ASSERT_EQUAL_UINT8(1u, p.port);
+        TEST_ASSERT_EQUAL_UINT8(bit[i], p.bit);
+    }
+}
+
 int main(void)
 {
     tfw_nrf54l_model_reset();
@@ -144,5 +164,6 @@ int main(void)
     RUN_TEST(test_a_second_channel_plays_beside_the_first);
     RUN_TEST(test_stop_disconnects_and_stops_the_last_channel);
     RUN_TEST(test_a_ref_the_unit_has_no_channel_for_is_refused);
+    RUN_TEST(test_the_board_resolves_led1_and_led3_to_pwm20_channels_0_and_1);
     return UNITY_END();
 }

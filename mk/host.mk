@@ -2370,6 +2370,7 @@ HOST_NRF54L_CFLAGS = -Itest/model/nrf54l -Itest/model -Isrc/hal/cortex-m/nrf54l 
                      -Iboards/nrf54l15-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
 $(HOST_DIR)/test_nrf54l_pwm: test/unit/test_nrf54l_pwm.c test/model/nrf54l_model.c \
                              src/hal/cortex-m/nrf54l/hal_pwm.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                             boards/nrf54l15-dk/board.c src/core/board_lookup.c \
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

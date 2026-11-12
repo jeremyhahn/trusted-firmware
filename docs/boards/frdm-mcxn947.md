@@ -28,6 +28,24 @@ that no pinned file states is written **not confirmed**.
 | Debug UART pins | P1_8 = FC4_P0, P1_9 = FC4_P1, both pin function 2 (`kPORT_MuxAlt2`) with the input buffer on; PORT1 clocked first. Which of P0/P1 is RX in LPUART mode is **not confirmed** | SDK `hello_world` `pin_mux.c` lines 46, 49, 68, 105-107, 113-114, 128-130, 136-137 |
 | LEDs | red P0_10, green P0_27, blue P1_2 | SDK `board.h` (`BOARD_LED_*`) |
 | Buttons | SW2 P0_23, SW3 P0_6 | SDK `board.h` (`BOARD_SW*`) |
+| Analog pins | A2 P0_14 = ADC0_B14, A3 P0_22 = ADC0_A14, A4 P0_15 = ADC0_B15, A5 P0_23 = ADC0_A15 (SW2's pin); no source for A0 or A1, so neither is in the table | [`../reference/README.md`](../reference/README.md), the `frdm_mcxn947` rows |
+
+## Analog read
+
+`ANALOG_READ` and `ADC_REF` run on LPADC0 (`src/hal/cortex-m/mcxn94x/hal_adc.c`):
+**built and tested against a register model on the host
+(`test/unit/test_mcxn94x_adc.c`), not run on the board.** The pin table's
+`adc_ch` is the converter input, the channel number plus 32 for side B, so
+`TFW_ADC_COUNT` is 64. Each read is one 12-bit single-ended conversion,
+command 1 on software trigger 0, sample time 131.5 ADC clocks, popped from
+FIFO 0 with a bounded wait (`TFW_ERR_TIMEOUT` past it) and returned as the
+12 raw bits. Init ungates and releases ADC0 in SYSCON0, clocks it from
+FRO12M undivided, resets the converter and both FIFOs, powers it on, and
+runs the offset and the gain calibration of both sides, each wait bounded;
+a calibration that does not finish leaves every read `TFW_ERR_UNSUPPORTED`.
+`ADC_REF` accepts VCC (reference option 1) and refuses the others. ADC1 is
+not driven. The steps are fsl_lpadc's; items 7 to 11 below are what the
+pinned files do not settle.
 
 ## What the port does not do
 
@@ -113,3 +131,25 @@ runs an image:
    without an ECC fault is not in a pinned file, and tfw-boot's
    read-modify-write depends on it as much as the application does: reference
    manual, FMU chapter.
+7. **LPADC side-B select: open.** Side B is CMDL's CTYPE at 1 (bit 5), next
+   to the ADCH field `soc_regs.h` gives; no pinned file states the field's
+   place on this part: reference manual, ADC chapter, CMDL.
+8. **Default reference pin: open.** `CFG.REFSEL` stays 0, the SDK's default
+   ("option 1"), taken as the board's 3.3 V VREFH; which pin option 1 is, and
+   what UM12018 ties it to, is not in a pinned file: reference manual, ADC
+   chapter, and UM12018.
+9. **ADC clock: open.** FRO12M (`ADC0CLKSEL` 3, `kFRO12M_to_ADC0`), divider 1,
+   is the board's core clock and the reversible choice; that 12 MHz is inside
+   the converter's range at the sample time used is not in a pinned file:
+   data sheet, ADC characteristics.
+10. **Calibration steps: open.** Offset (`CALOFS`, wait `CAL_RDY`), then gain
+    with 128 averages (`CAL_REQ`, wait `GCC.RDY`, write `GCR`) for both sides,
+    then `CAL_RDY`, as fsl_lpadc's offset and auto calibration run; whether
+    side B's `GCC[1]` is calibrated by the same request, and the 12-bit result
+    sitting in bits 14:3 of `RESFIFO`, are not in a pinned file: reference
+    manual, ADC chapter.
+11. **Analog pin mux: open.** The port leaves the four pins' `PCR` at their
+    reset value and takes it as analog-capable; SW2's pin may already have its
+    input buffer on from the GPIO HAL. The analog function and input-buffer
+    setting for an LPADC input are not in a pinned file: reference manual,
+    PORT chapter, and the SDK's `lpadc` example `pin_mux.c`.

@@ -22,11 +22,9 @@
  * its cs pin. The one select it accepts is that bit; no board table names it
  * yet, so the profiles say TFW_FEATURE_SPI 0.
  *
- * 1-Wire is not driven on this board: the image has no such bus, and the
- * profile says TFW_FEATURE_ONEWIRE 0. Its entry points are here because
- * src/caps/bus.c is one translation unit with all three buses' handlers, and
- * they refuse with TFW_ERR_UNSUPPORTED, as hal_gpio.c refuses a mode the pins
- * do not have.
+ * 1-Wire is bit-banged on GPIO block 0 bit 0 (gpio_line.h), the board table's
+ * pin 3 in the ONEWIRE=1 row (TFW_CM_ONEWIRE, TFW_FEATURE_ONEWIRE 1), with the
+ * AVR master's slot timings; a pin other than that line is TFW_ERR_RANGE.
  */
 #include <stdint.h>
 

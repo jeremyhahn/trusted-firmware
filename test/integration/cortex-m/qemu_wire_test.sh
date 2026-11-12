@@ -101,6 +101,14 @@
 # the shield 0 SBCon, which QEMU models with nothing on its bus, so every
 # address is NACKed.
 #
+#   qemu_wire_test.sh <dir> <machine> <board> tone
+#
+# is the board's tone row (cortex-m-qemu-tone-wire): the base row's tfw-boot
+# and the application built with TONE=1. One boot, tone, runs TestQEMUTone
+# (sdk/go/cmd/tfwctl/tone_qemu_test.go): TONE and NOTONE on the tone pin
+# answer OK and a frequency above the driver's bound is refused. QEMU does not
+# measure the pin.
+#
 # A failed row leaves its guest's registers at the end of the boot's QEMU log
 # (regs below), so a guest that stopped answering says where it stopped.
 #
@@ -109,8 +117,8 @@
 # in the suite is bounded, and the trap kills QEMU on every exit.
 set -eu
 
-usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c]" >&2; exit 2; }
-case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c) ;; *) usage ;; esac
+usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|tone]" >&2; exit 2; }
+case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c | 4:tone) ;; *) usage ;; esac
 dir=$1
 machine=$2
 board=$3
@@ -240,6 +248,8 @@ elif [ "$row" = spi ]; then
     cycle spi TestQEMUSPIXfer
 elif [ "$row" = i2c ]; then
     cycle i2c TestQEMUI2CXfer
+elif [ "$row" = tone ]; then
+    cycle tone TestQEMUTone
 else
     wire provisioned boot.bin "^TestFirmware($firmware|$refuse|$dice|$csr|$app)\$"
     wire unprovisioned boot-unprovisioned.bin '^TestFirmwareAttestRefusedUnprovisioned$'

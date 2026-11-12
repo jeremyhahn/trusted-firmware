@@ -68,6 +68,12 @@ CM_QEMU_AB_DIR    := $(BOOT_INT_DIR)/qemu-ab
 CM_QEMU_SPI_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_SPI_BUILD  := $(BUILD_DIR)/qemu-spi
 
+# The tone row (profile.mk's soft:TONE=1), the same way: the base row's image
+# built with TONE=1, so TONE and NOTONE reach hal_tone.c's TIMER0
+# (sdk/go/cmd/tfwctl/tone_qemu_test.go). QEMU does not measure the pin.
+CM_QEMU_TONE_BOARDS := mps2-an505 mps2-an500
+CM_QEMU_TONE_BUILD  := $(BUILD_DIR)/qemu-tone
+
 # The I2C row, the same way: the base row's image built with I2C=1, so
 # I2C_XFER reaches the shield 0 SBCon, which QEMU models with nothing on its
 # bus (sdk/go/cmd/tfwctl/i2c_qemu_test.go). Each board's soft:I2C=1 is this
@@ -146,6 +152,15 @@ cortex-m-qemu-spi-wire:
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) SPI=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_SPI_BUILD) CM_QEMU_SPI=1
 
+# The tone row's run, beside the SPI row's: the base row's tfw-boot and the
+# TONE=1 application, every path under CM_QEMU_TONE_BUILD.
+cortex-m-qemu-tone-wire:
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) TONE=1 BUILD_DIR=$(CM_QEMU_TONE_BUILD)
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_TONE_BUILD)
+	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) TONE=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_TONE_BUILD) CM_QEMU_TONE=1
+
 # The I2C row's run, after the SPI row's: the base row's tfw-boot and the I2C=1
 # application, every path under CM_QEMU_I2C_BUILD.
 cortex-m-qemu-i2c-wire:
@@ -191,7 +206,7 @@ cortex-m-qemu-wire-run: cortex-m-qemu-image
 	   echo "$@: python3 is not on PATH: qmp_pty.py reads the pty's path over QMP"; exit 1; }
 	@MAKE='$(MAKE)' QEMU_RAM='$(RAM_BASE) $(RAM_BUDGET)' QEMU_UART='$(QEMU_UART)' \
 	   QEMU_ELF='$(abspath $(TARGET).elf)' test/integration/cortex-m/qemu_wire_test.sh $(CM_QEMU_DIR) $(QEMU_MACHINE) $(BOARD) \
-	   $(if $(filter 1,$(CM_QEMU_AB)),ab,$(if $(CM_QEMU_STAGED),store,$(if $(filter 1,$(CM_QEMU_SPI)),spi,$(if $(filter 1,$(CM_QEMU_I2C)),i2c))))
+	   $(if $(filter 1,$(CM_QEMU_AB)),ab,$(if $(CM_QEMU_STAGED),store,$(if $(filter 1,$(CM_QEMU_SPI)),spi,$(if $(filter 1,$(CM_QEMU_I2C)),i2c,$(if $(filter 1,$(CM_QEMU_TONE)),tone)))))
 
 # The signed image both runs boot. On the store row (CM_QEMU_STAGED, the
 # application's path without its extension), cm_image also signs the image
@@ -248,7 +263,7 @@ $(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/em
 
 .PHONY: integration-test-cortex-m cortex-m-qemu-run cortex-m-qemu-image \
         integration-test-cortex-m-wire cortex-m-qemu-wire-run cortex-m-qemu-store-wire cortex-m-qemu-ab-wire \
-        cortex-m-qemu-spi-wire cortex-m-qemu-i2c-wire \
+        cortex-m-qemu-spi-wire cortex-m-qemu-i2c-wire cortex-m-qemu-tone-wire \
         cortex-m-qemu-cycle \
         $(addprefix integration-test-cortex-m-,$(CM_QEMU_BOARDS)) \
         $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS))

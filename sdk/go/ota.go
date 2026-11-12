@@ -120,6 +120,23 @@ func (d *Device) OTAConfirm(ctx context.Context) error {
 	return err
 }
 
+// Activate is ADR section 13's name for OTAActivate: now true resets into
+// the staged image at once (OTAActivateResetNow), false takes it at the next
+// reset (OTAActivateAtReset). Like OTAActivate it needs OTA_AUTH first.
+func (d *Device) Activate(ctx context.Context, now bool) error {
+	mode := OTAActivateAtReset
+	if now {
+		mode = OTAActivateResetNow
+	}
+	return d.OTAActivate(ctx, mode)
+}
+
+// Confirm is ADR section 13's name for OTAConfirm: it confirms the image on
+// trial, and needs OTA_AUTH first.
+func (d *Device) Confirm(ctx context.Context) error {
+	return d.OTAConfirm(ctx)
+}
+
 // OTAChunk is the most image bytes one OTA_DATA carries: the payload less the
 // offset.
 const OTAChunk = 60

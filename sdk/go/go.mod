@@ -20,7 +20,7 @@
 // and this module stops being dependency-free.
 module github.com/jeremyhahn/trusted-firmware/sdk/go
 
-go 1.26.5
+go 1.27.4
 
 require (
 	github.com/stretchr/testify v1.12.1

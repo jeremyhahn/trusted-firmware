@@ -62,6 +62,7 @@ it again in the toolchain image.
 | Clock | the CPU at 128 MHz; the high-frequency crystal started, not waited on | [MDK] `system_nrf54l.c` |
 | Console | UARTE20 at the baud rates of the vendor's `BAUDRATE` table (its clock is 16 MHz), 8N1, no flow control, one byte per EasyDMA transfer each way, on IRQ 198 | [MDK] `nrf54l15_types.h`, `nrf54l15_application_peripherals.h` |
 | Watchdog | WDT30 on the 32.768 kHz clock, 8 s, with `STOPEN` so a later reset can stop it | [MDK] `nrf54l15_types.h` |
+| PWM | PWM20, channel 0 on LED1 (P1.10) and channel 1 on LED3 (P1.14), the DK's LEDs on port 1. Up-counting, `PRESCALER` `DIV_16` (1 MHz), `COUNTERTOP` 1000: a 1 kHz period, the wire's 8-bit duty scaled to 1000 counts. The compare values are a four-half-word sequence in RAM (`DECODER` `LOAD` `Individual`), read by EasyDMA (`DMA.SEQ[0].PTR`, `MAXCNT` in bytes) and played by `TASKS_DMA.SEQ[0].START`; bit 15 of a value set for a pin high first. Duty 0 and 255 disconnect the channel's `PSEL.OUT` and drive the pin as a GPIO; stop disconnects it, and the last channel out triggers `TASKS_STOP`. Configured on first use (`src/hal/cortex-m/nrf54l/hal_pwm.c`, host-tested against a register model) | [MDK] `nrf54l15_types.h` (`NRF_PWM_Type`, `PWM_*`), `nrf54l15_global.h` (`NRF_PWM20_S_BASE`); [Z] `nrf54l15dk_nrf54l_05_10_15-pinctrl.dtsi` (`pwm20_default`), `nrf54l15dk_common.dtsi`, `drivers/pwm/pwm_nrfx.c` (`PWM_NRFX_CH_POLARITY_MASK`) |
 | Vectors | the core's 96 entries, then IRQs 80-198 in `.vectors.soc`; the linker script asserts the two meet and the table sits on a 1 KB boundary | `mk/arch/cortex-m/nrf54l.ld` |
 
 ## tfw-boot (#17, slice 2)
@@ -160,7 +161,8 @@ In order:
    [`../cortex-m/README.md`](../cortex-m/README.md).
 5. OTA and the store, if the owner wants them on this board: the RRAM write
    path is already in place for both.
-6. The SAADC and PWM.
+6. The SAADC. PWM is built (PWM20 on LED1 and LED3, the table above) and
+   host-tested, and has not run on the board.
 
 ## What is not verified
 
@@ -174,3 +176,19 @@ above on the board itself. For the RRAM writes in particular, none of these is v
   Secure core write the platform block;
 - what a store with `WEN` clear does (ignored or a fault);
 - how long a write takes against the spin bounds.
+
+For the PWM, none of these is verified on the board, and each needs [PS],
+"PWM — Pulse width modulation":
+
+- that PWM20 reaches port 1 only (the port drives no port 0 or port 2 pin
+  with it, the reversible choice) and that its EasyDMA reads the sequence
+  anywhere in RAM;
+- that a sequence played once with `LOOP` 0 holds its last values until
+  `TASKS_STOP`, and that a new `TASKS_DMA.SEQ[0].START` while it plays loads
+  the new values;
+- that a pin left set as a GPIO output takes the channel's level while its
+  `PSEL.OUT` is connected, and that bit 15 set means high first (Zephyr's
+  driver sets it for a channel not inverted);
+- that `ENABLE` may stay set after `TASKS_STOP` with every channel
+  disconnected (the port never clears it, rather than clearing it before
+  `EVENTS_STOPPED`).

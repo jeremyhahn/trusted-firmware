@@ -2,7 +2,7 @@
 
 > **Status: PROPOSED** · Issue: [#253](../../../../issues/253) · SPEC row:
 > `optee-trustzone` (future) · Scope: trusted-firmware; go-enclave (seam only,
-> [go-enclave#206](../../../../../go-enclave/issues/206)) · Last verified: 2026-10-26
+> [go-enclave#206](../../../../../go-enclave/issues/206)) · Last verified: 2026-11-12
 >
 > Slice 2 is proven: the pin (OP-TEE 4.11.0) and `make optee-tools`,
 > `optee-qemu` and `optee-run` are in `mk/optee.mk`. On 2026-10-26, from an
@@ -13,18 +13,25 @@
 > 43508 subtests, 0 failed, 0 skipped, guest status 0. `make optee-tools` names
 > every missing host package before it fetches anything.
 >
-> Slice 3 is written, proven on the host and not yet in the guest: the TA
-> (`optee/ta/`, `GET_INFO` and `GET_RANDOM`), `tfw-ta-check` (`optee/check/`),
-> `optee/testdata/vectors.h` and `make integration-test-optee`. The TA's
-> dispatch and the check pass `test_optee_ta` on the host; the guest run is not yet done.
-> The CI jobs (slice 4) are written in `.github/workflows/ci.yml`, in the
-> `optee` image, with `OPTEE_CACHE` cached by the pin (open question 6 as
-> proposed): `OP-TEE stack [optee-tools, optee-qemu]` builds and saves the
-> stack when the cache misses, and `OP-TEE [optee-qemu, integration-test-optee]`,
-> after it, only restores the stack and runs the tests. Both OP-TEE jobs run on
-> the `go-warm` runner label, because each runner keeps its own cache, so the
-> test job runs where the stack job saved it. The guest run is proven by
-> its first green CI run, not yet run.
+> Slices 3 to 5 are built and proven in the guest: the TA (`optee/ta/`, with
+> `GET_INFO`, `GET_RANDOM`, `SEAL` and `UNSEAL`), `tfw-ta-check`
+> (`optee/check/`), `optee/testdata/vectors.h` and `make integration-test-optee`.
+> On the host, the TA's dispatch and the check pass `test_optee_ta`
+> (`make host-test`). In the guest, `make integration-test-optee` boots the
+> pinned stack, runs `xtest -l 0` and then `tfw-ta-check`, and fails unless the
+> guest exits 0 and the log carries `tfw-ta-check: ok` for `get-info`,
+> `get-random`, `seal-unseal`, `unseal-mac-invalid`, `seal-max`, `seal-over` and
+> `unseal-over`, and `tfw-ta-check: PASS, 21 of 21 passed`. Main's CI run 138, at
+> commit `ec7d341d`, passed it in the `OP-TEE [optee-qemu, integration-test-optee]`
+> job.
+>
+> The CI jobs (slice 4) are in `.github/workflows/ci.yml`, in the `optee`
+> image, with `OPTEE_CACHE` cached by the pin (key `optee-<release>`, open
+> question 6 as proposed): `OP-TEE stack [optee-tools, optee-qemu]` builds and
+> saves the stack when the cache misses, and `OP-TEE [optee-qemu,
+> integration-test-optee]`, after it, only restores the stack and runs the
+> tests. In run 138 the stack job hit the cache and finished in seconds; the
+> test job ran in 30 minutes.
 >
 > This page is the row's first deliverable: what is
 > composed, what this project adds, the trusted application's interface, the
@@ -149,8 +156,8 @@ listed are `TEEC_NONE`.
 | Id | Name | Param 0 | Param 1 | Param 2 | Returns | Status |
 |---|---|---|---|---|---|---|
 | `0x00000000` | — | | | | `TEE_ERROR_NOT_SUPPORTED` | reserved, never assigned |
-| `0x00000001` | `GET_INFO` | `VALUE_OUTPUT`: `a` = interface version (1), `b` = 0 (flags, reserved) | | | `TEE_SUCCESS` | proposed, v1 |
-| `0x00000002` | `GET_RANDOM` | `MEMREF_TEMP_OUTPUT`: 1 to 4096 bytes, filled by `TEE_GenerateRandom` | | | `TEE_SUCCESS`; `TEE_ERROR_BAD_PARAMETERS` for size 0 or above 4096 | proposed, v1 |
+| `0x00000001` | `GET_INFO` | `VALUE_OUTPUT`: `a` = interface version (1), `b` = 0 (flags, reserved) | | | `TEE_SUCCESS` | implemented (#253) |
+| `0x00000002` | `GET_RANDOM` | `MEMREF_TEMP_OUTPUT`: 1 to 4096 bytes, filled by `TEE_GenerateRandom` | | | `TEE_SUCCESS`; `TEE_ERROR_BAD_PARAMETERS` for size 0 or above 4096 | implemented (#253) |
 | `0x00000003` | `SEAL` | `MEMREF_TEMP_INPUT`: plaintext, 0 to 8192 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: sealed blob, at most 8238 bytes | `TEE_SUCCESS`; `TEE_ERROR_SHORT_BUFFER` (`0xFFFF0010`) with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a plaintext above 8192 bytes | implemented (#288) |
 | `0x00000004` | `UNSEAL` | `MEMREF_TEMP_INPUT`: sealed blob, at most 8238 bytes | `MEMREF_TEMP_INPUT`: associated data, must be empty | `MEMREF_TEMP_OUTPUT`: plaintext | `TEE_SUCCESS`; `TEE_ERROR_MAC_INVALID` (`0xFFFF3071`) for a tampered blob; `TEE_ERROR_BAD_FORMAT` (`0xFFFF0005`) for a blob that does not parse; `TEE_ERROR_SHORT_BUFFER` with the needed size; `TEE_ERROR_BAD_PARAMETERS`, also for a blob above 8238 bytes | implemented (#288) |
 
@@ -223,7 +230,7 @@ install step, and the job fails. A test that cannot run is a failure.
 
 | go-enclave needs | This project provides | Where |
 |---|---|---|
-| A TA to call | the TA, UUID and command table above | slice 3, written: `optee/ta/`; tests `test_optee_ta` (host) and `tfw-ta-check` in `make integration-test-optee` (guest, not yet run) |
+| A TA to call | the TA, UUID and command table above | slice 3, written: `optee/ta/`; tests `test_optee_ta` (host) and `tfw-ta-check` in `make integration-test-optee` (guest, green in main's CI run 138) |
 | A secure world on QEMU `virt` | `make optee-run`, with `OPTEE_SHARE` and `OPTEE_GUEST_CMD` | slices 2 and 3 |
 | A stable contract | the UUID and literal vectors; ids extend, never renumber | slice 3, written: `optee/testdata/vectors.h`, pinned by `test_optee_ta` and `scripts/test_optee_mk.py` (`OpteeTa`) |
 | A version to pin | a trusted-firmware tag that carries the target | slice 4 |
@@ -243,12 +250,13 @@ One PR each (m751).
    `make optee-qemu`, `make optee-run`; `xtest`'s smoke subset passes on QEMU
    `virt`. The GP specifications and the upstream sources are entered in
    `docs/reference/README.md`, RFC 9562 is copied there.
-3. **The TA, v1:** `optee/ta/` with `GET_INFO` and `GET_RANDOM`,
+3. **The TA, v1** (done): `optee/ta/` with `GET_INFO` and `GET_RANDOM`,
    `optee/testdata/vectors.h`, `tfw-ta-check`, and
    `make integration-test-optee`.
 4. **CI and the hand-off:** the CI job with the toolchain and the cached stack,
    running `make integration-test-optee`; the tag go-enclave pins; this page's
-   status to the built state.
+   status to the built state. The CI jobs and this page are done; the tag
+   is not yet cut.
 5. **`SEAL` and `UNSEAL`** (#288, done): go-xkms's blob format and key
    derivation, their vectors, and HKDF-SHA-256 over the GP HMAC.
 

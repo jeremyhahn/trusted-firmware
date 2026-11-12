@@ -22,14 +22,22 @@
 #define TFW_BOARD_NAME "frdm-imx95-m7"
 #define TFW_BOARD_ID   0x41u   /* provisional */
 
-#define TFW_PIN_COUNT  2u
+#define TFW_PIN_COUNT  4u
 #define TFW_PORT_COUNT 5u      /* GPIO1 to GPIO5 */
+#ifdef TFW_CM_PWM
+#define TFW_PWM_COUNT  2u
+#else
 #define TFW_PWM_COUNT  0u
+#endif
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE 0u
 
 #define TFW_FEATURE_ANALOG  0
+#ifdef TFW_CM_PWM
+#define TFW_FEATURE_PWM     1
+#else
 #define TFW_FEATURE_PWM     0
+#endif
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
@@ -49,6 +57,16 @@
 /* LPUART3's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
  * System Manager configuration sets the root). The baud divisor counts it. */
 #define TFW_IMX95_LPUART_CLK_HZ 24000000uL
+
+/* The M7's TPM for PWM (src/hal/cortex-m/imx95/hal_pwm.c, tpm.h). The low-
+ * power domain has two, tpm1 and tpm2 (Linux imx95.dtsi; tpm.h lists every
+ * base), and which one the System Manager gives the M7 is open
+ * (docs/multi-arch/imx95-design.md question 17): zero, unsupported, until it
+ * is known; every PWM call answers TFW_ERR_UNSUPPORTED and touches no
+ * register. Its clock root, the 24 MHz oscillator as LPUART3's, is TO
+ * CONFIRM: the System Manager configuration sets it. */
+#define TFW_IMX95_TPM_BASE    0x00000000uL
+#define TFW_IMX95_TPM_CLK_HZ  24000000uL
 
 /* Flash geometry for tfw-boot, as addresses in the M7's ITCM. TFW_FLASH_TOTAL
  * is the ITCM's end (include/tfw/boot.h asserts both regions fit below it and

@@ -24,9 +24,9 @@ static void test_the_board_is_the_next_provisional_cortex_m_id(void)
     TEST_ASSERT_EQUAL_STRING("frdm-imx95-m7", tfw_board_name());
 }
 
-static void test_the_pins_are_two_gpio2_lines(void)
+static void test_the_pins_are_four_gpio2_lines(void)
 {
-    TEST_ASSERT_EQUAL_UINT8(2u, TFW_PIN_COUNT);
+    TEST_ASSERT_EQUAL_UINT8(4u, TFW_PIN_COUNT);
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         tfw_pinref_t r;
 
@@ -43,11 +43,36 @@ static void test_no_pin_offers_an_adc_or_a_pwm(void)
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         uint8_t ch;
         tfw_pwmref_t p;
+        int pwm = TFW_FEATURE_PWM && i >= 2u;
 
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
-        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & (TFW_PIN_ADC | TFW_PIN_PWM));
+        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
+        if (!pwm) {
+            TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
+            TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_PWM);
+        }
     }
+}
+
+/* PWM=1 (TFW_CM_PWM): pins 2 and 3 are the TPM's channels 0 and 1, on their
+ * own GPIO2 lines; without it no pin offers one (above). */
+static void test_pins_two_and_three_carry_the_tpm_channels(void)
+{
+#if TFW_FEATURE_PWM
+    TEST_ASSERT_EQUAL_UINT8(2u, TFW_PWM_COUNT);
+    for (uint8_t i = 2u; i < 4u; i++) {
+        tfw_pwmref_t p;
+
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(i, &p));
+        TEST_ASSERT_EQUAL_UINT8(0u, p.unit);
+        TEST_ASSERT_EQUAL_UINT8(i - 2u, p.channel);
+        TEST_ASSERT_EQUAL_UINT8(1u, p.port);
+        TEST_ASSERT_EQUAL_UINT8(i, p.bit);
+        TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_PWM);
+    }
+#else
+    TEST_ASSERT_EQUAL_UINT8(0u, TFW_PWM_COUNT);
+#endif
 }
 
 static void test_a_pin_beyond_the_board_is_refused(void)
@@ -61,8 +86,9 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_board_is_the_next_provisional_cortex_m_id);
-    RUN_TEST(test_the_pins_are_two_gpio2_lines);
+    RUN_TEST(test_the_pins_are_four_gpio2_lines);
     RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
+    RUN_TEST(test_pins_two_and_three_carry_the_tpm_channels);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     return UNITY_END();
 }

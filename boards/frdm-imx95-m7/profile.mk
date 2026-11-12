@@ -85,3 +85,14 @@ BOOT_BUDGET    := 32768
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is
 # the enclave, and this slice does not touch it.
 BOARD_TIERS    := soft
+
+# PWM on the M7's TPM (src/hal/cortex-m/imx95/hal_pwm.c), off by default: the
+# TPM instance the System Manager gives the M7 is open (imx95-design.md question
+# 17), so TFW_IMX95_TPM_BASE is zero and every PWM call answers unsupported.
+# PWM=1 turns TFW_FEATURE_PWM on (TFW_CM_PWM in board_profile.h) and links the
+# TPM driver; the soft:PWM=1 row builds it. Host-tested on a register model
+# (test/unit/test_imx95_tpm.c), not run on the board.
+PWM               ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(PWM)),-DTFW_CM_PWM=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(PWM)),PWM)
+BOARD_ROWS        += soft:PWM=1

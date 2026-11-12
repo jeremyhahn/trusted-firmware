@@ -2112,11 +2112,21 @@ TFWSIM_MANIFEST_SRCS := $(filter-out src/core/ota_manifest_none.c,$(TFWSIM_ELEME
 # an #if out of tools/): every other simulator keeps main's options and usage.
 
 ## tfwsim-manifest: build the element-tier simulator with OTA_ACTIVATE's SUIT manifest gate (OTA_MANIFEST=1)
-tfwsim-manifest: $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX)
+tfwsim-manifest: $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX) $(HOST_DIR)/suit-emit
 $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_image_key.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_image_key.c tools/tfwsim/boot_none.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
+# mk/suit.mk's emitter, built against the host board's profile and beside the
+# simulator, so the manifests sdk/go/cmd/tfwctl's e2e_ota_manifest_test.go
+# emits carry the vendor and class ids tfwsim-manifest's gate compares.
+$(HOST_DIR)/suit-emit: tools/suit-emit/main.c tools/suit-emit/emit.c src/crypto/sha256.c tools/suit-emit/emit.h \
+                      boards/$(HOST_BOARD)/board_profile.h include/tfw/config.h | $(HOST_DIR)
+	@$(HOST_CC) -std=c11 -O1 -Wall -Wextra -Werror -Wconversion \
+	   -Iinclude -Isrc/crypto -Itools/suit-emit -Iboards/$(HOST_BOARD) \
+	   -DTFW_BOARD_HEADER='"board_profile.h"' -o $@ tools/suit-emit/main.c tools/suit-emit/emit.c src/crypto/sha256.c
 	@echo "built $@"
 
 # The element tier as a provisioning JIG image (issue #53): tfwsim-atecc608a's

@@ -20,14 +20,9 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
  * 0500B, 3.7 and 3.13 Table 3-6): SPI_XFER's chip select in the SPI=1 row.
  * hal_bus.c drives it around each transfer and hal_gpio.c refuses it, so it
  * is not a digital pin; nothing claims it, so SPI_XFER accepts it. */
-#if TFW_FEATURE_PWM
-#define LED_PWM(n) (n)
-#else
-#define LED_PWM(n) TFW_PWM_NONE
-#endif
 const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
-/* 0  LED0 */ { TFW_PB(0u, 0u), TFW_ADC_NONE, LED_PWM(0u), TFW_PIN_DIGITAL | TFW_PIN_LED },
-/* 1  LED1 */ { TFW_PB(0u, 1u), TFW_ADC_NONE, LED_PWM(1u), TFW_PIN_DIGITAL | TFW_PIN_LED },
+/* 0  LED0 */ { TFW_PB(0u, 0u), TFW_ADC_NONE, TFW_MPS2_LED0_PWM, TFW_PIN_DIGITAL | TFW_PIN_LED | (TFW_PIN_PWM & TFW_MPS2_PWM_FLAG) },
+/* 1  LED1 */ { TFW_PB(0u, 1u), TFW_ADC_NONE, TFW_MPS2_LED1_PWM, TFW_PIN_DIGITAL | TFW_PIN_LED | (TFW_PIN_PWM & TFW_MPS2_PWM_FLAG) },
 /* 2  nCS  */ { TFW_PB(1u, 8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 };
 

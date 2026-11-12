@@ -17,7 +17,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 SCRIPT = os.path.join(REPO, "test", "integration", "cortex-m", "qemu_wire_test.sh")
-USAGE = "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c]\n"
+USAGE = "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|pwm]\n"
 
 # The row the recipe passes, and the first boot the script starts for it.
 ROWS = (

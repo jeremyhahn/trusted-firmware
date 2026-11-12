@@ -37,6 +37,18 @@
 #else
 #define TFW_PWM_COUNT  0u
 #endif
+/* The LEDs' pin-table fields (board.c), object-like so scripts/board-check.py
+ * reads them: their PWM rows and TFW_PIN_PWM in the PWM=1 row, none outside
+ * it, where tfw_board_pwms is empty. */
+#if defined(TFW_CM_PWM)
+#define TFW_MPS2_LED0_PWM  0u
+#define TFW_MPS2_LED1_PWM  1u
+#define TFW_MPS2_PWM_FLAG  0xFFu
+#else
+#define TFW_MPS2_LED0_PWM  TFW_PWM_NONE
+#define TFW_MPS2_LED1_PWM  TFW_PWM_NONE
+#define TFW_MPS2_PWM_FLAG  0u
+#endif
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE 0u
 

@@ -65,10 +65,10 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     cc   |= (duty == 255u ? TFW_RP_PWM_TOP_8BIT + 1u : (uint32_t)duty) << shift;
     TFW_CM_REG(TFW_RP_PWM_CC(p->unit)) = cc;
 
-    if (!(pin_on & (1uL << p->bit))) {
+    if (!(pin_on & ((uint32_t)1u << p->bit))) {
         TFW_CM_REG(TFW_RP_PADS_GPIO(p->bit)) = tfw_rp_pad_value(0u);
         TFW_RP_IO_CTRL(p->bit) = TFW_RP_FUNC_PWM;
-        pin_on |= 1uL << p->bit;
+        pin_on |= (uint32_t)1u << p->bit;
     }
     return TFW_OK;
 }
@@ -80,7 +80,7 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
     if (!pwm_ref_ok(p)) {
         return TFW_ERR_BAD_PIN;
     }
-    mask = 1uL << p->bit;
+    mask = (uint32_t)1u << p->bit;
     if (slice_on & (1u << p->unit)) {
         TFW_RP_CLR(TFW_RP_PWM_CSR(p->unit)) = TFW_RP_PWM_CSR_EN;
         slice_on &= (uint16_t)~(1u << p->unit);

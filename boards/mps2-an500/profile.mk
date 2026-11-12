@@ -42,7 +42,7 @@ RAM_TOTAL      := 4194304
 BOOT_AB          ?= 0
 BOOT_AB_OPTIONAL := 1
 BOARD_DEFS        = $(if $(filter 1,$(BOOT_AB)),-DTFW_CM_AB=1) $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
-                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1)
+                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1) $(if $(filter 1,$(TONE)),-DTFW_CM_TONE=1)
 APP_BASE         := $(if $(filter 1,$(BOOT_AB)),0x00040000,0x00008000)
 RAM_BASE       := 0x20000000
 RAM_END        := 0x203FFFFF
@@ -78,7 +78,13 @@ OTA_STORE      := mem
 # links the bus; SPI_XFER's select is pin 2, the FPGA I/O block's MISC bit 8
 # (board.c). The soft:SPI=1 row builds it and size-check measures it, as
 # mps2-an505's does.
+#
+# The tone on LED1, pin 1, toggled from the CMSDK timer TIMER0's interrupt
+# (src/hal/cortex-m/mps2/hal_tone.c), off by default: QEMU does not measure the
+# pin. TONE=1 turns TFW_FEATURE_TONE on (TFW_CM_TONE in board_profile.h); the
+# soft:TONE=1 row builds it and size-check measures it.
 I2C               ?= 0
 SPI               ?= 0
-BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI)
-BOARD_ROWS        := soft:I2C=1 soft:SPI=1
+TONE              ?= 0
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) $(if $(filter 1,$(TONE)),TONE)
+BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:TONE=1

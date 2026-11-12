@@ -36,7 +36,14 @@
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
+/* The tone (TONE=1, src/hal/cortex-m/mps2/hal_tone.c): LED1, toggled from
+ * TIMER0's interrupt. Off by default: QEMU does not measure the pin. */
+#if defined(TFW_CM_TONE)
+#define TFW_FEATURE_TONE    1
+#else
 #define TFW_FEATURE_TONE    0
+#endif
+#define TFW_TONE_PIN        1u
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
 /* I2C over the shield 0 SBCon (src/hal/cortex-m/mps2/hal_bus.c) only in the
@@ -99,6 +106,14 @@
  * DAI 0505B), 4.6 "SPI" and 4.14 Table 4-5, MISC bit 8, SHIELD0_SPI_nCS. The
  * image does not wire the PL022's own select to the shield. */
 #define TFW_MPS2_SPI_BASE     0x4020A000u
+
+/* The IoT Kit's CMSDK APB timer TIMER0, the tone's clock: Secure alias of
+ * 0x40000000 and interrupt 3 (AN505, Arm DAI 0505B, the IoT Kit memory map
+ * and interrupt map; Arm CoreLink SSE-200 TRM, "Timers" and "Interrupts").
+ * QEMU v10.0.0 hw/arm/armsse.c maps "timer0" at 0x40000000 (and its Secure
+ * alias) with IRQ 3; hw/arm/mps2-tz.c builds the AN505 on that subsystem. */
+#define TFW_MPS2_TIMER0_BASE  0x50000000u
+#define TFW_MPS2_TIMER0_IRQ   3
 
 /* Flash geometry for tfw-boot, as addresses: on this part the regions are not
  * offsets from zero, so TFW_FLASH_TOTAL is the end of the address span both

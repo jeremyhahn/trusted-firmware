@@ -160,6 +160,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
                             test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
+                            test/unit/test_imx95_gpt.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_imx95_hsm_intake.c \
@@ -680,6 +681,12 @@ $(HOST_DIR)/test_imx95_rsc_table: test/unit/test_imx95_rsc_table.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/imx95 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The i.MX 95 M7 tone's GPT arithmetic (gpt.h, #22): a header with no register
+# access the test reaches, linked alone as soc_calc.c is.
+$(HOST_DIR)/test_imx95_gpt: test/unit/test_imx95_gpt.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/imx95 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The i.MX 95 M7 board's HAL -- its UART, pins and watchdog -- against a
 # register model (test/model/imx95_model.c), since QEMU has no i.MX 95. The
 # SoC files are the image's, unchanged: test/model/cortex-m/ goes ahead of
@@ -1187,6 +1194,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
+                    $(HOST_DIR)/test_imx95_gpt \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \

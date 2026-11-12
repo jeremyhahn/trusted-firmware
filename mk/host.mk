@@ -161,6 +161,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
+                            test/unit/test_imx95_lpi2c.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_imx95_hsm_intake.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
@@ -695,6 +696,12 @@ $(HOST_DIR)/test_imx95_hal: test/unit/test_imx95_hal.c test/model/imx95_model.c 
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The LPI2C master (hal_bus.c) against the LPI2C register model in the test
+# file itself, not imx95_model.c, compiled as test_imx95_hal's SoC files are.
+$(HOST_DIR)/test_imx95_lpi2c: test/unit/test_imx95_lpi2c.c src/hal/cortex-m/imx95/hal_bus.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The SCMI messages the M7 sends the System Manager: scmi.c has no register
 # access and is linked alone, as soc_calc.c is.
 $(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/scmi.c \
@@ -1188,6 +1195,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_mcxn_lpuart \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
+                    $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \

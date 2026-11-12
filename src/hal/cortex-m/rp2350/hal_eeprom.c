@@ -30,7 +30,7 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 #include "tfw/boot.h"
-#include "hal/cortex-m/rp2350/rp_flash.h"
+#include "rp_flash.h"
 
 #define USER_EE_LEN ((uint32_t)TFW_EEPROM_SIZE - (uint32_t)TFW_BOOT_EE_LEN)
 

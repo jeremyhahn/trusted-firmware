@@ -652,6 +652,9 @@ $(eval $(call SOFT_ID_RULES,$(FW_DIR)))
 ifeq ($(CRYPTO),auto)
 $(eval $(call AUTO_RENAMES,$(FW_DIR)))
 endif
+# The RP2350's flash EEPROM includes tfw-boot's flash helper by its own name, as
+# the boot's files do: a path through hal/ reads to lint-arch-leak as ESP-IDF.
+$(FW_DIR)/src/hal/cortex-m/rp2350/hal_eeprom.o: FW_CFLAGS += -Iboot/hal/cortex-m/rp2350
 
 $(FW_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

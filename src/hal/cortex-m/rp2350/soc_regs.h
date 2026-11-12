@@ -18,6 +18,7 @@
  *   IO_BANK0    a GPIO's function select
  *   PADS_BANK0  a GPIO's pad: input enable, pulls, isolation
  *   SIO         the single-cycle GPIO set, clear and output-enable registers
+ *   ADC         the SAR converter, ADC0-2 on GPIO26-28
  *   UART0       an Arm PL011, the byte link, on GPIO0 (TX) and GPIO1 (RX)
  *
  * Every block on the APB has the atomic aliases the datasheet describes at
@@ -36,6 +37,7 @@
 #define TFW_RP_RESETS_BASE      0x40020000u
 #define TFW_RP_RESETS_RESET     (TFW_RP_RESETS_BASE + 0x0u)
 #define TFW_RP_RESETS_DONE      TFW_CM_REG(TFW_RP_RESETS_BASE + 0x8u)
+#define TFW_RP_RESET_ADC        (1u << 0)       /* TODO(datasheet): §7.5.3 table 566, bit 0 */
 #define TFW_RP_RESET_IO_BANK0   (1u << 6)
 #define TFW_RP_RESET_PADS_BANK0 (1u << 9)
 #define TFW_RP_RESET_UART0      (1u << 26)
@@ -109,6 +111,27 @@
 #define TFW_RP_SIO_GPIO_OUT_CLR TFW_CM_REG(TFW_RP_SIO_BASE + 0x020u)
 #define TFW_RP_SIO_GPIO_OE_SET  TFW_CM_REG(TFW_RP_SIO_BASE + 0x038u)
 #define TFW_RP_SIO_GPIO_OE_CLR  TFW_CM_REG(TFW_RP_SIO_BASE + 0x040u)
+
+/* ---- ADC, the SAR converter. Base §2.2 table 13; CS, RESULT, FCS, DIV
+ * §12.4.6 (the ADC's register list). Written from pico-sdk 2.1.1's
+ * src/rp2350/hardware_regs/include/hardware/regs/adc.h names (ADC_CS_*,
+ * ADC_RESULT_*) and addressmap.h's ADC_BASE; each value marked TODO(datasheet)
+ * is still to be checked against the copied [RP-DS] release 8 tables. The
+ * pads' IE and OD bits the ADC chapter asks cleared and set are
+ * TFW_RP_PAD_IE and TFW_RP_PAD_OD above (§9.11.3 table 885). */
+#define TFW_RP_ADC_BASE         0x400A0000u     /* TODO(datasheet): §2.2 table 13 */
+#define TFW_RP_ADC_CS           TFW_CM_REG(TFW_RP_ADC_BASE + 0x00u)
+#define TFW_RP_ADC_RESULT       TFW_CM_REG(TFW_RP_ADC_BASE + 0x04u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_FCS          TFW_CM_REG(TFW_RP_ADC_BASE + 0x08u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_DIV          TFW_CM_REG(TFW_RP_ADC_BASE + 0x10u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_CS_EN         (1u << 0)      /* TODO(datasheet): CS fields */
+#define TFW_RP_ADC_CS_START_ONCE (1u << 2)
+#define TFW_RP_ADC_CS_READY      (1u << 8)
+#define TFW_RP_ADC_CS_ERR        (1u << 9)
+#define TFW_RP_ADC_CS_AINSEL_LSB 12u            /* AINSEL, bits 15:12 */
+#define TFW_RP_ADC_CS_AINSEL_MASK (0xFu << 12)
+#define TFW_RP_ADC_RESULT_MASK   0x0FFFu        /* RESULT, bits 11:0 */
+#define TFW_RP_ADC_GPIO0         26u            /* ADC0 is GPIO26 on the RP2350A */
 
 /* ---- UART0, PL011. Base §2.2 table 13; registers §12.1.8, tables
  * 1081-1089; the IRQ number §3.2 table 95. */

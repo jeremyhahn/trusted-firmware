@@ -89,7 +89,7 @@ static void slave_on_release(void)
         return;
     }
     if (ow.tx && ow.txbit < 8u * ow.txlen) {
-        uint8_t bit = (uint8_t)((ow.tx[ow.txbit / 8u] >> (ow.txbit % 8u)) & 1u);
+        uint8_t bit = (uint8_t)(((uint32_t)ow.tx[ow.txbit / 8u] >> (ow.txbit % 8u)) & 1u);
 
         ow.txbit++;
         if (!bit) {

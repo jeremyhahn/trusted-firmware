@@ -86,7 +86,7 @@ the RP2350 datasheet; slice 3 checked each against [RP-DS] release 8
 | Flash map | XIP at `0x10000000`: tfw-boot's 32 KiB, the application slot at `0x10008000` (128 KiB of code), the platform block in the last 4 KiB sector `0x103FF000` | `profile.mk`, `board_profile.h` |
 | RAM | SRAM0-7, `0x20000000`-`0x2007FFFF`; SRAM8-9 left unused | `profile.mk` |
 | Boot ROM | a minimal IMAGE_DEF block (secure Arm executable, no signature, no hash) right after the vector table, inside the first 4 KiB | `src/hal/cortex-m/rp2350/soc_calc.h`, `mk/arch/cortex-m/rp2350.ld` |
-| Clocks | clk_ref, clk_sys and clk_peri from the 12 MHz crystal undivided; no PLL | `src/hal/cortex-m/rp2350/hal_soc.c` |
+| Clocks | clk_ref, clk_sys and clk_peri from the 12 MHz crystal undivided; PLL_USB at 48 MHz for clk_adc alone, started by `tfw_hal_adc_init` (`hal_adc.c`) | `src/hal/cortex-m/rp2350/hal_soc.c` |
 | Watchdog | 1 us ticks from clk_ref, 8 s period, resets everything but the oscillators | `hal_soc.c` |
 | Pins | GPIO2-22 and GPIO26-28 through SIO; GPIO23-25 and 29 are the radio's; no LED (the board's is the CYW43439's) | `boards/rp2350-pico2w/board.c` |
 | Not driven | the converter, PWM, I2C, SPI, USB, the radio | |
@@ -100,7 +100,7 @@ The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 | `tfw_hal_watchdog_arm`, `_pet` | C `hal_sys.c` → S `hal_soc.c` | the RP2350 watchdog on 1 us ticks; reset 8 s after the last pet |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | S `hal_uart.c` | PL011 UART0 on GPIO0/1; receive interrupt-driven into a 64-byte ring on NVIC line 33; transmit into the 32-byte FIFO, `0` when it is full |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | S `hal_gpio.c` | SIO, GPIO0-29; input, output and input-pullup; the board's table lists only the header pins |
-| `tfw_hal_adc_*` | S `hal_adc.c` | the SAR converter, one conversion per read on GPIO26-28 (ADC0-2, `adc_ch` 0-2; GPIO29/ADC3 is the radio's and the temperature sensor is not exposed); clk_adc from the 12 MHz crystal; the pad's IE cleared and OD set before a conversion; READY polled with a bound (`TFW_ERR_TIMEOUT`), CS.ERR is `TFW_ERR_INTERNAL`; 12-bit RESULT; only `TFW_ADC_REF_VCC` (ADC_AVDD). Host-tested against `test/model/rp2350_model.c` (`test_rp2350_adc.c`); built, not run on the board |
+| `tfw_hal_adc_*` | S `hal_adc.c` | the SAR converter, one conversion per read on GPIO26-28 (ADC0-2, `adc_ch` 0-2; GPIO29/ADC3 is the radio's and the temperature sensor is not exposed); clk_adc at 48 MHz from PLL_USB, as §12.4.3 requires (REFDIV 1, FBDIV 100, POSTDIV 5/5; a PLL that never locks is `TFW_ERR_TIMEOUT`); the pad's IE cleared and OD set before a conversion; READY polled with a bound (`TFW_ERR_TIMEOUT`), CS.ERR is `TFW_ERR_INTERNAL`; 12-bit RESULT; only `TFW_ADC_REF_VCC` (ADC_AVDD). Host-tested against `test/model/rp2350_model.c` (`test_rp2350_adc.c`); built, not run on the board |
 
 The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
 of `BOOT_SUPPORTED` (`mk/boot.mk`). Like the mps2-an505 row it hashes and
@@ -201,15 +201,18 @@ and the console wiring stay open until a lane with the board settles them.
 **The converter (`hal_adc.c`).** Its registers were written from pico-sdk
 2.1.1's `hardware_regs` names (`adc.h`, `resets.h`, `clocks.h`,
 `addressmap.h`) and not yet matched against the copied [RP-DS] tables: the
-lane that wrote them had no PDF reader. Each carries `TODO(datasheet)` in
+lane that wrote them had no PDF reader (the clk_adc and PLL_USB rows were
+since matched against text extracted from the PDF). Each carries `TODO(datasheet)` in
 `soc_regs.h` until a lane checks it:
 
 | Value | Where to check | Status |
 |---|---|---|
 | ADC base `0x400A0000`; CS `+0x0` (EN 0, START_ONCE 2, READY 8, ERR 9, AINSEL 15:12), RESULT `+0x4` (11:0), FCS `+0x8`, DIV `+0x10` | §2.2 table 13; §12.4 register list | TODO(datasheet) |
 | RESETS ADC bit 0 | §7.5.3 table 566 | TODO(datasheet) |
-| CLK_ADC_CTRL `+0x6C` (ENABLE 11, AUXSRC 7:5, xosc 3), CLK_ADC_DIV `+0x70` | §8.1.7 | TODO(datasheet) |
-| clk_adc at 12 MHz from the crystal | §12.4 states the converter's figures at 48 MHz; a slower clock is taken to lengthen a conversion (96 cycles, 8 us), not to break it | unsourced, kept: reversible, and the bounded READY poll answers `TFW_ERR_TIMEOUT` if the converter never finishes |
+| CLK_ADC_CTRL `+0x6C` (ENABLE 11, AUXSRC 7:5, clksrc_pll_usb 0), CLK_ADC_DIV `+0x70` (INT 19:16) | §8.1.7 tables 603-604 | matched against the PDF's text; `TODO(datasheet)` kept until a reader with the rendered tables confirms |
+| RESETS PLL_USB bit 15 | §7.5.3 table 567 | matched against the PDF's text |
+| PLL_USB `0x40058000`; CS `+0x0` (LOCK 31, REFDIV 5:0), PWR `+0x4` (PD 0, POSTDIVPD 3, VCOPD 5), FBDIV_INT `+0x8` (11:0), PRIM `+0xC` (POSTDIV1 18:16, POSTDIV2 14:12) | §2.2 table 13; §8.6.5 tables 668-672 | matched against the PDF's text |
+| clk_adc at 48 MHz from PLL_USB: 12 MHz / REFDIV 1 * FBDIV 100 = VCO 1200 MHz, / POSTDIV1 5 / POSTDIV2 5 | §12.4.3 ("The ADC requires a 48 MHz clock ... must be set up correctly before enabling the ADC"); §8.6.4's sequence and its pico-sdk PLL USB line | followed; the PLL is for clk_adc alone, clk_sys stays on the crystal |
 | The pad for a conversion: OD set, IE, pulls and ISO clear, FUNCSEL NULL | §12.4 asks IE off and OD on; the pulls and ISO are this port's choice | kept |
 | CS.ERR answered as `TFW_ERR_INTERNAL` | the wire has no conversion-error status | kept |
 

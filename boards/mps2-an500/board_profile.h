@@ -19,12 +19,22 @@
 
 #define TFW_PIN_COUNT  3u
 #define TFW_PORT_COUNT 2u      /* the FPGA I/O block's LED and MISC registers */
+/* PWM=1 (profile.mk, TFW_CM_PWM): software PWM on the CMSDK dual timer
+ * (src/hal/cortex-m/mps2/hal_pwm.c) on the two LEDs, board.c's pwm_idx. */
+#if defined(TFW_CM_PWM)
+#define TFW_PWM_COUNT  2u
+#else
 #define TFW_PWM_COUNT  0u
+#endif
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE 0u
 
 #define TFW_FEATURE_ANALOG  0
+#if defined(TFW_CM_PWM)
+#define TFW_FEATURE_PWM     1
+#else
 #define TFW_FEATURE_PWM     0
+#endif
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
@@ -87,6 +97,12 @@
  * not wire the PL022's own select to the shield. */
 #define TFW_MPS2_SPI_BASE     0x40026000u
 
+/* The CMSDK APB dual timer, the software PWM's clock (PWM=1): AN500 (Arm DAI
+ * 0500B), Table 3-1 memory map, 0x4000_2000; its interrupt, line 10, as
+ * QEMU's hw/arm/mps2.c wires it for mps2-an500. Unused while
+ * TFW_FEATURE_PWM is 0. */
+#define TFW_MPS2_DUALTIMER_BASE 0x40002000u
+#define TFW_MPS2_DUALTIMER_IRQ  10
 /* Flash geometry for tfw-boot, as addresses: TFW_FLASH_TOTAL is the end of
  * SSRAM1, the span both regions sit in (include/tfw/boot.h asserts they fit
  * below it and do not overlap). tfw-boot is at the base, where the core

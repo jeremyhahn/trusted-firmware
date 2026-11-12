@@ -42,7 +42,7 @@ RAM_TOTAL      := 4194304
 BOOT_AB          ?= 0
 BOOT_AB_OPTIONAL := 1
 BOARD_DEFS        = $(if $(filter 1,$(BOOT_AB)),-DTFW_CM_AB=1) $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
-                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1)
+                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1) $(if $(filter 1,$(PWM)),-DTFW_CM_PWM=1)
 APP_BASE         := $(if $(filter 1,$(BOOT_AB)),0x00040000,0x00008000)
 RAM_BASE       := 0x20000000
 RAM_END        := 0x203FFFFF
@@ -80,5 +80,11 @@ OTA_STORE      := mem
 # mps2-an505's does.
 I2C               ?= 0
 SPI               ?= 0
-BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI)
-BOARD_ROWS        := soft:I2C=1 soft:SPI=1
+# PWM=1: software PWM on the CMSDK dual timer (src/hal/cortex-m/mps2/
+# hal_pwm.c) on the two LEDs, pins 0 and 1, off by default: nothing on the
+# board needs it and QEMU cannot show the LEDs' duty. TFW_CM_PWM turns
+# TFW_FEATURE_PWM on in board_profile.h; the soft:PWM=1 row builds it and
+# size-check measures it, and cortex-m-qemu-pwm-wire runs it.
+PWM               ?= 0
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) $(if $(filter 1,$(PWM)),PWM)
+BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:PWM=1$!1

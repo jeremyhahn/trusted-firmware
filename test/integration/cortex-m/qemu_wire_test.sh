@@ -84,6 +84,13 @@
 #   below-floor.bin refused once a confirmed update raised the floor; and a
 #   trial that stops petting reset by the watchdog and rolled back.
 #
+#   qemu_wire_test.sh <dir> <machine> <board> pwm
+#
+# is the board's PWM row (cortex-m-qemu-pwm-wire): the base row's tfw-boot and
+# the application built with PWM=1. One boot, pwm, runs TestQEMUPWMWrite
+# (sdk/go/cmd/tfwctl/pwm_qemu_test.go): PWM_WRITE through tfwctl's pwm verb at
+# 0, 128 and 255 on pin 0, and the refusal on pin 2, which has no PWM row.
+#
 #   qemu_wire_test.sh <dir> <machine> <board> spi
 #
 # is the board's SPI row (cortex-m-qemu-spi-wire): the base row's tfw-boot and
@@ -109,8 +116,8 @@
 # in the suite is bounded, and the trap kills QEMU on every exit.
 set -eu
 
-usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c]" >&2; exit 2; }
-case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c) ;; *) usage ;; esac
+usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|pwm]" >&2; exit 2; }
+case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c | 4:pwm) ;; *) usage ;; esac
 dir=$1
 machine=$2
 board=$3
@@ -238,6 +245,8 @@ elif [ "$row" = ab ]; then
     done
 elif [ "$row" = spi ]; then
     cycle spi TestQEMUSPIXfer
+elif [ "$row" = pwm ]; then
+    cycle pwm TestQEMUPWMWrite
 elif [ "$row" = i2c ]; then
     cycle i2c TestQEMUI2CXfer
 else

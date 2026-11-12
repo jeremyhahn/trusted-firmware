@@ -84,7 +84,7 @@ void setUp(void)
     memset(s_level, 0, sizeof s_level);
     memset(s_writes, 0, sizeof s_writes);
     s_nvic_on = s_nvic_off = ~0u;
-    pwm_reset();
+    memset(&s_pwm, 0, sizeof s_pwm);
 }
 
 void tearDown(void) {}

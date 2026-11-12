@@ -60,6 +60,17 @@ What `boards/stm32h573i-dk/` and `src/hal/cortex-m/stm32h5/` set, and why.
 | tfw-boot's flash writes | **driven, not yet run on the board**: tfw-boot writes the slot and the platform block through the flash interface's Non-secure registers. It unlocks with `FLASH_KEY1` then `FLASH_KEY2` in NSKEYR. It programs a quad-word (16 bytes) at a time with PG. It erases one 8 KiB sector with SER, SNB and STRT, plus BKSEL for bank 2. It waits on BSY, WBNE and DBNE in NSSR, and clears NSSR's error flags 17 to 23 and EOP through NSCCR. A write that matches the flash is skipped. One whose quad-words are all erased is programmed only. Any other rewrites each 8 KiB sector it touches through a RAM copy. The application has no flash access (`boot/boot_hal.h`). The offsets, bits and keys are **not confirmed** against RM0481 | CMSIS header: `FLASH_TypeDef`, `FLASH_SR_*`, `FLASH_CR_*`, `FLASH_CCR_*`; HAL: `stm32h5xx_hal_flash.h` (`FLASH_KEY1`, `FLASH_KEY2`). The sequences follow the HAL's `FLASH_Program_QuadWord`, `FLASH_Erase_Sector` and `FLASH_WaitForLastOperation`, **not confirmed** at the pinned commit; `boot/hal/cortex-m/stm32h5/h5_flash.c`, tested by `test/unit/boot/test_boot_stm32h5_flash.c` |
 | Instruction cache | ICACHE is off at reset and tfw-boot does not enable it, so a flash write leaves nothing stale to invalidate | ICACHE off at reset is **not confirmed** against RM0481 |
 
+## tfw-boot
+
+One tfw-boot row, `stm32h573i-dk:soft:soft:p256-soft:0:0` of `BOOT_SUPPORTED`
+in `mk/boot.mk`, which `make bootloader-check` builds, in the 32 KiB region at
+the base of flash. Its size, measured by `make bootloader-check` at 48d85486
+with arm-none-eabi-gcc 14.2.1:
+
+```
+tfw-boot stm32h573i-dk flash   8756 / 32768    ram  8516 / 262144 (soft tier, p256-soft)
+```
+
 ## Security facilities
 
 | | | Source |

@@ -108,8 +108,8 @@
 #define TFW_MPS2_SPI_BASE     0x4020A000u
 
 /* The IoT Kit's CMSDK APB timer TIMER0, the tone's clock: Secure alias of
- * 0x40000000 and interrupt 3 (AN505, Arm DAI 0505B, the IoT Kit memory map
- * and interrupt map; Arm CoreLink SSE-200 TRM, "Timers" and "Interrupts").
+ * 0x40000000 and interrupt 3 (AN505, Arm DAI 0505B, 3.4.4 Table 3-7 and 7
+ * "Interrupt Map", Table 7-1).
  * QEMU v10.0.0 hw/arm/armsse.c maps "timer0" at 0x40000000 (and its Secure
  * alias) with IRQ 3; hw/arm/mps2-tz.c builds the AN505 on that subsystem. */
 #define TFW_MPS2_TIMER0_BASE  0x50000000u

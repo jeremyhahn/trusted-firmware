@@ -58,8 +58,9 @@ the span both regions sit in (`board_profile.h:57`).
 |---|---|---|
 | Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select | `board_profile.h:20`; `board.c:23`–`31` |
 | Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
-| PWM, ADC, EEPROM, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
-| I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:31`–`46` |
+| PWM, ADC, EEPROM, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`26`, `:54` |
+| Tone | off by default, on in its own row: pin 1, LED1, toggled from the CMSDK timer TIMER0's interrupt; see Tone | `board_profile.h:27`–`34` |
+| I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:38`–`53` |
 
 ## Buses
 
@@ -68,8 +69,21 @@ no device to either, so the default image links neither (`profile.mk:60`–`74`)
 
 | Bus | Block and base | Row | Sources |
 |---|---|---|---|
-| I2C | the shield 0 SBCon at `0x40029000`; no select, so no pin | `I2C=1` (`soft:I2C=1`) | AN500 (Arm DAI 0500B) memory map; QEMU `hw/arm/mps2.c` (Shield0 SBCon), `hw/i2c/arm_sbcon_i2c.c`; `board_profile.h:73`–`78` |
-| SPI | the shield 0 PL022 at `0x40026000`; select pin 2, MISC bit 8 `SHIELD0_SPI_nCS` | `SPI=1` (`soft:SPI=1`) | AN500 3.1 Table 3-1, 3.7, 3.13 Table 3-6; QEMU `hw/arm/mps2.c` (Shield0 PL022), `hw/ssi/pl022.c`; `board_profile.h:80`–`88` |
+| I2C | the shield 0 SBCon at `0x40029000`; no select, so no pin | `I2C=1` (`soft:I2C=1`) | AN500 (Arm DAI 0500B) memory map; QEMU `hw/arm/mps2.c` (Shield0 SBCon), `hw/i2c/arm_sbcon_i2c.c`; `board_profile.h:80`–`85` |
+| SPI | the shield 0 PL022 at `0x40026000`; select pin 2, MISC bit 8 `SHIELD0_SPI_nCS` | `SPI=1` (`soft:SPI=1`) | AN500 3.1 Table 3-1, 3.7, 3.13 Table 3-6; QEMU `hw/arm/mps2.c` (Shield0 PL022), `hw/ssi/pl022.c`; `board_profile.h:87`–`95` |
+
+## Tone
+
+`TONE=1` (row `soft:TONE=1`) links `src/hal/cortex-m/mps2/hal_tone.c`: a
+square wave on pin 1, LED1, flipped from the interrupt of the CMSDK APB timer
+TIMER0 at `0x40000000`, interrupt 8 (AN500 memory and interrupt maps; QEMU
+v10.0.0 `hw/arm/mps2.c`; the timer's registers are Arm DDI 0479C's APB timer,
+QEMU `hw/timer/cmsdk-apb-timer.c`). The reload is half the period at the
+25 MHz core clock, less one. One tone at a time: a second `TONE` retargets,
+`NOTONE` stops the timer and its interrupt and leaves the pin low. A half
+period under 500 cycles, above 25 kHz, is refused with `TFW_ERR_RANGE`.
+`make cortex-m-qemu-tone-wire BOARD=mps2-an500` runs the row's answers on
+QEMU, which does not measure the pin.
 
 ## Boot
 
@@ -78,7 +92,7 @@ verified in software, no OTA, no store (`profile.mk:43`–`45`), the row
 `mps2-an500:soft:soft:p256-soft:0:0` of `BOOT_SUPPORTED` in `mk/boot.mk`,
 which `make bootloader-check` builds. The soft root
 keeps the UDS in tfw-boot's region and hands the CDI over in SRAM
-(`board_profile.h:33`–`34`).
+(`board_profile.h:40`–`41`).
 
 ## What is tested, and how
 

@@ -14,7 +14,8 @@
  *          regulator on and its start-up waited; INP0's pin switch on;
  *          single-ended calibration; ADEN, then ADRDY. 12 bits, right
  *          aligned, single conversion, an overrun overwrites.
- *   read   one conversion of the channel (SQR1), the longest sample time
+ *   read   the channel's board pins back to analog, no pull (MODER 0b11,
+ *          PUPDR 0b00); one conversion of the channel (SQR1), the longest sample time
  *          (a high-impedance source settles), ADSTART, then EOC; DR's 12
  *          bits are the raw count, as esp32's are.
  *
@@ -30,6 +31,7 @@
 #include <stdint.h>
 
 #include "tfw/hal.h"
+#include "tfw/board.h"
 #include "tfw/config.h"
 #include "soc_regs.h"
 #include "h5_calc.h"
@@ -123,6 +125,33 @@ tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
     return (ref == TFW_ADC_REF_VCC) ? TFW_OK : TFW_ERR_UNSUPPORTED;
 }
 
+/* Puts every board pin wired to `channel` back in analog mode, no pull, as
+ * reset leaves it: the GPIO commands reach these pins too (they check the
+ * reserved and in-use flags, not TFW_PIN_DIGITAL), and an output or a
+ * pull-up left on one would drive or bias the input being sampled. The bank
+ * is the GPIO HAL's, from the pin's board coordinate. */
+static void analog_pins(uint8_t channel)
+{
+    for (tfw_pin_t p = 0u; p < TFW_PIN_COUNT; p++) {
+        tfw_pinref_t ref;
+        uint8_t      ch;
+        uint32_t     bank;
+
+        if (tfw_board_adc_channel(p, &ch) != TFW_OK || ch != channel ||
+            tfw_board_pin(p, &ref) != TFW_OK ||
+            ref.port >= TFW_H5_GPIO_BANKS || ref.bit >= TFW_H5_GPIO_PINS) {
+            continue;
+        }
+        bank = tfw_h5_gpio_base(TFW_H5_GPIOA_BASE, TFW_H5_GPIO_STRIDE, ref.port);
+        TFW_H5_RCC_AHB2ENR |= 1u << ref.port;
+        (void)TFW_H5_RCC_AHB2ENR;               /* the enable lands before the bank is written */
+        TFW_H5_GPIO_MODER(bank) = tfw_h5_field2(TFW_H5_GPIO_MODER(bank), ref.bit,
+                                                TFW_H5_MODE_ANALOG);
+        TFW_H5_GPIO_PUPDR(bank) = tfw_h5_field2(TFW_H5_GPIO_PUPDR(bank), ref.bit,
+                                                TFW_H5_PULL_NONE);
+    }
+}
+
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     if ((uint32_t)channel + 1u > TFW_ADC_COUNT) {     /* not >=: a board may have none */
@@ -131,6 +160,7 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
     if (!ready) {
         return TFW_ERR_UNSUPPORTED;
     }
+    analog_pins(channel);
     if (channel < 10u) {
         TFW_H5_ADC1_SMPR1 = tfw_h5_adc_smpr(TFW_H5_ADC1_SMPR1, channel, TFW_H5_ADC_SMP_640C5);
     } else {

@@ -2374,11 +2374,13 @@ $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/
 $(HOST_DIR)/test_stm32h5_adc: test/unit/test_stm32h5_adc.c src/hal/cortex-m/stm32h5/hal_adc.c \
                               src/hal/cortex-m/stm32h5/soc_regs.h src/hal/cortex-m/stm32h5/h5_calc.h \
                               test/model/cortex-m/stm32h5_reg_model.h \
+                              src/core/board_lookup.c boards/stm32h573i-dk/board.c \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Iboards/stm32h573i-dk \
 	    -Itest/model/cortex-m \
 	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
-	    -o $@ test/unit/test_stm32h5_adc.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+	    -o $@ test/unit/test_stm32h5_adc.c src/core/board_lookup.c boards/stm32h573i-dk/board.c \
+	    $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)

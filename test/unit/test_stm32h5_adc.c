@@ -35,6 +35,7 @@ enum { EV_KERCLK, EV_CLK, EV_DEEPPWD_OFF, EV_VREG, EV_CAL, EV_EN, EV_START };
 static struct {
     uint32_t ccipr5, ahb2enr, ccr;
     uint32_t isr, cr, cfgr, smpr1, smpr2, sqr1, dr, difsel, or_;
+    uint32_t moder[TFW_H5_GPIO_BANKS], pupdr[TFW_H5_GPIO_BANKS];
     uint32_t other;                   /* any address not modelled */
     unsigned unmodelled, errors;
     uint8_t  hang_cal, hang_rdy, hang_eoc;
@@ -59,6 +60,20 @@ static void event(uint8_t e)
 
 static uint32_t *decode(uintptr_t a)
 {
+    if (a >= TFW_H5_GPIOA_BASE && a < TFW_H5_GPIOA_BASE + TFW_H5_GPIO_BANKS * TFW_H5_GPIO_STRIDE) {
+        uint32_t bank = (uint32_t)(a - TFW_H5_GPIOA_BASE) / TFW_H5_GPIO_STRIDE;
+        uint32_t off  = (uint32_t)(a - TFW_H5_GPIOA_BASE) % TFW_H5_GPIO_STRIDE;
+
+        if (!(m.ahb2enr & (1u << bank))) {
+            m.errors++;                                   /* a bank written unclocked */
+        }
+        if (off == 0x00u) {
+            return &m.moder[bank];
+        }
+        if (off == 0x0Cu) {
+            return &m.pupdr[bank];
+        }
+    }
     switch (a) {
     case TFW_H5_RCC_BASE + 0xE8u: return &m.ccipr5;
     case TFW_H5_RCC_BASE + 0x8Cu: return &m.ahb2enr;
@@ -194,6 +209,9 @@ void setUp(void)
     m.cr   = TFW_H5_ADC_CR_DEEPPWD;                 /* the reset values */
     m.cfgr = 0x80000000u;
     m.ccipr5 = 0x1u;              /* SYSCLK, so selecting HCLK is a write the model sees */
+    for (unsigned b = 0u; b < TFW_H5_GPIO_BANKS; b++) {
+        m.moder[b] = 0xFFFFFFFFu;                       /* every pin analog, no pull */
+    }
     cur    = NULL;
     ready  = 0u;
 }
@@ -239,6 +257,38 @@ static void test_each_channel_is_one_conversion_of_its_12_bits(void)
         TEST_ASSERT_EQUAL_UINT8(ch, m.conv_ch[ch]);
         TEST_ASSERT_EQUAL_UINT8(0u, m.conv_len[ch]);                /* L 0: one conversion */
         TEST_ASSERT_EQUAL_UINT8(TFW_H5_ADC_SMP_640C5, m.conv_smp[ch]);
+    }
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+    TEST_ASSERT_EQUAL_UINT(0u, m.unmodelled);
+}
+
+/* (Codex P1, board.c:34) The GPIO commands reach the analog-only pins: an
+ * output or a pull-up left on one would drive or bias the input. Each read
+ * puts its pin back to analog, no pull, and leaves the bank's other pins. */
+static void test_a_read_puts_its_pin_back_to_analog_no_pull(void)
+{
+    static const struct { uint8_t bank, bit, ch; } pins[] = {
+        { 1u, 0u, 9u },    /* A0 PB0  */
+        { 0u, 4u, 18u },   /* A1 PA4  */
+        { 0u, 0u, 0u },    /* A2 PA0  */
+        { 0u, 5u, 19u },   /* A3 PA5  */
+        { 0u, 6u, 3u },    /* A4 PA6  */
+        { 5u, 12u, 6u },   /* A5 PF12 */
+    };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    for (size_t i = 0u; i < sizeof pins / sizeof pins[0]; i++) {
+        uint32_t shift = 2u * pins[i].bit;
+        uint32_t mask  = 0x3u << shift;
+        uint16_t raw;
+
+        m.moder[pins[i].bank] = (0xFFFFFFFFu & ~mask) | (0x1u << shift);  /* output */
+        m.pupdr[pins[i].bank] = 0x80000000u | (0x1u << shift);  /* pull-up; pin 15 down */
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(pins[i].ch, &raw));
+        settle();
+        TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, m.moder[pins[i].bank]);
+        TEST_ASSERT_EQUAL_HEX32(0x80000000u, m.pupdr[pins[i].bank]);
+        m.pupdr[pins[i].bank] = 0u;
     }
     TEST_ASSERT_EQUAL_UINT(0u, m.errors);
     TEST_ASSERT_EQUAL_UINT(0u, m.unmodelled);
@@ -318,6 +368,7 @@ int main(void)
     UNITY_BEGIN();
     RUN_TEST(test_init_brings_the_adc_up_in_order);
     RUN_TEST(test_each_channel_is_one_conversion_of_its_12_bits);
+    RUN_TEST(test_a_read_puts_its_pin_back_to_analog_no_pull);
     RUN_TEST(test_a_calibration_that_never_ends_is_a_timeout);
     RUN_TEST(test_adrdy_never_set_is_a_timeout);
     RUN_TEST(test_eoc_never_set_is_a_timeout);

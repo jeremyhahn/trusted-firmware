@@ -126,16 +126,8 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     }
 }
 
-/* boot_flash.c's, on the model's registers. */
-tfw_status_t tfw_cm_boot_flash_write(uint32_t addr, const uint8_t *data, uint32_t len)
-{
-    static const struct tfw_h5_flash flash = { regs, MEM };
-
-    if (addr < TFW_H5_FLASH_MEM) {
-        return TFW_ERR_RANGE;
-    }
-    return tfw_h5_flash_update(&flash, addr - TFW_H5_FLASH_MEM, data, len);
-}
+/* boot_flash.c's stand-in, on the model's registers above. */
+#include "stm32h5_flash_model.h"
 
 void setUp(void)
 {

@@ -8,7 +8,9 @@
  * and none offers a converter or a compare unit (boards/frdm-imx95-m7/
  * board.c).
  *
- * Runs under `make board-sweep`, against this board's own profile.
+ * Runs under `make board-sweep`, against this board's own profile, and in
+ * `make host-test` as test_board_frdm-imx95-m7_adc, the soft:ADC=1 row
+ * (TFW_CM_ADC=1), where the analog pins' assertions run.
  */
 
 #include "unity.h"

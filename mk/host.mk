@@ -708,6 +708,21 @@ $(HOST_DIR)/test_imx95_tpm: test/unit/test_imx95_tpm.c src/hal/cortex-m/imx95/ha
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) -DTFW_CM_PWM=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The board's descriptor suite on the PWM=1 image, with profile.mk's
+# BOARD_DEFS for it: board-sweep compiles the default PWM=0 only, so the PWM
+# pin mapping ran nowhere. _pwm is the image as it builds, TFW_IMX95_TPM_BASE
+# zero and no pin offering a channel; _pwm_base passes a stand-in base, as no
+# image does, so pins 2 and 3 are checked on TPM CH0 and CH1.
+HOST_IMX95_BOARD_SRCS = test/unit/test_board_frdm-imx95-m7.c src/core/board_lookup.c \
+                        boards/frdm-imx95-m7/board.c $(HOST_DIR)/unity.o
+HOST_IMX95_BOARD_CFLAGS = -Isrc/hal/cortex-m -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
+                          -DTFW_CM_PWM=1
+$(HOST_DIR)/test_board_frdm-imx95-m7_pwm: $(HOST_IMX95_BOARD_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base: $(HOST_IMX95_BOARD_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) -DTFW_IMX95_TPM_BASE=0x10000000uL $(EXTRA_CFLAGS) \
+	  -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The SCMI messages the M7 sends the System Manager: scmi.c has no register
 # access and is linked alone, as soc_calc.c is.
 $(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/scmi.c \
@@ -1204,6 +1219,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \
                     $(HOST_DIR)/test_imx95_tpm \
+                    $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
                     $(HOST_DIR)/test_optee_ta \
                     $(HOST_DIR)/test_tier_atecc608a_mutate \

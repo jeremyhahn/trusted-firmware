@@ -64,8 +64,12 @@
  * (docs/multi-arch/imx95-design.md question 17): zero, unsupported, until it
  * is known; every PWM call answers TFW_ERR_UNSUPPORTED and touches no
  * register. Its clock root, the 24 MHz oscillator as LPUART3's, is TO
- * CONFIRM: the System Manager configuration sets it. */
+ * CONFIRM: the System Manager configuration sets it. No image overrides the
+ * base; mk/host.mk's test_board_frdm-imx95-m7_pwm_base passes a stand-in one
+ * so the board's PWM pin mapping is checked as it will be once it is known. */
+#ifndef TFW_IMX95_TPM_BASE
 #define TFW_IMX95_TPM_BASE    0x00000000uL
+#endif
 #define TFW_IMX95_TPM_CLK_HZ  24000000uL
 
 /* Flash geometry for tfw-boot, as addresses in the M7's ITCM. TFW_FLASH_TOTAL

@@ -158,6 +158,61 @@ static void test_a_four_bit_field_is_the_pins_index_in_its_eight(void)
     TEST_ASSERT_EQUAL_HEX32(0x0000000Fu, tfw_h5_field4(0u, 0u, 0x1Fu));
 }
 
+static void test_tone_psc_arr_1khz(void)
+{
+    uint16_t psc = 0xEEEEu;
+    uint16_t arr = 0xEEEEu;
+
+    /* 1 kHz toggles 2000 times a second: 64 MHz / 2000 = 32000 ticks per
+     * match, inside the 16-bit counter undivided. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(64000000u, 1000u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(0u, psc);
+    TEST_ASSERT_EQUAL_UINT16(31999u, arr);
+}
+
+static void test_tone_takes_the_finest_prescaler(void)
+{
+    uint16_t psc = 0u;
+    uint16_t arr = 0u;
+
+    /* 440 Hz: 72727 ticks a match, past 16 bits; /2 gives 36364 (rounded). */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(64000000u, 440u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(1u, psc);
+    TEST_ASSERT_EQUAL_UINT16(36363u, arr);
+    /* 20 Hz: 1600000 ticks; 1600000 / 65536 needs /25, leaving 64000. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(64000000u, 20u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(24u, psc);
+    TEST_ASSERT_EQUAL_UINT16(63999u, arr);
+    /* The wire's top, 65535 Hz: 488.3 ticks, rounded to 488. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(64000000u, 65535u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(0u, psc);
+    TEST_ASSERT_EQUAL_UINT16(487u, arr);
+    /* 1 Hz, the wire's bottom: 32000000 ticks, /489 leaves 65440. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(64000000u, 1u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(488u, psc);
+    TEST_ASSERT_EQUAL_UINT16(65439u, arr);
+}
+
+static void test_tone_a_rate_the_timer_cannot_reach_is_refused_untouched(void)
+{
+    uint16_t psc = 0xEEEEu;
+    uint16_t arr = 0xEEEEu;
+
+    /* No frequency. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_h5_tone_psc_arr(64000000u, 0u, &psc, &arr));
+    /* Past half the clock: under two counts a match. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_h5_tone_psc_arr(64000000u, 40000000u, &psc, &arr));
+    /* The widest clock at 1 Hz still fits: /32768, inside the prescaler. */
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_h5_tone_psc_arr(0xFFFFFFFFu, 1u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(32767u, psc);
+    psc = 0xEEEEu;
+    arr = 0xEEEEu;
+    /* One count a match: the counter cannot toggle at the clock's half. */
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_h5_tone_psc_arr(1000u, 1000u, &psc, &arr));
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, psc);
+    TEST_ASSERT_EQUAL_UINT16(0xEEEEu, arr);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -176,5 +231,8 @@ int main(void)
     RUN_TEST(test_bank_bases_are_st_s);
     RUN_TEST(test_a_two_bit_field_keeps_its_neighbours);
     RUN_TEST(test_a_four_bit_field_is_the_pins_index_in_its_eight);
+    RUN_TEST(test_tone_psc_arr_1khz);
+    RUN_TEST(test_tone_takes_the_finest_prescaler);
+    RUN_TEST(test_tone_a_rate_the_timer_cannot_reach_is_refused_untouched);
     return UNITY_END();
 }

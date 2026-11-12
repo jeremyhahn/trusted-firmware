@@ -80,6 +80,45 @@ static inline uint8_t tfw_h5_iwdg_timing(uint32_t lsi_hz, uint32_t period_s,
     return 0u;
 }
 
+/* The tone timer's prescaler and reload for a square wave of hz from a timer
+ * clock of tim_hz (hal_tone.c). The channel toggles once per match, so a
+ * period is two matches and a match is tim_hz / (2 * hz) timer clocks: the
+ * prescaler divides by PSC + 1, the counter by ARR + 1. The prescaler taken is
+ * the smallest that brings the count inside the 16-bit counter (finest
+ * resolution), each step rounded to the nearest. 0, the outputs untouched,
+ * for 0 Hz or a rate past half the clock (fewer than two counts a match). */
+#define TFW_H5_TONE_COUNT_MAX 0x10000u   /* ARR + 1, a 16-bit counter */
+#define TFW_H5_TONE_DIV_MAX   0x10000u   /* PSC + 1, a 16-bit prescaler */
+
+static inline uint8_t tfw_h5_tone_psc_arr(uint32_t tim_hz, uint32_t hz,
+                                          uint16_t *psc, uint16_t *arr)
+{
+    uint64_t twice;
+    uint64_t match;
+    uint64_t div;
+    uint64_t count;
+
+    if (hz == 0u) {
+        return 0u;
+    }
+    twice = 2u * (uint64_t)hz;
+    match = ((uint64_t)tim_hz + hz) / twice;
+    div   = (match + TFW_H5_TONE_COUNT_MAX - 1u) / TFW_H5_TONE_COUNT_MAX;
+    if (div == 0u) {
+        div = 1u;
+    }
+    if (div > TFW_H5_TONE_DIV_MAX) {
+        return 0u;
+    }
+    count = ((uint64_t)tim_hz + hz * div) / (twice * div);
+    if (count < 2u || count > TFW_H5_TONE_COUNT_MAX) {
+        return 0u;
+    }
+    *psc = (uint16_t)(div - 1u);
+    *arr = (uint16_t)(count - 1u);
+    return 1u;
+}
+
 /* A GPIO bank's base address from its index, 0 for GPIOA. The caller has
  * checked the index against TFW_H5_GPIO_BANKS. */
 static inline uint32_t tfw_h5_gpio_base(uint32_t gpioa_base, uint32_t stride,

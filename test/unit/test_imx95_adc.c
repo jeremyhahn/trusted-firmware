@@ -61,6 +61,13 @@ static void settle(void)
             }
         }
     }
+    if ((mcr & TFW_IMX95_ADC_MCR_NSTART) && !(mcr & TFW_IMX95_ADC_MCR_PWDN)) {
+        /* A started chain begins with its flags clear. C cannot tell this
+         * model a write-1-to-clear from a read, so the driver's clears of
+         * ISR and CEOCFR0 are modelled here, where they take effect. */
+        R(TFW_IMX95_ADC_ISR) = 0u;
+        R(TFW_IMX95_ADC_CEOCFR0) = 0u;
+    }
     if ((mcr & TFW_IMX95_ADC_MCR_NSTART) && !(mcr & TFW_IMX95_ADC_MCR_PWDN) &&
         !conv_hang) {
         uint32_t mask = R(TFW_IMX95_ADC_NCMR0);
@@ -71,10 +78,10 @@ static void settle(void)
         }
         R(TFW_IMX95_ADC_CEOCFR0) = 0u;
         for (uint32_t ch = 0u; ch < TFW_IMX95_ADC_CHANNELS; ch++) {
-            if (mask & (1uL << ch)) {
+            if (mask & (1u << ch)) {
                 /* bits above CDATA set, so a driver must mask them */
                 R(TFW_IMX95_ADC_PCDR(ch)) = 0xFFFF0000uL | sample[ch];
-                R(TFW_IMX95_ADC_CEOCFR0) |= 1uL << ch;
+                R(TFW_IMX95_ADC_CEOCFR0) |= 1u << ch;
             }
         }
         R(TFW_IMX95_ADC_ISR) = TFW_IMX95_ADC_ISR_EOC | TFW_IMX95_ADC_ISR_ECH;
@@ -147,7 +154,7 @@ static void test_a_read_on_each_channel(void)
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(ch, &raw));
         TEST_ASSERT_EQUAL_HEX16(sample[ch], raw);
         /* one channel in the mask, one-shot mode */
-        TEST_ASSERT_EQUAL_HEX32(1uL << ch, R(TFW_IMX95_ADC_NCMR0));
+        TEST_ASSERT_EQUAL_HEX32(1u << ch, R(TFW_IMX95_ADC_NCMR0));
         TEST_ASSERT_FALSE(R(TFW_IMX95_ADC_MCR) & TFW_IMX95_ADC_MCR_MODE);
         /* polled: no interrupt unmasked */
         TEST_ASSERT_EQUAL_HEX32(0u, R(TFW_IMX95_ADC_IMR));

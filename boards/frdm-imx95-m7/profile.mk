@@ -85,3 +85,13 @@ BOOT_BUDGET    := 32768
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is
 # the enclave, and this slice does not touch it.
 BOARD_TIERS    := soft
+
+# The SAR ADC (src/hal/cortex-m/imx95/hal_adc.c), off by default: its base is
+# TO CONFIRM (TFW_IMX95_ADC_BASE in board_profile.h, zero until a pinned source
+# gives it) and nothing has run it on the board. ADC=1 turns TFW_FEATURE_ANALOG
+# on (TFW_CM_ADC in board_profile.h), appends the analog pins and links the
+# driver; the soft:ADC=1 row builds that image, as mps2-an505's soft:I2C=1 does.
+ADC               ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(ADC)),-DTFW_CM_ADC=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(ADC)),ANALOG)
+BOARD_ROWS        += soft:ADC=1

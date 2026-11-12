@@ -31,25 +31,25 @@
 #define TFW_IMX95_ADC_CALSTAT  0x39Cu   /* calibration status (diagnostic) */
 
 /* MCR (imx93_adc.c IMX93_ADC_MCR_*_MASK). TO CONFIRM. */
-#define TFW_IMX95_ADC_MCR_MODE     (1uL << 29)  /* 1 scan, 0 one-shot */
-#define TFW_IMX95_ADC_MCR_NSTART   (1uL << 24)  /* start a normal conversion */
-#define TFW_IMX95_ADC_MCR_CALSTART (1uL << 14)  /* start calibration */
-#define TFW_IMX95_ADC_MCR_ADCLKSE  (1uL << 8)   /* 1 bus clock, 0 bus clock / 2 */
-#define TFW_IMX95_ADC_MCR_PWDN     (1uL << 0)   /* power down */
+#define TFW_IMX95_ADC_MCR_MODE     (1u << 29)  /* 1 scan, 0 one-shot */
+#define TFW_IMX95_ADC_MCR_NSTART   (1u << 24)  /* start a normal conversion */
+#define TFW_IMX95_ADC_MCR_CALSTART (1u << 14)  /* start calibration */
+#define TFW_IMX95_ADC_MCR_ADCLKSE  (1u << 8)   /* 1 bus clock, 0 bus clock / 2 */
+#define TFW_IMX95_ADC_MCR_PWDN     (1u << 0)   /* power down */
 
 /* MSR. TO CONFIRM. */
-#define TFW_IMX95_ADC_MSR_CALFAIL       (1uL << 30)
-#define TFW_IMX95_ADC_MSR_CALBUSY       (1uL << 29)
-#define TFW_IMX95_ADC_MSR_ADCSTATUS     0x7uL       /* bits 2:0 */
+#define TFW_IMX95_ADC_MSR_CALFAIL       (1u << 30)
+#define TFW_IMX95_ADC_MSR_CALBUSY       (1u << 29)
+#define TFW_IMX95_ADC_MSR_ADCSTATUS     0x7u       /* bits 2:0 */
 #define TFW_IMX95_ADC_STATUS_IDLE       0u
 #define TFW_IMX95_ADC_STATUS_POWER_DOWN 1u
 
 /* ISR and IMR. TO CONFIRM. */
-#define TFW_IMX95_ADC_ISR_ECH  (1uL << 0)   /* end of the chain */
-#define TFW_IMX95_ADC_ISR_EOC  (1uL << 1)   /* end of a channel's conversion */
+#define TFW_IMX95_ADC_ISR_ECH  (1u << 0)   /* end of the chain */
+#define TFW_IMX95_ADC_ISR_EOC  (1u << 1)   /* end of a channel's conversion */
 
 /* PCDRn: the 12-bit result. TO CONFIRM. */
-#define TFW_IMX95_ADC_PCDR_CDATA 0x0FFFuL
+#define TFW_IMX95_ADC_PCDR_CDATA 0x0FFFu
 
 /* Channels in CEOCFR0, NCMR0 and the PCDRs: the block has eight. TO CONFIRM. */
 #define TFW_IMX95_ADC_CHANNELS 8u

@@ -90,6 +90,14 @@ const (
 	simPolicyWipe     = simPolicyBody + 11
 )
 
+// The vector binds the atmega2560 policy class; the element simulator is built
+// on the host board, atmega328p (mk/host.mk HOST_BOARD_DEFAULT), whose
+// TFW_SUIT_POLICY_CLASS_ID the firmware's class check wants (ADR D2).
+var (
+	simVectorPolicyClass  = []byte("\xd3\x7d\x83\xb8\x9b\xb6\x52\x35\x99\xae\x46\xe1\x79\xd5\x11\x99")
+	simElementPolicyClass = []byte("\xd0\xa2\x3e\x68\x55\xd5\x51\xe3\xba\xb3\x4e\xd3\x29\x50\x9d\x68")
+)
+
 // simTenantKey is the throwaway tenant key, private scalar 0x40..0x5F
 // (test/integration/cortex-m/hsm_sets.c).
 func simTenantKey(t *testing.T) *ecdsa.PrivateKey {
@@ -112,7 +120,7 @@ func simSigStructure(env []byte) [32]byte {
 }
 
 // simPolicyFor returns simPolicyEnvelope with its one rule naming signal and
-// wiping, re-signed. The original is checked first against the offsets and
+// wiping, bound to the element's policy class and re-signed. The original is checked first against the offsets and
 // the key, so a change to the vector fails here and not in the simulator.
 func simPolicyFor(t *testing.T, signal byte) []byte {
 	t.Helper()
@@ -137,7 +145,10 @@ func simPolicyFor(t *testing.T, signal byte) []byte {
 	require.Positive(t, at, "the payload digest in the manifest")
 	require.Equal(t, byte(0x01), env[simPolicySignal])
 	require.Equal(t, byte(0xf4), env[simPolicyWipe])
+	class := bytes.Index(manifest, append([]byte{0x02, 0x50}, simVectorPolicyClass...))
+	require.Positive(t, class, "the policy class in the manifest")
 
+	copy(manifest[class+2:], simElementPolicyClass)
 	env[simPolicySignal] = signal
 	env[simPolicyWipe] = 0xf5
 	pd := sha256.Sum256(body)

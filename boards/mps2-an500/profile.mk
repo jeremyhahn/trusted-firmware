@@ -87,4 +87,4 @@ SPI               ?= 0
 # size-check measures it, and cortex-m-qemu-pwm-wire runs it.
 PWM               ?= 0
 BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) $(if $(filter 1,$(PWM)),PWM)
-BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:PWM=1$!1
+BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:PWM=1

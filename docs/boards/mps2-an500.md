@@ -58,7 +58,8 @@ the span both regions sit in (`board_profile.h:57`).
 |---|---|---|
 | Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select | `board_profile.h:20`; `board.c:23`–`31` |
 | Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
-| PWM, ADC, EEPROM, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
+| PWM | 2 in the `PWM=1` row (`soft:PWM=1`), off by default: software PWM on the two LEDs, pins 0 and 1, clocked by the CMSDK APB dual timer at `0x40002000` (interrupt line 10), 500 Hz in 256 steps; see PWM | `profile.mk:83`–`90`; `board_profile.h:22`–`28`, `:33`–`37`, `:100`–`105`; `board.c:35`–`54` |
+| ADC, EEPROM, 1-Wire | none: QEMU models no converter or 1-Wire this port drives | `board_profile.h` |
 | I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:31`–`46` |
 
 ## Buses
@@ -70,6 +71,21 @@ no device to either, so the default image links neither (`profile.mk:60`–`74`)
 |---|---|---|---|
 | I2C | the shield 0 SBCon at `0x40029000`; no select, so no pin | `I2C=1` (`soft:I2C=1`) | AN500 (Arm DAI 0500B) memory map; QEMU `hw/arm/mps2.c` (Shield0 SBCon), `hw/i2c/arm_sbcon_i2c.c`; `board_profile.h:73`–`78` |
 | SPI | the shield 0 PL022 at `0x40026000`; select pin 2, MISC bit 8 `SHIELD0_SPI_nCS` | `SPI=1` (`soft:SPI=1`) | AN500 3.1 Table 3-1, 3.7, 3.13 Table 3-6; QEMU `hw/arm/mps2.c` (Shield0 PL022), `hw/ssi/pl022.c`; `board_profile.h:80`–`88` |
+
+## PWM
+
+The image has no PWM block of its own, so `PWM=1` builds a software PWM
+(`src/hal/cortex-m/mps2/hal_pwm.c`, shared with `mps2-an505`): the dual
+timer's first counter interrupts 256 times a period at 500 Hz, counted from
+the 25 MHz core clock (`TFW_MPS2_PWM_STEP` in `soc_regs.h`), and the handler
+sets or clears each LED's bit in the FPGA I/O LED register against its duty.
+Duty 0 and 255 drive the pin and leave the timer alone. The registers are the
+*Arm Cortex-M System Design Kit Technical Reference Manual* (DDI 0479C) APB
+dual-input timer's, as QEMU v10.0.0's `hw/timer/cmsdk-apb-dualtimer.c` models
+them; the base and the line are AN500 Table 3-1 and QEMU `hw/arm/mps2.c`.
+Pin 2, the SPI select, has no PWM row and is refused. The row is off by
+default because nothing on the board needs it and QEMU cannot show an LED's
+duty.
 
 ## Boot
 
@@ -107,7 +123,11 @@ tfw-boot:
 - the I2C row (`TestQEMUI2CXfer`, `sdk/go/cmd/tfwctl/i2c_qemu_test.go`):
   `I2C_XFER` at `0x50` returns `ERR_NACK`, as a write, a read, and at 400 kHz,
   since `hw/i2c/bitbang_i2c.c` finds no device for the address byte;
-  `0x60` is refused with `ERR_PROTECTED_REGION`, `0x80` with `ERR_RANGE`.
+  `0x60` is refused with `ERR_PROTECTED_REGION`, `0x80` with `ERR_RANGE`;
+- the PWM row (`TestQEMUPWMWrite`, `sdk/go/cmd/tfwctl/pwm_qemu_test.go`,
+  `make cortex-m-qemu-pwm-wire`): `PWM_WRITE` on pin 0 at duty 0, 128 and
+  255 is answered `OK`, the timer stopped, running and stopped again; pin 2
+  is refused with `ERR_UNSUPPORTED`. QEMU is not asked to measure the pin.
 
 The base row also runs `TestQEMUResetCause`
 (`sdk/go/cmd/tfwctl/reset_qemu_test.go`) on a boot of its own: SYS_INFO

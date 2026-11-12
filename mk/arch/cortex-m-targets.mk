@@ -71,6 +71,7 @@ CM_QEMU_SPI_BUILD  := $(BUILD_DIR)/qemu-spi
 # The PWM row (profile.mk's soft:PWM=1), the same way: the base row's image
 # built with PWM=1, so PWM_WRITE reaches the software PWM on the CMSDK dual
 # timer (sdk/go/cmd/tfwctl/pwm_qemu_test.go). QEMU does not measure the pin.
+CM_QEMU_PWM_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_PWM_BUILD  := $(BUILD_DIR)/qemu-pwm
 
 # The I2C row, the same way: the base row's image built with I2C=1, so
@@ -118,6 +119,7 @@ $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS)): integration-test
 	@$(if $(filter $*,$(CM_QEMU_AB_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-ab-wire BOARD=$*,true)
 	@$(if $(filter $*,$(CM_QEMU_SPI_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-spi-wire BOARD=$*,true)
 	@$(if $(filter $*,$(CM_QEMU_I2C_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-i2c-wire BOARD=$*,true)
+	@$(if $(filter $*,$(CM_QEMU_PWM_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-pwm-wire BOARD=$*,true)
 	@echo "$@: green"
 
 # The store row's run, after the base row's, whose application it stages.

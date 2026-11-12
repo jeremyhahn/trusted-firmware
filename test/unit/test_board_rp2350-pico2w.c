@@ -54,16 +54,24 @@ static void test_no_pin_is_the_uart_or_the_radio(void)
     }
 }
 
-static void test_no_pin_offers_an_adc_or_a_pwm(void)
+static void test_gp26_to_gp28_are_adc0_to_adc2_and_no_pin_offers_a_pwm(void)
 {
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
-        uint8_t ch;
+        uint8_t ch = 0xFFu;
         tfw_pwmref_t p;
 
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
+        if (i >= 21u) {          /* pins 21-23 are GP26-GP28 */
+            TEST_ASSERT_EQUAL(TFW_OK, tfw_board_adc_channel(i, &ch));
+            TEST_ASSERT_EQUAL_UINT8(i - 21u, ch);
+            TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
+        } else {
+            TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
+            TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
+        }
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
-        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & (TFW_PIN_ADC | TFW_PIN_PWM));
+        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_PWM);
     }
+    TEST_ASSERT_EQUAL_UINT32(3u, TFW_ADC_COUNT);
 }
 
 static void test_a_pin_beyond_the_board_is_refused(void)
@@ -79,7 +87,7 @@ int main(void)
     RUN_TEST(test_the_board_is_its_registry_id);
     RUN_TEST(test_the_pins_are_the_header_gpios_in_order);
     RUN_TEST(test_no_pin_is_the_uart_or_the_radio);
-    RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
+    RUN_TEST(test_gp26_to_gp28_are_adc0_to_adc2_and_no_pin_offers_a_pwm);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     return UNITY_END();
 }

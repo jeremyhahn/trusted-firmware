@@ -62,6 +62,10 @@
 #define TFW_RP_CLK_SYS_SELECTED TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x44u)
 #define TFW_RP_CLK_PERI_CTRL    TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x48u)
 #define TFW_RP_CLK_PERI_DIV     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x4Cu)
+#define TFW_RP_CLK_ADC_CTRL     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x6Cu)   /* TODO(datasheet) */
+#define TFW_RP_CLK_ADC_DIV      TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x70u)   /* TODO(datasheet) */
+#define TFW_RP_CLK_ADC_XOSC     (3u << 5)       /* TODO(datasheet): AUXSRC 3, xosc_clksrc */
+#define TFW_RP_CLK_ADC_ENABLE   (1u << 11)      /* TODO(datasheet): CTRL.ENABLE */
 #define TFW_RP_CLK_DIV_1        (1u << 16)      /* DIV.INT = 1, FRAC = 0 */
 #define TFW_RP_CLK_REF_SRC_XOSC 2u              /* CTRL.SRC; SELECTED is one-hot */
 #define TFW_RP_CLK_SYS_SRC_REF  0u

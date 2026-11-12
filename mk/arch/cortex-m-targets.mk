@@ -119,6 +119,7 @@ $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS)): integration-test
 	@$(if $(filter $*,$(CM_QEMU_AB_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-ab-wire BOARD=$*,true)
 	@$(if $(filter $*,$(CM_QEMU_SPI_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-spi-wire BOARD=$*,true)
 	@$(if $(filter $*,$(CM_QEMU_I2C_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-i2c-wire BOARD=$*,true)
+	@$(if $(filter $*,$(CM_QEMU_TONE_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-tone-wire BOARD=$*,true)
 	@echo "$@: green"
 
 # The store row's run, after the base row's, whose application it stages.

@@ -246,6 +246,9 @@ class TestRepository(unittest.TestCase):
     """The tree itself. A failure in test_the_page_matches_tfwctl is a
     missing or stale row in docs/host-sdk/cli.md, not a test to edit."""
 
+    def test_the_page_matches_tfwctl(self):
+        self.assertEqual([], cdc.check(REPO))
+
     def test_tfwctl_was_read(self):
         found = cdc.verbs(REPO)
         for verb in ("ping", "ports", "netcfg", "ota-stage", "attest-csr", "auth", "1wire-read",

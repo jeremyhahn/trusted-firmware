@@ -8,8 +8,8 @@
  * tfw_imx95_model_reg(). This file defines that function itself, for the ADC
  * alone (test/model/imx95_model.c is not linked): the block's registers live
  * in an array here, and each call first settles what the previous access set
- * in motion (power-down, calibration, a conversion), as a lazy model must,
- * since C gives an lvalue no hook on a read or a write.
+ * in motion (power-down, calibration, a conversion, a write-1-to-clear), as
+ * a lazy model must, since C gives an lvalue no hook on a read or a write.
  *
  * Built twice: test_imx95_adc with a block at TEST_ADC_BASE, and
  * test_imx95_adc_nobase with TFW_IMX95_ADC_BASE zero, where no register may
@@ -38,8 +38,26 @@ static unsigned cal_runs;
 static int conv_hang;
 static unsigned conversions;
 static uint16_t sample[TFW_IMX95_ADC_CHANNELS];
+static unsigned conv_delay;         /* accesses a started conversion takes */
+
+/* ISR and CEOCFR0 are write-1-to-clear. An access to either is handed this
+ * latch, not the register: it holds the flags plus W1C_MARK, a bit the
+ * driver never writes. At the next access, a latch that lost the mark was
+ * written, and only the bits written as 1 clear; one that kept it was only
+ * read. */
+#define W1C_MARK 0x80000000uL
+static uint32_t w1c_latch;
+static uint32_t w1c_off;            /* the register latched; 0: none */
 
 #define R(off) regs[(off) / 4u]
+
+static void w1c_apply(void)
+{
+    if (w1c_off != 0u && !(w1c_latch & W1C_MARK)) {
+        R(w1c_off) &= ~w1c_latch;
+    }
+    w1c_off = 0u;
+}
 
 static void settle(void)
 {
@@ -61,22 +79,19 @@ static void settle(void)
             }
         }
     }
-    if ((mcr & TFW_IMX95_ADC_MCR_NSTART) && !(mcr & TFW_IMX95_ADC_MCR_PWDN)) {
-        /* A started chain begins with its flags clear. C cannot tell this
-         * model a write-1-to-clear from a read, so the driver's clears of
-         * ISR and CEOCFR0 are modelled here, where they take effect. */
-        R(TFW_IMX95_ADC_ISR) = 0u;
-        R(TFW_IMX95_ADC_CEOCFR0) = 0u;
-    }
     if ((mcr & TFW_IMX95_ADC_MCR_NSTART) && !(mcr & TFW_IMX95_ADC_MCR_PWDN) &&
-        !conv_hang) {
+        !conv_hang && conv_delay > 0u) {
+        conv_delay--;                   /* still converting: no flag moves */
+    } else if ((mcr & TFW_IMX95_ADC_MCR_NSTART) &&
+               !(mcr & TFW_IMX95_ADC_MCR_PWDN) && !conv_hang) {
         uint32_t mask = R(TFW_IMX95_ADC_NCMR0);
 
         conversions++;
         if (!(mcr & TFW_IMX95_ADC_MCR_MODE)) {
             mcr &= ~TFW_IMX95_ADC_MCR_NSTART;       /* one-shot: the chain ends */
         }
-        R(TFW_IMX95_ADC_CEOCFR0) = 0u;
+        /* a conversion sets flags and never clears one: only the
+         * driver's write-1-to-clear does (w1c_apply) */
         for (uint32_t ch = 0u; ch < TFW_IMX95_ADC_CHANNELS; ch++) {
             if (mask & (1u << ch)) {
                 /* bits above CDATA set, so a driver must mask them */
@@ -84,7 +99,7 @@ static void settle(void)
                 R(TFW_IMX95_ADC_CEOCFR0) |= 1u << ch;
             }
         }
-        R(TFW_IMX95_ADC_ISR) = TFW_IMX95_ADC_ISR_EOC | TFW_IMX95_ADC_ISR_ECH;
+        R(TFW_IMX95_ADC_ISR) |= TFW_IMX95_ADC_ISR_EOC | TFW_IMX95_ADC_ISR_ECH;
     }
     R(TFW_IMX95_ADC_MCR) = mcr;
     R(TFW_IMX95_ADC_MSR) = msr;
@@ -93,7 +108,14 @@ static void settle(void)
 volatile uint32_t *tfw_imx95_model_reg(uintptr_t addr)
 {
     touches++;
+    w1c_apply();
     settle();
+    if (addr == TEST_ADC_BASE + TFW_IMX95_ADC_ISR ||
+        addr == TEST_ADC_BASE + TFW_IMX95_ADC_CEOCFR0) {
+        w1c_off = (uint32_t)(addr - TEST_ADC_BASE);
+        w1c_latch = R(w1c_off) | W1C_MARK;
+        return (volatile uint32_t *)&w1c_latch;
+    }
     if (addr >= TEST_ADC_BASE && addr < TEST_ADC_BASE + 4u * NREGS) {
         return (volatile uint32_t *)&regs[(addr - TEST_ADC_BASE) / 4u];
     }
@@ -114,6 +136,8 @@ void setUp(void)
     cal_runs = 0u;
     conv_hang = 0;
     conversions = 0u;
+    conv_delay = 0u;
+    w1c_off = 0u;
     for (unsigned ch = 0u; ch < TFW_IMX95_ADC_CHANNELS; ch++) {
         sample[ch] = (uint16_t)(0x100u * ch + 0x23u);
     }
@@ -229,6 +253,26 @@ static void test_a_conversion_that_never_ends_times_out(void)
     TEST_ASSERT_EQUAL_HEX16(sample[0], raw);
 }
 
+static void test_a_stale_completion_is_not_the_new_sample(void)
+{
+    uint16_t raw = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    /* a previous conversion's flags and data, never cleared */
+    R(TFW_IMX95_ADC_ISR) = TFW_IMX95_ADC_ISR_EOC | TFW_IMX95_ADC_ISR_ECH;
+    R(TFW_IMX95_ADC_CEOCFR0) = 1u;
+    R(TFW_IMX95_ADC_PCDR(0)) = 0x0111u;
+    sample[0] = 0x0999u;
+    conv_delay = 5u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(0u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x0999u, raw);
+    TEST_ASSERT_EQUAL_UINT(1u, conversions);
+    /* and the read leaves no completion behind for the next one */
+    w1c_apply();
+    TEST_ASSERT_EQUAL_HEX32(0u, R(TFW_IMX95_ADC_ISR));
+    TEST_ASSERT_EQUAL_HEX32(0u, R(TFW_IMX95_ADC_CEOCFR0));
+}
+
 static void test_the_references_accepted_and_refused(void)
 {
     unsigned before = touches;
@@ -271,6 +315,7 @@ int main(void)
     RUN_TEST(test_a_failed_calibration_is_recorded);
     RUN_TEST(test_a_second_init_after_a_failure_recovers);
     RUN_TEST(test_a_conversion_that_never_ends_times_out);
+    RUN_TEST(test_a_stale_completion_is_not_the_new_sample);
     RUN_TEST(test_the_references_accepted_and_refused);
 #else
     RUN_TEST(test_base_zero_touches_nothing);

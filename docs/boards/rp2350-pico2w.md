@@ -89,7 +89,8 @@ the RP2350 datasheet; slice 3 checked each against [RP-DS] release 8
 | Clocks | clk_ref, clk_sys and clk_peri from the 12 MHz crystal undivided; no PLL | `src/hal/cortex-m/rp2350/hal_soc.c` |
 | Watchdog | 1 us ticks from clk_ref, 8 s period, resets everything but the oscillators | `hal_soc.c` |
 | Pins | GPIO2-22 and GPIO26-28 through SIO; GPIO23-25 and 29 are the radio's; no LED (the board's is the CYW43439's) | `boards/rp2350-pico2w/board.c` |
-| Not driven | the converter, PWM, I2C, SPI, USB, the radio | |
+| I2C | I2C0 on GPIO4 (SDA) and GPIO5 (SCL), pico-sdk 2.1.1's `PICO_DEFAULT_I2C`, with the pad pull-ups on; built only in the `soft:I2C=1` row (`I2C ?= 0`) | `profile.mk`, `board_profile.h` |
+| Not driven | the converter, PWM, SPI, 1-Wire, USB, the radio | |
 
 The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 `src/hal/cortex-m/rp2350/`. Built in CI, never run.
@@ -101,6 +102,8 @@ The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | S `hal_uart.c` | PL011 UART0 on GPIO0/1; receive interrupt-driven into a 64-byte ring on NVIC line 33; transmit into the 32-byte FIFO, `0` when it is full |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | S `hal_gpio.c` | SIO, GPIO0-29; input, output and input-pullup; the board's table lists only the header pins |
 | `tfw_hal_adc_*` | S `hal_adc.c` | as on mps2-an505: no channel |
+| `tfw_hal_i2c_init`, `_xfer` | S `hal_bus.c` | the DW_apb_i2c I2C0 master, polled, fast mode; SCL counts and spike length from clk_sys (12 MHz: HCNT 7, LCNT 17, SPKLEN 1, about 364 kHz for 400 kHz, never faster), a rate the 16-bit counts cannot make refused with `TFW_ERR_RANGE`. `TFW_ERR_NACK` from IC_TX_ABRT_SOURCE bits 0-4, `TFW_ERR_BUSY` on arbitration lost, `TFW_ERR_TIMEOUT` on a bus that does not come free; a STOP on every return that reached the bus (STOP_DET, else IC_ENABLE.ABORT). **Built and host-tested, not run on the board** |
+| `tfw_hal_spi_*`, `tfw_hal_ow_*` | S `hal_bus.c` | `TFW_ERR_UNSUPPORTED` |
 
 The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
 of `BOOT_SUPPORTED` (`mk/boot.mk`). Like the mps2-an505 row it hashes and
@@ -117,6 +120,15 @@ the ROM flag's, which slice 4 took from pico-sdk (below).
 | Host test | the flash map by literal under the board's profile: 4 MiB, tfw-boot, the application, the platform block in the last sector | `test/unit/boot/test_boot_rp2350_map.c` |
 | Host test | the boot UART over a register model (`boot/hal/cortex-m/rp2350/test/cm_regs.h`): 115200 8N1 from 12 MHz (IBRD 6, FBRD 33, §12.1.7.1), UART0 out of reset through the SET/CLR aliases, GPIO0/1 function 2 and their pads, TX/RX through UARTDR, an unreachable baud left in reset, the pins returned at handoff; every address a literal from §12.1.8, §7.5.3, §9.11 | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_uart.c` |
 | Host test | `rp_flash_rom.c` whole over a model of the ROM's function table and a 4 MiB flash: the six functions looked up by the codes as literals (`0x4649` `0x5845` `0x4552` `0x5052` `0x4346` `0x5843`); one sector erased (4096 bytes, block 4096, `0x20`) and programmed in 256-byte pages in the order `IF EX RE RP FC CX`, every ROM call with interrupts masked and erase and program only with XIP off; the last sector written; a misaligned offset, one past the flash and a ROM missing each function in turn refused with nothing called; XIP on and the interrupt mask restored after every path | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_rom.c` |
+
+The I2C master (row `rp2350`) is host-tested over a register model of I2C0
+(`test/unit/test_rp2350_i2c.c`, through the same stand-in `cm_regs.h`): a
+write, a read, a write then a read with a RESTART, an address NACK on write
+and on read, a data NACK, an abort the controller does not end with a STOP, a
+stuck bus and a controller that never goes idle timing out, and the next
+transfer after a timeout; the log of S, Sr, address, data and P is checked
+for each. The SCL counts are literals in `test/unit/test_rp2350_soc.c`. No
+I2C device has been wired to the board.
 
 Still for the bench: the flash part's JEDEC id (below), the first real erase
 and program through the ROM, and the console on GPIO0/1. No lane touches the
@@ -168,6 +180,8 @@ each group in the source as well.
 | The divisor arithmetic: 125 MHz at 115200 = IBRD 67, FBRD 52; divisors latch on the LCR_H write after them (both drivers write it last) | §12.1.7.1 | matched; now a literal in `test_rp2350_soc.c` |
 | IMAGE_DEF: `0xFFFFDED3`, IMAGE_TYPE `0x42` size 1, flags EXE `0x1`, Secure `0x20`, Arm `0x000`, RP2350 `0x1000`; LAST `0x1FF`; link 0; `0xAB123579`; within the first 4 KiB | §5.9.1 table 487; §5.9.3.1 tables 492-493; §5.1.12 | matched |
 | Boot ROM: lookup pointer halfword at `0x16`; code `c1 \| c2 << 8`; `IF` `EX` `RE` `RP` `FC` `CX` and their signatures; sector 4096, page 256, erase `20h` | §5.4.1 table 464; §5.4.8.3-.11 | matched |
+| I2C0 `0x40090000`; IC_CON, IC_TAR, IC_DATA_CMD (CMD 8, STOP 9, RESTART 10), FS_SCL_HCNT/LCNT, RAW_INTR_STAT (TX_ABRT 6, STOP_DET 9), the CLR_ registers, ENABLE (ABORT 1), STATUS, TX_ABRT_SOURCE, ENABLE_STATUS, FS_SPKLEN; RESETS I2C0 bit 4; GPIO4/5 F3 I2C0 | §12.2.17 tables 1108-1146; §7.5.3 table 566; §9.4 table 677 | read for row `rp2350` |
+| The SCL counts: LCNT > SPKLEN+7, HCNT > SPKLEN+5, low LCNT+1 and high HCNT+SPKLEN+7 cycles; fast mode 1300 ns low, 600 ns high; spikes 50 ns, SPKLEN at least 1 | §12.2.14.1, figure 94; §12.2.14.2.1; §12.2.11 | read for row `rp2350`; literals in `test_rp2350_soc.c` |
 | Pico 2 W pins: GPIO23 radio power, 24 SPI data/IRQ, 25 SPI CS, 29 SPI CLK/ADC3; GPIO26-28 ADC-capable | [DS] §2.1 | matched |
 
 **Not in the datasheets.** Slice 4 looked each up in pico-sdk tag 2.1.1
@@ -195,5 +209,5 @@ is read on the bench before the first flash write.
 
 ## What is not verified
 
-Nothing here has run on the board. The part's JEDEC id (the flash size above)
+Nothing here has run on the board, the I2C bus included. The part's JEDEC id (the flash size above)
 and the console wiring stay open until a lane with the board settles them.

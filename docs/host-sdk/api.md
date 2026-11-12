@@ -111,7 +111,7 @@ reaches for by task.
 | auth session (element tier only) | `AuthChallenge(ctx) ([]byte, error)`, `AuthResponse(ctx, signer crypto.Signer, nonce, serial []byte) error` |
 | provisioning (jig image only) | `ProvInfo`, `ProvWriteConfig`, `ProvLock`, `ProvGenKey`, `ProvPubKey`, `ProvSeedUDS`, `ProvWritePubKey` |
 | network block | `ReadNetConfig`, `WriteNetConfig`, `tfw.DerivedMAC` ([ethernet-transport](../ethernet-transport/api.md)) |
-| OTA | `tfw.ParseImage` to check a stream's structure; `Upload` (resumes from `OTA_STATUS`), `StageImage`, or `OTABegin`/`OTAData`/`OTAEnd`/`OTAStatus`; `OTAAuth`, `OTAInfo`, `OTAActivate`, `OTAConfirm` ([ota](../ota/api.md)) |
+| OTA | `tfw.ParseImage` to check a stream's structure; `Upload` (resumes from `OTA_STATUS`), `StageImage`, or `OTABegin`/`OTAData`/`OTAEnd`/`OTAStatus`; `OTAAuth`, `OTAInfo`, `OTAActivate` (or `Activate`), `OTAConfirm` (or `Confirm`) ([ota](../ota/api.md)) |
 | accept Ethernet devices | `tfw.Listen(addr, opts...) (*Listener, error)`, `(*Listener) Accept() (*TCPDevice, error)`; a `*TCPDevice` is a `*Device` |
 | raw codec | `tfw.EncodeRequest`, `tfw.EncodeResponse`, `tfw.Decode`, `tfw.CRC16` |
 
@@ -284,6 +284,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.CryptoNone`, `tfw.CryptoSoftware`, `tfw.CryptoSecureElement`, `tfw.CryptoTPM2` | `const CryptoTier` 0…3 | The crypto tiers, numbered as TFW_CRYPTO_* in include/tfw/types.h. |
 | `tfw.CryptoTier.String` | `func (c CryptoTier) String() string` | Names the tier, or says it is unrecognised with its number. |
 | `tfw.Device` | `type Device struct` | One attached board. |
+| `tfw.Device.Activate` | `func (d *Device) Activate(ctx context.Context, now bool) error` | ADR section 13's name for OTAActivate: now true is OTAActivateResetNow, false OTAActivateAtReset. |
 | `tfw.Device.AnalogRead` | `func (d *Device) AnalogRead(ctx context.Context, pin uint8) (uint16, error)` | Returns the RAW converter count, 0..1023 on a 10-bit ADC. |
 | `tfw.Device.AppInfo` | `func (d *Device) AppInfo(ctx context.Context) (*AppInfo, error)` | Reads the application linked into the image and its runner's state. |
 | `tfw.Device.Attest` | `func (d *Device) Attest(ctx context.Context, nonce []byte) ([]byte, error)` | Asks the device for nonce-bound attestation evidence. |
@@ -293,6 +294,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.Device.AuthResponse` | `func (d *Device) AuthResponse(ctx context.Context, signer crypto.Signer, nonce, serial []byte) error` | Signs the challenge with the operator key behind signer, opening a session that lasts until the device resets. |
 | `tfw.Device.Caps` | `func (d *Device) Caps(ctx context.Context) (*Caps, error)` | Asks the device what it is. |
 | `tfw.Device.ConfigureSPI` | `func (d *Device) ConfigureSPI(ctx context.Context, mode SPIMode, clkdiv SPIClockDiv, lsbFirst bool) error` | Reconfigures the generic SPI bus's mode, clock divider and bit order. |
+| `tfw.Device.Confirm` | `func (d *Device) Confirm(ctx context.Context) error` | ADR section 13's name for OTAConfirm. |
 | `tfw.Device.DigitalRead` | `func (d *Device) DigitalRead(ctx context.Context, pin uint8) (bool, error)` | Reads the level on a pin. |
 | `tfw.Device.DigitalWrite` | `func (d *Device) DigitalWrite(ctx context.Context, pin uint8, high bool) error` | Drives a pin high or low. |
 | `tfw.Device.Do` | `func (d *Device) Do(ctx context.Context, cmd Cmd, payload []byte) (Frame, error)` | Sends one command and returns its response frame. |

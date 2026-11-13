@@ -2473,7 +2473,7 @@ $(HOST_DIR)/test_nrf54l_gpio: test/unit/test_nrf54l_gpio.c src/hal/cortex-m/nrf5
 # is. The included hal_uart.c is filtered out of $^, as hal_adc.c is above.
 $(HOST_DIR)/test_nrf54l_uart: test/unit/test_nrf54l_uart.c src/hal/cortex-m/nrf54l/hal_uart.c \
                               src/hal/cortex-m/nrf54l/soc_tables.c test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	    $(filter-out %/hal_uart.c,$^) $(EXTRA_LDFLAGS)
 
 # Its reset cause (#17): soc_reset.c reads RESETREAS through a pointer the

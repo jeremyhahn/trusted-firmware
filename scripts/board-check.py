@@ -82,6 +82,12 @@ PARTS = {
     "stm32h573iik3q": dict(flash=2097152, flash_start=0x08000000, sram=262144,
                            sram_start=0x20000000, eeprom=8512, boot=True,
                            boot_end=0x08008000),
+    # STM32H563ZIT6 on the NUCLEO-H563ZI: the STM32H573IIK3Q's memory without
+    # its crypto accelerators, the same 2 MiB of flash in two banks and SRAM1
+    # at 0x20000000 (TO CONFIRM against ST's stm32h563xx.h, not held here).
+    "stm32h563zit6": dict(flash=2097152, flash_start=0x08000000, sram=262144,
+                          sram_start=0x20000000, eeprom=0, boot=True,
+                          boot_end=0x08008000),
     # RP2350 on the Raspberry Pi Pico 2 W (RP-008373-DS, "Address map"; the
     # board datasheet RP-008304-DS for the flash): the part has no flash of its
     # own, so the flash is the board's 4 MiB QSPI part behind the XIP window at

@@ -36,6 +36,7 @@ alone, before it knows the board.
 | `0x44` | Raspberry Pi Pico 2 W (RP2350, Cortex-M33) | `boards/rp2350-pico2w` |
 | `0x45` | Nordic nRF54L15 DK (PCA10156), the nRF54L15's application core (Cortex-M33) | `boards/nrf54l15-dk` |
 | `0x46` | NXP FRDM-MCXN947 (MCXN947, Cortex-M33) | `boards/frdm-mcxn947` |
+| `0x47` | ST NUCLEO-H563ZI (MB1404, STM32H563ZIT6, Cortex-M33) | `boards/nucleo-h563zi` |
 | `0x80` | ESP32-P4 on a PoE Ethernet board | `boards/esp32p4-poe` |
 | `0x81` | Espressif QEMU, `esp32c3` and `esp32` machines | `boards/esp32-qemu` |
 

@@ -86,7 +86,8 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # src/hal/cortex-m/rp2350/hal_eeprom.c calls tfw_rp_flash_update.
 SOC_EEPROM_SRCS_rp2350 := boot/hal/cortex-m/rp2350/rp_flash.c boot/hal/cortex-m/rp2350/rp_flash_rom.c \
                           boot/hal/cortex-m/rp2350/rp_rom_lookup.c
-STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c $(SOC_EEPROM_SRCS_$(SOC)))
+STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c $(wildcard $(call hal_src,hal_eeprom.c)) \
+                $(SOC_EEPROM_SRCS_$(SOC)))
 # The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
 # the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
 # mk/arch/esp32.mk), so a file the arch lists is left to the arch.
@@ -163,6 +164,13 @@ else ifeq ($(ETH),1)
 LINK_SRCS += src/net/dhcp_none.c
 endif
 
+# hal_eeprom.c is always present, but a SoC may have its own (nrf54l: the
+# window is RRAM, which a plain store does not program). hal_src picks one and
+# the other copy is left out, so no board links two; on every board without a
+# SoC copy this is empty and the link is what it was.
+HAL_EEPROM_OTHER = $(filter-out $(call hal_src,hal_eeprom.c),\
+                     $(wildcard $(HAL_DIR)/hal_eeprom.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/hal_eeprom.c)))
+
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
@@ -171,8 +179,7 @@ endif
 # hal_src names; on every other board the filter-out leaves nothing.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL) \
-                $(filter-out $(call hal_src,hal_eeprom.c),$(HAL_DIR)/hal_eeprom.c)
+                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL) $(HAL_EEPROM_OTHER)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the

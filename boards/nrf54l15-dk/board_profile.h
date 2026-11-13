@@ -22,7 +22,7 @@
 #define TFW_PORT_COUNT 3u      /* GPIO P0, P1 and P2 */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  4u      /* SAADC AIN2-AIN5 (src/hal/cortex-m/nrf54l/soc_tables.c) */
-#define TFW_EEPROM_SIZE 0u
+#define TFW_EEPROM_SIZE 4096u     /* the platform window in RRAM, TFW_CM_PLATFORM_SIZE */
 
 #define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     0
@@ -31,7 +31,7 @@
  * (src/hal/cortex-m/nrf54l/hal_tone.c). */
 #define TFW_TONE_PIN        1u
 #define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_EEPROM  1
 /* I2C on TWIM21 (src/hal/cortex-m/nrf54l/hal_bus.c), SDA P1.8 and SCL P1.10,
  * only in the I2C=1 row (profile.mk): the element tiers' measurement. Those
  * pins are also BTN2 and LED1 in board.c; the bus takes them while it runs. */

@@ -131,6 +131,14 @@ fi
 case $cpus in
   "" | 0 | *[!0-9]*) echo "IN_IMAGE_CPUS must be a positive integer: $cpus" >&2; exit 2 ;;
 esac
+# The daemon refuses --cpus above its own CPU count, and the job container can
+# see more CPUs than the daemon that runs the stage (a pooled runner host), so
+# the bound is capped at the daemon's NCPU when the daemon reports one.
+if ! daemon_cpus=$(docker info --format '{{.NCPU}}' 2>/dev/null); then daemon_cpus=; fi
+case $daemon_cpus in
+  "" | 0 | *[!0-9]*) ;;
+  *) if [ "$cpus" -gt "$daemon_cpus" ]; then cpus=$daemon_cpus; fi ;;
+esac
 memory=${IN_IMAGE_MEMORY:-}
 if [ -z "$memory" ]; then
   limit=max

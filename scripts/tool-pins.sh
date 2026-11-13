@@ -23,12 +23,13 @@ BASE_DIGEST=sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b
 
 # Go, for sdk/go, xkms/ and test/integration/esp32. At least 1.27.1 because
 # xkms/ requires go-xkms, whose go.mod says `go 1.27.1`; 1.27.3 because
-# crypto/x509 before it is GO-2026-6809, which govulncheck finds in xkms/.
+# crypto/x509 before it is GO-2026-6809, which govulncheck finds in xkms/;
+# 1.27.4 because net/http before it is GO-2026-6859.
 # GOTOOLCHAIN=local in the image means it never fetches a newer one, so this
 # pin is the Go every CI stage runs: the image job builds the toolchain image
 # from build/docker/devcontainer/Dockerfile at the PR's commit.
-GO_VERSION=1.27.3
-GO_SHA256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+GO_VERSION=1.27.4
+GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 HELD_GO="GO_VERSION, GO_SHA256 and GO_IMAGE name one Go and move together in one commit; CI builds its toolchain image from these pins at the PR's commit, so a bump is tested by the PR that makes it"
 
 # --- the AVR toolchain: Debian trixie's packages -----------------------------
@@ -53,7 +54,7 @@ HELD_ESP_IDF="6.x is a major-version port of the ESP32-P4 work (#48, the #16 ADR
 # (go-quicraft 0cf97cd): the tools are static (CGO_ENABLED=0) and copied into
 # the Debian toolchain stage. GO_VERSION above and this tag must name the same
 # Go. Pinned by index digest.
-GO_IMAGE=golang:1.27.3-alpine3.24@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd
+GO_IMAGE=golang:1.27.4-alpine3.24@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 
 # --- CI tools (devops.md §8) -------------------------------------------------
 # The fleet template's pins (ci-template v1.18, go-quicraft 0cf97cd), built
@@ -79,3 +80,9 @@ HELD_GOVULNCHECK="the fleet template's pin (ci-template v1.18); the next one com
 TRIVY_VERSION=v0.76.2
 TRIVY_SHA256_LINUX_AMD64=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
 TRIVY_SHA256_LINUX_ARM64=ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3
+
+# gh, the GitHub CLI: a release archive, checked against these digests
+# (upstream's gh_<version>_checksums.txt) before it is unpacked.
+GH_VERSION=v2.103.3
+GH_SHA256_LINUX_AMD64=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
+GH_SHA256_LINUX_ARM64=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63

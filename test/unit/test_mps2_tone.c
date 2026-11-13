@@ -3,7 +3,8 @@
 /*
  * The MPS2 tone (src/hal/cortex-m/mps2/hal_tone.c) against a model: the
  * CMSDK APB timer TIMER0 (CTRL, VALUE, RELOAD, INTSTATUS/INTCLEAR), the NVIC's
- * set/clear-enable words and the FPGA I/O block's LED word, the tone's pin.
+ * set/clear-enable and clear-pending words (TIMER0's enable and pending
+ * state) and the FPGA I/O block's LED word, the tone's pin.
  * test/model/cortex-m/mps2_tone_model.h, forced in by mk/host.mk, points the
  * driver's register accesses at the model, so it compiles unchanged. Built for mps2-an505 (20 MHz, TIMER0 IRQ 3).
  */
@@ -14,34 +15,45 @@ static uint32_t m_led;        /* FPGAIO LED */
 static uint32_t m_iser, m_icer, m_icpr;
 static uint32_t m_sink;       /* any other address */
 static uint32_t m_primask;    /* the modelled PRIMASK */
-static unsigned m_led_at;     /* fire a tone edge at this LED-word access */
+static unsigned m_led_at;     /* latch TIMER0's interrupt at this LED-word access */
 static unsigned m_led_seen;   /* LED-word accesses so far */
-static uint8_t m_edge_held;   /* an edge raised while masked */
+static uint8_t m_irq_en;      /* TIMER0 enabled in the NVIC (ISER/ICER) */
+static uint8_t m_irq_pend;    /* TIMER0 pending in the NVIC, until taken or ICPR */
+static unsigned m_irq_taken;  /* latched interrupts the model has taken */
 
 #include "../../src/hal/cortex-m/mps2/hal_tone.c"
 #include "../../src/hal/cortex-m/mps2/hal_gpio.c"
 
 #include "unity.h"
 
+/* A latched TIMER0 interrupt is taken at once when the NVIC enables it and
+ * PRIMASK is clear; otherwise it waits in the NVIC. */
+static void model_take(void)
+{
+    if (m_irq_pend && m_irq_en && !m_primask) {
+        m_irq_pend = 0;
+        m_irq_taken++;
+        mps2_tone_model_edge();
+    }
+}
+
 volatile uint32_t *tfw_mps2_tone_model_reg(uintptr_t a)
 {
     if (a >= TFW_MPS2_TIMER0_BASE && a < TFW_MPS2_TIMER0_BASE + 16u)
         return &m_timer[(a - TFW_MPS2_TIMER0_BASE) / 4u];
     if (a == (uintptr_t)TFW_MPS2_FPGAIO_BASE + 0x00u) {
-        /* The armed access takes TIMER0's interrupt just before it: at once
-         * when unmasked, at the unmasking restore otherwise. */
+        /* The armed access latches TIMER0's interrupt just before it. */
         if (m_led_at != 0u && ++m_led_seen == m_led_at) {
             m_led_at = 0u;
-            if (m_primask)
-                m_edge_held = 1u;
-            else
-                mps2_tone_model_edge();
+            m_irq_pend = 1u;
+            model_take();
         }
         return &m_led;
     }
-    if (a == 0xE000E100u) return &m_iser;
-    if (a == 0xE000E180u) return &m_icer;
-    if (a == 0xE000E280u) return &m_icpr;
+    /* The driver only writes the NVIC words, so an access is the write. */
+    if (a == 0xE000E100u) { m_irq_en = 1u; return &m_iser; }
+    if (a == 0xE000E180u) { m_irq_en = 0u; return &m_icer; }
+    if (a == 0xE000E280u) { m_irq_pend = 0u; return &m_icpr; }
     return &m_sink;
 }
 
@@ -60,7 +72,8 @@ void setUp(void)
     m_iser = m_icer = m_icpr = m_sink = 0;
     m_primask = 0;
     m_led_at = m_led_seen = 0;
-    m_edge_held = 0;
+    m_irq_en = m_irq_pend = 0;
+    m_irq_taken = 0;
 }
 
 uint32_t mps2_tone_model_irq_save(void)
@@ -74,10 +87,7 @@ uint32_t mps2_tone_model_irq_save(void)
 void mps2_tone_model_irq_restore(uint32_t primask)
 {
     m_primask = primask;
-    if (!m_primask && m_edge_held) {
-        m_edge_held = 0;
-        mps2_tone_model_edge();
-    }
+    model_take();
 }
 
 void tearDown(void)
@@ -137,7 +147,7 @@ static void test_gpio_write_keeps_tone_edge(void)
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&LED0, 1u));
         TEST_ASSERT_EQUAL_UINT32_MESSAGE(0x3u, m_led, "LED0 set, LED1's edge kept");
         TEST_ASSERT_EQUAL_UINT32(0u, m_primask);
-        TEST_ASSERT_EQUAL_UINT8(0u, m_edge_held);
+        TEST_ASSERT_EQUAL_UINT8(0u, m_irq_pend);
 
         m_led_seen = 0;
         m_led_at = at;
@@ -156,6 +166,33 @@ static void test_tone_retarget(void)
     TEST_ASSERT_EQUAL_UINT32(4999u, M_VALUE);
     TEST_ASSERT_EQUAL_UINT32(TFW_MPS2_TIMER_CTRL_EN | TFW_MPS2_TIMER_CTRL_INTEN, M_CTRL);
     TEST_ASSERT_EQUAL_UINT32(0u, m_led);   /* restarted from low */
+}
+
+/* A retarget from LED1 to LED0 with TIMER0's interrupt latched at each of
+ * the move's LED-word accesses in turn (two to lower LED1, two to lower
+ * LED0): the NVIC holds it until the pins and the mask have moved, and the
+ * enable drops it, so it never runs against the old pin. LED1 stays low and
+ * the next edge is LED0's alone. */
+static void test_tone_retarget_between_pins(void)
+{
+    static const tfw_pinref_t LED0 = TFW_PB(0u, 0u);
+
+    for (unsigned at = 1; at <= 4u; at++) {
+        setUp();
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 1000u));
+        mps2_tone_model_edge();
+        TEST_ASSERT_EQUAL_UINT32(0x2u, m_led);   /* LED1 high */
+        m_led_at = at;
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&LED0, 2000u));
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, m_irq_taken,
+                                         "no TIMER0 interrupt while the pins move");
+        TEST_ASSERT_EQUAL_UINT8(0u, m_irq_pend);
+        TEST_ASSERT_EQUAL_UINT8(1u, m_irq_en);
+        TEST_ASSERT_EQUAL_UINT32(0x1u, tone_mask);
+        TEST_ASSERT_EQUAL_UINT32(0x0u, m_led);
+        mps2_tone_model_edge();
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0x1u, m_led, "LED0 toggles, LED1 stays low");
+    }
 }
 
 /* Stop disables the timer and its interrupt and leaves the pin low. */
@@ -207,6 +244,7 @@ int main(void)
     RUN_TEST(test_tone_toggles_per_interrupt);
     RUN_TEST(test_gpio_write_keeps_tone_edge);
     RUN_TEST(test_tone_retarget);
+    RUN_TEST(test_tone_retarget_between_pins);
     RUN_TEST(test_tone_stop_leaves_pin_low);
     RUN_TEST(test_tone_zero_hz_stops);
     RUN_TEST(test_tone_range_refused);

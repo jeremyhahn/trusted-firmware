@@ -40,8 +40,11 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
         return TFW_ERR_RANGE;
 
     /* Retarget: the timer stops before its reload changes, and a pending
-     * interrupt from the old tone is dropped. */
+     * interrupt from the old tone is dropped, in the NVIC as well as the
+     * timer: the interrupt stays masked until the pins and tone_mask have
+     * moved, so an edge cannot raise the old pin after it was lowered. */
     TFW_MPS2_TIMER_CTRL = 0u;
+    tfw_cm_nvic_disable((uint32_t)TFW_MPS2_TIMER0_IRQ);
     TFW_MPS2_TIMER_INTCLEAR = 1u;
     uint32_t mask = 1uL << p->bit;
     if (tone_mask != 0u && tone_mask != mask)

@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * Tone on CTIMER4 with no CPU in the loop: timer mode, the prescaler at 0,
- * match 0 at half the period resetting the counter (MCR MR0R) and toggling
- * its external output CT4_MAT0 (EMR EMC0), the pin handed to that output
+ * Tone on CTIMER2 with no CPU in the loop: timer mode, the prescaler at 0,
+ * match 1 at half the period resetting the counter (MCR MR1R) and toggling
+ * its external output CT2_MAT1 (EMR EMC1), the pin handed to that output
  * (PCR MUX TFW_MCXN_TONE_PIN_FN, the board's). The divider is ctimer_tone.h.
  * CTIMER0 is the PWM's; the tone takes a timer of its own so the two never
  * share a period.
@@ -31,12 +31,12 @@ static uint8_t tone_bit;
 
 static void tone_clock(void)
 {
-    TFW_MCXN_AHBCLKCTRLSET(2) = TFW_MCXN_CTRL2_TIMER4;
-    TFW_MCXN_PRESETCTRLCLR(2) = TFW_MCXN_CTRL2_TIMER4;
-    TFW_MCXN_CT4CLKSEL = TFW_MCXN_CTCLKSEL_FRO12M;
-    TFW_MCXN_CT4CLKDIV = TFW_MCXN_CLKDIV_RESET | TFW_MCXN_CLKDIV_HALT;
-    TFW_MCXN_CT4CLKDIV = 0u;
-    TFW_MCXN_CTGLOBALSTARTEN |= TFW_MCXN_CTGLOBAL_CT4;
+    TFW_MCXN_AHBCLKCTRLSET(1) = TFW_MCXN_CTRL1_TIMER2;
+    TFW_MCXN_PRESETCTRLCLR(1) = TFW_MCXN_CTRL1_TIMER2;
+    TFW_MCXN_CT2CLKSEL = TFW_MCXN_CTCLKSEL_FRO12M;
+    TFW_MCXN_CT2CLKDIV = TFW_MCXN_CLKDIV_RESET | TFW_MCXN_CLKDIV_HALT;
+    TFW_MCXN_CT2CLKDIV = 0u;
+    TFW_MCXN_CTGLOBALSTARTEN |= TFW_MCXN_CTGLOBAL_CT2;
     tone_clocked = 1u;
 }
 
@@ -71,11 +71,11 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     }
     /* Stopped and held at 0 while it is reprogrammed, so a retarget starts a
      * fresh half period from a low output instead of finishing the old one. */
-    TFW_MCXN_CT4_TCR = TFW_MCXN_CT_TCR_CRST;
-    TFW_MCXN_CT4_PR  = 0u;
-    TFW_MCXN_CT4_MR0 = mr;
-    TFW_MCXN_CT4_MCR = TFW_MCXN_CT_MCR_MR0R;
-    TFW_MCXN_CT4_EMR = TFW_MCXN_CT_EMR_EMC_TOGGLE << TFW_MCXN_CT_EMR_EMC0_SHIFT;
+    TFW_MCXN_CT2_TCR = TFW_MCXN_CT_TCR_CRST;
+    TFW_MCXN_CT2_PR  = 0u;
+    TFW_MCXN_CT2_MR1 = mr;
+    TFW_MCXN_CT2_MCR = TFW_MCXN_CT_MCR_MR1R;
+    TFW_MCXN_CT2_EMR = TFW_MCXN_CT_EMR_EMC_TOGGLE << TFW_MCXN_CT_EMR_EMC1_SHIFT;
     if (tone_port < TFW_MCXN_PORT_COUNT &&
         (tone_port != p->port || tone_bit != p->bit)) {
         tone_pin_release();
@@ -86,15 +86,15 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
         ((uint32_t)TFW_MCXN_TONE_PIN_FN << TFW_MCXN_PCR_MUX_SHIFT) | TFW_MCXN_PCR_IBE;
     tone_port = p->port;
     tone_bit  = p->bit;
-    TFW_MCXN_CT4_TCR = TFW_MCXN_CT_TCR_CEN;
+    TFW_MCXN_CT2_TCR = TFW_MCXN_CT_TCR_CEN;
     return TFW_OK;
 }
 
 tfw_status_t tfw_hal_tone_stop(void)
 {
     if (tone_clocked) {
-        TFW_MCXN_CT4_TCR = TFW_MCXN_CT_TCR_CRST;
-        TFW_MCXN_CT4_EMR = 0u;      /* no action on match, the output low */
+        TFW_MCXN_CT2_TCR = TFW_MCXN_CT_TCR_CRST;
+        TFW_MCXN_CT2_EMR = 0u;      /* no action on match, the output low */
     }
     tone_pin_release();
     return TFW_OK;

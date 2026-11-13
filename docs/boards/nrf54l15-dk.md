@@ -82,18 +82,6 @@ board**.
 | Arithmetic | the smallest `PRESCALER` (0-9) whose rounded half-period fits 16 bits (`tone_calc.h`, host-tested): 1 kHz is prescaler 0, `CC` 8000; 1 Hz is prescaler 7, `CC` 62500. Every 16-bit frequency from 1 Hz is reachable; `RANGE` is for a half-period under two ticks, above the wire's `uint16_t` | |
 | One tone | a second start stops the first and retargets; stop stops the TIMER, unpublishes, clears the DPPI channel and the subscription, drives the pin low as a GPIO output and then disables the GPIOTE channel; 0 Hz stops | |
 
-**Tone and PWM on LED1 (#423).** The two share no peripheral: the tone owns
-TIMER20, GPIOTE20 channel 0 and DPPIC20 channel 0, the PWM owns PWM20. They
-share one pin, LED1 (P1.10), which is the tone pin and PWM20's channel 0.
-Starting either on LED1 stops the other there, then starts: last command
-wins, nothing is refused. A tone start takes LED1 off its PWM channel
-(`tfw_nrf54l_pwm_release_pin`); LED3 on channel 1 plays on, and the sequence
-stops only if LED1's was the last channel playing. A PWM write or stop on
-LED1 stops a tone running there first (`tfw_nrf54l_tone_owns`); a PWM
-command on LED3 leaves the tone alone. Both orders are host-tested against
-the register model (`test/unit/test_nrf54l_pwm.c`); neither has run on the
-board.
-
 ## tfw-boot (#17, slice 2)
 
 The core boots from `0x0`, tfw-boot's region. tfw-boot has one row on this

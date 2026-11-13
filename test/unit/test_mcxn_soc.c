@@ -9,27 +9,16 @@
  * reset, runs the 1 MHz FRO into WWDT0, loads TC and MOD and feeds 0xAA then
  * 0x55; tfw_cm_soc_watchdog_pet is the feed alone. A board has not run them.
  *
- * hal_soc.c is included here, after cm_regs.h, so its TFW_CM_REG goes to
- * soc_reg: the WWDT0 registers and the two dividers get a fresh word per
- * access, which keeps each write in order (a feed is two writes to one
- * register, and a divider is halted before its count goes in); every other
- * register is the register file's. The model's PRIMASK is a stub, so the
- * feed's masked interrupts are not checked here.
+ * test/model/cortex-m/mcxn_soc_model.h compiles hal_soc.c against the
+ * register file and keeps each WWDT0 and divider write in order (a feed is
+ * two writes to one register). The model's PRIMASK is a stub, so the feed's
+ * masked interrupts are not checked here.
  */
 #include <stdint.h>
 
 #include "unity.h"
-#include "cm_regs.h"
 #include "regfile_model.h"
-
-static volatile uint32_t *soc_reg(uintptr_t addr);
-#undef TFW_CM_REG
-#define TFW_CM_REG(addr) (*soc_reg((uintptr_t)(addr)))
-
-#include "../../src/hal/cortex-m/mcxn94x/hal_soc.c"
-
-/* hal_early.c's word in .resetmark, which this suite does not link. */
-volatile uint32_t tfw_cm_reset_mark;
+#include "mcxn_soc_model.h"
 
 #define SYSCON(off)        ((uintptr_t)TFW_MCXN_SYSCON_BASE + (off))
 #define SCG(off)           ((uintptr_t)TFW_MCXN_SCG_BASE + (off))
@@ -52,41 +41,16 @@ volatile uint32_t tfw_cm_reset_mark;
  * count goes in: DIV 0 divides by 1. */
 #define DIV_HALT_RESET     0x60000000u
 
-#define WLOG_MAX 32u
-
-static struct {
-    uintptr_t         addr;
-    volatile uint32_t val;
-} wlog[WLOG_MAX];
-static unsigned wlog_n;
-
-static int is_logged(uintptr_t addr)
-{
-    return (addr >= WWDT(0u) && addr < WWDT(0x1000u)) || addr == AHBCLKDIV ||
-           addr == WDT0CLKDIV;
-}
-
-static volatile uint32_t *soc_reg(uintptr_t addr)
-{
-    if (!is_logged(addr)) {
-        return tfw_cm_model_reg(addr);
-    }
-    TEST_ASSERT_TRUE_MESSAGE(wlog_n < WLOG_MAX, "write log full");
-    wlog[wlog_n].addr = addr;
-    wlog[wlog_n].val  = 0u;
-    return &wlog[wlog_n++].val;
-}
-
 /* The values written to addr, in order; the count. */
 static unsigned writes_to(uintptr_t addr, uint32_t *out, unsigned max)
 {
     unsigned i;
     unsigned n = 0u;
 
-    for (i = 0u; i < wlog_n; i++) {
-        if (wlog[i].addr == addr) {
+    for (i = 0u; i < model_wlog_n; i++) {
+        if (model_wlog[i].addr == addr) {
             if (n < max) {
-                out[n] = wlog[i].val;
+                out[n] = model_wlog[i].val;
             }
             n++;
         }
@@ -99,8 +63,8 @@ static unsigned wwdt_accesses(void)
     unsigned i;
     unsigned n = 0u;
 
-    for (i = 0u; i < wlog_n; i++) {
-        if (wlog[i].addr >= WWDT(0u) && wlog[i].addr < WWDT(0x1000u)) {
+    for (i = 0u; i < model_wlog_n; i++) {
+        if (model_wlog[i].addr >= WWDT(0u) && model_wlog[i].addr < WWDT(0x1000u)) {
             n++;
         }
     }
@@ -109,9 +73,9 @@ static unsigned wwdt_accesses(void)
 
 static void assert_logged(unsigned i, uintptr_t addr, uint32_t val)
 {
-    TEST_ASSERT_TRUE(i < wlog_n);
-    TEST_ASSERT_EQUAL_HEX32((uint32_t)addr, (uint32_t)wlog[i].addr);
-    TEST_ASSERT_EQUAL_HEX32(val, wlog[i].val);
+    TEST_ASSERT_TRUE(i < model_wlog_n);
+    TEST_ASSERT_EQUAL_HEX32((uint32_t)addr, (uint32_t)model_wlog[i].addr);
+    TEST_ASSERT_EQUAL_HEX32(val, model_wlog[i].val);
 }
 
 /* The SCG's CSR shows the source RCCR asks for once it has switched; the
@@ -119,14 +83,14 @@ static void assert_logged(unsigned i, uintptr_t addr, uint32_t val)
 static void run_early(void)
 {
     TFW_MCXN_SCG_CSR = TFW_MCXN_SCG_SCS_SIRC << TFW_MCXN_SCG_SCS_SHIFT;
-    tfw_cm_soc_early();
+    model_soc_early();
 }
 
 void setUp(void)
 {
     regfile_model_reset();
-    wlog_n            = 0u;
-    tfw_cm_reset_mark = 0u;
+    model_wlog_n            = 0u;
+    model_reset_mark = 0u;
 }
 
 void tearDown(void)
@@ -185,13 +149,13 @@ void test_early_leaves_the_watchdog_alone(void)
     TEST_ASSERT_EQUAL_UINT(0u, wwdt_accesses());
     TEST_ASSERT_EQUAL_UINT(0u, writes_to(WDT0CLKDIV, v, 1u));
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(CLOCK_CTRL));
-    TEST_ASSERT_EQUAL_HEX32(0u, tfw_cm_reset_mark);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_reset_mark);
 }
 
 void test_arm_marks_the_next_reset_as_the_watchdogs(void)
 {
-    tfw_cm_soc_watchdog_arm();
-    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, tfw_cm_reset_mark);
+    model_soc_watchdog_arm();
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MARK_WATCHDOG, model_reset_mark);
 }
 
 void test_arm_runs_the_1mhz_fro_into_wwdt0(void)
@@ -199,7 +163,7 @@ void test_arm_runs_the_1mhz_fro_into_wwdt0(void)
     uint32_t v[2];
 
     TFW_MCXN_CLOCK_CTRL = 0x1u;
-    tfw_cm_soc_watchdog_arm();
+    model_soc_watchdog_arm();
     /* CLOCK_CTRL FRO1MHZ_ENA (bit 2) and FRO1MHZ_CLK_ENA (bit 6), the other
      * bits kept; AHBCLKCTRL0 bit 28, WWDT0; its divider at 1. */
     TEST_ASSERT_EQUAL_HEX32(0x00000045u, regfile_model_peek(CLOCK_CTRL));
@@ -213,9 +177,9 @@ void test_arm_loads_tc_and_mod_then_feeds(void)
 {
     unsigned i = 0u;
 
-    tfw_cm_soc_watchdog_arm();
+    model_soc_watchdog_arm();
     /* The divider writes come first; then WWDT0 alone, in this order. */
-    while (i < wlog_n && wlog[i].addr == WDT0CLKDIV) {
+    while (i < model_wlog_n && model_wlog[i].addr == WDT0CLKDIV) {
         i++;
     }
     TEST_ASSERT_EQUAL_UINT(4u, wwdt_accesses());
@@ -225,16 +189,16 @@ void test_arm_loads_tc_and_mod_then_feeds(void)
     assert_logged(i + 1u, WWDT_MOD, 0x3u);
     assert_logged(i + 2u, WWDT_FEED, 0xAAu);
     assert_logged(i + 3u, WWDT_FEED, 0x55u);
-    TEST_ASSERT_EQUAL_UINT(i + 4u, wlog_n);
+    TEST_ASSERT_EQUAL_UINT(i + 4u, model_wlog_n);
 }
 
 void test_pet_is_the_feed_alone(void)
 {
-    tfw_cm_soc_watchdog_pet();
-    TEST_ASSERT_EQUAL_UINT(2u, wlog_n);
+    model_soc_watchdog_pet();
+    TEST_ASSERT_EQUAL_UINT(2u, model_wlog_n);
     assert_logged(0u, WWDT_FEED, 0xAAu);
     assert_logged(1u, WWDT_FEED, 0x55u);
-    TEST_ASSERT_EQUAL_HEX32(0u, tfw_cm_reset_mark);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_reset_mark);
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(CLOCK_CTRL));
     TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(AHBCLKCTRLSET0));
 }

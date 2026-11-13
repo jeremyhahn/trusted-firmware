@@ -7,8 +7,9 @@
  * The pins are the header GPIOs the port drives: GPIO2-22 and GPIO26-28.
  * GPIO0 and 1 are UART0, the byte link; GPIO23-25 and 29 are wired to the
  * CYW43439, and the board's LED is the radio's, not a GPIO, so the table has
- * no LED pin. PWM is on, one header GPIO per slice (board.c); the converter
- * and the buses are off by file selection until a slice drives them.
+ * no LED pin. PWM is on, one header GPIO per slice (board.c), and the
+ * converter reads GPIO26-28 (ADC0-2); the buses are off by file selection
+ * until a slice drives them.
  *
  * The board id is PROVISIONAL (boards/rp2350-pico2w/profile.mk).
  */
@@ -21,10 +22,10 @@
 #define TFW_PIN_COUNT  24u
 #define TFW_PORT_COUNT 1u      /* SIO's one bank, bit n GPIOn */
 #define TFW_PWM_COUNT  8u
-#define TFW_ADC_COUNT  0u
+#define TFW_ADC_COUNT  3u      /* ADC0-2, GPIO26-28 (src/hal/cortex-m/rp2350/hal_adc.c) */
 #define TFW_EEPROM_SIZE 0u
 
-#define TFW_FEATURE_ANALOG  0
+#define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     1
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0

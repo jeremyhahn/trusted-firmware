@@ -13,7 +13,10 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
 };
 
 /* The header GPIOs, in GPIO order. GPIO0-1 (UART0) and GPIO23-25, 29 (the
- * CYW43439) are not pins. In the I2C=1 row GP4 and GP5 are I2C0's SDA and SCL
+ * CYW43439) are not pins. adc_ch is the converter's input: GPIO26-28 are
+ * ADC0-2 (src/hal/cortex-m/rp2350/hal_adc.c); ADC3, GPIO29, is the radio's
+ * SPI clock and the VSYS divider, and the temperature sensor is not a pin.
+ * In the I2C=1 row GP4 and GP5 are I2C0's SDA and SCL
  * (src/hal/cortex-m/rp2350/hal_bus.c) and are taken (PICO2W_PIN_I2C); in the
  * default row they are plain GPIOs. Taken, GPIO_MODE or a scheduled toggle
  * cannot hand them back to SIO and cut the bus. */
@@ -41,9 +44,9 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 18 GP20 */ { TFW_PB(0u, 20u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 19 GP21 */ { TFW_PB(0u, 21u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 20 GP22 */ { TFW_PB(0u, 22u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
-/* 21 GP26 */ { TFW_PB(0u, 26u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
-/* 22 GP27 */ { TFW_PB(0u, 27u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
-/* 23 GP28 */ { TFW_PB(0u, 28u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 21 GP26 */ { TFW_PB(0u, 26u), 0u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 22 GP27 */ { TFW_PB(0u, 27u), 1u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 23 GP28 */ { TFW_PB(0u, 28u), 2u,           TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
 };
 
 /* One header GPIO per slice, each channel A: GPIO n is slice (n >> 1) & 7,

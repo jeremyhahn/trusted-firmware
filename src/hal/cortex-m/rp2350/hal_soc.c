@@ -8,7 +8,8 @@
  * Clocks. tfw_cm_soc_early runs before .data and .bss exist, so it is
  * register writes and polls only. It starts the 12 MHz crystal and runs
  * clk_ref, clk_sys and clk_peri from it undivided, which is TFW_CM_CPU_HZ in
- * board_profile.h. No PLL: nothing here needs the speed, and a crystal clock
+ * board_profile.h. No PLL for these (hal_adc.c starts PLL_USB for clk_adc
+ * alone, which the converter requires at 48 MHz): nothing here needs the speed, and a crystal clock
  * is the one the UART's divisors and the watchdog's tick can both count on.
  * Each step writes the state it wants rather than toggling, so the second
  * run, the application's after tfw-boot's, changes nothing.

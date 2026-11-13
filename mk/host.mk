@@ -2560,6 +2560,15 @@ $(HOST_DIR)/test_rp2350_pwm: test/unit/test_rp2350_pwm.c src/hal/cortex-m/rp2350
                              test/model/cortex-m/rp2350/rp2350_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The rp2350 converter driver against its own register model, which steps
+# the converter as the hardware does: test/model/cortex-m/rp2350/adc/ goes
+# ahead of the flat model's directory, so its cm_regs.h, which sends TFW_CM_REG
+# to the converter model, is the one soc_regs.h finds.
+$(HOST_DIR)/test_rp2350_adc: test/unit/test_rp2350_adc.c test/model/cortex-m/rp2350/adc/adc_model.c \
+                             src/hal/cortex-m/rp2350/hal_adc.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/rp2350/adc $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)

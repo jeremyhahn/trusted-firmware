@@ -19,6 +19,7 @@
  *   PADS_BANK0  a GPIO's pad: input enable, pulls, isolation
  *   SIO         the single-cycle GPIO set, clear and output-enable registers
  *   PWM         the twelve slices' control, divider, compare and wrap registers
+ *   ADC         the SAR converter, ADC0-2 on GPIO26-28
  *   UART0       an Arm PL011, the byte link, on GPIO0 (TX) and GPIO1 (RX)
  *
  * Every block on the APB has the atomic aliases the datasheet describes at
@@ -37,8 +38,10 @@
 #define TFW_RP_RESETS_BASE      0x40020000u
 #define TFW_RP_RESETS_RESET     (TFW_RP_RESETS_BASE + 0x0u)
 #define TFW_RP_RESETS_DONE      TFW_CM_REG(TFW_RP_RESETS_BASE + 0x8u)
+#define TFW_RP_RESET_ADC        (1u << 0)       /* TODO(datasheet): §7.5.3 table 566, bit 0 */
 #define TFW_RP_RESET_IO_BANK0   (1u << 6)
 #define TFW_RP_RESET_PADS_BANK0 (1u << 9)
+#define TFW_RP_RESET_PLL_USB    (1u << 15)      /* TODO(datasheet): §7.5.3 table 567, bit 15 */
 #define TFW_RP_RESET_PWM        (1u << 16)
 #define TFW_RP_RESET_UART0      (1u << 26)
 
@@ -51,6 +54,24 @@
 #define TFW_RP_XOSC_CTRL_ENABLE  0x00FAB000u   /* ENABLE: the magic 0xFAB */
 #define TFW_RP_XOSC_STATUS_STABLE 0x80000000u
 
+/* ---- PLL_USB, clk_adc's source alone (§12.4.3: the ADC requires 48 MHz).
+ * Base §2.2 table 13; CS, PWR, FBDIV_INT, PRIM §8.6.5 tables 668-672; the
+ * sequence §8.6.4. 12 MHz / REFDIV 1 * FBDIV 100 = VCO 1200 MHz, / 5 / 5 =
+ * 48 MHz: the pico-sdk's PLL USB line quoted in §8.6.4. */
+#define TFW_RP_PLL_USB_BASE     0x40058000u     /* TODO(datasheet): §2.2 table 13 */
+#define TFW_RP_PLL_USB_CS       TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x00u)
+#define TFW_RP_PLL_USB_PWR      (TFW_RP_PLL_USB_BASE + 0x04u)     /* through SET/CLR */
+#define TFW_RP_PLL_USB_FBDIV    TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x08u)
+#define TFW_RP_PLL_USB_PRIM     TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x0Cu)
+#define TFW_RP_PLL_CS_LOCK      (1u << 31)      /* TODO(datasheet): §8.6.5 table 669 */
+#define TFW_RP_PLL_CS_REFDIV_1  1u              /* TODO(datasheet): table 669, bits 5:0 */
+#define TFW_RP_PLL_FBDIV_48MHZ  100u            /* TODO(datasheet): table 671, bits 11:0 */
+#define TFW_RP_PLL_PWR_PD       (1u << 0)       /* TODO(datasheet): table 670 */
+#define TFW_RP_PLL_PWR_POSTDIVPD (1u << 3)
+#define TFW_RP_PLL_PWR_VCOPD    (1u << 5)
+#define TFW_RP_PLL_PRIM_48MHZ   ((5u << 16) | (5u << 12)) /* TODO(datasheet): table 672, POSTDIV1, POSTDIV2 */
+#define TFW_RP_PLL_PRIM_MASK    ((7u << 16) | (7u << 12))
+
 /* ---- CLOCKS: each clock is CTRL, DIV, SELECTED. Base §2.2 table 13;
  * offsets and fields §8.1.7, tables 588-596. */
 #define TFW_RP_CLOCKS_BASE      0x40010000u
@@ -62,6 +83,10 @@
 #define TFW_RP_CLK_SYS_SELECTED TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x44u)
 #define TFW_RP_CLK_PERI_CTRL    TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x48u)
 #define TFW_RP_CLK_PERI_DIV     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x4Cu)
+#define TFW_RP_CLK_ADC_CTRL     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x6Cu)   /* TODO(datasheet) */
+#define TFW_RP_CLK_ADC_DIV      TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x70u)   /* TODO(datasheet) */
+#define TFW_RP_CLK_ADC_PLL_USB  (0u << 5)       /* TODO(datasheet): §8.1.7 table 603, AUXSRC 0, clksrc_pll_usb */
+#define TFW_RP_CLK_ADC_ENABLE   (1u << 11)      /* TODO(datasheet): CTRL.ENABLE */
 #define TFW_RP_CLK_DIV_1        (1u << 16)      /* DIV.INT = 1, FRAC = 0 */
 #define TFW_RP_CLK_REF_SRC_XOSC 2u              /* CTRL.SRC; SELECTED is one-hot */
 #define TFW_RP_CLK_SYS_SRC_REF  0u
@@ -126,6 +151,27 @@
 #define TFW_RP_PWM_TOP(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x10u)
 #define TFW_RP_PWM_CSR_EN       (1u << 0)       /* DIVMODE 0: free-running */
 #define TFW_RP_PWM_CC_B_SHIFT   16u             /* A is CC[15:0], B CC[31:16] */
+
+/* ---- ADC, the SAR converter. Base §2.2 table 13; CS, RESULT, FCS, DIV
+ * §12.4.6 (the ADC's register list). Written from pico-sdk 2.1.1's
+ * src/rp2350/hardware_regs/include/hardware/regs/adc.h names (ADC_CS_*,
+ * ADC_RESULT_*) and addressmap.h's ADC_BASE; each value marked TODO(datasheet)
+ * is still to be checked against the copied [RP-DS] release 8 tables. The
+ * pads' IE and OD bits the ADC chapter asks cleared and set are
+ * TFW_RP_PAD_IE and TFW_RP_PAD_OD above (§9.11.3 table 885). */
+#define TFW_RP_ADC_BASE         0x400A0000u     /* TODO(datasheet): §2.2 table 13 */
+#define TFW_RP_ADC_CS           TFW_CM_REG(TFW_RP_ADC_BASE + 0x00u)
+#define TFW_RP_ADC_RESULT       TFW_CM_REG(TFW_RP_ADC_BASE + 0x04u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_FCS          TFW_CM_REG(TFW_RP_ADC_BASE + 0x08u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_DIV          TFW_CM_REG(TFW_RP_ADC_BASE + 0x10u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_CS_EN         (1u << 0)      /* TODO(datasheet): CS fields */
+#define TFW_RP_ADC_CS_START_ONCE (1u << 2)
+#define TFW_RP_ADC_CS_READY      (1u << 8)
+#define TFW_RP_ADC_CS_ERR        (1u << 9)
+#define TFW_RP_ADC_CS_AINSEL_LSB 12u            /* AINSEL, bits 15:12 */
+#define TFW_RP_ADC_CS_AINSEL_MASK (0xFu << 12)
+#define TFW_RP_ADC_RESULT_MASK   0x0FFFu        /* RESULT, bits 11:0 */
+#define TFW_RP_ADC_GPIO0         26u            /* ADC0 is GPIO26 on the RP2350A */
 
 /* ---- UART0, PL011. Base §2.2 table 13; registers §12.1.8, tables
  * 1081-1089; the IRQ number §3.2 table 95. */

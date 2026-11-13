@@ -537,13 +537,15 @@ $(HOST_DIR)/test_mps2_spi_row: test/unit/test_mps2_spi_row.c src/caps/bus.c src/
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The MPS2 digital pins (#161): src/hal/cortex-m/mps2/hal_gpio.c on mps2-an505's
-# profile, its FPGAIO LED register in the suite's register file. The rp2350
-# boot test directory's cm_regs.h, ahead of src/hal/cortex-m, sends TFW_CM_REG
-# to the suite; src/hal/cortex-m ahead of test/mock gives the port's hal_types.h.
+# profile, its FPGAIO LED register in test/model/cortex-m/mps2_fpgaio_model.c.
+# The rp2350 boot test directory's cm_regs.h, ahead of src/hal/cortex-m, sends
+# TFW_CM_REG to that model; src/hal/cortex-m ahead of test/mock gives the port's
+# hal_types.h.
 $(HOST_DIR)/test_mps2_gpio: test/unit/test_mps2_gpio.c src/hal/cortex-m/mps2/hal_gpio.c \
+                            test/model/cortex-m/mps2_fpgaio_model.c \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Iboot/hal/cortex-m/rp2350/test \
-	   -Isrc/hal/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	   -Isrc/hal/cortex-m -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule
 # names: HOST_LIB_SRCS carries the software provider, and this suite is

@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * src/hal/cortex-m/mps2/hal_gpio.c on the host, against a register file the
- * suite holds (boot/hal/cortex-m/rp2350/test/cm_regs.h sends TFW_CM_REG
- * here), on mps2-an505's profile. The MPS2 digital pins are the FPGA I/O
+ * src/hal/cortex-m/mps2/hal_gpio.c on the host, against the FPGAIO register
+ * file test/model/cortex-m/mps2_fpgaio_model.c holds (the stand-in cm_regs.h
+ * in boot/hal/cortex-m/rp2350/test/ sends TFW_CM_REG there), on mps2-an505's
+ * profile. The MPS2 digital pins are the FPGA I/O
  * block's LED register at FPGAIO +0x00 (AN505 Table 4-5, AN500 Table 3-6),
  * bit n user LED n, two LEDs, port index 0; the port drives no CMSDK GPIO.
  * Each test checks the register value the code leaves:
@@ -23,38 +24,32 @@
 #include "unity.h"
 #include "tfw/hal.h"
 #include "soc_regs.h"
+#include "mps2_fpgaio_model.h"
 
-#define LED_ADDR  (TFW_MPS2_FPGAIO_BASE + 0x00u)
 #define UNTOUCHED 0xA5A5A5A4u   /* LED0 clear, LED1 clear, bits 2-31 a pattern */
 
-static uint32_t led_reg;
-static unsigned led_accesses;
-
-volatile uint32_t *tfw_cm_model_reg(uint32_t addr)
-{
-    if (addr != (uint32_t)LED_ADDR) {
-        TEST_FAIL_MESSAGE("hal_gpio.c reached a register other than FPGAIO LED");
-    }
-    led_accesses++;
-    return (volatile uint32_t *)&led_reg;
-}
+#define led_reg      tfw_mps2_model_led
+#define led_accesses tfw_mps2_model_led_accesses
 
 static const tfw_pinref_t LED0 = { 0u, 0u };
 static const tfw_pinref_t LED1 = { 0u, 1u };
 
 void setUp(void)
 {
-    led_reg      = UNTOUCHED;
-    led_accesses = 0u;
+    tfw_mps2_model_reset(UNTOUCHED);
 }
 
-void tearDown(void) {}
+/* hal_gpio.c reaches no register but FPGAIO LED. */
+void tearDown(void)
+{
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_mps2_model_stray);
+}
 
 void test_led_register_is_fpgaio_plus_zero(void)
 {
     uint8_t level = 0u;
 
-    TEST_ASSERT_EQUAL_HEX32(0x40302000u, LED_ADDR);
+    TEST_ASSERT_EQUAL_HEX32(0x40302000u, tfw_mps2_model_led_addr());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&LED0, &level));
     TEST_ASSERT_EQUAL_UINT(1u, led_accesses);
 }

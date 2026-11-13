@@ -60,7 +60,15 @@
 #else
 #define TFW_FEATURE_PWM     0
 #endif
+/* Tone on a GPT compare interrupt toggling pin 1 (src/hal/cortex-m/imx95/
+ * hal_tone.c), off by default: the timer's base is TO CONFIRM (imx95-design.md
+ * question 17) and the soft:TONE=1 row builds it. */
+#if defined(TFW_CM_TONE)
+#define TFW_FEATURE_TONE    1
+#define TFW_TONE_PIN        1u   /* GPIO2_IO01 */
+#else
 #define TFW_FEATURE_TONE    0
+#endif
 /* PULSE_IN and PULSE_CAPTURE: src/hal/cortex-m/hal_pulse.c, counting SysTick
  * on the processor clock (TFW_CM_CPU_HZ below) across its reloads. */
 #define TFW_FEATURE_PULSE   1

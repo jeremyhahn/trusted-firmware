@@ -134,7 +134,7 @@ has gained since (`tfw_hal_flash_read`, the watchdog).
 | `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | RGPIO; pin mux from the System Manager | ref ADR d4 |
 | `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | the 12-bit SAR ADC (`sar_adc.h`), polled, in the `soft:ADC=1` row only: calibrated once at init, one-shot normal conversion per read, reference VCC only; base `TFW_IMX95_ADC_BASE` zero (unsupported) until a pinned source gives it. Built and host-tested on a register model, not run | Linux `imx93_adc.c`; questions 13 and 17 |
 | `tfw_hal_pwm_write`, `_stop` | SoC | a TPM channel, edge-aligned (`hal_pwm.c`, `tpm.h`); `soft:PWM=1` row only; built and host-tested on a register model, not run; base zero until question 17 (section 9.5) | Linux v6.12 `pwm-imx-tpm.c`, `imx95.dtsi`; question 17 |
-| `tfw_hal_tone_start`, `_stop` | — | not linked | IMX95CEC Figure 3 |
+| `tfw_hal_tone_start`, `_stop` | `hal_tone.c`, `gpt.h` | built (soft:TONE=1 row), host-tested, not run: GPT output compare 1 in restart mode, its interrupt toggling the pin through `tfw_hal_gpio_write`; base zero (unsupported), 24 MHz clock and vector `tfw_cm_irq0` TO CONFIRM, question 17 | Linux `drivers/clocksource/timer-imx-gpt.c` |
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | — | not linked | — |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | ref ADR d4 |
 | `tfw_hal_nvm_read` | SoC | the platform block; where it lives is open | ref ADR Q4; question 6 |

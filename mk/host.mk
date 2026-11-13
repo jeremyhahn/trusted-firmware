@@ -161,6 +161,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c test/unit/test_mcxn_lpi2c.c \
                             test/unit/test_mcxn_ctimer_pwm.c test/unit/test_mcxn_pwm_cmd.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
+                            test/unit/test_imx95_gpt.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_adc.c \
                             test/unit/test_imx95_lpi2c.c \
@@ -792,6 +793,17 @@ $(HOST_DIR)/test_board_frdm-imx95-m7_adc_pwm_base: $(HOST_IMX95_BOARD_SRCS) | $(
 	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) -DTFW_CM_ADC=1 -DTFW_IMX95_TPM_BASE=0x10000000uL \
 	  $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The i.MX 95 M7 tone (#22): gpt.h's arithmetic and hal_tone.c, its pin and
+# NVIC on the register model as test_imx95_hal's are. The model has no GPT
+# (its base is TO CONFIRM), so the timer's registers go to the test's own
+# array, at a nonzero base standing in for the unknown one.
+$(HOST_DIR)/test_imx95_gpt: test/unit/test_imx95_gpt.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/hal_tone.c src/hal/cortex-m/imx95/hal_gpio.c \
+                        src/hal/cortex-m/imx95/soc_calc.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -DTFW_IMX95_GPT_BASE=0x1000uL \
+	    '-DTFW_IMX95_GPT_REG(off)=(*tfw_test_gpt_reg(off))' -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The SCMI messages the M7 sends the System Manager: scmi.c has no register
 # access and is linked alone, as soc_calc.c is.
 $(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/scmi.c \
@@ -1295,6 +1307,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \
                     $(HOST_DIR)/test_mcxn_pwm_cmd \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
+                    $(HOST_DIR)/test_imx95_gpt \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc \

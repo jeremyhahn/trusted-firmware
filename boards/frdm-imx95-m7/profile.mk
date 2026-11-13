@@ -116,3 +116,14 @@ I2C               ?= 0
 BOARD_DEFS        += $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
 BOARD_FEATURES_ON += $(if $(filter 1,$(I2C)),I2C)
 BOARD_ROWS        += soft:I2C=1
+
+# Tone on a GPT output compare (src/hal/cortex-m/imx95/hal_tone.c, #22), off
+# by default: the timer's base is TO CONFIRM (docs/multi-arch/imx95-design.md
+# question 17), so every call answers TFW_ERR_UNSUPPORTED until it is known.
+# TONE=1 turns TFW_FEATURE_TONE on (TFW_CM_TONE in board_profile.h) and links
+# it; the soft:TONE=1 row builds it and size-check measures it. Built and
+# host-tested, not run: QEMU has no i.MX 95.
+TONE              ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(TONE)),-DTFW_CM_TONE=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(TONE)),TONE)
+BOARD_ROWS        += soft:TONE=1

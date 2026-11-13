@@ -751,6 +751,15 @@ $(HOST_DIR)/test_board_frdm-imx95-m7_adc: test/unit/test_board_frdm-imx95-m7.c \
 	@$(HOST_CC) -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
 	    -DTFW_CM_ADC=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The Pico 2 W's descriptor test in the soft:I2C=1 row, which board-sweep (the
+# default profile) never builds: with what profile.mk's BOARD_DEFS carries for
+# I2C=1, GP4 and GP5 are taken as I2C0's SDA and SCL.
+$(HOST_DIR)/test_board_rp2350-pico2w_i2c: test/unit/test_board_rp2350-pico2w.c \
+                        src/core/board_lookup.c boards/rp2350-pico2w/board.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
+	    -DTFW_CM_I2C=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The SCMI messages the M7 sends the System Manager: scmi.c has no register
 # access and is linked alone, as soc_calc.c is.
 $(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/scmi.c \
@@ -1256,6 +1265,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc \
+                    $(HOST_DIR)/test_board_rp2350-pico2w_i2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
@@ -2277,9 +2287,7 @@ host-dir:
 #
 # A board that names an Ethernet controller (ETH_CHIP) and leaves it off by
 # default is swept a second time with ETH=1, so its descriptor test also runs
-# against the image that drives the controller. A board whose profile.mk adds
-# flags for I2C=1 (an I2C master that is a build row) is swept with them too,
-# so the pins the bus takes are checked in that row.
+# against the image that drives the controller.
 #
 # A board that names an image store (OTA_STORE in profile.mk) has its stager's
 # sources preprocessed as the OTA_STAGE=1 image compiles them, with the
@@ -2309,9 +2317,6 @@ board-sweep:
 	      { echo "NO FEATURE DEFS: $$b $$tier ETH=1"; fail=1; continue; }; \
 	    [ "$$edefs" = "$$defs" ] || variants=" $$defs| $$edefs"; \
 	  fi; \
-	  bdefs=$$($(MAKE) -s --no-print-directory board-i2c-defs BOARD=$$b); \
-	  idefs=$$($(MAKE) -s --no-print-directory board-i2c-defs BOARD=$$b I2C=1); \
-	  [ "$$idefs" = "$$bdefs" ] || variants="$$variants| $$defs $$idefs"; \
 	  oldifs=$$IFS; IFS='|'; set -- $$variants; IFS=$$oldifs; \
 	  for defs in "$$@"; do \
 	  $(CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \

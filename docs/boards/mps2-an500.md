@@ -87,12 +87,28 @@ QEMU, which does not measure the pin.
 
 ## Boot
 
-One tfw-boot row, the same as `mps2-an505`'s: soft tier and measurement, P-256
+The base tfw-boot row, the same as `mps2-an505`'s: soft tier and measurement, P-256
 verified in software, no OTA, no store (`profile.mk:43`–`45`), the row
 `mps2-an500:soft:soft:p256-soft:0:0` of `BOOT_SUPPORTED` in `mk/boot.mk`,
 which `make bootloader-check` builds. The soft root
 keeps the UDS in tfw-boot's region and hands the CDI over in SRAM
-(`board_profile.h:40`–`41`).
+(`board_profile.h:40`–`41`). `BOOT_SUPPORTED` also carries the store rows
+`mps2-an500:soft:soft:p256-soft:0:1` and `:0:1:ab`.
+
+The sizes of both MPS2 boards' rows, measured by `make bootloader-check` at
+48d85486 with arm-none-eabi-gcc 14.2.1, in `mk/boot.mk` row order
+(`mps2-an505` `:0:0`, `:1:0`, `:0:1`, `:0:1:ab`, then `mps2-an500` `:0:0`,
+`:0:1`, `:0:1:ab`):
+
+```
+tfw-boot mps2-an505 flash   6956 / 32768    ram   324 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an505 flash   8640 / 32768    ram   756 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an505 flash   8216 / 32768    ram   580 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an505 flash   9416 / 32768    ram  1100 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an500 flash   7024 / 32768    ram   324 / 4194304 (soft tier, p256-soft)
+tfw-boot mps2-an500 flash   8284 / 32768    ram   580 / 4194304 (soft tier, p256-soft)
+tfw-boot mps2-an500 flash   9460 / 32768    ram  1100 / 4194304 (soft tier, p256-soft)
+```
 
 ## What is tested, and how
 

@@ -411,10 +411,12 @@ board's `TFW_FLASH_BUDGET`:
 | ATmega2560, serial only | 18 356 / 65 536 | 47 180 | 989 |
 | ATmega2560, `ETH=1` (W5100) | 20 328 / 65 536 | 45 208 | 1 009 |
 
-The W5500 images are 44 bytes larger; every row is in
+The W5500 images are 44 bytes larger. These are the figures the decision was
+taken on. Re-measured on main 48d85486, the 328P's element-tier Ethernet image
+is 21 612 / 16 384 bytes of flash and 1 121 / 1 024 of RAM; every row is in
 [engineering.md](engineering.md#flash-and-ram). The Mega fits. **The 328P's
-element-tier Ethernet image is 1 652 bytes over its budget and does not build.**
-Its RAM fits. The options for the owner are:
+element-tier Ethernet image is 5 228 bytes over its flash budget and 97 over
+its RAM budget, and does not build.** The options for the owner are:
 
 - **(a) Raise the 328P's flash budget.** `TFW_FLASH_BUDGET` is 16 384, half the
   part, a policy gate and not a physical limit: the application region is

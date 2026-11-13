@@ -36,7 +36,7 @@ and test that proves it, or why it is open. Audited 2026-11-13.
 | The ATECC608C element tier runs once the owner wires it | open: the owner's wiring; nothing waits on it |
 | `ETH=1` is the ATmega2560 default; the shieldless Mega is an explicit `ETH=0` row | `ETH ?= 1` and `BOARD_ROWS` (`soft:ETH=0 atecc608a:ETH=0 auto:ETH=0`) in `boards/atmega2560/profile.mk`, built by `make firmware-matrix` and `make board-sweep` |
 | The soft-crypto 328P Ethernet node is withdrawn; no 328P row builds Ethernet | `boards/atmega328p/profile.mk`: no `BOARD_ROWS`, `BOARD_TIERS := atecc608a`, `BOARD_REFUSED_TIERS := soft` |
-| The 328P element image is 18 036 / 16 384 bytes with `ETH=1` (W5100) | [engineering.md, Flash and RAM](engineering.md#flash-and-ram); re-measuring needs avr-gcc, which the row's lane container lacks: open for the coordinator's firmware build |
+| The 328P element image is over its flash and RAM budgets with `ETH=1` (W5100) | [engineering.md, Flash and RAM](engineering.md#flash-and-ram): 21 612 / 16 384 bytes of flash and 1 121 / 1 024 of RAM, measured with avr-gcc 14.2.0 on main 48d85486 (folded from `row/eth-dhcp-size`); the figure the row once quoted, 18 036, predates that measurement |
 | `sdk/go` gains a TCP transport beside serial | `sdk/go/tcp.go`; `sdk/go/tcp_test.go` `TestAcceptReturnsAWorkingDeviceWithoutWaitingForBoot` and the rest of the file |
 | Serial or network chosen at build time by object list, never `#if` in logic | `mk/firmware.mk` links `link_eth.c` or `link_serial.c` (both define `tfw/link.h`); `TFW_FEATURE_ETHERNET` is used only as a value (`include/tfw/board.h`), never in an `#if` |
 | Seam: go-trusted-platform's device-facing endpoint accepts these connections | open: go-trusted-platform's side, that repository's |

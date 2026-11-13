@@ -95,45 +95,25 @@ static void release(uint8_t ch)
  * and EVENTS_STOPPED says when: a SEQ[0].START before then would be stopped
  * by it, the new duty never played. So a start after a stop waits for the
  * event, at most one 1 ms period; STOP_WAIT polls are several periods even
- * at 128 MHz, so a stop that never lands cannot hang the command. */
-static void wait_stopped(void)
+ * at 128 MHz, so a stop that never lands cannot hang the command. It fails
+ * it instead: TFW_ERR_TIMEOUT, the stop still pending, so the next start
+ * waits for it again. */
+static tfw_status_t wait_stopped(void)
 {
     uint32_t n = STOP_WAIT;
 
     if (!stopping) {
-        return;
+        return TFW_OK;
     }
-    while (TFW_NRF_PWM_EVENTS_STOPPED == 0u && n != 0u) {
+    while (TFW_NRF_PWM_EVENTS_STOPPED == 0u) {
+        if (n == 0u) {
+            return TFW_ERR_TIMEOUT;
+        }
         n--;
     }
     TFW_NRF_PWM_EVENTS_STOPPED = 0u;
     stopping = 0u;
-}
-
-/* A PWM command takes its pin from the tone, as a second tone start
- * retargets (hal_tone.c): last command wins. GPIOTE's task mode overrides
- * the pin's GPIO and PWM drive alike, so the tone is stopped, not shared. */
-static void take_from_tone(const tfw_pwmref_t *p)
-{
-#if TFW_FEATURE_TONE
-    if (tfw_nrf54l_tone_owns(p->port, p->bit)) {
-        (void)tfw_hal_tone_stop();
-    }
-#else
-    (void)p;
-#endif
-}
-
-void tfw_nrf54l_pwm_release_pin(uint8_t port, uint8_t bit)
-{
-    uint32_t psel = tfw_nrf54l_psel(port, bit);
-    uint8_t  ch;
-
-    for (ch = 0u; ch < TFW_NRF_PWM_CHANNELS; ch++) {
-        if (TFW_NRF_PWM_PSEL_OUT(ch) == psel) {
-            release(ch);
-        }
-    }
+    return TFW_OK;
 }
 
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
@@ -144,7 +124,6 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     if (st != TFW_OK) {
         return st;
     }
-    take_from_tone(p);
     bit = 1uL << p->bit;
     if (duty == 0u || duty == 255u) {
         release(p->channel);
@@ -159,6 +138,11 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     if (!configured) {
         configure();
     }
+    /* Before the channel is touched: a failed wait leaves it as it was. */
+    st = wait_stopped();
+    if (st != TFW_OK) {
+        return st;
+    }
     tfw_nrf54l_pwm_seq[p->channel] = (uint16_t)(TFW_NRF_PWM_VALUE_HIGH_FIRST |
         (((uint32_t)duty * PWM_TOP + 127u) / 255u));
     /* The pin idles low between periods' end and STOP, as a GPIO output. */
@@ -166,7 +150,6 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     TFW_NRF_GPIO_PIN_CNF(port_base[p->port], p->bit) = TFW_NRF_PIN_CNF_OUTPUT;
     TFW_NRF_PWM_PSEL_OUT(p->channel) = tfw_nrf54l_psel(p->port, p->bit);
     active = (uint8_t)(active | (1u << p->channel));
-    wait_stopped();
     TFW_NRF_PWM_SEQ0_START = 1u;
     return TFW_OK;
 }
@@ -178,7 +161,6 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
     if (st != TFW_OK) {
         return st;
     }
-    take_from_tone(p);
     release(p->channel);
     /* Stop is the wire's duty zero (src/caps/pwm.c): the pin goes low as a
      * GPIO output, even after a duty-255 OUTSET left it high. */

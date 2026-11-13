@@ -152,13 +152,14 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_tier_atecc608a_mutate.c \
                             test/unit/test_tfwsim_main_mutate.c \
                            test/unit/test_suit_emit_main_mutate.c \
-                            test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c \
+                            test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c test/unit/test_cm_pulse.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
                             test/unit/test_none_mutate.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
-                            test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c \
+                            test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c test/unit/test_mcxn_ctimer_pwm.c \
+                            test/unit/test_mcxn_pwm_cmd.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
@@ -664,6 +665,25 @@ $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
 $(HOST_DIR)/test_mcxn_lpuart: test/unit/test_mcxn_lpuart.c src/hal/cortex-m/mcxn94x/lpuart_baud.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MCXN94x CTIMER PWM: the period arithmetic and the match-register
+# sequence on a register model; the SYSCON and pin writes stay in hal_pwm.c.
+$(HOST_DIR)/test_mcxn_ctimer_pwm: test/unit/test_mcxn_ctimer_pwm.c src/hal/cortex-m/mcxn94x/ctimer_pwm.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
+
+# PWM_WRITE through its handler on the FRDM-MCXN947's own pin table and the
+# SoC's HAL files, unchanged, the peripheral window mapped as host memory by
+# the test (#371). The board's profile replaces the host board's, and
+# src/hal/cortex-m/ ahead of test/mock gives the port's own hal_types.h.
+HOST_MCXN_CFLAGS = -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
+                   -Iboards/frdm-mcxn947 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_mcxn_pwm_cmd: test/unit/test_mcxn_pwm_cmd.c src/caps/pwm.c src/core/reader.c \
+                        src/core/board_lookup.c boards/frdm-mcxn947/board.c \
+                        src/hal/cortex-m/mcxn94x/hal_gpio.c src/hal/cortex-m/mcxn94x/hal_pwm.c \
+                        src/hal/cortex-m/mcxn94x/ctimer_pwm.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_MCXN_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the
 # SoC directory's one file with no register access, linked alone, as the M7
@@ -1182,10 +1202,20 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
+# test_cm_pulse compiles hal_pulse.c and hal_tick.c behind the model SysTick
+# in test/model/cortex-m/cm_pulse_model.h (mps2-an505's clock) and its own
+# model pin, so it links nothing else.
+$(HOST_DIR)/test_cm_pulse: test/unit/test_cm_pulse.c test/model/cortex-m/cm_pulse_model.h \
+                           src/hal/cortex-m/hal_pulse.c src/hal/cortex-m/hal_tick.c \
+                           src/hal/cortex-m/cm_cycles.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart \
+                    $(HOST_DIR)/test_mcxn_ctimer_pwm \
+                    $(HOST_DIR)/test_mcxn_pwm_cmd \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
@@ -2356,6 +2386,27 @@ $(HOST_DIR)/test_nrf54l_soc_tables: test/unit/test_nrf54l_soc_tables.c src/hal/c
                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its SAADC (#17): the test includes hal_adc.c with TFW_CM_REG sent to a
+# register model of the SAADC (test/model/cortex-m/nrf54l_saadc_model.h, whose
+# guard keeps the real cm_regs.h out), and builds against the DK's board
+# profile (its TFW_ADC_COUNT) in place of the host board's. The included
+# hal_adc.c reaches $^ through the header dependencies once an edit to it
+# makes them count; it is filtered out, or it would be linked twice.
+$(HOST_DIR)/test_nrf54l_saadc: test/unit/test_nrf54l_saadc.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/nrf54l15-dk \
+	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -o $@ $(filter-out %/hal_adc.c,$^) $(EXTRA_LDFLAGS)
+
+# Its tone (the nrf54l15 row): the TIMER arithmetic in tone_calc.h, and
+# hal_tone.c, unchanged, against the register model the test file supplies
+# behind test/model/cortex-m/cm_regs.h, compiled as test_imx95_hal is.
+HOST_NRF54L_CFLAGS = -Itest/model/cortex-m -Itest/model -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m \
+                     -Iboards/nrf54l15-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_nrf54l_tone: test/unit/test_nrf54l_tone.c src/hal/cortex-m/nrf54l/hal_tone.c \
+                              src/hal/cortex-m/nrf54l/soc_tables.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # Its reset cause (#17): soc_reset.c reads RESETREAS through a pointer the
 # caller names, so the test hands it a fake word.
 $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nrf54l/soc_reset.c \
@@ -2367,6 +2418,19 @@ $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nr
 $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/stm32h5/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/stm32h5 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The STM32H5 PWM (hal_pwm.c) and the PWM command over it (src/caps/pwm.c),
+# against the suite's register file: test/model/cortex-m/ ahead of
+# src/hal/cortex-m/ gives the cm_regs.h that sends TFW_CM_REG there, the
+# board's profile and tables replace the host board's. The SoC files are the
+# image's, unchanged.
+HOST_STM32H5_CFLAGS = -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m \
+                      -Iboards/stm32h573i-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_stm32h5_pwm: test/unit/test_stm32h5_pwm.c src/hal/cortex-m/stm32h5/hal_pwm.c \
+                              src/hal/cortex-m/stm32h5/hal_gpio.c src/caps/pwm.c \
+                              src/core/board_lookup.c boards/stm32h573i-dk/board.c src/core/reader.c \
+                              test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)

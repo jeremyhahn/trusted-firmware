@@ -58,7 +58,8 @@ the span both regions sit in (`board_profile.h:57`).
 |---|---|---|
 | Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select; 4 in the `ONEWIRE=1` row, pin 3 the 1-Wire line | `board_profile.h`, `TFW_PIN_COUNT`; `board.c` |
 | Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register; 3 in the `ONEWIRE=1` row, port 2 the CMSDK GPIO block 0 | `board_profile.h`, `TFW_PORT_COUNT`; `board.c` |
-| PWM, ADC, EEPROM | none: QEMU models no converter or PWM this port drives | `board_profile.h` |
+| PWM, ADC | none: QEMU models no converter or PWM this port drives | `board_profile.h` |
+| EEPROM | on, 4 KiB: the platform window, addressed from its own zero; tfw-boot's span `[0x000, 0x140)` is refused to `EEPROM_WRITE` (the confirm request aside), the user span is `[0x140, 0x1000)`, and a span past the window is `RANGE`. RAM under QEMU: a write survives a `system_reset`, not a new QEMU process. The same on `mps2-an505` | `board_profile.h`; `src/hal/cortex-m/hal_eeprom.c`; `src/caps/storage.c` |
 | I2C, SPI, 1-Wire | off by default, each on in its own row: see Buses | `board_profile.h` |
 | Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off here. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads, and builds on any Cortex-M; `mps2-an505` links it in its `soft:PULSE=1` row, whose QEMU wire row (`TestQEMUPulseTimeout`) checks that a pin QEMU does not drive times out. This board could take the same row | `board_profile.h` `TFW_FEATURE_PULSE`; `mk/firmware.mk` `PULSE_SRCS` |
 

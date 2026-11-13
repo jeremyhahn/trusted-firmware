@@ -33,19 +33,21 @@ that no pinned file states is written **not confirmed**.
 
 ## Tone
 
-`TFW_FEATURE_TONE` is on: board pin 5, P3_2, carries the tone.
+`TFW_FEATURE_TONE` is on: board pin 5, P3_19, the mikroBUS socket's PWM
+pin, carries the tone.
 
 | | | Source |
 |---|---|---|
-| Pin | P3_2 as CT4_MAT0, CTIMER4 match 0, pin function 4 (`kPORT_MuxAlt4`) with the input buffer on; PORT3 clocked first. `TFW_TONE_PIN` 5, `TFW_MCXN_TONE_PIN_FN` 4 in `boards/frdm-mcxn947/board_profile.h` | SDK `simple_match_interrupt` `pin_mux.c` (`frdmmcxn947/driver_examples/ctimer/simple_match_interrupt/cm33_core0/pin_mux.c`, mcux-sdk-examples `52b42825`) lines 51, 69-70, 130-131, 138-139 |
-| Timer | CTIMER4 in timer mode, prescaler 0, FRO12M at divide 1; match 0 at half the period resets the counter (MCR MR0R) and toggles CT4_MAT0 (EMR EMC0), so no CPU is in the loop. CTIMER0 stays the PWM's. One tone at a time; a stop holds the counter in reset and returns the pin to a GPIO output at 0 | `src/hal/cortex-m/mcxn94x/hal_tone.c`, `ctimer_tone.h`; device header (`CTIMER_Type`, `CTIMER4_BASE`) |
-| Header pin | **Not confirmed**: no pinned file says which header pin, if any, P3_2 reaches; UM12018 was not read (Outstanding checks, 1) | |
+| Header pin | P3_19 is the mikroBUS socket's PWM pin (`MIKROBUS_PWM`, `&gpio3 19`). P3_2, the pin the SDK's `simple_match_interrupt` example takes CT4_MAT0 on, is on neither the mikroBUS nor the Arduino header map, so the tone does not use it | Zephyr `boards/nxp/frdm_mcxn947/frdm_mcxn947.dtsi` (zephyr `20141949`), `mikrobus_header` lines 75-92, line 86; `arduino_header` lines 94-119 |
+| Pin | P3_19 as CT2_MAT1, CTIMER2 match 1, pin function 4 with the input buffer on; PORT3 clocked with the board's other banks (`hal_soc.c`). `TFW_TONE_PIN` 5, `TFW_MCXN_TONE_PIN_FN` 4 in `boards/frdm-mcxn947/board_profile.h` | NXP `MCXN947VDF-pinctrl.h` (hal_nxp `94438e50`, generated from the MCXN947VDF signal configuration): `CT2_MAT1_PIO3_19 N9X_MUX('3',19,4)` line 833, `N9X_MUX` lines 11-14 |
+| Timer | CTIMER2 in timer mode, prescaler 0, FRO12M at divide 1; match 1 at half the period resets the counter (MCR MR1R) and toggles CT2_MAT1 (EMR EMC1), so no CPU is in the loop. CTIMER0 stays the PWM's. One tone at a time; a stop holds the counter in reset and returns the pin to a GPIO output at 0 | `src/hal/cortex-m/mcxn94x/hal_tone.c`, `ctimer_tone.h`; device header (`CTIMER_Type`, `CTIMER2_BASE`, `CTIMER_MCR_MR1R`, `CTIMER_EMR_EMC1`, `SYSCON_AHBCLKCTRL1_TIMER2`, `SYSCON_PRESETCTRL1_TIMER2_RST`, `SYSCON_CTIMERGLOBALSTARTEN_CTIMER2_CLK_EN`) |
 | Status | **Host-tested, not run on a board**: `test_mcxn94x_tone` runs the register sequence against a register model | |
 
 ### Outstanding checks
 
-1. **To confirm on the board**: the header pin P3_2 (CT4_MAT0) reaches,
-   read in UM12018's header table or schematic, then a tone measured on it.
+1. **To confirm on the board**: a tone measured on the mikroBUS PWM pin, and
+   in UM12018's schematic that nothing else on the board drives or loads
+   P3_19 (Zephyr's `pinmux_sai1` also names it, as SAI1_RX_FS).
 
 ## What the port does not do
 

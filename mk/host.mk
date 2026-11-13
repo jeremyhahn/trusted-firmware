@@ -2407,6 +2407,16 @@ $(HOST_DIR)/test_nrf54l_tone: test/unit/test_nrf54l_tone.c src/hal/cortex-m/nrf5
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its reset-time setup and watchdog (the nrf54l15 row): hal_soc.c, unchanged,
+# against the suite's register file, as test_stm32h5_pwm is, called through
+# test/model/cortex-m/nrf54l_soc_entry.c as test_imx95_hal calls its SoC's;
+# soc_tables.c and soc_reset.c are the image's, for the revision check and the
+# reset cause.
+$(HOST_DIR)/test_nrf54l_soc: test/unit/test_nrf54l_soc.c src/hal/cortex-m/nrf54l/hal_soc.c \
+                             src/hal/cortex-m/nrf54l/soc_tables.c src/hal/cortex-m/nrf54l/soc_reset.c \
+                             test/model/cortex-m/nrf54l_soc_entry.c test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # Its reset cause (#17): soc_reset.c reads RESETREAS through a pointer the
 # caller names, so the test hands it a fake word.
 $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nrf54l/soc_reset.c \

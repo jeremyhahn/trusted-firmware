@@ -37,6 +37,12 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 1  GPIO2_IO01 */ { TFW_PB(1u, 1u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 2  GPIO2_IO02 */ { TFW_PB(1u, 2u), TFW_ADC_NONE, BOARD_PWM(0u), TFW_PIN_DIGITAL | BOARD_PIN_PWM },
 /* 3  GPIO2_IO03 */ { TFW_PB(1u, 3u), TFW_ADC_NONE, BOARD_PWM(1u), TFW_PIN_DIGITAL | BOARD_PIN_PWM },
+#if TFW_CM_ADC
+/* The SAR ADC's inputs, ADC only, in the soft:ADC=1 row. Which ADC inputs
+ * reach a header is UM12527's, TO CONFIRM: channels 0 and 1 until then. */
+/* 4  ADC_IN0    */ { TFW_PB(TFW_PORT_NONE, 0u), 0u, TFW_PWM_NONE, TFW_PIN_ADC },
+/* 5  ADC_IN1    */ { TFW_PB(TFW_PORT_NONE, 0u), 1u, TFW_PWM_NONE, TFW_PIN_ADC },
+#endif
 };
 
 #if TFW_PWM_COUNT

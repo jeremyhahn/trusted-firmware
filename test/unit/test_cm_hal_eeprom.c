@@ -142,6 +142,37 @@ static void test_a_write_above_the_span_lands_and_one_past_the_window_is_range(v
     TEST_ASSERT_TRUE(erased((uint16_t)(TFW_CM_PLATFORM_SIZE - 3u), 3u));
 }
 
+/* The EEPROM family's bounds are the window's (TFW_EEPROM_SIZE, the board
+ * profile): the user span [TFW_BOOT_EE_LEN, TFW_EEPROM_SIZE) round-trips up to
+ * the window's last byte, one byte past it is range both ways, and a write
+ * that reaches back into tfw-boot's span is range and lands nothing. */
+static void test_eeprom_user_span_roundtrip(void)
+{
+    uint8_t in[16];
+    uint8_t out[16];
+    uint8_t last = 0x5Au;
+    uint8_t got  = 0u;
+    uint8_t i;
+
+    TEST_ASSERT_EQUAL(1, TFW_FEATURE_EEPROM);
+    TEST_ASSERT_EQUAL_UINT32(TFW_CM_PLATFORM_SIZE, TFW_EEPROM_SIZE);
+    for (i = 0u; i < sizeof in; i++) {
+        in[i] = (uint8_t)(i ^ 0xA5u);
+    }
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_EE_LEN, in, sizeof in));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(TFW_BOOT_EE_LEN, out, sizeof out));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(in, out, sizeof in);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)(TFW_EEPROM_SIZE - 1u), &last, 1u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read((uint16_t)(TFW_EEPROM_SIZE - 1u), &got, 1u));
+    TEST_ASSERT_EQUAL_HEX8(last, got);
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write((uint16_t)TFW_EEPROM_SIZE, &last, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_read((uint16_t)TFW_EEPROM_SIZE, &got, 1u));
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write((uint16_t)(TFW_BOOT_EE_LEN - 1u), in, 2u));
+    TEST_ASSERT_TRUE(erased((uint16_t)(TFW_BOOT_EE_LEN - 1u), 1u));
+}
+
 int main(void)
 {
     void *w = mmap(WINDOW, TFW_CM_PLATFORM_SIZE, PROT_READ | PROT_WRITE,
@@ -159,5 +190,6 @@ int main(void)
     RUN_TEST(test_the_request_one_byte_off_its_place_is_range);
     RUN_TEST(test_a_write_into_the_platform_block_is_range);
     RUN_TEST(test_a_write_above_the_span_lands_and_one_past_the_window_is_range);
+    RUN_TEST(test_eeprom_user_span_roundtrip);
     return UNITY_END();
 }

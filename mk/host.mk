@@ -2445,6 +2445,16 @@ $(HOST_DIR)/test_nrf54l_tone: test/unit/test_nrf54l_tone.c src/hal/cortex-m/nrf5
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its reset-time setup and watchdog (the nrf54l15 row): hal_soc.c, unchanged,
+# against the suite's register file, as test_stm32h5_pwm is, called through
+# test/model/cortex-m/nrf54l_soc_entry.c as test_imx95_hal calls its SoC's;
+# soc_tables.c and soc_reset.c are the image's, for the revision check and the
+# reset cause.
+$(HOST_DIR)/test_nrf54l_soc: test/unit/test_nrf54l_soc.c src/hal/cortex-m/nrf54l/hal_soc.c \
+                             src/hal/cortex-m/nrf54l/soc_tables.c src/hal/cortex-m/nrf54l/soc_reset.c \
+                             test/model/cortex-m/nrf54l_soc_entry.c test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # Its reset cause (#17): soc_reset.c reads RESETREAS through a pointer the
 # caller names, so the test hands it a fake word.
 $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nrf54l/soc_reset.c \
@@ -2467,6 +2477,20 @@ $(HOST_DIR)/test_stm32h5_tone: test/unit/test_stm32h5_tone.c src/hal/cortex-m/st
 	  $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_stm32h5_tone.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
+# The stm32h5's ADC1 driver against the register model in its test, which
+# includes hal_adc.c and claims cm_regs.h's guard first; the board's profile
+# replaces the host board's, for its channel count and core clock.
+$(HOST_DIR)/test_stm32h5_adc: test/unit/test_stm32h5_adc.c src/hal/cortex-m/stm32h5/hal_adc.c \
+                              src/hal/cortex-m/stm32h5/soc_regs.h src/hal/cortex-m/stm32h5/h5_calc.h \
+                              test/model/cortex-m/stm32h5_reg_model.h \
+                              src/core/board_lookup.c boards/stm32h573i-dk/board.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Iboards/stm32h573i-dk \
+	    -Itest/model/cortex-m \
+	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
+	    -o $@ test/unit/test_stm32h5_adc.c src/core/board_lookup.c boards/stm32h573i-dk/board.c \
+	    $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
 # The STM32H5 PWM (hal_pwm.c) and the PWM command over it (src/caps/pwm.c),
 # against the suite's register file: test/model/cortex-m/ ahead of
 # src/hal/cortex-m/ gives the cm_regs.h that sends TFW_CM_REG there, the
@@ -2478,6 +2502,10 @@ $(HOST_DIR)/test_stm32h5_pwm: test/unit/test_stm32h5_pwm.c src/hal/cortex-m/stm3
                               src/hal/cortex-m/stm32h5/hal_gpio.c src/caps/pwm.c \
                               src/core/board_lookup.c boards/stm32h573i-dk/board.c src/core/reader.c \
                               test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# Its byte link (hal_uart.c), on the same register file.
+$(HOST_DIR)/test_stm32h5_uart: test/unit/test_stm32h5_uart.c src/hal/cortex-m/stm32h5/hal_uart.c \
+                               test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \

@@ -2388,6 +2388,7 @@ $(HOST_DIR)/test_nrf54l_saadc: test/unit/test_nrf54l_saadc.c src/hal/cortex-m/nr
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/nrf54l15-dk \
 	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -o $@ $(filter-out %/hal_adc.c,$^) $(EXTRA_LDFLAGS)
+
 # Its tone (the nrf54l15 row): the TIMER arithmetic in tone_calc.h, and
 # hal_tone.c, unchanged, against the register model the test file supplies
 # behind test/model/cortex-m/cm_regs.h, compiled as test_imx95_hal is.

@@ -6,6 +6,11 @@
 #include "tfw/progmem.h"
 #include "board_profile.h"
 
+/* The TWIM's SCL and SDA, taken as TFW_PIN_ETH takes the Ethernet pins when
+ * the image links the bus: a GPIO or scheduler write to either would fight
+ * the TWI. Private to this board. */
+#define TFW_PIN_I2C ((TFW_FEATURE_I2C) ? TFW_PIN_IN_USE : 0u)
+
 /* Three ports, numbered as the SoC numbers its GPIO banks: P0, P1 and P2
  * (src/hal/cortex-m/nrf54l/hal_gpio.c maps the number to the bank). */
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {

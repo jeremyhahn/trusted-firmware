@@ -49,9 +49,6 @@
  * image that links the stager (issue #75): driving it low would put the NOR on
  * the shared bus in the middle of someone else's transfer. */
 #define TFW_PIN_OTA_STORE ((TFW_FEATURE_OTA_STAGE) ? TFW_PIN_IN_USE : 0u)
-/* A hardware I2C master's SCL and SDA, taken the same way by an image that
- * links the bus: a GPIO or scheduler write to either would fight the TWI. */
-#define TFW_PIN_I2C      ((TFW_FEATURE_I2C) ? TFW_PIN_IN_USE : 0u)
 
 /* tfw_port_desc_t and tfw_pwm_desc_t -- one row of the port table and of the PWM
  * table -- are the architecture's, in hal_types.h (reached through tfw/hal.h):

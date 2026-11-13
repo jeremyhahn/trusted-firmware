@@ -97,9 +97,13 @@ static tfw_status_t twim_wait(void)
             s_off = 1u;
         }
         twim_clear_events();
+        tfw_cm_dsb();
         return TFW_ERR_TIMEOUT;
     }
     TFW_NRF_TWIM_EV_STOPPED = 0u;
+    /* STOPPED seen: the caller's buffers are its own again only once the
+     * EasyDMA writes are ordered before its reads. */
+    tfw_cm_dsb();
     return st;
 }
 
@@ -158,9 +162,12 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
         TFW_NRF_TWIM_SHORTS    = rlen ? (TFW_NRF_TWIM_SHORTS_LASTTX_RXSTART
                                          | TFW_NRF_TWIM_SHORTS_LASTRX_STOP)
                                       : TFW_NRF_TWIM_SHORTS_LASTTX_STOP;
+        /* s_txbuf and the pointers are in memory before EasyDMA starts. */
+        tfw_cm_dsb();
         TFW_NRF_TWIM_TX_START  = 1u;
     } else {
         TFW_NRF_TWIM_SHORTS    = TFW_NRF_TWIM_SHORTS_LASTRX_STOP;
+        tfw_cm_dsb();
         TFW_NRF_TWIM_RX_START  = 1u;
     }
     return twim_wait();

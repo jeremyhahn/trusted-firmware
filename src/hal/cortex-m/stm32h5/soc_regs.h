@@ -18,6 +18,7 @@
  *   GPIOx   banks A to I, one 1 KiB block each from GPIOA
  *   USART1  the byte link (the board's ST-LINK Virtual COM port)
  *   IWDG    the independent watchdog, clocked by the LSI
+ *   TIM5    the PWM's timer (hal_pwm.c)
  */
 #ifndef TFW_CM_STM32H5_REGS_H
 #define TFW_CM_STM32H5_REGS_H
@@ -175,6 +176,29 @@
  * PRESC 1, SCLDEL 10, SDADEL 1, SCLH 22, SCLL 38, a 2.498 us period. */
 #define TFW_H5_I2C_TIMING_100K 0x60702729u
 #define TFW_H5_I2C_TIMING_400K 0x10A11626u
+
+/* ---- TIM5, APB1PERIPH_BASE_NS + 0x0C00: the PWM's timer (hal_pwm.c), a
+ * general-purpose timer nothing else here drives. Offsets are TIM_TypeDef's
+ * (CR1 0x00, EGR 0x14, CCMR1 0x18, CCMR2 0x1C, CCER 0x20, PSC 0x28, ARR 0x2C,
+ * CCR1 0x34 to CCR4 0x40), its enable RCC_APB1LENR (0x9C) bit TIM5EN 3. It
+ * counts the APB1 timer clock, TFW_CM_CPU_HZ with the bus prescaler at 1. */
+#define TFW_H5_RCC_APB1LENR    TFW_CM_REG(TFW_H5_RCC_BASE + 0x9Cu)
+#define TFW_H5_RCC_APB1LENR_TIM5EN (0x1u << 3)
+#define TFW_H5_TIM5_BASE       0x40000C00u
+#define TFW_H5_TIM_CR1         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x00u)
+#define TFW_H5_TIM_EGR         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x14u)
+#define TFW_H5_TIM_CCMR1       TFW_CM_REG(TFW_H5_TIM5_BASE + 0x18u)
+#define TFW_H5_TIM_CCMR2       TFW_CM_REG(TFW_H5_TIM5_BASE + 0x1Cu)
+#define TFW_H5_TIM_CCER        TFW_CM_REG(TFW_H5_TIM5_BASE + 0x20u)
+#define TFW_H5_TIM_PSC         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x28u)
+#define TFW_H5_TIM_ARR         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x2Cu)
+#define TFW_H5_TIM_CCR(ch)     TFW_CM_REG(TFW_H5_TIM5_BASE + 0x30u + 4u * (uint32_t)(ch))
+#define TFW_H5_TIM_CR1_CEN     (0x1u << 0)
+#define TFW_H5_TIM_CR1_ARPE    (0x1u << 7)
+#define TFW_H5_TIM_EGR_UG      (0x1u << 0)
+#define TFW_H5_PWM_UNIT        5u             /* the PWM row's unit: TIM5 */
+#define TFW_H5_PWM_AF          2u             /* GPIO_AF2_TIM5 (stm32h5xx_hal_gpio_ex.h) */
+#define TFW_H5_GPIO_AFRL(b)    TFW_CM_REG((b) + 0x20u)   /* AFR[0]: pins 0-7 */
 
 /* ---- IWDG, APB1PERIPH_BASE_NS + 0x3000 */
 #define TFW_H5_IWDG_KR         TFW_CM_REG(0x40003000u)

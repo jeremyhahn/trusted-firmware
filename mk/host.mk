@@ -2151,13 +2151,16 @@ TFWSIM_HSM_SRCS := src/core/suit.c src/core/suit_integrated.c src/core/hsm_paylo
                    src/core/hsm_engine.c src/core/hsm_cmd.c \
                    src/core/hsm_record.c src/core/hsm_store_ram.c tools/tfwsim/hsm_port.c
 TFWSIM_HSM_DEFS := -DTFW_FEATURE_HSM=1
+# The element tier's image-slot key where there is none (tools/tfwsim/image_key.h):
+# on every element variant's list but tfwsim-manifest's, which links image_key.c.
+TFWSIM_IMAGE_KEY_NONE := tools/tfwsim/image_key_none.c
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # The element tier with OTA_ACTIVATE's manifest gate (#52; docs/ota/architecture.md,
@@ -2175,16 +2178,18 @@ $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_at
 TFWSIM_MANIFEST_SRCS := $(filter-out src/core/ota_manifest_none.c,$(TFWSIM_ELEMENT_SRCS)) \
                         src/core/ota_manifest.c
 # The gate's key is the element's image slot, which on a device PROV_* writes;
-# on this binary alone (TFWSIM_IMAGE_KEY), --provision-element seeds it with
-# the TEST image key tools/tfwsim/tier_atecc608a.c derives from a published
-# string (kImageKeySeed). Every other element variant's --provision-element is
-# unchanged.
-TFWSIM_MANIFEST_DEFS := -DTFWSIM_IMAGE_KEY=1
+# on this binary alone, --provision-element seeds it with the TEST image key
+# tools/tfwsim/image_key.c derives from a published string (kImageKeySeed).
+# FILE SELECTION, no define: every other element variant links
+# tools/tfwsim/image_key_none.c ($(TFWSIM_IMAGE_KEY_NONE)), whose provisioning
+# does nothing, so their --provision-element is unchanged and no other binary
+# carries the seed.
+TFWSIM_MANIFEST_SRCS += tools/tfwsim/image_key.c
 
 ## tfwsim-manifest: build the element-tier simulator with OTA_ACTIVATE's SUIT manifest gate (OTA_MANIFEST=1)
 tfwsim-manifest: $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX) $(HOST_DIR)/suit-emit
 $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(TFWSIM_MANIFEST_DEFS) $(EXTRA_CFLAGS) \
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
@@ -2214,10 +2219,10 @@ TFWSIM_PROV_DEFS := -DTFW_FEATURE_PROVISION=1
 
 ## tfwsim-prov: build the element-tier simulator as a provisioning jig image (PROV_* commands, blank element)
 tfwsim-prov: $(HOST_DIR)/tfwsim-prov$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_PROV_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # CRYPTO=auto (issue #130), the Mega's default tier: the element when one
@@ -2252,16 +2257,16 @@ $(TFWSIM_AUTO_DIR)/auth_element.o: src/core/auth_session.c
 
 ## tfwsim-auto: build the CRYPTO=auto simulator (element if it answers, else soft; --no-element)
 tfwsim-auto: $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # The element tier's seam (tools/tfwsim/tier_atecc608a.c) against the element
 # model and the mock HAL it seeds, killing its mutants (#163). Out of
 # TEST_SRCS: the pattern rule there would link neither the tier nor the model.
-$(HOST_DIR)/test_tier_atecc608a_mutate: test/unit/test_tier_atecc608a_mutate.c tools/tfwsim/tier_atecc608a.c \
+$(HOST_DIR)/test_tier_atecc608a_mutate: test/unit/test_tier_atecc608a_mutate.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) \
                                         $(ELEMENT_MODEL) src/crypto/atecc608a/atecc.c test/mock/hal_mock.c \
                                         boot/boot_handoff.c src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
                                         src/proto/crc16.c src/proto/crc16_update.c \

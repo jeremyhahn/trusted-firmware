@@ -58,17 +58,7 @@
 #include "hal_mock.h"
 #include "sha256.h"
 #include "tfw/types.h"
-
-#ifdef TFWSIM_IMAGE_KEY
-/* The seed of the image slot's TEST key, compiled into tfwsim-manifest alone
- * (mk/host.mk sets TFWSIM_IMAGE_KEY on that binary only): every other element
- * variant's --provision-element leaves the image slot as it was. PUBLIC ON
- * PURPOSE: the private key is SHA-256 of these bytes (tfw_model_p256_key), so
- * nothing may ever trust an image it verifies.
- * sdk/go/cmd/tfwctl/e2e_ota_manifest_test.go derives the same key from the
- * same string. */
-static const char kImageKeySeed[] = "tfwsim-atecc608a TEST image key v1";
-#endif
+#include "image_key.h"
 
 static uint8_t *eeprom_image;          /* NULL until --eeprom/--eeprom-bin */
 static size_t   eeprom_len;
@@ -306,17 +296,9 @@ void tfwsim_tier_seed(void)
     tfw_model_set_absent(no_element);
     if (provision_element) {
         tfw_model_provision();
-#ifdef TFWSIM_IMAGE_KEY
-        {
-            uint8_t image_priv[32], image_pub[64];
-
-            /* The key OTA_ACTIVATE's manifest gate verifies against, which
-             * PROV_* writes on a device. A TEST key: its private half is the
-             * model's key from kImageKeySeed, so a test signs with it. */
-            tfw_model_p256_key(kImageKeySeed, image_priv, image_pub);
-            tfw_model_set_stored_pubkey(TFW_ATECC_SLOT_IMAGE, image_pub);
-        }
-#endif
+        /* The image slot's TEST key on tfwsim-manifest, nothing elsewhere:
+         * link-time selection, see image_key.h. */
+        tfwsim_image_key_provision();
     }
     if (eeprom_image) {
         memcpy(tfw_mock_eeprom(), eeprom_image, eeprom_len);

@@ -124,7 +124,7 @@ func manifestImage(t *testing.T, env []byte) []byte {
 	return img
 }
 
-// manifestKeySeed is tools/tfwsim/tier_atecc608a.c's kImageKeySeed, the
+// manifestKeySeed is tools/tfwsim/image_key.c's kImageKeySeed, the
 // published string --provision-element derives the image slot's TEST key
 // from: manifestKey is that key, SHA-256 of the string re-hashed while it is
 // not a P-256 scalar, as the element model's tfw_model_p256_key derives it.

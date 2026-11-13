@@ -5,11 +5,13 @@
  *
  * Pins 0-3 are the kit's four user LEDs, at the banks and bits ST's BSP
  * names (stm32h573i_discovery.h): LD1 green PI9, LD2 orange PI8, LD3 red
- * PF1, LD4 blue PF4. Pins 4-9 are the Arduino header's A0 to A5 (Zephyr's
+ * PF1, LD4 blue PF4. Pins 4 and 5 are the Arduino header's D6 (PH10) and D5
+ * (PH11), TIM5's two PWM channels. Pins 6-11 are its A0 to A5 (Zephyr's
  * arduino_r3_connector.dtsi for the board) at their ADC1 inputs (hal_stm32's
  * stm32h573iikxq-pinctrl.dtsi): A0 PB0 INP9, A1 PA4 INP18, A2 PA0 INP0,
- * A3 PA5 INP19, A4 PA6 INP3, A5 PF12 INP6. Port 0 is GPIOF (bank 5), 1
- * GPIOI (8), 2 GPIOA (0), 3 GPIOB (1). No pin offers a compare unit.
+ * A3 PA5 INP19, A4 PA6 INP3, A5 PF12 INP6. Pin 12 is D3 (PB5), the tone's
+ * TIM3_CH2. Port 0 is GPIOF (bank 5), 1 GPIOI (8), 2 GPIOH (7), 3 GPIOA (0),
+ * 4 GPIOB (1).
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */

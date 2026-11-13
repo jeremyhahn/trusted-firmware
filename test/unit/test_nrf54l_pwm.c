@@ -16,6 +16,7 @@
 #include "tfw/board.h"
 #include "tfw/hal.h"
 #include "soc_regs.h"
+#include "soc_tables.h"
 #include "../../src/caps/pwm.h"
 
 extern volatile uint16_t tfw_nrf54l_pwm_seq[4];
@@ -265,6 +266,43 @@ static void test_a_tone_takes_led1_from_its_pwm_channel_only(void)
     TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_TIMER_START);
 }
 
+/* Tone then PWM: once the PWM has LED1, the tone no longer owns it, so a tone
+ * stop afterwards leaves the channel playing and the pin as the PWM set it. */
+static void test_a_tone_stop_after_the_pwm_took_led1_leaves_the_channel_playing(void)
+{
+    static const tfw_pinref_t led1 = { .port = 1u, .bit = 10u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&led1, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    TEST_ASSERT_FALSE(tfw_nrf54l_tone_owns(1u, 10u));
+    TFW_NRF_GPIO_OUTCLR(P1) = 0u;
+    TFW_NRF_PWM_STOP        = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+    TEST_ASSERT_EQUAL_HEX32(0x2Au, TFW_NRF_PWM_PSEL_OUT(0));   /* PORT 1, PIN 10 */
+    TEST_ASSERT_EQUAL_HEX16(0x8000u | 502u, tfw_nrf54l_pwm_seq[0]);
+    TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_GPIO_OUTCLR(P1));
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_STOP);
+}
+
+/* PWM then tone, on the other pin: only LED1 is shared, so a PWM command on
+ * LED3 leaves a tone on LED1 running, and the tone leaves LED3's channel. */
+static void test_the_pwm_on_led3_and_the_tone_on_led1_run_side_by_side(void)
+{
+    static const tfw_pinref_t led1 = { .port = 1u, .bit = 10u };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&led1, 440u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch1, 77u));
+    TEST_ASSERT_TRUE(tfw_nrf54l_tone_owns(1u, 10u));
+    TEST_ASSERT_NOT_EQUAL(0u, TFW_NRF_GPIOTE_CONFIG(0));
+    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_DPPI_EN | 0u, TFW_NRF_GPIOTE_SUB_OUT(0));
+    TEST_ASSERT_EQUAL_HEX32(0x2Eu, TFW_NRF_PWM_PSEL_OUT(1));   /* PORT 1, PIN 14 */
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&led1, 880u));
+    TEST_ASSERT_EQUAL_HEX32(0x2Eu, TFW_NRF_PWM_PSEL_OUT(1));
+    TEST_ASSERT_EQUAL_HEX16(0x8000u | 302u, tfw_nrf54l_pwm_seq[1]);
+}
+
 static void test_the_board_resolves_led1_and_led3_to_pwm20_channels_0_and_1(void)
 {
     /* The nRF54L15-DK's tfw_board_pwms rows, through tfw_board_pwm():
@@ -300,6 +338,8 @@ int main(void)
     RUN_TEST(test_a_ref_the_unit_has_no_channel_for_is_refused);
     RUN_TEST(test_a_pwm_command_on_the_tone_pin_stops_the_tone);
     RUN_TEST(test_a_tone_takes_led1_from_its_pwm_channel_only);
+    RUN_TEST(test_a_tone_stop_after_the_pwm_took_led1_leaves_the_channel_playing);
+    RUN_TEST(test_the_pwm_on_led3_and_the_tone_on_led1_run_side_by_side);
     RUN_TEST(test_the_board_resolves_led1_and_led3_to_pwm20_channels_0_and_1);
     return UNITY_END();
 }

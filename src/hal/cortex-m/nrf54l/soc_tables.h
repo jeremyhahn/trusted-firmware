@@ -59,9 +59,11 @@ uint8_t tfw_nrf54l_rram_span(uint32_t floor, uint32_t addr, uint32_t len);
  * words make a page a quarter of the waits. */
 uint32_t tfw_nrf54l_rram_unit(uint32_t addr, uint32_t left);
 
-/* The tone (hal_tone.c) and PWM (hal_pwm.c) share the DK's LED1, P1.10,
- * and hand it over explicitly, last command wins. Non-zero when the tone
- * is running on port.bit. */
+/* The tone (hal_tone.c: TIMER20, GPIOTE20 channel 0, DPPIC20 channel 0) and
+ * the PWM (hal_pwm.c: PWM20) share no peripheral, only the DK's LED1, P1.10,
+ * and hand it over explicitly (#423): starting either on it stops the other
+ * there first, last command wins. Non-zero when the tone is running on
+ * port.bit. */
 int tfw_nrf54l_tone_owns(uint8_t port, uint8_t bit);
 
 /* Takes every PWM channel whose PSEL is port.bit off it; the last channel

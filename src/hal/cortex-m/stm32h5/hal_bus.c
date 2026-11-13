@@ -119,6 +119,12 @@ static tfw_status_t i2c_stop(tfw_status_t st)
         TFW_H5_I2C_CR1 = TFW_H5_I2C_CR1_PE;
         st = TFW_ERR_TIMEOUT;
     }
+    if (st != TFW_OK) {
+        /* TXIS asks for the next byte while one is still on the wire: a NACK
+         * of that one leaves the next in TXDR. TXE=1 flushes it (RM0481) so
+         * the next transfer cannot send it ahead of its own payload. */
+        TFW_H5_I2C_ISR = TFW_H5_I2C_ISR_TXE;
+    }
     TFW_H5_I2C_ICR = H5_I2C_ICR_ALL;
     return st;
 }

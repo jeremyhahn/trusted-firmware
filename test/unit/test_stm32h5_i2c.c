@@ -68,6 +68,8 @@ static struct {
     uint32_t  gpio[10];
     uint32_t  flags;
     uint8_t   on_bus, reading, left, sent;
+    uint8_t   txdr, txdr_full;     /* TXDR: the byte the driver queued */
+    uint8_t   shifting, shift_out; /* the shift register: a byte on the wire */
     uint8_t   rx[8];
     uint8_t   rx_at;
     /* the scenario */
@@ -98,6 +100,8 @@ void tfw_hal_delay_us(uint16_t us)
     m.delays += us;
 }
 
+static void load(void);
+
 static void on_cr2(uint32_t v)
 {
     m.cr2 = v;
@@ -126,12 +130,15 @@ static void on_cr2(uint32_t v)
             m.flags |= F_NACKF;
         } else if (rd) {
             m.flags |= F_RXNE;
+        } else if (m.txdr_full) {
+            load();                     /* a byte left in TXDR goes out first */
         } else {
             m.flags |= F_TXIS;
         }
     }
     if ((v & CR2_STOP) != 0u) {
         m.cr2 &= ~CR2_STOP;
+        m.shifting = 0u;
         say("P", 0, 0u);
         if (!m.stop_hangs) {
             m.on_bus = 0u;
@@ -140,18 +147,48 @@ static void on_cr2(uint32_t v)
     }
 }
 
-static void on_txdr(uint8_t b)
+/*
+ * TXDR and the shift register are apart, as on the part: a byte goes on the
+ * wire when it moves from TXDR to the shift register, and TXIS asks for the
+ * next byte at once, while that one is still being sent. Its ACK or NACK
+ * comes only when the driver queues the next byte, or polls ISR without one
+ * to give, so a NACK leaves the queued byte in TXDR (TXE clear).
+ */
+static void load(void)
 {
-    say("W", 1, b);
-    m.flags &= ~F_TXIS;
+    m.shift_out = m.txdr;
+    m.shifting  = 1u;
+    m.txdr_full = 0u;
+    m.left--;
+    say("W", 1, m.shift_out);
+    if (m.left != 0u) {
+        m.flags |= F_TXIS;
+    }
+}
+
+static void shifted(void)
+{
+    m.shifting = 0u;
     if (m.sent++ == m.nack_byte) {
         m.flags |= F_NACKF;
         return;
     }
-    if (--m.left == 0u) {
+    if (m.txdr_full && m.left != 0u) {
+        load();
+    } else if (m.left == 0u && !m.txdr_full) {
         m.flags |= F_TC;
-    } else {
-        m.flags |= F_TXIS;
+    }
+}
+
+static void on_txdr(uint8_t b)
+{
+    m.flags &= ~F_TXIS;
+    m.txdr      = b;
+    m.txdr_full = 1u;
+    if (m.shifting) {
+        shifted();
+    } else if (m.on_bus && !m.reading && m.left != 0u) {
+        load();
     }
 }
 
@@ -159,8 +196,10 @@ static void on_cr1(uint32_t v)
 {
     if ((m.cr1 & CR1_PE) != 0u && (v & CR1_PE) == 0u) {
         say("X", 0, 0u);
-        m.flags  = 0u;
-        m.on_bus = 0u;
+        m.flags     = 0u;
+        m.on_bus    = 0u;
+        m.txdr_full = 0u;               /* PE=0 resets ISR: TXE=1, TXDR flushed */
+        m.shifting  = 0u;
     }
     m.cr1 = v;
 }
@@ -181,6 +220,11 @@ static void commit(void)
     case TIMINGR: m.timingr = v; break;
     case ICR:     m.flags &= ~(v & 0x3F38u); break;
     case TXDR:    on_txdr((uint8_t)v); break;
+    case ISR:
+        if ((v & F_TXE) != 0u) {
+            m.txdr_full = 0u;           /* writing TXE=1 flushes TXDR */
+        }
+        break;
     case APB3ENR: m.apb3enr = v; break;
     case AHB2ENR: m.ahb2enr = v; break;
     default:
@@ -206,7 +250,11 @@ volatile uint32_t *tfw_h5_i2c_model_reg(uintptr_t a)
     case APB3ENR: m.cell = m.apb3enr; break;
     case AHB2ENR: m.cell = m.ahb2enr; break;
     case ISR:
-        m.cell = m.flags | F_TXE | ((m.on_bus || m.held_busy) ? F_BUSY : 0u);
+        if (m.shifting && (m.flags & F_TXIS) == 0u) {
+            shifted();                  /* nothing queued: the byte finishes */
+        }
+        m.cell = m.flags | (m.txdr_full ? 0u : F_TXE) |
+                 ((m.on_bus || m.held_busy) ? F_BUSY : 0u);
         break;
     case RXDR:
         /* A read: the byte, and the device sends the next one. */
@@ -346,6 +394,26 @@ static void test_data_nack_stops_and_skips_the_read(void)
     TEST_ASSERT_EQUAL_STRING("Sc0 W01 W02 P", m.log);
 }
 
+static void test_data_nack_with_a_byte_queued_does_not_leak_it(void)
+{
+    const uint8_t bad[]  = { 0x01u, 0x02u };
+    const uint8_t good[] = { 0x0Au, 0x0Bu };
+    tfw_status_t  st;
+
+    /* 0x02 is in TXDR when 0x01 is NACKed */
+    m.nack_byte = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, tfw_hal_i2c_xfer(DEV, bad, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_STRING("Sc0 W01 P", m.log);
+
+    m.nack_byte = NONE;
+    m.sent      = 0u;
+    m.log[0]    = '\0';
+    st = tfw_hal_i2c_xfer(DEV, good, 2u, NULL, 0u);
+    done();
+    TEST_ASSERT_EQUAL_STRING("Sc0 W0a W0b P", m.log);   /* no stale 0x02 */
+    TEST_ASSERT_EQUAL(TFW_OK, st);
+}
+
 static void test_busy_bus_times_out_without_a_start(void)
 {
     const uint8_t wr[] = { 0x01u };
@@ -417,6 +485,7 @@ int main(void)
     RUN_TEST(test_address_nack_stops);
     RUN_TEST(test_read_address_nack_stops);
     RUN_TEST(test_data_nack_stops_and_skips_the_read);
+    RUN_TEST(test_data_nack_with_a_byte_queued_does_not_leak_it);
     RUN_TEST(test_busy_bus_times_out_without_a_start);
     RUN_TEST(test_stalled_transfer_times_out_and_stops);
     RUN_TEST(test_stop_that_never_completes_resets_the_block);

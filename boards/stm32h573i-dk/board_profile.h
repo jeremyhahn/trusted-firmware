@@ -19,7 +19,7 @@
 #define TFW_BOARD_NAME "stm32h573i-dk"
 #define TFW_BOARD_ID   0x43u   /* docs/boards/board-id-registry.md */
 
-#define TFW_PIN_COUNT  12u
+#define TFW_PIN_COUNT  13u
 #define TFW_PORT_COUNT 5u      /* GPIOF, GPIOI (LEDs), GPIOH (D5/D6), GPIOA, GPIOB */
 #define TFW_PWM_COUNT  2u
 /* TFW_ADC_COUNT is the HAL's range-check bound, one past the highest ADC1
@@ -29,7 +29,11 @@
 
 #define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     1
-#define TFW_FEATURE_TONE    0
+#define TFW_FEATURE_TONE    1
+/* Tone is TIM3 channel 2 toggling the Arduino header's D3, PB5
+ * (src/hal/cortex-m/stm32h5/hal_tone.c; built and host-tested, not yet run
+ * on the board). */
+#define TFW_TONE_PIN   12u
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
 /* I2C4 on PB8/PB9 (src/hal/cortex-m/stm32h5/hal_bus.c), on only in the I2C=1

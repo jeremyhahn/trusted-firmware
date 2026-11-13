@@ -6,11 +6,12 @@
 #include "tfw/progmem.h"
 #include "board_profile.h"
 
-/* Two ports, numbered as the SoC numbers its GPIO banks: port n is GPIOn with
+/* Three ports, numbered as the SoC numbers its GPIO banks: port n is GPIOn with
  * its PORTn pin controller (src/hal/cortex-m/mcxn94x/hal_gpio.c). */
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 0u },   /* 0  GPIO0 */
     { 1u },   /* 1  GPIO1 */
+    { 3u },   /* 2  GPIO3 */
 };
 
 /* The RGB LED, active low (a write of 0 lights it), and the two user switches,
@@ -27,6 +28,7 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 5  A2        P0_14 */ { TFW_PB(0u, 14u), 32u + 14u,    TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
 /* 6  A3        P0_22 */ { TFW_PB(0u, 22u), 14u,          TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
 /* 7  A4        P0_15 */ { TFW_PB(0u, 15u), 32u + 15u,    TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_ADC },
+/* 8  TONE      P3_19 */ { TFW_PB(2u, 19u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 };
 
 /* CTIMER0 in PWM mode (src/hal/cortex-m/mcxn94x/hal_pwm.c): { unit = CTIMER,

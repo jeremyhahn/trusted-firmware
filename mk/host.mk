@@ -2534,14 +2534,25 @@ $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The mcxn94x LPADC0 HAL against the suite's register model, as the i.MX 95
-# HAL tests run: test/model/cortex-m/mcxn94x/ goes ahead of src/hal/cortex-m/
-# so its cm_regs.h is the one soc_regs.h finds, and the board's profile
-# replaces the host board's.
+# The mcxn94x HAL tests against a register model, as the i.MX 95 HAL tests
+# run: test/model/cortex-m/mcxn94x/ goes ahead of src/hal/cortex-m/ so its
+# cm_regs.h, which sends TFW_CM_REG to the model, is the one soc_regs.h finds,
+# and the board's profile replaces the host board's.
 HOST_MCXN94X_CFLAGS = -Itest/model/cortex-m/mcxn94x -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
                       -Iboards/frdm-mcxn947 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+
+# The mcxn94x LPADC0 HAL against the suite's own register model.
 $(HOST_DIR)/test_mcxn94x_adc: test/unit/test_mcxn94x_adc.c src/hal/cortex-m/mcxn94x/hal_adc.c \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_MCXN94X_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MCXN94x tone, hal_tone.c unchanged, against the sparse register model:
+# test/model/cortex-m/mcxn94x/ goes ahead of src/hal/cortex-m/ so its
+# cm_regs.h, which sends TFW_CM_REG to the model, is the one soc_regs.h finds,
+# as test_imx95_hal's model does; the board's profile gives the tone's mux.
+$(HOST_DIR)/test_mcxn94x_tone: test/unit/test_mcxn94x_tone.c test/model/cortex-m/mcxn94x/mcxn_model.c \
+                               src/hal/cortex-m/mcxn94x/hal_tone.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_MCXN94X_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The OPTIGA Trust M transport against recorded frames (row optiga-trust-m):

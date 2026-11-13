@@ -24,7 +24,7 @@ static void test_the_board_is_the_registered_mcxn947_id(void)
     TEST_ASSERT_EQUAL_STRING("frdm-mcxn947", tfw_board_name());
 }
 
-static void test_the_pins_are_the_rgb_led_and_the_switches(void)
+static void test_the_pins_are_the_rgb_led_the_switches_and_the_tone_pin(void)
 {
     static const struct { uint8_t port, bit, led; } want[] = {
         { 0u, 10u, 1u },   /* LED_RED   */
@@ -35,6 +35,7 @@ static void test_the_pins_are_the_rgb_led_and_the_switches(void)
         { 0u, 14u, 0u },   /* A2        */
         { 0u, 22u, 0u },   /* A3        */
         { 0u, 15u, 0u },   /* A4        */
+        { 3u, 19u, 0u },   /* TONE      */
     };
 
     TEST_ASSERT_EQUAL_UINT8(sizeof want / sizeof want[0], TFW_PIN_COUNT);
@@ -47,6 +48,7 @@ static void test_the_pins_are_the_rgb_led_and_the_switches(void)
         TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_DIGITAL);
         TEST_ASSERT_EQUAL(want[i].led != 0u, (tfw_board_pin_flags(i) & TFW_PIN_LED) != 0u);
     }
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(TFW_TONE_PIN) & (TFW_PIN_ADC | TFW_PIN_PWM));
 }
 
 /* A2 ADC0_B14, A3 ADC0_A14, A4 ADC0_B15, A5 (SW2's pin) ADC0_A15, as
@@ -55,6 +57,7 @@ static void test_the_adc_column_is_the_header_analog_pins(void)
 {
     static const uint8_t want[] = {
         TFW_ADC_NONE, TFW_ADC_NONE, TFW_ADC_NONE, 15u, TFW_ADC_NONE, 46u, 14u, 47u,
+        TFW_ADC_NONE,
     };
 
     TEST_ASSERT_EQUAL_UINT8(sizeof want, TFW_PIN_COUNT);
@@ -100,6 +103,20 @@ static void test_the_red_led_is_ctimer0_match0(void)
     TEST_ASSERT_EQUAL_UINT32(1u, TFW_PWM_COUNT);
 }
 
+/* The tone sits on the mikroBUS socket's PWM pin, P3_19, at the function that
+ * is CT2_MAT1 there (docs/boards/frdm-mcxn947.md, "Tone"), not on a pin no
+ * header brings out. */
+static void test_the_tone_is_ct2_mat1_on_the_mikrobus_pwm_pin(void)
+{
+    tfw_pinref_t r;
+
+    TEST_ASSERT_EQUAL(1, TFW_FEATURE_TONE);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(TFW_TONE_PIN, &r));
+    TEST_ASSERT_EQUAL_UINT8(3u, r.port);
+    TEST_ASSERT_EQUAL_UINT8(19u, r.bit);
+    TEST_ASSERT_EQUAL_UINT32(4u, TFW_MCXN_TONE_PIN_FN);
+}
+
 static void test_a_pin_beyond_the_board_is_refused(void)
 {
     tfw_pinref_t r;
@@ -125,10 +142,11 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_board_is_the_registered_mcxn947_id);
-    RUN_TEST(test_the_pins_are_the_rgb_led_and_the_switches);
+    RUN_TEST(test_the_pins_are_the_rgb_led_the_switches_and_the_tone_pin);
     RUN_TEST(test_the_adc_column_is_the_header_analog_pins);
     RUN_TEST(test_only_the_red_led_offers_a_pwm);
     RUN_TEST(test_the_red_led_is_ctimer0_match0);
+    RUN_TEST(test_the_tone_is_ct2_mat1_on_the_mikrobus_pwm_pin);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_the_link_pins_are_not_board_pins);
     return UNITY_END();

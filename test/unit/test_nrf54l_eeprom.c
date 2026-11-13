@@ -4,7 +4,8 @@
  * The nRF54L15's EEPROM (src/hal/cortex-m/nrf54l/hal_eeprom.c) over a model
  * of its RRAM: the platform window mapped at the DK's own
  * TFW_CM_PLATFORM_BASE, and an RRAM controller whose CONFIG.WEN gates every
- * store, with READY and READYNEXT the test sets. A store without WEN programs
+ * store, with READY and READYNEXT the test sets (READY can drop after a given
+ * store, a controller that never finishes it). A store without WEN programs
  * nothing, as on the part, so a write that lands went through the sequence
  * (rram_write.h, tfw-boot's too).
  *
@@ -38,6 +39,7 @@ static void rram_store(uint32_t addr, const void *v, uint32_t n);
 
 static volatile uint32_t config, ready, readynext, other;
 static uint32_t          stores, dropped, outside;
+static uint32_t          ready_lost_at;    /* READY drops after this store; 0 never */
 
 volatile uint32_t *tfw_imx95_model_reg(uintptr_t addr)
 {
@@ -61,6 +63,9 @@ static void rram_store(uint32_t addr, const void *v, uint32_t n)
     }
     memcpy((uint8_t *)(uintptr_t)addr, v, n);
     stores++;
+    if (stores == ready_lost_at) {
+        ready = 0u;
+    }
 }
 
 /* #231's request, as src/core/ota_ctl.c writes it (test_cm_hal_eeprom.c's). */
@@ -108,6 +113,7 @@ void setUp(void)
     ready     = TFW_NRF_RRAMC_READY_BIT;
     readynext = TFW_NRF_RRAMC_READY_BIT;
     stores = dropped = outside = 0u;
+    ready_lost_at = 0u;
 }
 
 void tearDown(void) {}
@@ -156,6 +162,28 @@ static void test_a_controller_that_never_readies_is_timeout_and_wen_is_cleared(v
     readynext = 0u;
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_eeprom_write(TFW_BOOT_EE_LEN, b, sizeof b));
     assert_untouched(0u);
+}
+
+static void test_a_controller_not_ready_after_wen_is_timeout_before_any_store(void)
+{
+    static const uint8_t b[4] = {1u, 2u, 3u, 4u};
+
+    config = 0x00000100u;    /* WRITEBUFSIZE 1, WEN clear */
+    ready  = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_eeprom_write(TFW_BOOT_EE_LEN, b, sizeof b));
+    assert_untouched(0x00000100u);
+}
+
+static void test_a_controller_not_ready_after_the_last_store_is_timeout(void)
+{
+    static const uint8_t b[4] = {1u, 2u, 3u, 4u};
+
+    config        = 0x00000100u;
+    ready_lost_at = 1u;      /* the one word's store never completes */
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_eeprom_write(TFW_BOOT_EE_LEN, b, sizeof b));
+    TEST_ASSERT_EQUAL_UINT32(1u, stores);
+    TEST_ASSERT_EQUAL_UINT32(0u, dropped);
+    TEST_ASSERT_EQUAL_HEX32(0x00000100u, config);
 }
 
 static void test_a_read_is_the_window(void)
@@ -228,6 +256,8 @@ int main(void)
     RUN_TEST(test_a_write_past_the_span_lands_with_wen_and_wen_is_cleared_after);
     RUN_TEST(test_config_is_put_back_as_it_was);
     RUN_TEST(test_a_controller_that_never_readies_is_timeout_and_wen_is_cleared);
+    RUN_TEST(test_a_controller_not_ready_after_wen_is_timeout_before_any_store);
+    RUN_TEST(test_a_controller_not_ready_after_the_last_store_is_timeout);
     RUN_TEST(test_a_read_is_the_window);
     RUN_TEST(test_the_windows_last_byte_lands_and_one_past_it_is_range);
     RUN_TEST(test_a_write_into_the_span_is_refused_before_wen);

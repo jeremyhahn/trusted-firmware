@@ -16,7 +16,9 @@
  * TFW_ERR_TIMEOUT, lost arbitration (ALF) TFW_ERR_BUSY and a FIFO error
  * (FEF, a command out of order, which this file never sends)
  * TFW_ERR_INTERNAL. Every transfer that reached the bus ends with a STOP; an
- * error flushes both FIFOs first, so no queued command follows it.
+ * error flushes both FIFOs first, so no queued command follows it. Lost
+ * arbitration is the exception: the bus is another master's, so the FIFOs
+ * are flushed and no STOP is queued.
  *
  * SPI and 1-Wire are not on this board: src/caps/bus.c is one translation
  * unit, so their entry points are here and answer TFW_ERR_UNSUPPORTED.
@@ -106,13 +108,20 @@ static void flush(uintptr_t base)
 
 /* The STOP every transfer ends with. A flag the last byte raised (a data NACK
  * shows after the FIFO drained) is the transfer's status and is recovered
- * from as any error is. A STOP that never shows is TFW_ERR_TIMEOUT. */
+ * from as any error is. A STOP that never shows is TFW_ERR_TIMEOUT. Lost
+ * arbitration (ALF) flushes and returns TFW_ERR_BUSY with no STOP queued:
+ * this master no longer owns the bus, and the winner's STOP is not ours to
+ * wait for. */
 static tfw_status_t finish(uintptr_t base, tfw_status_t st)
 {
     uint32_t n;
 
     if (st != TFW_OK) {
         flush(base);
+    }
+    if (st == TFW_ERR_BUSY) {
+        /* Lost arbitration: the bus is the winner's, so no local STOP. */
+        return st;
     }
     REG(base, TFW_LPI2C_MTDR) = TFW_LPI2C_CMD(TFW_LPI2C_CMD_STOP, 0u);
     for (n = 0u; n < LPI2C_SPIN; n++) {
@@ -131,6 +140,9 @@ static tfw_status_t finish(uintptr_t base, tfw_status_t st)
         if ((msr & TFW_LPI2C_MSR_ERR) && st == TFW_OK) {
             st = flag_status(msr);
             flush(base);
+            if (st == TFW_ERR_BUSY) {
+                return st;
+            }
             REG(base, TFW_LPI2C_MTDR) = TFW_LPI2C_CMD(TFW_LPI2C_CMD_STOP, 0u);
         }
     }

@@ -82,6 +82,10 @@ static struct {
     int      nack_at;     /* the data byte the target refuses, -1 none */
     int      nack_late;   /* that NACK reaches MSR only with the STOP */
     int      ndf_held;    /* a late NACK not yet in MSR */
+    int      lose_at;     /* the data byte another master wins, -1 none */
+    int      lose_late;   /* that loss reaches MSR only at the STOP */
+    int      alf_held;    /* a late loss not yet in MSR */
+    unsigned lost_logn;   /* MTDR writes when ALF was raised */
     unsigned busy;        /* 1 between a START and its STOP */
     uint8_t  addressed;   /* the address byte of the last START */
     uint8_t  got[FIFO];   /* bytes the target received */
@@ -114,6 +118,17 @@ static void run(void)
                 md.msr |= MSR_NDF;
             }
         } else if (op == CMD_TX) {
+            if (md.lose_at >= 0 && (unsigned)md.lose_at == md.gotn) {
+                if (md.lose_late) {
+                    md.alf_held = 1;
+                } else {
+                    /* Another master won: ownership goes, the byte with it. */
+                    md.busy      = 0u;
+                    md.msr      |= MSR_ALF;
+                    md.lost_logn = md.logn;
+                    continue;
+                }
+            }
             if (md.nack_at >= 0 && (unsigned)md.nack_at == md.gotn) {
                 if (md.nack_late) {
                     md.ndf_held = 1;
@@ -129,7 +144,14 @@ static void run(void)
                 md.rxq[md.rxn++] = md.give[md.given++ % FIFO];
             }
         } else if (op == CMD_STOP) {
-            if (md.busy) {
+            if (md.busy && md.alf_held) {
+                /* Lost on the last byte: the STOP is not this master's,
+                 * and no SDF follows. */
+                md.alf_held  = 0;
+                md.busy      = 0u;
+                md.msr      |= MSR_ALF;
+                md.lost_logn = md.logn;
+            } else if (md.busy) {
                 md.busy = 0u;
                 md.stops++;
                 md.msr |= MSR_SDF;
@@ -248,6 +270,7 @@ void setUp(void)
 {
     memset(&md, 0, sizeof md);
     md.nack_at = -1;
+    md.lose_at = -1;
     pending    = R_NONE;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_init(BASE, 24000000uL, 100000uL));
     sync();
@@ -410,6 +433,49 @@ static void test_lpi2c_a_transfer_that_never_ends_times_out(void)
     TEST_ASSERT_EQUAL_UINT(0u, md.stops);
 }
 
+/* Another master wins the second of three bytes: this master no longer owns
+ * the bus and no SDF of its own follows. BUSY, not TIMEOUT; the FIFOs
+ * flushed, no STOP queued after ALF, and the next transfer works. */
+static void test_lpi2c_arbitration_lost(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u, 0x03u };
+
+    md.lose_at = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 3u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(3u, md.lost_logn);
+    TEST_ASSERT_EQUAL_UINT(md.lost_logn, md.logn);   /* nothing after ALF */
+    TEST_ASSERT_EQUAL_UINT(0u, md.stops);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_UINT(0u, md.txn);
+    TEST_ASSERT_EQUAL_HEX32(0u, md.msr & MSR_W1C);
+
+    md.lose_at = -1;
+    md.gotn    = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 3u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(1u, md.stops);
+    TEST_ASSERT_EQUAL_MEMORY(wr, md.got, 3u);
+}
+
+/* The loss on the last byte shows only once the STOP is queued, with no SDF:
+ * BUSY, and no second STOP is queued. */
+static void test_lpi2c_arbitration_lost_at_the_stop(void)
+{
+    static const uint8_t wr[] = { 0x01u, 0x02u };
+
+    md.lose_at   = 1;
+    md.lose_late = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_BUSY, tfw_imx95_lpi2c_xfer(BASE, TARGET, wr, 2u, NULL, 0u));
+    sync();
+    TEST_ASSERT_EQUAL_UINT(4u, md.logn);
+    TEST_ASSERT_EQUAL_UINT(md.lost_logn, md.logn);   /* nothing after ALF */
+    TEST_ASSERT_EQUAL_HEX32(CMD(CMD_STOP, 0u), md.log[3]);
+    TEST_ASSERT_EQUAL_UINT(0u, md.stops);
+    TEST_ASSERT_TRUE(md.flushes >= 1u);
+    TEST_ASSERT_EQUAL_HEX32(0u, md.msr & MSR_W1C);
+}
+
 static void test_lpi2c_zero_length_touches_nothing(void)
 {
     unsigned before = md.accesses;
@@ -481,6 +547,8 @@ int main(void)
     RUN_TEST(test_lpi2c_data_nack_on_the_last_byte);
     RUN_TEST(test_lpi2c_late_nack_seen_with_stop);
     RUN_TEST(test_lpi2c_a_transfer_that_never_ends_times_out);
+    RUN_TEST(test_lpi2c_arbitration_lost);
+    RUN_TEST(test_lpi2c_arbitration_lost_at_the_stop);
     RUN_TEST(test_lpi2c_zero_length_touches_nothing);
     RUN_TEST(test_lpi2c_clock_at_24mhz);
     RUN_TEST(test_lpi2c_clock_at_16mhz);

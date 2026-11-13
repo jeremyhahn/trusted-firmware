@@ -16,7 +16,10 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 4u },   /* 4: GPIO5 */
 };
 
-/* Pins 2 and 3 carry the TPM's PWM channels when PWM=1 (TFW_PWM_COUNT 2)
+/* The two PWM pins, GPIO2_IO02 and GPIO2_IO03, come after the pins main
+ * numbered first (GPIO2_IO00, GPIO2_IO01 and, in the soft:ADC=1 row, ADC_IN0
+ * and ADC_IN1), so no pin's number moves: they are pins 2 and 3, or 4 and 5
+ * with ADC=1. They carry the TPM's PWM channels when PWM=1 (TFW_PWM_COUNT 2)
  * and the M7's TPM is known (TFW_IMX95_TPM_BASE non-zero). Until then no pin
  * offers one: tfw_board_pwm() refuses PWM_WRITE before src/caps/pwm.c makes
  * the pin an output for a TPM that cannot run, and CAPS advertises none. */
@@ -35,22 +38,22 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
 const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 0  GPIO2_IO00 */ { TFW_PB(1u, 0u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 1  GPIO2_IO01 */ { TFW_PB(1u, 1u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
-/* 2  GPIO2_IO02 */ { TFW_PB(1u, 2u), TFW_ADC_NONE, BOARD_PWM(0u), TFW_PIN_DIGITAL | BOARD_PIN_PWM },
-/* 3  GPIO2_IO03 */ { TFW_PB(1u, 3u), TFW_ADC_NONE, BOARD_PWM(1u), TFW_PIN_DIGITAL | BOARD_PIN_PWM },
 #if TFW_CM_ADC
 /* The SAR ADC's inputs, ADC only, in the soft:ADC=1 row. Which ADC inputs
  * reach a header is UM12527's, TO CONFIRM: channels 0 and 1 until then. */
-/* 4  ADC_IN0    */ { TFW_PB(TFW_PORT_NONE, 0u), 0u, TFW_PWM_NONE, TFW_PIN_ADC },
-/* 5  ADC_IN1    */ { TFW_PB(TFW_PORT_NONE, 0u), 1u, TFW_PWM_NONE, TFW_PIN_ADC },
+/* 2  ADC_IN0    */ { TFW_PB(TFW_PORT_NONE, 0u), 0u, TFW_PWM_NONE, TFW_PIN_ADC },
+/* 3  ADC_IN1    */ { TFW_PB(TFW_PORT_NONE, 0u), 1u, TFW_PWM_NONE, TFW_PIN_ADC },
 #endif
+/* 2|4 GPIO2_IO02 */ { TFW_PB(1u, 2u), TFW_ADC_NONE, BOARD_PWM(0u), TFW_PIN_DIGITAL | BOARD_PIN_PWM },
+/* 3|5 GPIO2_IO03 */ { TFW_PB(1u, 3u), TFW_ADC_NONE, BOARD_PWM(1u), TFW_PIN_DIGITAL | BOARD_PIN_PWM },
 };
 
 #if TFW_PWM_COUNT
 /* PWM=1 only (profile.mk): channels 0 and 1 of the M7's TPM
  * (src/hal/cortex-m/imx95/hal_pwm.c; the instance is TFW_IMX95_TPM_BASE, zero
- * until imx95-design.md question 17 is answered), on pins 2 and 3. PROVISIONAL
- * as the pins above: which pads carry a TPM channel to UM12527's expansion
- * header, and the System Manager's mux for them, are TO CONFIRM. */
+ * until imx95-design.md question 17 is answered), on the two PWM pins above.
+ * PROVISIONAL as the pins above: which pads carry a TPM channel to UM12527's
+ * expansion header, and the System Manager's mux for them, are TO CONFIRM. */
 const tfw_pwm_desc_t tfw_board_pwms[TFW_PWM_COUNT] TFW_PROGMEM = {
     /* unit channel port bit */
     { 0u, 0u, 1u, 2u },   /* 0: TPM CH0, GPIO2_IO02 */

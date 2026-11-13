@@ -488,8 +488,9 @@ PWM (#22) is built and host-tested, not run: `src/hal/cortex-m/imx95/hal_pwm.c`
 drives edge-aligned PWM at 1 kHz on a TPM channel (`tpm.h`: the layout from
 Linux v6.12 `drivers/pwm/pwm-imx-tpm.c`, the six instances' bases from Linux
 v6.12 `imx95.dtsi`, `docs/reference/`), polled, with no pin mux and no clock
-set (the System Manager's). Only the `soft:PWM=1` row builds it, with pins 2
-and 3 (GPIO2_IO02, GPIO2_IO03, PROVISIONAL) on channels 0 and 1. Its tests
+set (the System Manager's). Only the `soft:PWM=1` row builds it, with
+GPIO2_IO02 and GPIO2_IO03 (PROVISIONAL) on channels 0 and 1: pins 2 and 3, or
+4 and 5 in the `soft:ADC=1` row, after the ADC inputs' pins 2 and 3. Its tests
 (`test/unit/test_imx95_tpm.c`) run against a TPM model of the test file's
 own. Which TPM is the M7's is question 17, so `TFW_IMX95_TPM_BASE` is zero and
 every PWM call answers `TFW_ERR_UNSUPPORTED`, touching no register; the TPM's

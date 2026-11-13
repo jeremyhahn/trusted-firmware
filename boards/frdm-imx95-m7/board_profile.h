@@ -23,15 +23,19 @@
 #define TFW_BOARD_ID   0x41u   /* provisional */
 
 /* The SAR ADC is built only in the soft:ADC=1 row (profile.mk): -DTFW_CM_ADC=1
- * appends the analog pins after the four GPIO pins and names the channels. */
+ * appends the analog pins after the two GPIO pins and names the channels. */
 #ifndef TFW_CM_ADC
 #define TFW_CM_ADC 0
 #endif
 
+/* The two GPIO pins that carry the TPM's PWM channels (board.c), after
+ * every pin above, so they add to TFW_PIN_COUNT by their own term. */
+#define TFW_GPIO_PWM_PINS 2u
+
 #if TFW_CM_ADC
-#define TFW_PIN_COUNT  6u
+#define TFW_PIN_COUNT  (4u + TFW_GPIO_PWM_PINS)
 #else
-#define TFW_PIN_COUNT  4u
+#define TFW_PIN_COUNT  (2u + TFW_GPIO_PWM_PINS)
 #endif
 #define TFW_PORT_COUNT 5u      /* GPIO1 to GPIO5 */
 #ifdef TFW_CM_PWM

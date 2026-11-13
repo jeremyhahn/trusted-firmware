@@ -779,6 +779,12 @@ $(HOST_DIR)/test_board_frdm-imx95-m7_adc: test/unit/test_board_frdm-imx95-m7.c \
 	@$(HOST_CC) -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
 	    -DTFW_CM_ADC=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# ADC=1 and PWM=1 together, with the stand-in TPM base: the ADC inputs keep
+# pins 2 and 3 and the PWM pins come after them, as pins 4 and 5.
+$(HOST_DIR)/test_board_frdm-imx95-m7_adc_pwm_base: $(HOST_IMX95_BOARD_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) -DTFW_CM_ADC=1 -DTFW_IMX95_TPM_BASE=0x10000000uL \
+	  $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The SCMI messages the M7 sends the System Manager: scmi.c has no register
 # access and is linked alone, as soc_calc.c is.
 $(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/scmi.c \
@@ -1288,6 +1294,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_imx95_hsm_intake \
                     $(HOST_DIR)/test_imx95_tpm \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
+                    $(HOST_DIR)/test_board_frdm-imx95-m7_adc_pwm_base \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
                     $(HOST_DIR)/test_optee_ta \
                     $(HOST_DIR)/test_tier_atecc608a_mutate \

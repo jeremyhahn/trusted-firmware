@@ -2489,6 +2489,18 @@ $(HOST_DIR)/test_board_nrf54l15_i2c1: $(NRF54L15_BOARD_TEST_SRCS) | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/nrf54l15-dk -DTFW_TEST_BOARD_CAPS=1 -DTFW_CM_I2C=1 \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(NRF54L15_BOARD_TEST_SRCS) $(EXTRA_LDFLAGS)
 
+# Its EEPROM over a model of its RRAM: test/model/cortex-m/ ahead on the
+# include path, so TFW_CM_REG reaches the suite's RRAMC words, and the window
+# mapped at the DK's own address. The suite includes hal_eeprom.c itself, after
+# naming the RRAM stores. It stays in TEST_SRCS; this explicit rule takes the
+# place of the pattern rule.
+$(HOST_DIR)/test_nrf54l_eeprom: test/unit/test_nrf54l_eeprom.c src/hal/cortex-m/nrf54l/hal_eeprom.c \
+                                src/hal/cortex-m/nrf54l/rram_write.h src/hal/cortex-m/nrf54l/soc_tables.c \
+                                src/hal/cortex-m/hal_nvm.c src/proto/crc16.c src/proto/crc16_update.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m -Isrc/hal/cortex-m/nrf54l -Iboards/nrf54l15-dk $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ $(filter-out %/hal_eeprom.c %.h,$^) $(EXTRA_LDFLAGS)
+
 # The reset causes of the stm32h5, rp2350 and mcxn94x SoCs, the same way:
 # each soc_reset.c reads its registers through pointers the caller names.
 $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/stm32h5/soc_reset.c \

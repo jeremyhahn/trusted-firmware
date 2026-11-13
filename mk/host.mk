@@ -162,6 +162,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_mcxn_pwm_cmd.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
+                            test/unit/test_imx95_adc.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_imx95_hsm_intake.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
@@ -715,6 +716,28 @@ $(HOST_DIR)/test_imx95_hal: test/unit/test_imx95_hal.c test/model/imx95_model.c 
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The i.MX 95 M7's SAR ADC (the soft:ADC=1 row) against the register model in
+# the test file itself, which supplies tfw_imx95_model_reg for the block alone
+# (test/model/imx95_model.c is not linked). Twice: with a block, and with the
+# board's base left zero, where no register may be touched.
+$(HOST_DIR)/test_imx95_adc: test/unit/test_imx95_adc.c src/hal/cortex-m/imx95/hal_adc.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) -DTFW_CM_ADC=1 -DTFW_IMX95_ADC_BASE=0x40AD0000uL \
+	    $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_imx95_adc_nobase: test/unit/test_imx95_adc.c src/hal/cortex-m/imx95/hal_adc.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) -DTFW_CM_ADC=1 -DTFW_IMX95_ADC_BASE=0uL \
+	    $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The board's descriptor test in the soft:ADC=1 row, which board-sweep (the
+# default profile) never builds: the real pin table and lookup, with what
+# profile.mk's BOARD_DEFS carries for ADC=1, so the analog pins' channels run.
+$(HOST_DIR)/test_board_frdm-imx95-m7_adc: test/unit/test_board_frdm-imx95-m7.c \
+                        src/core/board_lookup.c boards/frdm-imx95-m7/board.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
+	    -DTFW_CM_ADC=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The SCMI messages the M7 sends the System Manager: scmi.c has no register
 # access and is linked alone, as soc_calc.c is.
 $(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/scmi.c \
@@ -1219,6 +1242,8 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_mcxn_pwm_cmd \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
+                    $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
+                    $(HOST_DIR)/test_board_frdm-imx95-m7_adc \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
@@ -2387,6 +2412,17 @@ $(HOST_DIR)/test_nrf54l_soc_tables: test/unit/test_nrf54l_soc_tables.c src/hal/c
                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its SAADC (#17): the test includes hal_adc.c with TFW_CM_REG sent to a
+# register model of the SAADC (test/model/cortex-m/nrf54l_saadc_model.h, whose
+# guard keeps the real cm_regs.h out), and builds against the DK's board
+# profile (its TFW_ADC_COUNT) in place of the host board's. The included
+# hal_adc.c reaches $^ through the header dependencies once an edit to it
+# makes them count; it is filtered out, or it would be linked twice.
+$(HOST_DIR)/test_nrf54l_saadc: test/unit/test_nrf54l_saadc.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/nrf54l15-dk \
+	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -o $@ $(filter-out %/hal_adc.c,$^) $(EXTRA_LDFLAGS)
+
 # Its tone (the nrf54l15 row): the TIMER arithmetic in tone_calc.h, and
 # hal_tone.c, unchanged, against the register model the test file supplies
 # behind test/model/cortex-m/cm_regs.h, compiled as test_imx95_hal is.
@@ -2414,7 +2450,9 @@ $(HOST_DIR)/test_nrf54l_twim: test/unit/test_nrf54l_twim.c src/hal/cortex-m/nrf5
 # The nRF54L15 DK's descriptor test with the GPIO and scheduler commands over
 # its board table, once per I2C row (profile.mk's I2C=0 and I2C=1): SCL and
 # SDA, pins 1 and 6, are refused only when the image links the bus. Its board
-# directory comes ahead of HOST_CFLAGS' so board_profile.h is the DK's.
+# directory comes ahead of HOST_CFLAGS' so board_profile.h is the DK's. The
+# link takes the list, not $^: the test #includes src/caps/analog.c, which the
+# .d file would add to $^ a second time.
 NRF54L15_BOARD_TEST_SRCS := test/unit/test_board_nrf54l15-dk.c src/caps/gpio.c src/caps/sched.c \
                             src/core/reader.c src/core/writer.c \
                             src/core/board_lookup.c boards/nrf54l15-dk/board.c \
@@ -2422,11 +2460,11 @@ NRF54L15_BOARD_TEST_SRCS := test/unit/test_board_nrf54l15-dk.c src/caps/gpio.c s
 
 $(HOST_DIR)/test_board_nrf54l15_i2c0: $(NRF54L15_BOARD_TEST_SRCS) | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/nrf54l15-dk -DTFW_TEST_BOARD_CAPS=1 \
-	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(NRF54L15_BOARD_TEST_SRCS) $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_board_nrf54l15_i2c1: $(NRF54L15_BOARD_TEST_SRCS) | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/nrf54l15-dk -DTFW_TEST_BOARD_CAPS=1 -DTFW_CM_I2C=1 \
-	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(NRF54L15_BOARD_TEST_SRCS) $(EXTRA_LDFLAGS)
 
 # The reset causes of the stm32h5, rp2350 and mcxn94x SoCs, the same way:
 # each soc_reset.c reads its registers through pointers the caller names.

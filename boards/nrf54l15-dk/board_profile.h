@@ -32,7 +32,14 @@
 #define TFW_TONE_PIN        1u
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  1
+/* I2C on TWIM21 (src/hal/cortex-m/nrf54l/hal_bus.c), SDA P1.8 and SCL P1.10,
+ * only in the I2C=1 row (profile.mk): the element tiers' measurement. Those
+ * pins are also BTN2 and LED1 in board.c; the bus takes them while it runs. */
+#if defined(TFW_CM_I2C)
+#define TFW_FEATURE_I2C     1
+#else
 #define TFW_FEATURE_I2C     0
+#endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
 

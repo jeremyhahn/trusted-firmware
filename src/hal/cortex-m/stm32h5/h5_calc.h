@@ -3,7 +3,8 @@
 /*
  * The arithmetic the STM32H5 files do before they touch a register: the
  * USART's divisor, the flash wait states a clock needs, the watchdog's
- * prescaler and reload, and the two- and four-bit fields of a GPIO bank.
+ * prescaler and reload, the two- and four-bit fields of a GPIO bank, and
+ * the ADC's sample-time fields, clock divider and waits.
  *
  * Pure functions of their arguments, with no register and no global, so the
  * host build tests them (test/unit/test_stm32h5_calc.c) and both images
@@ -105,6 +106,97 @@ static inline uint32_t tfw_h5_field4(uint32_t reg, uint8_t pin, uint32_t af)
     uint32_t shift = 4u * ((uint32_t)pin & 7u);
 
     return (reg & ~(0xFu << shift)) | ((af & 0xFu) << shift);
+}
+
+/* `reg`, a sample-time register, with channel `ch`'s three-bit field set to
+ * `smp`: SMPR1 holds channels 0-9 and SMPR2 10-19, so the field is the
+ * channel's index within its ten. */
+static inline uint32_t tfw_h5_adc_smpr(uint32_t reg, uint8_t ch, uint32_t smp)
+{
+    uint32_t shift = 3u * ((uint32_t)ch % 10u);
+
+    return (reg & ~(0x7u << shift)) | ((smp & 0x7u) << shift);
+}
+
+/* The ADC clock divider: the kernel clock (HCLK) over 2, PRESC code 1
+ * (stm32h5xx_ll_adc.h LL_ADC_CLOCK_ASYNC_DIV2). The ADC's highest clock is
+ * the datasheet's, not retrieved, so the slower clock is the one taken. */
+#define TFW_H5_ADC_PRESC_CODE 1u
+#define TFW_H5_ADC_CLK_DIV    2u
+
+/* Busy-wait spins for `us` microseconds at `cpu_hz`: one core cycle a spin
+ * at the least, so the wait is never shorter than asked. */
+static inline uint32_t tfw_h5_spins_us(uint32_t cpu_hz, uint32_t us)
+{
+    return (cpu_hz / 1000000u) * us;
+}
+
+/* The waits the ADC bring-up takes (stm32h5xx_ll_adc.h): the regulator's
+ * start-up, LL_ADC_DELAY_INTERNAL_REGUL_STAB_US, and the ADC clock cycles
+ * between calibration's end and ADEN, LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES,
+ * in core cycles at the divider above. The bound on every poll (calibration,
+ * ADRDY, EOC) is 10 ms, past any of them: the calibration's length is
+ * RM0481's, not retrieved, so the longer bound is the one taken. */
+#define TFW_H5_ADC_REGUL_US      20u
+#define TFW_H5_ADC_CAL_EN_CYCLES 4u
+#define TFW_H5_ADC_POLL_US       10000u
+
+static inline uint32_t tfw_h5_adc_cal_en_spins(void)
+{
+    return TFW_H5_ADC_CAL_EN_CYCLES * TFW_H5_ADC_CLK_DIV;
+}
+
+/* PWM on a general-purpose timer (hal_pwm.c): the counter runs 0 to ARR 254,
+ * 255 steps, so duty 0 is CCR 0 (never high) and duty 255 is CCR 255, past
+ * ARR (always high, PWM mode 1). The prescaler divides the timer's clock to
+ * 255 kHz, the nearest a 16-bit PSC reaches, for about 1 kHz: what the AVR's
+ * analogWrite and the ESP32's LEDC give. */
+#define TFW_H5_PWM_ARR    254u
+#define TFW_H5_PWM_HZ     1000u
+#define TFW_H5_PWM_STEPS  (TFW_H5_PWM_ARR + 1u)
+
+/* The PSC for about TFW_H5_PWM_HZ from `timer_hz`: the divider rounded to the
+ * nearest, held to 1 to 0x10000, less one (the timer divides by PSC + 1). */
+static inline uint16_t tfw_h5_pwm_psc(uint32_t timer_hz)
+{
+    const uint32_t tick = TFW_H5_PWM_STEPS * TFW_H5_PWM_HZ;
+    uint32_t div = (uint32_t)(((uint64_t)timer_hz + tick / 2u) / tick);
+
+    if (div == 0u) {
+        div = 1u;
+    }
+    if (div > 0x10000u) {
+        div = 0x10000u;
+    }
+    return (uint16_t)(div - 1u);
+}
+
+/* `reg`, CCMR1 (channels 1 and 2) or CCMR2 (3 and 4), with `channel`'s
+ * output-compare half set to output (CCxS 00), preload on (OCxPE, bit 3 of
+ * the half) and PWM mode 1 (OCxM 0110 at bits 6:4, OCxM_3 at bit 16 of
+ * the register for the first channel, 24 for the second), the other half
+ * kept. CMSIS TIM_CCMR1_OC1PE_Pos 3, OC1M_Pos 4, OC1M_3 0x00010000,
+ * OC2PE_Pos 11, OC2M_Pos 12. */
+#define TFW_H5_TIM_OCM_PWM1 0x6u
+
+static inline uint32_t tfw_h5_pwm_ccmr(uint32_t reg, uint8_t channel)
+{
+    uint32_t shift = 8u * (((uint32_t)channel - 1u) & 1u);
+    uint32_t mask  = (0xFFu << shift) | (0x1u << (16u + shift));
+    uint32_t value = ((TFW_H5_TIM_OCM_PWM1 << 4) | (0x1u << 3)) << shift;
+
+    return (reg & ~mask) | value;
+}
+
+/* `reg`, CCER, with `channel`'s output enabled (CCxE) or disabled, active
+ * high (CCxP clear), the other channels kept: four bits a channel from
+ * CC1E at 0 (CMSIS TIM_CCER_CC1E_Pos 0, CC2E_Pos 4). */
+static inline uint32_t tfw_h5_pwm_ccer(uint32_t reg, uint8_t channel, uint8_t on)
+{
+    uint32_t shift = 4u * (((uint32_t)channel - 1u) & 3u);
+
+    reg &= ~(0x3u << shift);
+    return on ? (reg | (0x1u << shift)) : reg;
 }
 
 #endif /* TFW_CM_STM32H5_CALC_H */

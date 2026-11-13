@@ -22,16 +22,36 @@
 #define TFW_BOARD_NAME "frdm-imx95-m7"
 #define TFW_BOARD_ID   0x41u   /* provisional */
 
+/* The SAR ADC is built only in the soft:ADC=1 row (profile.mk): -DTFW_CM_ADC=1
+ * appends the analog pins after the two GPIO pins and names the channels. */
+#ifndef TFW_CM_ADC
+#define TFW_CM_ADC 0
+#endif
+
+#if TFW_CM_ADC
+#define TFW_PIN_COUNT  4u
+#else
 #define TFW_PIN_COUNT  2u
+#endif
 #define TFW_PORT_COUNT 5u      /* GPIO1 to GPIO5 */
 #define TFW_PWM_COUNT  0u
+#if TFW_CM_ADC
+#define TFW_ADC_COUNT  2u      /* channels 0 and 1, the analog pins' */
+#else
 #define TFW_ADC_COUNT  0u
+#endif
 #define TFW_EEPROM_SIZE 0u
 
+#if TFW_CM_ADC
+#define TFW_FEATURE_ANALOG  1
+#else
 #define TFW_FEATURE_ANALOG  0
+#endif
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
-#define TFW_FEATURE_PULSE   0
+/* PULSE_IN and PULSE_CAPTURE: src/hal/cortex-m/hal_pulse.c, counting SysTick
+ * on the processor clock (TFW_CM_CPU_HZ below) across its reloads. */
+#define TFW_FEATURE_PULSE   1
 #define TFW_FEATURE_EEPROM  0
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0
@@ -77,6 +97,16 @@
 #define TFW_IMX95_SCMI_SHM_BASE  0x00000000uL   /* the shared memory area's base */
 #define TFW_IMX95_SCMI_SHM_LEN   0u             /* its length in bytes */
 #define TFW_IMX95_SCMI_DOORBELL  0u             /* the MU GCR bit */
+
+/* The SAR ADC instance the System Manager gives the M7 (src/hal/cortex-m/
+ * imx95/sar_adc.h), open as design questions 13 and 17 are. TO CONFIRM
+ * against IMX95RM and the pinned MIMX9596_cm7.h or imx95.dtsi
+ * (docs/reference/README.md); no pinned source is held yet, so it stays zero,
+ * which means unsupported: init succeeds, every read answers
+ * TFW_ERR_UNSUPPORTED, and no register is touched. */
+#ifndef TFW_IMX95_ADC_BASE
+#define TFW_IMX95_ADC_BASE       0x00000000uL   /* the SAR ADC's base */
+#endif
 #define TFW_IMX95_HSM_PHY_RESET  0u             /* A1: the PHYs' reset domain */
 #define TFW_IMX95_HSM_PHY_POWER  0u             /* A1: the PHYs' power domain */
 #define TFW_IMX95_HSM_A55_POWER  0u             /* A2: the A55's power domain */

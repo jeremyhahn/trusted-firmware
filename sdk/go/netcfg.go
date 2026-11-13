@@ -12,7 +12,7 @@ import (
 	"net/netip"
 )
 
-// The network block, [0x140, 0x160) on the device -- include/tfw/eth.h's -- include/tfw/eth.h's
+// The network block, [0x140, 0x160) on the device -- include/tfw/eth.h's
 // TFW_NETCFG_* is the wire contract this mirrors, and src/net/netcfg.c's
 // tfw_netcfg_decode is the same layout on the firmware's side of it. It sits
 // at the first host-writable address, so it is written with EEPROM_WRITE over

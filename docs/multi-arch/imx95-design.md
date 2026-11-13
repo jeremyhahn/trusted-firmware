@@ -132,7 +132,7 @@ has gained since (`tfw_hal_flash_read`, the watchdog).
 | `tfw_hal_delay_us` | core | busy-poll of SysTick `VAL`, for bus bit-banging only | ref ADR d4 |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | the LPUART the System Manager gives the M7; on the board, one of the four CH9114F channels on J22, whose core mapping is not fixed | UM12527 §2.19; question 13 |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | RGPIO; pin mux from the System Manager | ref ADR d4 |
-| `tfw_hal_adc_init`, `_set_ref`, `_read` | — | not linked in the first slices | — |
+| `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | the 12-bit SAR ADC (`sar_adc.h`), polled, in the `soft:ADC=1` row only: calibrated once at init, one-shot normal conversion per read, reference VCC only; base `TFW_IMX95_ADC_BASE` zero (unsupported) until a pinned source gives it. Built and host-tested on a register model, not run | Linux `imx93_adc.c`; questions 13 and 17 |
 | `tfw_hal_pwm_write`, `_stop`; `tfw_hal_tone_start`, `_stop` | — | not linked in the first slices (TPM later) | IMX95CEC Figure 3 |
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | — | not linked | — |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | ref ADR d4 |
@@ -474,6 +474,14 @@ Its UART, pins and watchdog run on the host against a register model
 (`test/model/imx95_model.c`, through `test/unit/test_imx95_hal.c`): the model
 pins the register layouts soc_regs.h states, so it proves the code agrees with
 them, not that they are the silicon's (section 9.4).
+Its SAR ADC, in the `soft:ADC=1` row, runs the same way against the register
+model in `test/unit/test_imx95_adc.c`; its register layout is NXP's i.MX 95
+device header `PERI_ADC.h`, cross-checked against Linux
+`drivers/iio/adc/imx93_adc.c` at v6.12, both pinned in
+[`../reference/README.md`](../reference/README.md) (IMX95RM is not held, so the
+header is the authority). The base is zero (unsupported) until a pinned source
+gives the M7's instance, so the firmware's analog read answers unsupported on
+the board.
 It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
 message layer and one command (section 9.7), and no key store, session or
 attestation over it.
@@ -978,6 +986,7 @@ links it in CI on Arm's toolchain; nothing runs on the board yet.
 | The TCM map at the M7's addresses, the 512-byte vector alignment | built | `mk/arch/cortex-m/imx95.ld`, `boards/frdm-imx95-m7/profile.mk` | `firmware-matrix` (CI); `imx95.ld`'s asserts |
 | The LPUART divisor search and the RGPIO bank table | done | `src/hal/cortex-m/imx95/soc_calc.c` | `test/unit/test_imx95_soc_calc.c` |
 | LPUART3, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
+| Pulse timing, PULSE_IN and PULSE_CAPTURE | built, not yet run on the board | `src/hal/cortex-m/hal_pulse.c`, the one Cortex-M pulse timer, on `TFW_FEATURE_PULSE 1` in `boards/frdm-imx95-m7/board_profile.h`: the pin's level as `tfw_hal_gpio_read` reads it (RGPIO PDIR), the time on SysTick at the processor clock, 800 MHz. SysTick reloads every 1 ms (`TFW_CM_TICK_RELOAD`; the 24-bit counter alone would wrap every 21 ms), and `hal_pulse.c` counts across the reloads | `test/unit/test_cm_pulse.c` (the timer on its model, `test/model/cortex-m/cm_pulse_model.h`) |
 | The remoteproc resource table | met | `src/hal/cortex-m/imx95/rsc_table.c`, `mk/arch/cortex-m/image.ld` | `test/unit/test_imx95_rsc_table.c`; as Linux's loader parses it: `test_linux_takes_the_images_table`, `test_the_parser_reads_a_carveout_and_a_vdev`, the mutation `test_a_corrupted_field_is_refused` |
 | The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has no `imx95/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |
 | The board in the board sweeps: its part, its registry row, its Go name | done | `scripts/board-check.py` (`mimx9596-m7`), `../boards/board-id-registry.md`, `sdk/go/boardid.go` | `scripts/test_board_check.py`, `sdk/go/boardid_test.go`, `make board-sweep` |

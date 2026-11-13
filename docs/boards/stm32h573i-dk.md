@@ -60,6 +60,7 @@ What `boards/stm32h573i-dk/` and `src/hal/cortex-m/stm32h5/` set, and why.
 | Watchdog | the IWDG on the LSI, 32 kHz typical, a 4 s period (prescaler /32, reload 3999). It cannot be stopped once started, so an image's reset handler pets it rather than disarming it | HAL: `stm32h5xx_hal_conf_template.h` (`LSI_VALUE`); the LSI's spread and the IWDG's state across a system reset are **not confirmed** against RM0481 |
 | Writing the board | STM32CubeProgrammer CLI (`STM32_Programmer_CLI`, ST UM2237) over the STLINK-V3EC. `make board-record BOARD=stm32h573i-dk CM_PROBE_SERIAL=<serial>` reads the whole 2 MB flash at `0x08000000` and the option bytes (`-ob displ`); `make flash` and `make boot-flash` refuse until that record exists; `make board-restore` with `BOARD_RESTORE_IMAGE=build/records/<record>.flash.bin` writes it back and compares. No option-byte write, RDP or TrustZone change, ever. Not yet run on the board. Steps: [`../cortex-m/README.md`](../cortex-m/README.md) | `mk/arch/cortex-m.mk`, `boards/stm32h573i-dk/profile.mk` |
 | tfw-boot's flash writes | **driven, not yet run on the board**: tfw-boot writes the slot and the platform block through the flash interface's Non-secure registers. It unlocks with `FLASH_KEY1` then `FLASH_KEY2` in NSKEYR. It programs a quad-word (16 bytes) at a time with PG. It erases one 8 KiB sector with SER, SNB and STRT, plus BKSEL for bank 2. It waits on BSY, WBNE and DBNE in NSSR, and clears NSSR's error flags 17 to 23 and EOP through NSCCR. A write that matches the flash is skipped. One whose quad-words are all erased is programmed only. Any other rewrites each 8 KiB sector it touches through a RAM copy. The application has no flash access (`boot/boot_hal.h`). The offsets, bits and keys are **not confirmed** against RM0481 | CMSIS header: `FLASH_TypeDef`, `FLASH_SR_*`, `FLASH_CR_*`, `FLASH_CCR_*`; HAL: `stm32h5xx_hal_flash.h` (`FLASH_KEY1`, `FLASH_KEY2`). The sequences follow the HAL's `FLASH_Program_QuadWord`, `FLASH_Erase_Sector` and `FLASH_WaitForLastOperation`, **not confirmed** at the pinned commit; `boot/hal/cortex-m/stm32h5/h5_flash.c`, tested by `test/unit/boot/test_boot_stm32h5_flash.c` |
+| PWM | **built, not yet run on the board**: TIM5, a general-purpose timer nothing else in the port drives, on the Arduino header's D6 (PH10, TIM5_CH1) and D5 (PH11, TIM5_CH2), alternate function 2. Eight-bit duty at about 1 kHz, as the AVR and the ESP32 give: ARR 254, PSC 250 from 64 MHz (999.9 Hz), PWM mode 1 with preload, so duty 0 is never high and 255 always is. The timer is set up on the first write, not at boot; a channel's pin goes to the timer on that channel's first write, and stop disables the channel and drives the pin low as an output. TIM5's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM5_BASE_NS`, `TIM_TypeDef`, `TIM_CR1_*`, `TIM_EGR_UG`, `TIM_CCMR1_OC1M*`/`OC1PE`/`OC2M`/`OC2PE`, `TIM_CCER_CC1E`/`CC2E`, `RCC_APB1LENR_TIM5EN`; HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_PWM1`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM5`); the pins: ST's board configuration for the kit (STM32_open_pin_data, `PH10 ARD_D6 S_TIM5_CH1`, `PH11 ARD_D5 S_TIM5_CH2`). The timer clock equal to PCLK1 at prescaler 1 is **not confirmed** against RM0481. `src/hal/cortex-m/stm32h5/hal_pwm.c`, `h5_calc.h`, host-tested by `test/unit/test_stm32h5_pwm.c` |
 | Instruction cache | ICACHE is off at reset and tfw-boot does not enable it, so a flash write leaves nothing stale to invalidate | ICACHE off at reset is **not confirmed** against RM0481 |
 
 ## ADC
@@ -70,12 +71,12 @@ is in [`../reference/README.md`](../reference/README.md).
 
 | Pin | Header | MCU pin | ADC1 input | Source |
 |---|---|---|---|---|
-| 4 | A0 | PB0 | INP9 | Connector: `gpio-map`; pin table: `adc1_inp9_pb0` |
-| 5 | A1 | PA4 | INP18 | Connector; pin table: `adc1_inp18_pa4` |
-| 6 | A2 | PA0 | INP0 | Connector; pin table: `adc1_inp0_pa0` |
-| 7 | A3 | PA5 | INP19 | Connector; pin table: `adc1_inp19_pa5` |
-| 8 | A4 | PA6 | INP3 | Connector; pin table: `adc1_inp3_pa6` |
-| 9 | A5 | PF12 | INP6 | Connector; pin table: `adc1_inp6_pf12` |
+| 6 | A0 | PB0 | INP9 | Connector: `gpio-map`; pin table: `adc1_inp9_pb0` |
+| 7 | A1 | PA4 | INP18 | Connector; pin table: `adc1_inp18_pa4` |
+| 8 | A2 | PA0 | INP0 | Connector; pin table: `adc1_inp0_pa0` |
+| 9 | A3 | PA5 | INP19 | Connector; pin table: `adc1_inp19_pa5` |
+| 10 | A4 | PA6 | INP3 | Connector; pin table: `adc1_inp3_pa6` |
+| 11 | A5 | PF12 | INP6 | Connector; pin table: `adc1_inp6_pf12` |
 
 | | | Source |
 |---|---|---|
@@ -93,6 +94,17 @@ RM0481 and DS14053, and on the board: the ADC's highest clock and so the
 divider; the calibration's length and the 10 ms bound; that 640.5 cycles is the
 sample time a header source needs; INP0's OP0 switch; and a known voltage on
 each of A0 to A5 reading as the expected count.
+
+## tfw-boot
+
+One tfw-boot row, `stm32h573i-dk:soft:soft:p256-soft:0:0` of `BOOT_SUPPORTED`
+in `mk/boot.mk`, which `make bootloader-check` builds, in the 32 KiB region at
+the base of flash. Its size, measured by `make bootloader-check` at 48d85486
+with arm-none-eabi-gcc 14.2.1:
+
+```
+tfw-boot stm32h573i-dk flash   8756 / 32768    ram  8516 / 262144 (soft tier, p256-soft)
+```
 
 ## Security facilities
 
@@ -140,6 +152,7 @@ erases a sector once and then programs it page by page.
 
 Nothing here has run on the board. The port's register values are ST's source
 code, not RM0481; the first bench slice reads RM0481 and DS14053 and checks
-the clock, the console, the watchdog, the ADC ("ADC", above) and tfw-boot's flash writes on the board. The rest of the
+the clock, the console, the watchdog, the PWM, the ADC ("ADC", above) and
+tfw-boot's flash writes on the board. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not
 from the documents.

@@ -86,6 +86,8 @@ Each choice is an ADR before any code.
   ADR's question 1, for the owner. CI emulates the generic port on QEMU
   `mps2-an505`. The hardware order is the SE052F, then the i.MX 95 M7, then the
   STM32H5 (ruling 269), whose port waits for [#79](../../../../issues/79).
+  The SE052F's element tier is proposed in
+  [`adr-se052f-onboarding.md`](adr-se052f-onboarding.md).
   On the i.MX 95 the key tier is the EdgeLock secure enclave and AHAB secure
   boot verifies the M7 image ([`imx95-design.md`](imx95-design.md)); whether
   tfw-boot also runs on the M7 is that page's question 19. Trust model and

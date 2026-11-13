@@ -2420,6 +2420,10 @@ $(HOST_DIR)/test_stm32h5_pwm: test/unit/test_stm32h5_pwm.c src/hal/cortex-m/stm3
                               src/core/board_lookup.c boards/stm32h573i-dk/board.c src/core/reader.c \
                               test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# Its byte link (hal_uart.c), on the same register file.
+$(HOST_DIR)/test_stm32h5_uart: test/unit/test_stm32h5_uart.c src/hal/cortex-m/stm32h5/hal_uart.c \
+                               test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)

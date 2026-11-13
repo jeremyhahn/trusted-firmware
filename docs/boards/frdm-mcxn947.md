@@ -162,6 +162,34 @@ config lives on the stack for the call; the buffer is the only static the
 writer owns. Its test runs against a ROM model
 (`boot/hal/cortex-m/mcxn94x/test/test_mcxn_flash.c`).
 
+## EEPROM
+
+The EEPROM command family is built (`TFW_FEATURE_EEPROM 1`,
+`TFW_EEPROM_SIZE 1024`) and **not run on the board**.
+`src/hal/cortex-m/mcxn94x/hal_eeprom.c`, which `hal_src` in `mk/firmware.mk`
+picks over the generic `src/hal/cortex-m/hal_eeprom.c`, keeps the AVR's map:
+
+| Address | Backing | Write |
+|---|---|---|
+| below `TFW_BOOT_EE_LEN` (`0x140`) | the platform window, `TFW_CM_PLATFORM_BASE` | refused (`TFW_ERR_RANGE`), but OTA_CONFIRM's request, stored as the generic file stores it |
+| `TFW_BOOT_EE_LEN` to 1023 | the user sector, `TFW_CM_USER_EE_BASE`, from its own zero | read-modify-write of the sector |
+
+The user sector is the 8 KiB sector directly below the platform block's
+(`board_profile.h` asserts it ends at `TFW_CM_PLATFORM_BASE` and starts past
+the application slot). A write calls tfw-boot's flash helper,
+`boot/hal/cortex-m/mcxn94x/mcxn_flash.c`, linked into the application, with
+interrupts masked: it reads the sector into its buffer, merges, erases and
+programs the whole sector through the ROM driver (the table above), and the
+HAL then reads the bytes back. The helper is given the user sector's end as
+the flash's end, so no write erases the platform sector. A ROM failure or a
+read-back mismatch is `TFW_ERR_INTERNAL` (the wire has no I/O status). A
+power loss mid-write loses the user sector only, as a power loss mid-write
+does on the AVR's EEPROM; the platform block is not touched. The test runs
+against a flash model (`test/unit/test_mcxn94x_eeprom.c`).
+
+How OTA_CONFIRM's request reaches flash is unchanged by this: it is the
+generic file's plain store into the platform window.
+
 ## Not confirmed
 
 The SDK, pinned in [`../reference/README.md`](../reference/README.md), stands
@@ -191,7 +219,15 @@ runs an image:
    without an ECC fault is not in a pinned file, and tfw-boot's
    read-modify-write depends on it as much as the application does: reference
    manual, FMU chapter.
-7. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
+7. **User EEPROM sector: settled in part.** The sector size is the same
+   line 949; that the ROM driver accepts an erase and a program of the sector
+   below the platform block from the application, after tfw-boot has handed
+   over, with the same `flash_init` call tfw-boot makes, is not in a pinned
+   file: reference manual, flash chapter, and a run on the board.
+8. **OTA_CONFIRM's request: open.** It is stored into the platform window
+   with a plain store, as on QEMU; on flash that store does not program the
+   cell. Changing how it reaches flash is outside the EEPROM row.
+9. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
    example's `pin_mux.c`. Which header pins they reach, and whether the board
    fits pull-ups, is not in a pinned file: UM12018, board schematic.
 8. **Default reference pin: open.** `CFG.REFSEL` stays 0, the SDK's default

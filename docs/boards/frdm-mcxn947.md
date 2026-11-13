@@ -120,3 +120,4 @@ runs an image:
    without an ECC fault is not in a pinned file, and tfw-boot's
    read-modify-write depends on it as much as the application does: reference
    manual, FMU chapter.
+| Pulse | `PULSE_IN` and `PULSE_CAPTURE` on any digital pin of the board table: `src/hal/cortex-m/hal_pulse.c` polls the pin's level through `tfw_hal_gpio_read` (the bit in its GPIO bank's `PDIR`) and times the edges on SysTick, which counts the processor clock, `TFW_CM_CPU_HZ`, 12 MHz from FRO12M: the timer's resolution is 1/12 us, and the widths and timeouts are reported in whole microseconds. No pin is reserved for it and no peripheral is claimed. **Built, not yet run on the board** | `src/hal/cortex-m/hal_tick.c` (SysTick `CLKSOURCE`, the processor clock); `src/hal/cortex-m/mcxn94x/hal_soc.c` (FRO12M, `TFW_CM_CPU_HZ` 12 MHz); `src/hal/cortex-m/mcxn94x/hal_gpio.c` (`tfw_hal_gpio_read`) |

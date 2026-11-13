@@ -28,7 +28,9 @@
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     1
 #define TFW_FEATURE_TONE    0
-#define TFW_FEATURE_PULSE   0
+/* Pulse timing: src/hal/cortex-m/hal_pulse.c, counting SysTick on the
+ * processor clock, TFW_CM_CPU_HZ (12 MHz from FRO12M): 1/12 us a count. */
+#define TFW_FEATURE_PULSE   1
 #define TFW_FEATURE_EEPROM  0
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0

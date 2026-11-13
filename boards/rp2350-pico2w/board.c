@@ -13,12 +13,17 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
 };
 
 /* The header GPIOs, in GPIO order. GPIO0-1 (UART0) and GPIO23-25, 29 (the
- * CYW43439) are not pins. */
+ * CYW43439) are not pins. In the I2C=1 row GP4 and GP5 are I2C0's SDA and SCL
+ * (src/hal/cortex-m/rp2350/hal_bus.c) and are taken (PICO2W_PIN_I2C); in the
+ * default row they are plain GPIOs. Taken, GPIO_MODE or a scheduled toggle
+ * cannot hand them back to SIO and cut the bus. */
+#define PICO2W_PIN_I2C ((TFW_FEATURE_I2C) ? TFW_PIN_IN_USE : 0u)
+
 const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 0  GP2  */ { TFW_PB(0u,  2u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 1  GP3  */ { TFW_PB(0u,  3u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
-/* 2  GP4  */ { TFW_PB(0u,  4u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
-/* 3  GP5  */ { TFW_PB(0u,  5u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 2  GP4  */ { TFW_PB(0u,  4u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | PICO2W_PIN_I2C },  /* SDA */
+/* 3  GP5  */ { TFW_PB(0u,  5u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | PICO2W_PIN_I2C },  /* SCL */
 /* 4  GP6  */ { TFW_PB(0u,  6u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 5  GP7  */ { TFW_PB(0u,  7u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 6  GP8  */ { TFW_PB(0u,  8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },

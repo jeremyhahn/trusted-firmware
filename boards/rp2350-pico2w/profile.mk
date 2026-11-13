@@ -78,6 +78,16 @@ BOOT_BUDGET    := 32768
 # 1-4): no element on this board and no OTP write in any lane.
 BOARD_TIERS    := soft
 
+# The I2C master on I2C0, GPIO4 (SDA) and GPIO5 (SCL)
+# (src/hal/cortex-m/rp2350/hal_bus.c), off by default: no element is fitted.
+# I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and links the
+# bus, as on mps2-an505; soft:I2C=1 builds that image so size-check measures
+# it. Built and host-tested (test/unit/test_rp2350_i2c.c), not run on a board.
+I2C               ?= 0
+BOARD_DEFS        = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        := soft:I2C=1
+
 # Written over USB with picotool, the board in BOOTSEL mode, as the onboarding
 # ADR has it: the Pico 2 W has no on-board debug probe. picotool reads and
 # writes the flash and dumps the OTP, which is recorded and never written;

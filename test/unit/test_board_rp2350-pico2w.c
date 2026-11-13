@@ -73,6 +73,23 @@ static void test_a_pin_beyond_the_board_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
 }
 
+/* GP4 (pin 2) and GP5 (pin 3) are I2C0's SDA and SCL in the I2C=1 row: taken,
+ * so GPIO_MODE and PIN_SCHED_SET (src/caps/gpio.c, src/caps/sched.c) refuse
+ * them with TFW_ERR_RESERVED_PIN instead of switching them to SIO. In the
+ * default row, and for every other pin, nothing is taken. */
+static void test_the_i2c_row_takes_sda_and_scl_and_nothing_else(void)
+{
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t taken = (uint8_t)(tfw_board_pin_flags(i) & (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+
+        if ((TFW_FEATURE_I2C) && (i == 2u || i == 3u)) {
+            TEST_ASSERT_EQUAL_HEX8(TFW_PIN_IN_USE, taken);
+        } else {
+            TEST_ASSERT_EQUAL_HEX8(0u, taken);
+        }
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -81,5 +98,6 @@ int main(void)
     RUN_TEST(test_no_pin_is_the_uart_or_the_radio);
     RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
+    RUN_TEST(test_the_i2c_row_takes_sda_and_scl_and_nothing_else);
     return UNITY_END();
 }

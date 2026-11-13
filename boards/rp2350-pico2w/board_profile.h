@@ -29,7 +29,13 @@
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
+/* I2C0 on GPIO4/5 (src/hal/cortex-m/rp2350/hal_bus.c), only in the I2C=1
+ * row: built and host-tested, not run on a board. */
+#if defined(TFW_CM_I2C)
+#define TFW_FEATURE_I2C     1
+#else
 #define TFW_FEATURE_I2C     0
+#endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
 

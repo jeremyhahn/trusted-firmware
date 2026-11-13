@@ -158,7 +158,8 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
                             test/unit/test_none_mutate.c \
                             test/unit/test_noboot_wire.c test/unit/test_noboot_ota.c \
-                            test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c \
+                            test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c test/unit/test_mcxn_ctimer_pwm.c \
+                            test/unit/test_mcxn_pwm_cmd.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
@@ -664,6 +665,25 @@ $(HOST_DIR)/test_pin_coord: test/unit/test_pin_coord.c src/core/board_lookup.c \
 $(HOST_DIR)/test_mcxn_lpuart: test/unit/test_mcxn_lpuart.c src/hal/cortex-m/mcxn94x/lpuart_baud.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MCXN94x CTIMER PWM: the period arithmetic and the match-register
+# sequence on a register model; the SYSCON and pin writes stay in hal_pwm.c.
+$(HOST_DIR)/test_mcxn_ctimer_pwm: test/unit/test_mcxn_ctimer_pwm.c src/hal/cortex-m/mcxn94x/ctimer_pwm.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
+
+# PWM_WRITE through its handler on the FRDM-MCXN947's own pin table and the
+# SoC's HAL files, unchanged, the peripheral window mapped as host memory by
+# the test (#371). The board's profile replaces the host board's, and
+# src/hal/cortex-m/ ahead of test/mock gives the port's own hal_types.h.
+HOST_MCXN_CFLAGS = -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
+                   -Iboards/frdm-mcxn947 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_mcxn_pwm_cmd: test/unit/test_mcxn_pwm_cmd.c src/caps/pwm.c src/core/reader.c \
+                        src/core/board_lookup.c boards/frdm-mcxn947/board.c \
+                        src/hal/cortex-m/mcxn94x/hal_gpio.c src/hal/cortex-m/mcxn94x/hal_pwm.c \
+                        src/hal/cortex-m/mcxn94x/ctimer_pwm.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_MCXN_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the
 # SoC directory's one file with no register access, linked alone, as the M7
@@ -1186,6 +1206,8 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hm
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart \
+                    $(HOST_DIR)/test_mcxn_ctimer_pwm \
+                    $(HOST_DIR)/test_mcxn_pwm_cmd \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
@@ -2391,6 +2413,19 @@ $(HOST_DIR)/test_nrf54l_pwm: test/unit/test_nrf54l_pwm.c test/model/nrf54l_model
 $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/stm32h5/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/stm32h5 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The STM32H5 PWM (hal_pwm.c) and the PWM command over it (src/caps/pwm.c),
+# against the suite's register file: test/model/cortex-m/ ahead of
+# src/hal/cortex-m/ gives the cm_regs.h that sends TFW_CM_REG there, the
+# board's profile and tables replace the host board's. The SoC files are the
+# image's, unchanged.
+HOST_STM32H5_CFLAGS = -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m \
+                      -Iboards/stm32h573i-dk $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_stm32h5_pwm: test/unit/test_stm32h5_pwm.c src/hal/cortex-m/stm32h5/hal_pwm.c \
+                              src/hal/cortex-m/stm32h5/hal_gpio.c src/caps/pwm.c \
+                              src/core/board_lookup.c boards/stm32h573i-dk/board.c src/core/reader.c \
+                              test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_STM32H5_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)

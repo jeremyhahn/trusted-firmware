@@ -39,7 +39,7 @@ Both sources are listed in [`../reference/README.md`](../reference/README.md),
 | Board id | `0x45`, in [`board-id-registry.md`](board-id-registry.md) and `sdk/go/boardid.go` (`BoardNRF54L15DK`) | |
 | MCU | nRF54L15 SoC, QFN48 package, on PCA10156 | [UG], introduction |
 | Core | Arm Cortex-M33, run at 128 MHz (`PLL.FREQ` = `CK128M`, which `SystemInit` sets) | [MDK] `system_nrf54l.c` |
-| Non-volatile memory | 1524 KB of RRAM at `0x00000000`, not flash. The application reads it as memory and never writes it; tfw-boot writes the platform block through the RRAM controller (below) | [Z] `dts/vendor/nordic/nrf54l15.dtsi` (`cpuapp_rram`); [PS], "NVM — Non-volatile memory" |
+| Non-volatile memory | 1524 KB of RRAM at `0x00000000`, not flash. The application reads it as memory and writes only its EEPROM window; tfw-boot writes the platform block; both through the RRAM controller (below) | [Z] `dts/vendor/nordic/nrf54l15.dtsi` (`cpuapp_rram`); [PS], "NVM — Non-volatile memory" |
 | RAM | 256 KB at `0x20000000` | [Z] `dts/vendor/nordic/nrf54l15.dtsi` (`cpuapp_sram`) |
 | Debug probe | SEGGER J-Link OB programmer/debugger on the board, over USB, which also powers the board; a 2x5 SWD Debug In connector and a 20-pin trace footprint. The interface MCU's part number is **not confirmed** | [UG], introduction; "Debugger"; "Debug input and trace" |
 | Console to the host | two UARTs through the J-Link OB's virtual serial ports. The debugger's UART pins are tri-stated until a terminal opens the port and asserts DTR; RTS/CTS are free for other use when hardware flow control is off; the signals pass through analog switches set from the Board Configurator | [UG], introduction; "Virtual serial ports" |
@@ -64,6 +64,7 @@ it again in the toolchain image.
 | Watchdog | WDT30 on the 32.768 kHz clock, 8 s, with `STOPEN` so a later reset can stop it | [MDK] `nrf54l15_types.h` |
 | I2C (`I2C=1` row only) | **built, not run on the board.** TWIM21 (`0x500C7000`; TWIM20 shares UARTE20's base, the console's), master, polled with `INTEN` 0, at 100, 250 or 400 kHz (`FREQUENCY` `K100`/`K250`/`K400`; under 100 kHz is refused). One EasyDMA transfer per part: the write from a RAM copy, the read into the caller's buffer, the repeated START by `SHORTS` `LASTTX_DMA_RX_START`, the STOP by `LASTTX_STOP`/`LASTRX_STOP`, or after an `ERROR` by `TASKS_RESUME` then `TASKS_STOP` as nrfx's driver does. `ERRORSRC` `ANACK`/`DNACK` is `NACK`; no `STOPPED` within 100 ms is `TIMEOUT` after `TASKS_STOP`. SDA P1.8 and SCL P1.10 with the pull-up on, open-drain (`DRIVE1` `D1`): the controller pins of Zephyr's TWIM test for this DK, since the board's own devicetree routes no I2C. They are also BUTTON2 and LED1, which the bus takes while it runs. SPI and 1-Wire refuse with `UNSUPPORTED`. `soft:I2C=1` is a `BOARD_ROWS` entry; host-tested against a TWIM register model (`test/unit/test_nrf54l_twim.c`) | [MDK] `nrf54l15_types.h`, `nrf54l15_global.h`, `nrf54l15_application_peripherals.h`; [Z] `tests/drivers/i2c/i2c_nrfx_twim/boards/nrf54l15dk_nrf54l15_cpuapp.overlay` |
 | Vectors | the core's 96 entries, then IRQs 80-198 in `.vectors.soc`; the linker script asserts the two meet and the table sits on a 1 KB boundary | `mk/arch/cortex-m/nrf54l.ld` |
+| EEPROM | the command family over the platform window, 4096 bytes of RRAM addressed from its own zero (`TFW_EEPROM_SIZE`), with the generic Cortex-M rules: tfw-boot's span refused but for the whole confirm request, a span past the window `TFW_ERR_RANGE`, both checked before `CONFIG.WEN` opens. A read is a load; a write is tfw-boot's RRAMC sequence (`src/hal/cortex-m/nrf54l/hal_eeprom.c`, `rram_write.h`). Host-tested over an RRAM model in which `WEN` gates every store (`test/unit/test_nrf54l_eeprom.c`); built, not run on the board | [MDK] `haly/nrfy_rramc.h`, `nrf54l15_types.h` |
 
 ## Tone (the `nrf54l15` row)
 
@@ -99,7 +100,7 @@ tfw-boot nrf54l15-dk flash   8208 / 32768    ram   328 / 262144 (soft tier, p256
 |---|---|---|
 | Core half | `boot/hal/cortex-m/boot_hal_cortex-m.c`, shared with `mps2-an505`. It range-checks every write and calls the SoC's `tfw_cm_boot_code_write` (`boot/hal/cortex-m/boot_soc.h`) to make it | |
 | Console | UARTE20 on the application's pins and baud table, polled: `INTEN` stays 0. One byte goes each way per EasyDMA transfer. A receive transfer is always armed, and its end event means a byte is waiting. A send waits for `TXDRDY`. Before the jump the receiver is stopped (`RXTO`), and the UARTE and both pins go back to their reset values (`boot/hal/cortex-m/nrf54l/boot_uart.c`) | [MDK] `nrf54l15_types.h` |
-| RRAM writes | `boot/hal/cortex-m/nrf54l/boot_rram.c` follows the vendor's sequence. It sets `CONFIG.WEN` with the write buffer off and waits for `READY`. Before each store it waits for `READYNEXT`, storing a word where the address is aligned and a byte otherwise. Then it puts `CONFIG` back and waits for `READY`. The vendor's waits are unbounded; these are bounded, and a write that times out fails. While `WEN` is set every RRAM byte is writable, so the file refuses any span below tfw-boot's region end or past the RRAM (`tfw_nrf54l_rram_span`, host-tested) | [MDK] `haly/nrfy_rramc.h`, `nrf54l15_types.h` |
+| RRAM writes | `boot/hal/cortex-m/nrf54l/boot_rram.c` follows the vendor's sequence, in `src/hal/cortex-m/nrf54l/rram_write.h`, which the application's EEPROM shares. It sets `CONFIG.WEN` with the write buffer off and waits for `READY`. Before each store it waits for `READYNEXT`, storing a word where the address is aligned and a byte otherwise. Then it puts `CONFIG` back and waits for `READY`. The vendor's waits are unbounded; these are bounded, and a write that times out fails. While `WEN` is set every RRAM byte is writable, so the file refuses any span below tfw-boot's region end or past the RRAM (`tfw_nrf54l_rram_span`, host-tested) | [MDK] `haly/nrfy_rramc.h`, `nrf54l15_types.h` |
 | What it writes | the platform block, rewritten whole when the rollback floor advances. The OTA swap's journal and confirm byte (`boot/boot_swap.c`) and page writes are not on this row, which has no OTA | `boot/boot_store.c` |
 
 ## The reset cause (#17, slice 3)
@@ -181,7 +182,7 @@ In order:
    UICR, APPROTECT or KMU write, no erase, no recover. Steps:
    [`../cortex-m/README.md`](../cortex-m/README.md).
 5. OTA and the store, if the owner wants them on this board: the RRAM write
-   path is already in place for both.
+   path is already in place for both, and the EEPROM command family uses it.
 6. The SAADC on the DK, and PWM. The SAADC driver
    (`src/hal/cortex-m/nrf54l/hal_adc.c`) is written and runs against a
    register model on the host (`test/unit/test_nrf54l_saadc.c`); it has not
@@ -196,7 +197,8 @@ restart reads as unknown), which of `DOG0` and `DOG1` is WDT30, and every value
 above on the board itself. For the RRAM writes in particular, none of these is verified:
 
 - whether the RRAMC's `REGION` permissions, as reset leaves them, let the
-  Secure core write the platform block;
+  Secure core write the platform block (tfw-boot's and the application's
+  EEPROM window alike);
 - what a store with `WEN` clear does (ignored or a fault);
 - how long a write takes against the spin bounds.
 

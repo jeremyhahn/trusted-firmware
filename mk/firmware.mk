@@ -81,7 +81,7 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # entry points. A part with neither (the mps2-an505, #161) defines neither
 # entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
 # compile under -Werror, so the board drops the whole file.
-STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
+STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c $(wildcard $(call hal_src,hal_eeprom.c)))
 # The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
 # the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
 # mk/arch/esp32.mk), so a file the arch lists is left to the arch.
@@ -158,13 +158,20 @@ else ifeq ($(ETH),1)
 LINK_SRCS += src/net/dhcp_none.c
 endif
 
+# hal_eeprom.c is always present, but a SoC may have its own (nrf54l: the
+# window is RRAM, which a plain store does not program). hal_src picks one and
+# the other copy is left out, so no board links two; on every board without a
+# SoC copy this is empty and the link is what it was.
+HAL_EEPROM_OTHER = $(filter-out $(call hal_src,hal_eeprom.c),\
+                     $(wildcard $(HAL_DIR)/hal_eeprom.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/hal_eeprom.c)))
+
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL)
+                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL) $(HAL_EEPROM_OTHER)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -417,7 +424,7 @@ endif
 ifneq ($(filter 1,$(BOOT_AB) $(OTA_NO_PREV)),)
 STAGE_SRCS += src/core/ota_prev_none.c
 else
-STAGE_SRCS += src/core/ota_prev.c $(wildcard $(HAL_DIR)/hal_eeprom.c)
+STAGE_SRCS += src/core/ota_prev.c $(wildcard $(call hal_src,hal_eeprom.c))
 endif
 # OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
 # single-slot board without it could never install what it staged.

@@ -63,6 +63,7 @@ it again in the toolchain image.
 | Console | UARTE20 at the baud rates of the vendor's `BAUDRATE` table (its clock is 16 MHz), 8N1, no flow control, one byte per EasyDMA transfer each way, on IRQ 198 | [MDK] `nrf54l15_types.h`, `nrf54l15_application_peripherals.h` |
 | Watchdog | WDT30 on the 32.768 kHz clock, 8 s, with `STOPEN` so a later reset can stop it | [MDK] `nrf54l15_types.h` |
 | Vectors | the core's 96 entries, then IRQs 80-198 in `.vectors.soc`; the linker script asserts the two meet and the table sits on a 1 KB boundary | `mk/arch/cortex-m/nrf54l.ld` |
+| Pulse | the wire's `PULSE_IN` and `PULSE_CAPTURE` (`TFW_FEATURE_PULSE 1`) through the generic Cortex-M `src/hal/cortex-m/hal_pulse.c`: any table pin, its level as `tfw_hal_gpio_read` reads it (the port's `IN` register, `src/hal/cortex-m/nrf54l/hal_gpio.c`), timed on SysTick at the processor clock, 128 MHz (`TFW_CM_CPU_HZ`). No nRF timer or GPIOTE is used. Built, not yet run on the board | `board_profile.h` |
 
 ## Tone (the `nrf54l15` row)
 

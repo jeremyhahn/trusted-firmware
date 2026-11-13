@@ -29,7 +29,9 @@
 /* LED1, P1.10: the tone's TIMER20, GPIOTE20 and DPPIC20 reach port P1 only
  * (src/hal/cortex-m/nrf54l/hal_tone.c). */
 #define TFW_TONE_PIN        1u
-#define TFW_FEATURE_PULSE   0
+/* Pulse timing on any table pin: src/hal/cortex-m/hal_pulse.c, counting
+ * SysTick on the processor clock, TFW_CM_CPU_HZ (128 MHz). */
+#define TFW_FEATURE_PULSE   1
 #define TFW_FEATURE_EEPROM  0
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0

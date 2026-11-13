@@ -177,7 +177,8 @@ either board.
 - No TF-M, no Non-secure world, no MPU.
 - No secure element on QEMU: mps2-an505's `atecc608a:I2C=1` row is built and
   size-checked, never booted.
-- No PWM, tone, pulse, EEPROM or 1-Wire.
+- No PWM, tone, pulse or 1-Wire. EEPROM is the platform window on the MPS2
+  boards, RAM under QEMU: a write outlives a reset, not the QEMU process.
 - No `make flash`. The boards are emulated, and `make flash` says so and
   exits 1 (`ARCH_CM_NOFLASH`).
 

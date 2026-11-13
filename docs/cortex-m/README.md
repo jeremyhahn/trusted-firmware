@@ -142,7 +142,7 @@ have. The start wait after the reset is the same. `peerBoards` in
 `e2e_firmware_test.go` has a row for each MPS2 board (two LEDs, outputs only,
 and the SPI select as pin 2).
 A row whose family the board lacks would fail, naming it (#7), so the script
-leaves it out of the board's run by name. That covers ADC, PWM, EEPROM, I2C,
+leaves it out of the board's run by name. That covers ADC, PWM, I2C,
 SPI, 1-Wire and pulse, and the alias certificate, operator session and CSR,
 and the OTA and app rows the image has no stager or application for. Every wait is
 bounded, and the script's trap kills QEMU on every exit.
@@ -282,7 +282,7 @@ because they boot the same tier.
 | `Ping`, `PingDeliversTheBootEventWithNoBootWait`, `PingAfterAMalformedBurst`, `Caps`, `Sys`, `Pin`, `Write`, `Timer` | runs | runs |
 | `Analog` | left out: CAPS lacks bit 2 (Analog) | left out: CAPS lacks bit 2 (Analog) |
 | `PWM` | left out: CAPS lacks bit 3 (PWM) | left out: CAPS lacks bit 3 (PWM) |
-| `EEPROM` | left out: CAPS lacks bit 6 (EEPROM) | left out: CAPS lacks bit 6 (EEPROM) |
+| `EEPROM` | runs (bit 6, EEPROM): the platform window, a write and read-back past tfw-boot's span | runs (bit 6, EEPROM) |
 | `I2C`, `I2CConfig` | left out: CAPS lacks bit 7 (I2C) | left out: CAPS lacks bit 7 (I2C) |
 | `SPIConfig` | left out: CAPS lacks bit 8 (SPI) | left out: CAPS lacks bit 8 (SPI) |
 | `OneWireAndPulseIn` | left out: CAPS lacks bits 9 (OneWire) and 5 (Pulse) | left out: CAPS lacks bits 9 (OneWire) and 5 (Pulse) |
@@ -297,7 +297,7 @@ because they boot the same tier.
 | `OTAActivate`, `OTAConfirm` | base image: left out: CAPS lacks bit 14 (AuthSession), and no stager | the same |
 | `AppReportsItsApplication` | left out: no application (APP_INFO `ERR_UNKNOWN_CMD`) | left out: same |
 | `AppIsAnUnknownCommandWithoutAnApplication` | runs | runs |
-| `Refuses{Analog,PWM,Pulse,EEPROM,I2C,SPI,OneWire,TheAuthSession,AttestCSR}ItsCapsLacks` | runs: each family's command `ERR_UNKNOWN_CMD` | runs |
+| `Refuses{Analog,PWM,Pulse,I2C,SPI,OneWire,TheAuthSession,AttestCSR}ItsCapsLacks` | runs: each family's command `ERR_UNKNOWN_CMD` | runs |
 | `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` | staging image: runs (`ERR_AUTH_REQUIRED`) | the same |
 
 **The staging image's OTA rows.** On both boards the wire run boots a

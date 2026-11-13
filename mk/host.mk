@@ -2174,13 +2174,16 @@ $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_at
 TFWSIM_MANIFEST_SRCS := $(filter-out src/core/ota_manifest_none.c,$(TFWSIM_ELEMENT_SRCS)) \
                         src/core/ota_manifest.c
 # The gate's key is the element's image slot, which on a device PROV_* writes;
-# --provision-element seeds it with the TEST image key tools/tfwsim/
-# tier_atecc608a.c derives from a published string (kImageKeySeed).
+# on this binary alone (TFWSIM_IMAGE_KEY), --provision-element seeds it with
+# the TEST image key tools/tfwsim/tier_atecc608a.c derives from a published
+# string (kImageKeySeed). Every other element variant's --provision-element is
+# unchanged.
+TFWSIM_MANIFEST_DEFS := -DTFWSIM_IMAGE_KEY=1
 
 ## tfwsim-manifest: build the element-tier simulator with OTA_ACTIVATE's SUIT manifest gate (OTA_MANIFEST=1)
 tfwsim-manifest: $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX) $(HOST_DIR)/suit-emit
 $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
-	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(TFWSIM_MANIFEST_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -177,4 +178,19 @@ func TestE2EOTAManifestRefusesAnImageWithoutOne(t *testing.T) {
 	cliStage(t, d, manifestImage(t, nil))
 	assert.Equal(t, tfw.StatusErrRange, cliStatus(t, d, "ota-activate", heldSig))
 	assert.NotEqual(t, 4, cliOTAInfo(t, d, "1").State, "a refused image is not PENDING")
+}
+
+// The TEST image key is tfwsim-manifest's alone: every other element variant
+// links the same tier and --provision-element, and none of them carries the
+// seed, so their image slot is left as it was (#396 review).
+func TestE2EOTAManifestImageKeyOnlyInManifestSim(t *testing.T) {
+	manifestBinaries(t)
+	seed := []byte(manifestKeySeed)
+	for _, b := range []simproc.Binary{manifestSim, simproc.Element, simproc.Auto, simproc.Prov} {
+		path, err := simproc.Locate(b)
+		require.NoError(t, err)
+		bin, err := os.ReadFile(path) // #nosec G304 -- path is Locate's answer, a simulator this repo's make target built
+		require.NoError(t, err)
+		assert.Equal(t, b == manifestSim, bytes.Contains(bin, seed), "%s carries the TEST image key seed", b.Name)
+	}
 }

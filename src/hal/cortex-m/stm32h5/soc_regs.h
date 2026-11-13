@@ -129,6 +129,62 @@
 #define TFW_H5_VCP_RX_PIN      10u
 #define TFW_H5_VCP_AF          7u
 
+/* ---- I2C4, APB3PERIPH_BASE_NS + 0x2C00 (I2C4_BASE_NS; APB3PERIPH_BASE_NS is
+ * PERIPH_BASE_NS + 0x04000000). The instance ST's BSP drives on the kit, on
+ * PB8 SCL and PB9 SDA, alternate function 6, open drain with the pull-up on
+ * (stm32h573i_discovery_bus.h BUS_I2C4_*, stm32h573i_discovery_bus.c
+ * I2C4_MspInit; GPIO_AF6_I2C4 in stm32h5xx_hal_gpio_ex.h). The register
+ * offsets are I2C_TypeDef's, the bits the header's I2C_CR1_*, I2C_CR2_*,
+ * I2C_ISR_* and I2C_ICR_*. Its kernel clock is PCLK3 out of reset
+ * (RCC_CCIPR4 I2C4SEL 0, LL_RCC_I2C4_CLKSOURCE_PCLK3 in stm32h5xx_ll_rcc.h),
+ * the 64 MHz HSI undivided (hal_soc.c). */
+#define TFW_H5_I2C4_BASE       0x44002C00u
+#define TFW_H5_I2C_CR1         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x00u)
+#define TFW_H5_I2C_CR2         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x04u)
+#define TFW_H5_I2C_TIMINGR     TFW_CM_REG(TFW_H5_I2C4_BASE + 0x10u)
+#define TFW_H5_I2C_ISR         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x18u)
+#define TFW_H5_I2C_ICR         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x1Cu)
+#define TFW_H5_I2C_RXDR        TFW_CM_REG(TFW_H5_I2C4_BASE + 0x24u)
+#define TFW_H5_I2C_TXDR        TFW_CM_REG(TFW_H5_I2C4_BASE + 0x28u)
+
+#define TFW_H5_RCC_APB3ENR     TFW_CM_REG(TFW_H5_RCC_BASE + 0xA8u)
+#define TFW_H5_RCC_APB3ENR_I2C4EN (0x1u << 8)
+#define TFW_H5_GPIO_OTYPER(b)  TFW_CM_REG((b) + 0x04u)   /* 1: open drain */
+
+#define TFW_H5_I2C_CR1_PE      (0x1u << 0)    /* cleared, the block's software reset */
+#define TFW_H5_I2C_CR2_SADD_POS 0u            /* bits 0-9; a 7-bit address in 1-7 */
+#define TFW_H5_I2C_CR2_RD_WRN  (0x1u << 10)
+#define TFW_H5_I2C_CR2_START   (0x1u << 13)
+#define TFW_H5_I2C_CR2_STOP    (0x1u << 14)
+#define TFW_H5_I2C_CR2_NBYTES_POS 16u         /* bits 16-23 */
+#define TFW_H5_I2C_ISR_TXE     (0x1u << 0)
+#define TFW_H5_I2C_ISR_TXIS    (0x1u << 1)
+#define TFW_H5_I2C_ISR_RXNE    (0x1u << 2)
+#define TFW_H5_I2C_ISR_NACKF   (0x1u << 4)
+#define TFW_H5_I2C_ISR_STOPF   (0x1u << 5)
+#define TFW_H5_I2C_ISR_TC      (0x1u << 6)
+#define TFW_H5_I2C_ISR_BERR    (0x1u << 8)
+#define TFW_H5_I2C_ISR_ARLO    (0x1u << 9)
+#define TFW_H5_I2C_ISR_BUSY    (0x1u << 15)
+#define TFW_H5_I2C_ICR_NACKCF  (0x1u << 4)
+#define TFW_H5_I2C_ICR_STOPCF  (0x1u << 5)
+#define TFW_H5_I2C_ICR_BERRCF  (0x1u << 8)
+#define TFW_H5_I2C_ICR_ARLOCF  (0x1u << 9)
+
+#define TFW_H5_I2C_BANK        1u             /* GPIOB, RCC_AHB2ENR GPIOBEN bit 1 */
+#define TFW_H5_I2C_SCL_PIN     8u
+#define TFW_H5_I2C_SDA_PIN     9u
+#define TFW_H5_I2C_AF          6u
+
+/* TIMINGR (PRESC 31:28, SCLDEL 23:20, SDADEL 19:16, SCLH 15:8, SCLL 7:0) for
+ * a 64 MHz kernel clock, the analog filter on and no digital filter: the
+ * values ST's BSP computes (stm32h573i_discovery_bus.c I2C_GetTiming and its
+ * I2C_Charac table, the same filter settings). Standard mode: PRESC 6,
+ * SCLDEL 7, SDADEL 0, SCLH 39, SCLL 41, a 10.008 us period. Fast mode:
+ * PRESC 1, SCLDEL 10, SDADEL 1, SCLH 22, SCLL 38, a 2.498 us period. */
+#define TFW_H5_I2C_TIMING_100K 0x60702729u
+#define TFW_H5_I2C_TIMING_400K 0x10A11626u
+
 /* ---- ADC1, AHB2PERIPH_BASE_NS + 0x8000 (ADC1_BASE_NS), and the ADC1/ADC2
  * common block at + 0x8300 (ADC12_COMMON_BASE_NS). The offsets are
  * ADC_TypeDef's and ADC_Common_TypeDef's (CCR at 0x300 + 0x08). */

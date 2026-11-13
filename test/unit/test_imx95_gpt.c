@@ -157,14 +157,34 @@ void test_tone_bad_pin_is_refused(void)
     TEST_ASSERT_EQUAL_HEX32(0u, gpt[TFW_IMX95_GPT_CR / 4u]);
 }
 
+/* test_imx95_gpt_nobase: the board's base, zero until question 17 is answered.
+ * Every call answers TFW_ERR_UNSUPPORTED and touches no register: no GPT
+ * word, no pin direction, no NVIC enable. */
+void test_tone_without_a_base_is_unsupported(void)
+{
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_tone_start(&pin, 440u));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_tone_start(&pin, 0u));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_tone_stop());
+    for (unsigned i = 0u; i < sizeof gpt / sizeof gpt[0]; i++) {
+        TEST_ASSERT_EQUAL_HEX32(0u, gpt[i]);
+    }
+    TEST_ASSERT_EQUAL_HEX32(0u, M->gpio[1].pddr);
+    TEST_ASSERT_EQUAL_HEX32(0u, M->nvic.iser[0]);
+    TEST_ASSERT_EQUAL_UINT32(0u, M->unmodelled);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_tone_start_programs_the_gpt);
-    RUN_TEST(test_tone_match_toggles_the_pin);
-    RUN_TEST(test_tone_restart_retunes);
-    RUN_TEST(test_tone_stop_drives_the_pin_low);
-    RUN_TEST(test_tone_bad_pin_is_refused);
+    if (TFW_IMX95_GPT_BASE == 0u) {
+        RUN_TEST(test_tone_without_a_base_is_unsupported);
+    } else {
+        RUN_TEST(test_tone_start_programs_the_gpt);
+        RUN_TEST(test_tone_match_toggles_the_pin);
+        RUN_TEST(test_tone_restart_retunes);
+        RUN_TEST(test_tone_stop_drives_the_pin_low);
+        RUN_TEST(test_tone_bad_pin_is_refused);
+    }
     RUN_TEST(test_gpt_tone_440_compare);
     RUN_TEST(test_gpt_tone_31_hz_floor);
     RUN_TEST(test_gpt_tone_20_khz);

@@ -516,6 +516,19 @@ every PWM call answers `TFW_ERR_UNSUPPORTED`, touching no register; the TPM's
 24 MHz root (`TFW_IMX95_TPM_CLK_HZ`), the pins' pads on UM12527's expansion
 header and the TPM's STATUS and CONF offsets are TO CONFIRM.
 
+Tone (#22) is built and host-tested, not run: `src/hal/cortex-m/imx95/hal_tone.c`
+runs a GPT's output compare 1 in restart mode, and its interrupt toggles the
+tone pin, GPIO2_IO01 (pin 1), through `tfw_hal_gpio_write`. One tone at a time;
+a new start retunes, and zero hertz or a stop drives the pin low. Only the
+`soft:TONE=1` row builds it. The register layout (`gpt.h`) is Linux's
+`drivers/clocksource/timer-imx-gpt.c`, TO CONFIRM against IMX95RM. Which GPT
+is the M7's, its 24 MHz clock and its interrupt (`tfw_cm_irq0`) are question
+17, so `TFW_IMX95_GPT_BASE` is zero and every tone call answers
+`TFW_ERR_UNSUPPORTED`. `test/unit/test_imx95_gpt.c` runs twice:
+`test_imx95_gpt` at a stand-in base, against the register model for the pin
+and NVIC and an array of its own for the GPT; `test_imx95_gpt_nobase` at the
+board's zero base, where no register may be touched.
+
 It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
 message layer and one command (section 9.7), and no key store, session or
 attestation over it.

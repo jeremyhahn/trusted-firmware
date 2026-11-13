@@ -133,7 +133,8 @@ has gained since (`tfw_hal_flash_read`, the watchdog).
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | the LPUART the System Manager gives the M7; on the board, one of the four CH9114F channels on J22, whose core mapping is not fixed | UM12527 §2.19; question 13 |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | RGPIO; pin mux from the System Manager | ref ADR d4 |
 | `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | the 12-bit SAR ADC (`sar_adc.h`), polled, in the `soft:ADC=1` row only: calibrated once at init, one-shot normal conversion per read, reference VCC only; base `TFW_IMX95_ADC_BASE` zero (unsupported) until a pinned source gives it. Built and host-tested on a register model, not run | Linux `imx93_adc.c`; questions 13 and 17 |
-| `tfw_hal_pwm_write`, `_stop`; `tfw_hal_tone_start`, `_stop` | — | not linked in the first slices (TPM later) | IMX95CEC Figure 3 |
+| `tfw_hal_pwm_write`, `_stop` | SoC | a TPM channel, edge-aligned (`hal_pwm.c`, `tpm.h`); `soft:PWM=1` row only; built and host-tested on a register model, not run; base zero until question 17 (section 9.5) | Linux v6.12 `pwm-imx-tpm.c`, `imx95.dtsi`; question 17 |
+| `tfw_hal_tone_start`, `_stop` | — | not linked | IMX95CEC Figure 3 |
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | — | not linked | — |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | ref ADR d4 |
 | `tfw_hal_nvm_read` | SoC | the platform block; where it lives is open | ref ADR Q4; question 6 |
@@ -501,6 +502,19 @@ host-tested, never run on a board.
   zero in `board_profile.h`. At that base `tfw_hal_i2c_init` and
   `tfw_hal_i2c_xfer` answer `TFW_ERR_UNSUPPORTED` and touch no register; the
   test checks that refusal.
+
+PWM (#22) is built and host-tested, not run: `src/hal/cortex-m/imx95/hal_pwm.c`
+drives edge-aligned PWM at 1 kHz on a TPM channel (`tpm.h`: the layout from
+Linux v6.12 `drivers/pwm/pwm-imx-tpm.c`, the six instances' bases from Linux
+v6.12 `imx95.dtsi`, `docs/reference/`), polled, with no pin mux and no clock
+set (the System Manager's). Only the `soft:PWM=1` row builds it, with
+GPIO2_IO02 and GPIO2_IO03 (PROVISIONAL) on channels 0 and 1: pins 2 and 3, or
+4 and 5 in the `soft:ADC=1` row, after the ADC inputs' pins 2 and 3. Its tests
+(`test/unit/test_imx95_tpm.c`) run against a TPM model of the test file's
+own. Which TPM is the M7's is question 17, so `TFW_IMX95_TPM_BASE` is zero and
+every PWM call answers `TFW_ERR_UNSUPPORTED`, touching no register; the TPM's
+24 MHz root (`TFW_IMX95_TPM_CLK_HZ`), the pins' pads on UM12527's expansion
+header and the TPM's STATUS and CONF offsets are TO CONFIRM.
 
 It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
 message layer and one command (section 9.7), and no key store, session or

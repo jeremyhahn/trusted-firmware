@@ -28,13 +28,21 @@
 #define TFW_CM_ADC 0
 #endif
 
+/* The two GPIO pins that carry the TPM's PWM channels (board.c), after
+ * every pin above, so they add to TFW_PIN_COUNT by their own term. */
+#define TFW_GPIO_PWM_PINS 2u
+
 #if TFW_CM_ADC
-#define TFW_PIN_COUNT  4u
+#define TFW_PIN_COUNT  (4u + TFW_GPIO_PWM_PINS)
 #else
-#define TFW_PIN_COUNT  2u
+#define TFW_PIN_COUNT  (2u + TFW_GPIO_PWM_PINS)
 #endif
 #define TFW_PORT_COUNT 5u      /* GPIO1 to GPIO5 */
+#ifdef TFW_CM_PWM
+#define TFW_PWM_COUNT  2u
+#else
 #define TFW_PWM_COUNT  0u
+#endif
 #if TFW_CM_ADC
 #define TFW_ADC_COUNT  2u      /* channels 0 and 1, the analog pins' */
 #else
@@ -47,7 +55,11 @@
 #else
 #define TFW_FEATURE_ANALOG  0
 #endif
+#ifdef TFW_CM_PWM
+#define TFW_FEATURE_PWM     1
+#else
 #define TFW_FEATURE_PWM     0
+#endif
 #define TFW_FEATURE_TONE    0
 /* PULSE_IN and PULSE_CAPTURE: src/hal/cortex-m/hal_pulse.c, counting SysTick
  * on the processor clock (TFW_CM_CPU_HZ below) across its reloads. */
@@ -85,6 +97,20 @@
  * oscillator as the LPUART's (TO CONFIRM: the configuration sets the root). */
 #define TFW_IMX95_LPI2C_BASE    0x00000000uL
 #define TFW_IMX95_LPI2C_CLK_HZ  24000000uL
+
+/* The M7's TPM for PWM (src/hal/cortex-m/imx95/hal_pwm.c, tpm.h). The low-
+ * power domain has two, tpm1 and tpm2 (Linux imx95.dtsi; tpm.h lists every
+ * base), and which one the System Manager gives the M7 is open
+ * (docs/multi-arch/imx95-design.md question 17): zero, unsupported, until it
+ * is known; every PWM call answers TFW_ERR_UNSUPPORTED and touches no
+ * register. Its clock root, the 24 MHz oscillator as LPUART3's, is TO
+ * CONFIRM: the System Manager configuration sets it. No image overrides the
+ * base; mk/host.mk's test_board_frdm-imx95-m7_pwm_base passes a stand-in one
+ * so the board's PWM pin mapping is checked as it will be once it is known. */
+#ifndef TFW_IMX95_TPM_BASE
+#define TFW_IMX95_TPM_BASE    0x00000000uL
+#endif
+#define TFW_IMX95_TPM_CLK_HZ  24000000uL
 
 /* Flash geometry for tfw-boot, as addresses in the M7's ITCM. TFW_FLASH_TOTAL
  * is the ITCM's end (include/tfw/boot.h asserts both regions fit below it and

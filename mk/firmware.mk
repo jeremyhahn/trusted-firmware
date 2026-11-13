@@ -95,7 +95,11 @@ SOC_EEPROM_SRCS_stm32h5 := boot/hal/cortex-m/stm32h5/boot_flash.c boot/hal/corte
 EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
                      $(wildcard $(call hal_src,hal_eeprom.c)) \
                      $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))
-PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c)
+# The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
+# the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
+# mk/arch/esp32.mk), so a file the arch lists is left to the arch.
+PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c \
+                  $(filter-out $(ARCH_HAL_OPTIONAL),$(wildcard $(call hal_src,hal_pulse.c))))
 
 # The three buses, gated as ONE unit because they are one translation unit.
 #
@@ -171,7 +175,7 @@ endif
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
-HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c \
+HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
                   $(d)/hsm_intake.c $(d)/hal_eeprom.c) $(ARCH_HAL_OPTIONAL)
 

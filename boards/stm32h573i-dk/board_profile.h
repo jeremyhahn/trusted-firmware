@@ -32,7 +32,14 @@
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
+/* I2C4 on PB8/PB9 (src/hal/cortex-m/stm32h5/hal_bus.c), on only in the I2C=1
+ * row (profile.mk): built and host-tested against a register model, not yet
+ * run on the kit. */
+#if defined(TFW_CM_I2C)
+#define TFW_FEATURE_I2C     1
+#else
 #define TFW_FEATURE_I2C     0
+#endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
 

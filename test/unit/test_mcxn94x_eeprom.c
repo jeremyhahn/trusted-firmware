@@ -225,6 +225,18 @@ static void test_a_read_back_mismatch_is_an_error(void)
     TEST_ASSERT_EQUAL_HEX8(0x5A, model[USER_OFF + 1u]);
 }
 
+static void test_a_mismatch_outside_the_written_span_is_an_error(void)
+{
+    static const uint8_t kept[] = { 0xA1 };
+    static const uint8_t data[] = { 0x5B, 0x5B, 0x5B };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO + 200u, kept, sizeof kept));
+    corrupt_at = (long)(USER_OFF + 200u);   /* the rewrite loses a stored byte */
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &model[USER_OFF], sizeof data);
+    TEST_ASSERT_EQUAL_HEX8(0xA0, model[USER_OFF + 200u]);
+}
+
 static void test_every_user_byte_written_erases_only_the_user_sector(void)
 {
     uint8_t chunk[255];
@@ -259,6 +271,7 @@ int main(void)
     RUN_TEST(test_the_confirm_request_keeps_the_store_path_and_erases_nothing);
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_a_read_back_mismatch_is_an_error);
+    RUN_TEST(test_a_mismatch_outside_the_written_span_is_an_error);
     RUN_TEST(test_every_user_byte_written_erases_only_the_user_sector);
     return UNITY_END();
 }

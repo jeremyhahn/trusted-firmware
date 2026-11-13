@@ -126,7 +126,7 @@ ci:
 	@$(MAKE) --no-print-directory security
 	@echo "CI gate: green"
 
-.PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test release-alpha
+.PHONY: help version clean verify-vendor ci firmware-attested releasability releasability-test release-alpha in-toolchain-image-test
 
 ## releasability: no private-fleet value in any file that would be published
 # Generic shapes from scripts/releasability.patterns; the internal values are
@@ -139,6 +139,13 @@ releasability:
 # Plants go into throwaway repositories, never into this tree. No skip guard.
 releasability-test:
 	@scripts/releasability-test.sh
+
+## in-toolchain-image-test: scripts/in-toolchain-image.sh caps the stage's CPU bound at the daemon's NCPU
+# A stub docker on PATH; no daemon, no network. `make test` runs it through
+# scripts-test (mk/stages.mk TEST_GATES); the line below adds it there.
+in-toolchain-image-test:
+	@bash scripts/in-toolchain-image-test.sh
+scripts-test: in-toolchain-image-test
 
 ## release-alpha: cut and push the next -alpha tag (vX.Y.Z-alpha and sdk/go/vX.Y.Z-alpha) to dev; DRY_RUN=1 prints them
 # Refuses unless on a clean main equal to dev/main; PATCH only; signed with

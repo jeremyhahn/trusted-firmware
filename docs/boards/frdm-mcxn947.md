@@ -29,6 +29,7 @@ that no pinned file states is written **not confirmed**.
 | LEDs | red P0_10, green P0_27, blue P1_2 | SDK `board.h` (`BOARD_LED_*`) |
 | Buttons | SW2 P0_23, SW3 P0_6 | SDK `board.h` (`BOARD_SW*`) |
 | I2C bus | LPI2C2 on LP_FLEXCOMM2, FRO12M; P4_0 = SDA (FC2_P0), P4_1 = SCL (FC2_P1), pin function 2, open drain, pull-up, input buffer on; PORT4 clocked first. Which board header carries them is **not confirmed** | SDK `lpi2c/polling_b2b/master` `pin_mux.c` lines 136, 147-159, 170-182; device header |
+| PWM | Pin 0, the red LED's P0_10, as CT0_MAT0 (pin function 4, `kPORT_MuxAlt4`): CTIMER0 in PWM mode, match 3 the period (reset on MR3, 255 counts), match 0 the duty as `255 - duty`, PR 46 from FRO12M (clock select 4, divide 1): 8-bit duty at 1001 Hz. The match output is low until the match, so duty 0 (MR0 255, past MR3) never matches and is low, duty 255 (MR0 0) is high all cycle. The LED is active low: a high duty is a dim LED. Configured on first write; a stop returns the pin to a GPIO output at 0 and stops the timer. **Built and host-tested on a register model, not run on the board** | SDK `simple_pwm` `pin_mux.c` lines 51, 82-83, 90-91; device header (`CTIMER_Type`, `CTIMER0_BASE`, `SYSCON` `CTIMERCLKSEL`, `CTIMERCLKDIV`, `CTIMERGLOBALSTARTEN`, `AHBCLKCTRL1`/`PRESETCTRL1` `TIMER0`); `fsl_clock.h` (`kFRO12M_to_CTIMER0`); `fsl_ctimer.c` (`CTIMER_Init`, `CTIMER_SetupPwmPeriod`) |
 
 ## What the port does not do
 
@@ -69,10 +70,16 @@ element.
 
 The boot row is `frdm-mcxn947:soft:soft:p256-soft:0:0` in `mk/boot.mk`
 `BOOT_SUPPORTED`: the software DICE root, the soft store, P-256 signature
-verify, the 32 KB boot region every Cortex-M row uses. Whether the image fits
-its region is measured by `make bootloader-check`, which needs the ARM
-toolchain; the lane that added the row had none, so the fit is **not yet
-measured**.
+verify, the 32 KB boot region every Cortex-M row uses. The fit is
+measured by `make bootloader` for that row (`mk/boot.mk`, `boot-size-check`):
+
+```
+tfw-boot frdm-mcxn947 flash   8492 / 32768    ram  8516 / 319488 (soft tier, p256-soft)
+```
+
+Flash is 8492 of the 32768-byte region, 24276 bytes (74%) of headroom; RAM is
+8516 of 319488 bytes, 310972 bytes of headroom. Measured at commit `48d85486`
+with arm-none-eabi-gcc 14.2.1 20241119 (Arm GNU Toolchain 14.2.Rel1).
 
 **UART.** `boot/hal/cortex-m/mcxn94x/boot_uart.c` drives LPUART4 on the
 application's pins at the same 12 MHz FRO, polled, no interrupt enabled. The

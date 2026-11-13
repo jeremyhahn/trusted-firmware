@@ -167,6 +167,10 @@ def arch_leak_files(root):
     run = subprocess.run(["make", "--no-print-directory", "lint-arch-leak", "ARCH_LEAK_ROOT=" + root],
                          cwd=ROOT, env=make_env(), capture_output=True, text=True)
     files = sorted({l.split(":")[0] for l in run.stdout.splitlines() if l.endswith(": arch-leak (ESP-IDF)")})
+    if run.returncode != 0 and not files:
+        # A failure that names no ESP-IDF file failed for another reason; say which.
+        raise AssertionError("make lint-arch-leak exited %d\n--- stdout\n%s--- stderr\n%s"
+                             % (run.returncode, run.stdout, run.stderr))
     return run.returncode, files
 
 

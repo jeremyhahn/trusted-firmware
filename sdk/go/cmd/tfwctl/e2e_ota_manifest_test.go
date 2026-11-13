@@ -44,16 +44,14 @@ const (
 )
 
 // manifestPeer starts tfwsim-manifest with an operator the test holds the key
-// of and an image slot holding imageKey's public half, and opens the operator
+// of and an image slot holding manifestKey's public half (--provision-element
+// seeds it), and opens the operator
 // session OTA_ACTIVATE needs; nothing is staged yet, so the chained activate
 // is refused BAD_STATE.
-func manifestPeer(t *testing.T, imageKey *ecdsa.PrivateKey) *tfw.Device {
+func manifestPeer(t *testing.T) *tfw.Device {
 	t.Helper()
 	pub, keyPath := writeOperatorKey(t)
-	sec1, err := imageKey.PublicKey.Bytes()
-	require.NoError(t, err)
-	args := append(elementArgs(t, pub, nil), "--image-key", hex.EncodeToString(sec1[1:]))
-	d := tfw.New(simproc.Start(t, manifestSim, args...), tfw.WithTimeout(10*time.Second))
+	d := tfw.New(simproc.Start(t, manifestSim, elementArgs(t, pub, nil)...), tfw.WithTimeout(10*time.Second))
 	requireFeature(t, d, tfw.FeatureAuthSession)
 	serial := hex.EncodeToString(tfwsim.TestSerial[:])
 	require.Equal(t, tfw.StatusErrBadState, cliStatus(t, d, "auth", serial, keyPath, "--", "ota-activate", heldSig), "nothing staged")
@@ -105,16 +103,28 @@ func manifestImage(t *testing.T, env []byte) []byte {
 	return img
 }
 
+// manifestKeySeed is tools/tfwsim/tier_atecc608a.c's kImageKeySeed, the
+// published string --provision-element derives the image slot's TEST key
+// from: manifestKey is that key, SHA-256 of the string re-hashed while it is
+// not a P-256 scalar, as the element model's tfw_model_p256_key derives it.
+const manifestKeySeed = "tfwsim-atecc608a TEST image key v1"
+
+// manifestKey is the private half of the image slot's TEST key.
 func manifestKey(t *testing.T) *ecdsa.PrivateKey {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	return key
+	d := sha256.Sum256([]byte(manifestKeySeed))
+	for {
+		key, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), d[:])
+		if err == nil {
+			return key
+		}
+		d = sha256.Sum256(d[:])
+	}
 }
 
 func TestE2EOTAManifestAcceptsAnImageItNames(t *testing.T) {
 	key := manifestKey(t)
-	d := manifestPeer(t, key)
+	d := manifestPeer(t)
 	img := manifestImage(t, nil)
 	img = manifestImage(t, suitEnvelope(t, key, img[:manifestBody]))
 
@@ -130,7 +140,7 @@ func TestE2EOTAManifestAcceptsAnImageItNames(t *testing.T) {
 // the manifest names is not the staged image's.
 func TestE2EOTAManifestRefusesAnImageItDoesNotName(t *testing.T) {
 	key := manifestKey(t)
-	d := manifestPeer(t, key)
+	d := manifestPeer(t)
 	other := manifestImage(t, nil)[:manifestBody]
 	other[0] ^= 0x01
 
@@ -142,7 +152,7 @@ func TestE2EOTAManifestRefusesAnImageItDoesNotName(t *testing.T) {
 // test_an_image_without_an_envelope_is_refused's status: the length after the
 // body is the erased 0xFFFF, which the padding cannot hold.
 func TestE2EOTAManifestRefusesAnImageWithoutOne(t *testing.T) {
-	d := manifestPeer(t, manifestKey(t))
+	d := manifestPeer(t)
 
 	cliStage(t, d, manifestImage(t, nil))
 	assert.Equal(t, tfw.StatusErrRange, cliStatus(t, d, "ota-activate", heldSig))

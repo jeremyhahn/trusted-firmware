@@ -18,7 +18,9 @@
  *                           --eeprom-bin FILE  --bake-eeprom` writes; or a raw
  *                                              image
  *   provisioned element     --provision-element  the TEST DeviceID key in slot 0 and
- *                                              a TEST UDS, as tfwprov leaves a part
+ *                                              a TEST UDS, as tfwprov leaves a part,
+ *                                              and the TEST image key in the
+ *                                              image slot (kImageKeySeed)
  *   tfw-boot's CDI handoff   --image-hash HEX64 a block built by the SAME
  *                                              builder tfw-boot uses
  *                                              (boot/boot_handoff.c)
@@ -48,12 +50,19 @@
 #include <string.h>
 
 #include "tier.h"
+#include "atecc.h"
 #include "atecc608a_model.h"
 #include "boot_measure.h"
 #include "deviceid_p256.h"
 #include "hal_mock.h"
 #include "sha256.h"
 #include "tfw/types.h"
+
+/* The seed of the image slot's TEST key. PUBLIC ON PURPOSE: the private key
+ * is SHA-256 of these bytes (tfw_model_p256_key), so nothing may ever trust an
+ * image it verifies. sdk/go/cmd/tfwctl/e2e_ota_manifest_test.go derives the
+ * same key from the same string. */
+static const char kImageKeySeed[] = "tfwsim-atecc608a TEST image key v1";
 
 static uint8_t *eeprom_image;          /* NULL until --eeprom/--eeprom-bin */
 static size_t   eeprom_len;
@@ -290,7 +299,14 @@ void tfwsim_tier_seed(void)
     tfw_model_reset();
     tfw_model_set_absent(no_element);
     if (provision_element) {
+        uint8_t image_priv[32], image_pub[64];
+
         tfw_model_provision();
+        /* The key OTA_ACTIVATE's manifest gate verifies against, which PROV_*
+         * writes on a device. A TEST key: its private half is the model's
+         * key from kImageKeySeed, so a test signs with it. */
+        tfw_model_p256_key(kImageKeySeed, image_priv, image_pub);
+        tfw_model_set_stored_pubkey(TFW_ATECC_SLOT_IMAGE, image_pub);
     }
     if (eeprom_image) {
         memcpy(tfw_mock_eeprom(), eeprom_image, eeprom_len);

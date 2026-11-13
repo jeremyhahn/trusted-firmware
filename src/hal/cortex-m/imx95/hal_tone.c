@@ -29,6 +29,9 @@ static volatile uint8_t tone_level;
 
 static void gpt_halt(void)
 {
+    if (TFW_IMX95_GPT_BASE == 0u) {
+        return;
+    }
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_IR) = 0u;
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_CR) = 0u;
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_SR) = TFW_IMX95_GPT_SR_OF1;
@@ -89,6 +92,9 @@ tfw_status_t tfw_hal_tone_stop(void)
 /* Compare 1 matched: half a period has passed. */
 void tfw_cm_irq0(void)
 {
+    if (TFW_IMX95_GPT_BASE == 0u) {
+        return;
+    }
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_SR) = TFW_IMX95_GPT_SR_OF1;
     if (tone_active) {
         tone_level ^= 1u;

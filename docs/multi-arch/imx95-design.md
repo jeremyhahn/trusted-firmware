@@ -139,8 +139,9 @@ has gained since (`tfw_hal_flash_read`, the watchdog).
 | `tfw_hal_nvm_read` | SoC | the platform block; where it lives is open | ref ADR Q4; question 6 |
 | `tfw_hal_flash_read` | SoC | a copy from the running image in TCM (the trailer and SUIT reader read the image through it) | section 2.3 |
 | `tfw_hal_handoff_block` | — | not linked: no tfw-boot, so no handoff | ref ADR d4 |
-| `tfw_hal_i2c_init`, `_xfer`; `tfw_hal_spi_init`, `_xfer` | — | not linked in the first slices (LPI2C, LPSPI later) | ref ADR d4 |
-| `tfw_hal_ow_reset`, `_write`, `_read` | — | not linked | — |
+| `tfw_hal_i2c_init`, `_xfer` | SoC | one LPI2C instance as a polled master (`hal_bus.c`, registers in `lpi2c.h`), built only with `I2C=1` (`profile.mk`, the `soft:I2C=1` row); tested on the host against a register model (section 9.5); while `TFW_IMX95_LPI2C_BASE` is zero every call answers `TFW_ERR_UNSUPPORTED` and touches no register; not yet run on a board | ref ADR d4; questions 13, 17 |
+| `tfw_hal_spi_init`, `_xfer` | SoC | not on this board: `TFW_ERR_UNSUPPORTED` (LPSPI later) | ref ADR d4 |
+| `tfw_hal_ow_reset`, `_write`, `_read` | SoC | not on this board: `TFW_ERR_UNSUPPORTED` | — |
 | `tfw_hal_free_ram` | core | the stack pointer less the end of `.bss` | ref ADR d4 |
 | `tfw_hal_watchdog_arm`, `_pet` | SoC | a watchdog the System Manager assigns the M7 | IMX95CEC Figure 3; question 17 |
 
@@ -482,6 +483,25 @@ device header `PERI_ADC.h`, cross-checked against Linux
 header is the authority). The base is zero (unsupported) until a pinned source
 gives the M7's instance, so the firmware's analog read answers unsupported on
 the board.
+
+I2C is optional: `I2C=1` (`profile.mk`, built by the `soft:I2C=1` row) links
+the LPI2C master in `src/hal/cortex-m/imx95/hal_bus.c`. It is built and
+host-tested, never run on a board.
+
+- `test/unit/test_imx95_lpi2c.c` drives it against a register model of one
+  LPI2C instance: the command and receive FIFOs and the NDF, ALF, FEF, SDF
+  and EPF flags. The model's offsets and bits are written out from Linux's
+  `i2c-imx-lpi2c.c`, TO CONFIRM against IMX95RM.
+- The cases: writes, reads and a write then read on a repeated START; an
+  address NACK and a data NACK, early, on the last byte and seen only with
+  the STOP (`TFW_ERR_NACK`); lost arbitration on a data byte and at the STOP
+  (`TFW_ERR_BUSY`, no STOP of ours queued after ALF); a bus that never moves
+  (`TFW_ERR_TIMEOUT`); and the clock divisor at 24 and 16 MHz.
+- The instance is open (questions 13 and 17), so `TFW_IMX95_LPI2C_BASE` is
+  zero in `board_profile.h`. At that base `tfw_hal_i2c_init` and
+  `tfw_hal_i2c_xfer` answer `TFW_ERR_UNSUPPORTED` and touch no register; the
+  test checks that refusal.
+
 It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
 message layer and one command (section 9.7), and no key store, session or
 attestation over it.

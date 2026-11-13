@@ -53,7 +53,14 @@
  * on the processor clock (TFW_CM_CPU_HZ below) across its reloads. */
 #define TFW_FEATURE_PULSE   1
 #define TFW_FEATURE_EEPROM  0
+/* I2C over one LPI2C instance (src/hal/cortex-m/imx95/hal_bus.c), on only in
+ * the soft:I2C=1 row (profile.mk): built and host-tested, not run on the
+ * board, and the instance's base below is zero until it is known. */
+#if defined(TFW_CM_I2C)
+#define TFW_FEATURE_I2C     1
+#else
 #define TFW_FEATURE_I2C     0
+#endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
 
@@ -69,6 +76,15 @@
 /* LPUART3's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
  * System Manager configuration sets the root). The baud divisor counts it. */
 #define TFW_IMX95_LPUART_CLK_HZ 24000000uL
+
+/* The LPI2C instance the M7's I2C uses (src/hal/cortex-m/imx95/hal_bus.c).
+ * Which one the System Manager gives the M7, and on which pins, is open
+ * (docs/multi-arch/imx95-design.md questions 13 and 17), so the base is zero:
+ * unsupported, every I2C call answers TFW_ERR_UNSUPPORTED and touches no
+ * register. Its functional clock root, which the divisor counts, is the 24 MHz
+ * oscillator as the LPUART's (TO CONFIRM: the configuration sets the root). */
+#define TFW_IMX95_LPI2C_BASE    0x00000000uL
+#define TFW_IMX95_LPI2C_CLK_HZ  24000000uL
 
 /* Flash geometry for tfw-boot, as addresses in the M7's ITCM. TFW_FLASH_TOTAL
  * is the ITCM's end (include/tfw/boot.h asserts both regions fit below it and

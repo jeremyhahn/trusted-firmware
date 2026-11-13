@@ -95,3 +95,13 @@ ADC               ?= 0
 BOARD_DEFS        += $(if $(filter 1,$(ADC)),-DTFW_CM_ADC=1)
 BOARD_FEATURES_ON += $(if $(filter 1,$(ADC)),ANALOG)
 BOARD_ROWS        += soft:ADC=1
+
+# I2C over one LPI2C as a polled master (src/hal/cortex-m/imx95/hal_bus.c), off
+# by default. I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and
+# links the bus; soft:I2C=1 builds that row. Built and host-tested, not run (QEMU
+# has no i.MX 95), and the M7's instance is open (TFW_IMX95_LPI2C_BASE is zero),
+# so the bus answers TFW_ERR_UNSUPPORTED until it is known.
+I2C               ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+BOARD_FEATURES_ON += $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        += soft:I2C=1

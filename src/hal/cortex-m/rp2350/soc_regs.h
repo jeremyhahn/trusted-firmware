@@ -43,6 +43,7 @@
 #define TFW_RP_RESET_PADS_BANK0 (1u << 9)
 #define TFW_RP_RESET_PLL_USB    (1u << 15)      /* TODO(datasheet): §7.5.3 table 567, bit 15 */
 #define TFW_RP_RESET_PWM        (1u << 16)
+#define TFW_RP_RESET_TIMER1     (1u << 24)      /* hal_tone.c */
 #define TFW_RP_RESET_UART0      (1u << 26)
 
 /* ---- XOSC: base §2.2 table 13; CTRL, STATUS, STARTUP §8.2.8 tables 630-634 */
@@ -98,6 +99,11 @@
 #define TFW_RP_TICKS_WD_CTRL    TFW_CM_REG(TFW_RP_TICKS_BASE + 0x30u)
 #define TFW_RP_TICKS_WD_CYCLES  TFW_CM_REG(TFW_RP_TICKS_BASE + 0x34u)
 #define TFW_RP_TICKS_ENABLE     0x1u
+/* TIMER1's generator, for hal_tone.c: TIMER1_CTRL and TIMER1_CYCLES, §8.5.2,
+ * the register list that puts WATCHDOG_CTRL at 0x30. CYCLES is the clk_ref
+ * cycles per 1 us tick, as for the watchdog's. */
+#define TFW_RP_TICKS_TIMER1_CTRL   TFW_CM_REG(TFW_RP_TICKS_BASE + 0x24u)
+#define TFW_RP_TICKS_TIMER1_CYCLES TFW_CM_REG(TFW_RP_TICKS_BASE + 0x28u)
 
 /* ---- WATCHDOG and the power-on state machine's WDSEL. Bases §2.2 table 13;
  * CTRL, LOAD §12.9.7, tables 1358-1360; WDSEL §7.4.4, tables 561 and 564. */
@@ -135,6 +141,7 @@
 #define TFW_RP_SIO_GPIO_OUT     TFW_CM_REG(TFW_RP_SIO_BASE + 0x010u)
 #define TFW_RP_SIO_GPIO_OUT_SET TFW_CM_REG(TFW_RP_SIO_BASE + 0x018u)
 #define TFW_RP_SIO_GPIO_OUT_CLR TFW_CM_REG(TFW_RP_SIO_BASE + 0x020u)
+#define TFW_RP_SIO_GPIO_OUT_XOR TFW_CM_REG(TFW_RP_SIO_BASE + 0x028u)   /* §3.1.11, hal_tone.c */
 #define TFW_RP_SIO_GPIO_OE_SET  TFW_CM_REG(TFW_RP_SIO_BASE + 0x038u)
 #define TFW_RP_SIO_GPIO_OE_CLR  TFW_CM_REG(TFW_RP_SIO_BASE + 0x040u)
 
@@ -268,5 +275,19 @@
 #define TFW_RP_IC_ABRT_TXDATA_NOACK  (1u << 3)
 #define TFW_RP_IC_ABRT_NOACK         0x1Fu
 #define TFW_RP_IC_ABRT_ARB_LOST      (1u << 12)
+
+/* ---- TIMER1, the tone's (hal_tone.c); TIMER0 is left free. Base §2.2
+ * table 13; TIMELR, ALARM0, ARMED, INTR and INTE §12.8.5, the register list;
+ * an alarm fires when TIMELR equals it, and a write arms it (§12.8.4);
+ * ARMED and INTR clear on a 1 written. TIMER1_IRQ_0, the alarm 0 line, §3.2
+ * table 95. The timer counts its TICKS generator's tick (§12.8.1). */
+#define TFW_RP_TIMER1_BASE      0x400B8000u
+#define TFW_RP_TIMER1_TIMELR    TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x0Cu)
+#define TFW_RP_TIMER1_ALARM0    TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x10u)
+#define TFW_RP_TIMER1_ARMED     TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x20u)
+#define TFW_RP_TIMER1_INTR      TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x3Cu)
+#define TFW_RP_TIMER1_INTE      TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x40u)
+#define TFW_RP_TIMER_ALARM0     0x1u
+#define TFW_RP_TIMER1_IRQ_0     4u
 
 #endif /* TFW_CM_RP2350_REGS_H */

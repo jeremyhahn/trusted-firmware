@@ -102,6 +102,7 @@ The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is
 | `tfw_hal_watchdog_arm`, `_pet` | C `hal_sys.c` → S `hal_soc.c` | the RP2350 watchdog on 1 us ticks; reset 8 s after the last pet |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | S `hal_uart.c` | PL011 UART0 on GPIO0/1; receive interrupt-driven into a 64-byte ring on NVIC line 33; transmit into the 32-byte FIFO, `0` when it is full |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | S `hal_gpio.c` | SIO, GPIO0-29; input, output and input-pullup; the board's table lists only the header pins |
+| `tfw_hal_tone_start`, `_stop` | S `hal_tone.c` | `TFW_FEATURE_TONE` 1, so CAPS lists tone: the tone pin is logical 5, GP7 (`TFW_TONE_PIN`), toggled through SIO's GPIO_OUT_XOR by TIMER1 alarm 0 on NVIC line 4; the alarm steps half a period on the 1 us tick, re-armed from the previous target so a late interrupt does not drift the period; 1 Hz to 25 kHz, 0 Hz and faster refused `TFW_ERR_RANGE`; a start while playing retargets with the old pin low; stop disarms and drives the pin low. Host test: `test/unit/test_rp2350_tone.c` over `test/model/cortex-m/rp2350/tone/` |
 | `tfw_hal_adc_*` | S `hal_adc.c` | the SAR converter, one conversion per read on GPIO26-28 (ADC0-2, `adc_ch` 0-2; GPIO29/ADC3 is the radio's and the temperature sensor is not exposed); clk_adc at 48 MHz from PLL_USB, as §12.4.3 requires (REFDIV 1, FBDIV 100, POSTDIV 5/5; a PLL that never locks is `TFW_ERR_TIMEOUT`); the pad's IE cleared and OD set before a conversion; READY polled with a bound (`TFW_ERR_TIMEOUT`), CS.ERR is `TFW_ERR_INTERNAL`; 12-bit RESULT; only `TFW_ADC_REF_VCC` (ADC_AVDD). Host-tested against `test/model/cortex-m/rp2350/adc/adc_model.c` (`test_rp2350_adc.c`); built, not run on the board |
 | `tfw_hal_i2c_init`, `_xfer` | S `hal_bus.c` | the DW_apb_i2c I2C0 master, polled, fast mode; SCL counts and spike length from clk_sys (12 MHz: HCNT 7, LCNT 17, SPKLEN 1, about 364 kHz for 400 kHz, never faster), a rate the 16-bit counts cannot make refused with `TFW_ERR_RANGE`. `TFW_ERR_NACK` from IC_TX_ABRT_SOURCE bits 0-4, `TFW_ERR_BUSY` on arbitration lost, `TFW_ERR_TIMEOUT` on a bus that does not come free; a STOP on every return that reached the bus (STOP_DET, else IC_ENABLE.ABORT). **Built and host-tested, not run on the board** |
 | `tfw_hal_spi_*`, `tfw_hal_ow_*` | S `hal_bus.c` | `TFW_ERR_UNSUPPORTED` |
@@ -249,3 +250,7 @@ since matched against text extracted from the PDF). Each carries `TODO(datasheet
 | CS.ERR answered as `TFW_ERR_INTERNAL` | the wire has no conversion-error status | kept |
 
 No reading has been taken on the board.
+
+The tone's 20 us floor on the alarm step (`TFW_RP_TONE_MIN_STEP`, tones up to
+25 kHz) is this port's own margin for the re-arming interrupt, not a
+datasheet value; the tone on GP7 is checked on the register model only.

@@ -10,6 +10,7 @@
  *     of the image ([RP-DS], boot ROM chapter, "Blocks" and "IMAGE_DEF");
  *   the XOSC start-up delay;
  *   the PL011's baud-rate divisors;
+ *   the tone's TIMER1 alarm step;
  *   a GPIO pad's value for a tfw pin mode;
  *   the I2C master's SCL counts and spike length;
  *   the PWM divider for 8-bit duty at 1 kHz.
@@ -108,6 +109,36 @@ static inline uint8_t tfw_rp_uart_divisors(uint32_t clk_hz, uint32_t baud,
     *ibrd = div >> 6;
     *fbrd = div & 0x3Fu;
     return 1u;
+}
+
+/* ---- Tone: the TIMER1 alarm step
+ *
+ * hal_tone.c toggles the pin once per alarm, so the alarm steps by half the
+ * period: tick_hz / (2 * hz) ticks, rounded to nearest. The timer counts the
+ * TICKS block's 1 us tick ([RP-DS] release 8 §12.8.1, "the timer uses a 1 us
+ * reference"), so tick_hz is 1000000. A step under TFW_RP_TONE_MIN_STEP is
+ * refused: the interrupt that re-arms the alarm must finish inside one step,
+ * and a target already in the past would not fire until the 32-bit counter
+ * wraps (§12.8.4: an alarm compares TIMELR for equality). The floor of 20 us
+ * (tones up to 25 kHz) is this port's own margin, not a datasheet value
+ * (docs/boards/rp2350-pico2w.md, "What is not verified"). Returns 0 for a
+ * frequency the timer cannot make, the step otherwise.
+ */
+#define TFW_RP_TONE_TICK_HZ  1000000u
+#define TFW_RP_TONE_MIN_STEP 20u
+
+static inline uint32_t tfw_rp_tone_half_period(uint32_t tick_hz, uint32_t hz)
+{
+    uint32_t step;
+
+    if (hz == 0u) {
+        return 0u;
+    }
+    step = (tick_hz + hz) / (2u * hz);
+    if (step < TFW_RP_TONE_MIN_STEP) {
+        return 0u;
+    }
+    return step;
 }
 
 /* ---- GPIO pads

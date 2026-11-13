@@ -27,7 +27,7 @@
 
 #define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     1
-#define TFW_FEATURE_TONE    0
+#define TFW_FEATURE_TONE    1
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
 /* I2C0 on GPIO4/5 (src/hal/cortex-m/rp2350/hal_bus.c), only in the I2C=1
@@ -39,6 +39,10 @@
 #endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
+
+/* The tone's pin: logical 5, GP7, a plain SIO pin that TIMER1 alarm 0
+ * toggles (hal_tone.c). Not a PWM, I2C0 or ADC pin. */
+#define TFW_TONE_PIN   5u          /* GP7 */
 
 /* The soft root: the UDS in tfw-boot's region, the CDI handed over in SRAM,
  * HMAC evidence (src/crypto/soft/). The OTP root is the owner's to rule on. */

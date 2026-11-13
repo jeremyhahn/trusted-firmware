@@ -2569,6 +2569,17 @@ $(HOST_DIR)/test_rp2350_adc: test/unit/test_rp2350_adc.c test/model/cortex-m/rp2
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Itest/model/cortex-m/rp2350/adc $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The rp2350 tone (row rp2350): the alarm-step arithmetic of soc_calc.h and
+# the real hal_tone.c against the TIMER1 and SIO model, which fires the alarm.
+# Its cm_regs.h, in test/model/cortex-m/rp2350/tone/, comes ahead of the flat
+# model's directory so soc_regs.h sends TFW_CM_REG to the tone model; the
+# Pico 2 W's profile replaces the host board's, and src/hal/cortex-m/ ahead of
+# test/mock gives the port's own hal_types.h. It stays in TEST_SRCS; this
+# explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_rp2350_tone: test/unit/test_rp2350_tone.c test/model/cortex-m/rp2350/tone/tone_model.c \
+                              src/hal/cortex-m/rp2350/hal_tone.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/rp2350/tone $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)

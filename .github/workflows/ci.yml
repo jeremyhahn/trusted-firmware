@@ -1562,7 +1562,9 @@ jobs:
     # container 13 and the actions/cache save over 2: 2 + 5 + 133 + 13 + 2 =
     # 155. Its tests (26 more) now run in the optee job, so the cold build
     # fits under 180, the runner's own 3-hour job limit (ruling 250 (a)).
-    timeout-minutes: 120
+    # CA ruling 580's 120 ceiling for image builds would cut a cold build off
+    # at 120 of its 155 minutes, so this job keeps 180.
+    timeout-minutes: 180
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}

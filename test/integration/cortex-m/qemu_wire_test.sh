@@ -21,12 +21,14 @@
 #   soft-tier rows (e2e_firmware_test.go) and the dice and attestcsr rows
 #   this image serves, with DEVICEID from addrs.env. A row whose peer lacks
 #   the feature it needs fails, naming it (#7), so the lists below leave out
-#   by name every row this image cannot serve: the analog, PWM, EEPROM, bus
-#   and pulse rows (CAPS bits 2, 3, 5-9 clear); the alias certificate (bit
+#   by name every row this image cannot serve: the analog, PWM, bus and
+#   pulse rows (CAPS bits 2, 3, 5, 7-9 clear); the alias certificate (bit
 #   13), operator session (bit 14) and CSR (bit 15) rows; and the OTA and app
 #   rows that need a stager or an application (it is built without
 #   OTA_STAGE and has none), which CAPS cannot say. The soft image offers
-#   ATTEST (bit 10), so the evidence-frame rows run. The refusal rows run
+#   ATTEST (bit 10), so the evidence-frame rows run, and EEPROM (bit 6) over
+#   the platform window, so the EEPROM row writes and reads back past
+#   tfw-boot's span (TestFirmwareEEPROM). The refusal rows run
 #   instead of what it lacks: each of those families' commands is refused
 #   as unknown (e2e_refusal_test.go, e2e_refusal_board_test.go).
 #   docs/cortex-m/README.md tables every row per board.
@@ -229,8 +231,8 @@ cycle() {
     alive
 }
 
-firmware='Ping|PingDeliversTheBootEventWithNoBootWait|PingAfterAMalformedBurst|Caps|Sys|Pin|Write|Timer'
-refuse='RefusesAnalogItsCapsLacks|RefusesPWMItsCapsLacks|RefusesPulseItsCapsLacks|RefusesEEPROMItsCapsLacks|RefusesI2CItsCapsLacks|RefusesSPIItsCapsLacks|RefusesOneWireItsCapsLacks|RefusesTheAuthSessionItsCapsLacks|RefusesAttestCSRItsCapsLacks'
+firmware='Ping|PingDeliversTheBootEventWithNoBootWait|PingAfterAMalformedBurst|Caps|Sys|Pin|Write|Timer|EEPROM'
+refuse='RefusesAnalogItsCapsLacks|RefusesPWMItsCapsLacks|RefusesPulseItsCapsLacks|RefusesI2CItsCapsLacks|RefusesSPIItsCapsLacks|RefusesOneWireItsCapsLacks|RefusesTheAuthSessionItsCapsLacks|RefusesAttestCSRItsCapsLacks'
 dice='AttestEvidenceFrame|EvidenceFrameRejectsTamperingAndOtherKeys|SoftwareTierStillCannotIssueACertificate'
 csr='AttestCSRReportsADeviceThatCannotIssueOne|ElementWithoutTheCapsBitIsRefusedAsUnsupported'
 ota='OTAAuthLetsTheCommandPastTheGate'

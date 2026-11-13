@@ -6,6 +6,11 @@
 #include "tfw/progmem.h"
 #include "board_profile.h"
 
+/* The TWIM's SCL and SDA, taken as TFW_PIN_ETH takes the Ethernet pins when
+ * the image links the bus: a GPIO or scheduler write to either would fight
+ * the TWI. Private to this board. */
+#define TFW_PIN_I2C ((TFW_FEATURE_I2C) ? TFW_PIN_IN_USE : 0u)
+
 /* Three ports, numbered as the SoC numbers its GPIO banks: P0, P1 and P2
  * (src/hal/cortex-m/nrf54l/hal_gpio.c maps the number to the bank). */
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
@@ -19,12 +24,12 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
  * boards/nordic/nrf54l15dk/nrf54l15dk_common.dtsi). */
 const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 0  LED0 */ { TFW_PB(2u,  9u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
-/* 1  LED1 */ { TFW_PB(1u, 10u), TFW_ADC_NONE, 0u,           TFW_PIN_DIGITAL | TFW_PIN_LED | TFW_PIN_PWM },
+/* 1  LED1 */ { TFW_PB(1u, 10u), TFW_ADC_NONE, 0u,           TFW_PIN_DIGITAL | TFW_PIN_LED | TFW_PIN_PWM | TFW_PIN_I2C },
 /* 2  LED2 */ { TFW_PB(2u,  7u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 3  LED3 */ { TFW_PB(1u, 14u), TFW_ADC_NONE, 1u,           TFW_PIN_DIGITAL | TFW_PIN_LED | TFW_PIN_PWM },
 /* 4  BTN0 */ { TFW_PB(1u, 13u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 5  BTN1 */ { TFW_PB(1u,  9u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
-/* 6  BTN2 */ { TFW_PB(1u,  8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 6  BTN2 */ { TFW_PB(1u,  8u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_I2C },
 /* 7  BTN3 */ { TFW_PB(0u,  4u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* The SAADC's AIN2-AIN5, the board's ADC channels 0-3
  * (src/hal/cortex-m/nrf54l/soc_tables.c; nrfx soc/nrfx_soc_defines.h,

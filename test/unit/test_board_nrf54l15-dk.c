@@ -15,15 +15,120 @@
 #include "unity.h"
 #include "tfw/board.h"
 #include "board_profile.h"
+#include "tfw/config.h"
 #include "tfw/hal.h"
+#if defined(TFW_TEST_BOARD_CAPS)
+#include "gpio.h"
+#include "reader.h"
+#include "sched.h"
+#include "writer.h"
+#endif
 
 /* The board sweep links only the board table and its lookup; the ANALOG_READ
- * handler and the codec it reads and writes with come in as sources. */
+ * handler and the codec it reads and writes with come in as sources. The
+ * caps builds (test_board_nrf54l15_i2c0/1) link the codec already. */
 #include "../../src/caps/analog.c"
+#if !defined(TFW_TEST_BOARD_CAPS)
 #include "../../src/core/reader.c"
 #include "../../src/core/writer.c"
+#endif
 
+#if defined(TFW_TEST_BOARD_CAPS)
+/* The GPIO and scheduler commands over this board table: mk/host.mk's
+ * test_board_nrf54l15_i2c0 and test_board_nrf54l15_i2c1 link src/caps/gpio.c
+ * and src/caps/sched.c with the GPIO HAL below, once per I2C row. */
+static uint32_t s_hal_calls;
+
+tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
+{
+    (void)p;
+    (void)mode;
+    s_hal_calls++;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
+{
+    (void)p;
+    (void)level;
+    s_hal_calls++;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_gpio_read(const tfw_pinref_t *p, uint8_t *out)
+{
+    (void)p;
+    *out = 0u;
+    return TFW_OK;
+}
+
+tfw_ms_t tfw_hal_millis(void)
+{
+    return 0u;
+}
+
+static tfw_status_t run(tfw_status_t (*cmd)(tfw_reader_t *, tfw_writer_t *),
+                        const uint8_t *req, uint8_t len)
+{
+    static uint8_t reply[16];
+    tfw_reader_t   r;
+    tfw_writer_t   w;
+
+    tfw_reader_init(&r, req, len);
+    tfw_writer_init(&w, reply, sizeof reply);
+    return cmd(&r, &w);
+}
+
+void setUp(void)
+{
+    tfw_sched_init();
+    s_hal_calls = 0u;
+}
+#else
 void setUp(void) {}
+#endif
+
+/* The I2C row's SCL and SDA, P1.10 (LED1, pin 1) and P1.8 (BTN2, pin 6). */
+static int i2c_pin(uint8_t pin)
+{
+    return pin == 1u || pin == 6u;
+}
+
+static void test_the_i2c_pins_are_in_use_only_with_the_i2c_row(void)
+{
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t in_use = (uint8_t)(tfw_board_pin_flags(i) & TFW_PIN_IN_USE);
+
+        if (TFW_FEATURE_I2C && i2c_pin(i)) {
+            TEST_ASSERT_EQUAL_HEX8_MESSAGE(TFW_PIN_IN_USE, in_use, "I2C pin free with I2C=1");
+        } else {
+            TEST_ASSERT_EQUAL_HEX8_MESSAGE(0u, in_use, "pin taken");
+        }
+        TEST_ASSERT_EQUAL_HEX8(0u, tfw_board_pin_flags(i) & TFW_PIN_RESERVED);
+    }
+}
+
+#if defined(TFW_TEST_BOARD_CAPS)
+static void test_gpio_and_the_scheduler_refuse_the_i2c_pins_only_with_the_row(void)
+{
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        const uint8_t mode[2]  = { i, (uint8_t)TFW_PIN_OUTPUT };
+        const uint8_t level[2] = { i, 1u };
+        const uint8_t sched[6] = { i, 1u, 10u, 0u, 0u, 0u };
+        tfw_status_t  want     = (TFW_FEATURE_I2C && i2c_pin(i))
+                                     ? TFW_ERR_RESERVED_PIN : TFW_OK;
+        uint32_t      calls    = s_hal_calls;
+
+        /* A slot per pin would outrun TFW_SCHED_SLOTS on the twelve pins. */
+        tfw_sched_init();
+        TEST_ASSERT_EQUAL(want, run(tfw_gpio_cmd_mode, mode, sizeof mode));
+        TEST_ASSERT_EQUAL(want, run(tfw_gpio_cmd_write, level, sizeof level));
+        TEST_ASSERT_EQUAL(want, run(tfw_sched_cmd_set, sched, sizeof sched));
+        /* A refusal reaches no HAL call; an accepted pin reaches four. */
+        TEST_ASSERT_EQUAL_UINT32(want == TFW_OK ? 4u : 0u, s_hal_calls - calls);
+    }
+}
+#endif
 void tearDown(void) {}
 
 static void test_the_board_is_its_registry_id(void)
@@ -201,5 +306,9 @@ int main(void)
     RUN_TEST(test_the_ain_pins_are_adc_channels_0_to_3);
     RUN_TEST(test_analog_read_reaches_the_saadc_only_on_the_ain_pins);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
+    RUN_TEST(test_the_i2c_pins_are_in_use_only_with_the_i2c_row);
+#if defined(TFW_TEST_BOARD_CAPS)
+    RUN_TEST(test_gpio_and_the_scheduler_refuse_the_i2c_pins_only_with_the_row);
+#endif
     return UNITY_END();
 }

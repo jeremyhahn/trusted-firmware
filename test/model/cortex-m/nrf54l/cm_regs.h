@@ -2,10 +2,10 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The host's src/hal/cortex-m/cm_regs.h for the nrf54l HAL tests: every
- * register access goes to the register model (test/model/nrf54l_model.h).
+ * register access goes to a register model, test/model/nrf54l_model.h's for
+ * the PWM test, the test's own for the TWIM test (test/unit/test_nrf54l_twim.c).
  * mk/host.mk puts this directory ahead of src/hal/cortex-m/ so soc_regs.h
- * includes this file and the SoC code compiles unchanged. Only the names the
- * modelled files use are here; one missing is a compile error in the test.
+ * includes this file and the SoC code compiles unchanged.
  */
 #ifndef TFW_CM_REGS_H
 #define TFW_CM_REGS_H

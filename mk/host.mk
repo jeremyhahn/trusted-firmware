@@ -1248,6 +1248,7 @@ $(HOST_DIR)/test_cm_pulse: test/unit/test_cm_pulse.c test/model/cortex-m/cm_puls
 
 HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
+                    $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \
@@ -2475,6 +2476,33 @@ $(HOST_DIR)/test_nrf54l_pwm: test/unit/test_nrf54l_pwm.c test/model/nrf54l_model
                              boards/nrf54l15-dk/board.c src/core/board_lookup.c \
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Itest/model/cortex-m/nrf54l $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# Its I2C master (TWIM): hal_bus.c, unchanged, against the test's TWIM model;
+# test/model/cortex-m/nrf54l/ goes ahead of src/hal/cortex-m/ so its cm_regs.h,
+# which sends TFW_CM_REG to the model, is the one soc_regs.h finds.
+$(HOST_DIR)/test_nrf54l_twim: test/unit/test_nrf54l_twim.c src/hal/cortex-m/nrf54l/hal_bus.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/nrf54l -Isrc/hal/cortex-m/nrf54l $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The nRF54L15 DK's descriptor test with the GPIO and scheduler commands over
+# its board table, once per I2C row (profile.mk's I2C=0 and I2C=1): SCL and
+# SDA, pins 1 and 6, are refused only when the image links the bus. Its board
+# directory comes ahead of HOST_CFLAGS' so board_profile.h is the DK's. The
+# link takes the list, not $^: the test #includes src/caps/analog.c, which the
+# .d file would add to $^ a second time.
+NRF54L15_BOARD_TEST_SRCS := test/unit/test_board_nrf54l15-dk.c src/caps/gpio.c src/caps/sched.c \
+                            src/core/reader.c src/core/writer.c \
+                            src/core/board_lookup.c boards/nrf54l15-dk/board.c \
+                            $(HOST_DIR)/unity.o
+
+$(HOST_DIR)/test_board_nrf54l15_i2c0: $(NRF54L15_BOARD_TEST_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/nrf54l15-dk -DTFW_TEST_BOARD_CAPS=1 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(NRF54L15_BOARD_TEST_SRCS) $(EXTRA_LDFLAGS)
+
+$(HOST_DIR)/test_board_nrf54l15_i2c1: $(NRF54L15_BOARD_TEST_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/nrf54l15-dk -DTFW_TEST_BOARD_CAPS=1 -DTFW_CM_I2C=1 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(NRF54L15_BOARD_TEST_SRCS) $(EXTRA_LDFLAGS)
 
 # The reset causes of the stm32h5, rp2350 and mcxn94x SoCs, the same way:
 # each soc_reset.c reads its registers through pointers the caller names.

@@ -79,6 +79,54 @@
 #define TFW_NRF_PIN_CNF_PULLUP      (3u << 2)     /* PULL Pullup */
 #define TFW_NRF_PIN_CNF_RESET       0x2u          /* input, input buffer disconnected (GPIO_PIN_CNF_ResetValue) */
 
+/* ---- TWIM21, the I2C master (nrf54l15_types.h, NRF_TWIM_Type; the base is
+ * nrf54l15_global.h's NRF_TWIM21_S_BASE). TWIM20 shares its base with the
+ * console's UARTE20, so the bus is the next instance of the 20-group, on the
+ * pins Zephyr's i2c_nrfx_twim test routes for this DK (below). */
+#define TFW_NRF_TWIM_BASE           0x500C7000u
+#define TFW_NRF_TWIM_STOP           TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x004u)   /* TASKS_STOP */
+#define TFW_NRF_TWIM_RESUME         TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x010u)   /* TASKS_RESUME */
+#define TFW_NRF_TWIM_RX_START       TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x028u)   /* TASKS_DMA.RX.START */
+#define TFW_NRF_TWIM_TX_START       TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x050u)   /* TASKS_DMA.TX.START */
+#define TFW_NRF_TWIM_EV_STOPPED     TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x104u)   /* EVENTS_STOPPED */
+#define TFW_NRF_TWIM_EV_ERROR       TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x114u)   /* EVENTS_ERROR */
+#define TFW_NRF_TWIM_EV_LASTRX      TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x134u)   /* EVENTS_LASTRX */
+#define TFW_NRF_TWIM_EV_LASTTX      TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x138u)   /* EVENTS_LASTTX */
+#define TFW_NRF_TWIM_SHORTS         TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x200u)
+#define TFW_NRF_TWIM_INTEN          TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x300u)
+#define TFW_NRF_TWIM_ERRORSRC       TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x4C4u)   /* write 1 to clear */
+#define TFW_NRF_TWIM_ENABLE         TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x500u)
+#define TFW_NRF_TWIM_FREQUENCY      TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x524u)
+#define TFW_NRF_TWIM_ADDRESS        TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x588u)
+#define TFW_NRF_TWIM_PSEL_SCL       TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x600u)
+#define TFW_NRF_TWIM_PSEL_SDA       TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x604u)
+#define TFW_NRF_TWIM_RX_PTR         TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x704u)   /* DMA.RX.PTR */
+#define TFW_NRF_TWIM_RX_MAXCNT      TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x708u)
+#define TFW_NRF_TWIM_TX_PTR         TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x73Cu)   /* DMA.TX.PTR */
+#define TFW_NRF_TWIM_TX_MAXCNT      TFW_CM_REG(TFW_NRF_TWIM_BASE + 0x740u)
+
+#define TFW_NRF_TWIM_SHORTS_LASTTX_RXSTART (1uL << 7)   /* LASTTX_DMA_RX_START: the repeated START */
+#define TFW_NRF_TWIM_SHORTS_LASTTX_STOP    (1uL << 9)
+#define TFW_NRF_TWIM_SHORTS_LASTRX_STOP    (1uL << 12)
+#define TFW_NRF_TWIM_ERRORSRC_OVERRUN      (1uL << 0)
+#define TFW_NRF_TWIM_ERRORSRC_ANACK        (1uL << 1)
+#define TFW_NRF_TWIM_ERRORSRC_DNACK        (1uL << 2)
+#define TFW_NRF_TWIM_ERRORSRC_ALL          0x7uL
+#define TFW_NRF_TWIM_ENABLE_ON             6u            /* ENABLE_Enabled */
+#define TFW_NRF_TWIM_FREQUENCY_K100        0x01980000uL
+#define TFW_NRF_TWIM_FREQUENCY_K250        0x04000000uL
+#define TFW_NRF_TWIM_FREQUENCY_K400        0x06400000uL
+#define TFW_NRF_TWIM_PSEL_PORT_SHIFT       5u            /* PSEL: PIN bits 0-4, PORT from bit 5, CONNECT bit 31 (0 connects) */
+/* SDA and SCL: input buffer connected, pull-up, standard 0 and disconnected 1
+ * (PIN_CNF DRIVE0 S0, DRIVE1 D1 from bit 10), CTRLSEL GPIO (the PSEL route). */
+#define TFW_NRF_PIN_CNF_TWI         ((3u << 2) | (2u << 10))
+
+/* The bus pins: Zephyr's tests/drivers/i2c/i2c_nrfx_twim/boards/
+ * nrf54l15dk_nrf54l15_cpuapp.overlay, i2c21_default (the controller). */
+#define TFW_NRF_TWIM_PORT           1u
+#define TFW_NRF_TWIM_SDA_BIT        8u
+#define TFW_NRF_TWIM_SCL_BIT        10u
+
 /* ---- The tone: TIMER20, GPIOTE20 and DPPIC20, the peripheral domain 20 that
  * P1 is in (nrf54l15_global.h: NRF_TIMER20_S_BASE, NRF_GPIOTE20_S_BASE,
  * NRF_DPPIC20_S_BASE; nrf54l15_types.h: NRF_TIMER_Type, NRF_GPIOTE_Type,

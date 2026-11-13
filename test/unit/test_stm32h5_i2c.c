@@ -53,6 +53,7 @@
 #define F_NACKF   0x00000010u
 #define F_STOPF   0x00000020u
 #define F_TC      0x00000040u
+#define F_BERR    0x00000100u
 #define F_ARLO    0x00000200u
 #define F_BUSY    0x00008000u
 #define TXDR_IDLE 0xFFFFFFFFu
@@ -78,6 +79,7 @@ static struct {
     uint8_t   stall;               /* START taken, then no flag ever comes */
     uint8_t   stop_hangs;          /* STOP never completes */
     uint8_t   arlo;                /* arbitration lost at the first byte */
+    uint8_t   berr;                /* bus error once the first read byte is in RXDR */
     char      log[256];
     unsigned  stray;
     unsigned  delays;
@@ -116,7 +118,7 @@ static void on_cr2(uint32_t v)
         }
         m.on_bus = 1u;
         m.cr2 &= ~CR2_START;
-        m.flags &= ~(F_TC | F_TXIS | F_RXNE);
+        m.flags &= ~(F_TC | F_TXIS);    /* RXNE: only a read of RXDR clears it */
         m.left    = (uint8_t)(v >> 16);
         m.reading = rd;
         if (m.stall) {
@@ -130,6 +132,10 @@ static void on_cr2(uint32_t v)
             m.flags |= F_NACKF;
         } else if (rd) {
             m.flags |= F_RXNE;
+            if (m.berr) {
+                m.berr   = 0u;          /* once: the next transfer is clean */
+                m.flags |= F_BERR;
+            }
         } else if (m.txdr_full) {
             load();                     /* a byte left in TXDR goes out first */
         } else {
@@ -142,7 +148,7 @@ static void on_cr2(uint32_t v)
         say("P", 0, 0u);
         if (!m.stop_hangs) {
             m.on_bus = 0u;
-            m.flags  = (m.flags & ~(F_TC | F_TXIS | F_RXNE)) | F_STOPF;
+            m.flags  = (m.flags & ~(F_TC | F_TXIS)) | F_STOPF;
         }
     }
 }
@@ -262,6 +268,9 @@ volatile uint32_t *tfw_h5_i2c_model_reg(uintptr_t a)
         say("R", 1, m.rx[m.rx_at]);
         m.rx_at++;
         m.flags &= ~F_RXNE;
+        if (!m.on_bus) {
+            break;                      /* after STOP: nothing more comes */
+        }
         if (--m.left == 0u) {
             m.flags |= F_TC;
         } else {
@@ -460,6 +469,19 @@ static void test_lost_arbitration_times_out_and_stops(void)
     TEST_ASSERT_EQUAL_HEX32(0u, m.flags & F_ARLO);                  /* cleared */
 }
 
+static void test_bus_error_with_a_byte_received_does_not_leak_it(void)
+{
+    uint8_t rd[1] = { 0 };
+
+    m.berr = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_i2c_xfer(DEV, NULL, 0u, rd, 1u));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_i2c_xfer(DEV, NULL, 0u, rd, 1u));
+    done();
+    TEST_ASSERT_EQUAL_HEX8(0x22u, rd[0]);           /* its own byte, not 0x11 */
+    TEST_ASSERT_EQUAL_STRING("Sc1 P R11 Sc1 R22 P", m.log);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.flags & (F_BERR | F_RXNE));
+}
+
 static void test_spi_and_onewire_refuse(void)
 {
     uint8_t b = 0u;
@@ -490,6 +512,7 @@ int main(void)
     RUN_TEST(test_stalled_transfer_times_out_and_stops);
     RUN_TEST(test_stop_that_never_completes_resets_the_block);
     RUN_TEST(test_lost_arbitration_times_out_and_stops);
+    RUN_TEST(test_bus_error_with_a_byte_received_does_not_leak_it);
     RUN_TEST(test_spi_and_onewire_refuse);
     return UNITY_END();
 }

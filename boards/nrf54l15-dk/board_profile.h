@@ -5,7 +5,8 @@
  * Cortex-M33, on the generic Cortex-M port (#161); SPEC row nrf54l15 (#17).
  *
  * The pins are the DK's four LEDs and four buttons (Zephyr's board
- * definition, boards/nordic/nrf54l15dk/nrf54l15dk_common.dtsi). The console
+ * definition, boards/nordic/nrf54l15dk/nrf54l15dk_common.dtsi), then the
+ * SAADC's AIN2-AIN5 on P1.6, P1.7, P1.11 and P1.12. The console
  * UARTE's pins, P1.4 and P1.5, are the SoC file's
  * (src/hal/cortex-m/nrf54l/hal_uart.c) and not in the table. Every other
  * capability is off by file selection until a slice drives it.
@@ -17,13 +18,13 @@
 #define TFW_BOARD_NAME "nrf54l15-dk"
 #define TFW_BOARD_ID   0x45u   /* docs/boards/board-id-registry.md */
 
-#define TFW_PIN_COUNT  8u
+#define TFW_PIN_COUNT  12u     /* 4 LEDs, 4 buttons, AIN2-AIN5 */
 #define TFW_PORT_COUNT 3u      /* GPIO P0, P1 and P2 */
 #define TFW_PWM_COUNT  0u
-#define TFW_ADC_COUNT  0u
+#define TFW_ADC_COUNT  4u      /* SAADC AIN2-AIN5 (src/hal/cortex-m/nrf54l/soc_tables.c) */
 #define TFW_EEPROM_SIZE 0u
 
-#define TFW_FEATURE_ANALOG  0
+#define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    1
 /* LED1, P1.10: the tone's TIMER20, GPIOTE20 and DPPIC20 reach port P1 only
@@ -31,7 +32,14 @@
 #define TFW_TONE_PIN        1u
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
+/* I2C on TWIM21 (src/hal/cortex-m/nrf54l/hal_bus.c), SDA P1.8 and SCL P1.10,
+ * only in the I2C=1 row (profile.mk): the element tiers' measurement. Those
+ * pins are also BTN2 and LED1 in board.c; the bus takes them while it runs. */
+#if defined(TFW_CM_I2C)
+#define TFW_FEATURE_I2C     1
+#else
 #define TFW_FEATURE_I2C     0
+#endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
 

@@ -54,16 +54,34 @@ static void test_no_pin_is_the_uart_or_the_radio(void)
     }
 }
 
-static void test_no_pin_offers_an_adc_or_a_pwm(void)
+/* No pin has an ADC. The even GPIOs 2-16 offer PWM, one per slice (board.c;
+ * the rows' fields are the Cortex-M hal_types.h's, which this host build does
+ * not see, and test_rp2350_pwm.c checks hal_pwm.c refuses a mismatched row);
+ * no other pin does. */
+static void test_pwm_on_one_pin_per_slice(void)
 {
+    uint8_t row = 0u;
+
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         uint8_t ch;
         tfw_pwmref_t p;
+        tfw_pinref_t r;
+        uint8_t gpio;
 
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(i, &r));
+        gpio = r.bit;
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
-        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & (TFW_PIN_ADC | TFW_PIN_PWM));
+        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
+        if (gpio >= 2u && gpio <= 16u && (gpio & 1u) == 0u) {
+            TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(i, &p));
+            TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_PWM);
+            row++;
+        } else {
+            TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
+            TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_PWM);
+        }
     }
+    TEST_ASSERT_EQUAL(TFW_PWM_COUNT, row);
 }
 
 static void test_a_pin_beyond_the_board_is_refused(void)
@@ -96,7 +114,7 @@ int main(void)
     RUN_TEST(test_the_board_is_its_registry_id);
     RUN_TEST(test_the_pins_are_the_header_gpios_in_order);
     RUN_TEST(test_no_pin_is_the_uart_or_the_radio);
-    RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
+    RUN_TEST(test_pwm_on_one_pin_per_slice);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_the_i2c_row_takes_sda_and_scl_and_nothing_else);
     return UNITY_END();

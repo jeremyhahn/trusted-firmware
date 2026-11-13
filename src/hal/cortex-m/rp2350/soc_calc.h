@@ -11,7 +11,8 @@
  *   the XOSC start-up delay;
  *   the PL011's baud-rate divisors;
  *   a GPIO pad's value for a tfw pin mode;
- *   the I2C master's SCL counts and spike length.
+ *   the I2C master's SCL counts and spike length;
+ *   the PWM divider for 8-bit duty at 1 kHz.
  */
 #ifndef TFW_CM_RP2350_CALC_H
 #define TFW_CM_RP2350_CALC_H
@@ -238,6 +239,28 @@ static inline uint8_t tfw_rp_i2c_timing(uint32_t clk_hz, uint32_t hz,
         return 0u;
     }
     return 1u;
+}
+
+/* ---- PWM divider
+ *
+ * A slice counts 0..TOP once per period, so f = clk / (div * (TOP + 1)).
+ * CHn_DIV holds INT in bits 11:4 and FRAC in bits 3:0, so the register value
+ * is the divider in sixteenths: for 1 kHz at TOP 255 that is
+ * clk * 16 / 256000 = clk / 16000, rounded to nearest. INT must be 1..255;
+ * outside that no divider makes 1 kHz and the result is 0. 12 MHz gives 750,
+ * INT 46 and FRAC 14, exactly 1 kHz. [RP-DS] release 8 §12.5.2 (period and
+ * divider), §12.5.3 (CHn_DIV fields).
+ */
+#define TFW_RP_PWM_TOP_8BIT 255u
+
+static inline uint16_t tfw_rp_pwm_div(uint32_t clk_hz)
+{
+    uint32_t div16 = (clk_hz + 8000u) / 16000u;
+
+    if (div16 < (1u << 4) || div16 > 0xFFFu) {
+        return 0u;
+    }
+    return (uint16_t)div16;
 }
 
 #endif /* TFW_CM_RP2350_CALC_H */

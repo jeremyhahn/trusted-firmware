@@ -2550,6 +2550,16 @@ $(HOST_DIR)/test_rp2350_i2c: test/unit/test_rp2350_i2c.c src/hal/cortex-m/rp2350
 	    $(EXTRA_CFLAGS) -DTFW_RP_I2C_POLLS=2000uL -Iboot/hal/cortex-m/rp2350/test \
 	    -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m -o $@ $^ $(EXTRA_LDFLAGS)
 
+# hal_pwm.c against the flat register model: its cm_regs.h stands in for the
+# real one, and the Cortex-M hal_types.h and the Pico 2 W profile replace the
+# host's.
+HOST_RP2350_CFLAGS = -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m \
+                     -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_rp2350_pwm: test/unit/test_rp2350_pwm.c src/hal/cortex-m/rp2350/hal_pwm.c \
+                             src/hal/cortex-m/rp2350/hal_gpio.c src/caps/pwm.c src/core/reader.c \
+                             test/model/cortex-m/rp2350/rp2350_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)

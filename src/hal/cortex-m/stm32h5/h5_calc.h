@@ -146,4 +146,57 @@ static inline uint32_t tfw_h5_field4(uint32_t reg, uint8_t pin, uint32_t af)
     return (reg & ~(0xFu << shift)) | ((af & 0xFu) << shift);
 }
 
+/* PWM on a general-purpose timer (hal_pwm.c): the counter runs 0 to ARR 254,
+ * 255 steps, so duty 0 is CCR 0 (never high) and duty 255 is CCR 255, past
+ * ARR (always high, PWM mode 1). The prescaler divides the timer's clock to
+ * 255 kHz, the nearest a 16-bit PSC reaches, for about 1 kHz: what the AVR's
+ * analogWrite and the ESP32's LEDC give. */
+#define TFW_H5_PWM_ARR    254u
+#define TFW_H5_PWM_HZ     1000u
+#define TFW_H5_PWM_STEPS  (TFW_H5_PWM_ARR + 1u)
+
+/* The PSC for about TFW_H5_PWM_HZ from `timer_hz`: the divider rounded to the
+ * nearest, held to 1 to 0x10000, less one (the timer divides by PSC + 1). */
+static inline uint16_t tfw_h5_pwm_psc(uint32_t timer_hz)
+{
+    const uint32_t tick = TFW_H5_PWM_STEPS * TFW_H5_PWM_HZ;
+    uint32_t div = (uint32_t)(((uint64_t)timer_hz + tick / 2u) / tick);
+
+    if (div == 0u) {
+        div = 1u;
+    }
+    if (div > 0x10000u) {
+        div = 0x10000u;
+    }
+    return (uint16_t)(div - 1u);
+}
+
+/* `reg`, CCMR1 (channels 1 and 2) or CCMR2 (3 and 4), with `channel`'s
+ * output-compare half set to output (CCxS 00), preload on (OCxPE, bit 3 of
+ * the half) and PWM mode 1 (OCxM 0110 at bits 6:4, OCxM_3 at bit 16 of
+ * the register for the first channel, 24 for the second), the other half
+ * kept. CMSIS TIM_CCMR1_OC1PE_Pos 3, OC1M_Pos 4, OC1M_3 0x00010000,
+ * OC2PE_Pos 11, OC2M_Pos 12. */
+#define TFW_H5_TIM_OCM_PWM1 0x6u
+
+static inline uint32_t tfw_h5_pwm_ccmr(uint32_t reg, uint8_t channel)
+{
+    uint32_t shift = 8u * (((uint32_t)channel - 1u) & 1u);
+    uint32_t mask  = (0xFFu << shift) | (0x1u << (16u + shift));
+    uint32_t value = ((TFW_H5_TIM_OCM_PWM1 << 4) | (0x1u << 3)) << shift;
+
+    return (reg & ~mask) | value;
+}
+
+/* `reg`, CCER, with `channel`'s output enabled (CCxE) or disabled, active
+ * high (CCxP clear), the other channels kept: four bits a channel from
+ * CC1E at 0 (CMSIS TIM_CCER_CC1E_Pos 0, CC2E_Pos 4). */
+static inline uint32_t tfw_h5_pwm_ccer(uint32_t reg, uint8_t channel, uint8_t on)
+{
+    uint32_t shift = 4u * (((uint32_t)channel - 1u) & 3u);
+
+    reg &= ~(0x3u << shift);
+    return on ? (reg | (0x1u << shift)) : reg;
+}
+
 #endif /* TFW_CM_STM32H5_CALC_H */

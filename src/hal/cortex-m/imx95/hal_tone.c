@@ -27,8 +27,13 @@ static tfw_pinref_t    tone_pin;
 static volatile uint8_t tone_active;
 static volatile uint8_t tone_level;
 
+/* Its callers return at a zero base before they get here; the test here as
+ * well keeps the control write off address zero while the base is unknown. */
 static void gpt_halt(void)
 {
+    if (TFW_IMX95_GPT_BASE == 0u) {
+        return;
+    }
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_IR) = 0u;
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_CR) = 0u;
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_SR) = TFW_IMX95_GPT_SR_OF1;

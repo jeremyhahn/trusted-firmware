@@ -99,6 +99,18 @@
 #define TFW_RP_TICKS_WD_CTRL    TFW_CM_REG(TFW_RP_TICKS_BASE + 0x30u)
 #define TFW_RP_TICKS_WD_CYCLES  TFW_CM_REG(TFW_RP_TICKS_BASE + 0x34u)
 #define TFW_RP_TICKS_ENABLE     0x1u
+/* TIMER0_CTRL, TIMER0_CYCLES §8.5.2, tables 656-657. */
+#define TFW_RP_TICKS_TIMER0_CTRL   TFW_CM_REG(TFW_RP_TICKS_BASE + 0x18u)
+#define TFW_RP_TICKS_TIMER0_CYCLES TFW_CM_REG(TFW_RP_TICKS_BASE + 0x1Cu)
+
+/* ---- TIMER0: the 64-bit microsecond counter, counting the tick above
+ * while interrupts are masked. Base §2.2 table 13 and §12.8.5; TIMERAWL,
+ * the low word read without latching, §12.8.4.1 and §12.8.5 table 1349;
+ * RESET.TIMER0 §7.5.3 table 566. */
+#define TFW_RP_TIMER0_BASE      0x400B0000u
+#define TFW_RP_TIMER0_TIMERAWL  TFW_CM_REG(TFW_RP_TIMER0_BASE + 0x28u)
+#define TFW_RP_RESET_TIMER0     (1u << 23)
+
 /* TIMER1's generator, for hal_tone.c: TIMER1_CTRL and TIMER1_CYCLES, §8.5.2,
  * the register list that puts WATCHDOG_CTRL at 0x30. CYCLES is the clk_ref
  * cycles per 1 us tick, as for the watchdog's. */

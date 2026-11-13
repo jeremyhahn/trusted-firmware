@@ -171,6 +171,43 @@ Not in either slice: any transport
 for enrolment, and any OTP or secure-boot use. OTP and secure boot stay out of
 every lane until the owner rules (the ADR's open question 1).
 
+### The application's EEPROM
+
+The RP2350 has no EEPROM; the application's `EEPROM_READ` and `EEPROM_WRITE`
+keep the AVR's map (`TFW_EEPROM_SIZE`, `0x1140` bytes) over flash
+(`src/hal/cortex-m/rp2350/hal_eeprom.c`):
+
+| EEPROM address | Where | Write |
+|---|---|---|
+| `0x0000`-`0x013F` (`TFW_BOOT_EE_LEN`) | tfw-boot's span, read from the platform block at `0x103FF000` | refused (`TFW_ERR_RANGE`), except the 75-byte confirm request at `TFW_BOOT_CONFIRM_ADDR` |
+| `0x0140`-`0x113F` | the user sector, `0x103FE000`-`0x103FEFFF` (`TFW_CM_USER_EE_BASE`), the 4 KiB directly below the platform block | a read-modify-write of the whole sector through tfw-boot's `rp_flash.c`, then read back; a mismatch is `TFW_ERR_INTERNAL` |
+
+No EEPROM address reaches the platform sector: the user span is held inside
+the user sector at compile time, and `test/unit/test_rp2350_eeprom.c` runs the
+file over a NOR flash model and asserts the platform sector is never erased.
+
+Power loss. Every write, even of one byte, erases and reprograms the whole
+4 KiB user sector. Power lost between the erase and the end of the program
+leaves the sector partly or wholly erased: every saved byte in
+`0x0140`-`0x113F` can be lost, not only the bytes the command wrote. Keep
+anything that must survive in more than one place, or rewrite it after a
+power loss. The platform block is a different sector and is not touched.
+
+The clock. The erase and program run with interrupts masked, tens of
+milliseconds. The write reads TIMER0's microsecond count (§12.8.4.1, TIMERAWL)
+before and after and credits the millisecond clock with what SysTick could not
+count, carrying the part of a millisecond to the next write, so
+`tfw_hal_millis` (scheduled GPIO holds, execution time) stays right across a
+write. `tfw_cm_soc_early` starts TIMER0's 1 µs tick and takes it out of reset.
+
+OTA_CONFIRM. The confirm request is stored as the generic Cortex-M file stores
+it, into the XIP window, which on this part writes nothing to flash. Until a
+slice routes it through the flash helper, OTA_CONFIRM's request does not reach
+tfw-boot on this board, and a trial image is not confirmed by it.
+
+Not validated on the board: no bench run has erased, written or read back the
+user sector, or timed a write, on a Pico 2 W.
+
 ### Values against the datasheets
 
 Slice 3 read both datasheets, copied in [`../reference/`](../reference/README.md):

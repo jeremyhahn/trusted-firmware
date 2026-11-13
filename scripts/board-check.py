@@ -82,10 +82,12 @@ PARTS = {
     # RP2350 on the Raspberry Pi Pico 2 W (RP-008373-DS, "Address map"; the
     # board datasheet RP-008304-DS for the flash): the part has no flash of its
     # own, so the flash is the board's 4 MiB QSPI part behind the XIP window at
-    # 0x10000000; the SRAM is SRAM0-7, SRAM8-9 left to the boot ROM; no EEPROM.
+    # 0x10000000; the SRAM is SRAM0-7, SRAM8-9 left to the boot ROM. No EEPROM
+    # cells: the EEPROM is that flash, tfw-boot's 0x140-byte platform span then
+    # the 4 KiB user sector below the platform block (#393), 0x1140 in all.
     # tfw-boot is the first 32 KiB of the window, where the boot ROM looks.
     "rp2350": dict(flash=4194304, flash_start=0x10000000, sram=524288,
-                   sram_start=0x20000000, eeprom=0, boot=True,
+                   sram_start=0x20000000, eeprom=0x1140, boot=True,
                    boot_end=0x10008000),
     # Nordic nRF54L15 application core (nrfx MDK
     # nrf54l15_xxaa_application_memory.h): 1524 KiB of RRAM from address 0,

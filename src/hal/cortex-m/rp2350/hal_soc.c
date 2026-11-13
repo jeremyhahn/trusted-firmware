@@ -69,11 +69,16 @@ void tfw_cm_soc_early(void)
 
     TFW_RP_TICKS_WD_CYCLES = XOSC_HZ / 1000000uL;
     TFW_RP_TICKS_WD_CTRL   = TFW_RP_TICKS_ENABLE;
+    TFW_RP_TICKS_TIMER0_CYCLES = XOSC_HZ / 1000000uL;
+    TFW_RP_TICKS_TIMER0_CTRL   = TFW_RP_TICKS_ENABLE;
 
-    /* The GPIO blocks every pin and the UART need. */
-    TFW_RP_CLR(TFW_RP_RESETS_RESET) = TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0;
-    while ((TFW_RP_RESETS_DONE & (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0))
-           != (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0)) {
+    /* The GPIO blocks every pin and the UART need, and TIMER0, the
+     * microsecond count the flash EEPROM times its masked writes by. */
+    TFW_RP_CLR(TFW_RP_RESETS_RESET) = TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0 |
+                                      TFW_RP_RESET_TIMER0;
+    while ((TFW_RP_RESETS_DONE & (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0 |
+                                  TFW_RP_RESET_TIMER0))
+           != (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0 | TFW_RP_RESET_TIMER0)) {
     }
 }
 

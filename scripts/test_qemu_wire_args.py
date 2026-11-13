@@ -3,7 +3,7 @@
 """Unit tests for test/integration/cortex-m/qemu_wire_test.sh's arguments (make scripts-test).
 
 mk/arch/cortex-m-targets.mk's cortex-m-qemu-wire-run passes the row as the
-fourth argument: none for the base row, or store, ab, spi, i2c or onewire.
+fourth argument: none for the base row, or store, ab, spi, i2c, onewire or pulse.
 Each run here names `false` as QEMU, so a row the script accepts gets as far
 as its first boot and fails there, naming that boot; a row it refuses ends at
 the usage line with exit status 2. No QEMU.
@@ -17,7 +17,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 SCRIPT = os.path.join(REPO, "test", "integration", "cortex-m", "qemu_wire_test.sh")
-USAGE = "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|onewire]\n"
+USAGE = "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|onewire|pulse]\n"
 
 # The row the recipe passes, and the first boot the script starts for it.
 ROWS = (
@@ -27,6 +27,7 @@ ROWS = (
     (("spi",), "spi"),
     (("i2c",), "i2c"),
     (("onewire",), "onewire"),
+    (("pulse",), "pulse"),
 )
 
 

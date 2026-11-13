@@ -77,6 +77,13 @@ CM_QEMU_SPI_BUILD  := $(BUILD_DIR)/qemu-spi
 CM_QEMU_I2C_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_I2C_BUILD  := $(BUILD_DIR)/qemu-i2c
 
+# The PULSE row: the base row's image built with PULSE=1, so PULSE_IN and
+# PULSE_CAPTURE run the SysTick timer (src/hal/cortex-m/hal_pulse.c) on a pin
+# QEMU does not drive (sdk/go/cmd/tfwctl/pulse_qemu_test.go). The board's
+# soft:PULSE=1 row is this image. Its own BUILD_DIR, as the I2C row's.
+CM_QEMU_PULSE_BOARDS := mps2-an505
+CM_QEMU_PULSE_BUILD  := $(BUILD_DIR)/qemu-pulse
+
 # The 1-Wire row (profile.mk's soft:ONEWIRE=1), the same way: the base row's
 # image built with ONEWIRE=1, so the 1-Wire verbs time their slots on GPIO
 # block 0 bit 0, pin 3 (sdk/go/cmd/tfwctl/onewire_qemu_test.go). Its own
@@ -120,6 +127,7 @@ $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS)): integration-test
 	@$(if $(filter $*,$(CM_QEMU_AB_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-ab-wire BOARD=$*,true)
 	@$(if $(filter $*,$(CM_QEMU_SPI_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-spi-wire BOARD=$*,true)
 	@$(if $(filter $*,$(CM_QEMU_I2C_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-i2c-wire BOARD=$*,true)
+	@$(if $(filter $*,$(CM_QEMU_PULSE_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-pulse-wire BOARD=$*,true)
 	@$(if $(filter $*,$(CM_QEMU_ONEWIRE_BOARDS)),$(MAKE) --no-print-directory cortex-m-qemu-onewire-wire BOARD=$*,true)
 	@echo "$@: green"
 
@@ -162,6 +170,15 @@ cortex-m-qemu-i2c-wire:
 	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_I2C_BUILD)
 	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
 	   SOFT_ID=$(CM_QEMU_SOFT_ID) I2C=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_I2C_BUILD) CM_QEMU_I2C=1
+
+# The PULSE row's run, after the I2C row's: the base row's tfw-boot and the
+# PULSE=1 application, every path under CM_QEMU_PULSE_BUILD.
+cortex-m-qemu-pulse-wire:
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) PULSE=1 BUILD_DIR=$(CM_QEMU_PULSE_BUILD)
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_PULSE_BUILD)
+	@$(MAKE) --no-print-directory cortex-m-qemu-wire-run BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) PULSE=1 $(CM_QEMU_ROW) BUILD_DIR=$(CM_QEMU_PULSE_BUILD) CM_QEMU_PULSE=1
 
 # The 1-Wire row's run, after the I2C row's: the base row's tfw-boot and the
 # ONEWIRE=1 application, every path under CM_QEMU_ONEWIRE_BUILD.
@@ -208,7 +225,7 @@ cortex-m-qemu-wire-run: cortex-m-qemu-image
 	   echo "$@: python3 is not on PATH: qmp_pty.py reads the pty's path over QMP"; exit 1; }
 	@MAKE='$(MAKE)' QEMU_RAM='$(RAM_BASE) $(RAM_BUDGET)' QEMU_UART='$(QEMU_UART)' \
 	   QEMU_ELF='$(abspath $(TARGET).elf)' test/integration/cortex-m/qemu_wire_test.sh $(CM_QEMU_DIR) $(QEMU_MACHINE) $(BOARD) \
-	   $(if $(filter 1,$(CM_QEMU_AB)),ab,$(if $(CM_QEMU_STAGED),store,$(if $(filter 1,$(CM_QEMU_SPI)),spi,$(if $(filter 1,$(CM_QEMU_I2C)),i2c,$(if $(filter 1,$(CM_QEMU_ONEWIRE)),onewire)))))
+	   $(if $(filter 1,$(CM_QEMU_AB)),ab,$(if $(CM_QEMU_STAGED),store,$(if $(filter 1,$(CM_QEMU_SPI)),spi,$(if $(filter 1,$(CM_QEMU_I2C)),i2c,$(if $(filter 1,$(CM_QEMU_ONEWIRE)),onewire,$(if $(filter 1,$(CM_QEMU_PULSE)),pulse))))))
 
 # The signed image both runs boot. On the store row (CM_QEMU_STAGED, the
 # application's path without its extension), cm_image also signs the image
@@ -264,7 +281,7 @@ $(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/em
 	@echo "built $@"
 
 .PHONY: integration-test-cortex-m cortex-m-qemu-run cortex-m-qemu-image \
-        integration-test-cortex-m-wire cortex-m-qemu-wire-run cortex-m-qemu-store-wire cortex-m-qemu-ab-wire \
+        integration-test-cortex-m-wire cortex-m-qemu-wire-run cortex-m-qemu-pulse-wire cortex-m-qemu-store-wire cortex-m-qemu-ab-wire \
         cortex-m-qemu-spi-wire cortex-m-qemu-i2c-wire cortex-m-qemu-onewire-wire \
         cortex-m-qemu-cycle \
         $(addprefix integration-test-cortex-m-,$(CM_QEMU_BOARDS)) \

@@ -59,6 +59,15 @@ uint8_t tfw_nrf54l_rram_span(uint32_t floor, uint32_t addr, uint32_t len);
  * words make a page a quarter of the waits. */
 uint32_t tfw_nrf54l_rram_unit(uint32_t addr, uint32_t left);
 
+/* The tone (hal_tone.c) and PWM (hal_pwm.c) share the DK's LED1, P1.10,
+ * and hand it over explicitly, last command wins. Non-zero when the tone
+ * is running on port.bit. */
+int tfw_nrf54l_tone_owns(uint8_t port, uint8_t bit);
+
+/* Takes every PWM channel whose PSEL is port.bit off it; the last channel
+ * out stops the sequence. */
+void tfw_nrf54l_pwm_release_pin(uint8_t port, uint8_t bit);
+
 /* The board's SAADC channels: 0-3 are the analog inputs AIN2-AIN5, pins
  * P1.6, P1.7, P1.11 and P1.12 (soc_tables.c names the sources and why
  * AIN0, AIN1, AIN6 and AIN7 are left out). */

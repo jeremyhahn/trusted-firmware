@@ -8,8 +8,9 @@
  * definition, boards/nordic/nrf54l15dk/nrf54l15dk_common.dtsi), then the
  * SAADC's AIN2-AIN5 on P1.6, P1.7, P1.11 and P1.12. The console
  * UARTE's pins, P1.4 and P1.5, are the SoC file's
- * (src/hal/cortex-m/nrf54l/hal_uart.c) and not in the table. Every other
- * capability is off by file selection until a slice drives it.
+ * (src/hal/cortex-m/nrf54l/hal_uart.c) and not in the table. PWM is PWM20 on
+ * LED1 and LED3 (board.c says why those two). Every other capability is off
+ * by file selection until a slice drives it.
  *
  */
 #ifndef TFW_BOARD_NRF54L15_DK_H
@@ -20,12 +21,12 @@
 
 #define TFW_PIN_COUNT  12u     /* 4 LEDs, 4 buttons, AIN2-AIN5 */
 #define TFW_PORT_COUNT 3u      /* GPIO P0, P1 and P2 */
-#define TFW_PWM_COUNT  0u
+#define TFW_PWM_COUNT  2u      /* PWM20 channels 0 and 1, on LED1 and LED3 */
 #define TFW_ADC_COUNT  4u      /* SAADC AIN2-AIN5 (src/hal/cortex-m/nrf54l/soc_tables.c) */
 #define TFW_EEPROM_SIZE 4096u     /* the platform window in RRAM, TFW_CM_PLATFORM_SIZE */
 
 #define TFW_FEATURE_ANALOG  1
-#define TFW_FEATURE_PWM     0
+#define TFW_FEATURE_PWM     1   /* PWM20 (src/hal/cortex-m/nrf54l/hal_pwm.c) */
 #define TFW_FEATURE_TONE    1
 /* LED1, P1.10: the tone's TIMER20, GPIOTE20 and DPPIC20 reach port P1 only
  * (src/hal/cortex-m/nrf54l/hal_tone.c). */

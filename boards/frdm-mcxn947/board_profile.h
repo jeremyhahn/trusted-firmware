@@ -6,9 +6,9 @@
  *
  * The pins are the board's RGB LED and its two user switches (FRDM-MCXN947
  * Board User Manual UM12018, the SDK's boards/frdmmcxn947/board.h). The
- * red LED's pin is also CTIMER0's PWM output. The converters, the other timers
- * and the buses are not driven by this port yet, so every other capability is
- * off by file selection. The EdgeLock subsystem is
+ * red LED's pin is also CTIMER0's PWM output. The converters, the other
+ * timers, SPI and 1-Wire are not driven by this port yet, so every other
+ * capability is off by file selection. The EdgeLock subsystem is
  * not driven at all: the soft root is the board's only tier.
  *
  * The board id is PROVISIONAL (boards/frdm-mcxn947/profile.mk).
@@ -32,7 +32,13 @@
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  1
+/* I2C on LP_FLEXCOMM2 (src/hal/cortex-m/mcxn94x/hal_bus.c) only in the I2C=1
+ * row (profile.mk): built and measured, not run on the board. */
+#if defined(TFW_CM_I2C)
+#define TFW_FEATURE_I2C     1
+#else
 #define TFW_FEATURE_I2C     0
+#endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
 
@@ -54,6 +60,16 @@
 #define TFW_MCXN_LINK_RX_BIT  8u
 #define TFW_MCXN_LINK_TX_BIT  9u
 #define TFW_MCXN_LINK_PIN_FN  2u
+
+/* The I2C bus: LP_FLEXCOMM2 as LPI2C2 on P4_0 (SDA, FC2_P0) and P4_1 (SCL,
+ * FC2_P1), pin function 2, open drain with the pull-up on: the SDK's
+ * LPI2C2_InitPins (driver_examples/lpi2c/polling_b2b/master pin_mux.c), and
+ * board.h's LPI2C2 for the board's accelerometer and codec. Which header
+ * pins carry them is to confirm against UM12018. */
+#define TFW_MCXN_I2C_PORT     4u
+#define TFW_MCXN_I2C_SDA_BIT  0u
+#define TFW_MCXN_I2C_SCL_BIT  1u
+#define TFW_MCXN_I2C_PIN_FN   2u
 
 /* PWM: CTIMER0 in PWM mode, match 0 on P0_10 (CT0_MAT0, pin function 4, the
  * SDK example driver_examples/ctimer/simple_pwm's pin_mux.c), the red LED's

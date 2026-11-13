@@ -2462,6 +2462,18 @@ $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nr
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its EEPROM over a model of its RRAM: test/model/cortex-m/ ahead on the
+# include path, so TFW_CM_REG reaches the suite's RRAMC words, and the window
+# mapped at the DK's own address. The suite includes hal_eeprom.c itself, after
+# naming the RRAM stores. It stays in TEST_SRCS; this explicit rule takes the
+# place of the pattern rule.
+$(HOST_DIR)/test_nrf54l_eeprom: test/unit/test_nrf54l_eeprom.c src/hal/cortex-m/nrf54l/hal_eeprom.c \
+                                src/hal/cortex-m/nrf54l/rram_write.h src/hal/cortex-m/nrf54l/soc_tables.c \
+                                src/hal/cortex-m/hal_nvm.c src/proto/crc16.c src/proto/crc16_update.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m -Isrc/hal/cortex-m/nrf54l -Iboards/nrf54l15-dk $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ $(filter-out %/hal_eeprom.c %.h,$^) $(EXTRA_LDFLAGS)
+
 # Its I2C master (TWIM): hal_bus.c, unchanged, against the test's TWIM model;
 # test/model/cortex-m/nrf54l/ goes ahead of src/hal/cortex-m/ so its cm_regs.h,
 # which sends TFW_CM_REG to the model, is the one soc_regs.h finds.
@@ -2494,6 +2506,16 @@ $(HOST_DIR)/test_board_nrf54l15_i2c1: $(NRF54L15_BOARD_TEST_SRCS) | $(HOST_DIR)
 $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/stm32h5/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/stm32h5 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The stm32h5 I2C master against the test's register model of I2C4: the test
+# defines TFW_CM_REG and includes hal_bus.c itself, so hal_bus.c is a
+# prerequisite but not a separate object. The board's profile replaces the host
+# board's, and src/hal/cortex-m/ ahead of test/mock gives the port's hal_types.h.
+HOST_STM32H5_I2C_CFLAGS = -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Iboards/stm32h573i-dk \
+                          $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_stm32h5_i2c: test/unit/test_stm32h5_i2c.c src/hal/cortex-m/stm32h5/hal_bus.c \
+                              src/hal/cortex-m/stm32h5/soc_regs.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_STM32H5_I2C_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The stm32h5's ADC1 driver against the register model in its test, which
 # includes hal_adc.c and claims cm_regs.h's guard first; the board's profile
@@ -2533,6 +2555,17 @@ $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MCXN94x tone, hal_tone.c unchanged, against the sparse register model:
+# test/model/cortex-m/mcxn94x/ goes ahead of src/hal/cortex-m/ so its
+# cm_regs.h, which sends TFW_CM_REG to the model, is the one soc_regs.h finds,
+# as test_imx95_hal's model does; the board's profile gives the tone's mux.
+HOST_MCXN94X_CFLAGS = -Itest/model/cortex-m/mcxn94x -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
+                      -Iboards/frdm-mcxn947 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_mcxn94x_tone: test/unit/test_mcxn94x_tone.c test/model/cortex-m/mcxn94x/mcxn_model.c \
+                               src/hal/cortex-m/mcxn94x/hal_tone.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_MCXN94X_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The OPTIGA Trust M transport against recorded frames (row optiga-trust-m):
 # optiga_i2c.c alone, with the bus faked in the suite. It stays in TEST_SRCS;

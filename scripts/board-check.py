@@ -89,10 +89,13 @@ PARTS = {
                    boot_end=0x10008000),
     # Nordic nRF54L15 application core (nrfx MDK
     # nrf54l15_xxaa_application_memory.h): 1524 KiB of RRAM from address 0,
-    # 256 KiB of RAM at 0x20000000, no EEPROM. tfw-boot is the first 32 KiB of
-    # RRAM, where the core fetches its reset vector, so boot_end is 0x8000.
+    # 256 KiB of RAM at 0x20000000. The part has no EEPROM block: the EEPROM is
+    # emulated in a 4096-byte window of the RRAM (TFW_CM_PLATFORM_SIZE),
+    # programmed through the RRAMC by src/hal/cortex-m/nrf54l/hal_eeprom.c.
+    # tfw-boot is the first 32 KiB of RRAM, where the core fetches its reset
+    # vector, so boot_end is 0x8000.
     "nrf54l15": dict(flash=1560576, sram=262144, sram_start=0x20000000,
-                     eeprom=0, boot=True, boot_end=0x00008000),
+                     eeprom=4096, boot=True, boot_end=0x00008000),
     # NXP MCXN947, core 0's Secure alias (the SDK's MCXN947_cm33_core0.h and
     # its flash linker script, docs/reference/README.md): 2 MiB of flash at
     # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off, no EEPROM.

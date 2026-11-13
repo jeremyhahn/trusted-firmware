@@ -524,14 +524,17 @@ $(HOST_DIR)/test_mps2_bus: test/unit/test_mps2_bus.c src/hal/cortex-m/mps2/hal_b
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 \
 	   -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The MPS2 watchdog (src/hal/cortex-m/mps2/hal_soc.c) on the suite's own
-# register file: the suite includes hal_soc.c after its TFW_CM_REG, so the
-# source is a prerequisite and not a second translation unit. mps2-an505's
-# profile comes ahead of HOST_CFLAGS' board for its clock and watchdog base.
-$(HOST_DIR)/test_mps2_soc: test/unit/test_mps2_soc.c src/hal/cortex-m/mps2/hal_soc.c \
-                           src/hal/cortex-m/mps2/soc_regs.h $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
-	   -o $@ $(filter %/test_mps2_soc.c %.o,$^) $(EXTRA_LDFLAGS)
+# The MPS2 watchdog (src/hal/cortex-m/mps2/hal_soc.c) on a register file
+# (test/model/cortex-m/mps2_soc_model.c): the model includes hal_soc.c after
+# its TFW_CM_REG, so the source is a prerequisite and not a translation unit
+# of its own. mps2-an505's profile comes ahead of HOST_CFLAGS' board for its
+# clock and watchdog base.
+$(HOST_DIR)/test_mps2_soc: test/unit/test_mps2_soc.c test/model/cortex-m/mps2_soc_model.c \
+                           src/hal/cortex-m/mps2/hal_soc.c src/hal/cortex-m/mps2/soc_regs.h \
+                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Itest/model/cortex-m \
+	   -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
+	   -o $@ $(filter-out %.h %/hal_soc.c,$^) $(EXTRA_LDFLAGS)
 
 # The MPS2 SPI=1 row (#161): mps2-an505's profile and board table with
 # TFW_CM_SPI, as its profile.mk's SPI=1 builds them, and SPI_XFER from

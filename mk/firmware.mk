@@ -82,7 +82,11 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
 # compile under -Werror, so the board drops the whole file.
 STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
-PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c)
+# The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
+# the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
+# mk/arch/esp32.mk), so a file the arch lists is left to the arch.
+PULSE_SRCS   := $(if $(call feature_off,PULSE),,src/caps/pulse.c \
+                  $(filter-out $(ARCH_HAL_OPTIONAL),$(wildcard $(call hal_src,hal_pulse.c))))
 
 # The three buses, gated as ONE unit because they are one translation unit.
 #
@@ -158,7 +162,7 @@ endif
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
-HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c \
+HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
                   $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL)
 

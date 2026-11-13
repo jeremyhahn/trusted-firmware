@@ -182,7 +182,10 @@ In order:
    [`../cortex-m/README.md`](../cortex-m/README.md).
 5. OTA and the store, if the owner wants them on this board: the RRAM write
    path is already in place for both, and the EEPROM command family uses it.
-6. The SAADC and PWM.
+6. The SAADC on the DK, and PWM. The SAADC driver
+   (`src/hal/cortex-m/nrf54l/hal_adc.c`) is written and runs against a
+   register model on the host (`test/unit/test_nrf54l_saadc.c`); it has not
+   run on the board. PWM remains outstanding.
 
 ## What is not verified
 
@@ -197,6 +200,25 @@ above on the board itself. For the RRAM writes in particular, none of these is v
   EEPROM window alike);
 - what a store with `WEN` clear does (ignored or a fault);
 - how long a write takes against the spin bounds.
+
+The SAADC has not run on the board; every behaviour of the analog read comes
+from the register model, which follows nrf54l15_types.h and not the part. Not
+verified:
+
+- the channel mapping: board channels 0-3 are AIN2-AIN5 on P1.06, P1.07,
+  P1.11 and P1.12, taken from the DK's pin table, and whether those header
+  pins reach the analog inputs as the board leaves them;
+- the reference: only the internal 0.9 V reference is taken. VDD is not a
+  reference the part offers and the external reference's pin is not on the
+  board's table, so `TFW_ADC_REF_VCC` and `TFW_ADC_REF_EXTERNAL` are refused.
+  With gain 2/8 the range is assumed to be 0 V to 3.6 V, clipped by the pin's
+  own supply;
+- the acquisition and conversion times, left at `CH[n].CONFIG`'s reset
+  values, and the accuracy without offset calibration, which is never run;
+- that START, SAMPLE and STOP answer well inside the wait bound
+  (100 000 polls each); a read that misses STARTED, END or STOPPED returns
+  `TFW_ERR_TIMEOUT`, with the converter stopped, disabled and the pin
+  disconnected as far as the registers say.
 
 For the tone, none of these is verified ([PS] was not read):
 

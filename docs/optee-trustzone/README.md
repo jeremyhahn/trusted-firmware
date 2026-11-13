@@ -1,7 +1,7 @@
 # OP-TEE on QEMU `virt`: the design of row `optee-trustzone`
 
-> **Status: PROPOSED** · Issue: [#253](../../../../issues/253) · SPEC row:
-> `optee-trustzone` (future) · Scope: trusted-firmware; go-enclave (seam only,
+> **Status: BUILT** · Issue: [#253](../../../../issues/253) · SPEC row:
+> `optee-trustzone` (shipped, #430) · Scope: trusted-firmware; go-enclave (seam only,
 > [go-enclave#206](../../../../../go-enclave/issues/206)) · Last verified: 2026-11-12
 >
 > Slice 2 is proven: the pin (OP-TEE 4.11.0) and `make optee-tools`,
@@ -65,7 +65,8 @@ composes. It is not this repository.
 Each standard is implemented as written; nothing is designed in its place.
 Each is on file in [`../reference/`](../reference/README.md): RFC 9562 is copied
 there, and the GlobalPlatform specifications are listed by title, revision and
-URL. The pinned release declares Internal Core API v1.3.1.\n
+URL. The pinned release declares Internal Core API v1.3.1.
+
 | Standard | Used for | Licence and file |
 |---|---|---|
 | GlobalPlatform, *TEE Client API Specification* v1.0 (GPD_SPE_007) | The normal-world API the test client and go-enclave's backend call: `TEEC_InitializeContext`, `TEEC_OpenSession`, `TEEC_InvokeCommand`, the `TEEC_Operation` parameter types, `TEEC_UUID`. OP-TEE's `libteec` implements it | GP licence forbids a copy: title and URL <https://globalplatform.org/specs-library/tee-client-api-specification/> |
@@ -101,14 +102,16 @@ on the manifest), manifest commit `b95d496b47c6548e3e196adad75e78bde115a18c`,
 every repository at the revision `qemu_v8.xml` names; GP Internal Core API
 v1.3.1; Google's `repo` tool at `v2.70`
 (`46e9866ca0f161604bd45a0c3b7c7887c9415dcb`). Each commit is checked after the
-fetch, and a mismatch fails it.
+fetch, and a mismatch fails it. `make -s optee-pin` prints the release tag,
+which is also CI's cache key for `OPTEE_CACHE`.
 
 Upstream sources are listed in `docs/reference/README.md`, "Not
-redistributable" style (title, revision, URL). optee_os\nand optee_client are BSD-2-Clause; they are fetched, not copied.
+redistributable" style (title, revision, URL). optee_os
+and optee_client are BSD-2-Clause; they are fetched, not copied.
 
 ## What this project contributes
 
-| Path (proposed) | What |
+| Path | What |
 |---|---|
 | `optee/ta/` | The TA, in C, built with optee_os's TA dev kit (`TA_DEV_KIT_DIR`). Same preprocessor rule as the firmware: no `#if` in logic. `user_ta_header_defines.h` holds `#define`s only |
 | `optee/ta/include/tfw_ta.h` | The UUID and command ids below, as literals, shared by the TA and the test client |
@@ -120,6 +123,7 @@ redistributable" style (title, revision, URL). optee_os\nand optee_client are BS
 
 | Target | Does |
 |---|---|
+| `make optee-pin` | Prints the pinned release tag (`make -s optee-pin`), CI's cache key |
 | `make optee-tools` | Checks every tool the build needs (list under "CI"). A missing tool fails with its name and what to install, then exits non-zero. No skip |
 | `make optee-qemu` | `optee-tools`, then fetches the pinned manifest, builds the stack, builds the TA and `tfw-ta-check` and installs both into the guest image (TA into tee-supplicant's TA directory, `/lib/optee_armtz/`) |
 | `make optee-run` | Boots QEMU `virt` with the stack, headless. `OPTEE_SHARE=<dir>` mounts a host directory in the guest over virtio-9p; `OPTEE_GUEST_CMD=<cmd>` runs a command there after `tee-supplicant` starts, and the target exits with that command's status |

@@ -3,7 +3,8 @@
 /*
  * The arithmetic the STM32H5 files do before they touch a register: the
  * USART's divisor, the flash wait states a clock needs, the watchdog's
- * prescaler and reload, and the two- and four-bit fields of a GPIO bank.
+ * prescaler and reload, the two- and four-bit fields of a GPIO bank, and
+ * the ADC's sample-time fields, clock divider and waits.
  *
  * Pure functions of their arguments, with no register and no global, so the
  * host build tests them (test/unit/test_stm32h5_calc.c) and both images
@@ -105,6 +106,44 @@ static inline uint32_t tfw_h5_field4(uint32_t reg, uint8_t pin, uint32_t af)
     uint32_t shift = 4u * ((uint32_t)pin & 7u);
 
     return (reg & ~(0xFu << shift)) | ((af & 0xFu) << shift);
+}
+
+/* `reg`, a sample-time register, with channel `ch`'s three-bit field set to
+ * `smp`: SMPR1 holds channels 0-9 and SMPR2 10-19, so the field is the
+ * channel's index within its ten. */
+static inline uint32_t tfw_h5_adc_smpr(uint32_t reg, uint8_t ch, uint32_t smp)
+{
+    uint32_t shift = 3u * ((uint32_t)ch % 10u);
+
+    return (reg & ~(0x7u << shift)) | ((smp & 0x7u) << shift);
+}
+
+/* The ADC clock divider: the kernel clock (HCLK) over 2, PRESC code 1
+ * (stm32h5xx_ll_adc.h LL_ADC_CLOCK_ASYNC_DIV2). The ADC's highest clock is
+ * the datasheet's, not retrieved, so the slower clock is the one taken. */
+#define TFW_H5_ADC_PRESC_CODE 1u
+#define TFW_H5_ADC_CLK_DIV    2u
+
+/* Busy-wait spins for `us` microseconds at `cpu_hz`: one core cycle a spin
+ * at the least, so the wait is never shorter than asked. */
+static inline uint32_t tfw_h5_spins_us(uint32_t cpu_hz, uint32_t us)
+{
+    return (cpu_hz / 1000000u) * us;
+}
+
+/* The waits the ADC bring-up takes (stm32h5xx_ll_adc.h): the regulator's
+ * start-up, LL_ADC_DELAY_INTERNAL_REGUL_STAB_US, and the ADC clock cycles
+ * between calibration's end and ADEN, LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES,
+ * in core cycles at the divider above. The bound on every poll (calibration,
+ * ADRDY, EOC) is 10 ms, past any of them: the calibration's length is
+ * RM0481's, not retrieved, so the longer bound is the one taken. */
+#define TFW_H5_ADC_REGUL_US      20u
+#define TFW_H5_ADC_CAL_EN_CYCLES 4u
+#define TFW_H5_ADC_POLL_US       10000u
+
+static inline uint32_t tfw_h5_adc_cal_en_spins(void)
+{
+    return TFW_H5_ADC_CAL_EN_CYCLES * TFW_H5_ADC_CLK_DIV;
 }
 
 /* PWM on a general-purpose timer (hal_pwm.c): the counter runs 0 to ARR 254,

@@ -61,6 +61,15 @@ BOOT_BUDGET    := 32768
 # fitted (SPEC row mcxn947).
 BOARD_TIERS    := soft
 
+# I2C on LP_FLEXCOMM2 as LPI2C2 (src/hal/cortex-m/mcxn94x/hal_bus.c), off by
+# default: no element is fitted. I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in
+# board_profile.h) and links the bus; the soft:I2C=1 row builds it and
+# size-check measures it. Built, not run: no board has driven the bus.
+I2C               ?= 0
+BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        := soft:I2C=1
+
 # Written through the board's on-board MCU-Link, a CMSIS-DAP probe, with
 # pyOCD and NXP's CMSIS pack for the part (pyocd pack install mcxn947vdf);
 # mk/arch/cortex-m.mk holds the recipes. The record is the whole 2 MiB from the

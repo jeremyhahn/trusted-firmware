@@ -81,7 +81,7 @@ CM_QEMU_I2C_BUILD  := $(BUILD_DIR)/qemu-i2c
 # PULSE_CAPTURE run the SysTick timer (src/hal/cortex-m/hal_pulse.c) on a pin
 # QEMU does not drive (sdk/go/cmd/tfwctl/pulse_qemu_test.go). The board's
 # soft:PULSE=1 row is this image. Its own BUILD_DIR, as the I2C row's.
-CM_QEMU_PULSE_BOARDS := mps2-an505
+CM_QEMU_PULSE_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_PULSE_BUILD  := $(BUILD_DIR)/qemu-pulse
 
 ## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent; on mps2-an505 the tamper-response loop decides as its sets require

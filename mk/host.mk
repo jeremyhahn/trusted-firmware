@@ -2365,8 +2365,9 @@ HOST_NRF54L_CFLAGS = -Itest/model -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m \
 # Its tone (the nrf54l15 row): the TIMER arithmetic in tone_calc.h, and
 # hal_tone.c, unchanged, against the register model the test file supplies
 # behind test/model/cortex-m/cm_regs.h, compiled as test_imx95_hal is.
+# hal_pwm.c for the LED1 handoff a tone start makes; test_nrf54l_pwm checks it.
 $(HOST_DIR)/test_nrf54l_tone: test/unit/test_nrf54l_tone.c src/hal/cortex-m/nrf54l/hal_tone.c \
-                              src/hal/cortex-m/nrf54l/soc_tables.c \
+                              src/hal/cortex-m/nrf54l/hal_pwm.c src/hal/cortex-m/nrf54l/soc_tables.c \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Itest/model/cortex-m $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
@@ -2378,9 +2379,11 @@ $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nr
 
 # Its PWM (PWM20, hal_pwm.c) against a register model
 # (test/model/nrf54l_model.c), as test_imx95_hal is: test/model/cortex-m/nrf54l/
-# goes first so its cm_regs.h sends TFW_CM_REG to the model.
+# goes first so its cm_regs.h sends TFW_CM_REG to the model. hal_tone.c for
+# the LED1 handoff between the tone and the PWM, in both directions.
 $(HOST_DIR)/test_nrf54l_pwm: test/unit/test_nrf54l_pwm.c test/model/nrf54l_model.c \
-                             src/hal/cortex-m/nrf54l/hal_pwm.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                             src/hal/cortex-m/nrf54l/hal_pwm.c src/hal/cortex-m/nrf54l/hal_tone.c \
+                             src/hal/cortex-m/nrf54l/soc_tables.c \
                              src/hal/cortex-m/nrf54l/hal_gpio.c src/caps/pwm.c src/core/reader.c \
                              boards/nrf54l15-dk/board.c src/core/board_lookup.c \
                              $(HOST_DIR)/unity.o | $(HOST_DIR)

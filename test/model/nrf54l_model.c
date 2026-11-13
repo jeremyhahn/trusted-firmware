@@ -5,7 +5,7 @@
 
 #include "nrf54l_model.h"
 
-#define SLOTS 64u
+#define SLOTS 128u
 
 static struct {
     uintptr_t         addr;

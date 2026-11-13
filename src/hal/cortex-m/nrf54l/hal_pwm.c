@@ -86,6 +86,32 @@ static void release(uint8_t ch)
     }
 }
 
+/* A PWM command takes its pin from the tone, as a second tone start
+ * retargets (hal_tone.c): last command wins. GPIOTE's task mode overrides
+ * the pin's GPIO and PWM drive alike, so the tone is stopped, not shared. */
+static void take_from_tone(const tfw_pwmref_t *p)
+{
+#if TFW_FEATURE_TONE
+    if (tfw_nrf54l_tone_owns(p->port, p->bit)) {
+        (void)tfw_hal_tone_stop();
+    }
+#else
+    (void)p;
+#endif
+}
+
+void tfw_nrf54l_pwm_release_pin(uint8_t port, uint8_t bit)
+{
+    uint32_t psel = tfw_nrf54l_psel(port, bit);
+    uint8_t  ch;
+
+    for (ch = 0u; ch < TFW_NRF_PWM_CHANNELS; ch++) {
+        if (TFW_NRF_PWM_PSEL_OUT(ch) == psel) {
+            release(ch);
+        }
+    }
+}
+
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
     uint32_t     bit;
@@ -94,6 +120,7 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     if (st != TFW_OK) {
         return st;
     }
+    take_from_tone(p);
     bit = 1uL << p->bit;
     if (duty == 0u || duty == 255u) {
         release(p->channel);
@@ -126,6 +153,7 @@ tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
     if (st != TFW_OK) {
         return st;
     }
+    take_from_tone(p);
     release(p->channel);
     /* Stop is the wire's duty zero (src/caps/pwm.c): the pin goes low as a
      * GPIO output, even after a duty-255 OUTSET left it high. */

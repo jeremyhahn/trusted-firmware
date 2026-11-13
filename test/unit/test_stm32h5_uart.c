@@ -29,6 +29,10 @@ void tfw_cm_irq58(void);
  * by 16: BRR = USARTDIV = f_ck / baud). */
 #define BRR_115200_AT_64MHZ 556u
 
+/* NVIC_ISER1 (Armv8-M ARM, the NVIC registers), set-enable for IRQs 32-63,
+ * spelt as an address: the core's register names stay behind the HAL. */
+#define NVIC_ISER1_ADDR ((uintptr_t)0xE000E104u)
+
 /* The TX ring holds one less than its 64 slots. */
 #define TX_RING_ROOM 63u
 
@@ -95,7 +99,7 @@ static void test_init_clears_an_overrun_and_clocks_usart1(void)
 static void test_init_enables_usart1s_interrupt(void)
 {
     init_115200();
-    TEST_ASSERT_EQUAL_HEX32(0x1u << (58u - 32u), TFW_CM_NVIC_ISER(1u));
+    TEST_ASSERT_EQUAL_HEX32(0x1u << (58u - 32u), regfile_model_peek(NVIC_ISER1_ADDR));
 }
 
 static void test_the_pins_are_pa9_and_pa10_on_af7(void)

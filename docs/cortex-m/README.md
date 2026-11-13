@@ -500,7 +500,9 @@ board id `0x46` (allocated in
 its own CI step. tfw-boot builds for it too, as the row
 `frdm-mcxn947:soft:soft:p256-soft:0:0` in `bootloader-check`: P-256 verify, a
 polled LPUART4 and a flash writer through the boot ROM's flash driver in
-`boot/hal/cortex-m/mcxn94x/`. Its fit in the 32 KB region is not yet measured.
+`boot/hal/cortex-m/mcxn94x/`. Its fit in the 32 KB region is measured: flash
+8492 of 32768 bytes (24276 bytes of headroom) and RAM 8516 of 319488 bytes, at
+commit `48d85486` with arm-none-eabi-gcc 14.2.1 20241119.
 pyOCD writes either image (below). QEMU models no MCX part, so no test runs
 either image, and no board has run one. The host tests cover the board table
 (`board-sweep`), the LPUART's baud arithmetic (`test_mcxn_lpuart`), and the

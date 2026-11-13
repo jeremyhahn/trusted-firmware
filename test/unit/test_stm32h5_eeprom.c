@@ -48,7 +48,10 @@ static struct {
     int      drop;                     /* the next program does not take */
     uint32_t masked;                   /* PRIMASK as the hooks hold it */
     unsigned masked_saves;             /* stores run under the mask */
+    unsigned unmasked_stores;          /* stores the mask did not cover */
+    int      unmasked;                 /* at_unmask holds the flash as unmasked */
 } hw;
+static uint8_t  at_unmask[FLASH_BYTES]; /* the flash when the mask came off */
 
 static int bits_set(const uint8_t *now, const uint8_t *was, uint32_t n)
 {
@@ -82,6 +85,10 @@ static void do_erase(uint32_t cr)
 static uint32_t do_program(void)
 {
     uint32_t q;
+
+    if (hw.unmasked && memcmp(MEM, at_unmask, FLASH_BYTES) != 0) {
+        hw.unmasked_stores++;                    /* stored after the mask came off */
+    }
 
     for (q = 0u; q < FLASH_BYTES; q += TFW_H5_FLASH_QWORD) {
         if (memcmp(MEM + q, shadow + q, TFW_H5_FLASH_QWORD) == 0) {
@@ -128,18 +135,32 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     }
 }
 
+/* The stores between save and restore are the pending quad-word: none may be
+ * pending when the mask goes on, and the whole of it is stored before the mask
+ * comes off (do_program finds no store after the snapshot taken here). */
 uint32_t tfw_h5_flash_irq_save(void)
 {
     uint32_t was = hw.masked;
 
+    if (memcmp(MEM, shadow, FLASH_BYTES) != 0) {
+        hw.unmasked_stores++;                    /* stored before the mask */
+    }
     hw.masked = 1u;
     hw.masked_saves++;
+    hw.unmasked = 0;
     return was;
 }
 
 void tfw_h5_flash_irq_restore(uint32_t mask)
 {
     hw.masked = mask;
+    if (mask == 0u) {
+        if (memcmp(MEM, shadow, FLASH_BYTES) == 0) {
+            hw.unmasked_stores++;                /* nothing stored under the mask */
+        }
+        memcpy(at_unmask, MEM, FLASH_BYTES);
+        hw.unmasked = 1;
+    }
 }
 
 /* boot_flash.c's stand-in, on the model's registers above. */
@@ -164,6 +185,7 @@ void tearDown(void)
     uint32_t i;
 
     TEST_ASSERT_EQUAL_UINT(0u, hw.violations);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.unmasked_stores);
     TEST_ASSERT_EQUAL_UINT(0u, hw.platform_erases);
     for (i = 0u; i < TFW_CM_PLATFORM_SIZE; i++) {
         if (i < TFW_BOOT_CONFIRM_ADDR || i >= TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN) {
@@ -295,6 +317,35 @@ static void test_the_stores_run_masked_and_the_mask_is_put_back(void)
     TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, second, sizeof second));
     TEST_ASSERT_EQUAL_UINT(2u, hw.masked_saves);
     TEST_ASSERT_EQUAL_UINT32(0u, hw.masked);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.unmasked_stores);
+}
+
+/* Codex P1 on #394: the model sees where the stores fall against the mask, so
+ * a store before it, a mask lifted before the stores, or a quad-word split by
+ * the restore each count. */
+static void test_the_model_counts_stores_outside_the_mask(void)
+{
+    uint32_t m;
+
+    MEM[USER_OFF] = 0x00u;
+    m = tfw_h5_flash_irq_save();
+    TEST_ASSERT_EQUAL_UINT(1u, hw.unmasked_stores);
+    tfw_h5_flash_irq_restore(m);
+    (void)do_program();
+
+    hw.unmasked_stores = 0u;
+    m = tfw_h5_flash_irq_save();
+    tfw_h5_flash_irq_restore(m);
+    TEST_ASSERT_EQUAL_UINT(1u, hw.unmasked_stores);
+
+    hw.unmasked_stores = 0u;
+    m = tfw_h5_flash_irq_save();
+    MEM[USER_OFF + 16u] = 0x00u;
+    tfw_h5_flash_irq_restore(m);
+    MEM[USER_OFF + 20u] = 0x00u;
+    (void)do_program();
+    TEST_ASSERT_EQUAL_UINT(1u, hw.unmasked_stores);
+    hw.unmasked_stores = 0u;
 }
 
 static void test_the_confirm_request_keeps_the_generic_store(void)
@@ -332,6 +383,7 @@ int main(void)
     RUN_TEST(test_a_rewrite_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_rewrite_that_loses_another_value_is_internal);
     RUN_TEST(test_the_stores_run_masked_and_the_mask_is_put_back);
+    RUN_TEST(test_the_model_counts_stores_outside_the_mask);
     RUN_TEST(test_the_confirm_request_keeps_the_generic_store);
     return UNITY_END();
 }

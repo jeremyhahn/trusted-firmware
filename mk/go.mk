@@ -122,12 +122,16 @@ hw-test:
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
-## sdk-lint: gofmt and vet the Go SDK
+## api-doc-check: check docs/host-sdk/api.md names every exported symbol of sdk/go
+api-doc-check:
+	@python3 -B scripts/api-doc-check.py $(CURDIR)
+
+## sdk-lint: gofmt and vet the Go SDK, and check its API page
 # vet compiles the tests, so it downloads their modules. That download goes
 # first, through deps-check.py's bounded retry: a proxy that is down for a
 # moment is asked again, a module that is wrong or missing fails at once, and
 # gofmt and vet then run once, from the cache, so a real finding fails first time.
-sdk-lint:
+sdk-lint: api-doc-check
 	@python3 scripts/deps-check.py download $(SDK_DIR)
 	@cd $(SDK_DIR) && out=$$($(GO) fmt ./... ) && \
 	  if [ -n "$$out" ]; then echo "gofmt rewrote:"; echo "$$out"; exit 1; fi
@@ -246,5 +250,5 @@ go-tags-bridge-prereqs:
 verify-vectors:
 	@./scripts/verify-vectors.sh
 
-.PHONY: sdk-build sdk-test sdk-coverage hw-test sdk-lint sdk-verify verify-vectors xkms-test xkms-e2e-soft xkms-coverage hw-enroll \
+.PHONY: sdk-build sdk-test sdk-coverage hw-test api-doc-check sdk-lint sdk-verify verify-vectors xkms-test xkms-e2e-soft xkms-coverage hw-enroll \
         go-tags-selftest go-tags-bridge-prereqs

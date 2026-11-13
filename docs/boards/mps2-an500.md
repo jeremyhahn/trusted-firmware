@@ -60,6 +60,7 @@ the span both regions sit in (`board_profile.h:57`).
 | Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
 | PWM, ADC, EEPROM, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
 | I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:31`–`46` |
+| Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off here. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads, and builds on any Cortex-M; `mps2-an505` links it in its `soft:PULSE=1` row, whose QEMU wire row (`TestQEMUPulseTimeout`) checks that a pin QEMU does not drive times out. This board could take the same row | `board_profile.h` `TFW_FEATURE_PULSE`; `mk/firmware.mk` `PULSE_SRCS` |
 
 ## Buses
 

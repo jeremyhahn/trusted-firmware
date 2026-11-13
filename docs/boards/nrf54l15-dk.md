@@ -62,6 +62,7 @@ it again in the toolchain image.
 | Clock | the CPU at 128 MHz; the high-frequency crystal started, not waited on | [MDK] `system_nrf54l.c` |
 | Console | UARTE20 at the baud rates of the vendor's `BAUDRATE` table (its clock is 16 MHz), 8N1, no flow control, one byte per EasyDMA transfer each way, on IRQ 198 | [MDK] `nrf54l15_types.h`, `nrf54l15_application_peripherals.h` |
 | Watchdog | WDT30 on the 32.768 kHz clock, 8 s, with `STOPEN` so a later reset can stop it | [MDK] `nrf54l15_types.h` |
+| I2C (`I2C=1` row only) | **built, not run on the board.** TWIM21 (`0x500C7000`; TWIM20 shares UARTE20's base, the console's), master, polled with `INTEN` 0, at 100, 250 or 400 kHz (`FREQUENCY` `K100`/`K250`/`K400`; under 100 kHz is refused). One EasyDMA transfer per part: the write from a RAM copy, the read into the caller's buffer, the repeated START by `SHORTS` `LASTTX_DMA_RX_START`, the STOP by `LASTTX_STOP`/`LASTRX_STOP`, or after an `ERROR` by `TASKS_RESUME` then `TASKS_STOP` as nrfx's driver does. `ERRORSRC` `ANACK`/`DNACK` is `NACK`; no `STOPPED` within 100 ms is `TIMEOUT` after `TASKS_STOP`. SDA P1.8 and SCL P1.10 with the pull-up on, open-drain (`DRIVE1` `D1`): the controller pins of Zephyr's TWIM test for this DK, since the board's own devicetree routes no I2C. They are also BUTTON2 and LED1, which the bus takes while it runs. SPI and 1-Wire refuse with `UNSUPPORTED`. `soft:I2C=1` is a `BOARD_ROWS` entry; host-tested against a TWIM register model (`test/unit/test_nrf54l_twim.c`) | [MDK] `nrf54l15_types.h`, `nrf54l15_global.h`, `nrf54l15_application_peripherals.h`; [Z] `tests/drivers/i2c/i2c_nrfx_twim/boards/nrf54l15dk_nrf54l15_cpuapp.overlay` |
 | Vectors | the core's 96 entries, then IRQs 80-198 in `.vectors.soc`; the linker script asserts the two meet and the table sits on a 1 KB boundary | `mk/arch/cortex-m/nrf54l.ld` |
 
 ## Tone (the `nrf54l15` row)
@@ -181,7 +182,10 @@ In order:
    [`../cortex-m/README.md`](../cortex-m/README.md).
 5. OTA and the store, if the owner wants them on this board: the RRAM write
    path is already in place for both.
-6. The SAADC and PWM.
+6. The SAADC on the DK, and PWM. The SAADC driver
+   (`src/hal/cortex-m/nrf54l/hal_adc.c`) is written and runs against a
+   register model on the host (`test/unit/test_nrf54l_saadc.c`); it has not
+   run on the board. PWM remains outstanding.
 
 ## What is not verified
 
@@ -195,6 +199,25 @@ above on the board itself. For the RRAM writes in particular, none of these is v
   Secure core write the platform block;
 - what a store with `WEN` clear does (ignored or a fault);
 - how long a write takes against the spin bounds.
+
+The SAADC has not run on the board; every behaviour of the analog read comes
+from the register model, which follows nrf54l15_types.h and not the part. Not
+verified:
+
+- the channel mapping: board channels 0-3 are AIN2-AIN5 on P1.06, P1.07,
+  P1.11 and P1.12, taken from the DK's pin table, and whether those header
+  pins reach the analog inputs as the board leaves them;
+- the reference: only the internal 0.9 V reference is taken. VDD is not a
+  reference the part offers and the external reference's pin is not on the
+  board's table, so `TFW_ADC_REF_VCC` and `TFW_ADC_REF_EXTERNAL` are refused.
+  With gain 2/8 the range is assumed to be 0 V to 3.6 V, clipped by the pin's
+  own supply;
+- the acquisition and conversion times, left at `CH[n].CONFIG`'s reset
+  values, and the accuracy without offset calibration, which is never run;
+- that START, SAMPLE and STOP answer well inside the wait bound
+  (100 000 polls each); a read that misses STARTED, END or STOPPED returns
+  `TFW_ERR_TIMEOUT`, with the converter stopped, disabled and the pin
+  disconnected as far as the registers say.
 
 For the tone, none of these is verified ([PS] was not read):
 

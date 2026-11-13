@@ -36,7 +36,9 @@
  * (src/hal/cortex-m/stm32h5/hal_tone.c; built and host-tested, not yet run
  * on the board). */
 #define TFW_TONE_PIN   12u
-#define TFW_FEATURE_PULSE   0
+/* src/hal/cortex-m/hal_pulse.c: the pin through tfw_hal_gpio_read, the time
+ * on SysTick, which counts the processor clock, TFW_CM_CPU_HZ. */
+#define TFW_FEATURE_PULSE   1
 #define TFW_FEATURE_EEPROM  1
 /* I2C4 on PB8/PB9 (src/hal/cortex-m/stm32h5/hal_bus.c), on only in the I2C=1
  * row (profile.mk): built and host-tested against a register model, not yet

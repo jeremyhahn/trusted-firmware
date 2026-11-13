@@ -7,7 +7,8 @@
  * a write, the PDIR bit a read returns, and a coordinate the part has no pin
  * at refused with nothing written. The addresses and bits are the MCXNx4x
  * Reference Manual's (the PORT and RGPIO chapters, through soc_regs.h's
- * citation), written out here so a drift in soc_regs.h shows too. The pins
+ * citation), written out here for the checks so a drift in soc_regs.h shows
+ * too; a register the test presets goes through soc_regs.h's name. The pins
  * are the FRDM-MCXN947's (boards/frdm-mcxn947/board.c). A board has not run
  * them.
  */
@@ -15,7 +16,7 @@
 
 #include "unity.h"
 #include "tfw/hal.h"
-#include "cm_regs.h"
+#include "soc_regs.h"
 #include "regfile_model.h"
 
 /* PORTn and GPIOn, the secure aliases soc_regs.h uses. */
@@ -35,11 +36,6 @@ static const tfw_pinref_t led_red  = TFW_PB(0u, 10u);  /* P0_10 */
 static const tfw_pinref_t led_blue = TFW_PB(1u, 2u);   /* P1_2 */
 static const tfw_pinref_t sw2      = TFW_PB(0u, 23u);  /* P0_23 */
 
-static void poke(uint32_t addr, uint32_t v)
-{
-    *tfw_cm_model_reg((uintptr_t)addr) = v;
-}
-
 static uint32_t peek(uint32_t addr)
 {
     return regfile_model_peek((uintptr_t)addr);
@@ -55,7 +51,7 @@ void tearDown(void) {}
 void test_output_is_function_0_no_pull_input_buffer_on(void)
 {
     /* A PCR left at another function with a pull: the mode replaces it. */
-    poke(PORT_PCR(0u, 10u), (4u << 8) | PCR_PE | PCR_PS);
+    TFW_MCXN_PORT_PCR(0u, 10u) = (4u << 8) | PCR_PE | PCR_PS;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&led_red, TFW_PIN_OUTPUT));
     TEST_ASSERT_EQUAL_HEX32(PCR_IBE, peek(PORT_PCR(0u, 10u)));
     TEST_ASSERT_EQUAL_HEX32(0u, peek(PORT_PCR(0u, 10u)) & PCR_MUX);
@@ -63,7 +59,7 @@ void test_output_is_function_0_no_pull_input_buffer_on(void)
 
 void test_output_sets_only_its_pddr_bit(void)
 {
-    poke(GPIO_PDDR(0u), 1u << 3);
+    TFW_MCXN_GPIO_PDDR(0u) = 1u << 3;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&led_red, TFW_PIN_OUTPUT));
     TEST_ASSERT_EQUAL_HEX32((1u << 3) | (1u << 10), peek(GPIO_PDDR(0u)));
 }
@@ -79,8 +75,8 @@ void test_output_on_port_1_uses_port1_and_gpio1(void)
 
 void test_input_clears_only_its_pddr_bit_no_pull(void)
 {
-    poke(GPIO_PDDR(0u), 0xFFFFFFFFu);
-    poke(PORT_PCR(0u, 23u), (4u << 8) | PCR_PE | PCR_PS);
+    TFW_MCXN_GPIO_PDDR(0u) = 0xFFFFFFFFu;
+    TFW_MCXN_PORT_PCR(0u, 23u) = (4u << 8) | PCR_PE | PCR_PS;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&sw2, TFW_PIN_INPUT));
     TEST_ASSERT_EQUAL_HEX32(~(1u << 23), peek(GPIO_PDDR(0u)));
     TEST_ASSERT_EQUAL_HEX32(PCR_IBE, peek(PORT_PCR(0u, 23u)));
@@ -88,7 +84,7 @@ void test_input_clears_only_its_pddr_bit_no_pull(void)
 
 void test_input_pullup_enables_the_pull_up(void)
 {
-    poke(GPIO_PDDR(0u), 0xFFFFFFFFu);
+    TFW_MCXN_GPIO_PDDR(0u) = 0xFFFFFFFFu;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&sw2, TFW_PIN_INPUT_PULLUP));
     TEST_ASSERT_EQUAL_HEX32(PCR_IBE | PCR_PE | PCR_PS, peek(PORT_PCR(0u, 23u)));
     TEST_ASSERT_EQUAL_HEX32(~(1u << 23), peek(GPIO_PDDR(0u)));
@@ -96,8 +92,8 @@ void test_input_pullup_enables_the_pull_up(void)
 
 void test_an_unknown_mode_is_unsupported_and_writes_nothing(void)
 {
-    poke(GPIO_PDDR(0u), 1u << 10);
-    poke(PORT_PCR(0u, 10u), 4u << 8);
+    TFW_MCXN_GPIO_PDDR(0u) = 1u << 10;
+    TFW_MCXN_PORT_PCR(0u, 10u) = 4u << 8;
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_gpio_mode(&led_red, (tfw_pin_mode_t)3));
     TEST_ASSERT_EQUAL_HEX32(1u << 10, peek(GPIO_PDDR(0u)));
     TEST_ASSERT_EQUAL_HEX32(4u << 8, peek(PORT_PCR(0u, 10u)));
@@ -129,14 +125,14 @@ void test_read_is_the_pins_pdir_bit(void)
 {
     uint8_t level = 0xAAu;
 
-    poke(GPIO_PDIR(0u), 1u << 23);
+    TFW_MCXN_GPIO_PDIR(0u) = 1u << 23;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&sw2, &level));
     TEST_ASSERT_EQUAL_UINT8(1u, level);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&led_red, &level));
     TEST_ASSERT_EQUAL_UINT8(0u, level);
 
     /* The other bits of the bank do not leak into the pin's level. */
-    poke(GPIO_PDIR(0u), ~(1u << 23));
+    TFW_MCXN_GPIO_PDIR(0u) = ~(1u << 23);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&sw2, &level));
     TEST_ASSERT_EQUAL_UINT8(0u, level);
 }
@@ -145,10 +141,10 @@ void test_read_on_port_1_reads_gpio1(void)
 {
     uint8_t level = 0xAAu;
 
-    poke(GPIO_PDIR(0u), 1u << 2);
+    TFW_MCXN_GPIO_PDIR(0u) = 1u << 2;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&led_blue, &level));
     TEST_ASSERT_EQUAL_UINT8(0u, level);
-    poke(GPIO_PDIR(1u), 1u << 2);
+    TFW_MCXN_GPIO_PDIR(1u) = 1u << 2;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&led_blue, &level));
     TEST_ASSERT_EQUAL_UINT8(1u, level);
 }
@@ -158,7 +154,7 @@ void test_read_of_bit_31(void)
     const tfw_pinref_t p4_31 = TFW_PB(4u, 31u);
     uint8_t level = 0u;
 
-    poke(GPIO_PDIR(4u), 1u << 31);
+    TFW_MCXN_GPIO_PDIR(4u) = 1u << 31;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&p4_31, &level));
     TEST_ASSERT_EQUAL_UINT8(1u, level);
 }

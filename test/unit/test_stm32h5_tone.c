@@ -20,12 +20,27 @@ static uintptr_t access_log[MODEL_LOG];
 static unsigned  n_slots;
 static unsigned  n_log;
 
+/* The timer's CR1, PSC and ARR, set by setUp once soc_regs.h names them. At
+ * every PSC or ARR access the model counts the reload, and counts it again
+ * if CR1.CEN was set then: a reload while the counter runs. */
+static uintptr_t watch_cr1, watch_psc, watch_arr;
+static unsigned  n_reloads;
+static unsigned  n_reloads_running;
+
 static volatile uint32_t *model_reg(uintptr_t addr)
 {
     unsigned i;
 
     if (n_log < MODEL_LOG) {
         access_log[n_log++] = addr;
+    }
+    if (addr != 0u && (addr == watch_psc || addr == watch_arr)) {
+        n_reloads++;
+        for (i = 0u; i < n_slots; i++) {
+            if (slot[i].addr == watch_cr1 && (slot[i].val & 1u) != 0u) {
+                n_reloads_running++;
+            }
+        }
     }
     for (i = 0u; i < n_slots; i++) {
         if (slot[i].addr == addr) {
@@ -106,6 +121,11 @@ void setUp(void)
     n_slots = 0u;
     running = 0u;
     tone_tim_hz = 64000000u;
+    watch_cr1 = A_CR1;
+    watch_psc = A_PSC;
+    watch_arr = A_ARR;
+    n_reloads = 0u;
+    n_reloads_running = 0u;
     poke(A_MODER, 0xFFFFFFFFu);        /* every pin analog, the reset state */
     poke(A_CCMR1, 0x00000068u);        /* channel 1's PWM mode, not ours */
     n_log = 0u;
@@ -142,14 +162,24 @@ static void test_start_runs_in_order(void)
 
 static void test_a_second_start_retargets(void)
 {
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
-    n_log = 0u;
+    /* From a longer period to a shorter one, the case a running counter
+     * past the new reload would wrap through: the counter is halted at
+     * every PSC and ARR write, then runs again. */
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 440u));
-    TEST_ASSERT_EQUAL_HEX32(1u, peek(A_PSC));
     TEST_ASSERT_EQUAL_HEX32(36363u, peek(A_ARR));
+    TEST_ASSERT_EQUAL_HEX32(1u, peek(A_CR1) & 1u);
+    n_log = 0u;
+    n_reloads = 0u;
+    n_reloads_running = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&d3, 1000u));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(A_PSC));
+    TEST_ASSERT_EQUAL_HEX32(31999u, peek(A_ARR));
     TEST_ASSERT_EQUAL_HEX32(0x3068u, peek(A_CCMR1));
     TEST_ASSERT_EQUAL_HEX32(1u, peek(A_CR1) & 1u);
+    TEST_ASSERT_EQUAL_UINT(2u, n_reloads);
+    TEST_ASSERT_EQUAL_UINT(0u, n_reloads_running);
     TEST_ASSERT_TRUE(first(A_CR1) < first(A_PSC));
+    TEST_ASSERT_TRUE(last(A_CR1) > last(A_ARR));
 }
 
 static void test_stop_halts_and_holds_the_pin_low(void)

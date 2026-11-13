@@ -61,6 +61,16 @@ BOOT_BUDGET    := 32768
 # The soft root only, as on mps2-an505: the KMU-held root is the later slice.
 BOARD_TIERS    := soft
 
+# I2C on TWIM21 (src/hal/cortex-m/nrf54l/hal_bus.c), off by default: the DK
+# has no device on the bus. I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in
+# board_profile.h) and links the bus; soft:I2C=1 builds that image so
+# size-check measures it. Not a supported tier: the bus is built, not yet run
+# on the board (docs/boards/nrf54l15-dk.md).
+I2C               ?= 0
+BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        := soft:I2C=1
+
 # Written through the DK's on-board J-Link OB with SEGGER's J-Link Commander,
 # whose savebin, loadbin and verifybin give a raw read-out and a verified write
 # of the RRAM; mk/arch/cortex-m.mk holds the recipes. The record is the whole

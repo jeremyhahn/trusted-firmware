@@ -38,7 +38,7 @@ Bare-metal firmware for the trusted platform: one wire protocol, one Go SDK. Dev
 
 ## Next
 
-None queued.
+- **release v0.5.0-alpha** — the first tag that carries the OP-TEE TA's `SEAL` and `UNSEAL` (#288, landed in #327 on 2026-11-08, after v0.4.2-alpha) for go-xkms's sealed blob (owner ruling 586) — the tag waits for a green main and the release checklist; no release lane yet
 
 ## Later
 
@@ -54,6 +54,7 @@ None queued.
 - **nrf54l15** — nRF54L15 on the nRF54L15-DK — [docs/multi-arch/](docs/multi-arch/architecture.md) — next: docs-only onboarding ADR [#129](../../issues/129); port ([#17](../../issues/17)): the board builds on the generic cortex-m HAL, next tfw-boot, then the KMU and TrustZone; not in ruling 269's hardware order
 - **mcxn947** — MCXN947 on the FRDM-MCXN947 — [docs/boards/frdm-mcxn947.md](docs/boards/frdm-mcxn947.md) — in progress: the application builds for board id 0x46 on the MCXN94x HAL (soft tier, CI build step, host tests); tfw-boot's row, polled UART and ROM-API flash writer added (host tests); next: the boot's measured fit, the open board-page items and a run on the board
 - **optee-trustzone** — OP-TEE / Arm TrustZone-A: the trusted-firmware side of a TrustZone-A secure world — owner ruling 2026-10-15 (go-enclave #206) — future: no milestone, no lane; go-enclave owns its arm-trustzone row
+- **optee-vault-ta** — the vault TA for go-enclave's arm-trustzone backend: store, fetch and wipe by handle, secure-world RAM only, configurable heap — owner ruling 586 — future: waits for the owner's approval of this SPEC change; no lane
 - **cortex-m** — the Cortex-M architecture ports, Cortex-M7 and Cortex-M33 first — [#22](../../issues/22) — in progress: the generic HAL and boot-HAL port on QEMU mps2-an505 ([#161](../../issues/161)), first slice landed (P-256 soft boot, `make integration-test-cortex-m` in CI), then hardware in the order SE052F, i.MX 95 M7, STM32H5 (ruling 269)
 - **cortex-m** — ADR: Cortex-M reference part and CI emulation target — [#14](../../issues/14) — ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)
 - **cortex-m** — ADR: Cortex-M trust model and the relation to TF-M — [#15](../../issues/15) — ungated, decided against the STM32H573I-DK and nRF54L15-DK (ruling 269)

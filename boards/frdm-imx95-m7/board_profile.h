@@ -61,7 +61,9 @@
 #define TFW_FEATURE_PWM     0
 #endif
 #define TFW_FEATURE_TONE    0
-#define TFW_FEATURE_PULSE   0
+/* PULSE_IN and PULSE_CAPTURE: src/hal/cortex-m/hal_pulse.c, counting SysTick
+ * on the processor clock (TFW_CM_CPU_HZ below) across its reloads. */
+#define TFW_FEATURE_PULSE   1
 #define TFW_FEATURE_EEPROM  0
 #define TFW_FEATURE_I2C     0
 #define TFW_FEATURE_SPI     0

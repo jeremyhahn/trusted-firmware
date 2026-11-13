@@ -62,6 +62,8 @@ static struct {
     unsigned keys, erases, programs, violations;
     uint32_t erased;       /* the last erased sector's offset */
     uint32_t cleared;      /* every flag NSCCR has cleared */
+    uint32_t masked;       /* PRIMASK as the hooks hold it */
+    unsigned masked_saves; /* quad-words stored under the mask */
 } hw;
 
 static int blank(const uint8_t *p, uint32_t n)
@@ -160,6 +162,20 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     }
     regs[SR] |= hw.fail != 0u ? hw.fail : SR_EOP;
     hw.fail = 0u;
+}
+
+uint32_t tfw_h5_flash_irq_save(void)
+{
+    uint32_t was = hw.masked;
+
+    hw.masked = 1u;
+    hw.masked_saves++;
+    return was;
+}
+
+void tfw_h5_flash_irq_restore(uint32_t mask)
+{
+    hw.masked = mask;
 }
 
 /* Bytes an earlier write left programmed. */
@@ -320,6 +336,39 @@ static void test_a_field_beside_a_programmed_one_rewrites_the_sector(void)
     assert_settled();
 }
 
+/* The rewrite programs the whole sector back: a quad-word restored for another
+ * field that does not take fails the update, though the data read back. */
+static void test_a_rewrite_that_loses_another_field_is_internal(void)
+{
+    static const uint8_t kept[4]   = { 0xA1u, 0xA2u, 0xA3u, 0xA4u };
+    static const uint8_t first[4]  = { 0x00u, 0x00u, 0x00u, 0x00u };
+    static const uint8_t second[4] = { 0xB1u, 0xB2u, 0xB3u, 0xB4u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE000u, kept, sizeof kept));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE040u, first, sizeof first));
+    hw.drop = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL,
+                          tfw_h5_flash_update(&flash, 0xFE040u, second, sizeof second));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(second, MEM + 0xFE040u, sizeof second);
+}
+
+/* Each quad-word's stores run masked and the mask is put back as it was:
+ * enabled for the application, still masked for tfw-boot. */
+static void test_the_stores_run_masked_and_the_mask_is_put_back(void)
+{
+    static const uint8_t first[4]  = { 0xA1u, 0xA2u, 0xA3u, 0xA4u };
+    static const uint8_t second[4] = { 0xB1u, 0xB2u, 0xB3u, 0xB4u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE000u, first, sizeof first));
+    TEST_ASSERT_EQUAL_UINT(hw.programs, hw.masked_saves);
+    TEST_ASSERT_EQUAL_UINT32(0u, hw.masked);
+    hw.masked = 1u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE004u, second, sizeof second));
+    TEST_ASSERT_EQUAL_UINT(hw.programs, hw.masked_saves);
+    TEST_ASSERT_EQUAL_UINT32(1u, hw.masked);
+}
+
 static void test_a_sector_in_bank_2_is_erased_through_bksel(void)
 {
     uint8_t old[QWORD];
@@ -449,6 +498,8 @@ int main(void)
     RUN_TEST(test_the_key_is_written_only_to_a_locked_interface);
     RUN_TEST(test_a_programmed_page_rewrites_its_sector);
     RUN_TEST(test_a_field_beside_a_programmed_one_rewrites_the_sector);
+    RUN_TEST(test_a_rewrite_that_loses_another_field_is_internal);
+    RUN_TEST(test_the_stores_run_masked_and_the_mask_is_put_back);
     RUN_TEST(test_a_sector_in_bank_2_is_erased_through_bksel);
     RUN_TEST(test_a_write_across_two_sectors_rewrites_both);
     RUN_TEST(test_a_write_past_bank_2_is_out_of_range);

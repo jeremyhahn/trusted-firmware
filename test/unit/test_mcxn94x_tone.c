@@ -3,7 +3,7 @@
 /*
  * The MCXN94x tone (src/hal/cortex-m/mcxn94x/hal_tone.c, ctimer_tone.h)
  * against the sparse register model (test/model/cortex-m/mcxn94x/): the
- * divider, the clock and CTIMER4 write order, retargeting, the stop and the
+ * divider, the clock and CTIMER2 write order, retargeting, the stop and the
  * pin mux a GPIO mode command takes back. hal_tone.c keeps its state across
  * calls, so the first-start case runs first and setUp stops the tone.
  */
@@ -18,25 +18,25 @@
 
 #define FRO12M 12000000uL
 
-#define A_CT4(off)      (TFW_MCXN_CT4_BASE + (off))
-#define A_TCR           A_CT4(TFW_MCXN_CT_TCR_OFF)
-#define A_PR            A_CT4(TFW_MCXN_CT_PR_OFF)
-#define A_MCR           A_CT4(TFW_MCXN_CT_MCR_OFF)
-#define A_MR0           A_CT4(TFW_MCXN_CT_MR_OFF(0u))
-#define A_EMR           A_CT4(TFW_MCXN_CT_EMR_OFF)
-#define A_AHBCLKSET2    (TFW_MCXN_SYSCON_BASE + 0x220u + 8u)
-#define A_PRESETCLR2    (TFW_MCXN_SYSCON_BASE + 0x140u + 8u)
-#define A_CT4CLKSEL     (TFW_MCXN_SYSCON_BASE + 0x26Cu + 4u * TFW_MCXN_TONE_CT)
-#define A_CT4CLKDIV     (TFW_MCXN_SYSCON_BASE + 0x3D0u + 4u * TFW_MCXN_TONE_CT)
+#define A_CT2(off)      (TFW_MCXN_CT2_BASE + (off))
+#define A_TCR           A_CT2(TFW_MCXN_CT_TCR_OFF)
+#define A_PR            A_CT2(TFW_MCXN_CT_PR_OFF)
+#define A_MCR           A_CT2(TFW_MCXN_CT_MCR_OFF)
+#define A_MR1           A_CT2(TFW_MCXN_CT_MR_OFF(1u))
+#define A_EMR           A_CT2(TFW_MCXN_CT_EMR_OFF)
+#define A_AHBCLKSET1    (TFW_MCXN_SYSCON_BASE + 0x220u + 4u)
+#define A_PRESETCLR1    (TFW_MCXN_SYSCON_BASE + 0x140u + 4u)
+#define A_CT2CLKSEL     (TFW_MCXN_SYSCON_BASE + 0x26Cu + 4u * TFW_MCXN_TONE_CT)
+#define A_CT2CLKDIV     (TFW_MCXN_SYSCON_BASE + 0x3D0u + 4u * TFW_MCXN_TONE_CT)
 #define A_CTGLOBAL      (TFW_MCXN_SYSCON_BASE + 0xE40u)
 #define A_PCR(n, b)     (TFW_MCXN_PORT_BASE(n) + 0x80u + 4u * (b))
 #define A_PCOR(n)       (TFW_MCXN_GPIO_BASE(n) + 0x48u)
 #define A_PDDR(n)       (TFW_MCXN_GPIO_BASE(n) + 0x54u)
 
 #define TONE_MUX ((TFW_MCXN_TONE_PIN_FN << TFW_MCXN_PCR_MUX_SHIFT) | TFW_MCXN_PCR_IBE)
-#define EMR_TOGGLE (TFW_MCXN_CT_EMR_EMC_TOGGLE << TFW_MCXN_CT_EMR_EMC0_SHIFT)
+#define EMR_TOGGLE (TFW_MCXN_CT_EMR_EMC_TOGGLE << TFW_MCXN_CT_EMR_EMC1_SHIFT)
 
-static const tfw_pinref_t pin5  = { 3u, 2u };   /* P3_2, the board's TONE pin */
+static const tfw_pinref_t pin5  = { 3u, 19u };  /* P3_19, the board's TONE pin */
 static const tfw_pinref_t other = { 0u, 10u };
 
 void setUp(void)
@@ -87,29 +87,29 @@ static void test_first_start_clocks_then_programs_held_in_reset(void)
     tfw_mcxn_model_watch(A_TCR);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 440u));
 
-    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CTRL2_TIMER4, tfw_mcxn_model_get(A_AHBCLKSET2));
-    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CTRL2_TIMER4, tfw_mcxn_model_get(A_PRESETCLR2));
-    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CTCLKSEL_FRO12M, tfw_mcxn_model_get(A_CT4CLKSEL));
-    TEST_ASSERT_EQUAL_HEX32(0u, tfw_mcxn_model_get(A_CT4CLKDIV));
-    TEST_ASSERT_BITS_HIGH(TFW_MCXN_CTGLOBAL_CT4, tfw_mcxn_model_get(A_CTGLOBAL));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CTRL1_TIMER2, tfw_mcxn_model_get(A_AHBCLKSET1));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CTRL1_TIMER2, tfw_mcxn_model_get(A_PRESETCLR1));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CTCLKSEL_FRO12M, tfw_mcxn_model_get(A_CT2CLKSEL));
+    TEST_ASSERT_EQUAL_HEX32(0u, tfw_mcxn_model_get(A_CT2CLKDIV));
+    TEST_ASSERT_BITS_HIGH(TFW_MCXN_CTGLOBAL_CT2, tfw_mcxn_model_get(A_CTGLOBAL));
 
-    /* every clock register before the first CTIMER4 one */
+    /* every clock register before the first CTIMER2 one */
     for (i = 0; i < tfw_mcxn_model_log_len(); i++) {
         uintptr_t a = tfw_mcxn_model_log_addr(i);
-        if (a == A_AHBCLKSET2 || a == A_PRESETCLR2 || a == A_CT4CLKSEL ||
-            a == A_CT4CLKDIV || a == A_CTGLOBAL) {
+        if (a == A_AHBCLKSET1 || a == A_PRESETCLR1 || a == A_CT2CLKSEL ||
+            a == A_CT2CLKDIV || a == A_CTGLOBAL) {
             clk_last = i;
         }
     }
     ct_first = tfw_mcxn_model_log_first(A_TCR);
     TEST_ASSERT_TRUE(clk_last < ct_first);
-    TEST_ASSERT_TRUE(tfw_mcxn_model_log_first(A_AHBCLKSET2) <
-                     tfw_mcxn_model_log_first(A_PRESETCLR2));
+    TEST_ASSERT_TRUE(tfw_mcxn_model_log_first(A_AHBCLKSET1) <
+                     tfw_mcxn_model_log_first(A_PRESETCLR1));
 
-    /* PR, MR0, MCR and EMR written with TCR at CRST, then CEN last */
+    /* PR, MR1, MCR and EMR written with TCR at CRST, then CEN last */
     TEST_ASSERT_TRUE(tfw_mcxn_model_log_first(A_PR) > ct_first);
     {
-        const uintptr_t prog[] = { A_PR, A_MR0, A_MCR, A_EMR };
+        const uintptr_t prog[] = { A_PR, A_MR1, A_MCR, A_EMR };
         for (i = 0; i < sizeof prog / sizeof prog[0]; i++) {
             size_t at = tfw_mcxn_model_log_first(prog[i]);
             TEST_ASSERT_TRUE(at < tfw_mcxn_model_log_len());
@@ -123,22 +123,22 @@ static void test_first_start_clocks_then_programs_held_in_reset(void)
         }
     }
     TEST_ASSERT_TRUE(cen > tfw_mcxn_model_log_first(A_EMR));
-    TEST_ASSERT_TRUE(cen > tfw_mcxn_model_log_first(A_PCR(3u, 2u)));
+    TEST_ASSERT_TRUE(cen > tfw_mcxn_model_log_first(A_PCR(3u, 19u)));
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CEN, tfw_mcxn_model_get(A_TCR));
 
     TEST_ASSERT_EQUAL_HEX32(0u, tfw_mcxn_model_get(A_PR));
-    TEST_ASSERT_EQUAL_HEX32(13635u, tfw_mcxn_model_get(A_MR0));
-    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_MCR_MR0R, tfw_mcxn_model_get(A_MCR));
+    TEST_ASSERT_EQUAL_HEX32(13635u, tfw_mcxn_model_get(A_MR1));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_MCR_MR1R, tfw_mcxn_model_get(A_MCR));
     TEST_ASSERT_EQUAL_HEX32(EMR_TOGGLE, tfw_mcxn_model_get(A_EMR));
-    TEST_ASSERT_EQUAL_HEX32(TONE_MUX, tfw_mcxn_model_get(A_PCR(3u, 2u)));
+    TEST_ASSERT_EQUAL_HEX32(TONE_MUX, tfw_mcxn_model_get(A_PCR(3u, 19u)));
 }
 
 static void test_a_later_start_leaves_the_clock_alone(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 1000u));
-    TEST_ASSERT_EQUAL(tfw_mcxn_model_log_len(), tfw_mcxn_model_log_first(A_CT4CLKSEL));
-    TEST_ASSERT_EQUAL(tfw_mcxn_model_log_len(), tfw_mcxn_model_log_first(A_AHBCLKSET2));
-    TEST_ASSERT_EQUAL_HEX32(5999u, tfw_mcxn_model_get(A_MR0));
+    TEST_ASSERT_EQUAL(tfw_mcxn_model_log_len(), tfw_mcxn_model_log_first(A_CT2CLKSEL));
+    TEST_ASSERT_EQUAL(tfw_mcxn_model_log_len(), tfw_mcxn_model_log_first(A_AHBCLKSET1));
+    TEST_ASSERT_EQUAL_HEX32(5999u, tfw_mcxn_model_get(A_MR1));
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CEN, tfw_mcxn_model_get(A_TCR));
 }
 
@@ -148,16 +148,16 @@ static void test_hz_0_stops(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 0u));
     TEST_ASSERT_EQUAL_HEX32(0u, tfw_mcxn_model_get(A_EMR));
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CRST, tfw_mcxn_model_get(A_TCR));
-    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_PCR_IBE, tfw_mcxn_model_get(A_PCR(3u, 2u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_PCR_IBE, tfw_mcxn_model_get(A_PCR(3u, 19u)));
 }
 
 static void test_retarget_frequency_keeps_the_pin(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 440u));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 31u));
-    TEST_ASSERT_EQUAL_HEX32(193547u, tfw_mcxn_model_get(A_MR0));
+    TEST_ASSERT_EQUAL_HEX32(193547u, tfw_mcxn_model_get(A_MR1));
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CEN, tfw_mcxn_model_get(A_TCR));
-    TEST_ASSERT_EQUAL_HEX32(TONE_MUX, tfw_mcxn_model_get(A_PCR(3u, 2u)));
+    TEST_ASSERT_EQUAL_HEX32(TONE_MUX, tfw_mcxn_model_get(A_PCR(3u, 19u)));
     /* the pin was not released in between */
     TEST_ASSERT_EQUAL(tfw_mcxn_model_log_len(), tfw_mcxn_model_log_first(A_PCOR(3u)));
 }
@@ -167,9 +167,9 @@ static void test_retarget_pin_releases_the_old_one(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 440u));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&other, 440u));
     TEST_ASSERT_EQUAL_HEX32(TONE_MUX, tfw_mcxn_model_get(A_PCR(0u, 10u)));
-    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_PCR_IBE, tfw_mcxn_model_get(A_PCR(3u, 2u)));
-    TEST_ASSERT_EQUAL_HEX32(1u << 2, tfw_mcxn_model_get(A_PCOR(3u)));
-    TEST_ASSERT_BITS_HIGH(1u << 2, tfw_mcxn_model_get(A_PDDR(3u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_PCR_IBE, tfw_mcxn_model_get(A_PCR(3u, 19u)));
+    TEST_ASSERT_EQUAL_HEX32(1u << 19, tfw_mcxn_model_get(A_PCOR(3u)));
+    TEST_ASSERT_BITS_HIGH(1u << 19, tfw_mcxn_model_get(A_PDDR(3u)));
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CEN, tfw_mcxn_model_get(A_TCR));
 }
 
@@ -180,13 +180,13 @@ static void test_stop_leaves_the_output_low(void)
     TEST_ASSERT_EQUAL_HEX32(0u, tfw_mcxn_model_get(A_EMR));
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CRST, tfw_mcxn_model_get(A_TCR));
     /* GPIO mux, driven as an output, cleared */
-    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_PCR_IBE, tfw_mcxn_model_get(A_PCR(3u, 2u)));
-    TEST_ASSERT_EQUAL_HEX32(1u << 2, tfw_mcxn_model_get(A_PCOR(3u)));
-    TEST_ASSERT_BITS_HIGH(1u << 2, tfw_mcxn_model_get(A_PDDR(3u)));
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_PCR_IBE, tfw_mcxn_model_get(A_PCR(3u, 19u)));
+    TEST_ASSERT_EQUAL_HEX32(1u << 19, tfw_mcxn_model_get(A_PCOR(3u)));
+    TEST_ASSERT_BITS_HIGH(1u << 19, tfw_mcxn_model_get(A_PDDR(3u)));
     /* a second stop leaves the pin alone */
     tfw_mcxn_model_reset();
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
-    TEST_ASSERT_EQUAL(tfw_mcxn_model_log_len(), tfw_mcxn_model_log_first(A_PCR(3u, 2u)));
+    TEST_ASSERT_EQUAL(tfw_mcxn_model_log_len(), tfw_mcxn_model_log_first(A_PCR(3u, 19u)));
 }
 
 static void test_a_bad_pin_is_refused_with_no_register_written(void)
@@ -206,9 +206,9 @@ static void test_a_bad_pin_is_refused_with_no_register_written(void)
 static void test_a_start_after_gpio_mode_restores_the_mux(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 440u));
-    tfw_mcxn_model_set(A_PCR(3u, 2u), TFW_MCXN_PCR_IBE);
+    tfw_mcxn_model_set(A_PCR(3u, 19u), TFW_MCXN_PCR_IBE);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin5, 440u));
-    TEST_ASSERT_EQUAL_HEX32(TONE_MUX, tfw_mcxn_model_get(A_PCR(3u, 2u)));
+    TEST_ASSERT_EQUAL_HEX32(TONE_MUX, tfw_mcxn_model_get(A_PCR(3u, 19u)));
     TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_CT_TCR_CEN, tfw_mcxn_model_get(A_TCR));
 }
 

@@ -49,6 +49,7 @@ static unsigned  ntrace;
 static int       cal_ok;
 static int       pending;
 static uint32_t  pending_val;
+static int       held;             /* the pending conversion outlives the poll */
 
 static volatile uint32_t *slot(uintptr_t addr)
 {
@@ -82,7 +83,7 @@ volatile uint32_t *tfw_mcxn_model_reg(uintptr_t addr)
     }
     if (addr == ADC_RESFIFO0) {
         /* A result only for a conversion software trigger 0 started. */
-        if (pending && (*slot(ADC_SWTRIG) & 1u) != 0u) {
+        if (pending && !held && (*slot(ADC_SWTRIG) & 1u) != 0u) {
             *r = (1u << 31) | (pending_val << 3);
             *slot(ADC_SWTRIG) = 0u;
             pending = 0;
@@ -119,6 +120,7 @@ void setUp(void)
     ntrace = 0u;
     cal_ok = 1;
     pending = 0;
+    held = 0;
 }
 
 void tearDown(void) {}
@@ -190,6 +192,21 @@ static void test_an_empty_fifo_times_out(void)
     TEST_ASSERT_EQUAL_HEX16(0x5A5Au, raw);
 }
 
+static void test_a_late_result_is_not_taken_for_another_channel(void)
+{
+    uint16_t raw = 0x5A5Au;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    pending = 1;                       /* A14's conversion outlives the poll */
+    pending_val = 0x0123u;
+    held = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(14u, &raw));
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(ADC_TCTRL0));
+    held = 0;                          /* ...and then lands in FIFO 0 */
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(15u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x5A5Au, raw);
+}
+
 static void test_a_channel_beyond_the_range_is_refused(void)
 {
     uint16_t raw = 0u;
@@ -215,6 +232,7 @@ int main(void)
     RUN_TEST(test_a_calibration_that_never_finishes_times_out);
     RUN_TEST(test_one_read_per_header_channel);
     RUN_TEST(test_an_empty_fifo_times_out);
+    RUN_TEST(test_a_late_result_is_not_taken_for_another_channel);
     RUN_TEST(test_a_channel_beyond_the_range_is_refused);
     RUN_TEST(test_only_the_vcc_reference_is_supported);
     return UNITY_END();

@@ -17,7 +17,9 @@
  * the gain calibration of both sides, every wait bounded. A calibration that
  * does not finish leaves the converter unused: init answers
  * TFW_ERR_TIMEOUT, which main() does not act on, and every read answers
- * TFW_ERR_UNSUPPORTED.
+ * TFW_ERR_UNSUPPORTED. So does every read after one that times out, until
+ * init runs again, so that a late result is never taken for another
+ * channel's.
  *
  * The result register holds a 12-bit conversion in bits 14:3 (the SDK's
  * lpadc examples shift it by 3); the read returns those 12 bits, the raw
@@ -150,5 +152,12 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
             return TFW_OK;
         }
     }
+    /* The conversion may still finish and queue its result, which the next
+     * read, of whatever channel, would pop as its own. Unmap the trigger,
+     * drop FIFO 0, and refuse reads until init resets the converter: no
+     * pinned file gives a way to abort a conversion in flight. */
+    TFW_MCXN_ADC_TCTRL0 = 0u;
+    TFW_MCXN_ADC_CTRL |= TFW_MCXN_ADC_CTRL_RSTFIFO0;
+    ready = 0u;
     return TFW_ERR_TIMEOUT;
 }

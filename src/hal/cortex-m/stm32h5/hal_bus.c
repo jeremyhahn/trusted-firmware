@@ -124,6 +124,13 @@ static tfw_status_t i2c_stop(tfw_status_t st)
          * of that one leaves the next in TXDR. TXE=1 flushes it (RM0481) so
          * the next transfer cannot send it ahead of its own payload. */
         TFW_H5_I2C_ISR = TFW_H5_I2C_ISR_TXE;
+        /* A byte received before BERR/ARLO stays in RXDR: STOP and ICR do
+         * not clear RXNE, only reading RXDR does. Drain it, or the next
+         * read returns this transfer's byte as its own. */
+        for (n = 0u; n < H5_I2C_POLL_US &&
+                     (TFW_H5_I2C_ISR & TFW_H5_I2C_ISR_RXNE) != 0u; n++) {
+            (void)TFW_H5_I2C_RXDR;
+        }
     }
     TFW_H5_I2C_ICR = H5_I2C_ICR_ALL;
     return st;

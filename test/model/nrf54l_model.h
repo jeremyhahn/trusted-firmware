@@ -15,7 +15,21 @@
 /* The word at addr. Fails the test run (abort) past the model's capacity. */
 volatile uint32_t *tfw_nrf54l_model_reg(uintptr_t addr);
 
-/* Every register back to 0. */
+/* Every register back to 0, and no late task. */
 void tfw_nrf54l_model_reset(void);
+
+/*
+ * A task that completes late, as TASKS_STOP does at the end of the PWM
+ * period it was triggered in: while *task reads nonzero, *event reads 0 for
+ * `reads` more lookups of it, then 1, and *task is cleared (consumed). A
+ * lookup of *blocked while *task is still pending is counted: a task that
+ * must not be triggered before the late one completes. The words are the
+ * model's own, &TFW_NRF_PWM_STOP and the like. Resets the count.
+ */
+void tfw_nrf54l_model_late_task(volatile uint32_t *task, volatile uint32_t *event,
+                                unsigned reads, volatile uint32_t *blocked);
+
+/* Lookups of the late task's blocked word while the task was pending. */
+unsigned tfw_nrf54l_model_blocked(void);
 
 #endif /* TFW_NRF54L_MODEL_H */

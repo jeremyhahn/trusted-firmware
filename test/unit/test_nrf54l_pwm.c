@@ -32,6 +32,10 @@ void setUp(void)
     TFW_NRF_PWM_SEQ0_START = 0u;
     TFW_NRF_GPIO_OUTSET(P1) = 0u;
     TFW_NRF_GPIO_OUTCLR(P1) = 0u;
+    /* TASKS_STOP lands on the next read of EVENTS_STOPPED; the tests of a
+     * restart after a stop delay it further. */
+    tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 0u,
+                               &TFW_NRF_PWM_SEQ0_START);
 }
 
 void tearDown(void)
@@ -152,6 +156,45 @@ static void test_stop_disconnects_and_stops_the_last_channel(void)
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_STOP);
 }
 
+/* TASKS_STOP is not done when the write returns: the PWM stops at the end of
+ * the period, and EVENTS_STOPPED says so. A SEQ[0].START triggered before
+ * then would be stopped by it, and the new duty never play. The model holds
+ * the stop pending for three reads of EVENTS_STOPPED. */
+static void test_a_duty_after_duty_0_starts_once_the_stop_has_landed(void)
+{
+    tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 3u,
+                               &TFW_NRF_PWM_SEQ0_START);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    TFW_NRF_PWM_SEQ0_START = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 0u));
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_STOP);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_STOP);            /* the stop landed */
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_EVENTS_STOPPED);  /* and was cleared */
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_SEQ0_START);      /* then playing */
+    TEST_ASSERT_EQUAL_HEX32(0x2Au, TFW_NRF_PWM_PSEL_OUT(0));
+    TEST_ASSERT_EQUAL_HEX16(0x8000u | 502u, tfw_nrf54l_pwm_seq[0]);
+}
+
+static void test_another_channel_after_the_last_one_stops_starts_once_the_stop_has_landed(void)
+{
+    tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 3u,
+                               &TFW_NRF_PWM_SEQ0_START);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
+    TFW_NRF_PWM_SEQ0_START = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&ch0));
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_STOP);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch1, 77u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_STOP);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_SEQ0_START);
+    TEST_ASSERT_EQUAL_HEX32(0x2Eu, TFW_NRF_PWM_PSEL_OUT(1));
+    TEST_ASSERT_EQUAL_HEX16(0x8000u | 302u, tfw_nrf54l_pwm_seq[1]);
+}
+
 static void test_a_ref_the_unit_has_no_channel_for_is_refused(void)
 {
     static const tfw_pwmref_t no_pin   = { 0u, 0u, 1u, 17u };  /* P1 ends at P1.16 */
@@ -252,6 +295,8 @@ int main(void)
     RUN_TEST(test_wire_duty_0_after_255_drives_the_pin_low);
     RUN_TEST(test_a_second_channel_plays_beside_the_first);
     RUN_TEST(test_stop_disconnects_and_stops_the_last_channel);
+    RUN_TEST(test_a_duty_after_duty_0_starts_once_the_stop_has_landed);
+    RUN_TEST(test_another_channel_after_the_last_one_stops_starts_once_the_stop_has_landed);
     RUN_TEST(test_a_ref_the_unit_has_no_channel_for_is_refused);
     RUN_TEST(test_a_pwm_command_on_the_tone_pin_stops_the_tone);
     RUN_TEST(test_a_tone_takes_led1_from_its_pwm_channel_only);

@@ -15,7 +15,8 @@
  * Duty 0 and 255 leave the peripheral out of it, as the AVR's do
  * (src/hal/avr/hal_pwm.c): the channel's PSEL is disconnected and the pin
  * driven low or high as a GPIO. Stop disconnects the channel and leaves the
- * pin a plain GPIO; the last channel out stops the sequence. ENABLE stays set
+ * pin a plain GPIO; the last channel out stops the sequence, and the next
+ * start waits for that stop to land (wait_stopped). ENABLE stays set
  * once the unit is first used: with every PSEL disconnected it drives no pin.
  *
  * The peripheral is configured on first use, not at boot, for the AVR's
@@ -29,7 +30,8 @@
 #include "soc_regs.h"
 #include "soc_tables.h"
 
-#define PWM_TOP 1000u
+#define PWM_TOP   1000u
+#define STOP_WAIT 100000u
 
 _Static_assert(PWM_TOP <= TFW_NRF_PWM_COUNTERTOP_MAX, "COUNTERTOP is 15 bits");
 
@@ -40,6 +42,7 @@ volatile uint16_t tfw_nrf54l_pwm_seq[TFW_NRF_PWM_CHANNELS];
 
 static uint8_t configured;
 static uint8_t active;   /* bit n: channel n is connected and playing */
+static uint8_t stopping; /* a TASKS_STOP whose EVENTS_STOPPED is not yet seen */
 
 static const uint32_t port_base[3] = {
     TFW_NRF_P0_BASE, TFW_NRF_P1_BASE, TFW_NRF_P2_BASE,
@@ -81,9 +84,30 @@ static void release(uint8_t ch)
     if (active & (1u << ch)) {
         active = (uint8_t)(active & ~(1u << ch));
         if (active == 0u) {
+            TFW_NRF_PWM_EVENTS_STOPPED = 0u;
             TFW_NRF_PWM_STOP = 1u;
+            stopping = 1u;
         }
     }
+}
+
+/* TASKS_STOP takes effect at the end of the PWM period it was triggered in,
+ * and EVENTS_STOPPED says when: a SEQ[0].START before then would be stopped
+ * by it, the new duty never played. So a start after a stop waits for the
+ * event, at most one 1 ms period; STOP_WAIT polls are several periods even
+ * at 128 MHz, so a stop that never lands cannot hang the command. */
+static void wait_stopped(void)
+{
+    uint32_t n = STOP_WAIT;
+
+    if (!stopping) {
+        return;
+    }
+    while (TFW_NRF_PWM_EVENTS_STOPPED == 0u && n != 0u) {
+        n--;
+    }
+    TFW_NRF_PWM_EVENTS_STOPPED = 0u;
+    stopping = 0u;
 }
 
 /* A PWM command takes its pin from the tone, as a second tone start
@@ -142,6 +166,7 @@ tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
     TFW_NRF_GPIO_PIN_CNF(port_base[p->port], p->bit) = TFW_NRF_PIN_CNF_OUTPUT;
     TFW_NRF_PWM_PSEL_OUT(p->channel) = tfw_nrf54l_psel(p->port, p->bit);
     active = (uint8_t)(active | (1u << p->channel));
+    wait_stopped();
     TFW_NRF_PWM_SEQ0_START = 1u;
     return TFW_OK;
 }

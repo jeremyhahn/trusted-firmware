@@ -59,33 +59,32 @@
 
 ## Flash and RAM
 
-Measured with avr-gcc 14.2.0 by `make firmware`'s size check, against each
-board's `TFW_FLASH_BUDGET` and its 1 024-byte RAM budget. "Serial only" is the
-default image, after the link refactor in this work.
+Measured on main 48d85486 with avr-gcc 14.2.0 by `make firmware`'s size check,
+against each board's flash and RAM budgets: 16 384 and 1 024 bytes on the
+ATmega328P, 65 536 and 2 048 on the ATmega2560. The Mega builds `ETH=1` by
+default, so its serial-only rows pass `ETH=0`; `auto` is the default crypto.
 
-| Image | Flash / budget | RAM | Result |
+| Image | Flash / budget | RAM / budget | Result |
 |---|---|---|---|
-| ATmega328P, `CRYPTO=atecc608a` | 16 064 / 16 384 | 923 | passes |
-| ATmega328P, `CRYPTO=atecc608a ETH=1` (W5100) | 18 036 / 16 384 | 943 | **over by 1 652** |
-| ATmega328P, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 18 080 / 16 384 | 943 | **over by 1 696** |
-| ATmega328P, `CRYPTO=soft` | 12 886 / 16 384 | 717 | passed; refused since m522 |
-| ATmega328P, `CRYPTO=soft ETH=1` (W5100) | 14 850 / 16 384 | 737 | passed; refused since m522 |
-| ATmega2560, `CRYPTO=atecc608a` | 18 356 / 65 536 | 989 | passes |
-| ATmega2560, `CRYPTO=atecc608a ETH=1` (W5100) | 20 328 / 65 536 | 1 009 | passes |
-| ATmega2560, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 20 372 / 65 536 | 1 009 | passes |
+| ATmega328P, `CRYPTO=atecc608a` | 16 138 / 16 384 | 987 / 1 024 | passes |
+| ATmega328P, `CRYPTO=atecc608a ETH=1` (W5100) | 21 612 / 16 384 | 1 121 / 1 024 | **over by 5 228 and 97** |
+| ATmega328P, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 21 668 / 16 384 | 1 121 / 1 024 | **over by 5 284 and 97** |
+| ATmega2560, `CRYPTO=atecc608a ETH=0` | 18 626 / 65 536 | 1 058 / 2 048 | passes |
+| ATmega2560, `CRYPTO=atecc608a ETH=1` (W5100) | 28 802 / 65 536 | 1 210 / 2 048 | passes |
+| ATmega2560, `CRYPTO=atecc608a ETH=1 ETH_CHIP=w5500` | 28 858 / 65 536 | 1 210 / 2 048 | passes |
+| ATmega2560, `CRYPTO=atecc608a ETH=1 DHCP=1` | 32 832 / 65 536 | 1 254 / 2 048 | passes |
+| ATmega2560, `ETH=0` | 26 954 / 65 536 | 1 324 / 2 048 | passes |
+| ATmega2560, `ETH=1` (W5100) | 37 292 / 65 536 | 1 476 / 2 048 | passes |
+| ATmega2560, `ETH=1 DHCP=1` | 41 322 / 65 536 | 1 520 / 2 048 | passes |
 
-The two `CRYPTO=soft` rows were measured before owner ruling 2026-10-17 (m522),
-which made the 328P element-only and refuses `CRYPTO=soft` on it at build time.
-No 328P row builds Ethernet now: its one tier, the element, is 1 652 bytes over
-the flash budget with `ETH=1`.
+Owner ruling 2026-10-17 (m522) made the 328P element-only and refuses
+`CRYPTO=soft` on it at build time. No 328P row builds Ethernet: its one tier,
+the element, is over both its flash and its RAM budget with `ETH=1`.
 
-Ethernet costs about 2 KB of flash and 20 bytes of RAM on either board. The
-link refactor costs serial-only images 12 bytes of flash and 1 byte of RAM. The
-Mega's Ethernet image leaves 15 bytes of its RAM budget.
-
-The Mega's `DHCP=1` image is a firmware-matrix row (`auto:ETH=1,DHCP=1`), so CI
-builds it against the RAM and flash budgets. CI measured it at 41322 of 65536
-bytes of flash and 1520 of 2048 bytes of RAM (PR #318). Its static state is 38
-bytes (34, plus 4 for the lease length renewal keeps; the probe and
-DHCPDECLINE add none), more than the 15 the table leaves, so the table above is out of date,
-and the Mega's `DHCP=1` image is inside its RAM budget (1520 of 2048, PR #318).
+On the Mega's `CRYPTO=atecc608a` image, Ethernet costs 10 176 bytes of flash and
+152 of RAM. The DHCP client costs 4 030 bytes of flash and 44 of RAM on both Mega
+images (`DHCP=1` against the same build without it). Its static state is 38
+bytes (34, plus 4 for the lease length renewal keeps; the probe and DHCPDECLINE
+add none). The Mega's `DHCP=1` image is a firmware-matrix row
+(`auto:ETH=1,DHCP=1`), so CI builds it against the budgets; it leaves 24 214
+bytes of flash and 528 of RAM.

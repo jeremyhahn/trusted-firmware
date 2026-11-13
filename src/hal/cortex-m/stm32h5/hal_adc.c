@@ -37,8 +37,8 @@
 #include "h5_calc.h"
 
 /* CR's set-only bits: writing 0 to one leaves it, so a write carries only
- * the one being set (LL_ADC's ADC_CR_BITS_PROPERTY_RS, of the four used). */
-#define ADC_CR_RS (TFW_H5_ADC_CR_ADCAL | TFW_H5_ADC_CR_ADSTART | \
+ * the one being set (LL_ADC's ADC_CR_BITS_PROPERTY_RS, of the five used). */
+#define ADC_CR_RS (TFW_H5_ADC_CR_ADCAL | TFW_H5_ADC_CR_ADSTP | TFW_H5_ADC_CR_ADSTART | \
                    TFW_H5_ADC_CR_ADDIS | TFW_H5_ADC_CR_ADEN)
 
 #if TFW_ADC_COUNT > TFW_H5_ADC_CHANNELS
@@ -170,6 +170,13 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
     TFW_H5_ADC1_ISR  = TFW_H5_ADC_ISR_EOC | TFW_H5_ADC_ISR_EOS | TFW_H5_ADC_ISR_OVR;
     cr_set(TFW_H5_ADC_CR_ADSTART);
     if (!wait_isr(TFW_H5_ADC_ISR_EOC)) {
+        /* Stop the hung conversion so it cannot answer the next read; if it
+         * will not stop, refuse reads until the next init. */
+        cr_set(TFW_H5_ADC_CR_ADSTP);
+        if (!wait_cr(TFW_H5_ADC_CR_ADSTART, 0u)) {
+            ready = 0u;
+        }
+        TFW_H5_ADC1_ISR = TFW_H5_ADC_ISR_EOC | TFW_H5_ADC_ISR_EOS | TFW_H5_ADC_ISR_OVR;
         return TFW_ERR_TIMEOUT;
     }
     *out_raw = (uint16_t)(TFW_H5_ADC1_DR & TFW_H5_ADC_DR_12BIT);   /* reading DR clears EOC */

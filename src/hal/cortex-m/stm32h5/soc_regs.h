@@ -154,6 +154,7 @@
 #define TFW_H5_ADC_CR_ADEN     (0x1u << 0)
 #define TFW_H5_ADC_CR_ADDIS    (0x1u << 1)
 #define TFW_H5_ADC_CR_ADSTART  (0x1u << 2)
+#define TFW_H5_ADC_CR_ADSTP    (0x1u << 4)
 #define TFW_H5_ADC_CR_ADVREGEN (0x1u << 28)
 #define TFW_H5_ADC_CR_DEEPPWD  (0x1u << 29)
 #define TFW_H5_ADC_CR_ADCALDIF (0x1u << 30)

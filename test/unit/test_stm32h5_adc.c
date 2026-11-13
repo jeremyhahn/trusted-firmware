@@ -38,7 +38,9 @@ static struct {
     uint32_t moder[TFW_H5_GPIO_BANKS], pupdr[TFW_H5_GPIO_BANKS];
     uint32_t other;                   /* any address not modelled */
     unsigned unmodelled, errors;
-    uint8_t  hang_cal, hang_rdy, hang_eoc;
+    uint8_t  hang_cal, hang_rdy, hang_eoc, hang_stp;
+    uint8_t  pend, pend_ch;           /* a hung conversion still running, of pend_ch */
+    unsigned late_eoc;                /* ISR reads until the hung one ends; 0: never */
     uint32_t cal_dif;                 /* ADCALDIF at the calibration's start */
     uint16_t sample[TFW_H5_ADC_CHANNELS];
     uint8_t  ev[32];
@@ -110,11 +112,23 @@ static void convert(void)
         m.nconv++;
     }
     if (m.hang_eoc) {
-        m.cr |= TFW_H5_ADC_CR_ADSTART;
+        m.cr     |= TFW_H5_ADC_CR_ADSTART;
+        m.pend    = 1u;
+        m.pend_ch = ch;
         return;
     }
     m.dr   = (ch < TFW_H5_ADC_CHANNELS) ? m.sample[ch] : 0u;
     m.isr |= TFW_H5_ADC_ISR_EOC | TFW_H5_ADC_ISR_EOS;
+}
+
+/* The hung conversion ends after all: its channel's result, whatever SQR1
+ * says now. */
+static void finish_late(void)
+{
+    m.dr    = (m.pend_ch < TFW_H5_ADC_CHANNELS) ? m.sample[m.pend_ch] : 0u;
+    m.isr  |= TFW_H5_ADC_ISR_EOC | TFW_H5_ADC_ISR_EOS;
+    m.cr   &= ~TFW_H5_ADC_CR_ADSTART;
+    m.pend  = 0u;
 }
 
 static void write_cr(uint32_t v, uint32_t old)
@@ -156,7 +170,15 @@ static void write_cr(uint32_t v, uint32_t old)
         if (!(m.isr & TFW_H5_ADC_ISR_ADRDY)) {
             m.errors++;                           /* a start before the ADC is ready */
         }
-        convert();
+        if (m.cr & TFW_H5_ADC_CR_ADSTART) {
+            m.errors++;                           /* a start under a running one: ignored */
+        } else {
+            convert();
+        }
+    }
+    if ((v & TFW_H5_ADC_CR_ADSTP) && (m.cr & TFW_H5_ADC_CR_ADSTART) && !m.hang_stp) {
+        m.cr  &= ~TFW_H5_ADC_CR_ADSTART;          /* the running conversion dropped */
+        m.pend = 0u;
     }
 }
 
@@ -170,6 +192,9 @@ static void on_write(uint32_t *r, uint32_t v, uint32_t old)
     }
     if (r == &m.ccr && (m.cr & TFW_H5_ADC_CR_ADEN)) {
         m.errors++;                               /* the clock changed under an enabled ADC */
+    }
+    if ((r == &m.sqr1 || r == &m.smpr1 || r == &m.smpr2) && (m.cr & TFW_H5_ADC_CR_ADSTART)) {
+        m.errors++;                               /* the channel changed under a conversion */
     }
     if (r == &m.cr) {
         write_cr(v, old);
@@ -195,6 +220,9 @@ static volatile uint32_t *model_reg(uintptr_t addr)
 {
     settle();
     cur = decode(addr);
+    if (cur == &m.isr && m.pend && m.late_eoc != 0u && --m.late_eoc == 0u) {
+        finish_late();
+    }
     if (adc_reg(cur) && !(m.ahb2enr & TFW_H5_RCC_AHB2ENR_ADCEN)) {
         m.errors++;
     }
@@ -330,6 +358,42 @@ static void test_eoc_never_set_is_a_timeout(void)
     TEST_ASSERT_EQUAL_UINT(1u, m.nconv);
 }
 
+static void test_a_timed_out_conversion_never_answers_the_next_read(void)
+{
+    uint16_t raw = 0xFFFFu;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    m.sample[0] = 0x0111u;
+    m.sample[1] = 0x0222u;
+    m.hang_eoc  = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
+    settle();
+    m.hang_eoc = 0u;
+    m.late_eoc = 3u;                         /* channel 0's ends during the next poll */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(1u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_HEX16(0x0222u, raw);   /* channel 1's, never channel 0's */
+    TEST_ASSERT_EQUAL_UINT8(1u, m.conv_ch[m.nconv - 1u]);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+}
+
+static void test_a_conversion_that_will_not_stop_refuses_later_reads(void)
+{
+    uint16_t raw = 0xFFFFu;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    m.hang_eoc = 1u;
+    m.hang_stp = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(0u, &raw));
+    settle();
+    m.hang_eoc = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_adc_read(1u, &raw));
+    settle();
+    TEST_ASSERT_EQUAL_HEX16(0xFFFFu, raw);
+    TEST_ASSERT_EQUAL_UINT(1u, m.nconv);
+    TEST_ASSERT_EQUAL_UINT(0u, m.errors);
+}
+
 static void test_a_channel_past_the_board_is_refused_before_any_access(void)
 {
     static const uint8_t bad[] = { TFW_ADC_COUNT, TFW_ADC_COUNT + 1u, 0x80u, 0xFFu };
@@ -372,6 +436,8 @@ int main(void)
     RUN_TEST(test_a_calibration_that_never_ends_is_a_timeout);
     RUN_TEST(test_adrdy_never_set_is_a_timeout);
     RUN_TEST(test_eoc_never_set_is_a_timeout);
+    RUN_TEST(test_a_timed_out_conversion_never_answers_the_next_read);
+    RUN_TEST(test_a_conversion_that_will_not_stop_refuses_later_reads);
     RUN_TEST(test_a_channel_past_the_board_is_refused_before_any_access);
     RUN_TEST(test_vref_plus_is_the_one_reference);
     RUN_TEST(test_the_arithmetic);

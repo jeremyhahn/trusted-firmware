@@ -1581,22 +1581,45 @@ jobs:
         id: pin
         run: echo "release=$(make -s optee-pin)" >> "$GITHUB_OUTPUT"
 
+      # Host-local OP-TEE cache (ci-template v1.36): a self-hosted runner
+      # mounts a persistent per-host directory at $CI_HOST_CACHE (dept-infra
+      # github/runner, the pool's env and mounts). A stack lives there under
+      # optee/<release>, renamed into place whole, so the directory existing
+      # means it is complete. A hit never touches the Actions cache, which
+      # sits in Azure blob storage behind the office's internet line; a miss
+      # takes it from the Actions cache (or builds it) once per host and pin.
+      # GitHub-hosted runners have no CI_HOST_CACHE and keep the Actions cache.
+      - name: Look up the OP-TEE stack on this host
+        id: host
+        run: |
+          enabled=false hit=false dir=
+          if [ -n "${CI_HOST_CACHE:-}" ] && [ -d "$CI_HOST_CACHE" ] && [ -w "$CI_HOST_CACHE" ]; then
+            enabled=true
+            dir="$CI_HOST_CACHE/optee/${{ steps.pin.outputs.release }}"
+            if [ -d "$dir" ]; then hit=true; fi
+          fi
+          echo "host cache: enabled=$enabled hit=$hit ${dir:+dir=$dir}"
+          { echo "enabled=$enabled"; echo "hit=$hit"; echo "dir=$dir"; } >> "$GITHUB_OUTPUT"
+
       # lookup-only: a hit downloads nothing, since the optee job restores
-      # the stack itself; a miss leaves the post step to save the build.
+      # the stack itself; a miss leaves the post step to save the build. With
+      # a host cache that lacks the stack (v1.36) the step restores it, for
+      # the keep step below; a host hit skips it.
       - name: Look up the OP-TEE stack
         id: cache
+        if: ${{ steps.host.outputs.hit != 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/optee-cache
           key: optee-${{ steps.pin.outputs.release }}
-          lookup-only: true
+          lookup-only: ${{ steps.host.outputs.enabled != 'true' }}
 
       - name: Log in to the forge registry
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.host.outputs.hit != 'true' && steps.cache.outputs.cache-hit != 'true' }}
         run: scripts/ci-registry-login.sh
 
       - name: Reuse the optee image
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.host.outputs.hit != 'true' && steps.cache.outputs.cache-hit != 'true' }}
         run: |
           # v1.29.4 and v1.29.5: Athens first when the runner sets DEVCACHE_GOPROXY
           # and the cache answers, `|` so any error falls through to the public
@@ -1612,12 +1635,30 @@ jobs:
       # dir, which IN_IMAGE_CACHE_SAVE copies back out (in-toolchain-image.sh)
       # for the post step to save. The network is for the fetch.
       - name: make optee-tools, optee-qemu (optee image)
-        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.host.outputs.hit != 'true' && steps.cache.outputs.cache-hit != 'true' }}
         env:
           IN_IMAGE_NETWORK: bridge
           IN_IMAGE_CACHE: ${{ runner.temp }}/optee-cache:/var/cache/tfw-optee
           IN_IMAGE_CACHE_SAVE: '1'
         run: scripts/in-toolchain-image.sh "$OPTEE_IMAGE" "make optee-tools OPTEE_CACHE=/var/cache/tfw-optee && make optee-qemu OPTEE_CACHE=/var/cache/tfw-optee"
+
+      # Host-local OP-TEE cache (v1.36): a copy renamed into place, so a
+      # concurrent job either sees the whole stack or none; the loser of a
+      # race removes its copy.
+      - name: Keep the OP-TEE stack on this host
+        if: ${{ steps.host.outputs.enabled == 'true' && steps.host.outputs.hit != 'true' }}
+        env:
+          OPTEE_HOST_DIR: ${{ steps.host.outputs.dir }}
+        run: |
+          tmp="$(dirname "$OPTEE_HOST_DIR")/.tmp-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          mkdir -p "$tmp"
+          cp -a "$RUNNER_TEMP/optee-cache/." "$tmp/"
+          if mv -T "$tmp" "$OPTEE_HOST_DIR" 2>/dev/null; then
+            echo "kept the stack at $OPTEE_HOST_DIR"
+          else
+            rm -rf "$tmp"
+            echo "another job kept the stack at $OPTEE_HOST_DIR first"
+          fi
 
       - name: Tear down
         if: always()
@@ -1684,13 +1725,52 @@ jobs:
       # Ruling 250 (a): restore only, never save, and never build the stack
       # cold here. A miss means optee-stack did not save the key; the step
       # fails at once and its message names the key.
+      # Host-local OP-TEE cache (ci-template v1.36): a self-hosted runner
+      # mounts a persistent per-host directory at $CI_HOST_CACHE (dept-infra
+      # github/runner, the pool's env and mounts). A stack lives there under
+      # optee/<release>, renamed into place whole, so the directory existing
+      # means it is complete. A hit never touches the Actions cache, which
+      # sits in Azure blob storage behind the office's internet line; a miss
+      # takes it from the Actions cache (or builds it) once per host and pin.
+      # GitHub-hosted runners have no CI_HOST_CACHE and keep the Actions cache.
+      - name: Look up the OP-TEE stack on this host
+        id: host
+        run: |
+          enabled=false hit=false dir=
+          if [ -n "${CI_HOST_CACHE:-}" ] && [ -d "$CI_HOST_CACHE" ] && [ -w "$CI_HOST_CACHE" ]; then
+            enabled=true
+            dir="$CI_HOST_CACHE/optee/${{ steps.pin.outputs.release }}"
+            if [ -d "$dir" ]; then hit=true; fi
+          fi
+          echo "host cache: enabled=$enabled hit=$hit ${dir:+dir=$dir}"
+          { echo "enabled=$enabled"; echo "hit=$hit"; echo "dir=$dir"; } >> "$GITHUB_OUTPUT"
+
       - name: Restore the OP-TEE stack
         id: cache
+        if: ${{ steps.host.outputs.hit != 'true' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/optee-cache
           key: optee-${{ steps.pin.outputs.release }}
           fail-on-cache-miss: true
+
+      # Host-local OP-TEE cache (v1.36): a copy renamed into place, so a
+      # concurrent job either sees the whole stack or none; the loser of a
+      # race removes its copy.
+      - name: Keep the OP-TEE stack on this host
+        if: ${{ steps.host.outputs.enabled == 'true' && steps.host.outputs.hit != 'true' }}
+        env:
+          OPTEE_HOST_DIR: ${{ steps.host.outputs.dir }}
+        run: |
+          tmp="$(dirname "$OPTEE_HOST_DIR")/.tmp-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          mkdir -p "$tmp"
+          cp -a "$RUNNER_TEMP/optee-cache/." "$tmp/"
+          if mv -T "$tmp" "$OPTEE_HOST_DIR" 2>/dev/null; then
+            echo "kept the stack at $OPTEE_HOST_DIR"
+          else
+            rm -rf "$tmp"
+            echo "another job kept the stack at $OPTEE_HOST_DIR first"
+          fi
 
       - name: Log in to the forge registry
         run: scripts/ci-registry-login.sh
@@ -1716,7 +1796,8 @@ jobs:
       - name: make optee-qemu, integration-test-optee (optee image)
         env:
           IN_IMAGE_NETWORK: bridge
-          IN_IMAGE_CACHE: ${{ runner.temp }}/optee-cache:/var/cache/tfw-optee
+          # v1.36: the host's copy when this host holds the stack.
+          IN_IMAGE_CACHE: ${{ steps.host.outputs.hit == 'true' && steps.host.outputs.dir || format('{0}/optee-cache', runner.temp) }}:/var/cache/tfw-optee
           IN_IMAGE_CACHE_SAVE: '0'
         run: scripts/in-toolchain-image.sh "$OPTEE_IMAGE" "make optee-qemu OPTEE_CACHE=/var/cache/tfw-optee && make integration-test-optee OPTEE_CACHE=/var/cache/tfw-optee"
 

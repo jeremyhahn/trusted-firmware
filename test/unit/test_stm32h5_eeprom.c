@@ -46,6 +46,8 @@ static struct {
     unsigned platform_erases;
     unsigned violations;
     int      drop;                     /* the next program does not take */
+    uint32_t masked;                   /* PRIMASK as the hooks hold it */
+    unsigned masked_saves;             /* stores run under the mask */
 } hw;
 
 static int bits_set(const uint8_t *now, const uint8_t *was, uint32_t n)
@@ -124,6 +126,20 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     } else if ((cr & TFW_H5_FLASH_CR_PG) != 0u) {
         REG(TFW_H5_FLASH_NSSR_OFF) |= do_program();
     }
+}
+
+uint32_t tfw_h5_flash_irq_save(void)
+{
+    uint32_t was = hw.masked;
+
+    hw.masked = 1u;
+    hw.masked_saves++;
+    return was;
+}
+
+void tfw_h5_flash_irq_restore(uint32_t mask)
+{
+    hw.masked = mask;
 }
 
 /* boot_flash.c's stand-in, on the model's registers above. */
@@ -249,6 +265,38 @@ static void test_a_rewrite_that_does_not_read_back_is_internal(void)
     TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
 }
 
+/* Codex P1 on #394: the rewrite restores the whole sector, so a quad-word kept
+ * for another value that does not take is an error, not just the written one. */
+static void test_a_rewrite_that_loses_another_value_is_internal(void)
+{
+    static const uint8_t kept[4]   = { 0x11u, 0x22u, 0x33u, 0x44u };
+    static const uint8_t first[4]  = { 0x00u, 0x00u, 0x00u, 0x00u };
+    static const uint8_t second[4] = { 0xFEu, 0xFEu, 0xFEu, 0xFEu };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, kept, sizeof kept));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO + 64u, first, sizeof first));
+    hw.drop = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL,
+                          tfw_hal_eeprom_write(USER_LO + 64u, second, sizeof second));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(second, MEM + USER_OFF + 64u, sizeof second);
+}
+
+/* The application writes with interrupts enabled: every quad-word's stores run
+ * masked, and the mask is enabled again after. */
+static void test_the_stores_run_masked_and_the_mask_is_put_back(void)
+{
+    static const uint8_t first[4]  = { 0x01u, 0x02u, 0x03u, 0x04u };
+    static const uint8_t second[4] = { 0xF1u, 0xF2u, 0xF3u, 0xF4u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, first, sizeof first));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.masked_saves);
+    TEST_ASSERT_EQUAL_UINT32(0u, hw.masked);
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_eeprom_write(USER_LO, second, sizeof second));
+    TEST_ASSERT_EQUAL_UINT(2u, hw.masked_saves);
+    TEST_ASSERT_EQUAL_UINT32(0u, hw.masked);
+}
+
 static void test_the_confirm_request_keeps_the_generic_store(void)
 {
     uint8_t req[TFW_BOOT_CONFIRM_LEN];
@@ -282,6 +330,8 @@ int main(void)
     RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
     RUN_TEST(test_data_that_does_not_read_back_is_internal);
     RUN_TEST(test_a_rewrite_that_does_not_read_back_is_internal);
+    RUN_TEST(test_a_rewrite_that_loses_another_value_is_internal);
+    RUN_TEST(test_the_stores_run_masked_and_the_mask_is_put_back);
     RUN_TEST(test_the_confirm_request_keeps_the_generic_store);
     return UNITY_END();
 }

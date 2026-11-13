@@ -64,6 +64,20 @@ it again in the toolchain image.
 | Watchdog | WDT30 on the 32.768 kHz clock, 8 s, with `STOPEN` so a later reset can stop it | [MDK] `nrf54l15_types.h` |
 | Vectors | the core's 96 entries, then IRQs 80-198 in `.vectors.soc`; the linker script asserts the two meet and the table sits on a 1 KB boundary | `mk/arch/cortex-m/nrf54l.ld` |
 
+## Tone (the `nrf54l15` row)
+
+The wire's tone command is on (`TFW_FEATURE_TONE 1`), on pin 1, LED1 (P1.10),
+the one tone pin (`TFW_TONE_PIN`). It is built and host-tested against a
+register model (`test/unit/test_nrf54l_tone.c`); it has **not run on the
+board**.
+
+| | What `src/hal/cortex-m/nrf54l/hal_tone.c` does | Source |
+|---|---|---|
+| Peripherals | TIMER20, GPIOTE20 channel 0 and DPPIC20 channel 0: domain 20's instances, with port P1 (P1 at `0x500D8200`, GPIOTE20 at `0x500DA000`). A pin on P0 or P2 is `BAD_PIN`. The PWM peripherals are not used | [MDK] `nrf54l15_global.h` |
+| Wave | TIMER20 in timer mode, 16-bit, its 16 MHz clock divided by 2^`PRESCALER`; `CC[0]` is half the period, the `COMPARE0_CLEAR` short restarts the count, and `COMPARE0` is published on the DPPI channel that GPIOTE's `OUT[0]` (`POLARITY` Toggle, `OUTINIT` Low) subscribes to. No CPU in the loop | [MDK] `nrf54l15_types.h`, `nrf54l15_application_peripherals.h` (`TIMER20_PCLK_MHZ`) |
+| Arithmetic | the smallest `PRESCALER` (0-9) whose rounded half-period fits 16 bits (`tone_calc.h`, host-tested): 1 kHz is prescaler 0, `CC` 8000; 1 Hz is prescaler 7, `CC` 62500. Every 16-bit frequency from 1 Hz is reachable; `RANGE` is for a half-period under two ticks, above the wire's `uint16_t` | |
+| One tone | a second start stops the first and retargets; stop stops the TIMER, unpublishes, clears the DPPI channel and the subscription, drives the pin low as a GPIO output and then disables the GPIOTE channel; 0 Hz stops | |
+
 ## tfw-boot (#17, slice 2)
 
 The core boots from `0x0`, tfw-boot's region. tfw-boot has one row on this
@@ -167,7 +181,10 @@ In order:
    [`../cortex-m/README.md`](../cortex-m/README.md).
 5. OTA and the store, if the owner wants them on this board: the RRAM write
    path is already in place for both.
-6. The SAADC and PWM.
+6. The SAADC on the DK, and PWM. The SAADC driver
+   (`src/hal/cortex-m/nrf54l/hal_adc.c`) is written and runs against a
+   register model on the host (`test/unit/test_nrf54l_saadc.c`); it has not
+   run on the board. PWM remains outstanding.
 
 ## What is not verified
 
@@ -181,3 +198,34 @@ above on the board itself. For the RRAM writes in particular, none of these is v
   Secure core write the platform block;
 - what a store with `WEN` clear does (ignored or a fault);
 - how long a write takes against the spin bounds.
+
+The SAADC has not run on the board; every behaviour of the analog read comes
+from the register model, which follows nrf54l15_types.h and not the part. Not
+verified:
+
+- the channel mapping: board channels 0-3 are AIN2-AIN5 on P1.06, P1.07,
+  P1.11 and P1.12, taken from the DK's pin table, and whether those header
+  pins reach the analog inputs as the board leaves them;
+- the reference: only the internal 0.9 V reference is taken. VDD is not a
+  reference the part offers and the external reference's pin is not on the
+  board's table, so `TFW_ADC_REF_VCC` and `TFW_ADC_REF_EXTERNAL` are refused.
+  With gain 2/8 the range is assumed to be 0 V to 3.6 V, clipped by the pin's
+  own supply;
+- the acquisition and conversion times, left at `CH[n].CONFIG`'s reset
+  values, and the accuracy without offset calibration, which is never run;
+- that START, SAMPLE and STOP answer well inside the wait bound
+  (100 000 polls each); a read that misses STARTED, END or STOPPED returns
+  `TFW_ERR_TIMEOUT`, with the converter stopped, disabled and the pin
+  disconnected as far as the registers say.
+
+For the tone, none of these is verified ([PS] was not read):
+
+- that GPIOTE20 drives P1's pins and no other port's (taken from the
+  instance numbers and addresses above);
+- whether, with the `COMPARE0_CLEAR` short, the count runs `CC` or `CC` + 1
+  ticks between compares (the port takes `CC`);
+- whether a pin GPIOTE releases keeps the GPIO's `OUT` and `PIN_CNF` (the
+  port sets both before the release);
+- whether anything else in the image uses DPPIC20 channel 0 or GPIOTE20
+  channel 0 (nothing does today);
+- the frequency on the board, measured.

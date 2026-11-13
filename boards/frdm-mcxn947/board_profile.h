@@ -6,9 +6,10 @@
  *
  * The pins are the board's RGB LED and its two user switches (FRDM-MCXN947
  * Board User Manual UM12018, the SDK's boards/frdmmcxn947/board.h). The
- * red LED's pin is also CTIMER0's PWM output. The converters, the other
- * timers, SPI and 1-Wire are not driven by this port yet, so every other
- * capability is off by file selection. The EdgeLock subsystem is
+ * sixth pin is the tone's, P3_19, and the red LED's pin is also CTIMER0's PWM
+ * output. The converters, the other timers, SPI and 1-Wire are not driven by
+ * this port yet, so every other capability is off by file selection. The
+ * EdgeLock subsystem is
  * not driven at all: the soft root is the board's only tier.
  *
  * The board id is PROVISIONAL (boards/frdm-mcxn947/profile.mk).
@@ -19,15 +20,15 @@
 #define TFW_BOARD_NAME "frdm-mcxn947"
 #define TFW_BOARD_ID   0x46u   /* docs/boards/board-id-registry.md */
 
-#define TFW_PIN_COUNT  5u
-#define TFW_PORT_COUNT 2u      /* GPIO0 and GPIO1, the banks the pins sit in */
+#define TFW_PIN_COUNT  6u
+#define TFW_PORT_COUNT 3u      /* GPIO0, GPIO1 and GPIO3, the banks the pins sit in */
 #define TFW_PWM_COUNT  1u      /* CTIMER0 match 0 on P0_10, the red LED */
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE 0u
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     1
-#define TFW_FEATURE_TONE    0
+#define TFW_FEATURE_TONE    1
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  0
 /* I2C on LP_FLEXCOMM2 (src/hal/cortex-m/mcxn94x/hal_bus.c) only in the I2C=1
@@ -58,6 +59,13 @@
 #define TFW_MCXN_LINK_RX_BIT  8u
 #define TFW_MCXN_LINK_TX_BIT  9u
 #define TFW_MCXN_LINK_PIN_FN  2u
+
+/* Tone: CTIMER2's match 1 toggling CT2_MAT1 on P3_19, the mikroBUS socket's
+ * PWM pin, pin function 4, pin 5 (src/hal/cortex-m/mcxn94x/hal_tone.c). The
+ * pinned citations and the checks left are docs/boards/frdm-mcxn947.md,
+ * "Tone". */
+#define TFW_TONE_PIN          5u   /* P3_19 */
+#define TFW_MCXN_TONE_PIN_FN  4u
 
 /* The I2C bus: LP_FLEXCOMM2 as LPI2C2 on P4_0 (SDA, FC2_P0) and P4_1 (SCL,
  * FC2_P1), pin function 2, open drain with the pull-up on: the SDK's

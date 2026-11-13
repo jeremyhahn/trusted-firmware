@@ -5,7 +5,7 @@
 # base (handbook devcontainer.md §1), in the fleet template's shape (ci-template
 # v1.18, go-quicraft 0cf97cd).
 #
-#   tools        build-only: the pinned Go analysis tools and trivy, built or
+#   tools        build-only: the pinned Go analysis tools, trivy and gh, built or
 #                downloaded into /out
 #   modules      build-only: the module cache of every Go module here, fetched
 #                with the forge credentials (xkms/ needs the private go-xkms)
@@ -78,7 +78,18 @@ RUN set -eu; \
     echo "${sum}  /tmp/${f}" > /tmp/trivy.sha256; \
     sha256sum -c /tmp/trivy.sha256; \
     tar -xzf "/tmp/${f}" -C /out trivy; \
-    rm -f "/tmp/${f}"
+    rm -f "/tmp/${f}"; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) sum="${GH_SHA256_LINUX_AMD64}" ;; \
+      arm64) sum="${GH_SHA256_LINUX_ARM64}" ;; \
+      *) echo "no gh pin for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    d="gh_${GH_VERSION#v}_linux_${TARGETARCH:-amd64}"; \
+    curl -fsSL -o "/tmp/${d}.tar.gz" "https://github.com/cli/cli/releases/download/${GH_VERSION}/${d}.tar.gz"; \
+    echo "${sum}  /tmp/${d}.tar.gz" > /tmp/gh.sha256; \
+    sha256sum -c /tmp/gh.sha256; \
+    tar -xzf "/tmp/${d}.tar.gz" -C /out --strip-components=2 "${d}/bin/gh"; \
+    rm -f "/tmp/${d}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # github.com/jeremyhahn/* modules resolve from the forge through git, so this
@@ -191,6 +202,7 @@ RUN { echo "# trusted-firmware devcontainer (toolchain)"; \
         go version -m "$(command -v "$t")" | awk -v t="$t" '$1=="mod"{print t, $3; exit}'; \
       done; \
       trivy --version | head -1; \
+      gh --version | head -1; \
     } > /etc/ci-toolchain.txt
 
 USER 10001:10001

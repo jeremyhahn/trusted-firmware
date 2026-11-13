@@ -6,8 +6,9 @@
  *
  * The pins are the board's RGB LED and its two user switches (FRDM-MCXN947
  * Board User Manual UM12018, the SDK's boards/frdmmcxn947/board.h). The
- * converters, the timers and the buses are not driven by this port yet, so
- * every other capability is off by file selection. The EdgeLock subsystem is
+ * red LED's pin is also CTIMER0's PWM output. The converters, the other timers
+ * and the buses are not driven by this port yet, so every other capability is
+ * off by file selection. The EdgeLock subsystem is
  * not driven at all: the soft root is the board's only tier.
  *
  * The board id is PROVISIONAL (boards/frdm-mcxn947/profile.mk).
@@ -20,14 +21,14 @@
 
 #define TFW_PIN_COUNT  5u
 #define TFW_PORT_COUNT 2u      /* GPIO0 and GPIO1, the banks the pins sit in */
-#define TFW_PWM_COUNT  0u
+#define TFW_PWM_COUNT  1u      /* CTIMER0 match 0 on P0_10, the red LED */
 #define TFW_ADC_COUNT  0u
 /* The AVR's 1 KiB map: the bootloader's span from the platform window, the
  * rest in the user sector (TFW_CM_USER_EE_BASE below). */
 #define TFW_EEPROM_SIZE 1024u
 
 #define TFW_FEATURE_ANALOG  0
-#define TFW_FEATURE_PWM     0
+#define TFW_FEATURE_PWM     1
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  1
@@ -53,6 +54,13 @@
 #define TFW_MCXN_LINK_RX_BIT  8u
 #define TFW_MCXN_LINK_TX_BIT  9u
 #define TFW_MCXN_LINK_PIN_FN  2u
+
+/* PWM: CTIMER0 in PWM mode, match 0 on P0_10 (CT0_MAT0, pin function 4, the
+ * SDK example driver_examples/ctimer/simple_pwm's pin_mux.c), the red LED's
+ * pin, so the LED dims (active low: a high duty is a dim LED). The function is
+ * the one every row of boards/frdm-mcxn947/board.c's PWM table takes
+ * (src/hal/cortex-m/mcxn94x/hal_pwm.c). */
+#define TFW_MCXN_PWM_PIN_FN   4u
 
 /* Flash geometry for tfw-boot, as addresses: the regions are not offsets from
  * zero, so TFW_FLASH_TOTAL is the end of the flash span both sit in

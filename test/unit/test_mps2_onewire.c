@@ -4,7 +4,8 @@
  * The MPS2 1-Wire master (src/hal/cortex-m/mps2/hal_bus.c, tfw_hal_ow_*),
  * linked against a modelled GPIO pin and SysTick in place of hal_gpio.c and
  * hal_tick.c, as test_mps2_bus.c links the I2C master against a modelled
- * SBCon.
+ * SBCon. hal_gpio.c's register writes behind that pin are
+ * test_mps2_gpio_line.c's.
  *
  * The pin: the master either drives it low (output) or lets it float (input);
  * a pull-up makes a floating line high unless the model slave holds it low.

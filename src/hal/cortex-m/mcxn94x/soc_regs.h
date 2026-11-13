@@ -15,6 +15,7 @@
  *   LP_FLEXCOMM4  the host link, as LPUART4; interrupt 39
  *   GPIO0..4      the RGPIO banks
  *   PORT0..4      their pin controllers: the pin function and the input buffer
+ *   CTIMER0..4    the standard timers, PWM (hal_pwm.c, ctimer_pwm.c)
  */
 #ifndef TFW_CM_MCXN94X_REGS_H
 #define TFW_CM_MCXN94X_REGS_H
@@ -99,6 +100,16 @@
 #define TFW_MCXN_ADC_RESFIFO_D      0xFFFFu
 #define TFW_MCXN_ADC_RESFIFO_VALID  (1u << 31)
 
+/* The CTIMERs' clock select (FRO12M is 4, fsl_clock.h kFRO12M_to_CTIMERn),
+ * divider and function-clock enable, and their gates and resets: CTIMER0, 1,
+ * 2 at bits 26, 27, 22 of AHBCLKCTRL1 / PRESETCTRL1, CTIMER3 and 4 at bits 21
+ * and 22 of AHBCLKCTRL2 / PRESETCTRL2. */
+#define TFW_MCXN_CTIMERCLKSEL(n)    TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x26Cu + 4u * (n))
+#define TFW_MCXN_CTIMERCLKDIV(n)    TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x3D0u + 4u * (n))
+#define TFW_MCXN_CTIMERGLOBALSTARTEN TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0xE40u)
+#define TFW_MCXN_CTIMERCLKSEL_FRO12M 4u
+#define TFW_MCXN_CTIMER_COUNT       5u
+
 /* ---- SCG0 */
 #define TFW_MCXN_SCG_BASE           0x50044000u
 #define TFW_MCXN_SCG_CSR            TFW_CM_REG(TFW_MCXN_SCG_BASE + 0x010u)
@@ -174,5 +185,9 @@
 #define TFW_MCXN_PCR_PE             (1u << 1)    /* pull enable */
 #define TFW_MCXN_PCR_MUX_SHIFT      8u
 #define TFW_MCXN_PCR_IBE            (1u << 12)   /* input buffer enable */
+
+/* ---- CTIMER0..4, 0x1000 apart from CTIMER0; the registers are ctimer_pwm.h's
+ * word offsets from the base. */
+#define TFW_MCXN_CTIMER_BASE(n)     (0x5000C000u + 0x1000u * (n))
 
 #endif /* TFW_CM_MCXN94X_REGS_H */

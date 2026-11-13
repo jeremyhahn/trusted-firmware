@@ -29,7 +29,39 @@ that no pinned file states is written **not confirmed**.
 | LEDs | red P0_10, green P0_27, blue P1_2 | SDK `board.h` (`BOARD_LED_*`) |
 | Buttons | SW2 P0_23, SW3 P0_6 | SDK `board.h` (`BOARD_SW*`) |
 | I2C bus | LPI2C2 on LP_FLEXCOMM2, FRO12M; P4_0 = SDA (FC2_P0), P4_1 = SCL (FC2_P1), pin function 2, open drain, pull-up, input buffer on; PORT4 clocked first. Which board header carries them is **not confirmed** | SDK `lpi2c/polling_b2b/master` `pin_mux.c` lines 136, 147-159, 170-182; device header |
+| Analog pins | A2 P0_14 = ADC0_B14, A3 P0_22 = ADC0_A14, A4 P0_15 = ADC0_B15, A5 P0_23 = ADC0_A15 (SW2's pin); no source for A0 or A1, so neither is in the table | [`../reference/README.md`](../reference/README.md), the `frdm_mcxn947` rows |
 | PWM | Pin 0, the red LED's P0_10, as CT0_MAT0 (pin function 4, `kPORT_MuxAlt4`): CTIMER0 in PWM mode, match 3 the period (reset on MR3, 255 counts), match 0 the duty as `255 - duty`, PR 46 from FRO12M (clock select 4, divide 1): 8-bit duty at 1001 Hz. The match output is low until the match, so duty 0 (MR0 255, past MR3) never matches and is low, duty 255 (MR0 0) is high all cycle. The LED is active low: a high duty is a dim LED. Configured on first write; a stop returns the pin to a GPIO output at 0 and stops the timer. **Built and host-tested on a register model, not run on the board** | SDK `simple_pwm` `pin_mux.c` lines 51, 82-83, 90-91; device header (`CTIMER_Type`, `CTIMER0_BASE`, `SYSCON` `CTIMERCLKSEL`, `CTIMERCLKDIV`, `CTIMERGLOBALSTARTEN`, `AHBCLKCTRL1`/`PRESETCTRL1` `TIMER0`); `fsl_clock.h` (`kFRO12M_to_CTIMER0`); `fsl_ctimer.c` (`CTIMER_Init`, `CTIMER_SetupPwmPeriod`) |
+
+## Analog read
+
+`ANALOG_READ` and `ADC_REF` run on LPADC0 (`src/hal/cortex-m/mcxn94x/hal_adc.c`):
+**built and tested against a register model on the host
+(`test/unit/test_mcxn94x_adc.c`), not run on the board.** The pin table's
+`adc_ch` is the converter input, the channel number plus 32 for side B, so
+`TFW_ADC_COUNT` is 64. Each read is one 12-bit single-ended conversion,
+command 1 on software trigger 0, sample time 131.5 ADC clocks, popped from
+FIFO 0 with a bounded wait and returned as the 12 raw bits. A read past the
+wait answers `TFW_ERR_TIMEOUT`, unmaps the trigger and resets FIFO 0, and
+every read after it answers `TFW_ERR_UNSUPPORTED` until init runs again, so
+a conversion that finishes late is never taken for another channel's.
+Side B is `CMDL.CTYPE` at 1 (device header lines 1380-1384). Init ungates and releases ADC0 in SYSCON0, clocks it from
+FRO12M undivided, resets the converter and both FIFOs, powers it on, and
+runs the offset and the gain calibration of both sides, each wait bounded;
+a calibration that does not finish leaves every read `TFW_ERR_UNSUPPORTED`.
+`ADC_REF` accepts VCC (reference option 1) and refuses the others. ADC1 is
+not driven. The steps are fsl_lpadc's (`LPADC_Init`, the offset and the
+auto calibration, one `CAL_REQ` waiting on both sides' `GCC`), each field's
+place the device header's, both pinned in
+[`../reference/README.md`](../reference/README.md); items 7 to 10 below are what the
+pinned files do not settle.
+
+**Verification.** Ran green in the lane container: `make host-test`, which
+runs `test_mcxn94x_adc`; `make board-sweep`, which runs
+`test_board_frdm-mcxn947` (host-test leaves the `test_board_*` suites to
+board-sweep by design, `mk/host.mk`); `make lint`; `make lint-arch-leak`. Did
+not run there: `make firmware-matrix` and with it `make ci`, because the lane
+container has no arm-none-eabi-gcc (nor avr-gcc or qemu-system-arm). The ARM
+build, link and size check of this board are left to CI.
 
 ## What the port does not do
 
@@ -144,3 +176,20 @@ runs an image:
 7. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
    example's `pin_mux.c`. Which header pins they reach, and whether the board
    fits pull-ups, is not in a pinned file: UM12018, board schematic.
+8. **Default reference pin: open.** `CFG.REFSEL` stays 0, the SDK's default
+   ("option 1"), taken as the board's 3.3 V VREFH; which pin option 1 is, and
+   what UM12018 ties it to, is not in a pinned file: reference manual, ADC
+   chapter, and UM12018.
+9. **ADC clock: open.** FRO12M (`ADC0CLKSEL` 3, `kFRO12M_to_ADC0`), divider 1,
+   is the board's core clock and the reversible choice; that 12 MHz is inside
+   the converter's range at the sample time used is not in a pinned file:
+   data sheet, ADC characteristics.
+10. **Result alignment: open.** The 12-bit result is taken from bits 14:3 of
+    `RESFIFO`'s 16-bit `D`, as the SDK's lpadc examples shift it; that a
+    standard-resolution single-ended result sits there is not in a pinned
+    file: reference manual, ADC chapter.
+11. **Analog pin mux: open.** The port leaves the four pins' `PCR` at their
+    reset value and takes it as analog-capable; SW2's pin may already have its
+    input buffer on from the GPIO HAL. The analog function and input-buffer
+    setting for an LPADC input are not in a pinned file: reference manual,
+    PORT chapter, and the SDK's `lpadc` example `pin_mux.c`.

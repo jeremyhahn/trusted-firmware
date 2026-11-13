@@ -2534,6 +2534,16 @@ $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/mcxn94x -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The mcxn94x LPADC0 HAL against the suite's register model, as the i.MX 95
+# HAL tests run: test/model/cortex-m/mcxn94x/ goes ahead of src/hal/cortex-m/
+# so its cm_regs.h is the one soc_regs.h finds, and the board's profile
+# replaces the host board's.
+HOST_MCXN94X_CFLAGS = -Itest/model/cortex-m/mcxn94x -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
+                      -Iboards/frdm-mcxn947 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_mcxn94x_adc: test/unit/test_mcxn94x_adc.c src/hal/cortex-m/mcxn94x/hal_adc.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_MCXN94X_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The OPTIGA Trust M transport against recorded frames (row optiga-trust-m):
 # optiga_i2c.c alone, with the bus faked in the suite. It stays in TEST_SRCS;
 # this explicit rule takes the place of the pattern rule.

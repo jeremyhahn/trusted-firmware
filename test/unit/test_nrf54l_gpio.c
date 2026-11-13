@@ -9,7 +9,10 @@
  * nothing written. The addresses and field values are the nrfx MDK's
  * (nrf54l15_global.h for the port bases, nrf54l15_types.h for NRF_GPIO_Type
  * and GPIO_PIN_CNF_*), written out here, not taken from soc_regs.h, so a
- * slip in either file shows. A board has not run them.
+ * slip in either file shows. A value the hardware would supply (IN, a
+ * prior PIN_CNF) is preset through soc_regs.h's own GPIO macros, as
+ * lint-arch-leak keeps the Cortex-M register helper out of the test tree.
+ * A board has not run them.
  */
 #include <stdint.h>
 
@@ -87,7 +90,7 @@ static void test_no_mode_disconnects_the_input_buffer(void)
     const tfw_pin_mode_t modes[3] = { TFW_PIN_INPUT, TFW_PIN_OUTPUT, TFW_PIN_INPUT_PULLUP };
     tfw_pinref_t r = pin(1u, 10u);
     for (int i = 0; i < 3; i++) {
-        TFW_CM_REG(PIN_CNF(1u, 10u)) = CNF_INPUT_DISC;
+        TFW_NRF_GPIO_PIN_CNF(base[1u], 10u) = CNF_INPUT_DISC;
         TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&r, modes[i]));
         TEST_ASSERT_EQUAL_HEX32(0u, regfile_model_peek(PIN_CNF(1u, 10u)) & CNF_INPUT_DISC);
     }
@@ -116,7 +119,7 @@ static void test_a_mode_writes_only_its_own_pin(void)
 static void test_an_unknown_mode_is_unsupported_and_writes_nothing(void)
 {
     tfw_pinref_t r = pin(0u, 3u);
-    TFW_CM_REG(PIN_CNF(0u, 3u)) = CNF_INPUT_DISC;
+    TFW_NRF_GPIO_PIN_CNF(base[0u], 3u) = CNF_INPUT_DISC;
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_gpio_mode(&r, (tfw_pin_mode_t)7));
     TEST_ASSERT_EQUAL_HEX32(CNF_INPUT_DISC, regfile_model_peek(PIN_CNF(0u, 3u)));
 }
@@ -168,16 +171,17 @@ static void test_read_is_the_bit_of_in(void)
             tfw_pinref_t r = pin(p, b);
             uint8_t level = 0xAAu;
 
-            TFW_CM_REG(IN(p)) = 1uL << b;
+            TFW_NRF_GPIO_IN(base[p]) = 1uL << b;
+            TEST_ASSERT_EQUAL_HEX32(1uL << b, regfile_model_peek(IN(p)));
             TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&r, &level));
             TEST_ASSERT_EQUAL_UINT8(1u, level);
 
-            TFW_CM_REG(IN(p)) = ~(1u << b);
+            TFW_NRF_GPIO_IN(base[p]) = ~(1u << b);
             level = 0xAAu;
             TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&r, &level));
             TEST_ASSERT_EQUAL_UINT8(0u, level);
         }
-        TFW_CM_REG(IN(p)) = 0u;
+        TFW_NRF_GPIO_IN(base[p]) = 0u;
     }
 }
 
@@ -186,8 +190,8 @@ static void test_read_uses_its_own_port(void)
 {
     tfw_pinref_t r = pin(1u, 2u);
     uint8_t level = 0xAAu;
-    TFW_CM_REG(IN(0u)) = 0xFFFFFFFFu;
-    TFW_CM_REG(IN(2u)) = 0xFFFFFFFFu;
+    TFW_NRF_GPIO_IN(base[0u]) = 0xFFFFFFFFu;
+    TFW_NRF_GPIO_IN(base[2u]) = 0xFFFFFFFFu;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&r, &level));
     TEST_ASSERT_EQUAL_UINT8(0u, level);
 }

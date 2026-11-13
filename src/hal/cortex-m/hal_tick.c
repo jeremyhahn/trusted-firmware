@@ -11,9 +11,10 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 #include "cm_regs.h"
+#include "cm_cycles.h"
 
-#define TICK_RELOAD ((uint32_t)(TFW_CM_CPU_HZ / 1000uL) - 1u)
-#define CYCLES_PER_US ((uint32_t)(TFW_CM_CPU_HZ / 1000000uL))
+#define TICK_RELOAD   TFW_CM_TICK_RELOAD
+#define CYCLES_PER_US TFW_CM_CYCLES_PER_US
 
 _Static_assert(TICK_RELOAD <= TFW_CM_SYST_RVR_MAX,
                "SysTick's reload is 24 bits: TFW_CM_CPU_HZ / 1000 must fit");
@@ -56,9 +57,6 @@ void tfw_hal_delay_us(uint16_t us)
     uint32_t last = TFW_CM_SYST_CVR;
 
     while (done < want) {
-        uint32_t now = TFW_CM_SYST_CVR;
-
-        done += (now <= last) ? (last - now) : (last + TICK_RELOAD + 1u - now);
-        last  = now;
+        done += tfw_cm_cycles_since(&last);
     }
 }

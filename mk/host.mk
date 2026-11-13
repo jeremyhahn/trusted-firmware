@@ -2467,6 +2467,20 @@ $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/stm32h5 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The stm32h5's ADC1 driver against the register model in its test, which
+# includes hal_adc.c and claims cm_regs.h's guard first; the board's profile
+# replaces the host board's, for its channel count and core clock.
+$(HOST_DIR)/test_stm32h5_adc: test/unit/test_stm32h5_adc.c src/hal/cortex-m/stm32h5/hal_adc.c \
+                              src/hal/cortex-m/stm32h5/soc_regs.h src/hal/cortex-m/stm32h5/h5_calc.h \
+                              test/model/cortex-m/stm32h5_reg_model.h \
+                              src/core/board_lookup.c boards/stm32h573i-dk/board.c \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Iboards/stm32h573i-dk \
+	    -Itest/model/cortex-m \
+	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
+	    -o $@ test/unit/test_stm32h5_adc.c src/core/board_lookup.c boards/stm32h573i-dk/board.c \
+	    $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
 # The STM32H5 PWM (hal_pwm.c) and the PWM command over it (src/caps/pwm.c),
 # against the suite's register file: test/model/cortex-m/ ahead of
 # src/hal/cortex-m/ gives the cm_regs.h that sends TFW_CM_REG there, the

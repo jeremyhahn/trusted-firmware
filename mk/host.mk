@@ -161,6 +161,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_pin_coord.c test/unit/test_mcxn_lpuart.c test/unit/test_mcxn_lpi2c.c \
                             test/unit/test_mcxn_ctimer_pwm.c test/unit/test_mcxn_pwm_cmd.c \
                             test/unit/test_mcxn94x_gpio.c \
+                            test/unit/test_mcxn_soc.c \
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
                             test/unit/test_imx95_adc.c \
@@ -716,6 +717,15 @@ $(HOST_DIR)/test_mcxn94x_uart: test/unit/test_mcxn94x_uart.c src/hal/cortex-m/mc
                         test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m $(HOST_MCXN_CFLAGS) $(EXTRA_CFLAGS) \
 	   -Wl,--wrap=tfw_cm_model_reg -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_soc.c's clock, pin-bank and WWDT0 register values on the register file:
+# test/model/cortex-m/ ahead of src/hal/cortex-m/ gives the cm_regs.h that
+# sends TFW_CM_REG there. The suite includes hal_soc.c, unchanged.
+$(HOST_DIR)/test_mcxn_soc: test/unit/test_mcxn_soc.c src/hal/cortex-m/mcxn94x/hal_soc.c \
+                           src/hal/cortex-m/mcxn94x/soc_reset.c test/model/cortex-m/regfile_model.c \
+                           $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m $(HOST_MCXN_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
+	    $(filter-out %/hal_soc.c,$^) $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the
 # SoC directory's one file with no register access, linked alone, as the M7
@@ -1281,6 +1291,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_cm_pulse $(H
                     $(HOST_DIR)/test_mcxn_pwm_cmd \
                     $(HOST_DIR)/test_mcxn94x_gpio \
                     $(HOST_DIR)/test_mcxn94x_uart \
+                    $(HOST_DIR)/test_mcxn_soc \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \

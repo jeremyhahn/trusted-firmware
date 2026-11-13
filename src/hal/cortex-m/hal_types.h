@@ -11,8 +11,9 @@
  * not fit the host build's port key in any case (test/mock/hal_types.h).
  *
  * A PWM row has the host's four positional fields so a board table under
- * boards/ compiles against either; no Cortex-M board drives a compare unit
- * yet, so they carry no meaning here beyond that.
+ * boards/ compiles against either. Their meaning is the SoC's hal_pwm.c's;
+ * on stm32h5, unit the timer, channel 1 to 4, port the GPIO bank's index
+ * and bit the pin.
  */
 #ifndef TFW_HAL_TYPES_H
 #define TFW_HAL_TYPES_H

@@ -132,7 +132,7 @@ has gained since (`tfw_hal_flash_read`, the watchdog).
 | `tfw_hal_delay_us` | core | busy-poll of SysTick `VAL`, for bus bit-banging only | ref ADR d4 |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | the LPUART the System Manager gives the M7; on the board, one of the four CH9114F channels on J22, whose core mapping is not fixed | UM12527 §2.19; question 13 |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | RGPIO; pin mux from the System Manager | ref ADR d4 |
-| `tfw_hal_adc_init`, `_set_ref`, `_read` | — | not linked in the first slices | — |
+| `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | the 12-bit SAR ADC (`sar_adc.h`), polled, in the `soft:ADC=1` row only: calibrated once at init, one-shot normal conversion per read, reference VCC only; base `TFW_IMX95_ADC_BASE` zero (unsupported) until a pinned source gives it. Built and host-tested on a register model, not run | Linux `imx93_adc.c`; questions 13 and 17 |
 | `tfw_hal_pwm_write`, `_stop` | — | not linked in the first slices (TPM later) | IMX95CEC Figure 3 |
 | `tfw_hal_tone_start`, `_stop` | `hal_tone.c`, `gpt.h` | built (soft:TONE=1 row), host-tested, not run: GPT output compare 1 in restart mode, its interrupt toggling the pin through `tfw_hal_gpio_write`; base zero (unsupported), 24 MHz clock and vector `tfw_cm_irq0` TO CONFIRM, question 17 | Linux `drivers/clocksource/timer-imx-gpt.c` |
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | — | not linked | — |
@@ -475,6 +475,14 @@ Its UART, pins and watchdog run on the host against a register model
 (`test/model/imx95_model.c`, through `test/unit/test_imx95_hal.c`): the model
 pins the register layouts soc_regs.h states, so it proves the code agrees with
 them, not that they are the silicon's (section 9.4).
+Its SAR ADC, in the `soft:ADC=1` row, runs the same way against the register
+model in `test/unit/test_imx95_adc.c`; its register layout is NXP's i.MX 95
+device header `PERI_ADC.h`, cross-checked against Linux
+`drivers/iio/adc/imx93_adc.c` at v6.12, both pinned in
+[`../reference/README.md`](../reference/README.md) (IMX95RM is not held, so the
+header is the authority). The base is zero (unsupported) until a pinned source
+gives the M7's instance, so the firmware's analog read answers unsupported on
+the board.
 It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
 message layer and one command (section 9.7), and no key store, session or
 attestation over it.

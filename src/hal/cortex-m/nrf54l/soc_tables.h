@@ -59,4 +59,23 @@ uint8_t tfw_nrf54l_rram_span(uint32_t floor, uint32_t addr, uint32_t len);
  * words make a page a quarter of the waits. */
 uint32_t tfw_nrf54l_rram_unit(uint32_t addr, uint32_t left);
 
+/* The board's SAADC channels: 0-3 are the analog inputs AIN2-AIN5, pins
+ * P1.6, P1.7, P1.11 and P1.12 (soc_tables.c names the sources and why
+ * AIN0, AIN1, AIN6 and AIN7 are left out). */
+#define TFW_NRF54L_SAADC_CHANNELS 4u
+
+/* Nonzero, with the channel's GPIO port and pin, for a channel the board
+ * has; zero, and nothing written, for any other. */
+uint8_t tfw_nrf54l_saadc_pin(uint8_t channel, uint8_t *port, uint8_t *bit);
+
+/* CH[n].PSELP's value selecting P<port>.<bit> as the analog input: PIN in
+ * bits 0-4, PORT in bits 8-11, CONNECT (bits 30-31) AnalogInput, 1
+ * (nrf54l15_types.h, SAADC_CH_PSELP_*). Not the other peripherals' PSEL. */
+uint32_t tfw_nrf54l_saadc_pselp(uint8_t port, uint8_t bit);
+
+/* The wire's raw value for a single-ended 12-bit sample: the SAADC writes a
+ * signed 16-bit word, and a single-ended input near ground can read a little
+ * below zero, so a negative sample is 0 and the result is at most 4095. */
+uint16_t tfw_nrf54l_saadc_raw(int16_t sample);
+
 #endif /* TFW_CM_NRF54L_SOC_TABLES_H */

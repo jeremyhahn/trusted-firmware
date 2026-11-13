@@ -2386,6 +2386,17 @@ $(HOST_DIR)/test_nrf54l_soc_tables: test/unit/test_nrf54l_soc_tables.c src/hal/c
                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/nrf54l -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its SAADC (#17): the test includes hal_adc.c with TFW_CM_REG sent to a
+# register model of the SAADC (test/model/cortex-m/nrf54l_saadc_model.h, whose
+# guard keeps the real cm_regs.h out), and builds against the DK's board
+# profile (its TFW_ADC_COUNT) in place of the host board's. The included
+# hal_adc.c reaches $^ through the header dependencies once an edit to it
+# makes them count; it is filtered out, or it would be linked twice.
+$(HOST_DIR)/test_nrf54l_saadc: test/unit/test_nrf54l_saadc.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                               $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/nrf54l -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/nrf54l15-dk \
+	    $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -o $@ $(filter-out %/hal_adc.c,$^) $(EXTRA_LDFLAGS)
+
 # Its tone (the nrf54l15 row): the TIMER arithmetic in tone_calc.h, and
 # hal_tone.c, unchanged, against the register model the test file supplies
 # behind test/model/cortex-m/cm_regs.h, compiled as test_imx95_hal is.

@@ -2407,6 +2407,14 @@ $(HOST_DIR)/test_nrf54l_tone: test/unit/test_nrf54l_tone.c src/hal/cortex-m/nrf5
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# Its uart (the nrf54l15 row): the test includes hal_uart.c, unchanged, on
+# the register file (test/model/cortex-m/regfile_model.c), as test_stm32h5_pwm
+# is. The included hal_uart.c is filtered out of $^, as hal_adc.c is above.
+$(HOST_DIR)/test_nrf54l_uart: test/unit/test_nrf54l_uart.c src/hal/cortex-m/nrf54l/soc_tables.c \
+                              test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE $(HOST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
+	    $(filter-out %/hal_uart.c,$^) $(EXTRA_LDFLAGS)
+
 # Its reset cause (#17): soc_reset.c reads RESETREAS through a pointer the
 # caller names, so the test hands it a fake word.
 $(HOST_DIR)/test_nrf54l_reset: test/unit/test_nrf54l_reset.c src/hal/cortex-m/nrf54l/soc_reset.c \

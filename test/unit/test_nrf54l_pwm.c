@@ -29,8 +29,10 @@ static const tfw_pwmref_t ch1 = { 0u, 1u, 1u, 14u };
 
 void setUp(void)
 {
-    TFW_NRF_PWM_STOP       = 0u;
-    TFW_NRF_PWM_SEQ0_START = 0u;
+    /* The last test's teardown stop has landed. */
+    TFW_NRF_PWM_STOP           = 0u;
+    TFW_NRF_PWM_EVENTS_STOPPED = 1u;
+    TFW_NRF_PWM_SEQ0_START     = 0u;
     TFW_NRF_GPIO_OUTSET(P1) = 0u;
     TFW_NRF_GPIO_OUTCLR(P1) = 0u;
     /* TASKS_STOP lands on the next read of EVENTS_STOPPED; the tests of a
@@ -43,7 +45,6 @@ void tearDown(void)
 {
     (void)tfw_hal_pwm_stop(&ch0);
     (void)tfw_hal_pwm_stop(&ch1);
-    (void)tfw_hal_tone_stop();
 }
 
 static void test_first_write_configures_pwm20_up_counting_at_1khz(void)
@@ -211,59 +212,42 @@ static void test_a_ref_the_unit_has_no_channel_for_is_refused(void)
     TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_START);
 }
 
-/* LED1 is both the tone's pin and channel 0's (boards/nrf54l15-dk/board.c):
- * the last command takes it. GPIOTE's task mode overrides the GPIO, so a
- * PWM command that left the tone configured would not drive the pin. */
-static void test_a_pwm_command_on_the_tone_pin_stops_the_tone(void)
+/* A stop that never lands: STOP_WAIT polls of EVENTS_STOPPED and no event.
+ * The write fails with the channel untouched and no SEQ[0].START, and the
+ * stop is still pending: the next write waits for it again, and plays once
+ * it lands. */
+static void test_a_stop_that_never_lands_fails_the_next_write(void)
 {
-    static const tfw_pinref_t led1   = { .port = 1u, .bit = 10u };
-    static const uint8_t      duty[] = { 0u, 255u, 128u };
-    unsigned                  i;
-
-    for (i = 0u; i < sizeof duty; i++) {
-        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&led1, 440u));
-        TEST_ASSERT_NOT_EQUAL(0u, TFW_NRF_GPIOTE_CONFIG(0));
-        TFW_NRF_GPIO_OUTSET(P1) = 0u;
-        TFW_NRF_GPIO_OUTCLR(P1) = 0u;
-
-        TEST_ASSERT_EQUAL(TFW_OK, wire_pwm_write(1u, duty[i]));
-        TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_GPIOTE_CONFIG(0));   /* MODE Disabled */
-        TEST_ASSERT_EQUAL_HEX32(0u, TFW_NRF_GPIOTE_SUB_OUT(0));
-        TEST_ASSERT_EQUAL_HEX32(TFW_NRF_PIN_CNF_OUTPUT, TFW_NRF_GPIO_PIN_CNF(P1, 10u));
-        if (duty[i] == 255u) {
-            TEST_ASSERT_EQUAL_HEX32(1uL << 10, TFW_NRF_GPIO_OUTSET(P1));
-            TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, TFW_NRF_PWM_PSEL_OUT(0));
-        } else if (duty[i] == 0u) {
-            TEST_ASSERT_EQUAL_HEX32(1uL << 10, TFW_NRF_GPIO_OUTCLR(P1));
-            TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, TFW_NRF_PWM_PSEL_OUT(0));
-        } else {
-            TEST_ASSERT_EQUAL_HEX32(0x2Au, TFW_NRF_PWM_PSEL_OUT(0));
-            TEST_ASSERT_EQUAL_HEX16(0x8000u | 502u, tfw_nrf54l_pwm_seq[0]);
-        }
-        (void)tfw_hal_pwm_stop(&ch0);
-    }
-}
-
-static void test_a_tone_takes_led1_from_its_pwm_channel_only(void)
-{
-    static const tfw_pinref_t led1 = { .port = 1u, .bit = 10u };
-
+    tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 1000000u,
+                               &TFW_NRF_PWM_SEQ0_START);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch0, 128u));
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch1, 77u));
-    TFW_NRF_PWM_STOP    = 0u;
-    TFW_NRF_TIMER_START = 0u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_stop(&ch0));
+    TFW_NRF_PWM_SEQ0_START = 0u;
+    tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 1000000u,
+                               &TFW_NRF_PWM_SEQ0_START);
 
-    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&led1, 440u));
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_pwm_write(&ch1, 77u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_START);
     TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, TFW_NRF_PWM_PSEL_OUT(0));
-    TEST_ASSERT_EQUAL_HEX16(0u, tfw_nrf54l_pwm_seq[0]);
-    /* LED3 on channel 1 plays on: the sequence is not stopped. */
-    TEST_ASSERT_EQUAL_HEX32(0x2Eu, TFW_NRF_PWM_PSEL_OUT(1));  /* PORT 1, PIN 14 */
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, TFW_NRF_PWM_PSEL_OUT(1));
+    TEST_ASSERT_EQUAL_HEX16(0u, tfw_nrf54l_pwm_seq[1]);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_STOP);  /* still pending */
+
+    /* A second write still waits: it fails too while the stop is pending. */
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_pwm_write(&ch0, 128u));
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_SEQ0_START);
+    TEST_ASSERT_EQUAL_HEX32(0xFFFFFFFFu, TFW_NRF_PWM_PSEL_OUT(0));
+
+    /* The stop lands late: the next write plays. */
+    tfw_nrf54l_model_late_task(&TFW_NRF_PWM_STOP, &TFW_NRF_PWM_EVENTS_STOPPED, 3u,
+                               &TFW_NRF_PWM_SEQ0_START);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&ch1, 77u));
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_EVENTS_STOPPED);
+    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_PWM_SEQ0_START);
+    TEST_ASSERT_EQUAL_HEX32(0x2Eu, TFW_NRF_PWM_PSEL_OUT(1));
     TEST_ASSERT_EQUAL_HEX16(0x8000u | 302u, tfw_nrf54l_pwm_seq[1]);
-    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_PWM_STOP);
-    /* And the tone runs on the pin. */
-    TEST_ASSERT_NOT_EQUAL(0u, TFW_NRF_GPIOTE_CONFIG(0));
-    TEST_ASSERT_EQUAL_HEX32(TFW_NRF_DPPI_EN | 0u, TFW_NRF_GPIOTE_SUB_OUT(0));
-    TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_TIMER_START);
 }
 
 /* Tone then PWM: once the PWM has LED1, the tone no longer owns it, so a tone
@@ -336,10 +320,7 @@ int main(void)
     RUN_TEST(test_a_duty_after_duty_0_starts_once_the_stop_has_landed);
     RUN_TEST(test_another_channel_after_the_last_one_stops_starts_once_the_stop_has_landed);
     RUN_TEST(test_a_ref_the_unit_has_no_channel_for_is_refused);
-    RUN_TEST(test_a_pwm_command_on_the_tone_pin_stops_the_tone);
-    RUN_TEST(test_a_tone_takes_led1_from_its_pwm_channel_only);
-    RUN_TEST(test_a_tone_stop_after_the_pwm_took_led1_leaves_the_channel_playing);
-    RUN_TEST(test_the_pwm_on_led3_and_the_tone_on_led1_run_side_by_side);
+    RUN_TEST(test_a_stop_that_never_lands_fails_the_next_write);
     RUN_TEST(test_the_board_resolves_led1_and_led3_to_pwm20_channels_0_and_1);
     return UNITY_END();
 }

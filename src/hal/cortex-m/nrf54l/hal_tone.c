@@ -28,11 +28,6 @@
 static uint8_t tone_active;
 static uint8_t tone_bit;
 
-int tfw_nrf54l_tone_owns(uint8_t port, uint8_t bit)
-{
-    return tone_active && port == TONE_PORT && bit == tone_bit;
-}
-
 tfw_status_t tfw_hal_tone_stop(void)
 {
     if (!tone_active) {
@@ -68,10 +63,6 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
         return TFW_ERR_RANGE;
     }
     (void)tfw_hal_tone_stop();   /* a second start retargets */
-    /* and takes the pin from a PWM channel on it: last command wins. */
-#if TFW_FEATURE_PWM
-    tfw_nrf54l_pwm_release_pin(TONE_PORT, p->bit);
-#endif
 
     /* TIMER: stopped and cleared, then the period and the published event. */
     TFW_NRF_TIMER_STOP      = 1u;

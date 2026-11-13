@@ -1488,7 +1488,7 @@ jobs:
     # (boot 4's second stream) with three rounds of ~13 to go: ~68. 10 + 2 + 108
     # = 120, plus margin. Ruling 220(j): esp32-build left this job; the
     # timeout stays.
-    timeout-minutes: 150
+    timeout-minutes: 120
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -1553,7 +1553,7 @@ jobs:
     # container 13 and the actions/cache save over 2: 2 + 5 + 133 + 13 + 2 =
     # 155. Its tests (26 more) now run in the optee job, so the cold build
     # fits under 180, the runner's own 3-hour job limit (ruling 250 (a)).
-    timeout-minutes: 180
+    timeout-minutes: 120
     env:
       CI_STACK_PREFIX: ${{ github.event.repository.name }}-ci-
       CI_CACHE_CLASS: ${{ github.event_name == 'push' && 'main' || 'pr' }}
@@ -2265,6 +2265,7 @@ jobs:
   # a 1-CPU gate runner cannot hold a stage). trivy and fips are in nightly.yml
   # (v1.9, devops.md §8a: the alpha regime).
   ci-gate:
+    timeout-minutes: 10
     name: CI Gate
     runs-on: ubuntu-latest
     # v1.29.3: on a schedule run the schedule guard decides. `busy` skips the

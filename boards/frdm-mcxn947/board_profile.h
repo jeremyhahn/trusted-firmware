@@ -54,10 +54,9 @@
 #define TFW_MCXN_LINK_TX_BIT  9u
 #define TFW_MCXN_LINK_PIN_FN  2u
 
-/* Tone: CTIMER4's match 0 toggling CT4_MAT0 on P3_2, pin function 4 (the
- * SDK example driver_examples/ctimer/simple_match_interrupt's pin_mux.c,
- * docs/boards/frdm-mcxn947.md), pin 5 (src/hal/cortex-m/mcxn94x/hal_tone.c).
- * Which header the board brings P3_2 to is to confirm against UM12018. */
+/* Tone: CTIMER4's match 0 toggling CT4_MAT0 on P3_2, pin function 4, pin 5
+ * (src/hal/cortex-m/mcxn94x/hal_tone.c). The pinned SDK citation, the header
+ * pin and the checks left are docs/boards/frdm-mcxn947.md, "Tone". */
 #define TFW_TONE_PIN          5u   /* P3_2 */
 #define TFW_MCXN_TONE_PIN_FN  4u
 

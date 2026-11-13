@@ -30,6 +30,22 @@ that no pinned file states is written **not confirmed**.
 | Buttons | SW2 P0_23, SW3 P0_6 | SDK `board.h` (`BOARD_SW*`) |
 | PWM | Pin 0, the red LED's P0_10, as CT0_MAT0 (pin function 4, `kPORT_MuxAlt4`): CTIMER0 in PWM mode, match 3 the period (reset on MR3, 255 counts), match 0 the duty as `255 - duty`, PR 46 from FRO12M (clock select 4, divide 1): 8-bit duty at 1001 Hz. The match output is low until the match, so duty 0 (MR0 255, past MR3) never matches and is low, duty 255 (MR0 0) is high all cycle. The LED is active low: a high duty is a dim LED. Configured on first write; a stop returns the pin to a GPIO output at 0 and stops the timer. **Built and host-tested on a register model, not run on the board** | SDK `simple_pwm` `pin_mux.c` lines 51, 82-83, 90-91; device header (`CTIMER_Type`, `CTIMER0_BASE`, `SYSCON` `CTIMERCLKSEL`, `CTIMERCLKDIV`, `CTIMERGLOBALSTARTEN`, `AHBCLKCTRL1`/`PRESETCTRL1` `TIMER0`); `fsl_clock.h` (`kFRO12M_to_CTIMER0`); `fsl_ctimer.c` (`CTIMER_Init`, `CTIMER_SetupPwmPeriod`) |
 
+## Tone
+
+`TFW_FEATURE_TONE` is on: board pin 5, P3_2, carries the tone.
+
+| | | Source |
+|---|---|---|
+| Pin | P3_2 as CT4_MAT0, CTIMER4 match 0, pin function 4 (`kPORT_MuxAlt4`) with the input buffer on; PORT3 clocked first. `TFW_TONE_PIN` 5, `TFW_MCXN_TONE_PIN_FN` 4 in `boards/frdm-mcxn947/board_profile.h` | SDK `simple_match_interrupt` `pin_mux.c` (`frdmmcxn947/driver_examples/ctimer/simple_match_interrupt/cm33_core0/pin_mux.c`, mcux-sdk-examples `52b42825`) lines 51, 69-70, 130-131, 138-139 |
+| Timer | CTIMER4 in timer mode, prescaler 0, FRO12M at divide 1; match 0 at half the period resets the counter (MCR MR0R) and toggles CT4_MAT0 (EMR EMC0), so no CPU is in the loop. CTIMER0 stays the PWM's. One tone at a time; a stop holds the counter in reset and returns the pin to a GPIO output at 0 | `src/hal/cortex-m/mcxn94x/hal_tone.c`, `ctimer_tone.h`; device header (`CTIMER_Type`, `CTIMER4_BASE`) |
+| Header pin | **Not confirmed**: no pinned file says which header pin, if any, P3_2 reaches; UM12018 was not read (Outstanding checks, 1) | |
+| Status | **Host-tested, not run on a board**: `test_mcxn94x_tone` runs the register sequence against a register model | |
+
+### Outstanding checks
+
+1. **To confirm on the board**: the header pin P3_2 (CT4_MAT0) reaches,
+   read in UM12018's header table or schematic, then a tone measured on it.
+
 ## What the port does not do
 
 - Drive the EdgeLock secure subsystem, program a fuse, or start core 1.

@@ -707,6 +707,16 @@ $(HOST_DIR)/test_mcxn94x_gpio: test/unit/test_mcxn94x_gpio.c src/hal/cortex-m/mc
                         test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m $(HOST_MCXN_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The link UART's register values (SPEC row mcxn947): hal_uart.c on the
+# register file model, test/model/cortex-m ahead of src/hal/cortex-m for its
+# cm_regs.h. The wrap lets the suite clear STAT.RDRF on a read of DATA, as
+# the LPUART does, so the receive loop in the handler ends.
+$(HOST_DIR)/test_mcxn94x_uart: test/unit/test_mcxn94x_uart.c src/hal/cortex-m/mcxn94x/hal_uart.c \
+                        src/hal/cortex-m/mcxn94x/lpuart_baud.c \
+                        test/model/cortex-m/regfile_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m $(HOST_MCXN_CFLAGS) $(EXTRA_CFLAGS) \
+	   -Wl,--wrap=tfw_cm_model_reg -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The i.MX 95 M7 port's divisor and bank arithmetic (SPEC row `imx95`): the
 # SoC directory's one file with no register access, linked alone, as the M7
 # image links it.
@@ -1270,6 +1280,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_cm_pulse $(H
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \
                     $(HOST_DIR)/test_mcxn_pwm_cmd \
                     $(HOST_DIR)/test_mcxn94x_gpio \
+                    $(HOST_DIR)/test_mcxn94x_uart \
                     $(HOST_DIR)/test_imx95_soc_calc $(HOST_DIR)/test_imx95_rsc_table \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \

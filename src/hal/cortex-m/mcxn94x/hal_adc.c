@@ -21,6 +21,12 @@
  * init runs again, so that a late result is never taken for another
  * channel's.
  *
+ * A read first releases every board pin on the channel from the GPIO: its
+ * output direction off and its PCR 0, pin function 0 with no pull and the
+ * input buffer off, so the converter samples the pad and not a driven or
+ * pulled level. A pin read as GPIO later is set up again by its mode
+ * command, as the tone's pin is.
+ *
  * The result register holds a 12-bit conversion in bits 14:3 (the SDK's
  * lpadc examples shift it by 3); the read returns those 12 bits, the raw
  * width, as the ESP32 port returns its converter's 12 bits.
@@ -32,6 +38,7 @@
 #include <stdint.h>
 
 #include "tfw/hal.h"
+#include "tfw/board.h"
 #include "tfw/config.h"
 #include "soc_regs.h"
 
@@ -125,6 +132,23 @@ tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
     return ref == TFW_ADC_REF_VCC ? TFW_OK : TFW_ERR_UNSUPPORTED;
 }
 
+/* Releases the pads of every board pin on this channel (see the top). */
+static void analog_pins(uint8_t channel)
+{
+    for (tfw_pin_t p = 0u; p < TFW_PIN_COUNT; p++) {
+        tfw_pinref_t ref;
+        uint8_t      ch;
+
+        if (tfw_board_adc_channel(p, &ch) != TFW_OK || ch != channel ||
+            tfw_board_pin(p, &ref) != TFW_OK ||
+            ref.port >= TFW_MCXN_PORT_COUNT || ref.bit >= 32u) {
+            continue;
+        }
+        TFW_MCXN_GPIO_PDDR(ref.port) &= ~(1u << ref.bit);
+        TFW_MCXN_PORT_PCR(ref.port, ref.bit) = 0u;
+    }
+}
+
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     uint32_t n;
@@ -140,6 +164,7 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
     if ((channel & ADC_CH_SIDE_B) != 0u) {
         cmdl |= TFW_MCXN_ADC_CMDL_CTYPE_B;
     }
+    analog_pins(channel);
     TFW_MCXN_ADC_CMDL1 = cmdl;
     TFW_MCXN_ADC_CMDH1 = ADC_STS_131 << TFW_MCXN_ADC_CMDH_STS_SHIFT;
     TFW_MCXN_ADC_TCTRL0 = 1u << TFW_MCXN_ADC_TCTRL_TCMD_SHIFT;

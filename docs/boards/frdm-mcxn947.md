@@ -243,8 +243,11 @@ runs an image:
     `RESFIFO`'s 16-bit `D`, as the SDK's lpadc examples shift it; that a
     standard-resolution single-ended result sits there is not in a pinned
     file: reference manual, ADC chapter.
-11. **Analog pin mux: open.** The port leaves the four pins' `PCR` at their
-    reset value and takes it as analog-capable; SW2's pin may already have its
-    input buffer on from the GPIO HAL. The analog function and input-buffer
+11. **Analog pin mux: open.** Each read first releases the channel's board
+    pins from the GPIO: the `PDDR` bit cleared and the `PCR` written 0 (pin
+    function 0, no pull, input buffer off; `test_mcxn94x_adc` checks it lands
+    before the trigger). SW2's pin is A5, so a read of A5 leaves the switch
+    unread until its mode command sets it up again. That pin function 0 is
+    the analog connection is taken, not confirmed. The analog function and input-buffer
     setting for an LPADC input are not in a pinned file: reference manual,
     PORT chapter, and the SDK's `lpadc` example `pin_mux.c`.

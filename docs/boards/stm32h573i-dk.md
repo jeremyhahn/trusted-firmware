@@ -22,7 +22,9 @@ read at one commit each:
 |---|---|---|
 | CMSIS header | `STMicroelectronics/cmsis-device-h5` @ `884b8dc78e41cbfca008363342b17f4a9e8641f7` | `Include/stm32h573xx.h`, `Source/Templates/system_stm32h5xx.c` |
 | BSP | `STMicroelectronics/stm32h573i-discovery-bsp` @ `92b219d6a315c0974c5583094671c048c5dd41ec` | `stm32h573i_discovery.h`, `stm32h573i_discovery.c` |
-| HAL | `STMicroelectronics/stm32h5xx-hal-driver` @ `16fea2d290119d6349b8f9a3b8538781ba1e1bdc` | `Src/stm32h5xx_hal_rcc.c`, `Src/stm32h5xx_ll_utils.c`, `Inc/stm32h5xx_hal_flash.h`, `Inc/stm32h5xx_hal_conf_template.h` |
+| HAL | `STMicroelectronics/stm32h5xx-hal-driver` @ `16fea2d290119d6349b8f9a3b8538781ba1e1bdc` | `Src/stm32h5xx_hal_rcc.c`, `Src/stm32h5xx_ll_utils.c`, `Inc/stm32h5xx_hal_flash.h`, `Inc/stm32h5xx_hal_conf_template.h`; the ADC's `Src/stm32h5xx_hal_adc.c`, `Src/stm32h5xx_hal_adc_ex.c`, `Inc/stm32h5xx_ll_adc.h`, `Inc/stm32h5xx_ll_rcc.h` |
+| Connector | `zephyrproject-rtos/zephyr` @ `270ee49bd8fe412446d862a56aae16a0e245104d` | `boards/st/stm32h573i_dk/arduino_r3_connector.dtsi` |
+| Pin table | `zephyrproject-rtos/hal_stm32` @ `9dd7ccaefb5df6bf750d4d52cfd4b88eed2d0923` | `dts/st/h5/stm32h573iikxq-pinctrl.dtsi` |
 
 The repositories are on github.com. The reference manual RM0481 and the
 datasheet DS14053 have not been read, so a register's behaviour that only they
@@ -56,9 +58,54 @@ What `boards/stm32h573i-dk/` and `src/hal/cortex-m/stm32h5/` set, and why.
 | Console divisor | USART1's kernel clock at reset is PCLK2, so BRR is 64 MHz over the rate: 556 at 115200 baud | HAL: `stm32h5xx_hal_rcc.c`; `tfw_h5_usart_brr` in `src/hal/cortex-m/stm32h5/h5_calc.h` |
 | Console interrupt | USART1 is interrupt 58, so the port's vector table holds 64 external interrupts | CMSIS header: `USART1_IRQn` |
 | Watchdog | the IWDG on the LSI, 32 kHz typical, a 4 s period (prescaler /32, reload 3999). It cannot be stopped once started, so an image's reset handler pets it rather than disarming it | HAL: `stm32h5xx_hal_conf_template.h` (`LSI_VALUE`); the LSI's spread and the IWDG's state across a system reset are **not confirmed** against RM0481 |
+| I2C | **built, not yet run on the board**: I2C4, SCL PB8 and SDA PB9, alternate function 6, open drain with the pull-up on, the bus ST's BSP drives. That these pins reach the Arduino header's SCL/SDA is **not confirmed** against UM3143. A polled master (`src/hal/cortex-m/stm32h5/hal_bus.c`): START, address, data, a repeated START into a read, and a software STOP on every return that reached the bus; a NACK on the address or a byte is `TFW_ERR_NACK`, a bus that stays busy or a flag that never comes is `TFW_ERR_TIMEOUT`. The kernel clock is PCLK3, 64 MHz; TIMINGR is `0x60702729` at 100 kHz and `0x10A11626` at 400 kHz, the analog filter on. Off by default (`I2C ?= 0`); the `soft:I2C=1` row builds it. SPI and 1-Wire refuse with `TFW_ERR_UNSUPPORTED`. Tested against a register model, `test/unit/test_stm32h5_i2c.c`; no element has been on the bus | BSP: `stm32h573i_discovery_bus.h` (`BUS_I2C4`, `BUS_I2C4_SCL_PIN`, `BUS_I2C4_SDA_PIN`, `BUS_I2C4_SCL_AF`, `BUS_I2C4_SDA_AF`), `stm32h573i_discovery_bus.c` (`I2C4_MspInit`, `I2C_GetTiming` and its `I2C_Charac` table, which gives both TIMINGR values for 64 MHz); CMSIS header: `I2C4_BASE_NS`, `I2C_TypeDef`, `I2C_CR1_*`, `I2C_CR2_*`, `I2C_ISR_*`, `I2C_ICR_*`, `RCC_APB3ENR_I2C4EN`, `GPIO_TypeDef`; HAL: `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF6_I2C4`), `stm32h5xx_ll_rcc.h` (`LL_RCC_I2C4_CLKSOURCE_PCLK3`), `stm32h5xx_hal_i2c.c` (`I2C_IsErrorOccurred`, the STOP after a NACK), `stm32h5xx_ll_i2c.h` |
 | Writing the board | STM32CubeProgrammer CLI (`STM32_Programmer_CLI`, ST UM2237) over the STLINK-V3EC. `make board-record BOARD=stm32h573i-dk CM_PROBE_SERIAL=<serial>` reads the whole 2 MB flash at `0x08000000` and the option bytes (`-ob displ`); `make flash` and `make boot-flash` refuse until that record exists; `make board-restore` with `BOARD_RESTORE_IMAGE=build/records/<record>.flash.bin` writes it back and compares. No option-byte write, RDP or TrustZone change, ever. Not yet run on the board. Steps: [`../cortex-m/README.md`](../cortex-m/README.md) | `mk/arch/cortex-m.mk`, `boards/stm32h573i-dk/profile.mk` |
 | tfw-boot's flash writes | **driven, not yet run on the board**: tfw-boot writes the slot and the platform block through the flash interface's Non-secure registers. It unlocks with `FLASH_KEY1` then `FLASH_KEY2` in NSKEYR. It programs a quad-word (16 bytes) at a time with PG. It erases one 8 KiB sector with SER, SNB and STRT, plus BKSEL for bank 2. It waits on BSY, WBNE and DBNE in NSSR, and clears NSSR's error flags 17 to 23 and EOP through NSCCR. A write that matches the flash is skipped. One whose quad-words are all erased is programmed only. Any other rewrites each 8 KiB sector it touches through a RAM copy. The application has no flash access (`boot/boot_hal.h`). The offsets, bits and keys are **not confirmed** against RM0481 | CMSIS header: `FLASH_TypeDef`, `FLASH_SR_*`, `FLASH_CR_*`, `FLASH_CCR_*`; HAL: `stm32h5xx_hal_flash.h` (`FLASH_KEY1`, `FLASH_KEY2`). The sequences follow the HAL's `FLASH_Program_QuadWord`, `FLASH_Erase_Sector` and `FLASH_WaitForLastOperation`, **not confirmed** at the pinned commit; `boot/hal/cortex-m/stm32h5/h5_flash.c`, tested by `test/unit/boot/test_boot_stm32h5_flash.c` |
+| PWM | **built, not yet run on the board**: TIM5, a general-purpose timer nothing else in the port drives, on the Arduino header's D6 (PH10, TIM5_CH1) and D5 (PH11, TIM5_CH2), alternate function 2. Eight-bit duty at about 1 kHz, as the AVR and the ESP32 give: ARR 254, PSC 250 from 64 MHz (999.9 Hz), PWM mode 1 with preload, so duty 0 is never high and 255 always is. The timer is set up on the first write, not at boot; a channel's pin goes to the timer on that channel's first write, and stop disables the channel and drives the pin low as an output. TIM5's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM5_BASE_NS`, `TIM_TypeDef`, `TIM_CR1_*`, `TIM_EGR_UG`, `TIM_CCMR1_OC1M*`/`OC1PE`/`OC2M`/`OC2PE`, `TIM_CCER_CC1E`/`CC2E`, `RCC_APB1LENR_TIM5EN`; HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_PWM1`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM5`); the pins: ST's board configuration for the kit (STM32_open_pin_data, `PH10 ARD_D6 S_TIM5_CH1`, `PH11 ARD_D5 S_TIM5_CH2`). The timer clock equal to PCLK1 at prescaler 1 is **not confirmed** against RM0481. `src/hal/cortex-m/stm32h5/hal_pwm.c`, `h5_calc.h`, host-tested by `test/unit/test_stm32h5_pwm.c` |
 | Instruction cache | ICACHE is off at reset and tfw-boot does not enable it, so a flash write leaves nothing stale to invalidate | ICACHE off at reset is **not confirmed** against RM0481 |
+
+## ADC
+
+ADC1, one polled conversion a read, on the Arduino header's six analog pins
+(`src/hal/cortex-m/stm32h5/hal_adc.c`). Each source file's commit and SHA-256
+is in [`../reference/README.md`](../reference/README.md).
+
+| Pin | Header | MCU pin | ADC1 input | Source |
+|---|---|---|---|---|
+| 6 | A0 | PB0 | INP9 | Connector: `gpio-map`; pin table: `adc1_inp9_pb0` |
+| 7 | A1 | PA4 | INP18 | Connector; pin table: `adc1_inp18_pa4` |
+| 8 | A2 | PA0 | INP0 | Connector; pin table: `adc1_inp0_pa0` |
+| 9 | A3 | PA5 | INP19 | Connector; pin table: `adc1_inp19_pa5` |
+| 10 | A4 | PA6 | INP3 | Connector; pin table: `adc1_inp3_pa6` |
+| 11 | A5 | PF12 | INP6 | Connector; pin table: `adc1_inp6_pf12` |
+
+| | | Source |
+|---|---|---|
+| Kernel clock | HCLK (CCIPR5 ADCDACSEL 0), so no PLL starts and `TFW_CM_CPU_HZ` stays the core's: 64 MHz | `stm32h5xx_ll_rcc.h` `LL_RCC_ADCDAC_CLKSOURCE_HCLK` |
+| ADC clock | the kernel clock over 2 (CCR CKMODE 0, PRESC 1): 32 MHz. The ADC's highest clock is in DS14053, not read, so the slower of the dividers that need no PLL is taken | `stm32h5xx_ll_adc.h` `LL_ADC_CLOCK_ASYNC_DIV2` |
+| Sample time | 640.5 ADC clock cycles on every channel, the longest, so a high-impedance source settles: about 20 µs a sample | `stm32h5xx_ll_adc.h` `LL_ADC_SAMPLINGTIME_640CYCLES_5` |
+| Bring-up | out of deep power-down, regulator on and 20 µs waited, single-ended calibration, 4 ADC clock cycles, ADEN then ADRDY; 12 bits, right aligned, single conversion, an overrun overwrites. INP0's pin switch (OR OP0) is on | HAL: `HAL_ADC_Init`, `ADC_Enable`, `HAL_ADCEx_Calibration_Start`; `stm32h5xx_ll_adc.h` `LL_ADC_DELAY_INTERNAL_REGUL_STAB_US`, `LL_ADC_DELAY_CALIB_ENABLE_ADC_CYCLES`, `LL_ADC_EnableChannel0_GPIO` |
+| Poll bound | 10 ms on the calibration, ADRDY and EOC, past each; a miss is `TFW_ERR_TIMEOUT` | the calibration's length is RM0481's, not read, so the longer bound is taken |
+| Reference | VREF+ only (`TFW_ADC_REF_VCC`); VREFBUF is not wired on this port | |
+| Pin mode | the pins are analog only, but the GPIO commands reach them (they check the reserved and in-use flags, not `TFW_PIN_DIGITAL`). So every read first puts the channel's pin back to analog with no pull (MODER `0b11`, PUPDR `0b00`), and an output or pull-up set before it cannot drive or bias the input | `hal_adc.c`, tested by `test/unit/test_stm32h5_adc.c` |
+
+**Not run on the board.** The register model in `test/unit/test_stm32h5_adc.c`
+checks the order and the values written, not the converter. To confirm against
+RM0481 and DS14053, and on the board: the ADC's highest clock and so the
+divider; the calibration's length and the 10 ms bound; that 640.5 cycles is the
+sample time a header source needs; INP0's OP0 switch; and a known voltage on
+each of A0 to A5 reading as the expected count.
+
+## tfw-boot
+
+One tfw-boot row, `stm32h573i-dk:soft:soft:p256-soft:0:0` of `BOOT_SUPPORTED`
+in `mk/boot.mk`, which `make bootloader-check` builds, in the 32 KiB region at
+the base of flash. Its size, measured by `make bootloader-check` at 48d85486
+with arm-none-eabi-gcc 14.2.1:
+
+```
+tfw-boot stm32h573i-dk flash   8756 / 32768    ram  8516 / 262144 (soft tier, p256-soft)
+```
 
 ## Security facilities
 
@@ -106,6 +153,7 @@ erases a sector once and then programs it page by page.
 
 Nothing here has run on the board. The port's register values are ST's source
 code, not RM0481; the first bench slice reads RM0481 and DS14053 and checks
-the clock, the console, the watchdog and tfw-boot's flash writes on the board. The rest of the
+the clock, the console, the watchdog, the PWM, the ADC ("ADC", above) and
+tfw-boot's flash writes on the board. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not
 from the documents.

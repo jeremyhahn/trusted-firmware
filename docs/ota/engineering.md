@@ -147,34 +147,43 @@ depend on it, so it stays in boot on every row. Each check is a byte or
 32-bit compare and a branch. With LTO they are inlined into their callers, so
 the linked ELF has no symbol of their own.
 
-**How each number was got.** "rec." is a figure already recorded in the tree,
-with its source. "est." is an estimate from the source, about 20 AVR
-instructions for each call site's checks, rounded up to 100 B per call site;
-it was not measured. This lane has no AVR toolchain: `make
-bootloader-candidate` stops at `avr-gcc: command not found`. The command after
-the table gives every est. figure exactly on the CI image.
+**How each number was got.** "rec." is a figure recorded in the tree or
+measured, with its source. The field-check column is measured at `48d85486`
+with avr-gcc 14.2.0: the sum of the `avr-nm --size-sort -S` sizes of
+`tfw_boot_binding_permit` (30), `tfw_boot_rollback_permit` (32) and
+`tfw_boot_trailer_parse` (238; 242 on the soft row) from each row's
+`make bootloader-budget` build, the command after the table. That is 300 B per
+call site (304 on the soft row), times the number of call sites. It is an upper
+bound: `tfw_boot_trailer_parse` also holds the `image_len` bound, which stays
+in boot, and inlining removes the call overhead. The verify-only and headroom
+columns are the full-gate figure less that bound, so they are bounds too. The
+application column is still an estimate, "est.": `bootloader-budget` does not
+measure the application.
 
 | Row (`BOARD:TIER:MEASURE:SIG:OTA:STORE`) | Boot, full gate | Field checks in boot | Boot, verify only | Headroom vs BOOTSZ, verify only | Application: field checks at `OTA_ACTIVATE`, headroom vs `TFW_FLASH_BUDGET` | Gate |
 |---|---|---|---|---|---|---|
-| `atmega328p:atecc608a:atecc608a:atecc608a:0:0` | 3 746 / 4 096, rec. (`mk/boot.mk`, avr-gcc 14.2.0); `architecture.md` records 3 924 | ≤ 100, est., one call site | ≥ 3 646, est. | ≤ 450, est. | no OTA in boot, nothing to stage: n/a | full, fits |
-| `atmega32u4:atecc608a:atecc608a:atecc608a:0:0` | 3 816 / 4 096, rec. (`mk/boot.mk`) | ≤ 100, est. | ≥ 3 716, est. | ≤ 380, est. | n/a, as the 328P | full, fits |
-| `atmega2560:atecc608a:atecc608a:atecc608a:0:0` | 3 906 / 8 192, rec. (`mk/boot.mk`) | ≤ 100, est. | ≥ 3 806, est. | ≤ 4 386, est. | n/a | full, fits |
-| `atmega2560:atecc608a:atecc608a:atecc608a:1:0` | 7 954 / 8 192, rec. (`architecture.md`, lane-verify, with the confirm request) | ≤ 100, est. | ≥ 7 854, est. | ≤ 338, est. | ≤ 100, est.; app about 24 445 / 65 536 rec. (`architecture.md`) | full, fits |
-| `atmega2560:atecc608a:atecc608a:atecc608a:0:1` | 6 492 / 8 192, rec. (`architecture.md`, lane-verify) | ≤ 200, est., two call sites | ≥ 6 292, est. | ≤ 1 900, est. | ≤ 100, est.; app as above | full, fits |
-| `atmega2560:soft:soft:p256-soft:0:0` | 8 064 / 8 192, rec. (`mk/boot.mk`) | ≤ 100, est. | not built: the soft row keeps the full gate | 128 with the full gate, rec. | n/a | full, by ruling 121 |
-| `mps2-an505:soft:soft:p256-soft:0:0` | 32 KB region, not measured here | not measured | not built: soft row | not measured | n/a | full, by ruling 121 |
-| `atmega328p:atecc608a:atecc608a:atecc608a:0:1` (with the `PREV` restore, now dropped: the row links no restore, is not in `BOOT_SUPPORTED`, and measured 1498 bytes over without it) | 5 814 / 4 096: 1 718 over, rec. (`make bootloader-candidate` on the CI image, slice 6) | ≤ 200, est., two call sites | ≥ 5 614, est. | ≥ 1 518 over, est. | ≤ 100, est.; app about 19 267 with `ETH=1` and the stager, already over the 16 384 policy line, rec. (`architecture.md`) | does not fit either way |\n| `atmega32u4:atecc608a:atecc608a:atecc608a:0:1` (candidate) | 5 804 / 4 096: 1 708 over, rec. (as above) | ≤ 200, est. | ≥ 5 604, est. | ≥ 1 508 over, est. | ≤ 100, est.; app not measured (`ETH=1` builds with the W5100 `profile.mk` names; not measured), budget 14 336 | does not fit either way; not in `BOOT_SUPPORTED` |\n
+| `atmega328p:atecc608a:atecc608a:atecc608a:0:0` | 3 746 / 4 096, rec. (`mk/boot.mk`, avr-gcc 14.2.0); `architecture.md` records 3 924 | ≤ 300, rec. (`48d85486`, avr-gcc 14.2.0), one call site | ≥ 3 446 | ≤ 650 | no OTA in boot, nothing to stage: n/a | full, fits |
+| `atmega32u4:atecc608a:atecc608a:atecc608a:0:0` | 3 816 / 4 096, rec. (`mk/boot.mk`) | ≤ 300, rec. (`48d85486`, avr-gcc 14.2.0) | ≥ 3 516 | ≤ 580 | n/a, as the 328P | full, fits |
+| `atmega2560:atecc608a:atecc608a:atecc608a:0:0` | 3 906 / 8 192, rec. (`mk/boot.mk`) | ≤ 300, rec. (`48d85486`, avr-gcc 14.2.0) | ≥ 3 606 | ≤ 4 586 | n/a | full, fits |
+| `atmega2560:atecc608a:atecc608a:atecc608a:1:0` | 7 954 / 8 192, rec. (`architecture.md`, lane-verify, with the confirm request) | ≤ 300, rec. (`48d85486`, avr-gcc 14.2.0) | ≥ 7 654 | ≤ 538 | ≤ 100, est.; app about 24 445 / 65 536 rec. (`architecture.md`) | full, fits |
+| `atmega2560:atecc608a:atecc608a:atecc608a:0:1` | 6 492 / 8 192, rec. (`architecture.md`, lane-verify) | ≤ 600, rec. (`48d85486`, avr-gcc 14.2.0), two call sites | ≥ 5 892 | ≤ 2 300 | ≤ 100, est.; app as above | full, fits |
+| `atmega2560:soft:soft:p256-soft:0:0` | 8 064 / 8 192, rec. (`mk/boot.mk`) | ≤ 304, rec. (`48d85486`, avr-gcc 14.2.0) | not built: the soft row keeps the full gate | 128 with the full gate, rec. | n/a | full, by ruling 121 |
+| `mps2-an505:soft:soft:p256-soft:0:0` | 6 956 / 32 768, rec. (`make bootloader-check` at 48d85486, arm-none-eabi-gcc 14.2.1); ram 324 / 32 768 | not measured | not built: soft row | 25 812 with the full gate, rec. | n/a | full, by ruling 121 |
+| `atmega328p:atecc608a:atecc608a:atecc608a:0:1` (with the `PREV` restore, now dropped: the row links no restore, is not in `BOOT_SUPPORTED`, and measured 1498 bytes over without it) | 5 814 / 4 096: 1 718 over, rec. (`make bootloader-candidate` on the CI image, slice 6) | ≤ 600, rec. (`48d85486`, avr-gcc 14.2.0, the `-noprev` build), two call sites | ≥ 5 214 | ≥ 1 118 over | ≤ 100, est.; app about 19 267 with `ETH=1` and the stager, already over the 16 384 policy line, rec. (`architecture.md`) | does not fit either way |
+| `atmega32u4:atecc608a:atecc608a:atecc608a:0:1` (candidate) | 5 804 / 4 096: 1 708 over, rec. (as above) | ≤ 600, rec. (`48d85486`, avr-gcc 14.2.0), two call sites | ≥ 5 204 | ≥ 1 108 over | ≤ 100, est.; app not measured (`ETH=1` builds with the W5100 `profile.mk` names; not measured), budget 14 336 | does not fit either way; not in `BOOT_SUPPORTED` |
+
 **The result.** No row needs the split:
 
 - Every `BOOT_SUPPORTED` row already fits with the full gate.
 - The two rows that do not fit, the 328P and 32U4 store rows with the restore,
   are 1 718 and 1 708 bytes over (the 32U4's, 1 724 at `9a338a82`; the 328P's restore is dropped since, owner
   queue 176, option (a)), and the 328P store row without it measured 1498 bytes
-  over at `cb104cf4`. Moving the field checks out recovers about 200 bytes at
-  most, so both stay about 1 500 bytes over.
+  over at `cb104cf4`. Moving the field checks out recovers 600 bytes at
+  most, measured (two call sites of 300), so both stay more than 1 100 bytes
+  over, and the 328P store row without the restore about 900.
 
 So no row splits, and no code was written for the split. Ruling 121's split
-gives the 4 KB parts an order of magnitude less than they lack. Restoring from
+gives the 4 KB parts about a third of what they lack, at most. Restoring from
 `PREV` on those parts needs a different answer, and that is the owner's to give.
 
 A split would also leave boot unable to refuse a downgrade on its own. Without
@@ -193,7 +202,8 @@ avr-nm --size-sort -S build/<b>/boot/<t>-<m>-<g>-ota<o>-store<s>/measure/boot_bo
 `bootloader-budget` compiles `boot/boot_image.c` without LTO and with
 `-ffunction-sections`. `avr-nm` then prints `tfw_boot_binding_permit`,
 `tfw_boot_rollback_permit` and `tfw_boot_trailer_parse` at their own sizes,
-which bound the inlined cost from above. The full-gate column comes from
+which bound the inlined cost from above. The 328P store row builds into
+`ota0-store1-noprev`. The full-gate column comes from
 `make bootloader-check`, and for the two candidates from
 `make bootloader-candidate BOOT_CANDIDATE=<row>`. The application column can be
 measured only once checks exist at `OTA_ACTIVATE`: it is the difference in

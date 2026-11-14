@@ -13,8 +13,11 @@
  *   SCG0          the system clock generator: the main clock's source
  *   WWDT0         the windowed watchdog, clocked from the 1 MHz FRO
  *   LP_FLEXCOMM4  the host link, as LPUART4; interrupt 39
+ *   LP_FLEXCOMM2  the I2C master, as LPI2C2, polled
  *   GPIO0..4      the RGPIO banks
  *   PORT0..4      their pin controllers: the pin function and the input buffer
+ *   CTIMER0..4    the standard timers, PWM (hal_pwm.c, ctimer_pwm.c)
+ *   CTIMER2       the tone's timer (hal_tone.c)
  */
 #ifndef TFW_CM_MCXN94X_REGS_H
 #define TFW_CM_MCXN94X_REGS_H
@@ -54,6 +57,16 @@
 #define TFW_MCXN_CLOCK_CTRL_FRO1MHZ_CLK_ENA (1u << 6)
 
 #define TFW_MCXN_PORT_COUNT         5u
+
+/* The CTIMERs' clock select (FRO12M is 4, fsl_clock.h kFRO12M_to_CTIMERn),
+ * divider and function-clock enable, and their gates and resets: CTIMER0, 1,
+ * 2 at bits 26, 27, 22 of AHBCLKCTRL1 / PRESETCTRL1, CTIMER3 and 4 at bits 21
+ * and 22 of AHBCLKCTRL2 / PRESETCTRL2. */
+#define TFW_MCXN_CTIMERCLKSEL(n)    TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x26Cu + 4u * (n))
+#define TFW_MCXN_CTIMERCLKDIV(n)    TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x3D0u + 4u * (n))
+#define TFW_MCXN_CTIMERGLOBALSTARTEN TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0xE40u)
+#define TFW_MCXN_CTIMERCLKSEL_FRO12M 4u
+#define TFW_MCXN_CTIMER_COUNT       5u
 
 /* ---- SCG0 */
 #define TFW_MCXN_SCG_BASE           0x50044000u
@@ -115,6 +128,53 @@
 #define TFW_MCXN_LPUART_CTRL_TIE    (1u << 23)
 #define TFW_MCXN_FC_PSELID_UART     1u
 
+/* ---- LP_FLEXCOMM2 as LPI2C2, the I2C master (hal_bus.c). The unit's base is
+ * LP_FLEXCOMM2_BASE; its LPI2C registers sit at LPI2C2_BASE, 0x800 into the
+ * unit, and PSELID at the same 0xFF8 as every unit's. Offsets are the
+ * LPI2C_Type members' (MCXN947_cm33_core0.h); bits the LPI2C_*_MASK values. */
+#define TFW_MCXN_I2C_FC             2u
+#define TFW_MCXN_FC2_BASE           0x50094000u   /* LP_FLEXCOMM2_BASE */
+#define TFW_MCXN_I2C_BASE           0x50094800u   /* LPI2C2_BASE */
+#define TFW_MCXN_FC2_PSELID         TFW_CM_REG(TFW_MCXN_FC2_BASE + TFW_MCXN_FC_PSELID_OFF)
+#define TFW_MCXN_FC_PSELID_I2C      3u            /* PERSEL 0b011 */
+
+#define TFW_MCXN_LPI2C_MCR_OFF      0x010u
+#define TFW_MCXN_LPI2C_MSR_OFF      0x014u
+#define TFW_MCXN_LPI2C_MCFGR1_OFF   0x024u
+#define TFW_MCXN_LPI2C_MCFGR2_OFF   0x028u
+#define TFW_MCXN_LPI2C_MCCR0_OFF    0x048u
+#define TFW_MCXN_LPI2C_MFSR_OFF     0x05Cu
+#define TFW_MCXN_LPI2C_MTDR_OFF     0x060u
+#define TFW_MCXN_LPI2C_MRDR_OFF     0x070u
+
+#define TFW_MCXN_LPI2C_MCR_MEN      (1u << 0)
+#define TFW_MCXN_LPI2C_MCR_RST      (1u << 1)
+#define TFW_MCXN_LPI2C_MCR_RTF      (1u << 8)
+#define TFW_MCXN_LPI2C_MCR_RRF      (1u << 9)
+
+#define TFW_MCXN_LPI2C_MSR_TDF      (1u << 0)
+#define TFW_MCXN_LPI2C_MSR_RDF      (1u << 1)
+#define TFW_MCXN_LPI2C_MSR_EPF      (1u << 8)
+#define TFW_MCXN_LPI2C_MSR_SDF      (1u << 9)
+#define TFW_MCXN_LPI2C_MSR_NDF      (1u << 10)
+#define TFW_MCXN_LPI2C_MSR_ALF      (1u << 11)
+#define TFW_MCXN_LPI2C_MSR_FEF      (1u << 12)
+#define TFW_MCXN_LPI2C_MSR_PLTF     (1u << 13)
+#define TFW_MCXN_LPI2C_MSR_MBF      (1u << 24)
+#define TFW_MCXN_LPI2C_MSR_BBF      (1u << 25)
+
+/* MCFGR1's PRESCALE, MCFGR2's FILTSDA and MCCR0's four fields are
+ * lpi2c_timing.h's, which computes them without this header. */
+
+#define TFW_MCXN_LPI2C_MTDR_CMD_SHIFT       8u
+#define TFW_MCXN_LPI2C_CMD_TX               0u    /* transmit DATA */
+#define TFW_MCXN_LPI2C_CMD_RX               1u    /* receive DATA + 1 bytes */
+#define TFW_MCXN_LPI2C_CMD_STOP             2u
+#define TFW_MCXN_LPI2C_CMD_START            4u    /* (repeated) START, address */
+
+#define TFW_MCXN_LPI2C_MRDR_DATA_MASK       0xFFu
+#define TFW_MCXN_LPI2C_MRDR_RXEMPTY         (1u << 14)
+
 /* ---- GPIO0..4 (RGPIO) and PORT0..4. The banks are 0x2000 apart from
  * GPIO0, the pin controllers 0x1000 apart from PORT0. */
 #define TFW_MCXN_GPIO_BASE(n)       (0x50096000u + 0x2000u * (n))
@@ -129,6 +189,45 @@
 #define TFW_MCXN_PCR_PS             (1u << 0)    /* pull select: 1 = up */
 #define TFW_MCXN_PCR_PE             (1u << 1)    /* pull enable */
 #define TFW_MCXN_PCR_MUX_SHIFT      8u
+#define TFW_MCXN_PCR_ODE            (1u << 5)    /* open drain enable */
 #define TFW_MCXN_PCR_IBE            (1u << 12)   /* input buffer enable */
+
+/* ---- CTIMER0..4, 0x1000 apart from CTIMER0; the registers are ctimer_pwm.h's
+ * word offsets from the base. */
+#define TFW_MCXN_CTIMER_BASE(n)     (0x5000C000u + 0x1000u * (n))
+
+/* ---- CTIMER2, the tone (hal_tone.c): timer mode, match 1 resetting the
+ * counter and toggling its external output CT2_MAT1. CTIMER2_BASE; the
+ * registers are CTIMER_Type's, as offsets from the base so the host test can
+ * name them. SYSCON0's CTIMERCLKSEL[2], CTIMERCLKDIV[2] and
+ * CTIMERGLOBALSTARTEN, and the timer's gate and reset at bit 22 of
+ * AHBCLKCTRL1 / PRESETCTRL1 (SYSCON_AHBCLKCTRL1_TIMER2,
+ * SYSCON_PRESETCTRL1_TIMER2_RST). */
+#define TFW_MCXN_TONE_CT            2u
+#define TFW_MCXN_CT2_BASE           0x5000E000u
+#define TFW_MCXN_CT_TCR_OFF         0x04u
+#define TFW_MCXN_CT_PR_OFF          0x0Cu
+#define TFW_MCXN_CT_MCR_OFF         0x14u
+#define TFW_MCXN_CT_MR_OFF(n)       (0x18u + 4u * (n))
+#define TFW_MCXN_CT_EMR_OFF         0x3Cu
+#define TFW_MCXN_CT2_TCR            TFW_CM_REG(TFW_MCXN_CT2_BASE + TFW_MCXN_CT_TCR_OFF)
+#define TFW_MCXN_CT2_PR             TFW_CM_REG(TFW_MCXN_CT2_BASE + TFW_MCXN_CT_PR_OFF)
+#define TFW_MCXN_CT2_MCR            TFW_CM_REG(TFW_MCXN_CT2_BASE + TFW_MCXN_CT_MCR_OFF)
+#define TFW_MCXN_CT2_MR1            TFW_CM_REG(TFW_MCXN_CT2_BASE + TFW_MCXN_CT_MR_OFF(1u))
+#define TFW_MCXN_CT2_EMR            TFW_CM_REG(TFW_MCXN_CT2_BASE + TFW_MCXN_CT_EMR_OFF)
+
+#define TFW_MCXN_CT_TCR_CEN         (1u << 0)    /* counter enable */
+#define TFW_MCXN_CT_TCR_CRST        (1u << 1)    /* counter reset, held while set */
+#define TFW_MCXN_CT_MCR_MR1R        (1u << 4)    /* reset the counter on match 1 */
+#define TFW_MCXN_CT_EMR_EM1         (1u << 1)    /* match 1's output state */
+#define TFW_MCXN_CT_EMR_EMC1_SHIFT  6u
+#define TFW_MCXN_CT_EMR_EMC_TOGGLE  3u           /* 0b11 "Toggles" */
+
+#define TFW_MCXN_CT2CLKSEL          TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x26Cu + 4u * TFW_MCXN_TONE_CT)
+#define TFW_MCXN_CT2CLKDIV          TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x3D0u + 4u * TFW_MCXN_TONE_CT)
+#define TFW_MCXN_CTGLOBALSTARTEN    TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0xE40u)
+#define TFW_MCXN_CTCLKSEL_FRO12M    4u           /* 0b0100 "FRO 12MHz clock" */
+#define TFW_MCXN_CTRL1_TIMER2       (1u << 22)
+#define TFW_MCXN_CTGLOBAL_CT2       (1u << 2)    /* CTIMER2_CLK_EN */
 
 #endif /* TFW_CM_MCXN94X_REGS_H */

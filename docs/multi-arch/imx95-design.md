@@ -132,15 +132,17 @@ has gained since (`tfw_hal_flash_read`, the watchdog).
 | `tfw_hal_delay_us` | core | busy-poll of SysTick `VAL`, for bus bit-banging only | ref ADR d4 |
 | `tfw_hal_uart_init`, `_rx`, `_tx_try`, `_tx_idle` | SoC | the LPUART the System Manager gives the M7; on the board, one of the four CH9114F channels on J22, whose core mapping is not fixed | UM12527 §2.19; question 13 |
 | `tfw_hal_gpio_mode`, `_write`, `_read` | SoC | RGPIO; pin mux from the System Manager | ref ADR d4 |
-| `tfw_hal_adc_init`, `_set_ref`, `_read` | — | not linked in the first slices | — |
-| `tfw_hal_pwm_write`, `_stop`; `tfw_hal_tone_start`, `_stop` | — | not linked in the first slices (TPM later) | IMX95CEC Figure 3 |
+| `tfw_hal_adc_init`, `_set_ref`, `_read` | SoC | the 12-bit SAR ADC (`sar_adc.h`), polled, in the `soft:ADC=1` row only: calibrated once at init, one-shot normal conversion per read, reference VCC only; base `TFW_IMX95_ADC_BASE` zero (unsupported) until a pinned source gives it. Built and host-tested on a register model, not run | Linux `imx93_adc.c`; questions 13 and 17 |
+| `tfw_hal_pwm_write`, `_stop` | SoC | a TPM channel, edge-aligned (`hal_pwm.c`, `tpm.h`); `soft:PWM=1` row only; built and host-tested on a register model, not run; base zero until question 17 (section 9.5) | Linux v6.12 `pwm-imx-tpm.c`, `imx95.dtsi`; question 17 |
+| `tfw_hal_tone_start`, `_stop` | `hal_tone.c`, `gpt.h` | built (soft:TONE=1 row), host-tested, not run: GPT output compare 1 in restart mode, its interrupt toggling the pin through `tfw_hal_gpio_write`; base zero (unsupported), 24 MHz clock and vector `tfw_cm_irq0` TO CONFIRM, question 17 | Linux `drivers/clocksource/timer-imx-gpt.c` |
 | `tfw_hal_pulse_in`, `tfw_hal_pulse_capture` | — | not linked | — |
 | `tfw_hal_eeprom_read`, `_write` | — | not linked; `TFW_EEPROM_SIZE 0` | ref ADR d4 |
 | `tfw_hal_nvm_read` | SoC | the platform block; where it lives is open | ref ADR Q4; question 6 |
 | `tfw_hal_flash_read` | SoC | a copy from the running image in TCM (the trailer and SUIT reader read the image through it) | section 2.3 |
 | `tfw_hal_handoff_block` | — | not linked: no tfw-boot, so no handoff | ref ADR d4 |
-| `tfw_hal_i2c_init`, `_xfer`; `tfw_hal_spi_init`, `_xfer` | — | not linked in the first slices (LPI2C, LPSPI later) | ref ADR d4 |
-| `tfw_hal_ow_reset`, `_write`, `_read` | — | not linked | — |
+| `tfw_hal_i2c_init`, `_xfer` | SoC | one LPI2C instance as a polled master (`hal_bus.c`, registers in `lpi2c.h`), built only with `I2C=1` (`profile.mk`, the `soft:I2C=1` row); tested on the host against a register model (section 9.5); while `TFW_IMX95_LPI2C_BASE` is zero every call answers `TFW_ERR_UNSUPPORTED` and touches no register; not yet run on a board | ref ADR d4; questions 13, 17 |
+| `tfw_hal_spi_init`, `_xfer` | SoC | not on this board: `TFW_ERR_UNSUPPORTED` (LPSPI later) | ref ADR d4 |
+| `tfw_hal_ow_reset`, `_write`, `_read` | SoC | not on this board: `TFW_ERR_UNSUPPORTED` | — |
 | `tfw_hal_free_ram` | core | the stack pointer less the end of `.bss` | ref ADR d4 |
 | `tfw_hal_watchdog_arm`, `_pet` | SoC | a watchdog the System Manager assigns the M7 | IMX95CEC Figure 3; question 17 |
 
@@ -467,6 +469,31 @@ the file that states it.
 
 Matched: none. Corrected: none. Unverifiable: all five.
 
+#### 9.4.1 The board read, 2026-11-14
+
+A read-only pass on a bench FRDM-IMX95-PRO running NXP's stock image
+([the bench record](../development/bench/frdm-imx95.md)): Linux's live device
+tree and `/proc/iomem` (the A55's view of the address map), the System
+Manager's monitor and U-Boot's `ele_info`. It shows where a block sits in the
+SoC's map, not which blocks the System Manager gives the M7.
+
+| Fact | Board read | Result |
+|---|---|---|
+| LPUART3 at `0x42570000` | `serial@42570000` in the device tree, GIC SPI 64 | base confirmed; the M7's NVIC line 64 TO CONFIRM |
+| WDOG5 at `0x424B0000` | no node there (the only watchdog node is `0x42490000`) | TO CONFIRM |
+| GPIO1 to GPIO5 | `gpio@47400000` (disabled for Linux), `gpio@43810000`, `gpio@43820000`, `gpio@43840000`, `gpio@43850000` | bases confirmed |
+| The six TPM bases (`tpm.h`) | `pwm@44310000`, `44320000`, `424e0000`, `424f0000`, `42500000`, `42510000` | bases confirmed |
+| SAR ADC | `adc@44530000`, `nxp,imx93-adc`, owned by Linux in the stock image | base seen; the M7's instance stays open |
+| The M7 | `imx95-cm7`: SCMI CPU id 1 (`m7p`), logical machine 1; RPMsg on the MU at `0x42430000`; vrings from `0x88000000`, resource table at `0x88220000` | recorded; the M7's own MU bases (SCMI, ELE) are not in the A55's tree and stay zero |
+| The clocks, the ITCM alias, the pins' pads | not visible from Linux | TO CONFIRM |
+| ELE lifecycle | `0x0010`, OEM Open; OEM and PQC SRK hashes zero; ELE firmware 2.0.6 | recorded |
+
+SCMI to the System Manager, as the SM reports it to Linux: SCMI v2.1 over
+the mailbox transport, vendor `NXP:IMX`, firmware 0x380, messages up to
+104 bytes; NXP protocols 0x80 LMM 1.1 (3 logical machines), 0x81 BBM 1.0,
+0x82 CPU 1.0, 0x84 MISC 1.1; SM build 896. This is the A55's channel; the
+M7's channel to the SM is the next board step.
+
 ### 9.5 What the board does not do yet
 
 `firmware-matrix` builds it, but nothing runs it, because QEMU has no i.MX 95.
@@ -474,6 +501,68 @@ Its UART, pins and watchdog run on the host against a register model
 (`test/model/imx95_model.c`, through `test/unit/test_imx95_hal.c`): the model
 pins the register layouts soc_regs.h states, so it proves the code agrees with
 them, not that they are the silicon's (section 9.4).
+Its SAR ADC, in the `soft:ADC=1` row, runs the same way against the register
+model in `test/unit/test_imx95_adc.c`; its register layout is NXP's i.MX 95
+device header `PERI_ADC.h`, cross-checked against Linux
+`drivers/iio/adc/imx93_adc.c` at v6.12, both pinned in
+[`../reference/README.md`](../reference/README.md) (IMX95RM is not held, so the
+header is the authority). The base is zero (unsupported) until a pinned source
+gives the M7's instance, so the firmware's analog read answers unsupported on
+the board.
+
+I2C is optional: `I2C=1` (`profile.mk`, built by the `soft:I2C=1` row) links
+the LPI2C master in `src/hal/cortex-m/imx95/hal_bus.c`. It is built and
+host-tested, never run on a board.
+
+- `test/unit/test_imx95_lpi2c.c` drives it against a register model of one
+  LPI2C instance: the command and receive FIFOs and the NDF, ALF, FEF, SDF
+  and EPF flags. The model's offsets and bits are written out from Linux's
+  `i2c-imx-lpi2c.c`, TO CONFIRM against IMX95RM.
+- The cases: writes, reads and a write then read on a repeated START; an
+  address NACK and a data NACK, early, on the last byte and seen only with
+  the STOP (`TFW_ERR_NACK`); lost arbitration on a data byte and at the STOP
+  (`TFW_ERR_BUSY`, no STOP of ours queued after ALF); a bus that never moves
+  (`TFW_ERR_TIMEOUT`); and the clock divisor at 24 and 16 MHz.
+- The instance is open (questions 13 and 17), so `TFW_IMX95_LPI2C_BASE` is
+  zero in `board_profile.h`. At that base `tfw_hal_i2c_init` and
+  `tfw_hal_i2c_xfer` answer `TFW_ERR_UNSUPPORTED` and touch no register; the
+  test checks that refusal.
+
+PWM (#22) is built and host-tested, not run: `src/hal/cortex-m/imx95/hal_pwm.c`
+drives edge-aligned PWM at 1 kHz on a TPM channel (`tpm.h`: the layout from
+Linux v6.12 `drivers/pwm/pwm-imx-tpm.c`, the six instances' bases from Linux
+v6.12 `imx95.dtsi`, `docs/reference/`), polled, with no pin mux and no clock
+set (the System Manager's). Only the `soft:PWM=1` row builds it, with
+GPIO2_IO02 and GPIO2_IO03 (PROVISIONAL) on channels 0 and 1: pins 2 and 3, or
+4 and 5 in the `soft:ADC=1` row, after the ADC inputs' pins 2 and 3. Its tests
+(`test/unit/test_imx95_tpm.c`) run against a TPM model of the test file's
+own. Which TPM is the M7's is question 17, so `TFW_IMX95_TPM_BASE` is zero and
+every PWM call answers `TFW_ERR_UNSUPPORTED`, touching no register; the TPM's
+24 MHz root (`TFW_IMX95_TPM_CLK_HZ`), the pins' pads on UM12527's expansion
+header and the TPM's STATUS and CONF offsets are TO CONFIRM. Even with the TPM
+known, PWM stays unsupported until a stopped channel can hand its pad back to
+RGPIO: `src/caps/pwm.c`'s duty 0 promises that a later `DIGITAL_WRITE` drives
+the pin, and the pad's mux is the System Manager's, which the M7 cannot yet
+ask (SCMI pin control is not built). Until then `TFW_IMX95_PWM_PAD_HANDOFF` is
+0, no pin offers a channel and `hal_pwm.c` refuses every call;
+`test_imx95_tpm_base` checks that `PWM_WRITE(128)`, `PWM_WRITE(0)` then
+`DIGITAL_WRITE` leave the pad on RGPIO at a stand-in TPM base.
+
+Tone (#22) is built and host-tested, not run: `src/hal/cortex-m/imx95/hal_tone.c`
+runs a GPT's output compare 1 in restart mode, and its interrupt toggles the
+tone pin, GPIO2_IO01 (pin 1), through `tfw_hal_gpio_write`. One tone at a time;
+a new start retunes, restarting the counter from zero (`ENMOD` set before
+`EN`), so the new compare is not missed when the old count is past it; zero
+hertz or a stop drives the pin low. Only the
+`soft:TONE=1` row builds it. The register layout (`gpt.h`) is Linux's
+`drivers/clocksource/timer-imx-gpt.c`, TO CONFIRM against IMX95RM. Which GPT
+is the M7's, its 24 MHz clock and its interrupt (`tfw_cm_irq0`) are question
+17, so `TFW_IMX95_GPT_BASE` is zero and every tone call answers
+`TFW_ERR_UNSUPPORTED`. `test/unit/test_imx95_gpt.c` runs twice:
+`test_imx95_gpt` at a stand-in base, against the register model for the pin
+and NVIC and an array of its own for the GPT; `test_imx95_gpt_nobase` at the
+board's zero base, where no register may be touched.
+
 It has no tfw-boot row and no EdgeLock enclave tier yet. It has the enclave's
 message layer and one command (section 9.7), and no key store, session or
 attestation over it.
@@ -978,6 +1067,7 @@ links it in CI on Arm's toolchain; nothing runs on the board yet.
 | The TCM map at the M7's addresses, the 512-byte vector alignment | built | `mk/arch/cortex-m/imx95.ld`, `boards/frdm-imx95-m7/profile.mk` | `firmware-matrix` (CI); `imx95.ld`'s asserts |
 | The LPUART divisor search and the RGPIO bank table | done | `src/hal/cortex-m/imx95/soc_calc.c` | `test/unit/test_imx95_soc_calc.c` |
 | LPUART3, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
+| Pulse timing, PULSE_IN and PULSE_CAPTURE | built, not yet run on the board | `src/hal/cortex-m/hal_pulse.c`, the one Cortex-M pulse timer, on `TFW_FEATURE_PULSE 1` in `boards/frdm-imx95-m7/board_profile.h`: the pin's level as `tfw_hal_gpio_read` reads it (RGPIO PDIR), the time on SysTick at the processor clock, 800 MHz. SysTick reloads every 1 ms (`TFW_CM_TICK_RELOAD`; the 24-bit counter alone would wrap every 21 ms), and `hal_pulse.c` counts across the reloads | `test/unit/test_cm_pulse.c` (the timer on its model, `test/model/cortex-m/cm_pulse_model.h`) |
 | The remoteproc resource table | met | `src/hal/cortex-m/imx95/rsc_table.c`, `mk/arch/cortex-m/image.ld` | `test/unit/test_imx95_rsc_table.c`; as Linux's loader parses it: `test_linux_takes_the_images_table`, `test_the_parser_reads_a_carveout_and_a_vdev`, the mutation `test_a_corrupted_field_is_refused` |
 | The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has no `imx95/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |
 | The board in the board sweeps: its part, its registry row, its Go name | done | `scripts/board-check.py` (`mimx9596-m7`), `../boards/board-id-registry.md`, `sdk/go/boardid.go` | `scripts/test_board_check.py`, `sdk/go/boardid_test.go`, `make board-sweep` |

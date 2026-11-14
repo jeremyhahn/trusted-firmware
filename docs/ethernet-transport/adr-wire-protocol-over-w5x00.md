@@ -198,9 +198,9 @@ The Ethernet link accepts exactly these commands:
   in our code; neither the W5100 nor the W5500 has DHCP in silicon. The bench
   network gets a DHCP server when the boot node starts serving it, and only then
   is there anything for a client to talk to.
-  - **Flash cost:** about 3 KB. That is an estimate from the size of the
-    Arduino Ethernet library's DHCP client, not a measurement of a client in
-    this tree.
+  - **Flash cost:** about 3 KB was the estimate, from the size of the Arduino
+    Ethernet library's DHCP client. Measured on the Mega on main 48d85486, the
+    client in this tree costs 4030 bytes of flash and 44 of RAM (below).
   - **RAM cost:** a second socket's state and a lease deadline, about 20 bytes.
     The 548-byte message streams through the controller's socket buffer.
   - **Fit:** on the Mega it fits, with about 45 KB of flash free in the Ethernet
@@ -276,8 +276,13 @@ The Ethernet link accepts exactly these commands:
       renew at the RFC's default times instead.
     - Not here: DHCPRELEASE, and option overload, whose messages are
       discarded.
-    - Its flash and RAM on the Mega are not measured yet: the 3 KB above stays
-      an estimate until `make firmware` runs with `DHCP=1`.
+    - Its flash and RAM on the Mega are measured: on main 48d85486, avr-gcc
+      14.2.0, `make firmware BOARD=atmega2560 ETH=1 DHCP=1` size-checks at
+      41322 of 65536 bytes of flash and 1520 of 2048 of RAM, and the same
+      build without `DHCP=1` at 37292 and 1476. The DHCP client costs 4030
+      bytes of flash and 44 of RAM, the same on the `CRYPTO=atecc608a`
+      image (32832 and 1254 against 28802 and 1210). See
+      [the engineering page](engineering.md#flash-and-ram).
 
 ### 4. Drivers
 
@@ -406,10 +411,12 @@ board's `TFW_FLASH_BUDGET`:
 | ATmega2560, serial only | 18 356 / 65 536 | 47 180 | 989 |
 | ATmega2560, `ETH=1` (W5100) | 20 328 / 65 536 | 45 208 | 1 009 |
 
-The W5500 images are 44 bytes larger; every row is in
+The W5500 images are 44 bytes larger. These are the figures the decision was
+taken on. Re-measured on main 48d85486, the 328P's element-tier Ethernet image
+is 21 612 / 16 384 bytes of flash and 1 121 / 1 024 of RAM; every row is in
 [engineering.md](engineering.md#flash-and-ram). The Mega fits. **The 328P's
-element-tier Ethernet image is 1 652 bytes over its budget and does not build.**
-Its RAM fits. The options for the owner are:
+element-tier Ethernet image is 5 228 bytes over its flash budget and 97 over
+its RAM budget, and does not build.** The options for the owner are:
 
 - **(a) Raise the 328P's flash budget.** `TFW_FLASH_BUDGET` is 16 384, half the
   part, a policy gate and not a physical limit: the application region is

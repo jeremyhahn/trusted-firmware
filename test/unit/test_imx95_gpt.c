@@ -159,12 +159,14 @@ void test_tone_bad_pin_is_refused(void)
 
 /* test_imx95_gpt_nobase: the board's base, zero until question 17 is answered.
  * Every call answers TFW_ERR_UNSUPPORTED and touches no register: no GPT
- * word, no pin direction, no NVIC enable. */
+ * word, no pin direction, no NVIC enable. A stray compare interrupt does not
+ * acknowledge the GPT's status register at the zero base either. */
 void test_tone_without_a_base_is_unsupported(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_tone_start(&pin, 440u));
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_tone_start(&pin, 0u));
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_tone_stop());
+    tfw_cm_irq0();
     for (unsigned i = 0u; i < sizeof gpt / sizeof gpt[0]; i++) {
         TEST_ASSERT_EQUAL_HEX32(0u, gpt[i]);
     }

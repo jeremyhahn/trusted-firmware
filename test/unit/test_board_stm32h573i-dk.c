@@ -11,7 +11,7 @@
  * stm32h573iikxq-pinctrl.dtsi): A0 PB0 INP9, A1 PA4 INP18, A2 PA0 INP0,
  * A3 PA5 INP19, A4 PA6 INP3, A5 PF12 INP6. Pin 12 is D3 (PB5), the tone's
  * TIM3_CH2. Port 0 is GPIOF (bank 5), 1 GPIOI (8), 2 GPIOH (7), 3 GPIOA (0),
- * 4 GPIOB (1).
+ * 4 GPIOB (1). No pin offers a compare unit.
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */

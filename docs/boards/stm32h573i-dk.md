@@ -22,7 +22,8 @@ read at one commit each:
 |---|---|---|
 | CMSIS header | `STMicroelectronics/cmsis-device-h5` @ `884b8dc78e41cbfca008363342b17f4a9e8641f7` | `Include/stm32h573xx.h`, `Source/Templates/system_stm32h5xx.c` |
 | BSP | `STMicroelectronics/stm32h573i-discovery-bsp` @ `92b219d6a315c0974c5583094671c048c5dd41ec` | `stm32h573i_discovery.h`, `stm32h573i_discovery.c` |
-| HAL | `STMicroelectronics/stm32h5xx-hal-driver` @ `16fea2d290119d6349b8f9a3b8538781ba1e1bdc` | `Src/stm32h5xx_hal_rcc.c`, `Src/stm32h5xx_ll_utils.c`, `Inc/stm32h5xx_hal_flash.h`, `Inc/stm32h5xx_hal_conf_template.h`; the ADC's `Src/stm32h5xx_hal_adc.c`, `Src/stm32h5xx_hal_adc_ex.c`, `Inc/stm32h5xx_ll_adc.h`, `Inc/stm32h5xx_ll_rcc.h` |
+| HAL | `STMicroelectronics/stm32h5xx-hal-driver` @ `16fea2d290119d6349b8f9a3b8538781ba1e1bdc` | `Src/stm32h5xx_hal_rcc.c`, `Src/stm32h5xx_ll_utils.c`, `Inc/stm32h5xx_hal_flash.h`, `Inc/stm32h5xx_hal_conf_template.h`, `Inc/stm32h5xx_ll_tim.h`, `Inc/stm32h5xx_hal_gpio_ex.h`; the ADC's `Src/stm32h5xx_hal_adc.c`, `Src/stm32h5xx_hal_adc_ex.c`, `Inc/stm32h5xx_ll_adc.h`, `Inc/stm32h5xx_ll_rcc.h` |
+| Pin data | `STMicroelectronics/STM32_open_pin_data` @ `7d1f1514ed5583ec5007ad91236b4e1d377295b1` | `boards/H77_Discovery_STM32H573I-DK_STM32H573IIK3Q_Board_AllConfig.ioc` (the kit's pin labels), `mcu/IP/GPIO-STM32H56x_gpio_v1_0_Modes.xml` (each pin's alternate functions) |
 | Connector | `zephyrproject-rtos/zephyr` @ `270ee49bd8fe412446d862a56aae16a0e245104d` | `boards/st/stm32h573i_dk/arduino_r3_connector.dtsi` |
 | Pin table | `zephyrproject-rtos/hal_stm32` @ `9dd7ccaefb5df6bf750d4d52cfd4b88eed2d0923` | `dts/st/h5/stm32h573iikxq-pinctrl.dtsi` |
 
@@ -64,7 +65,7 @@ What `boards/stm32h573i-dk/` and `src/hal/cortex-m/stm32h5/` set, and why.
 | EEPROM | **host-tested, not yet run on the board**: `TFW_EEPROM_SIZE` 0x2140. Addresses 0x000 to 0x13F are tfw-boot's span, read from the platform block; a write there is `TFW_ERR_RANGE` except the OTA confirm request, which keeps the generic Cortex-M store into the platform block's RAM alias, unchanged by this row, so a confirm does not yet reach flash. Addresses 0x140 to 0x213F are the user sector, the 8 KiB at `0x080FC000` (bank 1, sector 126, just below the platform block), written through tfw-boot's flash driver above. Power loss: a write that must change a programmed quad-word rewrites the whole sector, so a reset between its erase and the last restored quad-word loses every value in the user sector, not only the one written; a rewrite that does not read back whole is `TFW_ERR_INTERNAL` | `boards/stm32h573i-dk/board_profile.h` (`TFW_CM_USER_EE_BASE`, `TFW_CM_USER_EE_SIZE`); `src/hal/cortex-m/stm32h5/hal_eeprom.c`, host-tested by `test/unit/test_stm32h5_eeprom.c` |
 | PWM | **built, not yet run on the board**: TIM5, a general-purpose timer nothing else in the port drives, on the Arduino header's D6 (PH10, TIM5_CH1) and D5 (PH11, TIM5_CH2), alternate function 2. Eight-bit duty at about 1 kHz, as the AVR and the ESP32 give: ARR 254, PSC 250 from 64 MHz (999.9 Hz), PWM mode 1 with preload, so duty 0 is never high and 255 always is. The timer is set up on the first write, not at boot; a channel's pin goes to the timer on that channel's first write, and stop disables the channel and drives the pin low as an output. TIM5's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM5_BASE_NS`, `TIM_TypeDef`, `TIM_CR1_*`, `TIM_EGR_UG`, `TIM_CCMR1_OC1M*`/`OC1PE`/`OC2M`/`OC2PE`, `TIM_CCER_CC1E`/`CC2E`, `RCC_APB1LENR_TIM5EN`; HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_PWM1`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM5`); the pins: ST's board configuration for the kit (STM32_open_pin_data, `PH10 ARD_D6 S_TIM5_CH1`, `PH11 ARD_D5 S_TIM5_CH2`). The timer clock equal to PCLK1 at prescaler 1 is **not confirmed** against RM0481. `src/hal/cortex-m/stm32h5/hal_pwm.c`, `h5_calc.h`, host-tested by `test/unit/test_stm32h5_pwm.c` |
 | Pulse | **built, not yet run on the board**: `PULSE_IN` and `PULSE_CAPTURE` on any pin of the board's table, its level read from the port's input data register (IDR) as `tfw_hal_gpio_read` reads it, whatever the pin's mode; the time counted on SysTick, which counts the processor clock, 64 MHz, so 64 cycles to the microsecond. Polling, as the AVR's and the ESP32's are: an interrupt between two polls lengthens the interval it falls in | `src/hal/cortex-m/hal_pulse.c`, `src/hal/cortex-m/cm_cycles.h`, `src/hal/cortex-m/hal_tick.c` (SysTick's CLKSOURCE, the processor clock), `src/hal/cortex-m/stm32h5/hal_gpio.c`; host-tested by `test/unit/test_cm_pulse.c` |
-| Tone | **host-tested, not yet run on the board**: TIM3 channel 2 in output-compare toggle mode on the Arduino header's D3 (PB5, alternate function 2), pin 12 of the board's table (`TFW_TONE_PIN`). The timer flips the pin at each match, so a period is two matches; one tone at a time, a second start retargets and stop holds the pin low | `boards/stm32h573i-dk/board_profile.h` (`TFW_TONE_PIN`); `src/hal/cortex-m/stm32h5/hal_tone.c`, `h5_calc.h` (`tfw_h5_tone_psc_arr`), host-tested by `test/unit/test_stm32h5_tone.c` |
+| Tone | **built and host-tested, not yet run on the board**: TIM3 channel 2 in output-compare toggle mode on the Arduino header's D3 (PB5, TIM3_CH2), alternate function 2. TIM3 is a 16-bit general-purpose timer nothing else in the port drives. The pin flips at each match, so a period is two matches; the prescaler and reload come from `tfw_h5_tone_psc_arr` (`h5_calc.h`). One tone at a time: a second start halts the counter (CEN clear), writes PSC, ARR and CCR2, reloads with UG and runs it again, so a counter past a shorter reload never wraps; stop forces the output inactive (low) and halts the counter. Pin 12 of the board's table, after A0 to A5, `TFW_TONE_PIN`. TIM3's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM3_BASE_NS` (APB1 + `0x0400`), `TIM_TypeDef`, `TIM_CR1_CEN`, `TIM_EGR_UG`, `TIM_CCMR1_OC2M`, `TIM_CCER_CC2E`, `RCC_APB1LENR_TIM3EN` (bit 1); HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_TOGGLE`, `LL_TIM_OCMODE_FORCED_INACTIVE`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM3`, 2); the pin: Pin data, the kit's board file (`PB5.GPIO_Label=ARD_D3`, `PB5.Signal=S_TIM3_CH2`) and the GPIO modes file (PB5 `TIM3_CH2` as `GPIO_AF2_TIM3`). `src/hal/cortex-m/stm32h5/hal_tone.c`, `soc_regs.h`, host-tested by `test/unit/test_stm32h5_tone.c` |
 | Instruction cache | ICACHE is off at reset and tfw-boot does not enable it, so a flash write leaves nothing stale to invalidate | ICACHE off at reset is **not confirmed** against RM0481 |
 
 ## ADC
@@ -156,7 +157,22 @@ erases a sector once and then programs it page by page.
 
 Nothing here has run on the board. The port's register values are ST's source
 code, not RM0481; the first bench slice reads RM0481 and DS14053 and checks
-the clock, the console, the watchdog, the PWM, the ADC ("ADC", above), the
-pulse timing and tfw-boot's flash writes on the board. The rest of the
+the clock, the console, the watchdog, the PWM, the tone, the ADC ("ADC", above),
+the pulse timing and tfw-boot's flash writes on the board. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not
 from the documents.
+
+The tone is built and host-tested against a register model, not run on the
+board. Its pin, timer, offsets and modes are read from the pinned sources
+above; these are not settled by them and wait for RM0481 or the bench:
+
+- TIM3's kernel clock equal to PCLK1 with the APB1 prescaler at 1, so that it
+  counts at 64 MHz; the pitch is off by that factor if not.
+- That UG with CEN clear loads PSC and ARR and zeroes CNT without a stray
+  toggle of the output, and that the first toggle after a retarget comes one
+  full half-period later.
+- That forcing OC2M to inactive drives PB5 low at once while CC2E stays set.
+- That PB5 reaches the Arduino header's D3 with no solder bridge or jumper
+  to set: the board file names the label, not the kit's wiring; UM3143's
+  solder-bridge table has not been read.
+- The pitch on the pin, measured with a scope or counter: not done.

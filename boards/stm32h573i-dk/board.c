@@ -9,7 +9,7 @@
 /* Five ports, each the SoC's index of a GPIO bank, 0 for GPIOA
  * (src/hal/cortex-m/stm32h5/hal_gpio.c): the two banks the LEDs are on,
  * GPIOH, the Arduino header's D5 and D6, then the Arduino analog pins' other
- * two. */
+ * two, GPIOB also the Arduino header's D3. */
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 5u },   /* 0  GPIOF */
     { 8u },   /* 1  GPIOI */

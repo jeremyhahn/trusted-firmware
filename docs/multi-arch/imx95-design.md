@@ -469,6 +469,31 @@ the file that states it.
 
 Matched: none. Corrected: none. Unverifiable: all five.
 
+#### 9.4.1 The board read, 2026-11-14
+
+A read-only pass on a bench FRDM-IMX95-PRO running NXP's stock image
+([the bench record](../development/bench/frdm-imx95.md)): Linux's live device
+tree and `/proc/iomem` (the A55's view of the address map), the System
+Manager's monitor and U-Boot's `ele_info`. It shows where a block sits in the
+SoC's map, not which blocks the System Manager gives the M7.
+
+| Fact | Board read | Result |
+|---|---|---|
+| LPUART3 at `0x42570000` | `serial@42570000` in the device tree, GIC SPI 64 | base confirmed; the M7's NVIC line 64 TO CONFIRM |
+| WDOG5 at `0x424B0000` | no node there (the only watchdog node is `0x42490000`) | TO CONFIRM |
+| GPIO1 to GPIO5 | `gpio@47400000` (disabled for Linux), `gpio@43810000`, `gpio@43820000`, `gpio@43840000`, `gpio@43850000` | bases confirmed |
+| The six TPM bases (`tpm.h`) | `pwm@44310000`, `44320000`, `424e0000`, `424f0000`, `42500000`, `42510000` | bases confirmed |
+| SAR ADC | `adc@44530000`, `nxp,imx93-adc`, owned by Linux in the stock image | base seen; the M7's instance stays open |
+| The M7 | `imx95-cm7`: SCMI CPU id 1 (`m7p`), logical machine 1; RPMsg on the MU at `0x42430000`; vrings from `0x88000000`, resource table at `0x88220000` | recorded; the M7's own MU bases (SCMI, ELE) are not in the A55's tree and stay zero |
+| The clocks, the ITCM alias, the pins' pads | not visible from Linux | TO CONFIRM |
+| ELE lifecycle | `0x0010`, OEM Open; OEM and PQC SRK hashes zero; ELE firmware 2.0.6 | recorded |
+
+SCMI to the System Manager, as the SM reports it to Linux: SCMI v2.1 over
+the mailbox transport, vendor `NXP:IMX`, firmware 0x380, messages up to
+104 bytes; NXP protocols 0x80 LMM 1.1 (3 logical machines), 0x81 BBM 1.0,
+0x82 CPU 1.0, 0x84 MISC 1.1; SM build 896. This is the A55's channel; the
+M7's channel to the SM is the next board step.
+
 ### 9.5 What the board does not do yet
 
 `firmware-matrix` builds it, but nothing runs it, because QEMU has no i.MX 95.

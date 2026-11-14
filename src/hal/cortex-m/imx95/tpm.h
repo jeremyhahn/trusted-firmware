@@ -23,7 +23,9 @@
 #include "tfw/hal.h"
 
 /* Instance bases [DTSI]: tpm1 and tpm2 in the low-power (AON) domain, tpm3
- * to tpm6 in the wakeup domain. Not used by the HAL. */
+ * to tpm6 in the wakeup domain. Not used by the HAL. Confirmed on the board
+ * (2026-11-14, the stock image's live device tree, A55 view): pwm@ nodes at
+ * all six bases, docs/development/bench/frdm-imx95.md. */
 #define TFW_IMX95_TPM1_BASE 0x44310000u
 #define TFW_IMX95_TPM2_BASE 0x44320000u
 #define TFW_IMX95_TPM3_BASE 0x424E0000u

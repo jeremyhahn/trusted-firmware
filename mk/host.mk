@@ -598,6 +598,7 @@ $(HOST_DIR)/test_mps2_onewire: test/unit/test_mps2_onewire.c src/hal/cortex-m/mp
 # ahead of src/hal/cortex-m/ gives the cm_regs.h that sends TFW_CM_REG there;
 # mps2-an505's profile gives the block's base.
 $(HOST_DIR)/test_mps2_gpio_line: test/unit/test_mps2_gpio_line.c src/hal/cortex-m/mps2/hal_gpio.c \
+                                 test/model/cortex-m/mps2_gpio_line_model.c \
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -Itest/model/cortex-m -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m \
 	   -Iboards/mps2-an505 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \

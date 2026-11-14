@@ -74,7 +74,8 @@ static void settle(void)
     }
 }
 
-volatile uint32_t *tfw_cm_model_reg(uintptr_t addr)
+/* TFW_CM_REG's target, through test/model/cortex-m/mps2_gpio_line_model.c. */
+volatile uint32_t *mps2_gpio_line_model_reg(uintptr_t addr)
 {
     settle();
     switch (addr) {

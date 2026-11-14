@@ -236,3 +236,56 @@ download, which needs the owner to set SW4.
 Rules: no fuse, OTP, ELE lifecycle or SRK command; no signed or
 AHAB-authenticated container; the write touches the boot container location
 only (no other partition, no `saveenv`, no rootfs change); no serial break.
+
+### 1. Backup of the boot container (2026-11-14)
+
+The board's Ethernet is now up on the development network; every A55 command
+below ran over SSH as root, in the foreground, its output captured. The
+partition table puts p1 at sector 16384, so the image set lives in the user
+area between 32 KiB and 8 MiB:
+
+```
+dd if=/dev/mmcblk0 of=emmc-head-8M.bin  bs=512 count=16384           # sectors 0..16383, MBR included
+dd if=/dev/mmcblk0 of=imx-boot-orig.bin bs=512 skip=64 count=16320   # offset 0x8000 (32 KiB) to 8 MiB
+```
+
+| File | Device, offset | Size | SHA-256 (board and bench host alike) |
+|---|---|---|---|
+| imx-boot-orig.bin | eMMC user area (`mmcblk0`), 0x8000 | 8355840 | `1d775624af162149a6c974d8c838b8b618f027bcf70dad5dc9a1c397a890081f` |
+| emmc-head-8M.bin | eMMC user area, 0x0 | 8388608 | `f2168cefa7eed2dd098bdf20f35d86a624bf4cf7e9e274aa4c48c529c920daa5` |
+
+Copied off the board with `scp` and hashed again on the bench host. Both
+files stay on the board (`/root/imxboot-backup/`) and in the lane clone's
+`build/imx95-imxboot/`; neither is in git (NXP firmware).
+
+The image set it holds (offsets from 0x8000):
+
+| At | Container | Images |
+|---|---|---|
+| 0x0000 | ELE firmware, NXP-signed | ELE image at 0xC000, 0xE1D0 bytes |
+| 0x8000 | boot container, version 2, unsigned (signature block without a signature), every image SHA-384 | 0: DDR training data marker; 1: OEI (M33, 0x1FFC0000); 2: System Manager (M33); 3: M7, 0x8C00 bytes at 0x303C0000 (ITCM base), entry 0; 4: U-Boot SPL (A55, 0x20480000); 5: dummy at 0x8B000000 |
+| 0xEA800 | second container, unsigned | TF-A at 0x8A200000, U-Boot at 0x90200000, OP-TEE at 0x8C000000 |
+
+### 2. Build
+
+The SM starts the M7 at vector 0 (the ITCM base), where the board's map
+reserves tfw-boot, which is not built for this board. The bench image is
+therefore our application linked at ITCM 0:
+
+```
+make BOARD=frdm-imx95-m7 APP_BASE=0x00000000 BOOT_SECTION=0 BUILD_DIR=build/imx95-imxboot/m7-at-0 firmware
+arm-none-eabi-objcopy -O binary build/imx95-imxboot/m7-at-0/frdm-imx95-m7/soft/trusted-firmware.elf m7-at-0.bin
+boards/frdm-imx95-m7/imx-boot-m7.py imx-boot-orig.bin m7-at-0.bin imx-boot-m7.bin
+```
+
+11216 bytes, initial SP `0x2003FF80`, reset `0x00002245`. The script
+(`boards/frdm-imx95-m7/imx-boot-m7.py`) does what imx-mkimage's
+`-m7 <image> 0 0x303C0000` does without rebuilding the rest: it replaces
+entry 3's data (padded to 0x2C00), size and SHA-384 and zeroes the rest of
+its slot. Every other byte of the image set is the board's: the ELE
+container, OEI, the System Manager with its mSel 0 configuration, SPL, TF-A,
+U-Boot and OP-TEE. Changed bytes span 0x8195 to 0xC03AB only (the entry and
+the M7 slot); `imx-boot-m7.py --show` checks every SHA-384 again.
+
+imx-boot-m7.bin: 8355840 bytes, SHA-256
+`2babcf24c5b1e65a8dce8f00ee3413b5692faa464ed9a9defe14a119e33f285c`.

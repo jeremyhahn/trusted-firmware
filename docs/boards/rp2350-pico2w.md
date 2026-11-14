@@ -90,7 +90,8 @@ the RP2350 datasheet; slice 3 checked each against [RP-DS] release 8
 | Watchdog | 1 us ticks from clk_ref, 8 s period, resets everything but the oscillators | `hal_soc.c` |
 | Pins | GPIO2-22 and GPIO26-28 through SIO; GPIO23-25 and 29 are the radio's; no LED (the board's is the CYW43439's) | `boards/rp2350-pico2w/board.c` |
 | I2C | I2C0 on GPIO4 (SDA) and GPIO5 (SCL), pico-sdk 2.1.1's `PICO_DEFAULT_I2C`, with the pad pull-ups on; built only in the `soft:I2C=1` row (`I2C ?= 0`) | `profile.mk`, `board_profile.h` |
-| PWM | eight header GPIOs, one per slice, each channel A: GP2, 4, 6, 8, 10, 12, 14 (slices 1-7) and GP16 (slice 0); 8-bit duty at 1 kHz | `board.c`, `board_profile.h` |
+| PWM | eight header GPIOs, one per slice, each channel A: GP2, 4, 6, 8, 10, 12, 14 (slices 1-7) and GP16 (slice 0); 8-bit duty at 1 kHz; built only in the `soft:PERIPH=1` row | `board.c`, `board_profile.h` |
+| SPEC gate | docs/SPEC.md keeps rp2350 `future` with the AVR gate (#7) not lifted, so the default image is GPIO only. PWM, the converter (GPIO26-28), the tone (GP7) and the flash EEPROM are on only with `PERIPH=1` (`TFW_CM_PERIPH`), the `soft:PERIPH=1` row size-check measures; built and host-tested, not run on a board | `profile.mk`, `board_profile.h` |
 | Not driven | SPI, 1-Wire, USB, the radio | |
 
 The HAL: `C` is the core directory `src/hal/cortex-m/`, `S` is

@@ -58,6 +58,7 @@ static void test_no_pin_is_the_uart_or_the_radio(void)
  * the rows' fields are the Cortex-M hal_types.h's, which this host build does
  * not see, and test_rp2350_pwm.c checks hal_pwm.c refuses a mismatched row);
  * no other pin does. */
+#if TFW_FEATURE_PWM
 static void test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice(void)
 {
     uint8_t row = 0u;
@@ -89,7 +90,35 @@ static void test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice(void)
     }
     TEST_ASSERT_EQUAL(TFW_PWM_COUNT, row);
     TEST_ASSERT_EQUAL_UINT32(3u, TFW_ADC_COUNT);
+    TEST_ASSERT_EQUAL_UINT32(0x1140u, TFW_EEPROM_SIZE);
+    TEST_ASSERT_EQUAL_INT(1, TFW_FEATURE_ANALOG);
+    TEST_ASSERT_EQUAL_INT(1, TFW_FEATURE_TONE);
+    TEST_ASSERT_EQUAL_INT(1, TFW_FEATURE_EEPROM);
 }
+#else
+/* docs/SPEC.md keeps rp2350 `future` with the AVR gate (#7) not lifted, so
+ * the default row is GPIO only: no converter input, no PWM row, no tone and
+ * no EEPROM. Only the PERIPH=1 row (TFW_CM_PERIPH) turns them on. */
+static void test_the_default_row_is_gpio_only_until_the_gate_is_lifted(void)
+{
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t ch = 0xFFu;
+        tfw_pwmref_t p;
+
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
+        TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_DIGITAL);
+        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & (TFW_PIN_ADC | TFW_PIN_PWM));
+    }
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_PWM_COUNT);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_ADC_COUNT);
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_EEPROM_SIZE);
+    TEST_ASSERT_EQUAL_INT(0, TFW_FEATURE_ANALOG);
+    TEST_ASSERT_EQUAL_INT(0, TFW_FEATURE_PWM);
+    TEST_ASSERT_EQUAL_INT(0, TFW_FEATURE_TONE);
+    TEST_ASSERT_EQUAL_INT(0, TFW_FEATURE_EEPROM);
+}
+#endif
 
 static void test_a_pin_beyond_the_board_is_refused(void)
 {
@@ -121,7 +150,11 @@ int main(void)
     RUN_TEST(test_the_board_is_its_registry_id);
     RUN_TEST(test_the_pins_are_the_header_gpios_in_order);
     RUN_TEST(test_no_pin_is_the_uart_or_the_radio);
+#if TFW_FEATURE_PWM
     RUN_TEST(test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice);
+#else
+    RUN_TEST(test_the_default_row_is_gpio_only_until_the_gate_is_lifted);
+#endif
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_the_i2c_row_takes_sda_and_scl_and_nothing_else);
     return UNITY_END();

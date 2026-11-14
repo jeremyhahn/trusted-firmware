@@ -822,6 +822,13 @@ $(HOST_DIR)/test_board_rp2350-pico2w_i2c: test/unit/test_board_rp2350-pico2w.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
 	    -DTFW_CM_I2C=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# And in the soft:PERIPH=1 row: PWM on one header GPIO per slice and the
+# converter on GPIO26-28, which the default row (the SPEC gate) leaves off.
+$(HOST_DIR)/test_board_rp2350-pico2w_periph: test/unit/test_board_rp2350-pico2w.c \
+                        src/core/board_lookup.c boards/rp2350-pico2w/board.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
+	    -DTFW_CM_PERIPH=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The LPI2C master (hal_bus.c) against the LPI2C register model in the test
 # file itself, not imx95_model.c, compiled as test_imx95_hal's SoC files are.
@@ -1357,7 +1364,7 @@ $(HOST_DIR)/test_rp2350_eeprom: test/unit/test_rp2350_eeprom.c src/hal/cortex-m/
                                 boot/hal/cortex-m/rp2350/rp_flash.c test/model/cortex-m/rp2350/eeprom/nor_model.c \
                                 src/core/secure_zero.c src/proto/crc16.c src/proto/crc16_update.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Iboards/rp2350-pico2w -Itest/model/cortex-m/rp2350/eeprom -Isrc/hal/cortex-m/rp2350 \
+	@$(HOST_CC) -Iboards/rp2350-pico2w -DTFW_CM_PERIPH=1 -Itest/model/cortex-m/rp2350/eeprom -Isrc/hal/cortex-m/rp2350 \
 	  -Iboot/hal/cortex-m/rp2350 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_rp2350_eeprom $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
@@ -1374,7 +1381,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_rp2350_eeprom $(HO
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc \
-                    $(HOST_DIR)/test_board_rp2350-pico2w_i2c \
+                    $(HOST_DIR)/test_board_rp2350-pico2w_i2c $(HOST_DIR)/test_board_rp2350-pico2w_periph \
                     $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \
@@ -1859,6 +1866,11 @@ LINT_CPPCHECK = cppcheck --enable=warning,style,performance,portability \
 	          -Iinclude -Isrc
 LINT_ARCH_RUNS := cortex-m:mps2-an505:mps2 cortex-m:stm32h573i-dk:stm32h5 cortex-m:rp2350-pico2w:rp2350 cortex-m:nrf54l15-dk:nrf54l cortex-m:frdm-mcxn947:mcxn94x
 lint-arch-dirs = src/hal/$(1) boot/hal/$(1) boards/$(2)
+# A SoC whose HAL files are built only in a named row is analysed in that row:
+# the rp2350's PWM, converter, tone and flash EEPROM are PERIPH=1 only (the
+# SPEC gate, boards/rp2350-pico2w/profile.mk), and under the default header
+# TFW_EEPROM_SIZE is 0.
+LINT_SOC_DEFS_rp2350 := -DTFW_CM_PERIPH=1
 lint-field = $(word $(2),$(subst :, ,$(1)))
 lint-other-socs = $(foreach o,$(filter-out $(1),$(LINT_ARCH_RUNS)),$(if $(filter $(call lint-field,$(1),1),$(call lint-field,$(o),1)),-i src/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3) -i boot/hal/$(call lint-field,$(o),1)/$(call lint-field,$(o),3)))
 
@@ -1870,6 +1882,7 @@ lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
 	@$(foreach r,$(LINT_ARCH_RUNS),$(LINT_CPPCHECK) \
 	          -Isrc/hal/$(word 1,$(subst :, ,$(r))) -Iboot/hal/$(word 1,$(subst :, ,$(r))) \
 	          -Iboards/$(word 2,$(subst :, ,$(r))) -Iboot $(call lint-other-socs,$(r)) \
+	          $(LINT_SOC_DEFS_$(word 3,$(subst :, ,$(r)))) \
 	          $(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))) &&) true
 	@echo "cppcheck clean"
 
@@ -2719,7 +2732,7 @@ $(HOST_DIR)/test_rp2350_i2c: test/unit/test_rp2350_i2c.c src/hal/cortex-m/rp2350
 # real one, and the Cortex-M hal_types.h and the Pico 2 W profile replace the
 # host's.
 HOST_RP2350_CFLAGS = -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m \
-                     -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+                     -Iboards/rp2350-pico2w -DTFW_CM_PERIPH=1 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
 $(HOST_DIR)/test_rp2350_pwm: test/unit/test_rp2350_pwm.c src/hal/cortex-m/rp2350/hal_pwm.c \
                              src/hal/cortex-m/rp2350/hal_gpio.c src/caps/pwm.c src/core/reader.c \
                              test/model/cortex-m/rp2350/rp2350_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)

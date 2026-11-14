@@ -7,9 +7,14 @@
  * The pins are the header GPIOs the port drives: GPIO2-22 and GPIO26-28.
  * GPIO0 and 1 are UART0, the byte link; GPIO23-25 and 29 are wired to the
  * CYW43439, and the board's LED is the radio's, not a GPIO, so the table has
- * no LED pin. PWM is on, one header GPIO per slice (board.c), and the
- * converter reads GPIO26-28 (ADC0-2); the buses are off by file selection
- * until a slice drives them.
+ * no LED pin.
+ *
+ * docs/SPEC.md keeps rp2350 `future`, with the AVR gate (#7) not lifted for
+ * it, so the default image is GPIO only, as before this row. PWM (one header
+ * GPIO per slice, board.c), the converter (GPIO26-28, ADC0-2), the tone and
+ * the flash EEPROM are on only in the PERIPH=1 row (TFW_CM_PERIPH,
+ * profile.mk), and I2C0 only in the I2C=1 row: built and host-tested, not run
+ * on a board, until the owner lifts the gate.
  *
  * The board id is PROVISIONAL (boards/rp2350-pico2w/profile.mk).
  */
@@ -21,6 +26,7 @@
 
 #define TFW_PIN_COUNT  24u
 #define TFW_PORT_COUNT 1u      /* SIO's one bank, bit n GPIOn */
+#if defined(TFW_CM_PERIPH)
 #define TFW_PWM_COUNT  8u
 #define TFW_ADC_COUNT  3u      /* ADC0-2, GPIO26-28 (src/hal/cortex-m/rp2350/hal_adc.c) */
 /* tfw-boot's span [0, TFW_BOOT_EE_LEN 0x140) in the platform window, then
@@ -30,8 +36,18 @@
 #define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     1
 #define TFW_FEATURE_TONE    1
-#define TFW_FEATURE_PULSE   0
 #define TFW_FEATURE_EEPROM  1
+#else
+#define TFW_PWM_COUNT  0u
+#define TFW_ADC_COUNT  0u
+#define TFW_EEPROM_SIZE 0u
+
+#define TFW_FEATURE_ANALOG  0
+#define TFW_FEATURE_PWM     0
+#define TFW_FEATURE_TONE    0
+#define TFW_FEATURE_EEPROM  0
+#endif
+#define TFW_FEATURE_PULSE   0
 /* I2C0 on GPIO4/5 (src/hal/cortex-m/rp2350/hal_bus.c), only in the I2C=1
  * row: built and host-tested, not run on a board. */
 #if defined(TFW_CM_I2C)

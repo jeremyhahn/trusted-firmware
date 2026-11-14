@@ -315,6 +315,27 @@ static void test_millis_keeps_the_time_masked_writes_take(void)
     TEST_ASSERT_TRUE(tfw_hal_millis() > 100u);
 }
 
+/* Whole-millisecond erases, each started a cycle nearer a reload than the
+ * last: across the sweep SysTick comes due between every two accesses of the
+ * lock and the unlock, the last cycle reading and the unmask among them. */
+static void test_a_tick_due_as_a_write_masks_or_unmasks_is_kept(void)
+{
+    uint8_t  b;
+    uint32_t off;
+
+    /* hal_tick.c's count runs on from the tests before. */
+    tfw_ms_t base = tfw_hal_millis() - ms_elapsed();
+
+    erase_cycles = 2u * MODEL_CYC_PER_MS;
+    for (off = 0u; off < 160u; off++) {
+        model_run(MODEL_CYC_PER_MS - (uint32_t)(model_now % MODEL_CYC_PER_MS) +
+                  MODEL_CYC_PER_MS - 80u + off);
+        b = (uint8_t)off;   /* a new byte each time, so every write erases */
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, &b, 1u));
+        TEST_ASSERT_EQUAL_UINT32(base + ms_elapsed(), tfw_hal_millis());
+    }
+}
+
 static void test_a_scheduler_deadline_across_a_write_fires_on_time(void)
 {
     static const uint8_t data[] = { 0x5Au };
@@ -360,6 +381,7 @@ int main(void)
     RUN_TEST(test_a_mismatch_outside_the_written_span_is_an_error);
     RUN_TEST(test_every_user_byte_written_erases_only_the_user_sector);
     RUN_TEST(test_millis_keeps_the_time_masked_writes_take);
+    RUN_TEST(test_a_tick_due_as_a_write_masks_or_unmasks_is_kept);
     RUN_TEST(test_a_scheduler_deadline_across_a_write_fires_on_time);
     return UNITY_END();
 }

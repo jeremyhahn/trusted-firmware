@@ -65,7 +65,9 @@
  * pending interrupt for all its reloads: the masked span is measured on
  * DWT's cycle counter and the ticks it would drop are added back
  * (tfw_cm_tick_catch_up) before interrupts return, so millis and every
- * deadline on it keep the time the write took. */
+ * deadline on it keep the time the write took. Both readings are taken with
+ * no tick pending (the lock retries) and clear of a reload (the unlock waits),
+ * so no tick falls between a reading and the mask changing. */
 typedef struct {
     uint32_t primask;
     uint32_t cvr;
@@ -76,9 +78,17 @@ static void ee_lock(ee_mask_t *m)
 {
     TFW_CM_DEMCR |= TFW_CM_DEMCR_TRCENA;
     TFW_CM_DWT_CTRL |= TFW_CM_DWT_CTRL_CYCCNTENA;
-    m->primask = tfw_cm_irq_save();
-    m->cvr     = TFW_CM_SYST_CVR;
-    m->cycles  = TFW_CM_DWT_CYCCNT;
+    for (;;) {
+        m->primask = tfw_cm_irq_save();
+        m->cvr     = TFW_CM_SYST_CVR;
+        m->cycles  = TFW_CM_DWT_CYCCNT;
+        /* A tick that came due since masking would be counted twice: take
+         * it unmasked and read again. */
+        if (m->primask != 0u || (TFW_CM_ICSR & TFW_CM_ICSR_PENDSTSET) == 0u) {
+            break;
+        }
+        tfw_cm_irq_restore(m->primask);
+    }
 }
 
 static void ee_unlock(const ee_mask_t *m)
@@ -86,6 +96,7 @@ static void ee_unlock(const ee_mask_t *m)
     /* The writes complete before anything reads the flash they wrote. */
     tfw_cm_dsb();
     tfw_cm_isb();
+    tfw_cm_tick_wait_clear();
     tfw_cm_tick_catch_up(m->cvr, TFW_CM_DWT_CYCCNT - m->cycles);
     tfw_cm_irq_restore(m->primask);
 }

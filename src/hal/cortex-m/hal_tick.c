@@ -54,6 +54,22 @@ void tfw_cm_tick_catch_up(uint32_t cvr_at_mask, uint32_t cycles)
     ticks += (cycles - first) / (TICK_RELOAD + 1u);
 }
 
+/* An eighth of a millisecond either side of a reload: far more than the few
+ * instructions from here to a caller's unmask, and to its last reading. */
+#define TICK_GUARD ((TICK_RELOAD + 1u) / 8u)
+
+void tfw_cm_tick_wait_clear(void)
+{
+    uint32_t cvr;
+
+    if ((TFW_CM_SYST_CSR & TFW_CM_SYST_CSR_ENABLE) == 0u) {
+        return;
+    }
+    do {
+        cvr = TFW_CM_SYST_CVR;
+    } while (cvr <= TICK_GUARD || cvr >= TICK_RELOAD - TICK_GUARD);
+}
+
 /* A 32-bit load is one instruction here, so the read needs no critical
  * section: it cannot catch the ISR's increment half done. */
 tfw_ms_t tfw_hal_millis(void)

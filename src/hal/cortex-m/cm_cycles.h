@@ -36,7 +36,12 @@ static inline uint32_t tfw_cm_cycles_since(uint32_t *last)
  * caller that masks them across a long ROM call measures the span on a
  * free-running counter and, before it unmasks, hands hal_tick.c the cycles and
  * SysTick's value when it masked: the millisecond count gains the reloads the
- * one pending interrupt does not count. */
+ * one pending interrupt does not count. The count is exact only if no tick
+ * is pending when the caller reads SysTick on masking (it unmasks and reads
+ * again while TFW_CM_ICSR_PENDSTSET shows one) and none comes due between its
+ * last cycle reading and unmasking: tfw_cm_tick_wait_clear, just before that
+ * reading, leaves SysTick far enough from a reload for both. */
 void tfw_cm_tick_catch_up(uint32_t cvr_at_mask, uint32_t cycles);
+void tfw_cm_tick_wait_clear(void);
 
 #endif /* TFW_CM_CYCLES_H */

@@ -18,6 +18,8 @@
 #define TFW_CM_REG(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
 
 /* System Control Block. */
+#define TFW_CM_ICSR  TFW_CM_REG(0xE000ED04u)
+#define TFW_CM_ICSR_PENDSTSET    0x04000000u
 #define TFW_CM_VTOR  TFW_CM_REG(0xE000ED08u)
 #define TFW_CM_AIRCR TFW_CM_REG(0xE000ED0Cu)
 #define TFW_CM_AIRCR_VECTKEY     0x05FA0000u

@@ -86,10 +86,6 @@ _Static_assert(TFW_CM_USER_EE_SIZE == TFW_MCXN_FLASH_SECTOR
                && (TFW_CM_USER_EE_BASE - TFW_MCXN_FLASH_BASE) % TFW_MCXN_FLASH_SECTOR == 0u,
                "the user EEPROM is not one whole flash sector");
 
-/* The user sector's expected contents across a write, checked against the
- * flash once the ROM has rewritten it. */
-static uint8_t ee_expect[TFW_MCXN_FLASH_SECTOR];
-
 static const uint8_t *ee_at(uint32_t flash_addr)
 {
     return &TFW_MCXN_EE_FLASH[flash_addr - TFW_MCXN_FLASH_BASE];
@@ -137,15 +133,11 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
         return TFW_OK;
     }
     at = (uint32_t)TFW_CM_USER_EE_BASE + ((uint32_t)addr - EE_USER_LO);
-    /* The update erases and reprograms the whole sector: what it must hold
-     * afterwards is the sector as it was with buf merged in. */
-    memcpy(ee_expect, ee_at(TFW_CM_USER_EE_BASE), sizeof ee_expect);
-    memcpy(&ee_expect[at - (uint32_t)TFW_CM_USER_EE_BASE], buf, len);
+    /* The update erases and reprograms the whole sector and checks all of
+     * it, the old bytes with buf merged in, against the flash it reads
+     * back: a byte lost outside buf's span is an error too. */
     primask = ee_lock();
     st = tfw_mcxn_flash_update(TFW_MCXN_EE_API, TFW_MCXN_EE_FLASH, EE_USER_END, at, buf, len);
     ee_unlock(primask);
-    if (st == TFW_OK && memcmp(ee_at(TFW_CM_USER_EE_BASE), ee_expect, sizeof ee_expect) != 0) {
-        st = TFW_ERR_INTERNAL;
-    }
     return st;
 }

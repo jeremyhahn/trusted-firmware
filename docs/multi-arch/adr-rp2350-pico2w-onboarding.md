@@ -109,14 +109,14 @@ secure boot stays off (see "Onboarding on the bench host").
 
 ## Against ADR #14 and ADR #15
 
-- **ADR #14** (PROPOSED). The RP2350 is an M33 board that, per decision 2, would
+- **ADR #14** (ACCEPTED 2026-11-14, owner ruling 632 item 208 a). The RP2350 is an M33 board that, per decision 2, would
   reuse `src/hal/cortex-m/` and add `src/hal/cortex-m/rp2350/` with
   `CPU := cortex-m33`. Its CI stand-in would be the M33 target QEMU `mps2-an505`,
   which lands with the STM32H5 or with #15; no RP2350-specific QEMU machine is
   known to this ADR (to confirm). The Hazard3 RISC-V cores are outside ADR #14,
   which covers Arm only. Board id: none allocated in the Cortex-M range
   `0x40`-`0x7F`.
-- **ADR #15** (PROPOSED). The RP2350 is named among the M33 targets with an
+- **ADR #15** (ACCEPTED 2026-11-14, owner ruling 632 item 208 a; (b1) on the M33). The RP2350 is named among the M33 targets with an
   upstream TF-M port. Under its recommendation (b1) our attestation code would be
   an Application RoT partition on TF-M Profile Medium, with MCUboot as BL2. The
   RP2350 bears on its open question 4 (an OTP-plus-TrustZone key is neither the

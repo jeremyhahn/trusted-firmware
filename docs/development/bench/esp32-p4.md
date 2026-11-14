@@ -473,6 +473,27 @@ read over Ethernet needs the board's address on the bench network, in a
 step 3 writes, and step 4's `wirecheck`. The board otherwise matches step 4 as
 2026-10-21 ran it, up to the network.
 
+### Row 48: flash, layer-0 boot check, wire over Ethernet, 2026-11-14
+
+Ruling 625 (1): flash our build, run the layer-0 boot check and the wire
+protocol over Ethernet, and burn no eFuse ([plan](../../plans/48.md)).
+`ESP_PORT` is the board's `/dev/serial/by-id` path (the lane's only device),
+esptool / espefuse v5.6.0 (pip, in a venv outside the repository). No
+`espefuse` command other than `summary` was run. The outputs are kept outside
+the tree: they carry the part's MAC and the port's serial number. With the
+by-id path in place of `/dev/ttyACM1`, esptool 5.6.0 prints a `NOTE` that
+pyserial cannot resolve the port's VID/PID and uses the standard reset
+sequence; so the outputs are not byte-identical to the earlier runs', and the
+rows below compare their content.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `esptool --port $ESP_PORT chip-id` | `Chip type: ESP32-P4 (revision v3.2)`, `Dual Core + LP Core, 400MHz`, `Crystal frequency: 40MHz` |
+| 1 | `esptool --port $ESP_PORT flash-id` | `Manufacturer: c8`, `Device: 4019`, `Detected flash size: 32MB` |
+| 1 | `espefuse --port $ESP_PORT summary > efuse-before.txt` | every row of "Security eFuses" unchanged: `SECURE_BOOT_EN` False; `SPI_BOOT_CRYPT_CNT` `Disable (0b000)`; `KEY_PURPOSE_0`–`5` `USER`; `SECURE_BOOT_KEY_REVOKE0`–`2` False; `DIS_DOWNLOAD_MODE`, `ENABLE_SECURITY_DOWNLOAD` False; `DIS_PAD_JTAG`, `DIS_USB_JTAG` False, `SOFT_DIS_JTAG` 0; `WR_DIS` 0, `RD_DIS` 0; `SECURE_VERSION` 0 |
+
+Steps 2 to 5 follow.
+
 ## Restore
 
 ```sh

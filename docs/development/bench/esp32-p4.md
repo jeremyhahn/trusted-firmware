@@ -649,6 +649,23 @@ rebuild, repeat step 3, then `wirecheck -addr <address>:21574 -board 0x80
 -tier 0` from a lane whose outbound TCP to the bench block is forwarded, as
 on 2026-10-21.
 
+### Row 48: the wire over Ethernet on VLAN 101, 2026-11-14
+
+Ruling 644 (3): the board is on the development VLAN, so it takes a static
+address from an untracked overlay (HIL-0 step 2), Infra's assignment. In this
+record the address is `192.0.2.80/24`, gateway and DNS `192.0.2.1` (RFC 5737
+placeholders for the real values, which stay off the tree). The plan:
+
+1. `espefuse --port $ESP_PORT summary` before, read only.
+2. `make esp32-build` with `sdkconfig.hil0` and the overlay
+   (`CONFIG_TFW_ETH_STATIC_IP=y`, address, netmask, gateway).
+3. HIL-0 step 3's writes over the by-id port; console until the link-up line.
+   If the static address does not come up, the address DHCP gave the board,
+   read from the console, and this record says so.
+4. `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0`.
+5. `espefuse summary` after; the diff against step 1 must be empty. No eFuse
+   is burned.
+
 ## Restore
 
 ```sh

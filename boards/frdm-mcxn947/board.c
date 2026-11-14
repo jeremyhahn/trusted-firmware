@@ -11,6 +11,7 @@
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 0u },   /* 0  GPIO0 */
     { 1u },   /* 1  GPIO1 */
+    { 3u },   /* 2  GPIO3 */
 };
 
 /* The RGB LED, active low (a write of 0 lights it), and the two user switches,
@@ -21,6 +22,7 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 2  LED_BLUE  P1_2  */ { TFW_PB(1u,  2u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL | TFW_PIN_LED },
 /* 3  SW2       P0_23 */ { TFW_PB(0u, 23u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 /* 4  SW3       P0_6  */ { TFW_PB(0u,  6u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
+/* 5  TONE      P3_19 */ { TFW_PB(2u, 19u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },
 };
 
 /* CTIMER0 in PWM mode (src/hal/cortex-m/mcxn94x/hal_pwm.c): { unit = CTIMER,

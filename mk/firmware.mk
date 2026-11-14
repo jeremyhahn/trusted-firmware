@@ -171,6 +171,11 @@ else ifeq ($(ETH),1)
 LINK_SRCS += src/net/dhcp_none.c
 endif
 
+# hal_eeprom.c is always present, but a SoC may have its own (nrf54l: the
+# window is RRAM, which a plain store does not program). Every copy is in
+# HAL_OPTIONAL and EEPROM_HAL_SRCS (above) links exactly one, so no board
+# links two.
+
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not

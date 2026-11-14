@@ -95,6 +95,7 @@ for the owner's cable (CA).
 | imx95-fuses-words.txt (refusing banks word by word) | `bc312e3fd363c4c482fc27ddc762bdb558bbda3ff1864968759aa2a2d66a276c` |
 | imx95-sm.txt (SM `help`, `info`, `ele info/ext/events`, `err`, `btime`, `reason`) | `38830cdb7cba141bae1de04514a5258da52a3df0edfaed483c83ec109a66a70a` |
 | imx95-boot-after-uboot.log (`boot` back to Linux) | `12b5d6f2468b6bb724fa1add80d5d2c3b24a1d2c5e833e3c6d231a1fa9917e18` |
+| imx95-dt.txt (device tree nodes for the M7's peripherals, the M7 node) | `d80bbbef63e135a0e20613d09908e771eafddf5b51517b9fe911a6f29379faf1` |
 
 U-Boot has no `ahab_status` command; `ele_info` (display only) is its
 lifecycle read, and the first and last reads are identical.

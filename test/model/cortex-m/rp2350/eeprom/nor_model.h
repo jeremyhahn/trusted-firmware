@@ -22,10 +22,15 @@ extern int      rp_nor_corrupt_next;
  * both advancing by it while interrupts are masked. */
 extern uint32_t rp_nor_write_us;
 
+/* Unmasked work: TIMER0 and SysTick advance by us microseconds, each SysTick
+ * expiration running SysTick_Handler (pending it while masked). */
+void rp_nor_model_run_us(uint32_t us);
+
 /* Map the user and platform sectors; 0 when the host cannot. */
 int  rp_nor_model_map(void);
 /* The user sector erased, the platform sector 0xA5, no erases, no write
- * time, interrupts unmasked and none pending. */
+ * time, SysTick at the start of its period, interrupts unmasked and none
+ * pending. */
 void rp_nor_model_reset(void);
 
 /* The model's interrupt mask, which hal_eeprom.c reaches through the host's

@@ -75,20 +75,50 @@ tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 
 /* The sector erase and program run with interrupts masked (rp_flash_rom.c),
  * tens of milliseconds, and SysTick's expirations in that time collapse into
- * the one interrupt taken at the unmask. The write runs masked from here, and
- * TIMER0's microsecond count across it credits hal_tick.c's clock with the
- * whole milliseconds less that one; the part of a millisecond left over is
- * carried to the next write, so a run of writes does not drift. */
-static uint32_t us_carry;
+ * the one interrupt pending at the unmask. The write runs masked from here and
+ * credits hal_tick.c's clock with the expirations it hid: the SysTick reloads
+ * crossed are the cycles from the last reload before entry to the last reload
+ * before exit, the masked time on TIMER0 plus SysTick's count into its period
+ * at entry less that at exit, so each write counts the boundaries it crossed
+ * whatever its phase. One of them is the pending interrupt, unless one was
+ * pending already at entry, which then stands for an earlier boundary.
+ * [ARM-v8M] B11.2 (SysTick), D1.2.135 (ICSR.PENDSTSET). */
+#define EE_ICSR            TFW_CM_REG(0xE000ED04u)
+#define EE_ICSR_PENDSTSET  (1uL << 26)
+#define EE_CYCLES_PER_US   ((uint32_t)(TFW_CM_CPU_HZ / 1000000uL))
 
-static void credit_masked_ms(uint32_t t0)
+_Static_assert(TFW_CM_CPU_HZ % 1000000uL == 0u, "SysTick counts whole cycles per microsecond");
+
+typedef struct {
+    uint32_t t0;        /* TIMER0 at entry, microseconds */
+    uint32_t into;      /* SysTick cycles into its period at entry */
+    uint32_t pending;   /* SysTick pending at entry */
+} masked_entry_t;
+
+static void masked_enter(masked_entry_t *e)
 {
-    uint32_t us = TFW_RP_TIMER0_TIMERAWL - t0 + us_carry;
-    uint32_t ms = us / 1000u;
+    e->t0      = TFW_RP_TIMER0_TIMERAWL;
+    e->into    = TFW_CM_SYST_RVR - TFW_CM_SYST_CVR;
+    e->pending = EE_ICSR & EE_ICSR_PENDSTSET;
+}
 
-    us_carry = us % 1000u;
-    if (ms > 1u) {
-        tfw_cm_tick_credit((tfw_ms_t)(ms - 1u));
+static void credit_masked_ms(const masked_entry_t *e)
+{
+    uint32_t period = TFW_CM_SYST_RVR + 1u;
+    uint32_t cycles = (TFW_RP_TIMER0_TIMERAWL - e->t0) * EE_CYCLES_PER_US;
+    uint32_t out    = TFW_CM_SYST_RVR - TFW_CM_SYST_CVR;
+    uint32_t crossed;
+
+    if ((TFW_CM_SYST_CSR & TFW_CM_SYST_CSR_ENABLE) == 0u) {
+        return;
+    }
+    /* TIMER0 counts whole microseconds: round to the nearest period. */
+    crossed = (e->into + cycles + period / 2u - out) / period;
+    if (crossed > 0u && e->pending == 0u) {
+        crossed--;
+    }
+    if (crossed > 0u) {
+        tfw_cm_tick_credit((tfw_ms_t)crossed);
     }
 }
 
@@ -96,7 +126,7 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
 {
     uint32_t at;
     uint32_t primask;
-    uint32_t t0;
+    masked_entry_t entry;
     tfw_status_t st;
 
     if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
@@ -116,10 +146,10 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     }
     at      = (uint32_t)addr - TFW_BOOT_EE_LEN;
     primask = tfw_cm_irq_save();
-    t0      = TFW_RP_TIMER0_TIMERAWL;
+    masked_enter(&entry);
     st      = tfw_rp_flash_update((uint32_t)TFW_CM_USER_EE_BASE + at, buf, len,
                                   (uint32_t)TFW_FLASH_TOTAL);
-    credit_masked_ms(t0);
+    credit_masked_ms(&entry);
     tfw_cm_irq_restore(primask);
     if (st != TFW_OK) {
         return st;

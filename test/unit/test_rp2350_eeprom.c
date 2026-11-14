@@ -213,6 +213,41 @@ static void test_a_run_of_writes_does_not_drift(void)
     TEST_ASSERT_UINT32_WITHIN(1u, 454u, tfw_hal_millis() - before);
 }
 
+/* Codex P1 on #446: a 45.4 ms write entered 0.8 ms into a tick crosses 46
+ * SysTick boundaries, and 0.6 ms of unmasked work after it brings the next
+ * write back to that phase, so each round is 46 ms on the clock. */
+static void test_writes_with_work_between_count_every_boundary(void)
+{
+    tfw_ms_t before;
+    uint8_t  i;
+
+    rp_nor_model_run_us(800u);
+    before = tfw_hal_millis();
+    rp_nor_write_us = 45400u;
+    for (i = 0u; i < 10u; i++) {
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &i, 1u));
+        TEST_ASSERT_EQUAL_UINT32(46u * (i + 1u), tfw_hal_millis() - before);
+        rp_nor_model_run_us(600u);
+        TEST_ASSERT_EQUAL_UINT32(46u * (i + 1u), tfw_hal_millis() - before);
+    }
+}
+
+/* A tick already pending at entry (the caller masked across a boundary)
+ * stands for that boundary: the write's own 45 are all credited. */
+static void test_a_tick_pending_at_entry_is_not_one_of_the_writes(void)
+{
+    uint8_t  data = 0x5Au;
+    tfw_ms_t before = tfw_hal_millis();
+    uint32_t primask;
+
+    primask = tfw_rp_model_irq_save();
+    rp_nor_model_run_us(1000u);
+    rp_nor_write_us = 45000u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &data, 1u));
+    tfw_rp_model_irq_restore(primask);
+    TEST_ASSERT_EQUAL_UINT32(46u, tfw_hal_millis() - before);
+}
+
 /* A write of bytes the flash already holds erases nothing and leaves the
  * clock to SysTick alone. */
 static void test_an_unchanged_write_credits_nothing(void)
@@ -242,6 +277,8 @@ int main(void)
     RUN_TEST(test_a_read_back_mismatch_is_internal);
     RUN_TEST(test_a_45_ms_write_advances_the_clock_45_ms);
     RUN_TEST(test_a_run_of_writes_does_not_drift);
+    RUN_TEST(test_writes_with_work_between_count_every_boundary);
+    RUN_TEST(test_a_tick_pending_at_entry_is_not_one_of_the_writes);
     RUN_TEST(test_an_unchanged_write_credits_nothing);
     return UNITY_END();
 }

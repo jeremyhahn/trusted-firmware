@@ -24,6 +24,16 @@
 
 /* TIMERAWL's address, §12.8.5 table 1349, as soc_regs.h has it. */
 #define TIMERAWL_ADDR ((uintptr_t)TFW_RP_TIMER0_BASE + 0x28u)
+/* SysTick reloads every TICK_US at the profile's 12 MHz, as hal_tick.c sets
+ * it; its count and ICSR.PENDSTSET follow systick_phase_us and
+ * systick_pending. */
+#define SYST_CSR_ADDR  ((uintptr_t)0xE000E010u)
+#define SYST_RVR_ADDR  ((uintptr_t)0xE000E014u)
+#define SYST_CVR_ADDR  ((uintptr_t)0xE000E018u)
+#define ICSR_ADDR      ((uintptr_t)0xE000ED04u)
+#define ICSR_PENDSTSET (1uL << 26)
+#define CYCLES_PER_US  ((uint32_t)(TFW_CM_CPU_HZ / 1000000uL))
+#define SYST_RELOAD    (TICK_US * CYCLES_PER_US - 1u)
 #define WINDOW_BASE   ((uint32_t)TFW_CM_USER_EE_BASE)
 #define WINDOW_LEN    ((uint32_t)TFW_FLASH_TOTAL - WINDOW_BASE)
 #define FLASH         ((uint8_t *)(uintptr_t)TFW_RP_XIP_BASE)
@@ -40,14 +50,43 @@ static volatile uint32_t timerawl;
 static uint32_t          systick_phase_us;
 static int               systick_pending;
 static uint32_t          masked;
+static volatile uint32_t syst_reg;
 
 volatile uint32_t *tfw_rp_model_reg(uintptr_t addr)
 {
-    if (addr != TIMERAWL_ADDR) {
+    switch (addr) {
+    case TIMERAWL_ADDR:
+        return &timerawl;
+    case SYST_CSR_ADDR:
+        syst_reg = TFW_CM_SYST_CSR_ENABLE | TFW_CM_SYST_CSR_TICKINT | TFW_CM_SYST_CSR_CLKSOURCE;
+        return &syst_reg;
+    case SYST_RVR_ADDR:
+        syst_reg = SYST_RELOAD;
+        return &syst_reg;
+    case SYST_CVR_ADDR:
+        syst_reg = SYST_RELOAD - systick_phase_us * CYCLES_PER_US;
+        return &syst_reg;
+    case ICSR_ADDR:
+        syst_reg = systick_pending ? ICSR_PENDSTSET : 0u;
+        return &syst_reg;
+    default:
         fprintf(stderr, "nor_model: no register at 0x%08lx\n", (unsigned long)addr);
         abort();
     }
-    return &timerawl;
+}
+
+void rp_nor_model_run_us(uint32_t us)
+{
+    timerawl += us;
+    systick_phase_us += us;
+    while (systick_phase_us >= TICK_US) {
+        systick_phase_us -= TICK_US;
+        if (masked != 0u) {
+            systick_pending = 1;
+        } else {
+            SysTick_Handler();
+        }
+    }
 }
 
 uint32_t tfw_rp_model_irq_save(void)
@@ -119,5 +158,6 @@ void rp_nor_model_reset(void)
     rp_nor_corrupt_next = 0;
     rp_nor_write_us     = 0u;
     systick_pending     = 0;
+    systick_phase_us    = 0u;
     masked              = 0u;
 }

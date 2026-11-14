@@ -128,4 +128,35 @@ static inline uint32_t tfw_mps2_tone_reload(uint32_t cpu_hz, uint16_t hz)
     return half - 1u;
 }
 
+/* The CMSDK APB dual timer's first counter, the software PWM's clock
+ * (hal_pwm.c, the PWM=1 row): *Arm Cortex-M System Design Kit Technical
+ * Reference Manual* (Arm DDI 0479C), the APB dual-input timer's register
+ * summary and its TimerXControl bits, as QEMU's hw/timer/cmsdk-apb-dualtimer.c models
+ * them (A_TIMER1LOAD .. A_TIMER1BGLOAD, R_CONTROL_*). The base and interrupt
+ * are the board's (board_profile.h). Timer 2 is left alone. */
+#define TFW_MPS2_DT1(off)       TFW_CM_REG(TFW_MPS2_DUALTIMER_BASE + (off))
+#define TFW_MPS2_DT1_LOAD       0x00u
+#define TFW_MPS2_DT1_VALUE      0x04u
+#define TFW_MPS2_DT1_CONTROL    0x08u
+#define TFW_MPS2_DT1_INTCLR     0x0Cu
+#define TFW_MPS2_DT1_RIS        0x10u
+#define TFW_MPS2_DT1_MIS        0x14u
+#define TFW_MPS2_DT1_BGLOAD     0x18u
+
+#define TFW_MPS2_DT_CTRL_ONESHOT 0x01u
+#define TFW_MPS2_DT_CTRL_SIZE32  0x02u   /* 32-bit counter */
+#define TFW_MPS2_DT_CTRL_INTEN   0x20u
+#define TFW_MPS2_DT_CTRL_PERIODIC 0x40u  /* reload from Load at zero */
+#define TFW_MPS2_DT_CTRL_EN      0x80u
+/* Periodic, 32-bit, prescale 1, interrupt on, running. */
+#define TFW_MPS2_DT_CTRL_RUN     (TFW_MPS2_DT_CTRL_SIZE32 | TFW_MPS2_DT_CTRL_INTEN | \
+                                  TFW_MPS2_DT_CTRL_PERIODIC | TFW_MPS2_DT_CTRL_EN)
+
+/* The software PWM's period: 256 steps, one per duty count, at 500 Hz, from
+ * the dual timer's clock, the core's (TFW_CM_CPU_HZ): QEMU clocks it from the
+ * system clock on both machines (hw/arm/mps2-tz.c's MAINCLK into armsse.c,
+ * hw/arm/mps2.c's SYSCLK_FRQ). 156 timer ticks a step at 20 MHz. */
+#define TFW_MPS2_PWM_HZ    500u
+#define TFW_MPS2_PWM_STEP  ((uint32_t)(TFW_CM_CPU_HZ / (TFW_MPS2_PWM_HZ * 256uL)))
+
 #endif /* TFW_CM_MPS2_REGS_H */

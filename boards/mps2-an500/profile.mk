@@ -44,7 +44,8 @@ BOOT_AB_OPTIONAL := 1
 BOARD_DEFS        = $(if $(filter 1,$(BOOT_AB)),-DTFW_CM_AB=1) $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
                     $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1) $(if $(filter 1,$(PULSE)),-DTFW_CM_PULSE=1) \
                     $(if $(filter 1,$(TONE)),-DTFW_CM_TONE=1) \
-                    $(if $(filter 1,$(ONEWIRE)),-DTFW_CM_ONEWIRE=1)
+                    $(if $(filter 1,$(ONEWIRE)),-DTFW_CM_ONEWIRE=1) \
+                    $(if $(filter 1,$(PWM)),-DTFW_CM_PWM=1)
 APP_BASE         := $(if $(filter 1,$(BOOT_AB)),0x00040000,0x00008000)
 RAM_BASE       := 0x20000000
 RAM_END        := 0x203FFFFF
@@ -97,11 +98,17 @@ OTA_STORE      := mem
 # off by default for the same reason. ONEWIRE=1 turns TFW_FEATURE_ONEWIRE on
 # (TFW_CM_ONEWIRE in board_profile.h) and adds the line as pin 3 (board.c).
 # The soft:ONEWIRE=1 row builds it and size-check measures it.
+# PWM=1: software PWM on the CMSDK dual timer (src/hal/cortex-m/mps2/
+# hal_pwm.c) on the two LEDs, pins 0 and 1, off by default: nothing on the
+# board needs it and QEMU cannot show the LEDs' duty. TFW_CM_PWM turns
+# TFW_FEATURE_PWM on in board_profile.h; the soft:PWM=1 row builds it and
+# size-check measures it, and cortex-m-qemu-pwm-wire runs it.
 I2C               ?= 0
 SPI               ?= 0
+PWM               ?= 0
 PULSE             ?= 0
 TONE              ?= 0
 ONEWIRE           ?= 0
 BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) $(if $(filter 1,$(PULSE)),PULSE) \
-                     $(if $(filter 1,$(TONE)),TONE) $(if $(filter 1,$(ONEWIRE)),ONEWIRE)
-BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:PULSE=1 soft:TONE=1 soft:ONEWIRE=1
+                     $(if $(filter 1,$(TONE)),TONE) $(if $(filter 1,$(ONEWIRE)),ONEWIRE) $(if $(filter 1,$(PWM)),PWM)
+BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:PULSE=1 soft:TONE=1 soft:ONEWIRE=1 soft:PWM=1

@@ -37,12 +37,34 @@
 #define TFW_PIN_COUNT  3u
 #define TFW_PORT_COUNT 2u      /* the FPGA I/O block's LED and MISC registers */
 #endif
+/* PWM=1 (profile.mk, TFW_CM_PWM): software PWM on the CMSDK dual timer
+ * (src/hal/cortex-m/mps2/hal_pwm.c) on the two LEDs, board.c's pwm_idx. */
+#if defined(TFW_CM_PWM)
+#define TFW_PWM_COUNT  2u
+#else
 #define TFW_PWM_COUNT  0u
+#endif
+/* The LEDs' pin-table fields (board.c), object-like so scripts/board-check.py
+ * reads them: their PWM rows and TFW_PIN_PWM in the PWM=1 row, none outside
+ * it, where tfw_board_pwms is empty. */
+#if defined(TFW_CM_PWM)
+#define TFW_MPS2_LED0_PWM  0u
+#define TFW_MPS2_LED1_PWM  1u
+#define TFW_MPS2_PWM_FLAG  0xFFu
+#else
+#define TFW_MPS2_LED0_PWM  TFW_PWM_NONE
+#define TFW_MPS2_LED1_PWM  TFW_PWM_NONE
+#define TFW_MPS2_PWM_FLAG  0u
+#endif
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE TFW_CM_PLATFORM_SIZE  /* the platform window: src/hal/cortex-m/hal_eeprom.c */
 
 #define TFW_FEATURE_ANALOG  0
+#if defined(TFW_CM_PWM)
+#define TFW_FEATURE_PWM     1
+#else
 #define TFW_FEATURE_PWM     0
+#endif
 /* The tone (TONE=1, src/hal/cortex-m/mps2/hal_tone.c): LED1, toggled from
  * TIMER0's interrupt. Off by default: QEMU does not measure the pin. */
 #if defined(TFW_CM_TONE)
@@ -140,6 +162,13 @@
  * line (src/hal/cortex-m/mps2/gpio_line.h); unused outside that row. */
 #define TFW_MPS2_GPIO0_BASE   0x40100000u
 
+/* The IoT Kit's CMSDK APB dual timer, the software PWM's clock (PWM=1):
+ * *Application Note AN505* (Arm DAI 0505B), 7 "Interrupt Map" Table 7-1, the
+ * dual timer's line, as QEMU models it in hw/arm/armsse.c (the dual timer at
+ * 0x4000_2000 on APB PPC 0, its interrupt on line 5) under hw/arm/mps2-tz.c's
+ * mps2-an505. The first alias, as for UART0. Unused while TFW_FEATURE_PWM is 0. */
+#define TFW_MPS2_DUALTIMER_BASE 0x40002000u
+#define TFW_MPS2_DUALTIMER_IRQ  5
 /* Flash geometry for tfw-boot, as addresses: on this part the regions are not
  * offsets from zero, so TFW_FLASH_TOTAL is the end of the address span both
  * sit in (include/tfw/boot.h asserts they fit below it and do not overlap).

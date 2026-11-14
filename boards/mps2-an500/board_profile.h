@@ -25,7 +25,14 @@
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
+/* The tone (TONE=1, src/hal/cortex-m/mps2/hal_tone.c): LED1, toggled from
+ * TIMER0's interrupt. Off by default: QEMU does not measure the pin. */
+#if defined(TFW_CM_TONE)
+#define TFW_FEATURE_TONE    1
+#else
 #define TFW_FEATURE_TONE    0
+#endif
+#define TFW_TONE_PIN        1u
 #define TFW_FEATURE_EEPROM  1
 /* Pulse timing (src/hal/cortex-m/hal_pulse.c, on SysTick) only in the PULSE=1
  * row (profile.mk): QEMU drives no pin, so the row's wire test sees a timeout. */
@@ -92,6 +99,12 @@
  * 3.7 "SPI" and 3.13 Table 3-6, MISC bit 8, SHIELD0_SPI_nCS. The image does
  * not wire the PL022's own select to the shield. */
 #define TFW_MPS2_SPI_BASE     0x40026000u
+
+/* The CMSDK APB timer TIMER0, the tone's clock: 0x40000000 and interrupt 8
+ * (AN500, Arm DAI 0500B, 3.1 Table 3-1 and the interrupt map). QEMU v10.0.0
+ * hw/arm/mps2.c maps the cmsdk-apb-timer at 0x40000000 with IRQ 8. */
+#define TFW_MPS2_TIMER0_BASE  0x40000000u
+#define TFW_MPS2_TIMER0_IRQ   8
 
 /* Flash geometry for tfw-boot, as addresses: TFW_FLASH_TOTAL is the end of
  * SSRAM1, the span both regions sit in (include/tfw/boot.h asserts they fit

@@ -152,15 +152,28 @@
 /* The M7 agent's SCMI channel to the System Manager and the domains the
  * tamper-response engine's A1 and A2 switch through it (src/hal/cortex-m/imx95/
  * hsm_port.c; docs/hsm-self-defence/m7-design.md section 7, slice 5). Every
- * value is the System Manager configuration's (trusted-imx95's), and no
- * document this project holds gives one: OPEN, docs/multi-arch/imx95-design.md
- * question 21 (and, for the PHYs' domain, hsm-self-defence architecture Q10).
+ * value is the System Manager configuration's.
+ *
+ * Sources (all public NXP):
+ * - imx-sm configs/mx95evk.cfg, LM1 "M7": SCMI_AGENT0 on "MAILBOX type=mu,
+ *   mu=9", a2p channel "db=0, xport=smt, check=crc32"; LM1 owns MU5_A.
+ * - imx-sm devices/MIMX95/include/MIMX95_MU.h, MU_BASE_PTRS: SM index 9 is
+ *   AON__MUI_A5__MUB (the SM's side), index 8 its MUA (ours); the same table
+ *   puts the A55's channel (mu=3) on MUI_A2, 0x445B0000, which is Linux
+ *   imx95.dtsi's scmi mailbox, so the index mapping holds.
+ * - mcux-sdk devices/MIMX9596/MIMX9596_cm7.h: MU5_MUA_BASE 0x44610000.
+ * - The SMT area is the MU's own SRAM at base + 0x1000, 0x80 bytes per
+ *   doorbell (imx-sm mb_mu; Linux imx95.dtsi sram@445b1000, scmi-sram-section
+ *   0x80): doorbell 0 is the first 0x80 bytes.
+ * Every SMT message carries a CRC32 (check=crc32).
+ * The domain ids below stay OPEN, docs/multi-arch/imx95-design.md question
+ * 21 (and, for the PHYs' domain, hsm-self-defence architecture Q10).
  * Zero means unsupported: an action whose id is zero, or any action while the
  * channel is zero, answers TFW_ERR_UNSUPPORTED and sends nothing. */
-#define TFW_IMX95_SCMI_MU_BASE   0x00000000uL   /* the MU's base */
-#define TFW_IMX95_SCMI_SHM_BASE  0x00000000uL   /* the shared memory area's base */
-#define TFW_IMX95_SCMI_SHM_LEN   0u             /* its length in bytes */
-#define TFW_IMX95_SCMI_DOORBELL  0u             /* the MU GCR bit */
+#define TFW_IMX95_SCMI_MU_BASE   0x44610000uL   /* MU5_MUA, M7 side of SM mu=9 */
+#define TFW_IMX95_SCMI_SHM_BASE  0x44611000uL   /* MU5 SRAM, doorbell 0's area */
+#define TFW_IMX95_SCMI_SHM_LEN   0x80u          /* one SMT channel */
+#define TFW_IMX95_SCMI_DOORBELL  0u             /* the MU GCR bit, db=0 */
 
 /* The SAR ADC instance the System Manager gives the M7 (src/hal/cortex-m/
  * imx95/sar_adc.h), open as design questions 13 and 17 are. TO CONFIRM

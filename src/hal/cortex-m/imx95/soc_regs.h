@@ -43,8 +43,8 @@
 #define TFW_IMX95_LPUART_CTRL_TE    0x00080000u
 #define TFW_IMX95_LPUART_CTRL_RE    0x00040000u
 
-/* The board's device tree gives serial@42570000 GIC SPI 64 (A55). That the
- * M7's NVIC line is the same number stays TO CONFIRM. */
+/* The M7's NVIC line of LPUART3: 64 (NXP mcux-sdk devices/MIMX9596/
+ * MIMX9596_cm7.h, LPUART3_IRQn = 64; the A55 device tree's GIC SPI is 64 too). */
 #define TFW_IMX95_LPUART3_IRQ 64u
 
 /* ---- RGPIO: the port registers, offsets from a bank's base */

@@ -32,9 +32,10 @@ import (
 // OTA_ACTIVATE's SUIT manifest gate end to end (#52; docs/ota/architecture.md):
 // tfwsim-manifest is the element tier with src/core/ota_manifest.c linked, and
 // suit-emit is mk/suit.mk's emitter built against the same host board's
-// profile. Both come from `make tfwsim-manifest`; SPEC row ota's tests skip,
-// naming each one, when either is not built (manifestBinaries), and every
-// other launch or run error fails.
+// profile. Both come from `make tfwsim-manifest`, which `make sdk-test` builds
+// first; SPEC row ota's tests fail, naming each one and that target, when
+// either is not built (manifestBinaries), and every other launch or run error
+// fails too.
 var (
 	manifestSim  = simproc.Binary{Name: "tfwsim-manifest", Make: "make tfwsim-manifest"}
 	manifestEmit = simproc.Binary{Name: "suit-emit", Make: "make tfwsim-manifest"}
@@ -51,8 +52,8 @@ const (
 // seeds it), and opens the operator
 // session OTA_ACTIVATE needs; nothing is staged yet, so the chained activate
 // is refused BAD_STATE.
-// manifestBinaries skips the test, naming each of tfwsim-manifest and
-// suit-emit that is not built; a Locate error other than NotBuiltError fails.
+// manifestBinaries fails the test, naming each of tfwsim-manifest and
+// suit-emit that is not built and the make target that builds them; a Locate error other than NotBuiltError fails.
 func manifestBinaries(t *testing.T) {
 	t.Helper()
 	var missing []string
@@ -64,7 +65,7 @@ func manifestBinaries(t *testing.T) {
 		}
 	}
 	if len(missing) > 0 {
-		t.Skipf("not built: %s (make tfwsim-manifest)", strings.Join(missing, ", "))
+		t.Fatalf("not built: %s; build them with make tfwsim-manifest", strings.Join(missing, ", "))
 	}
 }
 

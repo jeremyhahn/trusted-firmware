@@ -103,6 +103,14 @@
 # the shield 0 SBCon, which QEMU models with nothing on its bus, so every
 # address is NACKed.
 #
+#   qemu_wire_test.sh <dir> <machine> <board> tone
+#
+# is the board's tone row (cortex-m-qemu-tone-wire): the base row's tfw-boot
+# and the application built with TONE=1. One boot, tone, runs TestQEMUTone
+# (sdk/go/cmd/tfwctl/tone_qemu_test.go): TONE and NOTONE on the tone pin
+# answer OK and a frequency above the driver's bound is refused. QEMU does not
+# measure the pin.
+#
 #   qemu_wire_test.sh <dir> <machine> <board> pulse
 #
 # is the board's PULSE row (cortex-m-qemu-pulse-wire): the base row's tfw-boot
@@ -118,8 +126,8 @@
 # in the suite is bounded, and the trap kills QEMU on every exit.
 set -eu
 
-usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|pulse]" >&2; exit 2; }
-case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c | 4:pulse) ;; *) usage ;; esac
+usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|tone|pulse]" >&2; exit 2; }
+case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c | 4:tone | 4:pulse) ;; *) usage ;; esac
 dir=$1
 machine=$2
 board=$3
@@ -249,6 +257,8 @@ elif [ "$row" = spi ]; then
     cycle spi TestQEMUSPIXfer
 elif [ "$row" = i2c ]; then
     cycle i2c TestQEMUI2CXfer
+elif [ "$row" = tone ]; then
+    cycle tone TestQEMUTone
 elif [ "$row" = pulse ]; then
     cycle pulse TestQEMUPulseTimeout
 else

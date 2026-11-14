@@ -15,7 +15,10 @@
 
 #include <stdint.h>
 
+/* A host suite may define its own, pointing the registers at a model. */
+#ifndef TFW_CM_REG
 #define TFW_CM_REG(addr) (*(volatile uint32_t *)(uintptr_t)(addr))
+#endif
 
 /* System Control Block. */
 #define TFW_CM_VTOR  TFW_CM_REG(0xE000ED08u)
@@ -56,7 +59,10 @@ static inline void tfw_cm_irq_on(void)  { __asm__ volatile ("cpsie i" ::: "memor
 static inline void tfw_cm_irq_off(void) { __asm__ volatile ("cpsid i" ::: "memory"); }
 
 /* PRIMASK saved and interrupts masked; restored by tfw_cm_irq_restore. The
- * one critical section the UART's transmit start needs. */
+ * critical section of the UART's transmit start and of the MPS2 LED word's
+ * read-modify-write. A host model defining TFW_CM_IRQ_SAVE_MODEL ahead of
+ * this file brings its own pair (test/model/cortex-m/mps2_tone_model.h). */
+#ifndef TFW_CM_IRQ_SAVE_MODEL
 static inline uint32_t tfw_cm_irq_save(void)
 {
     uint32_t primask;
@@ -69,6 +75,7 @@ static inline void tfw_cm_irq_restore(uint32_t primask)
 {
     __asm__ volatile ("msr primask, %0" :: "r" (primask) : "memory");
 }
+#endif
 
 /* A function that runs from SRAM while the flash it would otherwise run from
  * is unreadable: in its own .ramfunc section, which the SoC's linker script

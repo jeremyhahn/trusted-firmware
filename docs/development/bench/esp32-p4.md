@@ -491,8 +491,42 @@ rows below compare their content.
 | 1 | `esptool --port $ESP_PORT chip-id` | `Chip type: ESP32-P4 (revision v3.2)`, `Dual Core + LP Core, 400MHz`, `Crystal frequency: 40MHz` |
 | 1 | `esptool --port $ESP_PORT flash-id` | `Manufacturer: c8`, `Device: 4019`, `Detected flash size: 32MB` |
 | 1 | `espefuse --port $ESP_PORT summary > efuse-before.txt` | every row of "Security eFuses" unchanged: `SECURE_BOOT_EN` False; `SPI_BOOT_CRYPT_CNT` `Disable (0b000)`; `KEY_PURPOSE_0`–`5` `USER`; `SECURE_BOOT_KEY_REVOKE0`–`2` False; `DIS_DOWNLOAD_MODE`, `ENABLE_SECURITY_DOWNLOAD` False; `DIS_PAD_JTAG`, `DIS_USB_JTAG` False, `SOFT_DIS_JTAG` 0; `WR_DIS` 0, `RD_DIS` 0; `SECURE_VERSION` 0 |
+| 2 | ESP-IDF `v5.5.5` from Espressif's tag, `install.sh esp32p4`, then `idf_tools.py install cmake ninja` | `idf.py --version`: `ESP-IDF v5.5.5`; `cmake version 3.30.2`. This lane image has `ensurepip`, so `install.sh` ran as is |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0` (no static-address overlay: none was handed to the lane) | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y`, `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y`, `# CONFIG_TFW_ETH_STATIC_IP is not set` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT erase-region 0x12000 0x5000` | `Flash memory region erased successfully in 0.1 seconds.` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT write-flash 0x2000 … 0x10000 … 0x11000 tfw_plat.bin 0x20000 trusted-firmware.bin` | `Wrote 33264 bytes … at 0x00002000`, `Wrote 3072 bytes … at 0x00010000`, `Wrote 192 bytes … at 0x00011000`, `Wrote 532480 bytes … at 0x00020000`; `Hash of data verified.` after each |
+| 4 | console, UART0 at 115200 for 60 s after one reset (EN through RTS, IO0 high; no break) | `boot: ESP-IDF v5.5.5 2nd stage bootloader`, `chip revision: v3.2`, `SPI Flash Size : 32MB`; **`tfw-l0: app at 0x20000 verified, measurement 399f44833ad52e9246562a3c3971c50a4b8c2bb9dee7fd1aee610b453a71fc0f`**; `tfw-l0: no HMAC_UP key in eFuse: this part has no UDS`; `boot: Loaded app from partition at offset 0x20000`; `App version: xkms/v0.2.0-alpha-214-g139283b6`, this row's first commit; `ethernet attached to netif`, then no address and no link-up line |
+| 4 | `build/esp32/wirecheck … -board 0x80 -tier 0` | **not run**: built, but the board has no address to reach (below) |
+| 5 | `espefuse --port $ESP_PORT summary > efuse-after.txt`; `diff efuse-before.txt efuse-after.txt` | empty diff, exit 0; both files SHA-256 `9453f49f002c4c3169eb878531d98b537d03ead490873e10cc6049d1fb9a0703`: no eFuse moved |
 
-Steps 2 to 5 follow.
+Before the write the board ran an earlier lane's image (`App version`
+`…-gadd2b3b5`, layer 0 `verified`, no link-up line). HIL-0 step 5, the
+restore, was not run: **the board is left on this row's image**, as the plan
+says.
+
+The build's artefacts, as written in step 3. The keys are generated per build
+directory and never committed, so another build has other hashes for all but
+the partition table.
+
+| Artefact | Bytes | SHA-256 |
+|---|---|---|
+| `idf/bootloader/bootloader.bin` | 33 264 | `32492ac4a1e30a1705fd82a2c67f2c21a25494fe735066ee836c0f08887aa9dc` |
+| `idf/partition_table/partition-table.bin` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `tfw_plat.bin` | 192 | `ff32f8f5c14158b4b195fcc3e293e4130e58e165ac9c919f06b520242a46aa0d` |
+| `trusted-firmware.bin` (sealed) | 532 480 | `9b2ab7a0d956ed0be2397b471197688c9b9a83489cdcad52ac7f0eac2b3ef993` |
+| `idf/trusted-firmware.bin` (no trailer, not written) | 528 384 | `ec72ccf034cece501a6f508eb32389a36891a5a1007ba6ed82018780761a0626` |
+
+**Not run: the wire over Ethernet.** The step does not need the board to
+dial the bench host (the board listens on tcp/21574 and `wirecheck` dials
+it), so a published port is not what is missing. What is missing is the
+board's address: the lane was handed no `$HOME/p4-static.defaults` overlay,
+the build fell back to DHCP, and the bench network has no DHCP server, as on
+2026-10-26. The lane's namespace has a route to its bridge and a default
+route only, and no network was scanned. To finish the step: hand the lane
+the board's address and the bench netmask as the overlay of HIL-0 step 2,
+rebuild, repeat step 3, then `wirecheck -addr <address>:21574 -board 0x80
+-tier 0` from a lane whose outbound TCP to the bench block is forwarded, as
+on 2026-10-21.
 
 ## Restore
 

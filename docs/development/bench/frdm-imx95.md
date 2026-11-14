@@ -289,3 +289,71 @@ the M7 slot); `imx-boot-m7.py --show` checks every SHA-384 again.
 
 imx-boot-m7.bin: 8355840 bytes, SHA-256
 `2babcf24c5b1e65a8dce8f00ee3413b5692faa464ed9a9defe14a119e33f285c`.
+
+### 3. Write and read-back
+
+Copied to the board with `scp`; its SHA-256 on the board matched, and the
+device still read as the backup just before the write. Then, from the A55
+Linux:
+
+```
+dd if=imx-boot-m7.bin of=/dev/mmcblk0 bs=512 seek=64 conv=fsync,notrunc   # rc 0
+sync
+dd if=/dev/mmcblk0 bs=512 skip=64 count=16320 iflag=direct | sha256sum   # 2babcf24...f285c, matches
+dd if=/dev/mmcblk0 bs=512 count=64 iflag=direct | sha256sum              # first 32 KiB unchanged (MBR)
+```
+
+### 4. Boot and the M7 console
+
+All four ports were read for the whole of each step; nothing but the one
+command line was sent, and no break.
+
+**Linux `reboot` (A55 console, port 0).** The A55 went through U-Boot SPL,
+U-Boot and Linux to the login prompt, `remoteproc1` attached again. As the
+reset-behaviour section says, this resets the A55 LM only: the M7 kept the
+vendor image, which printed on port 2 `Handle Peer Core Reboot` and
+`Handle Peer Core Linkup`. The ROM did not read the new container.
+
+**System reset (SM monitor `reset`, port 1).** The vendor M7 printed
+`SCMI system notification: graceful=0, state=0x8` and was cut off. The SM
+console then showed the whole boot from the new container:
+
+```
+Reset request: reason=sw, errId=0, srcLm=0
+DDR OEI: (Build 217, Commit e9bce6f4, Jun 16 2026 06:04:20)
+DDR OEI: Compiled for SOC MIMX95(B0), Board mx95lp5
+DDR OEI: done, err = 0
+Hello from SM (Build 896, Commit 44f76dcb, Jun 16 2026 06:04:24)
+```
+
+The A55 reached U-Boot and the Linux login. SM `lm info`: SM, M7, AP all
+`on`; `cpu.r`: `m7p => run-mode = RUN, vector = 0x00000000_00000000`. So
+the ROM and ELE accepted the container, and the SM started LM1 at ITCM 0 on
+our image.
+
+**Port 2 stayed silent** for the 120 s after the reset: our image's boot
+event (`TFW_EVENT_BOOT`, the first frame `main` sends) did not appear.
+Reason, from NXP's FRDM-IMX95 M7 board support (mcuxsdk-examples,
+`_boards/frdmimx95/common/pin_mux/pin_mux.c`, `BOARD_InitPins`): the M7
+console pads, GPIO_IO14 (LPUART3 TX) and GPIO_IO15 (LPUART3 RX), are muxed
+by the M7 image itself at startup, through SCMI pin control to the System
+Manager (`HAL_PinctrlSetPinMux`), which owns the IOMUXC. The vendor image did
+that before the reset; a system reset returns the pads to their default, and
+our image has no SCMI channel (`TFW_IMX95_SCMI_MU_BASE` is 0 in
+`board_profile.h`), so its LPUART3 drives no pad. Also open: the M7 NVIC line
+of LPUART3 (64, TO CONFIRM in `soc_regs.h`), which our transmit path needs.
+
+### 5. Board state after this lane
+
+The eMMC boot container is imx-boot-m7.bin (our M7 image, silent); the
+board boots to Linux as before, the M7 runs our image. To return to the
+vendor image: `dd if=imx-boot-orig.bin of=/dev/mmcblk0 bs=512 seek=64
+conv=fsync,notrunc` from the A55 Linux (the backup is on the board and the
+bench host), then SM `reset`. Not done: the next step only replaces the M7
+image again.
+
+Next (a firmware slice, not a bench one): an SCMI pin-control request at
+startup that muxes GPIO_IO14/15 to LPUART3, which needs the M7 agent's SCMI
+MU and shared memory (board_profile.h, zero today) and the SM's pin ids;
+then the LPUART3 NVIC line confirmed. Then rebuild, rerun
+`imx-boot-m7.py`, write, SM `reset`, read port 2.

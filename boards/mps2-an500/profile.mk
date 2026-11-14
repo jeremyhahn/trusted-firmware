@@ -42,7 +42,7 @@ RAM_TOTAL      := 4194304
 BOOT_AB          ?= 0
 BOOT_AB_OPTIONAL := 1
 BOARD_DEFS        = $(if $(filter 1,$(BOOT_AB)),-DTFW_CM_AB=1) $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
-                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1)
+                    $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1) $(if $(filter 1,$(PULSE)),-DTFW_CM_PULSE=1)
 APP_BASE         := $(if $(filter 1,$(BOOT_AB)),0x00040000,0x00008000)
 RAM_BASE       := 0x20000000
 RAM_END        := 0x203FFFFF
@@ -78,7 +78,15 @@ OTA_STORE      := mem
 # links the bus; SPI_XFER's select is pin 2, the FPGA I/O block's MISC bit 8
 # (board.c). The soft:SPI=1 row builds it and size-check measures it, as
 # mps2-an505's does.
+#
+# Pulse timing (PULSE_IN, PULSE_CAPTURE) on SysTick, src/hal/cortex-m/
+# hal_pulse.c, off by default: QEMU drives no pin, so nothing can be measured.
+# PULSE=1 turns TFW_FEATURE_PULSE on (TFW_CM_PULSE in board_profile.h) and
+# links the timer; the soft:PULSE=1 row builds it, size-check measures it, and
+# its QEMU wire row checks that PULSE_IN on an undriven pin times out, as
+# mps2-an505's does.
 I2C               ?= 0
 SPI               ?= 0
-BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI)
-BOARD_ROWS        := soft:I2C=1 soft:SPI=1
+PULSE             ?= 0
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) $(if $(filter 1,$(PULSE)),PULSE)
+BOARD_ROWS        := soft:I2C=1 soft:SPI=1 soft:PULSE=1

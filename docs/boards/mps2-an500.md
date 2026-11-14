@@ -58,10 +58,10 @@ the span both regions sit in (`board_profile.h:57`).
 |---|---|---|
 | Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select | `board_profile.h:20`; `board.c:23`–`31` |
 | Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
-| PWM, ADC, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
-| EEPROM | on, 4 KiB: the platform window, addressed from its own zero; tfw-boot's span `[0x000, 0x140)` is refused to `EEPROM_WRITE` (the confirm request aside), the user span is `[0x140, 0x1000)`, and a span past the window is `RANGE`. RAM under QEMU: a write survives a `system_reset`, not a new QEMU process. The same on `mps2-an505` | `board_profile.h:23`, `:29`; `src/hal/cortex-m/hal_eeprom.c`; `src/caps/storage.c` |
-| I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:31`–`46` |
-| Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off here. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads, and builds on any Cortex-M; `mps2-an505` links it in its `soft:PULSE=1` row, whose QEMU wire row (`TestQEMUPulseTimeout`) checks that a pin QEMU does not drive times out. This board could take the same row | `board_profile.h` `TFW_FEATURE_PULSE`; `mk/firmware.mk` `PULSE_SRCS` |
+| PWM, ADC, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`28`, `:53` |
+| EEPROM | on, 4 KiB: the platform window, addressed from its own zero; tfw-boot's span `[0x000, 0x140)` is refused to `EEPROM_WRITE` (the confirm request aside), the user span is `[0x140, 0x1000)`, and a span past the window is `RANGE`. RAM under QEMU: a write survives a `system_reset`, not a new QEMU process. The same on `mps2-an505` | `board_profile.h:24`, `:29`; `src/hal/cortex-m/hal_eeprom.c`; `src/caps/storage.c` |
+| I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:37`–`52` |
+| Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off by default, on in the `soft:PULSE=1` row, as on `mps2-an505`. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads; the row links it on the Cortex-M7 and size-check measures it, and its QEMU wire row (`cortex-m-qemu-pulse-wire`, `TestQEMUPulseTimeout`) checks that `PULSE_IN` and `PULSE_CAPTURE` on a pin QEMU does not drive time out | `board_profile.h:30`–`36`; `profile.mk` `PULSE`, `BOARD_ROWS`; `mk/firmware.mk` `PULSE_SRCS` |
 
 ## Buses
 

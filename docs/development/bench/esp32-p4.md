@@ -666,15 +666,49 @@ placeholders for the real values, which stay off the tree). The plan:
 5. `espefuse summary` after; the diff against step 1 must be empty. No eFuse
    is burned.
 
-**Not run: the lane image has no ESP tools.** The lane had the board's by-id
-port (group `dialout`) but no `esptool`, `espefuse` or `idf.py` on its
-`PATH`, no `esptool` Python module and no ESP-IDF tree. The brief forbids
-installing tools from the lane, so steps 1 to 5 were not run: no flash
-write, no `espefuse` command and no port access at all. The board is still on
-[row 48's image](#row-48-flash-layer-0-boot-check-wire-over-ethernet-2026-11-14)
-with no address, and its eFuses are as recorded there. To finish the step: a
-device lane image with esptool / espefuse v5.6.0 and ESP-IDF `v5.5.5` (with
-cmake and ninja), then the plan above unchanged.
+The first session of this lane found no ESP tools in the lane image and
+stopped there. On resume, esptool / espefuse v5.6.0 went into a venv in the
+lane's home, and ESP-IDF `v5.5.5` (Espressif's tag, `install.sh esp32p4`,
+then `idf_tools.py install cmake ninja`) into the lane's home too, so nothing
+was installed on the host. The overlay is `build/p4wire/p4-static.defaults`
+(gitignored). The Kconfig has no DNS option, and the wire check does not need
+one. Writes were the one erase region and the four images of step 3. No
+eFuse was written, and no `espefuse` command other than `summary` was run.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `espefuse --port $ESP_PORT summary > efuse-before.txt` | every row of "Security eFuses" unchanged: `SECURE_BOOT_EN` False, `SPI_BOOT_CRYPT_CNT` `Disable (0b000)`, `KEY_PURPOSE_0` `USER`, `DIS_DOWNLOAD_MODE` False, `WR_DIS` 0, `RD_DIS` 0, `SECURE_VERSION` 0 |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA="boards/esp32p4-poe/sdkconfig.hil0 <overlay>"` | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y`, `CONFIG_TFW_ETH_STATIC_IP=y`, `CONFIG_TFW_ETH_IP_ADDR="192.0.2.80"`, `CONFIG_TFW_ETH_NETMASK="255.255.255.0"`, `CONFIG_TFW_ETH_GATEWAY="192.0.2.1"` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT erase-region 0x12000 0x5000` | `Flash memory region erased successfully in 0.1 seconds.` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT write-flash 0x2000 … 0x10000 … 0x11000 tfw_plat.bin 0x20000 trusted-firmware.bin` | exit 0; four `Hash of data verified.` |
+| 3 | console, UART0 at 115200 for 120 s after one reset (EN through RTS, IO0 high) | `boot: ESP-IDF v5.5.5 2nd stage bootloader`, `chip revision: v3.2`, `SPI Flash Size : 32MB`, the seven-partition table from `0x11000`; **`tfw-l0: app at 0x20000 verified, measurement d807cbe2a66ca1247486d40dee24d88ff45fe22dcbb3682ba8312be749d9ac81`**; `tfw-l0: no HMAC_UP key in eFuse: this part has no UDS`; `boot: Loaded app from partition at offset 0x20000`; `App version: xkms/v0.2.0-alpha-255-ge41807f7`; `ethernet attached to netif`; `eth ip: 192.0.2.80, mask: 255.255.255.0, gw: 192.0.2.1`; **`tfw-eth: link up, address 192.0.2.80, wire on tcp/21574`**, 2.0 s after `app_main()`, the overlay's address; after the check, `tfw-wire: the host closed the connection` |
+| 4 | `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0`, from the lane, 40 s after the reset | **pass**, exit 0 (below) |
+| 5 | `espefuse --port $ESP_PORT summary > efuse-after.txt`; `diff efuse-before.txt efuse-after.txt` | one line differs, line 3, esptool's connection progress dots (`..` before, `.` after); no eFuse line differs. `efuse-after.txt` is SHA-256 `9453f49f002c4c3169eb878531d98b537d03ead490873e10cc6049d1fb9a0703`, byte-identical to the after-write summaries of 2026-11-13 and of the row 48 flash above: **no eFuse moved** |
+
+The `wirecheck` transcript, the address replaced by its placeholder:
+
+```text
+wirecheck: ping echoed over tcp 192.0.2.80:21574
+wirecheck: caps proto 2.0 fw 0.1.0 board 0x80 pins 17 tier 0 features 0x000007ff
+wirecheck: sysinfo uptime 39.284s free-ram 538152 reset-cause 1
+wirecheck: none tier: no P-256 in CAPS, ATTEST refused (unsupported)
+wirecheck: ok
+```
+
+The build's artefacts, as written in step 3 (keys per build directory, so all
+but the partition table differ from the earlier builds'):
+
+| Artefact | Bytes | SHA-256 |
+|---|---|---|
+| `idf/bootloader/bootloader.bin` | 33 264 | `c7229b0164ebfdd9f0e2c93df7fa67ff9fe567f68e760a5ba3c8ab9bec05a9f8` |
+| `idf/partition_table/partition-table.bin` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `tfw_plat.bin` | 192 | `ccb7fafe1a3783b01ad9d363d247fc9d1fc7a36914b31cc1e96b6b4b423da2cb` |
+| `trusted-firmware.bin` (sealed) | 532 480 | `2075934f9a89646ea0c3689b228a0e235142e86454876b08f5b1611db0f58ba6` |
+
+The boot log, the two summaries and the wirecheck output stay outside the tree
+(they carry the part's MAC and the real address). HIL-0 step 5, the restore,
+was not run: **the board is left on this image, up at its static address on
+the development VLAN.**
 
 ## Restore
 

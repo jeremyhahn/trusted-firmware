@@ -219,6 +219,30 @@ static void test_data_nack_stops_the_write(void)
     TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.stops);
 }
 
+/* Another master's STOP while the last byte still waits is not the end of
+ * the write: the driver waits for its own STOP, here a NACK of that byte. */
+static void test_another_masters_stop_does_not_end_the_write(void)
+{
+    const uint8_t wr[] = { 0x01u, 0x02u };
+
+    rp_i2c.late_stop    = 1u;
+    rp_i2c.nack_data_at = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_NACK, xfer(0x60u, wr, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_STRING(" S C0 01 [P] 02 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_UINT8(0u, rp_i2c.held);
+}
+
+static void test_after_another_masters_stop_the_write_ends_on_its_own(void)
+{
+    const uint8_t wr[] = { 0x01u, 0x02u };
+
+    rp_i2c.late_stop = 1u;
+    TEST_ASSERT_EQUAL(TFW_OK, xfer(0x60u, wr, 2u, NULL, 0u));
+    TEST_ASSERT_EQUAL_STRING(" S C0 01 [P] 02 P", rp_i2c_log());
+    TEST_ASSERT_EQUAL_UINT8(2u, rp_i2c.dev_rx_n);
+    TEST_ASSERT_EQUAL_UINT32(1u, rp_i2c.stops);
+}
+
 static void test_abort_without_a_stop_is_ended_by_abort(void)
 {
     const uint8_t wr[] = { 0x01u };
@@ -304,6 +328,8 @@ int main(void)
     RUN_TEST(test_address_nack_on_write);
     RUN_TEST(test_address_nack_on_read);
     RUN_TEST(test_data_nack_stops_the_write);
+    RUN_TEST(test_another_masters_stop_does_not_end_the_write);
+    RUN_TEST(test_after_another_masters_stop_the_write_ends_on_its_own);
     RUN_TEST(test_abort_without_a_stop_is_ended_by_abort);
     RUN_TEST(test_stuck_bus_times_out_and_aborts);
     RUN_TEST(test_stuck_bus_on_read_times_out);

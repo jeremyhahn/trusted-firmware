@@ -93,6 +93,14 @@ static void command(uint32_t v)
     if (rp_i2c.stuck) {
         return;
     }
+    if (rp_i2c.late_stop && (v & TFW_RP_IC_DATA_CMD_STOP)) {
+        logf_(" [P]");                  /* not ours: the FIFO is empty, the command waits */
+        rp_i2c.raw      |= TFW_RP_IC_INTR_STOP_DET;
+        rp_i2c.late_stop = 0u;
+        rp_i2c.held      = 1u;
+        rp_i2c.held_cmd  = v;
+        return;
+    }
     if (!rp_i2c.in_txn || (v & TFW_RP_IC_DATA_CMD_RESTART) || is_read != rp_i2c.dir_read) {
         logf_(rp_i2c.in_txn ? " Sr" : " S");
         log_byte("", (uint8_t)((rp_i2c.tar << 1) | is_read));
@@ -142,10 +150,14 @@ static uint32_t view(uint32_t a)
     case 0x040u: case 0x054u: case 0x060u: return RD_MARK;
     case 0x06Cu: return rp_i2c.enable;
     case 0x070u:
+        if (rp_i2c.held && ++rp_i2c.held_polls >= 3u) {
+            rp_i2c.held = 0u;
+            command(rp_i2c.held_cmd);
+        }
         return TFW_RP_IC_STATUS_TFNF |
                (rp_i2c.stuck ? 0u : TFW_RP_IC_STATUS_TFE) |
                (rp_i2c.rx_n ? TFW_RP_IC_STATUS_RFNE : 0u) |
-               ((rp_i2c.stuck || rp_i2c.in_txn) ? TFW_RP_IC_STATUS_MST_ACTIVITY : 0u);
+               ((rp_i2c.stuck || rp_i2c.in_txn || rp_i2c.held) ? TFW_RP_IC_STATUS_MST_ACTIVITY : 0u);
     case 0x080u: return rp_i2c.abrt_src;
     case 0x09Cu:
         return ((rp_i2c.enable & TFW_RP_IC_ENABLE_ENABLE) || rp_i2c.never_idle) ? 1u : 0u;

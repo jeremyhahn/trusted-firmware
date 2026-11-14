@@ -23,7 +23,10 @@
  * FIFOs (§12.2.17 table 1119, TX_ABRT); [RP-DS] does not say in so many
  * words that it then issues a STOP, so the driver waits for STOP_DET and, if
  * none comes, sets IC_ENABLE.ABORT, which does (§12.2.10.4). A timeout does
- * the same, then disables the block, so the next call starts from idle.
+ * the same, then disables the block, so the next call starts from idle. A
+ * transfer is done only at STOP_DET with the TX FIFO empty and the master
+ * idle: STOP_DET is any STOP on the bus, so another master's would otherwise
+ * end a write as a success before its last byte was sent (wait_done).
  *
  * Not run on a board: built and host-tested only (docs/boards/rp2350-pico2w.md).
  */
@@ -64,6 +67,33 @@ static uint32_t wait_intr(uint32_t mask)
 
         if (raw != 0u) {
             return raw;
+        }
+    }
+    return 0u;
+}
+
+/* The end of a transfer: TX_ABRT, or STOP_DET with the TX FIFO empty and the
+ * master idle. STOP_DET alone is any STOP on the bus, another master's too,
+ * and TFE is set once the last command leaves the FIFO, before it is on the
+ * wire; only an idle master with nothing queued has sent ours. 0 past the
+ * bound. */
+static uint32_t wait_done(void)
+{
+    uint32_t n;
+
+    for (n = 0u; n < TFW_RP_I2C_POLLS; n++) {
+        uint32_t raw = TFW_RP_IC_RAW_INTR_STAT &
+                       (TFW_RP_IC_INTR_TX_ABRT | TFW_RP_IC_INTR_STOP_DET);
+
+        if ((raw & TFW_RP_IC_INTR_TX_ABRT) != 0u) {
+            return raw;
+        }
+        if (raw != 0u &&
+            (TFW_RP_IC_STATUS & (TFW_RP_IC_STATUS_TFE | TFW_RP_IC_STATUS_MST_ACTIVITY)) ==
+                TFW_RP_IC_STATUS_TFE) {
+            /* read again: an abort that ended the transfer came with it */
+            return TFW_RP_IC_RAW_INTR_STAT &
+                   (TFW_RP_IC_INTR_TX_ABRT | TFW_RP_IC_INTR_STOP_DET);
         }
     }
     return 0u;
@@ -193,7 +223,7 @@ tfw_status_t tfw_hal_i2c_xfer(uint8_t addr7, const uint8_t *wr, uint8_t wlen,
         }
     }
 
-    raw = wait_intr(TFW_RP_IC_INTR_TX_ABRT | TFW_RP_IC_INTR_STOP_DET);
+    raw = wait_done();
     if (raw == 0u) {
         return abandon();
     }

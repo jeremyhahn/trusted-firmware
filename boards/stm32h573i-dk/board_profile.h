@@ -76,19 +76,23 @@
 #define TFW_CM_PLATFORM_BASE  0x080FE000uL
 #define TFW_CM_PLATFORM_SIZE  0x00002000uL
 
-/* The application's own EEPROM: the 8 KiB sector directly below the platform
- * block's (bank 1's sector 126), one erase unit of its own, so a write to it
- * never erases tfw-boot's sector (src/hal/cortex-m/stm32h5/hal_eeprom.c). The
- * sector is TFW_H5_FLASH_SECTOR (stm32h5xx_hal_flash_ex.h's FLASH_SECTOR_SIZE,
- * src/hal/cortex-m/stm32h5/soc_regs.h). No slot, budget or record of
- * profile.mk reaches it: the application slot ends at 0x08028000, and the
- * linker script (mk/arch/cortex-m/stm32h5.ld) places nothing outside the
- * slot. */
-#define TFW_CM_USER_EE_BASE   (TFW_CM_PLATFORM_BASE - TFW_CM_USER_EE_SIZE)
+/* The application's own EEPROM: bank 2's last 8 KiB sector (sector 127 of
+ * bank 2), one erase unit of its own, so a write to it never erases tfw-boot's
+ * sector (src/hal/cortex-m/stm32h5/hal_eeprom.c). It is in the bank the code
+ * does not run from: the H5 reads one bank while it erases or programs the
+ * other, so the application keeps fetching from bank 1 through the erase and
+ * SysTick's interrupt keeps counting time. A sector in bank 1 would stall
+ * every fetch for the erase, and the ticks of the stall would be lost (Codex
+ * P1 on #394). The sector is TFW_H5_FLASH_SECTOR (stm32h5xx_hal_flash_ex.h's
+ * FLASH_SECTOR_SIZE, src/hal/cortex-m/stm32h5/soc_regs.h). No slot, budget or
+ * record of profile.mk reaches it: the application slot ends at 0x08028000,
+ * and the linker script (mk/arch/cortex-m/stm32h5.ld) places nothing outside
+ * the slot. */
+#define TFW_CM_USER_EE_BASE   (TFW_FLASH_TOTAL - TFW_CM_USER_EE_SIZE)
 #define TFW_CM_USER_EE_SIZE   0x00002000uL
 
-_Static_assert(TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE == TFW_CM_PLATFORM_BASE,
-               "the user EEPROM sector does not end at the platform block");
+_Static_assert(TFW_CM_USER_EE_BASE >= 0x08100000uL,
+               "the user EEPROM sector is not in bank 2, the bank the code does not run from");
 _Static_assert(TFW_CM_USER_EE_BASE >= TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE,
                "the user EEPROM sector overlaps the application slot");
 

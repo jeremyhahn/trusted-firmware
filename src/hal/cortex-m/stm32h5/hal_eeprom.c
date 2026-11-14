@@ -11,8 +11,9 @@
  *                                        the whole confirm request, which keeps
  *                                        the generic file's store
  *   [TFW_BOOT_EE_LEN, TFW_EEPROM_SIZE)   the user sector, TFW_CM_USER_EE_BASE
- *                                        (board_profile.h), the 8 KiB sector
- *                                        directly below the platform block's
+ *                                        (board_profile.h), bank 2's last 8 KiB
+ *                                        sector, so its erase runs while the
+ *                                        code keeps fetching from bank 1
  *
  * A write to the user sector goes through tfw-boot's flash helper,
  * tfw_cm_boot_flash_write (boot/hal/cortex-m/stm32h5/boot_flash.c, over

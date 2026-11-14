@@ -194,9 +194,17 @@ void tearDown(void)
     }
 }
 
-static void test_the_user_sector_is_the_one_below_the_platform_block(void)
+/* Codex P1 on #394: an erase in the bank the code runs from stalls every
+ * fetch, so SysTick's ticks of the stall are lost. The user sector is bank 2's
+ * last, the bank the image never runs from (bank 1 holds tfw-boot, the slot
+ * and the platform block), so the erase is read-while-write. */
+static void test_the_user_sector_is_bank_2s_last(void)
 {
-    TEST_ASSERT_EQUAL_HEX32(TFW_CM_PLATFORM_BASE - TFW_H5_FLASH_SECTOR, TFW_CM_USER_EE_BASE);
+    TEST_ASSERT_EQUAL_HEX32(TFW_H5_FLASH_MEM + 2u * TFW_H5_FLASH_BANK_SIZE - TFW_H5_FLASH_SECTOR,
+                            TFW_CM_USER_EE_BASE);
+    TEST_ASSERT_TRUE(TFW_CM_USER_EE_BASE >= TFW_H5_FLASH_MEM + TFW_H5_FLASH_BANK_SIZE);
+    TEST_ASSERT_TRUE(TFW_CM_PLATFORM_BASE < TFW_H5_FLASH_MEM + TFW_H5_FLASH_BANK_SIZE);
+    TEST_ASSERT_TRUE(TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE <= TFW_H5_FLASH_MEM + TFW_H5_FLASH_BANK_SIZE);
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_FLASH_SECTOR, TFW_CM_USER_EE_SIZE);
     TEST_ASSERT_EQUAL_UINT(TFW_BOOT_EE_LEN + TFW_CM_USER_EE_SIZE, TFW_EEPROM_SIZE);
 }
@@ -373,7 +381,7 @@ int main(void)
         return 1;
     }
     UNITY_BEGIN();
-    RUN_TEST(test_the_user_sector_is_the_one_below_the_platform_block);
+    RUN_TEST(test_the_user_sector_is_bank_2s_last);
     RUN_TEST(test_a_round_trip_past_the_span);
     RUN_TEST(test_an_overwrite_rewrites_the_user_sector_and_keeps_its_other_bytes);
     RUN_TEST(test_the_last_byte_lands_and_one_past_it_is_range);

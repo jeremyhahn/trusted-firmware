@@ -534,7 +534,7 @@ or eFuse command reached the board. Next: either the owner accepts the
 puts the factory image back so the whole-flash check can be equal; then HIL-0
 from step 2.
 
-The coordinator's ruling: this re-read, the 2026-10-26 image
+Coordinator decision under ruling 109 (row-48 resume brief): this re-read, the 2026-10-26 image
 (`e0331d2a…1936`), is the before record for HIL-0; the factory image
 (`c2d4ac0f…fde0`) stays the restore image.
 
@@ -568,7 +568,27 @@ so all but the partition table differ from 2026-10-26's):
 | `trusted-firmware.bin` (sealed) | 532 480 | `849f443952f33f7f4a28fe976c7d954f0a35282fb24888cf61f83d3fc894235f` |
 
 The boot log and the after-write summary are in the record directory with
-the re-read's files, under the same `SHA256SUMS`.
+the re-read's files, under the same `SHA256SUMS`:
+
+| Record | Bytes | SHA-256 |
+|---|---|---|
+| `p4-boot-hil0.log`, 60 s of UART0 after one reset | 4 523 | `715fd4abe4dd4e481af29339510c49ca9f2431eb88d6e6a72721a895ad0894f9` |
+| `p4-efuse-summary-after.txt`, `espefuse summary` after the writes | 29 336 | `9453f49f002c4c3169eb878531d98b537d03ead490873e10cc6049d1fb9a0703` |
+
+**Identity check, 2026-11-14.** `esptool chip-id` (`ESP32-P4 (revision
+v3.2)`) and `espefuse summary` only, no flash read and no eFuse dump. The
+summary is byte-identical to the after-write one above (`9453f49f…0703`), so
+every row of [Security eFuses](#security-efuses) is as before HIL-0.
+`sha256sum -c SHA256SUMS` passes over every file in the record directory,
+the boot log and both checks' files included.
+
+**The CA's read-only factory-state capture**, 2026-11-14 01:0xZ, is the
+independent record of this board: revision v3.2, all eFuses blank, the board
+running trusted-firmware `xkms/v0.2.0-alpha-214` with the `tfw_*`
+partitions, read with esptool 5.6 (esptool 4.7 hangs on this chip). Its
+record files and their SHA-256 values are kept with the CA's bench record,
+not in this tree, and were not handed to this lane; the check above agrees
+with each fact it states.
 
 **Still open: the network.** CAPS over Ethernet needs the board's address in a
 static-address overlay (step 2), a rebuild, step 3's writes and step 4's

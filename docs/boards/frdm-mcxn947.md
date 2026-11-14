@@ -28,6 +28,26 @@ that no pinned file states is written **not confirmed**.
 | Debug UART pins | P1_8 = FC4_P0, P1_9 = FC4_P1, both pin function 2 (`kPORT_MuxAlt2`) with the input buffer on; PORT1 clocked first. Which of P0/P1 is RX in LPUART mode is **not confirmed** | SDK `hello_world` `pin_mux.c` lines 46, 49, 68, 105-107, 113-114, 128-130, 136-137 |
 | LEDs | red P0_10, green P0_27, blue P1_2 | SDK `board.h` (`BOARD_LED_*`) |
 | Buttons | SW2 P0_23, SW3 P0_6 | SDK `board.h` (`BOARD_SW*`) |
+| I2C bus | LPI2C2 on LP_FLEXCOMM2, FRO12M; P4_0 = SDA (FC2_P0), P4_1 = SCL (FC2_P1), pin function 2, open drain, pull-up, input buffer on; PORT4 clocked first. Which board header carries them is **not confirmed** | SDK `lpi2c/polling_b2b/master` `pin_mux.c` lines 136, 147-159, 170-182; device header |
+| PWM | Pin 0, the red LED's P0_10, as CT0_MAT0 (pin function 4, `kPORT_MuxAlt4`): CTIMER0 in PWM mode, match 3 the period (reset on MR3, 255 counts), match 0 the duty as `255 - duty`, PR 46 from FRO12M (clock select 4, divide 1): 8-bit duty at 1001 Hz. The match output is low until the match, so duty 0 (MR0 255, past MR3) never matches and is low, duty 255 (MR0 0) is high all cycle. The LED is active low: a high duty is a dim LED. Configured on first write; a stop returns the pin to a GPIO output at 0 and stops the timer. **Built and host-tested on a register model, not run on the board** | SDK `simple_pwm` `pin_mux.c` lines 51, 82-83, 90-91; device header (`CTIMER_Type`, `CTIMER0_BASE`, `SYSCON` `CTIMERCLKSEL`, `CTIMERCLKDIV`, `CTIMERGLOBALSTARTEN`, `AHBCLKCTRL1`/`PRESETCTRL1` `TIMER0`); `fsl_clock.h` (`kFRO12M_to_CTIMER0`); `fsl_ctimer.c` (`CTIMER_Init`, `CTIMER_SetupPwmPeriod`) |
+
+## Tone
+
+`TFW_FEATURE_TONE` is on: board pin 5, P3_19, the mikroBUS socket's PWM
+pin, carries the tone.
+
+| | | Source |
+|---|---|---|
+| Header pin | P3_19 is the mikroBUS socket's PWM pin (`MIKROBUS_PWM`, `&gpio3 19`). P3_2, the pin the SDK's `simple_match_interrupt` example takes CT4_MAT0 on, is on neither the mikroBUS nor the Arduino header map, so the tone does not use it | Zephyr `boards/nxp/frdm_mcxn947/frdm_mcxn947.dtsi` (zephyr `20141949`), `mikrobus_header` lines 75-92, line 86; `arduino_header` lines 94-119 |
+| Pin | P3_19 as CT2_MAT1, CTIMER2 match 1, pin function 4 with the input buffer on; PORT3 clocked with the board's other banks (`hal_soc.c`). `TFW_TONE_PIN` 5, `TFW_MCXN_TONE_PIN_FN` 4 in `boards/frdm-mcxn947/board_profile.h` | NXP `MCXN947VDF-pinctrl.h` (hal_nxp `94438e50`, generated from the MCXN947VDF signal configuration): `CT2_MAT1_PIO3_19 N9X_MUX('3',19,4)` line 833, `N9X_MUX` lines 11-14 |
+| Timer | CTIMER2 in timer mode, prescaler 0, FRO12M at divide 1; match 1 at half the period resets the counter (MCR MR1R) and toggles CT2_MAT1 (EMR EMC1), so no CPU is in the loop. CTIMER0 stays the PWM's. One tone at a time; a stop holds the counter in reset and returns the pin to a GPIO output at 0 | `src/hal/cortex-m/mcxn94x/hal_tone.c`, `ctimer_tone.h`; device header (`CTIMER_Type`, `CTIMER2_BASE`, `CTIMER_MCR_MR1R`, `CTIMER_EMR_EMC1`, `SYSCON_AHBCLKCTRL1_TIMER2`, `SYSCON_PRESETCTRL1_TIMER2_RST`, `SYSCON_CTIMERGLOBALSTARTEN_CTIMER2_CLK_EN`) |
+| Status | **Host-tested, not run on a board**: `test_mcxn94x_tone` runs the register sequence against a register model | |
+
+### Outstanding checks
+
+1. **To confirm on the board**: a tone measured on the mikroBUS PWM pin, and
+   in UM12018's schematic that nothing else on the board drives or loads
+   P3_19 (Zephyr's `pinmux_sai1` also names it, as SAI1_RX_FS).
 
 ## What the port does not do
 
@@ -44,14 +64,40 @@ that no pinned file states is written **not confirmed**.
   their place in the map is not cited. Steps:
   [`../cortex-m/README.md`](../cortex-m/README.md).
 
+## I2C bus
+
+`make firmware BOARD=frdm-mcxn947 I2C=1` adds `-DTFW_CM_I2C=1`, which turns
+`TFW_FEATURE_I2C` on and links `src/hal/cortex-m/mcxn94x/hal_bus.c`: a polled
+LPI2C master on LP_FLEXCOMM2. The row is `soft:I2C=1` in `profile.mk`
+`BOARD_ROWS`. SPI and 1-Wire return `TFW_ERR_UNSUPPORTED`.
+
+**Built, not run.** The row builds and its sequence is tested against a
+register model (`test/unit/test_mcxn_lpi2c.c`); no board has carried an I2C
+element.
+
+- Clock: the 12 MHz FRO through `FCCLKSEL2` and `FLEXCOMMCLKDIV2`, as the
+  debug UART does. `lpi2c_timing.c` is the SDK's `LPI2C_MasterSetBaudRate`
+  (FILTSCL 0) in 32-bit arithmetic: 100 kHz is prescale 0, CLKLO 61,
+  CLKHI 55. A rate it cannot time within 5% is refused.
+- Status: NACK on the address or a data byte is `TFW_ERR_NACK`; a bus another
+  master holds is `TFW_ERR_TIMEOUT` without a START; arbitration lost is
+  `TFW_ERR_BUSY`. Every transfer that reached the bus ends with a STOP, after
+  the SDK's error recovery (flags cleared, FIFOs reset).
+
 ## tfw-boot
 
 The boot row is `frdm-mcxn947:soft:soft:p256-soft:0:0` in `mk/boot.mk`
 `BOOT_SUPPORTED`: the software DICE root, the soft store, P-256 signature
-verify, the 32 KB boot region every Cortex-M row uses. Whether the image fits
-its region is measured by `make bootloader-check`, which needs the ARM
-toolchain; the lane that added the row had none, so the fit is **not yet
-measured**.
+verify, the 32 KB boot region every Cortex-M row uses. The fit is
+measured by `make bootloader` for that row (`mk/boot.mk`, `boot-size-check`):
+
+```
+tfw-boot frdm-mcxn947 flash   8492 / 32768    ram  8516 / 319488 (soft tier, p256-soft)
+```
+
+Flash is 8492 of the 32768-byte region, 24276 bytes (74%) of headroom; RAM is
+8516 of 319488 bytes, 310972 bytes of headroom. Measured at commit `48d85486`
+with arm-none-eabi-gcc 14.2.1 20241119 (Arm GNU Toolchain 14.2.Rel1).
 
 **UART.** `boot/hal/cortex-m/mcxn94x/boot_uart.c` drives LPUART4 on the
 application's pins at the same 12 MHz FRO, polled, no interrupt enabled. The
@@ -113,3 +159,6 @@ runs an image:
    without an ECC fault is not in a pinned file, and tfw-boot's
    read-modify-write depends on it as much as the application does: reference
    manual, FMU chapter.
+7. **I2C header: open.** P4_0/P4_1 as SDA/SCL with function 2 is the SDK
+   example's `pin_mux.c`. Which header pins they reach, and whether the board
+   fits pull-ups, is not in a pinned file: UM12018, board schematic.

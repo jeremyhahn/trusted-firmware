@@ -21,13 +21,13 @@
 #define TFW_PORT_COUNT 2u      /* the FPGA I/O block's LED and MISC registers */
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
-#define TFW_EEPROM_SIZE 0u
+#define TFW_EEPROM_SIZE TFW_CM_PLATFORM_SIZE  /* the platform window: src/hal/cortex-m/hal_eeprom.c */
 
 #define TFW_FEATURE_ANALOG  0
 #define TFW_FEATURE_PWM     0
 #define TFW_FEATURE_TONE    0
 #define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_EEPROM  1
 /* I2C over the shield 0 SBCon (src/hal/cortex-m/mps2/hal_bus.c) only in the
  * I2C=1 row (profile.mk): no element is on this board, and QEMU puts no device
  * on the bus, so the row's image is the soft root's with the bus linked. */

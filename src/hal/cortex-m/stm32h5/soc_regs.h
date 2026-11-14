@@ -18,6 +18,7 @@
  *   GPIOx   banks A to I, one 1 KiB block each from GPIOA
  *   USART1  the byte link (the board's ST-LINK Virtual COM port)
  *   IWDG    the independent watchdog, clocked by the LSI
+ *   TIM5    the PWM's timer (hal_pwm.c)
  */
 #ifndef TFW_CM_STM32H5_REGS_H
 #define TFW_CM_STM32H5_REGS_H
@@ -34,6 +35,14 @@
 #define TFW_H5_RCC_CR_HSIDIV   (0x3u << 3)    /* HSI / 2^HSIDIV */
 #define TFW_H5_RCC_CR_HSIDIVF  (0x1u << 5)    /* the divider has switched */
 #define TFW_H5_RCC_APB2ENR_USART1EN (0x1u << 14)
+
+/* The ADC's bus clock and its kernel clock (RCC_TypeDef CCIPR5 at 0xE8;
+ * RCC_AHB2ENR_ADCEN, RCC_CCIPR5_ADCDACSEL). ADCDACSEL 0 is the AHB clock,
+ * HCLK (stm32h5xx_ll_rcc.h LL_RCC_ADCDAC_CLKSOURCE_HCLK), so no PLL starts. */
+#define TFW_H5_RCC_CCIPR5      TFW_CM_REG(TFW_H5_RCC_BASE + 0xE8u)
+#define TFW_H5_RCC_AHB2ENR_ADCEN    (0x1u << 10)
+#define TFW_H5_RCC_CCIPR5_ADCDACSEL (0x7u << 0)
+#define TFW_H5_RCC_ADCDACSEL_HCLK   0x0u
 
 /* ---- FLASH interface, AHB1PERIPH_BASE_NS + 0x2000 */
 #define TFW_H5_FLASH_ACR       TFW_CM_REG(0x40022000u)
@@ -119,6 +128,144 @@
 #define TFW_H5_VCP_TX_PIN      9u
 #define TFW_H5_VCP_RX_PIN      10u
 #define TFW_H5_VCP_AF          7u
+
+/* ---- I2C4, APB3PERIPH_BASE_NS + 0x2C00 (I2C4_BASE_NS; APB3PERIPH_BASE_NS is
+ * PERIPH_BASE_NS + 0x04000000). The instance ST's BSP drives on the kit, on
+ * PB8 SCL and PB9 SDA, alternate function 6, open drain with the pull-up on
+ * (stm32h573i_discovery_bus.h BUS_I2C4_*, stm32h573i_discovery_bus.c
+ * I2C4_MspInit; GPIO_AF6_I2C4 in stm32h5xx_hal_gpio_ex.h). The register
+ * offsets are I2C_TypeDef's, the bits the header's I2C_CR1_*, I2C_CR2_*,
+ * I2C_ISR_* and I2C_ICR_*. Its kernel clock is PCLK3 out of reset
+ * (RCC_CCIPR4 I2C4SEL 0, LL_RCC_I2C4_CLKSOURCE_PCLK3 in stm32h5xx_ll_rcc.h),
+ * the 64 MHz HSI undivided (hal_soc.c). */
+#define TFW_H5_I2C4_BASE       0x44002C00u
+#define TFW_H5_I2C_CR1         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x00u)
+#define TFW_H5_I2C_CR2         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x04u)
+#define TFW_H5_I2C_TIMINGR     TFW_CM_REG(TFW_H5_I2C4_BASE + 0x10u)
+#define TFW_H5_I2C_ISR         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x18u)
+#define TFW_H5_I2C_ICR         TFW_CM_REG(TFW_H5_I2C4_BASE + 0x1Cu)
+#define TFW_H5_I2C_RXDR        TFW_CM_REG(TFW_H5_I2C4_BASE + 0x24u)
+#define TFW_H5_I2C_TXDR        TFW_CM_REG(TFW_H5_I2C4_BASE + 0x28u)
+
+#define TFW_H5_RCC_APB3ENR     TFW_CM_REG(TFW_H5_RCC_BASE + 0xA8u)
+#define TFW_H5_RCC_APB3ENR_I2C4EN (0x1u << 8)
+#define TFW_H5_GPIO_OTYPER(b)  TFW_CM_REG((b) + 0x04u)   /* 1: open drain */
+
+#define TFW_H5_I2C_CR1_PE      (0x1u << 0)    /* cleared, the block's software reset */
+#define TFW_H5_I2C_CR2_SADD_POS 0u            /* bits 0-9; a 7-bit address in 1-7 */
+#define TFW_H5_I2C_CR2_RD_WRN  (0x1u << 10)
+#define TFW_H5_I2C_CR2_START   (0x1u << 13)
+#define TFW_H5_I2C_CR2_STOP    (0x1u << 14)
+#define TFW_H5_I2C_CR2_NBYTES_POS 16u         /* bits 16-23 */
+#define TFW_H5_I2C_ISR_TXE     (0x1u << 0)
+#define TFW_H5_I2C_ISR_TXIS    (0x1u << 1)
+#define TFW_H5_I2C_ISR_RXNE    (0x1u << 2)
+#define TFW_H5_I2C_ISR_NACKF   (0x1u << 4)
+#define TFW_H5_I2C_ISR_STOPF   (0x1u << 5)
+#define TFW_H5_I2C_ISR_TC      (0x1u << 6)
+#define TFW_H5_I2C_ISR_BERR    (0x1u << 8)
+#define TFW_H5_I2C_ISR_ARLO    (0x1u << 9)
+#define TFW_H5_I2C_ISR_BUSY    (0x1u << 15)
+#define TFW_H5_I2C_ICR_NACKCF  (0x1u << 4)
+#define TFW_H5_I2C_ICR_STOPCF  (0x1u << 5)
+#define TFW_H5_I2C_ICR_BERRCF  (0x1u << 8)
+#define TFW_H5_I2C_ICR_ARLOCF  (0x1u << 9)
+
+#define TFW_H5_I2C_BANK        1u             /* GPIOB, RCC_AHB2ENR GPIOBEN bit 1 */
+#define TFW_H5_I2C_SCL_PIN     8u
+#define TFW_H5_I2C_SDA_PIN     9u
+#define TFW_H5_I2C_AF          6u
+
+/* TIMINGR (PRESC 31:28, SCLDEL 23:20, SDADEL 19:16, SCLH 15:8, SCLL 7:0) for
+ * a 64 MHz kernel clock, the analog filter on and no digital filter: the
+ * values ST's BSP computes (stm32h573i_discovery_bus.c I2C_GetTiming and its
+ * I2C_Charac table, the same filter settings). Standard mode: PRESC 6,
+ * SCLDEL 7, SDADEL 0, SCLH 39, SCLL 41, a 10.008 us period. Fast mode:
+ * PRESC 1, SCLDEL 10, SDADEL 1, SCLH 22, SCLL 38, a 2.498 us period. */
+#define TFW_H5_I2C_TIMING_100K 0x60702729u
+#define TFW_H5_I2C_TIMING_400K 0x10A11626u
+
+/* ---- ADC1, AHB2PERIPH_BASE_NS + 0x8000 (ADC1_BASE_NS), and the ADC1/ADC2
+ * common block at + 0x8300 (ADC12_COMMON_BASE_NS). The offsets are
+ * ADC_TypeDef's and ADC_Common_TypeDef's (CCR at 0x300 + 0x08). */
+#define TFW_H5_ADC1_BASE       0x42028000u
+#define TFW_H5_ADC1_ISR        TFW_CM_REG(TFW_H5_ADC1_BASE + 0x00u)
+#define TFW_H5_ADC1_CR         TFW_CM_REG(TFW_H5_ADC1_BASE + 0x08u)
+#define TFW_H5_ADC1_CFGR       TFW_CM_REG(TFW_H5_ADC1_BASE + 0x0Cu)
+#define TFW_H5_ADC1_SMPR1      TFW_CM_REG(TFW_H5_ADC1_BASE + 0x14u)
+#define TFW_H5_ADC1_SMPR2      TFW_CM_REG(TFW_H5_ADC1_BASE + 0x18u)
+#define TFW_H5_ADC1_SQR1       TFW_CM_REG(TFW_H5_ADC1_BASE + 0x30u)
+#define TFW_H5_ADC1_DR         TFW_CM_REG(TFW_H5_ADC1_BASE + 0x40u)
+#define TFW_H5_ADC1_DIFSEL     TFW_CM_REG(TFW_H5_ADC1_BASE + 0xB0u)
+#define TFW_H5_ADC1_OR         TFW_CM_REG(TFW_H5_ADC1_BASE + 0xC8u)
+#define TFW_H5_ADC12_CCR       TFW_CM_REG(0x42028308u)
+
+/* ISR flags, cleared by writing 1 (ADC_ISR_*). */
+#define TFW_H5_ADC_ISR_ADRDY   (0x1u << 0)
+#define TFW_H5_ADC_ISR_EOC     (0x1u << 2)
+#define TFW_H5_ADC_ISR_EOS     (0x1u << 3)
+#define TFW_H5_ADC_ISR_OVR     (0x1u << 4)
+
+/* CR (ADC_CR_*). */
+#define TFW_H5_ADC_CR_ADEN     (0x1u << 0)
+#define TFW_H5_ADC_CR_ADDIS    (0x1u << 1)
+#define TFW_H5_ADC_CR_ADSTART  (0x1u << 2)
+#define TFW_H5_ADC_CR_ADSTP    (0x1u << 4)
+#define TFW_H5_ADC_CR_ADVREGEN (0x1u << 28)
+#define TFW_H5_ADC_CR_DEEPPWD  (0x1u << 29)
+#define TFW_H5_ADC_CR_ADCALDIF (0x1u << 30)
+#define TFW_H5_ADC_CR_ADCAL    (0x1u << 31)
+
+/* CFGR (ADC_CFGR_*): RES 0 is 12 bits, ALIGN 0 right, CONT 0 single. */
+#define TFW_H5_ADC_CFGR_RES    (0x3u << 3)
+#define TFW_H5_ADC_CFGR_OVRMOD (0x1u << 12)
+#define TFW_H5_ADC_CFGR_CONT   (0x1u << 13)
+#define TFW_H5_ADC_CFGR_ALIGN  (0x1u << 15)
+
+/* SMPR1 holds channels 0-9 and SMPR2 10-19, three bits each
+ * (ADC_SMPR1_SMP0 to ADC_SMPR2_SMP19). Code 7 is 640.5 ADC clock cycles,
+ * the longest (stm32h5xx_ll_adc.h LL_ADC_SAMPLINGTIME_640CYCLES_5). */
+#define TFW_H5_ADC_SMP_640C5   0x7u
+
+/* SQR1 (ADC_SQR1_L, ADC_SQR1_SQ1): L 0 is one conversion. */
+#define TFW_H5_ADC_SQR1_L      (0xFu << 0)
+#define TFW_H5_ADC_SQR1_SQ1_POS 6u
+#define TFW_H5_ADC_SQR1_SQ1    (0x1Fu << 6)
+#define TFW_H5_ADC_DR_12BIT    0x0FFFu
+#define TFW_H5_ADC_CHANNELS    20u             /* INP0 to INP19, DIFSEL's width */
+
+/* OR OP0 connects INP0 to its pin, PA0: stm32h5xx_ll_adc.h
+ * LL_ADC_EnableChannel0_GPIO, "must be enabled when INP0 is used". */
+#define TFW_H5_ADC_OR_OP0      (0x1u << 0)
+
+/* CCR (ADC_CCR_CKMODE, ADC_CCR_PRESC): CKMODE 0 is the RCC kernel clock
+ * through PRESC; PRESC 1 divides it by 2 (LL_ADC_CLOCK_ASYNC_DIV2). */
+#define TFW_H5_ADC_CCR_CKMODE  (0x3u << 16)
+#define TFW_H5_ADC_CCR_PRESC_POS 18u
+#define TFW_H5_ADC_CCR_PRESC   (0xFu << 18)
+
+/* ---- TIM5, APB1PERIPH_BASE_NS + 0x0C00: the PWM's timer (hal_pwm.c), a
+ * general-purpose timer nothing else here drives. Offsets are TIM_TypeDef's
+ * (CR1 0x00, EGR 0x14, CCMR1 0x18, CCMR2 0x1C, CCER 0x20, PSC 0x28, ARR 0x2C,
+ * CCR1 0x34 to CCR4 0x40), its enable RCC_APB1LENR (0x9C) bit TIM5EN 3. It
+ * counts the APB1 timer clock, TFW_CM_CPU_HZ with the bus prescaler at 1. */
+#define TFW_H5_RCC_APB1LENR    TFW_CM_REG(TFW_H5_RCC_BASE + 0x9Cu)
+#define TFW_H5_RCC_APB1LENR_TIM5EN (0x1u << 3)
+#define TFW_H5_TIM5_BASE       0x40000C00u
+#define TFW_H5_TIM_CR1         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x00u)
+#define TFW_H5_TIM_EGR         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x14u)
+#define TFW_H5_TIM_CCMR1       TFW_CM_REG(TFW_H5_TIM5_BASE + 0x18u)
+#define TFW_H5_TIM_CCMR2       TFW_CM_REG(TFW_H5_TIM5_BASE + 0x1Cu)
+#define TFW_H5_TIM_CCER        TFW_CM_REG(TFW_H5_TIM5_BASE + 0x20u)
+#define TFW_H5_TIM_PSC         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x28u)
+#define TFW_H5_TIM_ARR         TFW_CM_REG(TFW_H5_TIM5_BASE + 0x2Cu)
+#define TFW_H5_TIM_CCR(ch)     TFW_CM_REG(TFW_H5_TIM5_BASE + 0x30u + 4u * (uint32_t)(ch))
+#define TFW_H5_TIM_CR1_CEN     (0x1u << 0)
+#define TFW_H5_TIM_CR1_ARPE    (0x1u << 7)
+#define TFW_H5_TIM_EGR_UG      (0x1u << 0)
+#define TFW_H5_PWM_UNIT        5u             /* the PWM row's unit: TIM5 */
+#define TFW_H5_PWM_AF          2u             /* GPIO_AF2_TIM5 (stm32h5xx_hal_gpio_ex.h) */
+#define TFW_H5_GPIO_AFRL(b)    TFW_CM_REG((b) + 0x20u)   /* AFR[0]: pins 0-7 */
 
 /* ---- IWDG, APB1PERIPH_BASE_NS + 0x3000 */
 #define TFW_H5_IWDG_KR         TFW_CM_REG(0x40003000u)

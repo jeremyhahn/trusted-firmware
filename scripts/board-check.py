@@ -52,18 +52,26 @@ PARTS = {
     "attiny85": dict(flash=8192, sram=512, sram_start=0x0060, eeprom=512, boot=False),
     # Arm AN505 as QEMU models it (hw/arm/mps2-tz.c, hw/arm/armsse.c): the code
     # is SSRAM-1 and -2 at 0x38000000, so TFW_FLASH_TOTAL is an address, the
-    # end of that span; the SRAM is the IoT Kit's internal 32 KiB; no EEPROM.
+    # end of that span; the SRAM is the IoT Kit's internal 32 KiB. The EEPROM
+    # is emulated, a 4096-byte window of RAM (TFW_CM_PLATFORM_SIZE, 0x1000),
+    # served by src/hal/cortex-m/hal_eeprom.c; QEMU models no EEPROM part, and
+    # the window is RAM, so a write survives a system_reset but not a new QEMU
+    # process.
     # tfw-boot is not at the top of that flash but in its own 32 KiB at the
     # base of SSRAM-0, so boot_end is where its region ends.
     "mps2-an505": dict(flash=4194304, flash_start=0x38000000, sram=32768,
-                       sram_start=0x30000000, eeprom=0, boot=True,
+                       sram_start=0x30000000, eeprom=4096, boot=True,
                        boot_end=0x10008000),
     # Arm AN500 as QEMU models it (hw/arm/mps2.c): the code is ZBT SSRAM1 at
-    # 0x00000000, the SRAM is ZBT SSRAM2 and 3 at 0x20000000; no EEPROM.
+    # 0x00000000, the SRAM is ZBT SSRAM2 and 3 at 0x20000000. The EEPROM is
+    # emulated, a 4096-byte window of RAM (TFW_CM_PLATFORM_SIZE, 0x1000),
+    # served by src/hal/cortex-m/hal_eeprom.c; QEMU models no EEPROM part, and
+    # the window is RAM, so a write survives a system_reset but not a new QEMU
+    # process.
     # tfw-boot is at the base of SSRAM1, where the core's VTOR points at reset,
     # not at its top, so boot_end is where its region ends.
     "mps2-an500": dict(flash=4194304, sram=4194304, sram_start=0x20000000,
-                       eeprom=0, boot=True, boot_end=0x00008000),
+                       eeprom=4096, boot=True, boot_end=0x00008000),
     # STM32H573IIK3Q (STM32H573I-DK), ST's cmsis-device-h5 stm32h573xx.h: 2 MiB
     # of flash at 0x08000000, so TFW_FLASH_TOTAL is an address, the end of bank
     # 2; the SRAM is SRAM1's 256 KiB at 0x20000000, the one region the port
@@ -81,10 +89,13 @@ PARTS = {
                    boot_end=0x10008000),
     # Nordic nRF54L15 application core (nrfx MDK
     # nrf54l15_xxaa_application_memory.h): 1524 KiB of RRAM from address 0,
-    # 256 KiB of RAM at 0x20000000, no EEPROM. tfw-boot is the first 32 KiB of
-    # RRAM, where the core fetches its reset vector, so boot_end is 0x8000.
+    # 256 KiB of RAM at 0x20000000. The part has no EEPROM block: the EEPROM is
+    # emulated in a 4096-byte window of the RRAM (TFW_CM_PLATFORM_SIZE),
+    # programmed through the RRAMC by src/hal/cortex-m/nrf54l/hal_eeprom.c.
+    # tfw-boot is the first 32 KiB of RRAM, where the core fetches its reset
+    # vector, so boot_end is 0x8000.
     "nrf54l15": dict(flash=1560576, sram=262144, sram_start=0x20000000,
-                     eeprom=0, boot=True, boot_end=0x00008000),
+                     eeprom=4096, boot=True, boot_end=0x00008000),
     # NXP MCXN947, core 0's Secure alias (the SDK's MCXN947_cm33_core0.h and
     # its flash linker script, docs/reference/README.md): 2 MiB of flash at
     # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off, no EEPROM.

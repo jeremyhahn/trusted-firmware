@@ -58,8 +58,10 @@ the span both regions sit in (`board_profile.h:57`).
 |---|---|---|
 | Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select | `board_profile.h:20`; `board.c:23`–`31` |
 | Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
-| PWM, ADC, EEPROM, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
+| PWM, ADC, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
+| EEPROM | on, 4 KiB: the platform window, addressed from its own zero; tfw-boot's span `[0x000, 0x140)` is refused to `EEPROM_WRITE` (the confirm request aside), the user span is `[0x140, 0x1000)`, and a span past the window is `RANGE`. RAM under QEMU: a write survives a `system_reset`, not a new QEMU process. The same on `mps2-an505` | `board_profile.h:23`, `:29`; `src/hal/cortex-m/hal_eeprom.c`; `src/caps/storage.c` |
 | I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:31`–`46` |
+| Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off here. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads, and builds on any Cortex-M; `mps2-an505` links it in its `soft:PULSE=1` row, whose QEMU wire row (`TestQEMUPulseTimeout`) checks that a pin QEMU does not drive times out. This board could take the same row | `board_profile.h` `TFW_FEATURE_PULSE`; `mk/firmware.mk` `PULSE_SRCS` |
 
 ## Buses
 
@@ -73,12 +75,28 @@ no device to either, so the default image links neither (`profile.mk:60`–`74`)
 
 ## Boot
 
-One tfw-boot row, the same as `mps2-an505`'s: soft tier and measurement, P-256
+The base tfw-boot row, the same as `mps2-an505`'s: soft tier and measurement, P-256
 verified in software, no OTA, no store (`profile.mk:43`–`45`), the row
 `mps2-an500:soft:soft:p256-soft:0:0` of `BOOT_SUPPORTED` in `mk/boot.mk`,
 which `make bootloader-check` builds. The soft root
 keeps the UDS in tfw-boot's region and hands the CDI over in SRAM
-(`board_profile.h:33`–`34`).
+(`board_profile.h:33`–`34`). `BOOT_SUPPORTED` also carries the store rows
+`mps2-an500:soft:soft:p256-soft:0:1` and `:0:1:ab`.
+
+The sizes of both MPS2 boards' rows, measured by `make bootloader-check` at
+48d85486 with arm-none-eabi-gcc 14.2.1, in `mk/boot.mk` row order
+(`mps2-an505` `:0:0`, `:1:0`, `:0:1`, `:0:1:ab`, then `mps2-an500` `:0:0`,
+`:0:1`, `:0:1:ab`):
+
+```
+tfw-boot mps2-an505 flash   6956 / 32768    ram   324 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an505 flash   8640 / 32768    ram   756 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an505 flash   8216 / 32768    ram   580 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an505 flash   9416 / 32768    ram  1100 / 32768 (soft tier, p256-soft)
+tfw-boot mps2-an500 flash   7024 / 32768    ram   324 / 4194304 (soft tier, p256-soft)
+tfw-boot mps2-an500 flash   8284 / 32768    ram   580 / 4194304 (soft tier, p256-soft)
+tfw-boot mps2-an500 flash   9460 / 32768    ram  1100 / 4194304 (soft tier, p256-soft)
+```
 
 ## What is tested, and how
 

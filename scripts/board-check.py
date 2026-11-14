@@ -226,6 +226,62 @@ def table_rows(source, table):
     raise ValueError("%s: unterminated initialiser" % table)
 
 
+def board_macros(source):
+    """The #defines of a board.c, object-like and function-like, as
+    {name: (params or None, body)}.
+
+    In an #if group only the first branch counts: a board puts the branch
+    that holds when a capability is on first (frdm-imx95-m7's BOARD_PWM(n)
+    and BOARD_PIN_PWM), so the pin table is checked as that build sees it."""
+    out, stack = {}, []
+    for line in source.splitlines():
+        m = re.match(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b", line)
+        if m:
+            word = m.group(1)
+            if word.startswith("if"):
+                stack.append(True)
+            elif word == "endif":
+                if stack:
+                    stack.pop()
+            elif stack:
+                stack[-1] = False
+            continue
+        if not all(stack):
+            continue
+        m = re.match(r"^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)(\(([^)]*)\))?(?:\s+(.*?))?\s*$", line)
+        if m and m.group(1) not in out:
+            params = None
+            if m.group(2):
+                params = [p.strip() for p in m.group(3).split(",") if p.strip()]
+            out[m.group(1)] = (params, m.group(4) or "")
+    return out
+
+
+def expand_macros(text, macros, depth=0):
+    """`text` with the macros of board_macros() replaced by their bodies."""
+    if depth > 16:
+        raise ValueError("macros nest too deep: %s" % text)
+
+    def call(m):
+        params, body = macros[m.group(1)]
+        if params is None:
+            return body if m.group(2) is None else body + m.group(2)
+        if m.group(2) is None:
+            return m.group(0)
+        args = [a.strip() for a in m.group(3).split(",")] if m.group(3).strip() else []
+        if len(args) != len(params):
+            raise ValueError("%s takes %d arguments: %s" % (m.group(1), len(params), m.group(0)))
+        for p, a in zip(params, args):
+            body = re.sub(r"\b%s\b" % re.escape(p), lambda _: a, body)
+        return "(%s)" % body
+
+    if not macros:
+        return text
+    names = "|".join(re.escape(n) for n in sorted(macros, key=len, reverse=True))
+    out = re.sub(r"\b(%s)\b(\s*\(([^()]*)\))?" % names, call, text)
+    return out if out == text else expand_macros(out, macros, depth + 1)
+
+
 PIN_ROW = re.compile(r"^\s*TFW_PB\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*,"
                      r"\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*(.+?)\s*$", re.S)
 
@@ -436,7 +492,13 @@ def check_pins(board, arch, bdir, defs, value, fail):
             fail("pin %d: %s %r is not a number" % (pin, what, text))
             return None
 
+    macros = board_macros(source)
     for pin, row in enumerate(pins):
+        try:
+            row = expand_macros(row, macros)
+        except ValueError as e:
+            fail("pin %d: %s" % (pin, e))
+            continue
         m = PIN_ROW.match(row)
         if not m:
             fail("pin %d: not a { TFW_PB(port, bit), adc, pwm, flags } row" % pin)

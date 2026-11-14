@@ -1,7 +1,7 @@
 # mps2-an500 (Arm AN500 under QEMU)
 
 > **Status: INFORMATIVE** · SPEC row: `cortex-m` · Scope:
-> `boards/mps2-an500/` · Last verified: 2026-10-22
+> `boards/mps2-an500/` · Last verified: 2026-11-12
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is [`adding-a-board.md`](adding-a-board.md);
@@ -56,23 +56,25 @@ the span both regions sit in (`board_profile.h:57`).
 
 | | Value | Source |
 |---|---|---|
-| Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select | `board_profile.h:20`; `board.c:23`–`31` |
-| Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
-| PWM, ADC, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:25`–`26`, `:59` |
+| Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select; 4 in the `ONEWIRE=1` row, pin 3 the 1-Wire line | `board_profile.h`, `TFW_PIN_COUNT`; `board.c` |
+| Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register; 3 in the `ONEWIRE=1` row, port 2 the CMSDK GPIO block 0 | `board_profile.h`, `TFW_PORT_COUNT`; `board.c` |
+| PWM, ADC | none: QEMU models no converter or PWM this port drives | `board_profile.h` |
 | EEPROM | on, 4 KiB: the platform window, addressed from its own zero; tfw-boot's span `[0x000, 0x140)` is refused to `EEPROM_WRITE` (the confirm request aside), the user span is `[0x140, 0x1000)`, and a span past the window is `RANGE`. RAM under QEMU: a write survives a `system_reset`, not a new QEMU process. The same on `mps2-an505` | `board_profile.h:24`, `:35`; `src/hal/cortex-m/hal_eeprom.c`; `src/caps/storage.c` |
 | Tone | off by default, on in its own row: pin 1, LED1, toggled from the CMSDK timer TIMER0's interrupt; see Tone | `board_profile.h:27`–`34` |
-| I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:43`–`58` |
+| I2C, SPI, 1-Wire | off by default, each on in its own row: see Buses | `board_profile.h` |
 | Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off by default, on in the `soft:PULSE=1` row, as on `mps2-an505`. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads; the row links it on the Cortex-M7 and size-check measures it, and its QEMU wire row (`cortex-m-qemu-pulse-wire`, `TestQEMUPulseTimeout`) checks that `PULSE_IN` and `PULSE_CAPTURE` on a pin QEMU does not drive time out | `board_profile.h:36`–`42`; `profile.mk` `PULSE`, `BOARD_ROWS`; `mk/firmware.mk` `PULSE_SRCS` |
 
 ## Buses
 
-Both are on the shield 0 header, and QEMU v10.0.0's `hw/arm/mps2.c` attaches
-no device to either, so the default image links neither (`profile.mk:60`–`74`).
+I2C and SPI are on the shield 0 header, and QEMU v10.0.0's `hw/arm/mps2.c`
+attaches no device to either; it leaves the GPIO block 1-Wire uses
+unimplemented, so the line reads low. The default image links none of them (`profile.mk:60`–`74`).
 
 | Bus | Block and base | Row | Sources |
 |---|---|---|---|
 | I2C | the shield 0 SBCon at `0x40029000`; no select, so no pin | `I2C=1` (`soft:I2C=1`) | AN500 (Arm DAI 0500B) memory map; QEMU `hw/arm/mps2.c` (Shield0 SBCon), `hw/i2c/arm_sbcon_i2c.c`; `board_profile.h:80`–`85` |
 | SPI | the shield 0 PL022 at `0x40026000`; select pin 2, MISC bit 8 `SHIELD0_SPI_nCS` | `SPI=1` (`soft:SPI=1`) | AN500 3.1 Table 3-1, 3.7, 3.13 Table 3-6; QEMU `hw/arm/mps2.c` (Shield0 PL022), `hw/ssi/pl022.c`; `board_profile.h:87`–`95` |
+| 1-Wire | bit-banged on the CMSDK AHB GPIO block 0 at `0x40010000`, bit 0: low is output-low, high is input with the bus pull-up; pin 3. The AVR master's slot timings, each slot with interrupts masked | `ONEWIRE=1` (`soft:ONEWIRE=1`) | Arm DDI 0479 4.6 (AHB GPIO); QEMU `hw/arm/mps2.c` (unimplemented GPIO); `src/hal/cortex-m/mps2/gpio_line.h`, `hal_bus.c`; `board_profile.h`, `TFW_MPS2_GPIO0_BASE` |
 
 ## Tone
 

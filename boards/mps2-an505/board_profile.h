@@ -28,8 +28,15 @@
 #define TFW_SUIT_SCRIPT_CLASS_ID { 0x68u, 0x47u, 0xffu, 0x2au, 0x03u, 0x62u, 0x55u, 0x38u, \
                                    0xa2u, 0x31u, 0xfcu, 0x5au, 0xf3u, 0xc4u, 0x0cu, 0x4bu }
 
+/* The ONEWIRE=1 row adds GPIO block 0 as port 2 and its bit 0 as pin 3, the
+ * 1-Wire line (board.c, src/hal/cortex-m/mps2/gpio_line.h). */
+#if defined(TFW_CM_ONEWIRE)
+#define TFW_PIN_COUNT  4u
+#define TFW_PORT_COUNT 3u      /* the FPGA I/O block's LED and MISC, GPIO 0 */
+#else
 #define TFW_PIN_COUNT  3u
 #define TFW_PORT_COUNT 2u      /* the FPGA I/O block's LED and MISC registers */
+#endif
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE TFW_CM_PLATFORM_SIZE  /* the platform window: src/hal/cortex-m/hal_eeprom.c */
@@ -67,7 +74,13 @@
 #else
 #define TFW_FEATURE_SPI     0
 #endif
+/* 1-Wire bit-banged on GPIO block 0 bit 0 (hal_bus.c), only in the ONEWIRE=1
+ * row: QEMU puts no device on the line. */
+#if defined(TFW_CM_ONEWIRE)
+#define TFW_FEATURE_ONEWIRE 1
+#else
 #define TFW_FEATURE_ONEWIRE 0
+#endif
 
 /* The soft root: the UDS in tfw-boot's region, the CDI handed over in SRAM,
  * HMAC evidence (src/crypto/soft/). */
@@ -120,6 +133,12 @@
  * alias) with IRQ 3; hw/arm/mps2-tz.c builds the AN505 on that subsystem. */
 #define TFW_MPS2_TIMER0_BASE  0x50000000u
 #define TFW_MPS2_TIMER0_IRQ   3
+
+/* The CMSDK AHB GPIO block 0, on the shield header: AN505 (Arm DAI 0505B),
+ * the first alias of 0x4010_0000 and 0x5010_0000; QEMU's mps2-tz.c maps it as
+ * an unimplemented device, which reads 0. Its bit 0 is the ONEWIRE=1 row's
+ * line (src/hal/cortex-m/mps2/gpio_line.h); unused outside that row. */
+#define TFW_MPS2_GPIO0_BASE   0x40100000u
 
 /* Flash geometry for tfw-boot, as addresses: on this part the regions are not
  * offsets from zero, so TFW_FLASH_TOTAL is the end of the address span both

@@ -52,7 +52,8 @@ BOOT_AB          ?= 0
 BOOT_AB_OPTIONAL := 1
 BOARD_DEFS        = $(if $(filter 1,$(BOOT_AB)),-DTFW_CM_AB=1) $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
                     $(if $(filter 1,$(SPI)),-DTFW_CM_SPI=1) $(if $(filter 1,$(TONE)),-DTFW_CM_TONE=1) \
-                    $(if $(filter 1,$(PULSE)),-DTFW_CM_PULSE=1)
+                    $(if $(filter 1,$(PULSE)),-DTFW_CM_PULSE=1) \
+                    $(if $(filter 1,$(ONEWIRE)),-DTFW_CM_ONEWIRE=1)
 APP_BASE         := $(if $(filter 1,$(BOOT_AB)),0x38040000,0x38000000)
 RAM_BASE       := 0x30000000
 RAM_END        := 0x30007FFF
@@ -95,12 +96,18 @@ BOARD_TIERS    := soft
 # PULSE=1 turns TFW_FEATURE_PULSE on (TFW_CM_PULSE in board_profile.h) and
 # links the timer; the soft:PULSE=1 row builds it, size-check measures it, and
 # its QEMU wire row checks that PULSE_IN on an undriven pin times out.
+# 1-Wire bit-banged on GPIO block 0 bit 0 (the same hal_bus.c, gpio_line.h),
+# off by default for the same reason. ONEWIRE=1 turns TFW_FEATURE_ONEWIRE on
+# (TFW_CM_ONEWIRE in board_profile.h) and adds the line as pin 3 (board.c).
+# The soft:ONEWIRE=1 row builds it and size-check measures it.
 I2C               ?= 0
 SPI               ?= 0
 TONE              ?= 0
 PULSE             ?= 0
-BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) $(if $(filter 1,$(TONE)),TONE) $(if $(filter 1,$(PULSE)),PULSE)
-BOARD_ROWS        := atecc608a:I2C=1 soft:I2C=1 soft:SPI=1 soft:TONE=1 soft:PULSE=1 optiga:I2C=1
+ONEWIRE           ?= 0
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(SPI)),SPI) $(if $(filter 1,$(TONE)),TONE) $(if $(filter 1,$(PULSE)),PULSE) \
+                     $(if $(filter 1,$(ONEWIRE)),ONEWIRE)
+BOARD_ROWS        := atecc608a:I2C=1 soft:I2C=1 soft:SPI=1 soft:TONE=1 soft:PULSE=1 soft:ONEWIRE=1 optiga:I2C=1
 # The optiga row is a MEASUREMENT, as on the 2560 (row optiga-trust-m): the
 # OPTIGA Trust M provider over the same SBCon, built and size-checked so its
 # Cortex-M cost is a number. Whether the tier is the board's is the OPTIGA ADR's

@@ -17,8 +17,15 @@
 #define TFW_BOARD_NAME "mps2-an500"
 #define TFW_BOARD_ID   0x42u   /* docs/boards/board-id-registry.md */
 
+/* The ONEWIRE=1 row adds GPIO block 0 as port 2 and its bit 0 as pin 3, the
+ * 1-Wire line (board.c, src/hal/cortex-m/mps2/gpio_line.h). */
+#if defined(TFW_CM_ONEWIRE)
+#define TFW_PIN_COUNT  4u
+#define TFW_PORT_COUNT 3u      /* the FPGA I/O block's LED and MISC, GPIO 0 */
+#else
 #define TFW_PIN_COUNT  3u
 #define TFW_PORT_COUNT 2u      /* the FPGA I/O block's LED and MISC registers */
+#endif
 #define TFW_PWM_COUNT  0u
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE TFW_CM_PLATFORM_SIZE  /* the platform window: src/hal/cortex-m/hal_eeprom.c */
@@ -57,7 +64,13 @@
 #else
 #define TFW_FEATURE_SPI     0
 #endif
+/* 1-Wire bit-banged on GPIO block 0 bit 0 (hal_bus.c), only in the ONEWIRE=1
+ * row: QEMU puts no device on the line. */
+#if defined(TFW_CM_ONEWIRE)
+#define TFW_FEATURE_ONEWIRE 1
+#else
 #define TFW_FEATURE_ONEWIRE 0
+#endif
 
 /* The soft root: the UDS in tfw-boot's region, the CDI handed over in SRAM. */
 #define TFW_FEATURE_ATTEST 1
@@ -105,6 +118,12 @@
  * hw/arm/mps2.c maps the cmsdk-apb-timer at 0x40000000 with IRQ 8. */
 #define TFW_MPS2_TIMER0_BASE  0x40000000u
 #define TFW_MPS2_TIMER0_IRQ   8
+
+/* The CMSDK AHB GPIO block 0, on the shield header: AN500 (Arm DAI 0500B),
+ * 0x4001_0000; QEMU's mps2.c maps it as an unimplemented device, which reads
+ * 0. Its bit 0 is the ONEWIRE=1 row's line (src/hal/cortex-m/mps2/
+ * gpio_line.h); unused outside that row. */
+#define TFW_MPS2_GPIO0_BASE   0x40010000u
 
 /* Flash geometry for tfw-boot, as addresses: TFW_FLASH_TOTAL is the end of
  * SSRAM1, the span both regions sit in (include/tfw/boot.h asserts they fit

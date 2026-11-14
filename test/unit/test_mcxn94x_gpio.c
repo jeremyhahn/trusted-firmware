@@ -41,6 +41,17 @@ static uint32_t peek(uint32_t addr)
     return regfile_model_peek((uintptr_t)addr);
 }
 
+/* Presets GPIOn PDIR for a read. The store goes through soc_regs.h's name (the
+ * register file has no store by address the suite may spell), so the check
+ * that it sits at the manual's PDIR address is what fails a read test when
+ * soc_regs.h's PDIR offset drifts: the HAL would read that wrong address too. */
+static void seed_pdir(uint32_t n, uint32_t v)
+{
+    TFW_MCXN_GPIO_PDIR(n) = v;
+    TEST_ASSERT_EQUAL_HEX32_MESSAGE(v, peek(GPIO_PDIR(n)),
+                                    "PDIR is not at the manual's address");
+}
+
 void setUp(void)
 {
     regfile_model_reset();
@@ -125,14 +136,14 @@ void test_read_is_the_pins_pdir_bit(void)
 {
     uint8_t level = 0xAAu;
 
-    TFW_MCXN_GPIO_PDIR(0u) = 1u << 23;
+    seed_pdir(0u, 1u << 23);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&sw2, &level));
     TEST_ASSERT_EQUAL_UINT8(1u, level);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&led_red, &level));
     TEST_ASSERT_EQUAL_UINT8(0u, level);
 
     /* The other bits of the bank do not leak into the pin's level. */
-    TFW_MCXN_GPIO_PDIR(0u) = ~(1u << 23);
+    seed_pdir(0u, ~(1u << 23));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&sw2, &level));
     TEST_ASSERT_EQUAL_UINT8(0u, level);
 }
@@ -141,10 +152,10 @@ void test_read_on_port_1_reads_gpio1(void)
 {
     uint8_t level = 0xAAu;
 
-    TFW_MCXN_GPIO_PDIR(0u) = 1u << 2;
+    seed_pdir(0u, 1u << 2);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&led_blue, &level));
     TEST_ASSERT_EQUAL_UINT8(0u, level);
-    TFW_MCXN_GPIO_PDIR(1u) = 1u << 2;
+    seed_pdir(1u, 1u << 2);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&led_blue, &level));
     TEST_ASSERT_EQUAL_UINT8(1u, level);
 }
@@ -154,7 +165,7 @@ void test_read_of_bit_31(void)
     const tfw_pinref_t p4_31 = TFW_PB(4u, 31u);
     uint8_t level = 0u;
 
-    TFW_MCXN_GPIO_PDIR(4u) = 1u << 31;
+    seed_pdir(4u, 1u << 31);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_read(&p4_31, &level));
     TEST_ASSERT_EQUAL_UINT8(1u, level);
 }

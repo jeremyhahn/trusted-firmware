@@ -84,7 +84,8 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
 # The EEPROM HAL is every board's that has one, the feature on or off (the
 # MPS2 boards' writes OTA_CONFIRM's request through it), and hal_src picks a
-# SoC's copy over the core's. The MCXN94x's writes its own flash sector
+# SoC's copy over the core's. (The nrf54l's programs its RRAM window,
+# which a plain store does not.) The MCXN94x's writes its own flash sector
 # through tfw-boot's flash helper, linked here as STAGE_SRCS links
 # boot/boot_image.c.
 EEPROM_HAL_SRCS := $(wildcard $(call hal_src,hal_eeprom.c))

@@ -23,6 +23,9 @@
 #include "soc_calc.h"
 
 /* ---- LPUART3 */
+/* Base confirmed on the board (2026-11-14, live device tree, A55 view):
+ * serial@42570000, the third LPUART; docs/development/bench/frdm-imx95.md.
+ * The offsets below stay TO CONFIRM. */
 #define TFW_IMX95_LPUART3_BASE  0x42570000u
 #define TFW_IMX95_LPUART_GLOBAL TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x08u)
 #define TFW_IMX95_LPUART_BAUD   TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x10u)
@@ -40,6 +43,8 @@
 #define TFW_IMX95_LPUART_CTRL_TE    0x00080000u
 #define TFW_IMX95_LPUART_CTRL_RE    0x00040000u
 
+/* The board's device tree gives serial@42570000 GIC SPI 64 (A55). That the
+ * M7's NVIC line is the same number stays TO CONFIRM. */
 #define TFW_IMX95_LPUART3_IRQ 64u
 
 /* ---- RGPIO: the port registers, offsets from a bank's base */
@@ -50,6 +55,9 @@
 #define TFW_IMX95_GPIO_REG(base, off) TFW_CM_REG((base) + (off))
 
 /* ---- WDOG5, a WDOG32 */
+/* TO CONFIRM: the stock image's device tree has no node at 0x424B0000 (its
+ * only watchdog is 0x42490000), so the board read neither confirms nor
+ * refutes WDOG5 here. */
 #define TFW_IMX95_WDOG5_BASE  0x424B0000u
 #define TFW_IMX95_WDOG_CS     TFW_CM_REG(TFW_IMX95_WDOG5_BASE + 0x0u)
 #define TFW_IMX95_WDOG_CNT    TFW_CM_REG(TFW_IMX95_WDOG5_BASE + 0x4u)

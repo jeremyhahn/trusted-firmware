@@ -206,3 +206,33 @@ Before the next `lm` command, confirm which LM its argument names
 
 Our image's console output is not captured: no RAM-only loader exists on
 this board as configured.
+
+## imx-boot with our M7 image (ruling 644)
+
+Tenant Agent ruling 644 (1): the board is a dev board with full write access
+(owner 10-16); load the M7 image the non-volatile way, in the boot container
+(imx-boot) that the System Manager boots LM1 from.
+
+Plan, in order:
+
+1. Read the current boot container from the eMMC user area (image set 0 at
+   offset 0x8000, the Boot ROM path row above) from the A55 Linux, copy it to
+   the bench host, and record its SHA-256, size, device and offset here,
+   matching on both sides. The backup binary stays on the bench host, out of
+   git.
+2. Build an unsigned imx-boot that carries our Cortex-M7 image for LM1, from
+   the same SoC firmware pieces as the board's container (ELE firmware,
+   OEI, System Manager with the same mSel 0 configuration, TF-A, U-Boot):
+   only the M7 image changes.
+3. Write it from the A55 Linux to the same device and offset, `sync`, read it
+   back and compare digests.
+4. `reboot` from the A55 console; capture port 2 (the M7 console) for our
+   banner and port 0 for U-Boot.
+
+Recovery path, stated before any write (ruling 644 (1)): restore the backup
+from the A55 Linux; if the board does not boot, uuu over USB serial
+download, which needs the owner to set SW4.
+
+Rules: no fuse, OTP, ELE lifecycle or SRK command; no signed or
+AHAB-authenticated container; the write touches the boot container location
+only (no other partition, no `saveenv`, no rootfs change); no serial break.

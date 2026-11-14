@@ -1,11 +1,32 @@
 # ADR: the Cortex-M reference part and its CI emulation target
 
-> **Status: PROPOSED** · Issue: #14 · SPEC rows: `cortex-m` (future),
-> `imx95`, `stm32h5`, `nrf54l15` · Scope: trusted-firmware only · Last verified: 2026-10-20
+> **Status: ACCEPTED (owner ruling 632 item 208 a, 2026-11-14)** · Issue: #14 · SPEC rows: `cortex-m` (future),
+> `imx95`, `stm32h5`, `nrf54l15` · Scope: trusted-firmware only · Last verified: 2026-11-14
 >
 > Documentation only. No code, build file, board id or SPEC row changes with this
 > ADR. Every number marked *confirm* comes from a document that could not be read
 > (named where it is used), and is a starting point for the owner, not a fact.
+
+
+## Accepted on 2026-11-14 (owner ruling 632 item 208 a)
+
+The owner ruled on 2026-11-14 (ruling 632, item 208 a), verbatim:
+
+> "ADRs #14 and #15 adopt the i.MX 95 M7 reference part, QEMU mps2-an505
+> emulation, TF-M Profile Medium plus our DICE attestation partition on the M33
+> secure world, and MPU-only isolation on the M7. Record it as one PR."
+
+What the ruling decides in this ADR:
+
+| Decision | Now |
+|---|---|
+| 1. Reference part | **decided**: the i.MX 95 Cortex-M7 is the reference part, checked against the STM32H573I-DK, the nRF54L15-DK and `mps2-an505`. Question 1 is answered (a): the M7, not an M33 |
+| 3. CI emulation | **decided**: the CI emulation target is QEMU `mps2-an505`. Question 2 is answered for the target; whether `mps2-an500` joins it is question 8, still open |
+| 2, 4 to 8 | accepted as written; the ruling does not name them, and the open questions on them stay open |
+
+The trust model the ruling picks for the M33 and the M7 is recorded in #15
+([`adr-trust-model-vs-tf-m.md`](adr-trust-model-vs-tf-m.md)), accepted on the
+same ruling. Questions 3 to 10 below are not answered by it and stay open.
 
 ## Correction on 2026-10-20
 
@@ -120,6 +141,9 @@ The trust model, and how it relates to TF-M, is #15 and is not decided here.
 
 ### 1. The reference part: the i.MX 95 Cortex-M7, checked against the two M33 boards
 
+**Decided 2026-11-14 (owner ruling 632 item 208 a): the i.MX 95 M7 is the
+reference part.** Question 1 is answered (a).
+
 *Corrected 2026-10-20.* The 2026-10-18 revision of this decision made the
 Cortex-M33 the reference part and gave CA m623 as the reason. The ruling does
 not say that. It decides this ADR against the boards present, puts the generic
@@ -220,6 +244,9 @@ boards/frdm-imx95-m7/        profile.mk: ARCH := cortex-m, CPU := cortex-m7, SOC
 - The secure world, if we write one, is #15's design, not this layout's.
 
 ### 3. The CI emulation target: QEMU `mps2-an505`
+
+**Decided 2026-11-14 (owner ruling 632 item 208 a): the CI emulation is QEMU
+`mps2-an505`.**
 
 *Changed 2026-10-18 (owner, CA m623).* The CI target was QEMU `mps2-an500`, a
 Cortex-M7, with `mps2-an505` "for the M33 later". The owner ruled that the
@@ -537,17 +564,22 @@ power-on
 
 ## Open questions for the owner
 
-Each question is answered yes or no. The ADR is accepted when all ten are
-answered; a "no" sends the decision it names back for a revision.
+Each question is answered yes or no; a "no" sends the decision it names back
+for a revision. The ADR was accepted on 2026-11-14 (owner ruling 632 item
+208 a), which answers question 1 and the CI target of question 2. Questions 3
+to 10 are not answered by the ruling and stay open.
 
-1. **The reference part** (decision 1). (a) Does the i.MX 95 Cortex-M7 stay the
+1. **Closed 2026-11-14: (a), the i.MX 95 M7 (ruling 632 item 208 a).**
+   **The reference part** (decision 1). (a) Does the i.MX 95 Cortex-M7 stay the
    reference part, as the SPEC row `cortex-m` has it, with the core HAL checked
    on the STM32H573I-DK, the nRF54L15-DK and `mps2-an505`? Or (b) does the
    Cortex-M33 with TrustZone-M become the reference part, with the
    STM32H573I-DK as the reference board and the i.MX 95 M7 a board of the port
    (#49)? A (b) changes the SPEC rows `cortex-m` and `stm32h5` in the same
    change. The ADR proposes (a), because the SPEC names it.
-2. **The CI target** (decision 3). Is QEMU `mps2-an505` the only Cortex-M machine
+2. **Closed 2026-11-14 for the target: QEMU `mps2-an505` (ruling 632 item
+   208 a).** Whether it stays the only Cortex-M machine is question 8, open.
+   **The CI target** (decision 3). Is QEMU `mps2-an505` the only Cortex-M machine
    in `make ci`, with the image running in the Secure state alone until #15 is
    accepted?
 3. **Board ids.** Does the emulation board take `0x40`, as `esp32-qemu` takes

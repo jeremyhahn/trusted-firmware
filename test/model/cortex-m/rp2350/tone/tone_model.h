@@ -48,6 +48,10 @@ void tfw_rp_model_reset(void);
 /* TIMELR's value from now on. */
 void tfw_rp_model_set_time(uint32_t ticks);
 
+/* The next writes many ALARM0 writes each take us microseconds: TIMELR
+ * moves on by us as each lands, so a target can pass while it is armed. */
+void tfw_rp_model_slow_alarm_writes(uint32_t us, int writes);
+
 /* A register's state: OUT and OE for SIO, armed and pending bits for
  * TIMER1's ARMED and INTR, the stored value otherwise. */
 uint32_t tfw_rp_model_read(uintptr_t addr);

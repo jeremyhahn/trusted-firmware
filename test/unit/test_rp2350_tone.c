@@ -173,6 +173,30 @@ static void test_irq_held_off_by_a_flash_write_rearms_ahead(void)
     TEST_ASSERT_EQUAL_UINT32(0xFFFF0000u + 46500u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
 }
 
+static void test_irq_target_passing_during_the_alarm_write_rearms_again(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
+
+    /* the next target, 1000, is 1 us ahead when read; the ALARM0 write
+     * takes 2 us, so TIMELR is at 1001 as the alarm arms */
+    tfw_rp_model_set_time(999u);
+    tfw_rp_model_slow_alarm_writes(2u, 1);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_UINT32(1001u, tfw_rp_model_read(RP_MODEL_T1_TIMELR));
+    TEST_ASSERT_EQUAL_UINT32(1500u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_rp_model_read(RP_MODEL_T1_ARMED) & 1u);
+
+    /* two writes each slower than a half-period: the retry passes too,
+     * and the third write lands ahead */
+    tfw_rp_model_set_time(1499u);
+    tfw_rp_model_slow_alarm_writes(600u, 2);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(2699u, tfw_rp_model_read(RP_MODEL_T1_TIMELR));
+    TEST_ASSERT_EQUAL_UINT32(3000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_rp_model_read(RP_MODEL_T1_ARMED) & 1u);
+}
+
 static void test_retarget_drives_old_pin_low(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
@@ -229,6 +253,7 @@ int main(void)
     RUN_TEST(test_irq_rearm_wraps);
     RUN_TEST(test_irq_late_by_periods_rearms_ahead);
     RUN_TEST(test_irq_held_off_by_a_flash_write_rearms_ahead);
+    RUN_TEST(test_irq_target_passing_during_the_alarm_write_rearms_again);
     RUN_TEST(test_retarget_drives_old_pin_low);
     RUN_TEST(test_retarget_same_pin_new_step);
     RUN_TEST(test_stop);

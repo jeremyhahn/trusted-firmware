@@ -34,6 +34,8 @@ static uint32_t sio_out;
 static uint32_t sio_oe;
 static uint32_t t1_armed;
 static uint32_t t1_intr;
+static uint32_t alarm_slow_us;      /* TIMELR's advance across an ALARM0 write */
+static int      alarm_slow_writes;  /* for this many writes */
 
 /* The slot handed out last, and the value it held then. */
 static volatile uint32_t pending_slot;
@@ -127,6 +129,10 @@ static void apply(uintptr_t addr, uint32_t v)
     case RP_MODEL_T1_ALARM0:
         *state(addr) = v;
         t1_armed |= 1u;
+        if (alarm_slow_writes > 0) {
+            alarm_slow_writes--;
+            now += alarm_slow_us;
+        }
         break;
     case RP_MODEL_NVIC_ISER0:   *state(addr) |= v; break;
     case RP_MODEL_RESETS_DONE:
@@ -167,6 +173,8 @@ void tfw_rp_model_reset(void)
     t1_armed = 0u;
     t1_intr  = 0u;
     pending  = 0;
+    alarm_slow_us     = 0u;
+    alarm_slow_writes = 0;
     *state(RP_MODEL_RESETS_RESET) = 0x1FFFFFFFu;
 }
 
@@ -174,6 +182,13 @@ void tfw_rp_model_set_time(uint32_t ticks)
 {
     commit();
     now = ticks;
+}
+
+void tfw_rp_model_slow_alarm_writes(uint32_t us, int writes)
+{
+    commit();
+    alarm_slow_us     = us;
+    alarm_slow_writes = writes;
 }
 
 uint32_t tfw_rp_model_read(uintptr_t addr)

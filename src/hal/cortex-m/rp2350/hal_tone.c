@@ -109,10 +109,18 @@ void tfw_cm_irq4(void)
     tone_target += tone_step;
     /* ALARM0 matches TIMELR for equality: a target already passed (the
      * handler held off, as by an EEPROM write's masked flash update) would
-     * not fire for 2^32 us. Skip the missed half-periods, keeping phase. */
+     * not fire for 2^32 us. Skip the missed half-periods, keeping phase.
+     * TIMELR can also reach the target while the write lands, so read it
+     * again once armed and move on until the armed target is ahead. */
     uint32_t now = TFW_RP_TIMER1_TIMELR;
-    if ((int32_t)(tone_target - now) <= 0) {
-        tone_target += ((now - tone_target) / tone_step + 1u) * tone_step;
+    for (;;) {
+        if ((int32_t)(tone_target - now) <= 0) {
+            tone_target += ((now - tone_target) / tone_step + 1u) * tone_step;
+        }
+        TFW_RP_TIMER1_ALARM0 = tone_target;
+        now = TFW_RP_TIMER1_TIMELR;
+        if ((int32_t)(tone_target - now) > 0) {
+            break;
+        }
     }
-    TFW_RP_TIMER1_ALARM0 = tone_target;
 }

@@ -187,7 +187,10 @@ In order:
    path is already in place for both, and the EEPROM command family uses it.
 6. The SAADC on the DK, and PWM. The SAADC driver
    (`src/hal/cortex-m/nrf54l/hal_adc.c`) is written and runs against a
-   register model on the host (`test/unit/test_nrf54l_saadc.c`); PWM is built
+   register model on the host (`test/unit/test_nrf54l_saadc.c`). Each read
+   first puts the pin's `PIN_CNF` back to its reset value (input, no pull,
+   input buffer disconnected), so an output or pull-up a GPIO command left
+   on it does not load the input; PWM is built
    (PWM20 on LED1 and LED3, the table above) and host-tested. Neither has run
    on the board.
 

@@ -134,7 +134,6 @@ tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)
 tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     const uint32_t gpio = TFW_RP_ADC_GPIO0 + channel;
-    uint32_t cs;
     uint32_t io_saved;
     uint32_t pad_saved;
     tfw_status_t st;
@@ -152,7 +151,8 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
                     (((uint32_t)channel << TFW_RP_ADC_CS_AINSEL_LSB) & TFW_RP_ADC_CS_AINSEL_MASK);
     st = wait_ready();
     if (st == TFW_OK) {
-        cs = TFW_RP_ADC_CS;
+        const uint32_t cs = TFW_RP_ADC_CS;
+
         if ((cs & TFW_RP_ADC_CS_ERR) != 0u) {
             st = TFW_ERR_INTERNAL;
         } else {

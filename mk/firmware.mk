@@ -167,8 +167,14 @@ endif
 # hal_eeprom.c is always present, but a SoC may have its own (nrf54l: the
 # window is RRAM, which a plain store does not program). hal_src picks one and
 # the other copy is left out, so no board links two; on every board without a
-# SoC copy this is empty and the link is what it was.
-HAL_EEPROM_OTHER = $(filter-out $(call hal_src,hal_eeprom.c),\
+# SoC copy this is empty and the link is what it was. A SoC copy that needs
+# tfw-boot's flash helper (SOC_EEPROM_SRCS_<soc>) is the EEPROM feature's: with
+# the feature off (the RP2350's default row, TFW_EEPROM_SIZE 0) the core copy
+# is linked instead, which still gives ota_ctl.c and app_runner.c their entry
+# points, and the SoC copy and the helper are left out.
+HAL_EEPROM_PICK = $(if $(and $(SOC_EEPROM_SRCS_$(SOC)),$(call feature_off,EEPROM)),\
+                    $(HAL_DIR)/hal_eeprom.c,$(call hal_src,hal_eeprom.c))
+HAL_EEPROM_OTHER = $(filter-out $(strip $(HAL_EEPROM_PICK)),\
                      $(wildcard $(HAL_DIR)/hal_eeprom.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/hal_eeprom.c)))
 
 # The HAL modules that are chosen rather than always present. Filtered out of
@@ -460,8 +466,10 @@ ID_SUFFIX := $(if $(filter $(SOFT_ID_SRCS),$(CRYPTO_SRCS)),$(if $(filter-out $(S
 AB_SUFFIX := $(if $(BOOT_AB_OPTIONAL),$(if $(filter 1,$(BOOT_AB)),-ab))
 # And a bus a board turns on only for a named row (BOARD_FEATURES_ON in
 # profile.mk: the MPS2 boards' soft:I2C=1 and soft:SPI=1), as -i2c and -spi.
-ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),$(foreach f,$(shell printf '%s' \
-                      '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z),-$(f)))
+# Several features join with no space between (the RP2350's PERIPH=1 row,
+# -analog-pwm-tone-eeprom): FW_DIR is one word in every target and recipe.
+ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),-$(subst $() ,-,$(shell printf '%s' \
+                      '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z)))
 
 # Every make variable that changes the image's objects names the directory, and
 # only where it differs from its default, so every default image keeps its path.

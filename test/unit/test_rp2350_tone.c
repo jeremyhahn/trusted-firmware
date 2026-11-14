@@ -138,6 +138,41 @@ static void test_irq_rearm_wraps(void)
     TEST_ASSERT_EQUAL_UINT32(0xFFFFFF00u + 20000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
 }
 
+static void test_irq_late_by_periods_rearms_ahead(void)
+{
+    tfw_rp_model_set_time(0u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
+
+    /* the interrupt runs 2100 us late, past four more targets: the next
+     * target is the first one still ahead, on the 500 us grid */
+    tfw_rp_model_set_time(2600u);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(3000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+    TEST_ASSERT_EQUAL_UINT32(1u, tfw_rp_model_read(RP_MODEL_T1_ARMED));
+
+    /* a target the timer sits on exactly has passed too */
+    tfw_rp_model_set_time(3500u);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(4000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+}
+
+static void test_irq_held_off_by_a_flash_write_rearms_ahead(void)
+{
+    tfw_rp_model_set_time(0xFFFF0000u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
+
+    /* an EEPROM write masks interrupts for 45.4 ms across the wrap */
+    tfw_rp_model_set_time(0xFFFF0000u + 500u + 45400u);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_UINT32(0xFFFF0000u + 46000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+
+    tfw_rp_model_set_time(0xFFFF0000u + 46000u);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_UINT32(0xFFFF0000u + 46500u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
+}
+
 static void test_retarget_drives_old_pin_low(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
@@ -192,6 +227,8 @@ int main(void)
     RUN_TEST(test_start_keeps_running_timer);
     RUN_TEST(test_irq_toggles_and_rearms_from_target);
     RUN_TEST(test_irq_rearm_wraps);
+    RUN_TEST(test_irq_late_by_periods_rearms_ahead);
+    RUN_TEST(test_irq_held_off_by_a_flash_write_rearms_ahead);
     RUN_TEST(test_retarget_drives_old_pin_low);
     RUN_TEST(test_retarget_same_pin_new_step);
     RUN_TEST(test_stop);

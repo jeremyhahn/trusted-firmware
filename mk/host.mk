@@ -2155,7 +2155,11 @@ TFWSIM_OTABOOT_SRCS := $(filter-out src/proto/link_serial.c src/core/app_runner.
                        $(TFWSIM_LINK_SRCS) src/core/app_runner_none.c src/core/ota_trial_none.c
 
 ## tfwsim-otaboot: build the soft simulator of a 2560 image without the stager (OTA in tfw-boot)
-tfwsim-otaboot: $(HOST_DIR)/tfwsim-otaboot
+# The OTA simulators come as one set: tfwsim-otaboot also builds
+# tfwsim-manifest (OTA_ACTIVATE's SUIT manifest gate and suit-emit), so a
+# make line that names the OTA simulators, as the CI race leg's does, builds
+# the binaries e2e_ota_manifest_test.go fails without.
+tfwsim-otaboot: $(HOST_DIR)/tfwsim-otaboot tfwsim-manifest
 $(HOST_DIR)/tfwsim-otaboot: $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c tools/tfwsim/boot_none.c $(TFWSIM_OTABOOT_SRCS) | $(HOST_DIR)
 	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c tools/tfwsim/boot_none.c $(TFWSIM_OTABOOT_SRCS) $(EXTRA_LDFLAGS)

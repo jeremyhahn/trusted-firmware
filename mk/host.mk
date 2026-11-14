@@ -154,6 +154,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                            test/unit/test_suit_emit_main_mutate.c \
                             test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c test/unit/test_cm_pulse.c \
                             test/unit/test_mps2_uart.c \
+                            test/unit/test_mps2_gpio.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
                             test/unit/test_none_variants.c test/unit/test_none_standins.c \
@@ -547,6 +548,17 @@ $(HOST_DIR)/test_mps2_uart: test/unit/test_mps2_uart.c src/hal/cortex-m/mps2/hal
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Itest/model/cortex-m -Itest/model -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 \
 	   $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The MPS2 digital pins (#161): src/hal/cortex-m/mps2/hal_gpio.c on mps2-an505's
+# profile, its FPGAIO LED register in test/model/cortex-m/mps2_fpgaio_model.c.
+# The rp2350 boot test directory's cm_regs.h, ahead of src/hal/cortex-m, sends
+# TFW_CM_REG to that model; src/hal/cortex-m ahead of test/mock gives the port's
+# hal_types.h.
+$(HOST_DIR)/test_mps2_gpio: test/unit/test_mps2_gpio.c src/hal/cortex-m/mps2/hal_gpio.c \
+                            test/model/cortex-m/mps2_fpgaio_model.c \
+                            $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Iboot/hal/cortex-m/rp2350/test \
+	   -Isrc/hal/cortex-m -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The unattested tier. Its own link line for the reason above this rule
 # names: HOST_LIB_SRCS carries the software provider, and this suite is
@@ -1268,6 +1280,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_mps2_uart \
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
+                    $(HOST_DIR)/test_mps2_gpio \
                     $(HOST_DIR)/test_auth_session $(HOST_DIR)/test_auth_mutate $(HOST_DIR)/test_auth_session_mutate $(HOST_DIR)/test_auth_robust $(HOST_DIR)/test_pin_coord \
                     $(HOST_DIR)/test_mcxn_lpuart $(HOST_DIR)/test_mcxn_lpi2c \
                     $(HOST_DIR)/test_mcxn_ctimer_pwm \

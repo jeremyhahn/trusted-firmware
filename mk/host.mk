@@ -2534,6 +2534,16 @@ $(HOST_DIR)/test_stm32h5_reset: test/unit/test_stm32h5_reset.c src/hal/cortex-m/
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/stm32h5 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The stm32h5 I2C master against the test's register model of I2C4: the test
+# defines TFW_CM_REG and includes hal_bus.c itself, so hal_bus.c is a
+# prerequisite but not a separate object. The board's profile replaces the host
+# board's, and src/hal/cortex-m/ ahead of test/mock gives the port's hal_types.h.
+HOST_STM32H5_I2C_CFLAGS = -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Iboards/stm32h573i-dk \
+                          $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_stm32h5_i2c: test/unit/test_stm32h5_i2c.c src/hal/cortex-m/stm32h5/hal_bus.c \
+                              src/hal/cortex-m/stm32h5/soc_regs.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_STM32H5_I2C_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
 # The stm32h5's ADC1 driver against the register model in its test, which
 # includes hal_adc.c and claims cm_regs.h's guard first; the board's profile
 # replaces the host board's, for its channel count and core clock.

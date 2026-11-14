@@ -6,9 +6,9 @@
  * (test/model/cortex-m/regfile_model.c): USART3 at 0x40004800 clocked by
  * RCC_APB1LENR bit 18, PD8 TX and PD9 RX on alternate function 7, USART3_IRQn
  * 60 enabled and served by tfw_cm_irq60, and TDR and RDR at USART3's offsets.
- * The addresses are literals from RM0481, not soc_console.h's macros, so a
- * USART1 access left in the NUCLEO build fails here. Nothing lands on
- * USART1's registers. A board has not run them.
+ * What the HAL writes is read back at literal RM0481 addresses, not through
+ * soc_console.h's macros, so a USART1 access left in the NUCLEO build fails
+ * here. Nothing lands on USART1's registers. A board has not run them.
  */
 #include <stdint.h>
 
@@ -17,6 +17,7 @@
 #include "tfw/config.h"
 #include "soc_regs.h"
 #include "h5_calc.h"
+#include "soc_console.h"
 #include "regfile_model.h"
 
 /* hal_uart.c's USART3 handler (USART3_IRQn 60): the vector table names it. */
@@ -45,10 +46,8 @@ static uint32_t peek(uint32_t addr)
     return regfile_model_peek((uintptr_t)addr);
 }
 
-static void poke(uint32_t addr, uint32_t v)
-{
-    TFW_CM_REG(addr) = v;
-}
+/* The status and data the HAL reads are preset through soc_console.h's
+ * registers; test_the_console_is_usart3 pins their base to USART3's. */
 
 static void init_115200(void)
 {
@@ -62,6 +61,12 @@ void setUp(void)
 
 void tearDown(void)
 {
+}
+
+static void test_the_console_is_usart3(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(USART3_BASE, TFW_H5_CON_BASE);
+    TEST_ASSERT_EQUAL_UINT32(60u, TFW_H5_CON_IRQ);
 }
 
 static void test_init_clocks_usart3_on_apb1l(void)
@@ -109,7 +114,7 @@ static void test_tx_goes_out_through_usart3s_tdr_on_irq60(void)
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xA5u));
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_CR1_TXEIE, peek(USART3_CR1) & TFW_H5_USART_CR1_TXEIE);
 
-    poke(USART3_ISR, TFW_H5_USART_ISR_TXE);
+    TFW_H5_CON_ISR = TFW_H5_USART_ISR_TXE;
     tfw_cm_irq60();
     TEST_ASSERT_EQUAL_HEX32(0xA5u, peek(USART3_TDR));
     TEST_ASSERT_EQUAL_HEX32(0u, peek(TFW_H5_USART1_BASE + 0x28u));
@@ -129,9 +134,9 @@ static void test_tx_with_txe_clear_writes_no_tdr(void)
 static void test_tx_idle_reads_usart3s_tc(void)
 {
     init_115200();
-    poke(USART3_ISR, TFW_H5_USART_ISR_TC);
+    TFW_H5_CON_ISR = TFW_H5_USART_ISR_TC;
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
-    poke(USART3_ISR, 0u);
+    TFW_H5_CON_ISR = 0u;
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
 }
 
@@ -140,8 +145,8 @@ static void test_rx_takes_usart3s_rdr_on_irq60(void)
     uint8_t b = 0u;
 
     init_115200();
-    poke(USART3_RDR, 0x5Au);
-    poke(USART3_ISR, TFW_H5_USART_ISR_RXNE);
+    TFW_H5_CON_RDR = 0x5Au;
+    TFW_H5_CON_ISR = TFW_H5_USART_ISR_RXNE;
     tfw_cm_irq60();
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_rx(&b));
     TEST_ASSERT_EQUAL_HEX8(0x5Au, b);
@@ -153,8 +158,8 @@ static void test_rx_ignores_usart1s_rdr(void)
     uint8_t b = 0x11u;
 
     init_115200();
-    poke(TFW_H5_USART1_BASE + 0x24u, 0x5Au);
-    poke(TFW_H5_USART1_BASE + 0x1Cu, TFW_H5_USART_ISR_RXNE);
+    TFW_H5_USART_RDR = 0x5Au;                   /* USART1's */
+    TFW_H5_USART_ISR = TFW_H5_USART_ISR_RXNE;
     tfw_cm_irq60();
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
     TEST_ASSERT_EQUAL_HEX8(0x11u, b);
@@ -163,8 +168,8 @@ static void test_rx_ignores_usart1s_rdr(void)
 static void test_an_overrun_is_cleared_in_usart3s_icr(void)
 {
     init_115200();
-    poke(USART3_ICR, 0u);
-    poke(USART3_ISR, TFW_H5_USART_ISR_ORE);
+    TFW_H5_CON_ICR = 0u;
+    TFW_H5_CON_ISR = TFW_H5_USART_ISR_ORE;
     tfw_cm_irq60();
     TEST_ASSERT_EQUAL_HEX32(TFW_H5_USART_ICR_ORECF, peek(USART3_ICR));
 }
@@ -172,6 +177,7 @@ static void test_an_overrun_is_cleared_in_usart3s_icr(void)
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_the_console_is_usart3);
     RUN_TEST(test_init_clocks_usart3_on_apb1l);
     RUN_TEST(test_init_programs_usart3s_brr_and_cr1);
     RUN_TEST(test_init_touches_no_usart1_register);

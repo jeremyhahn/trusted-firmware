@@ -36,6 +36,13 @@ static uint32_t nseq;
 static uint32_t at_sample[6];   /* PSELP, PSELN, CONFIG, RESOLUTION, PTR, MAXCNT */
 static uint8_t  dma_ok;
 
+/* Port P1's GPIO window, where the four AIN pins are: PIN_CNF n at 0x080 + 4n. */
+#define P1_BASE     0x500D8200u
+#define P1_WORDS    (0x300u / 4u)
+#define P1_CNF(n)   (p1[(0x080u + 4u * (uint32_t)(n)) / 4u])
+static uint32_t p1[P1_WORDS];
+static uint32_t cnf_at_start[32];   /* P1's PIN_CNF registers at TASKS_START */
+
 static void note(char c)
 {
     if (nseq + 1u < sizeof(seq)) {
@@ -46,9 +53,14 @@ static void note(char c)
 
 static void settle(void)
 {
+    uint32_t n;
+
     if (W(0x000u) != 0u) {                     /* TASKS_START */
         W(0x000u) = 0u;
         note('S');
+        for (n = 0u; n < 32u; n++) {
+            cnf_at_start[n] = P1_CNF(n);
+        }
         if (W(0x500u) == 1u && !stall_start) {
             W(0x100u) = 1u;                    /* EVENTS_STARTED */
         }
@@ -83,6 +95,10 @@ static volatile uint32_t *saadc_model_reg(uintptr_t addr)
 {
     accesses++;
     settle();
+    if (addr >= P1_BASE && addr < P1_BASE + 4u * P1_WORDS) {
+        TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, (uint32_t)(addr & 3u), "an unaligned access");
+        return &p1[(addr - P1_BASE) / 4u];
+    }
     TEST_ASSERT_TRUE_MESSAGE(addr >= M_BASE && addr < M_BASE + 4u * M_WORDS,
                              "an access outside the SAADC");
     TEST_ASSERT_EQUAL_UINT32_MESSAGE(0u, (uint32_t)(addr & 3u), "an unaligned access");
@@ -97,6 +113,13 @@ void setUp(void)
         regs[i] = 0u;
     }
     W(0x518u) = 0x00020000u;                   /* SAADC_CH_CONFIG_ResetValue */
+    for (i = 0u; i < P1_WORDS; i++) {
+        p1[i] = 0u;
+    }
+    for (i = 0u; i < 32u; i++) {
+        P1_CNF(i) = TFW_NRF_PIN_CNF_RESET;
+        cnf_at_start[i] = 0xFFFFFFFFu;
+    }
     accesses = 0u;
     stall_start = 0u;
     stall_end = 0u;
@@ -155,6 +178,30 @@ static void test_each_channel_selects_its_pin(void)
         setUp();
         TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_adc_read(ch, &raw));
         TEST_ASSERT_EQUAL_HEX32(want[ch], at_sample[0]);
+    }
+}
+
+/* GPIO to analog: a pin the GPIO left as an output with the pull-up on goes
+ * back to PIN_CNF's reset (input, no pull, input buffer disconnected) before
+ * the SAADC starts, so no driver or pull loads the input. P1's other pins
+ * keep their configuration. */
+static void test_a_read_resets_the_pins_gpio_configuration_before_sampling(void)
+{
+    static const uint8_t bit[4] = { 6u, 7u, 11u, 12u };
+    const uint32_t gpio = TFW_NRF_PIN_CNF_OUTPUT | TFW_NRF_PIN_CNF_PULLUP;
+    uint8_t ch;
+    uint8_t n;
+
+    for (ch = 0u; ch < 4u; ch++) {
+        uint16_t raw = 0u;
+        setUp();
+        for (n = 0u; n < 32u; n++) {
+            P1_CNF(n) = gpio;
+        }
+        TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_hal_adc_read(ch, &raw));
+        for (n = 0u; n < 32u; n++) {
+            TEST_ASSERT_EQUAL_HEX32(n == bit[ch] ? TFW_NRF_PIN_CNF_RESET : gpio, cnf_at_start[n]);
+        }
     }
 }
 
@@ -237,6 +284,7 @@ int main(void)
     RUN_TEST(test_init_succeeds_and_touches_nothing);
     RUN_TEST(test_a_read_configures_starts_samples_stops_and_returns_the_result);
     RUN_TEST(test_each_channel_selects_its_pin);
+    RUN_TEST(test_a_read_resets_the_pins_gpio_configuration_before_sampling);
     RUN_TEST(test_a_sample_below_ground_reads_zero_and_above_reads_4095);
     RUN_TEST(test_an_out_of_range_channel_is_refused_before_any_register);
     RUN_TEST(test_only_the_internal_reference_is_taken);

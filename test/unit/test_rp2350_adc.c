@@ -175,6 +175,30 @@ static void test_a_read_before_init_times_out(void)
     TEST_ASSERT_TRUE(tfw_rp2350_model_get()->adc.ignored > 0u);
 }
 
+/* A pin another feature set up (here GPIO27 as SIO with a pull-up) goes back
+ * as the read found it, after a conversion and after a failed one alike. */
+static void test_a_read_restores_the_pin_it_borrowed(void)
+{
+    struct tfw_rp2350_model *m;
+    uint16_t raw = 0x5555u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    m = tfw_rp2350_model_get();
+    m->io_ctrl[1] = 0x05u;                               /* FUNCSEL 5, SIO */
+    m->pad[1] = 0x4Au;                                   /* IE, PUE, drive */
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(1u, &raw));
+    m = tfw_rp2350_model_get();
+    TEST_ASSERT_EQUAL_HEX32(PAD_OD, m->adc.pad_at_start[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x05u, m->io_ctrl[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x4Au, m->pad[1]);
+
+    m->adc.stuck = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_hal_adc_read(1u, &raw));
+    m = tfw_rp2350_model_get();
+    TEST_ASSERT_EQUAL_HEX32(0x05u, m->io_ctrl[1]);
+    TEST_ASSERT_EQUAL_HEX32(0x4Au, m->pad[1]);
+}
+
 static void test_only_the_supply_reference_is_accepted(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_set_ref(TFW_ADC_REF_VCC));
@@ -197,6 +221,7 @@ int main(void)
     RUN_TEST(test_err_set_is_an_error_not_a_value);
     RUN_TEST(test_a_channel_beyond_the_board_is_refused_untouched);
     RUN_TEST(test_a_read_before_init_times_out);
+    RUN_TEST(test_a_read_restores_the_pin_it_borrowed);
     RUN_TEST(test_only_the_supply_reference_is_accepted);
     return UNITY_END();
 }

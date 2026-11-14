@@ -17,7 +17,9 @@
  * pulls, as §12.4 asks), selects the input in CS.AINSEL, starts one
  * conversion with CS.START_ONCE and polls CS.READY a bounded number of
  * times: past it the read is TFW_ERR_TIMEOUT. CS.ERR set is a failed
- * conversion, TFW_ERR_INTERNAL, never a value. The value is RESULT's 12
+ * conversion, TFW_ERR_INTERNAL, never a value. Whatever the outcome, the
+ * read then writes the pin's pad and IO_CTRL back as it found them, so a
+ * pin another feature had configured keeps that configuration. The value is RESULT's 12
  * bits, as the ESP32 ports return theirs; the host reads the width from the
  * board.
  *
@@ -133,25 +135,33 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
 {
     const uint32_t gpio = TFW_RP_ADC_GPIO0 + channel;
     uint32_t cs;
+    uint32_t io_saved;
+    uint32_t pad_saved;
     tfw_status_t st;
 
     if ((uint32_t)channel + 1u > TFW_ADC_COUNT) {     /* not >=: a board may have none */
         return TFW_ERR_RANGE;
     }
 
+    io_saved = TFW_RP_IO_CTRL(gpio);
+    pad_saved = TFW_CM_REG(TFW_RP_PADS_GPIO(gpio));
     TFW_RP_IO_CTRL(gpio) = TFW_RP_FUNC_NULL;
     TFW_CM_REG(TFW_RP_PADS_GPIO(gpio)) = TFW_RP_PAD_OD;   /* IE, pulls, ISO clear */
 
     TFW_RP_ADC_CS = TFW_RP_ADC_CS_EN | TFW_RP_ADC_CS_START_ONCE |
                     (((uint32_t)channel << TFW_RP_ADC_CS_AINSEL_LSB) & TFW_RP_ADC_CS_AINSEL_MASK);
     st = wait_ready();
-    if (st != TFW_OK) {
-        return st;
+    if (st == TFW_OK) {
+        cs = TFW_RP_ADC_CS;
+        if ((cs & TFW_RP_ADC_CS_ERR) != 0u) {
+            st = TFW_ERR_INTERNAL;
+        } else {
+            *out_raw = (uint16_t)(TFW_RP_ADC_RESULT & TFW_RP_ADC_RESULT_MASK);
+        }
     }
-    cs = TFW_RP_ADC_CS;
-    if ((cs & TFW_RP_ADC_CS_ERR) != 0u) {
-        return TFW_ERR_INTERNAL;
-    }
-    *out_raw = (uint16_t)(TFW_RP_ADC_RESULT & TFW_RP_ADC_RESULT_MASK);
-    return TFW_OK;
+
+    /* the pin goes back as the read found it, on every outcome */
+    TFW_CM_REG(TFW_RP_PADS_GPIO(gpio)) = pad_saved;
+    TFW_RP_IO_CTRL(gpio) = io_saved;
+    return st;
 }

@@ -98,10 +98,15 @@ PARTS = {
                      eeprom=4096, boot=True, boot_end=0x00008000),
     # NXP MCXN947, core 0's Secure alias (the SDK's MCXN947_cm33_core0.h and
     # its flash linker script, docs/reference/README.md): 2 MiB of flash at
-    # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off, no EEPROM.
+    # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off. The part has
+    # no EEPROM block; the EEPROM is emulated, 1024 bytes as the AVR's map
+    # (boards/frdm-mcxn947/board_profile.h TFW_EEPROM_SIZE): the platform
+    # window (TFW_BOOT_EE_LEN bytes) plus the user sector, served by
+    # src/hal/cortex-m/mcxn94x/hal_eeprom.c over the part's flash through
+    # tfw-boot's helper (boot/hal/cortex-m/mcxn94x/mcxn_flash.c).
     # tfw-boot is the first 32 KiB of flash, so boot_end is where it ends.
     "mcxn947": dict(flash=2097152, flash_start=0x10000000, sram=319488,
-                    sram_start=0x30000000, eeprom=0, boot=True,
+                    sram_start=0x30000000, eeprom=1024, boot=True,
                     boot_end=0x10008000),
     # NXP i.MX 95's Cortex-M7 (MIMX9596, UM12527 §1.2 Table 1): its 512 KiB of
     # TCM (IMX95CEC Table 1) as 256 KiB ITCM at M7 0x00000000, the code span,

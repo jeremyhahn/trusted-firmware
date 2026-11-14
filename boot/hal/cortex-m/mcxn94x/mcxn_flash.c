@@ -69,6 +69,11 @@ tfw_status_t tfw_mcxn_flash_update(const tfw_mcxn_flash_api_t *api, const uint8_
         if (memcmp(&sector[at], data, n) != 0) {
             memcpy(&sector[at], data, n);
             st = tfw_mcxn_flash_sector(api, &config, base, sector);
+            /* The whole sector reads back as it was with data merged in,
+             * not only data's span. */
+            if (st == TFW_OK && memcmp(&flash[base], sector, sizeof sector) != 0) {
+                st = TFW_ERR_INTERNAL;
+            }
         }
         addr += n;
         data += n;

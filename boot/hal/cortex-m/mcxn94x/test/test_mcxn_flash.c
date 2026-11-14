@@ -38,6 +38,7 @@ static const uint8_t *program_src;
 static int32_t  init_status;
 static int32_t  erase_status;
 static int32_t  program_status;
+static long     corrupt_at;     /* a flash offset the program loses, or -1 */
 static uint32_t sector_size;
 
 static int32_t model_init(tfw_mcxn_flash_config_t *config)
@@ -91,6 +92,9 @@ static int32_t model_program(tfw_mcxn_flash_config_t *config, uint32_t start,
         return program_status;
     }
     memcpy(&flash[off], src, length);
+    if (corrupt_at >= (long)off && corrupt_at < (long)(off + length)) {
+        flash[corrupt_at] = (uint8_t)(flash[corrupt_at] ^ 0x01u);
+    }
     erased[off / TFW_MCXN_FLASH_SECTOR] = false;
     return 0;
 }
@@ -116,6 +120,7 @@ void setUp(void)
     init_status    = 0;
     erase_status   = 0;
     program_status = 0;
+    corrupt_at     = -1;
     sector_size    = 8192u;
 }
 
@@ -258,6 +263,19 @@ static void test_a_rom_failure_is_passed_up(void)
     TEST_ASSERT_EQUAL_UINT32(1u, programs);
 }
 
+static void test_a_byte_lost_outside_the_written_span_is_an_error(void)
+{
+    static const uint8_t data[] = { 0x5B, 0x5B, 0x5B };
+    uint32_t addr = TFW_MCXN_FLASH_BASE + 0xA000u;
+
+    /* The ROM reports success but the rewrite loses a byte the write did
+     * not touch: the whole sector is checked, not only data's span. */
+    corrupt_at = (long)(0xA000u + 200u);
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL, update(addr, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT32(1u, programs);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &flash[0xA000u], sizeof data);
+}
+
 /* A driver that reports a sector the buffer is not sized for is not used. */
 static void test_a_driver_of_another_sector_size_is_refused(void)
 {
@@ -310,6 +328,7 @@ int main(void)
     RUN_TEST(test_a_sector_off_its_boundary_is_refused);
     RUN_TEST(test_a_zero_length_write_is_ok);
     RUN_TEST(test_a_rom_failure_is_passed_up);
+    RUN_TEST(test_a_byte_lost_outside_the_written_span_is_an_error);
     RUN_TEST(test_a_driver_of_another_sector_size_is_refused);
     RUN_TEST(test_the_sector_buffer_is_zeroed_after_a_write);
     RUN_TEST(test_the_rom_interface_is_pinned);

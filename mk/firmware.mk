@@ -81,7 +81,13 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # entry points. A part with neither (the mps2-an505, #161) defines neither
 # entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
 # compile under -Werror, so the board drops the whole file.
-STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c $(wildcard $(call hal_src,hal_eeprom.c)))
+# A SoC whose EEPROM is flash written through tfw-boot's flash helper links the
+# helper under the feature, as STAGE_SRCS links boot/boot_image.c: the RP2350's
+# src/hal/cortex-m/rp2350/hal_eeprom.c calls tfw_rp_flash_update.
+SOC_EEPROM_SRCS_rp2350 := boot/hal/cortex-m/rp2350/rp_flash.c boot/hal/cortex-m/rp2350/rp_flash_rom.c \
+                          boot/hal/cortex-m/rp2350/rp_rom_lookup.c
+STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c $(wildcard $(call hal_src,hal_eeprom.c)) \
+                $(SOC_EEPROM_SRCS_$(SOC)))
 # The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
 # the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
 # mk/arch/esp32.mk), so a file the arch lists is left to the arch.
@@ -168,7 +174,9 @@ HAL_EEPROM_OTHER = $(filter-out $(call hal_src,hal_eeprom.c),\
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
-# compile on the parts that gate them.
+# compile on the parts that gate them. The core's hal_eeprom.c goes too where
+# the SoC has its own (the RP2350's flash one), so the wildcard links the one
+# hal_src names; on every other board the filter-out leaves nothing.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
                   $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL) $(HAL_EEPROM_OTHER)
@@ -655,6 +663,9 @@ $(eval $(call SOFT_ID_RULES,$(FW_DIR)))
 ifeq ($(CRYPTO),auto)
 $(eval $(call AUTO_RENAMES,$(FW_DIR)))
 endif
+# The RP2350's flash EEPROM includes tfw-boot's flash helper by its own name, as
+# the boot's files do: a path through hal/ reads to lint-arch-leak as ESP-IDF.
+$(FW_DIR)/src/hal/cortex-m/rp2350/hal_eeprom.o: FW_CFLAGS += -Iboot/hal/cortex-m/rp2350
 
 $(FW_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

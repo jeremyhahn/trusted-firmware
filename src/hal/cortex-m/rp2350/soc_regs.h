@@ -18,6 +18,8 @@
  *   IO_BANK0    a GPIO's function select
  *   PADS_BANK0  a GPIO's pad: input enable, pulls, isolation
  *   SIO         the single-cycle GPIO set, clear and output-enable registers
+ *   PWM         the twelve slices' control, divider, compare and wrap registers
+ *   ADC         the SAR converter, ADC0-2 on GPIO26-28
  *   UART0       an Arm PL011, the byte link, on GPIO0 (TX) and GPIO1 (RX)
  *
  * Every block on the APB has the atomic aliases the datasheet describes at
@@ -36,8 +38,12 @@
 #define TFW_RP_RESETS_BASE      0x40020000u
 #define TFW_RP_RESETS_RESET     (TFW_RP_RESETS_BASE + 0x0u)
 #define TFW_RP_RESETS_DONE      TFW_CM_REG(TFW_RP_RESETS_BASE + 0x8u)
+#define TFW_RP_RESET_ADC        (1u << 0)       /* TODO(datasheet): §7.5.3 table 566, bit 0 */
 #define TFW_RP_RESET_IO_BANK0   (1u << 6)
 #define TFW_RP_RESET_PADS_BANK0 (1u << 9)
+#define TFW_RP_RESET_PLL_USB    (1u << 15)      /* TODO(datasheet): §7.5.3 table 567, bit 15 */
+#define TFW_RP_RESET_PWM        (1u << 16)
+#define TFW_RP_RESET_TIMER1     (1u << 24)      /* hal_tone.c */
 #define TFW_RP_RESET_UART0      (1u << 26)
 
 /* ---- XOSC: base §2.2 table 13; CTRL, STATUS, STARTUP §8.2.8 tables 630-634 */
@@ -48,6 +54,24 @@
 #define TFW_RP_XOSC_CTRL_1_15MHZ 0x00000AA0u   /* FREQ_RANGE */
 #define TFW_RP_XOSC_CTRL_ENABLE  0x00FAB000u   /* ENABLE: the magic 0xFAB */
 #define TFW_RP_XOSC_STATUS_STABLE 0x80000000u
+
+/* ---- PLL_USB, clk_adc's source alone (§12.4.3: the ADC requires 48 MHz).
+ * Base §2.2 table 13; CS, PWR, FBDIV_INT, PRIM §8.6.5 tables 668-672; the
+ * sequence §8.6.4. 12 MHz / REFDIV 1 * FBDIV 100 = VCO 1200 MHz, / 5 / 5 =
+ * 48 MHz: the pico-sdk's PLL USB line quoted in §8.6.4. */
+#define TFW_RP_PLL_USB_BASE     0x40058000u     /* TODO(datasheet): §2.2 table 13 */
+#define TFW_RP_PLL_USB_CS       TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x00u)
+#define TFW_RP_PLL_USB_PWR      (TFW_RP_PLL_USB_BASE + 0x04u)     /* through SET/CLR */
+#define TFW_RP_PLL_USB_FBDIV    TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x08u)
+#define TFW_RP_PLL_USB_PRIM     TFW_CM_REG(TFW_RP_PLL_USB_BASE + 0x0Cu)
+#define TFW_RP_PLL_CS_LOCK      (1u << 31)      /* TODO(datasheet): §8.6.5 table 669 */
+#define TFW_RP_PLL_CS_REFDIV_1  1u              /* TODO(datasheet): table 669, bits 5:0 */
+#define TFW_RP_PLL_FBDIV_48MHZ  100u            /* TODO(datasheet): table 671, bits 11:0 */
+#define TFW_RP_PLL_PWR_PD       (1u << 0)       /* TODO(datasheet): table 670 */
+#define TFW_RP_PLL_PWR_POSTDIVPD (1u << 3)
+#define TFW_RP_PLL_PWR_VCOPD    (1u << 5)
+#define TFW_RP_PLL_PRIM_48MHZ   ((5u << 16) | (5u << 12)) /* TODO(datasheet): table 672, POSTDIV1, POSTDIV2 */
+#define TFW_RP_PLL_PRIM_MASK    ((7u << 16) | (7u << 12))
 
 /* ---- CLOCKS: each clock is CTRL, DIV, SELECTED. Base §2.2 table 13;
  * offsets and fields §8.1.7, tables 588-596. */
@@ -60,6 +84,10 @@
 #define TFW_RP_CLK_SYS_SELECTED TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x44u)
 #define TFW_RP_CLK_PERI_CTRL    TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x48u)
 #define TFW_RP_CLK_PERI_DIV     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x4Cu)
+#define TFW_RP_CLK_ADC_CTRL     TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x6Cu)   /* TODO(datasheet) */
+#define TFW_RP_CLK_ADC_DIV      TFW_CM_REG(TFW_RP_CLOCKS_BASE + 0x70u)   /* TODO(datasheet) */
+#define TFW_RP_CLK_ADC_PLL_USB  (0u << 5)       /* TODO(datasheet): §8.1.7 table 603, AUXSRC 0, clksrc_pll_usb */
+#define TFW_RP_CLK_ADC_ENABLE   (1u << 11)      /* TODO(datasheet): CTRL.ENABLE */
 #define TFW_RP_CLK_DIV_1        (1u << 16)      /* DIV.INT = 1, FRAC = 0 */
 #define TFW_RP_CLK_REF_SRC_XOSC 2u              /* CTRL.SRC; SELECTED is one-hot */
 #define TFW_RP_CLK_SYS_SRC_REF  0u
@@ -71,6 +99,23 @@
 #define TFW_RP_TICKS_WD_CTRL    TFW_CM_REG(TFW_RP_TICKS_BASE + 0x30u)
 #define TFW_RP_TICKS_WD_CYCLES  TFW_CM_REG(TFW_RP_TICKS_BASE + 0x34u)
 #define TFW_RP_TICKS_ENABLE     0x1u
+/* TIMER0_CTRL, TIMER0_CYCLES §8.5.2, tables 656-657. */
+#define TFW_RP_TICKS_TIMER0_CTRL   TFW_CM_REG(TFW_RP_TICKS_BASE + 0x18u)
+#define TFW_RP_TICKS_TIMER0_CYCLES TFW_CM_REG(TFW_RP_TICKS_BASE + 0x1Cu)
+
+/* ---- TIMER0: the 64-bit microsecond counter, counting the tick above
+ * while interrupts are masked. Base §2.2 table 13 and §12.8.5; TIMERAWL,
+ * the low word read without latching, §12.8.4.1 and §12.8.5 table 1349;
+ * RESET.TIMER0 §7.5.3 table 566. */
+#define TFW_RP_TIMER0_BASE      0x400B0000u
+#define TFW_RP_TIMER0_TIMERAWL  TFW_CM_REG(TFW_RP_TIMER0_BASE + 0x28u)
+#define TFW_RP_RESET_TIMER0     (1u << 23)
+
+/* TIMER1's generator, for hal_tone.c: TIMER1_CTRL and TIMER1_CYCLES, §8.5.2,
+ * the register list that puts WATCHDOG_CTRL at 0x30. CYCLES is the clk_ref
+ * cycles per 1 us tick, as for the watchdog's. */
+#define TFW_RP_TICKS_TIMER1_CTRL   TFW_CM_REG(TFW_RP_TICKS_BASE + 0x24u)
+#define TFW_RP_TICKS_TIMER1_CYCLES TFW_CM_REG(TFW_RP_TICKS_BASE + 0x28u)
 
 /* ---- WATCHDOG and the power-on state machine's WDSEL. Bases §2.2 table 13;
  * CTRL, LOAD §12.9.7, tables 1358-1360; WDSEL §7.4.4, tables 561 and 564. */
@@ -99,6 +144,7 @@
 #define TFW_RP_PAD_PUE          (1u << 3)
 #define TFW_RP_PAD_PDE          (1u << 2)
 #define TFW_RP_FUNC_UART        2u
+#define TFW_RP_FUNC_PWM         4u
 #define TFW_RP_FUNC_SIO         5u
 #define TFW_RP_FUNC_NULL        0x1Fu           /* FUNCSEL's reset value: no function */
 
@@ -107,8 +153,44 @@
 #define TFW_RP_SIO_GPIO_OUT     TFW_CM_REG(TFW_RP_SIO_BASE + 0x010u)
 #define TFW_RP_SIO_GPIO_OUT_SET TFW_CM_REG(TFW_RP_SIO_BASE + 0x018u)
 #define TFW_RP_SIO_GPIO_OUT_CLR TFW_CM_REG(TFW_RP_SIO_BASE + 0x020u)
+#define TFW_RP_SIO_GPIO_OUT_XOR TFW_CM_REG(TFW_RP_SIO_BASE + 0x028u)   /* §3.1.11, hal_tone.c */
 #define TFW_RP_SIO_GPIO_OE_SET  TFW_CM_REG(TFW_RP_SIO_BASE + 0x038u)
 #define TFW_RP_SIO_GPIO_OE_CLR  TFW_CM_REG(TFW_RP_SIO_BASE + 0x040u)
+
+/* ---- PWM: base §2.2 table 13; slice registers CHn_CSR, CHn_DIV, CHn_CTR,
+ * CHn_CC, CHn_TOP at 0x14 per slice, §12.5.3 (PWM register list). Twelve
+ * slices; GPIO n < 32 is slice (n >> 1) & 7, channel A when n is even,
+ * §12.5.2. Addresses, so the atomic aliases apply as for RESETS. */
+#define TFW_RP_PWM_BASE         0x400A8000u
+#define TFW_RP_PWM_SLICES       12u
+#define TFW_RP_PWM_CSR(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x00u)
+#define TFW_RP_PWM_DIV(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x04u)
+#define TFW_RP_PWM_CTR(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x08u)
+#define TFW_RP_PWM_CC(n)        (TFW_RP_PWM_BASE + 0x14u * (n) + 0x0Cu)
+#define TFW_RP_PWM_TOP(n)       (TFW_RP_PWM_BASE + 0x14u * (n) + 0x10u)
+#define TFW_RP_PWM_CSR_EN       (1u << 0)       /* DIVMODE 0: free-running */
+#define TFW_RP_PWM_CC_B_SHIFT   16u             /* A is CC[15:0], B CC[31:16] */
+
+/* ---- ADC, the SAR converter. Base §2.2 table 13; CS, RESULT, FCS, DIV
+ * §12.4.6 (the ADC's register list). Written from pico-sdk 2.1.1's
+ * src/rp2350/hardware_regs/include/hardware/regs/adc.h names (ADC_CS_*,
+ * ADC_RESULT_*) and addressmap.h's ADC_BASE; each value marked TODO(datasheet)
+ * is still to be checked against the copied [RP-DS] release 8 tables. The
+ * pads' IE and OD bits the ADC chapter asks cleared and set are
+ * TFW_RP_PAD_IE and TFW_RP_PAD_OD above (§9.11.3 table 885). */
+#define TFW_RP_ADC_BASE         0x400A0000u     /* TODO(datasheet): §2.2 table 13 */
+#define TFW_RP_ADC_CS           TFW_CM_REG(TFW_RP_ADC_BASE + 0x00u)
+#define TFW_RP_ADC_RESULT       TFW_CM_REG(TFW_RP_ADC_BASE + 0x04u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_FCS          TFW_CM_REG(TFW_RP_ADC_BASE + 0x08u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_DIV          TFW_CM_REG(TFW_RP_ADC_BASE + 0x10u)   /* TODO(datasheet) */
+#define TFW_RP_ADC_CS_EN         (1u << 0)      /* TODO(datasheet): CS fields */
+#define TFW_RP_ADC_CS_START_ONCE (1u << 2)
+#define TFW_RP_ADC_CS_READY      (1u << 8)
+#define TFW_RP_ADC_CS_ERR        (1u << 9)
+#define TFW_RP_ADC_CS_AINSEL_LSB 12u            /* AINSEL, bits 15:12 */
+#define TFW_RP_ADC_CS_AINSEL_MASK (0xFu << 12)
+#define TFW_RP_ADC_RESULT_MASK   0x0FFFu        /* RESULT, bits 11:0 */
+#define TFW_RP_ADC_GPIO0         26u            /* ADC0 is GPIO26 on the RP2350A */
 
 /* ---- UART0, PL011. Base §2.2 table 13; registers §12.1.8, tables
  * 1081-1089; the IRQ number §3.2 table 95. */
@@ -134,5 +216,90 @@
 #define TFW_RP_UART0_IRQ        33u
 #define TFW_RP_UART0_TX_GPIO    0u
 #define TFW_RP_UART0_RX_GPIO    1u
+
+/* ---- I2C0, a Synopsys DW_apb_i2c (hal_bus.c). Base and offsets §12.2.17
+ * table 1108; IC_CON table 1109; IC_TAR table 1110; IC_DATA_CMD table 1112;
+ * IC_FS_SCL_HCNT, _LCNT tables 1115-1116; IC_RAW_INTR_STAT table 1119;
+ * IC_CLR_INTR table 1122; IC_CLR_TX_ABRT table 1127; IC_CLR_STOP_DET table
+ * 1130; IC_ENABLE table 1133; IC_STATUS table 1134; IC_SDA_HOLD table 1137;
+ * IC_TX_ABRT_SOURCE table 1138; IC_ENABLE_STATUS table 1145; IC_FS_SPKLEN
+ * table 1146. The reset line §7.5.3 table 566; I2C0 is function F3 on GPIO4
+ * (SDA) and GPIO5 (SCL), §9.4 table 677, the pins pico-sdk 2.1.1's
+ * pico2_w.h names PICO_DEFAULT_I2C_SDA_PIN and _SCL_PIN. ic_clk is clk_sys
+ * (§12.2.11). */
+#define TFW_RP_RESET_I2C0       (1u << 4)
+#define TFW_RP_FUNC_I2C         3u
+#define TFW_RP_I2C0_SDA_GPIO    4u
+#define TFW_RP_I2C0_SCL_GPIO    5u
+
+#define TFW_RP_I2C0_BASE        0x40090000u
+#define TFW_RP_IC_CON           TFW_CM_REG(TFW_RP_I2C0_BASE + 0x000u)
+#define TFW_RP_IC_TAR           TFW_CM_REG(TFW_RP_I2C0_BASE + 0x004u)
+#define TFW_RP_IC_DATA_CMD      TFW_CM_REG(TFW_RP_I2C0_BASE + 0x010u)
+#define TFW_RP_IC_SS_SCL_HCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x014u) /* table 1113 */
+#define TFW_RP_IC_SS_SCL_LCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x018u) /* table 1114 */
+#define TFW_RP_IC_FS_SCL_HCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x01Cu)
+#define TFW_RP_IC_FS_SCL_LCNT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x020u)
+#define TFW_RP_IC_INTR_MASK     TFW_CM_REG(TFW_RP_I2C0_BASE + 0x030u)
+#define TFW_RP_IC_RAW_INTR_STAT TFW_CM_REG(TFW_RP_I2C0_BASE + 0x034u)
+#define TFW_RP_IC_CLR_INTR      TFW_CM_REG(TFW_RP_I2C0_BASE + 0x040u)
+#define TFW_RP_IC_CLR_TX_ABRT   TFW_CM_REG(TFW_RP_I2C0_BASE + 0x054u)
+#define TFW_RP_IC_CLR_STOP_DET  TFW_CM_REG(TFW_RP_I2C0_BASE + 0x060u)
+#define TFW_RP_IC_ENABLE        TFW_CM_REG(TFW_RP_I2C0_BASE + 0x06Cu)
+#define TFW_RP_IC_STATUS        TFW_CM_REG(TFW_RP_I2C0_BASE + 0x070u)
+#define TFW_RP_IC_SDA_HOLD      TFW_CM_REG(TFW_RP_I2C0_BASE + 0x07Cu)
+#define TFW_RP_IC_TX_ABRT_SOURCE TFW_CM_REG(TFW_RP_I2C0_BASE + 0x080u)
+#define TFW_RP_IC_ENABLE_STATUS TFW_CM_REG(TFW_RP_I2C0_BASE + 0x09Cu)
+#define TFW_RP_IC_FS_SPKLEN     TFW_CM_REG(TFW_RP_I2C0_BASE + 0x0A0u)
+
+/* IC_CON (table 1109): master on, slave off (both required, §12.2.10.2.1),
+ * RESTART on, 7-bit addressing. Init ORs in the SPEED: 1 standard mode,
+ * 2 fast or fast plus. */
+#define TFW_RP_IC_CON_MASTER_MODE   (1u << 0)
+#define TFW_RP_IC_CON_SPEED_STD     (1u << 1)
+#define TFW_RP_IC_CON_SPEED_FAST    (2u << 1)
+#define TFW_RP_IC_CON_SPEED_MASK    (3u << 1)
+#define TFW_RP_IC_CON_RESTART_EN    (1u << 5)
+#define TFW_RP_IC_CON_SLAVE_DISABLE (1u << 6)
+#define TFW_RP_IC_CON_MASTER \
+    (TFW_RP_IC_CON_MASTER_MODE | \
+     TFW_RP_IC_CON_RESTART_EN | TFW_RP_IC_CON_SLAVE_DISABLE)
+
+#define TFW_RP_IC_DATA_CMD_CMD_READ (1u << 8)
+#define TFW_RP_IC_DATA_CMD_STOP     (1u << 9)
+#define TFW_RP_IC_DATA_CMD_RESTART  (1u << 10)
+
+#define TFW_RP_IC_ENABLE_ENABLE     (1u << 0)
+#define TFW_RP_IC_ENABLE_ABORT      (1u << 1)
+#define TFW_RP_IC_ENABLE_STATUS_EN  (1u << 0)
+
+#define TFW_RP_IC_STATUS_TFNF         (1u << 1)
+#define TFW_RP_IC_STATUS_TFE          (1u << 2)
+#define TFW_RP_IC_STATUS_RFNE         (1u << 3)
+#define TFW_RP_IC_STATUS_MST_ACTIVITY (1u << 5)
+
+#define TFW_RP_IC_INTR_TX_ABRT      (1u << 6)
+#define TFW_RP_IC_INTR_STOP_DET     (1u << 9)
+
+/* The aborts that are a NACK: 7-bit address (0), 10-bit address bytes 1
+ * and 2 (1, 2), data (3), general call (4). Bit 12 is ARB_LOST. */
+#define TFW_RP_IC_ABRT_7B_ADDR_NOACK (1u << 0)
+#define TFW_RP_IC_ABRT_TXDATA_NOACK  (1u << 3)
+#define TFW_RP_IC_ABRT_NOACK         0x1Fu
+#define TFW_RP_IC_ABRT_ARB_LOST      (1u << 12)
+
+/* ---- TIMER1, the tone's (hal_tone.c); TIMER0 is left free. Base §2.2
+ * table 13; TIMELR, ALARM0, ARMED, INTR and INTE §12.8.5, the register list;
+ * an alarm fires when TIMELR equals it, and a write arms it (§12.8.4);
+ * ARMED and INTR clear on a 1 written. TIMER1_IRQ_0, the alarm 0 line, §3.2
+ * table 95. The timer counts its TICKS generator's tick (§12.8.1). */
+#define TFW_RP_TIMER1_BASE      0x400B8000u
+#define TFW_RP_TIMER1_TIMELR    TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x0Cu)
+#define TFW_RP_TIMER1_ALARM0    TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x10u)
+#define TFW_RP_TIMER1_ARMED     TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x20u)
+#define TFW_RP_TIMER1_INTR      TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x3Cu)
+#define TFW_RP_TIMER1_INTE      TFW_CM_REG(TFW_RP_TIMER1_BASE + 0x40u)
+#define TFW_RP_TIMER_ALARM0     0x1u
+#define TFW_RP_TIMER1_IRQ_0     4u
 
 #endif /* TFW_CM_RP2350_REGS_H */

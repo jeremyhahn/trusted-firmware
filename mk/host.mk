@@ -152,7 +152,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_tier_atecc608a_mutate.c \
                             test/unit/test_tfwsim_main_mutate.c \
                            test/unit/test_suit_emit_main_mutate.c \
-                            test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c test/unit/test_cm_pulse.c \
+                            test/unit/test_bus_element.c test/unit/test_mps2_bus.c test/unit/test_mps2_spi_row.c test/unit/test_cm_hal_eeprom.c test/unit/test_cm_pulse.c test/unit/test_rp2350_eeprom.c \
                             test/unit/test_mps2_uart.c \
                             test/unit/test_crypto_none.c test/unit/test_uds_flash.c \
                             test/unit/test_sys_noboot.c test/unit/test_sys_store.c test/unit/test_ota_trial.c test/unit/test_ota_trial_mutate.c \
@@ -814,6 +814,15 @@ $(HOST_DIR)/test_board_frdm-imx95-m7_adc: test/unit/test_board_frdm-imx95-m7.c \
 	@$(HOST_CC) -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
 	    -DTFW_CM_ADC=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The Pico 2 W's descriptor test in the soft:I2C=1 row, which board-sweep (the
+# default profile) never builds: with what profile.mk's BOARD_DEFS carries for
+# I2C=1, GP4 and GP5 are taken as I2C0's SDA and SCL.
+$(HOST_DIR)/test_board_rp2350-pico2w_i2c: test/unit/test_board_rp2350-pico2w.c \
+                        src/core/board_lookup.c boards/rp2350-pico2w/board.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
+	    -DTFW_CM_I2C=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The LPI2C master (hal_bus.c) against the LPI2C register model in the test
 # file itself, not imx95_model.c, compiled as test_imx95_hal's SoC files are.
 $(HOST_DIR)/test_imx95_lpi2c: test/unit/test_imx95_lpi2c.c src/hal/cortex-m/imx95/hal_bus.c \
@@ -1340,7 +1349,18 @@ $(HOST_DIR)/test_cm_pulse: test/unit/test_cm_pulse.c test/model/cortex-m/cm_puls
                            src/hal/cortex-m/cm_cycles.h $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/mps2-an505 -Itest/model/cortex-m $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
-HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
+# test_rp2350_eeprom links the RP2350's flash EEPROM and tfw-boot's
+# read-modify-write and the Cortex-M millisecond clock over a NOR, TIMER0 and
+# SysTick model; the model's cm_regs.h comes ahead of src/hal/cortex-m/.
+$(HOST_DIR)/test_rp2350_eeprom: test/unit/test_rp2350_eeprom.c src/hal/cortex-m/rp2350/hal_eeprom.c \
+                                src/hal/cortex-m/hal_nvm.c src/hal/cortex-m/hal_tick.c \
+                                boot/hal/cortex-m/rp2350/rp_flash.c test/model/cortex-m/rp2350/eeprom/nor_model.c \
+                                src/core/secure_zero.c src/proto/crc16.c src/proto/crc16_update.c \
+                                $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/rp2350-pico2w -Itest/model/cortex-m/rp2350/eeprom -Isrc/hal/cortex-m/rp2350 \
+	  -Iboot/hal/cortex-m/rp2350 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_rp2350_eeprom $(HOST_DIR)/test_esp_pulse_rmt $(HOST_DIR)/test_esp_crypto_hmac_p256 $(HOST_DIR)/test_esp_board $(HOST_DIR)/test_esp_hal_eeprom $(HOST_DIR)/test_cm_hal_eeprom $(HOST_DIR)/test_atecc_cdi_clear $(HOST_DIR)/test_ota_stage $(HOST_DIR)/test_ota_stage_mutate $(HOST_DIR)/test_ota_ctl_mutate $(HOST_DIR)/test_ota_mutate $(HOST_DIR)/test_appstate_mutate $(HOST_DIR)/test_ota_activate_mutate $(HOST_DIR)/test_ota_prev_mutate $(HOST_DIR)/test_ota_floor_eeprom_mutate $(HOST_DIR)/test_stage_marked $(HOST_DIR)/test_spi_nor $(HOST_DIR)/test_spi_nor_mutate $(HOST_DIR)/test_otactl_floor_mutate $(HOST_DIR)/test_ota_info_atecc $(HOST_DIR)/test_ota_single $(HOST_DIR)/test_ota_single_mutate $(HOST_DIR)/test_ota_manifest $(HOST_DIR)/test_ota_trial $(HOST_DIR)/test_ota_trial_mutate $(HOST_DIR)/test_link_eth $(HOST_DIR)/test_link_eth_mutate $(HOST_DIR)/test_netcfg_mutate $(HOST_DIR)/test_ota_hold_link $(HOST_DIR)/test_model_p256 $(HOST_DIR)/test_sys_noboot $(HOST_DIR)/test_sys_store $(HOST_DIR)/test_none_variants $(HOST_DIR)/test_none_standins $(HOST_DIR)/test_noboot_wire $(HOST_DIR)/test_noboot_ota $(HOST_DIR)/test_atecc $(HOST_DIR)/test_crypto_auto $(HOST_DIR)/test_provision $(HOST_DIR)/test_provision_mutate $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate $(HOST_DIR)/test_alias $(HOST_DIR)/test_alias_mutate $(HOST_DIR)/test_csr $(HOST_DIR)/test_csr_mutate $(HOST_DIR)/test_csr_alg $(HOST_DIR)/test_attest_root \
                     $(HOST_DIR)/test_bus_element $(HOST_DIR)/test_mps2_bus $(HOST_DIR)/test_mps2_spi_row $(HOST_DIR)/test_crypto_none $(HOST_DIR)/test_uds_flash \
                     $(HOST_DIR)/test_mps2_uart \
                     $(HOST_DIR)/test_board_nrf54l15_i2c0 $(HOST_DIR)/test_board_nrf54l15_i2c1 \
@@ -1354,6 +1374,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc \
+                    $(HOST_DIR)/test_board_rp2350-pico2w_i2c \
                     $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \
@@ -2683,6 +2704,46 @@ $(HOST_DIR)/test_stm32h5_uart: test/unit/test_stm32h5_uart.c src/hal/cortex-m/st
 $(HOST_DIR)/test_rp2350_reset: test/unit/test_rp2350_reset.c src/hal/cortex-m/rp2350/soc_reset.c \
                                $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -Isrc/hal/cortex-m/rp2350 -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The rp2350 I2C master (row rp2350) over a register model: the boot test
+# stand-in cm_regs.h routes TFW_CM_REG to the test's model, and the Pico 2 W
+# profile gives the clk_sys the SCL counts are worked from. A short poll bound
+# keeps the stuck-bus tests quick.
+$(HOST_DIR)/test_rp2350_i2c: test/unit/test_rp2350_i2c.c src/hal/cortex-m/rp2350/hal_bus.c \
+                             test/model/cortex-m/rp2350/i2c_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(subst -Iboards/$(HOST_BOARD),-Iboards/rp2350-pico2w,$(filter-out $(HOST_EXTRA_DEFS),$(HOST_CFLAGS))) \
+	    $(EXTRA_CFLAGS) -DTFW_RP_I2C_POLLS=2000uL -Iboot/hal/cortex-m/rp2350/test \
+	    -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m -o $@ $^ $(EXTRA_LDFLAGS)
+
+# hal_pwm.c against the flat register model: its cm_regs.h stands in for the
+# real one, and the Cortex-M hal_types.h and the Pico 2 W profile replace the
+# host's.
+HOST_RP2350_CFLAGS = -Itest/model/cortex-m/rp2350 -Isrc/hal/cortex-m/rp2350 -Isrc/hal/cortex-m \
+                     -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
+$(HOST_DIR)/test_rp2350_pwm: test/unit/test_rp2350_pwm.c src/hal/cortex-m/rp2350/hal_pwm.c \
+                             src/hal/cortex-m/rp2350/hal_gpio.c src/caps/pwm.c src/core/reader.c \
+                             test/model/cortex-m/rp2350/rp2350_model.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The rp2350 converter driver against its own register model, which steps
+# the converter as the hardware does: test/model/cortex-m/rp2350/adc/ goes
+# ahead of the flat model's directory, so its cm_regs.h, which sends TFW_CM_REG
+# to the converter model, is the one soc_regs.h finds.
+$(HOST_DIR)/test_rp2350_adc: test/unit/test_rp2350_adc.c test/model/cortex-m/rp2350/adc/adc_model.c \
+                             src/hal/cortex-m/rp2350/hal_adc.c \
+                             $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/rp2350/adc $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The rp2350 tone (row rp2350): the alarm-step arithmetic of soc_calc.h and
+# the real hal_tone.c against the TIMER1 and SIO model, which fires the alarm.
+# Its cm_regs.h, in test/model/cortex-m/rp2350/tone/, comes ahead of the flat
+# model's directory so soc_regs.h sends TFW_CM_REG to the tone model; the
+# Pico 2 W's profile replaces the host board's, and src/hal/cortex-m/ ahead of
+# test/mock gives the port's own hal_types.h. It stays in TEST_SRCS; this
+# explicit rule takes the place of the pattern rule.
+$(HOST_DIR)/test_rp2350_tone: test/unit/test_rp2350_tone.c test/model/cortex-m/rp2350/tone/tone_model.c \
+                              src/hal/cortex-m/rp2350/hal_tone.c $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/rp2350/tone $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/mcxn94x/soc_reset.c \
                                 $(HOST_DIR)/unity.o | $(HOST_DIR)

@@ -10,7 +10,10 @@
  *     of the image ([RP-DS], boot ROM chapter, "Blocks" and "IMAGE_DEF");
  *   the XOSC start-up delay;
  *   the PL011's baud-rate divisors;
- *   a GPIO pad's value for a tfw pin mode.
+ *   the tone's TIMER1 alarm step;
+ *   a GPIO pad's value for a tfw pin mode;
+ *   the I2C master's SCL counts and spike length;
+ *   the PWM divider for 8-bit duty at 1 kHz.
  */
 #ifndef TFW_CM_RP2350_CALC_H
 #define TFW_CM_RP2350_CALC_H
@@ -108,6 +111,36 @@ static inline uint8_t tfw_rp_uart_divisors(uint32_t clk_hz, uint32_t baud,
     return 1u;
 }
 
+/* ---- Tone: the TIMER1 alarm step
+ *
+ * hal_tone.c toggles the pin once per alarm, so the alarm steps by half the
+ * period: tick_hz / (2 * hz) ticks, rounded to nearest. The timer counts the
+ * TICKS block's 1 us tick ([RP-DS] release 8 §12.8.1, "the timer uses a 1 us
+ * reference"), so tick_hz is 1000000. A step under TFW_RP_TONE_MIN_STEP is
+ * refused: the interrupt that re-arms the alarm must finish inside one step,
+ * and a target already in the past would not fire until the 32-bit counter
+ * wraps (§12.8.4: an alarm compares TIMELR for equality). The floor of 20 us
+ * (tones up to 25 kHz) is this port's own margin, not a datasheet value
+ * (docs/boards/rp2350-pico2w.md, "What is not verified"). Returns 0 for a
+ * frequency the timer cannot make, the step otherwise.
+ */
+#define TFW_RP_TONE_TICK_HZ  1000000u
+#define TFW_RP_TONE_MIN_STEP 20u
+
+static inline uint32_t tfw_rp_tone_half_period(uint32_t tick_hz, uint32_t hz)
+{
+    uint32_t step;
+
+    if (hz == 0u) {
+        return 0u;
+    }
+    step = (tick_hz + hz) / (2u * hz);
+    if (step < TFW_RP_TONE_MIN_STEP) {
+        return 0u;
+    }
+    return step;
+}
+
 /* ---- GPIO pads
  *
  * A pad comes out of reset isolated, input disabled, pulled down, with a
@@ -130,6 +163,135 @@ static inline uint32_t tfw_rp_pad_value(uint8_t pullup)
         v |= TFW_RP_PADV_PUE;
     }
     return v;
+}
+
+/* ---- DW_apb_i2c SCL timing
+ *
+ * The SCL counts for a bus rate, from ic_clk, which is clk_sys. Up to
+ * 100 kHz the controller runs in standard mode (IC_CON SPEED 1) from
+ * IC_SS_SCL_HCNT/LCNT; above it, fast mode (SPEED 2 covers fast and fast
+ * plus, §12.2.17 table 1109) from IC_FS_SCL_HCNT/LCNT. The counts are the
+ * same arithmetic in both modes. All of [RP-DS] release 8 §12.2:
+ *
+ *   spike length  IC_FS_SPKLEN counts ic_clk cycles of the longest spike
+ *                 filtered; the I2C-bus limit is 50 ns in SS and FS, and the
+ *                 smallest value is 1 (§12.2.11). Rounded up: ceil(clk / 20 MHz).
+ *   low period    (LCNT + 1) cycles; LCNT must exceed SPKLEN + 7 (§12.2.14.1).
+ *   high period   (HCNT + SPKLEN + 7) cycles; HCNT must exceed SPKLEN + 5
+ *                 (§12.2.14.1, figure 94).
+ *
+ * Table 1105 (§12.2.14) times the bus conditions from the selected mode's
+ * counts: tLOW, tBUF and, in standard mode, the repeated-START setup
+ * tSU;STA from LCNT; tHIGH, tHD;STA, tSU;STO and, in fast mode, tSU;STA
+ * from HCNT. So a low period of at least the mode's tLOW minimum (4.7 us
+ * SS, 1.3 us FS, 0.5 us FM+) and a high period of at least its tHIGH
+ * minimum (4.0 us, 0.6 us, 0.26 us) meet every one of them: each other
+ * minimum on the same count is no larger (I2C-bus spec UM10204 table 10).
+ *
+ * The period is ceil(clk / hz) cycles, so the bus never runs faster than
+ * asked (the rule the MPS2 and TWI drivers keep). Low takes 3/5 of it,
+ * rounded up, then each half is raised to its mode's minimum where the
+ * split falls short of it. Where a minimum count wins, the bus runs slower,
+ * never faster: from a 12 MHz clk_sys 400 kHz comes out at 12 MHz / 33,
+ * about 364 kHz. A rate of 0, above fast plus's 1 MHz (table 1109), or
+ * whose counts overflow the 16-bit registers (tables 1115-1116) is
+ * refused: returns 0. */
+#define TFW_RP_I2C_SS_HZ_MAX 100000u
+#define TFW_RP_I2C_FS_HZ_MAX 400000u
+#define TFW_RP_I2C_HZ_MAX   1000000u
+#define TFW_RP_I2C_CNT_MAX  0xFFFFu
+#define TFW_RP_I2C_SPK_MAX  0xFFu
+
+/* ic_clk cycles in at least t10 * 10 ns: ceil(ceil(clk / 1 kHz) * t10 /
+ * 100000), in 32 bits for any clk and t10 <= 470. */
+static inline uint32_t tfw_rp_i2c_cycles(uint32_t clk_hz, uint32_t t10)
+{
+    uint32_t khz = clk_hz / 1000u + ((clk_hz % 1000u) != 0u ? 1u : 0u);
+    uint32_t n   = khz * t10;
+
+    return n / 100000u + ((n % 100000u) != 0u ? 1u : 0u);
+}
+
+typedef struct {
+    uint32_t hcnt;
+    uint32_t lcnt;
+    uint32_t spklen;
+} tfw_rp_i2c_timing_t;
+
+static inline uint8_t tfw_rp_i2c_timing(uint32_t clk_hz, uint32_t hz,
+                                        tfw_rp_i2c_timing_t *t)
+{
+    uint32_t period;
+    uint32_t low;
+    uint32_t high;
+    uint32_t spk;
+    uint32_t low_min;
+    uint32_t high_min;
+
+    if (hz == 0u || hz > TFW_RP_I2C_HZ_MAX || clk_hz == 0u) {
+        return 0u;
+    }
+    period = clk_hz / hz + ((clk_hz % hz) != 0u ? 1u : 0u);
+    if (period > 2u * (TFW_RP_I2C_CNT_MAX + 1u)) {
+        return 0u;
+    }
+    if (hz <= TFW_RP_I2C_SS_HZ_MAX) {
+        low_min  = tfw_rp_i2c_cycles(clk_hz, 470u);
+        high_min = tfw_rp_i2c_cycles(clk_hz, 400u);
+    } else if (hz <= TFW_RP_I2C_FS_HZ_MAX) {
+        low_min  = tfw_rp_i2c_cycles(clk_hz, 130u);
+        high_min = tfw_rp_i2c_cycles(clk_hz, 60u);
+    } else {
+        low_min  = tfw_rp_i2c_cycles(clk_hz, 50u);
+        high_min = tfw_rp_i2c_cycles(clk_hz, 26u);
+    }
+    low  = (period * 3u + 4u) / 5u;
+    high = period - low;
+    if (low < low_min) {
+        low = low_min;
+    }
+    if (high < high_min) {
+        high = high_min;
+    }
+    spk  = clk_hz / 20000000u + ((clk_hz % 20000000u) != 0u ? 1u : 0u);
+    if (spk > TFW_RP_I2C_SPK_MAX) {
+        return 0u;
+    }
+    t->spklen = spk;
+    t->lcnt   = low - 1u;
+    if (t->lcnt < spk + 8u) {
+        t->lcnt = spk + 8u;
+    }
+    t->hcnt = high > spk + 7u ? high - spk - 7u : 0u;
+    if (t->hcnt < spk + 6u) {
+        t->hcnt = spk + 6u;
+    }
+    if (t->hcnt > TFW_RP_I2C_CNT_MAX || t->lcnt > TFW_RP_I2C_CNT_MAX) {
+        return 0u;
+    }
+    return 1u;
+}
+
+/* ---- PWM divider
+ *
+ * A slice counts 0..TOP once per period, so f = clk / (div * (TOP + 1)).
+ * CHn_DIV holds INT in bits 11:4 and FRAC in bits 3:0, so the register value
+ * is the divider in sixteenths: for 1 kHz at TOP 255 that is
+ * clk * 16 / 256000 = clk / 16000, rounded to nearest. INT must be 1..255;
+ * outside that no divider makes 1 kHz and the result is 0. 12 MHz gives 750,
+ * INT 46 and FRAC 14, exactly 1 kHz. [RP-DS] release 8 §12.5.2 (period and
+ * divider), §12.5.3 (CHn_DIV fields).
+ */
+#define TFW_RP_PWM_TOP_8BIT 255u
+
+static inline uint16_t tfw_rp_pwm_div(uint32_t clk_hz)
+{
+    uint32_t div16 = (clk_hz + 8000u) / 16000u;
+
+    if (div16 < (1u << 4) || div16 > 0xFFFu) {
+        return 0u;
+    }
+    return (uint16_t)div16;
 }
 
 #endif /* TFW_CM_RP2350_CALC_H */

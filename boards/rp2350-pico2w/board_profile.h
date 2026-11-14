@@ -7,7 +7,8 @@
  * The pins are the header GPIOs the port drives: GPIO2-22 and GPIO26-28.
  * GPIO0 and 1 are UART0, the byte link; GPIO23-25 and 29 are wired to the
  * CYW43439, and the board's LED is the radio's, not a GPIO, so the table has
- * no LED pin. The converter, PWM and the buses are off by file selection
+ * no LED pin. PWM is on, one header GPIO per slice (board.c), and the
+ * converter reads GPIO26-28 (ADC0-2); the buses are off by file selection
  * until a slice drives them.
  *
  * The board id is PROVISIONAL (boards/rp2350-pico2w/profile.mk).
@@ -20,25 +21,37 @@
 
 #define TFW_PIN_COUNT  24u
 #define TFW_PORT_COUNT 1u      /* SIO's one bank, bit n GPIOn */
-#define TFW_PWM_COUNT  0u
-#define TFW_ADC_COUNT  0u
-#define TFW_EEPROM_SIZE 0u
+#define TFW_PWM_COUNT  8u
+#define TFW_ADC_COUNT  3u      /* ADC0-2, GPIO26-28 (src/hal/cortex-m/rp2350/hal_adc.c) */
+/* tfw-boot's span [0, TFW_BOOT_EE_LEN 0x140) in the platform window, then
+ * the 4 KiB user sector (TFW_CM_USER_EE_BASE): 0x140 + 0x1000. */
+#define TFW_EEPROM_SIZE 0x1140u
 
-#define TFW_FEATURE_ANALOG  0
-#define TFW_FEATURE_PWM     0
-#define TFW_FEATURE_TONE    0
+#define TFW_FEATURE_ANALOG  1
+#define TFW_FEATURE_PWM     1
+#define TFW_FEATURE_TONE    1
 #define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_EEPROM  1
+/* I2C0 on GPIO4/5 (src/hal/cortex-m/rp2350/hal_bus.c), only in the I2C=1
+ * row: built and host-tested, not run on a board. */
+#if defined(TFW_CM_I2C)
+#define TFW_FEATURE_I2C     1
+#else
 #define TFW_FEATURE_I2C     0
+#endif
 #define TFW_FEATURE_SPI     0
 #define TFW_FEATURE_ONEWIRE 0
+
+/* The tone's pin: logical 5, GP7, a plain SIO pin that TIMER1 alarm 0
+ * toggles (hal_tone.c). Not a PWM, I2C0 or ADC pin. */
+#define TFW_TONE_PIN   5u          /* GP7 */
 
 /* The soft root: the UDS in tfw-boot's region, the CDI handed over in SRAM,
  * HMAC evidence (src/crypto/soft/). The OTP root is the owner's to rule on. */
 #define TFW_FEATURE_ATTEST 1
 
 /* clk_sys and clk_peri, both the 12 MHz crystal undivided
- * (src/hal/cortex-m/rp2350/hal_soc.c). SysTick and the UART divisors count it. */
+ * (src/hal/cortex-m/rp2350/hal_soc.c). SysTick, the UART divisors and the PWM divider count it. */
 #define TFW_CM_CPU_HZ 12000000uL
 
 /* Flash geometry for tfw-boot, as addresses in the XIP window: the regions are
@@ -58,6 +71,22 @@
  * unit, which tfw-boot writes and the application reads through XIP. */
 #define TFW_CM_PLATFORM_BASE  0x103FF000uL
 #define TFW_CM_PLATFORM_SIZE  0x00001000uL
+
+/* The application's own EEPROM: the one 4 KiB sector directly below the
+ * platform block, so the EEPROM family's writes never erase tfw-boot's sector
+ * (src/hal/cortex-m/rp2350/hal_eeprom.c). The sector size is the part's erase
+ * unit, [RP-DS] §5.4.8.9 (TFW_RP_FLASH_SECTOR in rp_flash.h); the base is
+ * TFW_CM_PLATFORM_BASE less one sector. Nothing else is placed there: the
+ * boot region and the application slot end at 0x10028000 (profile.mk's
+ * BOOT_SECTION and FLASH_BUDGET), and rp2350.ld places nothing past the slot. */
+#define TFW_CM_USER_EE_SIZE   0x00001000uL
+#define TFW_CM_USER_EE_BASE   (TFW_CM_PLATFORM_BASE - TFW_CM_USER_EE_SIZE)
+#ifndef __ASSEMBLER__
+_Static_assert(TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE == TFW_CM_PLATFORM_BASE,
+               "the user EEPROM sector ends where the platform block starts");
+_Static_assert(TFW_CM_USER_EE_BASE >= TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE,
+               "the user EEPROM sector starts past the application slot");
+#endif
 
 /* Board sizing deviations from config.h: none. */
 

@@ -113,6 +113,75 @@ static void test_pad_value_input_pullup(void)
     TEST_ASSERT_EQUAL_HEX32(0x5Au, tfw_rp_pad_value(1u));
 }
 
+/* ---- I2C SCL counts ([RP-DS] §12.2.14.1, figure 94; §12.2.14.2.1) */
+
+static void test_i2c_timing_fast_mode_at_12mhz(void)
+{
+    tfw_rp_i2c_timing_t t;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_rp_i2c_timing(12000000u, 400000u, &t));
+    TEST_ASSERT_EQUAL_UINT32(1u, t.spklen);
+    TEST_ASSERT_EQUAL_UINT32(17u, t.lcnt);
+    TEST_ASSERT_EQUAL_UINT32(7u, t.hcnt);
+    /* low = LCNT+1 = 18 cycles = 1500 ns >= 1300 ns; high = HCNT+SPKLEN+7 =
+     * 15 cycles = 1250 ns >= 600 ns; period 33 cycles, never faster. */
+    TEST_ASSERT_EQUAL_UINT32(33u, (t.lcnt + 1u) + (t.hcnt + t.spklen + 7u));
+}
+
+static void test_i2c_timing_standard_mode_at_12mhz(void)
+{
+    tfw_rp_i2c_timing_t t;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_rp_i2c_timing(12000000u, 100000u, &t));
+    TEST_ASSERT_EQUAL_UINT32(1u, t.spklen);
+    TEST_ASSERT_EQUAL_UINT32(71u, t.lcnt);
+    TEST_ASSERT_EQUAL_UINT32(40u, t.hcnt);
+    TEST_ASSERT_EQUAL_UINT32(120u, (t.lcnt + 1u) + (t.hcnt + t.spklen + 7u));
+}
+
+/* At 12.1 MHz the 3/5 split leaves a 48-cycle high, 3.97 us: below
+ * standard mode's 4.0 us tHIGH (and tHD;STA, tSU;STO on the same count), so
+ * the high is raised to 49 cycles and the bus runs slower, never faster. */
+static void test_i2c_timing_raises_a_half_to_its_mode_minimum(void)
+{
+    tfw_rp_i2c_timing_t t;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_rp_i2c_timing(12100000u, 100000u, &t));
+    TEST_ASSERT_EQUAL_UINT32(72u, t.lcnt);
+    TEST_ASSERT_EQUAL_UINT32(41u, t.hcnt);
+    TEST_ASSERT_EQUAL_UINT32(49u, t.hcnt + t.spklen + 7u);
+    TEST_ASSERT_EQUAL_UINT32(122u, (t.lcnt + 1u) + (t.hcnt + t.spklen + 7u));
+}
+
+static void test_i2c_timing_clamps_to_the_minimum_counts(void)
+{
+    tfw_rp_i2c_timing_t t;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_rp_i2c_timing(12000000u, 1000000u, &t));
+    TEST_ASSERT_EQUAL_UINT32(9u, t.lcnt);    /* SPKLEN + 8 */
+    TEST_ASSERT_EQUAL_UINT32(7u, t.hcnt);    /* SPKLEN + 6 */
+}
+
+static void test_i2c_timing_spike_length_at_125mhz(void)
+{
+    tfw_rp_i2c_timing_t t;
+
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_rp_i2c_timing(125000000u, 400000u, &t));
+    TEST_ASSERT_EQUAL_UINT32(7u, t.spklen);  /* ceil(50 ns * 125 MHz) */
+    TEST_ASSERT_EQUAL_UINT32(187u, t.lcnt);
+    TEST_ASSERT_EQUAL_UINT32(111u, t.hcnt);
+}
+
+static void test_i2c_timing_refuses_what_it_cannot_make(void)
+{
+    tfw_rp_i2c_timing_t t;
+
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_rp_i2c_timing(12000000u, 0u, &t));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_rp_i2c_timing(12000000u, 1000001u, &t));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_rp_i2c_timing(12000000u, 1u, &t));
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_rp_i2c_timing(0u, 400000u, &t));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -125,5 +194,11 @@ int main(void)
     RUN_TEST(test_uart_divisors_at_the_edges_of_the_integer_range);
     RUN_TEST(test_pad_value_input_and_output);
     RUN_TEST(test_pad_value_input_pullup);
+    RUN_TEST(test_i2c_timing_fast_mode_at_12mhz);
+    RUN_TEST(test_i2c_timing_standard_mode_at_12mhz);
+    RUN_TEST(test_i2c_timing_raises_a_half_to_its_mode_minimum);
+    RUN_TEST(test_i2c_timing_clamps_to_the_minimum_counts);
+    RUN_TEST(test_i2c_timing_spike_length_at_125mhz);
+    RUN_TEST(test_i2c_timing_refuses_what_it_cannot_make);
     return UNITY_END();
 }

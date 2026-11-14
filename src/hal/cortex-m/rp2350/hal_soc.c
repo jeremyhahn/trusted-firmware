@@ -8,7 +8,8 @@
  * Clocks. tfw_cm_soc_early runs before .data and .bss exist, so it is
  * register writes and polls only. It starts the 12 MHz crystal and runs
  * clk_ref, clk_sys and clk_peri from it undivided, which is TFW_CM_CPU_HZ in
- * board_profile.h. No PLL: nothing here needs the speed, and a crystal clock
+ * board_profile.h. No PLL for these (hal_adc.c starts PLL_USB for clk_adc
+ * alone, which the converter requires at 48 MHz): nothing here needs the speed, and a crystal clock
  * is the one the UART's divisors and the watchdog's tick can both count on.
  * Each step writes the state it wants rather than toggling, so the second
  * run, the application's after tfw-boot's, changes nothing.
@@ -68,11 +69,16 @@ void tfw_cm_soc_early(void)
 
     TFW_RP_TICKS_WD_CYCLES = XOSC_HZ / 1000000uL;
     TFW_RP_TICKS_WD_CTRL   = TFW_RP_TICKS_ENABLE;
+    TFW_RP_TICKS_TIMER0_CYCLES = XOSC_HZ / 1000000uL;
+    TFW_RP_TICKS_TIMER0_CTRL   = TFW_RP_TICKS_ENABLE;
 
-    /* The GPIO blocks every pin and the UART need. */
-    TFW_RP_CLR(TFW_RP_RESETS_RESET) = TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0;
-    while ((TFW_RP_RESETS_DONE & (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0))
-           != (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0)) {
+    /* The GPIO blocks every pin and the UART need, and TIMER0, the
+     * microsecond count the flash EEPROM times its masked writes by. */
+    TFW_RP_CLR(TFW_RP_RESETS_RESET) = TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0 |
+                                      TFW_RP_RESET_TIMER0;
+    while ((TFW_RP_RESETS_DONE & (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0 |
+                                  TFW_RP_RESET_TIMER0))
+           != (TFW_RP_RESET_IO_BANK0 | TFW_RP_RESET_PADS_BANK0 | TFW_RP_RESET_TIMER0)) {
     }
 }
 

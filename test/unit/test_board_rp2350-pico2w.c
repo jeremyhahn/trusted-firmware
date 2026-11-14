@@ -54,16 +54,41 @@ static void test_no_pin_is_the_uart_or_the_radio(void)
     }
 }
 
-static void test_no_pin_offers_an_adc_or_a_pwm(void)
+/* GP26-GP28 are ADC0-2 and no other pin has an ADC. The even GPIOs 2-16 offer PWM, one per slice (board.c;
+ * the rows' fields are the Cortex-M hal_types.h's, which this host build does
+ * not see, and test_rp2350_pwm.c checks hal_pwm.c refuses a mismatched row);
+ * no other pin does. */
+static void test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice(void)
 {
-    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
-        uint8_t ch;
-        tfw_pwmref_t p;
+    uint8_t row = 0u;
 
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
-        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
-        TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & (TFW_PIN_ADC | TFW_PIN_PWM));
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t ch = 0xFFu;
+        tfw_pwmref_t p;
+        tfw_pinref_t r;
+        uint8_t gpio;
+
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(i, &r));
+        gpio = r.bit;
+        if (i >= 21u) {          /* pins 21-23 are GP26-GP28 */
+            TEST_ASSERT_EQUAL(TFW_OK, tfw_board_adc_channel(i, &ch));
+            TEST_ASSERT_EQUAL_UINT8(i - 21u, ch);
+            TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
+        } else {
+            TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
+            TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
+        }
+        if (gpio >= 2u && gpio <= 16u && (gpio & 1u) == 0u) {
+            TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pwm(i, &p));
+            TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_PWM);
+            row++;
+        } else {
+            TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_pwm(i, &p));
+            TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_PWM);
+        }
     }
+    TEST_ASSERT_EQUAL(TFW_PWM_COUNT, row);
+    TEST_ASSERT_EQUAL_UINT32(3u, TFW_ADC_COUNT);
 }
 
 static void test_a_pin_beyond_the_board_is_refused(void)
@@ -73,13 +98,31 @@ static void test_a_pin_beyond_the_board_is_refused(void)
     TEST_ASSERT_EQUAL(TFW_ERR_BAD_PIN, tfw_board_pin(TFW_PIN_COUNT, &r));
 }
 
+/* GP4 (pin 2) and GP5 (pin 3) are I2C0's SDA and SCL in the I2C=1 row: taken,
+ * so GPIO_MODE and PIN_SCHED_SET (src/caps/gpio.c, src/caps/sched.c) refuse
+ * them with TFW_ERR_RESERVED_PIN instead of switching them to SIO. In the
+ * default row, and for every other pin, nothing is taken. */
+static void test_the_i2c_row_takes_sda_and_scl_and_nothing_else(void)
+{
+    for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
+        uint8_t taken = (uint8_t)(tfw_board_pin_flags(i) & (TFW_PIN_RESERVED | TFW_PIN_IN_USE));
+
+        if ((TFW_FEATURE_I2C) && (i == 2u || i == 3u)) {
+            TEST_ASSERT_EQUAL_HEX8(TFW_PIN_IN_USE, taken);
+        } else {
+            TEST_ASSERT_EQUAL_HEX8(0u, taken);
+        }
+    }
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_board_is_its_registry_id);
     RUN_TEST(test_the_pins_are_the_header_gpios_in_order);
     RUN_TEST(test_no_pin_is_the_uart_or_the_radio);
-    RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
+    RUN_TEST(test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
+    RUN_TEST(test_the_i2c_row_takes_sda_and_scl_and_nothing_else);
     return UNITY_END();
 }

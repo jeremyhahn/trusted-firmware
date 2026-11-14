@@ -81,14 +81,17 @@ SECTIONS
     /* Pinned, as the handoff block is on AVR (mk/handoff.ld): the two images
      * name the same addresses because both links place these sections from
      * the same symbols. */
-    .resetmark __tfw_resetmark (NOLOAD) :
-    {
-        KEEP(*(.resetmark))
-    }
-
+    /* In address order (mk/arch/cortex-m.mk: the fault frame at RAM_END - 127,
+     * the reset marker at - 115), so the location counter never moves
+     * backwards once .data is not empty. */
     .faultframe __tfw_faultframe (NOLOAD) :
     {
         KEEP(*(.faultframe))
+    }
+
+    .resetmark __tfw_resetmark (NOLOAD) :
+    {
+        KEEP(*(.resetmark))
     }
 
     .handoff __tfw_handoff (NOLOAD) :

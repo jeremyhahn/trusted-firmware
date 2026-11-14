@@ -15,7 +15,7 @@ The part has 32 MB of flash and the board profile builds for 32 MB
 
 | | |
 |---|---|
-| Board | Waveshare ESP32-P4-WIFI6-POE-ETH ("Pins" below says how this is known): ESP32-P4 PoE Ethernet board with an ESP32-C6 co-processor, USB through a WCH `1a86` "USB Single Serial" bridge, `/dev/ttyACM1` on the bench host |
+| Board | Waveshare ESP32-P4-WIFI6-POE-ETH ("Pins" below says how this is known): ESP32-P4 PoE Ethernet board with an ESP32-C6 co-processor, USB through a WCH `1a86` "USB Single Serial" bridge, a `/dev/serial/by-id` device on the bench host |
 | Chip | ESP32-P4, revision v3.2, dual core + LP core, 400 MHz, 40 MHz crystal |
 | Flash | 32 MB, JEDEC manufacturer `0xC8` (GigaDevice), device `0x4019` |
 | PSRAM | eFuse `PSRAM_CAP` 2, `PSRAM_VENDOR` 1 |
@@ -27,10 +27,10 @@ All read-only. The image and the eFuse dump are kept outside the repository,
 in the bench host's per-board record directory, not in this tree.
 
 ```sh
-esptool --port /dev/ttyACM1 chip-id
-esptool --port /dev/ttyACM1 flash-id
-espefuse --port /dev/ttyACM1 summary
-esptool --port /dev/ttyACM1 -b 921600 read-flash 0 ALL p4-flash-factory.bin
+esptool --port "$ESP_PORT" chip-id
+esptool --port "$ESP_PORT" flash-id
+espefuse --port "$ESP_PORT" summary
+esptool --port "$ESP_PORT" -b 921600 read-flash 0 ALL p4-flash-factory.bin
 ```
 
 | What | SHA-256 |
@@ -281,7 +281,7 @@ app's RSA signature (`CONFIG_SECURE_SIGNED_ON_BOOT_NO_SECURE_BOOT=n`). Layer
 
 ### Runs
 
-**2026-10-18, step 1 only: positive.** Read only, `ESP_PORT=/dev/ttyACM1`,
+**2026-10-18, step 1 only: positive.** Read only, `ESP_PORT=<by-id path>`,
 esptool / espefuse v5.6.0 (pip, in a venv outside the repository). Nothing
 was written or erased, and no `espefuse` command other than `summary` was run.
 The outputs are kept in the bench host's record directory for the run, not in
@@ -307,7 +307,7 @@ carry the part's MAC, so they stay outside the tree):
 Steps 2 to 5 were not run.
 
 **2026-10-19, steps 1 and 2: positive; the network gate closed, so nothing
-was written.** `ESP_PORT=/dev/ttyACM1`, esptool / espefuse v5.6.0 (pip, in a
+was written.** `ESP_PORT=<by-id path>`, esptool / espefuse v5.6.0 (pip, in a
 venv outside the repository). Nothing was written or erased, and no `espefuse`
 command other than `summary` was run, so step 5 had nothing to restore. The
 outputs are kept in the bench host's record directory for the run, not in this
@@ -348,7 +348,7 @@ neighbour table show the board's network and the board, or the board's
 address and the bench network's netmask handed to the lane.
 
 **2026-10-21, steps 1 to 5: positive; the board is restored.**
-`ESP_PORT=/dev/ttyACM1`, esptool / espefuse v5.6.0 (pip, in a venv outside the
+`ESP_PORT=<by-id path>`, esptool / espefuse v5.6.0 (pip, in a venv outside the
 repository), on branch `test/p4-hil0-net` at `7868ca31`. Writes were the one
 erase region and the four images of step 3, then the restore; no `espefuse`
 command other than `summary` was run, and no eFuse was written. The static-address
@@ -407,7 +407,7 @@ reset, which step 4 does not observe.
 The #52 requirement "Every bench board reflashed with an image whose trailer
 carries its board id" (`docs/ota/README.md`), as the
 [Mega's](mega2560.md#the-mega-reflashed-with-main-a0f9902as-image-2026-10-26-52-item-9)
-was. `ESP_PORT=/dev/ttyACM1` only, esptool / espefuse v5.6.0 (pip, in a venv
+was. `ESP_PORT=<by-id path>` only, esptool / espefuse v5.6.0 (pip, in a venv
 outside the repository), ESP-IDF `v5.5.5` from Espressif's tag
 (`install.sh esp32p4`, then `idf_tools.py install cmake ninja`), on branch
 `test/52-p4id` at `2cfeb877`. Steps 1 to 3 of [HIL-0](#hil-0), and step 4's
@@ -602,7 +602,7 @@ protocol over Ethernet, and burn no eFuse ([plan](../../plans/48.md)).
 esptool / espefuse v5.6.0 (pip, in a venv outside the repository). No
 `espefuse` command other than `summary` was run. The outputs are kept outside
 the tree: they carry the part's MAC and the port's serial number. With the
-by-id path in place of `/dev/ttyACM1`, esptool 5.6.0 prints a `NOTE` that
+by-id path in place of the kernel tty name, esptool 5.6.0 prints a `NOTE` that
 pyserial cannot resolve the port's VID/PID and uses the standard reset
 sequence; so the outputs are not byte-identical to the earlier runs', and the
 rows below compare their content.
@@ -652,7 +652,7 @@ on 2026-10-21.
 ## Restore
 
 ```sh
-make board-restore BOARD=esp32p4-poe ESP_PORT=/dev/ttyACM1 BOARD_RESTORE_IMAGE=<record dir>/p4-flash-factory.bin
+make board-restore BOARD=esp32p4-poe ESP_PORT=<by-id path> BOARD_RESTORE_IMAGE=<record dir>/p4-flash-factory.bin
 ```
 
 | | |

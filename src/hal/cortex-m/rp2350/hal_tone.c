@@ -61,6 +61,28 @@ static void tone_timer_on(void)
     }
 }
 
+/* Arm ALARM0 at tone_target, or the first phase-aligned target after it that
+ * is still ahead. ALARM0 matches TIMELR for equality: a target already passed
+ * would not fire for 2^32 us. It can pass before the write (the handler held
+ * off, as by an EEPROM write's masked flash update, or tone startup preempted
+ * by the UART's receive handler) or while the write lands, so TIMELR is read
+ * again once armed and the target moves on until the armed one is ahead. */
+static void tone_arm(void)
+{
+    uint32_t now = TFW_RP_TIMER1_TIMELR;
+
+    for (;;) {
+        if ((int32_t)(tone_target - now) <= 0) {
+            tone_target += ((now - tone_target) / tone_step + 1u) * tone_step;
+        }
+        TFW_RP_TIMER1_ALARM0 = tone_target;
+        now = TFW_RP_TIMER1_TIMELR;
+        if ((int32_t)(tone_target - now) > 0) {
+            break;
+        }
+    }
+}
+
 tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
 {
     uint32_t step;
@@ -86,7 +108,7 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     tone_bit    = bit;
     tone_step   = step;
     tone_target = TFW_RP_TIMER1_TIMELR + step;
-    TFW_RP_TIMER1_ALARM0 = tone_target;
+    tone_arm();
     TFW_RP_TIMER1_INTE   = ALARM0;
     tfw_cm_nvic_enable(TFW_RP_TIMER1_IRQ_0);
     return TFW_OK;
@@ -107,20 +129,5 @@ void tfw_cm_irq4(void)
     }
     TFW_RP_SIO_GPIO_OUT_XOR = tone_bit;
     tone_target += tone_step;
-    /* ALARM0 matches TIMELR for equality: a target already passed (the
-     * handler held off, as by an EEPROM write's masked flash update) would
-     * not fire for 2^32 us. Skip the missed half-periods, keeping phase.
-     * TIMELR can also reach the target while the write lands, so read it
-     * again once armed and move on until the armed target is ahead. */
-    uint32_t now = TFW_RP_TIMER1_TIMELR;
-    for (;;) {
-        if ((int32_t)(tone_target - now) <= 0) {
-            tone_target += ((now - tone_target) / tone_step + 1u) * tone_step;
-        }
-        TFW_RP_TIMER1_ALARM0 = tone_target;
-        now = TFW_RP_TIMER1_TIMELR;
-        if ((int32_t)(tone_target - now) > 0) {
-            break;
-        }
-    }
+    tone_arm();
 }

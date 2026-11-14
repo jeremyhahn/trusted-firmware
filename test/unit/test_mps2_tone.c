@@ -20,9 +20,15 @@ static unsigned m_led_seen;   /* LED-word accesses so far */
 static uint8_t m_irq_en;      /* TIMER0 enabled in the NVIC (ISER/ICER) */
 static uint8_t m_irq_pend;    /* TIMER0 pending in the NVIC, until taken or ICPR */
 static unsigned m_irq_taken;  /* latched interrupts the model has taken */
+static unsigned m_dt_at;      /* latch the dual timer's interrupt at this LED-word access */
+static uint8_t m_dt_pend;     /* the dual timer pending in the NVIC, until taken */
+static unsigned m_dt_taken;   /* latched dual-timer interrupts the model has taken */
 
+/* Built TONE=1 PWM=1 (mk/host.mk), as both MPS2 profiles allow: the PWM
+ * row's dual-timer interrupt drives LED bits beside the tone's. */
 #include "../../src/hal/cortex-m/mps2/hal_tone.c"
 #include "../../src/hal/cortex-m/mps2/hal_gpio.c"
+#include "../../src/hal/cortex-m/mps2/hal_pwm.c"
 
 #include "unity.h"
 
@@ -35,6 +41,12 @@ static void model_take(void)
         m_irq_taken++;
         mps2_tone_model_edge();
     }
+    /* hal_pwm.c enables the dual timer in the NVIC exactly while it runs. */
+    if (m_dt_pend && s_pwm.running && !m_primask) {
+        m_dt_pend = 0;
+        m_dt_taken++;
+        mps2_tone_model_pwm_edge();
+    }
 }
 
 volatile uint32_t *tfw_mps2_tone_model_reg(uintptr_t a)
@@ -46,6 +58,11 @@ volatile uint32_t *tfw_mps2_tone_model_reg(uintptr_t a)
         if (m_led_at != 0u && ++m_led_seen == m_led_at) {
             m_led_at = 0u;
             m_irq_pend = 1u;
+            model_take();
+        }
+        if (m_dt_at != 0u && ++m_led_seen == m_dt_at) {
+            m_dt_at = 0u;
+            m_dt_pend = 1u;
             model_take();
         }
         return &m_led;
@@ -74,6 +91,8 @@ void setUp(void)
     m_led_at = m_led_seen = 0;
     m_irq_en = m_irq_pend = 0;
     m_irq_taken = 0;
+    m_dt_at = m_dt_taken = 0;
+    m_dt_pend = 0;
 }
 
 uint32_t mps2_tone_model_irq_save(void)
@@ -93,6 +112,10 @@ void mps2_tone_model_irq_restore(uint32_t primask)
 void tearDown(void)
 {
     (void)tfw_hal_tone_stop();
+    for (uint8_t i = 0; i < TFW_PWM_COUNT; i++) {
+        const tfw_pwmref_t r = { .channel = i, .port = 0u, .bit = i };
+        (void)tfw_hal_pwm_stop(&r);
+    }
 }
 
 /* 1 kHz at 20 MHz: a half period of 10000 cycles, a reload of 9999. */
@@ -209,6 +232,36 @@ static void test_tone_stop_leaves_pin_low(void)
     TEST_ASSERT_EQUAL_UINT32(0u, m_led);
 }
 
+/* TONE=1 PWM=1: PWM channel 0 on LED0 at duty 128 (high, its next edge the
+ * duty's), the tone on LED1. The dual timer's interrupt lands at each of
+ * the tone's LED-word accesses in turn as a start or a stop lowers LED1: it
+ * is held until the write is done, then runs, so its LED0 edge is not undone
+ * by the tone's store of the word it read. */
+static void test_tone_keeps_pwm_edge(void)
+{
+    static const tfw_pwmref_t PWM0 = { .channel = 0u, .port = 0u, .bit = 0u };
+
+    for (unsigned stop = 0; stop <= 1u; stop++) {
+        for (unsigned at = 1; at <= 2u; at++) {
+            setUp();
+            TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pwm_write(&PWM0, 128u));
+            TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 1000u));
+            mps2_tone_model_edge();
+            TEST_ASSERT_EQUAL_UINT32(0x3u, m_led);   /* LED0 PWM high, LED1 tone high */
+            m_led_seen = 0;
+            m_dt_at = at;
+            if (stop)
+                TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_stop());
+            else
+                TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&PIN, 2000u));
+            TEST_ASSERT_EQUAL_UINT32_MESSAGE(1u, m_dt_taken, "the PWM edge ran");
+            TEST_ASSERT_EQUAL_UINT32_MESSAGE(0x0u, m_led, "LED0's PWM edge kept, LED1 low");
+            TEST_ASSERT_EQUAL_UINT32(0u, m_primask);
+            tearDown();
+        }
+    }
+}
+
 /* 0 Hz stops, as on the AVR. */
 static void test_tone_zero_hz_stops(void)
 {
@@ -246,6 +299,7 @@ int main(void)
     RUN_TEST(test_tone_retarget);
     RUN_TEST(test_tone_retarget_between_pins);
     RUN_TEST(test_tone_stop_leaves_pin_low);
+    RUN_TEST(test_tone_keeps_pwm_edge);
     RUN_TEST(test_tone_zero_hz_stops);
     RUN_TEST(test_tone_range_refused);
     RUN_TEST(test_tone_bad_pin_refused);

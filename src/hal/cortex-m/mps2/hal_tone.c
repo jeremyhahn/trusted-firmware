@@ -24,6 +24,10 @@ void TFW_MPS2_IRQ_HANDLER(TFW_MPS2_TIMER0_IRQ)(void);
 
 static volatile uint32_t tone_mask;   /* the pin's LED bit; 0 when silent */
 
+/* A read-modify-write of the LED word: the caller holds PRIMASK, so neither
+ * TIMER0's nor the PWM row's dual-timer interrupt (hal_pwm.c, which drives
+ * the same word through hal_gpio.c) can land between the read and the
+ * store and have its edge undone. */
 static void pin_low(uint32_t mask)
 {
     TFW_MPS2_FPGAIO_LED = TFW_MPS2_FPGAIO_LED & ~mask;
@@ -42,15 +46,19 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     /* Retarget: the timer stops before its reload changes, and a pending
      * interrupt from the old tone is dropped, in the NVIC as well as the
      * timer: the interrupt stays masked until the pins and tone_mask have
-     * moved, so an edge cannot raise the old pin after it was lowered. */
+     * moved, so an edge cannot raise the old pin after it was lowered. The
+     * LED writes themselves run with PRIMASK set (pin_low), so the PWM
+     * row's dual-timer interrupt cannot land inside one either. */
     TFW_MPS2_TIMER_CTRL = 0u;
     tfw_cm_nvic_disable((uint32_t)TFW_MPS2_TIMER0_IRQ);
     TFW_MPS2_TIMER_INTCLEAR = 1u;
     uint32_t mask = 1uL << p->bit;
+    uint32_t key = tfw_cm_irq_save();
     if (tone_mask != 0u && tone_mask != mask)
         pin_low(tone_mask);
     tone_mask = mask;
     pin_low(mask);
+    tfw_cm_irq_restore(key);
 
     TFW_MPS2_TIMER_RELOAD = reload;
     TFW_MPS2_TIMER_VALUE  = reload;
@@ -64,9 +72,11 @@ tfw_status_t tfw_hal_tone_stop(void)
     TFW_MPS2_TIMER_CTRL = 0u;
     tfw_cm_nvic_disable((uint32_t)TFW_MPS2_TIMER0_IRQ);
     TFW_MPS2_TIMER_INTCLEAR = 1u;
+    uint32_t key = tfw_cm_irq_save();
     if (tone_mask != 0u)
         pin_low(tone_mask);
     tone_mask = 0u;
+    tfw_cm_irq_restore(key);
     return TFW_OK;
 }
 

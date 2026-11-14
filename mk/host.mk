@@ -580,12 +580,14 @@ $(HOST_DIR)/test_mps2_gpio: test/unit/test_mps2_gpio.c src/hal/cortex-m/mps2/hal
 # The MPS2 TONE=1 row: hal_tone.c, included by the suite, its registers
 # pointed at a model CMSDK timer, NVIC and FPGA I/O LED word by the forced
 # test/model/cortex-m/mps2_tone_model.h, with
-# mps2-an505's profile under TFW_CM_TONE as its profile.mk's TONE=1 builds it.
+# mps2-an505's profile under TFW_CM_TONE and TFW_CM_PWM as its profile.mk's
+# TONE=1 PWM=1 builds it, hal_pwm.c beside the tone on the same LED word.
 $(HOST_DIR)/test_mps2_tone: test/unit/test_mps2_tone.c src/hal/cortex-m/mps2/hal_tone.c \
-                            src/hal/cortex-m/mps2/hal_gpio.c src/hal/cortex-m/cm_regs.h \
+                            src/hal/cortex-m/mps2/hal_gpio.c src/hal/cortex-m/mps2/hal_pwm.c \
+                            src/hal/cortex-m/cm_regs.h \
                             test/model/cortex-m/mps2_tone_model.h \
                             $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -idirafter src/hal/cortex-m -DTFW_CM_TONE=1 \
+	@$(HOST_CC) -Iboards/mps2-an505 -Isrc/hal/cortex-m/mps2 -Isrc/hal/cortex-m -DTFW_CM_TONE=1 -DTFW_CM_PWM=1 \
 	   -include test/model/cortex-m/mps2_tone_model.h \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $< $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 

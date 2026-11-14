@@ -539,12 +539,21 @@ GPIO2_IO02 and GPIO2_IO03 (PROVISIONAL) on channels 0 and 1: pins 2 and 3, or
 own. Which TPM is the M7's is question 17, so `TFW_IMX95_TPM_BASE` is zero and
 every PWM call answers `TFW_ERR_UNSUPPORTED`, touching no register; the TPM's
 24 MHz root (`TFW_IMX95_TPM_CLK_HZ`), the pins' pads on UM12527's expansion
-header and the TPM's STATUS and CONF offsets are TO CONFIRM.
+header and the TPM's STATUS and CONF offsets are TO CONFIRM. Even with the TPM
+known, PWM stays unsupported until a stopped channel can hand its pad back to
+RGPIO: `src/caps/pwm.c`'s duty 0 promises that a later `DIGITAL_WRITE` drives
+the pin, and the pad's mux is the System Manager's, which the M7 cannot yet
+ask (SCMI pin control is not built). Until then `TFW_IMX95_PWM_PAD_HANDOFF` is
+0, no pin offers a channel and `hal_pwm.c` refuses every call;
+`test_imx95_tpm_base` checks that `PWM_WRITE(128)`, `PWM_WRITE(0)` then
+`DIGITAL_WRITE` leave the pad on RGPIO at a stand-in TPM base.
 
 Tone (#22) is built and host-tested, not run: `src/hal/cortex-m/imx95/hal_tone.c`
 runs a GPT's output compare 1 in restart mode, and its interrupt toggles the
 tone pin, GPIO2_IO01 (pin 1), through `tfw_hal_gpio_write`. One tone at a time;
-a new start retunes, and zero hertz or a stop drives the pin low. Only the
+a new start retunes, restarting the counter from zero (`ENMOD` set before
+`EN`), so the new compare is not missed when the old count is past it; zero
+hertz or a stop drives the pin low. Only the
 `soft:TONE=1` row builds it. The register layout (`gpt.h`) is Linux's
 `drivers/clocksource/timer-imx-gpt.c`, TO CONFIRM against IMX95RM. Which GPT
 is the M7's, its 24 MHz clock and its interrupt (`tfw_cm_irq0`) are question

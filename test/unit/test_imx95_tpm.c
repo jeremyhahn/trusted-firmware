@@ -31,6 +31,7 @@
 
 static uint32_t model_regs[MODEL_SPAN / 4u];
 static uint32_t model_pddr;      /* GPIO2's PDDR */
+static uint32_t model_psor;      /* GPIO2's PSOR: DIGITAL_WRITE's high */
 static uint32_t model_stray;     /* any address outside the TPM */
 static unsigned model_touches;   /* every access, inside or out */
 static unsigned model_strays;
@@ -43,6 +44,9 @@ volatile uint32_t *tfw_imx95_model_reg(uintptr_t addr)
     }
     if (addr == MODEL_GPIO2 + TFW_IMX95_GPIO_PDDR) {
         return &model_pddr;
+    }
+    if (addr == MODEL_GPIO2 + TFW_IMX95_GPIO_PSOR) {
+        return &model_psor;
     }
     model_strays++;
     return &model_stray;
@@ -75,6 +79,7 @@ void setUp(void)
 {
     memset(model_regs, 0, sizeof model_regs);
     model_pddr    = 0u;
+    model_psor    = 0u;
     model_stray   = 0u;
     model_touches = 0u;
     model_strays  = 0u;
@@ -197,6 +202,7 @@ static void test_tpm_a_pin_with_no_channel_is_range(void)
 /* Base zero is unsupported: no register is read or written. The board's
  * TFW_IMX95_TPM_BASE is zero until the M7's instance is known, so the HAL's
  * own entry points answer the same. */
+#if TFW_IMX95_TPM_BASE == 0u
 static void test_tpm_base_zero_is_unsupported(void)
 {
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED,
@@ -207,6 +213,7 @@ static void test_tpm_base_zero_is_unsupported(void)
     TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_pwm_stop(&ch0));
     TEST_ASSERT_EQUAL_UINT(0u, model_touches);
 }
+#endif
 
 /* Codex P1 (board.c:35): with the TPM unknown, PWM_WRITE on pin 2 is refused
  * by the board table before src/caps/pwm.c makes the pin an output, so a
@@ -235,6 +242,44 @@ static void test_pwm_write_refused_leaves_the_pin_an_input(void)
     TEST_ASSERT_FALSE(tfw_board_pin_flags(3u) & TFW_PIN_PWM);
 }
 
+#if TFW_IMX95_TPM_BASE != 0u
+/* test_imx95_tpm_base: the board with its TPM known (a stand-in base, the
+ * model's) but no way to hand a pad between the TPM and RGPIO: the System
+ * Manager owns the mux (Codex P1 on #443). PWM_WRITE(128) then PWM_WRITE(0)
+ * then DIGITAL_WRITE: neither PWM write may take the pad, so no TPM channel
+ * is enabled and the pin's high reaches RGPIO, which still drives the pad. */
+static void test_pwm_then_digital_write_leaves_the_pad_on_rgpio(void)
+{
+    static const uint8_t duties[2] = { 128u, 0u };
+    tfw_pinref_t pin2;
+    tfw_pwmref_t ch;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(2u, &pin2));
+    for (uint8_t i = 0u; i < 2u; i++) {
+        uint8_t      req[2] = { 2u, duties[i] };
+        tfw_reader_t r;
+
+        tfw_reader_init(&r, req, (uint8_t)sizeof req);
+        TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_pwm_cmd_write(&r, NULL));
+    }
+    ch.unit    = 0u;
+    ch.channel = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_pwm_write(&ch, 128u));
+    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_pwm_stop(&ch));
+    for (uint8_t c = 0u; c < MODEL_CHANS; c++) {
+        TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_IMX95_TPM_CnSC(c)));
+    }
+    TEST_ASSERT_EQUAL_HEX32(0u, reg(TFW_IMX95_TPM_SC));
+    TEST_ASSERT_FALSE(tfw_board_pin_flags(2u) & TFW_PIN_PWM);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_mode(&pin2, TFW_PIN_OUTPUT));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_gpio_write(&pin2, 1u));
+    TEST_ASSERT_EQUAL_HEX32(1u << 2, model_pddr);
+    TEST_ASSERT_EQUAL_HEX32(1u << 2, model_psor);
+    TEST_ASSERT_EQUAL_UINT(0u, model_strays);
+}
+#endif
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -245,7 +290,11 @@ int main(void)
     RUN_TEST(test_tpm_second_channel_leaves_the_counter_alone);
     RUN_TEST(test_tpm_stop_disables_the_channel_only);
     RUN_TEST(test_tpm_a_pin_with_no_channel_is_range);
-    RUN_TEST(test_tpm_base_zero_is_unsupported);
     RUN_TEST(test_pwm_write_refused_leaves_the_pin_an_input);
+#if TFW_IMX95_TPM_BASE == 0u
+    RUN_TEST(test_tpm_base_zero_is_unsupported);
+#else
+    RUN_TEST(test_pwm_then_digital_write_leaves_the_pad_on_rgpio);
+#endif
     return UNITY_END();
 }

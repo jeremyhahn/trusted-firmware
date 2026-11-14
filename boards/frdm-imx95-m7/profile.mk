@@ -89,6 +89,8 @@ BOARD_TIERS    := soft
 # PWM on the M7's TPM (src/hal/cortex-m/imx95/hal_pwm.c), off by default: the
 # TPM instance the System Manager gives the M7 is open (imx95-design.md question
 # 17), so TFW_IMX95_TPM_BASE is zero and every PWM call answers unsupported.
+# It stays unsupported with the TPM known until a stopped channel can hand its
+# pad back to RGPIO, which needs the System Manager (TFW_IMX95_PWM_PAD_HANDOFF).
 # PWM=1 turns TFW_FEATURE_PWM on (TFW_CM_PWM in board_profile.h) and links the
 # TPM driver; the soft:PWM=1 row builds it. Host-tested on a register model
 # (test/unit/test_imx95_tpm.c), not run on the board.

@@ -20,10 +20,11 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
  * numbered first (GPIO2_IO00, GPIO2_IO01 and, in the soft:ADC=1 row, ADC_IN0
  * and ADC_IN1), so no pin's number moves: they are pins 2 and 3, or 4 and 5
  * with ADC=1. They carry the TPM's PWM channels when PWM=1 (TFW_PWM_COUNT 2)
- * and the M7's TPM is known (TFW_IMX95_TPM_BASE non-zero). Until then no pin
- * offers one: tfw_board_pwm() refuses PWM_WRITE before src/caps/pwm.c makes
- * the pin an output for a TPM that cannot run, and CAPS advertises none. */
-#if TFW_PWM_COUNT && TFW_IMX95_TPM_BASE != 0u
+ * the M7's TPM is known (TFW_IMX95_TPM_BASE non-zero) and a pad can be handed
+ * back to RGPIO when PWM stops (TFW_IMX95_PWM_PAD_HANDOFF, board_profile.h).
+ * Until then no pin offers one: tfw_board_pwm() refuses PWM_WRITE before
+ * src/caps/pwm.c makes the pin an output, and CAPS advertises none. */
+#if TFW_PWM_COUNT && TFW_IMX95_PWM_LIVE
 #define BOARD_PWM(n)  (n)
 #define BOARD_PIN_PWM TFW_PIN_PWM
 #else

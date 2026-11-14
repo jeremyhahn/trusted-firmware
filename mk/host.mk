@@ -761,12 +761,24 @@ $(HOST_DIR)/test_imx95_tpm: test/unit/test_imx95_tpm.c src/hal/cortex-m/imx95/ha
                         boards/frdm-imx95-m7/board.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) -DTFW_CM_PWM=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# The same suite with the TPM known, at the model's stand-in base: no pad can
+# yet be handed between the TPM and RGPIO (TFW_IMX95_PWM_PAD_HANDOFF), so
+# PWM_WRITE(128), PWM_WRITE(0) then DIGITAL_WRITE leave the pad on RGPIO.
+$(HOST_DIR)/test_imx95_tpm_base: test/unit/test_imx95_tpm.c src/hal/cortex-m/imx95/hal_pwm.c \
+                        src/hal/cortex-m/imx95/hal_gpio.c src/hal/cortex-m/imx95/soc_calc.c \
+                        src/caps/pwm.c src/core/reader.c src/core/board_lookup.c \
+                        boards/frdm-imx95-m7/board.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) -DTFW_CM_PWM=1 -DTFW_IMX95_TPM_BASE=0x10000000uL \
+	  $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The board's descriptor suite on the PWM=1 image, with profile.mk's
 # BOARD_DEFS for it: board-sweep compiles the default PWM=0 only, so the PWM
 # pin mapping ran nowhere. _pwm is the image as it builds, TFW_IMX95_TPM_BASE
 # zero and no pin offering a channel; _pwm_base passes a stand-in base, as no
-# image does, so pins 2 and 3 are checked on TPM CH0 and CH1.
+# image does, and still no pin offers one while no pad can be handed back to
+# RGPIO (TFW_IMX95_PWM_PAD_HANDOFF); _pwm_handoff sets both, so pins 2 and 3
+# are checked on TPM CH0 and CH1 as they will be.
 HOST_IMX95_BOARD_SRCS = test/unit/test_board_frdm-imx95-m7.c src/core/board_lookup.c \
                         boards/frdm-imx95-m7/board.c $(HOST_DIR)/unity.o
 HOST_IMX95_BOARD_CFLAGS = -Isrc/hal/cortex-m -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
@@ -776,6 +788,9 @@ $(HOST_DIR)/test_board_frdm-imx95-m7_pwm: $(HOST_IMX95_BOARD_SRCS) | $(HOST_DIR)
 $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base: $(HOST_IMX95_BOARD_SRCS) | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) -DTFW_IMX95_TPM_BASE=0x10000000uL $(EXTRA_CFLAGS) \
 	  -o $@ $^ $(EXTRA_LDFLAGS)
+$(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff: $(HOST_IMX95_BOARD_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) -DTFW_IMX95_TPM_BASE=0x10000000uL \
+	  -DTFW_IMX95_PWM_PAD_HANDOFF=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7's SAR ADC (the soft:ADC=1 row) against the register model in
 # the test file itself, which supplies tfw_imx95_model_reg for the block alone
@@ -805,10 +820,11 @@ $(HOST_DIR)/test_imx95_lpi2c: test/unit/test_imx95_lpi2c.c src/hal/cortex-m/imx9
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# ADC=1 and PWM=1 together, with the stand-in TPM base: the ADC inputs keep
-# pins 2 and 3 and the PWM pins come after them, as pins 4 and 5.
+# ADC=1 and PWM=1 together, with the stand-in TPM base and the pad handoff:
+# the ADC inputs keep pins 2 and 3 and the PWM pins come after them, as pins
+# 4 and 5.
 $(HOST_DIR)/test_board_frdm-imx95-m7_adc_pwm_base: $(HOST_IMX95_BOARD_SRCS) | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) -DTFW_CM_ADC=1 -DTFW_IMX95_TPM_BASE=0x10000000uL \
+	@$(HOST_CC) $(HOST_IMX95_BOARD_CFLAGS) -DTFW_CM_ADC=1 -DTFW_IMX95_TPM_BASE=0x10000000uL -DTFW_IMX95_PWM_PAD_HANDOFF=1 \
 	  $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The i.MX 95 M7 tone (#22): gpt.h's arithmetic and hal_tone.c, its pin and
@@ -1341,8 +1357,9 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake \
-                    $(HOST_DIR)/test_imx95_tpm \
+                    $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
+                    $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc_pwm_base \
                     $(HOST_DIR)/test_platform_bake $(HOST_DIR)/test_platform_bake_mutate \
                     $(HOST_DIR)/test_optee_ta \

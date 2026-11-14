@@ -118,6 +118,20 @@
 #ifndef TFW_IMX95_TPM_BASE
 #define TFW_IMX95_TPM_BASE    0x00000000uL
 #endif
+
+/* Handing a PWM pad between the TPM and RGPIO. src/caps/pwm.c's duty 0 stops
+ * the channel so that a later DIGITAL_WRITE drives the pin, which needs the
+ * pad muxed back from its TPM channel to RGPIO; the System Manager owns the
+ * pads' mux, and the M7's way to ask it (SCMI pin control) is not built. Until
+ * it is, this is 0: no pin offers a PWM channel even with the TPM known, and
+ * hal_pwm.c refuses every PWM call, so the pad never leaves RGPIO. Only the
+ * board's descriptor test sets it, to check the pin mapping it will have. */
+#ifndef TFW_IMX95_PWM_PAD_HANDOFF
+#define TFW_IMX95_PWM_PAD_HANDOFF 0
+#endif
+
+/* The board's PWM pins carry their channels only with both known. */
+#define TFW_IMX95_PWM_LIVE (TFW_IMX95_TPM_BASE != 0u && TFW_IMX95_PWM_PAD_HANDOFF)
 #define TFW_IMX95_TPM_CLK_HZ  24000000uL
 
 /* Flash geometry for tfw-boot, as addresses in the M7's ITCM. TFW_FLASH_TOTAL

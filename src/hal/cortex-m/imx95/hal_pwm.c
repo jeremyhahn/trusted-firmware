@@ -72,13 +72,23 @@ tfw_status_t tfw_imx95_tpm_stop(uintptr_t base, const tfw_pwmref_t *p)
     return TFW_OK;
 }
 
+/* The HAL's entry points refuse while no pad can be handed back from the TPM
+ * to RGPIO (TFW_IMX95_PWM_PAD_HANDOFF, board_profile.h): a stopped channel
+ * would otherwise keep the pad, and DIGITAL_WRITE would not reach it. */
+#if TFW_IMX95_PWM_PAD_HANDOFF
+#error "hal_pwm.c: the pad handoff through the System Manager is not built"
+#endif
+
 tfw_status_t tfw_hal_pwm_write(const tfw_pwmref_t *p, uint8_t duty)
 {
-    return tfw_imx95_tpm_write((uintptr_t)TFW_IMX95_TPM_BASE,
-                               (uint32_t)TFW_IMX95_TPM_CLK_HZ, p, duty);
+    (void)p;
+    (void)duty;
+    return TFW_ERR_UNSUPPORTED;
 }
 
 tfw_status_t tfw_hal_pwm_stop(const tfw_pwmref_t *p)
 {
-    return tfw_imx95_tpm_stop((uintptr_t)TFW_IMX95_TPM_BASE, p);
+    (void)p;
+    return TFW_ERR_UNSUPPORTED;
 }
+

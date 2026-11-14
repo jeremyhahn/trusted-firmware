@@ -81,7 +81,7 @@ static void test_no_pin_offers_an_adc_or_a_pwm(void)
         uint8_t i = n < 2u ? n : (uint8_t)(PWM_PIN0 + n - 2u);
         uint8_t ch;
         tfw_pwmref_t p;
-        int pwm = TFW_FEATURE_PWM && TFW_IMX95_TPM_BASE != 0u && n >= 2u;
+        int pwm = TFW_FEATURE_PWM && TFW_IMX95_PWM_LIVE && n >= 2u;
 
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
         TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
@@ -92,10 +92,11 @@ static void test_no_pin_offers_an_adc_or_a_pwm(void)
     }
 }
 
-/* PWM=1 (TFW_CM_PWM) with the M7's TPM known: the two PWM pins are the TPM's
- * channels 0 and 1, on their own GPIO2 lines. Run by mk/host.mk's
- * test_board_frdm-imx95-m7_pwm_base, which passes a stand-in base. */
-#if TFW_FEATURE_PWM && TFW_IMX95_TPM_BASE != 0u
+/* PWM=1 (TFW_CM_PWM) with the M7's TPM known and the pad handoff built: the
+ * two PWM pins are the TPM's channels 0 and 1, on their own GPIO2 lines. Run
+ * by mk/host.mk's test_board_frdm-imx95-m7_pwm_handoff and _adc_pwm_base,
+ * which pass a stand-in base and TFW_IMX95_PWM_PAD_HANDOFF=1. */
+#if TFW_FEATURE_PWM && TFW_IMX95_PWM_LIVE
 static void test_the_pwm_pins_carry_the_tpm_channels(void)
 {
     TEST_ASSERT_EQUAL_UINT8(2u, TFW_PWM_COUNT);
@@ -112,9 +113,10 @@ static void test_the_pwm_pins_carry_the_tpm_channels(void)
 }
 #elif TFW_FEATURE_PWM
 /* PWM=1 with TFW_IMX95_TPM_BASE zero, as the image builds today (Codex P1,
- * board.c:35): the channel table is there, but no pin offers one, so
+ * board.c:35), or with the TPM known but no pad handoff (Codex P1 on #443,
+ * hal_pwm.c): the channel table is there, but no pin offers one, so
  * PWM_WRITE is refused before the pin is made an output and CAPS lists no
- * channel. Run by mk/host.mk's test_board_frdm-imx95-m7_pwm. */
+ * channel. Run by mk/host.mk's test_board_frdm-imx95-m7_pwm and _pwm_base. */
 static void test_no_pin_offers_the_unknown_tpm(void)
 {
     TEST_ASSERT_EQUAL_UINT8(2u, TFW_PWM_COUNT);
@@ -146,7 +148,7 @@ int main(void)
     RUN_TEST(test_the_board_is_the_next_provisional_cortex_m_id);
     RUN_TEST(test_the_pins_are_four_gpio2_lines);
     RUN_TEST(test_no_pin_offers_an_adc_or_a_pwm);
-#if TFW_FEATURE_PWM && TFW_IMX95_TPM_BASE != 0u
+#if TFW_FEATURE_PWM && TFW_IMX95_PWM_LIVE
     RUN_TEST(test_the_pwm_pins_carry_the_tpm_channels);
 #elif TFW_FEATURE_PWM
     RUN_TEST(test_no_pin_offers_the_unknown_tpm);

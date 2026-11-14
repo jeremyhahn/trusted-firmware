@@ -2613,8 +2613,10 @@ $(HOST_DIR)/test_mcxn94x_reset: test/unit/test_mcxn94x_reset.c src/hal/cortex-m/
 HOST_MCXN94X_CFLAGS = -Itest/model/cortex-m/mcxn94x -Isrc/hal/cortex-m/mcxn94x -Isrc/hal/cortex-m \
                       -Iboards/frdm-mcxn947 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS))
 
-# The mcxn94x LPADC0 HAL against the suite's own register model.
+# The mcxn94x LPADC0 HAL against the suite's own register model, with the
+# board's pin table, which a read walks to release the channel's pads.
 $(HOST_DIR)/test_mcxn94x_adc: test/unit/test_mcxn94x_adc.c src/hal/cortex-m/mcxn94x/hal_adc.c \
+                              src/core/board_lookup.c boards/frdm-mcxn947/board.c \
                               $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_MCXN94X_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 

@@ -352,6 +352,37 @@ static void test_one_read_per_header_channel(void)
     }
 }
 
+/* Codex P1 on #375: a read samples the pad as the GPIO left it. A2 (P0_14)
+ * driven as a pulled-up output must be released -- its GPIO0 PDDR bit
+ * cleared, its PCR 0 (pin function 0, no pull, input buffer off) -- before
+ * the trigger; A3 (P0_22), not read, keeps its pad. PORT0 PCRn and GPIO0
+ * PDDR at soc_regs.h's addresses. */
+#define PORT0_PCR(bit)  (0x50116000u + 0x80u + 4u * (bit))
+#define GPIO0_PDDR      0x50096054u
+#define PCR_PULLUP_IN   ((1u << 12) | (1u << 1) | (1u << 0))   /* IBE, PE, PS */
+
+static void test_a_read_releases_the_pad_before_the_trigger(void)
+{
+    uint16_t raw = 0xFFFFu;
+
+    chan_val[(1u << 5) | 14u] = 0x0456u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_init());
+    set(PORT0_PCR(14u), PCR_PULLUP_IN);
+    set(PORT0_PCR(22u), PCR_PULLUP_IN);
+    set(GPIO0_PDDR, (1u << 14) | (1u << 22));
+    ntrace = 0u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_adc_read(32u + 14u, &raw));
+    TEST_ASSERT_EQUAL_HEX16(0x0456u, raw);
+    TEST_ASSERT_EQUAL_HEX32(0u, peek(PORT0_PCR(14u)));
+    TEST_ASSERT_EQUAL_HEX32(1u << 22, peek(GPIO0_PDDR));
+    TEST_ASSERT_EQUAL_HEX32(PCR_PULLUP_IN, peek(PORT0_PCR(22u)));
+    TEST_ASSERT_TRUE(first(PORT0_PCR(14u)) >= 0);
+    TEST_ASSERT_TRUE(first(GPIO0_PDDR) >= 0);
+    TEST_ASSERT_TRUE(first(PORT0_PCR(14u)) < first(ADC_SWTRIG));
+    TEST_ASSERT_TRUE(first(GPIO0_PDDR) < first(ADC_SWTRIG));
+}
+
 static void test_an_empty_fifo_times_out(void)
 {
     uint16_t raw = 0x5A5Au;
@@ -409,6 +440,7 @@ int main(void)
     RUN_TEST(test_an_offset_calibration_that_never_finishes_times_out);
     RUN_TEST(test_a_gain_calibration_that_never_finishes_times_out);
     RUN_TEST(test_one_read_per_header_channel);
+    RUN_TEST(test_a_read_releases_the_pad_before_the_trigger);
     RUN_TEST(test_an_empty_fifo_times_out);
     RUN_TEST(test_a_late_result_is_not_taken_for_another_channel);
     RUN_TEST(test_a_channel_beyond_the_range_is_refused);

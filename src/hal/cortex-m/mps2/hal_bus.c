@@ -22,17 +22,16 @@
  * its cs pin. The one select it accepts is that bit; no board table names it
  * yet, so the profiles say TFW_FEATURE_SPI 0.
  *
- * 1-Wire is not driven on this board: the image has no such bus, and the
- * profile says TFW_FEATURE_ONEWIRE 0. Its entry points are here because
- * src/caps/bus.c is one translation unit with all three buses' handlers, and
- * they refuse with TFW_ERR_UNSUPPORTED, as hal_gpio.c refuses a mode the pins
- * do not have.
+ * 1-Wire is bit-banged on GPIO block 0 bit 0 (gpio_line.h), the board table's
+ * pin 3 in the ONEWIRE=1 row (TFW_CM_ONEWIRE, TFW_FEATURE_ONEWIRE 1), with the
+ * AVR master's slot timings; a pin other than that line is TFW_ERR_RANGE.
  */
 #include <stdint.h>
 
 #include "tfw/hal.h"
 #include "sbcon.h"
 #include "pl022.h"
+#include "gpio_line.h"
 
 /* SCL held low by a device past this many half periods is a stuck bus, not
  * clock stretching: 1000 at 100 kHz is 5 ms. */
@@ -382,25 +381,100 @@ tfw_status_t tfw_hal_spi_xfer(const tfw_pinref_t *cs, const uint8_t *wr,
     return TFW_OK;
 }
 
+/* ---------------------------------------------------------------- 1-Wire
+ *
+ * Bit-banged on GPIO block 0's 1-Wire bit (gpio_line.h), with the AVR's slot
+ * timings (src/hal/avr/hal_bus.c): open drain, the line pulled low as an
+ * output or let float as an input, never driven high. Each slot, the reset
+ * and every bit, runs with interrupts masked, so a UART interrupt cannot
+ * stretch a low into a different bit; between slots they are taken. */
+
+static uint8_t ow_pin_ok(const tfw_pinref_t *p)
+{
+    return (uint8_t)(p->port == TFW_MPS2_PORT_GPIO0 && p->bit == TFW_MPS2_OW_BIT);
+}
+
+static uint8_t ow_level(void)
+{
+    return (uint8_t)((tfw_mps2_gpio_lines() & (1u << TFW_MPS2_OW_BIT)) != 0u);
+}
+
+static void ow_write_bit(uint8_t bit)
+{
+    uint32_t saved = tfw_mps2_gpio_irq_save();
+
+    tfw_mps2_gpio_drive_low(1u << TFW_MPS2_OW_BIT);
+    if (bit) { tfw_hal_delay_us(6u);  tfw_mps2_gpio_release(1u << TFW_MPS2_OW_BIT); tfw_hal_delay_us(64u); }
+    else     { tfw_hal_delay_us(60u); tfw_mps2_gpio_release(1u << TFW_MPS2_OW_BIT); tfw_hal_delay_us(10u); }
+    tfw_mps2_gpio_irq_restore(saved);
+}
+
+static uint8_t ow_read_bit(void)
+{
+    uint32_t saved = tfw_mps2_gpio_irq_save();
+    uint8_t  v;
+
+    tfw_mps2_gpio_drive_low(1u << TFW_MPS2_OW_BIT);
+    tfw_hal_delay_us(6u);
+    tfw_mps2_gpio_release(1u << TFW_MPS2_OW_BIT);
+    tfw_hal_delay_us(9u);
+    v = ow_level();
+    tfw_hal_delay_us(55u);
+    tfw_mps2_gpio_irq_restore(saved);
+    return v;
+}
+
 tfw_status_t tfw_hal_ow_reset(const tfw_pinref_t *p, uint8_t *out_presence)
 {
-    (void)p;
-    (void)out_presence;
-    return TFW_ERR_UNSUPPORTED;
+    uint32_t saved;
+
+    if (!ow_pin_ok(p)) {
+        return TFW_ERR_RANGE;
+    }
+    saved = tfw_mps2_gpio_irq_save();
+    tfw_mps2_gpio_drive_low(1u << TFW_MPS2_OW_BIT);
+    tfw_hal_delay_us(480u);
+    tfw_mps2_gpio_release(1u << TFW_MPS2_OW_BIT);
+    tfw_hal_delay_us(70u);
+    /* A device answers by pulling the line low; the line reading high here
+     * means nobody is there. */
+    *out_presence = (uint8_t)(ow_level() == 0u);
+    tfw_hal_delay_us(410u);
+    tfw_mps2_gpio_irq_restore(saved);
+    return TFW_OK;
 }
 
 tfw_status_t tfw_hal_ow_write(const tfw_pinref_t *p, const uint8_t *buf, uint8_t len)
 {
-    (void)p;
-    (void)buf;
-    (void)len;
-    return TFW_ERR_UNSUPPORTED;
+    uint8_t i;
+    uint8_t b;
+
+    if (!ow_pin_ok(p)) {
+        return TFW_ERR_RANGE;
+    }
+    for (i = 0u; i < len; i++) {
+        for (b = 0u; b < 8u; b++) {
+            ow_write_bit((uint8_t)(((unsigned)buf[i] >> b) & 1u));   /* LSB first */
+        }
+    }
+    return TFW_OK;
 }
 
 tfw_status_t tfw_hal_ow_read(const tfw_pinref_t *p, uint8_t *buf, uint8_t len)
 {
-    (void)p;
-    (void)buf;
-    (void)len;
-    return TFW_ERR_UNSUPPORTED;
+    uint8_t i;
+    uint8_t b;
+
+    if (!ow_pin_ok(p)) {
+        return TFW_ERR_RANGE;
+    }
+    for (i = 0u; i < len; i++) {
+        uint8_t v = 0u;
+
+        for (b = 0u; b < 8u; b++) {
+            if (ow_read_bit()) { v = (uint8_t)(v | (1u << b)); }
+        }
+        buf[i] = v;
+    }
+    return TFW_OK;
 }

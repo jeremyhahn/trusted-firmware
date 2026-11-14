@@ -461,7 +461,6 @@ static void test_init_lets_both_lines_go(void)
     TEST_ASSERT_EQUAL_HEX32(SB_BOTH, bus.m);
 }
 
-/* SPI and 1-Wire are not on this board; their entry points refuse. */
 /* SSPCR0 for each mode and divisor (DDI 0194H, Table 3-2): SCR in [15:8] is
  * 1, 7, 31 or 63 over a prescale of 2, for divisors 4, 16, 64 and 128; SPH
  * [7] is mode bit 0, SPO [6] mode bit 1; FRF 00 and DSS 0111, 8-bit Motorola
@@ -588,14 +587,15 @@ static void test_spi_a_stopped_port_is_a_timeout_and_the_select_released(void)
     TEST_ASSERT_EQUAL_HEX32(0x3A5u, ssp.misc);
 }
 
-static void test_onewire_is_unsupported(void)
+static void test_onewire_off_its_pin_is_range(void)
 {
     const tfw_pinref_t p = { 0 };
     uint8_t b = 0u;
 
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_ow_reset(&p, &b));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_ow_write(&p, &b, 1u));
-    TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_hal_ow_read(&p, &b, 1u));
+    /* test_mps2_onewire.c tests the master on its pin; an LED is not it. */
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_ow_reset(&p, &b));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_ow_write(&p, &b, 1u));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_ow_read(&p, &b, 1u));
 }
 
 int main(void)
@@ -621,6 +621,6 @@ int main(void)
     RUN_TEST(test_spi_xfer_drains_a_stale_answer_first);
     RUN_TEST(test_spi_xfer_refuses_any_other_select);
     RUN_TEST(test_spi_a_stopped_port_is_a_timeout_and_the_select_released);
-    RUN_TEST(test_onewire_is_unsupported);
+    RUN_TEST(test_onewire_off_its_pin_is_range);
     return UNITY_END();
 }

@@ -52,18 +52,26 @@ PARTS = {
     "attiny85": dict(flash=8192, sram=512, sram_start=0x0060, eeprom=512, boot=False),
     # Arm AN505 as QEMU models it (hw/arm/mps2-tz.c, hw/arm/armsse.c): the code
     # is SSRAM-1 and -2 at 0x38000000, so TFW_FLASH_TOTAL is an address, the
-    # end of that span; the SRAM is the IoT Kit's internal 32 KiB; no EEPROM.
+    # end of that span; the SRAM is the IoT Kit's internal 32 KiB. The EEPROM
+    # is emulated, a 4096-byte window of RAM (TFW_CM_PLATFORM_SIZE, 0x1000),
+    # served by src/hal/cortex-m/hal_eeprom.c; QEMU models no EEPROM part, and
+    # the window is RAM, so a write survives a system_reset but not a new QEMU
+    # process.
     # tfw-boot is not at the top of that flash but in its own 32 KiB at the
     # base of SSRAM-0, so boot_end is where its region ends.
     "mps2-an505": dict(flash=4194304, flash_start=0x38000000, sram=32768,
-                       sram_start=0x30000000, eeprom=0, boot=True,
+                       sram_start=0x30000000, eeprom=4096, boot=True,
                        boot_end=0x10008000),
     # Arm AN500 as QEMU models it (hw/arm/mps2.c): the code is ZBT SSRAM1 at
-    # 0x00000000, the SRAM is ZBT SSRAM2 and 3 at 0x20000000; no EEPROM.
+    # 0x00000000, the SRAM is ZBT SSRAM2 and 3 at 0x20000000. The EEPROM is
+    # emulated, a 4096-byte window of RAM (TFW_CM_PLATFORM_SIZE, 0x1000),
+    # served by src/hal/cortex-m/hal_eeprom.c; QEMU models no EEPROM part, and
+    # the window is RAM, so a write survives a system_reset but not a new QEMU
+    # process.
     # tfw-boot is at the base of SSRAM1, where the core's VTOR points at reset,
     # not at its top, so boot_end is where its region ends.
     "mps2-an500": dict(flash=4194304, sram=4194304, sram_start=0x20000000,
-                       eeprom=0, boot=True, boot_end=0x00008000),
+                       eeprom=4096, boot=True, boot_end=0x00008000),
     # STM32H573IIK3Q (STM32H573I-DK), ST's cmsis-device-h5 stm32h573xx.h: 2 MiB
     # of flash at 0x08000000, so TFW_FLASH_TOTAL is an address, the end of bank
     # 2; the SRAM is SRAM1's 256 KiB at 0x20000000, the one region the port
@@ -81,10 +89,13 @@ PARTS = {
                    boot_end=0x10008000),
     # Nordic nRF54L15 application core (nrfx MDK
     # nrf54l15_xxaa_application_memory.h): 1524 KiB of RRAM from address 0,
-    # 256 KiB of RAM at 0x20000000, no EEPROM. tfw-boot is the first 32 KiB of
-    # RRAM, where the core fetches its reset vector, so boot_end is 0x8000.
+    # 256 KiB of RAM at 0x20000000. The part has no EEPROM block: the EEPROM is
+    # emulated in a 4096-byte window of the RRAM (TFW_CM_PLATFORM_SIZE),
+    # programmed through the RRAMC by src/hal/cortex-m/nrf54l/hal_eeprom.c.
+    # tfw-boot is the first 32 KiB of RRAM, where the core fetches its reset
+    # vector, so boot_end is 0x8000.
     "nrf54l15": dict(flash=1560576, sram=262144, sram_start=0x20000000,
-                     eeprom=0, boot=True, boot_end=0x00008000),
+                     eeprom=4096, boot=True, boot_end=0x00008000),
     # NXP MCXN947, core 0's Secure alias (the SDK's MCXN947_cm33_core0.h and
     # its flash linker script, docs/reference/README.md): 2 MiB of flash at
     # 0x10000000, 312 KiB of SRAM at 0x30000000 with RAM ECC off, no EEPROM.
@@ -208,6 +219,62 @@ def table_rows(source, table):
             elif depth == 0:
                 return rows
     raise ValueError("%s: unterminated initialiser" % table)
+
+
+def board_macros(source):
+    """The #defines of a board.c, object-like and function-like, as
+    {name: (params or None, body)}.
+
+    In an #if group only the first branch counts: a board puts the branch
+    that holds when a capability is on first (frdm-imx95-m7's BOARD_PWM(n)
+    and BOARD_PIN_PWM), so the pin table is checked as that build sees it."""
+    out, stack = {}, []
+    for line in source.splitlines():
+        m = re.match(r"^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b", line)
+        if m:
+            word = m.group(1)
+            if word.startswith("if"):
+                stack.append(True)
+            elif word == "endif":
+                if stack:
+                    stack.pop()
+            elif stack:
+                stack[-1] = False
+            continue
+        if not all(stack):
+            continue
+        m = re.match(r"^\s*#\s*define\s+([A-Za-z_][A-Za-z0-9_]*)(\(([^)]*)\))?(?:\s+(.*?))?\s*$", line)
+        if m and m.group(1) not in out:
+            params = None
+            if m.group(2):
+                params = [p.strip() for p in m.group(3).split(",") if p.strip()]
+            out[m.group(1)] = (params, m.group(4) or "")
+    return out
+
+
+def expand_macros(text, macros, depth=0):
+    """`text` with the macros of board_macros() replaced by their bodies."""
+    if depth > 16:
+        raise ValueError("macros nest too deep: %s" % text)
+
+    def call(m):
+        params, body = macros[m.group(1)]
+        if params is None:
+            return body if m.group(2) is None else body + m.group(2)
+        if m.group(2) is None:
+            return m.group(0)
+        args = [a.strip() for a in m.group(3).split(",")] if m.group(3).strip() else []
+        if len(args) != len(params):
+            raise ValueError("%s takes %d arguments: %s" % (m.group(1), len(params), m.group(0)))
+        for p, a in zip(params, args):
+            body = re.sub(r"\b%s\b" % re.escape(p), lambda _: a, body)
+        return "(%s)" % body
+
+    if not macros:
+        return text
+    names = "|".join(re.escape(n) for n in sorted(macros, key=len, reverse=True))
+    out = re.sub(r"\b(%s)\b(\s*\(([^()]*)\))?" % names, call, text)
+    return out if out == text else expand_macros(out, macros, depth + 1)
 
 
 PIN_ROW = re.compile(r"^\s*TFW_PB\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*,"
@@ -420,7 +487,13 @@ def check_pins(board, arch, bdir, defs, value, fail):
             fail("pin %d: %s %r is not a number" % (pin, what, text))
             return None
 
+    macros = board_macros(source)
     for pin, row in enumerate(pins):
+        try:
+            row = expand_macros(row, macros)
+        except ValueError as e:
+            fail("pin %d: %s" % (pin, e))
+            continue
         m = PIN_ROW.match(row)
         if not m:
             fail("pin %d: not a { TFW_PB(port, bit), adc, pwm, flags } row" % pin)

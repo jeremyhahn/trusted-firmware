@@ -11,7 +11,7 @@
 > the decisions it follows are ADR #14
 > ([`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md))
 > and ADR #15 ([`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md)),
-> both PROPOSED.
+> both ACCEPTED (owner ruling 632 item 208 a, 2026-11-14).
 
 Documents cited:
 

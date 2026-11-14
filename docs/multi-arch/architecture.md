@@ -78,19 +78,21 @@ Each choice is an ADR before any code.
 - **AVR**: tfw-boot, with a software or ATECC608A tier.
 - **Cortex-M**: the reference part and CI emulation target are in
   [`../cortex-m/adr-reference-part-and-emulation.md`](../cortex-m/adr-reference-part-and-emulation.md)
-  ([#14](../../../../issues/14)), which is proposed. Its decision 1 records the
-  SPEC's reference part, the Cortex-M7 of the NXP i.MX 95 on the FRDM-IMX95-PRO
+  ([#14](../../../../issues/14)), accepted on 2026-11-14 (owner ruling 632
+  item 208 a). Its decision 1 records the SPEC's reference part, the Cortex-M7 of the NXP i.MX 95 on the FRDM-IMX95-PRO
   (SPEC rows `cortex-m` and `imx95`), checked against the two Cortex-M33 boards
   on the bench: the STM32H573I-DK, the second target (SPEC row `stm32h5`), and
-  the nRF54L15-DK. Whether the M33 should be the reference part instead is the
-  ADR's question 1, for the owner. CI emulates the generic port on QEMU
+  the nRF54L15-DK. The ruling answers the ADR's question 1: the M7 stays the
+  reference part. CI emulates the generic port on QEMU
   `mps2-an505`. The hardware order is the SE052F, then the i.MX 95 M7, then the
   STM32H5 (ruling 269), whose port waits for [#79](../../../../issues/79).
   On the i.MX 95 the key tier is the EdgeLock secure enclave and AHAB secure
   boot verifies the M7 image ([`imx95-design.md`](imx95-design.md)); whether
   tfw-boot also runs on the M7 is that page's question 19. Trust model and
   Trusted Firmware-M (Arm's project; "TF-M" for short): [#15](../../../../issues/15),
-  proposed in [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md).
+  accepted on the same ruling in [`../cortex-m/adr-trust-model-vs-tf-m.md`](../cortex-m/adr-trust-model-vs-tf-m.md):
+  TF-M Profile Medium with our DICE attestation partition on the M33, MPU-only
+  isolation on the M7.
 - **ESP32**: secure boot v2, flash encryption and the HMAC peripheral:
   [#16](../../../../issues/16). The P-256 DeviceID, layer 0's ES256 gate, OTA
   on `esp_ota` and the port's slices: [`esp32-p4-design.md`](esp32-p4-design.md).
@@ -105,6 +107,6 @@ Each choice is an ADR before any code.
 | AVR | ATtiny85 | none only (`boards/attiny85/profile.mk`) | supported |
 | Cortex-M33 | Arm AN505 on QEMU `mps2-an505` (`boards/mps2-an505`, id `0x40`) | soft | in progress ([#161](../../../../issues/161)): tfw-boot verifies a P-256 signature in software and boots the firmware; CI runs `make integration-test-cortex-m` |
 | Cortex-M7 | NXP i.MX 95 M7 on the FRDM-IMX95-PRO (`boards/frdm-imx95-m7`, provisional id `0x41`) | soft root; the EdgeLock enclave tier is not started | in progress ([#49](../../../../issues/49)): built in CI, not run; [`imx95-design.md`](imx95-design.md) (Row status) |
-| Cortex-M33 | STM32H573I-DK; nRF54L15-DK | ADR [#14](../../../../issues/14), proposed | planned ([#22](../../../../issues/22); onboarding ADRs [#126](../../../../issues/126), [#129](../../../../issues/129)); the STM32H5 port waits for [#79](../../../../issues/79) |
+| Cortex-M33 | STM32H573I-DK; nRF54L15-DK | ADR [#14](../../../../issues/14), accepted | planned ([#22](../../../../issues/22); onboarding ADRs [#126](../../../../issues/126), [#129](../../../../issues/129)); the STM32H5 port waits for [#79](../../../../issues/79) |
 | ESP32 | ESP32-P4 PoE board; Espressif QEMU (`esp32c3`, `esp32`) | secure boot v2, HMAC CDI, P-256 DeviceID from the UDS (`hmac-p256`, `boards/esp32p4-poe/profile.mk:13`); `none` | in progress ([#48](../../../../issues/48), ADR [#16](../../../../issues/16)) |
 | Other | | | planned ([#17](../../../../issues/17)) |

@@ -99,7 +99,8 @@ carries `tcg-dice-UCCS-evidence` (DICE Attestation Architecture, Revision 23,
 
 ## 3. Where the board sits against ADR #14 and ADR #15
 
-Both ADRs are PROPOSED; this section restates what each says about this board
+Both ADRs are ACCEPTED (owner ruling 632 item 208 a, 2026-11-14: the i.MX 95 M7
+reference part, `mps2-an505` in CI, (b1) on the M33, MPU-only on the M7); this section restates what each says about this board
 and decides nothing.
 
 - **ADR #14** makes the i.MX 95's M7 the reference part and the STM32H5 the

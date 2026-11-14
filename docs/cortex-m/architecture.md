@@ -3,7 +3,7 @@
 > **Status: DRAFT** · Scope: trusted-firmware · Issue: #161 · Last verified: 2026-10-22
 > The decisions and their reasons are in the two ADRs,
 > [adr-reference-part-and-emulation.md](adr-reference-part-and-emulation.md) and
-> [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), both PROPOSED. This
+> [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), both ACCEPTED (owner ruling 632 item 208 a, 2026-11-14). This
 > page describes what the row has built from them; what each slice added, and
 > the QEMU rows that test it, are in the [README](README.md).
 

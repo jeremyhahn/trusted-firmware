@@ -2747,6 +2747,15 @@ $(HOST_DIR)/test_rp2350_adc: test/unit/test_rp2350_adc.c test/model/cortex-m/rp2
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Itest/model/cortex-m/rp2350/adc $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The same driver in the Pico 2 W's default row, without TFW_CM_PERIPH: no
+# analog inputs, so its init must touch none of the model's registers.
+$(HOST_DIR)/test_rp2350_adc_default: test/unit/test_rp2350_adc_default.c \
+                                     test/model/cortex-m/rp2350/adc/adc_model.c \
+                                     src/hal/cortex-m/rp2350/hal_adc.c \
+                                     $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Itest/model/cortex-m/rp2350/adc $(filter-out -DTFW_CM_PERIPH=1,$(HOST_RP2350_CFLAGS)) \
+	    $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The rp2350 tone (row rp2350): the alarm-step arithmetic of soc_calc.h and
 # the real hal_tone.c against the TIMER1 and SIO model, which fires the alarm.
 # Its cm_regs.h, in test/model/cortex-m/rp2350/tone/, comes ahead of the flat

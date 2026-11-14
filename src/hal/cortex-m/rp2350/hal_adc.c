@@ -53,6 +53,7 @@ static tfw_status_t wait_ready(void)
     return TFW_ERR_TIMEOUT;
 }
 
+#if TFW_FEATURE_ANALOG
 /* PLL_USB at 48 MHz, §8.6.4's sequence: out of reset, REFDIV and FBDIV,
  * power and VCO on, a bounded wait for CS.LOCK, then the post dividers and
  * their power. A PLL already locked at this setting is left running, as the
@@ -95,9 +96,15 @@ static tfw_status_t pll_usb_48mhz(void)
     TFW_RP_CLR(TFW_RP_PLL_USB_PWR) = TFW_RP_PLL_PWR_POSTDIVPD;
     return TFW_OK;
 }
+#endif
 
+/* src/main.c starts the converter on every image. Where the board's row has
+ * no analog inputs (the default Pico 2 W row, the SPEC gate in
+ * board_profile.h) it touches nothing: PLL_USB, clk_adc and the converter
+ * stay as reset left them. */
 tfw_status_t tfw_hal_adc_init(void)
 {
+#if TFW_FEATURE_ANALOG
     uint32_t i;
     tfw_status_t st = pll_usb_48mhz();
 
@@ -124,6 +131,9 @@ tfw_status_t tfw_hal_adc_init(void)
 
     TFW_RP_ADC_CS = TFW_RP_ADC_CS_EN;
     return wait_ready();
+#else
+    return TFW_OK;
+#endif
 }
 
 tfw_status_t tfw_hal_adc_set_ref(tfw_adc_ref_t ref)

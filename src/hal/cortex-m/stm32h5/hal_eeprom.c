@@ -15,15 +15,16 @@
  *                                        sector, so its erase runs while the
  *                                        code keeps fetching from bank 1
  *
- * A write to the user sector goes through tfw-boot's flash helper,
- * tfw_cm_boot_flash_write (boot/hal/cortex-m/stm32h5/boot_flash.c, over
- * h5_flash.c), linked into the application with this file and not copied.
- * The helper programs the quad-words the data touches where they are erased,
+ * A write to the user sector goes through ee_flash.c's tfw_h5_ee_flash_write,
+ * the application's only flash write, which takes an offset into the user
+ * sector and refuses a span that leaves it. tfw-boot's flash-interface driver
+ * (boot_flash.c's tfw_cm_boot_flash_write) stays boot-only; the programming
+ * sequence is h5_flash.c's, linked with ee_flash.c and not copied. It programs the quad-words the data touches where they are erased,
  * and otherwise copies the sector to RAM, merges the data, erases the sector
  * and programs it back, then reads the span back. This file reads the span
- * back once more. Data that does not read back is TFW_ERR_INTERNAL, as the
- * helper reports it (the status table has no I/O code); a locked or
- * write-protected interface is the helper's TFW_ERR_PROTECTED_REGION. The span never leaves the user
+ * back once more. Data that does not read back is TFW_ERR_INTERNAL, as
+ * h5_flash.c reports it (the status table has no I/O code); a locked or
+ * write-protected interface is h5_flash.c's TFW_ERR_PROTECTED_REGION. The span never leaves the user
  * sector, so no write erases the platform sector. A reset between the erase and the last program loses the
  * user sector's contents, as a reset mid-write loses an AVR EEPROM cell; the
  * platform sector is not touched (docs/boards/stm32h573i-dk.md).
@@ -35,7 +36,7 @@
 #include "tfw/hal.h"
 #include "tfw/config.h"
 #include "tfw/boot.h"
-#include "../../../../boot/hal/cortex-m/boot_soc.h"
+#include "ee_flash.h"
 
 _Static_assert(TFW_BOOT_CONFIRM_ADDR >= TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN
                && TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN <= TFW_BOOT_EE_LEN,
@@ -86,7 +87,7 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
         return TFW_OK;
     }
     off = (uint32_t)addr - TFW_BOOT_EE_LEN;
-    st = tfw_cm_boot_flash_write(TFW_CM_USER_EE_BASE + off, buf, len);
+    st = tfw_h5_ee_flash_write(off, buf, len);
     if (st == TFW_OK && memcmp(USER_EE + off, buf, len) != 0) {
         st = TFW_ERR_INTERNAL;
     }

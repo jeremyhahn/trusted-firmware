@@ -88,10 +88,14 @@ STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
 # where the family is on and the SoC has one, else the architecture's.
 # OTA_CONFIRM's request reaches tfw-boot through it whether or not the board
 # has the family, so a board with it off keeps the architecture's file. A
-# SoC's copy may need tfw-boot's flash driver, named by SOC_EEPROM_SRCS_<soc>
-# and linked with it, not copied: the STM32H5's writes its own sector through
-# boot_flash.c's tfw_cm_boot_flash_write (src/hal/cortex-m/stm32h5/hal_eeprom.c).
-SOC_EEPROM_SRCS_stm32h5 := boot/hal/cortex-m/stm32h5/boot_flash.c boot/hal/cortex-m/stm32h5/h5_flash.c
+# SoC's copy may need more sources, named by SOC_EEPROM_SRCS_<soc> and linked
+# with it (and kept out of the HAL wildcard by HAL_OPTIONAL): the STM32H5's
+# writes its own sector through ee_flash.c, the application's one flash write,
+# confined to that sector, over h5_flash.c's programming sequence. tfw-boot's
+# flash-interface driver, boot_flash.c, is boot-only and not linked here (SPEC
+# row stm32h5).
+SOC_EEPROM_SRCS_stm32h5 := src/hal/cortex-m/stm32h5/ee_flash.c src/hal/cortex-m/stm32h5/ee_flash_port.c \
+                           boot/hal/cortex-m/stm32h5/h5_flash.c
 EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
                      $(wildcard $(call hal_src,hal_eeprom.c)) \
                      $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))
@@ -182,7 +186,8 @@ endif
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c $(d)/hal_eeprom.c) $(ARCH_HAL_OPTIONAL)
+                  $(d)/hsm_intake.c $(d)/hal_eeprom.c) $(ARCH_HAL_OPTIONAL) \
+                $(SOC_EEPROM_SRCS_$(SOC))
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the

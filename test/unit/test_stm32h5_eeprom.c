@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The STM32H5's EEPROM (SPEC row stm32h5, src/hal/cortex-m/stm32h5/
- * hal_eeprom.c) on stm32h573i-dk's layout, over tfw-boot's flash driver
- * (boot/hal/cortex-m/stm32h5/h5_flash.c).
+ * hal_eeprom.c) on stm32h573i-dk's layout, over the application's flash write
+ * (ee_flash.c) and h5_flash.c's programming sequence.
  *
  * The flash is mapped at the part's own address, so the platform window
  * hal_nvm.c reads and the user sector hal_eeprom.c reads are where the board
@@ -12,8 +12,9 @@
  * clears bits (a bit it would set is a programming error, and the quad-word
  * keeps its old value); a program-verify failure leaves the quad-word as it
  * was and reports nothing, as a cell that did not take. The suite also stands
- * in for boot_flash.c's tfw_cm_boot_flash_write, which is the same call on the
- * part's own registers. Every erase is recorded, and no test may erase the
+ * in for ee_flash_port.c's tfw_h5_ee_flash, which hands ee_flash.c the part's
+ * own registers; tfw-boot's boot_flash.c is not linked, as it is not in the
+ * application. Every erase is recorded, and no test may erase the
  * platform sector.
  */
 #define _DEFAULT_SOURCE
@@ -27,7 +28,7 @@
 #include "tfw/config.h"
 #include "tfw/boot.h"
 #include "stm32h5/soc_regs.h"
-#include "../../boot/hal/cortex-m/boot_soc.h"
+#include "stm32h5/ee_flash.h"
 #include "../../boot/hal/cortex-m/stm32h5/h5_flash.h"
 
 #define FLASH_BYTES (2u * TFW_H5_FLASH_BANK_SIZE)
@@ -370,6 +371,45 @@ static void test_the_confirm_request_keeps_the_generic_store(void)
     TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
 }
 
+/* ee_flash.c is the application's one flash write: its offset is the user
+ * sector's, whatever calls it. */
+static void test_the_flash_write_lands_at_the_user_sectors_offset(void)
+{
+    static const uint8_t data[4] = { 0x11u, 0x22u, 0x33u, 0x44u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_ee_flash_write(8u, data, sizeof data));
+    TEST_ASSERT_EQUAL_MEMORY(data, MEM + USER_OFF + 8u, sizeof data);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.platform_erases);
+}
+
+/* No span leaves the user sector: not past its end, not by a length that
+ * wraps the offset back below it into the platform sector or the code. */
+static void test_the_flash_write_refuses_every_span_outside_the_user_sector(void)
+{
+    static const uint8_t data[0x20] = { 0u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_h5_ee_flash_write(TFW_CM_USER_EE_SIZE - 1u, data, 2u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_h5_ee_flash_write(TFW_CM_USER_EE_SIZE, data, 1u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_h5_ee_flash_write(TFW_CM_USER_EE_SIZE + 1u, data, 0u));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE, tfw_h5_ee_flash_write(0xFFFFFFF0u, data, sizeof data));
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_RANGE,
+                          tfw_h5_ee_flash_write((uint32_t)(PLAT_OFF - USER_OFF), data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT(0u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
+}
+
+/* The sector's last byte is its own. */
+static void test_the_flash_write_reaches_the_user_sectors_last_byte(void)
+{
+    static const uint8_t b = 0x5Au;
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_ee_flash_write(TFW_CM_USER_EE_SIZE - 1u, &b, 1u));
+    TEST_ASSERT_EQUAL_HEX8(0x5Au, MEM[USER_OFF + TFW_CM_USER_EE_SIZE - 1u]);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.platform_erases);
+}
+
 int main(void)
 {
     void *m = mmap(MEM, FLASH_BYTES, PROT_READ | PROT_WRITE,
@@ -393,5 +433,8 @@ int main(void)
     RUN_TEST(test_the_stores_run_masked_and_the_mask_is_put_back);
     RUN_TEST(test_the_model_counts_stores_outside_the_mask);
     RUN_TEST(test_the_confirm_request_keeps_the_generic_store);
+    RUN_TEST(test_the_flash_write_lands_at_the_user_sectors_offset);
+    RUN_TEST(test_the_flash_write_refuses_every_span_outside_the_user_sector);
+    RUN_TEST(test_the_flash_write_reaches_the_user_sectors_last_byte);
     return UNITY_END();
 }

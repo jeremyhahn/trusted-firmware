@@ -1333,10 +1333,12 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The STM32H5's EEPROM (SPEC row stm32h5) on stm32h573i-dk's layout, over
-# tfw-boot's flash driver: the suite maps the flash at the part's own address
-# and is the hardware, at the wait h5_flash.c polls and in place of
-# boot_flash.c's tfw_cm_boot_flash_write, as test_boot_stm32h5_flash is.
+# the application's flash write, ee_flash.c over h5_flash.c: the suite maps
+# the flash at the part's own address and is the hardware, at the wait
+# h5_flash.c polls and in place of ee_flash_port.c's registers. tfw-boot's
+# boot_flash.c is not linked, as it is not in the application.
 $(HOST_DIR)/test_stm32h5_eeprom: test/unit/test_stm32h5_eeprom.c src/hal/cortex-m/stm32h5/hal_eeprom.c \
+                                 src/hal/cortex-m/stm32h5/ee_flash.c \
                                  src/hal/cortex-m/hal_nvm.c boot/hal/cortex-m/stm32h5/h5_flash.c \
                                  src/proto/crc16.c src/proto/crc16_update.c \
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)

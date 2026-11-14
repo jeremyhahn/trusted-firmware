@@ -81,7 +81,20 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # entry points. A part with neither (the mps2-an505, #161) defines neither
 # entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
 # compile under -Werror, so the board drops the whole file.
-STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c $(wildcard $(call hal_src,hal_eeprom.c)))
+STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
+
+# The EEPROM HAL, one file on every board, as it was when the wildcard below
+# linked the architecture's copy unconditionally: hal_src picks the SoC's copy
+# where the family is on and the SoC has one, else the architecture's.
+# OTA_CONFIRM's request reaches tfw-boot through it whether or not the board
+# has the family, so a board with it off keeps the architecture's file. A
+# SoC's copy may need tfw-boot's flash driver, named by SOC_EEPROM_SRCS_<soc>
+# and linked with it, not copied: the STM32H5's writes its own sector through
+# boot_flash.c's tfw_cm_boot_flash_write (src/hal/cortex-m/stm32h5/hal_eeprom.c).
+SOC_EEPROM_SRCS_stm32h5 := boot/hal/cortex-m/stm32h5/boot_flash.c boot/hal/cortex-m/stm32h5/h5_flash.c
+EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
+                     $(wildcard $(call hal_src,hal_eeprom.c)) \
+                     $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))
 # The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
 # the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
 # mk/arch/esp32.mk), so a file the arch lists is left to the arch.
@@ -159,11 +172,9 @@ LINK_SRCS += src/net/dhcp_none.c
 endif
 
 # hal_eeprom.c is always present, but a SoC may have its own (nrf54l: the
-# window is RRAM, which a plain store does not program). hal_src picks one and
-# the other copy is left out, so no board links two; on every board without a
-# SoC copy this is empty and the link is what it was.
-HAL_EEPROM_OTHER = $(filter-out $(call hal_src,hal_eeprom.c),\
-                     $(wildcard $(HAL_DIR)/hal_eeprom.c $(if $(HAL_SOC_DIR),$(HAL_SOC_DIR)/hal_eeprom.c)))
+# window is RRAM, which a plain store does not program). Every copy is in
+# HAL_OPTIONAL and EEPROM_HAL_SRCS (above) links exactly one, so no board
+# links two.
 
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
@@ -171,7 +182,7 @@ HAL_EEPROM_OTHER = $(filter-out $(call hal_src,hal_eeprom.c),\
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c) $(ARCH_HAL_OPTIONAL) $(HAL_EEPROM_OTHER)
+                  $(d)/hsm_intake.c $(d)/hal_eeprom.c) $(ARCH_HAL_OPTIONAL)
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the
@@ -424,7 +435,7 @@ endif
 ifneq ($(filter 1,$(BOOT_AB) $(OTA_NO_PREV)),)
 STAGE_SRCS += src/core/ota_prev_none.c
 else
-STAGE_SRCS += src/core/ota_prev.c $(wildcard $(call hal_src,hal_eeprom.c))
+STAGE_SRCS += src/core/ota_prev.c $(EEPROM_HAL_SRCS)
 endif
 # OTA_ACTIVATE (#77) is every stager's: OTA_END does not write the MARK, so a
 # single-slot board without it could never install what it staged.
@@ -612,7 +623,7 @@ FW_SRCS := $(sort \
   src/core/secure_zero.c $(IDENTITY_SRCS) \
   $(APP_RUNNER_SRCS) \
   src/caps/sys.c src/caps/gpio.c src/caps/sched.c \
-  src/caps/analog.c $(STORAGE_SRCS) src/caps/attest.c \
+  src/caps/analog.c $(STORAGE_SRCS) $(EEPROM_HAL_SRCS) src/caps/attest.c \
   $(PULSE_SRCS) $(PWM_SRCS) $(BUS_SRCS) $(BUS_HELD_SRCS) $(TONE_SRCS) $(PROV_SRCS) \
   $(CRYPTO_SRCS) $(ALIAS_SRCS) $(AUTH_SRCS) $(MANIFEST_SRCS) $(STAGE_SRCS) $(OTACTL_SRCS) $(HSM_SRCS) \
   $(BOARD_DIR)/board.c $(UART_SRCS) $(ARCH_FW_SRCS) \

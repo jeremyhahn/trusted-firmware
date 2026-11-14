@@ -9,13 +9,13 @@
 /* Five ports, each the SoC's index of a GPIO bank, 0 for GPIOA
  * (src/hal/cortex-m/stm32h5/hal_gpio.c): the two banks the LEDs are on,
  * GPIOH, the Arduino header's D5 and D6, then the Arduino analog pins' other
- * two. */
+ * two, GPIOB also the Arduino header's D3. */
 const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
     { 5u },   /* 0  GPIOF */
     { 8u },   /* 1  GPIOI */
     { 7u },   /* 2  GPIOH */
     { 0u },   /* 3  GPIOA */
-    { 1u },   /* 4  GPIOB */
+    { 1u },   /* 4  GPIOB, also the Arduino header's D3 */
 };
 
 /* The four user LEDs (ST's stm32h573i_discovery.h). Each lights at a LOW pin:
@@ -41,6 +41,7 @@ const tfw_pin_desc_t tfw_board_pins[TFW_PIN_COUNT] TFW_PROGMEM = {
 /* 9  A3  PA5  INP19 */ { TFW_PB(3u, 5u), 19u, TFW_PWM_NONE, TFW_PIN_ADC },
 /* 10 A4  PA6  INP3  */ { TFW_PB(3u, 6u),  3u, TFW_PWM_NONE, TFW_PIN_ADC },
 /* 11 A5  PF12 INP6  */ { TFW_PB(0u, 12u), 6u, TFW_PWM_NONE, TFW_PIN_ADC },
+/* 12 ARD_D3     PB5 */ { TFW_PB(4u, 5u), TFW_ADC_NONE, TFW_PWM_NONE, TFW_PIN_DIGITAL },   /* TIM3_CH2, the tone */
 };
 
 /* The Arduino header's D6 and D5, TIM5 channels 1 and 2 (ST's board

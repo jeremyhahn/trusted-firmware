@@ -62,7 +62,12 @@ static struct {
     unsigned keys, erases, programs, violations;
     uint32_t erased;       /* the last erased sector's offset */
     uint32_t cleared;      /* every flag NSCCR has cleared */
+    uint32_t masked;       /* PRIMASK as the hooks hold it */
+    unsigned masked_saves; /* quad-words stored under the mask */
+    unsigned unmasked_stores; /* stores the mask did not cover */
+    int      unmasked;     /* at_unmask holds the flash as unmasked */
 } hw;
+static uint8_t  at_unmask[FLASH_BYTES]; /* the flash when the mask came off */
 
 static int blank(const uint8_t *p, uint32_t n)
 {
@@ -116,6 +121,9 @@ static void do_program(void)
 {
     long q = stored_qword();
 
+    if (hw.unmasked && memcmp(MEM, at_unmask, FLASH_BYTES) != 0) {
+        hw.unmasked_stores++;                 /* stored after the mask came off */
+    }
     if (q < 0 || !blank(shadow + q, QWORD)) {
         hw.violations++;                      /* not one erased quad-word */
         return;
@@ -162,6 +170,34 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     hw.fail = 0u;
 }
 
+/* The stores between save and restore are the pending quad-word: none may be
+ * pending when the mask goes on, and the whole of it is stored before the mask
+ * comes off (do_program finds no store after the snapshot taken here). */
+uint32_t tfw_h5_flash_irq_save(void)
+{
+    uint32_t was = hw.masked;
+
+    if (memcmp(MEM, shadow, FLASH_BYTES) != 0) {
+        hw.unmasked_stores++;                 /* stored before the mask */
+    }
+    hw.masked = 1u;
+    hw.masked_saves++;
+    hw.unmasked = 0;
+    return was;
+}
+
+void tfw_h5_flash_irq_restore(uint32_t mask)
+{
+    hw.masked = mask;
+    if (mask == 0u) {
+        if (memcmp(MEM, shadow, FLASH_BYTES) == 0) {
+            hw.unmasked_stores++;             /* nothing stored under the mask */
+        }
+        memcpy(at_unmask, MEM, FLASH_BYTES);
+        hw.unmasked = 1;
+    }
+}
+
 /* Bytes an earlier write left programmed. */
 static void seed(uint32_t off, const uint8_t *data, uint32_t len)
 {
@@ -186,6 +222,7 @@ static void fill(uint8_t *p, uint32_t len, uint8_t start)
 static void assert_settled(void)
 {
     TEST_ASSERT_EQUAL_UINT(0u, hw.violations);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.unmasked_stores);
     TEST_ASSERT_EQUAL_MEMORY(shadow, MEM, FLASH_BYTES);
     TEST_ASSERT_EQUAL_HEX32(CR_LOCK, regs[CR]);
 }
@@ -200,7 +237,10 @@ void setUp(void)
     hw.key_ok = 1;
 }
 
-void tearDown(void) {}
+void tearDown(void)
+{
+    TEST_ASSERT_EQUAL_UINT(0u, hw.unmasked_stores);
+}
 
 /* --------------------------------------------------------------- no write */
 
@@ -318,6 +358,68 @@ static void test_a_field_beside_a_programmed_one_rewrites_the_sector(void)
     TEST_ASSERT_EQUAL_MEMORY(second, MEM + 0xFE004u, sizeof second);
     TEST_ASSERT_TRUE(blank(MEM + 0xFE008u, SECTOR - 8u));
     assert_settled();
+}
+
+/* The rewrite programs the whole sector back: a quad-word restored for another
+ * field that does not take fails the update, though the data read back. */
+static void test_a_rewrite_that_loses_another_field_is_internal(void)
+{
+    static const uint8_t kept[4]   = { 0xA1u, 0xA2u, 0xA3u, 0xA4u };
+    static const uint8_t first[4]  = { 0x00u, 0x00u, 0x00u, 0x00u };
+    static const uint8_t second[4] = { 0xB1u, 0xB2u, 0xB3u, 0xB4u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE000u, kept, sizeof kept));
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE040u, first, sizeof first));
+    hw.drop = 1;
+    TEST_ASSERT_EQUAL_INT(TFW_ERR_INTERNAL,
+                          tfw_h5_flash_update(&flash, 0xFE040u, second, sizeof second));
+    TEST_ASSERT_EQUAL_UINT(1u, hw.erases);
+    TEST_ASSERT_EQUAL_MEMORY(second, MEM + 0xFE040u, sizeof second);
+}
+
+/* Each quad-word's stores run masked and the mask is put back as it was:
+ * enabled for the application, still masked for tfw-boot. */
+static void test_the_stores_run_masked_and_the_mask_is_put_back(void)
+{
+    static const uint8_t first[4]  = { 0xA1u, 0xA2u, 0xA3u, 0xA4u };
+    static const uint8_t second[4] = { 0xB1u, 0xB2u, 0xB3u, 0xB4u };
+
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE000u, first, sizeof first));
+    TEST_ASSERT_EQUAL_UINT(hw.programs, hw.masked_saves);
+    TEST_ASSERT_EQUAL_UINT32(0u, hw.masked);
+    hw.masked = 1u;
+    TEST_ASSERT_EQUAL_INT(TFW_OK, tfw_h5_flash_update(&flash, 0xFE004u, second, sizeof second));
+    TEST_ASSERT_EQUAL_UINT(hw.programs, hw.masked_saves);
+    TEST_ASSERT_EQUAL_UINT32(1u, hw.masked);
+    TEST_ASSERT_EQUAL_UINT(0u, hw.unmasked_stores);
+}
+
+/* Codex P1 on #394: the model sees where the stores fall against the mask, so
+ * a store before it, a mask lifted before the stores, or a quad-word split by
+ * the restore each count. */
+static void test_the_model_counts_stores_outside_the_mask(void)
+{
+    uint32_t m;
+
+    MEM[0x8000u] = 0x00u;
+    m = tfw_h5_flash_irq_save();
+    TEST_ASSERT_EQUAL_UINT(1u, hw.unmasked_stores);
+    tfw_h5_flash_irq_restore(m);
+    do_program();
+
+    hw.unmasked_stores = 0u;
+    m = tfw_h5_flash_irq_save();
+    tfw_h5_flash_irq_restore(m);
+    TEST_ASSERT_EQUAL_UINT(1u, hw.unmasked_stores);
+
+    hw.unmasked_stores = 0u;
+    m = tfw_h5_flash_irq_save();
+    MEM[0x8010u] = 0x00u;
+    tfw_h5_flash_irq_restore(m);
+    MEM[0x8014u] = 0x00u;
+    do_program();
+    TEST_ASSERT_EQUAL_UINT(1u, hw.unmasked_stores);
+    hw.unmasked_stores = 0u;
 }
 
 static void test_a_sector_in_bank_2_is_erased_through_bksel(void)
@@ -449,6 +551,9 @@ int main(void)
     RUN_TEST(test_the_key_is_written_only_to_a_locked_interface);
     RUN_TEST(test_a_programmed_page_rewrites_its_sector);
     RUN_TEST(test_a_field_beside_a_programmed_one_rewrites_the_sector);
+    RUN_TEST(test_a_rewrite_that_loses_another_field_is_internal);
+    RUN_TEST(test_the_stores_run_masked_and_the_mask_is_put_back);
+    RUN_TEST(test_the_model_counts_stores_outside_the_mask);
     RUN_TEST(test_a_sector_in_bank_2_is_erased_through_bksel);
     RUN_TEST(test_a_write_across_two_sectors_rewrites_both);
     RUN_TEST(test_a_write_past_bank_2_is_out_of_range);

@@ -22,6 +22,16 @@ void tfw_h5_flash_wait(const struct tfw_h5_flash *f)
     }
 }
 
+uint32_t tfw_h5_flash_irq_save(void)
+{
+    return tfw_cm_irq_save();
+}
+
+void tfw_h5_flash_irq_restore(uint32_t mask)
+{
+    tfw_cm_irq_restore(mask);
+}
+
 tfw_status_t tfw_cm_boot_flash_write(uint32_t addr, const uint8_t *data, uint32_t len)
 {
     static const struct tfw_h5_flash flash = {

@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * tfw-boot's STM32H5 flash driver (#14): the program and erase sequence
- * behind boot_soc.h's tfw_cm_boot_flash_write. Boot-only: the application has
- * no flash access at all (boot/boot_hal.h, item 2).
+ * behind boot_soc.h's tfw_cm_boot_flash_write. tfw-boot's, and the
+ * application's user EEPROM sector's (src/hal/cortex-m/stm32h5/hal_eeprom.c).
  *
  * The driver reaches the part through a context, the flash interface's
  * registers and the flash itself, so that the host test hands it a register
@@ -50,5 +50,13 @@ tfw_status_t tfw_h5_flash_update(const struct tfw_h5_flash *f, uint32_t off,
 /* Returns when the interface has no operation in flight: BSY, WBNE and DBNE
  * all clear in NSSR. */
 void tfw_h5_flash_wait(const struct tfw_h5_flash *f);
+
+/* Masks interrupts and returns the mask as it was; tfw_h5_flash_irq_restore
+ * puts that back. The four stores of a quad-word run between the two: the
+ * application calls the driver with SysTick and USART1 live, and tfw-boot,
+ * which runs masked, stays masked. boot_flash.c's on the part (PRIMASK), the
+ * test's on the host. */
+uint32_t tfw_h5_flash_irq_save(void);
+void tfw_h5_flash_irq_restore(uint32_t mask);
 
 #endif /* TFW_BOOT_H5_FLASH_H */

@@ -666,6 +666,16 @@ placeholders for the real values, which stay off the tree). The plan:
 5. `espefuse summary` after; the diff against step 1 must be empty. No eFuse
    is burned.
 
+**Not run: the lane image has no ESP tools.** The lane had the board's by-id
+port (group `dialout`) but no `esptool`, `espefuse` or `idf.py` on its
+`PATH`, no `esptool` Python module and no ESP-IDF tree. The brief forbids
+installing tools from the lane, so steps 1 to 5 were not run: no flash
+write, no `espefuse` command and no port access at all. The board is still on
+[row 48's image](#row-48-flash-layer-0-boot-check-wire-over-ethernet-2026-11-14)
+with no address, and its eFuses are as recorded there. To finish the step: a
+device lane image with esptool / espefuse v5.6.0 and ESP-IDF `v5.5.5` (with
+cmake and ninja), then the plan above unchanged.
+
 ## Restore
 
 ```sh

@@ -17,6 +17,47 @@
 #include "tfw/config.h"
 #include "tfw/boot.h"
 #include "../../boot/hal/cortex-m/mcxn94x/mcxn_flash.h"
+#include "tfw/board.h"
+#include "../../src/caps/sched.h"
+#include "../../src/core/reader.h"
+#include "../../src/core/writer.h"
+/* The real lock pair runs against the model SysTick, DWT and PRIMASK, with
+ * the Cortex-M tick compiled over them. */
+#include "../model/cortex-m/mcxn94x/cm_tick_model.h"
+
+/* The cycles a sector erase takes; 0 leaves the clock still. */
+static uint32_t erase_cycles;
+
+/* The scheduler's pin, through stand-ins for the board and GPIO HAL: the
+ * level it last drove, 0xFF before any. */
+static uint8_t sched_level;
+
+tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
+{
+    (void)pin;
+    memset(out, 0, sizeof *out);
+    return TFW_OK;
+}
+
+uint8_t tfw_board_pin_flags(tfw_pin_t pin)
+{
+    (void)pin;
+    return 0u;
+}
+
+tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
+{
+    (void)p;
+    (void)mode;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
+{
+    (void)p;
+    sched_level = level;
+    return TFW_OK;
+}
 
 #define MODEL_SIZE   ((uint32_t)TFW_FLASH_TOTAL - TFW_MCXN_FLASH_BASE)
 #define OFF(a)       ((uint32_t)(a) - TFW_MCXN_FLASH_BASE)
@@ -53,6 +94,7 @@ static int32_t model_erase(tfw_mcxn_flash_config_t *config, uint32_t start,
         other_erases++;
     }
     memset(&model[start], 0xFF, length);
+    model_run(erase_cycles);   /* the erase takes its time with interrupts masked */
     return 0;
 }
 
@@ -81,21 +123,6 @@ static const tfw_mcxn_flash_api_t model_api = {
     .flash_program = model_program,
 };
 
-static unsigned locks;
-static unsigned unlocks;
-
-static uint32_t ee_lock(void)
-{
-    locks++;
-    return 0x5Au;
-}
-
-static void ee_unlock(uint32_t primask)
-{
-    TEST_ASSERT_EQUAL_HEX32(0x5Au, primask);
-    unlocks++;
-}
-
 #define TFW_MCXN_EE_FLASH  ((const uint8_t *)model)
 #define TFW_MCXN_EE_WINDOW (&model[PLATFORM_OFF])
 #define TFW_MCXN_EE_API    (&model_api)
@@ -105,7 +132,12 @@ void setUp(void)
 {
     memset(model, 0xFF, sizeof model);
     erases = platform_erases = other_erases = 0u;
-    locks = unlocks = 0u;
+    erase_cycles = 0u;
+    sched_level  = 0xFFu;
+    model_tick_reset();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tick_init());
+    model_run(1u);   /* SysTick reloads: it reaches 0 every MODEL_CYC_PER_MS from here */
+    tfw_sched_init();
     corrupt_at = -1;
 }
 
@@ -113,7 +145,7 @@ void tearDown(void)
 {
     TEST_ASSERT_EQUAL_UINT(0u, platform_erases);
     TEST_ASSERT_EQUAL_UINT(0u, other_erases);
-    TEST_ASSERT_EQUAL_UINT(locks, unlocks);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_primask);   /* every lock unlocked */
 }
 
 static void test_the_user_span_fits_the_sector_below_the_platform_block(void)
@@ -259,6 +291,60 @@ static void test_every_user_byte_written_erases_only_the_user_sector(void)
     }
 }
 
+/* The milliseconds SysTick has reached 0 on since setUp's reload. */
+static tfw_ms_t ms_elapsed(void)
+{
+    return (tfw_ms_t)(model_now / MODEL_CYC_PER_MS);
+}
+
+static void test_millis_keeps_the_time_masked_writes_take(void)
+{
+    uint8_t  b;
+    unsigned i;
+
+    /* Each erase masks interrupts for twenty and a third milliseconds,
+     * starting at a different point of SysTick's count every time. */
+    erase_cycles = 20u * MODEL_CYC_PER_MS + MODEL_CYC_PER_MS / 3u;
+    model_run(MODEL_CYC_PER_MS / 2u);
+    for (i = 0u; i < 5u; i++) {
+        b = (uint8_t)(0x10u + i);
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)(USER_LO + i), &b, 1u));
+        TEST_ASSERT_EQUAL_UINT32(ms_elapsed(), tfw_hal_millis());
+    }
+    /* Over a hundred milliseconds, all but five of them masked. */
+    TEST_ASSERT_TRUE(tfw_hal_millis() > 100u);
+}
+
+static void test_a_scheduler_deadline_across_a_write_fires_on_time(void)
+{
+    static const uint8_t data[] = { 0x5Au };
+    uint8_t      in[6] = { 7u, 1u, 50u, 0u, 0u, 0u };   /* pin 7 high for 50 ms */
+    uint8_t      out[4];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_ms_t     armed;
+
+    erase_cycles = 30u * MODEL_CYC_PER_MS;
+    tfw_reader_init(&r, in, (uint8_t)sizeof in);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_sched_cmd_set(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(1u, sched_level);
+    armed = tfw_hal_millis();
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT32(armed + 30u, tfw_hal_millis());
+
+    /* 49 ms after arming the pin is still high; at 50 it drops. */
+    model_run(19u * MODEL_CYC_PER_MS);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, sched_level);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+    model_run(MODEL_CYC_PER_MS);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, sched_level);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -273,5 +359,7 @@ int main(void)
     RUN_TEST(test_a_read_back_mismatch_is_an_error);
     RUN_TEST(test_a_mismatch_outside_the_written_span_is_an_error);
     RUN_TEST(test_every_user_byte_written_erases_only_the_user_sector);
+    RUN_TEST(test_millis_keeps_the_time_masked_writes_take);
+    RUN_TEST(test_a_scheduler_deadline_across_a_write_fires_on_time);
     return UNITY_END();
 }

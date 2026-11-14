@@ -1353,12 +1353,18 @@ $(HOST_DIR)/test_cm_hal_eeprom: test/unit/test_cm_hal_eeprom.c src/hal/cortex-m/
 	@$(HOST_CC) -Iboards/mps2-an505 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # test_mcxn94x_eeprom compiles the MCXN94x EEPROM HAL into itself over a flash
-# model, beside tfw-boot's flash helper as the firmware links it.
+# model, beside tfw-boot's flash helper as the firmware links it, and the
+# Cortex-M tick over the model SysTick and DWT in
+# test/model/cortex-m/mcxn94x/cm_tick_model.h, with the GPIO scheduler, so a
+# write's masked time is checked against millis and a deadline.
 $(HOST_DIR)/test_mcxn94x_eeprom: test/unit/test_mcxn94x_eeprom.c boot/hal/cortex-m/mcxn94x/mcxn_flash.c \
                                  src/core/secure_zero.c src/hal/cortex-m/mcxn94x/hal_eeprom.c \
+                                 src/caps/sched.c src/core/reader.c src/core/writer.c \
+                                 src/hal/cortex-m/hal_tick.c src/hal/cortex-m/cm_cycles.h \
+                                 test/model/cortex-m/mcxn94x/cm_tick_model.h \
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/frdm-mcxn947 $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
-	  $(filter %.o,$^) $(filter-out %/mcxn94x/hal_eeprom.c,$(filter %.c,$^)) $(EXTRA_LDFLAGS)
+	  $(filter %.o,$^) $(filter-out %/mcxn94x/hal_eeprom.c %/hal_tick.c,$(filter %.c,$^)) $(EXTRA_LDFLAGS)
 
 # test_cm_pulse compiles hal_pulse.c and hal_tick.c behind the model SysTick
 # in test/model/cortex-m/cm_pulse_model.h (mps2-an505's clock) and its own

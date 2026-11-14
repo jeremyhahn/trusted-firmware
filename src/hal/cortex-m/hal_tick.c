@@ -40,6 +40,20 @@ void SysTick_Handler(void)
     ticks++;
 }
 
+/* Called with interrupts masked (cm_cycles.h). From cvr_at_mask the counter
+ * reaches 0 after cvr_at_mask cycles (a full reload span when it was at 0),
+ * then every reload span after: each of those is a tick, and the one the
+ * pending interrupt counts on unmask is left to it. */
+void tfw_cm_tick_catch_up(uint32_t cvr_at_mask, uint32_t cycles)
+{
+    uint32_t first = (cvr_at_mask == 0u) ? TICK_RELOAD + 1u : cvr_at_mask;
+
+    if ((TFW_CM_SYST_CSR & TFW_CM_SYST_CSR_ENABLE) == 0u || cycles <= first) {
+        return;
+    }
+    ticks += (cycles - first) / (TICK_RELOAD + 1u);
+}
+
 /* A 32-bit load is one instruction here, so the read needs no critical
  * section: it cannot catch the ISR's increment half done. */
 tfw_ms_t tfw_hal_millis(void)

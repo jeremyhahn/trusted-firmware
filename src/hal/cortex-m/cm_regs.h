@@ -32,6 +32,15 @@
 #define TFW_CM_SYST_CSR_CLKSOURCE 0x4u
 #define TFW_CM_SYST_RVR_MAX       0x00FFFFFFu
 
+/* DWT's free-running cycle counter, on the processor clock as SysTick is
+ * (ARMv7-M and ARMv8-M Mainline only: not on a Cortex-M0/M0+/M23). Counts
+ * once DEMCR.TRCENA and DWT_CTRL.CYCCNTENA are set. */
+#define TFW_CM_DEMCR              TFW_CM_REG(0xE000EDFCu)
+#define TFW_CM_DEMCR_TRCENA       (1u << 24)
+#define TFW_CM_DWT_CTRL           TFW_CM_REG(0xE0001000u)
+#define TFW_CM_DWT_CTRL_CYCCNTENA 0x1u
+#define TFW_CM_DWT_CYCCNT         TFW_CM_REG(0xE0001004u)
+
 /* NVIC: one bit per external interrupt, thirty-two to a register. */
 #define TFW_CM_NVIC_ISER(n) TFW_CM_REG(0xE000E100u + 4u * (n))
 #define TFW_CM_NVIC_ICER(n) TFW_CM_REG(0xE000E180u + 4u * (n))

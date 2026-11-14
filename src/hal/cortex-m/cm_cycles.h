@@ -31,4 +31,12 @@ static inline uint32_t tfw_cm_cycles_since(uint32_t *last)
     return (now <= was) ? (was - now) : (was + TFW_CM_TICK_RELOAD + 1u - now);
 }
 
+/* SysTick pends one interrupt however often it reaches 0 while interrupts are
+ * masked, so a masked span longer than a millisecond would drop ticks. A
+ * caller that masks them across a long ROM call measures the span on a
+ * free-running counter and, before it unmasks, hands hal_tick.c the cycles and
+ * SysTick's value when it masked: the millisecond count gains the reloads the
+ * one pending interrupt does not count. */
+void tfw_cm_tick_catch_up(uint32_t cvr_at_mask, uint32_t cycles);
+
 #endif /* TFW_CM_CYCLES_H */

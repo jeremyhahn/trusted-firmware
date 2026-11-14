@@ -66,8 +66,15 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_PR)   = pr;
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_OCR1) = ocr;
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_IR)   = TFW_IMX95_GPT_IR_OF1IE;
+    /* gpt_halt() froze the counter where it was; ENMOD, set while EN is
+     * clear, makes the enable restart it from zero, so a retune's first
+     * compare comes a full half period on even when the old count is past
+     * the new OCR1 (Codex P1 on #443). */
     TFW_IMX95_GPT_REG(TFW_IMX95_GPT_CR)   =
-        TFW_IMX95_GPT_CR_CLKSRC(TFW_IMX95_GPT_CR_CLKSRC_PER) | TFW_IMX95_GPT_CR_EN;
+        TFW_IMX95_GPT_CR_CLKSRC(TFW_IMX95_GPT_CR_CLKSRC_PER) | TFW_IMX95_GPT_CR_ENMOD;
+    TFW_IMX95_GPT_REG(TFW_IMX95_GPT_CR)   =
+        TFW_IMX95_GPT_CR_CLKSRC(TFW_IMX95_GPT_CR_CLKSRC_PER) | TFW_IMX95_GPT_CR_ENMOD |
+        TFW_IMX95_GPT_CR_EN;
     tfw_cm_nvic_enable(TFW_IMX95_GPT_IRQ);
     tfw_cm_irq_restore(primask);
     return TFW_OK;

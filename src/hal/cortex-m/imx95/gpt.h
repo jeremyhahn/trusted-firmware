@@ -41,6 +41,9 @@
 /* CR bits (timer-imx-gpt.c; TO CONFIRM). FRR clear is restart mode: the
  * counter returns to zero on the compare 1 match. */
 #define TFW_IMX95_GPT_CR_EN          (1uL << 0)
+/* ENMOD set: EN rising restarts the main and prescaler counters from zero;
+ * clear, they resume the values they froze at when EN fell. */
+#define TFW_IMX95_GPT_CR_ENMOD       (1uL << 1)
 #define TFW_IMX95_GPT_CR_CLKSRC(n)   (((uint32_t)(n) & 7u) << 6)
 #define TFW_IMX95_GPT_CR_CLKSRC_PER  2u      /* the peripheral clock */
 #define TFW_IMX95_GPT_CR_FRR         (1uL << 9)

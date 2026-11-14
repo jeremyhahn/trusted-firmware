@@ -22,14 +22,48 @@ static const tfw_pinref_t pin = { .port = 1u, .bit = 1u };
 
 void tfw_cm_irq0(void);
 
+/* The GPT's counter as the timer runs it. Each access first settles the write
+ * before it as the timer takes it: EN rising with ENMOD set restarts the main
+ * counter from zero; with ENMOD clear the counter resumes the value it froze
+ * at. gpt_run() then counts in restart mode (FRR clear) at PR 0, the
+ * prescaler every tone below uses: at CNT == OCR1, OF1 is set and the count
+ * starts over. A counter already past OCR1 does not match again until it
+ * wraps. SR is a plain word here, not write-1-to-clear. */
+static uint32_t gpt_cr_seen;
+
+static void gpt_settle(void)
+{
+    uint32_t cr = gpt[TFW_IMX95_GPT_CR / 4u];
+
+    if ((cr & TFW_IMX95_GPT_CR_EN) != 0u && (gpt_cr_seen & TFW_IMX95_GPT_CR_EN) == 0u &&
+        (cr & TFW_IMX95_GPT_CR_ENMOD) != 0u) {
+        gpt[TFW_IMX95_GPT_CNT / 4u] = 0u;
+    }
+    gpt_cr_seen = cr;
+}
+
+static void gpt_run(uint32_t ticks)
+{
+    gpt_settle();
+    for (; ticks > 0u && (gpt[TFW_IMX95_GPT_CR / 4u] & TFW_IMX95_GPT_CR_EN) != 0u; ticks--) {
+        gpt[TFW_IMX95_GPT_CNT / 4u]++;
+        if (gpt[TFW_IMX95_GPT_CNT / 4u] == gpt[TFW_IMX95_GPT_OCR1 / 4u]) {
+            gpt[TFW_IMX95_GPT_SR / 4u] |= TFW_IMX95_GPT_SR_OF1;
+            gpt[TFW_IMX95_GPT_CNT / 4u] = 0u;
+        }
+    }
+}
+
 volatile uint32_t *tfw_test_gpt_reg(uint32_t off)
 {
+    gpt_settle();
     return (volatile uint32_t *)&gpt[off / 4u];
 }
 
 void setUp(void)
 {
     tfw_imx95_model_reset();
+    gpt_cr_seen = 0u;
     for (unsigned i = 0u; i < sizeof gpt / sizeof gpt[0]; i++) {
         gpt[i] = 0u;
     }
@@ -85,12 +119,14 @@ void test_gpt_control_bits(void)
 {
     TEST_ASSERT_EQUAL_HEX32(0x00000080u, TFW_IMX95_GPT_CR_CLKSRC(TFW_IMX95_GPT_CR_CLKSRC_PER));
     TEST_ASSERT_EQUAL_HEX32(0x00100000u, TFW_IMX95_GPT_CR_OM1(TFW_IMX95_GPT_CR_OM1_TOGGLE));
+    TEST_ASSERT_EQUAL_HEX32(0x00000002u, TFW_IMX95_GPT_CR_ENMOD);
     TEST_ASSERT_EQUAL_HEX32(0x00000200u, TFW_IMX95_GPT_CR_FRR);
     TEST_ASSERT_EQUAL_HEX32(0x00008000u, TFW_IMX95_GPT_CR_SWR);
 }
 
 /* A start sets the pin an output, the compare value, its interrupt and the
- * timer on in restart mode, and enables the vector. */
+ * timer on in restart mode with its count restarted (ENMOD), and enables the
+ * vector. */
 void test_tone_start_programs_the_gpt(void)
 {
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 440u));
@@ -98,7 +134,8 @@ void test_tone_start_programs_the_gpt(void)
     TEST_ASSERT_EQUAL_UINT32(0u, gpt[TFW_IMX95_GPT_PR / 4u]);
     TEST_ASSERT_EQUAL_UINT32(27271u, gpt[TFW_IMX95_GPT_OCR1 / 4u]);
     TEST_ASSERT_EQUAL_HEX32(TFW_IMX95_GPT_IR_OF1IE, gpt[TFW_IMX95_GPT_IR / 4u]);
-    TEST_ASSERT_EQUAL_HEX32(TFW_IMX95_GPT_CR_EN | TFW_IMX95_GPT_CR_CLKSRC(TFW_IMX95_GPT_CR_CLKSRC_PER),
+    TEST_ASSERT_EQUAL_HEX32(TFW_IMX95_GPT_CR_EN | TFW_IMX95_GPT_CR_ENMOD |
+                                TFW_IMX95_GPT_CR_CLKSRC(TFW_IMX95_GPT_CR_CLKSRC_PER),
                             gpt[TFW_IMX95_GPT_CR / 4u]);
     TEST_ASSERT_EQUAL_HEX32(0u, gpt[TFW_IMX95_GPT_CR / 4u] & TFW_IMX95_GPT_CR_FRR);
     TEST_ASSERT_EQUAL_HEX32(1u << TFW_IMX95_GPT_IRQ, M->nvic.iser[0] & (1u << TFW_IMX95_GPT_IRQ));
@@ -125,6 +162,28 @@ void test_tone_restart_retunes(void)
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 20000u));
     TEST_ASSERT_EQUAL_UINT32(599u, gpt[TFW_IMX95_GPT_OCR1 / 4u]);
     TEST_ASSERT_EQUAL_HEX32(TFW_IMX95_GPT_CR_EN, gpt[TFW_IMX95_GPT_CR / 4u] & TFW_IMX95_GPT_CR_EN);
+    (void)tfw_hal_tone_stop();
+}
+
+/* Retuning from 440 Hz (OCR1 27271) to 20 kHz (OCR1 599) part-way into the
+ * 440 Hz half period, the counter at 20000: the retune restarts the count, so
+ * the next compare comes 599 counts on, not after the 32-bit counter wraps
+ * (about 179 s at 24 MHz; Codex P1 on #443). */
+void test_tone_retune_restarts_the_counter(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 440u));
+    gpt[TFW_IMX95_GPT_SR / 4u] = 0u;   /* the halt's acknowledge, taken */
+    gpt_run(20000u);
+    TEST_ASSERT_EQUAL_UINT32(20000u, gpt[TFW_IMX95_GPT_CNT / 4u]);
+    TEST_ASSERT_EQUAL_HEX32(0u, gpt[TFW_IMX95_GPT_SR / 4u]);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin, 20000u));
+    TEST_ASSERT_EQUAL_UINT32(599u, gpt[TFW_IMX95_GPT_OCR1 / 4u]);
+    gpt[TFW_IMX95_GPT_SR / 4u] = 0u;   /* the halt's acknowledge, taken */
+    gpt_run(598u);
+    TEST_ASSERT_EQUAL_HEX32(0u, gpt[TFW_IMX95_GPT_SR / 4u] & TFW_IMX95_GPT_SR_OF1);
+    gpt_run(1u);
+    TEST_ASSERT_EQUAL_HEX32(TFW_IMX95_GPT_SR_OF1, gpt[TFW_IMX95_GPT_SR / 4u] & TFW_IMX95_GPT_SR_OF1);
     (void)tfw_hal_tone_stop();
 }
 
@@ -184,6 +243,7 @@ int main(void)
         RUN_TEST(test_tone_start_programs_the_gpt);
         RUN_TEST(test_tone_match_toggles_the_pin);
         RUN_TEST(test_tone_restart_retunes);
+        RUN_TEST(test_tone_retune_restarts_the_counter);
         RUN_TEST(test_tone_stop_drives_the_pin_low);
         RUN_TEST(test_tone_bad_pin_is_refused);
     }

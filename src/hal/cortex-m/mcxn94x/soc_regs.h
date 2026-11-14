@@ -62,38 +62,38 @@
  * divider. The line numbers here and in the ADC0 block below are of
  * devices/MCXN947/MCXN947_cm33_core0.h at mcux-sdk 8a289764, pinned in
  * docs/reference/README.md. */
-#define TFW_MCXN_CTRL1_ADC0         (1u << 3)  /* SYSCON_AHBCLKCTRL1_ADC0_MASK 73684, SYSCON_PRESETCTRL1_ADC0_RST_MASK 72868 */
-#define TFW_MCXN_ADC0CLKSEL         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x2A4u)  /* 72242 */
-#define TFW_MCXN_ADC0CLKDIV         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x394u)  /* 72263; RESET, HALT 74767, 74775 */
-#define TFW_MCXN_ADCCLKSEL_FRO12M   3u         /* SYSCON_ADC0CLKSEL_SEL 74411: FRO 12 MHz */
+#define TFW_MCXN_CTRL1_ADC0         (1u << 3)  /* SYSCON_AHBCLKCTRL1_ADC0_MASK 73685, SYSCON_PRESETCTRL1_ADC0_RST_MASK 72869 */
+#define TFW_MCXN_ADC0CLKSEL         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x2A4u)  /* 72243 */
+#define TFW_MCXN_ADC0CLKDIV         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x394u)  /* 72264; RESET, HALT 74768, 74776 */
+#define TFW_MCXN_ADCCLKSEL_FRO12M   3u         /* SYSCON_ADC0CLKSEL_SEL 74412: FRO 12 MHz */
 
-/* ---- ADC0 (LPADC): ADC_Type, 675-705. CMD[0] is command 1; FIFO 0 of two. */
-#define TFW_MCXN_ADC0_BASE          0x5010D000u                                  /* ADC0_BASE 1610 */
-#define TFW_MCXN_ADC_CTRL           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x010u)      /* 675 */
-#define TFW_MCXN_ADC_STAT           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x014u)      /* 676 */
-#define TFW_MCXN_ADC_CFG            TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x020u)      /* 679 */
-#define TFW_MCXN_ADC_SWTRIG         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x034u)      /* 682 */
-#define TFW_MCXN_ADC_TCTRL0         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0A0u)      /* 687 */
-#define TFW_MCXN_ADC_GCC(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F0u + 4u * (n))  /* 691 */
-#define TFW_MCXN_ADC_GCR(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F8u + 4u * (n))  /* 692 */
-#define TFW_MCXN_ADC_CMDL1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x100u)      /* 694 */
-#define TFW_MCXN_ADC_CMDH1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x104u)      /* 695 */
-#define TFW_MCXN_ADC_RESFIFO0       TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x300u)      /* 700 */
+/* ---- ADC0 (LPADC): ADC_Type, 672-706. CMD[0] is command 1; FIFO 0 of two. */
+#define TFW_MCXN_ADC0_BASE          0x5010D000u                                  /* ADC0_BASE 1611 */
+#define TFW_MCXN_ADC_CTRL           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x010u)      /* 676 */
+#define TFW_MCXN_ADC_STAT           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x014u)      /* 677 */
+#define TFW_MCXN_ADC_CFG            TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x020u)      /* 680 */
+#define TFW_MCXN_ADC_SWTRIG         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x034u)      /* 683 */
+#define TFW_MCXN_ADC_TCTRL0         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0A0u)      /* 688 */
+#define TFW_MCXN_ADC_GCC(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F0u + 4u * (n))  /* 692 */
+#define TFW_MCXN_ADC_GCR(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F8u + 4u * (n))  /* 693 */
+#define TFW_MCXN_ADC_CMDL1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x100u)      /* 695 */
+#define TFW_MCXN_ADC_CMDH1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x104u)      /* 696 */
+#define TFW_MCXN_ADC_RESFIFO0       TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x300u)      /* 701 */
 
 /* Each field's _MASK line in the same header. */
-#define TFW_MCXN_ADC_CTRL_ADCEN     (1u << 0)  /* ADC_CTRL_ADCEN 841 */
-#define TFW_MCXN_ADC_CTRL_RST       (1u << 1)  /* ADC_CTRL_RST 849 */
-#define TFW_MCXN_ADC_CTRL_DOZEN     (1u << 2)  /* ADC_CTRL_DOZEN 857 */
-#define TFW_MCXN_ADC_CTRL_CAL_REQ   (1u << 3)  /* ADC_CTRL_CAL_REQ 865 */
-#define TFW_MCXN_ADC_CTRL_CALOFS    (1u << 4)  /* ADC_CTRL_CALOFS 873 */
-#define TFW_MCXN_ADC_CTRL_RSTFIFO0  (1u << 8)  /* ADC_CTRL_RSTFIFO0 881 */
-#define TFW_MCXN_ADC_CTRL_RSTFIFO1  (1u << 9)  /* ADC_CTRL_RSTFIFO1 889 */
-#define TFW_MCXN_ADC_CTRL_CAL_AVGS_SHIFT 16u   /* ADC_CTRL_CAL_AVGS 897; 7: 128 averaged, 907 */
-#define TFW_MCXN_ADC_STAT_CAL_RDY   (1u << 10) /* ADC_STAT_CAL_RDY 966 */
-#define TFW_MCXN_ADC_CFG_REFSEL_SHIFT 6u       /* ADC_CFG_REFSEL 1100; 0: "Option 1", 1103 */
-#define TFW_MCXN_ADC_CFG_PUDLY_SHIFT  16u      /* ADC_CFG_PUDLY 1134 */
-#define TFW_MCXN_ADC_CFG_PWREN      (1u << 28) /* ADC_CFG_PWREN 1139 */
-#define TFW_MCXN_ADC_SWTRIG_SWT0    (1u << 0)  /* ADC_SWTRIG_SWT0 1171 */
+#define TFW_MCXN_ADC_CTRL_ADCEN     (1u << 0)  /* ADC_CTRL_ADCEN 842 */
+#define TFW_MCXN_ADC_CTRL_RST       (1u << 1)  /* ADC_CTRL_RST 850 */
+#define TFW_MCXN_ADC_CTRL_DOZEN     (1u << 2)  /* ADC_CTRL_DOZEN 858 */
+#define TFW_MCXN_ADC_CTRL_CAL_REQ   (1u << 3)  /* ADC_CTRL_CAL_REQ 866 */
+#define TFW_MCXN_ADC_CTRL_CALOFS    (1u << 4)  /* ADC_CTRL_CALOFS 874 */
+#define TFW_MCXN_ADC_CTRL_RSTFIFO0  (1u << 8)  /* ADC_CTRL_RSTFIFO0 882 */
+#define TFW_MCXN_ADC_CTRL_RSTFIFO1  (1u << 9)  /* ADC_CTRL_RSTFIFO1 890 */
+#define TFW_MCXN_ADC_CTRL_CAL_AVGS_SHIFT 16u   /* ADC_CTRL_CAL_AVGS 898; 7: 128 averaged, 908 */
+#define TFW_MCXN_ADC_STAT_CAL_RDY   (1u << 10) /* ADC_STAT_CAL_RDY 967 */
+#define TFW_MCXN_ADC_CFG_REFSEL_SHIFT 6u       /* ADC_CFG_REFSEL 1101; 0: "Option 1", 1104 */
+#define TFW_MCXN_ADC_CFG_PUDLY_SHIFT  16u      /* ADC_CFG_PUDLY 1135 */
+#define TFW_MCXN_ADC_CFG_PWREN      (1u << 28) /* ADC_CFG_PWREN 1140 */
+#define TFW_MCXN_ADC_SWTRIG_SWT0    (1u << 0)  /* ADC_SWTRIG_SWT0 1172 */
 #define TFW_MCXN_ADC_TCTRL_TCMD_SHIFT 24u      /* ADC_TCTRL_TCMD 1293 */
 #define TFW_MCXN_ADC_GCC_GAIN_CAL   0xFFFFu    /* ADC_GCC_GAIN_CAL 1327 */
 #define TFW_MCXN_ADC_GCC_RDY        (1u << 24) /* ADC_GCC_RDY 1332 */

@@ -1,16 +1,39 @@
 # ADR: the Cortex-M trust model, and its relation to TF-M
 
-> **Status: PROPOSED** · Issue: #15 · Scope: trusted-firmware (the
+> **Status: ACCEPTED (owner ruling 632 item 208 a, 2026-11-14)** · Issue: #15 · Scope: trusted-firmware (the
 > Cortex-M secure world and boot chain); go-xkms and go-quicbaas (what they must
 > accept, seam only) · Related: #14,
 > [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md);
 > the Security Extension (TrustZone-M) is the Armv8-M Architecture Reference
 > Manual's (DDI 0553), and the CI machine's board is AN505's (DAI 0505), both
 > listed in [`../reference/README.md`](../reference/README.md#cortex-m-sources) ·
-> Last verified: 2026-10-22
+> Last verified: 2026-11-14
 >
-> Nothing here is implemented, and nothing is decided until the owner accepts it.
+> Nothing here is implemented. The owner accepted the trust model per core on
+> 2026-11-14; the open questions it does not answer stay open.
 > This ADR changes no code, no wire vector and no SPEC row.
+
+## Accepted on 2026-11-14 (owner ruling 632 item 208 a)
+
+The owner ruled on 2026-11-14 (ruling 632, item 208 a), verbatim:
+
+> "ADRs #14 and #15 adopt the i.MX 95 M7 reference part, QEMU mps2-an505
+> emulation, TF-M Profile Medium plus our DICE attestation partition on the M33
+> secure world, and MPU-only isolation on the M7. Record it as one PR."
+
+What the ruling decides in this ADR:
+
+| Part of this ADR | Now |
+|---|---|
+| Recommendation, Cortex-M33 | **decided**: (b1), TF-M Profile Medium with our DICE attestation partition in the M33 secure world |
+| Recommendation, Cortex-M7 | **decided**: (c), MPU-only isolation, no TrustZone |
+| Recommendation, (a) | stays in reserve, not chosen |
+| The reference part | the i.MX 95 M7, decided in #14 on the same ruling (#14 question 1 (a)) |
+| Open question 1 | **closed**: (b1) on the M33 |
+| Open questions 2 to 13 | open; the ruling does not answer them (one line each below) |
+
+The ruling does not touch the SPEC: the `stm32h5` row's wording ("our own
+TrustZone secure world") changes in its own SPEC change, not here.
 
 ## Changes on 2026-10-20
 
@@ -551,6 +574,10 @@ commands. Until then the M7 image runs the `none` and `soft` crypto tiers.
 
 ## Recommendation
 
+**Decided 2026-11-14 (owner ruling 632 item 208 a): (b1) on the Cortex-M33 and
+(c) on the Cortex-M7, as recommended below.** The i.MX 95 M7 is the reference
+part (#14 question 1 (a)).
+
 One model per core, whichever part #14's open question 1 makes the reference:
 the Cortex-M33 with TrustZone-M on the two bench boards, and the i.MX 95's M7,
 the reference part in the SPEC row `cortex-m`. The M33 comes first below because
@@ -559,7 +586,7 @@ both bench boards are M33s and its questions are the ones the next slice meets
 board of the port).
 
 - **Cortex-M33: (b1), TF-M Profile Medium with our attestation code as an
-  Application RoT secure partition**, on the STM32H573I-DK and the nRF54L15-DK.
+  Application RoT secure partition** (decided 2026-11-14), on the STM32H573I-DK and the nRF54L15-DK.
   - The wire protocol and the application run non-secure.
   - MCUboot is BL2.
   - The PSA Attestation, Crypto and Firmware Update APIs are the interfaces to
@@ -576,7 +603,7 @@ board of the port).
   vendor's PSA-compatible secure world if the licence allows; otherwise it
   targets upstream TF-M. This is open question 2, and it is the `stm32h5` row's
   open decision, which this ADR does not close.
-- **Cortex-M7: (c), MPU-only.**
+- **Cortex-M7: (c), MPU-only** (decided 2026-11-14).
   - The template builders run privileged, behind an SVC gate.
   - Layer 0 is the SoC's where it has one (NXP's ROM, ELE and System Manager
     on the i.MX 95), and tfw-boot where it does not.
@@ -630,7 +657,28 @@ extends without renumbering:
 
 ## Open questions for the owner
 
-1. **M33 trust model.** Accept (b1), TF-M with our partition, on the
+Owner ruling 632 item 208 a (2026-11-14) closes question 1. It does not answer
+questions 2 to 13, which stay open:
+
+- 2, vendor secure worlds: open; the ruling names TF-M, not which build of it.
+- 3, the PSA interfaces: open; the ruling does not name them.
+- 4, the PSA token: open.
+- 5, crypto tier values: open.
+- 6, the alias key: open.
+- 7, where the CoRIM check runs: open.
+- 8, TF-M release policy: open.
+- 9, PSA Certified and the language rule: open.
+- 10, upstream contributions: open.
+- 11, the secure world in CI: open; the ruling picks `mps2-an505` as the CI
+  machine but not whether TF-M runs on it.
+- 12, the i.MX 95 M7: open; the ruling picks MPU-only isolation, not the facts
+  or the MPU's timing listed there.
+- 13, the DICE root on the M33 parts: open.
+
+1. **Closed 2026-11-14: yes, (b1) on the M33 (ruling 632 item 208 a).** The
+   SPEC row `stm32h5` still reads "our own TrustZone secure world"; aligning
+   it is a SPEC change, not this ADR's.
+   **M33 trust model.** Accept (b1), TF-M with our partition, on the
    STM32H573I-DK and the nRF54L15-DK? If so, the `stm32h5` row's "our own
    TrustZone secure world" on the NUCLEO-H563ZI becomes "our partition on
    TF-M". TF-M upstream supports the STM32H573I-DK, not the NUCLEO-H563ZI, so

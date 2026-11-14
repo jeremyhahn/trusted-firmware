@@ -11,6 +11,7 @@ One SPEC row = one row issue = one branch `row/<issue>-<row>` = one lane session
 | nrf54l15 | #427 | future | 1 | #418, #414, #407, #386, #385 |
 | mcxn947 | #426 | in progress | 0 | #420, #419, #413, #408, #399, #392, #375 |
 | optee-trustzone | #430 | future | 0 | #370 |
+| optee-vault-ta | none yet (after owner approval) | future | 0 | none |
 | esp32 | #23 | in progress | 0 | none |
 | esp32-p4 | #48 | in progress | 0 | none |
 | imx95 | #428 | in progress | 0 | #403, #395, #388 |

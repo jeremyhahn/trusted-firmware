@@ -57,7 +57,7 @@ static void platform(struct tfw_imx95_model *mm)
 /* The board's own request (board_profile.h, through tfw/config.h): LPUART7
  * on GPIO_IO36 and GPIO_IO37, SM pin ids 40 and 41, ALT2, the mux alone. */
 static const struct tfw_imx95_console_pins pins = {
-    TFW_IMX95_CONSOLE_TX_PIN, TFW_IMX95_CONSOLE_RX_PIN, TFW_IMX95_CONSOLE_PIN_MUX,
+    TFW_IMX95_CONSOLE_TX_PAD, TFW_IMX95_CONSOLE_RX_PAD, TFW_IMX95_CONSOLE_PAD_MUX,
     TFW_IMX95_CONSOLE_PAD_CFG
 };
 

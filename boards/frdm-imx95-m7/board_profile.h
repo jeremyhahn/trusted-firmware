@@ -189,13 +189,15 @@
  * devices/MIMX95/drivers/fsl_iomuxc.h at 44f76dcb, lines 328 and 331,
  * IOMUXC_PAD_GPIO_IO36__LPUART7_TX and IOMUXC_PAD_GPIO_IO37__LPUART7_RX).
  * The SM's pin ids are 40 and 41: the id is the mux register's index from
- * 0x443C0000 (0xA0 / 4 and 0xA4 / 4), as GPIO_IO14's 18 was.
+ * 0x443C0000 (0xA0 / 4 and 0xA4 / 4), as GPIO_IO14's 18 was. They are named
+ * _PAD, not _PIN: they are SoC pad ids, not rows of tfw_board_pins, so
+ * board-check's pin-index rule does not apply to them.
  * The pad configuration is 0: the mux alone, the pads keep the SM's setting
  * (0x51e on the board). RX's input select is not sent: its reset value, 0,
  * selects GPIO_IO37 (section 14 read it so). */
-#define TFW_IMX95_CONSOLE_TX_PIN  40u
-#define TFW_IMX95_CONSOLE_RX_PIN  41u
-#define TFW_IMX95_CONSOLE_PIN_MUX 2u
+#define TFW_IMX95_CONSOLE_TX_PAD  40u
+#define TFW_IMX95_CONSOLE_RX_PAD  41u
+#define TFW_IMX95_CONSOLE_PAD_MUX 2u
 #define TFW_IMX95_CONSOLE_PAD_CFG 0u
 
 /* The SAR ADC instance the System Manager gives the M7 (src/hal/cortex-m/

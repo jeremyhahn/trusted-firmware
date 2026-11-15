@@ -45,7 +45,7 @@ static struct tfw_scmi_chan g_chan = {
 };
 
 static const struct tfw_imx95_console_pins g_pins = {
-    TFW_IMX95_CONSOLE_TX_PIN, TFW_IMX95_CONSOLE_RX_PIN, TFW_IMX95_CONSOLE_PIN_MUX,
+    TFW_IMX95_CONSOLE_TX_PAD, TFW_IMX95_CONSOLE_RX_PAD, TFW_IMX95_CONSOLE_PAD_MUX,
     TFW_IMX95_CONSOLE_PAD_CFG
 };
 

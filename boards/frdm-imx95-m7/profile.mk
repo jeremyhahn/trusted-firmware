@@ -153,7 +153,11 @@ BOARD_ROWS        += soft:TONE=1
 # DATA (R reset entry, D .data/.bss set up, M before main, P pads requested and
 # r, d, m again, U console up; hal_soc.c tfw_cm_soc_step), so port 2 shows how
 # far the M7 gets when its TCM cannot be read. The bench image:
-#   make BOARD=frdm-imx95-m7 IMX_BOOT=1 STEP_MARKS=1 BUILD_DIR=build/imx95-steps firmware
+#   make BOARD=frdm-imx95-m7 IMX_BOOT=1 STEP_MARKS=1 firmware
+# which links into its own directory (soft-imxboot-steps, BOARD_DIR_SUFFIX in
+# mk/firmware.mk), as IMX_BOOT does: make tracks no flag, so in one directory
+# a change of STEP_MARKS would reuse objects compiled without the marks.
 STEP_MARKS        ?= 0
 BOARD_DEFS        += $(if $(filter 1,$(STEP_MARKS)),-DTFW_CM_STEP_MARKS=1)
+BOARD_DIR_SUFFIX  := $(BOARD_DIR_SUFFIX)$(if $(filter 1,$(STEP_MARKS)),-steps)
 BOARD_ROWS        += soft:STEP_MARKS=1

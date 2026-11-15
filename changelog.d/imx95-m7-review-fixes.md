@@ -6,7 +6,9 @@
   what the transmitter can take before it checks for room.
 - **`IMX_BOOT=1` builds into its own directory** (`soft-imxboot`), so
   switching it relinks the image rather than reusing the one linked for
-  the other mode.
+  the other mode. `STEP_MARKS=1` does the same (`-steps`, so
+  `soft-imxboot-steps` with both), so a bench image always carries the
+  marks it was asked for.
 - **`boards/frdm-imx95-m7/imx-boot-m7.py` has a host test**
   (`test_imx_boot_m7`, in `make host-test`) on a synthetic ELF and boot
   container. It checks that only the M7 slot and its entry change, and that

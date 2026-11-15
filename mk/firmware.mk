@@ -96,10 +96,14 @@ STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
 # row stm32h5).
 # The MCXN94x's writes its own flash sector through tfw-boot's flash helper,
 # mcxn_flash.c, linked here as STAGE_SRCS links boot/boot_image.c (SPEC row
-# mcxn947).
+# mcxn947). The RP2350's writes its sector through tfw-boot's flash helper,
+# tfw_rp_flash_update; with the feature off (its default row, TFW_EEPROM_SIZE 0)
+# the architecture's copy is linked and the helper is left out.
 SOC_EEPROM_SRCS_stm32h5 := src/hal/cortex-m/stm32h5/ee_flash.c src/hal/cortex-m/stm32h5/ee_flash_port.c \
                            boot/hal/cortex-m/stm32h5/h5_flash.c
 SOC_EEPROM_SRCS_mcxn94x := boot/hal/cortex-m/mcxn94x/mcxn_flash.c
+SOC_EEPROM_SRCS_rp2350  := boot/hal/cortex-m/rp2350/rp_flash.c boot/hal/cortex-m/rp2350/rp_flash_rom.c \
+                           boot/hal/cortex-m/rp2350/rp_rom_lookup.c
 EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
                      $(wildcard $(call hal_src,hal_eeprom.c)) \
                      $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))
@@ -472,8 +476,10 @@ ID_SUFFIX := $(if $(filter $(SOFT_ID_SRCS),$(CRYPTO_SRCS)),$(if $(filter-out $(S
 AB_SUFFIX := $(if $(BOOT_AB_OPTIONAL),$(if $(filter 1,$(BOOT_AB)),-ab))
 # And a bus a board turns on only for a named row (BOARD_FEATURES_ON in
 # profile.mk: the MPS2 boards' soft:I2C=1 and soft:SPI=1), as -i2c and -spi.
-ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),$(foreach f,$(shell printf '%s' \
-                      '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z),-$(f)))
+# Several features join with no space between (the RP2350's PERIPH=1 row,
+# -analog-pwm-tone-eeprom): FW_DIR is one word in every target and recipe.
+ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),-$(subst $() ,-,$(shell printf '%s' \
+                      '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z)))
 
 # Every make variable that changes the image's objects names the directory, and
 # only where it differs from its default, so every default image keeps its path.
@@ -675,6 +681,9 @@ $(eval $(call SOFT_ID_RULES,$(FW_DIR)))
 ifeq ($(CRYPTO),auto)
 $(eval $(call AUTO_RENAMES,$(FW_DIR)))
 endif
+# The RP2350's flash EEPROM includes tfw-boot's flash helper by its own name, as
+# the boot's files do: a path through hal/ reads to lint-arch-leak as ESP-IDF.
+$(FW_DIR)/src/hal/cortex-m/rp2350/hal_eeprom.o: FW_CFLAGS += -Iboot/hal/cortex-m/rp2350
 
 $(FW_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

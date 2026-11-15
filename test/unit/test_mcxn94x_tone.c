@@ -200,8 +200,8 @@ static void test_a_bad_pin_is_refused_with_no_register_written(void)
     TEST_ASSERT_EQUAL(0u, tfw_mcxn_model_log_len());
 }
 
-/* Codex P1 on #392: TONE on pin 5, a GPIO mode command on pin 5 (its PCR back
- * to GPIO, as tfw_hal_gpio_mode writes it), TONE on pin 5 again: the mux must
+/* Codex P1 on #392: TONE on the tone pin, a GPIO mode command on that pin (its
+ * PCR back to GPIO, as tfw_hal_gpio_mode writes it), TONE on it again: the mux must
  * be the timer's again, not left on GPIO under a cached pin. */
 static void test_a_start_after_gpio_mode_restores_the_mux(void)
 {

@@ -93,11 +93,15 @@ STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
 # writes its own sector through ee_flash.c, the application's one flash write,
 # confined to that sector, over h5_flash.c's programming sequence. tfw-boot's
 # flash-interface driver, boot_flash.c, is boot-only and not linked here (SPEC
-# row stm32h5). The RP2350's writes its sector through tfw-boot's flash helper,
+# row stm32h5).
+# The MCXN94x's writes its own flash sector through tfw-boot's flash helper,
+# mcxn_flash.c, linked here as STAGE_SRCS links boot/boot_image.c (SPEC row
+# mcxn947). The RP2350's writes its sector through tfw-boot's flash helper,
 # tfw_rp_flash_update; with the feature off (its default row, TFW_EEPROM_SIZE 0)
 # the architecture's copy is linked and the helper is left out.
 SOC_EEPROM_SRCS_stm32h5 := src/hal/cortex-m/stm32h5/ee_flash.c src/hal/cortex-m/stm32h5/ee_flash_port.c \
                            boot/hal/cortex-m/stm32h5/h5_flash.c
+SOC_EEPROM_SRCS_mcxn94x := boot/hal/cortex-m/mcxn94x/mcxn_flash.c
 SOC_EEPROM_SRCS_rp2350  := boot/hal/cortex-m/rp2350/rp_flash.c boot/hal/cortex-m/rp2350/rp_flash_rom.c \
                            boot/hal/cortex-m/rp2350/rp_rom_lookup.c
 EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\

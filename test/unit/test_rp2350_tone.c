@@ -21,6 +21,8 @@
 static const tfw_pinref_t pin7 = { 0u, GP7 };
 static const tfw_pinref_t pin9 = { 0u, GP9 };
 
+void tfw_cm_irq4(void);
+
 void setUp(void)
 {
     tfw_rp_model_reset();
@@ -179,10 +181,11 @@ static void test_irq_target_passing_during_the_alarm_write_rearms_again(void)
 
     /* the next target, 1000, is 1 us ahead when read; the ALARM0 write
      * takes 2 us, so TIMELR is at 1001 as the alarm arms: it fires and
-     * pends IRQ4 again, and that second delivery finds no alarm */
+     * pends IRQ4 again; the retry clears that pend, so the handler runs
+     * once */
     tfw_rp_model_set_time(999u);
     tfw_rp_model_slow_alarm_writes(2u, 1);
-    TEST_ASSERT_EQUAL_INT(2, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
     TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
     TEST_ASSERT_EQUAL_UINT32(1001u, tfw_rp_model_read(RP_MODEL_T1_TIMELR));
     TEST_ASSERT_EQUAL_UINT32(1500u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
@@ -192,7 +195,7 @@ static void test_irq_target_passing_during_the_alarm_write_rearms_again(void)
      * and the third write lands ahead; the pin toggles once more */
     tfw_rp_model_set_time(1499u);
     tfw_rp_model_slow_alarm_writes(600u, 2);
-    TEST_ASSERT_EQUAL_INT(2, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
     TEST_ASSERT_EQUAL_UINT32(2699u, tfw_rp_model_read(RP_MODEL_T1_TIMELR));
     TEST_ASSERT_EQUAL_UINT32(3000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
@@ -205,16 +208,30 @@ static void test_irq_alarm_fired_during_the_write_toggles_once(void)
 
     /* the ALARM0 write for target 1000 takes 5 us from 999: the alarm
      * fires as it arms, latches INTR and pends IRQ4 again in the NVIC.
-     * The retry arms 1500 and clears INTR, but not the NVIC latch: the
-     * handler is taken a second time and must find no alarm, so the pin
-     * toggles once and the target stays 1500 */
+     * The retry arms 1500 and clears INTR and the NVIC pend, so the
+     * handler is taken once: the pin toggles once and the target stays
+     * 1500 */
     tfw_rp_model_set_time(999u);
     tfw_rp_model_slow_alarm_writes(5u, 1);
-    TEST_ASSERT_EQUAL_INT(2, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
     TEST_ASSERT_EQUAL_UINT32(0u, tfw_rp_model_read(RP_MODEL_T1_INTR));
     TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
     TEST_ASSERT_EQUAL_UINT32(1500u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
     TEST_ASSERT_EQUAL_UINT32(1u, tfw_rp_model_read(RP_MODEL_T1_ARMED) & 1u);
+}
+
+static void test_irq_delivery_with_no_alarm_toggles_nothing(void)
+{
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&pin7, 1000u));
+    tfw_rp_model_set_time(500u);
+    TEST_ASSERT_EQUAL_INT(1, tfw_rp_model_fire());
+    TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+
+    /* IRQ4 taken again with INTR clear, as a pend left in the NVIC would
+     * be: the handler leaves the pin and the armed target be */
+    tfw_cm_irq4();
+    TEST_ASSERT_EQUAL_UINT32(BIT7, tfw_rp_model_read(RP_MODEL_SIO_OUT) & BIT7);
+    TEST_ASSERT_EQUAL_UINT32(1000u, tfw_rp_model_read(RP_MODEL_T1_ALARM0));
 }
 
 static void test_start_preempted_past_the_first_target_arms_ahead(void)
@@ -295,6 +312,7 @@ int main(void)
     RUN_TEST(test_irq_held_off_by_a_flash_write_rearms_ahead);
     RUN_TEST(test_irq_target_passing_during_the_alarm_write_rearms_again);
     RUN_TEST(test_irq_alarm_fired_during_the_write_toggles_once);
+    RUN_TEST(test_irq_delivery_with_no_alarm_toggles_nothing);
     RUN_TEST(test_start_preempted_past_the_first_target_arms_ahead);
     RUN_TEST(test_retarget_drives_old_pin_low);
     RUN_TEST(test_retarget_same_pin_new_step);

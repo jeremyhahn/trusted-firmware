@@ -5,11 +5,13 @@
  *
  * Pins 0-3 are the kit's four user LEDs, at the banks and bits ST's BSP
  * names (stm32h573i_discovery.h): LD1 green PI9, LD2 orange PI8, LD3 red
- * PF1, LD4 blue PF4. Pins 4-9 are the Arduino header's A0 to A5 (Zephyr's
+ * PF1, LD4 blue PF4. Pins 4 and 5 are the Arduino header's D6 (PH10) and D5
+ * (PH11), TIM5's two PWM channels. Pins 6-11 are its A0 to A5 (Zephyr's
  * arduino_r3_connector.dtsi for the board) at their ADC1 inputs (hal_stm32's
  * stm32h573iikxq-pinctrl.dtsi): A0 PB0 INP9, A1 PA4 INP18, A2 PA0 INP0,
- * A3 PA5 INP19, A4 PA6 INP3, A5 PF12 INP6. Port 0 is GPIOF (bank 5), 1
- * GPIOI (8), 2 GPIOA (0), 3 GPIOB (1). No pin offers a compare unit.
+ * A3 PA5 INP19, A4 PA6 INP3, A5 PF12 INP6. Pin 12 is D3 (PB5), the tone's
+ * TIM3_CH2. Port 0 is GPIOF (bank 5), 1 GPIOI (8), 2 GPIOH (7), 3 GPIOA (0),
+ * 4 GPIOB (1). No pin offers a compare unit.
  *
  * Runs under `make board-sweep`, against this board's own profile.
  */
@@ -27,30 +29,33 @@ static void test_the_board_is_its_registered_id(void)
     TEST_ASSERT_EQUAL_STRING("stm32h573i-dk", tfw_board_name());
 }
 
-static void test_the_first_six_pins_are_the_leds_then_d6_and_d5_at_their_banks(void)
+static void test_the_digital_pins_are_the_leds_d6_d5_and_d3_at_their_banks(void)
 {
-    static const struct { uint8_t bank; uint8_t bit; uint8_t led; } want[6] = {
-        { 8u, 9u, 1u },    /* LD1 PI9 */
-        { 8u, 8u, 1u },    /* LD2 PI8 */
-        { 5u, 1u, 1u },    /* LD3 PF1 */
-        { 5u, 4u, 1u },    /* LD4 PF4 */
-        { 7u, 10u, 0u },   /* ARD_D6 PH10 */
-        { 7u, 11u, 0u },   /* ARD_D5 PH11 */
+    static const struct { uint8_t pin; uint8_t bank; uint8_t bit; uint8_t led; } want[7] = {
+        {  0u, 8u, 9u, 1u },    /* LD1 PI9 */
+        {  1u, 8u, 8u, 1u },    /* LD2 PI8 */
+        {  2u, 5u, 1u, 1u },    /* LD3 PF1 */
+        {  3u, 5u, 4u, 1u },    /* LD4 PF4 */
+        {  4u, 7u, 10u, 0u },   /* ARD_D6 PH10 */
+        {  5u, 7u, 11u, 0u },   /* ARD_D5 PH11 */
+        { 12u, 1u, 5u, 0u },    /* ARD_D3 PB5, the tone's TIM3_CH2 */
     };
 
-    TEST_ASSERT_EQUAL_UINT8(12u, TFW_PIN_COUNT);
-    for (uint8_t i = 0u; i < 6u; i++) {
+    TEST_ASSERT_EQUAL_UINT8(13u, TFW_PIN_COUNT);
+    for (uint8_t w = 0u; w < 7u; w++) {
+        uint8_t      i = want[w].pin;
         tfw_pinref_t r;
         uint8_t      ch;
 
         TEST_ASSERT_EQUAL(TFW_OK, tfw_board_pin(i, &r));
-        TEST_ASSERT_EQUAL_UINT8(want[i].bank, r.port);
-        TEST_ASSERT_EQUAL_UINT8(want[i].bit, r.bit);
-        TEST_ASSERT_EQUAL(want[i].led != 0u, (tfw_board_pin_flags(i) & TFW_PIN_LED) != 0u);
+        TEST_ASSERT_EQUAL_UINT8(want[w].bank, r.port);
+        TEST_ASSERT_EQUAL_UINT8(want[w].bit, r.bit);
+        TEST_ASSERT_EQUAL(want[w].led != 0u, (tfw_board_pin_flags(i) & TFW_PIN_LED) != 0u);
         TEST_ASSERT_TRUE(tfw_board_pin_flags(i) & TFW_PIN_DIGITAL);
         TEST_ASSERT_EQUAL(TFW_ERR_UNSUPPORTED, tfw_board_adc_channel(i, &ch));
         TEST_ASSERT_FALSE(tfw_board_pin_flags(i) & TFW_PIN_ADC);
     }
+    TEST_ASSERT_EQUAL_UINT8(12u, TFW_TONE_PIN);
 }
 
 static void test_a0_to_a5_are_their_adc1_inputs(void)
@@ -109,7 +114,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_the_board_is_its_registered_id);
-    RUN_TEST(test_the_first_six_pins_are_the_leds_then_d6_and_d5_at_their_banks);
+    RUN_TEST(test_the_digital_pins_are_the_leds_d6_d5_and_d3_at_their_banks);
     RUN_TEST(test_a0_to_a5_are_their_adc1_inputs);
     RUN_TEST(test_only_d6_and_d5_offer_a_pwm);
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);

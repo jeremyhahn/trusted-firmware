@@ -78,6 +78,28 @@ BOOT_BUDGET    := 32768
 # 1-4): no element on this board and no OTP write in any lane.
 BOARD_TIERS    := soft
 
+# The I2C master on I2C0, GPIO4 (SDA) and GPIO5 (SCL)
+# (src/hal/cortex-m/rp2350/hal_bus.c), off by default: no element is fitted.
+# I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and links the
+# bus, as on mps2-an505; soft:I2C=1 builds that image so size-check measures
+# it. Built and host-tested (test/unit/test_rp2350_i2c.c), not run on a board.
+#
+# PWM, the converter, the tone and the flash EEPROM (src/hal/cortex-m/rp2350/
+# hal_pwm.c, hal_adc.c, hal_tone.c, hal_eeprom.c), off by default as well:
+# docs/SPEC.md keeps rp2350 `future` with the AVR gate (#7) not lifted for it,
+# so the default image stays GPIO only. PERIPH=1 turns the four on
+# (TFW_CM_PERIPH in board_profile.h) and links them; soft:PERIPH=1 builds that
+# image so size-check measures it. Built and host-tested, not run on a board.
+I2C               ?= 0
+PERIPH            ?= 0
+BOARD_DEFS        = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) $(if $(filter 1,$(PERIPH)),-DTFW_CM_PERIPH=1)
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(PERIPH)),ANALOG PWM TONE EEPROM)
+BOARD_ROWS        := soft:I2C=1 soft:PERIPH=1
+# Until the owner lifts that gate the I2C=1 and PERIPH=1 rows are build and
+# host-test only: `make flash` refuses them (mk/arch/cortex-m.mk), and only the
+# default GPIO row is written to a board.
+CM_FLASH_GATED_WHY = $(if $(strip $(BOARD_FEATURES_ON)),row $(subst $() ,-,$(strip $(BOARD_FEATURES_ON))) is build and host-test only: docs/SPEC.md keeps rp2350 future with the AVR gate not lifted for it. Only the default row is flashed)
+
 # Written over USB with picotool, the board in BOOTSEL mode, as the onboarding
 # ADR has it: the Pico 2 W has no on-board debug probe. picotool reads and
 # writes the flash and dumps the OTP, which is recorded and never written;

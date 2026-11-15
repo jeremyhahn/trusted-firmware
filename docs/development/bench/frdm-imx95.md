@@ -352,8 +352,29 @@ conv=fsync,notrunc` from the A55 Linux (the backup is on the board and the
 bench host), then SM `reset`. Not done: the next step only replaces the M7
 image again.
 
-Next (a firmware slice, not a bench one): an SCMI pin-control request at
-startup that muxes GPIO_IO14/15 to LPUART3, which needs the M7 agent's SCMI
-MU and shared memory (board_profile.h, zero today) and the SM's pin ids;
-then the LPUART3 NVIC line confirmed. Then rebuild, rerun
-`imx-boot-m7.py`, write, SM `reset`, read port 2.
+### 6. Firmware slice: the pad request (no board access)
+
+The M7's SCMI channel is set in `board_profile.h` (MU5_MUA, its SRAM,
+doorbell 0, CRC-32 as the SM's M7 mailbox checks it). At startup
+`tfw_hal_uart_init` first calls `console_pins.c`, which sends the SM
+PINCTRL_SETTINGS_CONFIGURE for GPIO_IO14 then GPIO_IO15 (SM pin ids 18 and
+19), mux ALT1, and starts LPUART3 whatever the SM answers. Not sent yet:
+the pads' configuration and RX's daisy (both TO CONFIRM), so only TX is
+expected to work. Host test: `test_imx95_console_pins`.
+
+### Next slice (device)
+
+Rebuild (`make BOARD=frdm-imx95-m7 APP_BASE=0x00000000 BOOT_SECTION=0
+BUILD_DIR=build/imx95-imxboot/m7-at-0 firmware`), rerun `imx-boot-m7.py`,
+write at 0x8000, read back, digest match, SM `reset`, then read port 2 at
+115200 8N1 for 120 s. What port 2 must show:
+
+- Pass: our boot event, the `TFW_EVENT_BOOT` frame `main` sends first
+  (frame bytes, not text), within seconds of the reset. That confirms the
+  SCMI channel (MU, shared memory, CRC), pin ids 18/19 with ALT1, and the
+  LPUART3 clock.
+- Still silent: the SM refused or never answered. Read the SM monitor
+  (port 1, `>$`) for the M7 agent's errors; next, check the CRC polynomial
+  and the channel's shared memory address against the SM's configuration.
+- Frames, but no reply to a host request: TX works and RX does not, so the
+  next firmware slice adds RX's daisy and confirms NVIC line 64.

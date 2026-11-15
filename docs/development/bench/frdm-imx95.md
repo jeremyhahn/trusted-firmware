@@ -930,3 +930,21 @@ Unchanged: the eMMC boot container is imx-boot-m7-steps.bin
 (`1c6ed98d...7cf54`), and Linux is up. `/root/imxboot-backup/` still holds
 `imx-boot-orig.bin` (`1d775624...0081f`), the recovery image (section 5).
 The SM console was left in its monitor (`>$`).
+
+### 12. May LM1 (the M7's domain) access LPUART3? Read-only (2026-11-15)
+
+Section 11 left one question: whether TRDC MBC0 lets the M7's domain
+write LPUART3 (`0x42570000`). Plan, read-only on the board, no write to the
+boot device, no SM configuration change, no break:
+
+1. The System Manager the board runs is the board's own (only the M7 slot
+   changed, see "2. Build" above). Identify its release from the SM monitor
+   and take the imx-sm source of that release.
+2. In that source, find the monitor's `trdc` command and its parameters,
+   then run it on port 1 for MBC0 and read the block that holds LPUART3
+   for the M7's domain.
+3. In the same source, read the board configuration the SM was built from:
+   the M7 LM's domain ID and whether LPUART3 is in its resource list.
+4. Record both here with the source file and line. If LM1 may not access
+   LPUART3, name the configuration change needed (file and line): that
+   change is the owner's decision and is not made in this lane.

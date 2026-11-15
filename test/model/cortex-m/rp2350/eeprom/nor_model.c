@@ -45,6 +45,8 @@ uint32_t rp_nor_erases[RP_NOR_MAX_ERASES];
 unsigned rp_nor_n_erases;
 int      rp_nor_corrupt_next;
 uint32_t rp_nor_write_us;
+uint32_t rp_nor_after_cvr_us;
+static uint32_t after_cvr_due;
 
 static volatile uint32_t timerawl;
 static uint32_t          systick_phase_us;
@@ -54,6 +56,12 @@ static volatile uint32_t syst_reg;
 
 volatile uint32_t *tfw_rp_model_reg(uintptr_t addr)
 {
+    if (after_cvr_due != 0u) {
+        uint32_t us = after_cvr_due;
+
+        after_cvr_due = 0u;
+        rp_nor_model_run_us(us);
+    }
     switch (addr) {
     case TIMERAWL_ADDR:
         return &timerawl;
@@ -65,6 +73,8 @@ volatile uint32_t *tfw_rp_model_reg(uintptr_t addr)
         return &syst_reg;
     case SYST_CVR_ADDR:
         syst_reg = SYST_RELOAD - systick_phase_us * CYCLES_PER_US;
+        after_cvr_due       = rp_nor_after_cvr_us;
+        rp_nor_after_cvr_us = 0u;
         return &syst_reg;
     case ICSR_ADDR:
         syst_reg = systick_pending ? ICSR_PENDSTSET : 0u;
@@ -157,6 +167,8 @@ void rp_nor_model_reset(void)
     rp_nor_n_erases     = 0u;
     rp_nor_corrupt_next = 0;
     rp_nor_write_us     = 0u;
+    rp_nor_after_cvr_us = 0u;
+    after_cvr_due       = 0u;
     systick_pending     = 0;
     systick_phase_us    = 0u;
     masked              = 0u;

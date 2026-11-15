@@ -21,6 +21,9 @@ extern int      rp_nor_corrupt_next;
 /* Microseconds one sector write takes, TIMER0's count and SysTick's phase
  * both advancing by it while interrupts are masked. */
 extern uint32_t rp_nor_write_us;
+/* Microseconds that pass between the next SysTick CVR read and the register
+ * read after it, once: an expiration can land between the two reads. */
+extern uint32_t rp_nor_after_cvr_us;
 
 /* Unmasked work: TIMER0 and SysTick advance by us microseconds, each SysTick
  * expiration running SysTick_Handler (pending it while masked). */

@@ -12,7 +12,8 @@
 - **RP2350 rows build and stay inert by default** (#429). Several row
   features join into a one-word image directory (`-analog-pwm-tone-eeprom`);
   the flash EEPROM is linked only with the EEPROM feature, and a write
-  fails unless the whole rewritten sector reads back as expected; ADC init touches
+  fails unless the whole rewritten sector reads back as expected, and a
+  SysTick expiring as the write starts is counted once, not twice; ADC init touches
   no PLL, clock or converter register in a row without analog inputs; tone
   startup and the tone handler both read the timer again after arming
   ALARM0, so a first or later alarm the timer passed (an interrupt between

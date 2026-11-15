@@ -97,9 +97,22 @@ typedef struct {
 
 static void masked_enter(masked_entry_t *e)
 {
-    e->t0      = TFW_RP_TIMER0_TIMERAWL;
-    e->into    = TFW_CM_SYST_RVR - TFW_CM_SYST_CVR;
-    e->pending = EE_ICSR & EE_ICSR_PENDSTSET;
+    uint32_t cvr;
+    uint32_t again;
+
+    /* The phase and the pending bit must agree: an expiration between the
+     * two reads would be both one of the periods crossed and the pending
+     * tick the handler counts. Read the phase on both sides of the pending
+     * bit and read again when SysTick reloaded (or reached zero) between.
+     * A stopped SysTick is never credited, so one read does then. */
+    do {
+        e->t0      = TFW_RP_TIMER0_TIMERAWL;
+        cvr        = TFW_CM_SYST_CVR;
+        e->pending = EE_ICSR & EE_ICSR_PENDSTSET;
+        again      = TFW_CM_SYST_CVR;
+    } while ((TFW_CM_SYST_CSR & TFW_CM_SYST_CSR_ENABLE) != 0u &&
+             (again > cvr || again == 0u));
+    e->into = TFW_CM_SYST_RVR - cvr;
 }
 
 static void credit_masked_ms(const masked_entry_t *e)

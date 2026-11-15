@@ -264,6 +264,21 @@ static void test_a_tick_pending_at_entry_is_not_one_of_the_writes(void)
     TEST_ASSERT_EQUAL_UINT32(46u, tfw_hal_millis() - before);
 }
 
+/* SysTick expires between the write's read of its phase and its read of the
+ * pending bit: that expiration is the one the handler counts on restore, so
+ * the write credits it once, not again among the periods it crossed. */
+static void test_a_tick_between_the_phase_and_pending_reads_counts_once(void)
+{
+    uint8_t  data = 0x5Au;
+    tfw_ms_t before = tfw_hal_millis();
+
+    rp_nor_model_run_us(999u);
+    rp_nor_after_cvr_us = 1u;
+    rp_nor_write_us     = 45000u;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &data, 1u));
+    TEST_ASSERT_EQUAL_UINT32(46u, tfw_hal_millis() - before);
+}
+
 /* A write of bytes the flash already holds erases nothing and leaves the
  * clock to SysTick alone. */
 static void test_an_unchanged_write_credits_nothing(void)
@@ -296,6 +311,7 @@ int main(void)
     RUN_TEST(test_a_run_of_writes_does_not_drift);
     RUN_TEST(test_writes_with_work_between_count_every_boundary);
     RUN_TEST(test_a_tick_pending_at_entry_is_not_one_of_the_writes);
+    RUN_TEST(test_a_tick_between_the_phase_and_pending_reads_counts_once);
     RUN_TEST(test_an_unchanged_write_credits_nothing);
     return UNITY_END();
 }

@@ -551,3 +551,27 @@ What port 2 and the reads must show:
 `/dev/mem` access to the TCM alias on this kernel is unchecked. If it is
 refused, record that, and the port 2 result alone separates the first two
 rows from the rest.
+
+### 9. Device run of the transmit-pump slice (2026-11-15)
+
+Plan, in order (ruling 644 (1) again), for the image built at `2d57f8599`
+(the transmit pump of section 8 and the container image relinked at ITCM 0):
+
+1. Build with the section-8 recipe (`IMX_BOOT=1`); check the link prints no
+   `dot moved backwards`; record the nm addresses of `tfw_imx95_uart_irqs`,
+   `tx_head` and `tx_tail`.
+2. Run `imx-boot-m7.py` on the ELF over `imx-boot-orig.bin` (read back off
+   the board and checked against section 1); its load-address and
+   reset-target checks must pass. Record both SHA-256s.
+3. From the A55 Linux: read the boot container now at 0x8000 (expected:
+   section 7's `03419070...a5980`) and record its digest. Copy the new
+   imx-boot over, check its digest on the board, write it at 0x8000
+   (`dd ... seek=64 conv=fsync,notrunc`), `sync`, read back and compare.
+4. `reboot` from the A55 console, then SM `reset` on port 1 so the ROM reads
+   the new container (section 4). Capture port 2 and port 0 throughout,
+   then the section-8 DTCM reads; compare with section 8's table.
+
+Recovery path, stated before the write: restore `imx-boot-orig.bin` from the
+A55 Linux (section 5 command); if the board does not boot, uuu over USB
+serial download, which needs the owner to set SW4. If the board does not
+reach U-Boot, no further write. No serial break on any port.

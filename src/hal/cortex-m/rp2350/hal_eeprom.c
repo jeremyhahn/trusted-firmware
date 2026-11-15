@@ -191,7 +191,7 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     if (st != TFW_OK) {
         return st;
     }
-    if (memcmp(&USER_EE[at], buf, len) != 0 || sector_crc(0u, NULL, 0u) != want) {
+    if (memcmp(&USER_EE[at], buf, len) != 0 || sector_crc(0u, buf, 0u) != want) {
         return TFW_ERR_INTERNAL;
     }
     return TFW_OK;

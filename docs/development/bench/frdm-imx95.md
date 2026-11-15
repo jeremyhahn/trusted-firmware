@@ -399,3 +399,95 @@ Recovery path, stated before the write: restore `imx-boot-orig.bin` from the
 A55 Linux (section 5 command); if the board does not boot, uuu over USB
 serial download, which needs the owner to set SW4. If the board does not
 reach U-Boot, no further write. No serial break on any port.
+
+#### Build
+
+```
+make BOARD=frdm-imx95-m7 APP_BASE=0x00000000 BOOT_SECTION=0 BUILD_DIR=build/imx95-imxboot/m7-at-0 firmware
+frdm-imx95-m7 flash  11780 / 196608 ( 4% of part)   ram   840 / 65536 ( 0% of part)
+```
+
+The link prints `warning: dot moved backwards before '.faultframe'` (open:
+check it is harmless at APP_BASE 0). The original backup was read back off
+the board (`1d775624...0081f`, matching section 1) and
+`imx-boot-m7.py` rerun over it:
+
+| File | Size | SHA-256 |
+|---|---|---|
+| m7-at-0.bin (SP `0x2003FF80`, reset `0x00002461`) | 11780 | `d5e5d42937652c7a8798d2c6f428f6144e4dc9073696ff2889f0cb04bf4896ea` |
+| imx-boot-m7.bin (pad-request slice) | 8355840 | `034190704c106ae9433218d236c7b935d1984db90c0e94becca796047b8a5980` |
+
+Changed bytes span 0x8195 to 0xC03AB again; entry 3 is now 0x3000 bytes at
+0x303C0000, and `--show` matches every SHA-384.
+
+#### Write and read-back
+
+The A55 commands ran over SSH as root, in the foreground. Before the write
+the device at 0x8000 read `2babcf24...f285c`, the section-2 image, and the
+first 32 KiB `aa20cfeb...67fb9`, equal to the first 32 KiB of
+`emmc-head-8M.bin`. The new image's digest on the board matched the build.
+
+```
+dd if=imx-boot-m7-pads.bin of=/dev/mmcblk0 bs=512 seek=64 conv=fsync,notrunc   # 8355840 bytes, rc 0
+sync
+dd if=/dev/mmcblk0 bs=512 skip=64 count=16320 iflag=direct | sha256sum   # 03419070...a5980, matches
+dd if=/dev/mmcblk0 bs=512 count=64 iflag=direct | sha256sum              # aa20cfeb...67fb9, unchanged
+```
+
+#### Boot
+
+All four ports were captured read-only (115200 8N1, raw, `-hupcl`) from
+before the write to the end; commands went to port 0 and port 1 only, and
+no break was sent.
+
+**`reboot` (port 0).** U-Boot SPL, U-Boot (ELE firmware 2.0.6), `Starting
+kernel`, Linux to the login prompt. Port 2 stayed silent: this resets the
+A55 LM only, as in section 4. Linux:
+`imx-rproc imx95-cm7: unexpected resource table content, ignore`, then
+`remoteproc1 ... attached` (our `.resource_table`, still the section-2 image).
+
+**SM `reset` (port 1).** `Reset request: reason=sw, errId=0, srcLm=0`, DDR
+OEI `done, err = 0`, `Hello from SM (Build 896, Commit 44f76dcb ...)`; port 0
+went through SPL, U-Boot and Linux to the login prompt, with the same
+`imx-rproc` lines. The ROM and ELE accepted the container.
+
+**Port 2: one byte, `0x00`, at the reset, then nothing** for the rest of
+the capture (more than 120 s). No boot event frame.
+
+SM monitor afterwards, read-only:
+
+```
+err      SCMI err (chn=5): protocolId=0x11, messageId=0x2, status=-4   (the Linux one, as before; nothing on the M7's channel)
+syslog   Device err log = 0x00000000
+lm info  000: SM = on   001: M7 = on   002: AP = on (default)
+cpu.r    001: m7p => run-mode = RUN, slp-mode = RUN, vector = 0x00000000_00000000
+clock.r  142: lpuart3 = on, 24000000Hz
+md 0x443C0030 12   (IOMUXC mux, one word per SM pin id from 12)
+443c0030: 00000000 00000001 00000001 00000001
+443c0040: 00000000 00000000 00000001 00000001     <- pin 18 (GPIO_IO14), 19 (GPIO_IO15): ALT1
+443c0050: 00000000 00000000 00000000 00000000
+md 0x42570000 7    (LPUART3, DATA skipped)
+42570000: ???????? ...   the SM monitor cannot read LPUART3
+```
+
+#### Against the list
+
+Not the pass case, and not plain silence: the pads are at ALT1 (pins 16, 17
+and 20 to 23 around them are 0), the SM logged no error for the M7, and
+LPUART3's clock is on at 24 MHz, so the pad request most likely landed (the
+SM's mux write is the only one expected on these pads after a reset). The
+single `0x00` fits TX going from the GPIO default to LPUART3's line once,
+not a frame. What fails is after the pads: our LPUART3 sends no byte. Next
+(firmware, no board access needed first): the transmit path from
+`tfw_hal_uart_init` to the first frame, its use of NVIC line 64 (TO
+CONFIRM), the BAUD divisor for 24 MHz, and the `.faultframe` link warning
+at APP_BASE 0. A debug read of LPUART3 or the M7's PC needs a debugger or
+an SM build that maps them (owner decision).
+
+#### Board state after this run
+
+The eMMC boot container is the pad-request imx-boot-m7.bin
+(`03419070...a5980`); the board boots to Linux, the M7 runs our image. On the
+board, `/root/imxboot-backup/` holds `imx-boot-orig.bin` (the recovery
+image), `imx-boot-m7.bin` (section 2) and `imx-boot-m7-pads.bin` (this run).
+Restore as in section 5. The SM console was left in its monitor (`>$`).

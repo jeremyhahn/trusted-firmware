@@ -90,7 +90,7 @@ AVR). On this part each element has more than one candidate:
 | UDS | a hardware unique key reachable only by secure code before HDP closes (whether the H573 has one usable this way is to confirm in RM0481), or a secret we provision through SFI | open question 3 |
 | Measurement of the next layer | taken by STiRoT, by the Secure Manager, or by our layer 0 | open question 2 |
 | Isolation of the CDI from later layers | HDP, the TrustZone boundary, or both | open question 3 |
-| DeviceID and alias | the Secure Manager's initial attestation key, a key in our TF-M partition (ADR #15 (b1)), or a key in our own secure world (ADR #15 (a)) | open questions 2, 4 |
+| DeviceID and alias | the Secure Manager's initial attestation key, or a key in our TF-M partition (ADR #15 (b1), accepted) | open questions 2, 4 |
 
 What does not change on any candidate: the device signs only the three fixed
 structures (`docs/dice-attestation/architecture.md`), the alias certificate
@@ -104,19 +104,20 @@ reference part, `mps2-an505` in CI, (b1) on the M33, MPU-only on the M7); this s
 and decides nothing.
 
 - **ADR #14** makes the i.MX 95's M7 the reference part and the STM32H5 the
-  second target (decision 1). It expects tfw-boot on the STM32H5 after the QEMU
-  board, from on-chip flash with our own layer 0, and leaves open whether QEMU
-  `mps2-an505` lands with the STM32H5 port (its open question 9).
-- **ADR #15** recommends, for the M33, TF-M Profile Medium with our attestation
-  code as an Application RoT partition (b1). It names this board as TF-M's
-  upstream platform, and it leaves open whether our partition sits on ST's
-  Secure Manager or on upstream TF-M (its open question 2, which is the
-  `stm32h5` row's open decision).
-- **The tension between them.** Under (b1) MCUboot, not tfw-boot, boots this
-  board, and ADR #14's tfw-boot expectation holds only if the owner keeps (a)
-  here (ADR #15 open question 1 and follow-up F4). Under the Secure Manager the
-  boot chain is ST's. This ADR adds no fourth option; open question 1 carries
-  the choice.
+  second target (decision 1). Its HAL table leaves the boot stage on the M33
+  boards to ADR #15's model, and the ruling picks QEMU `mps2-an505` as the CI
+  machine.
+- **ADR #15** decides, for the M33, (b1): TF-M Profile Medium with our DICE
+  attestation code as an Application RoT partition in the secure world, MCUboot
+  as BL2. It names this board as TF-M's upstream platform, and it leaves open
+  whether our partition sits on ST's Secure Manager or on upstream TF-M (its
+  open question 2, which is the `stm32h5` row's open decision). Our own secure
+  world, ADR #15 (a), is held in reserve for M33 parts TF-M has no port for; it
+  is not an option on this board.
+- **No tension remains.** Under (b1) MCUboot, not tfw-boot, boots this board
+  (ADR #15: "Under (b1), tfw-boot runs on neither bench board"), so ADR #14's
+  HAL table and ADR #15 agree. Under the Secure Manager the boot chain is ST's.
+  Open question 1 carries only the choice between the two.
 
 ## 4. Onboarding on the bench host
 
@@ -153,15 +154,16 @@ the part.
 
 ## Open questions for the owner
 
-None is decided here.
+None is decided here. Owner ruling 632 item 208 a (2026-11-14) accepted ADRs
+#14 and #15: the M33 secure world is TF-M Profile Medium with our DICE
+attestation partition (ADR #15 (b1)), so our own secure world (ADR #15 (a)) is
+no longer offered for this board.
 
-1. **The secure world on this board.** ST's Secure Manager, with its PSA token
-   on go-xkms's EAT path; upstream TF-M with our partition (ADR #15 (b1)); or our
-   own secure world (ADR #15 (a)), which is what ADR #14's tfw-boot expectation
-   assumes? This is the `stm32h5` row's open decision and ADR #15's questions 1
-   and 2.
+1. **Which TF-M build carries our partition.** ST's Secure Manager, with its PSA
+   token on go-xkms's EAT path, or upstream TF-M? This is the `stm32h5` row's
+   open decision and ADR #15's open question 2.
 2. **DICE layer 0.** Is the immutable layer ST's (STiRoT, or the Secure Manager's
-   boot) or ours (an OEMiRoT, or tfw-boot under HDP)? It decides who measures
+   boot) or ours (an OEMiRoT, or MCUboot as BL2 under HDP)? It decides who measures
    the next layer and derives the CDI.
 3. **The UDS.** Which secret is the UDS, who provisions it (ST at the factory, or
    our bench through SFI and `tfwprov`), and does HDP alone isolate it from the
@@ -188,7 +190,10 @@ None is decided here.
 
 ## Follow-ups (proposed, not filed)
 
-- When the owner answers open question 1, update this ADR, ADR #14's decision 1
-  table, ADR #15 follow-up F3, and the `stm32h5` row in one change.
+- The `stm32h5` row in `docs/SPEC.md` still reads "our own TrustZone secure
+  world"; aligning it with ADR #15 (b1) is a SPEC change for the CA, not this
+  ADR's.
+- When the owner answers open question 1, update this ADR and ADR #15 follow-up
+  F3 in one change.
 - The first slice of the port reads the ST documents above at their current
   revisions and replaces every "to confirm" with a cited section.

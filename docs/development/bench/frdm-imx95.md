@@ -1052,3 +1052,34 @@ Unchanged. Nothing was written to the board: every command above was an
 SM monitor read (`lm info`, `trdc`, `clock.r`, `md`), no break was sent,
 and the SM console was left in its monitor (`>$`). The eMMC still holds
 imx-boot-m7-steps.bin (section 11).
+
+### 13. Does the M7 reach LPUART3? Image, clock and divisor (2026-11-15)
+
+Section 12 ruled out access: the SM config and the live TRDC give LPUART3
+to the M7, its clock is on at 24 MHz and its pads are muxed. The SM shows
+the M7 in RUN at vector 0, and port 2 is still silent. Plan, read-only
+first, no SM configuration change, no fuse, lifecycle or secure-boot
+action, no break:
+
+1. **Is the running image ours?** Read the boot container back from the
+   eMMC (offset 0x8000) on the A55, copy it to the bench host, extract
+   container entry 3 (the M7 image) and compare its SHA-256 with our
+   build's `.bin`; record entry 3's load address, entry point, size and
+   flags from the container header, against the board's original entry
+   (0x303C0000, entry 0).
+2. **Does our LPUART3 setup match the board?** Read the step-mark and
+   console init (`hal_soc.c` `tfw_cm_soc_step`, `hal_uart.c`,
+   `soc_calc.c` `tfw_imx95_lpuart_baud`) and check the BAUD value against
+   the 24 MHz root section 12 measured, the register offsets and bits
+   against the objdump, and the pins and instance against section 12's
+   mux reads.
+3. **Did the M7 touch LPUART3?** If the SM monitor has a read that
+   reaches LPUART3 (`help`; section 11's `md` returned `????????`), read
+   BAUD, CTRL and STAT at `0x42570000`; otherwise say what the reads that
+   do work (pad mux and pad control) show about whether the M7 ran our
+   pad request.
+4. Only if step 2 finds a defect: fix it with a host test, build, and
+   load it by ruling 644 (1). The backup, before any write: the board's
+   `/root/imxboot-backup/imx-boot-orig.bin` (section 1,
+   `1d775624...0081f`); recovery is restoring it from the A55 Linux, or
+   uuu over USB serial download, which needs the owner to set SW4.

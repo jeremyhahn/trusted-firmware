@@ -279,6 +279,24 @@ static void test_a_tick_between_the_phase_and_pending_reads_counts_once(void)
     TEST_ASSERT_EQUAL_UINT32(46u, tfw_hal_millis() - before);
 }
 
+/* The same interleaving on every one of several writes: the clock keeps to
+ * elapsed time, so a scheduled hold never expires early. */
+static void test_repeated_writes_with_a_tick_between_the_reads_keep_time(void)
+{
+    uint8_t  data = 0xA5u;
+    tfw_ms_t before = tfw_hal_millis();
+    unsigned i;
+
+    for (i = 0u; i < 8u; i++) {
+        rp_nor_model_run_us(999u);
+        rp_nor_after_cvr_us = 1u;
+        rp_nor_write_us     = 45000u;
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &data, 1u));
+        data ^= 0xFFu;
+    }
+    TEST_ASSERT_EQUAL_UINT32(8u * 46u, tfw_hal_millis() - before);
+}
+
 /* A write of bytes the flash already holds erases nothing and leaves the
  * clock to SysTick alone. */
 static void test_an_unchanged_write_credits_nothing(void)
@@ -312,6 +330,7 @@ int main(void)
     RUN_TEST(test_writes_with_work_between_count_every_boundary);
     RUN_TEST(test_a_tick_pending_at_entry_is_not_one_of_the_writes);
     RUN_TEST(test_a_tick_between_the_phase_and_pending_reads_counts_once);
+    RUN_TEST(test_repeated_writes_with_a_tick_between_the_reads_keep_time);
     RUN_TEST(test_an_unchanged_write_credits_nothing);
     return UNITY_END();
 }

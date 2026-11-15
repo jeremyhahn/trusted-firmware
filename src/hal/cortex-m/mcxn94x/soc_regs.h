@@ -58,6 +58,52 @@
 
 #define TFW_MCXN_PORT_COUNT         5u
 
+/* ADC0's gate and reset in AHBCLKCTRL1 / PRESETCTRL1, its clock select and
+ * divider. The line numbers here and in the ADC0 block below are of
+ * devices/MCXN947/MCXN947_cm33_core0.h at mcux-sdk 8a289764, pinned in
+ * docs/reference/README.md. */
+#define TFW_MCXN_CTRL1_ADC0         (1u << 3)  /* SYSCON_AHBCLKCTRL1_ADC0_MASK 73685, SYSCON_PRESETCTRL1_ADC0_RST_MASK 72869 */
+#define TFW_MCXN_ADC0CLKSEL         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x2A4u)  /* 72243 */
+#define TFW_MCXN_ADC0CLKDIV         TFW_CM_REG(TFW_MCXN_SYSCON_BASE + 0x394u)  /* 72264; RESET, HALT 74768, 74776 */
+#define TFW_MCXN_ADCCLKSEL_FRO12M   3u         /* SYSCON_ADC0CLKSEL_SEL 74412: FRO 12 MHz */
+
+/* ---- ADC0 (LPADC): ADC_Type, 672-706. CMD[0] is command 1; FIFO 0 of two. */
+#define TFW_MCXN_ADC0_BASE          0x5010D000u                                  /* ADC0_BASE 1611 */
+#define TFW_MCXN_ADC_CTRL           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x010u)      /* 676 */
+#define TFW_MCXN_ADC_STAT           TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x014u)      /* 677 */
+#define TFW_MCXN_ADC_CFG            TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x020u)      /* 680 */
+#define TFW_MCXN_ADC_SWTRIG         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x034u)      /* 683 */
+#define TFW_MCXN_ADC_TCTRL0         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0A0u)      /* 688 */
+#define TFW_MCXN_ADC_GCC(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F0u + 4u * (n))  /* 692 */
+#define TFW_MCXN_ADC_GCR(n)         TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x0F8u + 4u * (n))  /* 693 */
+#define TFW_MCXN_ADC_CMDL1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x100u)      /* 695 */
+#define TFW_MCXN_ADC_CMDH1          TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x104u)      /* 696 */
+#define TFW_MCXN_ADC_RESFIFO0       TFW_CM_REG(TFW_MCXN_ADC0_BASE + 0x300u)      /* 701 */
+
+/* Each field's _MASK line in the same header. */
+#define TFW_MCXN_ADC_CTRL_ADCEN     (1u << 0)  /* ADC_CTRL_ADCEN 842 */
+#define TFW_MCXN_ADC_CTRL_RST       (1u << 1)  /* ADC_CTRL_RST 850 */
+#define TFW_MCXN_ADC_CTRL_DOZEN     (1u << 2)  /* ADC_CTRL_DOZEN 858 */
+#define TFW_MCXN_ADC_CTRL_CAL_REQ   (1u << 3)  /* ADC_CTRL_CAL_REQ 866 */
+#define TFW_MCXN_ADC_CTRL_CALOFS    (1u << 4)  /* ADC_CTRL_CALOFS 874 */
+#define TFW_MCXN_ADC_CTRL_RSTFIFO0  (1u << 8)  /* ADC_CTRL_RSTFIFO0 882 */
+#define TFW_MCXN_ADC_CTRL_RSTFIFO1  (1u << 9)  /* ADC_CTRL_RSTFIFO1 890 */
+#define TFW_MCXN_ADC_CTRL_CAL_AVGS_SHIFT 16u   /* ADC_CTRL_CAL_AVGS 898; 7: 128 averaged, 908 */
+#define TFW_MCXN_ADC_STAT_CAL_RDY   (1u << 10) /* ADC_STAT_CAL_RDY 967 */
+#define TFW_MCXN_ADC_CFG_REFSEL_SHIFT 6u       /* ADC_CFG_REFSEL 1101; 0: "Option 1", 1104 */
+#define TFW_MCXN_ADC_CFG_PUDLY_SHIFT  16u      /* ADC_CFG_PUDLY 1135 */
+#define TFW_MCXN_ADC_CFG_PWREN      (1u << 28) /* ADC_CFG_PWREN 1140 */
+#define TFW_MCXN_ADC_SWTRIG_SWT0    (1u << 0)  /* ADC_SWTRIG_SWT0 1172 */
+#define TFW_MCXN_ADC_TCTRL_TCMD_SHIFT 24u      /* ADC_TCTRL_TCMD 1293 */
+#define TFW_MCXN_ADC_GCC_GAIN_CAL   0xFFFFu    /* ADC_GCC_GAIN_CAL 1327 */
+#define TFW_MCXN_ADC_GCC_RDY        (1u << 24) /* ADC_GCC_RDY 1332 */
+#define TFW_MCXN_ADC_GCR_RDY        (1u << 24) /* ADC_GCR_RDY 1352 */
+#define TFW_MCXN_ADC_CMDL_ADCH_MASK 0x1Fu      /* ADC_CMDL_ADCH 1367; CTYPE 0 (A side), MODE 0 (12-bit), 1383, 1393 */
+#define TFW_MCXN_ADC_CMDL_CTYPE_B   (1u << 5)  /* ADC_CMDL_CTYPE 1380 (bits 6:5); 1: B side only, 1384 */
+#define TFW_MCXN_ADC_CMDH_STS_SHIFT 8u         /* ADC_CMDH_STS 1452; 7: 131.5 ADCK cycles, 1462 */
+#define TFW_MCXN_ADC_RESFIFO_D      0xFFFFu    /* ADC_RESFIFO_D 1529 */
+#define TFW_MCXN_ADC_RESFIFO_VALID  (1u << 31) /* ADC_RESFIFO_VALID 1565 */
+
 /* The CTIMERs' clock select (FRO12M is 4, fsl_clock.h kFRO12M_to_CTIMERn),
  * divider and function-clock enable, and their gates and resets: CTIMER0, 1,
  * 2 at bits 26, 27, 22 of AHBCLKCTRL1 / PRESETCTRL1, CTIMER3 and 4 at bits 21

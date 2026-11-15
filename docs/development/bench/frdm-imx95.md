@@ -1195,3 +1195,52 @@ Before the write, on the A55 Linux: `/root/imxboot-backup/` still holds
 (`1c6ed98d...7cf54`), and the eMMC at 0x8000 reads `1c6ed98d...7cf54`
 (section 10's container). Those are the restore points; uuu over USB
 serial download (owner sets SW4) if the board does not boot.
+
+Write and boot (A55 Linux, then the SM monitor):
+
+```
+dd if=imx-boot-m7-regdump.bin of=/dev/mmcblk0 bs=512 seek=64 conv=fsync,notrunc   # 8355840 bytes, rc 0
+dd if=/dev/mmcblk0 bs=512 skip=64 count=16320 iflag=direct | sha256sum   # 5d52f073...961902b3, matches
+dd if=/dev/mmcblk0 bs=512 count=64 iflag=direct | sha256sum              # aa20cfeb...67fb9, unchanged
+>$ reset        # port 1: "Reset request: reason=sw", DDR OEI, "Hello from SM (Build 896, Commit 44f76dcb)"
+```
+
+Port 2, captured from the `reset` for 40 s: one byte, `00`, as in
+sections 7 to 10. Then `md 0x44611000 0x100` on port 1; the dump area:
+
+```
+44611180: 4c335244 00000005 ........ ........    magic "L3RD", 5 records
+446111a0: 00000052 04040007 00000404 00000000    'R' #0  VERID PARAM GLOBAL
+446111b0: 19000008 00c00000 00080000 00000000            BAUD  STAT  CTRL  polls
+446111c0: 00000144 04040007 00000404 00000000    'D' #1
+446111d0: 19000008 00c00000 00080000 00000000
+446111e0: 0000024d 04040007 00000404 00000000    'M' #2
+446111f0: 19000008 00c00000 00080000 00000000
+44611200: 00000350 04040007 00000404 00000000    'P' #3
+44611210: 19000008 00c00000 00080000 00000000
+44611220: 00000455 04040007 00000404 00000000    'U' #4
+44611230: 19000008 00c00000 002c0000 00000000
+```
+
+(header words 2 to 7 and the words past the fifth record are the SRAM's
+uninitialised contents; the dump does not write them.)
+
+Decoding:
+
+- All five marks ran, R, D, M, P and U, in order: the M7 runs our image
+  from the reset handler through `tfw_hal_uart_init`.
+- VERID 0x04040007: LPUART version 4.4, feature 7. PARAM 0x00000404:
+  16-word transmit and receive FIFOs. LPUART3 answers the M7's reads.
+- GLOBAL 0: out of reset. BAUD 0x19000008 at every mark: our value (OSR
+  26, SBR 8; 115200 at the 24 MHz root above), so the writes take.
+- CTRL 0x00080000 (TE) at R to P; 0x002c0000 (TE, RE, RIE) after U.
+- STAT 0x00c00000 (TDRE and TC) at every mark, read after the byte was
+  written and TC polled; polls 0: TDRE was set at once each time. The
+  transmitter took each byte and finished shifting it out.
+
+Conclusion: LPUART3 is clocked, programmed as we intend and transmits
+(TC sets after each byte), yet port 2 receives none of it. The loss is
+past LPUART3's transmitter: the pad route from LPUART3_TX to the pin
+port 2 listens on (the mux and pad state of section 12 read ALT1 and
+0x51e), or that pin is not the one port 2 is wired to. The registers rule
+out the clock, the divisor, the access and a stuck transmitter.

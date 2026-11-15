@@ -36,14 +36,4 @@ menu "Trusted firmware"
         help
             Dotted quad, for example 192.0.2.1.
 
-    config TFW_PERIPH_SELFCHECK
-        bool "Run the HAL peripheral self-checks once at boot (bench image)"
-        default n
-        help
-            A bench build only (src/hal/esp32/hal_selfcheck.c). On, the app
-            runs the GPIO, ADC, PWM, tone, pulse and EEPROM HAL on pins the
-            board leaves unconnected, reads the C6 enable, and prints one
-            "tfw-selfcheck:" line per check on the console before the wire
-            starts. Off, the function is empty and the image is main's.
-
 endmenu

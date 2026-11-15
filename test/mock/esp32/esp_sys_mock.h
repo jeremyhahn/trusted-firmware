@@ -28,7 +28,7 @@ typedef struct {
     rtc_retain_mem_t   retain;          /* bootloader_common_get_rtc_retain_mem's */
 
     unsigned reason_calls, restart_calls, delay_calls, free_size_calls,
-             board_calls, selfcheck_calls, handoff_calls, retain_calls, timer_calls;
+             board_calls, handoff_calls, retain_calls, timer_calls;
     uint32_t delay_us;                  /* the last esp_rom_delay_us argument */
     uint32_t free_size_caps;            /* the last heap_caps_get_free_size argument */
 } mock_sys_t;

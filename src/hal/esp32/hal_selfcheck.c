@@ -82,12 +82,16 @@ static void check_pwm(void)
     uint32_t on = 0u, off = 1u;
     tfw_status_t st = tfw_board_pwm(SC_PWM_PIN, &p);
 
+    /* The duty register LEDC reads back latches at the start of the next PWM
+     * period, so each read waits a few periods after the write. */
     if (st == TFW_OK) st = tfw_hal_pwm_write(&p, 128u);
-    if (st == TFW_OK) on = ledc_get_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    if (st == TFW_OK) tfw_hal_delay_us(20000u);
+    if (st == TFW_OK) on = ledc_get_duty((ledc_mode_t)p.mode, (ledc_channel_t)p.channel);
     if (st == TFW_OK) st = tfw_hal_pwm_write(&p, 0u);
-    if (st == TFW_OK) off = ledc_get_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    if (st == TFW_OK) tfw_hal_delay_us(20000u);
+    if (st == TFW_OK) off = ledc_get_duty((ledc_mode_t)p.mode, (ledc_channel_t)p.channel);
     if (st == TFW_OK) st = tfw_hal_pwm_stop(&p);
-    report("hal_pwm", st == TFW_OK && on > 0u && off == 0u,
+    report("hal_pwm", st == TFW_OK && on == 128u && off == 0u,
            "LEDC duty at 128: %d, at 0: %d", (int)on, (int)off);
 }
 

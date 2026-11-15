@@ -1083,3 +1083,53 @@ action, no break:
    `/root/imxboot-backup/imx-boot-orig.bin` (section 1,
    `1d775624...0081f`); recovery is restoring it from the A55 Linux, or
    uuu over USB serial download, which needs the owner to set SW4.
+
+Result (read-only; nothing was written to the board, so no new backup).
+
+1. The running M7 image is ours. The eMMC read back at 0x8000 has SHA-256
+   `1c6ed98d...7cf54`, the same as the section 10 container
+   (`/root/imxboot-backup/imx-boot-m7-steps.bin`, board and bench host);
+   `imx-boot-orig.bin` (`1d775624...0081f`) is still there. `imx-boot-m7.py
+   --show` on it: entry 3 at offset 0x0af800, size 0x3000, load 0x303c0000,
+   entry 0, flags 0x01b3, meta 0x1, every SHA-384 matching. The vendor
+   container's entry 3 has the same load, entry, flags and meta (size
+   0x8c00). The 0x3000 bytes of entry 3 equal a `git archive` rebuild of
+   the section 10 commit (`make BOARD=frdm-imx95-m7 IMX_BOOT=1
+   STEP_MARKS=1`, 12004 bytes, SHA-256 `bfede767...6774562e`) byte for
+   byte, then zero padding. The vector: SP 0x2003FF80, reset 0x253D.
+2. No defect in the LPUART3 setup. `tfw_imx95_lpuart_baud` gives BAUD
+   0x19000008 at 24 MHz and 115200 (OSR 26, SBR 8, 115384 baud, +0.16 %),
+   pinned by `test_imx95_soc_calc`; `TFW_IMX95_LPUART_CLK_HZ` is 24000000,
+   the SM's `clock.r lpuart3` rate. BAUD +0x10, STAT +0x14, CTRL +0x18
+   (TE bit 19), DATA +0x1C and the step-mark path (`tfw_cm_soc_step`: BAUD
+   then TE, bounded TDRE and TC polls) match the reference manual. In the
+   imx-sm source (`fsl_clock.h`) LPUART3 is clock root 101 with no LPCG of
+   its own, so the root is its whole clock.
+3. The SM monitor's `help` lists `md`, `md.b`, `md.w` and `mm` as its only
+   memory commands, and section 11 showed `md 0x42570000` returns
+   `????????` (the SM's domain has no access to MBC0 block 87); `mm` is
+   not used (no SM-side change). LPUART3's BAUD, CTRL and STAT therefore
+   cannot be read from the board as it is. What `md` can read is the M7's
+   SCMI shared memory in MU5 (`md 0x44611000 32`):
+
+       00000000 00000001 00000003 4725fc0e
+       00000000 00000008 00046406 00000000
+       00000000 00000004 000000c0 00000001   (rest zero)
+
+   Channel status 1 (free: the SM answered), length 8, header 0x46406 =
+   protocol 0x19 (pin control), message 6 (SETTINGS_CONFIGURE), token 1,
+   status 0 (SUCCESS). So the M7 runs our image past the R, D and M marks,
+   each of which writes LPUART3 BAUD, CTRL and DATA, without a fault (the
+   SM's error log has no DOM4 violation), and its second pad request was
+   answered. The SCMI wait is bounded, so the P mark runs next. Port 2,
+   read for 4 s after this: 0 bytes.
+
+Conclusion: the image on the board is ours, and the M7 reaches and writes
+LPUART3 without a bus fault, yet no byte reaches port 2. What is left:
+LPUART3 ignores the writes (held in reset or not clocked, despite
+`clock.r`), so TDRE never sets and the bounded polls time out, or TX does
+not reach the pad. Next slice (a write under ruling 644 (1)): a diagnostic
+image in which the M7 copies LPUART3 VERID, PARAM, GLOBAL, BAUD, STAT and
+CTRL into spare MU5 SRAM after the SCMI area (0x44611080 on), which the SM
+`md` can read; and the CCM root 101 registers read with `md`. Board state:
+unchanged, SM console left at its prompt.

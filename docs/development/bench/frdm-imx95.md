@@ -1244,3 +1244,38 @@ past LPUART3's transmitter: the pad route from LPUART3_TX to the pin
 port 2 listens on (the mux and pad state of section 12 read ALT1 and
 0x51e), or that pin is not the one port 2 is wired to. The registers rule
 out the clock, the divisor, the access and a stuck transmitter.
+
+#### Restore, and the vendor image's console route
+
+Restored the vendor container (`imx-boot-orig.bin`) from the A55 Linux:
+
+```
+dd if=imx-boot-orig.bin of=/dev/mmcblk0 bs=512 seek=64 conv=fsync,notrunc   # 8355840 bytes, rc 0
+dd if=/dev/mmcblk0 bs=512 skip=64 count=16320 iflag=direct | sha256sum   # 1d775624...0081f, matches
+dd if=/dev/mmcblk0 bs=512 count=64 iflag=direct | sha256sum              # aa20cfeb...67fb9, unchanged
+>$ reset
+```
+
+Port 2, from the `reset`, 40 s, 474 bytes: the same leading `00`, then the
+vendor M7 demo ("Start SRTM communication", "Power Mode Switch Task", "Core
+Clock: 800000000Hz", its menu). So port 2's wiring works at 115200, and
+the leading `00` is not ours: the vendor image shows it too.
+
+The SM monitor, with the vendor M7 image running:
+
+```
+md 0x443C0048 2      00000000 00000000     # GPIO_IO14/15 mux: ALT0 (GPIO), not ALT1
+md 0x443C024C 2      0000051e 0000051e     # their pad control, as with ours
+md 0x443C0558 2      00000000 00000000     # LPUART3 RXD/TXD input select
+clock.r lpuart3      142: lpuart3 = on, 24000000Hz
+```
+
+**The vendor M7 console does not use GPIO_IO14/15.** While its text
+reaches port 2, those two pads sit at ALT0; with our image they read ALT1
+(section 12). So the pads our firmware routes LPUART3 to are not the ones
+port 2 listens on, which is why every byte LPUART3 sent (the dump above)
+was lost. The vendor's full mux table (`md 0x443C0000 0x81`, one word per
+SM pin id) has these non-zero entries, the vendor console's pads among
+them: ids 0 to 3 = 6; 8, 9 = 5; 13 to 15 = 1; 32 to 36 and 39 = 0x11; 40,
+41, 44, 45 = 2; 42, 43 = 5; 46, 47 = 0x12; 92 to 95, 100 to 104 and 111 =
+5; 96 to 99 = 1; 112 to 115 = 0x10; 122, 124, 125 = 5; 123, 126 = 4; 127 = 1.

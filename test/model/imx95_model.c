@@ -113,11 +113,6 @@ static enum reg decode(uintptr_t addr, uint32_t *idx)
         *idx = (uint32_t)((addr - m->scmi.shm_base) / 4u);
         return R_SHM;
     }
-    if (m->dump.base != 0u && addr >= m->dump.base &&
-        addr < m->dump.base + 4u * TFW_IMX95_MODEL_DUMP_WORDS && ((addr - m->dump.base) & 3u) == 0u) {
-        *idx = (uint32_t)((addr - m->dump.base) / 4u);
-        return R_DUMP;
-    }
     if (m->ele.mu_base != 0u) {
         if (addr == m->ele.mu_base + 0x004u) { return R_PAR; }
         if (addr == m->ele.mu_base + 0x124u) { return R_TSR; }

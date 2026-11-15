@@ -1162,3 +1162,18 @@ the vendor container), also on the bench host; the current container is
 `1c6ed98d...7cf54`). Recovery path, stated before writing: restore a
 backup from the A55 Linux; if the board does not boot, uuu over USB serial
 download, which needs the owner to set SW4.
+
+Read-only results (SM monitor, before any write):
+
+- `md 0x44611000 0x80`: MU5 SRAM holds three SMT channel headers, at
+  +0x000 (the M7's channel, the pad request of section 13), +0x080 and
+  +0x100 (each `00000000 00000001 00000003 00000000`: channel free, set up
+  by the SM). From +0x180 the SRAM holds uninitialised (random) words, and
+  `md 0x446113f0 8` shows it ends at +0x400 (0x44611400 reads `????????`).
+  So the dump goes at +0x180 (0x44611180), not +0x080 as planned: +0x080
+  and +0x100 are the SM's channels.
+- CCM clock root 101 (LPUART3), `md 0x44453280 0x20` (root n at
+  0x44450000 + n * 0x80): CONTROL `00000000`, i.e. mux 0 (the 24 MHz
+  oscillator), divider 1, OFF bit 24 clear; STATUS0 (+0x20) `00000000`,
+  i.e. not off and not changing. The rest: +0x2c `00000020`, +0x30 to
+  +0x3c `ffff0000`. This agrees with `clock.r lpuart3` (on, 24 MHz).

@@ -17,17 +17,59 @@
 #define TFW_BOARD_NAME "mps2-an500"
 #define TFW_BOARD_ID   0x42u   /* docs/boards/board-id-registry.md */
 
+/* The ONEWIRE=1 row adds GPIO block 0 as port 2 and its bit 0 as pin 3, the
+ * 1-Wire line (board.c, src/hal/cortex-m/mps2/gpio_line.h). */
+#if defined(TFW_CM_ONEWIRE)
+#define TFW_PIN_COUNT  4u
+#define TFW_PORT_COUNT 3u      /* the FPGA I/O block's LED and MISC, GPIO 0 */
+#else
 #define TFW_PIN_COUNT  3u
 #define TFW_PORT_COUNT 2u      /* the FPGA I/O block's LED and MISC registers */
+#endif
+/* PWM=1 (profile.mk, TFW_CM_PWM): software PWM on the CMSDK dual timer
+ * (src/hal/cortex-m/mps2/hal_pwm.c) on the two LEDs, board.c's pwm_idx. */
+#if defined(TFW_CM_PWM)
+#define TFW_PWM_COUNT  2u
+#else
 #define TFW_PWM_COUNT  0u
+#endif
+/* The LEDs' pin-table fields (board.c), object-like so scripts/board-check.py
+ * reads them: their PWM rows and TFW_PIN_PWM in the PWM=1 row, none outside
+ * it, where tfw_board_pwms is empty. */
+#if defined(TFW_CM_PWM)
+#define TFW_MPS2_LED0_PWM  0u
+#define TFW_MPS2_LED1_PWM  1u
+#define TFW_MPS2_PWM_FLAG  0xFFu
+#else
+#define TFW_MPS2_LED0_PWM  TFW_PWM_NONE
+#define TFW_MPS2_LED1_PWM  TFW_PWM_NONE
+#define TFW_MPS2_PWM_FLAG  0u
+#endif
 #define TFW_ADC_COUNT  0u
 #define TFW_EEPROM_SIZE TFW_CM_PLATFORM_SIZE  /* the platform window: src/hal/cortex-m/hal_eeprom.c */
 
 #define TFW_FEATURE_ANALOG  0
+#if defined(TFW_CM_PWM)
+#define TFW_FEATURE_PWM     1
+#else
 #define TFW_FEATURE_PWM     0
+#endif
+/* The tone (TONE=1, src/hal/cortex-m/mps2/hal_tone.c): LED1, toggled from
+ * TIMER0's interrupt. Off by default: QEMU does not measure the pin. */
+#if defined(TFW_CM_TONE)
+#define TFW_FEATURE_TONE    1
+#else
 #define TFW_FEATURE_TONE    0
-#define TFW_FEATURE_PULSE   0
+#endif
+#define TFW_TONE_PIN        1u
 #define TFW_FEATURE_EEPROM  1
+/* Pulse timing (src/hal/cortex-m/hal_pulse.c, on SysTick) only in the PULSE=1
+ * row (profile.mk): QEMU drives no pin, so the row's wire test sees a timeout. */
+#if defined(TFW_CM_PULSE)
+#define TFW_FEATURE_PULSE   1
+#else
+#define TFW_FEATURE_PULSE   0
+#endif
 /* I2C over the shield 0 SBCon (src/hal/cortex-m/mps2/hal_bus.c) only in the
  * I2C=1 row (profile.mk): no element is on this board, and QEMU puts no device
  * on the bus, so the row's image is the soft root's with the bus linked. */
@@ -44,7 +86,13 @@
 #else
 #define TFW_FEATURE_SPI     0
 #endif
+/* 1-Wire bit-banged on GPIO block 0 bit 0 (hal_bus.c), only in the ONEWIRE=1
+ * row: QEMU puts no device on the line. */
+#if defined(TFW_CM_ONEWIRE)
+#define TFW_FEATURE_ONEWIRE 1
+#else
 #define TFW_FEATURE_ONEWIRE 0
+#endif
 
 /* The soft root: the UDS in tfw-boot's region, the CDI handed over in SRAM. */
 #define TFW_FEATURE_ATTEST 1
@@ -87,6 +135,24 @@
  * not wire the PL022's own select to the shield. */
 #define TFW_MPS2_SPI_BASE     0x40026000u
 
+/* The CMSDK APB timer TIMER0, the tone's clock: 0x40000000 and interrupt 8
+ * (AN500, Arm DAI 0500B, 3.1 Table 3-1 and the interrupt map). QEMU v10.0.0
+ * hw/arm/mps2.c maps the cmsdk-apb-timer at 0x40000000 with IRQ 8. */
+#define TFW_MPS2_TIMER0_BASE  0x40000000u
+#define TFW_MPS2_TIMER0_IRQ   8
+
+/* The CMSDK AHB GPIO block 0, on the shield header: AN500 (Arm DAI 0500B),
+ * 0x4001_0000; QEMU's mps2.c maps it as an unimplemented device, which reads
+ * 0. Its bit 0 is the ONEWIRE=1 row's line (src/hal/cortex-m/mps2/
+ * gpio_line.h); unused outside that row. */
+#define TFW_MPS2_GPIO0_BASE   0x40010000u
+
+/* The CMSDK APB dual timer, the software PWM's clock (PWM=1): AN500 (Arm DAI
+ * 0500B), Table 3-1 memory map, 0x4000_2000; its interrupt, line 10, as
+ * QEMU's hw/arm/mps2.c wires it for mps2-an500. Unused while
+ * TFW_FEATURE_PWM is 0. */
+#define TFW_MPS2_DUALTIMER_BASE 0x40002000u
+#define TFW_MPS2_DUALTIMER_IRQ  10
 /* Flash geometry for tfw-boot, as addresses: TFW_FLASH_TOTAL is the end of
  * SSRAM1, the span both regions sit in (include/tfw/boot.h asserts they fit
  * below it and do not overlap). tfw-boot is at the base, where the core

@@ -39,6 +39,20 @@
 #define TFW_SCMI_PROTO_SYSTEM 0x12u
 #define TFW_SCMI_PROTO_CLOCK 0x14u
 #define TFW_SCMI_PROTO_RESET 0x16u
+#define TFW_SCMI_PROTO_PINCTRL 0x19u
+
+/* Pin control (SCMI 3.2 section 4.11): PINCTRL_SETTINGS_CONFIGURE takes an
+ * identifier, a function id, attributes (bits 1:0 selector, 0 = pin; bits
+ * 9:2 the number of configs; bit 10 function id valid) and then the configs
+ * as (type, value) pairs. The i.MX System Manager's vendor types (imx-sm
+ * scmi_pinctrl): 192 the IOMUXC mux, 193 the pad config, 194 the daisy
+ * register's id, 195 the daisy value. */
+#define TFW_SCMI_PINCTRL_SETTINGS_CONFIGURE 0x6u
+#define TFW_SCMI_PINCTRL_TYPE_MUX        192u
+#define TFW_SCMI_PINCTRL_TYPE_CONFIG     193u
+#define TFW_SCMI_PINCTRL_TYPE_DAISY_ID   194u
+#define TFW_SCMI_PINCTRL_TYPE_DAISY_CFG  195u
+#define TFW_SCMI_PINCTRL_CONFIGS_MAX     4u
 
 /* Message identifiers. PROTOCOL_VERSION and PROTOCOL_ATTRIBUTES are 0 and 1
  * in every protocol (section 4.1.3, Table 4). */
@@ -134,6 +148,12 @@ void tfw_scmi_clock_rate_get(struct tfw_scmi_msg *m, uint32_t token, uint32_t cl
 /* Synchronous: flags 0. */
 void tfw_scmi_power_state_set(struct tfw_scmi_msg *m, uint32_t token, uint32_t domain_id,
                               uint32_t power_state);
+
+/* PINCTRL_SETTINGS_CONFIGURE on one pin, no function, n (at most
+ * TFW_SCMI_PINCTRL_CONFIGS_MAX; more are dropped) configs. */
+void tfw_scmi_pinctrl_settings_configure(struct tfw_scmi_msg *m, uint32_t token,
+                                         uint32_t pin_id, const uint32_t *types,
+                                         const uint32_t *values, uint32_t n);
 void tfw_scmi_reset(struct tfw_scmi_msg *m, uint32_t token, uint32_t domain_id,
                     uint32_t flags, uint32_t reset_state);
 /* `flags` and `system_state` as the specification numbers them; reserved

@@ -40,7 +40,6 @@
 #define TFW_IMX95_MODEL_BANKS  5u
 #define TFW_IMX95_MODEL_SHM_WORDS 64u   /* the largest SCMI area a test maps */
 #define TFW_IMX95_MODEL_ELE_WORDS 16u   /* the longest ELE message a test sends */
-#define TFW_IMX95_MODEL_DUMP_WORDS 80u  /* the bench register dump: 8 + 8 * 8 */
 
 struct tfw_imx95_model;
 
@@ -54,8 +53,6 @@ typedef void (*tfw_imx95_model_platform_fn)(struct tfw_imx95_model *m);
 
 struct tfw_imx95_model {
     struct {
-        uint32_t verid;                  /* set by a test: VERID, +0x00 */
-        uint32_t param;                  /* set by a test: PARAM, +0x04 */
         uint32_t global;                 /* GLOBAL, +0x08 */
         uint32_t baud;                   /* BAUD,   +0x10 */
         uint32_t ctrl;                   /* CTRL,   +0x18 */
@@ -111,10 +108,6 @@ struct tfw_imx95_model {
         uint32_t  requests;              /* complete requests handed to `enclave` */
         tfw_imx95_model_platform_fn enclave;   /* answers ele.req into ele.rsp */
     } ele;
-    struct {
-        uintptr_t base;                  /* set by a test: plain memory's base */
-        uint32_t  words[TFW_IMX95_MODEL_DUMP_WORDS];
-    } dump;                              /* the bench register dump's SRAM */
     struct {
         uint32_t iser[3];                /* enabled, 0xE000E100 */
         uint32_t icpr[3];                /* the pending bits cleared, 0xE000E280 */

@@ -59,19 +59,6 @@ void tfw_cm_fault(void);
  * that has only just started. Must touch no global. */
 void tfw_cm_soc_early(void);
 
-/* Bench step marks (TFW_CM_STEP_MARKS, a bench build flag; release images
- * leave it off and TFW_CM_STEP compiles to nothing). The SoC sends `mark` as
- * one raw byte on its console by polling the transmitter, with no queue and no
- * interrupt, so a board whose memory cannot be read still shows how far the
- * reset handler and startup() got. Like tfw_cm_soc_early, it must work before
- * .data and .bss are set up. Only a SoC that defines it may set the flag. */
-#if defined(TFW_CM_STEP_MARKS)
-void tfw_cm_soc_step(uint8_t mark);
-#define TFW_CM_STEP(mark) tfw_cm_soc_step((uint8_t)(mark))
-#else
-#define TFW_CM_STEP(mark) ((void)0)
-#endif
-
 /* The longest period the SoC's watchdog has, armed, with
  * TFW_CM_MARK_WATCHDOG written first. */
 void tfw_cm_soc_watchdog_arm(void);

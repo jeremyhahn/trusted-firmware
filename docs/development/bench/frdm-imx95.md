@@ -948,3 +948,39 @@ boot device, no SM configuration change, no break:
 4. Record both here with the source file and line. If LM1 may not access
    LPUART3, name the configuration change needed (file and line): that
    change is the owner's decision and is not made in this lane.
+
+#### The SM source the board runs
+
+The board's SM reports build 896, commit `44f76dcb`, config `mx95frdm-pro`
+(the board table at the top). In nxp-imx/imx-sm that commit is the tag
+`lf-6.18.20-2.0.0`, the BSP release of the board's Linux and TF-A. Its
+config is `configs/other/mx95frdm-pro.cfg`; nothing in this repository
+rebuilds the SM (section "2. Build": only the M7 slot changes).
+
+#### LM1's resources in `configs/other/mx95frdm-pro.cfg` (at `44f76dcb`)
+
+| Line | Text | Meaning |
+|---|---|---|
+| 340 | `LM1 name="M7", rpc=scmi, boot=2, skip=1, did=4, safe=seenv` | the M7 is domain 4 |
+| 342 | `DFMT0: sa=secure` | the M7's bus accesses are secure |
+| 344 | `OWNER: perm=rw, api=all` | an OWNER resource gets `rw`, 0x6666: read/write for secure and nonsecure, privileged and user (`sm/doc/config.md`, permission table) |
+| 351, 352 | `PD_M7 start=1, stop=2`, `CPU_M7P start=2, stop=1` | mSel 0 starts the M7 |
+| 404 | `LPUART3 OWNER, test` | LPUART3 is LM1's |
+| 420, 421 | `PIN_GPIO_IO14 OWNER`, `PIN_GPIO_IO15 OWNER` | LPUART3's TX and RX pads are LM1's |
+
+The AP (LM2, line 442) is `did=3`, which is why section 11's A55 read was
+denied (`DOM3 ... MBC0_DOM3_MEM0_BLK_CFG_W10[5]`): the config gives LPUART3
+to the M7, not the A55. **By the source, LM1 may access LPUART3**, and no
+SM configuration change is needed for it.
+
+#### The monitor's `trdc` command (`sm/utilities/monitor/`, at `44f76dcb`)
+
+`monitor_cmds.c` dispatches `trdc` and `trdc.raw` to `MONITOR_CmdTrdc` and
+`MONITOR_CmdTrdcRaw` (`monitor_trdc.c`); `sm/doc/monitor.md` lines 53, 54:
+`trdc rdc [did]`, a formatted dump of one TRDC, limited to domain `did`.
+The TRDC name is matched against `devices/MIMX95/sm/dev_sm_rdc.c`
+`s_trdcInfo` (lines 82 to 91): `aon`, `mega`, `wakeup` (0x42460000,
+label `W`), `camera`, `hsio`, `noc`, `disp`, `netc`, `gpu`, `vpu`. The
+`MBC_W0=0.85` in section 11's error log is TRDC `W` (wakeup), MBC 0,
+memory 0, block 85, so the read is `trdc wakeup 4` (the M7) and
+`trdc wakeup 3` (the A55, for contrast).

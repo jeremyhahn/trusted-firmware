@@ -820,10 +820,10 @@ Capture files (bench host only, out of git):
 
 | File | SHA-256 |
 |---|---|
-| port0.log (A55, both boots) | `CAPTURE0` |
-| port1.log (SM monitor) | `CAPTURE1` |
-| port2.log (M7, the one `0x00`) | `CAPTURE2` |
-| port3.log (silent) | `CAPTURE3` |
+| port0.log (A55, both boots) | `0e1e2a74d1536932254cededcb9f877f79a98edd13a6de4370718f673f24354c` |
+| port1.log (SM monitor) | `47bace8767a18b9b2ab748ad74c8dcc5b63638ec8fd25a0a3a52d2ea25f07151` |
+| port2.log (M7, the one `0x00`, 15 minutes; byte for byte section 9's) | `6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d` |
+| port3.log (silent) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 
 #### Board state after this run
 

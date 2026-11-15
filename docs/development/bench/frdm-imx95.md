@@ -703,3 +703,133 @@ board boots to Linux and the M7 runs our image. `/root/imxboot-backup/` on
 the board now also holds `imx-boot-m7-txpump.bin`. `imx-boot-orig.bin` is
 still the recovery image. Restore as in section 5. The SM console was left
 in its monitor (`>$`), and port 0 at the login prompt.
+
+### 10. Step marks on port 2 (DS-8876, 2026-11-15)
+
+Firmware: `STEP_MARKS=1` (profile.mk, plan step 14). The reset handler and
+`tfw_hal_uart_init` each write one raw byte to LPUART3 DATA, polling TDRE then
+TC (bounded), with no queue and no interrupt. If CTRL.TE is clear, the
+115200 divisor and TE are set first. Marks: `R` at reset-handler entry, `D`
+after .data/.bss, `M` before `main`, `P` after the pad request followed by
+`r d m` (the trail, kept in `.noinit`, as the earlier marks may be lost
+before the pads are routed), `U` at the end of `tfw_hal_uart_init`. On a board
+whose image runs to the console, port 2 shows `RDMPrdmU` (the first `RDM`
+only if the pads were already routed), then the boot frame.
+
+Plan and recovery path (stated before the write, as in section 9): build,
+`imx-boot-m7.py` over `imx-boot-orig.bin` read back off the board, write at
+0x8000 from the A55 Linux, read back, `reboot`, then SM `reset` on port 1.
+Recovery: restore `imx-boot-orig.bin` from the A55 Linux (section 5); if the
+board does not boot, uuu over USB serial download, which needs the owner to
+set SW4. If no mark appears at all, record it and do not write again. No
+serial break on any port.
+
+#### Build
+
+```
+make BOARD=frdm-imx95-m7 IMX_BOOT=1 STEP_MARKS=1 BUILD_DIR=build/imx95-steps firmware
+frdm-imx95-m7 flash  12004 / 196608 ( 4% of part)   ram   852 / 65536 ( 0% of part)
+boards/frdm-imx95-m7/imx-boot-m7.py imx-boot-orig.bin build/imx95-steps/frdm-imx95-m7/soft/trusted-firmware.elf imx-boot-m7-steps.bin
+wrote imx-boot-m7-steps.bin: 8355840 bytes, changed bytes 0x8195 to 0xc03ab only
+```
+
+No `dot moved backwards`. The release build (no flag) is 11800 bytes as in
+section 9, with no step symbol. `imx-boot-orig.bin` was read back off the
+board first (`1d775624...0081f`, section 1). `--show`: entry 3 is 0x3000
+bytes at 0x303C0000, entry 0, every SHA-384 matching. Text loads at 0
+(0x2ECC bytes).
+
+| Symbol (`arm-none-eabi-nm -S`) | M7 address | Size |
+|---|---|---|
+| `tfw_cm_vectors` | `0x00000000` | 0x180 |
+| `tfw_cm_soc_step` | `0x00001B84` | 0x68 |
+| `tfw_cm_reset` | `0x0000253C` | 0x4A4 |
+| `step_trail` (`.noinit`, after `__bss_end`) | `0x200002D0` | 4 |
+
+| File | Size | SHA-256 |
+|---|---|---|
+| imx-boot-m7-steps.bin (step marks, plan step 14) | 8355840 | `1c6ed98d190e433e8b1b062e85b692bd72e77558ed5706ec266e812d0127cf54` |
+
+#### Write and read-back
+
+Before the write the device at 0x8000 read `438cf044...a0daf` (section 9's
+image) and the first 32 KiB `aa20cfeb...67fb9`. The new image went to
+`/root/imxboot-backup/` over `ssh ... cat`; its digest there matched the
+build. From the A55 Linux as root:
+
+```
+dd if=imx-boot-m7-steps.bin of=/dev/mmcblk0 bs=512 seek=64 conv=fsync,notrunc   # 8355840 bytes, rc 0
+sync
+dd if=/dev/mmcblk0 bs=512 skip=64 count=16320 iflag=direct | sha256sum   # 1c6ed98d...7cf54, matches
+dd if=/dev/mmcblk0 bs=512 count=64 iflag=direct | sha256sum              # aa20cfeb...67fb9, unchanged
+```
+
+#### Boot
+
+All four ports were captured read-only (115200 8N1, raw), from before the
+write for 15 minutes. Commands went to port 1 only (the SM `reset` and the
+reads below); `reboot` went over SSH. No break was sent.
+
+**`reboot` (A55, over SSH).** Port 0: SPL, `Image set: 0`, U-Boot, Linux to
+the login prompt. Port 2 silent (the A55 LM only, section 4).
+
+**SM `reset` (port 1).** `Reset request: reason=sw, errId=0, srcLm=0`, DDR
+OEI `done, err = 0`, `Hello from SM (Build 896, ...)`. Port 0: SPL
+(`SYS Boot reason`), U-Boot, Linux to the login prompt, with `imx-rproc
+imx95-cm7: lmm(1) not under Linux Control`, `unexpected resource table
+content, ignore` and `remoteproc1 ... attached`.
+
+**Port 2: one byte, `0x00`, in the second of the reset, then nothing.** No
+step mark: no `R`, `D` or `M`, and neither `P` nor `U`, which go out after
+the pad request. No boot event frame. The same as sections 7 and 9.
+
+#### Reads after the boot (SM monitor, port 1, read-only)
+
+```
+err      SCMI err (chn=5): protocolId=0x11, messageId=0x2, status=-4   (Linux's, as before)
+syslog   Device err log = 0x00000000
+lm info  000: SM = on   001: M7 = on   002: AP = on (default)
+cpu.r    001: m7p => run-mode = RUN, slp-mode = RUN, vector = 0x00000000_00000000
+clock.r  142: lpuart3 = on, 24000000Hz
+md 0x443C0030 12   pins 18 and 19 (GPIO_IO14/15) = 00000001 (ALT1); pins 13 to 15 also 1, 12, 16, 17, 20 to 23 = 0
+```
+
+No `/dev/mem` read was tried (section 9: TRDC refuses the A55).
+
+#### Against the list
+
+No mark appeared at all, so by the brief's rule the result is recorded as
+**the M7 does not reach the reset handler's first mark**, and nothing more
+was written to the board. The last stage reached is none of R, D, M, P, U.
+
+What this run cannot separate, for the next decision:
+
+- the M7 does not execute our reset handler (the vector at ITCM 0, or the
+  SM's start of LM1, though `cpu.r` shows the M7 in RUN at vector 0); or
+- the M7 runs, but its writes to LPUART3 at `0x42570000` (`soc_regs.h`, TO
+  CONFIRM for the M7's view) do not reach the line, or fault on the first
+  access (the mark at reset entry runs before VTOR is set). The pads at ALT1
+  and the clock on are consistent with both: section 7 could not tell whether
+  our pad request or the SM set them.
+
+A port-2 probe cannot go further than this. Next is the owner's call: a debugger on the M7, or
+an SM configuration that lets the A55 read the M7's TCM (section 9), or
+confirming LPUART3's M7-side address against IMX95RM.
+
+Capture files (bench host only, out of git):
+
+| File | SHA-256 |
+|---|---|
+| port0.log (A55, both boots) | `CAPTURE0` |
+| port1.log (SM monitor) | `CAPTURE1` |
+| port2.log (M7, the one `0x00`) | `CAPTURE2` |
+| port3.log (silent) | `CAPTURE3` |
+
+#### Board state after this run
+
+The eMMC boot container is imx-boot-m7-steps.bin (`1c6ed98d...7cf54`). The
+board boots to Linux (checked over SSH after the SM reset) and the M7 runs
+our image. `/root/imxboot-backup/` also holds `imx-boot-m7-steps.bin`;
+`imx-boot-orig.bin` (`1d775624...0081f`, checked after the run) is still the
+recovery image. Restore as in section 5. The SM console was left in its
+monitor (`>$`), port 0 at the login prompt.

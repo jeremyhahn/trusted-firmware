@@ -120,6 +120,7 @@
 #define TFW_SCMI_E_TOO_LONG 3   /* a message longer than the channel or buffer */
 #define TFW_SCMI_E_SHORT    4   /* a response too short for its fields */
 #define TFW_SCMI_E_CHANNEL  5   /* the platform flagged a channel error */
+#define TFW_SCMI_E_CRC      6   /* the response's CRC is not its own */
 
 /* The largest payload either way, in bytes: RATE_GET's 12 is the longest
  * these commands and their responses carry. */

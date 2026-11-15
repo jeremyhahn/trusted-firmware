@@ -174,6 +174,21 @@
 #define TFW_IMX95_SCMI_SHM_BASE  0x44611000uL   /* MU5 SRAM, doorbell 0's area */
 #define TFW_IMX95_SCMI_SHM_LEN   0x80u          /* one SMT channel */
 #define TFW_IMX95_SCMI_DOORBELL  0u             /* the MU GCR bit, db=0 */
+/* The same MAILBOX line's check=crc32: each message's CRC-32 at shm+0x0C,
+ * both ways (scmi_mu.h, tfw_scmi_crc32). */
+#define TFW_IMX95_SCMI_CRC       1u
+
+/* LPUART3's pads, which the SM owns: the M7 asks it, over the channel above,
+ * to mux them before the console starts (console_pins.c). The SM's pin ids
+ * for GPIO_IO14 (TX) and GPIO_IO15 (RX), and their LPUART3 mux, ALT1 (imx-sm
+ * devices/MIMX95 pin list; NXP's i.MX 95 iomux, GPIO_IO14__LPUART3_TX). The
+ * pad configuration is TO CONFIRM: 0 sends the mux alone and leaves the pads'
+ * reset configuration. RX's daisy (input select) is TO CONFIRM and not sent:
+ * TX on port 2 is the next slice's check. */
+#define TFW_IMX95_CONSOLE_TX_PIN  18u
+#define TFW_IMX95_CONSOLE_RX_PIN  19u
+#define TFW_IMX95_CONSOLE_PIN_MUX 1u
+#define TFW_IMX95_CONSOLE_PAD_CFG 0u
 
 /* The SAR ADC instance the System Manager gives the M7 (src/hal/cortex-m/
  * imx95/sar_adc.h), open as design questions 13 and 17 are. TO CONFIRM

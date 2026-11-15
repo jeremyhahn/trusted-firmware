@@ -165,6 +165,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_soc_calc.c test/unit/test_imx95_rsc_table.c \
                             test/unit/test_imx95_gpt.c \
                             test/unit/test_imx95_hal.c test/unit/test_imx95_scmi.c test/unit/test_imx95_scmi_mu.c \
+                            test/unit/test_imx95_console_pins.c \
                             test/unit/test_imx95_adc.c \
                             test/unit/test_imx95_lpi2c.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
@@ -854,6 +855,13 @@ $(HOST_DIR)/test_imx95_scmi: test/unit/test_imx95_scmi.c src/hal/cortex-m/imx95/
 # The SCMI channel over the MU doorbell, against the register model's MU and
 # shared memory, compiled as test_imx95_hal's SoC files are.
 $(HOST_DIR)/test_imx95_scmi_mu: test/unit/test_imx95_scmi_mu.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/scmi_mu.c src/hal/cortex-m/imx95/scmi.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# The console's pad request over the same channel and model, CRC-32 both ways.
+$(HOST_DIR)/test_imx95_console_pins: test/unit/test_imx95_console_pins.c test/model/imx95_model.c \
+                        src/hal/cortex-m/imx95/console_pins.c \
                         src/hal/cortex-m/imx95/scmi_mu.c src/hal/cortex-m/imx95/scmi.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

@@ -253,7 +253,7 @@ tfw_status_t tfw_imx95_hsm_attest(const struct tfw_ele_chan *c, const struct tfw
 
 static struct tfw_scmi_chan g_chan = {
     TFW_IMX95_SCMI_MU_BASE, TFW_IMX95_SCMI_SHM_BASE, TFW_IMX95_SCMI_SHM_LEN,
-    TFW_IMX95_SCMI_DOORBELL, 0u
+    TFW_IMX95_SCMI_DOORBELL, 0u, TFW_IMX95_SCMI_CRC
 };
 
 static const struct tfw_imx95_hsm_ids g_ids = {

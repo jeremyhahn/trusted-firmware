@@ -226,6 +226,30 @@ static void test_the_tx_ring_holds_63(void)
     TEST_ASSERT_EQUAL_HEX8(62u, m->lpuart.tx[62]);
 }
 
+/* Codex P1 on #449: a full ring with no interrupt taken (masked, or the
+ * polling fallback) must drain from the retry itself once TDRE is set,
+ * since a caller that retries on full never reaches tfw_hal_uart_rx. */
+static void test_a_full_ring_drains_without_the_interrupt(void)
+{
+    uint32_t i;
+    uint32_t irqs = tfw_imx95_uart_irqs;
+
+    uart_up();
+    m->lpuart.busy = 1u;
+    for (i = 0u; i < 63u; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try((uint8_t)i));
+    }
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_try(0xAAu));
+    m = tfw_imx95_model_get();
+    m->lpuart.busy = 0u;
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0xAAu));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(64u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_HEX8(62u, m->lpuart.tx[62]);
+    TEST_ASSERT_EQUAL_HEX8(0xAAu, m->lpuart.tx[63]);
+    TEST_ASSERT_EQUAL_UINT32(irqs, tfw_imx95_uart_irqs);
+}
+
 static void test_rx_drains_data_while_rdrf(void)
 {
     static const uint8_t line[] = { 0x7Eu, 0x00u, 0x80u };
@@ -423,6 +447,7 @@ int main(void)
     RUN_TEST(test_a_busy_transmitter_holds_the_byte);
     RUN_TEST(test_tx_idle_waits_for_tc);
     RUN_TEST(test_the_tx_ring_holds_63);
+    RUN_TEST(test_a_full_ring_drains_without_the_interrupt);
     RUN_TEST(test_rx_drains_data_while_rdrf);
     RUN_TEST(test_a_full_rx_ring_drops_but_drains);
     RUN_TEST(test_the_interrupt_clears_an_overrun);

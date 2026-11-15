@@ -133,16 +133,20 @@ uint8_t tfw_hal_uart_rx(uint8_t *out)
 
 uint8_t tfw_hal_uart_tx_try(uint8_t byte)
 {
-    uint8_t  next = (uint8_t)((tx_head + 1u) & (TFW_UART_TX_RING - 1u));
-    uint32_t primask;
+    uint8_t  next;
+    uint32_t primask = tfw_cm_irq_save();
 
+    /* Pump first: with the interrupt masked or never taken, a full ring
+     * only drains here, and a caller that retries on full never reaches
+     * tfw_hal_uart_rx to drain it. */
+    tx_pump();
+    next = (uint8_t)((tx_head + 1u) & (TFW_UART_TX_RING - 1u));
     if (next == tx_tail) {
+        tfw_cm_irq_restore(primask);
         return 0u;                      /* full: the caller retries next poll */
     }
     tx_buf[tx_head] = byte;
     tx_head         = next;
-
-    primask = tfw_cm_irq_save();
     tx_pump();
     tfw_cm_irq_restore(primask);
     return 1u;

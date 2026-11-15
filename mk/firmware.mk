@@ -82,16 +82,27 @@ PWM_SRCS := $(if $(call feature_off,PWM),,src/caps/pwm.c $(call hal_src,hal_pwm.
 # entry point, and storage.c's bounds against TFW_EEPROM_SIZE 0 do not
 # compile under -Werror, so the board drops the whole file.
 STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
-# The EEPROM HAL is every board's that has one, the feature on or off (the
-# MPS2 boards' writes OTA_CONFIRM's request through it), and hal_src picks a
-# SoC's copy over the core's. (The nrf54l's programs its RRAM window,
-# which a plain store does not.) The MCXN94x's writes its own flash sector
-# through tfw-boot's flash helper, linked here as STAGE_SRCS links
-# boot/boot_image.c.
-EEPROM_HAL_SRCS := $(wildcard $(call hal_src,hal_eeprom.c))
-ifneq ($(filter src/hal/cortex-m/mcxn94x/hal_eeprom.c,$(EEPROM_HAL_SRCS)),)
-EEPROM_HAL_SRCS += $(if $(call feature_off,EEPROM),,boot/hal/cortex-m/mcxn94x/mcxn_flash.c)
-endif
+
+# The EEPROM HAL, one file on every board, as it was when the wildcard below
+# linked the architecture's copy unconditionally: hal_src picks the SoC's copy
+# where the family is on and the SoC has one, else the architecture's.
+# OTA_CONFIRM's request reaches tfw-boot through it whether or not the board
+# has the family, so a board with it off keeps the architecture's file. A
+# SoC's copy may need more sources, named by SOC_EEPROM_SRCS_<soc> and linked
+# with it (and kept out of the HAL wildcard by HAL_OPTIONAL): the STM32H5's
+# writes its own sector through ee_flash.c, the application's one flash write,
+# confined to that sector, over h5_flash.c's programming sequence. tfw-boot's
+# flash-interface driver, boot_flash.c, is boot-only and not linked here (SPEC
+# row stm32h5).
+# The MCXN94x's writes its own flash sector through tfw-boot's flash helper,
+# mcxn_flash.c, linked here as STAGE_SRCS links boot/boot_image.c (SPEC row
+# mcxn947).
+SOC_EEPROM_SRCS_stm32h5 := src/hal/cortex-m/stm32h5/ee_flash.c src/hal/cortex-m/stm32h5/ee_flash_port.c \
+                           boot/hal/cortex-m/stm32h5/h5_flash.c
+SOC_EEPROM_SRCS_mcxn94x := boot/hal/cortex-m/mcxn94x/mcxn_flash.c
+EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
+                     $(wildcard $(call hal_src,hal_eeprom.c)) \
+                     $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))
 # The pulse timer is the HAL's hal_pulse.c (AVR, Cortex-M), compiled only where
 # the feature is on; the ESP32 names its own of two (ARCH_PULSE_SRCS in
 # mk/arch/esp32.mk), so a file the arch lists is left to the arch.
@@ -168,13 +179,19 @@ else ifeq ($(ETH),1)
 LINK_SRCS += src/net/dhcp_none.c
 endif
 
+# hal_eeprom.c is always present, but a SoC may have its own (nrf54l: the
+# window is RRAM, which a plain store does not program). Every copy is in
+# HAL_OPTIONAL and EEPROM_HAL_SRCS (above) links exactly one, so no board
+# links two.
+
 # The HAL modules that are chosen rather than always present. Filtered out of
 # the wildcard below and added back by the lists above, so a file that is gated
 # off is not compiled at all -- which is the point, since several of them do not
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c $(d)/hal_eeprom.c) $(ARCH_HAL_OPTIONAL)
+                  $(d)/hsm_intake.c $(d)/hal_eeprom.c) $(ARCH_HAL_OPTIONAL) \
+                $(SOC_EEPROM_SRCS_$(SOC))
 
 # Provisioning commands are a JIG image, never a production one. The gate is
 # file selection: PROVISION=1 compiles the translation unit and defines the

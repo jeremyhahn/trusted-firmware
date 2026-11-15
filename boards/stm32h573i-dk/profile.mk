@@ -25,8 +25,9 @@ MCU            := stm32h573iik3q
 #                               the reset; the application slot after it,
 #                               128 KiB of code; the platform block in the
 #                               bank's last 8 KiB sector
-#   0x08100000  flash bank 2,   not used yet
-#               1 MiB
+#   0x08100000  flash bank 2,   the application's EEPROM in the bank's last
+#               1 MiB           8 KiB sector (board_profile.h), erased while
+#                               the code runs from bank 1
 #   0x20000000  SRAM1, 256 KiB  .data, .bss, the stack, the reset marker and
 #                               the handoff block at the top (RAM_END)
 #

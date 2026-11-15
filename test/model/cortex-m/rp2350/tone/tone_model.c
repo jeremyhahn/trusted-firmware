@@ -78,6 +78,7 @@ static uint32_t read_value(uintptr_t addr)
     switch (addr) {
     case RP_MODEL_RESETS_DONE:  return ~*state(RP_MODEL_RESETS_RESET);
     case RP_MODEL_T1_TIMELR:    return now;
+    case RP_MODEL_T1_INTS:      return t1_intr & *state(RP_MODEL_T1_INTE);
     case RP_MODEL_SIO_OUT:      return sio_out;
     case RP_MODEL_SIO_OE:       return sio_oe;
     case RP_MODEL_SIO_OUT_SET:
@@ -158,6 +159,7 @@ static void apply(uintptr_t addr, uint32_t v)
         break;
     case RP_MODEL_RESETS_DONE:
     case RP_MODEL_T1_TIMELR:
+    case RP_MODEL_T1_INTS:
         break;                  /* read-only */
     default:
         *state(addr) = v;

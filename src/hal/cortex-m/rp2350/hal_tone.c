@@ -124,9 +124,15 @@ tfw_status_t tfw_hal_tone_stop(void)
     return TFW_OK;
 }
 
-/* Alarm 0 fired (it disarms itself): toggle, and re-arm from the target. */
+/* Alarm 0 fired (it disarms itself): toggle, and re-arm from the target.
+ * An alarm that fired inside tone_arm's retry pended IRQ4 again in the NVIC,
+ * and the retry's INTR clear leaves that latch: the delivery it causes finds
+ * INTS clear and does nothing. */
 void tfw_cm_irq4(void)
 {
+    if ((TFW_RP_TIMER1_INTS & ALARM0) == 0u) {
+        return;
+    }
     TFW_RP_TIMER1_INTR = ALARM0;
     if (tone_bit == 0u) {
         return;

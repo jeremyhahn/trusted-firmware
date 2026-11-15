@@ -8,8 +8,8 @@
  * access (or any model call) compares the slot with what it handed out and,
  * if the code under test stored something else, applies that write: the
  * peripheral SET/CLR/XOR aliases, SIO's set, clear and XOR registers,
- * RESETS_DONE following RESET, TIMER1's ARMED and INTR write-1 registers and
- * ALARM0 arming. Each write is logged in order, so a test can check the
+ * RESETS_DONE following RESET, TIMER1's ARMED and INTR write-1 registers,
+ * INTS reading INTR masked by INTE, and ALARM0 arming. Each write is logged in order, so a test can check the
  * order a sequence ran in.
  */
 #ifndef TFW_RP2350_TONE_MODEL_H
@@ -27,6 +27,7 @@
 #define RP_MODEL_T1_ARMED       0x400B8020u
 #define RP_MODEL_T1_INTR        0x400B803Cu
 #define RP_MODEL_T1_INTE        0x400B8040u
+#define RP_MODEL_T1_INTS        0x400B8048u
 #define RP_MODEL_SIO_OUT        0xD0000010u
 #define RP_MODEL_SIO_OUT_SET    0xD0000018u
 #define RP_MODEL_SIO_OUT_CLR    0xD0000020u

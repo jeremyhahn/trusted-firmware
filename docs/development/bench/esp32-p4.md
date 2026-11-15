@@ -728,7 +728,7 @@ is wired to the board.
 | `hal_pwm.c` | PWM on a free pin at a set duty, then 0 | each call returns OK and the LEDC duty read back equals the duty set |
 | `hal_tone.c` | a 1 kHz tone on a free pin, then stopped | start and stop return OK |
 | `hal_pulse_rmt.c` | a pulse measurement on a free pin, nothing driving it | returns the no-pulse (timeout) result, not an error |
-| `hal_eeprom.c` | a pattern written at a test offset of `tfw_eeprom`, read back, the old bytes put back | the read equals the pattern, the restore reads back equal |
+| `hal_eeprom.c` | the whole 4 KB sector of `tfw_eeprom` saved; a pattern written at a test offset in it, read back; the whole sector written back whatever that test's status | the read equals the pattern, the whole sector reads back equal to the saved one |
 | C6 enable | GPIO 54's level after `hal_board.c` | low |
 | `hal_bus.c` | — | **NOT RUN, wiring needed** (no I2C/SPI/1-Wire device on the board) |
 

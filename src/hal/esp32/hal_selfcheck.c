@@ -116,14 +116,25 @@ static void check_pulse(void)
            "status (timeout expected)", (int)st, "us", (int)us);
 }
 
-/* The store is host-visible, so once the old bytes are saved and a pattern
- * write has been tried -- a failed write may still have changed flash -- the
- * old bytes are written back whatever the test's status, and the restore is
- * reported on a line of its own. */
+/* A write through the HAL rewrites the whole 4 KB flash sector it touches
+ * (hal_eeprom.c: read, erase, program), so a write that erases and then fails
+ * to program loses the sector, not only the bytes it was given. The check
+ * saves the whole sector the pattern lands in before it writes anything, and
+ * once a pattern write has been tried it writes that whole sector back
+ * whatever the test's status, reads it again and compares all of it; the
+ * restore is reported on a line of its own. A sector that cannot be read is
+ * never written. */
+#define SC_SECTOR      4096u
+#define SC_SECTOR_BASE (SC_EEPROM_AT - (SC_EEPROM_AT % SC_SECTOR))
+
+static uint8_t sc_saved[SC_SECTOR];
+static uint8_t sc_again[SC_SECTOR];
+
 static void check_eeprom(void)
 {
-    uint8_t old[16], pat[16], back[16], again[16];
-    tfw_status_t st = tfw_hal_eeprom_read(SC_EEPROM_AT, old, sizeof old);
+    uint32_t at = SC_EEPROM_AT - SC_SECTOR_BASE;
+    uint8_t pat[16], back[16];
+    tfw_status_t st = tfw_esp_part_read(TFW_ESP_PART_EEPROM, SC_SECTOR_BASE, sc_saved, SC_SECTOR);
     tfw_status_t rst;
     int match = 0, restored = 0;
 
@@ -132,18 +143,18 @@ static void check_eeprom(void)
         return;
     }
     for (unsigned i = 0u; i < sizeof pat; i++) {
-        pat[i] = (uint8_t)(0xa5u ^ (i * 0x11u) ^ old[i]);
+        pat[i] = (uint8_t)(0xa5u ^ (i * 0x11u) ^ sc_saved[at + i]);
     }
     st = tfw_hal_eeprom_write(SC_EEPROM_AT, pat, sizeof pat);
     if (st == TFW_OK) st = tfw_hal_eeprom_read(SC_EEPROM_AT, back, sizeof back);
     if (st == TFW_OK) match = memcmp(pat, back, sizeof pat) == 0;
     report("hal_eeprom", st == TFW_OK && match, "status", (int)st, "pattern read back", match);
 
-    rst = tfw_hal_eeprom_write(SC_EEPROM_AT, old, sizeof old);
-    if (rst == TFW_OK) rst = tfw_hal_eeprom_read(SC_EEPROM_AT, again, sizeof again);
-    if (rst == TFW_OK) restored = memcmp(old, again, sizeof old) == 0;
+    rst = tfw_esp_part_write(TFW_ESP_PART_EEPROM, SC_SECTOR_BASE, sc_saved, SC_SECTOR);
+    if (rst == TFW_OK) rst = tfw_esp_part_read(TFW_ESP_PART_EEPROM, SC_SECTOR_BASE, sc_again, SC_SECTOR);
+    if (rst == TFW_OK) restored = memcmp(sc_saved, sc_again, SC_SECTOR) == 0;
     report("hal_eeprom_restore", rst == TFW_OK && restored,
-           "status", (int)rst, "old bytes restored", restored);
+           "status", (int)rst, "sector restored", restored);
 }
 
 /* tfw_esp_board_init() drives the enable low as an output and holds it, which

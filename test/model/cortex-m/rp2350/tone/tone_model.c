@@ -34,6 +34,7 @@ static uint32_t sio_out;
 static uint32_t sio_oe;
 static uint32_t t1_armed;
 static uint32_t t1_intr;
+static int      irq4_pending;       /* the NVIC's pending latch for IRQ4 */
 static uint32_t alarm_slow_us;      /* TIMELR's advance across an ALARM0 write */
 static int      alarm_slow_writes;  /* for this many writes */
 
@@ -95,6 +96,16 @@ static uint32_t read_value(uintptr_t addr)
     }
 }
 
+/* ALARM0 fires: INTR bit 0 rises and, with INTE bit 0 set, pends IRQ4 in
+ * the NVIC. The NVIC latch is the NVIC's own: clearing INTR leaves it. */
+static void raise_alarm0(void)
+{
+    t1_intr |= 1u;
+    if ((*state(RP_MODEL_T1_INTE) & 1u) != 0u) {
+        irq4_pending = 1;
+    }
+}
+
 static void apply(uintptr_t addr, uint32_t v)
 {
     unsigned a = alias(addr);
@@ -135,11 +146,16 @@ static void apply(uintptr_t addr, uint32_t v)
             if ((int32_t)(v - now) <= 0) {
                 /* TIMELR reached the target as it armed: the alarm fires */
                 t1_armed &= ~1u;
-                t1_intr  |= 1u;
+                raise_alarm0();
             }
         }
         break;
     case RP_MODEL_NVIC_ISER0:   *state(addr) |= v; break;
+    case RP_MODEL_NVIC_ICPR0:
+        if ((v & RP_MODEL_IRQ4) != 0u) {
+            irq4_pending = 0;
+        }
+        break;
     case RP_MODEL_RESETS_DONE:
     case RP_MODEL_T1_TIMELR:
         break;                  /* read-only */
@@ -177,6 +193,7 @@ void tfw_rp_model_reset(void)
     sio_oe   = 0u;
     t1_armed = 0u;
     t1_intr  = 0u;
+    irq4_pending = 0;
     pending  = 0;
     alarm_slow_us     = 0u;
     alarm_slow_writes = 0;
@@ -239,9 +256,15 @@ int tfw_rp_model_fire(void)
         return 0;
     }
     t1_armed &= ~1u;
-    t1_intr  |= 1u;
-    /* the interrupt is taken again while INTR bit 0 stays pending */
-    while ((t1_intr & 1u) != 0u && runs < 8) {
+    raise_alarm0();
+    /* IRQ4 is taken while the NVIC holds it pending, and pends again on
+     * return while INTR bit 0 (a level) is still raised and enabled;
+     * taking it clears the latch, as exception entry does */
+    while (runs < 8) {
+        if (!irq4_pending && ((t1_intr & *state(RP_MODEL_T1_INTE)) & 1u) == 0u) {
+            break;
+        }
+        irq4_pending = 0;
         tfw_cm_irq4();
         commit();
         runs++;

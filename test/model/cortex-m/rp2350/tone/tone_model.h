@@ -37,6 +37,8 @@
 #define RP_MODEL_IO_CTRL(n)     (0x40028004u + 8u * (n))
 #define RP_MODEL_PADS(n)        (0x40038004u + 4u * (n))
 #define RP_MODEL_NVIC_ISER0     0xE000E100u
+#define RP_MODEL_NVIC_ICPR0     0xE000E280u
+#define RP_MODEL_IRQ4           (1u << 4)
 #define RP_MODEL_RESET_TIMER1   (1u << 24)
 
 /* The register model's slot for addr (cm_regs.h's TFW_CM_REG). */
@@ -63,8 +65,10 @@ int tfw_rp_model_find(uintptr_t addr, uint32_t value, int from);
 int tfw_rp_model_writes(void);
 
 /* Fire ALARM0 as TIMELR reaching it would, if armed with INTE bit 0 set:
- * the alarm disarms, INTR bit 0 rises and tfw_cm_irq4 runs, again while
- * it leaves INTR bit 0 pending. Returns the handler runs, 0 if none. */
+ * the alarm disarms, INTR bit 0 rises and pends IRQ4, and tfw_cm_irq4 runs
+ * while IRQ4 is pending in the NVIC or INTR bit 0 stays raised. An alarm
+ * firing inside the handler pends IRQ4 again, and clearing INTR does not
+ * clear that NVIC latch (only ICPR does). Returns the handler runs. */
 int tfw_rp_model_fire(void);
 
 #endif /* TFW_RP2350_TONE_MODEL_H */

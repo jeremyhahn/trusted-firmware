@@ -140,6 +140,34 @@ static void test_the_crc_is_ieee_crc32(void)
     TEST_ASSERT_EQUAL_HEX32(0xCBF43926u, tfw_scmi_crc32(tfw_scmi_crc32(0u, s, 4u), &s[4], 5u));
 }
 
+/* 12 bytes and 8 per config: the maximum fits the payload, one more would
+ * not and is refused before a byte is written, the message left as it was. */
+static void test_the_configs_maximum_fills_the_payload_and_one_more_is_refused(void)
+{
+    struct tfw_scmi_msg msg;
+    uint32_t types[TFW_SCMI_PINCTRL_CONFIGS_MAX + 1u];
+    uint32_t values[TFW_SCMI_PINCTRL_CONFIGS_MAX + 1u];
+    uint32_t i;
+
+    TEST_ASSERT_EQUAL_UINT32(2u, TFW_SCMI_PINCTRL_CONFIGS_MAX);
+    for (i = 0u; i <= TFW_SCMI_PINCTRL_CONFIGS_MAX; i++) {
+        types[i]  = 192u + i;
+        values[i] = 0xA0u + i;
+    }
+    TEST_ASSERT_EQUAL_INT32(0, tfw_scmi_pinctrl_settings_configure(
+                                   &msg, 1u, 18u, types, values, TFW_SCMI_PINCTRL_CONFIGS_MAX));
+    TEST_ASSERT_EQUAL_UINT32(12u + 8u * TFW_SCMI_PINCTRL_CONFIGS_MAX, msg.len);
+    TEST_ASSERT_TRUE(msg.len + 8u > TFW_SCMI_PAYLOAD_MAX);             /* one more overflows */
+    TEST_ASSERT_EQUAL_HEX8(0xA1u, msg.payload[msg.len - 4u]);          /* last value */
+
+    memset(&msg, 0x5A, sizeof msg);
+    TEST_ASSERT_EQUAL_INT32(TFW_SCMI_E_TOO_LONG,
+                            tfw_scmi_pinctrl_settings_configure(&msg, 1u, 18u, types, values,
+                                                                TFW_SCMI_PINCTRL_CONFIGS_MAX + 1u));
+    TEST_ASSERT_EQUAL_HEX32(0x5A5A5A5Au, msg.len);
+    TEST_ASSERT_EQUAL_HEX32(0x5A5A5A5Au, msg.header);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -149,5 +177,6 @@ int main(void)
     RUN_TEST(test_a_reply_with_a_wrong_crc_is_refused);
     RUN_TEST(test_no_channel_sends_nothing);
     RUN_TEST(test_the_crc_is_ieee_crc32);
+    RUN_TEST(test_the_configs_maximum_fills_the_payload_and_one_more_is_refused);
     return UNITY_END();
 }

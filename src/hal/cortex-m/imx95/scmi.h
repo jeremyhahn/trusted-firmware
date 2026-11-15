@@ -52,7 +52,6 @@
 #define TFW_SCMI_PINCTRL_TYPE_CONFIG     193u
 #define TFW_SCMI_PINCTRL_TYPE_DAISY_ID   194u
 #define TFW_SCMI_PINCTRL_TYPE_DAISY_CFG  195u
-#define TFW_SCMI_PINCTRL_CONFIGS_MAX     4u
 
 /* Message identifiers. PROTOCOL_VERSION and PROTOCOL_ATTRIBUTES are 0 and 1
  * in every protocol (section 4.1.3, Table 4). */
@@ -126,6 +125,10 @@
  * these commands and their responses carry. */
 #define TFW_SCMI_PAYLOAD_MAX 32u
 
+/* PINCTRL_SETTINGS_CONFIGURE's payload is 12 bytes and 8 per config: the
+ * most configs that fit TFW_SCMI_PAYLOAD_MAX. */
+#define TFW_SCMI_PINCTRL_CONFIGS_MAX ((TFW_SCMI_PAYLOAD_MAX - 12u) / 8u)
+
 struct tfw_scmi_msg {
     uint32_t header;
     uint32_t len;                            /* payload bytes */
@@ -150,9 +153,10 @@ void tfw_scmi_clock_rate_get(struct tfw_scmi_msg *m, uint32_t token, uint32_t cl
 void tfw_scmi_power_state_set(struct tfw_scmi_msg *m, uint32_t token, uint32_t domain_id,
                               uint32_t power_state);
 
-/* PINCTRL_SETTINGS_CONFIGURE on one pin, no function, n (at most
- * TFW_SCMI_PINCTRL_CONFIGS_MAX; more are dropped) configs. */
-void tfw_scmi_pinctrl_settings_configure(struct tfw_scmi_msg *m, uint32_t token,
+/* PINCTRL_SETTINGS_CONFIGURE on one pin, no function, n configs. More than
+ * TFW_SCMI_PINCTRL_CONFIGS_MAX do not fit the payload: TFW_SCMI_E_TOO_LONG,
+ * and `m` is left as it was. Else 0 with the message built. */
+int32_t tfw_scmi_pinctrl_settings_configure(struct tfw_scmi_msg *m, uint32_t token,
                                          uint32_t pin_id, const uint32_t *types,
                                          const uint32_t *values, uint32_t n);
 void tfw_scmi_reset(struct tfw_scmi_msg *m, uint32_t token, uint32_t domain_id,

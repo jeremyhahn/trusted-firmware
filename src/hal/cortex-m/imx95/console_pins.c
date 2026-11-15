@@ -14,9 +14,13 @@ static int32_t pin_set(struct tfw_scmi_chan *c, uint32_t pin, uint32_t mux, uint
     struct tfw_scmi_msg cmd, rsp;
     uint32_t types[2]  = { TFW_SCMI_PINCTRL_TYPE_MUX, TFW_SCMI_PINCTRL_TYPE_CONFIG };
     uint32_t values[2] = { mux, pad_cfg };
+    int32_t  rc;
 
-    tfw_scmi_pinctrl_settings_configure(&cmd, tfw_scmi_token(c), pin, types, values,
-                                        pad_cfg != 0u ? 2u : 1u);
+    rc = tfw_scmi_pinctrl_settings_configure(&cmd, tfw_scmi_token(c), pin, types, values,
+                                             pad_cfg != 0u ? 2u : 1u);
+    if (rc != 0) {
+        return rc;
+    }
     return tfw_scmi_xfer(c, &cmd, &rsp);
 }
 

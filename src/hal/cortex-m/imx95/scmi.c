@@ -68,14 +68,14 @@ void tfw_scmi_power_state_set(struct tfw_scmi_msg *m, uint32_t token, uint32_t d
     put32(m, power_state);
 }
 
-void tfw_scmi_pinctrl_settings_configure(struct tfw_scmi_msg *m, uint32_t token,
-                                         uint32_t pin_id, const uint32_t *types,
-                                         const uint32_t *values, uint32_t n)
+int32_t tfw_scmi_pinctrl_settings_configure(struct tfw_scmi_msg *m, uint32_t token,
+                                            uint32_t pin_id, const uint32_t *types,
+                                            const uint32_t *values, uint32_t n)
 {
     uint32_t i;
 
     if (n > TFW_SCMI_PINCTRL_CONFIGS_MAX) {
-        n = TFW_SCMI_PINCTRL_CONFIGS_MAX;
+        return TFW_SCMI_E_TOO_LONG;   /* checked before a byte is written */
     }
     start(m, TFW_SCMI_PROTO_PINCTRL, TFW_SCMI_PINCTRL_SETTINGS_CONFIGURE, token);
     put32(m, pin_id);
@@ -85,6 +85,7 @@ void tfw_scmi_pinctrl_settings_configure(struct tfw_scmi_msg *m, uint32_t token,
         put32(m, types[i]);
         put32(m, values[i]);
     }
+    return 0;
 }
 
 void tfw_scmi_reset(struct tfw_scmi_msg *m, uint32_t token, uint32_t domain_id,

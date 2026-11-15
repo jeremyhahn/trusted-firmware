@@ -80,6 +80,10 @@ static void tone_arm(void)
         if ((int32_t)(tone_target - now) > 0) {
             break;
         }
+        /* TIMELR reached the target as it armed: the alarm fired and
+         * latched INTR. Clear it before the retry, or the handler is
+         * taken again for the stale attempt */
+        TFW_RP_TIMER1_INTR = ALARM0;
     }
 }
 

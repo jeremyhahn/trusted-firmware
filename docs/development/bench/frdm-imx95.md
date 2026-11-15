@@ -491,3 +491,57 @@ The eMMC boot container is the pad-request imx-boot-m7.bin
 board, `/root/imxboot-backup/` holds `imx-boot-orig.bin` (the recovery
 image), `imx-boot-m7.bin` (section 2) and `imx-boot-m7-pads.bin` (this run).
 Restore as in section 5. The SM console was left in its monitor (`>$`).
+
+### 8. Transmit-path slice (firmware, no board, 2026-11-15)
+
+The M7 path from `tfw_hal_uart_init` to the first frame, item by item
+against section 7's list:
+
+- **BAUD at 24 MHz.** `tfw_imx95_lpuart_baud(24000000, 115200)` gives
+  `0x19000008`: OSR x26, SBR 8, 115384 baud, 0.16% fast, BOTHEDGE clear.
+  Now pinned by `test_imx95_soc_calc`. Not the fault.
+- **CTRL after BAUD.** Already so: GLOBAL reset, BAUD written with TE and RE
+  off, then CTRL = TE | RE | RIE. Not the fault.
+- **NVIC line 64.** Cited (MCUXpresso `MIMX9596_cm7.h`, `LPUART3_IRQn`); the
+  vector table has 80 lines. But transmit hung on that line alone: `tx_try`
+  only raised TIE and every byte waited for the interrupt. Now `tx_pump`
+  also sends from the main loop's polls (`tx_try`, `rx`, `tx_idle`), and
+  `tfw_imx95_uart_irqs` counts the interrupt's runs.
+- **`.faultframe` link warning.** Harmless: image.ld placed the reset marker
+  (RAM_END - 115) before the fault record (RAM_END - 127), so ld's location
+  counter stepped back. The sections are NOLOAD and do not overlap. They are
+  now in address order. The addresses did not change. Not linked in this
+  lane, because the lane container has no `arm-none-eabi-gcc`.
+- **The single `0x00`.** This fits TX held low from the moment the SM muxed
+  the pad until TE drove it idle-high. If so, the M7 reached
+  `tfw_hal_uart_init`'s CTRL write. The boot event goes out only after all
+  of `startup()` and `tfw_hal_irq_enable()` (src/main.c). A stop or fault in
+  between is the other candidate.
+
+### Next slice (device, after section 8)
+
+1. Build at the branch tip with section 7's command and check that the link
+   prints no `dot moved backwards`. Record the addresses of
+   `tfw_imx95_uart_irqs`, `tx_head` and `tx_tail` from `arm-none-eabi-nm` on
+   the ELF (LTO may suffix the static names).
+2. Rerun `imx-boot-m7.py`, write, read back and compare digests, then SM
+   `reset`, as in section 7. Capture port 2 for 120 s.
+3. Read only, from the A55 as root, through the DTCM alias (M7 `0x2000_0000`
+   is A55 `0x2040_0000`, profile.mk): the reset marker at `0x2043FF8C`, the
+   fault record's PC, LR and xPSR at `0x2043FF80`, `+4` and `+8`, and the
+   three symbols at their nm address + `0x0040_0000`. Do not read LPUART3
+   itself from the A55: a refused access may take Linux down.
+
+What port 2 and the reads must show:
+
+| Port 2 | Reads | Meaning, next |
+|---|---|---|
+| boot frame | irqs > 0 | Pass: TX and NVIC 64 confirmed; RX (daisy) next |
+| boot frame | irqs = 0 | The polls carry TX; line 64 or PRIMASK is wrong (firmware) |
+| no frame | marker `0x43494E50` (PNIC) | A fault: `addr2line` on the PC names it |
+| no frame | no marker, tx_head = tx_tail = 0 | Stops in `startup()` before the boot event: add step marks |
+| no frame | tx_head != tx_tail | Queued, TDRE never set: LPUART3 not sending (access, clock gate); debugger is the owner's call |
+
+`/dev/mem` access to the TCM alias on this kernel is unchecked. If it is
+refused, record that, and the port 2 result alone separates the first two
+rows from the rest.

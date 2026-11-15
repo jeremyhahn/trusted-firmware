@@ -751,7 +751,7 @@ Steps, each over the by-id port, no break:
 The run. esptool / espefuse v5.6.0 in a venv and ESP-IDF `v5.5.5`
 (`install.sh esp32p4`) in the lane's home; the overlays are
 `build/p4hal/p4-static.defaults` and `build/p4hal/p4-selfcheck.defaults`
-(gitignored, `192.0.2.80` below for the real address). Writes: three times
+(gitignored, `192.0.2.80` below for the real address). Writes: five times
 the one erase region and the four images of HIL-0 step 3. No `espefuse`
 command other than `summary`.
 
@@ -764,31 +764,38 @@ command other than `summary`.
 | 4 | `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0` | **pass**, exit 0: ping, `caps proto 2.0 fw 0.1.0 board 0x80 pins 17 tier 0 features 0x000007ff`, sysinfo, `wirecheck: ok` |
 | 6 | rebuild with the static overlay only (`# CONFIG_TFW_PERIPH_SELFCHECK is not set`), write, console, `wirecheck` | four `Hash of data verified.`; layer 0 `verified`, `App version: …-gff4b5ca7` (this branch's tip, the self-check empty); no `tfw-selfcheck` line; link up at the static address; `wirecheck: ok` |
 | 5 | `espefuse --port $ESP_PORT summary > efuse-after.txt`; `diff efuse-before.txt efuse-after.txt` | **empty diff**, exit 0; `efuse-after.txt` SHA-256 `9453f49f…0703`, the same as before: no eFuse moved |
+| 1–6 again | after review: the C6 check reads the pad with its input buffer on, the EEPROM restore runs whatever the test's status; steps 1 to 6 repeated on main merged in | `efuse-before` byte-identical to the first run's; four `Hash of data verified.` per image; the lines below; the restored image (self-check off) up at the static address, `wirecheck: ok`; `efuse-after` against `efuse-before`: **empty diff** |
 
-The self-check's console lines, second image:
+The first two images' `c6_enable` line was read with `gpio_get_level()` on
+the pad `hal_board.c` leaves an output with its input buffer off, which reads 0
+whatever the pin's level; review found it, and that PASS is withdrawn. The
+check now releases the hold, turns the pad to input-and-output with the output
+still low, reads it and holds it again (`test_esp_selfcheck`). The console
+lines, the image after review:
 
 ```text
 tfw-selfcheck: start
-tfw-selfcheck: c6_enable PASS GPIO 54 level 0
+tfw-selfcheck: c6_enable PASS GPIO 54, pad level 0
 tfw-selfcheck: hal_gpio PASS high read 1, low read 0
-tfw-selfcheck: hal_adc PASS status 0, raw 1962
+tfw-selfcheck: hal_adc PASS status 0, raw 1949
 tfw-selfcheck: hal_pwm PASS LEDC duty at 128: 128, at 0: 0
 tfw-selfcheck: hal_tone PASS start 0, stop 0
-tfw-selfcheck: hal_pulse_rmt PASS status 9 (timeout expected), us 0
-tfw-selfcheck: hal_eeprom PASS pattern read back 1, old bytes restored 1
+tfw-selfcheck: hal_pulse_rmt PASS status (timeout expected) 9, us 0
+tfw-selfcheck: hal_eeprom PASS status 0, pattern read back 1
+tfw-selfcheck: hal_eeprom_restore PASS status 0, old bytes restored 1
 tfw-selfcheck: hal_bus NOT RUN wiring needed
 tfw-selfcheck: done
 ```
 
 | Check | Result |
 |---|---|
-| C6 enable | **PASS**: GPIO 54 reads 0 after `hal_board.c`. The pin is an output with its input buffer as `gpio_config` leaves it, so this is the level the pad reports, not a probe of the C6's `CHIP_PU` |
+| C6 enable | **PASS**: GPIO 54's pad, read with its input buffer on and the output still driven low and held, reads 0 after `hal_board.c`. It is the pad's level, not a probe of the C6's `CHIP_PU` |
 | `hal_gpio.c` | **PASS**: GPIO32 driven high read 1, driven low read 0 |
-| `hal_adc.c` | **PASS**: ADC1 channel 4 (GPIO20, floating) returns OK, raw 1962 of 4095 |
+| `hal_adc.c` | **PASS**: ADC1 channel 4 (GPIO20, floating) returns OK, raw 1962 then 1949 of 4095 |
 | `hal_pwm.c` | **PASS**: LEDC channel 0 (GPIO2) duty 128 then 0 read back, `tfw_hal_pwm_stop` OK |
 | `hal_tone.c` | **PASS**: 1 kHz on GPIO6 started and stopped, both OK (nothing measured the frequency) |
 | `hal_pulse_rmt.c` | **PASS**: GPIO33 pulled up, no pulse in 50 ms is `TFW_ERR_TIMEOUT` (9) |
-| `hal_eeprom.c` | **PASS**: 16 bytes at the end of `tfw_eeprom` written, read back equal, the old bytes written back and read back equal |
+| `hal_eeprom.c` | **PASS**: 16 bytes at the end of `tfw_eeprom` written and read back equal; the old bytes, written back whatever that test's status, read back equal (`hal_eeprom_restore`, its own line) |
 | `hal_bus.c` | **NOT RUN, wiring needed**: no I2C, SPI or 1-Wire device on the header |
 
 **The board is left on this branch's tip built with the static overlay and no

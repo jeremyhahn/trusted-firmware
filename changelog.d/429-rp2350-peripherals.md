@@ -2,7 +2,9 @@
 
 - **RP2350 peripheral row** (#429). `soft:PERIPH=1` on the Pico 2 W builds
   the I2C, PWM, ADC, tone and flash EEPROM implementations; the default row
-  stays GPIO-only.
+  stays GPIO-only. Until the owner lifts the AVR gate for rp2350, the
+  `I2C=1` and `PERIPH=1` rows are build and host-test only: `make flash`
+  refuses them before any probe command.
 
 ### Fixed
 

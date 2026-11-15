@@ -95,6 +95,10 @@ PERIPH            ?= 0
 BOARD_DEFS        = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) $(if $(filter 1,$(PERIPH)),-DTFW_CM_PERIPH=1)
 BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(PERIPH)),ANALOG PWM TONE EEPROM)
 BOARD_ROWS        := soft:I2C=1 soft:PERIPH=1
+# Until the owner lifts that gate the I2C=1 and PERIPH=1 rows are build and
+# host-test only: `make flash` refuses them (mk/arch/cortex-m.mk), and only the
+# default GPIO row is written to a board.
+CM_FLASH_GATED_WHY = $(if $(strip $(BOARD_FEATURES_ON)),row $(subst $() ,-,$(strip $(BOARD_FEATURES_ON))) is build and host-test only: docs/SPEC.md keeps rp2350 future with the AVR gate not lifted for it. Only the default row is flashed)
 
 # Written over USB with picotool, the board in BOOTSEL mode, as the onboarding
 # ADR has it: the Pico 2 W has no on-board debug probe. picotool reads and

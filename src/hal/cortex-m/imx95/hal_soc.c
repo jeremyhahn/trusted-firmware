@@ -63,6 +63,10 @@ void tfw_cm_soc_early(void)
     wdog_configure(WDOG_CS_BASE, 0xFFFFu);
 }
 
+#if defined(TFW_CM_REG_DUMP) && !defined(TFW_CM_STEP_MARKS)
+#error "TFW_CM_REG_DUMP dumps at the step marks: it needs TFW_CM_STEP_MARKS"
+#endif
+
 #if defined(TFW_CM_STEP_MARKS)
 /* Bench step marks (STEP_MARKS=1 in the board profile; hal_early.h). Each mark
  * goes straight to LPUART3 DATA: TDRE polled, then TC, so a GLOBAL reset that
@@ -81,16 +85,57 @@ void tfw_cm_soc_early(void)
 
 static volatile uint32_t step_trail __attribute__((section(".noinit")));
 
-static void step_send(uint8_t b)
+/* Returns the polls spent waiting for STAT.TDRE (STEP_POLLS: it never set). */
+static uint32_t step_send(uint8_t b)
 {
     uint32_t n;
+    uint32_t waited;
 
     for (n = 0u; n < STEP_POLLS &&
                  (TFW_IMX95_LPUART_STAT & TFW_IMX95_LPUART_STAT_TDRE) == 0u; n++) { }
+    waited = n;
     TFW_IMX95_LPUART_DATA = b;
     for (n = 0u; n < STEP_POLLS &&
                  (TFW_IMX95_LPUART_STAT & TFW_IMX95_LPUART_STAT_TC) == 0u; n++) { }
+    return waited;
 }
+
+#if defined(TFW_CM_REG_DUMP)
+/* Bench register dump (REG_DUMP=1, which sets STEP_MARKS=1; soc_regs.h has
+ * the layout): after each mark, LPUART3's registers as the M7 reads them go
+ * to memory the System Manager's monitor can read (`md`), since neither it
+ * nor the A55 can read LPUART3 itself (bench record sections 11 and 14).
+ * Only device memory and locals: it runs before .data and .bss are set up. */
+static void step_dump(uint8_t mark, uint32_t waited)
+{
+    uint32_t rec[TFW_IMX95_REGDUMP_SLOT_WORDS];
+    uint32_t n;
+    uint32_t w;
+    uint32_t i;
+
+    if (mark == (uint8_t)'R') {
+        TFW_IMX95_REGDUMP_WORD(0) = TFW_IMX95_REGDUMP_MAGIC;
+        TFW_IMX95_REGDUMP_WORD(1) = 0u;
+    }
+    n      = TFW_IMX95_REGDUMP_WORD(1);
+    rec[0] = (uint32_t)mark | (n << 8);
+    rec[1] = TFW_IMX95_LPUART_VERID;
+    rec[2] = TFW_IMX95_LPUART_PARAM;
+    rec[3] = TFW_IMX95_LPUART_GLOBAL;
+    rec[4] = TFW_IMX95_LPUART_BAUD;
+    rec[5] = TFW_IMX95_LPUART_STAT;
+    rec[6] = TFW_IMX95_LPUART_CTRL;
+    rec[7] = waited;
+    w = TFW_IMX95_REGDUMP_HDR_WORDS + (n % TFW_IMX95_REGDUMP_SLOTS) * TFW_IMX95_REGDUMP_SLOT_WORDS;
+    for (i = 0u; i < TFW_IMX95_REGDUMP_SLOT_WORDS; i++) {
+        TFW_IMX95_REGDUMP_WORD(w + i) = rec[i];
+    }
+    TFW_IMX95_REGDUMP_WORD(1) = n + 1u;
+}
+#define STEP_DUMP(mark, waited) step_dump((mark), (waited))
+#else
+#define STEP_DUMP(mark, waited) ((void)(waited))
+#endif
 
 void tfw_cm_soc_step(uint8_t mark)
 {
@@ -104,7 +149,7 @@ void tfw_cm_soc_step(uint8_t mark)
         TFW_IMX95_LPUART_BAUD = reg;
         TFW_IMX95_LPUART_CTRL = TFW_IMX95_LPUART_CTRL_TE;
     }
-    step_send(mark);
+    STEP_DUMP(mark, step_send(mark));
     if (mark == (uint8_t)'R') {
         step_trail = 0u;
     }
@@ -113,7 +158,7 @@ void tfw_cm_soc_step(uint8_t mark)
         for (i = 3; i >= 0; i--) {
             uint8_t b = (uint8_t)(t >> (8 * i));
             if (b != 0u) {
-                step_send((uint8_t)(b | 0x20u));
+                (void)step_send((uint8_t)(b | 0x20u));
             }
         }
     }

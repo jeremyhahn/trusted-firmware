@@ -27,6 +27,20 @@
  * serial@42570000, the third LPUART; docs/development/bench/frdm-imx95.md.
  * The offsets below stay TO CONFIRM. */
 #define TFW_IMX95_LPUART3_BASE  0x42570000u
+#define TFW_IMX95_LPUART_VERID  TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x00u)
+#define TFW_IMX95_LPUART_PARAM  TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x04u)
+
+/* The bench register dump (TFW_CM_REG_DUMP, hal_soc.c), at the board's
+ * TFW_IMX95_REGDUMP_BASE: word 0 the magic, word 1 the records written since
+ * the 'R' mark, then REGDUMP_SLOTS slots of REGDUMP_SLOT_WORDS words, record n
+ * in slot n % REGDUMP_SLOTS. A slot: the mark | n << 8, then LPUART3 VERID,
+ * PARAM, GLOBAL, BAUD, STAT and CTRL read after the mark was sent, then the
+ * polls the send spent waiting for STAT.TDRE (STEP_POLLS: it never set). */
+#define TFW_IMX95_REGDUMP_MAGIC      0x4C335244u   /* "L3RD" */
+#define TFW_IMX95_REGDUMP_HDR_WORDS  8u
+#define TFW_IMX95_REGDUMP_SLOTS      8u
+#define TFW_IMX95_REGDUMP_SLOT_WORDS 8u
+#define TFW_IMX95_REGDUMP_WORD(i)    TFW_CM_REG(TFW_IMX95_REGDUMP_BASE + 4u * (uint32_t)(i))
 #define TFW_IMX95_LPUART_GLOBAL TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x08u)
 #define TFW_IMX95_LPUART_BAUD   TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x10u)
 #define TFW_IMX95_LPUART_STAT   TFW_CM_REG(TFW_IMX95_LPUART3_BASE + 0x14u)

@@ -177,6 +177,10 @@
 /* The same MAILBOX line's check=crc32: each message's CRC-32 at shm+0x0C,
  * both ways (scmi_mu.h, tfw_scmi_crc32). */
 #define TFW_IMX95_SCMI_CRC       1u
+/* The bench register dump (REG_DUMP=1 in profile.mk, hal_soc.c): MU5 SRAM
+ * from +0x180, past the three SMT channels the SM sets up at +0x000, +0x080
+ * and +0x100 (bench record section 14); the SRAM ends at +0x400. */
+#define TFW_IMX95_REGDUMP_BASE   0x44611180uL
 
 /* LPUART3's pads, which the SM owns: the M7 asks it, over the channel above,
  * to mux them before the console starts (console_pins.c). The SM's pin ids

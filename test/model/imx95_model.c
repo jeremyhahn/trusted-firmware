@@ -60,6 +60,7 @@ enum reg {
     R_CS, R_CNT, R_TOVAL,
     R_ISER, R_ICER, R_ICPR,
     R_GCR, R_SHM,
+    R_VERID, R_PARAM, R_DUMP,
     R_PAR, R_TSR, R_RSR, R_TR, R_RR,
     R_OTHER
 };
@@ -82,6 +83,8 @@ static enum reg decode(uintptr_t addr, uint32_t *idx)
 
     *idx = 0u;
     switch (addr) {
+    case LPUART + 0x00u: return R_VERID;
+    case LPUART + 0x04u: return R_PARAM;
     case LPUART + 0x08u: return R_GLOBAL;
     case LPUART + 0x10u: return R_BAUD;
     case LPUART + 0x14u: return R_STAT;
@@ -112,6 +115,11 @@ static enum reg decode(uintptr_t addr, uint32_t *idx)
         ((addr - m->scmi.shm_base) & 3u) == 0u) {
         *idx = (uint32_t)((addr - m->scmi.shm_base) / 4u);
         return R_SHM;
+    }
+    if (m->dump.base != 0u && addr >= m->dump.base &&
+        addr < m->dump.base + 4u * TFW_IMX95_MODEL_DUMP_WORDS && ((addr - m->dump.base) & 3u) == 0u) {
+        *idx = (uint32_t)((addr - m->dump.base) / 4u);
+        return R_DUMP;
     }
     if (m->ele.mu_base != 0u) {
         if (addr == m->ele.mu_base + 0x004u) { return R_PAR; }
@@ -177,6 +185,9 @@ static uint32_t view(enum reg r, uint32_t idx)
     case R_ISER:   return m->nvic.iser[idx];
     case R_GCR:    return m->scmi.gcr;
     case R_SHM:    return m->scmi.shm[idx];
+    case R_VERID:  return m->lpuart.verid;
+    case R_PARAM:  return m->lpuart.param;
+    case R_DUMP:   return m->dump.words[idx];
     case R_PAR:    return m->ele.par;
     case R_TSR:    return m->ele.tx_busy ? 0u : ele_mask(m->ele.par & 0xFFu);
     case R_RSR:
@@ -353,6 +364,7 @@ static void on_write(enum reg r, uint32_t idx, uint32_t v)
     case R_ICER: m->nvic.iser[idx] &= ~v; break;
     case R_ICPR: m->nvic.icpr[idx] |= v;  break;
     case R_SHM:  m->scmi.shm[idx] = v;   break;
+    case R_DUMP: m->dump.words[idx] = v; break;
     case R_GCR:  mu_write_gcr(v);        break;
     case R_TR:   ele_write_tr(idx, v);   break;
     default: break;

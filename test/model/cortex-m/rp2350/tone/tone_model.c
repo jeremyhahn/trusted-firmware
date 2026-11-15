@@ -132,6 +132,11 @@ static void apply(uintptr_t addr, uint32_t v)
         if (alarm_slow_writes > 0) {
             alarm_slow_writes--;
             now += alarm_slow_us;
+            if ((int32_t)(v - now) <= 0) {
+                /* TIMELR reached the target as it armed: the alarm fires */
+                t1_armed &= ~1u;
+                t1_intr  |= 1u;
+            }
         }
         break;
     case RP_MODEL_NVIC_ISER0:   *state(addr) |= v; break;
@@ -227,13 +232,19 @@ int tfw_rp_model_writes(void)
 
 int tfw_rp_model_fire(void)
 {
+    int runs = 0;
+
     commit();
     if ((t1_armed & 1u) == 0u || (*state(RP_MODEL_T1_INTE) & 1u) == 0u) {
         return 0;
     }
     t1_armed &= ~1u;
     t1_intr  |= 1u;
-    tfw_cm_irq4();
-    commit();
-    return 1;
+    /* the interrupt is taken again while INTR bit 0 stays pending */
+    while ((t1_intr & 1u) != 0u && runs < 8) {
+        tfw_cm_irq4();
+        commit();
+        runs++;
+    }
+    return runs;
 }

@@ -49,7 +49,8 @@ void tfw_rp_model_reset(void);
 void tfw_rp_model_set_time(uint32_t ticks);
 
 /* The next writes many ALARM0 writes each take us microseconds: TIMELR
- * moves on by us as each lands, so a target can pass while it is armed. */
+ * moves on by us as each lands, so a target can pass while it is armed:
+ * the alarm then fires, disarming and raising INTR bit 0. */
 void tfw_rp_model_slow_alarm_writes(uint32_t us, int writes);
 
 /* A register's state: OUT and OE for SIO, armed and pending bits for
@@ -62,8 +63,8 @@ int tfw_rp_model_find(uintptr_t addr, uint32_t value, int from);
 int tfw_rp_model_writes(void);
 
 /* Fire ALARM0 as TIMELR reaching it would, if armed with INTE bit 0 set:
- * the alarm disarms, INTR bit 0 rises and tfw_cm_irq4 runs. Returns 1 if
- * it fired. */
+ * the alarm disarms, INTR bit 0 rises and tfw_cm_irq4 runs, again while
+ * it leaves INTR bit 0 pending. Returns the handler runs, 0 if none. */
 int tfw_rp_model_fire(void);
 
 #endif /* TFW_RP2350_TONE_MODEL_H */

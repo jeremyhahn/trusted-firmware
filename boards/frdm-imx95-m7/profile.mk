@@ -149,7 +149,7 @@ BOARD_ROWS        += soft:TONE=1
 
 # Bench step marks (#428, bench record section 10), off by default and in
 # every release image. STEP_MARKS=1 defines TFW_CM_STEP_MARKS: the reset
-# handler and the console's init send one raw byte each on LPUART3 by polling
+# handler and the console's init send one raw byte each on LPUART7 by polling
 # DATA (R reset entry, D .data/.bss set up, M before main, P pads requested and
 # r, d, m again, U console up; hal_soc.c tfw_cm_soc_step), so port 2 shows how
 # far the M7 gets when its TCM cannot be read. The bench image:
@@ -160,7 +160,7 @@ BOARD_ROWS        += soft:TONE=1
 #
 # Bench register dump (#428, bench record section 14), off by default and in
 # every release image. REG_DUMP=1 defines TFW_CM_REG_DUMP and turns the step
-# marks on: after each mark the M7 copies LPUART3 VERID, PARAM, GLOBAL, BAUD,
+# marks on: after each mark the M7 copies LPUART7 VERID, PARAM, GLOBAL, BAUD,
 # STAT and CTRL into MU5 SRAM (TFW_IMX95_REGDUMP_BASE, layout in soc_regs.h),
 # which the System Manager's monitor reads with `md`. The bench image:
 #   make BOARD=frdm-imx95-m7 IMX_BOOT=1 REG_DUMP=1 firmware

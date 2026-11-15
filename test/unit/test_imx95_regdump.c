@@ -3,7 +3,7 @@
  *
  * The i.MX 95 M7's bench register dump (TFW_CM_REG_DUMP, hal_soc.c's
  * step_dump, layout in soc_regs.h) against the register model: after each
- * step mark, LPUART3's registers as the M7 reads them, and the polls the mark
+ * step mark, LPUART7's registers as the M7 reads them, and the polls the mark
  * waited for STAT.TDRE, land in the board's MU5 SRAM area for the System
  * Manager's `md`. Built with -DTFW_CM_STEP_MARKS=1 -DTFW_CM_REG_DUMP=1
  * (mk/host.mk); the default build has neither.

@@ -7,8 +7,8 @@
  * Processor Reference Manual"), which this project does not hold: every SoC
  * fact here and in src/hal/cortex-m/imx95/ is TO CONFIRM against it.
  *
- * The byte link is LPUART3, the M7's debug UART on NXP's i.MX 95 boards (TO
- * CONFIRM against UM12527, the debug UART section). The pins are two RGPIO
+ * The byte link is LPUART7, the M7 console on the board's port 2 (bench
+ * record section 14; UM12527's debug UART section is TO CONFIRM). The pins are two RGPIO
  * lines and every other capability is off by file selection. The System
  * Manager owns the pin mux (IOMUXC) and assigns pins and peripherals to the
  * M7, so the HAL muxes nothing: a pin the configuration did not give the M7
@@ -93,7 +93,7 @@
  * sheet; TO CONFIRM against the configuration trusted-imx95 ships). */
 #define TFW_CM_CPU_HZ 800000000uL
 
-/* LPUART3's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
+/* LPUART7's functional clock root, the 24 MHz oscillator (TO CONFIRM: the
  * System Manager configuration sets the root). The baud divisor counts it. */
 #define TFW_IMX95_LPUART_CLK_HZ 24000000uL
 
@@ -111,7 +111,7 @@
  * base), and which one the System Manager gives the M7 is open
  * (docs/multi-arch/imx95-design.md question 17): zero, unsupported, until it
  * is known; every PWM call answers TFW_ERR_UNSUPPORTED and touches no
- * register. Its clock root, the 24 MHz oscillator as LPUART3's, is TO
+ * register. Its clock root, the 24 MHz oscillator as LPUART7's, is TO
  * CONFIRM: the System Manager configuration sets it. No image overrides the
  * base; mk/host.mk's test_board_frdm-imx95-m7_pwm_base passes a stand-in one
  * so the board's PWM pin mapping is checked as it will be once it is known. */
@@ -182,16 +182,20 @@
  * and +0x100 (bench record section 14); the SRAM ends at +0x400. */
 #define TFW_IMX95_REGDUMP_BASE   0x44611180uL
 
-/* LPUART3's pads, which the SM owns: the M7 asks it, over the channel above,
- * to mux them before the console starts (console_pins.c). The SM's pin ids
- * for GPIO_IO14 (TX) and GPIO_IO15 (RX), and their LPUART3 mux, ALT1 (imx-sm
- * devices/MIMX95 pin list; NXP's i.MX 95 iomux, GPIO_IO14__LPUART3_TX). The
- * pad configuration is TO CONFIRM: 0 sends the mux alone and leaves the pads'
- * reset configuration. RX's daisy (input select) is TO CONFIRM and not sent:
- * TX on port 2 is the next slice's check. */
-#define TFW_IMX95_CONSOLE_TX_PIN  18u
-#define TFW_IMX95_CONSOLE_RX_PIN  19u
-#define TFW_IMX95_CONSOLE_PIN_MUX 1u
+/* LPUART7's pads, which the SM owns: the M7 asks it, over the channel above,
+ * to mux them before the console starts (console_pins.c). Port 2 of the
+ * FRDM-IMX95-PRO is wired to GPIO_IO36 (TX) and GPIO_IO37 (RX), LPUART7 at
+ * ALT2 (bench record section 14: the vendor M7 demo's mux; imx-sm
+ * devices/MIMX95/drivers/fsl_iomuxc.h at 44f76dcb, lines 328 and 331,
+ * IOMUXC_PAD_GPIO_IO36__LPUART7_TX and IOMUXC_PAD_GPIO_IO37__LPUART7_RX).
+ * The SM's pin ids are 40 and 41: the id is the mux register's index from
+ * 0x443C0000 (0xA0 / 4 and 0xA4 / 4), as GPIO_IO14's 18 was.
+ * The pad configuration is 0: the mux alone, the pads keep the SM's setting
+ * (0x51e on the board). RX's input select is not sent: its reset value, 0,
+ * selects GPIO_IO37 (section 14 read it so). */
+#define TFW_IMX95_CONSOLE_TX_PIN  40u
+#define TFW_IMX95_CONSOLE_RX_PIN  41u
+#define TFW_IMX95_CONSOLE_PIN_MUX 2u
 #define TFW_IMX95_CONSOLE_PAD_CFG 0u
 
 /* The SAR ADC instance the System Manager gives the M7 (src/hal/cortex-m/

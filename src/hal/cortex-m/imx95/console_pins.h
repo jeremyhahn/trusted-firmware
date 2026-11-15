@@ -3,7 +3,7 @@
 /*
  * The console's pads on the i.MX 95 M7. The System Manager owns the IOMUX;
  * the M7 asks it, with SCMI pin control (scmi.h,
- * PINCTRL_SETTINGS_CONFIGURE), to route LPUART3 to its pads before the
+ * PINCTRL_SETTINGS_CONFIGURE), to route LPUART7 to its pads before the
  * console starts (hal_uart.c).
  */
 #ifndef TFW_CM_IMX95_CONSOLE_PINS_H

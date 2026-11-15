@@ -69,13 +69,13 @@ void tfw_cm_soc_early(void)
 
 #if defined(TFW_CM_STEP_MARKS)
 /* Bench step marks (STEP_MARKS=1 in the board profile; hal_early.h). Each mark
- * goes straight to LPUART3 DATA: TDRE polled, then TC, so a GLOBAL reset that
+ * goes straight to LPUART7 DATA: TDRE polled, then TC, so a GLOBAL reset that
  * follows (tfw_hal_uart_init) cannot cut it off. With the transmitter off (the
  * reset handler runs before tfw_hal_uart_init), the helper programs BAUD for
  * TFW_UART_BAUD and sets CTRL.TE first. Every poll is bounded: a dead
  * transmitter costs time, not the boot.
  *
- * The pads reach LPUART3 only once the System Manager routes them, in
+ * The pads reach LPUART7 only once the System Manager routes them, in
  * tfw_hal_uart_init, so the marks before it ('R', 'D', 'M') may be lost on the
  * line. The trail keeps the last four in a word outside .data and .bss, and
  * 'P' (the pads requested) is followed by the trail again, in lower case.
@@ -102,9 +102,9 @@ static uint32_t step_send(uint8_t b)
 
 #if defined(TFW_CM_REG_DUMP)
 /* Bench register dump (REG_DUMP=1, which sets STEP_MARKS=1; soc_regs.h has
- * the layout): after each mark, LPUART3's registers as the M7 reads them go
+ * the layout): after each mark, LPUART7's registers as the M7 reads them go
  * to memory the System Manager's monitor can read (`md`), since neither it
- * nor the A55 can read LPUART3 itself (bench record sections 11 and 14).
+ * nor the A55 reads the M7's LPUART (bench record sections 11 and 14).
  * Only device memory and locals: it runs before .data and .bss are set up. */
 static void step_dump(uint8_t mark, uint32_t waited)
 {

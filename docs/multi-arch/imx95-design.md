@@ -377,7 +377,7 @@ Each names the document that answers it; none is guessed here.
     instance, because no document held here gives one. It needs: the MU
     instance and its base on the M7's map; the doorbell (the GCR bit); the
     shared memory area's address and length; the agent id; the SCMI clock id
-    of LPUART3's root; and the power, reset and logical-machine ids the M7 may
+    of LPUART7's root; and the power, reset and logical-machine ids the M7 may
     use (question 15). So the console's clock is not enabled through SCMI yet.
     The System Manager configuration (trusted-imx95) and the System Manager
     interface document answer the ids. IMX95RM, the MU chapter, answers the
@@ -441,14 +441,14 @@ The table does not settle who starts the M7; the ref ADR says Linux never does
 
 `src/hal/cortex-m/imx95/` drives three blocks:
 
-- LPUART3, on interrupt 64, as the byte link;
+- LPUART7, on interrupt 68, as the byte link (port 2 of the FRDM-IMX95-PRO, GPIO_IO36/37 at ALT2; bench record sections 14 and 15);
 - the RGPIO banks GPIO1 to GPIO5;
 - WDOG5, as the watchdog both images share.
 
 It sets no pin mux, clock or power: NXP's System Manager on the M33 owns those.
 The divisor search and the bank table are `soc_calc.c`, which has no register
 access, so `test/unit/test_imx95_soc_calc.c` tests on the host the same file
-the image links. The vector table carries 80 external interrupts for LPUART3,
+the image links. The vector table carries 80 external interrupts for LPUART7,
 so the code region needs a 512-byte alignment, and `imx95.ld` asserts it.
 
 ### 9.4 SoC facts, checked 2026-10-20
@@ -461,7 +461,7 @@ the file that states it.
 
 | Fact | Where | Value | Result |
 |---|---|---|---|
-| The M7's UART | `board_profile.h`, `soc_regs.h` | LPUART3 at `0x42570000`, interrupt 64 | unverifiable. UM12527 §2.19 says J22's channel-to-core mapping is not fixed (question 13) |
+| The M7's UART | `board_profile.h`, `soc_regs.h` | LPUART7 at `0x42690000`, interrupt 68, pads GPIO_IO36/37 (SM pin ids 40, 41) at ALT2 | port 2 is LPUART7: the vendor M7 demo prints there with that mux (bench record section 14); LPUART3 on GPIO_IO14/15 does not reach it |
 | The watchdog | `soc_regs.h`, `hal_soc.c` | WDOG5 at `0x424B0000`, WDOG32 on the 32 kHz LPO | unverifiable (question 17) |
 | The start address | `profile.mk` | ITCM at M7 `0x00000000` = A55 `0x203C0000`, application at `0x00008000` | unverifiable. SPSDK loads `cortex_m7_app` at `0x303C0000` (d12); whether that is the other alias of the same TCM is open |
 | The clock | `board_profile.h` | the M7 at 800 MHz, the LPUART root at 24 MHz | unverifiable. 800 MHz agrees with IMX95CEC Table 1 as section 2.1 cites it, a datasheet `docs/reference/` does not hold |
@@ -479,7 +479,7 @@ SoC's map, not which blocks the System Manager gives the M7.
 
 | Fact | Board read | Result |
 |---|---|---|
-| LPUART3 at `0x42570000` | `serial@42570000` in the device tree, GIC SPI 64 | base confirmed; the M7's NVIC line 64 TO CONFIRM |
+| LPUART7 at `0x42690000` | `serial@42690000` in the board's device tree, GIC SPI 68 (bench record section 15) | base confirmed; the M7's NVIC line 68, as LPUART3's 64 matched its GIC SPI |
 | WDOG5 at `0x424B0000` | no node there (the only watchdog node is `0x42490000`) | TO CONFIRM |
 | GPIO1 to GPIO5 | `gpio@47400000` (disabled for Linux), `gpio@43810000`, `gpio@43820000`, `gpio@43840000`, `gpio@43850000` | bases confirmed |
 | The six TPM bases (`tpm.h`) | `pwm@44310000`, `44320000`, `424e0000`, `424f0000`, `42500000`, `42510000` | bases confirmed |
@@ -1066,7 +1066,7 @@ links it in CI on Arm's toolchain; nothing runs on the board yet.
 | The board as data, id `0x41` (provisional, question 20), in the Cortex-M range | done | `boards/frdm-imx95-m7/` | `test/unit/test_board_frdm-imx95-m7.c` |
 | The TCM map at the M7's addresses, the 512-byte vector alignment | built | `mk/arch/cortex-m/imx95.ld`, `boards/frdm-imx95-m7/profile.mk` | `firmware-matrix` (CI); `imx95.ld`'s asserts |
 | The LPUART divisor search and the RGPIO bank table | done | `src/hal/cortex-m/imx95/soc_calc.c` | `test/unit/test_imx95_soc_calc.c` |
-| LPUART3, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
+| LPUART7, RGPIO and WDOG5 behind `hal.h` | met (host, register model) | `src/hal/cortex-m/imx95/hal_uart.c`, `hal_gpio.c`, `hal_soc.c`; the model `test/model/imx95_model.c` | `test/unit/test_imx95_hal.c`: `test_uart_init_*`, `test_tx_*`, `test_rx_*`, `test_the_interrupt_*`, `test_gpio_*`, `test_early_disarms_the_watchdog`, `test_arm_marks_and_sets_eight_seconds`, `test_pet_is_one_refresh_key`, `test_a_locked_watchdog_does_not_park_the_core` |
 | Pulse timing, PULSE_IN and PULSE_CAPTURE | built, not yet run on the board | `src/hal/cortex-m/hal_pulse.c`, the one Cortex-M pulse timer, on `TFW_FEATURE_PULSE 1` in `boards/frdm-imx95-m7/board_profile.h`: the pin's level as `tfw_hal_gpio_read` reads it (RGPIO PDIR), the time on SysTick at the processor clock, 800 MHz. SysTick reloads every 1 ms (`TFW_CM_TICK_RELOAD`; the 24-bit counter alone would wrap every 21 ms), and `hal_pulse.c` counts across the reloads | `test/unit/test_cm_pulse.c` (the timer on its model, `test/model/cortex-m/cm_pulse_model.h`) |
 | The remoteproc resource table | met | `src/hal/cortex-m/imx95/rsc_table.c`, `mk/arch/cortex-m/image.ld` | `test/unit/test_imx95_rsc_table.c`; as Linux's loader parses it: `test_linux_takes_the_images_table`, `test_the_parser_reads_a_carveout_and_a_vdev`, the mutation `test_a_corrupted_field_is_refused` |
 | The boot-HAL pieces specific to the board | none to test | `boot/hal/cortex-m/` has no `imx95/`; `hal_soc.c` joins a tfw-boot link only with a `mk/boot.mk` row, which waits on question 19 | `test/unit/test_imx95_hal.c` covers `hal_soc.c` as the application links it |

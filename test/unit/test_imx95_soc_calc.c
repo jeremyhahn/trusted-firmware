@@ -20,7 +20,7 @@ void tearDown(void) {}
 
 #define CLK 24000000u
 
-/* The console's rate, the value tfw_hal_uart_init writes to LPUART3's BAUD:
+/* The console's rate, the value tfw_hal_uart_init writes to LPUART7's BAUD:
  * OSR 25 (x26), SBR 8, 115384 baud, 0.16% fast; BOTHEDGE clear. */
 static void test_115200_is_x26_by_8(void)
 {

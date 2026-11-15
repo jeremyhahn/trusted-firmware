@@ -11,7 +11,7 @@
 #include "hal_early.h"
 #include "imx95_model.h"
 
-void tfw_cm_irq64(void);
+void tfw_cm_irq68(void);
 
 /* hal_early.c's, which the host link leaves out: it is the reset handler. */
 volatile uint32_t tfw_cm_reset_mark;
@@ -28,7 +28,7 @@ tfw_reset_cause_t tfw_cm_mark_decode(uint32_t mark)
 
 void tfw_imx95_model_uart_interrupt(void)
 {
-    tfw_cm_irq64();
+    tfw_cm_irq68();
 }
 
 void tfw_imx95_model_soc_early(void)

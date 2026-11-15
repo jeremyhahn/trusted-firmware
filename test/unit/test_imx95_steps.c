@@ -3,7 +3,7 @@
  *
  * The i.MX 95 M7's bench step marks (TFW_CM_STEP_MARKS, hal_soc.c's
  * tfw_cm_soc_step) against the register model: each mark is one raw byte in
- * LPUART3 DATA, written with no queue and no interrupt, the transmitter turned
+ * LPUART7 DATA, written with no queue and no interrupt, the transmitter turned
  * on first when nothing has, and the marks before the pad request sent again
  * after it. Built with -DTFW_CM_STEP_MARKS=1 (mk/host.mk); the release build's
  * TFW_CM_STEP is empty and test_imx95_hal checks that image's UART.

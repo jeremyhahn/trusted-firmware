@@ -28,6 +28,8 @@
 
 static struct tfw_imx95_model *m;
 
+extern volatile uint32_t tfw_imx95_uart_irqs;   /* hal_uart.c, for the bench */
+
 /* The console's pad request (console_pins.c, its own test): counted here, so
  * the console is seen to ask before it starts. */
 static uint32_t routes, lpuart_resets_at_route;
@@ -110,15 +112,54 @@ static void test_uart_init_refuses_a_baud_it_cannot_make_and_touches_nothing(voi
 
 /* A transmission starts by enabling the empty-register interrupt, inside the
  * critical section, not by writing DATA. */
+/* TDRE set: the byte goes to DATA at once, without the interrupt, and TIE
+ * stays down as nothing is left. */
+static void test_tx_sends_at_once_when_tdre(void)
+{
+    uart_up();
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x7Eu));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);
+    TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_HEX8(0x7Eu, m->lpuart.tx[0]);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+}
+
+/* TDRE clear: the byte waits and TIE goes up, masked, for the interrupt. */
 static void test_tx_queues_and_raises_tie_masked(void)
 {
     uart_up();
+    m->lpuart.busy = 1u;
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(0x7Eu));
     m = tfw_imx95_model_get();
     TEST_ASSERT_EQUAL_HEX32(0x00AC0000u, m->lpuart.ctrl);      /* + TIE */
     TEST_ASSERT_EQUAL_UINT32(0u, m->lpuart.ctrl_unmasked);
     TEST_ASSERT_EQUAL_UINT32(0u, m->lpuart.tx_len);
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_tx_idle());
+}
+
+/* The interrupt never fires (a wrong NVIC line): the main loop's next poll
+ * sends what is queued, in order, and drops TIE. */
+static void test_the_main_loop_sends_without_the_interrupt(void)
+{
+    static const uint8_t frame[] = { 0x7Eu, 0x01u, 0x00u, 0xFFu };
+    uint8_t  b = 0u;
+    uint32_t i;
+    uint32_t irqs = tfw_imx95_uart_irqs;
+
+    uart_up();
+    m->lpuart.busy = 1u;
+    for (i = 0u; i < sizeof frame; i++) {
+        TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_try(frame[i]));
+    }
+    m = tfw_imx95_model_get();
+    m->lpuart.busy = 0u;
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_hal_uart_rx(&b));
+    m = tfw_imx95_model_get();
+    TEST_ASSERT_EQUAL_UINT32(sizeof frame, m->lpuart.tx_len);
+    TEST_ASSERT_EQUAL_MEMORY(frame, m->lpuart.tx, sizeof frame);
+    TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);
+    TEST_ASSERT_EQUAL_UINT32(irqs, tfw_imx95_uart_irqs);
 }
 
 static void test_the_interrupt_sends_in_order_and_drops_tie(void)
@@ -375,7 +416,9 @@ int main(void)
     RUN_TEST(test_uart_init_resets_before_the_divisor);
     RUN_TEST(test_uart_init_clears_a_latched_overrun);
     RUN_TEST(test_uart_init_refuses_a_baud_it_cannot_make_and_touches_nothing);
+    RUN_TEST(test_tx_sends_at_once_when_tdre);
     RUN_TEST(test_tx_queues_and_raises_tie_masked);
+    RUN_TEST(test_the_main_loop_sends_without_the_interrupt);
     RUN_TEST(test_the_interrupt_sends_in_order_and_drops_tie);
     RUN_TEST(test_a_busy_transmitter_holds_the_byte);
     RUN_TEST(test_tx_idle_waits_for_tc);

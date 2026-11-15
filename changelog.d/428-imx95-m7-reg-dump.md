@@ -7,4 +7,6 @@
   System Manager's three SMT channels, where the SM monitor's `md` reads
   them (neither the SM nor the A55 can read LPUART3 itself). Layout in
   `soc_regs.h`; host test `test_imx95_regdump` on the register model, which
-  gains LPUART VERID, PARAM and a plain-memory area.
+  gains LPUART VERID, PARAM and a plain-memory area. On the board it showed
+  LPUART3 clocked, programmed and transmitting; bench record section 14
+  finds the board's M7 console port is LPUART7 on GPIO_IO36/37 instead.

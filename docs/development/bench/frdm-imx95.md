@@ -1279,3 +1279,42 @@ SM pin id) has these non-zero entries, the vendor console's pads among
 them: ids 0 to 3 = 6; 8, 9 = 5; 13 to 15 = 1; 32 to 36 and 39 = 0x11; 40,
 41, 44, 45 = 2; 42, 43 = 5; 46, 47 = 0x12; 92 to 95, 100 to 104 and 111 =
 5; 96 to 99 = 1; 112 to 115 = 0x10; 122, 124, 125 = 5; 123, 126 = 4; 127 = 1.
+
+Naming the vendor's pads (imx-sm `devices/MIMX95/drivers/fsl_iomuxc.h` at
+the board SM's commit, 44f76dcb, lines 328 and 331): ids 40 and 41 at 2
+are `IOMUXC_PAD_GPIO_IO36__LPUART7_TX` (mux 0x443C00A0, ALT2, TX select
+0x443C0588 = 0) and `IOMUXC_PAD_GPIO_IO37__LPUART7_RX` (mux 0x443C00A4,
+ALT2, RX select 0x443C0584 = 0). With the vendor image running:
+
+```
+md 0x443C0584 2      00000000 00000000     # LPUART7 RX/TX input select: GPIO_IO37/36 (select 0)
+md 0x443C02A4 2      0000051e 0000051e     # GPIO_IO36/37 pad control
+clock.r lpuart7      146: lpuart7 = on, 24000000Hz
+```
+
+and the A55 device tree lists `serial@42690000` among the LPUARTs (3 to 6
+at 0x42570000 to 0x425a0000, 7 and 8 at 0x42690000 and 0x426a0000).
+Section 12 found LM1 owns LPUART7 too (MBC0 block 105, DOM4 9).
+
+#### Answer
+
+**On this board (FRDM-IMX95-PRO) port 2 is LPUART7 on GPIO_IO36/37
+(ALT2), not LPUART3 on GPIO_IO14/15.** The vendor M7 image prints there
+with GPIO_IO14/15 left at ALT0. Our image does everything right for
+LPUART3 (clock, BAUD, TE, every byte shifted out, pads at ALT1), but no
+pin of LPUART3 is wired to port 2. The source cited in section 4 is NXP's
+FRDM-IMX95 pin mux, not the PRO's.
+
+The fix is a firmware slice (no board needed to write it): the M7
+console on LPUART7 at 0x42690000, the SCMI pad request for SM pin ids 40
+and 41 at ALT2, its RX select left at 0, and LPUART7's M7 interrupt line
+(TO CONFIRM; the transmit path also runs from the main loop's polls).
+docs/SPEC.md's row `imx95` and the design page name LPUART3, so the change
+reaches them too; that is the coordinator's call, not made here. Then one
+more device run under ruling 644 (1) for the boot frame on port 2.
+
+**Board state at the end of this section: the vendor container**
+(`imx-boot-orig.bin`, `1d775624...0081f`) at 0x8000, booted by an SM
+`reset`; the vendor M7 demo runs and the A55 Linux is up. The diagnostic
+container stays on the board as `/root/imxboot-backup/imx-boot-m7-regdump.bin`.
+Fuses, lifecycle and the SM configuration unchanged; no break sent.

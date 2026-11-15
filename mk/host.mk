@@ -760,6 +760,14 @@ $(HOST_DIR)/test_imx95_steps: test/unit/test_imx95_steps.c test/model/imx95_mode
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_IMX95_CFLAGS) $(EXTRA_CFLAGS) -DTFW_CM_STEP_MARKS=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The board's boot-container packager (boards/frdm-imx95-m7/imx-boot-m7.py)
+# on a synthetic ELF and container: a correctly linked image replaces the M7
+# slot alone, and a wrong load address, reset target, stack or size is
+# refused. Python, so the "binary" is a script that runs it.
+$(HOST_DIR)/test_imx_boot_m7: boards/frdm-imx95-m7/test_imx_boot_m7.py \
+                        boards/frdm-imx95-m7/imx-boot-m7.py | $(HOST_DIR)
+	@printf '#!/bin/sh\nexec python3 -I %s\n' '$(CURDIR)/$<' > $@ && chmod +x $@
+
 # The M7's PWM on a TPM (hal_pwm.c, tpm.h) against the TPM register model in
 # the test file itself, which defines tfw_imx95_model_reg for the TPM alone
 # (imx95_model.c is not linked) and GPIO2's direction register. Compiled with
@@ -1370,6 +1378,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_cm_pulse $(HOST_DIR)/test_esp_pulse_rmt $(HO
                     $(HOST_DIR)/test_imx95_gpt $(HOST_DIR)/test_imx95_gpt_nobase \
                     $(HOST_DIR)/test_imx95_hal $(HOST_DIR)/test_imx95_scmi $(HOST_DIR)/test_imx95_scmi_mu \
                     $(HOST_DIR)/test_imx95_console_pins $(HOST_DIR)/test_imx95_steps \
+                    $(HOST_DIR)/test_imx_boot_m7 \
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc \
                     $(HOST_DIR)/test_imx95_lpi2c \

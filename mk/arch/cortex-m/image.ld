@@ -96,15 +96,19 @@ SECTIONS
 
     /* Pinned, as the handoff block is on AVR (mk/handoff.ld): the two images
      * name the same addresses because both links place these sections from
-     * the same symbols. */
-    .resetmark __tfw_resetmark (NOLOAD) :
-    {
-        KEEP(*(.resetmark))
-    }
-
+     * the same symbols. In address order, the fault record (RAM_END - 127)
+     * before the marker (RAM_END - 115): the other way round ld's location
+     * counter steps back from the marker's end to the record, and GNU ld warns
+     * "dot moved backwards before '.faultframe'" on every link. The warning
+     * was only that: the three sections are NOLOAD and do not overlap. */
     .faultframe __tfw_faultframe (NOLOAD) :
     {
         KEEP(*(.faultframe))
+    }
+
+    .resetmark __tfw_resetmark (NOLOAD) :
+    {
+        KEEP(*(.resetmark))
     }
 
     .handoff __tfw_handoff (NOLOAD) :

@@ -20,6 +20,16 @@ void tearDown(void) {}
 
 #define CLK 24000000u
 
+/* The console's rate, the value tfw_hal_uart_init writes to LPUART3's BAUD:
+ * OSR 25 (x26), SBR 8, 115384 baud, 0.16% fast; BOTHEDGE clear. */
+static void test_115200_is_x26_by_8(void)
+{
+    uint32_t reg = 0xA5A5A5A5u;
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_imx95_lpuart_baud(CLK, 115200u, &reg));
+    TEST_ASSERT_EQUAL_HEX32(0x19000008u, reg);
+}
+
 static void test_9600_is_exact(void)
 {
     uint32_t reg = 0u;
@@ -91,6 +101,7 @@ static void test_a_bank_past_gpio5_has_no_base(void)
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_115200_is_x26_by_8);
     RUN_TEST(test_9600_is_exact);
     RUN_TEST(test_a_ratio_below_8_sets_bothedge);
     RUN_TEST(test_a_zero_baud_or_clock_is_out_of_range);

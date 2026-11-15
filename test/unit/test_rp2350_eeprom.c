@@ -184,6 +184,22 @@ static void test_a_read_back_mismatch_is_internal(void)
     assert_platform_untouched();
 }
 
+/* Every write erases and reprograms the whole sector, so a programming fault
+ * in a byte the write keeps is a failure too: the model flips the sector's
+ * last byte while the write is at its first. */
+static void test_a_kept_byte_corrupted_by_the_rewrite_is_internal(void)
+{
+    uint8_t data = 0x42u;
+    uint8_t kept = 0x5Au;
+    uint16_t last = (uint16_t)(TFW_EEPROM_SIZE - 1u);
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(last, &kept, 1u));
+    corrupt_next = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL,
+                      tfw_hal_eeprom_write((uint16_t)TFW_BOOT_EE_LEN, &data, 1u));
+    assert_platform_untouched();
+}
+
 /* A write the flash takes 45 ms over, interrupts masked throughout, still
  * advances the millisecond clock by 45: the one SysTick left pending plus
  * the milliseconds TIMER0 counted. */
@@ -275,6 +291,7 @@ int main(void)
     RUN_TEST(test_a_read_across_the_boot_areas_end_joins_both);
     RUN_TEST(test_a_write_to_the_user_sectors_end_never_erases_the_platform_sector);
     RUN_TEST(test_a_read_back_mismatch_is_internal);
+    RUN_TEST(test_a_kept_byte_corrupted_by_the_rewrite_is_internal);
     RUN_TEST(test_a_45_ms_write_advances_the_clock_45_ms);
     RUN_TEST(test_a_run_of_writes_does_not_drift);
     RUN_TEST(test_writes_with_work_between_count_every_boundary);

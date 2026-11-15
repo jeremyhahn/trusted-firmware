@@ -122,12 +122,35 @@ static void credit_masked_ms(const masked_entry_t *e)
     }
 }
 
+/* CRC-32 (reflected, 0xEDB88320) of the user sector as it reads, with
+ * [at, at + len) taken from buf instead. A write erases and reprograms all
+ * of the sector and the ROM's program call reports no error, so the sector
+ * the write expects is taken before it and the whole sector checked after:
+ * a fault in a byte the write keeps fails the write too, with no RAM copy. */
+static uint32_t sector_crc(uint32_t at, const uint8_t *buf, uint32_t len)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t i;
+    unsigned bit;
+
+    for (i = 0u; i < (uint32_t)TFW_CM_USER_EE_SIZE; i++) {
+        uint8_t b = (i >= at && i - at < len) ? buf[i - at] : USER_EE[i];
+
+        crc ^= b;
+        for (bit = 0u; bit < 8u; bit++) {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;
+}
+
 tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
 {
     uint32_t at;
     uint32_t primask;
     masked_entry_t entry;
     tfw_status_t st;
+    uint32_t want;
 
     if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;
@@ -145,6 +168,7 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
         return TFW_OK;
     }
     at      = (uint32_t)addr - TFW_BOOT_EE_LEN;
+    want    = sector_crc(at, buf, len);
     primask = tfw_cm_irq_save();
     masked_enter(&entry);
     st      = tfw_rp_flash_update((uint32_t)TFW_CM_USER_EE_BASE + at, buf, len,
@@ -154,7 +178,7 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
     if (st != TFW_OK) {
         return st;
     }
-    if (memcmp(&USER_EE[at], buf, len) != 0) {
+    if (memcmp(&USER_EE[at], buf, len) != 0 || sector_crc(0u, NULL, 0u) != want) {
         return TFW_ERR_INTERNAL;
     }
     return TFW_OK;

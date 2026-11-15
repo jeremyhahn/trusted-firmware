@@ -155,6 +155,7 @@ _Noreturn void tfw_cm_reset(void)
     uint32_t       *dst;
     const uint32_t *src;
 
+    TFW_CM_STEP('R');
     tfw_cm_reset_mark = 0u;
     tfw_cm_soc_early();
     TFW_CM_VTOR = (uint32_t)(uintptr_t)tfw_cm_vectors;
@@ -171,8 +172,10 @@ _Noreturn void tfw_cm_reset(void)
     for (dst = &__bss_start; (uintptr_t)dst < (uintptr_t)&__bss_end; ) {
         *dst++ = 0u;
     }
+    TFW_CM_STEP('D');
 
     latched = tfw_cm_soc_reset_cause(mark);
+    TFW_CM_STEP('M');
     (void)main();
     for (;;) { }
 }

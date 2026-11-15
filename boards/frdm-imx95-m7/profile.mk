@@ -142,3 +142,14 @@ TONE              ?= 0
 BOARD_DEFS        += $(if $(filter 1,$(TONE)),-DTFW_CM_TONE=1)
 BOARD_FEATURES_ON += $(if $(filter 1,$(TONE)),TONE)
 BOARD_ROWS        += soft:TONE=1
+
+# Bench step marks (#428, bench record section 10), off by default and in
+# every release image. STEP_MARKS=1 defines TFW_CM_STEP_MARKS: the reset
+# handler and the console's init send one raw byte each on LPUART3 by polling
+# DATA (R reset entry, D .data/.bss set up, M before main, P pads requested and
+# r, d, m again, U console up; hal_soc.c tfw_cm_soc_step), so port 2 shows how
+# far the M7 gets when its TCM cannot be read. The bench image:
+#   make BOARD=frdm-imx95-m7 IMX_BOOT=1 STEP_MARKS=1 BUILD_DIR=build/imx95-steps firmware
+STEP_MARKS        ?= 0
+BOARD_DEFS        += $(if $(filter 1,$(STEP_MARKS)),-DTFW_CM_STEP_MARKS=1)
+BOARD_ROWS        += soft:STEP_MARKS=1

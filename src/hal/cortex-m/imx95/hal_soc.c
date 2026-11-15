@@ -24,6 +24,7 @@
 #include "tfw/config.h"
 #include "hal_early.h"
 #include "soc_regs.h"
+#include "soc_calc.h"
 
 #define WDOG_TIMEOUT_S 8u
 #define WDOG_TOVAL     ((TFW_IMX95_WDOG_LPO_HZ / 256u) * WDOG_TIMEOUT_S)
@@ -61,6 +62,64 @@ void tfw_cm_soc_early(void)
 {
     wdog_configure(WDOG_CS_BASE, 0xFFFFu);
 }
+
+#if defined(TFW_CM_STEP_MARKS)
+/* Bench step marks (STEP_MARKS=1 in the board profile; hal_early.h). Each mark
+ * goes straight to LPUART3 DATA: TDRE polled, then TC, so a GLOBAL reset that
+ * follows (tfw_hal_uart_init) cannot cut it off. With the transmitter off (the
+ * reset handler runs before tfw_hal_uart_init), the helper programs BAUD for
+ * TFW_UART_BAUD and sets CTRL.TE first. Every poll is bounded: a dead
+ * transmitter costs time, not the boot.
+ *
+ * The pads reach LPUART3 only once the System Manager routes them, in
+ * tfw_hal_uart_init, so the marks before it ('R', 'D', 'M') may be lost on the
+ * line. The trail keeps the last four in a word outside .data and .bss, and
+ * 'P' (the pads requested) is followed by the trail again, in lower case.
+ * Marks: R reset entry, D .data/.bss set up, M before main, P pads requested,
+ * U tfw_hal_uart_init done. */
+#define STEP_POLLS 1000000u
+
+static volatile uint32_t step_trail __attribute__((section(".noinit")));
+
+static void step_send(uint8_t b)
+{
+    uint32_t n;
+
+    for (n = 0u; n < STEP_POLLS &&
+                 (TFW_IMX95_LPUART_STAT & TFW_IMX95_LPUART_STAT_TDRE) == 0u; n++) { }
+    TFW_IMX95_LPUART_DATA = b;
+    for (n = 0u; n < STEP_POLLS &&
+                 (TFW_IMX95_LPUART_STAT & TFW_IMX95_LPUART_STAT_TC) == 0u; n++) { }
+}
+
+void tfw_cm_soc_step(uint8_t mark)
+{
+    uint32_t reg;
+    uint32_t t;
+    int      i;
+
+    if ((TFW_IMX95_LPUART_CTRL & TFW_IMX95_LPUART_CTRL_TE) == 0u &&
+        tfw_imx95_lpuart_baud((uint32_t)TFW_IMX95_LPUART_CLK_HZ,
+                              (uint32_t)TFW_UART_BAUD, &reg) == TFW_OK) {
+        TFW_IMX95_LPUART_BAUD = reg;
+        TFW_IMX95_LPUART_CTRL = TFW_IMX95_LPUART_CTRL_TE;
+    }
+    step_send(mark);
+    if (mark == (uint8_t)'R') {
+        step_trail = 0u;
+    }
+    if (mark == (uint8_t)'P') {
+        t = step_trail;
+        for (i = 3; i >= 0; i--) {
+            uint8_t b = (uint8_t)(t >> (8 * i));
+            if (b != 0u) {
+                step_send((uint8_t)(b | 0x20u));
+            }
+        }
+    }
+    step_trail = (step_trail << 8) | mark;
+}
+#endif
 
 void tfw_cm_soc_watchdog_arm(void)
 {

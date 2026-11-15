@@ -23,6 +23,7 @@
 #include "tfw/config.h"
 #include "soc_regs.h"
 #include "console_pins.h"
+#include "hal_early.h"
 
 #define TFW_UART_RX_RING 64u
 #define TFW_UART_TX_RING 64u
@@ -78,6 +79,7 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
      * when asked. A refusal leaves the console to start anyway, as the SM
      * may have routed them already (console_pins.h). */
     (void)tfw_imx95_console_route();
+    TFW_CM_STEP('P');
     /* A reset first: BAUD is written only with the transmitter and receiver
      * off, and whatever ran before (the ROM, a previous image) left them on. */
     TFW_IMX95_LPUART_GLOBAL = TFW_IMX95_LPUART_GLOBAL_RST;
@@ -88,6 +90,7 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     TFW_IMX95_LPUART_CTRL = TFW_IMX95_LPUART_CTRL_TE | TFW_IMX95_LPUART_CTRL_RE |
                             TFW_IMX95_LPUART_CTRL_RIE;
     tfw_cm_nvic_enable(TFW_IMX95_LPUART3_IRQ);
+    TFW_CM_STEP('U');
     return TFW_OK;
 }
 

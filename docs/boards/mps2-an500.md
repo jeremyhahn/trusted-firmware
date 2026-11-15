@@ -1,7 +1,7 @@
 # mps2-an500 (Arm AN500 under QEMU)
 
 > **Status: INFORMATIVE** · SPEC row: `cortex-m` · Scope:
-> `boards/mps2-an500/` · Last verified: 2026-10-22
+> `boards/mps2-an500/` · Last verified: 2026-11-12
 >
 > A summary of what the board files say, with each value cited to where the
 > build reads it. The normative contract is [`adding-a-board.md`](adding-a-board.md);
@@ -56,22 +56,54 @@ the span both regions sit in (`board_profile.h:57`).
 
 | | Value | Source |
 |---|---|---|
-| Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select | `board_profile.h:20`; `board.c:23`–`31` |
-| Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register | `board_profile.h:21`; `board.c:13`–`21` |
-| PWM, ADC, 1-Wire | none: QEMU models no converter, PWM or 1-Wire this port drives | `board_profile.h:22`–`30`, `:47` |
-| EEPROM | on, 4 KiB: the platform window, addressed from its own zero; tfw-boot's span `[0x000, 0x140)` is refused to `EEPROM_WRITE` (the confirm request aside), the user span is `[0x140, 0x1000)`, and a span past the window is `RANGE`. RAM under QEMU: a write survives a `system_reset`, not a new QEMU process. The same on `mps2-an505` | `board_profile.h:23`, `:29`; `src/hal/cortex-m/hal_eeprom.c`; `src/caps/storage.c` |
-| I2C, SPI | off by default, each on in its own row: see Buses | `board_profile.h:31`–`46` |
-| Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off here. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads, and builds on any Cortex-M; `mps2-an505` links it in its `soft:PULSE=1` row, whose QEMU wire row (`TestQEMUPulseTimeout`) checks that a pin QEMU does not drive times out. This board could take the same row | `board_profile.h` `TFW_FEATURE_PULSE`; `mk/firmware.mk` `PULSE_SRCS` |
+| Pins | 3: the two user LEDs, outputs only, and pin 2, the shield 0 SPI select; 4 in the `ONEWIRE=1` row, pin 3 the 1-Wire line | `board_profile.h`, `TFW_PIN_COUNT`; `board.c` |
+| Ports | 2: the FPGA I/O block's LED register (bit n is LED n) and its MISC register; 3 in the `ONEWIRE=1` row, port 2 the CMSDK GPIO block 0 | `board_profile.h`, `TFW_PORT_COUNT`; `board.c` |
+| PWM | 2 in the `PWM=1` row (`soft:PWM=1`), off by default: software PWM on the two LEDs, pins 0 and 1, clocked by the CMSDK APB dual timer at `0x40002000` (interrupt line 10), 500 Hz in 256 steps; see PWM | `profile.mk:83`–`90`; `board_profile.h:22`–`28`, `:33`–`37`, `:100`–`105`; `board.c:35`–`54` |
+| ADC | none: QEMU models no converter this port drives | `board_profile.h` |
+| EEPROM | on, 4 KiB: the platform window, addressed from its own zero; tfw-boot's span `[0x000, 0x140)` is refused to `EEPROM_WRITE` (the confirm request aside), the user span is `[0x140, 0x1000)`, and a span past the window is `RANGE`. RAM under QEMU: a write survives a `system_reset`, not a new QEMU process. The same on `mps2-an505` | `board_profile.h:24`, `:35`; `src/hal/cortex-m/hal_eeprom.c`; `src/caps/storage.c` |
+| Tone | off by default, on in its own row: pin 1, LED1, toggled from the CMSDK timer TIMER0's interrupt; see Tone | `board_profile.h:27`–`34` |
+| I2C, SPI, 1-Wire | off by default, each on in its own row: see Buses | `board_profile.h` |
+| Pulse (`PULSE_IN`, `PULSE_CAPTURE`) | off by default, on in the `soft:PULSE=1` row, as on `mps2-an505`. The port's timer, `src/hal/cortex-m/hal_pulse.c`, polls the pin and counts SysTick's current value across reloads; the row links it on the Cortex-M7 and size-check measures it, and its QEMU wire row (`cortex-m-qemu-pulse-wire`, `TestQEMUPulseTimeout`) checks that `PULSE_IN` and `PULSE_CAPTURE` on a pin QEMU does not drive time out | `board_profile.h:36`–`42`; `profile.mk` `PULSE`, `BOARD_ROWS`; `mk/firmware.mk` `PULSE_SRCS` |
 
 ## Buses
 
-Both are on the shield 0 header, and QEMU v10.0.0's `hw/arm/mps2.c` attaches
-no device to either, so the default image links neither (`profile.mk:60`–`74`).
+I2C and SPI are on the shield 0 header, and QEMU v10.0.0's `hw/arm/mps2.c`
+attaches no device to either; it leaves the GPIO block 1-Wire uses
+unimplemented, so the line reads low. The default image links none of them (`profile.mk:60`–`74`).
 
 | Bus | Block and base | Row | Sources |
 |---|---|---|---|
-| I2C | the shield 0 SBCon at `0x40029000`; no select, so no pin | `I2C=1` (`soft:I2C=1`) | AN500 (Arm DAI 0500B) memory map; QEMU `hw/arm/mps2.c` (Shield0 SBCon), `hw/i2c/arm_sbcon_i2c.c`; `board_profile.h:73`–`78` |
-| SPI | the shield 0 PL022 at `0x40026000`; select pin 2, MISC bit 8 `SHIELD0_SPI_nCS` | `SPI=1` (`soft:SPI=1`) | AN500 3.1 Table 3-1, 3.7, 3.13 Table 3-6; QEMU `hw/arm/mps2.c` (Shield0 PL022), `hw/ssi/pl022.c`; `board_profile.h:80`–`88` |
+| I2C | the shield 0 SBCon at `0x40029000`; no select, so no pin | `I2C=1` (`soft:I2C=1`) | AN500 (Arm DAI 0500B) memory map; QEMU `hw/arm/mps2.c` (Shield0 SBCon), `hw/i2c/arm_sbcon_i2c.c`; `board_profile.h:80`–`85` |
+| SPI | the shield 0 PL022 at `0x40026000`; select pin 2, MISC bit 8 `SHIELD0_SPI_nCS` | `SPI=1` (`soft:SPI=1`) | AN500 3.1 Table 3-1, 3.7, 3.13 Table 3-6; QEMU `hw/arm/mps2.c` (Shield0 PL022), `hw/ssi/pl022.c`; `board_profile.h:87`–`95` |
+| 1-Wire | bit-banged on the CMSDK AHB GPIO block 0 at `0x40010000`, bit 0: low is output-low, high is input with the bus pull-up; pin 3. The AVR master's slot timings, each slot with interrupts masked | `ONEWIRE=1` (`soft:ONEWIRE=1`) | Arm DDI 0479 4.6 (AHB GPIO); QEMU `hw/arm/mps2.c` (unimplemented GPIO); `src/hal/cortex-m/mps2/gpio_line.h`, `hal_bus.c`; `board_profile.h`, `TFW_MPS2_GPIO0_BASE` |
+
+## Tone
+
+`TONE=1` (row `soft:TONE=1`) links `src/hal/cortex-m/mps2/hal_tone.c`: a
+square wave on pin 1, LED1, flipped from the interrupt of the CMSDK APB timer
+TIMER0 at `0x40000000`, interrupt 8 (AN500 memory and interrupt maps; QEMU
+v10.0.0 `hw/arm/mps2.c`; the timer's registers are Arm DDI 0479C's APB timer,
+QEMU `hw/timer/cmsdk-apb-timer.c`). The reload is half the period at the
+25 MHz core clock, less one. One tone at a time: a second `TONE` retargets,
+`NOTONE` stops the timer and its interrupt and leaves the pin low. A half
+period under 500 cycles, above 25 kHz, is refused with `TFW_ERR_RANGE`.
+`make cortex-m-qemu-tone-wire BOARD=mps2-an500` runs the row's answers on
+QEMU, which does not measure the pin.
+
+## PWM
+
+The image has no PWM block of its own, so `PWM=1` builds a software PWM
+(`src/hal/cortex-m/mps2/hal_pwm.c`, shared with `mps2-an505`): the dual
+timer's first counter interrupts 256 times a period at 500 Hz, counted from
+the 25 MHz core clock (`TFW_MPS2_PWM_STEP` in `soc_regs.h`), and the handler
+sets or clears each LED's bit in the FPGA I/O LED register against its duty.
+Duty 0 and 255 drive the pin and leave the timer alone. The registers are the
+*Arm Cortex-M System Design Kit Technical Reference Manual* (DDI 0479C) APB
+dual-input timer's, as QEMU v10.0.0's `hw/timer/cmsdk-apb-dualtimer.c` models
+them; the base and the line are AN500 Table 3-1 and QEMU `hw/arm/mps2.c`.
+Pin 2, the SPI select, has no PWM row and is refused. The row is off by
+default because nothing on the board needs it and QEMU cannot show an LED's
+duty.
 
 ## Boot
 
@@ -80,7 +112,7 @@ verified in software, no OTA, no store (`profile.mk:43`–`45`), the row
 `mps2-an500:soft:soft:p256-soft:0:0` of `BOOT_SUPPORTED` in `mk/boot.mk`,
 which `make bootloader-check` builds. The soft root
 keeps the UDS in tfw-boot's region and hands the CDI over in SRAM
-(`board_profile.h:33`–`34`). `BOOT_SUPPORTED` also carries the store rows
+(`board_profile.h:40`–`41`). `BOOT_SUPPORTED` also carries the store rows
 `mps2-an500:soft:soft:p256-soft:0:1` and `:0:1:ab`.
 
 The sizes of both MPS2 boards' rows, measured by `make bootloader-check` at
@@ -125,7 +157,11 @@ tfw-boot:
 - the I2C row (`TestQEMUI2CXfer`, `sdk/go/cmd/tfwctl/i2c_qemu_test.go`):
   `I2C_XFER` at `0x50` returns `ERR_NACK`, as a write, a read, and at 400 kHz,
   since `hw/i2c/bitbang_i2c.c` finds no device for the address byte;
-  `0x60` is refused with `ERR_PROTECTED_REGION`, `0x80` with `ERR_RANGE`.
+  `0x60` is refused with `ERR_PROTECTED_REGION`, `0x80` with `ERR_RANGE`;
+- the PWM row (`TestQEMUPWMWrite`, `sdk/go/cmd/tfwctl/pwm_qemu_test.go`,
+  `make cortex-m-qemu-pwm-wire`): `PWM_WRITE` on pin 0 at duty 0, 128 and
+  255 is answered `OK`, the timer stopped, running and stopped again; pin 2
+  is refused with `ERR_UNSUPPORTED`. QEMU is not asked to measure the pin.
 
 The base row also runs `TestQEMUResetCause`
 (`sdk/go/cmd/tfwctl/reset_qemu_test.go`) on a boot of its own: SYS_INFO

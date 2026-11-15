@@ -94,8 +94,12 @@ STORAGE_SRCS := $(if $(call feature_off,EEPROM),,src/caps/storage.c)
 # confined to that sector, over h5_flash.c's programming sequence. tfw-boot's
 # flash-interface driver, boot_flash.c, is boot-only and not linked here (SPEC
 # row stm32h5).
+# The MCXN94x's writes its own flash sector through tfw-boot's flash helper,
+# mcxn_flash.c, linked here as STAGE_SRCS links boot/boot_image.c (SPEC row
+# mcxn947).
 SOC_EEPROM_SRCS_stm32h5 := src/hal/cortex-m/stm32h5/ee_flash.c src/hal/cortex-m/stm32h5/ee_flash_port.c \
                            boot/hal/cortex-m/stm32h5/h5_flash.c
+SOC_EEPROM_SRCS_mcxn94x := boot/hal/cortex-m/mcxn94x/mcxn_flash.c
 EEPROM_HAL_SRCS := $(if $(call feature_off,EEPROM),$(wildcard $(HAL_DIR)/hal_eeprom.c),\
                      $(wildcard $(call hal_src,hal_eeprom.c)) \
                      $(if $(wildcard $(HAL_SOC_DIR)/hal_eeprom.c),$(SOC_EEPROM_SRCS_$(SOC))))

@@ -1133,3 +1133,32 @@ image in which the M7 copies LPUART3 VERID, PARAM, GLOBAL, BAUD, STAT and
 CTRL into spare MU5 SRAM after the SCMI area (0x44611080 on), which the SM
 `md` can read; and the CCM root 101 registers read with `md`. Board state:
 unchanged, SM console left at its prompt.
+
+### 14. LPUART3's registers, as the M7 sees them (2026-11-15)
+
+Section 13 left the question of what LPUART3 holds after our writes; the
+SM cannot read it, so the M7 reports it through MU5 SRAM, which the SM
+`md` can read. This is a write under ruling 644 (1).
+
+Plan:
+
+1. A bench-only build option, `REG_DUMP=1` (off in the default image and
+   in release builds, like `STEP_MARKS`): at each step mark the M7 copies
+   LPUART3 VERID, PARAM, GLOBAL, BAUD, STAT and CTRL, with a magic word
+   and the mark, into MU5 SRAM after the SCMI area (from 0x44611080). Host
+   test for the record layout.
+2. Read-only first: SM `md 0x44611080` (the area is readable and unused)
+   and CCM clock root 101 (LPUART3) with `md`.
+3. Build an imx-boot with only the M7 entry replaced (`imx-boot-m7.py`),
+   write it at the boot container offset from the A55 Linux, read back,
+   digest match, SM `reset`; then `md 0x44611080` and port 2 captured.
+4. Record the values and their decoding, then restore the normal image
+   and say which one the board ends on.
+
+Backup, named before any write: the board's
+`/root/imxboot-backup/imx-boot-orig.bin` (section 1, `1d775624...0081f`,
+the vendor container), also on the bench host; the current container is
+`/root/imxboot-backup/imx-boot-m7-steps.bin` (section 10,
+`1c6ed98d...7cf54`). Recovery path, stated before writing: restore a
+backup from the A55 Linux; if the board does not boot, uuu over USB serial
+download, which needs the owner to set SW4.

@@ -833,3 +833,100 @@ our image. `/root/imxboot-backup/` also holds `imx-boot-m7-steps.bin`;
 `imx-boot-orig.bin` (`1d775624...0081f`, checked after the run) is still the
 recovery image. Restore as in section 5. The SM console was left in its
 monitor (`>$`), port 0 at the login prompt.
+
+### 11. Why section 10 shows no mark: read-only checks (DS-8879, 2026-11-15)
+
+Two causes were open: (a) the written image did not carry the marks
+(`STEP_MARKS=1` changed the objects but not the build directory), or (b)
+the M7 does not run our image, or `0x42570000` is not LPUART3 for the M7.
+Firmware fix first: `STEP_MARKS=1` now links into its own directory
+(`-steps`; `soft-imxboot-steps` with `IMX_BOOT=1`), as `IMX_BOOT` does.
+Everything below is read-only. Nothing was written to the board, and no
+break was sent.
+
+#### (a) The image on the board carried the marks
+
+The device at 0x8000 still reads `1c6ed98d...7cf54` (section 10's image).
+A clean rebuild of the section-10 commit, in a fresh tree from `git
+archive` with section 10's recipe, followed by `imx-boot-m7.py` over
+`imx-boot-orig.bin` (copied back off the board, `1d775624...0081f`),
+reproduces that container byte for byte (`1c6ed98d...7cf54`, 12004 bytes
+of flash). So the rebuilt ELF is the image the board runs. Its objdump:
+
+```
+vector 0/1     0x2003FF80 / 0x0000253D            -> tfw_cm_reset (0x253C)
+253e  movs r0, #82                                ; 'R'
+2548  bl   1b84 <tfw_cm_soc_step>                 ; first call in the reset handler
+1b86  ldr  r5, =0x42570000                        ; LPUART3
+1b8a  ldr  r3, [r5, #24] ; lsls #12 ; bmi         ; CTRL.TE set?
+1b9a  str  r3, [r5, #16] ; str 0x80000, [r5, #24] ; else BAUD, then CTRL = TE
+1ba6  bl   bf2 <step_send>
+c04   str  r0, [r2, #28]                          ; r2 = 0x42570000: DATA
+```
+
+The store to LPUART3 DATA comes before anything else the reset handler does
+(only a load from the DTCM and the push come before it). **Cause (a) is
+ruled out**, and no new image was written (the brief's condition).
+
+#### (b) LPUART3's address and the M7's state
+
+A55 device tree (`/proc/device-tree`, kernel 6.18):
+
+| Alias | Node | `reg` | status |
+|---|---|---|---|
+| serial2 (LPUART3) | `/soc/bus@42000000/serial@42570000` | `0x42570000 0x1000` | disabled |
+| serial3 (LPUART4) | `serial@42580000` | `0x42580000 0x1000` | disabled |
+| serial4 (LPUART5) | `serial@42590000` | `0x42590000 0x1000` | okay |
+| serial0 (LPUART1) | `/soc/bus@44000000/serial@44380000` | `0x44380000 0x1000` | okay |
+
+LPUART3 is `0x42570000` in the A55's map, the address in `soc_regs.h`, and
+Linux leaves it disabled. The M7's own view is still not confirmed from a
+document: the processor reference manual is not in trusted-imx95's
+docs/references.
+
+SM monitor (port 1):
+
+```
+lm info   000: SM = on   001: M7 = on   002: AP = on (default)
+cpu.r     001: m7p => run-mode = RUN, slp-mode = RUN, vector = 0x00000000_00000000
+reason    Reset: reason=sw, errId=0, srcLm=0
+syslog    Device err log = 0x00000000
+md 0x42570000 7   all ????????   (the SM monitor cannot read LPUART3)
+```
+
+LPUART3 from the A55 (`/dev/mem`, `mmap` read-only, 32-bit loads of VERID,
+PARAM, BAUD, STAT, CTRL, FIFO; never DATA): the first load ended the
+reading process with SIGBUS (exit 135). Linux was unaffected. The SM
+logged it as an MBC denial:
+
+```
+err   DOM3 ns prv read from 0x42570000, MBC_W0=0.85, MBC0_DOM3_MEM0_BLK_CFG_W10[5]
+      DOM2 sec prv read from 0x42590000, MBC_W0=0.89, MBC0_DOM2_MEM0_BLK_CFG_W11[1]
+```
+
+The DOM2 line (a secure read of LPUART5) is not from this lane; when it
+was logged is not known.
+
+#### What this leaves
+
+- The M7 is in RUN at vector 0, and LM1 is on, so the SM started it. The
+  image it runs puts `R` on LPUART3 DATA first. Port 2 still shows no mark.
+- LPUART3 is behind TRDC MBC0 (block config word 10, bit 5 for domain 3).
+  Neither the A55 nor the SM monitor can read it, so whether the M7's
+  domain may write it, and whether CTRL.TE and BAUD were set by our
+  `tfw_cm_soc_step`, cannot be seen from here. A write that the MBC
+  refuses would fault the M7 on its first LPUART3 access, before any mark,
+  which matches every run since section 7.
+- Next read-only steps: the SM monitor's `trdc` command for MBC0's
+  configuration of LPUART3's block per domain (it takes a parameter this
+  lane could not find without the SM sources), and the M7's domain ID in
+  the SM configuration. If the M7's domain has no LPUART3 write, the fix is
+  the SM configuration in the boot container (the owner's call, ruling
+  644).
+
+#### Board state after this lane
+
+Unchanged: the eMMC boot container is imx-boot-m7-steps.bin
+(`1c6ed98d...7cf54`), and Linux is up. `/root/imxboot-backup/` still holds
+`imx-boot-orig.bin` (`1d775624...0081f`), the recovery image (section 5).
+The SM console was left in its monitor (`>$`).

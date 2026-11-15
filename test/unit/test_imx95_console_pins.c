@@ -142,7 +142,7 @@ static void test_the_crc_is_ieee_crc32(void)
 
 /* 12 bytes and 8 per config: the maximum fits the payload, one more would
  * not and is refused before a byte is written, the message left as it was. */
-static void test_the_configs_maximum_fills_the_payload_and_one_more_is_refused(void)
+static void test_the_configs_maximum_fits_the_payload_and_one_more_is_refused(void)
 {
     struct tfw_scmi_msg msg;
     uint32_t types[TFW_SCMI_PINCTRL_CONFIGS_MAX + 1u];
@@ -177,6 +177,6 @@ int main(void)
     RUN_TEST(test_a_reply_with_a_wrong_crc_is_refused);
     RUN_TEST(test_no_channel_sends_nothing);
     RUN_TEST(test_the_crc_is_ieee_crc32);
-    RUN_TEST(test_the_configs_maximum_fills_the_payload_and_one_more_is_refused);
+    RUN_TEST(test_the_configs_maximum_fits_the_payload_and_one_more_is_refused);
     return UNITY_END();
 }

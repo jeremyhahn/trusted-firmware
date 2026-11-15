@@ -520,11 +520,17 @@ against section 7's list:
 
 ### Next slice (device, after section 8)
 
-1. Build at the branch tip with section 7's command and check that the link
-   prints no `dot moved backwards`. Record the addresses of
+1. Build the relinked image at the branch tip. The profile's container
+   switch links it at ITCM 0 and retires section 7's `APP_BASE=0x00000000
+   BOOT_SECTION=0` override:
+   `make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware`.
+   Check that the link prints no `dot moved backwards`. Record the addresses of
    `tfw_imx95_uart_irqs`, `tx_head` and `tx_tail` from `arm-none-eabi-nm` on
    the ELF (LTO may suffix the static names).
-2. Rerun `imx-boot-m7.py`, write, read back and compare digests, then SM
+2. Run `imx-boot-m7.py` on that ELF. It now takes the ELF, not a raw binary.
+   It refuses an image that is not linked at the container's M7 load
+   address, or whose reset target is outside its loaded bytes. This
+   relinked image is what the next device run writes. Write, read back and compare digests, then SM
    `reset`, as in section 7. Capture port 2 for 120 s.
 3. Read only, from the A55 as root, through the DTCM alias (M7 `0x2000_0000`
    is A55 `0x2040_0000`, profile.mk): the reset marker at `0x2043FF8C`, the

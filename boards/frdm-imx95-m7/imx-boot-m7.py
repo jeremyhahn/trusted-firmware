@@ -21,12 +21,17 @@ board's own does (OEM Open, no SRK fused). Nothing here signs, encrypts or
 touches a fuse.
 
 Usage:
-    imx-boot-m7.py <imx-boot-orig.bin> <m7.bin> <imx-boot-new.bin>
+    imx-boot-m7.py <imx-boot-orig.bin> <m7.elf> <imx-boot-new.bin>
     imx-boot-m7.py --show <imx-boot.bin>
 
-<m7.bin> is `arm-none-eabi-objcopy -O binary` of the frdm-imx95-m7 ELF built
-with APP_BASE=0x00000000: the SM starts the M7 at vector 0 (ITCM base), where
-the board's map reserves tfw-boot, which is not built for this board yet.
+<m7.elf> is the frdm-imx95-m7 ELF built with IMX_BOOT=1 (profile.mk), which
+links the application at ITCM 0: the SM loads the container's M7 image at the
+ITCM base (0x303C0000 as the SM sees it, 0 as the M7 does) and starts the M7
+from the vector there. The script takes the ELF, not a raw binary, so it can
+check where the image was linked: its loaded bytes must start at the ITCM
+address the container's M7 entry loads, lie inside the ITCM, and hold the
+reset target its vector table names. The default build (APP_BASE 0x8000, the
+slot behind tfw-boot's region) fails that check and is refused.
 """
 
 import hashlib
@@ -41,6 +46,55 @@ M7_LOAD = 0x303C0000         # the M7 ITCM base, as the SM and the ROM see it
 M7_CORE = 0xB                # image flags bits 7:4 for the vendor's M7 entry
 HASH_SHA384 = 1              # image flags bits 10:8
 ALIGN = 0x400                # every image of the board's container is a multiple of this
+ITCM_M7 = 0x00000000         # the ITCM base as the M7 sees it (profile.mk's map)
+ITCM_SIZE = 0x40000
+DTCM_M7 = 0x20000000
+DTCM_SIZE = 0x40000
+PT_LOAD = 1
+
+
+def elf_image(elf):
+    """The bytes `objcopy -O binary` would give, and the M7 address of the
+    first: every PT_LOAD segment with file bytes, by load (physical) address."""
+    if elf[:4] != b'\x7fELF' or elf[4] != 1 or elf[5] != 1:
+        raise SystemExit('m7.elf is not a 32-bit little-endian ELF')
+    machine, = struct.unpack_from('<H', elf, 18)
+    if machine != 40:
+        raise SystemExit('m7.elf is not an Arm ELF')
+    phoff, = struct.unpack_from('<I', elf, 28)
+    phentsize, phnum = struct.unpack_from('<HH', elf, 42)
+    segs = []
+    for i in range(phnum):
+        p_type, off, _vaddr, paddr, filesz = struct.unpack_from('<IIIII', elf, phoff + i * phentsize)
+        if p_type == PT_LOAD and filesz:
+            segs.append((paddr, elf[off:off + filesz]))
+    if not segs:
+        raise SystemExit('m7.elf has no loaded bytes')
+    lo = min(a for a, _ in segs)
+    hi = max(a + len(d) for a, d in segs)
+    if not (ITCM_M7 <= lo and hi <= ITCM_M7 + ITCM_SIZE):
+        raise SystemExit('m7.elf loads 0x%x to 0x%x, not inside the ITCM (0x%x, 0x%x bytes)'
+                         % (lo, hi, ITCM_M7, ITCM_SIZE))
+    out = bytearray(hi - lo)
+    for a, d in segs:
+        out[a - lo:a - lo + len(d)] = d
+    return lo, bytes(out)
+
+
+def check_m7(lo, m7, load):
+    """The image starts where the container's M7 entry loads it, and its
+    vector table's stack is in the DTCM and its reset target in the bytes."""
+    if M7_LOAD + (lo - ITCM_M7) != load:
+        raise SystemExit('m7.elf is linked at M7 0x%x (0x%x as the SM sees it), but the container '
+                         'loads its M7 image at 0x%x: build it with IMX_BOOT=1'
+                         % (lo, M7_LOAD + (lo - ITCM_M7), load))
+    sp, reset = struct.unpack_from('<II', m7, 0)
+    if not DTCM_M7 < sp <= DTCM_M7 + DTCM_SIZE:
+        raise SystemExit('m7.elf initial SP 0x%x is not in the DTCM' % sp)
+    target = reset & ~1
+    if reset & 1 == 0 or not lo + 8 <= target < lo + len(m7):
+        raise SystemExit('m7.elf reset target 0x%x is not a Thumb address inside its loaded '
+                         'bytes (0x%x to 0x%x)' % (reset, lo, lo + len(m7)))
 
 
 def entries(img, base):
@@ -84,14 +138,13 @@ def m7_entry(ents):
     return found[0]
 
 
-def build(orig, m7):
+def build(orig, elf):
     img = bytearray(orig)
     _ver, _length, _count, _sig, ents = entries(img, BOOT_CONTAINER)
     check_hashes(img, BOOT_CONTAINER, ents)
     e = m7_entry(ents)
-    sp, reset = struct.unpack_from('<II', m7, 0)
-    if reset & 1 == 0 or reset >= 0x40000 or not 0x20000000 <= sp <= 0x20040000:
-        raise SystemExit('m7.bin does not open with a vector table linked at ITCM 0')
+    lo, m7 = elf_image(elf)
+    check_m7(lo, m7, e['load'])
     data = m7 + bytes(-len(m7) % ALIGN)
     if len(data) > e['size']:
         raise SystemExit('our image (0x%x) exceeds the M7 slot (0x%x)' % (len(data), e['size']))
@@ -115,8 +168,8 @@ def main(argv):
     with open(argv[1], 'rb') as f:
         orig = f.read()
     with open(argv[2], 'rb') as f:
-        m7 = f.read()
-    new = build(orig, m7)
+        elf = f.read()
+    new = build(orig, elf)
     changed = [i for i in range(len(orig)) if orig[i] != new[i]]
     with open(argv[3], 'wb') as f:
         f.write(new)

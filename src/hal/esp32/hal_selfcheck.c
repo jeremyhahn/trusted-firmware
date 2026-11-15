@@ -20,10 +20,9 @@
 #if CONFIG_TFW_PERIPH_SELFCHECK
 
 #include "tfw/board.h"
+#include "tfw/config.h"
 #include "tfw/hal.h"
-#include "board_profile.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #include "driver/gpio.h"
@@ -40,12 +39,11 @@ static const char *TAG = "tfw-selfcheck";
 #define SC_PULSE_PIN  12u   /* GPIO33 */
 #define SC_EEPROM_AT  (TFW_EEPROM_SIZE - 16u)  /* the store's last 16 bytes */
 
-static void report(const char *name, int pass, const char *fmt, int a, int b)
+/* One console line per check: name, PASS or FAIL, and two numbers named by
+ * the labels, so a FAIL says what was read. */
+static void report(const char *name, int pass, const char *la, int a, const char *lb, int b)
 {
-    char detail[64];
-
-    (void)snprintf(detail, sizeof detail, fmt, a, b);
-    ESP_LOGI(TAG, "%s %s %s", name, pass ? "PASS" : "FAIL", detail);
+    ESP_LOGI(TAG, "%s %s %s %d, %s %d", name, pass ? "PASS" : "FAIL", la, a, lb, b);
 }
 
 static void check_gpio(void)
@@ -61,7 +59,7 @@ static void check_gpio(void)
     if (st == TFW_OK) st = tfw_hal_gpio_read(&p, &lo);
     if (st == TFW_OK) st = tfw_hal_gpio_mode(&p, TFW_PIN_INPUT);
     report("hal_gpio", st == TFW_OK && hi == 1u && lo == 0u,
-           "high read %d, low read %d", hi, lo);
+           "high read", hi, "low read", lo);
 }
 
 static void check_adc(void)
@@ -72,8 +70,7 @@ static void check_adc(void)
 
     if (st == TFW_OK) st = tfw_hal_adc_init();
     if (st == TFW_OK) st = tfw_hal_adc_read(ch, &raw);
-    report("hal_adc", st == TFW_OK && raw <= 4095u,
-           "status %d, raw %d", (int)st, raw);
+    report("hal_adc", st == TFW_OK && raw <= 4095u, "status", (int)st, "raw", raw);
 }
 
 static void check_pwm(void)
@@ -92,7 +89,7 @@ static void check_pwm(void)
     if (st == TFW_OK) off = ledc_get_duty((ledc_mode_t)p.mode, (ledc_channel_t)p.channel);
     if (st == TFW_OK) st = tfw_hal_pwm_stop(&p);
     report("hal_pwm", st == TFW_OK && on == 128u && off == 0u,
-           "LEDC duty at 128: %d, at 0: %d", (int)on, (int)off);
+           "LEDC duty at 128:", (int)on, "at 0:", (int)off);
 }
 
 static void check_tone(void)
@@ -104,8 +101,7 @@ static void check_tone(void)
     if (st == TFW_OK) st = tfw_hal_tone_start(&p, 1000u);
     if (st == TFW_OK) tfw_hal_delay_us(20000u);
     if (st == TFW_OK) stop = tfw_hal_tone_stop();
-    report("hal_tone", st == TFW_OK && stop == TFW_OK,
-           "start %d, stop %d", (int)st, (int)stop);
+    report("hal_tone", st == TFW_OK && stop == TFW_OK, "start", (int)st, "stop", (int)stop);
 }
 
 static void check_pulse(void)
@@ -117,35 +113,55 @@ static void check_pulse(void)
     if (st == TFW_OK) st = tfw_hal_gpio_mode(&p, TFW_PIN_INPUT_PULLUP);
     if (st == TFW_OK) st = tfw_hal_pulse_in(&p, 0u, 50000u, &us);
     report("hal_pulse_rmt", st == TFW_ERR_TIMEOUT,
-           "status %d (timeout expected), us %d", (int)st, (int)us);
+           "status (timeout expected)", (int)st, "us", (int)us);
 }
 
+/* The store is host-visible, so once the old bytes are saved and a pattern
+ * write has been tried -- a failed write may still have changed flash -- the
+ * old bytes are written back whatever the test's status, and the restore is
+ * reported on a line of its own. */
 static void check_eeprom(void)
 {
     uint8_t old[16], pat[16], back[16], again[16];
     tfw_status_t st = tfw_hal_eeprom_read(SC_EEPROM_AT, old, sizeof old);
+    tfw_status_t rst;
     int match = 0, restored = 0;
 
-    for (unsigned i = 0u; i < sizeof pat; i++) {
-        pat[i] = (uint8_t)(0xa5u ^ (i * 0x11u) ^ (st == TFW_OK ? old[i] : 0u));
+    if (st != TFW_OK) {
+        report("hal_eeprom", 0, "save status", (int)st, "nothing written", 0);
+        return;
     }
-    if (st == TFW_OK) st = tfw_hal_eeprom_write(SC_EEPROM_AT, pat, sizeof pat);
+    for (unsigned i = 0u; i < sizeof pat; i++) {
+        pat[i] = (uint8_t)(0xa5u ^ (i * 0x11u) ^ old[i]);
+    }
+    st = tfw_hal_eeprom_write(SC_EEPROM_AT, pat, sizeof pat);
     if (st == TFW_OK) st = tfw_hal_eeprom_read(SC_EEPROM_AT, back, sizeof back);
     if (st == TFW_OK) match = memcmp(pat, back, sizeof pat) == 0;
-    if (st == TFW_OK) st = tfw_hal_eeprom_write(SC_EEPROM_AT, old, sizeof old);
-    if (st == TFW_OK) st = tfw_hal_eeprom_read(SC_EEPROM_AT, again, sizeof again);
-    if (st == TFW_OK) restored = memcmp(old, again, sizeof old) == 0;
-    report("hal_eeprom", st == TFW_OK && match && restored,
-           "pattern read back %d, old bytes restored %d", match, restored);
+    report("hal_eeprom", st == TFW_OK && match, "status", (int)st, "pattern read back", match);
+
+    rst = tfw_hal_eeprom_write(SC_EEPROM_AT, old, sizeof old);
+    if (rst == TFW_OK) rst = tfw_hal_eeprom_read(SC_EEPROM_AT, again, sizeof again);
+    if (rst == TFW_OK) restored = memcmp(old, again, sizeof old) == 0;
+    report("hal_eeprom_restore", rst == TFW_OK && restored,
+           "status", (int)rst, "old bytes restored", restored);
 }
 
+/* tfw_esp_board_init() drives the enable low as an output and holds it, which
+ * leaves the pad's input buffer off, and gpio_get_level() then reads 0
+ * whatever the pin's level. The check releases the hold, turns the pad to
+ * input-and-output with the output still driven low, reads the pad, and holds
+ * it again, so the level read is the pad's own. */
 static void check_coproc(void)
 {
 #ifdef TFW_ESP_COPROC_EN_GPIO
-    int level = gpio_get_level((gpio_num_t)TFW_ESP_COPROC_EN_GPIO);
+    gpio_num_t en = (gpio_num_t)TFW_ESP_COPROC_EN_GPIO;
+    int ok = gpio_hold_dis(en) == ESP_OK &&
+             gpio_set_level(en, 0u) == ESP_OK &&
+             gpio_set_direction(en, GPIO_MODE_INPUT_OUTPUT) == ESP_OK;
+    int level = ok ? gpio_get_level(en) : -1;
 
-    report("c6_enable", level == 0, "GPIO %d level %d",
-           TFW_ESP_COPROC_EN_GPIO, level);
+    ok = gpio_hold_en(en) == ESP_OK && ok;
+    report("c6_enable", ok && level == 0, "GPIO", TFW_ESP_COPROC_EN_GPIO, "pad level", level);
 #else
     ESP_LOGI(TAG, "c6_enable NOT RUN the board has no coprocessor enable");
 #endif

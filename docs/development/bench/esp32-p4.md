@@ -748,6 +748,53 @@ Steps, each over the by-id port, no break:
    (main's configuration, the static overlay only) and repeat step 3, then
    step 4 again.
 
+The run. esptool / espefuse v5.6.0 in a venv and ESP-IDF `v5.5.5`
+(`install.sh esp32p4`) in the lane's home; the overlays are
+`build/p4hal/p4-static.defaults` and `build/p4hal/p4-selfcheck.defaults`
+(gitignored, `192.0.2.80` below for the real address). Writes: three times
+the one erase region and the four images of HIL-0 step 3. No `espefuse`
+command other than `summary`.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `espefuse --port $ESP_PORT summary > efuse-before.txt` | every row of "Security eFuses" unchanged (`SECURE_BOOT_EN` False, `SPI_BOOT_CRYPT_CNT` `Disable (0b000)`, `KEY_PURPOSE_0` `USER`, `DIS_DOWNLOAD_MODE` False, `WR_DIS` 0, `RD_DIS` 0, `SECURE_VERSION` 0); SHA-256 `9453f49f…0703`, byte-identical to the 2026-11-14 summaries |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA="boards/esp32p4-poe/sdkconfig.hil0 <selfcheck overlay>"` | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_TFW_ETH_STATIC_IP=y`, `CONFIG_TFW_PERIPH_SELFCHECK=y` |
+| 3 | erase region and write-flash, console 60 s after one reset | four `Hash of data verified.`; layer 0 `verified`, `App version: …-g78fb3be9`; `hal_pwm` **FAIL** (`LEDC duty at 128: 0`), every other check PASS. The HAL's `ledc_channel_config` sets the duty; the check read LEDC's duty register straight after the write, before the next period latches it: a fault of the check, fixed in the next commit |
+| 3 | the same, the check waiting 20 ms before each read | four `Hash of data verified.`; layer 0 `verified`; the lines below, then `tfw-eth: link up, address 192.0.2.80, wire on tcp/21574` |
+| 4 | `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0` | **pass**, exit 0: ping, `caps proto 2.0 fw 0.1.0 board 0x80 pins 17 tier 0 features 0x000007ff`, sysinfo, `wirecheck: ok` |
+| 6 | rebuild with the static overlay only (`# CONFIG_TFW_PERIPH_SELFCHECK is not set`), write, console, `wirecheck` | four `Hash of data verified.`; layer 0 `verified`, `App version: …-gff4b5ca7` (this branch's tip, the self-check empty); no `tfw-selfcheck` line; link up at the static address; `wirecheck: ok` |
+| 5 | `espefuse --port $ESP_PORT summary > efuse-after.txt`; `diff efuse-before.txt efuse-after.txt` | **empty diff**, exit 0; `efuse-after.txt` SHA-256 `9453f49f…0703`, the same as before: no eFuse moved |
+
+The self-check's console lines, second image:
+
+```text
+tfw-selfcheck: start
+tfw-selfcheck: c6_enable PASS GPIO 54 level 0
+tfw-selfcheck: hal_gpio PASS high read 1, low read 0
+tfw-selfcheck: hal_adc PASS status 0, raw 1962
+tfw-selfcheck: hal_pwm PASS LEDC duty at 128: 128, at 0: 0
+tfw-selfcheck: hal_tone PASS start 0, stop 0
+tfw-selfcheck: hal_pulse_rmt PASS status 9 (timeout expected), us 0
+tfw-selfcheck: hal_eeprom PASS pattern read back 1, old bytes restored 1
+tfw-selfcheck: hal_bus NOT RUN wiring needed
+tfw-selfcheck: done
+```
+
+| Check | Result |
+|---|---|
+| C6 enable | **PASS**: GPIO 54 reads 0 after `hal_board.c`. The pin is an output with its input buffer as `gpio_config` leaves it, so this is the level the pad reports, not a probe of the C6's `CHIP_PU` |
+| `hal_gpio.c` | **PASS**: GPIO32 driven high read 1, driven low read 0 |
+| `hal_adc.c` | **PASS**: ADC1 channel 4 (GPIO20, floating) returns OK, raw 1962 of 4095 |
+| `hal_pwm.c` | **PASS**: LEDC channel 0 (GPIO2) duty 128 then 0 read back, `tfw_hal_pwm_stop` OK |
+| `hal_tone.c` | **PASS**: 1 kHz on GPIO6 started and stopped, both OK (nothing measured the frequency) |
+| `hal_pulse_rmt.c` | **PASS**: GPIO33 pulled up, no pulse in 50 ms is `TFW_ERR_TIMEOUT` (9) |
+| `hal_eeprom.c` | **PASS**: 16 bytes at the end of `tfw_eeprom` written, read back equal, the old bytes written back and read back equal |
+| `hal_bus.c` | **NOT RUN, wiring needed**: no I2C, SPI or 1-Wire device on the header |
+
+**The board is left on this branch's tip built with the static overlay and no
+self-check** (main's configuration plus the address), up at its static
+address on the development VLAN.
+
 ## Restore
 
 ```sh

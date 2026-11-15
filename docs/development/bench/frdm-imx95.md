@@ -378,3 +378,24 @@ write at 0x8000, read back, digest match, SM `reset`, then read port 2 at
   and the channel's shared memory address against the SM's configuration.
 - Frames, but no reply to a host request: TX works and RX does not, so the
   next firmware slice adds RX's daisy and confirms NVIC line 64.
+
+### 7. Device run of the pad-request slice (2026-11-15)
+
+Plan, in order (ruling 644 (1) again):
+
+1. Build the M7 image at `47d3874b8` with the section-2 recipe and
+   `imx-boot-m7.py` over the original backup; record both SHA-256s.
+2. From the A55 Linux: read the boot container now at 0x8000 (expected: the
+   section-2 imx-boot-m7.bin, `2babcf24...f285c`) and record its digest.
+   `imx-boot-orig.bin` stays the recovery image.
+3. Copy the new imx-boot over, check its digest on the board, write it at
+   0x8000 (`dd ... seek=64 conv=fsync,notrunc`), `sync`, read back and
+   compare.
+4. `reboot` from the A55 console (resets the A55 LM only, section 4), then
+   SM `reset` on port 1 so the ROM reads the new container. Capture port 2
+   and port 0 throughout; compare port 2 with the list above.
+
+Recovery path, stated before the write: restore `imx-boot-orig.bin` from the
+A55 Linux (section 5 command); if the board does not boot, uuu over USB
+serial download, which needs the owner to set SW4. If the board does not
+reach U-Boot, no further write. No serial break on any port.

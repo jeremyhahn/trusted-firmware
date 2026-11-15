@@ -1351,3 +1351,61 @@ Backup, named before any write: the board's
 the vendor container), also on the bench host. Recovery path, stated
 before writing: restore that backup from the A55 Linux; if the board does
 not boot, uuu over USB serial download, which needs the owner to set SW4.
+
+Container (bench host), from the vendor backup and the default image of
+commit `3d88b103` (LPUART7; no step marks, no register dump):
+
+```
+make BOARD=frdm-imx95-m7 IMX_BOOT=1 firmware      # 11808 bytes, soft-imxboot
+boards/frdm-imx95-m7/imx-boot-m7.py imx-boot-orig.bin \
+    build/frdm-imx95-m7/soft-imxboot/trusted-firmware.elf imx-boot-m7-lpuart7.bin
+#   8355840 bytes, changed bytes 0x8195 to 0xc03ab only; sha256 17ec43f8...d35945a
+```
+
+Before the write, on the A55 Linux: `imx-boot-orig.bin` reads
+`1d775624...0081f` and the eMMC at 0x8000 reads the same (the vendor
+container), the first 32 KiB `aa20cfeb...67fb9`. Write and boot:
+
+```
+dd if=imx-boot-m7-lpuart7.bin of=/dev/mmcblk0 bs=512 seek=64 conv=fsync,notrunc   # 8355840 bytes, rc 0
+dd if=/dev/mmcblk0 bs=512 skip=64 count=16320 iflag=direct | sha256sum   # 17ec43f8...d35945a, matches
+dd if=/dev/mmcblk0 bs=512 count=64 iflag=direct | sha256sum              # aa20cfeb...67fb9, unchanged
+>$ reset        # port 1: "Reset request: reason=sw", DDR OEI, "Hello from SM (Build 896, Commit 44f76dcb)"
+```
+
+Port 2, captured from the `reset` for 45 s (all four ports read, raw
+115200 8N1), 57 bytes:
+
+```
+0a "SCMI system notification: graceful=0, state=0x8"   # the vendor M7 demo, before the reset took it
+00                                                     # the leading 00 of sections 7 to 14 (the vendor image shows it too)
+a5 04 00 ff 00 01 48 47                                # our boot event
+```
+
+Decoding the frame (include/tfw/protocol.h): SOF `a5`, LEN 4, SEQ 0, OP
+`ff` (event), STATUS 0, payload `01` (`TFW_EVENT_BOOT`), CRC16 `0x4748`
+little-endian, which is CRC-16/CCITT-FALSE over `04 00 ff 00 01`: it
+checks. **Pass: the M7 runs our image and its boot frame reaches port 2
+through LPUART7.** That confirms, on the board, the SCMI pad request for
+pin ids 40 and 41 at ALT2, LPUART7's base and clock, and BAUD.
+
+Receive path, one request on port 2 (plain bytes, no break): PING
+(`TFW_CMD_PING`, SEQ 7), `a5 02 07 01 4a 2b`. Answer within 5 s:
+`a5 03 07 81 00 25 b2`, SEQ 7 echoed, OP `0x81` (PING's response), STATUS
+0, CRC `0xb225` checks. LPUART7 receives with RX select at its reset 0;
+the frame layer answers.
+
+After the boot: the A55 Linux came up (SSH, `uptime` 1 min) and the eMMC
+at 0x8000 still reads `17ec43f8...d35945a`.
+
+**Board state at the end of this section: our container**
+(`/root/imxboot-backup/imx-boot-m7-lpuart7.bin`, `17ec43f8...d35945a`) at
+0x8000, booted by an SM `reset`; our M7 image runs and answers on port 2,
+and the A55 Linux is up. The vendor container stays on the board as
+`/root/imxboot-backup/imx-boot-orig.bin` (`1d775624...0081f`), the
+restore point. Fuses, lifecycle and the SM configuration unchanged; no
+break sent.
+
+Open: docs/SPEC.md row `imx95` still names LPUART3 (the coordinator's
+edit); whether LPUART7's received bytes come in through interrupt 68 or
+the main loop's polls is not read here (`tfw_imx95_uart_irqs`).

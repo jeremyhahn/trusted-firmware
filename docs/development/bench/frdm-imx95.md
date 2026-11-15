@@ -1318,3 +1318,36 @@ more device run under ruling 644 (1) for the boot frame on port 2.
 `reset`; the vendor M7 demo runs and the A55 Linux is up. The diagnostic
 container stays on the board as `/root/imxboot-backup/imx-boot-m7-regdump.bin`.
 Fuses, lifecycle and the SM configuration unchanged; no break sent.
+
+### 15. The M7 console on LPUART7 (port 2), 2026-11-15
+
+Section 14's answer: port 2 is LPUART7 on GPIO_IO36/37 (ALT2). The
+coordinator decided (ruling 109, a board fact) that the M7 console moves
+there. A write under ruling 644 (1).
+
+Plan:
+
+1. Firmware (no board): the console at LPUART7, `0x42690000`; its M7
+   interrupt line 68; the SCMI pad request for SM pin ids 40 (GPIO_IO36,
+   TX) and 41 (GPIO_IO37, RX) at mux 2; RX input select left at its reset
+   value 0 (GPIO_IO37, the vendor image's value in section 14). The clock
+   root stays the 24 MHz oscillator (`clock.r lpuart7`, section 14). Host
+   tests follow the new base, interrupt and pin ids.
+2. TRDC, from section 12's capture (no new read): DOM4 (the M7) has 9 on
+   MBC0 block 105, LPUART7 (`MBC0_DOM4_MEM0_BLK_CFG_W13`, `BLK[111:104] =
+   00000010`): access control 1, `0x6666`, read/write. LM1 may use it.
+3. Build an imx-boot from the vendor backup with only the M7 entry
+   replaced (`imx-boot-m7.py`), write it at the boot container offset from
+   the A55 Linux, read back, digest match, SM `reset`, capture port 2.
+4. Record the bytes, then say which container the board ends on.
+
+Read-only, before any write (A55 Linux): the live device tree's
+`serial@42690000` has `interrupts = <0 0x44 4>`, GIC SPI 68, the same
+numbering as LPUART3's 64 (section 4); status `disabled` (the A55 does not
+use it). The eMMC at 0x8000 reads `1d775624...0081f`, the vendor container.
+
+Backup, named before any write: the board's
+`/root/imxboot-backup/imx-boot-orig.bin` (section 1, `1d775624...0081f`,
+the vendor container), also on the bench host. Recovery path, stated
+before writing: restore that backup from the A55 Linux; if the board does
+not boot, uuu over USB serial download, which needs the owner to set SW4.

@@ -984,3 +984,71 @@ label `W`), `camera`, `hsio`, `noc`, `disp`, `netc`, `gpu`, `vpu`. The
 `MBC_W0=0.85` in section 11's error log is TRDC `W` (wakeup), MBC 0,
 memory 0, block 85, so the read is `trdc wakeup 4` (the M7) and
 `trdc wakeup 3` (the A55, for contrast).
+
+#### The TRDC on the board (SM monitor, port 1, read-only)
+
+Which block is LPUART3: `devices/MIMX95/configtool/wakeupmix.cfg` line 84,
+`LPUART3: PD_WAKEUP, CLK_LPUART3, MBC_W0=0.87`, so MBC 0, memory 0,
+**block 87** (LPUART7, line 139, is block 105). Which master is the M7:
+`devices/MIMX95/configtool/m7mix.cfg` line 40, `CPU_M7P, DFMT0,
+MDAC_W0C=0`, master 0 of TRDC `W`.
+
+`trdc wakeup 4` (192 lines, SHA-256 of the capture `5b6954d9...2bf252`,
+kept out of git) and `trdc wakeup 3`:
+
+```
+MDA_W0_0_DFMT0: 0x90000004, VLD=1 SA=0 DIDS=0 KPA=1 DID=4      # the M7 is DID 4, secure (cfg sa=secure)
+MBC0_MEMN_GLBAC1: 0x00006666, LK=0 SP=RW. SU=RW. NP=RW. NU=RW.
+MBC0_DOM4_MEM0_BLK_CFG_W10:  0x90000000, BLK[87:80]   = 10000000   # block 87: 9
+MBC0_DOM4_MEM0_BLK_CFG_W13:  0x00000090, BLK[111:104] = 00000010   # block 105 (LPUART7): 9
+MBC0_DOM4_MEM0_BLK_NSE_W2:   0x00802910                            # bit 23: block 87
+MBC0_DOM3_MEM0_BLK_CFG_W10:  0x09999999, BLK[87:80]   = 01111111   # A55: blocks 80..86, not 87
+```
+
+Each 4-bit block field is MBACSEL (bits 2..0) and NSE (bit 3). DOM4's
+block 87 is 9: access control 1, `0x6666`, read/write for every
+privilege and security state, the value the cfg's `OWNER: perm=rw`
+gives. It is the same 9 that DOM4 has on LPUART7 and on every other block
+LM1 owns, and the same 9 that DOM3 (the A55) has on blocks 80 to 86. DOM3 has
+0 on block 87, which is the section 11 SIGBUS. (Section 11's error line
+names block 85 for `0x42570000`; the SM's own resource table says 87, and
+DOM3's block 85 is 9, so 87 is the block that refused that read.)
+
+Around it, also read-only on port 1:
+
+```
+clock.r lpuart3          142: lpuart3 = on, 24000000Hz   # the firmware's TFW_IMX95_LPUART_CLK_HZ
+md 0x443C0048 2          00000001 00000001               # GPIO_IO14/15 mux: ALT1, LPUART3 TX/RX
+md 0x443C024C 2          0000051e 0000051e               # their pad control
+md 0x443C0558 2          00000000 00000000               # LPUART3 RXD/TXD input select
+```
+
+(Mux and daisy addresses: imx-sm `devices/MIMX95/drivers/fsl_iomuxc.h`
+lines 179 and 186.)
+
+#### Answer
+
+**LM1 may access LPUART3.** The board's SM config gives it to LM1 as an
+OWNER (`configs/other/mx95frdm-pro.cfg` line 404), and the live TRDC gives
+the M7's domain (DID 4, master 0 of TRDC `W`) read/write on LPUART3's
+block 87, as on LM1's other peripherals. Its clock is on at the 24 MHz the
+firmware assumes, and its pads are muxed to it. **No SM configuration
+change is needed**, so there is nothing for the owner to decide here.
+
+What it leaves for section 10's silent port 2: the MBC is not the cause.
+One thing these reads cannot show is the NSE bit's meaning for a secure
+master (the M7 is forced secure); the processor reference manual, which
+defines it, is not in the repository. NXP sets the same 9 on every M7
+peripheral in its own config, so it is the documented working setting,
+not a refusal. The next step is on the M7 side: whether it executes our
+reset handler at all (vector 0 is the ITCM base, `cpu.r` shows RUN), for
+example by a mark that does not need LPUART3 (a write to the M7's own DTCM
+read back through the SM monitor's `md`), which needs a new image and so a
+write lane.
+
+#### Board state after this lane
+
+Unchanged. Nothing was written to the board: every command above was an
+SM monitor read (`lm info`, `trdc`, `clock.r`, `md`), no break was sent,
+and the SM console was left in its monitor (`>$`). The eMMC still holds
+imx-boot-m7-steps.bin (section 11).

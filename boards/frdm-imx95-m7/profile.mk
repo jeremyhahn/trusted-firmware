@@ -87,12 +87,16 @@ BOOT_BUDGET    := 32768
 # container's M7 image at the ITCM base and starts it from the vector there,
 # so this build links the application at ITCM 0, with no tfw-boot region:
 #   make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware
-# imx-boot-m7.py takes that ELF and refuses one linked anywhere else.
+# imx-boot-m7.py takes that ELF and refuses one linked anywhere else. The
+# image goes to its own directory (soft-imxboot, BOARD_DIR_SUFFIX in
+# mk/firmware.mk): make tracks no flag, so in one directory a change of
+# IMX_BOOT would reuse the ELF linked for the other mode.
 IMX_BOOT       ?= 0
 ifeq ($(IMX_BOOT),1)
 APP_BASE       := 0x00000000
 FWHASH_BASE    := $(APP_BASE)
 BOOT_SECTION   := 0
+BOARD_DIR_SUFFIX := -imxboot
 endif
 
 # The soft root until the EdgeLock enclave tier lands: the row's key tier is

@@ -454,10 +454,13 @@ AB_SUFFIX := $(if $(BOOT_AB_OPTIONAL),$(if $(filter 1,$(BOOT_AB)),-ab))
 # profile.mk: the MPS2 boards' soft:I2C=1 and soft:SPI=1), as -i2c and -spi.
 ROW_FEATURE_SUFFIX := $(if $(strip $(BOARD_FEATURES_ON)),$(foreach f,$(shell printf '%s' \
                       '$(strip $(BOARD_FEATURES_ON))' | tr A-Z a-z),-$(f)))
+# And a board's own link or build option that is not a feature (profile.mk's
+# BOARD_DIR_SUFFIX: frdm-imx95-m7's IMX_BOOT=1 as -imxboot), so changing it
+# relinks rather than reusing an ELF linked for the other setting.
 
 # Every make variable that changes the image's objects names the directory, and
 # only where it differs from its default, so every default image keeps its path.
-FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(AB_SUFFIX)$(ROW_FEATURE_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
+FW_DIR     := $(BUILD_DIR)/$(BOARD)/$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov,)$(if $(filter 1,$(ETH)),-eth-$(ETH_CHIP),)$(if $(filter 1,$(DHCP)),-dhcp,)$(STAGE_SUFFIX)$(AB_SUFFIX)$(ROW_FEATURE_SUFFIX)$(BOARD_DIR_SUFFIX)$(APP_SUFFIX)$(if $(filter 1,$(MEASURE_SOFT_CSR)),-csr,)$(ID_SUFFIX)
 TARGET     := $(FW_DIR)/trusted-firmware
 
 # The row, for the bench images that compile with FW_CFLAGS in a directory of

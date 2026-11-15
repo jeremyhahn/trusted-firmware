@@ -42,7 +42,7 @@ void tearDown(void)
  * the 115200 divisor and TE (not RE, not an interrupt) before DATA. */
 static void test_a_mark_turns_the_transmitter_on_and_writes_data(void)
 {
-    tfw_cm_soc_step('R');
+    TFW_CM_STEP('R');
     m = tfw_imx95_model_get();
     TEST_ASSERT_EQUAL_HEX32(0x19000008u, m->lpuart.baud);
     TEST_ASSERT_EQUAL_HEX32(0x00080000u, m->lpuart.ctrl);      /* TE only */
@@ -57,7 +57,7 @@ static void test_a_running_transmitter_is_left_as_it_is(void)
 {
     m->lpuart.ctrl = 0x000C0000u;
     m->lpuart.baud = 0x0F00000Du;
-    tfw_cm_soc_step('D');
+    TFW_CM_STEP('D');
     m = tfw_imx95_model_get();
     TEST_ASSERT_EQUAL_HEX32(0x0F00000Du, m->lpuart.baud);
     TEST_ASSERT_EQUAL_HEX32(0x000C0000u, m->lpuart.ctrl);
@@ -71,9 +71,9 @@ static void test_the_boot_path_sends_every_mark_and_replays_after_p(void)
 {
     static const char want[] = "RDMPrdmU";
 
-    tfw_cm_soc_step('R');
-    tfw_cm_soc_step('D');
-    tfw_cm_soc_step('M');
+    TFW_CM_STEP('R');
+    TFW_CM_STEP('D');
+    TFW_CM_STEP('M');
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_uart_init(115200u));
     m = tfw_imx95_model_get();
     TEST_ASSERT_EQUAL_UINT32(sizeof want - 1u, m->lpuart.tx_len);
@@ -85,10 +85,10 @@ static void test_the_boot_path_sends_every_mark_and_replays_after_p(void)
  * are replayed. */
 static void test_r_clears_an_old_trail(void)
 {
-    tfw_cm_soc_step('R');
-    tfw_cm_soc_step('D');
-    tfw_cm_soc_step('R');
-    tfw_cm_soc_step('P');
+    TFW_CM_STEP('R');
+    TFW_CM_STEP('D');
+    TFW_CM_STEP('R');
+    TFW_CM_STEP('P');
     m = tfw_imx95_model_get();
     TEST_ASSERT_EQUAL_UINT32(5u, m->lpuart.tx_len);
     TEST_ASSERT_EQUAL_MEMORY("RDRPr", m->lpuart.tx, 5u);
@@ -98,7 +98,7 @@ static void test_r_clears_an_old_trail(void)
 static void test_a_stuck_transmitter_does_not_park_the_core(void)
 {
     m->lpuart.busy = 1u;
-    tfw_cm_soc_step('R');
+    TFW_CM_STEP('R');
     m = tfw_imx95_model_get();
     TEST_ASSERT_EQUAL_HEX32(0x00080000u, m->lpuart.ctrl);
 }

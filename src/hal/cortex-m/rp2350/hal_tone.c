@@ -81,9 +81,10 @@ static void tone_arm(void)
             break;
         }
         /* TIMELR reached the target as it armed: the alarm fired and
-         * latched INTR. Clear it before the retry, or the handler is
-         * taken again for the stale attempt */
+         * latched INTR and pended IRQ4. Clear both before the retry, or
+         * the handler is taken again for the stale attempt */
         TFW_RP_TIMER1_INTR = ALARM0;
+        TFW_CM_NVIC_ICPR(TFW_RP_TIMER1_IRQ_0 / 32u) = 1u << (TFW_RP_TIMER1_IRQ_0 % 32u);
     }
 }
 

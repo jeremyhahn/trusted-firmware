@@ -19,19 +19,27 @@
 #define TFW_BOARD_NAME "stm32h573i-dk"
 #define TFW_BOARD_ID   0x43u   /* docs/boards/board-id-registry.md */
 
-#define TFW_PIN_COUNT  12u
+#define TFW_PIN_COUNT  13u
 #define TFW_PORT_COUNT 5u      /* GPIOF, GPIOI (LEDs), GPIOH (D5/D6), GPIOA, GPIOB */
 #define TFW_PWM_COUNT  2u
 /* TFW_ADC_COUNT is the HAL's range-check bound, one past the highest ADC1
  * input a pin uses: A3 is INP19. */
 #define TFW_ADC_COUNT  20u
-#define TFW_EEPROM_SIZE 0u
+/* tfw-boot's span (TFW_BOOT_EE_LEN, include/tfw/boot.h, 0x140) and the user
+ * sector after it, TFW_CM_USER_EE_SIZE below (hal_eeprom.c asserts the sum). */
+#define TFW_EEPROM_SIZE 0x2140u
 
 #define TFW_FEATURE_ANALOG  1
 #define TFW_FEATURE_PWM     1
-#define TFW_FEATURE_TONE    0
-#define TFW_FEATURE_PULSE   0
-#define TFW_FEATURE_EEPROM  0
+#define TFW_FEATURE_TONE    1
+/* Tone is TIM3 channel 2 toggling the Arduino header's D3, PB5
+ * (src/hal/cortex-m/stm32h5/hal_tone.c; built and host-tested, not yet run
+ * on the board). */
+#define TFW_TONE_PIN   12u
+/* src/hal/cortex-m/hal_pulse.c: the pin through tfw_hal_gpio_read, the time
+ * on SysTick, which counts the processor clock, TFW_CM_CPU_HZ. */
+#define TFW_FEATURE_PULSE   1
+#define TFW_FEATURE_EEPROM  1
 /* I2C4 on PB8/PB9 (src/hal/cortex-m/stm32h5/hal_bus.c), on only in the I2C=1
  * row (profile.mk): built and host-tested against a register model, not yet
  * run on the kit. */
@@ -67,6 +75,26 @@
  * own, which tfw-boot writes and the application reads. */
 #define TFW_CM_PLATFORM_BASE  0x080FE000uL
 #define TFW_CM_PLATFORM_SIZE  0x00002000uL
+
+/* The application's own EEPROM: bank 2's last 8 KiB sector (sector 127 of
+ * bank 2), one erase unit of its own, so a write to it never erases tfw-boot's
+ * sector (src/hal/cortex-m/stm32h5/hal_eeprom.c). It is in the bank the code
+ * does not run from: the H5 reads one bank while it erases or programs the
+ * other, so the application keeps fetching from bank 1 through the erase and
+ * SysTick's interrupt keeps counting time. A sector in bank 1 would stall
+ * every fetch for the erase, and the ticks of the stall would be lost (Codex
+ * P1 on #394). The sector is TFW_H5_FLASH_SECTOR (stm32h5xx_hal_flash_ex.h's
+ * FLASH_SECTOR_SIZE, src/hal/cortex-m/stm32h5/soc_regs.h). No slot, budget or
+ * record of profile.mk reaches it: the application slot ends at 0x08028000,
+ * and the linker script (mk/arch/cortex-m/stm32h5.ld) places nothing outside
+ * the slot. */
+#define TFW_CM_USER_EE_BASE   (TFW_FLASH_TOTAL - TFW_CM_USER_EE_SIZE)
+#define TFW_CM_USER_EE_SIZE   0x00002000uL
+
+_Static_assert(TFW_CM_USER_EE_BASE >= 0x08100000uL,
+               "the user EEPROM sector is not in bank 2, the bank the code does not run from");
+_Static_assert(TFW_CM_USER_EE_BASE >= TFW_APP_REGION_BASE + TFW_APP_REGION_SIZE,
+               "the user EEPROM sector overlaps the application slot");
 
 /* Board sizing deviations from config.h: none. */
 

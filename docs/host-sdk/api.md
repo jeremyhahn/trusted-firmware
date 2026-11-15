@@ -262,7 +262,7 @@ symbol is exported and has no row here, or a row names one that is gone.
 | `tfw.AuthSignError.Error` | `func (e *AuthSignError) Error() string` | Implements error. |
 | `tfw.AuthSignError.Unwrap` | `func (e *AuthSignError) Unwrap() error` | Returns the underlying error, so errors.Is and errors.As see through it. |
 | `tfw.BoardID` | `type BoardID uint8` | The one-byte board identifier CAPS reports. |
-| `tfw.BoardATmega328P`, `tfw.BoardATmega2560`, `tfw.BoardATmega32U4`, `tfw.BoardATtiny85`, `tfw.BoardMPS2AN505`, `tfw.BoardFRDMIMX95M7`, `tfw.BoardMPS2AN500`, `tfw.BoardSTM32H573IDK`, `tfw.BoardRP2350Pico2W`, `tfw.BoardNRF54L15DK`, `tfw.BoardFRDMMCXN947`, `tfw.BoardESP32P4PoE`, `tfw.BoardESP32QEMU` | `const BoardID` 0x01…0x81 | The ids allocated so far. |
+| `tfw.BoardATmega328P`, `tfw.BoardATmega2560`, `tfw.BoardATmega32U4`, `tfw.BoardATtiny85`, `tfw.BoardMPS2AN505`, `tfw.BoardFRDMIMX95M7`, `tfw.BoardMPS2AN500`, `tfw.BoardSTM32H573IDK`, `tfw.BoardRP2350Pico2W`, `tfw.BoardNRF54L15DK`, `tfw.BoardFRDMMCXN947`, `tfw.BoardNUCLEOH563ZI`, `tfw.BoardESP32P4PoE`, `tfw.BoardESP32QEMU` | `const BoardID` 0x01…0x81 | The ids allocated so far. |
 | `tfw.BoardID.Family` | `func (b BoardID) Family() string` | Names the architecture family whose range the id falls in, or "unallocated" for 0x00 and 0xC0-0xFF. |
 | `tfw.BoardID.String` | `func (b BoardID) String() string` | The board's name when this SDK knows it. |
 | `tfw.CRCError` | `type CRCError struct` | A checksum that disagrees with the bytes it covers, carrying both values because they say which side to suspect. |

@@ -25,6 +25,7 @@ const (
 	BoardRP2350Pico2W BoardID = 0x44
 	BoardNRF54L15DK   BoardID = 0x45
 	BoardFRDMMCXN947  BoardID = 0x46
+	BoardNUCLEOH563ZI BoardID = 0x47
 	BoardESP32P4PoE   BoardID = 0x80
 	BoardESP32QEMU    BoardID = 0x81
 	boardAVRFirst     BoardID = 0x01
@@ -47,6 +48,7 @@ var boardNames = map[BoardID]string{
 	BoardRP2350Pico2W: "rp2350-pico2w",
 	BoardNRF54L15DK:   "nrf54l15-dk",
 	BoardFRDMMCXN947:  "frdm-mcxn947",
+	BoardNUCLEOH563ZI: "nucleo-h563zi",
 	BoardESP32P4PoE:   "esp32p4-poe",
 	BoardESP32QEMU:    "esp32-qemu",
 }

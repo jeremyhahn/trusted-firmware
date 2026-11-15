@@ -1177,3 +1177,21 @@ Read-only results (SM monitor, before any write):
   oscillator), divider 1, OFF bit 24 clear; STATUS0 (+0x20) `00000000`,
   i.e. not off and not changing. The rest: +0x2c `00000020`, +0x30 to
   +0x3c `ffff0000`. This agrees with `clock.r lpuart3` (on, 24 MHz).
+
+Diagnostic container (bench host), from the vendor backup and the
+`REG_DUMP=1` image of commit `0c7c2657`:
+
+```
+make BOARD=frdm-imx95-m7 IMX_BOOT=1 REG_DUMP=1 firmware     # 12120 bytes, soft-imxboot-steps-regdump
+boards/frdm-imx95-m7/imx-boot-m7.py imx-boot-orig.bin \
+    build/frdm-imx95-m7/soft-imxboot-steps-regdump/trusted-firmware.elf imx-boot-m7-regdump.bin
+#   8355840 bytes, changed bytes 0x8195 to 0xc03ab only
+#   entry 3: offset 0x0af800 size 0x003000 load 0x303c0000 entry 0 flags 0x01b3 meta 0x1
+#   every image SHA-384 matches; sha256 5d52f073...961902b3
+```
+
+Before the write, on the A55 Linux: `/root/imxboot-backup/` still holds
+`imx-boot-orig.bin` (`1d775624...0081f`) and `imx-boot-m7-steps.bin`
+(`1c6ed98d...7cf54`), and the eMMC at 0x8000 reads `1c6ed98d...7cf54`
+(section 10's container). Those are the restore points; uuu over USB
+serial download (owner sets SW4) if the board does not boot.

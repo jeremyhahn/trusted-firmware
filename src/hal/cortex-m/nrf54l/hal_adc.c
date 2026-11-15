@@ -35,6 +35,11 @@
 /* EasyDMA's destination: one 16-bit sample, two bytes (RESULT.MAXCNT). */
 static volatile int16_t saadc_sample;
 
+/* The GPIO port bases, by the table's port number, for the pin's PIN_CNF. */
+static const uint32_t saadc_port_base[3] = {
+    TFW_NRF_P0_BASE, TFW_NRF_P1_BASE, TFW_NRF_P2_BASE
+};
+
 tfw_status_t tfw_hal_adc_init(void)
 {
     return TFW_OK;
@@ -66,6 +71,13 @@ tfw_status_t tfw_hal_adc_read(uint8_t channel, uint16_t *out_raw)
     if ((uint32_t)channel + 1u > TFW_ADC_COUNT ||
         !tfw_nrf54l_saadc_pin(channel, &port, &bit)) {
         return TFW_ERR_RANGE;
+    }
+
+    /* GPIO to analog: the pin back to PIN_CNF's reset (input, no pull, input
+     * buffer disconnected) before the SAADC samples it, so an output or a
+     * pull a GPIO command left on it does not load the input. */
+    if (port < 3u) {
+        TFW_NRF_GPIO_PIN_CNF(saadc_port_base[port], bit) = TFW_NRF_PIN_CNF_RESET;
     }
 
     TFW_NRF_SAADC_ENABLE      = TFW_NRF_SAADC_ENABLE_ON;

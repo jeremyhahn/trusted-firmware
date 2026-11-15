@@ -14,8 +14,8 @@ then hardware in the SPEC row's order.
 | [`api.md`](api.md) | the HAL functions the port implements, those it leaves to a later slice, and tfw-boot's hardware layer |
 | [`user.md`](user.md) | building for QEMU `mps2-an505` and `mps2-an500`, and running `make integration-test-cortex-m` and `make integration-test-cortex-m-wire` |
 | [`engineering.md`](engineering.md) | files, invariants, the toolchain, `lint-arch-leak`, the `progmem.h` far reads, the tests, and the open owner questions |
-| [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) | **PROPOSED** (#14): the i.MX 95 Cortex-M7 as the reference part, checked against the STM32H573I-DK and the nRF54L15-DK; QEMU `mps2-an505` as the CI target; the HAL mapping, toolchain, budgets and boot chain |
-| [`adr-trust-model-vs-tf-m.md`](adr-trust-model-vs-tf-m.md) | **PROPOSED** (#15): the trust model and its relation to TF-M — TF-M Profile Medium with our attestation partition on the M33, MPU-only isolation on the M7, where the DICE root lives on each part, and the owner's open questions |
+| [`adr-reference-part-and-emulation.md`](adr-reference-part-and-emulation.md) | **ACCEPTED** (#14, owner ruling 632 item 208 a, 2026-11-14): the i.MX 95 Cortex-M7 as the reference part, checked against the STM32H573I-DK and the nRF54L15-DK; QEMU `mps2-an505` as the CI target; the HAL mapping, toolchain, budgets and boot chain |
+| [`adr-trust-model-vs-tf-m.md`](adr-trust-model-vs-tf-m.md) | **ACCEPTED** (#15, owner ruling 632 item 208 a, 2026-11-14): the trust model and its relation to TF-M — TF-M Profile Medium with our attestation partition on the M33, MPU-only isolation on the M7, where the DICE root lives on each part, and the owner's remaining open questions |
 
 ## What is built (#161, then the M7 on QEMU)
 

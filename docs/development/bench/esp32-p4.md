@@ -710,6 +710,44 @@ The boot log, the two summaries and the wirecheck output stay outside the tree
 was not run: **the board is left on this image, up at its static address on
 the development VLAN.**
 
+### Row 48: the HAL peripherals with no external wiring, 2026-11-15
+
+Ruling 625 (1) and CA 581/582: burn no eFuse, record the factory state before
+any write. The peripheral commands are not on the Ethernet allow-list
+(`src/proto/link_eth.c`), and the P4's wire is TCP only, so the checks run in
+the image itself: a self-check that runs once in `app_main()` before the wire
+starts, only in a build that sets `CONFIG_TFW_PERIPH_SELFCHECK=y` (default
+off, so main's image is unchanged), and prints one `tfw-selfcheck:` line per
+check on the console. The pins are ones the board leaves unconnected; nothing
+is wired to the board.
+
+| Check | What runs | Pass |
+|---|---|---|
+| `hal_gpio.c` | a free pin as an output, driven high then low, read back each time | the read equals the level driven, both times |
+| `hal_adc.c` | one reading of a free ADC pin | the read returns OK and a value in the converter's range |
+| `hal_pwm.c` | PWM on a free pin at a set duty, then 0 | each call returns OK and the LEDC duty read back equals the duty set |
+| `hal_tone.c` | a 1 kHz tone on a free pin, then stopped | start and stop return OK |
+| `hal_pulse_rmt.c` | a pulse measurement on a free pin, nothing driving it | returns the no-pulse (timeout) result, not an error |
+| `hal_eeprom.c` | a pattern written at a test offset of `tfw_eeprom`, read back, the old bytes put back | the read equals the pattern, the restore reads back equal |
+| C6 enable | GPIO 54's level after `hal_board.c` | low |
+| `hal_bus.c` | — | **NOT RUN, wiring needed** (no I2C/SPI/1-Wire device on the board) |
+
+Steps, each over the by-id port, no break:
+
+1. `espefuse --port $ESP_PORT summary > build/…/efuse-before.txt` (read
+   only; a venv in the lane's home, nothing installed on the host).
+2. `make esp32-build BOARD=esp32p4-poe CRYPTO=none
+   ESP_SDKCONFIG_EXTRA="boards/esp32p4-poe/sdkconfig.hil0 <overlay>"`, the
+   untracked overlay setting the static address and
+   `CONFIG_TFW_PERIPH_SELFCHECK=y`.
+3. HIL-0 step 3's writes; console for 60 s after one reset; the
+   `tfw-selfcheck:` lines.
+4. `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0` still passes.
+5. `espefuse summary` after; the diff against step 1 must show no eFuse line.
+6. Recovery and what the board is left on: rebuild without the self-check
+   (main's configuration, the static overlay only) and repeat step 3, then
+   step 4 again.
+
 ## Restore
 
 ```sh

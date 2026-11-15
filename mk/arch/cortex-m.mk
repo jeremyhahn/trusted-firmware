@@ -299,7 +299,12 @@ CM_NOFLASH_WHY   ?= $(if $(QEMU_MACHINE),is an emulated board: QEMU loads the im
 CM_NORESTORE_WHY ?= $(if $(QEMU_MACHINE),is an emulated board: it has no factory state,has no factory record or restore yet)
 ARCH_CM_NOFLASH   = echo "$@: $(BOARD) $(CM_NOFLASH_WHY)" >&2; exit 1
 ARCH_CM_NORESTORE = echo "$@: $(BOARD) $(CM_NORESTORE_WHY)" >&2; exit 1
-ARCH_FLASH         = $(if $(CM_FLASH_TOOL),$(call cm_write_image,$(APP_BASE)),$(ARCH_CM_NOFLASH))
+# CM_FLASH_GATED_WHY, a board's, names why the row being built is held back
+# from a board (a row the SPEC has not lifted the gate for): `make flash` still
+# builds the image, then refuses before any probe command.
+CM_FLASH_GATED_WHY ?=
+ARCH_CM_GATED      = echo "$@: REFUSED. $(BOARD) $(CM_FLASH_GATED_WHY)" >&2; exit 1
+ARCH_FLASH         = $(if $(strip $(CM_FLASH_GATED_WHY)),$(ARCH_CM_GATED),$(if $(CM_FLASH_TOOL),$(call cm_write_image,$(APP_BASE)),$(ARCH_CM_NOFLASH)))
 ARCH_BOOT_FLASH    = $(if $(CM_FLASH_TOOL),$(call cm_write_image,$(BOOT_BASE)),$(ARCH_CM_NOFLASH))
 ARCH_BOARD_RECORD  = $(if $(CM_FLASH_TOOL),$(CM_BOARD_RECORD),$(ARCH_CM_NORESTORE))
 ARCH_BOARD_RESTORE = $(if $(CM_FLASH_TOOL),$(CM_BOARD_RESTORE),$(ARCH_CM_NORESTORE))

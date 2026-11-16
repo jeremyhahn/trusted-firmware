@@ -906,21 +906,29 @@ $(HOST_DIR)/test_board_frdm-imx95-m7_adc: test/unit/test_board_frdm-imx95-m7.c \
 	@$(HOST_CC) -Iboards/frdm-imx95-m7 $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
 	    -DTFW_CM_ADC=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The Pico 2 W's descriptor test in the soft:I2C=1 row, which board-sweep (the
-# default profile) never builds: with what profile.mk's BOARD_DEFS carries for
-# I2C=1, GP4 and GP5 are taken as I2C0's SDA and SCL.
+# The Pico 2 W's descriptor test in the soft:PERIPH=0 row. board-sweep takes
+# its flags from mk/firmware.mk's feature-defs, which omits BOARD_DEFS, so it
+# builds only the GPIO-only descriptor: these three targets build the rows
+# profile.mk ships. Here GP4 and GP5 are taken as I2C0's SDA and SCL, and no PWM, converter, tone or EEPROM.
 $(HOST_DIR)/test_board_rp2350-pico2w_i2c: test/unit/test_board_rp2350-pico2w.c \
                         src/core/board_lookup.c boards/rp2350-pico2w/board.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
 	    -DTFW_CM_I2C=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
-# And in the soft:PERIPH=1 row: PWM on one header GPIO per slice and the
-# converter on GPIO26-28, which the default row (the SPEC gate) leaves off.
+# And in the soft:I2C=0 row: PWM on one header GPIO per slice and the
+# converter on GPIO26-28, with GP4 and GP5 left plain GPIOs.
 $(HOST_DIR)/test_board_rp2350-pico2w_periph: test/unit/test_board_rp2350-pico2w.c \
                         src/core/board_lookup.c boards/rp2350-pico2w/board.c \
                         $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
 	    -DTFW_CM_PERIPH=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+# And in the default row, I2C and PERIPH both on: I2C0 on GP4 and GP5 beside
+# the PWM, converter, tone and EEPROM pins.
+$(HOST_DIR)/test_board_rp2350-pico2w_default: test/unit/test_board_rp2350-pico2w.c \
+                        src/core/board_lookup.c boards/rp2350-pico2w/board.c \
+                        $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Iboards/rp2350-pico2w $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) \
+	    -DTFW_CM_I2C=1 -DTFW_CM_PERIPH=1 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The LPI2C master (hal_bus.c) against the LPI2C register model in the test
 # file itself, not imx95_model.c, compiled as test_imx95_hal's SoC files are.
@@ -1504,6 +1512,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_adc $(HOST_DIR)/test_imx95_adc_nobase \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_adc \
                     $(HOST_DIR)/test_board_rp2350-pico2w_i2c $(HOST_DIR)/test_board_rp2350-pico2w_periph \
+                    $(HOST_DIR)/test_board_rp2350-pico2w_default \
                     $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
@@ -2951,7 +2960,7 @@ $(HOST_DIR)/test_rp2350_adc: test/unit/test_rp2350_adc.c test/model/cortex-m/rp2
                              $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Itest/model/cortex-m/rp2350/adc $(HOST_RP2350_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
-# The same driver in the Pico 2 W's default row, without TFW_CM_PERIPH: no
+# The same driver in the Pico 2 W's PERIPH=0 row, without TFW_CM_PERIPH: no
 # analog inputs, so its init must touch none of the model's registers.
 $(HOST_DIR)/test_rp2350_adc_default: test/unit/test_rp2350_adc_default.c \
                                      test/model/cortex-m/rp2350/adc/adc_model.c \

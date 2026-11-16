@@ -9,12 +9,11 @@
  * CYW43439, and the board's LED is the radio's, not a GPIO, so the table has
  * no LED pin.
  *
- * docs/SPEC.md keeps rp2350 `future`, with the AVR gate (#7) not lifted for
- * it, so the default image is GPIO only, as before this row. PWM (one header
- * GPIO per slice, board.c), the converter (GPIO26-28, ADC0-2), the tone and
- * the flash EEPROM are on only in the PERIPH=1 row (TFW_CM_PERIPH,
- * profile.mk), and I2C0 only in the I2C=1 row: built and host-tested, not run
- * on a board, until the owner lifts the gate.
+ * The owner lifted the AVR gate (#7) for the RP2350 (ruling 697), so the
+ * default image carries PWM (one header GPIO per slice, board.c), the
+ * converter (GPIO26-28, ADC0-2), the tone and the flash EEPROM
+ * (TFW_CM_PERIPH, PERIPH ?= 1 in profile.mk) and I2C0 (TFW_CM_I2C, I2C ?= 1).
+ * PERIPH=0 and I2C=0 build the image without them, GPIO only with both.
  *
  * The board id is PROVISIONAL (boards/rp2350-pico2w/profile.mk).
  */
@@ -48,8 +47,8 @@
 #define TFW_FEATURE_EEPROM  0
 #endif
 #define TFW_FEATURE_PULSE   0
-/* I2C0 on GPIO4/5 (src/hal/cortex-m/rp2350/hal_bus.c), only in the I2C=1
- * row: built and host-tested, not run on a board. */
+/* I2C0 on GPIO4/5 (src/hal/cortex-m/rp2350/hal_bus.c), in the I2C=1 row,
+ * the default (profile.mk). */
 #if defined(TFW_CM_I2C)
 #define TFW_FEATURE_I2C     1
 #else

@@ -16,9 +16,9 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
  * CYW43439) are not pins. adc_ch is the converter's input: GPIO26-28 are
  * ADC0-2 (src/hal/cortex-m/rp2350/hal_adc.c); ADC3, GPIO29, is the radio's
  * SPI clock and the VSYS divider, and the temperature sensor is not a pin.
- * In the I2C=1 row GP4 and GP5 are I2C0's SDA and SCL
+ * In the I2C=1 row, the default, GP4 and GP5 are I2C0's SDA and SCL
  * (src/hal/cortex-m/rp2350/hal_bus.c) and are taken (PICO2W_PIN_I2C); in the
- * default row they are plain GPIOs. Taken, GPIO_MODE or a scheduled toggle
+ * I2C=0 row they are plain GPIOs. Taken, GPIO_MODE or a scheduled toggle
  * cannot hand them back to SIO and cut the bus. */
 #if TFW_FEATURE_I2C
 #define PICO2W_PIN_I2C TFW_PIN_IN_USE
@@ -26,8 +26,8 @@ const tfw_port_desc_t tfw_board_ports[TFW_PORT_COUNT] TFW_PROGMEM = {
 #define PICO2W_PIN_I2C 0u
 #endif
 
-/* The converter inputs and PWM rows exist only in the PERIPH=1 row
- * (board_profile.h); in the default row every pin is a plain GPIO. */
+/* The converter inputs and PWM rows exist only in the PERIPH=1 row, the
+ * default (board_profile.h); in the PERIPH=0 row every pin is a plain GPIO. */
 #if TFW_FEATURE_PWM
 #define PICO2W_PWM(row) (row)
 #define PICO2W_PIN_PWM  TFW_PIN_PWM
@@ -85,7 +85,7 @@ const tfw_pwm_desc_t tfw_board_pwms[TFW_PWM_COUNT] TFW_PROGMEM = {
     { 0u, 0u, 0u, 16u },   /* 7 GP16 */
 };
 #else
-/* EMPTY in the default row, as on mps2-an505: no PWM slice is driven, and a
+/* EMPTY in the PERIPH=0 row, as on mps2-an505: no PWM slice is driven, and a
  * row nothing indexes would be dead data that looks live. */
 const tfw_pwm_desc_t tfw_board_pwms[TFW_PWM_COUNT] TFW_PROGMEM;
 #endif

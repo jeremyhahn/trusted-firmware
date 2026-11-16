@@ -84,12 +84,13 @@ class Rp2350EepromSelection(unittest.TestCase):
             self.assertIn(src, srcs)
 
 
-def flash(*row):
+def flash(*row, picotool=True):
     """`make flash` on a row, with its image taken as built (-o): the recipe
-    only, so nothing is compiled. A stand-in picotool first on PATH logs any
-    call and fails, so the result does not depend on whether the host has
-    the real one, and with no record in an empty record directory the record
-    guard refuses before anything could reach a board. Returns the exit
+    only, so nothing is compiled. Stand-ins first on PATH, picotool and the
+    toolchain's objcopy, log any call and fail; with picotool=False there is no
+    picotool stand-in and PATH keeps only the directories with no picotool. Either way the result does not
+    depend on whether the host has the real one, and with no record in an
+    empty record directory nothing could reach a board. Returns the exit
     code, stderr and the stand-in's call log."""
     fw_dir = var("FW_DIR", *row)[0]
     with tempfile.TemporaryDirectory() as tmp:
@@ -98,11 +99,17 @@ def flash(*row):
         calls = os.path.join(tmp, "picotool.calls")
         os.makedirs(tools)
         os.makedirs(records)
-        tool = os.path.join(tools, "picotool")
-        with open(tool, "w", encoding="utf-8") as f:
-            f.write(f'#!/bin/sh\necho "$@" >> "{calls}"\nexit 1\n')
-        os.chmod(tool, 0o755)
-        env = dict(os.environ, PATH=tools + os.pathsep + os.environ.get("PATH", ""))
+        path = [d for d in os.environ.get("PATH", "").split(os.pathsep)
+                if d and not os.path.exists(os.path.join(d, "picotool"))]
+        # The objcopy only satisfies the Makefile's toolchain check: every
+        # run stops before the recipe would call it.
+        for name in ("picotool", "arm-none-eabi-objcopy")[0 if picotool else 1:]:
+            tool = os.path.join(tools, name)
+            with open(tool, "w", encoding="utf-8") as f:
+                f.write(f'#!/bin/sh\necho {name} "$@" >> "{calls}"\nexit 1\n')
+            os.chmod(tool, 0o755)
+        path.insert(0, tools)
+        env = dict(os.environ, PATH=os.pathsep.join(path))
         p = subprocess.run(
             ["make", "-s", "--no-print-directory", "-o", fw_dir + "/trusted-firmware.hex",
              "flash", *BOARD, *row, "CM_PROBE_SERIAL=modelprobe", "CM_RECORD_DIR=" + records],
@@ -117,15 +124,22 @@ def flash(*row):
 
 class Rp2350FlashRows(unittest.TestCase):
 
-    def test_every_row_reaches_the_record_guard_and_no_feature_gate(self):
+    def test_every_row_reaches_the_write_path(self):
         for row in ((), ("I2C=1",), ("PERIPH=1",), ("I2C=0",), ("PERIPH=0",)):
-            with self.subTest(row=row):
+            with self.subTest(row=row, picotool=True):
                 rc, err, calls = flash(*row)
                 self.assertNotEqual(rc, 0)
                 self.assertIn("flash: REFUSED. No whole factory record of rp2350-pico2w", err)
                 self.assertNotIn("host-test only", err)
                 self.assertNotIn("AVR gate", err)
                 self.assertEqual(calls, "")  # the guard stops before any picotool call
+            with self.subTest(row=row, picotool=False):
+                rc, err, calls = flash(*row, picotool=False)
+                self.assertNotEqual(rc, 0)
+                self.assertIn("flash: picotool is not on PATH", err)
+                self.assertNotIn("host-test only", err)
+                self.assertNotIn("AVR gate", err)
+                self.assertEqual(calls, "")
 
 
 if __name__ == "__main__":

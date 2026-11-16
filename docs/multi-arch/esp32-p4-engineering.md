@@ -30,3 +30,72 @@ burn among them.
 | The C6 stays off, its radio never enabled | partial | `src/hal/esp32/hal_board.c` holds the C6 enable low | `test_board_esp32p4-poe` (`test_the_coprocessor_enable_is_gpio_54`); `test_esp_board` (against the P4's profile: driven low before it is an output, pulled down, held, never driven high; a refused step is `TFW_ERR_INTERNAL` and nothing after it runs) | Seen held in reset on the board: the 2026-10-21 HIL-0 run does not check the C6 |
 | Per-architecture code only behind the HAL, the boot HAL and the board profiles | met | `src/hal/esp32/`, `boot/hal/esp32/`, `boards/esp32p4-poe/` | `make lint-conditionals` | — |
 | Board id `0x80`, the first in the ESP32 range | met | `boards/esp32p4-poe/board_profile.h` | `test_board_esp32p4-poe` (`test_the_board_is_the_first_esp32_id`); `sdk/go/boardid_test.go` | — |
+
+Counts: 9 met, 6 partial, none not yet. Every partial line is partial for
+the same reason: what it needs runs on the host and in QEMU, and is left only
+on silicon, behind a bench run or an owner's eFuse burn.
+
+Where the names resolve. The application tests are `test/unit/<name>.c`; the
+boot tests are `test/unit/boot/<name>.c`, and three of them are builds of
+another file with other sources: `test_boot_l0_esp32_rom` and
+`test_boot_l0_esp32_sha` of `test_boot_l0_esp32.c` (`mk/boot.mk:681`,
+`mk/boot.mk:797`), `test_boot_measure_esp32_classic` of
+`test_boot_measure_esp32.c` (`mk/boot.mk:791`); all are in `make host-test`'s
+list (`mk/host.mk:1215`–`1219`). `make esp32-build` is
+`mk/arch/esp32-targets.mk:49`, `make esp32-qemu-test`
+`mk/arch/esp32-targets.mk:115`, `make lint-conditionals` `mk/host.mk:1711`.
+`derive_cdi` is `boot/hal/esp32/boot_l0.c:105` and its `esp_image_verify` call
+`boot_l0.c:215`. The silicon runs are the three of the bench page's "Runs"
+(2026-10-18, 2026-10-19, 2026-10-21); only the last booted our image.
+
+Audited against main for #485: every file, test binary, test function and
+`make` target the table names exists, and each status matches the code and
+the bench record. No line changed status.
+
+### Remaining slices
+
+Nothing in this row is left that runs on the host or in QEMU. What remains is
+on the P4, in this order; the row ships when the last of them is recorded on
+the bench page and each partial line above turns met:
+
+1. **Bench HIL-0b: the rest of the image on silicon, no eFuse burned** (the
+   bench; flashing is ours, m346). The HIL-0 image again
+   (`boards/esp32p4-poe/sdkconfig.hil0`, `CRYPTO=none`), and on it: the C6
+   seen held in reset (its enable, GPIO 54, read low, and no C6 output on its
+   UART); the pin peripherals of `hal_gpio.c`, `hal_adc.c`, `hal_pwm.c`,
+   `hal_tone.c`, `hal_bus.c` and `hal_pulse_rmt.c` driven over the wire on the
+   pins `boards/esp32p4-poe/board.c` maps; and `hal_eeprom.c`'s
+   `EEPROM_READ`/`EEPROM_WRITE` read back across a reset. Files: the steps and
+   the run in `docs/development/bench/esp32-p4.md`; this table's first and C6
+   lines. Proven by the run's record, then `make board-restore` and the
+   factory SHA-256 again. Turns the C6 line met, and leaves the first line
+   only its crypto tier.
+2. **HIL-1: the UDS burn and the `hmac-p256` tier on silicon** (owner, an
+   irreversible burn). `make esp32-build BOARD=esp32p4-poe` with its default
+   tier, `prov_uds.c` burning the UDS into an `HMAC_UP` key block,
+   read-protected; then the checks `make esp32-qemu-test` makes on the esp32c3
+   repeated on the board: the CDI fingerprint against the host's HMAC, the
+   DeviceID stable across a reset and a new image, ES256 `ATTEST` verified by
+   `wirecheck -deviceid`, and the UDS unreadable. Files: the bench page. Turns
+   the CDI and "no key leaves the part" lines met, the DeviceID line's silicon
+   note, and the first line's crypto tier, so the first line is met.
+3. **HIL-2: secure boot v2 enabled** (owner; ends the factory restore). The
+   key digest and `SECURE_BOOT_EN` burned; the board boots only the image
+   `mk/arch/esp32-targets.mk` re-signs, and refuses a flipped one, as
+   `make esp32-qemu-test` shows on QEMU. Files: the bench page. Turns the
+   secure-boot line met.
+4. **HIL-3: flash encryption enabled** (owner, who also chooses release or
+   development mode). The image built from `boards/esp32p4-poe/sdkconfig.defaults`
+   without the HIL-0 overlay boots encrypted; a plaintext image does not.
+   Files: the bench page, and `sdkconfig.defaults` only if the owner chooses
+   development mode. Turns the flash-encryption line met.
+5. **HIL-4: one OTA round with a floor advance** (owner: the release policy,
+   design section 2.3). `OTA_AUTH`, `OTA_ACTIVATE` and `OTA_CONFIRM` over
+   Ethernet to the board, the trial confirmed and the eFuse `SECURE_VERSION`
+   advanced, then an image below it refused, as steps 7–10 of
+   `make esp32-qemu-test` do on QEMU. Files: the bench page. Turns the OTA
+   line met; with it every line is met and the row's PR marks it shipped in
+   `docs/SPEC.md`.
+
+Not in this row: HIL-5 (download mode and JTAG off, design section 4) is the
+owner's and no requirement of the row needs it.

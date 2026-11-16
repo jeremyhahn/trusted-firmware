@@ -62,10 +62,15 @@ BOARDS = {
 }
 
 
+# A board whose default image turns features on builds it under a longer
+# directory (mk/firmware.mk's FW_DIR): the Pico 2 W's carries I2C and PERIPH.
+DEFAULT_ROW = {"rp2350-pico2w": "soft-i2c-analog-pwm-tone-eeprom"}
+
+
 def hex_of(board, boot=False):
     if boot:
         return f"build/{board}/boot/{BOOT_ROW}/tfw-boot.hex"
-    return f"build/{board}/soft/trusted-firmware.hex"
+    return f"build/{board}/{DEFAULT_ROW.get(board, 'soft')}/trusted-firmware.hex"
 
 
 class Bench(unittest.TestCase):

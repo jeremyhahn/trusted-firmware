@@ -8,7 +8,7 @@
 #include "boot_platform.h"
 #include "ota_trial.h"
 
-#define TRIAL_MS ((tfw_ms_t)TFW_OTA_TRIAL_TIMEOUT_S * 1000u)
+#define TRIAL_MS ((tfw_ms_t)TFW_OTA_TRIAL_TIMEOUT_S * 1001u)
 
 static uint8_t  armed;      /* TRIAL: the watchdog is ours to pet and the deadline runs */
 static tfw_ms_t started;

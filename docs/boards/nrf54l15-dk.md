@@ -48,6 +48,85 @@ Both sources are listed in [`../reference/README.md`](../reference/README.md),
 | Ethernet | **none**. Radios: Bluetooth Low Energy, 802.15.4 (Thread), 2.4 GHz proprietary, NFC | [UG], introduction |
 | Power | nPM1300 PMIC, 1.8 V to 3.3 V user-programmable from USB | [UG], introduction |
 
+## Requirements
+
+The SPEC row `nrf54l15` (`docs/SPEC.md`, line 48), one line per requirement in
+its text, audited against main for #503. "Done" means done in the build and
+on the host: nothing on this board has run on silicon. Test names are the C
+functions or Go `Test` functions in the files named.
+
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| R1 | The firmware core as a HAL port on the nRF54L15-DK, on the generic cortex-m HAL (#161): application only, soft tier, memory map, clock, watchdog and UARTE console, in the firmware matrix | **partial**: built in `firmware-matrix` and CI's toolchain-image step (`.github/workflows/ci.yml`), host-tested over register models; never run on the board | `boards/nrf54l15-dk/board.c`, `board_profile.h`, `profile.mk`; `src/hal/cortex-m/nrf54l/hal_soc.c`, `hal_uart.c`, `hal_gpio.c`, `soc_tables.c`; `mk/arch/cortex-m/nrf54l.ld` | `test/unit/test_board_nrf54l15-dk.c` `test_the_pins_are_the_four_leds_then_the_four_buttons`; `test/unit/test_nrf54l_soc.c` `test_early_pll_at_128mhz_and_crystal_started`, `test_arm_programs_and_starts_the_watchdog`; `test/unit/test_nrf54l_uart.c` `test_init_writes_the_115200_baudrate_word` |
+| R2 | tfw-boot's soft row (`nrf54l15-dk:soft:soft:p256-soft:0:0`): a polled UARTE console and RRAM-controller writes for the platform block, P-256 verify and the soft DeviceID seed handoff | **partial**: built and size-checked by `bootloader-check`; the RRAM span check and the shared write sequence are host-tested, but `boot_uart.c` and `boot_rram.c` have no host test of their own; never run on the board | `mk/boot.mk` (`BOOT_SUPPORTED`); `boot/hal/cortex-m/nrf54l/boot_uart.c`, `boot_rram.c`; `src/hal/cortex-m/nrf54l/rram_write.h` | `test/unit/test_nrf54l_soc_tables.c` `test_a_span_into_tfw_boots_region_is_refused`; `test/unit/test_nrf54l_eeprom.c` `test_the_confirm_request_lands_whole_where_tfw_boot_reads_it` (the shared RRAMC sequence) |
+| R3 | DICE evidence on the part's KMU | **not started**: tfw-boot's row is the soft tier, holding the soft DeviceID seed; no KMU code. UDS, CDI and DeviceID placement are the owner's (ADR open questions 2-4) | `boot/boot_cdi.h`, `boot/tier/cdi_soft.c` (the generic CDI the board would feed); no nRF54L KMU code | none for the nRF54L15; the generic derivation is `test/unit/boot/test_boot_cdi_soft_uds.c` `test_a_provisioned_uds_derives_the_device_seed` |
+| R4 | TrustZone | **not started**: the reset path leaves out `SystemInit`'s SAU, SPU, approtect and tamper set-up; the secure world is the owner's (ADR open question 5, ADR #15 open question 2) | `src/hal/cortex-m/nrf54l/hal_soc.c` (the reset path that omits it) | none |
+| R5 | Enrolment through go-xkms into go-trusted-platform | **not started** on this board: it has no Ethernet and no transport is chosen (ADR open question 6); the enrolment path exists for other roots | `xkms/` (the adapter); no nRF54L15 transport | none for the nRF54L15; the path is `xkms/e2e/soft_enroll_test.go` `TestSoftRootEnrollsThroughDeviceAttest01` |
+| R6 | The onboarding ADR, docs-only (#129) | **done** (PROPOSED; its open questions wait on the owner) | `docs/multi-arch/adr-nrf54l15-dk-onboarding.md` | docs only; no test applies |
+| R7 | Not in ruling 269's hardware order | **holds**: the order is SE052F, i.MX 95 M7, STM32H5; where this board goes is ADR open question 1 | `docs/SPEC.md` (row `cortex-m`) | docs only; no test applies |
+
+Beyond the row's text, the board carries the generic peripherals, each built
+and host-tested and none run on the board: PWM (`hal_pwm.c`,
+`test/unit/test_nrf54l_pwm.c`), I2C on the `soft:I2C=1` row (`hal_bus.c`,
+`test/unit/test_nrf54l_twim.c`), the SAADC (`hal_adc.c`,
+`test/unit/test_nrf54l_saadc.c`), tone (`hal_tone.c`,
+`test/unit/test_nrf54l_tone.c`), the EEPROM family (`hal_eeprom.c`,
+`test/unit/test_nrf54l_eeprom.c`), the reset cause (`soc_reset.c`,
+`test/unit/test_nrf54l_reset.c`) and pulse (`src/hal/cortex-m/hal_pulse.c`).
+
+### Remaining slices
+
+1. **Host tests for tfw-boot's nRF54L halves** (no hardware): tests for
+   `boot/hal/cortex-m/nrf54l/boot_uart.c` (`INTEN` 0, one byte per transfer,
+   the reset values put back before the jump) and `boot_rram.c` (`WEN` only
+   inside the write, a span below the region end refused, a bounded wait that
+   fails), over `test/model/nrf54l_model.h`, wired in `mk/boot.mk` as the
+   RP2350's are; proven by the new `boot/hal/cortex-m/nrf54l/test/test_boot_nrf54l_uart.c`
+   and `test_boot_nrf54l_rram.c`.
+2. **The datasheet reads left open** (no hardware; ADR open question 9 pins
+   [PS]'s revision): the KMU's slot and metadata layout, the immutable boot
+   region's start and `BOOTCONF.SIZE` unit, the system `RRAMC.REGION`, the
+   UICR's address (`0x00FFD000`, used by `make board-record`), CRACEN's
+   curves, and the PWM and tone items under "What is not verified"; updates
+   this page and `docs/reference/README.md`; docs only.
+3. **The first bench run** (needs hardware and the bench; ADR open question 7
+   for the restore): `make board-record BOARD=nrf54l15-dk
+   CM_PROBE_SERIAL=<serial>`, then `make boot-flash` and `make flash`, the
+   console on UARTE20, the wire protocol answered and the peripheral checks
+   above, following [`../cortex-m/README.md`](../cortex-m/README.md). No
+   UICR, APPROTECT or KMU write, no erase, no recover. It updates "What is not
+   verified", proven by the factory record and the recorded session.
+4. **The enrolment transport** (owner decision, ADR open question 6, then
+   go-trusted-platform's side): serial over the J-Link OB, a radio or an
+   Ethernet add-on, as a driver under `src/hal/cortex-m/nrf54l/` with a host
+   test in `test/unit/` over a model, then an enrolment test beside
+   `xkms/e2e/soft_enroll_test.go`.
+5. **DICE on the KMU** (owner decision, ADR open questions 2-4; a KMU write
+   needs hardware; waits on slice 2): a KMU driver under
+   `boot/hal/cortex-m/nrf54l/` feeding `boot/boot_cdi.h`, a new
+   `BOOT_SUPPORTED` row in `mk/boot.mk`, proven by a new
+   `test/unit/boot/test_boot_nrf54l_kmu.c` over a KMU model and, on silicon,
+   by a bench run.
+6. **TrustZone** (owner decision, ADR open questions 3 and 5, ADR #15 open
+   question 2; the immutable boot region lock is a `UICR` write and needs
+   hardware and the owner's yes): the SAU and SPU set-up and approtect in
+   `src/hal/cortex-m/nrf54l/hal_soc.c`, the secure and non-secure split in
+   `mk/arch/cortex-m/nrf54l.ld`, proven by new cases in
+   `test/unit/test_nrf54l_soc.c` over the register model, then a bench boot.
+7. **CRACEN and the crypto tier** (owner decision, ADR open question 4 and
+   ADR #15 open question 4; waits on slices 2 and 5): a provider beside
+   `src/crypto/optiga/`, the `CAPS` tier set in
+   `boards/nrf54l15-dk/board_profile.h`, proven by a case in
+   `test/unit/test_board_nrf54l15-dk.c` and a host test of the provider over
+   a CRACEN model.
+8. **OTA and the store** (owner decision: whether this board has them): an
+   A/B row in `mk/boot.mk` over the RRAM write path the EEPROM already uses
+   (`src/hal/cortex-m/nrf54l/rram_write.h`), with `boot/boot_swap.c`'s
+   journal and confirm, proven by host tests over the RRAM model in
+   `test/unit/test_nrf54l_eeprom.c`'s style and a bench run.
+9. **The row's place in the hardware order** (owner decision, ADR open
+   question 1): a SPEC and ROADMAP change only.
+
 ## The port (#17)
 
 The board on the generic Cortex-M port, application only, soft tier. The
@@ -158,41 +237,11 @@ SDK.
 
 ## What is left in the row
 
-In order:
-
-1. The KMU, for the DeviceID's root. The MDK defines the KMU's registers
-   (`KEYSLOT`, `SRC`, `METADATA`), not the layout of a slot or its metadata:
-   it needs [PS], "KMU — Key management unit".
-2. TrustZone: the SAU and SPU set-up `SystemInit` does and these slices leave
-   out, approtect and the tamper controller. Locking tfw-boot's region with
-   the immutable boot region belongs here. The MDK gives `UICR.BOOTCONF`'s
-   and `RRAMC.REGION[n].CONFIG`'s fields, but not the unit of
-   `BOOTCONF.SIZE`, where the boot region starts, or which `REGION` is the
-   system's (it points to "the instantiation table"): that needs [PS],
-   "Immutable boot region" and "NVM — Non-volatile memory". A `UICR` write
-   needs the board as well.
-3. CRACEN: it needs [PS], "CRACEN — Cryptographic accelerator engine".
-4. The bench run on the DK: the first time tfw-boot and the application run
-   on it. The writer is wired: SEGGER J-Link Commander (`JLinkExe`, device
-   `NRF54L15_M33`) over the J-Link OB. `make board-record BOARD=nrf54l15-dk
-   CM_PROBE_SERIAL=<serial>` saves the whole RRAM from `0x00000000`
-   (`savebin`) and the UICR, 4 KiB at `0x00FFD000`, an address still to
-   confirm against [PS] before the first record; `make flash` and
-   `make boot-flash` refuse until that record exists, then `loadbin` and
-   `verifybin`; `make board-restore` with
-   `BOARD_RESTORE_IMAGE=build/records/<record>.flash.bin` writes it back. No
-   UICR, APPROTECT or KMU write, no erase, no recover. Steps:
-   [`../cortex-m/README.md`](../cortex-m/README.md).
-5. OTA and the store, if the owner wants them on this board: the RRAM write
-   path is already in place for both, and the EEPROM command family uses it.
-6. The SAADC on the DK, and PWM. The SAADC driver
-   (`src/hal/cortex-m/nrf54l/hal_adc.c`) is written and runs against a
-   register model on the host (`test/unit/test_nrf54l_saadc.c`). Each read
-   first puts the pin's `PIN_CNF` back to its reset value (input, no pull,
-   input buffer disconnected), so an output or pull-up a GPIO command left
-   on it does not load the input; PWM is built
-   (PWM20 on LED1 and LED3, the table above) and host-tested. Neither has run
-   on the board.
+The numbered list under "Remaining slices" in "Requirements" above (#503).
+It folds the earlier list: the KMU (slices 2 and 5), TrustZone and the
+immutable boot region (slices 2 and 6), CRACEN (slice 7), the bench run with
+J-Link Commander (`JLinkExe`, device `NRF54L15_M33`, slice 3), OTA and the
+store (slice 8), and the SAADC and PWM on the DK (slice 3).
 
 ## What is not verified
 

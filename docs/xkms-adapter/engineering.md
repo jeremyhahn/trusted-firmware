@@ -9,9 +9,9 @@ Module: `github.com/jeremyhahn/trusted-firmware/xkms`, in `xkms/`, tagged
 registers the backend with go-xkms and re-exports the `avr` surface (see below).
 
 The module sits above both of its dependencies. It imports go-xkms (Layer 3),
-pinned in `xkms/go.mod` to `github.com/jeremyhahn/go-xkms v0.57.0-alpha`, and
+pinned in `xkms/go.mod` to `github.com/jeremyhahn/go-xkms v0.64.2-alpha`, and
 `github.com/jeremyhahn/trusted-firmware/sdk/go` (Layer 0), required at
-`v0.4.1-alpha`. Neither is replaced; the file's one `replace` pins the
+`v0.4.2-alpha`. Neither is replaced; the file's one `replace` pins the
 third-party `github.com/armon/go-metrics`. `sdk/go` is a separate module on purpose:
 go-xkms and go-trusted-platform import it, so it cannot depend on this one.
 `make sdk-verify` keeps it free of in-house dependencies.
@@ -20,6 +20,79 @@ Release order: tag `sdk/go`, bump the `sdk/go` requirement in `xkms/go.mod` to
 that tag, then tag `xkms/`. The module never builds against the working-tree
 `sdk/go`; a wire change reaches the adapter only through a new `sdk/go` tag.
 Raising the go-xkms requirement is likewise an edit to `xkms/go.mod`.
+
+## Requirements
+
+Audited 2026-11-16 (#456) against SPEC row `xkms-adapter` (S) and this
+document (E). Code paths are under `xkms/`; a test is `file: TestName`, paths
+relative to `xkms/`. A make target stands in where the requirement is about
+what CI runs.
+
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| 1 | S: registered through go-xkms's `RegisterExternalBackend` as type `tfw`; importing `xkms` is enough | done | `register.go` (`init`, `RegisterAVRBackend`) | `registration/registration_test.go: TestBlankImportMakesTFWABackendType` |
+| 2 | E: a refused registration panics; a second `RegisterAVRBackend` is `types.ErrBackendTypeRegistered` | done | `register.go` | `register_internal_test.go: TestARefusedRegistrationPanics` |
+| 3 | E: the registry's factory builds the backend from `ConfigKeyDevice` / `ConfigKeyConfig`; a wrong type is `ErrInvalidFactoryConfig` | done | `avr/factory.go` (`NewKeyProvider`) | `avr/factory_test.go: TestNewKeyProviderRefusesTheWrongTypes`; `registration/registration_test.go: TestAutoInitializeConstructsTheAVRBackend` |
+| 4 | S: consumed by go-quicbaas's composition as one of the hardware crypto implementations it passes to go-xkms | partial | `avr/factory.go` (this side); the composition is go-quicbaas's | `registration/registration_test.go: TestAutoInitializeConstructsTheAVRBackend` (this side only) |
+| 5 | S: go-trusted-platform and xkey never import this module | not started | none here: a property of those modules | none in this repository |
+| 6 | S: a read-only key provider that answers from `CAPS`, read once | done | `avr/backend.go` (`NewBackend`, `Capabilities`) | `avr/backend_test.go: TestNewBackendReadsCapsOnce`; `avr/backend_test.go: TestCapabilitiesDoNotAllocate` |
+| 7 | S: refuses what the part cannot do, before any frame | done | `avr/backend.go` (`GenerateKey`, `Signer`, `Decrypter`, `DeleteKey`, `RotateKey`) | `avr/backend_test.go: TestUnsupportedOperationsRefuseWithoutTouchingTheWire`; `avr/avr_mutate_test.go: TestEveryMutatedConfigFieldIsRefusedBeforeTheWire` |
+| 8 | E: `AttestKey` gates on the cached `CAPS`, agreeing with `Capabilities().Attestation` | done | `avr/attestation.go` (`AttestKey`), `avr/backend.go` (`canAttest`) | `avr/attestation_test.go: TestAttestKeyRefusesWhereCAPSSaysTheDeviceCannotAttest`; `avr/backend_test.go: TestCapabilitiesClaimAttestationOnlyWhereCAPSSaysTheDeviceCan` |
+| 9 | S: holds no private key; `DeviceKey` is not a `crypto.Signer` | done | `avr/key.go` | `avr/key_test.go: TestDeviceKeyIsNotASigner` |
+| 10 | S: reaches the wire only through `sdk/go` | partial | `avr/` calls `tfw.Device` only | no test pins it; see slice 4 |
+| 11 | S: finalizes through `Device.AttestCSR`; the possession signer returns only a signature over the asked digest under the attested key | done | `avr/possession.go` (`PossessionSigner`) | `avr/possession_test.go: TestPossessionSignerSignsTheDevicesRequest`; `avr/possession_test.go: TestPossessionSignerRefusesAnotherKeysSignature` |
+| 12 | S: the device-attest-01 tests are unit tests in `xkms/avr` replaying recorded tfwsim frames | done | `avr/attestation.go`, `avr/possession.go` | `avr/device_attest_test.go: TestDeviceAttestAcceptsTheRecordedEnrolment` |
+| 13 | S: `xkms-coverage` is unit-only; `xkms-test` deselects `xkms/e2e` | done | `../mk/go.mk` (`xkms-test`, `xkms-coverage`) | `make xkms-coverage` (floor 90%) |
+| 14 | S: the soft root enrols through device-attest-01 on tfwsim in CI | done | `avr/attestation.go`, `avr/possession.go` | `e2e/soft_enroll_test.go: TestSoftRootEnrollsThroughDeviceAttest01` (`make xkms-e2e-soft`) |
+| 15 | S: `TestHardwareEnrollment` runs on a real board through `make hw-enroll` (#7) | partial | `e2e/hw_enroll_test.go`, `../mk/go.mk` (`hw-enroll`) | `e2e/hw_enroll_test.go: TestHardwareEnrollment` exists; no board run is recorded |
+| 16 | S: the enrollment and downstream migration work (#20, #19) | not started | not named in this repository | none; see slice 6 |
+| 17 | E: attestation level comes from the crypto tier only | done | `avr/trust.go` (`trustFor`), `avr/backend.go` (`AttestLevel`) | `avr/backend_test.go: TestAttestLevelComesFromTheDeviceTier`; `avr/backend_test.go: TestAttestLevelIgnoresTheAttestationFeatureBit` |
+| 18 | E: algorithms come from the capability bitmap, not wire identifiers | done | `avr/algorithms.go` | `avr/algorithms_test.go: TestAlgorithmsUsesCapabilityBitsAndNotWireIdentifiers` |
+| 19 | E: an unknown tier or algorithm bit never negotiates up | done | `avr/trust.go`, `avr/algorithms.go` | `avr/trust_test.go: TestTrustForRefusesToGuessAtAnUnknownTier`; `avr/algorithms_test.go: TestAlgorithmsReportsBitsItCannotName` |
+| 20 | E: nothing reaches `PROV_GENKEY`; `GetKey` reads `PROV_PUBKEY` | done | `avr/backend.go` (`GetKey`) | `avr/backend_test.go: TestGetKeyReadsThePublicPointFromTheElement` |
+| 21 | E: the key authorization is never hashed here | done | `avr/attestation.go` | `avr/attestation_test.go: TestAttestKeyTakesTheNonceItIsGivenAndDoesNotHashIt` |
+| 22 | E: the nonce check is unconditional | done | `avr/attestation.go` (`checkAliasCertificate`) | `avr/attestation_test.go: TestAttestKeyRefusesAReplayedCertificate` |
+| 23 | E: the 16-byte runtime nonce is refused before a frame | done | `avr/attestation.go` | `avr/attestation_test.go: TestAttestKeyRefusesTheEvidenceFrameNonceWidth` |
+| 24 | E: one device, one conversation (`wire` mutex) | done | `avr/backend.go` (`Backend.wire`) | `avr/concurrency_test.go: TestConcurrentCallsDoNotConsumeEachOthersReplies` |
+| 25 | E: `Config.RequestTimeout` reaches the device | done | `avr/backend.go` (`NewBackend`) | `avr/concurrency_test.go: TestRequestTimeoutBoundsTheDeviceRead` |
+| 26 | E: the alias certificate is ECDSA-SHA256 signed, verified with `RequireDeviceSignedLeaf` | done | `avr/attestation.go` (`checkAliasCertificate`) | `avr/attestation_test.go: TestAttestKeyRefusesAnAliasThatIsNotECDSASHA256Signed`; `avr/attestation_test.go: TestDiceVerifyAcceptsTheProfileTheDeviceEmits` |
+| 27 | E: element lock polarity is not re-inverted | done | `avr/device.go` (`newIdentity`) | `avr/backend_test.go: TestIdentityDoesNotInvertTheLockPolarity` |
+| 28 | E: an unmapped status is `ErrDeviceRefused`; SDK errors and context errors stay reachable | done | `avr/device.go` (`deviceError`, `classify`), `avr/errors.go` | `avr/device_test.go: TestDeviceErrorDegradesAnUnknownStatusToARefusal`; `avr/device_test.go: TestDeviceErrorKeepsTheSDKErrorReachable`; `avr/device_test.go: TestDeviceErrorPassesContextFailuresThrough` |
+| 29 | E: the field (Ethernet) link carries `CAPS`, `AttestKey` and `PossessionSigner` and refuses the bench calls in step | done | `avr/backend.go`, `avr/attestation.go`, `avr/possession.go` | `avr/fieldlink_test.go: TestFieldLinkAttestsAndProvesPossessionOverEthernet`; `avr/fieldlink_test.go: TestFieldLinkRefusesBenchCallsAndStaysInStep` |
+| 30 | E: the frozen real-device alias certificate verifies end to end | done | `avr/attestation.go` | `avr/attestation_test.go: TestAttestKeyVerifiesTheCertificateARealDeviceEmits` |
+| 31 | E: `Config` defaults, and `Slot` other than the DeviceID refused | done | `avr/config.go` | `avr/config_test.go: TestDefaultConfigIsValid`; `avr/avr_mutate_test.go: TestEveryMutatedConfigFieldIsRefusedBeforeTheWire` |
+
+### Remaining slices
+
+1. **Owner decision (SPEC text).** Row `xkms-adapter` in `docs/SPEC.md` names
+   `TestDeviceAttestDICE*`, which matches no test (the tests are
+   `TestDeviceAttest*` in `xkms/avr/device_attest_test.go`), and pins go-xkms
+   `v0.55.0-alpha` where `xkms/go.mod` requires `v0.64.2-alpha`; correcting
+   both touches `docs/SPEC.md` only and is proved by `git grep` finding the
+   names it states.
+2. The comment on `enrollOnce` in `xkms/e2e/hw_enroll_test.go` points at
+   `TestDeviceAttestDICEEnrollsTheRealFirmware`, which does not exist; renaming
+   it to `TestSoftRootEnrollsThroughDeviceAttest01` touches that file only and
+   is proved by `make xkms-e2e-soft` staying green.
+3. **Hardware (#7).** Run `make hw-enroll DEVICE=<port> DEVICEID=<hex>` on a
+   provisioned board and record the run in `docs/xkms-adapter/user.md`, proved
+   by `xkms/e2e/hw_enroll_test.go: TestHardwareEnrollment` passing on the board.
+4. Pin "reaches the wire only through `sdk/go`" with a unit test in a new
+   `xkms/avr/boundary_test.go` that parses the package's non-test files and
+   fails on an import that opens a link of its own (`net`, a serial package),
+   proved by `make xkms-test`.
+5. **Another project.** go-quicbaas's composition passes this backend to
+   go-xkms, and go-trusted-platform and xkey never import `xkms/`: each is a
+   test or import check in that project (requirements 4 and 5), with nothing to
+   change here.
+6. **Owner decision.** The SPEC row's "enrollment and downstream migration
+   work (#20, #19)" names no file in this repository, and #19 elsewhere in
+   these docs is the `SPI_XFER` hang (`docs/wire-protocol/engineering.md`); the
+   owner says whether that work is open and where it lives before a lane can
+   be seated on it.
+
+With slices 1 to 6 closed the row has nothing left in this repository; the
+SPEC status change is the owner's.
 
 ## Exported surface
 

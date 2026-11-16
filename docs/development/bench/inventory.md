@@ -19,6 +19,7 @@ What a bench page records as wired at the bench and worked on.
 | Arduino Nano (ATmega328P, CH340) | The 328P reference board, element-only (#7, item 79) | [nano.md](nano.md): on USB at the bench, on its Ethernet base; nothing written yet, the factory record waits on an ISP read |
 | USBasp clone | The ISP programmer for the AVR boards (#7) | [isp-route.md](../isp-route.md#the-usbasp-path-taken-owner-2026-10-15); it cannot address the Mega's low 128 KB ([mega2560.md](mega2560.md#the-usbasp-cannot-see-the-low-128-kb)) |
 | ESP32-P4 PoE board (ESP32-C6 co-processor on board) | Row `esp32-p4` (#48) | [esp32-p4.md](esp32-p4.md#reflashed-with-2cfeb877s-image-2026-10-26-52-item-9): left on 2cfeb877's image, 2026-10-26 |
+| Raspberry Pi Pico 2 W (RP2350), Pico 2 W #1 | Row `rp2350` (#128, #429) | [rp2350.md](rp2350.md#state-left-on-the-board): factory record taken, OTP never written; main 8bf3cee1's default image booted by the ROM, 2026-11-16; console (UART0) not wired, so `hw-test` and the feature check not run |
 
 ## Arrived
 
@@ -30,7 +31,6 @@ At the bench, not yet worked on from a lane.
 | NXP EdgeLock SE052F board | Row `secure-element-se05x` | [se052f.md](se052f.md): at the bench, nothing probed |
 | ST STM32H573I-DK | Row `stm32h5` (#126) | [SPEC](../../SPEC.md) row `stm32h5`: "has arrived" |
 | Infineon OPTIGA Trust M V3 shield | Row `optiga-trust-m` (#127) | [SPEC](../../SPEC.md) row `optiga-trust-m`: "has arrived" |
-| Raspberry Pi Pico 2 W (RP2350) | Row `rp2350` (#128) | [SPEC](../../SPEC.md) row `rp2350`: "has arrived" |
 | Nordic nRF54L15-DK | Row `nrf54l15` (#129, #17) | [SPEC](../../SPEC.md) row `nrf54l15`: "has arrived" |
 | ESP32-C6 | Not recorded | Company Agent m1480, item 6 |
 | ST NUCLEO-H563ZI | Row `stm32h5`, the secondary target: "it proves our own TrustZone secure world and software crypto on a part without ST's secure services" ([SPEC](../../SPEC.md)) | Company Agent ruling 226 item 7 (m1493) |

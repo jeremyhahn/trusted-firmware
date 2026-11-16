@@ -6,7 +6,11 @@
 
 One line per requirement of the row in [`docs/SPEC.md`](../SPEC.md)
 (`ethernet-transport`) and of this file's invariants (marked *inv*), audited on
-main d1282f61 (#457). Every file and test named was found there with `git grep`.
+main d1282f61 (#457) and audited again on main fa31d30e (#515). On fa31d30e
+every file named was found with `git ls-files`, and every test function and
+make variable named was found in that file with one search each. No source,
+profile or makefile the table names has changed since d1282f61, so every status
+and every slice below is unchanged.
 The clause table in [the test matrix](test-matrix.md#acceptance-clauses-row-ethernet-transport-431)
 says the same with the bench runs beside it.
 

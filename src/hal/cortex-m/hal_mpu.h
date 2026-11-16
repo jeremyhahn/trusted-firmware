@@ -6,7 +6,7 @@
  * MPU holds three no-access, execute-never regions:
  *
  *   TFW_CM_MPU_NULL   32 bytes at address 0, so a null dereference faults
- *   TFW_CM_MPU_STACK  1 KiB at the stack's floor, so an overflow faults
+ *   TFW_CM_MPU_STACK  2 KiB at the stack's floor, so an overflow faults
  *                     before it reaches .noinit, .bss or .data
  *   TFW_CM_MPU_BOOT   tfw-boot's region, hidden from the application
  *
@@ -42,10 +42,19 @@
  * in one frame: the first push or store below the guard's top lands in the
  * guard and faults. A stack that grows below the guard without crossing it is
  * impossible: every frame starts at an SP still at or above the guard's base.
+ *
+ * The final figures: a frame bound of 1024 bytes and a 2 KiB guard. They come
+ * from the LTO-link frames GCC 14 reports with the bound at 512 on every
+ * Cortex-M boot and firmware row: the largest is tfw-boot's boot_policy.c
+ * (744 bytes), then boot_main.c (up to 688), the firmware's 664 and
+ * verify_p256_soft.c (616). 1024 leaves room over 744; the guard is the next
+ * power of two over 1024 + TFW_CM_FRAME_MARGIN. Only mps2-an500 (4 MiB of
+ * SRAM) arms the guard, and it takes stack, not linked RAM, so no row's RAM
+ * budget changes.
  */
-#define TFW_CM_FRAME_MAX        512u
+#define TFW_CM_FRAME_MAX        1024u
 #define TFW_CM_FRAME_MARGIN     72u
-#define TFW_CM_MPU_STACK_GUARD  1024u      /* a power of two, aligned to itself */
+#define TFW_CM_MPU_STACK_GUARD  2048u      /* a power of two, aligned to itself */
 _Static_assert(TFW_CM_FRAME_MAX + TFW_CM_FRAME_MARGIN <= TFW_CM_MPU_STACK_GUARD,
                "the stack guard must be larger than any frame");
 

@@ -123,7 +123,7 @@ cm-frame-bound-probe:
 	             >> $$d/probe.log 2>&1; }; \
 	 fail=0; \
 	 probe -DPROBE_FRAME=256 || { echo "$@: a 256-byte frame is refused:"; cat $$d/probe.log; fail=1; }; \
-	 for n in $$(( $(CM_FRAME_MAX) + 8 )) 2048; do \
+	 for n in $$(( $(CM_FRAME_MAX) + 8 )) 4096; do \
 	   if probe -DPROBE_FRAME=$$n; then echo "$@: a $$n-byte frame links past the $(CM_FRAME_MAX)-byte bound"; fail=1; \
 	   elif ! grep -q 'frame size of' $$d/probe.log; then echo "$@: a $$n-byte frame failed, not for its size:"; cat $$d/probe.log; fail=1; fi; \
 	 done; \

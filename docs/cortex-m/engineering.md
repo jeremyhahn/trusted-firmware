@@ -75,13 +75,14 @@ halves are by `test/unit/hal/test_avr_sys_mutate.c` and
    `src/hal/cortex-m/hal_mpu.c` arms three no-access, execute-never PMSAv7
    regions from `tfw_cm_reset` (`hal_early.c`) on `mps2-an500`
    (`TFW_CM_MPU` in its `board_profile.h`): a 32-byte null guard at 0, a
-   1 KiB stack guard at the stack floor (`__heap_start`), and tfw-boot's
+   2 KiB stack guard at the stack floor (`__heap_start`), and tfw-boot's
    region, hidden from the application; tfw-boot disarms its own table in
    `tfw_boot_jump_application` (`boot/hal/cortex-m/boot_hal_cortex-m.c`).
    A violation escalates to HardFault and ends in `PANIC`. The guard holds
-   because every Cortex-M build refuses a frame over 512 bytes, a VLA and
+   because every Cortex-M build refuses a frame over 1024 bytes, a VLA and
    `alloca` (`mk/arch/cortex-m.mk` `CM_FRAME_CFLAGS`, on the LTO link too), so
-   no frame steps over it; `make cm-frame-bound-check`, run by
+   no frame steps over it (the largest LTO-link frame today is tfw-boot's
+   `boot_policy.c`, 744 bytes); `make cm-frame-bound-check`, run by
    `bootloader-check`, proves the refusal. Tests:
    `test/unit/test_cm_mpu.c` (`make host-test`) on the region table, and
    `TestQEMUMPUNullRead` (`sdk/go/cmd/tfwctl/mpu_qemu_test.go`), the

@@ -56,7 +56,7 @@ ARCH_MACH_CFLAGS := -mcpu=$(CPU) -mthumb -mfloat-abi=soft
 # warning, on every object, the vendored ones too (they run on the same stack),
 # and on the LTO link as well, where inlining builds the frames that ship.
 # hal_mpu.c fails its compile if TFW_CM_FRAME_MAX differs from this number.
-CM_FRAME_MAX    := 512
+CM_FRAME_MAX    := 1024
 CM_FRAME_CFLAGS := -Werror=frame-larger-than=$(CM_FRAME_MAX) \
                    -Werror=vla -Werror=alloca -DTFW_CM_FRAME_MAX_BUILD=$(CM_FRAME_MAX)
 ARCH_OPT_CFLAGS  := -Os -flto -ffunction-sections -fdata-sections \

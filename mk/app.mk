@@ -117,18 +117,34 @@ tfwsim-app-example:
 # and the dependency file an earlier run left there names its source by path.
 # A path that changes with each run is one that no longer exists on the next.
 # Its object directory is emptied before and after, as app-sdk-check's are.
+#
+# An ESP32 board's image is ESP-IDF's (`make firmware` refuses one), so it is
+# esp32-build there, which needs ESP-IDF exported. The image must then hold one
+# of the application's own symbols, a hook or the descriptor: nm of the ELF,
+# or ESP-IDF's map file. LTO may inline a hook, never all of them and the
+# descriptor; the runner's tfw_app_runner_* are not the application's.
+APP_OWN_SYMBOLS := tfw_app_(descriptor|init|run|shutdown|before_update|after_update|evidence)
 app-firmware-check:
 	@t=$(abspath $(BUILD_DIR))/app-firmware-check/$(BOARD) && rm -rf "$$t" && mkdir -p "$$t" && \
 	cp -a test/app/example/. "$$t/" && \
 	d=$$($(MAKE) --no-print-directory -s app-obj-dirs APP_DIR="$$t" BOARD=$(BOARD)) && \
 	rm -rf $$d && trap 'rm -rf "$$t" '"$$d" EXIT && \
-	$(MAKE) --no-print-directory firmware APP_DIR="$$t" BOARD=$(BOARD)
+	$(MAKE) --no-print-directory $(if $(filter esp32,$(ARCH)),esp32-build,firmware) APP_DIR="$$t" BOARD=$(BOARD) && \
+	img=$$($(MAKE) --no-print-directory -s app-image APP_DIR="$$t" BOARD=$(BOARD)) && \
+	$(if $(filter esp32,$(ARCH)),grep -Eq '\b$(APP_OWN_SYMBOLS)\b' "$$img",$(ARCH_NM) "$$img" | grep -Eq ' $(APP_OWN_SYMBOLS)(\.|$$)') || \
+	  { echo "app-firmware-check: $$img holds none of the application's symbols"; exit 1; }; \
+	echo "app-firmware-check: $(BOARD)'s image holds the example application"
 
 # The directories an application's objects are built in, for the two checks
 # above. Expanded when it runs, after mk/firmware.mk and mk/host.mk have set them.
 app-obj-dirs:
 	@$(if $(and $(FW_DIR),$(HOST_DIR),$(APP_NAME)),,$(error app-obj-dirs: FW_DIR, HOST_DIR or APP_NAME is empty))
 	@echo $(FW_DIR)/app $(APP_HOST_DIR) $(APP_HOST_ELEMENT_DIR)
+
+# The file app-firmware-check looks in for the application: the ELF, or on an
+# ESP32 board the map file ESP-IDF writes beside its ELF.
+app-image:
+	@echo $(if $(filter esp32,$(ARCH)),$(ESP_OUT)/idf/trusted-firmware.map,$(TARGET).elf)
 
 ## app-header-check: every public header compiles on its own, with an application's flags, against every board
 # An application repository sees include/tfw/, its board's board_profile.h and
@@ -244,5 +260,5 @@ app-link-check-selftest:
 host-test: app-header-check app-link-check
 security: app-header-check-selftest app-link-check-selftest
 
-.PHONY: app-sdk-check app-firmware-check app-obj-dirs tfwsim-app-example app-header-check app-header-check-selftest \
+.PHONY: app-sdk-check app-firmware-check app-obj-dirs app-image tfwsim-app-example app-header-check app-header-check-selftest \
         app-link-check app-link-check-selftest

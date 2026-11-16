@@ -19,12 +19,10 @@ uint8_t tfw_update_request_supported(void)
     return 1u;
 }
 
-#if !defined(TFW_ARCH_OTA)
 uint8_t tfw_update_slots(void)
 {
     return TFW_OTA_SLOTS;
 }
-#endif
 
 uint8_t tfw_update_request_session(void)
 {

@@ -1,6 +1,6 @@
 /*
  * An application on an ESP32 image (#461, Codex round 3): the runner linked as
- * mk/arch/esp32.mk links it, with update_request_none.c (RESET(1) refused, no
+ * mk/arch/esp32.mk links it, with update_request_arch.c (RESET(1) refused, no
  * tfw-boot session) and the architecture's own update path,
  * src/hal/esp32/hal_ota.c, over the esp_ota mock.
  *

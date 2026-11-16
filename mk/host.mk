@@ -1375,25 +1375,27 @@ $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate: $(HOST_DIR
 # OTA_ACTIVATE and OTA_CONFIRM. test_esp_ota builds with ESP-IDF's anti-rollback
 # on (the esp32c3 QEMU board's sdkconfig), test_esp_wire with it off (the P4's),
 # so both arms of hal_ota.c's one CONFIG_ conditional compile and run.
+# The library with update_request_arch.c where update_request.c would be, as
+# ARCH_UPDATE_REQUEST := arch links it: hal_ota.c answers tfw_update_slots().
+HOST_ESP_LIB_SRCS := $(filter-out src/core/update_request.c,$(HOST_STAGE_LIB_SRCS)) \
+                     src/core/update_request_arch.c
 HOST_ESP_OTA_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 \
                      -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
-$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_STAGE_LIB_SRCS) \
+$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_ESP_LIB_SRCS) \
                           src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
 # The same session at the edges a fault moves (#163).
-$(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_STAGE_LIB_SRCS) \
+$(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_ESP_LIB_SRCS) \
                           src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $^ $(EXTRA_LDFLAGS)
 
-# An application on the ESP32 link (#461): update_request_none.c where
-# update_request.c would be, as ARCH_UPDATE_REQUEST := none links it, and
+# An application on the ESP32 link (#461): update_request_arch.c where
+# update_request.c would be, as ARCH_UPDATE_REQUEST := arch links it, and
 # hal_ota.c as the update path an application's ota_slots is checked against.
-$(HOST_DIR)/test_esp_app_ota: test/unit/test_esp_app_ota.c \
-                          $(filter-out src/core/update_request.c,$(HOST_STAGE_LIB_SRCS)) \
-                          src/core/update_request_none.c \
+$(HOST_DIR)/test_esp_app_ota: test/unit/test_esp_app_ota.c $(HOST_ESP_LIB_SRCS) \
                           src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=0 -o $@ $^ $(EXTRA_LDFLAGS)
@@ -1401,7 +1403,7 @@ $(HOST_DIR)/test_esp_app_ota: test/unit/test_esp_app_ota.c \
 # The ESP32 wire (#48) under the same session: src/hal/esp32/hal_uart.c over a
 # mock lwIP (test/mock/lwip_mock.c) in place of hal_mock.c's weak byte link, so
 # a request goes socket, transport, dispatch, hal_ota.c, esp_ota as on the part.
-$(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_STAGE_LIB_SRCS) \
+$(HOST_DIR)/test_esp_wire: test/unit/test_esp_wire.c $(HOST_ESP_LIB_SRCS) \
                            src/hal/esp32/hal_uart.c src/hal/esp32/hal_ota.c \
                            src/core/ota_auth.c boot/boot_image.c \
                            test/mock/lwip_mock.c test/mock/esp_ota_mock.c \

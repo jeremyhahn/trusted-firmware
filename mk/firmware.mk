@@ -423,8 +423,9 @@ endif
 OTA_STAGE ?= $(if $(ARCH_OTA_SRCS),1,$(if $(OTA_STORE),$(ETH),0))
 ifneq ($(and $(filter 1,$(OTA_STAGE)),$(ARCH_OTA_SRCS)),)
 STAGE_SRCS := $(ARCH_OTA_SRCS) src/core/ota_auth.c boot/boot_image.c
-# TFW_ARCH_OTA: that file also answers tfw_update_slots(), the update path an
-# application's ota_slots is checked against (src/core/update_request.h).
+# That file also answers tfw_update_slots(), the update path an application's
+# ota_slots is checked against (src/core/update_request.h); the architecture
+# links update_request_arch.c (ARCH_UPDATE_REQUEST := arch), which leaves it out.
 STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 -DTFW_FEATURE_OTA_ACTIVATE=1 \
               -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
 else ifeq ($(OTA_STAGE),1)
@@ -574,9 +575,12 @@ FW_CFLAGS   += -DTFW_FEATURE_OTA_CTL=1
 else
 OTACTL_SRCS :=
 endif
-ifeq ($(ARCH_UPDATE_REQUEST),none)
+# ARCH_UPDATE_REQUEST := arch is the same refusal with tfw_update_slots() left
+# to the architecture's OTA file (update_request_arch.c), by file, not by a
+# conditional in the core file.
+ifneq ($(filter none arch,$(ARCH_UPDATE_REQUEST)),)
 IDENTITY_SRCS := $(filter-out src/core/update_request.c boot/boot_request.c,$(IDENTITY_SRCS)) \
-                 src/core/update_request_none.c
+                 src/core/update_request_$(ARCH_UPDATE_REQUEST).c
 endif
 # One update path per image on the A/B part (#52, question 6, decided
 # 2026-10-26), by FILE SELECTION. An image with the stager is the store's: its

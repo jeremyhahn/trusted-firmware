@@ -224,7 +224,7 @@ BOOT_SRCS := $(sort \
   boot/boot_platform.c boot/boot_policy.c boot/boot_trial.c \
   $(BOOT_HAL_DIR)/boot_hal_$(ARCH).c $(BOOT_SOC_SRCS) $(ARCH_BOOT_SRCS) \
   src/proto/crc16.c src/proto/crc16_update.c \
-  $(HAL_DIR)/hal_early.c src/core/secure_zero.c \
+  $(HAL_DIR)/hal_early.c $(HAL_DIR)/hal_mpu.c src/core/secure_zero.c \
   $(BOOT_MEASURE_SRCS) $(BOOT_OTA_SRCS) $(BOOT_STORE_SRCS) $(BOOT_TIER_SRCS) $(BOOT_SIG_SRCS))
 
 # The architecture's startup, assembly, kept out of BOOT_SRCS because every

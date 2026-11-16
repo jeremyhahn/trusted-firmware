@@ -29,6 +29,9 @@
 static uint8_t session_open;
 static uint8_t marked;
 static uint8_t authorized_with[TFW_OTA_AUTH_SIG_LEN];
+/* The real tfw_stage_authorize erases the MARK sector before it writes, so a
+ * refused activate must not reach it at all. */
+static unsigned authorize_calls;
 
 tfw_status_t tfw_auth_gate(void)
 {
@@ -64,6 +67,7 @@ tfw_status_t tfw_ota_manifest(tfw_boot_platform_t *p)
 tfw_status_t tfw_stage_authorize(const uint8_t sig[TFW_OTA_AUTH_SIG_LEN], uint8_t mode)
 {
     (void)mode;
+    authorize_calls++;
     if (sig == NULL) {
         return TFW_ERR_AUTH_REQUIRED;
     }
@@ -245,16 +249,19 @@ static tfw_status_t activate(void)
 static void test_the_element_session_and_ota_auth_are_each_needed_to_activate(void)
 {
     marked = 0u;
-    /* A session without OTA_AUTH. */
+    authorize_calls = 0u;
+    /* A session without OTA_AUTH: refused before the stage is touched. */
     session_open = 1u;
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, activate());
     TEST_ASSERT_EQUAL_UINT8(0u, marked);
+    TEST_ASSERT_EQUAL_UINT(0u, authorize_calls);
     /* OTA_AUTH without a session. */
     session_open = 0u;
     fill(0x33u);
     TEST_ASSERT_EQUAL(TFW_OK, auth(TFW_OTA_AUTH_SIG_LEN));
     TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, activate());
     TEST_ASSERT_EQUAL_UINT8(0u, marked);
+    TEST_ASSERT_EQUAL_UINT(0u, authorize_calls);
     /* Both: the held signature is the one authorized. */
     session_open = 1u;
     fill(0x44u);

@@ -1858,6 +1858,15 @@ $(HOST_DIR)/test_stubs_none: test/unit/test_stubs_none.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
 
+# test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
+# verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
+# bootloader-check builds, as a string; host-test runs it as boot-test does.
+$(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
+                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
+
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
 # board sweep, coverage and the sanitizers.

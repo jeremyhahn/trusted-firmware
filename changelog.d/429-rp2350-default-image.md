@@ -8,3 +8,11 @@
   (`CM_FLASH_GATED_WHY` is gone from the profile). `BOARD_ROWS` becomes
   `soft:I2C=0 soft:PERIPH=0`, so size-check still measures the images without
   them.
+
+### Fixed
+
+- **picotool names the device last** (row `rp2350`). picotool 2.1.1 refuses
+  `--ser <serial>` before the file and the command's options, so
+  `make board-record`, `make flash` and `make boot-flash` failed on the
+  Pico 2 W. mk/arch/cortex-m.mk's picotool save and load now put
+  `--ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS)` after them.

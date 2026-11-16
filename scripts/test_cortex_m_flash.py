@@ -36,10 +36,10 @@ BOARDS = {
     "rp2350-pico2w": {
         "tool": "picotool",
         "base": "0x10000000", "app": "0x10008000", "total": 4194304,
-        "record": "picotool save --ser SN1  -r 0x10000000 $(printf '0x%x' $(( 0x10000000 + 4194304 ))) $rec.flash.bin -t bin",
+        "record": "picotool save -r 0x10000000 $(printf '0x%x' $(( 0x10000000 + 4194304 ))) $rec.flash.bin -t bin --ser SN1 ",
         "extra": "picotool otp dump --ser SN1  > $rec.otp.txt",
-        "write": "picotool load --ser SN1  -v {bin} -t bin -o 0x10008000",
-        "readback": "picotool save --ser SN1  -r 0x10008000 $(printf '0x%x' $(( 0x10008000 + $n ))) {bin}.readback -t bin",
+        "write": "picotool load -v {bin} -t bin -o 0x10008000 --ser SN1 ",
+        "readback": "picotool save -r 0x10008000 $(printf '0x%x' $(( 0x10008000 + $n ))) {bin}.readback -t bin --ser SN1 ",
     },
     "nrf54l15-dk": {
         "tool": "JLinkExe",
@@ -340,7 +340,7 @@ class TestPicotoolArgOrder(Bench):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("read back equal", r.stdout)
         calls = [c for c in self.calls() if c.startswith("picotool")]
-        self.assertEqual([c.split()[1] for c in calls], ["save", "otp", "load", "save"])
+        self.assertEqual([c.split()[1] for c in calls], ["otp", "save", "load", "save"])
         for c in calls:
             self.assertTrue(c.endswith(" --ser SN1"), c)
 

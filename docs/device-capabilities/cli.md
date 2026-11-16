@@ -78,7 +78,7 @@ reachable from `tfwctl`, that is a gap in `tfwctl`."
 | `pulse-capture` | `<pin> <0\|1> <max-edges> <timeout>` | intervals the host decodes into bits |
 | `eeprom-read` | `<addr> <count>` | hex out |
 | `eeprom-write` | `<addr> <hex>` | refused below the reserved boundary |
-| `netcfg set` | `--mac <mac> --ip <addr> --mask <addr> --gateway <addr> --endpoint <addr:port>`, or `--mac <mac> --dhcp --endpoint <addr:port>` | the network block at `0x0C0`, encoded and checked by the SDK (`tfw.NetConfig`) |
+| `netcfg set` | `--mac <mac> --ip <addr> --mask <addr> --gateway <addr> --endpoint <addr:port>`, or `--mac <mac> --dhcp --endpoint <addr:port>` | the network block at `0x140`, encoded and checked by the SDK (`tfw.NetConfig`) |
 | `netcfg get` | | the network block read back and decoded |
 | `i2c` | `<addr7> <hex\|-> <read-count>` | `-` writes nothing |
 | `i2c-config` | `<clock hz>` | reconfigure the bus clock; boots at 100 kHz |

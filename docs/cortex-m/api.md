@@ -64,8 +64,10 @@ and the link needs none.
 | `tfw_hal_tone_start`, `_stop` | `TFW_FEATURE_TONE 0` | `src/caps/tone.c` |
 | `tfw_hal_pulse_in`, `_capture` | `TFW_FEATURE_PULSE 0` | `src/caps/pulse.c` |
 
-`TFW_FEATURE_EEPROM` is 0 as well, so `src/caps/storage.c` and the EEPROM
-commands are dropped; `hal_eeprom.c` serves only the stager. With I2C, SPI and
+`TFW_FEATURE_EEPROM` is 0 as well on the silicon boards, so `src/caps/storage.c`
+and the EEPROM commands are dropped and `hal_eeprom.c` serves only the stager.
+The MPS2 boards turn it on: `TFW_EEPROM_SIZE` is the platform window's 4 KiB,
+tfw-boot's span refused to `EEPROM_WRITE` by `hal_eeprom.c` as on the AVR. With I2C, SPI and
 1-Wire all 0, the base image links `bus_none.c` instead of `src/caps/bus.c`.
 
 ## tfw-boot's hardware layer (`boot/boot_hal.h`)

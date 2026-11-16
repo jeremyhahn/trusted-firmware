@@ -80,3 +80,9 @@ HELD_GOVULNCHECK="the fleet template's pin (ci-template v1.18); the next one com
 TRIVY_VERSION=v0.76.2
 TRIVY_SHA256_LINUX_AMD64=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
 TRIVY_SHA256_LINUX_ARM64=ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3
+
+# gh, the GitHub CLI: a release archive, checked against these digests
+# (upstream's gh_<version>_checksums.txt) before it is unpacked.
+GH_VERSION=v2.103.3
+GH_SHA256_LINUX_AMD64=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d
+GH_SHA256_LINUX_ARM64=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63

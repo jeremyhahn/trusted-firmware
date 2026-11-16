@@ -2,8 +2,8 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * The RP2350 port's converter driver (src/hal/cortex-m/rp2350/hal_adc.c) in
- * the Pico 2 W's default row, built without TFW_CM_PERIPH: no analog inputs
- * until the SPEC gate is lifted (board_profile.h). src/main.c still calls
+ * the Pico 2 W's PERIPH=0 row, built without TFW_CM_PERIPH: no analog inputs
+ * (board_profile.h). src/main.c still calls
  * tfw_hal_adc_init on every image, and it must leave PLL_USB, clk_adc, the
  * resets and the converter as the register model (adc_model.h) starts them;
  * a read is a channel beyond the board.
@@ -16,7 +16,7 @@
 #include "tfw/config.h"
 #include "adc_model.h"
 
-_Static_assert(TFW_FEATURE_ANALOG == 0, "built as the default row");
+_Static_assert(TFW_FEATURE_ANALOG == 0, "built as the PERIPH=0 row");
 
 static struct tfw_rp2350_model at_reset;
 

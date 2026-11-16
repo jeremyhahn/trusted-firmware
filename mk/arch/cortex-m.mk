@@ -208,9 +208,11 @@ cm_write_stm32cubeprog = $(cm_cubeprog) -d $(1) $(2) -v
 cm_extra_stm32cubeprog = $(cm_cubeprog) -ob displ > $(1)
 CM_EXTRA_NAME_stm32cubeprog := optionbytes.txt
 
-cm_read_picotool  = picotool save --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS) -r $(1) $$(printf '0x%x' $$(( $(1) + $(2) ))) $(3) -t bin
-cm_write_picotool = picotool load --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS) -v $(1) -t bin -o $(2)
-cm_extra_picotool = picotool otp dump --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS) > $(1)
+# picotool 2.1.1 takes the device selection after the file and the options.
+cm_picotool_dev    = --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS)
+cm_read_picotool  = picotool save -r $(1) $$(printf '0x%x' $$(( $(1) + $(2) ))) $(3) -t bin $(cm_picotool_dev)
+cm_write_picotool = picotool load -v $(1) -t bin -o $(2) $(cm_picotool_dev)
+cm_extra_picotool = picotool otp dump $(cm_picotool_dev) > $(1)
 CM_EXTRA_NAME_picotool := otp.txt
 
 # J-Link Commander takes its commands from a file, written beside the data;

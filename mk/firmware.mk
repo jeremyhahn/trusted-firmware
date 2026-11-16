@@ -423,8 +423,10 @@ endif
 OTA_STAGE ?= $(if $(ARCH_OTA_SRCS),1,$(if $(OTA_STORE),$(ETH),0))
 ifneq ($(and $(filter 1,$(OTA_STAGE)),$(ARCH_OTA_SRCS)),)
 STAGE_SRCS := $(ARCH_OTA_SRCS) src/core/ota_auth.c boot/boot_image.c
+# TFW_ARCH_OTA: that file also answers tfw_update_slots(), the update path an
+# application's ota_slots is checked against (src/core/update_request.h).
 STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 -DTFW_FEATURE_OTA_ACTIVATE=1 \
-              -DTFW_FEATURE_OTA_CTL=1
+              -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
 else ifeq ($(OTA_STAGE),1)
 ifeq ($(OTA_STORE),)
 $(error OTA_STAGE=1 but $(BOARD_DIR)/profile.mk names no OTA_STORE -- this board has no external store)

@@ -1376,7 +1376,7 @@ $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate: $(HOST_DIR
 # on (the esp32c3 QEMU board's sdkconfig), test_esp_wire with it off (the P4's),
 # so both arms of hal_ota.c's one CONFIG_ conditional compile and run.
 HOST_ESP_OTA_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 \
-                     -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1
+                     -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
 $(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_STAGE_LIB_SRCS) \
                           src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)

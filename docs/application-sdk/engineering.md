@@ -219,8 +219,10 @@ The descriptor check fails, in this order, when:
 3. `name` is empty or fills its field with no NUL, or `profile` fills its
    field with no NUL;
 4. `required_caps` has a bit `TFW_FEATURE_BITMAP` lacks;
-5. `ota_slots` is more than the image can serve: `TFW_OTA_SLOTS` if the image
-   can request an update (`tfw_update_request_supported()`), 0 otherwise;
+5. `ota_slots` is more than the image's update path serves
+   (`tfw_update_slots()`): `TFW_OTA_SLOTS` where tfw-boot serves one, 2 on
+   ESP32 (ESP-IDF's ota_0 and ota_1, answered by `src/hal/esp32/hal_ota.c`),
+   0 on a board with neither;
 6. `TFW_APP_CONFIG_BASE + config_len` exceeds `TFW_EEPROM_SIZE`.
 
 FAILED and UNSUPPORTED both mean firmware-only mode. The firmware answers

@@ -14,6 +14,15 @@ uint8_t tfw_update_request_supported(void)
     return 0u;
 }
 
+/* No tfw-boot session is not no update path: where the architecture's own OTA
+ * file is linked (TFW_ARCH_OTA, ESP-IDF's), that file answers. */
+#if !defined(TFW_ARCH_OTA)
+uint8_t tfw_update_slots(void)
+{
+    return 0u;
+}
+#endif
+
 uint8_t tfw_update_request_session(void)
 {
     return 0u;

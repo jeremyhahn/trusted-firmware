@@ -3086,8 +3086,11 @@ $(HOST_DIR)/test_ota_trial_leave: test/unit/test_ota_trial_leave.c src/core/ota_
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # OTA_AUTH's hold alone (#163): src/core/ota_auth.c over the reader and writer,
-# with the dispatcher's record of the last command supplied by the test.
+# with the dispatcher's record of the last command supplied by the test; and
+# OTA_ACTIVATE over it with the session gate and the store as the test's
+# stand-ins (audit row 28).
 $(HOST_DIR)/test_ota_auth_mutate: test/unit/test_ota_auth_mutate.c src/core/ota_auth.c \
+                                  src/core/ota_activate.c \
                                   src/core/reader.c src/core/writer.c \
                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

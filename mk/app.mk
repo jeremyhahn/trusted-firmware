@@ -216,12 +216,16 @@ app-header-check-selftest:
 # are not, so the failure is the second application and nothing else.
 #
 # The caller: no file under APP_LINK_SRC but core/app_runner.c names a hook --
-# the descriptor, or a call to init, run, shutdown, before_update,
-# after_update or evidence. A comment that names one without a call is not a
-# caller; tfw_app_runner_* and tfw_app_config_* are the runner's, not hooks.
-# An empty source list is a failure, not a pass. Run by host-test.
+# the descriptor, init, run, shutdown, before_update, after_update or
+# evidence -- as a token anywhere in its code, so a call split across lines or
+# written (tfw_app_init)() is a caller too. Comments are stripped first by the
+# preprocessor (-fpreprocessed: no include or macro is expanded), so a comment
+# that names a hook is not a caller; tfw_app_runner_* and tfw_app_config_* are
+# the runner's, not hooks. A file the preprocessor cannot read is a failure,
+# and so is an empty source list. Run by host-test.
 APP_LINK_SRC  ?= src
-APP_HOOK_ERE  := (^|[^[:alnum:]_])tfw_app_((init|run|shutdown|before_update|after_update|evidence)[[:space:]]*\(|descriptor([^[:alnum:]_]|$$))
+APP_HOOK_ERE  := (^|[^[:alnum:]_])tfw_app_(init|run|shutdown|before_update|after_update|evidence|descriptor)([^[:alnum:]_]|$$)
+APP_UNCOMMENT  = $(CC) -fpreprocessed -dD -E -P -x c
 app-link-check:
 	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
 	$(CC) $(HOST_CFLAGS) -c test/app/example/example.c -o "$$t/example.o" && \
@@ -234,28 +238,37 @@ app-link-check:
 	  { echo "app-link-check: the second application's link failed, but not on a tfw_app_ hook"; head -n 5 "$$t/two.log"; exit 1; }; \
 	files=$$(find $(APP_LINK_SRC) -type f \( -name '*.c' -o -name '*.h' -o -name '*.def' \) | sort); \
 	[ -n "$$files" ] || { echo "app-link-check: no source under $(APP_LINK_SRC)"; exit 1; }; \
-	callers=$$(printf '%s\n' $$files | grep -vx '$(APP_LINK_SRC)/core/app_runner.c' | \
-	  xargs grep -lE '$(APP_HOOK_ERE)' || true); \
+	callers=; runner=no; \
+	for f in $$files; do \
+	  $(APP_UNCOMMENT) "$$f" > "$$t/code" 2> "$$t/cpp.log" || \
+	    { echo "app-link-check: the preprocessor cannot strip the comments of $$f"; head -n 5 "$$t/cpp.log"; exit 1; }; \
+	  grep -qE '$(APP_HOOK_ERE)' "$$t/code" || continue; \
+	  if [ "$$f" = '$(APP_LINK_SRC)/core/app_runner.c' ]; then runner=yes; else callers="$$callers $$f"; fi; \
+	done; \
 	[ -z "$$callers" ] || { echo "app-link-check: a hook is named outside $(APP_LINK_SRC)/core/app_runner.c:"; \
 	  printf '  %s\n' $$callers; exit 1; }; \
-	grep -qE '$(APP_HOOK_ERE)' $(APP_LINK_SRC)/core/app_runner.c || \
+	[ "$$runner" = yes ] || \
 	  { echo "app-link-check: $(APP_LINK_SRC)/core/app_runner.c names no hook -- the pattern is broken"; exit 1; }; \
 	echo "app-link-check: a second application does not link, and only core/app_runner.c of $$(printf '%s\n' $$files | wc -l) files names a hook"
 
 ## app-link-check-selftest: the link gate rejects a hook called outside the runner, and names the file
-# A copy of src/ with a call to tfw_app_init planted in a copy of main.c: the
-# gate must fail and print that file. The copy unplanted must pass. Run by the
+# A copy of src/ with a call to tfw_app_init planted in a copy of main.c, three
+# ways: on one line, split across two, and parenthesised. Each time the gate
+# must fail and print that file. The copy unplanted must pass. Run by the
 # security stage, beside app-header-check-selftest.
 app-link-check-selftest:
-	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && cp -a src "$$t/" && \
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && cp -a src "$$t/" && cp "$$t/src/main.c" "$$t/main.c" && \
 	$(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" > /dev/null || \
 	  { echo "selftest: the unplanted copy was rejected"; exit 1; }; \
-	printf '\nvoid tfw_plant(void);\nvoid tfw_plant(void) { (void)tfw_app_init(); }\n' >> "$$t/src/main.c" && \
-	if out=$$($(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" 2>&1); then \
-	  echo "selftest: the gate passed a call to tfw_app_init in main.c"; exit 1; fi; \
-	case "$$out" in *"$$t/src/main.c"*) ;; \
-	  *) echo "selftest: the failure did not name main.c"; printf '%s\n' "$$out"; exit 1 ;; esac; \
-	echo "app-link-check rejects a hook called outside the runner and names the file"
+	for c in '(void)tfw_app_init();' '(void)tfw_app_init\n();' '(void)(tfw_app_init)();'; do \
+	  cp "$$t/main.c" "$$t/src/main.c" && \
+	  printf "\nvoid tfw_plant(void);\nvoid tfw_plant(void) { $$c }\n" >> "$$t/src/main.c" && \
+	  if out=$$($(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" 2>&1); then \
+	    echo "selftest: the gate passed '$$c' in main.c"; exit 1; fi; \
+	  case "$$out" in *"$$t/src/main.c"*) ;; \
+	    *) echo "selftest: the failure on '$$c' did not name main.c"; printf '%s\n' "$$out"; exit 1 ;; esac; \
+	done; \
+	echo "app-link-check rejects a hook called outside the runner, on one line, split or parenthesised, and names the file"
 
 host-test: app-header-check app-link-check
 security: app-header-check-selftest app-link-check-selftest

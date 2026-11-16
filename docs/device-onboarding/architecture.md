@@ -343,9 +343,9 @@ around one.
    the firmware hash as an FWID, a second CoSWID file in 273, or a submodule
    (266)? The firmware follows with new templates and new vectors; nothing here
    changes until go-xkms rules.
-4. **An `sdk/go` tag.** `xkms` pins `sdk/go` v0.4.0-alpha, which predates
-   `AliasUCCS` and `ApplicationEvidence` (`sdk/go/appevidence.go`). Cutting the
-   next `sdk/go` tag lets the adapter call them instead of reading the claims
+4. **An `sdk/go` tag.** Closed (#524): `xkms` pins `sdk/go` v0.4.2-alpha,
+   which exports `AliasUCCS` and `ApplicationEvidence`, and the adapter reads
+   claim 273 through them (`Attestation.ApplicationEvidence`) rather than
    from go-xkms alone.
 
 ## Trust boundaries

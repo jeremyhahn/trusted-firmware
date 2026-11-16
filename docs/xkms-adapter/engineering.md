@@ -336,3 +336,64 @@ certificate carries a non-critical `DiceTcbInfo` (`flags` only) before the
 critical `tcg-dice-UCCS-evidence`. `checkAliasCertificate` now
 makes the one `dice.Verify` call, with `RequireDeviceSignedLeaf`. See
 `architecture.md`.
+
+## Requirements: device-security-event-evidence
+
+Audited 2026-11-16 (#505) against SPEC row `device-security-event-evidence`
+(`docs/SPEC.md` line 55, status planned; ROADMAP: #283, go-xkms #1765). The
+row is owner ruling 2026-10-31, item 181 (#283), option (b), which carries
+forward item 173 (CA m1656, ruling 251 item 4): "option (b) xkms evidence
+through the tf xkms adapter, the new command id is allowed"
+(`docs/hsm-self-defence/m7-design.md`, O9). Paths are from the repository
+root; a test is `file: name`.
+
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| 1 | The device keeps a security-event record (#50, A6): what the engine saw, decided and did | partial: the record runs over a RAM store that survives no reset; the durable store is row `hsm-self-defence`'s slice 11b-3 (`docs/hsm-self-defence/adr-a6-durable-store.md`) | `src/core/hsm_record.c`, `src/core/hsm_store.h`, `src/core/hsm_store_ram.c` | `test/unit/test_hsm_record.c: test_each_kind_reads_back_in_order`; `test/unit/test_hsm_record.c: test_a_full_record_keeps_the_first_and_counts_the_rest` |
+| 2 | The new command id of item 173 reads the record over the wire | done: `HSM_RECORD_READ` (`0x7C`), `TFW_FEATURE_HSM` images only | `include/tfw/protocol.h` (`TFW_CMD_HSM_RECORD_READ`), `src/core/hsm_cmd.c` (`tfw_hsm_cmd_record_read`), `sdk/go/hsm.go` (`HSMRecordRead`, `HSMRecordReadAll`) | `test/unit/test_hsm_cmd.c: test_one_entry_reads_back_with_every_field`; `test/unit/test_hsm_cmd.c: test_an_empty_record_reads_range`; `sdk/go/hsm_test.go: TestHSMRecordReadAllStopsAtTheEndOfTheRecord`; `sdk/go/hsm_record_tfwsim_test.go: TestSimHSMRecordKeepsTheSignalTheDecisionAndTheActions` |
+| 3 | Device-signed EAT evidence over the Verifier nonce | done (what the digest would ride in): the UCCS claims set with `eat_nonce` in the DeviceID-signed alias certificate and `ATTEST_CSR` | `src/caps/uccs.c` (`tfw_uccs_encode`), `src/caps/alias.c`, `src/caps/csr.c`; host check `xkms/avr/attestation.go` (`checkAliasCertificate`) | `test/unit/test_uccs.c: test_the_claims_set_is_the_bytes_the_vector_pins`; `test/unit/test_uccs.c: test_the_claim_keys_are_the_registered_ones`; `xkms/avr/attestation_test.go: TestAttestKeyRefusesAReplayedCertificate` |
+| 4 | The record is bound as a Detached Submodule Digest inside that evidence | not started: the claims set is a fixed 151-byte template (`TFW_UCCS_LEN`, `src/caps/uccs.h`) with no submodule claim | none | none; see slice 2 |
+| 5 | The xkms adapter's route for the new command id carries the digest | not started: nothing in `xkms/` calls `HSMRecordRead` | none (would be `xkms/avr/`) | none; see slice 3 |
+| 6 | The record itself travels beside the envelope | not started on the adapter: the SDK reads it (requirement 2), the adapter does not return it | none (would be `xkms/avr/`) | none; see slice 3 |
+| 7 | The evidence format and its verification are go-xkms's (`device-security-event-evidence`, go-xkms #1765); this project neither restates nor designs them | holds: no format is defined here | none: a property of what this repository leaves out | none in this repository |
+
+### Remaining slices
+
+1. **Another project, then owner decision.** go-xkms #1765 fixes the format:
+   which claim carries the Detached Submodule Digest (RFC 9711 `submods`),
+   its hash algorithm, and which bytes of the record it digests (the 10-byte
+   `HSM_RECORD_READ` replies in index order, or the store's own image). Two
+   choices are this project's and the owner's once that lands: whether the
+   digest rides in the alias certificate's claims set (built at boot, so it
+   would bind the record as it stood then) or in a per-request evidence
+   (`ATTEST_CSR` over the Verifier nonce, so it binds the record at the
+   request); and whether the 151-byte template, pinned by
+   `testdata/uccs_vectors.h` and parsed at fixed offsets, may grow. Touches
+   `docs/xkms-adapter/architecture.md` only; proved by the ruling being
+   quoted there.
+2. **Firmware: the digest claim.** After slice 1: the claims set takes the
+   digest of the A6 record (`src/caps/uccs.c`, `src/caps/uccs.h`,
+   `src/caps/csr.c` or `src/caps/alias.c` per slice 1, a digest helper beside
+   `src/core/hsm_record.c`), new pinned vectors in
+   `testdata/uccs_vectors.h` and their Go mirror in `sdk/go/`; proved by new
+   cases in `test/unit/test_uccs.c` and `test/unit/test_uccs_mutate.c` (an
+   empty record, one entry, a full record with its dropped count, and a
+   changed entry changing the digest) under `make host-test`. A wire or
+   vector change, so the owner's go-ahead per ruling 109.
+3. **Adapter: the route.** After slice 2 and an `sdk/go` tag that carries
+   `HSMRecordReadAll`: `xkms/avr/` reads the record through the SDK and
+   returns it beside the evidence, and checks that its digest matches the
+   claim (`xkms/avr/attestation.go` or a new `xkms/avr/record.go`, the
+   `sdk/go` requirement in `xkms/go.mod`); proved by unit tests in a new
+   `xkms/avr/record_test.go` (a record whose digest matches, one changed
+   entry refused, an image without `TFW_FEATURE_HSM` refused before the
+   wire) under `make xkms-test`, and the go-xkms verifier's tests in go-xkms.
+4. **Hardware.** The record and its digest from a real board: needs the M7
+   of row `imx95` running the engine (row `hsm-self-defence`, slice 3 on
+   QEMU first) and the A6 durable store (slice 11b-3); recorded in
+   `docs/development/bench/frdm-imx95.md`, proved by the slice 3 test run
+   against the board.
+
+None is a lane's work in this repository until go-xkms #1765 fixes the
+format and the owner rules on slice 1; slices 2 and 3 can then be seated in
+order, and slice 4 waits on the board. The SPEC status change is the owner's.

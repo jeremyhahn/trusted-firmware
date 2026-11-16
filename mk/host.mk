@@ -1763,6 +1763,18 @@ $(HOST_DIR)/test_avr_sys_mutate: test/unit/hal/test_avr_sys_mutate.c src/hal/avr
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-pointer-to-int-cast $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The Cortex-M hal_sys.c (row cortex-m, #458) on mps2-an505's profile. It
+# includes cm_regs.h from its own directory, so the host one is forced in
+# first and its guard keeps the core's asm out; its register file is unused,
+# so no register model is linked; cm_sys_model.c stands in for the
+# core's reset, the SoC's watchdog and the reset handler's latch.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_cortexm_sys
+$(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/hal_sys.c \
+                              test/model/cortex-m/cm_sys_model.c test/model/cortex-m/cm_regs.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -include test/model/cortex-m/cm_regs.h \
+	   -Itest/model/cortex-m -Isrc/hal/cortex-m -Iboards/mps2-an505 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The host compiler cannot see that ATOMIC_BLOCK's stand-in loop runs once.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_tick_mutate
 $(HOST_DIR)/test_avr_tick_mutate: test/unit/hal/test_avr_tick_mutate.c src/hal/avr/hal_tick.c \

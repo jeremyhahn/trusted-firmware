@@ -61,9 +61,12 @@ text, R17–R24 this page's.
 | R23 | No `delay()`: `tfw_hal_delay_us` counts SysTick across reloads | done | `src/hal/cortex-m/hal_tick.c`, `cm_cycles.h` | `test/unit/test_cm_pulse.c` `test_delay_us_spans_reloads` |
 | R24 | The watchdog disarms before any global is touched and marks its reset | done | `src/hal/cortex-m/mps2/hal_soc.c` | `test/unit/test_mps2_soc.c` `test_early_disarms_a_running_watchdog_through_the_lock`, `test_arm_marks_the_reset_as_the_watchdog` |
 
-"No allocator" (`tfw_hal_free_ram` from `__heap_start`) has no Cortex-M test:
-the AVR and ESP32 halves have theirs (`test/unit/hal/test_avr_sys_mutate.c`,
-`test/unit/test_esp_sys_mutate.c`); slice 4 adds it.
+"No allocator" (`tfw_hal_free_ram` from `__heap_start`) is pinned on the
+host by `test/unit/hal/test_cortexm_sys.c`
+`test_free_ram_is_the_stack_less_the_heap_start` and
+`test_a_deeper_stack_leaves_less_free_ram` (slice 4), as the AVR and ESP32
+halves are by `test/unit/hal/test_avr_sys_mutate.c` and
+`test/unit/test_esp_sys_mutate.c`.
 
 ## Remaining slices
 
@@ -84,9 +87,10 @@ the AVR and ESP32 halves have theirs (`test/unit/hal/test_avr_sys_mutate.c`,
    `make lint` already ran it, one run per `LINT_ARCH_RUNS` board with
    `-Isrc/hal/cortex-m` and that board's header; each run now prints its
    name when clean, and a defect planted in `src/hal/cortex-m/` fails it.
-4. **`tfw_hal_free_ram` on the host**: a `test/unit/test_cm_sys.c` that pins
-   `src/hal/cortex-m/hal_sys.c`'s count from `__heap_start` to the stack,
-   proven by `make host-test`.
+4. **`tfw_hal_free_ram` on the host**: done. `test/unit/hal/test_cortexm_sys.c`
+   pins `src/hal/cortex-m/hal_sys.c`'s count from `__heap_start` to the
+   stack, with its reset cause, reset and watchdog calls; run by
+   `make host-test`, and it fails with the subtraction reversed.
 5. **Silicon** (ruling 269 order): the SE052F (row `secure-element-se05x`),
    the i.MX 95 M7 (row `imx95`; trusted-imx95 must first give the M7 its
    logical machine, console and boot-container slot) and the STM32H573I-DK

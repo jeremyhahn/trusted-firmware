@@ -10,6 +10,11 @@ The bench boards need no owner permission for development or test use (Company
 Agent m1480). Fuses, lock bits and eFuses stay under the rules on each board's
 page.
 
+**Exception: the NXP FRDM-IMX95.** Nothing on it is programmed, fused, closed
+or written without the owner, an ordinary firmware flash included: these
+boards become the HA HSM cluster (CA ruling 583,
+[frdm-imx95.md](frdm-imx95.md)). Only read-only work is open on it.
+
 ## Boards
 
 Facts as of 2026-11-16 16:02Z. "Connected now" is the bench host's USB at that
@@ -28,8 +33,8 @@ branch is marked "pending PR #N": it is not yet a fact on main.
 | ST STM32H573I-DK, row `stm32h5` (#126) | An STLINK-V3 `0483:374e` is on the host; no page records whether it is this board's or the NUCLEO's | No ([stm32h573i-dk.md](../../boards/stm32h573i-dk.md): "built, not yet run") | No | Never run |
 | ST NUCLEO-H563ZI, row `stm32h5` | An STLINK-V3 `0483:374e` is on the host; no page records whether it is this board's or the DK's | No ([nucleo-h563zi.md](../../boards/nucleo-h563zi.md): "built and host-tested, not yet run on the board", 2026-11-12) | No | Never run |
 | NXP FRDM-MCXN947, row `mcxn947` | **Not connected**: no MCU-Link on 11-16 | No ([frdm-mcxn947.md](../../boards/frdm-mcxn947.md): "at the bench, ... not yet worked on") | No | Never run |
-| NXP FRDM-IMX95, M7 core, row #428 | Probably the WCH Quad_Serial `1a86:55e8`: the board's J22 debug port is a CH9114 quad UART ([frdm-imx95.md](frdm-imx95.md), the Consoles row); no page records the ID against the board | Yes, read only on main: the factory record, ELE lifecycle OEM Open, SRK hashes not fused, nothing written ([frdm-imx95.md](frdm-imx95.md), eea442a4) | Pending PR #449: the M7 boot and console records are only on its branch | Never run on main; pending PR #449 |
-| Raspberry Pi Pico 2 W (RP2350), row `rp2350` (#128) | **Not connected**: no `2e8a:000f` on 11-16 | Pending PR #455 (the factory record, read before any write) | Pending PR #455 (a HIL boot of main's default image) | Never run on main ([rp2350-pico2w.md](../../boards/rp2350-pico2w.md): "has never run on the board"); pending PR #455, whose feature check was not run |
+| NXP FRDM-IMX95, M7 core, row #428 | Probably the WCH Quad_Serial `1a86:55e8`: the board's J22 debug port is a CH9114 quad UART ([frdm-imx95.md](frdm-imx95.md), the Consoles row); no page records the ID against the board | Yes, read only on main: the factory record, ELE lifecycle OEM Open, SRK hashes not fused, nothing written ([frdm-imx95.md](frdm-imx95.md), eea442a4) | Pending PR #449: the M7 boot and console records are only on its branch. No write without the owner (CA ruling 583, [frdm-imx95.md](frdm-imx95.md)) | Never run on main; pending PR #449 |
+| Raspberry Pi Pico 2 W (RP2350), row `rp2350` (#128) | Unconfirmed (not enumerated in BOOTSEL; application does not drive USB): no `2e8a:000f` on 11-16, which is the BOOTSEL ID only; the write path holds the board in BOOTSEL and the port does not drive USB ([rp2350-pico2w.md](../../boards/rp2350-pico2w.md#the-port)), so a cabled Pico running its application would not show either. No record says whether it is cabled | Pending PR #455 (the factory record, read before any write) | Pending PR #455 (a HIL boot of main's default image) | Never run on main ([rp2350-pico2w.md](../../boards/rp2350-pico2w.md): "has never run on the board"); pending PR #455, whose feature check was not run |
 | Nordic nRF54L15-DK, row `nrf54l15` (#129, #17) | **Not connected**: no J-Link on 11-16 | No ([nrf54l15-dk.md](../../boards/nrf54l15-dk.md): "nothing here has been measured on the board") | No | Never run |
 | Infineon OPTIGA Trust M V3 shield, row `optiga-trust-m` (#127) | Not connected to a host board: no page records it wired | No ([SPEC](../../SPEC.md) row `optiga-trust-m`: "has arrived") | Not applicable: an element, not a target | Never run |
 | NXP EdgeLock SE052F board, row `secure-element-se05x` | Not recorded: "Port on the bench host: not recorded" ([se052f.md](se052f.md)) | No: "Nothing has been probed, written or fused" ([se052f.md](se052f.md)) | Not applicable: an element, not a target | Never run |
@@ -43,11 +48,12 @@ since regressed (33 of 55 on main e3a07e05, 2026-10-29,
 passes HIL-0's wire check but has never run `make hw-test`.
 
 **Needs connecting** (no adapter on the bench host's USB on 11-16): the
-Arduino Mega 2560, the Raspberry Pi Pico 2 W, the NXP FRDM-MCXN947 (MCU-Link),
-the Nordic nRF54L15-DK (J-Link), the MIKROE-6774 ATECC608C (on the Mega), the
-OPTIGA Trust M shield and the SE052F board (each on a host board), and the
-Atmel-ICE. One of the two ST boards also needs its STLINK-V3 on USB if the one
-seen is the other's.
+Arduino Mega 2560, the NXP FRDM-MCXN947 (MCU-Link), the Nordic nRF54L15-DK
+(J-Link), the MIKROE-6774 ATECC608C (on the Mega), the OPTIGA Trust M shield
+and the SE052F board (each on a host board), and the Atmel-ICE. One of the two
+ST boards also needs its STLINK-V3 on USB if the one seen is the other's. The
+Raspberry Pi Pico 2 W only if it is not cabled: its connection is unconfirmed
+(not enumerated in BOOTSEL; application does not drive USB), see its row.
 
 ## Programmers
 

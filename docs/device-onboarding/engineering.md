@@ -1,6 +1,6 @@
 # Device onboarding — engineering
 
-> **Status: DRAFT** · Scope: trusted-firmware · Issue: #53 · Last verified: 2026-10-19
+> **Status: DRAFT** · Scope: trusted-firmware · Issue: #53 · Last verified: 2026-11-16
 >
 > The tests that pin this repository's side of the onboarding seam, and the gaps
 > that remain with their owners.
@@ -18,10 +18,13 @@ and pin the adapter alone.
 |---|---|---|---|
 | the record joins the baked serial to the element's key (steps 2–4) | `TestE2ERecordJoinsTheBakedSerialToTheElementsPoint`, `sdk/go/cmd/tfwprov/e2e_record_test.go` | `make sdk-test` | `tfwsim-prov`, the element tier linked as a provisioning image |
 | the network block points the device at its endpoint (step 6) | `TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint`, `sdk/go/cmd/tfwctl/e2e_netcfg_test.go` | `make sdk-test` | `tfwsim-atecc608a`, `--eth` |
-| the Ethernet link and its allow-list (steps 7, 8, 11, 13) | `TestEthernet*`, `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` | `make sdk-test` | `tfwsim-atecc608a`, serial and TCP side by side |
+| the network block's DHCP flag round-trips (step 6) | `TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice`, `sdk/go/cmd/tfwctl/e2e_netcfg_test.go` | `make sdk-test` | `tfwsim-atecc608a` |
+| the Ethernet link and its allow-list, the OTA ids among it (steps 7, 8, 11, 13) | `TestEthernet*` (`TestEthernetDeviceAdmitsTheOTAIdsOverTCP` for `0x68`–`0x6B`), `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` | `make sdk-test` | `tfwsim-atecc608a`, serial and TCP side by side |
+| the possession signature, `ATTEST_CSR` (step 13) | `TestFirmwareAttestCSR*`, `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go` | `make sdk-test` | `tfwsim-atecc608a` |
 | the adapter registers and constructs from a `*tfw.Device` (step 9) | `xkms/registration/registration_test.go`, `xkms/backends_avr_test.go`, `xkms/avr/factory_test.go` | `make xkms-test` | a scripted device |
 | evidence and possession (steps 11, 13) | `xkms/avr/attestation_test.go`, `xkms/avr/possession_test.go` | `make xkms-test` | a scripted device |
 | device-attest-01 and its refusals (steps 10–13) | `TestDeviceAttest*`, `TestPossessionSigner*`, `xkms/avr/device_attest_test.go` | `make xkms-test` | recorded `tfwsim` frames |
+| enrolment end to end on the soft root (steps 9–13) | `TestSoftRootEnrollsThroughDeviceAttest01`, `xkms/e2e/soft_enroll_test.go`; `TestHardwareEnrollmentAdmitsASoftRootWhenAsked`, `TestEnrollTargetsTransportFromDevice`, `xkms/e2e/hw_enroll_test.go` | `make xkms-e2e-soft` | `tfwsim-auto`, no element on the bus |
 
 What the tfwprov E2E checks, in order:
 

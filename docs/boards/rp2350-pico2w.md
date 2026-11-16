@@ -27,6 +27,62 @@ Documents cited:
   80d627281ed5), read by slice 3 and copied as
   [`../reference/rp2350-datasheet.pdf`](../reference/rp2350-datasheet.pdf).
 
+## Requirements
+
+The SPEC row `rp2350` (`docs/SPEC.md`, line 47), one line per requirement in
+its text, audited against main for #480. "Done" means done in the build and
+on the host: nothing on this board has run on silicon. Test names are the C
+functions, Go `Test` functions or Python methods in the files named.
+
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| R1 | The firmware core as a HAL port on the Pico 2 W (the application) | **partial**: built in CI, host-tested over register models; never run on the board; OTA_CONFIRM does not reach tfw-boot (see "The application's EEPROM") | `src/hal/cortex-m/rp2350/hal_soc.c`, `hal_uart.c`, `hal_gpio.c`; `boards/rp2350-pico2w/board.c`, `profile.mk` | `test/unit/test_board_rp2350-pico2w.c` `test_the_pins_are_the_header_gpios_in_order`; `test/unit/test_rp2350_soc.c` `test_uart_divisors_at_115200_from_12mhz`; `test/unit/test_rp2350_reset.c` `test_the_watchdog_timer_is_a_watchdog_whatever_else` |
+| R2 | The core's boot stage on the board (tfw-boot, row `rp2350-pico2w:soft:soft:p256-soft:0:0`) | **partial**: built and size-checked in CI, host-tested; never run on the board | `mk/boot.mk` (`BOOT_SUPPORTED`); `boot/hal/cortex-m/rp2350/rp_flash_rom.c`, `rp_flash.c`, `boot_uart.c` | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_rom.c` `test_a_sector_is_erased_and_programmed_in_the_roms_order`; `test/unit/boot/test_boot_rp2350_map.c` `test_the_platform_block_is_the_last_sector`; `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_uart.c` `test_init_releases_uart0_and_sets_115200_8n1` |
+| R3 | DICE evidence on the part's OTP | **not started**: tfw-boot's row is the soft tier, holding the soft DeviceID seed; no OTP is read, and the UDS page, layer 0 and the lock are the owner's (ADR open questions 1-3) | `boot/boot_cdi.h` (the generic CDI the board would feed); no RP2350 OTP code | none for the RP2350; the generic derivation is `test/unit/boot/test_boot_cdi_soft_uds.c` `test_a_provisioned_uds_derives_the_device_seed` |
+| R4 | Secure boot | **not started** for the boot ROM's own secure boot (the key fingerprint in OTP); tfw-boot verifies the application's P-256 signature in software (R2), and the IMAGE_DEF block is unsigned by design | `src/hal/cortex-m/rp2350/soc_calc.h` (IMAGE_DEF), `mk/arch/cortex-m/rp2350.ld` | `test/unit/test_rp2350_soc.c` `test_image_def_is_the_minimal_secure_arm_exe_block` (pins the unsigned block) |
+| R5 | Enrolment through go-xkms into go-trusted-platform | **not started** on this board: it has no Ethernet and no transport is chosen (ADR open question 5); the enrolment path exists for other roots | `xkms/` (the adapter); no RP2350 transport | none for the RP2350; the path is `xkms/e2e/soft_enroll_test.go` `TestSoftRootEnrollsThroughDeviceAttest01` |
+| R6 | The onboarding ADR, docs-only (#128) | **done** (PROPOSED; its open questions wait on the owner) | `docs/multi-arch/adr-rp2350-pico2w-onboarding.md` | docs only; no test applies |
+| R7 | The AVR gate lifted (ruling 697): the firmware features enabled on the board | **done** in the build and on the host (`I2C ?= 1`, `PERIPH ?= 1`); not run on the board | `boards/rp2350-pico2w/profile.mk`, `board_profile.h`; `src/hal/cortex-m/rp2350/hal_bus.c`, `hal_pwm.c`, `hal_adc.c`, `hal_tone.c`, `hal_eeprom.c` | `scripts/test_rp2350_rows_mk.py` `test_the_default_row_links_every_peripheral`; `test/unit/test_rp2350_i2c.c` `test_write_then_read_with_restart`; `test/unit/test_rp2350_pwm.c` `test_pwm_duty_compare_values`; `test/unit/test_rp2350_adc.c` `test_one_read_per_channel_converts_its_gpio`; `test/unit/test_rp2350_tone.c` `test_irq_toggles_and_rearms_from_target`; `test/unit/test_rp2350_eeprom.c` `test_a_user_address_lands_at_its_byte_of_the_user_sector` |
+
+### Remaining slices
+
+1. **OTA_CONFIRM to tfw-boot** (no hardware): route the confirm request at
+   `TFW_BOOT_CONFIRM_ADDR` through the flash helper in
+   `src/hal/cortex-m/rp2350/hal_eeprom.c` so it lands in the platform block,
+   proven by a new test in `test/unit/test_rp2350_eeprom.c` that reads the
+   request back from the NOR model's platform sector.
+2. **The datasheet checks left open** (no hardware): match the ADC rows marked
+   `TODO(datasheet)` in `src/hal/cortex-m/rp2350/soc_regs.h` and the PWM
+   register numbers against the copied [RP-DS] tables, updating this page's
+   tables; proven by `test/unit/test_rp2350_adc.c` and
+   `test/unit/test_rp2350_pwm.c` passing with any corrected literal.
+3. **The first bench run** (needs hardware and the bench): factory record,
+   the flash part's JEDEC id, the console on GPIO0/1, then tfw-boot and the
+   application flashed and the wire protocol answered, then the peripheral
+   check of `docs/plans/429.md` slice 3; it updates this page's "What is not
+   verified", proven by `make board-record BOARD=rp2350-pico2w` and the
+   recorded session.
+4. **The enrolment transport** (owner decision, ADR open question 5, then
+   another project's registry): Wi-Fi on the CYW43439, USB, a UART bridge or a
+   W5x00 module, as a driver under `src/hal/cortex-m/rp2350/` with a host test
+   in `test/unit/` over a model, then an enrolment test beside
+   `xkms/e2e/soft_enroll_test.go`; the go-trusted-platform side is that
+   project's.
+5. **DICE on OTP** (owner decision, ADR open questions 1-3; an OTP write needs
+   hardware and possibly a sacrificial board): an OTP read and page lock under
+   `boot/hal/cortex-m/rp2350/` feeding `boot/boot_cdi.h`, a new `BOOT_SUPPORTED`
+   row in `mk/boot.mk`, proven by a new `test/unit/boot/test_boot_rp2350_otp.c`
+   over an OTP model and, on silicon, by a bench run.
+6. **Boot-ROM secure boot** (owner decision, ADR open question 1; an OTP write,
+   needs hardware): a signed IMAGE_DEF in `src/hal/cortex-m/rp2350/soc_calc.h`
+   and `mk/arch/cortex-m/rp2350.ld` and the signing step in the board's
+   `profile.mk`, proven by a new case in `test/unit/test_rp2350_soc.c` and a
+   bench boot with the key fingerprint burnt.
+7. **The crypto tier** (owner decision, ADR open question 4 and ADR #15 open
+   question 4): the `CAPS` tier an OTP-plus-TrustZone key reports, set in
+   `boards/rp2350-pico2w/board_profile.h`, proven by a case in
+   `test/unit/test_board_rp2350-pico2w.c`; waits on slice 5.
+
 ## The board
 
 | | | Source |

@@ -1,0 +1,1 @@
+- docs(optiga-trust-m): the SPEC row `optiga-trust-m` audited requirement by requirement, with its code, its tests and the remaining slices (`docs/multi-arch/adr-optiga-trust-m-onboarding.md`, "Requirements" and "Remaining slices") (Refs #502).

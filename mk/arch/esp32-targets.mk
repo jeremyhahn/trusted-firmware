@@ -36,6 +36,11 @@ ESP_IMAGE_VERSION ?= 1
 # version tops out there.
 ESP_ANTI_ROLLBACK   = $(filter $(ESP_TARGET),$(ESP_ANTI_ROLLBACK_TARGETS))
 ESP_SEC_VER_MAX    := 16
+# esp32-build also builds the example application's image beside the one with
+# none, unless ESP_APP_EXAMPLE=0, APP_DIR is set (that build is the example's)
+# or PROVISION=1. esp32-qemu-test sets 0: its images need no second link.
+ESP_APP_EXAMPLE    ?= 1
+ESP_APP_EXAMPLE_RUN = $(and $(filter 1,$(ESP_APP_EXAMPLE)),$(if $(strip $(APP_DIR)),,1),$(if $(filter 1,$(PROVISION)),,1))
 ESP_PROJECT   := mk/arch/esp32
 ESP32_BOARDS  := $(notdir $(patsubst %/profile.mk,%,$(shell grep -l '^ARCH[[:space:]]*:\?=[[:space:]]*esp32[[:space:]]*$$' boards/*/profile.mk)))
 
@@ -111,6 +116,21 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 	   --board-profile $(BOARD_DIR)/board_profile.h --version $(ESP_IMAGE_VERSION) \
 	   --image-key $(ESP_IMAGE_KEY) --sign-key $(ESP_SIGN_KEY) --suit-emit $(SUIT_EMIT_BIN)
 	@echo "built $(ESP_OUT)/trusted-firmware.bin ($(BOARD) on $(ESP_TARGET), $(CRYPTO) tier) and $(ESP_OUT)/tfw_plat.bin"
+	@# With no APP_DIR, the image above must hold none of an application's
+	@# symbols, and the example application is then built and linked as well
+	@# (app-firmware-check, mk/app.mk), into a build directory of its own
+	@# (APP_SUFFIX), and its ELF must keep them: the ESP-IDF link with
+	@# TFW_APP_SRCS set, which CI's ESP32 Build job runs only through here (#466).
+	@# ESP_APP_EXAMPLE=0 skips both; a PROVISION=1 image is never checked.
+	@$(if $(ESP_APP_EXAMPLE_RUN), \
+	   $(APP_SYMBOLS) $(ESP_OUT)/idf/trusted-firmware.elf '$(APP_OWN_SYMBOLS)' > /dev/null; rc=$$?; \
+	   [ $$rc = 1 ] || { echo "esp32-build: $(ESP_OUT)/idf/trusted-firmware.elf, built with no APP_DIR, holds application symbols (app_symbols.py rc=$$rc)"; exit 1; },true)
+	@# A dry run (make -n) still runs a line that names $$(MAKE); this one only
+	@# says what it would do, as esp32-overlay-selftest's dry run expects.
+	@$(if $(ESP_APP_EXAMPLE_RUN),$(if $(findstring n,$(firstword -$(MAKEFLAGS))), \
+	   echo "esp32-build: then app-firmware-check BOARD=$(BOARD)", \
+	   start=$$(date +%s); $(MAKE) --no-print-directory app-firmware-check BOARD=$(BOARD) && \
+	   echo "esp32-build: the example application's image took $$(( $$(date +%s) - start )) s"),true)
 
 ## esp32-qemu-test: Espressif's QEMU: secure boot v2 and layer 0's ES256 gate, CDI and DeviceID across reboots, tampered and mis-sealed images and manifests refused, the wire over Ethernet
 # Both machines of boards/esp32-qemu. The esp32c3 run (hmac-p256 tier) carries
@@ -124,9 +144,9 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 esp32-qemu-test:
 	@v=$$(qemu-system-riscv32 --version 2>/dev/null | head -n 1); case "$$v" in *"$(ESP_QEMU_VERSION)"*) ;; \
 	   *) echo "esp32-qemu-test: QEMU is '$$v'; this tree is pinned to $(ESP_QEMU_VERSION)"; exit 1;; esac
-	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3
-	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3 PROVISION=1
-	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32
+	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3 ESP_APP_EXAMPLE=0
+	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32c3 PROVISION=1 ESP_APP_EXAMPLE=0
+	@$(MAKE) --no-print-directory esp32-build BOARD=esp32-qemu ESP_TARGET=esp32 ESP_APP_EXAMPLE=0
 	@mkdir -p $(ESP_ROOT)
 	@cd test/integration/esp32 && $(GO) build$(call go-tags,-tags) -o $(abspath $(ESP_ROOT))/wirecheck ./wirecheck
 # The two runs go one at a time, so neither QEMU starves the other of CPU on

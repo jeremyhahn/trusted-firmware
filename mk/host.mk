@@ -1383,11 +1383,15 @@ $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate: $(HOST_DIR
 HOST_ESP_OTA_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 \
                      -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1
 HOST_ESP_OTA_CFLAGS = $(subst -Iboards/$(HOST_BOARD) ,-Iboards/esp32-qemu ,$(HOST_CFLAGS))
-$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c \
-                          $(subst boards/$(HOST_BOARD)/board.c,boards/esp32-qemu/board.c,$(HOST_STAGE_LIB_SRCS)) \
-                          src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
-                          test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_ESP_OTA_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $(filter-out %/ota_trial.c,$^) $(EXTRA_LDFLAGS)
+# The link line names its sources rather than taking $^: a build/host/
+# test_esp_ota.d from before this rule lists HOST_BOARD's board.c, Make
+# merges it into $^, and both boards' tfw_board_* would link (Codex on #501).
+HOST_ESP_OTA_SRCS = test/unit/test_esp_ota.c \
+                    $(subst boards/$(HOST_BOARD)/board.c,boards/esp32-qemu/board.c,$(HOST_STAGE_LIB_SRCS)) \
+                    src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
+                    test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o
+$(HOST_DIR)/test_esp_ota: $(HOST_ESP_OTA_SRCS) | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_ESP_OTA_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $(filter-out %/ota_trial.c,$(HOST_ESP_OTA_SRCS)) $(EXTRA_LDFLAGS)
 
 # The same session at the edges a fault moves (#163).
 $(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_STAGE_LIB_SRCS) \

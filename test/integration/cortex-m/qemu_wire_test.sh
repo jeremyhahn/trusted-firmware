@@ -49,6 +49,11 @@
 #   PANIC after the HardFault's reset, the fault record that PC, then
 #   POWER_ON after the next QMP reset.
 #
+#   mpu (mps2-an500 only, row 482) runs TestQEMUMPUNullRead
+#   (sdk/go/cmd/tfwctl/mpu_qemu_test.go) the same way: a load from 0 hits
+#   the M7's MPU null guard (src/hal/cortex-m/hal_mpu.c), and SYS_INFO reads
+#   PANIC, the fault record the load's PC.
+#
 #   qemu_wire_test.sh <dir> <machine> <board> store
 #
 # is the board's store row instead (mk/arch/cortex-m-targets.mk
@@ -284,5 +289,8 @@ else
     wire unprovisioned boot-unprovisioned.bin '^TestFirmwareAttestRefusedUnprovisioned$'
     cycle reset TestQEMUResetCause
     cycle fault TestQEMUFaultPanic
+    if [ "$board" = mps2-an500 ]; then
+        cycle mpu TestQEMUMPUNullRead
+    fi
 fi
 echo "qemu_wire_test: $board $row row: green"

@@ -96,10 +96,10 @@ static void test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice(void)
     TEST_ASSERT_EQUAL_INT(1, TFW_FEATURE_EEPROM);
 }
 #else
-/* docs/SPEC.md keeps rp2350 `future` with the AVR gate (#7) not lifted, so
- * the default row is GPIO only: no converter input, no PWM row, no tone and
- * no EEPROM. Only the PERIPH=1 row (TFW_CM_PERIPH) turns them on. */
-static void test_the_default_row_is_gpio_only_until_the_gate_is_lifted(void)
+/* The PERIPH=0 row is GPIO only: no converter input, no PWM row, no tone and
+ * no EEPROM. The PERIPH=1 row (TFW_CM_PERIPH), the default since ruling 697
+ * lifted the AVR gate (#7) for the RP2350, turns them on. */
+static void test_the_periph_0_row_is_gpio_only(void)
 {
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
         uint8_t ch = 0xFFu;
@@ -130,7 +130,7 @@ static void test_a_pin_beyond_the_board_is_refused(void)
 /* GP4 (pin 2) and GP5 (pin 3) are I2C0's SDA and SCL in the I2C=1 row: taken,
  * so GPIO_MODE and PIN_SCHED_SET (src/caps/gpio.c, src/caps/sched.c) refuse
  * them with TFW_ERR_RESERVED_PIN instead of switching them to SIO. In the
- * default row, and for every other pin, nothing is taken. */
+ * I2C=0 row, and for every other pin, nothing is taken. */
 static void test_the_i2c_row_takes_sda_and_scl_and_nothing_else(void)
 {
     for (uint8_t i = 0u; i < TFW_PIN_COUNT; i++) {
@@ -153,7 +153,7 @@ int main(void)
 #if TFW_FEATURE_PWM
     RUN_TEST(test_adc_on_gp26_to_gp28_and_pwm_on_one_pin_per_slice);
 #else
-    RUN_TEST(test_the_default_row_is_gpio_only_until_the_gate_is_lifted);
+    RUN_TEST(test_the_periph_0_row_is_gpio_only);
 #endif
     RUN_TEST(test_a_pin_beyond_the_board_is_refused);
     RUN_TEST(test_the_i2c_row_takes_sda_and_scl_and_nothing_else);

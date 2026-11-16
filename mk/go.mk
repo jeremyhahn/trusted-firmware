@@ -48,10 +48,12 @@ sdk-build:
 # tfwsim-auto the Mega's default tier, which picks one of those two at startup;
 # tfwsim-prov the element tier as a jig image, the only one tfwprov --commit
 # provisions over the wire; tfwsim-otaboot the 2560 image without the stager,
-# the only one whose RESET(1) reaches a session (#52).
+# the only one whose RESET(1) reaches a session (#52); tfwsim-manifest the
+# element tier with OTA_ACTIVATE's manifest gate, the only one that refuses an
+# image without a matching SUIT manifest (#52).
 # Every test that starts a simulator carries the tfwsim build tag (#163), so
 # this is the one target that compiles them in.
-sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov tfwsim-otaboot
+sdk-test: tfwsim tfwsim-atecc608a tfwsim-auto tfwsim-app-example tfwsim-prov tfwsim-otaboot tfwsim-manifest
 	@cd $(SDK_DIR) && $(GO) test -count=1$(call go-tags,-tags,tfwsim) ./...
 
 ## sdk-coverage: Go SDK unit-test statement coverage, failing if it or any package is under the floor

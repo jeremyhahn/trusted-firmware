@@ -191,7 +191,58 @@ app-header-check-selftest:
 	  *) echo "selftest: the failure did not name tfw/lean.h"; printf '%s\n' "$$out"; exit 1 ;; esac; \
 	echo "app-header-check rejects a header that is not self-contained and names it"
 
-host-test: app-header-check
-security: app-header-check-selftest
+## app-link-check: one application per image, and the runner the only caller of its hooks
+# Two halves. The link: the example application and the recording mock
+# (test/mock/app_mock.c) both define the hooks, strong and with no weak
+# default, so linking the two together must fail with a multiple definition of
+# a tfw_app_ hook, and the example alone must link. A relocatable link (-r) is
+# enough to see it: undefined symbols are allowed there, duplicate definitions
+# are not, so the failure is the second application and nothing else.
+#
+# The caller: no file under APP_LINK_SRC but core/app_runner.c names a hook --
+# the descriptor, or a call to init, run, shutdown, before_update,
+# after_update or evidence. A comment that names one without a call is not a
+# caller; tfw_app_runner_* and tfw_app_config_* are the runner's, not hooks.
+# An empty source list is a failure, not a pass. Run by host-test.
+APP_LINK_SRC  ?= src
+APP_HOOK_ERE  := (^|[^[:alnum:]_])tfw_app_((init|run|shutdown|before_update|after_update|evidence)[[:space:]]*\(|descriptor([^[:alnum:]_]|$$))
+app-link-check:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	$(CC) $(HOST_CFLAGS) -c test/app/example/example.c -o "$$t/example.o" && \
+	$(CC) $(HOST_CFLAGS) -c test/mock/app_mock.c -o "$$t/mock.o" && \
+	$(CC) -r -nostdlib "$$t/example.o" -o "$$t/one.o" || \
+	  { echo "app-link-check: the example application alone did not link"; exit 1; }; \
+	if $(CC) -r -nostdlib "$$t/example.o" "$$t/mock.o" -o "$$t/two.o" > "$$t/two.log" 2>&1; then \
+	  echo "app-link-check: two applications linked into one image"; exit 1; fi; \
+	grep -q 'multiple definition of .tfw_app_' "$$t/two.log" || \
+	  { echo "app-link-check: the second application's link failed, but not on a tfw_app_ hook"; head -n 5 "$$t/two.log"; exit 1; }; \
+	files=$$(find $(APP_LINK_SRC) -type f \( -name '*.c' -o -name '*.h' -o -name '*.def' \) | sort); \
+	[ -n "$$files" ] || { echo "app-link-check: no source under $(APP_LINK_SRC)"; exit 1; }; \
+	callers=$$(printf '%s\n' $$files | grep -vx '$(APP_LINK_SRC)/core/app_runner.c' | \
+	  xargs grep -lE '$(APP_HOOK_ERE)' || true); \
+	[ -z "$$callers" ] || { echo "app-link-check: a hook is named outside $(APP_LINK_SRC)/core/app_runner.c:"; \
+	  printf '  %s\n' $$callers; exit 1; }; \
+	grep -qE '$(APP_HOOK_ERE)' $(APP_LINK_SRC)/core/app_runner.c || \
+	  { echo "app-link-check: $(APP_LINK_SRC)/core/app_runner.c names no hook -- the pattern is broken"; exit 1; }; \
+	echo "app-link-check: a second application does not link, and only core/app_runner.c of $$(printf '%s\n' $$files | wc -l) files names a hook"
 
-.PHONY: app-sdk-check app-firmware-check app-obj-dirs tfwsim-app-example app-header-check app-header-check-selftest
+## app-link-check-selftest: the link gate rejects a hook called outside the runner, and names the file
+# A copy of src/ with a call to tfw_app_init planted in a copy of main.c: the
+# gate must fail and print that file. The copy unplanted must pass. Run by the
+# security stage, beside app-header-check-selftest.
+app-link-check-selftest:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && cp -a src "$$t/" && \
+	$(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" > /dev/null || \
+	  { echo "selftest: the unplanted copy was rejected"; exit 1; }; \
+	printf '\nvoid tfw_plant(void);\nvoid tfw_plant(void) { (void)tfw_app_init(); }\n' >> "$$t/src/main.c" && \
+	if out=$$($(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" 2>&1); then \
+	  echo "selftest: the gate passed a call to tfw_app_init in main.c"; exit 1; fi; \
+	case "$$out" in *"$$t/src/main.c"*) ;; \
+	  *) echo "selftest: the failure did not name main.c"; printf '%s\n' "$$out"; exit 1 ;; esac; \
+	echo "app-link-check rejects a hook called outside the runner and names the file"
+
+host-test: app-header-check app-link-check
+security: app-header-check-selftest app-link-check-selftest
+
+.PHONY: app-sdk-check app-firmware-check app-obj-dirs tfwsim-app-example app-header-check app-header-check-selftest \
+        app-link-check app-link-check-selftest

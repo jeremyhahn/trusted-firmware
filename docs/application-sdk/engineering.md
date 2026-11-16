@@ -369,13 +369,13 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | No application: no application logic, the image and wire as before | done | `src/core/app_runner_none.c`, selected at `mk/app.mk:73` | `test_app_none.c`: `test_the_empty_runner_stays_idle`, `test_app_info_is_unknown_without_an_application`; `sdk/go/cmd/tfwctl/e2e_app_test.go`: `TestFirmwareAppIsAnUnknownCommandWithoutAnApplication` |
 | Inherits the TCB, attestation, OTA and boot and re-implements none: public headers only, no `-Isrc` (invariant 6) | done | `-Iinclude -I$(HAL_DIR) -I$(BOARD_DIR)` at `mk/firmware.mk:705`; `app-header-check` at `mk/app.mk:150` | `make app-header-check` (`mk/app.mk:150`); `make app-header-check-selftest` (`mk/app.mk:181`) |
 | Onboarding by device profile | partial | the device side: `profile` in the descriptor (`include/tfw/app.h:52`), reported by APP_INFO (`src/core/app_runner.c:153`); enrolment by profile is go-trusted-platform's (SPEC row `device-onboarding`, future) | `test_app.c`: `test_app_info_reports_the_runner_and_the_descriptor`; `sdk/go/appinfo_test.go`: `TestAppInfoParsesTheExample`; slice 5 |
-| One application per image, no dynamic loading | partial | one `APP_DIR` at `mk/app.mk:30`; strong hook symbols, no weak default (`include/tfw/app.h:10`) | `test_app_example.c` links exactly one application (the mock filtered out); no test fails if a second links: slice 3 |
-| The runner is the only caller of a hook (invariant 1) | partial | holds on `main`: outside `src/core/app_runner*.c`, `src/` names only `tfw_app_runner_*` and `tfw_app_cmd_info` | `test_app.c`: `test_a_stopped_application_is_not_run_or_stopped_again` proves the order, not the caller; slice 3 |
+| One application per image, no dynamic loading | done | one `APP_DIR` at `mk/app.mk:30`; strong hook symbols, no weak default (`include/tfw/app.h:10`) | `make app-link-check` (`mk/app.mk`): the example linked beside `test/mock/app_mock.c` must fail on a multiple definition of a `tfw_app_` hook; `test_app_example.c` links exactly one application (the mock filtered out) |
+| The runner is the only caller of a hook (invariant 1) | done | outside `src/core/app_runner.c`, `src/` names only `tfw_app_runner_*`, `tfw_app_config_*` and `tfw_app_cmd_info` | `make app-link-check` fails on a hook named in any other file of `src/`; `make app-link-check-selftest` plants a call in `main.c` and sees it named; `test_app.c`: `test_a_stopped_application_is_not_run_or_stopped_again` proves the order |
 | Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; `after_update` (`changelog.d/51-after-update.md`) and the evidence hook are unreleased, so the released hook set is not `main`'s | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
 | Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; the ESP32 build hands ESP-IDF `FW_SRCS` only (`mk/arch/esp32-targets.mk:97`), not `APP_SRCS` | `make app-firmware-check` (`mk/app.mk:120`), in CI for `BOARD=atmega2560` only (`mk/stages.mk:55`); `make app-header-check` against every board; slice 2 |
 | The same firmware, application, board and tier give the same image | partial | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check` (`mk/firmware.mk:864`) builds without `APP_DIR`; no application image is built twice: slice 4 |
 
-Counts: 12 done, 6 partial, 0 not started.
+Counts: 14 done, 4 partial, 0 not started.
 
 ### Remaining slices
 
@@ -389,8 +389,9 @@ Counts: 12 done, 6 partial, 0 not started.
    `mk/stages.mk` runs `app-firmware-check` for one Cortex-M board (QEMU
    `mps2-an505`) and one ESP32 board beside the ATmega2560, proved by those
    `make app-firmware-check BOARD=<b>` runs in the `build` stage; no hardware.
-3. **One application, one caller.** A gate in `mk/app.mk`,
-   `app-link-check`, that links `test/app/example` beside
+3. **One application, one caller.** Done: `make app-link-check` (in
+   `host-test`) and `make app-link-check-selftest` (in `security`). A gate in
+   `mk/app.mk`, `app-link-check`, that links `test/app/example` beside
    `test/mock/app_mock.c` and expects the link to fail, and that fails when
    any file in `src/` but `src/core/app_runner.c` names a `tfw_app_` hook,
    proved by its selftest in the `security` stage as `app-header-check-selftest` is.

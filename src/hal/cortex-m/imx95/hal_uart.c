@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* SPDX-License-Identifier: commercial */
 /*
- * The byte link on LPUART7 (soc_regs.h; TO CONFIRM against NXP IMX95RM, the
+ * The byte link on LPUART3 (soc_regs.h; TO CONFIRM against NXP IMX95RM, the
  * LPUART chapter): interrupt-driven, with the two single-producer/single-
  * consumer rings src/hal/cortex-m/mps2/hal_uart.c has and for its reasons.
  *
@@ -34,7 +34,7 @@ _Static_assert((TFW_UART_TX_RING & (TFW_UART_TX_RING - 1u)) == 0u,
 _Static_assert(TFW_UART_RX_RING <= 256u && TFW_UART_TX_RING <= 256u,
                "ring indices must fit in a uint8_t");
 
-void tfw_cm_irq68(void);
+void tfw_cm_irq64(void);
 
 static volatile uint8_t rx_buf[TFW_UART_RX_RING];
 static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writes. */
@@ -42,7 +42,7 @@ static volatile uint8_t rx_head, rx_tail;   /* head: ISR writes. tail: main writ
 static volatile uint8_t tx_buf[TFW_UART_TX_RING];
 static volatile uint8_t tx_head, tx_tail;   /* head: main writes. tail: tx_pump, masked. */
 
-/* Times LPUART7's interrupt ran, for the bench: the A55 reads it through the
+/* Times LPUART3's interrupt ran, for the bench: the A55 reads it through the
  * DTCM alias (docs/development/bench/frdm-imx95.md, next slice), its address
  * from the image's symbols. Zero beside a sent frame means NVIC line 64 never
  * fired and the main loop's polls below carried the console. */
@@ -74,7 +74,7 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     if (st != TFW_OK) {
         return st;
     }
-    /* The pads first: the SM owns the IOMUX and routes LPUART7 to them only
+    /* The pads first: the SM owns the IOMUX and routes LPUART3 to them only
      * when asked. A refusal leaves the console to start anyway, as the SM
      * may have routed them already (console_pins.h). */
     (void)tfw_imx95_console_route();
@@ -87,11 +87,11 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
     rx_head = rx_tail = tx_head = tx_tail = 0u;
     TFW_IMX95_LPUART_CTRL = TFW_IMX95_LPUART_CTRL_TE | TFW_IMX95_LPUART_CTRL_RE |
                             TFW_IMX95_LPUART_CTRL_RIE;
-    tfw_cm_nvic_enable(TFW_IMX95_LPUART7_IRQ);
+    tfw_cm_nvic_enable(TFW_IMX95_LPUART3_IRQ);
     return TFW_OK;
 }
 
-void tfw_cm_irq68(void)
+void tfw_cm_irq64(void)
 {
     tfw_imx95_uart_irqs++;
     while ((TFW_IMX95_LPUART_STAT & TFW_IMX95_LPUART_STAT_RDRF) != 0u) {

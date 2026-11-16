@@ -54,8 +54,9 @@ static void platform(struct tfw_imx95_model *mm)
     mm->scmi.shm[1] = 0x1u;                       /* free */
 }
 
-/* The board's own request (board_profile.h, through tfw/config.h): LPUART7
- * on GPIO_IO36 and GPIO_IO37, SM pin ids 40 and 41, ALT2, the mux alone. */
+/* The board's own request (board_profile.h, through tfw/config.h): LPUART3
+ * (docs/SPEC.md row `imx95`) on GPIO_IO14 and GPIO_IO15, SM pin ids 18 and
+ * 19, ALT1, the mux alone. */
 static const struct tfw_imx95_console_pins pins = {
     TFW_IMX95_CONSOLE_TX_PAD, TFW_IMX95_CONSOLE_RX_PAD, TFW_IMX95_CONSOLE_PAD_MUX,
     TFW_IMX95_CONSOLE_PAD_CFG
@@ -93,11 +94,11 @@ static void test_tx_then_rx_are_muxed(void)
     for (k = 0u; k < 2u; k++) {
         TEST_ASSERT_EQUAL_HEX32(4u + 20u, seen[k][2]);            /* length */
         TEST_ASSERT_EQUAL_HEX32((k << 18) | (0x19u << 10) | 0x6u, seen[k][3]);
-        TEST_ASSERT_EQUAL_HEX32(40u + k, seen[k][4]);             /* pin id */
+        TEST_ASSERT_EQUAL_HEX32(18u + k, seen[k][4]);             /* pin id */
         TEST_ASSERT_EQUAL_HEX32(0u, seen[k][5]);                  /* no function */
         TEST_ASSERT_EQUAL_HEX32(1u << 2, seen[k][6]);             /* a pin, 1 config */
         TEST_ASSERT_EQUAL_HEX32(192u, seen[k][7]);                /* MUX */
-        TEST_ASSERT_EQUAL_HEX32(2u, seen[k][8]);                  /* ALT2, LPUART7 */
+        TEST_ASSERT_EQUAL_HEX32(1u, seen[k][8]);                  /* ALT1, LPUART3 */
         TEST_ASSERT_EQUAL_HEX32(words_crc(&seen[k][3], 6u), seen[k][0]);
     }
     m = tfw_imx95_model_get();

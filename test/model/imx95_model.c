@@ -7,7 +7,7 @@
  * soc_regs.h cites, not taken from soc_regs.h: a register the SoC code moves
  * becomes an unmodelled access, and the test that drove it fails.
  *
- *   LPUART7  0x42690000: GLOBAL +0x08 (RST bit 1), BAUD +0x10, STAT +0x14
+ *   LPUART3  0x42570000: GLOBAL +0x08 (RST bit 1), BAUD +0x10, STAT +0x14
  *            (TDRE bit 23, TC 22, RDRF 21, OR 19), CTRL +0x18 (TIE bit 23,
  *            RIE 21, TE 19, RE 18), DATA +0x1C (RXEMPT bit 12)
  *   RGPIO    GPIO1 0x47400000, GPIO2 0x43810000, GPIO3 0x43820000,
@@ -29,7 +29,7 @@
 
 #include "imx95_model.h"
 
-#define LPUART      0x42690000u
+#define LPUART      0x42570000u
 #define WDOG        0x424B0000u
 
 #define STAT_TAG    0x00000001u   /* the model's: no code reads STAT bit 0 */

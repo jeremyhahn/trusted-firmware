@@ -17,7 +17,9 @@
  *   WDOG32 CS    UPDATE 0x20, EN 0x80, CLK=LPO 0x100, PRES 0x1000,
  *                CMD32EN 0x2000, FLG 0x4000
  *   WDOG32 TOVAL 8 s of 32 kHz / 256 = 1000 = 0x3E8
- *   NVIC         interrupt 68 (LPUART7) is bit 4 of the third ISER/ICPR word
+ *   NVIC         interrupt 64 (LPUART3) is bit 0 of the third ISER/ICPR word
+ *   console      LPUART3 at 0x42570000, as docs/SPEC.md row `imx95` names it:
+ *                the model answers only there (imx95_model.c)
  */
 #include <stdint.h>
 #include <string.h>
@@ -65,7 +67,7 @@ static void uart_up(void)
     m->lpuart.ctrl_unmasked = 0u;
 }
 
-/* ---------------------------------------------------------------- LPUART7 */
+/* ---------------------------------------------------------------- LPUART3 */
 
 static void test_uart_init_programs_the_divisor_and_enables(void)
 {
@@ -74,8 +76,8 @@ static void test_uart_init_programs_the_divisor_and_enables(void)
     TEST_ASSERT_EQUAL_HEX32(0x002C0000u, m->lpuart.ctrl);      /* TE | RE | RIE */
     TEST_ASSERT_EQUAL_HEX32(0x00000000u, m->lpuart.global);    /* out of reset */
     TEST_ASSERT_EQUAL_UINT32(1u, m->lpuart.resets);
-    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.iser[2]);
-    TEST_ASSERT_EQUAL_HEX32(0x00000010u, m->nvic.icpr[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000001u, m->nvic.iser[2]);
+    TEST_ASSERT_EQUAL_HEX32(0x00000001u, m->nvic.icpr[2]);
     TEST_ASSERT_EQUAL_HEX32(0u, m->nvic.iser[0] | m->nvic.iser[1]);
     TEST_ASSERT_EQUAL_UINT32(1u, routes);                       /* the pads asked */
     TEST_ASSERT_EQUAL_UINT32(0u, lpuart_resets_at_route);       /* before the UART */

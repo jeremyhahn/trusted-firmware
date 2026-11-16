@@ -111,6 +111,12 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 	   --board-profile $(BOARD_DIR)/board_profile.h --version $(ESP_IMAGE_VERSION) \
 	   --image-key $(ESP_IMAGE_KEY) --sign-key $(ESP_SIGN_KEY) --suit-emit $(SUIT_EMIT_BIN)
 	@echo "built $(ESP_OUT)/trusted-firmware.bin ($(BOARD) on $(ESP_TARGET), $(CRYPTO) tier) and $(ESP_OUT)/tfw_plat.bin"
+	@# The application link path (#461): an image built without APP_DIR also
+	@# builds the in-tree example into its own ESP_OUT and checks the linked
+	@# image for its symbols (app-firmware-check), so the one ESP32 build CI
+	@# runs fails when that path breaks. Not under make -n (the overlay selftest)
+	@# nor ESP_APP_CHECK=0.
+	$(if $(APP_DIR)$(filter 1,$(PROVISION))$(filter 0,$(ESP_APP_CHECK))$(findstring n,$(firstword -$(MAKEFLAGS))),,@$(MAKE) --no-print-directory app-firmware-check BOARD=$(BOARD) ESP_TARGET=$(ESP_TARGET) CRYPTO=$(CRYPTO))
 
 ## esp32-qemu-test: Espressif's QEMU: secure boot v2 and layer 0's ES256 gate, CDI and DeviceID across reboots, tampered and mis-sealed images and manifests refused, the wire over Ethernet
 # Both machines of boards/esp32-qemu. The esp32c3 run (hmac-p256 tier) carries

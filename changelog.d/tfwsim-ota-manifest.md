@@ -5,5 +5,5 @@
   sdk-test` builds both first. The SDK's end-to-end tests for SPEC row ota
   drive it: an image the manifest names activates, one it does not name or
   one with no manifest is refused. When either binary is not built the tests
-  skip, naming each one and the make target that builds them; every other
-  launch or run error fails.
+  fail, naming it and make tfwsim-manifest, as does every other launch or run
+  error.

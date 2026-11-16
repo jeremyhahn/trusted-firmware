@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -33,9 +32,8 @@ import (
 // tfwsim-manifest is the element tier with src/core/ota_manifest.c linked, and
 // suit-emit is mk/suit.mk's emitter built against the same host board's
 // profile. Both come from `make tfwsim-manifest`, which `make sdk-test` builds
-// first; SPEC row ota's tests skip, naming each one and that target, when
-// either is not built (manifestBinaries), and every other launch or run error
-// fails.
+// first; a missing one fails the test with the NotBuiltError that names that
+// target (manifestBinaries), as does every other launch or run error.
 var (
 	manifestSim  = simproc.Binary{Name: "tfwsim-manifest", Make: "make tfwsim-manifest"}
 	manifestEmit = simproc.Binary{Name: "suit-emit", Make: "make tfwsim-manifest"}
@@ -52,20 +50,13 @@ const (
 // seeds it), and opens the operator
 // session OTA_ACTIVATE needs; nothing is staged yet, so the chained activate
 // is refused BAD_STATE.
-// manifestBinaries skips the test, naming each of tfwsim-manifest and
-// suit-emit that is not built and the make target that builds them; a Locate error other than NotBuiltError fails.
+// manifestBinaries fails the test when tfwsim-manifest or suit-emit is not
+// built; simproc's NotBuiltError names the binary and make tfwsim-manifest.
 func manifestBinaries(t *testing.T) {
 	t.Helper()
-	var missing []string
 	for _, b := range []simproc.Binary{manifestSim, manifestEmit} {
-		if _, err := simproc.Locate(b); err != nil {
-			var notBuilt *simproc.NotBuiltError
-			require.ErrorAs(t, err, &notBuilt)
-			missing = append(missing, b.Name)
-		}
-	}
-	if len(missing) > 0 {
-		t.Skipf("not built: %s; build them with make tfwsim-manifest", strings.Join(missing, ", "))
+		_, err := simproc.Locate(b)
+		require.NoError(t, err)
 	}
 }
 
@@ -194,17 +185,4 @@ func TestE2EOTAManifestImageKeyOnlyInManifestSim(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, b == manifestSim, bytes.Contains(bin, seed), "%s carries the TEST image key seed", b.Name)
 	}
-}
-
-// TestE2EOTAManifestSkipsWhenNotBuilt: with tfwsim-manifest and suit-emit
-// absent from the simulator directory, manifestBinaries skips rather than
-// fails the test (SPEC row ota's named skip, #396 review).
-func TestE2EOTAManifestSkipsWhenNotBuilt(t *testing.T) {
-	t.Setenv(simproc.DirEnv, t.TempDir())
-	var sub *testing.T
-	require.True(t, t.Run("absent", func(t *testing.T) {
-		sub = t
-		manifestBinaries(t)
-	}))
-	require.True(t, sub.Skipped())
 }

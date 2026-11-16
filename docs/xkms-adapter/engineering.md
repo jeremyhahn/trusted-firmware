@@ -73,14 +73,18 @@ what CI runs.
 2. The comment on `enrollOnce` in `xkms/e2e/hw_enroll_test.go` points at
    `TestDeviceAttestDICEEnrollsTheRealFirmware`, which does not exist; renaming
    it to `TestSoftRootEnrollsThroughDeviceAttest01` touches that file only and
-   is proved by `make xkms-e2e-soft` staying green.
+   is proved by `make xkms-e2e-soft` staying green. **Done:** the comment
+   names `TestSoftRootEnrollsThroughDeviceAttest01`.
 3. **Hardware (#7).** Run `make hw-enroll DEVICE=<port> DEVICEID=<hex>` on a
    provisioned board and record the run in `docs/xkms-adapter/user.md`, proved
    by `xkms/e2e/hw_enroll_test.go: TestHardwareEnrollment` passing on the board.
 4. Pin "reaches the wire only through `sdk/go`" with a unit test in a new
    `xkms/avr/boundary_test.go` that parses the package's non-test files and
    fails on an import that opens a link of its own (`net`, a serial package),
-   proved by `make xkms-test`.
+   proved by `make xkms-test`. **Done:**
+   `TestPackageReachesTheWireOnlyThroughSDK` (with
+   `TestOpensALinkOfItsOwnNamesTheNetworkAndSerialPorts`) fails naming the file
+   and import of any `net`, `net/*` or `*serial*` import.
 5. **Another project.** go-quicbaas's composition passes this backend to
    go-xkms, and go-trusted-platform and xkey never import `xkms/`: each is a
    test or import check in that project (requirements 4 and 5), with nothing to

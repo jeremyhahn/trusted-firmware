@@ -119,7 +119,7 @@ static void test_the_last_byte_lands_and_one_past_the_size_is_range(void)
 }
 
 /* Below TFW_BOOT_EE_LEN only the confirm request is written, into the
- * platform window as the generic file stores it, with no flash erase; any
+ * platform sector with that sector's one erase; any
  * other write there is TFW_ERR_RANGE and changes nothing. */
 static void test_the_boot_area_takes_only_the_confirm_request(void)
 {
@@ -138,7 +138,35 @@ static void test_the_boot_area_takes_only_the_confirm_request(void)
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req, sizeof req));
     TEST_ASSERT_EQUAL_HEX8_ARRAY(req, &PLATFORM[TFW_BOOT_CONFIRM_ADDR], sizeof req);
-    TEST_ASSERT_EQUAL_UINT(0u, n_erases);
+    TEST_ASSERT_EQUAL_UINT(1u, n_erases);
+}
+
+/* The confirm request goes through the flash helper into the platform
+ * sector, where tfw-boot reads it: one erase of that sector, the request's
+ * bytes read back from the NOR model, the sector's other bytes kept, the user
+ * sector untouched, and tfw_hal_eeprom_read giving the request back. A plain
+ * store through XIP would leave the part's flash unchanged. */
+static void test_the_confirm_request_is_programmed_into_the_platform_sector(void)
+{
+    uint8_t req[TFW_BOOT_CONFIRM_LEN];
+    uint8_t back[TFW_BOOT_CONFIRM_LEN];
+    uint32_t i;
+
+    for (i = 0u; i < sizeof req; i++) {
+        req[i] = (uint8_t)(0x10u + i);
+    }
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req, sizeof req));
+    TEST_ASSERT_EQUAL_UINT(1u, n_erases);
+    TEST_ASSERT_EQUAL_HEX32(PLATFORM_OFF, erases[0]);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(req, &PLATFORM[TFW_BOOT_CONFIRM_ADDR], sizeof req);
+    for (i = 0u; i < TFW_RP_FLASH_SECTOR; i++) {
+        if (i < TFW_BOOT_CONFIRM_ADDR || i >= TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN) {
+            TEST_ASSERT_EQUAL_HEX8(0xA5, PLATFORM[i]);
+        }
+    }
+    TEST_ASSERT_EACH_EQUAL_HEX8(0xFF, USER_EE, TFW_RP_FLASH_SECTOR);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(TFW_BOOT_CONFIRM_ADDR, back, sizeof back));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(req, back, sizeof back);
 }
 
 /* A read across the boot area's end takes the boot bytes from the platform
@@ -321,6 +349,7 @@ int main(void)
     RUN_TEST(test_a_second_write_keeps_the_rest_of_the_sector);
     RUN_TEST(test_the_last_byte_lands_and_one_past_the_size_is_range);
     RUN_TEST(test_the_boot_area_takes_only_the_confirm_request);
+    RUN_TEST(test_the_confirm_request_is_programmed_into_the_platform_sector);
     RUN_TEST(test_a_read_across_the_boot_areas_end_joins_both);
     RUN_TEST(test_a_write_to_the_user_sectors_end_never_erases_the_platform_sector);
     RUN_TEST(test_a_read_back_mismatch_is_internal);

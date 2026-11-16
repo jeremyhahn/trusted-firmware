@@ -372,7 +372,7 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | One application per image, no dynamic loading | done | one `APP_DIR` at `mk/app.mk:30`; strong hook symbols, no weak default (`include/tfw/app.h:10`) | `make app-link-check` (`mk/app.mk`): the example linked beside `test/mock/app_mock.c` must fail on a multiple definition of a `tfw_app_` hook; `test_app_example.c` links exactly one application (the mock filtered out) |
 | The runner is the only caller of a hook (invariant 1) | done | outside `src/core/app_runner.c`, `src/` names only `tfw_app_runner_*`, `tfw_app_config_*` and `tfw_app_cmd_info` | `make app-link-check` fails on a hook named in any other file of `src/`; `make app-link-check-selftest` plants a call in `main.c` and sees it named; `test_app.c`: `test_a_stopped_application_is_not_run_or_stopped_again` proves the order |
 | Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; `after_update` (`changelog.d/51-after-update.md`) and the evidence hook are unreleased, so the released hook set is not `main`'s | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
-| Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; the ESP32 build hands ESP-IDF `FW_SRCS` only (`mk/arch/esp32-targets.mk:97`), not `APP_SRCS` | `make app-firmware-check` (`mk/app.mk:120`), in CI for `BOARD=atmega2560` only (`mk/stages.mk:55`); `make app-header-check` against every board; slice 2 |
+| Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; on an ESP32 board `make esp32-build APP_DIR=<path>` hands ESP-IDF `APP_SRCS` and `APP_FW_CFLAGS` (`mk/arch/esp32-targets.mk`), an object library of its own in `mk/arch/esp32/main/CMakeLists.txt` | `make app-firmware-check` (`mk/app.mk`), which fails unless the image holds one of the application's symbols, in the `build` stage for `BOARD=atmega2560` and `BOARD=mps2-an505` (`mk/stages.mk`); `BOARD=esp32-qemu` needs ESP-IDF, in no CI image; `make app-header-check` against every board; slice 2 |
 | The same firmware, application, board and tier give the same image | done | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check APP_DIR=test/app/example BOARD=atmega2560` (`mk/firmware.mk`, through `scripts/repro_build.py --app-dir`), in the `build` stage (`mk/stages.mk`), beside the one without `APP_DIR`; `scripts/test_repro_build.py`: `test_an_application_in_the_tree_is_the_committed_one_in_each_copy`, `test_an_application_outside_the_tree_is_one_directory_for_both` |
 
 Counts: 15 done, 3 partial, 0 not started.
@@ -384,7 +384,11 @@ Counts: 15 done, 3 partial, 0 not started.
    is `main`'s interface: `CHANGELOG.md` and `VERSION` by the release process,
    proved by `make app-sdk-check` at the tag. Owner decision: when to cut it
    (DS-7488, VERSION waits for the next real release).
-2. **Applications on every architecture.** `mk/arch/esp32-targets.mk` passes
+2. **Applications on every architecture.** Done but for the ESP32 run:
+   `make app-firmware-check BOARD=mps2-an505` beside the ATmega2560 in the
+   `build` stage, and `esp32-build` compiles the application in; the
+   `BOARD=esp32-qemu` run waits for ESP-IDF in a CI image (an infrastructure
+   decision), so the row stays partial. `mk/arch/esp32-targets.mk` passes
    `APP_SRCS` and `APP_FW_CFLAGS` to the ESP-IDF component, and
    `mk/stages.mk` runs `app-firmware-check` for one Cortex-M board (QEMU
    `mps2-an505`) and one ESP32 board beside the ATmega2560, proved by those
@@ -413,7 +417,7 @@ Counts: 15 done, 3 partial, 0 not started.
    first; no code until the owner rules
    ([architecture.md](architecture.md#what-it-does-not-do)).
 
-The row is not done: slices 3 and 4 are done; 1 and 2 are this project's and need no hardware;
+The row is not done: slices 3 and 4 are done, 2 but for its ESP32 run in CI; 1 is this project's and needs no hardware;
 5 and 6 wait on another project or the owner. Open question 1 below is
 decided.
 

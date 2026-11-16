@@ -11,7 +11,13 @@
 # install, outside the clone, is in docs/multi-arch/adr-esp-idf-integration.md.
 
 ESP_ROOT      := $(BUILD_DIR)/esp32
-ESP_OUT        = $(ESP_ROOT)/$(BOARD)-$(ESP_TARGET)-$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov)
+ESP_OUT        = $(ESP_ROOT)/$(BOARD)-$(ESP_TARGET)-$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov)$(APP_SUFFIX)
+# An application (APP_DIR, mk/app.mk) is its own list, compiled with
+# mk/firmware.mk's APP_FW_CFLAGS and not the firmware's: include/, the HAL and
+# the board only, never src/. Its -I flags and board header are relative to
+# this directory, so the component sets those itself, absolute.
+ESP_APP_SRCS   = $(addprefix $(APP_ABS)/,$(APP_SRCS))
+ESP_APP_CFLAGS = $(filter-out -I% -DTFW_BOARD_HEADER=%,$(APP_FW_CFLAGS))
 # Generated on first build, never committed, shared by every ESP32 image this
 # build directory holds. The QEMU test burns its digest into emulated eFuses.
 ESP_SIGN_KEY  := $(ESP_ROOT)/keys/secure_boot_signing_key.pem
@@ -95,7 +101,9 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 	   -DSDKCONFIG_DEFAULTS="$(abspath $(ESP_PROJECT)/sdkconfig.defaults);$(abspath $(BOARD_DIR)/sdkconfig.defaults);$(if $(ESP_SDKCONFIG_EXTRA),$(call esp_list,$(abspath $(ESP_SDKCONFIG_EXTRA)));)$(abspath $(ESP_OUT))/sdkconfig.build" \
 	   -DTFW_ROOT=$(CURDIR) -DTFW_BOARD_DIR=$(abspath $(BOARD_DIR)) \
 	   -DTFW_SRCS="$(call esp_list,$(abspath $(FW_SRCS) $(ARCH_EXTRA_SRCS)))" \
-	   -DTFW_DEFS="$(call esp_list,$(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(STAGE_DEFS))" \
+	   -DTFW_DEFS="$(call esp_list,$(PROV_DEFS) $(ALIAS_DEFS) $(AUTH_DEFS) $(STAGE_DEFS) $(APP_DEFS))" \
+	   -DTFW_APP_SRCS="$(call esp_list,$(ESP_APP_SRCS))" \
+	   -DTFW_APP_CFLAGS="$(call esp_list,$(ESP_APP_CFLAGS))" \
 	   build > $(ESP_OUT)/build.log 2>&1 || { tail -n 40 $(ESP_OUT)/build.log; \
 	   echo "esp32-build: FAILED, full log in $(ESP_OUT)/build.log"; exit 1; }
 	@python $(ESP_L0_SEAL) seal $(ESP_OUT)/idf/trusted-firmware.bin $(ESP_OUT)/trusted-firmware.bin \

@@ -78,6 +78,17 @@ RUN set -eu; \
     echo "${sum}  /tmp/${f}" > /tmp/trivy.sha256; \
     sha256sum -c /tmp/trivy.sha256; \
     tar -xzf "/tmp/${f}" -C /out trivy; \
+    rm -f "/tmp/${f}"; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) ;; \
+      *) echo "no gh pin for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    d="gh_${GH_VERSION#v}_linux_amd64"; \
+    f="${d}.tar.gz"; \
+    curl -fsSL -o "/tmp/${f}" "https://github.com/cli/cli/releases/download/${GH_VERSION}/${f}"; \
+    echo "${GH_SHA256}  /tmp/${f}" > /tmp/gh.sha256; \
+    sha256sum -c /tmp/gh.sha256; \
+    tar -xzf "/tmp/${f}" -C /out --strip-components=2 "${d}/bin/gh"; \
     rm -f "/tmp/${f}"
 
 # ---------------------------------------------------------------------------

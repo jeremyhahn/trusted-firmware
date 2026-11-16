@@ -80,3 +80,9 @@ HELD_GOVULNCHECK="the fleet template's pin (ci-template v1.18); the next one com
 TRIVY_VERSION=v0.76.2
 TRIVY_SHA256_LINUX_AMD64=bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
 TRIVY_SHA256_LINUX_ARM64=ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3
+
+# gh: the forge CLI lanes call (node-prep refuses an image without it); a
+# release archive, checked against this digest (upstream's
+# gh_<version>_checksums.txt) before it is unpacked.
+GH_VERSION=v2.103.3
+GH_SHA256=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d

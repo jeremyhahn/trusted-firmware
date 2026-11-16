@@ -71,6 +71,20 @@ static void test_off_stops_the_armed_receive(void)
     TEST_ASSERT_EQUAL_UINT32(1u, TFW_NRF_UARTE_RX_STOP);
 }
 
+/* RX.STOP completes at the next RXTO lookup (event_wait looks the event up
+ * once, then spins on it); until it has, the UARTE still owns the receive into
+ * RAM the application reuses, so ENABLE must not be touched, and the stop must
+ * have been seen through to RXTO (the task consumed). */
+static void test_off_disables_only_after_rxto(void)
+{
+    tfw_boot_uart_init(BAUD);
+    tfw_nrf54l_model_late_task(&TFW_NRF_UARTE_RX_STOP, &TFW_NRF_UARTE_RXTO, 0u,
+                               &TFW_NRF_UARTE_ENABLE);
+    tfw_cm_boot_uart_off();
+    TEST_ASSERT_EQUAL_UINT(0u, tfw_nrf54l_model_blocked());
+    TEST_ASSERT_EQUAL_UINT32(0u, TFW_NRF_UARTE_RX_STOP);
+}
+
 /* ...and the UARTE and the console pins are back at their reset values. */
 static void test_off_restores_reset_values(void)
 {
@@ -107,6 +121,7 @@ int main(void)
     RUN_TEST(test_rx_rearms_one_byte);
     RUN_TEST(test_tx_sends_one_byte);
     RUN_TEST(test_off_stops_the_armed_receive);
+    RUN_TEST(test_off_disables_only_after_rxto);
     RUN_TEST(test_off_restores_reset_values);
     return UNITY_END();
 }

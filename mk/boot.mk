@@ -773,6 +773,17 @@ $(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l
 	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
 	  $(filter-out %/boot_rram.c %.h,$^) $(EXTRA_LDFLAGS)
 
+# host-test runs the register-model suites of tfw-boot's RP2350 and nRF54L
+# halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
+# file, so they reach host-test as a prerequisite with its own verdict; a make
+# asked for both host-test and boot-test still runs each binary once.
+BOOT_SOC_HOST_TEST_BINS := $(BOOT_TEST_DIR)/test_boot_rp2350_uart $(BOOT_TEST_DIR)/test_boot_rp2350_rom \
+                           $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram
+.PHONY: boot-soc-host-test
+boot-soc-host-test: $(BOOT_SOC_HOST_TEST_BINS) $(addsuffix .run,$(BOOT_SOC_HOST_TEST_BINS))
+	@$(call test-verdict,$(BOOT_SOC_HOST_TEST_BINS))
+host-test: boot-soc-host-test
+
 # The ESP32 boot HAL itself (#48, #163), boot/hal/esp32/boot_hal_esp32.c, over
 # stand-ins for the ESP-IDF bootloader calls it makes, which live beside its
 # test (test/unit/boot/boot_hal_esp32/). The real flash_span.c and the layer 0

@@ -60,8 +60,11 @@ void test_app_table_has_all_three_guards(void)
     TEST_ASSERT_EQUAL_HEX32(0x00000000uL | TFW_CM_MPU_RBAR_VALID | TFW_CM_MPU_NULL, t[TFW_CM_MPU_NULL].rbar);
     TEST_ASSERT_EQUAL_HEX32(RASR_NOACCESS(4u), t[TFW_CM_MPU_NULL].rasr);   /* 32 bytes */
 
-    TEST_ASSERT_EQUAL_HEX32(0x20000a60uL | TFW_CM_MPU_RBAR_VALID | TFW_CM_MPU_STACK, t[TFW_CM_MPU_STACK].rbar);
-    TEST_ASSERT_EQUAL_HEX32(RASR_NOACCESS(4u), t[TFW_CM_MPU_STACK].rasr);
+    TEST_ASSERT_EQUAL_HEX32(0x20000c00uL | TFW_CM_MPU_RBAR_VALID | TFW_CM_MPU_STACK, t[TFW_CM_MPU_STACK].rbar);
+    TEST_ASSERT_EQUAL_HEX32(RASR_NOACCESS(9u), t[TFW_CM_MPU_STACK].rasr);  /* 1 KiB */
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_MPU_STACK_GUARD, bytes_of(TFW_CM_MPU_STACK));
+    /* Larger than any frame the build lets through (hal_mpu.h). */
+    TEST_ASSERT_TRUE(bytes_of(TFW_CM_MPU_STACK) >= TFW_CM_FRAME_MAX + TFW_CM_FRAME_MARGIN);
     TEST_ASSERT_TRUE(base_of(TFW_CM_MPU_STACK) >= AN500_HEAP);
 
     TEST_ASSERT_EQUAL_HEX32(AN500_BOOT_BASE | TFW_CM_MPU_RBAR_VALID | TFW_CM_MPU_BOOT, t[TFW_CM_MPU_BOOT].rbar);
@@ -87,7 +90,7 @@ void test_boot_table_keeps_its_own_region_and_vectors(void)
     assert_all_rules();
     TEST_ASSERT_EQUAL_HEX32(0u, t[TFW_CM_MPU_NULL].rasr);   /* its vectors are at 0 */
     TEST_ASSERT_EQUAL_HEX32(0u, t[TFW_CM_MPU_BOOT].rasr);   /* its own code */
-    TEST_ASSERT_EQUAL_HEX32(RASR_NOACCESS(4u), t[TFW_CM_MPU_STACK].rasr);
+    TEST_ASSERT_EQUAL_HEX32(RASR_NOACCESS(9u), t[TFW_CM_MPU_STACK].rasr);
 }
 
 void test_aligned_stack_floor_is_the_guard_base(void)

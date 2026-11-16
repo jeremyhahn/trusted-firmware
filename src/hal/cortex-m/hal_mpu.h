@@ -6,7 +6,7 @@
  * MPU holds three no-access, execute-never regions:
  *
  *   TFW_CM_MPU_NULL   32 bytes at address 0, so a null dereference faults
- *   TFW_CM_MPU_STACK  32 bytes at the stack's floor, so an overflow faults
+ *   TFW_CM_MPU_STACK  1 KiB at the stack's floor, so an overflow faults
  *                     before it reaches .noinit, .bss or .data
  *   TFW_CM_MPU_BOOT   tfw-boot's region, hidden from the application
  *
@@ -30,6 +30,25 @@
 
 #define TFW_CM_MPU_GUARD    32u            /* the smallest PMSAv7 region */
 
+/*
+ * The stack guard's guarantee. A function's frame, the space its prologue
+ * takes below the caller's SP, is at most TFW_CM_FRAME_MAX bytes: mk/arch/
+ * cortex-m.mk builds every Cortex-M object and LTO link with
+ * -Werror=frame-larger-than=$(CM_FRAME_MAX), -Werror=vla and -Werror=alloca,
+ * and hal_mpu.c fails to compile when the two numbers differ. The guard is
+ * larger than any frame plus the margin GCC's frame figure may leave out (the
+ * callee-saved push, 36 bytes, and the 32-byte soft-float exception frame with
+ * its 4-byte realignment), so SP cannot step from above the guard to below it
+ * in one frame: the first push or store below the guard's top lands in the
+ * guard and faults. A stack that grows below the guard without crossing it is
+ * impossible: every frame starts at an SP still at or above the guard's base.
+ */
+#define TFW_CM_FRAME_MAX        512u
+#define TFW_CM_FRAME_MARGIN     72u
+#define TFW_CM_MPU_STACK_GUARD  1024u      /* a power of two, aligned to itself */
+_Static_assert(TFW_CM_FRAME_MAX + TFW_CM_FRAME_MARGIN <= TFW_CM_MPU_STACK_GUARD,
+               "the stack guard must be larger than any frame");
+
 /* MPU_RBAR: the base, VALID and the region number. */
 #define TFW_CM_MPU_RBAR_VALID   (1u << 4)
 /* MPU_RASR: XN, AP (000 = no access), SIZE (2^(SIZE+1) bytes), ENABLE. */
@@ -49,7 +68,8 @@ typedef struct {
  * region is boot_base, boot_size (a power of two, aligned to itself):
  *
  *   - the null guard unless the image's vectors sit at 0 (tfw-boot at 0);
- *   - the stack guard at the first 32-byte boundary at or above stack_floor,
+ *   - the TFW_CM_MPU_STACK_GUARD-byte stack guard at the first boundary of
+ *     its size at or above stack_floor,
  *     none when stack_floor is 0;
  *   - tfw-boot hidden unless image_base is inside tfw-boot's region.
  *

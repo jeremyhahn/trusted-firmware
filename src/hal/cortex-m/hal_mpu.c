@@ -8,6 +8,12 @@
 
 #include "hal_mpu.h"
 
+/* The build's frame bound (mk/arch/cortex-m.mk, CM_FRAME_MAX) is the one the
+ * stack guard is sized for; the host test build passes none. */
+#if defined(TFW_CM_FRAME_MAX_BUILD) && (TFW_CM_FRAME_MAX_BUILD != TFW_CM_FRAME_MAX)
+#error "CM_FRAME_MAX in mk/arch/cortex-m.mk differs from TFW_CM_FRAME_MAX in hal_mpu.h"
+#endif
+
 #if !defined(TFW_CM_MPU_TABLE_ONLY)
 #include "tfw/config.h"
 #include "cm_regs.h"
@@ -51,9 +57,10 @@ int tfw_cm_mpu_table(tfw_cm_mpu_region_t out[TFW_CM_MPU_REGIONS],
         mpu_noaccess(&out[TFW_CM_MPU_NULL], TFW_CM_MPU_NULL, 0u, TFW_CM_MPU_GUARD);
     }
     if (stack_floor != 0u) {
-        uint32_t base = (stack_floor + (TFW_CM_MPU_GUARD - 1u)) & ~(TFW_CM_MPU_GUARD - 1u);
+        uint32_t base = (stack_floor + (TFW_CM_MPU_STACK_GUARD - 1u)) &
+                        ~(TFW_CM_MPU_STACK_GUARD - 1u);
 
-        mpu_noaccess(&out[TFW_CM_MPU_STACK], TFW_CM_MPU_STACK, base, TFW_CM_MPU_GUARD);
+        mpu_noaccess(&out[TFW_CM_MPU_STACK], TFW_CM_MPU_STACK, base, TFW_CM_MPU_STACK_GUARD);
     }
     if (image_base - boot_base >= boot_size) {
         mpu_noaccess(&out[TFW_CM_MPU_BOOT], TFW_CM_MPU_BOOT, boot_base, boot_size);

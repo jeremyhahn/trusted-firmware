@@ -103,6 +103,36 @@ CM_QEMU_PULSE_BUILD  := $(BUILD_DIR)/qemu-pulse
 CM_QEMU_ONEWIRE_BOARDS := mps2-an505 mps2-an500
 CM_QEMU_ONEWIRE_BUILD  := $(BUILD_DIR)/qemu-onewire
 
+## cm-frame-bound-check: the Cortex-M build refuses a frame past TFW_CM_FRAME_MAX, and a VLA (row 482)
+# The MPU's stack guard holds only while no frame is larger than it
+# (src/hal/cortex-m/hal_mpu.h). test/unit/cm_frame_probe.c is compiled and
+# LTO-linked with the image's own flags (mk/arch/cortex-m.mk CM_FRAME_CFLAGS)
+# on the M7 board that arms the MPU: a frame well under the bound links, one
+# just past it and one past the guard are refused for their frame size, and a
+# VLA is refused as one. bootloader-check runs it, so the build stage does.
+CM_FRAME_PROBE_BOARD ?= mps2-an500
+cm-frame-bound-check:
+	@$(MAKE) --no-print-directory cm-frame-bound-probe BOARD=$(CM_FRAME_PROBE_BOARD)
+
+CM_FRAME_PROBE_DIR := $(BUILD_DIR)/cm-frame-probe
+cm-frame-bound-probe:
+	@d=$(CM_FRAME_PROBE_DIR); mkdir -p $$d; \
+	 probe() { $(ARCH_CC) -std=c11 -Wall -Wextra -Werror $(ARCH_MACH_CFLAGS) $(ARCH_OPT_CFLAGS) \
+	             -c -o $$d/probe.o test/unit/cm_frame_probe.c "$$1" > $$d/probe.log 2>&1 && \
+	           $(ARCH_CC) $(ARCH_LDFLAGS) -nostdlib -Wl,-e,probe_entry -o $$d/probe.elf $$d/probe.o \
+	             >> $$d/probe.log 2>&1; }; \
+	 fail=0; \
+	 probe -DPROBE_FRAME=256 || { echo "$@: a 256-byte frame is refused:"; cat $$d/probe.log; fail=1; }; \
+	 for n in $$(( $(CM_FRAME_MAX) + 8 )) 2048; do \
+	   if probe -DPROBE_FRAME=$$n; then echo "$@: a $$n-byte frame links past the $(CM_FRAME_MAX)-byte bound"; fail=1; \
+	   elif ! grep -q 'frame size of' $$d/probe.log; then echo "$@: a $$n-byte frame failed, not for its size:"; cat $$d/probe.log; fail=1; fi; \
+	 done; \
+	 if probe -DPROBE_VLA; then echo "$@: a variable-length array links"; fail=1; \
+	 elif ! grep -q 'variable length array' $$d/probe.log; then echo "$@: the VLA failed, not as one:"; cat $$d/probe.log; fail=1; fi; \
+	 [ $$fail = 0 ] && echo "$@: $(BOARD) refuses frames past $(CM_FRAME_MAX) bytes and VLAs"; exit $$fail
+
+.PHONY: cm-frame-bound-check cm-frame-bound-probe
+
 ## integration-test-cortex-m: QEMU mps2-an505 (M33) and mps2-an500 (M7): tfw-boot verifies and boots the firmware across a reset; a tampered image and another key's stay silent; on mps2-an505 the tamper-response loop decides as its sets require
 #
 # One board after the other, not in parallel: a red board names itself, and

@@ -449,7 +449,7 @@ BOOT_SUPPORTED := \
 
 # A row's optional seventh field, ab, is BOOT_AB=1; a row without it leaves
 # BOOT_AB to the board's profile.mk (1 on the 2560, 0 on the MPS2 boards).
-bootloader-check:
+bootloader-check: cm-frame-bound-check
 	@fail=0; \
 	for row in $(BOOT_SUPPORTED); do \
 	  b=$${row%%:*}; r=$${row#*:}; \

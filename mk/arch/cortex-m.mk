@@ -47,8 +47,20 @@ ARCH_RAM_USED = $(ARCH_SIZE) -A -d $(1) | awk '$$3 >= $(CM_RAM_LO) && $$3 < $(CM
 # Soft float on every core: no image here uses floating point, and the FPU's
 # lazy-stacking state would be one more thing tfw-boot hands across.
 ARCH_MACH_CFLAGS := -mcpu=$(CPU) -mthumb -mfloat-abi=soft
+
+# The stack frame bound the MPU's stack guard rests on (src/hal/cortex-m/
+# hal_mpu.h, TFW_CM_FRAME_MAX, row 482): no function's frame may exceed
+# CM_FRAME_MAX bytes and no frame may grow at run time (no VLA, no alloca), so
+# a call that overflows the stack lands in the guard, which is larger than any
+# frame, and faults before it reaches .noinit, .bss or .data. An error, not a
+# warning, on every object, the vendored ones too (they run on the same stack),
+# and on the LTO link as well, where inlining builds the frames that ship.
+# hal_mpu.c fails its compile if TFW_CM_FRAME_MAX differs from this number.
+CM_FRAME_MAX    := 512
+CM_FRAME_CFLAGS := -Werror=frame-larger-than=$(CM_FRAME_MAX) \
+                   -Werror=vla -Werror=alloca -DTFW_CM_FRAME_MAX_BUILD=$(CM_FRAME_MAX)
 ARCH_OPT_CFLAGS  := -Os -flto -ffunction-sections -fdata-sections \
-                    -fno-fat-lto-objects
+                    -fno-fat-lto-objects $(CM_FRAME_CFLAGS)
 
 # -nostartfiles: the vector table and the reset handler are the HAL's
 # (src/hal/cortex-m/hal_early.c), shared by both images, not the crt's.
@@ -56,7 +68,7 @@ ARCH_OPT_CFLAGS  := -Os -flto -ffunction-sections -fdata-sections \
 # calls; nano.specs is the small newlib.
 ARCH_LDFLAGS := -mcpu=$(CPU) -mthumb -mfloat-abi=soft -Os -flto \
                 -specs=nano.specs -specs=nosys.specs -nostartfiles \
-                -Wl,--gc-sections
+                -Wl,--gc-sections $(CM_FRAME_CFLAGS)
 
 ARCH_BOOT_OPT_CFLAGS :=
 

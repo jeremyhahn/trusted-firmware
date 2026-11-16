@@ -121,9 +121,13 @@ tfwsim-app-example:
 # An ESP32 board's image is ESP-IDF's (`make firmware` refuses one), so it is
 # esp32-build there, which needs ESP-IDF exported. The image must then hold one
 # of the application's own symbols, a hook or the descriptor: nm of the ELF,
-# or ESP-IDF's map file. LTO may inline a hook, never all of them and the
-# descriptor; the runner's tfw_app_runner_* are not the application's.
+# or on ESP32 scripts/app_symbols.py on ESP-IDF's ELF (no nm is exported for
+# the tree). Never a linker map: it lists the input sections --gc-sections
+# discarded, so a dropped application would pass. LTO may inline a hook, never
+# all of them and the descriptor; the runner's tfw_app_runner_* are not the
+# application's.
 APP_OWN_SYMBOLS := tfw_app_(descriptor|init|run|shutdown|before_update|after_update|evidence)
+APP_SYMBOLS     := python3 scripts/app_symbols.py
 app-firmware-check:
 	@t=$(abspath $(BUILD_DIR))/app-firmware-check/$(BOARD) && rm -rf "$$t" && mkdir -p "$$t" && \
 	cp -a test/app/example/. "$$t/" && \
@@ -131,7 +135,7 @@ app-firmware-check:
 	rm -rf $$d && trap 'rm -rf "$$t" '"$$d" EXIT && \
 	$(MAKE) --no-print-directory $(if $(filter esp32,$(ARCH)),esp32-build,firmware) APP_DIR="$$t" BOARD=$(BOARD) && \
 	img=$$($(MAKE) --no-print-directory -s app-image APP_DIR="$$t" BOARD=$(BOARD)) && \
-	$(if $(filter esp32,$(ARCH)),grep -Eq '\b$(APP_OWN_SYMBOLS)\b' "$$img",$(ARCH_NM) "$$img" | grep -Eq ' $(APP_OWN_SYMBOLS)(\.|$$)') || \
+	$(if $(filter esp32,$(ARCH)),$(APP_SYMBOLS) "$$img" '$(APP_OWN_SYMBOLS)' > /dev/null,$(ARCH_NM) "$$img" | grep -Eq ' $(APP_OWN_SYMBOLS)(\.|$$)') || \
 	  { echo "app-firmware-check: $$img holds none of the application's symbols"; exit 1; }; \
 	echo "app-firmware-check: $(BOARD)'s image holds the example application"
 
@@ -144,7 +148,29 @@ app-obj-dirs:
 # The file app-firmware-check looks in for the application: the ELF, or on an
 # ESP32 board the map file ESP-IDF writes beside its ELF.
 app-image:
-	@echo $(if $(filter esp32,$(ARCH)),$(ESP_OUT)/idf/trusted-firmware.map,$(TARGET).elf)
+	@echo $(if $(filter esp32,$(ARCH)),$(ESP_OUT)/idf/trusted-firmware.elf,$(TARGET).elf)
+
+## app-firmware-check-selftest: the ESP32 image check counts only symbols the linked image keeps
+# The example linked on the host twice with --gc-sections: once with nothing
+# reaching it, so its sections are discarded though the map still names them,
+# and once kept. scripts/app_symbols.py must refuse the first and find the
+# second, and the first's map must name .text.tfw_app_, the case a map grep
+# accepted.
+app-firmware-check-selftest:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	$(CC) $(HOST_CFLAGS) -ffunction-sections -fdata-sections -c test/app/example/example.c -o "$$t/example.o" && \
+	printf 'int main(void) { return 0; }\n' > "$$t/main.c" && \
+	$(CC) $(HOST_CFLAGS) -c "$$t/main.c" -o "$$t/main.o" && \
+	$(CC) "$$t/main.o" "$$t/example.o" -Wl,--gc-sections -Wl,-Map="$$t/gone.map" -o "$$t/gone.elf" && \
+	grep -q '\.text\.tfw_app_' "$$t/gone.map" || \
+	  { echo "selftest: the discarded example's map names no .text.tfw_app_ section"; exit 1; }; \
+	if $(APP_SYMBOLS) "$$t/gone.elf" '$(APP_OWN_SYMBOLS)'; then \
+	  echo "selftest: app_symbols.py counted a discarded application"; exit 1; fi; \
+	$(CC) "$$t/main.o" "$$t/example.o" -Wl,--gc-sections -Wl,--undefined=tfw_app_init \
+	  -Wl,--unresolved-symbols=ignore-all -o "$$t/kept.elf" && \
+	$(APP_SYMBOLS) "$$t/kept.elf" '$(APP_OWN_SYMBOLS)' > /dev/null || \
+	  { echo "selftest: app_symbols.py missed the kept application"; exit 1; }; \
+	echo "app-firmware-check-selftest: a discarded application is refused, a kept one found"
 
 ## app-header-check: every public header compiles on its own, with an application's flags, against every board
 # An application repository sees include/tfw/, its board's board_profile.h and
@@ -271,7 +297,7 @@ app-link-check-selftest:
 	echo "app-link-check rejects a hook called outside the runner, on one line, split or parenthesised, and names the file"
 
 host-test: app-header-check app-link-check
-security: app-header-check-selftest app-link-check-selftest
+security: app-header-check-selftest app-link-check-selftest app-firmware-check-selftest
 
 .PHONY: app-sdk-check app-firmware-check app-obj-dirs app-image tfwsim-app-example app-header-check app-header-check-selftest \
-        app-link-check app-link-check-selftest
+        app-link-check app-link-check-selftest app-firmware-check-selftest

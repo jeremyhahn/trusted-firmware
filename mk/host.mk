@@ -1763,6 +1763,18 @@ $(HOST_DIR)/test_avr_sys_mutate: test/unit/hal/test_avr_sys_mutate.c src/hal/avr
                                  $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(AVR_HAL_TEST_CFLAGS) -Wno-pointer-to-int-cast $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# The Cortex-M hal_sys.c (row cortex-m, #458) on mps2-an505's profile. It
+# includes cm_regs.h from its own directory, so the host one is forced in
+# first and its guard keeps the core's asm out; its register file is unused,
+# so no register model is linked; cm_sys_model.c stands in for the
+# core's reset, the SoC's watchdog and the reset handler's latch.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_cortexm_sys
+$(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/hal_sys.c \
+                              test/model/cortex-m/cm_sys_model.c test/model/cortex-m/cm_regs.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MODEL_REGFILE -include test/model/cortex-m/cm_regs.h \
+	   -Itest/model/cortex-m -Isrc/hal/cortex-m -Iboards/mps2-an505 \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The host compiler cannot see that ATOMIC_BLOCK's stand-in loop runs once.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_tick_mutate
 $(HOST_DIR)/test_avr_tick_mutate: test/unit/hal/test_avr_tick_mutate.c src/hal/avr/hal_tick.c \
@@ -1988,6 +2000,7 @@ COVERAGE_FLOOR ?= 90
 # the AVR run and analysed in a run of their own. Rows that share a HAL each
 # leave out the others' SoC directories, so a SoC is analysed only under its
 # own board's header (stm32h5 asserts a clock mps2-an505's header does not set).
+# Each run names itself when clean, so the log shows every HAL was analysed.
 LINT_CPPCHECK = cppcheck --enable=warning,style,performance,portability \
 	          --check-level=exhaustive \
 	          --error-exitcode=1 --inline-suppr --quiet \
@@ -2010,11 +2023,12 @@ lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
 	          -i src/third_party \
 	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
 	          src/ boards/ boot/
+	@echo "cppcheck avr:atmega328p clean"
 	@$(foreach r,$(LINT_ARCH_RUNS),$(LINT_CPPCHECK) \
 	          -Isrc/hal/$(word 1,$(subst :, ,$(r))) -Iboot/hal/$(word 1,$(subst :, ,$(r))) \
 	          -Iboards/$(word 2,$(subst :, ,$(r))) -Iboot $(call lint-other-socs,$(r)) \
 	          $(LINT_SOC_DEFS_$(word 3,$(subst :, ,$(r)))) \
-	          $(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))) &&) true
+	          $(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))) && echo "cppcheck $(r) clean" &&) true
 	@echo "cppcheck clean"
 
 # The grep gates. Two of them used to live only in the CI workflow, which made
@@ -2402,7 +2416,11 @@ TFWSIM_OTABOOT_SRCS := $(filter-out src/proto/link_serial.c src/core/app_runner.
                        $(TFWSIM_LINK_SRCS) src/core/app_runner_none.c src/core/ota_trial_none.c
 
 ## tfwsim-otaboot: build the soft simulator of a 2560 image without the stager (OTA in tfw-boot)
-tfwsim-otaboot: $(HOST_DIR)/tfwsim-otaboot
+# The OTA simulators come as one set: tfwsim-otaboot also builds
+# tfwsim-manifest (OTA_ACTIVATE's SUIT manifest gate and suit-emit), so a
+# make line that names the OTA simulators, as the CI race leg's does, builds
+# the binaries e2e_ota_manifest_test.go fails without.
+tfwsim-otaboot: $(HOST_DIR)/tfwsim-otaboot tfwsim-manifest
 $(HOST_DIR)/tfwsim-otaboot: $(TFWSIM_COMMON) tools/tfwsim/tier_soft.c tools/tfwsim/boot_none.c $(TFWSIM_OTABOOT_SRCS) | $(HOST_DIR)
 	@$(HOST_CC) $(filter-out $(TFWSIM_SOFT_OFF),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) -Itools/tfwsim -o $@ \
 	   tools/tfwsim/main.c tools/tfwsim/tier_soft.c tools/tfwsim/boot_none.c $(TFWSIM_OTABOOT_SRCS) $(EXTRA_LDFLAGS)
@@ -2418,13 +2436,57 @@ TFWSIM_HSM_SRCS := src/core/suit.c src/core/suit_integrated.c src/core/hsm_paylo
                    src/core/hsm_engine.c src/core/hsm_cmd.c \
                    src/core/hsm_record.c src/core/hsm_store_ram.c tools/tfwsim/hsm_port.c
 TFWSIM_HSM_DEFS := -DTFW_FEATURE_HSM=1
+# The element tier's image-slot key where there is none (tools/tfwsim/image_key.h):
+# on every element variant's list but tfwsim-manifest's, which links image_key.c.
+TFWSIM_IMAGE_KEY_NONE := tools/tfwsim/image_key_none.c
 
 ## tfwsim-atecc608a: build the element-tier simulator (real ATECC608A driver, software element)
 tfwsim-atecc608a: $(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-atecc608a$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_ELEMENT_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
+# The element tier with OTA_ACTIVATE's manifest gate (#52; docs/ota/architecture.md,
+# "Not yet": the gate over tfwsim). mk/firmware.mk turns it on by FILE
+# SELECTION alone, with no define: on CRYPTO=atecc608a OTA_MANIFEST=1 it links
+# src/core/ota_manifest.c and src/core/suit.c where every other image links
+# src/core/ota_manifest_none.c. This binary is tfwsim-atecc608a with exactly
+# that swap -- the element tier because the gate's ES256 is
+# tfw_crypto_verify_image against the element's image slot, which the soft
+# provider answers TFW_ERR_UNSUPPORTED. The class id the gate compares is the
+# host board's profile's, so a manifest for it is emitted with
+# BOARD=$(HOST_BOARD). Every other simulator keeps ota_manifest_none.c.
+# suit.c itself is already on the link: TFWSIM_HSM_SRCS carries the reader for
+# the HSM channel's payloads, so only the gate is swapped in here.
+TFWSIM_MANIFEST_SRCS := $(filter-out src/core/ota_manifest_none.c,$(TFWSIM_ELEMENT_SRCS)) \
+                        src/core/ota_manifest.c
+# The gate's key is the element's image slot, which on a device PROV_* writes;
+# on this binary alone, --provision-element seeds it with the TEST image key
+# tools/tfwsim/image_key.c derives from a published string (kImageKeySeed).
+# FILE SELECTION, no define: every other element variant links
+# tools/tfwsim/image_key_none.c ($(TFWSIM_IMAGE_KEY_NONE)), whose provisioning
+# does nothing, so their --provision-element is unchanged and no other binary
+# carries the seed.
+TFWSIM_MANIFEST_SRCS += tools/tfwsim/image_key.c
+
+## tfwsim-manifest: build the element-tier simulator with OTA_ACTIVATE's SUIT manifest gate (OTA_MANIFEST=1)
+tfwsim-manifest: $(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX) $(HOST_DIR)/suit-emit
+$(HOST_DIR)/tfwsim-manifest$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_HSM_DEFS) $(EXTRA_CFLAGS) \
+	   -Itools/tfwsim $(MODEL_INC) -o $@ \
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_MANIFEST_SRCS) $(TFWSIM_HSM_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	@echo "built $@"
+
+# mk/suit.mk's emitter, built against the host board's profile and beside the
+# simulator, so the manifests sdk/go/cmd/tfwctl's e2e_ota_manifest_test.go
+# emits carry the vendor and class ids tfwsim-manifest's gate compares.
+$(HOST_DIR)/suit-emit: tools/suit-emit/main.c tools/suit-emit/emit.c src/crypto/sha256.c tools/suit-emit/emit.h \
+                      boards/$(HOST_BOARD)/board_profile.h include/tfw/config.h | $(HOST_DIR)
+	@$(HOST_CC) -std=c11 -O1 -Wall -Wextra -Werror -Wconversion \
+	   -Iinclude -Isrc/crypto -Itools/suit-emit -Iboards/$(HOST_BOARD) \
+	   -DTFW_BOARD_HEADER='"board_profile.h"' -o $@ tools/suit-emit/main.c tools/suit-emit/emit.c src/crypto/sha256.c
 	@echo "built $@"
 
 # The element tier as a provisioning JIG image (issue #53): tfwsim-atecc608a's
@@ -2442,10 +2504,10 @@ TFWSIM_PROV_DEFS := -DTFW_FEATURE_PROVISION=1
 
 ## tfwsim-prov: build the element-tier simulator as a provisioning jig image (PROV_* commands, blank element)
 tfwsim-prov: $(HOST_DIR)/tfwsim-prov$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-prov$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(TFWSIM_PROV_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_PROV_SRCS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # CRYPTO=auto (issue #130), the Mega's default tier: the element when one
@@ -2480,16 +2542,16 @@ $(TFWSIM_AUTO_DIR)/auth_element.o: src/core/auth_session.c
 
 ## tfwsim-auto: build the CRYPTO=auto simulator (element if it answers, else soft; --no-element)
 tfwsim-auto: $(HOST_DIR)/tfwsim-auto$(APP_SUFFIX)
-$(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
+$(HOST_DIR)/tfwsim-auto$(APP_SUFFIX): $(TFWSIM_COMMON) tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) | $(HOST_DIR)
 	@$(HOST_CC) $(TFWSIM_ELEMENT_INC) $(HOST_CFLAGS) $(APP_DEFS) $(TFWSIM_STAGE_DEFS) $(EXTRA_CFLAGS) \
 	   -Itools/tfwsim $(MODEL_INC) -o $@ \
-	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
+	   tools/tfwsim/main.c tools/tfwsim/tier_atecc608a.c tools/tfwsim/boot_none.c $(TFWSIM_IMAGE_KEY_NONE) $(TFWSIM_AUTO_SRCS) $(TFWSIM_AUTO_OBJS) $(APP_HOST_ELEMENT_OBJS) $(EXTRA_LDFLAGS)
 	@echo "built $@"
 
 # The element tier's seam (tools/tfwsim/tier_atecc608a.c) against the element
 # model and the mock HAL it seeds, killing its mutants (#163). Out of
 # TEST_SRCS: the pattern rule there would link neither the tier nor the model.
-$(HOST_DIR)/test_tier_atecc608a_mutate: test/unit/test_tier_atecc608a_mutate.c tools/tfwsim/tier_atecc608a.c \
+$(HOST_DIR)/test_tier_atecc608a_mutate: test/unit/test_tier_atecc608a_mutate.c tools/tfwsim/tier_atecc608a.c $(TFWSIM_IMAGE_KEY_NONE) \
                                         $(ELEMENT_MODEL) src/crypto/atecc608a/atecc.c test/mock/hal_mock.c \
                                         boot/boot_handoff.c src/core/handoff.c src/core/handoff_seed.c src/core/secure_zero.c \
                                         src/proto/crc16.c src/proto/crc16_update.c \
@@ -2520,7 +2582,7 @@ host-dir:
 # by the same line. -include, because the first build has none.
 -include $(wildcard $(HOST_DIR)/*.d $(HOST_DIR)/boot/*.d $(HOST_DIR)/test-app-example/*.d)
 
-.PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
+.PHONY: host-test test-asan test-asan-host test-asan-boot coverage clean-host host-dir tfwsim tfwsim-atecc608a tfwsim-manifest tfwsim-prov tfwsim-auto tfwsim-otaboot lint \
         lint-arch-leak lint-arch-leak-selftest lint-conditionals lint-timestamps lint-test-sleep lint-grep-selftest
 
 # ---------------------------------------------------------------- board sweep

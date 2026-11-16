@@ -2,7 +2,7 @@
 
 > **Status: INFORMATIVE** · SPEC row: `mcxn947` (in progress) · Scope:
 > `boards/frdm-mcxn947/`, `src/hal/cortex-m/mcxn94x/`, `boot/hal/cortex-m/mcxn94x/`
-> · Last verified: 2026-10-21
+> · Last verified: 2026-11-16
 >
 > The board as data and the SoC half of the generic Cortex-M port
 > ([`../cortex-m/README.md`](../cortex-m/README.md)). The application and
@@ -14,6 +14,66 @@ the lane, its home page included. Every value below comes from NXP's
 MCUXpresso SDK, pinned by commit and SHA-256 in
 [`../reference/README.md`](../reference/README.md), "Board sources". A value
 that no pinned file states is written **not confirmed**.
+
+## Requirements
+
+The SPEC row (`docs/SPEC.md`, row `mcxn947`) and this page, audited against
+main on 2026-11-16 (#459). Every test is a `RUN_TEST` in the file named;
+"done" means built and host-tested, since no board has run an image.
+
+| Requirement | Status | Code | Test |
+|---|---|---|---|
+| Board as data: id `0x46`, soft tier only, pin table | done | `boards/frdm-mcxn947/board.c`, `board_profile.h`, `profile.mk` | `test/unit/test_board_frdm-mcxn947.c`: `test_the_board_is_the_registered_mcxn947_id`, `test_the_pins_are_the_rgb_led_the_switches_and_the_tone_pin` |
+| MCXN94x clock (FRO12M), pin banks, RAM ECC off | done | `src/hal/cortex-m/mcxn94x/hal_soc.c` | `test/unit/test_mcxn_soc.c`: `test_early_runs_the_core_from_fro12m`, `test_early_clocks_and_releases_the_five_pin_banks` |
+| Watchdog (WWDT0) | done | `src/hal/cortex-m/mcxn94x/hal_soc.c` | `test/unit/test_mcxn_soc.c`: `test_arm_loads_tc_and_mod_then_feeds`, `test_pet_is_the_feed_alone` |
+| Reset cause | done | `src/hal/cortex-m/mcxn94x/soc_reset.c` | `test/unit/test_mcxn94x_reset.c`: `test_each_source_with_a_value_maps_to_it` |
+| LPUART4 link, interrupt-driven | done | `src/hal/cortex-m/mcxn94x/hal_uart.c` | `test/unit/test_mcxn94x_uart.c`: `test_init_baud_is_osr_sbr_for_115200`, `test_rx_reads_data_with_rdrf_set` |
+| LPUART baud arithmetic | done | `src/hal/cortex-m/mcxn94x/lpuart_baud.c` | `test/unit/test_mcxn_lpuart.c`: `test_115200_from_fro12m_is_ratio_26_sbr_4` |
+| GPIO | done | `src/hal/cortex-m/mcxn94x/hal_gpio.c` | `test/unit/test_mcxn94x_gpio.c`: `test_output_sets_only_its_pddr_bit`, `test_read_is_the_pins_pdir_bit` |
+| PWM on the red LED (CTIMER0) | done | `src/hal/cortex-m/mcxn94x/ctimer_pwm.c`, `hal_pwm.c` | `test/unit/test_mcxn_ctimer_pwm.c`: `test_1khz_from_fro12m_is_pr_46_mr3_254`; `test/unit/test_mcxn_pwm_cmd.c`: `test_zero_returns_the_pin_to_gpio_and_a_write_takes_it_back` |
+| Tone on P3_19 (CTIMER2) | done | `src/hal/cortex-m/mcxn94x/hal_tone.c`, `ctimer_tone.h` | `test/unit/test_mcxn94x_tone.c`: `test_first_start_clocks_then_programs_held_in_reset` |
+| Analog read on LPADC0 | done | `src/hal/cortex-m/mcxn94x/hal_adc.c` | `test/unit/test_mcxn94x_adc.c`: `test_one_read_per_header_channel`, `test_only_the_vcc_reference_is_supported` |
+| Pulse in and capture | done (generic port) | `src/hal/cortex-m/hal_pulse.c` | `test/unit/test_cm_pulse.c`: `test_pulse_in_high_100us` |
+| I2C master on LPI2C2 (`I2C=1` row) | done | `src/hal/cortex-m/mcxn94x/hal_bus.c`, `lpi2c_timing.c` | `test/unit/test_mcxn_lpi2c.c`: `test_100k_from_fro12m`, `test_a_write_is_start_bytes_and_stop` |
+| EEPROM over the user flash sector | done | `src/hal/cortex-m/mcxn94x/hal_eeprom.c` | `test/unit/test_mcxn94x_eeprom.c`: `test_a_second_write_keeps_the_rest_of_the_sector` |
+| Application builds, in `firmware-matrix` and its own CI step | done | `boards/frdm-mcxn947/profile.mk`, `.github/workflows/ci.yml` step `make firmware BOARD=frdm-mcxn947` | build only: no host test runs the image (QEMU models no MCX part) |
+| tfw-boot row `frdm-mcxn947:soft:soft:p256-soft:0:0` | done | `mk/boot.mk` `BOOT_SUPPORTED` | `bootloader-check` builds it; no test runs the image |
+| tfw-boot polled LPUART4 | done | `boot/hal/cortex-m/mcxn94x/boot_uart.c`, `mcxn_uart.c` | `boot/hal/cortex-m/mcxn94x/test/test_mcxn_uart.c`: `test_start_sets_the_unit_up_as_a_polled_lpuart` |
+| tfw-boot flash writer through the boot ROM driver | done | `boot/hal/cortex-m/mcxn94x/boot_flash.c`, `mcxn_flash.c` | `boot/hal/cortex-m/mcxn94x/test/test_mcxn_flash.c`: `test_a_platform_write_erases_and_programs_one_sector`, `test_the_rom_interface_is_pinned` |
+| tfw-boot fit in the 32 KB region | done (measured, "tfw-boot" below); the SPEC row still says "not yet measured" | `mk/boot.mk` `boot-size-check` | `make bootloader` size line, no unit test |
+| DICE evidence, soft root | done (generic) | `boards/frdm-mcxn947/profile.mk` `BOARD_TIERS := soft` | `test/unit/test_dice_evidence.c`: `test_the_soft_root_evidence_frame_matches_the_literal` |
+| DICE evidence on the EdgeLock secure subsystem | not started | none: nothing under `src/hal/cortex-m/mcxn94x/` drives EdgeLock (`hal_soc.c` header) | none |
+| Enrollment through go-xkms into go-trusted-platform | not started on this board | the generic enrollment path only | none on this board: needs an image run on a board |
+| Writing the part over the MCU-Link (pyOCD), record first | partial: recipes written, never run | `boards/frdm-mcxn947/profile.mk` `CM_FLASH_TOOL`, `mk/arch/cortex-m.mk` | none: needs the board |
+| OTA_CONFIRM's request reaches flash | partial: a plain store into the platform window, which does not program flash ("Not confirmed", "OTA_CONFIRM's request") | `src/hal/cortex-m/mcxn94x/hal_eeprom.c`, storing as `src/hal/cortex-m/hal_eeprom.c` does | `test/unit/test_mcxn94x_eeprom.c`: `test_the_confirm_request_keeps_the_store_path_and_erases_nothing` |
+| Values the SDK does not settle ("Not confirmed" below) | partial | — | none: need the reference manual or UM12018 |
+
+### Remaining slices
+
+1. **OTA_CONFIRM through the ROM flash driver**: route the confirm request in
+   `src/hal/cortex-m/mcxn94x/hal_eeprom.c` through
+   `boot/hal/cortex-m/mcxn94x/mcxn_flash.c` into the platform sector, proved
+   by a new case in `test/unit/test_mcxn94x_eeprom.c`; host-only, but it
+   touches tfw-boot's platform block, so the design is the owner's call.
+2. **EdgeLock DICE tier**: a driver for the EdgeLock secure subsystem under
+   `src/hal/cortex-m/mcxn94x/` (and the boot side under
+   `boot/hal/cortex-m/mcxn94x/`), a new tier in `profile.mk` `BOARD_TIERS`,
+   proved by a new `test/unit/test_mcxn94x_els.c` against a model; needs the
+   NXP reference manual (nxp.com refused the lane), so an owner decision on
+   the source first, then a board run.
+3. **First run on the board**: `make board-record`, `make boot-flash` and
+   `make flash` on a FRDM-MCXN947 over the MCU-Link, the link answering on
+   LPUART4; needs hardware: the board is at the bench, "Arrived", not yet
+   worked on ([inventory](../development/bench/inventory.md)).
+4. **Enrollment end to end**: the board's soft-tier evidence enrolled through
+   go-xkms into go-trusted-platform; needs slice 3 and the other two projects.
+5. **Close the "Not confirmed" items** below (pins, clock steps, WWDT
+   prescaler, RAM ECC marker, ROM entry, erased-flash reads, I2C header, ADC
+   reference, clock, alignment and pin mux), each by a citation on this page
+   or a board measurement; needs the reference manual or UM12018, or hardware.
+6. **SPEC row text**: `docs/SPEC.md` line 49 still says the tfw-boot fit "is
+   not yet measured" while this page and `docs/cortex-m/README.md` give the
+   measurement; the SPEC edit is the owner's.
 
 ## The board
 

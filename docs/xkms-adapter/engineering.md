@@ -39,7 +39,7 @@ what CI runs.
 | 7 | S: refuses what the part cannot do, before any frame | done | `avr/backend.go` (`GenerateKey`, `Signer`, `Decrypter`, `DeleteKey`, `RotateKey`) | `avr/backend_test.go: TestUnsupportedOperationsRefuseWithoutTouchingTheWire`; `avr/avr_mutate_test.go: TestEveryMutatedConfigFieldIsRefusedBeforeTheWire` |
 | 8 | E: `AttestKey` gates on the cached `CAPS`, agreeing with `Capabilities().Attestation` | done | `avr/attestation.go` (`AttestKey`), `avr/backend.go` (`canAttest`) | `avr/attestation_test.go: TestAttestKeyRefusesWhereCAPSSaysTheDeviceCannotAttest`; `avr/backend_test.go: TestCapabilitiesClaimAttestationOnlyWhereCAPSSaysTheDeviceCan` |
 | 9 | S: holds no private key; `DeviceKey` is not a `crypto.Signer` | done | `avr/key.go` | `avr/key_test.go: TestDeviceKeyIsNotASigner` |
-| 10 | S: reaches the wire only through `sdk/go` | partial | `avr/` calls `tfw.Device` only | no test pins it; see slice 4 |
+| 10 | S: reaches the wire only through `sdk/go` | done | `avr/` calls `tfw.Device` only | `avr/boundary_test.go: TestPackageReachesTheWireOnlyThroughSDK` |
 | 11 | S: finalizes through `Device.AttestCSR`; the possession signer returns only a signature over the asked digest under the attested key | done | `avr/possession.go` (`PossessionSigner`) | `avr/possession_test.go: TestPossessionSignerSignsTheDevicesRequest`; `avr/possession_test.go: TestPossessionSignerRefusesAnotherKeysSignature` |
 | 12 | S: the device-attest-01 tests are unit tests in `xkms/avr` replaying recorded tfwsim frames | done | `avr/attestation.go`, `avr/possession.go` | `avr/device_attest_test.go: TestDeviceAttestAcceptsTheRecordedEnrolment` |
 | 13 | S: `xkms-coverage` is unit-only; `xkms-test` deselects `xkms/e2e` | done | `../mk/go.mk` (`xkms-test`, `xkms-coverage`) | `make xkms-coverage` (floor 90%) |
@@ -95,8 +95,11 @@ what CI runs.
    owner says whether that work is open and where it lives before a lane can
    be seated on it.
 
-With slices 1 to 6 closed the row has nothing left in this repository; the
-SPEC status change is the owner's.
+Slices 2 and 4 are done. Slices 1 and 6 wait on the owner, slice 3 on a
+provisioned board (#7), and slice 5 on the other projects; none is a lane's
+work in this repository until its owner, board or project acts. With slices
+1 to 6 closed the row has nothing left in this repository; the SPEC status
+change is the owner's.
 
 ## Exported surface
 

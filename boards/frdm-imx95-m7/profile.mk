@@ -82,12 +82,13 @@ BOOT_SECTION   := 32768
 BOOT_BASE      := 0x00000000
 BOOT_BUDGET    := 32768
 
-# IMX_BOOT=1: the image the boot container carries (ruling 644 (1),
-# boards/frdm-imx95-m7/imx-boot-m7.py). The System Manager loads the
-# container's M7 image at the ITCM base and starts it from the vector there,
-# so this build links the application at ITCM 0, with no tfw-boot region:
+# IMX_BOOT=1: the image a boot container carries (ruling 644 (1)). The
+# System Manager loads the container's M7 image at the ITCM base and starts
+# it from the vector there, so this build links the application at ITCM 0,
+# with no tfw-boot region:
 #   make BOARD=frdm-imx95-m7 IMX_BOOT=1 BUILD_DIR=build/imx95-imxboot firmware
-# imx-boot-m7.py takes that ELF and refuses one linked anywhere else. The
+# Packaging that ELF into the container belongs to the trusted-imx95
+# project (docs/plans/428.md, follow-up), not this repository. The
 # image goes to its own directory (soft-imxboot, BOARD_DIR_SUFFIX in
 # mk/firmware.mk): make tracks no flag, so in one directory a change of
 # IMX_BOOT would reuse the ELF linked for the other mode.

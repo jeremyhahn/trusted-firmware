@@ -373,9 +373,9 @@ in the code. Code is `file:line`; tests are `file` and test name, under
 | The runner is the only caller of a hook (invariant 1) | done | outside `src/core/app_runner.c`, `src/` names only `tfw_app_runner_*`, `tfw_app_config_*` and `tfw_app_cmd_info` | `make app-link-check` fails on a hook named in any other file of `src/`; `make app-link-check-selftest` plants a call in `main.c` and sees it named; `test_app.c`: `test_a_stopped_application_is_not_run_or_stopped_again` proves the order |
 | Builds against a released SDK version | partial | the interface first released in `v0.4.0-alpha` (`CHANGELOG.md:34`); `abi` checked at boot; `after_update` (`changelog.d/51-after-update.md`) and the evidence hook are unreleased, so the released hook set is not `main`'s | `make app-sdk-check` (`mk/app.mk:92`), the example built from outside the tree; `test_app.c`: `test_a_newer_abi_is_refused`; slice 1 |
 | Board-independent: board as data at build time, any board the framework supports | partial | `make firmware APP_DIR=<path> BOARD=<b>` (`mk/firmware.mk:702`, `:717`) on the AVR and Cortex-M rule; the ESP32 build hands ESP-IDF `FW_SRCS` only (`mk/arch/esp32-targets.mk:97`), not `APP_SRCS` | `make app-firmware-check` (`mk/app.mk:120`), in CI for `BOARD=atmega2560` only (`mk/stages.mk:55`); `make app-header-check` against every board; slice 2 |
-| The same firmware, application, board and tier give the same image | partial | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check` (`mk/firmware.mk:864`) builds without `APP_DIR`; no application image is built twice: slice 4 |
+| The same firmware, application, board and tier give the same image | done | `$(APP_PREFIX_MAP)` and `-frandom-seed` at `mk/firmware.mk:704` and `:712` | `make reproducible-check APP_DIR=test/app/example BOARD=atmega2560` (`mk/firmware.mk`, through `scripts/repro_build.py --app-dir`), in the `build` stage (`mk/stages.mk`), beside the one without `APP_DIR`; `scripts/test_repro_build.py`: `test_an_application_in_the_tree_is_the_committed_one_in_each_copy`, `test_an_application_outside_the_tree_is_one_directory_for_both` |
 
-Counts: 14 done, 4 partial, 0 not started.
+Counts: 15 done, 3 partial, 0 not started.
 
 ### Remaining slices
 
@@ -395,7 +395,9 @@ Counts: 14 done, 4 partial, 0 not started.
    `test/mock/app_mock.c` and expects the link to fail, and that fails when
    any file in `src/` but `src/core/app_runner.c` names a `tfw_app_` hook,
    proved by its selftest in the `security` stage as `app-header-check-selftest` is.
-4. **Reproducible application image.** `reproducible-check` in
+4. **Reproducible application image.** Done: `make reproducible-check
+   APP_DIR=test/app/example BOARD=atmega2560` in the `build` stage, through
+   `scripts/repro_build.py --app-dir`. `reproducible-check` in
    `mk/firmware.mk` takes `APP_DIR` through `scripts/repro_build.py`, and
    `mk/stages.mk` runs it with `APP_DIR=test/app/example`, proved by that
    run in the `build` stage.
@@ -411,7 +413,7 @@ Counts: 14 done, 4 partial, 0 not started.
    first; no code until the owner rules
    ([architecture.md](architecture.md#what-it-does-not-do)).
 
-The row is not done: slices 1 to 4 are this project's and need no hardware;
+The row is not done: slices 3 and 4 are done; 1 and 2 are this project's and need no hardware;
 5 and 6 wait on another project or the owner. Open question 1 below is
 decided.
 

@@ -121,10 +121,11 @@ esp32-build: $(TFWPROV_BIN) $(SUIT_EMIT_BIN)
 	@# (app-firmware-check, mk/app.mk), into a build directory of its own
 	@# (APP_SUFFIX), and its ELF must keep them: the ESP-IDF link with
 	@# TFW_APP_SRCS set, which CI's ESP32 Build job runs only through here (#466).
-	@# ESP_APP_EXAMPLE=0 skips both; a PROVISION=1 image is never checked.
+	@# ESP_APP_EXAMPLE=0 skips both; a PROVISION=1 image is never checked. The
+	@# shell text inside these $(if)s holds no comma: one would end the branch.
 	@$(if $(ESP_APP_EXAMPLE_RUN), \
 	   $(APP_SYMBOLS) $(ESP_OUT)/idf/trusted-firmware.elf '$(APP_OWN_SYMBOLS)' > /dev/null; rc=$$?; \
-	   [ $$rc = 1 ] || { echo "esp32-build: $(ESP_OUT)/idf/trusted-firmware.elf, built with no APP_DIR, holds application symbols (app_symbols.py rc=$$rc)"; exit 1; },true)
+	   [ $$rc = 1 ] || { echo "esp32-build: $(ESP_OUT)/idf/trusted-firmware.elf holds application symbols with no APP_DIR (app_symbols.py rc=$$rc)"; exit 1; },true)
 	@# A dry run (make -n) still runs a line that names $$(MAKE); this one only
 	@# says what it would do, as esp32-overlay-selftest's dry run expects.
 	@$(if $(ESP_APP_EXAMPLE_RUN),$(if $(findstring n,$(firstword -$(MAKEFLAGS))), \

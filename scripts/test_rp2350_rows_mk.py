@@ -86,27 +86,46 @@ class Rp2350EepromSelection(unittest.TestCase):
 
 def flash(*row):
     """`make flash` on a row, with its image taken as built (-o): the recipe
-    only, so nothing is compiled and, with no record in an empty record
-    directory, nothing can reach a board."""
+    only, so nothing is compiled. A stand-in picotool first on PATH logs any
+    call and fails, so the result does not depend on whether the host has
+    the real one, and with no record in an empty record directory the record
+    guard refuses before anything could reach a board. Returns the exit
+    code, stderr and the stand-in's call log."""
     fw_dir = var("FW_DIR", *row)[0]
-    with tempfile.TemporaryDirectory() as records:
+    with tempfile.TemporaryDirectory() as tmp:
+        tools = os.path.join(tmp, "bin")
+        records = os.path.join(tmp, "records")
+        calls = os.path.join(tmp, "picotool.calls")
+        os.makedirs(tools)
+        os.makedirs(records)
+        tool = os.path.join(tools, "picotool")
+        with open(tool, "w", encoding="utf-8") as f:
+            f.write(f'#!/bin/sh\necho "$@" >> "{calls}"\nexit 1\n')
+        os.chmod(tool, 0o755)
+        env = dict(os.environ, PATH=tools + os.pathsep + os.environ.get("PATH", ""))
         p = subprocess.run(
             ["make", "-s", "--no-print-directory", "-o", fw_dir + "/trusted-firmware.hex",
              "flash", *BOARD, *row, "CM_PROBE_SERIAL=modelprobe", "CM_RECORD_DIR=" + records],
-            cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-    return p.returncode, p.stderr
+            cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            check=False)
+        log = ""
+        if os.path.exists(calls):
+            with open(calls, encoding="utf-8") as f:
+                log = f.read()
+    return p.returncode, p.stderr, log
 
 
 class Rp2350FlashRows(unittest.TestCase):
 
-    def test_every_row_reaches_the_write_path(self):
+    def test_every_row_reaches_the_record_guard_and_no_feature_gate(self):
         for row in ((), ("I2C=1",), ("PERIPH=1",), ("I2C=0",), ("PERIPH=0",)):
             with self.subTest(row=row):
-                rc, err = flash(*row)
-                self.assertNotEqual(rc, 0)  # no picotool, or no record: never a write here
-                self.assertNotIn("REFUSED", err)
+                rc, err, calls = flash(*row)
+                self.assertNotEqual(rc, 0)
+                self.assertIn("flash: REFUSED. No whole factory record of rp2350-pico2w", err)
                 self.assertNotIn("host-test only", err)
-                self.assertTrue("picotool" in err or "factory record" in err, err)
+                self.assertNotIn("AVR gate", err)
+                self.assertEqual(calls, "")  # the guard stops before any picotool call
 
 
 if __name__ == "__main__":

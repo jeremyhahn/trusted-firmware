@@ -1376,13 +1376,18 @@ $(HOST_DIR)/test_provision_uds $(HOST_DIR)/test_provision_uds_mutate: $(HOST_DIR
 # on (the esp32c3 QEMU board's sdkconfig), test_esp_wire with it off (the P4's),
 # so both arms of hal_ota.c's one CONFIG_ conditional compile and run.
 # test_esp_ota includes src/core/ota_trial.c (the trial deadline, #492): its
-# link line drops that file under any spelling, as ccdeps.sh records it.
+# link line drops that file under any spelling, as ccdeps.sh records it. It
+# builds against the esp32-qemu board (profile and board.c) in place of
+# HOST_BOARD's, so the deadline it tests is TFW_OTA_TRIAL_TIMEOUT_S as an ESP32
+# image has it (esp32p4-poe's is the same).
 HOST_ESP_OTA_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 \
                      -DTFW_FEATURE_OTA_ACTIVATE=1 -DTFW_FEATURE_OTA_CTL=1
-$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c $(HOST_STAGE_LIB_SRCS) \
+HOST_ESP_OTA_CFLAGS = $(subst -Iboards/$(HOST_BOARD) ,-Iboards/esp32-qemu ,$(HOST_CFLAGS))
+$(HOST_DIR)/test_esp_ota: test/unit/test_esp_ota.c \
+                          $(subst boards/$(HOST_BOARD)/board.c,boards/esp32-qemu/board.c,$(HOST_STAGE_LIB_SRCS)) \
                           src/hal/esp32/hal_ota.c src/core/ota_auth.c boot/boot_image.c \
                           test/mock/esp_ota_mock.c $(HOST_DIR)/unity.o | $(HOST_DIR)
-	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $(filter-out %/ota_trial.c,$^) $(EXTRA_LDFLAGS)
+	@$(HOST_CC) $(HOST_ESP_OTA_CFLAGS) $(HOST_APP_DEFS) $(EXTRA_CFLAGS) -Itest/mock/esp32 -Isrc/core -Isrc/hal/esp32 $(HOST_ESP_OTA_DEFS) -DCONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=1 -o $@ $(filter-out %/ota_trial.c,$^) $(EXTRA_LDFLAGS)
 
 # The same session at the edges a fault moves (#163).
 $(HOST_DIR)/test_esp_ota_mutate: test/unit/test_esp_ota_mutate.c $(HOST_STAGE_LIB_SRCS) \

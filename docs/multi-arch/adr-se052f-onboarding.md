@@ -254,3 +254,73 @@ None is decided here.
   answers to questions 1 to 3 and 8.
 - The fit table's measured cells, from `make firmware-matrix` once the driver
   builds.
+
+## Requirements
+
+Audit of the SPEC row `secure-element-se05x` (`../SPEC.md`, the row's
+description cell), requirement by requirement, against main on 2026-11-16
+(#504). The row is `future`: nothing of the tier is written, and this section
+changes no status. "Not started" means no file on main; a code or test cell
+names only a path that exists on main, or "none".
+
+| # | Requirement (SPEC row text) | Status | Code | Test |
+|---|---|---|---|---|
+| R1 | "The element tier on the NXP EdgeLock SE052F": a crypto provider for the part, selected as a tier | not started; designed in §3 (three layers), tier value open (question 1) | none (no `src/crypto/se05x/`; no `CRYPTO=se05x` branch in `mk/firmware.mk`). The provider interface it implements: `include/tfw/crypto.h`; the tier enum: `include/tfw/types.h` (`TFW_CRYPTO_SECURE_ELEMENT`) | none |
+| R2 | "next to the ATECC608C (MIKROE-6774 Click board) tier": beside the existing element tier, which stays | met for the ATECC608C side: that tier ships and is unchanged by this row | `src/crypto/atecc608a/atecc.c`, `src/crypto/atecc608a/provider.c`; the layering §3 follows: `src/crypto/optiga/optiga_i2c.c`, `optiga_cmd.c`, `optiga_crypto.c` | `test/unit/test_atecc.c`; the OPTIGA pattern's `test/unit/test_optiga_i2c.c`, `test/unit/test_optiga_cmd.c`, `test/unit/test_optiga_crypto.c` |
+| R3 | "The on-device C driver is ours": T=1 over I2C transport, read-only command layer, provider (§3) | not started; blocked on the vendor documents (questions 8 and 9: AN12543, and UM11225 or GPC_SPE_172) and SCP03 (question 5) | none. It runs over the existing `tfw_hal_i2c_init` / `tfw_hal_i2c_xfer` / `tfw_hal_delay_us` in `include/tfw/hal.h`, which gains nothing | none. The read-only guard's model is `test/unit/test_optiga_cmd.c` |
+| R4 | "the host-side Go backend is go-enclave's (its row se052f-secure-element, go-enclave #191)" | another project's; nothing here | none in this repository: no import of go-enclave (`sdk/go` has no SE05x code) | none here; go-enclave #191 |
+| R5 | "go-xkms sees only evidence and the NXP-issued device certificate" | not started: the evidence path exists for other tiers; the NXP certificate (`0xF0000013` or a connectivity one, question 2) is not read by any code | the evidence the tier signs: `docs/dice-attestation/` (format); no code reads an SE052F certificate | none |
+| R6 | "The tier fits the ATmega2560, ATmega32U4 and Cortex-M targets, not the ATmega328P" | estimate only (§3, "Where it fits"); not measured, no driver to build | the mechanism to exclude a board's tier exists: `BOARD_REFUSED_TIERS` in `mk/firmware.mk` (used by `boards/atmega328p/profile.mk`); the measurement gate is `make firmware-matrix` (`mk/firmware.mk`). No SE05x row in either | none |
+| R7 | "The board is at the bench (its page)" | met: the page exists; port, header pins and every factory value "not read" | `../development/bench/se052f.md` | none (docs) |
+
+One guard already names the future driver: `scripts/test_prov_absent_check.py`
+uses `src/caps/provision_se05x.c` as a hypothetical production-image source
+that `scripts/prov-absent-check.py` refuses; no such file exists.
+
+### Remaining slices
+
+Each slice is one lane, in this order. "Owner" marks an owner decision that
+gates it, "hardware" a lane on the bench SE052F, "another project" work outside
+this repository.
+
+1. **Owner answers questions 1, 2, 3, 5, 8 and 9** (owner). The tier value,
+   the DeviceID key, whether any write is allowed, SCP03, and the governing
+   transport and applet specifications, supplied at their revisions. Files:
+   this ADR (status to ACCEPTED, the open questions answered) and
+   `../reference/README.md` (the documents pinned). Test: none (docs). Slices
+   3 to 5 wait on it.
+2. **Bench factory record, read-only** (hardware, owner for cabling: question
+   7). The owner cables the board; a lane reads the values of the bench page's
+   "Factory values" table with the tool the owner names, writes nothing, and
+   records them without bench identity (§5). Files:
+   `../development/bench/se052f.md`. Test: the record itself, and a second read
+   at the lane's end matching it (§5 step 4).
+3. **T=1 over I2C transport** (owner: question 8 and the specification). Files:
+   new `src/crypto/se05x/se05x_t1.c`, `se05x_t1.h`; a host target in
+   `mk/host.mk`. Test: new `test/unit/test_se05x_t1.c` against recorded frames
+   (framing, sequence numbers, waiting-time extension, chaining, a bad check
+   sequence refused), and its `_mutate` companion per the test standard.
+4. **Read-only command layer** (owner: questions 3 and 9, AN12543). Files: new
+   `src/crypto/se05x/se05x_cmd.c`, `se05x_cmd.h`; `mk/host.mk`. Test: new
+   `test/unit/test_se05x_cmd.c`: each APDU's bytes, each status word mapped onto
+   an existing status code, and no create, write, delete, lock or reset command
+   reachable, as `test/unit/test_optiga_cmd.c` proves for the OPTIGA.
+5. **Provider and `CRYPTO=se05x`** (owner: questions 1 and 2). Files: new
+   `src/crypto/se05x/se05x_crypto.c`; a `CRYPTO=se05x` branch in
+   `mk/firmware.mk`; `include/tfw/types.h`, `testdata/vectors.h` and the Go
+   mirror in `sdk/go` only if question 1 adds a tier value. Test: new
+   `test/unit/test_se05x_crypto.c` (sign r‖s decoded from DER, random,
+   pubkey, the `TFW_ERR_UNSUPPORTED` entries of §3), and `make firmware-matrix`
+   building the tier.
+6. **Fit rows** (none beyond slice 5). Files: `mk/firmware.mk` (measurement
+   rows on the ATmega2560, ATmega32U4 and `mps2-an505` with `I2C=1`);
+   `boards/atmega328p/profile.mk` (`se05x` in `BOARD_REFUSED_TIERS`); §3's fit
+   table updated with the measured sizes. Test: `make firmware-matrix` against
+   each board's budget.
+7. **First run on the board** (hardware). The provider answering `CAPS` and a
+   signature verifying against the factory certificate's key, on the board the
+   owner cabled in slice 2. Files: `../development/bench/se052f.md`. Test: a
+   bench run recorded on that page, nothing written to the element.
+8. **Host-side backend** (another project: go-enclave #191, row
+   `se052f-secure-element`) and go-xkms's acceptance of the NXP chain (R5).
+   Files: none here. Test: go-enclave's.

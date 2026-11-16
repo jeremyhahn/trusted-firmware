@@ -6,8 +6,10 @@
  * kept: an address below TFW_BOOT_EE_LEN is tfw-boot's span, read from the
  * platform window (TFW_CM_PLATFORM_BASE) as the generic file reads it, and a
  * write into it is refused as the generic file refuses it, the confirm
- * request (TFW_BOOT_CONFIRM_ADDR, TFW_BOOT_CONFIRM_LEN) excepted, which keeps
- * the generic file's store. From TFW_BOOT_EE_LEN up to TFW_EEPROM_SIZE an
+ * request (TFW_BOOT_CONFIRM_ADDR, TFW_BOOT_CONFIRM_LEN) excepted, which is a
+ * read-modify-write of the platform block's first sector as below, so that
+ * tfw-boot's tfw_boot_nvm_read finds it (a store through XIP writes
+ * nothing). From TFW_BOOT_EE_LEN up to TFW_EEPROM_SIZE an
  * address is a byte of the application's own sector, TFW_CM_USER_EE_BASE
  * (board_profile.h), the sector directly below the platform block's.
  *
@@ -19,10 +21,13 @@
  * status the ESP32's flash EEPROM gives a failed flash write (status.h has
  * no I/O code). The span is
  * checked before anything is touched, so a refused write writes nothing, and
- * no address this file computes reaches the platform sector: the two
- * _Static_asserts below hold the user span inside the user sector. A power
+ * no user address this file computes reaches the platform sector: the
+ * _Static_asserts below hold the user span inside the user sector, and the
+ * confirm request inside the platform block's first sector. A power
  * loss between the erase and the program loses the user sector only, as a
- * power loss mid-write loses the AVR's EEPROM bytes.
+ * power loss mid-write loses the AVR's EEPROM bytes; during the confirm
+ * request's write it loses the platform sector, as during tfw-boot's own
+ * write of the request's clear.
  */
 #include <stdint.h>
 #include <string.h>
@@ -47,6 +52,10 @@ _Static_assert((uint32_t)TFW_CM_USER_EE_BASE % TFW_RP_FLASH_SECTOR == 0u
                && (uint32_t)TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE
                   <= (uint32_t)TFW_CM_PLATFORM_BASE,
                "the user sector is a whole sector below the platform block");
+_Static_assert((uint32_t)TFW_CM_PLATFORM_BASE % TFW_RP_FLASH_SECTOR == 0u
+               && (uint32_t)TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN
+                  <= TFW_RP_FLASH_SECTOR,
+               "the confirm request is inside the platform block's first sector");
 
 #define USER_EE ((const uint8_t *)(uintptr_t)TFW_CM_USER_EE_BASE)
 
@@ -140,14 +149,14 @@ static void credit_masked_ms(const masked_entry_t *e)
  * of the sector and the ROM's program call reports no error, so the sector
  * the write expects is taken before it and the whole sector checked after:
  * a fault in a byte the write keeps fails the write too, with no RAM copy. */
-static uint32_t sector_crc(uint32_t at, const uint8_t *buf, uint32_t len)
+static uint32_t sector_crc(const uint8_t *sec, uint32_t at, const uint8_t *buf, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFFu;
     uint32_t i;
     unsigned bit;
 
-    for (i = 0u; i < (uint32_t)TFW_CM_USER_EE_SIZE; i++) {
-        uint8_t b = (i >= at && i - at < len) ? buf[i - at] : USER_EE[i];
+    for (i = 0u; i < (uint32_t)TFW_RP_FLASH_SECTOR; i++) {
+        uint8_t b = (i >= at && i - at < len) ? buf[i - at] : sec[i];
 
         crc ^= b;
         for (bit = 0u; bit < 8u; bit++) {
@@ -157,14 +166,35 @@ static uint32_t sector_crc(uint32_t at, const uint8_t *buf, uint32_t len)
     return ~crc;
 }
 
-tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+/* len bytes at byte at of the sector at base (an XIP address), through the
+ * flash helper with interrupts masked, then read back through XIP: the
+ * bytes written and the sector's CRC with them merged in, so a kept byte the
+ * rewrite corrupted is caught as well as a written one. */
+static tfw_status_t sector_write(uint32_t base, uint32_t at, const uint8_t *buf, uint8_t len)
 {
-    uint32_t at;
+    const uint8_t *sec = (const uint8_t *)(uintptr_t)base;
     uint32_t primask;
     masked_entry_t entry;
     tfw_status_t st;
     uint32_t want;
 
+    want    = sector_crc(sec, at, buf, len);
+    primask = tfw_cm_irq_save();
+    masked_enter(&entry);
+    st      = tfw_rp_flash_update(base + at, buf, len, (uint32_t)TFW_FLASH_TOTAL);
+    credit_masked_ms(&entry);
+    tfw_cm_irq_restore(primask);
+    if (st != TFW_OK) {
+        return st;
+    }
+    if (memcmp(&sec[at], buf, len) != 0 || sector_crc(sec, 0u, buf, 0u) != want) {
+        return TFW_ERR_INTERNAL;
+    }
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len)
+{
     if ((uint32_t)addr + len > (uint32_t)TFW_EEPROM_SIZE) {
         return TFW_ERR_RANGE;
     }
@@ -172,27 +202,13 @@ tfw_status_t tfw_hal_eeprom_write(uint16_t addr, const uint8_t *buf, uint8_t len
         if (addr != TFW_BOOT_CONFIRM_ADDR || len != TFW_BOOT_CONFIRM_LEN) {
             return TFW_ERR_RANGE;
         }
-        /* The generic file's store, unchanged: how OTA_CONFIRM's request
-         * reaches flash on this part is not this file's (the board page). */
-        memcpy((uint8_t *)(uintptr_t)(TFW_CM_PLATFORM_BASE + addr), buf, len);
-        return TFW_OK;
+        /* The confirm request into the platform sector, where tfw-boot's
+         * tfw_boot_nvm_read finds it: a store through XIP writes nothing. */
+        return sector_write((uint32_t)TFW_CM_PLATFORM_BASE, (uint32_t)addr, buf, len);
     }
     if (len == 0u) {
         return TFW_OK;
     }
-    at      = (uint32_t)addr - TFW_BOOT_EE_LEN;
-    want    = sector_crc(at, buf, len);
-    primask = tfw_cm_irq_save();
-    masked_enter(&entry);
-    st      = tfw_rp_flash_update((uint32_t)TFW_CM_USER_EE_BASE + at, buf, len,
-                                  (uint32_t)TFW_FLASH_TOTAL);
-    credit_masked_ms(&entry);
-    tfw_cm_irq_restore(primask);
-    if (st != TFW_OK) {
-        return st;
-    }
-    if (memcmp(&USER_EE[at], buf, len) != 0 || sector_crc(0u, buf, 0u) != want) {
-        return TFW_ERR_INTERNAL;
-    }
-    return TFW_OK;
+    return sector_write((uint32_t)TFW_CM_USER_EE_BASE, (uint32_t)addr - TFW_BOOT_EE_LEN, buf,
+                        len);
 }

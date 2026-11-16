@@ -14,10 +14,11 @@ ESP_ROOT      := $(BUILD_DIR)/esp32
 ESP_OUT        = $(ESP_ROOT)/$(BOARD)-$(ESP_TARGET)-$(CRYPTO)$(if $(filter 1,$(PROVISION)),-prov)$(APP_SUFFIX)
 # An application (APP_DIR, mk/app.mk) is its own list, compiled with
 # mk/firmware.mk's APP_FW_CFLAGS and not the firmware's: include/, the HAL and
-# the board only, never src/. Its -I flags and board header are relative to
-# this directory, so the component sets those itself, absolute.
+# the board only, never src/. The framework's -I flags and board header are
+# relative to this directory, so the component sets those itself, absolute.
+# The application's own -I flags (APP_CFLAGS) are kept, made absolute.
 ESP_APP_SRCS   = $(addprefix $(APP_ABS)/,$(APP_SRCS))
-ESP_APP_CFLAGS = $(filter-out -I% -DTFW_BOARD_HEADER=%,$(APP_FW_CFLAGS))
+ESP_APP_CFLAGS = $(foreach f,$(filter-out -Iinclude -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER=%,$(APP_FW_CFLAGS)),$(if $(filter -I%,$(f)),-I$(abspath $(f:-I%=%)),$(f)))
 # Generated on first build, never committed, shared by every ESP32 image this
 # build directory holds. The QEMU test burns its digest into emulated eFuses.
 ESP_SIGN_KEY  := $(ESP_ROOT)/keys/secure_boot_signing_key.pem

@@ -861,9 +861,15 @@ size-check: $(TARGET).elf
 # Each copy is `git archive HEAD` (scripts/repro_build.py): no build/, no
 # untracked file, so an image a previous build left cannot satisfy it, and
 # SOURCE_DATE_EPOCH is the commit time.
+#
+# With APP_DIR, the image is the application's ($(TARGET) carries its name):
+# an application in this tree is the committed one in each copy, one outside
+# it the same directory for both (repro_build.py --app-dir). The build stage
+# runs it with APP_DIR=test/app/example.
 reproducible-check:
 	@python3 scripts/repro_build.py --make "$(MAKE)" --image $(TARGET).hex \
-	   --dir /tmp/agrepro-a --dir /tmp/agrepro-b -- \
+	   --dir /tmp/agrepro-a$(APP_SUFFIX) --dir /tmp/agrepro-b$(APP_SUFFIX) \
+	   $(if $(strip $(APP_DIR)),--app-dir "$(APP_DIR)") -- \
 	   BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex
 
 ## flash: write the firmware to a connected board

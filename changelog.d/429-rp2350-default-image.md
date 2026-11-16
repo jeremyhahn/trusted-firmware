@@ -7,7 +7,8 @@
   flash helper. `make flash` no longer refuses the I2C and peripheral rows
   (`CM_FLASH_GATED_WHY` is gone from the profile). `BOARD_ROWS` becomes
   `soft:I2C=0 soft:PERIPH=0`, so size-check still measures the images without
-  them.
+  them. `make host-test` runs the default row's board descriptor test
+  (`test_board_rp2350-pico2w_default`), which board-sweep does not build.
 
 ### Fixed
 

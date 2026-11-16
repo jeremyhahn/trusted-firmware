@@ -1775,6 +1775,14 @@ $(HOST_DIR)/test_cortexm_sys: test/unit/hal/test_cortexm_sys.c src/hal/cortex-m/
 	   -Itest/model/cortex-m -Isrc/hal/cortex-m -Iboards/mps2-an505 \
 	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
 
+# The M7's MPU region table (src/hal/cortex-m/hal_mpu.c, row 482): the pure
+# table only, TFW_CM_MPU_TABLE_ONLY, so no register model is needed.
+HOST_EXTRA_BINS += $(HOST_DIR)/test_cm_mpu
+$(HOST_DIR)/test_cm_mpu: test/unit/test_cm_mpu.c src/hal/cortex-m/hal_mpu.c \
+                         src/hal/cortex-m/hal_mpu.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -DTFW_CM_MPU_TABLE_ONLY -Isrc/hal/cortex-m \
+	   $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $(filter %.c %.o,$^) $(EXTRA_LDFLAGS)
+
 # The host compiler cannot see that ATOMIC_BLOCK's stand-in loop runs once.
 HOST_EXTRA_BINS += $(HOST_DIR)/test_avr_tick_mutate
 $(HOST_DIR)/test_avr_tick_mutate: test/unit/hal/test_avr_tick_mutate.c src/hal/avr/hal_tick.c \

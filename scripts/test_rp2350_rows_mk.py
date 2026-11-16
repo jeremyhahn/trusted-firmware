@@ -88,7 +88,8 @@ def flash(*row, picotool=True):
     """`make flash` on a row, with its image taken as built (-o): the recipe
     only, so nothing is compiled. Stand-ins first on PATH, picotool and the
     toolchain's objcopy, log any call and fail; with picotool=False there is no
-    picotool stand-in and PATH keeps only the directories with no picotool. Either way the result does not
+    picotool stand-in, and PATH is one directory of links to every other tool
+    on the host's PATH, so no picotool is found and make, sh and the rest are. Either way the result does not
     depend on whether the host has the real one, and with no record in an
     empty record directory nothing could reach a board. Returns the exit
     code, stderr and the stand-in's call log."""
@@ -99,8 +100,6 @@ def flash(*row, picotool=True):
         calls = os.path.join(tmp, "picotool.calls")
         os.makedirs(tools)
         os.makedirs(records)
-        path = [d for d in os.environ.get("PATH", "").split(os.pathsep)
-                if d and not os.path.exists(os.path.join(d, "picotool"))]
         # The objcopy only satisfies the Makefile's toolchain check: every
         # run stops before the recipe would call it.
         for name in ("picotool", "arm-none-eabi-objcopy")[0 if picotool else 1:]:
@@ -108,8 +107,20 @@ def flash(*row, picotool=True):
             with open(tool, "w", encoding="utf-8") as f:
                 f.write(f'#!/bin/sh\necho {name} "$@" >> "{calls}"\nexit 1\n')
             os.chmod(tool, 0o755)
-        path.insert(0, tools)
-        env = dict(os.environ, PATH=os.pathsep.join(path))
+        # Every other executable the host's PATH finds, linked beside the
+        # stand-ins, the first of each name as a lookup would find it: a
+        # directory that also holds make or sh is not dropped with picotool.
+        for d in os.environ.get("PATH", "").split(os.pathsep):
+            if not os.path.isdir(d):
+                continue
+            for name in os.listdir(d):
+                src = os.path.join(d, name)
+                dst = os.path.join(tools, name)
+                if (name == "picotool" or os.path.lexists(dst) or os.path.isdir(src)
+                        or not os.access(src, os.X_OK)):
+                    continue
+                os.symlink(src, dst)
+        env = dict(os.environ, PATH=tools)
         p = subprocess.run(
             ["make", "-s", "--no-print-directory", "-o", fw_dir + "/trusted-firmware.hex",
              "flash", *BOARD, *row, "CM_PROBE_SERIAL=modelprobe", "CM_RECORD_DIR=" + records],

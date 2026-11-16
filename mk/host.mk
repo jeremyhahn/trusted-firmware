@@ -1988,6 +1988,7 @@ COVERAGE_FLOOR ?= 90
 # the AVR run and analysed in a run of their own. Rows that share a HAL each
 # leave out the others' SoC directories, so a SoC is analysed only under its
 # own board's header (stm32h5 asserts a clock mps2-an505's header does not set).
+# Each run names itself when clean, so the log shows every HAL was analysed.
 LINT_CPPCHECK = cppcheck --enable=warning,style,performance,portability \
 	          --check-level=exhaustive \
 	          --error-exitcode=1 --inline-suppr --quiet \
@@ -2010,11 +2011,12 @@ lint: lint-arch-leak lint-conditionals lint-timestamps lint-test-sleep
 	          -i src/third_party \
 	          $(addprefix -i ,$(sort $(foreach r,$(LINT_ARCH_RUNS),$(call lint-arch-dirs,$(call lint-field,$(r),1),$(call lint-field,$(r),2))))) \
 	          src/ boards/ boot/
+	@echo "cppcheck avr:atmega328p clean"
 	@$(foreach r,$(LINT_ARCH_RUNS),$(LINT_CPPCHECK) \
 	          -Isrc/hal/$(word 1,$(subst :, ,$(r))) -Iboot/hal/$(word 1,$(subst :, ,$(r))) \
 	          -Iboards/$(word 2,$(subst :, ,$(r))) -Iboot $(call lint-other-socs,$(r)) \
 	          $(LINT_SOC_DEFS_$(word 3,$(subst :, ,$(r)))) \
-	          $(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))) &&) true
+	          $(call lint-arch-dirs,$(word 1,$(subst :, ,$(r))),$(word 2,$(subst :, ,$(r)))) && echo "cppcheck $(r) clean" &&) true
 	@echo "cppcheck clean"
 
 # The grep gates. Two of them used to live only in the CI workflow, which made

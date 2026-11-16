@@ -40,7 +40,7 @@ text, R17–R24 this page's.
 | R2 | Cortex-M33 first: `mps2-an505`, board `0x40`, soft tier | done (QEMU) | `boards/mps2-an505/` | `test/unit/test_board_mps2-an505.c` `test_the_board_is_the_provisional_cortex_m_id` |
 | R3 | Cortex-M7 first: `mps2-an500`, board `0x42`, sharing the MPS2 drivers and linker script | done (QEMU) | `boards/mps2-an500/`, `src/hal/cortex-m/mps2/`, `mk/arch/cortex-m/image.ld` | `test/unit/test_board_mps2-an500.c` `test_the_board_is_the_cortex_m7_qemu_id` |
 | R4 | Boards are data, held in board profiles | done | `boards/<board>/profile.mk`, `board_profile.h`, `board.c` | `test/unit/test_board_mps2-an505.c` `test_a_pin_beyond_the_board_is_refused` (`make board-sweep`) |
-| R5 | Per-architecture code only behind the HAL, the boot HAL and the board profiles | partial: the leak gate holds; cppcheck reads only the AVR HAL's include path (slice 3) | `mk/host.mk` `lint-arch-leak` (`ARCH_LEAK_CM_PAT`) | `make lint-arch-leak-selftest` (`mk/host.mk`) |
+| R5 | Per-architecture code only behind the HAL, the boot HAL and the board profiles | done: the leak gate holds, and cppcheck analyses the Cortex-M HAL and boot HAL once per Cortex-M board with that board's header (slice 3) | `mk/host.mk` `lint-arch-leak` (`ARCH_LEAK_CM_PAT`), `lint` (`LINT_ARCH_RUNS`) | `make lint-arch-leak-selftest`; `make lint` (prints `cppcheck cortex-m:<board>:<soc> clean` per run) |
 | R6 | ADR for the reference part and CI emulation target (#14) | done: accepted, ruling 632 item 208 a | `docs/cortex-m/adr-reference-part-and-emulation.md` | none: a decision record |
 | R7 | ADR for the trust model and TF-M (#15) | done: accepted, ruling 632 item 208 a; its open questions 2–13 stay open | `docs/cortex-m/adr-trust-model-vs-tf-m.md` | none: a decision record |
 | R8 | The reference part is the i.MX 95 M7 (row `imx95`) | partial: board and SoC built and host-tested, not run on silicon (slice 5) | `boards/frdm-imx95-m7/`, `src/hal/cortex-m/imx95/` | `test/unit/test_board_frdm-imx95-m7.c` `test_the_board_is_the_next_provisional_cortex_m_id` |
@@ -80,10 +80,10 @@ the AVR and ESP32 halves have theirs (`test/unit/hal/test_avr_sys_mutate.c`,
    DICE attestation partition itself waits for the owner's answers to open
    questions 2–13 there, and its emulation for open question 11 (TF-M has no
    `mps2-an505` platform). Needs TF-M (another project) and an owner decision.
-3. **cppcheck on the Cortex-M HAL** (#14 follow-up "the lint gates"): give
-   `mk/host.mk`'s cppcheck call a Cortex-M run with `-Isrc/hal/cortex-m` and
-   a Cortex-M board, beside its `-Isrc/hal/avr` one; proven by `make lint`
-   and a planted defect in a selftest like `lint-arch-leak-selftest`.
+3. **cppcheck on the Cortex-M HAL** (#14 follow-up "the lint gates"): done.
+   `make lint` already ran it, one run per `LINT_ARCH_RUNS` board with
+   `-Isrc/hal/cortex-m` and that board's header; each run now prints its
+   name when clean, and a defect planted in `src/hal/cortex-m/` fails it.
 4. **`tfw_hal_free_ram` on the host**: a `test/unit/test_cm_sys.c` that pins
    `src/hal/cortex-m/hal_sys.c`'s count from `__heap_start` to the stack,
    proven by `make host-test`.

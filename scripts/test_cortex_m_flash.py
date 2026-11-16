@@ -307,5 +307,43 @@ class TestRecordWriteRestore(Bench):
         self.assertTrue(all(c.split()[1] in ("cmd", "load") for c in calls if c.startswith("pyocd")))
 
 
+# picotool 2.1.1 takes the device selection last: `--ser <serial>` before the
+# file or the command's options is refused. The stand-in refuses the same and
+# hands an accepted call to the fake tool.
+PICOTOOL_2_1_1 = """#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+if "--ser" in args and args[args.index("--ser") + 2:]:
+    sys.stderr.write("ERROR: unexpected option: " + args[args.index("--ser") + 2] + "\\n")
+    sys.exit(1)
+os.execv(sys.argv[0] + ".fake", [sys.argv[0] + ".fake"] + args)
+"""
+
+
+class TestPicotoolArgOrder(Bench):
+    def setUp(self):
+        super().setUp()
+        # A directory of its own, so the fake still knows itself as picotool.
+        real = os.path.join(self.tmp, "real")
+        os.mkdir(real)
+        os.symlink(FAKE, os.path.join(real, "picotool"))
+        stand_in = os.path.join(self.bin, "picotool")
+        os.remove(stand_in)
+        with open(stand_in, "w", encoding="utf-8") as f:
+            f.write(PICOTOOL_2_1_1.replace('sys.argv[0] + ".fake"', repr(os.path.join(real, "picotool"))))
+        os.chmod(stand_in, 0o755)
+
+    def test_save_load_and_otp_dump_name_the_device_last(self):
+        r = self.make("board-record", "BOARD=rp2350-pico2w", "CM_PROBE_SERIAL=SN1", f"CM_RECORD_DIR={self.records}")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.flash("rp2350-pico2w", "CM_PROBE_SERIAL=SN1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("read back equal", r.stdout)
+        calls = [c for c in self.calls() if c.startswith("picotool")]
+        self.assertEqual([c.split()[1] for c in calls], ["save", "otp", "load", "save"])
+        for c in calls:
+            self.assertTrue(c.endswith(" --ser SN1"), c)
+
+
 if __name__ == "__main__":
     unittest.main()

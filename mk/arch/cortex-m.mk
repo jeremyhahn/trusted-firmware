@@ -117,8 +117,11 @@ ARCH_BOOT_START_LDFLAGS := -nostartfiles
 
 # tfw-boot's factory copies on a two-slot board (BOOT_AB=1, the MPS2 A/B rows
 # in mk/boot.mk), an empty call on one slot: boot/hal/cortex-m/boot_factory.c
-# says why QEMU needs them. mk/boot.mk adds the file to tfw-boot's objects.
-ARCH_BOOT_SRCS = $(BOOT_HAL_DIR)/boot_factory$(if $(filter 1,$(BOOT_AB)),,_none).c
+# says why QEMU needs them. mk/boot.mk adds the files to tfw-boot's objects.
+# hal_mpu.c is Cortex-M only (tfw-boot disarms the MPU before the jump, row
+# 482): AVR has no MPU and no such file, so it is named here, not in BOOT_SRCS.
+ARCH_BOOT_SRCS = $(BOOT_HAL_DIR)/boot_factory$(if $(filter 1,$(BOOT_AB)),,_none).c \
+                 $(HAL_DIR)/hal_mpu.c
 
 # The identity sources and the update request link as on AVR: the handoff
 # block is a fixed SRAM address both images name (RAM_END above).

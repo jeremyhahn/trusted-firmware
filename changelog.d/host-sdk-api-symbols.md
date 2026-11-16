@@ -7,8 +7,9 @@
   signature and the first sentence of its doc comment. That includes
   `tfwsim.StartProvisioningWith`, `StartElementApp`, `StartElementVia` and
   `StartElementEthernet`, which the page did not name before.
-  `scripts/api-doc-check.py`, run by `make scripts-test`
-  (`scripts/test_api_doc_check.py`), fails when a symbol is exported and has no
+  `scripts/api-doc-check.py`, run on the repository by `make sdk-lint`
+  (`make api-doc-check`; its own tests, `scripts/test_api_doc_check.py`, in
+  `make scripts-test`), fails when a symbol is exported and has no
   row, or when a row or a `pkg.Name` on the page names one that does not exist.
 
 ### Changed

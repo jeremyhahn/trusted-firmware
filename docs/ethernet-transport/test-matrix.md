@@ -9,6 +9,39 @@
 > over ISP and its application flashed again ([over ISP](#the-mega-over-isp-2026-10-16)).
 > The Nano has not run.
 
+## Acceptance clauses (row ethernet-transport, #431)
+
+One line per clause of the row in [`docs/SPEC.md`](../SPEC.md), with the file
+and test that proves it, or why it is open. Audited 2026-11-13.
+
+| Clause | Proof, or open |
+|---|---|
+| A device reaches the network, enrols (device-attest-01, through go-trusted-platform) and attests without a serial host | open: needs the Mega's enrolment run over Ethernet against go-trusted-platform's device-facing endpoint on the bench; the [2026-10-21 run](#the-mega-over-tcp-on-the-bench-network-block-2026-10-21-171) stopped at the board not answering on the bench block (#171) |
+| The hardware TCP/IP stack carries the existing frames unchanged over a TCP connection the device opens | `test/unit/test_link_eth.c` `test_a_frame_over_ethernet_is_answered_over_ethernet`; `sdk/go/cmd/tfwctl/e2e_ethernet_test.go` `TestEthernetDeviceAnswersCapsOverTCP` (the device dials the listener) |
+| Frames, command ids and wire vectors do not change | one framer for both links (`src/proto/link_eth.c`, `link_serial.c`); `e2e_ethernet_test.go` `TestEthernetAndSerialAreAnsweredSideBySide`; the wire vectors' tests (`sdk/go/cmd/tfwctl/e2e_wire_test.go`) are unchanged by this row |
+| The Ethernet link accepts only attestation and enrolment, the allow-list widened by item 48 to the staging ids 0x68–0x6B | `test_link_eth.c` `test_ethernet_admits_the_enrolment_attestation_and_staging_commands_and_nothing_else`, `test_every_id_off_the_list_is_answered_unknown_over_ethernet`; `e2e_ethernet_test.go` `TestEthernetDeviceRefusesWhatIsNotOnTheAllowList`, `TestEthernetDeviceAdmitsTheOTAIdsOverTCP`, `TestEthernetDeviceRefusesAuthAndOTAActivateOverTCP` |
+| Provisioning and the capabilities stay on serial | `test_link_eth.c` `test_serial_admits_every_command`, `test_events_go_to_serial_only`; `e2e_ethernet_test.go` `TestEthernetNetworkBlockReadsBackOverSerial` |
+| One driver file per controller, chosen by the board profile, over the HAL's SPI | `src/net/w5100.c`, `src/net/w5500.c`; `ETH_CHIP` in `boards/*/profile.mk`, checked against `src/net/*.c` by `mk/firmware.mk`; `test_w5100`, `test_w5500` (each chip's driver and the wrong-chip refusal against `test/model/w5x00_model.c` behind the mock SPI) |
+| No IP stack, TLS or ACME client of ours on the device | the controller's sockets only (`include/tfw/eth.h`, `src/net/w5x00.c`); the ACME client is go-trusted-platform's |
+| Evidence signed and nonce-bound end to end | `e2e_ethernet_test.go` `TestEthernetDeviceAttestsOverTCP`, `TestEthernetDeviceSignsTheCSRDigestOverTCP` |
+| Address, MAC and endpoint are configuration, never hardcoded in `src/` | `test_link_eth.c` `test_every_field_the_controller_is_given_comes_from_the_block`, `test_the_block_from_eeprom_is_what_the_controller_is_given`; `e2e_netcfg_test.go` `TestE2ENetcfgSetPointsTheDeviceAtTheWrittenEndpoint` |
+| Static addresses until DHCP; a DHCP block leased by the RFC 2131 client, `DHCP=1`, off by default | `DHCP ?= 0` in `mk/firmware.mk`; `test_link_eth.c` `test_a_block_asking_for_dhcp_stays_down_without_the_client`; `test/unit/test_dhcp.c` (`test_dhcp_w5100`, `test_dhcp_w5500`) |
+| The client probes the offered address | `test_dhcp.c` `test_an_ack_probes_the_address_from_no_address_before_taking_it`, `test_an_address_in_use_is_declined_and_asked_for_again_after_10_s` |
+| It renews at T1 and T2 beside the connection | `test_dhcp.c` `test_at_t1_the_lease_is_renewed_beside_the_connection`, `test_at_t2_any_server_may_rebind_the_lease`; `test/unit/test_link_dhcp.c` |
+| `tfwctl netcfg set --dhcp` writes a DHCP block and refuses `--ip`, `--mask`, `--gateway` beside it | `sdk/go/cmd/tfwctl/netcfg_test.go` `TestNetcfgSetDHCPWritesTheFlagAndNoAddress`, `TestNetcfgSetDHCPRefusesAStaticAddressBesideIt`; `e2e_netcfg_test.go` `TestE2ENetcfgSetDHCPRoundTripsThroughTheDevice` |
+| `tfwprov --bake-netblock --dhcp` does the same | `sdk/go/cmd/tfwprov/netblock_test.go` `TestNetblockDHCPIsTheFlagAndNoAddress`, `TestNetblockDHCPRefusesAStaticAddressBesideIt` |
+| Until the shields' MACs are supplied, a locally administered MAC derived from the DeviceID | `sdk/go/netcfg.go` `DerivedMAC`; `sdk/go/netcfg_test.go` `TestDerivedMACIsPinned`, `TestDerivedAndStickerMACsAreAccepted`. The shields' own MAC values: open, the owner's to supply |
+| Reference boards: the Nano with a W5100 shield, the Mega 2560 with the Ethernet shield | `ETH_CHIP ?= w5100` in both boards' `profile.mk`; the board runs: open, bench |
+| The Mega enrols on the soft DICE root; the Nano only with an element | `BOARD_TIERS` in `boards/atmega2560/profile.mk` (`CRYPTO ?= auto`) and `boards/atmega328p/profile.mk` (`atecc608a`, `BOARD_REFUSED_TIERS := soft`); the enrolment run: open, bench |
+| The ATECC608C element tier runs once the owner wires it | open: the owner's wiring; nothing waits on it |
+| `ETH=1` is the ATmega2560 default; the shieldless Mega is an explicit `ETH=0` row | `ETH ?= 1` and `BOARD_ROWS` (`soft:ETH=0 atecc608a:ETH=0 auto:ETH=0`) in `boards/atmega2560/profile.mk`, built by `make firmware-matrix` and `make board-sweep` |
+| The soft-crypto 328P Ethernet node is withdrawn; no 328P row builds Ethernet | `boards/atmega328p/profile.mk`: no `BOARD_ROWS`, `BOARD_TIERS := atecc608a`, `BOARD_REFUSED_TIERS := soft` |
+| The 328P element image is over its flash and RAM budgets with `ETH=1` (W5100) | [engineering.md, Flash and RAM](engineering.md#flash-and-ram): 21 612 / 16 384 bytes of flash and 1 121 / 1 024 of RAM, measured with avr-gcc 14.2.0 on main 48d85486 (folded from `row/eth-dhcp-size`); the figure the row once quoted, 18 036, predates that measurement |
+| `sdk/go` gains a TCP transport beside serial | `sdk/go/tcp.go`; `sdk/go/tcp_test.go` `TestAcceptReturnsAWorkingDeviceWithoutWaitingForBoot` and the rest of the file |
+| Serial or network chosen at build time by object list, never `#if` in logic | `mk/firmware.mk` links `link_eth.c` or `link_serial.c` (both define `tfw/link.h`); `TFW_FEATURE_ETHERNET` is used only as a value (`include/tfw/board.h`), never in an `#if` |
+| Seam: go-trusted-platform's device-facing endpoint accepts these connections | open: go-trusted-platform's side, that repository's |
+| #171 VLAN 405 static addresses for the bench boards | bench configuration, kept out of this repository (RFC 5737 here). The harness half is done: `HW_ETH` names the address the board dials and `HW_ETH_LISTEN` the wildcard the suite listens on (`sdk/go/internal/peer/peer_test.go` `TestEndpointRefusesAWildcardAndNamesTheListenVariable`, `TestListenIsTheListenAddressWhenOneIsNamed`), defect C of the 2026-10-21 run. Open: the board answering on the bench block, Infrastructure and the bench |
+
 ## Values the run writes
 
 Each board's network block is written over serial with `sdk/go`'s
@@ -1016,3 +1049,11 @@ its own block, but the block is built anyway, and `tfw.NetConfig` refuses the
 unspecified address. So `HW_ETH=0.0.0.0:<port>` fails every row before it
 listens. On a forwarded path the board dials one address and the harness
 listens on another, and `HW_ETH` must then be a concrete local address.
+
+Defect C is fixed on main: `HW_ETH` (`TFW_HW_ETH`) is the endpoint the board
+dials and `HW_ETH_LISTEN` (`TFW_HW_ETH_LISTEN`) the address the suite listens
+on, so the wildcard goes in the second
+([hardware-enrollment.md](../development/hardware-enrollment.md)). A wildcard in
+`HW_ETH` is refused with a message naming `HW_ETH_LISTEN`
+(`sdk/go/internal/peer/peer_test.go`). Items 4 and 5 still need the board on the
+bench block.

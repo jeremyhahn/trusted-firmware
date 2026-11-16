@@ -15,7 +15,7 @@ The part has 32 MB of flash and the board profile builds for 32 MB
 
 | | |
 |---|---|
-| Board | Waveshare ESP32-P4-WIFI6-POE-ETH ("Pins" below says how this is known): ESP32-P4 PoE Ethernet board with an ESP32-C6 co-processor, USB through a WCH `1a86` "USB Single Serial" bridge, `/dev/ttyACM1` on the bench host |
+| Board | Waveshare ESP32-P4-WIFI6-POE-ETH ("Pins" below says how this is known): ESP32-P4 PoE Ethernet board with an ESP32-C6 co-processor, USB through a WCH `1a86` "USB Single Serial" bridge, a `/dev/serial/by-id` device on the bench host |
 | Chip | ESP32-P4, revision v3.2, dual core + LP core, 400 MHz, 40 MHz crystal |
 | Flash | 32 MB, JEDEC manufacturer `0xC8` (GigaDevice), device `0x4019` |
 | PSRAM | eFuse `PSRAM_CAP` 2, `PSRAM_VENDOR` 1 |
@@ -27,10 +27,10 @@ All read-only. The image and the eFuse dump are kept outside the repository,
 in the bench host's per-board record directory, not in this tree.
 
 ```sh
-esptool --port /dev/ttyACM1 chip-id
-esptool --port /dev/ttyACM1 flash-id
-espefuse --port /dev/ttyACM1 summary
-esptool --port /dev/ttyACM1 -b 921600 read-flash 0 ALL p4-flash-factory.bin
+esptool --port "$ESP_PORT" chip-id
+esptool --port "$ESP_PORT" flash-id
+espefuse --port "$ESP_PORT" summary
+esptool --port "$ESP_PORT" -b 921600 read-flash 0 ALL p4-flash-factory.bin
 ```
 
 | What | SHA-256 |
@@ -281,7 +281,7 @@ app's RSA signature (`CONFIG_SECURE_SIGNED_ON_BOOT_NO_SECURE_BOOT=n`). Layer
 
 ### Runs
 
-**2026-10-18, step 1 only: positive.** Read only, `ESP_PORT=/dev/ttyACM1`,
+**2026-10-18, step 1 only: positive.** Read only, `ESP_PORT=<by-id path>`,
 esptool / espefuse v5.6.0 (pip, in a venv outside the repository). Nothing
 was written or erased, and no `espefuse` command other than `summary` was run.
 The outputs are kept in the bench host's record directory for the run, not in
@@ -307,7 +307,7 @@ carry the part's MAC, so they stay outside the tree):
 Steps 2 to 5 were not run.
 
 **2026-10-19, steps 1 and 2: positive; the network gate closed, so nothing
-was written.** `ESP_PORT=/dev/ttyACM1`, esptool / espefuse v5.6.0 (pip, in a
+was written.** `ESP_PORT=<by-id path>`, esptool / espefuse v5.6.0 (pip, in a
 venv outside the repository). Nothing was written or erased, and no `espefuse`
 command other than `summary` was run, so step 5 had nothing to restore. The
 outputs are kept in the bench host's record directory for the run, not in this
@@ -348,7 +348,7 @@ neighbour table show the board's network and the board, or the board's
 address and the bench network's netmask handed to the lane.
 
 **2026-10-21, steps 1 to 5: positive; the board is restored.**
-`ESP_PORT=/dev/ttyACM1`, esptool / espefuse v5.6.0 (pip, in a venv outside the
+`ESP_PORT=<by-id path>`, esptool / espefuse v5.6.0 (pip, in a venv outside the
 repository), on branch `test/p4-hil0-net` at `7868ca31`. Writes were the one
 erase region and the four images of step 3, then the restore; no `espefuse`
 command other than `summary` was run, and no eFuse was written. The static-address
@@ -407,7 +407,7 @@ reset, which step 4 does not observe.
 The #52 requirement "Every bench board reflashed with an image whose trailer
 carries its board id" (`docs/ota/README.md`), as the
 [Mega's](mega2560.md#the-mega-reflashed-with-main-a0f9902as-image-2026-10-26-52-item-9)
-was. `ESP_PORT=/dev/ttyACM1` only, esptool / espefuse v5.6.0 (pip, in a venv
+was. `ESP_PORT=<by-id path>` only, esptool / espefuse v5.6.0 (pip, in a venv
 outside the repository), ESP-IDF `v5.5.5` from Espressif's tag
 (`install.sh esp32p4`, then `idf_tools.py install cmake ninja`), on branch
 `test/52-p4id` at `2cfeb877`. Steps 1 to 3 of [HIL-0](#hil-0), and step 4's
@@ -473,10 +473,247 @@ read over Ethernet needs the board's address on the bench network, in a
 step 3 writes, and step 4's `wirecheck`. The board otherwise matches step 4 as
 2026-10-21 ran it, up to the network.
 
+### Re-read before HIL-0, 2026-11-13 (#48)
+
+Read-only, before any write, on the board's serial port (its CH343 UART), with
+esptool / espefuse v5.6.0 (pip, in a venv outside the repository). The records
+are kept in the lane's record directory, outside this tree, with a
+`SHA256SUMS` that `sha256sum -c` passes.
+
+```sh
+esptool --port $ESP_PORT chip-id
+esptool --port $ESP_PORT flash-id
+espefuse --port $ESP_PORT summary
+espefuse --port $ESP_PORT dump --file-name p4-efuse-dump.bin
+esptool --port $ESP_PORT -b 921600 read-flash 0 ALL p4-flash-before.bin
+```
+
+espefuse v5.6.0 writes `dump` as one file per block (`p4-efuse-dump0.bin` to
+`…10.bin`); `p4-efuse-dump.bin` is the eleven joined in block order. The
+bootloader and the table are cut from the whole-flash image at the live
+layout's offsets: the table at `0x10000` (`CONFIG_PARTITION_TABLE_OFFSET` in
+`mk/arch/esp32/sdkconfig.defaults`), so the bootloader cut is
+`0x2000`–`0xFFFF`.
+
+| Record | Bytes | SHA-256 |
+|---|---|---|
+| `p4-chip-id.txt` | 490 | `23044a6223507109f407c3031b04061a55536251f024230183fdb94453b98aa9` |
+| `p4-flash-id.txt` | 497 | `5e5e599e937f77b97c5c8dfa79a49caf186491d3a247971397391dd699b815d6` |
+| `p4-efuse-summary.txt` | 28 720 | `279d40b49e4969fabe75b9ce01c34f1771b36099ec3bbf8c73affc4f9a62831d` |
+| `p4-efuse-dump.bin` | 336 | `381b409e3c1d642bb6848131f5d45d49dadc2151f528f5c2d650ef03d71c181b` |
+| `p4-flash-before.bin`, `0x0000000`–`0x1FFFFFF` | 33 554 432 | `e0331d2ae6c237112d038b8ab0cdc5c78f1c9f1b7e3f0eb253d50c661eff1936` |
+| `p4-bootloader-before.bin`, `0x2000`–`0xFFFF` | 57 344 | `d1dc3a25054d0680e7e6886cd4a70e29dcf59dca62bafe9bb9aca2860c643c69` |
+| `p4-parttable-before.bin`, `0x10000`, `0xC00` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `p4-parttable-before.txt`, `gen_esp32part.py` (v5.5.5) decode | 289 | `21193dea4cf6ce452ed2c2c7dedb7428cc4d257d038ac77e0c4e64e78c450e8c` |
+
+The read took 497 s at 921600 baud (539.9 kbit/s effective).
+
+Against the factory record:
+
+| Check | Result |
+|---|---|
+| Chip | `ESP32-P4 (revision v3.2)`, equal; `chip-id` and `flash-id` output byte-identical to 2026-10-18's (`6eea01f4…6324`, `4c4b0c14…b805`) once the port name is the same |
+| Flash | `Manufacturer: c8`, `Device: 4019`, 32 MB, equal |
+| Security eFuses | `summary` byte-identical to 2026-10-18's and 2026-10-26's (`279d40b4…831d`): every row of [Security eFuses](#security-efuses) unchanged; `BLOCK_USR_DATA` and `BLOCK_KEY0`–`5` (blocks 3 to 9 of the dump) all zero |
+| Whole flash | **not equal**: `e0331d2a…1936`, not the factory `c2d4ac0f…fde0` |
+
+The whole-flash difference is the 2026-10-26 run's: it left the board on
+2cfeb877's image (above). The regions that run wrote read back equal to its
+artefacts: `0x20000`–`0xA1FFF` is the sealed `trusted-firmware.bin`
+(`6e99896a…dd07`), the first 33 264 bytes at `0x2000` are its
+`bootloader.bin` (`837b066c…6b16`), and the table at `0x10000` is its
+`partition-table.bin` (`73543a38…8689`), the seven partitions of
+`boards/esp32p4-poe/partitions.csv`. The factory table at `0x8000` is gone
+under the longer bootloader.
+
+**HIL-0 not run.** The lane's order was to stop before any write on any
+difference from the factory record, and the whole flash differs, so steps 2
+and 3 (build, write, erase) and the boot log were not run, and no write, erase
+or eFuse command reached the board. Next: either the owner accepts the
+2026-10-26 state above as the before record, or `make board-restore` first
+puts the factory image back so the whole-flash check can be equal; then HIL-0
+from step 2.
+
+Coordinator decision under ruling 109 (row-48 resume brief): this re-read, the 2026-10-26 image
+(`e0331d2a…1936`), is the before record for HIL-0; the factory image
+(`c2d4ac0f…fde0`) stays the restore image.
+
+### HIL-0 on main's image, 2026-11-13 (#48)
+
+Steps 2 to 4's console check of [HIL-0](#hil-0), after the re-read above, on
+branch `row/48-esp32-p4` at `add2b3b5` (main `3b92319c` and the re-read's
+docs commit). ESP-IDF `v5.5.5` from Espressif's tag (`install.sh esp32p4`,
+then `idf_tools.py install cmake ninja`), esptool / espefuse v5.6.0. Step 5
+was not run, so **the board was left on this image**. Writes were the one
+erase region and the four images of step 3. No eFuse was written, and no
+`espefuse` command other than `summary` and the re-read's `dump` was run.
+
+| Step | Command | Result |
+|---|---|---|
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0` (no static-address overlay: none was handed to the lane) | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y`, `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y`, `CONFIG_PARTITION_TABLE_OFFSET=0x10000`, `# CONFIG_TFW_ETH_STATIC_IP is not set` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT erase-region 0x12000 0x5000` | `Flash memory region erased successfully in 0.1 seconds.` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT write-flash 0x2000 … 0x10000 … 0x11000 tfw_plat.bin 0x20000 trusted-firmware.bin` | exit 0; four `Hash of data verified.`; `Wrote 532480 bytes … at 0x00020000` |
+| 4 | console, UART0 at 115200 after one reset, 60 s | `boot: ESP-IDF v5.5.5 2nd stage bootloader`, `chip revision: v3.2`, `SPI Flash Size : 32MB`, the seven-partition table; `tfw-l0: app at 0x20000 verified, measurement 4937b1cc008165a0e80010a6b14824887bab9090290837c867c4bbd2c409b3f4`; `tfw-l0: no HMAC_UP key in eFuse: this part has no UDS`; `boot: Loaded app from partition at offset 0x20000`; `App version: xkms/v0.2.0-alpha-214-gadd2b3b5`; `main_task: Calling app_main()`; `ethernet attached to netif`, then no address and no link-up line in the window |
+| 4 | `build/esp32/wirecheck … -board 0x80 -tier 0` | **not run**: no static address, and the bench network has no DHCP server |
+| — | `espefuse --port $ESP_PORT summary`, after the write | every eFuse line equal to the re-read's; the file differs only in two esptool connection notes about the port's USB IDs, so no eFuse moved |
+
+The build's artefacts, as written in step 3 (the keys are per build directory,
+so all but the partition table differ from 2026-10-26's):
+
+| Artefact | Bytes | SHA-256 |
+|---|---|---|
+| `idf/bootloader/bootloader.bin` | 33 264 | `559b31dad6c1f8b5101acd94f5a5c769b18ebfb47f5d7da491170928f10616ed` |
+| `idf/partition_table/partition-table.bin` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `tfw_plat.bin` | 192 | `1db48681be6ec8b70c9ba15128128989285f8ad3c6b7b7c3c583a3cff8524193` |
+| `trusted-firmware.bin` (sealed) | 532 480 | `849f443952f33f7f4a28fe976c7d954f0a35282fb24888cf61f83d3fc894235f` |
+
+The boot log and the after-write summary are in the record directory with
+the re-read's files, under the same `SHA256SUMS`:
+
+| Record | Bytes | SHA-256 |
+|---|---|---|
+| `p4-boot-hil0.log`, 60 s of UART0 after one reset | 4 523 | `715fd4abe4dd4e481af29339510c49ca9f2431eb88d6e6a72721a895ad0894f9` |
+| `p4-efuse-summary-after.txt`, `espefuse summary` after the writes | 29 336 | `9453f49f002c4c3169eb878531d98b537d03ead490873e10cc6049d1fb9a0703` |
+
+**Identity check, 2026-11-14.** `esptool chip-id` (`ESP32-P4 (revision
+v3.2)`) and `espefuse summary` only, no flash read and no eFuse dump. The
+summary is byte-identical to the after-write one above (`9453f49f…0703`), so
+every row of [Security eFuses](#security-efuses) is as before HIL-0.
+`sha256sum -c SHA256SUMS` passes over every file in the record directory,
+the boot log and both checks' files included.
+
+**The CA's read-only factory-state capture**, 2026-11-14 01:0xZ, is the
+independent record of this board: revision v3.2, all eFuses blank, the board
+running trusted-firmware `xkms/v0.2.0-alpha-214` with the `tfw_*`
+partitions, read with esptool 5.6 (esptool 4.7 hangs on this chip). Its
+record files and their SHA-256 values are kept with the CA's bench record,
+not in this tree, and were not handed to this lane; the check above agrees
+with each fact it states.
+
+**Still open: the network.** CAPS over Ethernet needs the board's address in a
+static-address overlay (step 2), a rebuild, step 3's writes and step 4's
+`wirecheck`.
+
+### Row 48: flash, layer-0 boot check, wire over Ethernet, 2026-11-14
+
+Ruling 625 (1): flash our build, run the layer-0 boot check and the wire
+protocol over Ethernet, and burn no eFuse ([plan](../../plans/48.md)).
+`ESP_PORT` is the board's `/dev/serial/by-id` path (the lane's only device),
+esptool / espefuse v5.6.0 (pip, in a venv outside the repository). No
+`espefuse` command other than `summary` was run. The outputs are kept outside
+the tree: they carry the part's MAC and the port's serial number. With the
+by-id path in place of the kernel tty name, esptool 5.6.0 prints a `NOTE` that
+pyserial cannot resolve the port's VID/PID and uses the standard reset
+sequence; so the outputs are not byte-identical to the earlier runs', and the
+rows below compare their content.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `esptool --port $ESP_PORT chip-id` | `Chip type: ESP32-P4 (revision v3.2)`, `Dual Core + LP Core, 400MHz`, `Crystal frequency: 40MHz` |
+| 1 | `esptool --port $ESP_PORT flash-id` | `Manufacturer: c8`, `Device: 4019`, `Detected flash size: 32MB` |
+| 1 | `espefuse --port $ESP_PORT summary > efuse-before.txt` | every row of "Security eFuses" unchanged: `SECURE_BOOT_EN` False; `SPI_BOOT_CRYPT_CNT` `Disable (0b000)`; `KEY_PURPOSE_0`–`5` `USER`; `SECURE_BOOT_KEY_REVOKE0`–`2` False; `DIS_DOWNLOAD_MODE`, `ENABLE_SECURITY_DOWNLOAD` False; `DIS_PAD_JTAG`, `DIS_USB_JTAG` False, `SOFT_DIS_JTAG` 0; `WR_DIS` 0, `RD_DIS` 0; `SECURE_VERSION` 0 |
+| 2 | ESP-IDF `v5.5.5` from Espressif's tag, `install.sh esp32p4`, then `idf_tools.py install cmake ninja` | `idf.py --version`: `ESP-IDF v5.5.5`; `cmake version 3.30.2`. This lane image has `ensurepip`, so `install.sh` ran as is |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA=boards/esp32p4-poe/sdkconfig.hil0` (no static-address overlay: none was handed to the lane) | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y`, `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y`, `# CONFIG_TFW_ETH_STATIC_IP is not set` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT erase-region 0x12000 0x5000` | `Flash memory region erased successfully in 0.1 seconds.` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT write-flash 0x2000 … 0x10000 … 0x11000 tfw_plat.bin 0x20000 trusted-firmware.bin` | `Wrote 33264 bytes … at 0x00002000`, `Wrote 3072 bytes … at 0x00010000`, `Wrote 192 bytes … at 0x00011000`, `Wrote 532480 bytes … at 0x00020000`; `Hash of data verified.` after each |
+| 4 | console, UART0 at 115200 for 60 s after one reset (EN through RTS, IO0 high; no break) | `boot: ESP-IDF v5.5.5 2nd stage bootloader`, `chip revision: v3.2`, `SPI Flash Size : 32MB`; **`tfw-l0: app at 0x20000 verified, measurement 399f44833ad52e9246562a3c3971c50a4b8c2bb9dee7fd1aee610b453a71fc0f`**; `tfw-l0: no HMAC_UP key in eFuse: this part has no UDS`; `boot: Loaded app from partition at offset 0x20000`; `App version: xkms/v0.2.0-alpha-214-g139283b6`, this row's first commit; `ethernet attached to netif`, then no address and no link-up line |
+| 4 | `build/esp32/wirecheck … -board 0x80 -tier 0` | **not run**: built, but the board has no address to reach (below) |
+| 5 | `espefuse --port $ESP_PORT summary > efuse-after.txt`; `diff efuse-before.txt efuse-after.txt` | empty diff, exit 0; both files SHA-256 `9453f49f002c4c3169eb878531d98b537d03ead490873e10cc6049d1fb9a0703`: no eFuse moved |
+
+Before the write the board ran an earlier lane's image (`App version`
+`…-gadd2b3b5`, layer 0 `verified`, no link-up line). HIL-0 step 5, the
+restore, was not run: **the board is left on this row's image**, as the plan
+says.
+
+The build's artefacts, as written in step 3. The keys are generated per build
+directory and never committed, so another build has other hashes for all but
+the partition table.
+
+| Artefact | Bytes | SHA-256 |
+|---|---|---|
+| `idf/bootloader/bootloader.bin` | 33 264 | `32492ac4a1e30a1705fd82a2c67f2c21a25494fe735066ee836c0f08887aa9dc` |
+| `idf/partition_table/partition-table.bin` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `tfw_plat.bin` | 192 | `ff32f8f5c14158b4b195fcc3e293e4130e58e165ac9c919f06b520242a46aa0d` |
+| `trusted-firmware.bin` (sealed) | 532 480 | `9b2ab7a0d956ed0be2397b471197688c9b9a83489cdcad52ac7f0eac2b3ef993` |
+| `idf/trusted-firmware.bin` (no trailer, not written) | 528 384 | `ec72ccf034cece501a6f508eb32389a36891a5a1007ba6ed82018780761a0626` |
+
+**Not run: the wire over Ethernet.** The step does not need the board to
+dial the bench host (the board listens on tcp/21574 and `wirecheck` dials
+it), so a published port is not what is missing. What is missing is the
+board's address: the lane was handed no `$HOME/p4-static.defaults` overlay,
+the build fell back to DHCP, and the bench network has no DHCP server, as on
+2026-10-26. The lane's namespace has a route to its bridge and a default
+route only, and no network was scanned. To finish the step: hand the lane
+the board's address and the bench netmask as the overlay of HIL-0 step 2,
+rebuild, repeat step 3, then `wirecheck -addr <address>:21574 -board 0x80
+-tier 0` from a lane whose outbound TCP to the bench block is forwarded, as
+on 2026-10-21.
+
+### Row 48: the wire over Ethernet on VLAN 101, 2026-11-14
+
+Ruling 644 (3): the board is on the development VLAN, so it takes a static
+address from an untracked overlay (HIL-0 step 2), Infra's assignment. In this
+record the address is `192.0.2.80/24`, gateway and DNS `192.0.2.1` (RFC 5737
+placeholders for the real values, which stay off the tree). The plan:
+
+1. `espefuse --port $ESP_PORT summary` before, read only.
+2. `make esp32-build` with `sdkconfig.hil0` and the overlay
+   (`CONFIG_TFW_ETH_STATIC_IP=y`, address, netmask, gateway).
+3. HIL-0 step 3's writes over the by-id port; console until the link-up line.
+   If the static address does not come up, the address DHCP gave the board,
+   read from the console, and this record says so.
+4. `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0`.
+5. `espefuse summary` after; the diff against step 1 must be empty. No eFuse
+   is burned.
+
+The first session of this lane found no ESP tools in the lane image and
+stopped there. On resume, esptool / espefuse v5.6.0 went into a venv in the
+lane's home, and ESP-IDF `v5.5.5` (Espressif's tag, `install.sh esp32p4`,
+then `idf_tools.py install cmake ninja`) into the lane's home too, so nothing
+was installed on the host. The overlay is `build/p4wire/p4-static.defaults`
+(gitignored). The Kconfig has no DNS option, and the wire check does not need
+one. Writes were the one erase region and the four images of step 3. No
+eFuse was written, and no `espefuse` command other than `summary` was run.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `espefuse --port $ESP_PORT summary > efuse-before.txt` | every row of "Security eFuses" unchanged: `SECURE_BOOT_EN` False, `SPI_BOOT_CRYPT_CNT` `Disable (0b000)`, `KEY_PURPOSE_0` `USER`, `DIS_DOWNLOAD_MODE` False, `WR_DIS` 0, `RD_DIS` 0, `SECURE_VERSION` 0 |
+| 2 | `make esp32-build BOARD=esp32p4-poe CRYPTO=none ESP_SDKCONFIG_EXTRA="boards/esp32p4-poe/sdkconfig.hil0 <overlay>"` | `sealed …/trusted-firmware.bin: board 0x80, version 1, image_len 524272`; `sdkconfig`: `# CONFIG_SECURE_BOOT is not set`, `# CONFIG_SECURE_FLASH_ENC_ENABLED is not set`, `CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y`, `CONFIG_TFW_ETH_STATIC_IP=y`, `CONFIG_TFW_ETH_IP_ADDR="192.0.2.80"`, `CONFIG_TFW_ETH_NETMASK="255.255.255.0"`, `CONFIG_TFW_ETH_GATEWAY="192.0.2.1"` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT erase-region 0x12000 0x5000` | `Flash memory region erased successfully in 0.1 seconds.` |
+| 3 | `esptool --chip esp32p4 --port $ESP_PORT write-flash 0x2000 … 0x10000 … 0x11000 tfw_plat.bin 0x20000 trusted-firmware.bin` | exit 0; four `Hash of data verified.` |
+| 3 | console, UART0 at 115200 for 120 s after one reset (EN through RTS, IO0 high) | `boot: ESP-IDF v5.5.5 2nd stage bootloader`, `chip revision: v3.2`, `SPI Flash Size : 32MB`, the seven-partition table from `0x11000`; **`tfw-l0: app at 0x20000 verified, measurement d807cbe2a66ca1247486d40dee24d88ff45fe22dcbb3682ba8312be749d9ac81`**; `tfw-l0: no HMAC_UP key in eFuse: this part has no UDS`; `boot: Loaded app from partition at offset 0x20000`; `App version: xkms/v0.2.0-alpha-255-ge41807f7`; `ethernet attached to netif`; `eth ip: 192.0.2.80, mask: 255.255.255.0, gw: 192.0.2.1`; **`tfw-eth: link up, address 192.0.2.80, wire on tcp/21574`**, 2.0 s after `app_main()`, the overlay's address; after the check, `tfw-wire: the host closed the connection` |
+| 4 | `wirecheck -addr 192.0.2.80:21574 -board 0x80 -tier 0`, from the lane, 40 s after the reset | **pass**, exit 0 (below) |
+| 5 | `espefuse --port $ESP_PORT summary > efuse-after.txt`; `diff efuse-before.txt efuse-after.txt` | one line differs, line 3, esptool's connection progress dots (`..` before, `.` after); no eFuse line differs. `efuse-after.txt` is SHA-256 `9453f49f002c4c3169eb878531d98b537d03ead490873e10cc6049d1fb9a0703`, byte-identical to the after-write summaries of 2026-11-13 and of the row 48 flash above: **no eFuse moved** |
+
+The `wirecheck` transcript, the address replaced by its placeholder:
+
+```text
+wirecheck: ping echoed over tcp 192.0.2.80:21574
+wirecheck: caps proto 2.0 fw 0.1.0 board 0x80 pins 17 tier 0 features 0x000007ff
+wirecheck: sysinfo uptime 39.284s free-ram 538152 reset-cause 1
+wirecheck: none tier: no P-256 in CAPS, ATTEST refused (unsupported)
+wirecheck: ok
+```
+
+The build's artefacts, as written in step 3 (keys per build directory, so all
+but the partition table differ from the earlier builds'):
+
+| Artefact | Bytes | SHA-256 |
+|---|---|---|
+| `idf/bootloader/bootloader.bin` | 33 264 | `c7229b0164ebfdd9f0e2c93df7fa67ff9fe567f68e760a5ba3c8ab9bec05a9f8` |
+| `idf/partition_table/partition-table.bin` | 3 072 | `73543a3838a312385e15d62ebcd0e52b7e870a58c715fc3a9829a0fbae158689` |
+| `tfw_plat.bin` | 192 | `ccb7fafe1a3783b01ad9d363d247fc9d1fc7a36914b31cc1e96b6b4b423da2cb` |
+| `trusted-firmware.bin` (sealed) | 532 480 | `2075934f9a89646ea0c3689b228a0e235142e86454876b08f5b1611db0f58ba6` |
+
+The boot log, the two summaries and the wirecheck output stay outside the tree
+(they carry the part's MAC and the real address). HIL-0 step 5, the restore,
+was not run: **the board is left on this image, up at its static address on
+the development VLAN.**
+
 ## Restore
 
 ```sh
-make board-restore BOARD=esp32p4-poe ESP_PORT=/dev/ttyACM1 BOARD_RESTORE_IMAGE=<record dir>/p4-flash-factory.bin
+make board-restore BOARD=esp32p4-poe ESP_PORT=<by-id path> BOARD_RESTORE_IMAGE=<record dir>/p4-flash-factory.bin
 ```
 
 | | |

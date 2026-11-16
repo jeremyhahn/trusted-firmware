@@ -81,3 +81,33 @@ uint32_t tfw_nrf54l_rram_unit(uint32_t addr, uint32_t left)
 {
     return ((addr & 3uL) == 0u && left >= 4u) ? 4u : 1u;
 }
+
+/* The SAADC's analog inputs are fixed pins: AIN0-AIN7 are P1.4, P1.5, P1.6,
+ * P1.7, P1.11, P1.12, P1.13 and P1.14 (nrfx soc/nrfx_soc_defines.h,
+ * SAADC_EXTERNAL_AIN_PSELS for NRF54L15_XXAA). AIN0 and AIN1 are the
+ * console UARTE's pins and AIN6 and AIN7 the DK's BUTTON0 and LED3 (Zephyr's
+ * nrf54l15dk_common.dtsi), so the board's channels are AIN2-AIN5. */
+static const uint8_t saadc_bits[TFW_NRF54L_SAADC_CHANNELS] = { 6u, 7u, 11u, 12u };
+
+uint8_t tfw_nrf54l_saadc_pin(uint8_t channel, uint8_t *port, uint8_t *bit)
+{
+    if (channel >= TFW_NRF54L_SAADC_CHANNELS) {
+        return 0u;
+    }
+    *port = 1u;
+    *bit  = saadc_bits[channel];
+    return 1u;
+}
+
+uint32_t tfw_nrf54l_saadc_pselp(uint8_t port, uint8_t bit)
+{
+    return (1uL << 30) | ((uint32_t)(port & 0xFu) << 8) | (uint32_t)(bit & 0x1Fu);
+}
+
+uint16_t tfw_nrf54l_saadc_raw(int16_t sample)
+{
+    if (sample < 0) {
+        return 0u;
+    }
+    return (sample > 4095) ? 4095u : (uint16_t)sample;
+}

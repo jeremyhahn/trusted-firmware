@@ -49,7 +49,8 @@ up on the bench host without changing the device irreversibly.
   on-board probe, a Micro-USB port to the RP2350's USB controller, and **no
   Ethernet**: Wi-Fi and Bluetooth through a CYW43439 on SPI.
 - **The gate.** The `cortex-m` row, and with it any RP2350 port, waits on the
-  AVR physical end-to-end run (#7). This ADR does not lift it.
+  AVR physical end-to-end run (#7). This ADR does not lift it. The owner lifted
+  it for the RP2350 (Pico 2 W) by ruling 697.
 - **Ownership** (CLAUDE.md, L1/L2). This project owns the firmware and on-device
   key handling. DICE ASN.1, certificate profiles and attestation verification are
   go-xkms's; enrolment and the device registry are go-trusted-platform's. The

@@ -38,10 +38,11 @@ const boardRowsEnv = "TFW_HW_ROWS"
 type imageParts uint8
 
 const (
-	partStager   imageParts = 1 << iota // the OTA stager (OTA_STATUS)
-	partOTACtl                          // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
-	partApp                             // an application (APP_INFO)
-	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
+	partStager      imageParts = 1 << iota // the OTA stager (OTA_STATUS)
+	partOTACtl                             // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
+	partApp                                // an application (APP_INFO)
+	partIdentity                           // a provisioned identity, the DEVICEID the rows verify under
+	partTonePinHeld                        // ETH=1 holds TFW_TONE_PIN: the Mega's pin 10 is the shield's chip select
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -96,11 +97,13 @@ var boardImages = map[string]boardImage{
 		parts: partIdentity,
 	},
 	// CRYPTO=auto on the bench Mega, which has the element, and ETH=1, which
-	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM.
+	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM. The shield's chip
+	// select is the tone pin, which board.c marks TFW_PIN_ETH, in use under
+	// ETH=1: the tone row needs a shieldless image (ETH=0).
 	"atmega2560": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert | tfw.FeatureAttestCSR | tfw.FeatureAuthSession,
 		tier:  elementTier,
-		parts: partIdentity | partStager | partOTACtl,
+		parts: partIdentity | partStager | partOTACtl | partTonePinHeld,
 	},
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
@@ -125,7 +128,8 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
-	"TestFirmwareTone":                                   {caps: tfw.FeatureTone},
+	"TestFirmwareTone":                                   {caps: tfw.FeatureTone, not: partTonePinHeld},
+	"TestFirmwareToneRefusesTheShieldsPin":               {caps: tfw.FeatureTone, has: partTonePinHeld},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
 	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
@@ -304,8 +308,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce",
 			"TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
+			"TestFirmwareTone",
 		}, []string{
-			"TestFirmwareAnOperatorSignatureOpensTheSession", "TestFirmwareAttestCSRPrintsTheSignatureAsHex",
+			"TestFirmwareToneRefusesTheShieldsPin", "TestFirmwareAnOperatorSignatureOpensTheSession", "TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAAuthLetsTheCommandPastTheGate",
 			"TestFirmwareAttestRefusedUnprovisioned", "TestFirmwareBlankElementRefusesToAttest",
 			"TestFirmwareSoftwareTierStillCannotIssueACertificate",
@@ -316,7 +321,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwarePing", "TestFirmwareAnOperatorSignatureOpensTheSession",
 			"TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAConfirm",
+			"TestFirmwareToneRefusesTheShieldsPin",
 		}, []string{
+			"TestFirmwareTone",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
 			"TestFirmwareOTAAuthLetsTheCommandPastTheGate", "TestFirmwareAppReportsItsApplication",
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",

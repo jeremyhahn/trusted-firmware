@@ -383,7 +383,14 @@ func TestFirmwareTone(t *testing.T) {
 
 	assert.Equal(t, tfw.StatusErrUnsupported, cliStatus(t, dev, "tone", strconv.Itoa(int(b.pwmPin)), strconv.Itoa(toneHz)),
 		"pin %d is not the tone pin", b.pwmPin)
-	require.NoError(t, run(context.Background(), dev, "mode", []string{pin, "out"}, false, &strings.Builder{}))
+	err = run(context.Background(), dev, "mode", []string{pin, "out"}, false, &strings.Builder{})
+	var st tfw.Status
+	if errorsAsStatus(err, &st) && st == tfw.StatusErrReservedPin {
+		// An image that holds the tone pin (the Mega's ETH=1, partTonePinHeld)
+		// runs TestFirmwareToneRefusesTheShieldsPin instead.
+		t.Skipf("pin %d is held by this image; the tone row needs one that leaves it free", b.tonePin)
+	}
+	require.NoError(t, err)
 	require.NoError(t, run(context.Background(), dev, "write", []string{pin, "0"}, false, &strings.Builder{}))
 	require.NoError(t, run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{}),
 		"pin %d is the tone pin and should take %d Hz", b.tonePin, toneHz)
@@ -409,6 +416,19 @@ func TestFirmwareTone(t *testing.T) {
 		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
 			"pin %d: still toggling after NOTONE", b.tonePin)
 	}
+}
+
+// TestFirmwareToneRefusesTheShieldsPin is the tone row on an image that holds
+// the tone pin (partTonePinHeld): the Mega's ETH=1 image, where pin 10 is the
+// Ethernet shield's chip select, refuses it as RESERVED_PIN and never drives it.
+func TestFirmwareToneRefusesTheShieldsPin(t *testing.T) {
+	_, b := firmwareBoard(t)
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	pin := strconv.Itoa(int(b.tonePin))
+
+	assert.Equal(t, tfw.StatusErrReservedPin, cliStatus(t, dev, "mode", pin, "out"),
+		"pin %d is the shield's chip select", b.tonePin)
 }
 
 func TestFirmwareI2C(t *testing.T) {

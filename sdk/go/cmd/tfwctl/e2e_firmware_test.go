@@ -27,91 +27,8 @@ import (
 // one scenario is the cross-implementation check in CI and the bench check on a
 // board, and none of them picks a transport for itself.
 
-// peerBoard is what the scenarios have to know about the board they talk to:
-// pin numbers and what the board's own profile says about them. tfwsim is
-// compiled against the 328P's profile; `make hw-test` names the board on the
-// port.
-type peerBoard struct {
-	// resetCause is what SYS_INFO reports after the connect. tfwsim starts
-	// from power-on. A real board was just reset through DTR, and its stock
-	// bootloader cleared MCUSR before the application could latch it, so the
-	// honest answer is unknown (src/hal/avr/hal_sys.c).
-	resetCause tfw.ResetCause
-	ledPort    uint8          // the LED pin 13's port index
-	ledBit     uint8          // and bit
-	ledPWM     tfw.PWMSupport // what pin 13's compare unit, if any, is doing
-	analog     uint8          // a pin with an ADC channel and a digital port
-	adcPin     uint8          // the ADC pin the descriptor scenario reads
-	adcChannel uint8          // adcPin's channel
-	adcPort    bool           // whether adcPin has a digital port
-	adcOnly    int            // how many pins are ADC inputs with no digital port
-	tickPin    uint8          // a compare-unit pin whose timer is the millisecond tick
-	noPWMPin   uint8          // a digital pin with no compare unit at all
-	pwmPin     uint8          // a pin whose compare unit is free: it takes a duty
-	ledPin     uint8          // the pin the board's table flags as its LED (a plain digital pin when noLED)
-	noLED      bool           // the board has no LED: ledPin must be digital and not flagged LED
-	noTickPin  bool           // the tick's timer drives no pin: tickPin is unused, no refusal to assert
-	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
-	timerPin   uint8          // a digital output the timer scenario drives and reads back
-}
-
-var peerBoards = map[string]peerBoard{
-	"atmega328p": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    0, ledBit: 5, ledPWM: tfw.PWMNone, // PB5
-		analog: 14,                                // A0, PC0
-		adcPin: 20, adcChannel: 6, adcPort: false, // A6
-		adcOnly: 2,               // A6 and A7
-		tickPin: 5, noPWMPin: 13, // OC0B
-		pwmPin: 9, // OC1A
-		ledPin: 13, txPin: 1, timerPin: 2,
-	},
-	"atmega2560": {
-		resetCause: tfw.ResetUnknown,
-		ledPort:    1, ledBit: 7, ledPWM: tfw.PWMSystemTick, // PB7, OC0A
-		analog: 54, // A0, PF0
-		adcPin: 54, adcChannel: 0, adcPort: true,
-		adcOnly: 0,               // every ADC input on the Mega is also a digital pin
-		tickPin: 4, noPWMPin: 22, // OC0B; PA0
-		pwmPin: 9, // OC2B
-		ledPin: 13, txPin: 1, timerPin: 2,
-	},
-	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
-	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
-	// 1 on the FPGA I/O block's port 0, outputs only, and pin 2 the shield 0
-	// SPI select (MISC, port 1 bit 8), no flags; no ADC, no PWM, and the
-	// UART outside the pin table. QEMU's system_reset leaves no reset mark
-	// behind, so the HAL reads power-on (src/hal/cortex-m/hal_early.c). The
-	// analog, PWM, EEPROM, bus and pulse rows find their families absent from
-	// CAPS and fail (requireFeature), so the QEMU run leaves them out; their
-	// pin fields here are never read.
-	"mps2-an505": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
-		ledPin: 0, txPin: -1, timerPin: 1, // LED1
-	},
-	"mps2-an500": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
-		ledPin: 0, txPin: -1, timerPin: 1, // LED1
-	},
-	// boards/esp32p4-poe/board.c: no LED on the header (noLED), so the plain
-	// GPIO32 (pin 11, port 1 bit 0, digital only) stands in; GPIO20 is ADC1
-	// channel 4 and a digital pin; the console UART is outside the table. The
-	// tick uses no LEDC timer: the table flags all four LEDC pins PWM, so
-	// every one takes a duty and none is refused (noTickPin). Reached over PORT=tcp:, so no reset: the cause is
-	// the last boot's, power-on.
-	"esp32p4-poe": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    1, ledBit: 0, ledPWM: tfw.PWMNone, // GPIO32
-		analog: 7, // GPIO20
-		adcPin: 7, adcChannel: 4, adcPort: true,
-		adcOnly:   0,
-		noTickPin: true, noPWMPin: 11, // GPIO32
-		pwmPin: 1,                                        // GPIO3, LEDC1
-		ledPin: 11, noLED: true, txPin: -1, timerPin: 12, // GPIO33
-	},
-}
+// The pin facts of each board, peerBoards, are in e2e_pins_test.go, which
+// every build compiles, so a unit test checks them against the row lists.
 
 // firmwareBoard returns the facts for the board the seam names. A board this
 // table does not know fails the scenario: guessing its pins would test the
@@ -131,12 +48,12 @@ func firmwareBoard(t *testing.T) (string, peerBoard) {
 func TestPeerBoardFactsSayWhatTheBoardLacks(t *testing.T) {
 	p4 := peerBoards["esp32p4-poe"]
 	assert.True(t, p4.noLED, "esp32p4-poe has no LED; ledPin is a plain digital pin")
-	assert.True(t, p4.noTickPin, "esp32p4-poe's tick timer drives no pin")
-	assert.EqualValues(t, 1, p4.pwmPin, "esp32p4-poe's free PWM pin is GPIO3, LEDC1, not the AVRs' pin 9 (an ADC pin there)")
+	assert.Negative(t, p4.tickPin, "esp32p4-poe's tick timer drives no pin")
+	assert.EqualValues(t, 0, p4.pwmPin, "esp32p4-poe's free PWM pin is GPIO2, LEDC0, not the AVRs' pin 9 (an ADC pin there)")
 	for _, name := range []string{"atmega328p", "atmega2560"} {
 		b := peerBoards[name]
 		assert.False(t, b.noLED, "%s has an LED on pin 13", name)
-		assert.False(t, b.noTickPin, "%s ticks on timer0, whose compare pins are spent", name)
+		assert.GreaterOrEqual(t, b.tickPin, 0, "%s ticks on timer0, whose compare pins are spent", name)
 	}
 }
 
@@ -285,11 +202,10 @@ func TestFirmwarePin(t *testing.T) {
 
 	led := cliPin(t, dev, b.ledPin)
 	assert.EqualValues(t, b.ledPin, led.Pin, "descriptor echoed the pin")
-	if b.noLED {
-		assert.True(t, led.Flags.Has(tfw.PinDigital), "pin %d flags = %s, want digital", b.ledPin, led.Flags)
-		assert.False(t, led.Flags.Has(tfw.PinLED), "pin %d flags = %s: the board has no LED", b.ledPin, led.Flags)
-	} else {
-		assert.True(t, led.Flags.Has(tfw.PinDigital|tfw.PinLED), "pin %d flags = %s, want digital and led", b.ledPin, led.Flags)
+	want, absent := ledPinFlags(b)
+	assert.True(t, led.Flags.Has(want), "pin %d flags = %s, want %s", b.ledPin, led.Flags, want)
+	if absent != 0 {
+		assert.False(t, led.Flags.Has(absent), "pin %d flags = %s: the board has no LED", b.ledPin, led.Flags)
 	}
 	assert.True(t, led.HasPort, "pin %d has a port", b.ledPin)
 	assert.Equal(t, b.ledPort, led.Port, "pin %d port", b.ledPin)
@@ -299,8 +215,8 @@ func TestFirmwarePin(t *testing.T) {
 	// OC0A, spent on the tick.
 	assert.Equal(t, b.ledPWM, led.PWM, "pin %d pwm", b.ledPin)
 
-	// pwmPin's compare unit is free: OC1A on the 328P, OC2B on the Mega,
-	// LEDC1 on the P4; none of those timers is the tick.
+	// The board's free PWM pin: pin 9 is OC1A on the 328P and OC2B on the
+	// Mega, neither timer the tick; LEDC0 on the ESP32-P4.
 	if caps.Has(tfw.FeaturePWM) {
 		pwm := cliPin(t, dev, b.pwmPin)
 		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin %d pwm", b.pwmPin)
@@ -432,7 +348,7 @@ func TestFirmwareEEPROM(t *testing.T) {
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
 	dev := startFirmware(t)
 	nonce := strings.Repeat("00", tfw.AttestNonceLen)
-	assert.Equal(t, tfw.StatusErrNotProvisioned, cliStatus(t, dev, "attest", nonce),
+	assert.Equal(t, attestRefusal(cliCaps(t, dev).CryptoTier), cliStatus(t, dev, "attest", nonce),
 		"an unprovisioned device produced attestation evidence")
 }
 
@@ -458,12 +374,136 @@ func TestFirmwarePWM(t *testing.T) {
 	// Timer0 is the millisecond tick, so its compare pins have units that are
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and
-	// wondering why nothing moves. A board whose tick drives no pin
-	// (noTickPin) has no such pin to refuse.
-	if !b.noTickPin {
-		cliRefused(t, dev, "pwm", strconv.Itoa(int(b.tickPin)), "128")
+	// wondering why nothing moves.
+	if b.tickPin >= 0 {
+		cliRefused(t, dev, "pwm", strconv.Itoa(b.tickPin), "128")
 	}
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
+}
+
+// toneHz is the frequency the tone row drives. A kilohertz is a 500 us half
+// period: long against the P4's busy-polled capture, short enough that the
+// edges the row times fit a 200 ms window.
+const toneHz = 1000
+
+// TestFirmwareTone starts a tone on the board's own tone pin, measures it
+// back on that pin, and stops it. The pin is set to an output first: the P4's
+// HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), so
+// PULSE_CAPTURE reads the level LEDC drives. On a board the row times the
+// captured half periods and wants the frequency within 5%; a simulator's pin
+// carries no waveform, so there the row proves the start and stop round-trip.
+func TestFirmwareTone(t *testing.T) {
+	board, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	// Only an image known to hold the tone pin (the Mega's ETH=1,
+	// partTonePinHeld) skips; it runs TestFirmwareToneRefusesTheShieldsPin
+	// instead. Anywhere else a RESERVED_PIN on the tone pin fails the row.
+	if tonePinHeld(target.Hardware(), board) {
+		t.Skipf("%s: the image holds pin %d; TestFirmwareToneRefusesTheShieldsPin covers it", board, b.tonePin)
+	}
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	pin := strconv.Itoa(int(b.tonePin))
+
+	assert.Equal(t, tfw.StatusErrUnsupported, cliStatus(t, dev, "tone", strconv.Itoa(int(b.pwmPin)), strconv.Itoa(toneHz)),
+		"pin %d is not the tone pin", b.pwmPin)
+	require.NoError(t, run(context.Background(), dev, "mode", []string{pin, "out"}, false, &strings.Builder{}),
+		"%s: pin %d is the tone pin and this image leaves it free", board, b.tonePin)
+	require.NoError(t, run(context.Background(), dev, "write", []string{pin, "0"}, false, &strings.Builder{}))
+	require.NoError(t, run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{}),
+		"pin %d is the tone pin and should take %d Hz", b.tonePin, toneHz)
+	t.Cleanup(func() {
+		_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
+	})
+
+	if target.Hardware() {
+		var got struct {
+			EdgesUS []uint16 `json:"edges_us"`
+		}
+		cliJSON(t, dev, &got, "pulse-capture", pin, "1", "30", "50ms")
+		// 30 edges: TFW_CAPTURE_MAX is 31 at a 64-byte payload, and TFW_PULSE_MAX_US is 50 ms.
+		require.Len(t, got.EdgesUS, 30, "pin %d: a %d Hz tone gives 30 edges in 15 ms", b.tonePin, toneHz)
+		hz, err := toneFrequency(got.EdgesUS)
+		require.NoError(t, err)
+		t.Logf("pin %d: %.1f Hz measured over %d half periods, %d Hz asked", b.tonePin, hz, len(got.EdgesUS)-2, toneHz)
+		assert.NoError(t, toneFrequencyFits(board, toneHz, hz), "pin %d: tone frequency", b.tonePin)
+	}
+
+	require.NoError(t, run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{}))
+	if target.Hardware() {
+		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
+			"pin %d: still toggling after NOTONE", b.tonePin)
+	}
+}
+
+// TestFirmwareToneRefusesTheShieldsPin is the tone row on an image that holds
+// the tone pin (partTonePinHeld): the Mega's ETH=1 image, where pin 10 is the
+// Ethernet shield's chip select, refuses it as RESERVED_PIN and never drives it.
+func TestFirmwareToneRefusesTheShieldsPin(t *testing.T) {
+	board, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	// The simulator (a 328P) and the P4 leave the tone pin free, and a run
+	// named by HW_TEST_RUN skips the row selector, so the row asks the image.
+	if !tonePinHeld(target.Hardware(), board) {
+		t.Skipf("%s: the image leaves pin %d free; TestFirmwareTone covers it", board, b.tonePin)
+	}
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	pin := strconv.Itoa(int(b.tonePin))
+
+	assert.Equal(t, tfw.StatusErrReservedPin, cliStatus(t, dev, "mode", pin, "out"),
+		"pin %d is the shield's chip select", b.tonePin)
+	// TONE has its own reservation check (src/caps/tone.c): a tone on the
+	// chip select would drive the Ethernet chip, so the device refuses it.
+	// A tone the device took anyway is stopped before the wire closes.
+	err = run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{})
+	if err == nil {
+		t.Cleanup(func() {
+			_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
+		})
+	}
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "TONE on pin %d: %v, want a device status", b.tonePin, err)
+	assert.Equal(t, tfw.StatusErrReservedPin, st, "pin %d is the shield's chip select: TONE must not drive it", b.tonePin)
+}
+
+// loopCountCapture names the boards whose pulse-capture reports polling
+// iterations, not microseconds: src/hal/avr/hal_pulse.c counts one per
+// _delay_us(1) plus the pin reads and arithmetic around it, so each count is
+// at least a microsecond and the counts understate the time.
+var loopCountCapture = map[string]bool{"atmega328p": true, "atmega2560": true}
+
+// toneFrequencyFits checks a measured tone against the one asked. A board
+// timing in microseconds is held to 5% either way; on a loop-count board the
+// understated time can only raise the frequency, so only the floor binds.
+func toneFrequencyFits(board string, asked, measured float64) error {
+	if measured < asked*0.95 {
+		return fmt.Errorf("%.1f Hz measured, under 5%% below the %.0f Hz asked", measured, asked)
+	}
+	if !loopCountCapture[board] && measured > asked*1.05 {
+		return fmt.Errorf("%.1f Hz measured, over 5%% above the %.0f Hz asked", measured, asked)
+	}
+	return nil
+}
+
+func TestToneFrequencyFits(t *testing.T) {
+	for _, c := range []struct {
+		board    string
+		measured float64
+		fits     bool
+	}{
+		{"esp32p4-poe", 1000, true},
+		{"esp32p4-poe", 1300, false},
+		{"esp32p4-poe", 900, false},
+		{"atmega2560", 1000, true},
+		{"atmega2560", 1300, true}, // loop counts understate the half periods
+		{"atmega328p", 900, false},
+	} {
+		err := toneFrequencyFits(c.board, 1000, c.measured)
+		assert.Equal(t, c.fits, err == nil, "%s at %.0f Hz: %v", c.board, c.measured, err)
+	}
 }
 
 func TestFirmwareI2C(t *testing.T) {

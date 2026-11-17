@@ -38,10 +38,12 @@ const boardRowsEnv = "TFW_HW_ROWS"
 type imageParts uint8
 
 const (
-	partStager   imageParts = 1 << iota // the OTA stager (OTA_STATUS)
-	partOTACtl                          // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
-	partApp                             // an application (APP_INFO)
-	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
+	partStager      imageParts = 1 << iota // the OTA stager (OTA_STATUS)
+	partOTACtl                             // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
+	partApp                                // an application (APP_INFO)
+	partIdentity                           // a provisioned identity, the DEVICEID the rows verify under
+	partTCP                                // served over TCP: the connect resets nothing, so no BOOT event comes
+	partTonePinHeld                        // ETH=1 holds TFW_TONE_PIN: the Mega's pin 10 is the shield's chip select
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -66,7 +68,6 @@ type rowNeed struct {
 	tier  rowTier    // the tier the row starts its peer on
 	has   imageParts // what it has that CAPS cannot say
 	not   imageParts // and what it must not have
-	fresh bool       // needs a board the connect resets: a BOOT event, zeroed sticky counters
 }
 
 // boardImage is what an AVR board's default image has: its profile.mk and
@@ -75,9 +76,6 @@ type boardImage struct {
 	caps  uint32
 	tier  rowTier
 	parts imageParts
-	// noReset: opening the board's wire does not reset it (a TCP server), so
-	// no row starts on a fresh boot and the rows that need one are not run.
-	noReset bool
 }
 
 // servedBy reports whether img serves a row with this need.
@@ -85,8 +83,34 @@ func (n rowNeed) servedBy(img boardImage) bool {
 	return img.caps&n.caps == n.caps && img.caps&n.lacks == 0 &&
 		(n.tier == anyTier || n.tier == img.tier ||
 			n.tier == cryptoTier && (img.tier == softTier || img.tier == elementTier)) &&
-		img.parts&n.has == n.has && img.parts&n.not == 0 &&
-		(!n.fresh || !img.noReset)
+		img.parts&n.has == n.has && img.parts&n.not == 0
+}
+
+// boardImageHolds reports whether the board's bench image has every part in
+// p. A board with no row list has none: the rows that need a part skip there.
+func boardImageHolds(board string, p imageParts) bool {
+	img, ok := boardImages[board]
+	return ok && img.parts&p == p
+}
+
+// tonePinHeld reports whether the firmware under test is known to hold the
+// tone pin: hardware running a board image with partTonePinHeld. The
+// simulator and every other image leave it free, so a RESERVED_PIN there is
+// a regression, not a skip.
+func tonePinHeld(hardware bool, board string) bool {
+	return hardware && boardImageHolds(board, partTonePinHeld)
+}
+
+// attestRefusal is what ATTEST answers on a device with no identity: a
+// CRYPTO=none image has no provider to attest with, so UNSUPPORTED; a tier
+// that could hold one and does not, NOT_PROVISIONED (Codex P1 on #567). It
+// lives in this untagged file so the row-selection tests compile without
+// tfwsim (Codex P1 on #567 at c75c203c).
+func attestRefusal(tier tfw.CryptoTier) tfw.Status {
+	if tier == tfw.CryptoNone {
+		return tfw.StatusErrUnsupported
+	}
+	return tfw.StatusErrNotProvisioned
 }
 
 // avrPeripherals are the families config.h turns on and neither AVR board's
@@ -107,22 +131,24 @@ var boardImages = map[string]boardImage{
 		parts: partIdentity,
 	},
 	// CRYPTO=auto on the bench Mega, which has the element, and ETH=1, which
-	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM.
+	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM. The shield's chip
+	// select is the tone pin, which board.c marks TFW_PIN_ETH, in use under
+	// ETH=1: the tone row needs a shieldless image (ETH=0).
 	"atmega2560": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert | tfw.FeatureAttestCSR | tfw.FeatureAuthSession,
 		tier:  elementTier,
-		parts: partIdentity | partStager | partOTACtl,
+		parts: partIdentity | partStager | partOTACtl | partTonePinHeld,
 	},
 	// The ESP32-P4 at bench HIL-0 (boards/esp32p4-poe/profile.mk), CRYPTO=none:
 	// CAPS features 0x7ff on the bench record
 	// (docs/development/bench/esp32-p4.md), the AVR families exactly, tier
 	// none, so no tier's rows, nor the rows that hold facts only for a tier
-	// (cryptoTier: EEPROM, AttestRefusedUnprovisioned); no identity provisioned and no stager or application
+	// (cryptoTier); no identity provisioned and no stager or application
 	// known to the rows.
 	"esp32p4-poe": {
-		caps:    avrPeripherals,
-		tier:    noneTier,
-		noReset: true, // the wire is a TCP server: connect does not reset it
+		caps:  avrPeripherals,
+		tier:  noneTier,
+		parts: partTCP,
 	},
 }
 
@@ -130,19 +156,21 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {fresh: true},
-	"TestFirmwarePingAfterAMalformedBurst":               {fresh: true},
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {not: partTCP}, // a TCP connect boots nothing
+	"TestFirmwarePingAfterAMalformedBurst":               {not: partTCP}, // its errors stay in the counters across reconnects
 	"TestFirmwareCaps":                                   {},
-	"TestFirmwareSys":                                    {fresh: true},
+	"TestFirmwareSys":                                    {not: partTCP}, // wants zero framer errors since a boot
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
 	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM, tier: cryptoTier},
-	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, tier: cryptoTier, not: partIdentity},
+	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
+	"TestFirmwareTone":                                   {caps: tfw.FeatureTone, not: partTonePinHeld},
+	"TestFirmwareToneRefusesTheShieldsPin":               {caps: tfw.FeatureTone, has: partTonePinHeld},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
-	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
+	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C, tier: cryptoTier},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
 	"TestFirmwareOneWireAndPulseIn":                      {caps: tfw.FeatureOneWire | tfw.FeaturePulse},
 
@@ -165,7 +193,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestCSRSignatureIsOverTheNonce":               {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt":  {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne":      {lacks: tfw.FeatureAttestCSR, tier: softTier},
-	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {},
+	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {not: partTCP}, // meddler waits for a BOOT
 	"TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt":        {caps: tfw.FeatureAttestCSR, has: partIdentity},
 
 	// e2e_auth_test.go: the operator session, and the key TFW_HW_OPERATOR_KEY names
@@ -319,7 +347,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce",
 			"TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
+			"TestFirmwareTone",
 		}, []string{
+			"TestFirmwareToneRefusesTheShieldsPin",
 			"TestFirmwareAnOperatorSignatureOpensTheSession", "TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAAuthLetsTheCommandPastTheGate",
 			"TestFirmwareAttestRefusedUnprovisioned", "TestFirmwareBlankElementRefusesToAttest",
@@ -331,7 +361,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwarePing", "TestFirmwareAnOperatorSignatureOpensTheSession",
 			"TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAConfirm",
+			"TestFirmwareToneRefusesTheShieldsPin",
 		}, []string{
+			"TestFirmwareTone",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
 			"TestFirmwareOTAAuthLetsTheCommandPastTheGate", "TestFirmwareAppReportsItsApplication",
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
@@ -358,10 +390,17 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 // I2CConfig among them now that they hold none-tier facts (#576), and the AVR
 // boards, on a tier, still run all three.
 func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
+	// The unprovisioned attest row stays: it holds the none tier's refusal.
+	if got := attestRefusal(tfw.CryptoNone); got != tfw.StatusErrUnsupported {
+		t.Errorf("attest refusal on the none tier = %v, want UNSUPPORTED", got)
+	}
+	if got := attestRefusal(tfw.CryptoSoftware); got != tfw.StatusErrNotProvisioned {
+		t.Errorf("attest refusal on the software tier = %v, want NOT_PROVISIONED", got)
+	}
 	tiered := []string{"TestFirmwareEEPROM"}
 	p4 := boardRun(t, "esp32p4-poe", false)
 	for _, r := range []string{"TestFirmwarePing", "TestFirmwareWrite", "TestFirmwarePin", "TestFirmwareI2C",
-		"TestFirmwareCaps", "TestFirmwareI2CConfig"} {
+		"TestFirmwareCaps", "TestFirmwareI2CConfig", "TestFirmwareAttestRefusedUnprovisioned"} {
 		if !p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is not run", r)
 		}
@@ -370,11 +409,6 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 		if p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is run on a CRYPTO=none image", r)
 		}
-	}
-	// The none provider answers attest UNSUPPORTED, not NOT_PROVISIONED: the
-	// image offers no attest, so the unprovisioned refusal row is not run.
-	if p4.MatchString("TestFirmwareAttestRefusedUnprovisioned") {
-		t.Error("esp32p4-poe: TestFirmwareAttestRefusedUnprovisioned is run on a CRYPTO=none image")
 	}
 	for _, board := range []string{"atmega328p", "atmega2560"} {
 		run := boardRun(t, board, false)
@@ -393,31 +427,40 @@ func TestBoardRunMatchesWholeNames(t *testing.T) {
 	}
 }
 
-// A board whose wire does not reset it on connect (the P4's TCP server) runs
-// no row that needs a fresh boot: the boot event never comes, and Sys's
-// power-on reset cause and zero sticky framing counters (Codex P1 on #546)
-// hold only until the board restarts through firmware or reads a bad frame.
-func TestBoardWithNoResetOnConnectRunsNoFreshBootRow(t *testing.T) {
-	run := boardRun(t, "esp32p4-poe", false)
-	for _, r := range []string{
+// The caps-bit refusal row wraps its connection in meddler, which hides
+// SetReadDeadline, and waits for a BOOT: a TCP connect resets nothing, so
+// on the P4 the row would block until the test timeout (Codex, #567).
+func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
+	const row = "TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported"
+	if boardRun(t, "esp32p4-poe", false).MatchString(row) {
+		t.Fatalf("the esp32p4-poe run selects %s, which hangs on TCP", row)
+	}
+	if !boardRun(t, "atmega2560", false).MatchString(row) {
+		t.Fatalf("the atmega2560 run lost %s", row)
+	}
+}
+
+// TestBoardRunLeavesTheResetRowsOffATCPBoard: a TCP connect resets nothing,
+// so no BOOT event comes, and the framer counters keep the malformed burst's
+// errors across reconnects. The rows that need a fresh boot run on the
+// serial boards only.
+func TestBoardRunLeavesTheResetRowsOffATCPBoard(t *testing.T) {
+	if !boardRun(t, "esp32p4-poe", false).MatchString("TestFirmwarePing") {
+		t.Error("esp32p4-poe dropped TestFirmwarePing")
+	}
+	for _, row := range []string{
 		"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
 		"TestFirmwarePingAfterAMalformedBurst",
 		// a power-on reset cause and zero sticky framing counters: a board
 		// restarted through firmware, or sent a malformed frame on an
-		// earlier connection, keeps neither
+		// earlier connection, keeps neither (Codex P1 on #546)
 		"TestFirmwareSys",
 	} {
-		if run.MatchString(r) {
-			t.Errorf("esp32p4-poe runs %s, which needs a fresh boot", r)
+		if boardRun(t, "esp32p4-poe", false).MatchString(row) {
+			t.Errorf("the esp32p4-poe run selects %s, which needs a reset a TCP connect never makes", row)
 		}
-	}
-	if !run.MatchString("TestFirmwarePing") {
-		t.Error("esp32p4-poe dropped TestFirmwarePing")
-	}
-	reset := boardRun(t, "atmega2560", false)
-	for _, r := range []string{"TestFirmwarePingAfterAMalformedBurst", "TestFirmwareSys"} {
-		if !reset.MatchString(r) {
-			t.Errorf("a board that resets on connect lost %s", r)
+		if !boardRun(t, "atmega2560", false).MatchString(row) {
+			t.Errorf("the atmega2560 run lost %s", row)
 		}
 	}
 }
@@ -461,5 +504,39 @@ func TestSelectBoardRowsDoesNothingUnasked(t *testing.T) {
 	t.Setenv(peer.BoardEnv, "atmega32u4")
 	if err := selectBoardRows(); err != nil {
 		t.Fatalf("selection ran unasked: %v", err)
+	}
+}
+
+// TestOnlyTheMegaImageHoldsTheTonePin: TestFirmwareToneRefusesTheShieldsPin
+// runs on an image whose tone pin is the shield's chip select and on no other,
+// so the 328P simulator, the P4 and a board with no list leave it free.
+func TestOnlyTheMegaImageHoldsTheTonePin(t *testing.T) {
+	for board, want := range map[string]bool{
+		"atmega2560":  true,
+		"atmega328p":  false,
+		"esp32p4-poe": false,
+		"no-such":     false,
+	} {
+		if got := boardImageHolds(board, partTonePinHeld); got != want {
+			t.Errorf("%s: holds the tone pin = %v, want %v", board, got, want)
+		}
+	}
+}
+
+func TestTonePinHeldOnlyOnTheMegaHardware(t *testing.T) {
+	for _, c := range []struct {
+		hardware bool
+		board    string
+		want     bool
+	}{
+		{true, "atmega2560", true},
+		{false, "atmega2560", false},
+		{true, "esp32p4-poe", false},
+		{true, "atmega328p", false},
+		{false, "atmega328p", false},
+	} {
+		if got := tonePinHeld(c.hardware, c.board); got != c.want {
+			t.Errorf("%s hardware=%v: tone pin held = %v, want %v", c.board, c.hardware, got, c.want)
+		}
 	}
 }

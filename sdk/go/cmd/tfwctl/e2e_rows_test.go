@@ -383,6 +383,35 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	}
 }
 
+// sysCountersStartAtZero reports whether connecting to board's image resets
+// it, so its framer counters start at zero; a board with no image record
+// (the simulator) starts fresh with every row.
+func sysCountersStartAtZero(board string) bool {
+	img, ok := boardImages[board]
+	return !ok || img.parts&partConnectReset != 0
+}
+
+// The P4's connect resets nothing, and its run holds the malformed-burst row
+// and Sys together (Codex P1 on #565): Sys there compares its counters before
+// and after clean traffic, not against zero, while a board whose connect
+// resets it, and the simulator, still assert zero.
+func TestSysCountersAreZeroOnlyWhereTheConnectResets(t *testing.T) {
+	p4 := boardRun(t, "esp32p4-poe", false)
+	for _, r := range []string{"TestFirmwarePingAfterAMalformedBurst", "TestFirmwareSys"} {
+		if !p4.MatchString(r) {
+			t.Errorf("esp32p4-poe: %s is not run", r)
+		}
+	}
+	if sysCountersStartAtZero("esp32p4-poe") {
+		t.Error("esp32p4-poe: Sys asserts zero counters on an image the connect does not reset")
+	}
+	for _, board := range []string{"atmega328p", "atmega2560", ""} {
+		if !sysCountersStartAtZero(board) {
+			t.Errorf("%q: Sys does not assert zero counters after the connect's reset", board)
+		}
+	}
+}
+
 // A row whose name another row's begins with is not run by the prefix.
 func TestBoardRunMatchesWholeNames(t *testing.T) {
 	if boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingSomethingElse") {

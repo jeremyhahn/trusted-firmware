@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"testing"
 	"time"
 
@@ -191,7 +192,7 @@ func stageImage(total, body int) []byte {
 // stageImageFor is stageImage for the board CAPS names: the stager refuses a
 // trailer whose board id is not its own (src/core/ota_stage.c).
 func stageImageFor(total, body int, board tfw.BoardID) []byte {
-	if chip, ok := espChipID(board); ok {
+	if chip, ok := espChipID(board, os.Getenv(espTargetEnv)); ok {
 		return espAppImage(total, body, board, chip) // esp_image_test.go (#562)
 	}
 	img := bytes.Repeat([]byte{0xFF}, total)

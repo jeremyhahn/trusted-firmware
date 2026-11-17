@@ -42,6 +42,7 @@ const (
 	partOTACtl                          // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
 	partApp                             // an application (APP_INFO)
 	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
+	partToneEth                         // ETH=1 reserves the tone pin (TFW_PIN_ETH): PIN_MODE on it is RESERVED_PIN
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -96,11 +97,12 @@ var boardImages = map[string]boardImage{
 		parts: partIdentity,
 	},
 	// CRYPTO=auto on the bench Mega, which has the element, and ETH=1, which
-	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM.
+	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM. The tone pin, D10, is
+	// an Ethernet shield pin, which board.c marks TFW_PIN_ETH.
 	"atmega2560": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert | tfw.FeatureAttestCSR | tfw.FeatureAuthSession,
 		tier:  elementTier,
-		parts: partIdentity | partStager | partOTACtl,
+		parts: partIdentity | partStager | partOTACtl | partToneEth,
 	},
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
@@ -125,7 +127,8 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
-	"TestFirmwareTone":                                   {caps: tfw.FeatureTone},
+	"TestFirmwareTone":                                   {caps: tfw.FeatureTone, not: partToneEth},
+	"TestFirmwareToneRefusesTheEthernetPin":              {caps: tfw.FeatureTone, has: partToneEth},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
 	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
@@ -304,8 +307,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce",
 			"TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
+			"TestFirmwareTone",
 		}, []string{
-			"TestFirmwareAnOperatorSignatureOpensTheSession", "TestFirmwareAttestCSRPrintsTheSignatureAsHex",
+			"TestFirmwareToneRefusesTheEthernetPin", "TestFirmwareAnOperatorSignatureOpensTheSession", "TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAAuthLetsTheCommandPastTheGate",
 			"TestFirmwareAttestRefusedUnprovisioned", "TestFirmwareBlankElementRefusesToAttest",
 			"TestFirmwareSoftwareTierStillCannotIssueACertificate",
@@ -316,7 +320,9 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwarePing", "TestFirmwareAnOperatorSignatureOpensTheSession",
 			"TestFirmwareAttestCSRPrintsTheSignatureAsHex",
 			"TestFirmwareOTAInfo", "TestFirmwareOTAActivate", "TestFirmwareOTAConfirm",
+			"TestFirmwareToneRefusesTheEthernetPin",
 		}, []string{
+			"TestFirmwareTone",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
 			"TestFirmwareOTAAuthLetsTheCommandPastTheGate", "TestFirmwareAppReportsItsApplication",
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",

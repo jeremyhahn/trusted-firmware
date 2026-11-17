@@ -407,6 +407,23 @@ func TestFirmwareTone(t *testing.T) {
 	}
 }
 
+// TestFirmwareToneRefusesTheEthernetPin: on an ETH=1 image the tone pin is an
+// Ethernet pin (TFW_PIN_ETH, IN_USE once the stack is up), so taking it as an
+// output is RESERVED_PIN and the tone row cannot run there (Codex, PR #564).
+// The row lists select it for such an image; the simulators build no Ethernet.
+func TestFirmwareToneRefusesTheEthernetPin(t *testing.T) {
+	_, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	if !target.Hardware() {
+		t.Skip("the simulators reserve no pin for Ethernet")
+	}
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	assert.Equal(t, tfw.StatusErrReservedPin, cliStatus(t, dev, "mode", strconv.Itoa(int(b.tonePin)), "out"),
+		"pin %d is an Ethernet pin on this image", b.tonePin)
+}
+
 func TestFirmwareI2C(t *testing.T) {
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureI2C)

@@ -65,6 +65,18 @@ the M7 firmware and its board profile, with a board id in the Cortex-M range
 | The SoC files `src/hal/cortex-m/imx95/` on the shared core `src/hal/cortex-m/` (#161) | Signing the container (SRK keys, through go-xkms's custody) | The AHAB format |
 | The enclave crypto provider (section 4) and our trailer and SUIT check (section 5) | Staging the container on the boot device | |
 
+**Ruling 771.** Owner ruling 771 (2026-11-17) fixes who owns the rest of the
+SoC. The Cortex-A55 secure world is upstream Arm Trusted Firmware-A and OP-TEE
+from NXP's BSP, not code of this project. go-trusted-platform and go-xkms run
+in Linux and reach TrustZone through OP-TEE: the firmware TPM trusted
+application through the kernel's TPM resource-manager device, the PKCS#11
+trusted application through go-xkms's PKCS#11 backend, and the kernel's TEE
+device for any custom trusted application. The M33's System Manager stays NXP
+firmware, and the EdgeLock Enclave is the hardware root. trusted-firmware
+stays the Cortex-M product, and on the i.MX 95 that is the M7. The board page
+is [`../boards/frdm-imx95-m7.md`](../boards/frdm-imx95-m7.md); hardware work on
+the board is queued after #535 and #536 (ruling 768).
+
 **Non-goals.** No tfw-boot: L0 is NXP's ROM, ELE and System Manager (ref ADR
 decisions 1 and 8). No code on the M33, which runs the System Manager (IMX95CEC
 §4.1.5.1). No DICE ASN.1, certificate profile or verification (go-xkms's), no

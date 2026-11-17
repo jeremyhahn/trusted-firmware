@@ -78,7 +78,8 @@ sdk-coverage:
 # BOARD tells the scenarios which board's pins to expect, and CAPS must report
 # that board. Not part of `make ci`: CI has no board. A missing PORT, a port that
 # does not exist and a board that does not answer all fail; none of them is a
-# skip. Flash the image first (`make flash`); the scenarios do not. -p 1 because
+# skip. PORT=tcp:<ip:port> dials a board whose wire is a TCP server (the
+# ESP32 port) instead, with no reset. Flash the image first (`make flash`); the scenarios do not. -p 1 because
 # every scenario opens, and so resets, the one board. Every TestFirmware*
 # scenario reaches its peer through that seam; a test that starts a simulator
 # itself is named otherwise, so none needs a host binary here. They live in
@@ -112,7 +113,8 @@ sdk-coverage:
 # CRI_DIGEST, the hex SHA-256 of the CertificationRequestInfo the board signs
 # for the CSR rows, which go-xkms reproduces and tfwctl does not. The auth and
 # OTA rows take OPERATOR_KEY, the PEM file of the operator key the board was
-# provisioned to trust.
+# provisioned to trust. ESP_TARGET (TFW_HW_ESP_TARGET) is the machine an
+# esp32-qemu run emulates, whose chip id the staged image carries.
 #
 # HW_RESET is how the seam resets the board between rows (TFW_HW_RESET): unset,
 # it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
@@ -144,8 +146,8 @@ hw-test:
 	@if [ -n "$(HW_RESET_DEFAULT)" ]; then case "$(CM_PROBE_SERIAL)" in \
 	    '') echo "hw-test: REFUSED. $(BOARD) resets through its probe: name it, make hw-test BOARD=$(BOARD) PORT=$(PORT) CM_PROBE_SERIAL=<serial>" >&2; exit 1;; \
 	    *[!A-Za-z0-9_-]*) echo "hw-test: REFUSED. CM_PROBE_SERIAL '$(CM_PROBE_SERIAL)' is not letters, digits, - and _" >&2; exit 1;; esac; fi
-	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
-	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
+	@if [ -z "$(filter tcp:%,$(PORT))" ] && [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
+	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ESP_TARGET='$(ESP_TARGET)' TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl
 
 ## api-doc-check: check docs/host-sdk/api.md names every exported symbol of sdk/go
 api-doc-check:

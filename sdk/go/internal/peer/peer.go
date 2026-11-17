@@ -246,6 +246,15 @@ var openPort = serialport.Open
 // event is delivered exactly as tfwsim delivers it. Nothing is written before
 // then, so no request lands in the bootloader.
 func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
+	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
+		// A board whose wire is a TCP server (the ESP32 port, hal_uart.c):
+		// no DTR to reset it, so the rows find it running, as it is.
+		c, err := openTCP(addr, bound)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", port, err)
+		}
+		return c, nil
+	}
 	p, err := openPort(port, 0)
 	if err != nil {
 		return nil, err
@@ -256,6 +265,77 @@ func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 		return nil, fmt.Errorf("%s: %w", port, err)
 	}
 	return c, nil
+}
+
+// TCPPrefix marks a PortEnv that is a board's wire endpoint, host:port,
+// rather than a serial device: tcp:192.0.2.80:21574.
+const TCPPrefix = "tcp:"
+
+// tcpDials bounds the dials openTCP makes to a board that closes each one.
+const tcpDials = 3
+
+// tcpSettle is how long openTCP waits for a board to close a connection it
+// refused. The board speaks only when asked, so a silent wire is a kept one.
+const tcpSettle = 100 * time.Millisecond
+
+// openTCP dials addr and returns the connection the board kept. A second
+// guard behind hal_uart.c's handoff: a board that still holds the last row's
+// socket closes the next one at once, after the dial has succeeded, so a
+// connection the board closes inside tcpSettle is dialled again.
+func openTCP(addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	var err error
+	for range tcpDials {
+		var c io.ReadWriteCloser
+		c, err = dialTCP("tcp", addr, bound)
+		if err != nil {
+			return nil, err
+		}
+		nc, ok := c.(net.Conn)
+		if !ok {
+			return c, nil
+		}
+		if err = nc.SetReadDeadline(time.Now().Add(tcpSettle)); err != nil {
+			_ = nc.Close()
+			return nil, err
+		}
+		var b [1]byte
+		n, rerr := nc.Read(b[:])
+		if n > 0 {
+			_ = nc.SetReadDeadline(time.Time{})
+			return &primed{Conn: nc, first: b[:1]}, nil
+		}
+		var ne net.Error
+		if errors.As(rerr, &ne) && ne.Timeout() {
+			if err = nc.SetReadDeadline(time.Time{}); err != nil {
+				_ = nc.Close()
+				return nil, err
+			}
+			return nc, nil
+		}
+		_ = nc.Close()
+		err = fmt.Errorf("the board closed the connection: %w", rerr)
+	}
+	return nil, err
+}
+
+// primed is a connection whose first byte openTCP read while it waited.
+type primed struct {
+	net.Conn
+	first []byte
+}
+
+func (p *primed) Read(b []byte) (int, error) {
+	if len(p.first) > 0 && len(b) > 0 {
+		n := copy(b, p.first)
+		p.first = p.first[n:]
+		return n, nil
+	}
+	return p.Conn.Read(b)
+}
+
+// dialTCP is net.DialTimeout, a variable so a test can see the address.
+var dialTCP = func(network, addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	return net.DialTimeout(network, addr, bound)
 }
 
 // OpenQMP opens port, resets the board through the QEMU monitor on socket

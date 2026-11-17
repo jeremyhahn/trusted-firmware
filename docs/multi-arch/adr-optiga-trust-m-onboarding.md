@@ -154,6 +154,98 @@ record and restore the one condition. For an element that is "write nothing":
    subjects or serials, UIDs, MACs, IPs or host names in any file, commit
    message or PR.
 
+## Requirements (audit, #502)
+
+One line per requirement in the text of SPEC row `optiga-trust-m`
+(`docs/SPEC.md`), audited against main on 2026-11-16. "Done" means built and
+host-tested: nothing on this tier has run against the element. A test is a
+file under `test/unit/` and the test in it (`make host-test`), a Python test
+under `scripts/` (`make scripts-test`), or a `make` target. A line with no
+test has none on main.
+
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| R1 | An element tier on the plain OPTIGA Trust M V3 shield | partial: the tier builds (`CRYPTO=optiga`); no board's tiers name it (R16) | `src/crypto/optiga/`, `mk/firmware.mk` (`CRYPTO=optiga`) | `make firmware-matrix` (the measurement rows, R17) |
+| R2 | The on-device driver is ours | done: written here, not taken from Infineon's host library; question 8 stays open | `src/crypto/optiga/optiga_i2c.c`, `optiga_cmd.c`, `optiga_crypto.c` | the suites of R6 to R14 |
+| R3 | The host-side backend is go-enclave's, the same split as the SE052F | not in this repository (go-enclave) | none here; §1 of this ADR | none on main |
+| R4 | The board has arrived; its onboarding ADR is docs-only (#127) | done | `docs/multi-arch/adr-optiga-trust-m-onboarding.md` | none (documentation) |
+| R5 | The AVR gate (#7) is not lifted for it | holds: no default image links the tier | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` (`BOARD_TIERS` without `optiga`) | none on main |
+| R6 | I2C transport: IFX I2C Protocol v2.03 layers 1 to 4, host-tested against recorded frames | done; address 0x30, FCS byte order and timings to confirm on the bench | `src/crypto/optiga/optiga_i2c.c`, `optiga_i2c.h`; Cortex-M bus `src/hal/cortex-m/mps2/hal_bus.c` | `test/unit/test_optiga_i2c.c`: `test_a_broken_chain_is_refused_to_the_element`, `test_the_presentation_layer_is_unsupported`; `test/unit/test_mps2_optiga.c`: `test_a_late_acknowledge_is_repeated_on_the_wire`, `test_a_stuck_bus_is_a_timeout_not_repeated` |
+| R7 | OpenApplication, CloseApplication, GetDataObject, GetRandom (Rev 3.70 §4.4.1) | done | `src/crypto/optiga/optiga_cmd.c` | `test/unit/test_optiga_cmd.c`: `test_open_application_sends_table_40_with_the_table_78_identifier`, `test_close_application_sends_table_41_without_saving`, `test_get_data_sends_table_42_with_offset_and_length`, `test_get_random_sends_table_45_from_the_trng`; `test/unit/test_optiga_cmd_i2c.c`: `test_the_device_certificate_is_read_across_frames` |
+| R8 | CalcSign with the factory key `0xE0F0` | done; the key's curve to confirm from its metadata on the bench | `src/crypto/optiga/optiga_cmd.c` | `test/unit/test_optiga_cmd.c`: `test_calc_sign_sends_table_51_with_the_device_key`, `test_der_signature_that_is_not_two_p256_integers_is_framing` |
+| R9 | VerifySign with a P-256 key sent in the command | done | `src/crypto/optiga/optiga_cmd.c` | `test/unit/test_optiga_cmd.c`: `test_verify_sign_sends_table_52_with_the_key_in_the_command`, `test_verify_sign_encodes_short_r_and_s_minimally` |
+| R10 | Written to the Solution Reference Manual, pinned at Revision 3.70 | done (question 9, ruling 109) | `docs/reference/README.md` | none (documentation) |
+| R11 | No write command is reachable | done, in the command layer and through the bus capability | `src/crypto/optiga/optiga_cmd.c`, `src/caps/bus.c` | `test/unit/test_optiga_cmd.c`: `test_only_the_read_only_commands_were_ever_sent`; `test/unit/test_bus_optiga.c`: `test_the_optiga_address_is_refused_and_never_reaches_the_bus` |
+| R12 | The provider maps random, sign, counter and verify_operator onto those commands | done; the counter's byte order to confirm on the bench | `src/crypto/optiga/optiga_crypto.c` | `test/unit/test_optiga_crypto.c`: `test_random_is_get_random`, `test_sign_is_calc_sign_with_the_factory_key`, `test_counter_reads_the_value_of_each_of_the_four`, `test_verify_operator_is_verify_sign_with_the_key_sent`, `test_verify_operator_wrong_key_is_crypto` |
+| R13 | SHA-256 stays in software | done | `src/crypto/sha256.c`, linked by `mk/firmware.mk` (`CRYPTO=optiga`) | `test/unit/test_sha256.c` (the shared SHA-256; none specific to the tier) |
+| R14 | HMAC, pubkey and verify_image return `TFW_ERR_UNSUPPORTED` | done | `src/crypto/optiga/optiga_crypto.c`, `include/tfw/crypto.h` | `test/unit/test_optiga_crypto.c`: `test_the_unsupported_calls_send_nothing` |
+| R15 | `CRYPTO=optiga` links the provider | done; `PROVISION=1` and a build with the bus off are refused | `mk/firmware.mk` | `scripts/test_prov_absent_check.py`: `test_a_tier_make_refuses_to_provision_is_planned_production_only`; the bus-off refusal has none on main (slice 2) |
+| R16 | No board's tiers name it | holds | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` | none on main |
+| R17 | The ATmega2560 builds it only as two measurement rows, so its flash cost is measured | partial: the rows build (`optiga:ETH=1`, `optiga:ETH=0`; mps2-an505 adds `optiga:I2C=1`, which the SPEC row does not yet say); the fit table's cells are not filled | `boards/atmega2560/profile.mk`, `boards/mps2-an505/profile.mk` (`BOARD_ROWS`) | `make firmware-matrix` (`mk/firmware.mk`) |
+| R18 | Which boards it fits stays the owner's question | open: question 5, with the coordinator's proposal in the sixth part above | this ADR, "Follow-ups" | none |
+
+## Remaining slices
+
+In order. "Hardware" means the shield on the bench under §4; "owner" means a
+ruling first; "other project" means the work is not this repository's.
+
+1. **Fill the fit table** (no hardware, no owner): run `make firmware-matrix`
+   on the CI image, which has avr-gcc and the Arm toolchain, and write the
+   measured text+data and data+bss into the fit table above. Touches this ADR
+   only. Proven by `make firmware-matrix` passing its budget gate on the
+   `optiga` rows of `boards/atmega2560/profile.mk` and
+   `boards/mps2-an505/profile.mk`. The coordinator then answers question 5
+   under ruling 109.
+2. **Test the bus-off refusal** (no hardware, no owner): a
+   `scripts/test_optiga_bus_refused.py` in the pattern of
+   `scripts/test_manifest_refused.py`, asking `make` for `CRYPTO=optiga` on a
+   board with its I2C off (`mps2-an505` without `I2C=1`) and checking the
+   `$(error)` in `mk/firmware.mk`. Run by `make scripts-test`. Touches no
+   firmware code.
+3. **Bring the SPEC row and ROADMAP up to date** (coordinator, no hardware):
+   `docs/SPEC.md` line 46 names only the ATmega2560's rows, not
+   mps2-an505's `optiga:I2C=1` or the MPS2 I2C master; `ROADMAP.md`'s
+   `optiga-trust-m` line still says "next: the provider", which is on main.
+   Touches those two files; no test (docs gates only). This lane changes
+   neither.
+4. **The datasheet and the supply range** (no hardware, no owner): read the
+   *OPTIGA Trust M (SLS32AIA) Datasheet*, newest revision (question 9's
+   rule), pin it by SHA-256 in `docs/reference/README.md`, and settle §2's
+   Supply item. Touches `docs/reference/README.md` and this ADR. No test.
+   Feeds question 1's level-shifter answer.
+5. **Bench factory record** (hardware, owner): needs question 1 (cabling and
+   host) and question 2 (the reading tool). Reads `0xE0E0` and every object's
+   metadata once, read-only (§4 step 3), kept off the repository; a bench page
+   `docs/development/bench/optiga-trust-m.md` like `se052f.md`, with no bench
+   identity (§4 step 7). If the tool is ours, it is a read-only image on the
+   tier (R7, R11 hold it read-only). Proven by the end-of-run metadata compare
+   of §4 step 4.
+6. **Confirm the to-confirm facts on the bench** (hardware, after slice 5):
+   the address 0x30, the FCS byte order and the timings in
+   `src/crypto/optiga/optiga_i2c.c`, the 200 ms command wait in
+   `optiga_cmd.c`, the counter's byte order in `optiga_crypto.c`, and the
+   factory key's curve. Proven by frames recorded from the element replayed
+   in `test/unit/test_optiga_i2c.c` and `test/unit/test_optiga_cmd_i2c.c`,
+   and a sign then verify round trip on the bench.
+7. **The tier joins `BOARD_TIERS`** (owner, after slices 1 and 6): after soft,
+   not in its place, on `boards/atmega2560/profile.mk` and
+   `boards/mps2-an505/profile.mk`, per question 5's answer, and on the AVR
+   rows only once #7 is lifted. Proven by `make firmware-matrix` and
+   `test/unit/test_board_mps2-an505.c`.
+8. **The CDI source and the shielded connection** (owner, then hardware):
+   questions 3 and 4. Either writes the element (an HMAC secret or the
+   platform binding secret `0xE140`), which §4 steps 5 and 6 forbid until the
+   owner rules. Touches `src/crypto/optiga/optiga_i2c.c` (the presentation
+   layer, today refused by `test_the_presentation_layer_is_unsupported`) and a
+   provisioning backend behind `PROVISION=1` in `mk/firmware.mk`.
+9. **Questions 6, 7 and 8** (owner, docs): #15's element tier, the DICE texts'
+   listing, and whether "ours" admits Infineon's host library. Each answer is
+   an edit to this ADR (and to `../cortex-m/adr-trust-model-vs-tf-m.md` for
+   question 6); no code until question 8 is answered otherwise.
+10. **The host-side backend** (other project): go-enclave's, as R3; and the
+    public key from the `0xE0E0` certificate, which is go-xkms's (X.509).
+    Nothing here; pubkey stays `TFW_ERR_UNSUPPORTED`.
+
 ## Open questions for the owner
 
 Question 9 is decided, by ruling 109; none of the others is decided here.

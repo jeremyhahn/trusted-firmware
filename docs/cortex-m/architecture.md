@@ -3,7 +3,7 @@
 > **Status: DRAFT** · Scope: trusted-firmware · Issue: #161 · Last verified: 2026-10-22
 > The decisions and their reasons are in the two ADRs,
 > [adr-reference-part-and-emulation.md](adr-reference-part-and-emulation.md) and
-> [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), both PROPOSED. This
+> [adr-trust-model-vs-tf-m.md](adr-trust-model-vs-tf-m.md), both ACCEPTED (owner ruling 632 item 208 a, 2026-11-14). This
 > page describes what the row has built from them; what each slice added, and
 > the QEMU rows that test it, are in the [README](README.md).
 
@@ -177,7 +177,8 @@ either board.
 - No TF-M, no Non-secure world, no MPU.
 - No secure element on QEMU: mps2-an505's `atecc608a:I2C=1` row is built and
   size-checked, never booted.
-- No PWM, tone, pulse, EEPROM or 1-Wire.
+- No PWM, tone, pulse or 1-Wire. EEPROM is the platform window on the MPS2
+  boards, RAM under QEMU: a write outlives a reset, not the QEMU process.
 - No `make flash`. The boards are emulated, and `make flash` says so and
   exits 1 (`ARCH_CM_NOFLASH`).
 

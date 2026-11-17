@@ -25,8 +25,9 @@ MCU            := stm32h573iik3q
 #                               the reset; the application slot after it,
 #                               128 KiB of code; the platform block in the
 #                               bank's last 8 KiB sector
-#   0x08100000  flash bank 2,   not used yet
-#               1 MiB
+#   0x08100000  flash bank 2,   the application's EEPROM in the bank's last
+#               1 MiB           8 KiB sector (board_profile.h), erased while
+#                               the code runs from bank 1
 #   0x20000000  SRAM1, 256 KiB  .data, .bss, the stack, the reset marker and
 #                               the handoff block at the top (RAM_END)
 #
@@ -73,6 +74,17 @@ ARCH_CRYPTO_SRCS_stm32h5 = src/crypto/sha256.c src/crypto/soft/provider.c \
                            src/crypto/soft/uds_flash.c $(SOFT_ID_SRCS) \
                            src/crypto/stm32h5/h5_hash.c src/crypto/stm32h5/h5_pka.c \
                            src/crypto/stm32h5/provider.c
+
+# I2C4 on the kit's PB8 SCL and PB9 SDA, the instance ST's BSP drives
+# (src/hal/cortex-m/stm32h5/hal_bus.c), off by default: no element is fitted.
+# I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and links the
+# bus; the soft:I2C=1 row builds that image and size-check measures it. Built
+# and host-tested against a register model (test/unit/test_stm32h5_i2c.c), not
+# run on the kit.
+I2C               ?= 0
+BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
+BOARD_ROWS        := soft:I2C=1
 
 # Written through the kit's ST-LINK/V3E with ST's STM32CubeProgrammer CLI
 # (UM2237), which reads and writes the STM32H5's flash and prints its option

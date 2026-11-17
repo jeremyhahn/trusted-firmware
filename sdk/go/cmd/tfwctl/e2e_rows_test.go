@@ -106,13 +106,14 @@ var boardImages = map[string]boardImage{
 		parts: partIdentity | partStager | partOTACtl,
 	},
 	// The default image this checkout builds (boards/stm32h573i-dk/
-	// board_profile.h): the kit's four LEDs, CAPS gpio sched attest, the soft
-	// tier, no stager, no provisioned identity. Analog, PWM, tone, pulse,
-	// EEPROM and the buses are off, so their refusal rows run. The #535 bench
-	// image's rows (its 13-pin table, analog, PWM, tone, pulse, EEPROM) and
-	// the I2C=1 image's run by name, HW_TEST_RUN='TestFirmwarePWM' and so on.
+	// board_profile.h, mk/firmware.mk): the #535 port's 13-pin table, CAPS
+	// gpio sched analog pwm tone pulse eeprom attest, the soft tier, no
+	// stager, no provisioned identity. I2C (off unless I2C=1), SPI and
+	// 1-Wire are off, so their refusal rows run; the I2C=1 image's rows run
+	// by name, HW_TEST_RUN='TestFirmwareI2C'.
 	"stm32h573i-dk": {
-		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAttest,
+		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
+			tfw.FeatureTone | tfw.FeaturePulse | tfw.FeatureEEPROM | tfw.FeatureAttest,
 		tier: softTier,
 		// The attest refusal timed out on the board (docs/boards/
 		// stm32h573i-dk.md): whether the image is unprovisioned, and the
@@ -337,13 +338,13 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		}},
 		{"stm32h573i-dk", []string{
 			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareWrite", "TestFirmwareTimer",
-			"TestFirmwareRefusesAnalogItsCapsLacks", "TestFirmwareRefusesPWMItsCapsLacks",
-			"TestFirmwareRefusesPulseItsCapsLacks", "TestFirmwareRefusesEEPROMItsCapsLacks",
+			"TestFirmwareEEPROM", "TestFirmwareAnalog", "TestFirmwarePWM",
+			"TestFirmwarePulseIn", "TestFirmwareTone",
 			"TestFirmwareRefusesI2CItsCapsLacks", "TestFirmwareRefusesSPIItsCapsLacks",
 			"TestFirmwareRefusesOneWireItsCapsLacks",
 		}, []string{
-			"TestFirmwareEEPROM", "TestFirmwareAnalog", "TestFirmwarePWM",
-			"TestFirmwarePulseIn", "TestFirmwareTone",
+			"TestFirmwareRefusesAnalogItsCapsLacks", "TestFirmwareRefusesPWMItsCapsLacks",
+			"TestFirmwareRefusesPulseItsCapsLacks", "TestFirmwareRefusesEEPROMItsCapsLacks",
 			"TestFirmwareI2C", "TestFirmwareSPIConfig", "TestFirmwareOneWire",
 			"TestFirmwareOTAInfo", "TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareAttestRefusedUnprovisioned",

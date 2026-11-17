@@ -140,16 +140,27 @@ that row passing in the whole-list run, 385 s, every row from a probe reset.
 - `TestFirmwareRefusesSPIItsCapsLacks`: verified 2026-11-17, whole-list run.
 - `TestFirmwareRefusesOneWireItsCapsLacks`: verified 2026-11-17, whole-list
   run.
-- `TestFirmwareAttestRefusedUnprovisioned`: **fails** 2026-11-17: `attest`
-  gets no answer within the suite's 5 s command timeout (`command 0x60 did not
-  respond after 5.006s`). Either the soft-tier signature at 64 MHz outlasts
-  5 s, or the bench image, which writes a platform block, is not unprovisioned
-  as the row assumes. Issue to file: the lane could not, since `gh` had no
-  credentials.
-- `TestFirmwareRefusesI2CItsCapsLacks`: **not run on its image** 2026-11-17:
-  the board carries the `I2C=1` build, which reports i2c, so the row fails by
-  design (`this row needs a peer without CAPS feature i2c`). It awaits a run on
-  the default image.
+- `TestFirmwareAttestRefusedUnprovisioned`: **fails** 2026-11-17 on both
+  images, #570: `attest` gets no answer within the suite's 5 s command
+  timeout (`command 0x60 did not respond after 5.006s`). Either the soft-tier
+  signature at 64 MHz outlasts 5 s, or the bench image, which writes a
+  platform block, is not unprovisioned as the row assumes. On the default
+  image (below) the run took 21 s: the 16 s boot, then the 5 s timeout.
+- `TestFirmwareRefusesI2CItsCapsLacks`: **verified** 2026-11-17 on the
+  default image (below), run alone, 16 s from the probe reset. On the `I2C=1`
+  build it fails by design (`this row needs a peer without CAPS feature i2c`).
+
+The default image (#543 slice 3b, 2026-11-17): the #535 tip
+(`row/535-stm32h573i-dk-hw`) built with no `I2C=1` (`make firmware`, `make
+bootloader-check`), signed by `cm_image` as the bench image is, written with
+`pyocd load -e sector` (boot, application and platform block at
+`0x08000000`, `0x08008000` and `0x080FE000`), no option byte written. The
+first 160 KiB read back with `savemem` have SHA-256
+`ce822c89f7c8ea74b1f87b1820f8b9d5b6fd90513426d3e8c9f193946b87d028`, the
+packed image's. The command: `make hw-test BOARD=stm32h573i-dk PORT=<vcom>
+HW_RESET='cmd:pyocd reset -t stm32h573iikx -u <probe serial>'
+HW_TEST_RUN='^TestFirmware<Row>$'`. The board is left on this image, so the
+`I2C=1` rows below need that build written back first.
 - `TestFirmwareI2C`, `TestFirmwareI2CConfig` (the `I2C=1` image's rows):
   verified 2026-11-17, `HW_TEST_RUN='^TestFirmware(I2C|I2CConfig)$'`.
 

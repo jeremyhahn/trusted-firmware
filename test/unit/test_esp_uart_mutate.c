@@ -458,13 +458,15 @@ static void test_no_connection_touches_nothing(void)
     idle_pass();
     TEST_ASSERT_EQUAL_UINT(0u, k.fcntl_bad);
     TEST_ASSERT_EQUAL_UINT(0u, k.warns);
-    /* Bytes with no host go nowhere, and are not kept for the next one. */
-    send_str("lost");
+    /* Bytes sent before the first host are kept for it, and do not hold up
+     * the loop (#550); test_esp_wire.c covers what is dropped after it. */
+    send_str("boot");
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
+    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
     arrive(3);
     idle_pass();
     TEST_ASSERT_EQUAL_UINT8(1u, tfw_hal_uart_tx_idle());
-    TEST_ASSERT_EQUAL_UINT(0u, k.fd[3].sends);
+    TEST_ASSERT_NOT_EQUAL_UINT(0u, k.fd[3].sends);
 }
 
 static void take(int fd)

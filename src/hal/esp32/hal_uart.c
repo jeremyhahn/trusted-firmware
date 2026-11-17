@@ -169,6 +169,10 @@ tfw_status_t tfw_hal_uart_init(uint32_t baud)
         return TFW_ERR_INTERNAL;
     }
     nonblocking(listener);
+    if (peer < 0) {
+        holding = 1u;           /* init is boot: hold for the first host */
+        tx_len  = 0u;
+    }
     return TFW_OK;
 }
 

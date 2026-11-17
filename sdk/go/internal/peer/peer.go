@@ -223,7 +223,7 @@ func Open(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 	if addr, ok := strings.CutPrefix(port, TCPPrefix); ok {
 		// A board whose wire is a TCP server (the ESP32 port, hal_uart.c):
 		// no DTR to reset it, so the rows find it running, as it is.
-		c, err := dialTCP("tcp", addr, bound)
+		c, err := dialWire(addr, bound)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", port, err)
 		}
@@ -248,6 +248,92 @@ const TCPPrefix = "tcp:"
 // dialTCP is net.DialTimeout, a variable so a test can see the address.
 var dialTCP = func(network, addr string, bound time.Duration) (io.ReadWriteCloser, error) {
 	return net.DialTimeout(network, addr, bound)
+}
+
+// WireSettle is how long Open watches a new TCP connection for the firmware
+// closing it before the rows may use it.
+var WireSettle = 150 * time.Millisecond
+
+// errWireRefused is a connection the firmware closed in the settle window.
+var errWireRefused = errors.New("the wire closed each connection: the board still holds the previous host")
+
+// dialWire dials a TCP wire and dials again, within bound, while the firmware
+// closes the new connection. The ESP32 wire (hal_uart.c accept_peer) refuses
+// a second host while the current one moved a byte recently, and it accepts
+// before it reads the previous socket's EOF: a row that reconnects at once
+// after the last one closed is refused until that EOF is processed.
+func dialWire(addr string, bound time.Duration) (io.ReadWriteCloser, error) {
+	deadline := time.Now().Add(bound)
+	for {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return nil, errWireRefused
+		}
+		c, err := dialTCP("tcp", addr, left)
+		if err != nil {
+			return nil, err
+		}
+		kept, err := settle(c, min(WireSettle, time.Until(deadline)))
+		if err == nil {
+			return kept, nil
+		}
+		_ = c.Close()
+		if !errors.Is(err, errWireRefused) {
+			return nil, err
+		}
+		// Give the firmware a poll to read the previous host's EOF.
+		time.Sleep(min(WireSettle, max(time.Until(deadline), 0)))
+	}
+}
+
+// settle reads c for up to d. A read that times out is a connection the
+// firmware kept; one that ends is one it closed (errWireRefused). Bytes the
+// board sent meanwhile are kept for the rows' first read.
+func settle(c io.ReadWriteCloser, d time.Duration) (io.ReadWriteCloser, error) {
+	dl, ok := c.(interface{ SetReadDeadline(time.Time) error })
+	if !ok {
+		return c, nil
+	}
+	if err := dl.SetReadDeadline(time.Now().Add(d)); err != nil {
+		return nil, err
+	}
+	b := make([]byte, 256)
+	n, err := c.Read(b)
+	if rerr := dl.SetReadDeadline(time.Time{}); rerr != nil {
+		return nil, rerr
+	}
+	var ne net.Error
+	switch {
+	case n > 0:
+		return &settledConn{ReadWriteCloser: c, early: b[:n]}, nil
+	case err == nil, errors.As(err, &ne) && ne.Timeout():
+		return c, nil
+	default:
+		return nil, errWireRefused
+	}
+}
+
+// settledConn is a kept wire whose first bytes arrived while it settled.
+type settledConn struct {
+	io.ReadWriteCloser
+	early []byte
+}
+
+func (s *settledConn) Read(p []byte) (int, error) {
+	if len(s.early) > 0 {
+		n := copy(p, s.early)
+		s.early = s.early[n:]
+		return n, nil
+	}
+	return s.ReadWriteCloser.Read(p)
+}
+
+// SetReadDeadline passes the device's read bound through to the conn.
+func (s *settledConn) SetReadDeadline(t time.Time) error {
+	if c, ok := s.ReadWriteCloser.(interface{ SetReadDeadline(time.Time) error }); ok {
+		return c.SetReadDeadline(t)
+	}
+	return nil
 }
 
 // OpenQMP opens port, resets the board through the QEMU monitor on socket

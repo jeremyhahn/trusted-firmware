@@ -51,11 +51,10 @@ functions, Go `Test` functions or Python methods in the files named.
    `src/hal/cortex-m/rp2350/hal_eeprom.c` so it lands in the platform block,
    proven by a new test in `test/unit/test_rp2350_eeprom.c` that reads the
    request back from the NOR model's platform sector.
-2. **The datasheet checks left open** (no hardware): match the ADC rows marked
-   `TODO(datasheet)` in `src/hal/cortex-m/rp2350/soc_regs.h` and the PWM
-   register numbers against the copied [RP-DS] tables, updating this page's
-   tables; proven by `test/unit/test_rp2350_adc.c` and
-   `test/unit/test_rp2350_pwm.c` passing with any corrected literal.
+2. **The datasheet checks left open** (no hardware): **done** by #496. The
+   ADC, clk_adc, PLL_USB and PWM rows of `src/hal/cortex-m/rp2350/soc_regs.h`
+   matched the copied [RP-DS] tables, none corrected; `test/unit/test_rp2350_adc.c`
+   and `test/unit/test_rp2350_pwm.c` pass unchanged.
 3. **The first bench run** (needs hardware and the bench): factory record,
    the flash part's JEDEC id, the console on GPIO0/1, then tfw-boot and the
    application flashed and the wire protocol answered, then the peripheral
@@ -172,9 +171,11 @@ values, channels A and B in CC's two halves, stop, and a bad slice refused.
 The register values (PWM base `0x400A8000`, slices `0x14` apart with CSR,
 DIV, CTR, CC and TOP at `+0x0`-`+0x10`; CSR.EN bit 0; DIV INT bits 11:4 and
 FRAC bits 3:0; CC A bits 15:0 and B bits 31:16; RESET bit 16; FUNCSEL 4) cite
-[RP-DS] release 8 §12.5 and §9.4. The lane that wrote them had no PDF tooling,
-so the table numbers have not yet been checked against the copied datasheet.
-Check them before the first run on the board.
+[RP-DS] release 8 §12.5 and §9.4. #496 matched each against the copied
+datasheet: the register list §12.5.3 table 1184 (twelve slices, CH11_TOP at
+`0xEC`, EN at `0xF0`), CSR table 1185 (EN bit 0, DIVMODE 5:4 0 free-running),
+DIV table 1186, CC table 1188, the GPIO-to-slice map §12.5.2 table 1183,
+RESET.PWM §7.5.3 table 567 and PWM as F4 in §9.4 table 677. None differed.
 
 The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
 of `BOOT_SUPPORTED` (`mk/boot.mk`). Like the mps2-an505 row it hashes and
@@ -327,18 +328,17 @@ and the console wiring stay open until a lane with the board settles them.
 
 **The converter (`hal_adc.c`).** Its registers were written from pico-sdk
 2.1.1's `hardware_regs` names (`adc.h`, `resets.h`, `clocks.h`,
-`addressmap.h`) and not yet matched against the copied [RP-DS] tables: the
-lane that wrote them had no PDF reader (the clk_adc and PLL_USB rows were
-since matched against text extracted from the PDF). Each carries `TODO(datasheet)` in
-`soc_regs.h` until a lane checks it:
+`addressmap.h`); #496 matched each against the copied [RP-DS] release 8
+tables, and none differed, so none was corrected and no `TODO(datasheet)` is
+left in `soc_regs.h`:
 
-| Value | Where to check | Status |
+| Value | Section | Status |
 |---|---|---|
-| ADC base `0x400A0000`; CS `+0x0` (EN 0, START_ONCE 2, READY 8, ERR 9, AINSEL 15:12), RESULT `+0x4` (11:0), FCS `+0x8`, DIV `+0x10` | §2.2 table 13; §12.4 register list | TODO(datasheet) |
-| RESETS ADC bit 0 | §7.5.3 table 566 | TODO(datasheet) |
-| CLK_ADC_CTRL `+0x6C` (ENABLE 11, AUXSRC 7:5, clksrc_pll_usb 0), CLK_ADC_DIV `+0x70` (INT 19:16) | §8.1.7 tables 603-604 | matched against the PDF's text; `TODO(datasheet)` kept until a reader with the rendered tables confirms |
-| RESETS PLL_USB bit 15 | §7.5.3 table 567 | matched against the PDF's text |
-| PLL_USB `0x40058000`; CS `+0x0` (LOCK 31, REFDIV 5:0), PWR `+0x4` (PD 0, POSTDIVPD 3, VCOPD 5), FBDIV_INT `+0x8` (11:0), PRIM `+0xC` (POSTDIV1 18:16, POSTDIV2 14:12) | §2.2 table 13; §8.6.5 tables 668-672 | matched against the PDF's text |
+| ADC base `0x400A0000`; CS `+0x0` (EN 0, START_ONCE 2, READY 8, ERR 9, AINSEL 15:12), RESULT `+0x4` (11:0), FCS `+0x8`, DIV `+0x10` | §2.2 table 13; §12.4.7 tables 1173-1175 | matched |
+| RESETS ADC bit 0 | §7.5.3 table 567 (the source cited 566, the register list; corrected in the comment) | matched |
+| CLK_ADC_CTRL `+0x6C` (ENABLE 11, AUXSRC 7:5, clksrc_pll_usb 0), CLK_ADC_DIV `+0x70` (INT 19:16) | §8.1.7 tables 603-604 | matched |
+| RESETS PLL_USB bit 15 | §7.5.3 table 567 | matched |
+| PLL_USB `0x40058000`; CS `+0x0` (LOCK 31, REFDIV 5:0), PWR `+0x4` (PD 0, POSTDIVPD 3, VCOPD 5), FBDIV_INT `+0x8` (11:0), PRIM `+0xC` (POSTDIV1 18:16, POSTDIV2 14:12) | §2.2 table 13; §8.6.5 tables 668-672 | matched |
 | clk_adc at 48 MHz from PLL_USB: 12 MHz / REFDIV 1 * FBDIV 100 = VCO 1200 MHz, / POSTDIV1 5 / POSTDIV2 5 | §12.4.3 ("The ADC requires a 48 MHz clock ... must be set up correctly before enabling the ADC"); §8.6.4's sequence and its pico-sdk PLL USB line | followed; the PLL is for clk_adc alone, clk_sys stays on the crystal |
 | The pad for a conversion: OD set, IE, pulls and ISO clear, FUNCSEL NULL | §12.4 asks IE off and OD on; the pulls and ISO are this port's choice | kept |
 | CS.ERR answered as `TFW_ERR_INTERNAL` | the wire has no conversion-error status | kept |

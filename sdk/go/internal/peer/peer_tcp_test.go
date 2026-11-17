@@ -57,3 +57,17 @@ func TestOpenTCPNamesTheEndpointThatRefused(t *testing.T) {
 		t.Fatalf("Open of a closed endpoint: %v, want an error naming %s", err, TCPPrefix+addr)
 	}
 }
+
+// Connecting to a TCP wire does not reset the board, so no BOOT follows; the
+// simulator and a serial board are reset by Start.
+func TestResetsIsFalseOnlyForATCPWire(t *testing.T) {
+	for port, want := range map[string]bool{
+		"":                       true,
+		"serial-port":            true,
+		TCPPrefix + "board:3333": false,
+	} {
+		if got := (Target{Port: port, Board: "b"}).Resets(); got != want {
+			t.Errorf("Target{Port: %q}.Resets() = %v, want %v", port, got, want)
+		}
+	}
+}

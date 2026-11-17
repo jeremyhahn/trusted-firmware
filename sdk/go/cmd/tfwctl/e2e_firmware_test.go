@@ -95,7 +95,9 @@ func TestFirmwarePing(t *testing.T) {
 }
 
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
-	dev := startFirmware(t, tfw.WithBootWait(0))
+	// StartBooted, not Start: a TCP board is not reset by the connect, so it
+	// is reset through HW_RESET's hook first, or the row is skipped (#583).
+	dev := tfw.New(peer.StartBooted(t, simproc.Software), tfw.WithTimeout(5*time.Second), tfw.WithBootWait(0))
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping")
 	events := dev.Events()
@@ -176,7 +178,7 @@ func TestFirmwareSys(t *testing.T) {
 	// canned replies. Freshly reset, it has seen none at all; a peer found
 	// running (TCP) keeps the counts of earlier rows, so this row counts only
 	// the errors its own traffic adds.
-	if target.Resets() {
+	if target.ResetsOnOpen() {
 		assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
 		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
 	}

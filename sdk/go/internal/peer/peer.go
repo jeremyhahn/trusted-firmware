@@ -76,16 +76,26 @@ type Target struct {
 	Eth       string // where the board dials; empty for the simulator and a serial-only run
 	EthListen string // where the suite listens for it, when not Eth; empty for Eth
 	QMP       string // the QMP socket that resets the board; empty resets it by DTR
+	Hook      string // the command that resets a TCP board (cmd:); empty for none
 }
 
 // Hardware reports whether the target is a real board.
 func (t Target) Hardware() bool { return t.Port != "" }
 
-// Resets reports whether Start resets the peer, so it sends BOOT: the
-// simulator starts fresh, and a serial board is reset by DTR or QMP. A board
-// whose wire is TCP is found running, as it is, and sends no BOOT; a device
-// on it must not wait for one.
-func (t Target) Resets() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
+// ResetsOnOpen reports whether the transport resets the peer when Start opens
+// it, so it sends BOOT: the simulator starts fresh, and a serial board is
+// reset by DTR or QMP. A board whose wire is TCP is found running, as it is,
+// and sends no BOOT; a device on it must not wait for one. StartBooted resets
+// such a board through its Hook.
+func (t Target) ResetsOnOpen() bool { return !strings.HasPrefix(t.Port, TCPPrefix) }
+
+// NoResetOnOpen is why StartBooted skips a row on a TCP board with no Hook.
+const NoResetOnOpen = "transport does not reset on open"
+
+// ResetCmdPrefix marks a ResetEnv that is a TCP board's reset hook: the
+// command, split on spaces, that resets the board (a relay, a probe's reset
+// line, a power switch), e.g. cmd:/usr/local/bin/bench-reset p4.
+const ResetCmdPrefix = "cmd:"
 
 // Listen returns the address the Ethernet rows listen on for the device to
 // dial: SimListen for the simulator; for a board, EthListenEnv's, or EthEnv's
@@ -161,25 +171,33 @@ func FromEnv() (Target, error) {
 	case board == "":
 		return Target{}, fmt.Errorf("%s=%s names a port but %s names no board", PortEnv, port, BoardEnv)
 	}
-	qmp, err := parseReset(reset)
+	qmp, hook, err := parseReset(reset)
 	if err != nil {
 		return Target{}, err
 	}
-	return Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp}, nil
+	t := Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp, Hook: hook}
+	if hook != "" && t.ResetsOnOpen() {
+		return Target{}, fmt.Errorf("%s=%s: a reset command is for a board whose wire is TCP (%s=%s<host:port>); %s=%s is reset by DTR", ResetEnv, reset, PortEnv, TCPPrefix, PortEnv, port)
+	}
+	return t, nil
 }
 
-// parseReset reads ResetEnv: empty for DTR, or the socket of "qmp:<socket>".
+// parseReset reads ResetEnv: empty for DTR, the socket of "qmp:<socket>", or
+// the hook of "cmd:<command>".
 // Anything else is refused rather than read as DTR, which would reset nothing
 // on the board the value was meant for.
-func parseReset(v string) (string, error) {
+func parseReset(v string) (qmp, hook string, err error) {
 	if v == "" {
-		return "", nil
+		return "", "", nil
+	}
+	if cmd, ok := strings.CutPrefix(v, ResetCmdPrefix); ok && strings.TrimSpace(cmd) != "" {
+		return "", strings.TrimSpace(cmd), nil
 	}
 	sock, ok := strings.CutPrefix(v, "qmp:")
 	if !ok || sock == "" {
-		return "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, or unset to reset by DTR", ResetEnv, v)
+		return "", "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, %s<command> for a TCP board, or unset to reset by DTR", ResetEnv, v, ResetCmdPrefix)
 	}
-	return sock, nil
+	return sock, "", nil
 }
 
 // Start connects to the target FromEnv names: sim, run with args, when it is

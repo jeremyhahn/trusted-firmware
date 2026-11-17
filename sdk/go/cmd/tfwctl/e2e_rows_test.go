@@ -42,7 +42,6 @@ const (
 	partOTACtl                          // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
 	partApp                             // an application (APP_INFO)
 	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
-	partResets                          // its wire resets it on connect, so it sends BOOT (peer.Target.Resets)
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -100,22 +99,22 @@ var boardImages = map[string]boardImage{
 	"atmega328p": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert,
 		tier:  elementTier,
-		parts: partIdentity | partResets,
+		parts: partIdentity,
 	},
 	// CRYPTO=auto on the bench Mega, which has the element, and ETH=1, which
 	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM.
 	"atmega2560": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert | tfw.FeatureAttestCSR | tfw.FeatureAuthSession,
 		tier:  elementTier,
-		parts: partIdentity | partStager | partOTACtl | partResets,
+		parts: partIdentity | partStager | partOTACtl,
 	},
 	// The ESP32-P4 at bench HIL-0 (boards/esp32p4-poe/profile.mk), CRYPTO=none:
 	// CAPS features 0x7ff on the bench record
 	// (docs/development/bench/esp32-p4.md), the AVR families exactly, tier
 	// none, so no tier's rows, nor the rows that hold facts only for a tier
 	// (cryptoTier); no identity provisioned and no stager or application
-	// known to the rows. Its wire is TCP, which finds it running: no reset,
-	// so no BOOT.
+	// known to the rows. Its wire is TCP, which finds it running: the
+	// BOOT-event row resets it through HW_RESET=cmd:, or is skipped (#583).
 	"esp32p4-poe": {
 		caps: avrPeripherals,
 		tier: noneTier,
@@ -126,7 +125,7 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {has: partResets},
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {}, // StartBooted skips it where nothing resets the board
 	"TestFirmwarePingAfterAMalformedBurst":               {},
 	"TestFirmwareCaps":                                   {tier: cryptoTier},
 	"TestFirmwareSys":                                    {},
@@ -349,14 +348,14 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 	}
 }
 
-// Codex P1 on #568: the P4's wire is TCP, which finds the board running and
-// sends no BOOT, so the BOOT-event row is not in its list; a serial board,
-// which Start resets, keeps it.
-func TestOnlyABoardStartResetsRunsTheBootEventRow(t *testing.T) {
+// #583: the BOOT-event row decides for itself whether the board can be made
+// to send BOOT (peer.StartBooted: a serial board by DTR, a TCP board through
+// its reset hook, skipped with neither), so every board's run lists it.
+func TestEveryBoardRunsTheBootEventRow(t *testing.T) {
 	const row = "TestFirmwarePingDeliversTheBootEventWithNoBootWait"
-	for board, want := range map[string]bool{"atmega328p": true, "atmega2560": true, "esp32p4-poe": false} {
-		if got := boardRun(t, board, false).MatchString(row); got != want {
-			t.Errorf("%s: %s run = %v, want %v", board, row, got, want)
+	for _, board := range []string{"atmega328p", "atmega2560", "esp32p4-poe"} {
+		if !boardRun(t, board, false).MatchString(row) {
+			t.Errorf("%s: %s is not run", board, row)
 		}
 	}
 }

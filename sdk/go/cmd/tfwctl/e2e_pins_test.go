@@ -154,7 +154,7 @@ func TestPinRowWantsTheLEDFlagOnlyWhereTheTableSetsIt(t *testing.T) {
 // whatever restart it last had, a software one among them, so there no one
 // cause is established (Codex P1 on #568).
 func resetCauseHolds(b peerBoard, target peer.Target, got tfw.ResetCause) bool {
-	return !target.Resets() || got == b.resetCause
+	return !target.ResetsOnOpen() || got == b.resetCause
 }
 
 func TestSysRowFixesTheResetCauseOnlyWhereStartResets(t *testing.T) {

@@ -450,7 +450,7 @@ func TestFirmwareToneRefusesTheShieldsPin(t *testing.T) {
 	require.NoError(t, err)
 	// The simulator (a 328P) and the P4 leave the tone pin free, and a run
 	// named by HW_TEST_RUN skips the row selector, so the row asks the image.
-	if !target.Hardware() || !boardImageHolds(board, partTonePinHeld) {
+	if !tonePinHeld(target.Hardware(), board) {
 		t.Skipf("%s: the image leaves pin %d free; TestFirmwareTone covers it", board, b.tonePin)
 	}
 	dev := startFirmware(t)
@@ -459,6 +459,18 @@ func TestFirmwareToneRefusesTheShieldsPin(t *testing.T) {
 
 	assert.Equal(t, tfw.StatusErrReservedPin, cliStatus(t, dev, "mode", pin, "out"),
 		"pin %d is the shield's chip select", b.tonePin)
+	// TONE has its own reservation check (src/caps/tone.c): a tone on the
+	// chip select would drive the Ethernet chip, so the device refuses it.
+	// A tone the device took anyway is stopped before the wire closes.
+	err = run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{})
+	if err == nil {
+		t.Cleanup(func() {
+			_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
+		})
+	}
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "TONE on pin %d: %v, want a device status", b.tonePin, err)
+	assert.Equal(t, tfw.StatusErrReservedPin, st, "pin %d is the shield's chip select: TONE must not drive it", b.tonePin)
 }
 
 func TestFirmwareI2C(t *testing.T) {

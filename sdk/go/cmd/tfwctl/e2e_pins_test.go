@@ -31,7 +31,8 @@ type peerBoard struct {
 	tickPin    int            // a compare-unit pin whose timer is the millisecond tick; -1 where no PWM pin is spent on it
 	noPWMPin   uint8          // a digital pin with no compare unit at all
 	pwmPin     uint8          // a PWM pin with a free unit, which accepts a duty
-	ledPin     uint8          // the pin the board's table flags as its LED
+	ledPin     uint8          // the pin the board's table flags as its LED; with noLED, a plain GPIO
+	noLED      bool           // the board has no LED: ledPin is a plain digital pin, TFW_PIN_DIGITAL alone
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
 	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
@@ -92,8 +93,8 @@ var peerBoards = map[string]peerBoard{
 		// The tick is the system timer, not an LEDC channel: no PWM pin is
 		// spent on it. Pin 9 here is GPIO22, an ADC input with no LEDC.
 		tickPin: -1, noPWMPin: 11, // GPIO32
-		pwmPin: 0,                           // GPIO2, LEDC0
-		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
+		pwmPin: 0,                                        // GPIO2, LEDC0
+		ledPin: 11, noLED: true, txPin: -1, timerPin: 12, // GPIO33
 		tonePin: 4, // GPIO6, the first pin with no LEDC channel
 	},
 }
@@ -126,6 +127,37 @@ func TestPinAndPWMRowsUseTheBoardsPWMPin(t *testing.T) {
 		if b.pwmPin == b.adcPin || b.pwmPin == b.analog {
 			t.Errorf("%s: PWM pin %d is the board's ADC pin", board, b.pwmPin)
 		}
+	}
+}
+
+// ledPinFlags is what the Pin row expects of the board's ledPin: digital and
+// LED on a board with an LED; on one without (noLED), digital and not LED,
+// the pin's own flags in board.c (Codex P1 on #567).
+func ledPinFlags(b peerBoard) (want, absent tfw.PinFlags) {
+	if b.noLED {
+		return tfw.PinDigital, tfw.PinLED
+	}
+	return tfw.PinDigital | tfw.PinLED, 0
+}
+
+// TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne: the ESP32-P4 has no LED, so
+// its Pin row asserts pin 11 plain digital (boards/esp32p4-poe/board.c gives
+// it TFW_PIN_DIGITAL alone); the AVR and MPS2 boards keep digital and LED.
+func TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne(t *testing.T) {
+	for board, b := range peerBoards {
+		want, absent := ledPinFlags(b)
+		if board == "esp32p4-poe" {
+			if want != tfw.PinDigital || absent != tfw.PinLED {
+				t.Errorf("%s: pin %d expects %s without %s, want digital without led", board, b.ledPin, want, absent)
+			}
+			continue
+		}
+		if want != tfw.PinDigital|tfw.PinLED || absent != 0 {
+			t.Errorf("%s: pin %d expects %s, want digital and led", board, b.ledPin, want)
+		}
+	}
+	if !boardRun(t, "esp32p4-poe", false).MatchString("TestFirmwarePin") {
+		t.Error("esp32p4-poe: the Pin row is not run")
 	}
 }
 

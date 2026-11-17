@@ -47,6 +47,7 @@ type peerBoard struct {
 	adcOnly    int            // how many pins are ADC inputs with no digital port
 	tickPin    uint8          // a compare-unit pin whose timer is the millisecond tick
 	noPWMPin   uint8          // a digital pin with no compare unit at all
+	pwmPin     uint8          // a pin whose compare unit is free: it takes a duty
 	ledPin     uint8          // the pin the board's table flags as its LED (a plain digital pin when noLED)
 	noLED      bool           // the board has no LED: ledPin must be digital and not flagged LED
 	noTickPin  bool           // the tick's timer drives no pin: tickPin is unused, no refusal to assert
@@ -62,6 +63,7 @@ var peerBoards = map[string]peerBoard{
 		adcPin: 20, adcChannel: 6, adcPort: false, // A6
 		adcOnly: 2,               // A6 and A7
 		tickPin: 5, noPWMPin: 13, // OC0B
+		pwmPin: 9, // OC1A
 		ledPin: 13, txPin: 1, timerPin: 2,
 	},
 	"atmega2560": {
@@ -71,6 +73,7 @@ var peerBoards = map[string]peerBoard{
 		adcPin: 54, adcChannel: 0, adcPort: true,
 		adcOnly: 0,               // every ADC input on the Mega is also a digital pin
 		tickPin: 4, noPWMPin: 22, // OC0B; PA0
+		pwmPin: 9, // OC2B
 		ledPin: 13, txPin: 1, timerPin: 2,
 	},
 	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
@@ -105,6 +108,7 @@ var peerBoards = map[string]peerBoard{
 		adcPin: 7, adcChannel: 4, adcPort: true,
 		adcOnly:   0,
 		noTickPin: true, noPWMPin: 11, // GPIO32
+		pwmPin: 1,                                        // GPIO3, LEDC1
 		ledPin: 11, noLED: true, txPin: -1, timerPin: 12, // GPIO33
 	},
 }
@@ -128,6 +132,7 @@ func TestPeerBoardFactsSayWhatTheBoardLacks(t *testing.T) {
 	p4 := peerBoards["esp32p4-poe"]
 	assert.True(t, p4.noLED, "esp32p4-poe has no LED; ledPin is a plain digital pin")
 	assert.True(t, p4.noTickPin, "esp32p4-poe's tick timer drives no pin")
+	assert.EqualValues(t, 1, p4.pwmPin, "esp32p4-poe's free PWM pin is GPIO3, LEDC1, not the AVRs' pin 9 (an ADC pin there)")
 	for _, name := range []string{"atmega328p", "atmega2560"} {
 		b := peerBoards[name]
 		assert.False(t, b.noLED, "%s has an LED on pin 13", name)
@@ -290,11 +295,12 @@ func TestFirmwarePin(t *testing.T) {
 	// OC0A, spent on the tick.
 	assert.Equal(t, b.ledPWM, led.PWM, "pin %d pwm", b.ledPin)
 
-	// Pin 9 is OC1A on the 328P and OC2B on the Mega; neither timer is the tick.
+	// pwmPin's compare unit is free: OC1A on the 328P, OC2B on the Mega,
+	// LEDC1 on the P4; none of those timers is the tick.
 	if caps.Has(tfw.FeaturePWM) {
-		pwm := cliPin(t, dev, 9)
-		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin 9 pwm")
-		assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin 9 flags = %s, want pwm", pwm.Flags)
+		pwm := cliPin(t, dev, b.pwmPin)
+		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin %d pwm", b.pwmPin)
+		assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin %d flags = %s, want pwm", b.pwmPin, pwm.Flags)
 	}
 
 	// The 328P's A6 exists as an analog input and has no digital port at all,
@@ -443,8 +449,8 @@ func TestFirmwarePWM(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeaturePWM)
-	require.NoError(t, run(context.Background(), dev, "pwm", []string{"9", "128"}, false, &strings.Builder{}),
-		"pin 9 has a free compare unit and should accept a duty")
+	require.NoError(t, run(context.Background(), dev, "pwm", []string{strconv.Itoa(int(b.pwmPin)), "128"}, false, &strings.Builder{}),
+		"pin %d has a free compare unit and should accept a duty", b.pwmPin)
 	// Timer0 is the millisecond tick, so its compare pins have units that are
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and

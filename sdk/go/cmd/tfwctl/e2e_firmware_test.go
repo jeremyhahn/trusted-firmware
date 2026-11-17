@@ -47,7 +47,12 @@ func firmwareBoard(t *testing.T) (string, peerBoard) {
 func startFirmware(t *testing.T, opts ...tfw.Option) *tfw.Device {
 	t.Helper()
 	// WithTimeout first so a caller's own option, if any, wins.
-	return tfw.New(peer.Start(t, simproc.Software), append([]tfw.Option{tfw.WithTimeout(5 * time.Second)}, opts...)...)
+	base := []tfw.Option{tfw.WithTimeout(5 * time.Second)}
+	if !firmwareResets(t) {
+		// No reset, so no BOOT to wait for (peer.Target.Resets).
+		base = append(base, tfw.WithBootWait(0))
+	}
+	return tfw.New(peer.Start(t, simproc.Software), append(base, opts...)...)
 }
 
 // cliTier is the crypto tier the device's caps verb names.
@@ -95,10 +100,33 @@ func TestFirmwarePing(t *testing.T) {
 }
 
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
-	dev := startFirmware(t, tfw.WithBootWait(0))
+	bootEventRow(t, startFirmware(t, tfw.WithBootWait(0)), firmwareResets(t))
+}
+
+// firmwareResets reports whether the run's target is reset on connect, so it
+// sends BOOT and starts with clean counters (peer.Target.Resets). A board on
+// a TCP wire is found running, with the state earlier rows left on it.
+func firmwareResets(t *testing.T) bool {
+	t.Helper()
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	return target.Resets()
+}
+
+// bootEventRow: a reset peer's first event is BOOT. A peer found running
+// sends none on connect: connecting does not restart it.
+func bootEventRow(t *testing.T, dev *tfw.Device, resets bool) {
+	t.Helper()
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping")
 	events := dev.Events()
+	if !resets {
+		for _, e := range events {
+			assert.False(t, e.IsEvent() && len(e.Payload) > 0 && e.Payload[0] == tfw.EventBoot,
+				"a board found running sent BOOT on connect: %+v", e)
+		}
+		return
+	}
 	require.NotEmpty(t, events, "no boot event was observed")
 	assert.True(t, events[0].IsEvent() && events[0].Payload[0] == tfw.EventBoot,
 		"first event = %+v, want a boot event", events[0])
@@ -177,16 +205,29 @@ func capsTierRow(t *testing.T, c tfw.Caps, soft tfw.AlgorithmSet) {
 
 func TestFirmwareSys(t *testing.T) {
 	_, b := firmwareBoard(t)
-	dev := startFirmware(t)
+	sysRow(t, startFirmware(t), b.resetCause, firmwareResets(t))
+}
+
+// sysRow: SYS_INFO decodes against the live device. #5: a reset peer has
+// seen no framing errors; a peer found running keeps the counters earlier
+// rows raised (a malformed burst), so a clean exchange must add none.
+func sysRow(t *testing.T, dev *tfw.Device, cause tfw.ResetCause, resets bool) {
+	t.Helper()
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
-	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
-	// #5: freshly started and talked to over a clean link, the firmware has
-	// seen no framing errors -- the appended fields decode against the live
-	// device, not only against canned replies.
-	assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
-	assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+	assert.Equal(t, cause, si.ResetCause, "reset cause")
+	if resets {
+		assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
+		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+		return
+	}
+	var ping pingJSON
+	cliJSON(t, dev, &ping, "ping")
+	var after tfw.SysInfo
+	cliJSON(t, dev, &after, "sys")
+	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors grew over a clean link")
+	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors grew over a clean link")
 }
 
 func TestFirmwarePin(t *testing.T) {

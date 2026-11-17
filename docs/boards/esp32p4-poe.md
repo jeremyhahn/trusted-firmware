@@ -116,11 +116,11 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
 | esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
-| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` fails in the same run: `pin 11 flags = digital, want digital and led`; issue to file: the P4's LED pin facts |
+| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` failed in the same run: `pin 11 flags = digital, want digital and led`; board.c marks GPIO32 digital only, so the P4's run now leaves `Pin` out (`partNoLED`, `sdk/go/cmd/tfwctl/e2e_rows_test.go`) |
 | esp32-p4 | tone (GPIO6) | verified 2026-11-17 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='^TestFirmwareTone$'`: 1 kHz on pin 4 read back with `pulse-capture` on the same pin, 30 edges, `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone` the capture times out |
 | esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
 | esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
-| esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
+| esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED, a tier's answer, so the P4's none-tier run now leaves it out (`cryptoTier`, `sdk/go/cmd/tfwctl/e2e_rows_test.go`) |
 | esp32-p4 | boot event on connect | fails | row `PingDeliversTheBootEventWithNoBootWait`: a `tcp:` connect resets nothing, so no boot event; issue to file |
 | esp32-p4 | CLI CAPS through the port | fails: hangs | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` reads CAPS until the 10-minute test timeout; issue to file |
 | esp32-p4 | wire over Ethernet, board dials (`HW_ETH`) | not run | the `TestEthernet*` rows listen for the board's dial; the run's host was not on the development VLAN; issue to file |
@@ -149,7 +149,7 @@ are kept in the bench record outside the tree.
 
 The board runs this firmware and answers the wire over its own EMAC; GPIO,
 ADC, I2C, SPI, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
-EEPROM has no passing row on this board and row `Pin` fails on the LED flag; the board-dials
+EEPROM has no passing row on this board; the board-dials
 Ethernet rows have not run; OTA staging fails on the soft tier until a signed ESP image (#562), and the
 soft-tier trial, confirm and roll back rows are yet to be added and run on the
 board (#552); secure boot v2, flash encryption and the

@@ -44,6 +44,7 @@ const (
 	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
 	partToneEth                         // ETH=1 reserves the tone pin (TFW_PIN_ETH): PIN_MODE on it is RESERVED_PIN
 	partNoReset                         // the board's connection keeps it running (TCP): no fresh boot per row
+	partNoLED                           // board.c marks no pin TFW_PIN_LED, which the Pin row reads
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -121,11 +122,12 @@ var boardImages = map[string]boardImage{
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier, nor
 	// the rows that hold facts only for a tier (cryptoTier), and no identity
 	// (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff. Its run is
-	// over TCP, which keeps the board running (partNoReset).
+	// over TCP, which keeps the board running (partNoReset), and its board.c
+	// marks GPIO32 digital only, with no LED (partNoLED).
 	"esp32p4-poe": {
 		caps:  avrPeripherals,
 		tier:  noneTier,
-		parts: partNoReset,
+		parts: partNoReset | partNoLED,
 	},
 }
 
@@ -137,11 +139,11 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwarePingAfterAMalformedBurst":               {},
 	"TestFirmwareCaps":                                   {tier: cryptoTier},
 	"TestFirmwareSys":                                    {not: partNoReset},
-	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
+	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO, not: partNoLED},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
 	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM, tier: cryptoTier},
-	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
+	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, tier: cryptoTier, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
 	"TestFirmwareTone":                                   {caps: tfw.FeatureTone, not: partToneEth},
@@ -406,6 +408,36 @@ func TestTheESP32P4RunLeavesOutTheRowsThatNeedAFreshBoot(t *testing.T) {
 				t.Errorf("%s: %s is not run", board, r)
 			}
 		}
+	}
+}
+
+// The ESP32-P4's facts (Codex P1 on #564): its board.c marks the GPIO32 pin
+// digital only, with no LED, and its none tier answers ATTEST UNSUPPORTED,
+// not NOT_PROVISIONED, so neither the Pin row nor the unprovisioned-attest
+// row is in its run. Pin stays in the AVR runs, whose LED pin it reads.
+func TestTheESP32P4RunLeavesOutTheRowsItsFactsContradict(t *testing.T) {
+	p4 := boardRun(t, "esp32p4-poe", false)
+	for _, r := range []string{"TestFirmwarePin", "TestFirmwareAttestRefusedUnprovisioned"} {
+		if p4.MatchString(r) {
+			t.Errorf("esp32p4-poe: %s is run", r)
+		}
+	}
+	for _, r := range []string{"TestFirmwareWrite", "TestFirmwareTimer"} {
+		if !p4.MatchString(r) {
+			t.Errorf("esp32p4-poe: %s is not run", r)
+		}
+	}
+	for _, board := range []string{"atmega328p", "atmega2560"} {
+		if !boardRun(t, board, false).MatchString("TestFirmwarePin") {
+			t.Errorf("%s: TestFirmwarePin is not run", board)
+		}
+	}
+	unprovisioned := firmwareRowNeeds["TestFirmwareAttestRefusedUnprovisioned"]
+	if !unprovisioned.servedBy(boardImage{caps: tfw.FeatureAttest, tier: softTier}) {
+		t.Error("an unprovisioned soft-tier image does not run the unprovisioned-attest row")
+	}
+	if unprovisioned.servedBy(boardImage{caps: tfw.FeatureAttest, tier: noneTier}) {
+		t.Error("a none-tier image runs the unprovisioned-attest row")
 	}
 }
 

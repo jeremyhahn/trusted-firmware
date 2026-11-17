@@ -21,6 +21,7 @@
 #include "tfw/hal.h"
 #include "hal_eth_mac.h"
 #include "hal_eth_mdio.h"
+#include "hal_eth_wire.h"
 
 #include "lwip/init.h"
 #include "lwip/netif.h"
@@ -145,6 +146,7 @@ static void eth_bring_up(void)
     (void)netif_add(&eth_netif, NULL, NULL, NULL, NULL, eth_netif_init, ethernet_input);
     netif_set_default(&eth_netif);
     netif_set_up(&eth_netif);
+    tfw_h5_wire_listen();               /* tfw-wire over TCP (#582) */
     eth_link_ms = tfw_hal_millis();
     eth_state = ETH_WAIT_LINK;
 }

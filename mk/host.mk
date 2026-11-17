@@ -173,6 +173,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_imx95_hsm_intake.c test/unit/test_stm32h5_tone.c \
                             test/unit/test_h5_eth_mdio.c test/unit/test_h5_eth_mac.c \
+                            test/unit/test_h5_eth_wire.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
@@ -1530,6 +1531,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
                     $(HOST_DIR)/test_h5_eth_mdio $(HOST_DIR)/test_h5_eth_mac \
+                    $(HOST_DIR)/test_h5_eth_wire \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
@@ -2957,6 +2959,14 @@ $(HOST_DIR)/test_h5_eth_mac: test/unit/test_h5_eth_mac.c src/hal/cortex-m/stm32h
                              src/hal/cortex-m/stm32h5/hal_eth_mac.h $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_h5_eth_mac.c src/hal/cortex-m/stm32h5/hal_eth_mac.c \
+	  $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 tfw-wire TCP link (#582) over a fake listener seam and a fake
+# UART: wire choice and hold, the receive window, reply batching, a dropped peer.
+$(HOST_DIR)/test_h5_eth_wire: test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
+                              src/hal/cortex-m/stm32h5/hal_eth_wire.h $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_wire.c src/hal/cortex-m/stm32h5/hal_eth_wire.c \
 	  $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets

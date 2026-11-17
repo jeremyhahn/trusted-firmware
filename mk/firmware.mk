@@ -187,15 +187,20 @@ endif
 # ADR): ETH_MAC=1 links the SoC's hal_eth_netif.c and lwIP's core, IPv4 and
 # Ethernet sources (third_party/lwip, pinned in its VERSION), and the main
 # loop polls the interface; the console prints "eth: dhcp bound" on a lease.
-# Not ETH=1, which selects the W5x00 tfw-wire link above: this slice brings
-# the interface up, the tfw-wire link over TCP is the next. Off by default.
+# Not ETH=1, which selects the W5x00 tfw-wire link above. The image's link is
+# the SoC's hal_eth_wire.c (#582) in place of link_serial.c: tfw-wire on the
+# UART and on a TCP listener (hal_eth_wire_tcp.c, port 21574). Off by default.
 ETH_MAC ?= 0
 LWIP_DIR := third_party/lwip/src
 ifeq ($(ETH_MAC),1)
 ifeq ($(wildcard $(HAL_SOC_DIR)/hal_eth_netif.c),)
 $(error ETH_MAC=1 but $(HAL_SOC_DIR) has no hal_eth_netif.c -- this SoC has no MAC driver)
 endif
-ETH_MAC_SRCS := $(HAL_SOC_DIR)/hal_eth_netif.c \
+ifeq ($(ETH),1)
+$(error ETH_MAC=1 and ETH=1 both name the image's link -- pick one)
+endif
+LINK_SRCS := $(HAL_SOC_DIR)/hal_eth_wire.c
+ETH_MAC_SRCS := $(HAL_SOC_DIR)/hal_eth_netif.c $(HAL_SOC_DIR)/hal_eth_wire_tcp.c \
   $(addprefix $(LWIP_DIR)/core/,init.c def.c inet_chksum.c ip.c mem.c memp.c netif.c \
     pbuf.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
   $(addprefix $(LWIP_DIR)/core/ipv4/,acd.c dhcp.c etharp.c icmp.c ip4.c ip4_addr.c ip4_frag.c) \
@@ -218,7 +223,8 @@ endif
 # compile on the parts that gate them.
 HAL_OPTIONAL := $(foreach d,$(HAL_DIR) $(HAL_SOC_DIR),$(d)/hal_tone.c $(d)/hal_pwm.c $(d)/hal_pulse.c \
                   $(d)/hal_bus.c $(d)/hal_uart.c $(d)/hal_uart_soft.c $(d)/hsm_port.c \
-                  $(d)/hsm_intake.c $(d)/hal_eeprom.c $(d)/hal_eth_netif.c) $(ARCH_HAL_OPTIONAL) \
+                  $(d)/hsm_intake.c $(d)/hal_eeprom.c $(d)/hal_eth_netif.c \
+                  $(d)/hal_eth_wire.c $(d)/hal_eth_wire_tcp.c) $(ARCH_HAL_OPTIONAL) \
                 $(SOC_EEPROM_SRCS_$(SOC))
 
 # Provisioning commands are a JIG image, never a production one. The gate is
@@ -679,7 +685,7 @@ FW_OBJS := $(patsubst %.c,$(FW_DIR)/%.o,$(FW_SRCS))
 # lwIP is third-party code under its own warnings; the glue is ours and keeps
 # the project's. Both find lwipopts.h and arch/cc.h in the SoC directory.
 ifeq ($(ETH_MAC),1)
-$(FW_DIR)/$(HAL_SOC_DIR)/hal_eth_netif.o: FW_CFLAGS += $(ETH_MAC_INC)
+$(FW_DIR)/$(HAL_SOC_DIR)/hal_eth_netif.o $(FW_DIR)/$(HAL_SOC_DIR)/hal_eth_wire_tcp.o: FW_CFLAGS += $(ETH_MAC_INC)
 $(FW_DIR)/$(LWIP_DIR)/%.o: FW_CFLAGS += $(ETH_MAC_INC) -w
 endif
 

@@ -1,0 +1,1 @@
+- docs(secure-element-se05x): the SPEC row `secure-element-se05x` audited requirement by requirement, with its code, its tests and the remaining slices (`docs/multi-arch/adr-se052f-onboarding.md`, "Requirements" and "Remaining slices") (Refs #504).

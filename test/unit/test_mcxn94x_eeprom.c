@@ -1,0 +1,387 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* SPDX-License-Identifier: commercial */
+/*
+ * src/hal/cortex-m/mcxn94x/hal_eeprom.c over a model of the MCXN947's flash
+ * and the boot ROM's driver: an erase sets a sector to 0xFF, a program only
+ * clears bits, and the model can be told to program one byte wrong. The
+ * driver file is compiled into this one with the model in place of the
+ * device's flash, its platform window and the ROM's API tree, and with
+ * tfw-boot's own flash helper (boot/hal/cortex-m/mcxn94x/mcxn_flash.c)
+ * linked beside it as the firmware links it.
+ */
+#include <stdint.h>
+#include <string.h>
+
+#include "unity.h"
+#include "tfw/hal.h"
+#include "tfw/config.h"
+#include "tfw/boot.h"
+#include "../../boot/hal/cortex-m/mcxn94x/mcxn_flash.h"
+#include "tfw/board.h"
+#include "../../src/caps/sched.h"
+#include "../../src/core/reader.h"
+#include "../../src/core/writer.h"
+/* The real lock pair runs against the model SysTick, DWT and PRIMASK, with
+ * the Cortex-M tick compiled over them. */
+#include "../model/cortex-m/mcxn94x/cm_tick_model.h"
+
+/* The cycles a sector erase takes; 0 leaves the clock still. */
+static uint32_t erase_cycles;
+
+/* The scheduler's pin, through stand-ins for the board and GPIO HAL: the
+ * level it last drove, 0xFF before any. */
+static uint8_t sched_level;
+
+tfw_status_t tfw_board_pin(tfw_pin_t pin, tfw_pinref_t *out)
+{
+    (void)pin;
+    memset(out, 0, sizeof *out);
+    return TFW_OK;
+}
+
+uint8_t tfw_board_pin_flags(tfw_pin_t pin)
+{
+    (void)pin;
+    return 0u;
+}
+
+tfw_status_t tfw_hal_gpio_mode(const tfw_pinref_t *p, tfw_pin_mode_t mode)
+{
+    (void)p;
+    (void)mode;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_hal_gpio_write(const tfw_pinref_t *p, uint8_t level)
+{
+    (void)p;
+    sched_level = level;
+    return TFW_OK;
+}
+
+#define MODEL_SIZE   ((uint32_t)TFW_FLASH_TOTAL - TFW_MCXN_FLASH_BASE)
+#define OFF(a)       ((uint32_t)(a) - TFW_MCXN_FLASH_BASE)
+#define USER_OFF     OFF(TFW_CM_USER_EE_BASE)
+#define PLATFORM_OFF OFF(TFW_CM_PLATFORM_BASE)
+#define USER_LO      ((uint16_t)(TFW_BOOT_EE_BASE + TFW_BOOT_EE_LEN))
+
+static uint8_t  model[MODEL_SIZE];
+static unsigned erases;
+static unsigned platform_erases;
+static unsigned other_erases;
+static long     corrupt_at;   /* the model's offset programmed wrong, or -1 */
+
+static int32_t model_init(tfw_mcxn_flash_config_t *config)
+{
+    config->pflash_block_base  = 0u;
+    config->pflash_total_size  = MODEL_SIZE;
+    config->pflash_sector_size = TFW_MCXN_FLASH_SECTOR;
+    return 0;
+}
+
+static int32_t model_erase(tfw_mcxn_flash_config_t *config, uint32_t start,
+                           uint32_t length, uint32_t key)
+{
+    (void)config;
+    if (key != TFW_MCXN_ROM_ERASE_KEY || start + length > MODEL_SIZE) {
+        return 1;
+    }
+    erases++;
+    if (start < PLATFORM_OFF + TFW_CM_PLATFORM_SIZE && start + length > PLATFORM_OFF) {
+        platform_erases++;
+    }
+    if (start != USER_OFF || length != TFW_CM_USER_EE_SIZE) {
+        other_erases++;
+    }
+    memset(&model[start], 0xFF, length);
+    model_run(erase_cycles);   /* the erase takes its time with interrupts masked */
+    return 0;
+}
+
+static int32_t model_program(tfw_mcxn_flash_config_t *config, uint32_t start,
+                             uint8_t *src, uint32_t length)
+{
+    (void)config;
+    if (start + length > MODEL_SIZE) {
+        return 1;
+    }
+    for (uint32_t i = 0; i < length; i++) {
+        uint8_t v = src[i];
+
+        if (corrupt_at >= 0 && start + i == (uint32_t)corrupt_at) {
+            v = (uint8_t)(v & 0xFEu);   /* the program-verify failure */
+        }
+        model[start + i] &= v;          /* a program only clears bits */
+    }
+    return 0;
+}
+
+static const tfw_mcxn_flash_api_t model_api = {
+    .version       = 0u,
+    .flash_init    = model_init,
+    .flash_erase   = model_erase,
+    .flash_program = model_program,
+};
+
+#define TFW_MCXN_EE_FLASH  ((const uint8_t *)model)
+#define TFW_MCXN_EE_WINDOW (&model[PLATFORM_OFF])
+#define TFW_MCXN_EE_API    (&model_api)
+#include "../../src/hal/cortex-m/mcxn94x/hal_eeprom.c"
+
+void setUp(void)
+{
+    memset(model, 0xFF, sizeof model);
+    erases = platform_erases = other_erases = 0u;
+    erase_cycles = 0u;
+    sched_level  = 0xFFu;
+    model_tick_reset();
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tick_init());
+    model_run(1u);   /* SysTick reloads: it reaches 0 every MODEL_CYC_PER_MS from here */
+    tfw_sched_init();
+    corrupt_at = -1;
+}
+
+void tearDown(void)
+{
+    TEST_ASSERT_EQUAL_UINT(0u, platform_erases);
+    TEST_ASSERT_EQUAL_UINT(0u, other_erases);
+    TEST_ASSERT_EQUAL_HEX32(0u, model_primask);   /* every lock unlocked */
+}
+
+static void test_the_user_span_fits_the_sector_below_the_platform_block(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(TFW_CM_PLATFORM_BASE, TFW_CM_USER_EE_BASE + TFW_CM_USER_EE_SIZE);
+    TEST_ASSERT_EQUAL_HEX32(TFW_MCXN_FLASH_SECTOR, TFW_CM_USER_EE_SIZE);
+    TEST_ASSERT_TRUE(TFW_EEPROM_SIZE - USER_LO <= TFW_CM_USER_EE_SIZE);
+}
+
+static void test_a_round_trip_past_the_span_lands_at_the_user_sectors_zero(void)
+{
+    static const uint8_t data[] = { 0x11, 0x22, 0x33, 0x44, 0x55 };
+    uint8_t back[sizeof data];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT(1u, erases);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &model[USER_OFF], sizeof data);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(USER_LO, back, sizeof back));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, back, sizeof data);
+}
+
+static void test_a_second_write_keeps_the_rest_of_the_sector(void)
+{
+    static const uint8_t a[] = { 0xA1, 0xA2 };
+    static const uint8_t b[] = { 0xB1, 0xB2, 0xB3 };
+    uint8_t back[2];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO + 4u, a, sizeof a));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO + 100u, b, sizeof b));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read(USER_LO + 4u, back, sizeof back));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(a, back, sizeof a);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(b, &model[USER_OFF + 100u], sizeof b);
+    TEST_ASSERT_EQUAL_HEX8(0xFF, model[USER_OFF + 6u]);
+}
+
+static void test_the_same_bytes_again_erase_nothing(void)
+{
+    static const uint8_t data[] = { 0x01, 0x02 };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT(1u, erases);
+}
+
+static void test_the_user_spans_last_byte_lands_and_one_past_it_is_range(void)
+{
+    const uint8_t v = 0x3C;
+    const uint8_t two[2] = { 0x01, 0x02 };
+    uint8_t back = 0;
+    uint8_t back2[2];
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)(TFW_EEPROM_SIZE - 1u), &v, 1));
+    TEST_ASSERT_EQUAL_HEX8(v, model[USER_OFF + (TFW_EEPROM_SIZE - 1u - USER_LO)]);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read((uint16_t)(TFW_EEPROM_SIZE - 1u), &back, 1));
+    TEST_ASSERT_EQUAL_HEX8(v, back);
+
+    erases = 0u;
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write((uint16_t)(TFW_EEPROM_SIZE - 1u), two, 2));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write((uint16_t)TFW_EEPROM_SIZE, &v, 1));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_read((uint16_t)TFW_EEPROM_SIZE, &back, 1));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_read((uint16_t)(TFW_EEPROM_SIZE - 1u), back2, 2));
+    TEST_ASSERT_EQUAL_UINT(0u, erases);
+}
+
+static void test_a_write_into_the_bootloaders_span_is_range_and_erases_nothing(void)
+{
+    const uint8_t data[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
+
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write(0x10u, data, sizeof data));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write((uint16_t)(USER_LO - 1u), data, 2));
+    TEST_ASSERT_EQUAL(TFW_ERR_RANGE, tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, data, 1));
+    TEST_ASSERT_EQUAL_UINT(0u, erases);
+    TEST_ASSERT_EQUAL_HEX8(0xFF, model[PLATFORM_OFF + 0x10u]);
+}
+
+static void test_the_confirm_request_keeps_the_store_path_and_erases_nothing(void)
+{
+    uint8_t req[TFW_BOOT_CONFIRM_LEN];
+
+    memset(req, 0x00, sizeof req);
+    req[0] = 0x42;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(TFW_BOOT_CONFIRM_ADDR, req, sizeof req));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(req, &model[PLATFORM_OFF + TFW_BOOT_CONFIRM_ADDR], sizeof req);
+    TEST_ASSERT_EQUAL_UINT(0u, erases);
+}
+
+static void test_a_read_across_the_spans_end_joins_the_window_and_the_sector(void)
+{
+    uint8_t back[4];
+
+    model[PLATFORM_OFF + USER_LO - 2u] = 0x01;
+    model[PLATFORM_OFF + USER_LO - 1u] = 0x02;
+    model[PLATFORM_OFF + USER_LO]      = 0xEE;   /* the window past the span: not read */
+    model[USER_OFF]                    = 0x03;
+    model[USER_OFF + 1u]               = 0x04;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read((uint16_t)(USER_LO - 2u), back, sizeof back));
+    TEST_ASSERT_EQUAL_HEX8(0x01, back[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x02, back[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x03, back[2]);
+    TEST_ASSERT_EQUAL_HEX8(0x04, back[3]);
+}
+
+static void test_a_read_back_mismatch_is_an_error(void)
+{
+    static const uint8_t data[] = { 0x5B, 0x5B, 0x5B };
+
+    corrupt_at = (long)(USER_OFF + 1u);
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_HEX8(0x5A, model[USER_OFF + 1u]);
+}
+
+static void test_a_mismatch_outside_the_written_span_is_an_error(void)
+{
+    static const uint8_t kept[] = { 0xA1 };
+    static const uint8_t data[] = { 0x5B, 0x5B, 0x5B };
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO + 200u, kept, sizeof kept));
+    corrupt_at = (long)(USER_OFF + 200u);   /* the rewrite loses a stored byte */
+    TEST_ASSERT_EQUAL(TFW_ERR_INTERNAL, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(data, &model[USER_OFF], sizeof data);
+    TEST_ASSERT_EQUAL_HEX8(0xA0, model[USER_OFF + 200u]);
+}
+
+static void test_every_user_byte_written_erases_only_the_user_sector(void)
+{
+    uint8_t chunk[255];
+    uint8_t back[255];
+    uint32_t a;
+
+    for (a = USER_LO; a < TFW_EEPROM_SIZE; a += sizeof chunk) {
+        uint32_t n = TFW_EEPROM_SIZE - a < sizeof chunk ? TFW_EEPROM_SIZE - a : sizeof chunk;
+
+        for (uint32_t i = 0; i < n; i++) {
+            chunk[i] = (uint8_t)(a + i);
+        }
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)a, chunk, (uint8_t)n));
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_read((uint16_t)a, back, (uint8_t)n));
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(chunk, back, n);
+    }
+    TEST_ASSERT_TRUE(erases > 0u);
+    for (a = 0; a < TFW_CM_PLATFORM_SIZE; a++) {
+        TEST_ASSERT_EQUAL_HEX8(0xFF, model[PLATFORM_OFF + a]);
+    }
+}
+
+/* The milliseconds SysTick has reached 0 on since setUp's reload. */
+static tfw_ms_t ms_elapsed(void)
+{
+    return (tfw_ms_t)(model_now / MODEL_CYC_PER_MS);
+}
+
+static void test_millis_keeps_the_time_masked_writes_take(void)
+{
+    uint8_t  b;
+    unsigned i;
+
+    /* Each erase masks interrupts for twenty and a third milliseconds,
+     * starting at a different point of SysTick's count every time. */
+    erase_cycles = 20u * MODEL_CYC_PER_MS + MODEL_CYC_PER_MS / 3u;
+    model_run(MODEL_CYC_PER_MS / 2u);
+    for (i = 0u; i < 5u; i++) {
+        b = (uint8_t)(0x10u + i);
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write((uint16_t)(USER_LO + i), &b, 1u));
+        TEST_ASSERT_EQUAL_UINT32(ms_elapsed(), tfw_hal_millis());
+    }
+    /* Over a hundred milliseconds, all but five of them masked. */
+    TEST_ASSERT_TRUE(tfw_hal_millis() > 100u);
+}
+
+/* Whole-millisecond erases, each started a cycle nearer a reload than the
+ * last: across the sweep SysTick comes due between every two accesses of the
+ * lock and the unlock, the last cycle reading and the unmask among them. */
+static void test_a_tick_due_as_a_write_masks_or_unmasks_is_kept(void)
+{
+    uint8_t  b;
+    uint32_t off;
+
+    /* hal_tick.c's count runs on from the tests before. */
+    tfw_ms_t base = tfw_hal_millis() - ms_elapsed();
+
+    erase_cycles = 2u * MODEL_CYC_PER_MS;
+    for (off = 0u; off < 160u; off++) {
+        model_run(MODEL_CYC_PER_MS - (uint32_t)(model_now % MODEL_CYC_PER_MS) +
+                  MODEL_CYC_PER_MS - 80u + off);
+        b = (uint8_t)off;   /* a new byte each time, so every write erases */
+        TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, &b, 1u));
+        TEST_ASSERT_EQUAL_UINT32(base + ms_elapsed(), tfw_hal_millis());
+    }
+}
+
+static void test_a_scheduler_deadline_across_a_write_fires_on_time(void)
+{
+    static const uint8_t data[] = { 0x5Au };
+    uint8_t      in[6] = { 7u, 1u, 50u, 0u, 0u, 0u };   /* pin 7 high for 50 ms */
+    uint8_t      out[4];
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_ms_t     armed;
+
+    erase_cycles = 30u * MODEL_CYC_PER_MS;
+    tfw_reader_init(&r, in, (uint8_t)sizeof in);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_sched_cmd_set(&r, &w));
+    TEST_ASSERT_EQUAL_UINT8(1u, sched_level);
+    armed = tfw_hal_millis();
+
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_eeprom_write(USER_LO, data, sizeof data));
+    TEST_ASSERT_EQUAL_UINT32(armed + 30u, tfw_hal_millis());
+
+    /* 49 ms after arming the pin is still high; at 50 it drops. */
+    model_run(19u * MODEL_CYC_PER_MS);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(1u, sched_level);
+    TEST_ASSERT_EQUAL_UINT8(1u, tfw_sched_active());
+    model_run(MODEL_CYC_PER_MS);
+    tfw_sched_poll();
+    TEST_ASSERT_EQUAL_UINT8(0u, sched_level);
+    TEST_ASSERT_EQUAL_UINT8(0u, tfw_sched_active());
+}
+
+int main(void)
+{
+    UNITY_BEGIN();
+    RUN_TEST(test_the_user_span_fits_the_sector_below_the_platform_block);
+    RUN_TEST(test_a_round_trip_past_the_span_lands_at_the_user_sectors_zero);
+    RUN_TEST(test_a_second_write_keeps_the_rest_of_the_sector);
+    RUN_TEST(test_the_same_bytes_again_erase_nothing);
+    RUN_TEST(test_the_user_spans_last_byte_lands_and_one_past_it_is_range);
+    RUN_TEST(test_a_write_into_the_bootloaders_span_is_range_and_erases_nothing);
+    RUN_TEST(test_the_confirm_request_keeps_the_store_path_and_erases_nothing);
+    RUN_TEST(test_a_read_across_the_spans_end_joins_the_window_and_the_sector);
+    RUN_TEST(test_a_read_back_mismatch_is_an_error);
+    RUN_TEST(test_a_mismatch_outside_the_written_span_is_an_error);
+    RUN_TEST(test_every_user_byte_written_erases_only_the_user_sector);
+    RUN_TEST(test_millis_keeps_the_time_masked_writes_take);
+    RUN_TEST(test_a_tick_due_as_a_write_masks_or_unmasks_is_kept);
+    RUN_TEST(test_a_scheduler_deadline_across_a_write_fires_on_time);
+    return UNITY_END();
+}

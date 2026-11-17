@@ -52,6 +52,8 @@ type peerBoard struct {
 	ledPin     uint8          // the pin the board's table flags as its LED
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
+	pulsePin   uint8          // a digital pin nothing drives, so pulse-in times out
+	tonePin    uint8          // the one pin the tone timer drives
 }
 
 var peerBoards = map[string]peerBoard{
@@ -63,6 +65,7 @@ var peerBoards = map[string]peerBoard{
 		adcOnly: 2,                           // A6 and A7
 		pwmPin:  9, tickPin: 5, noPWMPin: 13, // OC1A; OC0B
 		ledPin: 13, txPin: 1, timerPin: 2,
+		pulsePin: 9, tonePin: 11, // OC2A
 	},
 	"atmega2560": {
 		resetCause: tfw.ResetUnknown,
@@ -72,6 +75,7 @@ var peerBoards = map[string]peerBoard{
 		adcOnly: 0,                           // every ADC input on the Mega is also a digital pin
 		pwmPin:  9, tickPin: 4, noPWMPin: 22, // OC2B; OC0B; PA0
 		ledPin: 13, txPin: 1, timerPin: 2,
+		pulsePin: 9, tonePin: 10, // OC2A
 	},
 	// The STM32H573I-DK's 13-pin table as #535 ran it (row 543): LD1 to LD4
 	// (pins 0-3, lit low), D6 and D5 on TIM5 (4, 5), A0-A5 (6-11) analog
@@ -86,6 +90,7 @@ var peerBoards = map[string]peerBoard{
 		adcOnly: 0,
 		pwmPin:  4, tickPin: -1, noPWMPin: 12, // D6 TIM5_CH1; D3
 		ledPin: 0, txPin: -1, timerPin: 1, // LD2
+		pulsePin: 5, tonePin: 12, // D5, idle; D3 TIM3
 	},
 	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
 	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
@@ -476,16 +481,33 @@ func TestFirmwareSPIConfig(t *testing.T) {
 		&ae, "a mode past 3")
 }
 
-func TestFirmwareOneWireAndPulseIn(t *testing.T) {
+func TestFirmwareOneWire(t *testing.T) {
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureOneWire)
-	requireFeature(t, dev, tfw.FeaturePulse)
 	var reset struct {
 		Present bool `json:"present"`
 	}
 	cliJSON(t, dev, &reset, "1wire-reset", "9")
-	// No signal on a simulated pin, so a timeout is the correct answer -- the
+}
+
+func TestFirmwarePulseIn(t *testing.T) {
+	_, b := firmwareBoard(t)
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeaturePulse)
+	// Nothing drives the pin, so a timeout is the correct answer -- the
 	// point is that the command round-trips and is bounded.
-	assert.ErrorIs(t, run(context.Background(), dev, "pulse-in", []string{"9", "1", "10ms"}, false, &strings.Builder{}),
+	assert.ErrorIs(t, run(context.Background(), dev, "pulse-in", []string{strconv.Itoa(int(b.pulsePin)), "1", "10ms"}, false, &strings.Builder{}),
 		tfw.StatusErrTimeout, "silent line: want TFW_ERR_TIMEOUT")
+}
+
+func TestFirmwareTone(t *testing.T) {
+	_, b := firmwareBoard(t)
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	tone := strconv.Itoa(int(b.tonePin))
+	require.NoError(t, run(context.Background(), dev, "tone", []string{tone, "1000"}, false, &strings.Builder{}),
+		"pin %d is the tone pin and should take 1 kHz", b.tonePin)
+	require.NoError(t, run(context.Background(), dev, "notone", []string{tone}, false, &strings.Builder{}))
+	// One timer drives the tone, on one pin: any other pin is refused.
+	cliRefused(t, dev, "tone", strconv.Itoa(int(b.pwmPin)), "1000")
 }

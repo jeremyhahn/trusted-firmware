@@ -131,7 +131,9 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
 	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
-	"TestFirmwareOneWireAndPulseIn":                      {caps: tfw.FeatureOneWire | tfw.FeaturePulse},
+	"TestFirmwareOneWire":                                {caps: tfw.FeatureOneWire},
+	"TestFirmwarePulseIn":                                {caps: tfw.FeaturePulse},
+	"TestFirmwareTone":                                   {caps: tfw.FeatureTone},
 
 	// e2e_dice_test.go
 	"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce":              {caps: tfw.FeatureAliasCert, has: partIdentity},
@@ -302,7 +304,8 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		run, not []string
 	}{
 		{"atmega328p", []string{
-			"TestFirmwarePing", "TestFirmwareEEPROM", "TestFirmwareOneWireAndPulseIn",
+			"TestFirmwarePing", "TestFirmwareEEPROM", "TestFirmwareOneWire",
+			"TestFirmwarePulseIn", "TestFirmwareTone",
 			"TestFirmwareAttestCertIsDICEEvidenceBoundToTheCallersNonce",
 			"TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareRefusesTheAuthSessionItsCapsLacks", "TestFirmwareRefusesAttestCSRItsCapsLacks",
@@ -327,10 +330,12 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		{"stm32h573i-dk", []string{
 			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareWrite", "TestFirmwareTimer",
 			"TestFirmwareEEPROM", "TestFirmwareAnalog", "TestFirmwarePWM",
+			"TestFirmwarePulseIn", "TestFirmwareTone",
 			"TestFirmwareRefusesI2CItsCapsLacks", "TestFirmwareRefusesSPIItsCapsLacks",
 			"TestFirmwareRefusesOneWireItsCapsLacks",
 		}, []string{
-			"TestFirmwareI2C", "TestFirmwareSPIConfig", "TestFirmwareOneWireAndPulseIn",
+			"TestFirmwareI2C", "TestFirmwareSPIConfig", "TestFirmwareOneWire",
+			"TestFirmwareRefusesPulseItsCapsLacks",
 			"TestFirmwareOTAInfo", "TestFirmwareElementReportsItsRootOfTrust",
 			"TestFirmwareRefusesPWMItsCapsLacks", "TestFirmwareRefusesEEPROMItsCapsLacks",
 		}},

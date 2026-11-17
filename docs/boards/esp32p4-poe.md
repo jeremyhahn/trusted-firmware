@@ -112,8 +112,8 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | wire over the P4's EMAC (board as server) | verified 2026-11-17 | rows `Ping`, `PingAfterAMalformedBurst`, `Sys` (after a fresh boot) pass over TCP |
 | esp32-p4 | GPIO | verified 2026-11-17 | rows `Write`, `Timer` pass (GPIO32/33) |
 | esp32-p4 | ADC (ADC1) | verified 2026-11-17 | row `Analog` passes on GPIO20, ADC1 channel 4; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table |
-| esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | row `I2C` passes; nothing fitted on the header |
-| esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
+| esp32-p4 | I2C (header 7/8) | unverified | row `I2C` passes, but it asks only for the element's reserved address, which `src/caps/bus.c` refuses before the HAL; no bus transfer recorded (nothing fitted on the header) |
+| esp32-p4 | SPI (46/47/48) | unverified | row `SPIConfig` passes, but it only records the configuration: `hal_bus.c` creates the SPI driver on the first transfer, and none was recorded |
 | esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
 | esp32-p4 | PWM (LEDC 0–3) | fails: not measured | rows `Pin`, `PWM` hard-code the AVR's pin 9 (an ADC pin here); issue to file: board-driven PWM pin in the rows |
@@ -121,8 +121,8 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
 | esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
 | esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
-| esp32-p4 | boot event on connect | fails | row `PingDeliversTheBootEventWithNoBootWait`: a `tcp:` connect resets nothing, so no boot event; issue to file |
-| esp32-p4 | CLI CAPS through the port | fails: hangs | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` reads CAPS until the 10-minute test timeout; issue to file |
+| esp32-p4 | boot event on connect | not run | a `tcp:` connect resets nothing, so the rows that need a fresh boot (`PingDeliversTheBootEventWithNoBootWait`, `PingAfterAMalformedBurst`) are out of this board's row list until it has a reset over the wire; issue to file |
+| esp32-p4 | CLI CAPS through the port | not re-run | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` hung on 2026-11-17; the test's wrapper now keeps the TCP read deadline and waits for no BOOT; needs a hardware re-run |
 | esp32-p4 | wire over Ethernet, board dials (`HW_ETH`) | not run | the `TestEthernet*` rows listen for the board's dial; the run's host was not on the development VLAN; issue to file |
 | esp32-p4, ota | OTA write, trial, confirm, roll back | not run | the `CRYPTO=none` image has no operator session, so every OTA row is out of its row list; needs an element- or soft-tier image; issue to file |
 | esp32-p4 | secure boot v2, flash encryption | owner | each burns eFuses (CA 583) |
@@ -132,7 +132,8 @@ the two summaries differ in no eFuse line.
 ## What is not met yet
 
 The board runs this firmware and answers the wire over its own EMAC; GPIO,
-ADC, I2C, SPI, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
-PWM, tone and EEPROM have no passing row on this board; the board-dials
+ADC, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
+I2C and SPI have no recorded bus transfer; PWM, tone and EEPROM have no
+passing row on this board; the board-dials
 Ethernet rows and OTA have not run; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

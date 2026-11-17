@@ -16,6 +16,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The board profile turns the boot probe on (ETH_PROBE=1); off elsewhere. */
+#ifndef TFW_H5_ETH_PROBE
+#define TFW_H5_ETH_PROBE 0
+#endif
+
 /* Clause 22 registers. */
 #define TFW_PHY_REG_BMSR     1u
 #define TFW_PHY_REG_PHYID1   2u

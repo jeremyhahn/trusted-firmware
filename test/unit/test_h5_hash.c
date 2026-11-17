@@ -23,10 +23,16 @@ static struct {
     uint32_t str;
     uint8_t  msg[65536 + 4];
     uint32_t words;
-    uint32_t hr[8];
-    int      dcis;
+    uint32_t hr[8];         /* the last digest completed, until the next one */
+    uint32_t hr_next[8];    /* the digest in flight */
+    int      dcis;          /* rc_w0; INIT leaves it as it was */
     int      configured;
-    int      computed;
+    int      closed;        /* DCAL written since the last INIT */
+    int      pending;       /* a digest in flight */
+    uint32_t delay;         /* SR reads from DCAL to DCIS */
+    uint32_t delay_left;
+    int      computed;      /* HR holds a digest */
+    uint32_t sr_clears;     /* SR writes */
     int      hang;          /* never raise DCIS */
     int      stuck;         /* BUSY never clears */
     uint32_t busy_waits;    /* SR reads that asked for BUSY */
@@ -42,7 +48,20 @@ uint32_t tfw_h5_rd(uintptr_t addr)
 
     if (off == TFW_H5_HASH_SR) {
         m.busy_waits++;
-        return (m.stuck ? TFW_H5_HASH_SR_BUSY : 0u) | (m.dcis ? TFW_H5_HASH_SR_DCIS : 0u);
+        /* The digest lands m.delay reads after DCAL: HR keeps the previous
+         * one, and DCIS what it was, until then. A hang never lands it. */
+        if (m.pending && !m.hang) {
+            if (m.delay_left == 0u) {
+                memcpy(m.hr, m.hr_next, sizeof m.hr);
+                m.pending  = 0;
+                m.computed = 1;
+                m.dcis     = 1;
+            } else {
+                m.delay_left--;
+            }
+        }
+        return (m.stuck || m.pending ? TFW_H5_HASH_SR_BUSY : 0u) |
+               (m.dcis ? TFW_H5_HASH_SR_DCIS : 0u);
     }
     if (off >= TFW_H5_HASH_HR && off < TFW_H5_HASH_HR + 32u && (off % 4u) == 0u) {
         if (!m.computed)
@@ -68,10 +87,11 @@ static void model_digest(void)
     }
     tfw_sha256(m.msg, (uint16_t)len, d);
     for (uint32_t i = 0; i < 8u; i++)
-        m.hr[i] = ((uint32_t)d[4 * i] << 24) | ((uint32_t)d[4 * i + 1] << 16) |
-                  ((uint32_t)d[4 * i + 2] << 8) | d[4 * i + 3];
-    m.computed = 1;
-    m.dcis     = !m.hang;
+        m.hr_next[i] = ((uint32_t)d[4 * i] << 24) | ((uint32_t)d[4 * i + 1] << 16) |
+                       ((uint32_t)d[4 * i + 2] << 8) | d[4 * i + 3];
+    m.closed     = 1;
+    m.pending    = 1;
+    m.delay_left = m.delay;
 }
 
 void tfw_h5_wr(uintptr_t addr, uint32_t value)
@@ -80,16 +100,20 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
 
     switch (off) {
     case TFW_H5_HASH_CR:
-        /* SHA-256, 8-bit data, a hash (not HMAC), started by INIT. */
+        /* SHA-256, 8-bit data, a hash (not HMAC), started by INIT. INIT
+         * restarts the core: the message and a digest in flight are dropped;
+         * DCIS and HR are left as they were. */
         if (value != (TFW_H5_HASH_CR_ALGO_SHA256 | TFW_H5_HASH_CR_BYTE_SWAP |
                       TFW_H5_HASH_CR_INIT))
             m.fault = 1;
         m.cr         = value;
         m.configured = 1;
+        m.closed     = 0;
+        m.pending    = 0;
         m.words      = 0;
         break;
     case TFW_H5_HASH_DIN:
-        if (!m.configured || m.computed || m.words * 4u >= sizeof m.msg) {
+        if (!m.configured || m.closed || m.words * 4u >= sizeof m.msg) {
             m.fault = 1;
             return;
         }
@@ -99,20 +123,33 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
         m.words++;
         break;
     case TFW_H5_HASH_STR:
-        if (!m.configured)
+        if (!m.configured || m.closed)
             m.fault = 1;
         m.str = value;
         if (value & TFW_H5_HASH_STR_DCAL)
             model_digest();
+        break;
+    case TFW_H5_HASH_SR:
+        /* DINIS and DCIS are rc_w0; BUSY reads only. */
+        if (value & ~(TFW_H5_HASH_SR_DINIS | TFW_H5_HASH_SR_DCIS))
+            m.fault = 1;
+        if (!(value & TFW_H5_HASH_SR_DCIS))
+            m.dcis = 0;
+        m.sr_clears++;
         break;
     default:
         m.fault = 1;
     }
 }
 
+#define MODEL_DELAY 3u
+
+/* The model is reset once per test: the operations inside a test share the
+ * peripheral, as the attestation and SUIT hashing of one boot do. */
 void setUp(void)
 {
     memset(&m, 0, sizeof m);
+    m.delay = MODEL_DELAY;
 }
 
 void tearDown(void) {}
@@ -121,7 +158,6 @@ static void check_against_soft(const uint8_t *data, uint16_t len)
 {
     uint8_t want[32], got[32];
 
-    memset(&m, 0, sizeof m);
     tfw_sha256(data, len, want);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_hash_sha256(BASE, data, len, got));
     TEST_ASSERT_FALSE(m.fault);
@@ -190,13 +226,49 @@ static void test_h5_hash_matches_soft_at_the_longest_message(void)
 }
 
 /* One BUSY wait per whole block written: 128 bytes are two blocks, so two
- * waits before DCAL, then the DCIS poll's one read. */
+ * waits before DCAL, then the DCIS poll's reads until the digest lands. */
 static void test_h5_hash_waits_for_busy_after_each_block(void)
 {
     uint8_t data[128] = { 0 };
 
     check_against_soft(data, sizeof data);
-    TEST_ASSERT_EQUAL_UINT32(3u, m.busy_waits);
+    TEST_ASSERT_EQUAL_UINT32(2u + MODEL_DELAY + 1u, m.busy_waits);
+}
+
+/* Distinct messages on one peripheral, no reset between them: each digest is
+ * its own message's, never the one HR held from the operation before. */
+static void test_h5_hash_of_distinct_messages_back_to_back(void)
+{
+    static const char *const msgs[] = {
+        "abc", "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", "", "abd", "abc",
+    };
+
+    for (uint32_t i = 0; i < sizeof msgs / sizeof msgs[0]; i++)
+        check_against_soft((const uint8_t *)msgs[i], (uint16_t)strlen(msgs[i]));
+    TEST_ASSERT_EQUAL_UINT32(sizeof msgs / sizeof msgs[0], m.sr_clears);
+}
+
+/* A timed-out operation, then good ones on the same peripheral: once with the
+ * timed-out digest landing late (DCIS and HR left set by it), once with it
+ * still in flight when the next INIT drops it. */
+static void test_h5_hash_recovers_after_a_timeout(void)
+{
+    static const uint8_t other[] = "a later message";
+    uint8_t out[32];
+
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_hash_sha256(BASE, (const uint8_t *)"abc", 3, out));
+    m.hang = 0;
+    for (uint32_t i = 0; i <= MODEL_DELAY; i++)
+        (void)tfw_h5_rd(BASE + TFW_H5_HASH_SR);
+    TEST_ASSERT_TRUE(m.dcis);
+    check_against_soft(other, sizeof other - 1u);
+
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_hash_sha256(BASE, (const uint8_t *)"abc", 3, out));
+    m.hang = 0;
+    check_against_soft(other, 7);
+    TEST_ASSERT_FALSE(m.fault);
 }
 
 static void test_h5_hash_times_out_when_dcis_never_rises(void)
@@ -229,6 +301,8 @@ int main(void)
     RUN_TEST(test_h5_hash_matches_soft_at_every_length_to_140);
     RUN_TEST(test_h5_hash_matches_soft_at_the_longest_message);
     RUN_TEST(test_h5_hash_waits_for_busy_after_each_block);
+    RUN_TEST(test_h5_hash_of_distinct_messages_back_to_back);
+    RUN_TEST(test_h5_hash_recovers_after_a_timeout);
     RUN_TEST(test_h5_hash_times_out_when_dcis_never_rises);
     RUN_TEST(test_h5_hash_times_out_when_busy_never_clears);
     return UNITY_END();

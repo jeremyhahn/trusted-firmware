@@ -116,10 +116,10 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
 | esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
-| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` fails in the same run: `pin 11 flags = digital, want digital and led`; issue to file: the P4's LED pin facts |
+| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` fails in the same run: `pin 11 flags = digital, want digital and led`; the P4's LED pin facts are #574 |
 | esp32-p4 | tone (GPIO6) | fails: no read-back, tracked in #573 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='^TestFirmwareTone$'`: TONE and NOTONE on pin 4 answer OK, then the row fails by design: the `ESP_PULSE=rmt` capture claims the pin as an input and drops the LEDC output, so the frequency and the silence after `notone` are unverified. The 2026-11-17 run reached the board over its USB console only and stopped at CAPS; the row has not yet run over `tcp:`. The read-back (io_loop_back on the RMT RX channel, or a wired input) is #573 |
-| esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
-| esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
+| esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; the none-tier facts are #575 |
+| esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; the none-tier facts are #576 |
 | esp32-p4 | ATTEST unprovisioned | fails: test facts | the board answers UNSUPPORTED (`0x7`), as "Building and HIL-0" says a tier with no UDS does; row `AttestRefusedUnprovisioned` wants NOT_PROVISIONED; issue to file |
 | esp32-p4 | boot event on connect | fails | row `PingDeliversTheBootEventWithNoBootWait`: a `tcp:` connect resets nothing, so no boot event; issue to file |
 | esp32-p4 | CLI CAPS through the port | fails: hangs | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` reads CAPS until the 10-minute test timeout; issue to file |

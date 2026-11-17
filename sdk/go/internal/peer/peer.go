@@ -68,6 +68,24 @@ const (
 	StartBound = 5 * time.Second
 )
 
+// boardStartBound is a board's bound from its reset to its first byte where
+// StartBound is too short. The STM32H573I-DK's tfw-boot checks the
+// application's P-256 signature in software at 64 MHz: about 16 s from the
+// start of the probe's reset to the BOOT event, measured on the board
+// 2026-11-17, so it gets 30 s.
+var boardStartBound = map[string]time.Duration{
+	"stm32h573i-dk": 30 * time.Second,
+}
+
+// Bound is how long t's board has, from its reset, to transmit its first
+// byte: its boardStartBound, or StartBound.
+func (t Target) Bound() time.Duration {
+	if b, ok := boardStartBound[t.Board]; ok {
+		return b
+	}
+	return StartBound
+}
+
 // ErrSilent reports a board that transmitted nothing within the bound.
 var ErrSilent = errors.New("the board sent nothing after its port opened -- is the firmware flashed, and is this its port?")
 
@@ -210,7 +228,7 @@ func Start(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWriteCloser
 			return OpenCmd(port, strings.Fields(t.ResetCmd), bound)
 		}
 	}
-	c, err := open(t.Port, StartBound)
+	c, err := open(t.Port, t.Bound())
 	if err != nil {
 		tb.Fatal(err)
 	}

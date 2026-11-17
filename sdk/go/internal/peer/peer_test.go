@@ -61,6 +61,18 @@ func TestFromEnvTakesAProbeResetCommand(t *testing.T) {
 	}
 }
 
+func TestBoundWaitsOutTheDKsSignatureCheck(t *testing.T) {
+	// The DK's first byte comes about 16 s after its reset starts.
+	if got := (Target{Port: "vcom", Board: "stm32h573i-dk"}).Bound(); got < 20*time.Second {
+		t.Fatalf("stm32h573i-dk bound = %s, want at least 20s", got)
+	}
+	for _, board := range []string{SimBoard, "atmega2560", "mps2-an505"} {
+		if got := (Target{Port: "vcom", Board: board}).Bound(); got != StartBound {
+			t.Fatalf("%s bound = %s, want StartBound %s", board, got, StartBound)
+		}
+	}
+}
+
 func TestFromEnvRefusesAnEmptyResetCommand(t *testing.T) {
 	t.Setenv(PortEnv, "vcom")
 	t.Setenv(BoardEnv, "stm32h573i-dk")

@@ -114,8 +114,10 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | tfw-wire over TCP | verified 2026-11-17 (#539) | `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='^TestFirmwareCaps$'` passes (`--- PASS: TestFirmwareCaps`): CAPS read over TCP from the bench host. `HW_TEST_RUN='CAPS'` matches no test (`no tests to run`), so the row names the test |
 | esp32-p4 | GPIO | verified 2026-11-17 | rows `Write`, `Timer` pass (GPIO32/33) |
 | esp32-p4 | ADC (ADC1) | verified 2026-11-17 | row `Analog` passes on GPIO20, ADC1 channel 4; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table |
-| esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | row `I2C` passes; nothing fitted on the header |
-| esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
+| esp32-p4 | I2C (header 7/8), refusal | verified 2026-11-17 | row `I2C` passes; it asks for the reserved address only, which `src/caps/bus.c` refuses before the HAL is called, so no bus cycle runs; nothing fitted on the header |
+| esp32-p4 | I2C (header 7/8), bus transfer | not verified | no run puts a transaction on the bus; the NACK check (a transfer to an absent address answered as NACK) has no dated run |
+| esp32-p4 | SPI (46/47/48), configuration | verified 2026-11-17 | row `SPIConfig` passes; it records the configuration only: `src/hal/esp32/hal_bus.c` creates the SPI driver on the first transfer, which the row never makes |
+| esp32-p4 | SPI (46/47/48), bus transfer | not verified (#569) | no transfer has run on the board; the P4's SPI header wiring is #569 |
 | esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
 | esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` fails in the same run: `pin 11 flags = digital, want digital and led`; issue to file: the P4's LED pin facts |

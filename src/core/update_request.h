@@ -18,9 +18,16 @@
 #include <stdint.h>
 
 /* 1 when this build has a tfw-boot that serves an update path, whichever it is;
- * 0 on a board with no boot section. An application's OTA slots count only
- * where it is 1 (src/core/app_runner.c). */
+ * 0 on a board with no boot section. */
 uint8_t tfw_update_request_supported(void);
+
+/* The image slots this build's update path serves, which an application's
+ * ota_slots is checked against (src/core/app_runner.c): TFW_OTA_SLOTS where
+ * tfw-boot serves one, 0 where there is none. An architecture whose update
+ * path is its own (ARCH_OTA_SRCS, ESP-IDF's esp_ota) builds with
+ * TFW_ARCH_OTA=1 and answers it in that file, since it has no tfw-boot
+ * session and still serves an update. */
+uint8_t tfw_update_slots(void);
 
 /* 1 when RESET(1) reaches an update session in tfw-boot; 0 on a board with no
  * boot section, and on an image whose update path is the external store. RESET(1)

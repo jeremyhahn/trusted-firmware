@@ -71,6 +71,14 @@ static inline void tfw_h5_wr(uintptr_t addr, uint32_t value)
  * timing, and is not confirmed against RM0481. */
 #define TFW_H5_POLL_LIMIT           200000u
 
+/* RCC_CR's HSI48 bits (CMSIS header: RCC_CR_HSI48ON, RCC_CR_HSI48RDY). The
+ * HSI48 is the RNG's kernel clock out of reset, and on the kit the PKA does
+ * not reach INITOK until it runs (bench, 2026-11-17: SR stayed 0 with the
+ * RNG's bus clock alone, INITOK rose at EN once HSI48RDY was set). */
+#define TFW_H5_RCC_CR_OFF           0x00u
+#define TFW_H5_RCC_CR_HSI48ON       (0x1u << 12)
+#define TFW_H5_RCC_CR_HSI48RDY      (0x1u << 13)
+
 /* PKA: CMSIS PKA_TypeDef, CR, SR and CLRFR, then the RAM at 0x400. */
 #define TFW_H5_PKA_CR       0x000u
 #define TFW_H5_PKA_SR       0x004u

@@ -49,10 +49,13 @@ static uint8_t pka_up;
 
 tfw_status_t tfw_crypto_init(void)
 {
-    /* The RNG's clock with the PKA's: whether the PKA's RAM erase needs it is
-     * not confirmed, and a clock alone writes nothing to the RNG. */
+    /* The RNG's bus clock with the PKA's; a clock alone writes nothing to the
+     * RNG. */
     TFW_H5_RCC_AHB2ENR |= H5_AHB2ENR_HASHEN | H5_AHB2ENR_RNGEN | H5_AHB2ENR_PKAEN;
     (void)TFW_H5_RCC_AHB2ENR;
+    /* The PKA reaches INITOK only with the HSI48 running (bench, 2026-11-17);
+     * a HSI48 that never readies leaves INITOK low and the soft code answers. */
+    (void)tfw_h5_hsi48_start(TFW_H5_RCC_BASE);
     pka_up = (uint8_t)(tfw_h5_pka_init(H5_PKA_BASE) == TFW_OK);
     return tfw_crypto_soft_init();
 }

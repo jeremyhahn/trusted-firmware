@@ -87,6 +87,21 @@ static tfw_status_t h5_pka_run(uintptr_t base, uint32_t mode)
     return (done && (sr & TFW_H5_PKA_SR_ERRORS) == 0u) ? TFW_OK : TFW_ERR_TIMEOUT;
 }
 
+tfw_status_t tfw_h5_hsi48_start(uintptr_t rcc_base)
+{
+    uint32_t cr = tfw_h5_rd(rcc_base + TFW_H5_RCC_CR_OFF);
+    uint32_t i;
+
+    if (cr & TFW_H5_RCC_CR_HSI48RDY)
+        return TFW_OK;
+    tfw_h5_wr(rcc_base + TFW_H5_RCC_CR_OFF, cr | TFW_H5_RCC_CR_HSI48ON);
+    for (i = 0; i < TFW_H5_POLL_LIMIT; i++) {
+        if (tfw_h5_rd(rcc_base + TFW_H5_RCC_CR_OFF) & TFW_H5_RCC_CR_HSI48RDY)
+            return TFW_OK;
+    }
+    return TFW_ERR_TIMEOUT;
+}
+
 tfw_status_t tfw_h5_pka_init(uintptr_t base)
 {
     uint32_t i = 0;

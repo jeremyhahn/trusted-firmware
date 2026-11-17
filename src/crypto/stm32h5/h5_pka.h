@@ -18,6 +18,11 @@
  * it does not finish within TFW_H5_POLL_LIMIT reads. */
 tfw_status_t tfw_h5_pka_init(uintptr_t base);
 
+/* Starts the HSI48, the RNG's kernel clock, which the PKA needs to reach
+ * INITOK, and waits for HSI48RDY; RCC_CR's other bits are kept. TFW_OK when it
+ * is ready (at once if it already was), TFW_ERR_TIMEOUT when it never is. */
+tfw_status_t tfw_h5_hsi48_start(uintptr_t rcc_base);
+
 /* TFW_OK when sig is a valid signature of digest under pub; TFW_ERR_CRYPTO
  * when it is not; TFW_ERR_TIMEOUT when the PKA did not answer, or flagged a
  * RAM, address or operation error, in which case the caller decides from

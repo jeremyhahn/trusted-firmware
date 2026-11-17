@@ -151,9 +151,26 @@ static void model_sign(void)
     m.ram[TFW_H5_PKA_SIGN_OUT_ERROR / 4u] = TFW_H5_PKA_NO_ERROR;
 }
 
+/* RCC_CR, modelled apart from the PKA: HSI48RDY rises rdy_delay reads after
+ * HSI48ON is written, or never with no_rdy. */
+#define RCC_OFF 0x10000u
+static struct {
+    uint32_t cr;
+    uint32_t writes;
+    uint32_t reads;
+    uint32_t rdy_delay;
+    uint8_t  no_rdy;
+} rcc;
+
 uint32_t tfw_h5_rd(uintptr_t addr)
 {
     uint32_t off = (uint32_t)(addr - BASE);
+
+    if (off == RCC_OFF + TFW_H5_RCC_CR_OFF) {
+        if ((rcc.cr & TFW_H5_RCC_CR_HSI48ON) && !rcc.no_rdy && rcc.reads++ >= rcc.rdy_delay)
+            rcc.cr |= TFW_H5_RCC_CR_HSI48RDY;
+        return rcc.cr;
+    }
 
     if (off == TFW_H5_PKA_CR)
         return m.cr;
@@ -169,6 +186,11 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
 {
     uint32_t off = (uint32_t)(addr - BASE);
 
+    if (off == RCC_OFF + TFW_H5_RCC_CR_OFF) {
+        rcc.writes++;
+        rcc.cr = value & ~TFW_H5_RCC_CR_HSI48RDY;
+        return;
+    }
     if (off >= TFW_H5_PKA_RAM && off <= TFW_H5_PKA_RAM_END && (off % 4u) == 0u) {
         if (m.sr & TFW_H5_PKA_SR_BUSY)
             m.fault = 1;
@@ -254,6 +276,31 @@ static void test_h5_pka_init_times_out_without_initok(void)
     memset(&m, 0, sizeof m);
     m.no_initok = 1;
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_init(BASE));
+}
+
+static void test_h5_hsi48_start_sets_on_keeps_other_bits_and_waits_for_rdy(void)
+{
+    memset(&rcc, 0, sizeof rcc);
+    rcc.cr = 0x00040023u;   /* the kit's RCC_CR before the provider ran */
+    rcc.rdy_delay = 5;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_hsi48_start(BASE + RCC_OFF));
+    TEST_ASSERT_EQUAL_HEX32(0x00040023u | TFW_H5_RCC_CR_HSI48ON | TFW_H5_RCC_CR_HSI48RDY, rcc.cr);
+    TEST_ASSERT_EQUAL(1, rcc.writes);
+}
+
+static void test_h5_hsi48_start_writes_nothing_when_already_ready(void)
+{
+    memset(&rcc, 0, sizeof rcc);
+    rcc.cr = TFW_H5_RCC_CR_HSI48ON | TFW_H5_RCC_CR_HSI48RDY;
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_hsi48_start(BASE + RCC_OFF));
+    TEST_ASSERT_EQUAL(0, rcc.writes);
+}
+
+static void test_h5_hsi48_start_times_out_without_rdy(void)
+{
+    memset(&rcc, 0, sizeof rcc);
+    rcc.no_rdy = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_hsi48_start(BASE + RCC_OFF));
 }
 
 static void test_h5_pka_init_times_out_when_en_never_sticks(void)
@@ -367,6 +414,9 @@ int main(void)
     RUN_TEST(test_h5_pka_init_rewrites_en_until_it_sticks);
     RUN_TEST(test_h5_pka_init_times_out_without_initok);
     RUN_TEST(test_h5_pka_init_times_out_when_en_never_sticks);
+    RUN_TEST(test_h5_hsi48_start_sets_on_keeps_other_bits_and_waits_for_rdy);
+    RUN_TEST(test_h5_hsi48_start_writes_nothing_when_already_ready);
+    RUN_TEST(test_h5_hsi48_start_times_out_without_rdy);
     RUN_TEST(test_h5_pka_verifies_a_soft_signature);
     RUN_TEST(test_h5_pka_rejects_a_signature_of_another_digest);
     RUN_TEST(test_h5_pka_rejects_a_flipped_s);

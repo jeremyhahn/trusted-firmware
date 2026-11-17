@@ -16,6 +16,72 @@
 #include "reader.h"
 #include "writer.h"
 #include "ota_auth.h"
+#include "ota_ctl.h"
+#include "ota_stage.h"
+#include "auth_session.h"
+#include "boot_platform.h"
+#include "tfw/hal.h"
+#include "../caps/sys.h"
+
+/* OTA_ACTIVATE's seams (src/core/ota_activate.c), for row 28's case: the
+ * element tier's operator session is tfw_auth_gate, open or closed by the
+ * test; the store's state is an ended image, never a pending one. */
+static uint8_t session_open;
+static uint8_t marked;
+static uint8_t authorized_with[TFW_OTA_AUTH_SIG_LEN];
+/* The real tfw_stage_authorize erases the MARK sector before it writes, so a
+ * refused activate must not reach it at all. */
+static unsigned authorize_calls;
+
+tfw_status_t tfw_auth_gate(void)
+{
+    return session_open ? TFW_OK : TFW_ERR_AUTH_REQUIRED;
+}
+
+uint8_t tfw_stage_install_pending(void)
+{
+    return 0u;
+}
+
+tfw_status_t tfw_hal_nvm_read(uint16_t addr, uint8_t *buf, uint8_t len)
+{
+    (void)addr;
+    memset(buf, 0, len);
+    return TFW_OK;
+}
+
+tfw_status_t tfw_boot_platform_parse(const uint8_t *raw, tfw_boot_platform_t *p)
+{
+    (void)raw;
+    memset(p, 0, sizeof *p);
+    p->boot_state = TFW_BOOT_STATE_GOOD;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_ota_manifest(tfw_boot_platform_t *p)
+{
+    (void)p;
+    return TFW_OK;
+}
+
+tfw_status_t tfw_stage_authorize(const uint8_t sig[TFW_OTA_AUTH_SIG_LEN], uint8_t mode)
+{
+    (void)mode;
+    authorize_calls++;
+    if (sig == NULL) {
+        return TFW_ERR_AUTH_REQUIRED;
+    }
+    memcpy(authorized_with, sig, TFW_OTA_AUTH_SIG_LEN);
+    return TFW_OK;
+}
+
+tfw_status_t tfw_stage_activate(void)
+{
+    marked = 1u;
+    return TFW_OK;
+}
+
+void tfw_sys_reset_soon(void) {}
 
 /* The dispatcher's record, as dispatch.c keeps it for the last command. */
 static uint8_t last_cmd;
@@ -164,6 +230,49 @@ static void test_the_reply_is_empty(void)
     TEST_ASSERT_EQUAL_UINT8(0u, tfw_reader_remaining(&r));
 }
 
+/* OTA_ACTIVATE, mode 0, as the dispatcher records it. */
+static tfw_status_t activate(void)
+{
+    uint8_t mode = 0u;
+    tfw_reader_t r;
+    tfw_writer_t w;
+    tfw_reader_init(&r, &mode, 1u);
+    tfw_writer_init(&w, out, (uint8_t)sizeof out);
+    tfw_status_t st = tfw_otactl_cmd_activate(&r, &w);
+    last_cmd = TFW_CMD_OTA_ACTIVATE;
+    last_ok = (uint8_t)(st == TFW_OK);
+    return st;
+}
+
+/* Audit row 28 (docs/ota/engineering.md): the element tier keeps its operator
+ * session and OTA_AUTH is checked as well. Neither alone activates. */
+static void test_the_element_session_and_ota_auth_are_each_needed_to_activate(void)
+{
+    marked = 0u;
+    authorize_calls = 0u;
+    /* A session without OTA_AUTH: refused before the stage is touched. */
+    session_open = 1u;
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, activate());
+    TEST_ASSERT_EQUAL_UINT8(0u, marked);
+    TEST_ASSERT_EQUAL_UINT(0u, authorize_calls);
+    /* OTA_AUTH without a session. */
+    session_open = 0u;
+    fill(0x33u);
+    TEST_ASSERT_EQUAL(TFW_OK, auth(TFW_OTA_AUTH_SIG_LEN));
+    TEST_ASSERT_EQUAL(TFW_ERR_AUTH_REQUIRED, activate());
+    TEST_ASSERT_EQUAL_UINT8(0u, marked);
+    TEST_ASSERT_EQUAL_UINT(0u, authorize_calls);
+    /* Both: the held signature is the one authorized. */
+    session_open = 1u;
+    fill(0x44u);
+    uint8_t want[TFW_OTA_AUTH_SIG_LEN];
+    memcpy(want, req, sizeof want);
+    TEST_ASSERT_EQUAL(TFW_OK, auth(TFW_OTA_AUTH_SIG_LEN));
+    TEST_ASSERT_EQUAL(TFW_OK, activate());
+    TEST_ASSERT_EQUAL_UINT8(1u, marked);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(want, authorized_with, TFW_OTA_AUTH_SIG_LEN);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -176,5 +285,6 @@ int main(void)
     RUN_TEST(test_no_auth_since_boot_takes_nothing);
     RUN_TEST(test_a_second_auth_replaces_the_first);
     RUN_TEST(test_the_reply_is_empty);
+    RUN_TEST(test_the_element_session_and_ota_auth_are_each_needed_to_activate);
     return UNITY_END();
 }

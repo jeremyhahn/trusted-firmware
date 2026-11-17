@@ -122,9 +122,10 @@ sdk-coverage:
 #
 # The boards with a row list and pin facts: atmega328p, atmega2560 and
 # stm32h573i-dk (peerBoards in e2e_firmware_test.go). The STM32H573I-DK's
-# rows are its default image's (#535): GPIO, the timer, EEPROM, analog, PWM on
-# D6 (pin 4), the pulse and tone rows, and the I2C, SPI and 1-Wire refusals;
-# its I2C=1 image runs HW_TEST_RUN='TestFirmwareI2C'. Its ST-LINK VCOM carries
+# rows are the default image's this checkout builds: GPIO, the timer, and the
+# analog, PWM, pulse, EEPROM, I2C, SPI and 1-Wire refusals; the #535 bench
+# image's and the I2C=1 image's rows run by name, HW_TEST_RUN='TestFirmwarePWM'
+# and so on. Its ST-LINK VCOM carries
 # DTR to no reset line, so the DTR pulse would not reset it: its rows reset it
 # through the ST-LINK with STM32CubeProgrammer (HW_RESET_stm32h573i-dk), so each
 # row starts from the BOOT event and clean framer counters. PORT names only the

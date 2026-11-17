@@ -102,13 +102,14 @@ var boardImages = map[string]boardImage{
 		tier:  elementTier,
 		parts: partIdentity | partStager | partOTACtl,
 	},
-	// The default image #535 ran on the board: CAPS gpio sched analog pwm tone
-	// pulse eeprom attest, the soft tier, no stager, no provisioned identity.
-	// I2C is off by default (I2C ?= 0); the I2C=1 image's rows run by name,
-	// HW_TEST_RUN='TestFirmwareI2C'. SPI and 1-Wire refuse.
+	// The default image this checkout builds (boards/stm32h573i-dk/
+	// board_profile.h): the kit's four LEDs, CAPS gpio sched attest, the soft
+	// tier, no stager, no provisioned identity. Analog, PWM, tone, pulse,
+	// EEPROM and the buses are off, so their refusal rows run. The #535 bench
+	// image's rows (its 13-pin table, analog, PWM, tone, pulse, EEPROM) and
+	// the I2C=1 image's run by name, HW_TEST_RUN='TestFirmwarePWM' and so on.
 	"stm32h573i-dk": {
-		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
-			tfw.FeatureTone | tfw.FeaturePulse | tfw.FeatureEEPROM | tfw.FeatureAttest,
+		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAttest,
 		tier: softTier,
 	},
 }
@@ -329,15 +330,15 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		}},
 		{"stm32h573i-dk", []string{
 			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareWrite", "TestFirmwareTimer",
-			"TestFirmwareEEPROM", "TestFirmwareAnalog", "TestFirmwarePWM",
-			"TestFirmwarePulseIn", "TestFirmwareTone",
+			"TestFirmwareRefusesAnalogItsCapsLacks", "TestFirmwareRefusesPWMItsCapsLacks",
+			"TestFirmwareRefusesPulseItsCapsLacks", "TestFirmwareRefusesEEPROMItsCapsLacks",
 			"TestFirmwareRefusesI2CItsCapsLacks", "TestFirmwareRefusesSPIItsCapsLacks",
 			"TestFirmwareRefusesOneWireItsCapsLacks",
 		}, []string{
+			"TestFirmwareEEPROM", "TestFirmwareAnalog", "TestFirmwarePWM",
+			"TestFirmwarePulseIn", "TestFirmwareTone",
 			"TestFirmwareI2C", "TestFirmwareSPIConfig", "TestFirmwareOneWire",
-			"TestFirmwareRefusesPulseItsCapsLacks",
 			"TestFirmwareOTAInfo", "TestFirmwareElementReportsItsRootOfTrust",
-			"TestFirmwareRefusesPWMItsCapsLacks", "TestFirmwareRefusesEEPROMItsCapsLacks",
 		}},
 	} {
 		run := boardRun(t, tc.board, false)

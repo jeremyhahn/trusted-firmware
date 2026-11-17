@@ -178,16 +178,20 @@ func (m *meddler) Write(p []byte) (int, error) { return m.conn.Write(p) }
 func (m *meddler) Read(p []byte) (int, error) {
 	if len(m.rx) == 0 {
 		// A Read can end in a timeout mid-frame (a tcp: conn's read floor):
-		// what has arrived stays in part, and the next Read carries on.
-		for want := 2; len(m.part) < want; {
-			buf := make([]byte, want-len(m.part))
+		// what has arrived stays in part, and the next Read carries on from
+		// the length its saved header gives.
+		want := func() int {
+			if len(m.part) < 2 {
+				return 2
+			}
+			return int(m.part[1]) + frameOverhead
+		}
+		for len(m.part) < want() {
+			buf := make([]byte, want()-len(m.part))
 			n, err := m.conn.Read(buf)
 			m.part = append(m.part, buf[:n]...)
 			if err != nil {
 				return 0, err
-			}
-			if len(m.part) >= 2 {
-				want = int(m.part[1]) + frameOverhead
 			}
 		}
 		frame := m.part
@@ -244,10 +248,17 @@ func TestMeddlerKeepsAPartialFrameAcrossTheReadFloor(t *testing.T) {
 		sent <- nil
 	}()
 
-	m := &meddler{conn: floored{Conn: host, floor: floor}}
+	// The cut at 5 leaves the header saved when a Read times out: the
+	// resumed Read must finish the frame and still rewrite it.
+	rewritten, err := tfw.EncodeResponse(tfw.Seq(1), tfw.CmdCaps, tfw.StatusOK, []byte("rewritten"))
+	require.NoError(t, err)
+	m := &meddler{
+		conn:  floored{Conn: host, floor: floor},
+		reply: func(tfw.Frame) []byte { return []byte("rewritten") },
+	}
 	var got []byte
 	timeouts := 0
-	for deadline := time.Now().Add(5 * time.Second); len(got) < len(frame); {
+	for deadline := time.Now().Add(5 * time.Second); len(got) < len(rewritten); {
 		require.True(t, time.Now().Before(deadline), "the reply never arrived whole: got % x", got)
 		buf := make([]byte, 64)
 		n, err := m.Read(buf)
@@ -258,7 +269,7 @@ func TestMeddlerKeepsAPartialFrameAcrossTheReadFloor(t *testing.T) {
 			timeouts++
 		}
 	}
-	assert.Equal(t, frame, got)
+	assert.Equal(t, rewritten, got)
 	assert.Positive(t, timeouts, "no piece of the reply waited past the floor")
 	require.NoError(t, <-sent)
 }

@@ -54,10 +54,10 @@ BOARDS = {
     "frdm-mcxn947": {
         "tool": "pyocd",
         "base": "0x10000000", "app": "0x10008000", "total": 2097152,
-        "record": "pyocd cmd -t mcxn947vdf -u SN1  -c \"savemem 0x10000000 2097152 $rec.flash.bin\"",
+        "record": "pyocd cmd -t mcxn947vdf -u SN1  -c \"halt\" -c \"savemem 0x10000000 2097152 $rec.flash.bin\"",
         "extra": "echo 'no protected-flash read: its place in the MCXN947 map is not cited yet' > $rec.extra.txt",
         "write": "pyocd load -t mcxn947vdf -u SN1  --format bin --base-address 0x10008000 {bin}",
-        "readback": "pyocd cmd -t mcxn947vdf -u SN1  -c \"savemem 0x10008000 $n {bin}.readback\"",
+        "readback": "pyocd cmd -t mcxn947vdf -u SN1  -c \"halt\" -c \"savemem 0x10008000 $n {bin}.readback\"",
     },
 }
 

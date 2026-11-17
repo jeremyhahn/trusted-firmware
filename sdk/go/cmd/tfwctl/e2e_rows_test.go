@@ -42,6 +42,7 @@ const (
 	partOTACtl                          // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
 	partApp                             // an application (APP_INFO)
 	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
+	partTCP                             // served over TCP: the connect resets nothing, so no BOOT event comes
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -105,8 +106,9 @@ var boardImages = map[string]boardImage{
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
 	"esp32p4-poe": {
-		caps: avrPeripherals,
-		tier: anyTier,
+		caps:  avrPeripherals,
+		tier:  anyTier,
+		parts: partTCP,
 	},
 }
 
@@ -150,7 +152,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestCSRSignatureIsOverTheNonce":               {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRRefusesBWithNoCertificateMintedForIt":  {caps: tfw.FeatureAttestCSR | tfw.FeatureAliasCert, has: partIdentity},
 	"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne":      {lacks: tfw.FeatureAttestCSR, tier: softTier},
-	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {},
+	"TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported": {not: partTCP}, // meddler waits for a BOOT
 	"TestFirmwareCapsNamesAttestCSROnADeviceThatOffersIt":        {caps: tfw.FeatureAttestCSR, has: partIdentity},
 
 	// e2e_auth_test.go: the operator session, and the key TFW_HW_OPERATOR_KEY names
@@ -341,6 +343,19 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 func TestBoardRunMatchesWholeNames(t *testing.T) {
 	if boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingSomethingElse") {
 		t.Fatal("the run matched a row by its prefix")
+	}
+}
+
+// The caps-bit refusal row wraps its connection in meddler, which hides
+// SetReadDeadline, and waits for a BOOT: a TCP connect resets nothing, so
+// on the P4 the row would block until the test timeout (Codex, #567).
+func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
+	const row = "TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported"
+	if boardRun(t, "esp32p4-poe", false).MatchString(row) {
+		t.Fatalf("the esp32p4-poe run selects %s, which hangs on TCP", row)
+	}
+	if !boardRun(t, "atmega2560", false).MatchString(row) {
+		t.Fatalf("the atmega2560 run lost %s", row)
 	}
 }
 

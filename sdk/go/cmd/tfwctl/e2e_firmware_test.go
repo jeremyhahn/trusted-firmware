@@ -393,8 +393,9 @@ const toneHz = 1000
 // TestFirmwareTone starts a tone on the board's own tone pin, measures it
 // back on that pin, and stops it. The pin is set to an output first: the P4's
 // HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), so
-// PULSE_CAPTURE reads the level LEDC drives. On a board the row times the
-// captured half periods and wants the frequency within 5%; a simulator's pin
+// PULSE_CAPTURE reads the level LEDC drives. On a board the row wants the
+// captured edges, and where the capture is timestamped (captureTimestamped)
+// times the half periods and wants the frequency within 5%; a simulator's pin
 // carries no waveform, so there the row proves the start and stop round-trip.
 func TestFirmwareTone(t *testing.T) {
 	board, b := firmwareBoard(t)
@@ -431,13 +432,41 @@ func TestFirmwareTone(t *testing.T) {
 		hz, err := toneFrequency(got.EdgesUS)
 		require.NoError(t, err)
 		t.Logf("pin %d: %.1f Hz measured over %d half periods, %d Hz asked", b.tonePin, hz, len(got.EdgesUS)-2, toneHz)
-		assert.InEpsilon(t, float64(toneHz), hz, 0.05, "pin %d: tone frequency", b.tonePin)
+		// Only a timestamped capture holds the frequency to 5%; elsewhere
+		// the edges above and the timeout below check start and stop.
+		if captureTimestamped(board) {
+			assert.InEpsilon(t, float64(toneHz), hz, 0.05, "pin %d: tone frequency", b.tonePin)
+		} else {
+			t.Logf("%s: the capture counts polling loops, not microseconds; frequency not checked", board)
+		}
 	}
 
 	require.NoError(t, run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{}))
 	if target.Hardware() {
 		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
 			"pin %d: still toggling after NOTONE", b.tonePin)
+	}
+}
+
+// captureTimestamped reports whether the board's PULSE_CAPTURE times edges
+// on a calibrated clock, so a frequency read from it can be held to a
+// tolerance. The ESP32-P4 stamps each edge with esp_timer; the AVR's
+// src/hal/avr/hal_pulse.c counts polling loops, each a _delay_us(1) plus the
+// read, increment and compare, which reads long by more than the 5% the
+// tone row allows.
+func captureTimestamped(board string) bool {
+	return board == "esp32p4-poe"
+}
+
+func TestCaptureTimestampedOnlyOnTheESP32P4(t *testing.T) {
+	for board, want := range map[string]bool{
+		"esp32p4-poe": true,
+		"atmega328p":  false,
+		"atmega2560":  false,
+	} {
+		if got := captureTimestamped(board); got != want {
+			t.Errorf("%s: capture timestamped = %v, want %v", board, got, want)
+		}
 	}
 }
 

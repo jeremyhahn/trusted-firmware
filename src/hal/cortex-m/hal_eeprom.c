@@ -25,6 +25,14 @@
 _Static_assert(TFW_BOOT_CONFIRM_ADDR >= TFW_BOOT_EE_BASE + TFW_BOOT_EE_BLOCK_LEN
                && TFW_BOOT_CONFIRM_ADDR + TFW_BOOT_CONFIRM_LEN <= TFW_BOOT_EE_LEN,
                "the confirm request is not between the platform block and the span's end");
+/* EEPROM_READ and EEPROM_WRITE (src/caps/storage.c) bound a request by
+ * TFW_EEPROM_SIZE, this file by the window: the family must not name a byte
+ * the window does not have, and nothing of tfw-boot's may sit past the span,
+ * where EEPROM_WRITE lands. */
+_Static_assert((uint32_t)TFW_EEPROM_SIZE <= (uint32_t)TFW_CM_PLATFORM_SIZE,
+               "TFW_EEPROM_SIZE runs past the platform window");
+_Static_assert(TFW_BOOT_EE_EXTRA_BASE + TFW_BOOT_EE_EXTRA_LEN <= TFW_BOOT_EE_LEN,
+               "a tfw-boot record sits past the span, where EEPROM_WRITE lands");
 
 tfw_status_t tfw_hal_eeprom_read(uint16_t addr, uint8_t *buf, uint8_t len)
 {

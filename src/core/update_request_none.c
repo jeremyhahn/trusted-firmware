@@ -14,6 +14,13 @@ uint8_t tfw_update_request_supported(void)
     return 0u;
 }
 
+/* Where the architecture's own OTA file is the update path (ESP-IDF's),
+ * update_request_arch.c is linked instead and that file answers. */
+uint8_t tfw_update_slots(void)
+{
+    return 0u;
+}
+
 uint8_t tfw_update_request_session(void)
 {
     return 0u;

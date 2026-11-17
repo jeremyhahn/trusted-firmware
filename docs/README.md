@@ -67,11 +67,13 @@ it will read them.
   no signing oracle, and what the 32U4 cannot afford.
 - **Which Cortex-M part comes first, and what CI emulates** —
   [`cortex-m/adr-reference-part-and-emulation.md`](cortex-m/adr-reference-part-and-emulation.md).
-  **PROPOSED** (issue #14): the i.MX 95 Cortex-M7 and QEMU `mps2-an500`.
+  **ACCEPTED** (issue #14, owner ruling 632 item 208 a, 2026-11-14): the
+  i.MX 95 Cortex-M7 and QEMU `mps2-an505`.
 - **Whose secure world runs on Cortex-M, ours or TF-M's** —
   [`cortex-m/adr-trust-model-vs-tf-m.md`](cortex-m/adr-trust-model-vs-tf-m.md).
-  **PROPOSED** (issue #15): TF-M with our attestation partition on
-  the M33, MPU-only isolation on the M7, and the owner's open questions.
+  **ACCEPTED** (issue #15, owner ruling 632 item 208 a, 2026-11-14): TF-M
+  Profile Medium with our attestation partition on the M33, MPU-only isolation
+  on the M7, and the owner's remaining open questions.
 - **How an OTA image is signed, verified and rolled back** —
   [`ota/adr-ota-image-format-and-trust.md`](ota/adr-ota-image-format-and-trust.md).
   **ACCEPTED** for the decisions it marks so, **PROPOSED** for the rest

@@ -208,9 +208,11 @@ cm_write_stm32cubeprog = $(cm_cubeprog) -d $(1) $(2) -v
 cm_extra_stm32cubeprog = $(cm_cubeprog) -ob displ > $(1)
 CM_EXTRA_NAME_stm32cubeprog := optionbytes.txt
 
-cm_read_picotool  = picotool save --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS) -r $(1) $$(printf '0x%x' $$(( $(1) + $(2) ))) $(3) -t bin
-cm_write_picotool = picotool load --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS) -v $(1) -t bin -o $(2)
-cm_extra_picotool = picotool otp dump --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS) > $(1)
+# picotool 2.1.1 takes the device selection after the file and the options.
+cm_picotool_dev    = --ser $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS)
+cm_read_picotool  = picotool save -r $(1) $$(printf '0x%x' $$(( $(1) + $(2) ))) $(3) -t bin $(cm_picotool_dev)
+cm_write_picotool = picotool load -v $(1) -t bin -o $(2) $(cm_picotool_dev)
+cm_extra_picotool = picotool otp dump $(cm_picotool_dev) > $(1)
 CM_EXTRA_NAME_picotool := otp.txt
 
 # J-Link Commander takes its commands from a file, written beside the data;
@@ -223,7 +225,10 @@ cm_extra_jlink = $(call cm_read_jlink,$(CM_EXTRA_BASE),$(CM_EXTRA_BYTES),$(1))
 CM_EXTRA_NAME_jlink := uicr.bin
 
 cm_pyocd = -t $(CM_PROBE_TARGET) -u $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS)
-cm_read_pyocd  = pyocd cmd $(cm_pyocd) -c "savemem $(1) $(2) $(3)"
+# savemem halts nothing, and a running STM32H573 image reads back as zeros
+# (bench, 2026-11-17, #535), so the core is halted first; pyOCD resumes it on
+# disconnect.
+cm_read_pyocd  = pyocd cmd $(cm_pyocd) -c "halt" -c "savemem $(1) $(2) $(3)"
 cm_write_pyocd = pyocd load $(cm_pyocd) --format bin --base-address $(2) $(1)
 cm_extra_pyocd = echo '$(CM_NOEXTRA_WHY)' > $(1)
 CM_EXTRA_NAME_pyocd := extra.txt
@@ -299,7 +304,12 @@ CM_NOFLASH_WHY   ?= $(if $(QEMU_MACHINE),is an emulated board: QEMU loads the im
 CM_NORESTORE_WHY ?= $(if $(QEMU_MACHINE),is an emulated board: it has no factory state,has no factory record or restore yet)
 ARCH_CM_NOFLASH   = echo "$@: $(BOARD) $(CM_NOFLASH_WHY)" >&2; exit 1
 ARCH_CM_NORESTORE = echo "$@: $(BOARD) $(CM_NORESTORE_WHY)" >&2; exit 1
-ARCH_FLASH         = $(if $(CM_FLASH_TOOL),$(call cm_write_image,$(APP_BASE)),$(ARCH_CM_NOFLASH))
+# CM_FLASH_GATED_WHY, a board's, names why the row being built is held back
+# from a board (a row the SPEC has not lifted the gate for): `make flash` still
+# builds the image, then refuses before any probe command.
+CM_FLASH_GATED_WHY ?=
+ARCH_CM_GATED      = echo "$@: REFUSED. $(BOARD) $(CM_FLASH_GATED_WHY)" >&2; exit 1
+ARCH_FLASH         = $(if $(strip $(CM_FLASH_GATED_WHY)),$(ARCH_CM_GATED),$(if $(CM_FLASH_TOOL),$(call cm_write_image,$(APP_BASE)),$(ARCH_CM_NOFLASH)))
 ARCH_BOOT_FLASH    = $(if $(CM_FLASH_TOOL),$(call cm_write_image,$(BOOT_BASE)),$(ARCH_CM_NOFLASH))
 ARCH_BOARD_RECORD  = $(if $(CM_FLASH_TOOL),$(CM_BOARD_RECORD),$(ARCH_CM_NORESTORE))
 ARCH_BOARD_RESTORE = $(if $(CM_FLASH_TOOL),$(CM_BOARD_RESTORE),$(ARCH_CM_NORESTORE))

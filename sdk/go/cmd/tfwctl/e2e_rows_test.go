@@ -482,7 +482,8 @@ func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
 // errors across reconnects. The rows that need a fresh boot run on the
 // serial boards only.
 func TestBoardRunLeavesTheResetRowsOffATCPBoard(t *testing.T) {
-	for _, row := range []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait", "TestFirmwareSys"} {
+	// Sys runs over TCP: it compares its counters (sysCountersStartAtZero).
+	for _, row := range []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait"} {
 		if boardRun(t, "esp32p4-poe", false).MatchString(row) {
 			t.Errorf("the esp32p4-poe run selects %s, which needs a reset a TCP connect never makes", row)
 		}

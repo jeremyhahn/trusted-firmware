@@ -138,7 +138,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
 	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM, tier: cryptoTier},
-	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
+	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, tier: cryptoTier, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
@@ -368,6 +368,11 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 		if p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is run on a CRYPTO=none image", r)
 		}
+	}
+	// The none provider answers attest UNSUPPORTED, not NOT_PROVISIONED: the
+	// image offers no attest, so the unprovisioned refusal row is not run.
+	if p4.MatchString("TestFirmwareAttestRefusedUnprovisioned") {
+		t.Error("esp32p4-poe: TestFirmwareAttestRefusedUnprovisioned is run on a CRYPTO=none image")
 	}
 	for _, board := range []string{"atmega328p", "atmega2560"} {
 		run := boardRun(t, board, false)

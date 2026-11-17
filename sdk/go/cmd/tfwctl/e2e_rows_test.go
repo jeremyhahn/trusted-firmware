@@ -38,10 +38,12 @@ const boardRowsEnv = "TFW_HW_ROWS"
 type imageParts uint8
 
 const (
-	partStager   imageParts = 1 << iota // the OTA stager (OTA_STATUS)
-	partOTACtl                          // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
-	partApp                             // an application (APP_INFO)
-	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
+	partStager       imageParts = 1 << iota // the OTA stager (OTA_STATUS)
+	partOTACtl                              // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
+	partApp                                 // an application (APP_INFO)
+	partIdentity                            // a provisioned identity, the DEVICEID the rows verify under
+	partTier                                // a crypto tier: CRYPTO=none has none, and its rows refuse it
+	partConnectReset                        // opening the wire resets the board, so BOOT arrives: not over TCP
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -93,17 +95,18 @@ var boardImages = map[string]boardImage{
 	"atmega328p": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert,
 		tier:  elementTier,
-		parts: partIdentity,
+		parts: partIdentity | partTier | partConnectReset,
 	},
 	// CRYPTO=auto on the bench Mega, which has the element, and ETH=1, which
 	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM.
 	"atmega2560": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert | tfw.FeatureAttestCSR | tfw.FeatureAuthSession,
 		tier:  elementTier,
-		parts: partIdentity | partStager | partOTACtl,
+		parts: partIdentity | partStager | partOTACtl | partTier | partConnectReset,
 	},
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
+	// Its wire is TCP, and connecting resets nothing.
 	"esp32p4-poe": {
 		caps: avrPeripherals,
 		tier: anyTier,
@@ -114,20 +117,20 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {},
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {has: partConnectReset},
 	"TestFirmwarePingAfterAMalformedBurst":               {},
-	"TestFirmwareCaps":                                   {},
+	"TestFirmwareCaps":                                   {has: partTier},
 	"TestFirmwareSys":                                    {},
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
-	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM},
-	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
+	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM, has: partTier},
+	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, has: partTier, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
 	"TestFirmwareTone":                                   {caps: tfw.FeatureTone},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
-	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
+	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C, has: partTier},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
 	"TestFirmwareOneWireAndPulseIn":                      {caps: tfw.FeatureOneWire | tfw.FeaturePulse},
 
@@ -321,6 +324,16 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareOTAAuthLetsTheCommandPastTheGate", "TestFirmwareAppReportsItsApplication",
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
 			"TestFirmwareRefusesSPIItsCapsLacks", "TestEthernetStagesAnImage",
+		}},
+		// The HIL-0 image has no crypto tier, and its wire is TCP: connecting
+		// resets nothing, so no BOOT arrives.
+		{"esp32p4-poe", []string{
+			"TestFirmwarePing", "TestFirmwareSys", "TestFirmwarePin", "TestFirmwareTone",
+			"TestFirmwareI2C", "TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported",
+		}, []string{
+			"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig",
+			"TestFirmwareAttestRefusedUnprovisioned",
+			"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
 		}},
 	} {
 		run := boardRun(t, tc.board, false)

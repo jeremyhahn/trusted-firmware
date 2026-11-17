@@ -392,8 +392,9 @@ const toneHz = 1000
 
 // TestFirmwareTone starts a tone on the board's own tone pin, measures it
 // back on that pin, and stops it. The pin is set to an output first: the P4's
-// HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), so
-// PULSE_CAPTURE reads the level LEDC drives. On a board the row wants the
+// HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), but
+// its RMT capture then claims the pin as an input, so on the P4 the row fails
+// naming that gap (toneReadBackGap). On another board the row wants the
 // captured edges, and where the capture is timestamped (captureTimestamped)
 // times the half periods and wants the frequency within 5%; a simulator's pin
 // carries no waveform, so there the row proves the start and stop round-trip.
@@ -423,11 +424,13 @@ func TestFirmwareTone(t *testing.T) {
 	})
 
 	// Read the tone back on its own pin only where the capture leaves the
-	// output driven; the P4's RMT capture claims the pin as an input.
-	measure := target.Hardware() && captureKeepsOutput(board)
-	if target.Hardware() && !measure {
-		t.Logf("%s: the RMT capture would drop the tone on pin %d; read-back not run", board, b.tonePin)
+	// output driven; a board with a read-back gap (the P4's RMT capture)
+	// fails the row below once TONE and NOTONE have answered.
+	gap := ""
+	if target.Hardware() {
+		gap = toneReadBackGap(board)
 	}
+	measure := target.Hardware() && gap == ""
 	if measure {
 		var got struct {
 			EdgesUS []uint16 `json:"edges_us"`
@@ -451,6 +454,9 @@ func TestFirmwareTone(t *testing.T) {
 	if measure {
 		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
 			"pin %d: still toggling after NOTONE", b.tonePin)
+	}
+	if gap != "" {
+		t.Errorf("%s: tone on pin %d not verified (no frequency, no silence after NOTONE): %s", board, b.tonePin, gap)
 	}
 }
 
@@ -495,6 +501,24 @@ func TestCaptureKeepsOutputNotOnTheRMTImage(t *testing.T) {
 		if got := captureKeepsOutput(board); got != want {
 			t.Errorf("%s: capture keeps the output = %v, want %v", board, got, want)
 		}
+	}
+}
+
+// toneReadBackGap names why the tone row cannot read the tone back on the
+// board's own pin on hardware, or is empty where it can. A board with a gap
+// fails the row on hardware rather than pass with nothing measured.
+func toneReadBackGap(board string) string {
+	if captureKeepsOutput(board) {
+		return ""
+	}
+	return "the RMT capture claims the tone pin as an input and drops the LEDC output; " +
+		"the read-back needs io_loop_back on the RX channel or a wired input"
+}
+
+func TestToneReadBackGapFailsTheP4Row(t *testing.T) {
+	assert.NotEmpty(t, toneReadBackGap("esp32p4-poe"), "the P4 cannot read its tone back")
+	for _, board := range []string{"atmega328p", "atmega2560"} {
+		assert.Empty(t, toneReadBackGap(board), "%s reads its tone back", board)
 	}
 }
 

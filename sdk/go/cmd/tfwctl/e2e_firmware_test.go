@@ -393,8 +393,9 @@ const toneHz = 1000
 // TestFirmwareTone starts a tone on the board's own tone pin, measures it
 // back on that pin, and stops it. The pin is set to an output first: the P4's
 // HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), but
-// its RMT capture then claims the pin as an input, so on the P4 the row fails
-// naming that gap (toneReadBackGap). On another board the row wants the
+// its RMT capture loops the tone pin's output back (#573), so the P4 reads
+// the tone back too; a board with a read-back gap (toneReadBackGap) fails the
+// row naming it. Everywhere the row wants the
 // captured edges, and where the capture is timestamped (captureTimestamped)
 // times the half periods and wants the frequency within 5%; a simulator's pin
 // carries no waveform, so there the row proves the start and stop round-trip.
@@ -424,8 +425,8 @@ func TestFirmwareTone(t *testing.T) {
 	})
 
 	// Read the tone back on its own pin only where the capture leaves the
-	// output driven; a board with a read-back gap (the P4's RMT capture)
-	// fails the row below once TONE and NOTONE have answered.
+	// output driven (the P4's RMT capture since #573); a board with a
+	// read-back gap fails the row below once TONE and NOTONE have answered.
 	gap := ""
 	if target.Hardware() {
 		gap = toneReadBackGap(board)
@@ -485,16 +486,18 @@ func TestCaptureTimestampedOnlyOnTheESP32P4(t *testing.T) {
 // captureKeepsOutput reports whether the board's pulse capture leaves an
 // output driven on the pin it reads, so the tone row can measure the tone
 // on the tone pin itself. The AVRs' polling capture only reads PINx. The
-// P4 image builds ESP_PULSE=rmt: hal_pulse_rmt.c opens its RX channel
-// without io_loop_back, which claims the GPIO as an input and drops the
-// LEDC output driving the tone.
+// P4 image builds ESP_PULSE=rmt: since #573 hal_pulse_rmt.c opens its RX
+// channel with io_loop_back on the pin the LEDC tone drives, so the LEDC
+// output stays on and the capture reads it. A board whose capture would
+// drop the output returns false here.
 func captureKeepsOutput(board string) bool {
-	return board != "esp32p4-poe"
+	_ = board
+	return true
 }
 
-func TestCaptureKeepsOutputNotOnTheRMTImage(t *testing.T) {
+func TestCaptureKeepsOutputOnTheRMTImage(t *testing.T) {
 	for board, want := range map[string]bool{
-		"esp32p4-poe": false,
+		"esp32p4-poe": true,
 		"atmega328p":  true,
 		"atmega2560":  true,
 	} {
@@ -515,9 +518,8 @@ func toneReadBackGap(board string) string {
 		"the read-back needs io_loop_back on the RX channel or a wired input"
 }
 
-func TestToneReadBackGapFailsTheP4Row(t *testing.T) {
-	assert.NotEmpty(t, toneReadBackGap("esp32p4-poe"), "the P4 cannot read its tone back")
-	for _, board := range []string{"atmega328p", "atmega2560"} {
+func TestToneReadBackGapRunsTheP4ReadBack(t *testing.T) {
+	for _, board := range []string{"esp32p4-poe", "atmega328p", "atmega2560"} {
 		assert.Empty(t, toneReadBackGap(board), "%s reads its tone back", board)
 	}
 }

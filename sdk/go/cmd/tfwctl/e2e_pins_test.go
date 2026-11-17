@@ -36,6 +36,10 @@ type peerBoard struct {
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
 	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
+	// captureTimed is whether PULSE_CAPTURE times its edges with a clock;
+	// the AVR HAL counts loop iterations, which a tone's frequency cannot
+	// be held to.
+	captureTimed bool
 }
 
 var peerBoards = map[string]peerBoard{
@@ -99,8 +103,9 @@ var peerBoards = map[string]peerBoard{
 		tickPin: -1, noPWMPin: 11, // GPIO32
 		pwmPin: 0,                           // GPIO2, LEDC0
 		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
-		hasLED:  false, // GPIO32 carries no led flag
-		tonePin: 4,     // GPIO6, the first pin with no LEDC channel
+		hasLED:       false, // GPIO32 carries no led flag
+		tonePin:      4,     // GPIO6, the first pin with no LEDC channel
+		captureTimed: true,  // esp_timer
 	},
 }
 
@@ -203,6 +208,25 @@ func TestToneRowUsesTheBoardsTonePin(t *testing.T) {
 		}
 		if b.tonePin == b.pwmPin {
 			t.Errorf("%s: tone pin %d is the PWM pin the tone row expects to be refused", board, b.tonePin)
+		}
+	}
+}
+
+// The tone row holds the measured frequency to 5% only where pulse capture
+// times its edges: src/hal/avr/hal_pulse.c counts loop iterations, each a
+// _delay_us(1) plus its overhead, as microseconds; src/hal/esp32 reads
+// esp_timer.
+func TestToneRowHoldsOnlyATimedCaptureToItsFrequency(t *testing.T) {
+	want := map[string]bool{"atmega328p": false, "atmega2560": false, "esp32p4-poe": true}
+	for board := range boardImages {
+		if !boardRun(t, board, false).MatchString("TestFirmwareTone") {
+			continue
+		}
+		timed, ok := want[board]
+		if !ok {
+			t.Errorf("%s: no expected captureTimed in this test", board)
+		} else if got := peerBoards[board].captureTimed; got != timed {
+			t.Errorf("%s: captureTimed %v, want %v", board, got, timed)
 		}
 	}
 }

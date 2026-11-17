@@ -397,7 +397,9 @@ func TestFirmwareTone(t *testing.T) {
 		hz, err := toneFrequency(got.EdgesUS)
 		require.NoError(t, err)
 		t.Logf("pin %d: %.1f Hz measured over %d half periods, %d Hz asked", b.tonePin, hz, len(got.EdgesUS)-2, toneHz)
-		assert.InEpsilon(t, float64(toneHz), hz, 0.05, "pin %d: tone frequency", b.tonePin)
+		if b.captureTimed {
+			assert.InEpsilon(t, float64(toneHz), hz, 0.05, "pin %d: tone frequency", b.tonePin)
+		}
 	}
 
 	require.NoError(t, run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{}))

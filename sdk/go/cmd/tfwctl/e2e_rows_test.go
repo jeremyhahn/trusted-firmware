@@ -42,6 +42,7 @@ const (
 	partOTACtl                             // OTA_INFO and OTA_CONFIRM: BOOT_AB, where tfw-boot runs the trial
 	partApp                                // an application (APP_INFO)
 	partIdentity                           // a provisioned identity, the DEVICEID the rows verify under
+	partTier                               // a crypto tier, software or secure-element: CRYPTO is not none
 	partTonePinHeld                        // ETH=1 holds TFW_TONE_PIN: the Mega's pin 10 is the shield's chip select
 )
 
@@ -94,7 +95,7 @@ var boardImages = map[string]boardImage{
 	"atmega328p": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert,
 		tier:  elementTier,
-		parts: partIdentity,
+		parts: partTier | partIdentity,
 	},
 	// CRYPTO=auto on the bench Mega, which has the element, and ETH=1, which
 	// stages; BOOT_AB=1 adds OTA_INFO and OTA_CONFIRM. The shield's chip
@@ -103,7 +104,7 @@ var boardImages = map[string]boardImage{
 	"atmega2560": {
 		caps:  avrPeripherals | tfw.FeatureAliasCert | tfw.FeatureAttestCSR | tfw.FeatureAuthSession,
 		tier:  elementTier,
-		parts: partIdentity | partStager | partOTACtl | partTonePinHeld,
+		parts: partTier | partIdentity | partStager | partOTACtl | partTonePinHeld,
 	},
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
@@ -119,19 +120,19 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwarePing": {},
 	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {},
 	"TestFirmwarePingAfterAMalformedBurst":               {},
-	"TestFirmwareCaps":                                   {},
+	"TestFirmwareCaps":                                   {has: partTier},
 	"TestFirmwareSys":                                    {},
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
-	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM},
-	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
+	"TestFirmwareEEPROM":                                 {caps: tfw.FeatureEEPROM, has: partTier},
+	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, has: partTier, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
 	"TestFirmwareTone":                                   {caps: tfw.FeatureTone, not: partTonePinHeld},
 	"TestFirmwareToneRefusesTheShieldsPin":               {caps: tfw.FeatureTone, has: partTonePinHeld},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
-	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
+	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C, has: partTier},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},
 	"TestFirmwareOneWireAndPulseIn":                      {caps: tfw.FeatureOneWire | tfw.FeaturePulse},
 
@@ -328,6 +329,13 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareOTAAuthLetsTheCommandPastTheGate", "TestFirmwareAppReportsItsApplication",
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
 			"TestFirmwareRefusesSPIItsCapsLacks", "TestEthernetStagesAnImage",
+		}},
+		// CRYPTO=none: no tier, so none of the rows that ask for one.
+		{"esp32p4-poe", []string{
+			"TestFirmwarePing", "TestFirmwareSys", "TestFirmwarePin", "TestFirmwareTone",
+		}, []string{
+			"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig",
+			"TestFirmwareAttestRefusedUnprovisioned", "TestFirmwareToneRefusesTheShieldsPin",
 		}},
 	} {
 		run := boardRun(t, tc.board, false)

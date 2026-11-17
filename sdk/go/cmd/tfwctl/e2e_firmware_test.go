@@ -95,6 +95,11 @@ func TestFirmwarePing(t *testing.T) {
 }
 
 func TestFirmwarePingDeliversTheBootEventWithNoBootWait(t *testing.T) {
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	if !target.Resets() {
+		t.Skip("a TCP wire finds the board running: no reset, so no boot event")
+	}
 	dev := startFirmware(t, tfw.WithBootWait(0))
 	var got pingJSON
 	cliJSON(t, dev, &got, "ping")
@@ -164,11 +169,23 @@ func TestFirmwareCaps(t *testing.T) {
 
 func TestFirmwareSys(t *testing.T) {
 	_, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
 	dev := startFirmware(t)
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
 	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
+	if !target.Resets() {
+		// A TCP wire finds the board running, its counters holding what the
+		// rows before this one sent (the malformed burst): a clean exchange
+		// adds none.
+		var again tfw.SysInfo
+		cliJSON(t, dev, &again, "sys")
+		assert.Equal(t, si.ErrCRC, again.ErrCRC, "framer CRC errors grew on a clean link")
+		assert.Equal(t, si.ErrFormat, again.ErrFormat, "framer format errors grew on a clean link")
+		return
+	}
 	// #5: freshly started and talked to over a clean link, the firmware has
 	// seen no framing errors -- the appended fields decode against the live
 	// device, not only against canned replies.

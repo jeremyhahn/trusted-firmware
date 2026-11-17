@@ -79,6 +79,13 @@ func (n rowNeed) servedBy(img boardImage) bool {
 		img.parts&n.has == n.has && img.parts&n.not == 0
 }
 
+// tonePinReserved reports whether board's image gives its tone pin to
+// Ethernet (partToneEth). The tone rows ask it themselves, since HW_TEST_RUN
+// runs them without the row lists.
+func tonePinReserved(board string) bool {
+	return boardImages[board].parts&partToneEth != 0
+}
+
 // avrPeripherals are the families config.h turns on and neither AVR board's
 // profile turns off.
 const avrPeripherals = tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
@@ -347,6 +354,18 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 func TestBoardRunMatchesWholeNames(t *testing.T) {
 	if boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingSomethingElse") {
 		t.Fatal("the run matched a row by its prefix")
+	}
+}
+
+// HW_TEST_RUN bypasses the row lists, so the tone rows read the image
+// themselves: the refusal row runs only where Ethernet holds the tone pin, and
+// the tone row only where it does not (Codex P1, PR #564: 'Tone' ran the
+// refusal row on the P4, whose pin 4 is free).
+func TestOnlyAnImageWhoseEthernetHoldsTheTonePinRunsTheRefusalRow(t *testing.T) {
+	for board, want := range map[string]bool{"atmega328p": false, "atmega2560": true, "esp32p4-poe": false, "no-such-board": false} {
+		if got := tonePinReserved(board); got != want {
+			t.Errorf("%s: tone pin reserved = %v, want %v", board, got, want)
+		}
 	}
 }
 

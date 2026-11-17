@@ -373,6 +373,9 @@ func TestFirmwareTone(t *testing.T) {
 	_, b := firmwareBoard(t)
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
+	if target.Hardware() && tonePinReserved(target.Board) {
+		t.Skipf("%s: the image's Ethernet holds the tone pin (TestFirmwareToneRefusesTheEthernetPin)", target.Board)
+	}
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureTone)
 	pin := strconv.Itoa(int(b.tonePin))
@@ -417,6 +420,9 @@ func TestFirmwareToneRefusesTheEthernetPin(t *testing.T) {
 	require.NoError(t, err)
 	if !target.Hardware() {
 		t.Skip("the simulators reserve no pin for Ethernet")
+	}
+	if !tonePinReserved(target.Board) {
+		t.Skipf("%s: the image's Ethernet does not hold the tone pin", target.Board)
 	}
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureTone)

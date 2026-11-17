@@ -26,6 +26,7 @@
 #include "unity.h"
 #include "driver/ledc.h"
 #include "tfw/hal.h"
+#include "hal_esp32.h"
 
 static unsigned              n_timer, n_chan, n_stop;
 static ledc_timer_config_t   timer_seen;
@@ -177,8 +178,11 @@ static void test_0_hz_stops_a_running_tone(void)
 {
     const tfw_pinref_t p = { 7u };
 
+    TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p, 440u));
+    TEST_ASSERT_EQUAL_INT(7, tfw_esp_tone_gpio());      /* #573: the RMT loopback pin */
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_tone_start(&p, 0u));
+    TEST_ASSERT_EQUAL_INT(-1, tfw_esp_tone_gpio());
     TEST_ASSERT_EQUAL_UINT(1u, n_timer);
     TEST_ASSERT_EQUAL_UINT(1u, n_chan);
     assert_stopped_once();

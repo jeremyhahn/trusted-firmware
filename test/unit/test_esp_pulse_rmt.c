@@ -20,10 +20,18 @@ static const tfw_pinref_t pin = { 21u };
 
 static uint16_t iv[31];
 static uint8_t  n;
+static int      tone_gpio;      /* the pin the stand-in tone drives, or -1 */
+
+/* hal_tone.c's, which this test does not link. */
+int tfw_esp_tone_gpio(void)
+{
+    return tone_gpio;
+}
 
 void setUp(void)
 {
     mock_rmt_reset();
+    tone_gpio = -1;
     for (n = 0u; n < 31u; n++) {
         iv[n] = 0xA5A5u;
     }
@@ -49,14 +57,32 @@ static void test_config(void)
     TEST_ASSERT_EQUAL_UINT32(1000000u, mock_rmt.cfg.resolution_hz);
     TEST_ASSERT_EQUAL_UINT(SOC_RMT_MEM_WORDS_PER_CHANNEL, mock_rmt.cfg.mem_block_symbols);
     TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.with_dma);
-    /* #573: the capture keeps an output driven on the same pin (LEDC). */
-    TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.cfg.flags.io_loop_back);
+    /* #573: a plain input never gets its output latch enabled. */
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);
     TEST_ASSERT_EQUAL_UINT32(1000u, mock_rmt.rcv.signal_range_min_ns);
     TEST_ASSERT_EQUAL_UINT32(1000000u, mock_rmt.rcv.signal_range_max_ns);
     TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.rcv.flags.en_partial_rx);
     /* No smaller than the hardware's block: a ping-pong half always fits. */
     TEST_ASSERT_EQUAL_UINT(SOC_RMT_MEM_WORDS_PER_CHANNEL * sizeof(rmt_symbol_word_t),
                            mock_rmt.buffer_size);
+}
+
+/* #573: the tone's own pin is looped back, so the capture keeps the LEDC
+ * output; a tone on another pin leaves the captured input alone. */
+static void test_loop_back_only_on_the_tone_pin(void)
+{
+    static const rmt_symbol_word_t f[] = { SYM(1, 80, 0, 0) };
+
+    tone_gpio = 21;
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(1u, mock_rmt.cfg.flags.io_loop_back);
+
+    mock_rmt_reset();
+    tone_gpio = 22;
+    mock_rmt_chunk(f, 1u, 1u);
+    TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_capture(&pin, 1u, iv, 4u, 1000u, &n));
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);
 }
 
 /* A DHT22-style reply: the level before the start level is skipped, every
@@ -310,6 +336,7 @@ static void test_pulse_in(void)
     mock_rmt_chunk(f, 2u, 1u);
     TEST_ASSERT_EQUAL(TFW_OK, tfw_hal_pulse_in(&pin, 0u, 2000u, &us));
     TEST_ASSERT_EQUAL_UINT32(1500u, us);
+    TEST_ASSERT_EQUAL_UINT(0u, mock_rmt.cfg.flags.io_loop_back);  /* a plain input */
 
     setUp();
     mock_rmt_chunk(f, 2u, 1u);
@@ -332,6 +359,7 @@ int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_config);
+    RUN_TEST(test_loop_back_only_on_the_tone_pin);
     RUN_TEST(test_capture_from_start_level);
     RUN_TEST(test_capture_stops_at_max_edges);
     RUN_TEST(test_quiet_pin_times_out);

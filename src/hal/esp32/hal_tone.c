@@ -10,11 +10,14 @@
 
 #include "tfw/hal.h"
 
+#include "hal_esp32.h"
+
 #define TONE_TIMER   ((ledc_timer_t)(LEDC_TIMER_MAX - 1))
 #define TONE_CHANNEL ((ledc_channel_t)(LEDC_CHANNEL_MAX - 1))
 #define TONE_MODE    LEDC_LOW_SPEED_MODE
 
 static uint8_t running;
+static int     tone_gpio = -1;    /* the pin the LEDC channel drives */
 
 tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
 {
@@ -45,7 +48,8 @@ tfw_status_t tfw_hal_tone_start(const tfw_pinref_t *p, uint16_t hz)
             return TFW_ERR_INTERNAL;
         }
     }
-    running = 1u;
+    running   = 1u;
+    tone_gpio = p->gpio;
     return TFW_OK;
 }
 
@@ -55,5 +59,11 @@ tfw_status_t tfw_hal_tone_stop(void)
         (void)ledc_stop(TONE_MODE, TONE_CHANNEL, 0u);
         running = 0u;
     }
+    tone_gpio = -1;
     return TFW_OK;
+}
+
+int tfw_esp_tone_gpio(void)
+{
+    return running ? tone_gpio : -1;
 }

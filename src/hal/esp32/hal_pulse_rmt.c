@@ -35,7 +35,10 @@
 #include "esp_timer.h"
 #include "soc/soc_caps.h"
 
+#include "tfw/config.h"
 #include "tfw/hal.h"
+
+#include "hal_esp32.h"
 
 #define RMT_IDLE_TICKS_MAX 32767u   /* the idle threshold's 15 bits */
 #define RMT_GLITCH_NS      1000u
@@ -102,6 +105,17 @@ static tfw_status_t status_of(esp_err_t err)
     return TFW_ERR_INTERNAL;
 }
 
+/* 1 when this firmware drives the pin as an output: the LEDC tone's pin. */
+static bool driven_here(int gpio)
+{
+#if TFW_FEATURE_TONE
+    return tfw_esp_tone_gpio() == gpio;
+#else
+    (void)gpio;
+    return false;
+#endif
+}
+
 tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,
                                   uint16_t *out_us, uint8_t max_edges,
                                   uint32_t timeout_us, uint8_t *out_n)
@@ -121,8 +135,10 @@ tfw_status_t tfw_hal_pulse_capture(const tfw_pinref_t *p, uint8_t start_level,
          * io_loop_back as feeding the GPIO's output signal to the input path
          * as well: the pad keeps its output enabled and the RMT input is
          * routed through the GPIO matrix beside it, so a capture on the tone
-         * pin reads the LEDC waveform. Not yet verified on hardware. */
-        .flags.io_loop_back = 1u,
+         * pin reads the LEDC waveform. Only on a pin this firmware drives:
+         * on a plain input it would enable the output latch against an
+         * external sensor. Not yet verified on hardware. */
+        .flags.io_loop_back = driven_here(p->gpio),
     };
     rmt_receive_config_t     rcv = {
         .signal_range_min_ns = RMT_GLITCH_NS,

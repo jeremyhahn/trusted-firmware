@@ -27,83 +27,8 @@ import (
 // one scenario is the cross-implementation check in CI and the bench check on a
 // board, and none of them picks a transport for itself.
 
-// peerBoard is what the scenarios have to know about the board they talk to:
-// pin numbers and what the board's own profile says about them. tfwsim is
-// compiled against the 328P's profile; `make hw-test` names the board on the
-// port.
-type peerBoard struct {
-	// resetCause is what SYS_INFO reports after the connect. tfwsim starts
-	// from power-on. A real board was just reset through DTR, and its stock
-	// bootloader cleared MCUSR before the application could latch it, so the
-	// honest answer is unknown (src/hal/avr/hal_sys.c).
-	resetCause tfw.ResetCause
-	ledPort    uint8          // the LED pin 13's port index
-	ledBit     uint8          // and bit
-	ledPWM     tfw.PWMSupport // what pin 13's compare unit, if any, is doing
-	analog     uint8          // a pin with an ADC channel and a digital port
-	adcPin     uint8          // the ADC pin the descriptor scenario reads
-	adcChannel uint8          // adcPin's channel
-	adcPort    bool           // whether adcPin has a digital port
-	adcOnly    int            // how many pins are ADC inputs with no digital port
-	tickPin    uint8          // a compare-unit pin whose timer is the millisecond tick
-	noPWMPin   uint8          // a digital pin with no compare unit at all
-	ledPin     uint8          // the pin the board's table flags as its LED
-	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
-	timerPin   uint8          // a digital output the timer scenario drives and reads back
-}
-
-var peerBoards = map[string]peerBoard{
-	"atmega328p": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    0, ledBit: 5, ledPWM: tfw.PWMNone, // PB5
-		analog: 14,                                // A0, PC0
-		adcPin: 20, adcChannel: 6, adcPort: false, // A6
-		adcOnly: 2,               // A6 and A7
-		tickPin: 5, noPWMPin: 13, // OC0B
-		ledPin: 13, txPin: 1, timerPin: 2,
-	},
-	"atmega2560": {
-		resetCause: tfw.ResetUnknown,
-		ledPort:    1, ledBit: 7, ledPWM: tfw.PWMSystemTick, // PB7, OC0A
-		analog: 54, // A0, PF0
-		adcPin: 54, adcChannel: 0, adcPort: true,
-		adcOnly: 0,               // every ADC input on the Mega is also a digital pin
-		tickPin: 4, noPWMPin: 22, // OC0B; PA0
-		ledPin: 13, txPin: 1, timerPin: 2,
-	},
-	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
-	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
-	// 1 on the FPGA I/O block's port 0, outputs only, and pin 2 the shield 0
-	// SPI select (MISC, port 1 bit 8), no flags; no ADC, no PWM, and the
-	// UART outside the pin table. QEMU's system_reset leaves no reset mark
-	// behind, so the HAL reads power-on (src/hal/cortex-m/hal_early.c). The
-	// analog, PWM, EEPROM, bus and pulse rows find their families absent from
-	// CAPS and fail (requireFeature), so the QEMU run leaves them out; their
-	// pin fields here are never read.
-	"mps2-an505": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
-		ledPin: 0, txPin: -1, timerPin: 1, // LED1
-	},
-	"mps2-an500": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
-		ledPin: 0, txPin: -1, timerPin: 1, // LED1
-	},
-	// boards/esp32p4-poe/board.c: no LED on the header, so the plain GPIO32
-	// (pin 11, port 1 bit 0) stands in; GPIO20 is ADC1 channel 4 and a
-	// digital pin; the console UART is outside the table. Reached over
-	// PORT=tcp:, so no reset: the cause is the last boot's, power-on.
-	"esp32p4-poe": {
-		resetCause: tfw.ResetPowerOn,
-		ledPort:    1, ledBit: 0, ledPWM: tfw.PWMNone, // GPIO32
-		analog: 7, // GPIO20
-		adcPin: 7, adcChannel: 4, adcPort: true,
-		adcOnly: 0,
-		tickPin: 0, noPWMPin: 11, // GPIO2 (LEDC0); GPIO32
-		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
-	},
-}
+// The pin facts of each board, peerBoards, are in e2e_pins_test.go, which
+// every build compiles, so a unit test checks them against the row lists.
 
 // firmwareBoard returns the facts for the board the seam names. A board this
 // table does not know fails the scenario: guessing its pins would test the
@@ -267,11 +192,12 @@ func TestFirmwarePin(t *testing.T) {
 	// OC0A, spent on the tick.
 	assert.Equal(t, b.ledPWM, led.PWM, "pin %d pwm", b.ledPin)
 
-	// Pin 9 is OC1A on the 328P and OC2B on the Mega; neither timer is the tick.
+	// The board's free PWM pin: pin 9 is OC1A on the 328P and OC2B on the
+	// Mega, neither timer the tick; LEDC0 on the ESP32-P4.
 	if caps.Has(tfw.FeaturePWM) {
-		pwm := cliPin(t, dev, 9)
-		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin 9 pwm")
-		assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin 9 flags = %s, want pwm", pwm.Flags)
+		pwm := cliPin(t, dev, b.pwmPin)
+		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin %d pwm", b.pwmPin)
+		assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin %d flags = %s, want pwm", b.pwmPin, pwm.Flags)
 	}
 
 	// The 328P's A6 exists as an analog input and has no digital port at all,
@@ -420,13 +346,15 @@ func TestFirmwarePWM(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeaturePWM)
-	require.NoError(t, run(context.Background(), dev, "pwm", []string{"9", "128"}, false, &strings.Builder{}),
-		"pin 9 has a free compare unit and should accept a duty")
+	require.NoError(t, run(context.Background(), dev, "pwm", []string{strconv.Itoa(int(b.pwmPin)), "128"}, false, &strings.Builder{}),
+		"pin %d has a free compare unit and should accept a duty", b.pwmPin)
 	// Timer0 is the millisecond tick, so its compare pins have units that are
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and
 	// wondering why nothing moves.
-	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.tickPin)), "128")
+	if b.tickPin >= 0 {
+		cliRefused(t, dev, "pwm", strconv.Itoa(b.tickPin), "128")
+	}
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
 }
 

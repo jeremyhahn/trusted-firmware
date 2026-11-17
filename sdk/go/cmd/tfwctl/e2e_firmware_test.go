@@ -164,16 +164,26 @@ func TestFirmwareCaps(t *testing.T) {
 
 func TestFirmwareSys(t *testing.T) {
 	_, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
 	dev := startFirmware(t)
 	var si tfw.SysInfo
 	cliJSON(t, dev, &si, "sys")
 	assert.NotZero(t, si.FreeRAM, "free RAM reported as zero")
 	assert.Equal(t, b.resetCause, si.ResetCause, "reset cause")
-	// #5: freshly started and talked to over a clean link, the firmware has
-	// seen no framing errors -- the appended fields decode against the live
-	// device, not only against canned replies.
-	assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
-	assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+	// #5: talked to over a clean link, the firmware sees no framing errors --
+	// the appended fields decode against the live device, not only against
+	// canned replies. Freshly reset, it has seen none at all; a peer found
+	// running (TCP) keeps the counts of earlier rows, so this row counts only
+	// the errors its own traffic adds.
+	if target.Resets() {
+		assert.Zero(t, si.ErrCRC, "framer CRC errors on a clean link")
+		assert.Zero(t, si.ErrFormat, "framer format errors on a clean link")
+	}
+	var after tfw.SysInfo
+	cliJSON(t, dev, &after, "sys")
+	assert.Equal(t, si.ErrCRC, after.ErrCRC, "framer CRC errors added on a clean link")
+	assert.Equal(t, si.ErrFormat, after.ErrFormat, "framer format errors added on a clean link")
 }
 
 func TestFirmwarePin(t *testing.T) {

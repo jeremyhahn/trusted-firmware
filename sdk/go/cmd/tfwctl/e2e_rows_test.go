@@ -69,6 +69,9 @@ type boardImage struct {
 	caps  uint32
 	tier  rowTier
 	parts imageParts
+	// held are rows the image serves that its default list leaves out, each
+	// with the issue that holds it; they run by name.
+	held map[string]string
 }
 
 // servedBy reports whether img serves a row with this need.
@@ -111,6 +114,10 @@ var boardImages = map[string]boardImage{
 	"stm32h573i-dk": {
 		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAttest,
 		tier: softTier,
+		// The attest refusal timed out on the board (docs/boards/
+		// stm32h573i-dk.md): whether the image is unprovisioned, and the
+		// row's command timeout against its signature check, are #570's.
+		held: map[string]string{"TestFirmwareAttestRefusedUnprovisioned": "#570"},
 	},
 }
 
@@ -229,7 +236,7 @@ func boardRunPattern(board string, eth bool, rows []string) (string, error) {
 		switch {
 		case !ok:
 			unlisted = append(unlisted, r)
-		case need.servedBy(img):
+		case need.servedBy(img) && img.held[r] == "":
 			run = append(run, r)
 		}
 	}
@@ -339,6 +346,7 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwarePulseIn", "TestFirmwareTone",
 			"TestFirmwareI2C", "TestFirmwareSPIConfig", "TestFirmwareOneWire",
 			"TestFirmwareOTAInfo", "TestFirmwareElementReportsItsRootOfTrust",
+			"TestFirmwareAttestRefusedUnprovisioned",
 		}},
 	} {
 		run := boardRun(t, tc.board, false)
@@ -350,6 +358,26 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		for _, r := range tc.not {
 			if run.MatchString(r) {
 				t.Errorf("%s: %s is run", tc.board, r)
+			}
+		}
+	}
+}
+
+// A held row is one its board's image serves, named in firmwareRowNeeds: a
+// hold on a row the list would not run anyway, or on a renamed row, holds
+// nothing.
+func TestEachHeldRowIsOneItsImageServes(t *testing.T) {
+	for board, img := range boardImages {
+		for r, issue := range img.held {
+			need, ok := firmwareRowNeeds[r]
+			switch {
+			case !ok:
+				t.Errorf("%s holds %s, in no row list", board, r)
+			case !need.servedBy(img):
+				t.Errorf("%s holds %s, which its image does not serve", board, r)
+			}
+			if !regexp.MustCompile(`^#\d+$`).MatchString(issue) {
+				t.Errorf("%s holds %s for %q, not an issue", board, r, issue)
 			}
 		}
 	}

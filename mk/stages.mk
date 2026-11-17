@@ -46,13 +46,20 @@ endef
 # image's flash ceiling. header-deps-check is here because it is about what
 # gets built: a header edit rebuilding what includes it. CI runs firmware-matrix
 # itself, in the image-toolchain job, so there is no workflow matrix to keep in step.
-# app-firmware-check builds for the ATmega2560 whatever BOARD is: the example
-# application does not fit the 328P, element-only since owner ruling 2026-10-17
-# (m522), and applications target boards with room.
+# app-firmware-check builds for the ATmega2560 and one Cortex-M board, QEMU's
+# mps2-an505, whatever BOARD is: the example application does not fit the 328P,
+# element-only since owner ruling 2026-10-17 (m522), and applications target
+# boards with room. Its ESP32 run (BOARD=esp32-qemu) needs ESP-IDF, which the CI
+# image does not carry (mk/arch/esp32-targets.mk), so it is not here. For the
+# same reason as the 328P the
+# example's reproducible-check, its image built twice from clean copies, is
+# for the ATmega2560.
 build: build-tools firmware-matrix bootloader-check sdk-build tfwsim tfwsim-atecc608a \
        tfwsim-app-example reproducible-check bootloader-reproducible-check provenance \
        platform-bake-no-link-check platform-bake-build-check header-deps-check
 	@$(MAKE) --no-print-directory app-firmware-check BOARD=atmega2560
+	@$(MAKE) --no-print-directory app-firmware-check BOARD=mps2-an505
+	@$(MAKE) --no-print-directory reproducible-check APP_DIR=test/app/example BOARD=atmega2560
 	@echo "stage build: green"
 
 build-tools:

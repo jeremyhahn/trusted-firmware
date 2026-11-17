@@ -44,7 +44,8 @@ state is **not confirmed** and is named below where the port leans on it.
 | Console | the ST-LINK Virtual COM port: **USART1, TX PA9 and RX PA10, alternate function 7** | BSP: `COM1_UART`, `COM1_TX_PIN`, `COM1_RX_PIN`, `COM1_TX_AF`, `COM1_RX_AF` |
 | User LEDs | LD1 green PI9, LD2 orange PI8, LD3 red PF1, LD4 blue PF4; each lights at a **low** pin | BSP: `LED1_PIN` to `LED4_PIN`, `LED1_GPIO_PORT` to `LED4_GPIO_PORT`; the BSP's `BSP_LED_On` drives the pin low |
 | Ethernet | **on the board**: 10/100 Mbit/s, IEEE 802.3-2002, from the MCU's Ethernet MAC | UM3143, introduction (features) |
-| Ethernet PHY part and connector | **not confirmed** | |
+| Ethernet PHY part and connector | **not confirmed**; the candidates, and the RMII pins to confirm on the board, are in the Ethernet ADR ([`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md)) | |
+| Ethernet driver and IP stack | **none yet**: the stack is the owner's choice in the Ethernet ADR (PROPOSED, #540), which recommends lwIP over our own MAC and DMA driver | [`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md) |
 | Other radios | a Wi-Fi module | UM3143, introduction |
 
 ## The port
@@ -135,7 +136,9 @@ upstream TF-M platform at **v2.3.1**; the NUCLEO-H563ZI is not.
 - **ADR #15 open question 1**: the upstream TF-M platform is this board, not
   the NUCLEO-H563ZI.
 - **The `stm32h5` row's "enrolling over Ethernet"**: this board has Ethernet on
-  board, so no W5x00 module is needed for it.
+  board, so no W5x00 module is needed for it. With no hardware TCP/IP stack,
+  an IP stack runs on the MCU; which one is the Ethernet ADR's open question 1
+  ([`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md)).
 
 ## Owner question
 

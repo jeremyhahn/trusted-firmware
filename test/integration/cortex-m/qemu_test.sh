@@ -40,7 +40,8 @@
 #                noverdict  S5 with no verdict: the rule's [record] alone
 #
 # A refusal on this row (BOOT_OTA=0) is recovery_halt.c: tfw-boot stops and
-# never answers. wirecheck -silent passes only if no PING is echoed for the
+# answers no command; it sends only its EVENT naming the reason, on entry and
+# for each frame it is sent (#542). wirecheck -silent passes only if no PING is echoed for the
 # whole window, a deadline on the socket and nothing slept; that QEMU is still
 # running at the end is checked here, so a guest that crashed QEMU is not taken
 # for one that refused.

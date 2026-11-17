@@ -145,7 +145,9 @@ ifeq ($(BOOT_OTA),1)
 BOOT_OTA_SRCS := boot/recovery/recovery_ota.c boot/boot_ota.c boot/boot_session.c src/proto/frame.c
 BOOT_OTA_DEFS :=
 else
-BOOT_OTA_SRCS := $(BOOT_HAL_DIR)/recovery_halt.c
+# The Cortex-M halt names its refusal in an EVENT frame (#542), so it takes the
+# framer; the AVR halt has no room for it and stops mute.
+BOOT_OTA_SRCS := $(BOOT_HAL_DIR)/recovery_halt.c $(if $(filter cortex-m,$(ARCH)),src/proto/frame.c)
 BOOT_OTA_DEFS :=
 endif
 

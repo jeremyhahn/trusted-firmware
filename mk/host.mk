@@ -1858,6 +1858,15 @@ $(HOST_DIR)/test_stubs_none: test/unit/test_stubs_none.c \
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 HOST_EXTRA_BINS += $(HOST_DIR)/test_stubs_none
 
+# test_boot_rows_2560 (audit row 37): the 2560's tfw-boot rows shed OTA, never
+# verification. It reads mk/boot.mk's BOOT_SUPPORTED, the list
+# bootloader-check builds, as a string; host-test runs it as boot-test does.
+$(HOST_DIR)/boot/test_boot_rows_2560: test/unit/boot/test_boot_rows_2560.c \
+                                      $(HOST_DIR)/unity.o | $(HOST_DIR)/boot
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_BOOT_SUPPORTED='"$(strip $(BOOT_SUPPORTED))"' \
+	   -o $@ $^ $(EXTRA_LDFLAGS)
+HOST_EXTRA_BINS += $(HOST_DIR)/boot/test_boot_rows_2560
+
 ## host-test: build and run the host unit tests
 # One part of the `test` stage (mk/stages.mk), which adds the boot suites, the
 # board sweep, coverage and the sanitizers.
@@ -3086,8 +3095,11 @@ $(HOST_DIR)/test_ota_trial_leave: test/unit/test_ota_trial_leave.c src/core/ota_
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
 # OTA_AUTH's hold alone (#163): src/core/ota_auth.c over the reader and writer,
-# with the dispatcher's record of the last command supplied by the test.
+# with the dispatcher's record of the last command supplied by the test; and
+# OTA_ACTIVATE over it with the session gate and the store as the test's
+# stand-ins (audit row 28).
 $(HOST_DIR)/test_ota_auth_mutate: test/unit/test_ota_auth_mutate.c src/core/ota_auth.c \
+                                  src/core/ota_activate.c \
                                   src/core/reader.c src/core/writer.c \
                                   $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)

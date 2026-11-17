@@ -61,6 +61,12 @@ type peerBoard struct {
 	ledPin     uint8          // the pin the board's table flags as its LED
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
+	// noLED is a board whose pin table flags no pin as its LED: the led*
+	// fields are not available, and the Pin row skips instead of reading them.
+	noLED bool
+	// noTick is a board whose millisecond tick is no compare unit: tickPin is
+	// not available, and the PWM row skips instead of reading it.
+	noTick bool
 }
 
 var peerBoards = map[string]peerBoard{
@@ -106,16 +112,16 @@ var peerBoards = map[string]peerBoard{
 	// digital pin; LEDC0..3 on pins 0..3. The wire is a TCP server
 	// (hal_uart.c), so the UART is not in the pin table. The table flags no
 	// pin as an LED and no LEDC channel is the millisecond tick (esp_timer
-	// is): the LED and tick fields are pin 0's, and the Pin and PWM rows
-	// that read them are not yet confirmed on this board.
+	// is\): the LED and tick facts are not available, so the Pin and PWM
+	// rows that read them skip on this board.
 	"esp32p4-poe": {
 		resetAny: true,
-		ledPort:  0, ledBit: 2, ledPWM: tfw.PWMNone, // pin 0, GPIO2
+		noLED:    true, noTick: true,
 		analog: 7, // GPIO20, ADC1_CH4
 		adcPin: 7, adcChannel: 4, adcPort: true,
-		adcOnly: 0,
-		tickPin: 0, noPWMPin: 4, // GPIO2; GPIO6
-		ledPin: 0, txPin: -1, timerPin: 11, // GPIO32
+		adcOnly:  0,
+		noPWMPin: 4,                // GPIO6
+		txPin:    -1, timerPin: 11, // GPIO32
 	},
 }
 
@@ -539,8 +545,8 @@ func TestSysCountersHoldAfterAMalformedBurst(t *testing.T) {
 
 // The Sys row itself, as hw-test runs it on the ESP32-P4 (#550): BOARD
 // esp32p4-poe, PORT tcp: on a simulated tcp peer whose firmware took a
-// malformed burst first and was never reset. The row passes, and the
-// counters the burst raised are still raised after it.
+// malformed burst first and was never reset. A first host sees the burst
+// counted; the row, the host after it, passes with the counters raised.
 func TestSysRowOnTheESP32OverTCPAfterAMalformedBurst(t *testing.T) {
 	sim := simproc.Start(t, simproc.Software)
 	noise := make([]byte, 0, 80)
@@ -553,30 +559,29 @@ func TestSysRowOnTheESP32OverTCPAfterAMalformedBurst(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
 	serveESPWire(ln, sim, func() {})
-	t.Setenv(peer.PortEnv, peer.TCPPrefix+ln.Addr().String())
+	port := peer.TCPPrefix + ln.Addr().String()
+	t.Setenv(peer.PortEnv, port)
 	t.Setenv(peer.BoardEnv, "esp32p4-poe")
 
-	require.True(t, t.Run("TestFirmwareSys", TestFirmwareSys), "the Sys row failed on the ESP32 over tcp:")
+	// A first host sees the burst counted, then leaves: the row is the next
+	// host, so it also reconnects as a row after another one does.
+	c, err := peer.Open(port, peer.StartBound)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	si, err := tfw.New(c, tfw.WithTimeout(5*time.Second)).SysInfo(ctx)
+	cancel()
+	_ = c.Close()
+	require.NoError(t, err)
+	require.NotZero(t, si.ErrCRC+si.ErrFormat, "the burst raised no counter, so the row would prove nothing")
 
-	// The row's host has gone; the next one is accepted once the wire has
-	// let it go.
-	var si *tfw.SysInfo
-	require.Eventually(t, func() bool {
-		c, err := net.Dial("tcp", ln.Addr().String())
-		if err != nil {
-			return false
-		}
-		defer func() { _ = c.Close() }()
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		si, err = tfw.New(c, tfw.WithTimeout(time.Second)).SysInfo(ctx)
-		return err == nil
-	}, 10*time.Second, 50*time.Millisecond)
-	assert.NotZero(t, si.ErrCRC+si.ErrFormat, "the burst raised no counter, so the row proved nothing")
+	require.True(t, t.Run("TestFirmwareSys", TestFirmwareSys), "the Sys row failed on the ESP32 over tcp:")
 }
 
 func TestFirmwarePin(t *testing.T) {
-	_, b := firmwareBoard(t)
+	name, b := firmwareBoard(t)
+	if b.noLED {
+		t.Skipf("%s: no pin is flagged as the LED, so the row has no pin to read", name)
+	}
 	dev := startFirmware(t)
 	caps := cliCaps(t, dev)
 
@@ -741,7 +746,10 @@ func TestFirmwareAnalog(t *testing.T) {
 }
 
 func TestFirmwarePWM(t *testing.T) {
-	_, b := firmwareBoard(t)
+	name, b := firmwareBoard(t)
+	if b.noTick {
+		t.Skipf("%s: the millisecond tick is no compare unit, so the row has no spent pin to refuse", name)
+	}
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeaturePWM)
 	require.NoError(t, run(context.Background(), dev, "pwm", []string{"9", "128"}, false, &strings.Builder{}),

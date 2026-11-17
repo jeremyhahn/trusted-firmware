@@ -422,7 +422,10 @@ func TestFirmwareAnalog(t *testing.T) {
 		Raw uint16 `json:"raw"`
 	}
 	cliJSON(t, dev, &got, "analog", strconv.Itoa(int(b.analog)))
-	cliRefused(t, dev, "analog", "13") // digital-only
+	// The LED pin is a valid pin with a port and no ADC channel on every
+	// board (TestFirmwarePin asserts it), so the refusal is the digital-only
+	// one and not an out-of-range pin: 13 is past the DK's 13-pin table.
+	cliRefused(t, dev, "analog", strconv.Itoa(int(b.ledPin)))
 }
 
 func TestFirmwarePWM(t *testing.T) {

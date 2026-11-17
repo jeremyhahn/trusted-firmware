@@ -116,7 +116,7 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | SPI (46/47/48) | verified 2026-11-17 | row `SPIConfig` passes |
 | esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
-| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` fails in the same run: `pin 11 flags = digital, want digital and led`; issue to file: the P4's LED pin facts |
+| esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | row `PWM` passes over `PORT=tcp:<board>:21574` on the board's PWM pin (#547). Row `Pin` failed in the same run: `pin 11 flags = digital, want digital and led`. Row `Pin`: facts corrected, hardware re-run pending #561 (#574: the board has no LED on the header, so pin 11, GPIO32, is expected digital with no led flag) |
 | esp32-p4 | tone (GPIO6) | verified 2026-11-17 | row `Tone` (#548), `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='Tone'`: 1 kHz on pin 4 read back with `pulse-capture` on the same pin, 30 edges, `1000.0 Hz measured over 28 half periods, 1000 Hz asked` (within 5%); after `notone` the capture times out |
 | esp32-p4 | EEPROM (`tfw_eeprom`) | fails: test facts | row `EEPROM` stops at "crypto tier none: no reserved-read facts"; issue to file: none-tier facts |
 | esp32-p4 | CAPS, I2C_CONFIG | fails: test facts | rows `Caps`, `I2CConfig` know the soft and element tiers only; issue to file |
@@ -133,6 +133,6 @@ the two summaries differ in no eFuse line.
 
 The board runs this firmware and answers the wire over its own EMAC; GPIO,
 ADC, I2C, SPI, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
-EEPROM has no passing row on this board and row `Pin` fails on the LED flag; the board-dials
+EEPROM has no passing row on this board and row `Pin` has corrected facts and waits on its hardware re-run (#561); the board-dials
 Ethernet rows and OTA have not run; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

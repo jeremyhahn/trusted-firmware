@@ -302,6 +302,62 @@ $(CM_QEMU_DIR)/cm_image: test/integration/cortex-m/cm_image.c boot/boot_image.c 
 	   -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' -o $@ $^
 	@echo "built $@"
 
+## cortex-m-dk-image: the STM32H573I-DK's signed bench set, with its unprovisioned boot (BOARD=stm32h573i-dk)
+#
+# cortex-m-qemu-image's signing for a silicon board QEMU does not model, which
+# that target refuses (no CM_QEMU_BOARD_ID). The default build (soft tier,
+# P-256 DeviceID, the board's mk/boot.mk row) is signed by cm_image, built with
+# the board's load addresses and stage length on its compiler line. Into
+# CM_DK_DIR go cm_image's files: boot.bin (a fresh UDS: the bench boot),
+# boot-unprovisioned.bin (the same boot, its UDS slot erased: the attest
+# refusal row's boot, #570), app.bin, platform.bin and addrs.env, the address
+# of each; and two packed images for `make boot-flash BOOT_FLASH_HEX=`:
+# bench.hex (boot.bin) and bench-unprovisioned.hex. Nothing is written to a
+# board. docs/boards/stm32h573i-dk.md says how each is used.
+CM_DK_BOARDS := stm32h573i-dk
+CM_DK_DIR    := $(BOOT_INT_DIR)/bench
+CM_DK_DEFS   := -DTFW_CM_LOAD_APP_AT=TFW_APP_REGION_BASE -DTFW_CM_LOAD_PLATFORM_AT=TFW_CM_PLATFORM_BASE \
+                -DTFW_OTA_STORE_STAGE_LEN=0x020000ul
+
+cortex-m-dk-image:
+	@if [ -z "$(filter $(BOARD),$(CM_DK_BOARDS))" ]; then \
+	   echo "$@: BOARD=$(BOARD) is not one of $(CM_DK_BOARDS); a QEMU board runs cortex-m-qemu-image"; exit 1; fi
+	@$(MAKE) --no-print-directory firmware BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) SOFT_ID=$(CM_QEMU_SOFT_ID)
+	@$(MAKE) --no-print-directory bootloader BOARD=$(BOARD) $(CM_QEMU_ROW)
+	@$(MAKE) --no-print-directory cortex-m-dk-sign BOARD=$(BOARD) CRYPTO=$(CM_QEMU_TIER) \
+	   SOFT_ID=$(CM_QEMU_SOFT_ID) $(CM_QEMU_ROW)
+
+# The signing step, recursive so TARGET and BOOT_TARGET are the board's.
+cortex-m-dk-sign: $(CM_DK_DIR)/cm_image
+	@$(ARCH_OBJCOPY) -O binary $(BOOT_TARGET).elf $(CM_DK_DIR)/tfw-boot.bin
+	@$(ARCH_NM) $(BOOT_TARGET).elf > $(CM_DK_DIR)/tfw-boot.nm
+	@$(ARCH_OBJCOPY) -O binary $(TARGET).elf $(CM_DK_DIR)/trusted-firmware.bin
+	@$(CM_DK_DIR)/cm_image $(CM_DK_DIR)/tfw-boot.bin $(CM_DK_DIR)/tfw-boot.nm \
+	   $(CM_DK_DIR)/trusted-firmware.bin $(CM_DK_DIR)
+	@$(call cm-dk-pack,boot.bin,bench.hex)
+	@$(call cm-dk-pack,boot-unprovisioned.bin,bench-unprovisioned.hex)
+	@echo "$(BOARD): bench set in $(CM_DK_DIR) (bench.hex, bench-unprovisioned.hex)"
+
+# One Intel HEX of a boot, app.bin and platform.bin at addrs.env's addresses:
+# each blob converted on its own, their end-of-file records dropped, one added.
+cm-dk-pack = d=$(CM_DK_DIR); . $$d/addrs.env || exit 1; \
+	{ for p in "$(1) $$BOOT_AT" "app.bin $$APP_AT" "platform.bin $$PLATFORM_AT"; do \
+	    set -- $$p; $(ARCH_OBJCOPY) -I binary -O ihex --change-addresses $$2 $$d/$$1 $$d/part.hex || exit 1; \
+	    grep -v '^:00000001FF' $$d/part.hex; done; echo ':00000001FF'; } > $$d/$(2).tmp && \
+	mv $$d/$(2).tmp $$d/$(2) && rm -f $$d/part.hex
+
+# The signer for the DK: cm_image's sources, with CM_DK_DEFS added to the
+# board's BOARD_DEFS, in a directory of its own.
+$(CM_DK_DIR)/cm_image: test/integration/cortex-m/cm_image.c boot/boot_image.c boot/boot_platform.c boot/boot_cose.c \
+        src/crypto/sha256.c src/crypto/deviceid_p256.c src/core/secure_zero.c \
+        src/proto/crc16.c src/proto/crc16_update.c $(BOOT_INT_DIR)/uECC.o
+	@mkdir -p $(CM_DK_DIR)
+	@$(HOST_CC) -std=c11 -g -O1 -Wall -Wextra -Werror -Wconversion -Wshadow \
+	   -Iinclude -Isrc -Isrc/proto -Isrc/crypto -Iboot -Isrc/third_party/micro-ecc $(UECC_DEFS) \
+	   -I$(HAL_DIR) -I$(BOARD_DIR) -DTFW_BOARD_HEADER='"board_profile.h"' $(BOARD_DEFS) $(CM_DK_DEFS) \
+	   -DTFW_IMAGE_FLAGS='$(IMAGE_FLAGS)u' -o $@ $^
+	@echo "built $@"
+
 # The tamper-response cases' policy sets (test/integration/cortex-m/hsm_sets.c),
 # signed by the build's SUIT emitter with the same host micro-ecc object.
 $(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/emit.c \
@@ -315,6 +371,6 @@ $(CM_QEMU_DIR)/hsm_sets: test/integration/cortex-m/hsm_sets.c tools/suit-emit/em
 .PHONY: integration-test-cortex-m cortex-m-qemu-run cortex-m-qemu-image \
         integration-test-cortex-m-wire cortex-m-qemu-wire-run cortex-m-qemu-pulse-wire cortex-m-qemu-store-wire cortex-m-qemu-ab-wire \
         cortex-m-qemu-spi-wire cortex-m-qemu-i2c-wire cortex-m-qemu-tone-wire cortex-m-qemu-onewire-wire cortex-m-qemu-pwm-wire \
-        cortex-m-qemu-cycle \
+        cortex-m-qemu-cycle cortex-m-dk-image cortex-m-dk-sign \
         $(addprefix integration-test-cortex-m-,$(CM_QEMU_BOARDS)) \
         $(addprefix integration-test-cortex-m-wire-,$(CM_QEMU_BOARDS))

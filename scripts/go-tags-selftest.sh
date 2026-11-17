@@ -46,6 +46,7 @@ targets=(
   "security:go-govulncheck"
   "security:go-golangci"
   "security:xkms-security"
+  "security:xkms-vuln"
 )
 
 # The Go invocations that take build tags. go fmt, go mod, go list -m and go
@@ -117,8 +118,8 @@ go-govulncheck	(cd $d && govulncheck ./...) || fail=1; done; exit $fail
 go-golangci	(cd $d && golangci-lint run --config .golangci.yml ./...) || fail=1; done; \
 go-golangci	(cd sdk/go && golangci-lint run --config .golangci.yml --build-tags tfwsim ./...) || fail=1; \
 xkms-security	cd xkms && gosec -quiet -tags codec_json ./...
-xkms-security	cd xkms && out=$(govulncheck -tags codec_json -format json ./...) && \
 xkms-security	cd xkms && golangci-lint run --config .golangci.yml --build-tags codec_json ./...
+xkms-vuln	cd xkms && out=$(govulncheck -tags codec_json -format json ./...) && \
 EOF
 )
 for how in empty unset; do

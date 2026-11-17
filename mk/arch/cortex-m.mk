@@ -225,7 +225,10 @@ cm_extra_jlink = $(call cm_read_jlink,$(CM_EXTRA_BASE),$(CM_EXTRA_BYTES),$(1))
 CM_EXTRA_NAME_jlink := uicr.bin
 
 cm_pyocd = -t $(CM_PROBE_TARGET) -u $(CM_PROBE_SERIAL) $(CM_PROBE_ARGS)
-cm_read_pyocd  = pyocd cmd $(cm_pyocd) -c "savemem $(1) $(2) $(3)"
+# savemem halts nothing, and a running STM32H573 image reads back as zeros
+# (bench, 2026-11-17, #535), so the core is halted first; pyOCD resumes it on
+# disconnect.
+cm_read_pyocd  = pyocd cmd $(cm_pyocd) -c "halt" -c "savemem $(1) $(2) $(3)"
 cm_write_pyocd = pyocd load $(cm_pyocd) --format bin --base-address $(2) $(1)
 cm_extra_pyocd = echo '$(CM_NOEXTRA_WHY)' > $(1)
 CM_EXTRA_NAME_pyocd := extra.txt

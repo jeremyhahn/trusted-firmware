@@ -3,6 +3,8 @@
 package main
 
 import (
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/jeremyhahn/trusted-firmware/sdk/go"
@@ -29,10 +31,11 @@ type peerBoard struct {
 	tickPin    int            // a compare-unit pin whose timer is the millisecond tick; -1 where no PWM pin is spent on it
 	noPWMPin   uint8          // a digital pin with no compare unit at all
 	pwmPin     uint8          // a PWM pin with a free unit, which accepts a duty
-	ledPin     uint8          // the pin the board's table flags as its LED
-	ledFlags   tfw.PinFlags   // ledPin's flags; zero means digital and LED
+	ledPin     uint8          // the pin the board's table flags as its LED; with noLED, a plain GPIO
+	noLED      bool           // the board has no LED: ledPin is a plain digital pin, TFW_PIN_DIGITAL alone
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
+	tonePin    uint8          // the board's TFW_TONE_PIN, the one pin TONE drives
 }
 
 var peerBoards = map[string]peerBoard{
@@ -45,6 +48,7 @@ var peerBoards = map[string]peerBoard{
 		tickPin: 5, noPWMPin: 13, // OC0B
 		pwmPin: 9, // OC1A
 		ledPin: 13, txPin: 1, timerPin: 2,
+		tonePin: 11, // OC2A, PB3
 	},
 	"atmega2560": {
 		resetCause: tfw.ResetUnknown,
@@ -55,6 +59,7 @@ var peerBoards = map[string]peerBoard{
 		tickPin: 4, noPWMPin: 22, // OC0B; PA0
 		pwmPin: 9, // OC2B
 		ledPin: 13, txPin: 1, timerPin: 2,
+		tonePin: 10, // OC2A, PB4: not the 328P's 11
 	},
 	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
 	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
@@ -88,11 +93,9 @@ var peerBoards = map[string]peerBoard{
 		// The tick is the system timer, not an LEDC channel: no PWM pin is
 		// spent on it. Pin 9 here is GPIO22, an ADC input with no LEDC.
 		tickPin: -1, noPWMPin: 11, // GPIO32
-		pwmPin: 0,                           // GPIO2, LEDC0
-		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
-		// The table does not flag GPIO32 as an LED yet; #565 adds the flag
-		// and takes PinLED back here.
-		ledFlags: tfw.PinDigital,
+		pwmPin: 0,                                        // GPIO2, LEDC0
+		ledPin: 11, noLED: true, txPin: -1, timerPin: 12, // GPIO33
+		tonePin: 4, // GPIO6, the first pin with no LEDC channel
 	},
 }
 
@@ -123,6 +126,106 @@ func TestPinAndPWMRowsUseTheBoardsPWMPin(t *testing.T) {
 		}
 		if b.pwmPin == b.adcPin || b.pwmPin == b.analog {
 			t.Errorf("%s: PWM pin %d is the board's ADC pin", board, b.pwmPin)
+		}
+	}
+}
+
+// ledPinFlags is what the Pin row expects of the board's ledPin: digital and
+// LED on a board with an LED; on one without (noLED), digital and not LED,
+// the pin's own flags in board.c (Codex P1 on #567).
+func ledPinFlags(b peerBoard) (want, absent tfw.PinFlags) {
+	if b.noLED {
+		return tfw.PinDigital, tfw.PinLED
+	}
+	return tfw.PinDigital | tfw.PinLED, 0
+}
+
+// TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne: the ESP32-P4 has no LED, so
+// its Pin row asserts pin 11 plain digital (boards/esp32p4-poe/board.c gives
+// it TFW_PIN_DIGITAL alone); the AVR and MPS2 boards keep digital and LED.
+func TestPinRowExpectsAnLEDOnlyWhereTheBoardHasOne(t *testing.T) {
+	for board, b := range peerBoards {
+		want, absent := ledPinFlags(b)
+		if board == "esp32p4-poe" {
+			if want != tfw.PinDigital || absent != tfw.PinLED {
+				t.Errorf("%s: pin %d expects %s without %s, want digital without led", board, b.ledPin, want, absent)
+			}
+			continue
+		}
+		if want != tfw.PinDigital|tfw.PinLED || absent != 0 {
+			t.Errorf("%s: pin %d expects %s, want digital and led", board, b.ledPin, want)
+		}
+	}
+	if !boardRun(t, "esp32p4-poe", false).MatchString("TestFirmwarePin") {
+		t.Error("esp32p4-poe: the Pin row is not run")
+	}
+}
+
+// TestToneRowUsesTheBoardsTonePin: each board that runs the tone row has its
+// TFW_TONE_PIN in its pin facts (boards/<board>/board_profile.h), and that pin
+// is not the PWM pin the row expects TONE to refuse.
+func TestToneRowUsesTheBoardsTonePin(t *testing.T) {
+	want := map[string]uint8{"atmega328p": 11, "atmega2560": 10, "esp32p4-poe": 4}
+	for board := range boardImages {
+		if !boardRun(t, board, false).MatchString("TestFirmwareTone") {
+			continue
+		}
+		b, ok := peerBoards[board]
+		if !ok {
+			t.Errorf("%s runs the tone row and has no pin facts in peerBoards", board)
+			continue
+		}
+		if pin, ok := want[board]; !ok {
+			t.Errorf("%s: no expected tone pin in this test", board)
+		} else if b.tonePin != pin {
+			t.Errorf("%s: tone pin %d, want %d", board, b.tonePin, pin)
+		}
+		if b.tonePin == b.pwmPin {
+			t.Errorf("%s: tone pin %d is the PWM pin the tone row expects to be refused", board, b.tonePin)
+		}
+	}
+}
+
+// toneFrequency is the frequency a capture's half periods give. The first
+// interval runs from the capture seeing its start level, not from an edge, so
+// it is dropped, and so is the last when it would leave half a period over.
+func toneFrequency(edgesUS []uint16) (float64, error) {
+	if len(edgesUS) < 3 {
+		return 0, fmt.Errorf("%d edges: no whole period left to time", len(edgesUS))
+	}
+	halves := edgesUS[1:]
+	if len(halves)%2 != 0 {
+		halves = halves[:len(halves)-1]
+	}
+	var sum uint64
+	for _, h := range halves {
+		sum += uint64(h)
+	}
+	if sum == 0 {
+		return 0, fmt.Errorf("%d half periods summing to 0 us", len(halves))
+	}
+	return float64(len(halves)/2) * 1e6 / float64(sum), nil
+}
+
+// TestToneFrequencyTimesWholePeriods: the first interval, which starts at no
+// edge, and an odd half period left over are not timed.
+func TestToneFrequencyTimesWholePeriods(t *testing.T) {
+	for _, c := range []struct {
+		edges []uint16
+		want  float64
+	}{
+		{[]uint16{123, 500, 500, 500, 500, 999}, 1000},
+		{[]uint16{7, 250, 250, 250}, 2000},
+		{[]uint16{0, 490, 510}, 1000},
+	} {
+		got, err := toneFrequency(c.edges)
+		if err != nil || math.Abs(got-c.want) > 0.001 {
+			t.Errorf("toneFrequency(%v) = %v, %v; want %v", c.edges, got, err, c.want)
+		}
+	}
+	for _, edges := range [][]uint16{nil, {500}, {500, 500}, {1, 0, 0}} {
+		if _, err := toneFrequency(edges); err == nil {
+			t.Errorf("toneFrequency(%v): no error", edges)
 		}
 	}
 }

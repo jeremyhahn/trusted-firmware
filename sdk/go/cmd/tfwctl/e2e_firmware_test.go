@@ -183,11 +183,11 @@ func TestFirmwarePin(t *testing.T) {
 
 	led := cliPin(t, dev, b.ledPin)
 	assert.EqualValues(t, b.ledPin, led.Pin, "descriptor echoed the pin")
-	ledFlags := b.ledFlags
-	if ledFlags == 0 {
-		ledFlags = tfw.PinDigital | tfw.PinLED
+	want, absent := ledPinFlags(b)
+	assert.True(t, led.Flags.Has(want), "pin %d flags = %s, want %s", b.ledPin, led.Flags, want)
+	if absent != 0 {
+		assert.False(t, led.Flags.Has(absent), "pin %d flags = %s: the board has no LED", b.ledPin, led.Flags)
 	}
-	assert.True(t, led.Flags.Has(ledFlags), "pin %d flags = %s, want %s", b.ledPin, led.Flags, ledFlags)
 	assert.True(t, led.HasPort, "pin %d has a port", b.ledPin)
 	assert.Equal(t, b.ledPort, led.Port, "pin %d port", b.ledPin)
 	assert.Equal(t, b.ledBit, led.Bit, "pin %d bit", b.ledPin)
@@ -329,7 +329,7 @@ func TestFirmwareEEPROM(t *testing.T) {
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
 	dev := startFirmware(t)
 	nonce := strings.Repeat("00", tfw.AttestNonceLen)
-	assert.Equal(t, tfw.StatusErrNotProvisioned, cliStatus(t, dev, "attest", nonce),
+	assert.Equal(t, attestRefusal(cliCaps(t, dev).CryptoTier), cliStatus(t, dev, "attest", nonce),
 		"an unprovisioned device produced attestation evidence")
 }
 
@@ -360,6 +360,131 @@ func TestFirmwarePWM(t *testing.T) {
 		cliRefused(t, dev, "pwm", strconv.Itoa(b.tickPin), "128")
 	}
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
+}
+
+// toneHz is the frequency the tone row drives. A kilohertz is a 500 us half
+// period: long against the P4's busy-polled capture, short enough that the
+// edges the row times fit a 200 ms window.
+const toneHz = 1000
+
+// TestFirmwareTone starts a tone on the board's own tone pin, measures it
+// back on that pin, and stops it. The pin is set to an output first: the P4's
+// HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), so
+// PULSE_CAPTURE reads the level LEDC drives. On a board the row times the
+// captured half periods and wants the frequency within 5%; a simulator's pin
+// carries no waveform, so there the row proves the start and stop round-trip.
+func TestFirmwareTone(t *testing.T) {
+	board, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	// Only an image known to hold the tone pin (the Mega's ETH=1,
+	// partTonePinHeld) skips; it runs TestFirmwareToneRefusesTheShieldsPin
+	// instead. Anywhere else a RESERVED_PIN on the tone pin fails the row.
+	if tonePinHeld(target.Hardware(), board) {
+		t.Skipf("%s: the image holds pin %d; TestFirmwareToneRefusesTheShieldsPin covers it", board, b.tonePin)
+	}
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	pin := strconv.Itoa(int(b.tonePin))
+
+	assert.Equal(t, tfw.StatusErrUnsupported, cliStatus(t, dev, "tone", strconv.Itoa(int(b.pwmPin)), strconv.Itoa(toneHz)),
+		"pin %d is not the tone pin", b.pwmPin)
+	require.NoError(t, run(context.Background(), dev, "mode", []string{pin, "out"}, false, &strings.Builder{}),
+		"%s: pin %d is the tone pin and this image leaves it free", board, b.tonePin)
+	require.NoError(t, run(context.Background(), dev, "write", []string{pin, "0"}, false, &strings.Builder{}))
+	require.NoError(t, run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{}),
+		"pin %d is the tone pin and should take %d Hz", b.tonePin, toneHz)
+	t.Cleanup(func() {
+		_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
+	})
+
+	if target.Hardware() {
+		var got struct {
+			EdgesUS []uint16 `json:"edges_us"`
+		}
+		cliJSON(t, dev, &got, "pulse-capture", pin, "1", "30", "50ms")
+		// 30 edges: TFW_CAPTURE_MAX is 31 at a 64-byte payload, and TFW_PULSE_MAX_US is 50 ms.
+		require.Len(t, got.EdgesUS, 30, "pin %d: a %d Hz tone gives 30 edges in 15 ms", b.tonePin, toneHz)
+		hz, err := toneFrequency(got.EdgesUS)
+		require.NoError(t, err)
+		t.Logf("pin %d: %.1f Hz measured over %d half periods, %d Hz asked", b.tonePin, hz, len(got.EdgesUS)-2, toneHz)
+		assert.NoError(t, toneFrequencyFits(board, toneHz, hz), "pin %d: tone frequency", b.tonePin)
+	}
+
+	require.NoError(t, run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{}))
+	if target.Hardware() {
+		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
+			"pin %d: still toggling after NOTONE", b.tonePin)
+	}
+}
+
+// TestFirmwareToneRefusesTheShieldsPin is the tone row on an image that holds
+// the tone pin (partTonePinHeld): the Mega's ETH=1 image, where pin 10 is the
+// Ethernet shield's chip select, refuses it as RESERVED_PIN and never drives it.
+func TestFirmwareToneRefusesTheShieldsPin(t *testing.T) {
+	board, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	// The simulator (a 328P) and the P4 leave the tone pin free, and a run
+	// named by HW_TEST_RUN skips the row selector, so the row asks the image.
+	if !tonePinHeld(target.Hardware(), board) {
+		t.Skipf("%s: the image leaves pin %d free; TestFirmwareTone covers it", board, b.tonePin)
+	}
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	pin := strconv.Itoa(int(b.tonePin))
+
+	assert.Equal(t, tfw.StatusErrReservedPin, cliStatus(t, dev, "mode", pin, "out"),
+		"pin %d is the shield's chip select", b.tonePin)
+	// TONE has its own reservation check (src/caps/tone.c): a tone on the
+	// chip select would drive the Ethernet chip, so the device refuses it.
+	// A tone the device took anyway is stopped before the wire closes.
+	err = run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{})
+	if err == nil {
+		t.Cleanup(func() {
+			_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
+		})
+	}
+	var st tfw.Status
+	require.True(t, errorsAsStatus(err, &st), "TONE on pin %d: %v, want a device status", b.tonePin, err)
+	assert.Equal(t, tfw.StatusErrReservedPin, st, "pin %d is the shield's chip select: TONE must not drive it", b.tonePin)
+}
+
+// loopCountCapture names the boards whose pulse-capture reports polling
+// iterations, not microseconds: src/hal/avr/hal_pulse.c counts one per
+// _delay_us(1) plus the pin reads and arithmetic around it, so each count is
+// at least a microsecond and the counts understate the time.
+var loopCountCapture = map[string]bool{"atmega328p": true, "atmega2560": true}
+
+// toneFrequencyFits checks a measured tone against the one asked. A board
+// timing in microseconds is held to 5% either way; on a loop-count board the
+// understated time can only raise the frequency, so only the floor binds.
+func toneFrequencyFits(board string, asked, measured float64) error {
+	if measured < asked*0.95 {
+		return fmt.Errorf("%.1f Hz measured, under 5%% below the %.0f Hz asked", measured, asked)
+	}
+	if !loopCountCapture[board] && measured > asked*1.05 {
+		return fmt.Errorf("%.1f Hz measured, over 5%% above the %.0f Hz asked", measured, asked)
+	}
+	return nil
+}
+
+func TestToneFrequencyFits(t *testing.T) {
+	for _, c := range []struct {
+		board    string
+		measured float64
+		fits     bool
+	}{
+		{"esp32p4-poe", 1000, true},
+		{"esp32p4-poe", 1300, false},
+		{"esp32p4-poe", 900, false},
+		{"atmega2560", 1000, true},
+		{"atmega2560", 1300, true}, // loop counts understate the half periods
+		{"atmega328p", 900, false},
+	} {
+		err := toneFrequencyFits(c.board, 1000, c.measured)
+		assert.Equal(t, c.fits, err == nil, "%s at %.0f Hz: %v", c.board, c.measured, err)
+	}
 }
 
 func TestFirmwareI2C(t *testing.T) {

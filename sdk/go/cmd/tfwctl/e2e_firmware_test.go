@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -198,16 +199,38 @@ var pulseReset = func(port string) error {
 		return err
 	}
 	defer func() { _ = p.Close() }()
-	r, ok := p.(interface{ SetDTR(bool) error })
+	r, ok := p.(modemLines)
 	if !ok {
-		return fmt.Errorf("%s cannot drive DTR", port)
+		return fmt.Errorf("%s cannot drive RTS and DTR", port)
 	}
+	if err := espReset(r); err != nil {
+		return fmt.Errorf("%s: %w", port, err)
+	}
+	return nil
+}
+
+// modemLines is what espReset needs of the reset port.
+type modemLines interface {
+	SetDTR(bool) error
+	SetRTS(bool) error
+}
+
+// espReset is esptool's classic reset on the ESP32 auto-reset circuit
+// (docs/plans/550.md): RTS drives EN and DTR drives GPIO0, each asserted
+// line pulling its pin low, and both asserted together pull neither. DTR is
+// released first so GPIO0 is high when EN rises (a normal boot, not the ROM
+// download mode); RTS then holds EN low for peer.ResetPulse and releases it.
+// Pulsing DTR alone never moves EN, so it does not reset a running board.
+func espReset(r modemLines) error {
 	if err := r.SetDTR(false); err != nil {
-		return fmt.Errorf("%s: dropping DTR: %w", port, err)
+		return fmt.Errorf("releasing DTR (GPIO0 high): %w", err)
+	}
+	if err := r.SetRTS(true); err != nil {
+		return fmt.Errorf("asserting RTS (EN low): %w", err)
 	}
 	time.Sleep(peer.ResetPulse)
-	if err := r.SetDTR(true); err != nil {
-		return fmt.Errorf("%s: raising DTR: %w", port, err)
+	if err := r.SetRTS(false); err != nil {
+		return fmt.Errorf("releasing RTS (EN high): %w", err)
 	}
 	return nil
 }
@@ -276,6 +299,44 @@ func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
 	assert.Equal(t, "reset-port-under-test", pulsedPort)
 	assertBootEvent(t, conn)
 	assert.True(t, dialledAfterPulse.Load(), "the endpoint was dialled before the reset")
+}
+
+// linePort records the modem-line changes espReset makes, and when.
+type linePort struct {
+	calls []string
+	at    []time.Time
+	fail  string // the call that fails, if any
+}
+
+func (l *linePort) set(line string, on bool) error {
+	call := fmt.Sprintf("%s=%t", line, on)
+	l.calls, l.at = append(l.calls, call), append(l.at, time.Now())
+	if call == l.fail {
+		return errors.New("line stuck")
+	}
+	return nil
+}
+
+func (l *linePort) SetDTR(on bool) error { return l.set("DTR", on) }
+func (l *linePort) SetRTS(on bool) error { return l.set("RTS", on) }
+
+// The reset pulses EN through RTS with GPIO0 (DTR) released, so a running
+// ESP32 reboots into its application and sends BOOT again.
+func TestESPResetPulsesENThroughRTSWithDTRReleased(t *testing.T) {
+	l := &linePort{}
+	require.NoError(t, espReset(l))
+	require.Equal(t, []string{"DTR=false", "RTS=true", "RTS=false"}, l.calls)
+	assert.GreaterOrEqual(t, l.at[2].Sub(l.at[1]), peer.ResetPulse, "EN held low too briefly")
+}
+
+// A line that will not move is an error, and the sequence stops there.
+func TestESPResetReportsALineThatFails(t *testing.T) {
+	for _, fail := range []string{"DTR=false", "RTS=true", "RTS=false"} {
+		l := &linePort{fail: fail}
+		err := espReset(l)
+		require.Error(t, err, fail)
+		assert.Equal(t, fail, l.calls[len(l.calls)-1], "a call after the failed one")
+	}
 }
 
 // espWireHold is TX_BUF in src/hal/esp32/hal_uart.c.

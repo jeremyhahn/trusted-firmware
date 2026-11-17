@@ -293,9 +293,15 @@ func serveESPWire(ln net.Listener, board io.ReadWriter, onAccept func()) {
 		accepted bool
 		holding  = true
 		held     []byte
+		// booted closes once the reader has taken the board's first output
+		// (the boot event): the accept loop waits on it, so the first host is
+		// always accepted after that output, as on the device, never racing it.
+		booted   = make(chan struct{})
+		bootOnce sync.Once
 	)
 	go func() {
 		buf := make([]byte, 256)
+		defer bootOnce.Do(func() { close(booted) })
 		for {
 			n, err := board.Read(buf)
 			mu.Lock()
@@ -308,12 +314,16 @@ func serveESPWire(ln net.Listener, board io.ReadWriter, onAccept func()) {
 				holding, held = false, nil
 			}
 			mu.Unlock()
+			if n > 0 {
+				bootOnce.Do(func() { close(booted) })
+			}
 			if err != nil {
 				return
 			}
 		}
 	}()
 	go func() {
+		<-booted
 		for {
 			c, err := ln.Accept()
 			if err != nil {

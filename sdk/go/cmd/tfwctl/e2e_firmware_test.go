@@ -44,8 +44,10 @@ type peerBoard struct {
 	adcPin     uint8          // the ADC pin the descriptor scenario reads
 	adcChannel uint8          // adcPin's channel
 	adcPort    bool           // whether adcPin has a digital port
+	adcAnalog  bool           // adcPin has a port but is flagged analog only, not digital
 	adcOnly    int            // how many pins are ADC inputs with no digital port
-	tickPin    uint8          // a compare-unit pin whose timer is the millisecond tick
+	pwmPin     uint8          // a pin with a free compare unit
+	tickPin    int            // a compare-unit pin whose timer is the millisecond tick; -1 where the tick is SysTick
 	noPWMPin   uint8          // a digital pin with no compare unit at all
 	ledPin     uint8          // the pin the board's table flags as its LED
 	txPin      int            // the UART's transmit pin; -1 where the UART is not in the pin table
@@ -58,8 +60,8 @@ var peerBoards = map[string]peerBoard{
 		ledPort:    0, ledBit: 5, ledPWM: tfw.PWMNone, // PB5
 		analog: 14,                                // A0, PC0
 		adcPin: 20, adcChannel: 6, adcPort: false, // A6
-		adcOnly: 2,               // A6 and A7
-		tickPin: 5, noPWMPin: 13, // OC0B
+		adcOnly: 2,                           // A6 and A7
+		pwmPin:  9, tickPin: 5, noPWMPin: 13, // OC1A; OC0B
 		ledPin: 13, txPin: 1, timerPin: 2,
 	},
 	"atmega2560": {
@@ -67,9 +69,23 @@ var peerBoards = map[string]peerBoard{
 		ledPort:    1, ledBit: 7, ledPWM: tfw.PWMSystemTick, // PB7, OC0A
 		analog: 54, // A0, PF0
 		adcPin: 54, adcChannel: 0, adcPort: true,
-		adcOnly: 0,               // every ADC input on the Mega is also a digital pin
-		tickPin: 4, noPWMPin: 22, // OC0B; PA0
+		adcOnly: 0,                           // every ADC input on the Mega is also a digital pin
+		pwmPin:  9, tickPin: 4, noPWMPin: 22, // OC2B; OC0B; PA0
 		ledPin: 13, txPin: 1, timerPin: 2,
+	},
+	// The STM32H573I-DK's 13-pin table as #535 ran it (row 543): LD1 to LD4
+	// (pins 0-3, lit low), D6 and D5 on TIM5 (4, 5), A0-A5 (6-11) analog
+	// only, D3 the tone (12, TIM3, no PWM). SYS reports the last reset as
+	// unknown, after a debugger reset too. The tick is SysTick, so no compare
+	// pin is spent on it; USART1 is outside the pin table.
+	"stm32h573i-dk": {
+		resetCause: tfw.ResetUnknown,
+		ledPort:    1, ledBit: 9, ledPWM: tfw.PWMNone, // LD1, PI9
+		analog: 6,                                                // A0, PB0
+		adcPin: 6, adcChannel: 9, adcPort: true, adcAnalog: true, // INP9
+		adcOnly: 0,
+		pwmPin:  4, tickPin: -1, noPWMPin: 12, // D6 TIM5_CH1; D3
+		ledPin: 0, txPin: -1, timerPin: 1, // LD2
 	},
 	// The MPS2 boards QEMU models (boards/mps2-an505/board.c and
 	// boards/mps2-an500/board.c, the same table): three pins, user LEDs 0 and
@@ -254,11 +270,12 @@ func TestFirmwarePin(t *testing.T) {
 	// OC0A, spent on the tick.
 	assert.Equal(t, b.ledPWM, led.PWM, "pin %d pwm", b.ledPin)
 
-	// Pin 9 is OC1A on the 328P and OC2B on the Mega; neither timer is the tick.
+	// pwmPin is OC1A on the 328P, OC2B on the Mega and TIM5_CH1 on the
+	// STM32H573I-DK; none of those timers is the tick.
 	if caps.Has(tfw.FeaturePWM) {
-		pwm := cliPin(t, dev, 9)
-		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin 9 pwm")
-		assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin 9 flags = %s, want pwm", pwm.Flags)
+		pwm := cliPin(t, dev, b.pwmPin)
+		assert.Equal(t, tfw.PWMAvailable, pwm.PWM, "pin %d pwm", b.pwmPin)
+		assert.True(t, pwm.Flags.Has(tfw.PinPWM), "pin %d flags = %s, want pwm", b.pwmPin, pwm.Flags)
 	}
 
 	// The 328P's A6 exists as an analog input and has no digital port at all,
@@ -270,7 +287,7 @@ func TestFirmwarePin(t *testing.T) {
 		assert.True(t, adc.HasADC, "pin %d has an adc channel", b.adcPin)
 		assert.Equal(t, b.adcChannel, adc.ADCChannel, "pin %d adc channel", b.adcPin)
 		assert.True(t, adc.Flags.Has(tfw.PinADC), "pin %d flags = %s, want adc", b.adcPin, adc.Flags)
-		assert.Equal(t, b.adcPort, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
+		assert.Equal(t, b.adcPort && !b.adcAnalog, adc.Flags.Has(tfw.PinDigital), "pin %d flags = %s, digital only with a port", b.adcPin, adc.Flags)
 	}
 
 	// The UART pins are in use by this build; a host must be able to see that
@@ -407,13 +424,15 @@ func TestFirmwarePWM(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeaturePWM)
-	require.NoError(t, run(context.Background(), dev, "pwm", []string{"9", "128"}, false, &strings.Builder{}),
-		"pin 9 has a free compare unit and should accept a duty")
+	require.NoError(t, run(context.Background(), dev, "pwm", []string{strconv.Itoa(int(b.pwmPin)), "128"}, false, &strings.Builder{}),
+		"pin %d has a free compare unit and should accept a duty", b.pwmPin)
 	// Timer0 is the millisecond tick, so its compare pins have units that are
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and
 	// wondering why nothing moves.
-	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.tickPin)), "128")
+	if b.tickPin >= 0 { // the STM32H573I-DK's tick is SysTick: no compare pin is spent on it
+		cliRefused(t, dev, "pwm", strconv.Itoa(b.tickPin), "128")
+	}
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
 }
 

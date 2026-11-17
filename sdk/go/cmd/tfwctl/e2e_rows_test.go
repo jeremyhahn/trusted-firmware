@@ -102,6 +102,15 @@ var boardImages = map[string]boardImage{
 		tier:  elementTier,
 		parts: partIdentity | partStager | partOTACtl,
 	},
+	// The default image #535 ran on the board: CAPS gpio sched analog pwm tone
+	// pulse eeprom attest, the soft tier, no stager, no provisioned identity.
+	// I2C is off by default (I2C ?= 0); the I2C=1 image's rows run by name,
+	// HW_TEST_RUN='TestFirmwareI2C'. SPI and 1-Wire refuse.
+	"stm32h573i-dk": {
+		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
+			tfw.FeatureTone | tfw.FeaturePulse | tfw.FeatureEEPROM | tfw.FeatureAttest,
+		tier: softTier,
+	},
 }
 
 // firmwareRowNeeds is every TestFirmware row and what it needs.
@@ -314,6 +323,16 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 			"TestFirmwareOTAAuthLetsTheCommandPastTheGate", "TestFirmwareAppReportsItsApplication",
 			"TestFirmwareAttestCSRReportsADeviceThatCannotIssueOne",
 			"TestFirmwareRefusesSPIItsCapsLacks", "TestEthernetStagesAnImage",
+		}},
+		{"stm32h573i-dk", []string{
+			"TestFirmwarePing", "TestFirmwarePin", "TestFirmwareWrite", "TestFirmwareTimer",
+			"TestFirmwareEEPROM", "TestFirmwareAnalog", "TestFirmwarePWM",
+			"TestFirmwareRefusesI2CItsCapsLacks", "TestFirmwareRefusesSPIItsCapsLacks",
+			"TestFirmwareRefusesOneWireItsCapsLacks",
+		}, []string{
+			"TestFirmwareI2C", "TestFirmwareSPIConfig", "TestFirmwareOneWireAndPulseIn",
+			"TestFirmwareOTAInfo", "TestFirmwareElementReportsItsRootOfTrust",
+			"TestFirmwareRefusesPWMItsCapsLacks", "TestFirmwareRefusesEEPROMItsCapsLacks",
 		}},
 	} {
 		run := boardRun(t, tc.board, false)

@@ -115,9 +115,12 @@ var boardImages = map[string]boardImage{
 		caps: tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |
 			tfw.FeatureTone | tfw.FeaturePulse | tfw.FeatureEEPROM | tfw.FeatureAttest,
 		tier: softTier,
-		// The attest refusal timed out on the board (docs/boards/
-		// stm32h573i-dk.md): whether the image is unprovisioned, and the
-		// row's command timeout against its signature check, are #570's.
+		// The attest refusal needs tfw-boot with its UDS slot erased
+		// (cm_image's boot-unprovisioned.bin): the bench boot, boot.bin,
+		// carries a UDS, so attest signs, in about 26 s on the board, past
+		// the suite's 5 s timeout. Verified by name on the unprovisioned
+		// boot (#570, docs/boards/stm32h573i-dk.md); held from the bench
+		// boot's list.
 		held: map[string]string{"TestFirmwareAttestRefusedUnprovisioned": "#570"},
 	},
 }

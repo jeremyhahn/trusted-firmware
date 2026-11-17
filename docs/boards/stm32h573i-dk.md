@@ -348,12 +348,21 @@ that row passing in the whole-list run, 385 s, every row from a probe reset.
 - `TestFirmwareRefusesSPIItsCapsLacks`: verified 2026-11-17, whole-list run.
 - `TestFirmwareRefusesOneWireItsCapsLacks`: verified 2026-11-17, whole-list
   run.
-- `TestFirmwareAttestRefusedUnprovisioned`: **fails** 2026-11-17 on both
-  images, #570: `attest` gets no answer within the suite's 5 s command
-  timeout (`command 0x60 did not respond after 5.006s`). Either the soft-tier
-  signature at 64 MHz outlasts 5 s, or the bench image, which writes a
-  platform block, is not unprovisioned as the row assumes. On the default
-  image (below) the run took 21 s: the 16 s boot, then the 5 s timeout.
+- `TestFirmwareAttestRefusedUnprovisioned`: **verified** 2026-11-17 (#570)
+  on the unprovisioned boot, run alone, 16 s from the probe reset; held from
+  the bench boot's list. The earlier timeout (`command 0x60 did not respond
+  after 5.006s`) was the precondition: the bench boot, `cm_image`'s
+  `boot.bin`, carries a UDS, so the soft tier is provisioned and `attest`
+  signs. Measured with `tfwctl -timeout 60s <vcom> attest <nonce>` on that
+  image: evidence after 27.7 s, twice, against 2.0 s for `caps`, so about
+  26 s of software P-256 at 64 MHz. To run the row, sign the default build
+  with the signer (`make firmware`, `make bootloader`, then `cm_image` built
+  with the `BOARD_DEFS` of the Ethernet probe above, and its objcopy, nm and
+  `cm_image` steps by hand), write `boot-unprovisioned.bin`, `app.bin` and
+  `platform.bin` at `0x08000000`, `0x08008000` and `0x080FE000` with `pyocd
+  load -t stm32h573iikxq -e sector`, and run the row by name. On that boot
+  `attest` answers "no provisioned identity" in the 2.0 s a `caps` takes.
+  The board was left on the same set's `boot.bin` (provisioned).
 - `TestFirmwareRefusesI2CItsCapsLacks`: **verified** 2026-11-17 on the
   default image (below), run alone, 16 s from the probe reset. On the `I2C=1`
   build it fails by design (`this row needs a peer without CAPS feature i2c`).

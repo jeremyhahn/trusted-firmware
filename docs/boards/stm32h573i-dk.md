@@ -163,8 +163,13 @@ CA 583 forbids: option bytes or provisioning).
 **`stm32h5`**
 
 - Board as data, board id 0x43: verified 2026-11-17, CAPS board id 0x43.
-- HSI 64 MHz clock: verified 2026-11-17, the PWM period (999.9 Hz) and the
-  tone pitch measured on the pins.
+- HSI 64 MHz clock: timer ratio only, 2026-11-17; the absolute frequency is
+  pending a scope or counter. The PWM period (999.9 Hz) and the tone pitch were
+  measured on the pins by `PULSE_CAPTURE`, which counts SysTick cycles and
+  converts them with the assumed `TFW_CM_CPU_HZ`. The timers and SysTick all
+  run from HSI, so an error in HSI scales the signal and its measurement alike:
+  the run shows the timers' dividers are right relative to the core clock, not
+  that the core clock is 64 MHz.
 - ST-LINK console on USART1, 115200: verified 2026-11-17, boot frame, CAPS,
   `ping`.
 - Watchdog: verified only in that the image runs for minutes without a reset;
@@ -227,15 +232,16 @@ erases a sector once and then programs it page by page.
 
 ## What is not verified
 
-The bench run (2026-11-17) checked the console, the 64 MHz timer clock, the
-PWM, the tone, the pulse timing, the EEPROM and the I2C NACK path; not the
+The bench run (2026-11-17) checked the console, the timers' clock ratio to
+SysTick (the absolute 64 MHz is pending a scope or counter), the PWM, the tone, the pulse timing, the EEPROM and the I2C NACK path; not the
 ADC, the watchdog's period or tfw-boot's own flash writes. The port's register
 values are ST's source code, not RM0481. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not
 from the documents.
 
 The tone ran on the board (2026-11-17), its pitch measured on the pin by
-`PULSE_CAPTURE`, so TIM3 counts at 64 MHz. Not settled by the bench run:
+`PULSE_CAPTURE`, so TIM3 counts at the core clock's rate (SysTick's, from the
+same HSI; the absolute 64 MHz is not measured). Not settled by the bench run:
 
 - That UG with CEN clear loads PSC and ARR and zeroes CNT without a stray
   toggle of the output, and that the first toggle after a retarget comes one

@@ -43,6 +43,7 @@ const (
 	partApp                             // an application (APP_INFO)
 	partIdentity                        // a provisioned identity, the DEVICEID the rows verify under
 	partToneEth                         // ETH=1 reserves the tone pin (TFW_PIN_ETH): PIN_MODE on it is RESERVED_PIN
+	partNoReset                         // the board's connection keeps it running (TCP): no fresh boot per row
 )
 
 // rowTier is the crypto tier a row starts its peer on: startPeer checks it on
@@ -119,10 +120,12 @@ var boardImages = map[string]boardImage{
 	},
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier, nor
 	// the rows that hold facts only for a tier (cryptoTier), and no identity
-	// (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
+	// (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff. Its run is
+	// over TCP, which keeps the board running (partNoReset).
 	"esp32p4-poe": {
-		caps: avrPeripherals,
-		tier: noneTier,
+		caps:  avrPeripherals,
+		tier:  noneTier,
+		parts: partNoReset,
 	},
 }
 
@@ -130,10 +133,10 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {},
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {not: partNoReset},
 	"TestFirmwarePingAfterAMalformedBurst":               {},
 	"TestFirmwareCaps":                                   {tier: cryptoTier},
-	"TestFirmwareSys":                                    {},
+	"TestFirmwareSys":                                    {not: partNoReset},
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
@@ -364,7 +367,7 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	tiered := []string{"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig"}
 	p4 := boardRun(t, "esp32p4-poe", false)
-	for _, r := range []string{"TestFirmwarePing", "TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst", "TestFirmwareI2C"} {
+	for _, r := range []string{"TestFirmwarePing", "TestFirmwarePingAfterAMalformedBurst", "TestFirmwareI2C"} {
 		if !p4.MatchString(r) {
 			t.Errorf("esp32p4-poe: %s is not run", r)
 		}
@@ -377,6 +380,28 @@ func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
 	for _, board := range []string{"atmega328p", "atmega2560"} {
 		run := boardRun(t, board, false)
 		for _, r := range tiered {
+			if !run.MatchString(r) {
+				t.Errorf("%s: %s is not run", board, r)
+			}
+		}
+	}
+}
+
+// The ESP32-P4's run is over TCP, which does not reset the board (Codex P1 on
+// #564): the BOOT-event row cannot see a startup event, and the Sys row's zero
+// framing counters follow the malformed-burst row, so neither is in its run;
+// the AVR boards, reset on open, still run both.
+func TestTheESP32P4RunLeavesOutTheRowsThatNeedAFreshBoot(t *testing.T) {
+	fresh := []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait", "TestFirmwareSys"}
+	p4 := boardRun(t, "esp32p4-poe", false)
+	for _, r := range fresh {
+		if p4.MatchString(r) {
+			t.Errorf("esp32p4-poe: %s is run on a connection that does not reset", r)
+		}
+	}
+	for _, board := range []string{"atmega328p", "atmega2560"} {
+		run := boardRun(t, board, false)
+		for _, r := range fresh {
 			if !run.MatchString(r) {
 				t.Errorf("%s: %s is not run", board, r)
 			}

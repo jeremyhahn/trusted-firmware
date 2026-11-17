@@ -101,6 +101,18 @@ func tonePinHeld(hardware bool, board string) bool {
 	return hardware && boardImageHolds(board, partTonePinHeld)
 }
 
+// attestRefusal is what ATTEST answers on a device with no identity: a
+// CRYPTO=none image has no provider to attest with, so UNSUPPORTED; a tier
+// that could hold one and does not, NOT_PROVISIONED (Codex P1 on #567). It
+// lives in this untagged file so the row-selection tests compile without
+// tfwsim (Codex P1 on #567 at c75c203c).
+func attestRefusal(tier tfw.CryptoTier) tfw.Status {
+	if tier == tfw.CryptoNone {
+		return tfw.StatusErrUnsupported
+	}
+	return tfw.StatusErrNotProvisioned
+}
+
 // avrPeripherals are the families config.h turns on and neither AVR board's
 // profile turns off.
 const avrPeripherals = tfw.FeatureGPIO | tfw.FeatureSched | tfw.FeatureAnalog | tfw.FeaturePWM |

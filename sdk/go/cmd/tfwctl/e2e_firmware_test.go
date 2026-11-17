@@ -333,16 +333,6 @@ func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
 		"an unprovisioned device produced attestation evidence")
 }
 
-// attestRefusal is what ATTEST answers on a device with no identity: a
-// CRYPTO=none image has no provider to attest with, so UNSUPPORTED; a tier
-// that could hold one and does not, NOT_PROVISIONED (Codex P1 on #567).
-func attestRefusal(tier tfw.CryptoTier) tfw.Status {
-	if tier == tfw.CryptoNone {
-		return tfw.StatusErrUnsupported
-	}
-	return tfw.StatusErrNotProvisioned
-}
-
 func TestFirmwareAnalog(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)

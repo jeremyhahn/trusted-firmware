@@ -163,6 +163,7 @@ type meddler struct {
 	conn  io.ReadWriter
 	reply func(f tfw.Frame) []byte // new payload for a response, or nil to leave it
 	rx    []byte
+	part  []byte // a frame begun but not yet whole
 }
 
 // frameOverhead is SOF, LEN and the two CRC bytes around a frame's body, per
@@ -173,15 +174,16 @@ func (m *meddler) Write(p []byte) (int, error) { return m.conn.Write(p) }
 
 func (m *meddler) Read(p []byte) (int, error) {
 	if len(m.rx) == 0 {
-		var head [2]byte
-		if _, err := io.ReadFull(m.conn, head[:]); err != nil {
+		// A read timeout can cut a frame anywhere (a tcp: conn's floor), so
+		// what arrived before it stays in m.part and the next Read resumes it.
+		if err := m.fill(2); err != nil {
 			return 0, err
 		}
-		frame := make([]byte, int(head[1])+frameOverhead)
-		copy(frame, head[:])
-		if _, err := io.ReadFull(m.conn, frame[2:]); err != nil {
+		if err := m.fill(int(m.part[1]) + frameOverhead); err != nil {
 			return 0, err
 		}
+		frame := m.part
+		m.part = nil
 		if f, _, err := tfw.Decode(frame); err == nil && m.reply != nil && f.IsResponse() {
 			if payload := m.reply(f); payload != nil {
 				if frame, err = tfw.EncodeResponse(f.Seq, f.Cmd(), f.Status, payload); err != nil {
@@ -194,6 +196,19 @@ func (m *meddler) Read(p []byte) (int, error) {
 	n := copy(p, m.rx)
 	m.rx = m.rx[n:]
 	return n, nil
+}
+
+// fill reads until m.part holds n bytes, keeping what it got on an error.
+func (m *meddler) fill(n int) error {
+	for len(m.part) < n {
+		buf := make([]byte, n-len(m.part))
+		k, err := m.conn.Read(buf)
+		m.part = append(m.part, buf[:k]...)
+		if err != nil && len(m.part) < n {
+			return err
+		}
+	}
+	return nil
 }
 
 // A device whose caps does not report bit 15 is refused by the host without

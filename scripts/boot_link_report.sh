@@ -43,18 +43,25 @@ echo "tfw-boot does not link for $board:"
 echo
 shown=0
 if [ -r "$err" ]; then
+	# collect2's "ld returned 1 exit status" wraps every failure and names
+	# none, so it does not count as a cause: a log whose only error line is
+	# collect2's is shown whole (Codex P1 on #531).
 	while IFS= read -r line || [ -n "$line" ]; do
 		case $line in
-		*error:* | *frame-larger-than* | *vla* | *alloca* | *"undefined reference"*)
-			echo "  ld: $line"
+		*collect2:* | *"ld returned"*) ;;
+		*error:* | *frame-larger-than* | *vla* | *alloca* | *overlaps* | *"undefined reference"*)
 			shown=1 ;;
 		esac
 	done <"$err"
-	# Nothing matched: the whole log is the only account of the failure.
-	if [ $shown -eq 0 ]; then
-		while IFS= read -r line || [ -n "$line" ]; do
+	while IFS= read -r line || [ -n "$line" ]; do
+		if [ $shown -eq 0 ]; then
 			echo "  ld: $line"
-		done <"$err"
-	fi
+			continue
+		fi
+		case $line in
+		*error:* | *frame-larger-than* | *vla* | *alloca* | *overlaps* | *"undefined reference"*)
+			echo "  ld: $line" ;;
+		esac
+	done <"$err"
 fi
 exit 1

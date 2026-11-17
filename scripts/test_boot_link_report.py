@@ -30,6 +30,14 @@ compilation terminated.
 collect2: error: ld returned 1 exit status
 """
 
+COLLECT2 = "collect2: error: ld returned 1 exit status\n"
+
+OVERLAP_LINE = ("/usr/lib/gcc/avr/7.3.0/../../../avr/bin/ld: section .data LMA "
+                "[0000000000007f00,0000000000007f3f] overlaps section .text LMA "
+                "[0000000000007000,0000000000007f1f]")
+
+OVERLAP_ERR = OVERLAP_LINE + "\n" + COLLECT2
+
 
 def run(text, board="atmega328p"):
     with tempfile.TemporaryDirectory() as d:
@@ -66,6 +74,20 @@ class BootLinkReportTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertNotIn(NOT_FIT, out)
         self.assertIn("  ld: something odd happened", out)
+
+    def test_overlap_before_collect2_names_the_overlap(self):
+        # Codex P1 on #531: collect2's generic error must not hide the cause.
+        rc, out = run(OVERLAP_ERR)
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn(NOT_FIT, out)
+        self.assertIn("  ld: " + OVERLAP_LINE, out)
+        self.assertIn("ld returned 1 exit status", out)
+
+    def test_collect2_alone_does_not_hide_the_log(self):
+        rc, out = run("ld: something odd happened\n" + COLLECT2)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("  ld: ld: something odd happened", out)
+        self.assertIn("ld returned 1 exit status", out)
 
     def test_usage(self):
         p = subprocess.run(["sh", SCRIPT], capture_output=True, text=True,

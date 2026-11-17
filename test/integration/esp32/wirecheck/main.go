@@ -353,16 +353,20 @@ func expectSilent(network, addr string, window time.Duration, refusal int) error
 	if refusal < 0 {
 		return nil
 	}
+	if refusal > math.MaxUint8 {
+		return fmt.Errorf("-refusal %d: a status is one byte, at most %d", refusal, math.MaxUint8)
+	}
+	want := tfw.Status(uint8(refusal))
 	// A refusing device must say why (#542): the boot loader's EVENT carries the
 	// reason it stopped, and a console that shows nothing is a defect.
 	for _, s := range seen {
-		if s == tfw.Status(refusal) {
+		if s == want {
 			fmt.Printf("wirecheck: refusal announced: %v\n", s)
 			return nil
 		}
 	}
 	return fmt.Errorf("no EVENT named the refusal %v over %s %s in %v (events seen: %v)",
-		tfw.Status(refusal), network, addr, window, seen)
+		want, network, addr, window, seen)
 }
 
 // otaCheck streams the image in file through OTA_BEGIN/DATA/END and reads the

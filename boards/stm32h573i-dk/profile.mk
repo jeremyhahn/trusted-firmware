@@ -80,7 +80,11 @@ I2C               ?= 0
 ETH_PROBE         ?= 0
 BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
                      $(if $(filter 1,$(ETH_PROBE)),-DTFW_CM_ETH_PROBE=1)
-BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
+# Each -D above names the image directory too (mk/firmware.mk's
+# ROW_FEATURE_SUFFIX: -i2c, -eth_probe), so switching ETH_PROBE without a
+# clean rebuilds hal_uart.o and the objects that test the -D.
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) \
+                     $(if $(filter 1,$(ETH_PROBE)),ETH_PROBE)
 BOARD_ROWS        := soft:I2C=1
 
 # Written through the kit's ST-LINK/V3E with ST's STM32CubeProgrammer CLI

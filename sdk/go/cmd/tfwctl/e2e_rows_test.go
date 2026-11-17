@@ -125,6 +125,7 @@ var firmwareRowNeeds = map[string]rowNeed{
 	"TestFirmwareAttestRefusedUnprovisioned":             {caps: tfw.FeatureAttest, not: partIdentity},
 	"TestFirmwareAnalog":                                 {caps: tfw.FeatureAnalog},
 	"TestFirmwarePWM":                                    {caps: tfw.FeaturePWM},
+	"TestFirmwareTone":                                   {caps: tfw.FeatureTone},
 	"TestFirmwareI2C":                                    {caps: tfw.FeatureI2C},
 	"TestFirmwareI2CConfig":                              {caps: tfw.FeatureI2C},
 	"TestFirmwareSPIConfig":                              {caps: tfw.FeatureSPI},

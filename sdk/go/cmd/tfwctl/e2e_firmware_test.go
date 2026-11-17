@@ -358,6 +358,54 @@ func TestFirmwarePWM(t *testing.T) {
 	cliRefused(t, dev, "pwm", strconv.Itoa(int(b.noPWMPin)), "128") // no compare unit
 }
 
+// toneHz is the frequency the tone row drives. A kilohertz is a 500 us half
+// period: long against the P4's busy-polled capture, short enough that the
+// edges the row times fit a 200 ms window.
+const toneHz = 1000
+
+// TestFirmwareTone starts a tone on the board's own tone pin, measures it
+// back on that pin, and stops it. The pin is set to an output first: the P4's
+// HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), so
+// PULSE_CAPTURE reads the level LEDC drives. On a board the row times the
+// captured half periods and wants the frequency within 5%; a simulator's pin
+// carries no waveform, so there the row proves the start and stop round-trip.
+func TestFirmwareTone(t *testing.T) {
+	_, b := firmwareBoard(t)
+	target, err := peer.FromEnv()
+	require.NoError(t, err)
+	dev := startFirmware(t)
+	requireFeature(t, dev, tfw.FeatureTone)
+	pin := strconv.Itoa(int(b.tonePin))
+
+	assert.Equal(t, tfw.StatusErrUnsupported, cliStatus(t, dev, "tone", strconv.Itoa(int(b.pwmPin)), strconv.Itoa(toneHz)),
+		"pin %d is not the tone pin", b.pwmPin)
+	require.NoError(t, run(context.Background(), dev, "mode", []string{pin, "out"}, false, &strings.Builder{}))
+	require.NoError(t, run(context.Background(), dev, "write", []string{pin, "0"}, false, &strings.Builder{}))
+	require.NoError(t, run(context.Background(), dev, "tone", []string{pin, strconv.Itoa(toneHz)}, false, &strings.Builder{}),
+		"pin %d is the tone pin and should take %d Hz", b.tonePin, toneHz)
+	t.Cleanup(func() {
+		_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
+	})
+
+	if target.Hardware() {
+		var got struct {
+			EdgesUS []uint16 `json:"edges_us"`
+		}
+		cliJSON(t, dev, &got, "pulse-capture", pin, "1", "32", "200ms")
+		require.Len(t, got.EdgesUS, 32, "pin %d: a %d Hz tone gives 32 edges in 200 ms", b.tonePin, toneHz)
+		hz, err := toneFrequency(got.EdgesUS)
+		require.NoError(t, err)
+		t.Logf("pin %d: %.1f Hz measured over %d half periods, %d Hz asked", b.tonePin, hz, len(got.EdgesUS)-2, toneHz)
+		assert.InEpsilon(t, float64(toneHz), hz, 0.05, "pin %d: tone frequency", b.tonePin)
+	}
+
+	require.NoError(t, run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{}))
+	if target.Hardware() {
+		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
+			"pin %d: still toggling after NOTONE", b.tonePin)
+	}
+}
+
 func TestFirmwareI2C(t *testing.T) {
 	dev := startFirmware(t)
 	requireFeature(t, dev, tfw.FeatureI2C)

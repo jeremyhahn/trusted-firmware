@@ -50,10 +50,15 @@ const (
 // a board as on the simulator.
 type rowTier uint8
 
+// noneTier is an image's only: CRYPTO=none, no provider at all. cryptoTier
+// is a row's only: either tier the row holds facts for, software or element,
+// so an image on none does not run it (Codex P1 on #558).
 const (
 	anyTier rowTier = iota
 	softTier
 	elementTier
+	noneTier
+	cryptoTier
 )
 
 // rowNeed is what a row needs of its peer's image.
@@ -76,7 +81,8 @@ type boardImage struct {
 // servedBy reports whether img serves a row with this need.
 func (n rowNeed) servedBy(img boardImage) bool {
 	return img.caps&n.caps == n.caps && img.caps&n.lacks == 0 &&
-		(n.tier == anyTier || n.tier == img.tier) &&
+		(n.tier == anyTier || n.tier == img.tier ||
+			n.tier == cryptoTier && (img.tier == softTier || img.tier == elementTier)) &&
 		img.parts&n.has == n.has && img.parts&n.not == 0
 }
 
@@ -109,7 +115,7 @@ var boardImages = map[string]boardImage{
 	// Its wire is TCP, and connecting resets nothing.
 	"esp32p4-poe": {
 		caps: avrPeripherals,
-		tier: anyTier,
+		tier: noneTier,
 	},
 }
 
@@ -345,6 +351,33 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 		for _, r := range tc.not {
 			if run.MatchString(r) {
 				t.Errorf("%s: %s is run", tc.board, r)
+			}
+		}
+	}
+}
+
+// The ESP32-P4's bench image is CRYPTO=none (Codex P1 on #558): the rows that
+// hold facts only for the software and element tiers (Caps, EEPROM,
+// I2CConfig) are not in its run, where they could only fail; the rows with no
+// tier in them are, and the AVR boards, on a tier, still run those three.
+func TestTheESP32P4RunLeavesOutTheRowsWithNoNoneTierFacts(t *testing.T) {
+	tiered := []string{"TestFirmwareCaps", "TestFirmwareEEPROM", "TestFirmwareI2CConfig"}
+	p4 := boardRun(t, "esp32p4-poe", false)
+	for _, r := range []string{"TestFirmwarePing", "TestFirmwareSys", "TestFirmwarePingAfterAMalformedBurst", "TestFirmwareI2C"} {
+		if !p4.MatchString(r) {
+			t.Errorf("esp32p4-poe: %s is not run", r)
+		}
+	}
+	for _, r := range tiered {
+		if p4.MatchString(r) {
+			t.Errorf("esp32p4-poe: %s is run on a CRYPTO=none image", r)
+		}
+	}
+	for _, board := range []string{"atmega328p", "atmega2560"} {
+		run := boardRun(t, board, false)
+		for _, r := range tiered {
+			if !run.MatchString(r) {
+				t.Errorf("%s: %s is not run", board, r)
 			}
 		}
 	}

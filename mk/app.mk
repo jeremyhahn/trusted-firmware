@@ -117,18 +117,60 @@ tfwsim-app-example:
 # and the dependency file an earlier run left there names its source by path.
 # A path that changes with each run is one that no longer exists on the next.
 # Its object directory is emptied before and after, as app-sdk-check's are.
+#
+# An ESP32 board's image is ESP-IDF's (`make firmware` refuses one), so it is
+# esp32-build there, which needs ESP-IDF exported. The image must then hold one
+# of the application's own symbols, a hook or the descriptor: nm of the ELF,
+# or on ESP32 scripts/app_symbols.py on ESP-IDF's ELF (no nm is exported for
+# the tree). Never a linker map: it lists the input sections --gc-sections
+# discarded, so a dropped application would pass. LTO may inline a hook, never
+# all of them and the descriptor; the runner's tfw_app_runner_* are not the
+# application's.
+APP_OWN_SYMBOLS := tfw_app_(descriptor|init|run|shutdown|before_update|after_update|evidence)
+APP_SYMBOLS     := python3 scripts/app_symbols.py
 app-firmware-check:
 	@t=$(abspath $(BUILD_DIR))/app-firmware-check/$(BOARD) && rm -rf "$$t" && mkdir -p "$$t" && \
 	cp -a test/app/example/. "$$t/" && \
 	d=$$($(MAKE) --no-print-directory -s app-obj-dirs APP_DIR="$$t" BOARD=$(BOARD)) && \
 	rm -rf $$d && trap 'rm -rf "$$t" '"$$d" EXIT && \
-	$(MAKE) --no-print-directory firmware APP_DIR="$$t" BOARD=$(BOARD)
+	$(MAKE) --no-print-directory $(if $(filter esp32,$(ARCH)),esp32-build,firmware) APP_DIR="$$t" BOARD=$(BOARD) && \
+	img=$$($(MAKE) --no-print-directory -s app-image APP_DIR="$$t" BOARD=$(BOARD)) && \
+	$(if $(filter esp32,$(ARCH)),$(APP_SYMBOLS) "$$img" '$(APP_OWN_SYMBOLS)' > /dev/null,$(ARCH_NM) "$$img" | grep -Eq ' $(APP_OWN_SYMBOLS)(\.|$$)') || \
+	  { echo "app-firmware-check: $$img holds none of the application's symbols"; exit 1; }; \
+	echo "app-firmware-check: $(BOARD)'s image holds the example application"
 
 # The directories an application's objects are built in, for the two checks
 # above. Expanded when it runs, after mk/firmware.mk and mk/host.mk have set them.
 app-obj-dirs:
 	@$(if $(and $(FW_DIR),$(HOST_DIR),$(APP_NAME)),,$(error app-obj-dirs: FW_DIR, HOST_DIR or APP_NAME is empty))
 	@echo $(FW_DIR)/app $(APP_HOST_DIR) $(APP_HOST_ELEMENT_DIR)
+
+# The file app-firmware-check looks in for the application: the ELF, or on an
+# ESP32 board the map file ESP-IDF writes beside its ELF.
+app-image:
+	@echo $(if $(filter esp32,$(ARCH)),$(ESP_OUT)/idf/trusted-firmware.elf,$(TARGET).elf)
+
+## app-firmware-check-selftest: the ESP32 image check counts only symbols the linked image keeps
+# The example linked on the host twice with --gc-sections: once with nothing
+# reaching it, so its sections are discarded though the map still names them,
+# and once kept. scripts/app_symbols.py must refuse the first and find the
+# second, and the first's map must name .text.tfw_app_, the case a map grep
+# accepted.
+app-firmware-check-selftest:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	$(CC) $(HOST_CFLAGS) -ffunction-sections -fdata-sections -c test/app/example/example.c -o "$$t/example.o" && \
+	printf 'int main(void) { return 0; }\n' > "$$t/main.c" && \
+	$(CC) $(HOST_CFLAGS) -c "$$t/main.c" -o "$$t/main.o" && \
+	$(CC) "$$t/main.o" "$$t/example.o" -Wl,--gc-sections -Wl,-Map="$$t/gone.map" -o "$$t/gone.elf" && \
+	grep -q '\.text\.tfw_app_' "$$t/gone.map" || \
+	  { echo "selftest: the discarded example's map names no .text.tfw_app_ section"; exit 1; }; \
+	if $(APP_SYMBOLS) "$$t/gone.elf" '$(APP_OWN_SYMBOLS)'; then \
+	  echo "selftest: app_symbols.py counted a discarded application"; exit 1; fi; \
+	$(CC) "$$t/main.o" "$$t/example.o" -Wl,--gc-sections -Wl,--undefined=tfw_app_init \
+	  -Wl,--unresolved-symbols=ignore-all -o "$$t/kept.elf" && \
+	$(APP_SYMBOLS) "$$t/kept.elf" '$(APP_OWN_SYMBOLS)' > /dev/null || \
+	  { echo "selftest: app_symbols.py missed the kept application"; exit 1; }; \
+	echo "app-firmware-check-selftest: a discarded application is refused, a kept one found"
 
 ## app-header-check: every public header compiles on its own, with an application's flags, against every board
 # An application repository sees include/tfw/, its board's board_profile.h and
@@ -191,7 +233,71 @@ app-header-check-selftest:
 	  *) echo "selftest: the failure did not name tfw/lean.h"; printf '%s\n' "$$out"; exit 1 ;; esac; \
 	echo "app-header-check rejects a header that is not self-contained and names it"
 
-host-test: app-header-check
-security: app-header-check-selftest
+## app-link-check: one application per image, and the runner the only caller of its hooks
+# Two halves. The link: the example application and the recording mock
+# (test/mock/app_mock.c) both define the hooks, strong and with no weak
+# default, so linking the two together must fail with a multiple definition of
+# a tfw_app_ hook, and the example alone must link. A relocatable link (-r) is
+# enough to see it: undefined symbols are allowed there, duplicate definitions
+# are not, so the failure is the second application and nothing else.
+#
+# The caller: no file under APP_LINK_SRC but core/app_runner.c names a hook --
+# the descriptor, init, run, shutdown, before_update, after_update or
+# evidence -- as a token anywhere in its code, so a call split across lines or
+# written (tfw_app_init)() is a caller too. Comments are stripped first by the
+# preprocessor (-fpreprocessed: no include or macro is expanded), so a comment
+# that names a hook is not a caller; tfw_app_runner_* and tfw_app_config_* are
+# the runner's, not hooks. A file the preprocessor cannot read is a failure,
+# and so is an empty source list. Run by host-test.
+APP_LINK_SRC  ?= src
+APP_HOOK_ERE  := (^|[^[:alnum:]_])tfw_app_(init|run|shutdown|before_update|after_update|evidence|descriptor)([^[:alnum:]_]|$$)
+APP_UNCOMMENT  = $(CC) -fpreprocessed -dD -E -P -x c
+app-link-check:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && \
+	$(CC) $(HOST_CFLAGS) -c test/app/example/example.c -o "$$t/example.o" && \
+	$(CC) $(HOST_CFLAGS) -c test/mock/app_mock.c -o "$$t/mock.o" && \
+	$(CC) -r -nostdlib "$$t/example.o" -o "$$t/one.o" || \
+	  { echo "app-link-check: the example application alone did not link"; exit 1; }; \
+	if $(CC) -r -nostdlib "$$t/example.o" "$$t/mock.o" -o "$$t/two.o" > "$$t/two.log" 2>&1; then \
+	  echo "app-link-check: two applications linked into one image"; exit 1; fi; \
+	grep -q 'multiple definition of .tfw_app_' "$$t/two.log" || \
+	  { echo "app-link-check: the second application's link failed, but not on a tfw_app_ hook"; head -n 5 "$$t/two.log"; exit 1; }; \
+	files=$$(find $(APP_LINK_SRC) -type f \( -name '*.c' -o -name '*.h' -o -name '*.def' \) | sort); \
+	[ -n "$$files" ] || { echo "app-link-check: no source under $(APP_LINK_SRC)"; exit 1; }; \
+	callers=; runner=no; \
+	for f in $$files; do \
+	  $(APP_UNCOMMENT) "$$f" > "$$t/code" 2> "$$t/cpp.log" || \
+	    { echo "app-link-check: the preprocessor cannot strip the comments of $$f"; head -n 5 "$$t/cpp.log"; exit 1; }; \
+	  grep -qE '$(APP_HOOK_ERE)' "$$t/code" || continue; \
+	  if [ "$$f" = '$(APP_LINK_SRC)/core/app_runner.c' ]; then runner=yes; else callers="$$callers $$f"; fi; \
+	done; \
+	[ -z "$$callers" ] || { echo "app-link-check: a hook is named outside $(APP_LINK_SRC)/core/app_runner.c:"; \
+	  printf '  %s\n' $$callers; exit 1; }; \
+	[ "$$runner" = yes ] || \
+	  { echo "app-link-check: $(APP_LINK_SRC)/core/app_runner.c names no hook -- the pattern is broken"; exit 1; }; \
+	echo "app-link-check: a second application does not link, and only core/app_runner.c of $$(printf '%s\n' $$files | wc -l) files names a hook"
 
-.PHONY: app-sdk-check app-firmware-check app-obj-dirs tfwsim-app-example app-header-check app-header-check-selftest
+## app-link-check-selftest: the link gate rejects a hook called outside the runner, and names the file
+# A copy of src/ with a call to tfw_app_init planted in a copy of main.c, three
+# ways: on one line, split across two, and parenthesised. Each time the gate
+# must fail and print that file. The copy unplanted must pass. Run by the
+# security stage, beside app-header-check-selftest.
+app-link-check-selftest:
+	@t=$$(mktemp -d) && trap 'rm -rf "$$t"' EXIT && cp -a src "$$t/" && cp "$$t/src/main.c" "$$t/main.c" && \
+	$(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" > /dev/null || \
+	  { echo "selftest: the unplanted copy was rejected"; exit 1; }; \
+	for c in '(void)tfw_app_init();' '(void)tfw_app_init\n();' '(void)(tfw_app_init)();'; do \
+	  cp "$$t/main.c" "$$t/src/main.c" && \
+	  printf "\nvoid tfw_plant(void);\nvoid tfw_plant(void) { $$c }\n" >> "$$t/src/main.c" && \
+	  if out=$$($(MAKE) --no-print-directory app-link-check APP_LINK_SRC="$$t/src" 2>&1); then \
+	    echo "selftest: the gate passed '$$c' in main.c"; exit 1; fi; \
+	  case "$$out" in *"$$t/src/main.c"*) ;; \
+	    *) echo "selftest: the failure on '$$c' did not name main.c"; printf '%s\n' "$$out"; exit 1 ;; esac; \
+	done; \
+	echo "app-link-check rejects a hook called outside the runner, on one line, split or parenthesised, and names the file"
+
+host-test: app-header-check app-link-check
+security: app-header-check-selftest app-link-check-selftest app-firmware-check-selftest
+
+.PHONY: app-sdk-check app-firmware-check app-obj-dirs app-image tfwsim-app-example app-header-check app-header-check-selftest \
+        app-link-check app-link-check-selftest app-firmware-check-selftest

@@ -138,6 +138,12 @@ func TestAttestKeyVerifiesTheCertificateARealDeviceEmits(t *testing.T) {
 	assert.Contains(t, hex.EncodeToString(ueid), vecAliasCertUeidHex)
 	assert.Contains(t, att.Claims.Other, int64(273), "and a measurement at key 273")
 
+	// sdk/go decodes that measurement: the 32 bytes reported are the
+	// hash-value the device encoded in claim 273.
+	assert.NotEqual(t, [tfw.ApplicationEvidenceLen]byte{}, att.ApplicationEvidence)
+	assert.True(t, bytes.Contains(att.Claims.Other[273], att.ApplicationEvidence[:]),
+		"the measurement is the one claim 273 carries")
+
 	// The identity is that same claim, read by dice.DeviceUeid, because this
 	// certificate has no tcg-dice-Ueid extension to read it from. Before that
 	// reader existed the device-attest-01 identity gate refused this device.
@@ -351,7 +357,7 @@ var softRootTcbInfo = pkix.Extension{
 // answers ATTEST_CERT with an alias certificate reporting notSecure.
 func softRootLink(t *testing.T, device *aliasDevice, nonce []byte) *fakeLink {
 	t.Helper()
-	ext, err := dice.CreateUccsEvidenceExtension(&dice.ClaimsSet{Nonce: nonce})
+	ext, err := dice.CreateUccsEvidenceExtension(aliasClaims(nonce))
 	require.NoError(t, err)
 	return newFakeLink().answer(tfw.CmdCaps, capsPayload(
 		tfw.CryptoSoftware,
@@ -710,7 +716,7 @@ func newAliasDevice(t *testing.T) *aliasDevice {
 // mint produces an alias certificate carrying the challenge.
 func (d *aliasDevice) mint(t *testing.T, nonce []byte) []byte {
 	t.Helper()
-	ext, err := dice.CreateUccsEvidenceExtension(&dice.ClaimsSet{Nonce: nonce})
+	ext, err := dice.CreateUccsEvidenceExtension(aliasClaims(nonce))
 	require.NoError(t, err)
 	return d.sign(t, []pkix.Extension{ext})
 }
@@ -727,7 +733,7 @@ func (d *aliasDevice) mintWithout(t *testing.T) []byte {
 // algorithm -- not a forgery from elsewhere.
 func (d *aliasDevice) mintSignedWith(t *testing.T, nonce []byte, alg x509.SignatureAlgorithm) []byte {
 	t.Helper()
-	ext, err := dice.CreateUccsEvidenceExtension(&dice.ClaimsSet{Nonce: nonce})
+	ext, err := dice.CreateUccsEvidenceExtension(aliasClaims(nonce))
 	require.NoError(t, err)
 
 	alias, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -750,7 +756,7 @@ func (d *aliasDevice) mintSignedWith(t *testing.T, nonce []byte, alg x509.Signat
 // element could not have generated.
 func (d *aliasDevice) mintOnCurve(t *testing.T, nonce []byte, curve elliptic.Curve) []byte {
 	t.Helper()
-	ext, err := dice.CreateUccsEvidenceExtension(&dice.ClaimsSet{Nonce: nonce})
+	ext, err := dice.CreateUccsEvidenceExtension(aliasClaims(nonce))
 	require.NoError(t, err)
 	return d.signOn(t, []pkix.Extension{ext}, curve)
 }
@@ -919,4 +925,83 @@ func TestAttestKeyRefusesAnAliasThatIsNotECDSASHA256Signed(t *testing.T) {
 	b := newTestBackend(t, secureElementLink().answerAttestCert(device.mint(t, nonce)))
 	_, err := b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
 	require.NoError(t, err)
+}
+
+// testMeasurement is the application evidence the synthetic alias
+// certificates carry in claim 273.
+var testMeasurement = bytes.Repeat([]byte{0xA5}, tfw.ApplicationEvidenceLen)
+
+// aliasClaims is the claims set a device states: the nonce, and claim 273 in
+// the one-file shape src/caps/uccs.c emits.
+func aliasClaims(nonce []byte) *dice.ClaimsSet {
+	return &dice.ClaimsSet{
+		Nonce: nonce,
+		Other: map[int64][]byte{273: measurementClaim("app", testMeasurement)},
+	}
+}
+
+// measurementClaim encodes claim 273 as the firmware does:
+// [[258, bstr .cbor {3: {17: {24: name, 7: [1, hash]}}}]]. Hand-encoded so the
+// test does not borrow the decoder it checks. name and hash are under 256
+// bytes.
+func measurementClaim(name string, hash []byte) []byte {
+	head := func(major byte, n int) []byte {
+		if n < 24 {
+			return []byte{major | byte(n)}
+		}
+		return []byte{major | 24, byte(n)}
+	}
+	var file []byte
+	file = append(file, 0xA2, 0x18, 0x18) // map(2), key 24 (fs-name)
+	file = append(file, head(0x60, len(name))...)
+	file = append(file, name...)
+	file = append(file, 0x07, 0x82, 0x01) // key 7 (hash), [1 (sha-256),
+	file = append(file, head(0x40, len(hash))...)
+	file = append(file, hash...)                              // hash-value]
+	coswid := append([]byte{0xA1, 0x03, 0xA1, 0x11}, file...) // {3: {17: file}}
+	claim := []byte{0x81, 0x82, 0x19, 0x01, 0x02}             // [[258,
+	claim = append(claim, head(0x40, len(coswid))...)
+	return append(claim, coswid...) // bstr]]
+}
+
+func TestAttestKeyReportsTheMeasurementSdkGoDecodes(t *testing.T) {
+	device := newAliasDevice(t)
+	nonce := bytes.Repeat([]byte{0x24}, tfw.AliasNonceLen)
+
+	b := newTestBackend(t, secureElementLink().answerAttestCert(device.mint(t, nonce)))
+	result, err := b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
+	require.NoError(t, err)
+
+	att, ok := result.(*Attestation)
+	require.True(t, ok)
+	assert.Equal(t, testMeasurement, att.ApplicationEvidence[:])
+}
+
+// TestAttestKeyRefusesAMeasurementSdkGoRefuses: a chain dice.Verify accepts is
+// still refused when sdk/go, the owner of the claim format, refuses claim 273.
+func TestAttestKeyRefusesAMeasurementSdkGoRefuses(t *testing.T) {
+	cases := []struct {
+		name  string
+		other map[int64][]byte
+	}{
+		{"no claim 273", nil},
+		{"a 31-byte hash", map[int64][]byte{273: measurementClaim("app", testMeasurement[:31])}},
+		{"a file that is not app", map[int64][]byte{273: measurementClaim("bin", testMeasurement)}},
+		{"claim 273 that is not an array", map[int64][]byte{273: {0x01}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			device := newAliasDevice(t)
+			nonce := bytes.Repeat([]byte{0x42}, tfw.AliasNonceLen)
+			ext, err := dice.CreateUccsEvidenceExtension(&dice.ClaimsSet{Nonce: nonce, Other: tc.other})
+			require.NoError(t, err)
+
+			b := newTestBackend(t, secureElementLink().answerAttestCert(device.sign(t, []pkix.Extension{ext})))
+			_, err = b.AttestKey(context.Background(), &types.KeyAttributes{CN: DefaultKeyCN}, nonce)
+
+			assert.ErrorIs(t, err, tfw.ErrBadFormat)
+			var evidenceErr *tfw.EvidenceError
+			assert.ErrorAs(t, err, &evidenceErr, "the refusal is sdk/go's")
+		})
+	}
 }

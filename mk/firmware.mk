@@ -423,8 +423,11 @@ endif
 OTA_STAGE ?= $(if $(ARCH_OTA_SRCS),1,$(if $(OTA_STORE),$(ETH),0))
 ifneq ($(and $(filter 1,$(OTA_STAGE)),$(ARCH_OTA_SRCS)),)
 STAGE_SRCS := $(ARCH_OTA_SRCS) src/core/ota_auth.c boot/boot_image.c
+# That file also answers tfw_update_slots(), the update path an application's
+# ota_slots is checked against (src/core/update_request.h); the architecture
+# links update_request_arch.c (ARCH_UPDATE_REQUEST := arch), which leaves it out.
 STAGE_DEFS := -DTFW_FEATURE_OTA_STAGE=1 -DTFW_FEATURE_OTA_INFO=1 -DTFW_FEATURE_OTA_ACTIVATE=1 \
-              -DTFW_FEATURE_OTA_CTL=1
+              -DTFW_FEATURE_OTA_CTL=1 -DTFW_ARCH_OTA=1
 else ifeq ($(OTA_STAGE),1)
 ifeq ($(OTA_STORE),)
 $(error OTA_STAGE=1 but $(BOARD_DIR)/profile.mk names no OTA_STORE -- this board has no external store)
@@ -572,9 +575,12 @@ FW_CFLAGS   += -DTFW_FEATURE_OTA_CTL=1
 else
 OTACTL_SRCS :=
 endif
-ifeq ($(ARCH_UPDATE_REQUEST),none)
+# ARCH_UPDATE_REQUEST := arch is the same refusal with tfw_update_slots() left
+# to the architecture's OTA file (update_request_arch.c), by file, not by a
+# conditional in the core file.
+ifneq ($(filter none arch,$(ARCH_UPDATE_REQUEST)),)
 IDENTITY_SRCS := $(filter-out src/core/update_request.c boot/boot_request.c,$(IDENTITY_SRCS)) \
-                 src/core/update_request_none.c
+                 src/core/update_request_$(ARCH_UPDATE_REQUEST).c
 endif
 # One update path per image on the A/B part (#52, question 6, decided
 # 2026-10-26), by FILE SELECTION. An image with the stager is the store's: its
@@ -861,9 +867,15 @@ size-check: $(TARGET).elf
 # Each copy is `git archive HEAD` (scripts/repro_build.py): no build/, no
 # untracked file, so an image a previous build left cannot satisfy it, and
 # SOURCE_DATE_EPOCH is the commit time.
+#
+# With APP_DIR, the image is the application's ($(TARGET) carries its name):
+# an application in this tree is the committed one in each copy, one outside
+# it the same directory for both (repro_build.py --app-dir). The build stage
+# runs it with APP_DIR=test/app/example.
 reproducible-check:
 	@python3 scripts/repro_build.py --make "$(MAKE)" --image $(TARGET).hex \
-	   --dir /tmp/agrepro-a --dir /tmp/agrepro-b -- \
+	   --dir /tmp/agrepro-a$(APP_SUFFIX) --dir /tmp/agrepro-b$(APP_SUFFIX) \
+	   $(if $(strip $(APP_DIR)),--app-dir "$(APP_DIR)") -- \
 	   BOARD=$(BOARD) CRYPTO=$(CRYPTO) $(TARGET).hex
 
 ## flash: write the firmware to a connected board

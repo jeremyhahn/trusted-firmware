@@ -49,6 +49,7 @@ state is **not confirmed** and is named below where the port leans on it.
 | Ethernet frames | **verified on the board 2026-11-17**: the MAC and DMA in poll mode (`src/hal/cortex-m/stm32h5/hal_eth_mac.c`, four TX and four RX descriptors, 1536-byte buffers, the speed and duplex from the LAN8742A's PSCSR), host-tested by `test/unit/test_h5_eth_mac.c`; on the board the frames of a whole DHCP exchange went out and came in. Commit b0226d8f, the `ETH_MAC=1` application's sha256 `c3de81f3a65ba7260803ec2f3509b0dfcb7ec217440f3b24c8b4589c010d2f31` (`trusted-firmware.bin`), written signed in the bench image (see "Bench run"), whose packed sha256 is `26ba05ce4d03b41bb550cd5fa8b97b6ddcce0d9789b3f2c8386a97f600e1fa5d` (`.bin`) | RM0481 (the ETH MAC, MTL and DMA registers, the descriptor formats); LAN8742A data sheet (PSCSR) |
 | DHCP lease | **verified on the board 2026-11-17**: the same image printed `eth: dhcp bound` and the leased address on the console about 15.6 s after a debugger reset, 10 s of it tfw-boot's P-256 check; the address was on the dev network (VLAN 101) | as above |
 | IP stack | **lwIP 2.2.1** (`STABLE-2_2_1_RELEASE`), NO_SYS raw API polled from the main loop, IPv4 with ARP, ICMP, UDP, TCP and DHCP, vendored unmodified under `third_party/lwip` (`VERSION` pins the commit and the tree hash); the options are `src/hal/cortex-m/stm32h5/lwipopts.h`; built only with `ETH_MAC=1` | [`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md) |
+| tfw-wire over TCP | **verified on the board 2026-11-17** (#582): the `ETH_MAC=1` image listens on TCP port 21574 (lwIP raw API, `hal_eth_wire_tcp.c`), one connection at a time, a new one replacing the held one; `hal_eth_wire.c` serves it and the UART to the one transport, replies on the wire the request came on, events on the UART. Commit 1cf43fdf; the P4's row set passes over `PORT=tcp:<board>:21574` but for the boot-event row (see the feature matrix) | `src/hal/cortex-m/stm32h5/hal_eth_wire.h` |
 | Other radios | a Wi-Fi module | UM3143, introduction |
 
 ## The port
@@ -236,8 +237,31 @@ CA 583 forbids: option bytes or provisioning).
 - DHCP lease: verified 2026-11-17, the same image's console line
   `eth: dhcp bound` with the leased address, about 15.6 s after reset (#581).
 - IP stack: lwIP 2.2.1, NO_SYS, vendored unmodified (`third_party/lwip`).
-- Enrolling over Ethernet: fails, no tfw-wire over TCP in the port yet
-  (Ethernet ADR slice 3, #540).
+- tfw-wire over TCP (board as server, port 21574): verified 2026-11-17,
+  commit 1cf43fdf, the `ETH_MAC=1` image (application sha256
+  `7702b4aa…c807`, packed bench image `445e0d16…dc0a`), from the bench host
+  with `make hw-test BOARD=stm32h573i-dk PORT=tcp:<board>:21574` and PR
+  #568's host transport (#582). The link is
+  `src/hal/cortex-m/stm32h5/hal_eth_wire.c` over the lwIP listener
+  `hal_eth_wire_tcp.c`, host-tested by `test/unit/test_h5_eth_wire.c`.
+  The P4's row set over TCP, 2026-11-17, the same image:
+  - pass: `Ping`, `PingAfterAMalformedBurst`, `Caps`, `Sys` (after a fresh
+    boot), `Pin`, `Write`, `Timer`, `EEPROM`, `Analog`, `PWM`, `PulseIn`,
+    `Tone`, `AppIsAnUnknownCommandWithoutAnApplication`,
+    `AttestCSRReportsADeviceThatCannotIssueOne`,
+    `ElementWithoutTheCapsBitIsRefusedAsUnsupported`,
+    `SoftwareTierStillCannotIssueACertificate`, the I2C, SPI and 1-Wire
+    refusals, `RefusesTheAuthSessionItsCapsLacks`,
+    `RefusesAttestCSRItsCapsLacks`.
+  - fails, as on the P4: `PingDeliversTheBootEventWithNoBootWait`, a `tcp:`
+    connect resets nothing, so no boot event (PR #568's `partResets` leaves
+    the row out over TCP); `Sys` after the malformed-burst row counts that
+    row's 160 framer format errors (PR #568 reads a baseline first).
+  - not runnable on this image: `I2CConfig` (I2C off by default),
+    `OTAInfo` and `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` (no OTA
+    stager, `OTA_STATUS` unknown).
+- Enrolling over Ethernet: CAPS and the attestation refusals verified over
+  TCP 2026-11-17 (above); attestation itself is owner (provisioning; CA 583).
 
 **`cortex-m`**
 

@@ -34,14 +34,22 @@ const (
 	espAppDescEfuseRev = 176 // min_efuse_blk_rev_full, then max_
 )
 
-// espChipID is the board's ESP-IDF chip id (esp_chip_id_t), and whether the
-// board's stager is ESP-IDF's.
-func espChipID(board tfw.BoardID) (uint16, bool) {
+// espTargetEnv names the machine an esp32-qemu run emulates: hw-test passes
+// the build's ESP_TARGET (boards/esp32-qemu/profile.mk), esp32c3 or esp32.
+const espTargetEnv = "TFW_HW_ESP_TARGET"
+
+// espChipID is the board's ESP-IDF chip id (esp_chip_id_t) on the given
+// machine, and whether the board's stager is ESP-IDF's. esp32-qemu is one
+// board on two machines, and ESP-IDF refuses an image for the other chip.
+func espChipID(board tfw.BoardID, machine string) (uint16, bool) {
 	switch board {
 	case tfw.BoardESP32P4PoE:
 		return 0x0012, true // ESP_CHIP_ID_ESP32P4
 	case tfw.BoardESP32QEMU:
-		return 0x0000, true // ESP_CHIP_ID_ESP32
+		if machine == "esp32" {
+			return 0x0000, true // ESP_CHIP_ID_ESP32
+		}
+		return 0x0005, true // ESP_CHIP_ID_ESP32C3, profile.mk's default
 	}
 	return 0, false
 }
@@ -108,13 +116,23 @@ func espAppImage(total, body int, board tfw.BoardID, chip uint16) []byte {
 // against what ESP-IDF's esp_ota_write and esp_image_verify ask of it, and
 // that the trailer sits where check_staged reads it.
 func TestStageImageForESP32IsAnAppImage(t *testing.T) {
-	for _, board := range []tfw.BoardID{tfw.BoardESP32P4PoE, tfw.BoardESP32QEMU} {
-		chip, _ := espChipID(board)
+	for _, c := range []struct {
+		board   tfw.BoardID
+		machine string
+		chip    uint16
+	}{
+		{tfw.BoardESP32P4PoE, "", 0x0012},
+		{tfw.BoardESP32QEMU, "", 0x0005},
+		{tfw.BoardESP32QEMU, "esp32c3", 0x0005},
+		{tfw.BoardESP32QEMU, "esp32", 0x0000},
+	} {
+		t.Setenv(espTargetEnv, c.machine)
+		board, chip := c.board, c.chip
 		img := stageImageFor(512, 200, board)
 		require.Len(t, img, 512)
 		require.Equal(t, byte(espImgMagic), img[0], "esp_ota_write's first-byte check")
 		require.Equal(t, byte(1), img[1], "one segment")
-		assert.Equal(t, chip, binary.LittleEndian.Uint16(img[12:]), "chip id")
+		assert.Equal(t, chip, binary.LittleEndian.Uint16(img[12:]), "chip id of %v on %q", board, c.machine)
 		assert.Equal(t, byte(1), img[23], "hash_appended")
 		segLen := int(binary.LittleEndian.Uint32(img[espImgHeaderLen+4:]))
 		require.Zero(t, segLen%4)

@@ -71,4 +71,65 @@ static inline void tfw_h5_wr(uintptr_t addr, uint32_t value)
  * timing, and is not confirmed against RM0481. */
 #define TFW_H5_POLL_LIMIT           200000u
 
+/* PKA: CMSIS PKA_TypeDef, CR, SR and CLRFR, then the RAM at 0x400. */
+#define TFW_H5_PKA_CR       0x000u
+#define TFW_H5_PKA_SR       0x004u
+#define TFW_H5_PKA_CLRFR    0x008u
+#define TFW_H5_PKA_RAM      0x400u
+#define TFW_H5_PKA_RAM_END  0x18D8u   /* RAM[1334] */
+
+/* CMSIS PKA_CR_EN, PKA_CR_START, PKA_CR_MODE_Pos; PKA_SR_INITOK, PKA_SR_BUSY,
+ * PKA_SR_PROCENDF; PKA_CLRFR_PROCENDFC, _RAMERRFC, _ADDRERRFC, _OPERRFC.
+ * The SR error flags are taken at their CLRFR bits, 19 to 21, which the
+ * CMSIS names pair but RM0481 would have to confirm. */
+#define TFW_H5_PKA_CR_EN            (1u << 0)
+#define TFW_H5_PKA_CR_START         (1u << 1)
+#define TFW_H5_PKA_CR_MODE_POS      8u
+#define TFW_H5_PKA_SR_INITOK        (1u << 0)
+#define TFW_H5_PKA_SR_BUSY          (1u << 16)
+#define TFW_H5_PKA_SR_PROCENDF      (1u << 17)
+#define TFW_H5_PKA_SR_ERRORS        ((1u << 19) | (1u << 20) | (1u << 21))
+#define TFW_H5_PKA_CLRFR_ALL        ((1u << 17) | (1u << 19) | (1u << 20) | (1u << 21))
+
+/* HAL PKA_MODE_ECDSA_SIGNATURE, PKA_MODE_ECDSA_VERIFICATION, PKA_NO_ERROR
+ * (the sign's error word and the verify's result when the signature holds). */
+#define TFW_H5_PKA_MODE_ECDSA_SIGN    0x24u
+#define TFW_H5_PKA_MODE_ECDSA_VERIFY  0x26u
+#define TFW_H5_PKA_NO_ERROR           0xD60Du
+
+/* The operands' byte offsets from the PKA's base: CMSIS PKA_ECDSA_SIGN_* and
+ * PKA_ECDSA_VERIF_*, each defined as ((offset - PKA_RAM_OFFSET) >> 2), an
+ * index into RAM[], which starts at PKA_RAM_OFFSET; so the offset is the
+ * address's distance from the base. */
+#define TFW_H5_PKA_SIGN_IN_ORDER_NB_BITS    0x0400u
+#define TFW_H5_PKA_SIGN_IN_MOD_NB_BITS      0x0408u
+#define TFW_H5_PKA_SIGN_IN_A_COEFF_SIGN     0x0410u
+#define TFW_H5_PKA_SIGN_IN_A_COEFF          0x0418u
+#define TFW_H5_PKA_SIGN_IN_B_COEFF          0x0520u
+#define TFW_H5_PKA_SIGN_IN_MOD_GF           0x1088u
+#define TFW_H5_PKA_SIGN_IN_K                0x12A0u
+#define TFW_H5_PKA_SIGN_IN_INITIAL_POINT_X  0x0578u
+#define TFW_H5_PKA_SIGN_IN_INITIAL_POINT_Y  0x0470u
+#define TFW_H5_PKA_SIGN_IN_HASH_E           0x0FE8u
+#define TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D    0x0F28u
+#define TFW_H5_PKA_SIGN_IN_ORDER_N          0x0F88u
+#define TFW_H5_PKA_SIGN_OUT_ERROR           0x0FE0u
+#define TFW_H5_PKA_SIGN_OUT_SIGNATURE_R     0x0730u
+#define TFW_H5_PKA_SIGN_OUT_SIGNATURE_S     0x0788u
+
+#define TFW_H5_PKA_VERIF_IN_ORDER_NB_BITS   0x0408u
+#define TFW_H5_PKA_VERIF_IN_MOD_NB_BITS     0x04C8u
+#define TFW_H5_PKA_VERIF_IN_A_COEFF_SIGN    0x0468u
+#define TFW_H5_PKA_VERIF_IN_A_COEFF         0x0470u
+#define TFW_H5_PKA_VERIF_IN_MOD_GF          0x04D0u
+#define TFW_H5_PKA_VERIF_IN_INITIAL_POINT_X 0x0678u
+#define TFW_H5_PKA_VERIF_IN_INITIAL_POINT_Y 0x06D0u
+#define TFW_H5_PKA_VERIF_IN_PUBLIC_KEY_X    0x12F8u
+#define TFW_H5_PKA_VERIF_IN_PUBLIC_KEY_Y    0x1350u
+#define TFW_H5_PKA_VERIF_IN_SIGNATURE_R     0x10E0u
+#define TFW_H5_PKA_VERIF_IN_SIGNATURE_S     0x0C68u
+#define TFW_H5_PKA_VERIF_IN_HASH_E          0x13A8u
+#define TFW_H5_PKA_VERIF_IN_ORDER_N         0x1088u
+#define TFW_H5_PKA_VERIF_OUT_RESULT         0x05D0u
+
 #endif /* TFW_CRYPTO_H5_CRYPTO_REGS_H */

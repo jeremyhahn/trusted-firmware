@@ -1086,6 +1086,11 @@ $(HOST_DIR)/test_verify_p256: test/unit/test_verify_p256.c src/crypto/soft/verif
                               src/crypto/sha256.c $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
 	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
 
+# test_h5_pka  the STM32H5 PKA driver (#544) against a model answered by micro-ecc
+$(HOST_DIR)/test_h5_pka: test/unit/test_h5_pka.c src/crypto/stm32h5/h5_pka.c \
+                         $(HOST_DIR)/uECC.o $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) $(HOST_CFLAGS) $(EXTRA_CFLAGS) -DTFW_H5_REG_MODEL=1 -o $@ $^ $(EXTRA_LDFLAGS)
+
 # The soft root's ATTEST frame pinned against the TCG DICE formula (row
 # dice-attestation) is the HMAC-SHA256 identity, mk/firmware.mk SOFT_ID=hmac:
 # the host library with src/crypto/soft/id_hmac.c in place of id_p256.c.

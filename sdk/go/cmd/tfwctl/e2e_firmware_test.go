@@ -135,7 +135,6 @@ func TestFirmwareCaps(t *testing.T) {
 	assert.EqualValues(t, tfw.MaxPayload, c.MaxPayload,
 		"device MaxPayload and the host constant must agree or a host will send frames the device refuses")
 	assert.True(t, c.Has(tfw.FeatureGPIO), "GPIO not reported; the default build should have it")
-	assert.True(t, c.Has(tfw.FeatureAttest), "attestation compiled in but not reported in CAPS")
 	// CAPS must report the crypto tier it actually has, so a verifier learns
 	// what it is talking to before it decides what the evidence is worth
 	// (docs/wire-protocol/api.md:63), and what it can sign with:
@@ -150,16 +149,30 @@ func TestFirmwareCaps(t *testing.T) {
 	if target.Hardware() && (target.Board == "atmega328p" || target.Board == "atmega32u4") {
 		soft = tfw.AlgHMACSHA256
 	}
+	capsTierRow(t, c, soft)
+}
+
+// capsTierRow is TestFirmwareCaps's tier facts, so a host test can run them
+// against a peer of any tier; soft is the software tier's signer. The none
+// provider's tfw_crypto_algorithms answers 0 (src/crypto/none/provider.c):
+// a host negotiating against it finds nothing to select. ATTEST stays in
+// CAPS on every tier; the none tier answers it UNSUPPORTED
+// (attestRefusedUnprovisionedRow).
+func capsTierRow(t *testing.T, c tfw.Caps, soft tfw.AlgorithmSet) {
+	t.Helper()
+	assert.True(t, c.Has(tfw.FeatureAttest), "attestation compiled in but not reported in CAPS")
 	switch tier := c.CryptoTier.String(); tier {
 	case "software":
 		assert.Equal(t, soft, c.Algorithms, "algorithms = %s, want %s alone", c.Algorithms, soft)
 	case "secure-element":
 		assert.Equal(t, tfw.AlgHMACSHA256|tfw.AlgECDSAP256SHA256, c.Algorithms,
 			"algorithms = %s, want ecdsa-p256-sha256 and hmac-sha256", c.Algorithms)
+	case "none":
+		assert.Zero(t, c.Algorithms, "algorithms = %s, want none on a tier that signs with nothing", c.Algorithms)
 	default:
 		t.Fatalf("crypto tier %s: no facts for it", tier)
 	}
-	assert.False(t, c.Algorithms.Can(tfw.AlgEd25519), "the provider claimed Ed25519, which neither tier can perform")
+	assert.False(t, c.Algorithms.Can(tfw.AlgEd25519), "the provider claimed Ed25519, which no tier can perform")
 }
 
 func TestFirmwareSys(t *testing.T) {
@@ -308,13 +321,21 @@ func TestFirmwareEEPROM(t *testing.T) {
 	cliJSON(t, dev, &got, "eeprom-read", "0x180", "2")
 	assert.Equal(t, "dead", got.Hex, "read back")
 
-	// docs/device-provisioning/engineering.md:110: the software tier reads the
-	// reserved region; the element tier gates the read behind the operator
-	// session.
+	eepromReservedReadRow(t, dev)
+}
+
+// eepromReservedReadRow is TestFirmwareEEPROM's reserved-region read, so a
+// host test can run it against a peer of any tier.
+// docs/device-provisioning/engineering.md:110: the software tier reads the
+// reserved region; the element tier gates the read behind the operator
+// session. The none tier links src/core/auth_session_none.c
+// (mk/firmware.mk), whose tfw_auth_gate answers OK: it reads it too.
+func eepromReservedReadRow(t *testing.T, dev *tfw.Device) {
+	t.Helper()
 	err := run(context.Background(), dev, "eeprom-read", []string{"0", "4"}, false, &strings.Builder{})
 	switch tier := cliTier(t, dev); tier {
-	case "software":
-		assert.NoError(t, err, "reserved-region read refused on the soft tier")
+	case "software", "none":
+		assert.NoError(t, err, "reserved-region read refused on the %s tier", tier)
 	case "secure-element":
 		assert.Error(t, err, "reserved-region read answered on the element tier without an operator session")
 	default:
@@ -381,13 +402,20 @@ func TestFirmwareI2C(t *testing.T) {
 }
 
 func TestFirmwareI2CConfig(t *testing.T) {
-	dev := startFirmware(t)
+	i2cConfigRow(t, startFirmware(t))
+}
+
+// i2cConfigRow is TestFirmwareI2CConfig's body, so a host test can run it
+// against a peer of any tier.
+func i2cConfigRow(t *testing.T, dev *tfw.Device) {
+	t.Helper()
 	requireFeature(t, dev, tfw.FeatureI2C)
 	ctx := context.Background()
 	// src/crypto/atecc608a/atecc.c:61: I2C_CONFIG refuses to touch the TWI
-	// peripheral on an element build; the software tier applies the clock.
+	// peripheral on an element build; src/caps/bus.c:121 refuses on that
+	// tier alone, so the software and none tiers apply the clock.
 	switch tier := cliTier(t, dev); tier {
-	case "software":
+	case "software", "none":
 	case "secure-element":
 		cliRefused(t, dev, "i2c-config", "400000")
 		return

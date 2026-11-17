@@ -80,8 +80,13 @@ func TestOpenTCPRedialsWhileTheFirmwareHoldsThePreviousHost(t *testing.T) {
 	if _, err := c.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if b := <-got; string(b) != "\x01\x02\x03" {
-		t.Fatalf("the kept connection read %x, want 010203", b)
+	select {
+	case b := <-got:
+		if string(b) != "\x01\x02\x03" {
+			t.Fatalf("the kept connection read %x, want 010203", b)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Open returned the connection the firmware closed: it never dialled again")
 	}
 }
 

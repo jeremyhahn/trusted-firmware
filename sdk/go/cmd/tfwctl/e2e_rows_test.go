@@ -86,7 +86,7 @@ func (n rowNeed) servedBy(img boardImage) bool {
 		(n.tier == anyTier || n.tier == img.tier ||
 			n.tier == cryptoTier && (img.tier == softTier || img.tier == elementTier)) &&
 		img.parts&n.has == n.has && img.parts&n.not == 0 &&
-		!(n.fresh && img.noReset)
+		(!n.fresh || !img.noReset)
 }
 
 // avrPeripherals are the families config.h turns on and neither AVR board's

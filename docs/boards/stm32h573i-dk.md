@@ -93,12 +93,38 @@ is in [`../reference/README.md`](../reference/README.md).
 | Reference | VREF+ only (`TFW_ADC_REF_VCC`); VREFBUF is not wired on this port | |
 | Pin mode | the pins are analog only, but the GPIO commands reach them (they check the reserved and in-use flags, not `TFW_PIN_DIGITAL`). So every read first puts the channel's pin back to analog with no pull (MODER `0b11`, PUPDR `0b00`), and an output or pull-up set before it cannot drive or bias the input | `hal_adc.c`, tested by `test/unit/test_stm32h5_adc.c` |
 
-**Not run on the board.** The register model in `test/unit/test_stm32h5_adc.c`
-checks the order and the values written, not the converter. To confirm against
-RM0481 and DS14053, and on the board: the ADC's highest clock and so the
-divider; the calibration's length and the 10 ms bound; that 640.5 cycles is the
-sample time a header source needs; INP0's OP0 switch; and a known voltage on
-each of A0 to A5 reading as the expected count.
+**Run on the board 2026-11-17 (#541 review), at levels the board sets
+itself.** No known voltage is wired to the header on the bench, so each
+channel was read with `tfwctl analog` over the ST-LINK VCOM, on the bench
+image of the run below (the `I2C=1` image, CAPS `analog`), at three levels:
+floating, just after `mode out` and `write 1`, and just after `write 0`. The
+read puts the pin back to analog with no pull, so the driven level is the
+charge left on the pin and the board's trace, read once and then gone. Counts
+are 12-bit, VREF+ reference:
+
+| Channel | Floating | After high | After low | Next read |
+|---|---|---|---|---|
+| A0 (INP9) | 460, 212 | 2388 | 0 | 208, 210 |
+| A1 (INP18) | 664, 599 | 2546 | 0 | 603, 596 |
+| A2 (INP0) | 182, 183 | 3142 | 18 | 177, 190 |
+| A3 (INP19) | 645, 555 | 2521 | 19 | 555, 551 |
+| A4 (INP3) | 494, 378 | 2678 | 0 | 375, 382 |
+| A5 (INP6) | 570, 393 | 2677 | 0 | 396, 395 |
+
+So on every channel the converter is up (calibration, ADRDY and EOC within
+the 10 ms bound: no timeout), each channel reads its own pin (it follows the
+level set on that pin), INP0's OP0 switch connects PA0, and a pin driven low
+reads at or near zero. The "after high" count is a held charge, not a known
+voltage, so it shows only that a high level reads high.
+
+**Not run: a known voltage on each of A0 to A5** reading as the expected
+count (no source wired on the bench; issue to file: wire a divider or the
+3V3/GND header pins to A0 to A5 and record the counts). `adc-ref internal`
+is refused on this build, so VREFINT cannot stand in for it. Also not
+confirmed against RM0481 and DS14053: the ADC's highest clock and so the
+divider; the calibration's length; that 640.5 cycles is the sample time a
+header source needs. The register model in `test/unit/test_stm32h5_adc.c`
+checks the order and the values written.
 
 ## tfw-boot
 
@@ -175,6 +201,9 @@ CA 583 forbids: option bytes or provisioning).
 - Watchdog: verified only in that the image runs for minutes without a reset;
   the 4 s period is not measured.
 - GPIO: verified 2026-11-17, pin levels read through `PULSE_IN` and `read`.
+- ADC, A0 to A5: verified 2026-11-17 at levels the board sets itself (a pin
+  driven low reads 0 to 19 counts, driven high reads high); a known voltage is
+  not run, none wired (issue to file).
 - tfw-boot's flash writes: not runnable, no OTA row for this board; the shared
   sequence ran from the application's EEPROM.
 - Cortex-M33 with TrustZone: owner (TZEN is an option byte; CA 583).
@@ -233,8 +262,9 @@ erases a sector once and then programs it page by page.
 ## What is not verified
 
 The bench run (2026-11-17) checked the console, the timers' clock ratio to
-SysTick (the absolute 64 MHz is pending a scope or counter), the PWM, the tone, the pulse timing, the EEPROM and the I2C NACK path; not the
-ADC, the watchdog's period or tfw-boot's own flash writes. The port's register
+SysTick (the absolute 64 MHz is pending a scope or counter), the PWM, the tone, the pulse timing, the EEPROM, the I2C NACK path and the ADC on A0 to A5 at
+levels the board sets itself (see the ADC section); not a known voltage on the
+ADC (none wired; issue to file), the watchdog's period or tfw-boot's own flash writes. The port's register
 values are ST's source code, not RM0481. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not
 from the documents.

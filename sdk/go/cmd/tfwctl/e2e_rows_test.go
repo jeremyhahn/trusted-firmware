@@ -134,10 +134,10 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {},
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {not: partTCP}, // a TCP connect boots nothing
 	"TestFirmwarePingAfterAMalformedBurst":               {},
 	"TestFirmwareCaps":                                   {},
-	"TestFirmwareSys":                                    {},
+	"TestFirmwareSys":                                    {not: partTCP}, // wants zero framer errors since a boot
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
 	"TestFirmwareWrite":                                  {caps: tfw.FeatureGPIO},
 	"TestFirmwareTimer":                                  {caps: tfw.FeatureGPIO | tfw.FeatureSched},
@@ -379,6 +379,21 @@ func TestBoardRunLeavesTheMeddlerRowOffATCPBoard(t *testing.T) {
 	}
 	if !boardRun(t, "atmega2560", false).MatchString(row) {
 		t.Fatalf("the atmega2560 run lost %s", row)
+	}
+}
+
+// TestBoardRunLeavesTheResetRowsOffATCPBoard: a TCP connect resets nothing,
+// so no BOOT event comes, and the framer counters keep the malformed burst's
+// errors across reconnects. The rows that need a fresh boot run on the
+// serial boards only.
+func TestBoardRunLeavesTheResetRowsOffATCPBoard(t *testing.T) {
+	for _, row := range []string{"TestFirmwarePingDeliversTheBootEventWithNoBootWait", "TestFirmwareSys"} {
+		if boardRun(t, "esp32p4-poe", false).MatchString(row) {
+			t.Errorf("the esp32p4-poe run selects %s, which needs a reset a TCP connect never makes", row)
+		}
+		if !boardRun(t, "atmega2560", false).MatchString(row) {
+			t.Errorf("the atmega2560 run lost %s", row)
+		}
 	}
 }
 

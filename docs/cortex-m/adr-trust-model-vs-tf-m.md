@@ -7,7 +7,7 @@
 > the Security Extension (TrustZone-M) is the Armv8-M Architecture Reference
 > Manual's (DDI 0553), and the CI machine's board is AN505's (DAI 0505), both
 > listed in [`../reference/README.md`](../reference/README.md#cortex-m-sources) ·
-> Last verified: 2026-11-14
+> Last verified: 2026-11-16
 >
 > Nothing here is implemented. The owner accepted the trust model per core on
 > 2026-11-14; the open questions it does not answer stay open.
@@ -34,6 +34,61 @@ What the ruling decides in this ADR:
 
 The ruling does not touch the SPEC: the `stm32h5` row's wording ("our own
 TrustZone secure world") changes in its own SPEC change, not here.
+
+## Measured on 2026-11-16 (#483, follow-up F1)
+
+Option (b1)'s footprint is no longer an estimate. `scripts/tfm-measure.sh`
+fetches TF-M v2.3.1 at its release tag (commit
+`0b40d7806136baadf489febf8e2f91bf87aca63d`) and tf-m-extras at the commit that
+tag fetches (`2ac90aff6da35cde4a67f2d34076b1adf6ca9161`), outside the tree. It
+builds platform `stm/stm32h573i_dk` at `TFM_PROFILE=profile_medium` with BL2
+and `CMAKE_BUILD_TYPE=MinSizeRel`, with the platform's own `config.cmake`
+otherwise. That config enables Crypto with ST's hardware accelerator, ITS, PS,
+Initial Attestation, Firmware Update and the Platform partition, and sets the
+log level to INFO. The script builds the secure image twice, as shipped and
+with tf-m-extras' example partition as a stub Application RoT partition (one
+IPC service, no crypto of its own). The difference between the two is the
+stub. It then builds tf-m-extras' example non-secure application as the
+non-secure stub. The compiler is `arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1
+20241119`, the toolchain image's Debian package (`docker/packages.txt`), with
+CMake 3.31.6. The command was `scripts/tfm-measure.sh /tmp/tfm-measure`, and
+it ran to the end on dl385-01. Its output, verbatim:
+
+```
+TF-M TF-Mv2.3.1 (0b40d7806136baadf489febf8e2f91bf87aca63d), tf-m-extras 2ac90aff6da35cde4a67f2d34076b1adf6ca9161
+platform stm/stm32h573i_dk, profile_medium, BL2 on, CMAKE_BUILD_TYPE=MinSizeRel
+arm-none-eabi-gcc (15:14.2.rel1-1) 14.2.1 20241119; cmake 3.31.6
+
+| Image | text | data | bss | flash, bytes | RAM, bytes |
+|---|---|---|---|---|---|
+| BL2 (MCUboot) | 49056 | 164 | 26004 | 49220 (48.0 KiB) | 26168 (25.5 KiB) |
+| secure image, Profile Medium | 88272 | 228 | 47700 | 88500 (86.4 KiB) | 47928 (46.8 KiB) |
+| secure image with the stub partition | 88852 | 228 | 48276 | 89080 (86.9 KiB) | 48504 (47.3 KiB) |
+| the stub partition (difference) | 580 | 0 | 576 | 580 (0.5 KiB) | 576 (0.5 KiB) |
+| BL2 + secure image with the stub | 137908 | 392 | 74280 | 138300 (135.0 KiB) | 74672 (72.9 KiB) |
+| non-secure stub | 22224 | 96 | 8852 | 22320 (21.7 KiB) | 8948 (8.7 KiB) |
+```
+
+How to read it:
+- Flash is text + data and RAM is data + bss, from `arm-none-eabi-size`.
+- RAM is the linked images' static use: stacks, the heap and the shared boot
+  data included. It is not the size of the regions the platform reserves.
+- BL2's RAM is used only before the secure image starts.
+- The stub's 576 bytes of RAM are its 512-byte stack and 64 bytes of SPM
+  bookkeeping. Its flash is the load-list entry, the service code and the SPM
+  glue.
+- The stub carries no template builder. Our partition's own code (the three
+  builders, the UCCS encoder, the DER walker) is still an estimate: it has no
+  build yet.
+- The board was not used. These are link-time figures; nothing was flashed.
+
+What the figures change: (b1)'s "Code size" and the Comparison row below now
+carry them, and F1's (b1) part is done. They answer none of the open
+questions. Flash and RAM were never the deciding constraint on the M33 parts
+("Every M33 target has room"), and these figures confirm that on the
+STM32H573: 135.0 KiB of flash and 72.9 KiB of RAM for BL2 and the secure
+image, beside 2 MB and 640 KB. The decisions and the open questions are
+unchanged.
 
 ## Changes on 2026-10-20
 
@@ -422,11 +477,19 @@ There are two shapes, and only one of them keeps the signing rule.
   that token is not an alias certificate or a PKCS#10, so it cannot complete
   device-attest-01 alone. It is an addition to (b1), never a replacement.
 
-- **Code size (estimated, unmeasured).** On the order of 100 KB of flash and
-  tens of KB of RAM for the TF-M secure image and the MCUboot BL2 together at
-  Profile Medium. Our partition adds about 4–6 KB, because the crypto is TF-M's.
-  TF-M's profile documents publish no footprint, so measuring it is follow-up F1.
-  It fits every M33 target listed above with room to spare.
+- **Code size (measured 2026-11-16, #483; see "Measured on 2026-11-16").**
+  On the STM32H573I-DK's TF-M v2.3.1 build at Profile Medium:
+  - BL2: 48.0 KiB of flash and 25.5 KiB of RAM.
+  - The secure image: 86.4 KiB of flash and 46.8 KiB of RAM.
+  - Together: 135.0 KiB of flash and 72.9 KiB of RAM with a stub partition.
+  - The stub partition itself: 0.5 KiB of flash and 0.5 KiB of RAM.
+  - A non-secure stub: 21.7 KiB of flash and 8.7 KiB of RAM.
+
+  The earlier estimate was "on the order of 100 KB of flash and tens of KB of
+  RAM". Our partition's own code, the three template builders and the UCCS
+  encoder, is still an estimate of about 4–6 KB (unmeasured: it has no build
+  yet), because the crypto is TF-M's. It fits every M33 target listed above
+  with room to spare.
 - **Evidence.** Our three structures come from the partition, unchanged, as in
   (a). Optionally the RFC 9783 PSA token rides beside them as a second piece of
   evidence, signed by TF-M's IAK. **What go-xkms must accept:**
@@ -562,7 +625,7 @@ commands. Until then the M7 image runs the `none` and `soft` crypto tiers.
 |---|---|---|---|
 | Cores | M33 | M33 | M7 (and any M33 fallback) |
 | Boards (CA m623) | a fallback only | STM32H573I-DK, nRF54L15-DK | i.MX 95 M7 |
-| Secure image, flash (estimate) | 16–24 KB | ~100 KB with BL2, plus 4–6 KB ours | 6–12 KB |
+| Secure image, flash | 16–24 KB (estimate) | 135.0 KiB with BL2 and a stub partition (measured, #483), plus about 4–6 KB ours (estimate) | 6–12 KB (estimate) |
 | TCB we write | all of it | the partition | privileged layer and SVC gate |
 | Our three structures | unchanged | unchanged | unchanged |
 | PSA token (RFC 9783) | none | optional, from TF-M | none |
@@ -792,6 +855,9 @@ questions 2 to 13, which stay open:
   carries the measurement only if open question 11 is answered yes. Measure the
   (c) privileged layer in the M7 build (`mps2-an500` is #14's question 8).
   Replace every estimate in this ADR with the measured figure.
+  **(b1) done 2026-11-16 (#483):** see "Measured on 2026-11-16". Still open:
+  our partition's own code once it is built, (c)'s privileged layer, and
+  (a), which has no build.
 - **F2.** Once open question 4 is answered, the coordinator files the go-xkms
   and go-quicbaas gaps it names. This ADR touches neither repository.
 - **F3.** When the owner accepts a model, update `docs/multi-arch/architecture.md`

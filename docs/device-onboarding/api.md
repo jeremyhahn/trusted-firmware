@@ -1,6 +1,6 @@
 # Device onboarding — API
 
-> **Status: DRAFT** · Scope: trusted-firmware · Issue: #53 · Last verified: 2026-10-19
+> **Status: DRAFT** · Scope: trusted-firmware · Issue: #53 · Last verified: 2026-11-16
 >
 > What a device presents to go-trusted-platform, through go-xkms, when it
 > onboards. Every shape here is defined by a standard or by a page it links;
@@ -63,7 +63,8 @@ PKCS#10 `CertificationRequestInfo` the device builds from its own template,
 with the UEID as an RFC 4043 ([`rfc4043.txt`](../reference/rfc4043.txt)) `permanentIdentifier` in the subjectAltName and the
 same UCCS claims set
 ([dice-attestation API](../dice-attestation/api.md), `ATTEST_CSR` — 0x64). It exists
-only on the ATmega2560's element tier (`CAPS` bit 15).
+only on the ATmega2560's element tier (`CAPS` bit 15). It is checked from Go by
+`TestFirmwareAttestCSR*` in `sdk/go/cmd/tfwctl/e2e_attestcsr_test.go`.
 
 ## How go-xkms reaches them
 

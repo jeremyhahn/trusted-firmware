@@ -1,0 +1,1 @@
+- docs(imx95): the SPEC row `imx95` audited requirement by requirement, with its code, its tests and the remaining slices (`docs/multi-arch/imx95-design.md` sections 10.1 and 10.2); the SCMI row's two misplaced test citations corrected (Refs #487).

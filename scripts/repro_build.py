@@ -13,7 +13,8 @@
 # previous build left behind cannot satisfy the check. SOURCE_DATE_EPOCH is the
 # commit time, so anything time-derived is pinned to the source.
 #
-#   repro_build.py --image REL.hex --dir A --dir B [--src DIR] [--make MAKE] -- ARGS...
+#   repro_build.py --image REL.hex --dir A --dir B [--src DIR] [--make MAKE]
+#                  [--app-dir APP_DIR] -- ARGS...
 
 import argparse
 import os
@@ -43,6 +44,26 @@ def clean_copy(src, dst):
         raise SystemExit(f"repro_build: git archive HEAD in {src} exited {archive.returncode}")
 
 
+def app_dir_arg(src, app_dir):
+    """The APP_DIR both builds get, and the path in each copy it must exist at.
+
+    An application inside the source tree is built from each clean copy, so it
+    is the committed one: the path stays relative to the copy. One outside the
+    tree is the same directory for both builds, by absolute path; the image
+    does not record it (APP_PREFIX_MAP, mk/app.mk).
+    """
+    src_abs = os.path.realpath(src)
+    app_abs = os.path.realpath(app_dir if os.path.isabs(app_dir) else os.path.join(src, app_dir))
+    rel = os.path.relpath(app_abs, src_abs)
+    if rel == os.curdir:
+        raise SystemExit(f"repro_build: --app-dir {app_dir} is the source tree itself")
+    if rel != os.pardir and not rel.startswith(os.pardir + os.sep):
+        return rel, rel
+    if not os.path.isfile(os.path.join(app_abs, "app.mk")):
+        raise SystemExit(f"repro_build: --app-dir {app_dir} has no app.mk")
+    return app_abs, None
+
+
 def build(make, tree, args, epoch):
     # The sub-make is started here, not by make, so the caller's jobserver
     # descriptors are not inherited: drop the flags that name them.
@@ -61,16 +82,27 @@ def main(argv):
     p.add_argument("--make", default="make")
     p.add_argument("--image", required=True, help="the image, relative to the tree")
     p.add_argument("--dir", action="append", required=True, help="a build directory (twice)")
+    p.add_argument("--app-dir", default="",
+                   help="an application directory (APP_DIR), passed to both builds")
     p.add_argument("args", nargs="*", help="make arguments, after --")
     a = p.parse_args(argv)
     if len(a.dir) != 2 or os.path.abspath(a.dir[0]) == os.path.abspath(a.dir[1]):
         p.error("--dir names two different directories")
 
+    args = list(a.args)
+    in_copy = None
+    if a.app_dir:
+        app, in_copy = app_dir_arg(a.src, a.app_dir)
+        args.append(f"APP_DIR={app}")
+
     epoch = commit_epoch(a.src)
     images = []
     for d in a.dir:
         clean_copy(a.src, d)
-        build(a.make, d, a.args, epoch)
+        if in_copy is not None and not os.path.isfile(os.path.join(d, in_copy, "app.mk")):
+            raise SystemExit(f"repro_build: --app-dir {a.app_dir} has no committed app.mk "
+                             f"(the copy is git archive HEAD)")
+        build(a.make, d, args, epoch)
         path = os.path.join(d, a.image)
         if not os.path.isfile(path):
             raise SystemExit(f"repro_build: make {' '.join(a.args)} built no {a.image} in {d}")

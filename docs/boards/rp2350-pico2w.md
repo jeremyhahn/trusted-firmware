@@ -27,6 +27,61 @@ Documents cited:
   80d627281ed5), read by slice 3 and copied as
   [`../reference/rp2350-datasheet.pdf`](../reference/rp2350-datasheet.pdf).
 
+## Requirements
+
+The SPEC row `rp2350` (`docs/SPEC.md`, line 47), one line per requirement in
+its text, audited against main for #480. "Done" means done in the build and
+on the host: nothing on this board has run on silicon. Test names are the C
+functions, Go `Test` functions or Python methods in the files named.
+
+| # | Requirement | Status | Code | Test |
+|---|---|---|---|---|
+| R1 | The firmware core as a HAL port on the Pico 2 W (the application) | **partial**: built in CI, host-tested over register models; never run on the board; OTA_CONFIRM does not reach tfw-boot (see "The application's EEPROM") | `src/hal/cortex-m/rp2350/hal_soc.c`, `hal_uart.c`, `hal_gpio.c`; `boards/rp2350-pico2w/board.c`, `profile.mk` | `test/unit/test_board_rp2350-pico2w.c` `test_the_pins_are_the_header_gpios_in_order`; `test/unit/test_rp2350_soc.c` `test_uart_divisors_at_115200_from_12mhz`; `test/unit/test_rp2350_reset.c` `test_the_watchdog_timer_is_a_watchdog_whatever_else` |
+| R2 | The core's boot stage on the board (tfw-boot, row `rp2350-pico2w:soft:soft:p256-soft:0:0`) | **partial**: built and size-checked in CI, host-tested; never run on the board | `mk/boot.mk` (`BOOT_SUPPORTED`); `boot/hal/cortex-m/rp2350/rp_flash_rom.c`, `rp_flash.c`, `boot_uart.c` | `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_rom.c` `test_a_sector_is_erased_and_programmed_in_the_roms_order`; `test/unit/boot/test_boot_rp2350_map.c` `test_the_platform_block_is_the_last_sector`; `boot/hal/cortex-m/rp2350/test/test_boot_rp2350_uart.c` `test_init_releases_uart0_and_sets_115200_8n1` |
+| R3 | DICE evidence on the part's OTP | **not started**: tfw-boot's row is the soft tier, holding the soft DeviceID seed; no OTP is read, and the UDS page, layer 0 and the lock are the owner's (ADR open questions 1-3) | `boot/boot_cdi.h` (the generic CDI the board would feed); no RP2350 OTP code | none for the RP2350; the generic derivation is `test/unit/boot/test_boot_cdi_soft_uds.c` `test_a_provisioned_uds_derives_the_device_seed` |
+| R4 | Secure boot | **not started** for the boot ROM's own secure boot (the key fingerprint in OTP); tfw-boot verifies the application's P-256 signature in software (R2), and the IMAGE_DEF block is unsigned by design | `src/hal/cortex-m/rp2350/soc_calc.h` (IMAGE_DEF), `mk/arch/cortex-m/rp2350.ld` | `test/unit/test_rp2350_soc.c` `test_image_def_is_the_minimal_secure_arm_exe_block` (pins the unsigned block) |
+| R5 | Enrolment through go-xkms into go-trusted-platform | **not started** on this board: it has no Ethernet and no transport is chosen (ADR open question 5); the enrolment path exists for other roots | `xkms/` (the adapter); no RP2350 transport | none for the RP2350; the path is `xkms/e2e/soft_enroll_test.go` `TestSoftRootEnrollsThroughDeviceAttest01` |
+| R6 | The onboarding ADR, docs-only (#128) | **done** (PROPOSED; its open questions wait on the owner) | `docs/multi-arch/adr-rp2350-pico2w-onboarding.md` | docs only; no test applies |
+| R7 | The AVR gate lifted (ruling 697): the firmware features enabled on the board | **done** in the build and on the host (`I2C ?= 1`, `PERIPH ?= 1`); not run on the board | `boards/rp2350-pico2w/profile.mk`, `board_profile.h`; `src/hal/cortex-m/rp2350/hal_bus.c`, `hal_pwm.c`, `hal_adc.c`, `hal_tone.c`, `hal_eeprom.c` | `scripts/test_rp2350_rows_mk.py` `test_the_default_row_links_every_peripheral`; `test/unit/test_rp2350_i2c.c` `test_write_then_read_with_restart`; `test/unit/test_rp2350_pwm.c` `test_pwm_duty_compare_values`; `test/unit/test_rp2350_adc.c` `test_one_read_per_channel_converts_its_gpio`; `test/unit/test_rp2350_tone.c` `test_irq_toggles_and_rearms_from_target`; `test/unit/test_rp2350_eeprom.c` `test_a_user_address_lands_at_its_byte_of_the_user_sector` |
+
+### Remaining slices
+
+1. **OTA_CONFIRM to tfw-boot** (no hardware): route the confirm request at
+   `TFW_BOOT_CONFIRM_ADDR` through the flash helper in
+   `src/hal/cortex-m/rp2350/hal_eeprom.c` so it lands in the platform block,
+   proven by a new test in `test/unit/test_rp2350_eeprom.c` that reads the
+   request back from the NOR model's platform sector.
+2. **The datasheet checks left open** (no hardware): **done** by #496. The
+   ADC, clk_adc, PLL_USB and PWM rows of `src/hal/cortex-m/rp2350/soc_regs.h`
+   matched the copied [RP-DS] tables, none corrected; `test/unit/test_rp2350_adc.c`
+   and `test/unit/test_rp2350_pwm.c` pass unchanged.
+3. **The first bench run** (needs hardware and the bench): factory record,
+   the flash part's JEDEC id, the console on GPIO0/1, then tfw-boot and the
+   application flashed and the wire protocol answered, then the peripheral
+   check of `docs/plans/429.md` slice 3; it updates this page's "What is not
+   verified", proven by `make board-record BOARD=rp2350-pico2w` and the
+   recorded session.
+4. **The enrolment transport** (owner decision, ADR open question 5, then
+   another project's registry): Wi-Fi on the CYW43439, USB, a UART bridge or a
+   W5x00 module, as a driver under `src/hal/cortex-m/rp2350/` with a host test
+   in `test/unit/` over a model, then an enrolment test beside
+   `xkms/e2e/soft_enroll_test.go`; the go-trusted-platform side is that
+   project's.
+5. **DICE on OTP** (owner decision, ADR open questions 1-3; an OTP write needs
+   hardware and possibly a sacrificial board): an OTP read and page lock under
+   `boot/hal/cortex-m/rp2350/` feeding `boot/boot_cdi.h`, a new `BOOT_SUPPORTED`
+   row in `mk/boot.mk`, proven by a new `test/unit/boot/test_boot_rp2350_otp.c`
+   over an OTP model and, on silicon, by a bench run.
+6. **Boot-ROM secure boot** (owner decision, ADR open question 1; an OTP write,
+   needs hardware): a signed IMAGE_DEF in `src/hal/cortex-m/rp2350/soc_calc.h`
+   and `mk/arch/cortex-m/rp2350.ld` and the signing step in the board's
+   `profile.mk`, proven by a new case in `test/unit/test_rp2350_soc.c` and a
+   bench boot with the key fingerprint burnt.
+7. **The crypto tier** (owner decision, ADR open question 4 and ADR #15 open
+   question 4): the `CAPS` tier an OTP-plus-TrustZone key reports, set in
+   `boards/rp2350-pico2w/board_profile.h`, proven by a case in
+   `test/unit/test_board_rp2350-pico2w.c`; waits on slice 5.
+
 ## The board
 
 | | | Source |
@@ -116,9 +171,11 @@ values, channels A and B in CC's two halves, stop, and a bad slice refused.
 The register values (PWM base `0x400A8000`, slices `0x14` apart with CSR,
 DIV, CTR, CC and TOP at `+0x0`-`+0x10`; CSR.EN bit 0; DIV INT bits 11:4 and
 FRAC bits 3:0; CC A bits 15:0 and B bits 31:16; RESET bit 16; FUNCSEL 4) cite
-[RP-DS] release 8 §12.5 and §9.4. The lane that wrote them had no PDF tooling,
-so the table numbers have not yet been checked against the copied datasheet.
-Check them before the first run on the board.
+[RP-DS] release 8 §12.5 and §9.4. #496 matched each against the copied
+datasheet: the register list §12.5.3 table 1184 (twelve slices, CH11_TOP at
+`0xEC`, EN at `0xF0`), CSR table 1185 (EN bit 0, DIVMODE 5:4 0 free-running),
+DIV table 1186, CC table 1188, the GPIO-to-slice map §12.5.2 table 1183,
+RESET.PWM §7.5.3 table 567 and PWM as F4 in §9.4 table 677. None differed.
 
 The second slice: tfw-boot, the `rp2350-pico2w:soft:soft:p256-soft:0:0` row
 of `BOOT_SUPPORTED` (`mk/boot.mk`). Like the mps2-an505 row it hashes and
@@ -271,18 +328,17 @@ and the console wiring stay open until a lane with the board settles them.
 
 **The converter (`hal_adc.c`).** Its registers were written from pico-sdk
 2.1.1's `hardware_regs` names (`adc.h`, `resets.h`, `clocks.h`,
-`addressmap.h`) and not yet matched against the copied [RP-DS] tables: the
-lane that wrote them had no PDF reader (the clk_adc and PLL_USB rows were
-since matched against text extracted from the PDF). Each carries `TODO(datasheet)` in
-`soc_regs.h` until a lane checks it:
+`addressmap.h`); #496 matched each against the copied [RP-DS] release 8
+tables, and none differed, so none was corrected and no `TODO(datasheet)` is
+left in `soc_regs.h`:
 
-| Value | Where to check | Status |
+| Value | Section | Status |
 |---|---|---|
-| ADC base `0x400A0000`; CS `+0x0` (EN 0, START_ONCE 2, READY 8, ERR 9, AINSEL 15:12), RESULT `+0x4` (11:0), FCS `+0x8`, DIV `+0x10` | §2.2 table 13; §12.4 register list | TODO(datasheet) |
-| RESETS ADC bit 0 | §7.5.3 table 566 | TODO(datasheet) |
-| CLK_ADC_CTRL `+0x6C` (ENABLE 11, AUXSRC 7:5, clksrc_pll_usb 0), CLK_ADC_DIV `+0x70` (INT 19:16) | §8.1.7 tables 603-604 | matched against the PDF's text; `TODO(datasheet)` kept until a reader with the rendered tables confirms |
-| RESETS PLL_USB bit 15 | §7.5.3 table 567 | matched against the PDF's text |
-| PLL_USB `0x40058000`; CS `+0x0` (LOCK 31, REFDIV 5:0), PWR `+0x4` (PD 0, POSTDIVPD 3, VCOPD 5), FBDIV_INT `+0x8` (11:0), PRIM `+0xC` (POSTDIV1 18:16, POSTDIV2 14:12) | §2.2 table 13; §8.6.5 tables 668-672 | matched against the PDF's text |
+| ADC base `0x400A0000`; CS `+0x0` (EN 0, START_ONCE 2, READY 8, ERR 9, AINSEL 15:12), RESULT `+0x4` (11:0), FCS `+0x8`, DIV `+0x10` | §2.2 table 13; §12.4.7 tables 1173-1175 | matched |
+| RESETS ADC bit 0 | §7.5.3 table 567 (the source cited 566, the register list; corrected in the comment) | matched |
+| CLK_ADC_CTRL `+0x6C` (ENABLE 11, AUXSRC 7:5, clksrc_pll_usb 0), CLK_ADC_DIV `+0x70` (INT 19:16) | §8.1.7 tables 603-604 | matched |
+| RESETS PLL_USB bit 15 | §7.5.3 table 567 | matched |
+| PLL_USB `0x40058000`; CS `+0x0` (LOCK 31, REFDIV 5:0), PWR `+0x4` (PD 0, POSTDIVPD 3, VCOPD 5), FBDIV_INT `+0x8` (11:0), PRIM `+0xC` (POSTDIV1 18:16, POSTDIV2 14:12) | §2.2 table 13; §8.6.5 tables 668-672 | matched |
 | clk_adc at 48 MHz from PLL_USB: 12 MHz / REFDIV 1 * FBDIV 100 = VCO 1200 MHz, / POSTDIV1 5 / POSTDIV2 5 | §12.4.3 ("The ADC requires a 48 MHz clock ... must be set up correctly before enabling the ADC"); §8.6.4's sequence and its pico-sdk PLL USB line | followed; the PLL is for clk_adc alone, clk_sys stays on the crystal |
 | The pad for a conversion: OD set, IE, pulls and ISO clear, FUNCSEL NULL | §12.4 asks IE off and OD on; the pulls and ISO are this port's choice | kept |
 | CS.ERR answered as `TFW_ERR_INTERNAL` | the wire has no conversion-error status | kept |

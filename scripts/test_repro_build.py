@@ -32,6 +32,7 @@ os.makedirs(os.path.dirname(out), exist_ok=True)
 with open(out, "w") as f:
     f.write("files=%s\\n" % ",".join(files))
     f.write("epoch=%s\\n" % os.environ.get("SOURCE_DATE_EPOCH", "<unset>"))
+    f.write("args=%s\\n" % " ".join(args))
     if args[:1] == ["with-path"]:
         f.write("tree=%s\\n" % tree)
 """
@@ -121,6 +122,41 @@ class ReproBuild(unittest.TestCase):
         self.b = self.a
         run = self.run_script()
         self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+
+    def run_app(self, app_dir):
+        return subprocess.run([sys.executable, SCRIPT, "--src", self.src, "--make", self.make,
+                               "--image", IMAGE, "--dir", self.a, "--dir", self.b,
+                               "--app-dir", app_dir],
+                              capture_output=True, text=True, check=False)
+
+    def test_an_application_in_the_tree_is_the_committed_one_in_each_copy(self):
+        write(os.path.join(self.src, "app", "ex", "app.mk"), "APP_NAME := ex\n")
+        git(self.src, "add", "app")
+        git(self.src, "commit", "-q", "-m", "app")
+        run = self.run_app(os.path.join(self.src, "app", "ex"))
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            self.assertEqual(self.image(d)["args"], "APP_DIR=app/ex")
+            self.assertIn("app/ex/app.mk", self.image(d)["files"])
+
+    def test_an_uncommitted_application_in_the_tree_is_refused(self):
+        write(os.path.join(self.src, "app", "ex", "app.mk"), "APP_NAME := ex\n")
+        run = self.run_app("app/ex")
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("no committed app.mk", run.stdout + run.stderr)
+
+    def test_an_application_outside_the_tree_is_one_directory_for_both(self):
+        ext = os.path.join(self.tmp.name, "ext")
+        write(os.path.join(ext, "app.mk"), "APP_NAME := ext\n")
+        run = self.run_app(ext)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        for d in (self.a, self.b):
+            self.assertEqual(self.image(d)["args"], "APP_DIR=" + os.path.realpath(ext))
+
+    def test_an_application_outside_the_tree_needs_an_app_mk(self):
+        run = self.run_app(self.tmp.name)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("has no app.mk", run.stdout + run.stderr)
 
 
 if __name__ == "__main__":

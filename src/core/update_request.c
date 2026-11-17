@@ -2,12 +2,18 @@
 /* SPDX-License-Identifier: commercial */
 
 #include "update_request.h"
+#include "tfw/config.h"
 #include "tfw/hal.h"
 #include "boot_request.h"
 
 uint8_t tfw_update_request_supported(void)
 {
     return 1u;
+}
+
+uint8_t tfw_update_slots(void)
+{
+    return TFW_OTA_SLOTS;
 }
 
 uint8_t tfw_update_request_session(void)

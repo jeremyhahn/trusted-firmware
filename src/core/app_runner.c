@@ -49,9 +49,9 @@ static uint8_t descriptor_ok(void)
     if ((caps & ~(uint32_t)TFW_FEATURE_BITMAP) != 0u) {
         return 0u;
     }
-    /* A board with no bootloader serves no update path at all, whatever its
-     * profile says about slots. */
-    slots = (uint8_t)(tfw_update_request_supported() ? TFW_OTA_SLOTS : 0u);
+    /* The slots this image's update path serves: tfw-boot's, the
+     * architecture's own (ESP-IDF's two), or none on a board with neither. */
+    slots = tfw_update_slots();
     if (tfw_pgm_u8(&d->ota_slots) > slots) {
         return 0u;
     }

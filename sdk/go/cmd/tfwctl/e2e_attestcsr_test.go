@@ -11,11 +11,14 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
+	"net"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -163,6 +166,7 @@ type meddler struct {
 	conn  io.ReadWriter
 	reply func(f tfw.Frame) []byte // new payload for a response, or nil to leave it
 	rx    []byte
+	part  []byte // the frame read so far, kept across a Read's timeout
 }
 
 // frameOverhead is SOF, LEN and the two CRC bytes around a frame's body, per
@@ -173,15 +177,21 @@ func (m *meddler) Write(p []byte) (int, error) { return m.conn.Write(p) }
 
 func (m *meddler) Read(p []byte) (int, error) {
 	if len(m.rx) == 0 {
-		var head [2]byte
-		if _, err := io.ReadFull(m.conn, head[:]); err != nil {
-			return 0, err
+		// A Read can end in a timeout mid-frame (a tcp: conn's read floor):
+		// what has arrived stays in part, and the next Read carries on.
+		for want := 2; len(m.part) < want; {
+			buf := make([]byte, want-len(m.part))
+			n, err := m.conn.Read(buf)
+			m.part = append(m.part, buf[:n]...)
+			if err != nil {
+				return 0, err
+			}
+			if len(m.part) >= 2 {
+				want = int(m.part[1]) + frameOverhead
+			}
 		}
-		frame := make([]byte, int(head[1])+frameOverhead)
-		copy(frame, head[:])
-		if _, err := io.ReadFull(m.conn, frame[2:]); err != nil {
-			return 0, err
-		}
+		frame := m.part
+		m.part = nil
 		if f, _, err := tfw.Decode(frame); err == nil && m.reply != nil && f.IsResponse() {
 			if payload := m.reply(f); payload != nil {
 				if frame, err = tfw.EncodeResponse(f.Seq, f.Cmd(), f.Status, payload); err != nil {
@@ -198,6 +208,61 @@ func (m *meddler) Read(p []byte) (int, error) {
 
 // A device whose caps does not report bit 15 is refused by the host without
 // being asked: the same element, with the bit cleared on the way back.
+// floored bounds every Read on a pipe end by floor, as peer's floorConn does
+// a tcp: conn: a Read with no bytes by then fails with a timeout.
+type floored struct {
+	net.Conn
+	floor time.Duration
+}
+
+func (c floored) Read(p []byte) (int, error) {
+	if err := c.Conn.SetReadDeadline(time.Now().Add(c.floor)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(p)
+}
+
+// A tcp: reply can arrive in pieces further apart than the read floor: the
+// meddler keeps what it has of the frame across the timeout, so the host
+// reads the reply whole and not its tail as a new frame (Codex P1, #558).
+func TestMeddlerKeepsAPartialFrameAcrossTheReadFloor(t *testing.T) {
+	const floor = 200 * time.Millisecond
+	host, dev := net.Pipe()
+	t.Cleanup(func() { _ = host.Close(); _ = dev.Close() })
+	frame, err := tfw.EncodeResponse(tfw.Seq(1), tfw.CmdCaps, tfw.StatusOK, []byte("caps reply"))
+	require.NoError(t, err)
+
+	sent := make(chan error, 1)
+	go func() {
+		for _, piece := range [][]byte{frame[:1], frame[1:5], frame[5:]} {
+			if _, err := dev.Write(piece); err != nil {
+				sent <- err
+				return
+			}
+			time.Sleep(floor + floor/2)
+		}
+		sent <- nil
+	}()
+
+	m := &meddler{conn: floored{Conn: host, floor: floor}}
+	var got []byte
+	timeouts := 0
+	for deadline := time.Now().Add(5 * time.Second); len(got) < len(frame); {
+		require.True(t, time.Now().Before(deadline), "the reply never arrived whole: got % x", got)
+		buf := make([]byte, 64)
+		n, err := m.Read(buf)
+		got = append(got, buf[:n]...)
+		var ne net.Error
+		if err != nil {
+			require.True(t, errors.As(err, &ne) && ne.Timeout(), "got %v", err)
+			timeouts++
+		}
+	}
+	assert.Equal(t, frame, got)
+	assert.Positive(t, timeouts, "no piece of the reply waited past the floor")
+	require.NoError(t, <-sent)
+}
+
 func TestFirmwareElementWithoutTheCapsBitIsRefusedAsUnsupported(t *testing.T) {
 	const featuresOff, bit15 = 10, 0x80 // byte 1 of the little-endian bitmap
 	var asked atomic.Bool

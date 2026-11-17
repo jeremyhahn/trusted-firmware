@@ -115,19 +115,23 @@ sdk-coverage:
 # HW_RESET is how the seam resets the board between rows (TFW_HW_RESET): unset,
 # it pulses DTR; qmp:<socket> asks the QEMU monitor on that Unix socket for
 # system_reset, which is how integration-test-cortex-m-wire runs the rows on a
-# QEMU board (mk/arch/cortex-m-targets.mk).
+# QEMU board (mk/arch/cortex-m-targets.mk); cmd:<program and arguments> runs
+# that command, the probe tool's reset, after purging the port and then waits
+# for the board's BOOT bytes, as after a DTR pulse. HW_RESET_<board> is a
+# board's default when HW_RESET is unset.
 #
 # The boards with a row list and pin facts: atmega328p, atmega2560 and
 # stm32h573i-dk (peerBoards in e2e_firmware_test.go). The STM32H573I-DK's
 # rows are its default image's (#535): GPIO, the timer, EEPROM, analog, PWM on
 # D6 (pin 4), the pulse and tone rows, and the I2C, SPI and 1-Wire refusals;
 # its I2C=1 image runs HW_TEST_RUN='TestFirmwareI2C'. Its ST-LINK VCOM carries
-# DTR to no reset line, so the default DTR pulse does not reset it and the
-# board is not reset between rows; the run says so. A reset through the probe
-# tool is for the next hardware slice.
+# DTR to no reset line, so the DTR pulse would not reset it: its rows reset it
+# through the ST-LINK with STM32CubeProgrammer (HW_RESET_stm32h573i-dk), so each
+# row starts from the BOOT event and clean framer counters.
 HW_TEST_RUN ?=
+HW_RESET_stm32h573i-dk ?= cmd:STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -rst
+hw-test: HW_RESET := $(or $(HW_RESET),$(HW_RESET_$(BOARD)))
 hw-test:
-	@if [ "$(BOARD)" = stm32h573i-dk ] && [ -z "$(HW_RESET)" ]; then echo "hw-test: stm32h573i-dk: DTR on the ST-LINK VCOM does not reset the board; the rows run without a reset between them"; fi
 	@if [ -z "$(PORT)" ]; then echo "hw-test: name the board's serial port: make hw-test BOARD=<board> PORT=<dev> [HW_ETH=<ip:port the board dials> [HW_ETH_LISTEN=<ip:port to listen on, e.g. 0.0.0.0:7020 behind a published port>]]"; exit 1; fi
 	@if [ ! -e "$(PORT)" ]; then echo "hw-test: $(PORT) does not exist -- is the board plugged in?"; exit 1; fi
 	@cd $(SDK_DIR) && TFW_HW_PORT=$(PORT) TFW_HW_BOARD=$(BOARD) TFW_HW_ETH='$(HW_ETH)' TFW_HW_ETH_LISTEN='$(HW_ETH_LISTEN)' TFW_HW_RESET='$(HW_RESET)' TFW_HW_DEVICEID='$(DEVICEID)' TFW_HW_CRI_DIGEST='$(CRI_DIGEST)' TFW_HW_OPERATOR_KEY='$(if $(OPERATOR_KEY),$(abspath $(OPERATOR_KEY)))' TFW_HW_ROWS='$(if $(HW_TEST_RUN),,1)' $(GO) test -count=1$(call go-tags,-tags,tfwsim hwtest) -p 1$(if $(HW_TEST_RUN), -run '$(HW_TEST_RUN)') ./cmd/tfwctl

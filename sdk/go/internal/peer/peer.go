@@ -19,6 +19,7 @@
 package peer
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +78,10 @@ type Target struct {
 	Eth       string // where the board dials; empty for the simulator and a serial-only run
 	EthListen string // where the suite listens for it, when not Eth; empty for Eth
 	QMP       string // the QMP socket that resets the board; empty resets it by DTR
+	// ResetCmd is the program and its arguments, separated by spaces, that
+	// reset the board through its debug probe, for a board whose serial
+	// line carries DTR to no reset (the ST-LINK VCOM); empty for DTR or QMP.
+	ResetCmd string
 }
 
 // Hardware reports whether the target is a real board.
@@ -155,25 +161,28 @@ func FromEnv() (Target, error) {
 	case board == "":
 		return Target{}, fmt.Errorf("%s=%s names a port but %s names no board", PortEnv, port, BoardEnv)
 	}
-	qmp, err := parseReset(reset)
+	qmp, cmd, err := parseReset(reset)
 	if err != nil {
 		return Target{}, err
 	}
-	return Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp}, nil
+	return Target{Port: port, Board: board, Eth: eth, EthListen: listen, QMP: qmp, ResetCmd: cmd}, nil
 }
 
 // parseReset reads ResetEnv: empty for DTR, or the socket of "qmp:<socket>".
 // Anything else is refused rather than read as DTR, which would reset nothing
 // on the board the value was meant for.
-func parseReset(v string) (string, error) {
+func parseReset(v string) (qmp, cmd string, err error) {
 	if v == "" {
-		return "", nil
+		return "", "", nil
 	}
-	sock, ok := strings.CutPrefix(v, "qmp:")
-	if !ok || sock == "" {
-		return "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, or unset to reset by DTR", ResetEnv, v)
+	if line, ok := strings.CutPrefix(v, "cmd:"); ok {
+		if cmd = strings.Join(strings.Fields(line), " "); cmd != "" {
+			return "", cmd, nil
+		}
+	} else if sock, ok := strings.CutPrefix(v, "qmp:"); ok && sock != "" {
+		return sock, "", nil
 	}
-	return sock, nil
+	return "", "", fmt.Errorf("%s=%s: want qmp:<QMP socket path>, cmd:<program and arguments that reset the board>, or unset to reset by DTR", ResetEnv, v)
 }
 
 // Start connects to the target FromEnv names: sim, run with args, when it is
@@ -194,6 +203,11 @@ func Start(tb testing.TB, sim simproc.Binary, args ...string) io.ReadWriteCloser
 	if t.QMP != "" {
 		open = func(port string, bound time.Duration) (io.ReadWriteCloser, error) {
 			return OpenQMP(port, t.QMP, bound)
+		}
+	}
+	if t.ResetCmd != "" {
+		open = func(port string, bound time.Duration) (io.ReadWriteCloser, error) {
+			return OpenCmd(port, strings.Fields(t.ResetCmd), bound)
 		}
 	}
 	c, err := open(t.Port, StartBound)
@@ -267,6 +281,51 @@ func startQMP(p io.ReadWriteCloser, socket string, bound time.Duration) (io.Read
 		return nil, err
 	}
 	return awaitStart(r, bound)
+}
+
+// OpenCmd opens the board on port and resets it by running argv, the probe
+// tool's reset (TFW_HW_RESET=cmd:...), then waits up to bound for its first
+// transmission, as Open does after a DTR pulse. DTR is left alone.
+func OpenCmd(port string, argv []string, bound time.Duration) (io.ReadWriteCloser, error) {
+	p, err := openPort(port, 0)
+	if err != nil {
+		return nil, err
+	}
+	c, err := startCmd(p, func() error { return runResetCommand(argv, bound) }, bound)
+	if err != nil {
+		_ = p.Close()
+		return nil, fmt.Errorf("%s: %w", port, err)
+	}
+	return c, nil
+}
+
+// startCmd purges what the running application sent, then resets, then keeps
+// the new application's first bytes: the order startQMP keeps, since the
+// command returns only after the reset, by when the BOOT event may be in.
+func startCmd(p io.ReadWriteCloser, reset func() error, bound time.Duration) (io.ReadWriteCloser, error) {
+	r, ok := p.(purgeable)
+	if !ok {
+		return nil, errors.New("the port cannot purge its receive buffer")
+	}
+	if err := r.ResetInputBuffer(); err != nil {
+		return nil, fmt.Errorf("purging the receive buffer: %w", err)
+	}
+	if err := reset(); err != nil {
+		return nil, fmt.Errorf("resetting the board: %w", err)
+	}
+	return awaitStart(r, bound)
+}
+
+// runResetCommand runs argv, bounded, and names its output when it fails.
+func runResetCommand(argv []string, bound time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+	// #nosec G204 -- argv is the operator's TFW_HW_RESET, run on the bench.
+	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w: %s", strings.Join(argv, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // qmpMessage is one QMP server message: a command's return or error, or an

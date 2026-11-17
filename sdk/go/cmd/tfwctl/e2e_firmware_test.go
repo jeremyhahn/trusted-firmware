@@ -369,6 +369,12 @@ func TestFirmwarePWM(t *testing.T) {
 	requireFeature(t, dev, tfw.FeaturePWM)
 	require.NoError(t, run(context.Background(), dev, "pwm", []string{strconv.Itoa(int(b.pwmPin)), "128"}, false, &strings.Builder{}),
 		"pin %d has a free compare unit and should accept a duty", b.pwmPin)
+	// A TCP wire does not reset the board between rows, and closing the socket
+	// leaves the timer running: duty 0 stops the pin before the connection
+	// closes (cleanups run last in, first out), even when a check below fails.
+	t.Cleanup(func() {
+		_ = run(context.Background(), dev, "pwm", []string{strconv.Itoa(int(b.pwmPin)), "0"}, false, &strings.Builder{})
+	})
 	// Timer0 is the millisecond tick, so its compare pins have units that are
 	// spent (5 and 6 on the 328P, 4 and 13 on the Mega). The refusal is what
 	// stops a host writing a duty into a timer counting something else and

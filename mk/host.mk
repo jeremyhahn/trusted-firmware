@@ -172,6 +172,7 @@ TEST_SRCS   := $(filter-out test/unit/test_board_%.c test/unit/test_atecc.c test
                             test/unit/test_imx95_lpi2c.c \
                             test/unit/test_imx95_ele_mu.c test/unit/test_imx95_hsm_port.c \
                             test/unit/test_imx95_hsm_intake.c test/unit/test_stm32h5_tone.c \
+                            test/unit/test_h5_eth_mdio.c \
                             test/unit/test_imx95_tpm.c \
                             test/unit/test_platform_bake.c test/unit/test_platform_bake_mutate.c \
                             test/unit/test_optee_ta.c \
@@ -1528,6 +1529,7 @@ HOST_EXTRA_BINS := $(HOST_DIR)/test_mcxn94x_eeprom $(HOST_DIR)/test_stm32h5_eepr
                     $(HOST_DIR)/test_imx95_lpi2c \
                     $(HOST_DIR)/test_imx95_ele_mu $(HOST_DIR)/test_imx95_hsm_port \
                     $(HOST_DIR)/test_imx95_hsm_intake $(HOST_DIR)/test_stm32h5_tone \
+                    $(HOST_DIR)/test_h5_eth_mdio \
                     $(HOST_DIR)/test_imx95_tpm $(HOST_DIR)/test_imx95_tpm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_base \
                     $(HOST_DIR)/test_board_frdm-imx95-m7_pwm_handoff \
@@ -2941,6 +2943,13 @@ $(HOST_DIR)/test_stm32h5_tone: test/unit/test_stm32h5_tone.c src/hal/cortex-m/st
 	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 -Isrc/hal/cortex-m -Itest/model/cortex-m -Iboards/stm32h573i-dk \
 	  $(filter-out -Iboards/$(HOST_BOARD),$(HOST_CFLAGS)) $(EXTRA_CFLAGS) \
 	  -o $@ test/unit/test_stm32h5_tone.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
+
+# The STM32H5 Ethernet PHY probe's pure decode (#579): hal_eth_mdio.h's PHYID,
+# BMSR, scan and boot-line helpers over a fake MDIO bus; no register touched.
+$(HOST_DIR)/test_h5_eth_mdio: test/unit/test_h5_eth_mdio.c src/hal/cortex-m/stm32h5/hal_eth_mdio.h \
+                              $(HOST_DIR)/unity.o | $(HOST_DIR)
+	@$(HOST_CC) -Isrc/hal/cortex-m/stm32h5 $(HOST_CFLAGS) $(EXTRA_CFLAGS) \
+	  -o $@ test/unit/test_h5_eth_mdio.c $(HOST_DIR)/unity.o $(EXTRA_LDFLAGS)
 
 # The STM32H5 SoC hooks (hal_soc.c) on the same register file; the wrap lets
 # the suite log each IWDG key in order. The defsyms bind the names the suite

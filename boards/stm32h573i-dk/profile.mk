@@ -71,7 +71,13 @@ BOARD_TIERS    := soft
 # and host-tested against a register model (test/unit/test_stm32h5_i2c.c), not
 # run on the kit.
 I2C               ?= 0
-BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1)
+# ETH_PROBE=1 prints one console line at boot, "eth: phy addr=N
+# id=XXXX:XXXX link=up|down", from an MDIO scan of the kit's Ethernet PHY
+# (src/hal/cortex-m/stm32h5/hal_eth_mdio.c, #579). Off by default: the default
+# image does not touch the MAC.
+ETH_PROBE         ?= 0
+BOARD_DEFS         = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) \
+                     $(if $(filter 1,$(ETH_PROBE)),-DTFW_CM_ETH_PROBE=1)
 BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C)
 BOARD_ROWS        := soft:I2C=1
 

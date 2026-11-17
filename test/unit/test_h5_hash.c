@@ -2,8 +2,9 @@
 /* SPDX-License-Identifier: commercial */
 /*
  * src/crypto/stm32h5/h5_hash.c (#544) against a model of the STM32H5's HASH
- * peripheral. The model takes the register facts of h5_crypto_regs.h as the
- * peripheral's: it rebuilds the message from the DIN words, the byte swap
+ * peripheral. The model decodes with ST's register facts, restated in
+ * h5_vendor_facts.h independently of the driver's h5_crypto_regs.h (and a
+ * test pins each driver constant to its ST literal): it rebuilds the message from the DIN words, the byte swap
  * and STR.NBLW, digests it with the software SHA-256 (src/crypto/sha256.c,
  * the soft provider's), and answers in HR as big-endian words. So a test
  * passes only if the driver configures, feeds and reads the peripheral the
@@ -14,6 +15,7 @@
 
 #include "unity.h"
 #include "sha256.h"
+#include "h5_vendor_facts.h"
 
 #define TFW_H5_REG_MODEL 1
 #include "../../src/crypto/stm32h5/h5_hash.c"
@@ -46,7 +48,7 @@ uint32_t tfw_h5_rd(uintptr_t addr)
 {
     uint32_t off = (uint32_t)(addr - BASE);
 
-    if (off == TFW_H5_HASH_SR) {
+    if (off == ST_HASH_SR) {
         m.busy_waits++;
         /* The digest lands m.delay reads after DCAL: HR keeps the previous
          * one, and DCIS what it was, until then. A hang never lands it. */
@@ -60,13 +62,13 @@ uint32_t tfw_h5_rd(uintptr_t addr)
                 m.delay_left--;
             }
         }
-        return (m.stuck || m.pending ? TFW_H5_HASH_SR_BUSY : 0u) |
-               (m.dcis ? TFW_H5_HASH_SR_DCIS : 0u);
+        return (m.stuck || m.pending ? ST_HASH_SR_BUSY : 0u) |
+               (m.dcis ? ST_HASH_SR_DCIS : 0u);
     }
-    if (off >= TFW_H5_HASH_HR && off < TFW_H5_HASH_HR + 32u && (off % 4u) == 0u) {
+    if (off >= ST_HASH_HR && off < ST_HASH_HR + 32u && (off % 4u) == 0u) {
         if (!m.computed)
             m.fault = 1;
-        return m.hr[(off - TFW_H5_HASH_HR) / 4u];
+        return m.hr[(off - ST_HASH_HR) / 4u];
     }
     m.fault = 1;
     return 0;
@@ -74,7 +76,7 @@ uint32_t tfw_h5_rd(uintptr_t addr)
 
 static void model_digest(void)
 {
-    uint32_t nblw = m.str & TFW_H5_HASH_STR_NBLW_MASK;
+    uint32_t nblw = m.str & ST_HASH_STR_NBLW;
     uint32_t len  = m.words * 4u;
     uint8_t  d[32];
 
@@ -99,12 +101,12 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
     uint32_t off = (uint32_t)(addr - BASE);
 
     switch (off) {
-    case TFW_H5_HASH_CR:
+    case ST_HASH_CR:
         /* SHA-256, 8-bit data, a hash (not HMAC), started by INIT. INIT
          * restarts the core: the message and a digest in flight are dropped;
          * DCIS and HR are left as they were. */
-        if (value != (TFW_H5_HASH_CR_ALGO_SHA256 | TFW_H5_HASH_CR_BYTE_SWAP |
-                      TFW_H5_HASH_CR_INIT))
+        if (value != (ST_HASH_ALGO_SHA256 | ST_HASH_DATATYPE_BYTE |
+                      ST_HASH_CR_INIT))
             m.fault = 1;
         m.cr         = value;
         m.configured = 1;
@@ -112,28 +114,32 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
         m.pending    = 0;
         m.words      = 0;
         break;
-    case TFW_H5_HASH_DIN:
+    case ST_HASH_DIN:
         if (!m.configured || m.closed || m.words * 4u >= sizeof m.msg) {
             m.fault = 1;
             return;
         }
-        /* The byte swap: the word's low byte is the message's first. */
-        for (uint32_t b = 0; b < 4u; b++)
-            m.msg[m.words * 4u + b] = (uint8_t)(value >> (8u * b));
+        /* DATATYPE as CR set it: with the byte swap the word's low byte is
+         * the message's first; without it the high byte is. */
+        for (uint32_t b = 0; b < 4u; b++) {
+            uint32_t shift = (m.cr & ST_HASH_CR_DATATYPE) == ST_HASH_DATATYPE_BYTE ? 8u * b
+                                                                                   : 24u - 8u * b;
+            m.msg[m.words * 4u + b] = (uint8_t)(value >> shift);
+        }
         m.words++;
         break;
-    case TFW_H5_HASH_STR:
+    case ST_HASH_STR:
         if (!m.configured || m.closed)
             m.fault = 1;
         m.str = value;
-        if (value & TFW_H5_HASH_STR_DCAL)
+        if (value & ST_HASH_STR_DCAL)
             model_digest();
         break;
-    case TFW_H5_HASH_SR:
+    case ST_HASH_SR:
         /* DINIS and DCIS are rc_w0; BUSY reads only. */
-        if (value & ~(TFW_H5_HASH_SR_DINIS | TFW_H5_HASH_SR_DCIS))
+        if (value & ~(ST_HASH_SR_DINIS | ST_HASH_SR_DCIS))
             m.fault = 1;
-        if (!(value & TFW_H5_HASH_SR_DCIS))
+        if (!(value & ST_HASH_SR_DCIS))
             m.dcis = 0;
         m.sr_clears++;
         break;
@@ -191,7 +197,7 @@ static void test_h5_hash_of_abc(void)
         0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c, 0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
     };
     check_vector("abc", want);
-    TEST_ASSERT_EQUAL_UINT32(24u, m.str & TFW_H5_HASH_STR_NBLW_MASK);
+    TEST_ASSERT_EQUAL_UINT32(24u, m.str & ST_HASH_STR_NBLW);
 }
 
 static void test_h5_hash_of_the_448_bit_two_block_message(void)
@@ -201,7 +207,7 @@ static void test_h5_hash_of_the_448_bit_two_block_message(void)
         0xa3, 0x3c, 0xe4, 0x59, 0x64, 0xff, 0x21, 0x67, 0xf6, 0xec, 0xed, 0xd4, 0x19, 0xdb, 0x06, 0xc1,
     };
     check_vector("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", want);
-    TEST_ASSERT_EQUAL_UINT32(0u, m.str & TFW_H5_HASH_STR_NBLW_MASK);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.str & ST_HASH_STR_NBLW);
 }
 
 /* Every length across two blocks and a bit, so each NBLW and each block
@@ -260,7 +266,7 @@ static void test_h5_hash_recovers_after_a_timeout(void)
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_hash_sha256(BASE, (const uint8_t *)"abc", 3, out));
     m.hang = 0;
     for (uint32_t i = 0; i <= MODEL_DELAY; i++)
-        (void)tfw_h5_rd(BASE + TFW_H5_HASH_SR);
+        (void)tfw_h5_rd(BASE + ST_HASH_SR);
     TEST_ASSERT_TRUE(m.dcis);
     check_against_soft(other, sizeof other - 1u);
 
@@ -292,9 +298,31 @@ static void test_h5_hash_times_out_when_busy_never_clears(void)
     TEST_ASSERT_FALSE(m.computed);
 }
 
+/* Every HASH fact the driver uses equals ST's (h5_vendor_facts.h): a wrong
+ * offset, bit or field value in h5_crypto_regs.h fails here even where the
+ * model would not notice it. */
+static void test_h5_hash_register_facts_are_st_s(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_CR, TFW_H5_HASH_CR);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_DIN, TFW_H5_HASH_DIN);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_STR, TFW_H5_HASH_STR);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_SR, TFW_H5_HASH_SR);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_HR, TFW_H5_HASH_HR);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_CR_INIT, TFW_H5_HASH_CR_INIT);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_DATATYPE_BYTE, TFW_H5_HASH_CR_BYTE_SWAP);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_ALGO_SHA256, TFW_H5_HASH_CR_ALGO_SHA256);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_CR_MODE, TFW_H5_HASH_CR_MODE);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_STR_NBLW, TFW_H5_HASH_STR_NBLW_MASK);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_STR_DCAL, TFW_H5_HASH_STR_DCAL);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_SR_DINIS, TFW_H5_HASH_SR_DINIS);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_SR_DCIS, TFW_H5_HASH_SR_DCIS);
+    TEST_ASSERT_EQUAL_HEX32(ST_HASH_SR_BUSY, TFW_H5_HASH_SR_BUSY);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_h5_hash_register_facts_are_st_s);
     RUN_TEST(test_h5_hash_of_the_empty_message);
     RUN_TEST(test_h5_hash_of_abc);
     RUN_TEST(test_h5_hash_of_the_448_bit_two_block_message);

@@ -14,12 +14,13 @@
 
 #include "unity.h"
 #include "uECC.h"
+#include "h5_vendor_facts.h"
 
 #include "../../src/crypto/stm32h5/h5_crypto_regs.h"
 #include "../../src/crypto/stm32h5/h5_pka.h"
 #include "tfw/crypto.h"
 
-#define RAM_WORDS  (TFW_H5_PKA_RAM_END / 4u + 1u)
+#define RAM_WORDS  (ST_PKA_RAM_LAST / 4u + 1u)
 #define FILL       0xA5A5A5A5u
 #define REFUSED    0xCBC9u
 
@@ -40,7 +41,7 @@ static struct {
 } m;
 
 /* Not static: h5_model/soc_regs.h points the provider's PKA base here. */
-uint8_t          regs_anchor[TFW_H5_PKA_RAM_END + 4u];
+uint8_t          regs_anchor[ST_PKA_RAM_LAST + 4u];
 #define BASE     ((uintptr_t)regs_anchor)
 
 static const uint8_t P[32] = {
@@ -107,21 +108,21 @@ static void model_verify(void)
 {
     uint8_t pub[64], sig[64], e[32];
 
-    expect_word(TFW_H5_PKA_VERIF_IN_ORDER_NB_BITS, 256u);
-    expect_word(TFW_H5_PKA_VERIF_IN_MOD_NB_BITS, 256u);
-    expect_word(TFW_H5_PKA_VERIF_IN_A_COEFF_SIGN, 1u);
-    expect_operand(TFW_H5_PKA_VERIF_IN_A_COEFF, ABS_A);
-    expect_operand(TFW_H5_PKA_VERIF_IN_MOD_GF, P);
-    expect_operand(TFW_H5_PKA_VERIF_IN_INITIAL_POINT_X, GX);
-    expect_operand(TFW_H5_PKA_VERIF_IN_INITIAL_POINT_Y, GY);
-    expect_operand(TFW_H5_PKA_VERIF_IN_ORDER_N, N);
-    ram_get(TFW_H5_PKA_VERIF_IN_PUBLIC_KEY_X, &pub[0]);
-    ram_get(TFW_H5_PKA_VERIF_IN_PUBLIC_KEY_Y, &pub[32]);
-    ram_get(TFW_H5_PKA_VERIF_IN_SIGNATURE_R, &sig[0]);
-    ram_get(TFW_H5_PKA_VERIF_IN_SIGNATURE_S, &sig[32]);
-    ram_get(TFW_H5_PKA_VERIF_IN_HASH_E, e);
-    m.ram[TFW_H5_PKA_VERIF_OUT_RESULT / 4u] =
-        uECC_verify(pub, e, 32, sig, uECC_secp256r1()) ? TFW_H5_PKA_NO_ERROR : REFUSED;
+    expect_word(ST_PKA_VERIF_IN_ORDER_NB_BITS, 256u);
+    expect_word(ST_PKA_VERIF_IN_MOD_NB_BITS, 256u);
+    expect_word(ST_PKA_VERIF_IN_A_COEFF_SIGN, 1u);
+    expect_operand(ST_PKA_VERIF_IN_A_COEFF, ABS_A);
+    expect_operand(ST_PKA_VERIF_IN_MOD_GF, P);
+    expect_operand(ST_PKA_VERIF_IN_INITIAL_POINT_X, GX);
+    expect_operand(ST_PKA_VERIF_IN_INITIAL_POINT_Y, GY);
+    expect_operand(ST_PKA_VERIF_IN_ORDER_N, N);
+    ram_get(ST_PKA_VERIF_IN_PUBLIC_KEY_X, &pub[0]);
+    ram_get(ST_PKA_VERIF_IN_PUBLIC_KEY_Y, &pub[32]);
+    ram_get(ST_PKA_VERIF_IN_SIGNATURE_R, &sig[0]);
+    ram_get(ST_PKA_VERIF_IN_SIGNATURE_S, &sig[32]);
+    ram_get(ST_PKA_VERIF_IN_HASH_E, e);
+    m.ram[ST_PKA_VERIF_OUT_RESULT / 4u] =
+        uECC_verify(pub, e, 32, sig, uECC_secp256r1()) ? ST_PKA_NO_ERROR : REFUSED;
 }
 
 /* micro-ecc draws its own nonce, so the model checks that the driver passed
@@ -131,27 +132,27 @@ static void model_sign(void)
     static const uint8_t zero[32];
     uint8_t d[32], k[32], e[32], sig[64];
 
-    expect_word(TFW_H5_PKA_SIGN_IN_ORDER_NB_BITS, 256u);
-    expect_word(TFW_H5_PKA_SIGN_IN_MOD_NB_BITS, 256u);
-    expect_word(TFW_H5_PKA_SIGN_IN_A_COEFF_SIGN, 1u);
-    expect_operand(TFW_H5_PKA_SIGN_IN_A_COEFF, ABS_A);
-    expect_operand(TFW_H5_PKA_SIGN_IN_B_COEFF, B);
-    expect_operand(TFW_H5_PKA_SIGN_IN_MOD_GF, P);
-    expect_operand(TFW_H5_PKA_SIGN_IN_INITIAL_POINT_X, GX);
-    expect_operand(TFW_H5_PKA_SIGN_IN_INITIAL_POINT_Y, GY);
-    expect_operand(TFW_H5_PKA_SIGN_IN_ORDER_N, N);
-    ram_get(TFW_H5_PKA_SIGN_IN_K, k);
-    ram_get(TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, d);
-    ram_get(TFW_H5_PKA_SIGN_IN_HASH_E, e);
+    expect_word(ST_PKA_SIGN_IN_ORDER_NB_BITS, 256u);
+    expect_word(ST_PKA_SIGN_IN_MOD_NB_BITS, 256u);
+    expect_word(ST_PKA_SIGN_IN_A_COEFF_SIGN, 1u);
+    expect_operand(ST_PKA_SIGN_IN_A_COEFF, ABS_A);
+    expect_operand(ST_PKA_SIGN_IN_B_COEFF, B);
+    expect_operand(ST_PKA_SIGN_IN_MOD_GF, P);
+    expect_operand(ST_PKA_SIGN_IN_INITIAL_POINT_X, GX);
+    expect_operand(ST_PKA_SIGN_IN_INITIAL_POINT_Y, GY);
+    expect_operand(ST_PKA_SIGN_IN_ORDER_N, N);
+    ram_get(ST_PKA_SIGN_IN_K, k);
+    ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, d);
+    ram_get(ST_PKA_SIGN_IN_HASH_E, e);
     if (memcmp(k, zero, 32) == 0)
         m.fault = 1;
     if (m.refuse || !uECC_sign(d, e, 32, sig, uECC_secp256r1())) {
-        m.ram[TFW_H5_PKA_SIGN_OUT_ERROR / 4u] = REFUSED;
+        m.ram[ST_PKA_SIGN_OUT_ERROR / 4u] = REFUSED;
         return;
     }
-    ram_put(TFW_H5_PKA_SIGN_OUT_SIGNATURE_R, &sig[0]);
-    ram_put(TFW_H5_PKA_SIGN_OUT_SIGNATURE_S, &sig[32]);
-    m.ram[TFW_H5_PKA_SIGN_OUT_ERROR / 4u] = TFW_H5_PKA_NO_ERROR;
+    ram_put(ST_PKA_SIGN_OUT_SIGNATURE_R, &sig[0]);
+    ram_put(ST_PKA_SIGN_OUT_SIGNATURE_S, &sig[32]);
+    m.ram[ST_PKA_SIGN_OUT_ERROR / 4u] = ST_PKA_NO_ERROR;
 }
 
 /* RCC_CR, modelled apart from the PKA: HSI48RDY rises rdy_delay reads after
@@ -169,17 +170,17 @@ uint32_t tfw_h5_rd(uintptr_t addr)
 {
     uint32_t off = (uint32_t)(addr - BASE);
 
-    if (off == RCC_OFF + TFW_H5_RCC_CR_OFF) {
-        if ((rcc.cr & TFW_H5_RCC_CR_HSI48ON) && !rcc.no_rdy && rcc.reads++ >= rcc.rdy_delay)
-            rcc.cr |= TFW_H5_RCC_CR_HSI48RDY;
+    if (off == RCC_OFF + ST_RCC_CR) {
+        if ((rcc.cr & ST_RCC_CR_HSI48ON) && !rcc.no_rdy && rcc.reads++ >= rcc.rdy_delay)
+            rcc.cr |= ST_RCC_CR_HSI48RDY;
         return rcc.cr;
     }
 
-    if (off == TFW_H5_PKA_CR)
+    if (off == ST_PKA_CR)
         return m.cr;
-    if (off == TFW_H5_PKA_SR)
+    if (off == ST_PKA_SR)
         return m.sr;
-    if (off >= TFW_H5_PKA_RAM && off <= TFW_H5_PKA_RAM_END && (off % 4u) == 0u)
+    if (off >= ST_PKA_RAM && off <= ST_PKA_RAM_LAST && (off % 4u) == 0u)
         return m.ram[off / 4u];
     m.fault = 1;
     return 0;
@@ -189,49 +190,49 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
 {
     uint32_t off = (uint32_t)(addr - BASE);
 
-    if (off == RCC_OFF + TFW_H5_RCC_CR_OFF) {
+    if (off == RCC_OFF + ST_RCC_CR) {
         rcc.writes++;
-        rcc.cr = value & ~TFW_H5_RCC_CR_HSI48RDY;
+        rcc.cr = value & ~ST_RCC_CR_HSI48RDY;
         return;
     }
-    if (off >= TFW_H5_PKA_RAM && off <= TFW_H5_PKA_RAM_END && (off % 4u) == 0u) {
-        if (m.sr & TFW_H5_PKA_SR_BUSY)
+    if (off >= ST_PKA_RAM && off <= ST_PKA_RAM_LAST && (off % 4u) == 0u) {
+        if (m.sr & ST_PKA_SR_BUSY)
             m.fault = 1;
         m.ram[off / 4u] = value;
         return;
     }
     switch (off) {
-    case TFW_H5_PKA_CR:
-        if (value & ~(TFW_H5_PKA_CR_EN | TFW_H5_PKA_CR_START | (0x3Fu << TFW_H5_PKA_CR_MODE_POS)))
+    case ST_PKA_CR:
+        if (value & ~(ST_PKA_CR_EN | ST_PKA_CR_START | ST_PKA_CR_MODE))
             m.fault = 1;
-        if ((value & TFW_H5_PKA_CR_EN) && (m.sr & TFW_H5_PKA_SR_BUSY))
+        if ((value & ST_PKA_CR_EN) && (m.sr & ST_PKA_SR_BUSY))
             m.fault = 1; /* only clearing EN (the abort) is allowed while BUSY */
-        if (!(value & TFW_H5_PKA_CR_EN) && !m.busy_stuck)
-            m.sr &= ~(TFW_H5_PKA_SR_BUSY | TFW_H5_PKA_SR_INITOK);
-        if ((value & TFW_H5_PKA_CR_EN) && m.cr == 0u && m.en_writes++ < m.en_delay)
+        if (!(value & ST_PKA_CR_EN) && !m.busy_stuck)
+            m.sr &= ~(ST_PKA_SR_BUSY | ST_PKA_SR_INITOK);
+        if ((value & ST_PKA_CR_EN) && m.cr == 0u && m.en_writes++ < m.en_delay)
             return;
-        m.cr = value & ~TFW_H5_PKA_CR_START;
-        if ((m.cr & TFW_H5_PKA_CR_EN) && !m.no_initok)
-            m.sr |= TFW_H5_PKA_SR_INITOK;
-        if (value & TFW_H5_PKA_CR_START) {
-            m.mode = (value >> TFW_H5_PKA_CR_MODE_POS) & 0x3Fu;
+        m.cr = value & ~ST_PKA_CR_START;
+        if ((m.cr & ST_PKA_CR_EN) && !m.no_initok)
+            m.sr |= ST_PKA_SR_INITOK;
+        if (value & ST_PKA_CR_START) {
+            m.mode = (value >> ST_PKA_CR_MODE_POS) & 0x3Fu;
             m.runs++;
-            if (!(m.sr & TFW_H5_PKA_SR_INITOK))
+            if (!(m.sr & ST_PKA_SR_INITOK))
                 m.fault = 1;
-            if (m.mode == TFW_H5_PKA_MODE_ECDSA_VERIFY)
+            if (m.mode == ST_PKA_MODE_ECDSA_VERIFY)
                 model_verify();
-            else if (m.mode == TFW_H5_PKA_MODE_ECDSA_SIGN)
+            else if (m.mode == ST_PKA_MODE_ECDSA_SIGN)
                 model_sign();
             else
                 m.fault = 1;
             if (m.hang)
-                m.sr |= TFW_H5_PKA_SR_BUSY;
+                m.sr |= ST_PKA_SR_BUSY;
             else
-                m.sr |= TFW_H5_PKA_SR_PROCENDF | m.err_flags;
+                m.sr |= ST_PKA_SR_PROCENDF | m.err_flags;
         }
         break;
-    case TFW_H5_PKA_CLRFR:
-        if (value & ~TFW_H5_PKA_CLRFR_ALL)
+    case ST_PKA_CLRFR:
+        if (value & ~ST_PKA_CLRFR_ALL)
             m.fault = 1;
         m.sr &= ~value;
         break;
@@ -276,7 +277,7 @@ static void test_h5_pka_init_rewrites_en_until_it_sticks(void)
     m.en_delay = 3;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_pka_init(BASE));
     TEST_ASSERT_EQUAL_UINT32(4u, m.en_writes);
-    TEST_ASSERT_EQUAL_UINT32(TFW_H5_PKA_CR_EN, m.cr);
+    TEST_ASSERT_EQUAL_UINT32(ST_PKA_CR_EN, m.cr);
     TEST_ASSERT_FALSE(m.fault);
 }
 
@@ -293,14 +294,14 @@ static void test_h5_hsi48_start_sets_on_keeps_other_bits_and_waits_for_rdy(void)
     rcc.cr = 0x00040023u;   /* the kit's RCC_CR before the provider ran */
     rcc.rdy_delay = 5;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_hsi48_start(BASE + RCC_OFF));
-    TEST_ASSERT_EQUAL_HEX32(0x00040023u | TFW_H5_RCC_CR_HSI48ON | TFW_H5_RCC_CR_HSI48RDY, rcc.cr);
+    TEST_ASSERT_EQUAL_HEX32(0x00040023u | ST_RCC_CR_HSI48ON | ST_RCC_CR_HSI48RDY, rcc.cr);
     TEST_ASSERT_EQUAL(1, rcc.writes);
 }
 
 static void test_h5_hsi48_start_writes_nothing_when_already_ready(void)
 {
     memset(&rcc, 0, sizeof rcc);
-    rcc.cr = TFW_H5_RCC_CR_HSI48ON | TFW_H5_RCC_CR_HSI48RDY;
+    rcc.cr = ST_RCC_CR_HSI48ON | ST_RCC_CR_HSI48RDY;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_hsi48_start(BASE + RCC_OFF));
     TEST_ASSERT_EQUAL(0, rcc.writes);
 }
@@ -327,8 +328,8 @@ static void test_h5_pka_verifies_a_soft_signature(void)
     TEST_ASSERT_TRUE(uECC_sign(priv, digest, 32, sig, uECC_secp256r1()));
     TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_pka_ecdsa_verify(BASE, digest, sig, pub));
     TEST_ASSERT_FALSE(m.fault);
-    TEST_ASSERT_EQUAL_UINT32(TFW_H5_PKA_MODE_ECDSA_VERIFY, m.mode);
-    TEST_ASSERT_EQUAL_UINT32(0u, m.sr & TFW_H5_PKA_CLRFR_ALL);
+    TEST_ASSERT_EQUAL_UINT32(ST_PKA_MODE_ECDSA_VERIFY, m.mode);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_CLRFR_ALL);
 }
 
 static void test_h5_pka_rejects_a_signature_of_another_digest(void)
@@ -358,12 +359,12 @@ static void test_h5_pka_signs_and_the_soft_verify_accepts_it(void)
 
     TEST_ASSERT_EQUAL(TFW_OK, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
     TEST_ASSERT_FALSE(m.fault);
-    TEST_ASSERT_EQUAL_UINT32(TFW_H5_PKA_MODE_ECDSA_SIGN, m.mode);
+    TEST_ASSERT_EQUAL_UINT32(ST_PKA_MODE_ECDSA_SIGN, m.mode);
     TEST_ASSERT_TRUE(uECC_verify(pub, digest, 32, sig, uECC_secp256r1()));
     /* d and k do not outlive the operation in the PKA's RAM. */
-    ram_get(TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, left);
+    ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, left);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, left, 32);
-    ram_get(TFW_H5_PKA_SIGN_IN_K, left);
+    ram_get(ST_PKA_SIGN_IN_K, left);
     TEST_ASSERT_EQUAL_HEX8_ARRAY(zero, left, 32);
 }
 
@@ -412,10 +413,10 @@ static void test_h5_pka_timed_out_sign_is_stopped_before_its_secrets_are_wiped(v
     m.hang = 1;
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
     TEST_ASSERT_EQUAL(0, m.fault);
-    TEST_ASSERT_EQUAL_UINT32(0u, m.sr & TFW_H5_PKA_SR_BUSY);
-    ram_get(TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_SR_BUSY);
+    ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
     TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
-    ram_get(TFW_H5_PKA_SIGN_IN_K, got);
+    ram_get(ST_PKA_SIGN_IN_K, got);
     TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
 }
 
@@ -428,8 +429,8 @@ static void test_h5_pka_busy_that_never_clears_gets_no_ram_write(void)
     m.busy_stuck = 1;
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
     TEST_ASSERT_EQUAL(0, m.fault);
-    TEST_ASSERT_EQUAL_UINT32(0u, m.cr & TFW_H5_PKA_CR_EN);
-    ram_get(TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.cr & ST_PKA_CR_EN);
+    ram_get(ST_PKA_SIGN_IN_PRIVATE_KEY_D, got);
     TEST_ASSERT_EQUAL_MEMORY(priv, got, sizeof got);
 }
 
@@ -442,7 +443,7 @@ static void test_h5_pka_error_flags_are_no_answer(void)
     for (uint32_t bit = 19; bit <= 21; bit++) {
         m.err_flags = 1u << bit;
         TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_verify(BASE, digest, sig, pub));
-        TEST_ASSERT_EQUAL_UINT32(0u, m.sr & TFW_H5_PKA_CLRFR_ALL);
+        TEST_ASSERT_EQUAL_UINT32(0u, m.sr & ST_PKA_CLRFR_ALL);
     }
     TEST_ASSERT_FALSE(m.fault);
 }
@@ -537,7 +538,7 @@ static void test_h5_provider_leaves_a_timed_out_pka_alone(void)
     m.hang = 1;
     TEST_ASSERT_EQUAL(TFW_OK, tfw_crypto_verify_operator(digest, sig, pub));
     m.hang = 0;
-    m.sr |= TFW_H5_PKA_SR_PROCENDF; /* the late completion */
+    m.sr |= ST_PKA_SR_PROCENDF; /* the late completion */
     memcpy(other, digest, sizeof other);
     other[0] ^= 1u;
     TEST_ASSERT_EQUAL(TFW_ERR_CRYPTO, tfw_crypto_verify_operator(other, sig, pub));
@@ -545,9 +546,67 @@ static void test_h5_provider_leaves_a_timed_out_pka_alone(void)
     TEST_ASSERT_EQUAL(1, m.runs);
 }
 
+/* The model decodes with ST's facts (h5_vendor_facts.h), not the driver's;
+ * every PKA and RCC fact the driver uses equals its ST literal, so a wrong
+ * operand offset, mode, result code or bit in h5_crypto_regs.h fails here. */
+static void test_h5_pka_register_facts_are_st_s(void)
+{
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_CR, TFW_H5_PKA_CR);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SR, TFW_H5_PKA_SR);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_CLRFR, TFW_H5_PKA_CLRFR);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_RAM, TFW_H5_PKA_RAM);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_CR_EN, TFW_H5_PKA_CR_EN);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_CR_START, TFW_H5_PKA_CR_START);
+    TEST_ASSERT_EQUAL_UINT32(ST_PKA_CR_MODE_POS, TFW_H5_PKA_CR_MODE_POS);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SR_INITOK, TFW_H5_PKA_SR_INITOK);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SR_BUSY, TFW_H5_PKA_SR_BUSY);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SR_PROCENDF, TFW_H5_PKA_SR_PROCENDF);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SR_ERRORS, TFW_H5_PKA_SR_ERRORS);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_CLRFR_ALL, TFW_H5_PKA_CLRFR_ALL);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_MODE_ECDSA_SIGN, TFW_H5_PKA_MODE_ECDSA_SIGN);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_MODE_ECDSA_VERIFY, TFW_H5_PKA_MODE_ECDSA_VERIFY);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_NO_ERROR, TFW_H5_PKA_NO_ERROR);
+
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_ORDER_NB_BITS, TFW_H5_PKA_SIGN_IN_ORDER_NB_BITS);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_MOD_NB_BITS, TFW_H5_PKA_SIGN_IN_MOD_NB_BITS);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_A_COEFF_SIGN, TFW_H5_PKA_SIGN_IN_A_COEFF_SIGN);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_A_COEFF, TFW_H5_PKA_SIGN_IN_A_COEFF);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_B_COEFF, TFW_H5_PKA_SIGN_IN_B_COEFF);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_MOD_GF, TFW_H5_PKA_SIGN_IN_MOD_GF);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_K, TFW_H5_PKA_SIGN_IN_K);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_INITIAL_POINT_X, TFW_H5_PKA_SIGN_IN_INITIAL_POINT_X);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_INITIAL_POINT_Y, TFW_H5_PKA_SIGN_IN_INITIAL_POINT_Y);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_HASH_E, TFW_H5_PKA_SIGN_IN_HASH_E);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_PRIVATE_KEY_D, TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_IN_ORDER_N, TFW_H5_PKA_SIGN_IN_ORDER_N);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_OUT_ERROR, TFW_H5_PKA_SIGN_OUT_ERROR);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_OUT_SIGNATURE_R, TFW_H5_PKA_SIGN_OUT_SIGNATURE_R);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_SIGN_OUT_SIGNATURE_S, TFW_H5_PKA_SIGN_OUT_SIGNATURE_S);
+
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_ORDER_NB_BITS, TFW_H5_PKA_VERIF_IN_ORDER_NB_BITS);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_MOD_NB_BITS, TFW_H5_PKA_VERIF_IN_MOD_NB_BITS);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_A_COEFF_SIGN, TFW_H5_PKA_VERIF_IN_A_COEFF_SIGN);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_A_COEFF, TFW_H5_PKA_VERIF_IN_A_COEFF);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_MOD_GF, TFW_H5_PKA_VERIF_IN_MOD_GF);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_INITIAL_POINT_X, TFW_H5_PKA_VERIF_IN_INITIAL_POINT_X);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_INITIAL_POINT_Y, TFW_H5_PKA_VERIF_IN_INITIAL_POINT_Y);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_PUBLIC_KEY_X, TFW_H5_PKA_VERIF_IN_PUBLIC_KEY_X);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_PUBLIC_KEY_Y, TFW_H5_PKA_VERIF_IN_PUBLIC_KEY_Y);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_SIGNATURE_R, TFW_H5_PKA_VERIF_IN_SIGNATURE_R);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_SIGNATURE_S, TFW_H5_PKA_VERIF_IN_SIGNATURE_S);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_HASH_E, TFW_H5_PKA_VERIF_IN_HASH_E);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_IN_ORDER_N, TFW_H5_PKA_VERIF_IN_ORDER_N);
+    TEST_ASSERT_EQUAL_HEX32(ST_PKA_VERIF_OUT_RESULT, TFW_H5_PKA_VERIF_OUT_RESULT);
+
+    TEST_ASSERT_EQUAL_HEX32(ST_RCC_CR, TFW_H5_RCC_CR_OFF);
+    TEST_ASSERT_EQUAL_HEX32(ST_RCC_CR_HSI48ON, TFW_H5_RCC_CR_HSI48ON);
+    TEST_ASSERT_EQUAL_HEX32(ST_RCC_CR_HSI48RDY, TFW_H5_RCC_CR_HSI48RDY);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_h5_pka_register_facts_are_st_s);
     RUN_TEST(test_h5_pka_init_rewrites_en_until_it_sticks);
     RUN_TEST(test_h5_pka_init_times_out_without_initok);
     RUN_TEST(test_h5_pka_init_times_out_when_en_never_sticks);

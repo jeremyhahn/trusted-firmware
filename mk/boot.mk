@@ -322,11 +322,14 @@ $(BOOT_DIR_OUT)/%.o: %.S
 # BOOT_SECTION + N bytes; it fits once N bytes go. The recovery below runs
 # boot-core-size and bootloader-budget, which answer the two questions the
 # failure actually raises: how big is the core, and how big is the backend.
+#
+# Only a size failure gets that recovery (#530): scripts/boot_link_report.sh
+# exits 0 when link.err has a region overflow or "will not fit" line, and
+# otherwise prints the real error lines (an -Werror=frame-larger-than at the
+# LTO link, a vla, an alloca, an undefined reference) and exits 1.
 $(BOOT_TARGET).elf: $(BOOT_OBJS)
 	@$(ARCH_CC) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS) 2>$(BOOT_DIR_OUT)/link.err || { \
-	  echo "tfw-boot does not link for $(BOARD): it does not fit in the boot section."; \
-	  echo; \
-	  sed 's/^/  ld: /' $(BOOT_DIR_OUT)/link.err | grep -E 'overflow|will not fit|overlaps|undefined reference' || true; \
+	  sh scripts/boot_link_report.sh $(BOOT_DIR_OUT)/link.err '$(BOARD)' || exit 1; \
 	  echo; \
 	  $(MAKE) --no-print-directory boot-core-size || true; \
 	  echo; \

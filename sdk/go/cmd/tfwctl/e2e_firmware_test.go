@@ -276,9 +276,9 @@ func TestBootEventLinkResetsATCPLinkThroughTheResetPort(t *testing.T) {
 		return nil
 	}
 
-	conn, skip := bootEventLink(t, peer.Target{Port: peer.TCPPrefix + ln.Addr().String()}, "/dev/ttyUSB9")
+	conn, skip := bootEventLink(t, peer.Target{Port: peer.TCPPrefix + ln.Addr().String()}, "reset-port-under-test")
 	require.Empty(t, skip)
-	assert.Equal(t, "/dev/ttyUSB9", pulsedPort)
+	assert.Equal(t, "reset-port-under-test", pulsedPort)
 	assertBootEvent(t, conn)
 	assert.True(t, dialledAfterPulse.Load(), "the endpoint was dialled before the reset")
 }

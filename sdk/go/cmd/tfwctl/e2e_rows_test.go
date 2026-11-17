@@ -61,6 +61,7 @@ type rowNeed struct {
 	tier  rowTier    // the tier the row starts its peer on
 	has   imageParts // what it has that CAPS cannot say
 	not   imageParts // and what it must not have
+	fresh bool       // needs a board the connect resets: a BOOT event, zeroed sticky counters
 }
 
 // boardImage is what an AVR board's default image has: its profile.mk and
@@ -69,13 +70,17 @@ type boardImage struct {
 	caps  uint32
 	tier  rowTier
 	parts imageParts
+	// noReset: opening the board's wire does not reset it (a TCP server), so
+	// no row starts on a fresh boot and the rows that need one are not run.
+	noReset bool
 }
 
 // servedBy reports whether img serves a row with this need.
 func (n rowNeed) servedBy(img boardImage) bool {
 	return img.caps&n.caps == n.caps && img.caps&n.lacks == 0 &&
 		(n.tier == anyTier || n.tier == img.tier) &&
-		img.parts&n.has == n.has && img.parts&n.not == 0
+		img.parts&n.has == n.has && img.parts&n.not == 0 &&
+		!(n.fresh && img.noReset)
 }
 
 // avrPeripherals are the families config.h turns on and neither AVR board's
@@ -105,8 +110,9 @@ var boardImages = map[string]boardImage{
 	// The bench HIL-0 image: CRYPTO=none with sdkconfig.hil0, so no tier and
 	// no identity (no UDS in eFuse); CAPS is the AVR peripheral set, 0x7ff.
 	"esp32p4-poe": {
-		caps: avrPeripherals,
-		tier: anyTier,
+		caps:    avrPeripherals,
+		tier:    anyTier,
+		noReset: true, // the wire is a TCP server: connect does not reset it
 	},
 }
 
@@ -114,8 +120,8 @@ var boardImages = map[string]boardImage{
 var firmwareRowNeeds = map[string]rowNeed{
 	// e2e_firmware_test.go
 	"TestFirmwarePing": {},
-	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {},
-	"TestFirmwarePingAfterAMalformedBurst":               {},
+	"TestFirmwarePingDeliversTheBootEventWithNoBootWait": {fresh: true},
+	"TestFirmwarePingAfterAMalformedBurst":               {fresh: true},
 	"TestFirmwareCaps":                                   {},
 	"TestFirmwareSys":                                    {},
 	"TestFirmwarePin":                                    {caps: tfw.FeatureGPIO},
@@ -340,6 +346,27 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 func TestBoardRunMatchesWholeNames(t *testing.T) {
 	if boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingSomethingElse") {
 		t.Fatal("the run matched a row by its prefix")
+	}
+}
+
+// A board whose wire does not reset it on connect (the P4's TCP server) runs
+// no row that needs a fresh boot: the boot event never comes, and the
+// malformed burst leaves the sticky framing counters that Sys reads as zero.
+func TestBoardWithNoResetOnConnectRunsNoFreshBootRow(t *testing.T) {
+	run := boardRun(t, "esp32p4-poe", false)
+	for _, r := range []string{
+		"TestFirmwarePingDeliversTheBootEventWithNoBootWait",
+		"TestFirmwarePingAfterAMalformedBurst",
+	} {
+		if run.MatchString(r) {
+			t.Errorf("esp32p4-poe runs %s, which needs a fresh boot", r)
+		}
+	}
+	if !run.MatchString("TestFirmwareSys") {
+		t.Error("esp32p4-poe dropped TestFirmwareSys")
+	}
+	if !boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingAfterAMalformedBurst") {
+		t.Error("a board that resets on connect lost the malformed-burst row")
 	}
 }
 

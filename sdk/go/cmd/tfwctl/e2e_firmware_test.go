@@ -90,6 +90,19 @@ var peerBoards = map[string]peerBoard{
 		ledPort:    0, ledBit: 0, ledPWM: tfw.PWMNone, // LED0
 		ledPin: 0, txPin: -1, timerPin: 1, // LED1
 	},
+	// boards/esp32p4-poe/board.c: no LED on the header, so the plain GPIO32
+	// (pin 11, port 1 bit 0) stands in; GPIO20 is ADC1 channel 4 and a
+	// digital pin; the console UART is outside the table. Reached over
+	// PORT=tcp:, so no reset: the cause is the last boot's, power-on.
+	"esp32p4-poe": {
+		resetCause: tfw.ResetPowerOn,
+		ledPort:    1, ledBit: 0, ledPWM: tfw.PWMNone, // GPIO32
+		analog: 7, // GPIO20
+		adcPin: 7, adcChannel: 4, adcPort: true,
+		adcOnly: 0,
+		tickPin: 0, noPWMPin: 11, // GPIO2 (LEDC0); GPIO32
+		ledPin: 11, txPin: -1, timerPin: 12, // GPIO33
+	},
 }
 
 // firmwareBoard returns the facts for the board the seam names. A board this

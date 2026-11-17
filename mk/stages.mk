@@ -249,12 +249,15 @@ trivy-image: docker-build-it
 # xkms/go.mod or xkms/go.sum honest on the PR gate (dept-software #981, kept
 # hermetic by ruling 742 (1)): every package xkms/ and its tests import
 # resolves from go.mod and go.sum alone, read-only, with no module proxy
-# (GOPROXY=off), so a missing requirement or go.sum entry fails here. Then
-# gosec and golangci-lint.
+# (GOPROXY=off), so a missing requirement or go.sum entry fails here. It reads
+# the module cache the image baked (DEPS_SEED_GOMODCACHE: /opt/go/mod in the
+# toolchain image, else the host's GOMODCACHE), not the writable cache volume
+# a bridge stage mounts, which a cold runner starts empty. Then gosec and
+# golangci-lint.
 xkms-security:
 	$(call require-tools,$(GO) gosec golangci-lint)
 	@cd $(XKMS_DIR) && $(GO) mod verify
-	@cd $(XKMS_DIR) && GOFLAGS=-mod=readonly GOPROXY=off $(GO) list -deps -test$(call go-tags,-tags,$(XKMS_TAGS)) ./... >/dev/null
+	@cd $(XKMS_DIR) && GOFLAGS=-mod=readonly GOPROXY=off GOMODCACHE=$(DEPS_SEED_GOMODCACHE) $(GO) list -deps -test$(call go-tags,-tags,$(XKMS_TAGS)) ./... >/dev/null
 	@cd $(XKMS_DIR) && gosec -quiet$(call go-tags,-tags,$(XKMS_TAGS)) ./...
 	@cd $(XKMS_DIR) && golangci-lint run --config $(CURDIR)/.golangci.yml$(call go-tags,--build-tags,$(XKMS_TAGS)) ./...
 

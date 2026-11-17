@@ -21,12 +21,14 @@
 #   soft-tier rows (e2e_firmware_test.go) and the dice and attestcsr rows
 #   this image serves, with DEVICEID from addrs.env. A row whose peer lacks
 #   the feature it needs fails, naming it (#7), so the lists below leave out
-#   by name every row this image cannot serve: the analog, PWM, EEPROM, bus
-#   and pulse rows (CAPS bits 2, 3, 5-9 clear); the alias certificate (bit
+#   by name every row this image cannot serve: the analog, PWM, bus and
+#   pulse rows (CAPS bits 2, 3, 5, 7-9 clear); the alias certificate (bit
 #   13), operator session (bit 14) and CSR (bit 15) rows; and the OTA and app
 #   rows that need a stager or an application (it is built without
 #   OTA_STAGE and has none), which CAPS cannot say. The soft image offers
-#   ATTEST (bit 10), so the evidence-frame rows run. The refusal rows run
+#   ATTEST (bit 10), so the evidence-frame rows run, and EEPROM (bit 6) over
+#   the platform window, so the EEPROM row writes and reads back past
+#   tfw-boot's span (TestFirmwareEEPROM). The refusal rows run
 #   instead of what it lacks: each of those families' commands is refused
 #   as unknown (e2e_refusal_test.go, e2e_refusal_board_test.go).
 #   docs/cortex-m/README.md tables every row per board.
@@ -84,6 +86,13 @@
 #   below-floor.bin refused once a confirmed update raised the floor; and a
 #   trial that stops petting reset by the watchdog and rolled back.
 #
+#   qemu_wire_test.sh <dir> <machine> <board> pwm
+#
+# is the board's PWM row (cortex-m-qemu-pwm-wire): the base row's tfw-boot and
+# the application built with PWM=1. One boot, pwm, runs TestQEMUPWMWrite
+# (sdk/go/cmd/tfwctl/pwm_qemu_test.go): PWM_WRITE through tfwctl's pwm verb at
+# 0, 128 and 255 on pin 0, and the refusal on pin 2, which has no PWM row.
+#
 #   qemu_wire_test.sh <dir> <machine> <board> spi
 #
 # is the board's SPI row (cortex-m-qemu-spi-wire): the base row's tfw-boot and
@@ -101,6 +110,28 @@
 # the shield 0 SBCon, which QEMU models with nothing on its bus, so every
 # address is NACKed.
 #
+#   qemu_wire_test.sh <dir> <machine> <board> tone
+#
+# is the board's tone row (cortex-m-qemu-tone-wire): the base row's tfw-boot
+# and the application built with TONE=1. One boot, tone, runs TestQEMUTone
+# (sdk/go/cmd/tfwctl/tone_qemu_test.go): TONE and NOTONE on the tone pin
+# answer OK and a frequency above the driver's bound is refused. QEMU does not
+# measure the pin.
+#
+#   qemu_wire_test.sh <dir> <machine> <board> onewire
+#
+# is the board's 1-Wire row (cortex-m-qemu-onewire-wire): the base row's
+# tfw-boot and the application built with ONEWIRE=1. One boot, onewire, runs
+# TestQEMUOneWire (sdk/go/cmd/tfwctl/onewire_qemu_test.go): the 1-Wire verbs on
+# GPIO block 0 bit 0, which QEMU leaves unimplemented, so the line reads low.
+#
+#   qemu_wire_test.sh <dir> <machine> <board> pulse
+#
+# is the board's PULSE row (cortex-m-qemu-pulse-wire): the base row's tfw-boot
+# and the application built with PULSE=1. One boot, pulse, runs
+# TestQEMUPulseTimeout (sdk/go/cmd/tfwctl/pulse_qemu_test.go): PULSE_IN and
+# PULSE_CAPTURE on a pin QEMU does not drive, so each times out.
+#
 # A failed row leaves its guest's registers at the end of the boot's QEMU log
 # (regs below), so a guest that stopped answering says where it stopped.
 #
@@ -109,8 +140,8 @@
 # in the suite is bounded, and the trap kills QEMU on every exit.
 set -eu
 
-usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c]" >&2; exit 2; }
-case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c) ;; *) usage ;; esac
+usage() { echo "usage: qemu_wire_test.sh <dir> <machine> <board> [store|ab|spi|i2c|tone|onewire|pulse|pwm]" >&2; exit 2; }
+case $#:${4:-} in 3: | 4:store | 4:ab | 4:spi | 4:i2c | 4:tone | 4:onewire | 4:pulse | 4:pwm) ;; *) usage ;; esac
 dir=$1
 machine=$2
 board=$3
@@ -222,8 +253,8 @@ cycle() {
     alive
 }
 
-firmware='Ping|PingDeliversTheBootEventWithNoBootWait|PingAfterAMalformedBurst|Caps|Sys|Pin|Write|Timer'
-refuse='RefusesAnalogItsCapsLacks|RefusesPWMItsCapsLacks|RefusesPulseItsCapsLacks|RefusesEEPROMItsCapsLacks|RefusesI2CItsCapsLacks|RefusesSPIItsCapsLacks|RefusesOneWireItsCapsLacks|RefusesTheAuthSessionItsCapsLacks|RefusesAttestCSRItsCapsLacks'
+firmware='Ping|PingDeliversTheBootEventWithNoBootWait|PingAfterAMalformedBurst|Caps|Sys|Pin|Write|Timer|EEPROM'
+refuse='RefusesAnalogItsCapsLacks|RefusesPWMItsCapsLacks|RefusesPulseItsCapsLacks|RefusesI2CItsCapsLacks|RefusesSPIItsCapsLacks|RefusesOneWireItsCapsLacks|RefusesTheAuthSessionItsCapsLacks|RefusesAttestCSRItsCapsLacks'
 dice='AttestEvidenceFrame|EvidenceFrameRejectsTamperingAndOtherKeys|SoftwareTierStillCannotIssueACertificate'
 csr='AttestCSRReportsADeviceThatCannotIssueOne|ElementWithoutTheCapsBitIsRefusedAsUnsupported'
 ota='OTAAuthLetsTheCommandPastTheGate'
@@ -238,8 +269,16 @@ elif [ "$row" = ab ]; then
     done
 elif [ "$row" = spi ]; then
     cycle spi TestQEMUSPIXfer
+elif [ "$row" = pwm ]; then
+    cycle pwm TestQEMUPWMWrite
 elif [ "$row" = i2c ]; then
     cycle i2c TestQEMUI2CXfer
+elif [ "$row" = tone ]; then
+    cycle tone TestQEMUTone
+elif [ "$row" = onewire ]; then
+    cycle onewire TestQEMUOneWire
+elif [ "$row" = pulse ]; then
+    cycle pulse TestQEMUPulseTimeout
 else
     wire provisioned boot.bin "^TestFirmware($firmware|$refuse|$dice|$csr|$app)\$"
     wire unprovisioned boot-unprovisioned.bin '^TestFirmwareAttestRefusedUnprovisioned$'

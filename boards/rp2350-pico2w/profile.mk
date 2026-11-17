@@ -78,6 +78,22 @@ BOOT_BUDGET    := 32768
 # 1-4): no element on this board and no OTP write in any lane.
 BOARD_TIERS    := soft
 
+# The I2C master on I2C0, GPIO4 (SDA) and GPIO5 (SCL)
+# (src/hal/cortex-m/rp2350/hal_bus.c), and PWM, the converter, the tone and
+# the flash EEPROM (src/hal/cortex-m/rp2350/hal_pwm.c, hal_adc.c, hal_tone.c,
+# hal_eeprom.c), on by default: the owner lifted the SPEC AVR gate (#7) for the
+# RP2350 by ruling 697, so the default image carries them and `make flash`
+# writes it. I2C=1 turns TFW_FEATURE_I2C on (TFW_CM_I2C in board_profile.h) and
+# links the bus; PERIPH=1 turns the other four on (TFW_CM_PERIPH) and links
+# them. Each is host-tested against its register model under
+# test/model/cortex-m/rp2350/. soft:I2C=0 and soft:PERIPH=0 build the images
+# without them, so size-check measures every row and each stays flashable.
+I2C               ?= 1
+PERIPH            ?= 1
+BOARD_DEFS        = $(if $(filter 1,$(I2C)),-DTFW_CM_I2C=1) $(if $(filter 1,$(PERIPH)),-DTFW_CM_PERIPH=1)
+BOARD_FEATURES_ON := $(if $(filter 1,$(I2C)),I2C) $(if $(filter 1,$(PERIPH)),ANALOG PWM TONE EEPROM)
+BOARD_ROWS        := soft:I2C=0 soft:PERIPH=0
+
 # Written over USB with picotool, the board in BOOTSEL mode, as the onboarding
 # ADR has it: the Pico 2 W has no on-board debug probe. picotool reads and
 # writes the flash and dumps the OTP, which is recorded and never written;

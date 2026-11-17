@@ -1,0 +1,1 @@
+- docs(device-onboarding): the SPEC row `device-onboarding` audited requirement by requirement, with its code, its tests and the remaining slices (`docs/device-onboarding/architecture.md`, "Requirements" and "Remaining slices"); the soft root and T1 rows, which cited open PR #173, now cite what landed (Refs #517).

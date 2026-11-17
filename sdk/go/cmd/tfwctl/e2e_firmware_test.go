@@ -234,6 +234,15 @@ func sysRow(t testing.TB, dev *tfw.Device, causes []tfw.ResetCause, resets bool)
 	assert.Equal(t, si.ResetCause, after.ResetCause, "reset cause changed across exchanges: the board restarted")
 }
 
+// causes are the reset causes the SYS row accepts: resetCause on a board the
+// run resets, heldCauses on one it finds running.
+func (b peerBoard) causes(resets bool) []tfw.ResetCause {
+	if resets || b.heldCauses == nil {
+		return []tfw.ResetCause{b.resetCause}
+	}
+	return b.heldCauses
+}
+
 func TestFirmwarePin(t *testing.T) {
 	_, b := firmwareBoard(t)
 	dev := startFirmware(t)

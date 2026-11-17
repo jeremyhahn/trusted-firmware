@@ -18,7 +18,7 @@ func TestOpenTCPDialsTheWireEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	got := make(chan []byte, 1)
 	go func() {
 		c, err := l.Accept()
@@ -26,7 +26,7 @@ func TestOpenTCPDialsTheWireEndpoint(t *testing.T) {
 			got <- nil
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		b := make([]byte, 3)
 		_, _ = io.ReadFull(c, b)
 		got <- b
@@ -35,7 +35,7 @@ func TestOpenTCPDialsTheWireEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if _, err := c.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestOpenTCPRedialsWhileTheFirmwareHoldsThePreviousHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	got := make(chan []byte, 1)
 	go func() {
 		first, err := l.Accept()
@@ -67,7 +67,7 @@ func TestOpenTCPRedialsWhileTheFirmwareHoldsThePreviousHost(t *testing.T) {
 			got <- nil
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		b := make([]byte, 3)
 		_, _ = io.ReadFull(c, b)
 		got <- b
@@ -76,7 +76,7 @@ func TestOpenTCPRedialsWhileTheFirmwareHoldsThePreviousHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if _, err := c.Write([]byte{1, 2, 3}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -97,13 +97,13 @@ func TestOpenTCPKeepsBytesTheBoardSentWhileSettling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		c, err := l.Accept()
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		_, _ = c.Write([]byte{7, 8})
 		_, _ = io.Copy(io.Discard, c)
 	}()
@@ -111,7 +111,7 @@ func TestOpenTCPKeepsBytesTheBoardSentWhileSettling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	b := make([]byte, 2)
 	if _, err := io.ReadFull(c, b); err != nil || string(b) != "\x07\x08" {
 		t.Fatalf("read %x, %v; want 0708", b, err)
@@ -125,7 +125,7 @@ func TestOpenTCPGivesUpWhenEveryConnectionIsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	go func() {
 		for {
 			c, err := l.Accept()

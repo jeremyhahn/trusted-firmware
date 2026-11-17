@@ -39,15 +39,6 @@ type peerBoard struct {
 	timerPin   uint8          // a digital output the timer scenario drives and reads back
 }
 
-// causes are the reset causes the SYS row accepts: resetCause on a board the
-// run resets, heldCauses on one it finds running.
-func (b peerBoard) causes(resets bool) []tfw.ResetCause {
-	if resets || b.heldCauses == nil {
-		return []tfw.ResetCause{b.resetCause}
-	}
-	return b.heldCauses
-}
-
 var peerBoards = map[string]peerBoard{
 	"atmega328p": {
 		resetCause: tfw.ResetPowerOn,

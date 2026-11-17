@@ -220,7 +220,7 @@ type floored struct {
 }
 
 func (c floored) Read(p []byte) (int, error) {
-	if err := c.Conn.SetReadDeadline(time.Now().Add(c.floor)); err != nil {
+	if err := c.SetReadDeadline(time.Now().Add(c.floor)); err != nil {
 		return 0, err
 	}
 	return c.Conn.Read(p)

@@ -291,7 +291,7 @@ func (c *floorConn) SetReadDeadline(t time.Time) error {
 
 func (c *floorConn) SetDeadline(t time.Time) error {
 	_ = c.SetReadDeadline(t)
-	return c.Conn.SetWriteDeadline(t)
+	return c.SetWriteDeadline(t)
 }
 
 // WireSettle is how long Open watches a new TCP connection for the firmware

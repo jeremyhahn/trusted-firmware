@@ -102,9 +102,60 @@ The rewrite stands until the owner rules on it. The alternatives are a second
 sector for the platform block written alternately, and an OTA writer that
 erases a sector once and then programs it page by page.
 
+## Feature matrix: the hw-test rows
+
+Run 2026-11-17 (#543 slice 3) on the board with the #535 bench image (branch
+`row/535-stm32h573i-dk-hw`, its `I2C=1` build, as #535 left the board). The
+image is identified by a read-back, not a write: bank 1 (`0x08000000`, 1 MiB)
+read with pyOCD `savemem` has SHA-256
+`86b04107ed0d1f27301bc6ceb6f613671d9f90523e7244ca63208a40a659ef21`; tfw-boot
+and the application slot (the first 160 KiB) have
+`d0405ac1d39e9a12b57c8f143e21e3b76c59d74737dc1a13ecaf0d2c73064346`. Nothing
+was flashed, and no option byte was written. The command, one row then the whole
+list: `make hw-test BOARD=stm32h573i-dk PORT=<vcom> HW_RESET='cmd:pyocd reset
+-t stm32h573iitx -u <probe serial>' HW_TEST_RUN='^TestFirmware<Row>$'`, then
+the same command without `HW_TEST_RUN`. The lane had no STM32CubeProgrammer, so pyOCD
+replaced the default reset. The board's first byte comes about 16 s after the
+reset starts (tfw-boot's software P-256 check), so the seam gives it 30 s
+(`Target.Bound`, `sdk/go/internal/peer`). Evidence for each verified row is
+that row passing in the whole-list run, 385 s, every row from a probe reset.
+
+- `TestFirmwarePing`: verified 2026-11-17, whole-list run.
+- `TestFirmwarePingDeliversTheBootEventWithNoBootWait`: verified 2026-11-17,
+  whole-list run.
+- `TestFirmwarePingAfterAMalformedBurst`: verified 2026-11-17, whole-list run.
+- `TestFirmwareCaps`: verified 2026-11-17, run alone and in the whole list
+  (board id 0x43, the board's CAPS features).
+- `TestFirmwareSys`: verified 2026-11-17, whole-list run (reset cause unknown,
+  as `peerBoards` expects).
+- `TestFirmwarePin`: verified 2026-11-17, whole-list run.
+- `TestFirmwareWrite`: verified 2026-11-17, whole-list run.
+- `TestFirmwareTimer`: verified 2026-11-17, whole-list run.
+- `TestFirmwareEEPROM`: verified 2026-11-17, whole-list run.
+- `TestFirmwareAnalog`: verified 2026-11-17, whole-list run (the refusal on
+  the LED pin, LD2).
+- `TestFirmwarePWM`: verified 2026-11-17, whole-list run (D6, TIM5_CH1).
+- `TestFirmwarePulseIn`: verified 2026-11-17, whole-list run (D5).
+- `TestFirmwareTone`: verified 2026-11-17, whole-list run (D3, TIM3).
+- `TestFirmwareRefusesSPIItsCapsLacks`: verified 2026-11-17, whole-list run.
+- `TestFirmwareRefusesOneWireItsCapsLacks`: verified 2026-11-17, whole-list
+  run.
+- `TestFirmwareAttestRefusedUnprovisioned`: **fails** 2026-11-17: `attest`
+  gets no answer within the suite's 5 s command timeout (`command 0x60 did not
+  respond after 5.006s`). Either the soft-tier signature at 64 MHz outlasts
+  5 s, or the bench image, which writes a platform block, is not unprovisioned
+  as the row assumes. Issue to file: the lane could not, since `gh` had no
+  credentials.
+- `TestFirmwareRefusesI2CItsCapsLacks`: **not run on its image** 2026-11-17:
+  the board carries the `I2C=1` build, which reports i2c, so the row fails by
+  design (`this row needs a peer without CAPS feature i2c`). It awaits a run on
+  the default image.
+- `TestFirmwareI2C`, `TestFirmwareI2CConfig` (the `I2C=1` image's rows):
+  verified 2026-11-17, `HW_TEST_RUN='^TestFirmware(I2C|I2CConfig)$'`.
+
 ## What is not verified
 
-Nothing here has run on the board. The port's register values are ST's source
+Apart from the hw-test rows above, nothing here has run on the board. The port's register values are ST's source
 code, not RM0481; the first bench slice reads RM0481 and DS14053 and checks
 the clock, the console, the watchdog and tfw-boot's flash writes on the board. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not

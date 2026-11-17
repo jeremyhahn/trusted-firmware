@@ -30,7 +30,8 @@ static struct {
     uint32_t en_delay;      /* EN writes ignored before one sticks */
     uint32_t en_writes;
     int      no_initok;
-    int      hang;          /* never raise PROCENDF */
+    int      hang;          /* never raise PROCENDF; BUSY stays until EN clears */
+    int      busy_stuck;    /* clearing EN does not drop BUSY either */
     uint32_t err_flags;     /* SR error flags raised with PROCENDF */
     int      refuse;        /* the sign's error word is not NO_ERROR */
     int      runs;
@@ -203,6 +204,10 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
     case TFW_H5_PKA_CR:
         if (value & ~(TFW_H5_PKA_CR_EN | TFW_H5_PKA_CR_START | (0x3Fu << TFW_H5_PKA_CR_MODE_POS)))
             m.fault = 1;
+        if ((value & TFW_H5_PKA_CR_EN) && (m.sr & TFW_H5_PKA_SR_BUSY))
+            m.fault = 1; /* only clearing EN (the abort) is allowed while BUSY */
+        if (!(value & TFW_H5_PKA_CR_EN) && !m.busy_stuck)
+            m.sr &= ~(TFW_H5_PKA_SR_BUSY | TFW_H5_PKA_SR_INITOK);
         if ((value & TFW_H5_PKA_CR_EN) && m.cr == 0u && m.en_writes++ < m.en_delay)
             return;
         m.cr = value & ~TFW_H5_PKA_CR_START;
@@ -219,7 +224,9 @@ void tfw_h5_wr(uintptr_t addr, uint32_t value)
                 model_sign();
             else
                 m.fault = 1;
-            if (!m.hang)
+            if (m.hang)
+                m.sr |= TFW_H5_PKA_SR_BUSY;
+            else
                 m.sr |= TFW_H5_PKA_SR_PROCENDF | m.err_flags;
         }
         break;
@@ -396,6 +403,36 @@ static void test_h5_pka_times_out_when_procendf_never_rises(void)
     TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
 }
 
+static void test_h5_pka_timed_out_sign_is_stopped_before_its_secrets_are_wiped(void)
+{
+    static const uint8_t zero[32];
+    uint8_t sig[64];
+    uint8_t got[32];
+
+    m.hang = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
+    TEST_ASSERT_EQUAL(0, m.fault);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.sr & TFW_H5_PKA_SR_BUSY);
+    ram_get(TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+    TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+    ram_get(TFW_H5_PKA_SIGN_IN_K, got);
+    TEST_ASSERT_EQUAL_MEMORY(zero, got, sizeof got);
+}
+
+static void test_h5_pka_busy_that_never_clears_gets_no_ram_write(void)
+{
+    uint8_t sig[64];
+    uint8_t got[32];
+
+    m.hang = 1;
+    m.busy_stuck = 1;
+    TEST_ASSERT_EQUAL(TFW_ERR_TIMEOUT, tfw_h5_pka_ecdsa_sign(BASE, digest, priv, nonce, sig));
+    TEST_ASSERT_EQUAL(0, m.fault);
+    TEST_ASSERT_EQUAL_UINT32(0u, m.cr & TFW_H5_PKA_CR_EN);
+    ram_get(TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, got);
+    TEST_ASSERT_EQUAL_MEMORY(priv, got, sizeof got);
+}
+
 /* A RAM, address or operation error is no answer: the caller falls back. */
 static void test_h5_pka_error_flags_are_no_answer(void)
 {
@@ -524,6 +561,8 @@ int main(void)
     RUN_TEST(test_h5_pka_round_trips_its_own_signatures);
     RUN_TEST(test_h5_pka_sign_refused_leaves_sig_alone);
     RUN_TEST(test_h5_pka_times_out_when_procendf_never_rises);
+    RUN_TEST(test_h5_pka_timed_out_sign_is_stopped_before_its_secrets_are_wiped);
+    RUN_TEST(test_h5_pka_busy_that_never_clears_gets_no_ram_write);
     RUN_TEST(test_h5_pka_error_flags_are_no_answer);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_does_not_start);
     RUN_TEST(test_h5_provider_verifies_in_software_when_the_pka_times_out);

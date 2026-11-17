@@ -84,7 +84,18 @@ static tfw_status_t h5_pka_run(uintptr_t base, uint32_t mode)
     int done = h5_pka_wait(base, TFW_H5_PKA_SR_PROCENDF);
     uint32_t sr = tfw_h5_rd(base + TFW_H5_PKA_SR);
     tfw_h5_wr(base + TFW_H5_PKA_CLRFR, TFW_H5_PKA_CLRFR_ALL);
-    return (done && (sr & TFW_H5_PKA_SR_ERRORS) == 0u) ? TFW_OK : TFW_ERR_TIMEOUT;
+    if (done)
+        return (sr & TFW_H5_PKA_SR_ERRORS) == 0u ? TFW_OK : TFW_ERR_TIMEOUT;
+
+    /* Still running: abort as HAL_PKA_Abort does (clear EN). The RAM is
+     * touched again only once BUSY has fallen and the PKA is re-enabled;
+     * TFW_ERR_BUSY tells the caller it is not. */
+    tfw_h5_wr(base + TFW_H5_PKA_CR, 0u);
+    for (uint32_t i = 0; tfw_h5_rd(base + TFW_H5_PKA_SR) & TFW_H5_PKA_SR_BUSY; i++) {
+        if (i == TFW_H5_POLL_LIMIT)
+            return TFW_ERR_BUSY;
+    }
+    return tfw_h5_pka_init(base) == TFW_OK ? TFW_ERR_TIMEOUT : TFW_ERR_BUSY;
 }
 
 tfw_status_t tfw_h5_hsi48_start(uintptr_t rcc_base)
@@ -136,7 +147,7 @@ tfw_status_t tfw_h5_pka_ecdsa_verify(uintptr_t base, const uint8_t digest[32],
 
     tfw_status_t st = h5_pka_run(base, TFW_H5_PKA_MODE_ECDSA_VERIFY);
     if (st != TFW_OK)
-        return st;
+        return TFW_ERR_TIMEOUT;
     return tfw_h5_rd(base + TFW_H5_PKA_VERIF_OUT_RESULT) == TFW_H5_PKA_NO_ERROR ? TFW_OK
                                                                               : TFW_ERR_CRYPTO;
 }
@@ -160,12 +171,14 @@ tfw_status_t tfw_h5_pka_ecdsa_sign(uintptr_t base, const uint8_t digest[32],
 
     tfw_status_t st = h5_pka_run(base, TFW_H5_PKA_MODE_ECDSA_SIGN);
     /* The PKA keeps d and k in its RAM until the next operation's writes;
-     * overwrite them now either way. */
+     * overwrite them now either way, unless the PKA could not be stopped. */
     static const uint8_t zero[32];
-    h5_pka_put(base, TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, zero);
-    h5_pka_put(base, TFW_H5_PKA_SIGN_IN_K, zero);
+    if (st != TFW_ERR_BUSY) {
+        h5_pka_put(base, TFW_H5_PKA_SIGN_IN_PRIVATE_KEY_D, zero);
+        h5_pka_put(base, TFW_H5_PKA_SIGN_IN_K, zero);
+    }
     if (st != TFW_OK)
-        return st;
+        return TFW_ERR_TIMEOUT;
     if (tfw_h5_rd(base + TFW_H5_PKA_SIGN_OUT_ERROR) != TFW_H5_PKA_NO_ERROR)
         return TFW_ERR_CRYPTO;
     h5_pka_get(base, TFW_H5_PKA_SIGN_OUT_SIGNATURE_R, &sig[0]);

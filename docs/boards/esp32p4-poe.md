@@ -120,7 +120,7 @@ difference.
 | esp32-p4 | ADC (ADC1) | verified 2026-11-17 | row `Analog` passes on GPIO20, ADC1 channel 4; channels 0–3 (GPIO16–19) are the C6's SDIO and not in the table |
 | esp32-p4 | I2C (header 7/8) | verified 2026-11-17 | rows `I2C`, `I2CConfig` pass; bus transfer: a scan of 0x08–0x77 with `tfwctl i2c <addr> - 1` gets NACK on 110 addresses, the refusal on 0x60 (reserved), and an ACK at 0x18, whose registers 0xFD/0xFE read back `83`/`11`, the ES8311 codec's chip ID |
 | esp32-p4 | SPI (46/47/48) | fails: no target on the bus | row `SPIConfig` passes, but it only records the configuration: `hal_bus.c` creates the SPI driver on the first transfer, and none was recorded; needs an SPI target or a MOSI-MISO loopback on GPIO 46/47/48, issue #569 |
-| esp32-p4 | 1-Wire, pulse-in | verified 2026-11-17 | row `OneWireAndPulseIn` passes |
+| esp32-p4 | 1-Wire, pulse-in | fails: not measured | row `OneWireAndPulseIn` passes, but it does not check the presence value and only sees pulse-in time out on a silent pin, so a detector that always answers "absent" and a receiver that never captures an edge pass it too; needs a 1-Wire device on the pin answering presence, and a known pulse on the pulse-in pin measured within tolerance; issue to file |
 | esp32-p4 | refusals of families CAPS lacks | verified 2026-11-17 | rows `RefusesTheAuthSessionItsCapsLacks`, `RefusesAttestCSRItsCapsLacks` pass |
 | esp32-p4 | PWM (LEDC 0–3) | verified 2026-11-17 | rows `Pin`, `PWM` pass with the board facts `pwmPin` (GPIO3, LEDC1), `noLED` and `noTickPin`; the output is not measured on a scope |
 | esp32-p4 | tone (GPIO6) | fails: not measured | no hw-test row drives TONE; issue to file |
@@ -137,9 +137,10 @@ difference.
 
 ## What is not met yet
 
-The board runs this firmware and answers the wire over its own EMAC; GPIO,
-ADC, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
-SPI has no recorded bus transfer (#569); tone and EEPROM have no passing row on
+The board runs this firmware and answers the wire over its own EMAC; GPIO
+and ADC pass on it (Feature matrix). Not met:
+SPI has no recorded bus transfer (#569); 1-Wire has no device answering
+presence and pulse-in no measured pulse; tone and EEPROM have no passing row on
 this board; the board-dials
 Ethernet rows and OTA have not run; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

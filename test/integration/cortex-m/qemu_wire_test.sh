@@ -52,7 +52,11 @@
 #   mpu (mps2-an500 only, row 482) runs TestQEMUMPUNullRead
 #   (sdk/go/cmd/tfwctl/mpu_qemu_test.go) the same way: a load from 0 hits
 #   the M7's MPU null guard (src/hal/cortex-m/hal_mpu.c), and SYS_INFO reads
-#   PANIC, the fault record the load's PC.
+#   PANIC, the fault record the load's PC. mpu-boot (TestQEMUMPUBootRead)
+#   loads from 0x100, which only tfw-boot's region denies; mpu-stack
+#   (TestQEMUMPUStackGuard) overflows a push loop into the stack guard and
+#   checks the data below it intact. Each checks CFSR and MMFAR at the
+#   HardFault handler, before the PANIC reset.
 #
 #   qemu_wire_test.sh <dir> <machine> <board> store
 #
@@ -291,6 +295,8 @@ else
     cycle fault TestQEMUFaultPanic
     if [ "$board" = mps2-an500 ]; then
         cycle mpu TestQEMUMPUNullRead
+        cycle mpu-boot TestQEMUMPUBootRead
+        cycle mpu-stack TestQEMUMPUStackGuard
     fi
 fi
 echo "qemu_wire_test: $board $row row: green"

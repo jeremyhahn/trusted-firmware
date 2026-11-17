@@ -644,6 +644,11 @@ $(eval $(call SOFT_ID_RULES,$(FW_DIR)))
 ifeq ($(CRYPTO),auto)
 $(eval $(call AUTO_RENAMES,$(FW_DIR)))
 endif
+# An architecture tier whose provider wraps the soft one (the board profile's
+# ARCH_CRYPTO_WRAPS_SOFT; the STM32H5's, #544) links it renamed, as auto does.
+ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_WRAPS_SOFT)),)
+$(FW_DIR)/src/crypto/soft/provider.o: FW_CFLAGS += $(call CRYPTO_RENAME,soft)
+endif
 
 $(FW_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

@@ -2,12 +2,12 @@
 
 > **Status: INFORMATIVE** · SPEC rows: `stm32h5`, `cortex-m` · Scope:
 > `boards/stm32h573i-dk/`, `src/hal/cortex-m/stm32h5/` and
-> `boot/hal/cortex-m/stm32h5/`, built, not yet run
-> on the board · Last verified: 2026-10-20
+> `boot/hal/cortex-m/stm32h5/`, run on the board
+> 2026-11-17 (#535; see "Bench run") · Last verified: 2026-11-17
 >
 > A profile of a board on the bench and of the port's first slice (#14). The
-> board is built in CI, as `mps2-an505` is, but nothing has been flashed or
-> measured on it. Each value is cited to the vendor's source. A value that
+> board is built in CI, as `mps2-an505` is; the rows run on the bench on
+> 2026-11-17 are in "Bench run" and the "Feature matrix" below. Each value is cited to the vendor's source. A value that
 > could not be read from one is written **not confirmed**. The normative
 > contract the port follows is [`adding-a-board.md`](adding-a-board.md); the
 > decisions it follows are ADR #14
@@ -59,13 +59,13 @@ What `boards/stm32h573i-dk/` and `src/hal/cortex-m/stm32h5/` set, and why.
 | Console divisor | USART1's kernel clock at reset is PCLK2, so BRR is 64 MHz over the rate: 556 at 115200 baud | HAL: `stm32h5xx_hal_rcc.c`; `tfw_h5_usart_brr` in `src/hal/cortex-m/stm32h5/h5_calc.h` |
 | Console interrupt | USART1 is interrupt 58, so the port's vector table holds 64 external interrupts | CMSIS header: `USART1_IRQn` |
 | Watchdog | the IWDG on the LSI, 32 kHz typical, a 4 s period (prescaler /32, reload 3999). It cannot be stopped once started, so an image's reset handler pets it rather than disarming it | HAL: `stm32h5xx_hal_conf_template.h` (`LSI_VALUE`); the LSI's spread and the IWDG's state across a system reset are **not confirmed** against RM0481 |
-| I2C | **built, not yet run on the board**: I2C4, SCL PB8 and SDA PB9, alternate function 6, open drain with the pull-up on, the bus ST's BSP drives. That these pins reach the Arduino header's SCL/SDA is **not confirmed** against UM3143. A polled master (`src/hal/cortex-m/stm32h5/hal_bus.c`): START, address, data, a repeated START into a read, and a software STOP on every return that reached the bus; a NACK on the address or a byte is `TFW_ERR_NACK`, a bus that stays busy or a flag that never comes is `TFW_ERR_TIMEOUT`. The kernel clock is PCLK3, 64 MHz; TIMINGR is `0x60702729` at 100 kHz and `0x10A11626` at 400 kHz, the analog filter on. Off by default (`I2C ?= 0`); the `soft:I2C=1` row builds it. SPI and 1-Wire refuse with `TFW_ERR_UNSUPPORTED`. Tested against a register model, `test/unit/test_stm32h5_i2c.c`; no element has been on the bus | BSP: `stm32h573i_discovery_bus.h` (`BUS_I2C4`, `BUS_I2C4_SCL_PIN`, `BUS_I2C4_SDA_PIN`, `BUS_I2C4_SCL_AF`, `BUS_I2C4_SDA_AF`), `stm32h573i_discovery_bus.c` (`I2C4_MspInit`, `I2C_GetTiming` and its `I2C_Charac` table, which gives both TIMINGR values for 64 MHz); CMSIS header: `I2C4_BASE_NS`, `I2C_TypeDef`, `I2C_CR1_*`, `I2C_CR2_*`, `I2C_ISR_*`, `I2C_ICR_*`, `RCC_APB3ENR_I2C4EN`, `GPIO_TypeDef`; HAL: `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF6_I2C4`), `stm32h5xx_ll_rcc.h` (`LL_RCC_I2C4_CLKSOURCE_PCLK3`), `stm32h5xx_hal_i2c.c` (`I2C_IsErrorOccurred`, the STOP after a NACK), `stm32h5xx_ll_i2c.h` |
-| Writing the board | STM32CubeProgrammer CLI (`STM32_Programmer_CLI`, ST UM2237) over the STLINK-V3EC. `make board-record BOARD=stm32h573i-dk CM_PROBE_SERIAL=<serial>` reads the whole 2 MB flash at `0x08000000` and the option bytes (`-ob displ`); `make flash` and `make boot-flash` refuse until that record exists; `make board-restore` with `BOARD_RESTORE_IMAGE=build/records/<record>.flash.bin` writes it back and compares. No option-byte write, RDP or TrustZone change, ever. Not yet run on the board. Steps: [`../cortex-m/README.md`](../cortex-m/README.md) | `mk/arch/cortex-m.mk`, `boards/stm32h573i-dk/profile.mk` |
-| tfw-boot's flash writes | **driven, not yet run on the board**: tfw-boot writes the slot and the platform block through the flash interface's Non-secure registers. It unlocks with `FLASH_KEY1` then `FLASH_KEY2` in NSKEYR. It programs a quad-word (16 bytes) at a time with PG. It erases one 8 KiB sector with SER, SNB and STRT, plus BKSEL for bank 2. It waits on BSY, WBNE and DBNE in NSSR, and clears NSSR's error flags 17 to 23 and EOP through NSCCR. A write that matches the flash is skipped. One whose quad-words are all erased is programmed only. Any other rewrites each 8 KiB sector it touches through a RAM copy, then reads the whole sector back against the copy. The four stores of each quad-word run with PRIMASK set, saved and put back, so tfw-boot stays masked and the application's EEPROM writes (below) are not split by SysTick or USART1. The offsets, bits and keys are **not confirmed** against RM0481 | CMSIS header: `FLASH_TypeDef`, `FLASH_SR_*`, `FLASH_CR_*`, `FLASH_CCR_*`; HAL: `stm32h5xx_hal_flash.h` (`FLASH_KEY1`, `FLASH_KEY2`). The sequences follow the HAL's `FLASH_Program_QuadWord`, `FLASH_Erase_Sector` and `FLASH_WaitForLastOperation`, **not confirmed** at the pinned commit; `boot/hal/cortex-m/stm32h5/h5_flash.c`, tested by `test/unit/boot/test_boot_stm32h5_flash.c` |
-| EEPROM | **host-tested, not yet run on the board**: `TFW_EEPROM_SIZE` 0x2140. Addresses 0x000 to 0x13F are tfw-boot's span, read from the platform block; a write there is `TFW_ERR_RANGE` except the OTA confirm request, which keeps the generic Cortex-M store into the platform block's RAM alias, unchanged by this row, so a confirm does not yet reach flash. Addresses 0x140 to 0x213F are the user sector, the 8 KiB at `0x081FE000` (bank 2's last sector), written through the application's one flash write, `src/hal/cortex-m/stm32h5/ee_flash.c`, which refuses any span outside the user sector and runs the programming sequence above (`h5_flash.c`). tfw-boot's flash-interface driver, `boot_flash.c`, stays boot-only: no application links it (`scripts/test_stm32h5_boot_only_flash.py`). It is in bank 2 so its erase is read-while-write: the application keeps fetching from bank 1 and SysTick keeps counting, where an erase in bank 1 would stall every fetch and lose the stall's ticks. Power loss: a write that must change a programmed quad-word rewrites the whole sector, so a reset between its erase and the last restored quad-word loses every value in the user sector, not only the one written; a rewrite that does not read back whole is `TFW_ERR_INTERNAL` | `boards/stm32h573i-dk/board_profile.h` (`TFW_CM_USER_EE_BASE`, `TFW_CM_USER_EE_SIZE`); `src/hal/cortex-m/stm32h5/hal_eeprom.c`, host-tested by `test/unit/test_stm32h5_eeprom.c` |
-| PWM | **built, not yet run on the board**: TIM5, a general-purpose timer nothing else in the port drives, on the Arduino header's D6 (PH10, TIM5_CH1) and D5 (PH11, TIM5_CH2), alternate function 2. Eight-bit duty at about 1 kHz, as the AVR and the ESP32 give: ARR 254, PSC 250 from 64 MHz (999.9 Hz), PWM mode 1 with preload, so duty 0 is never high and 255 always is. The timer is set up on the first write, not at boot; a channel's pin goes to the timer on that channel's first write, and stop disables the channel and drives the pin low as an output. TIM5's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM5_BASE_NS`, `TIM_TypeDef`, `TIM_CR1_*`, `TIM_EGR_UG`, `TIM_CCMR1_OC1M*`/`OC1PE`/`OC2M`/`OC2PE`, `TIM_CCER_CC1E`/`CC2E`, `RCC_APB1LENR_TIM5EN`; HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_PWM1`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM5`); the pins: ST's board configuration for the kit (STM32_open_pin_data, `PH10 ARD_D6 S_TIM5_CH1`, `PH11 ARD_D5 S_TIM5_CH2`). The timer clock equal to PCLK1 at prescaler 1 is **not confirmed** against RM0481. `src/hal/cortex-m/stm32h5/hal_pwm.c`, `h5_calc.h`, host-tested by `test/unit/test_stm32h5_pwm.c` |
-| Pulse | **built, not yet run on the board**: `PULSE_IN` and `PULSE_CAPTURE` on any pin of the board's table, its level read from the port's input data register (IDR) as `tfw_hal_gpio_read` reads it, whatever the pin's mode; the time counted on SysTick, which counts the processor clock, 64 MHz, so 64 cycles to the microsecond. Polling, as the AVR's and the ESP32's are: an interrupt between two polls lengthens the interval it falls in | `src/hal/cortex-m/hal_pulse.c`, `src/hal/cortex-m/cm_cycles.h`, `src/hal/cortex-m/hal_tick.c` (SysTick's CLKSOURCE, the processor clock), `src/hal/cortex-m/stm32h5/hal_gpio.c`; host-tested by `test/unit/test_cm_pulse.c` |
-| Tone | **built and host-tested, not yet run on the board**: TIM3 channel 2 in output-compare toggle mode on the Arduino header's D3 (PB5, TIM3_CH2), alternate function 2. TIM3 is a 16-bit general-purpose timer nothing else in the port drives. The pin flips at each match, so a period is two matches; the prescaler and reload come from `tfw_h5_tone_psc_arr` (`h5_calc.h`). One tone at a time: a second start halts the counter (CEN clear), writes PSC, ARR and CCR2, reloads with UG and runs it again, so a counter past a shorter reload never wraps; stop forces the output inactive (low) and halts the counter. Pin 12 of the board's table, after A0 to A5, `TFW_TONE_PIN`. TIM3's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM3_BASE_NS` (APB1 + `0x0400`), `TIM_TypeDef`, `TIM_CR1_CEN`, `TIM_EGR_UG`, `TIM_CCMR1_OC2M`, `TIM_CCER_CC2E`, `RCC_APB1LENR_TIM3EN` (bit 1); HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_TOGGLE`, `LL_TIM_OCMODE_FORCED_INACTIVE`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM3`, 2); the pin: Pin data, the kit's board file (`PB5.GPIO_Label=ARD_D3`, `PB5.Signal=S_TIM3_CH2`) and the GPIO modes file (PB5 `TIM3_CH2` as `GPIO_AF2_TIM3`). `src/hal/cortex-m/stm32h5/hal_tone.c`, `soc_regs.h`, host-tested by `test/unit/test_stm32h5_tone.c` |
+| I2C | **verified on the board 2026-11-17**: `make firmware BOARD=stm32h573i-dk I2C=1`, commit c97a2728, image sha256 `1d89e98b03f1996af0d82cd7ed719226f49c5927e7adee1f42f7c567dc68d228`; CAPS lists `i2c`, a read at 0x50, 0x3C and 0x68 and a write at 0x50 answer NACK on the bare bus, `i2c-config 400000` is taken and the link answers after. No element was on the bus, so no ACK path ran: I2C4, SCL PB8 and SDA PB9, alternate function 6, open drain with the pull-up on, the bus ST's BSP drives. That these pins reach the Arduino header's SCL/SDA is **not confirmed** against UM3143. A polled master (`src/hal/cortex-m/stm32h5/hal_bus.c`): START, address, data, a repeated START into a read, and a software STOP on every return that reached the bus; a NACK on the address or a byte is `TFW_ERR_NACK`, a bus that stays busy or a flag that never comes is `TFW_ERR_TIMEOUT`. The kernel clock is PCLK3, 64 MHz; TIMINGR is `0x60702729` at 100 kHz and `0x10A11626` at 400 kHz, the analog filter on. Off by default (`I2C ?= 0`); the `soft:I2C=1` row builds it. SPI and 1-Wire refuse with `TFW_ERR_UNSUPPORTED`. Tested against a register model, `test/unit/test_stm32h5_i2c.c`; no element has been on the bus | BSP: `stm32h573i_discovery_bus.h` (`BUS_I2C4`, `BUS_I2C4_SCL_PIN`, `BUS_I2C4_SDA_PIN`, `BUS_I2C4_SCL_AF`, `BUS_I2C4_SDA_AF`), `stm32h573i_discovery_bus.c` (`I2C4_MspInit`, `I2C_GetTiming` and its `I2C_Charac` table, which gives both TIMINGR values for 64 MHz); CMSIS header: `I2C4_BASE_NS`, `I2C_TypeDef`, `I2C_CR1_*`, `I2C_CR2_*`, `I2C_ISR_*`, `I2C_ICR_*`, `RCC_APB3ENR_I2C4EN`, `GPIO_TypeDef`; HAL: `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF6_I2C4`), `stm32h5xx_ll_rcc.h` (`LL_RCC_I2C4_CLKSOURCE_PCLK3`), `stm32h5xx_hal_i2c.c` (`I2C_IsErrorOccurred`, the STOP after a NACK), `stm32h5xx_ll_i2c.h` |
+| Writing the board | **verified on the board 2026-11-17** with pyOCD (`CM_FLASH_TOOL=pyocd CM_PROBE_TARGET=stm32h573iikxq`, pack Keil.STM32H5xx_DFP 2.3.1): `make board-record` read the whole 2 MB and its sha256 file checks; `make boot-flash` and `make flash` read back equal after commit c97a2728, which halts the core before pyOCD's read-back (a running core read back zeros). pyOCD's record holds no option bytes (its extra file is empty). STM32CubeProgrammer was not used. The STM32CubeProgrammer path: CLI (`STM32_Programmer_CLI`, ST UM2237) over the STLINK-V3EC. `make board-record BOARD=stm32h573i-dk CM_PROBE_SERIAL=<serial>` reads the whole 2 MB flash at `0x08000000` and the option bytes (`-ob displ`); `make flash` and `make boot-flash` refuse until that record exists; `make board-restore` with `BOARD_RESTORE_IMAGE=build/records/<record>.flash.bin` writes it back and compares. No option-byte write, RDP or TrustZone change, ever. Steps: [`../cortex-m/README.md`](../cortex-m/README.md) | `mk/arch/cortex-m.mk`, `boards/stm32h573i-dk/profile.mk` |
+| tfw-boot's flash writes | **not runnable on the board 2026-11-17**: the board's one tfw-boot row has no OTA, so tfw-boot never writes the slot, and it writes the platform block only on a trial. The shared programming sequence (`h5_flash.c`) did run from the application, in the EEPROM row below: tfw-boot writes the slot and the platform block through the flash interface's Non-secure registers. It unlocks with `FLASH_KEY1` then `FLASH_KEY2` in NSKEYR. It programs a quad-word (16 bytes) at a time with PG. It erases one 8 KiB sector with SER, SNB and STRT, plus BKSEL for bank 2. It waits on BSY, WBNE and DBNE in NSSR, and clears NSSR's error flags 17 to 23 and EOP through NSCCR. A write that matches the flash is skipped. One whose quad-words are all erased is programmed only. Any other rewrites each 8 KiB sector it touches through a RAM copy, then reads the whole sector back against the copy. The four stores of each quad-word run with PRIMASK set, saved and put back, so tfw-boot stays masked and the application's EEPROM writes (below) are not split by SysTick or USART1. The offsets, bits and keys are **not confirmed** against RM0481 | CMSIS header: `FLASH_TypeDef`, `FLASH_SR_*`, `FLASH_CR_*`, `FLASH_CCR_*`; HAL: `stm32h5xx_hal_flash.h` (`FLASH_KEY1`, `FLASH_KEY2`). The sequences follow the HAL's `FLASH_Program_QuadWord`, `FLASH_Erase_Sector` and `FLASH_WaitForLastOperation`, **not confirmed** at the pinned commit; `boot/hal/cortex-m/stm32h5/h5_flash.c`, tested by `test/unit/boot/test_boot_stm32h5_flash.c` |
+| EEPROM | **verified on the board 2026-11-17**: the bench image, commit c97a2728, image sha256 `b7775ed0a97e0d4fcca7ca9fff099a30999fcf4d01b3640a82bd6ef93ecc7167`; write and read at 0x140 (8 bytes) and 0x2138 (the last 8); a 2-byte write at 0x144 over programmed bytes reads back with its neighbours kept (the sector rewrite); the values survive a reset and are in flash at 0x081FE000 and 0x081FFFF8; writes at 0x000 and 0x13F are refused as platform-reserved, 0x213C with 5 bytes and 0x2140 as out of range, more than 8 bytes as outside 1..8; a read at 0x000 returns the platform block: `TFW_EEPROM_SIZE` 0x2140. Addresses 0x000 to 0x13F are tfw-boot's span, read from the platform block; a write there is `TFW_ERR_RANGE` except the OTA confirm request, which keeps the generic Cortex-M store into the platform block's RAM alias, unchanged by this row, so a confirm does not yet reach flash. Addresses 0x140 to 0x213F are the user sector, the 8 KiB at `0x081FE000` (bank 2's last sector), written through the application's one flash write, `src/hal/cortex-m/stm32h5/ee_flash.c`, which refuses any span outside the user sector and runs the programming sequence above (`h5_flash.c`). tfw-boot's flash-interface driver, `boot_flash.c`, stays boot-only: no application links it (`scripts/test_stm32h5_boot_only_flash.py`). It is in bank 2 so its erase is read-while-write: the application keeps fetching from bank 1 and SysTick keeps counting, where an erase in bank 1 would stall every fetch and lose the stall's ticks. Power loss: a write that must change a programmed quad-word rewrites the whole sector, so a reset between its erase and the last restored quad-word loses every value in the user sector, not only the one written; a rewrite that does not read back whole is `TFW_ERR_INTERNAL` | `boards/stm32h573i-dk/board_profile.h` (`TFW_CM_USER_EE_BASE`, `TFW_CM_USER_EE_SIZE`); `src/hal/cortex-m/stm32h5/hal_eeprom.c`, host-tested by `test/unit/test_stm32h5_eeprom.c` |
+| PWM | **verified on the board 2026-11-17**: the bench image, commit c97a2728, image sha256 `b7775ed0a97e0d4fcca7ca9fff099a30999fcf4d01b3640a82bd6ef93ecc7167`; measured on the pin by `PULSE_IN`, no jumper: duty 128 on D6 high 502 µs and low 498 µs, duty 64 high 251 µs, duty 192 on D5 high 753 µs, low 247 µs, so 999.9 Hz with 8-bit duty and the 64 MHz timer clock hold; duty 0 and 255 give no edge: TIM5, a general-purpose timer nothing else in the port drives, on the Arduino header's D6 (PH10, TIM5_CH1) and D5 (PH11, TIM5_CH2), alternate function 2. Eight-bit duty at about 1 kHz, as the AVR and the ESP32 give: ARR 254, PSC 250 from 64 MHz (999.9 Hz), PWM mode 1 with preload, so duty 0 is never high and 255 always is. The timer is set up on the first write, not at boot; a channel's pin goes to the timer on that channel's first write, and stop disables the channel and drives the pin low as an output. TIM5's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM5_BASE_NS`, `TIM_TypeDef`, `TIM_CR1_*`, `TIM_EGR_UG`, `TIM_CCMR1_OC1M*`/`OC1PE`/`OC2M`/`OC2PE`, `TIM_CCER_CC1E`/`CC2E`, `RCC_APB1LENR_TIM5EN`; HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_PWM1`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM5`); the pins: ST's board configuration for the kit (STM32_open_pin_data, `PH10 ARD_D6 S_TIM5_CH1`, `PH11 ARD_D5 S_TIM5_CH2`). The timer clock equal to PCLK1 at prescaler 1 is **not confirmed** against RM0481. `src/hal/cortex-m/stm32h5/hal_pwm.c`, `h5_calc.h`, host-tested by `test/unit/test_stm32h5_pwm.c` |
+| Pulse | **verified on the board 2026-11-17**: the bench image, commit c97a2728, image sha256 `b7775ed0a97e0d4fcca7ca9fff099a30999fcf4d01b3640a82bd6ef93ecc7167`; `PULSE_IN` and `PULSE_CAPTURE` read the PWM and tone pins above to the microsecond; a timeout of 65 ms or more is refused out of range, 50 ms is taken: `PULSE_IN` and `PULSE_CAPTURE` on any pin of the board's table, its level read from the port's input data register (IDR) as `tfw_hal_gpio_read` reads it, whatever the pin's mode; the time counted on SysTick, which counts the processor clock, 64 MHz, so 64 cycles to the microsecond. Polling, as the AVR's and the ESP32's are: an interrupt between two polls lengthens the interval it falls in | `src/hal/cortex-m/hal_pulse.c`, `src/hal/cortex-m/cm_cycles.h`, `src/hal/cortex-m/hal_tick.c` (SysTick's CLKSOURCE, the processor clock), `src/hal/cortex-m/stm32h5/hal_gpio.c`; host-tested by `test/unit/test_cm_pulse.c` |
+| Tone | **verified on the board 2026-11-17**: the bench image, commit c97a2728, image sha256 `b7775ed0a97e0d4fcca7ca9fff099a30999fcf4d01b3640a82bd6ef93ecc7167`; 1000 Hz on D3 high 499 µs, 440 Hz high 1136 to 1137 µs by `PULSE_CAPTURE`; stop leaves the pin low with no edge: TIM3 channel 2 in output-compare toggle mode on the Arduino header's D3 (PB5, TIM3_CH2), alternate function 2. TIM3 is a 16-bit general-purpose timer nothing else in the port drives. The pin flips at each match, so a period is two matches; the prescaler and reload come from `tfw_h5_tone_psc_arr` (`h5_calc.h`). One tone at a time: a second start halts the counter (CEN clear), writes PSC, ARR and CCR2, reloads with UG and runs it again, so a counter past a shorter reload never wraps; stop forces the output inactive (low) and halts the counter. Pin 12 of the board's table, after A0 to A5, `TFW_TONE_PIN`. TIM3's clock is APB1's, 64 MHz with its prescaler at 1 | CMSIS header: `TIM3_BASE_NS` (APB1 + `0x0400`), `TIM_TypeDef`, `TIM_CR1_CEN`, `TIM_EGR_UG`, `TIM_CCMR1_OC2M`, `TIM_CCER_CC2E`, `RCC_APB1LENR_TIM3EN` (bit 1); HAL: `stm32h5xx_ll_tim.h` (`LL_TIM_OCMODE_TOGGLE`, `LL_TIM_OCMODE_FORCED_INACTIVE`), `stm32h5xx_hal_gpio_ex.h` (`GPIO_AF2_TIM3`, 2); the pin: Pin data, the kit's board file (`PB5.GPIO_Label=ARD_D3`, `PB5.Signal=S_TIM3_CH2`) and the GPIO modes file (PB5 `TIM3_CH2` as `GPIO_AF2_TIM3`). `src/hal/cortex-m/stm32h5/hal_tone.c`, `soc_regs.h`, host-tested by `test/unit/test_stm32h5_tone.c` |
 | Instruction cache | ICACHE is off at reset and tfw-boot does not enable it, so a flash write leaves nothing stale to invalidate | ICACHE off at reset is **not confirmed** against RM0481 |
 
 ## ADC
@@ -120,12 +120,84 @@ tfw-boot stm32h573i-dk flash   8756 / 32768    ram  8516 / 262144 (soft tier, p2
 | Secure Manager access kit | X-CUBE-SEC-M-H5, distributed under export-control conditions | ST's STM32TRUSTEE-SM page |
 | Certification targets | PSA Certified Level 3 and SESIP 3 are the part's targets; the SESIP guidance is UM3238 | ST product page *STM32H573II*; UM3238, *STM32H573xx STM32TrusteeSM security guidance for SESIP 3 certification*, revision not confirmed |
 | Factory device certificate | **not confirmed** (the `stm32h5` row states one; no ST document was read that says so) | |
-| Hardware crypto (PKA, AES, HASH) | **not confirmed**; the port's first slice uses the soft tier only | |
+| Hardware crypto (PKA, AES, HASH) | **not offered** (board 2026-11-17): CAPS reports root of trust software and ecdsa-p256-sha256 only; the port uses the soft tier | |
 
 ## Upstream TF-M
 
 As ADR #15 states it ("Platforms upstream at v2.3.1"): the STM32H573I-DK is an
 upstream TF-M platform at **v2.3.1**; the NUCLEO-H563ZI is not.
+
+## Bench run
+
+Run on 2026-11-17 (#535) at commit c97a2728 (main f2a88d8c with the pyOCD
+read-back fix), TrustZone off (OPTSR2 TZEN `0xC3`, the factory state), no
+option byte written. The board's factory record was taken first, kept on the
+bench node, not in the repository.
+
+- **Main as it is leaves the board silent.** `make boot-flash` then `make
+  flash` write and read back equal, but tfw-boot has no platform block and no
+  pinned key, so it halts before the application. Main has no provisioning
+  step for a Cortex-M silicon board; that defect is for an issue.
+- **The bench image.** The QEMU integration's signer
+  (`test/integration/cortex-m/cm_image.c`), built for this board with its load
+  addresses on the compiler line, pins a P-256 key in tfw-boot, signs the
+  application and writes the platform block. The three, packed into one image
+  at `0x08000000`, are written by `make boot-flash BOOT_FLASH_HEX=<image>`,
+  which keeps the record check and the read-back. tfw-boot's P-256 check takes
+  about 10 s at 64 MHz, then the application sends its boot frame.
+- **The rows were driven with `tfwctl`.** `make hw-test BOARD=stm32h573i-dk`
+  cannot run here: the board has no row list (`boardImages`) and no pin facts
+  (`peerBoards`), and its DTR reset does not reset the board through the
+  ST-LINK VCOM, so its ping gets no reply. That is for an issue.
+- CAPS: protocol 2.0, board id 0x43, 13 pins, 8 schedule slots, max payload 64,
+  root of trust software, features gpio sched analog pwm tone pulse eeprom
+  attest (and i2c on the `I2C=1` image), ecdsa-p256-sha256. `SYS` gives the
+  last reset as unknown, after a debugger reset too; that is for an issue.
+
+## Feature matrix
+
+One line per `docs/SPEC.md` row that names this board; each claim is
+verified (date, evidence), fails (what, an issue to file) or owner (a write
+CA 583 forbids: option bytes or provisioning).
+
+**`stm32h5`**
+
+- Board as data, board id 0x43: verified 2026-11-17, CAPS board id 0x43.
+- HSI 64 MHz clock: verified 2026-11-17, the PWM period (999.9 Hz) and the
+  tone pitch measured on the pins.
+- ST-LINK console on USART1, 115200: verified 2026-11-17, boot frame, CAPS,
+  `ping`.
+- Watchdog: verified only in that the image runs for minutes without a reset;
+  the 4 s period is not measured.
+- GPIO: verified 2026-11-17, pin levels read through `PULSE_IN` and `read`.
+- tfw-boot's flash writes: not runnable, no OTA row for this board; the shared
+  sequence ran from the application's EEPROM.
+- Cortex-M33 with TrustZone: owner (TZEN is an option byte; CA 583).
+- Hardware crypto: fails, CAPS offers the soft tier only (issue to file:
+  PKA/HASH not ported).
+- ST Secure Manager: owner (provisioning writes; CA 583).
+- Factory device certificate: owner (provisioning writes; CA 583).
+- Enrolling over Ethernet: fails, no Ethernet driver in the port (issue to
+  file).
+
+**`cortex-m`**
+
+- Written through one debug-probe tool, record first, refusal without it:
+  verified 2026-11-17 with pyOCD; STM32CubeProgrammer, the tool the row names,
+  was not used.
+- tfw-boot verifies a P-256 signature in software and boots the firmware:
+  verified 2026-11-17, the bench image (above).
+- A boot of the main image without a provisioning step: fails, tfw-boot halts
+  silently (issue to file).
+- `make hw-test` on the board: fails, no row list, no pin facts, no reset
+  through the VCOM (issue to file).
+- No option-byte, protection, lock, OTP or fuse operation: verified, none run.
+
+**`ota`**
+
+- Signed OTA on the Cortex-M33 (MCUboot, TF-M, PSA Firmware Update): not
+  runnable, the board's tfw-boot row has no OTA; owner for the TF-M path
+  (TrustZone; CA 583).
 
 ## What this page bears on
 
@@ -155,19 +227,16 @@ erases a sector once and then programs it page by page.
 
 ## What is not verified
 
-Nothing here has run on the board. The port's register values are ST's source
-code, not RM0481; the first bench slice reads RM0481 and DS14053 and checks
-the clock, the console, the watchdog, the PWM, the tone, the ADC ("ADC", above),
-the pulse timing and tfw-boot's flash writes on the board. The rest of the
+The bench run (2026-11-17) checked the console, the 64 MHz timer clock, the
+PWM, the tone, the pulse timing, the EEPROM and the I2C NACK path; not the
+ADC, the watchdog's period or tfw-boot's own flash writes. The port's register
+values are ST's source code, not RM0481. The rest of the
 ST-sourced values above are from indexed summaries of UM3143 and UM3254, not
 from the documents.
 
-The tone is built and host-tested against a register model, not run on the
-board. Its pin, timer, offsets and modes are read from the pinned sources
-above; these are not settled by them and wait for RM0481 or the bench:
+The tone ran on the board (2026-11-17), its pitch measured on the pin by
+`PULSE_CAPTURE`, so TIM3 counts at 64 MHz. Not settled by the bench run:
 
-- TIM3's kernel clock equal to PCLK1 with the APB1 prescaler at 1, so that it
-  counts at 64 MHz; the pitch is off by that factor if not.
 - That UG with CEN clear loads PSC and ARR and zeroes CNT without a stray
   toggle of the output, and that the first toggle after a retarget comes one
   full half-period later.
@@ -175,4 +244,5 @@ above; these are not settled by them and wait for RM0481 or the bench:
 - That PB5 reaches the Arduino header's D3 with no solder bridge or jumper
   to set: the board file names the label, not the kit's wiring; UM3143's
   solder-bridge table has not been read.
-- The pitch on the pin, measured with a scope or counter: not done.
+- The pitch measured with a scope or counter, not the board's own SysTick:
+  not done.

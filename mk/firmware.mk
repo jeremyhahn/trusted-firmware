@@ -686,6 +686,9 @@ endif
 ifneq ($(filter $(CRYPTO),$(ARCH_CRYPTO_WRAPS_SOFT)),)
 $(FW_DIR)/src/crypto/soft/provider.o: FW_CFLAGS += $(call CRYPTO_RENAME,soft)
 endif
+# The STM32H5 provider turns the HASH, RNG and PKA clocks on through the SoC's
+# RCC, named in the SoC's soc_regs.h, which it includes by its own name.
+$(FW_DIR)/src/crypto/stm32h5/provider.o: FW_CFLAGS += -I$(HAL_DIR)/stm32h5
 # The RP2350's flash EEPROM includes tfw-boot's flash helper by its own name, as
 # the boot's files do: a path through hal/ reads to lint-arch-leak as ESP-IDF.
 $(FW_DIR)/src/hal/cortex-m/rp2350/hal_eeprom.o: FW_CFLAGS += -Iboot/hal/cortex-m/rp2350

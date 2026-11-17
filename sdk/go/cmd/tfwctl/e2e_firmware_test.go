@@ -200,11 +200,11 @@ func TestFirmwarePin(t *testing.T) {
 
 	led := cliPin(t, dev, b.ledPin)
 	assert.EqualValues(t, b.ledPin, led.Pin, "descriptor echoed the pin")
-	ledFlags := b.ledFlags
-	if ledFlags == 0 {
-		ledFlags = tfw.PinDigital | tfw.PinLED
+	want, absent := ledPinFlags(b)
+	assert.True(t, led.Flags.Has(want), "pin %d flags = %s, want %s", b.ledPin, led.Flags, want)
+	if absent != 0 {
+		assert.False(t, led.Flags.Has(absent), "pin %d flags = %s: the board has no LED", b.ledPin, led.Flags)
 	}
-	assert.True(t, led.Flags.Has(ledFlags), "pin %d flags = %s, want %s", b.ledPin, led.Flags, ledFlags)
 	assert.True(t, led.HasPort, "pin %d has a port", b.ledPin)
 	assert.Equal(t, b.ledPort, led.Port, "pin %d port", b.ledPin)
 	assert.Equal(t, b.ledBit, led.Bit, "pin %d bit", b.ledPin)
@@ -346,7 +346,7 @@ func TestFirmwareEEPROM(t *testing.T) {
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
 	dev := startFirmware(t)
 	nonce := strings.Repeat("00", tfw.AttestNonceLen)
-	assert.Equal(t, tfw.StatusErrNotProvisioned, cliStatus(t, dev, "attest", nonce),
+	assert.Equal(t, attestRefusal(cliCaps(t, dev).CryptoTier), cliStatus(t, dev, "attest", nonce),
 		"an unprovisioned device produced attestation evidence")
 }
 
@@ -392,12 +392,9 @@ const toneHz = 1000
 
 // TestFirmwareTone starts a tone on the board's own tone pin, measures it
 // back on that pin, and stops it. The pin is set to an output first: the P4's
-// HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), but
-// its RMT capture loops the tone pin's output back (#573), so the P4 reads
-// the tone back too; a board with a read-back gap (toneReadBackGap) fails the
-// row naming it. Everywhere the row wants the
-// captured edges, and where the capture is timestamped (captureTimestamped)
-// times the half periods and wants the frequency within 5%; a simulator's pin
+// HAL makes an output pad input-and-output (src/hal/esp32/hal_gpio.c), so
+// PULSE_CAPTURE reads the level LEDC drives. On a board the row times the
+// captured half periods and wants the frequency within 5%; a simulator's pin
 // carries no waveform, so there the row proves the start and stop round-trip.
 func TestFirmwareTone(t *testing.T) {
 	board, b := firmwareBoard(t)
@@ -424,15 +421,7 @@ func TestFirmwareTone(t *testing.T) {
 		_ = run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{})
 	})
 
-	// Read the tone back on its own pin only where the capture leaves the
-	// output driven (the P4's RMT capture since #573); a board with a
-	// read-back gap fails the row below once TONE and NOTONE have answered.
-	gap := ""
 	if target.Hardware() {
-		gap = toneReadBackGap(board)
-	}
-	measure := target.Hardware() && gap == ""
-	if measure {
 		var got struct {
 			EdgesUS []uint16 `json:"edges_us"`
 		}
@@ -442,85 +431,13 @@ func TestFirmwareTone(t *testing.T) {
 		hz, err := toneFrequency(got.EdgesUS)
 		require.NoError(t, err)
 		t.Logf("pin %d: %.1f Hz measured over %d half periods, %d Hz asked", b.tonePin, hz, len(got.EdgesUS)-2, toneHz)
-		// Only a timestamped capture holds the frequency to 5%; elsewhere
-		// the edges above and the timeout below check start and stop.
-		if captureTimestamped(board) {
-			assert.InEpsilon(t, float64(toneHz), hz, 0.05, "pin %d: tone frequency", b.tonePin)
-		} else {
-			t.Logf("%s: the capture counts polling loops, not microseconds; frequency not checked", board)
-		}
+		assert.NoError(t, toneFrequencyFits(board, toneHz, hz), "pin %d: tone frequency", b.tonePin)
 	}
 
 	require.NoError(t, run(context.Background(), dev, "notone", []string{pin}, false, &strings.Builder{}))
-	if measure {
+	if target.Hardware() {
 		assert.Equal(t, tfw.StatusErrTimeout, cliStatus(t, dev, "pulse-capture", pin, "1", "4", "20ms"),
 			"pin %d: still toggling after NOTONE", b.tonePin)
-	}
-	if gap != "" {
-		t.Errorf("%s: tone on pin %d not verified (no frequency, no silence after NOTONE): %s", board, b.tonePin, gap)
-	}
-}
-
-// captureTimestamped reports whether the board's PULSE_CAPTURE times edges
-// on a calibrated clock, so a frequency read from it can be held to a
-// tolerance. The ESP32-P4 stamps each edge with esp_timer; the AVR's
-// src/hal/avr/hal_pulse.c counts polling loops, each a _delay_us(1) plus the
-// read, increment and compare, which reads long by more than the 5% the
-// tone row allows.
-func captureTimestamped(board string) bool {
-	return board == "esp32p4-poe"
-}
-
-func TestCaptureTimestampedOnlyOnTheESP32P4(t *testing.T) {
-	for board, want := range map[string]bool{
-		"esp32p4-poe": true,
-		"atmega328p":  false,
-		"atmega2560":  false,
-	} {
-		if got := captureTimestamped(board); got != want {
-			t.Errorf("%s: capture timestamped = %v, want %v", board, got, want)
-		}
-	}
-}
-
-// captureKeepsOutput reports whether the board's pulse capture leaves an
-// output driven on the pin it reads, so the tone row can measure the tone
-// on the tone pin itself. The AVRs' polling capture only reads PINx. The
-// P4 image builds ESP_PULSE=rmt: since #573 hal_pulse_rmt.c opens its RX
-// channel with io_loop_back on the pin the LEDC tone drives, so the LEDC
-// output stays on and the capture reads it. A board whose capture would
-// drop the output returns false here.
-func captureKeepsOutput(board string) bool {
-	_ = board
-	return true
-}
-
-func TestCaptureKeepsOutputOnTheRMTImage(t *testing.T) {
-	for board, want := range map[string]bool{
-		"esp32p4-poe": true,
-		"atmega328p":  true,
-		"atmega2560":  true,
-	} {
-		if got := captureKeepsOutput(board); got != want {
-			t.Errorf("%s: capture keeps the output = %v, want %v", board, got, want)
-		}
-	}
-}
-
-// toneReadBackGap names why the tone row cannot read the tone back on the
-// board's own pin on hardware, or is empty where it can. A board with a gap
-// fails the row on hardware rather than pass with nothing measured.
-func toneReadBackGap(board string) string {
-	if captureKeepsOutput(board) {
-		return ""
-	}
-	return "the RMT capture claims the tone pin as an input and drops the LEDC output; " +
-		"the read-back needs io_loop_back on the RX channel or a wired input"
-}
-
-func TestToneReadBackGapRunsTheP4ReadBack(t *testing.T) {
-	for _, board := range []string{"esp32p4-poe", "atmega328p", "atmega2560"} {
-		assert.Empty(t, toneReadBackGap(board), "%s reads its tone back", board)
 	}
 }
 
@@ -554,6 +471,43 @@ func TestFirmwareToneRefusesTheShieldsPin(t *testing.T) {
 	var st tfw.Status
 	require.True(t, errorsAsStatus(err, &st), "TONE on pin %d: %v, want a device status", b.tonePin, err)
 	assert.Equal(t, tfw.StatusErrReservedPin, st, "pin %d is the shield's chip select: TONE must not drive it", b.tonePin)
+}
+
+// loopCountCapture names the boards whose pulse-capture reports polling
+// iterations, not microseconds: src/hal/avr/hal_pulse.c counts one per
+// _delay_us(1) plus the pin reads and arithmetic around it, so each count is
+// at least a microsecond and the counts understate the time.
+var loopCountCapture = map[string]bool{"atmega328p": true, "atmega2560": true}
+
+// toneFrequencyFits checks a measured tone against the one asked. A board
+// timing in microseconds is held to 5% either way; on a loop-count board the
+// understated time can only raise the frequency, so only the floor binds.
+func toneFrequencyFits(board string, asked, measured float64) error {
+	if measured < asked*0.95 {
+		return fmt.Errorf("%.1f Hz measured, under 5%% below the %.0f Hz asked", measured, asked)
+	}
+	if !loopCountCapture[board] && measured > asked*1.05 {
+		return fmt.Errorf("%.1f Hz measured, over 5%% above the %.0f Hz asked", measured, asked)
+	}
+	return nil
+}
+
+func TestToneFrequencyFits(t *testing.T) {
+	for _, c := range []struct {
+		board    string
+		measured float64
+		fits     bool
+	}{
+		{"esp32p4-poe", 1000, true},
+		{"esp32p4-poe", 1300, false},
+		{"esp32p4-poe", 900, false},
+		{"atmega2560", 1000, true},
+		{"atmega2560", 1300, true}, // loop counts understate the half periods
+		{"atmega328p", 900, false},
+	} {
+		err := toneFrequencyFits(c.board, 1000, c.measured)
+		assert.Equal(t, c.fits, err == nil, "%s at %.0f Hz: %v", c.board, c.measured, err)
+	}
 }
 
 func TestFirmwareI2C(t *testing.T) {

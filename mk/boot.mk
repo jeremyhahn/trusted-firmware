@@ -322,11 +322,14 @@ $(BOOT_DIR_OUT)/%.o: %.S
 # BOOT_SECTION + N bytes; it fits once N bytes go. The recovery below runs
 # boot-core-size and bootloader-budget, which answer the two questions the
 # failure actually raises: how big is the core, and how big is the backend.
+#
+# Only a size failure gets that recovery (#530): scripts/boot_link_report.sh
+# exits 0 when link.err has a region overflow or "will not fit" line, and
+# otherwise prints the real error lines (an -Werror=frame-larger-than at the
+# LTO link, a vla, an alloca, an undefined reference) and exits 1.
 $(BOOT_TARGET).elf: $(BOOT_OBJS)
 	@$(ARCH_CC) $(BOOT_LDFLAGS) -o $@ $(BOOT_OBJS) 2>$(BOOT_DIR_OUT)/link.err || { \
-	  echo "tfw-boot does not link for $(BOARD): it does not fit in the boot section."; \
-	  echo; \
-	  sed 's/^/  ld: /' $(BOOT_DIR_OUT)/link.err | grep -E 'overflow|will not fit|overlaps|undefined reference' || true; \
+	  sh scripts/boot_link_report.sh $(BOOT_DIR_OUT)/link.err '$(BOARD)' || exit 1; \
 	  echo; \
 	  $(MAKE) --no-print-directory boot-core-size || true; \
 	  echo; \
@@ -750,6 +753,39 @@ BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_rp2350_rom
 $(BOOT_TEST_DIR)/test_boot_rp2350_rom: $(RP2350_BOOT_TEST_DIR)/test_boot_rp2350_rom.c \
         boot/hal/cortex-m/rp2350/rp_flash_rom.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
 	@$(HOST_CC) $(BOOT_TEST_RP2350_CFLAGS) -I$(RP2350_BOOT_TEST_DIR) -Iboot/hal/cortex-m/rp2350 $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+
+# tfw-boot's nRF54L15 UART and RRAM write (#512), the RP2350's way, under the
+# DK's profile, over the nRF54L register model (test/model/nrf54l_model.c):
+# test/model/cortex-m/nrf54l/ comes ahead of src/hal/cortex-m/ so its cm_regs.h
+# sends every TFW_CM_REG to the model. The RRAM test includes boot_rram.c
+# itself, after naming the RRAM stores.
+BOOT_TEST_NRF54L_CFLAGS = -Itest/model/cortex-m/nrf54l -Itest/model -Isrc/hal/cortex-m \
+                          $(subst -Iboards/$(HOST_BOARD),-Iboards/nrf54l15-dk,\
+                            $(filter-out $(HOST_EXTRA_DEFS),$(BOOT_TEST_CFLAGS)))
+NRF54L_BOOT_TEST_DIR := boot/hal/cortex-m/nrf54l/test
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_nrf54l_uart
+$(BOOT_TEST_DIR)/test_boot_nrf54l_uart: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l_uart.c \
+        boot/hal/cortex-m/nrf54l/boot_uart.c src/hal/cortex-m/nrf54l/soc_tables.c \
+        test/model/nrf54l_model.c $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ $^ $(EXTRA_LDFLAGS)
+BOOT_TEST_BINS += $(BOOT_TEST_DIR)/test_boot_nrf54l_rram
+$(BOOT_TEST_DIR)/test_boot_nrf54l_rram: $(NRF54L_BOOT_TEST_DIR)/test_boot_nrf54l_rram.c \
+        boot/hal/cortex-m/nrf54l/boot_rram.c src/hal/cortex-m/nrf54l/rram_write.h \
+        src/hal/cortex-m/nrf54l/soc_tables.c test/model/nrf54l_model.c \
+        $(HOST_DIR)/unity.o | $(BOOT_TEST_DIR)
+	@$(HOST_CC) $(BOOT_TEST_NRF54L_CFLAGS) $(EXTRA_CFLAGS) -o $@ \
+	  $(filter-out %/boot_rram.c %.h,$^) $(EXTRA_LDFLAGS)
+
+# host-test runs the register-model suites of tfw-boot's RP2350 and nRF54L
+# halves as well as boot-test does. mk/host.mk fixed HOST_TEST_BINS before this
+# file, so they reach host-test as a prerequisite with its own verdict; a make
+# asked for both host-test and boot-test still runs each binary once.
+BOOT_SOC_HOST_TEST_BINS := $(BOOT_TEST_DIR)/test_boot_rp2350_uart $(BOOT_TEST_DIR)/test_boot_rp2350_rom \
+                           $(BOOT_TEST_DIR)/test_boot_nrf54l_uart $(BOOT_TEST_DIR)/test_boot_nrf54l_rram
+.PHONY: boot-soc-host-test
+boot-soc-host-test: $(BOOT_SOC_HOST_TEST_BINS) $(addsuffix .run,$(BOOT_SOC_HOST_TEST_BINS))
+	@$(call test-verdict,$(BOOT_SOC_HOST_TEST_BINS))
+host-test: boot-soc-host-test
 
 # The ESP32 boot HAL itself (#48, #163), boot/hal/esp32/boot_hal_esp32.c, over
 # stand-ins for the ESP-IDF bootloader calls it makes, which live beside its

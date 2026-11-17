@@ -13,6 +13,8 @@
 #   TFW_SRCS       the image's sources, absolute
 #   TFW_BOARD_DIR  boards/<board>, for board_profile.h
 #   TFW_DEFS       the feature -D flags FW_CFLAGS carries (mk/firmware.mk)
+#   TFW_APP_SRCS   an application's sources (APP_DIR, mk/app.mk), absolute; may be empty
+#   TFW_APP_CFLAGS mk/firmware.mk's APP_FW_CFLAGS less its relative -I and board header
 
 set(tfw_requires
     app_update bootloader_support driver efuse esp_adc esp_driver_rmt esp_eth esp_event esp_hw_support
@@ -83,3 +85,16 @@ foreach(src ${TFW_SRCS})
         set_source_files_properties(${src} PROPERTIES COMPILE_OPTIONS "-Wconversion;-Wcast-qual")
     endif()
 endforeach()
+
+# An application, its own object library: compiled with its own flags against
+# include/, the HAL and the board only -- not the component's include path,
+# which has src/ in it -- and its objects linked into the component, so the
+# runner's calls resolve to its hooks.
+if(TFW_APP_SRCS)
+    add_library(tfw_app OBJECT ${TFW_APP_SRCS})
+    target_include_directories(tfw_app PRIVATE
+        "${TFW_ROOT}/include" "${TFW_ROOT}/src/hal/esp32" "${TFW_BOARD_DIR}")
+    target_compile_definitions(tfw_app PRIVATE TFW_BOARD_HEADER="board_profile.h")
+    target_compile_options(tfw_app PRIVATE ${TFW_APP_CFLAGS})
+    target_sources(${COMPONENT_LIB} PRIVATE $<TARGET_OBJECTS:tfw_app>)
+endif()

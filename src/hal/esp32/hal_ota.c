@@ -56,6 +56,7 @@
 #include "core/ota_auth.h"
 #include "core/ota_trial.h"
 #include "core/auth_session.h"
+#include "core/update_request.h"
 #include "caps/sys.h"
 #include "hal_esp32.h"
 
@@ -446,4 +447,17 @@ tfw_status_t tfw_otactl_cmd_info(tfw_reader_t *r, tfw_writer_t *w)
     tfw_write_u32(w, version);
     tfw_write_blob(w, hash, TFW_BOOT_MEASURE_LEN);
     return TFW_OK;
+}
+
+/* This image's update path is this file's, not a tfw-boot session (RESET(1)
+ * stays refused by update_request_none.c): ESP-IDF's two OTA slots, ota_0 and
+ * ota_1 of the board's partitions.csv, A/B. An application relying on an
+ * update (TFW_APP_OTA_SINGLE or TFW_APP_OTA_AB) is served. */
+#define ESP_OTA_SLOTS 2u
+_Static_assert(TFW_OTA_SLOTS <= ESP_OTA_SLOTS,
+               "a board profile promises more update slots than ESP-IDF's two");
+
+uint8_t tfw_update_slots(void)
+{
+    return ESP_OTA_SLOTS;
 }

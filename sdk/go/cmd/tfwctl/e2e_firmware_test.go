@@ -323,9 +323,23 @@ func TestFirmwareEEPROM(t *testing.T) {
 }
 
 func TestFirmwareAttestRefusedUnprovisioned(t *testing.T) {
-	dev := startFirmware(t)
+	attestRefusedUnprovisionedRow(t, startFirmware(t))
+}
+
+// attestRefusedUnprovisionedRow is the row's body, so a host test can run it
+// against a peer of any crypto tier. A tier with no UDS has nothing to sign
+// with: the none provider's tfw_crypto_sign answers UNSUPPORTED
+// (src/crypto/none/provider.c; docs/boards/esp32p4-poe.md "Building and
+// HIL-0"), where a tier that could sign but holds no identity answers
+// NOT_PROVISIONED.
+func attestRefusedUnprovisionedRow(t *testing.T, dev *tfw.Device) {
+	t.Helper()
+	want := tfw.StatusErrNotProvisioned
+	if cliTier(t, dev) == "none" {
+		want = tfw.StatusErrUnsupported
+	}
 	nonce := strings.Repeat("00", tfw.AttestNonceLen)
-	assert.Equal(t, tfw.StatusErrNotProvisioned, cliStatus(t, dev, "attest", nonce),
+	assert.Equal(t, want, cliStatus(t, dev, "attest", nonce),
 		"an unprovisioned device produced attestation evidence")
 }
 

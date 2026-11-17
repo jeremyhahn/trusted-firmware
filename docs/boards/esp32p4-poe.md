@@ -124,15 +124,32 @@ the two summaries differ in no eFuse line.
 | esp32-p4 | boot event on connect | fails | row `PingDeliversTheBootEventWithNoBootWait`: a `tcp:` connect resets nothing, so no boot event; issue to file |
 | esp32-p4 | CLI CAPS through the port | fails: hangs | row `ElementWithoutTheCapsBitIsRefusedAsUnsupported` reads CAPS until the 10-minute test timeout; issue to file |
 | esp32-p4 | wire over Ethernet, board dials (`HW_ETH`) | not run | the `TestEthernet*` rows listen for the board's dial; the run's host was not on the development VLAN; issue to file |
-| esp32-p4, ota | OTA write, trial, confirm, roll back | not run | the `CRYPTO=none` image has no operator session, so every OTA row is out of its row list; needs an element- or soft-tier image; issue to file |
+| esp32-p4, ota | OTA write (OTA_STAGE over the wire) | fails 2026-11-17 (#562) | soft-tier image (below); row `OTAAuthLetsTheCommandPastTheGate`, `make hw-test BOARD=esp32p4-poe PORT=tcp:<board>:21574 HW_TEST_RUN='OTAAuth'`. The first run's `crypto provider failed` was the row's image: ESP-IDF's `esp_ota_write` refuses a first chunk without the app-image magic (`ESP_ERR_OTA_VALIDATE_FAILED`, which `hal_ota.c` answers as TFW_ERR_CRYPTO). The row now stages an ESP-IDF app image (`sdk/go/cmd/tfwctl/esp_image_test.go`): all 512 bytes are written, its header, app descriptor and appended hash verify, and `esp_ota_end` refuses it at the app signature check (console: `Secure boot signature verification failed ... image valid, signature bad`). The image verifies app signatures on update, so the row stages only an image signed with the build's image key, which the row does not have yet. `espefuse summary` identical before and after |
+| esp32-p4, ota | OTA activate gate on the soft tier | verified 2026-11-17 | row `SoftTierOTAActivateWithoutOTAAuthIsAuthRequired` passes on the soft-tier image over `PORT=tcp:<board>:21574` |
+| esp32-p4, ota | OTA_INFO | not runnable | row `OTAInfo` needs the element tier: the soft image reports tier 1, the row wants 2; the P4 has no element fitted |
+| esp32-p4, ota | OTA trial, confirm, roll back | not runnable | rows `OTAActivate`, `OTAConfirm` need CAPS `auth` (`0x4000`), which no P4 image reports: the operator session is linked by the element tiers only (`mk/firmware.mk`, issue #4); soft, `none` and `hmac-p256` link `auth_session_none.c`. Trial and roll back have no board row; the simulator rows `TestE2EOTA*` cover them. Issue to file: the session on an element-less tier, or an element on the P4 |
 | esp32-p4 | secure boot v2, flash encryption | owner | each burns eFuses (CA 583) |
 | esp32-p4 | UDS / HMAC DICE identity (`hmac-p256`) | owner | needs the UDS written to an eFuse key block (CA 583) |
 | esp32 | the ESP-IDF port on the P4 | verified 2026-11-17 in part | the rows above; the rest as the `esp32-p4` lines |
+
+The `esp32-p4, ota` lines are the 2026-11-17 run (row 552) on a soft-tier
+image: `make esp32-build BOARD=esp32p4-poe CRYPTO=soft` with `sdkconfig.hil0`
+and the static-address overlay, built from commit `aa0d0bab`, sealed
+`trusted-firmware.bin` SHA-256
+`782fa6c699fff1df099077414efb85d60dd42fac91316d0f81fae77b13244166`, flashed by
+the bench procedure's step 3 (the data sectors erased, the bootloader, table,
+`tfw_plat.bin` and app written, each `Hash of data verified.`): the build
+generates its own layer-0 image key, so the app alone would be refused by the
+bootloader on the board. The console then shows `tfw-eth: link up … wire on
+tcp/21574`. `espefuse summary` before and after differ in no line. The board
+is left on this image; the first 0xA2000 bytes as they were, the HIL-0 image,
+are kept in the bench record outside the tree.
 
 ## What is not met yet
 
 The board runs this firmware and answers the wire over its own EMAC; GPIO,
 ADC, I2C, SPI, 1-Wire and pulse-in pass on it (Feature matrix). Not met:
 EEPROM has no passing row on this board and row `Pin` has corrected facts and waits on its hardware re-run (#561); the board-dials
-Ethernet rows and OTA have not run; secure boot v2, flash encryption and the
+Ethernet rows have not run; OTA staging fails on the soft tier and trial,
+confirm and roll back cannot run without an operator session; secure boot v2, flash encryption and the
 identity keyed from the UDS need eFuse writes and wait for the owner.

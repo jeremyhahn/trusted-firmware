@@ -27,6 +27,11 @@ tfw_status_t tfw_h5_hash_sha256(uintptr_t base, const uint8_t *data, uint16_t le
 
     tfw_h5_wr(base + TFW_H5_HASH_CR,
               TFW_H5_HASH_CR_ALGO_SHA256 | TFW_H5_HASH_CR_BYTE_SWAP | TFW_H5_HASH_CR_INIT);
+    /* The DCIS of an earlier digest (or of one that timed out and landed
+     * late) would pass this digest's poll while HR still holds the earlier
+     * one: clear it (rc_w0, as HAL __HAL_HASH_CLEAR_FLAG does) after INIT,
+     * which drops a digest still in flight. */
+    tfw_h5_wr(base + TFW_H5_HASH_SR, 0u);
     tfw_h5_wr(base + TFW_H5_HASH_STR, nblw);
 
     uint32_t words = 0;

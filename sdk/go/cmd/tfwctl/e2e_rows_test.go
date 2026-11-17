@@ -69,6 +69,9 @@ type boardImage struct {
 	caps  uint32
 	tier  rowTier
 	parts imageParts
+	// drop names rows the image serves that this board's run leaves out
+	// until the PR named beside each fixes them there.
+	drop map[string]string
 }
 
 // servedBy reports whether img serves a row with this need.
@@ -107,6 +110,15 @@ var boardImages = map[string]boardImage{
 	"esp32p4-poe": {
 		caps: avrPeripherals,
 		tier: anyTier,
+		// Rows the stacked PRs fix on this board; each takes its rows back.
+		drop: map[string]string{
+			"TestFirmwareCaps":                                   "#559", // none tier
+			"TestFirmwareEEPROM":                                 "#559",
+			"TestFirmwareI2CConfig":                              "#559",
+			"TestFirmwareAttestRefusedUnprovisioned":             "#559",
+			"TestFirmwarePingDeliversTheBootEventWithNoBootWait": "#558", // fresh boot over tcp:
+			"TestFirmwareSys":                                    "#558",
+		},
 	},
 }
 
@@ -223,6 +235,7 @@ func boardRunPattern(board string, eth bool, rows []string) (string, error) {
 		switch {
 		case !ok:
 			unlisted = append(unlisted, r)
+		case img.drop[r] != "":
 		case need.servedBy(img):
 			run = append(run, r)
 		}
@@ -340,6 +353,28 @@ func TestEachAVRBoardRunsTheRowsItsImageServes(t *testing.T) {
 func TestBoardRunMatchesWholeNames(t *testing.T) {
 	if boardRun(t, "atmega2560", false).MatchString("TestFirmwarePingSomethingElse") {
 		t.Fatal("the run matched a row by its prefix")
+	}
+}
+
+// The esp32p4-poe run leaves out the rows the stacked PRs fix there, and
+// every dropped row is a listed row the image would otherwise serve.
+func TestBoardRunDropsTheRowsAStackedPROwns(t *testing.T) {
+	run := boardRun(t, "esp32p4-poe", false)
+	for row, pr := range boardImages["esp32p4-poe"].drop {
+		if _, ok := firmwareRowNeeds[row]; !ok {
+			t.Errorf("dropped row %s (%s) is in no row list", row, pr)
+		}
+		if pr == "" || pr[0] != '#' {
+			t.Errorf("dropped row %s names no PR: %q", row, pr)
+		}
+		if run.MatchString(row) {
+			t.Errorf("esp32p4-poe run still runs %s, owned by %s", row, pr)
+		}
+	}
+	for _, row := range []string{"TestFirmwarePin", "TestFirmwarePWM", "TestFirmwarePing"} {
+		if !run.MatchString(row) {
+			t.Errorf("esp32p4-poe run lost %s", row)
+		}
 	}
 }
 

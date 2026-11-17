@@ -35,7 +35,7 @@ import (
 // qemu_wire_test.sh's base row runs it on mps2-an500 only: mps2-an505's
 // ARMv8-M MPU is not armed (out of scope for row 482).
 func TestQEMUMPUNullRead(t *testing.T) {
-	mpuFaultRow(t, func(s *gdbSession, at uint32) (uint32, error) {
+	mpuFaultRow(t, true, func(s *gdbSession, at uint32) (uint32, error) {
 		return 0, readGadget(s, at, 0)
 	}, nil)
 }
@@ -47,7 +47,7 @@ func TestQEMUMPUNullRead(t *testing.T) {
 // tfw-boot's code there and spin.
 func TestQEMUMPUBootRead(t *testing.T) {
 	const bootAddr = 0x100
-	mpuFaultRow(t, func(s *gdbSession, at uint32) (uint32, error) {
+	mpuFaultRow(t, true, func(s *gdbSession, at uint32) (uint32, error) {
 		return bootAddr, readGadget(s, at, bootAddr)
 	}, nil)
 }
@@ -58,11 +58,13 @@ func TestQEMUMPUBootRead(t *testing.T) {
 // guard's top word. Sentinels planted in the 16 bytes below the guard, the
 // first application data an unguarded overflow would reach, are read at the
 // fault (a breakpoint on the HardFault handler, before the PANIC reset) and
-// must be intact; MMFAR must name the guard's top word.
+// must be intact; MMFAR must name the guard's top word, the fault location.
+// The exception frame itself lands in the guard (CFSR MSTKERR), so the
+// fault record keeps no PC for an overflow: MMFAR is the location checked.
 func TestQEMUMPUStackGuard(t *testing.T) {
 	sentinel := []uint32{0x5afe0001, 0x5afe0002, 0x5afe0003, 0x5afe0004}
 	var guard uint32
-	mpuFaultRow(t, func(s *gdbSession, at uint32) (uint32, error) {
+	mpuFaultRow(t, false, func(s *gdbSession, at uint32) (uint32, error) {
 		if err := s.ok(fmt.Sprintf("M%x,4:%s", mpuRNR, le32(1))); err != nil {
 			return 0, err
 		}
@@ -88,6 +90,13 @@ func TestQEMUMPUStackGuard(t *testing.T) {
 			"Pf="+le32(at),
 		)
 	}, func(s *gdbSession) error {
+		fsr, err := s.words(scbCFSR, 1)
+		if err != nil {
+			return err
+		}
+		if fsr[0]&cfsrMSTKERR == 0 {
+			return fmt.Errorf("CFSR %#x: no MSTKERR, but the exception frame lands in the guard", fsr[0])
+		}
 		got, err := s.words(guard-16, len(sentinel))
 		if err != nil {
 			return err
@@ -111,6 +120,7 @@ const (
 	mpuRBAR  = 0xE000ED9C
 
 	cfsrDACCVIOL  = 1 << 1
+	cfsrMSTKERR   = 1 << 4
 	cfsrMMARVALID = 1 << 7
 )
 
@@ -119,9 +129,10 @@ const (
 // and return the data address the gadget's access must fault on, breaks on
 // the HardFault handler, and resumes. At the break it checks that CFSR
 // records a data access violation at that address (MMFAR) and runs atFault,
-// if any; then it detaches, and SYS_INFO must read PANIC with the fault
-// record's PC at the gadget. A second reset must clear the marker.
-func mpuFaultRow(t *testing.T, plant func(s *gdbSession, at uint32) (uint32, error), atFault func(s *gdbSession) error) {
+// if any; then it detaches, and SYS_INFO must read PANIC, with the fault
+// record's PC at the gadget when keepsPC. A second reset must clear the
+// marker.
+func mpuFaultRow(t *testing.T, keepsPC bool, plant func(s *gdbSession, at uint32) (uint32, error), atFault func(s *gdbSession) error) {
 	t.Helper()
 	target, err := peer.FromEnv()
 	require.NoError(t, err)
@@ -174,9 +185,11 @@ func mpuFaultRow(t *testing.T, plant func(s *gdbSession, at uint32) (uint32, err
 	require.NoError(t, err, "SYS_INFO after the fault: no answer means the image did not reach PANIC")
 	require.Equal(t, tfw.ResetPanic, si.ResetCause, "the MPU's fault is the image's fatal error")
 
-	rec, err := readWords(gdb, faultFrameAt(t), 3)
-	require.NoError(t, err)
-	require.Equal(t, at, rec[0], "the fault record keeps the PC of the faulting access")
+	if keepsPC {
+		rec, err := readWords(gdb, faultFrameAt(t), 3)
+		require.NoError(t, err)
+		require.Equal(t, at, rec[0], "the fault record keeps the PC of the faulting access")
+	}
 
 	require.NoError(t, conn.Close())
 	_, dev = qemuBoot(t, target)

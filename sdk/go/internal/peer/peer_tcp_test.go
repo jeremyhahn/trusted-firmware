@@ -44,6 +44,74 @@ func TestOpenTCPDialsTheWireEndpoint(t *testing.T) {
 	}
 }
 
+// A board that still holds the last row's socket closes the next row's at
+// once (hal_uart.c refusing a second host): Open dials again and returns the
+// connection the board kept.
+func TestOpenTCPRedialsAConnectionTheBoardClosed(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	got := make(chan []byte, 1)
+	go func() {
+		first, err := l.Accept()
+		if err != nil {
+			got <- nil
+			return
+		}
+		_ = first.Close()
+		c, err := l.Accept()
+		if err != nil {
+			got <- nil
+			return
+		}
+		defer c.Close()
+		b := make([]byte, 3)
+		_, _ = io.ReadFull(c, b)
+		got <- b
+	}()
+	c, err := Open(TCPPrefix+l.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer c.Close()
+	if _, err := c.Write([]byte{1, 2, 3}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if b := <-got; string(b) != "\x01\x02\x03" {
+		t.Fatalf("the kept connection read %x, want 010203", b)
+	}
+}
+
+// A board that closes every connection is an error after a bounded number of
+// dials, not a connection handed to the row.
+func TestOpenTCPGivesUpOnABoardThatClosesEveryDial(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	dials := make(chan struct{}, 16)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			dials <- struct{}{}
+			_ = c.Close()
+		}
+	}()
+	if c, err := Open(TCPPrefix+l.Addr().String(), time.Second); err == nil {
+		_ = c.Close()
+		t.Fatal("Open returned a connection the board closed")
+	}
+	if n := len(dials); n != tcpDials {
+		t.Fatalf("the board saw %d dials, want %d", n, tcpDials)
+	}
+}
+
 // A tcp: endpoint that does not answer is an error naming the port.
 func TestOpenTCPNamesTheEndpointThatRefused(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")

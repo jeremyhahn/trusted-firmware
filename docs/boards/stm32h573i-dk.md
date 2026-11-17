@@ -46,7 +46,9 @@ state is **not confirmed** and is named below where the port leans on it.
 | Ethernet | **on the board**: 10/100 Mbit/s, IEEE 802.3-2002, from the MCU's Ethernet MAC | UM3143, introduction (features) |
 | Ethernet PHY | **verified on the board 2026-11-17**: a Microchip LAN8742A at MDIO address 0, PHYID1 `0x0007`, PHYID2 `0xC131` (OUI bits `0x1F0`, model `0x13`, revision 1), read by the `ETH_PROBE=1` image's boot line `eth: phy addr=0 id=0007:C131 link=up`; commit 889bddc7, the ETH_PROBE application's sha256 `62c2b4efe540ad0fc412c4eed4e69371af91d78ec849366f3fcfb5f1063582fa` (`trusted-firmware.hex`), written signed in the bench image (see "Bench run"), whose packed sha256 is `38aadc621a5250e13e26b37392da77325b0280d068c9582122e2d9a1b5bc1dac`. RMII (SBS PMCR ETH_SEL_PHY = RMII), the MAC's clocks on, MDC at HCLK/42, 1.52 MHz; the pins PA1 REF_CLK, PA2 MDIO, PA7 CRS_DV, PC1 MDC, PC4 RXD0, PC5 RXD1, PG11 TX_EN, PG12 TXD1, PG13 TXD0, alternate function 11. `src/hal/cortex-m/stm32h5/hal_eth_mdio.c`; the decode host-tested by `test/unit/test_h5_eth_mdio.c`. The connector is an RJ45 on the board, cabled to the dev network | Pin data, the kit's board file (`PA1.Signal=ETH_REF_CLK` and the eight others, `ETH.MediaInterface=HAL_ETH_RMII_MODE`); CMSIS header: `ETH_BASE_NS`, `ETH_TypeDef` (`MACMDIOAR`, `MACMDIODR`), `ETH_MACMDIOAR_*`, `RCC_AHB1ENR_ETHEN`/`ETHTXEN`/`ETHRXEN`, `SBS_PMCR_ETH_SEL_PHY`; offsets **not confirmed** against RM0481 |
 | Ethernet link | **up, verified on the board 2026-11-17**: BMSR bit 2 set on the second read (the bit latches low), the same boot line | as above |
-| Ethernet driver and IP stack | **none yet**: the stack is the owner's choice in the Ethernet ADR (PROPOSED, #540), which recommends lwIP over our own MAC and DMA driver | [`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md) |
+| Ethernet frames | **verified on the board 2026-11-17**: the MAC and DMA in poll mode (`src/hal/cortex-m/stm32h5/hal_eth_mac.c`, four TX and four RX descriptors, 1536-byte buffers, the speed and duplex from the LAN8742A's PSCSR), host-tested by `test/unit/test_h5_eth_mac.c`; on the board the frames of a whole DHCP exchange went out and came in. Commit b0226d8f, the `ETH_MAC=1` application's sha256 `c3de81f3a65ba7260803ec2f3509b0dfcb7ec217440f3b24c8b4589c010d2f31` (`trusted-firmware.bin`), written signed in the bench image (see "Bench run"), whose packed sha256 is `26ba05ce4d03b41bb550cd5fa8b97b6ddcce0d9789b3f2c8386a97f600e1fa5d` (`.bin`) | RM0481 (the ETH MAC, MTL and DMA registers, the descriptor formats); LAN8742A data sheet (PSCSR) |
+| DHCP lease | **verified on the board 2026-11-17**: the same image printed `eth: dhcp bound` and the leased address on the console about 15.6 s after a debugger reset, 10 s of it tfw-boot's P-256 check; the address was on the dev network (VLAN 101) | as above |
+| IP stack | **lwIP 2.2.1** (`STABLE-2_2_1_RELEASE`), NO_SYS raw API polled from the main loop, IPv4 with ARP, ICMP, UDP, TCP and DHCP, vendored unmodified under `third_party/lwip` (`VERSION` pins the commit and the tree hash); the options are `src/hal/cortex-m/stm32h5/lwipopts.h`; built only with `ETH_MAC=1` | [`../multi-arch/adr-stm32h5-ethernet.md`](../multi-arch/adr-stm32h5-ethernet.md) |
 | Other radios | a Wi-Fi module | UM3143, introduction |
 
 ## The port
@@ -227,8 +229,15 @@ CA 583 forbids: option bytes or provisioning).
 - Ethernet PHY and link: verified 2026-11-17, commit 889bddc7, the
   `ETH_PROBE=1` image's boot line `eth: phy addr=0 id=0007:C131 link=up`
   (a LAN8742A at MDIO address 0, link up; #579).
-- Enrolling over Ethernet: fails, no MAC data path or IP stack in the port yet
-  (Ethernet ADR slices 2 and 3, #540).
+- Ethernet frames: verified 2026-11-17, commit b0226d8f, the `ETH_MAC=1`
+  image (application sha256 `c3de81f3…2f31`, packed bench image
+  `26ba05ce…a5d`): a whole DHCP exchange sent and received through the MAC
+  and DMA (#581).
+- DHCP lease: verified 2026-11-17, the same image's console line
+  `eth: dhcp bound` with the leased address, about 15.6 s after reset (#581).
+- IP stack: lwIP 2.2.1, NO_SYS, vendored unmodified (`third_party/lwip`).
+- Enrolling over Ethernet: fails, no tfw-wire over TCP in the port yet
+  (Ethernet ADR slice 3, #540).
 
 **`cortex-m`**
 

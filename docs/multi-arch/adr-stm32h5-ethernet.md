@@ -68,13 +68,14 @@
 
 | | Value | Status |
 |---|---|---|
-| MAC | the STM32H573's Ethernet MAC with its own DMA and descriptor rings, 10/100 | MAC present: UM3143 introduction (board page). Its register layout: **to confirm** against RM0481 |
+| MAC | the STM32H573's Ethernet MAC with its own DMA and descriptor rings, 10/100 | MAC present: UM3143 introduction (board page). Its MAC, MTL and DMA registers and descriptors as RM0481 gives them: **verified on the board 2026-11-17** (#581), frames sent and received |
 | MII or RMII | RMII | **verified on the board 2026-11-17** (#579): the PHY answers over MDIO with SBS PMCR set to RMII; ST's pin data for the kit, `ETH.MediaInterface=HAL_ETH_RMII_MODE` |
 | PHY part | a Microchip LAN8742A: PHYID1 `0x0007`, PHYID2 `0xC131` (model `0x13`, revision 1) | **verified on the board 2026-11-17** (#579), read over MDIO; board page "Ethernet PHY" |
 | PHY address on MDIO | 0 | **verified on the board 2026-11-17** (#579): the scan of 0–31 found it at 0; the driver keeps scanning, so the value is never assumed |
-| RMII pins | REF_CLK PA1, MDIO PA2, CRS_DV PA7, MDC PC1, RXD0 PC4, RXD1 PC5, TX_EN PG11, TXD1 PG12, TXD0 PG13, each on alternate function 11 | ST's pin data for the kit (`STM32_open_pin_data` at the commit the board page pins, the kit's board file); MDIO and MDC **verified on the board 2026-11-17** (#579); the data pins wait for slice 2's first frame |
+| RMII pins | REF_CLK PA1, MDIO PA2, CRS_DV PA7, MDC PC1, RXD0 PC4, RXD1 PC5, TX_EN PG11, TXD1 PG12, TXD0 PG13, each on alternate function 11 | ST's pin data for the kit (`STM32_open_pin_data` at the commit the board page pins, the kit's board file); MDIO and MDC **verified on the board 2026-11-17** (#579); the data pins **verified on the board 2026-11-17** (#581), a DHCP exchange through them |
 | Reference clock | 50 MHz to REF_CLK, from the PHY or a crystal on the board | **to confirm** against UM3143 |
 | Connector | an RJ45 on the board | **verified on the board 2026-11-17** (#579): cabled, the PHY reports link up |
+| IP stack | lwIP 2.2.1 (`STABLE-2_2_1_RELEASE`), `NO_SYS`, raw API, over our MAC and descriptor driver (option (a)); vendored unmodified under `third_party/lwip`, built with `ETH_MAC=1` | **verified on the board 2026-11-17** (#581): a DHCP lease, the console line `eth: dhcp bound`; the `ETH_MAC=1` application measured 35 816 bytes of flash and 45 004 bytes of RAM (lwIP's heap 8 KiB, 8 pool buffers) |
 
 ## Options
 
